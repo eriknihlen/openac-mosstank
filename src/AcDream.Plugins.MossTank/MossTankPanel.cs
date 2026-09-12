@@ -307,6 +307,12 @@ internal sealed partial class MossTankPanel : IBuffRuleHost
         _metaProfiles.BindCharacter(host.Automation.Character.Name);
         _metaProfile = _metaProfiles.LoadCurrent();
         _expressions = new MossTankExpressionRuntime(host);
+        // The castability built-ins ask the profile how much skill headroom
+        // over a spell's difficulty it insists on; hunting and buffing each
+        // have their own setting.
+        _expressions.Policy.SkillMargin = hunting => hunting
+            ? _combatSettings.HuntSkillExcessOverDifficulty
+            : _buffSettings.SkillExcessOverDifficulty;
         _meta = new MetaEngine(
             host,
             _expressions,

@@ -36,7 +36,7 @@ internal static class HostExpressionFunctions
         RegisterFellowship(registry, host);
         RegisterWorldTime(registry, host);
         RegisterUi(registry, host);
-        RegisterActions(registry, host);
+        RegisterActions(registry, host, policy);
         RegisterCombatAndMovement(registry, host);
         RegisterLogin(registry, host);
         RegisterNetwork(registry, host);
@@ -400,13 +400,21 @@ internal static class HostExpressionFunctions
             ExpressionValue.Number(spells.GetCooldownRemaining(
                 ToUInt(args[0], "getcooldownexpiration"))),
             "getcooldownexpiration[cooldownId]");
+        // Two questions, two answers: the buffing and hunting margins over a
+        // spell's difficulty are separate profile settings.
         registry.Register("getcancastspell_buff", 1, 1, (_, args) =>
-            ExpressionValue.Boolean(host.Automation.Magic.EvaluateGate(
-                ToUInt(args[0], "getcancastspell_buff")) == PluginCastGate.Ready),
+            ExpressionValue.Boolean(CanCastNow(
+                host,
+                policy,
+                ToUInt(args[0], "getcancastspell_buff"),
+                hunting: false)),
             "getcancastspell_buff[spellId]");
         registry.Register("getcancastspell_hunt", 1, 1, (_, args) =>
-            ExpressionValue.Boolean(host.Automation.Magic.EvaluateGate(
-                ToUInt(args[0], "getcancastspell_hunt")) == PluginCastGate.Ready),
+            ExpressionValue.Boolean(CanCastNow(
+                host,
+                policy,
+                ToUInt(args[0], "getcancastspell_hunt"),
+                hunting: true)),
             "getcancastspell_hunt[spellId]");
     }
 
@@ -659,7 +667,8 @@ internal static class HostExpressionFunctions
 
     private static void RegisterActions(
         ExpressionFunctionRegistry registry,
-        IPluginHost host)
+        IPluginHost host,
+        ExpressionHostPolicy policy)
     {
         registry.Register("echo", 1, 1, (_, args) =>
         {
@@ -670,9 +679,13 @@ internal static class HostExpressionFunctions
             host.Automation.Chat.Submit(args[0].ToDisplayString())), "chatbox[text]");
         registry.Register("chatboxpaste", 1, 1, (_, args) => ExpressionValue.Boolean(
             host.Automation.Chat.Submit(args[0].ToDisplayString())), "chatboxpaste[text]");
-        registry.Register("actiontryselect", 1, 1, (_, args) => ExpressionValue.Boolean(
-            host.Selection.Select(args[0].AsObjectId("actiontryselect"))),
-            "actiontryselect[object]");
+        // The selection is attempted and the answer is always false: there is
+        // no success path, and a profile branches on that.
+        registry.Register("actiontryselect", 1, 1, (_, args) =>
+        {
+            host.Selection.Select(args[0].AsObjectId("actiontryselect"));
+            return ExpressionValue.Zero;
+        }, "actiontryselect[object]");
         registry.Register("actiontryuseitem", 1, 1, (_, args) => ExpressionValue.Boolean(
             host.Automation.Items.Use(args[0].AsObjectId("actiontryuseitem")).Accepted),
             "actiontryuseitem[object]");
@@ -709,26 +722,25 @@ internal static class HostExpressionFunctions
                 destination,
                 ToUInt(args[1], "actiontrysplit")).Accepted);
         }, "actiontrysplit[item,newStackSize,destination?]");
+        // 2 impossible, 0 not attempted yet, 1 begun. `actiontrycastbyid`
+        // only casts spells that need no target; the ontarget form only casts
+        // spells that do.
         registry.Register("actiontrycastbyid", 1, 1, (_, args) => CastResult(
-            host.Automation.Magic,
+            host,
+            policy,
             ToUInt(args[0], "actiontrycastbyid"),
             target: null), "actiontrycastbyid[spellId]");
         registry.Register("actiontrycastbyidontarget", 2, 2, (_, args) => CastResult(
-            host.Automation.Magic,
+            host,
+            policy,
             ToUInt(args[0], "actiontrycastbyidontarget"),
             args[1].AsObjectId("actiontrycastbyidontarget")),
             "actiontrycastbyidontarget[spellId,target]");
+        // One step towards being able to cast, and true only once there is
+        // nothing left to do.
         registry.Register("actiontryequipanywand", 0, 0, (_, _) =>
-        {
-            PluginEquipmentItem? wand = host.Automation.Equipment
-                .CaptureOwnedEquipment()
-                .FirstOrDefault(static item =>
-                    (item.ValidLocations & 0x01000000u) != 0u);
-            return wand is { ObjectId: > 0u } item
-                ? ExpressionValue.Boolean(item.IsEquipped
-                    || host.Automation.Equipment.Equip(item.ObjectId).Accepted)
-                : ExpressionValue.Zero;
-        }, "actiontryequipanywand[]");
+            ExpressionValue.Boolean(MagicModeStep(host)),
+            "actiontryequipanywand[]");
     }
 
     private static void RegisterFellowship(
@@ -1185,24 +1197,87 @@ internal static class HostExpressionFunctions
         return Math.Max(0, capacity - used);
     }
 
+    /// <summary>
+    /// Castability as a profile asks it: the spell is in the book, its
+    /// components are to hand, and the buffed school skill clears the spell's
+    /// difficulty plus the profile's margin. A spell whose school the host
+    /// does not report skips the skill check rather than failing on it.
+    /// </summary>
+    private static bool CanCastNow(
+        IPluginHost host,
+        ExpressionHostPolicy policy,
+        uint spellId,
+        bool hunting)
+    {
+        ISpellCatalog spells = host.Automation.Spells;
+        if (!spells.TryGet(spellId, out PluginSpellInfo spell))
+            return false;
+        if (!spells.IsKnown(spellId))
+            return false;
+        if (!host.Automation.Magic.HasComponents(spellId))
+            return false;
+        if (spell.School != 0u
+            && host.Automation.Character.TryGetSkill(
+                spell.School,
+                out PluginSkillInfo skill)
+            && skill.Current < spell.Difficulty + policy.Margin(hunting))
+        {
+            return false;
+        }
+        return true;
+    }
+
+    /// <summary>
+    /// One step towards being able to cast: wield a wand, then take the magic
+    /// stance. True only when both are already done.
+    /// </summary>
+    private static bool MagicModeStep(IPluginHost host)
+    {
+        IEquipmentAutomation equipment = host.Automation.Equipment;
+        PluginEquipmentItem? wand = equipment
+            .CaptureOwnedEquipment()
+            .Cast<PluginEquipmentItem?>()
+            .FirstOrDefault(static item =>
+                (item!.Value.ValidLocations & 0x01000000u) != 0u
+                || (item.Value.EquippedLocation & 0x01000000u) != 0u);
+        if (wand is not { } item)
+            return false;
+        if (!item.IsEquipped)
+        {
+            equipment.Equip(item.ObjectId);
+            return false;
+        }
+        if (host.Automation.Combat.Snapshot.Mode != PluginCombatMode.Magic)
+        {
+            host.Automation.Combat.EnterMode(PluginCombatMode.Magic);
+            return false;
+        }
+        return true;
+    }
+
     private static ExpressionValue CastResult(
-        IMagicCommands magic,
+        IPluginHost host,
+        ExpressionHostPolicy policy,
         uint spellId,
         uint? target)
     {
-        PluginCastGate gate = target is uint objectId
-            ? magic.EvaluateGate(spellId, objectId)
-            : magic.EvaluateGate(spellId);
-        if (gate == PluginCastGate.Ready)
-        {
-            bool started = target is uint id
-                ? magic.Cast(spellId, id)
-                : magic.Cast(spellId);
-            return ExpressionValue.Number(started ? 1d : 0d);
-        }
-        return ExpressionValue.Number(gate is PluginCastGate.NotKnown
-            or PluginCastGate.Unavailable
-            or PluginCastGate.Refused ? 2d : 0d);
+        const double Impossible = 2d;
+        const double NotAttempted = 0d;
+        const double Begun = 1d;
+
+        if (!host.Automation.Spells.TryGet(spellId, out PluginSpellInfo spell))
+            return ExpressionValue.Number(Impossible);
+        if (!CanCastNow(host, policy, spellId, hunting: true))
+            return ExpressionValue.Number(Impossible);
+        if (spell.IsUntargeted != (target is null))
+            return ExpressionValue.Number(Impossible);
+        if (!MagicModeStep(host))
+            return ExpressionValue.Number(NotAttempted);
+
+        bool started = target is uint objectId
+            ? host.Automation.Magic.Cast(spellId, objectId)
+            : host.Automation.Magic.Cast(spellId);
+        return ExpressionValue.Number(started ? Begun : NotAttempted);
     }
 
     private static ExpressionValue SpellProperty(

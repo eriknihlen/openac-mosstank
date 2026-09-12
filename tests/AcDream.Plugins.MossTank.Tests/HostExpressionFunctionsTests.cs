@@ -168,16 +168,106 @@ public sealed class HostExpressionFunctionsTests
         var host = new Host(automation);
         using var runtime = new MossTankExpressionRuntime(host);
 
-        Assert.True(runtime.Evaluate("actiontryselect[20]").IsTruthy);
+        runtime.Evaluate("actiontryselect[20]");
         Assert.Equal(20u, host.Selection.SelectedObjectId);
         Assert.True(runtime.Evaluate("actiontryuseitem[10]").IsTruthy);
         Assert.Equal(10u, automation.UsedObject);
-        Assert.Equal(1d, runtime.Evaluate("actiontrycastbyidontarget[1001,20]").AsNumber());
-        Assert.Equal((1001u, 20u), automation.LastCast);
         Assert.True(runtime.Evaluate("setmotion['Forward',1]").IsTruthy);
         Assert.True(automation.LastIntent.Forward);
         Assert.True(runtime.Evaluate("clearmotion[]").IsTruthy);
         Assert.Equal(1, automation.ClearMovementCount);
+    }
+
+    /// <summary>
+    /// Selecting from an expression always reports false, whatever the
+    /// selection did — a profile branching on the result relies on it.
+    /// Mutation: returning the real selection result flips the branch.
+    /// </summary>
+    [Fact]
+    public void SelectingAlwaysReportsFalseEvenWhenItSucceeded()
+    {
+        var automation = CreateAutomation();
+        var host = new Host(automation);
+        using var runtime = new MossTankExpressionRuntime(host);
+
+        Assert.False(runtime.Evaluate("actiontryselect[20]").IsTruthy);
+        Assert.Equal(20u, host.Selection.SelectedObjectId);
+    }
+
+    /// <summary>
+    /// The castability questions differ: hunting and buffing each apply their
+    /// own skill margin over the spell's difficulty, on top of the spellbook
+    /// and component checks. Mutation: answering both from one host gate
+    /// makes the two calls agree at every skill level.
+    /// </summary>
+    [Fact]
+    public void CastabilityAppliesTheHuntingAndBuffingSkillMarginsSeparately()
+    {
+        var automation = CreateAutomation();
+        automation.Spells[1001] = Spell(1001, school: 34, difficulty: 250);
+        using var runtime = new MossTankExpressionRuntime(new Host(automation));
+        // The fake's War Magic is 300 buffed.
+        runtime.Policy.SkillMargin = hunting => hunting ? 75 : 25;
+
+        Assert.False(runtime.Evaluate("getcancastspell_hunt[1001]").IsTruthy);
+        Assert.True(runtime.Evaluate("getcancastspell_buff[1001]").IsTruthy);
+
+        automation.HasComponents = false;
+        Assert.False(runtime.Evaluate("getcancastspell_buff[1001]").IsTruthy);
+        automation.HasComponents = true;
+        Assert.False(runtime.Evaluate("getcancastspell_buff[2002]").IsTruthy);
+    }
+
+    /// <summary>
+    /// Casting from an expression answers 2 (impossible), 0 (not attempted
+    /// yet) or 1 (begun) — never a bare boolean. An untargeted spell is only
+    /// castable through `actiontrycastbyid`, a targeted one only through
+    /// `actiontrycastbyidontarget`, and neither casts until a wand is wielded
+    /// and the character is in magic mode. Mutation: gating on the host cast
+    /// gate alone returns 1 straight away with no weapon and no mode.
+    /// </summary>
+    [Fact]
+    public void CastingReportsImpossibleNotYetAndBegunAndTakesOneStepFirst()
+    {
+        var automation = CreateAutomation();
+        automation.Spells[1001] = Spell(1001, school: 34, difficulty: 10);
+        automation.Spells[1002] = Spell(1002, school: 34, difficulty: 10) with
+        {
+            IsUntargeted = true,
+        };
+        automation.Equipment =
+        [
+            new PluginEquipmentItem(
+                50, "Wand", 0u, 0x01000000u, 0u, 1u, 0u, 0, 0, 0, 0, 0d),
+        ];
+        using var runtime = new MossTankExpressionRuntime(new Host(automation));
+
+        Assert.Equal(2d, runtime.Evaluate("actiontrycastbyid[9999]").AsNumber());
+        Assert.Equal(2d, runtime.Evaluate("actiontrycastbyid[1001]").AsNumber());
+        Assert.Equal(2d, runtime.Evaluate(
+            "actiontrycastbyidontarget[1002,20]").AsNumber());
+
+        // Step one: the wand is not wielded yet.
+        Assert.Equal(0d, runtime.Evaluate("actiontrycastbyid[1002]").AsNumber());
+        Assert.False(runtime.Evaluate("actiontryequipanywand[]").IsTruthy);
+        Assert.Equal(50u, automation.EquippedObject);
+
+        // Step two: wielded, but still in peace mode.
+        automation.Equipment =
+        [
+            automation.Equipment[0] with { EquippedLocation = 0x01000000u },
+        ];
+        Assert.Equal(0d, runtime.Evaluate("actiontrycastbyid[1002]").AsNumber());
+        Assert.Equal(PluginCombatMode.Magic, automation.RequestedMode);
+
+        // Ready: the cast begins.
+        automation.Mode = PluginCombatMode.Magic;
+        Assert.True(runtime.Evaluate("actiontryequipanywand[]").IsTruthy);
+        Assert.Equal(1d, runtime.Evaluate("actiontrycastbyid[1002]").AsNumber());
+        Assert.Equal((1002u, 0u), automation.LastCast);
+        Assert.Equal(1d, runtime.Evaluate(
+            "actiontrycastbyidontarget[1001,20]").AsNumber());
+        Assert.Equal((1001u, 20u), automation.LastCast);
     }
 
     [Fact]
@@ -502,6 +592,19 @@ public sealed class HostExpressionFunctionsTests
             new Dictionary<uint, uint>(),
             new Dictionary<uint, uint>());
 
+    private static PluginSpellInfo Spell(uint id, uint school, int difficulty) => new(
+        id,
+        $"Spell {id}",
+        1u,
+        1,
+        difficulty,
+        10,
+        30f,
+        school,
+        string.Empty,
+        false,
+        true);
+
     private static PluginInventoryItem InventoryItem(uint id, string name) => new(
         id, 0u, name, 0u, 1u, 0u, 0u, 0u, 0u, 0u, 0u,
         1, 0, 0, 0u, 0, 0, 0u, false, 0d, 0, 0, 0, 0d, 0, 0, 0);
@@ -534,12 +637,16 @@ public sealed class HostExpressionFunctionsTests
         IWorldTimeAutomation,
         ILootAutomation,
         ILoginAutomation,
-        INetworkAutomation
+        INetworkAutomation,
+        IEquipmentAutomation,
+        ICombatAutomation
     {
         public bool IsAvailable => true;
         public ICharacterInfo Character => this;
-        public ISpellCatalog Spells => this;
+        ISpellCatalog IAutomationSurface.Spells => this;
         public IMagicCommands Magic => this;
+        IEquipmentAutomation IAutomationSurface.Equipment => this;
+        public ICombatAutomation Combat => this;
         public IPluginChat Chat => this;
         public IWorldObjectAutomation Objects => this;
         public IItemAutomation Items => this;
@@ -636,12 +743,49 @@ public sealed class HostExpressionFunctionsTests
             return false;
         }
 
-        public bool IsKnown(uint spellId) => spellId == 1001;
-        public bool TryGet(uint spellId, out PluginSpellInfo info)
+        public Dictionary<uint, PluginSpellInfo> Spells { get; } = [];
+        public bool HasComponents { get; set; } = true;
+        public IReadOnlyList<PluginEquipmentItem> Equipment { get; set; } = [];
+        public uint EquippedObject { get; private set; }
+        public PluginCombatMode Mode { get; set; } = PluginCombatMode.Peace;
+        public PluginCombatMode RequestedMode { get; private set; }
+
+        public bool IsKnown(uint spellId) => spellId == 1001 || Spells.ContainsKey(spellId);
+        public bool TryGet(uint spellId, out PluginSpellInfo info) =>
+            Spells.TryGetValue(spellId, out info);
+        bool IMagicCommands.HasComponents(uint spellId) => HasComponents;
+
+        IReadOnlyList<PluginEquipmentItem> IEquipmentAutomation.CaptureOwnedEquipment() =>
+            Equipment;
+        PluginEquipmentCommandResult IEquipmentAutomation.Equip(
+            uint objectId,
+            uint requestedLocation)
         {
-            info = default;
-            return false;
+            EquippedObject = objectId;
+            return new PluginEquipmentCommandResult(
+                PluginEquipmentCommandStatus.Started);
         }
+
+        PluginCombatSnapshot ICombatAutomation.Snapshot => new(
+            0u, Mode, PluginAttackHeight.Medium, 0f, 0f, false, false, false, false);
+        IReadOnlyList<PluginCombatTarget> ICombatAutomation.CaptureHostileTargets(
+            float maximumDistance) => [];
+        PluginCombatCommandResult ICombatAutomation.EnterDefaultMode() =>
+            new(PluginCombatCommandStatus.Unavailable);
+        PluginCombatCommandResult ICombatAutomation.EnterMode(PluginCombatMode mode)
+        {
+            RequestedMode = mode;
+            return new PluginCombatCommandResult(
+                PluginCombatCommandStatus.ModeChangeSent);
+        }
+        PluginCombatCommandResult ICombatAutomation.BeginPhysicalAttack(
+            uint targetObjectId,
+            PluginAttackHeight height,
+            float power) => new(PluginCombatCommandStatus.Unavailable);
+        PluginCombatCommandResult ICombatAutomation.ReleasePhysicalAttack() =>
+            new(PluginCombatCommandStatus.Unavailable);
+        PluginCombatCommandResult ICombatAutomation.AbortPhysicalAttack() =>
+            new(PluginCombatCommandStatus.Unavailable);
         public bool TryGetComponent(uint componentId, out PluginSpellComponentInfo info) =>
             Components.TryGetValue(componentId, out info);
         public bool IsCasting => false;
