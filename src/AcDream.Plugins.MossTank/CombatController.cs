@@ -114,6 +114,17 @@ internal sealed class CombatController
     /// <summary>Seconds navigation is held after a kill.</summary>
     private const double PostKillNavigationLockSeconds = 3d;
 
+    /// <summary>
+    /// How long after the server closes an attack sequence the macro still
+    /// treats result text as belonging to that attack.
+    /// </summary>
+    private const double PhysicalResultTextTailSeconds = 2d;
+
+    private bool _physicalResultArmed;
+    private uint _physicalResultTargetId;
+    private string _physicalResultTargetName = string.Empty;
+    private double _physicalCompletedAt = double.NegativeInfinity;
+
     private Action _suspendPass = static () => { };
     private Action _resumePass = static () => { };
     private bool _turnHoldsPass;
@@ -273,6 +284,7 @@ internal sealed class CombatController
         if (paused && Enabled)
         {
             _host.Automation.Combat.AbortPhysicalAttack();
+            DisarmPhysicalResultText();
             StopApproachMovement();
             StopBreakableTurnMovement();
             Status = "Paused for buffing";
@@ -538,9 +550,7 @@ internal sealed class CombatController
         else if (begin.Status == PluginCombatCommandStatus.Started)
         {
             _pendingPhysicalTarget = _targetId;
-            _failures.BeginAttack(
-                _targetId,
-                FindTarget(_targetId).HealthRevision);
+            ArmPhysicalResultText(_targetId, _targetName);
         }
     }
 
@@ -907,7 +917,6 @@ internal sealed class CombatController
         {
             _pendingAttackSpell = choice.Spell.SpellId;
             _pendingAttackTarget = _targetId;
-            _failures.BeginAttack(_targetId, target.HealthRevision);
         }
     }
 
@@ -1842,14 +1851,121 @@ internal sealed class CombatController
             return;
     }
 
+    /// <summary>
+    /// A physical attack is running at <paramref name="targetObjectId"/>, so
+    /// its result text is ours to read.
+    /// </summary>
+    private void ArmPhysicalResultText(uint targetObjectId, string targetName)
+    {
+        _physicalResultArmed = true;
+        _physicalResultTargetId = targetObjectId;
+        _physicalResultTargetName = targetName ?? string.Empty;
+    }
+
+    private void DisarmPhysicalResultText()
+    {
+        if (!_physicalResultArmed)
+            return;
+        _physicalResultArmed = false;
+        _physicalCompletedAt = _now;
+    }
+
+    /// <summary>
+    /// The melee/missile half of result reading. A swing produces no cast
+    /// receipt, so the outcome of a physical attack is only ever visible in
+    /// chat: this is what tells the macro the monster is dead, that a shot
+    /// flew into the scenery, or that a swing landed.
+    /// </summary>
+    private void ObservePhysicalResultText(
+        in PluginChatMessage message,
+        in PluginCombatSnapshot combat)
+    {
+        // Read only while a swing is armed at our own target, or for a brief
+        // moment after the sequence ended — the last swing's outcome line can
+        // still arrive after the server has closed the attack.
+        if (_physicalResultArmed)
+        {
+            if (combat.SelectedObjectId != _physicalResultTargetId)
+                return;
+        }
+        else if (_now - _physicalCompletedAt > PhysicalResultTextTailSeconds)
+        {
+            return;
+        }
+        if (_physicalResultTargetId == 0u)
+            return;
+
+        string text = message.Text ?? string.Empty;
+        if (string.Equals(
+                text.Trim(),
+                CombatResultText.MissileHitEnvironment,
+                StringComparison.Ordinal))
+        {
+            _failures.RecordMiss(_physicalResultTargetId, _now, _settings);
+        }
+        else if (CombatResultText.IsDamageReport(text))
+        {
+            _failures.ResetAttempts(_physicalResultTargetId);
+        }
+
+        if (!CombatResultText.IsKillingBlow(text, out string slain))
+            return;
+
+        // The looting hold goes up on the killing blow itself, before the
+        // sentence is matched against our own target's name.
+        ArmPostKillNavigationLock();
+
+        if (slain.Length > 0
+            && _physicalResultTargetName.Length > 0
+            && !slain.Equals(
+                _physicalResultTargetName,
+                StringComparison.OrdinalIgnoreCase))
+        {
+            return;
+        }
+        if (WieldingCleavingWeapon())
+        {
+            // A cleaving weapon can kill something other than the creature the
+            // swing was aimed at, so the sentence does not identify our target.
+            return;
+        }
+
+        Log?.Invoke(
+            MacroLogChannel.CastInfo,
+            $"AttackExecutor: Kill blow ({text})");
+        _failures.ResetAttempts(_physicalResultTargetId);
+        uint slainObjectId = _physicalResultTargetId;
+        DisarmPhysicalResultText();
+        EndKilledTarget(slainObjectId);
+    }
+
+    /// <summary>
+    /// True when the wielded weapon (or a melee off-hand) cleaves, i.e. one
+    /// swing can strike more than the creature it was aimed at.
+    /// </summary>
+    private bool WieldingCleavingWeapon()
+    {
+        IEquipmentAutomation equipment = _host.Automation.Equipment;
+        if (!equipment.IsAvailable)
+            return false;
+        foreach (PluginEquipmentItem item in equipment.CaptureOwnedEquipment())
+        {
+            if (item.IsEquipped && item.Cleaving > 1)
+                return true;
+        }
+        return false;
+    }
+
     private void ObserveItemDebuffReceipts()
     {
+        PluginCombatSnapshot combat = _host.Automation.Combat.Snapshot;
         foreach (PluginChatMessage message in
             _host.Automation.Chat.CaptureMessages(_observedChatSequence))
         {
             _observedChatSequence = Math.Max(
                 _observedChatSequence,
                 message.Sequence);
+            ObservePhysicalResultText(in message, in combat);
             _castTracker.ObserveChat(
                 message.Sequence,
                 message.Text,
@@ -1869,10 +1985,7 @@ internal sealed class CombatController
                 pending.Source.Identity,
                 pending.Source.Spell,
                 _now);
-            _failures.RecordSuccessfulAttack(
-                pending.TargetObjectId,
-                _now,
-                _settings);
+            _failures.ResetAttempts(pending.TargetObjectId);
             Status = $"{pending.Source.Spell.Name} applied to {pending.TargetName}";
             if (!_settings.JumpOutWandCasting)
                 StartSelectionJiggle(pending.Source.Spell);
@@ -1908,7 +2021,7 @@ internal sealed class CombatController
                 ArmPostKillNavigationLock();
                 if (objectId == 0u)
                     return;
-                _failures.ClearBlacklist(objectId);
+                _failures.ResetAttempts(objectId);
                 EndKilledTarget(objectId);
                 return;
 
@@ -1933,7 +2046,7 @@ internal sealed class CombatController
                     MacroLogChannel.CastInfo,
                     $"SpellCaster: Spell success reset ({info.Text})");
                 if (objectId != 0u)
-                    _failures.ClearBlacklist(objectId);
+                    _failures.ResetAttempts(objectId);
                 return;
 
             case SpellCastOutcome.ResultTimeout:
@@ -1941,7 +2054,7 @@ internal sealed class CombatController
                     MacroLogChannel.CastInfo,
                     "SpellCaster: Cast result timeout");
                 if (objectId != 0u && !info.HitsMultipleTargets)
-                    _failures.RecordSuccessfulAttack(objectId, _now, _settings);
+                    _failures.RecordMiss(objectId, _now, _settings);
                 return;
 
             case SpellCastOutcome.LaunchTimeout:
@@ -2589,6 +2702,7 @@ internal sealed class CombatController
 
     private void ClearTarget()
     {
+        DisarmPhysicalResultText();
         StopApproachMovement();
         StopBreakableTurnMovement();
         StopSelectionJiggle();
@@ -2838,14 +2952,10 @@ internal sealed class CombatController
         if (combat.CompletionRevision > _observedPhysicalCompletion)
         {
             _observedPhysicalCompletion = combat.CompletionRevision;
-            if (_pendingPhysicalTarget != 0u
-                && combat.CompletionWeenieError == 0u)
-            {
-                _failures.RecordSuccessfulAttack(
-                    _pendingPhysicalTarget,
-                    _now,
-                    _settings);
-            }
+            // The server says the attack sequence finished. Retail keeps
+            // reading result text for two seconds past this point, because
+            // the last swing's outcome line can still be in flight.
+            _physicalCompletedAt = _now;
             _pendingPhysicalTarget = 0u;
         }
 

@@ -1518,7 +1518,8 @@ public sealed class CombatControllerTests
         {
             MaximumRange = 40d,
             ScanIntervalSeconds = 0.05d,
-            BlacklistMonsterAttemptCount = 1,
+            // No attempts allowed, so the first one that records trips.
+            BlacklistMonsterAttemptCount = 0,
             BlacklistMonsterTimeoutSeconds = 300,
         });
         var controller = new CombatController(new FakeHost(surface), settings);
@@ -1613,8 +1614,13 @@ public sealed class CombatControllerTests
         Assert.InRange(surface.KnownCombatSpellReads, 1, 180);
     }
 
+    /// <summary>
+    /// A kill or a success starts the attempt count over; it does NOT lift a
+    /// blacklist that is still running. Mutation: make <c>ResetAttempts</c>
+    /// clear the deadline too and the second assertion fails.
+    /// </summary>
     [Fact]
-    public void KillAndSuccessResultTextClearTheBlacklist()
+    public void KillAndSuccessResultTextResetTheAttemptCountOnly()
     {
         var settings = new CombatSettings { BlacklistMonsterTimeoutSeconds = 300 };
         var tracker = new CombatFailureTracker();
@@ -1624,8 +1630,10 @@ public sealed class CombatControllerTests
             CombatSuppressionReason.Blacklisted,
             tracker.Reason(10u, now: 1d));
 
-        tracker.ClearBlacklist(10u);
-        Assert.Equal(CombatSuppressionReason.None, tracker.Reason(10u, now: 1d));
+        tracker.ResetAttempts(10u);
+        Assert.Equal(
+            CombatSuppressionReason.Blacklisted,
+            tracker.Reason(10u, now: 1d));
     }
 
     [Fact]
@@ -3008,6 +3016,129 @@ public sealed class CombatControllerTests
 
         controller.OnTick(0.25);
         Assert.Equal([100u], surface.CastSpellIds);
+    }
+
+    private static (FakeAutomation Surface, CombatController Controller, ActionLockTable Locks)
+        MeleeKillRig(CombatSettings? settings = null)
+    {
+        var surface = new FakeAutomation
+        {
+            CombatSnapshot = Physical() with { SelectedObjectId = 10u },
+            Targets = [Target(10, "Drudge", distance: 2, angle: 0)],
+            EquipmentItems = [WieldedPlannedWeapon()],
+        };
+        CombatSettings resolved = settings ?? new CombatSettings();
+        resolved.ScanIntervalSeconds = 0.05d;
+        ProfileFixtureWeapon(resolved);
+        var locks = new ActionLockTable();
+        var controller = new CombatController(new FakeHost(surface), resolved);
+        controller.BindActionLocks(locks, () => true);
+        controller.Toggle();
+        controller.OnTick(0.25);
+        return (surface, controller, locks);
+    }
+
+    private static PluginChatMessage ChatLine(ulong sequence, string text) =>
+        new(sequence, 0u, 0, string.Empty, text, string.Empty);
+
+    /// <summary>
+    /// Mutation: delete the <c>ObservePhysicalResultText</c> call from the
+    /// chat walk and this fails — a swung-down monster stays the target until
+    /// the world stops listing it, so the bot keeps hitting the corpse.
+    /// </summary>
+    [Fact]
+    public void AMeleeKillLineEndsTheTargetAndHoldsNavigation()
+    {
+        (FakeAutomation surface, CombatController controller, ActionLockTable locks) =
+            MeleeKillRig();
+        Assert.Equal(10u, surface.LastBeginTarget);
+
+        surface.ChatMessages = [ChatLine(1, "You killed Drudge!")];
+        controller.OnTick(0.25);
+
+        Assert.False(controller.HasTarget);
+        Assert.True(locks.IsLocked(ActionLockKind.Navigation));
+    }
+
+    /// <summary>
+    /// Mutation: drop the slain-name comparison and this fails — a fellow's
+    /// kill of something else would end our own target.
+    /// </summary>
+    [Fact]
+    public void AKillLineNamingAnotherCreatureDoesNotEndOurTarget()
+    {
+        (FakeAutomation surface, CombatController controller, _) = MeleeKillRig();
+
+        surface.ChatMessages = [ChatLine(1, "You killed Mosswart!")];
+        controller.OnTick(0.25);
+
+        Assert.True(controller.HasTarget);
+        Assert.Contains("Drudge", controller.TargetText, StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// Mutation: feed the give-up counter from anything other than the
+    /// shot-hit-the-world line — for instance from every completed swing whose
+    /// target health did not move — and the second half of this fails, because
+    /// an ordinary miss would count.
+    /// </summary>
+    [Fact]
+    public void OnlyAShotIntoTheSceneryCountsTowardsGivingUpOnAMonster()
+    {
+        (FakeAutomation surface, CombatController controller, _) = MeleeKillRig(
+            new CombatSettings
+            {
+                BlacklistMonsterAttemptCount = 1,
+                BlacklistMonsterTimeoutSeconds = 300,
+            });
+
+        surface.ChatMessages =
+        [
+            ChatLine(1, "Your missile attack hit the environment."),
+            ChatLine(2, "Your missile attack hit the environment."),
+        ];
+        controller.OnTick(0.25);
+        Assert.False(controller.HasTarget);
+
+        (surface, controller, _) = MeleeKillRig(new CombatSettings
+        {
+            BlacklistMonsterAttemptCount = 1,
+            BlacklistMonsterTimeoutSeconds = 300,
+        });
+        surface.ChatMessages =
+        [
+            ChatLine(1, "You evade the Drudge!"),
+            ChatLine(2, "The Drudge evades your attack!"),
+            ChatLine(3, "You miss the Drudge!"),
+        ];
+        controller.OnTick(0.25);
+        Assert.True(controller.HasTarget);
+    }
+
+    /// <summary>
+    /// Mutation: delete the damage-report arm and this fails — the two shots
+    /// into the scenery either side of a landed hit would add up and retire a
+    /// monster the character is demonstrably hitting.
+    /// </summary>
+    [Fact]
+    public void ALandedHitStartsTheGiveUpCountOver()
+    {
+        (FakeAutomation surface, CombatController controller, _) = MeleeKillRig(
+            new CombatSettings
+            {
+                BlacklistMonsterAttemptCount = 1,
+                BlacklistMonsterTimeoutSeconds = 300,
+            });
+
+        surface.ChatMessages =
+        [
+            ChatLine(1, "Your missile attack hit the environment."),
+            ChatLine(2, "You slash Drudge for 43 points of slashing damage!"),
+            ChatLine(3, "Your missile attack hit the environment."),
+        ];
+        controller.OnTick(0.25);
+
+        Assert.True(controller.HasTarget);
     }
 
     private static CombatSettings FireAttackRule(CombatSettings settings)

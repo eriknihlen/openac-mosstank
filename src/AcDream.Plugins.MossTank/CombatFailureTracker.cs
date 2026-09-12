@@ -38,7 +38,7 @@ internal sealed class CombatFailureTracker
                 && target.HealthRevision != entry.HealthRevision)
             {
                 entry.HealthRevision = target.HealthRevision;
-                entry.SuccessfulMisses = 0;
+                entry.Attempts = 0;
                 entry.SpellStartFailures = 0;
             }
 
@@ -103,36 +103,32 @@ internal sealed class CombatFailureTracker
         return false;
     }
 
-    public void RecordSuccessfulAttack(
+    /// <summary>
+    /// One recorded attempt that provably did not reach the monster. The count
+    /// trips on the attempt AFTER the configured allowance, not on it.
+    /// </summary>
+    public void RecordMiss(
         uint objectId,
         double now,
         CombatSettings settings)
     {
+        ArgumentNullException.ThrowIfNull(settings);
         if (objectId == 0u)
             return;
         Entry entry = Get(objectId);
-        if (entry.HealthRevision > entry.AttackHealthRevision)
-        {
-            entry.SuccessfulMisses = 0;
+        entry.Attempts++;
+        if (entry.Attempts <= settings.BlacklistMonsterAttemptCount)
             return;
-        }
-        entry.SuccessfulMisses++;
-        if (entry.SuccessfulMisses
-            >= Math.Max(1, settings.BlacklistMonsterAttemptCount))
-        {
-            entry.BlacklistedUntil = now + Math.Max(
-                0d,
-                settings.BlacklistMonsterTimeoutSeconds);
-            entry.SuccessfulMisses = 0;
-        }
+        ExtendBlacklist(entry, now, settings);
+        entry.Attempts = 0;
     }
 
-    public void BeginAttack(uint objectId, long healthRevision)
+    /// <summary>The monster was reached: the attempt count starts over.</summary>
+    public void ResetAttempts(uint objectId)
     {
-        if (objectId == 0u)
+        if (objectId == 0u || !_entries.TryGetValue(objectId, out Entry? entry))
             return;
-        Entry entry = Get(objectId);
-        entry.AttackHealthRevision = healthRevision;
+        entry.Attempts = 0;
     }
 
     public void ForceBlacklist(
@@ -144,18 +140,24 @@ internal sealed class CombatFailureTracker
         if (objectId == 0u)
             return;
         Entry entry = Get(objectId);
-        entry.BlacklistedUntil = now + Math.Max(
-            0d,
-            settings.BlacklistMonsterTimeoutSeconds);
-        entry.SuccessfulMisses = 0;
+        ExtendBlacklist(entry, now, settings);
+        entry.Attempts = 0;
     }
 
-    public void ClearBlacklist(uint objectId)
+    /// <summary>
+    /// Pushes the deadline out, never in: a later trip under a shortened
+    /// timeout must not cut an existing blacklist short.
+    /// </summary>
+    private static void ExtendBlacklist(
+        Entry entry,
+        double now,
+        CombatSettings settings)
     {
-        if (objectId == 0u || !_entries.TryGetValue(objectId, out Entry? entry))
-            return;
-        entry.SuccessfulMisses = 0;
-        entry.BlacklistedUntil = 0d;
+        double deadline = now + Math.Max(
+            0d,
+            settings.BlacklistMonsterTimeoutSeconds);
+        if (deadline > entry.BlacklistedUntil)
+            entry.BlacklistedUntil = deadline;
     }
 
     public void MarkDead(uint objectId)
@@ -192,9 +194,8 @@ internal sealed class CombatFailureTracker
         public ushort Incarnation;
         public double LastSeenAt;
         public long HealthRevision;
-        public int SuccessfulMisses;
+        public int Attempts;
         public int SpellStartFailures;
-        public long AttackHealthRevision;
         public double? EngagedAt;
         public double BlacklistedUntil;
         public bool IsGhost;

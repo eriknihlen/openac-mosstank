@@ -122,6 +122,38 @@ internal static class CombatResultText
         new("^(?<targetname>.*)'s last strength withers before you!$", Options),
     ];
 
+    /// <summary>
+    /// The one line that says a shot never reached its target: it hit the
+    /// world instead. This is the ONLY thing that advances the give-up counter
+    /// for a physical attack — an ordinary miss or evade does not.
+    /// </summary>
+    public const string MissileHitEnvironment =
+        "Your missile attack hit the environment.";
+
+    /// <summary>
+    /// A damage report: the swing reached the monster, so the give-up counter
+    /// starts over.
+    /// </summary>
+    private static readonly Regex DamageReportPattern = new(
+        @"^(Critical hit\!)?[ ]*You .* for .* point(s)? of .*\!$",
+        Options);
+
+    public static bool IsDamageReport(string text) =>
+        !string.IsNullOrEmpty(text) && DamageReportPattern.IsMatch(text);
+
+    /// <summary>
+    /// True when the line is one of the killing-blow sentences, with the slain
+    /// creature's name in <paramref name="targetName"/> when the sentence
+    /// names it.
+    /// </summary>
+    public static bool IsKillingBlow(string text, out string targetName)
+    {
+        string spellName = string.Empty;
+        targetName = string.Empty;
+        return !string.IsNullOrEmpty(text)
+            && TryMatch(KillPatterns, text, ref spellName, ref targetName);
+    }
+
     public static CombatResultTextClass Classify(
         string text,
         out string spellName,
