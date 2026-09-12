@@ -1007,7 +1007,12 @@ internal static class HostExpressionFunctions
 
     /// <summary>
     /// The nearest matching object to the player, measured in three
-    /// dimensions and never the player's own object.
+    /// dimensions and never the player's own object. Every object the client
+    /// knows is a candidate — one in a pack or in the character's hand counts
+    /// just as much as one lying on the ground — and an object whose position
+    /// is not known sorts last but is still the answer when nothing else
+    /// matched. Ties break on the object id, which the pool's own enumeration
+    /// order does not promise.
     /// </summary>
     private static ExpressionValue Nearest(
         IPluginHost host,
@@ -1018,11 +1023,10 @@ internal static class HostExpressionFunctions
             return ExpressionValue.Zero;
         uint self = host.Automation.Character.ObjectId;
         PluginWorldObject? nearest = host.Automation.Objects.CaptureObjects()
-            .Where(obj => obj.ObjectId != self
-                && obj.IsLandscape
-                && obj.HasPosition
-                && predicate(obj))
-            .OrderBy(obj => DistanceMeters(player.Position, obj.Position))
+            .Where(obj => obj.ObjectId != self && predicate(obj))
+            .OrderBy(obj => obj.HasPosition
+                ? DistanceMeters(player.Position, obj.Position)
+                : double.MaxValue)
             .ThenBy(static obj => obj.ObjectId)
             .Cast<PluginWorldObject?>()
             .FirstOrDefault();

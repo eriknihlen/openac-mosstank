@@ -199,6 +199,36 @@ public sealed class HostExpressionFunctionsTests
     }
 
     /// <summary>
+    /// A nearest lookup searches every object of the class the client knows,
+    /// not only the ones lying loose on the ground: an object in a pack or in
+    /// the character's hand is found too, and an object with no known
+    /// position still answers when it is the only match. Mutation: requiring
+    /// the object to be loose on the ground and to have a position makes both
+    /// probes here answer 0.
+    /// </summary>
+    [Fact]
+    public void NearestLookupsSearchOwnedAndPositionlessObjectsToo()
+    {
+        var automation = CreateAutomation();
+        automation.WorldObjects.Add(new PluginWorldObject(
+            30, 300, "Wielded Wand", PluginObjectClass.WandStaffOrb, 0x1, 0, 1)
+        {
+            IsOwned = true,
+        });
+        automation.WorldObjects.Add(new PluginWorldObject(
+            31, 301, "Packed Lockpick", PluginObjectClass.Lockpick, 0x1, 11, 0)
+        {
+            IsOwned = true,
+        });
+        using var runtime = new MossTankExpressionRuntime(new Host(automation));
+
+        Assert.Equal(30d, runtime.Evaluate(
+            "wobjectgetid[wobjectfindnearestbyobjectclass[31]]").AsNumber());
+        Assert.Equal(31d, runtime.Evaluate(
+            "wobjectgetid[wobjectfindnearestbytemplatetype[301]]").AsNumber());
+    }
+
+    /// <summary>
     /// The nearest-monster lookup honours the combat pass's blacklist.
     /// Mutation: matching on the object class alone still returns the
     /// blacklisted drudge.
