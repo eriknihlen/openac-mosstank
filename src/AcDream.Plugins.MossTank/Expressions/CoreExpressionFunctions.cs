@@ -130,7 +130,7 @@ internal static class CoreExpressionFunctions
             double number = args[0].AsNumber("cstrf");
             string format = args[1].AsString("cstrf");
             return ExpressionValue.String(
-                format.Contains('X', StringComparison.OrdinalIgnoreCase)
+                IsStandardHexFormat(format)
                     ? checked((uint)number).ToString(format, CultureInfo.InvariantCulture)
                     : number.ToString(format, CultureInfo.InvariantCulture));
         }, "cstrf[number,format]");
@@ -548,6 +548,24 @@ internal static class CoreExpressionFunctions
         if ((uint)index >= (uint)list.Items.Count)
             throw BadIndex(operation, index, list.Items.Count, allowEnd: false);
         return index;
+    }
+
+    /// <summary>
+    /// A whole-string hex specifier — "X", "x", "X4" and so on, nothing else.
+    /// `cstrf` renders through an unsigned integer for those and through the
+    /// number itself for every other format, so a custom format that merely
+    /// contains a literal x ("0.0 x") keeps its fractional digits.
+    /// </summary>
+    private static bool IsStandardHexFormat(string format)
+    {
+        if (format.Length == 0 || format[0] is not ('X' or 'x'))
+            return false;
+        for (int index = 1; index < format.Length; index++)
+        {
+            if (!char.IsAsciiDigit(format[index]))
+                return false;
+        }
+        return true;
     }
 
     private static int ToTruncatedInt(in ExpressionValue value, string operation) =>

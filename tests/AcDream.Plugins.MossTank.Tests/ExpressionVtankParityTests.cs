@@ -64,6 +64,27 @@ public sealed class ExpressionVtankParityTests
         Assert.Equal(Math.Round(milliseconds), milliseconds, 9);
     }
 
+    /// <summary>
+    /// `cstrf` renders through an unsigned integer ONLY for a whole-string
+    /// hex specifier. A custom numeric format that merely contains a literal
+    /// x is a format like any other and keeps the number's fractional digits.
+    /// Mutation: routing any format containing an x or X into the hex branch
+    /// turns "3.5 x" into "3.0 x" and "3.5 X" into "3.0 X".
+    /// </summary>
+    [Theory]
+    [InlineData("cstrf[255,`X`]", "FF")]
+    [InlineData("cstrf[255,`x`]", "ff")]
+    [InlineData("cstrf[255,`X4`]", "00FF")]
+    [InlineData("cstrf[3.5,`0.0 x`]", "3.5 x")]
+    [InlineData("cstrf[3.5,`0.0 X`]", "3.5 X")]
+    [InlineData("cstrf[3.5,`0.00`]", "3.50")]
+    public void FormattedStringsOnlyGoThroughHexForAWholeHexSpecifier(
+        string source,
+        string expected)
+    {
+        Assert.Equal(expected, Evaluate(source).AsString());
+    }
+
     private static ExpressionValue Evaluate(string source)
     {
         var context = new ExpressionEvaluationContext(
