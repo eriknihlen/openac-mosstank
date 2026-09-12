@@ -1260,8 +1260,8 @@ internal sealed class CombatController
             {
                 desiredWeapon = SelectAutomaticWeapon(
                     items,
-                    ResolveAttackElement(actions, FindTarget(_targetId)),
-                    _settings);
+                    actions,
+                    FindTarget(_targetId));
             }
         }
         _plannedWeapon = desiredWeapon;
@@ -1559,37 +1559,88 @@ internal sealed class CombatController
         return false;
     }
 
-    private static uint SelectAutomaticWeapon(
+    /// <summary>
+    /// The weapon automatic selection reaches for against this monster.
+    /// </summary>
+    private uint SelectAutomaticWeapon(
         IReadOnlyList<PluginEquipmentItem> items,
-        MonsterDamageType damageType,
-        CombatSettings settings)
+        MonsterRuleActions actions,
+        in PluginCombatTarget target)
     {
-        const uint weaponReadyMask = 0x03500000u;
-        int rawDamage = RawDamageType(damageType);
-        PluginEquipmentItem? best = null;
-        foreach (PluginEquipmentItem item in items)
-        {
-            if (!settings.CombatItemObjectIds.Contains(item.ObjectId)
-                && !settings.CombatItemNames.Contains(item.Name))
-            {
-                continue;
-            }
-            if ((item.ValidLocations & weaponReadyMask) == 0u
-                || rawDamage == 0
-                || (item.DamageType & rawDamage) == 0)
-            {
-                continue;
-            }
-            if (best is null
-                || item.Damage > best.Value.Damage
-                || (item.Damage == best.Value.Damage
-                    && item.IsEquipped
-                    && !best.Value.IsEquipped))
-            {
-                best = item;
-            }
-        }
-        return best?.ObjectId ?? 0u;
+        // An automatic rule wants whatever the monster is weak to; a rule that
+        // spells its element out wants only that one.
+        IReadOnlyList<MonsterDamageType> wanted =
+            actions.DamageType is MonsterDamageType.Auto
+                or MonsterDamageType.Prismatic
+                ? _gameInfo.DamagePreferences(target.Name)
+                : [actions.DamageType];
+        PluginCombatTarget subject = target;
+        return VtankWeaponLadder.Select(
+            items,
+            item => _settings.CombatItemObjectIds.Contains(item.ObjectId)
+                || _settings.CombatItemNames.Contains(item.Name),
+            wanted,
+            SpeciesOf(in subject),
+            (item, element) => CanWeaponDeliver(in item, element),
+            element => IsAlreadyVulnerable(in subject, element));
+    }
+
+    /// <summary>
+    /// The monster's species, or -1 when the game-info database does not name
+    /// it — which no weapon's slayer type can match.
+    /// </summary>
+    private int SpeciesOf(in PluginCombatTarget target)
+    {
+        if (target.SpeciesId > 0)
+            return target.SpeciesId;
+        return _gameInfo.SpeciesMembers.TryGetValue(
+            target.Name ?? string.Empty,
+            out VtankSpeciesMember member)
+            ? member.Species
+            : -1;
+    }
+
+    private bool IsAlreadyVulnerable(
+        in PluginCombatTarget target,
+        MonsterDamageType element)
+    {
+        var identity = new DebuffIdentity(
+            MonsterActionFlags.Vulnerability,
+            element);
+        if (FindDebuffSpell(identity) is not { } vulnerability)
+            return false;
+        // "Still up in half a second's time", which is the same question as
+        // "not due within half a second".
+        return !_debuffs.IsDue(
+            target.ObjectId,
+            identity,
+            vulnerability,
+            _now,
+            0.5d);
+    }
+
+    private bool CanWeaponDeliver(
+        in PluginEquipmentItem item,
+        MonsterDamageType element)
+    {
+        int launcherType = VtankAmmunitionDatabase.LauncherType(item.AmmoType);
+        if (launcherType == 0)
+            return true;
+        (MonsterDamageType, uint) key = (element, item.ObjectId);
+        if (_passDeliverable.TryGetValue(key, out bool cached))
+            return cached;
+        bool deliverable = VtankAmmunitionDatabase.Select(
+            _gameInfo.AmmunitionOptions.Count > 0
+                ? _gameInfo.AmmunitionOptions
+                : VtankAmmunitionDatabase.Options,
+            launcherType,
+            element,
+            VtankPrismaticAmmoPolicy.Any,
+            _settings.UseSpecialAmmo,
+            _host.Automation.Character,
+            AmmunitionAvailability()) is not null;
+        _passDeliverable[key] = deliverable;
+        return deliverable;
     }
 
     private static int RawDamageType(MonsterDamageType damageType) =>
@@ -2765,7 +2816,7 @@ internal sealed class CombatController
                 actions.WeaponName,
                 equipment);
         if (weapon == 0u && actions.WeaponToUseRaw != 0)
-            weapon = SelectAutomaticWeapon(equipment, element, _settings);
+            weapon = SelectAutomaticWeapon(equipment, actions, target);
         uint offhand = ResolveEquipmentObjectId(
             actions.OffhandObjectId,
             actions.OffhandName,
@@ -2805,7 +2856,7 @@ internal sealed class CombatController
             return requested;
 
         IReadOnlyList<PluginEquipmentItem> owned = PassEquipment();
-        uint weapon = PlannedWeaponFor(actions, owned);
+        uint weapon = PlannedWeaponFor(actions, in target, owned);
         PluginCombatMode kind = WeaponStance(actions, weapon, owned);
 
         // The weapon's OWN element: what its imbue rends, then what it cleaves,
@@ -2869,6 +2920,7 @@ internal sealed class CombatController
     /// </summary>
     private uint PlannedWeaponFor(
         MonsterRuleActions actions,
+        in PluginCombatTarget target,
         IReadOnlyList<PluginEquipmentItem> owned)
     {
         if (actions.WeaponToUseRaw == 0)
@@ -2879,7 +2931,7 @@ internal sealed class CombatController
             owned);
         if (named != 0u)
             return named;
-        uint automatic = SelectAutomaticWeapon(owned, actions.DamageType, _settings);
+        uint automatic = SelectAutomaticWeapon(owned, actions, in target);
         if (automatic != 0u)
             return automatic;
         // Nothing was named and nothing could be picked for the element the
