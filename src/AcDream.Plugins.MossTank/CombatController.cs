@@ -431,6 +431,7 @@ internal sealed class CombatController
         _passDeliverable.Clear();
         _passComponents.Clear();
         _passClearance.Clear();
+        _passAmmunitionAvailability = null;
         _passInvalidTargets.Clear();
         _passClearedActions.Clear();
         _passCandidates.Clear();
@@ -2747,37 +2748,135 @@ internal sealed class CombatController
         MonsterRuleActions actions,
         in PluginCombatTarget target)
     {
-        MonsterDamageType requested = AttackSpellCatalog.ResolveMagicDamageMode(
-            actions.DamageType,
-            _host.Automation.Character);
-        if (requested != MonsterDamageType.Auto)
+        MonsterDamageType requested = actions.DamageType;
+        if (requested == MonsterDamageType.Fists)
+            return MonsterDamageType.Bludgeon;
+        // Auto and Prismatic both resolve the element; Prismatic differs only
+        // in which ammunition it will accept.
+        if (requested is not (MonsterDamageType.Auto or MonsterDamageType.Prismatic))
             return requested;
 
-        if (RuleWeaponElement(actions) is { } weaponElement)
-            return weaponElement;
+        IReadOnlyList<PluginEquipmentItem> owned = PassEquipment();
+        uint weapon = PlannedWeaponFor(actions, owned);
+        PluginCombatMode kind = WeaponStance(actions, weapon, owned);
+
+        // The weapon's OWN element: what its imbue rends, then what it cleaves,
+        // then the damage it plainly deals.
+        MonsterDamageType element = WeaponElement(weapon, owned);
+
+        // Only a wand's element falls back to the caster's training. A melee
+        // or missile build with no war magic must not be handed Void or drain.
+        if (kind == PluginCombatMode.Magic)
+        {
+            MonsterDamageType cascade =
+                AttackSpellCatalog.ResolveMagicDamageMode(
+                    MonsterDamageType.Auto,
+                    _host.Automation.Character);
+            if (cascade == MonsterDamageType.VoidBasic)
+                return cascade;
+            if (cascade == MonsterDamageType.DrainAuto)
+            {
+                PostAttackWarning(
+                    "Warning: autoselecting drain as damage type. If you are "
+                    + "not a martyr mage, you probably need to add your "
+                    + "weapons to the items tab.");
+                return cascade;
+            }
+        }
+        if (element != MonsterDamageType.None)
+            return element;
 
         IReadOnlyList<MonsterDamageType> preferences =
             _gameInfo.DamagePreferences(target.Name);
         foreach (MonsterDamageType preference in preferences)
         {
             if (preference != MonsterDamageType.None
-                && CanDeliverElement(preference, target))
+                && CanDeliverElement(preference, weapon, owned))
             {
                 return preference;
             }
         }
 
-        foreach (MonsterDamageType element in VtankDamageDatabase.UnlistedElementOrder)
+        foreach (MonsterDamageType unlisted in VtankDamageDatabase.UnlistedElementOrder)
         {
-            if (Contains(preferences, element) || !CanDeliverElement(element, target))
+            if (Contains(preferences, unlisted)
+                || !CanDeliverElement(unlisted, weapon, owned))
+            {
                 continue;
+            }
             PostAttackWarning(
                 "Warning: no ammunition available for any of target's possible "
                 + "damage types! Using unlisted damage type: "
-                + ElementName(element));
-            return element;
+                + ElementName(unlisted));
+            return unlisted;
         }
         PostAttackWarning("Warning: no ammunition available!!!");
+        return MonsterDamageType.None;
+    }
+
+    /// <summary>
+    /// The weapon this rule will fight with: the one it names, else the one
+    /// automatic selection would reach for. A rule that spells the weapon
+    /// column as zero means "no weapon, use a wand" and names none.
+    /// </summary>
+    private uint PlannedWeaponFor(
+        MonsterRuleActions actions,
+        IReadOnlyList<PluginEquipmentItem> owned)
+    {
+        if (actions.WeaponToUseRaw == 0)
+            return 0u;
+        uint named = ResolveEquipmentObjectId(
+            actions.WeaponObjectId,
+            actions.WeaponName,
+            owned);
+        if (named != 0u)
+            return named;
+        uint automatic = SelectAutomaticWeapon(owned, actions.DamageType, _settings);
+        if (automatic != 0u)
+            return automatic;
+        // Nothing was named and nothing could be picked for the element the
+        // rule asked for, so the weapon already in hand is what the fight will
+        // be had with.
+        return CombatModeGate.FindWielded(owned)?.ObjectId ?? 0u;
+    }
+
+    /// <summary>
+    /// The stance the planned weapon implies. With no weapon at all the rule
+    /// means a wand, so the stance is Magic.
+    /// </summary>
+    private static PluginCombatMode WeaponStance(
+        MonsterRuleActions actions,
+        uint weapon,
+        IReadOnlyList<PluginEquipmentItem> owned)
+    {
+        if (weapon == 0u)
+            return PluginCombatMode.Magic;
+        foreach (PluginEquipmentItem item in owned)
+        {
+            if (item.ObjectId == weapon)
+                return CombatModeGate.ModeFor(in item);
+        }
+        return actions.WeaponToUseRaw == 0
+            ? PluginCombatMode.Magic
+            : PluginCombatMode.Melee;
+    }
+
+    private static MonsterDamageType WeaponElement(
+        uint weapon,
+        IReadOnlyList<PluginEquipmentItem> owned)
+    {
+        if (weapon == 0u)
+            return MonsterDamageType.None;
+        foreach (PluginEquipmentItem item in owned)
+        {
+            if (item.ObjectId == weapon)
+            {
+                return VtankWeaponElement.Resolve(
+                    item.ImbuedEffect,
+                    item.ResistanceCleaving,
+                    item.DamageType);
+            }
+        }
         return MonsterDamageType.None;
     }
 
@@ -2834,33 +2933,87 @@ internal sealed class CombatController
         : (damageType & 0x0400) != 0 ? MonsterDamageType.VoidBasic
         : null;
 
+    /// <summary>
+    /// Whether the weapon in hand can actually put this element on a monster.
+    /// Only a launcher can fail: it needs ammunition of that element. Every
+    /// other weapon, and a wand, can always deliver.
+    /// </summary>
     private bool CanDeliverElement(
         MonsterDamageType element,
-        in PluginCombatTarget target)
+        uint weapon,
+        IReadOnlyList<PluginEquipmentItem> owned)
     {
-        (MonsterDamageType, uint) key = (element, target.ObjectId);
+        (MonsterDamageType, uint) key = (element, weapon);
         if (_passDeliverable.TryGetValue(key, out bool cached))
             return cached;
-        bool deliverable = CanDeliverElementCore(element, target);
+        bool deliverable = CanDeliverElementCore(element, weapon, owned);
         _passDeliverable[key] = deliverable;
+        if (!deliverable)
+        {
+            PostAttackWarning(
+                "Warning: bow with element " + ElementName(element)
+                + " ignored because ammunition is not available.");
+        }
         return deliverable;
     }
 
     private bool CanDeliverElementCore(
         MonsterDamageType element,
-        in PluginCombatTarget target)
+        uint weapon,
+        IReadOnlyList<PluginEquipmentItem> owned)
     {
-        if (PassEquipment() is { Count: > 0 } owned
-            && SelectAutomaticWeapon(owned, element, _settings) != 0u)
+        int launcherType = 0;
+        foreach (PluginEquipmentItem item in owned)
         {
-            return true;
+            if (item.ObjectId != weapon)
+                continue;
+            launcherType = VtankAmmunitionDatabase.LauncherType(item.AmmoType);
+            break;
         }
-        RefreshSpellCatalogs();
-        Func<PluginSpellInfo, bool> usable = IsUsableAttackSpell(target);
-        return _attackCatalog.Resolve(element, VtankCombatSpellType.War, usable)
-                is not null
-            || _attackCatalog.Resolve(element, VtankCombatSpellType.Arc, usable)
-                is not null;
+        if (launcherType == 0)
+            return true;
+
+        return VtankAmmunitionDatabase.Select(
+            _gameInfo.AmmunitionOptions.Count > 0
+                ? _gameInfo.AmmunitionOptions
+                : VtankAmmunitionDatabase.Options,
+            launcherType,
+            element,
+            VtankPrismaticAmmoPolicy.Any,
+            _settings.UseSpecialAmmo,
+            _host.Automation.Character,
+            AmmunitionAvailability()) is not null;
+    }
+
+    private Func<string, bool>? _passAmmunitionAvailability;
+
+    /// <summary>
+    /// Whether a named stack of ammunition is in the pack, or could be made.
+    /// Answered once per pass per name.
+    /// </summary>
+    private Func<string, bool> AmmunitionAvailability()
+    {
+        if (_passAmmunitionAvailability is not null)
+            return _passAmmunitionAvailability;
+
+        Dictionary<string, int>? counts = null;
+        var answers = new Dictionary<string, bool>(StringComparer.OrdinalIgnoreCase);
+        _passAmmunitionAvailability = name =>
+        {
+            if (answers.TryGetValue(name, out bool cached))
+                return cached;
+            counts ??= _host.Automation.Items.CaptureOwnedItems()
+                .GroupBy(static item => item.Name, StringComparer.OrdinalIgnoreCase)
+                .ToDictionary(
+                    static group => group.Key,
+                    static group => group.Sum(item => Math.Max(1, item.StackSize)),
+                    StringComparer.OrdinalIgnoreCase);
+            bool answer = counts.GetValueOrDefault(name) >= 1
+                || _canCraftAmmunition?.Invoke(name, 1) == true;
+            answers[name] = answer;
+            return answer;
+        };
+        return _passAmmunitionAvailability;
     }
 
     private MonsterDamageType ResolveExtraVulnerability(

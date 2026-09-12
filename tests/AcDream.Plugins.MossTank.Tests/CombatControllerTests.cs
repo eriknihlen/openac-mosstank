@@ -1605,17 +1605,92 @@ public sealed class CombatControllerTests
         Assert.Equal((100u, 10u), surface.LastTargetedCast);
     }
 
+    /// <summary>
+    /// Mutation: read only the weapon's plain damage again and the first half
+    /// fails; apply the caster training cascade whatever the weapon is and the
+    /// second fails — a martyr mage's melee build would be handed a drain.
+    /// </summary>
     [Fact]
-    public void AnUndeliverablePreferenceListFallsThroughToTheUnlistedWalk()
+    public void AnImbuedMeleeWeaponKeepsItsOwnElementForALifeOnlyCaster()
     {
         var surface = new FakeAutomation
         {
-            CombatSnapshot = Physical() with { Mode = PluginCombatMode.Magic },
-            Targets = [Target(10, "Magma Golem", 5, 0)],
-            KnownCombatSpells = [MagicSpell(101, "Acid Stream VII", difficulty: 300)],
-            EquipmentItems = [WieldedCaster()],
+            CombatSnapshot = Peaceful(),
+            Targets = [Target(10, "Drudge", 5, 0)],
+            KnownCombatSpells =
+            [
+                Debuff(70, "Fire Vulnerability Other VII"),
+                Debuff(71, "Cold Vulnerability Other VII"),
+            ],
+            EquipmentItems =
+            [
+                Equipment(
+                    990u,
+                    "Spare Wand",
+                    damageType: 0,
+                    itemType: CombatModeGate.CasterItemType),
+                Equipment(
+                    991u,
+                    "Imbued Sword",
+                    // Plainly a slashing sword; its imbue rends fire.
+                    damageType: 0x0001,
+                    equippedLocation: 0x00100000u) with
+                {
+                    ImbuedEffect = 0x0200,
+                },
+            ],
+            // Life magic only: no war, no void.
+            CharacterSkills =
+                [new(33u, "Life Magic", PluginSkillTraining.Trained, 300)],
         };
         var settings = new CombatSettings { MaximumRange = 40d };
+        settings.CombatItemNames.Add("Spare Wand");
+        settings.Rules.Clear();
+        settings.Rules.Add(new MonsterRule(
+            "DEFAULT",
+            new MonsterRuleActions
+            {
+                Flags = MonsterActionFlags.Vulnerability,
+                DamageType = MonsterDamageType.Auto,
+                ExtraVulnerability = MonsterDamageType.None,
+                WeaponName = "Imbued Sword",
+            }));
+        var controller = new CombatController(new FakeHost(surface), settings);
+
+        controller.Toggle();
+        for (int tick = 0; tick < 5; tick++)
+            controller.OnTick(0.25);
+
+        Assert.Equal((70u, 10u), surface.LastTargetedCast);
+    }
+
+    /// <summary>
+    /// Mutation: make "can this element be delivered" mean "do I know a spell
+    /// or own a weapon of it" again and this fails — that question can always
+    /// be answered yes by some spell, so the empty-quiver warning would never
+    /// be reached. Only a launcher can fail to deliver, and only for want of
+    /// ammunition.
+    /// </summary>
+    [Fact]
+    public void ABowWithAnEmptyPackCanDeliverNoElementAtAll()
+    {
+        var surface = new FakeAutomation
+        {
+            CombatSnapshot = Physical(),
+            Targets = [Target(10, "Magma Golem", 5, 0)],
+            EquipmentItems =
+            [
+                Equipment(
+                    900u,
+                    "Yumi",
+                    damageType: 0,
+                    itemType: 0x100,
+                    equippedLocation: 0x00100000u,
+                    ammoType: 0x001u),
+            ],
+        };
+        var settings = new CombatSettings { MaximumRange = 40d };
+        settings.CombatItemNames.Add("Yumi");
         settings.Rules.Clear();
         settings.Rules.Add(new MonsterRule(
             "DEFAULT",
@@ -1633,14 +1708,18 @@ public sealed class CombatControllerTests
         controller.Toggle();
         controller.OnTick(0.25);
 
-        Assert.Equal((101u, 10u), surface.LastTargetedCast);
         Assert.Contains(
             surface.PostedSystemMessages,
             message => message.Contains(
-                "Using unlisted damage type: Acid",
+                "no ammunition available!!!",
                 StringComparison.Ordinal));
     }
 
+    /// <summary>
+    /// Mutation: skip a preference the character has no spell for and this
+    /// fails — a wand can always deliver, so the monster's FIRST listed
+    /// weakness is the one that is used even when nothing is known for it.
+    /// </summary>
     [Fact]
     public void TheLoadedGameInfoDatabaseDrivesTheAutoAttackElement()
     {
@@ -1652,6 +1731,8 @@ public sealed class CombatControllerTests
             [
                 MagicSpell(103, "Force Bolt VII", difficulty: 300),
                 MagicSpell(105, "Shock Wave VII", difficulty: 300),
+                // The Magma Golem's first listed weakness is cold.
+                MagicSpell(104, "Frost Bolt VII", difficulty: 300),
             ],
             EquipmentItems = [WieldedCaster()],
         };
@@ -1673,7 +1754,7 @@ public sealed class CombatControllerTests
         controller.Toggle();
         controller.OnTick(0.25);
 
-        Assert.Equal((105u, 10u), surface.LastTargetedCast);
+        Assert.Equal((104u, 10u), surface.LastTargetedCast);
     }
 
     [Fact]
