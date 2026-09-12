@@ -326,6 +326,76 @@ public sealed class MossTankAutostartTests
         Assert.Equal(storageBefore, ((MemoryStorage)host.Storage).Text);
     }
 
+    /// <summary>
+    /// "Mine only" is a picker filter: it decides which files the profiles
+    /// tab lists, not which files exist. A settings profile dropped into the
+    /// profile directory by hand — which is how a bot run, a shared build or
+    /// a fresh install gets one — must still be selectable by name, exactly
+    /// as the loot and route profiles already are.
+    /// </summary>
+    [Fact]
+    public void ASettingsProfileFileIsSelectableByNameEvenWhileTheMineOnlyPickerHidesIt()
+    {
+        var automation = new FakeAutomation { IsAvailable = true };
+        var host = new FakeHost(automation);
+        host.VtankProfiles.WriteText(
+            "vt-proof-settings.usd",
+            VtankDefaultSettingsDatabase.Parse().Render());
+        var store = new MossTankProfileStore(host);
+        store.BindCharacter("TestChar");
+
+        Assert.True(store.MineOnly);
+        Assert.DoesNotContain("vt-proof-settings.usd", store.AvailableNames);
+
+        Assert.True(store.Exists("vt-proof-settings"));
+        Assert.True(store.Select("vt-proof-settings"));
+        Assert.Equal("vt-proof-settings.usd", store.Selected);
+    }
+
+    /// <summary>
+    /// The reserved "--" family still belongs to whichever character owns it.
+    /// Resolving a bare name against the directory must not become a way
+    /// around that.
+    /// </summary>
+    [Fact]
+    public void ANamedLookupStillRefusesAnotherCharactersReservedProfileFile()
+    {
+        var automation = new FakeAutomation { IsAvailable = true };
+        var host = new FakeHost(automation);
+        host.VtankProfiles.WriteText(
+            "--SomeoneElse_Coldeve.usd",
+            VtankDefaultSettingsDatabase.Parse().Render());
+        var store = new MossTankProfileStore(host);
+        store.BindCharacter("TestChar");
+
+        Assert.False(store.Exists("--SomeoneElse_Coldeve"));
+        Assert.False(store.Select("--SomeoneElse_Coldeve"));
+    }
+
+    /// <summary>
+    /// The whole autostart path, end to end: a named settings profile that
+    /// only exists as a file is applied without an error line.
+    /// </summary>
+    [Fact]
+    public void AutostartAppliesASettingsProfileThatOnlyExistsAsAFileInTheProfileDirectory()
+    {
+        var automation = new FakeAutomation { IsAvailable = true };
+        var host = new FakeHost(automation);
+        host.VtankProfiles.WriteText(
+            "vt-proof-settings.usd",
+            VtankDefaultSettingsDatabase.Parse().Render());
+        var panel = new MossTankPanel(host);
+        host.SessionSettingsValue = new Dictionary<string, string>
+        {
+            ["settingsProfile"] = "vt-proof-settings",
+        };
+
+        panel.TickAutostart();
+
+        Assert.Empty(automation.Logger.Errors);
+        Assert.Equal("vt-proof-settings.usd", panel.SelectedMacroProfile);
+    }
+
     [Fact]
     public void MetaProfileStoreExistsProbeDoesNotMutateSelectionOrStorage()
     {

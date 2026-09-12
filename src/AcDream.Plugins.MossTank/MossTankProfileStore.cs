@@ -126,6 +126,14 @@ internal sealed class MossTankProfileStore
             return true;
         }
 
+        if (TryResolveProfileFileName(normalized) is { } named)
+        {
+            _selected = named;
+            _pendingLegacyBareName = null;
+            WriteBinding();
+            return true;
+        }
+
         if (_host.Storage.IsAvailable
             && _host.Storage.ReadText(LegacyProfileKey(normalized, byCharacter: false)) is not null)
         {
@@ -160,9 +168,39 @@ internal sealed class MossTankProfileStore
         if (VtankStorage.IsAvailable && VtankStorage.ReadText(subProfile) is not null)
             return true;
 
+        if (TryResolveProfileFileName(normalized) is not null)
+            return true;
+
         return _host.Storage.IsAvailable
             && _host.Storage.ReadText(LegacyProfileKey(normalized, byCharacter: false)) is not null;
     }
+
+    /// <summary>
+    /// Resolve a profile name against the profile directory itself rather
+    /// than against the picker's list. The "mine only" checkbox decides what
+    /// the profiles tab shows; it never decides what exists, so a profile
+    /// file that was simply placed in the directory — a shared build, a
+    /// fresh install, an automated run's fixture — stays selectable by name
+    /// the way loot and route profiles already are. The reserved "--" family
+    /// remains invisible to every character except the one that owns it.
+    /// </summary>
+    private string? TryResolveProfileFileName(string normalized)
+    {
+        if (!VtankStorage.IsAvailable)
+            return null;
+        string fileName = ToFileName(normalized);
+        if (VtankProfileDirectory.IsHiddenFromOtherCharacters(
+                fileName, _characterName, Server))
+        {
+            return null;
+        }
+        return VtankStorage.ReadText(fileName) is not null ? fileName : null;
+    }
+
+    private static string ToFileName(string bareName) =>
+        bareName.EndsWith(".usd", StringComparison.OrdinalIgnoreCase)
+            ? bareName
+            : bareName + ".usd";
 
     public bool Create(
         string? name,
