@@ -1229,8 +1229,9 @@ internal static class HostExpressionFunctions
     /// <summary>
     /// Castability as a profile asks it: the spell is in the book, its
     /// components are to hand, and the buffed school skill clears the spell's
-    /// difficulty plus the profile's margin. A spell whose school the host
-    /// does not report skips the skill check rather than failing on it.
+    /// difficulty plus the profile's margin. A school the host has not
+    /// reported yet reads as skill 0 and FAILS the comparison, which is the
+    /// same answer a character who has never trained that school gets.
     /// </summary>
     private static bool CanCastNow(
         IPluginHost host,
@@ -1245,13 +1246,15 @@ internal static class HostExpressionFunctions
             return false;
         if (!host.Automation.Magic.HasComponents(spellId))
             return false;
-        if (spell.School != 0u
-            && host.Automation.Character.TryGetSkill(
-                spell.School,
-                out PluginSkillInfo skill)
-            && skill.Current < spell.Difficulty + policy.Margin(hunting))
+        if (spell.School != 0u)
         {
-            return false;
+            long skill = host.Automation.Character.TryGetSkill(
+                spell.School,
+                out PluginSkillInfo info)
+                    ? info.Current
+                    : 0L;
+            if (skill < spell.Difficulty + policy.Margin(hunting))
+                return false;
         }
         return true;
     }

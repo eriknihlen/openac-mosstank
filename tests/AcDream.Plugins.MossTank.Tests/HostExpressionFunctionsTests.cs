@@ -274,6 +274,33 @@ public sealed class HostExpressionFunctionsTests
     }
 
     /// <summary>
+    /// A spell whose school the host has not reported yet is NOT castable:
+    /// the unknown skill reads 0 and fails the difficulty comparison. This is
+    /// the state a fresh session is in before the skill table arrives.
+    /// Mutation: skipping the comparison when the skill is unknown makes both
+    /// castability questions answer true, and the cast answers 0 instead of 2.
+    /// </summary>
+    [Fact]
+    public void CastabilityFailsClosedWhenTheSchoolSkillIsUnknown()
+    {
+        var automation = CreateAutomation();
+        // The fake reports War Magic (34) only; Life Magic (33) is unknown.
+        automation.Spells[1001] = Spell(1001, school: 33, difficulty: 1);
+        using var runtime = new MossTankExpressionRuntime(new Host(automation));
+
+        Assert.False(runtime.Evaluate("getcancastspell_hunt[1001]").IsTruthy);
+        Assert.False(runtime.Evaluate("getcancastspell_buff[1001]").IsTruthy);
+        Assert.Equal(2d, runtime.Evaluate("actiontrycastbyid[1001]").AsNumber());
+
+        automation.Skills =
+        [
+            .. automation.Skills,
+            new PluginSkillInfo(33, "Life Magic", PluginSkillTraining.Trained, 300),
+        ];
+        Assert.True(runtime.Evaluate("getcancastspell_hunt[1001]").IsTruthy);
+    }
+
+    /// <summary>
     /// Casting from an expression answers 2 (impossible), 0 (not attempted
     /// yet) or 1 (begun) — never a bare boolean. An untargeted spell is only
     /// castable through `actiontrycastbyid`, a targeted one only through
