@@ -4531,7 +4531,7 @@ internal sealed partial class MossTankPanel : IBuffRuleHost
     private void HandleSessionEnded()
     {
         if (_combat.Enabled)
-            _combat.OnTick(0d, navigationEnabled: false);
+            _combat.OnTick(0d);
 
         ClearFastCastMovement();
         _buffRule.Reset();

@@ -312,7 +312,7 @@ internal sealed class CombatController
         return !TickEquipment();
     }
 
-    public void OnTick(double elapsedSeconds, bool navigationEnabled = true)
+    public void OnTick(double elapsedSeconds)
     {
         if (!Enabled)
             return;
@@ -384,12 +384,13 @@ internal sealed class CombatController
         _untilScan -= Math.Max(0d, elapsedSeconds);
         if (_untilScan <= 0d)
         {
-            double acquisitionRange = navigationEnabled
-                ? Math.Max(_settings.MaximumRange, _settings.ApproachDistance)
-                : _settings.MaximumRange;
-            _acquisitionRange = acquisitionRange;
+            // The attack's candidate pool is what the character can HIT. A
+            // monster it would have to walk to is not a candidate here at all
+            // — walking to one is a separate, much lower-priority job, so an
+            // unreachable monster must not starve everything below the attack.
+            _acquisitionRange = _settings.MaximumRange;
             _targets = _host.Automation.Combat.CaptureHostileTargets(
-                (float)acquisitionRange);
+                (float)_acquisitionRange);
             foreach (uint ghost in _failures.ObserveTargets(
                 _targets,
                 _now,
@@ -416,20 +417,6 @@ internal sealed class CombatController
             return;
         }
 
-        if (_targetDistance > _settings.MaximumRange)
-        {
-            if (navigationEnabled
-                && _settings.ApproachDistance > _settings.MaximumRange
-                && _targetDistance <= _settings.ApproachDistance
-                && TickApproach())
-            {
-                return;
-            }
-
-            StopApproachMovement();
-            Status = $"{_targetName} is out of attack range";
-            return;
-        }
         StopApproachMovement();
 
         if (_pets.Tick(
@@ -2266,6 +2253,7 @@ internal sealed class CombatController
                     lastTarget,
                     inventory,
                     equipment,
+                    _acquisitionRange,
                     out CombatTargetCandidate candidate))
             {
                 candidates.Add(candidate);
@@ -2320,6 +2308,7 @@ internal sealed class CombatController
         uint lastTarget,
         IReadOnlyList<PluginInventoryItem> inventory,
         IReadOnlyList<PluginEquipmentItem> equipment,
+        double maximumRange,
         out CombatTargetCandidate candidate)
     {
         candidate = default;
@@ -2335,7 +2324,7 @@ internal sealed class CombatController
         if (rule.Priority < 0)
             return false;
 
-        if (target.Distance > _acquisitionRange)
+        if (target.Distance > maximumRange)
             return false;
         if (target.Distance < _settings.MinimumRange)
             return false;
@@ -2746,15 +2735,103 @@ internal sealed class CombatController
         Status = status;
     }
 
-    private bool TickApproach()
+    /// <summary>
+    /// Walking to a monster the character cannot yet hit. This is its OWN job,
+    /// twenty positions below the attack, with its own candidate pick at the
+    /// approach range: the attack must not claim the pass for a monster it
+    /// would have to walk to, or nothing below the attack ever runs.
+    /// </summary>
+    /// <returns>True while there is a monster worth walking to.</returns>
+    internal bool TickMonsterApproach(double elapsedSeconds, bool canAct)
+    {
+        if (!Enabled
+            || !_settings.Enabled
+            || !_host.Automation.IsAvailable
+            || !canAct
+            || _settings.ApproachDistance <= _settings.MaximumRange)
+        {
+            StopApproachMovement();
+            return false;
+        }
+
+        _now += Math.Max(0d, elapsedSeconds);
+        if (SelectApproachTarget() is not { } approach)
+        {
+            StopApproachMovement();
+            return false;
+        }
+        // The walk ends where the attack begins.
+        if (approach.Distance <= _settings.MaximumRange)
+        {
+            StopApproachMovement();
+            return false;
+        }
+        return TickApproachTo(
+            approach.ObjectId,
+            approach.Target.Name,
+            approach.Distance);
+    }
+
+    /// <summary>
+    /// The same comparison chain the attack runs, over the monsters inside the
+    /// approach range rather than the ones inside weapon range.
+    /// </summary>
+    private CombatTargetCandidate? SelectApproachTarget()
+    {
+        IReadOnlyList<PluginCombatTarget> reachable =
+            _host.Automation.Combat.CaptureHostileTargets(
+                (float)_settings.ApproachDistance);
+        if (reachable.Count == 0)
+            return null;
+
+        PluginCombatSnapshot combat = _host.Automation.Combat.Snapshot;
+        RefreshSpellCatalogs();
+        IReadOnlyList<PluginInventoryItem> inventory =
+            _host.Automation.Items.CaptureOwnedItems();
+        IReadOnlyList<PluginEquipmentItem> equipment =
+            _host.Automation.Equipment.IsAvailable
+                ? _host.Automation.Equipment.CaptureOwnedEquipment()
+                : Array.Empty<PluginEquipmentItem>();
+        (uint wieldedWeapon, uint wieldedOffhand) = WieldedPair(equipment);
+
+        var candidates = new List<CombatTargetCandidate>();
+        foreach (PluginCombatTarget target in reachable)
+        {
+            if (TryBuildCandidate(
+                    target,
+                    combat,
+                    _targetId,
+                    inventory,
+                    equipment,
+                    _settings.ApproachDistance,
+                    out CombatTargetCandidate candidate))
+            {
+                candidates.Add(candidate);
+            }
+        }
+        if (candidates.Count == 0)
+            return null;
+
+        CombatTargetCandidate chosen = CombatTargetSelector.Select(
+            candidates,
+            _settings.DebuffEachFirst,
+            _settings.SelectionMethod,
+            _settings.TargetSelectAngleRange,
+            wieldedWeapon,
+            wieldedOffhand);
+        return chosen.ObjectId == 0u ? null : chosen;
+    }
+
+    private bool TickApproachTo(uint objectId, string name, double distance)
     {
         INavigationAutomation navigation = _host.Automation.Navigation;
         PluginNavigationSnapshot self = navigation.Snapshot;
         if (!self.IsAvailable || self.IsPortalSpace
             || !navigation.TryGetObject(
-                _targetId,
+                objectId,
                 out PluginNavigationObject target))
         {
+            StopApproachMovement();
             return false;
         }
 
@@ -2779,9 +2856,12 @@ internal sealed class CombatController
         }
 
         _approachMovementOwned = true;
+        string label = string.IsNullOrWhiteSpace(name)
+            ? $"0x{objectId:X8}"
+            : name;
         Status = MathF.Abs(delta) > NavigationController.HeadingToleranceDegrees
-            ? $"Turning to {_targetName} ({delta:+0.0;-0.0}°)"
-            : $"Approaching {_targetName} ({_targetDistance:0.0}m)";
+            ? $"Turning to {label} ({delta:+0.0;-0.0}°)"
+            : $"Approaching {label} ({distance:0.0}m)";
         return true;
     }
 

@@ -2134,6 +2134,65 @@ public sealed class MossTankPanelTests
         Assert.False(route.ValidNow(in context));
     }
 
+    /// <summary>
+    /// Mutation: build the attack's candidates out to the approach range again
+    /// and this fails — the attack claims the pass for a monster it cannot
+    /// reach and every rule below it starves.
+    /// </summary>
+    [Fact]
+    public void AMonsterOutOfWeaponRangeDoesNotStarveTheRulesBelowTheAttack()
+    {
+        var automation = new CombatCapableFakeAutomation
+        {
+            CurrentHealth = 100,
+            MaxHealth = 100,
+            ItemEntries = [Item(20, "Battle Axe", itemType: 1)],
+            EquipmentItems = [EquipmentItem(20, "Battle Axe", itemType: 1)],
+            Targets = [new PluginCombatTarget(30, "Drudge", 700, 12f, 0f, true, 1f)],
+        };
+        automation.CombatSnapshot = automation.CombatSnapshot with
+        {
+            Mode = PluginCombatMode.Melee,
+        };
+        var host = new FakeHost(automation);
+        var panel = new MossTankPanel(host);
+        host.Selection.Select(20);
+        panel.AddSelectedItem();
+        panel.CycleMonsterWeaponAt(0);
+        panel.SetApproachRangeText("20");
+        // Navigation off, so the monster-approach rule cannot claim the pass
+        // either: what runs has to come from below both of them.
+        panel.ToggleIdlePeaceMode();
+        panel.ToggleCombat();
+
+        for (int tick = 0; tick < 20; tick++)
+            panel.OnTick(0.3d);
+
+        Assert.Equal(0, automation.BeginCount);
+        Assert.Contains("EnterMode:Peace", automation.CallLog);
+    }
+
+    [Fact]
+    public void MonsterApproachSitsBelowIdleBuffAndAboveTheRoute()
+    {
+        var panel = new MossTankPanel(new FakeHost(new FakeAutomation()));
+        List<IMacroRule> rules = [.. panel.MacroRules];
+
+        int idleBuff = rules.FindIndex(static rule => rule.Name == "BuffSelfIdle");
+        int approach = rules.FindIndex(
+            static rule => rule.Name == "NavigateMonster");
+        int route = rules.FindIndex(
+            static rule => rule.Name == "NavigateRouteIdle");
+
+        Assert.True(idleBuff >= 0 && approach >= 0 && route >= 0);
+        Assert.True(
+            idleBuff < approach,
+            $"idle buff top-off at {idleBuff} must outrank the approach at {approach}.");
+        Assert.True(
+            approach < route,
+            $"the approach at {approach} must outrank the route at {route}.");
+    }
+
     [Fact]
     public void VtLogActiveRuleOffPostsNothing()
     {

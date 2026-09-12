@@ -5,8 +5,14 @@ namespace AcDream.Plugins.MossTank.Tests;
 
 public sealed class CombatControllerTests
 {
+    /// <summary>
+    /// Mutation: put the approach back inside the attack (build the attack's
+    /// candidates out to the approach range and walk from there) and the
+    /// second half fails — the attack would claim the pass with the monster
+    /// still twelve metres away, so nothing below it would ever run.
+    /// </summary>
     [Fact]
-    public void ApproachClosesFromConfiguredRangeBeforeAttacking()
+    public void WalkingToAMonsterIsItsOwnJobBelowTheAttack()
     {
         var surface = new FakeAutomation
         {
@@ -29,18 +35,68 @@ public sealed class CombatControllerTests
         var controller = new CombatController(new FakeHost(surface), settings);
 
         controller.Toggle();
-        controller.OnTick(0.05d, navigationEnabled: true);
+        controller.OnTick(0.05d);
 
+        // The attack has nothing to do: the monster is out of weapon range, so
+        // it is not one of its candidates at all.
+        Assert.False(controller.HasTarget);
+        Assert.Empty(surface.MovementIntents);
+        Assert.Equal(0, surface.BeginCount);
+
+        Assert.True(controller.TickMonsterApproach(0.05d, canAct: true));
         PluginMovementIntent intent = Assert.Single(surface.MovementIntents);
         Assert.True(intent.Forward);
-        Assert.Equal(0, surface.BeginCount);
         Assert.Contains("Approaching", controller.Status, StringComparison.Ordinal);
 
         surface.Targets = [Target(10, "Drudge", distance: 4, angle: 0)];
-        controller.OnTick(0.05d, navigationEnabled: true);
+        controller.OnTick(0.05d);
 
-        Assert.Equal(1, surface.ClearMovementCount);
         Assert.Equal(10u, surface.LastBeginTarget);
+        // Nothing left to walk to.
+        Assert.False(controller.TickMonsterApproach(0.05d, canAct: true));
+    }
+
+    /// <summary>
+    /// Mutation: drop the approach rule's own candidate pick and reuse the
+    /// attack's target and this fails — the attack has no target at all here.
+    /// </summary>
+    [Fact]
+    public void TheApproachPicksItsOwnTargetAtTheApproachRange()
+    {
+        var surface = new FakeAutomation
+        {
+            CombatSnapshot = Physical(),
+            Targets =
+            [
+                Target(10, "Drudge", distance: 12, angle: 0),
+                Target(20, "Olthoi Soldier", distance: 18, angle: 30),
+            ],
+            NavigationSnapshot = NavigationAt(heading: 0f),
+            EquipmentItems = [WieldedPlannedWeapon()],
+        };
+        surface.NavigationObjects[20u] = new PluginNavigationObject(
+            20u,
+            "Olthoi Soldier",
+            new PluginNavigationPosition(0x7F7F0001, 0.1d, 0d, 0d, 0f, true));
+        var settings = new CombatSettings
+        {
+            MaximumRange = 5f,
+            ApproachDistance = 20f,
+            ScanIntervalSeconds = 0.05d,
+            SelectionMethod = TargetSelectionMethod.Range,
+        };
+        settings.Rules.Insert(0, new MonsterRule("name#^Olthoi", 4));
+        ProfileFixtureWeapon(settings);
+        var controller = new CombatController(new FakeHost(surface), settings);
+
+        controller.Toggle();
+        controller.OnTick(0.05d);
+
+        Assert.True(controller.TickMonsterApproach(0.05d, canAct: true));
+        Assert.Contains(
+            "Olthoi Soldier",
+            controller.Status,
+            StringComparison.Ordinal);
     }
 
     private static (FakeAutomation Surface, CombatController Controller)
@@ -81,7 +137,7 @@ public sealed class CombatControllerTests
         (FakeAutomation surface, CombatController controller) =
             ApproachRig(selfHeading: 0f, targetEastWest: 0.0839d, targetNorthSouth: 0.1d);
 
-        controller.OnTick(0.05d, navigationEnabled: true);
+        controller.TickMonsterApproach(0.05d, canAct: true);
 
         Assert.Empty(surface.MovementIntents);
         Assert.Equal(1, surface.ClearMovementCount);
@@ -96,15 +152,15 @@ public sealed class CombatControllerTests
         (FakeAutomation surface, CombatController controller) =
             ApproachRig(selfHeading: 0f, targetEastWest: 0.0839d, targetNorthSouth: 0.1d);
 
-        // fd.cs:336 — two 293 ms passes fall inside the 0.7 s `p` stamp.
-        controller.OnTick(0.293d, navigationEnabled: true);
-        controller.OnTick(0.293d, navigationEnabled: true);
+        // Two 293 ms passes fall inside the 0.7 s re-issue window.
+        controller.TickMonsterApproach(0.293d, canAct: true);
+        controller.TickMonsterApproach(0.293d, canAct: true);
 
         Assert.Single(surface.FacedHeadings);
 
-        controller.OnTick(0.293d, navigationEnabled: true);
+        controller.TickMonsterApproach(0.293d, canAct: true);
         Assert.Single(surface.FacedHeadings);
-        controller.OnTick(0.293d, navigationEnabled: true);
+        controller.TickMonsterApproach(0.293d, canAct: true);
         Assert.Equal(2, surface.FacedHeadings.Count);
     }
 
@@ -115,7 +171,7 @@ public sealed class CombatControllerTests
         (FakeAutomation surface, CombatController controller) =
             ApproachRig(selfHeading: 0f, targetEastWest: 0.003d, targetNorthSouth: 0.1d);
 
-        controller.OnTick(0.05d, navigationEnabled: true);
+        controller.TickMonsterApproach(0.05d, canAct: true);
 
         PluginMovementIntent intent = Assert.Single(surface.MovementIntents);
         Assert.True(intent.Forward);
@@ -135,7 +191,7 @@ public sealed class CombatControllerTests
             ApproachRig(selfHeading, targetEastWest: 0d, targetNorthSouth: 0.1d);
 
         for (int pass = 0; pass < 6; pass++)
-            controller.OnTick(0.293d, navigationEnabled: true);
+            controller.TickMonsterApproach(0.293d, canAct: true);
 
         Assert.DoesNotContain(
             surface.MovementIntents,

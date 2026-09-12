@@ -221,10 +221,18 @@ internal sealed partial class MossTankPanel : IMacroRuleProvider
             gate: () => _buffSettings.IdleBuffTopoff,
             bookkeepWhenBlocked: false),
 
-        MacroRuleSlot.NavigateMonster => new AbsentMacroRule(
+        // Walking to a monster is a navigation job that sits twenty positions
+        // below the attack, not part of the attack: idle looting, idle buff
+        // top-off and the route all outrank it.
+        MacroRuleSlot.NavigateMonster => new ControllerMacroRule(
             "NavigateMonster",
-            "fused into Attack — CombatController.TickApproach owns monster "
-                + "approach."),
+            context => _combat.TickMonsterApproach(
+                context.ElapsedSeconds,
+                context.CanAct),
+            gate: () => _combat.Enabled && !_buffRule.IsBursting
+                && _navigationSettings.Enabled
+                && NavigationLocksAreClear(),
+            bookkeepWhenBlocked: false),
 
         MacroRuleSlot.RechargeSelfNoTarget => new AbsentMacroRule(
             "RechargeSelfNoTarget",
@@ -253,7 +261,7 @@ internal sealed partial class MossTankPanel : IMacroRuleProvider
     private bool TickCombatRule(MacroPassContext context)
     {
         _combat.SetPaused(!context.CanAct);
-        _combat.OnTick(context.ElapsedSeconds, _navigationSettings.Enabled);
+        _combat.OnTick(context.ElapsedSeconds);
         return context.CanAct
             && (_combat.HasTarget || _combat.HasPendingItemDebuff);
     }
