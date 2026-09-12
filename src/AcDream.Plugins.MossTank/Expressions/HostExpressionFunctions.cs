@@ -54,21 +54,30 @@ internal static class HostExpressionFunctions
                 ? ExpressionValue.UiControl(new ExpressionUiControl(view, control))
                 : ExpressionValue.Zero;
         }, "uigetcontrol[windowName,controlName]");
+        // A control that cannot take a label is an error, not a false.
         registry.Register("uisetlabel", 2, 2, (_, args) =>
         {
             ExpressionUiControl control = args[0].AsUiControl("uisetlabel");
-            return ExpressionValue.Boolean(host.Ui.SetControlLabel(
-                control.View,
-                control.Control,
-                args[1].AsString("uisetlabel")));
+            if (!host.Ui.SetControlLabel(
+                    control.View,
+                    control.Control,
+                    args[1].AsString("uisetlabel")))
+            {
+                throw new ExpressionEvaluationException(
+                    "uisetlabel: Improper control type specified");
+            }
+            return ExpressionValue.One;
         }, "uisetlabel[control,label]");
+        // Any non-zero number means visible, and the second argument is
+        // handed back unchanged.
         registry.Register("uisetvisible", 2, 2, (_, args) =>
         {
             ExpressionUiControl control = args[0].AsUiControl("uisetvisible");
-            return ExpressionValue.Boolean(host.Ui.SetControlVisible(
+            host.Ui.SetControlVisible(
                 control.View,
                 control.Control,
-                args[1].AsNumber("uisetvisible") >= 1d));
+                args[1].AsNumber("uisetvisible") != 0d);
+            return args[1];
         }, "uisetvisible[control,visible]");
         registry.Register("uiviewexists", 1, 1, (_, args) =>
             ExpressionValue.Boolean(host.Ui.ViewExists(
@@ -675,10 +684,22 @@ internal static class HostExpressionFunctions
             host.Automation.Chat.PostSystemMessage(args[0].ToDisplayString());
             return args[0];
         }, "echo[text]");
-        registry.Register("chatbox", 1, 1, (_, args) => ExpressionValue.Boolean(
-            host.Automation.Chat.Submit(args[0].ToDisplayString())), "chatbox[text]");
-        registry.Register("chatboxpaste", 1, 1, (_, args) => ExpressionValue.Boolean(
-            host.Automation.Chat.Submit(args[0].ToDisplayString())), "chatboxpaste[text]");
+        // `chatbox` sends and hands the argument straight back.
+        registry.Register("chatbox", 1, 1, (_, args) =>
+        {
+            string text = args[0].ToDisplayString();
+            if (text.Length != 0)
+                host.Automation.Chat.Submit(text);
+            return args[0];
+        }, "chatbox[text]");
+        // `chatboxpaste` only STAGES the text in the chat entry, control
+        // characters removed, for the player to finish and send themselves.
+        registry.Register("chatboxpaste", 1, 1, (_, args) =>
+        {
+            string text = StripControlCharacters(args[0].ToDisplayString());
+            return ExpressionValue.Boolean(
+                text.Length != 0 && host.Automation.Chat.Compose(text));
+        }, "chatboxpaste[text]");
         // The selection is attempted and the answer is always false: there is
         // no success path, and a profile branches on that.
         registry.Register("actiontryselect", 1, 1, (_, args) =>
@@ -1364,6 +1385,13 @@ internal static class HostExpressionFunctions
         pattern,
         RegexOptions.CultureInvariant,
         RegexTimeout);
+
+    private static string StripControlCharacters(string text)
+    {
+        if (text.Length == 0 || !text.Any(char.IsControl))
+            return text;
+        return string.Concat(text.Where(static value => !char.IsControl(value)));
+    }
 
     private static uint ToUInt(in ExpressionValue value, string operation) =>
         checked((uint)value.AsNumber(operation));

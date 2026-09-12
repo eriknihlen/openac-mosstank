@@ -293,6 +293,67 @@ public sealed class HostExpressionFunctionsTests
         Assert.Equal(0u, automation.NextLoginObjectId);
     }
 
+    /// <summary>
+    /// `chatbox` sends and gives its argument back; `chatboxpaste` stages the
+    /// text in the chat entry WITHOUT sending it, strips control characters,
+    /// and reports false when there is nothing to paste or the player is
+    /// already typing. Mutation: pointing chatboxpaste at the same submit
+    /// call sends the text and leaves the entry empty.
+    /// </summary>
+    [Fact]
+    public void ChatboxSendsAndChatboxPasteOnlyStagesTheText()
+    {
+        var automation = CreateAutomation();
+        using var runtime = new MossTankExpressionRuntime(new Host(automation));
+        automation.SubmittedChat.Clear();
+
+        Assert.Equal("/say hi", runtime.Evaluate("chatbox['/say hi']").AsString());
+        Assert.Equal(["/say hi"], automation.SubmittedChat);
+
+        Assert.True(runtime.Evaluate("chatboxpaste['/tell Bob, ']").IsTruthy);
+        Assert.Equal("/tell Bob, ", automation.ComposedChat);
+        Assert.Equal(["/say hi"], automation.SubmittedChat);
+
+        Assert.True(runtime.Evaluate(
+            "chatboxpaste[chr[9]+'a'+chr[10]+'b']").IsTruthy);
+        Assert.Equal("ab", automation.ComposedChat);
+        Assert.False(runtime.Evaluate("chatboxpaste[chr[9]]").IsTruthy);
+
+        automation.CanCompose = false;
+        Assert.False(runtime.Evaluate("chatboxpaste['/tell Bob, ']").IsTruthy);
+    }
+
+    /// <summary>
+    /// `uisetvisible` treats ANY non-zero number as visible and hands back its
+    /// second argument; `uisetlabel` answers 1 and raises an error for a
+    /// control that cannot take a label. Mutation: the previous ">= 1" test
+    /// hides a control at 0.5, and returning the host's bool loses both the
+    /// echoed argument and the error.
+    /// </summary>
+    [Fact]
+    public void UiVisibilityUsesNonZeroTruthAndLabelFailureIsAnError()
+    {
+        var automation = CreateAutomation();
+        var ui = new RecordingUiRegistry();
+        using var runtime = new MossTankExpressionRuntime(new Host(automation, ui: ui));
+
+        Assert.Equal(0.5d, runtime.Evaluate(
+            "uisetvisible[uigetcontrol['view','control'],0.5]").AsNumber());
+        Assert.True(ui.LastVisible);
+        Assert.Equal(-1d, runtime.Evaluate(
+            "uisetvisible[uigetcontrol['view','control'],0-1]").AsNumber());
+        Assert.True(ui.LastVisible);
+        Assert.Equal(0d, runtime.Evaluate(
+            "uisetvisible[uigetcontrol['view','control'],0]").AsNumber());
+        Assert.False(ui.LastVisible);
+
+        Assert.Equal(1d, runtime.Evaluate(
+            "uisetlabel[uigetcontrol['view','control'],'Go']").AsNumber());
+        ui.LabelAccepted = false;
+        Assert.Throws<ExpressionEvaluationException>(() => runtime.Evaluate(
+            "uisetlabel[uigetcontrol['view','control'],'Go']"));
+    }
+
     [Fact]
     public void NetworkClientsReturnUtilityBeltDictionariesAndTagFiltering()
     {
@@ -611,15 +672,16 @@ public sealed class HostExpressionFunctionsTests
 
     private sealed class Host(
         Automation automation,
-        IPluginStorage? storage = null) : IPluginHost
+        IPluginStorage? storage = null,
+        IUiRegistry? ui = null) : IPluginHost
     {
-        public bool HasUi => false;
+        public bool HasUi => ui is not null;
         public IPluginLogger Log { get; } = new Logger();
         public IGameState State { get; } = new State();
         public IEvents Events { get; } = new Events();
         public Selection Selection { get; } = new();
         ISelectionService IPluginHost.Selection => Selection;
-        public IUiRegistry Ui => NoOpUiRegistry.Instance;
+        public IUiRegistry Ui => ui ?? NoOpUiRegistry.Instance;
         public IPluginStorage Storage { get; } = storage ?? NoOpPluginStorage.Instance;
         public IAutomationSurface Automation { get; } = automation;
     }
@@ -865,6 +927,33 @@ public sealed class HostExpressionFunctionsTests
         public bool Submit(string text)
         {
             SubmittedChat.Add(text);
+            return true;
+        }
+        public bool CanCompose { get; set; } = true;
+        public string ComposedChat { get; private set; } = string.Empty;
+        public bool Compose(string text)
+        {
+            if (!CanCompose)
+                return false;
+            ComposedChat = text;
+            return true;
+        }
+    }
+
+    private sealed class RecordingUiRegistry : IUiRegistry
+    {
+        public bool LabelAccepted { get; set; } = true;
+        public bool LastVisible { get; private set; }
+
+        public void AddMarkupPanel(string markupPath, object binding) { }
+        public bool ViewExists(string viewName) => true;
+        public bool IsViewVisible(string viewName) => true;
+        public bool ControlExists(string viewName, string controlName) => true;
+        public bool SetControlLabel(string viewName, string controlName, string label) =>
+            LabelAccepted;
+        public bool SetControlVisible(string viewName, string controlName, bool visible)
+        {
+            LastVisible = visible;
             return true;
         }
     }
