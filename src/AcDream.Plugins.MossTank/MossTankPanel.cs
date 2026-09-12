@@ -336,6 +336,7 @@ internal sealed partial class MossTankPanel : IBuffRuleHost
             $"   I={host.Automation.Items.IsBusy}, N={_navigation.HasActiveAction}, S={host.Automation.Loot.IsBusy}";
         _combatModeGate.Log = EmitMacroLog;
         _combat.Log = EmitMacroLog;
+        _loot.Log = EmitMacroLog;
         _initialized = true;
         ApplyPersistedOptionOverrides();
         EnsureDefaultMonsterRule();
@@ -1804,6 +1805,7 @@ internal sealed partial class MossTankPanel : IBuffRuleHost
         }
         LoadLootProfile();
         _lootEditorNotice = $"Loaded loot profile {_lootProfiles.Selected}.";
+        ReportProfileLoaded("loot", _lootProfiles.Selected);
     }
 
     private void CreateLootProfileCore(bool copyCurrent)
@@ -2220,6 +2222,7 @@ internal sealed partial class MossTankPanel : IBuffRuleHost
         }
         LoadRouteProfile();
         _routeNotice = $"Loaded route {_routeProfiles.Selected}.";
+        ReportProfileLoaded("route", _routeProfiles.Selected);
     }
 
     private void CreateRouteProfileCore(bool copyCurrent)
@@ -2934,6 +2937,7 @@ internal sealed partial class MossTankPanel : IBuffRuleHost
         }
         LoadMetaProfile();
         _metaNotice = $"Loaded Meta profile {_metaProfiles.Selected}.";
+        ReportProfileLoaded("Meta", _metaProfiles.Selected);
     }
 
     private void CreateMetaProfileCore(bool copyCurrent)
@@ -4034,7 +4038,16 @@ internal sealed partial class MossTankPanel : IBuffRuleHost
         }
         LoadSelectedProfile();
         _profileLifecycleNotice = $"Loaded {_profiles.Selected}.";
+        ReportProfileLoaded("settings", _profiles.Selected);
     }
+
+    /// <summary>
+    /// Say which profile is now in effect. Each tab shows its own notice, but
+    /// a run with no window in front of it sees none of them, so the same
+    /// fact goes to the log where a session's record can be read afterwards.
+    /// </summary>
+    private void ReportProfileLoaded(string kind, string profileName) =>
+        _host.Log.Info($"Loaded {kind} profile {profileName}.");
 
     private void CreateProfileCore(bool copyCurrent)
     {

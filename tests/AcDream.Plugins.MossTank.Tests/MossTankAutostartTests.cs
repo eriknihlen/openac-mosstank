@@ -95,6 +95,44 @@ public sealed class MossTankAutostartTests
         Assert.Empty(automation.Logger.Errors);
     }
 
+    /// <summary>
+    /// A session with no window in front of it must still leave a record of
+    /// which profiles it came up with. The tabs' own notices are invisible
+    /// there, so each selection says so in the log.
+    /// </summary>
+    [Fact]
+    public void SelectingAProfileSaysSoInTheLogNotOnlyInTheTabsNotice()
+    {
+        var automation = new FakeAutomation { IsAvailable = true };
+        var host = new FakeHost(automation);
+        var panel = new MossTankPanel(host);
+
+        Command(panel, "settings save myprofile");
+        Command(panel, "meta save myMeta");
+        Command(panel, "nav save myNav");
+        Command(panel, "loot new myLoot");
+
+        host.SessionSettingsValue = new Dictionary<string, string>
+        {
+            ["settingsProfile"] = "myprofile",
+            ["metaProfile"] = "myMeta",
+            ["navProfile"] = "myNav",
+            ["lootProfile"] = "myLoot",
+        };
+        automation.Logger.Infos.Clear();
+
+        panel.TickAutostart();
+
+        Assert.Empty(automation.Logger.Errors);
+        foreach (string profile in new[] { "myprofile", "myMeta", "myNav", "myLoot" })
+        {
+            Assert.Contains(
+                automation.Logger.Infos,
+                message => message.Contains("oaded", StringComparison.Ordinal)
+                    && message.Contains(profile, StringComparison.OrdinalIgnoreCase));
+        }
+    }
+
     [Fact]
     public void EnableMetaTrueEnablesTheEngineAndSelectsItsDeclaredProfile()
     {
@@ -532,7 +570,8 @@ public sealed class MossTankAutostartTests
     private sealed class FakeLogger : IPluginLogger
     {
         public List<string> Errors { get; } = [];
-        public void Info(string message) { }
+        public List<string> Infos { get; } = [];
+        public void Info(string message) => Infos.Add(message);
         public void Warn(string message) { }
         public void Error(string message, Exception? exception = null) =>
             Errors.Add(message);

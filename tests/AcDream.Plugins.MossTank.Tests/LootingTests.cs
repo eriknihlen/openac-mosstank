@@ -347,6 +347,72 @@ public sealed class LootingTests
         Assert.Equal("Corpse complete.", controller.Status);
     }
 
+    /// <summary>
+    /// A looting pass has to be followable from outside the panel: what it
+    /// opened, what it decided about each item, and what it actually took.
+    /// Without those lines a run leaves no record of a loot pass at all.
+    /// </summary>
+    [Fact]
+    public void ALootingPassReportsTheCorpseEachDecisionAndEachPickup()
+    {
+        var settings = new LootSettings { Enabled = true };
+        settings.Rules.Add(new LootRule
+        {
+            Name = "Coins",
+            Expression = "name ~= coin",
+            Action = LootAction.Keep,
+            Priority = 3,
+        });
+        var automation = new Automation();
+        var logged = new List<(MacroLogChannel Channel, string Message)>();
+        var controller = new LootController(new Host(automation), settings)
+        {
+            Log = (channel, message) => logged.Add((channel, message)),
+        };
+        const uint corpse = 0x70000021u;
+        const uint coin = 0x70000022u;
+        automation.Corpses =
+        [
+            new PluginLootContainer(
+                corpse, 1u, "Drudge Corpse", 3f, false, false, false)
+            {
+                IsIdentified = true,
+                LongDescription = "Killed by Tester.",
+            },
+        ];
+
+        Assert.True(controller.Tick(1d, canAct: true));
+        automation.Requested = corpse;
+        automation.Current = corpse;
+        automation.Contents = [Item(coin, "Colosseum coin", 77)];
+        Assert.True(controller.Tick(0.2d, canAct: true));
+        automation.AppraisalState = new PluginAppraisalState(1, 0u, coin);
+        Assert.True(controller.Tick(0.1d, canAct: true));
+        automation.Contents = [];
+        automation.InventoryCompletion = new PluginInventoryCompletion(
+            1,
+            PluginInventoryCommandKind.Pickup,
+            coin,
+            0u);
+        Assert.True(controller.Tick(0.1d, canAct: true));
+
+        Assert.All(logged, entry =>
+            Assert.Equal(MacroLogChannel.Loot, entry.Channel));
+        string[] messages = logged.Select(static entry => entry.Message).ToArray();
+        Assert.Contains(
+            messages,
+            message => message.Contains("opening Drudge Corpse", StringComparison.Ordinal));
+        Assert.Contains(
+            messages,
+            message => message.Contains("Colosseum coin -> Keep (Coins)", StringComparison.Ordinal));
+        Assert.Contains(
+            messages,
+            message => message.Contains("taking Colosseum coin", StringComparison.Ordinal));
+        Assert.Contains(
+            messages,
+            message => message.Contains("took Colosseum coin", StringComparison.Ordinal));
+    }
+
     [Fact]
     public void ControllerUsesSelectedExternalClassifierAndPreservesItsAction()
     {

@@ -426,6 +426,15 @@ internal sealed class LootController
     }
 
     public string Status { get; private set; } = "Looting disabled.";
+
+    /// <summary>
+    /// The macro log sink. Looting is otherwise silent apart from a status
+    /// string nobody can read from outside the panel, which makes a looting
+    /// pass impossible to follow in a log — so what it opened, what it
+    /// decided and what it took go to the Loot channel.
+    /// </summary>
+    public Action<MacroLogChannel, string>? Log { get; set; }
+
     public IReadOnlyDictionary<uint, LootAction> ClassifiedOwnedItems =>
         _classifiedOwnedItems;
 
@@ -594,6 +603,9 @@ internal sealed class LootController
         _activeCorpseSawContents = false;
         _stateAge = 0d;
         Status = $"Opening {corpse.Name}…";
+        Log?.Invoke(
+            MacroLogChannel.Loot,
+            $"LootCorpse: opening {corpse.Name} (0x{corpse.ObjectId:X8})");
         return true;
     }
 
@@ -669,11 +681,11 @@ internal sealed class LootController
                 {
                     PluginItemProperties identified = default;
                     _ = loot.TryCaptureProperties(item.ObjectId, out identified);
-                    _decisions[item.ObjectId] = DecideItem(
+                    RecordDecision(item, DecideItem(
                         item,
                         identified,
                         owned,
-                        _pendingByName);
+                        _pendingByName));
                 }
                 _awaitingAppraisal = 0u;
                 _stateAge = 0d;
@@ -718,11 +730,11 @@ internal sealed class LootController
 
             PluginItemProperties properties = default;
             _ = loot.TryCaptureProperties(item.ObjectId, out properties);
-            _decisions[item.ObjectId] = DecideItem(
+            RecordDecision(item, DecideItem(
                 item,
                 properties,
                 owned,
-                _pendingByName);
+                _pendingByName));
         }
 
         var candidates = new List<(PluginInventoryItem Item, LootDecision Decision)>();
@@ -786,7 +798,22 @@ internal sealed class LootController
                 pending + _waitingQuantity;
         }
         Status = $"Looting {chosen.Item.Name} ({chosen.Decision.RuleName})…";
+        Log?.Invoke(
+            MacroLogChannel.Loot,
+            $"LootPickup: taking {chosen.Item.Name} x{_waitingQuantity} "
+                + $"({chosen.Decision.Action}, {chosen.Decision.RuleName})");
         return true;
+    }
+
+    /// <summary>Store a decision and say what it was.</summary>
+    private void RecordDecision(in PluginInventoryItem item, LootDecision? decision)
+    {
+        _decisions[item.ObjectId] = decision;
+        Log?.Invoke(
+            MacroLogChannel.Loot,
+            decision is { } chosen
+                ? $"LootDecision: {item.Name} -> {chosen.Action} ({chosen.RuleName})"
+                : $"LootDecision: {item.Name} -> no rule matched");
     }
 
     private bool ContinuePickup(ILootAutomation loot)
@@ -817,6 +844,9 @@ internal sealed class LootController
             }
             _decisions.Remove(_waitingItem);
             Status = $"Looted {_waitingName}.";
+            Log?.Invoke(
+                MacroLogChannel.Loot,
+                $"LootPickup: took {_waitingName} ({_waitingAction})");
             _itemAttempts.Remove(_waitingItem);
             if (_waitingAction == LootAction.Read)
             {
