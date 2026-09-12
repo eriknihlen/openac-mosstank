@@ -551,9 +551,20 @@ internal sealed class CombatController
         Retry,
     }
 
+    /// <summary>
+    /// The rule columns this one decision works from. A rolled element is
+    /// rolled ONCE per decision, before the debuff chain, so the vulnerability
+    /// the chain asks for and the spell the attack throws are the same element.
+    /// </summary>
+    private MonsterRuleActions DecisionActions =>
+        _decisionActions ?? _targetRule.Actions;
+
+    private MonsterRuleActions? _decisionActions;
+
     private AttackPassOutcome RunAttackAttempt()
     {
         StopApproachMovement();
+        _decisionActions = ResolveRandomDamage(_targetRule.Actions);
 
         if (_pets.Tick(
                 _host.Automation.Items,
@@ -628,9 +639,10 @@ internal sealed class CombatController
 
         IReadOnlyList<PluginInventoryItem> inventory =
             _host.Automation.Items.CaptureOwnedItems();
+        PluginCombatTarget physicalTarget = FindTarget(_targetId);
         MonsterRuleActions physicalActions = ResolvePhysicalActions(
-            _targetRule.Actions,
-            FindTarget(_targetId),
+            DecisionActions,
+            physicalTarget,
             inventory);
         if (combat.Mode == PluginCombatMode.Missile
             && !ProjectilePathIsClear(
@@ -647,11 +659,17 @@ internal sealed class CombatController
                 MonsterActionFlags.Attack | MonsterActionFlags.Streak);
             return AttackPassOutcome.Retry;
         }
+        // The power table reads the element the attack actually resolved to,
+        // so the bar and the wield plan cannot disagree. With the automatic
+        // power off nothing is written to the bar at all: the player's own
+        // setting stands.
         float desiredPower = AutoAttackPower.Resolve(
-            physicalActions,
-            _settings,
-            _host.Automation.Character,
-            inventory);
+                physicalActions,
+                ResolveAttackElement(physicalActions, physicalTarget),
+                _settings,
+                _host.Automation.Character,
+                inventory)
+            ?? combat.DesiredPower;
         // Every arm tears the turn down before it issues: a swing and a turn
         // both want the character, and the swing wins once it is armed.
         StopBreakableTurnMovement();
@@ -693,7 +711,7 @@ internal sealed class CombatController
         RefreshSpellCatalogs();
         _planKeptTheMonsterInPlay = false;
         PluginCombatTarget target = FindTarget(_targetId);
-        MonsterRuleActions actions = ResolveRandomDamage(_targetRule.Actions);
+        MonsterRuleActions actions = DecisionActions;
         MonsterDamageType element = ResolveAttackElement(actions, target);
 
         if (actions.DamageType == MonsterDamageType.Fists
@@ -1558,7 +1576,7 @@ internal sealed class CombatController
         if (target.ObjectId == 0u)
             return false;
 
-        MonsterRuleActions actions = _targetRule.Actions;
+        MonsterRuleActions actions = DecisionActions;
         IReadOnlyList<CombatDebuffStep> steps = CombatDebuffChain.Build(
             actions,
             ResolveAttackElement(actions, target),

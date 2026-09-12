@@ -55,17 +55,26 @@ internal sealed class CombatModeGate
 
     public Func<MonsterDamageType, bool>? WieldAmmunition { get; set; }
 
+    public const uint MeleeWeaponItemType = 0x00000001u;
+    public const uint MissileWeaponItemType = 0x00000100u;
+
     public static bool IsCaster(in PluginEquipmentItem item) =>
         (item.ItemType & CasterItemType) != 0u;
 
+    /// <summary>
+    /// Which stance a weapon puts the character in. This is the item's CLASS,
+    /// not a guess from its numbers: a thrown weapon is a missile weapon even
+    /// though it takes no ammunition, and a weapon that lists no damage is
+    /// still a melee weapon.
+    /// </summary>
     public static PluginCombatMode ModeFor(in PluginEquipmentItem item)
     {
         if (IsCaster(in item))
             return PluginCombatMode.Magic;
-        if (item.AmmoType != 0u)
-            return PluginCombatMode.Missile;
-        if (item.Damage > 0 || item.WeaponSkill != 0)
+        if ((item.ItemType & MeleeWeaponItemType) != 0u)
             return PluginCombatMode.Melee;
+        if ((item.ItemType & MissileWeaponItemType) != 0u)
+            return PluginCombatMode.Missile;
         return PluginCombatMode.Magic;
     }
 

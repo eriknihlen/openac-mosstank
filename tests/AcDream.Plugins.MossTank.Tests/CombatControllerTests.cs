@@ -3687,6 +3687,78 @@ public sealed class CombatControllerTests
         Assert.Empty(surface.CastSpellIds);
     }
 
+    /// <summary>
+    /// Mutation: classify from the numbers again (ammunition type, damage,
+    /// weapon skill) and this fails — a thrown weapon takes no ammunition and
+    /// an unarmed weapon lists no damage, so both would be mis-stanced.
+    /// </summary>
+    [Fact]
+    public void AWeaponsStanceComesFromItsClassNotItsNumbers()
+    {
+        PluginEquipmentItem thrown = Equipment(
+            1u,
+            "Throwing Dagger",
+            damageType: 0x0002,
+            itemType: 0x100,
+            ammoType: 0);
+        PluginEquipmentItem fists = Equipment(
+            2u,
+            "Training Wraps",
+            damageType: 0x0001,
+            damage: 0,
+            itemType: 0x1) with
+        {
+            WeaponSkill = 0,
+        };
+
+        Assert.Equal(PluginCombatMode.Missile, CombatModeGate.ModeFor(in thrown));
+        Assert.Equal(PluginCombatMode.Melee, CombatModeGate.ModeFor(in fists));
+    }
+
+    /// <summary>
+    /// Mutation: roll the random element inside the magic arm again and this
+    /// fails — a pass that only casts a debuff would leave the cursor where it
+    /// was, and the vulnerability would be for last pass's element.
+    /// </summary>
+    [Fact]
+    public void ARolledElementAdvancesEvenOnAPassThatOnlyDebuffs()
+    {
+        var surface = new FakeAutomation
+        {
+            CombatSnapshot = Physical() with { Mode = PluginCombatMode.Magic },
+            Targets = [Target(10, "Drudge", 5, 0)],
+            KnownCombatSpells =
+            [
+                Debuff(70, "Piercing Vulnerability Other VII"),
+                Debuff(71, "Bludgeoning Vulnerability Other VII"),
+            ],
+            EquipmentItems = [WieldedCaster()],
+        };
+        var settings = new CombatSettings { MaximumRange = 40d };
+        settings.Rules.Clear();
+        settings.Rules.Add(new MonsterRule(
+            "DEFAULT",
+            new MonsterRuleActions
+            {
+                Flags = MonsterActionFlags.Attack
+                    | MonsterActionFlags.Vulnerability,
+                DamageType = MonsterDamageType.Random,
+                ExtraVulnerability = MonsterDamageType.None,
+            }));
+        var controller = new CombatController(new FakeHost(surface), settings);
+
+        controller.Toggle();
+        controller.OnTick(0.25);
+        Assert.Equal(70u, surface.LastTargetedCast.Item1);
+
+        // The first debuff is still in flight, so let it finish.
+        surface.LastCastCompletion = new PluginCastCompletion(1, 70, 10, 0);
+        controller.OnTick(0.25);
+        controller.OnTick(0.25);
+
+        Assert.Equal(71u, surface.LastTargetedCast.Item1);
+    }
+
     private static CombatSettings FireAttackRule(CombatSettings settings)
     {
         settings.Rules.Clear();

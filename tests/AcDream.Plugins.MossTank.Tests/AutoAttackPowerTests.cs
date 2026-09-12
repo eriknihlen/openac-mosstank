@@ -31,16 +31,17 @@ public sealed class AutoAttackPowerTests
             items.Add(Weapon(3, 0x2, 0, 0x00200000));
         var settings = new CombatSettings { UseRecklessness = false };
 
-        float actual = AutoAttackPower.Resolve(
+        float? actual = AutoAttackPower.Resolve(
             new MonsterRuleActions
             {
                 DamageType = (MonsterDamageType)requestedRaw,
             },
+            (MonsterDamageType)requestedRaw,
             settings,
             new Character(),
             items);
 
-        Assert.Equal(expected, actual, 2);
+        Assert.Equal(expected, Assert.NotNull(actual), 2);
     }
 
     [Fact]
@@ -53,30 +54,70 @@ public sealed class AutoAttackPowerTests
             UseRecklessness = true,
         };
 
-        float power = AutoAttackPower.Resolve(
+        float? power = AutoAttackPower.Resolve(
             new MonsterRuleActions { DamageType = MonsterDamageType.Pierce },
+            MonsterDamageType.Pierce,
             settings,
             new Character(recklessness: true),
             [bow]);
 
-        Assert.Equal(0.9f, power, 2);
+        Assert.Equal(0.9f, Assert.NotNull(power), 2);
     }
 
+    /// <summary>
+    /// Mutation: return the macro's own attack-power setting instead of null
+    /// and this fails — with the automatic power off nothing may write to the
+    /// bar, so the player's own setting is what swings.
+    /// </summary>
     [Fact]
-    public void DisabledAutoPowerKeepsConfiguredValue()
+    public void DisabledAutoPowerLeavesTheBarAlone()
     {
         var settings = new CombatSettings
         {
             AutoAttackPower = false,
             AttackPower = 0.37f,
         };
+        Assert.Null(AutoAttackPower.Resolve(
+            new MonsterRuleActions(),
+            MonsterDamageType.Slash,
+            settings,
+            new Character(),
+            []));
+    }
+
+    /// <summary>
+    /// Mutation: short-circuit a non-slash, non-pierce element to full power
+    /// before the unarmed arm is reached and this fails — an unarmed build
+    /// swinging a bludgeoning element charges to full where it should not
+    /// charge at all.
+    /// </summary>
+    [Fact]
+    public void AnUnarmedWeaponSwingsAtNothingForAWrongElement()
+    {
+        PluginInventoryItem fists = Weapon(
+            1, 1, damageType: 0x3, equippedLocation: 0x00100000) with
+        {
+            WeaponType = 1,
+        };
+        var settings = new CombatSettings { UseRecklessness = false };
+
         Assert.Equal(
-            0.37f,
-            AutoAttackPower.Resolve(
+            0f,
+            Assert.NotNull(AutoAttackPower.Resolve(
                 new MonsterRuleActions(),
+                MonsterDamageType.Bludgeon,
                 settings,
                 new Character(),
-                []),
+                [fists])),
+            2);
+        Assert.Equal(
+            0.5f,
+            Assert.NotNull(AutoAttackPower.Resolve(
+                new MonsterRuleActions(),
+                MonsterDamageType.Slash,
+                settings,
+                new Character(),
+                [fists])),
             2);
     }
 
@@ -85,7 +126,7 @@ public sealed class AutoAttackPowerTests
         uint itemType,
         int damageType,
         uint equippedLocation) => new(
-            id, 0, "Weapon", itemType, 1, 0, 0, equippedLocation,
+            id, 0, "Weapon", itemType, 1, 0, equippedLocation, equippedLocation,
             0, 0, 0, 1, 0, 0, 0, 0, 0, 0, false, 0,
             0, damageType, 0, 0, 0, 0, 0);
 
