@@ -893,10 +893,8 @@ internal static class HostExpressionFunctions
             return ExpressionValue.Boolean(
                 host.Automation.Combat.EnterMode(mode).Accepted);
         }, "setcombatstate[state]");
-        registry.Register("getbusystate", 0, 0, (_, _) => ExpressionValue.Number(
-            host.Automation.Items.IsBusy
-            || host.Automation.Equipment.IsBusy
-            || host.Automation.Magic.IsCasting ? 1d : 0d), "getbusystate[]");
+        registry.Register("getbusystate", 0, 0, (_, _) =>
+            ExpressionValue.Number(IsBusy(host) ? 1d : 0d), "getbusystate[]");
         registry.Register("getequippedweapontype", 0, 0, (_, _) =>
         {
             foreach (PluginEquipmentItem item in host.Automation.Equipment
@@ -1259,12 +1257,22 @@ internal static class HostExpressionFunctions
         return true;
     }
 
+    /// <summary>The host has an action of its own in flight.</summary>
+    private static bool IsBusy(IPluginHost host) =>
+        host.Automation.Items.IsBusy
+        || host.Automation.Equipment.IsBusy
+        || host.Automation.Magic.IsCasting;
+
     /// <summary>
     /// One step towards being able to cast: wield a wand, then take the magic
-    /// stance. True only when both are already done.
+    /// stance. True only when both are already done. A busy character takes no
+    /// step at all — an expression-driven rule ticks every pass, and without
+    /// this the equip and stance requests would be re-issued mid-action.
     /// </summary>
     private static bool MagicModeStep(IPluginHost host)
     {
+        if (IsBusy(host))
+            return false;
         IEquipmentAutomation equipment = host.Automation.Equipment;
         PluginEquipmentItem? wand = equipment
             .CaptureOwnedEquipment()

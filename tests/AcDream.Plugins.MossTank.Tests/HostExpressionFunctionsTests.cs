@@ -352,6 +352,41 @@ public sealed class HostExpressionFunctionsTests
         Assert.Equal((1001u, 20u), automation.LastCast);
     }
 
+    /// <summary>
+    /// A busy character takes NO step towards magic mode: no equip request,
+    /// no stance request, and the step answers false. An expression rule ticks
+    /// every pass, so without the gate the same two requests are re-issued
+    /// while an action is already in flight. Mutation: dropping the busy gate
+    /// makes `automation.EquippedObject` 50 on the first evaluation.
+    /// </summary>
+    [Fact]
+    public void MagicModeStepTakesNoStepWhileTheHostIsBusy()
+    {
+        var automation = CreateAutomation();
+        automation.Spells[1002] = Spell(1002, school: 34, difficulty: 10) with
+        {
+            IsUntargeted = true,
+        };
+        automation.Equipment =
+        [
+            new PluginEquipmentItem(
+                50, "Wand", 0u, 0x01000000u, 0u, 1u, 0u, 0, 0, 0, 0, 0d),
+        ];
+        automation.IsBusy = true;
+        using var runtime = new MossTankExpressionRuntime(new Host(automation));
+
+        Assert.Equal(1d, runtime.Evaluate("getbusystate[]").AsNumber());
+        Assert.False(runtime.Evaluate("actiontryequipanywand[]").IsTruthy);
+        Assert.Equal(0u, automation.EquippedObject);
+        Assert.Equal(0d, runtime.Evaluate("actiontrycastbyid[1002]").AsNumber());
+        Assert.Equal(0u, automation.EquippedObject);
+        Assert.Equal((0u, 0u), automation.LastCast);
+
+        automation.IsBusy = false;
+        Assert.False(runtime.Evaluate("actiontryequipanywand[]").IsTruthy);
+        Assert.Equal(50u, automation.EquippedObject);
+    }
+
     [Fact]
     public void LoginFunctionsUseTheAuthoritativeSortedRosterAndOneShotOwner()
     {
@@ -893,6 +928,8 @@ public sealed class HostExpressionFunctionsTests
         public uint EquippedObject { get; private set; }
         public PluginCombatMode Mode { get; set; } = PluginCombatMode.Peace;
         public PluginCombatMode RequestedMode { get; private set; }
+
+        public bool IsBusy { get; set; }
 
         public bool IsKnown(uint spellId) => spellId == 1001 || Spells.ContainsKey(spellId);
         public bool TryGet(uint spellId, out PluginSpellInfo info) =>
