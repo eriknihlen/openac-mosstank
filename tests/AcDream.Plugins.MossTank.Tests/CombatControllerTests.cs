@@ -1098,8 +1098,9 @@ public sealed class CombatControllerTests
             Targets = [Target(10, "Drudge", 5, 0)],
             KnownCombatSpells =
             [
-                // Step 1 of hi.cs:123-206, and the only projectile here.
-                Debuff(84, "Magic Yield Other VII") with { IsProjectile = true },
+                // Step 1 of hi.cs:123-206, and the only spell here whose
+                // family declares a flight (117 is a straight-bolt family).
+                Debuff(84, "Magic Yield Other VII") with { Family = 117u },
                 // Step 7.
                 Debuff(83, "Imperil Other VII"),
             ],
@@ -1134,6 +1135,194 @@ public sealed class CombatControllerTests
         Assert.DoesNotContain(84u, surface.CastSpellIds);
     }
 
+    /// <summary>
+    /// Mutation: put the bare mode change back in place of the wield gate and
+    /// this fails — the debuff goes out with the sword still in hand, so the
+    /// wand's own spellcraft and mana never pay for it.
+    /// </summary>
+    [Fact]
+    public void ALearnedDebuffWieldsAWandBeforeItIsCast()
+    {
+        var surface = new FakeAutomation
+        {
+            CombatSnapshot = Physical() with { Mode = PluginCombatMode.Melee },
+            Targets = [Target(10, "Drudge", 5, 0)],
+            KnownCombatSpells = [Debuff(83, "Imperil Other VII")],
+            EquipmentItems =
+            [
+                WieldedPlannedWeapon(),
+                Equipment(
+                    990u,
+                    "Fixture Wand",
+                    damageType: 0,
+                    itemType: CombatModeGate.CasterItemType),
+            ],
+        };
+        var settings = DebuffOnly(MonsterActionFlags.Imperil);
+        settings.MaximumRange = 40d;
+        settings.CombatItemNames.Add("Fixture Wand");
+        var controller = new CombatController(new FakeHost(surface), settings);
+
+        controller.Toggle();
+        // Peace first, then the wand: nothing is cast while the sword is in
+        // hand.
+        for (int tick = 0; tick < 4; tick++)
+            controller.OnTick(0.25);
+
+        Assert.Equal(990u, surface.LastEquipObjectId);
+        Assert.Empty(surface.CastSpellIds);
+
+        // The server confirms the swap: the sword is away, the wand is in.
+        surface.EquipmentItems =
+        [
+            Equipment(
+                990u,
+                "Fixture Wand",
+                damageType: 0,
+                itemType: CombatModeGate.CasterItemType,
+                equippedLocation: 0x00100000u),
+        ];
+        for (int tick = 0; tick < 4; tick++)
+            controller.OnTick(0.25);
+
+        Assert.Equal((83u, 10u), surface.LastTargetedCast);
+    }
+
+    /// <summary>
+    /// Mutation: drop the <c>SwitchWandsToDebuff</c> branch and this fails —
+    /// with the setting off the debuff always reaches for the first profiled
+    /// wand, so the two arms must pick different wands here.
+    /// </summary>
+    [Fact]
+    public void SwitchWandsToDebuffDebuffsWithTheCasterAttackWeapon()
+    {
+        Assert.Equal(991u, DebuffWandFor(switchWandsToDebuff: true));
+        Assert.Equal(990u, DebuffWandFor(switchWandsToDebuff: false));
+    }
+
+    private static uint DebuffWandFor(bool switchWandsToDebuff)
+    {
+        var surface = new FakeAutomation
+        {
+            CombatSnapshot = Peaceful(),
+            Targets = [Target(10, "Drudge", 5, 0)],
+            KnownCombatSpells = [Debuff(83, "Imperil Other VII")],
+            EquipmentItems =
+            [
+                Equipment(
+                    991u,
+                    "Attack Wand",
+                    damageType: 0x0010,
+                    itemType: CombatModeGate.CasterItemType),
+                Equipment(
+                    990u,
+                    "Spare Wand",
+                    damageType: 0,
+                    itemType: CombatModeGate.CasterItemType),
+            ],
+        };
+        var settings = new CombatSettings
+        {
+            MaximumRange = 40d,
+            SwitchWandsToDebuff = switchWandsToDebuff,
+        };
+        settings.Rules.Clear();
+        settings.Rules.Add(new MonsterRule(
+            "DEFAULT",
+            new MonsterRuleActions
+            {
+                Flags = MonsterActionFlags.Imperil,
+                WeaponName = "Attack Wand",
+            }));
+        settings.CombatItemNames.Add("Attack Wand");
+        settings.CombatItemNames.Add("Spare Wand");
+        settings.CombatItemOrder.Add("Spare Wand");
+        var controller = new CombatController(new FakeHost(surface), settings);
+        controller.Toggle();
+        controller.OnTick(0.25);
+        return surface.LastEquipObjectId;
+    }
+
+    /// <summary>
+    /// Mutation: drop the range term from the debuff source walk and the
+    /// first half fails — an out-of-reach spell would be chosen and refused.
+    /// </summary>
+    [Fact]
+    public void ADebuffSpellOutOfReachIsNotChosen()
+    {
+        Assert.Equal((0u, 0u), DebuffAtDistance(reach: 4f, distance: 6f));
+        Assert.Equal((83u, 10u), DebuffAtDistance(reach: 20f, distance: 6f));
+    }
+
+    private static (uint, uint) DebuffAtDistance(float reach, float distance)
+    {
+        var surface = new FakeAutomation
+        {
+            CombatSnapshot = Physical() with { Mode = PluginCombatMode.Magic },
+            Targets = [Target(10, "Drudge", distance, 0)],
+            KnownCombatSpells =
+            [
+                Debuff(83, "Imperil Other VII") with
+                {
+                    BaseRangeConstant = reach,
+                },
+            ],
+            EquipmentItems = [WieldedCaster()],
+        };
+        var settings = DebuffOnly(MonsterActionFlags.Imperil);
+        settings.MaximumRange = 40d;
+        settings.SpellRangeFudge = 0d;
+        var controller = new CombatController(new FakeHost(surface), settings);
+        controller.Toggle();
+        controller.OnTick(0.25);
+        return surface.LastTargetedCast;
+    }
+
+    /// <summary>
+    /// Mutation: restore the walk over every source and this fails — the item
+    /// would be used after the out-of-reach spell dropped out AND after the
+    /// winner failed, instead of exactly one source being chosen per decision.
+    /// </summary>
+    [Fact]
+    public void AnOutOfReachSpellLeavesTheItemAsTheDebuffSource()
+    {
+        PluginSpellInfo imperil = Spell(90, "Imperil Other VII") with
+        {
+            School = 31,
+            IsDebuff = true,
+            IsOffensive = true,
+            DurationSeconds = 60,
+            BaseRangeConstant = 4f,
+        };
+        PluginInventoryItem lens = InventoryItem(
+            800, "Imperil Lens", 0x8000, 90, equipped: true) with
+        {
+            ItemSpellcraft = 400,
+        };
+        var surface = new FakeAutomation
+        {
+            CombatSnapshot = Physical() with { Mode = PluginCombatMode.Magic },
+            Targets = [Target(10, "Drudge", 6, 0)],
+            KnownCombatSpells = [imperil],
+            SpellLookup = [imperil],
+            ItemEntries = [lens],
+            // The learned spell would out-rank the lens on skill; only its
+            // reach keeps it out of the choice.
+            CharacterSkills = [new(31u, "Creature", PluginSkillTraining.Trained, 500)],
+        };
+        var settings = DebuffOnly(MonsterActionFlags.Imperil);
+        settings.MaximumRange = 40d;
+        settings.SpellRangeFudge = 0d;
+        settings.CombatItemObjectIds.Add(lens.ObjectId);
+        var controller = new CombatController(new FakeHost(surface), settings);
+
+        controller.Toggle();
+        controller.OnTick(0.25);
+
+        Assert.Equal((800u, 10u), surface.LastAppliedItem);
+        Assert.Empty(surface.CastSpellIds);
+    }
+
     [Fact]
     public void BlockedDebuffPathStillLetsTheAttackGoOutOnStockSettings()
     {
@@ -1143,7 +1332,7 @@ public sealed class CombatControllerTests
             Targets = [Target(10, "Drudge", 5, 0)],
             KnownCombatSpells =
             [
-                Debuff(84, "Magic Yield Other VII") with { IsProjectile = true },
+                Debuff(84, "Magic Yield Other VII") with { Family = 117u },
                 MagicSpell(100, "Flame Bolt VII", difficulty: 300),
             ],
             ProjectilePath = new(PluginProjectilePathStatus.Blocked),
@@ -1405,6 +1594,9 @@ public sealed class CombatControllerTests
         IsDebuff = true,
         IsOffensive = true,
         TargetMask = 0x10,
+        // Real spells carry a reach; a fixture with none would be refused by
+        // the debuff range gate before anything else could be observed.
+        BaseRangeConstant = 80f,
     };
 
     [Fact]
@@ -3452,7 +3644,10 @@ public sealed class CombatControllerTests
     private static PluginSpellInfo Spell(uint id, string name) => new(
         id, name, Family: 1, Tier: 8, Difficulty: 350, ManaCost: 30,
         DurationSeconds: 0, School: 34, Description: string.Empty,
-        IsSelfTargeted: false, IsBeneficial: false);
+        IsSelfTargeted: false, IsBeneficial: false)
+    {
+        BaseRangeConstant = 80f,
+    };
 
     private static PluginEquipmentItem Equipment(
         uint id,

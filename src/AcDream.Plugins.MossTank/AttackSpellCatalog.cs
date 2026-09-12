@@ -172,6 +172,43 @@ internal sealed class AttackSpellCatalog
         return best;
     }
 
+    /// <summary>
+    /// The flight shape a spell's own family declares: a straight bolt, an
+    /// arc, or nothing at all. A spell with no shape is never clearance-tested
+    /// — it reaches wherever the server says it reaches.
+    /// </summary>
+    public static PluginProjectilePathKind? ProjectileShapeFor(uint family) =>
+        family switch
+        {
+            243u or 244u or 245u or 246u or 247u or 248u or 249u or 639u
+                or 117u or 118u or 119u or 120u or 121u or 122u or 123u
+                or 640u or 100080u or 100082u or 100084u or 637u or 638u =>
+                PluginProjectilePathKind.Straight,
+            100117u or 100118u or 100119u or 100120u or 100121u or 100122u
+                or 100123u or 100640u => PluginProjectilePathKind.Arc,
+            _ => null,
+        };
+
+    /// <summary>
+    /// The furthest a spell reaches, in metres, for the caster's skill in its
+    /// own school. Zero when the school is unknown or the range collapses.
+    /// </summary>
+    public static float RangeMeters(
+        in PluginSpellInfo spell,
+        ICharacterInfo character,
+        double rangeFudge)
+    {
+        ArgumentNullException.ThrowIfNull(character);
+        uint skill = spell.School != 0u
+            && character.TryGetSkill(spell.School, out PluginSkillInfo info)
+            ? info.Current
+            : 0u;
+        float range = spell.BaseRangeConstant
+            + (spell.BaseRangeModifier * skill)
+            - (float)rangeFudge;
+        return Math.Clamp(range, 0f, 75f);
+    }
+
     public PluginSpellInfo? ResolveTuskerFists() =>
         _byId.TryGetValue(TuskerFistsSpellId, out PluginSpellInfo tusker)
             ? tusker

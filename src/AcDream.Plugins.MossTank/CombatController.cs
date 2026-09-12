@@ -42,8 +42,18 @@ internal sealed class CombatController
 
     private readonly Dictionary<(MonsterRuleActions Actions, uint Target), MonsterDamageType>
         _passElements = [];
-    private readonly Dictionary<DebuffIdentity, IReadOnlyList<CombatDebuffSource>>
-        _passDebuffSources = [];
+    private readonly Dictionary<
+        (DebuffIdentity Identity, uint Target),
+        IReadOnlyList<CombatDebuffSource>> _passDebuffSources = [];
+
+    /// <summary>
+    /// Every flight already tested this pass, and whether it was clear. A
+    /// shape not in here has not been tried, and counts as clear until it is:
+    /// that is what lets the debuff fallback drop a source the pass has
+    /// already found unreachable while leaving untested sources alone.
+    /// </summary>
+    private readonly Dictionary<(uint Target, PluginProjectilePathKind Kind), bool>
+        _passClearance = [];
     private readonly Dictionary<DebuffIdentity, PluginSpellInfo?> _passDebuffSpells = [];
     private readonly Dictionary<(MonsterDamageType Element, uint Target), bool>
         _passDeliverable = [];
@@ -400,6 +410,7 @@ internal sealed class CombatController
         _passDebuffSpells.Clear();
         _passDeliverable.Clear();
         _passComponents.Clear();
+        _passClearance.Clear();
         _passInvalidTargets.Clear();
         _passClearedActions.Clear();
         _passCandidates.Clear();
@@ -474,6 +485,11 @@ internal sealed class CombatController
             : 1;
         for (int attempt = 0; attempt < budget; attempt++)
         {
+            // The debuff choice is remade from scratch every time the pass
+            // chooses again; what carries over between attempts is what the
+            // pass LEARNED — which flights are blocked and which columns are
+            // off.
+            _passDebuffSources.Clear();
             if (attempt > 0)
                 RefreshTarget();
 
@@ -946,7 +962,7 @@ internal sealed class CombatController
                 spell,
                 _settings.BlacklistedSpellComponents)
             && HasCastingComponents(spell.SpellId)
-            && CanCastHuntSpell(spell, target);
+            && CanCastHuntSpell(spell);
 
     /// <summary>
     /// A tier the pack cannot pay for is not a candidate. Without this the
@@ -1050,17 +1066,13 @@ internal sealed class CombatController
         return actions with { DamageType = damage };
     }
 
-    private bool CanCastHuntSpell(
-        in PluginSpellInfo spell,
-        in PluginCombatTarget target)
+    /// <summary>
+    /// The skill margin the attack-spell tier walk asks for. Range is
+    /// deliberately NOT part of this: the attack pick never asks how far a
+    /// spell reaches — only the debuff choice does.
+    /// </summary>
+    private bool CanCastHuntSpell(in PluginSpellInfo spell)
     {
-        if (SpellComponentPolicy.UsesBlacklistedComponent(
-                _host.Automation.Spells,
-                spell,
-                _settings.BlacklistedSpellComponents))
-        {
-            return false;
-        }
         if (spell.School == 0u
             || !_host.Automation.Character.TryGetSkill(
                 spell.School,
@@ -1068,18 +1080,8 @@ internal sealed class CombatController
         {
             return true;
         }
-        if (skill.Current < spell.Difficulty
-            + _settings.HuntSkillExcessOverDifficulty)
-        {
-            return false;
-        }
-
-        float maximumRange = spell.BaseRangeConstant
-            + (spell.BaseRangeModifier * skill.Current)
-            - (float)_settings.SpellRangeFudge;
-        return maximumRange <= 0f
-            || target.ObjectId == 0u
-            || target.Distance <= MathF.Min(75f, maximumRange);
+        return skill.Current >= spell.Difficulty
+            + _settings.HuntSkillExcessOverDifficulty;
     }
 
     private int CountNearbyRingTargets()
@@ -1494,7 +1496,7 @@ internal sealed class CombatController
             if (CombatDebuffChain.Choose(
                     steps,
                     step => !suppressed.Contains(step.Identity)
-                        && IsDebuffStepDue(step, target.ObjectId, items))
+                        && IsDebuffStepDue(step, in target, items))
                 is not { } due)
             {
                 return false;
@@ -1535,95 +1537,139 @@ internal sealed class CombatController
         PluginCombatSnapshot combat,
         IReadOnlyList<PluginInventoryItem> items)
     {
-        IReadOnlyList<CombatDebuffSource> choices = DebuffSources(
-            due.Identity,
-            items,
-            message => Log?.Invoke(MacroLogChannel.DebuffChoice, message));
-
-        foreach (CombatDebuffSource choice in choices)
+        CombatDebuffSource choice;
+        while (true)
         {
-            if (SpellComponentPolicy.UsesBlacklistedComponent(
-                    _host.Automation.Spells,
-                    choice.Spell,
-                    _settings.BlacklistedSpellComponents))
+            if (ChooseDebuffSource(
+                    due.Identity,
+                    in target,
+                    items,
+                    message => Log?.Invoke(MacroLogChannel.DebuffChoice, message))
+                is not { } winner)
             {
-                continue;
+                return DebuffPassResult.Idle;
             }
-            if (!ReadyForBreakableTurn(choice.Spell, target.ObjectId))
-                return DebuffPassResult.Claimed;
-            if (choice.Spell.IsProjectile
-                && !ProjectilePathIsClear(
+            if (winner.PathKind is not { } shape
+                || ProjectilePathIsClear(
                     target.ObjectId,
-                    choice.Spell.Name.Contains(
-                        " Arc",
-                        StringComparison.OrdinalIgnoreCase)
-                        ? PluginProjectilePathKind.Arc
-                        : choice.Kind is CombatDebuffSourceKind.Grenade
-                            or CombatDebuffSourceKind.ProcWeapon
-                            ? PluginProjectilePathKind.Missile
-                            : PluginProjectilePathKind.Straight,
+                    shape,
                     PluginAttackHeight.Medium,
                     out PluginProjectilePathResult debuffPath))
             {
-                Status = ProjectileStatus(debuffPath, target.Name);
-                if (_settings.AllowDebuffFallback)
-                    continue;
+                choice = winner;
+                break;
+            }
+            Status = ProjectileStatus(debuffPath, target.Name);
+            // Without the fallback the winner stands and its column goes off
+            // for the pass. With it, the shape is now a KNOWN-blocked one, so
+            // the choice made again lands on the next-best source.
+            if (!_settings.AllowDebuffFallback)
                 return DebuffPassResult.ColumnDisabled;
-            }
-            if (choice.Kind != CombatDebuffSourceKind.LearnedSpell)
-            {
-                DebuffStartResult itemResult = TryStartItemDebuff(
-                    choice,
-                    target,
-                    combat,
-                    items,
-                    ResolveInventoryObjectId(
-                        actions.OffhandObjectId,
-                        actions.OffhandName,
-                        items));
-                if (itemResult == DebuffStartResult.Handled)
-                    return DebuffPassResult.Claimed;
-                continue;
-            }
-
-            if (combat.Mode != PluginCombatMode.Magic)
-            {
-                EnterDebuffMode(PluginCombatMode.Magic);
-                return DebuffPassResult.Claimed;
-            }
-            PluginCastGate gate = _host.Automation.Magic.EvaluateGate(
-                choice.Spell.SpellId,
-                target.ObjectId);
-            if (gate == PluginCastGate.Busy)
-            {
-                Status = "Waiting to debuff";
-                return DebuffPassResult.Claimed;
-            }
-            if (gate != PluginCastGate.Ready
-                || !_host.Automation.Magic.Cast(
-                    choice.Spell.SpellId,
-                    target.ObjectId))
-            {
-                continue;
-            }
-
-            _debuffs.Begin(
-                target.ObjectId,
-                choice.Identity,
-                choice.Spell,
-                _now,
-                _host.Automation.Magic.LastCompletion.Revision);
-            string targetName = string.IsNullOrWhiteSpace(target.Name)
-                ? $"0x{target.ObjectId:X8}"
-                : target.Name;
-            Log?.Invoke(
-                MacroLogChannel.SpellCast,
-                $"Casting: {choice.Spell.Name} on {target.ObjectId} ({targetName})");
-            Status = $"{choice.Spell.Name} → {targetName}";
-            return DebuffPassResult.Claimed;
         }
 
-        return DebuffPassResult.Idle;
+        if (SpellComponentPolicy.UsesBlacklistedComponent(
+                _host.Automation.Spells,
+                choice.Spell,
+                _settings.BlacklistedSpellComponents))
+        {
+            return DebuffPassResult.Idle;
+        }
+        if (!ReadyForBreakableTurn(choice.Spell, target.ObjectId))
+            return DebuffPassResult.Claimed;
+        if (choice.Kind != CombatDebuffSourceKind.LearnedSpell)
+        {
+            DebuffStartResult itemResult = TryStartItemDebuff(
+                choice,
+                target,
+                combat,
+                items,
+                ResolveInventoryObjectId(
+                    actions.OffhandObjectId,
+                    actions.OffhandName,
+                    items));
+            return itemResult == DebuffStartResult.Handled
+                ? DebuffPassResult.Claimed
+                : DebuffPassResult.Idle;
+        }
+
+        // A learned debuff is cast from a wand, not from whatever the last
+        // swing left in hand: the full wield gate runs first, so the wand's
+        // own spellcraft and mana are what pay for the debuff.
+        if (!PrepareForLearnedDebuff(actions, in target, items))
+            return DebuffPassResult.Claimed;
+
+        PluginCastGate gate = _host.Automation.Magic.EvaluateGate(
+            choice.Spell.SpellId,
+            target.ObjectId);
+        if (gate == PluginCastGate.Busy)
+        {
+            Status = "Waiting to debuff";
+            return DebuffPassResult.Claimed;
+        }
+        if (gate != PluginCastGate.Ready
+            || !_host.Automation.Magic.Cast(
+                choice.Spell.SpellId,
+                target.ObjectId))
+        {
+            return DebuffPassResult.Idle;
+        }
+
+        _debuffs.Begin(
+            target.ObjectId,
+            choice.Identity,
+            choice.Spell,
+            _now,
+            _host.Automation.Magic.LastCompletion.Revision);
+        string targetName = string.IsNullOrWhiteSpace(target.Name)
+            ? $"0x{target.ObjectId:X8}"
+            : target.Name;
+        Log?.Invoke(
+            MacroLogChannel.SpellCast,
+            $"Casting: {choice.Spell.Name} on {target.ObjectId} ({targetName})");
+        Status = $"{choice.Spell.Name} → {targetName}";
+        return DebuffPassResult.Claimed;
+    }
+
+    /// <summary>
+    /// The wield gate a learned-spell debuff runs through. With
+    /// <c>SwitchWandsToDebuff</c> on and the attack weapon already a caster,
+    /// that weapon is kept; every other case falls through to the first
+    /// profiled wand.
+    /// </summary>
+    /// <returns>True once the character is holding what it needs.</returns>
+    private bool PrepareForLearnedDebuff(
+        MonsterRuleActions actions,
+        in PluginCombatTarget target,
+        IReadOnlyList<PluginInventoryItem> items)
+    {
+        IReadOnlyList<PluginEquipmentItem> equipment = PassEquipment();
+        uint attackWeapon = 0u;
+        if (_settings.SwitchWandsToDebuff)
+        {
+            (uint weapon, _, _) = ResolveWieldPlan(
+                actions,
+                in target,
+                items,
+                equipment);
+            foreach (PluginEquipmentItem item in equipment)
+            {
+                if (weapon == 0u || item.ObjectId != weapon)
+                    continue;
+                if (CombatModeGate.ModeFor(in item) == PluginCombatMode.Magic)
+                    attackWeapon = weapon;
+                break;
+            }
+        }
+
+        if (Gate.TryPrepare(
+                PluginCombatMode.Magic,
+                overrideItemId: attackWeapon,
+                autoSelect: attackWeapon == 0u))
+        {
+            return true;
+        }
+        Status = Gate.Status;
+        return false;
     }
 
     private bool ProjectilePathIsClear(
@@ -1636,6 +1682,14 @@ internal sealed class CombatController
         {
             result = new(PluginProjectilePathStatus.Clear);
             return true;
+        }
+        if (_passClearance.TryGetValue((targetObjectId, kind), out bool memo))
+        {
+            result = new(
+                memo
+                    ? PluginProjectilePathStatus.Clear
+                    : PluginProjectilePathStatus.Blocked);
+            return memo;
         }
         result = _settings.ShowCollisionDebug
             ? _host.Automation.Projectiles.EvaluatePathWithDiagnostics(
@@ -1660,8 +1714,18 @@ internal sealed class CombatController
                 + $"{result.DebugSamples.Count} marker(s), "
                 + $"{result.CollisionChecks} check(s)");
         }
+        _passClearance[(targetObjectId, kind)] = result.IsClear;
         return result.IsClear;
     }
+
+    /// <summary>
+    /// What the pass already knows about a flight, without testing it. An
+    /// untested shape reads as clear.
+    /// </summary>
+    private bool KnownClear(uint targetObjectId, PluginProjectilePathKind? kind) =>
+        kind is not { } shape
+        || !_passClearance.TryGetValue((targetObjectId, shape), out bool clear)
+        || clear;
 
     private static string ProjectileStatus(
         in PluginProjectilePathResult result,
@@ -2506,10 +2570,10 @@ internal sealed class CombatController
             actions,
             element,
             ResolveExtraVulnerability(actions, target));
-        uint objectId = target.ObjectId;
+        PluginCombatTarget candidateTarget = target;
         bool needsDebuff = CombatDebuffChain.NeedsDebuff(
             steps,
-            step => IsDebuffStepDue(step, objectId, inventory));
+            step => IsDebuffStepDue(step, in candidateTarget, inventory));
 
         if (!needsDebuff && !actions.Attacks && !actions.UsesStreak)
         {
@@ -2792,11 +2856,13 @@ internal sealed class CombatController
 
     private IReadOnlyList<CombatDebuffSource> DebuffSources(
         DebuffIdentity identity,
+        in PluginCombatTarget target,
         IReadOnlyList<PluginInventoryItem> inventory,
         Action<string>? log)
     {
+        (DebuffIdentity, uint) key = (identity, target.ObjectId);
         if (_passDebuffSources.TryGetValue(
-                identity,
+                key,
                 out IReadOnlyList<CombatDebuffSource>? cached))
         {
             return cached;
@@ -2807,24 +2873,58 @@ internal sealed class CombatController
             _host.Automation.Character,
             _host.Automation.Spells,
             inventory,
+            target.Distance,
             log);
-        _passDebuffSources[identity] = sources;
+        _passDebuffSources[key] = sources;
         return sources;
+    }
+
+    /// <summary>
+    /// The one source this step will be applied from, or null when there is
+    /// none. Exactly one wins: a source the character cannot use is not
+    /// quietly replaced by the next-best one inside a single decision.
+    /// </summary>
+    private CombatDebuffSource? ChooseDebuffSource(
+        DebuffIdentity identity,
+        in PluginCombatTarget target,
+        IReadOnlyList<PluginInventoryItem> inventory,
+        Action<string>? log = null)
+    {
+        IReadOnlyList<CombatDebuffSource> sources = DebuffSources(
+            identity,
+            in target,
+            inventory,
+            log);
+        foreach (CombatDebuffSource source in sources)
+        {
+            // With the fallback allowed, a source whose flight this pass has
+            // ALREADY found blocked steps aside for the next-best one. With it
+            // off there is no stepping aside: the winner stands and its column
+            // is turned off when its flight turns out to be blocked.
+            if (_settings.AllowDebuffFallback
+                && !KnownClear(target.ObjectId, source.PathKind))
+            {
+                continue;
+            }
+            return source;
+        }
+        return null;
     }
 
     private bool IsDebuffStepDue(
         CombatDebuffStep step,
-        uint targetObjectId,
+        in PluginCombatTarget target,
         IReadOnlyList<PluginInventoryItem> inventory)
     {
         IReadOnlyList<CombatDebuffSource> sources = DebuffSources(
             step.Identity,
+            in target,
             inventory,
             log: null);
         if (sources.Count == 0)
             return false;
         return _debuffs.IsDue(
-            targetObjectId,
+            target.ObjectId,
             step.Identity,
             sources[0].Spell,
             _now,
