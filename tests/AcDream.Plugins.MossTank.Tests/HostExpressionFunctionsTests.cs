@@ -331,6 +331,28 @@ public sealed class HostExpressionFunctionsTests
     }
 
     /// <summary>
+    /// A spell the host reports with no school at all is not castable either,
+    /// even when nothing else stands in the way: there is no skill to compare
+    /// it against, and no school-less spell a character can actually cast.
+    /// The difficulty here is 0, so a comparison against an unknown skill of 0
+    /// would PASS — only the closed door answers false. Mutation: skipping the
+    /// comparison for a school of 0, or dropping the school test and comparing
+    /// anyway, makes both castability questions answer true and the cast
+    /// answer 0.
+    /// </summary>
+    [Fact]
+    public void CastabilityIsClosedForASpellWithNoSchool()
+    {
+        var automation = CreateAutomation();
+        automation.Spells[1003] = Spell(1003, school: 0, difficulty: 0);
+        using var runtime = new MossTankExpressionRuntime(new Host(automation));
+
+        Assert.False(runtime.Evaluate("getcancastspell_hunt[1003]").IsTruthy);
+        Assert.False(runtime.Evaluate("getcancastspell_buff[1003]").IsTruthy);
+        Assert.Equal(2d, runtime.Evaluate("actiontrycastbyid[1003]").AsNumber());
+    }
+
+    /// <summary>
     /// Casting from an expression answers 2 (impossible), 0 (not attempted
     /// yet) or 1 (begun) — never a bare boolean. An untargeted spell is only
     /// castable through `actiontrycastbyid`, a targeted one only through
