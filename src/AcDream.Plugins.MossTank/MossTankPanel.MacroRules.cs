@@ -8,6 +8,18 @@ internal sealed partial class MossTankPanel : IMacroRuleProvider
 
     internal IReadOnlyList<IMacroRule> MacroRules => _scheduler.MainRules;
 
+    internal ActionLockTable ActionLocks => _actionLocks;
+
+    /// <summary>
+    /// The three cooldown slots that hold every navigation rule off: the one a
+    /// kill or a portal arms, the one a shared-target request arms, and the one
+    /// a door arms while it opens.
+    /// </summary>
+    private bool NavigationLocksAreClear() =>
+        !_actionLocks.IsLocked(ActionLockKind.Navigation)
+        && !_actionLocks.IsLocked(ActionLockKind.SpreadLockTargetRequested)
+        && !_actionLocks.IsLocked(ActionLockKind.DoorOpening);
+
     private void StopMacroFromGate(string notice)
     {
         if (_buffRule.IsBursting)
@@ -164,7 +176,8 @@ internal sealed partial class MossTankPanel : IMacroRuleProvider
                 context.ElapsedSeconds,
                 context.CanAct),
             gate: () => _combat.Enabled && !_buffRule.IsBursting
-                && _navigationSettings.Priority,
+                && _navigationSettings.Priority
+                && NavigationLocksAreClear(),
             onLostTurn: _navigation.StopForLostTurn,
             bookkeepWhenBlocked: false),
         MacroRuleSlot.NavigateRouteIdle => new ControllerMacroRule(
@@ -173,13 +186,18 @@ internal sealed partial class MossTankPanel : IMacroRuleProvider
                 context.ElapsedSeconds,
                 context.CanAct),
             gate: () => !_navigationSettings.Priority
-                && _combat.Enabled && !_buffRule.IsBursting,
+                && _combat.Enabled && !_buffRule.IsBursting
+                && NavigationLocksAreClear(),
             onLostTurn: _navigation.StopForLostTurn,
             bookkeepWhenBlocked: false),
 
         MacroRuleSlot.Attack => new ControllerMacroRule(
             "Attack",
             TickCombatRule,
+            // The attack's first refusal: an item that was just used owns the
+            // character for the rest of its cooldown, and attacking inside
+            // that window only eats the item's own animation.
+            gate: () => !_actionLocks.IsLocked(ActionLockKind.ItemUse),
             onLostTurn: () => _combat.SetPaused(true)),
 
         // Rows 38-40.

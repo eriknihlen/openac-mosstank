@@ -104,6 +104,37 @@ internal sealed class CombatController
 
     internal SpellCastTracker CastTracker => _castTracker;
 
+    /// <summary>
+    /// The shared cooldown table. A kill holds navigation off for three
+    /// seconds so the corpse can be found and looted before the bot moves on.
+    /// </summary>
+    private ActionLockTable _actionLocks = new();
+    private Func<bool> _lootingEnabled = static () => false;
+
+    /// <summary>Seconds navigation is held after a kill.</summary>
+    private const double PostKillNavigationLockSeconds = 3d;
+
+    internal void BindActionLocks(ActionLockTable locks, Func<bool> lootingEnabled)
+    {
+        _actionLocks = locks ?? throw new ArgumentNullException(nameof(locks));
+        _lootingEnabled = lootingEnabled
+            ?? throw new ArgumentNullException(nameof(lootingEnabled));
+    }
+
+    /// <summary>
+    /// A killing blow lands: hold navigation off for the looting window. The
+    /// hold is conditional on looting being on, so a bot that never loots keeps
+    /// moving.
+    /// </summary>
+    private void ArmPostKillNavigationLock()
+    {
+        if (!_lootingEnabled())
+            return;
+        _actionLocks.Arm(
+            ActionLockKind.Navigation,
+            PostKillNavigationLockSeconds);
+    }
+
     private readonly SpellCastTracker _castTracker;
 
     private readonly VtankGameInfoDatabase _gameInfo;
@@ -1856,6 +1887,7 @@ internal sealed class CombatController
                 Log?.Invoke(
                     MacroLogChannel.CastInfo,
                     $"SpellCaster: Spell kill reset ({info.Text})");
+                ArmPostKillNavigationLock();
                 if (objectId == 0u)
                     return;
                 _failures.ClearBlacklist(objectId);

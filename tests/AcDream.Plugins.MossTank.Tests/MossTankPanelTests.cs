@@ -2030,6 +2030,110 @@ public sealed class MossTankPanelTests
             automation.Messages);
     }
 
+    /// <summary>
+    /// Mutation: delete the Attack rule's
+    /// <c>gate: () =&gt; !_actionLocks.IsLocked(ActionLockKind.ItemUse)</c> and
+    /// the first assertion fails — the bot keeps swinging inside the item's
+    /// own cooldown.
+    /// </summary>
+    [Fact]
+    public void AnItemUseLockHoldsTheAttackRuleOffUntilItExpires()
+    {
+        var automation = new CombatCapableFakeAutomation
+        {
+            CurrentHealth = 100,
+            MaxHealth = 100,
+            ItemEntries = [Item(20, "Battle Axe", itemType: 1)],
+            EquipmentItems = [EquipmentItem(20, "Battle Axe", itemType: 1)],
+            Targets = [new PluginCombatTarget(30, "Drudge", 700, 2f, 0f, true, 1f)],
+        };
+        automation.CombatSnapshot = automation.CombatSnapshot with
+        {
+            Mode = PluginCombatMode.Melee,
+        };
+        var host = new FakeHost(automation);
+        var panel = new MossTankPanel(host);
+        host.Selection.Select(20);
+        panel.AddSelectedItem();
+        panel.CycleMonsterWeaponAt(0);
+        panel.ToggleCombat();
+
+        bool attacked = false;
+        for (int tick = 0; tick < 60 && !attacked; tick++)
+        {
+            panel.OnTick(0.7d);
+            attacked = automation.BeginCount > 0;
+        }
+        Assert.True(
+            attacked,
+            "the rig never attacks at all. CallLog: "
+                + string.Join(" | ", automation.CallLog));
+
+        panel.ActionLocks.Arm(ActionLockKind.ItemUse, 5d);
+        int before = automation.BeginCount;
+        for (int tick = 0; tick < 5; tick++)
+            panel.OnTick(0.7d);
+
+        Assert.Equal(before, automation.BeginCount);
+
+        for (int tick = 0; tick < 5; tick++)
+            panel.OnTick(0.7d);
+
+        Assert.True(
+            automation.BeginCount > before,
+            "the attack never resumed after the item-use lock expired");
+    }
+
+    /// <summary>
+    /// Mutation: drop <c>NavigationLocksAreClear()</c> from the two navigate
+    /// gates and this fails — the route advances over the corpse the kill just
+    /// made.
+    /// </summary>
+    [Fact]
+    public void ANavigationLockHoldsTheRouteRuleOff()
+    {
+        var automation = new CombatCapableFakeAutomation
+        {
+            CurrentHealth = 100,
+            MaxHealth = 100,
+        };
+        var panel = new MossTankPanel(new FakeHost(automation));
+        // One waypoint the character is nowhere near, so the route rule has
+        // something to do on every pass.
+        automation.NavigationSnapshot = automation.NavigationSnapshot with
+        {
+            Position = new PluginNavigationPosition(
+                0x00010001u, 0d, 1d, 0d, 0f, IsOutdoor: true),
+        };
+        panel.AddRoutePoint();
+        automation.NavigationSnapshot = automation.NavigationSnapshot with
+        {
+            Position = new PluginNavigationPosition(
+                0x00010001u, 0d, 0d, 0d, 0f, IsOutdoor: true),
+        };
+        panel.ToggleNavigation();
+        panel.ToggleCombat();
+        panel.OnTick(0.3d);
+
+        IMacroRule route = panel.MacroRules.First(
+            static rule => rule.Name == "NavigateRouteIdle");
+        var context = new MacroPassContext(0.3d, CanAct: true);
+        Assert.True(
+            route.ValidNow(in context),
+            "the rig's route rule is not valid even with every lock clear");
+
+        panel.ActionLocks.Arm(ActionLockKind.Navigation, 3d);
+        Assert.False(route.ValidNow(in context));
+
+        panel.ActionLocks.Release(ActionLockKind.Navigation);
+        panel.ActionLocks.Arm(ActionLockKind.DoorOpening, 3d);
+        Assert.False(route.ValidNow(in context));
+
+        panel.ActionLocks.Release(ActionLockKind.DoorOpening);
+        panel.ActionLocks.Arm(ActionLockKind.SpreadLockTargetRequested, 3d);
+        Assert.False(route.ValidNow(in context));
+    }
+
     [Fact]
     public void VtLogActiveRuleOffPostsNothing()
     {

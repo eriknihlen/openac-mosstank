@@ -2919,6 +2919,55 @@ public sealed class CombatControllerTests
         return settings;
     }
 
+    /// <summary>
+    /// Mutation: delete the <c>ArmPostKillNavigationLock()</c> call from the
+    /// kill arm of the cast outcome and this fails — the bot walks off the
+    /// corpse it just made instead of standing still for the looting window.
+    /// </summary>
+    [Fact]
+    public void ASpellKillHoldsNavigationForThreeSecondsWhileLootingIsOn()
+    {
+        var tracker = new SpellCastTracker();
+        var locks = new ActionLockTable();
+        var controller = new CombatController(
+            new FakeHost(new FakeAutomation()),
+            new CombatSettings(),
+            castTracker: tracker);
+        controller.BindActionLocks(locks, () => true);
+
+        tracker.Begin(1u, "Flame Bolt VII", 30u, "Drudge", false, 0L);
+        tracker.ObserveChat(1uL, "You killed Drudge!");
+
+        Assert.True(locks.IsLocked(ActionLockKind.Navigation));
+
+        locks.Advance(2.9d);
+        Assert.True(locks.IsLocked(ActionLockKind.Navigation));
+
+        locks.Advance(0.2d);
+        Assert.False(locks.IsLocked(ActionLockKind.Navigation));
+    }
+
+    /// <summary>
+    /// Mutation: drop the looting term from <c>ArmPostKillNavigationLock</c>
+    /// and this fails — a bot that never loots would stand still after a kill.
+    /// </summary>
+    [Fact]
+    public void ASpellKillDoesNotHoldNavigationWhileLootingIsOff()
+    {
+        var tracker = new SpellCastTracker();
+        var locks = new ActionLockTable();
+        var controller = new CombatController(
+            new FakeHost(new FakeAutomation()),
+            new CombatSettings(),
+            castTracker: tracker);
+        controller.BindActionLocks(locks, () => false);
+
+        tracker.Begin(1u, "Flame Bolt VII", 30u, "Drudge", false, 0L);
+        tracker.ObserveChat(1uL, "You killed Drudge!");
+
+        Assert.False(locks.IsLocked(ActionLockKind.Navigation));
+    }
+
     private static CombatSettings DebuffOnly(MonsterActionFlags flag)
     {
         var settings = new CombatSettings();

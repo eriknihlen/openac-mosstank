@@ -43,6 +43,13 @@ internal sealed partial class MossTankPanel : IBuffRuleHost
     private readonly SummonPetRule _summonPet;
     private readonly MacroScheduler _scheduler;
 
+    /// <summary>
+    /// The one cooldown table the whole rule list shares. Rules that start a
+    /// slow operation arm a slot; rules whose work would collide with it read
+    /// the slot in their gate and stand down until it clears.
+    /// </summary>
+    private readonly ActionLockTable _actionLocks = new();
+
     private readonly VitalRechargeController _vitalRecharge;
 
     private readonly VitalRechargeController _vitalHelperRecharge;
@@ -264,6 +271,7 @@ internal sealed partial class MossTankPanel : IBuffRuleHost
             _vitalSettings,
             StopMacroFromGate);
         _combat.BindCombatModeGate(_combatModeGate);
+        _combat.BindActionLocks(_actionLocks, () => _inventorySettings.Loot.Enabled);
         _buffRule = new BuffSelfRule(host, _buffSettings, this);
         _idlePeace = new IdlePeaceRule(host, _combatSettings);
         _summonPet = new SummonPetRule(
@@ -332,8 +340,13 @@ internal sealed partial class MossTankPanel : IBuffRuleHost
                 _meta.OnTick(elapsed);
         };
         _scheduler.Log = EmitMacroLog;
+        // The three columns are cooldown-slot states, not controller
+        // busy flags: a log diffed against a reference run has to mean the
+        // same thing on both sides.
         _scheduler.LockStateSuffix = () =>
-            $"   I={host.Automation.Items.IsBusy}, N={_navigation.HasActiveAction}, S={host.Automation.Loot.IsBusy}";
+            $"   I={_actionLocks.IsLocked(ActionLockKind.ItemUse)}"
+            + $", N={_actionLocks.IsLocked(ActionLockKind.Navigation)}"
+            + $", S={_actionLocks.IsLocked(ActionLockKind.Salvage)}";
         _combatModeGate.Log = EmitMacroLog;
         _combat.Log = EmitMacroLog;
         _initialized = true;
@@ -4317,6 +4330,7 @@ internal sealed partial class MossTankPanel : IBuffRuleHost
             HandleSessionStarted();
         }
 
+        _actionLocks.Advance(elapsedSeconds);
         ObserveFastCastMovement(elapsedSeconds);
         _buffRule.Advance(elapsedSeconds);
         EnsureCharacterProfile();
@@ -4345,6 +4359,7 @@ internal sealed partial class MossTankPanel : IBuffRuleHost
         if (schedulerActive && !_scheduler.IsRunning)
         {
             _scheduler.Start();
+            _actionLocks.ClearAll();
             _transactionSuspensionHeld = false;
             _transactionSuspensionElapsed = 0d;
             ResetOncePerRunWarnings();
