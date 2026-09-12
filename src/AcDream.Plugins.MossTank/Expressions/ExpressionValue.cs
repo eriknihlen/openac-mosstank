@@ -20,14 +20,19 @@ internal readonly record struct ExpressionCoordinates(
     double NorthSouth,
     double Elevation = 0d)
 {
+    /// <summary>
+    /// The compass form a profile reads and writes: each half rounded to one
+    /// decimal, trailing ".0" dropped, north/south first.
+    /// </summary>
     public override string ToString()
     {
         string ns = NorthSouth < 0d ? "S" : "N";
         string ew = EastWest < 0d ? "W" : "E";
-        return string.Create(
-            CultureInfo.InvariantCulture,
-            $"{Math.Abs(NorthSouth):0.0}{ns}, {Math.Abs(EastWest):0.0}{ew}");
+        return Round(NorthSouth) + ns + ", " + Round(EastWest) + ew;
     }
+
+    private static string Round(double value) =>
+        Math.Round(Math.Abs(value), 1).ToString(CultureInfo.InvariantCulture);
 }
 
 internal sealed class ExpressionList
