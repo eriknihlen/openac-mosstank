@@ -16,13 +16,21 @@ internal sealed class ExpressionHostPolicy
     public Func<bool, int>? SkillMargin { get; set; }
 
     /// <summary>
-    /// False when a monster is tracked-but-blacklisted, so the nearest-monster
-    /// lookup skips it the way the combat pass does.
+    /// True only when the combat pass is TRACKING this monster and has not
+    /// blacklisted it — both halves, not just the blacklist. A monster the
+    /// pass has never seen is not eligible, so a hook that answers the
+    /// blacklist alone reproduces half the rule and keeps untracked monsters
+    /// in the nearest-monster answer.
     /// </summary>
     public Func<uint, bool>? MonsterEligibility { get; set; }
 
     public int Margin(bool hunting) => SkillMargin?.Invoke(hunting) ?? 0;
 
+    /// <summary>
+    /// With no hook set there is no combat pass to ask, so every monster
+    /// stays eligible. That default is a deliberate widening of the rule
+    /// above, not the rule itself.
+    /// </summary>
     public bool IsEligibleMonster(uint objectId) =>
         MonsterEligibility?.Invoke(objectId) ?? true;
 }
