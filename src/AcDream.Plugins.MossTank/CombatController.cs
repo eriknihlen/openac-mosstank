@@ -49,6 +49,12 @@ internal sealed class CombatController
         _passDeliverable = [];
 
     /// <summary>
+    /// Whether the pack holds what each spell's formula asks for. Answered
+    /// once per pass per spell, the way the tier walk memoises it per frame.
+    /// </summary>
+    private readonly Dictionary<uint, bool> _passComponents = [];
+
+    /// <summary>
     /// Monsters this pass has already found nothing to do about. They are out
     /// of the running until the next pass rebuilds the picture.
     /// </summary>
@@ -393,6 +399,7 @@ internal sealed class CombatController
         _passDebuffSources.Clear();
         _passDebuffSpells.Clear();
         _passDeliverable.Clear();
+        _passComponents.Clear();
         _passInvalidTargets.Clear();
         _passClearedActions.Clear();
         _passCandidates.Clear();
@@ -938,7 +945,22 @@ internal sealed class CombatController
                 _host.Automation.Spells,
                 spell,
                 _settings.BlacklistedSpellComponents)
+            && HasCastingComponents(spell.SpellId)
             && CanCastHuntSpell(spell, target);
+
+    /// <summary>
+    /// A tier the pack cannot pay for is not a candidate. Without this the
+    /// pick lands on the best spell known, the client refuses the cast, and
+    /// the next pass picks the same spell again.
+    /// </summary>
+    private bool HasCastingComponents(uint spellId)
+    {
+        if (_passComponents.TryGetValue(spellId, out bool cached))
+            return cached;
+        bool answer = _host.Automation.Magic.HasComponents(spellId);
+        _passComponents[spellId] = answer;
+        return answer;
+    }
 
     /// <summary>VTank's own element word in its warning text (<c>f3.a</c>).</summary>
     private static string ElementName(MonsterDamageType element) => element switch

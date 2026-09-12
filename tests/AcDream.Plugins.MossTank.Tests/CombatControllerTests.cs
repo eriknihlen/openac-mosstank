@@ -3284,6 +3284,61 @@ public sealed class CombatControllerTests
         Assert.InRange(surface.ProjectilePathChecks, 1, 8);
     }
 
+    /// <summary>
+    /// Mutation: drop the component term from <c>IsUsableAttackSpell</c> and
+    /// this fails — the pick lands on the best tier known, the client refuses
+    /// the cast for want of components, and every pass picks it again.
+    /// </summary>
+    [Fact]
+    public void ATierThePackCannotPayForIsNotPicked()
+    {
+        var surface = new FakeAutomation
+        {
+            CombatSnapshot = Physical() with { Mode = PluginCombatMode.Magic },
+            Targets = [Target(10, "Drudge", 5, 0)],
+            KnownCombatSpells =
+            [
+                MagicSpell(100, "Flame Bolt VII", difficulty: 300),
+                MagicSpell(101, "Flame Bolt IV", difficulty: 150),
+            ],
+            EquipmentItems = [WieldedCaster()],
+        };
+        surface.MissingComponentSpellIds.Add(100u);
+        var controller = new CombatController(
+            new FakeHost(surface),
+            FireAttackRule(new CombatSettings { MaximumRange = 40d }));
+
+        controller.Toggle();
+        controller.OnTick(0.25);
+
+        Assert.Equal((101u, 10u), surface.LastTargetedCast);
+    }
+
+    /// <summary>
+    /// Mutation: same as above — with EVERY tier unpayable the arm must fall
+    /// through to the "no usable attack spell" warning instead of casting.
+    /// </summary>
+    [Fact]
+    public void NoTierIsPickedWhenThePackHasNoComponentsAtAll()
+    {
+        var surface = new FakeAutomation
+        {
+            CombatSnapshot = Physical() with { Mode = PluginCombatMode.Magic },
+            Targets = [Target(10, "Drudge", 5, 0)],
+            KnownCombatSpells = [MagicSpell(100, "Flame Bolt VII", difficulty: 300)],
+            EquipmentItems = [WieldedCaster()],
+        };
+        surface.MissingComponentSpellIds.Add(100u);
+        var controller = new CombatController(
+            new FakeHost(surface),
+            FireAttackRule(new CombatSettings { MaximumRange = 40d }));
+
+        controller.Toggle();
+        controller.OnTick(0.25);
+
+        Assert.Empty(surface.CastSpellIds);
+    }
+
     private static CombatSettings FireAttackRule(CombatSettings settings)
     {
         settings.Rules.Clear();
@@ -3725,6 +3780,15 @@ public sealed class CombatControllerTests
         }
 
         public bool IsCasting { get; set; }
+
+        /// <summary>
+        /// Spell ids the pack cannot pay for. Everything else has components.
+        /// </summary>
+        public HashSet<uint> MissingComponentSpellIds { get; } = [];
+
+        public bool HasComponents(uint spellId) =>
+            !MissingComponentSpellIds.Contains(spellId);
+
         public PluginCastGate EvaluateGate(uint spellId) => PluginCastGate.Ready;
         public PluginCastGate EvaluateGate(uint spellId, uint targetObjectId) =>
             PluginCastGate.Ready;
