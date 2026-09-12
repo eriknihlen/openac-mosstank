@@ -79,7 +79,11 @@ internal sealed class CombatSettings
         DebuffSelectionMethod.Skill;
     public double DebuffPrecastSeconds { get; set; } = 5d;
     public bool SwitchWandsToDebuff { get; set; }
-    public UseArcsMode UseArcs { get; set; } = UseArcsMode.AtRange;
+    /// <summary>
+    /// Stock profiles never arc: on an exact quality tie the bolt wins. The
+    /// option only decides that tie.
+    /// </summary>
+    public UseArcsMode UseArcs { get; set; } = UseArcsMode.No;
     public double SpellRangeFudge { get; set; } = 1d;
     public bool UseBreakableTurnTo { get; set; } = true;
     public bool UseProjectileAwareness { get; set; } = true;

@@ -899,6 +899,18 @@ public sealed class CombatControllerTests
         Assert.Equal((100u, 10u), surface.LastTargetedCast);
     }
 
+    /// <summary>
+    /// Mutation: set the default back to "at range" and this fails — a fresh
+    /// profile would arc at five metres where the stock profile bolts, so the
+    /// visible attack spell differs from the reference client's on day one.
+    /// </summary>
+    [Fact]
+    public void AFreshProfileNeverArcs()
+    {
+        Assert.Equal(UseArcsMode.No, new CombatSettings().UseArcs);
+        Assert.Equal(5d, new CombatSettings().ArcRange);
+    }
+
     [Fact]
     public void UseArcsDecidesOnlyAnExactQualityTie()
     {
