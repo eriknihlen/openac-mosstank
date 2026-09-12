@@ -105,15 +105,23 @@ internal static class CoreExpressionFunctions
                 throw new ExpressionEvaluationException("ord expects a non-empty string");
             return ExpressionValue.Number(char.ConvertToUtf32(value, 0));
         }, "ord[text]");
+        // Group separators are accepted, and an unparsable string is 0 rather
+        // than an error. The culture is pinned so a profile reads the same on
+        // every machine.
         registry.Register("cnumber", 1, 1, (_, args) =>
             double.TryParse(
                 args[0].AsString("cnumber"),
-                NumberStyles.Float,
+                NumberStyles.Float | NumberStyles.AllowThousands,
                 CultureInfo.InvariantCulture,
                 out double result)
                     ? ExpressionValue.Number(result)
                     : ExpressionValue.Zero,
             "cnumber[text]");
+        // Type introspection over ANY value: it answers with the expression
+        // token's own type tag, not with a game item type.
+        registry.Register("getobjectinternaltype", 1, 1, (_, args) =>
+            ExpressionValue.Number(InternalTypeTag(args[0].Kind)),
+            "getobjectinternaltype[value]");
         registry.Register("cstr", 1, 1, (_, args) => ExpressionValue.String(
             args[0].AsNumber("cstr").ToString("G15", CultureInfo.InvariantCulture)),
             "cstr[number]");
@@ -168,6 +176,17 @@ internal static class CoreExpressionFunctions
                 : ExpressionValue.Zero;
         }, "getregexmatch[text,pattern]");
     }
+
+    /// <summary>
+    /// The type tags an expression exposes: 0 none, 1 number, 3 string,
+    /// 7 object. Booleans ride a number, so they report 1.
+    /// </summary>
+    private static double InternalTypeTag(ExpressionValueKind kind) => kind switch
+    {
+        ExpressionValueKind.Number or ExpressionValueKind.Boolean => 1d,
+        ExpressionValueKind.String => 3d,
+        _ => 7d,
+    };
 
     private static void RegisterUnaryMath(
         ExpressionFunctionRegistry registry,

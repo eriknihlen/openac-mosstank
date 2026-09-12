@@ -60,7 +60,12 @@ internal sealed class ExpressionStopwatch
     private readonly System.Diagnostics.Stopwatch _clock = new();
 
     public bool IsRunning => _clock.IsRunning;
-    public double ElapsedSeconds => _clock.Elapsed.TotalSeconds;
+
+    /// <summary>
+    /// Whole milliseconds over 1000, so an expression sees the same quantised
+    /// figure a profile was written against.
+    /// </summary>
+    public double ElapsedSeconds => _clock.ElapsedMilliseconds / 1000d;
     public void Start() => _clock.Start();
     public void Stop() => _clock.Stop();
     public void Reset() => _clock.Reset();

@@ -443,7 +443,6 @@ internal static class HostExpressionFunctions
             TryObject(objects, args[0], "wobjectgetinternaltype", out PluginWorldObject obj)
                 ? ExpressionValue.Number(obj.ItemType)
                 : ExpressionValue.Zero, "wobjectgetinternaltype[object]");
-        registry.Alias("getobjectinternaltype", "wobjectgetinternaltype");
         registry.Register("wobjecthasdata", 1, 1, (_, args) =>
             ExpressionValue.Boolean(
                 TryObject(objects, args[0], "wobjecthasdata", out PluginWorldObject obj)
