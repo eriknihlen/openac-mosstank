@@ -1411,15 +1411,20 @@ internal static class HostExpressionFunctions
     /// object with no material, or one whose material has no name of its own,
     /// keeps the bare name.
     /// </summary>
+    /// <remarks>
+    /// This runs once per candidate inside the finders' predicates, so it
+    /// reads the one property it needs rather than capturing the object's
+    /// whole property bundle.
+    /// </remarks>
     private static string DisplayName(
         IWorldObjectAutomation objects,
         in PluginWorldObject obj)
     {
         const uint MaterialTypeProperty = 131u;
-        if (!objects.TryCaptureProperties(
+        if (!objects.TryGetIntProperty(
                 obj.ObjectId,
-                out PluginItemProperties properties)
-            || !properties.Ints.TryGetValue(MaterialTypeProperty, out int material)
+                MaterialTypeProperty,
+                out int material)
             || MaterialNames.Name(material) is not { } prefix)
         {
             return obj.Name;
