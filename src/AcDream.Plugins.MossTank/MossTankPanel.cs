@@ -339,6 +339,7 @@ internal sealed partial class MossTankPanel : IBuffRuleHost
             if (_combat.Enabled)
                 _meta.OnTick(elapsed);
         };
+        _combat.BindPassSuspension(_scheduler.Suspend, _scheduler.Resume);
         _scheduler.Log = EmitMacroLog;
         // The three columns are cooldown-slot states, not controller
         // busy flags: a log diffed against a reference run has to mean the
@@ -4372,6 +4373,9 @@ internal sealed partial class MossTankPanel : IBuffRuleHost
         }
         ObserveCastResult(elapsedSeconds);
         ObserveCastSuspension(elapsedSeconds);
+        // A turn in flight freezes the pass, so it needs a driver beside the
+        // pass rather than inside it.
+        _combat.AdvanceHeldTurn(elapsedSeconds);
         _scheduler.ExternalSuspension = _prologueOwnsAction;
         _scheduler.Advance(elapsedSeconds);
         _combatModeGate.AdvancePass(elapsedSeconds);

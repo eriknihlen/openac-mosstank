@@ -2906,6 +2906,110 @@ public sealed class CombatControllerTests
         Assert.Equal(PluginCombatMode.Peace, surface.CombatSnapshot.Mode);
     }
 
+    /// <summary>
+    /// Mutation: restore <c>RepeatAttackInProgress</c> (or any of the three
+    /// request flags) to the target-refresh hold and this fails — the macro
+    /// stays locked onto the drudge for the whole auto-repeat engagement.
+    /// </summary>
+    [Fact]
+    public void AnAutoRepeatSwingDoesNotFreezeTargetSelection()
+    {
+        var surface = new FakeAutomation
+        {
+            CombatSnapshot = Physical(),
+            Targets = [Target(10, "Drudge", distance: 3, angle: 0)],
+            EquipmentItems = [WieldedPlannedWeapon()],
+        };
+        var settings = new CombatSettings
+        {
+            MaximumRange = 20f,
+            SelectionMethod = TargetSelectionMethod.Range,
+            ScanIntervalSeconds = 0.05d,
+        };
+        settings.Rules.Insert(0, new MonsterRule("name#^Olthoi", 4));
+        ProfileFixtureWeapon(settings);
+        var controller = new CombatController(new FakeHost(surface), settings);
+
+        controller.Toggle();
+        controller.OnTick(0.25);
+        Assert.Equal(10u, surface.LastBeginTarget);
+
+        // The swing loop is running. It runs BESIDE the rule pass, so it must
+        // not stop the pass re-picking.
+        surface.CombatSnapshot = Physical() with
+        {
+            RepeatAttackInProgress = true,
+        };
+        surface.Targets =
+        [
+            Target(10, "Drudge", distance: 3, angle: 0),
+            Target(20, "Olthoi Soldier", distance: 15, angle: 60),
+        ];
+        controller.OnTick(0.25);
+
+        Assert.Contains(
+            "Olthoi Soldier",
+            controller.TargetText,
+            StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// Mutation: delete the <c>_suspendPass()</c> call in
+    /// <c>HoldPassForTurn</c> and the first assertion fails; delete the
+    /// <c>_resumePass()</c> call in <c>StopBreakableTurnMovement</c> and the
+    /// last one does.
+    /// </summary>
+    [Fact]
+    public void ATurnInFlightHoldsTheWholePassUntilTheCharacterHasFaced()
+    {
+        var surface = new FakeAutomation
+        {
+            CombatSnapshot = Physical() with { Mode = PluginCombatMode.Magic },
+            Targets = [Target(10, "Drudge", 5, 0)],
+            KnownAttackSpells =
+            [
+                Spell(100, "Incantation of Flame Bolt") with
+                {
+                    RequiresTurnTo = true,
+                },
+            ],
+            EquipmentItems = [WieldedCaster()],
+            NavigationSnapshot = NavigationAt(heading: 0f),
+        };
+        surface.NavigationObjects[10u] = new PluginNavigationObject(
+            10u,
+            "Drudge",
+            new PluginNavigationPosition(0x7F7F0001u, 0.1d, 0d, 0d, 0f, true));
+        var controller = new CombatController(
+            new FakeHost(surface),
+            FireAttackRule(new CombatSettings { UseBreakableTurnTo = true }));
+        int suspends = 0;
+        int resumes = 0;
+        controller.BindPassSuspension(() => suspends++, () => resumes++);
+
+        controller.Toggle();
+        controller.OnTick(0.25);
+
+        Assert.Equal(1, suspends);
+        Assert.Equal(0, resumes);
+        Assert.Empty(surface.CastSpellIds);
+
+        // The pass is frozen; the turn is driven beside it and does not raise
+        // a second hold.
+        controller.AdvanceHeldTurn(0.25);
+        controller.AdvanceHeldTurn(0.25);
+        Assert.Equal(1, suspends);
+        Assert.Equal(0, resumes);
+
+        surface.NavigationSnapshot = NavigationAt(heading: 90f);
+        controller.AdvanceHeldTurn(0.25);
+
+        Assert.Equal(1, resumes);
+
+        controller.OnTick(0.25);
+        Assert.Equal([100u], surface.CastSpellIds);
+    }
+
     private static CombatSettings FireAttackRule(CombatSettings settings)
     {
         settings.Rules.Clear();

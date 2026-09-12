@@ -114,6 +114,21 @@ internal sealed class CombatController
     /// <summary>Seconds navigation is held after a kill.</summary>
     private const double PostKillNavigationLockSeconds = 3d;
 
+    private Action _suspendPass = static () => { };
+    private Action _resumePass = static () => { };
+    private bool _turnHoldsPass;
+    private uint _breakableTurnTargetId;
+
+    /// <summary>
+    /// Lets the controller freeze the whole rule pass while the character is
+    /// turning. Unbound (a controller-only rig) the hold is a no-op.
+    /// </summary>
+    internal void BindPassSuspension(Action suspend, Action resume)
+    {
+        _suspendPass = suspend ?? throw new ArgumentNullException(nameof(suspend));
+        _resumePass = resume ?? throw new ArgumentNullException(nameof(resume));
+    }
+
     internal void BindActionLocks(ActionLockTable locks, Func<bool> lootingEnabled)
     {
         _actionLocks = locks ?? throw new ArgumentNullException(nameof(locks));
@@ -499,6 +514,9 @@ internal sealed class CombatController
             _settings,
             _host.Automation.Character,
             inventory);
+        // Every arm tears the turn down before it issues: a swing and a turn
+        // both want the character, and the swing wins once it is armed.
+        StopBreakableTurnMovement();
         PluginCombatCommandResult begin =
             _host.Automation.Combat.BeginPhysicalAttack(
                 _targetId,
@@ -2110,23 +2128,12 @@ internal sealed class CombatController
         }
 
         PluginCombatSnapshot combat = _host.Automation.Combat.Snapshot;
-        bool actionInFlight = combat.BuildInProgress
-            || combat.RequestInProgress
-            || combat.ServerResponsePending
-            || combat.RepeatAttackInProgress
-            || _host.Automation.Magic.IsCasting;
-        if (_targetId != 0u && actionInFlight)
-        {
-            if (TryFind(_targetId, out PluginCombatTarget active))
-                SetTarget(active, _settings.ResolveRule(active));
-            else
-            {
-                _host.Automation.Combat.AbortPhysicalAttack();
-                ClearTarget();
-            }
-            return;
-        }
 
+        // Selection is NOT frozen for the life of an engagement. The only
+        // things that stop the macro re-picking are the pass hold (a cast or a
+        // turn in flight) and the item-use cooldown, both of which sit above
+        // this rule; a swing loop runs beside the pass and never blocks it. A
+        // higher-priority monster arriving mid-fight has to be able to win.
         RefreshSpellCatalogs();
         IReadOnlyList<PluginInventoryItem> inventory =
             _host.Automation.Items.CaptureOwnedItems();
@@ -2677,6 +2684,21 @@ internal sealed class CombatController
             return true;
         }
 
+        if (!DriveBreakableTurn(targetObjectId))
+        {
+            StopBreakableTurnMovement();
+            return true;
+        }
+        HoldPassForTurn(targetObjectId);
+        return false;
+    }
+
+    /// <summary>
+    /// One step of a turn already in flight. Returns true while the character
+    /// still has turning left to do.
+    /// </summary>
+    private bool DriveBreakableTurn(uint targetObjectId)
+    {
         INavigationAutomation navigation = _host.Automation.Navigation;
         PluginNavigationSnapshot self = navigation.Snapshot;
         if (!self.IsAvailable
@@ -2685,8 +2707,7 @@ internal sealed class CombatController
                 targetObjectId,
                 out PluginNavigationObject target))
         {
-            StopBreakableTurnMovement();
-            return true;
+            return false;
         }
 
         float desired = NavigationController.DesiredHeading(
@@ -2696,16 +2717,12 @@ internal sealed class CombatController
             self.Position.HeadingDegrees,
             desired);
         if (MathF.Abs(delta) <= BreakableTurnToleranceDegrees)
-        {
-            StopBreakableTurnMovement();
-            return true;
-        }
+            return false;
 
         if (navigation.ClearMovementIntent()
             != PluginNavigationCommandStatus.Accepted)
         {
-            StopBreakableTurnMovement();
-            return true;
+            return false;
         }
         if (_now - _breakableTurnFaceHeadingStamp
             >= NavigationController.FaceHeadingReissueSeconds)
@@ -2714,19 +2731,54 @@ internal sealed class CombatController
             if (navigation.FaceHeading(desired)
                 != PluginNavigationCommandStatus.Accepted)
             {
-                StopBreakableTurnMovement();
-                return true;
+                return false;
             }
         }
         _breakableTurnOwned = true;
         Status = $"Turning to {_targetName} ({delta:+0.0;-0.0}°)";
-        return false;
+        return true;
+    }
+
+    /// <summary>
+    /// Turning owns the character, so it owns the rule pass too: nothing else
+    /// may claim a turn while the character is still swinging round to face
+    /// its target. Raised once for the life of one turn.
+    /// </summary>
+    private void HoldPassForTurn(uint targetObjectId)
+    {
+        _breakableTurnTargetId = targetObjectId;
+        if (_turnHoldsPass)
+            return;
+        _turnHoldsPass = true;
+        _suspendPass();
+    }
+
+    /// <summary>
+    /// Steps a turn that is holding the pass. The pass itself is frozen while
+    /// the hold is up, so the turn needs a driver outside it — the host frame.
+    /// </summary>
+    internal void AdvanceHeldTurn(double elapsedSeconds)
+    {
+        if (!_turnHoldsPass)
+            return;
+        _now += Math.Max(0d, elapsedSeconds);
+        if (_breakableTurnTargetId == 0u
+            || !DriveBreakableTurn(_breakableTurnTargetId))
+        {
+            StopBreakableTurnMovement();
+        }
     }
 
     private void StopBreakableTurnMovement()
     {
         _breakableTurnFaceHeadingStamp =
             NavigationController.NoFaceHeadingStamp;
+        _breakableTurnTargetId = 0u;
+        if (_turnHoldsPass)
+        {
+            _turnHoldsPass = false;
+            _resumePass();
+        }
         if (!_breakableTurnOwned)
             return;
         _host.Automation.Navigation.ClearMovementIntent();
