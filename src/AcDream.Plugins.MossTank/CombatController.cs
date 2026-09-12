@@ -141,6 +141,12 @@ internal sealed class CombatController
     private bool _selectionJigglePreviousPlayer;
     private double _nextSelectionJiggleAt;
 
+    /// <summary>
+    /// When the current nudge window closes. The nudge is one short window
+    /// per cast, not something that runs between casts.
+    /// </summary>
+    private double _selectionJiggleUntil;
+
     private static readonly MonsterDamageType[] RandomDamageCycle =
     [
         MonsterDamageType.Pierce,
@@ -165,6 +171,12 @@ internal sealed class CombatController
         _gameInfo = gameInfo ?? VtankGameInfoDatabase.Empty;
         _castTracker = castTracker ?? new SpellCastTracker();
         _castTracker.Completed += OnCastTrackerOutcome;
+        // A request the server never answered is sent again rather than
+        // costing a silent five seconds mid-fight.
+        _castTracker.ReissueCast = (spellId, targetObjectId) =>
+            targetObjectId == 0u
+                ? _host.Automation.Magic.Cast(spellId)
+                : _host.Automation.Magic.Cast(spellId, targetObjectId);
     }
 
     internal SpellCastTracker CastTracker => _castTracker;
@@ -210,6 +222,7 @@ internal sealed class CombatController
         _actionLocks = locks ?? throw new ArgumentNullException(nameof(locks));
         _lootingEnabled = lootingEnabled
             ?? throw new ArgumentNullException(nameof(lootingEnabled));
+        _castTracker.BindActionLocks(_actionLocks);
     }
 
     /// <summary>
@@ -1050,6 +1063,13 @@ internal sealed class CombatController
         in PluginCombatTarget target)
     {
         IMagicCommands magic = _host.Automation.Magic;
+        // Finishing a cast of one attack school holds the other off for a few
+        // seconds; a hybrid that fires inside that window is simply refused.
+        if (_castTracker.IsSchoolLockedOut(choice.Spell.School))
+        {
+            Status = $"Waiting to cast at {_targetName}";
+            return;
+        }
         if (!choice.CastWithoutTarget
             && !ReadyForBreakableTurn(choice.Spell, _targetId))
         {
@@ -1096,7 +1116,12 @@ internal sealed class CombatController
                 : selfCast ? "yourself" : _targetName,
             HitsMultipleTargets(choice.Spell),
             issueRevision,
-            choice.Spell.Saying);
+            choice.Spell.Saying,
+            choice.Spell.School,
+            SpellCastTracker.CanKillFor(choice.Spell),
+            checked((int)Math.Min(
+                int.MaxValue,
+                _host.Automation.Character.CurrentMana)));
         Log?.Invoke(MacroLogChannel.CastInfo, "SpellCaster: Begin");
         if (!choice.CastWithoutTarget)
         {
@@ -2255,7 +2280,11 @@ internal sealed class CombatController
                 if (objectId == 0u)
                     return;
                 _failures.ResetAttempts(objectId);
-                EndKilledTarget(objectId);
+                // A spell that strikes several creatures cannot say WHICH one
+                // the sentence is about, so the blow is recorded but the
+                // target is not ended.
+                if (!info.HitsMultipleTargets)
+                    EndKilledTarget(objectId);
                 return;
 
             case SpellCastOutcome.PermanentFail:
@@ -2363,11 +2392,19 @@ internal sealed class CombatController
         _selectionJiggleActive = true;
         _selectionJigglePreviousPlayer = false;
         _nextSelectionJiggleAt = _now;
+        _selectionJiggleUntil = _now + SpellCastTracker.ResultTickSeconds;
     }
 
     private void TickSelectionJiggle()
     {
-        if (!_selectionJiggleActive || _now < _nextSelectionJiggleAt)
+        if (!_selectionJiggleActive)
+            return;
+        if (_now >= _selectionJiggleUntil)
+        {
+            StopSelectionJiggle();
+            return;
+        }
+        if (_now < _nextSelectionJiggleAt)
             return;
         ISelectionAutomation selection = _host.Automation.Selection;
         int pulses = 0;
@@ -2392,6 +2429,7 @@ internal sealed class CombatController
         _selectionJiggleActive = false;
         _selectionJigglePreviousPlayer = false;
         _nextSelectionJiggleAt = 0d;
+        _selectionJiggleUntil = 0d;
     }
 
     private static bool IsVtankInstantCast(in PluginSpellInfo spell)

@@ -768,6 +768,51 @@ public sealed class CombatControllerTests
         Assert.Empty(surface.MovementIntents);
     }
 
+    /// <summary>
+    /// Mutation: drop the nudge window's deadline and this fails — the macro
+    /// would go on cycling its selection for ever between casts instead of
+    /// for one short window after each one.
+    /// </summary>
+    [Fact]
+    public void TheNudgeStopsAfterItsOwnWindow()
+    {
+        PluginSpellInfo attack = Spell(100, "Incantation of Flame Bolt") with
+        {
+            IsProjectile = false,
+            School = 34,
+            Difficulty = 300,
+        };
+        var surface = new FakeAutomation
+        {
+            CombatSnapshot = Physical() with { Mode = PluginCombatMode.Magic },
+            Targets = [Target(10, "Drudge", 5, 0)],
+            KnownAttackSpells = [attack],
+            EquipmentItems = [WieldedCaster()],
+        };
+        var controller = new CombatController(
+            new FakeHost(surface),
+            new CombatSettings
+            {
+                UseProjectileAwareness = false,
+                DoJiggle = true,
+            });
+        controller.Toggle();
+        controller.OnTick(0.25);
+        surface.LastCastCompletion = new PluginCastCompletion(1, 100, 10, 0);
+        controller.OnTick(0.01);
+
+        for (int tick = 0; tick < 10; tick++)
+            controller.OnTick(0.131);
+        int afterTheWindow = surface.SelectionActions.Count;
+
+        for (int tick = 0; tick < 20; tick++)
+            controller.OnTick(0.131);
+
+        Assert.Equal(afterTheWindow, surface.SelectionActions.Count);
+        // One opening pulse plus the seven 0.131 s beats inside 0.907 s.
+        Assert.InRange(afterTheWindow, 2, 9);
+    }
+
     [Fact]
     public void MagicRuleDebuffsAndWaitsForServerReceiptBeforeAttack()
     {
@@ -3671,7 +3716,15 @@ public sealed class CombatControllerTests
             castTracker: tracker);
         controller.BindActionLocks(locks, () => true);
 
-        tracker.Begin(1u, "Flame Bolt VII", 30u, "Drudge", false, 0L);
+        tracker.Begin(
+            1u,
+            "Flame Bolt VII",
+            30u,
+            "Drudge",
+            false,
+            0L,
+            school: SpellCastTracker.WarMagicSchool,
+            canKill: true);
         tracker.ObserveChat(1uL, "You killed Drudge!");
 
         Assert.True(locks.IsLocked(ActionLockKind.Navigation));
@@ -3698,7 +3751,15 @@ public sealed class CombatControllerTests
             castTracker: tracker);
         controller.BindActionLocks(locks, () => false);
 
-        tracker.Begin(1u, "Flame Bolt VII", 30u, "Drudge", false, 0L);
+        tracker.Begin(
+            1u,
+            "Flame Bolt VII",
+            30u,
+            "Drudge",
+            false,
+            0L,
+            school: SpellCastTracker.WarMagicSchool,
+            canKill: true);
         tracker.ObserveChat(1uL, "You killed Drudge!");
 
         Assert.False(locks.IsLocked(ActionLockKind.Navigation));

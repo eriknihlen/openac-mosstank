@@ -14,7 +14,15 @@ public sealed class SpellCastTrackerTests
         List<SpellCastOutcomeInfo> log = [];
         tracker.Completed += log.Add;
         outcomes = log;
-        tracker.Begin(100u, spellName, 10u, targetName, hitsMultipleTargets, 5L);
+        tracker.Begin(
+            100u,
+            spellName,
+            10u,
+            targetName,
+            hitsMultipleTargets,
+            5L,
+            school: SpellCastTracker.WarMagicSchool,
+            canKill: true);
         return tracker;
     }
 
@@ -199,7 +207,15 @@ public sealed class SpellCastTrackerTests
         tracker.ObserveCompletion(Receipt());
 
         tracker.ObserveChat(7uL, "You killed Drudge!");
-        tracker.Begin(100u, "Flame Bolt VII", 10u, "Drudge", false, 8L);
+        tracker.Begin(
+            100u,
+            "Flame Bolt VII",
+            10u,
+            "Drudge",
+            false,
+            8L,
+            school: SpellCastTracker.WarMagicSchool,
+            canKill: true);
         tracker.ObserveCompletion(Receipt(revision: 9L));
         tracker.ObserveChat(7uL, "You killed Drudge!");
 
@@ -335,4 +351,180 @@ public sealed class SpellCastTrackerTests
             raven with { Saying = "casfaen" }));
     }
 
+    /// <summary>
+    /// Mutation: drop the <c>CanKill</c> term and this fails — a kill line
+    /// arriving while a debuff is in flight would end the debuff's target.
+    /// </summary>
+    [Fact]
+    public void OnlyASpellThatCanKillClaimsAKillingBlow()
+    {
+        var tracker = new SpellCastTracker();
+        List<SpellCastOutcomeInfo> outcomes = [];
+        tracker.Completed += outcomes.Add;
+        tracker.Begin(
+            200u,
+            "Imperil Other VII",
+            10u,
+            "Drudge",
+            false,
+            5L,
+            school: 31u,
+            canKill: false);
+        tracker.ObserveCompletion(new PluginCastCompletion(6L, 200u, 10u, 0u));
+
+        tracker.ObserveChat(1uL, "You killed Drudge!");
+
+        Assert.True(tracker.IsBusy);
+        Assert.Empty(outcomes);
+    }
+
+    /// <summary>
+    /// Mutation: name-filter the failure classes as well and this fails — the
+    /// tracker would sit busy for the full result timeout after a resist whose
+    /// sentence does not name the tracked target.
+    /// </summary>
+    [Fact]
+    public void AResistEndsTheWaitWhateverNameItCarries()
+    {
+        SpellCastTracker tracker = Armed(out List<SpellCastOutcomeInfo> outcomes);
+        tracker.ObserveCompletion(Receipt());
+
+        tracker.ObserveChat(1uL, "Olthoi Soldier resists your spell");
+
+        Assert.False(tracker.IsBusy);
+        Assert.Equal(SpellCastOutcome.Fail, Assert.Single(outcomes).Outcome);
+    }
+
+    /// <summary>
+    /// Mutation: drop the lockout arm and this fails — a void/war hybrid would
+    /// fire the other school inside its cooldown and be refused by the client.
+    /// </summary>
+    [Fact]
+    public void FinishingAVoidCastHoldsWarOffForFiveAndAHalfSeconds()
+    {
+        var locks = new ActionLockTable();
+        var tracker = new SpellCastTracker();
+        tracker.BindActionLocks(locks);
+        tracker.Begin(
+            300u,
+            "Nether Bolt VII",
+            10u,
+            "Drudge",
+            false,
+            5L,
+            school: SpellCastTracker.VoidMagicSchool,
+            canKill: false);
+        tracker.ObserveCompletion(new PluginCastCompletion(6L, 300u, 10u, 0u));
+
+        Assert.False(tracker.IsSchoolLockedOut(SpellCastTracker.WarMagicSchool));
+
+        tracker.ObserveChat(1uL, "You cast Nether Bolt VII on Drudge");
+
+        Assert.True(tracker.IsSchoolLockedOut(SpellCastTracker.WarMagicSchool));
+        Assert.False(tracker.IsSchoolLockedOut(SpellCastTracker.VoidMagicSchool));
+
+        locks.Advance(5.4d);
+        Assert.True(tracker.IsSchoolLockedOut(SpellCastTracker.WarMagicSchool));
+        locks.Advance(0.2d);
+        Assert.False(tracker.IsSchoolLockedOut(SpellCastTracker.WarMagicSchool));
+    }
+
+    /// <summary>
+    /// Mutation: drop the arm's state test and this fails — a cast that never
+    /// left the ground must not hold the other school off.
+    /// </summary>
+    [Fact]
+    public void ACastThatNeverLaunchedArmsNoLockout()
+    {
+        var locks = new ActionLockTable();
+        var tracker = new SpellCastTracker();
+        tracker.BindActionLocks(locks);
+        tracker.Begin(
+            300u,
+            "Nether Bolt VII",
+            10u,
+            "Drudge",
+            false,
+            5L,
+            school: SpellCastTracker.VoidMagicSchool);
+
+        tracker.Advance(SpellCastTracker.LaunchTimeoutSeconds + 0.1d);
+
+        Assert.Equal(SpellCastTrackerState.Idle, tracker.State);
+        Assert.False(tracker.IsSchoolLockedOut(SpellCastTracker.WarMagicSchool));
+    }
+
+    /// <summary>
+    /// Mutation: delete the re-issue loop and this fails — a request the
+    /// server ignored would cost a silent five seconds instead of being sent
+    /// again roughly twenty-five times.
+    /// </summary>
+    [Fact]
+    public void AnUnacknowledgedCastIsSentAgainUntilTheBudgetRunsOut()
+    {
+        var tracker = new SpellCastTracker();
+        List<(uint Spell, uint Target)> reissues = [];
+        tracker.ReissueCast = (spell, target) =>
+        {
+            reissues.Add((spell, target));
+            return true;
+        };
+        tracker.Begin(100u, "Flame Bolt VII", 10u, "Drudge", false, 5L);
+
+        for (int tick = 0; tick < 60; tick++)
+            tracker.Advance(0.1d);
+
+        Assert.Equal(SpellCastTrackerState.Idle, tracker.State);
+        Assert.InRange(reissues.Count, 24, 25);
+        Assert.All(reissues, entry => Assert.Equal((100u, 10u), entry));
+    }
+
+    /// <summary>
+    /// Mutation: drop the low-mana interval and this fails — the count would
+    /// stay at the ordinary rate.
+    /// </summary>
+    [Fact]
+    public void NearlyOutOfManaTheCastIsSentAgainTwiceAsOften()
+    {
+        var tracker = new SpellCastTracker();
+        int reissues = 0;
+        tracker.ReissueCast = (_, _) =>
+        {
+            reissues++;
+            return true;
+        };
+        tracker.Begin(
+            100u,
+            "Flame Bolt VII",
+            10u,
+            "Drudge",
+            false,
+            5L,
+            currentMana: 9);
+
+        for (int tick = 0; tick < 60; tick++)
+            tracker.Advance(0.1d);
+
+        Assert.InRange(reissues, 49, 50);
+    }
+
+    /// <summary>
+    /// Mutation: make the window unbounded and this fails — the nudge would
+    /// still be open a second after the cast was confirmed in flight.
+    /// </summary>
+    [Fact]
+    public void TheNudgeWindowIsOneResultTickLong()
+    {
+        SpellCastTracker tracker = Armed(out _);
+        Assert.False(tracker.JiggleWindowOpen);
+
+        tracker.ObserveCompletion(Receipt());
+        Assert.True(tracker.JiggleWindowOpen);
+
+        tracker.Advance(SpellCastTracker.ResultTickSeconds - 0.01d);
+        Assert.True(tracker.JiggleWindowOpen);
+
+        tracker.Advance(0.02d);
+        Assert.False(tracker.JiggleWindowOpen);
+    }
 }

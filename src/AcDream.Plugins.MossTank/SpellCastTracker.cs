@@ -70,6 +70,25 @@ internal sealed class SpellCastTracker
 
     internal const int LocalSpeechChatKind = 0;
 
+    /// <summary>Skill ids the two attack schools are keyed by.</summary>
+    internal const uint WarMagicSchool = 34u;
+    internal const uint VoidMagicSchool = 43u;
+
+    /// <summary>
+    /// How long finishing one attack school holds the other off. A void cast
+    /// locks war out and a war cast locks void out.
+    /// </summary>
+    public const double CrossSchoolLockoutSeconds = 5.5d;
+
+    /// <summary>The gap between re-issues of a cast the server has not
+    /// acknowledged, and the shorter gap used when mana is nearly out.</summary>
+    public const double ReissueIntervalSeconds = 0.2d;
+
+    public const double LowManaReissueIntervalSeconds = 0.1d;
+
+    /// <summary>Mana below which the shorter gap is used.</summary>
+    public const int LowManaThreshold = 10;
+
     private SpellCastTrackerState _state;
     private uint _spellId;
     private string _spellName = string.Empty;
@@ -86,6 +105,58 @@ internal sealed class SpellCastTracker
     private double _resultElapsed;
     private SpellCastOutcomeInfo _outcome;
     private bool _hasOutcome;
+    private uint _school;
+    private bool _canKill;
+    private double _reissueInterval = ReissueIntervalSeconds;
+    private double _nextReissueAt = ReissueIntervalSeconds;
+    private ActionLockTable? _actionLocks;
+
+    /// <summary>
+    /// Re-sends a cast the server has not acknowledged. Left unbound the
+    /// tracker simply waits out the attempt budget.
+    /// </summary>
+    public Func<uint, uint, bool>? ReissueCast { get; set; }
+
+    /// <summary>
+    /// The shared cooldown table the cross-school lockout lives in. Unbound,
+    /// the lockout is not armed and nothing is refused for it.
+    /// </summary>
+    public void BindActionLocks(ActionLockTable locks) =>
+        _actionLocks = locks ?? throw new ArgumentNullException(nameof(locks));
+
+    /// <summary>
+    /// True while a spell of this school may not be issued, because a cast of
+    /// the other attack school has just finished.
+    /// </summary>
+    public bool IsSchoolLockedOut(uint school)
+    {
+        if (_actionLocks is not { } locks)
+            return false;
+        return school switch
+        {
+            VoidMagicSchool => locks.IsLocked(ActionLockKind.VoidSpellLockedOut),
+            WarMagicSchool => locks.IsLocked(ActionLockKind.WarSpellLockedOut),
+            _ => false,
+        };
+    }
+
+    /// <summary>
+    /// <c>MySpell.CanKill</c>: only these spells' casts are allowed to claim a
+    /// killing blow, so a fellow's or a pet's kill line arriving mid-debuff is
+    /// not credited to the debuff's target.
+    /// </summary>
+    public static bool CanKillFor(in PluginSpellInfo spell) =>
+        spell.School == WarMagicSchool
+        || spell.Family is 640u or 639u
+        || spell.Saying is "feazhzhapaj" or "equinzhapaj" or "tugakquati";
+
+    /// <summary>
+    /// True for the one short window after a cast is confirmed in flight
+    /// during which the macro nudges itself. It closes on its own.
+    /// </summary>
+    public bool JiggleWindowOpen =>
+        _state == SpellCastTrackerState.AwaitingResult
+        && _resultElapsed < ResultTickSeconds;
 
     public event Action<SpellCastOutcomeInfo>? Completed;
 
@@ -112,7 +183,10 @@ internal sealed class SpellCastTracker
         string targetName,
         bool hitsMultipleTargets,
         long issueRevision,
-        string saying = "")
+        string saying = "",
+        uint school = 0u,
+        bool canKill = false,
+        int currentMana = int.MaxValue)
     {
         _state = SpellCastTrackerState.AwaitingLaunch;
         _saying = Normalize(saying);
@@ -127,10 +201,18 @@ internal sealed class SpellCastTracker
         _resultElapsed = 0d;
         _hasOutcome = false;
         _outcome = default;
+        _school = school;
+        _canKill = canKill;
+        // Nearly out of mana, the client is re-poked twice as often.
+        _reissueInterval = currentMana < LowManaThreshold
+            ? LowManaReissueIntervalSeconds
+            : ReissueIntervalSeconds;
+        _nextReissueAt = _reissueInterval;
     }
 
     public void Reset()
     {
+        ArmCrossSchoolLockout();
         _state = SpellCastTrackerState.Idle;
         _spellId = 0u;
         _spellName = string.Empty;
@@ -145,6 +227,36 @@ internal sealed class SpellCastTracker
         _resultElapsed = 0d;
         _hasOutcome = false;
         _outcome = default;
+        _school = 0u;
+        _canKill = false;
+        _reissueInterval = ReissueIntervalSeconds;
+        _nextReissueAt = ReissueIntervalSeconds;
+    }
+
+    /// <summary>
+    /// Leaving a finished cast holds the OTHER attack school off for a few
+    /// seconds. Only a cast that got as far as waiting for its result counts:
+    /// one that never left the ground arms nothing.
+    /// </summary>
+    private void ArmCrossSchoolLockout()
+    {
+        if (_state != SpellCastTrackerState.AwaitingResult
+            || _actionLocks is not { } locks)
+        {
+            return;
+        }
+        if (_school == VoidMagicSchool)
+        {
+            locks.Arm(
+                ActionLockKind.WarSpellLockedOut,
+                CrossSchoolLockoutSeconds);
+        }
+        else if (_school == WarMagicSchool)
+        {
+            locks.Arm(
+                ActionLockKind.VoidSpellLockedOut,
+                CrossSchoolLockoutSeconds);
+        }
     }
 
     /// <summary>
@@ -211,30 +323,32 @@ internal sealed class SpellCastTracker
             text,
             out string spellName,
             out string targetName);
-        if (result == CombatResultTextClass.None)
-            return;
-
-        if (spellName.Length > 0
-            && _spellName.Length > 0
-            && !spellName.Equals(_spellName, StringComparison.Ordinal))
-        {
-            return;
-        }
-
-        // gj.cs:439-440 — likewise for the target name, `m_e`.
-        if (targetName.Length > 0
-            && _targetName.Length > 0
-            && !targetName.Equals(_targetName, StringComparison.OrdinalIgnoreCase))
-        {
-            return;
-        }
 
         switch (result)
         {
             case CombatResultTextClass.Kill:
+                // Only a spell that can actually kill claims a killing blow.
+                // A kill line arriving while a DEBUFF is in flight belongs to
+                // someone else's attack and must not end the debuff's target.
+                if (!_canKill)
+                    return;
+                // The name is checked here even though the reference macro
+                // does not check it, because acdream cannot see the message
+                // colour the reference macro gates this scan on.
+                if (targetName.Length > 0
+                    && _targetName.Length > 0
+                    && !targetName.Equals(
+                        _targetName,
+                        StringComparison.OrdinalIgnoreCase))
+                {
+                    return;
+                }
                 Complete(SpellCastOutcome.Kill, 0u, text);
                 return;
             case CombatResultTextClass.PermanentFail:
+                // The failure classes match on the sentence alone: a resist
+                // whose name did not parse still ends the wait instead of
+                // leaving the macro busy for the full result timeout.
                 if (_hitsMultipleTargets)
                     return;
                 Complete(SpellCastOutcome.PermanentFail, 0u, text);
@@ -243,6 +357,22 @@ internal sealed class SpellCastTracker
                 Complete(SpellCastOutcome.Fail, 0u, text);
                 return;
             case CombatResultTextClass.Success:
+                // Success is the one class that names the spell and the
+                // target, so it is the one class checked against them.
+                if (spellName.Length > 0
+                    && _spellName.Length > 0
+                    && !spellName.Equals(_spellName, StringComparison.Ordinal))
+                {
+                    return;
+                }
+                if (targetName.Length > 0
+                    && _targetName.Length > 0
+                    && !targetName.Equals(
+                        _targetName,
+                        StringComparison.OrdinalIgnoreCase))
+                {
+                    return;
+                }
                 Complete(SpellCastOutcome.Success, 0u, text);
                 return;
         }
@@ -255,6 +385,22 @@ internal sealed class SpellCastTracker
         {
             case SpellCastTrackerState.AwaitingLaunch:
                 _launchElapsed += elapsed;
+                // A cast the server never acknowledged is sent again every
+                // interval until the budget runs out, rather than costing a
+                // silent five seconds of standing still.
+                while (_launchElapsed >= _nextReissueAt)
+                {
+                    if (_nextReissueAt >= LaunchTimeoutSeconds)
+                    {
+                        Complete(
+                            SpellCastOutcome.LaunchTimeout,
+                            0u,
+                            string.Empty);
+                        return;
+                    }
+                    _nextReissueAt += _reissueInterval;
+                    ReissueCast?.Invoke(_spellId, _targetObjectId);
+                }
                 if (_launchElapsed >= LaunchTimeoutSeconds)
                     Complete(SpellCastOutcome.LaunchTimeout, 0u, string.Empty);
                 return;
@@ -284,6 +430,7 @@ internal sealed class SpellCastTracker
 
     private void Complete(SpellCastOutcome outcome, uint weenieError, string text)
     {
+        ArmCrossSchoolLockout();
         var info = new SpellCastOutcomeInfo(
             outcome,
             _spellId,
