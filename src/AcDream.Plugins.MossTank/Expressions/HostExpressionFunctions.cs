@@ -610,7 +610,7 @@ internal static class HostExpressionFunctions
         }, "wobjectfindnearestbynameandobjectclass[objectClass,namePattern]");
         RegisterNearest(registry, host, "wobjectfindnearestdoor",
             (obj, _) => obj.ObjectClass == PluginObjectClass.Door, argumentCount: 0);
-        // Monsters the combat pass has blacklisted are skipped.
+        // Only monsters the combat pass is tracking and has not blacklisted.
         RegisterNearest(registry, host, "wobjectfindnearestmonster",
             (obj, _) => obj.ObjectClass == PluginObjectClass.Monster
                 && policy.IsEligibleMonster(obj.ObjectId), argumentCount: 0);
@@ -976,6 +976,12 @@ internal static class HostExpressionFunctions
             set).Where(obj => predicate(obj, args[0]))), $"{name}[value]");
     }
 
+    /// <summary>
+    /// The shared body of the three list-every-match pattern finders. They
+    /// have no counterpart among the built-ins this plugin reproduces, but a
+    /// pattern has to mean one thing throughout the plugin, so they match the
+    /// same DISPLAY name the single-match finders do.
+    /// </summary>
     private static void RegisterRegexFinder(
         ExpressionFunctionRegistry registry,
         IPluginHost host,
@@ -984,10 +990,10 @@ internal static class HostExpressionFunctions
     {
         registry.Register(name, 1, 1, (_, args) =>
         {
+            IWorldObjectAutomation objects = host.Automation.Objects;
             Regex regex = CreateRegex(args[0].AsString(name));
-            return ObjectList(FilterSet(
-                host.Automation.Objects.CaptureObjects(),
-                set).Where(obj => regex.IsMatch(obj.Name)));
+            return ObjectList(FilterSet(objects.CaptureObjects(), set)
+                .Where(obj => regex.IsMatch(DisplayName(objects, obj))));
         }, $"{name}[pattern]");
     }
 

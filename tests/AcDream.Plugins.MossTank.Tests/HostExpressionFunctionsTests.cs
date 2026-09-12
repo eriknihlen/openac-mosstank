@@ -148,6 +148,53 @@ public sealed class HostExpressionFunctionsTests
     }
 
     /// <summary>
+    /// The three additive list-every-match pattern finders read the same
+    /// display name the single-match ones do, so a pattern means one thing
+    /// everywhere inside the plugin. Mutation: matching the bare name in the
+    /// shared registration makes all three `^Silver ` and `^Oak ` probes
+    /// answer an empty list, while the two-object `Long Sword` probe still
+    /// answers 2.
+    /// </summary>
+    [Fact]
+    public void AdditivePatternFindersMatchTheSameDisplayName()
+    {
+        var automation = CreateAutomation();
+        automation.WorldObjects.Add(new PluginWorldObject(
+            12, 102, "Long Sword", PluginObjectClass.MeleeWeapon, 0x1, 1, 0)
+        {
+            IsOwned = true,
+        });
+        automation.WorldObjects.Add(new PluginWorldObject(
+            22, 104, "Long Sword", PluginObjectClass.MeleeWeapon, 0x1, 0, 0)
+        {
+            IsLandscape = true,
+            HasPosition = true,
+            Position = automation.Position with { EastWest = 10.2d },
+        });
+        // 63 is Silver, 75 is Oak.
+        automation.Properties[12] = Properties(
+            ints: new Dictionary<uint, int> { [131] = 63 });
+        automation.Properties[22] = Properties(
+            ints: new Dictionary<uint, int> { [131] = 75 });
+        using var runtime = new MossTankExpressionRuntime(new Host(automation));
+
+        Assert.Equal(2d, runtime.Evaluate(
+            "listcount[wobjectfindallbynamerx['Long Sword']]").AsNumber());
+        Assert.Equal(1d, runtime.Evaluate(
+            "listcount[wobjectfindallbynamerx['^Silver ']]").AsNumber());
+        Assert.Equal(1d, runtime.Evaluate(
+            "listcount[wobjectfindallbynamerx['^Oak ']]").AsNumber());
+        Assert.Equal(1d, runtime.Evaluate(
+            "listcount[wobjectfindallinventorybynamerx['^Silver ']]").AsNumber());
+        Assert.Equal(0d, runtime.Evaluate(
+            "listcount[wobjectfindallinventorybynamerx['^Oak ']]").AsNumber());
+        Assert.Equal(1d, runtime.Evaluate(
+            "listcount[wobjectfindalllandscapebynamerx['^Oak ']]").AsNumber());
+        Assert.Equal(0d, runtime.Evaluate(
+            "listcount[wobjectfindalllandscapebynamerx['^Silver ']]").AsNumber());
+    }
+
+    /// <summary>
     /// The nearest-by-name-and-class lookup takes the object class FIRST and a
     /// case-sensitive REGEX second. Mutation: the previous argument order plus
     /// literal case-insensitive equality fails every assertion here — the
