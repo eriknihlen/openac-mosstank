@@ -1254,8 +1254,8 @@ public sealed class CombatControllerTests
             Targets = [Target(10, "Drudge", 5, 0)],
             KnownCombatSpells =
             [
-                // Step 1 of hi.cs:123-206, and the only spell here whose
-                // family declares a flight (117 is a straight-bolt family).
+                // The first step of the debuff chain, and the only spell here
+                // whose family declares a flight (117 is a bolt family).
                 Debuff(84, "Magic Yield Other VII") with { Family = 117u },
                 // Step 7.
                 Debuff(83, "Imperil Other VII"),
