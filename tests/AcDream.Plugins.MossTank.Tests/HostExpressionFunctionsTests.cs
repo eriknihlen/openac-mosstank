@@ -70,6 +70,97 @@ public sealed class HostExpressionFunctionsTests
             "wobjectlastidtime[wobjectfindbyid[20]]").AsNumber());
     }
 
+    /// <summary>
+    /// Inventory lookups by name are exact and case-SENSITIVE, and the regex
+    /// variant compiles its pattern without IgnoreCase. Mutation: comparing
+    /// with OrdinalIgnoreCase, or adding RegexOptions.IgnoreCase, makes the
+    /// lower-case probes find the item.
+    /// </summary>
+    [Fact]
+    public void InventoryNameLookupsAreCaseSensitive()
+    {
+        var automation = CreateAutomation();
+        using var runtime = new MossTankExpressionRuntime(new Host(automation));
+
+        Assert.Equal(10d, runtime.Evaluate(
+            "wobjectgetid[wobjectfindininventorybyname['Health Elixir']]").AsNumber());
+        Assert.Equal(0d, runtime.Evaluate(
+            "wobjectfindininventorybyname['health elixir']").AsNumber());
+        Assert.Equal(10d, runtime.Evaluate(
+            "wobjectgetid[wobjectfindininventorybynamerx['^Health']]").AsNumber());
+        Assert.Equal(0d, runtime.Evaluate(
+            "wobjectfindininventorybynamerx['^health']").AsNumber());
+    }
+
+    /// <summary>
+    /// The nearest-by-name-and-class lookup takes the object class FIRST and a
+    /// case-sensitive REGEX second. Mutation: the previous argument order plus
+    /// literal case-insensitive equality fails every assertion here — the
+    /// regex probe outright throws, because argument 0 is a number.
+    /// </summary>
+    [Fact]
+    public void NearestByNameAndObjectClassTakesClassThenCaseSensitiveRegex()
+    {
+        var automation = CreateAutomation();
+        using var runtime = new MossTankExpressionRuntime(new Host(automation));
+
+        Assert.Equal(20d, runtime.Evaluate(
+            "wobjectgetid[wobjectfindnearestbynameandobjectclass[5,'^Dru']]").AsNumber());
+        Assert.Equal(20d, runtime.Evaluate(
+            "wobjectgetid[wobjectfindnearestbynameandobjectclass[5,'Drudge']]").AsNumber());
+        Assert.Equal(0d, runtime.Evaluate(
+            "wobjectfindnearestbynameandobjectclass[5,'^dru']").AsNumber());
+        Assert.Equal(0d, runtime.Evaluate(
+            "wobjectfindnearestbynameandobjectclass[6,'^Dru']").AsNumber());
+    }
+
+    /// <summary>
+    /// The nearest lookups skip the player's own object and rank by the 3-D
+    /// distance. Mutation: dropping the self-exclusion returns the player for
+    /// the player class, and ranking on the flat distance picks the object
+    /// that is closer on the map but a hundred metres up.
+    /// </summary>
+    [Fact]
+    public void NearestLookupsExcludeSelfAndRankInThreeDimensions()
+    {
+        var automation = CreateAutomation();
+        automation.WorldObjects.Add(new PluginWorldObject(
+            21, 200, "Skywards Drudge", PluginObjectClass.Monster, 0x10, 0, 0)
+        {
+            IsLandscape = true,
+            HasPosition = true,
+            Position = automation.Position with
+            {
+                EastWest = 10.05d,
+                Elevation = automation.Position.Elevation + 100d,
+            },
+        });
+        using var runtime = new MossTankExpressionRuntime(new Host(automation));
+
+        Assert.Equal(0d, runtime.Evaluate(
+            "wobjectfindnearestbyobjectclass[24]").AsNumber());
+        Assert.Equal(20d, runtime.Evaluate(
+            "wobjectgetid[wobjectfindnearestmonster[]]").AsNumber());
+    }
+
+    /// <summary>
+    /// The nearest-monster lookup honours the combat pass's blacklist.
+    /// Mutation: matching on the object class alone still returns the
+    /// blacklisted drudge.
+    /// </summary>
+    [Fact]
+    public void NearestMonsterSkipsMonstersTheCombatPassHasBlacklisted()
+    {
+        var automation = CreateAutomation();
+        using var runtime = new MossTankExpressionRuntime(new Host(automation));
+        Assert.Equal(20d, runtime.Evaluate(
+            "wobjectgetid[wobjectfindnearestmonster[]]").AsNumber());
+
+        runtime.Policy.MonsterEligibility = objectId => objectId != 20u;
+
+        Assert.Equal(0d, runtime.Evaluate("wobjectfindnearestmonster[]").AsNumber());
+    }
+
     [Fact]
     public void ActionFunctionsUseSharedSelectionInventoryMagicAndMovementCommands()
     {
@@ -364,6 +455,7 @@ public sealed class HostExpressionFunctionsTests
         automation.WorldObjects.Add(new PluginWorldObject(
             1, 1, "Expression Tester", PluginObjectClass.Player, 0x10, 0, 0)
         {
+            IsLandscape = true,
             HasPosition = true,
             Position = automation.Position,
             ItemsCapacity = 10,

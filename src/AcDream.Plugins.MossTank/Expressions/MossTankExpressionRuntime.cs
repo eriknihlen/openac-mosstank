@@ -18,6 +18,7 @@ internal sealed class MossTankExpressionRuntime : IDisposable
     private readonly IPluginHost _host;
     private readonly ExpressionState _state = new();
     private readonly ExpressionFunctionRegistry _functions;
+    private readonly ExpressionHostPolicy _policy = new();
     private readonly ExperienceMeter _experience;
     private readonly QuestTracker _quests;
     private readonly SalvageStagingManager _salvage;
@@ -37,7 +38,7 @@ internal sealed class MossTankExpressionRuntime : IDisposable
         _salvage = new SalvageStagingManager(host);
         _statusHud = new StatusHudManager(host);
         _functions = CoreExpressionFunctions.CreateDefault(random);
-        HostExpressionFunctions.Register(_functions, host);
+        HostExpressionFunctions.Register(_functions, host, _policy);
         RegisterExperienceFunctions();
         RegisterQuestFunctions();
         RegisterSalvageFunctions();
@@ -47,6 +48,12 @@ internal sealed class MossTankExpressionRuntime : IDisposable
     }
 
     public ExpressionState State => _state;
+
+    /// <summary>
+    /// Profile-owned hooks the built-ins consult; the owner wires them once.
+    /// </summary>
+    internal ExpressionHostPolicy Policy => _policy;
+
     internal ExpressionFunctionRegistry Registry => _functions;
     public IReadOnlyCollection<ExpressionFunction> Functions => _functions.Functions;
     public int PendingExecutionCount => _delayed.Count;

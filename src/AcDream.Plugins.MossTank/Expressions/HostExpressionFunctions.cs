@@ -21,13 +21,17 @@ internal static class HostExpressionFunctions
         "Evensong", "Evensong-and-Half", "Gloaming", "Gloaming-and-Half",
     ];
 
-    public static void Register(ExpressionFunctionRegistry registry, IPluginHost host)
+    public static void Register(
+        ExpressionFunctionRegistry registry,
+        IPluginHost host,
+        ExpressionHostPolicy? policy = null)
     {
         ArgumentNullException.ThrowIfNull(registry);
         ArgumentNullException.ThrowIfNull(host);
+        policy ??= new ExpressionHostPolicy();
         RegisterCharacter(registry, host);
-        RegisterSpells(registry, host);
-        RegisterObjects(registry, host);
+        RegisterSpells(registry, host, policy);
+        RegisterObjects(registry, host, policy);
         RegisterLoot(registry, host);
         RegisterFellowship(registry, host);
         RegisterWorldTime(registry, host);
@@ -321,7 +325,8 @@ internal static class HostExpressionFunctions
 
     private static void RegisterSpells(
         ExpressionFunctionRegistry registry,
-        IPluginHost host)
+        IPluginHost host,
+        ExpressionHostPolicy policy)
     {
         ISpellCatalog spells = host.Automation.Spells;
         ICharacterInfo character = host.Automation.Character;
@@ -407,7 +412,8 @@ internal static class HostExpressionFunctions
 
     private static void RegisterObjects(
         ExpressionFunctionRegistry registry,
-        IPluginHost host)
+        IPluginHost host,
+        ExpressionHostPolicy policy)
     {
         IWorldObjectAutomation objects = host.Automation.Objects;
         registry.Register("wobjectfindbyid", 1, 1, (context, args) =>
@@ -507,14 +513,15 @@ internal static class HostExpressionFunctions
                 : ExpressionValue.List(new ExpressionList()),
             "wobjectgetactivespellids[object]");
 
-        RegisterObjectFinders(registry, host);
+        RegisterObjectFinders(registry, host, policy);
         RegisterInventoryCounts(registry, host);
         RegisterObjectVitals(registry, host);
     }
 
     private static void RegisterObjectFinders(
         ExpressionFunctionRegistry registry,
-        IPluginHost host)
+        IPluginHost host,
+        ExpressionHostPolicy policy)
     {
         registry.Register("wobjectfindall", 0, 0, (_, _) =>
             ObjectList(host.Automation.Objects.CaptureObjects()), "wobjectfindall[]");
@@ -545,14 +552,17 @@ internal static class HostExpressionFunctions
             return ObjectList(host.Automation.Objects.CaptureObjects().Where(
                 obj => obj.ContainerObjectId == container));
         }, "wobjectfindallbycontainer[container]");
+        // Exact match, case included: a profile naming "Health Elixir" must
+        // not pick up "health elixir".
         registry.Register("wobjectfindininventorybyname", 1, 1, (_, args) =>
             FirstObject(host, ObjectSet.Inventory, obj => obj.Name.Equals(
                 args[0].AsString("wobjectfindininventorybyname"),
-                StringComparison.OrdinalIgnoreCase)),
+                StringComparison.Ordinal)),
             "wobjectfindininventorybyname[name]");
         registry.Register("wobjectfindininventorybynamerx", 1, 1, (_, args) =>
         {
-            Regex regex = CreateRegex(args[0].AsString("wobjectfindininventorybynamerx"));
+            Regex regex = CreateCaseSensitiveRegex(
+                args[0].AsString("wobjectfindininventorybynamerx"));
             return FirstObject(host, ObjectSet.Inventory, obj => regex.IsMatch(obj.Name));
         }, "wobjectfindininventorybynamerx[pattern]");
         registry.Register("wobjectfindininventorybytemplatetype", 1, 1, (_, args) =>
@@ -564,13 +574,21 @@ internal static class HostExpressionFunctions
             (obj, args) => (int)obj.ObjectClass == args[0].AsInt32());
         RegisterNearest(registry, host, "wobjectfindnearestbytemplatetype",
             (obj, args) => obj.WeenieClassId == ToUInt(args[0], "template type"));
-        RegisterNearest(registry, host, "wobjectfindnearestbynameandobjectclass",
-            (obj, args) => obj.Name.Equals(args[0].AsString(), StringComparison.OrdinalIgnoreCase)
-                && (int)obj.ObjectClass == args[1].AsInt32(), argumentCount: 2);
+        // Object class first, then a case-sensitive REGEX over the name.
+        registry.Register("wobjectfindnearestbynameandobjectclass", 2, 2, (_, args) =>
+        {
+            int objectClass = args[0].AsInt32("wobjectfindnearestbynameandobjectclass");
+            Regex regex = CreateCaseSensitiveRegex(
+                args[1].AsString("wobjectfindnearestbynameandobjectclass"));
+            return Nearest(host, obj =>
+                (int)obj.ObjectClass == objectClass && regex.IsMatch(obj.Name));
+        }, "wobjectfindnearestbynameandobjectclass[objectClass,namePattern]");
         RegisterNearest(registry, host, "wobjectfindnearestdoor",
             (obj, _) => obj.ObjectClass == PluginObjectClass.Door, argumentCount: 0);
+        // Monsters the combat pass has blacklisted are skipped.
         RegisterNearest(registry, host, "wobjectfindnearestmonster",
-            (obj, _) => obj.ObjectClass == PluginObjectClass.Monster, argumentCount: 0);
+            (obj, _) => obj.ObjectClass == PluginObjectClass.Monster
+                && policy.IsEligibleMonster(obj.ObjectId), argumentCount: 0);
     }
 
     private static void RegisterInventoryCounts(
@@ -940,21 +958,48 @@ internal static class HostExpressionFunctions
         Func<PluginWorldObject, IReadOnlyList<ExpressionValue>, bool> predicate,
         int argumentCount = 1)
     {
-        registry.Register(name, argumentCount, argumentCount, (_, args) =>
-        {
-            PluginNavigationSnapshot player = host.Automation.Navigation.Snapshot;
-            if (!player.IsAvailable)
-                return ExpressionValue.Zero;
-            PluginWorldObject? nearest = host.Automation.Objects.CaptureObjects()
-                .Where(obj => obj.IsLandscape && obj.HasPosition && predicate(obj, args))
-                .OrderBy(obj => player.Position.HorizontalDistanceMeters(obj.Position))
-                .ThenBy(static obj => obj.ObjectId)
-                .Cast<PluginWorldObject?>()
-                .FirstOrDefault();
-            return nearest is { } found
-                ? ExpressionValue.WorldObject(found.ObjectId)
-                : ExpressionValue.Zero;
-        }, $"{name}[...]" );
+        registry.Register(
+            name,
+            argumentCount,
+            argumentCount,
+            (_, args) => Nearest(host, obj => predicate(obj, args)),
+            $"{name}[...]");
+    }
+
+    /// <summary>
+    /// The nearest matching object to the player, measured in three
+    /// dimensions and never the player's own object.
+    /// </summary>
+    private static ExpressionValue Nearest(
+        IPluginHost host,
+        Func<PluginWorldObject, bool> predicate)
+    {
+        PluginNavigationSnapshot player = host.Automation.Navigation.Snapshot;
+        if (!player.IsAvailable)
+            return ExpressionValue.Zero;
+        uint self = host.Automation.Character.ObjectId;
+        PluginWorldObject? nearest = host.Automation.Objects.CaptureObjects()
+            .Where(obj => obj.ObjectId != self
+                && obj.IsLandscape
+                && obj.HasPosition
+                && predicate(obj))
+            .OrderBy(obj => DistanceMeters(player.Position, obj.Position))
+            .ThenBy(static obj => obj.ObjectId)
+            .Cast<PluginWorldObject?>()
+            .FirstOrDefault();
+        return nearest is { } found
+            ? ExpressionValue.WorldObject(found.ObjectId)
+            : ExpressionValue.Zero;
+    }
+
+    /// <summary>Straight-line distance in metres, elevation included.</summary>
+    private static double DistanceMeters(
+        in PluginNavigationPosition from,
+        in PluginNavigationPosition to)
+    {
+        double flat = from.HorizontalDistanceMeters(to);
+        double elevation = from.Elevation - to.Elevation;
+        return Math.Sqrt((flat * flat) + (elevation * elevation));
     }
 
     private static ExpressionValue FirstObject(
@@ -1233,6 +1278,16 @@ internal static class HostExpressionFunctions
     private static Regex CreateRegex(string pattern) => new(
         pattern,
         RegexOptions.IgnoreCase | RegexOptions.CultureInvariant,
+        RegexTimeout);
+
+    /// <summary>
+    /// The regex flavour the two name-matching built-ins use: no IgnoreCase,
+    /// so a pattern means exactly what it says. The timeout is a runaway
+    /// guard, not a matching rule.
+    /// </summary>
+    private static Regex CreateCaseSensitiveRegex(string pattern) => new(
+        pattern,
+        RegexOptions.CultureInvariant,
         RegexTimeout);
 
     private static uint ToUInt(in ExpressionValue value, string operation) =>
