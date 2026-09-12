@@ -47,6 +47,48 @@ internal sealed class CombatController
     private readonly Dictionary<DebuffIdentity, PluginSpellInfo?> _passDebuffSpells = [];
     private readonly Dictionary<(MonsterDamageType Element, uint Target), bool>
         _passDeliverable = [];
+
+    /// <summary>
+    /// Monsters this pass has already found nothing to do about. They are out
+    /// of the running until the next pass rebuilds the picture.
+    /// </summary>
+    private readonly HashSet<uint> _passInvalidTargets = [];
+
+    /// <summary>
+    /// Action columns this pass has turned off per monster, because the thing
+    /// that column asks for turned out to be undeliverable against it. A
+    /// monster whose remaining columns still offer something stays in the
+    /// running.
+    /// </summary>
+    private readonly Dictionary<uint, MonsterActionFlags> _passClearedActions = [];
+
+    /// <summary>
+    /// Candidates already built this pass, so re-choosing does not re-evaluate
+    /// the whole rule table per monster per attempt. Discarded when the range
+    /// being asked about changes, and per monster when its columns change.
+    /// </summary>
+    private readonly Dictionary<uint, CombatTargetCandidate?> _passCandidates = [];
+    private double _passCandidateRange = double.NaN;
+
+    private void InvalidateForPass(uint objectId)
+    {
+        if (objectId == 0u)
+            return;
+        _passInvalidTargets.Add(objectId);
+        _passCandidates.Remove(objectId);
+    }
+
+    private void ClearActionsForPass(uint objectId, MonsterActionFlags flags)
+    {
+        if (objectId == 0u)
+            return;
+        _passClearedActions[objectId] =
+            (_passClearedActions.TryGetValue(objectId, out MonsterActionFlags held)
+                ? held
+                : MonsterActionFlags.None)
+            | flags;
+        _passCandidates.Remove(objectId);
+    }
     private IReadOnlyList<PluginEquipmentItem>? _passEquipment;
     private uint _pendingAttackTarget;
     private PendingItemDebuff? _pendingItemDebuff;
@@ -351,6 +393,10 @@ internal sealed class CombatController
         _passDebuffSources.Clear();
         _passDebuffSpells.Clear();
         _passDeliverable.Clear();
+        _passInvalidTargets.Clear();
+        _passClearedActions.Clear();
+        _passCandidates.Clear();
+        _passCandidateRange = double.NaN;
         _passEquipment = null;
 
         _lastElapsedSeconds = Math.Max(0d, elapsedSeconds);
@@ -410,13 +456,60 @@ internal sealed class CombatController
             return;
         }
 
-        if (_targetId == 0u)
+        // One monster the character cannot act against must not cost the whole
+        // pass. When a decision turns out to be undeliverable, the monster's
+        // offending action column is turned off (or the monster is dropped
+        // outright) for the rest of THIS pass and the choice is made again
+        // from what is left, until something can be carried out or nothing is
+        // left to try.
+        int budget = _settings.UseProjectileAwareness
+            ? Math.Max(1, _settings.MaximumCollisionChecksPerTick)
+            : 1;
+        for (int attempt = 0; attempt < budget; attempt++)
         {
-            StopApproachMovement();
-            Status = "Waiting for a target";
-            return;
-        }
+            if (attempt > 0)
+                RefreshTarget();
 
+            if (_targetId == 0u)
+            {
+                StopApproachMovement();
+                Status = "Waiting for a target";
+                return;
+            }
+            if (RunAttackAttempt() != AttackPassOutcome.Retry)
+            {
+                Log?.Invoke(
+                    MacroLogChannel.Timers,
+                    $"Attack evaluation complete. Loop iterations: {attempt + 1}");
+                return;
+            }
+            Log?.Invoke(
+                MacroLogChannel.RuleInfo,
+                $"Attack: {_targetName} yielded nothing this pass, choosing again");
+            ClearTarget();
+        }
+        Log?.Invoke(
+            MacroLogChannel.Timers,
+            $"Attack evaluation complete. Loop iterations: {budget}");
+    }
+
+    /// <summary>
+    /// What one turn of the decision did with the pass.
+    /// </summary>
+    private enum AttackPassOutcome
+    {
+        /// <summary>Something was issued, or is being waited on.</summary>
+        Claimed,
+
+        /// <summary>
+        /// Nothing can be carried out against this monster; the pass should
+        /// choose again from what is left.
+        /// </summary>
+        Retry,
+    }
+
+    private AttackPassOutcome RunAttackAttempt()
+    {
         StopApproachMovement();
 
         if (_pets.Tick(
@@ -429,48 +522,46 @@ internal sealed class CombatController
                 readyToRefillInPeace: ReadyToActInPeace))
         {
             Status = petStatus;
-            return;
+            return AttackPassOutcome.Claimed;
         }
 
         PluginCombatSnapshot combat = _host.Automation.Combat.Snapshot;
         if (TickDebuffs(combat))
-            return;
+            return AttackPassOutcome.Claimed;
 
         if (TickEquipment())
-            return;
+            return AttackPassOutcome.Claimed;
 
         if (!_targetRule.Actions.Attacks && !_targetRule.Actions.UsesStreak)
         {
             Status = $"Debuffs complete for {_targetName}";
-            return;
+            InvalidateForPass(_targetId);
+            return AttackPassOutcome.Retry;
         }
 
         if (!TryPrepareAttack())
-            return;
+            return AttackPassOutcome.Claimed;
 
         combat = _host.Automation.Combat.Snapshot;
 
         if (combat.Mode == PluginCombatMode.Magic)
-        {
-            TickMagic();
-            return;
-        }
+            return TickMagic();
 
         if (combat.Mode is not (PluginCombatMode.Melee or PluginCombatMode.Missile))
         {
             Status = $"Unsupported mode: {combat.Mode}";
-            return;
+            return AttackPassOutcome.Claimed;
         }
 
-        TickPhysical(combat);
+        return TickPhysical(combat);
     }
 
-    private void TickPhysical(PluginCombatSnapshot combat)
+    private AttackPassOutcome TickPhysical(PluginCombatSnapshot combat)
     {
         if (combat.ServerResponsePending || combat.RepeatAttackInProgress)
         {
             Status = $"Attacking {_targetName}";
-            return;
+            return AttackPassOutcome.Claimed;
         }
 
         if (combat.RequestInProgress)
@@ -489,7 +580,7 @@ internal sealed class CombatController
             {
                 Status = $"Charging {combat.PowerBarLevel * 100f:0}%";
             }
-            return;
+            return AttackPassOutcome.Claimed;
         }
 
         IReadOnlyList<PluginInventoryItem> inventory =
@@ -506,7 +597,12 @@ internal sealed class CombatController
                 out PluginProjectilePathResult missilePath))
         {
             Status = ProjectileStatus(missilePath, _targetName);
-            return;
+            // The shot cannot reach: this monster is not attackable this
+            // pass, so the choice is made again from what is left.
+            ClearActionsForPass(
+                _targetId,
+                MonsterActionFlags.Attack | MonsterActionFlags.Streak);
+            return AttackPassOutcome.Retry;
         }
         float desiredPower = AutoAttackPower.Resolve(
             physicalActions,
@@ -539,15 +635,16 @@ internal sealed class CombatController
             _pendingPhysicalTarget = _targetId;
             ArmPhysicalResultText(_targetId, _targetName);
         }
+        return AttackPassOutcome.Claimed;
     }
 
-    private void TickMagic()
+    private AttackPassOutcome TickMagic()
     {
         IMagicCommands magic = _host.Automation.Magic;
         if (magic.IsCasting)
         {
             Status = $"Casting at {_targetName}";
-            return;
+            return AttackPassOutcome.Claimed;
         }
 
         RefreshSpellCatalogs();
@@ -566,7 +663,7 @@ internal sealed class CombatController
                     MonsterDamageType.Fists,
                     CastWithoutTarget: false),
                 target);
-            return;
+            return AttackPassOutcome.Claimed;
         }
 
         bool flag3 = actions.UsesPrimaryAttack;                 // !a10.t
@@ -601,7 +698,10 @@ internal sealed class CombatController
             if (!flag3 || !flag5)
             {
                 Status = $"No attack configured for {_targetName}";
-                return;
+                // No action was decided at all: this monster is out of the
+                // running for the rest of the pass.
+                InvalidateForPass(_targetId);
+                return AttackPassOutcome.Retry;
             }
             if (element == MonsterDamageType.DrainAuto)
             {
@@ -619,9 +719,15 @@ internal sealed class CombatController
         if (plan is not { } chosen)
         {
             Status ??= "No usable attack spell";
-            return;
+            // Nothing deliverable was found. Whatever the planners could rule
+            // out they have already turned off; if they could not, the monster
+            // itself is out of the running for this pass.
+            if (!_passClearedActions.ContainsKey(_targetId))
+                InvalidateForPass(_targetId);
+            return AttackPassOutcome.Retry;
         }
         CastAttackSpell(chosen, target);
+        return AttackPassOutcome.Claimed;
     }
 
     private AttackSpellChoice? PlanRing(
@@ -785,7 +891,12 @@ internal sealed class CombatController
                 else
                     boltBlocked = true;
                 if (arcBlocked && boltBlocked)
+                {
+                    // Neither shape can reach: the attack column is off for
+                    // this monster for the rest of the pass.
+                    ClearActionsForPass(_targetId, MonsterActionFlags.Attack);
                     return null;
+                }
                 continue;
             }
             return new AttackSpellChoice(
@@ -1511,14 +1622,14 @@ internal sealed class CombatController
                 height,
                 (float)_settings.CollisionProjectileRadius,
                 (float)_settings.CollisionStepDistance,
-                _settings.MaximumCollisionChecksPerTick)
+                _settings.CollisionSampleBudget)
             : _host.Automation.Projectiles.EvaluatePath(
                 targetObjectId,
                 kind,
                 height,
                 (float)_settings.CollisionProjectileRadius,
                 (float)_settings.CollisionStepDistance,
-                _settings.MaximumCollisionChecksPerTick);
+                _settings.CollisionSampleBudget);
         if (_settings.ShowCollisionDebug && result.DebugSamples.Count > 0)
         {
             _host.Automation.Projectiles.ShowDebugSamples(result.DebugSamples);
@@ -2313,21 +2424,55 @@ internal sealed class CombatController
     {
         candidate = default;
 
+        if (_passCandidateRange != maximumRange)
+        {
+            _passCandidateRange = maximumRange;
+            _passCandidates.Clear();
+        }
+        if (_passCandidates.TryGetValue(
+                target.ObjectId,
+                out CombatTargetCandidate? memo))
+        {
+            if (memo is not { } built)
+                return false;
+            candidate = built;
+            return true;
+        }
+        if (_passInvalidTargets.Contains(target.ObjectId))
+            return false;
+
         if (_failures.Reason(target.ObjectId, _now)
             != CombatSuppressionReason.None)
         {
+            _passCandidates[target.ObjectId] = null;
             return false;
         }
 
         // Gate 3 (f7.cs:265-270).
         ResolvedMonsterRule rule = _settings.ResolveRule(target);
+        if (_passClearedActions.TryGetValue(
+                target.ObjectId,
+                out MonsterActionFlags cleared))
+        {
+            rule = rule with
+            {
+                Rule = rule.Rule.WithActions(
+                    rule.Actions with { Flags = rule.Actions.Flags & ~cleared }),
+            };
+        }
         if (rule.Priority < 0)
+        {
+            _passCandidates[target.ObjectId] = null;
             return false;
+        }
 
-        if (target.Distance > maximumRange)
+        if (target.Distance > maximumRange
+            || target.Distance < _settings.MinimumRange)
+        {
+            // Range is the one gate that depends on which range was asked
+            // about, so it is not memoised.
             return false;
-        if (target.Distance < _settings.MinimumRange)
-            return false;
+        }
 
         MonsterRuleActions actions = rule.Actions;
         (uint weapon, uint offhand, MonsterDamageType element) = ResolveWieldPlan(
@@ -2345,7 +2490,10 @@ internal sealed class CombatController
             step => IsDebuffStepDue(step, objectId, inventory));
 
         if (!needsDebuff && !actions.Attacks && !actions.UsesStreak)
+        {
+            _passCandidates[target.ObjectId] = null;
             return false;
+        }
 
         candidate = new CombatTargetCandidate(
             target,
@@ -2361,6 +2509,7 @@ internal sealed class CombatController
             lastTarget != 0u && target.ObjectId == lastTarget,
             weapon,
             offhand);
+        _passCandidates[target.ObjectId] = candidate;
         return true;
     }
 

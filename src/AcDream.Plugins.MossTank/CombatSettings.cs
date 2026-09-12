@@ -86,7 +86,20 @@ internal sealed class CombatSettings
     public double CollisionProjectileRadius { get; set; } = 0.4d;
     public double CollisionStepDistance { get; set; } = 0.7d;
     public bool ShowCollisionDebug { get; set; }
+
+    /// <summary>
+    /// How many times ONE pass may choose again after finding it cannot carry
+    /// out its decision against the monster it picked.
+    /// </summary>
     public int MaximumCollisionChecksPerTick { get; set; } = 500;
+
+    /// <summary>
+    /// The cap on samples taken along a single flight path. The reference
+    /// client bounds this by geometry — the step distance against the length
+    /// of the flight — and has no setting for it; the host's path check wants
+    /// a number, so this is ours and is not the per-pass retry budget.
+    /// </summary>
+    public int CollisionSampleBudget { get; set; } = 500;
     public double ArcRange { get; set; } = 5d;
     public double RingDistance { get; set; } = 5d;
     public int MinimumRingTargets { get; set; } = 4;

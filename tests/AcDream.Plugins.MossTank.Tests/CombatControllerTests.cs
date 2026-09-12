@@ -656,8 +656,10 @@ public sealed class CombatControllerTests
         controller.OnTick(0.25);
 
         Assert.Empty(surface.CastSpellIds);
-        Assert.Contains("blocked", controller.Status, StringComparison.OrdinalIgnoreCase);
         Assert.Equal(10u, surface.LastProjectileTarget);
+        // Nothing can be delivered to it, so it is out of the running for this
+        // pass and there is nothing else to pick.
+        Assert.False(controller.HasTarget);
     }
 
     [Fact]
@@ -3197,6 +3199,91 @@ public sealed class CombatControllerTests
         Assert.True(controller.HasTarget);
     }
 
+    /// <summary>
+    /// Mutation: take the retry out of the pass (return instead of choosing
+    /// again after an undeliverable decision) and this fails — the macro
+    /// stands there staring at the monster behind cover while a reachable one
+    /// is next to it.
+    /// </summary>
+    [Fact]
+    public void AMonsterBehindCoverIsPassedOverForAReachableOneInTheSamePass()
+    {
+        var surface = new FakeAutomation
+        {
+            CombatSnapshot = Physical() with { Mode = PluginCombatMode.Magic },
+            Targets =
+            [
+                Target(10, "Drudge", distance: 3, angle: 0),
+                Target(20, "Mosswart", distance: 6, angle: 10),
+            ],
+            KnownAttackSpells =
+            [
+                Spell(100, "Incantation of Flame Bolt") with
+                {
+                    IsProjectile = true,
+                },
+            ],
+            EquipmentItems = [WieldedCaster()],
+        };
+        // The near one cannot be reached; the far one can.
+        surface.ProjectilePaths[10u] = new(
+            PluginProjectilePathStatus.Blocked,
+            CollisionChecks: 3,
+            BlockingObjectId: 0x50000001u);
+        var settings = FireAttackRule(new CombatSettings
+        {
+            MaximumRange = 40d,
+            SelectionMethod = TargetSelectionMethod.Range,
+            UseProjectileAwareness = true,
+        });
+        var controller = new CombatController(new FakeHost(surface), settings);
+
+        controller.Toggle();
+        controller.OnTick(0.25);
+
+        Assert.Equal((100u, 20u), surface.LastTargetedCast);
+    }
+
+    /// <summary>
+    /// Mutation: make the retry unbounded (drop the budget) and a rule whose
+    /// remaining column keeps failing would spin forever; make the budget the
+    /// per-path sample cap again and this test's single blocked monster would
+    /// cost 500 rebuilds. Either way the count below moves.
+    /// </summary>
+    [Fact]
+    public void TheRetryStopsAsSoonAsNothingIsLeftToChooseFrom()
+    {
+        var surface = new FakeAutomation
+        {
+            CombatSnapshot = Physical() with { Mode = PluginCombatMode.Magic },
+            Targets = [Target(10, "Drudge", distance: 3, angle: 0)],
+            KnownAttackSpells =
+            [
+                Spell(100, "Incantation of Flame Bolt") with
+                {
+                    IsProjectile = true,
+                },
+            ],
+            ProjectilePath = new(PluginProjectilePathStatus.Blocked),
+            EquipmentItems = [WieldedCaster()],
+        };
+        var settings = FireAttackRule(new CombatSettings
+        {
+            MaximumRange = 40d,
+            UseProjectileAwareness = true,
+        });
+        var controller = new CombatController(new FakeHost(surface), settings);
+
+        controller.Toggle();
+        controller.OnTick(0.25);
+
+        Assert.Empty(surface.CastSpellIds);
+        Assert.False(controller.HasTarget);
+        // Three shapes tried against the one monster, then it is out of the
+        // running and there is nothing left: no spinning.
+        Assert.InRange(surface.ProjectilePathChecks, 1, 8);
+    }
+
     private static CombatSettings FireAttackRule(CombatSettings settings)
     {
         settings.Rules.Clear();
@@ -3448,6 +3535,11 @@ public sealed class CombatControllerTests
         public PluginProjectilePathResult ProjectilePath { get; set; } =
             new(PluginProjectilePathStatus.Clear);
         public uint LastProjectileTarget { get; private set; }
+        public int ProjectilePathChecks { get; private set; }
+
+        /// <summary>Per-target overrides for the flight-path check.</summary>
+        public Dictionary<uint, PluginProjectilePathResult> ProjectilePaths
+        { get; } = [];
         public IReadOnlyList<PluginProjectileDebugSample>
             ShownProjectileDebugSamples { get; private set; } = [];
         public List<PluginSelectionAction> SelectionActions { get; } = [];
@@ -3600,7 +3692,12 @@ public sealed class CombatControllerTests
             int maximumCollisionChecks)
         {
             LastProjectileTarget = targetObjectId;
-            return ProjectilePath;
+            ProjectilePathChecks++;
+            return ProjectilePaths.TryGetValue(
+                targetObjectId,
+                out PluginProjectilePathResult specific)
+                ? specific
+                : ProjectilePath;
         }
 
         public PluginProjectilePathResult EvaluatePathWithDiagnostics(
