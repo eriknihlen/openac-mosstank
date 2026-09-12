@@ -282,22 +282,17 @@ internal sealed class CombatModeGate
             }
         }
 
-        PluginEquipmentItem? best = null;
+        // Whatever the Items page did not order is taken in the order it comes
+        // back in — the FIRST wand wins, not the alphabetically smallest one.
         foreach (PluginEquipmentItem item in items)
         {
             if (!IsCaster(in item) || !IsProfiled(in item))
                 continue;
             if (_settings.CombatItemOrder.Contains(item.Name))
                 continue;
-            if (best is null
-                || string.CompareOrdinal(item.Name, best.Value.Name) < 0
-                || (string.Equals(item.Name, best.Value.Name, StringComparison.Ordinal)
-                    && item.ObjectId < best.Value.ObjectId))
-            {
-                best = item;
-            }
+            return item;
         }
-        return best;
+        return null;
     }
 
     private bool IsProfiled(in PluginEquipmentItem item) =>

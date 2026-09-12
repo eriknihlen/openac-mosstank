@@ -153,6 +153,32 @@ internal sealed class AttackSpellCatalog
         return family is null ? null : ResolveFamily(family, usable);
     }
 
+    /// <summary>
+    /// The first rung of a family rather than the best one known. Some arms
+    /// name a spell outright instead of walking the tiers, and what they name
+    /// is always the level-one spell.
+    /// </summary>
+    public PluginSpellInfo? ResolveBaseTier(
+        MonsterDamageType element,
+        VtankCombatSpellType type)
+    {
+        string? family = FamilyName(element, type);
+        if (family is null
+            || !_families.TryGetValue(family, out List<PluginSpellInfo>? members))
+        {
+            return null;
+        }
+        PluginSpellInfo? lowest = null;
+        foreach (PluginSpellInfo spell in members)
+        {
+            if (spell.Name.Equals(family + " I", StringComparison.OrdinalIgnoreCase))
+                return spell;
+            if (lowest is not { } current || spell.Quality < current.Quality)
+                lowest = spell;
+        }
+        return lowest;
+    }
+
     public PluginSpellInfo? ResolveFamily(
         string familyName,
         Func<PluginSpellInfo, bool>? usable = null)

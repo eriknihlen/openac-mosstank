@@ -3840,6 +3840,185 @@ public sealed class CombatControllerTests
         Assert.Equal(71u, surface.LastTargetedCast.Item1);
     }
 
+    /// <summary>
+    /// Mutation: auto-select for a zero weapon column again and this fails —
+    /// the rule means "no weapon, use a wand", and a melee weapon would be
+    /// wielded instead.
+    /// </summary>
+    [Fact]
+    public void AZeroWeaponColumnMeansAWandAndSelectsNothing()
+    {
+        var surface = new FakeAutomation
+        {
+            CombatSnapshot = Peaceful(),
+            Targets = [Target(10, "Drudge", 5, 0)],
+            KnownCombatSpells = [MagicSpell(100, "Flame Bolt VII", difficulty: 300)],
+            EquipmentItems =
+            [
+                Equipment(
+                    990u,
+                    "Fixture Wand",
+                    damageType: 0,
+                    itemType: CombatModeGate.CasterItemType),
+                Equipment(991u, "Fire Sword", damageType: 0x0010),
+            ],
+        };
+        var settings = new CombatSettings { MaximumRange = 40d };
+        settings.CombatItemNames.Add("Fixture Wand");
+        settings.CombatItemNames.Add("Fire Sword");
+        settings.Rules.Clear();
+        settings.Rules.Add(new MonsterRule(
+            "DEFAULT",
+            new MonsterRuleActions
+            {
+                Flags = MonsterActionFlags.Attack,
+                DamageType = MonsterDamageType.Fire,
+                WeaponToUseRaw = 0,
+            }));
+        var controller = new CombatController(new FakeHost(surface), settings);
+
+        controller.Toggle();
+        controller.OnTick(0.25);
+
+        Assert.Equal(990u, surface.LastEquipObjectId);
+    }
+
+    /// <summary>
+    /// Mutation: sort the unordered wands alphabetically again and this fails
+    /// — the first one on the Items page wins, whatever it is called.
+    /// </summary>
+    [Fact]
+    public void TheFirstProfiledWandWinsWithoutAnAlphabeticalTieBreak()
+    {
+        var surface = new FakeAutomation
+        {
+            CombatSnapshot = Peaceful(),
+            Targets = [Target(10, "Drudge", 5, 0)],
+            KnownCombatSpells = [Debuff(83, "Imperil Other VII")],
+            EquipmentItems =
+            [
+                Equipment(
+                    990u,
+                    "Zephyr Wand",
+                    damageType: 0,
+                    itemType: CombatModeGate.CasterItemType),
+                Equipment(
+                    991u,
+                    "Acid Wand",
+                    damageType: 0,
+                    itemType: CombatModeGate.CasterItemType),
+            ],
+        };
+        var settings = DebuffOnly(MonsterActionFlags.Imperil);
+        settings.MaximumRange = 40d;
+        settings.CombatItemNames.Add("Zephyr Wand");
+        settings.CombatItemNames.Add("Acid Wand");
+        var controller = new CombatController(new FakeHost(surface), settings);
+
+        controller.Toggle();
+        controller.OnTick(0.25);
+
+        Assert.Equal(990u, surface.LastEquipObjectId);
+    }
+
+    /// <summary>
+    /// Mutation: walk the tiers for a rolled element and this fails — the
+    /// rolled arm names its spell outright, and what it names is the first
+    /// rung of the family.
+    /// </summary>
+    [Fact]
+    public void ARolledElementThrowsTheFirstRungOfItsWarFamily()
+    {
+        var surface = new FakeAutomation
+        {
+            CombatSnapshot = Physical() with { Mode = PluginCombatMode.Magic },
+            Targets = [Target(10, "Drudge", 5, 0)],
+            KnownCombatSpells =
+            [
+                MagicSpell(100, "Force Bolt I", difficulty: 50),
+                MagicSpell(101, "Force Bolt VII", difficulty: 300),
+            ],
+            EquipmentItems = [WieldedCaster()],
+        };
+        var settings = new CombatSettings { MaximumRange = 40d };
+        settings.Rules.Clear();
+        settings.Rules.Add(new MonsterRule(
+            "DEFAULT",
+            new MonsterRuleActions
+            {
+                Flags = MonsterActionFlags.Attack,
+                DamageType = MonsterDamageType.Random,
+            }));
+        var controller = new CombatController(new FakeHost(surface), settings);
+
+        controller.Toggle();
+        controller.OnTick(0.25);
+
+        Assert.Equal((100u, 10u), surface.LastTargetedCast);
+    }
+
+    /// <summary>
+    /// Mutation: drop the swing teardown from the cast and this fails — a
+    /// physical attack armed a moment ago would keep running underneath the
+    /// spell.
+    /// </summary>
+    [Fact]
+    public void ACastTearsDownAnArmedSwingFirst()
+    {
+        var surface = new FakeAutomation
+        {
+            CombatSnapshot = Physical(),
+            Targets = [Target(10, "Drudge", 5, 0)],
+            KnownCombatSpells = [MagicSpell(100, "Flame Bolt VII", difficulty: 300)],
+            EquipmentItems =
+            [
+                Equipment(
+                    990u,
+                    "Fixture Wand",
+                    damageType: 0,
+                    itemType: CombatModeGate.CasterItemType),
+                WieldedPlannedWeapon(),
+            ],
+        };
+        var settings = FireAttackRule(new CombatSettings { MaximumRange = 40d });
+        ProfileFixtureWeapon(settings);
+        settings.CombatItemNames.Add("Fixture Wand");
+        var controller = new CombatController(new FakeHost(surface), settings);
+
+        controller.Toggle();
+        controller.OnTick(0.25);
+        Assert.Equal(1, surface.BeginCount);
+        int abortsAfterTheSwing = surface.AbortCount;
+
+        // The rule flips to magic; the swing must be torn down as the cast
+        // goes out.
+        surface.CombatSnapshot = surface.CombatSnapshot with
+        {
+            Mode = PluginCombatMode.Magic,
+        };
+        surface.EquipmentItems =
+        [
+            Equipment(
+                990u,
+                "Fixture Wand",
+                damageType: 0,
+                itemType: CombatModeGate.CasterItemType,
+                equippedLocation: 0x00100000u),
+        ];
+        settings.Rules[0] = new MonsterRule(
+            "DEFAULT",
+            new MonsterRuleActions
+            {
+                Flags = MonsterActionFlags.Attack,
+                DamageType = MonsterDamageType.Fire,
+                WeaponName = "Fixture Wand",
+            });
+        controller.OnTick(0.25);
+
+        Assert.Equal((100u, 10u), surface.LastTargetedCast);
+        Assert.True(surface.AbortCount > abortsAfterTheSwing);
+    }
+
     private static CombatSettings FireAttackRule(CombatSettings settings)
     {
         settings.Rules.Clear();

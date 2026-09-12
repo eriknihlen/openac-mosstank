@@ -719,6 +719,10 @@ internal sealed class CombatController
             && _attackCatalog.ResolveTuskerFists() is { } fists
             && IsUsableAttackSpell(target)(fists))
         {
+            // Fists is the one arm that turns whatever the turning option
+            // says, and it aims a shade off the monster's bearing.
+            if (!FaceForFists(_targetId))
+                return AttackPassOutcome.Claimed;
             CastAttackSpell(
                 new AttackSpellChoice(
                     fists,
@@ -744,10 +748,13 @@ internal sealed class CombatController
         }
         else if ((flag3 && !flag5) || (!flag3 && !flag5 && flag4))
         {
-            // hi.cs:241-257 — the ordinary attack arm.
             plan = element == MonsterDamageType.DrainAuto
                 ? PlanDrain(target, ring: false)
-                : PlanBoltOrArc(element, target);
+                // A rolled element names its war spell outright instead of
+                // walking the tiers, and what it names is the first rung.
+                : _targetRule.Actions.DamageType == MonsterDamageType.Random
+                    ? PlanRolledWar(element)
+                    : PlanBoltOrArc(element, target);
         }
         else if (!flag3 && flag5)
         {
@@ -813,6 +820,20 @@ internal sealed class CombatController
         CastAttackSpell(chosen, target);
         return AttackPassOutcome.Claimed;
     }
+
+    /// <summary>
+    /// The war spell a rolled element throws: the family's first rung, named
+    /// outright rather than walked for the best the character can cast.
+    /// </summary>
+    private AttackSpellChoice? PlanRolledWar(MonsterDamageType element) =>
+        _attackCatalog.ResolveBaseTier(element, VtankCombatSpellType.War)
+            is { } spell
+            ? new AttackSpellChoice(
+                spell,
+                VtankCombatSpellType.War,
+                element,
+                CastWithoutTarget: false)
+            : null;
 
     private AttackSpellChoice? PlanRing(
         MonsterDamageType element,
@@ -1104,6 +1125,15 @@ internal sealed class CombatController
                 : $"Cannot cast {choice.Spell.Name}";
             return;
         }
+        // A swing and a cast both want the character. Every magic arm tears
+        // the swing loop down before it issues, so a leftover physical attack
+        // cannot keep running underneath the cast.
+        if (_physicalResultArmed || _pendingPhysicalTarget != 0u)
+        {
+            _host.Automation.Combat.AbortPhysicalAttack();
+            DisarmPhysicalResultText();
+            _pendingPhysicalTarget = 0u;
+        }
         long issueRevision = magic.LastCompletion.Revision;
         bool dispatched = choice.CastWithoutTarget
             ? magic.Cast(choice.Spell.SpellId)
@@ -1213,16 +1243,26 @@ internal sealed class CombatController
 
         IReadOnlyList<PluginEquipmentItem> items =
             equipment.CaptureOwnedEquipment();
-        uint desiredWeapon = ResolveEquipmentObjectId(
-            actions.WeaponObjectId,
-            actions.WeaponName,
-            items);
-        if (desiredWeapon == 0u)
+        uint desiredWeapon;
+        if (actions.WeaponToUseRaw == 0)
         {
-            desiredWeapon = SelectAutomaticWeapon(
-                items,
-                ResolveAttackElement(actions, FindTarget(_targetId)),
-                _settings);
+            // A weapon column spelled as zero means "no weapon": the rule
+            // wants a wand, and nothing is auto-selected for it.
+            desiredWeapon = 0u;
+        }
+        else
+        {
+            desiredWeapon = ResolveEquipmentObjectId(
+                actions.WeaponObjectId,
+                actions.WeaponName,
+                items);
+            if (desiredWeapon == 0u)
+            {
+                desiredWeapon = SelectAutomaticWeapon(
+                    items,
+                    ResolveAttackElement(actions, FindTarget(_targetId)),
+                    _settings);
+            }
         }
         _plannedWeapon = desiredWeapon;
 
@@ -1339,10 +1379,16 @@ internal sealed class CombatController
         }
 
         // bv.cs:156-162 — the wielded stack already IS the winning row.
+        // The stack already in the quiver only satisfies the row while it
+        // still holds something: an empty quiver of the right name is not
+        // ammunition.
         PluginEquipmentItem currentAmmo = equipmentItems.FirstOrDefault(
             static item => item.CombatUse == 3 && item.IsEquipped);
-        if (string.Equals(currentAmmo.Name, option.Name, StringComparison.Ordinal))
+        if (currentAmmo.StackSize > 0
+            && string.Equals(currentAmmo.Name, option.Name, StringComparison.Ordinal))
+        {
             return AmmunitionPlan.Satisfied;
+        }
 
         PluginEquipmentItem desiredAmmo = equipmentItems.FirstOrDefault(
             item => item.Name.Equals(option.Name, StringComparison.Ordinal)
@@ -2712,11 +2758,13 @@ internal sealed class CombatController
         IReadOnlyList<PluginEquipmentItem> equipment)
     {
         MonsterDamageType element = ResolveAttackElement(actions, target);
-        uint weapon = ResolveEquipmentObjectId(
-            actions.WeaponObjectId,
-            actions.WeaponName,
-            equipment);
-        if (weapon == 0u)
+        uint weapon = actions.WeaponToUseRaw == 0
+            ? 0u
+            : ResolveEquipmentObjectId(
+                actions.WeaponObjectId,
+                actions.WeaponName,
+                equipment);
+        if (weapon == 0u && actions.WeaponToUseRaw != 0)
             weapon = SelectAutomaticWeapon(equipment, element, _settings);
         uint offhand = ResolveEquipmentObjectId(
             actions.OffhandObjectId,
@@ -3413,6 +3461,55 @@ internal sealed class CombatController
             return true;
         }
         HoldPassForTurn(targetObjectId);
+        return false;
+    }
+
+    /// <summary>
+    /// The unconditional turn the fists arm makes. It is not the breakable
+    /// turn and does not read that option: the character faces the monster,
+    /// a shade to one side of dead-on, before the spell goes out.
+    /// </summary>
+    /// <returns>True once the character is facing where it needs to.</returns>
+    private bool FaceForFists(uint targetObjectId)
+    {
+        const float LeadDegrees = 180f / 50f;
+        INavigationAutomation navigation = _host.Automation.Navigation;
+        PluginNavigationSnapshot self = navigation.Snapshot;
+        if (!self.IsAvailable
+            || self.IsPortalSpace
+            || !navigation.TryGetObject(
+                targetObjectId,
+                out PluginNavigationObject target))
+        {
+            return true;
+        }
+
+        float desired = NavigationController.DesiredHeading(
+            self.Position,
+            target.Position) - LeadDegrees;
+        float delta = NavigationController.SignedHeadingDelta(
+            self.Position.HeadingDegrees,
+            desired);
+        if (MathF.Abs(delta) <= BreakableTurnToleranceDegrees)
+            return true;
+
+        if (navigation.ClearMovementIntent()
+            != PluginNavigationCommandStatus.Accepted)
+        {
+            return true;
+        }
+        if (_now - _breakableTurnFaceHeadingStamp
+            >= NavigationController.FaceHeadingReissueSeconds)
+        {
+            _breakableTurnFaceHeadingStamp = _now;
+            if (navigation.FaceHeading(desired)
+                != PluginNavigationCommandStatus.Accepted)
+            {
+                return true;
+            }
+        }
+        _breakableTurnOwned = true;
+        Status = $"Turning to {_targetName} ({delta:+0.0;-0.0}°)";
         return false;
     }
 
