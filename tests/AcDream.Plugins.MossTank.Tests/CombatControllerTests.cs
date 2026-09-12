@@ -945,6 +945,105 @@ public sealed class CombatControllerTests
         return surface.LastTargetedCast;
     }
 
+    /// <summary>
+    /// Mutation: drop the streak's flight test and the first assertion fails
+    /// — the streak is cast straight into the wall, every pass, for ever.
+    /// </summary>
+    [Fact]
+    public void AStreakIntoCoverIsRefusedAndTakesItsColumnWithIt()
+    {
+        var surface = new FakeAutomation
+        {
+            CombatSnapshot = Physical() with { Mode = PluginCombatMode.Magic },
+            Targets = [Target(10, "Drudge", 5, 0)],
+            KnownCombatSpells =
+            [
+                MagicSpell(102, "Flame Streak VII", difficulty: 350),
+            ],
+            ProjectilePath = new(
+                PluginProjectilePathStatus.Blocked,
+                CollisionChecks: 3,
+                BlockingObjectId: 0x50000001u),
+            EquipmentItems = [WieldedCaster()],
+        };
+        var settings = new CombatSettings
+        {
+            MaximumRange = 40d,
+            UseProjectileAwareness = true,
+        };
+        settings.Rules.Clear();
+        settings.Rules.Add(new MonsterRule(
+            "DEFAULT",
+            new MonsterRuleActions
+            {
+                Flags = MonsterActionFlags.Streak,
+                DamageType = MonsterDamageType.Fire,
+            }));
+        var controller = new CombatController(new FakeHost(surface), settings);
+
+        controller.Toggle();
+        controller.OnTick(0.25);
+
+        Assert.Empty(surface.CastSpellIds);
+        // The monster stops being a candidate once its only column is off, so
+        // the pass stops rather than spinning against it.
+        Assert.False(controller.HasTarget);
+        Assert.InRange(surface.ProjectilePathChecks, 1, 4);
+    }
+
+    /// <summary>
+    /// Mutation: pass <c>settings.AttackHeight</c> for either shape and this
+    /// fails — the ray would start at the configured melee height instead of
+    /// the height the shape itself flies at.
+    /// </summary>
+    [Fact]
+    public void BoltAndArcClearanceUseTheShapesOwnHeight()
+    {
+        PluginSpellInfo[] known =
+        [
+            MagicSpell(100, "Flame Bolt VII", difficulty: 300) with
+            {
+                IsProjectile = true,
+            },
+            MagicSpell(101, "Flame Arc VII", difficulty: 300) with
+            {
+                IsProjectile = true,
+            },
+        ];
+
+        Assert.Equal(
+            PluginAttackHeight.Medium,
+            ClearanceHeightFor(known, UseArcsMode.No));
+        Assert.Equal(
+            PluginAttackHeight.High,
+            ClearanceHeightFor(known, UseArcsMode.Yes));
+    }
+
+    private static PluginAttackHeight ClearanceHeightFor(
+        IReadOnlyList<PluginSpellInfo> known,
+        UseArcsMode mode)
+    {
+        var surface = new FakeAutomation
+        {
+            CombatSnapshot = Physical() with { Mode = PluginCombatMode.Magic },
+            Targets = [Target(10, "Drudge", 5, 0)],
+            KnownCombatSpells = known,
+            EquipmentItems = [WieldedCaster()],
+        };
+        var settings = FireAttackRule(new CombatSettings
+        {
+            MaximumRange = 40d,
+            UseProjectileAwareness = true,
+            UseArcs = mode,
+            // Deliberately neither of the two shape heights.
+            AttackHeight = PluginAttackHeight.Low,
+        });
+        var controller = new CombatController(new FakeHost(surface), settings);
+        controller.Toggle();
+        controller.OnTick(0.25);
+        return surface.LastProjectileHeight;
+    }
+
     [Fact]
     public void AttackPlusStreakUsesTheStreakOnlyAsAFinishingBlow()
     {
@@ -3785,6 +3884,8 @@ public sealed class CombatControllerTests
         public PluginProjectilePathResult ProjectilePath { get; set; } =
             new(PluginProjectilePathStatus.Clear);
         public uint LastProjectileTarget { get; private set; }
+        public PluginAttackHeight LastProjectileHeight { get; private set; }
+        public PluginProjectilePathKind LastProjectileKind { get; private set; }
         public int ProjectilePathChecks { get; private set; }
 
         /// <summary>Per-target overrides for the flight-path check.</summary>
@@ -3942,6 +4043,8 @@ public sealed class CombatControllerTests
             int maximumCollisionChecks)
         {
             LastProjectileTarget = targetObjectId;
+            LastProjectileHeight = targetHeight;
+            LastProjectileKind = kind;
             ProjectilePathChecks++;
             return ProjectilePaths.TryGetValue(
                 targetObjectId,

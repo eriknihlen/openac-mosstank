@@ -71,6 +71,13 @@ internal sealed class CombatController
     private readonly HashSet<uint> _passInvalidTargets = [];
 
     /// <summary>
+    /// Set while one decision turns a column off but leaves the monster worth
+    /// coming back to. Without it, "nothing to cast" and "this one thing
+    /// cannot be delivered" would both drop the monster.
+    /// </summary>
+    private bool _planKeptTheMonsterInPlay;
+
+    /// <summary>
     /// Action columns this pass has turned off per monster, because the thing
     /// that column asks for turned out to be undeliverable against it. A
     /// monster whose remaining columns still offer something stays in the
@@ -671,6 +678,7 @@ internal sealed class CombatController
         }
 
         RefreshSpellCatalogs();
+        _planKeptTheMonsterInPlay = false;
         PluginCombatTarget target = FindTarget(_targetId);
         MonsterRuleActions actions = ResolveRandomDamage(_targetRule.Actions);
         MonsterDamageType element = ResolveAttackElement(actions, target);
@@ -742,13 +750,34 @@ internal sealed class CombatController
         if (plan is not { } chosen)
         {
             Status ??= "No usable attack spell";
-            // Nothing deliverable was found. Whatever the planners could rule
-            // out they have already turned off; if they could not, the monster
-            // itself is out of the running for this pass.
-            if (!_passClearedActions.ContainsKey(_targetId))
+            // No action could be decided at all, so the monster is out of the
+            // running for the rest of the pass — unless a planner turned a
+            // column off and left something else it might still be owed.
+            if (!_planKeptTheMonsterInPlay)
                 InvalidateForPass(_targetId);
             return AttackPassOutcome.Retry;
         }
+
+        // A streak flies the way a bolt flies, so it is tested the way a bolt
+        // is tested. Without this a streak is cast into a wall over and over
+        // and the pass never learns the monster is unreachable.
+        if (chosen.Type == VtankCombatSpellType.Streak
+            && !ProjectilePathIsClear(
+                _targetId,
+                PluginProjectilePathKind.Straight,
+                PluginAttackHeight.Medium,
+                out PluginProjectilePathResult streakPath))
+        {
+            Status = ProjectileStatus(streakPath, _targetName);
+            MonsterActionFlags off = MonsterActionFlags.Streak;
+            // Nothing straight can reach it, and the arc could not either:
+            // the attack column goes off with the streak column.
+            if (!KnownClear(_targetId, PluginProjectilePathKind.Arc))
+                off |= MonsterActionFlags.Attack;
+            ClearActionsForPass(_targetId, off);
+            return AttackPassOutcome.Retry;
+        }
+
         CastAttackSpell(chosen, target);
         return AttackPassOutcome.Claimed;
     }
@@ -825,8 +854,12 @@ internal sealed class CombatController
         MonsterDamageType element,
         in PluginCombatTarget target)
     {
-        bool boltBlocked = false;   // f7.a.c
-        bool arcBlocked = false;    // f7.a.b
+        // These two are the decision's own record of which shape it has just
+        // found blocked. They deliberately do NOT start from what the pass
+        // learned earlier: a shape is offered once per decision and ruled out
+        // by its own test, exactly as the reference macro does it.
+        bool boltBlocked = false;
+        bool arcBlocked = false;
         string? projectileRefusal = null;
         Func<PluginSpellInfo, bool> usable = IsUsableAttackSpell(target);
         for (int attempt = 0; attempt < 3; attempt++)
@@ -898,26 +931,42 @@ internal sealed class CombatController
                 }
             }
 
+            bool arcShape = type == VtankCombatSpellType.Arc;
             if (spell.IsProjectile
                 && !ProjectilePathIsClear(
                     _targetId,
-                    type == VtankCombatSpellType.Arc
+                    arcShape
                         ? PluginProjectilePathKind.Arc
                         : PluginProjectilePathKind.Straight,
-                    _settings.AttackHeight,
+                    // The ray's height belongs to the SHAPE: an arc is thrown
+                    // high, a bolt goes out level. The configured melee height
+                    // is for the swing, not for these.
+                    arcShape
+                        ? PluginAttackHeight.High
+                        : PluginAttackHeight.Medium,
                     out PluginProjectilePathResult path))
             {
                 projectileRefusal = ProjectileStatus(path, _targetName);
                 Status = projectileRefusal;
-                if (type == VtankCombatSpellType.Arc)
+                if (arcShape)
+                {
                     arcBlocked = true;
+                }
                 else
+                {
                     boltBlocked = true;
+                    // A streak flies the same way a bolt does, so a bolt that
+                    // cannot reach settles the streak too.
+                    ClearActionsForPass(_targetId, MonsterActionFlags.Streak);
+                }
                 if (arcBlocked && boltBlocked)
                 {
                     // Neither shape can reach: the attack column is off for
-                    // this monster for the rest of the pass.
+                    // this monster for the rest of the pass. The monster is
+                    // NOT out of the running — a debuff or a ring may still be
+                    // owed against it.
                     ClearActionsForPass(_targetId, MonsterActionFlags.Attack);
+                    _planKeptTheMonsterInPlay = true;
                     return null;
                 }
                 continue;
