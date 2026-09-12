@@ -24,6 +24,28 @@ public sealed class HostExpressionFunctionsTests
         Assert.Equal(90d, runtime.Evaluate("getheading[wobjectgetplayer[]]").AsNumber());
     }
 
+    /// <summary>
+    /// The three vital reads are three DIFFERENT numbers — unbuffed maximum,
+    /// current, buffed maximum — and each is floored at 1. Mutation: pointing
+    /// base and buffed maximum at the same field makes the first two
+    /// assertions equal, and dropping the floor makes the last one 0.
+    /// </summary>
+    [Fact]
+    public void VitalReadsSeparateBaseCurrentAndBuffedMaximumAndFloorAtOne()
+    {
+        var automation = CreateAutomation();
+        using var runtime = new MossTankExpressionRuntime(new Host(automation));
+
+        Assert.Equal(80d, runtime.Evaluate("getcharvital_base[1]").AsNumber());
+        Assert.Equal(90d, runtime.Evaluate("getcharvital_current[1]").AsNumber());
+        Assert.Equal(100d, runtime.Evaluate("getcharvital_buffedmax[1]").AsNumber());
+        Assert.Equal(70d, runtime.Evaluate("getcharvital_base[2]").AsNumber());
+        Assert.Equal(60d, runtime.Evaluate("getcharvital_base[3]").AsNumber());
+        Assert.Equal(1d, runtime.Evaluate("getcharvital_current[9]").AsNumber());
+        Assert.Equal(1d, runtime.Evaluate("getcharvital_base[9]").AsNumber());
+        Assert.Equal(1d, runtime.Evaluate("getcharvital_buffedmax[9]").AsNumber());
+    }
+
     [Fact]
     public void ObjectDiscoveryCountsPropertiesAndNearestMatchUtilityBeltShape()
     {
@@ -443,10 +465,13 @@ public sealed class HostExpressionFunctionsTests
         public uint ObjectId => 1;
         public uint CurrentHealth => 90;
         public uint MaxHealth => 100;
+        public uint BaseHealth => 80;
         public uint CurrentStamina => 80;
         public uint MaxStamina => 100;
+        public uint BaseStamina => 70;
         public uint CurrentMana => 70;
         public uint MaxMana => 100;
+        public uint BaseMana => 60;
         public IReadOnlyList<PluginSkillInfo> Skills { get; set; } = [];
         public IReadOnlyList<PluginAttributeInfo> Attributes { get; set; } = [];
         public IReadOnlyList<PluginActiveEnchantment> ActiveEnchantments => [];

@@ -189,8 +189,12 @@ internal static class HostExpressionFunctions
         registry.Register("getcharskill_traininglevel", 1, 1, (_, args) =>
             ExpressionValue.Number(Skill(character, args[0], SkillRead.Training)),
             "getcharskill_traininglevel[skillId]");
+        // Three separate reads of the same vital: the unbuffed maximum, the
+        // live value, and the buffed maximum. A profile compares the first
+        // against the third to decide whether a vital buff is still needed,
+        // so they must not collapse onto one field. Each is floored at 1.
         registry.Register("getcharvital_base", 1, 1, (_, args) =>
-            ExpressionValue.Number(Vital(character, args[0], VitalRead.Maximum)),
+            ExpressionValue.Number(Vital(character, args[0], VitalRead.Base)),
             "getcharvital_base[vitalId]");
         registry.Register("getcharvital_buffedmax", 1, 1, (_, args) =>
             ExpressionValue.Number(Vital(character, args[0], VitalRead.Maximum)),
@@ -1061,14 +1065,21 @@ internal static class HostExpressionFunctions
         in ExpressionValue id,
         VitalRead read)
     {
-        (uint current, uint maximum) = id.AsInt32("character vital") switch
+        (uint current, uint maximum, uint baseMaximum) =
+            id.AsInt32("character vital") switch
+            {
+                1 => (character.CurrentHealth, character.MaxHealth, character.BaseHealth),
+                2 => (character.CurrentStamina, character.MaxStamina, character.BaseStamina),
+                3 => (character.CurrentMana, character.MaxMana, character.BaseMana),
+                _ => (0u, 0u, 0u),
+            };
+        double value = read switch
         {
-            1 => (character.CurrentHealth, character.MaxHealth),
-            2 => (character.CurrentStamina, character.MaxStamina),
-            3 => (character.CurrentMana, character.MaxMana),
-            _ => (0u, 0u),
+            VitalRead.Current => current,
+            VitalRead.Base => baseMaximum,
+            _ => maximum,
         };
-        return read == VitalRead.Current ? current : maximum;
+        return value < 1d ? 1d : value;
     }
 
     private static double ObjectVital(
@@ -1262,7 +1273,7 @@ internal static class HostExpressionFunctions
 
     private enum PropertyKind { Int, Int64, Double, Bool, String }
     private enum SkillRead { Base, Buffed, Training }
-    private enum VitalRead { Current, Maximum }
+    private enum VitalRead { Current, Base, Maximum }
     private enum VitalObjectRead { Fraction, Health, Stamina, Mana }
     private enum ObjectSet { All, Inventory, Landscape }
 }
