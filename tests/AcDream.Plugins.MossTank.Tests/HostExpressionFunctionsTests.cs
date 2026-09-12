@@ -93,6 +93,61 @@ public sealed class HostExpressionFunctionsTests
     }
 
     /// <summary>
+    /// A name PATTERN is matched against the display name — the material in
+    /// front of the bare name — while the exact-name finder keeps reading the
+    /// bare name. A material id that only names a group adds no prefix.
+    /// Mutation: matching the bare name in either regex finder makes the
+    /// `^Silver ` and `^Oak ` probes answer 0; prefixing inside the exact
+    /// finder makes the `Long Sword` probe answer 0; giving the grouping id 9
+    /// a name of its own turns "Shard" into "Gem Shard".
+    /// </summary>
+    [Fact]
+    public void NamePatternsMatchTheMaterialPrefixedDisplayName()
+    {
+        var automation = CreateAutomation();
+        automation.WorldObjects.Add(new PluginWorldObject(
+            12, 102, "Long Sword", PluginObjectClass.MeleeWeapon, 0x1, 1, 0)
+        {
+            IsOwned = true,
+        });
+        automation.WorldObjects.Add(new PluginWorldObject(
+            13, 103, "Shard", PluginObjectClass.Gem, 0x2, 1, 0)
+        {
+            IsOwned = true,
+        });
+        automation.WorldObjects.Add(new PluginWorldObject(
+            22, 104, "Chest", PluginObjectClass.Container, 0x200, 0, 0)
+        {
+            IsLandscape = true,
+            HasPosition = true,
+            Position = automation.Position with { EastWest = 10.2d },
+        });
+        automation.Properties[12] = Properties(
+            ints: new Dictionary<uint, int> { [131] = 63 });
+        automation.Properties[13] = Properties(
+            ints: new Dictionary<uint, int> { [131] = 9 });
+        automation.Properties[22] = Properties(
+            ints: new Dictionary<uint, int> { [131] = 75 });
+        using var runtime = new MossTankExpressionRuntime(new Host(automation));
+
+        Assert.Equal("Silver Long Sword", runtime.Evaluate(
+            "wobjectgetname[wobjectfindbyid[12]]").AsString());
+        Assert.Equal(12d, runtime.Evaluate(
+            "wobjectgetid[wobjectfindininventorybynamerx['^Silver ']]").AsNumber());
+        Assert.Equal(0d, runtime.Evaluate(
+            "wobjectfindininventorybyname['Silver Long Sword']").AsNumber());
+        Assert.Equal(12d, runtime.Evaluate(
+            "wobjectgetid[wobjectfindininventorybyname['Long Sword']]").AsNumber());
+        Assert.Equal("Shard", runtime.Evaluate(
+            "wobjectgetname[wobjectfindbyid[13]]").AsString());
+        Assert.Equal(13d, runtime.Evaluate(
+            "wobjectgetid[wobjectfindininventorybynamerx['^Shard$']]").AsNumber());
+        Assert.Equal(22d, runtime.Evaluate(
+            "wobjectgetid[wobjectfindnearestbynameandobjectclass[10,'^Oak ']]")
+            .AsNumber());
+    }
+
+    /// <summary>
     /// The nearest-by-name-and-class lookup takes the object class FIRST and a
     /// case-sensitive REGEX second. Mutation: the previous argument order plus
     /// literal case-insensitive equality fails every assertion here — the

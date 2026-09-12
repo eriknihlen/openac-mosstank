@@ -454,9 +454,11 @@ internal static class HostExpressionFunctions
         registry.Register("wobjectgetid", 1, 1, (_, args) =>
             ExpressionValue.Number(args[0].AsObjectId("wobjectgetid")),
             "wobjectgetid[object]");
+        // The name a profile reads off an object is its DISPLAY name: the
+        // material in front of the bare name.
         registry.Register("wobjectgetname", 1, 1, (_, args) =>
             TryObject(objects, args[0], "wobjectgetname", out PluginWorldObject obj)
-                ? ExpressionValue.String(obj.Name)
+                ? ExpressionValue.String(DisplayName(objects, obj))
                 : ExpressionValue.Zero, "wobjectgetname[object]");
         registry.Register("wobjectgetobjectclass", 1, 1, (_, args) =>
             TryObject(objects, args[0], "wobjectgetobjectclass", out PluginWorldObject obj)
@@ -576,11 +578,15 @@ internal static class HostExpressionFunctions
                 args[0].AsString("wobjectfindininventorybyname"),
                 StringComparison.Ordinal)),
             "wobjectfindininventorybyname[name]");
+        // The regex is matched against the DISPLAY name, so `^Silver ` finds
+        // a silver sword; only the exact finder above reads the bare name.
         registry.Register("wobjectfindininventorybynamerx", 1, 1, (_, args) =>
         {
+            IWorldObjectAutomation objects = host.Automation.Objects;
             Regex regex = CreateCaseSensitiveRegex(
                 args[0].AsString("wobjectfindininventorybynamerx"));
-            return FirstObject(host, ObjectSet.Inventory, obj => regex.IsMatch(obj.Name));
+            return FirstObject(host, ObjectSet.Inventory, obj =>
+                regex.IsMatch(DisplayName(objects, obj)));
         }, "wobjectfindininventorybynamerx[pattern]");
         registry.Register("wobjectfindininventorybytemplatetype", 1, 1, (_, args) =>
             FirstObject(host, ObjectSet.Inventory, obj =>
@@ -594,11 +600,13 @@ internal static class HostExpressionFunctions
         // Object class first, then a case-sensitive REGEX over the name.
         registry.Register("wobjectfindnearestbynameandobjectclass", 2, 2, (_, args) =>
         {
+            IWorldObjectAutomation objects = host.Automation.Objects;
             int objectClass = args[0].AsInt32("wobjectfindnearestbynameandobjectclass");
             Regex regex = CreateCaseSensitiveRegex(
                 args[1].AsString("wobjectfindnearestbynameandobjectclass"));
             return Nearest(host, obj =>
-                (int)obj.ObjectClass == objectClass && regex.IsMatch(obj.Name));
+                (int)obj.ObjectClass == objectClass
+                && regex.IsMatch(DisplayName(objects, obj)));
         }, "wobjectfindnearestbynameandobjectclass[objectClass,namePattern]");
         RegisterNearest(registry, host, "wobjectfindnearestdoor",
             (obj, _) => obj.ObjectClass == PluginObjectClass.Door, argumentCount: 0);
@@ -1381,6 +1389,28 @@ internal static class HostExpressionFunctions
     /// so a pattern means exactly what it says. The timeout is a runaway
     /// guard, not a matching rule.
     /// </summary>
+    /// <summary>
+    /// The name a profile means when it writes a name pattern: the object's
+    /// material in front of its bare name, as in "Silver Long Sword". An
+    /// object with no material, or one whose material has no name of its own,
+    /// keeps the bare name.
+    /// </summary>
+    private static string DisplayName(
+        IWorldObjectAutomation objects,
+        in PluginWorldObject obj)
+    {
+        const uint MaterialTypeProperty = 131u;
+        if (!objects.TryCaptureProperties(
+                obj.ObjectId,
+                out PluginItemProperties properties)
+            || !properties.Ints.TryGetValue(MaterialTypeProperty, out int material)
+            || MaterialNames.Name(material) is not { } prefix)
+        {
+            return obj.Name;
+        }
+        return prefix + " " + obj.Name;
+    }
+
     private static Regex CreateCaseSensitiveRegex(string pattern) => new(
         pattern,
         RegexOptions.CultureInvariant,
