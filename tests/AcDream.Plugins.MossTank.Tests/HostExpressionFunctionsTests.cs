@@ -471,6 +471,31 @@ public sealed class HostExpressionFunctionsTests
     }
 
     /// <summary>
+    /// Both chat verbs take a STRING; a number is a type error, not a number
+    /// rendered as text. A status-hud colour, on the other hand, is a 32-bit
+    /// pattern and a negative one is legal. Mutation: rendering the chat
+    /// argument through the display form makes the first two probes pass
+    /// "5" and "6" to chat, and taking the colour as a checked unsigned
+    /// number makes the third throw an overflow.
+    /// </summary>
+    [Fact]
+    public void ChatVerbsRequireStringsAndTheStatusColourAcceptsNegatives()
+    {
+        var automation = CreateAutomation();
+        using var runtime = new MossTankExpressionRuntime(new Host(automation));
+        automation.SubmittedChat.Clear();
+
+        Assert.Throws<ExpressionEvaluationException>(
+            () => runtime.Evaluate("chatbox[5]"));
+        Assert.Throws<ExpressionEvaluationException>(
+            () => runtime.Evaluate("chatboxpaste[6]"));
+        Assert.Empty(automation.SubmittedChat);
+        Assert.Equal(string.Empty, automation.ComposedChat);
+
+        Assert.False(runtime.Evaluate("statushudcolored['k','v',0-1]").IsTruthy);
+    }
+
+    /// <summary>
     /// `uisetvisible` treats ANY non-zero number as visible and hands back its
     /// second argument; `uisetlabel` answers 1 and raises an error for a
     /// control that cannot take a label. Mutation: the previous ">= 1" test

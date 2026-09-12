@@ -692,10 +692,11 @@ internal static class HostExpressionFunctions
             host.Automation.Chat.PostSystemMessage(args[0].ToDisplayString());
             return args[0];
         }, "echo[text]");
-        // `chatbox` sends and hands the argument straight back.
+        // `chatbox` sends and hands the argument straight back. Both chat
+        // verbs take a STRING and nothing else.
         registry.Register("chatbox", 1, 1, (_, args) =>
         {
-            string text = args[0].ToDisplayString();
+            string text = args[0].AsString("chatbox");
             if (text.Length != 0)
                 host.Automation.Chat.Submit(text);
             return args[0];
@@ -704,7 +705,7 @@ internal static class HostExpressionFunctions
         // characters removed, for the player to finish and send themselves.
         registry.Register("chatboxpaste", 1, 1, (_, args) =>
         {
-            string text = StripControlCharacters(args[0].ToDisplayString());
+            string text = StripControlCharacters(args[0].AsString("chatboxpaste"));
             return ExpressionValue.Boolean(
                 text.Length != 0 && host.Automation.Chat.Compose(text));
         }, "chatboxpaste[text]");

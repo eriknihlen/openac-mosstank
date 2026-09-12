@@ -214,11 +214,14 @@ internal sealed class MossTankExpressionRuntime : IDisposable
                 args[0].AsString("statushud"),
                 args[1].ToDisplayString())),
             "statushud[key,value]");
+        // The colour is taken as a 32-bit pattern, so a profile that writes
+        // its colour as a negative number gets the colour it meant rather
+        // than an error.
         _functions.Register("statushudcolored", 3, 3, (_, args) =>
             ExpressionValue.Boolean(_statusHud.Update(
                 args[0].AsString("statushudcolored"),
                 args[1].ToDisplayString(),
-                checked((uint)args[2].AsNumber("statushudcolored")))),
+                unchecked((uint)(long)args[2].AsNumber("statushudcolored")))),
             "statushudcolored[key,value,rgb]");
     }
 
