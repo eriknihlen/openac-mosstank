@@ -1401,11 +1401,6 @@ internal static class HostExpressionFunctions
         RegexTimeout);
 
     /// <summary>
-    /// The regex flavour the two name-matching built-ins use: no IgnoreCase,
-    /// so a pattern means exactly what it says. The timeout is a runaway
-    /// guard, not a matching rule.
-    /// </summary>
-    /// <summary>
     /// The name a profile means when it writes a name pattern: the object's
     /// material in front of its bare name, as in "Silver Long Sword". An
     /// object with no material, or one whose material has no name of its own,
@@ -1427,6 +1422,11 @@ internal static class HostExpressionFunctions
         return prefix + " " + obj.Name;
     }
 
+    /// <summary>
+    /// The regex flavour the two name-matching built-ins use: no IgnoreCase,
+    /// so a pattern means exactly what it says. The timeout is a runaway
+    /// guard, not a matching rule.
+    /// </summary>
     private static Regex CreateCaseSensitiveRegex(string pattern) => new(
         pattern,
         RegexOptions.CultureInvariant,
