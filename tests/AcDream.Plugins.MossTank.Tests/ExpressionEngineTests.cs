@@ -150,8 +150,11 @@ public sealed class ExpressionEngineTests
         Assert.Equal(24d, Evaluate(
             "coordinatedistanceflat[coordinateparse[`0N, 0E`],"
             + "coordinateparse[`0.1N, 0E`]]").AsNumber(), 8);
-        Assert.Equal("12.5S, 3.0E", Evaluate(
+        // Each half is rounded to one decimal and a trailing ".0" is dropped.
+        Assert.Equal("12.5S, 3E", Evaluate(
             "coordinatetostring[coordinateparse[`12.5S, 3.0E`]]").AsString());
+        Assert.Equal("12.6S, 3.1E", Evaluate(
+            "coordinatetostring[coordinateparse[`12.55S, 3.14E`]]").AsString());
     }
 
     [Fact]

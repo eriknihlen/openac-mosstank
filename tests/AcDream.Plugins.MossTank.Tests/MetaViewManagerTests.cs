@@ -86,8 +86,10 @@ public sealed class MetaViewManagerTests
         Assert.True(expressions.Evaluate(
             "uisetlabel[uigetcontrol['Status','Action'],'Run']").IsTruthy);
         Assert.Equal("Run", ui.Label);
-        Assert.True(expressions.Evaluate(
-            "uisetvisible[uigetcontrol['Status','Action'],0]").IsTruthy);
+        // The visibility setter hands its second argument back, so hiding a
+        // control answers 0.
+        Assert.Equal(0d, expressions.Evaluate(
+            "uisetvisible[uigetcontrol['Status','Action'],0]").AsNumber());
         Assert.False(ui.ControlVisible);
     }
 

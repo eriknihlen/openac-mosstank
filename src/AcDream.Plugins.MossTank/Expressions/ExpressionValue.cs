@@ -20,14 +20,19 @@ internal readonly record struct ExpressionCoordinates(
     double NorthSouth,
     double Elevation = 0d)
 {
+    /// <summary>
+    /// The compass form a profile reads and writes: each half rounded to one
+    /// decimal, trailing ".0" dropped, north/south first.
+    /// </summary>
     public override string ToString()
     {
         string ns = NorthSouth < 0d ? "S" : "N";
         string ew = EastWest < 0d ? "W" : "E";
-        return string.Create(
-            CultureInfo.InvariantCulture,
-            $"{Math.Abs(NorthSouth):0.0}{ns}, {Math.Abs(EastWest):0.0}{ew}");
+        return Round(NorthSouth) + ns + ", " + Round(EastWest) + ew;
     }
+
+    private static string Round(double value) =>
+        Math.Round(Math.Abs(value), 1).ToString(CultureInfo.InvariantCulture);
 }
 
 internal sealed class ExpressionList
@@ -60,7 +65,12 @@ internal sealed class ExpressionStopwatch
     private readonly System.Diagnostics.Stopwatch _clock = new();
 
     public bool IsRunning => _clock.IsRunning;
-    public double ElapsedSeconds => _clock.Elapsed.TotalSeconds;
+
+    /// <summary>
+    /// Whole milliseconds over 1000, so an expression sees the same quantised
+    /// figure a profile was written against.
+    /// </summary>
+    public double ElapsedSeconds => _clock.ElapsedMilliseconds / 1000d;
     public void Start() => _clock.Start();
     public void Stop() => _clock.Stop();
     public void Reset() => _clock.Reset();
