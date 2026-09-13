@@ -94,6 +94,19 @@ internal sealed class MetaProfile
     public List<MetaRule> Rules { get; set; } = [];
 }
 
+/// <summary>
+/// The stored half of "is the meta running": the profile's own EnableMeta
+/// value. The reference client has no separate engine state at all — the
+/// pass simply asks the settings bag every tick and the checkbox writes
+/// straight back to it — so the value has to survive a profile load, a
+/// save, and a session change, and an error that shuts the meta down has
+/// to clear it here too, not only in the engine.
+/// </summary>
+internal sealed class MetaSettings
+{
+    public bool Enabled { get; set; }
+}
+
 internal sealed class MetaServices
 {
     public Func<bool> IsNavigationRouteEmpty { get; init; } = static () => true;
@@ -619,6 +632,10 @@ internal sealed class MetaEngine
     private void DisableWithError(string message)
     {
         Enabled = false;
+        // A meta that shut itself down over a broken profile stays down
+        // across a reload: the reference client persists the setting here,
+        // it does not merely stop the current pass.
+        _services.SetOption("EnableMeta", ExpressionValue.Boolean(false));
         _status = message + " Meta disabled.";
         _host.Automation.Chat.PostSystemMessage(_status);
         _host.Log.Error(_status);

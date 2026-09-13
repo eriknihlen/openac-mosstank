@@ -14,6 +14,13 @@ internal static class VtankSettingsProfileSerializer
         public required VitalSettings Vitals { get; init; }
         public required InventorySettings Inventory { get; init; }
         public required NavigationSettings Navigation { get; init; }
+
+        /// <summary>
+        /// Optional so the many call sites that only care about the five
+        /// big groups need not name it; the panel passes the live one so a
+        /// profile's EnableMeta both applies and saves.
+        /// </summary>
+        public MetaSettings Meta { get; init; } = new();
     }
 
     public static VtankDatabase Load(
@@ -228,7 +235,7 @@ internal static class VtankSettingsProfileSerializer
             case "idlecraftcount_manafood": i.IdleManaFoodCount = cell.AsInt(); break;
             case "buffcastrecast_seconds": b.BuffCastRecastSeconds = cell.AsDouble(); break;
             case "buffcastrecastreset_seconds": b.BuffCastRecastResetSeconds = cell.AsDouble(); break;
-            case "enablemeta": break; // live MetaEngine.Enabled, not a stored settings field.
+            case "enablemeta": s.Meta.Enabled = cell.AsBool(); break;
             case "blacklistedspellcomps":
                 b.BlacklistedSpellComponents = cell.AsString();
                 c.BlacklistedSpellComponents = cell.AsString();
@@ -413,9 +420,10 @@ internal static class VtankSettingsProfileSerializer
             "buffwithuntrained-creature" => Num(name, b.BuffWithUntrainedCreatureSkill),
             "buffwithuntrained-life" => Num(name, b.BuffWithUntrainedLifeSkill),
             "allowdebufffallback" => VtankCell.Bool(c.AllowDebuffFallback),
-            _ => null, // "enablemeta" (live engine state) and "rechargehandlerset"
-                       // (no write path exists in real VTank either, section 2 row 137)
-                       // are deliberately left untouched.
+            "enablemeta" => VtankCell.Bool(s.Meta.Enabled),
+            _ => null, // "rechargehandlerset" has no write path in the
+                       // reference client either (section 2 row 137), so it
+                       // is deliberately left untouched.
         };
     }
 
