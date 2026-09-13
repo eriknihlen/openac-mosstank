@@ -42,6 +42,21 @@ internal sealed partial class MossTankPanel
             settings, "lootProfile", "loot profile",
             _lootProfiles.Exists, SelectLootProfileCore);
 
+        // Before the macro: a channel switched on after the first pass has
+        // already missed every once-per-run line.
+        if (settings.TryGetValue("logChannels", out string? logChannels)
+            && !string.IsNullOrWhiteSpace(logChannels))
+        {
+            try
+            {
+                ApplyLogChannels(logChannels);
+            }
+            catch (Exception error)
+            {
+                _host.Log.Error("Autostart: failed to set the log channels.", error);
+            }
+        }
+
         if (settings.TryGetValue("enableMeta", out string? enableMetaRaw)
             && bool.TryParse(enableMetaRaw, out bool enableMeta))
         {

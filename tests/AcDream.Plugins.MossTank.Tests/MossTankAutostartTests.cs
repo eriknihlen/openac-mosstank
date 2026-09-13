@@ -577,6 +577,49 @@ public sealed class MossTankAutostartTests
     }
 
     /// <summary>
+    /// A session with no window in front of it cannot type /vt log in time.
+    /// Several of the plugin's most useful lines are emitted once per run —
+    /// the buff planner's refusal among them — so a channel switched on
+    /// after the macro has started has already missed them, and the run's
+    /// record is silent about the very thing it was meant to explain.
+    /// Autostart therefore opens the declared channels before it starts the
+    /// macro, and any casing names the same channel the emitter uses.
+    /// </summary>
+    [Fact]
+    public void AutostartOpensTheDeclaredLogChannelsBeforeItStartsTheMacro()
+    {
+        var automation = new FakeAutomation { IsAvailable = true };
+        var host = new FakeHost(automation);
+        var panel = new MossTankPanel(host);
+        host.SessionSettingsValue = new Dictionary<string, string>
+        {
+            ["logChannels"] = "misc, RuleInfo activerule",
+            ["startMacro"] = "true",
+        };
+
+        panel.TickAutostart();
+        panel.OnTick(1d);
+
+        Assert.Empty(automation.Logger.Errors);
+        Assert.True(panel.CombatMacroRunning);
+        // The very first scheduler pass is already on the record. Turning the
+        // channel on afterwards, which is all a session could do from
+        // outside, would have lost it.
+        Assert.Contains(
+            automation.Logger.Infos,
+            message => message.Contains(
+                "[vt log ActiveRule] ----------- Primary logic loop started",
+                StringComparison.Ordinal));
+
+        Command(panel, "log");
+        Assert.Contains(
+            ((FakeAutomation)host.Automation).Messages,
+            message => message.Contains("ActiveRule", StringComparison.Ordinal)
+                && message.Contains("Misc", StringComparison.Ordinal)
+                && message.Contains("RuleInfo", StringComparison.Ordinal));
+    }
+
+    /// <summary>
     /// The proof's fixture folder, copied into the fake profile storage. One
     /// copy of these files exists in the tree — the live proof reads the same
     /// three — so this pin and that run cannot drift apart.

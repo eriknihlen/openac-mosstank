@@ -818,13 +818,53 @@ internal sealed partial class MossTankPanel
             WriteVtank("Usage: /vt log [type] [on/off]");
             return;
         }
-        string type = parts[0];
+        string type = CanonicalLogChannelName(parts[0]);
         bool changed = parts[1] == "on"
             ? _commandLogTypes.Add(type)
             : _commandLogTypes.Remove(type);
         WriteVtank((parts[1] == "on" ? "Set " : "Reset ") + type);
         if (changed)
             SaveProfile();
+    }
+
+    /// <summary>
+    /// The channel name as the emitter spells it, so a channel asked for in
+    /// any casing is the channel that then logs. A name that is not one of
+    /// ours is kept as typed — the oracle's list has two channels this port
+    /// has no emitter for, and remembering them costs nothing.
+    /// </summary>
+    private static string CanonicalLogChannelName(string requested)
+    {
+        foreach (MacroLogChannel channel in Enum.GetValues<MacroLogChannel>())
+        {
+            string name = channel.ToString();
+            if (name.Equals(requested, StringComparison.OrdinalIgnoreCase))
+                return name;
+        }
+        return requested;
+    }
+
+    /// <summary>
+    /// Turn on the named log channels before the first scheduler pass runs.
+    /// A session with no window in front of it cannot type <c>/vt log</c>
+    /// in time: several of the plugin's most useful lines — the buff
+    /// planner's refusal among them — are emitted once per run, so a channel
+    /// switched on after the macro starts has already missed them.
+    /// </summary>
+    internal void ApplyLogChannels(string requested)
+    {
+        foreach (string name in requested.Split(
+            [',', ' ', ';'],
+            StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
+        {
+            if (name.Equals("All", StringComparison.OrdinalIgnoreCase))
+            {
+                foreach (MacroLogChannel channel in Enum.GetValues<MacroLogChannel>())
+                    _commandLogTypes.Add(channel.ToString());
+                continue;
+            }
+            _commandLogTypes.Add(CanonicalLogChannelName(name));
+        }
     }
 
     private void EmitMacroLog(MacroLogChannel channel, string message) =>
