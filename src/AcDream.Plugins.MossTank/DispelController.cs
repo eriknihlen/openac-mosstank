@@ -57,6 +57,15 @@ internal sealed class DispelController
     internal void BindCombatModeGate(CombatModeGate gate) =>
         _gate = gate ?? throw new ArgumentNullException(nameof(gate));
 
+    private ActionLockTable _actionLocks = new();
+
+    /// <summary>
+    /// Shares the macro's cooldown table: a dispel item or drum is an item
+    /// use like any other, and holds the slot while its animation runs.
+    /// </summary>
+    internal void BindActionLocks(ActionLockTable locks) =>
+        _actionLocks = locks ?? throw new ArgumentNullException(nameof(locks));
+
     public bool Tick(double elapsedSeconds, bool canAct)
     {
         double elapsed = Math.Max(0d, elapsedSeconds);
@@ -89,6 +98,9 @@ internal sealed class DispelController
             PluginItemCommandResult result = automation.Items.Use(item.ObjectId);
             if (result.Accepted)
             {
+                _actionLocks.Arm(
+                    ActionLockKind.ItemUse,
+                    ItemUseLock.ImmediateSeconds);
                 _pending = new Pending(
                     DispelSource.Item,
                     item.ObjectId,
@@ -252,6 +264,9 @@ internal sealed class DispelController
             Status = $"Waiting to use {drum.Name} on {target.Name}";
             return result.Status == PluginItemCommandStatus.Busy;
         }
+        _actionLocks.Arm(
+            ActionLockKind.ItemUse,
+            ItemUseLock.ImmediateSeconds);
         _pending = new Pending(
             DispelSource.AllyItem,
             drum.ObjectId,

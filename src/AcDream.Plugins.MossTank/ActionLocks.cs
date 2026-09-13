@@ -30,6 +30,37 @@ internal enum ActionLockKind
 }
 
 /// <summary>
+/// How long using an item holds <see cref="ActionLockKind.ItemUse"/>. Every
+/// rule that consumes an item arms the slot for one of these windows, and
+/// every rule whose own work would land inside the item's animation — the
+/// attack first among them — refuses while it is up.
+/// </summary>
+internal static class ItemUseLock
+{
+    /// <summary>
+    /// A one-shot use with nothing to wait for: the item is used and the
+    /// character is its own again a moment later.
+    /// </summary>
+    public const double ImmediateSeconds = 0.75d;
+
+    /// <summary>
+    /// A use whose result the macro waits for. The slot is held for the whole
+    /// wait and dropped the moment the transaction ends, so a kit that
+    /// finishes early does not cost the rest of the window.
+    /// </summary>
+    public const double TransactionSeconds = 5d;
+
+    /// <summary>
+    /// A spell cast from a held item: its launch window, its result window,
+    /// and two seconds' grace on top.
+    /// </summary>
+    public const double HeldItemCastSeconds = 6d + 3.5d + 2d;
+
+    /// <summary>Feeding a wielded item from a mana stone.</summary>
+    public const double ManaStoneSeconds = 3d;
+}
+
+/// <summary>
 /// One shared deadline table for <see cref="ActionLockKind"/>.
 /// </summary>
 /// <remarks>

@@ -2124,6 +2124,12 @@ internal sealed class CombatController
                 target.ObjectId);
             if (!apply.Accepted)
                 return DebuffStartResult.Skipped;
+            // The wand now owns the character until its cast is over: nothing
+            // else may use an item, and the attack may not swing, inside that
+            // window.
+            _actionLocks.Arm(
+                ActionLockKind.ItemUse,
+                ItemUseLock.HeldItemCastSeconds);
             _pendingItemDebuff = new PendingItemDebuff(
                 source,
                 target.ObjectId,
@@ -2220,6 +2226,10 @@ internal sealed class CombatController
 
     private void ClearPendingItemDebuff()
     {
+        // The item is finished with, so the slot goes down early rather than
+        // costing the rest of its window.
+        if (_pendingItemDebuff?.Source.Kind == CombatDebuffSourceKind.CasterItem)
+            _actionLocks.Release(ActionLockKind.ItemUse);
         _pendingItemDebuff = null;
     }
 

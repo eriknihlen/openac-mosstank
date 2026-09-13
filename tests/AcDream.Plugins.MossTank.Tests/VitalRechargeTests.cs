@@ -421,6 +421,47 @@ public sealed class VitalRechargeTests
         Assert.Equal([true, false, true, false], surface.VitalsRequests);
     }
 
+    /// <summary>
+    /// Eating, drinking or applying a kit holds the shared item slot for as
+    /// long as the macro waits on the server, and drops it the moment the
+    /// transaction ends. The attack rule refuses while that slot is up, which
+    /// is what keeps a swing out of the kit's own animation.
+    /// Mutation: delete the <c>Arm(ActionLockKind.ItemUse, ...)</c> beside the
+    /// new pending and the first assertion fails; delete
+    /// <c>ReleaseItemUse()</c> and the last one does.
+    /// </summary>
+    [Fact]
+    public void AnItemRechargeHoldsTheItemSlotUntilTheServerAnswers()
+    {
+        var surface = new Surface
+        {
+            CurrentHealth = 20,
+            MaxHealth = 100,
+            Items = [Food(10u, "Bread")],
+        };
+        var combat = new CombatSettings();
+        combat.ConsumableNames.Add("Bread");
+        var locks = new ActionLockTable();
+        var controller = new VitalRechargeController(
+            new Host(surface),
+            new VitalSettings(),
+            combat);
+        controller.BindActionLocks(locks);
+
+        controller.Tick(0.3d, enabled: true, noTarget: true, helpers: false);
+
+        Assert.Equal([10u], surface.UsedItemIds);
+        Assert.True(locks.IsLocked(ActionLockKind.ItemUse));
+
+        locks.Advance(4d);
+        Assert.True(locks.IsLocked(ActionLockKind.ItemUse));
+
+        surface.LastItemCompletion = new PluginItemUseCompletion(1L, 10u, 0u, 0u);
+        controller.Tick(0.3d, enabled: true, noTarget: true, helpers: false);
+
+        Assert.False(locks.IsLocked(ActionLockKind.ItemUse));
+    }
+
     [Fact]
     public void HealKitChanceUsesRetailLogisticDifficultyFormula()
     {
@@ -554,6 +595,18 @@ public sealed class VitalRechargeTests
             HealKitModifier = 1.2,
         };
 
+    /// <summary>Food needs no Healing skill, which is what tells it from a kit.</summary>
+    private static PluginInventoryItem Food(
+        uint id,
+        string name) => (Item(id, name) with
+        {
+            BoosterVital = (int)VitalKind.Health,
+            BoostValue = 20,
+        }) with
+        {
+            UseRequiresSkill = 0,
+        };
+
     private static PluginInventoryItem Caster(
         uint id,
         string name,
@@ -675,6 +728,25 @@ public sealed class VitalRechargeTests
         }
 
         public IReadOnlyList<PluginInventoryItem> CaptureOwnedItems() => Items;
+        public List<uint> UsedItemIds { get; } = [];
+        public PluginItemUseCompletion LastItemCompletion { get; set; }
+        PluginItemUseCompletion IItemAutomation.LastCompletion =>
+            LastItemCompletion;
+
+        PluginItemCommandResult IItemAutomation.Use(uint objectId)
+        {
+            UsedItemIds.Add(objectId);
+            return new PluginItemCommandResult(PluginItemCommandStatus.Started);
+        }
+
+        PluginItemCommandResult IItemAutomation.Apply(
+            uint objectId,
+            uint targetObjectId)
+        {
+            UsedItemIds.Add(objectId);
+            return new PluginItemCommandResult(PluginItemCommandStatus.Started);
+        }
+
         public IReadOnlyList<PluginFellowMember> CaptureMembers() => Fellows;
         public List<bool> VitalsRequests { get; } = [];
         public PluginFellowshipCommandResult RequestVitals(bool requested)

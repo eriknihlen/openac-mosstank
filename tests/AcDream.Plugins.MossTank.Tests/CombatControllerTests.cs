@@ -3041,6 +3041,66 @@ public sealed class CombatControllerTests
         Assert.Contains("Waiting for a target", controller.Status, StringComparison.Ordinal);
     }
 
+    /// <summary>
+    /// Using a wand on a monster holds the item slot for the whole cast, so
+    /// the attack rule (whose first refusal is that slot) cannot swing inside
+    /// the wand's own animation, and the pass line's item column says so.
+    /// Mutation: delete the <c>Arm(ActionLockKind.ItemUse, ...)</c> beside the
+    /// wand's <c>Apply</c> and the first assertion fails; delete the
+    /// <c>Release</c> in <c>ClearPendingItemDebuff</c> and the last one does.
+    /// </summary>
+    [Fact]
+    public void AWandDebuffHoldsTheItemSlotForItsWholeCast()
+    {
+        PluginSpellInfo imperil = Spell(90, "Imperil Other VII") with
+        {
+            School = 31,
+            IsDebuff = true,
+            IsOffensive = true,
+            DurationSeconds = 60,
+        };
+        PluginInventoryItem lens = InventoryItem(
+            800, "Imperil Lens", 0x8000, 90, equipped: true) with
+        {
+            ItemSpellcraft = 400,
+        };
+        var surface = new FakeAutomation
+        {
+            CombatSnapshot = Physical() with { Mode = PluginCombatMode.Magic },
+            Targets = [Target(10, "Drudge", 5, 0)],
+            SpellLookup = [imperil],
+            ItemEntries = [lens],
+        };
+        var settings = DebuffOnly(MonsterActionFlags.Imperil);
+        settings.CombatItemObjectIds.Add(lens.ObjectId);
+        var locks = new ActionLockTable();
+        var controller = new CombatController(new FakeHost(surface), settings);
+        controller.BindActionLocks(locks, () => false);
+
+        controller.Toggle();
+        controller.OnTick(0.25);
+
+        Assert.Equal((800u, 10u), surface.LastAppliedItem);
+        Assert.True(locks.IsLocked(ActionLockKind.ItemUse));
+
+        // Still held most of the way through the cast window.
+        locks.Advance(11d);
+        Assert.True(locks.IsLocked(ActionLockKind.ItemUse));
+
+        surface.LastItemCompletion = new PluginItemUseCompletion(
+            1, 800, 10, 0);
+        surface.ChatMessages =
+        [
+            new PluginChatMessage(
+                1, 0, 0, string.Empty,
+                "You cast Imperil Other VII on Drudge.",
+                string.Empty),
+        ];
+        controller.OnTick(0.25);
+
+        Assert.False(locks.IsLocked(ActionLockKind.ItemUse));
+    }
+
     [Fact]
     public void ProcWeaponChargesAtZeroAndRequiresCastChatNotAttackDone()
     {

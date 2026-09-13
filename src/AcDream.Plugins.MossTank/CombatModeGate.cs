@@ -49,6 +49,16 @@ internal sealed class CombatModeGate
 
     public string Status { get; private set; } = string.Empty;
 
+    private ActionLockTable _actionLocks = new();
+
+    /// <summary>
+    /// Shares the macro's cooldown table, so the item this gate uses to clear
+    /// a stuck combat state holds every other rule off the way any other item
+    /// use does.
+    /// </summary>
+    internal void BindActionLocks(ActionLockTable locks) =>
+        _actionLocks = locks ?? throw new ArgumentNullException(nameof(locks));
+
     public Action<MacroLogChannel, string>? Log { get; set; }
 
     public Func<uint, MonsterDamageType, bool>? AmmunitionStale { get; set; }
@@ -247,6 +257,9 @@ internal sealed class CombatModeGate
                 return false;
             }
 
+            _actionLocks.Arm(
+                ActionLockKind.ItemUse,
+                ItemUseLock.ImmediateSeconds);
             PluginItemCommandResult use =
                 _host.Automation.Items.Use(recovery.ObjectId);
             Status = use.Status == PluginItemCommandStatus.Started

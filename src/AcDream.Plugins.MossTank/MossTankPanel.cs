@@ -292,6 +292,12 @@ internal sealed partial class MossTankPanel : IBuffRuleHost
             _combatSettings);
         _dispel = new DispelController(host, _vitalSettings, _combatSettings);
         _dispel.BindCombatModeGate(_combatModeGate);
+        // One cooldown table for every rule that consumes an item, so the
+        // attack's item-use refusal means what it says.
+        _combatModeGate.BindActionLocks(_actionLocks);
+        _vitalRecharge.BindActionLocks(_actionLocks);
+        _vitalHelperRecharge.BindActionLocks(_actionLocks);
+        _dispel.BindActionLocks(_actionLocks);
         _inventoryMaintenance = new InventoryMaintenanceController(
             host,
             _inventorySettings);
