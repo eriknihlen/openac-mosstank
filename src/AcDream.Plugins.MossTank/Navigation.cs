@@ -339,11 +339,11 @@ internal sealed class NavigationController
     /// <summary>The jump's own re-face interval, far longer than the walk's.</summary>
     private const double JumpFaceHeadingReissueSeconds = 2d;
 
-    /// <summary>The channel an NPC's "tells you," answer arrives on.</summary>
-    private const int NpcTellChannel = 3;
+    /// <summary>The log-text type an NPC's "tells you," answer arrives with.</summary>
+    private const uint NpcTellLogTextType = 3u;
 
-    /// <summary>The channel an NPC's "gives you" line arrives on.</summary>
-    private const int NpcGiveChannel = 0;
+    /// <summary>The log-text type an NPC's "gives you" line arrives with.</summary>
+    private const uint NpcGiveLogTextType = 0u;
     private const double CheckpointRetrySeconds = 15d;
     private const double FollowBreadcrumbSpacingMeters = 0.096d;
     private const double FollowPathCaptureRangeMeters = 240d;
@@ -1357,11 +1357,20 @@ internal sealed class NavigationController
     }
 
     /// <summary>
-    /// The NPC answered. Only two lines count, and each only on its own
-    /// channel: a tell that opens "&lt;name&gt; tells you, " and an ordinary line
-    /// that opens "&lt;name&gt; gives you". Any other line, on any channel, is
+    /// The NPC answered. Only two lines count, and each only with its own
+    /// log-text type: a tell that opens "&lt;name&gt; tells you, " and a plain
+    /// line that opens "&lt;name&gt; gives you". Any other line, of any type, is
     /// somebody else's conversation.
     /// </summary>
+    /// <remarks>
+    /// The test is over the line the chat window shows, which is what the
+    /// answer is written against. A tell reaches a plugin with the sender and
+    /// the message apart, so the shown line is rebuilt here; a server line
+    /// arrives whole and is used as it stands. The message's kind cannot
+    /// stand in for the log-text type — it only says where the line came
+    /// from, and the two value spaces share small numbers without sharing
+    /// meanings.
+    /// </remarks>
     private bool HasNpcResponse(string npcName)
     {
         IReadOnlyList<PluginChatMessage> messages =
@@ -1369,14 +1378,14 @@ internal sealed class NavigationController
         foreach (PluginChatMessage message in messages)
         {
             _chatBaseline = Math.Max(_chatBaseline, message.Sequence);
-            bool answered = message.Kind switch
+            bool answered = message.LogTextType switch
             {
-                NpcTellChannel => message.Text.StartsWith(
+                NpcTellLogTextType => ComposeTellLine(message).StartsWith(
                     npcName + " tells you, ",
-                    StringComparison.OrdinalIgnoreCase),
-                NpcGiveChannel => message.Text.StartsWith(
+                    StringComparison.Ordinal),
+                NpcGiveLogTextType => message.Text.StartsWith(
                     npcName + " gives you",
-                    StringComparison.OrdinalIgnoreCase),
+                    StringComparison.Ordinal),
                 _ => false,
             };
             if (answered)
@@ -1384,6 +1393,15 @@ internal sealed class NavigationController
         }
         return false;
     }
+
+    /// <summary>
+    /// The line the chat window shows for a tell, rebuilt from the sender and
+    /// message the plugin surface hands over separately.
+    /// </summary>
+    private static string ComposeTellLine(in PluginChatMessage message) =>
+        message.SenderObjectId != 0u
+            ? $"{message.Sender} tells you, \"{message.Text}\""
+            : $"You tell {message.Sender}, \"{message.Text}\"";
 
     private bool TickRecall(
         RouteWaypoint waypoint,

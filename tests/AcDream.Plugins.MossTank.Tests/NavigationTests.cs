@@ -663,8 +663,9 @@ public sealed class NavigationTests
             91u,
             3,
             "Town Crier",
-            "Town Crier tells you, Welcome.",
-            string.Empty));
+            "Welcome.",
+            string.Empty,
+            LogTextType: 3u));
         Assert.True(controller.Tick(0.05d, canAct: true));
         Assert.False(controller.Tick(0.05d, canAct: true));
     }
@@ -1429,17 +1430,29 @@ public sealed class NavigationTests
     }
 
     /// <summary>
-    /// Only two lines complete a Use NPC waypoint, and each only on its own
-    /// channel. Anything else is somebody else's conversation.
+    /// Only two lines complete a Use NPC waypoint, and each only with its own
+    /// log-text type. Anything else is somebody else's conversation.
     /// </summary>
+    /// <remarks>
+    /// The cases are the shapes the plugin surface really delivers, pinned in
+    /// <c>PluginChatLogTextTypeTests</c>: a tell arrives with its sender apart
+    /// from a BARE message, a server line arrives whole with no sender. Rows
+    /// three and four are the same two lines wearing each other's log-text
+    /// type; rows five and six are an ordinary player tell and a chat-channel
+    /// line that reads like the answer.
+    /// </remarks>
     [Theory]
-    [InlineData(3, "Aun Tanua tells you, \"Greetings.\"", true)]
-    [InlineData(0, "Aun Tanua gives you a Token.", true)]
-    [InlineData(0, "Aun Tanua tells you, \"Greetings.\"", false)]
-    [InlineData(3, "Aun Tanua gives you a Token.", false)]
-    [InlineData(2, "Aun Tanua tells you, \"Greetings.\"", false)]
+    // log-text type, sender object id, sender, text, completes
+    [InlineData(3u, 500u, "Aun Tanua", "Greetings.", true)]
+    [InlineData(0u, 0u, "", "Aun Tanua gives you a Token.", true)]
+    [InlineData(0u, 500u, "Aun Tanua", "Greetings.", false)]
+    [InlineData(3u, 0u, "", "Aun Tanua gives you a Token.", false)]
+    [InlineData(3u, 700u, "Someone Else", "Greetings.", false)]
+    [InlineData(8u, 0u, "", "Aun Tanua gives you a Token.", false)]
     public void UseNpcCompletesOnlyOnItsOwnChannels(
-        int kind,
+        uint logTextType,
+        uint senderObjectId,
+        string sender,
         string text,
         bool completes)
     {
@@ -1462,11 +1475,16 @@ public sealed class NavigationTests
         Assert.True(controller.Tick(0.05d, canAct: true));
         automation.ChatMessages.Add(new PluginChatMessage(
             Sequence: 1UL,
-            SenderObjectId: 500u,
-            Kind: kind,
-            Sender: "Aun Tanua",
+            SenderObjectId: senderObjectId,
+            // A tell's kind and its log-text type happen to share the number
+            // three, which is exactly the confusion this pin exists to hold
+            // apart: the kind here is the one the surface really reports for
+            // that shape, and it is not what decides the answer.
+            Kind: senderObjectId != 0u ? 3 : 4,
+            Sender: sender,
             Text: text,
-            ChannelName: string.Empty));
+            ChannelName: string.Empty,
+            LogTextType: logTextType));
 
         Assert.True(controller.Tick(0.05d, canAct: true));
 
