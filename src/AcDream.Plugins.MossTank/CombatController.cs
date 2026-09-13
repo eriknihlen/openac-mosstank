@@ -489,19 +489,7 @@ internal sealed class CombatController
             Status = "Scanning for targets";
         }
 
-        _passElements.Clear();
-        _passDebuffSources.Clear();
-        _passDebuffSpells.Clear();
-        _passDeliverable.Clear();
-        _passComponents.Clear();
-        _passClearance.Clear();
-        _passAmmunitionAvailability = null;
-        _passInvalidTargets.Clear();
-        _passClearedActions.Clear();
-        _passCandidates.Clear();
-        _passCandidateRange = double.NaN;
-        _passEquipment = null;
-        _passInventory = null;
+        ClearPassMemos();
 
         _lastElapsedSeconds = Math.Max(0d, elapsedSeconds);
         _now += _lastElapsedSeconds;
@@ -595,6 +583,29 @@ internal sealed class CombatController
             // attempt clears the target.
             _lastTargetId = _targetId;
         }
+    }
+
+    /// <summary>
+    /// Everything a pass learns and forgets again: what the character is
+    /// carrying, which flights are blocked, which action columns this pass
+    /// turned off, and the candidate pool built for one range. Both passes
+    /// that pick a monster start from an empty memory of all of it.
+    /// </summary>
+    private void ClearPassMemos()
+    {
+        _passElements.Clear();
+        _passDebuffSources.Clear();
+        _passDebuffSpells.Clear();
+        _passDeliverable.Clear();
+        _passComponents.Clear();
+        _passClearance.Clear();
+        _passAmmunitionAvailability = null;
+        _passInvalidTargets.Clear();
+        _passClearedActions.Clear();
+        _passCandidates.Clear();
+        _passCandidateRange = double.NaN;
+        _passEquipment = null;
+        _passInventory = null;
     }
 
     private void RunAttackLoop(int budget)
@@ -3684,11 +3695,12 @@ internal sealed class CombatController
         }
 
         _now += Math.Max(0d, elapsedSeconds);
-        // This rule is its own pass: the attack's may not have run at all
-        // (its gate can refuse for seconds at a time), so the shared per-pass
-        // captures are taken fresh here rather than inherited stale.
-        _passEquipment = null;
-        _passInventory = null;
+        // This rule is its own pass: the attack's may not have run at all (its
+        // gate can refuse for seconds at a time), so everything the attack
+        // pass learns and forgets per pass is taken fresh here rather than
+        // inherited stale — a column another pass turned off must not silently
+        // narrow the walk's choice of monster.
+        ClearPassMemos();
         if (SelectApproachTarget() is not { } approach)
         {
             StopApproachMovement();

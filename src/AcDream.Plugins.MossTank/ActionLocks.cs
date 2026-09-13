@@ -55,9 +55,6 @@ internal static class ItemUseLock
     /// and two seconds' grace on top.
     /// </summary>
     public const double HeldItemCastSeconds = 6d + 3.5d + 2d;
-
-    /// <summary>Feeding a wielded item from a mana stone.</summary>
-    public const double ManaStoneSeconds = 3d;
 }
 
 /// <summary>

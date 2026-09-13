@@ -1282,8 +1282,13 @@ public sealed class CombatControllerTests
     /// A profile saved before the arc default was corrected has no arc key at
     /// all, and loading one must not put arcing back: a fresh character bolts
     /// at five metres where an arcing one would throw over the monster's head.
-    /// Mutation: set either declared default back to "at range" and this
-    /// fails.
+    /// There are two defaults on this road, and each load below takes one of
+    /// them: a stored combat section with no arc key reads the sidecar
+    /// record's, and a stored profile with no combat section at all reads the
+    /// live settings object's.
+    /// Mutation: set the sidecar record's default back to "at range" and the
+    /// first pair of assertions fails; set the settings object's own back and
+    /// the last one does.
     /// </summary>
     [Fact]
     public void AProfileWithNoArcSettingLoadsWithArcsOff()
@@ -1311,6 +1316,29 @@ public sealed class CombatControllerTests
 
         Assert.Equal(UseArcsMode.No, settings.Combat.UseArcs);
         Assert.Equal(5d, settings.Combat.ArcRange, precision: 6);
+
+        // The other road: nothing combat-shaped is stored at all, so the load
+        // falls back on the settings object's own declared default.
+        var bareStorage = new MemoryStorage();
+        bareStorage.WriteText("profile.json", "{ }");
+        var bareStore = new MossTankProfileStore(
+            new StorageHost(bareStorage, "Acdream", "Fixture"));
+        bareStore.BindCharacter("Acdream");
+        var bare = new VtankSettingsProfileSerializer.AllSettings
+        {
+            Combat = new CombatSettings { UseArcs = UseArcsMode.Yes },
+            Buffs = new BuffSettings(),
+            Vitals = new VitalSettings(),
+            Inventory = new InventorySettings(),
+            Navigation = new NavigationSettings(),
+        };
+
+        bareStore.LoadCurrent(
+            bare,
+            new HashSet<string>(StringComparer.Ordinal),
+            new HashSet<string>(StringComparer.OrdinalIgnoreCase));
+
+        Assert.Equal(UseArcsMode.No, bare.Combat.UseArcs);
     }
 
     [Fact]
