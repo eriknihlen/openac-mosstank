@@ -12,6 +12,22 @@ internal interface IMacroRule
     bool ValidNow(in MacroPassContext context);
 
     bool Running { get; set; }
+
+    /// <summary>
+    /// What the rule appends to its own "Running" line. The oracle writes
+    /// this per rule rather than centrally: the navigation rule names the
+    /// goal it is steering at, and most rules say nothing.
+    /// </summary>
+    string? RunningDetail => null;
+
+    /// <summary>
+    /// Why <see cref="ValidNow"/> last answered false. Null for a rule that
+    /// has nothing to say. A rule that declines every pass forever is the
+    /// hardest thing to diagnose in this scheduler — the log shows only that
+    /// nothing ran — so a rule that knows its own reason states it once, on
+    /// the RuleInfo channel, and again whenever the reason changes.
+    /// </summary>
+    string? DeclineReason => null;
 }
 
 internal sealed class MacroRuleSentinel : IMacroRule
@@ -52,6 +68,10 @@ internal sealed class MacroRulePreChain : IMacroRule
     }
 
     public string Name => _primary.Name;
+
+    public string? RunningDetail => _primary.RunningDetail;
+
+    public string? DeclineReason => _primary.DeclineReason;
 
     public bool ValidNow(in MacroPassContext context)
     {
@@ -105,6 +125,9 @@ internal sealed class MacroScheduler
 
     private readonly List<IMacroRule> _main;
     private readonly List<IMacroRule> _independent;
+
+    private readonly Dictionary<string, string> _reportedDeclines =
+        new(StringComparer.Ordinal);
 
     private double _untilPass;
     private double _sincePass;
@@ -268,10 +291,49 @@ internal sealed class MacroScheduler
         {
             winner.Running = true;
 
-            Log?.Invoke(MacroLogChannel.RuleInfo, $"({winner.Name}) Running");
+            string detail = winner.RunningDetail is { Length: > 0 } text
+                ? " " + text
+                : string.Empty;
+            Log?.Invoke(
+                MacroLogChannel.RuleInfo,
+                $"({winner.Name}) Running{detail}");
         }
+
+        ReportDeclines(winner);
 
         LastExecutedRule = winner;
         PassCount++;
+    }
+
+    /// <summary>
+    /// Say once, per rule, why a rule that could have run did not. Repeating
+    /// it every 0.293 s would bury the channel, so a reason is printed when
+    /// it appears and again only when it changes; a rule that wins the pass
+    /// forgets its last reason, so the next decline is printed again.
+    /// </summary>
+    private void ReportDeclines(IMacroRule? winner)
+    {
+        if (Log is not { } log)
+            return;
+        foreach (IMacroRule rule in _main)
+        {
+            if (ReferenceEquals(rule, winner))
+            {
+                _reportedDeclines.Remove(rule.Name);
+                continue;
+            }
+            if (rule.DeclineReason is not { Length: > 0 } reason)
+            {
+                _reportedDeclines.Remove(rule.Name);
+                continue;
+            }
+            if (_reportedDeclines.TryGetValue(rule.Name, out string? already)
+                && string.Equals(already, reason, StringComparison.Ordinal))
+            {
+                continue;
+            }
+            _reportedDeclines[rule.Name] = reason;
+            log(MacroLogChannel.RuleInfo, $"({rule.Name}) declined: {reason}");
+        }
     }
 }

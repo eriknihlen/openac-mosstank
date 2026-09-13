@@ -18,6 +18,14 @@ public class MacroSchedulerTests
 
         public bool Valid { get; set; }
 
+        public string? Reason { get; set; }
+
+        public string? Detail { get; set; }
+
+        public string? DeclineReason => Reason;
+
+        public string? RunningDetail => Detail;
+
         /// <summary>Validity the rule reports only while it may act.</summary>
         public bool RequiresCanAct { get; set; } = true;
 
@@ -512,6 +520,90 @@ public class MacroSchedulerTests
         Assert.False(fallback.Running);
     }
 
+
+    /// <summary>
+    /// A rule that declines every pass forever is the hardest thing to read
+    /// out of this log: the winner line says nothing about it and the
+    /// inactive line says nothing about anyone. A rule that knows its own
+    /// reason states it, once, and again only when the reason changes — a
+    /// line every 0.293 s would bury the channel it shares with the pass
+    /// header.
+    /// </summary>
+    [Fact]
+    public void RuleInfoStatesADeclinedRulesReasonOnceAndAgainWhenItChanges()
+    {
+        var quiet = new Probe("quiet");
+        var talkative = new Probe("BuffSelf") { Reason = "EnableBuffing is off" };
+        var scheduler = new MacroScheduler([quiet, talkative]);
+        List<(MacroLogChannel Channel, string Message)> log = Recorder(scheduler);
+        scheduler.Start();
+
+        scheduler.RunPass(1d);
+        scheduler.RunPass(1d);
+        talkative.Reason = "nothing is due";
+        scheduler.RunPass(1d);
+
+        Assert.Equal(
+            [
+                (MacroLogChannel.RuleInfo, "(BuffSelf) declined: EnableBuffing is off"),
+                (MacroLogChannel.RuleInfo, "(BuffSelf) declined: nothing is due"),
+            ],
+            log.Where(entry => entry.Channel == MacroLogChannel.RuleInfo).ToArray());
+    }
+
+    /// <summary>
+    /// Winning clears the rule's last reason, so the decline after a run is
+    /// reported again rather than swallowed as a repeat.
+    /// </summary>
+    [Fact]
+    public void ARuleThatWinsAndThenDeclinesAgainStatesItsReasonAgain()
+    {
+        var rule = new Probe("BuffSelf") { Reason = "nothing is due" };
+        var scheduler = new MacroScheduler([rule]);
+        List<(MacroLogChannel Channel, string Message)> log = Recorder(scheduler);
+        scheduler.Start();
+
+        scheduler.RunPass(1d);
+        rule.Valid = true;
+        rule.Reason = null;
+        scheduler.RunPass(1d);
+        rule.Valid = false;
+        rule.Reason = "nothing is due";
+        scheduler.RunPass(1d);
+
+        Assert.Equal(
+            [
+                (MacroLogChannel.RuleInfo, "(BuffSelf) declined: nothing is due"),
+                (MacroLogChannel.RuleInfo, "(BuffSelf) Running"),
+                (MacroLogChannel.RuleInfo, "(BuffSelf) declined: nothing is due"),
+            ],
+            log.Where(entry => entry.Channel == MacroLogChannel.RuleInfo).ToArray());
+    }
+
+    /// <summary>
+    /// The oracle writes the "Running" payload per rule, not centrally: its
+    /// navigation rule names the range and place it is steering at. A rule
+    /// with nothing to add still prints the bare line.
+    /// </summary>
+    [Fact]
+    public void RuleInfoCarriesTheWinnersOwnRunningDetailWhenItHasOne()
+    {
+        var rule = new Probe("NavigateRouteIdle", valid: true)
+        {
+            Detail = "[targ range 5.657, targ loc 33.79, 42.106, 0.401 ]",
+        };
+        var scheduler = new MacroScheduler([rule]);
+        List<(MacroLogChannel Channel, string Message)> log = Recorder(scheduler);
+        scheduler.Start();
+
+        scheduler.RunPass(1d);
+
+        Assert.Contains(
+            (MacroLogChannel.RuleInfo,
+                "(NavigateRouteIdle) Running "
+                    + "[targ range 5.657, targ loc 33.79, 42.106, 0.401 ]"),
+            log);
+    }
 
     private static List<(MacroLogChannel Channel, string Message)> Recorder(
         MacroScheduler scheduler)

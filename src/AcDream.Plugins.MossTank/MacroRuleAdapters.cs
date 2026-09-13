@@ -8,27 +8,46 @@ internal sealed class ControllerMacroRule : IMacroRule
     private readonly Func<bool>? _gate;
     private readonly Action? _onLostTurn;
     private readonly bool _bookkeepWhenBlocked;
+    private readonly Func<string?>? _runningDetail;
+    private readonly Func<string?>? _declineReason;
     private bool _running;
+    private bool _gateClosed;
 
     public ControllerMacroRule(
         string name,
         Func<MacroPassContext, bool> tick,
         Func<bool>? gate = null,
         Action? onLostTurn = null,
-        bool bookkeepWhenBlocked = true)
+        bool bookkeepWhenBlocked = true,
+        Func<string?>? runningDetail = null,
+        Func<string?>? declineReason = null)
     {
         Name = name ?? throw new ArgumentNullException(nameof(name));
         _tick = tick ?? throw new ArgumentNullException(nameof(tick));
         _gate = gate;
         _onLostTurn = onLostTurn;
         _bookkeepWhenBlocked = bookkeepWhenBlocked;
+        _runningDetail = runningDetail;
+        _declineReason = declineReason;
     }
 
     public string Name { get; }
 
+    public string? RunningDetail => _runningDetail?.Invoke();
+
+    /// <summary>
+    /// The controller's own reason, unless the rule's gate is what closed —
+    /// the controller never ran in that case and its last reason would be
+    /// stale.
+    /// </summary>
+    public string? DeclineReason => _gateClosed
+        ? "the rule's own gate is closed"
+        : _declineReason?.Invoke();
+
     public bool ValidNow(in MacroPassContext context)
     {
         bool gateOpen = _gate is null || _gate();
+        _gateClosed = !gateOpen;
         if (!gateOpen && !_bookkeepWhenBlocked)
             return false;
         bool allowed = context.CanAct && gateOpen;

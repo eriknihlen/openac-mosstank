@@ -351,6 +351,33 @@ internal sealed class NavigationController
     }
 
     public string Status => _status;
+
+    /// <summary>
+    /// The goal this rule is steering at, in the oracle's own shape: the
+    /// range to it and where it is. It rides the rule's "Running" line so a
+    /// route that looks stuck can be told apart from a route steering at the
+    /// wrong place.
+    /// </summary>
+    public string RunningDetail
+    {
+        get
+        {
+            if (_settings.Mode == RouteMode.Target
+                || _index < 0
+                || _index >= _settings.Waypoints.Count)
+            {
+                return string.Empty;
+            }
+            PluginNavigationPosition goal = _settings.Waypoints[_index].Position;
+            double distance = _host.Automation.Navigation.Snapshot.Position
+                .HorizontalDistanceMeters(goal);
+            return string.Create(
+                CultureInfo.InvariantCulture,
+                $"[targ range {distance:0.###}, targ loc {goal.EastWest:0.######}, "
+                    + $"{goal.NorthSouth:0.######}, {goal.Elevation:0.######} ]");
+        }
+    }
+
     public int CurrentWaypointIndex => _index;
     public bool Reversing => _reverse;
 

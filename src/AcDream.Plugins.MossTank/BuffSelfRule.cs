@@ -92,6 +92,13 @@ internal sealed class BuffSelfRule
     public bool Tick(MacroPassContext context, bool idle) =>
         TickBuffRule(context, idle);
 
+    /// <summary>
+    /// Why the last pass did not want to buff. The rule has five ways to say
+    /// no and all five are silent, so a run where nothing is ever buffed
+    /// looks exactly like a run with nothing to buff.
+    /// </summary>
+    public string DeclineReason { get; private set; } = string.Empty;
+
     public void StartForce() => StartForceBuff();
 
     public void CancelForce() => CancelForceBuffCore();
@@ -367,6 +374,7 @@ internal sealed class BuffSelfRule
         {
             if (_bursting)
                 _owner.StopFromBuffRule("Lost the session.");
+            DeclineReason = "there is no session to buff in";
             return false;
         }
 
@@ -376,14 +384,23 @@ internal sealed class BuffSelfRule
         ConsumeCastOutcome();
 
         if (automation.Items.IsBusy)
+        {
+            DeclineReason = "an item transaction is open";
             return PauseBurst();
+        }
 
         // fz.cs:76-79 — `if (!f3.k("EnableBuffing")) return false;`.
         if (!_settings.Enabled)
+        {
+            DeclineReason = "EnableBuffing is off";
             return PauseBurst();
+        }
 
         if (!_owner.MacroEnabled)
+        {
+            DeclineReason = "the macro is not running";
             return EndBurstAt(idle);
+        }
 
         double threshold = idle
             ? _settings.IdleBuffTopoffSeconds
@@ -398,7 +415,24 @@ internal sealed class BuffSelfRule
 
         // fz.cs:89 — `return this.m_a.k.a(num, this.m_d, out this.m_e);`.
         if (!TryPickBuff(automation, threshold, out BuffPick pick))
+        {
+            string within = threshold.ToString(
+                "0.#", System.Globalization.CultureInfo.InvariantCulture);
+            string known = automation.Spells.KnownSelfBuffs.Count.ToString(
+                System.Globalization.CultureInfo.InvariantCulture);
+            string carried = automation.Items.IsAvailable
+                ? automation.Items.CaptureOwnedItems().Count.ToString(
+                      System.Globalization.CultureInfo.InvariantCulture)
+                      + " items carried"
+                : "the item surface is unavailable, so no component or "
+                      + "consumable can be counted";
+            DeclineReason =
+                $"nothing is due within {within}s that this character can "
+                + $"cast ({known} self buffs known, {carried})";
             return EndBurstAt(idle);
+        }
+
+        DeclineReason = string.Empty;
 
         if (!_bursting)
         {

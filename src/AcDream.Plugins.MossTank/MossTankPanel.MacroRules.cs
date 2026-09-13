@@ -46,7 +46,8 @@ internal sealed partial class MossTankPanel : IMacroRuleProvider
 
         MacroRuleSlot.BuffSelfNormal => new ControllerMacroRule(
             "BuffSelf",
-            context => _buffRule.Tick(context, idle: false)),
+            context => _buffRule.Tick(context, idle: false),
+            declineReason: () => _buffRule.DeclineReason),
         MacroRuleSlot.SplitPeasNormal => new AbsentMacroRule(
             "SplitPeasNormal",
             "fused into CraftFood — CraftingController.Tick runs the pea "
@@ -166,7 +167,9 @@ internal sealed partial class MossTankPanel : IMacroRuleProvider
             gate: () => _combat.Enabled && !_buffRule.IsBursting
                 && _navigationSettings.Priority,
             onLostTurn: _navigation.StopForLostTurn,
-            bookkeepWhenBlocked: false),
+            bookkeepWhenBlocked: false,
+            runningDetail: () => _navigation.RunningDetail,
+            declineReason: () => _navigation.Status),
         MacroRuleSlot.NavigateRouteIdle => new ControllerMacroRule(
             "NavigateRouteIdle",
             context => _navigation.Tick(
@@ -175,7 +178,9 @@ internal sealed partial class MossTankPanel : IMacroRuleProvider
             gate: () => !_navigationSettings.Priority
                 && _combat.Enabled && !_buffRule.IsBursting,
             onLostTurn: _navigation.StopForLostTurn,
-            bookkeepWhenBlocked: false),
+            bookkeepWhenBlocked: false,
+            runningDetail: () => _navigation.RunningDetail,
+            declineReason: () => _navigation.Status),
 
         MacroRuleSlot.Attack => new ControllerMacroRule(
             "Attack",
@@ -201,7 +206,8 @@ internal sealed partial class MossTankPanel : IMacroRuleProvider
             "BuffSelfIdle",
             context => _buffRule.Tick(context, idle: true),
             gate: () => _buffSettings.IdleBuffTopoff,
-            bookkeepWhenBlocked: false),
+            bookkeepWhenBlocked: false,
+            declineReason: () => _buffRule.DeclineReason),
 
         MacroRuleSlot.NavigateMonster => new AbsentMacroRule(
             "NavigateMonster",
