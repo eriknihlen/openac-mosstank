@@ -11,6 +11,16 @@ internal sealed partial class MossTankPanel : IMacroRuleProvider
     internal ActionLockTable ActionLocks => _actionLocks;
 
     /// <summary>
+    /// The cooldown slot an item in use holds. It is the first refusal of
+    /// every rule that consumes an item — the attack included, because a swing
+    /// inside an item's own animation only eats the item — and it is what
+    /// makes the shared release safe: one owner at a time, so nobody can drop
+    /// somebody else's window.
+    /// </summary>
+    private bool ItemSlotIsFree() =>
+        !_actionLocks.IsLocked(ActionLockKind.ItemUse);
+
+    /// <summary>
     /// The three cooldown slots that hold every navigation rule off: the one a
     /// kill or a portal arms, the one a shared-target request arms, and the one
     /// a door arms while it opens.
@@ -35,7 +45,8 @@ internal sealed partial class MossTankPanel : IMacroRuleProvider
             context => _crafting.TickCritical(
                 context.ElapsedSeconds,
                 context.CanAct),
-            gate: () => _combat.Enabled && !_buffRule.IsBursting),
+            gate: () => ItemSlotIsFree() && _combat.Enabled
+                && !_buffRule.IsBursting),
         MacroRuleSlot.CraftFoodCritical => new AbsentMacroRule(
             "CraftFoodCritical",
             "fused into SplitPeasCritical — CraftingController.TickCritical "
@@ -48,17 +59,19 @@ internal sealed partial class MossTankPanel : IMacroRuleProvider
                 context.CanAct,
                 noTarget: !_combat.HasTarget,
                 helpers: false),
-            gate: () => _combat.Enabled),
+            gate: () => ItemSlotIsFree() && _combat.Enabled),
 
         MacroRuleSlot.RefillWieldedMana => new ControllerMacroRule(
             "RefillWieldedMana",
             context => _itemManaRecharge.Tick(context.CanAct),
-            gate: () => _combat.Enabled
-                || _inventorySettings.ManaChargesWhenOff),
+            gate: () => ItemSlotIsFree()
+                && (_combat.Enabled
+                    || _inventorySettings.ManaChargesWhenOff)),
 
         MacroRuleSlot.BuffSelfNormal => new ControllerMacroRule(
             "BuffSelf",
-            context => _buffRule.Tick(context, idle: false)),
+            context => _buffRule.Tick(context, idle: false),
+            gate: ItemSlotIsFree),
         MacroRuleSlot.SplitPeasNormal => new AbsentMacroRule(
             "SplitPeasNormal",
             "fused into CraftFood — CraftingController.Tick runs the pea "
@@ -67,7 +80,8 @@ internal sealed partial class MossTankPanel : IMacroRuleProvider
         MacroRuleSlot.DispelSelf => new ControllerMacroRule(
             "DispelSelf",
             context => _dispel.Tick(context.ElapsedSeconds, context.CanAct),
-            gate: () => _combat.Enabled && !_buffRule.IsBursting),
+            gate: () => ItemSlotIsFree() && _combat.Enabled
+                && !_buffRule.IsBursting),
         MacroRuleSlot.UseDispelItem => new AbsentMacroRule(
             "UseDispelItem",
             "fused into DispelSelf — DispelController.Tick tries the self "
@@ -83,7 +97,7 @@ internal sealed partial class MossTankPanel : IMacroRuleProvider
                 context.CanAct,
                 noTarget: !_combat.HasTarget,
                 helpers: true),
-            gate: () => _combat.Enabled),
+            gate: () => ItemSlotIsFree() && _combat.Enabled),
         MacroRuleSlot.RechargeOther => new AbsentMacroRule(
             "RechargeOther",
             "fused into UseHealersHeart - VitalRechargeController's helper "
@@ -93,7 +107,8 @@ internal sealed partial class MossTankPanel : IMacroRuleProvider
         MacroRuleSlot.CraftFood => new ControllerMacroRule(
             "CraftFood",
             context => _crafting.Tick(context.ElapsedSeconds, context.CanAct),
-            gate: () => _combat.Enabled && !_buffRule.IsBursting),
+            gate: () => ItemSlotIsFree() && _combat.Enabled
+                && !_buffRule.IsBursting),
         MacroRuleSlot.RefillPetChargesNormal => new AbsentMacroRule(
             "RefillPetChargesNormal",
             "fused into Attack — PetAutomation's refill branch runs inside "
@@ -197,7 +212,7 @@ internal sealed partial class MossTankPanel : IMacroRuleProvider
             // The attack's first refusal: an item that was just used owns the
             // character for the rest of its cooldown, and attacking inside
             // that window only eats the item's own animation.
-            gate: () => !_actionLocks.IsLocked(ActionLockKind.ItemUse),
+            gate: ItemSlotIsFree,
             onLostTurn: () => _combat.SetPaused(true)),
 
         // Rows 38-40.
@@ -210,7 +225,8 @@ internal sealed partial class MossTankPanel : IMacroRuleProvider
             context => _crafting.TickIdle(
                 context.ElapsedSeconds,
                 context.CanAct),
-            gate: () => _combat.Enabled && !_buffRule.IsBursting),
+            gate: () => ItemSlotIsFree() && _combat.Enabled
+                && !_buffRule.IsBursting),
         MacroRuleSlot.RefillPetChargesIdle => new AbsentMacroRule(
             "RefillPetChargesIdle",
             "fused into Attack — see RefillPetChargesNormal."),
@@ -218,7 +234,7 @@ internal sealed partial class MossTankPanel : IMacroRuleProvider
         MacroRuleSlot.BuffSelfIdle => new ControllerMacroRule(
             "BuffSelfIdle",
             context => _buffRule.Tick(context, idle: true),
-            gate: () => _buffSettings.IdleBuffTopoff,
+            gate: () => ItemSlotIsFree() && _buffSettings.IdleBuffTopoff,
             bookkeepWhenBlocked: false),
 
         // Walking to a monster is a navigation job that sits twenty positions

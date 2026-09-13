@@ -142,6 +142,7 @@ internal sealed class CombatController
     private uint _lastTargetId;
     private PendingItemDebuff? _pendingItemDebuff;
     private ulong _observedChatSequence;
+    private ulong _itemTransactionChatSequence;
     private long _observedItemCompletion;
     private bool _combatPolicySuspended;
     private bool _approachMovementOwned;
@@ -450,7 +451,20 @@ internal sealed class CombatController
             return;
         }
         if (_paused)
+        {
+            // No turn this pass, so nothing new is started — but an item
+            // already in flight is a transaction of its own that began before
+            // this pass and finishes on its own clock. It is watched to its
+            // end, including the early release of the slot it holds, whoever
+            // owns the pass meanwhile.
+            _now += Math.Max(0d, elapsedSeconds);
+            if (_pendingItemDebuff is not null)
+            {
+                ObserveItemTransaction();
+                TickPendingItemDebuff(_host.Automation.Combat.Snapshot);
+            }
             return;
+        }
         if (!_settings.Enabled)
         {
             if (_combatPolicySuspended)
@@ -510,6 +524,7 @@ internal sealed class CombatController
 
         PluginCombatSnapshot current = _host.Automation.Combat.Snapshot;
         ObserveItemDebuffReceipts();
+        ObserveItemTransaction();
         ObserveAttackReceipts(current, castCompletion);
         if (current.Mode != _lastMode)
         {
@@ -2571,6 +2586,23 @@ internal sealed class CombatController
                     && message.SenderObjectId
                         == _host.Automation.Character.ObjectId,
                 logTextType: message.LogTextType);
+        }
+    }
+
+    /// <summary>
+    /// The in-flight item transaction's own watcher. It reads the log and the
+    /// item receipt on a reading position of its own, because the transaction
+    /// outlives the passes the attack wins: it has to be able to see its own
+    /// confirmation on a pass where the attack has no turn at all.
+    /// </summary>
+    private void ObserveItemTransaction()
+    {
+        foreach (PluginChatMessage message in
+            _host.Automation.Chat.CaptureMessages(_itemTransactionChatSequence))
+        {
+            _itemTransactionChatSequence = Math.Max(
+                _itemTransactionChatSequence,
+                message.Sequence);
             // The wand's own confirmation is a magic-log line like any other
             // spell result.
             if (_pendingItemDebuff is not { } pending
@@ -3619,6 +3651,7 @@ internal sealed class CombatController
         _pendingAttackTarget = 0u;
         ClearPendingItemDebuff();
         _observedChatSequence = 0u;
+        _itemTransactionChatSequence = 0u;
         _observedItemCompletion = 0;
         // gj.cs:271 — d(), the tracker's own reset. A stopped macro must not
         // leave the busy latch up.

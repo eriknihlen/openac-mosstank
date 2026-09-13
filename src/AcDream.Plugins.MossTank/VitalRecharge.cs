@@ -1100,7 +1100,7 @@ internal sealed class VitalRechargeController
         _healthBoostRemaining = Math.Max(0d, _healthBoostRemaining - elapsed);
         _staminaBoostRemaining = Math.Max(0d, _staminaBoostRemaining - elapsed);
         _manaBoostRemaining = Math.Max(0d, _manaBoostRemaining - elapsed);
-        if (!enabled || !_settings.Enabled || !automation.IsAvailable)
+        if (!_settings.Enabled || !automation.IsAvailable)
         {
             ReleaseItemUse();
             _pending = null;
@@ -1109,13 +1109,11 @@ internal sealed class VitalRechargeController
             SyncVitalsRequest(automation, wanted: false);
             return false;
         }
-        if (helpers)
-        {
-            SyncVitalsRequest(
-                automation,
-                wanted: _settings.HelpOthers && automation.Fellowship.IsInFellowship);
-        }
-
+        // An item the server has yet to answer for is a transaction of its
+        // own: it holds the shared slot and it is watched to its end whoever
+        // owns the pass meanwhile, because a losing tick is not a reason to
+        // abandon it — and abandoning it is what would drop the slot early
+        // under another owner's feet.
         if (_pending is { } pending)
         {
             _pendingSeconds += Math.Max(0d, elapsedSeconds);
@@ -1146,6 +1144,21 @@ internal sealed class VitalRechargeController
                 Status = $"Recharging {pending.Choice.Vital}: {pending.Choice.Name}";
                 return true;
             }
+        }
+
+        // No turn this pass, so nothing new is begun.
+        if (!enabled)
+        {
+            ClearBoosts();
+            Status = IdleStatus;
+            SyncVitalsRequest(automation, wanted: false);
+            return false;
+        }
+        if (helpers)
+        {
+            SyncVitalsRequest(
+                automation,
+                wanted: _settings.HelpOthers && automation.Fellowship.IsInFellowship);
         }
 
         VitalKind? need = VitalPlan.DecideNeed(

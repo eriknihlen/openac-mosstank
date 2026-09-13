@@ -462,6 +462,49 @@ public sealed class VitalRechargeTests
         Assert.False(locks.IsLocked(ActionLockKind.ItemUse));
     }
 
+    /// <summary>
+    /// A pass the rule does not win is not a reason to abandon an item the
+    /// server has yet to answer for: the transaction keeps its slot and keeps
+    /// waiting, so it cannot drop a window somebody else is holding and it
+    /// cannot restart the same use over and over.
+    /// Mutation: put <c>!enabled ||</c> back in front of
+    /// <c>!_settings.Enabled</c> in <c>Tick</c>'s stand-down test and the
+    /// second and third assertions fail — the losing tick drops the slot and
+    /// the next winning tick eats a second piece of bread.
+    /// </summary>
+    [Fact]
+    public void ALosingTickKeepsTheItemTheServerHasYetToAnswerFor()
+    {
+        var surface = new Surface
+        {
+            CurrentHealth = 20,
+            MaxHealth = 100,
+            Items = [Food(10u, "Bread")],
+        };
+        var combat = new CombatSettings();
+        combat.ConsumableNames.Add("Bread");
+        var locks = new ActionLockTable();
+        var controller = new VitalRechargeController(
+            new Host(surface),
+            new VitalSettings(),
+            combat);
+        controller.BindActionLocks(locks);
+
+        controller.Tick(0.3d, enabled: true, noTarget: true, helpers: false);
+        Assert.Equal([10u], surface.UsedItemIds);
+        Assert.True(locks.IsLocked(ActionLockKind.ItemUse));
+
+        // Two passes some other rule won.
+        controller.Tick(0.3d, enabled: false, noTarget: true, helpers: false);
+        controller.Tick(0.3d, enabled: false, noTarget: true, helpers: false);
+        Assert.True(locks.IsLocked(ActionLockKind.ItemUse));
+        Assert.Equal([10u], surface.UsedItemIds);
+
+        surface.LastItemCompletion = new PluginItemUseCompletion(1L, 10u, 0u, 0u);
+        controller.Tick(0.3d, enabled: false, noTarget: true, helpers: false);
+        Assert.False(locks.IsLocked(ActionLockKind.ItemUse));
+    }
+
     [Fact]
     public void HealKitChanceUsesRetailLogisticDifficultyFormula()
     {
