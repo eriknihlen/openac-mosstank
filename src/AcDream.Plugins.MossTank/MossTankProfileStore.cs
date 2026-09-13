@@ -1239,7 +1239,7 @@ internal sealed class MossTankProfileStore
         public DebuffSelectionMethod DebuffSelectionMethod { get; set; } = DebuffSelectionMethod.Skill;
         public double DebuffPrecastSeconds { get; set; } = 5d;
         public bool SwitchWandsToDebuff { get; set; }
-        public UseArcsMode UseArcs { get; set; } = UseArcsMode.AtRange;
+        public UseArcsMode UseArcs { get; set; } = UseArcsMode.No;
         public double ArcRange { get; set; } = 5d;
         public double RingDistance { get; set; } = 5d;
         public int MinimumRingTargets { get; set; } = 4;

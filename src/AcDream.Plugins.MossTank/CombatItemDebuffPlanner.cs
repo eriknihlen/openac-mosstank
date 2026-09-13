@@ -19,6 +19,15 @@ internal readonly record struct CombatDebuffSource(
     int ActionOrder)
 {
     public bool UsesItem => Kind != CombatDebuffSourceKind.LearnedSpell;
+
+    /// <summary>
+    /// The flight shape to test the way to the monster with, or null when this
+    /// source has no flight at all (a melee proc, which lands or does not land
+    /// with the swing). The shape belongs to the SOURCE, not to the spell: a
+    /// launcher throws its debuff on a missile path whatever the spell is,
+    /// while a wand's item spell keeps the spell's own shape.
+    /// </summary>
+    public PluginProjectilePathKind? PathKind { get; init; }
 }
 
 internal static class CombatItemDebuffPlanner
@@ -36,7 +45,8 @@ internal static class CombatItemDebuffPlanner
         ICharacterInfo character,
         ISpellCatalog spells,
         IReadOnlyList<PluginInventoryItem> items,
-        Func<DebuffIdentity, PluginSpellInfo, bool> isDue)
+        Func<DebuffIdentity, PluginSpellInfo, bool> isDue,
+        double targetDistance = 0d)
     {
         ArgumentNullException.ThrowIfNull(actions);
         ArgumentNullException.ThrowIfNull(settings);
@@ -48,7 +58,14 @@ internal static class CombatItemDebuffPlanner
         HashSet<DebuffIdentity> required = DebuffSpellCatalog.Required(actions);
         if (required.Count == 0)
             return Array.Empty<CombatDebuffSource>();
-        return Collect(required, settings, character, spells, items, isDue);
+        return Collect(
+            required,
+            settings,
+            character,
+            spells,
+            items,
+            isDue,
+            targetDistance);
     }
 
     public static IReadOnlyList<CombatDebuffSource> Sources(
@@ -57,6 +74,7 @@ internal static class CombatItemDebuffPlanner
         ICharacterInfo character,
         ISpellCatalog spells,
         IReadOnlyList<PluginInventoryItem> items,
+        double targetDistance = 0d,
         Action<string>? log = null)
     {
         ArgumentNullException.ThrowIfNull(settings);
@@ -70,6 +88,7 @@ internal static class CombatItemDebuffPlanner
             spells,
             items,
             isDue: null,
+            targetDistance,
             log);
     }
 
@@ -80,11 +99,23 @@ internal static class CombatItemDebuffPlanner
         ISpellCatalog spells,
         IReadOnlyList<PluginInventoryItem> items,
         Func<DebuffIdentity, PluginSpellInfo, bool>? isDue,
+        double targetDistance,
         Action<string>? log = null)
     {
         var result = new List<CombatDebuffSource>();
         foreach (PluginSpellInfo spell in spells.KnownCombatSpells)
         {
+            // A debuff the character cannot reach the monster with is not a
+            // choice at all. This is the ONE place the reference macro asks
+            // a spell how far it goes.
+            if (targetDistance > 0d
+                && AttackSpellCatalog.RangeMeters(
+                    spell,
+                    character,
+                    settings.SpellRangeFudge) < targetDistance)
+            {
+                continue;
+            }
             AddIfRequired(
                 result,
                 required,
@@ -92,7 +123,8 @@ internal static class CombatItemDebuffPlanner
                 CombatDebuffSourceKind.LearnedSpell,
                 0u,
                 CurrentSkill(character, spell.School),
-                isDue);
+                isDue,
+                AttackSpellCatalog.ProjectileShapeFor(spell.Family));
         }
 
         foreach (PluginInventoryItem item in items)
@@ -151,7 +183,9 @@ internal static class CombatItemDebuffPlanner
                 CombatDebuffSourceKind.CasterItem,
                 item.ObjectId,
                 item.ItemSpellcraft,
-                isDue);
+                isDue,
+                // A wand throws its own spell, so the spell's shape stands.
+                AttackSpellCatalog.ProjectileShapeFor(casterSpell.Family));
             return;
         }
 
@@ -173,7 +207,12 @@ internal static class CombatItemDebuffPlanner
                 CombatDebuffSourceKind.ProcWeapon,
                 item.ObjectId,
                 item.ItemSpellcraft,
-                isDue);
+                isDue,
+                // A launcher's proc flies the way its ammunition flies; a
+                // melee proc has no flight, so nothing is tested.
+                (item.ItemType & MissileWeapon) != 0u
+                    ? PluginProjectilePathKind.Missile
+                    : null);
             // ga.a uses the first qualifying item spell.
             return;
         }
@@ -202,7 +241,8 @@ internal static class CombatItemDebuffPlanner
             CombatDebuffSourceKind.Grenade,
             item.ObjectId,
             grenade.Spellcraft,
-            isDue);
+            isDue,
+            PluginProjectilePathKind.Missile);
     }
 
     private static void AddIfRequired(
@@ -212,7 +252,8 @@ internal static class CombatItemDebuffPlanner
         CombatDebuffSourceKind kind,
         uint itemObjectId,
         int sourceSkill,
-        Func<DebuffIdentity, PluginSpellInfo, bool>? isDue)
+        Func<DebuffIdentity, PluginSpellInfo, bool>? isDue,
+        PluginProjectilePathKind? pathKind = null)
     {
         if (!DebuffSpellCatalog.TryClassify(
                 spell,
@@ -229,7 +270,10 @@ internal static class CombatItemDebuffPlanner
             kind,
             itemObjectId,
             sourceSkill,
-            actionOrder));
+            actionOrder)
+        {
+            PathKind = pathKind,
+        });
     }
 
     private static int Compare(

@@ -5,8 +5,14 @@ namespace AcDream.Plugins.MossTank.Tests;
 
 public sealed class CombatControllerTests
 {
+    /// <summary>
+    /// Mutation: put the approach back inside the attack (build the attack's
+    /// candidates out to the approach range and walk from there) and the
+    /// second half fails — the attack would claim the pass with the monster
+    /// still twelve metres away, so nothing below it would ever run.
+    /// </summary>
     [Fact]
-    public void ApproachClosesFromConfiguredRangeBeforeAttacking()
+    public void WalkingToAMonsterIsItsOwnJobBelowTheAttack()
     {
         var surface = new FakeAutomation
         {
@@ -29,18 +35,68 @@ public sealed class CombatControllerTests
         var controller = new CombatController(new FakeHost(surface), settings);
 
         controller.Toggle();
-        controller.OnTick(0.05d, navigationEnabled: true);
+        controller.OnTick(0.05d);
 
+        // The attack has nothing to do: the monster is out of weapon range, so
+        // it is not one of its candidates at all.
+        Assert.False(controller.HasTarget);
+        Assert.Empty(surface.MovementIntents);
+        Assert.Equal(0, surface.BeginCount);
+
+        Assert.True(controller.TickMonsterApproach(0.05d, canAct: true));
         PluginMovementIntent intent = Assert.Single(surface.MovementIntents);
         Assert.True(intent.Forward);
-        Assert.Equal(0, surface.BeginCount);
         Assert.Contains("Approaching", controller.Status, StringComparison.Ordinal);
 
         surface.Targets = [Target(10, "Drudge", distance: 4, angle: 0)];
-        controller.OnTick(0.05d, navigationEnabled: true);
+        controller.OnTick(0.05d);
 
-        Assert.Equal(1, surface.ClearMovementCount);
         Assert.Equal(10u, surface.LastBeginTarget);
+        // Nothing left to walk to.
+        Assert.False(controller.TickMonsterApproach(0.05d, canAct: true));
+    }
+
+    /// <summary>
+    /// Mutation: drop the approach rule's own candidate pick and reuse the
+    /// attack's target and this fails — the attack has no target at all here.
+    /// </summary>
+    [Fact]
+    public void TheApproachPicksItsOwnTargetAtTheApproachRange()
+    {
+        var surface = new FakeAutomation
+        {
+            CombatSnapshot = Physical(),
+            Targets =
+            [
+                Target(10, "Drudge", distance: 12, angle: 0),
+                Target(20, "Olthoi Soldier", distance: 18, angle: 30),
+            ],
+            NavigationSnapshot = NavigationAt(heading: 0f),
+            EquipmentItems = [WieldedPlannedWeapon()],
+        };
+        surface.NavigationObjects[20u] = new PluginNavigationObject(
+            20u,
+            "Olthoi Soldier",
+            new PluginNavigationPosition(0x7F7F0001, 0.1d, 0d, 0d, 0f, true));
+        var settings = new CombatSettings
+        {
+            MaximumRange = 5f,
+            ApproachDistance = 20f,
+            ScanIntervalSeconds = 0.05d,
+            SelectionMethod = TargetSelectionMethod.Range,
+        };
+        settings.Rules.Insert(0, new MonsterRule("name#^Olthoi", 4));
+        ProfileFixtureWeapon(settings);
+        var controller = new CombatController(new FakeHost(surface), settings);
+
+        controller.Toggle();
+        controller.OnTick(0.05d);
+
+        Assert.True(controller.TickMonsterApproach(0.05d, canAct: true));
+        Assert.Contains(
+            "Olthoi Soldier",
+            controller.Status,
+            StringComparison.Ordinal);
     }
 
     private static (FakeAutomation Surface, CombatController Controller)
@@ -81,7 +137,7 @@ public sealed class CombatControllerTests
         (FakeAutomation surface, CombatController controller) =
             ApproachRig(selfHeading: 0f, targetEastWest: 0.0839d, targetNorthSouth: 0.1d);
 
-        controller.OnTick(0.05d, navigationEnabled: true);
+        controller.TickMonsterApproach(0.05d, canAct: true);
 
         Assert.Empty(surface.MovementIntents);
         Assert.Equal(1, surface.ClearMovementCount);
@@ -96,15 +152,15 @@ public sealed class CombatControllerTests
         (FakeAutomation surface, CombatController controller) =
             ApproachRig(selfHeading: 0f, targetEastWest: 0.0839d, targetNorthSouth: 0.1d);
 
-        // fd.cs:336 — two 293 ms passes fall inside the 0.7 s `p` stamp.
-        controller.OnTick(0.293d, navigationEnabled: true);
-        controller.OnTick(0.293d, navigationEnabled: true);
+        // Two 293 ms passes fall inside the 0.7 s re-issue window.
+        controller.TickMonsterApproach(0.293d, canAct: true);
+        controller.TickMonsterApproach(0.293d, canAct: true);
 
         Assert.Single(surface.FacedHeadings);
 
-        controller.OnTick(0.293d, navigationEnabled: true);
+        controller.TickMonsterApproach(0.293d, canAct: true);
         Assert.Single(surface.FacedHeadings);
-        controller.OnTick(0.293d, navigationEnabled: true);
+        controller.TickMonsterApproach(0.293d, canAct: true);
         Assert.Equal(2, surface.FacedHeadings.Count);
     }
 
@@ -115,7 +171,7 @@ public sealed class CombatControllerTests
         (FakeAutomation surface, CombatController controller) =
             ApproachRig(selfHeading: 0f, targetEastWest: 0.003d, targetNorthSouth: 0.1d);
 
-        controller.OnTick(0.05d, navigationEnabled: true);
+        controller.TickMonsterApproach(0.05d, canAct: true);
 
         PluginMovementIntent intent = Assert.Single(surface.MovementIntents);
         Assert.True(intent.Forward);
@@ -135,7 +191,7 @@ public sealed class CombatControllerTests
             ApproachRig(selfHeading, targetEastWest: 0d, targetNorthSouth: 0.1d);
 
         for (int pass = 0; pass < 6; pass++)
-            controller.OnTick(0.293d, navigationEnabled: true);
+            controller.TickMonsterApproach(0.293d, canAct: true);
 
         Assert.DoesNotContain(
             surface.MovementIntents,
@@ -600,8 +656,10 @@ public sealed class CombatControllerTests
         controller.OnTick(0.25);
 
         Assert.Empty(surface.CastSpellIds);
-        Assert.Contains("blocked", controller.Status, StringComparison.OrdinalIgnoreCase);
         Assert.Equal(10u, surface.LastProjectileTarget);
+        // Nothing can be delivered to it, so it is out of the running for this
+        // pass and there is nothing else to pick.
+        Assert.False(controller.HasTarget);
     }
 
     [Fact]
@@ -710,6 +768,51 @@ public sealed class CombatControllerTests
         Assert.Empty(surface.MovementIntents);
     }
 
+    /// <summary>
+    /// Mutation: drop the nudge window's deadline and this fails — the macro
+    /// would go on cycling its selection for ever between casts instead of
+    /// for one short window after each one.
+    /// </summary>
+    [Fact]
+    public void TheNudgeStopsAfterItsOwnWindow()
+    {
+        PluginSpellInfo attack = Spell(100, "Incantation of Flame Bolt") with
+        {
+            IsProjectile = false,
+            School = 34,
+            Difficulty = 300,
+        };
+        var surface = new FakeAutomation
+        {
+            CombatSnapshot = Physical() with { Mode = PluginCombatMode.Magic },
+            Targets = [Target(10, "Drudge", 5, 0)],
+            KnownAttackSpells = [attack],
+            EquipmentItems = [WieldedCaster()],
+        };
+        var controller = new CombatController(
+            new FakeHost(surface),
+            new CombatSettings
+            {
+                UseProjectileAwareness = false,
+                DoJiggle = true,
+            });
+        controller.Toggle();
+        controller.OnTick(0.25);
+        surface.LastCastCompletion = new PluginCastCompletion(1, 100, 10, 0);
+        controller.OnTick(0.01);
+
+        for (int tick = 0; tick < 10; tick++)
+            controller.OnTick(0.131);
+        int afterTheWindow = surface.SelectionActions.Count;
+
+        for (int tick = 0; tick < 20; tick++)
+            controller.OnTick(0.131);
+
+        Assert.Equal(afterTheWindow, surface.SelectionActions.Count);
+        // One opening pulse plus the seven 0.131 s beats inside 0.907 s.
+        Assert.InRange(afterTheWindow, 2, 9);
+    }
+
     [Fact]
     public void MagicRuleDebuffsAndWaitsForServerReceiptBeforeAttack()
     {
@@ -781,6 +884,340 @@ public sealed class CombatControllerTests
         Assert.Equal(100u, targeted.Item1);
     }
 
+    /// <summary>
+    /// The ring arm asks one question — are the components for the family's
+    /// first rung in the pack — and commits. It does not also ask whether the
+    /// client would start the cast this instant; when it would not, the ring
+    /// is refused where every other refusal is reported, rather than quietly
+    /// becoming a bolt at a monster the profile wanted ringed.
+    /// Mutation: put the cast-gate test back in front of the ring choice and
+    /// the bolt goes out instead.
+    /// </summary>
+    [Fact]
+    public void TheRingArmAsksForComponentsAndNothingElse()
+    {
+        PluginSpellInfo[] known =
+        [
+            MagicSpell(110, "Cassius' Ring of Fire", difficulty: 300) with
+            {
+                TargetMask = 0u,
+                IsUntargeted = true,
+            },
+            MagicSpell(100, "Flame Bolt VII", difficulty: 300),
+        ];
+        var surface = new FakeAutomation
+        {
+            CombatSnapshot = Physical() with { Mode = PluginCombatMode.Magic },
+            Targets = [Target(10, "Drudge", 3f, 0)],
+            KnownCombatSpells = known,
+            EquipmentItems = [WieldedCaster()],
+        };
+        // The client is not ready to start the ring this instant.
+        surface.CastGates[110u] = PluginCastGate.Refused;
+        var settings = new CombatSettings
+        {
+            MaximumRange = 40d,
+            RingDistance = 5d,
+            MinimumRingTargets = 1,
+        };
+        settings.Rules.Clear();
+        settings.Rules.Add(new MonsterRule(
+            "DEFAULT",
+            new MonsterRuleActions
+            {
+                Flags = MonsterActionFlags.Ring,
+                DamageType = MonsterDamageType.Fire,
+            }));
+        var controller = new CombatController(new FakeHost(surface), settings);
+
+        controller.Toggle();
+        controller.OnTick(0.25);
+
+        Assert.Equal(0u, surface.LastUntargetedCast);
+        Assert.Equal((0u, 0u), surface.LastTargetedCast);
+        Assert.Contains(
+            "Cassius' Ring of Fire",
+            controller.Status,
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void OnlyAMonsterThePassFollowsAndHasNotGivenUpOnIsPointable()
+    {
+        var surface = new FakeAutomation
+        {
+            CombatSnapshot = Physical() with { Mode = PluginCombatMode.Magic },
+            Targets = [Target(10, "Drudge", 5, 0)],
+            KnownCombatSpells = [MagicSpell(100, "Flame Bolt VII", 300)],
+            EquipmentItems = [WieldedCaster()],
+        };
+        var settings = new CombatSettings { MaximumRange = 40d };
+        var controller = new CombatController(new FakeHost(surface), settings);
+
+        // Nothing has been scanned yet, so nothing is pointable.
+        Assert.False(controller.IsTrackedAndNotBlacklisted(10u));
+
+        controller.Toggle();
+        controller.OnTick(0.25);
+
+        Assert.True(controller.IsTrackedAndNotBlacklisted(10u));
+        Assert.False(controller.IsTrackedAndNotBlacklisted(11u));
+        Assert.False(controller.IsTrackedAndNotBlacklisted(0u));
+    }
+
+    [Fact]
+    public void WithNoEquipmentProjectionTheAttackStillWaitsForCombatMode()
+    {
+        var surface = new FakeAutomation
+        {
+            CombatSnapshot = Physical() with { Mode = PluginCombatMode.Peace },
+            EquipmentAvailable = false,
+            Targets = [Target(10, "Drudge", 5, 0)],
+            KnownCombatSpells = [MagicSpell(100, "Flame Bolt VII", 300)],
+        };
+        var settings = new CombatSettings { MaximumRange = 40d };
+        settings.Rules.Clear();
+        settings.Rules.Add(new MonsterRule(
+            "DEFAULT",
+            new MonsterRuleActions
+            {
+                Flags = MonsterActionFlags.Attack,
+                DamageType = MonsterDamageType.Fire,
+            }));
+        var controller = new CombatController(new FakeHost(surface), settings);
+        controller.Toggle();
+        controller.OnTick(0.25);
+
+        // Nothing is cast out of peace mode, and the mode is asked for.
+        Assert.Empty(surface.CastSpellIds);
+        Assert.Contains("EnterMode:Magic", surface.CallLog);
+    }
+
+    [Fact]
+    public void TheDrainArmCastsWhatThePlannerChose()
+    {
+        var surface = new FakeAutomation
+        {
+            CombatSnapshot = Physical() with { Mode = PluginCombatMode.Magic },
+            Targets =
+            [
+                new PluginCombatTarget(
+                    10u, "Olthoi Slasher", 1010u, 5f, 0f, true, 0.05f)
+                {
+                    HealthRevision = 4,
+                },
+            ],
+            KnownCombatSpells =
+            [
+                MagicSpell(1237, "Drain Health Other I", difficulty: 100),
+                MagicSpell(1238, "Drain Health Other II", difficulty: 150),
+                MagicSpell(1239, "Drain Health Other III", difficulty: 200),
+                MagicSpell(2760, "Martyr's Hecatomb I", difficulty: 100),
+                MagicSpell(2761, "Martyr's Hecatomb II", difficulty: 150),
+                MagicSpell(2762, "Martyr's Hecatomb III", difficulty: 200),
+            ],
+            EquipmentItems = [WieldedCaster()],
+        };
+        var settings = new CombatSettings
+        {
+            MaximumRange = 40d,
+            MonsterFacts = new MonsterFactTable(GameInfo),
+        };
+        settings.Rules.Clear();
+        settings.Rules.Add(new MonsterRule(
+            "DEFAULT",
+            new MonsterRuleActions
+            {
+                Flags = MonsterActionFlags.Attack,
+                DamageType = MonsterDamageType.DrainAuto,
+            }));
+        var controller = new CombatController(
+            new FakeHost(surface),
+            settings,
+            vitalSettings: null,
+            gameInfo: GameInfo);
+        controller.Toggle();
+        controller.OnTick(0.25);
+
+        // The database lists this monster as unaffectable by magic, so no
+        // drain may be planned at all; among the martyrs the plan takes the
+        // best monster health taken off per millisecond spent.
+        Assert.Equal((2761u, 10u), surface.LastTargetedCast);
+    }
+
+    [Fact]
+    public void CastsNoOneEverAnswersGetTheMonsterDeleted()
+    {
+        var surface = new FakeAutomation
+        {
+            CombatSnapshot = Physical() with { Mode = PluginCombatMode.Magic },
+            Targets = [Target(10, "Olthoi Slasher", 5, 0)],
+            KnownCombatSpells = [MagicSpell(100, "Flame Bolt VII", 300)],
+            EquipmentItems = [WieldedCaster()],
+        };
+        var settings = new CombatSettings
+        {
+            MaximumRange = 40d,
+            GhostMonsterSpellAttemptCount = 3,
+            DeleteGhostMonsters = true,
+            MonsterFacts = new MonsterFactTable(GameInfo),
+        };
+        settings.Rules.Clear();
+        settings.Rules.Add(new MonsterRule(
+            "DEFAULT",
+            new MonsterRuleActions
+            {
+                Flags = MonsterActionFlags.Attack,
+                DamageType = MonsterDamageType.Fire,
+            }));
+        var controller = new CombatController(new FakeHost(surface), settings);
+        controller.Toggle();
+
+        // One pass issues the cast; the rule track is then held while it is in
+        // flight, which is what the whole re-issue mechanism exists for.
+        controller.OnTick(0.25);
+        Assert.Contains(100u, surface.CastSpellIds);
+        Assert.Equal(
+            SpellCastTrackerState.AwaitingLaunch,
+            controller.CastTracker.State);
+
+        // The server never acknowledges it: the tracker re-sends every 200 ms,
+        // and each re-send is one more unanswered attempt.
+        for (int tick = 0; tick < 10; tick++)
+            controller.CastTracker.Advance(0.1);
+
+        Assert.Equal(10u, Assert.Single(surface.DismissedGhosts));
+        Assert.Contains(
+            surface.PostedSystemMessages,
+            line => line.Contains("Deleting ghost monster Olthoi Slasher"));
+
+        // Deleting it is the whole consequence. There is no permanent verdict
+        // on the monster, so the very next pass picks it again.
+        surface.CastSpellIds.Clear();
+        controller.OnTick(0.25);
+        Assert.Contains(100u, surface.CastSpellIds);
+    }
+
+    [Fact]
+    public void OnlyAMonsterWithAKnownHealthCeilingCanGoStaleIntoAGhost()
+    {
+        FakeAutomation listed = StalledHealthScenario("Olthoi Slasher");
+        Assert.NotEmpty(listed.DismissedGhosts);
+        Assert.All(listed.DismissedGhosts, id => Assert.Equal(10u, id));
+        Assert.Contains(
+            listed.PostedSystemMessages,
+            line => line.Contains("due to HP tracker notification"));
+
+        // The database does not list "Drudge", so the client is never told
+        // this monster's health in points and its silence means nothing.
+        Assert.Empty(StalledHealthScenario("Drudge").DismissedGhosts);
+    }
+
+    private static FakeAutomation StalledHealthScenario(string name)
+    {
+        var surface = new FakeAutomation
+        {
+            CombatSnapshot = Physical() with { Mode = PluginCombatMode.Magic },
+            Targets = [Target(10, name, 5, 0) with { HealthRevision = 3 }],
+            KnownCombatSpells = [MagicSpell(100, "Flame Bolt VII", 300)],
+            EquipmentItems = [WieldedCaster()],
+        };
+        var settings = new CombatSettings
+        {
+            MaximumRange = 40d,
+            DeleteGhostMonstersByHealthTracker = true,
+            GhostDeleteHealthTrackerSeconds = 10d,
+            MonsterFacts = new MonsterFactTable(GameInfo),
+        };
+        settings.Rules.Clear();
+        settings.Rules.Add(new MonsterRule(
+            "DEFAULT",
+            new MonsterRuleActions
+            {
+                Flags = MonsterActionFlags.Attack,
+                DamageType = MonsterDamageType.Fire,
+            }));
+        var controller = new CombatController(new FakeHost(surface), settings);
+        controller.Toggle();
+        for (int tick = 0; tick < 30; tick++)
+            controller.OnTick(1d);
+        return surface;
+    }
+
+    [Fact]
+    public void TheRingTallyCountsOnlyValidCandidatesStrictlyInsideTheRing()
+    {
+        PluginSpellInfo[] known =
+        [
+            MagicSpell(110, "Cassius' Ring of Fire", difficulty: 300) with
+            {
+                TargetMask = 0u,
+                IsUntargeted = true,
+            },
+            MagicSpell(100, "Flame Bolt VII", difficulty: 300),
+        ];
+
+        // Two monsters, both within RingDistance by the old inclusive test:
+        // one exactly ON the ring boundary, which the strict comparison
+        // excludes, so the tally is one and the pass bolts instead.
+        Assert.Equal(
+            100u,
+            RingTallyScenario(
+                known,
+                [Target(10, "Drudge", 3f, 0), Target(11, "Drudge", 5f, 0)],
+                minimumRange: 0d).Targeted.Item1);
+
+        // Same, but the second monster is nearer than AttackMinimumDistance,
+        // so it is not a candidate at all and cannot be tallied.
+        Assert.Equal(
+            100u,
+            RingTallyScenario(
+                known,
+                [Target(10, "Drudge", 3f, 0), Target(11, "Drudge", 0.5f, 0)],
+                minimumRange: 1d).Targeted.Item1);
+
+        // Two valid candidates strictly inside the ring: the ring fires.
+        Assert.Equal(
+            110u,
+            RingTallyScenario(
+                known,
+                [Target(10, "Drudge", 3f, 0), Target(11, "Drudge", 4f, 0)],
+                minimumRange: 0d).Untargeted);
+    }
+
+    private static (uint Untargeted, (uint, uint) Targeted) RingTallyScenario(
+        IReadOnlyList<PluginSpellInfo> known,
+        IReadOnlyList<PluginCombatTarget> targets,
+        double minimumRange)
+    {
+        var surface = new FakeAutomation
+        {
+            CombatSnapshot = Physical() with { Mode = PluginCombatMode.Magic },
+            Targets = targets,
+            KnownCombatSpells = known,
+            EquipmentItems = [WieldedCaster()],
+        };
+        var settings = new CombatSettings
+        {
+            MaximumRange = 40d,
+            RingDistance = 5d,
+            MinimumRange = minimumRange,
+            MinimumRingTargets = 2,
+        };
+        settings.Rules.Clear();
+        settings.Rules.Add(new MonsterRule(
+            "DEFAULT",
+            new MonsterRuleActions
+            {
+                Flags = MonsterActionFlags.Ring | MonsterActionFlags.Attack,
+                DamageType = MonsterDamageType.Fire,
+            }));
+        var controller = new CombatController(new FakeHost(surface), settings);
+        controller.Toggle();
+        controller.OnTick(0.25);
+        return (surface.LastUntargetedCast, surface.LastTargetedCast);
+    }
+
     private static (uint Untargeted, (uint, uint) Targeted) CastRingScenario(
         IReadOnlyList<PluginSpellInfo> known,
         MonsterActionFlags flags,
@@ -841,6 +1278,69 @@ public sealed class CombatControllerTests
         Assert.Equal((100u, 10u), surface.LastTargetedCast);
     }
 
+    /// <summary>
+    /// A profile saved before the arc default was corrected has no arc key at
+    /// all, and loading one must not put arcing back: a fresh character bolts
+    /// at five metres where an arcing one would throw over the monster's head.
+    /// There are two defaults on this road, and each load below takes one of
+    /// them: a stored combat section with no arc key reads the sidecar
+    /// record's, and a stored profile with no combat section at all reads the
+    /// live settings object's.
+    /// Mutation: set the sidecar record's default back to "at range" and the
+    /// first pair of assertions fails; set the settings object's own back and
+    /// the last one does.
+    /// </summary>
+    [Fact]
+    public void AProfileWithNoArcSettingLoadsWithArcsOff()
+    {
+        var storage = new MemoryStorage();
+        storage.WriteText(
+            "profile.json",
+            """{ "combat": { "maximumRange": 5.0 } }""");
+        var store = new MossTankProfileStore(
+            new StorageHost(storage, "Acdream", "Fixture"));
+        store.BindCharacter("Acdream");
+        var settings = new VtankSettingsProfileSerializer.AllSettings
+        {
+            Combat = new CombatSettings(),
+            Buffs = new BuffSettings(),
+            Vitals = new VitalSettings(),
+            Inventory = new InventorySettings(),
+            Navigation = new NavigationSettings(),
+        };
+
+        store.LoadCurrent(
+            settings,
+            new HashSet<string>(StringComparer.Ordinal),
+            new HashSet<string>(StringComparer.OrdinalIgnoreCase));
+
+        Assert.Equal(UseArcsMode.No, settings.Combat.UseArcs);
+        Assert.Equal(5d, settings.Combat.ArcRange, precision: 6);
+
+        // The other road: nothing combat-shaped is stored at all, so the load
+        // falls back on the settings object's own declared default.
+        var bareStorage = new MemoryStorage();
+        bareStorage.WriteText("profile.json", "{ }");
+        var bareStore = new MossTankProfileStore(
+            new StorageHost(bareStorage, "Acdream", "Fixture"));
+        bareStore.BindCharacter("Acdream");
+        var bare = new VtankSettingsProfileSerializer.AllSettings
+        {
+            Combat = new CombatSettings { UseArcs = UseArcsMode.Yes },
+            Buffs = new BuffSettings(),
+            Vitals = new VitalSettings(),
+            Inventory = new InventorySettings(),
+            Navigation = new NavigationSettings(),
+        };
+
+        bareStore.LoadCurrent(
+            bare,
+            new HashSet<string>(StringComparer.Ordinal),
+            new HashSet<string>(StringComparer.OrdinalIgnoreCase));
+
+        Assert.Equal(UseArcsMode.No, bare.Combat.UseArcs);
+    }
+
     [Fact]
     public void UseArcsDecidesOnlyAnExactQualityTie()
     {
@@ -852,7 +1352,8 @@ public sealed class CombatControllerTests
 
         Assert.Equal((101u, 10u), CastWithUseArcs(known, UseArcsMode.Yes, distance: 20));
         Assert.Equal((100u, 10u), CastWithUseArcs(known, UseArcsMode.No, distance: 20));
-        // hi.cs:521-531 — AtRange arcs only once f7.e >= ArcRange.
+        // "At range" arcs only from the arc range outwards; inside it the
+        // bolt still wins.
         Assert.Equal(
             (101u, 10u),
             CastWithUseArcs(known, UseArcsMode.AtRange, distance: 20, arcRange: 10));
@@ -887,6 +1388,149 @@ public sealed class CombatControllerTests
         return surface.LastTargetedCast;
     }
 
+    /// <summary>
+    /// Mutation: drop the streak's flight test and the first assertion fails
+    /// — the streak is cast straight into the wall, every pass, for ever.
+    /// </summary>
+    [Fact]
+    public void AStreakIntoCoverIsRefusedAndTakesItsColumnWithIt()
+    {
+        var surface = new FakeAutomation
+        {
+            CombatSnapshot = Physical() with { Mode = PluginCombatMode.Magic },
+            Targets = [Target(10, "Drudge", 5, 0)],
+            KnownCombatSpells =
+            [
+                MagicSpell(102, "Flame Streak VII", difficulty: 350),
+            ],
+            ProjectilePath = new(
+                PluginProjectilePathStatus.Blocked,
+                CollisionChecks: 3,
+                BlockingObjectId: 0x50000001u),
+            EquipmentItems = [WieldedCaster()],
+        };
+        var settings = new CombatSettings
+        {
+            MaximumRange = 40d,
+            UseProjectileAwareness = true,
+        };
+        settings.Rules.Clear();
+        settings.Rules.Add(new MonsterRule(
+            "DEFAULT",
+            new MonsterRuleActions
+            {
+                Flags = MonsterActionFlags.Streak,
+                DamageType = MonsterDamageType.Fire,
+            }));
+        var controller = new CombatController(new FakeHost(surface), settings);
+
+        controller.Toggle();
+        controller.OnTick(0.25);
+
+        Assert.Empty(surface.CastSpellIds);
+        // The monster stops being a candidate once its only column is off, so
+        // the pass stops rather than spinning against it.
+        Assert.False(controller.HasTarget);
+        Assert.InRange(surface.ProjectilePathChecks, 1, 4);
+    }
+
+    /// <summary>
+    /// Mutation: pass <c>settings.AttackHeight</c> for either shape and this
+    /// fails — the ray would start at the configured melee height instead of
+    /// the height the shape itself flies at.
+    /// </summary>
+    [Fact]
+    public void BoltAndArcClearanceUseTheShapesOwnHeight()
+    {
+        PluginSpellInfo[] known =
+        [
+            MagicSpell(100, "Flame Bolt VII", difficulty: 300) with
+            {
+                IsProjectile = true,
+            },
+            MagicSpell(101, "Flame Arc VII", difficulty: 300) with
+            {
+                IsProjectile = true,
+            },
+        ];
+
+        Assert.Equal(
+            PluginAttackHeight.Medium,
+            ClearanceHeightFor(known, UseArcsMode.No));
+        Assert.Equal(
+            PluginAttackHeight.High,
+            ClearanceHeightFor(known, UseArcsMode.Yes));
+    }
+
+    /// <summary>
+    /// A debuff's way to the monster is tested at the height its own flight
+    /// takes, exactly as an attack's is: a thrown phial is tested at the
+    /// profile's swing height, not at a fixed level one.
+    /// Mutation: hard-code <c>PluginAttackHeight.Medium</c> in the debuff
+    /// clearance check again and this fails.
+    /// </summary>
+    [Fact]
+    public void ADebuffsClearanceUsesItsOwnFlightHeight()
+    {
+        PluginSpellInfo imperil = Spell(1323, "Imperil Other I") with
+        {
+            School = 31,
+            IsDebuff = true,
+            IsOffensive = true,
+            DurationSeconds = 60,
+        };
+        PluginInventoryItem phial = InventoryItem(
+            200, "Iron Phial of Imperil", 0x100, 0, equipped: false)
+            with { CombatUse = 0 };
+        var surface = new FakeAutomation
+        {
+            CombatSnapshot = Physical() with { Mode = PluginCombatMode.Missile },
+            Targets = [Target(10, "Drudge", 5, 0)],
+            SpellLookup = [imperil],
+            ItemEntries = [phial],
+            CharacterSkills = [new(38u, "Alchemy", PluginSkillTraining.Trained, 400)],
+        };
+        var settings = DebuffOnly(MonsterActionFlags.Imperil);
+        settings.ConsumableNames.Add("Iron Phial of Imperil");
+        settings.UseProjectileAwareness = true;
+        // Deliberately neither of the two shape heights.
+        settings.AttackHeight = PluginAttackHeight.Low;
+        var controller = new CombatController(new FakeHost(surface), settings);
+
+        controller.Toggle();
+        controller.OnTick(0.25);
+
+        Assert.Equal(
+            PluginProjectilePathKind.Missile,
+            surface.LastProjectileKind);
+        Assert.Equal(PluginAttackHeight.Low, surface.LastProjectileHeight);
+    }
+
+    private static PluginAttackHeight ClearanceHeightFor(
+        IReadOnlyList<PluginSpellInfo> known,
+        UseArcsMode mode)
+    {
+        var surface = new FakeAutomation
+        {
+            CombatSnapshot = Physical() with { Mode = PluginCombatMode.Magic },
+            Targets = [Target(10, "Drudge", 5, 0)],
+            KnownCombatSpells = known,
+            EquipmentItems = [WieldedCaster()],
+        };
+        var settings = FireAttackRule(new CombatSettings
+        {
+            MaximumRange = 40d,
+            UseProjectileAwareness = true,
+            UseArcs = mode,
+            // Deliberately neither of the two shape heights.
+            AttackHeight = PluginAttackHeight.Low,
+        });
+        var controller = new CombatController(new FakeHost(surface), settings);
+        controller.Toggle();
+        controller.OnTick(0.25);
+        return surface.LastProjectileHeight;
+    }
+
     [Fact]
     public void AttackPlusStreakUsesTheStreakOnlyAsAFinishingBlow()
     {
@@ -896,13 +1540,23 @@ public sealed class CombatControllerTests
             MagicSpell(102, "Flame Streak VII", difficulty: 350),
         ];
 
+        // "Olthoi Slasher" is listed in the fixture database at 3190 health,
+        // and the streak's difficulty of 350 sets the bar at 50 points until a
+        // real blow is seen: 2871 left bolts, 32 left finishes.
         Assert.Equal(100u, CastAgainstHealth(known, healthFraction: 0.9f).Item1);
-        Assert.Equal(102u, CastAgainstHealth(known, healthFraction: 0.02f).Item1);
+        Assert.Equal(102u, CastAgainstHealth(known, healthFraction: 0.01f).Item1);
+
+        // A monster the database does not list has no health in points at
+        // all, so the finishing move can never be chosen for it.
+        Assert.Equal(
+            100u,
+            CastAgainstHealth(known, healthFraction: 0.01f, name: "Drudge").Item1);
     }
 
     private static (uint, uint) CastAgainstHealth(
         IReadOnlyList<PluginSpellInfo> known,
-        float healthFraction)
+        float healthFraction,
+        string name = "Olthoi Slasher")
     {
         var surface = new FakeAutomation
         {
@@ -910,15 +1564,19 @@ public sealed class CombatControllerTests
             Targets =
             [
                 new PluginCombatTarget(
-                    10u, "Drudge", 1010u, 5f, 0f, true, healthFraction)
+                    10u, name, 1010u, 5f, 0f, true, healthFraction)
                 {
-                    MaximumHealth = 1000,
+                    HealthRevision = 7,
                 },
             ],
             KnownCombatSpells = known,
             EquipmentItems = [WieldedCaster()],
         };
-        var settings = new CombatSettings { MaximumRange = 40d };
+        var settings = new CombatSettings
+        {
+            MaximumRange = 40d,
+            MonsterFacts = new MonsterFactTable(GameInfo),
+        };
         settings.Rules.Clear();
         settings.Rules.Add(new MonsterRule(
             "DEFAULT",
@@ -1040,8 +1698,9 @@ public sealed class CombatControllerTests
             Targets = [Target(10, "Drudge", 5, 0)],
             KnownCombatSpells =
             [
-                // Step 1 of hi.cs:123-206, and the only projectile here.
-                Debuff(84, "Magic Yield Other VII") with { IsProjectile = true },
+                // The first step of the debuff chain, and the only spell here
+                // whose family declares a flight (117 is a bolt family).
+                Debuff(84, "Magic Yield Other VII") with { Family = 117u },
                 // Step 7.
                 Debuff(83, "Imperil Other VII"),
             ],
@@ -1076,6 +1735,194 @@ public sealed class CombatControllerTests
         Assert.DoesNotContain(84u, surface.CastSpellIds);
     }
 
+    /// <summary>
+    /// Mutation: put the bare mode change back in place of the wield gate and
+    /// this fails — the debuff goes out with the sword still in hand, so the
+    /// wand's own spellcraft and mana never pay for it.
+    /// </summary>
+    [Fact]
+    public void ALearnedDebuffWieldsAWandBeforeItIsCast()
+    {
+        var surface = new FakeAutomation
+        {
+            CombatSnapshot = Physical() with { Mode = PluginCombatMode.Melee },
+            Targets = [Target(10, "Drudge", 5, 0)],
+            KnownCombatSpells = [Debuff(83, "Imperil Other VII")],
+            EquipmentItems =
+            [
+                WieldedPlannedWeapon(),
+                Equipment(
+                    990u,
+                    "Fixture Wand",
+                    damageType: 0,
+                    itemType: CombatModeGate.CasterItemType),
+            ],
+        };
+        var settings = DebuffOnly(MonsterActionFlags.Imperil);
+        settings.MaximumRange = 40d;
+        settings.CombatItemNames.Add("Fixture Wand");
+        var controller = new CombatController(new FakeHost(surface), settings);
+
+        controller.Toggle();
+        // Peace first, then the wand: nothing is cast while the sword is in
+        // hand.
+        for (int tick = 0; tick < 4; tick++)
+            controller.OnTick(0.25);
+
+        Assert.Equal(990u, surface.LastEquipObjectId);
+        Assert.Empty(surface.CastSpellIds);
+
+        // The server confirms the swap: the sword is away, the wand is in.
+        surface.EquipmentItems =
+        [
+            Equipment(
+                990u,
+                "Fixture Wand",
+                damageType: 0,
+                itemType: CombatModeGate.CasterItemType,
+                equippedLocation: 0x00100000u),
+        ];
+        for (int tick = 0; tick < 4; tick++)
+            controller.OnTick(0.25);
+
+        Assert.Equal((83u, 10u), surface.LastTargetedCast);
+    }
+
+    /// <summary>
+    /// Mutation: drop the <c>SwitchWandsToDebuff</c> branch and this fails —
+    /// with the setting off the debuff always reaches for the first profiled
+    /// wand, so the two arms must pick different wands here.
+    /// </summary>
+    [Fact]
+    public void SwitchWandsToDebuffDebuffsWithTheCasterAttackWeapon()
+    {
+        Assert.Equal(991u, DebuffWandFor(switchWandsToDebuff: true));
+        Assert.Equal(990u, DebuffWandFor(switchWandsToDebuff: false));
+    }
+
+    private static uint DebuffWandFor(bool switchWandsToDebuff)
+    {
+        var surface = new FakeAutomation
+        {
+            CombatSnapshot = Peaceful(),
+            Targets = [Target(10, "Drudge", 5, 0)],
+            KnownCombatSpells = [Debuff(83, "Imperil Other VII")],
+            EquipmentItems =
+            [
+                Equipment(
+                    991u,
+                    "Attack Wand",
+                    damageType: 0x0010,
+                    itemType: CombatModeGate.CasterItemType),
+                Equipment(
+                    990u,
+                    "Spare Wand",
+                    damageType: 0,
+                    itemType: CombatModeGate.CasterItemType),
+            ],
+        };
+        var settings = new CombatSettings
+        {
+            MaximumRange = 40d,
+            SwitchWandsToDebuff = switchWandsToDebuff,
+        };
+        settings.Rules.Clear();
+        settings.Rules.Add(new MonsterRule(
+            "DEFAULT",
+            new MonsterRuleActions
+            {
+                Flags = MonsterActionFlags.Imperil,
+                WeaponName = "Attack Wand",
+            }));
+        settings.CombatItemNames.Add("Attack Wand");
+        settings.CombatItemNames.Add("Spare Wand");
+        settings.CombatItemOrder.Add("Spare Wand");
+        var controller = new CombatController(new FakeHost(surface), settings);
+        controller.Toggle();
+        controller.OnTick(0.25);
+        return surface.LastEquipObjectId;
+    }
+
+    /// <summary>
+    /// Mutation: drop the range term from the debuff source walk and the
+    /// first half fails — an out-of-reach spell would be chosen and refused.
+    /// </summary>
+    [Fact]
+    public void ADebuffSpellOutOfReachIsNotChosen()
+    {
+        Assert.Equal((0u, 0u), DebuffAtDistance(reach: 4f, distance: 6f));
+        Assert.Equal((83u, 10u), DebuffAtDistance(reach: 20f, distance: 6f));
+    }
+
+    private static (uint, uint) DebuffAtDistance(float reach, float distance)
+    {
+        var surface = new FakeAutomation
+        {
+            CombatSnapshot = Physical() with { Mode = PluginCombatMode.Magic },
+            Targets = [Target(10, "Drudge", distance, 0)],
+            KnownCombatSpells =
+            [
+                Debuff(83, "Imperil Other VII") with
+                {
+                    BaseRangeConstant = reach,
+                },
+            ],
+            EquipmentItems = [WieldedCaster()],
+        };
+        var settings = DebuffOnly(MonsterActionFlags.Imperil);
+        settings.MaximumRange = 40d;
+        settings.SpellRangeFudge = 0d;
+        var controller = new CombatController(new FakeHost(surface), settings);
+        controller.Toggle();
+        controller.OnTick(0.25);
+        return surface.LastTargetedCast;
+    }
+
+    /// <summary>
+    /// Mutation: restore the walk over every source and this fails — the item
+    /// would be used after the out-of-reach spell dropped out AND after the
+    /// winner failed, instead of exactly one source being chosen per decision.
+    /// </summary>
+    [Fact]
+    public void AnOutOfReachSpellLeavesTheItemAsTheDebuffSource()
+    {
+        PluginSpellInfo imperil = Spell(90, "Imperil Other VII") with
+        {
+            School = 31,
+            IsDebuff = true,
+            IsOffensive = true,
+            DurationSeconds = 60,
+            BaseRangeConstant = 4f,
+        };
+        PluginInventoryItem lens = InventoryItem(
+            800, "Imperil Lens", 0x8000, 90, equipped: true) with
+        {
+            ItemSpellcraft = 400,
+        };
+        var surface = new FakeAutomation
+        {
+            CombatSnapshot = Physical() with { Mode = PluginCombatMode.Magic },
+            Targets = [Target(10, "Drudge", 6, 0)],
+            KnownCombatSpells = [imperil],
+            SpellLookup = [imperil],
+            ItemEntries = [lens],
+            // The learned spell would out-rank the lens on skill; only its
+            // reach keeps it out of the choice.
+            CharacterSkills = [new(31u, "Creature", PluginSkillTraining.Trained, 500)],
+        };
+        var settings = DebuffOnly(MonsterActionFlags.Imperil);
+        settings.MaximumRange = 40d;
+        settings.SpellRangeFudge = 0d;
+        settings.CombatItemObjectIds.Add(lens.ObjectId);
+        var controller = new CombatController(new FakeHost(surface), settings);
+
+        controller.Toggle();
+        controller.OnTick(0.25);
+
+        Assert.Equal((800u, 10u), surface.LastAppliedItem);
+        Assert.Empty(surface.CastSpellIds);
+    }
+
     [Fact]
     public void BlockedDebuffPathStillLetsTheAttackGoOutOnStockSettings()
     {
@@ -1085,7 +1932,7 @@ public sealed class CombatControllerTests
             Targets = [Target(10, "Drudge", 5, 0)],
             KnownCombatSpells =
             [
-                Debuff(84, "Magic Yield Other VII") with { IsProjectile = true },
+                Debuff(84, "Magic Yield Other VII") with { Family = 117u },
                 MagicSpell(100, "Flame Bolt VII", difficulty: 300),
             ],
             ProjectilePath = new(PluginProjectilePathStatus.Blocked),
@@ -1202,17 +2049,92 @@ public sealed class CombatControllerTests
         Assert.Equal((100u, 10u), surface.LastTargetedCast);
     }
 
+    /// <summary>
+    /// Mutation: read only the weapon's plain damage again and the first half
+    /// fails; apply the caster training cascade whatever the weapon is and the
+    /// second fails — a martyr mage's melee build would be handed a drain.
+    /// </summary>
     [Fact]
-    public void AnUndeliverablePreferenceListFallsThroughToTheUnlistedWalk()
+    public void AnImbuedMeleeWeaponKeepsItsOwnElementForALifeOnlyCaster()
     {
         var surface = new FakeAutomation
         {
-            CombatSnapshot = Physical() with { Mode = PluginCombatMode.Magic },
-            Targets = [Target(10, "Magma Golem", 5, 0)],
-            KnownCombatSpells = [MagicSpell(101, "Acid Stream VII", difficulty: 300)],
-            EquipmentItems = [WieldedCaster()],
+            CombatSnapshot = Peaceful(),
+            Targets = [Target(10, "Drudge", 5, 0)],
+            KnownCombatSpells =
+            [
+                Debuff(70, "Fire Vulnerability Other VII"),
+                Debuff(71, "Cold Vulnerability Other VII"),
+            ],
+            EquipmentItems =
+            [
+                Equipment(
+                    990u,
+                    "Spare Wand",
+                    damageType: 0,
+                    itemType: CombatModeGate.CasterItemType),
+                Equipment(
+                    991u,
+                    "Imbued Sword",
+                    // Plainly a slashing sword; its imbue rends fire.
+                    damageType: 0x0001,
+                    equippedLocation: 0x00100000u) with
+                {
+                    ImbuedEffect = 0x0200,
+                },
+            ],
+            // Life magic only: no war, no void.
+            CharacterSkills =
+                [new(33u, "Life Magic", PluginSkillTraining.Trained, 300)],
         };
         var settings = new CombatSettings { MaximumRange = 40d };
+        settings.CombatItemNames.Add("Spare Wand");
+        settings.Rules.Clear();
+        settings.Rules.Add(new MonsterRule(
+            "DEFAULT",
+            new MonsterRuleActions
+            {
+                Flags = MonsterActionFlags.Vulnerability,
+                DamageType = MonsterDamageType.Auto,
+                ExtraVulnerability = MonsterDamageType.None,
+                WeaponName = "Imbued Sword",
+            }));
+        var controller = new CombatController(new FakeHost(surface), settings);
+
+        controller.Toggle();
+        for (int tick = 0; tick < 5; tick++)
+            controller.OnTick(0.25);
+
+        Assert.Equal((70u, 10u), surface.LastTargetedCast);
+    }
+
+    /// <summary>
+    /// Mutation: make "can this element be delivered" mean "do I know a spell
+    /// or own a weapon of it" again and this fails — that question can always
+    /// be answered yes by some spell, so the empty-quiver warning would never
+    /// be reached. Only a launcher can fail to deliver, and only for want of
+    /// ammunition.
+    /// </summary>
+    [Fact]
+    public void ABowWithAnEmptyPackCanDeliverNoElementAtAll()
+    {
+        var surface = new FakeAutomation
+        {
+            CombatSnapshot = Physical(),
+            Targets = [Target(10, "Magma Golem", 5, 0)],
+            EquipmentItems =
+            [
+                Equipment(
+                    900u,
+                    "Yumi",
+                    damageType: 0,
+                    itemType: 0x100,
+                    equippedLocation: 0x00100000u,
+                    ammoType: 0x001u),
+            ],
+        };
+        var settings = new CombatSettings { MaximumRange = 40d };
+        settings.CombatItemNames.Add("Yumi");
         settings.Rules.Clear();
         settings.Rules.Add(new MonsterRule(
             "DEFAULT",
@@ -1230,14 +2152,18 @@ public sealed class CombatControllerTests
         controller.Toggle();
         controller.OnTick(0.25);
 
-        Assert.Equal((101u, 10u), surface.LastTargetedCast);
         Assert.Contains(
             surface.PostedSystemMessages,
             message => message.Contains(
-                "Using unlisted damage type: Acid",
+                "no ammunition available!!!",
                 StringComparison.Ordinal));
     }
 
+    /// <summary>
+    /// Mutation: skip a preference the character has no spell for and this
+    /// fails — a wand can always deliver, so the monster's FIRST listed
+    /// weakness is the one that is used even when nothing is known for it.
+    /// </summary>
     [Fact]
     public void TheLoadedGameInfoDatabaseDrivesTheAutoAttackElement()
     {
@@ -1249,6 +2175,8 @@ public sealed class CombatControllerTests
             [
                 MagicSpell(103, "Force Bolt VII", difficulty: 300),
                 MagicSpell(105, "Shock Wave VII", difficulty: 300),
+                // The Magma Golem's first listed weakness is cold.
+                MagicSpell(104, "Frost Bolt VII", difficulty: 300),
             ],
             EquipmentItems = [WieldedCaster()],
         };
@@ -1270,7 +2198,7 @@ public sealed class CombatControllerTests
         controller.Toggle();
         controller.OnTick(0.25);
 
-        Assert.Equal((105u, 10u), surface.LastTargetedCast);
+        Assert.Equal((104u, 10u), surface.LastTargetedCast);
     }
 
     [Fact]
@@ -1347,6 +2275,9 @@ public sealed class CombatControllerTests
         IsDebuff = true,
         IsOffensive = true,
         TargetMask = 0x10,
+        // Real spells carry a reach; a fixture with none would be refused by
+        // the debuff range gate before anything else could be observed.
+        BaseRangeConstant = 80f,
     };
 
     [Fact]
@@ -1415,7 +2346,10 @@ public sealed class CombatControllerTests
         surface.ChatMessages =
         [
             new PluginChatMessage(
-                1, 0, 0, string.Empty, "Drudge is an invalid target.", string.Empty),
+                1, 0, 0, string.Empty, "Drudge is an invalid target.", string.Empty)
+            {
+                LogTextType = 0x07u,
+            },
         ];
         controller.OnTick(0.25);
         controller.OnTick(0.25);
@@ -1458,7 +2392,10 @@ public sealed class CombatControllerTests
         surface.ChatMessages =
         [
             new PluginChatMessage(
-                1, 0, 0, string.Empty, "Drudge is an invalid target.", string.Empty),
+                1, 0, 0, string.Empty, "Drudge is an invalid target.", string.Empty)
+            {
+                LogTextType = 0x07u,
+            },
         ];
         controller.OnTick(0.25);
         controller.OnTick(0.25);
@@ -1518,7 +2455,8 @@ public sealed class CombatControllerTests
         {
             MaximumRange = 40d,
             ScanIntervalSeconds = 0.05d,
-            BlacklistMonsterAttemptCount = 1,
+            // No attempts allowed, so the first one that records trips.
+            BlacklistMonsterAttemptCount = 0,
             BlacklistMonsterTimeoutSeconds = 300,
         });
         var controller = new CombatController(new FakeHost(surface), settings);
@@ -1613,8 +2551,62 @@ public sealed class CombatControllerTests
         Assert.InRange(surface.KnownCombatSpellReads, 1, 180);
     }
 
+    /// <summary>
+    /// A pass that has to choose again — every monster in range unreachable —
+    /// re-runs the whole selection up to five hundred times. The host builds
+    /// the equipment and inventory projections by walking every object it
+    /// knows and sorting the result, so they are read once for the pass, not
+    /// once per attempt.
+    /// Mutation: read the host directly in <c>RefreshTarget</c> (or in
+    /// <c>TryPrepareAttack</c>) instead of the pass memo and the counts run
+    /// into the dozens.
+    /// </summary>
     [Fact]
-    public void KillAndSuccessResultTextClearTheBlacklist()
+    public void APassThatChoosesAgainStillCapturesTheCharacterOnlyOnce()
+    {
+        var targets = new List<PluginCombatTarget>();
+        for (uint i = 0; i < 8u; i++)
+            targets.Add(Target(10u + i, "Drudge", distance: 3f + i, angle: 0));
+        var surface = new FakeAutomation
+        {
+            CombatSnapshot = Physical() with { Mode = PluginCombatMode.Magic },
+            Targets = targets,
+            KnownAttackSpells =
+            [
+                Spell(100, "Incantation of Flame Bolt") with
+                {
+                    IsProjectile = true,
+                },
+            ],
+            EquipmentItems = [WieldedCaster()],
+            // Nothing can be reached, so every attempt turns a column off and
+            // the pass chooses again until it runs out of monsters.
+            ProjectilePath = new(PluginProjectilePathStatus.Blocked),
+        };
+        var settings = FireAttackRule(new CombatSettings
+        {
+            MaximumRange = 40d,
+            UseProjectileAwareness = true,
+        });
+        var controller = new CombatController(new FakeHost(surface), settings);
+
+        controller.Toggle();
+        controller.OnTick(0.25);
+
+        Assert.True(
+            surface.ProjectilePathChecks >= 2,
+            "the pass never had to choose again, so nothing is being measured");
+        Assert.InRange(surface.CaptureOwnedEquipmentCount, 1, 2);
+        Assert.InRange(surface.CaptureOwnedItemsCount, 1, 2);
+    }
+
+    /// <summary>
+    /// A kill or a success starts the attempt count over; it does NOT lift a
+    /// blacklist that is still running. Mutation: make <c>ResetAttempts</c>
+    /// clear the deadline too and the second assertion fails.
+    /// </summary>
+    [Fact]
+    public void KillAndSuccessResultTextResetTheAttemptCountOnly()
     {
         var settings = new CombatSettings { BlacklistMonsterTimeoutSeconds = 300 };
         var tracker = new CombatFailureTracker();
@@ -1624,8 +2616,10 @@ public sealed class CombatControllerTests
             CombatSuppressionReason.Blacklisted,
             tracker.Reason(10u, now: 1d));
 
-        tracker.ClearBlacklist(10u);
-        Assert.Equal(CombatSuppressionReason.None, tracker.Reason(10u, now: 1d));
+        tracker.ResetAttempts(10u);
+        Assert.Equal(
+            CombatSuppressionReason.Blacklisted,
+            tracker.Reason(10u, now: 1d));
     }
 
     [Fact]
@@ -2247,12 +3241,78 @@ public sealed class CombatControllerTests
             new PluginChatMessage(
                 1, 0, 0, string.Empty,
                 "You cast Imperil Other VII on Drudge.",
-                string.Empty),
+                string.Empty)
+            {
+                LogTextType = 0x07u,
+            },
         ];
         controller.OnTick(0.25);
 
         Assert.Equal(1, surface.ApplyCount);
         Assert.Contains("Waiting for a target", controller.Status, StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// Using a wand on a monster holds the item slot for the whole cast, so
+    /// the attack rule (whose first refusal is that slot) cannot swing inside
+    /// the wand's own animation, and the pass line's item column says so.
+    /// Mutation: delete the <c>Arm(ActionLockKind.ItemUse, ...)</c> beside the
+    /// wand's <c>Apply</c> and the first assertion fails; delete the
+    /// <c>Release</c> in <c>ClearPendingItemDebuff</c> and the last one does.
+    /// </summary>
+    [Fact]
+    public void AWandDebuffHoldsTheItemSlotForItsWholeCast()
+    {
+        PluginSpellInfo imperil = Spell(90, "Imperil Other VII") with
+        {
+            School = 31,
+            IsDebuff = true,
+            IsOffensive = true,
+            DurationSeconds = 60,
+        };
+        PluginInventoryItem lens = InventoryItem(
+            800, "Imperil Lens", 0x8000, 90, equipped: true) with
+        {
+            ItemSpellcraft = 400,
+        };
+        var surface = new FakeAutomation
+        {
+            CombatSnapshot = Physical() with { Mode = PluginCombatMode.Magic },
+            Targets = [Target(10, "Drudge", 5, 0)],
+            SpellLookup = [imperil],
+            ItemEntries = [lens],
+        };
+        var settings = DebuffOnly(MonsterActionFlags.Imperil);
+        settings.CombatItemObjectIds.Add(lens.ObjectId);
+        var locks = new ActionLockTable();
+        var controller = new CombatController(new FakeHost(surface), settings);
+        controller.BindActionLocks(locks, () => false);
+
+        controller.Toggle();
+        controller.OnTick(0.25);
+
+        Assert.Equal((800u, 10u), surface.LastAppliedItem);
+        Assert.True(locks.IsLocked(ActionLockKind.ItemUse));
+
+        // Still held most of the way through the cast window.
+        locks.Advance(11d);
+        Assert.True(locks.IsLocked(ActionLockKind.ItemUse));
+
+        surface.LastItemCompletion = new PluginItemUseCompletion(
+            1, 800, 10, 0);
+        surface.ChatMessages =
+        [
+            new PluginChatMessage(
+                1, 0, 0, string.Empty,
+                "You cast Imperil Other VII on Drudge.",
+                string.Empty)
+            {
+                LogTextType = 0x07u,
+            },
+        ];
+        controller.OnTick(0.25);
+
+        Assert.False(locks.IsLocked(ActionLockKind.ItemUse));
     }
 
     [Fact]
@@ -2306,7 +3366,10 @@ public sealed class CombatControllerTests
             new PluginChatMessage(
                 1, 0, 0, string.Empty,
                 "You cast Imperil Other VII on Drudge.",
-                string.Empty),
+                string.Empty)
+            {
+                LogTextType = 0x07u,
+            },
         ];
         controller.OnTick(0.1);
         Assert.Contains("Waiting for a target", controller.Status, StringComparison.Ordinal);
@@ -2870,7 +3933,7 @@ public sealed class CombatControllerTests
     }
 
     /// <summary>
-    /// Already in Peace: cm.cs:70-73's whole second half.
+    /// The rule has nothing to do when the character is already at peace.
     /// </summary>
     [Fact]
     public void IdlePeaceIsInvalidWhenAlreadyInPeace()
@@ -2906,6 +3969,731 @@ public sealed class CombatControllerTests
         Assert.Equal(PluginCombatMode.Peace, surface.CombatSnapshot.Mode);
     }
 
+    /// <summary>
+    /// Mutation: restore <c>RepeatAttackInProgress</c> (or any of the three
+    /// request flags) to the target-refresh hold and this fails — the macro
+    /// stays locked onto the drudge for the whole auto-repeat engagement.
+    /// </summary>
+    [Fact]
+    public void AnAutoRepeatSwingDoesNotFreezeTargetSelection()
+    {
+        var surface = new FakeAutomation
+        {
+            CombatSnapshot = Physical(),
+            Targets = [Target(10, "Drudge", distance: 3, angle: 0)],
+            EquipmentItems = [WieldedPlannedWeapon()],
+        };
+        var settings = new CombatSettings
+        {
+            MaximumRange = 20f,
+            SelectionMethod = TargetSelectionMethod.Range,
+            ScanIntervalSeconds = 0.05d,
+        };
+        settings.Rules.Insert(0, new MonsterRule("name#^Olthoi", 4));
+        ProfileFixtureWeapon(settings);
+        var controller = new CombatController(new FakeHost(surface), settings);
+
+        controller.Toggle();
+        controller.OnTick(0.25);
+        Assert.Equal(10u, surface.LastBeginTarget);
+
+        // The swing loop is running. It runs BESIDE the rule pass, so it must
+        // not stop the pass re-picking.
+        surface.CombatSnapshot = Physical() with
+        {
+            RepeatAttackInProgress = true,
+        };
+        surface.Targets =
+        [
+            Target(10, "Drudge", distance: 3, angle: 0),
+            Target(20, "Olthoi Soldier", distance: 15, angle: 60),
+        ];
+        controller.OnTick(0.25);
+
+        Assert.Contains(
+            "Olthoi Soldier",
+            controller.TargetText,
+            StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// Mutation: delete the <c>_suspendPass()</c> call in
+    /// <c>HoldPassForTurn</c> and the first assertion fails; delete the
+    /// <c>_resumePass()</c> call in <c>StopBreakableTurnMovement</c> and the
+    /// last one does.
+    /// </summary>
+    [Fact]
+    public void ATurnInFlightHoldsTheWholePassUntilTheCharacterHasFaced()
+    {
+        var surface = new FakeAutomation
+        {
+            CombatSnapshot = Physical() with { Mode = PluginCombatMode.Magic },
+            Targets = [Target(10, "Drudge", 5, 0)],
+            KnownAttackSpells =
+            [
+                Spell(100, "Incantation of Flame Bolt") with
+                {
+                    RequiresTurnTo = true,
+                },
+            ],
+            EquipmentItems = [WieldedCaster()],
+            NavigationSnapshot = NavigationAt(heading: 0f),
+        };
+        surface.NavigationObjects[10u] = new PluginNavigationObject(
+            10u,
+            "Drudge",
+            new PluginNavigationPosition(0x7F7F0001u, 0.1d, 0d, 0d, 0f, true));
+        var controller = new CombatController(
+            new FakeHost(surface),
+            FireAttackRule(new CombatSettings { UseBreakableTurnTo = true }));
+        int suspends = 0;
+        int resumes = 0;
+        controller.BindPassSuspension(() => suspends++, () => resumes++);
+
+        controller.Toggle();
+        controller.OnTick(0.25);
+
+        Assert.Equal(1, suspends);
+        Assert.Equal(0, resumes);
+        Assert.Empty(surface.CastSpellIds);
+
+        // The pass is frozen; the turn is driven beside it and does not raise
+        // a second hold.
+        controller.AdvanceHeldTurn(0.25);
+        controller.AdvanceHeldTurn(0.25);
+        Assert.Equal(1, suspends);
+        Assert.Equal(0, resumes);
+
+        surface.NavigationSnapshot = NavigationAt(heading: 90f);
+        controller.AdvanceHeldTurn(0.25);
+
+        Assert.Equal(1, resumes);
+
+        controller.OnTick(0.25);
+        Assert.Equal([100u], surface.CastSpellIds);
+    }
+
+    private static (FakeAutomation Surface, CombatController Controller, ActionLockTable Locks)
+        MeleeKillRig(CombatSettings? settings = null)
+    {
+        var surface = new FakeAutomation
+        {
+            CombatSnapshot = Physical() with { SelectedObjectId = 10u },
+            Targets = [Target(10, "Drudge", distance: 2, angle: 0)],
+            EquipmentItems = [WieldedPlannedWeapon()],
+        };
+        CombatSettings resolved = settings ?? new CombatSettings();
+        resolved.ScanIntervalSeconds = 0.05d;
+        ProfileFixtureWeapon(resolved);
+        var locks = new ActionLockTable();
+        var controller = new CombatController(new FakeHost(surface), resolved);
+        controller.BindActionLocks(locks, () => true);
+        controller.Toggle();
+        controller.OnTick(0.25);
+        return (surface, controller, locks);
+    }
+
+    /// <summary>
+    /// A line the client logged. <paramref name="logTextType"/> names the log
+    /// it came from: 0 for a plain line, 0x16 for the character's own combat
+    /// log, 0x07 for a spell result.
+    /// </summary>
+    private static PluginChatMessage ChatLine(
+        ulong sequence,
+        string text,
+        uint logTextType = 0u) =>
+        new(sequence, 0u, 0, string.Empty, text, string.Empty)
+        {
+            LogTextType = logTextType,
+        };
+
+    /// <summary>
+    /// Mutation: delete the <c>ObservePhysicalResultText</c> call from the
+    /// chat walk and this fails — a swung-down monster stays the target until
+    /// the world stops listing it, so the bot keeps hitting the corpse.
+    /// </summary>
+    [Fact]
+    public void AMeleeKillLineEndsTheTargetAndHoldsNavigation()
+    {
+        (FakeAutomation surface, CombatController controller, ActionLockTable locks) =
+            MeleeKillRig();
+        Assert.Equal(10u, surface.LastBeginTarget);
+
+        surface.ChatMessages = [ChatLine(1, "You killed Drudge!")];
+        controller.OnTick(0.25);
+
+        Assert.False(controller.HasTarget);
+        Assert.True(locks.IsLocked(ActionLockKind.Navigation));
+    }
+
+    /// <summary>
+    /// The reader keys on which of the client's logs a line came from, not on
+    /// its words: a player typing the kill sentence, or the damage sentence,
+    /// in chat must not end the fight or clear the give-up count.
+    /// Mutation: drop either log-type test in the physical result reader and
+    /// the matching half fails.
+    /// </summary>
+    [Fact]
+    public void SomebodyTypingTheKillSentenceInChatChangesNothing()
+    {
+        (FakeAutomation surface, CombatController controller, ActionLockTable locks) =
+            MeleeKillRig();
+
+        // Speech carries the local-speech log type, not the plain one.
+        surface.ChatMessages =
+        [
+            ChatLine(1, "You killed Drudge!", logTextType: 0x02u),
+        ];
+        controller.OnTick(0.25);
+
+        Assert.True(controller.HasTarget);
+        Assert.False(locks.IsLocked(ActionLockKind.Navigation));
+
+        surface.ChatMessages = [ChatLine(2, "You killed Drudge!")];
+        controller.OnTick(0.25);
+
+        Assert.False(controller.HasTarget);
+    }
+
+    /// <summary>
+    /// Mutation: drop the slain-name comparison and this fails — a fellow's
+    /// kill of something else would end our own target.
+    /// </summary>
+    [Fact]
+    public void AKillLineNamingAnotherCreatureDoesNotEndOurTarget()
+    {
+        (FakeAutomation surface, CombatController controller, _) = MeleeKillRig();
+
+        surface.ChatMessages = [ChatLine(1, "You killed Mosswart!")];
+        controller.OnTick(0.25);
+
+        Assert.True(controller.HasTarget);
+        Assert.Contains("Drudge", controller.TargetText, StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// Mutation: feed the give-up counter from anything other than the
+    /// shot-hit-the-world line — for instance from every completed swing whose
+    /// target health did not move — and the second half of this fails, because
+    /// an ordinary miss would count.
+    /// </summary>
+    [Fact]
+    public void OnlyAShotIntoTheSceneryCountsTowardsGivingUpOnAMonster()
+    {
+        (FakeAutomation surface, CombatController controller, _) = MeleeKillRig(
+            new CombatSettings
+            {
+                BlacklistMonsterAttemptCount = 1,
+                BlacklistMonsterTimeoutSeconds = 300,
+            });
+
+        surface.ChatMessages =
+        [
+            ChatLine(1, "Your missile attack hit the environment."),
+            ChatLine(2, "Your missile attack hit the environment."),
+        ];
+        controller.OnTick(0.25);
+        Assert.False(controller.HasTarget);
+
+        (surface, controller, _) = MeleeKillRig(new CombatSettings
+        {
+            BlacklistMonsterAttemptCount = 1,
+            BlacklistMonsterTimeoutSeconds = 300,
+        });
+        surface.ChatMessages =
+        [
+            ChatLine(1, "You evade the Drudge!"),
+            ChatLine(2, "The Drudge evades your attack!"),
+            ChatLine(3, "You miss the Drudge!"),
+        ];
+        controller.OnTick(0.25);
+        Assert.True(controller.HasTarget);
+    }
+
+    /// <summary>
+    /// Mutation: delete the damage-report arm and this fails — the two shots
+    /// into the scenery either side of a landed hit would add up and retire a
+    /// monster the character is demonstrably hitting.
+    /// </summary>
+    [Fact]
+    public void ALandedHitStartsTheGiveUpCountOver()
+    {
+        (FakeAutomation surface, CombatController controller, _) = MeleeKillRig(
+            new CombatSettings
+            {
+                BlacklistMonsterAttemptCount = 1,
+                BlacklistMonsterTimeoutSeconds = 300,
+            });
+
+        surface.ChatMessages =
+        [
+            ChatLine(1, "Your missile attack hit the environment."),
+            ChatLine(
+                2,
+                "You slash Drudge for 43 points of slashing damage!",
+                logTextType: 0x16u),
+            ChatLine(3, "Your missile attack hit the environment."),
+        ];
+        controller.OnTick(0.25);
+
+        Assert.True(controller.HasTarget);
+    }
+
+    /// <summary>
+    /// Mutation: take the retry out of the pass (return instead of choosing
+    /// again after an undeliverable decision) and this fails — the macro
+    /// stands there staring at the monster behind cover while a reachable one
+    /// is next to it.
+    /// </summary>
+    [Fact]
+    public void AMonsterBehindCoverIsPassedOverForAReachableOneInTheSamePass()
+    {
+        var surface = new FakeAutomation
+        {
+            CombatSnapshot = Physical() with { Mode = PluginCombatMode.Magic },
+            Targets =
+            [
+                Target(10, "Drudge", distance: 3, angle: 0),
+                Target(20, "Mosswart", distance: 6, angle: 10),
+            ],
+            KnownAttackSpells =
+            [
+                Spell(100, "Incantation of Flame Bolt") with
+                {
+                    IsProjectile = true,
+                },
+            ],
+            EquipmentItems = [WieldedCaster()],
+        };
+        // The near one cannot be reached; the far one can.
+        surface.ProjectilePaths[10u] = new(
+            PluginProjectilePathStatus.Blocked,
+            CollisionChecks: 3,
+            BlockingObjectId: 0x50000001u);
+        var settings = FireAttackRule(new CombatSettings
+        {
+            MaximumRange = 40d,
+            SelectionMethod = TargetSelectionMethod.Range,
+            UseProjectileAwareness = true,
+        });
+        var controller = new CombatController(new FakeHost(surface), settings);
+
+        controller.Toggle();
+        controller.OnTick(0.25);
+
+        Assert.Equal((100u, 20u), surface.LastTargetedCast);
+    }
+
+    /// <summary>
+    /// The walk is its own pass. What the attack's pass learned and turned
+    /// off belongs to that pass and must not narrow the walk's choice of
+    /// monster: here the attack turns the near monster's attack column off
+    /// because nothing can be thrown at it, and the walk must still see it —
+    /// see it, and stop, because it is already inside weapon range.
+    /// Mutation: delete <c>ClearPassMemos()</c> from the head of
+    /// <c>CombatController.TickMonsterApproach</c> and both assertions fail —
+    /// the near monster is still excluded by the attack's cleared column, so
+    /// the walk picks the far one and sets off towards it.
+    /// </summary>
+    [Fact]
+    public void TheWalkDoesNotInheritTheColumnTheAttackTurnedOff()
+    {
+        var surface = new FakeAutomation
+        {
+            CombatSnapshot = Physical() with { Mode = PluginCombatMode.Magic },
+            Targets =
+            [
+                Target(10, "Drudge", distance: 4, angle: 0),
+                Target(20, "Mosswart", distance: 15, angle: 10),
+            ],
+            KnownAttackSpells =
+            [
+                Spell(100, "Incantation of Flame Bolt") with
+                {
+                    IsProjectile = true,
+                },
+            ],
+            EquipmentItems = [WieldedCaster()],
+            NavigationSnapshot = NavigationAt(heading: 0f),
+        };
+        // Nothing can be thrown at the near one.
+        surface.ProjectilePaths[10u] = new(
+            PluginProjectilePathStatus.Blocked,
+            CollisionChecks: 3,
+            BlockingObjectId: 0x50000001u);
+        // Somewhere for the walk to go if it wrongly picks the far one.
+        surface.NavigationObjects[20u] = new PluginNavigationObject(
+            20u,
+            "Mosswart",
+            new PluginNavigationPosition(0x7F7F0001, 0.1d, 0d, 0d, 0f, true));
+        var settings = FireAttackRule(new CombatSettings
+        {
+            MaximumRange = 5d,
+            ApproachDistance = 20d,
+            SelectionMethod = TargetSelectionMethod.Range,
+            UseProjectileAwareness = true,
+            ScanIntervalSeconds = 0.05d,
+        });
+        var controller = new CombatController(new FakeHost(surface), settings);
+
+        controller.Toggle();
+        controller.OnTick(0.25);
+
+        // The attack pass ran and found nothing it could do.
+        Assert.Equal((0u, 0u), surface.LastTargetedCast);
+
+        // Same pass, the walk's turn. The near monster is back in the running
+        // and it is already close enough, so there is nowhere to walk.
+        Assert.False(controller.TickMonsterApproach(0.05d, canAct: true));
+        Assert.Empty(surface.MovementIntents);
+    }
+
+    /// <summary>
+    /// Mutation: make the retry unbounded (drop the budget) and a rule whose
+    /// remaining column keeps failing would spin forever; make the budget the
+    /// per-path sample cap again and this test's single blocked monster would
+    /// cost 500 rebuilds. Either way the count below moves.
+    /// </summary>
+    [Fact]
+    public void TheRetryStopsAsSoonAsNothingIsLeftToChooseFrom()
+    {
+        var surface = new FakeAutomation
+        {
+            CombatSnapshot = Physical() with { Mode = PluginCombatMode.Magic },
+            Targets = [Target(10, "Drudge", distance: 3, angle: 0)],
+            KnownAttackSpells =
+            [
+                Spell(100, "Incantation of Flame Bolt") with
+                {
+                    IsProjectile = true,
+                },
+            ],
+            ProjectilePath = new(PluginProjectilePathStatus.Blocked),
+            EquipmentItems = [WieldedCaster()],
+        };
+        var settings = FireAttackRule(new CombatSettings
+        {
+            MaximumRange = 40d,
+            UseProjectileAwareness = true,
+        });
+        var controller = new CombatController(new FakeHost(surface), settings);
+
+        controller.Toggle();
+        controller.OnTick(0.25);
+
+        Assert.Empty(surface.CastSpellIds);
+        Assert.False(controller.HasTarget);
+        // Three shapes tried against the one monster, then it is out of the
+        // running and there is nothing left: no spinning.
+        Assert.InRange(surface.ProjectilePathChecks, 1, 8);
+    }
+
+    /// <summary>
+    /// Mutation: drop the component term from <c>IsUsableAttackSpell</c> and
+    /// this fails — the pick lands on the best tier known, the client refuses
+    /// the cast for want of components, and every pass picks it again.
+    /// </summary>
+    [Fact]
+    public void ATierThePackCannotPayForIsNotPicked()
+    {
+        var surface = new FakeAutomation
+        {
+            CombatSnapshot = Physical() with { Mode = PluginCombatMode.Magic },
+            Targets = [Target(10, "Drudge", 5, 0)],
+            KnownCombatSpells =
+            [
+                MagicSpell(100, "Flame Bolt VII", difficulty: 300),
+                MagicSpell(101, "Flame Bolt IV", difficulty: 150),
+            ],
+            EquipmentItems = [WieldedCaster()],
+        };
+        surface.MissingComponentSpellIds.Add(100u);
+        var controller = new CombatController(
+            new FakeHost(surface),
+            FireAttackRule(new CombatSettings { MaximumRange = 40d }));
+
+        controller.Toggle();
+        controller.OnTick(0.25);
+
+        Assert.Equal((101u, 10u), surface.LastTargetedCast);
+    }
+
+    /// <summary>
+    /// Mutation: same as above — with EVERY tier unpayable the arm must fall
+    /// through to the "no usable attack spell" warning instead of casting.
+    /// </summary>
+    [Fact]
+    public void NoTierIsPickedWhenThePackHasNoComponentsAtAll()
+    {
+        var surface = new FakeAutomation
+        {
+            CombatSnapshot = Physical() with { Mode = PluginCombatMode.Magic },
+            Targets = [Target(10, "Drudge", 5, 0)],
+            KnownCombatSpells = [MagicSpell(100, "Flame Bolt VII", difficulty: 300)],
+            EquipmentItems = [WieldedCaster()],
+        };
+        surface.MissingComponentSpellIds.Add(100u);
+        var controller = new CombatController(
+            new FakeHost(surface),
+            FireAttackRule(new CombatSettings { MaximumRange = 40d }));
+
+        controller.Toggle();
+        controller.OnTick(0.25);
+
+        Assert.Empty(surface.CastSpellIds);
+    }
+
+    /// <summary>
+    /// Mutation: classify from the numbers again (ammunition type, damage,
+    /// weapon skill) and this fails — a thrown weapon takes no ammunition and
+    /// an unarmed weapon lists no damage, so both would be mis-stanced.
+    /// </summary>
+    [Fact]
+    public void AWeaponsStanceComesFromItsClassNotItsNumbers()
+    {
+        PluginEquipmentItem thrown = Equipment(
+            1u,
+            "Throwing Dagger",
+            damageType: 0x0002,
+            itemType: 0x100,
+            ammoType: 0);
+        PluginEquipmentItem fists = Equipment(
+            2u,
+            "Training Wraps",
+            damageType: 0x0001,
+            damage: 0,
+            itemType: 0x1) with
+        {
+            WeaponSkill = 0,
+        };
+
+        Assert.Equal(PluginCombatMode.Missile, CombatModeGate.ModeFor(in thrown));
+        Assert.Equal(PluginCombatMode.Melee, CombatModeGate.ModeFor(in fists));
+    }
+
+    /// <summary>
+    /// Mutation: roll the random element inside the magic arm again and this
+    /// fails — a pass that only casts a debuff would leave the cursor where it
+    /// was, and the vulnerability would be for last pass's element.
+    /// </summary>
+    [Fact]
+    public void ARolledElementAdvancesEvenOnAPassThatOnlyDebuffs()
+    {
+        var surface = new FakeAutomation
+        {
+            CombatSnapshot = Physical() with { Mode = PluginCombatMode.Magic },
+            Targets = [Target(10, "Drudge", 5, 0)],
+            KnownCombatSpells =
+            [
+                Debuff(70, "Piercing Vulnerability Other VII"),
+                Debuff(71, "Bludgeoning Vulnerability Other VII"),
+            ],
+            EquipmentItems = [WieldedCaster()],
+        };
+        var settings = new CombatSettings { MaximumRange = 40d };
+        settings.Rules.Clear();
+        settings.Rules.Add(new MonsterRule(
+            "DEFAULT",
+            new MonsterRuleActions
+            {
+                Flags = MonsterActionFlags.Attack
+                    | MonsterActionFlags.Vulnerability,
+                DamageType = MonsterDamageType.Random,
+                ExtraVulnerability = MonsterDamageType.None,
+            }));
+        var controller = new CombatController(new FakeHost(surface), settings);
+
+        controller.Toggle();
+        controller.OnTick(0.25);
+        Assert.Equal(70u, surface.LastTargetedCast.Item1);
+
+        // The first debuff is still in flight, so let it finish.
+        surface.LastCastCompletion = new PluginCastCompletion(1, 70, 10, 0);
+        controller.OnTick(0.25);
+        controller.OnTick(0.25);
+
+        Assert.Equal(71u, surface.LastTargetedCast.Item1);
+    }
+
+    /// <summary>
+    /// Mutation: auto-select for a zero weapon column again and this fails —
+    /// the rule means "no weapon, use a wand", and a melee weapon would be
+    /// wielded instead.
+    /// </summary>
+    [Fact]
+    public void AZeroWeaponColumnMeansAWandAndSelectsNothing()
+    {
+        var surface = new FakeAutomation
+        {
+            CombatSnapshot = Peaceful(),
+            Targets = [Target(10, "Drudge", 5, 0)],
+            KnownCombatSpells = [MagicSpell(100, "Flame Bolt VII", difficulty: 300)],
+            EquipmentItems =
+            [
+                Equipment(
+                    990u,
+                    "Fixture Wand",
+                    damageType: 0,
+                    itemType: CombatModeGate.CasterItemType),
+                Equipment(991u, "Fire Sword", damageType: 0x0010),
+            ],
+        };
+        var settings = new CombatSettings { MaximumRange = 40d };
+        settings.CombatItemNames.Add("Fixture Wand");
+        settings.CombatItemNames.Add("Fire Sword");
+        settings.Rules.Clear();
+        settings.Rules.Add(new MonsterRule(
+            "DEFAULT",
+            new MonsterRuleActions
+            {
+                Flags = MonsterActionFlags.Attack,
+                DamageType = MonsterDamageType.Fire,
+                WeaponToUseRaw = 0,
+            }));
+        var controller = new CombatController(new FakeHost(surface), settings);
+
+        controller.Toggle();
+        controller.OnTick(0.25);
+
+        Assert.Equal(990u, surface.LastEquipObjectId);
+    }
+
+    /// <summary>
+    /// Mutation: sort the unordered wands alphabetically again and this fails
+    /// — the first one on the Items page wins, whatever it is called.
+    /// </summary>
+    [Fact]
+    public void TheFirstProfiledWandWinsWithoutAnAlphabeticalTieBreak()
+    {
+        var surface = new FakeAutomation
+        {
+            CombatSnapshot = Peaceful(),
+            Targets = [Target(10, "Drudge", 5, 0)],
+            KnownCombatSpells = [Debuff(83, "Imperil Other VII")],
+            EquipmentItems =
+            [
+                Equipment(
+                    990u,
+                    "Zephyr Wand",
+                    damageType: 0,
+                    itemType: CombatModeGate.CasterItemType),
+                Equipment(
+                    991u,
+                    "Acid Wand",
+                    damageType: 0,
+                    itemType: CombatModeGate.CasterItemType),
+            ],
+        };
+        var settings = DebuffOnly(MonsterActionFlags.Imperil);
+        settings.MaximumRange = 40d;
+        settings.CombatItemNames.Add("Zephyr Wand");
+        settings.CombatItemNames.Add("Acid Wand");
+        var controller = new CombatController(new FakeHost(surface), settings);
+
+        controller.Toggle();
+        controller.OnTick(0.25);
+
+        Assert.Equal(990u, surface.LastEquipObjectId);
+    }
+
+    /// <summary>
+    /// Mutation: walk the tiers for a rolled element and this fails — the
+    /// rolled arm names its spell outright, and what it names is the first
+    /// rung of the family.
+    /// </summary>
+    [Fact]
+    public void ARolledElementThrowsTheFirstRungOfItsWarFamily()
+    {
+        var surface = new FakeAutomation
+        {
+            CombatSnapshot = Physical() with { Mode = PluginCombatMode.Magic },
+            Targets = [Target(10, "Drudge", 5, 0)],
+            KnownCombatSpells =
+            [
+                MagicSpell(100, "Force Bolt I", difficulty: 50),
+                MagicSpell(101, "Force Bolt VII", difficulty: 300),
+            ],
+            EquipmentItems = [WieldedCaster()],
+        };
+        var settings = new CombatSettings { MaximumRange = 40d };
+        settings.Rules.Clear();
+        settings.Rules.Add(new MonsterRule(
+            "DEFAULT",
+            new MonsterRuleActions
+            {
+                Flags = MonsterActionFlags.Attack,
+                DamageType = MonsterDamageType.Random,
+            }));
+        var controller = new CombatController(new FakeHost(surface), settings);
+
+        controller.Toggle();
+        controller.OnTick(0.25);
+
+        Assert.Equal((100u, 10u), surface.LastTargetedCast);
+    }
+
+    /// <summary>
+    /// Mutation: drop the swing teardown from the cast and this fails — a
+    /// physical attack armed a moment ago would keep running underneath the
+    /// spell.
+    /// </summary>
+    [Fact]
+    public void ACastTearsDownAnArmedSwingFirst()
+    {
+        var surface = new FakeAutomation
+        {
+            CombatSnapshot = Physical(),
+            Targets = [Target(10, "Drudge", 5, 0)],
+            KnownCombatSpells = [MagicSpell(100, "Flame Bolt VII", difficulty: 300)],
+            EquipmentItems =
+            [
+                Equipment(
+                    990u,
+                    "Fixture Wand",
+                    damageType: 0,
+                    itemType: CombatModeGate.CasterItemType),
+                WieldedPlannedWeapon(),
+            ],
+        };
+        var settings = FireAttackRule(new CombatSettings { MaximumRange = 40d });
+        ProfileFixtureWeapon(settings);
+        settings.CombatItemNames.Add("Fixture Wand");
+        var controller = new CombatController(new FakeHost(surface), settings);
+
+        controller.Toggle();
+        controller.OnTick(0.25);
+        Assert.Equal(1, surface.BeginCount);
+        int abortsAfterTheSwing = surface.AbortCount;
+
+        // The rule flips to magic; the swing must be torn down as the cast
+        // goes out.
+        surface.CombatSnapshot = surface.CombatSnapshot with
+        {
+            Mode = PluginCombatMode.Magic,
+        };
+        surface.EquipmentItems =
+        [
+            Equipment(
+                990u,
+                "Fixture Wand",
+                damageType: 0,
+                itemType: CombatModeGate.CasterItemType,
+                equippedLocation: 0x00100000u),
+        ];
+        settings.Rules[0] = new MonsterRule(
+            "DEFAULT",
+            new MonsterRuleActions
+            {
+                Flags = MonsterActionFlags.Attack,
+                DamageType = MonsterDamageType.Fire,
+                WeaponName = "Fixture Wand",
+            });
+        controller.OnTick(0.25);
+
+        Assert.Equal((100u, 10u), surface.LastTargetedCast);
+        Assert.True(surface.AbortCount > abortsAfterTheSwing);
+    }
+
     private static CombatSettings FireAttackRule(CombatSettings settings)
     {
         settings.Rules.Clear();
@@ -2917,6 +4705,71 @@ public sealed class CombatControllerTests
                 DamageType = MonsterDamageType.Fire,
             }));
         return settings;
+    }
+
+    /// <summary>
+    /// Mutation: delete the <c>ArmPostKillNavigationLock()</c> call from the
+    /// kill arm of the cast outcome and this fails — the bot walks off the
+    /// corpse it just made instead of standing still for the looting window.
+    /// </summary>
+    [Fact]
+    public void ASpellKillHoldsNavigationForThreeSecondsWhileLootingIsOn()
+    {
+        var tracker = new SpellCastTracker();
+        var locks = new ActionLockTable();
+        var controller = new CombatController(
+            new FakeHost(new FakeAutomation()),
+            new CombatSettings(),
+            castTracker: tracker);
+        controller.BindActionLocks(locks, () => true);
+
+        tracker.Begin(
+            1u,
+            "Flame Bolt VII",
+            30u,
+            "Drudge",
+            false,
+            0L,
+            school: SpellCastTracker.WarMagicSchool,
+            canKill: true);
+        tracker.ObserveChat(1uL, "You killed Drudge!");
+
+        Assert.True(locks.IsLocked(ActionLockKind.Navigation));
+
+        locks.Advance(2.9d);
+        Assert.True(locks.IsLocked(ActionLockKind.Navigation));
+
+        locks.Advance(0.2d);
+        Assert.False(locks.IsLocked(ActionLockKind.Navigation));
+    }
+
+    /// <summary>
+    /// Mutation: drop the looting term from <c>ArmPostKillNavigationLock</c>
+    /// and this fails — a bot that never loots would stand still after a kill.
+    /// </summary>
+    [Fact]
+    public void ASpellKillDoesNotHoldNavigationWhileLootingIsOff()
+    {
+        var tracker = new SpellCastTracker();
+        var locks = new ActionLockTable();
+        var controller = new CombatController(
+            new FakeHost(new FakeAutomation()),
+            new CombatSettings(),
+            castTracker: tracker);
+        controller.BindActionLocks(locks, () => false);
+
+        tracker.Begin(
+            1u,
+            "Flame Bolt VII",
+            30u,
+            "Drudge",
+            false,
+            0L,
+            school: SpellCastTracker.WarMagicSchool,
+            canKill: true);
+        tracker.ObserveChat(1uL, "You killed Drudge!");
+
+        Assert.False(locks.IsLocked(ActionLockKind.Navigation));
     }
 
     private static CombatSettings DebuffOnly(MonsterActionFlags flag)
@@ -2970,7 +4823,10 @@ public sealed class CombatControllerTests
     private static PluginSpellInfo Spell(uint id, string name) => new(
         id, name, Family: 1, Tier: 8, Difficulty: 350, ManaCost: 30,
         DurationSeconds: 0, School: 34, Description: string.Empty,
-        IsSelfTargeted: false, IsBeneficial: false);
+        IsSelfTargeted: false, IsBeneficial: false)
+    {
+        BaseRangeConstant = 80f,
+    };
 
     private static PluginEquipmentItem Equipment(
         uint id,
@@ -3034,6 +4890,44 @@ public sealed class CombatControllerTests
             equipped ? 0x00100000u : 0u,
             0, 0, 0, 1, 0, 0, spellId, 0, 0, 0, false, 0,
             0, 0, 0, 0, 0, 0, 0);
+
+    /// <summary>A host with real storage, for profile round-trips.</summary>
+    private sealed class StorageHost(
+        IPluginStorage storage,
+        string characterName,
+        string worldName) : IPluginHost
+    {
+        public bool HasUi => false;
+        public IPluginLogger Log { get; } = new FakeLogger();
+        public IGameState State { get; } = new FakeState();
+        public IEvents Events { get; } = new FakeEvents();
+        public ISelectionService Selection { get; } = new FakeSelection();
+        public IUiRegistry Ui => NoOpUiRegistry.Instance;
+        public IAutomationSurface Automation { get; } = new FakeAutomation
+        {
+            CharacterName = characterName,
+            World = worldName,
+        };
+        public IPluginStorage Storage => storage;
+        public IPluginStorage VtankProfiles => storage;
+    }
+
+    private sealed class MemoryStorage : IPluginStorage
+    {
+        private readonly Dictionary<string, string> _text =
+            new(StringComparer.Ordinal);
+
+        public bool IsAvailable => true;
+        public string? ReadText(string key) =>
+            _text.TryGetValue(key, out string? value) ? value : null;
+        public IReadOnlyList<string> List(string prefix) => _text.Keys
+            .Where(key => prefix.Length == 0
+                || key.StartsWith(prefix + "/", StringComparison.Ordinal))
+            .OrderBy(static key => key, StringComparer.Ordinal)
+            .ToArray();
+        public void WriteText(string key, string content) => _text[key] = content;
+        public bool Delete(string key) => _text.Remove(key);
+    }
 
     private sealed class FakeHost(FakeAutomation automation) : IPluginHost
     {
@@ -3108,6 +5002,13 @@ public sealed class CombatControllerTests
         public PluginProjectilePathResult ProjectilePath { get; set; } =
             new(PluginProjectilePathStatus.Clear);
         public uint LastProjectileTarget { get; private set; }
+        public PluginAttackHeight LastProjectileHeight { get; private set; }
+        public PluginProjectilePathKind LastProjectileKind { get; private set; }
+        public int ProjectilePathChecks { get; private set; }
+
+        /// <summary>Per-target overrides for the flight-path check.</summary>
+        public Dictionary<uint, PluginProjectilePathResult> ProjectilePaths
+        { get; } = [];
         public IReadOnlyList<PluginProjectileDebugSample>
             ShownProjectileDebugSamples { get; private set; } = [];
         public List<PluginSelectionAction> SelectionActions { get; } = [];
@@ -3158,7 +5059,12 @@ public sealed class CombatControllerTests
         bool IItemAutomation.IsBusy => false;
         int IItemAutomation.ActiveOwnedPetCount => 0;
         PluginItemUseCompletion IItemAutomation.LastCompletion => LastItemCompletion;
-        public IReadOnlyList<PluginInventoryItem> CaptureOwnedItems() => ItemEntries;
+        public int CaptureOwnedItemsCount { get; private set; }
+        public IReadOnlyList<PluginInventoryItem> CaptureOwnedItems()
+        {
+            CaptureOwnedItemsCount++;
+            return ItemEntries;
+        }
         public PluginItemCommandResult Use(uint objectId)
         {
             LastUsedItem = objectId;
@@ -3226,6 +5132,16 @@ public sealed class CombatControllerTests
             return new(PluginCombatCommandStatus.Stopped);
         }
 
+        public List<uint> DismissedGhosts { get; } = [];
+        public bool GhostDismissalAccepted { get; set; } = true;
+        public PluginCombatCommandResult DismissGhostTarget(uint targetObjectId)
+        {
+            DismissedGhosts.Add(targetObjectId);
+            return new(GhostDismissalAccepted
+                ? PluginCombatCommandStatus.Stopped
+                : PluginCombatCommandStatus.Unavailable);
+        }
+
         public bool TryGetObject(
             uint objectId,
             out PluginNavigationObject value) =>
@@ -3260,7 +5176,14 @@ public sealed class CombatControllerTests
             int maximumCollisionChecks)
         {
             LastProjectileTarget = targetObjectId;
-            return ProjectilePath;
+            LastProjectileHeight = targetHeight;
+            LastProjectileKind = kind;
+            ProjectilePathChecks++;
+            return ProjectilePaths.TryGetValue(
+                targetObjectId,
+                out PluginProjectilePathResult specific)
+                ? specific
+                : ProjectilePath;
         }
 
         public PluginProjectilePathResult EvaluatePathWithDiagnostics(
@@ -3288,9 +5211,24 @@ public sealed class CombatControllerTests
         }
 
         public bool IsCasting { get; set; }
-        public PluginCastGate EvaluateGate(uint spellId) => PluginCastGate.Ready;
+
+        /// <summary>
+        /// Spell ids the pack cannot pay for. Everything else has components.
+        /// </summary>
+        public HashSet<uint> MissingComponentSpellIds { get; } = [];
+
+        public bool HasComponents(uint spellId) =>
+            !MissingComponentSpellIds.Contains(spellId);
+
+        /// <summary>Spells the client would refuse to start right now.</summary>
+        public Dictionary<uint, PluginCastGate> CastGates { get; } = [];
+
+        public PluginCastGate EvaluateGate(uint spellId) =>
+            CastGates.TryGetValue(spellId, out PluginCastGate gate)
+                ? gate
+                : PluginCastGate.Ready;
         public PluginCastGate EvaluateGate(uint spellId, uint targetObjectId) =>
-            PluginCastGate.Ready;
+            EvaluateGate(spellId);
         public bool Cast(uint spellId)
         {
             LastUntargetedCast = spellId;
@@ -3312,6 +5250,10 @@ public sealed class CombatControllerTests
                 .ToArray();
 
         public bool IsInWorld => IsAvailable;
+        public string CharacterName { get; init; } = "Fixture";
+        string ICharacterInfo.Name => CharacterName;
+        public string World { get; init; } = "FixtureWorld";
+        string ICharacterInfo.WorldName => World;
         public uint ObjectId => 1;
         public uint CurrentHealth => 100;
         public uint MaxHealth => 100;

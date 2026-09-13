@@ -87,6 +87,23 @@ internal sealed class MonsterRule
             _compiled = MonsterExpression.Compile(Expression);
     }
 
+    private MonsterRule(MonsterRule source, MonsterRuleActions actions)
+    {
+        Expression = source.Expression;
+        Actions = actions;
+        IsIgnoredSpec = source.IsIgnoredSpec;
+        _compiled = source._compiled;
+    }
+
+    /// <summary>
+    /// The same row with different action columns, for the copy a single pass
+    /// is allowed to scribble on when it discovers one of them cannot be
+    /// carried out against this monster right now. The match expression is
+    /// shared, not recompiled.
+    /// </summary>
+    public MonsterRule WithActions(MonsterRuleActions actions) =>
+        new(this, actions ?? throw new ArgumentNullException(nameof(actions)));
+
     private MonsterRule(string expression, MonsterRuleActions actions, bool ignored)
     {
         Expression = string.IsNullOrWhiteSpace(expression)
@@ -116,6 +133,19 @@ internal sealed class MonsterRule
     }
 
     public const string RetailDefaultName = "<DEFAULT>";
+
+    /// <summary>
+    /// The fallback row a profile with no DEFAULT row of its own falls back
+    /// to: attack at priority one, and finish with a streak.
+    /// </summary>
+    public static MonsterRule RetailDefault() => new(
+        "DEFAULT",
+        new MonsterRuleActions
+        {
+            Priority = 1,
+            Flags = MonsterActionFlags.Attack | MonsterActionFlags.Streak,
+            ExtraVulnerability = MonsterDamageType.None,
+        });
 
     public string Expression { get; }
     public MonsterRuleActions Actions { get; }
@@ -175,7 +205,7 @@ internal static class MonsterRuleResolver
             firstError ??= error;
         }
 
-        fallback ??= new MonsterRule("DEFAULT", 0);
+        fallback ??= MonsterRule.RetailDefault();
         return new ResolvedMonsterRule(fallback, firstError);
     }
 }

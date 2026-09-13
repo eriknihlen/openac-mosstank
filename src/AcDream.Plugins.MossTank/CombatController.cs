@@ -1,4 +1,4 @@
-using System.Globalization;
+﻿using System.Globalization;
 using AcDream.Plugin.Abstractions;
 
 namespace AcDream.Plugins.MossTank;
@@ -12,6 +12,7 @@ internal sealed class CombatController
     private readonly VitalSettings _vitalSettings;
     private readonly DebuffTracker _debuffs = new();
     private readonly CombatFailureTracker _failures = new();
+    private readonly MonsterHealthTracker _health;
     private readonly PetAutomation _pets = new();
     private IReadOnlyList<PluginCombatTarget> _targets =
         Array.Empty<PluginCombatTarget>();
@@ -42,15 +43,106 @@ internal sealed class CombatController
 
     private readonly Dictionary<(MonsterRuleActions Actions, uint Target), MonsterDamageType>
         _passElements = [];
-    private readonly Dictionary<DebuffIdentity, IReadOnlyList<CombatDebuffSource>>
-        _passDebuffSources = [];
+    private readonly Dictionary<
+        (DebuffIdentity Identity, uint Target),
+        IReadOnlyList<CombatDebuffSource>> _passDebuffSources = [];
+
+    /// <summary>
+    /// Every flight already tested this pass, and whether it was clear. A
+    /// shape not in here has not been tried, and counts as clear until it is:
+    /// that is what lets the debuff fallback drop a source the pass has
+    /// already found unreachable while leaving untested sources alone.
+    /// </summary>
+    private readonly Dictionary<(uint Target, PluginProjectilePathKind Kind), bool>
+        _passClearance = [];
     private readonly Dictionary<DebuffIdentity, PluginSpellInfo?> _passDebuffSpells = [];
     private readonly Dictionary<(MonsterDamageType Element, uint Target), bool>
         _passDeliverable = [];
+
+    /// <summary>
+    /// Whether the pack holds what each spell's formula asks for. Answered
+    /// once per pass per spell, the way the tier walk memoises it per frame.
+    /// </summary>
+    private readonly Dictionary<uint, bool> _passComponents = [];
+
+    /// <summary>
+    /// Monsters this pass has already found nothing to do about. They are out
+    /// of the running until the next pass rebuilds the picture.
+    /// </summary>
+    private readonly HashSet<uint> _passInvalidTargets = [];
+
+    /// <summary>
+    /// Set while one decision turns a column off but leaves the monster worth
+    /// coming back to. Without it, "nothing to cast" and "this one thing
+    /// cannot be delivered" would both drop the monster.
+    /// </summary>
+    private bool _planKeptTheMonsterInPlay;
+
+    /// <summary>
+    /// Action columns this pass has turned off per monster, because the thing
+    /// that column asks for turned out to be undeliverable against it. A
+    /// monster whose remaining columns still offer something stays in the
+    /// running.
+    /// </summary>
+    private readonly Dictionary<uint, MonsterActionFlags> _passClearedActions = [];
+
+    /// <summary>
+    /// Candidates already built this pass, so re-choosing does not re-evaluate
+    /// the whole rule table per monster per attempt. Discarded when the range
+    /// being asked about changes, and per monster when its columns change.
+    /// </summary>
+    private readonly Dictionary<uint, CombatTargetCandidate?> _passCandidates = [];
+    private double _passCandidateRange = double.NaN;
+
+    private void InvalidateForPass(uint objectId)
+    {
+        if (objectId == 0u)
+            return;
+        _passInvalidTargets.Add(objectId);
+        _passCandidates.Remove(objectId);
+    }
+
+    /// <summary>
+    /// The rule with whatever THIS pass has learned taken off it. What the
+    /// pass learns — that a shot cannot reach, that a column is undeliverable
+    /// — belongs to the pass and to nothing else, so it is applied where a
+    /// decision reads the rule rather than written into the stored one.
+    /// </summary>
+    private ResolvedMonsterRule WithPassClearedActions(
+        uint objectId,
+        ResolvedMonsterRule rule) =>
+        rule.Rule is not null
+        && _passClearedActions.TryGetValue(
+            objectId,
+            out MonsterActionFlags cleared)
+            ? rule with
+            {
+                Rule = rule.Rule.WithActions(
+                    rule.Actions with
+                    {
+                        Flags = rule.Actions.Flags & ~cleared,
+                    }),
+            }
+            : rule;
+
+    private void ClearActionsForPass(uint objectId, MonsterActionFlags flags)
+    {
+        if (objectId == 0u)
+            return;
+        _passClearedActions[objectId] =
+            (_passClearedActions.TryGetValue(objectId, out MonsterActionFlags held)
+                ? held
+                : MonsterActionFlags.None)
+            | flags;
+        _passCandidates.Remove(objectId);
+    }
     private IReadOnlyList<PluginEquipmentItem>? _passEquipment;
+    private IReadOnlyList<PluginInventoryItem>? _passInventory;
     private uint _pendingAttackTarget;
+    private uint _lastTargetId;
     private PendingItemDebuff? _pendingItemDebuff;
     private ulong _observedChatSequence;
+    private ulong _itemTransactionChatSequence;
     private long _observedItemCompletion;
     private bool _combatPolicySuspended;
     private bool _approachMovementOwned;
@@ -76,6 +168,12 @@ internal sealed class CombatController
     private bool _selectionJigglePreviousPlayer;
     private double _nextSelectionJiggleAt;
 
+    /// <summary>
+    /// When the current nudge window closes. The nudge is one short window
+    /// per cast, not something that runs between casts.
+    /// </summary>
+    private double _selectionJiggleUntil;
+
     private static readonly MonsterDamageType[] RandomDamageCycle =
     [
         MonsterDamageType.Pierce,
@@ -98,11 +196,99 @@ internal sealed class CombatController
         _settings = settings ?? throw new ArgumentNullException(nameof(settings));
         _vitalSettings = vitalSettings ?? new VitalSettings();
         _gameInfo = gameInfo ?? VtankGameInfoDatabase.Empty;
+        _health = new MonsterHealthTracker(
+            () => _settings.MonsterFacts,
+            objectId => !_host.Automation.Objects.IsAvailable
+                || _host.Automation.Objects.TryGet(objectId, out _));
         _castTracker = castTracker ?? new SpellCastTracker();
         _castTracker.Completed += OnCastTrackerOutcome;
+        // A request the server never answered is sent again rather than
+        // costing a silent five seconds mid-fight.
+        _castTracker.ReissueCast = (spellId, targetObjectId) =>
+            targetObjectId == 0u
+                ? _host.Automation.Magic.Cast(spellId)
+                : _host.Automation.Magic.Cast(spellId, targetObjectId);
+        // Every re-send at a silent target is one more reason to suspect the
+        // monster is not really there; the answer clears the suspicion.
+        _castTracker.SpellAttempted = objectId =>
+        {
+            if (_failures.RecordSpellAttempt(objectId, _settings))
+                DeleteGhostMonster(objectId, _settings.DeleteGhostMonsters);
+        };
+        _castTracker.SpellAnswered = _failures.ResetSpellAttempts;
     }
 
     internal SpellCastTracker CastTracker => _castTracker;
+
+    /// <summary>
+    /// Is this monster one the combat pass is following and has not given up
+    /// on? A monster the pass has never looked at answers false, exactly as
+    /// one it has blacklisted or seen die does: both are "not something to
+    /// point at right now". This is what a profile's own monster-finding
+    /// expressions ask before handing back a target.
+    /// </summary>
+    internal bool IsTrackedAndNotBlacklisted(uint objectId) =>
+        objectId != 0u
+        && _failures.IsKnown(objectId)
+        && _failures.Reason(objectId, _now) == CombatSuppressionReason.None;
+
+    /// <summary>
+    /// The shared cooldown table. A kill holds navigation off for three
+    /// seconds so the corpse can be found and looted before the bot moves on.
+    /// </summary>
+    private ActionLockTable _actionLocks = new();
+    private Func<bool> _lootingEnabled = static () => false;
+
+    /// <summary>Seconds navigation is held after a kill.</summary>
+    private const double PostKillNavigationLockSeconds = 3d;
+
+    /// <summary>
+    /// How long after the server closes an attack sequence the macro still
+    /// treats result text as belonging to that attack.
+    /// </summary>
+    private const double PhysicalResultTextTailSeconds = 2d;
+
+    private bool _physicalResultArmed;
+    private uint _physicalResultTargetId;
+    private string _physicalResultTargetName = string.Empty;
+    private double _physicalCompletedAt = double.NegativeInfinity;
+
+    private Action _suspendPass = static () => { };
+    private Action _resumePass = static () => { };
+    private bool _turnHoldsPass;
+    private uint _breakableTurnTargetId;
+
+    /// <summary>
+    /// Lets the controller freeze the whole rule pass while the character is
+    /// turning. Unbound (a controller-only rig) the hold is a no-op.
+    /// </summary>
+    internal void BindPassSuspension(Action suspend, Action resume)
+    {
+        _suspendPass = suspend ?? throw new ArgumentNullException(nameof(suspend));
+        _resumePass = resume ?? throw new ArgumentNullException(nameof(resume));
+    }
+
+    internal void BindActionLocks(ActionLockTable locks, Func<bool> lootingEnabled)
+    {
+        _actionLocks = locks ?? throw new ArgumentNullException(nameof(locks));
+        _lootingEnabled = lootingEnabled
+            ?? throw new ArgumentNullException(nameof(lootingEnabled));
+        _castTracker.BindActionLocks(_actionLocks);
+    }
+
+    /// <summary>
+    /// A killing blow lands: hold navigation off for the looting window. The
+    /// hold is conditional on looting being on, so a bot that never loots keeps
+    /// moving.
+    /// </summary>
+    private void ArmPostKillNavigationLock()
+    {
+        if (!_lootingEnabled())
+            return;
+        _actionLocks.Arm(
+            ActionLockKind.Navigation,
+            PostKillNavigationLockSeconds);
+    }
 
     private readonly SpellCastTracker _castTracker;
 
@@ -147,7 +333,7 @@ internal sealed class CombatController
             if (!equipment.IsAvailable || weapon == 0u)
                 return false;
             return ResolveAmmunitionPlan(
-                equipment.CaptureOwnedEquipment(),
+                PassEquipment(),
                 weapon,
                 element).Kind
                 != AmmunitionPlanKind.Satisfied;
@@ -157,8 +343,7 @@ internal sealed class CombatController
             IEquipmentAutomation equipment = _host.Automation.Equipment;
             if (!equipment.IsAvailable)
                 return false;
-            IReadOnlyList<PluginEquipmentItem> items =
-                equipment.CaptureOwnedEquipment();
+            IReadOnlyList<PluginEquipmentItem> items = PassEquipment();
             return TickAmmunition(items, _plannedWeapon, element);
         };
         return gate;
@@ -180,6 +365,7 @@ internal sealed class CombatController
         _pendingPhysicalTarget = 0u;
         _pendingAttackSpell = 0u;
         _pendingAttackTarget = 0u;
+        _lastTargetId = 0u;
         ClearPendingItemDebuff();
         _debuffs.ClearPending();
         Gate.Reset();
@@ -227,6 +413,7 @@ internal sealed class CombatController
         if (paused && Enabled)
         {
             _host.Automation.Combat.AbortPhysicalAttack();
+            DisarmPhysicalResultText();
             StopApproachMovement();
             StopBreakableTurnMovement();
             Status = "Paused for buffing";
@@ -254,7 +441,7 @@ internal sealed class CombatController
         return !TickEquipment();
     }
 
-    public void OnTick(double elapsedSeconds, bool navigationEnabled = true)
+    public void OnTick(double elapsedSeconds)
     {
         if (!Enabled)
             return;
@@ -264,7 +451,27 @@ internal sealed class CombatController
             return;
         }
         if (_paused)
+        {
+            // No turn this pass, so nothing new is started — but a HELD
+            // ITEM's cast is a transaction of its own: it began before this
+            // pass, it holds the item slot, and it finishes on its own clock
+            // whoever owns the pass meanwhile. It is watched to its end,
+            // including putting that slot down early.
+            //
+            // Only the held item is such a transaction. A weapon proc or a
+            // thrown one rides a physical swing, and losing the turn has just
+            // aborted that swing — advancing it here would release a swing
+            // that is no longer ours to release, including inside the very
+            // item window some other rule is holding the slot for.
+            _now += Math.Max(0d, elapsedSeconds);
+            if (_pendingItemDebuff is
+                { Source.Kind: CombatDebuffSourceKind.CasterItem })
+            {
+                ObserveItemTransaction();
+                TickPendingItemDebuff(_host.Automation.Combat.Snapshot);
+            }
             return;
+        }
         if (!_settings.Enabled)
         {
             if (_combatPolicySuspended)
@@ -289,11 +496,7 @@ internal sealed class CombatController
             Status = "Scanning for targets";
         }
 
-        _passElements.Clear();
-        _passDebuffSources.Clear();
-        _passDebuffSpells.Clear();
-        _passDeliverable.Clear();
-        _passEquipment = null;
+        ClearPassMemos();
 
         _lastElapsedSeconds = Math.Max(0d, elapsedSeconds);
         _now += _lastElapsedSeconds;
@@ -316,6 +519,7 @@ internal sealed class CombatController
 
         PluginCombatSnapshot current = _host.Automation.Combat.Snapshot;
         ObserveItemDebuffReceipts();
+        ObserveItemTransaction();
         ObserveAttackReceipts(current, castCompletion);
         if (current.Mode != _lastMode)
         {
@@ -323,21 +527,32 @@ internal sealed class CombatController
             _modeText = $"Mode  {current.Mode}";
         }
 
+        _untilGhostSweep -= Math.Max(0d, elapsedSeconds);
+        if (_untilGhostSweep <= 0d)
+        {
+            _untilGhostSweep = GhostSweepIntervalSeconds;
+            CheckStalledHealthGhost();
+        }
+
         _untilScan -= Math.Max(0d, elapsedSeconds);
         if (_untilScan <= 0d)
         {
-            double acquisitionRange = navigationEnabled
-                ? Math.Max(_settings.MaximumRange, _settings.ApproachDistance)
-                : _settings.MaximumRange;
-            _acquisitionRange = acquisitionRange;
+            // The attack's candidate pool is what the character can HIT. A
+            // monster it would have to walk to is not a candidate here at all
+            // — walking to one is a separate, much lower-priority job, so an
+            // unreachable monster must not starve everything below the attack.
+            _acquisitionRange = _settings.MaximumRange;
             _targets = _host.Automation.Combat.CaptureHostileTargets(
-                (float)acquisitionRange);
-            foreach (uint ghost in _failures.ObserveTargets(
-                _targets,
-                _now,
-                _settings))
+                (float)_acquisitionRange);
+            _failures.ObserveTargets(_targets, _now, _settings);
+            foreach (PluginCombatTarget scanned in _targets)
             {
-                DismissGhost(ghost);
+                _health.Observe(scanned, _now);
+                // A live monster is where the species word for its name comes
+                // from when the database does not list it.
+                _settings.MonsterFacts.Learn(
+                    scanned.SpeciesId,
+                    scanned.SpeciesName);
             }
             _debuffs.RetainTargets(
                 _targets.Select(static target => target.ObjectId).ToHashSet());
@@ -351,28 +566,126 @@ internal sealed class CombatController
             return;
         }
 
-        if (_targetId == 0u)
+        // One monster the character cannot act against must not cost the whole
+        // pass. When a decision turns out to be undeliverable, the monster's
+        // offending action column is turned off (or the monster is dropped
+        // outright) for the rest of THIS pass and the choice is made again
+        // from what is left, until something can be carried out or nothing is
+        // left to try.
+        // With the projectile awareness off there is nothing to learn from an
+        // undeliverable decision, so the pass gets one attempt: this coupling
+        // is the reference's, not a convenience.
+        int budget = _settings.UseProjectileAwareness
+            ? Math.Max(1, _settings.MaximumCollisionChecksPerTick)
+            : 1;
+        try
         {
-            StopApproachMovement();
-            Status = "Waiting for a target";
-            return;
+            RunAttackLoop(budget);
         }
-
-        if (_targetDistance > _settings.MaximumRange)
+        finally
         {
-            if (navigationEnabled
-                && _settings.ApproachDistance > _settings.MaximumRange
-                && _targetDistance <= _settings.ApproachDistance
-                && TickApproach())
+            // "The monster I picked last time" is a per-PASS memory, set once
+            // when the pass is over. Inside the loop the pass has no opinion
+            // yet, and the tie-break must not lose the term after the first
+            // attempt clears the target.
+            _lastTargetId = _targetId;
+        }
+    }
+
+    /// <summary>
+    /// Everything a pass learns and forgets again: what the character is
+    /// carrying, which flights are blocked, which action columns this pass
+    /// turned off, and the candidate pool built for one range. Both passes
+    /// that pick a monster start from an empty memory of all of it.
+    /// </summary>
+    private void ClearPassMemos()
+    {
+        _passElements.Clear();
+        _passDebuffSources.Clear();
+        _passDebuffSpells.Clear();
+        _passDeliverable.Clear();
+        _passComponents.Clear();
+        _passClearance.Clear();
+        _passAmmunitionAvailability = null;
+        _passInvalidTargets.Clear();
+        _passClearedActions.Clear();
+        _passCandidates.Clear();
+        _passCandidateRange = double.NaN;
+        _passEquipment = null;
+        _passInventory = null;
+    }
+
+    private void RunAttackLoop(int budget)
+    {
+        for (int attempt = 0; attempt < budget; attempt++)
+        {
+            // The debuff choice is remade from scratch every time the pass
+            // chooses again; what carries over between attempts is what the
+            // pass LEARNED — which flights are blocked and which columns are
+            // off.
+            _passDebuffSources.Clear();
+            if (attempt > 0)
+                RefreshTarget();
+
+            if (_targetId == 0u)
             {
+                StopApproachMovement();
+                Status = "Waiting for a target";
                 return;
             }
-
-            StopApproachMovement();
-            Status = $"{_targetName} is out of attack range";
-            return;
+            if (RunAttackAttempt() != AttackPassOutcome.Retry)
+            {
+                Log?.Invoke(
+                    MacroLogChannel.Timers,
+                    $"Attack evaluation complete. Loop iterations: {attempt + 1}");
+                return;
+            }
+            Log?.Invoke(
+                MacroLogChannel.RuleInfo,
+                $"Attack: {_targetName} yielded nothing this pass, choosing again");
+            ClearTarget();
         }
+        Log?.Invoke(
+            MacroLogChannel.Timers,
+            $"Attack evaluation complete. Loop iterations: {budget}");
+    }
+
+    /// <summary>
+    /// What one turn of the decision did with the pass.
+    /// </summary>
+    private enum AttackPassOutcome
+    {
+        /// <summary>Something was issued, or is being waited on.</summary>
+        Claimed,
+
+        /// <summary>
+        /// Nothing can be carried out against this monster; the pass should
+        /// choose again from what is left.
+        /// </summary>
+        Retry,
+    }
+
+    /// <summary>
+    /// The rule columns this one decision works from. A rolled element is
+    /// rolled ONCE per decision, before the debuff chain, so the vulnerability
+    /// the chain asks for and the spell the attack throws are the same element.
+    /// </summary>
+    private MonsterRuleActions DecisionActions =>
+        _decisionActions ?? PassActions;
+
+    /// <summary>
+    /// The target's rule as THIS pass sees it: the stored rule minus whatever
+    /// the pass has learned cannot be carried out.
+    /// </summary>
+    private MonsterRuleActions PassActions =>
+        WithPassClearedActions(_targetId, _targetRule).Actions;
+
+    private MonsterRuleActions? _decisionActions;
+
+    private AttackPassOutcome RunAttackAttempt()
+    {
         StopApproachMovement();
+        _decisionActions = ResolveRandomDamage(PassActions);
 
         if (_pets.Tick(
                 _host.Automation.Items,
@@ -381,51 +694,55 @@ internal sealed class CombatController
                 _settings,
                 _now,
                 out string petStatus,
-                readyToRefillInPeace: ReadyToActInPeace))
+                readyToRefillInPeace: ReadyToActInPeace,
+                captured: PassInventory()))
         {
             Status = petStatus;
-            return;
+            return AttackPassOutcome.Claimed;
         }
 
         PluginCombatSnapshot combat = _host.Automation.Combat.Snapshot;
-        if (TickDebuffs(combat))
-            return;
+        switch (TickDebuffs(combat))
+        {
+            case DebuffArmOutcome.Claimed:
+                return AttackPassOutcome.Claimed;
+            case DebuffArmOutcome.Retry:
+                return AttackPassOutcome.Retry;
+        }
 
         if (TickEquipment())
-            return;
+            return AttackPassOutcome.Claimed;
 
-        if (!_targetRule.Actions.Attacks && !_targetRule.Actions.UsesStreak)
+        if (!DecisionActions.Attacks && !DecisionActions.UsesStreak)
         {
             Status = $"Debuffs complete for {_targetName}";
-            return;
+            InvalidateForPass(_targetId);
+            return AttackPassOutcome.Retry;
         }
 
         if (!TryPrepareAttack())
-            return;
+            return AttackPassOutcome.Claimed;
 
         combat = _host.Automation.Combat.Snapshot;
 
         if (combat.Mode == PluginCombatMode.Magic)
-        {
-            TickMagic();
-            return;
-        }
+            return TickMagic();
 
         if (combat.Mode is not (PluginCombatMode.Melee or PluginCombatMode.Missile))
         {
             Status = $"Unsupported mode: {combat.Mode}";
-            return;
+            return AttackPassOutcome.Claimed;
         }
 
-        TickPhysical(combat);
+        return TickPhysical(combat);
     }
 
-    private void TickPhysical(PluginCombatSnapshot combat)
+    private AttackPassOutcome TickPhysical(PluginCombatSnapshot combat)
     {
         if (combat.ServerResponsePending || combat.RepeatAttackInProgress)
         {
             Status = $"Attacking {_targetName}";
-            return;
+            return AttackPassOutcome.Claimed;
         }
 
         if (combat.RequestInProgress)
@@ -444,14 +761,15 @@ internal sealed class CombatController
             {
                 Status = $"Charging {combat.PowerBarLevel * 100f:0}%";
             }
-            return;
+            return AttackPassOutcome.Claimed;
         }
 
         IReadOnlyList<PluginInventoryItem> inventory =
-            _host.Automation.Items.CaptureOwnedItems();
+            PassInventory();
+        PluginCombatTarget physicalTarget = FindTarget(_targetId);
         MonsterRuleActions physicalActions = ResolvePhysicalActions(
-            _targetRule.Actions,
-            FindTarget(_targetId),
+            DecisionActions,
+            physicalTarget,
             inventory);
         if (combat.Mode == PluginCombatMode.Missile
             && !ProjectilePathIsClear(
@@ -461,13 +779,27 @@ internal sealed class CombatController
                 out PluginProjectilePathResult missilePath))
         {
             Status = ProjectileStatus(missilePath, _targetName);
-            return;
+            // The shot cannot reach: this monster is not attackable this
+            // pass, so the choice is made again from what is left.
+            ClearActionsForPass(
+                _targetId,
+                MonsterActionFlags.Attack | MonsterActionFlags.Streak);
+            return AttackPassOutcome.Retry;
         }
+        // The power table reads the element the attack actually resolved to,
+        // so the bar and the wield plan cannot disagree. With the automatic
+        // power off nothing is written to the bar at all: the player's own
+        // setting stands.
         float desiredPower = AutoAttackPower.Resolve(
-            physicalActions,
-            _settings,
-            _host.Automation.Character,
-            inventory);
+                physicalActions,
+                ResolveAttackElement(physicalActions, physicalTarget),
+                _settings,
+                _host.Automation.Character,
+                inventory)
+            ?? combat.DesiredPower;
+        // Every arm tears the turn down before it issues: a swing and a turn
+        // both want the character, and the swing wins once it is armed.
+        StopBreakableTurnMovement();
         PluginCombatCommandResult begin =
             _host.Automation.Combat.BeginPhysicalAttack(
                 _targetId,
@@ -489,30 +821,34 @@ internal sealed class CombatController
         else if (begin.Status == PluginCombatCommandStatus.Started)
         {
             _pendingPhysicalTarget = _targetId;
-            _failures.BeginAttack(
-                _targetId,
-                FindTarget(_targetId).HealthRevision);
+            ArmPhysicalResultText(_targetId, _targetName);
         }
+        return AttackPassOutcome.Claimed;
     }
 
-    private void TickMagic()
+    private AttackPassOutcome TickMagic()
     {
         IMagicCommands magic = _host.Automation.Magic;
         if (magic.IsCasting)
         {
             Status = $"Casting at {_targetName}";
-            return;
+            return AttackPassOutcome.Claimed;
         }
 
         RefreshSpellCatalogs();
+        _planKeptTheMonsterInPlay = false;
         PluginCombatTarget target = FindTarget(_targetId);
-        MonsterRuleActions actions = ResolveRandomDamage(_targetRule.Actions);
+        MonsterRuleActions actions = DecisionActions;
         MonsterDamageType element = ResolveAttackElement(actions, target);
 
         if (actions.DamageType == MonsterDamageType.Fists
             && _attackCatalog.ResolveTuskerFists() is { } fists
             && IsUsableAttackSpell(target)(fists))
         {
+            // Fists is the one arm that turns whatever the turning option
+            // says, and it aims a shade off the monster's bearing.
+            if (!FaceForFists(_targetId))
+                return AttackPassOutcome.Claimed;
             CastAttackSpell(
                 new AttackSpellChoice(
                     fists,
@@ -520,7 +856,7 @@ internal sealed class CombatController
                     MonsterDamageType.Fists,
                     CastWithoutTarget: false),
                 target);
-            return;
+            return AttackPassOutcome.Claimed;
         }
 
         bool flag3 = actions.UsesPrimaryAttack;                 // !a10.t
@@ -538,10 +874,13 @@ internal sealed class CombatController
         }
         else if ((flag3 && !flag5) || (!flag3 && !flag5 && flag4))
         {
-            // hi.cs:241-257 — the ordinary attack arm.
             plan = element == MonsterDamageType.DrainAuto
                 ? PlanDrain(target, ring: false)
-                : PlanBoltOrArc(element, target);
+                // A rolled element names its war spell outright instead of
+                // walking the tiers, and what it names is the first rung.
+                : _targetRule.Actions.DamageType == MonsterDamageType.Random
+                    ? PlanRolledWar(element)
+                    : PlanBoltOrArc(element, target);
         }
         else if (!flag3 && flag5)
         {
@@ -555,7 +894,10 @@ internal sealed class CombatController
             if (!flag3 || !flag5)
             {
                 Status = $"No attack configured for {_targetName}";
-                return;
+                // No action was decided at all: this monster is out of the
+                // running for the rest of the pass.
+                InvalidateForPass(_targetId);
+                return AttackPassOutcome.Retry;
             }
             if (element == MonsterDamageType.DrainAuto)
             {
@@ -573,29 +915,78 @@ internal sealed class CombatController
         if (plan is not { } chosen)
         {
             Status ??= "No usable attack spell";
-            return;
+            // No action could be decided at all, so the monster is out of the
+            // running for the rest of the pass — unless a planner turned a
+            // column off and left something else it might still be owed.
+            if (!_planKeptTheMonsterInPlay)
+                InvalidateForPass(_targetId);
+            return AttackPassOutcome.Retry;
         }
+
+        // A streak flies the way a bolt flies, so it is tested the way a bolt
+        // is tested. Without this a streak is cast into a wall over and over
+        // and the pass never learns the monster is unreachable.
+        if (chosen.Type == VtankCombatSpellType.Streak
+            && !ProjectilePathIsClear(
+                _targetId,
+                PluginProjectilePathKind.Straight,
+                PluginAttackHeight.Medium,
+                out PluginProjectilePathResult streakPath))
+        {
+            Status = ProjectileStatus(streakPath, _targetName);
+            MonsterActionFlags off = MonsterActionFlags.Streak;
+            // Nothing straight can reach it, and the arc could not either:
+            // the attack column goes off with the streak column.
+            if (!KnownClear(_targetId, PluginProjectilePathKind.Arc))
+                off |= MonsterActionFlags.Attack;
+            ClearActionsForPass(_targetId, off);
+            return AttackPassOutcome.Retry;
+        }
+
         CastAttackSpell(chosen, target);
+        return AttackPassOutcome.Claimed;
     }
 
+    /// <summary>
+    /// The war spell a rolled element throws: the family's first rung, named
+    /// outright rather than walked for the best the character can cast.
+    /// </summary>
+    private AttackSpellChoice? PlanRolledWar(MonsterDamageType element) =>
+        _attackCatalog.ResolveBaseTier(element, VtankCombatSpellType.War)
+            is { } spell
+            ? new AttackSpellChoice(
+                spell,
+                VtankCombatSpellType.War,
+                element,
+                CastWithoutTarget: false)
+            : null;
+
+    /// <summary>
+    /// The ring arm. Unlike every other arm it is admitted on ONE question —
+    /// are the components for the family's first rung in the pack — with no
+    /// skill or castability test; the rung actually thrown is the best the
+    /// character can cast, and when that is nothing the cast is refused where
+    /// every other refusal is reported.
+    /// </summary>
     private AttackSpellChoice? PlanRing(
         MonsterDamageType element,
         in PluginCombatTarget target)
     {
-        PluginSpellInfo? ring = _attackCatalog.Resolve(
+        if (_attackCatalog.ResolveBaseTier(element, VtankCombatSpellType.Ring)
+            is not { } family
+            || !HasCastingComponents(family.SpellId))
+        {
+            return null;
+        }
+        PluginSpellInfo spell = _attackCatalog.Resolve(
             element,
             VtankCombatSpellType.Ring,
-            IsUsableAttackSpell(target));
-        if (ring is not { } spell)
-            return null;
-        return _host.Automation.Magic.EvaluateGate(spell.SpellId)
-            is PluginCastGate.Ready or PluginCastGate.Busy
-            ? new AttackSpellChoice(
-                spell,
-                VtankCombatSpellType.Ring,
-                element,
-                CastWithoutTarget: true)
-            : null;
+            IsUsableAttackSpell(target)) ?? family;
+        return new AttackSpellChoice(
+            spell,
+            VtankCombatSpellType.Ring,
+            element,
+            CastWithoutTarget: true);
     }
 
     /// <summary>
@@ -632,26 +1023,38 @@ internal sealed class CombatController
         return PlanBoltOrArc(element, target);
     }
 
-    private static bool IsFinishingBlow(
+    /// <summary>
+    /// Is the monster hurt enough for the streak to be the finishing move?
+    /// The bar is set by the size of the LAST blow, not by the streak's own
+    /// difficulty — a character hitting for 200 finishes far earlier than one
+    /// hitting for 20 — and the difficulty is only the stand-in until a real
+    /// blow has been seen.
+    /// </summary>
+    private bool IsFinishingBlow(
         in PluginCombatTarget target,
         AttackSpellChoice? streak)
     {
         if (streak is not { } choice)
             return false;
-        if (!target.IsHealthKnown || target.MaximumHealth <= 0)
-            return false;
-        int remaining = (int)Math.Round(
-            target.HealthFraction * target.MaximumHealth);
-        int threshold = choice.Spell.Difficulty / 7;
-        return remaining > 0 && remaining < threshold;
+        int threshold = _health.LastDamage <= 0
+            ? choice.Spell.Difficulty / 7
+            : _health.LastDamage / 7;
+        int remaining = _health.RemainingHealth;
+        return _health.TargetObjectId == target.ObjectId
+            && remaining > 0
+            && remaining < threshold;
     }
 
     private AttackSpellChoice? PlanBoltOrArc(
         MonsterDamageType element,
         in PluginCombatTarget target)
     {
-        bool boltBlocked = false;   // f7.a.c
-        bool arcBlocked = false;    // f7.a.b
+        // These two are the decision's own record of which shape it has just
+        // found blocked. They deliberately do NOT start from what the pass
+        // learned earlier: a shape is offered once per decision and ruled out
+        // by its own test, exactly as the reference macro does it.
+        bool boltBlocked = false;
+        bool arcBlocked = false;
         string? projectileRefusal = null;
         Func<PluginSpellInfo, bool> usable = IsUsableAttackSpell(target);
         for (int attempt = 0; attempt < 3; attempt++)
@@ -723,23 +1126,40 @@ internal sealed class CombatController
                 }
             }
 
+            bool arcShape = type == VtankCombatSpellType.Arc;
+            PluginProjectilePathKind shape = arcShape
+                ? PluginProjectilePathKind.Arc
+                : PluginProjectilePathKind.Straight;
             if (spell.IsProjectile
                 && !ProjectilePathIsClear(
                     _targetId,
-                    type == VtankCombatSpellType.Arc
-                        ? PluginProjectilePathKind.Arc
-                        : PluginProjectilePathKind.Straight,
-                    _settings.AttackHeight,
+                    shape,
+                    HeightForShape(shape),
                     out PluginProjectilePathResult path))
             {
                 projectileRefusal = ProjectileStatus(path, _targetName);
                 Status = projectileRefusal;
-                if (type == VtankCombatSpellType.Arc)
+                if (arcShape)
+                {
                     arcBlocked = true;
+                }
                 else
+                {
                     boltBlocked = true;
+                    // A streak flies the same way a bolt does, so a bolt that
+                    // cannot reach settles the streak too.
+                    ClearActionsForPass(_targetId, MonsterActionFlags.Streak);
+                }
                 if (arcBlocked && boltBlocked)
+                {
+                    // Neither shape can reach: the attack column is off for
+                    // this monster for the rest of the pass. The monster is
+                    // NOT out of the running — a debuff or a ring may still be
+                    // owed against it.
+                    ClearActionsForPass(_targetId, MonsterActionFlags.Attack);
+                    _planKeptTheMonsterInPlay = true;
                     return null;
+                }
                 continue;
             }
             return new AttackSpellChoice(
@@ -751,26 +1171,77 @@ internal sealed class CombatController
         return null;
     }
 
+    /// <summary>
+    /// A void caster's drain arm. The pick is not a preference list: it is the
+    /// first step of the cheapest sequence of drains, martyrs and self-heals
+    /// that finishes this monster off without dropping the caster below the
+    /// health the recharge settings call normal.
+    /// </summary>
     private AttackSpellChoice? PlanDrain(
         in PluginCombatTarget target,
         bool ring)
     {
-        Func<PluginSpellInfo, bool> usable = IsUsableAttackSpell(target);
+        if (_health.TargetObjectId != target.ObjectId)
+            return null;
         ICharacterInfo character = _host.Automation.Character;
-        bool needsHealth = character.MaxHealth != 0u
-            && character.CurrentHealth / (double)character.MaxHealth < 0.75d;
-        string[] order = needsHealth
-            ? ["Drain Health Other", "Martyr's Hecatomb", "Harm Other"]
-            : ["Martyr's Hecatomb", "Drain Health Other", "Harm Other"];
-        foreach (string family in order)
+        int health = (int)Math.Min(int.MaxValue, character.CurrentHealth);
+        int maximumHealth = (int)Math.Min(int.MaxValue, character.MaxHealth);
+        int targetHealth = _health.RemainingHealth;
+        if (health == 0 || maximumHealth == 0 || targetHealth == 0)
+            return null;
+        // One point below the health the recharge rule calls normal, so a plan
+        // that lands exactly on the threshold still counts as safe.
+        int floor = (int)Math.Ceiling(
+            maximumHealth * Math.Clamp(_vitalSettings.NormalHealth, 0d, 1d)) - 1;
+        // A monster nothing magical can touch cannot be drained, and neither
+        // can one whose health is not a knowable number.
+        bool canDrain = !_settings.MonsterFacts.IsImmuneToMagic(target.Name)
+            && targetHealth != int.MaxValue;
+
+        PluginCombatTarget planTarget = target;
+        Func<PluginSpellInfo, bool> usable = IsUsableAttackSpell(planTarget);
+        uint spellId = CorpseDrainPlan.SelectSpell(
+            health,
+            maximumHealth,
+            floor,
+            targetHealth,
+            canDrain,
+            ring,
+            _gameInfo.DrainSpellOptions,
+            _gameInfo.MartyrSpellOptions,
+            candidate => FindKnownSpell(candidate) is { } spell
+                && usable(spell));
+        if (spellId == 0u || FindKnownSpell(spellId) is not { } chosen)
         {
-            if (_attackCatalog.ResolveFamily(family, usable) is not { } spell)
-                continue;
-            return new AttackSpellChoice(
-                spell,
-                ring ? VtankCombatSpellType.Ring : VtankCombatSpellType.War,
-                MonsterDamageType.DrainAuto,
-                CastWithoutTarget: false);
+            Log?.Invoke(
+                MacroLogChannel.DebuffChoice,
+                $"Drain: nothing better than a heal against {target.Name}");
+            return null;
+        }
+        Log?.Invoke(
+            MacroLogChannel.DebuffChoice,
+            $"Drain: {chosen.Name} ({targetHealth} left, floor {floor})");
+        return new AttackSpellChoice(
+            chosen,
+            ring ? VtankCombatSpellType.Ring : VtankCombatSpellType.War,
+            MonsterDamageType.DrainAuto,
+            CastWithoutTarget: false);
+    }
+
+    /// <summary>A spell of the character's own, by id.</summary>
+    private PluginSpellInfo? FindKnownSpell(uint spellId)
+    {
+        if (spellId == 0u)
+            return null;
+        foreach (PluginSpellInfo spell in _host.Automation.Spells.KnownCombatSpells)
+        {
+            if (spell.SpellId == spellId)
+                return spell;
+        }
+        foreach (PluginSpellInfo spell in _host.Automation.Spells.KnownAttackSpells)
+        {
+            if (spell.SpellId == spellId)
+                return spell;
         }
         return null;
     }
@@ -781,7 +1252,22 @@ internal sealed class CombatController
                 _host.Automation.Spells,
                 spell,
                 _settings.BlacklistedSpellComponents)
-            && CanCastHuntSpell(spell, target);
+            && HasCastingComponents(spell.SpellId)
+            && CanCastHuntSpell(spell);
+
+    /// <summary>
+    /// A tier the pack cannot pay for is not a candidate. Without this the
+    /// pick lands on the best spell known, the client refuses the cast, and
+    /// the next pass picks the same spell again.
+    /// </summary>
+    private bool HasCastingComponents(uint spellId)
+    {
+        if (_passComponents.TryGetValue(spellId, out bool cached))
+            return cached;
+        bool answer = _host.Automation.Magic.HasComponents(spellId);
+        _passComponents[spellId] = answer;
+        return answer;
+    }
 
     /// <summary>VTank's own element word in its warning text (<c>f3.a</c>).</summary>
     private static string ElementName(MonsterDamageType element) => element switch
@@ -806,6 +1292,13 @@ internal sealed class CombatController
         in PluginCombatTarget target)
     {
         IMagicCommands magic = _host.Automation.Magic;
+        // Finishing a cast of one attack school holds the other off for a few
+        // seconds; a hybrid that fires inside that window is simply refused.
+        if (_castTracker.IsSchoolLockedOut(choice.Spell.School))
+        {
+            Status = $"Waiting to cast at {_targetName}";
+            return;
+        }
         if (!choice.CastWithoutTarget
             && !ReadyForBreakableTurn(choice.Spell, _targetId))
         {
@@ -821,14 +1314,21 @@ internal sealed class CombatController
                 : $"Cannot cast {choice.Spell.Name}";
             return;
         }
+        // A swing and a cast both want the character. Every magic arm tears
+        // the swing loop down before it issues, so a leftover physical attack
+        // cannot keep running underneath the cast.
+        if (_physicalResultArmed || _pendingPhysicalTarget != 0u)
+        {
+            _host.Automation.Combat.AbortPhysicalAttack();
+            DisarmPhysicalResultText();
+            _pendingPhysicalTarget = 0u;
+        }
         long issueRevision = magic.LastCompletion.Revision;
         bool dispatched = choice.CastWithoutTarget
             ? magic.Cast(choice.Spell.SpellId)
             : magic.Cast(choice.Spell.SpellId, _targetId);
         if (!dispatched)
         {
-            if (_failures.RecordSpellDidNotStart(_targetId, _settings))
-                DismissGhost(_targetId);
             Status = $"Could not start {choice.Spell.Name}";
             return;
         }
@@ -852,13 +1352,17 @@ internal sealed class CombatController
                 : selfCast ? "yourself" : _targetName,
             HitsMultipleTargets(choice.Spell),
             issueRevision,
-            choice.Spell.Saying);
+            choice.Spell.Saying,
+            choice.Spell.School,
+            SpellCastTracker.CanKillFor(choice.Spell),
+            checked((int)Math.Min(
+                int.MaxValue,
+                _host.Automation.Character.CurrentMana)));
         Log?.Invoke(MacroLogChannel.CastInfo, "SpellCaster: Begin");
         if (!choice.CastWithoutTarget)
         {
             _pendingAttackSpell = choice.Spell.SpellId;
             _pendingAttackTarget = _targetId;
-            _failures.BeginAttack(_targetId, target.HealthRevision);
         }
     }
 
@@ -872,17 +1376,13 @@ internal sealed class CombatController
         return actions with { DamageType = damage };
     }
 
-    private bool CanCastHuntSpell(
-        in PluginSpellInfo spell,
-        in PluginCombatTarget target)
+    /// <summary>
+    /// The skill margin the attack-spell tier walk asks for. Range is
+    /// deliberately NOT part of this: the attack pick never asks how far a
+    /// spell reaches — only the debuff choice does.
+    /// </summary>
+    private bool CanCastHuntSpell(in PluginSpellInfo spell)
     {
-        if (SpellComponentPolicy.UsesBlacklistedComponent(
-                _host.Automation.Spells,
-                spell,
-                _settings.BlacklistedSpellComponents))
-        {
-            return false;
-        }
         if (spell.School == 0u
             || !_host.Automation.Character.TryGetSkill(
                 spell.School,
@@ -890,33 +1390,20 @@ internal sealed class CombatController
         {
             return true;
         }
-        if (skill.Current < spell.Difficulty
-            + _settings.HuntSkillExcessOverDifficulty)
-        {
-            return false;
-        }
-
-        float maximumRange = spell.BaseRangeConstant
-            + (spell.BaseRangeModifier * skill.Current)
-            - (float)_settings.SpellRangeFudge;
-        return maximumRange <= 0f
-            || target.ObjectId == 0u
-            || target.Distance <= MathF.Min(75f, maximumRange);
+        return skill.Current >= spell.Difficulty
+            + _settings.HuntSkillExcessOverDifficulty;
     }
 
-    private int CountNearbyRingTargets()
-    {
-        int count = 0;
-        foreach (PluginCombatTarget target in _targets)
-        {
-            if (target.Distance > _settings.RingDistance)
-                continue;
-            ResolvedMonsterRule resolved = _settings.ResolveRule(target);
-            if (resolved.Priority >= 0 && resolved.Actions.UsesRing)
-                count++;
-        }
-        return count;
-    }
+    /// <summary>
+    /// How many monsters a ring would actually catch. Only monsters the pass
+    /// has accepted as candidates are counted — one that is blacklisted, too
+    /// near, ignored, or refusing to be attacked before it is debuffed is not
+    /// going to be hit and must not push the tally over the threshold — and
+    /// the ring boundary itself is outside the ring.
+    /// </summary>
+    private int _ringCandidateCount;
+
+    private int CountNearbyRingTargets() => _ringCandidateCount;
 
     private bool TickEquipment()
     {
@@ -938,18 +1425,27 @@ internal sealed class CombatController
             return true;
         }
 
-        IReadOnlyList<PluginEquipmentItem> items =
-            equipment.CaptureOwnedEquipment();
-        uint desiredWeapon = ResolveEquipmentObjectId(
-            actions.WeaponObjectId,
-            actions.WeaponName,
-            items);
-        if (desiredWeapon == 0u)
+        IReadOnlyList<PluginEquipmentItem> items = PassEquipment();
+        uint desiredWeapon;
+        if (actions.WeaponToUseRaw == 0)
         {
-            desiredWeapon = SelectAutomaticWeapon(
-                items,
-                ResolveAttackElement(actions, FindTarget(_targetId)),
-                _settings);
+            // A weapon column spelled as zero means "no weapon": the rule
+            // wants a wand, and nothing is auto-selected for it.
+            desiredWeapon = 0u;
+        }
+        else
+        {
+            desiredWeapon = ResolveEquipmentObjectId(
+                actions.WeaponObjectId,
+                actions.WeaponName,
+                items);
+            if (desiredWeapon == 0u)
+            {
+                desiredWeapon = SelectAutomaticWeapon(
+                    items,
+                    actions,
+                    FindTarget(_targetId));
+            }
         }
         _plannedWeapon = desiredWeapon;
 
@@ -1025,7 +1521,7 @@ internal sealed class CombatController
         }
 
         IReadOnlyList<PluginInventoryItem> inventory =
-            _host.Automation.Items.CaptureOwnedItems();
+            PassInventory();
         var counts = inventory
             .GroupBy(static item => item.Name, StringComparer.OrdinalIgnoreCase)
             .ToDictionary(
@@ -1066,10 +1562,16 @@ internal sealed class CombatController
         }
 
         // bv.cs:156-162 — the wielded stack already IS the winning row.
+        // The stack already in the quiver only satisfies the row while it
+        // still holds something: an empty quiver of the right name is not
+        // ammunition.
         PluginEquipmentItem currentAmmo = equipmentItems.FirstOrDefault(
             static item => item.CombatUse == 3 && item.IsEquipped);
-        if (string.Equals(currentAmmo.Name, option.Name, StringComparison.Ordinal))
+        if (currentAmmo.StackSize > 0
+            && string.Equals(currentAmmo.Name, option.Name, StringComparison.Ordinal))
+        {
             return AmmunitionPlan.Satisfied;
+        }
 
         PluginEquipmentItem desiredAmmo = equipmentItems.FirstOrDefault(
             item => item.Name.Equals(option.Name, StringComparison.Ordinal)
@@ -1166,18 +1668,16 @@ internal sealed class CombatController
 
     private bool TryPrepareAttack()
     {
+        // The plan is Magic until an owned item backs it. Without an
+        // equipment projection nothing can back it, but the combat mode is
+        // still a hard requirement: answering "ready" here would let the pass
+        // try to swing or cast out of peace mode and quietly do nothing.
         IEquipmentAutomation equipment = _host.Automation.Equipment;
-        if (!equipment.IsAvailable)
-        {
-            return true;
-        }
-
-        // hi.cs:579-583. The plan is Magic until an owned item backs it.
         PluginCombatMode wanted = PluginCombatMode.Magic;
         uint plannedWeapon = 0u;
-        if (_plannedWeapon != 0u)
+        if (_plannedWeapon != 0u && equipment.IsAvailable)
         {
-            foreach (PluginEquipmentItem item in equipment.CaptureOwnedEquipment())
+            foreach (PluginEquipmentItem item in PassEquipment())
             {
                 if (item.ObjectId != _plannedWeapon)
                     continue;
@@ -1193,7 +1693,8 @@ internal sealed class CombatController
                 autoSelect: plannedWeapon == 0u,
                 element: _targetRule.Rule is null
                     ? MonsterDamageType.None
-                    : _targetRule.Actions.DamageType))
+                    : _targetRule.Actions.DamageType,
+                captured: PassEquipment()))
         {
             return true;
         }
@@ -1240,37 +1741,92 @@ internal sealed class CombatController
         return false;
     }
 
-    private static uint SelectAutomaticWeapon(
+    /// <summary>
+    /// The weapon automatic selection reaches for against this monster.
+    /// </summary>
+    private uint SelectAutomaticWeapon(
         IReadOnlyList<PluginEquipmentItem> items,
-        MonsterDamageType damageType,
-        CombatSettings settings)
+        MonsterRuleActions actions,
+        in PluginCombatTarget target)
     {
-        const uint weaponReadyMask = 0x03500000u;
-        int rawDamage = RawDamageType(damageType);
-        PluginEquipmentItem? best = null;
-        foreach (PluginEquipmentItem item in items)
-        {
-            if (!settings.CombatItemObjectIds.Contains(item.ObjectId)
-                && !settings.CombatItemNames.Contains(item.Name))
-            {
-                continue;
-            }
-            if ((item.ValidLocations & weaponReadyMask) == 0u
-                || rawDamage == 0
-                || (item.DamageType & rawDamage) == 0)
-            {
-                continue;
-            }
-            if (best is null
-                || item.Damage > best.Value.Damage
-                || (item.Damage == best.Value.Damage
-                    && item.IsEquipped
-                    && !best.Value.IsEquipped))
-            {
-                best = item;
-            }
-        }
-        return best?.ObjectId ?? 0u;
+        // An automatic rule wants whatever the monster is weak to; a rule that
+        // spells its element out wants only that one.
+        IReadOnlyList<MonsterDamageType> wanted =
+            actions.DamageType is MonsterDamageType.Auto
+                or MonsterDamageType.Prismatic
+                ? _gameInfo.DamagePreferences(target.Name)
+                : [actions.DamageType];
+        PluginCombatTarget subject = target;
+        ICharacterInfo character = _host.Automation.Character;
+        return VtankWeaponLadder.Select(
+            items,
+            item => _settings.CombatItemObjectIds.Contains(item.ObjectId)
+                || _settings.CombatItemNames.Contains(item.Name),
+            wanted,
+            SpeciesOf(in subject),
+            (item, element) => CanWeaponDeliver(in item, element),
+            element => IsAlreadyVulnerable(in subject, element),
+            warTrained: IsTrained(character, WarMagicSkill),
+            voidTrained: IsTrained(character, VoidMagicSkill),
+            excludeObjectId: actions.OffhandObjectId);
+    }
+
+    /// <summary>
+    /// The monster's species, or -1 when the game-info database does not name
+    /// it — which no weapon's slayer type can match.
+    /// </summary>
+    private int SpeciesOf(in PluginCombatTarget target)
+    {
+        if (target.SpeciesId > 0)
+            return target.SpeciesId;
+        return _gameInfo.SpeciesMembers.TryGetValue(
+            target.Name ?? string.Empty,
+            out VtankSpeciesMember member)
+            ? member.Species
+            : -1;
+    }
+
+    private bool IsAlreadyVulnerable(
+        in PluginCombatTarget target,
+        MonsterDamageType element)
+    {
+        var identity = new DebuffIdentity(
+            MonsterActionFlags.Vulnerability,
+            element);
+        if (FindDebuffSpell(identity) is not { } vulnerability)
+            return false;
+        // "Still up in half a second's time", which is the same question as
+        // "not due within half a second".
+        return !_debuffs.IsDue(
+            target.ObjectId,
+            identity,
+            vulnerability,
+            _now,
+            0.5d);
+    }
+
+    private bool CanWeaponDeliver(
+        in PluginEquipmentItem item,
+        MonsterDamageType element)
+    {
+        int launcherType = VtankAmmunitionDatabase.LauncherType(item.AmmoType);
+        if (launcherType == 0)
+            return true;
+        (MonsterDamageType, uint) key = (element, item.ObjectId);
+        if (_passDeliverable.TryGetValue(key, out bool cached))
+            return cached;
+        bool deliverable = VtankAmmunitionDatabase.Select(
+            _gameInfo.AmmunitionOptions.Count > 0
+                ? _gameInfo.AmmunitionOptions
+                : VtankAmmunitionDatabase.Options,
+            launcherType,
+            element,
+            VtankPrismaticAmmoPolicy.Any,
+            _settings.UseSpecialAmmo,
+            _host.Automation.Character,
+            AmmunitionAvailability()) is not null;
+        _passDeliverable[key] = deliverable;
+        return deliverable;
     }
 
     private static int RawDamageType(MonsterDamageType damageType) =>
@@ -1287,54 +1843,72 @@ internal sealed class CombatController
             _ => 0,
         };
 
-    private bool TickDebuffs(PluginCombatSnapshot combat)
+    /// <summary>
+    /// The debuff arm of one decision.
+    /// </summary>
+    /// <returns>
+    /// What the arm did with the pass: nothing (fall through to the attack),
+    /// claimed it, or turned a debuff column off — in which case the whole
+    /// choice is made again, because a monster whose chain just lost a step
+    /// may no longer be the one worth acting on.
+    /// </returns>
+    private DebuffArmOutcome TickDebuffs(PluginCombatSnapshot combat)
     {
         if (_debuffs.HasPending)
         {
             Status = _host.Automation.Magic.IsCasting
                 ? $"Casting {_debuffs.PendingName}"
                 : $"Waiting for {_debuffs.PendingName}";
-            return true;
+            return DebuffArmOutcome.Claimed;
         }
 
         RefreshSpellCatalogs();
         IReadOnlyList<PluginInventoryItem> items =
-            _host.Automation.Items.CaptureOwnedItems();
+            PassInventory();
         PluginCombatTarget target = FindTarget(_targetId);
         if (target.ObjectId == 0u)
-            return false;
+            return DebuffArmOutcome.Idle;
 
-        MonsterRuleActions actions = _targetRule.Actions;
+        MonsterRuleActions actions = DecisionActions;
         IReadOnlyList<CombatDebuffStep> steps = CombatDebuffChain.Build(
             actions,
             ResolveAttackElement(actions, target),
             ResolveExtraVulnerability(actions, target));
 
-        var suppressed = new List<DebuffIdentity>();
-        for (int attempt = 0; attempt <= steps.Count; attempt++)
+        if (CombatDebuffChain.Choose(
+                steps,
+                step => IsDebuffStepDue(step, in target, items))
+            is not { } due)
         {
-            if (CombatDebuffChain.Choose(
-                    steps,
-                    step => !suppressed.Contains(step.Identity)
-                        && IsDebuffStepDue(step, target.ObjectId, items))
-                is not { } due)
-            {
-                return false;
-            }
-            DebuffPassResult result = TickDebuffStep(
-                due,
-                actions,
-                target,
-                combat,
-                items);
-            if (result == DebuffPassResult.ColumnDisabled)
-            {
-                suppressed.Add(due.Identity);
-                continue;
-            }
-            return result == DebuffPassResult.Claimed;
+            return DebuffArmOutcome.Idle;
         }
-        return false;
+        DebuffPassResult result = TickDebuffStep(
+            due,
+            actions,
+            target,
+            combat,
+            items);
+        if (result != DebuffPassResult.ColumnDisabled)
+        {
+            return result == DebuffPassResult.Claimed
+                ? DebuffArmOutcome.Claimed
+                : DebuffArmOutcome.Idle;
+        }
+
+        // The step cannot be delivered: its column goes off for the rest of
+        // this pass and the whole choice is made again, rather than walking
+        // on to the next step against a monster that may no longer be the one
+        // worth acting on.
+        ClearActionsForPass(_targetId, due.Identity.Flag);
+        return DebuffArmOutcome.Retry;
+    }
+
+    /// <summary>What the debuff arm did with the pass.</summary>
+    private enum DebuffArmOutcome
+    {
+        Idle,
+        Claimed,
+        Retry,
     }
 
     /// <summary>
@@ -1357,96 +1931,155 @@ internal sealed class CombatController
         PluginCombatSnapshot combat,
         IReadOnlyList<PluginInventoryItem> items)
     {
-        IReadOnlyList<CombatDebuffSource> choices = DebuffSources(
-            due.Identity,
-            items,
-            message => Log?.Invoke(MacroLogChannel.DebuffChoice, message));
-
-        foreach (CombatDebuffSource choice in choices)
+        CombatDebuffSource choice;
+        while (true)
         {
-            if (SpellComponentPolicy.UsesBlacklistedComponent(
-                    _host.Automation.Spells,
-                    choice.Spell,
-                    _settings.BlacklistedSpellComponents))
+            if (ChooseDebuffSource(
+                    due.Identity,
+                    in target,
+                    items,
+                    message => Log?.Invoke(MacroLogChannel.DebuffChoice, message))
+                is not { } winner)
             {
-                continue;
+                return DebuffPassResult.Idle;
             }
-            if (!ReadyForBreakableTurn(choice.Spell, target.ObjectId))
-                return DebuffPassResult.Claimed;
-            if (choice.Spell.IsProjectile
-                && !ProjectilePathIsClear(
+            if (winner.PathKind is not { } shape
+                || ProjectilePathIsClear(
                     target.ObjectId,
-                    choice.Spell.Name.Contains(
-                        " Arc",
-                        StringComparison.OrdinalIgnoreCase)
-                        ? PluginProjectilePathKind.Arc
-                        : choice.Kind is CombatDebuffSourceKind.Grenade
-                            or CombatDebuffSourceKind.ProcWeapon
-                            ? PluginProjectilePathKind.Missile
-                            : PluginProjectilePathKind.Straight,
-                    PluginAttackHeight.Medium,
+                    shape,
+                    HeightForShape(shape),
                     out PluginProjectilePathResult debuffPath))
             {
-                Status = ProjectileStatus(debuffPath, target.Name);
-                if (_settings.AllowDebuffFallback)
-                    continue;
+                choice = winner;
+                break;
+            }
+            Status = ProjectileStatus(debuffPath, target.Name);
+            // Without the fallback the winner stands and its column goes off
+            // for the pass. With it, the shape is now a KNOWN-blocked one, so
+            // the choice made again lands on the next-best source.
+            if (!_settings.AllowDebuffFallback)
                 return DebuffPassResult.ColumnDisabled;
-            }
-            if (choice.Kind != CombatDebuffSourceKind.LearnedSpell)
-            {
-                DebuffStartResult itemResult = TryStartItemDebuff(
-                    choice,
-                    target,
-                    combat,
-                    items,
-                    ResolveInventoryObjectId(
-                        actions.OffhandObjectId,
-                        actions.OffhandName,
-                        items));
-                if (itemResult == DebuffStartResult.Handled)
-                    return DebuffPassResult.Claimed;
-                continue;
-            }
-
-            if (combat.Mode != PluginCombatMode.Magic)
-            {
-                EnterDebuffMode(PluginCombatMode.Magic);
-                return DebuffPassResult.Claimed;
-            }
-            PluginCastGate gate = _host.Automation.Magic.EvaluateGate(
-                choice.Spell.SpellId,
-                target.ObjectId);
-            if (gate == PluginCastGate.Busy)
-            {
-                Status = "Waiting to debuff";
-                return DebuffPassResult.Claimed;
-            }
-            if (gate != PluginCastGate.Ready
-                || !_host.Automation.Magic.Cast(
-                    choice.Spell.SpellId,
-                    target.ObjectId))
-            {
-                continue;
-            }
-
-            _debuffs.Begin(
-                target.ObjectId,
-                choice.Identity,
-                choice.Spell,
-                _now,
-                _host.Automation.Magic.LastCompletion.Revision);
-            string targetName = string.IsNullOrWhiteSpace(target.Name)
-                ? $"0x{target.ObjectId:X8}"
-                : target.Name;
-            Log?.Invoke(
-                MacroLogChannel.SpellCast,
-                $"Casting: {choice.Spell.Name} on {target.ObjectId} ({targetName})");
-            Status = $"{choice.Spell.Name} → {targetName}";
-            return DebuffPassResult.Claimed;
         }
 
-        return DebuffPassResult.Idle;
+        if (SpellComponentPolicy.UsesBlacklistedComponent(
+                _host.Automation.Spells,
+                choice.Spell,
+                _settings.BlacklistedSpellComponents))
+        {
+            return DebuffPassResult.Idle;
+        }
+        if (!ReadyForBreakableTurn(choice.Spell, target.ObjectId))
+            return DebuffPassResult.Claimed;
+        if (choice.Kind != CombatDebuffSourceKind.LearnedSpell)
+        {
+            DebuffStartResult itemResult = TryStartItemDebuff(
+                choice,
+                target,
+                combat,
+                items,
+                ResolveInventoryObjectId(
+                    actions.OffhandObjectId,
+                    actions.OffhandName,
+                    items));
+            return itemResult == DebuffStartResult.Handled
+                ? DebuffPassResult.Claimed
+                : DebuffPassResult.Idle;
+        }
+
+        // A learned debuff is cast from a wand, not from whatever the last
+        // swing left in hand: the full wield gate runs first, so the wand's
+        // own spellcraft and mana are what pay for the debuff.
+        if (!PrepareForLearnedDebuff(actions, in target, items))
+            return DebuffPassResult.Claimed;
+
+        PluginCastGate gate = _host.Automation.Magic.EvaluateGate(
+            choice.Spell.SpellId,
+            target.ObjectId);
+        if (gate == PluginCastGate.Busy)
+        {
+            Status = "Waiting to debuff";
+            return DebuffPassResult.Claimed;
+        }
+        if (gate != PluginCastGate.Ready
+            || !_host.Automation.Magic.Cast(
+                choice.Spell.SpellId,
+                target.ObjectId))
+        {
+            return DebuffPassResult.Idle;
+        }
+
+        _debuffs.Begin(
+            target.ObjectId,
+            choice.Identity,
+            choice.Spell,
+            _now,
+            _host.Automation.Magic.LastCompletion.Revision);
+        string targetName = string.IsNullOrWhiteSpace(target.Name)
+            ? $"0x{target.ObjectId:X8}"
+            : target.Name;
+        Log?.Invoke(
+            MacroLogChannel.SpellCast,
+            $"Casting: {choice.Spell.Name} on {target.ObjectId} ({targetName})");
+        Status = $"{choice.Spell.Name} → {targetName}";
+        return DebuffPassResult.Claimed;
     }
+
+    /// <summary>
+    /// The wield gate a learned-spell debuff runs through. With
+    /// <c>SwitchWandsToDebuff</c> on and the attack weapon already a caster,
+    /// that weapon is kept; every other case falls through to the first
+    /// profiled wand.
+    /// </summary>
+    /// <returns>True once the character is holding what it needs.</returns>
+    private bool PrepareForLearnedDebuff(
+        MonsterRuleActions actions,
+        in PluginCombatTarget target,
+        IReadOnlyList<PluginInventoryItem> items)
+    {
+        IReadOnlyList<PluginEquipmentItem> equipment = PassEquipment();
+        uint attackWeapon = 0u;
+        if (_settings.SwitchWandsToDebuff)
+        {
+            (uint weapon, _, _) = ResolveWieldPlan(
+                actions,
+                in target,
+                items,
+                equipment);
+            foreach (PluginEquipmentItem item in equipment)
+            {
+                if (weapon == 0u || item.ObjectId != weapon)
+                    continue;
+                if (CombatModeGate.ModeFor(in item) == PluginCombatMode.Magic)
+                    attackWeapon = weapon;
+                break;
+            }
+        }
+
+        if (Gate.TryPrepare(
+                PluginCombatMode.Magic,
+                overrideItemId: attackWeapon,
+                autoSelect: attackWeapon == 0u,
+                captured: equipment))
+        {
+            return true;
+        }
+        Status = Gate.Status;
+        return false;
+    }
+
+    /// <summary>
+    /// The height the way to the monster is tested at. It belongs to the
+    /// SHAPE of the flight, not to the swing: an arc is thrown high, a bolt
+    /// goes out level, and anything else — a shot, a thrown weapon — is tested
+    /// at the height the profile swings at.
+    /// </summary>
+    private PluginAttackHeight HeightForShape(PluginProjectilePathKind kind) =>
+        kind switch
+        {
+            PluginProjectilePathKind.Arc => PluginAttackHeight.High,
+            PluginProjectilePathKind.Straight => PluginAttackHeight.Medium,
+            _ => _settings.AttackHeight,
+        };
 
     private bool ProjectilePathIsClear(
         uint targetObjectId,
@@ -1459,6 +2092,14 @@ internal sealed class CombatController
             result = new(PluginProjectilePathStatus.Clear);
             return true;
         }
+        if (_passClearance.TryGetValue((targetObjectId, kind), out bool memo))
+        {
+            result = new(
+                memo
+                    ? PluginProjectilePathStatus.Clear
+                    : PluginProjectilePathStatus.Blocked);
+            return memo;
+        }
         result = _settings.ShowCollisionDebug
             ? _host.Automation.Projectiles.EvaluatePathWithDiagnostics(
                 targetObjectId,
@@ -1466,14 +2107,14 @@ internal sealed class CombatController
                 height,
                 (float)_settings.CollisionProjectileRadius,
                 (float)_settings.CollisionStepDistance,
-                _settings.MaximumCollisionChecksPerTick)
+                _settings.CollisionSampleBudget)
             : _host.Automation.Projectiles.EvaluatePath(
                 targetObjectId,
                 kind,
                 height,
                 (float)_settings.CollisionProjectileRadius,
                 (float)_settings.CollisionStepDistance,
-                _settings.MaximumCollisionChecksPerTick);
+                _settings.CollisionSampleBudget);
         if (_settings.ShowCollisionDebug && result.DebugSamples.Count > 0)
         {
             _host.Automation.Projectiles.ShowDebugSamples(result.DebugSamples);
@@ -1482,8 +2123,18 @@ internal sealed class CombatController
                 + $"{result.DebugSamples.Count} marker(s), "
                 + $"{result.CollisionChecks} check(s)");
         }
+        _passClearance[(targetObjectId, kind)] = result.IsClear;
         return result.IsClear;
     }
+
+    /// <summary>
+    /// What the pass already knows about a flight, without testing it. An
+    /// untested shape reads as clear.
+    /// </summary>
+    private bool KnownClear(uint targetObjectId, PluginProjectilePathKind? kind) =>
+        kind is not { } shape
+        || !_passClearance.TryGetValue((targetObjectId, shape), out bool clear)
+        || clear;
 
     private static string ProjectileStatus(
         in PluginProjectilePathResult result,
@@ -1509,6 +2160,10 @@ internal sealed class CombatController
             _ => $"Cannot fire at {target}",
         };
     }
+
+    /// <summary>The two attack schools, by skill id.</summary>
+    private const uint WarMagicSkill = 34u;
+    private const uint VoidMagicSkill = 43u;
 
     private static bool IsTrained(ICharacterInfo character, uint skillId) =>
         character.TryGetSkill(skillId, out PluginSkillInfo skill)
@@ -1548,8 +2203,7 @@ internal sealed class CombatController
         if (source.Kind == CombatDebuffSourceKind.Grenade
             && desiredOffhand != 0u)
         {
-            IReadOnlyList<PluginEquipmentItem> equipmentItems =
-                equipment.CaptureOwnedEquipment();
+            IReadOnlyList<PluginEquipmentItem> equipmentItems = PassEquipment();
             PluginEquipmentItem? offhand = null;
             foreach (PluginEquipmentItem candidate in equipmentItems)
             {
@@ -1615,6 +2269,12 @@ internal sealed class CombatController
                 target.ObjectId);
             if (!apply.Accepted)
                 return DebuffStartResult.Skipped;
+            // The wand now owns the character until its cast is over: nothing
+            // else may use an item, and the attack may not swing, inside that
+            // window.
+            _actionLocks.Arm(
+                ActionLockKind.ItemUse,
+                ItemUseLock.HeldItemCastSeconds);
             _pendingItemDebuff = new PendingItemDebuff(
                 source,
                 target.ObjectId,
@@ -1711,6 +2371,10 @@ internal sealed class CombatController
 
     private void ClearPendingItemDebuff()
     {
+        // The item is finished with, so the slot goes down early rather than
+        // costing the rest of its window.
+        if (_pendingItemDebuff?.Source.Kind == CombatDebuffSourceKind.CasterItem)
+            _actionLocks.Release(ActionLockKind.ItemUse);
         _pendingItemDebuff = null;
     }
 
@@ -1793,14 +2457,143 @@ internal sealed class CombatController
             return;
     }
 
+    /// <summary>
+    /// A physical attack is running at <paramref name="targetObjectId"/>, so
+    /// its result text is ours to read.
+    /// </summary>
+    private void ArmPhysicalResultText(uint targetObjectId, string targetName)
+    {
+        _physicalResultArmed = true;
+        _physicalResultTargetId = targetObjectId;
+        _physicalResultTargetName = targetName ?? string.Empty;
+    }
+
+    private void DisarmPhysicalResultText()
+    {
+        if (!_physicalResultArmed)
+            return;
+        _physicalResultArmed = false;
+        _physicalCompletedAt = _now;
+    }
+
+    /// <summary>
+    /// The melee/missile half of result reading. A swing produces no cast
+    /// receipt, so the outcome of a physical attack is only ever visible in
+    /// chat: this is what tells the macro the monster is dead, that a shot
+    /// flew into the scenery, or that a swing landed.
+    /// </summary>
+    private void ObservePhysicalResultText(
+        in PluginChatMessage message,
+        in PluginCombatSnapshot combat)
+    {
+        // Read only while a swing is armed at our own target, or for a brief
+        // moment after the sequence ended — the last swing's outcome line can
+        // still arrive after the server has closed the attack.
+        if (_physicalResultArmed)
+        {
+            if (combat.SelectedObjectId != _physicalResultTargetId)
+                return;
+        }
+        else if (_now - _physicalCompletedAt > PhysicalResultTextTailSeconds)
+        {
+            return;
+        }
+        if (_physicalResultTargetId == 0u)
+            return;
+
+        // Which log the line came from decides which of these arms may read
+        // it at all: the miss notice and the kill sentence are plain lines,
+        // and the damage report is the character's own combat log. A player
+        // typing any of those sentences in chat carries a different type and
+        // is ignored.
+        string text = message.Text ?? string.Empty;
+        if (message.LogTextType == CombatLogTextType.Default
+            && string.Equals(
+                text.Trim(),
+                CombatResultText.MissileHitEnvironment,
+                StringComparison.Ordinal))
+        {
+            AnnounceBlacklist(
+                _failures.RecordMiss(_physicalResultTargetId, _now, _settings),
+                _physicalResultTargetId,
+                _physicalResultTargetName);
+        }
+        else if (message.LogTextType == CombatLogTextType.OwnCombat
+            && CombatResultText.IsDamageReport(text))
+        {
+            _failures.ResetAttempts(_physicalResultTargetId);
+        }
+
+        if (message.LogTextType != CombatLogTextType.Default
+            || !CombatResultText.IsKillingBlow(text, out string slain))
+        {
+            return;
+        }
+
+        // The looting hold goes up on the killing blow itself, before the
+        // sentence is matched against our own target's name.
+        ArmPostKillNavigationLock();
+
+        // The sentence has to name OUR monster, letter for letter. An unnamed
+        // stored target still refuses a sentence that names someone else.
+        if (slain.Length > 0
+            && !slain.Equals(
+                _physicalResultTargetName,
+                StringComparison.Ordinal))
+        {
+            return;
+        }
+        if (WieldingCleavingWeapon())
+        {
+            // A cleaving weapon can kill something other than the creature the
+            // swing was aimed at, so the sentence does not identify our target.
+            return;
+        }
+
+        Log?.Invoke(
+            MacroLogChannel.CastInfo,
+            $"AttackExecutor: Kill blow ({text})");
+        _failures.ResetAttempts(_physicalResultTargetId);
+        uint slainObjectId = _physicalResultTargetId;
+        DisarmPhysicalResultText();
+        EndKilledTarget(slainObjectId);
+    }
+
+    /// <summary>
+    /// True when the wielded weapon (or a melee off-hand) cleaves, i.e. one
+    /// swing can strike more than the creature it was aimed at.
+    /// </summary>
+    private bool WieldingCleavingWeapon()
+    {
+        IEquipmentAutomation equipment = _host.Automation.Equipment;
+        if (!equipment.IsAvailable)
+            return false;
+        // The question is about the WIELDED weapon, not about everything worn:
+        // a cleaving belt buckle does not make a kill sentence ambiguous. (The
+        // shield slot has an arm of its own in the reference, but it re-reads
+        // this same weapon's count, so it cannot change the answer.)
+        IReadOnlyList<PluginEquipmentItem> items = PassEquipment();
+        (uint weapon, _) = WieldedPair(items);
+        if (weapon == 0u)
+            return false;
+        foreach (PluginEquipmentItem item in items)
+        {
+            if (item.ObjectId == weapon)
+                return item.Cleaving > 1;
+        }
+        return false;
+    }
+
     private void ObserveItemDebuffReceipts()
     {
+        PluginCombatSnapshot combat = _host.Automation.Combat.Snapshot;
         foreach (PluginChatMessage message in
             _host.Automation.Chat.CaptureMessages(_observedChatSequence))
         {
             _observedChatSequence = Math.Max(
                 _observedChatSequence,
                 message.Sequence);
+            ObservePhysicalResultText(in message, in combat);
             _castTracker.ObserveChat(
                 message.Sequence,
                 message.Text,
@@ -1809,8 +2602,29 @@ internal sealed class CombatController
                 ownSpeech: message.Kind == SpellCastTracker.LocalSpeechChatKind
                     && message.SenderObjectId != 0u
                     && message.SenderObjectId
-                        == _host.Automation.Character.ObjectId);
+                        == _host.Automation.Character.ObjectId,
+                logTextType: message.LogTextType);
+        }
+    }
+
+    /// <summary>
+    /// The in-flight item transaction's own watcher. It reads the log and the
+    /// item receipt on a reading position of its own, because the transaction
+    /// outlives the passes the attack wins: it has to be able to see its own
+    /// confirmation on a pass where the attack has no turn at all.
+    /// </summary>
+    private void ObserveItemTransaction()
+    {
+        foreach (PluginChatMessage message in
+            _host.Automation.Chat.CaptureMessages(_itemTransactionChatSequence))
+        {
+            _itemTransactionChatSequence = Math.Max(
+                _itemTransactionChatSequence,
+                message.Sequence);
+            // The wand's own confirmation is a magic-log line like any other
+            // spell result.
             if (_pendingItemDebuff is not { } pending
+                || message.LogTextType != CombatLogTextType.Magic
                 || !IsMatchingCastLine(message.Text, pending.Source.Spell.Name))
             {
                 continue;
@@ -1820,10 +2634,7 @@ internal sealed class CombatController
                 pending.Source.Identity,
                 pending.Source.Spell,
                 _now);
-            _failures.RecordSuccessfulAttack(
-                pending.TargetObjectId,
-                _now,
-                _settings);
+            _failures.ResetAttempts(pending.TargetObjectId);
             Status = $"{pending.Source.Spell.Name} applied to {pending.TargetName}";
             if (!_settings.JumpOutWandCasting)
                 StartSelectionJiggle(pending.Source.Spell);
@@ -1856,10 +2667,22 @@ internal sealed class CombatController
                 Log?.Invoke(
                     MacroLogChannel.CastInfo,
                     $"SpellCaster: Spell kill reset ({info.Text})");
+                ArmPostKillNavigationLock();
                 if (objectId == 0u)
                     return;
-                _failures.ClearBlacklist(objectId);
-                EndKilledTarget(objectId);
+                // The health tracker lets the monster go the moment a killing
+                // blow is credited to it.
+                if (!info.HitsMultipleTargets
+                    && objectId == _health.TargetObjectId)
+                {
+                    _health.Clear(_now);
+                }
+                _failures.ResetAttempts(objectId);
+                // A spell that strikes several creatures cannot say WHICH one
+                // the sentence is about, so the blow is recorded but the
+                // target is not ended.
+                if (!info.HitsMultipleTargets)
+                    EndKilledTarget(objectId);
                 return;
 
             case SpellCastOutcome.PermanentFail:
@@ -1882,8 +2705,19 @@ internal sealed class CombatController
                 Log?.Invoke(
                     MacroLogChannel.CastInfo,
                     $"SpellCaster: Spell success reset ({info.Text})");
-                if (objectId != 0u)
-                    _failures.ClearBlacklist(objectId);
+                if (objectId == 0u)
+                    return;
+                // How big the blow was, taken off the running estimate. A
+                // spell that strikes several creatures cannot say which one
+                // the figure belongs to.
+                if (!info.HitsMultipleTargets
+                    && CombatResultText.TryReadSpellDamage(
+                        info.Text,
+                        out int points))
+                {
+                    _health.RecordDamage(objectId, points);
+                }
+                _failures.ResetAttempts(objectId);
                 return;
 
             case SpellCastOutcome.ResultTimeout:
@@ -1891,7 +2725,12 @@ internal sealed class CombatController
                     MacroLogChannel.CastInfo,
                     "SpellCaster: Cast result timeout");
                 if (objectId != 0u && !info.HitsMultipleTargets)
-                    _failures.RecordSuccessfulAttack(objectId, _now, _settings);
+                {
+                    AnnounceBlacklist(
+                        _failures.RecordMiss(objectId, _now, _settings),
+                        objectId,
+                        info.TargetName);
+                }
                 return;
 
             case SpellCastOutcome.LaunchTimeout:
@@ -1967,11 +2806,19 @@ internal sealed class CombatController
         _selectionJiggleActive = true;
         _selectionJigglePreviousPlayer = false;
         _nextSelectionJiggleAt = _now;
+        _selectionJiggleUntil = _now + SpellCastTracker.ResultTickSeconds;
     }
 
     private void TickSelectionJiggle()
     {
-        if (!_selectionJiggleActive || _now < _nextSelectionJiggleAt)
+        if (!_selectionJiggleActive)
+            return;
+        if (_now >= _selectionJiggleUntil)
+        {
+            StopSelectionJiggle();
+            return;
+        }
+        if (_now < _nextSelectionJiggleAt)
             return;
         ISelectionAutomation selection = _host.Automation.Selection;
         int pulses = 0;
@@ -1996,6 +2843,7 @@ internal sealed class CombatController
         _selectionJiggleActive = false;
         _selectionJigglePreviousPlayer = false;
         _nextSelectionJiggleAt = 0d;
+        _selectionJiggleUntil = 0d;
     }
 
     private static bool IsVtankInstantCast(in PluginSpellInfo spell)
@@ -2078,45 +2926,39 @@ internal sealed class CombatController
         }
 
         PluginCombatSnapshot combat = _host.Automation.Combat.Snapshot;
-        bool actionInFlight = combat.BuildInProgress
-            || combat.RequestInProgress
-            || combat.ServerResponsePending
-            || combat.RepeatAttackInProgress
-            || _host.Automation.Magic.IsCasting;
-        if (_targetId != 0u && actionInFlight)
-        {
-            if (TryFind(_targetId, out PluginCombatTarget active))
-                SetTarget(active, _settings.ResolveRule(active));
-            else
-            {
-                _host.Automation.Combat.AbortPhysicalAttack();
-                ClearTarget();
-            }
-            return;
-        }
 
+        // Selection is NOT frozen for the life of an engagement. The only
+        // things that stop the macro re-picking are the pass hold (a cast or a
+        // turn in flight) and the item-use cooldown, both of which sit above
+        // this rule; a swing loop runs beside the pass and never blocks it. A
+        // higher-priority monster arriving mid-fight has to be able to win.
         RefreshSpellCatalogs();
         IReadOnlyList<PluginInventoryItem> inventory =
-            _host.Automation.Items.CaptureOwnedItems();
-        IReadOnlyList<PluginEquipmentItem> equipment =
-            _host.Automation.Equipment.IsAvailable
-                ? _host.Automation.Equipment.CaptureOwnedEquipment()
-                : Array.Empty<PluginEquipmentItem>();
+            PassInventory();
+        IReadOnlyList<PluginEquipmentItem> equipment = PassEquipment();
         (uint wieldedWeapon, uint wieldedOffhand) = WieldedPair(equipment);
 
-        uint lastTarget = _targetId;
+        uint lastTarget = _lastTargetId;
         var candidates = new List<CombatTargetCandidate>();
+        _ringCandidateCount = 0;
         foreach (PluginCombatTarget target in _targets)
         {
-            if (TryBuildCandidate(
+            if (!TryBuildCandidate(
                     target,
                     combat,
                     lastTarget,
                     inventory,
                     equipment,
+                    _acquisitionRange,
                     out CombatTargetCandidate candidate))
             {
-                candidates.Add(candidate);
+                continue;
+            }
+            candidates.Add(candidate);
+            if (candidate.Distance < _settings.RingDistance
+                && candidate.Rule.Actions.UsesRing)
+            {
+                _ringCandidateCount++;
             }
         }
 
@@ -2136,7 +2978,10 @@ internal sealed class CombatController
             ClearTarget();
             return;
         }
-        SetTarget(chosen.Target, chosen.Rule);
+        // The STORED rule is the authored one: what this pass learned about
+        // the monster is applied where the decision reads it, so it cannot
+        // outlive the pass and hold a column off between scans.
+        SetTarget(chosen.Target, _settings.ResolveRule(chosen.Target));
     }
 
     private static (uint Weapon, uint Offhand) WieldedPair(
@@ -2168,25 +3013,52 @@ internal sealed class CombatController
         uint lastTarget,
         IReadOnlyList<PluginInventoryItem> inventory,
         IReadOnlyList<PluginEquipmentItem> equipment,
+        double maximumRange,
         out CombatTargetCandidate candidate)
     {
         candidate = default;
 
+        if (_passCandidateRange != maximumRange)
+        {
+            _passCandidateRange = maximumRange;
+            _passCandidates.Clear();
+        }
+        if (_passCandidates.TryGetValue(
+                target.ObjectId,
+                out CombatTargetCandidate? memo))
+        {
+            if (memo is not { } built)
+                return false;
+            candidate = built;
+            return true;
+        }
+        if (_passInvalidTargets.Contains(target.ObjectId))
+            return false;
+
         if (_failures.Reason(target.ObjectId, _now)
             != CombatSuppressionReason.None)
         {
+            _passCandidates[target.ObjectId] = null;
             return false;
         }
 
         // Gate 3 (f7.cs:265-270).
-        ResolvedMonsterRule rule = _settings.ResolveRule(target);
+        ResolvedMonsterRule rule = WithPassClearedActions(
+            target.ObjectId,
+            _settings.ResolveRule(target));
         if (rule.Priority < 0)
+        {
+            _passCandidates[target.ObjectId] = null;
             return false;
+        }
 
-        if (target.Distance > _acquisitionRange)
+        if (target.Distance > maximumRange
+            || target.Distance < _settings.MinimumRange)
+        {
+            // Range is the one gate that depends on which range was asked
+            // about, so it is not memoised.
             return false;
-        if (target.Distance < _settings.MinimumRange)
-            return false;
+        }
 
         MonsterRuleActions actions = rule.Actions;
         (uint weapon, uint offhand, MonsterDamageType element) = ResolveWieldPlan(
@@ -2198,13 +3070,16 @@ internal sealed class CombatController
             actions,
             element,
             ResolveExtraVulnerability(actions, target));
-        uint objectId = target.ObjectId;
+        PluginCombatTarget candidateTarget = target;
         bool needsDebuff = CombatDebuffChain.NeedsDebuff(
             steps,
-            step => IsDebuffStepDue(step, objectId, inventory));
+            step => IsDebuffStepDue(step, in candidateTarget, inventory));
 
         if (!needsDebuff && !actions.Attacks && !actions.UsesStreak)
+        {
+            _passCandidates[target.ObjectId] = null;
             return false;
+        }
 
         candidate = new CombatTargetCandidate(
             target,
@@ -2220,6 +3095,7 @@ internal sealed class CombatController
             lastTarget != 0u && target.ObjectId == lastTarget,
             weapon,
             offhand);
+        _passCandidates[target.ObjectId] = candidate;
         return true;
     }
 
@@ -2230,12 +3106,14 @@ internal sealed class CombatController
         IReadOnlyList<PluginEquipmentItem> equipment)
     {
         MonsterDamageType element = ResolveAttackElement(actions, target);
-        uint weapon = ResolveEquipmentObjectId(
-            actions.WeaponObjectId,
-            actions.WeaponName,
-            equipment);
-        if (weapon == 0u)
-            weapon = SelectAutomaticWeapon(equipment, element, _settings);
+        uint weapon = actions.WeaponToUseRaw == 0
+            ? 0u
+            : ResolveEquipmentObjectId(
+                actions.WeaponObjectId,
+                actions.WeaponName,
+                equipment);
+        if (weapon == 0u && actions.WeaponToUseRaw != 0)
+            weapon = SelectAutomaticWeapon(equipment, actions, target);
         uint offhand = ResolveEquipmentObjectId(
             actions.OffhandObjectId,
             actions.OffhandName,
@@ -2266,40 +3144,147 @@ internal sealed class CombatController
         MonsterRuleActions actions,
         in PluginCombatTarget target)
     {
-        MonsterDamageType requested = AttackSpellCatalog.ResolveMagicDamageMode(
-            actions.DamageType,
-            _host.Automation.Character);
-        if (requested != MonsterDamageType.Auto)
+        MonsterDamageType requested = actions.DamageType;
+        if (requested == MonsterDamageType.Fists)
+            return MonsterDamageType.Bludgeon;
+        // Auto and Prismatic both resolve the element; Prismatic differs only
+        // in which ammunition it will accept.
+        if (requested is not (MonsterDamageType.Auto or MonsterDamageType.Prismatic))
             return requested;
 
-        if (RuleWeaponElement(actions) is { } weaponElement)
-            return weaponElement;
+        IReadOnlyList<PluginEquipmentItem> owned = PassEquipment();
+        uint weapon = PlannedWeaponFor(actions, in target, owned);
+        PluginCombatMode kind = WeaponStance(actions, weapon, owned);
+
+        // The weapon's OWN element: what its imbue rends, then what it cleaves,
+        // then the damage it plainly deals.
+        MonsterDamageType element = WeaponElement(weapon, owned);
+
+        // Only a wand's element falls back to the caster's training. A melee
+        // or missile build with no war magic must not be handed Void or drain.
+        if (kind == PluginCombatMode.Magic)
+        {
+            MonsterDamageType cascade =
+                AttackSpellCatalog.ResolveMagicDamageMode(
+                    MonsterDamageType.Auto,
+                    _host.Automation.Character);
+            if (cascade == MonsterDamageType.VoidBasic)
+                return cascade;
+            if (cascade == MonsterDamageType.DrainAuto)
+            {
+                PostAttackWarning(
+                    "Warning: autoselecting drain as damage type. If you are "
+                    + "not a martyr mage, you probably need to add your "
+                    + "weapons to the items tab.");
+                return cascade;
+            }
+        }
+        if (element != MonsterDamageType.None)
+            return element;
 
         IReadOnlyList<MonsterDamageType> preferences =
             _gameInfo.DamagePreferences(target.Name);
         foreach (MonsterDamageType preference in preferences)
         {
             if (preference != MonsterDamageType.None
-                && CanDeliverElement(preference, target))
+                && CanDeliverElement(preference, weapon, owned))
             {
                 return preference;
             }
         }
 
-        foreach (MonsterDamageType element in VtankDamageDatabase.UnlistedElementOrder)
+        foreach (MonsterDamageType unlisted in VtankDamageDatabase.UnlistedElementOrder)
         {
-            if (Contains(preferences, element) || !CanDeliverElement(element, target))
+            if (Contains(preferences, unlisted)
+                || !CanDeliverElement(unlisted, weapon, owned))
+            {
                 continue;
+            }
             PostAttackWarning(
                 "Warning: no ammunition available for any of target's possible "
                 + "damage types! Using unlisted damage type: "
-                + ElementName(element));
-            return element;
+                + ElementName(unlisted));
+            return unlisted;
         }
         PostAttackWarning("Warning: no ammunition available!!!");
         return MonsterDamageType.None;
     }
 
+    /// <summary>
+    /// The weapon this rule will fight with: the one it names, else the one
+    /// automatic selection would reach for. A rule that spells the weapon
+    /// column as zero means "no weapon, use a wand" and names none.
+    /// </summary>
+    private uint PlannedWeaponFor(
+        MonsterRuleActions actions,
+        in PluginCombatTarget target,
+        IReadOnlyList<PluginEquipmentItem> owned)
+    {
+        if (actions.WeaponToUseRaw == 0)
+            return 0u;
+        uint named = ResolveEquipmentObjectId(
+            actions.WeaponObjectId,
+            actions.WeaponName,
+            owned);
+        if (named != 0u)
+            return named;
+        uint automatic = SelectAutomaticWeapon(owned, actions, in target);
+        if (automatic != 0u)
+            return automatic;
+        // Nothing was named and nothing could be picked for the element the
+        // rule asked for, so the weapon already in hand is what the fight will
+        // be had with.
+        return CombatModeGate.FindWielded(owned)?.ObjectId ?? 0u;
+    }
+
+    /// <summary>
+    /// The stance the planned weapon implies. With no weapon at all the rule
+    /// means a wand, so the stance is Magic.
+    /// </summary>
+    private static PluginCombatMode WeaponStance(
+        MonsterRuleActions actions,
+        uint weapon,
+        IReadOnlyList<PluginEquipmentItem> owned)
+    {
+        if (weapon == 0u)
+            return PluginCombatMode.Magic;
+        foreach (PluginEquipmentItem item in owned)
+        {
+            if (item.ObjectId == weapon)
+                return CombatModeGate.ModeFor(in item);
+        }
+        return actions.WeaponToUseRaw == 0
+            ? PluginCombatMode.Magic
+            : PluginCombatMode.Melee;
+    }
+
+    private static MonsterDamageType WeaponElement(
+        uint weapon,
+        IReadOnlyList<PluginEquipmentItem> owned)
+    {
+        if (weapon == 0u)
+            return MonsterDamageType.None;
+        foreach (PluginEquipmentItem item in owned)
+        {
+            if (item.ObjectId == weapon)
+            {
+                return VtankWeaponElement.Resolve(
+                    item.ImbuedEffect,
+                    item.ResistanceCleaving,
+                    item.DamageType);
+            }
+        }
+        return MonsterDamageType.None;
+    }
+
+    /// <summary>
+    /// The character's equipment as this pass sees it. The host builds that
+    /// projection by walking every object it knows and sorting the result, so
+    /// it is read once per pass and shared: a pass that has to choose again
+    /// ten times over unreachable monsters must not walk the world ten times.
+    /// Anything that changes what is worn ends the pass, so the pass can
+    /// never act on a stale answer.
+    /// </summary>
     private IReadOnlyList<PluginEquipmentItem> PassEquipment()
     {
         if (_passEquipment is not null)
@@ -2310,6 +3295,13 @@ internal sealed class CombatController
             : Array.Empty<PluginEquipmentItem>();
         return _passEquipment;
     }
+
+    /// <summary>
+    /// The character's carried items as this pass sees it, on the same terms
+    /// as <see cref="PassEquipment"/>.
+    /// </summary>
+    private IReadOnlyList<PluginInventoryItem> PassInventory() =>
+        _passInventory ??= _host.Automation.Items.CaptureOwnedItems();
 
     private static bool Contains(
         IReadOnlyList<MonsterDamageType> elements,
@@ -2353,33 +3345,87 @@ internal sealed class CombatController
         : (damageType & 0x0400) != 0 ? MonsterDamageType.VoidBasic
         : null;
 
+    /// <summary>
+    /// Whether the weapon in hand can actually put this element on a monster.
+    /// Only a launcher can fail: it needs ammunition of that element. Every
+    /// other weapon, and a wand, can always deliver.
+    /// </summary>
     private bool CanDeliverElement(
         MonsterDamageType element,
-        in PluginCombatTarget target)
+        uint weapon,
+        IReadOnlyList<PluginEquipmentItem> owned)
     {
-        (MonsterDamageType, uint) key = (element, target.ObjectId);
+        (MonsterDamageType, uint) key = (element, weapon);
         if (_passDeliverable.TryGetValue(key, out bool cached))
             return cached;
-        bool deliverable = CanDeliverElementCore(element, target);
+        bool deliverable = CanDeliverElementCore(element, weapon, owned);
         _passDeliverable[key] = deliverable;
+        if (!deliverable)
+        {
+            PostAttackWarning(
+                "Warning: bow with element " + ElementName(element)
+                + " ignored because ammunition is not available.");
+        }
         return deliverable;
     }
 
     private bool CanDeliverElementCore(
         MonsterDamageType element,
-        in PluginCombatTarget target)
+        uint weapon,
+        IReadOnlyList<PluginEquipmentItem> owned)
     {
-        if (PassEquipment() is { Count: > 0 } owned
-            && SelectAutomaticWeapon(owned, element, _settings) != 0u)
+        int launcherType = 0;
+        foreach (PluginEquipmentItem item in owned)
         {
-            return true;
+            if (item.ObjectId != weapon)
+                continue;
+            launcherType = VtankAmmunitionDatabase.LauncherType(item.AmmoType);
+            break;
         }
-        RefreshSpellCatalogs();
-        Func<PluginSpellInfo, bool> usable = IsUsableAttackSpell(target);
-        return _attackCatalog.Resolve(element, VtankCombatSpellType.War, usable)
-                is not null
-            || _attackCatalog.Resolve(element, VtankCombatSpellType.Arc, usable)
-                is not null;
+        if (launcherType == 0)
+            return true;
+
+        return VtankAmmunitionDatabase.Select(
+            _gameInfo.AmmunitionOptions.Count > 0
+                ? _gameInfo.AmmunitionOptions
+                : VtankAmmunitionDatabase.Options,
+            launcherType,
+            element,
+            VtankPrismaticAmmoPolicy.Any,
+            _settings.UseSpecialAmmo,
+            _host.Automation.Character,
+            AmmunitionAvailability()) is not null;
+    }
+
+    private Func<string, bool>? _passAmmunitionAvailability;
+
+    /// <summary>
+    /// Whether a named stack of ammunition is in the pack, or could be made.
+    /// Answered once per pass per name.
+    /// </summary>
+    private Func<string, bool> AmmunitionAvailability()
+    {
+        if (_passAmmunitionAvailability is not null)
+            return _passAmmunitionAvailability;
+
+        Dictionary<string, int>? counts = null;
+        var answers = new Dictionary<string, bool>(StringComparer.OrdinalIgnoreCase);
+        _passAmmunitionAvailability = name =>
+        {
+            if (answers.TryGetValue(name, out bool cached))
+                return cached;
+            counts ??= PassInventory()
+                .GroupBy(static item => item.Name, StringComparer.OrdinalIgnoreCase)
+                .ToDictionary(
+                    static group => group.Key,
+                    static group => group.Sum(item => Math.Max(1, item.StackSize)),
+                    StringComparer.OrdinalIgnoreCase);
+            bool answer = counts.GetValueOrDefault(name) >= 1
+                || _canCraftAmmunition?.Invoke(name, 1) == true;
+            answers[name] = answer;
+            return answer;
+        };
+        return _passAmmunitionAvailability;
     }
 
     private MonsterDamageType ResolveExtraVulnerability(
@@ -2480,11 +3526,13 @@ internal sealed class CombatController
 
     private IReadOnlyList<CombatDebuffSource> DebuffSources(
         DebuffIdentity identity,
+        in PluginCombatTarget target,
         IReadOnlyList<PluginInventoryItem> inventory,
         Action<string>? log)
     {
+        (DebuffIdentity, uint) key = (identity, target.ObjectId);
         if (_passDebuffSources.TryGetValue(
-                identity,
+                key,
                 out IReadOnlyList<CombatDebuffSource>? cached))
         {
             return cached;
@@ -2495,24 +3543,58 @@ internal sealed class CombatController
             _host.Automation.Character,
             _host.Automation.Spells,
             inventory,
+            target.Distance,
             log);
-        _passDebuffSources[identity] = sources;
+        _passDebuffSources[key] = sources;
         return sources;
+    }
+
+    /// <summary>
+    /// The one source this step will be applied from, or null when there is
+    /// none. Exactly one wins: a source the character cannot use is not
+    /// quietly replaced by the next-best one inside a single decision.
+    /// </summary>
+    private CombatDebuffSource? ChooseDebuffSource(
+        DebuffIdentity identity,
+        in PluginCombatTarget target,
+        IReadOnlyList<PluginInventoryItem> inventory,
+        Action<string>? log = null)
+    {
+        IReadOnlyList<CombatDebuffSource> sources = DebuffSources(
+            identity,
+            in target,
+            inventory,
+            log);
+        foreach (CombatDebuffSource source in sources)
+        {
+            // With the fallback allowed, a source whose flight this pass has
+            // ALREADY found blocked steps aside for the next-best one. With it
+            // off there is no stepping aside: the winner stands and its column
+            // is turned off when its flight turns out to be blocked.
+            if (_settings.AllowDebuffFallback
+                && !KnownClear(target.ObjectId, source.PathKind))
+            {
+                continue;
+            }
+            return source;
+        }
+        return null;
     }
 
     private bool IsDebuffStepDue(
         CombatDebuffStep step,
-        uint targetObjectId,
+        in PluginCombatTarget target,
         IReadOnlyList<PluginInventoryItem> inventory)
     {
         IReadOnlyList<CombatDebuffSource> sources = DebuffSources(
             step.Identity,
+            in target,
             inventory,
             log: null);
         if (sources.Count == 0)
             return false;
         return _debuffs.IsDue(
-            targetObjectId,
+            target.ObjectId,
             step.Identity,
             sources[0].Spell,
             _now,
@@ -2545,11 +3627,16 @@ internal sealed class CombatController
         _targetDistance = target.Distance;
         _targetText = string.Create(
             CultureInfo.InvariantCulture, $"Target  {_targetName}  {_targetDistance:0.0}m");
-        _failures.BeginEngagement(_targetId, _now);
+        _health.SetTarget(_targetId, target.Name, _now);
+        // Whatever the host already knows about this monster's health counts
+        // as the first report, so the fight does not start a scan behind.
+        _health.Observe(target, _now);
     }
 
     private void ClearTarget()
     {
+        _health.Clear(_now);
+        DisarmPhysicalResultText();
         StopApproachMovement();
         StopBreakableTurnMovement();
         StopSelectionJiggle();
@@ -2574,6 +3661,7 @@ internal sealed class CombatController
         _attackCatalog = AttackSpellCatalog.Build(Array.Empty<PluginSpellInfo>());
         _debuffs.Reset();
         _failures.Reset();
+        _health.Reset();
         _observedPhysicalCompletion = 0;
         _observedAttackCastCompletion = 0;
         _pendingPhysicalTarget = 0u;
@@ -2581,6 +3669,7 @@ internal sealed class CombatController
         _pendingAttackTarget = 0u;
         ClearPendingItemDebuff();
         _observedChatSequence = 0u;
+        _itemTransactionChatSequence = 0u;
         _observedItemCompletion = 0;
         // gj.cs:271 — d(), the tracker's own reset. A stopped macro must not
         // leave the busy latch up.
@@ -2593,15 +3682,106 @@ internal sealed class CombatController
         Status = status;
     }
 
-    private bool TickApproach()
+    /// <summary>
+    /// Walking to a monster the character cannot yet hit. This is its OWN job,
+    /// twenty positions below the attack, with its own candidate pick at the
+    /// approach range: the attack must not claim the pass for a monster it
+    /// would have to walk to, or nothing below the attack ever runs.
+    /// </summary>
+    /// <returns>True while there is a monster worth walking to.</returns>
+    internal bool TickMonsterApproach(double elapsedSeconds, bool canAct)
+    {
+        if (!Enabled
+            || !_settings.Enabled
+            || !_host.Automation.IsAvailable
+            || !canAct
+            || _settings.ApproachDistance <= _settings.MaximumRange)
+        {
+            StopApproachMovement();
+            return false;
+        }
+
+        _now += Math.Max(0d, elapsedSeconds);
+        // This rule is its own pass: the attack's may not have run at all (its
+        // gate can refuse for seconds at a time), so everything the attack
+        // pass learns and forgets per pass is taken fresh here rather than
+        // inherited stale — a column another pass turned off must not silently
+        // narrow the walk's choice of monster.
+        ClearPassMemos();
+        if (SelectApproachTarget() is not { } approach)
+        {
+            StopApproachMovement();
+            return false;
+        }
+        // The walk ends where the attack begins.
+        if (approach.Distance <= _settings.MaximumRange)
+        {
+            StopApproachMovement();
+            return false;
+        }
+        return TickApproachTo(
+            approach.ObjectId,
+            approach.Target.Name,
+            approach.Distance);
+    }
+
+    /// <summary>
+    /// The same comparison chain the attack runs, over the monsters inside the
+    /// approach range rather than the ones inside weapon range.
+    /// </summary>
+    private CombatTargetCandidate? SelectApproachTarget()
+    {
+        IReadOnlyList<PluginCombatTarget> reachable =
+            _host.Automation.Combat.CaptureHostileTargets(
+                (float)_settings.ApproachDistance);
+        if (reachable.Count == 0)
+            return null;
+
+        PluginCombatSnapshot combat = _host.Automation.Combat.Snapshot;
+        RefreshSpellCatalogs();
+        IReadOnlyList<PluginInventoryItem> inventory =
+            PassInventory();
+        IReadOnlyList<PluginEquipmentItem> equipment = PassEquipment();
+        (uint wieldedWeapon, uint wieldedOffhand) = WieldedPair(equipment);
+
+        var candidates = new List<CombatTargetCandidate>();
+        foreach (PluginCombatTarget target in reachable)
+        {
+            if (TryBuildCandidate(
+                    target,
+                    combat,
+                    _lastTargetId,
+                    inventory,
+                    equipment,
+                    _settings.ApproachDistance,
+                    out CombatTargetCandidate candidate))
+            {
+                candidates.Add(candidate);
+            }
+        }
+        if (candidates.Count == 0)
+            return null;
+
+        CombatTargetCandidate chosen = CombatTargetSelector.Select(
+            candidates,
+            _settings.DebuffEachFirst,
+            _settings.SelectionMethod,
+            _settings.TargetSelectAngleRange,
+            wieldedWeapon,
+            wieldedOffhand);
+        return chosen.ObjectId == 0u ? null : chosen;
+    }
+
+    private bool TickApproachTo(uint objectId, string name, double distance)
     {
         INavigationAutomation navigation = _host.Automation.Navigation;
         PluginNavigationSnapshot self = navigation.Snapshot;
         if (!self.IsAvailable || self.IsPortalSpace
             || !navigation.TryGetObject(
-                _targetId,
+                objectId,
                 out PluginNavigationObject target))
         {
+            StopApproachMovement();
             return false;
         }
 
@@ -2626,9 +3806,12 @@ internal sealed class CombatController
         }
 
         _approachMovementOwned = true;
+        string label = string.IsNullOrWhiteSpace(name)
+            ? $"0x{objectId:X8}"
+            : name;
         Status = MathF.Abs(delta) > NavigationController.HeadingToleranceDegrees
-            ? $"Turning to {_targetName} ({delta:+0.0;-0.0}°)"
-            : $"Approaching {_targetName} ({_targetDistance:0.0}m)";
+            ? $"Turning to {label} ({delta:+0.0;-0.0}°)"
+            : $"Approaching {label} ({distance:0.0}m)";
         return true;
     }
 
@@ -2645,6 +3828,24 @@ internal sealed class CombatController
             return true;
         }
 
+        if (!DriveBreakableTurn(targetObjectId))
+        {
+            StopBreakableTurnMovement();
+            return true;
+        }
+        HoldPassForTurn(targetObjectId);
+        return false;
+    }
+
+    /// <summary>
+    /// The unconditional turn the fists arm makes. It is not the breakable
+    /// turn and does not read that option: the character faces the monster,
+    /// a shade to one side of dead-on, before the spell goes out.
+    /// </summary>
+    /// <returns>True once the character is facing where it needs to.</returns>
+    private bool FaceForFists(uint targetObjectId)
+    {
+        const float LeadDegrees = 180f / 50f;
         INavigationAutomation navigation = _host.Automation.Navigation;
         PluginNavigationSnapshot self = navigation.Snapshot;
         if (!self.IsAvailable
@@ -2653,26 +3854,21 @@ internal sealed class CombatController
                 targetObjectId,
                 out PluginNavigationObject target))
         {
-            StopBreakableTurnMovement();
             return true;
         }
 
         float desired = NavigationController.DesiredHeading(
             self.Position,
-            target.Position);
+            target.Position) - LeadDegrees;
         float delta = NavigationController.SignedHeadingDelta(
             self.Position.HeadingDegrees,
             desired);
         if (MathF.Abs(delta) <= BreakableTurnToleranceDegrees)
-        {
-            StopBreakableTurnMovement();
             return true;
-        }
 
         if (navigation.ClearMovementIntent()
             != PluginNavigationCommandStatus.Accepted)
         {
-            StopBreakableTurnMovement();
             return true;
         }
         if (_now - _breakableTurnFaceHeadingStamp
@@ -2682,7 +3878,6 @@ internal sealed class CombatController
             if (navigation.FaceHeading(desired)
                 != PluginNavigationCommandStatus.Accepted)
             {
-                StopBreakableTurnMovement();
                 return true;
             }
         }
@@ -2691,10 +3886,92 @@ internal sealed class CombatController
         return false;
     }
 
+    /// <summary>
+    /// One step of a turn already in flight. Returns true while the character
+    /// still has turning left to do.
+    /// </summary>
+    private bool DriveBreakableTurn(uint targetObjectId)
+    {
+        INavigationAutomation navigation = _host.Automation.Navigation;
+        PluginNavigationSnapshot self = navigation.Snapshot;
+        if (!self.IsAvailable
+            || self.IsPortalSpace
+            || !navigation.TryGetObject(
+                targetObjectId,
+                out PluginNavigationObject target))
+        {
+            return false;
+        }
+
+        float desired = NavigationController.DesiredHeading(
+            self.Position,
+            target.Position);
+        float delta = NavigationController.SignedHeadingDelta(
+            self.Position.HeadingDegrees,
+            desired);
+        if (MathF.Abs(delta) <= BreakableTurnToleranceDegrees)
+            return false;
+
+        if (navigation.ClearMovementIntent()
+            != PluginNavigationCommandStatus.Accepted)
+        {
+            return false;
+        }
+        if (_now - _breakableTurnFaceHeadingStamp
+            >= NavigationController.FaceHeadingReissueSeconds)
+        {
+            _breakableTurnFaceHeadingStamp = _now;
+            if (navigation.FaceHeading(desired)
+                != PluginNavigationCommandStatus.Accepted)
+            {
+                return false;
+            }
+        }
+        _breakableTurnOwned = true;
+        Status = $"Turning to {_targetName} ({delta:+0.0;-0.0}°)";
+        return true;
+    }
+
+    /// <summary>
+    /// Turning owns the character, so it owns the rule pass too: nothing else
+    /// may claim a turn while the character is still swinging round to face
+    /// its target. Raised once for the life of one turn.
+    /// </summary>
+    private void HoldPassForTurn(uint targetObjectId)
+    {
+        _breakableTurnTargetId = targetObjectId;
+        if (_turnHoldsPass)
+            return;
+        _turnHoldsPass = true;
+        _suspendPass();
+    }
+
+    /// <summary>
+    /// Steps a turn that is holding the pass. The pass itself is frozen while
+    /// the hold is up, so the turn needs a driver outside it — the host frame.
+    /// </summary>
+    internal void AdvanceHeldTurn(double elapsedSeconds)
+    {
+        if (!_turnHoldsPass)
+            return;
+        _now += Math.Max(0d, elapsedSeconds);
+        if (_breakableTurnTargetId == 0u
+            || !DriveBreakableTurn(_breakableTurnTargetId))
+        {
+            StopBreakableTurnMovement();
+        }
+    }
+
     private void StopBreakableTurnMovement()
     {
         _breakableTurnFaceHeadingStamp =
             NavigationController.NoFaceHeadingStamp;
+        _breakableTurnTargetId = 0u;
+        if (_turnHoldsPass)
+        {
+            _turnHoldsPass = false;
+            _resumePass();
+        }
         if (!_breakableTurnOwned)
             return;
         _host.Automation.Navigation.ClearMovementIntent();
@@ -2754,14 +4031,10 @@ internal sealed class CombatController
         if (combat.CompletionRevision > _observedPhysicalCompletion)
         {
             _observedPhysicalCompletion = combat.CompletionRevision;
-            if (_pendingPhysicalTarget != 0u
-                && combat.CompletionWeenieError == 0u)
-            {
-                _failures.RecordSuccessfulAttack(
-                    _pendingPhysicalTarget,
-                    _now,
-                    _settings);
-            }
+            // The server says the attack sequence finished. Retail keeps
+            // reading result text for two seconds past this point, because
+            // the last swing's outcome line can still be in flight.
+            _physicalCompletedAt = _now;
             _pendingPhysicalTarget = 0u;
         }
 
@@ -2776,13 +4049,99 @@ internal sealed class CombatController
         }
     }
 
-    private void DismissGhost(uint objectId)
+    /// <summary>
+    /// The line the reference client prints when it gives a monster up as
+    /// unhittable, so a watching player knows why the bot walked away.
+    /// </summary>
+    private void AnnounceBlacklist(bool tripped, uint objectId, string name)
     {
+        if (!tripped)
+            return;
+        string shown = string.IsNullOrWhiteSpace(name)
+            ? FindTarget(objectId).Name
+            : name;
+        if (string.IsNullOrWhiteSpace(shown))
+            shown = "???";
+        _host.Automation.Chat.PostSystemMessage(
+            "Blacklisting unhittable target "
+            + shown
+            + " ("
+            + objectId.ToString(CultureInfo.InvariantCulture)
+            + ") for "
+            + ((int)_settings.BlacklistMonsterTimeoutSeconds)
+                .ToString(CultureInfo.InvariantCulture)
+            + " seconds.");
+    }
+
+    /// <summary>How often the stalled-health check runs.</summary>
+    private const double GhostSweepIntervalSeconds = 6.271d;
+
+    private double _untilGhostSweep = GhostSweepIntervalSeconds;
+
+    /// <summary>
+    /// A monster that has been engaged for a while and whose health has not
+    /// moved once in all that time is very likely not there any more: the
+    /// server has dropped it and the client is still drawing it. Only a
+    /// monster the profile's database gives a health ceiling for can be judged
+    /// this way — without a ceiling the client is never told the health in the
+    /// first place, so "the health has not moved" says nothing.
+    /// </summary>
+    private void CheckStalledHealthGhost()
+    {
+        if (!Enabled
+            || !_settings.DeleteGhostMonstersByHealthTracker
+            || _health.TargetObjectId == 0u
+            || !_settings.MonsterFacts.IsListed(_health.TargetName)
+            || _settings.MonsterFacts.MaximumHealth(_health.TargetName) <= 0)
+        {
+            return;
+        }
+        double stale = Math.Max(0d, _settings.GhostDeleteHealthTrackerSeconds);
+        // Health that has never moved counts as having last moved before the
+        // fight started, so the acquisition age alone decides.
+        double sinceChange = _health.LastHealthChangeAt is double changed
+            ? _now - changed
+            : double.PositiveInfinity;
+        if (_now - _health.AcquiredAt < stale || sinceChange < stale)
+            return;
+        DeleteGhostMonster(
+            _health.TargetObjectId,
+            allowed: true,
+            "due to HP tracker notification");
+    }
+
+    /// <summary>
+    /// Asks the client to forget an object it is still drawing. Nothing else
+    /// happens: there is no per-monster "give up on this one" flag, so a
+    /// deletion the client refuses leaves the monster exactly as targetable as
+    /// it was.
+    /// </summary>
+    private void DeleteGhostMonster(
+        uint objectId,
+        bool allowed,
+        string reason = "")
+    {
+        if (objectId == 0u || !allowed)
+            return;
+        // A ghost is looked up in the whole world, not in the range-limited
+        // scan: the monster that stopped answering is often the one that has
+        // just dropped out of it, and the health tracker still has its name.
+        PluginCombatTarget scanned = FindTarget(objectId);
+        string name = scanned.ObjectId == objectId && scanned.Name.Length > 0
+            ? scanned.Name
+            : _health.TargetObjectId == objectId
+                ? _health.TargetName
+                : string.Empty;
+        if (name.Length == 0)
+            return;
         PluginCombatCommandResult result =
             _host.Automation.Combat.DismissGhostTarget(objectId);
-        string suffix = result.Accepted ? "deleted" : "ignored";
+        if (!result.Accepted)
+            return;
         _host.Automation.Chat.PostSystemMessage(
-            $"[MossTank] Ghost target 0x{objectId:X8} {suffix}.");
+            string.IsNullOrEmpty(reason)
+                ? $"Deleting ghost monster {name} ({objectId})"
+                : $"Deleting ghost monster {name} ({objectId}) {reason}.");
         // gj.cs:263-278 — ReleaseObject on the awaited target drops the
         // tracker to idle; deleting a ghost is our own version of that event.
         _castTracker.ResetForTarget(objectId);

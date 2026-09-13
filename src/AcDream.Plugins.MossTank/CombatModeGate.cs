@@ -49,23 +49,42 @@ internal sealed class CombatModeGate
 
     public string Status { get; private set; } = string.Empty;
 
+    private ActionLockTable _actionLocks = new();
+
+    /// <summary>
+    /// Shares the macro's cooldown table, so the item this gate uses to clear
+    /// a stuck combat state holds every other rule off the way any other item
+    /// use does.
+    /// </summary>
+    internal void BindActionLocks(ActionLockTable locks) =>
+        _actionLocks = locks ?? throw new ArgumentNullException(nameof(locks));
+
     public Action<MacroLogChannel, string>? Log { get; set; }
 
     public Func<uint, MonsterDamageType, bool>? AmmunitionStale { get; set; }
 
     public Func<MonsterDamageType, bool>? WieldAmmunition { get; set; }
 
+    public const uint MeleeWeaponItemType = 0x00000001u;
+    public const uint MissileWeaponItemType = 0x00000100u;
+
     public static bool IsCaster(in PluginEquipmentItem item) =>
         (item.ItemType & CasterItemType) != 0u;
 
+    /// <summary>
+    /// Which stance a weapon puts the character in. This is the item's CLASS,
+    /// not a guess from its numbers: a thrown weapon is a missile weapon even
+    /// though it takes no ammunition, and a weapon that lists no damage is
+    /// still a melee weapon.
+    /// </summary>
     public static PluginCombatMode ModeFor(in PluginEquipmentItem item)
     {
         if (IsCaster(in item))
             return PluginCombatMode.Magic;
-        if (item.AmmoType != 0u)
-            return PluginCombatMode.Missile;
-        if (item.Damage > 0 || item.WeaponSkill != 0)
+        if ((item.ItemType & MeleeWeaponItemType) != 0u)
             return PluginCombatMode.Melee;
+        if ((item.ItemType & MissileWeaponItemType) != 0u)
+            return PluginCombatMode.Missile;
         return PluginCombatMode.Magic;
     }
 
@@ -96,11 +115,18 @@ internal sealed class CombatModeGate
     public void AdvancePass(double elapsedSeconds) =>
         _sinceModeRequest += Math.Max(0d, elapsedSeconds);
 
+    /// <param name="captured">
+    /// The caller's own equipment projection, when it already has one for
+    /// this pass. Building it walks and sorts every object the client knows,
+    /// so a caller that asks many times in one pass hands its copy in rather
+    /// than paying for it again. Omit it and the gate reads the host itself.
+    /// </param>
     public bool TryPrepare(
         PluginCombatMode wanted,
         uint overrideItemId = 0u,
         bool autoSelect = true,
-        MonsterDamageType element = MonsterDamageType.None)
+        MonsterDamageType element = MonsterDamageType.None,
+        IReadOnlyList<PluginEquipmentItem>? captured = null)
     {
         IAutomationSurface automation = _host.Automation;
         IEquipmentAutomation equipment = automation.Equipment;
@@ -115,7 +141,7 @@ internal sealed class CombatModeGate
             return TryPrepareMode(wielded: null, wanted);
 
         IReadOnlyList<PluginEquipmentItem> items =
-            equipment.CaptureOwnedEquipment();
+            captured ?? equipment.CaptureOwnedEquipment();
         PluginEquipmentItem? wielded = FindWielded(items);
 
         uint primary = overrideItemId;
@@ -238,6 +264,9 @@ internal sealed class CombatModeGate
                 return false;
             }
 
+            _actionLocks.Arm(
+                ActionLockKind.ItemUse,
+                ItemUseLock.ImmediateSeconds);
             PluginItemCommandResult use =
                 _host.Automation.Items.Use(recovery.ObjectId);
             Status = use.Status == PluginItemCommandStatus.Started
@@ -273,22 +302,17 @@ internal sealed class CombatModeGate
             }
         }
 
-        PluginEquipmentItem? best = null;
+        // Whatever the Items page did not order is taken in the order it comes
+        // back in — the FIRST wand wins, not the alphabetically smallest one.
         foreach (PluginEquipmentItem item in items)
         {
             if (!IsCaster(in item) || !IsProfiled(in item))
                 continue;
             if (_settings.CombatItemOrder.Contains(item.Name))
                 continue;
-            if (best is null
-                || string.CompareOrdinal(item.Name, best.Value.Name) < 0
-                || (string.Equals(item.Name, best.Value.Name, StringComparison.Ordinal)
-                    && item.ObjectId < best.Value.ObjectId))
-            {
-                best = item;
-            }
+            return item;
         }
-        return best;
+        return null;
     }
 
     private bool IsProfiled(in PluginEquipmentItem item) =>

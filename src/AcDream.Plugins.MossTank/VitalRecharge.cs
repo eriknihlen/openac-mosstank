@@ -1069,6 +1069,25 @@ internal sealed class VitalRechargeController
 
     public string Status { get; private set; } = IdleStatus;
 
+    private ActionLockTable _actionLocks = new();
+
+    /// <summary>
+    /// Shares the macro's cooldown table. A kit, a stone or a bite of food
+    /// holds the item slot for as long as the macro waits on it, so nothing
+    /// else — the attack included — acts inside that window.
+    /// </summary>
+    internal void BindActionLocks(ActionLockTable locks) =>
+        _actionLocks = locks ?? throw new ArgumentNullException(nameof(locks));
+
+    private void ReleaseItemUse()
+    {
+        if (_pending is { } pending
+            && pending.Choice.SourceKind != VitalRechargeSourceKind.LearnedSpell)
+        {
+            _actionLocks.Release(ActionLockKind.ItemUse);
+        }
+    }
+
     public bool Tick(
         double elapsedSeconds,
         bool enabled,
@@ -1081,21 +1100,20 @@ internal sealed class VitalRechargeController
         _healthBoostRemaining = Math.Max(0d, _healthBoostRemaining - elapsed);
         _staminaBoostRemaining = Math.Max(0d, _staminaBoostRemaining - elapsed);
         _manaBoostRemaining = Math.Max(0d, _manaBoostRemaining - elapsed);
-        if (!enabled || !_settings.Enabled || !automation.IsAvailable)
+        if (!_settings.Enabled || !automation.IsAvailable)
         {
+            ReleaseItemUse();
             _pending = null;
             ClearBoosts();
             Status = IdleStatus;
             SyncVitalsRequest(automation, wanted: false);
             return false;
         }
-        if (helpers)
-        {
-            SyncVitalsRequest(
-                automation,
-                wanted: _settings.HelpOthers && automation.Fellowship.IsInFellowship);
-        }
-
+        // An item the server has yet to answer for is a transaction of its
+        // own: it holds the shared slot and it is watched to its end whoever
+        // owns the pass meanwhile, because a losing tick is not a reason to
+        // abandon it — and abandoning it is what would drop the slot early
+        // under another owner's feet.
         if (_pending is { } pending)
         {
             _pendingSeconds += Math.Max(0d, elapsedSeconds);
@@ -1108,6 +1126,7 @@ internal sealed class VitalRechargeController
                 {
                     ClearBoost(pending.Choice.Vital);
                 }
+                ReleaseItemUse();
                 _pending = null;
                 _pendingSeconds = 0d;
                 _retryDelay = 0.25d;
@@ -1115,6 +1134,7 @@ internal sealed class VitalRechargeController
             else if (_pendingSeconds >= 15d)
             {
                 Status = $"Timed out: {pending.Choice.Name}";
+                ReleaseItemUse();
                 _pending = null;
                 _pendingSeconds = 0d;
                 _retryDelay = 1d;
@@ -1124,6 +1144,21 @@ internal sealed class VitalRechargeController
                 Status = $"Recharging {pending.Choice.Vital}: {pending.Choice.Name}";
                 return true;
             }
+        }
+
+        // No turn this pass, so nothing new is begun.
+        if (!enabled)
+        {
+            ClearBoosts();
+            Status = IdleStatus;
+            SyncVitalsRequest(automation, wanted: false);
+            return false;
+        }
+        if (helpers)
+        {
+            SyncVitalsRequest(
+                automation,
+                wanted: _settings.HelpOthers && automation.Fellowship.IsInFellowship);
         }
 
         VitalKind? need = VitalPlan.DecideNeed(
@@ -1203,6 +1238,14 @@ internal sealed class VitalRechargeController
             return true;
         }
         _pending = new Pending(choice, revision);
+        if (choice.UsesItem)
+        {
+            // An item is in the character's hands until the server answers
+            // for it; the attack and every other item rule wait that out.
+            _actionLocks.Arm(
+                ActionLockKind.ItemUse,
+                ItemUseLock.TransactionSeconds);
+        }
         _pendingSeconds = 0d;
         Status = $"Recharging {choice.Vital}: {choice.Name}";
         _host.Log.Info(choice.TargetObjectId == 0u
@@ -1213,6 +1256,7 @@ internal sealed class VitalRechargeController
 
     public void Reset()
     {
+        ReleaseItemUse();
         _pending = null;
         _pendingSeconds = 0d;
         _retryDelay = 0d;

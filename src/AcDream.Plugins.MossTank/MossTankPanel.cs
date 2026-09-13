@@ -43,6 +43,13 @@ internal sealed partial class MossTankPanel : IBuffRuleHost
     private readonly SummonPetRule _summonPet;
     private readonly MacroScheduler _scheduler;
 
+    /// <summary>
+    /// The one cooldown table the whole rule list shares. Rules that start a
+    /// slow operation arm a slot; rules whose work would collide with it read
+    /// the slot in their gate and stand down until it clears.
+    /// </summary>
+    private readonly ActionLockTable _actionLocks = new();
+
     private readonly VitalRechargeController _vitalRecharge;
 
     private readonly VitalRechargeController _vitalHelperRecharge;
@@ -234,6 +241,10 @@ internal sealed partial class MossTankPanel : IBuffRuleHost
         // directory beside the .usd files. Absent means EMPTY, not a guess:
         // acdream does not ship Virindi's embedded defaultinfodb.ugd.
         _gameInfo = VtankGameInfoDatabase.Load(host.VtankProfiles);
+        // A rule's `species` and `maxhp` are database facts. Without the
+        // database every monster reads as unlisted, which is what the
+        // reference client does with no database of its own.
+        _combatSettings.MonsterFacts = new MonsterFactTable(_gameInfo);
         _profiles = new MossTankProfileStore(host);
         _profiles.BindCharacter(host.Automation.Character.Name);
         _profiles.LoadCurrent(_allSettings, _noBuffItemNames, _commandLogTypes);
@@ -268,6 +279,7 @@ internal sealed partial class MossTankPanel : IBuffRuleHost
             _vitalSettings,
             StopMacroFromGate);
         _combat.BindCombatModeGate(_combatModeGate);
+        _combat.BindActionLocks(_actionLocks, () => _inventorySettings.Loot.Enabled);
         _buffRule = new BuffSelfRule(host, _buffSettings, this);
         _idlePeace = new IdlePeaceRule(host, _combatSettings);
         _summonPet = new SummonPetRule(
@@ -284,6 +296,12 @@ internal sealed partial class MossTankPanel : IBuffRuleHost
             _combatSettings);
         _dispel = new DispelController(host, _vitalSettings, _combatSettings);
         _dispel.BindCombatModeGate(_combatModeGate);
+        // One cooldown table for every rule that consumes an item, so the
+        // attack's item-use refusal means what it says.
+        _combatModeGate.BindActionLocks(_actionLocks);
+        _vitalRecharge.BindActionLocks(_actionLocks);
+        _vitalHelperRecharge.BindActionLocks(_actionLocks);
+        _dispel.BindActionLocks(_actionLocks);
         _inventoryMaintenance = new InventoryMaintenanceController(
             host,
             _inventorySettings);
@@ -341,9 +359,15 @@ internal sealed partial class MossTankPanel : IBuffRuleHost
             if (_combat.Enabled)
                 _meta.OnTick(elapsed);
         };
+        _combat.BindPassSuspension(_scheduler.Suspend, _scheduler.Resume);
         _scheduler.Log = EmitMacroLog;
+        // The three columns are cooldown-slot states, not controller
+        // busy flags: a log diffed against a reference run has to mean the
+        // same thing on both sides.
         _scheduler.LockStateSuffix = () =>
-            $"   I={host.Automation.Items.IsBusy}, N={_navigation.HasActiveAction}, S={host.Automation.Loot.IsBusy}";
+            $"   I={_actionLocks.IsLocked(ActionLockKind.ItemUse)}"
+            + $", N={_actionLocks.IsLocked(ActionLockKind.Navigation)}"
+            + $", S={_actionLocks.IsLocked(ActionLockKind.Salvage)}";
         _combatModeGate.Log = EmitMacroLog;
         _combat.Log = EmitMacroLog;
         _loot.Log = EmitMacroLog;
@@ -4386,6 +4410,7 @@ internal sealed partial class MossTankPanel : IBuffRuleHost
             HandleSessionStarted();
         }
 
+        _actionLocks.Advance(elapsedSeconds);
         ObserveFastCastMovement(elapsedSeconds);
         _buffRule.Advance(elapsedSeconds);
         EnsureCharacterProfile();
@@ -4414,6 +4439,7 @@ internal sealed partial class MossTankPanel : IBuffRuleHost
         if (schedulerActive && !_scheduler.IsRunning)
         {
             _scheduler.Start();
+            _actionLocks.ClearAll();
             _transactionSuspensionHeld = false;
             _transactionSuspensionElapsed = 0d;
             ResetOncePerRunWarnings();
@@ -4426,6 +4452,9 @@ internal sealed partial class MossTankPanel : IBuffRuleHost
         }
         ObserveCastResult(elapsedSeconds);
         ObserveCastSuspension(elapsedSeconds);
+        // A turn in flight freezes the pass, so it needs a driver beside the
+        // pass rather than inside it.
+        _combat.AdvanceHeldTurn(elapsedSeconds);
         _scheduler.ExternalSuspension = _prologueOwnsAction;
         _scheduler.Advance(elapsedSeconds);
         _combatModeGate.AdvancePass(elapsedSeconds);
@@ -4480,7 +4509,8 @@ internal sealed partial class MossTankPanel : IBuffRuleHost
                     ownSpeech: message.Kind == SpellCastTracker.LocalSpeechChatKind
                         && message.SenderObjectId != 0u
                         && message.SenderObjectId
-                            == _host.Automation.Character.ObjectId);
+                            == _host.Automation.Character.ObjectId,
+                    logTextType: message.LogTextType);
             }
         }
         _castTracker.Advance(elapsed);
@@ -4581,7 +4611,7 @@ internal sealed partial class MossTankPanel : IBuffRuleHost
     private void HandleSessionEnded()
     {
         if (_combat.Enabled)
-            _combat.OnTick(0d, navigationEnabled: false);
+            _combat.OnTick(0d);
 
         ClearFastCastMovement();
         _buffRule.Reset();

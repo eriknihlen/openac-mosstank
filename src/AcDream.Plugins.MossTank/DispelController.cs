@@ -57,6 +57,15 @@ internal sealed class DispelController
     internal void BindCombatModeGate(CombatModeGate gate) =>
         _gate = gate ?? throw new ArgumentNullException(nameof(gate));
 
+    private ActionLockTable _actionLocks = new();
+
+    /// <summary>
+    /// Shares the macro's cooldown table: a dispel item or drum is an item
+    /// use like any other, and holds the slot while its animation runs.
+    /// </summary>
+    internal void BindActionLocks(ActionLockTable locks) =>
+        _actionLocks = locks ?? throw new ArgumentNullException(nameof(locks));
+
     public bool Tick(double elapsedSeconds, bool canAct)
     {
         double elapsed = Math.Max(0d, elapsedSeconds);
@@ -89,6 +98,9 @@ internal sealed class DispelController
             PluginItemCommandResult result = automation.Items.Use(item.ObjectId);
             if (result.Accepted)
             {
+                _actionLocks.Arm(
+                    ActionLockKind.ItemUse,
+                    ItemUseLock.ImmediateSeconds);
                 _pending = new Pending(
                     DispelSource.Item,
                     item.ObjectId,
@@ -252,6 +264,14 @@ internal sealed class DispelController
             Status = $"Waiting to use {drum.Name} on {target.Name}";
             return result.Status == PluginItemCommandStatus.Busy;
         }
+        // Applying the drum to an ally is an item use like any other, so it
+        // holds the slot for the same one-shot window the self-dispel item
+        // does. The two share this controller and its pending slot, so an
+        // unarmed ally path would let the attack swing inside the drum's own
+        // animation where the self path would not.
+        _actionLocks.Arm(
+            ActionLockKind.ItemUse,
+            ItemUseLock.ImmediateSeconds);
         _pending = new Pending(
             DispelSource.AllyItem,
             drum.ObjectId,

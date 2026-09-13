@@ -79,14 +79,31 @@ internal sealed class CombatSettings
         DebuffSelectionMethod.Skill;
     public double DebuffPrecastSeconds { get; set; } = 5d;
     public bool SwitchWandsToDebuff { get; set; }
-    public UseArcsMode UseArcs { get; set; } = UseArcsMode.AtRange;
+    /// <summary>
+    /// Stock profiles never arc: on an exact quality tie the bolt wins. The
+    /// option only decides that tie.
+    /// </summary>
+    public UseArcsMode UseArcs { get; set; } = UseArcsMode.No;
     public double SpellRangeFudge { get; set; } = 1d;
     public bool UseBreakableTurnTo { get; set; } = true;
     public bool UseProjectileAwareness { get; set; } = true;
     public double CollisionProjectileRadius { get; set; } = 0.4d;
     public double CollisionStepDistance { get; set; } = 0.7d;
     public bool ShowCollisionDebug { get; set; }
+
+    /// <summary>
+    /// How many times ONE pass may choose again after finding it cannot carry
+    /// out its decision against the monster it picked.
+    /// </summary>
     public int MaximumCollisionChecksPerTick { get; set; } = 500;
+
+    /// <summary>
+    /// The cap on samples taken along a single flight path. The reference
+    /// client bounds this by geometry — the step distance against the length
+    /// of the flight — and has no setting for it; the host's path check wants
+    /// a number, so this is ours and is not the per-pass retry budget.
+    /// </summary>
+    public int CollisionSampleBudget { get; set; } = 500;
     public double ArcRange { get; set; } = 5d;
     public double RingDistance { get; set; } = 5d;
     public int MinimumRingTargets { get; set; } = 4;
@@ -118,13 +135,25 @@ internal sealed class CombatSettings
     public IList<MonsterRule> Rules { get; } =
         new List<MonsterRule> { new("DEFAULT", 0) };
 
+    /// <summary>
+    /// Where a rule's <c>species</c> and <c>maxhp</c> come from. Both are
+    /// database facts, not live properties; without a database they answer
+    /// the way an unlisted monster answers.
+    /// </summary>
+    public MonsterFactTable MonsterFacts { get; set; } = new();
+
+    /// <summary>
+    /// Which rule this monster matches. A pure lookup: the fact table is
+    /// taught what a live monster says about its species by the scan, not by
+    /// this.
+    /// </summary>
     public ResolvedMonsterRule ResolveRule(PluginCombatTarget target)
     {
         var context = new MonsterExpressionContext(
             target.Name,
             target.WeenieClassId,
-            target.SpeciesName,
-            target.MaximumHealth,
+            MonsterFacts.Species(target.Name),
+            MonsterFacts.MaximumHealth(target.Name),
             target.Distance,
             target.HasShield,
             MetaState,

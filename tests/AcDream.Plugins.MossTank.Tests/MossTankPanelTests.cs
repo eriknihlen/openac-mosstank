@@ -1,4 +1,4 @@
-using System.Reflection;
+﻿using System.Reflection;
 using AcDream.Plugin.Abstractions;
 
 namespace AcDream.Plugins.MossTank.Tests;
@@ -2028,6 +2028,399 @@ public sealed class MossTankPanelTests
         Assert.Contains(
             "[MossTank] All rules inactive.   I=False, N=False, S=False",
             automation.Messages);
+    }
+
+    /// <summary>
+    /// Mutation: delete the Attack rule's
+    /// <c>gate: () =&gt; !_actionLocks.IsLocked(ActionLockKind.ItemUse)</c> and
+    /// the first assertion fails — the bot keeps swinging inside the item's
+    /// own cooldown.
+    /// </summary>
+    [Fact]
+    public void AnItemUseLockHoldsTheAttackRuleOffUntilItExpires()
+    {
+        var automation = new CombatCapableFakeAutomation
+        {
+            CurrentHealth = 100,
+            MaxHealth = 100,
+            ItemEntries = [Item(20, "Battle Axe", itemType: 1)],
+            EquipmentItems = [EquipmentItem(20, "Battle Axe", itemType: 1)],
+            Targets = [new PluginCombatTarget(30, "Drudge", 700, 2f, 0f, true, 1f)],
+        };
+        automation.CombatSnapshot = automation.CombatSnapshot with
+        {
+            Mode = PluginCombatMode.Melee,
+        };
+        var host = new FakeHost(automation);
+        var panel = new MossTankPanel(host);
+        host.Selection.Select(20);
+        panel.AddSelectedItem();
+        panel.CycleMonsterWeaponAt(0);
+        panel.ToggleCombat();
+
+        bool attacked = false;
+        for (int tick = 0; tick < 60 && !attacked; tick++)
+        {
+            panel.OnTick(0.7d);
+            attacked = automation.BeginCount > 0;
+        }
+        Assert.True(
+            attacked,
+            "the rig never attacks at all. CallLog: "
+                + string.Join(" | ", automation.CallLog));
+
+        panel.ActionLocks.Arm(ActionLockKind.ItemUse, 5d);
+        int before = automation.BeginCount;
+        for (int tick = 0; tick < 5; tick++)
+            panel.OnTick(0.7d);
+
+        Assert.Equal(before, automation.BeginCount);
+
+        for (int tick = 0; tick < 5; tick++)
+            panel.OnTick(0.7d);
+
+        Assert.True(
+            automation.BeginCount > before,
+            "the attack never resumed after the item-use lock expired");
+    }
+
+    /// <summary>
+    /// The item slot is not the attack's alone: every rule that consumes an
+    /// item reads it first, which is what makes one shared release safe — with
+    /// only one owner at a time, no rule can put down a window another one is
+    /// holding. Here the slot is held by somebody else and the self-recharge
+    /// eats nothing until it comes free.
+    /// Mutation: drop <c>ItemSlotIsFree() &amp;&amp;</c> from
+    /// <c>RechargeSelfNormal</c>'s gate and the first assertion fails — the
+    /// bread is eaten inside another owner's window, and the recharge's own
+    /// release then deletes that owner's deadline.
+    /// </summary>
+    [Fact]
+    public void TheItemSlotHoldsTheConsumableRulesOffAsWellAsTheAttack()
+    {
+        var automation = new FakeAutomation
+        {
+            CurrentHealth = 100,
+            MaxHealth = 100,
+            CurrentStamina = 100,
+            MaxStamina = 100,
+            CurrentMana = 100,
+            MaxMana = 100,
+            // BoosterVital 2 = VitalKind.Health (VitalPlan.cs:7).
+            ItemEntries = [Item(60, "Bread", 1) with { BoosterVital = 2 }],
+        };
+        var host = new FakeHost(automation);
+        var panel = new MossTankPanel(host);
+        host.Selection.Select(60u);
+        panel.AddSelectedConsumable();
+        panel.ToggleCombat();
+        // The macro clears every slot as it starts, so the window opens after
+        // the first frame.
+        panel.OnTick(0d);
+
+        // Somebody else's window, and only now is health worth a bite: two
+        // seconds of passes eat nothing.
+        panel.ActionLocks.Arm(ActionLockKind.ItemUse, 5d);
+        automation.CurrentHealth = 10;
+        for (int tick = 0; tick < 6; tick++)
+            panel.OnTick(0.3d);
+        Assert.Empty(automation.UsedItemIds);
+
+        panel.ActionLocks.Release(ActionLockKind.ItemUse);
+        for (int tick = 0; tick < 6; tick++)
+            panel.OnTick(0.3d);
+        Assert.Equal([60u], automation.UsedItemIds);
+    }
+
+    /// <summary>
+    /// The wand's cast holds the very slot the attack's first refusal reads,
+    /// so from the pass after it starts the attack has no turn at all. The
+    /// cast is nobody else's business but its own: it keeps being watched
+    /// across those turnless passes, sees its own confirmation in the magic
+    /// log, and puts the slot down early — driven here through the real rule
+    /// table, not by calling the controller.
+    /// Mutation: restore the plain <c>if (_paused) return;</c> at the top of
+    /// <c>CombatController.OnTick</c> (dropping the in-flight item
+    /// transaction's branch) and the last two assertions fail — the slot stays
+    /// locked for its whole eleven-and-a-half seconds and the pass line still
+    /// reads as paused.
+    /// </summary>
+    [Fact]
+    public void AWandCastIsWatchedToItsEndThoughItsOwnSlotHoldsTheAttackOff()
+    {
+        var imperil = new PluginSpellInfo(
+            90u,
+            "Imperil Other VII",
+            Family: 1,
+            Tier: 8,
+            Difficulty: 350,
+            ManaCost: 30,
+            DurationSeconds: 60,
+            School: 31,
+            Description: string.Empty,
+            IsSelfTargeted: false,
+            IsBeneficial: false)
+        {
+            IsDebuff = true,
+            IsOffensive = true,
+            BaseRangeConstant = 80f,
+        };
+        var automation = new CombatCapableFakeAutomation
+        {
+            CurrentHealth = 100,
+            MaxHealth = 100,
+            CurrentMana = 100,
+            MaxMana = 100,
+            ItemEntries =
+            [
+                Item(800, "Imperil Lens", itemType: 0x8000) with
+                {
+                    EquippedLocation = 0x00100000u,
+                    SpellId = 90u,
+                    ItemSpellcraft = 400,
+                },
+            ],
+            EquipmentItems = [EquipmentItem(800, "Imperil Lens", itemType: 0x8000)],
+            Targets = [new PluginCombatTarget(30, "Drudge", 700, 2f, 0f, true, 1f)],
+        };
+        automation.SpellLookup.Add(imperil);
+        automation.CombatSnapshot = automation.CombatSnapshot with
+        {
+            Mode = PluginCombatMode.Magic,
+        };
+        var host = new FakeHost(automation);
+        var panel = new MossTankPanel(host);
+        host.Selection.Select(800);
+        panel.AddSelectedItem();
+        panel.ToggleMonsterImperilAt(0);
+        panel.SetMetaOption("EnableBuffing", Truthy(false));
+        panel.ToggleCombat();
+
+        for (int tick = 0; tick < 40 && automation.ApplyCount == 0; tick++)
+            panel.OnTick(0.3d);
+        Assert.True(
+            automation.ApplyCount > 0,
+            "the rig never used the wand at all. CallLog: "
+                + string.Join(" | ", automation.CallLog));
+        Assert.Equal((800u, 30u), automation.LastAppliedItem);
+        Assert.True(panel.ActionLocks.IsLocked(ActionLockKind.ItemUse));
+
+        // Several passes with the attack's gate shut. Two seconds in, well
+        // short of the cast's own window.
+        for (int tick = 0; tick < 7; tick++)
+            panel.OnTick(0.3d);
+        Assert.True(panel.ActionLocks.IsLocked(ActionLockKind.ItemUse));
+
+        automation.PostChat(
+            "You cast Imperil Other VII on Drudge.",
+            logTextType: 0x07u);
+        panel.OnTick(0.3d);
+
+        Assert.False(panel.ActionLocks.IsLocked(ActionLockKind.ItemUse));
+        Assert.Contains(
+            "applied to Drudge",
+            panel.CombatStatus,
+            StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// A weapon proc's debuff rides a physical swing, and it arms no item
+    /// slot of its own. So when some OTHER rule takes the item slot — a kit,
+    /// a dispel item, the mode-gate's recovery — the attack loses its turn,
+    /// its swing is aborted, and that is the end of it: nothing may go on to
+    /// release a swing that is no longer running, least of all inside the
+    /// window the other rule took the slot for.
+    /// Mutation: widen the turnless branch at the top of
+    /// <c>CombatController.OnTick</c> back to <c>_pendingItemDebuff is not
+    /// null</c> (dropping the <c>CasterItem</c> pattern) and the last
+    /// assertion fails — the charge is released on the very passes the
+    /// attack has no turn on.
+    /// </summary>
+    [Fact]
+    public void AProcChargeIsNotReleasedOnAPassTheAttackLost()
+    {
+        var imperil = new PluginSpellInfo(
+            91u,
+            "Imperil Other VII",
+            Family: 1,
+            Tier: 8,
+            Difficulty: 350,
+            ManaCost: 30,
+            DurationSeconds: 60,
+            School: 31,
+            Description: string.Empty,
+            IsSelfTargeted: false,
+            IsBeneficial: false)
+        {
+            IsDebuff = true,
+            IsOffensive = true,
+            BaseRangeConstant = 80f,
+        };
+        var automation = new CombatCapableFakeAutomation
+        {
+            CurrentHealth = 100,
+            MaxHealth = 100,
+            CurrentMana = 100,
+            MaxMana = 100,
+            ItemEntries =
+            [
+                Item(801, "Imperil Sword", itemType: 0x0001) with
+                {
+                    EquippedLocation = 0x00100000u,
+                    ItemSpellcraft = 400,
+                    AppraisedSpellIds = [91u],
+                },
+            ],
+            EquipmentItems = [EquipmentItem(801, "Imperil Sword", itemType: 0x0001)],
+            Targets = [new PluginCombatTarget(30, "Drudge", 700, 2f, 0f, true, 1f)],
+        };
+        automation.SpellLookup.Add(imperil);
+        automation.CombatSnapshot = automation.CombatSnapshot with
+        {
+            Mode = PluginCombatMode.Melee,
+        };
+        var host = new FakeHost(automation);
+        var panel = new MossTankPanel(host);
+        host.Selection.Select(801);
+        panel.AddSelectedItem();
+        panel.ToggleMonsterImperilAt(0);
+        panel.SetMetaOption("EnableBuffing", Truthy(false));
+        panel.ToggleCombat();
+
+        for (int tick = 0; tick < 40 && automation.BeginCount == 0; tick++)
+            panel.OnTick(0.3d);
+        Assert.True(
+            automation.BeginCount > 0,
+            "the rig never began the proc's swing at all. CallLog: "
+                + string.Join(" | ", automation.CallLog));
+        Assert.Equal(30u, automation.LastBeginTarget);
+        // The proc arms nothing: the slot is free until someone else takes it.
+        Assert.False(panel.ActionLocks.IsLocked(ActionLockKind.ItemUse));
+        Assert.Equal(0, automation.ReleaseCount);
+
+        // Another rule takes the item slot for its own five-second window, and
+        // the swing it interrupted is sitting at full power.
+        panel.ActionLocks.Arm(ActionLockKind.ItemUse, 5d);
+        automation.CombatSnapshot = automation.CombatSnapshot with
+        {
+            RequestInProgress = true,
+            BuildInProgress = true,
+            PowerBarLevel = 1f,
+        };
+        for (int tick = 0; tick < 8; tick++)
+            panel.OnTick(0.3d);
+
+        Assert.True(panel.ActionLocks.IsLocked(ActionLockKind.ItemUse));
+        Assert.Equal(0, automation.ReleaseCount);
+    }
+
+    /// <summary>
+    /// Mutation: drop <c>NavigationLocksAreClear()</c> from the two navigate
+    /// gates and this fails — the route advances over the corpse the kill just
+    /// made.
+    /// </summary>
+    [Fact]
+    public void ANavigationLockHoldsTheRouteRuleOff()
+    {
+        var automation = new CombatCapableFakeAutomation
+        {
+            CurrentHealth = 100,
+            MaxHealth = 100,
+        };
+        var panel = new MossTankPanel(new FakeHost(automation));
+        // One waypoint the character is nowhere near, so the route rule has
+        // something to do on every pass.
+        automation.NavigationSnapshot = automation.NavigationSnapshot with
+        {
+            Position = new PluginNavigationPosition(
+                0x00010001u, 0d, 1d, 0d, 0f, IsOutdoor: true),
+        };
+        panel.AddRoutePoint();
+        automation.NavigationSnapshot = automation.NavigationSnapshot with
+        {
+            Position = new PluginNavigationPosition(
+                0x00010001u, 0d, 0d, 0d, 0f, IsOutdoor: true),
+        };
+        panel.ToggleNavigation();
+        panel.ToggleCombat();
+        panel.OnTick(0.3d);
+
+        IMacroRule route = panel.MacroRules.First(
+            static rule => rule.Name == "NavigateRouteIdle");
+        var context = new MacroPassContext(0.3d, CanAct: true);
+        Assert.True(
+            route.ValidNow(in context),
+            "the rig's route rule is not valid even with every lock clear");
+
+        panel.ActionLocks.Arm(ActionLockKind.Navigation, 3d);
+        Assert.False(route.ValidNow(in context));
+
+        panel.ActionLocks.Release(ActionLockKind.Navigation);
+        panel.ActionLocks.Arm(ActionLockKind.DoorOpening, 3d);
+        Assert.False(route.ValidNow(in context));
+
+        panel.ActionLocks.Release(ActionLockKind.DoorOpening);
+        panel.ActionLocks.Arm(ActionLockKind.SpreadLockTargetRequested, 3d);
+        Assert.False(route.ValidNow(in context));
+    }
+
+    /// <summary>
+    /// Mutation: build the attack's candidates out to the approach range again
+    /// and this fails — the attack claims the pass for a monster it cannot
+    /// reach and every rule below it starves.
+    /// </summary>
+    [Fact]
+    public void AMonsterOutOfWeaponRangeDoesNotStarveTheRulesBelowTheAttack()
+    {
+        var automation = new CombatCapableFakeAutomation
+        {
+            CurrentHealth = 100,
+            MaxHealth = 100,
+            ItemEntries = [Item(20, "Battle Axe", itemType: 1)],
+            EquipmentItems = [EquipmentItem(20, "Battle Axe", itemType: 1)],
+            Targets = [new PluginCombatTarget(30, "Drudge", 700, 12f, 0f, true, 1f)],
+        };
+        automation.CombatSnapshot = automation.CombatSnapshot with
+        {
+            Mode = PluginCombatMode.Melee,
+        };
+        var host = new FakeHost(automation);
+        var panel = new MossTankPanel(host);
+        host.Selection.Select(20);
+        panel.AddSelectedItem();
+        panel.CycleMonsterWeaponAt(0);
+        panel.SetApproachRangeText("20");
+        // Navigation off, so the monster-approach rule cannot claim the pass
+        // either: what runs has to come from below both of them.
+        panel.ToggleIdlePeaceMode();
+        panel.ToggleCombat();
+
+        for (int tick = 0; tick < 20; tick++)
+            panel.OnTick(0.3d);
+
+        Assert.Equal(0, automation.BeginCount);
+        Assert.Contains("EnterMode:Peace", automation.CallLog);
+    }
+
+    [Fact]
+    public void MonsterApproachSitsBelowIdleBuffAndAboveTheRoute()
+    {
+        var panel = new MossTankPanel(new FakeHost(new FakeAutomation()));
+        List<IMacroRule> rules = [.. panel.MacroRules];
+
+        int idleBuff = rules.FindIndex(static rule => rule.Name == "BuffSelfIdle");
+        int approach = rules.FindIndex(
+            static rule => rule.Name == "NavigateMonster");
+        int route = rules.FindIndex(
+            static rule => rule.Name == "NavigateRouteIdle");
+
+        Assert.True(idleBuff >= 0 && approach >= 0 && route >= 0);
+        Assert.True(
+            idleBuff < approach,
+            $"idle buff top-off at {idleBuff} must outrank the approach at {approach}.");
+        Assert.True(
+            approach < route,
+            $"the approach at {approach} must outrank the route at {route}.");
     }
 
     [Fact]
@@ -5013,8 +5406,16 @@ public sealed class MossTankPanelTests
         Assert.Equal([1u], automation.CastSpellIds);
     }
 
+    /// <summary>
+    /// Only a gesture ends the launch wait. The character's own words in
+    /// local chat look identical, so the log they came from is what tells the
+    /// two apart.
+    /// Mutation: drop the log-type half of the launch arm's test in
+    /// <c>SpellCastTracker.ObserveChat</c> and the middle assertion fails —
+    /// typing in local chat cancels the cast in flight.
+    /// </summary>
     [Fact]
-    public void OwnLocalSpeechOfTheSpellWordsIsStillTheGestureEcho()
+    public void OnlyAGestureEndsTheLaunchWaitNotTypedLocalSpeech()
     {
         var automation = new FakeAutomation
         {
@@ -5043,10 +5444,16 @@ public sealed class MossTankPanelTests
             panel.OnTick(0.3d);
         Assert.Equal([1u], automation.CastSpellIds);
 
-        // A DIFFERENT spell's words, spoken locally by us: gj.cs:359's a(gj.b.a)
-        // — this wait is over, the latch drops, and the pass re-derives the
-        // same pick.
+        // The same words typed into local chat are not a gesture: they carry
+        // the plain log type, and the wait goes on.
         automation.PostChatFrom(0x50000001u, 0, "hocus pocus");
+        for (int tick = 0; tick < 3; tick++)
+            panel.OnTick(0.3d);
+        Assert.Equal([1u], automation.CastSpellIds);
+
+        // A DIFFERENT spell's words, gestured by us: this wait is over, the
+        // latch drops, and the pass re-derives the same pick.
+        automation.PostChatFrom(0x50000001u, 0, "hocus pocus", logTextType: 0x11u);
         for (int tick = 0; tick < 3; tick++)
             panel.OnTick(0.3d);
 
@@ -5263,13 +5670,27 @@ public sealed class MossTankPanelTests
             return result;
         }
 
-        public void PostChat(string text) =>
+        /// <summary>
+        /// A line the client logged. <paramref name="logTextType"/> is the log
+        /// it came from: 0x07 for a spell result, 0 for a plain line.
+        /// </summary>
+        public void PostChat(string text, uint logTextType = 0u) =>
             ChatLines.Add(new PluginChatMessage(
-                ++_chatSequence, 0u, 0, string.Empty, text, string.Empty));
-        public void PostChatFrom(uint senderObjectId, int kind, string text) =>
+                ++_chatSequence, 0u, 0, string.Empty, text, string.Empty)
+            {
+                LogTextType = logTextType,
+            });
+        public void PostChatFrom(
+            uint senderObjectId,
+            int kind,
+            string text,
+            uint logTextType = 0u) =>
             ChatLines.Add(new PluginChatMessage(
                 ++_chatSequence, senderObjectId, kind, string.Empty, text,
-                string.Empty));
+                string.Empty)
+            {
+                LogTextType = logTextType,
+            });
 
 
         private PluginCastCompletion _lastCompletion;
@@ -5326,7 +5747,9 @@ public sealed class MossTankPanelTests
                 string name = TryGet(spellId, out PluginSpellInfo spell)
                     ? spell.Name
                     : $"Spell {spellId}";
-                PostChat(CastResultText ?? $"You cast {name} on yourself");
+                PostChat(
+                    CastResultText ?? $"You cast {name} on yourself",
+                    logTextType: 0x07u);
             }
 
             if (NextCastWeenieError == 0u
@@ -5492,9 +5915,20 @@ public sealed class MossTankPanelTests
             skill = default;
             return false;
         }
+        /// <summary>Spells the catalog knows that are not self buffs.</summary>
+        public List<PluginSpellInfo> SpellLookup { get; } = [];
+
         public bool TryGet(uint spellId, out PluginSpellInfo info)
         {
             foreach (PluginSpellInfo candidate in KnownSelfBuffs)
+            {
+                if (candidate.SpellId == spellId)
+                {
+                    info = candidate;
+                    return true;
+                }
+            }
+            foreach (PluginSpellInfo candidate in SpellLookup)
             {
                 if (candidate.SpellId == spellId)
                 {
@@ -5529,9 +5963,16 @@ public sealed class MossTankPanelTests
             return result;
         }
 
-        public void PostChat(string text) =>
+        /// <summary>
+        /// A line the client logged. <paramref name="logTextType"/> is the log
+        /// it came from: 0x07 for a spell result, 0 for a plain line.
+        /// </summary>
+        public void PostChat(string text, uint logTextType = 0u) =>
             ChatLines.Add(new PluginChatMessage(
-                ++_chatSequence, 0u, 0, string.Empty, text, string.Empty));
+                ++_chatSequence, 0u, 0, string.Empty, text, string.Empty)
+            {
+                LogTextType = logTextType,
+            });
 
         public List<uint> CastTargets { get; } = [];
 
@@ -5558,7 +5999,7 @@ public sealed class MossTankPanelTests
                 string castName = TryGet(spellId, out PluginSpellInfo cast)
                     ? cast.Name
                     : $"Spell {spellId}";
-                PostChat($"You cast {castName} on yourself");
+                PostChat($"You cast {castName} on yourself", logTextType: 0x07u);
             }
             foreach (PluginSpellInfo spell in KnownSelfBuffs)
             {
@@ -5585,6 +6026,19 @@ public sealed class MossTankPanelTests
         bool IItemAutomation.IsBusy => false;
         public IReadOnlyList<PluginInventoryItem> ItemEntries { get; set; } = [];
         public IReadOnlyList<PluginInventoryItem> CaptureOwnedItems() => ItemEntries;
+        public int ApplyCount { get; private set; }
+        public (uint Item, uint Target) LastAppliedItem { get; private set; }
+        public PluginItemUseCompletion ItemCompletion { get; set; }
+        PluginItemUseCompletion IItemAutomation.LastCompletion => ItemCompletion;
+        PluginItemCommandResult IItemAutomation.Apply(
+            uint objectId,
+            uint targetObjectId)
+        {
+            ApplyCount++;
+            LastAppliedItem = (objectId, targetObjectId);
+            CallLog.Add($"Apply:{objectId:X8}->{targetObjectId:X8}");
+            return new(PluginItemCommandStatus.Started);
+        }
 
         public PluginCombatSnapshot CombatSnapshot { get; set; } = new(
             SelectedObjectId: 0,
@@ -5634,8 +6088,13 @@ public sealed class MossTankPanelTests
             CallLog.Add($"Attack:{targetObjectId:X8}");
             return new(PluginCombatCommandStatus.Started);
         }
-        public PluginCombatCommandResult ReleasePhysicalAttack() =>
-            new(PluginCombatCommandStatus.Released);
+        public int ReleaseCount { get; private set; }
+        public PluginCombatCommandResult ReleasePhysicalAttack()
+        {
+            ReleaseCount++;
+            CallLog.Add("Release");
+            return new(PluginCombatCommandStatus.Released);
+        }
         public PluginCombatCommandResult AbortPhysicalAttack() =>
             new(PluginCombatCommandStatus.Stopped);
 

@@ -8,6 +8,28 @@ internal sealed partial class MossTankPanel : IMacroRuleProvider
 
     internal IReadOnlyList<IMacroRule> MacroRules => _scheduler.MainRules;
 
+    internal ActionLockTable ActionLocks => _actionLocks;
+
+    /// <summary>
+    /// The cooldown slot an item in use holds. It is the first refusal of
+    /// every rule that consumes an item — the attack included, because a swing
+    /// inside an item's own animation only eats the item — and it is what
+    /// makes the shared release safe: one owner at a time, so nobody can drop
+    /// somebody else's window.
+    /// </summary>
+    private bool ItemSlotIsFree() =>
+        !_actionLocks.IsLocked(ActionLockKind.ItemUse);
+
+    /// <summary>
+    /// The three cooldown slots that hold every navigation rule off: the one a
+    /// kill or a portal arms, the one a shared-target request arms, and the one
+    /// a door arms while it opens.
+    /// </summary>
+    private bool NavigationLocksAreClear() =>
+        !_actionLocks.IsLocked(ActionLockKind.Navigation)
+        && !_actionLocks.IsLocked(ActionLockKind.SpreadLockTargetRequested)
+        && !_actionLocks.IsLocked(ActionLockKind.DoorOpening);
+
     private void StopMacroFromGate(string notice)
     {
         if (_buffRule.IsBursting)
@@ -23,7 +45,8 @@ internal sealed partial class MossTankPanel : IMacroRuleProvider
             context => _crafting.TickCritical(
                 context.ElapsedSeconds,
                 context.CanAct),
-            gate: () => _combat.Enabled && !_buffRule.IsBursting),
+            gate: () => ItemSlotIsFree() && _combat.Enabled
+                && !_buffRule.IsBursting),
         MacroRuleSlot.CraftFoodCritical => new AbsentMacroRule(
             "CraftFoodCritical",
             "fused into SplitPeasCritical — CraftingController.TickCritical "
@@ -36,17 +59,19 @@ internal sealed partial class MossTankPanel : IMacroRuleProvider
                 context.CanAct,
                 noTarget: !_combat.HasTarget,
                 helpers: false),
-            gate: () => _combat.Enabled),
+            gate: () => ItemSlotIsFree() && _combat.Enabled),
 
         MacroRuleSlot.RefillWieldedMana => new ControllerMacroRule(
             "RefillWieldedMana",
             context => _itemManaRecharge.Tick(context.CanAct),
-            gate: () => _combat.Enabled
-                || _inventorySettings.ManaChargesWhenOff),
+            gate: () => ItemSlotIsFree()
+                && (_combat.Enabled
+                    || _inventorySettings.ManaChargesWhenOff)),
 
         MacroRuleSlot.BuffSelfNormal => new ControllerMacroRule(
             "BuffSelf",
             context => _buffRule.Tick(context, idle: false),
+            gate: ItemSlotIsFree,
             declineReason: () => _buffRule.DeclineReason),
         MacroRuleSlot.SplitPeasNormal => new AbsentMacroRule(
             "SplitPeasNormal",
@@ -56,7 +81,8 @@ internal sealed partial class MossTankPanel : IMacroRuleProvider
         MacroRuleSlot.DispelSelf => new ControllerMacroRule(
             "DispelSelf",
             context => _dispel.Tick(context.ElapsedSeconds, context.CanAct),
-            gate: () => _combat.Enabled && !_buffRule.IsBursting),
+            gate: () => ItemSlotIsFree() && _combat.Enabled
+                && !_buffRule.IsBursting),
         MacroRuleSlot.UseDispelItem => new AbsentMacroRule(
             "UseDispelItem",
             "fused into DispelSelf — DispelController.Tick tries the self "
@@ -72,7 +98,7 @@ internal sealed partial class MossTankPanel : IMacroRuleProvider
                 context.CanAct,
                 noTarget: !_combat.HasTarget,
                 helpers: true),
-            gate: () => _combat.Enabled),
+            gate: () => ItemSlotIsFree() && _combat.Enabled),
         MacroRuleSlot.RechargeOther => new AbsentMacroRule(
             "RechargeOther",
             "fused into UseHealersHeart - VitalRechargeController's helper "
@@ -82,7 +108,8 @@ internal sealed partial class MossTankPanel : IMacroRuleProvider
         MacroRuleSlot.CraftFood => new ControllerMacroRule(
             "CraftFood",
             context => _crafting.Tick(context.ElapsedSeconds, context.CanAct),
-            gate: () => _combat.Enabled && !_buffRule.IsBursting),
+            gate: () => ItemSlotIsFree() && _combat.Enabled
+                && !_buffRule.IsBursting),
         MacroRuleSlot.RefillPetChargesNormal => new AbsentMacroRule(
             "RefillPetChargesNormal",
             "fused into Attack — PetAutomation's refill branch runs inside "
@@ -165,7 +192,8 @@ internal sealed partial class MossTankPanel : IMacroRuleProvider
                 context.ElapsedSeconds,
                 context.CanAct),
             gate: () => _combat.Enabled && !_buffRule.IsBursting
-                && _navigationSettings.Priority,
+                && _navigationSettings.Priority
+                && NavigationLocksAreClear(),
             onLostTurn: _navigation.StopForLostTurn,
             bookkeepWhenBlocked: false,
             runningDetail: () => _navigation.RunningDetail,
@@ -176,7 +204,8 @@ internal sealed partial class MossTankPanel : IMacroRuleProvider
                 context.ElapsedSeconds,
                 context.CanAct),
             gate: () => !_navigationSettings.Priority
-                && _combat.Enabled && !_buffRule.IsBursting,
+                && _combat.Enabled && !_buffRule.IsBursting
+                && NavigationLocksAreClear(),
             onLostTurn: _navigation.StopForLostTurn,
             bookkeepWhenBlocked: false,
             runningDetail: () => _navigation.RunningDetail,
@@ -185,6 +214,10 @@ internal sealed partial class MossTankPanel : IMacroRuleProvider
         MacroRuleSlot.Attack => new ControllerMacroRule(
             "Attack",
             TickCombatRule,
+            // The attack's first refusal: an item that was just used owns the
+            // character for the rest of its cooldown, and attacking inside
+            // that window only eats the item's own animation.
+            gate: ItemSlotIsFree,
             onLostTurn: () => _combat.SetPaused(true)),
 
         // Rows 38-40.
@@ -197,7 +230,8 @@ internal sealed partial class MossTankPanel : IMacroRuleProvider
             context => _crafting.TickIdle(
                 context.ElapsedSeconds,
                 context.CanAct),
-            gate: () => _combat.Enabled && !_buffRule.IsBursting),
+            gate: () => ItemSlotIsFree() && _combat.Enabled
+                && !_buffRule.IsBursting),
         MacroRuleSlot.RefillPetChargesIdle => new AbsentMacroRule(
             "RefillPetChargesIdle",
             "fused into Attack — see RefillPetChargesNormal."),
@@ -205,14 +239,22 @@ internal sealed partial class MossTankPanel : IMacroRuleProvider
         MacroRuleSlot.BuffSelfIdle => new ControllerMacroRule(
             "BuffSelfIdle",
             context => _buffRule.Tick(context, idle: true),
-            gate: () => _buffSettings.IdleBuffTopoff,
+            gate: () => ItemSlotIsFree() && _buffSettings.IdleBuffTopoff,
             bookkeepWhenBlocked: false,
             declineReason: () => _buffRule.DeclineReason),
 
-        MacroRuleSlot.NavigateMonster => new AbsentMacroRule(
+        // Walking to a monster is a navigation job that sits twenty positions
+        // below the attack, not part of the attack: idle looting, idle buff
+        // top-off and the route all outrank it.
+        MacroRuleSlot.NavigateMonster => new ControllerMacroRule(
             "NavigateMonster",
-            "fused into Attack — CombatController.TickApproach owns monster "
-                + "approach."),
+            context => _combat.TickMonsterApproach(
+                context.ElapsedSeconds,
+                context.CanAct),
+            gate: () => _combat.Enabled && !_buffRule.IsBursting
+                && _navigationSettings.Enabled
+                && NavigationLocksAreClear(),
+            bookkeepWhenBlocked: false),
 
         MacroRuleSlot.RechargeSelfNoTarget => new AbsentMacroRule(
             "RechargeSelfNoTarget",
@@ -241,7 +283,7 @@ internal sealed partial class MossTankPanel : IMacroRuleProvider
     private bool TickCombatRule(MacroPassContext context)
     {
         _combat.SetPaused(!context.CanAct);
-        _combat.OnTick(context.ElapsedSeconds, _navigationSettings.Enabled);
+        _combat.OnTick(context.ElapsedSeconds);
         return context.CanAct
             && (_combat.HasTarget || _combat.HasPendingItemDebuff);
     }

@@ -69,6 +69,7 @@ public sealed class CombatItemDebuffPlannerTests
             character,
             catalog,
             [lens],
+            targetDistance: 0d,
             log.Add);
 
         Assert.All(sources, source =>
@@ -99,6 +100,7 @@ public sealed class CombatItemDebuffPlannerTests
             new Character((31u, 500u)),
             catalog,
             [armour],
+            targetDistance: 0d,
             log.Add);
 
         Assert.Contains(

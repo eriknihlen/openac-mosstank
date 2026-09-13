@@ -6,7 +6,6 @@ internal enum CombatSuppressionReason
 {
     None,
     Blacklisted,
-    Ghost,
 
     Dead,
 }
@@ -15,13 +14,12 @@ internal sealed class CombatFailureTracker
 {
     private readonly Dictionary<uint, Entry> _entries = [];
 
-    public IReadOnlyList<uint> ObserveTargets(
+    public void ObserveTargets(
         IReadOnlyList<PluginCombatTarget> targets,
         double now,
         CombatSettings settings)
     {
         var live = new HashSet<uint>();
-        List<uint>? newlyGhosted = null;
         foreach (PluginCombatTarget target in targets)
         {
             live.Add(target.ObjectId);
@@ -34,31 +32,13 @@ internal sealed class CombatFailureTracker
                 };
             }
             entry.LastSeenAt = now;
-            if (target.HealthRevision != 0
-                && target.HealthRevision != entry.HealthRevision)
-            {
-                entry.HealthRevision = target.HealthRevision;
-                entry.SuccessfulMisses = 0;
-                entry.SpellStartFailures = 0;
-            }
-
+            // The attempt count is NOT cleared by the monster's health
+            // moving. Only our own damage line clears it — a fellow's blow,
+            // the monster's own regeneration or a heal are somebody else
+            // reaching it, and an unhittable monster in a crowd would never
+            // be given up on.
             if (entry.BlacklistedUntil <= now)
                 entry.BlacklistedUntil = 0d;
-
-            if (settings.DeleteGhostMonstersByHealthTracker
-                && entry.EngagedAt is double engagedAt
-                && now - engagedAt
-                    >= Math.Max(0d, settings.GhostDeleteHealthTrackerSeconds)
-                && target.IsHealthKnown
-                && target.SecondsSinceHealthUpdate
-                    >= Math.Max(0d, settings.GhostDeleteHealthTrackerSeconds))
-            {
-                if (!entry.IsGhost)
-                {
-                    entry.IsGhost = true;
-                    (newlyGhosted ??= []).Add(target.ObjectId);
-                }
-            }
         }
 
         foreach (uint objectId in _entries.Keys.ToArray())
@@ -72,67 +52,64 @@ internal sealed class CombatFailureTracker
                 _entries.Remove(objectId);
             }
         }
-        return newlyGhosted ?? (IReadOnlyList<uint>)Array.Empty<uint>();
     }
 
-    public void BeginEngagement(uint objectId, double now)
-    {
-        if (objectId == 0u)
-            return;
-        Entry entry = Get(objectId);
-        entry.EngagedAt ??= now;
-    }
-
-    public bool RecordSpellDidNotStart(
+    /// <summary>
+    /// One more cast sent at a monster that has still not answered. Answers
+    /// true on the attempt AFTER the configured allowance, and the count then
+    /// starts over whether or not the caller does anything about it — the
+    /// ceiling is on consecutive silence, not a permanent verdict.
+    /// </summary>
+    public bool RecordSpellAttempt(
         uint objectId,
         CombatSettings settings)
     {
-        if (objectId == 0u || !settings.DeleteGhostMonsters)
+        ArgumentNullException.ThrowIfNull(settings);
+        if (objectId == 0u)
             return false;
         Entry entry = Get(objectId);
-        entry.SpellStartFailures++;
-        if (entry.SpellStartFailures
-            >= Math.Max(1, settings.GhostMonsterSpellAttemptCount))
-        {
-            if (!entry.IsGhost)
-            {
-                entry.IsGhost = true;
-                return true;
-            }
-        }
-        return false;
+        entry.SpellAttempts++;
+        if (entry.SpellAttempts <= settings.GhostMonsterSpellAttemptCount)
+            return false;
+        entry.SpellAttempts = 0;
+        return true;
     }
 
-    public void RecordSuccessfulAttack(
+    /// <summary>The monster answered: the silence count starts over.</summary>
+    public void ResetSpellAttempts(uint objectId)
+    {
+        if (objectId != 0u && _entries.TryGetValue(objectId, out Entry? entry))
+            entry.SpellAttempts = 0;
+    }
+
+    /// <summary>
+    /// One recorded attempt that provably did not reach the monster. The count
+    /// trips on the attempt AFTER the configured allowance, not on it. Answers
+    /// true on the attempt that tripped it, so the caller can say so.
+    /// </summary>
+    public bool RecordMiss(
         uint objectId,
         double now,
         CombatSettings settings)
     {
+        ArgumentNullException.ThrowIfNull(settings);
         if (objectId == 0u)
-            return;
+            return false;
         Entry entry = Get(objectId);
-        if (entry.HealthRevision > entry.AttackHealthRevision)
-        {
-            entry.SuccessfulMisses = 0;
-            return;
-        }
-        entry.SuccessfulMisses++;
-        if (entry.SuccessfulMisses
-            >= Math.Max(1, settings.BlacklistMonsterAttemptCount))
-        {
-            entry.BlacklistedUntil = now + Math.Max(
-                0d,
-                settings.BlacklistMonsterTimeoutSeconds);
-            entry.SuccessfulMisses = 0;
-        }
+        entry.Attempts++;
+        if (entry.Attempts <= settings.BlacklistMonsterAttemptCount)
+            return false;
+        ExtendBlacklist(entry, now, settings);
+        entry.Attempts = 0;
+        return true;
     }
 
-    public void BeginAttack(uint objectId, long healthRevision)
+    /// <summary>The monster was reached: the attempt count starts over.</summary>
+    public void ResetAttempts(uint objectId)
     {
-        if (objectId == 0u)
+        if (objectId == 0u || !_entries.TryGetValue(objectId, out Entry? entry))
             return;
-        Entry entry = Get(objectId);
-        entry.AttackHealthRevision = healthRevision;
+        entry.Attempts = 0;
     }
 
     public void ForceBlacklist(
@@ -144,18 +121,24 @@ internal sealed class CombatFailureTracker
         if (objectId == 0u)
             return;
         Entry entry = Get(objectId);
-        entry.BlacklistedUntil = now + Math.Max(
-            0d,
-            settings.BlacklistMonsterTimeoutSeconds);
-        entry.SuccessfulMisses = 0;
+        ExtendBlacklist(entry, now, settings);
+        entry.Attempts = 0;
     }
 
-    public void ClearBlacklist(uint objectId)
+    /// <summary>
+    /// Pushes the deadline out, never in: a later trip under a shortened
+    /// timeout must not cut an existing blacklist short.
+    /// </summary>
+    private static void ExtendBlacklist(
+        Entry entry,
+        double now,
+        CombatSettings settings)
     {
-        if (objectId == 0u || !_entries.TryGetValue(objectId, out Entry? entry))
-            return;
-        entry.SuccessfulMisses = 0;
-        entry.BlacklistedUntil = 0d;
+        double deadline = now + Math.Max(
+            0d,
+            settings.BlacklistMonsterTimeoutSeconds);
+        if (deadline > entry.BlacklistedUntil)
+            entry.BlacklistedUntil = deadline;
     }
 
     public void MarkDead(uint objectId)
@@ -171,12 +154,16 @@ internal sealed class CombatFailureTracker
             return CombatSuppressionReason.None;
         if (entry.IsDead)
             return CombatSuppressionReason.Dead;
-        if (entry.IsGhost)
-            return CombatSuppressionReason.Ghost;
         return entry.BlacklistedUntil > now
             ? CombatSuppressionReason.Blacklisted
             : CombatSuppressionReason.None;
     }
+
+    /// <summary>
+    /// Has the combat pass ever seen this monster? A monster it has never
+    /// looked at is not one it has an opinion about.
+    /// </summary>
+    public bool IsKnown(uint objectId) => _entries.ContainsKey(objectId);
 
     public void Reset() => _entries.Clear();
 
@@ -191,13 +178,9 @@ internal sealed class CombatFailureTracker
     {
         public ushort Incarnation;
         public double LastSeenAt;
-        public long HealthRevision;
-        public int SuccessfulMisses;
-        public int SpellStartFailures;
-        public long AttackHealthRevision;
-        public double? EngagedAt;
+        public int Attempts;
+        public int SpellAttempts;
         public double BlacklistedUntil;
-        public bool IsGhost;
         public bool IsDead;
     }
 }
