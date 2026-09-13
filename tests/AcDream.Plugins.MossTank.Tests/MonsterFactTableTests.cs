@@ -77,7 +77,9 @@ public sealed class MonsterFactTableTests
         settings.Rules.Add(new MonsterRule("species==Olthoi", 4));
         settings.Rules.Add(new MonsterRule("DEFAULT", 1));
 
-        // The client's word for species 1 is learned from a live monster.
+        // The client's word for species 1 is learned from a live monster,
+        // which the scan teaches the table before it resolves anything.
+        settings.MonsterFacts.Learn(1, "Olthoi");
         Assert.Equal(
             4,
             settings.ResolveRule(Target("Olthoi Slasher", 1, "Olthoi")).Priority);

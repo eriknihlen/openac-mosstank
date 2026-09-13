@@ -142,9 +142,13 @@ internal sealed class CombatSettings
     /// </summary>
     public MonsterFactTable MonsterFacts { get; set; } = new();
 
+    /// <summary>
+    /// Which rule this monster matches. A pure lookup: the fact table is
+    /// taught what a live monster says about its species by the scan, not by
+    /// this.
+    /// </summary>
     public ResolvedMonsterRule ResolveRule(PluginCombatTarget target)
     {
-        MonsterFacts.Learn(target.SpeciesId, target.SpeciesName);
         var context = new MonsterExpressionContext(
             target.Name,
             target.WeenieClassId,

@@ -102,6 +102,29 @@ internal sealed class CombatController
         _passCandidates.Remove(objectId);
     }
 
+    /// <summary>
+    /// The rule with whatever THIS pass has learned taken off it. What the
+    /// pass learns — that a shot cannot reach, that a column is undeliverable
+    /// — belongs to the pass and to nothing else, so it is applied where a
+    /// decision reads the rule rather than written into the stored one.
+    /// </summary>
+    private ResolvedMonsterRule WithPassClearedActions(
+        uint objectId,
+        ResolvedMonsterRule rule) =>
+        rule.Rule is not null
+        && _passClearedActions.TryGetValue(
+            objectId,
+            out MonsterActionFlags cleared)
+            ? rule with
+            {
+                Rule = rule.Rule.WithActions(
+                    rule.Actions with
+                    {
+                        Flags = rule.Actions.Flags & ~cleared,
+                    }),
+            }
+            : rule;
+
     private void ClearActionsForPass(uint objectId, MonsterActionFlags flags)
     {
         if (objectId == 0u)
@@ -116,6 +139,7 @@ internal sealed class CombatController
     private IReadOnlyList<PluginEquipmentItem>? _passEquipment;
     private IReadOnlyList<PluginInventoryItem>? _passInventory;
     private uint _pendingAttackTarget;
+    private uint _lastTargetId;
     private PendingItemDebuff? _pendingItemDebuff;
     private ulong _observedChatSequence;
     private long _observedItemCompletion;
@@ -337,6 +361,7 @@ internal sealed class CombatController
         _pendingPhysicalTarget = 0u;
         _pendingAttackSpell = 0u;
         _pendingAttackTarget = 0u;
+        _lastTargetId = 0u;
         ClearPendingItemDebuff();
         _debuffs.ClearPending();
         Gate.Reset();
@@ -508,7 +533,14 @@ internal sealed class CombatController
                 (float)_acquisitionRange);
             _failures.ObserveTargets(_targets, _now, _settings);
             foreach (PluginCombatTarget scanned in _targets)
+            {
                 _health.Observe(scanned, _now);
+                // A live monster is where the species word for its name comes
+                // from when the database does not list it.
+                _settings.MonsterFacts.Learn(
+                    scanned.SpeciesId,
+                    scanned.SpeciesName);
+            }
             _debuffs.RetainTargets(
                 _targets.Select(static target => target.ObjectId).ToHashSet());
             _untilScan = Math.Max(0.05d, _settings.ScanIntervalSeconds);
@@ -527,9 +559,28 @@ internal sealed class CombatController
         // outright) for the rest of THIS pass and the choice is made again
         // from what is left, until something can be carried out or nothing is
         // left to try.
+        // With the projectile awareness off there is nothing to learn from an
+        // undeliverable decision, so the pass gets one attempt: this coupling
+        // is the reference's, not a convenience.
         int budget = _settings.UseProjectileAwareness
             ? Math.Max(1, _settings.MaximumCollisionChecksPerTick)
             : 1;
+        try
+        {
+            RunAttackLoop(budget);
+        }
+        finally
+        {
+            // "The monster I picked last time" is a per-PASS memory, set once
+            // when the pass is over. Inside the loop the pass has no opinion
+            // yet, and the tie-break must not lose the term after the first
+            // attempt clears the target.
+            _lastTargetId = _targetId;
+        }
+    }
+
+    private void RunAttackLoop(int budget)
+    {
         for (int attempt = 0; attempt < budget; attempt++)
         {
             // The debuff choice is remade from scratch every time the pass
@@ -584,14 +635,21 @@ internal sealed class CombatController
     /// the chain asks for and the spell the attack throws are the same element.
     /// </summary>
     private MonsterRuleActions DecisionActions =>
-        _decisionActions ?? _targetRule.Actions;
+        _decisionActions ?? PassActions;
+
+    /// <summary>
+    /// The target's rule as THIS pass sees it: the stored rule minus whatever
+    /// the pass has learned cannot be carried out.
+    /// </summary>
+    private MonsterRuleActions PassActions =>
+        WithPassClearedActions(_targetId, _targetRule).Actions;
 
     private MonsterRuleActions? _decisionActions;
 
     private AttackPassOutcome RunAttackAttempt()
     {
         StopApproachMovement();
-        _decisionActions = ResolveRandomDamage(_targetRule.Actions);
+        _decisionActions = ResolveRandomDamage(PassActions);
 
         if (_pets.Tick(
                 _host.Automation.Items,
@@ -608,13 +666,18 @@ internal sealed class CombatController
         }
 
         PluginCombatSnapshot combat = _host.Automation.Combat.Snapshot;
-        if (TickDebuffs(combat))
-            return AttackPassOutcome.Claimed;
+        switch (TickDebuffs(combat))
+        {
+            case DebuffArmOutcome.Claimed:
+                return AttackPassOutcome.Claimed;
+            case DebuffArmOutcome.Retry:
+                return AttackPassOutcome.Retry;
+        }
 
         if (TickEquipment())
             return AttackPassOutcome.Claimed;
 
-        if (!_targetRule.Actions.Attacks && !_targetRule.Actions.UsesStreak)
+        if (!DecisionActions.Attacks && !DecisionActions.UsesStreak)
         {
             Status = $"Debuffs complete for {_targetName}";
             InvalidateForPass(_targetId);
@@ -1736,14 +1799,23 @@ internal sealed class CombatController
             _ => 0,
         };
 
-    private bool TickDebuffs(PluginCombatSnapshot combat)
+    /// <summary>
+    /// The debuff arm of one decision.
+    /// </summary>
+    /// <returns>
+    /// What the arm did with the pass: nothing (fall through to the attack),
+    /// claimed it, or turned a debuff column off — in which case the whole
+    /// choice is made again, because a monster whose chain just lost a step
+    /// may no longer be the one worth acting on.
+    /// </returns>
+    private DebuffArmOutcome TickDebuffs(PluginCombatSnapshot combat)
     {
         if (_debuffs.HasPending)
         {
             Status = _host.Automation.Magic.IsCasting
                 ? $"Casting {_debuffs.PendingName}"
                 : $"Waiting for {_debuffs.PendingName}";
-            return true;
+            return DebuffArmOutcome.Claimed;
         }
 
         RefreshSpellCatalogs();
@@ -1751,7 +1823,7 @@ internal sealed class CombatController
             PassInventory();
         PluginCombatTarget target = FindTarget(_targetId);
         if (target.ObjectId == 0u)
-            return false;
+            return DebuffArmOutcome.Idle;
 
         MonsterRuleActions actions = DecisionActions;
         IReadOnlyList<CombatDebuffStep> steps = CombatDebuffChain.Build(
@@ -1759,31 +1831,40 @@ internal sealed class CombatController
             ResolveAttackElement(actions, target),
             ResolveExtraVulnerability(actions, target));
 
-        var suppressed = new List<DebuffIdentity>();
-        for (int attempt = 0; attempt <= steps.Count; attempt++)
+        if (CombatDebuffChain.Choose(
+                steps,
+                step => IsDebuffStepDue(step, in target, items))
+            is not { } due)
         {
-            if (CombatDebuffChain.Choose(
-                    steps,
-                    step => !suppressed.Contains(step.Identity)
-                        && IsDebuffStepDue(step, in target, items))
-                is not { } due)
-            {
-                return false;
-            }
-            DebuffPassResult result = TickDebuffStep(
-                due,
-                actions,
-                target,
-                combat,
-                items);
-            if (result == DebuffPassResult.ColumnDisabled)
-            {
-                suppressed.Add(due.Identity);
-                continue;
-            }
-            return result == DebuffPassResult.Claimed;
+            return DebuffArmOutcome.Idle;
         }
-        return false;
+        DebuffPassResult result = TickDebuffStep(
+            due,
+            actions,
+            target,
+            combat,
+            items);
+        if (result != DebuffPassResult.ColumnDisabled)
+        {
+            return result == DebuffPassResult.Claimed
+                ? DebuffArmOutcome.Claimed
+                : DebuffArmOutcome.Idle;
+        }
+
+        // The step cannot be delivered: its column goes off for the rest of
+        // this pass and the whole choice is made again, rather than walking
+        // on to the next step against a monster that may no longer be the one
+        // worth acting on.
+        ClearActionsForPass(_targetId, due.Identity.Flag);
+        return DebuffArmOutcome.Retry;
+    }
+
+    /// <summary>What the debuff arm did with the pass.</summary>
+    private enum DebuffArmOutcome
+    {
+        Idle,
+        Claimed,
+        Retry,
     }
 
     /// <summary>
@@ -2793,7 +2874,7 @@ internal sealed class CombatController
         IReadOnlyList<PluginEquipmentItem> equipment = PassEquipment();
         (uint wieldedWeapon, uint wieldedOffhand) = WieldedPair(equipment);
 
-        uint lastTarget = _targetId;
+        uint lastTarget = _lastTargetId;
         var candidates = new List<CombatTargetCandidate>();
         _ringCandidateCount = 0;
         foreach (PluginCombatTarget target in _targets)
@@ -2833,7 +2914,10 @@ internal sealed class CombatController
             ClearTarget();
             return;
         }
-        SetTarget(chosen.Target, chosen.Rule);
+        // The STORED rule is the authored one: what this pass learned about
+        // the monster is applied where the decision reads it, so it cannot
+        // outlive the pass and hold a column off between scans.
+        SetTarget(chosen.Target, _settings.ResolveRule(chosen.Target));
     }
 
     private static (uint Weapon, uint Offhand) WieldedPair(
@@ -2895,17 +2979,9 @@ internal sealed class CombatController
         }
 
         // Gate 3 (f7.cs:265-270).
-        ResolvedMonsterRule rule = _settings.ResolveRule(target);
-        if (_passClearedActions.TryGetValue(
-                target.ObjectId,
-                out MonsterActionFlags cleared))
-        {
-            rule = rule with
-            {
-                Rule = rule.Rule.WithActions(
-                    rule.Actions with { Flags = rule.Actions.Flags & ~cleared }),
-            };
-        }
+        ResolvedMonsterRule rule = WithPassClearedActions(
+            target.ObjectId,
+            _settings.ResolveRule(target));
         if (rule.Priority < 0)
         {
             _passCandidates[target.ObjectId] = null;
@@ -3608,7 +3684,7 @@ internal sealed class CombatController
             if (TryBuildCandidate(
                     target,
                     combat,
-                    _targetId,
+                    _lastTargetId,
                     inventory,
                     equipment,
                     _settings.ApproachDistance,
