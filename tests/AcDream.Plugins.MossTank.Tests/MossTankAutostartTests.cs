@@ -540,6 +540,43 @@ public sealed class MossTankAutostartTests
     }
 
     /// <summary>
+    /// A route profile that is on disk but will not parse must keep its file
+    /// and must not be reported as loaded. The loader used to answer the
+    /// failure by writing whatever route happened to be in memory back over
+    /// the author's file and then announcing "Loaded route ..." — so a
+    /// destroyed route and a good one looked identical from outside.
+    /// </summary>
+    [Fact]
+    public void ARouteProfileThatWillNotParseKeepsItsFileAndIsNotReportedLoaded()
+    {
+        const string unreadable = "~~ {\nNAV: broken 4\n";
+        var automation = new FakeAutomation { IsAvailable = true };
+        var host = new FakeHost(automation);
+        host.VtankProfiles.WriteText("navs/vt-broken-route.af", unreadable);
+        var panel = new MossTankPanel(host);
+
+        // A route the panel already holds, so a silent overwrite would have
+        // something of its own to write.
+        WriteSessionProofFixture(host.VtankProfiles);
+        panel.SelectRouteProfile("vt-proof-route");
+        Assert.Equal(4, panel.RouteRows.Count);
+        automation.Logger.Infos.Clear();
+
+        panel.SelectRouteProfile("vt-broken-route");
+
+        Assert.Equal(unreadable, host.VtankProfiles.ReadText("navs/vt-broken-route.af"));
+        Assert.DoesNotContain(
+            automation.Logger.Infos,
+            message => message.Contains("Loaded route profile", StringComparison.Ordinal)
+                || (message.Contains("vt-broken-route", StringComparison.Ordinal)
+                    && message.Contains("oaded", StringComparison.Ordinal)));
+        Assert.Contains(
+            automation.Logger.Errors,
+            message => message.Contains("vt-broken-route", StringComparison.Ordinal));
+        Assert.Contains("could not be read", panel.RouteNotice, StringComparison.Ordinal);
+    }
+
+    /// <summary>
     /// The proof's fixture folder, copied into the fake profile storage. One
     /// copy of these files exists in the tree — the live proof reads the same
     /// three — so this pin and that run cannot drift apart.

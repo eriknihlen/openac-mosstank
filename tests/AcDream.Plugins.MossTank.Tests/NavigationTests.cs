@@ -510,7 +510,9 @@ public sealed class NavigationTests
         };
         var second = new MossTankRouteProfileStore(host);
         Assert.True(second.BindCharacter("Test Character"));
-        Assert.True(second.LoadCurrent(target, MetafSerializer.NoOpSpells.Instance));
+        Assert.Equal(
+            MossTankProfileLoad.Loaded,
+            _ = second.LoadCurrent(target, MetafSerializer.NoOpSpells.Instance));
 
         Assert.Equal(RouteMode.Linear, target.Mode);
         RouteWaypoint waypoint = Assert.Single(target.Waypoints);
@@ -556,7 +558,9 @@ public sealed class NavigationTests
         var store = new MossTankRouteProfileStore(new FakeHost(new FakeAutomation(), storage));
         Assert.True(store.BindCharacter("Barris"));
         var target = new NavigationSettings();
-        Assert.True(store.LoadCurrent(target, MetafSerializer.NoOpSpells.Instance));
+        Assert.Equal(
+            MossTankProfileLoad.Loaded,
+            _ = store.LoadCurrent(target, MetafSerializer.NoOpSpells.Instance));
 
         Assert.False(storage.Text.ContainsKey(legacyKey));
         Assert.Equal(RouteMode.Linear, target.Mode);
@@ -568,7 +572,9 @@ public sealed class NavigationTests
         var reopened = new MossTankRouteProfileStore(new FakeHost(new FakeAutomation(), storage));
         Assert.True(reopened.BindCharacter("Barris"));
         var reloaded = new NavigationSettings();
-        Assert.True(reopened.LoadCurrent(reloaded, MetafSerializer.NoOpSpells.Instance));
+        Assert.Equal(
+            MossTankProfileLoad.Loaded,
+            _ = reopened.LoadCurrent(reloaded, MetafSerializer.NoOpSpells.Instance));
         Assert.Single(reloaded.Waypoints);
     }
 
@@ -591,7 +597,9 @@ public sealed class NavigationTests
         var store = new MossTankRouteProfileStore(new FakeHost(new FakeAutomation(), storage));
         Assert.True(store.BindCharacter("Barris"));
         var target = new NavigationSettings();
-        Assert.True(store.LoadCurrent(target, MetafSerializer.NoOpSpells.Instance));
+        Assert.Equal(
+            MossTankProfileLoad.Loaded,
+            _ = store.LoadCurrent(target, MetafSerializer.NoOpSpells.Instance));
 
         Assert.True(storage.Text.ContainsKey(legacyKey));
         Assert.Equal(RouteMode.Circular, target.Mode);
@@ -622,7 +630,9 @@ public sealed class NavigationTests
         var store = new MossTankRouteProfileStore(new FakeHost(new FakeAutomation(), storage));
         Assert.True(store.BindCharacter("Barris"));
         var target = new NavigationSettings();
-        Assert.True(store.LoadCurrent(target, MetafSerializer.NoOpSpells.Instance));
+        Assert.Equal(
+            MossTankProfileLoad.Loaded,
+            _ = store.LoadCurrent(target, MetafSerializer.NoOpSpells.Instance));
 
         RouteWaypoint waypoint = Assert.Single(target.Waypoints);
         Assert.Equal(RouteWaypointType.Recall, waypoint.Type);
@@ -657,7 +667,7 @@ public sealed class NavigationTests
         var store = new MossTankRouteProfileStore(new FakeHost(new FakeAutomation(), storage));
         Assert.True(store.BindCharacter("Barris"));
         var target = new NavigationSettings();
-        store.LoadCurrent(target, MetafSerializer.NoOpSpells.Instance);
+        _ = store.LoadCurrent(target, MetafSerializer.NoOpSpells.Instance);
 
         Assert.False(storage.Text.ContainsKey(LegacyRouteNamedKey("Farming")));
         Assert.False(storage.Text.ContainsKey(LegacyRouteNamedKey("Buffing")));
@@ -676,7 +686,7 @@ public sealed class NavigationTests
         var reopened = new MossTankRouteProfileStore(new FakeHost(new FakeAutomation(), storage));
         Assert.True(reopened.BindCharacter("Barris"));
         var reloadTarget = new NavigationSettings();
-        reopened.LoadCurrent(reloadTarget, MetafSerializer.NoOpSpells.Instance);
+        _ = reopened.LoadCurrent(reloadTarget, MetafSerializer.NoOpSpells.Instance);
         Assert.True(storage.Text.ContainsKey("navs/Farming.af"));
         Assert.True(storage.Text.ContainsKey("navs/Buffing.af"));
     }
@@ -697,7 +707,7 @@ public sealed class NavigationTests
         var store = new MossTankRouteProfileStore(new FakeHost(new FakeAutomation(), storage));
         Assert.True(store.BindCharacter("Barris"));
         var target = new NavigationSettings();
-        store.LoadCurrent(target, MetafSerializer.NoOpSpells.Instance);
+        _ = store.LoadCurrent(target, MetafSerializer.NoOpSpells.Instance);
 
         Assert.True(storage.Text.ContainsKey("navs/Hunt.af"));
         Assert.False(storage.Text.ContainsKey("nav_Hunt.af"));
@@ -705,7 +715,7 @@ public sealed class NavigationTests
         // Idempotent second run: nothing left at the root to migrate.
         var reopened = new MossTankRouteProfileStore(new FakeHost(new FakeAutomation(), storage));
         Assert.True(reopened.BindCharacter("Barris"));
-        reopened.LoadCurrent(new NavigationSettings(), MetafSerializer.NoOpSpells.Instance);
+        _ = reopened.LoadCurrent(new NavigationSettings(), MetafSerializer.NoOpSpells.Instance);
         Assert.True(storage.Text.ContainsKey("navs/Hunt.af"));
         Assert.False(storage.Text.ContainsKey("nav_Hunt.af"));
     }
@@ -728,7 +738,7 @@ public sealed class NavigationTests
         var store = new MossTankRouteProfileStore(new FakeHost(new FakeAutomation(), storage));
         Assert.True(store.BindCharacter("Barris"));
         var target = new NavigationSettings();
-        store.LoadCurrent(target, MetafSerializer.NoOpSpells.Instance);
+        _ = store.LoadCurrent(target, MetafSerializer.NoOpSpells.Instance);
 
         Assert.True(storage.Text.ContainsKey("navs/--Barris_Coldeve.af"));
         Assert.False(storage.Text.ContainsKey("--nav_Barris_Coldeve.af"));
@@ -752,7 +762,7 @@ public sealed class NavigationTests
         var host = new FakeHost(new FakeAutomation(), storage);
         var store = new MossTankRouteProfileStore(host);
         Assert.True(store.BindCharacter("Barris"));
-        store.LoadCurrent(new NavigationSettings(), MetafSerializer.NoOpSpells.Instance);
+        _ = store.LoadCurrent(new NavigationSettings(), MetafSerializer.NoOpSpells.Instance);
 
         Assert.Equal(canonicalContent, storage.Text["navs/Hunt.af"]);
         Assert.True(storage.Text.ContainsKey("nav_Hunt.af"));
@@ -770,7 +780,7 @@ public sealed class NavigationTests
 
         var store = new MossTankRouteProfileStore(new FakeHost(new FakeAutomation(), storage));
         Assert.True(store.BindCharacter("Barris"));
-        store.LoadCurrent(new NavigationSettings(), MetafSerializer.NoOpSpells.Instance);
+        _ = store.LoadCurrent(new NavigationSettings(), MetafSerializer.NoOpSpells.Instance);
 
         Assert.True(storage.Text.ContainsKey("SharedMeta.af"));
         Assert.False(storage.Text.ContainsKey("navs/SharedMeta.af"));
@@ -790,9 +800,10 @@ public sealed class NavigationTests
         Assert.True(store.Select("Misplaced"));
 
         var target = new NavigationSettings();
-        bool loaded = store.LoadCurrent(target, MetafSerializer.NoOpSpells.Instance);
+        MossTankProfileLoad loaded =
+            _ = store.LoadCurrent(target, MetafSerializer.NoOpSpells.Instance);
 
-        Assert.False(loaded);
+        Assert.Equal(MossTankProfileLoad.Failed, loaded);
         Assert.NotNull(store.RecoveryNotice);
         Assert.Contains("metas/", store.RecoveryNotice, StringComparison.Ordinal);
     }
@@ -815,7 +826,9 @@ public sealed class NavigationTests
         var target = new NavigationSettings();
         var second = new MossTankRouteProfileStore(host);
         Assert.True(second.BindCharacter("Test Character"));
-        Assert.True(second.LoadCurrent(target, MetafSerializer.NoOpSpells.Instance));
+        Assert.Equal(
+            MossTankProfileLoad.Loaded,
+            _ = second.LoadCurrent(target, MetafSerializer.NoOpSpells.Instance));
 
         Assert.Equal(RouteMode.Target, target.Mode);
         Assert.Equal(99u, target.FollowTargetObjectId);

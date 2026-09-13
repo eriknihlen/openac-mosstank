@@ -146,27 +146,29 @@ internal sealed class MossTankLootProfileStore
     }
 
     /// <summary>Returns false when no document exists (legacy migration seam).</summary>
-    public bool LoadCurrent(List<LootRule> target, LootSettings? settings = null)
+    public MossTankProfileLoad LoadCurrent(
+        List<LootRule> target,
+        LootSettings? settings = null)
     {
         ArgumentNullException.ThrowIfNull(target);
         SweepLegacyRosterIfNeeded();
         string fileName = CurrentFileName();
         string? text = VtankStorage.IsAvailable ? VtankStorage.ReadText(fileName) : null;
         if (text is null)
-            return false;
+            return MossTankProfileLoad.Missing;
         if (!VtankLootProfileSerializer.TryRead(text, out VtankLootProfile profile, out string error))
         {
             RecoveryNotice = MossTankProfileRecovery.Preserve(
                 _host, "loot", fileName, text, new FormatException(error));
             _host.Log.Warn(RecoveryNotice);
-            return false;
+            return MossTankProfileLoad.Failed;
         }
         ApplyMossTankExpressions(profile);
         target.Clear();
         target.AddRange(profile.Rules);
         if (settings is not null)
             settings.SalvageCombine = profile.SalvageCombine.Clone();
-        return true;
+        return MossTankProfileLoad.Loaded;
     }
 
     public bool TryLoadNamed(string? name, List<LootRule> target)

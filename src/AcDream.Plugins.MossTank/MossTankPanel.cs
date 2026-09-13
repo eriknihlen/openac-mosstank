@@ -239,9 +239,10 @@ internal sealed partial class MossTankPanel : IBuffRuleHost
         _profiles.LoadCurrent(_allSettings, _noBuffItemNames, _commandLogTypes);
         _lootProfiles = new MossTankLootProfileStore(host);
         _lootProfiles.BindCharacter(host.Automation.Character.Name);
-        if (!_lootProfiles.LoadCurrent(
-            _inventorySettings.Loot.Rules,
-            _inventorySettings.Loot))
+        if (_lootProfiles.LoadCurrent(
+                _inventorySettings.Loot.Rules,
+                _inventorySettings.Loot)
+            == MossTankProfileLoad.Missing)
         {
             _lootProfiles.SaveCurrent(
                 _inventorySettings.Loot.Rules,
@@ -249,8 +250,11 @@ internal sealed partial class MossTankPanel : IBuffRuleHost
         }
         _routeProfiles = new MossTankRouteProfileStore(host);
         _routeProfiles.BindCharacter(host.Automation.Character.Name);
-        if (!_routeProfiles.LoadCurrent(_navigationSettings, host.Automation.Spells))
+        if (_routeProfiles.LoadCurrent(_navigationSettings, host.Automation.Spells)
+            == MossTankProfileLoad.Missing)
+        {
             _routeProfiles.SaveCurrent(_navigationSettings);
+        }
         _castTracker.Completed += OnBuffCastOutcome;
         _combat = new CombatController(
             host,
@@ -1809,7 +1813,12 @@ internal sealed partial class MossTankPanel : IBuffRuleHost
             _lootEditorNotice = $"Loot profile '{name}' is unavailable.";
             return;
         }
-        LoadLootProfile();
+        if (!LoadLootProfile())
+        {
+            _lootEditorNotice =
+                $"Loot profile {_lootProfiles.Selected} could not be read.";
+            return;
+        }
         _lootEditorNotice = $"Loaded loot profile {_lootProfiles.Selected}.";
         ReportProfileLoaded("loot", _lootProfiles.Selected);
     }
@@ -1852,18 +1861,33 @@ internal sealed partial class MossTankPanel : IBuffRuleHost
         _lootEditorNotice = notice;
     }
 
-    private void LoadLootProfile()
+    /// <summary>
+    /// The loot half of <see cref="LoadRouteProfile"/>, with the same rule:
+    /// only a profile that has never been written is created from memory.
+    /// </summary>
+    private bool LoadLootProfile()
     {
-        if (!_lootProfiles.LoadCurrent(
+        MossTankProfileLoad outcome = _lootProfiles.LoadCurrent(
             _inventorySettings.Loot.Rules,
-            _inventorySettings.Loot))
+            _inventorySettings.Loot);
+        if (outcome == MossTankProfileLoad.Missing)
         {
             _lootProfiles.SaveCurrent(
                 _inventorySettings.Loot.Rules,
                 _inventorySettings.Loot);
         }
+        if (outcome == MossTankProfileLoad.Failed)
+        {
+            _host.Log.Error(
+                $"Loot profile {_lootProfiles.Selected} could not be read; "
+                    + "the file was left as it is and the rules in memory are "
+                    + "unchanged.");
+            RefreshLootEditor();
+            return false;
+        }
         _loot.Reset();
         RefreshLootEditor();
+        return true;
     }
 
     private void ApplyLootExpressionCore()
@@ -2226,7 +2250,12 @@ internal sealed partial class MossTankPanel : IBuffRuleHost
             _routeNotice = $"Route profile '{name}' is unavailable.";
             return;
         }
-        LoadRouteProfile();
+        if (!LoadRouteProfile())
+        {
+            _routeNotice =
+                $"Route profile {_routeProfiles.Selected} could not be read.";
+            return;
+        }
         _routeNotice = $"Loaded route {_routeProfiles.Selected}.";
         ReportProfileLoaded("route", _routeProfiles.Selected);
     }
@@ -2266,14 +2295,35 @@ internal sealed partial class MossTankPanel : IBuffRuleHost
         _routeNotice = notice;
     }
 
-    private void LoadRouteProfile()
+    /// <summary>
+    /// Read the selected route profile into the live navigation settings.
+    /// Answers whether the route in memory is now that profile's: a profile
+    /// that has never been written is created from what is in memory, but a
+    /// profile that exists and will not parse keeps its file untouched and
+    /// leaves the caller to report the failure. Writing our copy back over an
+    /// unreadable route destroyed the author's waypoints and reported success
+    /// while doing it.
+    /// </summary>
+    private bool LoadRouteProfile()
     {
-        if (!_routeProfiles.LoadCurrent(_navigationSettings, _host.Automation.Spells))
+        MossTankProfileLoad outcome =
+            _routeProfiles.LoadCurrent(_navigationSettings, _host.Automation.Spells);
+        if (outcome == MossTankProfileLoad.Missing)
             _routeProfiles.SaveCurrent(_navigationSettings);
+        if (outcome == MossTankProfileLoad.Failed)
+        {
+            _host.Log.Error(
+                $"Route profile {_routeProfiles.Selected} could not be read; "
+                    + "the file was left as it is and the route in memory is "
+                    + "unchanged.");
+            RefreshRouteEditor();
+            return false;
+        }
         if (_initialized)
             ApplyPersistedOptionOverrides();
         _navigation.Reset();
         RefreshRouteEditor();
+        return true;
     }
 
     private void SaveRouteProfile() =>
