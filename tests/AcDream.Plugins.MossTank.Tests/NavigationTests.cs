@@ -170,6 +170,73 @@ public sealed class NavigationTests
     }
 
     /// <summary>
+    /// The mover runs on the host's frame, but only between the rule pass that
+    /// armed it and the one that takes the turn away. Nothing else may make it
+    /// steer, and losing the turn must stop it on the spot.
+    /// </summary>
+    [Fact]
+    public void TheMoverStepsOnFramesOnlyWhileTheRuleHoldsItsTurn()
+    {
+        PluginNavigationPosition goal = Position(12d / 240d, 0d);
+        var automation = new FakeAutomation
+        {
+            NavigationSnapshot = Snapshot(Position(0d, 0d, heading: 90f)),
+        };
+        NavigationController controller = Controller(
+            automation,
+            RouteMode.Circular,
+            minimumDistanceMeters: 2d,
+            Waypoint(RouteWaypointType.Point, goal));
+
+        controller.StepArmedMover(0.1d);
+        Assert.Empty(automation.Intents);
+
+        Assert.True(controller.ClaimFromRulePass(canAct: true));
+        int armed = automation.Intents.Count;
+        Assert.Equal(1, armed);
+
+        controller.StepArmedMover(0.1d);
+        Assert.Equal(armed + 1, automation.Intents.Count);
+
+        controller.StopForLostTurn();
+        controller.StepArmedMover(0.1d);
+        controller.StepArmedMover(0.1d);
+        Assert.Equal(armed + 1, automation.Intents.Count);
+    }
+
+    /// <summary>
+    /// The mover's own interval, not the host's frame rate, is what paces it:
+    /// frames shorter than the interval accumulate rather than each producing
+    /// a steer.
+    /// </summary>
+    [Fact]
+    public void TheMoverStepsNoFasterThanItsOwnInterval()
+    {
+        PluginNavigationPosition goal = Position(12d / 240d, 0d);
+        var automation = new FakeAutomation
+        {
+            NavigationSnapshot = Snapshot(Position(0d, 0d, heading: 90f)),
+        };
+        NavigationController controller = Controller(
+            automation,
+            RouteMode.Circular,
+            minimumDistanceMeters: 2d,
+            Waypoint(RouteWaypointType.Point, goal));
+
+        Assert.True(controller.ClaimFromRulePass(canAct: true));
+        int armed = automation.Intents.Count;
+
+        // Four frames of a hundredth of a second: three short of the interval,
+        // then one that carries it past.
+        for (int frame = 0; frame < 4; frame++)
+            controller.StepArmedMover(0.01d);
+        Assert.Equal(armed, automation.Intents.Count);
+
+        controller.StepArmedMover(0.01d);
+        Assert.Equal(armed + 1, automation.Intents.Count);
+    }
+
+    /// <summary>
     /// Half a turn is the one heading where the two arcs are equal. Retail
     /// resolves it left.
     /// </summary>

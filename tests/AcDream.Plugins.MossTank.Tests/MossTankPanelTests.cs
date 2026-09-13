@@ -4164,6 +4164,41 @@ public sealed class MossTankPanelTests
         Assert.Equal(["1"], panel.RouteWaypointCountColumn);
     }
 
+    /// <summary>
+    /// The rule pass arms the route mover; it does not drive it. A mover that
+    /// only steers on the pass has a control period several times its own
+    /// heading tolerance, so it overshoots every turn and hunts around the
+    /// bearing instead of settling on it.
+    /// </summary>
+    [Fact]
+    public void TheRouteMoverSteersOnHostFramesBetweenSchedulerPasses()
+    {
+        var automation = new FakeAutomation { NavigationSnapshot = NavigationAt(0f) };
+        var panel = new MossTankPanel(new FakeHost(automation));
+
+        panel.AddRoutePoint();
+        automation.NavigationSnapshot = automation.NavigationSnapshot with
+        {
+            // Twelve metres west of the waypoint, so the mover has a real leg.
+            Position = automation.NavigationSnapshot.Position with { EastWest = 0.05d },
+        };
+        panel.ToggleNavigation();
+        Assert.True(panel.NavigationEnabled);
+        panel.ToggleCombat();
+
+        // The first frame carries the pass that arms the mover.
+        panel.OnTick(0.05d);
+        Assert.NotEmpty(automation.MovementIntents);
+        int afterArming = automation.MovementIntents.Count;
+
+        // Four more frames, none of which carries a pass: the scheduler's
+        // heartbeat is 0.293 s and only 0.2 s of it has gone by.
+        for (int frame = 0; frame < 4; frame++)
+            panel.OnTick(0.05d);
+
+        Assert.Equal(afterArming + 4, automation.MovementIntents.Count);
+    }
+
     [Fact]
     public void RouteInsertModeControlsWhereANewWaypointLands()
     {

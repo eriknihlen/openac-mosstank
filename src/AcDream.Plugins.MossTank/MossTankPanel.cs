@@ -4427,6 +4427,10 @@ internal sealed partial class MossTankPanel : IBuffRuleHost
         ObserveCastResult(elapsedSeconds);
         ObserveCastSuspension(elapsedSeconds);
         _scheduler.ExternalSuspension = _prologueOwnsAction;
+        // The route mover runs on the host's frame, not on the scheduler pass
+        // that armed it. It steps before the pass so the pass sees the frame's
+        // work already done and never spends the same time twice.
+        _navigation.StepArmedMover(elapsedSeconds);
         _scheduler.Advance(elapsedSeconds);
         _combatModeGate.AdvancePass(elapsedSeconds);
 

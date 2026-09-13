@@ -288,6 +288,16 @@ internal sealed class NavigationController
 {
     internal const float HeadingToleranceDegrees = 4f;
 
+    /// <summary>
+    /// How often the mover may steer once the rule has armed it. The mover is
+    /// not the rule: the rule's turn only arms it, and it then runs on the
+    /// client's own frame, no faster than this. That distinction is what makes
+    /// the alignment band below reachable — one rule pass of held turn is
+    /// tens of degrees, several times the band, so a mover stepped once per
+    /// pass overshoots on every turn and hunts around the bearing forever.
+    /// </summary>
+    internal const double MoverIntervalSeconds = 0.047d;
+
     internal const double FaceHeadingReissueSeconds = 0.7d;
 
     internal const double NoFaceHeadingStamp = double.NegativeInfinity;
@@ -372,6 +382,9 @@ internal sealed class NavigationController
     private bool _recallNeedsPositionCapture = true;
     private PluginNavigationPosition _recallLastPosition;
 
+    private bool _moverArmed;
+    private double _pendingMoverSeconds;
+
     private double _now;
 
     /// <summary>VTank <c>fd</c>'s <c>p</c> field (fd.cs:336-345).</summary>
@@ -450,6 +463,8 @@ internal sealed class NavigationController
     public void Reset()
     {
         ResetOncePerRunWarnings();
+        _moverArmed = false;
+        _pendingMoverSeconds = 0d;
         StopMovement();
         _index = 0;
         _reverse = false;
@@ -465,6 +480,8 @@ internal sealed class NavigationController
 
     public void ClearActionLocks()
     {
+        _moverArmed = false;
+        _pendingMoverSeconds = 0d;
         StopMovement();
         _checkpointElapsed = 0d;
         ClearDoor();
@@ -472,6 +489,48 @@ internal sealed class NavigationController
         _status = _settings.Enabled
             ? "Route action locks cleared."
             : "Navigation disabled.";
+    }
+
+    /// <summary>
+    /// The route rule's own turn. It answers whether the rule claims the pass
+    /// and, on the pass it claims, arms the mover; it does not carry the
+    /// mover's clock, because the pass is not the mover's clock.
+    /// </summary>
+    internal bool ClaimFromRulePass(bool canAct)
+    {
+        bool claimed = Tick(TakePendingMoverSeconds(), canAct);
+        _moverArmed = claimed;
+        return claimed;
+    }
+
+    /// <summary>
+    /// One frame of the armed mover. The host calls this every frame; the
+    /// mover steers no faster than its own interval, and the rule pass is
+    /// only what arms and disarms it.
+    /// </summary>
+    internal void StepArmedMover(double elapsedSeconds)
+    {
+        double elapsed = double.IsFinite(elapsedSeconds) && elapsedSeconds > 0d
+            ? elapsedSeconds
+            : 0d;
+        if (!_moverArmed)
+        {
+            // A disarmed mover holds no time: the pass that arms it starts
+            // from this frame, not from however long the route was idle.
+            _pendingMoverSeconds = elapsed;
+            return;
+        }
+        _pendingMoverSeconds += elapsed;
+        if (_pendingMoverSeconds < MoverIntervalSeconds)
+            return;
+        _moverArmed = Tick(TakePendingMoverSeconds(), canAct: true);
+    }
+
+    private double TakePendingMoverSeconds()
+    {
+        double due = _pendingMoverSeconds;
+        _pendingMoverSeconds = 0d;
+        return due;
     }
 
     public bool Tick(double elapsedSeconds, bool canAct)
@@ -1498,7 +1557,12 @@ internal sealed class NavigationController
     /// terms — drop the movement intent — and it is what the scheduler wires
     /// as <c>onLostTurn</c> for both navigate tiers.
     /// </summary>
-    internal void StopForLostTurn() => StopMovement();
+    internal void StopForLostTurn()
+    {
+        _moverArmed = false;
+        _pendingMoverSeconds = 0d;
+        StopMovement();
+    }
 
     private void StopMovement()
     {
