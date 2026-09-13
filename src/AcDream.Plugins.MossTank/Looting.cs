@@ -498,10 +498,7 @@ internal sealed partial class LootController
     private uint _awaitingAppraisal;
     private uint _awaitingCorpseAppraisal;
     private double _lifetime;
-    private uint _postUseItem;
-    private string _postUseName = string.Empty;
-    private bool _postUseStarted;
-    private long _postUseRevision;
+    private readonly Dictionary<uint, uint> _pendingScrollReads = [];
     private uint _salvagePendingItem;
     private string _salvagePendingName = string.Empty;
     private int _salvageAttempts;
@@ -534,6 +531,39 @@ internal sealed partial class LootController
     public IReadOnlyDictionary<uint, LootAction> ClassifiedOwnedItems =>
         _classifiedOwnedItems;
 
+    /// <summary>
+    /// The scrolls picked up for reading, spell id to item id. Reading them is
+    /// a separate rule's job, not a continuation of the pickup, so this is
+    /// what the two sides share.
+    /// </summary>
+    public IReadOnlyDictionary<uint, uint> PendingScrollReads =>
+        _pendingScrollReads;
+
+    /// <summary>Drops one queued scroll once the reading rule is done with it.</summary>
+    public void ForgetScrollRead(uint objectId)
+    {
+        foreach ((uint spellId, uint itemId) in _pendingScrollReads)
+        {
+            if (itemId != objectId)
+                continue;
+            _pendingScrollReads.Remove(spellId);
+            return;
+        }
+    }
+
+    /// <summary>Drops the queued scrolls whose spell the character now knows.</summary>
+    public void ForgetKnownScrollReads()
+    {
+        if (_pendingScrollReads.Count == 0)
+            return;
+        ISpellCatalog spells = _host.Automation.Spells;
+        foreach (uint spellId in _pendingScrollReads.Keys.ToArray())
+        {
+            if (spells.IsKnown(spellId))
+                _pendingScrollReads.Remove(spellId);
+        }
+    }
+
     public bool Tick(double elapsedSeconds, bool canAct)
     {
         ILootAutomation loot = _host.Automation.Loot;
@@ -565,8 +595,6 @@ internal sealed partial class LootController
         ObserveOwnershipDenials();
         if (_waitingItem != 0u)
             return ContinuePickup(loot);
-        if (_postUseItem != 0u)
-            return ContinuePostUse(canAct);
         if (_activeCorpse == 0u
             && (_manaTransfer is not null
                 || HasManaStoneTransfer())
@@ -734,14 +762,11 @@ internal sealed partial class LootController
         _decisions.Clear();
         _corpseFirstSeen.Clear();
         _corpseDeniedAt.Clear();
+        _pendingScrollReads.Clear();
         _selectedCorpse = 0u;
         _chatSequence = 0uL;
         _scanRemaining = 0d;
         _lifetime = 0d;
-        _postUseItem = 0u;
-        _postUseName = string.Empty;
-        _postUseStarted = false;
-        _postUseRevision = 0L;
         _salvagePendingItem = 0u;
         _salvagePendingName = string.Empty;
         _salvageAttempts = 0;
@@ -870,13 +895,14 @@ internal sealed partial class LootController
         {
             foreach (PluginInventoryItem item in contents)
                 _decisions.Remove(item.ObjectId);
-            MarkCorpseComplete(_activeCorpse);
+            uint finished = _activeCorpse;
+            MarkCorpseComplete(finished);
             _activeCorpse = 0u;
             _activeCorpseSawContents = false;
             _activeCorpseIsOwnDeath = false;
             _stateAge = 0d;
             Status = "Corpse complete.";
-            return false;
+            return CloseFinishedCorpse(finished);
         }
         if (!canAct || loot.IsBusy)
             return true;
@@ -960,12 +986,12 @@ internal sealed partial class LootController
                 MacroLogChannel.Loot,
                 $"LootPickup: took {_waitingName} ({_waitingAction})");
             _itemAttempts.Remove(_waitingItem);
-            if (_waitingAction == LootAction.Read)
+            if (_waitingAction == LootAction.Read
+                && _waitingItemSnapshot.SpellId != 0u)
             {
-                _postUseItem = _waitingItem;
-                _postUseName = _waitingName;
-                _postUseStarted = false;
-                _postUseRevision = 0L;
+                _pendingScrollReads.TryAdd(
+                    _waitingItemSnapshot.SpellId,
+                    _waitingItem);
             }
         }
         else
@@ -989,54 +1015,6 @@ internal sealed partial class LootController
         _waitingClassifierId = string.Empty;
         _waitingInventoryRevision = 0L;
         _stateAge = 0d;
-        return true;
-    }
-
-    private bool ContinuePostUse(bool canAct)
-    {
-        IItemAutomation items = _host.Automation.Items;
-        if (_postUseStarted)
-        {
-            PluginItemUseCompletion completion = items.LastCompletion;
-            if (completion.Revision <= _postUseRevision
-                || completion.SourceObjectId != _postUseItem)
-            {
-                if (_stateAge < PickupTimeoutSeconds)
-                {
-                    Status = $"Reading {_postUseName}…";
-                    return true;
-                }
-                Status = $"Read timed out: {_postUseName}.";
-            }
-            else
-            {
-                Status = completion.IsSuccess
-                    ? $"Read {_postUseName}."
-                    : $"Could not read {_postUseName}.";
-            }
-            _postUseItem = 0u;
-            _postUseName = string.Empty;
-            _postUseStarted = false;
-            _postUseRevision = 0L;
-            _stateAge = 0d;
-            return true;
-        }
-        if (!canAct || !items.IsAvailable || items.IsBusy)
-            return true;
-        PluginItemCommandResult use = items.Use(_postUseItem);
-        if (!use.Accepted)
-        {
-            if (use.Status == PluginItemCommandStatus.Busy)
-                return true;
-            Status = $"Could not read {_postUseName}.";
-            _postUseItem = 0u;
-            _postUseName = string.Empty;
-            return false;
-        }
-        _postUseRevision = items.LastCompletion.Revision;
-        _postUseStarted = true;
-        _stateAge = 0d;
-        Status = $"Reading {_postUseName}…";
         return true;
     }
 
@@ -1355,6 +1333,23 @@ internal sealed partial class LootController
         return false;
     }
 
+    /// <summary>
+    /// Retail does not just walk away from a finished corpse: it uses the
+    /// corpse object a second time, which is what shuts the container view.
+    /// </summary>
+    private bool CloseFinishedCorpse(uint corpseId)
+    {
+        if (corpseId == 0u)
+            return false;
+        PluginItemCommandResult closed = _host.Automation.Items.Use(corpseId);
+        if (!closed.Accepted)
+            return false;
+        Log?.Invoke(
+            MacroLogChannel.Loot,
+            $"CorpseWait: closing 0x{corpseId:X8}");
+        return true;
+    }
+
     private bool IsOwnDeathCorpse(in PluginLootContainer corpse)
     {
         string character = _host.Automation.Character.Name;
@@ -1642,28 +1637,13 @@ internal sealed partial class LootController
         return null;
     }
 
-    private bool IsReadableUnknownScroll(in PluginInventoryItem item)
-    {
-        if (!_settings.ReadUnknownScrolls
-            || item.SpellId == 0u
-            || _host.Automation.Spells.IsKnown(item.SpellId))
-        {
-            return false;
-        }
-
-        const uint miscItemType = 0x00000080u;
-        bool scrollShape = (item.ItemType & miscItemType) != 0u
-            && item.Name.EndsWith(" Scroll", StringComparison.OrdinalIgnoreCase);
-        if (!scrollShape
-            || !_host.Automation.Spells.TryGet(item.SpellId, out PluginSpellInfo spell))
-        {
-            return false;
-        }
-        return _host.Automation.Character.TryGetSkill(
-                spell.School,
-                out PluginSkillInfo skill)
-            && spell.Difficulty - 15 <= skill.Current;
-    }
+    private bool IsReadableUnknownScroll(in PluginInventoryItem item) =>
+        ScrollReading.IsEligible(
+            _host,
+            _settings,
+            item,
+            _pendingScrollReads,
+            commit: true);
 
     private void BlacklistFailedCorpse(uint corpseId)
     {
@@ -1762,10 +1742,6 @@ internal sealed partial class LootController
         _waitingInventoryRevision = 0L;
         _awaitingAppraisal = 0u;
         _awaitingCorpseAppraisal = 0u;
-        _postUseItem = 0u;
-        _postUseName = string.Empty;
-        _postUseStarted = false;
-        _postUseRevision = 0L;
         _salvagePendingItem = 0u;
         _salvagePendingName = string.Empty;
         _salvageAttempts = 0;

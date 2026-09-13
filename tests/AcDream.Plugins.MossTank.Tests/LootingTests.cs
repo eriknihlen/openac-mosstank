@@ -344,7 +344,8 @@ public sealed class LootingTests
         Assert.True(controller.Tick(0.1d, canAct: true));
         Assert.Equal(LootAction.Keep, controller.ClassifiedOwnedItems[coin]);
 
-        Assert.False(controller.Tick(0.2d, canAct: true));
+        // The pass the corpse finishes on is the pass that closes it.
+        Assert.True(controller.Tick(0.2d, canAct: true));
         Assert.Equal("Corpse complete.", controller.Status);
     }
 
@@ -474,7 +475,8 @@ public sealed class LootingTests
         Assert.Equal(item, looted.Item.ObjectId);
         Assert.Equal(PluginLootAction.User3, looted.Action);
 
-        Assert.False(controller.Tick(0.2d, canAct: true));
+        // The pass the corpse finishes on is the pass that closes it.
+        Assert.True(controller.Tick(0.2d, canAct: true));
         automation.Owned = [];
         Assert.False(controller.Tick(0.2d, canAct: true));
         Assert.Equal(new[] { item }, classifier.Removed);
@@ -526,7 +528,8 @@ public sealed class LootingTests
         automation.Contents = [Item(item, "Limited prize", 99u)];
         Assert.True(controller.Tick(0.2d, canAct: true));
         automation.AppraisalState = new PluginAppraisalState(1, 0u, item);
-        Assert.False(controller.Tick(0.1d, canAct: true));
+        // The pass the corpse finishes on is the pass that closes it.
+        Assert.True(controller.Tick(0.1d, canAct: true));
         Assert.Empty(automation.Picked);
 
         controller.Reset();
@@ -537,7 +540,8 @@ public sealed class LootingTests
         settings.ExternalClassifierId = "missing/classifier";
         Assert.True(controller.Tick(1d, canAct: true));
         automation.Current = corpse;
-        Assert.False(controller.Tick(0.2d, canAct: true));
+        // The pass the corpse finishes on is the pass that closes it.
+        Assert.True(controller.Tick(0.2d, canAct: true));
         Assert.Empty(automation.Picked);
     }
 
@@ -759,7 +763,8 @@ public sealed class LootingTests
             source,
             0u);
         Assert.True(controller.Tick(0.1d, canAct: true));
-        Assert.False(controller.Tick(0.2d, canAct: true));
+        // The pass the corpse finishes on is the pass that closes it.
+        Assert.True(controller.Tick(0.2d, canAct: true));
 
         Assert.True(controller.Tick(0.1d, canAct: true));
         Assert.Equal(new[] { (tool, source) }, automation.Salvaged);
@@ -807,7 +812,8 @@ public sealed class LootingTests
             source,
             0u);
         Assert.True(controller.Tick(0.1d, canAct: true));
-        Assert.False(controller.Tick(0.2d, canAct: true));
+        // The pass the corpse finishes on is the pass that closes it.
+        Assert.True(controller.Tick(0.2d, canAct: true));
 
         Assert.False(controller.Tick(0.1d, canAct: true));
         Assert.Contains("queued", controller.Status);
@@ -1134,6 +1140,126 @@ public sealed class LootingTests
         Assert.Equal(new[] { corpse }, automation.Opened);
     }
 
+    [Fact]
+    public void AFinishedCorpseIsClosedWithASecondUse()
+    {
+        var settings = new LootSettings { Enabled = true };
+        settings.Rules.Add(new LootRule
+        {
+            Expression = "*",
+            Action = LootAction.NoLoot,
+        });
+        const uint corpse = 0x70000B00u;
+        var automation = new Automation
+        {
+            Corpses =
+            [
+                new PluginLootContainer(
+                    corpse, 1u, "Corpse", 3f, false, false, false)
+                {
+                    IsIdentified = true,
+                    LongDescription = "Killed by Tester.",
+                },
+            ],
+        };
+        var controller = new LootController(new Host(automation), settings);
+
+        Assert.True(controller.Tick(0.25d, canAct: true));
+        automation.Current = corpse;
+        automation.Contents = [Item(0x70000B01u, "Rock", 273u)];
+        Assert.True(controller.Tick(0.2d, canAct: true));
+
+        Assert.Equal("Corpse complete.", controller.Status);
+        Assert.Equal(new[] { corpse }, automation.Used);
+    }
+
+    [Fact]
+    public void APickedUpScrollIsQueuedForTheReadingRuleInsteadOfReadInline()
+    {
+        (LootController controller, ReadScrollController reader,
+            Automation automation, uint scroll) = ScrollScenario();
+
+        Assert.Empty(automation.Used);
+        Assert.Equal(
+            new Dictionary<uint, uint> { [777u] = scroll },
+            controller.PendingScrollReads);
+
+        Assert.True(reader.Tick(0.1d, canAct: true));
+        Assert.Equal(new[] { scroll }, automation.Used);
+    }
+
+    [Fact]
+    public void AQueuedScrollIsDroppedOnceItsSpellIsKnown()
+    {
+        (LootController controller, ReadScrollController reader,
+            Automation automation, _) = ScrollScenario();
+        automation.SpellLearned = true;
+
+        Assert.False(reader.Tick(0.1d, canAct: true));
+        Assert.Empty(automation.Used);
+        Assert.Empty(controller.PendingScrollReads);
+    }
+
+    /// <summary>Loots one unknown scroll off a corpse and stops there.</summary>
+    private static (LootController Controller, ReadScrollController Reader,
+        Automation Automation, uint Scroll) ScrollScenario()
+    {
+        var settings = new LootSettings { Enabled = true };
+        settings.Rules.Add(new LootRule
+        {
+            Expression = "*",
+            Action = LootAction.NoLoot,
+        });
+        const uint corpse = 0x70000C00u;
+        const uint scroll = 0x70000C01u;
+        var automation = new Automation
+        {
+            KnownSpell = new PluginSpellInfo(
+                777u, "Incantation of Testing", 1u, 1, 100, 10, 0f,
+                34u, string.Empty, false, false),
+            SkillsValue =
+            [
+                new PluginSkillInfo(
+                    34u, "War Magic", PluginSkillTraining.Trained, 90u),
+            ],
+            Corpses =
+            [
+                new PluginLootContainer(
+                    corpse, 1u, "Corpse", 3f, false, false, false)
+                {
+                    IsIdentified = true,
+                    LongDescription = "Killed by Tester.",
+                },
+            ],
+        };
+        var host = new Host(automation);
+        var controller = new LootController(host, settings);
+        PluginInventoryItem item =
+            Item(scroll, "Incantation of Testing Scroll", 88u) with
+            {
+                ItemType = 0x80u,
+                SpellId = 777u,
+            };
+
+        Assert.True(controller.Tick(0.25d, canAct: true));
+        automation.Current = corpse;
+        automation.Contents = [item];
+        Assert.True(controller.Tick(0.2d, canAct: true));
+        Assert.Equal(new[] { scroll }, automation.Picked);
+
+        automation.Contents = [];
+        automation.Owned = [item];
+        automation.InventoryCompletion = new PluginInventoryCompletion(
+            1, PluginInventoryCommandKind.Pickup, scroll, 0u);
+        Assert.True(controller.Tick(0.1d, canAct: true));
+
+        return (
+            controller,
+            new ReadScrollController(host, settings, controller),
+            automation,
+            scroll);
+    }
+
     private static LootRule VtankRule(
         string name,
         LootAction action,
@@ -1224,6 +1350,14 @@ public sealed class LootingTests
         PluginInventoryCompletion ILootAutomation.LastInventoryCompletion =>
             InventoryCompletion;
         public List<uint> Opened { get; } = [];
+        public List<uint> Used { get; } = [];
+        public PluginItemUseCompletion UseCompletion { get; set; }
+        public PluginItemUseCompletion LastCompletion => UseCompletion;
+        public PluginItemCommandResult Use(uint objectId)
+        {
+            Used.Add(objectId);
+            return new(PluginItemCommandStatus.Started);
+        }
         public List<uint> Picked { get; } = [];
         public List<uint> Identified { get; } = [];
         public List<(uint Tool, uint Item)> Salvaged { get; } = [];
