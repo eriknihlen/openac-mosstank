@@ -310,9 +310,30 @@ internal sealed class NavigationController
     private const double ObjectReacquireRadiusMeters = 2.5d;
     private const double PortalExitDistanceMeters = 15d;
     private const double RecallExitDistanceMeters = 2.4d;
+
+    /// <summary>
+    /// How far the character may have drifted between ticks and still count as
+    /// standing still for a recall.
+    /// </summary>
+    private const double RecallStationaryToleranceMeters = 2.4d;
     private const double JumpLaunchGraceSeconds = 0.25d;
     private const double JumpCompletionTimeoutSeconds = 3d;
     private const int JumpChargeCeilingMilliseconds = 2000;
+
+    /// <summary>
+    /// A jump is aimed near-exactly, not to the walking band: the alignment
+    /// state holds until the heading error is under a hundredth of a degree.
+    /// </summary>
+    private const float JumpHeadingToleranceDegrees = 0.01f;
+
+    /// <summary>The jump's own re-face interval, far longer than the walk's.</summary>
+    private const double JumpFaceHeadingReissueSeconds = 2d;
+
+    /// <summary>The channel an NPC's "tells you," answer arrives on.</summary>
+    private const int NpcTellChannel = 3;
+
+    /// <summary>The channel an NPC's "gives you" line arrives on.</summary>
+    private const int NpcGiveChannel = 0;
     private const double CheckpointRetrySeconds = 15d;
     private const double FollowBreadcrumbSpacingMeters = 0.096d;
     private const double FollowPathCaptureRangeMeters = 240d;
@@ -348,11 +369,20 @@ internal sealed class NavigationController
     private PluginNavigationPosition _portalOrigin;
     private bool _hasPortalOrigin;
     private bool _hadMovementIntent;
+    private bool _recallNeedsPositionCapture = true;
+    private PluginNavigationPosition _recallLastPosition;
 
     private double _now;
 
     /// <summary>VTank <c>fd</c>'s <c>p</c> field (fd.cs:336-345).</summary>
     private double _faceHeadingStamp = NoFaceHeadingStamp;
+
+    /// <summary>
+    /// The jump's own re-face stamp. It cannot share the mover's, which is
+    /// cleared every time the mover stops - and the mover is stopped for the
+    /// whole of a jump waypoint.
+    /// </summary>
+    private double _jumpFaceHeadingStamp = NoFaceHeadingStamp;
     private string _status = "Navigation disabled.";
 
     public NavigationController(IPluginHost host, NavigationSettings settings)
@@ -1169,6 +1199,12 @@ internal sealed class NavigationController
         return true;
     }
 
+    /// <summary>
+    /// The NPC answered. Only two lines count, and each only on its own
+    /// channel: a tell that opens "&lt;name&gt; tells you, " and an ordinary line
+    /// that opens "&lt;name&gt; gives you". Any other line, on any channel, is
+    /// somebody else's conversation.
+    /// </summary>
     private bool HasNpcResponse(string npcName)
     {
         IReadOnlyList<PluginChatMessage> messages =
@@ -1176,16 +1212,18 @@ internal sealed class NavigationController
         foreach (PluginChatMessage message in messages)
         {
             _chatBaseline = Math.Max(_chatBaseline, message.Sequence);
-            if (message.Sender.Equals(npcName, StringComparison.OrdinalIgnoreCase)
-                || message.Text.StartsWith(
-                    npcName + " tells you, ",
-                    StringComparison.OrdinalIgnoreCase)
-                || message.Text.StartsWith(
-                    npcName + " gives you",
-                    StringComparison.OrdinalIgnoreCase))
+            bool answered = message.Kind switch
             {
+                NpcTellChannel => message.Text.StartsWith(
+                    npcName + " tells you, ",
+                    StringComparison.OrdinalIgnoreCase),
+                NpcGiveChannel => message.Text.StartsWith(
+                    npcName + " gives you",
+                    StringComparison.OrdinalIgnoreCase),
+                _ => false,
+            };
+            if (answered)
                 return true;
-            }
         }
         return false;
     }
@@ -1200,6 +1238,12 @@ internal sealed class NavigationController
                 ? "Recall waypoint has no spell; skipping."
                 : $"Recall spell '{waypoint.RecallSpellName}' not found; skipping waypoint.";
             CompleteAction();
+            return true;
+        }
+
+        if (!IsStandingStillForRecall(navigation))
+        {
+            _status = "Recall: waiting to come to a stop.";
             return true;
         }
 
@@ -1239,6 +1283,33 @@ internal sealed class NavigationController
         return true;
     }
 
+    /// <summary>
+    /// A recall is only cast from a standstill. The check is a position
+    /// comparison against the last tick rather than a movement flag, because
+    /// what matters is that the character has actually stopped drifting: the
+    /// first tick captures, and every tick that has moved captures again and
+    /// answers "still moving".
+    /// </summary>
+    private bool IsStandingStillForRecall(in PluginNavigationSnapshot navigation)
+    {
+        if (_recallNeedsPositionCapture)
+        {
+            _recallNeedsPositionCapture = false;
+            _recallLastPosition = navigation.Position;
+            return true;
+        }
+
+        if (navigation.Position.HorizontalDistanceMeters(_recallLastPosition)
+            > RecallStationaryToleranceMeters)
+        {
+            _recallNeedsPositionCapture = true;
+            return false;
+        }
+
+        _recallLastPosition = navigation.Position;
+        return true;
+    }
+
     private bool SubmitRecall(RouteWaypoint waypoint)
     {
         if (waypoint.RecallSpellId != 0u)
@@ -1259,22 +1330,25 @@ internal sealed class NavigationController
                 float delta = SignedHeadingDelta(
                     navigation.Position.HeadingDegrees,
                     waypoint.JumpHeadingDegrees);
-                if (Math.Abs(delta) > HeadingToleranceDegrees)
+                // A jump is aimed far more tightly than a walk, and it waits
+                // longer between attempts: a few degrees of error is nothing
+                // when walking and is a missed ledge when jumping.
+                if (Math.Abs(delta) >= JumpHeadingToleranceDegrees)
                 {
                     INavigationAutomation nav = _host.Automation.Navigation;
                     _hadMovementIntent = nav.ClearMovementIntent()
                         == PluginNavigationCommandStatus.Accepted
                         && _hadMovementIntent;
-                    if (_now - _faceHeadingStamp >= FaceHeadingReissueSeconds)
+                    if (_now - _jumpFaceHeadingStamp >= JumpFaceHeadingReissueSeconds)
                     {
-                        _faceHeadingStamp = _now;
+                        _jumpFaceHeadingStamp = _now;
                         _ = nav.FaceHeading(waypoint.JumpHeadingDegrees);
                     }
                     _status = $"Aligning jump: {Math.Abs(delta):0.0}d.";
                     return true;
                 }
 
-                _faceHeadingStamp = NoFaceHeadingStamp;
+                _jumpFaceHeadingStamp = NoFaceHeadingStamp;
                 _jumpAligned = true;
             }
 
@@ -1386,6 +1460,9 @@ internal sealed class NavigationController
         _jumpReleaseElapsed = 0d;
         _portalOrigin = default;
         _hasPortalOrigin = false;
+        _recallNeedsPositionCapture = true;
+        _recallLastPosition = default;
+        _jumpFaceHeadingStamp = NoFaceHeadingStamp;
     }
 
     /// <summary>

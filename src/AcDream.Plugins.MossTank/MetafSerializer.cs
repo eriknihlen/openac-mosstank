@@ -781,9 +781,7 @@ internal static class MetafSerializer
             case "jmp":
                 waypoint.JumpHeadingDegrees = checked((float)ParseDouble(args.Groups["d4"].Value));
                 waypoint.JumpRun = StripDelimiters(args.Groups["s"].Value) == "True";
-                waypoint.JumpChargeMilliseconds = checked((int)Math.Round(
-                    ParseDouble(args.Groups["d5"].Value),
-                    MidpointRounding.AwayFromZero));
+                ReadJumpCharge(args.Groups["d5"].Value, waypoint);
                 break;
         }
         return waypoint;
@@ -967,7 +965,7 @@ internal static class MetafSerializer
                 + $"{waypoint.LegacyObjectClass} {{{waypoint.ObjectName}}}",
             RouteWaypointType.Jump =>
                 $"\tjmp {FormatNumber(x)} {FormatNumber(y)} {FormatNumber(z)} {FormatNumber(waypoint.JumpHeadingDegrees)} "
-                + $"{{{(waypoint.JumpRun ? "True" : "False")}}} {FormatNumber(waypoint.JumpChargeMilliseconds)}",
+                + $"{{{(waypoint.JumpRun ? "True" : "False")}}} {FormatJumpCharge(waypoint)}",
             _ => throw new InvalidOperationException($"unknown waypoint type {waypoint.Type}."),
         };
     }
@@ -975,6 +973,56 @@ internal static class MetafSerializer
     // ------------------------------------------------------------------
     // Small helpers.
     // ------------------------------------------------------------------
+
+    /// <summary>
+    /// A jump waypoint's direction rides on its charge time: the charge is
+    /// written to four decimals and one digit is appended for the direction,
+    /// 3 forward, 4 strafe left, 5 strafe right. It looks like a trick and it
+    /// is, but it is the interchange format's own, it keeps the field count,
+    /// and a reader that knows nothing about it still reads a charge time
+    /// correct to a ten-thousandth of a millisecond.
+    /// </summary>
+    private static readonly System.Text.RegularExpressions.Regex JumpChargePattern =
+        new(
+            @"^(?<charge>[0-9]+\.[0-9]{4})(?<direction>3|4|5)$",
+            System.Text.RegularExpressions.RegexOptions.Compiled);
+
+    private static void ReadJumpCharge(string field, RouteWaypoint waypoint)
+    {
+        System.Text.RegularExpressions.Match match =
+            JumpChargePattern.Match(field.Trim());
+        if (!match.Success)
+        {
+            waypoint.JumpChargeMilliseconds = checked((int)Math.Round(
+                ParseDouble(field),
+                MidpointRounding.AwayFromZero));
+            waypoint.JumpDirection = RouteJumpDirection.Forward;
+            return;
+        }
+
+        waypoint.JumpChargeMilliseconds = checked((int)Math.Round(
+            ParseDouble(match.Groups["charge"].Value),
+            MidpointRounding.AwayFromZero));
+        waypoint.JumpDirection = match.Groups["direction"].Value switch
+        {
+            "4" => RouteJumpDirection.StrafeLeft,
+            "5" => RouteJumpDirection.StrafeRight,
+            _ => RouteJumpDirection.Forward,
+        };
+    }
+
+    private static string FormatJumpCharge(RouteWaypoint waypoint)
+    {
+        char direction = waypoint.JumpDirection switch
+        {
+            RouteJumpDirection.StrafeLeft => '4',
+            RouteJumpDirection.StrafeRight => '5',
+            _ => '3',
+        };
+        return waypoint.JumpChargeMilliseconds.ToString(
+            "0.0000",
+            CultureInfo.InvariantCulture) + direction;
+    }
 
     private static string[] SplitLines(string text) => (text ?? string.Empty)
         .Replace("\r\n", "\n", StringComparison.Ordinal)

@@ -658,7 +658,8 @@ public sealed class NavigationTests
         Assert.Equal(271.5f, waypoint.JumpHeadingDegrees);
         Assert.True(waypoint.JumpRun);
         Assert.Equal(875, waypoint.JumpChargeMilliseconds);
-        Assert.Equal(RouteJumpDirection.Forward, waypoint.JumpDirection);
+        // The direction survives the save: it rides the charge field.
+        Assert.Equal(RouteJumpDirection.StrafeRight, waypoint.JumpDirection);
 
         Assert.False(target.Enabled);
         Assert.False(target.Priority);
@@ -1230,6 +1231,147 @@ public sealed class NavigationTests
         Assert.Equal(1, controller.CurrentWaypointIndex);
         Assert.Empty(automation.PostedSystemMessages);
         Assert.Empty(automation.ModeRequests);
+    }
+
+    /// <summary>
+    /// A jump is aimed near-exactly. Four degrees is fine for a walk and is a
+    /// missed ledge for a jump, so the jump keeps aligning where the walk would
+    /// already be charging.
+    /// </summary>
+    [Theory]
+    [InlineData(3.9f, false)]
+    [InlineData(0.05f, false)]
+    [InlineData(0.005f, true)]
+    public void JumpAlignsFarMoreTightlyThanTheWalk(float offset, bool charges)
+    {
+        var automation = new FakeAutomation
+        {
+            NavigationSnapshot = Snapshot(Position(0d, 0d, heading: 90f - offset)),
+        };
+        RouteWaypoint jump = Waypoint(RouteWaypointType.Jump, Position(0d, 0d));
+        jump.JumpHeadingDegrees = 90f;
+        jump.JumpChargeMilliseconds = 500;
+        NavigationController controller = Controller(
+            automation,
+            RouteMode.Circular,
+            jump);
+
+        Assert.True(controller.Tick(0.05d, canAct: true));
+
+        Assert.Equal(
+            charges,
+            automation.Intents.Exists(static intent => intent.Jump));
+        Assert.Equal(charges ? 0 : 1, automation.FacedHeadings.Count);
+    }
+
+    /// <summary>
+    /// The jump waits two seconds between re-faces, not the walk's 0.7.
+    /// </summary>
+    [Fact]
+    public void JumpDoesNotReissueFaceHeadingInsideTwoSeconds()
+    {
+        var automation = new FakeAutomation
+        {
+            NavigationSnapshot = Snapshot(Position(0d, 0d, heading: 0f)),
+        };
+        RouteWaypoint jump = Waypoint(RouteWaypointType.Jump, Position(0d, 0d));
+        jump.JumpHeadingDegrees = 90f;
+        NavigationController controller = Controller(
+            automation,
+            RouteMode.Circular,
+            jump);
+
+        Assert.True(controller.Tick(0.05d, canAct: true));
+        Assert.Single(automation.FacedHeadings);
+
+        // Past the walk's re-face interval and well short of the jump's.
+        Assert.True(controller.Tick(1.0d, canAct: true));
+        Assert.Single(automation.FacedHeadings);
+
+        Assert.True(controller.Tick(1.2d, canAct: true));
+        Assert.Equal(2, automation.FacedHeadings.Count);
+    }
+
+    /// <summary>
+    /// Only two lines complete a Use NPC waypoint, and each only on its own
+    /// channel. Anything else is somebody else's conversation.
+    /// </summary>
+    [Theory]
+    [InlineData(3, "Aun Tanua tells you, \"Greetings.\"", true)]
+    [InlineData(0, "Aun Tanua gives you a Token.", true)]
+    [InlineData(0, "Aun Tanua tells you, \"Greetings.\"", false)]
+    [InlineData(3, "Aun Tanua gives you a Token.", false)]
+    [InlineData(2, "Aun Tanua tells you, \"Greetings.\"", false)]
+    public void UseNpcCompletesOnlyOnItsOwnChannels(
+        int kind,
+        string text,
+        bool completes)
+    {
+        var automation = new FakeAutomation
+        {
+            NavigationSnapshot = Snapshot(Position(0d, 0d)),
+            FoundObject = new PluginNavigationObject(
+                500u,
+                "Aun Tanua",
+                Position(0.001d, 0d)),
+        };
+        RouteWaypoint npc = Waypoint(RouteWaypointType.UseNpc, Position(0d, 0d));
+        npc.ObjectName = "Aun Tanua";
+        NavigationController controller = Controller(
+            automation,
+            RouteMode.Circular,
+            npc,
+            Waypoint(RouteWaypointType.Point, Position(1d, 0d)));
+
+        Assert.True(controller.Tick(0.05d, canAct: true));
+        automation.ChatMessages.Add(new PluginChatMessage(
+            Sequence: 1UL,
+            SenderObjectId: 500u,
+            Kind: kind,
+            Sender: "Aun Tanua",
+            Text: text,
+            ChannelName: string.Empty));
+
+        Assert.True(controller.Tick(0.05d, canAct: true));
+
+        Assert.Equal(completes ? 1 : 0, controller.CurrentWaypointIndex);
+    }
+
+    /// <summary>
+    /// A recall is cast from a standstill. While the character is still
+    /// drifting the waypoint waits and casts nothing.
+    /// </summary>
+    [Fact]
+    public void RecallWaitsUntilTheCharacterHasStopped()
+    {
+        var automation = new FakeAutomation
+        {
+            NavigationSnapshot = Snapshot(Position(0d, 0d)),
+        };
+        var magic = new FakeMagic();
+        automation.Magic = magic;
+        RouteWaypoint recall = Waypoint(RouteWaypointType.Recall, Position(0d, 0d));
+        recall.RecallSpellId = 48u;
+        NavigationController controller = Controller(
+            automation,
+            RouteMode.Circular,
+            recall,
+            Waypoint(RouteWaypointType.Point, Position(1d, 0d)));
+
+        // Standing still from the first tick, so it casts.
+        Assert.True(controller.Tick(0.05d, canAct: true));
+        Assert.Equal([48u], magic.CastSpellIds);
+        magic.CastSpellIds.Clear();
+
+        // A retry is due, but the character has moved more than the tolerance
+        // since the last tick, so the recall waits instead of casting.
+        automation.NavigationSnapshot = Snapshot(Position(0d, 3d / 240d));
+        Assert.True(controller.Tick(2.5d, canAct: true));
+        Assert.Empty(magic.CastSpellIds);
+
+        // Stopped again: the retry goes out.
+        Assert.True(controller.Tick(0.05d, canAct: true));
+        Assert.Equal([48u], magic.CastSpellIds);
     }
 
     private static NavigationController Controller(
