@@ -681,10 +681,18 @@ internal sealed partial class LootController
         PruneCorpseCache();
         foreach (PluginLootContainer seen in known)
             _corpseFirstSeen.TryAdd(seen.ObjectId, _lifetime);
-        float approachRange =
-            (float)Math.Clamp(_settings.CorpseApproachRange, 2d, 100d);
-        IEnumerable<PluginLootContainer> corpses = known.Where(
-            corpse => corpse.Distance <= approachRange);
+        // Walked twice below — once to ask for a description, once to pick —
+        // so it is built once, and in a fixed order so two hosts asking the
+        // same question get the same answer.
+        double approachRange =
+            Math.Clamp(_settings.CorpseApproachRange, 2d, 100d);
+        List<PluginLootContainer> corpses =
+        [
+            .. known
+                .Where(corpse => corpse.Distance <= approachRange)
+                .OrderBy(static corpse => corpse.Distance)
+                .ThenBy(static corpse => corpse.ObjectId),
+        ];
 
         if (_awaitingCorpseAppraisal != 0u)
         {
@@ -734,8 +742,14 @@ internal sealed partial class LootController
                 return true;
         }
 
+        // The open step picks within arm's reach by how nearly the character
+        // is already facing the corpse. Only when nothing is in reach does the
+        // nearest corpse in the wider approach range win instead — that second
+        // pick is the approach step's, which this controller carries itself.
         _selectedCorpse = 0u;
-        if (SelectCorpse(corpses) is not { } corpse)
+        if ((SelectCorpse(corpses, CorpseOpenRangeMeters, byHeading: true)
+                ?? SelectCorpse(corpses, approachRange, byHeading: false))
+            is not { } corpse)
         {
             Status = "No nearby corpses.";
             return false;
@@ -1406,20 +1420,37 @@ internal sealed partial class LootController
     }
 
     /// <summary>
-    /// Retail's corpse pick. Any rare corpse beats any non-rare one whatever
-    /// the distance: the first rare found becomes the pick outright, after
-    /// which only a nearer rare can replace it, and a non-rare can only win
+    /// The radius the open step picks within — arm's reach, a little over five
+    /// metres. Outside it the corpse is the approach step's business.
+    /// </summary>
+    private const double CorpseOpenRangeMeters = 240d / 48d;
+
+    /// <summary>
+    /// The corpse pick. Any rare corpse beats any non-rare one whatever the
+    /// running best: the first rare found becomes the pick outright, after
+    /// which only a better rare can replace it, and a non-rare can only win
     /// while no rare has been picked at all.
+    /// <para>
+    /// Two callers, two metrics. The step that walks to a corpse ranks by
+    /// distance; the step that opens one ranks by how far round the character
+    /// would have to turn to face it, so among corpses already in reach the
+    /// one being looked at wins. An unplaceable corpse ranks last.
+    /// </para>
     /// </summary>
     private PluginLootContainer? SelectCorpse(
-        IEnumerable<PluginLootContainer> corpses)
+        IEnumerable<PluginLootContainer> corpses,
+        double rangeMeters,
+        bool byHeading)
     {
+        PluginNavigationPosition self =
+            _host.Automation.Navigation.Snapshot.Position;
         PluginLootContainer? selected = null;
         double best = double.MaxValue;
         bool rarePicked = false;
         foreach (PluginLootContainer corpse in corpses)
         {
-            if (_completedCorpses.ContainsKey(corpse.ObjectId)
+            if (corpse.Distance > rangeMeters
+                || _completedCorpses.ContainsKey(corpse.ObjectId)
                 || IsCorpseDenied(corpse.ObjectId)
                 || IsCorpseBlacklisted(corpse.ObjectId)
                 || !corpse.IsIdentified
@@ -1427,20 +1458,40 @@ internal sealed partial class LootController
             {
                 continue;
             }
-            double metric = corpse.Distance;
-            if (corpse.IsGeneratedRare && !rarePicked)
+            double metric = byHeading
+                ? HeadingOffsetTo(self, corpse)
+                : corpse.Distance;
+            bool rare = IsRare(corpse);
+            if (rare && !rarePicked)
             {
                 rarePicked = true;
                 best = metric;
                 selected = corpse;
             }
-            else if ((corpse.IsGeneratedRare || !rarePicked) && metric < best)
+            else if ((rare || !rarePicked) && metric < best)
             {
                 best = metric;
                 selected = corpse;
             }
         }
         return selected;
+    }
+
+    /// <summary>
+    /// How far round, in degrees, the character would have to turn to face the
+    /// corpse — zero when it is dead ahead, 180 when it is directly behind. A
+    /// corpse or a character with no place in the world answers a number no
+    /// real corpse can beat.
+    /// </summary>
+    private static double HeadingOffsetTo(
+        in PluginNavigationPosition self,
+        in PluginLootContainer corpse)
+    {
+        if (!corpse.HasPosition)
+            return 99999d;
+        return Math.Abs(NavigationController.SignedHeadingDelta(
+            self.HeadingDegrees,
+            NavigationController.DesiredHeading(self, corpse.Position)));
     }
 
     /// <summary>
@@ -1494,7 +1545,7 @@ internal sealed partial class LootController
 
     private bool CanLoot(in PluginLootContainer corpse)
     {
-        if (_settings.LootOnlyRareCorpses && !corpse.IsGeneratedRare)
+        if (_settings.LootOnlyRareCorpses && !IsRare(corpse))
             return false;
         string killer = KillerName(corpse.LongDescription);
         string character = _host.Automation.Character.Name;
@@ -1505,7 +1556,7 @@ internal sealed partial class LootController
             return true;
         }
 
-        if (corpse.IsGeneratedRare)
+        if (IsRare(corpse))
             return false;
 
         double firstSeen = _corpseFirstSeen.TryGetValue(
@@ -1744,18 +1795,29 @@ internal sealed partial class LootController
 
     internal static string KillerName(string description)
     {
-        const string prefix = "Killed by ";
-        if (string.IsNullOrWhiteSpace(description)
-            || !description.StartsWith(prefix, StringComparison.OrdinalIgnoreCase))
-        {
+        if (string.IsNullOrWhiteSpace(description))
             return string.Empty;
-        }
-        string remainder = description[prefix.Length..];
-        int period = remainder.IndexOf('.');
-        if (period >= 0)
-            remainder = remainder[..period];
-        return remainder.Trim();
+        Match match = KilledByDescription().Match(description);
+        return match.Success && match.Index == 0
+            ? match.Groups[1].Value
+            : string.Empty;
     }
+
+    /// <summary>
+    /// A corpse counts as rare either because the treasure it holds was
+    /// flagged generated-rare, or because its description is not a kill
+    /// description at all. The second case is the one that keeps a corpse
+    /// nobody is recorded as having killed out of the ordinary ownership
+    /// rules — such a corpse always sorts first and is then never looted,
+    /// because the killer it names is nobody.
+    /// </summary>
+    private static bool IsRare(in PluginLootContainer corpse) =>
+        corpse.IsGeneratedRare
+        || KilledByDescription().Match(corpse.LongDescription ?? string.Empty)
+            is not { Success: true, Index: 0 };
+
+    [GeneratedRegex(@"(?:Killed by )([a-zA-Z\ \-\']*)(?:\..*)")]
+    private static partial Regex KilledByDescription();
 
     private void ResetTransient()
     {

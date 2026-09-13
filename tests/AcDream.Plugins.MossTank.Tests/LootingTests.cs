@@ -1048,13 +1048,13 @@ public sealed class LootingTests
             Corpses =
             [
                 new PluginLootContainer(
-                    mundane, 1u, "Corpse", 3f, false, false, false)
+                    mundane, 1u, "Corpse", 2f, false, false, false)
                 {
                     IsIdentified = true,
                     LongDescription = "Killed by Tester.",
                 },
                 new PluginLootContainer(
-                    rare, 1u, "Corpse", 25f, false, false, false)
+                    rare, 1u, "Corpse", 4.5f, false, false, false)
                 {
                     IsIdentified = true,
                     IsGeneratedRare = true,
@@ -1067,6 +1067,123 @@ public sealed class LootingTests
 
         Assert.True(controller.Tick(0.25d, canAct: true));
         Assert.Equal(new[] { rare }, automation.Opened);
+    }
+
+    /// <summary>
+    /// Mutation: score the open pick by distance instead of by how far round
+    /// the character would have to turn.
+    /// </summary>
+    [Fact]
+    public void TheCorpseInReachTheCharacterIsFacingIsOpenedFirst()
+    {
+        var settings = new LootSettings { Enabled = true };
+        settings.Rules.Add(new LootRule { Expression = "*" });
+        const uint behind = 0x70000F00u;
+        const uint ahead = 0x70000F01u;
+        var automation = new Automation
+        {
+            NavigationSnapshot = new PluginNavigationSnapshot(
+                true,
+                false,
+                Player,
+                Place(0d, 0d, headingDegrees: 0f),
+                false,
+                false),
+            Corpses =
+            [
+                new PluginLootContainer(
+                    behind, 1u, "Corpse", 2f, false, false, false)
+                {
+                    IsIdentified = true,
+                    LongDescription = "Killed by Tester.",
+                    HasPosition = true,
+                    Position = Place(0d, -2d),
+                },
+                new PluginLootContainer(
+                    ahead, 1u, "Corpse", 4f, false, false, false)
+                {
+                    IsIdentified = true,
+                    LongDescription = "Killed by Tester.",
+                    HasPosition = true,
+                    Position = Place(0d, 4d),
+                },
+            ],
+        };
+        var controller = new LootController(new Host(automation), settings);
+
+        Assert.True(controller.Tick(0.25d, canAct: true));
+        Assert.Equal(new[] { ahead }, automation.Opened);
+    }
+
+    /// <summary>
+    /// Mutation: drop the distance-metric fallback and pick only inside the
+    /// open radius.
+    /// </summary>
+    [Fact]
+    public void ACorpseBeyondArmsReachIsStillPickedByDistance()
+    {
+        var settings = new LootSettings { Enabled = true };
+        settings.Rules.Add(new LootRule { Expression = "*" });
+        const uint near = 0x70001000u;
+        const uint far = 0x70001001u;
+        var automation = new Automation
+        {
+            Corpses =
+            [
+                new PluginLootContainer(
+                    far, 1u, "Corpse", 30f, false, false, false)
+                {
+                    IsIdentified = true,
+                    LongDescription = "Killed by Tester.",
+                },
+                new PluginLootContainer(
+                    near, 1u, "Corpse", 12f, false, false, false)
+                {
+                    IsIdentified = true,
+                    LongDescription = "Killed by Tester.",
+                },
+            ],
+        };
+        var controller = new LootController(new Host(automation), settings);
+
+        Assert.True(controller.Tick(0.25d, canAct: true));
+        Assert.Equal(new[] { near }, automation.Opened);
+    }
+
+    /// <summary>
+    /// Mutation: read the rare flag off the wire property alone, ignoring a
+    /// description that is not a kill description.
+    /// </summary>
+    [Fact]
+    public void ACorpseWhoseDescriptionNamesNoKillerIsTreatedAsRare()
+    {
+        var settings = new LootSettings
+        {
+            Enabled = true,
+            LootAllCorpses = true,
+            ScanIntervalSeconds = 0.05d,
+        };
+        settings.Rules.Add(new LootRule { Expression = "*" });
+        const uint unattributed = 0x70001100u;
+        var automation = new Automation
+        {
+            Corpses =
+            [
+                new PluginLootContainer(
+                    unattributed, 1u, "Corpse", 3f, false, false, false)
+                {
+                    IsIdentified = true,
+                    LongDescription = "Generated treasure",
+                },
+            ],
+        };
+        var controller = new LootController(new Host(automation), settings);
+
+        // Rare, so it sorts first; nobody killed it, so it is never looted —
+        // not even once it is old enough for the loot-anything timer.
+        Assert.False(controller.Tick(200d, canAct: true));
+        Assert.False(controller.Tick(200d, canAct: true));
+        Assert.Empty(automation.Opened);
     }
 
     [Fact]
@@ -1405,6 +1522,13 @@ public sealed class LootingTests
             id, wcid, name, 0u, 0u, 0u, 0u, 0u, 0u, 0u, 0u,
             1, 0, 0, 0u, 0, 0, 0u, false, 0d, 0, 0, 0, 0d, 0, 0, 0);
 
+    /// <summary>A spot in the world, in metres east and north of nowhere.</summary>
+    private static PluginNavigationPosition Place(
+        double eastMeters,
+        double northMeters,
+        float headingDegrees = 0f) =>
+        new(1u, eastMeters / 240d, northMeters / 240d, 0d, headingDegrees, true);
+
     /// <summary>
     /// A real scroll: a writable item carrying the spell it teaches, which is
     /// what makes the client classify it as a scroll. The name deliberately
@@ -1431,9 +1555,23 @@ public sealed class LootingTests
 
     private sealed class Automation
         : IAutomationSurface, ICharacterInfo, ISpellCatalog, IItemAutomation,
-          ILootAutomation, IFellowshipAutomation, IPluginChat
+          ILootAutomation, IFellowshipAutomation, IPluginChat,
+          INavigationAutomation
     {
         public bool IsAvailable => true;
+        public INavigationAutomation Navigation => this;
+        public PluginNavigationSnapshot NavigationSnapshot { get; set; }
+        public PluginNavigationSnapshot Snapshot => NavigationSnapshot;
+        public bool TryGetObject(uint objectId, out PluginNavigationObject value)
+        {
+            value = default;
+            return false;
+        }
+        public PluginNavigationCommandStatus SetMovementIntent(
+            in PluginMovementIntent intent) =>
+            PluginNavigationCommandStatus.Unavailable;
+        public PluginNavigationCommandStatus ClearMovementIntent() =>
+            PluginNavigationCommandStatus.Unavailable;
         public bool ItemsBusy { get; set; }
         bool IItemAutomation.IsBusy => ItemsBusy;
         public ICharacterInfo Character => this;
