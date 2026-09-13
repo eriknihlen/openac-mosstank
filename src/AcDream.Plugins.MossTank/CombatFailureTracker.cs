@@ -164,6 +164,12 @@ internal sealed class CombatFailureTracker
             : CombatSuppressionReason.None;
     }
 
+    /// <summary>
+    /// Has the combat pass ever seen this monster? A monster it has never
+    /// looked at is not one it has an opinion about.
+    /// </summary>
+    public bool IsKnown(uint objectId) => _entries.ContainsKey(objectId);
+
     public void Reset() => _entries.Clear();
 
     private Entry Get(uint objectId)

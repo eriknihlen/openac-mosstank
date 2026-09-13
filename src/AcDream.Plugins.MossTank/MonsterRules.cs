@@ -134,6 +134,19 @@ internal sealed class MonsterRule
 
     public const string RetailDefaultName = "<DEFAULT>";
 
+    /// <summary>
+    /// The fallback row a profile with no DEFAULT row of its own falls back
+    /// to: attack at priority one, and finish with a streak.
+    /// </summary>
+    public static MonsterRule RetailDefault() => new(
+        "DEFAULT",
+        new MonsterRuleActions
+        {
+            Priority = 1,
+            Flags = MonsterActionFlags.Attack | MonsterActionFlags.Streak,
+            ExtraVulnerability = MonsterDamageType.None,
+        });
+
     public string Expression { get; }
     public MonsterRuleActions Actions { get; }
     public int Priority => Actions.Priority;
@@ -192,7 +205,7 @@ internal static class MonsterRuleResolver
             firstError ??= error;
         }
 
-        fallback ??= new MonsterRule("DEFAULT", 0);
+        fallback ??= MonsterRule.RetailDefault();
         return new ResolvedMonsterRule(fallback, firstError);
     }
 }

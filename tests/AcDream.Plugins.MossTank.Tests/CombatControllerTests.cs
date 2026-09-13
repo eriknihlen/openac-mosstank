@@ -885,6 +885,58 @@ public sealed class CombatControllerTests
     }
 
     [Fact]
+    public void OnlyAMonsterThePassFollowsAndHasNotGivenUpOnIsPointable()
+    {
+        var surface = new FakeAutomation
+        {
+            CombatSnapshot = Physical() with { Mode = PluginCombatMode.Magic },
+            Targets = [Target(10, "Drudge", 5, 0)],
+            KnownCombatSpells = [MagicSpell(100, "Flame Bolt VII", 300)],
+            EquipmentItems = [WieldedCaster()],
+        };
+        var settings = new CombatSettings { MaximumRange = 40d };
+        var controller = new CombatController(new FakeHost(surface), settings);
+
+        // Nothing has been scanned yet, so nothing is pointable.
+        Assert.False(controller.IsTrackedAndNotBlacklisted(10u));
+
+        controller.Toggle();
+        controller.OnTick(0.25);
+
+        Assert.True(controller.IsTrackedAndNotBlacklisted(10u));
+        Assert.False(controller.IsTrackedAndNotBlacklisted(11u));
+        Assert.False(controller.IsTrackedAndNotBlacklisted(0u));
+    }
+
+    [Fact]
+    public void WithNoEquipmentProjectionTheAttackStillWaitsForCombatMode()
+    {
+        var surface = new FakeAutomation
+        {
+            CombatSnapshot = Physical() with { Mode = PluginCombatMode.Peace },
+            EquipmentAvailable = false,
+            Targets = [Target(10, "Drudge", 5, 0)],
+            KnownCombatSpells = [MagicSpell(100, "Flame Bolt VII", 300)],
+        };
+        var settings = new CombatSettings { MaximumRange = 40d };
+        settings.Rules.Clear();
+        settings.Rules.Add(new MonsterRule(
+            "DEFAULT",
+            new MonsterRuleActions
+            {
+                Flags = MonsterActionFlags.Attack,
+                DamageType = MonsterDamageType.Fire,
+            }));
+        var controller = new CombatController(new FakeHost(surface), settings);
+        controller.Toggle();
+        controller.OnTick(0.25);
+
+        // Nothing is cast out of peace mode, and the mode is asked for.
+        Assert.Empty(surface.CastSpellIds);
+        Assert.Contains("EnterMode:Magic", surface.CallLog);
+    }
+
+    [Fact]
     public void TheDrainArmCastsWhatThePlannerChose()
     {
         var surface = new FakeAutomation

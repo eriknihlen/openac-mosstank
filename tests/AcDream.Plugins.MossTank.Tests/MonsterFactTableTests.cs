@@ -105,6 +105,25 @@ public sealed class MonsterFactTableTests
     }
 
     [Fact]
+    public void AProfileWithNoDefaultRowFallsBackToTheSeedRow()
+    {
+        ResolvedMonsterRule resolved = MonsterRuleResolver.Resolve(
+            [new MonsterRule("name==Olthoi Slasher", 4)],
+            new MonsterExpressionContext(
+                "Drudge Prowler",
+                TypeId: 42u,
+                Species: string.Empty,
+                MaximumHealth: -1,
+                Range: 3f,
+                HasShield: false,
+                MetaState: "Default"));
+
+        Assert.Equal(1, resolved.Priority);
+        Assert.True(resolved.Actions.UsesPrimaryAttack);
+        Assert.True(resolved.Actions.UsesStreak);
+    }
+
+    [Fact]
     public void TheImmunityMaskIsRead()
     {
         var facts = new MonsterFactTable(Fixture());

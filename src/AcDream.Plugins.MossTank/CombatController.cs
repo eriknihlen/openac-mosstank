@@ -192,6 +192,18 @@ internal sealed class CombatController
     internal SpellCastTracker CastTracker => _castTracker;
 
     /// <summary>
+    /// Is this monster one the combat pass is following and has not given up
+    /// on? A monster the pass has never looked at answers false, exactly as
+    /// one it has blacklisted or seen die does: both are "not something to
+    /// point at right now". This is what a profile's own monster-finding
+    /// expressions ask before handing back a target.
+    /// </summary>
+    internal bool IsTrackedAndNotBlacklisted(uint objectId) =>
+        objectId != 0u
+        && _failures.IsKnown(objectId)
+        && _failures.Reason(objectId, _now) == CombatSuppressionReason.None;
+
+    /// <summary>
     /// The shared cooldown table. A kill holds navigation off for three
     /// seconds so the corpse can be found and looted before the bot moves on.
     /// </summary>
@@ -1552,16 +1564,14 @@ internal sealed class CombatController
 
     private bool TryPrepareAttack()
     {
+        // The plan is Magic until an owned item backs it. Without an
+        // equipment projection nothing can back it, but the combat mode is
+        // still a hard requirement: answering "ready" here would let the pass
+        // try to swing or cast out of peace mode and quietly do nothing.
         IEquipmentAutomation equipment = _host.Automation.Equipment;
-        if (!equipment.IsAvailable)
-        {
-            return true;
-        }
-
-        // hi.cs:579-583. The plan is Magic until an owned item backs it.
         PluginCombatMode wanted = PluginCombatMode.Magic;
         uint plannedWeapon = 0u;
-        if (_plannedWeapon != 0u)
+        if (_plannedWeapon != 0u && equipment.IsAvailable)
         {
             foreach (PluginEquipmentItem item in equipment.CaptureOwnedEquipment())
             {
