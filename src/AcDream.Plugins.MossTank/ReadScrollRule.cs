@@ -96,6 +96,13 @@ internal sealed class ReadScrollController
             return false;
         }
 
+        // The queue is the looter's, so anything that clears it — a session
+        // reset included — drops an in-flight read with it.
+        if (_pendingItem != 0u
+            && !_loot.PendingScrollReads.Values.Contains(_pendingItem))
+        {
+            Clear();
+        }
         if (_pendingItem != 0u)
             return ContinueRead(items, elapsedSeconds);
         if (_loot.PendingScrollReads.Count == 0)
