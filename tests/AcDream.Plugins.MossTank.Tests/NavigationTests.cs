@@ -287,14 +287,14 @@ public sealed class NavigationTests
             RouteMode.Circular,
             Waypoint(RouteWaypointType.Point, Position(1d, 0d)));
 
-        Assert.True(controller.Tick(0.293d, canAct: true));
-        Assert.True(controller.Tick(0.293d, canAct: true));
+        Assert.True(Frame(controller, 0.293d));
+        Assert.True(Frame(controller, 0.293d));
 
         Assert.Equal(90f, Assert.Single(automation.FacedHeadings));
 
-        Assert.True(controller.Tick(0.293d, canAct: true));
+        Assert.True(Frame(controller, 0.293d));
         Assert.Single(automation.FacedHeadings);
-        Assert.True(controller.Tick(0.293d, canAct: true));
+        Assert.True(Frame(controller, 0.293d));
         Assert.Equal(2, automation.FacedHeadings.Count);
     }
 
@@ -519,6 +519,132 @@ public sealed class NavigationTests
         Assert.False(door.ValidNow(new MacroPassContext(0.05d, CanAct: true)));
         Assert.True(controller.Tick(0.05d, canAct: true));
         Assert.True(Assert.Single(automation.Intents).Forward);
+    }
+
+    /// <summary>
+    /// The navigation clock is wall time, and a turn is not a unit of it. On a
+    /// frame where the door rule and the route rule are both consulted — the
+    /// ordinary case — the clock must move by the frame, once.
+    /// </summary>
+    [Fact]
+    public void TheNavigationClockMovesOnceAFrameHoweverManyTurnsAreTakenInIt()
+    {
+        var automation = new FakeAutomation
+        {
+            NavigationSnapshot = Snapshot(Position(0d, 0d, heading: 0f)),
+            // The typing branch is the one that measures against the clock.
+            ChatInputActive = true,
+        };
+        var settings = new NavigationSettings
+        {
+            Enabled = true,
+            OpenDoors = true,
+            Mode = RouteMode.Circular,
+        };
+        settings.Waypoints.Add(Waypoint(RouteWaypointType.Point, Position(1d, 0d)));
+        var controller = new NavigationController(new FakeHost(automation), settings);
+
+        void PassFrame()
+        {
+            controller.AdvanceClock(0.293d);
+            Assert.False(controller.TickDoorRule(0.293d, canAct: true));
+            Assert.True(controller.Tick(0.293d, canAct: true));
+        }
+
+        // The first frame faces and stamps the clock. Two more frames are
+        // 0.586 s of real time after that stamp — inside the 0.7 s re-face
+        // interval, but past it if each turn were allowed to move the clock
+        // itself. The fourth frame is past it either way.
+        PassFrame();
+        Assert.Equal(90f, Assert.Single(automation.FacedHeadings));
+        PassFrame();
+        PassFrame();
+        Assert.Single(automation.FacedHeadings);
+        PassFrame();
+        Assert.Equal(2, automation.FacedHeadings.Count);
+    }
+
+    /// <summary>
+    /// Losing a pass to a rule ahead of the door rule declines the turn. It
+    /// does not throw away the door already being worked on: an open sequence
+    /// that restarted every time anything else took a turn could never finish.
+    /// </summary>
+    [Fact]
+    public void TheDoorRuleKeepsItsDoorAcrossAPassItDoesNotWin()
+    {
+        var automation = new FakeAutomation
+        {
+            NavigationSnapshot = Snapshot(Position(0d, 0d, heading: 90f)),
+        };
+        automation.WorldObjects.Add(new PluginNavigationObject(
+            55u,
+            "Dungeon Door",
+            Position(0.01d, 0d))
+        {
+            IsDoor = true,
+            IsOpen = false,
+            HasLockState = true,
+        });
+        var settings = new NavigationSettings
+        {
+            Enabled = true,
+            OpenDoors = true,
+            Mode = RouteMode.Circular,
+        };
+        settings.Waypoints.Add(Waypoint(RouteWaypointType.Point, Position(1d, 0d)));
+        var controller = new NavigationController(new FakeHost(automation), settings);
+
+        // The door rule claims a pass and sends the first use.
+        Assert.True(controller.TickDoorRule(0.05d, canAct: true));
+        Assert.Equal([55u], automation.UsedObjects);
+
+        // Something ahead of it takes the next pass.
+        Assert.False(controller.TickDoorRule(0.05d, canAct: false));
+
+        // The retry interval has not elapsed, so the pass it wins back must
+        // still be working on the SAME door and must not re-send.
+        Assert.True(controller.TickDoorRule(0.05d, canAct: true));
+        Assert.Equal([55u], automation.UsedObjects);
+    }
+
+    /// <summary>
+    /// The door is used once and then left alone for the retry interval. A
+    /// door re-used on every pass is a use command every fraction of a second
+    /// for as long as the door takes to swing.
+    /// </summary>
+    [Fact]
+    public void TheDoorIsNotUsedAgainInsideItsRetryInterval()
+    {
+        var automation = new FakeAutomation
+        {
+            NavigationSnapshot = Snapshot(Position(0d, 0d, heading: 90f)),
+        };
+        automation.WorldObjects.Add(new PluginNavigationObject(
+            55u,
+            "Dungeon Door",
+            Position(0.01d, 0d))
+        {
+            IsDoor = true,
+            IsOpen = false,
+            HasLockState = true,
+        });
+        var settings = new NavigationSettings
+        {
+            Enabled = true,
+            OpenDoors = true,
+            Mode = RouteMode.Circular,
+        };
+        settings.Waypoints.Add(Waypoint(RouteWaypointType.Point, Position(1d, 0d)));
+        var controller = new NavigationController(new FakeHost(automation), settings);
+
+        for (int pass = 0; pass < 4; pass++)
+            Assert.True(controller.TickDoorRule(0.293d, canAct: true));
+
+        Assert.Equal([55u], automation.UsedObjects);
+
+        // Past the interval, it tries again.
+        Assert.True(controller.TickDoorRule(1.5d, canAct: true));
+        Assert.Equal([55u, 55u], automation.UsedObjects);
     }
 
     /// <summary>
@@ -1418,14 +1544,14 @@ public sealed class NavigationTests
             RouteMode.Circular,
             jump);
 
-        Assert.True(controller.Tick(0.05d, canAct: true));
+        Assert.True(Frame(controller, 0.05d));
         Assert.Single(automation.FacedHeadings);
 
         // Past the walk's re-face interval and well short of the jump's.
-        Assert.True(controller.Tick(1.0d, canAct: true));
+        Assert.True(Frame(controller, 1.0d));
         Assert.Single(automation.FacedHeadings);
 
-        Assert.True(controller.Tick(1.2d, canAct: true));
+        Assert.True(Frame(controller, 1.2d));
         Assert.Equal(2, automation.FacedHeadings.Count);
     }
 
@@ -1641,6 +1767,17 @@ public sealed class NavigationTests
         };
         settings.Waypoints.AddRange(waypoints);
         return new NavigationController(new FakeHost(automation), settings);
+    }
+
+    /// <summary>
+    /// One host frame: the clock moves, then the controller takes its turn.
+    /// That is the production order — the panel steps the mover, which owns
+    /// the clock, and then runs the scheduler pass.
+    /// </summary>
+    private static bool Frame(NavigationController controller, double seconds)
+    {
+        controller.AdvanceClock(seconds);
+        return controller.Tick(seconds, canAct: true);
     }
 
     private static RouteWaypoint Waypoint(

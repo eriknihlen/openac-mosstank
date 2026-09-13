@@ -520,6 +520,7 @@ internal sealed class NavigationController
         double elapsed = double.IsFinite(elapsedSeconds) && elapsedSeconds > 0d
             ? elapsedSeconds
             : 0d;
+        AdvanceClock(elapsed);
         if (!_moverArmed)
         {
             // A disarmed mover holds no time: the pass that arms it starts
@@ -536,6 +537,21 @@ internal sealed class NavigationController
         _ = Tick(TakePendingMoverSeconds(), canAct: true);
     }
 
+    /// <summary>
+    /// Moves the navigation clock on by one frame. This is the ONE place it
+    /// moves: the clock stands for wall time, and a turn or a pass is not a
+    /// unit of it. It used to be advanced from both the route's turn and the
+    /// door's, so on the ordinary pass where both were consulted every
+    /// interval measured against it — the re-face throttles above — ran at
+    /// roughly double speed, and at an uneven rate besides.
+    /// </summary>
+    internal void AdvanceClock(double elapsedSeconds)
+    {
+        if (!double.IsFinite(elapsedSeconds) || elapsedSeconds <= 0d)
+            return;
+        _now += elapsedSeconds;
+    }
+
     private double TakePendingMoverSeconds()
     {
         double due = _pendingMoverSeconds;
@@ -548,7 +564,6 @@ internal sealed class NavigationController
         elapsedSeconds = double.IsFinite(elapsedSeconds)
             ? Math.Max(0d, elapsedSeconds)
             : 0d;
-        _now += elapsedSeconds;
         INavigationAutomation navigation = _host.Automation.Navigation;
         PluginNavigationSnapshot snapshot = navigation.Snapshot;
         if (!_settings.Enabled || !snapshot.IsAvailable)
@@ -698,14 +713,22 @@ internal sealed class NavigationController
         elapsedSeconds = double.IsFinite(elapsedSeconds)
             ? Math.Max(0d, elapsedSeconds)
             : 0d;
-        _now += elapsedSeconds;
+        if (!canAct)
+        {
+            // Losing the pass to a rule ahead of this one is a decline, not a
+            // reset. The door being identified and the lockpick already chosen
+            // for it have to still be there on the pass this rule wins back —
+            // an open sequence that resets every time anything else takes a
+            // turn can never finish. The pass a rule does not win is a pass a
+            // rule is not asked about.
+            return false;
+        }
         INavigationAutomation navigation = _host.Automation.Navigation;
         PluginNavigationSnapshot snapshot = navigation.Snapshot;
         if (!_settings.Enabled
             || !_settings.OpenDoors
             || !snapshot.IsAvailable
-            || snapshot.IsPortalSpace
-            || !canAct)
+            || snapshot.IsPortalSpace)
         {
             ClearDoor();
             return false;
@@ -780,6 +803,9 @@ internal sealed class NavigationController
         if (_activeDoorObjectId == 0u)
         {
             _activeDoorObjectId = door.ObjectId;
+            // A door just taken up is due an attempt straight away; the
+            // interval only measures the gap between attempts.
+            _doorRetryElapsed = UseRetrySeconds;
             _activeLockpickObjectId = door.IsLocked
                 ? SelectLockpick(door.LockDifficulty)
                 : 0u;
@@ -800,7 +826,11 @@ internal sealed class NavigationController
             ClearDoor();
             return false;
         }
-        if (_doorRetryElapsed == elapsedSeconds || _doorRetryElapsed >= UseRetrySeconds)
+        // The old form of this also accepted "this is the first accumulation
+        // since a clear", which could never be told apart from the tick right
+        // after an attempt reset the counter to zero — so the interval never
+        // held and the door was used again on every pass.
+        if (_doorRetryElapsed >= UseRetrySeconds)
         {
             PluginItemCommandResult result = _activeLockpickObjectId == 0u
                 ? _host.Automation.Items.Use(door.ObjectId)
@@ -858,7 +888,7 @@ internal sealed class NavigationController
         _activeDoorObjectId = 0u;
         _activeLockpickObjectId = 0u;
         _doorElapsed = 0d;
-        _doorRetryElapsed = 0d;
+        _doorRetryElapsed = UseRetrySeconds;
     }
 
     private bool TickCheckpoint(
