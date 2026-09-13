@@ -135,13 +135,21 @@ internal sealed class CombatSettings
     public IList<MonsterRule> Rules { get; } =
         new List<MonsterRule> { new("DEFAULT", 0) };
 
+    /// <summary>
+    /// Where a rule's <c>species</c> and <c>maxhp</c> come from. Both are
+    /// database facts, not live properties; without a database they answer
+    /// the way an unlisted monster answers.
+    /// </summary>
+    public MonsterFactTable MonsterFacts { get; set; } = new();
+
     public ResolvedMonsterRule ResolveRule(PluginCombatTarget target)
     {
+        MonsterFacts.Learn(target.SpeciesId, target.SpeciesName);
         var context = new MonsterExpressionContext(
             target.Name,
             target.WeenieClassId,
-            target.SpeciesName,
-            target.MaximumHealth,
+            MonsterFacts.Species(target.Name),
+            MonsterFacts.MaximumHealth(target.Name),
             target.Distance,
             target.HasShield,
             MetaState,

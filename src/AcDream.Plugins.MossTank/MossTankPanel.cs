@@ -241,6 +241,10 @@ internal sealed partial class MossTankPanel : IBuffRuleHost
         // directory beside the .usd files. Absent means EMPTY, not a guess:
         // acdream does not ship Virindi's embedded defaultinfodb.ugd.
         _gameInfo = VtankGameInfoDatabase.Load(host.VtankProfiles);
+        // A rule's `species` and `maxhp` are database facts. Without the
+        // database every monster reads as unlisted, which is what the
+        // reference client does with no database of its own.
+        _combatSettings.MonsterFacts = new MonsterFactTable(_gameInfo);
         _profiles = new MossTankProfileStore(host);
         _profiles.BindCharacter(host.Automation.Character.Name);
         _profiles.LoadCurrent(_allSettings, _noBuffItemNames, _commandLogTypes);

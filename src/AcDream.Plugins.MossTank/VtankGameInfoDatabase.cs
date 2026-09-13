@@ -72,6 +72,43 @@ internal sealed class VtankGameInfoDatabase
     public IReadOnlyDictionary<string, VtankSpeciesMember> SpeciesMembers
     { get; private init; }
 
+    /// <summary>Monster name -&gt; immunity mask.</summary>
+    public IReadOnlyDictionary<string, int> MonsterImmunities { get; private init; }
+        = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
+
+    /// <summary>The bit that says a monster cannot be affected by magic.</summary>
+    public const int ImmuneToMagicMask = 2;
+
+    /// <summary>
+    /// The species column of the monster's <c>SpeciesMembers</c> row, or
+    /// <c>-1</c> when there is no database or no row for the name.
+    /// </summary>
+    public int SpeciesOf(string? monsterName) =>
+        Member(monsterName) is { } member ? member.Species : -1;
+
+    /// <summary>
+    /// The maximum-health column of the monster's <c>SpeciesMembers</c> row,
+    /// or <c>-1</c> when there is no database or no row for the name. This is
+    /// the only source a monster's maximum health has: the client is never
+    /// told it.
+    /// </summary>
+    public int MaximumHealthOf(string? monsterName) =>
+        Member(monsterName) is { } member ? member.MaximumHealth : -1;
+
+    /// <summary>Is the monster listed as unaffectable by magic?</summary>
+    public bool IsImmuneToMagic(string? monsterName) =>
+        IsLoaded
+        && !string.IsNullOrWhiteSpace(monsterName)
+        && MonsterImmunities.TryGetValue(monsterName, out int mask)
+        && (mask & ImmuneToMagicMask) != 0;
+
+    private VtankSpeciesMember? Member(string? monsterName) =>
+        IsLoaded
+        && !string.IsNullOrWhiteSpace(monsterName)
+        && SpeciesMembers.TryGetValue(monsterName, out VtankSpeciesMember member)
+            ? member
+            : null;
+
     public IReadOnlyDictionary<int, IReadOnlyList<MonsterDamageType>> SpeciesDamages
     { get; private init; }
 
@@ -116,6 +153,7 @@ internal sealed class VtankGameInfoDatabase
             IsLoaded = true,
             MonsterDamageOverrides = ReadNamedElements(database, "MonsterDamageOverrides"),
             SpeciesMembers = ReadSpeciesMembers(database),
+            MonsterImmunities = ReadMonsterImmunities(database),
             SpeciesDamages = ReadSpeciesDamages(database),
             AmmunitionOptions = ReadAmmunitionOptions(database),
             HealKits = ReadHealKits(database),
@@ -167,6 +205,15 @@ internal sealed class VtankGameInfoDatabase
                 row.Cells[1].AsInt(),
                 row.Cells[2].AsInt());
         }
+        return result;
+    }
+
+    private static Dictionary<string, int> ReadMonsterImmunities(
+        VtankDatabase database)
+    {
+        var result = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
+        foreach (VtankRow row in Rows(database, "MonsterImmunities", 2))
+            result[row.Cells[0].AsString()] = row.Cells[1].AsInt();
         return result;
     }
 
