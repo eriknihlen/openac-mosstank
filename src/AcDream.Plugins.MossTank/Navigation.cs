@@ -292,7 +292,18 @@ internal sealed class NavigationController
 
     internal const double NoFaceHeadingStamp = double.NegativeInfinity;
 
+    /// <summary>The near/far split the heading relaxation switches on.</summary>
     private const double NearTargetMeters = 3d;
+
+    /// <summary>
+    /// Inside this the mover walks instead of running. A waypoint whose arrival
+    /// radius is wider than this is never approached at a walk, which is what
+    /// the low-minimum-distance warning is about.
+    /// </summary>
+    private const double CreepDistanceMeters = 240d / 160d;
+
+    private const float FarHeadingRelaxationDegrees = 45f;
+    private const float NearHeadingRelaxationDegrees = 15f;
     private const double ChatInitialDelaySeconds = 0.2d;
     private const double UseRetrySeconds = 2d;
     private const double PortalTimeoutSeconds = 30d;
@@ -383,7 +394,6 @@ internal sealed class NavigationController
 
     public bool HasActiveAction => _activeAction is not null;
 
-    private const double NavIdlePeaceOverrideMeters = 1.5d;
 
     internal const string LowWaypointDistanceWarning =
         "Warning: Idle peace selected with low waypoint minimum distance. "
@@ -397,32 +407,6 @@ internal sealed class NavigationController
     {
         _combatModeGate = gate ?? throw new ArgumentNullException(nameof(gate));
         _combatSettings = settings ?? throw new ArgumentNullException(nameof(settings));
-    }
-
-    private bool TryRegisterArrival()
-    {
-        if (_combatModeGate is null || _combatSettings is null)
-            return true;
-        if (BoundedMinimumDistance() >= NavIdlePeaceOverrideMeters)
-            return true;
-        if (_host.Automation.Combat.Snapshot.Mode != PluginCombatMode.Peace)
-            return true;
-
-        if (_combatSettings.IdlePeaceMode && !_lowWaypointWarningPosted)
-        {
-            _lowWaypointWarningPosted = true;
-            _host.Automation.Chat.PostSystemMessage(
-                "[MossTank] " + LowWaypointDistanceWarning);
-        }
-
-        // fd.cs:135 — the forced Magic push fires regardless of the setting.
-        if (_combatModeGate.TryPrepare(PluginCombatMode.Magic))
-        {
-            return true;
-        }
-
-        _status = "Switching to magic mode at the waypoint.";
-        return false;
     }
 
     public void ToggleReverse()
@@ -521,8 +505,6 @@ internal sealed class NavigationController
             }
             if (distance <= BoundedMinimumDistance())
             {
-                if (!TryRegisterArrival())
-                    return true;
                 StopMovement();
                 AdvanceWaypoint();
                 return true;
@@ -807,6 +789,11 @@ internal sealed class NavigationController
         return true;
     }
 
+    /// <summary>
+    /// The mover's typing branch: it cannot hold a turn key while the player is
+    /// typing, so it stops and re-faces the goal at most once per
+    /// <see cref="FaceHeadingReissueSeconds"/> instead.
+    /// </summary>
     internal static PluginNavigationCommandStatus SteerTowards(
         INavigationAutomation navigation,
         float signedHeadingDeltaDegrees,
@@ -842,6 +829,13 @@ internal sealed class NavigationController
             new PluginMovementIntent(Forward: true, Run: run));
     }
 
+    /// <summary>
+    /// Steers at a goal. Outside the alignment band the mover holds a turn key
+    /// and keeps walking, so the character curves onto the bearing; the two
+    /// relaxation tiers decide only whether it moves while it turns. The
+    /// absolute re-face is the typing branch, where a held key would go into
+    /// the chat entry.
+    /// </summary>
     private bool Steer(
         INavigationAutomation navigation,
         in PluginNavigationPosition current,
@@ -850,15 +844,131 @@ internal sealed class NavigationController
     {
         float desired = DesiredHeading(current, target);
         float delta = SignedHeadingDelta(current.HeadingDegrees, desired);
-        _hadMovementIntent = SteerTowards(
-            navigation,
-            delta,
-            desired,
-            _now,
-            ref _faceHeadingStamp,
-            run: true)
+        float offset = Math.Abs(delta);
+
+        if (_host.Automation.Chat.IsInputActive)
+        {
+            _hadMovementIntent = SteerTowards(
+                navigation,
+                delta,
+                desired,
+                _now,
+                ref _faceHeadingStamp,
+                run: true)
+                == PluginNavigationCommandStatus.Accepted;
+            return _hadMovementIntent;
+        }
+
+        _faceHeadingStamp = NoFaceHeadingStamp;
+        if (offset <= HeadingToleranceDegrees)
+            return ResolveStopDecision(navigation, true, distanceMeters, TurnHold.None);
+
+        TurnHold turn = PrefersLeftTurn(current.HeadingDegrees, desired)
+            ? TurnHold.Left
+            : TurnHold.Right;
+        float relaxation = distanceMeters > NearTargetMeters
+            ? FarHeadingRelaxationDegrees
+            : NearHeadingRelaxationDegrees;
+        return offset > relaxation
+            ? ResolveStopDecision(navigation, false, 0d, turn)
+            : ResolveStopDecision(navigation, true, distanceMeters, turn);
+    }
+
+    /// <summary>Which way the mover holds the turn.</summary>
+    private enum TurnHold
+    {
+        None,
+        Left,
+        Right,
+    }
+
+    /// <summary>
+    /// Turning down from the current heading by the unsigned offset and landing
+    /// on the bearing means the bearing is counter-clockwise, so the turn is
+    /// left. Heading grows clockwise, so this agrees with the sign of the
+    /// wrapped difference everywhere except at exactly half a turn, where the
+    /// choice is arbitrary and this one is the retail one.
+    /// </summary>
+    internal static bool PrefersLeftTurn(float current, float desired)
+    {
+        float offset = UnsignedHeadingDelta(current, desired);
+        return UnsignedHeadingDelta(NormalizeHeading(current - offset), desired)
+            < 1f;
+    }
+
+    /// <summary>The smaller of the two arcs between two headings, never negative.</summary>
+    internal static float UnsignedHeadingDelta(float left, float right)
+    {
+        float high = left >= right ? left : right;
+        float low = left >= right ? right : left;
+        float inner = high - low;
+        float outer = low - high + 360f;
+        return inner < outer ? inner : outer;
+    }
+
+    internal static float NormalizeHeading(float value)
+    {
+        float wrapped = value % 360f;
+        return wrapped < 0f ? wrapped + 360f : wrapped;
+    }
+
+    /// <summary>
+    /// Turns "should I be moving, and how far away is the goal" into the one
+    /// movement intent this host takes. Inside the creep band the mover walks
+    /// rather than runs, and while it is walking in peace mode it keeps asking
+    /// for magic mode: a waypoint that tight is meant to be stood on, and peace
+    /// mode there would leave the character unable to act on arrival.
+    /// </summary>
+    private bool ResolveStopDecision(
+        INavigationAutomation navigation,
+        bool shouldMove,
+        double distanceMeters,
+        TurnHold turn)
+    {
+        bool creep = shouldMove && distanceMeters < CreepDistanceMeters;
+        bool run = shouldMove && distanceMeters >= CreepDistanceMeters;
+        if (creep && !TryPrepareCreepCombatMode())
+            creep = false;
+
+        bool forward = creep || run;
+        if (!forward && turn == TurnHold.None)
+        {
+            StopMovement();
+            return true;
+        }
+
+        _hadMovementIntent = navigation.SetMovementIntent(
+            new PluginMovementIntent(
+                Forward: forward,
+                TurnLeft: turn == TurnHold.Left,
+                TurnRight: turn == TurnHold.Right,
+                Run: run))
             == PluginNavigationCommandStatus.Accepted;
         return _hadMovementIntent;
+    }
+
+    /// <summary>
+    /// The forced magic-mode push, retried on every tick that wants to creep.
+    /// </summary>
+    private bool TryPrepareCreepCombatMode()
+    {
+        if (_combatModeGate is null || _combatSettings is null)
+            return true;
+        if (_host.Automation.Combat.Snapshot.Mode != PluginCombatMode.Peace)
+            return true;
+
+        if (_combatSettings.IdlePeaceMode && !_lowWaypointWarningPosted)
+        {
+            _lowWaypointWarningPosted = true;
+            _host.Automation.Chat.PostSystemMessage(
+                "[MossTank] " + LowWaypointDistanceWarning);
+        }
+
+        if (_combatModeGate.TryPrepare(PluginCombatMode.Magic))
+            return true;
+
+        _status = "Switching to magic mode at the waypoint.";
+        return false;
     }
 
     private bool TickAction(

@@ -30,12 +30,170 @@ public sealed class NavigationTests
         float expected) =>
         Assert.Equal(expected, NavigationController.SignedHeadingDelta(current, desired));
 
+    /// <summary>
+    /// Well outside the alignment band and far from the goal, the mover holds a
+    /// turn key and does NOT walk: the far relaxation lets it walk while
+    /// turning only once it is within 45 degrees. It never re-faces in the open
+    /// world - that is the typing branch.
+    /// </summary>
     [Fact]
-    public void PointSteeringStopsAndFacesTheHeadingOutsideTheFourDegreeBand()
+    public void PointSteeringHoldsATurnKeyAndWaitsBeyondTheFarRelaxation()
     {
         var automation = new FakeAutomation
         {
             NavigationSnapshot = Snapshot(Position(0d, 0d, heading: 0f)),
+        };
+        NavigationController controller = Controller(
+            automation,
+            RouteMode.Circular,
+            Waypoint(RouteWaypointType.Point, Position(1d, 0d)));
+
+        Assert.True(controller.Tick(0.05d, canAct: true));
+
+        PluginMovementIntent intent = Assert.Single(automation.Intents);
+        Assert.True(intent.TurnRight);
+        Assert.False(intent.TurnLeft);
+        Assert.False(intent.Forward);
+        Assert.Empty(automation.FacedHeadings);
+    }
+
+    /// <summary>
+    /// Far from the goal the mover walks while it turns as soon as the heading
+    /// is within 45 degrees, so a long leg does not stop and start.
+    /// </summary>
+    [Theory]
+    [InlineData(40f, true, false)]
+    [InlineData(44f, true, false)]
+    [InlineData(46f, true, true)]
+    [InlineData(135f, false, true)]
+    [InlineData(136f, false, false)]
+    public void PointSteeringRelaxesToFortyFiveDegreesBeyondThreeMetres(
+        float heading,
+        bool turnRight,
+        bool moves)
+    {
+        var automation = new FakeAutomation
+        {
+            NavigationSnapshot = Snapshot(Position(0d, 0d, heading: heading)),
+        };
+        NavigationController controller = Controller(
+            automation,
+            RouteMode.Circular,
+            Waypoint(RouteWaypointType.Point, Position(1d, 0d)));
+
+        Assert.True(controller.Tick(0.05d, canAct: true));
+
+        PluginMovementIntent intent = Assert.Single(automation.Intents);
+        Assert.Equal(turnRight, intent.TurnRight);
+        Assert.Equal(!turnRight, intent.TurnLeft);
+        Assert.Equal(moves, intent.Forward);
+    }
+
+    /// <summary>
+    /// Inside three metres the relaxation tightens to 15 degrees, so the last
+    /// stretch is aimed before it is walked.
+    /// </summary>
+    [Theory]
+    [InlineData(70f, false)]
+    [InlineData(78f, true)]
+    public void PointSteeringTightensToFifteenDegreesInsideThreeMetres(
+        float heading,
+        bool moves)
+    {
+        // 2.5 m east of the origin, inside the near tier and outside both the
+        // creep band and the 2 m arrival radius.
+        PluginNavigationPosition goal = Position(2.5d / 240d, 0d);
+        var automation = new FakeAutomation
+        {
+            NavigationSnapshot = Snapshot(Position(0d, 0d, heading: heading)),
+        };
+        NavigationController controller = Controller(
+            automation,
+            RouteMode.Circular,
+            Waypoint(RouteWaypointType.Point, goal));
+
+        Assert.True(controller.Tick(0.05d, canAct: true));
+
+        PluginMovementIntent intent = Assert.Single(automation.Intents);
+        Assert.True(intent.TurnRight);
+        Assert.Equal(moves, intent.Forward);
+    }
+
+    /// <summary>
+    /// Inside the creep band the mover walks rather than runs, which is the
+    /// run flag off, not a separate modifier.
+    /// </summary>
+    [Fact]
+    public void PointSteeringWalksInsideTheCreepBand()
+    {
+        // 1.0 m east: inside the 1.5 m creep band, outside the 0.5 m arrival.
+        PluginNavigationPosition goal = Position(1d / 240d, 0d);
+        var automation = new FakeAutomation
+        {
+            NavigationSnapshot = Snapshot(Position(0d, 0d, heading: 90f)),
+        };
+        NavigationController controller = Controller(
+            automation,
+            RouteMode.Circular,
+            minimumDistanceMeters: 0.5d,
+            Waypoint(RouteWaypointType.Point, goal));
+
+        Assert.True(controller.Tick(0.05d, canAct: true));
+
+        PluginMovementIntent intent = Assert.Single(automation.Intents);
+        Assert.True(intent.Forward);
+        Assert.False(intent.Run);
+    }
+
+    /// <summary>
+    /// Outside the creep band the mover runs.
+    /// </summary>
+    [Fact]
+    public void PointSteeringRunsOutsideTheCreepBand()
+    {
+        PluginNavigationPosition goal = Position(2.5d / 240d, 0d);
+        var automation = new FakeAutomation
+        {
+            NavigationSnapshot = Snapshot(Position(0d, 0d, heading: 90f)),
+        };
+        NavigationController controller = Controller(
+            automation,
+            RouteMode.Circular,
+            minimumDistanceMeters: 0.5d,
+            Waypoint(RouteWaypointType.Point, goal));
+
+        Assert.True(controller.Tick(0.05d, canAct: true));
+
+        PluginMovementIntent intent = Assert.Single(automation.Intents);
+        Assert.True(intent.Forward);
+        Assert.True(intent.Run);
+    }
+
+    /// <summary>
+    /// Half a turn is the one heading where the two arcs are equal. Retail
+    /// resolves it left.
+    /// </summary>
+    [Theory]
+    [InlineData(0f, 180f, true)]
+    [InlineData(0f, 90f, false)]
+    [InlineData(0f, 270f, true)]
+    [InlineData(350f, 10f, false)]
+    [InlineData(10f, 350f, true)]
+    public void TurnDirectionFollowsTheRetailAlignmentTest(
+        float current,
+        float desired,
+        bool expectLeft) =>
+        Assert.Equal(
+            expectLeft,
+            NavigationController.PrefersLeftTurn(current, desired));
+
+    [Fact]
+    public void PointSteeringFacesTheHeadingWhileThePlayerIsTyping()
+    {
+        var automation = new FakeAutomation
+        {
+            NavigationSnapshot = Snapshot(Position(0d, 0d, heading: 0f)),
+            ChatInputActive = true,
         };
         NavigationController controller = Controller(
             automation,
@@ -55,6 +213,7 @@ public sealed class NavigationTests
         var automation = new FakeAutomation
         {
             NavigationSnapshot = Snapshot(Position(0d, 0d, heading: 0f)),
+            ChatInputActive = true,
         };
         NavigationController controller = Controller(
             automation,
@@ -95,26 +254,6 @@ public sealed class NavigationTests
     }
 
     [Fact]
-    public void PointSteeringIssuesNoTurnKeyIntentsAtAnyOffset()
-    {
-        var automation = new FakeAutomation
-        {
-            NavigationSnapshot = Snapshot(Position(0d, 0d, heading: 60f)),
-        };
-        NavigationController controller = Controller(
-            automation,
-            RouteMode.Circular,
-            Waypoint(RouteWaypointType.Point, Position(1d, 0d)));
-
-        Assert.True(controller.Tick(0.05d, canAct: true));
-
-        Assert.DoesNotContain(
-            automation.Intents,
-            static intent => intent.TurnLeft || intent.TurnRight);
-        Assert.Equal(90f, Assert.Single(automation.FacedHeadings));
-    }
-
-    [Fact]
     public void ANavigateTierBelowTheWinnerStillClearsTheMovementIntent()
     {
         var automation = new FakeAutomation
@@ -133,11 +272,10 @@ public sealed class NavigationTests
             bookkeepWhenBlocked: false);
 
         Assert.True(rule.ValidNow(new MacroPassContext(0.05d, CanAct: true)));
-        Assert.NotEmpty(automation.FacedHeadings);
-        Assert.Equal(1, automation.ClearCount);
+        Assert.NotEmpty(automation.Intents);
 
         Assert.False(rule.ValidNow(new MacroPassContext(0.05d, CanAct: false)));
-        Assert.Equal(2, automation.ClearCount);
+        Assert.Equal(1, automation.ClearCount);
     }
 
     [Fact]
@@ -993,10 +1131,12 @@ public sealed class NavigationTests
     private static (NavigationController Controller, FakeAutomation Automation)
         ArrivalOverride(double minimumDistanceMeters, bool idlePeaceMode)
     {
-        PluginNavigationPosition point = Position(0d, 0d);
+        // 1.0 m ahead: inside the 1.5 m creep band, so the mover walks and asks
+        // for magic mode on every tick it wants to walk.
+        PluginNavigationPosition point = Position(0d, 1d / 240d);
         var automation = new FakeAutomation
         {
-            NavigationSnapshot = Snapshot(point),
+            NavigationSnapshot = Snapshot(Position(0d, 0d, heading: 0f)),
             CombatSnapshot = new PluginCombatSnapshot
             {
                 Mode = PluginCombatMode.Peace,
@@ -1095,13 +1235,20 @@ public sealed class NavigationTests
     private static NavigationController Controller(
         FakeAutomation automation,
         RouteMode mode,
+        params RouteWaypoint[] waypoints) =>
+        Controller(automation, mode, 2d, waypoints);
+
+    private static NavigationController Controller(
+        FakeAutomation automation,
+        RouteMode mode,
+        double minimumDistanceMeters,
         params RouteWaypoint[] waypoints)
     {
         var settings = new NavigationSettings
         {
             Enabled = true,
             Mode = mode,
-            MinimumDistanceMeters = 2d,
+            MinimumDistanceMeters = minimumDistanceMeters,
         };
         settings.Waypoints.AddRange(waypoints);
         return new NavigationController(new FakeHost(automation), settings);
@@ -1163,6 +1310,8 @@ public sealed class NavigationTests
         PluginCombatSnapshot ICombatAutomation.Snapshot => CombatSnapshot;
         public List<string> ModeRequests { get; } = [];
         public List<string> PostedSystemMessages { get; } = [];
+        public bool ChatInputActive { get; set; }
+        bool IPluginChat.IsInputActive => ChatInputActive;
         public List<PluginEquipmentItem> EquipmentItems { get; set; } = [];
         bool IEquipmentAutomation.IsAvailable => EquipmentItems.Count > 0;
         bool IEquipmentAutomation.IsBusy => false;
