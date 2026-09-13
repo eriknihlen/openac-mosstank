@@ -480,6 +480,17 @@ internal sealed partial class LootController
     private readonly Dictionary<uint, string> _externalClassifierByItem = [];
     private readonly Dictionary<uint, LootDecision?> _decisions = [];
     private readonly Dictionary<uint, double> _corpseFirstSeen = [];
+
+    /// <summary>
+    /// When each corpse last came into the client's known set. The eviction
+    /// clock runs from there, not from the last time it was looked at.
+    /// </summary>
+    private readonly Dictionary<uint, double> _corpseLastSeen = [];
+
+    /// <summary>The corpses the client has stopped reporting.</summary>
+    private readonly HashSet<uint> _releasedCorpses = [];
+    private readonly HashSet<uint> _presentCorpses = [];
+    private readonly List<uint> _evictedCorpses = [];
     private readonly Dictionary<uint, double> _corpseDeniedAt = [];
     private uint _selectedCorpse;
     private ulong _chatSequence;
@@ -678,9 +689,7 @@ internal sealed partial class LootController
         // walks up to it. Selection then only considers the ones in range.
         IReadOnlyList<PluginLootContainer> known =
             loot.CaptureCorpses(float.MaxValue);
-        PruneCorpseCache();
-        foreach (PluginLootContainer seen in known)
-            _corpseFirstSeen.TryAdd(seen.ObjectId, _lifetime);
+        PruneCorpseCache(known);
         // Walked twice below — once to ask for a description, once to pick —
         // so it is built once, and in a fixed order so two hosts asking the
         // same question get the same answer.
@@ -792,6 +801,10 @@ internal sealed partial class LootController
         _externalClassifierByItem.Clear();
         _decisions.Clear();
         _corpseFirstSeen.Clear();
+        _corpseLastSeen.Clear();
+        _releasedCorpses.Clear();
+        _presentCorpses.Clear();
+        _evictedCorpses.Clear();
         _corpseDeniedAt.Clear();
         _pendingScrollReads.Clear();
         _selectedCorpse = 0u;
@@ -1770,26 +1783,59 @@ internal sealed partial class LootController
         _corpseBlacklistedAt.Remove(corpseId);
     }
 
-    private void PruneCorpseCache()
+    /// <summary>
+    /// Stamps the corpses the client is reporting and drops the records of the
+    /// ones it has stopped reporting. A record only goes when both are true:
+    /// the corpse is gone from the client's known set, and the cache timeout
+    /// has run since it last came into it. Both together, so a corpse still in
+    /// sight never loses the fact that it has already been looted, and a
+    /// corpse seen once from across a field does not sit in memory for the
+    /// life of the session.
+    /// </summary>
+    private void PruneCorpseCache(IReadOnlyList<PluginLootContainer> known)
     {
         double expiry = Math.Clamp(
             _settings.CorpseCacheTimeoutMinutes,
             1d,
             1440d) * 60d;
-        foreach (uint id in _completedCorpses
-            .Where(entry => _lifetime - entry.Value >= expiry)
-            .Select(static entry => entry.Key)
-            .ToArray())
+
+        _presentCorpses.Clear();
+        foreach (PluginLootContainer seen in known)
         {
-            _completedCorpses.Remove(id);
-            _corpseFirstSeen.Remove(id);
+            _presentCorpses.Add(seen.ObjectId);
+            // Newly known, or known again after having gone: either way this
+            // is when its eviction clock restarts. The first-sighting stamp
+            // the ownership timers measure against is never restarted.
+            if (_corpseFirstSeen.TryAdd(seen.ObjectId, _lifetime)
+                || _releasedCorpses.Remove(seen.ObjectId))
+            {
+                _corpseLastSeen[seen.ObjectId] = _lifetime;
+            }
         }
-        foreach (uint id in _corpseDeniedAt
-            .Where(entry => _lifetime - entry.Value >= DenialSkipSeconds)
-            .Select(static entry => entry.Key)
-            .ToArray())
+        foreach (uint id in _corpseFirstSeen.Keys)
         {
+            if (!_presentCorpses.Contains(id))
+                _releasedCorpses.Add(id);
+        }
+
+        _evictedCorpses.Clear();
+        foreach (uint id in _releasedCorpses)
+        {
+            if (_corpseLastSeen.TryGetValue(id, out double last)
+                && _lifetime - last >= expiry)
+            {
+                _evictedCorpses.Add(id);
+            }
+        }
+        foreach (uint id in _evictedCorpses)
+        {
+            _corpseFirstSeen.Remove(id);
+            _corpseLastSeen.Remove(id);
+            _releasedCorpses.Remove(id);
+            _completedCorpses.Remove(id);
             _corpseDeniedAt.Remove(id);
+            _corpseBlacklistedAt.Remove(id);
+            _corpseOpenAttempts.Remove(id);
         }
     }
 

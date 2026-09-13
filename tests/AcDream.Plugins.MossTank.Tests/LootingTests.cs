@@ -1116,6 +1116,47 @@ public sealed class LootingTests
     }
 
     /// <summary>
+    /// Mutation: keep every corpse record for the life of the session instead
+    /// of dropping the ones the client has stopped reporting.
+    /// </summary>
+    [Fact]
+    public void ACorpseForgottenAfterTheCacheTimeoutStartsItsAgeClockAgain()
+    {
+        var settings = new LootSettings
+        {
+            Enabled = true,
+            LootAllCorpses = true,
+            CorpseCacheTimeoutMinutes = 1d,
+            ScanIntervalSeconds = 0.05d,
+        };
+        settings.Rules.Add(new LootRule { Expression = "*" });
+        const uint corpse = 0x70001200u;
+        PluginLootContainer container = new(
+            corpse, 1u, "Corpse", 3f, false, false, false)
+        {
+            IsIdentified = true,
+            LongDescription = "Killed by Someone Else.",
+        };
+        var automation = new Automation { Corpses = [container] };
+        var controller = new LootController(new Host(automation), settings);
+
+        Assert.False(controller.Tick(0.25d, canAct: true));
+
+        // Gone from the client for longer than the cache timeout: forgotten.
+        automation.Corpses = [];
+        Assert.False(controller.Tick(200d, canAct: true));
+
+        // Back again, and as far as the ownership timer is concerned it has
+        // only just been seen for the first time.
+        automation.Corpses = [container];
+        Assert.False(controller.Tick(200d, canAct: true));
+        Assert.Empty(automation.Opened);
+
+        Assert.True(controller.Tick(200d, canAct: true));
+        Assert.Equal(new[] { corpse }, automation.Opened);
+    }
+
+    /// <summary>
     /// Mutation: drop the distance-metric fallback and pick only inside the
     /// open radius.
     /// </summary>
