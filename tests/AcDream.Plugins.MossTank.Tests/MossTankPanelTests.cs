@@ -5315,8 +5315,16 @@ public sealed class MossTankPanelTests
         Assert.Equal([1u], automation.CastSpellIds);
     }
 
+    /// <summary>
+    /// Only a gesture ends the launch wait. The character's own words in
+    /// local chat look identical, so the log they came from is what tells the
+    /// two apart.
+    /// Mutation: drop the log-type half of the launch arm's test in
+    /// <c>SpellCastTracker.ObserveChat</c> and the middle assertion fails —
+    /// typing in local chat cancels the cast in flight.
+    /// </summary>
     [Fact]
-    public void OwnLocalSpeechOfTheSpellWordsIsStillTheGestureEcho()
+    public void OnlyAGestureEndsTheLaunchWaitNotTypedLocalSpeech()
     {
         var automation = new FakeAutomation
         {
@@ -5345,10 +5353,16 @@ public sealed class MossTankPanelTests
             panel.OnTick(0.3d);
         Assert.Equal([1u], automation.CastSpellIds);
 
-        // A DIFFERENT spell's words, spoken locally by us: gj.cs:359's a(gj.b.a)
-        // — this wait is over, the latch drops, and the pass re-derives the
-        // same pick.
+        // The same words typed into local chat are not a gesture: they carry
+        // the plain log type, and the wait goes on.
         automation.PostChatFrom(0x50000001u, 0, "hocus pocus");
+        for (int tick = 0; tick < 3; tick++)
+            panel.OnTick(0.3d);
+        Assert.Equal([1u], automation.CastSpellIds);
+
+        // A DIFFERENT spell's words, gestured by us: this wait is over, the
+        // latch drops, and the pass re-derives the same pick.
+        automation.PostChatFrom(0x50000001u, 0, "hocus pocus", logTextType: 0x11u);
         for (int tick = 0; tick < 3; tick++)
             panel.OnTick(0.3d);
 
@@ -5575,10 +5589,17 @@ public sealed class MossTankPanelTests
             {
                 LogTextType = logTextType,
             });
-        public void PostChatFrom(uint senderObjectId, int kind, string text) =>
+        public void PostChatFrom(
+            uint senderObjectId,
+            int kind,
+            string text,
+            uint logTextType = 0u) =>
             ChatLines.Add(new PluginChatMessage(
                 ++_chatSequence, senderObjectId, kind, string.Empty, text,
-                string.Empty));
+                string.Empty)
+            {
+                LogTextType = logTextType,
+            });
 
 
         private PluginCastCompletion _lastCompletion;

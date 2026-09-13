@@ -18,6 +18,13 @@ internal static class CombatLogTextType
 
     /// <summary>A spell's own result line.</summary>
     public const uint Magic = 0x07u;
+
+    /// <summary>
+    /// The spoken words of a spell being cast. The server logs a caster's own
+    /// gesture words under this type, which is what tells them apart from the
+    /// same words typed into local chat.
+    /// </summary>
+    public const uint Spellcasting = 0x11u;
 }
 
 internal enum CombatResultTextClass

@@ -332,9 +332,13 @@ internal sealed class SpellCastTracker
         if (sequence != 0uL)
             _observedChatSequence = sequence;
 
+        // The gesture echo is the character's own words logged as spellcasting.
+        // Both halves are needed: the same words typed into local chat carry
+        // the plain type, and somebody else's gesture is not ours.
         if (_state == SpellCastTrackerState.AwaitingLaunch
             && _saying.Length > 0
-            && ownSpeech)
+            && ownSpeech
+            && logTextType == CombatLogTextType.Spellcasting)
         {
             if (string.Equals(Normalize(text), _saying, StringComparison.Ordinal))
             {

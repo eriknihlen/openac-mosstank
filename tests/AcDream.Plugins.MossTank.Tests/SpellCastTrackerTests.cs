@@ -325,7 +325,11 @@ public sealed class SpellCastTrackerTests
         Assert.Equal(SpellCastTrackerState.AwaitingLaunch, tracker.State);
 
         // gj.cs:352 — ToLowerInvariant().Replace(" ", "").
-        tracker.ObserveChat(1uL, "Cas Faen", ownSpeech: true);
+        tracker.ObserveChat(
+            1uL,
+            "Cas Faen",
+            ownSpeech: true,
+            logTextType: CombatLogTextType.Spellcasting);
 
         Assert.Equal(SpellCastTrackerState.AwaitingResult, tracker.State);
     }
@@ -336,7 +340,11 @@ public sealed class SpellCastTrackerTests
         var tracker = new SpellCastTracker();
         tracker.Begin(1u, "Strength Self VI", 5u, "yourself", false, 0L, "casfaen");
 
-        tracker.ObserveChat(1uL, "Zharalim Retaanu", ownSpeech: true);
+        tracker.ObserveChat(
+            1uL,
+            "Zharalim Retaanu",
+            ownSpeech: true,
+            logTextType: CombatLogTextType.Spellcasting);
 
         Assert.Equal(SpellCastTrackerState.Idle, tracker.State);
         Assert.False(tracker.IsBusy);
@@ -348,7 +356,29 @@ public sealed class SpellCastTrackerTests
         var tracker = new SpellCastTracker();
         tracker.Begin(1u, "Strength Self VI", 5u, "yourself", false, 0L, "casfaen");
 
-        tracker.ObserveChat(1uL, "Cas Faen", ownSpeech: false);
+        tracker.ObserveChat(
+            1uL,
+            "Cas Faen",
+            ownSpeech: false,
+            logTextType: CombatLogTextType.Spellcasting);
+
+        Assert.Equal(SpellCastTrackerState.AwaitingLaunch, tracker.State);
+    }
+
+    /// <summary>
+    /// The character typing the spell's own words into local chat is not a
+    /// gesture: the words match and the speaker is us, but the line comes from
+    /// the ordinary log rather than the spellcasting one.
+    /// Mutation: drop the log-type half of the launch arm's test and this
+    /// fails — a typed line advances a cast nobody gestured.
+    /// </summary>
+    [Fact]
+    public void OurOwnTypedWordsAreNotTheGestureEcho()
+    {
+        var tracker = new SpellCastTracker();
+        tracker.Begin(1u, "Strength Self VI", 5u, "yourself", false, 0L, "casfaen");
+
+        tracker.ObserveChat(1uL, "Cas Faen", ownSpeech: true);
 
         Assert.Equal(SpellCastTrackerState.AwaitingLaunch, tracker.State);
     }
