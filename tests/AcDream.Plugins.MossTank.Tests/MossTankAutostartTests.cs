@@ -536,7 +536,18 @@ public sealed class MossTankAutostartTests
         // The route really reached the live navigation settings.
         Assert.Equal(4, panel.RouteRows.Count);
         Assert.Equal("Circular", panel.SelectedRouteMode);
+
+        // startMacro takes the same path the Run Macro checkbox takes, down
+        // to the announcement: the combat controller is enabled, which is
+        // what nearly every rule's gate reads, and it said so.
         Assert.True(panel.CombatMacroRunning);
+        Assert.Contains(
+            ((FakeAutomation)host.Automation).Messages,
+            message => message.Contains("Macro started.", StringComparison.Ordinal));
+        Assert.DoesNotContain(
+            ((FakeAutomation)host.Automation).Messages,
+            message => message.Contains("Macro stopped.", StringComparison.Ordinal)
+                || message.Contains("Not in world", StringComparison.Ordinal));
     }
 
     /// <summary>
