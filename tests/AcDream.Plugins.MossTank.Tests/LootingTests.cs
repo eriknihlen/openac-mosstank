@@ -475,8 +475,10 @@ public sealed class LootingTests
         Assert.Equal(item, looted.Item.ObjectId);
         Assert.Equal(PluginLootAction.User3, looted.Action);
 
-        // The pass the corpse finishes on is the pass that closes it.
+        // The pass the corpse finishes on is the pass that closes it, and the
+        // corpse stays this controller's business until the container shuts.
         Assert.True(controller.Tick(0.2d, canAct: true));
+        automation.Current = 0u;
         automation.Owned = [];
         Assert.False(controller.Tick(0.2d, canAct: true));
         Assert.Equal(new[] { item }, classifier.Removed);
@@ -759,8 +761,10 @@ public sealed class LootingTests
             source,
             0u);
         Assert.True(controller.Tick(0.1d, canAct: true));
-        // The pass the corpse finishes on is the pass that closes it.
+        // The pass the corpse finishes on is the pass that closes it, and the
+        // corpse stays this controller's business until the container shuts.
         Assert.True(controller.Tick(0.2d, canAct: true));
+        automation.Current = 0u;
 
         Assert.True(controller.Tick(0.1d, canAct: true));
         Assert.Equal(new[] { (tool, source) }, automation.Salvaged);
@@ -808,8 +812,10 @@ public sealed class LootingTests
             source,
             0u);
         Assert.True(controller.Tick(0.1d, canAct: true));
-        // The pass the corpse finishes on is the pass that closes it.
+        // The pass the corpse finishes on is the pass that closes it, and the
+        // corpse stays this controller's business until the container shuts.
         Assert.True(controller.Tick(0.2d, canAct: true));
+        automation.Current = 0u;
 
         Assert.False(controller.Tick(0.1d, canAct: true));
         Assert.Contains("queued", controller.Status);
@@ -1169,6 +1175,84 @@ public sealed class LootingTests
         Assert.Equal(new[] { corpse }, automation.Used);
     }
 
+    /// <summary>
+    /// Mutation: drop the <c>canAct</c> / availability / busy gate from
+    /// <c>CloseFinishedCorpse</c>.
+    /// </summary>
+    [Fact]
+    public void AFinishedCorpseIsNotClosedUntilTheItemChannelIsFree()
+    {
+        (LootController controller, Automation automation, uint corpse) =
+            FinishedCorpseScenario(itemsBusy: true);
+
+        Assert.Empty(automation.Used);
+        Assert.Equal("Waiting to close corpse…", controller.Status);
+
+        // A pass the controller may not act on holds it back just as much.
+        automation.ItemsBusy = false;
+        Assert.True(controller.Tick(0.1d, canAct: false));
+        Assert.Empty(automation.Used);
+
+        Assert.True(controller.Tick(0.1d, canAct: true));
+        Assert.Equal(new[] { corpse }, automation.Used);
+    }
+
+    /// <summary>
+    /// Mutation: clear the corpse and answer false when the closing use is
+    /// refused, instead of keeping it and trying again.
+    /// </summary>
+    [Fact]
+    public void ARefusedCloseIsTriedAgainUntilTheContainerActuallyShuts()
+    {
+        (LootController controller, Automation automation, uint corpse) =
+            FinishedCorpseScenario(itemsBusy: false);
+
+        Assert.Equal(new[] { corpse }, automation.Used);
+
+        // The server did not shut the container, so the corpse is still this
+        // controller's business and the use comes round again.
+        Assert.True(controller.Tick(0.1d, canAct: true));
+        Assert.Equal(new[] { corpse, corpse }, automation.Used);
+        Assert.Empty(automation.Opened.Skip(1));
+
+        automation.Current = 0u;
+        Assert.False(controller.Tick(0.1d, canAct: true));
+        Assert.Equal(new[] { corpse, corpse }, automation.Used);
+    }
+
+    /// <summary>Opens one corpse holding nothing worth taking.</summary>
+    private static (LootController Controller, Automation Automation,
+        uint Corpse) FinishedCorpseScenario(bool itemsBusy)
+    {
+        var settings = new LootSettings { Enabled = true };
+        settings.Rules.Add(new LootRule
+        {
+            Expression = "*",
+            Action = LootAction.NoLoot,
+        });
+        const uint corpse = 0x70000E00u;
+        var automation = new Automation
+        {
+            Corpses =
+            [
+                new PluginLootContainer(
+                    corpse, 1u, "Corpse", 3f, false, false, false)
+                {
+                    IsIdentified = true,
+                    LongDescription = "Killed by Tester.",
+                },
+            ],
+        };
+        var controller = new LootController(new Host(automation), settings);
+
+        Assert.True(controller.Tick(0.25d, canAct: true));
+        automation.Current = corpse;
+        automation.Contents = [Item(0x70000E01u, "Rock", 273u)];
+        automation.ItemsBusy = itemsBusy;
+        Assert.True(controller.Tick(0.2d, canAct: true));
+        return (controller, automation, corpse);
+    }
+
     [Fact]
     public void APickedUpScrollIsQueuedForTheReadingRuleInsteadOfReadInline()
     {
@@ -1350,6 +1434,8 @@ public sealed class LootingTests
           ILootAutomation, IFellowshipAutomation, IPluginChat
     {
         public bool IsAvailable => true;
+        public bool ItemsBusy { get; set; }
+        bool IItemAutomation.IsBusy => ItemsBusy;
         public ICharacterInfo Character => this;
         public ISpellCatalog Spells => this;
         public IMagicCommands Magic => NoOpAutomationSurface.Instance;

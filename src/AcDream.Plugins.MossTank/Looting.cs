@@ -587,12 +587,30 @@ internal sealed partial class LootController
             return false;
         }
 
+        // "Is a corpse open?" is re-answered from the client before anything
+        // else this pass asks it, because the rest of the loot work — salvage,
+        // combining, selling — is barred while one is. The corpse stops being
+        // this controller's business the moment the client reports the
+        // container is no longer open, which is also what ends the closing-use
+        // retry below.
+        uint current = loot.CurrentContainerId;
+        if (_activeCorpse != 0u
+            && current != _activeCorpse
+            && _completedCorpses.ContainsKey(_activeCorpse))
+        {
+            _activeCorpse = 0u;
+            _activeCorpseSawContents = false;
+            _activeCorpseIsOwnDeath = false;
+            _stateAge = 0d;
+        }
+
         if (_activeCorpse == 0u && _waitingItem == 0u)
             PruneRemovedExternalItems();
 
         _stateAge += Math.Max(0d, elapsedSeconds);
         _lifetime += Math.Max(0d, elapsedSeconds);
         ObserveOwnershipDenials();
+
         if (_waitingItem != 0u)
             return ContinuePickup(loot);
         if (_activeCorpse == 0u
@@ -624,7 +642,6 @@ internal sealed partial class LootController
             return true;
         }
 
-        uint current = loot.CurrentContainerId;
         if (_activeCorpse != 0u && current == _activeCorpse)
             return ContinueCurrentCorpse(loot, canAct);
 
@@ -782,6 +799,13 @@ internal sealed partial class LootController
 
     private bool ContinueCurrentCorpse(ILootAutomation loot, bool canAct)
     {
+        // Once the item pass is done the corpse is marked looted and the only
+        // thing left is the closing use. That use is retried every pass until
+        // the container actually shuts — nothing re-reads the contents in
+        // between, and the corpse stays this pass's business meanwhile.
+        if (_completedCorpses.ContainsKey(_activeCorpse))
+            return CloseFinishedCorpse(_activeCorpse, canAct);
+
         if (_stateAge < 0.10d)
         {
             Status = "Reading corpse contents…";
@@ -897,12 +921,11 @@ internal sealed partial class LootController
                 _decisions.Remove(item.ObjectId);
             uint finished = _activeCorpse;
             MarkCorpseComplete(finished);
-            _activeCorpse = 0u;
-            _activeCorpseSawContents = false;
-            _activeCorpseIsOwnDeath = false;
             _stateAge = 0d;
-            Status = "Corpse complete.";
-            return CloseFinishedCorpse(finished);
+            Log?.Invoke(
+                MacroLogChannel.Loot,
+                $"CorpseWait: closing 0x{finished:X8}");
+            return CloseFinishedCorpse(finished, canAct);
         }
         if (!canAct || loot.IsBusy)
             return true;
@@ -1334,19 +1357,25 @@ internal sealed partial class LootController
     }
 
     /// <summary>
-    /// Retail does not just walk away from a finished corpse: it uses the
-    /// corpse object a second time, which is what shuts the container view.
+    /// A finished corpse is not just walked away from: the corpse object is
+    /// used a second time, which is what shuts the container view. The use is
+    /// an item action like any other, so it waits for the item channel to be
+    /// free, and a refused one is simply tried again on the next pass — the
+    /// corpse is not let go of until the container is really closed.
     /// </summary>
-    private bool CloseFinishedCorpse(uint corpseId)
+    private bool CloseFinishedCorpse(uint corpseId, bool canAct)
     {
         if (corpseId == 0u)
             return false;
-        PluginItemCommandResult closed = _host.Automation.Items.Use(corpseId);
-        if (!closed.Accepted)
-            return false;
-        Log?.Invoke(
-            MacroLogChannel.Loot,
-            $"CorpseWait: closing 0x{corpseId:X8}");
+        IItemAutomation items = _host.Automation.Items;
+        if (!canAct || !items.IsAvailable || items.IsBusy)
+        {
+            Status = "Waiting to close corpse…";
+            return true;
+        }
+        Status = items.Use(corpseId).Accepted
+            ? "Corpse complete."
+            : "Waiting to close corpse…";
         return true;
     }
 
