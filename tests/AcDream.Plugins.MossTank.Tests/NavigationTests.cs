@@ -350,6 +350,32 @@ public sealed class NavigationTests
         Assert.Empty(automation.FacedHeadings);
     }
 
+    /// <summary>
+    /// A macro stop keeps the round's place, but it must not leave the
+    /// character running: whatever the route was holding down is released,
+    /// the same as on a lost turn. The three teardowns are layered so this
+    /// cannot be forgotten in one of them.
+    /// </summary>
+    [Fact]
+    public void AMacroStopReleasesTheMovementTheRouteWasHolding()
+    {
+        var automation = new FakeAutomation
+        {
+            NavigationSnapshot = Snapshot(Position(0d, 0d, heading: 88f)),
+        };
+        NavigationController controller = Controller(
+            automation,
+            RouteMode.Circular,
+            Waypoint(RouteWaypointType.Point, Position(1d, 0d)));
+        Assert.True(controller.Tick(0.05d, canAct: true));
+        Assert.Single(automation.Intents);
+        int releasedBefore = automation.ClearCount;
+
+        controller.StopForMacroStop();
+
+        Assert.True(automation.ClearCount > releasedBefore);
+    }
+
     [Fact]
     public void ANavigateTierBelowTheWinnerStillClearsTheMovementIntent()
     {
@@ -895,6 +921,38 @@ public sealed class NavigationTests
         Assert.Equal(0, automation.ClearCount);
         controller.StepArmedMover(0.05d);
         Assert.Equal(0, automation.ClearCount);
+    }
+
+    /// <summary>
+    /// Stopping the macro puts the mover down as well as the movement: the
+    /// mover keeps stepping on every host frame whether the macro runs or
+    /// not, so a stop that only cleared the intent would leave a stopped
+    /// macro steering. Mutation: drop the lost-turn layer from the macro
+    /// stop and the frame after the stop steers again.
+    /// </summary>
+    [Fact]
+    public void AMacroStopDisarmsTheMoverTheRouteHadArmed()
+    {
+        var automation = new FakeAutomation
+        {
+            NavigationSnapshot = Snapshot(Position(0d, 0d, heading: 90f)),
+        };
+        var settings = new NavigationSettings
+        {
+            Enabled = true,
+            Mode = RouteMode.Circular,
+        };
+        settings.Waypoints.Add(Waypoint(RouteWaypointType.Point, Position(10d, 0d)));
+        var controller = new NavigationController(new FakeHost(automation), settings);
+        Assert.True(controller.ClaimFromRulePass(canAct: true));
+        Assert.Contains(automation.Intents, static intent => intent.Forward);
+
+        controller.StopForMacroStop();
+        Assert.Equal(1, automation.ClearCount);
+        int intentsAfterStop = automation.Intents.Count;
+        controller.StepArmedMover(0.05d);
+        controller.StepArmedMover(0.05d);
+        Assert.Equal(intentsAfterStop, automation.Intents.Count);
     }
 
     [Fact]

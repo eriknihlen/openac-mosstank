@@ -2552,6 +2552,10 @@ public sealed class MossTankPanelTests
         Assert.Contains("EnterMode:Peace", automation.CallLog);
     }
 
+    /// <summary>
+    /// Dying stops the macro and changes no setting, which is what the
+    /// setting's own name promises.
+    /// </summary>
     [Fact]
     public void DeathWithStopMacroOnDeathStopsTheMacroAndChangesNoSetting()
     {
@@ -2610,8 +2614,320 @@ public sealed class MossTankPanelTests
         Assert.True(panel.GetMetaOptionForTest("EnableNav"));
         Assert.DoesNotContain(
             automation.Messages,
-            static value => value.Contains("You died!", StringComparison.Ordinal));
+            static value => value.Contains("stopped because", StringComparison.Ordinal));
     }
+
+    /// <summary>
+    /// Stopping the macro is not forgetting the round. The reference's stop
+    /// leaves the route's position alone; where the round begins again is the
+    /// start's business, not the stop's.
+    /// </summary>
+    [Fact]
+    public void StoppingTheMacroKeepsTheWaypointTheRouteWasWalkingTo()
+    {
+        var automation = new FakeAutomation { NavigationSnapshot = NavigationAt(0f) };
+        var panel = new MossTankPanel(new FakeHost(automation));
+        automation.CurrentHealth = 100;
+        automation.MaxHealth = 100;
+        TwoPointRoute(panel, automation);
+        panel.SetMetaOption("EnableNav", Truthy(true));
+        panel.ToggleCombat();
+        for (int pass = 0; pass < 4; pass++)
+            panel.OnTick(0.3d);
+        // Stand between the two points, so a route that had gone back to its
+        // first one could not quietly advance past it again and look like a
+        // route that had never moved.
+        StandAt(automation, 25d);
+        Assert.Equal(1, panel.RouteWaypointIndexForTest);
+
+        panel.ExecuteVtankCommand(new PluginCommand("vt", "stop", "/vt stop"));
+
+        Assert.False(panel.CombatMacroRunning);
+        Assert.Equal(1, panel.RouteWaypointIndexForTest);
+    }
+
+    /// <summary>
+    /// The same thing through the death path, which is the way a player
+    /// actually meets it: die on the way to waypoint two, and the round is
+    /// still on waypoint two afterwards.
+    /// </summary>
+    [Fact]
+    public void DeathLeavesTheRouteOnTheWaypointItWasWalkingTo()
+    {
+        var automation = new FakeAutomation { NavigationSnapshot = NavigationAt(0f) };
+        var panel = new MossTankPanel(new FakeHost(automation));
+        automation.CurrentHealth = 100;
+        automation.MaxHealth = 100;
+        TwoPointRoute(panel, automation);
+        panel.SetMetaOption("EnableNav", Truthy(true));
+        panel.ToggleCombat();
+        for (int pass = 0; pass < 4; pass++)
+            panel.OnTick(0.3d);
+        StandAt(automation, 25d);
+        Assert.Equal(1, panel.RouteWaypointIndexForTest);
+
+        automation.CurrentHealth = 0;
+        panel.OnTick(0.1d);
+
+        Assert.False(panel.CombatMacroRunning);
+        Assert.Equal(1, panel.RouteWaypointIndexForTest);
+    }
+
+    /// <summary>
+    /// Starting decides where the round begins, and it is the nearest point
+    /// of the route the character could walk to — not wherever the last run
+    /// stopped. A character that died and woke at a lifestone, or simply
+    /// walked away, picks the round up beside itself.
+    /// </summary>
+    [Fact]
+    public void StartingTheMacroAnchorsTheRoundToTheNearestPointOfTheRoute()
+    {
+        var automation = new FakeAutomation { NavigationSnapshot = NavigationAt(0f) };
+        var panel = new MossTankPanel(new FakeHost(automation));
+        automation.CurrentHealth = 100;
+        automation.MaxHealth = 100;
+        TwoPointRoute(panel, automation);
+        panel.SetMetaOption("EnableNav", Truthy(true));
+
+        StandAt(automation, 48d);
+        panel.ExecuteVtankCommand(new PluginCommand("vt", "start", "/vt start"));
+        Assert.Equal(1, panel.RouteWaypointIndexForTest);
+
+        panel.ExecuteVtankCommand(new PluginCommand("vt", "stop", "/vt stop"));
+        StandAt(automation, 2d);
+        panel.ExecuteVtankCommand(new PluginCommand("vt", "start", "/vt start"));
+
+        Assert.Equal(0, panel.RouteWaypointIndexForTest);
+    }
+
+    /// <summary>
+    /// Only places are candidates. A pause is something to do, not somewhere
+    /// to be, so the coordinate it happens to carry does not make it the
+    /// nearest point of the route.
+    /// </summary>
+    [Fact]
+    public void OnlyThePlacesOnARouteCanAnchorTheRound()
+    {
+        var automation = new FakeAutomation { NavigationSnapshot = NavigationAt(0f) };
+        var panel = new MossTankPanel(new FakeHost(automation));
+        automation.CurrentHealth = 100;
+        automation.MaxHealth = 100;
+        panel.AddRoutePoint();                 // 0: a place, at 0
+        StandAt(automation, 50d);
+        panel.AddRoutePoint();                 // 1: a place, at 50
+        StandAt(automation, 99d);
+        panel.AddRoutePause();                 // 2: not a place, at 99
+        panel.SetMetaOption("EnableNav", Truthy(true));
+
+        StandAt(automation, 98d);
+        panel.ExecuteVtankCommand(new PluginCommand("vt", "start", "/vt start"));
+
+        Assert.Equal(1, panel.RouteWaypointIndexForTest);
+    }
+
+    /// <summary>
+    /// Nearest is nearest in three dimensions. Two points of a dungeon route
+    /// can sit one above the other, and the one on your own floor is the one
+    /// you are at.
+    /// </summary>
+    [Fact]
+    public void HeightCountsWhenPickingTheNearestPointOfTheRoute()
+    {
+        var automation = new FakeAutomation { NavigationSnapshot = NavigationAt(0f) };
+        var panel = new MossTankPanel(new FakeHost(automation));
+        automation.CurrentHealth = 100;
+        automation.MaxHealth = 100;
+        StandAtHeight(automation, 0d);
+        panel.AddRoutePoint();                 // 0: the floor below
+        StandAtHeight(automation, 10d);
+        panel.AddRoutePoint();                 // 1: the floor above
+        panel.SetMetaOption("EnableNav", Truthy(true));
+
+        StandAtHeight(automation, 9d);
+        panel.ExecuteVtankCommand(new PluginCommand("vt", "start", "/vt start"));
+
+        Assert.Equal(1, panel.RouteWaypointIndexForTest);
+    }
+
+    /// <summary>A once-through route starts at its head, wherever you are.</summary>
+    [Fact]
+    public void AOnceRouteStartsAtItsHead()
+    {
+        var automation = new FakeAutomation { NavigationSnapshot = NavigationAt(0f) };
+        var panel = new MossTankPanel(new FakeHost(automation));
+        automation.CurrentHealth = 100;
+        automation.MaxHealth = 100;
+        TwoPointRoute(panel, automation);
+        panel.SelectRouteMode("Once");
+        panel.SetMetaOption("EnableNav", Truthy(true));
+
+        StandAt(automation, 48d);
+        panel.ExecuteVtankCommand(new PluginCommand("vt", "start", "/vt start"));
+
+        Assert.Equal(0, panel.RouteWaypointIndexForTest);
+    }
+
+    /// <summary>
+    /// A follow route has no round to anchor — there is one target and the
+    /// index means nothing — so the start leaves it alone.
+    /// </summary>
+    [Fact]
+    public void AFollowRouteHasNoRoundToAnchor()
+    {
+        var automation = new FakeAutomation { NavigationSnapshot = NavigationAt(0f) };
+        var panel = new MossTankPanel(new FakeHost(automation));
+        automation.CurrentHealth = 100;
+        automation.MaxHealth = 100;
+        TwoPointRoute(panel, automation);
+        panel.SetMetaOption("EnableNav", Truthy(true));
+        panel.ToggleCombat();
+        for (int pass = 0; pass < 4; pass++)
+            panel.OnTick(0.3d);
+        Assert.Equal(1, panel.RouteWaypointIndexForTest);
+        panel.ExecuteVtankCommand(new PluginCommand("vt", "stop", "/vt stop"));
+
+        // Switching the mode is a route change and resets the round, so the
+        // index is put back deliberately to give the start something to leave
+        // alone.
+        panel.SelectRouteMode("Target");
+        panel.ExecuteVtankCommand(new PluginCommand("vt", "stop", "/vt stop"));
+        StandAt(automation, 48d);
+        int before = panel.RouteWaypointIndexForTest;
+        panel.ExecuteVtankCommand(new PluginCommand("vt", "start", "/vt start"));
+
+        Assert.Equal(before, panel.RouteWaypointIndexForTest);
+    }
+
+    /// <summary>
+    /// Flipping a setting is not a route change. Turning navigation off and
+    /// on again leaves the round where it was — and the toolbar toggle has to
+    /// agree with setting the same thing by name, which never reset it.
+    /// </summary>
+    [Fact]
+    public void TurningNavigationOffAndOnAgainKeepsTheRound()
+    {
+        var automation = new FakeAutomation { NavigationSnapshot = NavigationAt(0f) };
+        var panel = new MossTankPanel(new FakeHost(automation));
+        automation.CurrentHealth = 100;
+        automation.MaxHealth = 100;
+        TwoPointRoute(panel, automation);
+        panel.SetMetaOption("EnableNav", Truthy(true));
+        panel.ToggleCombat();
+        for (int pass = 0; pass < 4; pass++)
+            panel.OnTick(0.3d);
+        StandAt(automation, 25d);
+        Assert.Equal(1, panel.RouteWaypointIndexForTest);
+
+        panel.ToggleNavigation();
+        panel.ToggleNavigation();
+        panel.ToggleFollowAroundCorners();
+        panel.ToggleOpenDoors();
+
+        Assert.Equal(1, panel.RouteWaypointIndexForTest);
+    }
+
+    /// <summary>
+    /// The route that CHANGED under the controller is the one that goes back
+    /// to its first point — the reset path a stop must not borrow.
+    /// </summary>
+    [Fact]
+    public void LoadingARouteStillPutsTheRoundBackToItsFirstPoint()
+    {
+        var automation = new FakeAutomation { NavigationSnapshot = NavigationAt(0f) };
+        var panel = new MossTankPanel(new FakeHost(automation));
+        automation.CurrentHealth = 100;
+        automation.MaxHealth = 100;
+        TwoPointRoute(panel, automation);
+        panel.SetMetaOption("EnableNav", Truthy(true));
+        panel.ToggleCombat();
+        for (int pass = 0; pass < 4; pass++)
+            panel.OnTick(0.3d);
+        Assert.Equal(1, panel.RouteWaypointIndexForTest);
+
+        panel.AddRoutePoint();
+
+        Assert.Equal(0, panel.RouteWaypointIndexForTest);
+    }
+
+    /// <summary>Two points, at east-west 0 and 50, with the character back at 0.</summary>
+    private static void TwoPointRoute(MossTankPanel panel, FakeAutomation automation)
+    {
+        panel.AddRoutePoint();
+        StandAt(automation, 50d);
+        panel.AddRoutePoint();
+        StandAt(automation, 0d);
+    }
+
+    private static void StandAt(FakeAutomation automation, double eastWest) =>
+        automation.NavigationSnapshot = automation.NavigationSnapshot with
+        {
+            Position = automation.NavigationSnapshot.Position with
+            {
+                EastWest = eastWest,
+            },
+        };
+
+    private static void StandAtHeight(FakeAutomation automation, double elevation) =>
+        automation.NavigationSnapshot = automation.NavigationSnapshot with
+        {
+            Position = automation.NavigationSnapshot.Position with
+            {
+                Elevation = elevation,
+            },
+        };
+
+    /// <summary>
+    /// The fake-death verb is the whole death, not just the meta edge: the
+    /// reference's verb calls the same handler a real death does.
+    /// </summary>
+    [Fact]
+    public void TheFakeDeathVerbRunsTheWholeDeathHandler()
+    {
+        var automation = new FakeAutomation
+        {
+            CurrentHealth = 100,
+            MaxHealth = 100,
+        };
+        var panel = new MossTankPanel(new FakeHost(automation));
+        panel.SetMetaOption("StopMacroOnDeath", Truthy(true));
+        panel.ToggleCombat();
+        panel.OnTick(0.1d);
+        Assert.True(panel.CombatMacroRunning);
+
+        panel.ExecuteVtankCommand(new PluginCommand(
+            "vt", "fakedeath", "/vt fakedeath"));
+
+        Assert.False(panel.CombatMacroRunning);
+        Assert.Contains(
+            automation.Messages,
+            static value => value.Contains(
+                "Macro stopped because the character died.",
+                StringComparison.Ordinal));
+    }
+
+    /// <summary>The restore verb the owner's decision removed stays removed.</summary>
+    [Fact]
+    public void ThereIsNoDeathRestoreVerb()
+    {
+        var automation = new FakeAutomation
+        {
+            CurrentHealth = 100,
+            MaxHealth = 100,
+        };
+        var panel = new MossTankPanel(new FakeHost(automation));
+
+        panel.ExecuteVtankCommand(new PluginCommand(
+            "vt", "deathrestore", "/vt deathrestore"));
+        panel.ExecuteVtankCommand(new PluginCommand("vt", "help", "/vt help"));
+
+        Assert.DoesNotContain(
+            automation.Messages,
+            static value => value.Contains("restored", StringComparison.Ordinal));
+        Assert.DoesNotContain(
+            automation.Messages,
+            static value => value.Contains("deathrestore", StringComparison.Ordinal));
+    }
+
 
     private static AcDream.Plugins.MossTank.Expressions.ExpressionValue Truthy(
         bool value) =>

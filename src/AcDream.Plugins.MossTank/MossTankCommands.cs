@@ -157,7 +157,11 @@ internal sealed partial class MossTankPanel
                 MetaFunctionHelp(arguments);
                 return;
             case "fakedeath":
+                // The reference's verb calls the death handler itself rather
+                // than only poking the meta engine, so the whole death
+                // happens — here, that is the meta edge and the macro stop.
                 _meta.TriggerFakeDeath();
+                HandleDeath(_combat.Enabled);
                 WriteVtank("Fake character death trigger fired.");
                 return;
             case "pscount":
