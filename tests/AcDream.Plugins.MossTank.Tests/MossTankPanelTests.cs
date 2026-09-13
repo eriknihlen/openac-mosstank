@@ -46,6 +46,25 @@ public sealed class MossTankPanelTests
             static rule => Assert.NotEmpty(rule.Reason));
     }
 
+    /// <summary>
+    /// The door rule has a body. It sat in the right place in the order with
+    /// nothing behind it, so the door was only ever opened once a navigate turn
+    /// came around — which, on the ordinary route, is after attacking and after
+    /// both corpse rules.
+    /// </summary>
+    [Fact]
+    public void TheDoorSlotHoldsALiveRule()
+    {
+        var panel = new MossTankPanel(new FakeHost(new FakeAutomation()));
+
+        int door = panel.MacroRules
+            .ToList()
+            .FindIndex(static rule => rule.Name == "OpenDoor");
+
+        Assert.True(door >= 0, "the door slot is not filled at all.");
+        Assert.IsType<OpenDoorRule>(panel.MacroRules[door]);
+    }
+
     [Fact]
     public void WieldedManaRefillOutranksBuffSelf()
     {
@@ -4536,6 +4555,41 @@ public sealed class MossTankPanelTests
         panel.DeleteRouteWaypointAt(0);
         Assert.Single(panel.RouteWaypointTextColumn);
         Assert.Equal(["1"], panel.RouteWaypointCountColumn);
+    }
+
+    /// <summary>
+    /// The rule pass arms the route mover; it does not drive it. A mover that
+    /// only steers on the pass has a control period several times its own
+    /// heading tolerance, so it overshoots every turn and hunts around the
+    /// bearing instead of settling on it.
+    /// </summary>
+    [Fact]
+    public void TheRouteMoverSteersOnHostFramesBetweenSchedulerPasses()
+    {
+        var automation = new FakeAutomation { NavigationSnapshot = NavigationAt(0f) };
+        var panel = new MossTankPanel(new FakeHost(automation));
+
+        panel.AddRoutePoint();
+        automation.NavigationSnapshot = automation.NavigationSnapshot with
+        {
+            // Twelve metres west of the waypoint, so the mover has a real leg.
+            Position = automation.NavigationSnapshot.Position with { EastWest = 0.05d },
+        };
+        panel.ToggleNavigation();
+        Assert.True(panel.NavigationEnabled);
+        panel.ToggleCombat();
+
+        // The first frame carries the pass that arms the mover.
+        panel.OnTick(0.05d);
+        Assert.NotEmpty(automation.MovementIntents);
+        int afterArming = automation.MovementIntents.Count;
+
+        // Four more frames, none of which carries a pass: the scheduler's
+        // heartbeat is 0.293 s and only 0.2 s of it has gone by.
+        for (int frame = 0; frame < 4; frame++)
+            panel.OnTick(0.05d);
+
+        Assert.Equal(afterArming + 4, automation.MovementIntents.Count);
     }
 
     [Fact]

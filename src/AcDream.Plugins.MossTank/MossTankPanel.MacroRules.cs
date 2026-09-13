@@ -126,10 +126,13 @@ internal sealed partial class MossTankPanel : IMacroRuleProvider
                 return false;
             }),
 
-        MacroRuleSlot.OpenDoor => new AbsentMacroRule(
-            "OpenDoor",
-            "fused into the Navigate rules — NavigationController.Tick runs "
-                + "TickDoor itself."),
+        MacroRuleSlot.OpenDoor => new OpenDoorRule(
+            _navigation,
+            () => _combat.Enabled && !_buffRule.IsBursting,
+            // The door waits on four slots: the route's three and the item
+            // slot, because opening is an item use.
+            isLocked: () => !NavigationLocksAreClear()
+                || _actionLocks.IsLocked(ActionLockKind.ItemUse)),
 
         MacroRuleSlot.ReadScrollPriority => new ControllerMacroRule(
             "ReadScrollPriority",
@@ -205,9 +208,7 @@ internal sealed partial class MossTankPanel : IMacroRuleProvider
 
         MacroRuleSlot.NavigateRoutePriority => new ControllerMacroRule(
             "NavigateRoutePriority",
-            context => _navigation.Tick(
-                context.ElapsedSeconds,
-                context.CanAct),
+            context => _navigation.ClaimFromRulePass(context.CanAct),
             gate: () => _combat.Enabled && !_buffRule.IsBursting
                 && _navigationSettings.Priority
                 && NavigationLocksAreClear(),
@@ -217,9 +218,7 @@ internal sealed partial class MossTankPanel : IMacroRuleProvider
             declineReason: () => _navigation.Status),
         MacroRuleSlot.NavigateRouteIdle => new ControllerMacroRule(
             "NavigateRouteIdle",
-            context => _navigation.Tick(
-                context.ElapsedSeconds,
-                context.CanAct),
+            context => _navigation.ClaimFromRulePass(context.CanAct),
             gate: () => !_navigationSettings.Priority
                 && _combat.Enabled && !_buffRule.IsBursting
                 && NavigationLocksAreClear(),

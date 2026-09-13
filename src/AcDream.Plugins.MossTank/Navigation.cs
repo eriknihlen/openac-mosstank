@@ -288,20 +288,62 @@ internal sealed class NavigationController
 {
     internal const float HeadingToleranceDegrees = 4f;
 
+    /// <summary>
+    /// How often the mover may steer once the rule has armed it. The mover is
+    /// not the rule: the rule's turn only arms it, and it then runs on the
+    /// client's own frame, no faster than this. That distinction is what makes
+    /// the alignment band below reachable — one rule pass of held turn is
+    /// tens of degrees, several times the band, so a mover stepped once per
+    /// pass overshoots on every turn and hunts around the bearing forever.
+    /// </summary>
+    internal const double MoverIntervalSeconds = 0.047d;
+
     internal const double FaceHeadingReissueSeconds = 0.7d;
 
     internal const double NoFaceHeadingStamp = double.NegativeInfinity;
 
+    /// <summary>The near/far split the heading relaxation switches on.</summary>
     private const double NearTargetMeters = 3d;
+
+    /// <summary>
+    /// Inside this the mover walks instead of running. A waypoint whose arrival
+    /// radius is wider than this is never approached at a walk, which is what
+    /// the low-minimum-distance warning is about.
+    /// </summary>
+    private const double CreepDistanceMeters = 240d / 160d;
+
+    private const float FarHeadingRelaxationDegrees = 45f;
+    private const float NearHeadingRelaxationDegrees = 15f;
     private const double ChatInitialDelaySeconds = 0.2d;
     private const double UseRetrySeconds = 2d;
     private const double PortalTimeoutSeconds = 30d;
     private const double ObjectReacquireRadiusMeters = 2.5d;
     private const double PortalExitDistanceMeters = 15d;
     private const double RecallExitDistanceMeters = 2.4d;
+
+    /// <summary>
+    /// How far the character may have drifted between ticks and still count as
+    /// standing still for a recall.
+    /// </summary>
+    private const double RecallStationaryToleranceMeters = 2.4d;
     private const double JumpLaunchGraceSeconds = 0.25d;
     private const double JumpCompletionTimeoutSeconds = 3d;
     private const int JumpChargeCeilingMilliseconds = 2000;
+
+    /// <summary>
+    /// A jump is aimed near-exactly, not to the walking band: the alignment
+    /// state holds until the heading error is under a hundredth of a degree.
+    /// </summary>
+    private const float JumpHeadingToleranceDegrees = 0.01f;
+
+    /// <summary>The jump's own re-face interval, far longer than the walk's.</summary>
+    private const double JumpFaceHeadingReissueSeconds = 2d;
+
+    /// <summary>The log-text type an NPC's "tells you," answer arrives with.</summary>
+    private const uint NpcTellLogTextType = 3u;
+
+    /// <summary>The log-text type an NPC's "gives you" line arrives with.</summary>
+    private const uint NpcGiveLogTextType = 0u;
     private const double CheckpointRetrySeconds = 15d;
     private const double FollowBreadcrumbSpacingMeters = 0.096d;
     private const double FollowPathCaptureRangeMeters = 240d;
@@ -331,18 +373,39 @@ internal sealed class NavigationController
     private double _checkpointElapsed;
     private readonly List<PluginNavigationPosition> _followPath = [];
     private uint _activeDoorObjectId;
+    private ActionLockTable? _actionLocks;
     private uint _activeLockpickObjectId;
     private double _doorElapsed;
     private double _doorRetryElapsed;
     private PluginNavigationPosition _portalOrigin;
     private bool _hasPortalOrigin;
     private bool _hadMovementIntent;
+    private bool _recallNeedsPositionCapture = true;
+    private PluginNavigationPosition _recallLastPosition;
+
+    private bool _moverArmed;
+    private double _pendingMoverSeconds;
 
     private double _now;
 
     /// <summary>VTank <c>fd</c>'s <c>p</c> field (fd.cs:336-345).</summary>
     private double _faceHeadingStamp = NoFaceHeadingStamp;
+
+    /// <summary>
+    /// The jump's own re-face stamp. It cannot share the mover's, which is
+    /// cleared every time the mover stops - and the mover is stopped for the
+    /// whole of a jump waypoint.
+    /// </summary>
+    private double _jumpFaceHeadingStamp = NoFaceHeadingStamp;
     private string _status = "Navigation disabled.";
+
+    /// <summary>
+    /// The shared action-lock table. Opening a door holds the item slot for
+    /// the use, and the navigation and door slots while the door swings, and
+    /// an unidentified door in reach holds navigation for the identify.
+    /// </summary>
+    internal void BindActionLocks(ActionLockTable locks) =>
+        _actionLocks = locks ?? throw new ArgumentNullException(nameof(locks));
 
     public NavigationController(IPluginHost host, NavigationSettings settings)
     {
@@ -383,7 +446,6 @@ internal sealed class NavigationController
 
     public bool HasActiveAction => _activeAction is not null;
 
-    private const double NavIdlePeaceOverrideMeters = 1.5d;
 
     internal const string LowWaypointDistanceWarning =
         "Warning: Idle peace selected with low waypoint minimum distance. "
@@ -393,36 +455,13 @@ internal sealed class NavigationController
     private CombatSettings? _combatSettings;
     private bool _lowWaypointWarningPosted;
 
+    /// <summary>Warnings this run has already said once.</summary>
+    private readonly HashSet<string> _postedWarnings = new(StringComparer.Ordinal);
+
     internal void BindCombatModeGate(CombatModeGate gate, CombatSettings settings)
     {
         _combatModeGate = gate ?? throw new ArgumentNullException(nameof(gate));
         _combatSettings = settings ?? throw new ArgumentNullException(nameof(settings));
-    }
-
-    private bool TryRegisterArrival()
-    {
-        if (_combatModeGate is null || _combatSettings is null)
-            return true;
-        if (BoundedMinimumDistance() >= NavIdlePeaceOverrideMeters)
-            return true;
-        if (_host.Automation.Combat.Snapshot.Mode != PluginCombatMode.Peace)
-            return true;
-
-        if (_combatSettings.IdlePeaceMode && !_lowWaypointWarningPosted)
-        {
-            _lowWaypointWarningPosted = true;
-            _host.Automation.Chat.PostSystemMessage(
-                "[MossTank] " + LowWaypointDistanceWarning);
-        }
-
-        // fd.cs:135 — the forced Magic push fires regardless of the setting.
-        if (_combatModeGate.TryPrepare(PluginCombatMode.Magic))
-        {
-            return true;
-        }
-
-        _status = "Switching to magic mode at the waypoint.";
-        return false;
     }
 
     public void ToggleReverse()
@@ -431,11 +470,18 @@ internal sealed class NavigationController
         _status = $"Nav backwards is {_reverse}.";
     }
 
-    internal void ResetOncePerRunWarnings() => _lowWaypointWarningPosted = false;
+    internal void ResetOncePerRunWarnings()
+    {
+        _lowWaypointWarningPosted = false;
+        _postedWarnings.Clear();
+    }
 
     public void Reset()
     {
         ResetOncePerRunWarnings();
+        _moverArmed = false;
+        _pendingMoverSeconds = 0d;
+        _faceHeadingStamp = NoFaceHeadingStamp;
         StopMovement();
         _index = 0;
         _reverse = false;
@@ -451,6 +497,9 @@ internal sealed class NavigationController
 
     public void ClearActionLocks()
     {
+        _moverArmed = false;
+        _pendingMoverSeconds = 0d;
+        _faceHeadingStamp = NoFaceHeadingStamp;
         StopMovement();
         _checkpointElapsed = 0d;
         ClearDoor();
@@ -460,12 +509,72 @@ internal sealed class NavigationController
             : "Navigation disabled.";
     }
 
+    /// <summary>
+    /// The route rule's own turn. It answers whether the rule claims the pass
+    /// and, on the pass it claims, arms the mover; it does not carry the
+    /// mover's clock, because the pass is not the mover's clock.
+    /// </summary>
+    internal bool ClaimFromRulePass(bool canAct)
+    {
+        bool claimed = Tick(TakePendingMoverSeconds(), canAct);
+        _moverArmed = claimed;
+        return claimed;
+    }
+
+    /// <summary>
+    /// One frame of the armed mover. The host calls this every frame; the
+    /// mover steers no faster than its own interval, and the rule pass is
+    /// only what arms and disarms it.
+    /// </summary>
+    internal void StepArmedMover(double elapsedSeconds)
+    {
+        double elapsed = double.IsFinite(elapsedSeconds) && elapsedSeconds > 0d
+            ? elapsedSeconds
+            : 0d;
+        AdvanceClock(elapsed);
+        if (!_moverArmed)
+        {
+            // A disarmed mover holds no time: the pass that arms it starts
+            // from this frame, not from however long the route was idle.
+            _pendingMoverSeconds = elapsed;
+            return;
+        }
+        _pendingMoverSeconds += elapsed;
+        if (_pendingMoverSeconds < MoverIntervalSeconds)
+            return;
+        // What the mover makes of this frame does not disarm it. Only the rule
+        // that armed it can take the turn back, which is the whole point of
+        // the two being separate.
+        _ = Tick(TakePendingMoverSeconds(), canAct: true);
+    }
+
+    /// <summary>
+    /// Moves the navigation clock on by one frame. This is the ONE place it
+    /// moves: the clock stands for wall time, and a turn or a pass is not a
+    /// unit of it. It used to be advanced from both the route's turn and the
+    /// door's, so on the ordinary pass where both were consulted every
+    /// interval measured against it — the re-face throttles above — ran at
+    /// roughly double speed, and at an uneven rate besides.
+    /// </summary>
+    internal void AdvanceClock(double elapsedSeconds)
+    {
+        if (!double.IsFinite(elapsedSeconds) || elapsedSeconds <= 0d)
+            return;
+        _now += elapsedSeconds;
+    }
+
+    private double TakePendingMoverSeconds()
+    {
+        double due = _pendingMoverSeconds;
+        _pendingMoverSeconds = 0d;
+        return due;
+    }
+
     public bool Tick(double elapsedSeconds, bool canAct)
     {
         elapsedSeconds = double.IsFinite(elapsedSeconds)
             ? Math.Max(0d, elapsedSeconds)
             : 0d;
-        _now += elapsedSeconds;
         INavigationAutomation navigation = _host.Automation.Navigation;
         PluginNavigationSnapshot snapshot = navigation.Snapshot;
         if (!_settings.Enabled || !snapshot.IsAvailable)
@@ -495,9 +604,6 @@ internal sealed class NavigationController
             return false;
         }
 
-        if (TickDoor(navigation, snapshot, elapsedSeconds))
-            return true;
-
         if (_settings.Mode == RouteMode.Target)
             return TickFollow(navigation, snapshot);
         if (_onceComplete || _settings.Waypoints.Count == 0)
@@ -521,8 +627,6 @@ internal sealed class NavigationController
             }
             if (distance <= BoundedMinimumDistance())
             {
-                if (!TryRegisterArrival())
-                    return true;
                 StopMovement();
                 AdvanceWaypoint();
                 return true;
@@ -608,6 +712,42 @@ internal sealed class NavigationController
         return _followPath.Count == 0 ? target : _followPath[0];
     }
 
+    /// <summary>
+    /// Opening a door is its own turn, taken before anything that might want
+    /// the same tick. It lives on the navigation controller because it shares
+    /// the mover and the door settings, but it is driven by
+    /// <see cref="OpenDoorRule"/> from the door's own place in the rule order,
+    /// not from inside a navigate turn.
+    /// </summary>
+    internal bool TickDoorRule(double elapsedSeconds, bool canAct)
+    {
+        elapsedSeconds = double.IsFinite(elapsedSeconds)
+            ? Math.Max(0d, elapsedSeconds)
+            : 0d;
+        if (!canAct)
+        {
+            // Losing the pass to a rule ahead of this one is a decline, not a
+            // reset. The door being identified and the lockpick already chosen
+            // for it have to still be there on the pass this rule wins back —
+            // an open sequence that resets every time anything else takes a
+            // turn can never finish. The pass a rule does not win is a pass a
+            // rule is not asked about.
+            return false;
+        }
+        INavigationAutomation navigation = _host.Automation.Navigation;
+        PluginNavigationSnapshot snapshot = navigation.Snapshot;
+        if (!_settings.Enabled
+            || !_settings.OpenDoors
+            || !snapshot.IsAvailable
+            || snapshot.IsPortalSpace)
+        {
+            ClearDoor();
+            return false;
+        }
+
+        return TickDoor(navigation, snapshot, elapsedSeconds);
+    }
+
     private bool TickDoor(
         INavigationAutomation navigation,
         in PluginNavigationSnapshot snapshot,
@@ -620,6 +760,20 @@ internal sealed class NavigationController
         }
 
         IReadOnlyList<PluginNavigationObject> objects = navigation.CaptureObjects();
+        if (_activeDoorObjectId != 0u)
+        {
+            foreach (PluginNavigationObject tracked in objects)
+            {
+                if (tracked.ObjectId != _activeDoorObjectId || !tracked.IsOpen)
+                    continue;
+                // The door has swung: the use is over and the doorway is
+                // free, so both slots go down early rather than running out
+                // their windows.
+                _actionLocks?.Release(ActionLockKind.ItemUse);
+                _actionLocks?.Release(ActionLockKind.DoorOpening);
+                break;
+            }
+        }
         PluginNavigationObject door = default;
         bool found = false;
         double nearest = _settings.DoorIdentifyRangeMeters;
@@ -661,6 +815,15 @@ internal sealed class NavigationController
             {
                 StopMovement();
                 _status = $"Identifying door: {door.Name}.";
+                if (_actionLocks is { } identifying)
+                {
+                    // While the door is being identified nobody walks: the
+                    // navigation slot is held for half a second and the
+                    // pass is declined, so the route rules stand still
+                    // without this rule having to own the turn.
+                    identifying.Arm(ActionLockKind.Navigation, 0.5d);
+                    return false;
+                }
                 return true;
             }
             return false;
@@ -674,6 +837,9 @@ internal sealed class NavigationController
         if (_activeDoorObjectId == 0u)
         {
             _activeDoorObjectId = door.ObjectId;
+            // A door just taken up is due an attempt straight away; the
+            // interval only measures the gap between attempts.
+            _doorRetryElapsed = UseRetrySeconds;
             _activeLockpickObjectId = door.IsLocked
                 ? SelectLockpick(door.LockDifficulty)
                 : 0u;
@@ -694,8 +860,29 @@ internal sealed class NavigationController
             ClearDoor();
             return false;
         }
-        if (_doorRetryElapsed == elapsedSeconds || _doorRetryElapsed >= UseRetrySeconds)
+        // The old form of this also accepted "this is the first accumulation
+        // since a clear", which could never be told apart from the tick right
+        // after an attempt reset the counter to zero — so the interval never
+        // held and the door was used again on every pass.
+        if (_doorRetryElapsed >= UseRetrySeconds)
         {
+            // Every door action holds the item slot for its use. A plain use
+            // also holds navigation and the door slot for as long as a door
+            // takes to swing; a lockpick holds navigation only briefly, since
+            // the door is not moving yet.
+            if (_actionLocks is { } locks)
+            {
+                locks.Arm(ActionLockKind.ItemUse, 0.5d);
+                if (_activeLockpickObjectId == 0u)
+                {
+                    locks.Arm(ActionLockKind.Navigation, 5d);
+                    locks.Arm(ActionLockKind.DoorOpening, 5d);
+                }
+                else
+                {
+                    locks.Arm(ActionLockKind.Navigation, 1d);
+                }
+            }
             PluginItemCommandResult result = _activeLockpickObjectId == 0u
                 ? _host.Automation.Items.Use(door.ObjectId)
                 : _host.Automation.Items.Apply(
@@ -752,7 +939,7 @@ internal sealed class NavigationController
         _activeDoorObjectId = 0u;
         _activeLockpickObjectId = 0u;
         _doorElapsed = 0d;
-        _doorRetryElapsed = 0d;
+        _doorRetryElapsed = UseRetrySeconds;
     }
 
     private bool TickCheckpoint(
@@ -807,6 +994,11 @@ internal sealed class NavigationController
         return true;
     }
 
+    /// <summary>
+    /// The mover's typing branch: it cannot hold a turn key while the player is
+    /// typing, so it stops and re-faces the goal at most once per
+    /// <see cref="FaceHeadingReissueSeconds"/> instead.
+    /// </summary>
     internal static PluginNavigationCommandStatus SteerTowards(
         INavigationAutomation navigation,
         float signedHeadingDeltaDegrees,
@@ -842,6 +1034,13 @@ internal sealed class NavigationController
             new PluginMovementIntent(Forward: true, Run: run));
     }
 
+    /// <summary>
+    /// Steers at a goal. Outside the alignment band the mover holds a turn key
+    /// and keeps walking, so the character curves onto the bearing; the two
+    /// relaxation tiers decide only whether it moves while it turns. The
+    /// absolute re-face is the typing branch, where a held key would go into
+    /// the chat entry.
+    /// </summary>
     private bool Steer(
         INavigationAutomation navigation,
         in PluginNavigationPosition current,
@@ -850,15 +1049,146 @@ internal sealed class NavigationController
     {
         float desired = DesiredHeading(current, target);
         float delta = SignedHeadingDelta(current.HeadingDegrees, desired);
-        _hadMovementIntent = SteerTowards(
-            navigation,
-            delta,
-            desired,
-            _now,
-            ref _faceHeadingStamp,
-            run: true)
+        float offset = Math.Abs(delta);
+
+        if (_host.Automation.Chat.IsInputActive)
+        {
+            // A held turn key would go into the chat entry, so this branch
+            // stops and re-faces the goal instead, at most once per re-face
+            // interval. Inside the band it makes the SAME stop decision as
+            // every other branch — the creep band and the forced magic-mode
+            // push are not skipped just because somebody is typing.
+            if (offset > HeadingToleranceDegrees)
+            {
+                bool claimed = ResolveStopDecision(
+                    navigation,
+                    false,
+                    0d,
+                    TurnHold.None);
+                if (_now - _faceHeadingStamp >= FaceHeadingReissueSeconds)
+                {
+                    _faceHeadingStamp = _now;
+                    _ = navigation.FaceHeading(desired);
+                }
+                return claimed;
+            }
+            _faceHeadingStamp = NoFaceHeadingStamp;
+            return ResolveStopDecision(
+                navigation,
+                true,
+                distanceMeters,
+                TurnHold.None);
+        }
+
+        if (offset <= HeadingToleranceDegrees)
+            return ResolveStopDecision(navigation, true, distanceMeters, TurnHold.None);
+
+        TurnHold turn = PrefersLeftTurn(current.HeadingDegrees, desired)
+            ? TurnHold.Left
+            : TurnHold.Right;
+        float relaxation = distanceMeters > NearTargetMeters
+            ? FarHeadingRelaxationDegrees
+            : NearHeadingRelaxationDegrees;
+        return offset > relaxation
+            ? ResolveStopDecision(navigation, false, 0d, turn)
+            : ResolveStopDecision(navigation, true, distanceMeters, turn);
+    }
+
+    /// <summary>Which way the mover holds the turn.</summary>
+    private enum TurnHold
+    {
+        None,
+        Left,
+        Right,
+    }
+
+    /// <summary>
+    /// Turning down from the current heading by the unsigned offset and landing
+    /// on the bearing means the bearing is counter-clockwise, so the turn is
+    /// left. Heading grows clockwise, so this agrees with the sign of the
+    /// wrapped difference everywhere except at exactly half a turn, where the
+    /// choice is arbitrary and this one is the retail one.
+    /// </summary>
+    internal static bool PrefersLeftTurn(float current, float desired)
+    {
+        float offset = UnsignedHeadingDelta(current, desired);
+        return UnsignedHeadingDelta(NormalizeHeading(current - offset), desired)
+            < 1f;
+    }
+
+    /// <summary>The smaller of the two arcs between two headings, never negative.</summary>
+    internal static float UnsignedHeadingDelta(float left, float right)
+    {
+        float high = left >= right ? left : right;
+        float low = left >= right ? right : left;
+        float inner = high - low;
+        float outer = low - high + 360f;
+        return inner < outer ? inner : outer;
+    }
+
+    internal static float NormalizeHeading(float value)
+    {
+        float wrapped = value % 360f;
+        return wrapped < 0f ? wrapped + 360f : wrapped;
+    }
+
+    /// <summary>
+    /// Turns "should I be moving, and how far away is the goal" into the one
+    /// movement intent this host takes. Inside the creep band the mover walks
+    /// rather than runs, and while it is walking in peace mode it keeps asking
+    /// for magic mode: a waypoint that tight is meant to be stood on, and peace
+    /// mode there would leave the character unable to act on arrival.
+    /// </summary>
+    private bool ResolveStopDecision(
+        INavigationAutomation navigation,
+        bool shouldMove,
+        double distanceMeters,
+        TurnHold turn)
+    {
+        bool creep = shouldMove && distanceMeters < CreepDistanceMeters;
+        bool run = shouldMove && distanceMeters >= CreepDistanceMeters;
+        if (creep && !TryPrepareCreepCombatMode())
+            creep = false;
+
+        bool forward = creep || run;
+        if (!forward && turn == TurnHold.None)
+        {
+            StopMovement();
+            return true;
+        }
+
+        _hadMovementIntent = navigation.SetMovementIntent(
+            new PluginMovementIntent(
+                Forward: forward,
+                TurnLeft: turn == TurnHold.Left,
+                TurnRight: turn == TurnHold.Right,
+                Run: run))
             == PluginNavigationCommandStatus.Accepted;
         return _hadMovementIntent;
+    }
+
+    /// <summary>
+    /// The forced magic-mode push, retried on every tick that wants to creep.
+    /// </summary>
+    private bool TryPrepareCreepCombatMode()
+    {
+        if (_combatModeGate is null || _combatSettings is null)
+            return true;
+        if (_host.Automation.Combat.Snapshot.Mode != PluginCombatMode.Peace)
+            return true;
+
+        if (_combatSettings.IdlePeaceMode && !_lowWaypointWarningPosted)
+        {
+            _lowWaypointWarningPosted = true;
+            _host.Automation.Chat.PostSystemMessage(
+                "[MossTank] " + LowWaypointDistanceWarning);
+        }
+
+        if (_combatModeGate.TryPrepare(PluginCombatMode.Magic))
+            return true;
+
+        _status = "Switching to magic mode at the waypoint.";
+        return false;
     }
 
     private bool TickAction(
@@ -906,10 +1236,12 @@ internal sealed class NavigationController
             case RouteWaypointType.Recall:
                 return TickRecall(waypoint, navigation);
 
+            case RouteWaypointType.OpenVendor:
+                return TickOpenVendor(waypoint);
+
             case RouteWaypointType.Portal:
             case RouteWaypointType.PortalByName:
             case RouteWaypointType.UseNpc:
-            case RouteWaypointType.OpenVendor:
                 return TickUse(waypoint, navigation);
 
             case RouteWaypointType.Jump:
@@ -919,6 +1251,74 @@ internal sealed class NavigationController
                 CompleteAction();
                 return true;
         }
+    }
+
+    /// <summary>
+    /// A vendor waypoint fires one use and is finished — it does not wait for
+    /// the vendor window to open. It holds only in the three cases the
+    /// waypoint has nothing to do: the vendor's own window is already open
+    /// (somebody else opened it), the object is gone, or the object is not a
+    /// vendor at all. The last two also say so once, so a route with a stale
+    /// vendor id explains itself instead of going quiet.
+    /// </summary>
+    /// <remarks>
+    /// The route driver reads a waypoint's "still busy" answer, and a vendor
+    /// waypoint answers "not busy" on the tick it sends the use. Reading that
+    /// answer the other way round is what made an earlier pass of this file
+    /// wait for the window; the waiting is the hold, not the completion.
+    /// </remarks>
+    private bool TickOpenVendor(RouteWaypoint waypoint)
+    {
+        if (waypoint.ObjectId != 0u
+            && _host.Automation.Items.ActiveVendorObjectId == waypoint.ObjectId)
+        {
+            _status = $"Vendor window is already open: {waypoint.ObjectName}.";
+            return HoldVendorWaypoint();
+        }
+
+        if (waypoint.ObjectId == 0u
+            || !_host.Automation.Navigation.TryGetObject(
+                waypoint.ObjectId,
+                out PluginNavigationObject vendor))
+        {
+            WarnOnce(
+                $"OpenVendor waypoint action ignored, vendor {waypoint.ObjectId} "
+                    + $"({waypoint.ObjectName}) not found.");
+            _status = $"Vendor not found: {waypoint.ObjectName}.";
+            return HoldVendorWaypoint();
+        }
+
+        if (!_actionSent || _retryElapsed >= UseRetrySeconds)
+        {
+            PluginItemCommandResult result =
+                _host.Automation.Items.Use(waypoint.ObjectId);
+            _actionSent |= result.Accepted;
+            _retryElapsed = 0d;
+            _status = result.Accepted
+                ? $"Using vendor: {vendor.Name}."
+                : $"Waiting to use vendor: {vendor.Name}.";
+        }
+        CompleteAction();
+        return true;
+    }
+
+    /// <summary>
+    /// The vendor waypoint's hold, with our own ceiling on it: a hold that
+    /// never ends would park an unattended route on one bad waypoint forever.
+    /// </summary>
+    private bool HoldVendorWaypoint()
+    {
+        if (_actionElapsed < PortalTimeoutSeconds)
+            return true;
+        CompleteAction();
+        return true;
+    }
+
+    private void WarnOnce(string text)
+    {
+        if (!_postedWarnings.Add(text))
+            return;
+        _host.Automation.Chat.PostSystemMessage("[MossTank] " + text);
     }
 
     private bool TickUse(
@@ -959,13 +1359,6 @@ internal sealed class NavigationController
                 _actionSent = false;
                 _retryElapsed = UseRetrySeconds;
             }
-        }
-        if (waypoint.Type == RouteWaypointType.OpenVendor
-            && waypoint.ObjectId != 0u
-            && _host.Automation.Items.ActiveVendorObjectId == waypoint.ObjectId)
-        {
-            CompleteAction();
-            return true;
         }
         if (waypoint.ObjectId == 0u)
         {
@@ -1059,6 +1452,21 @@ internal sealed class NavigationController
         return true;
     }
 
+    /// <summary>
+    /// The NPC answered. Only two lines count, and each only with its own
+    /// log-text type: a tell that opens "&lt;name&gt; tells you, " and a plain
+    /// line that opens "&lt;name&gt; gives you". Any other line, of any type, is
+    /// somebody else's conversation.
+    /// </summary>
+    /// <remarks>
+    /// The test is over the line the chat window shows, which is what the
+    /// answer is written against. A tell reaches a plugin with the sender and
+    /// the message apart, so the shown line is rebuilt here; a server line
+    /// arrives whole and is used as it stands. The message's kind cannot
+    /// stand in for the log-text type — it only says where the line came
+    /// from, and the two value spaces share small numbers without sharing
+    /// meanings.
+    /// </remarks>
     private bool HasNpcResponse(string npcName)
     {
         IReadOnlyList<PluginChatMessage> messages =
@@ -1066,19 +1474,30 @@ internal sealed class NavigationController
         foreach (PluginChatMessage message in messages)
         {
             _chatBaseline = Math.Max(_chatBaseline, message.Sequence);
-            if (message.Sender.Equals(npcName, StringComparison.OrdinalIgnoreCase)
-                || message.Text.StartsWith(
-                    npcName + " tells you, ",
-                    StringComparison.OrdinalIgnoreCase)
-                || message.Text.StartsWith(
-                    npcName + " gives you",
-                    StringComparison.OrdinalIgnoreCase))
+            bool answered = message.LogTextType switch
             {
+                NpcTellLogTextType => ComposeTellLine(message).StartsWith(
+                    npcName + " tells you, ",
+                    StringComparison.Ordinal),
+                NpcGiveLogTextType => message.Text.StartsWith(
+                    npcName + " gives you",
+                    StringComparison.Ordinal),
+                _ => false,
+            };
+            if (answered)
                 return true;
-            }
         }
         return false;
     }
+
+    /// <summary>
+    /// The line the chat window shows for a tell, rebuilt from the sender and
+    /// message the plugin surface hands over separately.
+    /// </summary>
+    private static string ComposeTellLine(in PluginChatMessage message) =>
+        message.SenderObjectId != 0u
+            ? $"{message.Sender} tells you, \"{message.Text}\""
+            : $"You tell {message.Sender}, \"{message.Text}\"";
 
     private bool TickRecall(
         RouteWaypoint waypoint,
@@ -1090,6 +1509,12 @@ internal sealed class NavigationController
                 ? "Recall waypoint has no spell; skipping."
                 : $"Recall spell '{waypoint.RecallSpellName}' not found; skipping waypoint.";
             CompleteAction();
+            return true;
+        }
+
+        if (!IsStandingStillForRecall(navigation))
+        {
+            _status = "Recall: waiting to come to a stop.";
             return true;
         }
 
@@ -1129,6 +1554,33 @@ internal sealed class NavigationController
         return true;
     }
 
+    /// <summary>
+    /// A recall is only cast from a standstill. The check is a position
+    /// comparison against the last tick rather than a movement flag, because
+    /// what matters is that the character has actually stopped drifting: the
+    /// first tick captures, and every tick that has moved captures again and
+    /// answers "still moving".
+    /// </summary>
+    private bool IsStandingStillForRecall(in PluginNavigationSnapshot navigation)
+    {
+        if (_recallNeedsPositionCapture)
+        {
+            _recallNeedsPositionCapture = false;
+            _recallLastPosition = navigation.Position;
+            return true;
+        }
+
+        if (navigation.Position.HorizontalDistanceMeters(_recallLastPosition)
+            > RecallStationaryToleranceMeters)
+        {
+            _recallNeedsPositionCapture = true;
+            return false;
+        }
+
+        _recallLastPosition = navigation.Position;
+        return true;
+    }
+
     private bool SubmitRecall(RouteWaypoint waypoint)
     {
         if (waypoint.RecallSpellId != 0u)
@@ -1149,22 +1601,25 @@ internal sealed class NavigationController
                 float delta = SignedHeadingDelta(
                     navigation.Position.HeadingDegrees,
                     waypoint.JumpHeadingDegrees);
-                if (Math.Abs(delta) > HeadingToleranceDegrees)
+                // A jump is aimed far more tightly than a walk, and it waits
+                // longer between attempts: a few degrees of error is nothing
+                // when walking and is a missed ledge when jumping.
+                if (Math.Abs(delta) >= JumpHeadingToleranceDegrees)
                 {
                     INavigationAutomation nav = _host.Automation.Navigation;
                     _hadMovementIntent = nav.ClearMovementIntent()
                         == PluginNavigationCommandStatus.Accepted
                         && _hadMovementIntent;
-                    if (_now - _faceHeadingStamp >= FaceHeadingReissueSeconds)
+                    if (_now - _jumpFaceHeadingStamp > JumpFaceHeadingReissueSeconds)
                     {
-                        _faceHeadingStamp = _now;
+                        _jumpFaceHeadingStamp = _now;
                         _ = nav.FaceHeading(waypoint.JumpHeadingDegrees);
                     }
                     _status = $"Aligning jump: {Math.Abs(delta):0.0}d.";
                     return true;
                 }
 
-                _faceHeadingStamp = NoFaceHeadingStamp;
+                _jumpFaceHeadingStamp = NoFaceHeadingStamp;
                 _jumpAligned = true;
             }
 
@@ -1276,6 +1731,9 @@ internal sealed class NavigationController
         _jumpReleaseElapsed = 0d;
         _portalOrigin = default;
         _hasPortalOrigin = false;
+        _recallNeedsPositionCapture = true;
+        _recallLastPosition = default;
+        _jumpFaceHeadingStamp = NoFaceHeadingStamp;
     }
 
     /// <summary>
@@ -1286,13 +1744,15 @@ internal sealed class NavigationController
     /// terms — drop the movement intent — and it is what the scheduler wires
     /// as <c>onLostTurn</c> for both navigate tiers.
     /// </summary>
-    internal void StopForLostTurn() => StopMovement();
+    internal void StopForLostTurn()
+    {
+        _moverArmed = false;
+        _pendingMoverSeconds = 0d;
+        StopMovement();
+    }
 
     private void StopMovement()
     {
-        // VTank fd.cs:327 — the mover's disarm branch also resets `p`, so a
-        // re-armed route issues its first FaceHeading immediately.
-        _faceHeadingStamp = NoFaceHeadingStamp;
         if (!_hadMovementIntent)
             return;
         _ = _host.Automation.Navigation.ClearMovementIntent();

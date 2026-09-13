@@ -30,8 +30,14 @@ public sealed class NavigationTests
         float expected) =>
         Assert.Equal(expected, NavigationController.SignedHeadingDelta(current, desired));
 
+    /// <summary>
+    /// Well outside the alignment band and far from the goal, the mover holds a
+    /// turn key and does NOT walk: the far relaxation lets it walk while
+    /// turning only once it is within 45 degrees. It never re-faces in the open
+    /// world - that is the typing branch.
+    /// </summary>
     [Fact]
-    public void PointSteeringStopsAndFacesTheHeadingOutsideTheFourDegreeBand()
+    public void PointSteeringHoldsATurnKeyAndWaitsBeyondTheFarRelaxation()
     {
         var automation = new FakeAutomation
         {
@@ -44,9 +50,258 @@ public sealed class NavigationTests
 
         Assert.True(controller.Tick(0.05d, canAct: true));
 
+        PluginMovementIntent intent = Assert.Single(automation.Intents);
+        Assert.True(intent.TurnRight);
+        Assert.False(intent.TurnLeft);
+        Assert.False(intent.Forward);
+        Assert.Empty(automation.FacedHeadings);
+    }
+
+    /// <summary>
+    /// Far from the goal the mover walks while it turns as soon as the heading
+    /// is within 45 degrees, so a long leg does not stop and start.
+    /// </summary>
+    [Theory]
+    [InlineData(40f, true, false)]
+    [InlineData(44f, true, false)]
+    [InlineData(46f, true, true)]
+    [InlineData(135f, false, true)]
+    [InlineData(136f, false, false)]
+    public void PointSteeringRelaxesToFortyFiveDegreesBeyondThreeMetres(
+        float heading,
+        bool turnRight,
+        bool moves)
+    {
+        var automation = new FakeAutomation
+        {
+            NavigationSnapshot = Snapshot(Position(0d, 0d, heading: heading)),
+        };
+        NavigationController controller = Controller(
+            automation,
+            RouteMode.Circular,
+            Waypoint(RouteWaypointType.Point, Position(1d, 0d)));
+
+        Assert.True(controller.Tick(0.05d, canAct: true));
+
+        PluginMovementIntent intent = Assert.Single(automation.Intents);
+        Assert.Equal(turnRight, intent.TurnRight);
+        Assert.Equal(!turnRight, intent.TurnLeft);
+        Assert.Equal(moves, intent.Forward);
+    }
+
+    /// <summary>
+    /// Inside three metres the relaxation tightens to 15 degrees, so the last
+    /// stretch is aimed before it is walked.
+    /// </summary>
+    [Theory]
+    [InlineData(70f, false)]
+    [InlineData(78f, true)]
+    public void PointSteeringTightensToFifteenDegreesInsideThreeMetres(
+        float heading,
+        bool moves)
+    {
+        // 2.5 m east of the origin, inside the near tier and outside both the
+        // creep band and the 2 m arrival radius.
+        PluginNavigationPosition goal = Position(2.5d / 240d, 0d);
+        var automation = new FakeAutomation
+        {
+            NavigationSnapshot = Snapshot(Position(0d, 0d, heading: heading)),
+        };
+        NavigationController controller = Controller(
+            automation,
+            RouteMode.Circular,
+            Waypoint(RouteWaypointType.Point, goal));
+
+        Assert.True(controller.Tick(0.05d, canAct: true));
+
+        PluginMovementIntent intent = Assert.Single(automation.Intents);
+        Assert.True(intent.TurnRight);
+        Assert.Equal(moves, intent.Forward);
+    }
+
+    /// <summary>
+    /// Inside the creep band the mover walks rather than runs, which is the
+    /// run flag off, not a separate modifier.
+    /// </summary>
+    [Fact]
+    public void PointSteeringWalksInsideTheCreepBand()
+    {
+        // 1.0 m east: inside the 1.5 m creep band, outside the 0.5 m arrival.
+        PluginNavigationPosition goal = Position(1d / 240d, 0d);
+        var automation = new FakeAutomation
+        {
+            NavigationSnapshot = Snapshot(Position(0d, 0d, heading: 90f)),
+        };
+        NavigationController controller = Controller(
+            automation,
+            RouteMode.Circular,
+            minimumDistanceMeters: 0.5d,
+            Waypoint(RouteWaypointType.Point, goal));
+
+        Assert.True(controller.Tick(0.05d, canAct: true));
+
+        PluginMovementIntent intent = Assert.Single(automation.Intents);
+        Assert.True(intent.Forward);
+        Assert.False(intent.Run);
+    }
+
+    /// <summary>
+    /// Outside the creep band the mover runs.
+    /// </summary>
+    [Fact]
+    public void PointSteeringRunsOutsideTheCreepBand()
+    {
+        PluginNavigationPosition goal = Position(2.5d / 240d, 0d);
+        var automation = new FakeAutomation
+        {
+            NavigationSnapshot = Snapshot(Position(0d, 0d, heading: 90f)),
+        };
+        NavigationController controller = Controller(
+            automation,
+            RouteMode.Circular,
+            minimumDistanceMeters: 0.5d,
+            Waypoint(RouteWaypointType.Point, goal));
+
+        Assert.True(controller.Tick(0.05d, canAct: true));
+
+        PluginMovementIntent intent = Assert.Single(automation.Intents);
+        Assert.True(intent.Forward);
+        Assert.True(intent.Run);
+    }
+
+    /// <summary>
+    /// The mover runs on the host's frame, but only between the rule pass that
+    /// armed it and the one that takes the turn away. Nothing else may make it
+    /// steer, and losing the turn must stop it on the spot.
+    /// </summary>
+    [Fact]
+    public void TheMoverStepsOnFramesOnlyWhileTheRuleHoldsItsTurn()
+    {
+        PluginNavigationPosition goal = Position(12d / 240d, 0d);
+        var automation = new FakeAutomation
+        {
+            NavigationSnapshot = Snapshot(Position(0d, 0d, heading: 90f)),
+        };
+        NavigationController controller = Controller(
+            automation,
+            RouteMode.Circular,
+            minimumDistanceMeters: 2d,
+            Waypoint(RouteWaypointType.Point, goal));
+
+        controller.StepArmedMover(0.1d);
         Assert.Empty(automation.Intents);
-        Assert.Equal(1, automation.ClearCount);
+
+        Assert.True(controller.ClaimFromRulePass(canAct: true));
+        int armed = automation.Intents.Count;
+        Assert.Equal(1, armed);
+
+        controller.StepArmedMover(0.1d);
+        Assert.Equal(armed + 1, automation.Intents.Count);
+
+        controller.StopForLostTurn();
+        controller.StepArmedMover(0.1d);
+        controller.StepArmedMover(0.1d);
+        Assert.Equal(armed + 1, automation.Intents.Count);
+    }
+
+    /// <summary>
+    /// The mover's own interval, not the host's frame rate, is what paces it:
+    /// frames shorter than the interval accumulate rather than each producing
+    /// a steer.
+    /// </summary>
+    [Fact]
+    public void TheMoverStepsNoFasterThanItsOwnInterval()
+    {
+        PluginNavigationPosition goal = Position(12d / 240d, 0d);
+        var automation = new FakeAutomation
+        {
+            NavigationSnapshot = Snapshot(Position(0d, 0d, heading: 90f)),
+        };
+        NavigationController controller = Controller(
+            automation,
+            RouteMode.Circular,
+            minimumDistanceMeters: 2d,
+            Waypoint(RouteWaypointType.Point, goal));
+
+        Assert.True(controller.ClaimFromRulePass(canAct: true));
+        int armed = automation.Intents.Count;
+
+        // Four frames of a hundredth of a second: three short of the interval,
+        // then one that carries it past.
+        for (int frame = 0; frame < 4; frame++)
+            controller.StepArmedMover(0.01d);
+        Assert.Equal(armed, automation.Intents.Count);
+
+        controller.StepArmedMover(0.01d);
+        Assert.Equal(armed + 1, automation.Intents.Count);
+    }
+
+    /// <summary>
+    /// Half a turn is the one heading where the two arcs are equal. Retail
+    /// resolves it left.
+    /// </summary>
+    [Theory]
+    [InlineData(0f, 180f, true)]
+    [InlineData(0f, 90f, false)]
+    [InlineData(0f, 270f, true)]
+    [InlineData(350f, 10f, false)]
+    [InlineData(10f, 350f, true)]
+    public void TurnDirectionFollowsTheRetailAlignmentTest(
+        float current,
+        float desired,
+        bool expectLeft) =>
+        Assert.Equal(
+            expectLeft,
+            NavigationController.PrefersLeftTurn(current, desired));
+
+    [Fact]
+    public void PointSteeringFacesTheHeadingWhileThePlayerIsTyping()
+    {
+        var automation = new FakeAutomation
+        {
+            NavigationSnapshot = Snapshot(Position(0d, 0d, heading: 0f)),
+            ChatInputActive = true,
+        };
+        NavigationController controller = Controller(
+            automation,
+            RouteMode.Circular,
+            Waypoint(RouteWaypointType.Point, Position(1d, 0d)));
+
+        Assert.True(controller.Tick(0.05d, canAct: true));
+
+        Assert.Empty(automation.Intents);
+        // A stop only releases what was being held, and nothing was: the very
+        // first tick of a route was never moving.
+        Assert.Equal(0, automation.ClearCount);
         Assert.Equal(90f, Assert.Single(automation.FacedHeadings));
+    }
+
+    /// <summary>
+    /// The typing branch is the mover's other steering shape, not a different
+    /// mover. Once it is aimed, it makes the same stop decision as any other
+    /// branch, so a goal inside the creep band is walked to, not run at.
+    /// </summary>
+    [Fact]
+    public void ThePlayerTypingStillWalksTheLastMetreInsteadOfRunningIt()
+    {
+        var automation = new FakeAutomation
+        {
+            NavigationSnapshot = Snapshot(Position(0d, 0d, heading: 90f)),
+            ChatInputActive = true,
+        };
+        // A metre east: aimed already, and inside the creep band.
+        NavigationController controller = Controller(
+            automation,
+            RouteMode.Circular,
+            0.5d,
+            Waypoint(RouteWaypointType.Point, Position(1d / 240d, 0d)));
+
+        Assert.True(controller.Tick(0.05d, canAct: true));
+
+        PluginMovementIntent intent = Assert.Single(automation.Intents);
+        Assert.True(intent.Forward);
+        Assert.False(intent.Run);
+        Assert.Empty(automation.FacedHeadings);
     }
 
     [Fact]
@@ -55,20 +310,21 @@ public sealed class NavigationTests
         var automation = new FakeAutomation
         {
             NavigationSnapshot = Snapshot(Position(0d, 0d, heading: 0f)),
+            ChatInputActive = true,
         };
         NavigationController controller = Controller(
             automation,
             RouteMode.Circular,
             Waypoint(RouteWaypointType.Point, Position(1d, 0d)));
 
-        Assert.True(controller.Tick(0.293d, canAct: true));
-        Assert.True(controller.Tick(0.293d, canAct: true));
+        Assert.True(Frame(controller, 0.293d));
+        Assert.True(Frame(controller, 0.293d));
 
         Assert.Equal(90f, Assert.Single(automation.FacedHeadings));
 
-        Assert.True(controller.Tick(0.293d, canAct: true));
+        Assert.True(Frame(controller, 0.293d));
         Assert.Single(automation.FacedHeadings);
-        Assert.True(controller.Tick(0.293d, canAct: true));
+        Assert.True(Frame(controller, 0.293d));
         Assert.Equal(2, automation.FacedHeadings.Count);
     }
 
@@ -95,26 +351,6 @@ public sealed class NavigationTests
     }
 
     [Fact]
-    public void PointSteeringIssuesNoTurnKeyIntentsAtAnyOffset()
-    {
-        var automation = new FakeAutomation
-        {
-            NavigationSnapshot = Snapshot(Position(0d, 0d, heading: 60f)),
-        };
-        NavigationController controller = Controller(
-            automation,
-            RouteMode.Circular,
-            Waypoint(RouteWaypointType.Point, Position(1d, 0d)));
-
-        Assert.True(controller.Tick(0.05d, canAct: true));
-
-        Assert.DoesNotContain(
-            automation.Intents,
-            static intent => intent.TurnLeft || intent.TurnRight);
-        Assert.Equal(90f, Assert.Single(automation.FacedHeadings));
-    }
-
-    [Fact]
     public void ANavigateTierBelowTheWinnerStillClearsTheMovementIntent()
     {
         var automation = new FakeAutomation
@@ -133,11 +369,10 @@ public sealed class NavigationTests
             bookkeepWhenBlocked: false);
 
         Assert.True(rule.ValidNow(new MacroPassContext(0.05d, CanAct: true)));
-        Assert.NotEmpty(automation.FacedHeadings);
-        Assert.Equal(1, automation.ClearCount);
+        Assert.NotEmpty(automation.Intents);
 
         Assert.False(rule.ValidNow(new MacroPassContext(0.05d, CanAct: false)));
-        Assert.Equal(2, automation.ClearCount);
+        Assert.Equal(1, automation.ClearCount);
     }
 
     [Fact]
@@ -300,8 +535,10 @@ public sealed class NavigationTests
             RouteWaypointType.Point,
             Position(1d, 0d)));
         var controller = new NavigationController(new FakeHost(automation), settings);
+        // The door takes its own turn, ahead of the route.
+        var door = new OpenDoorRule(controller, () => true);
 
-        Assert.True(controller.Tick(0.05d, canAct: true));
+        Assert.True(door.ValidNow(new MacroPassContext(0.05d, CanAct: true)));
         Assert.Equal([55u], automation.UsedObjects);
         Assert.Empty(automation.Intents);
 
@@ -309,8 +546,355 @@ public sealed class NavigationTests
         {
             IsOpen = true,
         };
+        Assert.False(door.ValidNow(new MacroPassContext(0.05d, CanAct: true)));
         Assert.True(controller.Tick(0.05d, canAct: true));
         Assert.True(Assert.Single(automation.Intents).Forward);
+    }
+
+    /// <summary>
+    /// The navigation clock is wall time, and a turn is not a unit of it. On a
+    /// frame where the door rule and the route rule are both consulted — the
+    /// ordinary case — the clock must move by the frame, once.
+    /// </summary>
+    [Fact]
+    public void TheNavigationClockMovesOnceAFrameHoweverManyTurnsAreTakenInIt()
+    {
+        var automation = new FakeAutomation
+        {
+            NavigationSnapshot = Snapshot(Position(0d, 0d, heading: 0f)),
+            // The typing branch is the one that measures against the clock.
+            ChatInputActive = true,
+        };
+        var settings = new NavigationSettings
+        {
+            Enabled = true,
+            OpenDoors = true,
+            Mode = RouteMode.Circular,
+        };
+        settings.Waypoints.Add(Waypoint(RouteWaypointType.Point, Position(1d, 0d)));
+        var controller = new NavigationController(new FakeHost(automation), settings);
+
+        void PassFrame()
+        {
+            controller.AdvanceClock(0.293d);
+            Assert.False(controller.TickDoorRule(0.293d, canAct: true));
+            Assert.True(controller.Tick(0.293d, canAct: true));
+        }
+
+        // The first frame faces and stamps the clock. Two more frames are
+        // 0.586 s of real time after that stamp — inside the 0.7 s re-face
+        // interval, but past it if each turn were allowed to move the clock
+        // itself. The fourth frame is past it either way.
+        PassFrame();
+        Assert.Equal(90f, Assert.Single(automation.FacedHeadings));
+        PassFrame();
+        PassFrame();
+        Assert.Single(automation.FacedHeadings);
+        PassFrame();
+        Assert.Equal(2, automation.FacedHeadings.Count);
+    }
+
+    /// <summary>
+    /// Losing a pass to a rule ahead of the door rule declines the turn. It
+    /// does not throw away the door already being worked on: an open sequence
+    /// that restarted every time anything else took a turn could never finish.
+    /// </summary>
+    [Fact]
+    public void TheDoorRuleKeepsItsDoorAcrossAPassItDoesNotWin()
+    {
+        var automation = new FakeAutomation
+        {
+            NavigationSnapshot = Snapshot(Position(0d, 0d, heading: 90f)),
+        };
+        automation.WorldObjects.Add(new PluginNavigationObject(
+            55u,
+            "Dungeon Door",
+            Position(0.01d, 0d))
+        {
+            IsDoor = true,
+            IsOpen = false,
+            HasLockState = true,
+        });
+        var settings = new NavigationSettings
+        {
+            Enabled = true,
+            OpenDoors = true,
+            Mode = RouteMode.Circular,
+        };
+        settings.Waypoints.Add(Waypoint(RouteWaypointType.Point, Position(1d, 0d)));
+        var controller = new NavigationController(new FakeHost(automation), settings);
+
+        // The door rule claims a pass and sends the first use.
+        Assert.True(controller.TickDoorRule(0.05d, canAct: true));
+        Assert.Equal([55u], automation.UsedObjects);
+
+        // Something ahead of it takes the next pass.
+        Assert.False(controller.TickDoorRule(0.05d, canAct: false));
+
+        // The retry interval has not elapsed, so the pass it wins back must
+        // still be working on the SAME door and must not re-send.
+        Assert.True(controller.TickDoorRule(0.05d, canAct: true));
+        Assert.Equal([55u], automation.UsedObjects);
+    }
+
+    /// <summary>
+    /// The door is used once and then left alone for the retry interval. A
+    /// door re-used on every pass is a use command every fraction of a second
+    /// for as long as the door takes to swing.
+    /// </summary>
+    [Fact]
+    public void TheDoorIsNotUsedAgainInsideItsRetryInterval()
+    {
+        var automation = new FakeAutomation
+        {
+            NavigationSnapshot = Snapshot(Position(0d, 0d, heading: 90f)),
+        };
+        automation.WorldObjects.Add(new PluginNavigationObject(
+            55u,
+            "Dungeon Door",
+            Position(0.01d, 0d))
+        {
+            IsDoor = true,
+            IsOpen = false,
+            HasLockState = true,
+        });
+        var settings = new NavigationSettings
+        {
+            Enabled = true,
+            OpenDoors = true,
+            Mode = RouteMode.Circular,
+        };
+        settings.Waypoints.Add(Waypoint(RouteWaypointType.Point, Position(1d, 0d)));
+        var controller = new NavigationController(new FakeHost(automation), settings);
+
+        for (int pass = 0; pass < 4; pass++)
+            Assert.True(controller.TickDoorRule(0.293d, canAct: true));
+
+        Assert.Equal([55u], automation.UsedObjects);
+
+        // Past the interval, it tries again.
+        Assert.True(controller.TickDoorRule(1.5d, canAct: true));
+        Assert.Equal([55u, 55u], automation.UsedObjects);
+    }
+
+    /// <summary>
+    /// A closed door is a wall, and everything downstream of it wants to be on
+    /// the other side, so the door takes its turn before looting a corpse,
+    /// approaching one, or attacking.
+    /// </summary>
+    [Fact]
+    public void TheDoorRuleTakesItsTurnAheadOfLootingAndAttacking()
+    {
+        int door = SlotPosition(MacroRuleSlot.OpenDoor);
+        Assert.InRange(door, 0, int.MaxValue);
+        Assert.True(
+            door < SlotPosition(MacroRuleSlot.LootCorpsePriority),
+            "the door must be claimed before priority looting.");
+        Assert.True(
+            door < SlotPosition(MacroRuleSlot.NavigateCorpsePriority),
+            "the door must be claimed before the priority corpse approach.");
+        Assert.True(
+            door < SlotPosition(MacroRuleSlot.Attack),
+            "the door must be claimed before attacking.");
+
+        static int SlotPosition(MacroRuleSlot slot)
+        {
+            for (int index = 0; index < MacroRuleTable.Entries.Count; index++)
+            {
+                if (MacroRuleTable.Entries[index].Slot == slot)
+                    return index;
+            }
+            return -1;
+        }
+    }
+
+    /// <summary>
+    /// The door rule stands down while another rule holds a lock it waits on,
+    /// and takes its own locks on the pass it claims. The named lock table is
+    /// not built yet, so the pin drives the seam the table will be wired to.
+    /// </summary>
+    [Fact]
+    public void TheDoorRuleStandsDownWhileALockIsHeld()
+    {
+        var automation = new FakeAutomation
+        {
+            NavigationSnapshot = Snapshot(Position(0d, 0d, heading: 90f)),
+        };
+        automation.WorldObjects.Add(new PluginNavigationObject(
+            55u,
+            "Dungeon Door",
+            Position(0.01d, 0d))
+        {
+            IsDoor = true,
+            IsOpen = false,
+            HasLockState = true,
+        });
+        var settings = new NavigationSettings
+        {
+            Enabled = true,
+            OpenDoors = true,
+            Mode = RouteMode.Circular,
+        };
+        var controller = new NavigationController(new FakeHost(automation), settings);
+        bool locked = true;
+        int armed = 0;
+        var rule = new OpenDoorRule(
+            controller,
+            () => true,
+            isLocked: () => locked,
+            arm: () => armed++);
+
+        // Held: the rule declines and does not so much as look at the door.
+        Assert.True(rule.IsLocked);
+        Assert.False(rule.ValidNow(new MacroPassContext(0.05d, CanAct: true)));
+        Assert.Equal(
+            "another rule holds a lock this one waits on",
+            rule.DeclineReason);
+        Assert.Empty(automation.UsedObjects);
+        Assert.Equal(0, armed);
+
+        // Released: it claims the pass, uses the door, and takes its own locks.
+        locked = false;
+        Assert.False(rule.IsLocked);
+        Assert.True(rule.ValidNow(new MacroPassContext(0.05d, CanAct: true)));
+        Assert.Equal([55u], automation.UsedObjects);
+        Assert.Equal(1, armed);
+    }
+
+    private static (NavigationController controller, FakeAutomation automation, ActionLockTable locks) DoorFixture(
+        bool hasLockState = true)
+    {
+        var automation = new FakeAutomation
+        {
+            NavigationSnapshot = Snapshot(Position(0d, 0d, heading: 90f)),
+        };
+        automation.WorldObjects.Add(new PluginNavigationObject(
+            55u,
+            "Dungeon Door",
+            Position(0.01d, 0d))
+        {
+            IsDoor = true,
+            IsOpen = false,
+            HasLockState = hasLockState,
+        });
+        var settings = new NavigationSettings
+        {
+            Enabled = true,
+            OpenDoors = true,
+            Mode = RouteMode.Circular,
+        };
+        settings.Waypoints.Add(Waypoint(RouteWaypointType.Point, Position(1d, 0d)));
+        var controller = new NavigationController(new FakeHost(automation), settings);
+        var locks = new ActionLockTable();
+        controller.BindActionLocks(locks);
+        return (controller, automation, locks);
+    }
+
+    /// <summary>
+    /// Opening a door is an item use, and a door takes a while to swing: the
+    /// use holds the item slot for half a second and the navigation and door
+    /// slots for five, so nothing walks into the doorway or uses another item
+    /// while it moves. Mutation: drop the arms before the use and every slot
+    /// reads free.
+    /// </summary>
+    [Fact]
+    public void ADoorUseHoldsTheItemNavigationAndDoorSlots()
+    {
+        (NavigationController controller, FakeAutomation automation, ActionLockTable locks) = DoorFixture();
+
+        Assert.True(controller.TickDoorRule(0.05d, canAct: true));
+        Assert.Equal([55u], automation.UsedObjects);
+        Assert.True(locks.IsLocked(ActionLockKind.ItemUse));
+        Assert.True(locks.IsLocked(ActionLockKind.Navigation));
+        Assert.True(locks.IsLocked(ActionLockKind.DoorOpening));
+
+        locks.Advance(0.6d);
+        Assert.False(locks.IsLocked(ActionLockKind.ItemUse));
+        Assert.True(locks.IsLocked(ActionLockKind.Navigation));
+        Assert.True(locks.IsLocked(ActionLockKind.DoorOpening));
+
+        locks.Advance(4.5d);
+        Assert.False(locks.IsLocked(ActionLockKind.Navigation));
+        Assert.False(locks.IsLocked(ActionLockKind.DoorOpening));
+    }
+
+    /// <summary>
+    /// A door whose lock state is not known yet is identified first, and while
+    /// that answer is on its way the navigation slot is held for half a second
+    /// and the pass is declined — the route stands still without the door
+    /// owning the turn. Mutation: claim the pass instead of declining, or drop
+    /// the arm, and this fails.
+    /// </summary>
+    [Fact]
+    public void AnUnidentifiedDoorInReachHoldsNavigationAndDeclines()
+    {
+        (NavigationController controller, FakeAutomation automation, ActionLockTable locks) = DoorFixture(hasLockState: false);
+
+        Assert.False(controller.TickDoorRule(0.05d, canAct: true));
+        Assert.Empty(automation.UsedObjects);
+        Assert.True(locks.IsLocked(ActionLockKind.Navigation));
+        Assert.False(locks.IsLocked(ActionLockKind.ItemUse));
+        Assert.False(locks.IsLocked(ActionLockKind.DoorOpening));
+        locks.Advance(0.6d);
+        Assert.False(locks.IsLocked(ActionLockKind.Navigation));
+    }
+
+    /// <summary>
+    /// When the door the rule is working on reports itself open, the item and
+    /// door slots go down at once; the navigation slot runs out on its own.
+    /// Mutation: drop the release on open and both slots stay up for the
+    /// rest of their windows.
+    /// </summary>
+    [Fact]
+    public void AnOpenedDoorReleasesTheItemAndDoorSlotsEarly()
+    {
+        (NavigationController controller, FakeAutomation automation, ActionLockTable locks) = DoorFixture();
+        Assert.True(controller.TickDoorRule(0.05d, canAct: true));
+
+        automation.WorldObjects[0] = automation.WorldObjects[0] with { IsOpen = true };
+        locks.Advance(0.1d);
+        Assert.False(controller.TickDoorRule(0.05d, canAct: true));
+        Assert.False(locks.IsLocked(ActionLockKind.ItemUse));
+        Assert.False(locks.IsLocked(ActionLockKind.DoorOpening));
+        Assert.True(locks.IsLocked(ActionLockKind.Navigation));
+    }
+
+    /// <summary>
+    /// The scheduler marks every non-winner not running after it has asked
+    /// every rule, so the pass after a door finishes is one where the route
+    /// rule arms the mover and the door rule loses its turn in the same
+    /// breath. The door's lost turn must leave that mover armed. Mutation:
+    /// stop the navigation controller from the door rule's setter and the
+    /// frame after produces no movement.
+    /// </summary>
+    [Fact]
+    public void TheDoorRuleLosingItsTurnLeavesTheRouteMoverArmed()
+    {
+        var automation = new FakeAutomation
+        {
+            NavigationSnapshot = Snapshot(Position(0d, 0d, heading: 90f)),
+        };
+        var settings = new NavigationSettings
+        {
+            Enabled = true,
+            OpenDoors = true,
+            Mode = RouteMode.Circular,
+        };
+        settings.Waypoints.Add(Waypoint(RouteWaypointType.Point, Position(10d, 0d)));
+        var controller = new NavigationController(new FakeHost(automation), settings);
+        var door = new OpenDoorRule(controller, () => true) { Running = true };
+
+        // Phase one of the pass: the route rule claims and arms the mover.
+        Assert.True(controller.ClaimFromRulePass(canAct: true));
+        Assert.Contains(automation.Intents, static intent => intent.Forward);
+        // Phase two: the door rule, which did not win, is marked not running.
+        door.Running = false;
+
+        // The intent the route rule set is still standing, and the next frame
+        // still belongs to an armed mover.
+        Assert.Equal(0, automation.ClearCount);
+        controller.StepArmedMover(0.05d);
+        Assert.Equal(0, automation.ClearCount);
     }
 
     [Fact]
@@ -389,8 +973,9 @@ public sealed class NavigationTests
             91u,
             3,
             "Town Crier",
-            "Town Crier tells you, Welcome.",
-            string.Empty));
+            "Welcome.",
+            string.Empty)
+            { LogTextType = 3u });
         Assert.True(controller.Tick(0.05d, canAct: true));
         Assert.False(controller.Tick(0.05d, canAct: true));
     }
@@ -520,7 +1105,8 @@ public sealed class NavigationTests
         Assert.Equal(271.5f, waypoint.JumpHeadingDegrees);
         Assert.True(waypoint.JumpRun);
         Assert.Equal(875, waypoint.JumpChargeMilliseconds);
-        Assert.Equal(RouteJumpDirection.Forward, waypoint.JumpDirection);
+        // The direction survives the save: it rides the charge field.
+        Assert.Equal(RouteJumpDirection.StrafeRight, waypoint.JumpDirection);
 
         Assert.False(target.Enabled);
         Assert.False(target.Priority);
@@ -993,10 +1579,12 @@ public sealed class NavigationTests
     private static (NavigationController Controller, FakeAutomation Automation)
         ArrivalOverride(double minimumDistanceMeters, bool idlePeaceMode)
     {
-        PluginNavigationPosition point = Position(0d, 0d);
+        // 1.0 m ahead: inside the 1.5 m creep band, so the mover walks and asks
+        // for magic mode on every tick it wants to walk.
+        PluginNavigationPosition point = Position(0d, 1d / 240d);
         var automation = new FakeAutomation
         {
-            NavigationSnapshot = Snapshot(point),
+            NavigationSnapshot = Snapshot(Position(0d, 0d, heading: 0f)),
             CombatSnapshot = new PluginCombatSnapshot
             {
                 Mode = PluginCombatMode.Peace,
@@ -1092,19 +1680,314 @@ public sealed class NavigationTests
         Assert.Empty(automation.ModeRequests);
     }
 
+    /// <summary>
+    /// A jump is aimed near-exactly. Four degrees is fine for a walk and is a
+    /// missed ledge for a jump, so the jump keeps aligning where the walk would
+    /// already be charging.
+    /// </summary>
+    [Theory]
+    [InlineData(3.9f, false)]
+    [InlineData(0.05f, false)]
+    [InlineData(0.005f, true)]
+    public void JumpAlignsFarMoreTightlyThanTheWalk(float offset, bool charges)
+    {
+        var automation = new FakeAutomation
+        {
+            NavigationSnapshot = Snapshot(Position(0d, 0d, heading: 90f - offset)),
+        };
+        RouteWaypoint jump = Waypoint(RouteWaypointType.Jump, Position(0d, 0d));
+        jump.JumpHeadingDegrees = 90f;
+        jump.JumpChargeMilliseconds = 500;
+        NavigationController controller = Controller(
+            automation,
+            RouteMode.Circular,
+            jump);
+
+        Assert.True(controller.Tick(0.05d, canAct: true));
+
+        Assert.Equal(
+            charges,
+            automation.Intents.Exists(static intent => intent.Jump));
+        Assert.Equal(charges ? 0 : 1, automation.FacedHeadings.Count);
+    }
+
+    /// <summary>
+    /// The jump waits two seconds between re-faces, not the walk's 0.7.
+    /// </summary>
+    [Fact]
+    public void JumpDoesNotReissueFaceHeadingInsideTwoSeconds()
+    {
+        var automation = new FakeAutomation
+        {
+            NavigationSnapshot = Snapshot(Position(0d, 0d, heading: 0f)),
+        };
+        RouteWaypoint jump = Waypoint(RouteWaypointType.Jump, Position(0d, 0d));
+        jump.JumpHeadingDegrees = 90f;
+        NavigationController controller = Controller(
+            automation,
+            RouteMode.Circular,
+            jump);
+
+        Assert.True(Frame(controller, 0.05d));
+        Assert.Single(automation.FacedHeadings);
+
+        // Past the walk's re-face interval and well short of the jump's.
+        Assert.True(Frame(controller, 1.0d));
+        Assert.Single(automation.FacedHeadings);
+
+        Assert.True(Frame(controller, 1.2d));
+        Assert.Equal(2, automation.FacedHeadings.Count);
+    }
+
+    /// <summary>
+    /// Exactly the interval is not past it. The jump's re-face wants strictly
+    /// more than two seconds, where the walk's wants at least seven tenths.
+    /// </summary>
+    [Fact]
+    public void TheJumpReFaceWantsStrictlyMoreThanItsInterval()
+    {
+        var automation = new FakeAutomation
+        {
+            NavigationSnapshot = Snapshot(Position(0d, 0d, heading: 0f)),
+        };
+        RouteWaypoint jump = Waypoint(RouteWaypointType.Jump, Position(0d, 0d));
+        jump.JumpHeadingDegrees = 90f;
+        NavigationController controller = Controller(
+            automation,
+            RouteMode.Circular,
+            jump);
+
+        // Both figures are exact in binary, so the second frame lands the
+        // elapsed gap on the interval itself rather than a hair either side.
+        Assert.True(Frame(controller, 0.25d));
+        Assert.Single(automation.FacedHeadings);
+        Assert.True(Frame(controller, 2d));
+        Assert.Single(automation.FacedHeadings);
+    }
+
+    /// <summary>
+    /// Only two lines complete a Use NPC waypoint, and each only with its own
+    /// log-text type. Anything else is somebody else's conversation.
+    /// </summary>
+    /// <remarks>
+    /// The cases are the shapes the plugin surface really delivers, pinned in
+    /// <c>PluginChatLogTextTypeTests</c>: a tell arrives with its sender apart
+    /// from a BARE message, a server line arrives whole with no sender. Rows
+    /// three and four are the same two lines wearing each other's log-text
+    /// type; rows five and six are an ordinary player tell and a chat-channel
+    /// line that reads like the answer.
+    /// </remarks>
+    [Theory]
+    // log-text type, sender object id, sender, text, completes
+    [InlineData(3u, 500u, "Aun Tanua", "Greetings.", true)]
+    [InlineData(0u, 0u, "", "Aun Tanua gives you a Token.", true)]
+    [InlineData(0u, 500u, "Aun Tanua", "Greetings.", false)]
+    [InlineData(3u, 0u, "", "Aun Tanua gives you a Token.", false)]
+    [InlineData(3u, 700u, "Someone Else", "Greetings.", false)]
+    [InlineData(8u, 0u, "", "Aun Tanua gives you a Token.", false)]
+    public void UseNpcCompletesOnlyOnItsOwnChannels(
+        uint logTextType,
+        uint senderObjectId,
+        string sender,
+        string text,
+        bool completes)
+    {
+        var automation = new FakeAutomation
+        {
+            NavigationSnapshot = Snapshot(Position(0d, 0d)),
+            FoundObject = new PluginNavigationObject(
+                500u,
+                "Aun Tanua",
+                Position(0.001d, 0d)),
+        };
+        RouteWaypoint npc = Waypoint(RouteWaypointType.UseNpc, Position(0d, 0d));
+        npc.ObjectName = "Aun Tanua";
+        NavigationController controller = Controller(
+            automation,
+            RouteMode.Circular,
+            npc,
+            Waypoint(RouteWaypointType.Point, Position(1d, 0d)));
+
+        Assert.True(controller.Tick(0.05d, canAct: true));
+        automation.ChatMessages.Add(new PluginChatMessage(
+            Sequence: 1UL,
+            SenderObjectId: senderObjectId,
+            // A tell's kind and its log-text type happen to share the number
+            // three, which is exactly the confusion this pin exists to hold
+            // apart: the kind here is the one the surface really reports for
+            // that shape, and it is not what decides the answer.
+            Kind: senderObjectId != 0u ? 3 : 4,
+            Sender: sender,
+            Text: text,
+            ChannelName: string.Empty)
+            { LogTextType = logTextType });
+
+        Assert.True(controller.Tick(0.05d, canAct: true));
+
+        Assert.Equal(completes ? 1 : 0, controller.CurrentWaypointIndex);
+    }
+
+    /// <summary>
+    /// A vendor waypoint sends one use and is done with the same tick. It does
+    /// NOT wait for the vendor window: a route that has to buy something is
+    /// expected to have a pause or a chat waypoint after the vendor, not to
+    /// have the vendor itself block.
+    /// </summary>
+    [Fact]
+    public void AVendorWaypointFiresOneUseAndIsFinished()
+    {
+        var automation = new FakeAutomation
+        {
+            NavigationSnapshot = Snapshot(Position(0d, 0d)),
+        };
+        automation.Objects[404u] = new PluginNavigationObject(
+            404u,
+            "Shopkeeper",
+            Position(0.001d, 0d));
+        RouteWaypoint vendor = Waypoint(RouteWaypointType.OpenVendor, Position(0d, 0d));
+        vendor.ObjectId = 404u;
+        vendor.ObjectName = "Shopkeeper";
+        NavigationController controller = Controller(
+            automation,
+            RouteMode.Circular,
+            vendor,
+            Waypoint(RouteWaypointType.Point, Position(1d, 0d)));
+
+        Assert.True(controller.Tick(0.05d, canAct: true));
+
+        Assert.Equal([404u], automation.UsedObjects);
+        Assert.Equal(1, controller.CurrentWaypointIndex);
+    }
+
+    /// <summary>
+    /// The one case the waypoint holds on: the vendor's own window is already
+    /// open, so there is nothing for this waypoint to open.
+    /// </summary>
+    [Fact]
+    public void AVendorWaypointHoldsWhileItsWindowIsAlreadyOpen()
+    {
+        var automation = new FakeAutomation
+        {
+            NavigationSnapshot = Snapshot(Position(0d, 0d)),
+            ActiveVendorObjectId = 404u,
+        };
+        automation.Objects[404u] = new PluginNavigationObject(
+            404u,
+            "Shopkeeper",
+            Position(0.001d, 0d));
+        RouteWaypoint vendor = Waypoint(RouteWaypointType.OpenVendor, Position(0d, 0d));
+        vendor.ObjectId = 404u;
+        vendor.ObjectName = "Shopkeeper";
+        NavigationController controller = Controller(
+            automation,
+            RouteMode.Circular,
+            vendor,
+            Waypoint(RouteWaypointType.Point, Position(1d, 0d)));
+
+        Assert.True(controller.Tick(0.05d, canAct: true));
+        Assert.True(controller.Tick(0.05d, canAct: true));
+
+        Assert.Empty(automation.UsedObjects);
+        Assert.Equal(0, controller.CurrentWaypointIndex);
+    }
+
+    /// <summary>
+    /// A vendor id that resolves to nothing holds too, and says so exactly
+    /// once however many ticks it is asked.
+    /// </summary>
+    [Fact]
+    public void AMissingVendorSaysSoOnceAndHolds()
+    {
+        var automation = new FakeAutomation
+        {
+            NavigationSnapshot = Snapshot(Position(0d, 0d)),
+        };
+        RouteWaypoint vendor = Waypoint(RouteWaypointType.OpenVendor, Position(0d, 0d));
+        vendor.ObjectId = 404u;
+        vendor.ObjectName = "Shopkeeper";
+        NavigationController controller = Controller(
+            automation,
+            RouteMode.Circular,
+            vendor,
+            Waypoint(RouteWaypointType.Point, Position(1d, 0d)));
+
+        for (int tick = 0; tick < 5; tick++)
+            Assert.True(controller.Tick(0.05d, canAct: true));
+
+        Assert.Empty(automation.UsedObjects);
+        Assert.Equal(0, controller.CurrentWaypointIndex);
+        Assert.Single(automation.PostedSystemMessages);
+        Assert.Contains("not found", automation.PostedSystemMessages[0], StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// A recall is cast from a standstill. While the character is still
+    /// drifting the waypoint waits and casts nothing.
+    /// </summary>
+    [Fact]
+    public void RecallWaitsUntilTheCharacterHasStopped()
+    {
+        var automation = new FakeAutomation
+        {
+            NavigationSnapshot = Snapshot(Position(0d, 0d)),
+        };
+        var magic = new FakeMagic();
+        automation.Magic = magic;
+        RouteWaypoint recall = Waypoint(RouteWaypointType.Recall, Position(0d, 0d));
+        recall.RecallSpellId = 48u;
+        NavigationController controller = Controller(
+            automation,
+            RouteMode.Circular,
+            recall,
+            Waypoint(RouteWaypointType.Point, Position(1d, 0d)));
+
+        // Standing still from the first tick, so it casts.
+        Assert.True(controller.Tick(0.05d, canAct: true));
+        Assert.Equal([48u], magic.CastSpellIds);
+        magic.CastSpellIds.Clear();
+
+        // A retry is due, but the character has moved more than the tolerance
+        // since the last tick, so the recall waits instead of casting.
+        automation.NavigationSnapshot = Snapshot(Position(0d, 3d / 240d));
+        Assert.True(controller.Tick(2.5d, canAct: true));
+        Assert.Empty(magic.CastSpellIds);
+
+        // Stopped again: the retry goes out.
+        Assert.True(controller.Tick(0.05d, canAct: true));
+        Assert.Equal([48u], magic.CastSpellIds);
+    }
+
     private static NavigationController Controller(
         FakeAutomation automation,
         RouteMode mode,
+        params RouteWaypoint[] waypoints) =>
+        Controller(automation, mode, 2d, waypoints);
+
+    private static NavigationController Controller(
+        FakeAutomation automation,
+        RouteMode mode,
+        double minimumDistanceMeters,
         params RouteWaypoint[] waypoints)
     {
         var settings = new NavigationSettings
         {
             Enabled = true,
             Mode = mode,
-            MinimumDistanceMeters = 2d,
+            MinimumDistanceMeters = minimumDistanceMeters,
         };
         settings.Waypoints.AddRange(waypoints);
         return new NavigationController(new FakeHost(automation), settings);
+    }
+
+    /// <summary>
+    /// One host frame: the clock moves, then the controller takes its turn.
+    /// That is the production order — the panel steps the mover, which owns
+    /// the clock, and then runs the scheduler pass.
+    /// </summary>
+    private static bool Frame(NavigationController controller, double seconds)
+    {
+        controller.AdvanceClock(seconds);
+        return controller.Tick(seconds, canAct: true);
     }
 
     private static RouteWaypoint Waypoint(
@@ -1163,6 +2046,8 @@ public sealed class NavigationTests
         PluginCombatSnapshot ICombatAutomation.Snapshot => CombatSnapshot;
         public List<string> ModeRequests { get; } = [];
         public List<string> PostedSystemMessages { get; } = [];
+        public bool ChatInputActive { get; set; }
+        bool IPluginChat.IsInputActive => ChatInputActive;
         public List<PluginEquipmentItem> EquipmentItems { get; set; } = [];
         bool IEquipmentAutomation.IsAvailable => EquipmentItems.Count > 0;
         bool IEquipmentAutomation.IsBusy => false;
@@ -1211,6 +2096,7 @@ public sealed class NavigationTests
         public int ClearCount { get; private set; }
         public PluginItemUseCompletion ItemCompletion { get; set; }
         public PluginItemUseCompletion LastCompletion => ItemCompletion;
+        public uint ActiveVendorObjectId { get; set; }
         public PluginNavigationObject? FoundObject { get; set; }
         public string? FindName { get; private set; }
 

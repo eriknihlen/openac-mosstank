@@ -328,6 +328,7 @@ internal sealed partial class MossTankPanel : IBuffRuleHost
             _loot);
         _profileGive = new ProfileGiveController(host, _lootProfiles);
         _navigation = new NavigationController(host, _navigationSettings);
+        _navigation.BindActionLocks(_actionLocks);
         _navigation.BindCombatModeGate(_combatModeGate, _combatSettings);
         _fellowshipManager = new FellowshipManager(host);
         _metaProfiles = new MossTankMetaProfileStore(host);
@@ -4463,6 +4464,10 @@ internal sealed partial class MossTankPanel : IBuffRuleHost
         // pass rather than inside it.
         _combat.AdvanceHeldTurn(elapsedSeconds);
         _scheduler.ExternalSuspension = _prologueOwnsAction;
+        // The route mover runs on the host's frame, not on the scheduler pass
+        // that armed it. It steps before the pass so the pass sees the frame's
+        // work already done and never spends the same time twice.
+        _navigation.StepArmedMover(elapsedSeconds);
         _scheduler.Advance(elapsedSeconds);
         _combatModeGate.AdvancePass(elapsedSeconds);
 
