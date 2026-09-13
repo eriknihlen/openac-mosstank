@@ -88,14 +88,13 @@ internal static class VtankMonsterRuleTable
                     PetDamageType = VtankDamageElement.ToMonsterDamageType(
                         row.Cells[20].AsInt(),
                         MonsterDamageType.PlayerAuto),
-                    // ga.cs:1452's `int num = A_1;` treats WeaponToUse as an object
-                    // id; VTank's own "no override" values are 0 and -1
-                    // (defaultsettings.usd:100).
+                    // The wield subroutine treats WeaponToUse as an object id;
+                    // the shipped "no override" values are 0 and -1.
                     WeaponObjectId = weapon > 0 ? unchecked((uint)weapon) : 0u,
                     WeaponToUseRaw = weapon,
-                    // eSecondaryEquipTypeOrObjectID (uTank2/…:3-10) packs four
-                    // modes (Auto, AutoShield, AutoWeapon, None) below
-                    // LISTEDTYPES_END and an object id above it.
+                    // The off-hand column packs four modes (Auto, AutoShield,
+                    // AutoWeapon, None) below LISTEDTYPES_END and an object id
+                    // above it.
                     OffhandObjectId =
                         offhand >= (int)VtankSecondaryEquip.ListedTypesEnd
                             ? unchecked((uint)offhand)
@@ -162,8 +161,8 @@ internal static class VtankMonsterRuleTable
                 row,
                 18,
                 VtankDamageElement.FromMonsterDamageType(actions.ExtraVulnerability));
-            // d1.cs:113 stores the raw enum, so AutoShield (1), AutoWeapon
-            // (2) and None (3) must survive a save; only a stale object id
+            // The row stores the raw enum, so AutoShield (1), AutoWeapon (2)
+            // and None (3) must survive a save; only a stale object id
             // (>= LISTEDTYPES_END with no live OffhandObjectId) falls back to
             // Auto.
             SetInt(
@@ -216,8 +215,8 @@ internal static class VtankMonsterRuleTable
 }
 
 /// <summary>
-/// <c>uTank2/eSecondaryEquipTypeOrObjectID.cs:3-10</c> — the four named modes
-/// below <c>LISTEDTYPES_END</c>; anything at or above it is an object id.
+/// The four named off-hand modes below <c>LISTEDTYPES_END</c>; anything at or
+/// above it is an object id.
 /// </summary>
 internal enum VtankSecondaryEquip
 {
@@ -264,7 +263,7 @@ internal static class VtankDamageElement
             Auto => MonsterDamageType.Auto,
             Void => MonsterDamageType.VoidBasic,
             DrainAuto => MonsterDamageType.DrainAuto,
-            // bv.cs:94-97 folds the legacy prismatic id onto Prismatic.
+            // The legacy prismatic id folds onto Prismatic.
             Prismatic or PrismaticDatabaseEntryOld => MonsterDamageType.Prismatic,
             Random => MonsterDamageType.Random,
             Fists => MonsterDamageType.Fists,

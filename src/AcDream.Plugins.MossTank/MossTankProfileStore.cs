@@ -739,7 +739,7 @@ internal sealed class MossTankProfileStore
         public double InventoryLootScanIntervalSeconds { get; set; } = 0.25d;
         public LootRuleDocument[] InventoryLootRules { get; set; } = [];
 
-        /// <summary>One <c>eq.c</c> row (<c>eq.cs:25-36</c>) on disk.</summary>
+        /// <summary>One authored item-enchant row on disk.</summary>
         public sealed class ItemEnchantRowDocument
         {
             public string ItemName { get; set; } = string.Empty;
@@ -901,8 +901,7 @@ internal sealed class MossTankProfileStore
                 {
                     // The fallback row's spelling depends on which side wrote
                     // it — MossTank's editor says DEFAULT, the .usd says
-                    // <DEFAULT> (d1.cs:117) — so match it by identity, not by
-                    // text.
+                    // <DEFAULT> — so match it by identity, not by text.
                     bool matches = MonsterRule.IsDefaultName(stored.Expression)
                         ? rule.IsDefault
                         : string.Equals(

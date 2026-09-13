@@ -156,8 +156,8 @@ internal sealed class CombatController
         NavigationController.NoFaceHeadingStamp;
 
     /// <summary>
-    /// VTank's breakable turn-to entry tolerance: the <c>2.0</c> degrees
-    /// <c>gj.cs:505</c> passes to <c>w.a(heading, 2.0, 1000.0, true)</c>.
+    /// The reference client's breakable turn-to entry tolerance: two degrees,
+    /// with a one-second budget.
     /// </summary>
     private const float BreakableTurnToleranceDegrees = 2f;
     private Func<string, int, bool>? _requestAmmunitionCraft;
@@ -991,8 +991,7 @@ internal sealed class CombatController
     }
 
     /// <summary>
-    /// <c>hi.cs:266,284</c> — <c>dz.i.c(dz.i.a(element, Streak))</c>, the
-    /// quality-walked streak line.
+    /// The quality-walked streak line for this element.
     /// </summary>
     private AttackSpellChoice? PlanStreak(
         MonsterDamageType element,
@@ -1012,7 +1011,7 @@ internal sealed class CombatController
     }
 
     /// <summary>
-    /// <c>hi.cs:274,305</c> — VTank's own warning text, then bolt/arc.
+    /// The reference client's own warning text, then bolt/arc.
     /// </summary>
     private AttackSpellChoice? WarnNoStreak(
         MonsterDamageType element,
@@ -1067,7 +1066,7 @@ internal sealed class CombatController
                 ? null
                 : _attackCatalog.Resolve(element, VtankCombatSpellType.Arc, usable);
 
-            // hi.cs:483-488
+            // Neither line exists for this element: warn and give up.
             if (bolt is null && arc is null)
             {
                 PostAttackWarning(
@@ -1081,27 +1080,27 @@ internal sealed class CombatController
             PluginSpellInfo spell;
             if (bolt is null)
             {
-                type = VtankCombatSpellType.Arc;              // hi.cs:489-494
+                type = VtankCombatSpellType.Arc;              // only an arc
                 spell = arc!.Value;
             }
             else if (arc is null)
             {
-                type = VtankCombatSpellType.War;              // hi.cs:495-500
+                type = VtankCombatSpellType.War;              // only a bolt
                 spell = bolt.Value;
             }
             else if (bolt.Value.Quality > arc.Value.Quality)
             {
-                type = VtankCombatSpellType.War;              // hi.cs:503-508
+                type = VtankCombatSpellType.War;              // better bolt
                 spell = bolt.Value;
             }
             else if (arc.Value.Quality > bolt.Value.Quality)
             {
-                type = VtankCombatSpellType.Arc;              // hi.cs:509-514
+                type = VtankCombatSpellType.Arc;              // better arc
                 spell = arc.Value;
             }
             else
             {
-                // hi.cs:515-541 — ONLY reached on an exact quality tie.
+                // The setting decides ONLY on an exact quality tie.
                 switch (_settings.UseArcs)
                 {
                     case UseArcsMode.AtRange:
@@ -1120,7 +1119,7 @@ internal sealed class CombatController
                         type = VtankCombatSpellType.Arc;
                         spell = arc.Value;
                         break;
-                    default: // UseArcsMode.No and hi.cs:537's own default arm
+                    default: // UseArcsMode.No, and the reference's own default
                         type = VtankCombatSpellType.War;
                         spell = bolt.Value;
                         break;
@@ -1334,7 +1333,7 @@ internal sealed class CombatController
             return;
         }
 
-        // gj.cs:543 — VTank's own SpellCast log line.
+        // The reference client's own SpellCast log line.
         Log?.Invoke(
             MacroLogChannel.SpellCast,
             $"Casting: {choice.Spell.Name} on {_targetId} ({_targetName})");
@@ -1562,7 +1561,7 @@ internal sealed class CombatController
                 $"No {damage} ammunition is available");
         }
 
-        // bv.cs:156-162 — the wielded stack already IS the winning row.
+        // The wielded stack already IS the winning row.
         // The stack already in the quiver only satisfies the row while it
         // still holds something: an empty quiver of the right name is not
         // ammunition.
@@ -2648,8 +2647,8 @@ internal sealed class CombatController
             _castTracker.ObserveChat(
                 message.Sequence,
                 message.Text,
-                // gj.cs:348 — LOCAL speech only; the same test as
-                // MossTankPanel.ObserveCastTrackerChat (finding R4S-12).
+                // LOCAL speech only; the same test as
+                // MossTankPanel.ObserveCastTrackerChat.
                 ownSpeech: message.Kind == SpellCastTracker.LocalSpeechChatKind
                     && message.SenderObjectId != 0u
                     && message.SenderObjectId
@@ -2737,8 +2736,8 @@ internal sealed class CombatController
                 return;
 
             case SpellCastOutcome.PermanentFail:
-                // The `!HitsMultipleTargets` gate (gj.cs:403) is applied by the
-                // tracker, which owns `m_g`; reaching here means it passed.
+                // The multiple-targets gate is applied by the tracker, which
+                // owns that flag; reaching here means it passed.
                 Log?.Invoke(
                     MacroLogChannel.CastInfo,
                     $"SpellCaster: Spell permanent fail reset ({info.Text})");
@@ -3021,7 +3020,7 @@ internal sealed class CombatController
             wieldedWeapon,
             wieldedOffhand);
 
-        // dz.cs:925 — `if (this.a.b != 0) return true;`
+        // No target chosen: drop whatever the pass was holding.
         if (chosen.ObjectId == 0u)
         {
             if (_targetId != 0u)
@@ -3055,8 +3054,7 @@ internal sealed class CombatController
     }
 
     /// <summary>
-    /// <c>f7.a(fu, maxDist, minDist, targetLock)</c> (<c>f7.cs:247-297</c>) —
-    /// the six ordered rejection gates, then the fill.
+    /// The six ordered rejection gates, then the fill.
     /// </summary>
     private bool TryBuildCandidate(
         in PluginCombatTarget target,
@@ -3093,7 +3091,7 @@ internal sealed class CombatController
             return false;
         }
 
-        // Gate 3 (f7.cs:265-270).
+        // Gate 3: the monster's rule must want it attacked at all.
         ResolvedMonsterRule rule = WithPassClearedActions(
             target.ObjectId,
             _settings.ResolveRule(target));
@@ -3722,8 +3720,8 @@ internal sealed class CombatController
         _observedChatSequence = 0u;
         _itemTransactionChatSequence = 0u;
         _observedItemCompletion = 0;
-        // gj.cs:271 — d(), the tracker's own reset. A stopped macro must not
-        // leave the busy latch up.
+        // The tracker's own reset: a stopped macro must not leave the busy
+        // latch up.
         _castTracker.Reset();
         _plannedWeapon = 0u;
         Gate.Reset();
@@ -4193,8 +4191,8 @@ internal sealed class CombatController
             string.IsNullOrEmpty(reason)
                 ? $"Deleting ghost monster {name} ({objectId})"
                 : $"Deleting ghost monster {name} ({objectId}) {reason}.");
-        // gj.cs:263-278 — ReleaseObject on the awaited target drops the
-        // tracker to idle; deleting a ghost is our own version of that event.
+        // Losing the awaited target drops the tracker to idle; deleting a
+        // ghost is our own version of that event.
         _castTracker.ResetForTarget(objectId);
         if (_targetId == objectId)
         {

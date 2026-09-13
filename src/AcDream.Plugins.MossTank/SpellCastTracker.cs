@@ -16,23 +16,22 @@ internal enum SpellCastOutcome
 {
     None,
 
-    /// <summary><c>gj.cs:442-453</c> — a success line matched.</summary>
+    /// <summary>A success line matched.</summary>
     Success,
 
-    /// <summary><c>gj.cs:395-398</c> — a kill line matched.</summary>
+    /// <summary>A kill line matched.</summary>
     Kill,
 
-    /// <summary><c>gj.cs:419-422</c> — a fizzle/resist line matched.</summary>
+    /// <summary>A fizzle/resist line matched.</summary>
     Fail,
 
-    /// <summary><c>gj.cs:409-413</c> — a permanent-fail line matched.</summary>
+    /// <summary>A permanent-fail line matched.</summary>
     PermanentFail,
 
     Rejected,
 
     /// <summary>
-    /// <c>gj.cs:324-327</c> — the 5.000 s attempt budget expired with no
-    /// acknowledgement.
+    /// The 5.000 s attempt budget expired with no acknowledgement.
     /// </summary>
     LaunchTimeout,
 
@@ -53,13 +52,12 @@ internal sealed class SpellCastTracker
 {
     public const double LaunchTimeoutSeconds = 5.0d;
 
-    /// <summary><c>gj.cs:254</c> — <c>j.a(907)</c>, the result timer's tick.</summary>
+    /// <summary>The result timer's tick.</summary>
     public const double ResultTickSeconds = 0.907d;
 
     /// <summary>
-    /// <c>gj.cs:255</c> — <c>q = 4500 / j.e()</c>. <c>ey.e()</c> returns the
-    /// timer INTERVAL (<c>ey.cs:219-222</c>), so this is an integer tick
-    /// budget: <c>4500 / 907 = 4</c>.
+    /// The reference client divides its 4500 ms result budget by that timer's
+    /// INTERVAL, so the budget is a whole number of ticks: 4500 / 907 = 4.
     /// </summary>
     public const int ResultTickBudget = 4;
 
@@ -280,8 +278,7 @@ internal sealed class SpellCastTracker
     }
 
     /// <summary>
-    /// <c>gj.cs:267</c> — a deleted object ends the wait only when it is the
-    /// awaited target.
+    /// A deleted object ends the wait only when it is the awaited target.
     /// </summary>
     public void ResetForTarget(uint objectId)
     {
@@ -306,8 +303,8 @@ internal sealed class SpellCastTracker
         if (_state != SpellCastTrackerState.AwaitingLaunch)
             return;
 
-        // gj.cs:227-228 — the b -> c edge resets r and starts the result
-        // timer. The busy latch is NOT re-raised (m_d is already true).
+        // The launch-to-result edge restarts the result timer. The busy latch
+        // is NOT re-raised; it is already up.
         _state = SpellCastTrackerState.AwaitingResult;
         _resultElapsed = 0d;
         SpellAnswered?.Invoke(_targetObjectId);
@@ -342,14 +339,15 @@ internal sealed class SpellCastTracker
         {
             if (string.Equals(Normalize(text), _saying, StringComparison.Ordinal))
             {
-                // gj.cs:355 — a(gj.b.c). The busy latch is NOT re-raised.
+                // The spoken line is ours: move to awaiting the result. The
+                // busy latch is NOT re-raised.
                 _state = SpellCastTrackerState.AwaitingResult;
                 _resultElapsed = 0d;
                 SpellAnswered?.Invoke(_targetObjectId);
             }
             else
             {
-                // gj.cs:359 — a(gj.b.a).
+                // A different spell was spoken: this attempt is over.
                 Reset();
             }
             return;
@@ -456,7 +454,7 @@ internal sealed class SpellCastTracker
         return had;
     }
 
-    /// <summary><c>gj.cs:352</c> — <c>ToLowerInvariant().Replace(" ", "")</c>.</summary>
+    /// <summary>Spoken lines are compared without spaces or case.</summary>
     private static string Normalize(string text) =>
         string.IsNullOrEmpty(text)
             ? string.Empty

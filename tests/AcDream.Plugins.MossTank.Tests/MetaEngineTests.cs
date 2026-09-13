@@ -171,6 +171,39 @@ public sealed class MetaEngineTests
         Assert.Contains("overflow", engine.Status, StringComparison.OrdinalIgnoreCase);
     }
 
+    [Fact]
+    public void ARecursiveCallOverflowAlsoClearsTheStoredEnableMetaSetting()
+    {
+        var host = new Host();
+        using var expressions = new MossTankExpressionRuntime(host);
+        var call = Rule(MetaConditionKind.Always, MetaActionKind.CallMetaState, "Loop");
+        call.Action.SecondaryText = "Loop";
+        call.State = "Loop";
+        var written = new List<(string Name, bool Value)>();
+        var engine = new MetaEngine(
+            host,
+            expressions,
+            new MetaProfile { Rules = [call] },
+            new MetaServices
+            {
+                SetOption = (name, value) =>
+                {
+                    written.Add((name, value.IsTruthy));
+                    return true;
+                },
+            });
+        engine.Transition("Loop");
+        engine.SetEnabled(true);
+
+        for (int index = 0; index <= MetaEngine.MaximumCallDepth; index++)
+            engine.EvaluatePass();
+
+        Assert.False(engine.Enabled);
+        (string name, bool value) = Assert.Single(written);
+        Assert.Equal("EnableMeta", name);
+        Assert.False(value);
+    }
+
     private static MetaRule Rule(
         MetaConditionKind condition,
         MetaActionKind action,

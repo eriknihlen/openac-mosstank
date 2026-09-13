@@ -20,8 +20,8 @@ internal readonly record struct AttackSpellChoice(
 internal sealed class AttackSpellCatalog
 {
     /// <summary>
-    /// <c>fk.cs:560</c> — the Void ring is the ONLY table entry named by spell
-    /// id rather than by name (<c>this.m_b.f.c(5361)</c>).
+    /// The Void ring is the ONLY entry in the reference attack-spell table
+    /// named by spell id rather than by name.
     /// </summary>
     public const uint VoidRingSpellId = 5361u;
 
@@ -116,7 +116,8 @@ internal sealed class AttackSpellCatalog
                 MonsterDamageType.Pierce => "Nuhmudira's Spines",
                 MonsterDamageType.Slash => "Horizon's Blades",
                 MonsterDamageType.Harm => "Curse of Raven Fury",
-                // Nether/VoidBasic: fk.cs:560 names spell id 5361 directly.
+                // Nether/VoidBasic: the reference table names the spell id
+                // directly, so there is no name to look up here.
                 _ => null,
             },
             VtankCombatSpellType.Streak => element switch

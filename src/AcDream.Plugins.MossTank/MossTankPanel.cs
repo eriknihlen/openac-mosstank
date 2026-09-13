@@ -29,6 +29,7 @@ internal sealed partial class MossTankPanel : IBuffRuleHost
     private readonly CombatSettings _combatSettings = new();
     private readonly InventorySettings _inventorySettings = new();
     private readonly NavigationSettings _navigationSettings = new();
+    private readonly MetaSettings _metaSettings = new();
     private readonly VtankSettingsProfileSerializer.AllSettings _allSettings;
     private readonly VtankGameInfoDatabase _gameInfo;
     private readonly MossTankProfileStore _profiles;
@@ -37,10 +38,11 @@ internal sealed partial class MossTankPanel : IBuffRuleHost
     private readonly MossTankMetaProfileStore _metaProfiles;
     private readonly MetaViewManager _metaViews;
     private readonly CombatController _combat;
-    /// <summary>VTank's one shared wield/mode subroutine, ga.a (ga.cs:1433-1573).</summary>
+    /// <summary>The one shared wield/combat-mode subroutine.</summary>
     private readonly CombatModeGate _combatModeGate;
     private readonly IdlePeaceRule _idlePeace;
     private readonly SummonPetRule _summonPet;
+    private readonly PetRefillRule _idlePetRefill;
     private readonly MacroScheduler _scheduler;
 
     /// <summary>
@@ -237,10 +239,11 @@ internal sealed partial class MossTankPanel : IBuffRuleHost
             Vitals = _vitalSettings,
             Inventory = _inventorySettings,
             Navigation = _navigationSettings,
+            Meta = _metaSettings,
         };
-        // e0.cs:53-79 — VTank's official GameInfoDB, read from the profile
-        // directory beside the .usd files. Absent means EMPTY, not a guess:
-        // acdream does not ship Virindi's embedded defaultinfodb.ugd.
+        // The official monster-info database, read from the profile directory
+        // beside the .usd files. Absent means EMPTY, not a guess: acdream
+        // ships no embedded copy of it.
         _gameInfo = VtankGameInfoDatabase.Load(host.VtankProfiles);
         // A rule's `species` and `maxhp` are database facts. Without the
         // database every monster reads as unlisted, which is what the
@@ -287,6 +290,11 @@ internal sealed partial class MossTankPanel : IBuffRuleHost
             host,
             _combatSettings,
             () => _combat.HasTarget);
+        _idlePetRefill = new PetRefillRule(
+            host,
+            _combatSettings,
+            () => _combatSettings.PetRefillCountIdle,
+            () => _combat.ReadyToActInPeace());
         _vitalRecharge = new VitalRechargeController(
             host,
             _vitalSettings,
@@ -359,6 +367,7 @@ internal sealed partial class MossTankPanel : IBuffRuleHost
                 DestroyView = _metaViews.Destroy,
                 DestroyAllViews = _metaViews.DestroyAll,
             });
+        _meta.SetEnabled(_metaSettings.Enabled);
         RegisterVtankExpressionFunctions();
         _scheduler = MacroRuleTable.Build(this);
         _scheduler.MetaPass = elapsed =>
@@ -1088,7 +1097,9 @@ internal sealed partial class MossTankPanel : IBuffRuleHost
     public string MetaProfileNameDraft => _metaProfileNameDraft;
     public Action ToggleMeta => () =>
     {
-        _meta.SetEnabled(!_meta.Enabled);
+        // The checkbox writes the stored setting, not just the engine, so
+        // the choice is still there after a save and a reload.
+        SetMetaOption("EnableMeta", ExpressionValue.Boolean(!_meta.Enabled));
         _combatSettings.MetaState = _meta.CurrentState;
     };
     public Action<int> SelectMetaRule => row =>
@@ -2757,7 +2768,7 @@ internal sealed partial class MossTankPanel : IBuffRuleHost
             _buffSettings.ItemEnchantRows.Add(new BuffItemEnchantRow(item.Name, spellName));
     }
 
-    /// <summary><c>eq.b(int itemId)</c> (<c>eq.cs:59-68</c>).</summary>
+    /// <summary>Drop every authored enchant row for one item.</summary>
     private void ClearItemEnchantRows(string itemName)
     {
         for (int i = _buffSettings.ItemEnchantRows.Count - 1; i >= 0; i--)
@@ -3536,6 +3547,7 @@ internal sealed partial class MossTankPanel : IBuffRuleHost
                 _inventorySettings.Loot.Enabled = value.IsTruthy;
                 break;
             case "enablemeta":
+                _metaSettings.Enabled = value.IsTruthy;
                 _meta.SetEnabled(value.IsTruthy);
                 break;
             case "spelldiffexcessthreshold-hunt":
@@ -4187,6 +4199,11 @@ internal sealed partial class MossTankPanel : IBuffRuleHost
     private void LoadSelectedProfile()
     {
         _profiles.LoadCurrent(_allSettings, _noBuffItemNames, _commandLogTypes);
+        // The profile's own EnableMeta value is a stored setting, so a load
+        // decides whether the meta runs exactly as it decides every other
+        // option. Nothing here starts a meta pass by itself: the pass is
+        // still gated on the macro running.
+        _meta.SetEnabled(_metaSettings.Enabled);
         LoadLootProfile();
         LoadRouteProfile();
         ApplyPersistedOptionOverrides();
@@ -4309,8 +4326,8 @@ internal sealed partial class MossTankPanel : IBuffRuleHost
     private void Stop(string status)
     {
         ClearFastCastMovement();
-        // gj.cs:262-276 / d() - the tracker is forced back to idle whenever
-        // the thing it was waiting on stops mattering.
+        // The tracker is forced back to idle whenever the thing it was
+        // waiting on stops mattering.
         _buffRule.Stop();
         _status = status;
         RestoreSelection();
@@ -4390,6 +4407,7 @@ internal sealed partial class MossTankPanel : IBuffRuleHost
         }
         _combatModeGate.Reset();
         _summonPet.Reset();
+        _idlePetRefill.Reset();
         _vitalRecharge.Reset();
         _vitalHelperRecharge.Reset();
         _dispel.Reset();
@@ -4675,6 +4693,9 @@ internal sealed partial class MossTankPanel : IBuffRuleHost
     private void HandleSessionStarted()
     {
         _meta.ResetSession();
+        // A new session clears where the meta had got to, not whether the
+        // profile asked for one: the stored setting outlives the session.
+        _meta.SetEnabled(_metaSettings.Enabled);
         _expressions.ClearSession();
         _expressions.DestroyAuxiliaryViews();
         _metaViews.DestroyAll();
@@ -4688,6 +4709,7 @@ internal sealed partial class MossTankPanel : IBuffRuleHost
     private void ResetSessionScopedControllers()
     {
         _summonPet.Reset();
+        _idlePetRefill.Reset();
         _vitalRecharge.Reset();
         _vitalHelperRecharge.Reset();
         _dispel.Reset();

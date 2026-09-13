@@ -166,7 +166,11 @@ public sealed class MossTankAutostartTests
         Command(panel, "settings save myprofile");
         Command(panel, "opt set enablemeta true");
         Assert.True(panel.MetaEnabled);
-        panel.ToggleMeta();
+        // A second profile that says no. EnableMeta is a stored setting on
+        // both sides, so switching profiles is what makes the live state
+        // differ from the one autostart will name.
+        Command(panel, "settings save plain");
+        Command(panel, "opt set enablemeta false");
         Assert.False(panel.MetaEnabled);
 
         host.SessionSettingsValue = new Dictionary<string, string>

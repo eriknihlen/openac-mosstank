@@ -45,7 +45,7 @@ internal static class ItemManaRechargePlanner
                     / item.ItemMaximumMana)
                 .ThenBy(static item => item.ObjectId)
                 .FirstOrDefault()
-            // dy.cs:318-322 — c[0], the oldest still-queued worn item.
+            // Otherwise the oldest still-queued worn item.
             : needsCharge
                 .OrderBy(item =>
                 {

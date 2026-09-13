@@ -92,7 +92,9 @@ public sealed class VtankSettingsProfileSerializerTests
             if (VtankSettingsProfileSerializer.Capture(name, settings) is null)
                 unmapped.Add(name);
         }
-        Assert.Equal(["EnableMeta", "RechargeHandlerSet"], unmapped);
+        // RechargeHandlerSet is the only one left with no write path — the
+        // reference client has none for it either.
+        Assert.Equal(["RechargeHandlerSet"], unmapped);
     }
 
     public static TheoryData<string> CatalogNamesWithLiveWritePath()
@@ -100,7 +102,7 @@ public sealed class VtankSettingsProfileSerializerTests
         var data = new TheoryData<string>();
         foreach (string name in VtankOptionCatalog.Names)
         {
-            if (name is "EnableMeta" or "RechargeHandlerSet")
+            if (name is "RechargeHandlerSet")
                 continue; // no live write path (Every137CatalogNameMapsToExactlyOneField).
             data.Add(name);
         }

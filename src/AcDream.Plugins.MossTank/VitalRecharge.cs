@@ -205,7 +205,7 @@ internal static class VitalRechargePlanner
         out VitalRechargeChoice choice)
     {
         choice = default;
-        // fb.cs:71-78 — the setting, then the ItemUse lock.
+        // The setting first, then the item-use cooldown slot.
         if (!settings.UseHealersHeart || automation.Items.IsBusy)
             return false;
         if (!automation.Character.TryGetSkill(33u, out PluginSkillInfo life)

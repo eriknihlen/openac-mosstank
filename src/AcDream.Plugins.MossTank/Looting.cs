@@ -127,7 +127,7 @@ internal sealed class LootRule
 
 internal sealed class LootSettings
 {
-    // Official VTank defaults from uTank2.Resources.defaultsettings.usd.
+    // The shipped VTank default settings profile's own values.
     public bool Enabled { get; set; }
     public string ExternalClassifierId { get; set; } = string.Empty;
     public bool PriorityBoost { get; set; }

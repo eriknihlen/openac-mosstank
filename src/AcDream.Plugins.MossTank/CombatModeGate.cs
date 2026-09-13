@@ -31,7 +31,7 @@ internal sealed class CombatModeGate
 
     internal double SinceModeRequestSecondsForTests => _sinceModeRequest;
 
-    /// <summary>VTank's <c>ah.m_a</c> (<c>ah.cs:6</c>).</summary>
+    /// <summary>Warnings already posted this session, said once each.</summary>
     private readonly HashSet<string> _postedWarnings = new(StringComparer.Ordinal);
 
     public CombatModeGate(
@@ -168,7 +168,7 @@ internal sealed class CombatModeGate
             primary = worn.ObjectId;
         }
 
-        // ga.cs:1466-1475 — otherwise the first wand on the Items page.
+        // Otherwise the first wand on the Items page.
         if (primary == 0u)
         {
             if (FindFirstProfiledWand(items) is not { } fallback)
@@ -187,8 +187,8 @@ internal sealed class CombatModeGate
                 PluginEquipmentItem? target = FindById(items, primary);
                 string name = target?.Name ?? "caster";
 
-                // ga.cs:1508-1528 — the drop-to-peace branch, with the retry
-                // budget and the stuck-state recovery.
+                // The drop-to-peace branch, with the retry budget and the
+                // stuck-state recovery.
                 if (!TryDropToPeace(items, name))
                     return false;
 
@@ -203,7 +203,7 @@ internal sealed class CombatModeGate
                 return false;
             }
 
-            // ga.cs:1550-1554 — reached only once the weapon already matches.
+            // Reached only once the weapon already matches.
             if (flag2 && WieldAmmunition?.Invoke(element) == true)
                 return false;
         }
@@ -212,9 +212,8 @@ internal sealed class CombatModeGate
     }
 
     /// <summary>
-    /// <c>ga.cs:1556-1565</c> — recompute the mode the wielded item implies
-    /// and ask for it if it differs. Returns true only once they agree
-    /// (<c>ga.cs:1566</c>).
+    /// Recompute the mode the wielded item implies and ask for it if it
+    /// differs. Returns true only once they agree.
     /// </summary>
     private bool TryPrepareMode(
         PluginEquipmentItem? wielded,
@@ -250,7 +249,7 @@ internal sealed class CombatModeGate
 
         if (mode == PluginCombatMode.Peace)
         {
-            _dropToPeaceRetries = 0; // ga.cs:1529
+            _dropToPeaceRetries = 0; // already there: the budget resets
             return true;
         }
 
@@ -352,10 +351,10 @@ internal sealed class CombatModeGate
             _sinceModeRequest = 0d;
         }
 
-        // f9.cs:331-344 — g() is purely time-based; BOTH of its arms are the
-        // same `m_h + 600 ms > now` expression, so m_i never affects the
-        // answer. f9.cs:358-368 — e() returns the saved mode inside the
-        // window and the live one outside it.
+        // The confirmation window is purely time-based — the reference
+        // client's two arms are the same expression, so the flag it also
+        // carries never affects the answer. Inside the window the saved mode
+        // is the answer; outside it, the live one.
         return _sinceModeRequest < ModeConfirmationSeconds
             ? _modeBeforeRequest
             : live;

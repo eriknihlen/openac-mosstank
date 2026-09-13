@@ -5227,6 +5227,112 @@ public sealed class MossTankPanelTests
     }
 
     [Fact]
+    public void TheIdleBandRefillsACombatPetOnTheIdleThresholdNotTheNormalOne()
+    {
+        var automation = new FakeAutomation
+        {
+            ItemEntries =
+            [
+                Item(10, "Cold Rift", 0, petClass: 49387) with
+                {
+                    Structure = 3,
+                    MaximumStructure = 50,
+                },
+                Item(11, "Encapsulated Spirit", 0) with
+                {
+                    WeenieClassId = PetDeviceCatalog.EncapsulatedSpiritWeenieClassId,
+                },
+            ],
+        };
+        var host = new FakeHost(automation);
+        automation.CurrentSelection = () => host.Selection.SelectedObjectId ?? 0u;
+        var panel = new MossTankPanel(host);
+        host.Selection.Select(10u);
+        panel.AddSelectedItem();
+        Command(panel, "opt set petrefillcount-normal 0");
+        Command(panel, "opt set petrefillcount-idle 3");
+        panel.ToggleCombat();
+
+        IMacroRule rule = ((IMacroRuleProvider)panel)
+            .Create(MacroRuleSlot.RefillPetChargesIdle);
+
+        // Three charges left is under the idle threshold and over the normal
+        // one: only a rule reading its own setting stops for this.
+        Assert.True(rule.ValidNow(new MacroPassContext(0.3d, true)));
+
+        Command(panel, "opt set petrefillcount-idle 0");
+
+        Assert.False(rule.ValidNow(new MacroPassContext(2d, true)));
+    }
+
+    [Fact]
+    public void AProfileWhoseEnableMetaIsTrueLoadsWithTheMetaEngineRunning()
+    {
+        var storage = new MemoryStorage();
+        storage.Text[MetaProfileKey] = ProfileTextWithEnableMeta(true);
+
+        var panel = new MossTankPanel(
+            new FakeHost(new FakeAutomation { Name = "Metaphile" }, storage));
+
+        Assert.True(panel.MetaEnabled);
+        Assert.True(panel.EvaluateExpression("uboptget['EnableMeta']").IsTruthy);
+    }
+
+    [Fact]
+    public void TheMetaCheckboxIsStoredInTheProfileAndOutlivesReloadAndReconnect()
+    {
+        var storage = new MemoryStorage();
+        var automation = new FakeAutomation { Name = "Metaphile" };
+        var panel = new MossTankPanel(new FakeHost(automation, storage));
+        Assert.False(panel.MetaEnabled);
+
+        panel.ToggleMeta();
+
+        Assert.True(panel.MetaEnabled);
+        Assert.True(StoredEnableMeta(storage.Text[MetaProfileKey]));
+
+        automation.IsAvailable = false;
+        panel.OnTick(0.1d);
+        automation.IsAvailable = true;
+        panel.OnTick(0.1d);
+
+        Assert.True(panel.MetaEnabled);
+
+        var reloaded = new MossTankPanel(
+            new FakeHost(new FakeAutomation { Name = "Metaphile" }, storage));
+
+        Assert.True(reloaded.MetaEnabled);
+    }
+
+    private static string MetaProfileKey =>
+        VtankProfileDirectory.AutoCharacterFileName("Metaphile", string.Empty, "usd");
+
+    private static string ProfileTextWithEnableMeta(bool value)
+    {
+        VtankDatabase database = VtankDefaultSettingsDatabase.Parse();
+        VtankTable settings = database.Find("Settings")!;
+        int nameColumn = settings.ColumnIndex("Setting");
+        int valueColumn = settings.ColumnIndex("Value");
+        VtankRow row = settings.Rows.First(candidate =>
+            candidate.Cells[nameColumn].AsString().Equals(
+                "EnableMeta", StringComparison.OrdinalIgnoreCase));
+        row.Cells[valueColumn] = VtankCell.Bool(value);
+        return database.Render();
+    }
+
+    private static bool StoredEnableMeta(string profileText)
+    {
+        VtankTable settings = VtankDatabase.Parse(profileText).Find("Settings")!;
+        int nameColumn = settings.ColumnIndex("Setting");
+        int valueColumn = settings.ColumnIndex("Value");
+        return settings.Rows
+            .First(candidate => candidate.Cells[nameColumn].AsString().Equals(
+                "EnableMeta", StringComparison.OrdinalIgnoreCase))
+            .Cells[valueColumn]
+            .AsBool();
+    }
+
+    [Fact]
     public void OfficialVtankOptionDefaultsAndDynamicOverridesAreDurable()
     {
         var storage = new MemoryStorage();

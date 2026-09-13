@@ -31,8 +31,8 @@ internal sealed class DispelController
     private readonly VitalSettings _settings;
 
     /// <summary>
-    /// The Items profile, which is what <c>af.cs:84</c>'s
-    /// <c>PluginCore.PC.ec</c> scan reads.
+    /// The Items profile: the reference client's own dispel-item scan reads
+    /// the same list.
     /// </summary>
     private readonly CombatSettings _combatSettings;
 
@@ -224,7 +224,7 @@ internal sealed class DispelController
 
     private bool TryStartAllyDispel(IAutomationSurface automation)
     {
-        // af.cs:79-82 — `if (m_a.o.n.b(ActionLockType.ItemUse)) return false;`.
+        // The item-use cooldown slot has to be free first.
         if (automation.Items.IsBusy)
             return false;
         if (!automation.Fellowship.IsInFellowship
@@ -311,7 +311,7 @@ internal sealed class DispelController
                 continue;
             }
             drum = item;
-            break;   // af.cs:89
+            break;   // the first match wins
         }
         if (drum.ObjectId == 0u)
             return false;

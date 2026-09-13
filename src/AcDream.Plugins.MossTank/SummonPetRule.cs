@@ -38,13 +38,13 @@ internal sealed class SummonPetRule : IMacroRule
         IAutomationSurface automation = _host.Automation;
         if (!automation.IsAvailable)
             return false;
-        if (!_settings.Enabled)          // EnableCombat, h1.cs:32-35
+        if (!_settings.Enabled)          // EnableCombat
             return false;
-        if (!_settings.SummonPets)       // SummonPets, h1.cs:36-39
+        if (!_settings.SummonPets)       // SummonPets
             return false;
-        if (!IsSummoningTrained(automation.Character))  // h1.cs:40-43
+        if (!IsSummoningTrained(automation.Character))
             return false;
-        if (HasSummonCooldown(automation.Character))    // h1.cs:44-47
+        if (HasSummonCooldown(automation.Character))
             return false;
 
         if (_combatOwnsTarget())

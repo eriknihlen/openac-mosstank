@@ -70,7 +70,7 @@ public interface IBuffCastability
         return IsCastable(tier);
     }
 
-    /// <summary><c>eq.cs:504-508</c>'s once-per-run "buff SKIPPED." line.</summary>
+    /// <summary>The once-per-run "buff SKIPPED." line.</summary>
     void NoteNoCastableTier(BuffLine line);
 
     void NoteTierPick(
@@ -375,8 +375,8 @@ public static class BuffPlan
         if (line.Tiers.Count == 0)
             return false;
 
-        // fk.cs:189's first five terms, all against the family's reference
-        // spell (fk.a's A_0). See MatchesReference.
+        // The first five terms of the reference client's family match, all
+        // against the family's reference spell. See MatchesReference.
         PluginSpellInfo reference = line.Reference;
 
         List<BuffTierRejection>? rejections = castability is null ? null : [];
