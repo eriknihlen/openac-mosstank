@@ -1579,7 +1579,8 @@ public sealed partial class LootingTests
         Assert.True(controller.Tick(0.2d, canAct: true));
 
         Assert.Equal("Corpse complete.", controller.Status);
-        Assert.Equal(new[] { corpse }, automation.Used);
+        Assert.Equal(new[] { corpse }, automation.Closed);
+        Assert.Empty(automation.Used);
     }
 
     /// <summary>
@@ -1592,16 +1593,16 @@ public sealed partial class LootingTests
         (LootController controller, Automation automation, uint corpse) =
             FinishedCorpseScenario(itemsBusy: true);
 
-        Assert.Empty(automation.Used);
+        Assert.Empty(automation.Closed);
         Assert.Equal("Waiting to close corpse…", controller.Status);
 
         // A pass the controller may not act on holds it back just as much.
         automation.ItemsBusy = false;
         Assert.True(controller.Tick(0.1d, canAct: false));
-        Assert.Empty(automation.Used);
+        Assert.Empty(automation.Closed);
 
         Assert.True(controller.Tick(0.1d, canAct: true));
-        Assert.Equal(new[] { corpse }, automation.Used);
+        Assert.Equal(new[] { corpse }, automation.Closed);
     }
 
     /// <summary>
@@ -1614,17 +1615,17 @@ public sealed partial class LootingTests
         (LootController controller, Automation automation, uint corpse) =
             FinishedCorpseScenario(itemsBusy: false);
 
-        Assert.Equal(new[] { corpse }, automation.Used);
+        Assert.Equal(new[] { corpse }, automation.Closed);
 
         // The server did not shut the container, so the corpse is still this
         // controller's business and the use comes round again.
         Assert.True(controller.Tick(0.1d, canAct: true));
-        Assert.Equal(new[] { corpse, corpse }, automation.Used);
+        Assert.Equal(new[] { corpse, corpse }, automation.Closed);
         Assert.Empty(automation.Opened.Skip(1));
 
         automation.Current = 0u;
         Assert.False(controller.Tick(0.1d, canAct: true));
-        Assert.Equal(new[] { corpse, corpse }, automation.Used);
+        Assert.Equal(new[] { corpse, corpse }, automation.Closed);
     }
 
     /// <summary>Opens one corpse holding nothing worth taking.</summary>
@@ -2001,6 +2002,7 @@ public sealed partial class LootingTests
         PluginInventoryCompletion ILootAutomation.LastInventoryCompletion =>
             InventoryCompletion;
         public List<uint> Opened { get; } = [];
+        public List<uint> Closed { get; } = [];
         public List<uint> Used { get; } = [];
         public PluginItemUseCompletion UseCompletion { get; set; }
         public PluginItemUseCompletion LastCompletion => UseCompletion;
@@ -2033,6 +2035,11 @@ public sealed partial class LootingTests
         {
             Opened.Add(containerObjectId);
             Requested = containerObjectId;
+            return new(PluginItemCommandStatus.Started);
+        }
+        public PluginItemCommandResult Close(uint containerObjectId)
+        {
+            Closed.Add(containerObjectId);
             return new(PluginItemCommandStatus.Started);
         }
         public PluginItemCommandResult Identify(uint objectId)

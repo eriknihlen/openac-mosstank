@@ -23,12 +23,16 @@ internal sealed partial class LootController
         if (corpseId == 0u)
             return false;
         IItemAutomation items = _host.Automation.Items;
-        if (!canAct || !items.IsAvailable || ItemSlotHeld(items))
+        ILootAutomation loot = _host.Automation.Loot;
+        if (!canAct
+            || !items.IsAvailable
+            || !loot.IsAvailable
+            || ItemSlotHeld(items))
         {
             Status = "Waiting to close corpse…";
             return true;
         }
-        Status = items.Use(corpseId).Accepted
+        Status = loot.Close(corpseId).Accepted
             ? "Corpse complete."
             : "Waiting to close corpse…";
         return true;
