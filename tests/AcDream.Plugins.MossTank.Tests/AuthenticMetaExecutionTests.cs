@@ -43,7 +43,7 @@ public sealed class AuthenticMetaExecutionTests
     }
 
     [Fact]
-    public void ControlledNativeMetaRunsThroughThePanelOnlyAfterMacroStart()
+    public void ControlledNativeMetaIsReselectedAfterIdentitySettlesAndThenRuns()
     {
         string fixture = File.ReadAllText(Path.Combine(
             AppContext.BaseDirectory,
@@ -51,13 +51,20 @@ public sealed class AuthenticMetaExecutionTests
             "vt-proof",
             "rynthify-controlled-meta.met"));
         var profiles = new MemoryStorage();
-        var automation = new Automation();
+        var automation = new Automation { Name = "Privileged Meta Tester" };
         var host = new Host(automation, profiles);
         var imports = Assert.IsType<MemoryStorage>(host.Storage);
         imports.Text["imports/rynthify-controlled-meta.met"] = fixture;
         var panel = new MossTankPanel(host);
         panel.OnTick(0.1d);
 
+        ExecuteVtank(panel, "meta load rynthify-controlled-meta.met");
+        Assert.Equal("rynthify-controlled-meta", panel.SelectedMetaProfile);
+
+        automation.Name = "Meta Tester";
+        panel.OnTick(0.1d);
+
+        Assert.Equal(MossTankMetaProfileStore.ByCharacter, panel.SelectedMetaProfile);
         ExecuteVtank(panel, "meta load rynthify-controlled-meta.met");
         ExecuteVtank(panel, "opt set LootPriorityBoost false");
         ExecuteVtank(panel, "opt set EnableMeta true");
@@ -282,7 +289,7 @@ public sealed class AuthenticMetaExecutionTests
         public INavigationAutomation Navigation => this;
         public IWorldObjectAutomation Objects => this;
         public bool IsInWorld => true;
-        public string Name => "Meta Tester";
+        public string Name { get; set; } = "Meta Tester";
         public string WorldName => "Coldeve";
         public uint ObjectId => 1u;
         public uint CurrentHealth => 100u;

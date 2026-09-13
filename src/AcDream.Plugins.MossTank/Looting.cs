@@ -515,6 +515,7 @@ internal sealed partial class LootController
     private long _waitingInventoryRevision;
     private uint _awaitingAppraisal;
     private uint _awaitingCorpseAppraisal;
+    private uint _lastCorpseDescriptionRequest;
     private double _lifetime;
     private readonly Dictionary<uint, uint> _pendingScrollReads = [];
     private uint _salvagePendingItem;
@@ -720,14 +721,15 @@ internal sealed partial class LootController
         IReadOnlyList<PluginLootContainer> known =
             loot.CaptureCorpses(float.MaxValue);
         PruneCorpseCache(known);
-        // The set is walked twice below — once to ask for a description,
-        // once to pick — and the client hands it over already ordered by
+        // The set is walked below both to pick and to ask for descriptions,
+        // and the client hands it over already ordered by
         // distance and then by id, so two hosts asking the same question get
         // the same answer. It is NOT narrowed to the approach range first:
         // the description is asked of every corpse the client is reporting,
         // and the open step carries its own reach. The approach range is the
         // walk's, and the walk is its own rule, one position above this one.
 
+        bool waitingForCorpseDescription = false;
         if (_awaitingCorpseAppraisal != 0u)
         {
             PluginAppraisalState appraisal = loot.Appraisal;
@@ -741,21 +743,83 @@ internal sealed partial class LootController
                 1d,
                 _settings.CorpseOpenTimeoutSeconds * 2d))
             {
-                Status = "Identifying corpse…";
-                return true;
+                waitingForCorpseDescription = true;
             }
             else
             {
-                MarkCorpseComplete(_awaitingCorpseAppraisal);
+                // Only the description request expired. The corpse has not
+                // been opened or emptied, so leave it eligible for another
+                // identify request on the next scan.
                 _awaitingCorpseAppraisal = 0u;
                 _stateAge = 0d;
             }
         }
 
-        // A corpse whose long description has not arrived yet cannot be
-        // judged, so ask for it first and try again next scan.
-        foreach (PluginLootContainer candidateCorpse in known)
+        // A described corpse is ready work even while another corpse's
+        // description is pending. The existing range and heading selector
+        // remains the authority for which ready corpse opens.
+        _selectedCorpse = 0u;
+        if (SelectCorpse(known, CorpseOpenRangeMeters, byHeading: true)
+            is { } corpse)
         {
+            _selectedCorpse = corpse.ObjectId;
+
+            PluginItemCommandResult opened = loot.Open(corpse.ObjectId);
+            if (!opened.Accepted)
+            {
+                Status = opened.Status == PluginItemCommandStatus.Busy
+                    ? "Waiting to open corpse…"
+                    : $"Could not open {corpse.Name}.";
+                return opened.Status == PluginItemCommandStatus.Busy;
+            }
+            _activeCorpse = corpse.ObjectId;
+            _activeCorpseSawContents = false;
+            _activeCorpseIsOwnDeath = IsOwnDeathCorpse(corpse);
+            _stateAge = 0d;
+            // Opening a corpse is not instant and it is not always local: a corpse
+            // out of arm's reach is opened by walking to it first, and the walk is
+            // the client's, not this controller's. So the open holds three slots —
+            // the item slot, the corpse-open slot, and navigation, that last one so
+            // the route rule does not steer against the walk the open just started.
+            // The three are held only until the container actually opens; the
+            // timeout is the ceiling for an open that never lands, not the wait.
+            // See ObserveCorpseOpened, which is what gives them back and what the
+            // corpse-open slot exists to mark.
+            double openWindow = Math.Max(
+                0.25d,
+                _settings.CorpseOpenTimeoutSeconds);
+            _actionLocks?.Arm(ActionLockKind.ItemUse, openWindow);
+            _actionLocks?.Arm(ActionLockKind.Navigation, openWindow);
+            _actionLocks?.Arm(ActionLockKind.CorpseOpenAttempt, openWindow);
+            Status = $"Opening {corpse.Name}…";
+            Log?.Invoke(
+                MacroLogChannel.Loot,
+                $"LootCorpse: opening {corpse.Name} (0x{corpse.ObjectId:X8})");
+            return true;
+        }
+
+        if (waitingForCorpseDescription)
+        {
+            Status = "Identifying corpse…";
+            return true;
+        }
+
+        // A corpse whose long description has not arrived yet cannot be
+        // judged. Advance from the last accepted request so one corpse that
+        // never answers cannot monopolize every later request.
+        int lastRequestIndex = -1;
+        for (int index = 0; index < known.Count; index++)
+        {
+            if (known[index].ObjectId == _lastCorpseDescriptionRequest)
+            {
+                lastRequestIndex = index;
+                break;
+            }
+        }
+        for (int offset = 1; offset <= known.Count; offset++)
+        {
+            int index = (lastRequestIndex + offset) % known.Count;
+            PluginLootContainer candidateCorpse = known[index];
             if (candidateCorpse.IsIdentified
                 || _completedCorpses.ContainsKey(candidateCorpse.ObjectId)
                 || IsCorpseDenied(candidateCorpse.ObjectId)
@@ -768,6 +832,7 @@ internal sealed partial class LootController
             if (identify.Accepted)
             {
                 _awaitingCorpseAppraisal = candidateCorpse.ObjectId;
+                _lastCorpseDescriptionRequest = candidateCorpse.ObjectId;
                 _stateAge = 0d;
                 Status = $"Identifying {candidateCorpse.Name}…";
                 return true;
@@ -776,50 +841,8 @@ internal sealed partial class LootController
                 return true;
         }
 
-        // The open step picks within arm's reach, and only there, by how
-        // nearly the character is already facing the corpse: among corpses it
-        // could reach out and touch, the one being looked at wins. A corpse
-        // beyond that reach is the approach rule's business — it walks the
-        // character in until this pick can see it.
-        _selectedCorpse = 0u;
-        if (SelectCorpse(known, CorpseOpenRangeMeters, byHeading: true)
-            is not { } corpse)
-        {
-            Status = "No nearby corpses.";
-            return false;
-        }
-        _selectedCorpse = corpse.ObjectId;
-
-        PluginItemCommandResult opened = loot.Open(corpse.ObjectId);
-        if (!opened.Accepted)
-        {
-            Status = opened.Status == PluginItemCommandStatus.Busy
-                ? "Waiting to open corpse…"
-                : $"Could not open {corpse.Name}.";
-            return opened.Status == PluginItemCommandStatus.Busy;
-        }
-        _activeCorpse = corpse.ObjectId;
-        _activeCorpseSawContents = false;
-        _activeCorpseIsOwnDeath = IsOwnDeathCorpse(corpse);
-        _stateAge = 0d;
-        // Opening a corpse is not instant and it is not always local: a corpse
-        // out of arm's reach is opened by walking to it first, and the walk is
-        // the client's, not this controller's. So the open holds three slots —
-        // the item slot, the corpse-open slot, and navigation, that last one so
-        // the route rule does not steer against the walk the open just started.
-        // The three are held only until the container actually opens; the
-        // timeout is the ceiling for an open that never lands, not the wait.
-        // See ObserveCorpseOpened, which is what gives them back and what the
-        // corpse-open slot exists to mark.
-        double openWindow = Math.Max(0.25d, _settings.CorpseOpenTimeoutSeconds);
-        _actionLocks?.Arm(ActionLockKind.ItemUse, openWindow);
-        _actionLocks?.Arm(ActionLockKind.Navigation, openWindow);
-        _actionLocks?.Arm(ActionLockKind.CorpseOpenAttempt, openWindow);
-        Status = $"Opening {corpse.Name}…";
-        Log?.Invoke(
-            MacroLogChannel.Loot,
-            $"LootCorpse: opening {corpse.Name} (0x{corpse.ObjectId:X8})");
-        return true;
+        Status = "No nearby corpses.";
+        return false;
     }
 
     public void Reset()
@@ -1601,6 +1624,7 @@ internal sealed partial class LootController
         _waitingInventoryRevision = 0L;
         _awaitingAppraisal = 0u;
         _awaitingCorpseAppraisal = 0u;
+        _lastCorpseDescriptionRequest = 0u;
         _salvagePendingItem = 0u;
         _salvagePendingName = string.Empty;
         _salvageAttempts = 0;
