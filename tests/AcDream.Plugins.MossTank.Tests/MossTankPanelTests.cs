@@ -1,4 +1,4 @@
-using System.Reflection;
+﻿using System.Reflection;
 using AcDream.Plugin.Abstractions;
 
 namespace AcDream.Plugins.MossTank.Tests;
@@ -2221,6 +2221,97 @@ public sealed class MossTankPanelTests
             "applied to Drudge",
             panel.CombatStatus,
             StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// A weapon proc's debuff rides a physical swing, and it arms no item
+    /// slot of its own. So when some OTHER rule takes the item slot — a kit,
+    /// a dispel item, the mode-gate's recovery — the attack loses its turn,
+    /// its swing is aborted, and that is the end of it: nothing may go on to
+    /// release a swing that is no longer running, least of all inside the
+    /// window the other rule took the slot for.
+    /// Mutation: widen the turnless branch at the top of
+    /// <c>CombatController.OnTick</c> back to <c>_pendingItemDebuff is not
+    /// null</c> (dropping the <c>CasterItem</c> pattern) and the last
+    /// assertion fails — the charge is released on the very passes the
+    /// attack has no turn on.
+    /// </summary>
+    [Fact]
+    public void AProcChargeIsNotReleasedOnAPassTheAttackLost()
+    {
+        var imperil = new PluginSpellInfo(
+            91u,
+            "Imperil Other VII",
+            Family: 1,
+            Tier: 8,
+            Difficulty: 350,
+            ManaCost: 30,
+            DurationSeconds: 60,
+            School: 31,
+            Description: string.Empty,
+            IsSelfTargeted: false,
+            IsBeneficial: false)
+        {
+            IsDebuff = true,
+            IsOffensive = true,
+            BaseRangeConstant = 80f,
+        };
+        var automation = new CombatCapableFakeAutomation
+        {
+            CurrentHealth = 100,
+            MaxHealth = 100,
+            CurrentMana = 100,
+            MaxMana = 100,
+            ItemEntries =
+            [
+                Item(801, "Imperil Sword", itemType: 0x0001) with
+                {
+                    EquippedLocation = 0x00100000u,
+                    ItemSpellcraft = 400,
+                    AppraisedSpellIds = [91u],
+                },
+            ],
+            EquipmentItems = [EquipmentItem(801, "Imperil Sword", itemType: 0x0001)],
+            Targets = [new PluginCombatTarget(30, "Drudge", 700, 2f, 0f, true, 1f)],
+        };
+        automation.SpellLookup.Add(imperil);
+        automation.CombatSnapshot = automation.CombatSnapshot with
+        {
+            Mode = PluginCombatMode.Melee,
+        };
+        var host = new FakeHost(automation);
+        var panel = new MossTankPanel(host);
+        host.Selection.Select(801);
+        panel.AddSelectedItem();
+        panel.ToggleMonsterImperilAt(0);
+        panel.SetMetaOption("EnableBuffing", Truthy(false));
+        panel.ToggleCombat();
+
+        for (int tick = 0; tick < 40 && automation.BeginCount == 0; tick++)
+            panel.OnTick(0.3d);
+        Assert.True(
+            automation.BeginCount > 0,
+            "the rig never began the proc's swing at all. CallLog: "
+                + string.Join(" | ", automation.CallLog));
+        Assert.Equal(30u, automation.LastBeginTarget);
+        // The proc arms nothing: the slot is free until someone else takes it.
+        Assert.False(panel.ActionLocks.IsLocked(ActionLockKind.ItemUse));
+        Assert.Equal(0, automation.ReleaseCount);
+
+        // Another rule takes the item slot for its own five-second window, and
+        // the swing it interrupted is sitting at full power.
+        panel.ActionLocks.Arm(ActionLockKind.ItemUse, 5d);
+        automation.CombatSnapshot = automation.CombatSnapshot with
+        {
+            RequestInProgress = true,
+            BuildInProgress = true,
+            PowerBarLevel = 1f,
+        };
+        for (int tick = 0; tick < 8; tick++)
+            panel.OnTick(0.3d);
+
+        Assert.True(panel.ActionLocks.IsLocked(ActionLockKind.ItemUse));
+        Assert.Equal(0, automation.ReleaseCount);
     }
 
     /// <summary>
@@ -5997,8 +6088,13 @@ public sealed class MossTankPanelTests
             CallLog.Add($"Attack:{targetObjectId:X8}");
             return new(PluginCombatCommandStatus.Started);
         }
-        public PluginCombatCommandResult ReleasePhysicalAttack() =>
-            new(PluginCombatCommandStatus.Released);
+        public int ReleaseCount { get; private set; }
+        public PluginCombatCommandResult ReleasePhysicalAttack()
+        {
+            ReleaseCount++;
+            CallLog.Add("Release");
+            return new(PluginCombatCommandStatus.Released);
+        }
         public PluginCombatCommandResult AbortPhysicalAttack() =>
             new(PluginCombatCommandStatus.Stopped);
 

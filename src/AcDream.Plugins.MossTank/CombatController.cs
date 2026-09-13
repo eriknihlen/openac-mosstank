@@ -1,4 +1,4 @@
-using System.Globalization;
+﻿using System.Globalization;
 using AcDream.Plugin.Abstractions;
 
 namespace AcDream.Plugins.MossTank;
@@ -452,13 +452,20 @@ internal sealed class CombatController
         }
         if (_paused)
         {
-            // No turn this pass, so nothing new is started — but an item
-            // already in flight is a transaction of its own that began before
-            // this pass and finishes on its own clock. It is watched to its
-            // end, including the early release of the slot it holds, whoever
-            // owns the pass meanwhile.
+            // No turn this pass, so nothing new is started — but a HELD
+            // ITEM's cast is a transaction of its own: it began before this
+            // pass, it holds the item slot, and it finishes on its own clock
+            // whoever owns the pass meanwhile. It is watched to its end,
+            // including putting that slot down early.
+            //
+            // Only the held item is such a transaction. A weapon proc or a
+            // thrown one rides a physical swing, and losing the turn has just
+            // aborted that swing — advancing it here would release a swing
+            // that is no longer ours to release, including inside the very
+            // item window some other rule is holding the slot for.
             _now += Math.Max(0d, elapsedSeconds);
-            if (_pendingItemDebuff is not null)
+            if (_pendingItemDebuff is
+                { Source.Kind: CombatDebuffSourceKind.CasterItem })
             {
                 ObserveItemTransaction();
                 TickPendingItemDebuff(_host.Automation.Combat.Snapshot);
