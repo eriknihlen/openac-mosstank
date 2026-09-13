@@ -1207,19 +1207,16 @@ internal sealed class CombatController
             + _settings.HuntSkillExcessOverDifficulty;
     }
 
-    private int CountNearbyRingTargets()
-    {
-        int count = 0;
-        foreach (PluginCombatTarget target in _targets)
-        {
-            if (target.Distance > _settings.RingDistance)
-                continue;
-            ResolvedMonsterRule resolved = _settings.ResolveRule(target);
-            if (resolved.Priority >= 0 && resolved.Actions.UsesRing)
-                count++;
-        }
-        return count;
-    }
+    /// <summary>
+    /// How many monsters a ring would actually catch. Only monsters the pass
+    /// has accepted as candidates are counted — one that is blacklisted, too
+    /// near, ignored, or refusing to be attacked before it is debuffed is not
+    /// going to be hit and must not push the tally over the threshold — and
+    /// the ring boundary itself is outside the ring.
+    /// </summary>
+    private int _ringCandidateCount;
+
+    private int CountNearbyRingTargets() => _ringCandidateCount;
 
     private bool TickEquipment()
     {
@@ -2645,9 +2642,10 @@ internal sealed class CombatController
 
         uint lastTarget = _targetId;
         var candidates = new List<CombatTargetCandidate>();
+        _ringCandidateCount = 0;
         foreach (PluginCombatTarget target in _targets)
         {
-            if (TryBuildCandidate(
+            if (!TryBuildCandidate(
                     target,
                     combat,
                     lastTarget,
@@ -2656,7 +2654,13 @@ internal sealed class CombatController
                     _acquisitionRange,
                     out CombatTargetCandidate candidate))
             {
-                candidates.Add(candidate);
+                continue;
+            }
+            candidates.Add(candidate);
+            if (candidate.Distance < _settings.RingDistance
+                && candidate.Rule.Actions.UsesRing)
+            {
+                _ringCandidateCount++;
             }
         }
 

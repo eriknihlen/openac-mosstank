@@ -884,6 +884,80 @@ public sealed class CombatControllerTests
         Assert.Equal(100u, targeted.Item1);
     }
 
+    [Fact]
+    public void TheRingTallyCountsOnlyValidCandidatesStrictlyInsideTheRing()
+    {
+        PluginSpellInfo[] known =
+        [
+            MagicSpell(110, "Cassius' Ring of Fire", difficulty: 300) with
+            {
+                TargetMask = 0u,
+                IsUntargeted = true,
+            },
+            MagicSpell(100, "Flame Bolt VII", difficulty: 300),
+        ];
+
+        // Two monsters, both within RingDistance by the old inclusive test:
+        // one exactly ON the ring boundary, which the strict comparison
+        // excludes, so the tally is one and the pass bolts instead.
+        Assert.Equal(
+            100u,
+            RingTallyScenario(
+                known,
+                [Target(10, "Drudge", 3f, 0), Target(11, "Drudge", 5f, 0)],
+                minimumRange: 0d).Targeted.Item1);
+
+        // Same, but the second monster is nearer than AttackMinimumDistance,
+        // so it is not a candidate at all and cannot be tallied.
+        Assert.Equal(
+            100u,
+            RingTallyScenario(
+                known,
+                [Target(10, "Drudge", 3f, 0), Target(11, "Drudge", 0.5f, 0)],
+                minimumRange: 1d).Targeted.Item1);
+
+        // Two valid candidates strictly inside the ring: the ring fires.
+        Assert.Equal(
+            110u,
+            RingTallyScenario(
+                known,
+                [Target(10, "Drudge", 3f, 0), Target(11, "Drudge", 4f, 0)],
+                minimumRange: 0d).Untargeted);
+    }
+
+    private static (uint Untargeted, (uint, uint) Targeted) RingTallyScenario(
+        IReadOnlyList<PluginSpellInfo> known,
+        IReadOnlyList<PluginCombatTarget> targets,
+        double minimumRange)
+    {
+        var surface = new FakeAutomation
+        {
+            CombatSnapshot = Physical() with { Mode = PluginCombatMode.Magic },
+            Targets = targets,
+            KnownCombatSpells = known,
+            EquipmentItems = [WieldedCaster()],
+        };
+        var settings = new CombatSettings
+        {
+            MaximumRange = 40d,
+            RingDistance = 5d,
+            MinimumRange = minimumRange,
+            MinimumRingTargets = 2,
+        };
+        settings.Rules.Clear();
+        settings.Rules.Add(new MonsterRule(
+            "DEFAULT",
+            new MonsterRuleActions
+            {
+                Flags = MonsterActionFlags.Ring | MonsterActionFlags.Attack,
+                DamageType = MonsterDamageType.Fire,
+            }));
+        var controller = new CombatController(new FakeHost(surface), settings);
+        controller.Toggle();
+        controller.OnTick(0.25);
+        return (surface.LastUntargetedCast, surface.LastTargetedCast);
+    }
+
     private static (uint Untargeted, (uint, uint) Targeted) CastRingScenario(
         IReadOnlyList<PluginSpellInfo> known,
         MonsterActionFlags flags,
