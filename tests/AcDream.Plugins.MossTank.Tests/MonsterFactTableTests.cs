@@ -27,6 +27,11 @@ public sealed class MonsterFactTableTests
             SpeciesName = speciesWord,
         };
 
+    /// <summary>
+    /// Mutation: read the maximum health off the live monster instead of the
+    /// database and every rule keyed on it matches the wrong monsters — the
+    /// server never sends that figure, so the live one is always zero.
+    /// </summary>
     [Fact]
     public void MaximumHealthComesFromTheDatabaseNotTheLiveObject()
     {
@@ -49,6 +54,11 @@ public sealed class MonsterFactTableTests
             settings.ResolveRule(Target("Drudge Prowler", 4, "Drudge")).Priority);
     }
 
+    /// <summary>
+    /// Mutation: answer zero for an unlisted monster instead of "no answer"
+    /// and a <c>maxhp&lt;=N</c> rule starts matching everything the database
+    /// does not know.
+    /// </summary>
     [Fact]
     public void AnUnlistedMonsterHasNoMaximumHealthAtAll()
     {
@@ -66,6 +76,11 @@ public sealed class MonsterFactTableTests
             settings.ResolveRule(Target("Drudge Prowler", 4, "Drudge")).Priority);
     }
 
+    /// <summary>
+    /// Mutation: match the species against the live property and an unlisted
+    /// monster of the same kind starts matching a species rule the database
+    /// never gave it.
+    /// </summary>
     [Fact]
     public void SpeciesComesFromTheDatabaseNotTheLiveProperty()
     {
@@ -92,6 +107,10 @@ public sealed class MonsterFactTableTests
                 .Priority);
     }
 
+    /// <summary>
+    /// Mutation: fall back to the live figures with no database loaded and a
+    /// profile written for one silently matches different monsters.
+    /// </summary>
     [Fact]
     public void WithoutADatabaseNothingHasASpeciesOrAMaximumHealth()
     {
@@ -106,6 +125,10 @@ public sealed class MonsterFactTableTests
             settings.ResolveRule(Target("Olthoi Slasher", 1, "Olthoi")).Priority);
     }
 
+    /// <summary>
+    /// Mutation: return no rule when the profile has no default row and a
+    /// monster no row names is never attacked at all.
+    /// </summary>
     [Fact]
     public void AProfileWithNoDefaultRowFallsBackToTheSeedRow()
     {
@@ -125,6 +148,10 @@ public sealed class MonsterFactTableTests
         Assert.True(resolved.Actions.UsesStreak);
     }
 
+    /// <summary>
+    /// Mutation: stop reading the immunity column and the bot throws the one
+    /// element the monster cannot be hurt by.
+    /// </summary>
     [Fact]
     public void TheImmunityMaskIsRead()
     {

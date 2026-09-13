@@ -31,6 +31,10 @@ public sealed class CorpseDrainPlanTests
             GameInfo.MartyrSpellOptions,
             castable ?? (static _ => true));
 
+    /// <summary>
+    /// Mutation: rank the steps by health taken off alone, ignoring the time
+    /// each takes, and the first assertion picks the wrong drain.
+    /// </summary>
     [Fact]
     public void TheGreedyStepIsTheMostHealthTakenOffPerMillisecondSpent()
     {
@@ -45,6 +49,10 @@ public sealed class CorpseDrainPlanTests
             Select(900, 1000, 749, 400, castable: id => id != 1239u));
     }
 
+    /// <summary>
+    /// Mutation: ignore the drainable flag and a drain is planned against a
+    /// monster no drain can touch, so the cast is thrown away.
+    /// </summary>
     [Fact]
     public void AMonsterNothingMagicalCanTouchIsNeverDrained()
     {
@@ -53,6 +61,10 @@ public sealed class CorpseDrainPlanTests
         Assert.DoesNotContain(chosen, DrainSpells);
     }
 
+    /// <summary>
+    /// Mutation: let a drain be planned at full health and the caster throws
+    /// health it cannot receive, instead of spending its own on a martyr.
+    /// </summary>
     [Fact]
     public void AtFullHealthThereIsNothingToDrainIntoAndNothingToHeal()
     {
@@ -61,6 +73,10 @@ public sealed class CorpseDrainPlanTests
         Assert.Contains(chosen, MartyrSpells);
     }
 
+    /// <summary>
+    /// Mutation: drop the ring filter and a single-target martyr is planned
+    /// for a ring, which would hit one monster where the profile wanted all.
+    /// </summary>
     [Fact]
     public void ARingPlanMayOnlyUseTheRingMartyr()
     {
@@ -69,6 +85,11 @@ public sealed class CorpseDrainPlanTests
         Assert.Equal(0u, Select(1000, 1000, 749, 400, ring: true));
     }
 
+    /// <summary>
+    /// Mutation: answer the first castable spell rather than zero when the
+    /// plan opens with a self-heal, and the caster drains itself under the
+    /// floor instead of recharging.
+    /// </summary>
     [Fact]
     public void APlanWhoseFirstStepIsAHealMeansDoNotDrain()
     {
@@ -79,6 +100,10 @@ public sealed class CorpseDrainPlanTests
             Select(900, 1000, 749, 400, castable: static _ => false));
     }
 
+    /// <summary>
+    /// Mutation: skip the bounded search under the health threshold and the
+    /// nearly-dead monster is left to a drain that cannot finish it.
+    /// </summary>
     [Fact]
     public void ANearlyDeadMonsterGetsTheSearchAndAFinishingPlan()
     {
