@@ -270,8 +270,38 @@ public sealed class NavigationTests
         Assert.True(controller.Tick(0.05d, canAct: true));
 
         Assert.Empty(automation.Intents);
-        Assert.Equal(1, automation.ClearCount);
+        // A stop only releases what was being held, and nothing was: the very
+        // first tick of a route was never moving.
+        Assert.Equal(0, automation.ClearCount);
         Assert.Equal(90f, Assert.Single(automation.FacedHeadings));
+    }
+
+    /// <summary>
+    /// The typing branch is the mover's other steering shape, not a different
+    /// mover. Once it is aimed, it makes the same stop decision as any other
+    /// branch, so a goal inside the creep band is walked to, not run at.
+    /// </summary>
+    [Fact]
+    public void ThePlayerTypingStillWalksTheLastMetreInsteadOfRunningIt()
+    {
+        var automation = new FakeAutomation
+        {
+            NavigationSnapshot = Snapshot(Position(0d, 0d, heading: 90f)),
+            ChatInputActive = true,
+        };
+        // A metre east: aimed already, and inside the creep band.
+        NavigationController controller = Controller(
+            automation,
+            RouteMode.Circular,
+            0.5d,
+            Waypoint(RouteWaypointType.Point, Position(1d / 240d, 0d)));
+
+        Assert.True(controller.Tick(0.05d, canAct: true));
+
+        PluginMovementIntent intent = Assert.Single(automation.Intents);
+        Assert.True(intent.Forward);
+        Assert.False(intent.Run);
+        Assert.Empty(automation.FacedHeadings);
     }
 
     [Fact]
@@ -679,9 +709,9 @@ public sealed class NavigationTests
     }
 
     /// <summary>
-    /// The door rule stands down while another rule holds a lock it waits on.
-    /// The lock table itself is not built yet, so this pins the seam, not a
-    /// held lock.
+    /// The door rule stands down while another rule holds a lock it waits on,
+    /// and takes its own locks on the pass it claims. The named lock table is
+    /// not built yet, so the pin drives the seam the table will be wired to.
     /// </summary>
     [Fact]
     public void TheDoorRuleStandsDownWhileALockIsHeld()
@@ -706,11 +736,29 @@ public sealed class NavigationTests
             Mode = RouteMode.Circular,
         };
         var controller = new NavigationController(new FakeHost(automation), settings);
-        var rule = new OpenDoorRule(controller, () => true);
+        bool locked = true;
+        int armed = 0;
+        var rule = new OpenDoorRule(
+            controller,
+            () => true,
+            isLocked: () => locked,
+            arm: () => armed++);
 
+        // Held: the rule declines and does not so much as look at the door.
+        Assert.True(rule.IsLocked);
+        Assert.False(rule.ValidNow(new MacroPassContext(0.05d, CanAct: true)));
+        Assert.Equal(
+            "another rule holds a lock this one waits on",
+            rule.DeclineReason);
+        Assert.Empty(automation.UsedObjects);
+        Assert.Equal(0, armed);
+
+        // Released: it claims the pass, uses the door, and takes its own locks.
+        locked = false;
         Assert.False(rule.IsLocked);
         Assert.True(rule.ValidNow(new MacroPassContext(0.05d, CanAct: true)));
         Assert.Equal([55u], automation.UsedObjects);
+        Assert.Equal(1, armed);
     }
 
     [Fact]
@@ -1553,6 +1601,32 @@ public sealed class NavigationTests
 
         Assert.True(Frame(controller, 1.2d));
         Assert.Equal(2, automation.FacedHeadings.Count);
+    }
+
+    /// <summary>
+    /// Exactly the interval is not past it. The jump's re-face wants strictly
+    /// more than two seconds, where the walk's wants at least seven tenths.
+    /// </summary>
+    [Fact]
+    public void TheJumpReFaceWantsStrictlyMoreThanItsInterval()
+    {
+        var automation = new FakeAutomation
+        {
+            NavigationSnapshot = Snapshot(Position(0d, 0d, heading: 0f)),
+        };
+        RouteWaypoint jump = Waypoint(RouteWaypointType.Jump, Position(0d, 0d));
+        jump.JumpHeadingDegrees = 90f;
+        NavigationController controller = Controller(
+            automation,
+            RouteMode.Circular,
+            jump);
+
+        // Both figures are exact in binary, so the second frame lands the
+        // elapsed gap on the interval itself rather than a hair either side.
+        Assert.True(Frame(controller, 0.25d));
+        Assert.Single(automation.FacedHeadings);
+        Assert.True(Frame(controller, 2d));
+        Assert.Single(automation.FacedHeadings);
     }
 
     /// <summary>

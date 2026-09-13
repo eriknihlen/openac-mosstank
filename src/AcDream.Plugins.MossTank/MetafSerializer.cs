@@ -982,14 +982,14 @@ internal static class MetafSerializer
     /// and a reader that knows nothing about it still reads a charge time
     /// correct to a ten-thousandth of a millisecond.
     /// </summary>
-    private static readonly System.Text.RegularExpressions.Regex JumpChargePattern =
+    private static readonly Regex JumpChargePattern =
         new(
             @"^(?<charge>[0-9]+\.[0-9]{4})(?<direction>3|4|5)$",
-            System.Text.RegularExpressions.RegexOptions.Compiled);
+            RegexOptions.Compiled);
 
     private static void ReadJumpCharge(string field, RouteWaypoint waypoint)
     {
-        System.Text.RegularExpressions.Match match =
+        Match match =
             JumpChargePattern.Match(field.Trim());
         if (!match.Success)
         {

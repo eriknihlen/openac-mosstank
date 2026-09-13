@@ -22,15 +22,23 @@ internal sealed class OpenDoorRule : IMacroRule
 {
     private readonly NavigationController _navigation;
     private readonly Func<bool> _enabled;
+    private readonly Func<bool> _isLocked;
+    private readonly Action _arm;
     private bool _running;
     private bool _gateClosed;
     private bool _lockHeld;
 
-    internal OpenDoorRule(NavigationController navigation, Func<bool> enabled)
+    internal OpenDoorRule(
+        NavigationController navigation,
+        Func<bool> enabled,
+        Func<bool>? isLocked = null,
+        Action? arm = null)
     {
         _navigation = navigation
             ?? throw new ArgumentNullException(nameof(navigation));
         _enabled = enabled ?? throw new ArgumentNullException(nameof(enabled));
+        _isLocked = isLocked ?? (static () => false);
+        _arm = arm ?? (static () => { });
     }
 
     public string Name => "OpenDoor";
@@ -59,20 +67,20 @@ internal sealed class OpenDoorRule : IMacroRule
     /// </summary>
     /// <remarks>
     /// MERGE SEAM. The named action-lock table is being built on the combat
-    /// branch; until it lands there is nothing to ask, so nothing is held.
-    /// When it lands this reads the table for the locks the door rule cares
-    /// about, and <see cref="Arm"/> takes the ones it holds while it acts. The
-    /// exact replacements are recorded in the slice-6 research note.
+    /// branch; until it lands nobody supplies this and nothing is held. When
+    /// it lands the caller passes a reader for the four locks the door rule
+    /// waits on — navigation, item use, door opening and the spread-lock
+    /// target request — and an <see cref="Arm"/> that takes the ones it holds
+    /// while it acts. The exact replacements are recorded in the slice-6
+    /// research note.
     /// </remarks>
-    internal bool IsLocked => false;
+    internal bool IsLocked => _isLocked();
 
     /// <summary>
     /// Takes the locks this rule holds while it is opening a door.
     /// </summary>
     /// <remarks>MERGE SEAM — see <see cref="IsLocked"/>.</remarks>
-    internal void Arm()
-    {
-    }
+    internal void Arm() => _arm();
 
     public bool ValidNow(in MacroPassContext context)
     {

@@ -472,6 +472,7 @@ internal sealed class NavigationController
         ResetOncePerRunWarnings();
         _moverArmed = false;
         _pendingMoverSeconds = 0d;
+        _faceHeadingStamp = NoFaceHeadingStamp;
         StopMovement();
         _index = 0;
         _reverse = false;
@@ -489,6 +490,7 @@ internal sealed class NavigationController
     {
         _moverArmed = false;
         _pendingMoverSeconds = 0d;
+        _faceHeadingStamp = NoFaceHeadingStamp;
         StopMovement();
         _checkpointElapsed = 0d;
         ClearDoor();
@@ -1002,18 +1004,33 @@ internal sealed class NavigationController
 
         if (_host.Automation.Chat.IsInputActive)
         {
-            _hadMovementIntent = SteerTowards(
+            // A held turn key would go into the chat entry, so this branch
+            // stops and re-faces the goal instead, at most once per re-face
+            // interval. Inside the band it makes the SAME stop decision as
+            // every other branch — the creep band and the forced magic-mode
+            // push are not skipped just because somebody is typing.
+            if (offset > HeadingToleranceDegrees)
+            {
+                bool claimed = ResolveStopDecision(
+                    navigation,
+                    false,
+                    0d,
+                    TurnHold.None);
+                if (_now - _faceHeadingStamp >= FaceHeadingReissueSeconds)
+                {
+                    _faceHeadingStamp = _now;
+                    _ = navigation.FaceHeading(desired);
+                }
+                return claimed;
+            }
+            _faceHeadingStamp = NoFaceHeadingStamp;
+            return ResolveStopDecision(
                 navigation,
-                delta,
-                desired,
-                _now,
-                ref _faceHeadingStamp,
-                run: true)
-                == PluginNavigationCommandStatus.Accepted;
-            return _hadMovementIntent;
+                true,
+                distanceMeters,
+                TurnHold.None);
         }
 
-        _faceHeadingStamp = NoFaceHeadingStamp;
         if (offset <= HeadingToleranceDegrees)
             return ResolveStopDecision(navigation, true, distanceMeters, TurnHold.None);
 
@@ -1544,7 +1561,7 @@ internal sealed class NavigationController
                     _hadMovementIntent = nav.ClearMovementIntent()
                         == PluginNavigationCommandStatus.Accepted
                         && _hadMovementIntent;
-                    if (_now - _jumpFaceHeadingStamp >= JumpFaceHeadingReissueSeconds)
+                    if (_now - _jumpFaceHeadingStamp > JumpFaceHeadingReissueSeconds)
                     {
                         _jumpFaceHeadingStamp = _now;
                         _ = nav.FaceHeading(waypoint.JumpHeadingDegrees);
@@ -1687,9 +1704,6 @@ internal sealed class NavigationController
 
     private void StopMovement()
     {
-        // VTank fd.cs:327 — the mover's disarm branch also resets `p`, so a
-        // re-armed route issues its first FaceHeading immediately.
-        _faceHeadingStamp = NoFaceHeadingStamp;
         if (!_hadMovementIntent)
             return;
         _ = _host.Automation.Navigation.ClearMovementIntent();
