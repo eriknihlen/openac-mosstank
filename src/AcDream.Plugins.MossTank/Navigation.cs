@@ -523,7 +523,10 @@ internal sealed class NavigationController
         _pendingMoverSeconds += elapsed;
         if (_pendingMoverSeconds < MoverIntervalSeconds)
             return;
-        _moverArmed = Tick(TakePendingMoverSeconds(), canAct: true);
+        // What the mover makes of this frame does not disarm it. Only the rule
+        // that armed it can take the turn back, which is the whole point of
+        // the two being separate.
+        _ = Tick(TakePendingMoverSeconds(), canAct: true);
     }
 
     private double TakePendingMoverSeconds()
