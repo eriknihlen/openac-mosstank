@@ -495,6 +495,70 @@ public sealed class MossTankAutostartTests
         Assert.Equal(storageBefore, ((MemoryStorage)host.Storage).Text);
     }
 
+    /// <summary>
+    /// The whole autostart path against profiles nobody in this process
+    /// wrote: the very files the automation-session proof feeds a live bot,
+    /// read straight off disk. Every offline autostart case before this one
+    /// SAVED a profile from the running panel first, so "an externally
+    /// authored .usd / .utl / .af applies" was never pinned — and when the
+    /// live proof reported that no rule was ever valid, nothing here could
+    /// say whether the fixture had arrived at all.
+    /// </summary>
+    [Fact]
+    public void AutostartAppliesTheSessionProofsOwnAuthoredProfilesWithNoSidecar()
+    {
+        var automation = new FakeAutomation { IsAvailable = true };
+        var host = new FakeHost(automation);
+        WriteSessionProofFixture(host.VtankProfiles);
+        var panel = new MossTankPanel(host);
+        host.SessionSettingsValue = new Dictionary<string, string>
+        {
+            ["settingsProfile"] = "vt-proof-settings",
+            ["lootProfile"] = "vt-proof-loot",
+            ["navProfile"] = "vt-proof-route",
+            ["enableMeta"] = "false",
+            ["startMacro"] = "true",
+        };
+
+        panel.TickAutostart();
+
+        Assert.Empty(automation.Logger.Errors);
+        Assert.Equal("vt-proof-settings.usd", panel.SelectedMacroProfile);
+        Assert.Equal("vt-proof-loot", panel.LootProfileName);
+        Assert.Equal("vt-proof-route", panel.SelectedRouteProfile);
+
+        // The four switches the proof's red rows all depend on.
+        Assert.True(panel.GetMetaOptionForTest("enablebuffing"), "EnableBuffing");
+        Assert.True(panel.GetMetaOptionForTest("enablecombat"), "EnableCombat");
+        Assert.True(panel.GetMetaOptionForTest("enablenav"), "EnableNav");
+        Assert.True(panel.GetMetaOptionForTest("enablelooting"), "EnableLooting");
+
+        // The route really reached the live navigation settings.
+        Assert.Equal(4, panel.RouteRows.Count);
+        Assert.Equal("Circular", panel.SelectedRouteMode);
+        Assert.True(panel.CombatMacroRunning);
+    }
+
+    /// <summary>
+    /// The proof's fixture folder, copied into the fake profile storage. One
+    /// copy of these files exists in the tree — the live proof reads the same
+    /// three — so this pin and that run cannot drift apart.
+    /// </summary>
+    private static void WriteSessionProofFixture(IPluginStorage storage)
+    {
+        string root = Path.Combine(
+            AppContext.BaseDirectory, "Fixtures", "vt-proof");
+        storage.WriteText(
+            "vt-proof-settings.usd",
+            File.ReadAllText(Path.Combine(root, "vt-proof-settings.usd")));
+        storage.WriteText(
+            "vt-proof-loot.utl",
+            File.ReadAllText(Path.Combine(root, "vt-proof-loot.utl")));
+        storage.WriteText(
+            "navs/vt-proof-route.af",
+            File.ReadAllText(Path.Combine(root, "navs", "vt-proof-route.af")));
+    }
+
     private static void Command(MossTankPanel panel, string arguments) =>
         panel.ExecuteVtankCommand(new PluginCommand(
             "vt", arguments, "/vt " + arguments));
