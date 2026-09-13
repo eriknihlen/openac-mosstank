@@ -3213,7 +3213,10 @@ public sealed class CombatControllerTests
             new PluginChatMessage(
                 1, 0, 0, string.Empty,
                 "You cast Imperil Other VII on Drudge.",
-                string.Empty),
+                string.Empty)
+            {
+                LogTextType = 0x07u,
+            },
         ];
         controller.OnTick(0.25);
 
@@ -3274,7 +3277,10 @@ public sealed class CombatControllerTests
             new PluginChatMessage(
                 1, 0, 0, string.Empty,
                 "You cast Imperil Other VII on Drudge.",
-                string.Empty),
+                string.Empty)
+            {
+                LogTextType = 0x07u,
+            },
         ];
         controller.OnTick(0.25);
 
@@ -3332,7 +3338,10 @@ public sealed class CombatControllerTests
             new PluginChatMessage(
                 1, 0, 0, string.Empty,
                 "You cast Imperil Other VII on Drudge.",
-                string.Empty),
+                string.Empty)
+            {
+                LogTextType = 0x07u,
+            },
         ];
         controller.OnTick(0.1);
         Assert.Contains("Waiting for a target", controller.Status, StringComparison.Ordinal);

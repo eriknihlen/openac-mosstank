@@ -2571,7 +2571,10 @@ internal sealed class CombatController
                     && message.SenderObjectId
                         == _host.Automation.Character.ObjectId,
                 logTextType: message.LogTextType);
+            // The wand's own confirmation is a magic-log line like any other
+            // spell result.
             if (_pendingItemDebuff is not { } pending
+                || message.LogTextType != CombatLogTextType.Magic
                 || !IsMatchingCastLine(message.Text, pending.Source.Spell.Name))
             {
                 continue;
