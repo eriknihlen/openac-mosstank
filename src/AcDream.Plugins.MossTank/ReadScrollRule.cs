@@ -49,8 +49,8 @@ internal static class ScrollReading
 }
 
 /// <summary>
-/// Reads the scrolls the looter picked up for reading. Retail does not read a
-/// scroll as a continuation of its own pickup: the looter only records
+/// Reads the scrolls the looter picked up for reading. A scroll is not read
+/// as a continuation of its own pickup: the looter only records
 /// "this spell is waiting on that item", and a separate rule in the loot stage
 /// does the reading whenever it next wins a pass, which can be well after the
 /// fight the scroll came out of.

@@ -463,8 +463,8 @@ internal sealed partial class LootController
     private const double PickupTimeoutSeconds = 4d;
 
     /// <summary>
-    /// How long a corpse the server refused stays skipped. Retail hard-codes
-    /// this; it is not one of the corpse-blacklist settings.
+    /// How long a corpse the server refused stays skipped. This one is fixed;
+    /// it is not one of the corpse-blacklist settings.
     /// </summary>
     private const double DenialSkipSeconds = 10d;
 
@@ -1355,7 +1355,7 @@ internal sealed partial class LootController
     }
 
     /// <summary>
-    /// Retail appraises a corpse item only when the answer depends on it.
+    /// A corpse item is appraised only when the answer depends on it.
     /// Three cases always appraise: an external classifier (which has no
     /// early-decision contract), the player's own death corpse, and a magical
     /// candidate while a spare mana stone is held, because only an appraisal
@@ -1512,7 +1512,7 @@ internal sealed partial class LootController
 
     /// <summary>
     /// The server refuses a corpse someone else owns or has open with a plain
-    /// text line. Retail listens for it and skips that corpse outright for ten
+    /// text line. That line is listened for, and the corpse skipped outright for ten
     /// seconds instead of grinding through thirty failed open attempts.
     /// </summary>
     private void ObserveOwnershipDenials()

@@ -113,7 +113,7 @@ public sealed class InventoryMaintenanceTests
     }
 
     [Fact]
-    public void AStuckStackCramPairIsAbandonedOnlyAfterRetailsEightyAttempts()
+    public void AStuckStackCramPairIsAbandonedOnlyAfterEightyAttempts()
     {
         var settings = new InventorySettings { AutoStack = true };
         var automation = new Automation
@@ -142,7 +142,7 @@ public sealed class InventoryMaintenanceTests
         }
         Assert.Empty(automation.Messages);
 
-        // The eighty-first refusal is the one retail gives up on.
+        // The eighty-first refusal is the one it gives up on.
         Assert.False(controller.Tick(1d, canAct: true));
         Assert.Single(automation.Messages);
         Assert.Equal(81, automation.Merges.Count);
