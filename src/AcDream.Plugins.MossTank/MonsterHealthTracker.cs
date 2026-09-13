@@ -23,6 +23,7 @@ internal sealed class MonsterHealthTracker
     private const int NothingObserved = -1;
 
     private readonly Func<MonsterFactTable> _facts;
+    private readonly Func<uint, bool> _isTracked;
     private int _estimate = NothingObserved;
     private long _observedRevision;
 
@@ -30,8 +31,18 @@ internal sealed class MonsterHealthTracker
     /// The fact table is read afresh on every use: a profile load can swap it
     /// out under a tracker that is already following a monster.
     /// </summary>
-    public MonsterHealthTracker(Func<MonsterFactTable> facts) =>
+    /// <param name="isTracked">
+    /// Whether the client still knows the object. A ceiling for a monster the
+    /// client has forgotten is a stale number, and it would otherwise drive
+    /// the finishing-move threshold and the drain plan.
+    /// </param>
+    public MonsterHealthTracker(
+        Func<MonsterFactTable> facts,
+        Func<uint, bool>? isTracked = null)
+    {
         _facts = facts ?? throw new ArgumentNullException(nameof(facts));
+        _isTracked = isTracked ?? (static _ => true);
+    }
 
     public uint TargetObjectId { get; private set; }
 
@@ -59,7 +70,7 @@ internal sealed class MonsterHealthTracker
     {
         get
         {
-            if (TargetObjectId == 0u)
+            if (TargetObjectId == 0u || !_isTracked(TargetObjectId))
                 return 0;
             if (_estimate != NothingObserved)
                 return _estimate;

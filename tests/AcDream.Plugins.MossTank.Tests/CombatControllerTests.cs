@@ -884,6 +884,63 @@ public sealed class CombatControllerTests
         Assert.Equal(100u, targeted.Item1);
     }
 
+    /// <summary>
+    /// The ring arm asks one question — are the components for the family's
+    /// first rung in the pack — and commits. It does not also ask whether the
+    /// client would start the cast this instant; when it would not, the ring
+    /// is refused where every other refusal is reported, rather than quietly
+    /// becoming a bolt at a monster the profile wanted ringed.
+    /// Mutation: put the cast-gate test back in front of the ring choice and
+    /// the bolt goes out instead.
+    /// </summary>
+    [Fact]
+    public void TheRingArmAsksForComponentsAndNothingElse()
+    {
+        PluginSpellInfo[] known =
+        [
+            MagicSpell(110, "Cassius' Ring of Fire", difficulty: 300) with
+            {
+                TargetMask = 0u,
+                IsUntargeted = true,
+            },
+            MagicSpell(100, "Flame Bolt VII", difficulty: 300),
+        ];
+        var surface = new FakeAutomation
+        {
+            CombatSnapshot = Physical() with { Mode = PluginCombatMode.Magic },
+            Targets = [Target(10, "Drudge", 3f, 0)],
+            KnownCombatSpells = known,
+            EquipmentItems = [WieldedCaster()],
+        };
+        // The client is not ready to start the ring this instant.
+        surface.CastGates[110u] = PluginCastGate.Refused;
+        var settings = new CombatSettings
+        {
+            MaximumRange = 40d,
+            RingDistance = 5d,
+            MinimumRingTargets = 1,
+        };
+        settings.Rules.Clear();
+        settings.Rules.Add(new MonsterRule(
+            "DEFAULT",
+            new MonsterRuleActions
+            {
+                Flags = MonsterActionFlags.Ring,
+                DamageType = MonsterDamageType.Fire,
+            }));
+        var controller = new CombatController(new FakeHost(surface), settings);
+
+        controller.Toggle();
+        controller.OnTick(0.25);
+
+        Assert.Equal(0u, surface.LastUntargetedCast);
+        Assert.Equal((0u, 0u), surface.LastTargetedCast);
+        Assert.Contains(
+            "Cassius' Ring of Fire",
+            controller.Status,
+            StringComparison.Ordinal);
+    }
+
     [Fact]
     public void OnlyAMonsterThePassFollowsAndHasNotGivenUpOnIsPointable()
     {
@@ -5062,9 +5119,15 @@ public sealed class CombatControllerTests
         public bool HasComponents(uint spellId) =>
             !MissingComponentSpellIds.Contains(spellId);
 
-        public PluginCastGate EvaluateGate(uint spellId) => PluginCastGate.Ready;
+        /// <summary>Spells the client would refuse to start right now.</summary>
+        public Dictionary<uint, PluginCastGate> CastGates { get; } = [];
+
+        public PluginCastGate EvaluateGate(uint spellId) =>
+            CastGates.TryGetValue(spellId, out PluginCastGate gate)
+                ? gate
+                : PluginCastGate.Ready;
         public PluginCastGate EvaluateGate(uint spellId, uint targetObjectId) =>
-            PluginCastGate.Ready;
+            EvaluateGate(spellId);
         public bool Cast(uint spellId)
         {
             LastUntargetedCast = spellId;

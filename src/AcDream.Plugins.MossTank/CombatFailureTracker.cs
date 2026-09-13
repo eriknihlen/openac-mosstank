@@ -69,11 +69,8 @@ internal sealed class CombatFailureTracker
             return false;
         Entry entry = Get(objectId);
         entry.SpellAttempts++;
-        if (entry.SpellAttempts
-            <= Math.Max(1, settings.GhostMonsterSpellAttemptCount))
-        {
+        if (entry.SpellAttempts <= settings.GhostMonsterSpellAttemptCount)
             return false;
-        }
         entry.SpellAttempts = 0;
         return true;
     }

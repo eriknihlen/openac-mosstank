@@ -70,6 +70,9 @@ internal sealed class SpellCastTracker
 
     internal const int LocalSpeechChatKind = 0;
 
+    /// <summary>Item enchantment: its result names the item, not a creature.</summary>
+    internal const uint ItemEnchantmentSchool = 32u;
+
     /// <summary>Skill ids the two attack schools are keyed by.</summary>
     internal const uint WarMagicSchool = 34u;
     internal const uint VoidMagicSchool = 43u;
@@ -206,7 +209,11 @@ internal sealed class SpellCastTracker
         _spellId = spellId;
         _spellName = spellName ?? string.Empty;
         _targetObjectId = targetObjectId;
-        _targetName = targetName ?? string.Empty;
+        // An item enchantment's success line names the ITEM, not the creature
+        // it is worn by, so there is no target name to check it against.
+        _targetName = school == ItemEnchantmentSchool
+            ? string.Empty
+            : targetName ?? string.Empty;
         _hitsMultipleTargets = hitsMultipleTargets;
         _issueRevision = issueRevision;
         _observedCompletionRevision = issueRevision;

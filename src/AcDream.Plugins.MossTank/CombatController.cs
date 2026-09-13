@@ -195,7 +195,10 @@ internal sealed class CombatController
         _settings = settings ?? throw new ArgumentNullException(nameof(settings));
         _vitalSettings = vitalSettings ?? new VitalSettings();
         _gameInfo = gameInfo ?? VtankGameInfoDatabase.Empty;
-        _health = new MonsterHealthTracker(() => _settings.MonsterFacts);
+        _health = new MonsterHealthTracker(
+            () => _settings.MonsterFacts,
+            objectId => !_host.Automation.Objects.IsAvailable
+                || _host.Automation.Objects.TryGet(objectId, out _));
         _castTracker = castTracker ?? new SpellCastTracker();
         _castTracker.Completed += OnCastTrackerOutcome;
         // A request the server never answered is sent again rather than
@@ -925,24 +928,32 @@ internal sealed class CombatController
                 CastWithoutTarget: false)
             : null;
 
+    /// <summary>
+    /// The ring arm. Unlike every other arm it is admitted on ONE question —
+    /// are the components for the family's first rung in the pack — with no
+    /// skill or castability test; the rung actually thrown is the best the
+    /// character can cast, and when that is nothing the cast is refused where
+    /// every other refusal is reported.
+    /// </summary>
     private AttackSpellChoice? PlanRing(
         MonsterDamageType element,
         in PluginCombatTarget target)
     {
-        PluginSpellInfo? ring = _attackCatalog.Resolve(
+        if (_attackCatalog.ResolveBaseTier(element, VtankCombatSpellType.Ring)
+            is not { } family
+            || !HasCastingComponents(family.SpellId))
+        {
+            return null;
+        }
+        PluginSpellInfo spell = _attackCatalog.Resolve(
             element,
             VtankCombatSpellType.Ring,
-            IsUsableAttackSpell(target));
-        if (ring is not { } spell)
-            return null;
-        return _host.Automation.Magic.EvaluateGate(spell.SpellId)
-            is PluginCastGate.Ready or PluginCastGate.Busy
-            ? new AttackSpellChoice(
-                spell,
-                VtankCombatSpellType.Ring,
-                element,
-                CastWithoutTarget: true)
-            : null;
+            IsUsableAttackSpell(target)) ?? family;
+        return new AttackSpellChoice(
+            spell,
+            VtankCombatSpellType.Ring,
+            element,
+            CastWithoutTarget: true);
     }
 
     /// <summary>
@@ -4057,9 +4068,15 @@ internal sealed class CombatController
     {
         if (objectId == 0u || !allowed)
             return;
-        string name = FindTarget(objectId).ObjectId == objectId
-            ? FindTarget(objectId).Name
-            : string.Empty;
+        // A ghost is looked up in the whole world, not in the range-limited
+        // scan: the monster that stopped answering is often the one that has
+        // just dropped out of it, and the health tracker still has its name.
+        PluginCombatTarget scanned = FindTarget(objectId);
+        string name = scanned.ObjectId == objectId && scanned.Name.Length > 0
+            ? scanned.Name
+            : _health.TargetObjectId == objectId
+                ? _health.TargetName
+                : string.Empty;
         if (name.Length == 0)
             return;
         PluginCombatCommandResult result =
