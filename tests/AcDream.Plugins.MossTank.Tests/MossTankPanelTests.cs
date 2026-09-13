@@ -126,6 +126,82 @@ public sealed class MossTankPanelTests
         Assert.Equal([60u], automation.UsedItemIds);
     }
 
+    /// <summary>
+    /// The slots a corpse open takes are given back on the host's frame, not
+    /// on a rule pass — a rule pass cannot release the item slot, because that
+    /// slot is what stops the loot rules running at all. So the frame has to
+    /// carry the call, and this is the only test that says so.
+    ///
+    /// Mutation: delete `if (_loot.ObserveCorpseOpened()) _scheduler.Poke();`
+    /// from the frame pass and the slot is still held after the container has
+    /// opened.
+    /// </summary>
+    [Fact]
+    public void TheFramePassGivesBackTheSlotsACorpseOpenTook()
+    {
+        var loot = new FrameLootSurface();
+        var automation = new FakeAutomation { LootSurface = loot };
+        var panel = new MossTankPanel(new FakeHost(automation));
+        panel.AddLootRule();
+        if (!panel.LootEnabled)
+            panel.ToggleLooting();
+        loot.Corpses =
+        [
+            new PluginLootContainer(
+                FrameLootSurface.CorpseId,
+                1u,
+                "Corpse",
+                3f,
+                false,
+                false,
+                false)
+            {
+                IsIdentified = true,
+                LongDescription = $"Killed by {automation.Name}.",
+            },
+        ];
+
+        panel.ToggleCombat();
+        for (int tick = 0; tick < 12 && loot.Opened == 0u; tick++)
+            panel.OnTick(0.3d);
+
+        Assert.Equal(FrameLootSurface.CorpseId, loot.Opened);
+        Assert.True(panel.ActionLocks.IsLocked(ActionLockKind.ItemUse));
+        Assert.True(panel.ActionLocks.IsLocked(ActionLockKind.Navigation));
+
+        // The container is open now, which is the moment the slots go back.
+        loot.Current = FrameLootSurface.CorpseId;
+        panel.OnTick(0.05d);
+
+        Assert.False(panel.ActionLocks.IsLocked(ActionLockKind.ItemUse));
+        Assert.False(panel.ActionLocks.IsLocked(ActionLockKind.Navigation));
+        Assert.False(
+            panel.ActionLocks.IsLocked(ActionLockKind.CorpseOpenAttempt));
+    }
+
+    private sealed class FrameLootSurface : ILootAutomation
+    {
+        internal const uint CorpseId = 0x70000D01u;
+
+        public uint Opened { get; private set; }
+        public uint Current { get; set; }
+        public IReadOnlyList<PluginLootContainer> Corpses { get; set; } = [];
+
+        public bool IsAvailable => true;
+        public bool IsBusy => false;
+        public uint RequestedContainerId => Opened;
+        public uint CurrentContainerId => Current;
+
+        public IReadOnlyList<PluginLootContainer> CaptureCorpses(
+            float maximumDistance) => Corpses;
+
+        public PluginItemCommandResult Open(uint containerObjectId)
+        {
+            Opened = containerObjectId;
+            return new(PluginItemCommandStatus.Started);
+        }
+    }
+
     [Fact]
     public void CorruptSideCarMonsterRuleIsLoggedNotSilentlySwallowed()
     {
@@ -5996,6 +6072,16 @@ public sealed class MossTankPanelTests
         { get; } = [];
 
         public IEnchantmentAutomation Enchantments => this;
+
+        /// <summary>
+        /// The corpses and open container this run reports, when a test needs
+        /// them. Left unset the surface is the inert one every other test
+        /// here has always had.
+        /// </summary>
+        public ILootAutomation? LootSurface { get; set; }
+
+        ILootAutomation IAutomationSurface.Loot =>
+            LootSurface ?? NoOpAutomationSurface.Instance;
 
         public IReadOnlyList<PluginTrackedEnchantment> Capture(uint targetObjectId) =>
             ItemEnchantments.TryGetValue(targetObjectId, out var held)
