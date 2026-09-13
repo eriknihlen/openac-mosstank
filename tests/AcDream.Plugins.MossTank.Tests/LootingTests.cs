@@ -663,11 +663,7 @@ public sealed class LootingTests
         automation.Current = 0x70000200u;
         automation.Contents =
         [
-            Item(scroll, "Incantation of Testing Scroll", 88u) with
-            {
-                ItemType = 0x80u,
-                SpellId = 777u,
-            },
+            Scroll(scroll, "Incantation of Testing", 777u),
         ];
         Assert.True(controller.Tick(0.2d, canAct: true));
         automation.AppraisalState = new PluginAppraisalState(1, 0u, scroll);
@@ -1188,6 +1184,60 @@ public sealed class LootingTests
         Assert.Equal(new[] { scroll }, automation.Used);
     }
 
+    /// <summary>
+    /// Mutation: test the item's misc type flag plus a name ending in
+    /// " Scroll" instead of the object class.
+    /// </summary>
+    [Fact]
+    public void AMiscItemThatMerelyLooksLikeAScrollIsNotRead()
+    {
+        var settings = new LootSettings { Enabled = true };
+        settings.Rules.Add(new LootRule
+        {
+            Expression = "*",
+            Action = LootAction.NoLoot,
+        });
+        const uint corpse = 0x70000D00u;
+        const uint fake = 0x70000D01u;
+        var automation = new Automation
+        {
+            KnownSpell = new PluginSpellInfo(
+                777u, "Incantation of Testing", 1u, 1, 100, 10, 0f,
+                34u, string.Empty, false, false),
+            SkillsValue =
+            [
+                new PluginSkillInfo(
+                    34u, "War Magic", PluginSkillTraining.Trained, 90u),
+            ],
+            Corpses =
+            [
+                new PluginLootContainer(
+                    corpse, 1u, "Corpse", 3f, false, false, false)
+                {
+                    IsIdentified = true,
+                    LongDescription = "Killed by Tester.",
+                },
+            ],
+        };
+        var controller = new LootController(new Host(automation), settings);
+
+        Assert.True(controller.Tick(0.25d, canAct: true));
+        automation.Current = corpse;
+        automation.Contents =
+        [
+            Item(fake, "Counterfeit Scroll", 88u) with
+            {
+                ItemType = 0x00000080u,
+                SpellId = 777u,
+                ObjectClass = PluginObjectClass.Misc,
+            },
+        ];
+        Assert.True(controller.Tick(0.2d, canAct: true));
+
+        Assert.Empty(automation.Picked);
+        Assert.Empty(controller.PendingScrollReads);
+    }
+
     [Fact]
     public void AQueuedScrollIsDroppedOnceItsSpellIsKnown()
     {
@@ -1234,12 +1284,7 @@ public sealed class LootingTests
         };
         var host = new Host(automation);
         var controller = new LootController(host, settings);
-        PluginInventoryItem item =
-            Item(scroll, "Incantation of Testing Scroll", 88u) with
-            {
-                ItemType = 0x80u,
-                SpellId = 777u,
-            };
+        PluginInventoryItem item = Scroll(scroll, "Incantation of Testing", 777u);
 
         Assert.True(controller.Tick(0.25d, canAct: true));
         automation.Current = corpse;
@@ -1275,6 +1320,22 @@ public sealed class LootingTests
         new(
             id, wcid, name, 0u, 0u, 0u, 0u, 0u, 0u, 0u, 0u,
             1, 0, 0, 0u, 0, 0, 0u, false, 0d, 0, 0, 0, 0d, 0, 0, 0);
+
+    /// <summary>
+    /// A real scroll: a writable item carrying the spell it teaches, which is
+    /// what makes the client classify it as a scroll. The name deliberately
+    /// does NOT end in " Scroll" — many do not, and the shape is what decides.
+    /// </summary>
+    private static PluginInventoryItem Scroll(
+        uint id,
+        string spellName,
+        uint spellId) =>
+        Item(id, spellName, 88u) with
+        {
+            ItemType = 0x00002000u,
+            SpellId = spellId,
+            ObjectClass = PluginObjectClass.Scroll,
+        };
 
     private static VtankLootRequirement Requirement(
         int type,

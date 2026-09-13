@@ -10,8 +10,6 @@ namespace AcDream.Plugins.MossTank;
 /// </summary>
 internal static class ScrollReading
 {
-    private const uint MiscItemType = 0x00000080u;
-
     public static bool IsEligible(
         IPluginHost host,
         LootSettings settings,
@@ -23,13 +21,11 @@ internal static class ScrollReading
         ArgumentNullException.ThrowIfNull(settings);
         ArgumentNullException.ThrowIfNull(queued);
 
-        if (!settings.ReadUnknownScrolls || item.SpellId == 0u)
-            return false;
-        // Retail's client classifies objects into a "scroll" class of its own
-        // that has no counterpart on the wire, so the shape of the item has to
-        // stand in for it: see the research note on scroll reading.
-        if ((item.ItemType & MiscItemType) == 0u
-            || !item.Name.EndsWith(" Scroll", StringComparison.OrdinalIgnoreCase))
+        // The object class is the whole test: a scroll is a writable item that
+        // carries the spell it teaches, and the surface classifies it as one.
+        if (item.ObjectClass != PluginObjectClass.Scroll
+            || !settings.ReadUnknownScrolls
+            || item.SpellId == 0u)
         {
             return false;
         }
