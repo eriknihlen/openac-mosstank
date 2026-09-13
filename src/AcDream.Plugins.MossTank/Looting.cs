@@ -797,6 +797,16 @@ internal sealed partial class LootController
         _activeCorpseSawContents = false;
         _activeCorpseIsOwnDeath = IsOwnDeathCorpse(corpse);
         _stateAge = 0d;
+        // Opening a corpse is not instant and it is not always local: a corpse
+        // out of arm's reach is opened by walking to it first, and the walk is
+        // the client's, not this controller's. So the open holds three slots
+        // for the length of its own timeout — the item slot, the corpse-open
+        // slot, and navigation, that last one so the route rule does not steer
+        // against the walk the open just started.
+        double openWindow = Math.Max(0.25d, _settings.CorpseOpenTimeoutSeconds);
+        _actionLocks?.Arm(ActionLockKind.ItemUse, openWindow);
+        _actionLocks?.Arm(ActionLockKind.Navigation, openWindow);
+        _actionLocks?.Arm(ActionLockKind.CorpseOpenAttempt, openWindow);
         Status = $"Opening {corpse.Name}…";
         Log?.Invoke(
             MacroLogChannel.Loot,

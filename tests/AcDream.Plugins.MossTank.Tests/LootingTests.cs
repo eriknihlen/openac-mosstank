@@ -1345,6 +1345,54 @@ public sealed class LootingTests
     }
 
     /// <summary>
+    /// Opening a corpse holds navigation as well as the item slot. A corpse
+    /// out of the server's own reach is opened by walking to it first, and
+    /// that walk is the client's — a route rule steering at the same time
+    /// cancels it, and the open then answers nothing at all.
+    ///
+    /// Mutation: drop the navigation arm and the slot is free the moment the
+    /// open is issued.
+    /// </summary>
+    [Fact]
+    public void OpeningACorpseHoldsTheSlotsTheWalkNeeds()
+    {
+        var settings = new LootSettings
+        {
+            Enabled = true,
+            ScanIntervalSeconds = 0.05d,
+            CorpseOpenTimeoutSeconds = 1.5d,
+        };
+        settings.Rules.Add(new LootRule { Expression = "*" });
+        const uint corpse = 0x70000C11u;
+        var automation = new Automation
+        {
+            Corpses =
+            [
+                new PluginLootContainer(
+                    corpse, 1u, "Corpse", 3f, false, false, false)
+                {
+                    IsIdentified = true,
+                    LongDescription = "Killed by Tester.",
+                },
+            ],
+        };
+        var locks = new ActionLockTable();
+        var controller = new LootController(new Host(automation), settings);
+        controller.BindActionLocks(locks);
+
+        Assert.False(locks.IsLocked(ActionLockKind.Navigation));
+        Assert.True(controller.Tick(0.1d, canAct: true));
+        Assert.Equal(new[] { corpse }, automation.Opened);
+
+        Assert.True(locks.IsLocked(ActionLockKind.Navigation));
+        Assert.True(locks.IsLocked(ActionLockKind.ItemUse));
+        Assert.True(locks.IsLocked(ActionLockKind.CorpseOpenAttempt));
+
+        locks.Advance(1.6d);
+        Assert.False(locks.IsLocked(ActionLockKind.Navigation));
+    }
+
+    /// <summary>
     /// The description is asked of every corpse the client is reporting, not
     /// only of the ones already in reach: a corpse whose description never
     /// arrives can never be judged, and by the time the character walks up to
