@@ -3149,6 +3149,13 @@ internal sealed partial class MossTankPanel : IBuffRuleHost
     internal bool GetMetaOptionForTest(string name) =>
         GetMetaOption(name).IsTruthy;
 
+    /// <summary>
+    /// Which waypoint the route is walking to. Route progress is state a death
+    /// must not touch, and the only other way to read it is the text the rule
+    /// prints while it is winning passes.
+    /// </summary>
+    internal int RouteWaypointIndexForTest => _navigation.CurrentWaypointIndex;
+
     private ExpressionValue GetMetaOption(string name)
     {
         string key = name.Trim();
@@ -4375,12 +4382,70 @@ internal sealed partial class MossTankPanel : IBuffRuleHost
         _navigation.Reset();
     }
 
+    /// <summary>
+    /// What a death turns off: four persisted toggles and nothing else. The
+    /// macro itself keeps running — the pass still comes round every 0.293 s,
+    /// finds every buffing, combat, navigation and looting rule declining, and
+    /// settles the character into peace on the terminal idle rule. That is
+    /// what makes the restore one step instead of a restart: nothing was torn
+    /// down, so the route is still on the waypoint it was walking to and the
+    /// buff clocks are still where the death left them.
+    /// </summary>
+    private const string DeathDisabledNotice =
+        "You died! Buffing, Combat, Nav and Loot have been disabled. "
+        + "Type /vt deathrestore to restore them.";
+
+    private const string DeathRestoredNotice =
+        "Buffing, Combat, Nav and Loot have been restored to previous values.";
+
+    private const string NothingToRestoreNotice =
+        "Nothing to restore: no death has disabled anything this session.";
+
+    private bool _navBeforeDeath;
+    private bool _lootingBeforeDeath;
+    private bool _buffingBeforeDeath;
+    private bool _combatBeforeDeath;
+
+    /// <summary>
+    /// Whether a death has offered the restore. The reference registers the
+    /// restore as a chat link at the moment it disables the four settings, so
+    /// there is nothing to click before a death and the registration is never
+    /// withdrawn afterwards; this flag reproduces exactly that reachability
+    /// for the command that stands in for the link.
+    /// </summary>
+    private bool _deathRestoreOffered;
+
     private void HandleDeath(bool macroRunning)
     {
         if (!macroRunning || !_combatSettings.StopMacroOnDeath)
             return;
-        SetMacroRunning(false);
-        Announce("Macro stopped because the character died.");
+        _navBeforeDeath = GetMetaOption("EnableNav").IsTruthy;
+        _lootingBeforeDeath = GetMetaOption("EnableLooting").IsTruthy;
+        _buffingBeforeDeath = GetMetaOption("EnableBuffing").IsTruthy;
+        _combatBeforeDeath = GetMetaOption("EnableCombat").IsTruthy;
+        SetMetaOption("EnableNav", ExpressionValue.Boolean(false));
+        SetMetaOption("EnableLooting", ExpressionValue.Boolean(false));
+        SetMetaOption("EnableBuffing", ExpressionValue.Boolean(false));
+        SetMetaOption("EnableCombat", ExpressionValue.Boolean(false));
+        _deathRestoreOffered = true;
+        Announce(DeathDisabledNotice);
+    }
+
+    /// <summary>
+    /// Put the four toggles back the way the death found them. False when no
+    /// death has offered a restore, so the caller can say so rather than
+    /// quietly writing four defaults over live settings.
+    /// </summary>
+    internal bool TryRestoreAfterDeath()
+    {
+        if (!_deathRestoreOffered)
+            return false;
+        SetMetaOption("EnableNav", ExpressionValue.Boolean(_navBeforeDeath));
+        SetMetaOption("EnableLooting", ExpressionValue.Boolean(_lootingBeforeDeath));
+        SetMetaOption("EnableBuffing", ExpressionValue.Boolean(_buffingBeforeDeath));
+        SetMetaOption("EnableCombat", ExpressionValue.Boolean(_combatBeforeDeath));
+        Announce(DeathRestoredNotice);
+        return true;
     }
 
     private bool _wasDeadForMacro;
