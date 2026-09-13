@@ -2321,6 +2321,83 @@ public sealed class CombatControllerTests
                 StringComparison.Ordinal));
     }
 
+    /// <summary>
+    /// Every rule shares one cast tracker, so a buff cast at the character's
+    /// own guid reaches the combat controller's result-timeout arm like any
+    /// other. Giving a target up is a verdict about a creature the pass
+    /// follows: the caster is not one, so nothing is suppressed and nothing
+    /// is announced. A monster beside it still gets both.
+    /// Mutation: drop the creature guard from
+    /// <c>CombatFailureTracker.RecordMiss</c> and the first assertion fails
+    /// with "Blacklisting unhittable target ??? (1342177290) for 120
+    /// seconds." — the exact line the live run printed.
+    /// </summary>
+    [Fact]
+    public void ASelfCastThatTimesOutIsNotAnnouncedAsAnUnhittableTarget()
+    {
+        var surface = new FakeAutomation
+        {
+            CombatSnapshot = Physical() with { Mode = PluginCombatMode.Magic },
+            Targets = [Target(10, "Drudge", 5, 0)],
+            KnownCombatSpells = [MagicSpell(100, "Flame Bolt VII", difficulty: 300)],
+            EquipmentItems = [WieldedCaster()],
+        };
+        var settings = FireAttackRule(new CombatSettings
+        {
+            MaximumRange = 40d,
+            ScanIntervalSeconds = 0.05d,
+            BlacklistMonsterAttemptCount = 0,
+            BlacklistMonsterTimeoutSeconds = 120,
+        });
+        var controller = new CombatController(new FakeHost(surface), settings);
+        controller.Toggle();
+        controller.OnTick(0.25);
+
+        const uint self = 1342177290u;
+        TimeOutACast(controller, self, 0x1131u, "Incantation of Flame Bane", "MalarQuaTak");
+        Assert.DoesNotContain(
+            surface.PostedSystemMessages,
+            message => message.Contains(
+                "Blacklisting unhittable target",
+                StringComparison.Ordinal));
+
+        TimeOutACast(controller, 10u, 100u, "Flame Bolt VII", "ZojakQuazael");
+        Assert.Contains(
+            surface.PostedSystemMessages,
+            message => message.Contains(
+                "Blacklisting unhittable target Drudge (10)",
+                StringComparison.Ordinal));
+    }
+
+    /// <summary>
+    /// Drives one cast all the way to the result timeout: begin it, let the
+    /// gesture echo move it on to waiting for a result, then spend the whole
+    /// result budget.
+    /// </summary>
+    private static void TimeOutACast(
+        CombatController controller,
+        uint targetObjectId,
+        uint spellId,
+        string spellName,
+        string saying)
+    {
+        controller.CastTracker.Reset();
+        controller.CastTracker.Begin(
+            spellId,
+            spellName,
+            targetObjectId,
+            string.Empty,
+            hitsMultipleTargets: false,
+            issueRevision: 0,
+            saying);
+        controller.CastTracker.ObserveChat(
+            0uL,
+            saying,
+            ownSpeech: true,
+            logTextType: 0x11u);
+        controller.CastTracker.Advance(SpellCastTracker.ResultTimeoutSeconds + 0.1d);
+    }
+
     [Fact]
     public void PermanentFailResultTextForceBlacklistsTheTarget()
     {
@@ -2611,6 +2688,7 @@ public sealed class CombatControllerTests
         var settings = new CombatSettings { BlacklistMonsterTimeoutSeconds = 300 };
         var tracker = new CombatFailureTracker();
 
+        tracker.ObserveTargets([Target(10, "Drudge", 5, 0)], 0d, settings);
         tracker.ForceBlacklist(10u, now: 0d, settings);
         Assert.Equal(
             CombatSuppressionReason.Blacklisted,

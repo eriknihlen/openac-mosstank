@@ -80,6 +80,62 @@ public sealed class CombatFailureTrackerTests
     }
 
     /// <summary>
+    /// A miss can be recorded against anything a cast was aimed at, the
+    /// character's own guid included, but only a creature the hostile capture
+    /// has named can be given up on. Nothing is suppressed for the rest and
+    /// the caller is told nothing to announce.
+    /// Mutation: drop the <c>IsCreature</c> guard from <c>RecordMiss</c> and
+    /// the first assertion fails — the caster blacklists itself and the
+    /// "Blacklisting unhittable target" notice goes out against its own guid.
+    /// </summary>
+    [Fact]
+    public void OnlyACreatureThePassHasSeenCanBeGivenUpOn()
+    {
+        var tracker = new CombatFailureTracker();
+        var settings = new CombatSettings
+        {
+            BlacklistMonsterAttemptCount = 1,
+            BlacklistMonsterTimeoutSeconds = 120,
+        };
+        tracker.ObserveTargets([Target(0)], 0, settings);
+
+        const uint self = 1342177290u;
+        Assert.False(tracker.RecordMiss(self, 0, settings));
+        Assert.False(tracker.RecordMiss(self, 0, settings));
+        Assert.False(tracker.RecordMiss(self, 0, settings));
+        Assert.Equal(CombatSuppressionReason.None, tracker.Reason(self, 1));
+        Assert.False(tracker.IsKnown(self));
+
+        // The monster beside it still trips on the attempt after the
+        // allowance, so the guard narrows the verdict and nothing else.
+        Assert.False(tracker.RecordMiss(10, 0, settings));
+        Assert.True(tracker.RecordMiss(10, 0, settings));
+        Assert.Equal(CombatSuppressionReason.Blacklisted, tracker.Reason(10, 1));
+    }
+
+    /// <summary>
+    /// The same rule for the outright refusal: a permanent-fail sentence aimed
+    /// at something the pass does not follow leaves nothing behind.
+    /// Mutation: drop the <c>IsCreature</c> guard from <c>ForceBlacklist</c>
+    /// and the first assertion fails.
+    /// </summary>
+    [Fact]
+    public void AnOutrightRefusalOnlyBlacklistsACreature()
+    {
+        var tracker = new CombatFailureTracker();
+        var settings = new CombatSettings { BlacklistMonsterTimeoutSeconds = 120 };
+        tracker.ObserveTargets([Target(0)], 0, settings);
+
+        tracker.ForceBlacklist(1342177290u, now: 0d, settings);
+        Assert.Equal(
+            CombatSuppressionReason.None,
+            tracker.Reason(1342177290u, now: 1d));
+
+        tracker.ForceBlacklist(10u, now: 0d, settings);
+        Assert.Equal(CombatSuppressionReason.Blacklisted, tracker.Reason(10u, now: 1d));
+    }
+
+    /// <summary>
     /// Mutation: make <c>ExtendBlacklist</c> assign the deadline
     /// unconditionally and this fails — the second, shorter trip would cut the
     /// first one short.
@@ -93,6 +149,7 @@ public sealed class CombatFailureTrackerTests
             BlacklistMonsterAttemptCount = 0,
             BlacklistMonsterTimeoutSeconds = 100,
         };
+        tracker.ObserveTargets([Target(0)], 0, settings);
         tracker.RecordMiss(10, 0, settings);
 
         settings.BlacklistMonsterTimeoutSeconds = 1;
@@ -117,6 +174,7 @@ public sealed class CombatFailureTrackerTests
             BlacklistMonsterAttemptCount = 2,
             BlacklistMonsterTimeoutSeconds = 100,
         };
+        tracker.ObserveTargets([Target(0)], 0, settings);
         tracker.RecordMiss(10, 0, settings);
         tracker.RecordMiss(10, 0, settings);
         tracker.ResetAttempts(10);

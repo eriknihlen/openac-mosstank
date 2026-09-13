@@ -31,6 +31,9 @@ internal sealed class CombatFailureTracker
                     Incarnation = target.Incarnation,
                 };
             }
+            // Seeing it in the hostile capture is what makes it a creature
+            // this tracker has an opinion about. Nothing else may write this.
+            entry.IsCreature = true;
             entry.LastSeenAt = now;
             // The attempt count is NOT cleared by the monster's health
             // moving. Only our own damage line clears it — a fellow's blow,
@@ -84,9 +87,17 @@ internal sealed class CombatFailureTracker
 
     /// <summary>
     /// One recorded attempt that provably did not reach the monster. The count
-    /// trips on the attempt AFTER the configured allowance, not on it. Answers
-    /// true on the attempt that tripped it, so the caller can say so.
+    /// trips on the attempt AFTER the configured allowance, not on it, and the
+    /// count then starts over whether or not anything came of it. Answers true
+    /// on the attempt that tripped it, so the caller can say so.
     /// </summary>
+    /// <remarks>
+    /// Anything can be missed — a cast at the character's own guid times out
+    /// like any other — but only a creature the combat pass has actually seen
+    /// can be given up on. So the count is kept for every id and the verdict
+    /// is reserved for creatures, which is also why a self-cast neither
+    /// suppresses anything nor prints the notice.
+    /// </remarks>
     public bool RecordMiss(
         uint objectId,
         double now,
@@ -99,8 +110,10 @@ internal sealed class CombatFailureTracker
         entry.Attempts++;
         if (entry.Attempts <= settings.BlacklistMonsterAttemptCount)
             return false;
-        ExtendBlacklist(entry, now, settings);
         entry.Attempts = 0;
+        if (!entry.IsCreature)
+            return false;
+        ExtendBlacklist(entry, now, settings);
         return true;
     }
 
@@ -112,6 +125,11 @@ internal sealed class CombatFailureTracker
         entry.Attempts = 0;
     }
 
+    /// <summary>
+    /// Give the target up outright. Same creature-only rule as
+    /// <see cref="RecordMiss"/>: a refusal aimed at something that is not a
+    /// creature the pass follows leaves nothing behind.
+    /// </summary>
     public void ForceBlacklist(
         uint objectId,
         double now,
@@ -121,8 +139,10 @@ internal sealed class CombatFailureTracker
         if (objectId == 0u)
             return;
         Entry entry = Get(objectId);
-        ExtendBlacklist(entry, now, settings);
         entry.Attempts = 0;
+        if (!entry.IsCreature)
+            return;
+        ExtendBlacklist(entry, now, settings);
     }
 
     /// <summary>
@@ -161,9 +181,12 @@ internal sealed class CombatFailureTracker
 
     /// <summary>
     /// Has the combat pass ever seen this monster? A monster it has never
-    /// looked at is not one it has an opinion about.
+    /// looked at is not one it has an opinion about — and neither is an id
+    /// that only ever appeared as a miss count, which is why the answer is
+    /// the creature flag and not merely the presence of an entry.
     /// </summary>
-    public bool IsKnown(uint objectId) => _entries.ContainsKey(objectId);
+    public bool IsKnown(uint objectId) =>
+        _entries.TryGetValue(objectId, out Entry? entry) && entry.IsCreature;
 
     public void Reset() => _entries.Clear();
 
@@ -177,6 +200,12 @@ internal sealed class CombatFailureTracker
     private sealed class Entry
     {
         public ushort Incarnation;
+
+        /// <summary>
+        /// Whether the hostile capture has ever named this id. Only these get
+        /// a blacklist and its notice.
+        /// </summary>
+        public bool IsCreature;
         public double LastSeenAt;
         public int Attempts;
         public int SpellAttempts;
