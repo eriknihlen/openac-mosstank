@@ -446,18 +446,10 @@ internal sealed class NavigationController
     /// </summary>
     public void Reset()
     {
-        ResetOncePerRunWarnings();
-        StopMovement();
+        StopForMacroStop();
         _index = 0;
         _reverse = false;
         _onceComplete = false;
-        _checkpointElapsed = 0d;
-        _followPath.Clear();
-        ClearDoor();
-        ClearAction();
-        _status = _settings.Enabled
-            ? "Route ready."
-            : "Navigation disabled.";
     }
 
     /// <summary>
@@ -544,8 +536,13 @@ internal sealed class NavigationController
     /// </summary>
     public void StopForMacroStop()
     {
+        // Layered, not copied: losing one pass is the innermost of the three
+        // teardowns, a macro stop adds the things a returning turn would have
+        // wanted kept, and a reset adds the round's own position on top of
+        // that. Three near-identical bodies are how the next in-flight field
+        // gets forgotten in one of them.
+        StopForLostTurn();
         ResetOncePerRunWarnings();
-        StopMovement();
         _checkpointElapsed = 0d;
         _followPath.Clear();
         ClearDoor();
@@ -555,6 +552,11 @@ internal sealed class NavigationController
             : "Navigation disabled.";
     }
 
+    /// <summary>
+    /// Deliberately narrower than the three above and not layered on them:
+    /// this is the "let go of whatever you are holding and try again" command,
+    /// which keeps the follow trail and the once-per-run warnings.
+    /// </summary>
     public void ClearActionLocks()
     {
         StopMovement();

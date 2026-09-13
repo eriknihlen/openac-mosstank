@@ -94,6 +94,32 @@ public sealed class NavigationTests
         Assert.Empty(automation.FacedHeadings);
     }
 
+    /// <summary>
+    /// A macro stop keeps the round's place, but it must not leave the
+    /// character running: whatever the route was holding down is released,
+    /// the same as on a lost turn. The three teardowns are layered so this
+    /// cannot be forgotten in one of them.
+    /// </summary>
+    [Fact]
+    public void AMacroStopReleasesTheMovementTheRouteWasHolding()
+    {
+        var automation = new FakeAutomation
+        {
+            NavigationSnapshot = Snapshot(Position(0d, 0d, heading: 88f)),
+        };
+        NavigationController controller = Controller(
+            automation,
+            RouteMode.Circular,
+            Waypoint(RouteWaypointType.Point, Position(1d, 0d)));
+        Assert.True(controller.Tick(0.05d, canAct: true));
+        Assert.Single(automation.Intents);
+        int releasedBefore = automation.ClearCount;
+
+        controller.StopForMacroStop();
+
+        Assert.True(automation.ClearCount > releasedBefore);
+    }
+
     [Fact]
     public void PointSteeringIssuesNoTurnKeyIntentsAtAnyOffset()
     {
