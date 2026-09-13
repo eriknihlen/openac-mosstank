@@ -170,6 +170,113 @@ public sealed class VtankWeaponLadderTests
                 static _ => false));
     }
 
+    /// <summary>
+    /// A wand is only a weapon to someone who can cast from it: a melee
+    /// character with a profiled wand must be handed the sword. The wand is
+    /// still the last thing left when nothing else can be wielded.
+    /// Mutation: drop either school test from the caster arm and the first
+    /// two assertions fail — the wand wins a rung it cannot pay for.
+    /// </summary>
+    [Fact]
+    public void AWandNeedsTheSchoolItCastsFrom()
+    {
+        PluginEquipmentItem wand = Caster(1, "Fire Wand", damageType: 0x0010);
+        PluginEquipmentItem sword = Weapon(3, "Heavy Sword", damageType: 0x0001);
+
+        // Fire is wanted and only the wand deals it, but an untrained caster
+        // cannot use it, so the sword is what is left.
+        Assert.Equal(
+            3u,
+            PickWithSchools(
+                [wand, sword],
+                warTrained: false,
+                voidTrained: false,
+                MonsterDamageType.Fire));
+        Assert.Equal(
+            1u,
+            PickWithSchools(
+                [wand, sword],
+                warTrained: true,
+                voidTrained: false,
+                MonsterDamageType.Fire));
+
+        // A void wand answers to the other school.
+        PluginEquipmentItem voidWand = Caster(2, "Void Wand", damageType: 0x0400);
+        Assert.Equal(
+            3u,
+            PickWithSchools(
+                [voidWand, sword],
+                warTrained: true,
+                voidTrained: false,
+                MonsterDamageType.VoidBasic));
+        Assert.Equal(
+            2u,
+            PickWithSchools(
+                [voidWand, sword],
+                warTrained: false,
+                voidTrained: true,
+                MonsterDamageType.VoidBasic));
+
+        // Nothing else to reach for: the untrained wand is still better than
+        // standing there empty-handed.
+        Assert.Equal(
+            1u,
+            PickWithSchools(
+                [wand],
+                warTrained: false,
+                voidTrained: false,
+                MonsterDamageType.Fire));
+    }
+
+    /// <summary>
+    /// The main hand never takes the item the rule already spoke for as the
+    /// off hand.
+    /// Mutation: drop the exclusion and this fails — one dagger is picked for
+    /// both hands.
+    /// </summary>
+    [Fact]
+    public void TheRulesOffHandPickIsNotTakenByTheMainHandToo()
+    {
+        PluginEquipmentItem best = Weapon(1, "Fire Rending Dagger", damageType: 0x0010)
+            with
+        { ImbuedEffect = 0x0200 };
+        PluginEquipmentItem other = Weapon(2, "Plain Dagger", damageType: 0x0010);
+
+        Assert.Equal(1u, Pick([best, other], MonsterDamageType.Fire));
+        Assert.Equal(
+            2u,
+            VtankWeaponLadder.Select(
+                [best, other],
+                static _ => true,
+                [MonsterDamageType.Fire],
+                species: -1,
+                static (_, _) => true,
+                static _ => false,
+                excludeObjectId: 1u));
+    }
+
+    private static uint PickWithSchools(
+        IReadOnlyList<PluginEquipmentItem> items,
+        bool warTrained,
+        bool voidTrained,
+        MonsterDamageType wanted) => VtankWeaponLadder.Select(
+            items,
+            static _ => true,
+            [wanted],
+            species: -1,
+            static (_, _) => true,
+            static _ => false,
+            warTrained: warTrained,
+            voidTrained: voidTrained);
+
+    private static PluginEquipmentItem Caster(
+        uint id,
+        string name,
+        int damageType) => Weapon(id, name, damageType) with
+        {
+            ItemType = CombatModeGate.CasterItemType,
+        };
+
     private static uint Pick(
         IReadOnlyList<PluginEquipmentItem> items,
         MonsterDamageType wanted) => VtankWeaponLadder.Select(

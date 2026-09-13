@@ -32,13 +32,11 @@ internal sealed class CombatFailureTracker
                 };
             }
             entry.LastSeenAt = now;
-            if (target.HealthRevision != 0
-                && target.HealthRevision != entry.HealthRevision)
-            {
-                entry.HealthRevision = target.HealthRevision;
-                entry.Attempts = 0;
-            }
-
+            // The attempt count is NOT cleared by the monster's health
+            // moving. Only our own damage line clears it — a fellow's blow,
+            // the monster's own regeneration or a heal are somebody else
+            // reaching it, and an unhittable monster in a crowd would never
+            // be given up on.
             if (entry.BlacklistedUntil <= now)
                 entry.BlacklistedUntil = 0d;
         }
@@ -183,7 +181,6 @@ internal sealed class CombatFailureTracker
     {
         public ushort Incarnation;
         public double LastSeenAt;
-        public long HealthRevision;
         public int Attempts;
         public int SpellAttempts;
         public double BlacklistedUntil;

@@ -1377,6 +1377,50 @@ public sealed class CombatControllerTests
             ClearanceHeightFor(known, UseArcsMode.Yes));
     }
 
+    /// <summary>
+    /// A debuff's way to the monster is tested at the height its own flight
+    /// takes, exactly as an attack's is: a thrown phial is tested at the
+    /// profile's swing height, not at a fixed level one.
+    /// Mutation: hard-code <c>PluginAttackHeight.Medium</c> in the debuff
+    /// clearance check again and this fails.
+    /// </summary>
+    [Fact]
+    public void ADebuffsClearanceUsesItsOwnFlightHeight()
+    {
+        PluginSpellInfo imperil = Spell(1323, "Imperil Other I") with
+        {
+            School = 31,
+            IsDebuff = true,
+            IsOffensive = true,
+            DurationSeconds = 60,
+        };
+        PluginInventoryItem phial = InventoryItem(
+            200, "Iron Phial of Imperil", 0x100, 0, equipped: false)
+            with { CombatUse = 0 };
+        var surface = new FakeAutomation
+        {
+            CombatSnapshot = Physical() with { Mode = PluginCombatMode.Missile },
+            Targets = [Target(10, "Drudge", 5, 0)],
+            SpellLookup = [imperil],
+            ItemEntries = [phial],
+            CharacterSkills = [new(38u, "Alchemy", PluginSkillTraining.Trained, 400)],
+        };
+        var settings = DebuffOnly(MonsterActionFlags.Imperil);
+        settings.ConsumableNames.Add("Iron Phial of Imperil");
+        settings.UseProjectileAwareness = true;
+        // Deliberately neither of the two shape heights.
+        settings.AttackHeight = PluginAttackHeight.Low;
+        var controller = new CombatController(new FakeHost(surface), settings);
+
+        controller.Toggle();
+        controller.OnTick(0.25);
+
+        Assert.Equal(
+            PluginProjectilePathKind.Missile,
+            surface.LastProjectileKind);
+        Assert.Equal(PluginAttackHeight.Low, surface.LastProjectileHeight);
+    }
+
     private static PluginAttackHeight ClearanceHeightFor(
         IReadOnlyList<PluginSpellInfo> known,
         UseArcsMode mode)

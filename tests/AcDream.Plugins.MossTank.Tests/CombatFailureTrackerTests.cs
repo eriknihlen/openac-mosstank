@@ -4,8 +4,17 @@ namespace AcDream.Plugins.MossTank.Tests;
 
 public sealed class CombatFailureTrackerTests
 {
+    /// <summary>
+    /// A monster whose health moves has not necessarily been reached BY US: a
+    /// fellow's blow, its own regeneration or a heal all move it. Only our own
+    /// damage line clears the attempt count, so an unhittable monster standing
+    /// in a busy fight is still given up on.
+    /// Mutation: clear <c>Attempts</c> when the health revision changes in
+    /// <c>ObserveTargets</c> and this fails — the monster is never
+    /// blacklisted.
+    /// </summary>
     [Fact]
-    public void HealthUpdateCancelsAccumulatedMisses()
+    public void SomebodyElsesDamageDoesNotCancelAccumulatedMisses()
     {
         var tracker = new CombatFailureTracker();
         var settings = new CombatSettings
@@ -21,8 +30,19 @@ public sealed class CombatFailureTrackerTests
         tracker.RecordMiss(10, 3, settings);
 
         Assert.Equal(
-            CombatSuppressionReason.None,
+            CombatSuppressionReason.Blacklisted,
             tracker.Reason(10, 3));
+
+        // Our own damage report is the one thing that does clear it.
+        tracker.ObserveTargets([Target(3)], 40, settings);
+        tracker.RecordMiss(10, 40, settings);
+        tracker.ResetAttempts(10);
+        tracker.RecordMiss(10, 41, settings);
+        tracker.RecordMiss(10, 41, settings);
+
+        Assert.Equal(
+            CombatSuppressionReason.None,
+            tracker.Reason(10, 41));
     }
 
     /// <summary>

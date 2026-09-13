@@ -14,6 +14,9 @@ internal static class VtankWeaponLadder
     /// <summary>Only these slots hold something to fight with.</summary>
     private const uint WeaponReadyMask = 0x03500000u;
 
+    /// <summary>The damage bit that makes a wand a void caster.</summary>
+    private const int NetherDamage = 0x0400;
+
     /// <summary>What each rating is worth when weapons are compared by rating.</summary>
     private const int ArmorRendScore = 4000;
     private const int CriticalStrikeScore = 2000;
@@ -65,13 +68,25 @@ internal static class VtankWeaponLadder
     /// <param name="alreadyVulnerable">
     /// Whether the monster is already carrying that element's vulnerability.
     /// </param>
+    /// <param name="warTrained">
+    /// Whether the character can actually cast war magic. A wand it cannot
+    /// cast from is not a weapon, however well rated it is.
+    /// </param>
+    /// <param name="voidTrained">The same question for void magic.</param>
+    /// <param name="excludeObjectId">
+    /// An item the rule has already spoken for — its off-hand pick — which
+    /// the main hand must not take as well.
+    /// </param>
     public static uint Select(
         IReadOnlyList<PluginEquipmentItem> items,
         Func<PluginEquipmentItem, bool> isProfiled,
         IReadOnlyList<MonsterDamageType> wanted,
         int species,
         Func<PluginEquipmentItem, MonsterDamageType, bool> canDeliver,
-        Func<MonsterDamageType, bool> alreadyVulnerable)
+        Func<MonsterDamageType, bool> alreadyVulnerable,
+        bool warTrained = true,
+        bool voidTrained = true,
+        uint excludeObjectId = 0u)
     {
         ArgumentNullException.ThrowIfNull(items);
         ArgumentNullException.ThrowIfNull(isProfiled);
@@ -101,7 +116,9 @@ internal static class VtankWeaponLadder
         foreach (PluginEquipmentItem item in items)
         {
             if (!isProfiled(item)
-                || (item.ValidLocations & WeaponReadyMask) == 0u)
+                || (item.ValidLocations & WeaponReadyMask) == 0u
+                // The rule's own off-hand pick is spoken for.
+                || (excludeObjectId != 0u && item.ObjectId == excludeObjectId))
             {
                 continue;
             }
@@ -112,9 +129,20 @@ internal static class VtankWeaponLadder
 
             if (caster)
             {
+                // A wand is remembered as the last-resort pick even when its
+                // school is untrained; what an untrained school cannot do is
+                // win a rung.
                 last = item.ObjectId;
-                if (species >= 0 && item.SlayerCreatureType == species)
+                if ((warTrained || voidTrained)
+                    && species >= 0
+                    && item.SlayerCreatureType == species)
+                {
                     slayer = item.ObjectId;
+                }
+
+                bool nether = (item.DamageType & NetherDamage) != 0;
+                if (nether ? !voidTrained : !warTrained)
+                    continue;
             }
             if (launcher)
                 anyLauncher = item.ObjectId;

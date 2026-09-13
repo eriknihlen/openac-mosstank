@@ -1020,18 +1020,14 @@ internal sealed class CombatController
             }
 
             bool arcShape = type == VtankCombatSpellType.Arc;
+            PluginProjectilePathKind shape = arcShape
+                ? PluginProjectilePathKind.Arc
+                : PluginProjectilePathKind.Straight;
             if (spell.IsProjectile
                 && !ProjectilePathIsClear(
                     _targetId,
-                    arcShape
-                        ? PluginProjectilePathKind.Arc
-                        : PluginProjectilePathKind.Straight,
-                    // The ray's height belongs to the SHAPE: an arc is thrown
-                    // high, a bolt goes out level. The configured melee height
-                    // is for the swing, not for these.
-                    arcShape
-                        ? PluginAttackHeight.High
-                        : PluginAttackHeight.Medium,
+                    shape,
+                    HeightForShape(shape),
                     out PluginProjectilePathResult path))
             {
                 projectileRefusal = ProjectileStatus(path, _targetName);
@@ -1654,6 +1650,7 @@ internal sealed class CombatController
                 ? _gameInfo.DamagePreferences(target.Name)
                 : [actions.DamageType];
         PluginCombatTarget subject = target;
+        ICharacterInfo character = _host.Automation.Character;
         return VtankWeaponLadder.Select(
             items,
             item => _settings.CombatItemObjectIds.Contains(item.ObjectId)
@@ -1661,7 +1658,10 @@ internal sealed class CombatController
             wanted,
             SpeciesOf(in subject),
             (item, element) => CanWeaponDeliver(in item, element),
-            element => IsAlreadyVulnerable(in subject, element));
+            element => IsAlreadyVulnerable(in subject, element),
+            warTrained: IsTrained(character, WarMagicSkill),
+            voidTrained: IsTrained(character, VoidMagicSkill),
+            excludeObjectId: actions.OffhandObjectId);
     }
 
     /// <summary>
@@ -1822,7 +1822,7 @@ internal sealed class CombatController
                 || ProjectilePathIsClear(
                     target.ObjectId,
                     shape,
-                    PluginAttackHeight.Medium,
+                    HeightForShape(shape),
                     out PluginProjectilePathResult debuffPath))
             {
                 choice = winner;
@@ -1942,6 +1942,20 @@ internal sealed class CombatController
         return false;
     }
 
+    /// <summary>
+    /// The height the way to the monster is tested at. It belongs to the
+    /// SHAPE of the flight, not to the swing: an arc is thrown high, a bolt
+    /// goes out level, and anything else — a shot, a thrown weapon — is tested
+    /// at the height the profile swings at.
+    /// </summary>
+    private PluginAttackHeight HeightForShape(PluginProjectilePathKind kind) =>
+        kind switch
+        {
+            PluginProjectilePathKind.Arc => PluginAttackHeight.High,
+            PluginProjectilePathKind.Straight => PluginAttackHeight.Medium,
+            _ => _settings.AttackHeight,
+        };
+
     private bool ProjectilePathIsClear(
         uint targetObjectId,
         PluginProjectilePathKind kind,
@@ -2021,6 +2035,10 @@ internal sealed class CombatController
             _ => $"Cannot fire at {target}",
         };
     }
+
+    /// <summary>The two attack schools, by skill id.</summary>
+    private const uint WarMagicSkill = 34u;
+    private const uint VoidMagicSkill = 43u;
 
     private static bool IsTrained(ICharacterInfo character, uint skillId) =>
         character.TryGetSkill(skillId, out PluginSkillInfo skill)
