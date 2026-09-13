@@ -32,8 +32,10 @@ public sealed class CorpseDrainPlanTests
             castable ?? (static _ => true));
 
     /// <summary>
-    /// Mutation: rank the steps by health taken off alone, ignoring the time
-    /// each takes, and the first assertion picks the wrong drain.
+    /// Mutation: rank the steps by health taken off alone (divide by 1 instead
+    /// of by the milliseconds the step costs) and the last assertion answers
+    /// 2762 — the three drains rank the same way under both orderings, so it
+    /// takes the martyrs, where they disagree, to tell the two apart.
     /// </summary>
     [Fact]
     public void TheGreedyStepIsTheMostHealthTakenOffPerMillisecondSpent()
@@ -47,6 +49,12 @@ public sealed class CorpseDrainPlanTests
         Assert.Equal(
             1238u,
             Select(900, 1000, 749, 400, castable: id => id != 1239u));
+
+        // Drop the floor to 600 and the three martyrs join the race. Now the
+        // two orderings disagree: the slowest martyr takes the most health off
+        // (236 points against 169), but the fastest one takes off far more per
+        // millisecond, and it is the fastest one the planner picks.
+        Assert.Equal(2760u, Select(900, 1000, 600, 400));
     }
 
     /// <summary>
@@ -86,9 +94,12 @@ public sealed class CorpseDrainPlanTests
     }
 
     /// <summary>
-    /// Mutation: answer the first castable spell rather than zero when the
-    /// plan opens with a self-heal, and the caster drains itself under the
-    /// floor instead of recharging.
+    /// Mutation: drop <c>castable(...)</c> from the drain and martyr
+    /// admissions and this answers 1239 — a spell the caster cannot cast at
+    /// all. The "a heal means zero" arm itself has no distinguishing mutation:
+    /// the heal step carries spell id 0, so deleting the arm answers zero
+    /// anyway. The arm is there to say what the zero means, and the
+    /// assertion below pins the answer, not the arm.
     /// </summary>
     [Fact]
     public void APlanWhoseFirstStepIsAHealMeansDoNotDrain()
