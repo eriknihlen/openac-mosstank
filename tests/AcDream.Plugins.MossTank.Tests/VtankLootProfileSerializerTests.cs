@@ -60,7 +60,7 @@ public sealed class VtankLootProfileSerializerTests
             rule.VtankRequirements.Add(new VtankLootRequirement
             {
                 Type = type,
-                Payload = $"payload-{type}\r\nsecond-{type}\r\n",
+                Payload = ValidPayload(type),
             });
         }
         profile.Rules.Add(rule);
@@ -77,6 +77,45 @@ public sealed class VtankLootProfileSerializerTests
             rule.VtankRequirements.Select(static requirement => requirement.Payload),
             roundTrip.VtankRequirements.Select(static requirement => requirement.Payload));
         Assert.Equal(source, VtankLootProfileSerializer.Write(loaded));
+    }
+
+    [Fact]
+    public void KnownRecordsUseTheirTypedLineShapeAndKnownBlocksIgnoreLengthMetadata()
+    {
+        const string source = "UTL\n1\n2\n"
+            + "First\neditor expression\n0;1;1\n999\nSword\n1\n"
+            + "Second\n\n0;1;7\n1\n2\n"
+            + "SalvageCombine\n1\n1\n1-6, 7-8, 9, 10\n1\n61\n1-10\n0\n"
+            + "FutureBlock\n6\nhello\n";
+
+        Assert.True(VtankLootProfileSerializer.TryRead(
+            source,
+            out VtankLootProfile profile,
+            out string error), error);
+
+        Assert.Equal(2, profile.Rules.Count);
+        Assert.Equal("Sword\r\n1\r\n", profile.Rules[0].VtankRequirements[0].Payload);
+        Assert.Equal("2\r\n", profile.Rules[1].VtankRequirements[0].Payload);
+        Assert.Equal("1-10", profile.SalvageCombine.MaterialCombineStrings[61]);
+        Assert.Equal("hello\n", Assert.Single(profile.UnknownBlocks).Payload);
+    }
+
+    [Fact]
+    public void UnknownRequirementStillUsesAndValidatesItsDeclaredLength()
+    {
+        const string valid = "UTL\r\n1\r\n1\r\nUnknown\r\n\r\n0;1;4242\r\n7\r\nhello\r\n";
+        Assert.True(VtankLootProfileSerializer.TryRead(
+            valid,
+            out VtankLootProfile profile,
+            out string error), error);
+        Assert.Equal("hello\r\n", Assert.Single(profile.Rules[0].VtankRequirements).Payload);
+
+        const string truncated = "UTL\r\n1\r\n1\r\nUnknown\r\n\r\n0;1;4242\r\n99\r\nhello\r\n";
+        Assert.False(VtankLootProfileSerializer.TryRead(
+            truncated,
+            out _,
+            out error));
+        Assert.Contains("truncated", error, StringComparison.OrdinalIgnoreCase);
     }
 
     [Fact]
@@ -114,5 +153,22 @@ public sealed class VtankLootProfileSerializerTests
         Assert.Equal(2, rule.VtankRequirements.Count);
         Assert.Equal("^Sword$\r\n1\r\n", rule.VtankRequirements[0].Payload);
         Assert.Equal("3\r\n", rule.VtankRequirements[1].Payload);
+    }
+
+    private static string ValidPayload(int type)
+    {
+        int lines = type switch
+        {
+            0 => 1,
+            1 => 2,
+            2 or 3 or 4 or 5 or 11 or 12 or 13 or 17 or 1000 or 2003 or 2005 => 2,
+            6 or 7 or 8 or 10 or 1001 or 1002 or 1003 or 2000 or 2001
+                or 2006 or 2007 or 9999 => 1,
+            9 or 1004 or 2008 => 3,
+            14 => 5,
+            15 or 16 => 6,
+            _ => throw new ArgumentOutOfRangeException(nameof(type)),
+        };
+        return string.Concat(Enumerable.Range(1, lines).Select(index => $"{index}\r\n"));
     }
 }

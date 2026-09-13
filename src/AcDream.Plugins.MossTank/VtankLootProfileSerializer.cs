@@ -109,16 +109,16 @@ internal static class VtankLootProfileSerializer
                     reader.ReadLine(),
                     $"{blockType} block length",
                     16 * 1024 * 1024);
-                string payload = reader.ReadCharacters(length);
                 if (string.Equals(
                     blockType,
                     SalvageBlock,
                     StringComparison.Ordinal))
                 {
-                    profile.SalvageCombine = ReadSalvage(payload);
+                    profile.SalvageCombine = ReadSalvage(reader);
                 }
                 else
                 {
+                    string payload = reader.ReadCharacters(length);
                     profile.UnknownBlocks.Add(new VtankLootExtraBlock
                     {
                         Type = blockType,
@@ -206,7 +206,10 @@ internal static class VtankLootProfileSerializer
                     reader.ReadLine(),
                     $"rule {ruleIndex + 1} requirement length",
                     16 * 1024 * 1024);
-                payload = reader.ReadCharacters(length);
+                int knownLines = LegacyPayloadLineCount(type);
+                payload = knownLines >= 0
+                    ? ReadKnownPayload(reader, knownLines)
+                    : reader.ReadCharacters(length);
             }
             else
             {
@@ -275,9 +278,16 @@ internal static class VtankLootProfileSerializer
         ];
     }
 
-    private static VtankSalvageCombineSettings ReadSalvage(string payload)
+    private static string ReadKnownPayload(CharacterReader reader, int lineCount)
     {
-        var reader = new CharacterReader(payload);
+        var payload = new StringBuilder();
+        for (int line = 0; line < lineCount; line++)
+            AppendLine(payload, reader.ReadLine());
+        return payload.ToString();
+    }
+
+    private static VtankSalvageCombineSettings ReadSalvage(CharacterReader reader)
+    {
         _ = ParseInt(reader.ReadLine(), "salvage block version");
         var result = new VtankSalvageCombineSettings
         {
