@@ -885,6 +885,105 @@ public sealed class CombatControllerTests
     }
 
     [Fact]
+    public void CastsNoOneEverAnswersGetTheMonsterDeleted()
+    {
+        var surface = new FakeAutomation
+        {
+            CombatSnapshot = Physical() with { Mode = PluginCombatMode.Magic },
+            Targets = [Target(10, "Olthoi Slasher", 5, 0)],
+            KnownCombatSpells = [MagicSpell(100, "Flame Bolt VII", 300)],
+            EquipmentItems = [WieldedCaster()],
+        };
+        var settings = new CombatSettings
+        {
+            MaximumRange = 40d,
+            GhostMonsterSpellAttemptCount = 3,
+            DeleteGhostMonsters = true,
+            MonsterFacts = new MonsterFactTable(GameInfo),
+        };
+        settings.Rules.Clear();
+        settings.Rules.Add(new MonsterRule(
+            "DEFAULT",
+            new MonsterRuleActions
+            {
+                Flags = MonsterActionFlags.Attack,
+                DamageType = MonsterDamageType.Fire,
+            }));
+        var controller = new CombatController(new FakeHost(surface), settings);
+        controller.Toggle();
+
+        // One pass issues the cast; the rule track is then held while it is in
+        // flight, which is what the whole re-issue mechanism exists for.
+        controller.OnTick(0.25);
+        Assert.Contains(100u, surface.CastSpellIds);
+        Assert.Equal(
+            SpellCastTrackerState.AwaitingLaunch,
+            controller.CastTracker.State);
+
+        // The server never acknowledges it: the tracker re-sends every 200 ms,
+        // and each re-send is one more unanswered attempt.
+        for (int tick = 0; tick < 10; tick++)
+            controller.CastTracker.Advance(0.1);
+
+        Assert.Equal(10u, Assert.Single(surface.DismissedGhosts));
+        Assert.Contains(
+            surface.PostedSystemMessages,
+            line => line.Contains("Deleting ghost monster Olthoi Slasher"));
+
+        // Deleting it is the whole consequence. There is no permanent verdict
+        // on the monster, so the very next pass picks it again.
+        surface.CastSpellIds.Clear();
+        controller.OnTick(0.25);
+        Assert.Contains(100u, surface.CastSpellIds);
+    }
+
+    [Fact]
+    public void OnlyAMonsterWithAKnownHealthCeilingCanGoStaleIntoAGhost()
+    {
+        FakeAutomation listed = StalledHealthScenario("Olthoi Slasher");
+        Assert.NotEmpty(listed.DismissedGhosts);
+        Assert.All(listed.DismissedGhosts, id => Assert.Equal(10u, id));
+        Assert.Contains(
+            listed.PostedSystemMessages,
+            line => line.Contains("due to HP tracker notification"));
+
+        // The database does not list "Drudge", so the client is never told
+        // this monster's health in points and its silence means nothing.
+        Assert.Empty(StalledHealthScenario("Drudge").DismissedGhosts);
+    }
+
+    private static FakeAutomation StalledHealthScenario(string name)
+    {
+        var surface = new FakeAutomation
+        {
+            CombatSnapshot = Physical() with { Mode = PluginCombatMode.Magic },
+            Targets = [Target(10, name, 5, 0) with { HealthRevision = 3 }],
+            KnownCombatSpells = [MagicSpell(100, "Flame Bolt VII", 300)],
+            EquipmentItems = [WieldedCaster()],
+        };
+        var settings = new CombatSettings
+        {
+            MaximumRange = 40d,
+            DeleteGhostMonstersByHealthTracker = true,
+            GhostDeleteHealthTrackerSeconds = 10d,
+            MonsterFacts = new MonsterFactTable(GameInfo),
+        };
+        settings.Rules.Clear();
+        settings.Rules.Add(new MonsterRule(
+            "DEFAULT",
+            new MonsterRuleActions
+            {
+                Flags = MonsterActionFlags.Attack,
+                DamageType = MonsterDamageType.Fire,
+            }));
+        var controller = new CombatController(new FakeHost(surface), settings);
+        controller.Toggle();
+        for (int tick = 0; tick < 30; tick++)
+            controller.OnTick(1d);
+        return surface;
+    }
+
+    [Fact]
     public void TheRingTallyCountsOnlyValidCandidatesStrictlyInsideTheRing()
     {
         PluginSpellInfo[] known =
@@ -1184,13 +1283,23 @@ public sealed class CombatControllerTests
             MagicSpell(102, "Flame Streak VII", difficulty: 350),
         ];
 
+        // "Olthoi Slasher" is listed in the fixture database at 3190 health,
+        // and the streak's difficulty of 350 sets the bar at 50 points until a
+        // real blow is seen: 2871 left bolts, 32 left finishes.
         Assert.Equal(100u, CastAgainstHealth(known, healthFraction: 0.9f).Item1);
-        Assert.Equal(102u, CastAgainstHealth(known, healthFraction: 0.02f).Item1);
+        Assert.Equal(102u, CastAgainstHealth(known, healthFraction: 0.01f).Item1);
+
+        // A monster the database does not list has no health in points at
+        // all, so the finishing move can never be chosen for it.
+        Assert.Equal(
+            100u,
+            CastAgainstHealth(known, healthFraction: 0.01f, name: "Drudge").Item1);
     }
 
     private static (uint, uint) CastAgainstHealth(
         IReadOnlyList<PluginSpellInfo> known,
-        float healthFraction)
+        float healthFraction,
+        string name = "Olthoi Slasher")
     {
         var surface = new FakeAutomation
         {
@@ -1198,15 +1307,19 @@ public sealed class CombatControllerTests
             Targets =
             [
                 new PluginCombatTarget(
-                    10u, "Drudge", 1010u, 5f, 0f, true, healthFraction)
+                    10u, name, 1010u, 5f, 0f, true, healthFraction)
                 {
-                    MaximumHealth = 1000,
+                    HealthRevision = 7,
                 },
             ],
             KnownCombatSpells = known,
             EquipmentItems = [WieldedCaster()],
         };
-        var settings = new CombatSettings { MaximumRange = 40d };
+        var settings = new CombatSettings
+        {
+            MaximumRange = 40d,
+            MonsterFacts = new MonsterFactTable(GameInfo),
+        };
         settings.Rules.Clear();
         settings.Rules.Add(new MonsterRule(
             "DEFAULT",
@@ -4486,6 +4599,16 @@ public sealed class CombatControllerTests
         {
             AbortCount++;
             return new(PluginCombatCommandStatus.Stopped);
+        }
+
+        public List<uint> DismissedGhosts { get; } = [];
+        public bool GhostDismissalAccepted { get; set; } = true;
+        public PluginCombatCommandResult DismissGhostTarget(uint targetObjectId)
+        {
+            DismissedGhosts.Add(targetObjectId);
+            return new(GhostDismissalAccepted
+                ? PluginCombatCommandStatus.Stopped
+                : PluginCombatCommandStatus.Unavailable);
         }
 
         public bool TryGetObject(

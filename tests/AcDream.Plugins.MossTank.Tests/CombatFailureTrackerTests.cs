@@ -118,43 +118,41 @@ public sealed class CombatFailureTrackerTests
     }
 
     [Fact]
-    public void FailedSpellStartsMarkPersistentGhost()
+    public void UnansweredCastsTripOnTheAttemptAfterTheAllowanceThenStartOver()
     {
         var tracker = new CombatFailureTracker();
         var settings = new CombatSettings
         {
-            DeleteGhostMonsters = true,
             GhostMonsterSpellAttemptCount = 2,
         };
         tracker.ObserveTargets([Target(0)], 0, settings);
 
-        tracker.RecordSpellDidNotStart(10, settings);
-        Assert.Equal(CombatSuppressionReason.None, tracker.Reason(10, 0));
-        tracker.RecordSpellDidNotStart(10, settings);
-        Assert.Equal(CombatSuppressionReason.Ghost, tracker.Reason(10, 100));
+        Assert.False(tracker.RecordSpellAttempt(10, settings));
+        Assert.False(tracker.RecordSpellAttempt(10, settings));
+        Assert.True(tracker.RecordSpellAttempt(10, settings));
+
+        // Tripping is not a verdict on the monster: nothing is suppressed and
+        // the count starts over.
+        Assert.Equal(CombatSuppressionReason.None, tracker.Reason(10, 100));
+        Assert.False(tracker.RecordSpellAttempt(10, settings));
     }
 
     [Fact]
-    public void HealthAgeDetectorRequiresEngagementAndConfiguredDelay()
+    public void AnAnsweredCastStartsTheUnansweredCountOver()
     {
         var tracker = new CombatFailureTracker();
         var settings = new CombatSettings
         {
-            DeleteGhostMonstersByHealthTracker = true,
-            GhostDeleteHealthTrackerSeconds = 10,
+            GhostMonsterSpellAttemptCount = 2,
         };
-        PluginCombatTarget stale = Target(1) with
-        {
-            SecondsSinceHealthUpdate = 50,
-        };
+        tracker.ObserveTargets([Target(0)], 0, settings);
 
-        tracker.ObserveTargets([stale], 0, settings);
-        Assert.Equal(CombatSuppressionReason.None, tracker.Reason(10, 0));
-        tracker.BeginEngagement(10, 0);
-        tracker.ObserveTargets([stale], 9.9, settings);
-        Assert.Equal(CombatSuppressionReason.None, tracker.Reason(10, 9.9));
-        tracker.ObserveTargets([stale], 10, settings);
-        Assert.Equal(CombatSuppressionReason.Ghost, tracker.Reason(10, 10));
+        Assert.False(tracker.RecordSpellAttempt(10, settings));
+        Assert.False(tracker.RecordSpellAttempt(10, settings));
+        tracker.ResetSpellAttempts(10);
+        Assert.False(tracker.RecordSpellAttempt(10, settings));
+        Assert.False(tracker.RecordSpellAttempt(10, settings));
+        Assert.True(tracker.RecordSpellAttempt(10, settings));
     }
 
     private static PluginCombatTarget Target(long healthRevision) => new(

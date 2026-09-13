@@ -54,6 +54,16 @@ internal sealed class MonsterFactTable
     public int MaximumHealth(string? monsterName) =>
         Database.MaximumHealthOf(monsterName);
 
+    /// <summary>
+    /// Is there a row for this monster at all? The maximum-health column can
+    /// itself hold -1 for "known monster, unknown ceiling", so a reader that
+    /// has to tell the two apart cannot go by the value.
+    /// </summary>
+    public bool IsListed(string? monsterName) =>
+        Database.IsLoaded
+        && !string.IsNullOrWhiteSpace(monsterName)
+        && Database.SpeciesMembers.ContainsKey(monsterName);
+
     /// <summary>Is the monster listed as unaffectable by magic?</summary>
     public bool IsImmuneToMagic(string? monsterName) =>
         Database.IsImmuneToMagic(monsterName);

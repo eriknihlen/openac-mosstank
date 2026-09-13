@@ -1,3 +1,4 @@
+using System.Globalization;
 using System.Text.RegularExpressions;
 
 namespace AcDream.Plugins.MossTank;
@@ -140,6 +141,29 @@ internal static class CombatResultText
 
     public static bool IsDamageReport(string text) =>
         !string.IsNullOrEmpty(text) && DamageReportPattern.IsMatch(text);
+
+    /// <summary>The spell damage figure, as the reference reads it.</summary>
+    private static readonly Regex SpellDamagePattern = new(
+        "(?:You .* for )(?<points>[0-9]+)(?: points with .*)",
+        Options);
+
+    /// <summary>
+    /// How much a spell of ours just took off a monster, read out of the
+    /// sentence that reports it.
+    /// </summary>
+    public static bool TryReadSpellDamage(string? text, out int points)
+    {
+        points = 0;
+        if (string.IsNullOrEmpty(text))
+            return false;
+        Match match = SpellDamagePattern.Match(text);
+        return match.Success
+            && int.TryParse(
+                match.Groups["points"].Value,
+                NumberStyles.Integer,
+                CultureInfo.InvariantCulture,
+                out points);
+    }
 
     /// <summary>
     /// True when the line is one of the killing-blow sentences, with the slain

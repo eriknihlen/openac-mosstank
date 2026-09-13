@@ -12,6 +12,7 @@ internal sealed class CombatController
     private readonly VitalSettings _vitalSettings;
     private readonly DebuffTracker _debuffs = new();
     private readonly CombatFailureTracker _failures = new();
+    private readonly MonsterHealthTracker _health;
     private readonly PetAutomation _pets = new();
     private IReadOnlyList<PluginCombatTarget> _targets =
         Array.Empty<PluginCombatTarget>();
@@ -169,6 +170,7 @@ internal sealed class CombatController
         _settings = settings ?? throw new ArgumentNullException(nameof(settings));
         _vitalSettings = vitalSettings ?? new VitalSettings();
         _gameInfo = gameInfo ?? VtankGameInfoDatabase.Empty;
+        _health = new MonsterHealthTracker(() => _settings.MonsterFacts);
         _castTracker = castTracker ?? new SpellCastTracker();
         _castTracker.Completed += OnCastTrackerOutcome;
         // A request the server never answered is sent again rather than
@@ -177,6 +179,14 @@ internal sealed class CombatController
             targetObjectId == 0u
                 ? _host.Automation.Magic.Cast(spellId)
                 : _host.Automation.Magic.Cast(spellId, targetObjectId);
+        // Every re-send at a silent target is one more reason to suspect the
+        // monster is not really there; the answer clears the suspicion.
+        _castTracker.SpellAttempted = objectId =>
+        {
+            if (_failures.RecordSpellAttempt(objectId, _settings))
+                DeleteGhostMonster(objectId, _settings.DeleteGhostMonsters);
+        };
+        _castTracker.SpellAnswered = _failures.ResetSpellAttempts;
     }
 
     internal SpellCastTracker CastTracker => _castTracker;
@@ -466,6 +476,13 @@ internal sealed class CombatController
             _modeText = $"Mode  {current.Mode}";
         }
 
+        _untilGhostSweep -= Math.Max(0d, elapsedSeconds);
+        if (_untilGhostSweep <= 0d)
+        {
+            _untilGhostSweep = GhostSweepIntervalSeconds;
+            CheckStalledHealthGhost();
+        }
+
         _untilScan -= Math.Max(0d, elapsedSeconds);
         if (_untilScan <= 0d)
         {
@@ -476,13 +493,9 @@ internal sealed class CombatController
             _acquisitionRange = _settings.MaximumRange;
             _targets = _host.Automation.Combat.CaptureHostileTargets(
                 (float)_acquisitionRange);
-            foreach (uint ghost in _failures.ObserveTargets(
-                _targets,
-                _now,
-                _settings))
-            {
-                DismissGhost(ghost);
-            }
+            _failures.ObserveTargets(_targets, _now, _settings);
+            foreach (PluginCombatTarget scanned in _targets)
+                _health.Observe(scanned, _now);
             _debuffs.RetainTargets(
                 _targets.Select(static target => target.ObjectId).ToHashSet());
             _untilScan = Math.Max(0.05d, _settings.ScanIntervalSeconds);
@@ -889,18 +902,26 @@ internal sealed class CombatController
         return PlanBoltOrArc(element, target);
     }
 
-    private static bool IsFinishingBlow(
+    /// <summary>
+    /// Is the monster hurt enough for the streak to be the finishing move?
+    /// The bar is set by the size of the LAST blow, not by the streak's own
+    /// difficulty — a character hitting for 200 finishes far earlier than one
+    /// hitting for 20 — and the difficulty is only the stand-in until a real
+    /// blow has been seen.
+    /// </summary>
+    private bool IsFinishingBlow(
         in PluginCombatTarget target,
         AttackSpellChoice? streak)
     {
         if (streak is not { } choice)
             return false;
-        if (!target.IsHealthKnown || target.MaximumHealth <= 0)
-            return false;
-        int remaining = (int)Math.Round(
-            target.HealthFraction * target.MaximumHealth);
-        int threshold = choice.Spell.Difficulty / 7;
-        return remaining > 0 && remaining < threshold;
+        int threshold = _health.LastDamage <= 0
+            ? choice.Spell.Difficulty / 7
+            : _health.LastDamage / 7;
+        int remaining = _health.RemainingHealth;
+        return _health.TargetObjectId == target.ObjectId
+            && remaining > 0
+            && remaining < threshold;
     }
 
     private AttackSpellChoice? PlanBoltOrArc(
@@ -1140,8 +1161,6 @@ internal sealed class CombatController
             : magic.Cast(choice.Spell.SpellId, _targetId);
         if (!dispatched)
         {
-            if (_failures.RecordSpellDidNotStart(_targetId, _settings))
-                DismissGhost(_targetId);
             Status = $"Could not start {choice.Spell.Name}";
             return;
         }
@@ -2272,7 +2291,10 @@ internal sealed class CombatController
                 CombatResultText.MissileHitEnvironment,
                 StringComparison.Ordinal))
         {
-            _failures.RecordMiss(_physicalResultTargetId, _now, _settings);
+            AnnounceBlacklist(
+                _failures.RecordMiss(_physicalResultTargetId, _now, _settings),
+                _physicalResultTargetId,
+                _physicalResultTargetName);
         }
         else if (CombatResultText.IsDamageReport(text))
         {
@@ -2392,6 +2414,13 @@ internal sealed class CombatController
                 ArmPostKillNavigationLock();
                 if (objectId == 0u)
                     return;
+                // The health tracker lets the monster go the moment a killing
+                // blow is credited to it.
+                if (!info.HitsMultipleTargets
+                    && objectId == _health.TargetObjectId)
+                {
+                    _health.Clear(_now);
+                }
                 _failures.ResetAttempts(objectId);
                 // A spell that strikes several creatures cannot say WHICH one
                 // the sentence is about, so the blow is recorded but the
@@ -2420,8 +2449,19 @@ internal sealed class CombatController
                 Log?.Invoke(
                     MacroLogChannel.CastInfo,
                     $"SpellCaster: Spell success reset ({info.Text})");
-                if (objectId != 0u)
-                    _failures.ResetAttempts(objectId);
+                if (objectId == 0u)
+                    return;
+                // How big the blow was, taken off the running estimate. A
+                // spell that strikes several creatures cannot say which one
+                // the figure belongs to.
+                if (!info.HitsMultipleTargets
+                    && CombatResultText.TryReadSpellDamage(
+                        info.Text,
+                        out int points))
+                {
+                    _health.RecordDamage(objectId, points);
+                }
+                _failures.ResetAttempts(objectId);
                 return;
 
             case SpellCastOutcome.ResultTimeout:
@@ -2429,7 +2469,12 @@ internal sealed class CombatController
                     MacroLogChannel.CastInfo,
                     "SpellCaster: Cast result timeout");
                 if (objectId != 0u && !info.HitsMultipleTargets)
-                    _failures.RecordMiss(objectId, _now, _settings);
+                {
+                    AnnounceBlacklist(
+                        _failures.RecordMiss(objectId, _now, _settings),
+                        objectId,
+                        info.TargetName);
+                }
                 return;
 
             case SpellCastOutcome.LaunchTimeout:
@@ -3319,11 +3364,15 @@ internal sealed class CombatController
         _targetDistance = target.Distance;
         _targetText = string.Create(
             CultureInfo.InvariantCulture, $"Target  {_targetName}  {_targetDistance:0.0}m");
-        _failures.BeginEngagement(_targetId, _now);
+        _health.SetTarget(_targetId, target.Name, _now);
+        // Whatever the host already knows about this monster's health counts
+        // as the first report, so the fight does not start a scan behind.
+        _health.Observe(target, _now);
     }
 
     private void ClearTarget()
     {
+        _health.Clear(_now);
         DisarmPhysicalResultText();
         StopApproachMovement();
         StopBreakableTurnMovement();
@@ -3349,6 +3398,7 @@ internal sealed class CombatController
         _attackCatalog = AttackSpellCatalog.Build(Array.Empty<PluginSpellInfo>());
         _debuffs.Reset();
         _failures.Reset();
+        _health.Reset();
         _observedPhysicalCompletion = 0;
         _observedAttackCastCompletion = 0;
         _pendingPhysicalTarget = 0u;
@@ -3732,13 +3782,93 @@ internal sealed class CombatController
         }
     }
 
-    private void DismissGhost(uint objectId)
+    /// <summary>
+    /// The line the reference client prints when it gives a monster up as
+    /// unhittable, so a watching player knows why the bot walked away.
+    /// </summary>
+    private void AnnounceBlacklist(bool tripped, uint objectId, string name)
     {
+        if (!tripped)
+            return;
+        string shown = string.IsNullOrWhiteSpace(name)
+            ? FindTarget(objectId).Name
+            : name;
+        if (string.IsNullOrWhiteSpace(shown))
+            shown = "???";
+        _host.Automation.Chat.PostSystemMessage(
+            "Blacklisting unhittable target "
+            + shown
+            + " ("
+            + objectId.ToString(CultureInfo.InvariantCulture)
+            + ") for "
+            + ((int)_settings.BlacklistMonsterTimeoutSeconds)
+                .ToString(CultureInfo.InvariantCulture)
+            + " seconds.");
+    }
+
+    /// <summary>How often the stalled-health check runs.</summary>
+    private const double GhostSweepIntervalSeconds = 6.271d;
+
+    private double _untilGhostSweep = GhostSweepIntervalSeconds;
+
+    /// <summary>
+    /// A monster that has been engaged for a while and whose health has not
+    /// moved once in all that time is very likely not there any more: the
+    /// server has dropped it and the client is still drawing it. Only a
+    /// monster the profile's database gives a health ceiling for can be judged
+    /// this way — without a ceiling the client is never told the health in the
+    /// first place, so "the health has not moved" says nothing.
+    /// </summary>
+    private void CheckStalledHealthGhost()
+    {
+        if (!Enabled
+            || !_settings.DeleteGhostMonstersByHealthTracker
+            || _health.TargetObjectId == 0u
+            || !_settings.MonsterFacts.IsListed(_health.TargetName)
+            || _settings.MonsterFacts.MaximumHealth(_health.TargetName) <= 0)
+        {
+            return;
+        }
+        double stale = Math.Max(0d, _settings.GhostDeleteHealthTrackerSeconds);
+        // Health that has never moved counts as having last moved before the
+        // fight started, so the acquisition age alone decides.
+        double sinceChange = _health.LastHealthChangeAt is double changed
+            ? _now - changed
+            : double.PositiveInfinity;
+        if (_now - _health.AcquiredAt < stale || sinceChange < stale)
+            return;
+        DeleteGhostMonster(
+            _health.TargetObjectId,
+            allowed: true,
+            "due to HP tracker notification");
+    }
+
+    /// <summary>
+    /// Asks the client to forget an object it is still drawing. Nothing else
+    /// happens: there is no per-monster "give up on this one" flag, so a
+    /// deletion the client refuses leaves the monster exactly as targetable as
+    /// it was.
+    /// </summary>
+    private void DeleteGhostMonster(
+        uint objectId,
+        bool allowed,
+        string reason = "")
+    {
+        if (objectId == 0u || !allowed)
+            return;
+        string name = FindTarget(objectId).ObjectId == objectId
+            ? FindTarget(objectId).Name
+            : string.Empty;
+        if (name.Length == 0)
+            return;
         PluginCombatCommandResult result =
             _host.Automation.Combat.DismissGhostTarget(objectId);
-        string suffix = result.Accepted ? "deleted" : "ignored";
+        if (!result.Accepted)
+            return;
         _host.Automation.Chat.PostSystemMessage(
-            $"[MossTank] Ghost target 0x{objectId:X8} {suffix}.");
+            string.IsNullOrEmpty(reason)
+                ? $"Deleting ghost monster {name} ({objectId})"
+                : $"Deleting ghost monster {name} ({objectId}) {reason}.");
         // gj.cs:263-278 — ReleaseObject on the awaited target drops the
         // tracker to idle; deleting a ghost is our own version of that event.
         _castTracker.ResetForTarget(objectId);

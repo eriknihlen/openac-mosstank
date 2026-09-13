@@ -118,6 +118,19 @@ internal sealed class SpellCastTracker
     public Func<uint, uint, bool>? ReissueCast { get; set; }
 
     /// <summary>
+    /// Raised for each re-issue: one more cast sent at a target that has not
+    /// answered yet. This is the only signal a client gets that a monster may
+    /// not really be there.
+    /// </summary>
+    public Action<uint>? SpellAttempted { get; set; }
+
+    /// <summary>
+    /// Raised when the target finally answers and the cast moves on to wait
+    /// for its result. The unanswered-attempt count starts over here.
+    /// </summary>
+    public Action<uint>? SpellAnswered { get; set; }
+
+    /// <summary>
     /// The shared cooldown table the cross-school lockout lives in. Unbound,
     /// the lockout is not armed and nothing is refused for it.
     /// </summary>
@@ -290,6 +303,7 @@ internal sealed class SpellCastTracker
         // timer. The busy latch is NOT re-raised (m_d is already true).
         _state = SpellCastTrackerState.AwaitingResult;
         _resultElapsed = 0d;
+        SpellAnswered?.Invoke(_targetObjectId);
     }
 
     public void ObserveChat(ulong sequence, string text, bool ownSpeech = false)
@@ -310,6 +324,7 @@ internal sealed class SpellCastTracker
                 // gj.cs:355 — a(gj.b.c). The busy latch is NOT re-raised.
                 _state = SpellCastTrackerState.AwaitingResult;
                 _resultElapsed = 0d;
+                SpellAnswered?.Invoke(_targetObjectId);
             }
             else
             {
@@ -400,6 +415,7 @@ internal sealed class SpellCastTracker
                     }
                     _nextReissueAt += _reissueInterval;
                     ReissueCast?.Invoke(_spellId, _targetObjectId);
+                    SpellAttempted?.Invoke(_targetObjectId);
                 }
                 if (_launchElapsed >= LaunchTimeoutSeconds)
                     Complete(SpellCastOutcome.LaunchTimeout, 0u, string.Empty);
