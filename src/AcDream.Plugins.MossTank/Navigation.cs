@@ -446,6 +446,9 @@ internal sealed class NavigationController
     private CombatSettings? _combatSettings;
     private bool _lowWaypointWarningPosted;
 
+    /// <summary>Warnings this run has already said once.</summary>
+    private readonly HashSet<string> _postedWarnings = new(StringComparer.Ordinal);
+
     internal void BindCombatModeGate(CombatModeGate gate, CombatSettings settings)
     {
         _combatModeGate = gate ?? throw new ArgumentNullException(nameof(gate));
@@ -458,7 +461,11 @@ internal sealed class NavigationController
         _status = $"Nav backwards is {_reverse}.";
     }
 
-    internal void ResetOncePerRunWarnings() => _lowWaypointWarningPosted = false;
+    internal void ResetOncePerRunWarnings()
+    {
+        _lowWaypointWarningPosted = false;
+        _postedWarnings.Clear();
+    }
 
     public void Reset()
     {
@@ -1133,10 +1140,12 @@ internal sealed class NavigationController
             case RouteWaypointType.Recall:
                 return TickRecall(waypoint, navigation);
 
+            case RouteWaypointType.OpenVendor:
+                return TickOpenVendor(waypoint);
+
             case RouteWaypointType.Portal:
             case RouteWaypointType.PortalByName:
             case RouteWaypointType.UseNpc:
-            case RouteWaypointType.OpenVendor:
                 return TickUse(waypoint, navigation);
 
             case RouteWaypointType.Jump:
@@ -1146,6 +1155,74 @@ internal sealed class NavigationController
                 CompleteAction();
                 return true;
         }
+    }
+
+    /// <summary>
+    /// A vendor waypoint fires one use and is finished — it does not wait for
+    /// the vendor window to open. It holds only in the three cases the
+    /// waypoint has nothing to do: the vendor's own window is already open
+    /// (somebody else opened it), the object is gone, or the object is not a
+    /// vendor at all. The last two also say so once, so a route with a stale
+    /// vendor id explains itself instead of going quiet.
+    /// </summary>
+    /// <remarks>
+    /// The route driver reads a waypoint's "still busy" answer, and a vendor
+    /// waypoint answers "not busy" on the tick it sends the use. Reading that
+    /// answer the other way round is what made an earlier pass of this file
+    /// wait for the window; the waiting is the hold, not the completion.
+    /// </remarks>
+    private bool TickOpenVendor(RouteWaypoint waypoint)
+    {
+        if (waypoint.ObjectId != 0u
+            && _host.Automation.Items.ActiveVendorObjectId == waypoint.ObjectId)
+        {
+            _status = $"Vendor window is already open: {waypoint.ObjectName}.";
+            return HoldVendorWaypoint();
+        }
+
+        if (waypoint.ObjectId == 0u
+            || !_host.Automation.Navigation.TryGetObject(
+                waypoint.ObjectId,
+                out PluginNavigationObject vendor))
+        {
+            WarnOnce(
+                $"OpenVendor waypoint action ignored, vendor {waypoint.ObjectId} "
+                    + $"({waypoint.ObjectName}) not found.");
+            _status = $"Vendor not found: {waypoint.ObjectName}.";
+            return HoldVendorWaypoint();
+        }
+
+        if (!_actionSent || _retryElapsed >= UseRetrySeconds)
+        {
+            PluginItemCommandResult result =
+                _host.Automation.Items.Use(waypoint.ObjectId);
+            _actionSent |= result.Accepted;
+            _retryElapsed = 0d;
+            _status = result.Accepted
+                ? $"Using vendor: {vendor.Name}."
+                : $"Waiting to use vendor: {vendor.Name}.";
+        }
+        CompleteAction();
+        return true;
+    }
+
+    /// <summary>
+    /// The vendor waypoint's hold, with our own ceiling on it: a hold that
+    /// never ends would park an unattended route on one bad waypoint forever.
+    /// </summary>
+    private bool HoldVendorWaypoint()
+    {
+        if (_actionElapsed < PortalTimeoutSeconds)
+            return true;
+        CompleteAction();
+        return true;
+    }
+
+    private void WarnOnce(string text)
+    {
+        if (!_postedWarnings.Add(text))
+            return;
+        _host.Automation.Chat.PostSystemMessage("[MossTank] " + text);
     }
 
     private bool TickUse(
@@ -1186,13 +1263,6 @@ internal sealed class NavigationController
                 _actionSent = false;
                 _retryElapsed = UseRetrySeconds;
             }
-        }
-        if (waypoint.Type == RouteWaypointType.OpenVendor
-            && waypoint.ObjectId != 0u
-            && _host.Automation.Items.ActiveVendorObjectId == waypoint.ObjectId)
-        {
-            CompleteAction();
-            return true;
         }
         if (waypoint.ObjectId == 0u)
         {

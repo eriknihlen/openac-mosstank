@@ -1474,6 +1474,99 @@ public sealed class NavigationTests
     }
 
     /// <summary>
+    /// A vendor waypoint sends one use and is done with the same tick. It does
+    /// NOT wait for the vendor window: a route that has to buy something is
+    /// expected to have a pause or a chat waypoint after the vendor, not to
+    /// have the vendor itself block.
+    /// </summary>
+    [Fact]
+    public void AVendorWaypointFiresOneUseAndIsFinished()
+    {
+        var automation = new FakeAutomation
+        {
+            NavigationSnapshot = Snapshot(Position(0d, 0d)),
+        };
+        automation.Objects[404u] = new PluginNavigationObject(
+            404u,
+            "Shopkeeper",
+            Position(0.001d, 0d));
+        RouteWaypoint vendor = Waypoint(RouteWaypointType.OpenVendor, Position(0d, 0d));
+        vendor.ObjectId = 404u;
+        vendor.ObjectName = "Shopkeeper";
+        NavigationController controller = Controller(
+            automation,
+            RouteMode.Circular,
+            vendor,
+            Waypoint(RouteWaypointType.Point, Position(1d, 0d)));
+
+        Assert.True(controller.Tick(0.05d, canAct: true));
+
+        Assert.Equal([404u], automation.UsedObjects);
+        Assert.Equal(1, controller.CurrentWaypointIndex);
+    }
+
+    /// <summary>
+    /// The one case the waypoint holds on: the vendor's own window is already
+    /// open, so there is nothing for this waypoint to open.
+    /// </summary>
+    [Fact]
+    public void AVendorWaypointHoldsWhileItsWindowIsAlreadyOpen()
+    {
+        var automation = new FakeAutomation
+        {
+            NavigationSnapshot = Snapshot(Position(0d, 0d)),
+            ActiveVendorObjectId = 404u,
+        };
+        automation.Objects[404u] = new PluginNavigationObject(
+            404u,
+            "Shopkeeper",
+            Position(0.001d, 0d));
+        RouteWaypoint vendor = Waypoint(RouteWaypointType.OpenVendor, Position(0d, 0d));
+        vendor.ObjectId = 404u;
+        vendor.ObjectName = "Shopkeeper";
+        NavigationController controller = Controller(
+            automation,
+            RouteMode.Circular,
+            vendor,
+            Waypoint(RouteWaypointType.Point, Position(1d, 0d)));
+
+        Assert.True(controller.Tick(0.05d, canAct: true));
+        Assert.True(controller.Tick(0.05d, canAct: true));
+
+        Assert.Empty(automation.UsedObjects);
+        Assert.Equal(0, controller.CurrentWaypointIndex);
+    }
+
+    /// <summary>
+    /// A vendor id that resolves to nothing holds too, and says so exactly
+    /// once however many ticks it is asked.
+    /// </summary>
+    [Fact]
+    public void AMissingVendorSaysSoOnceAndHolds()
+    {
+        var automation = new FakeAutomation
+        {
+            NavigationSnapshot = Snapshot(Position(0d, 0d)),
+        };
+        RouteWaypoint vendor = Waypoint(RouteWaypointType.OpenVendor, Position(0d, 0d));
+        vendor.ObjectId = 404u;
+        vendor.ObjectName = "Shopkeeper";
+        NavigationController controller = Controller(
+            automation,
+            RouteMode.Circular,
+            vendor,
+            Waypoint(RouteWaypointType.Point, Position(1d, 0d)));
+
+        for (int tick = 0; tick < 5; tick++)
+            Assert.True(controller.Tick(0.05d, canAct: true));
+
+        Assert.Empty(automation.UsedObjects);
+        Assert.Equal(0, controller.CurrentWaypointIndex);
+        Assert.Single(automation.PostedSystemMessages);
+        Assert.Contains("not found", automation.PostedSystemMessages[0], StringComparison.Ordinal);
+    }
+
+    /// <summary>
     /// A recall is cast from a standstill. While the character is still
     /// drifting the waypoint waits and casts nothing.
     /// </summary>
@@ -1638,6 +1731,7 @@ public sealed class NavigationTests
         public int ClearCount { get; private set; }
         public PluginItemUseCompletion ItemCompletion { get; set; }
         public PluginItemUseCompletion LastCompletion => ItemCompletion;
+        public uint ActiveVendorObjectId { get; set; }
         public PluginNavigationObject? FoundObject { get; set; }
         public string? FindName { get; private set; }
 
