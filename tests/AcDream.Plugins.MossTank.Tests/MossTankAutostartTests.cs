@@ -551,6 +551,36 @@ public sealed class MossTankAutostartTests
     }
 
     /// <summary>
+    /// The proof's fixture has to name a caster on the Items page or the
+    /// whole macro stops on its first pass: every rule that casts goes
+    /// through the shared preparation gate, and a gate that finds no
+    /// profiled wand posts its notice and stops the macro. The .usd format
+    /// has no table for the Items page — its ten tables are the settings,
+    /// the monster rules and eight lists that hold none of this — so the
+    /// list travels in the companion document beside it, and this pins that
+    /// the two arrive together.
+    /// </summary>
+    [Fact]
+    public void AutostartTakesTheProofsWandFromTheCompanionDocumentBesideItsUsd()
+    {
+        var automation = new FakeAutomation { IsAvailable = true };
+        var host = new FakeHost(automation);
+        WriteSessionProofFixture(host.VtankProfiles);
+        WriteSessionProofPluginState(host.Storage);
+        var panel = new MossTankPanel(host);
+        host.SessionSettingsValue = new Dictionary<string, string>
+        {
+            ["settingsProfile"] = "vt-proof-settings",
+        };
+
+        panel.TickAutostart();
+
+        Assert.Empty(automation.Logger.Errors);
+        Assert.Equal("vt-proof-settings.usd", panel.SelectedMacroProfile);
+        Assert.Contains("Wand", panel.ItemRows);
+    }
+
+    /// <summary>
     /// A route profile that is on disk but will not parse must keep its file
     /// and must not be reported as loaded. The loader used to answer the
     /// failure by writing whatever route happened to be in memory back over
@@ -685,10 +715,12 @@ public sealed class MossTankAutostartTests
     /// copy of these files exists in the tree — the live proof reads the same
     /// three — so this pin and that run cannot drift apart.
     /// </summary>
+    private static string SessionProofFixtureRoot => Path.Combine(
+        AppContext.BaseDirectory, "Fixtures", "vt-proof");
+
     private static void WriteSessionProofFixture(IPluginStorage storage)
     {
-        string root = Path.Combine(
-            AppContext.BaseDirectory, "Fixtures", "vt-proof");
+        string root = SessionProofFixtureRoot;
         storage.WriteText(
             "vt-proof-settings.usd",
             File.ReadAllText(Path.Combine(root, "vt-proof-settings.usd")));
@@ -699,6 +731,22 @@ public sealed class MossTankAutostartTests
             "navs/vt-proof-route.af",
             File.ReadAllText(Path.Combine(root, "navs", "vt-proof-route.af")));
     }
+
+    /// <summary>
+    /// The companion document the session proof ships beside its .usd, read
+    /// off disk at the exact key the plugin will look it up under.
+    /// </summary>
+    private static void WriteSessionProofPluginState(IPluginStorage storage) =>
+        storage.WriteText(
+            SessionProofSidecarKey,
+            File.ReadAllText(Path.Combine(
+                SessionProofFixtureRoot,
+                "plugin-storage",
+                "acdream.mosstank",
+                SessionProofSidecarKey.Replace('/', Path.DirectorySeparatorChar))));
+
+    private const string SessionProofSidecarKey =
+        "profiles/macro/sidecar/vt-proof-settings.usd.json";
 
     private static void Command(MossTankPanel panel, string arguments) =>
         panel.ExecuteVtankCommand(new PluginCommand(
