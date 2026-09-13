@@ -4,6 +4,9 @@ namespace AcDream.Plugins.MossTank.Tests;
 
 public sealed class SpellCastTrackerTests
 {
+    /// <summary>The log a spell result is written to.</summary>
+    private const uint MagicLog = 0x07u;
+
     private static SpellCastTracker Armed(
         out List<SpellCastOutcomeInfo> outcomes,
         bool hitsMultipleTargets = false,
@@ -66,7 +69,10 @@ public sealed class SpellCastTrackerTests
         SpellCastTracker tracker = Armed(out List<SpellCastOutcomeInfo> outcomes);
         tracker.ObserveCompletion(Receipt());
 
-        tracker.ObserveChat(1uL, "You blast Drudge for 42 points with Flame Bolt VII.");
+        tracker.ObserveChat(
+            1uL,
+            "You blast Drudge for 42 points with Flame Bolt VII.",
+            logTextType: MagicLog);
 
         Assert.False(tracker.IsBusy);
         Assert.Equal(SpellCastOutcome.Success, Assert.Single(outcomes).Outcome);
@@ -92,22 +98,36 @@ public sealed class SpellCastTrackerTests
         SpellCastTracker tracker = Armed(out List<SpellCastOutcomeInfo> outcomes);
         tracker.ObserveCompletion(Receipt());
 
-        tracker.ObserveChat(1uL, "You blast Drudge for 42 points with Frost Bolt VII.");
+        tracker.ObserveChat(
+            1uL,
+            "You blast Drudge for 42 points with Frost Bolt VII.",
+            logTextType: MagicLog);
 
         Assert.True(tracker.IsBusy);
         Assert.Empty(outcomes);
     }
 
     [Fact]
-    public void AResultNamingAnotherTargetIsNotThisCastsResult()
+    public void OnlyTheKillSentenceInThePlainLogEndsTheWait()
     {
         SpellCastTracker tracker = Armed(out List<SpellCastOutcomeInfo> outcomes);
         tracker.ObserveCompletion(Receipt());
 
-        tracker.ObserveChat(1uL, "You killed Olthoi Soldier!");
+        // Those words in the magic log are not a kill notice at all.
+        tracker.ObserveChat(
+            1uL,
+            "You killed Olthoi Soldier!",
+            logTextType: MagicLog);
 
         Assert.True(tracker.IsBusy);
         Assert.Empty(outcomes);
+
+        // In the plain log they are, whichever monster they name: the client
+        // writes them for our own blow, and the name is not checked here.
+        tracker.ObserveChat(2uL, "You killed Olthoi Soldier!");
+
+        Assert.False(tracker.IsBusy);
+        Assert.Equal(SpellCastOutcome.Kill, Assert.Single(outcomes).Outcome);
     }
 
     [Fact]
@@ -118,7 +138,10 @@ public sealed class SpellCastTrackerTests
             hitsMultipleTargets: true);
         tracker.ObserveCompletion(Receipt());
 
-        tracker.ObserveChat(1uL, "Drudge is an invalid target.");
+        tracker.ObserveChat(
+            1uL,
+            "Drudge is an invalid target.",
+            logTextType: MagicLog);
 
         Assert.True(tracker.IsBusy);
         Assert.Empty(outcomes);
@@ -135,7 +158,10 @@ public sealed class SpellCastTrackerTests
         SpellCastTracker tracker = Armed(out List<SpellCastOutcomeInfo> outcomes);
         tracker.ObserveCompletion(Receipt());
 
-        tracker.ObserveChat(1uL, "Drudge is an invalid target.");
+        tracker.ObserveChat(
+            1uL,
+            "Drudge is an invalid target.",
+            logTextType: MagicLog);
 
         Assert.False(tracker.IsBusy);
         Assert.Equal(
@@ -389,7 +415,10 @@ public sealed class SpellCastTrackerTests
         SpellCastTracker tracker = Armed(out List<SpellCastOutcomeInfo> outcomes);
         tracker.ObserveCompletion(Receipt());
 
-        tracker.ObserveChat(1uL, "Olthoi Soldier resists your spell");
+        tracker.ObserveChat(
+            1uL,
+            "Olthoi Soldier resists your spell",
+            logTextType: MagicLog);
 
         Assert.False(tracker.IsBusy);
         Assert.Equal(SpellCastOutcome.Fail, Assert.Single(outcomes).Outcome);
@@ -418,7 +447,10 @@ public sealed class SpellCastTrackerTests
 
         Assert.False(tracker.IsSchoolLockedOut(SpellCastTracker.WarMagicSchool));
 
-        tracker.ObserveChat(1uL, "You cast Nether Bolt VII on Drudge");
+        tracker.ObserveChat(
+            1uL,
+            "You cast Nether Bolt VII on Drudge",
+            logTextType: MagicLog);
 
         Assert.True(tracker.IsSchoolLockedOut(SpellCastTracker.WarMagicSchool));
         Assert.False(tracker.IsSchoolLockedOut(SpellCastTracker.VoidMagicSchool));

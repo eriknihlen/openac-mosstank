@@ -306,7 +306,17 @@ internal sealed class SpellCastTracker
         SpellAnswered?.Invoke(_targetObjectId);
     }
 
-    public void ObserveChat(ulong sequence, string text, bool ownSpeech = false)
+    /// <param name="logTextType">
+    /// Which of the client's logs the line came from. The kill sentence is a
+    /// plain line and every spell result is a magic one, so this is what
+    /// keeps a player typing "You killed Drudge!" in local chat from ending
+    /// the wait.
+    /// </param>
+    public void ObserveChat(
+        ulong sequence,
+        string text,
+        bool ownSpeech = false,
+        uint logTextType = CombatLogTextType.Default)
     {
         if (!IsBusy || string.IsNullOrEmpty(text))
             return;
@@ -345,20 +355,18 @@ internal sealed class SpellCastTracker
                 // Only a spell that can actually kill claims a killing blow.
                 // A kill line arriving while a DEBUFF is in flight belongs to
                 // someone else's attack and must not end the debuff's target.
-                if (!_canKill)
+                if (!_canKill || logTextType != CombatLogTextType.Default)
                     return;
-                // The name is checked here even though the reference macro
-                // does not check it, because acdream cannot see the message
-                // colour the reference macro gates this scan on.
-                if (targetName.Length > 0
-                    && _targetName.Length > 0
-                    && !targetName.Equals(
-                        _targetName,
-                        StringComparison.OrdinalIgnoreCase))
-                {
-                    return;
-                }
                 Complete(SpellCastOutcome.Kill, 0u, text);
+                return;
+            case CombatResultTextClass.PermanentFail
+                when logTextType != CombatLogTextType.Magic:
+            case CombatResultTextClass.Fail
+                when logTextType != CombatLogTextType.Magic:
+            case CombatResultTextClass.Success
+                when logTextType != CombatLogTextType.Magic:
+                // A spell's own result is logged as magic; anything else
+                // wearing those words is somebody talking.
                 return;
             case CombatResultTextClass.PermanentFail:
                 // The failure classes match on the sentence alone: a resist

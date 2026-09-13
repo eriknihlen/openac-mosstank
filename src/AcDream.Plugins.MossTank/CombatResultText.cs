@@ -3,6 +3,23 @@ using System.Text.RegularExpressions;
 
 namespace AcDream.Plugins.MossTank;
 
+/// <summary>
+/// The client's own log-text types the combat reader keys on. The same
+/// sentence typed by a player in local chat carries a different one, so these
+/// are what tell the character's own combat log from anyone else's words.
+/// </summary>
+internal static class CombatLogTextType
+{
+    /// <summary>The plain type: the miss notice and the kill sentence.</summary>
+    public const uint Default = 0x00u;
+
+    /// <summary>The character's own blow: "you hit X for N points".</summary>
+    public const uint OwnCombat = 0x16u;
+
+    /// <summary>A spell's own result line.</summary>
+    public const uint Magic = 0x07u;
+}
+
 internal enum CombatResultTextClass
 {
     None,

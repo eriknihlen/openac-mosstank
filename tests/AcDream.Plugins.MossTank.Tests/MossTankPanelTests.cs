@@ -5426,9 +5426,16 @@ public sealed class MossTankPanelTests
             return result;
         }
 
-        public void PostChat(string text) =>
+        /// <summary>
+        /// A line the client logged. <paramref name="logTextType"/> is the log
+        /// it came from: 0x07 for a spell result, 0 for a plain line.
+        /// </summary>
+        public void PostChat(string text, uint logTextType = 0u) =>
             ChatLines.Add(new PluginChatMessage(
-                ++_chatSequence, 0u, 0, string.Empty, text, string.Empty));
+                ++_chatSequence, 0u, 0, string.Empty, text, string.Empty)
+            {
+                LogTextType = logTextType,
+            });
         public void PostChatFrom(uint senderObjectId, int kind, string text) =>
             ChatLines.Add(new PluginChatMessage(
                 ++_chatSequence, senderObjectId, kind, string.Empty, text,
@@ -5489,7 +5496,9 @@ public sealed class MossTankPanelTests
                 string name = TryGet(spellId, out PluginSpellInfo spell)
                     ? spell.Name
                     : $"Spell {spellId}";
-                PostChat(CastResultText ?? $"You cast {name} on yourself");
+                PostChat(
+                    CastResultText ?? $"You cast {name} on yourself",
+                    logTextType: 0x07u);
             }
 
             if (NextCastWeenieError == 0u
@@ -5692,9 +5701,16 @@ public sealed class MossTankPanelTests
             return result;
         }
 
-        public void PostChat(string text) =>
+        /// <summary>
+        /// A line the client logged. <paramref name="logTextType"/> is the log
+        /// it came from: 0x07 for a spell result, 0 for a plain line.
+        /// </summary>
+        public void PostChat(string text, uint logTextType = 0u) =>
             ChatLines.Add(new PluginChatMessage(
-                ++_chatSequence, 0u, 0, string.Empty, text, string.Empty));
+                ++_chatSequence, 0u, 0, string.Empty, text, string.Empty)
+            {
+                LogTextType = logTextType,
+            });
 
         public List<uint> CastTargets { get; } = [];
 
@@ -5721,7 +5737,7 @@ public sealed class MossTankPanelTests
                 string castName = TryGet(spellId, out PluginSpellInfo cast)
                     ? cast.Name
                     : $"Spell {spellId}";
-                PostChat($"You cast {castName} on yourself");
+                PostChat($"You cast {castName} on yourself", logTextType: 0x07u);
             }
             foreach (PluginSpellInfo spell in KnownSelfBuffs)
             {

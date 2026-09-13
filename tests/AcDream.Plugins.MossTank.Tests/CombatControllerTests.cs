@@ -2261,7 +2261,10 @@ public sealed class CombatControllerTests
         surface.ChatMessages =
         [
             new PluginChatMessage(
-                1, 0, 0, string.Empty, "Drudge is an invalid target.", string.Empty),
+                1, 0, 0, string.Empty, "Drudge is an invalid target.", string.Empty)
+            {
+                LogTextType = 0x07u,
+            },
         ];
         controller.OnTick(0.25);
         controller.OnTick(0.25);
@@ -2304,7 +2307,10 @@ public sealed class CombatControllerTests
         surface.ChatMessages =
         [
             new PluginChatMessage(
-                1, 0, 0, string.Empty, "Drudge is an invalid target.", string.Empty),
+                1, 0, 0, string.Empty, "Drudge is an invalid target.", string.Empty)
+            {
+                LogTextType = 0x07u,
+            },
         ];
         controller.OnTick(0.25);
         controller.OnTick(0.25);
@@ -3993,8 +3999,19 @@ public sealed class CombatControllerTests
         return (surface, controller, locks);
     }
 
-    private static PluginChatMessage ChatLine(ulong sequence, string text) =>
-        new(sequence, 0u, 0, string.Empty, text, string.Empty);
+    /// <summary>
+    /// A line the client logged. <paramref name="logTextType"/> names the log
+    /// it came from: 0 for a plain line, 0x16 for the character's own combat
+    /// log, 0x07 for a spell result.
+    /// </summary>
+    private static PluginChatMessage ChatLine(
+        ulong sequence,
+        string text,
+        uint logTextType = 0u) =>
+        new(sequence, 0u, 0, string.Empty, text, string.Empty)
+        {
+            LogTextType = logTextType,
+        };
 
     /// <summary>
     /// Mutation: delete the <c>ObservePhysicalResultText</c> call from the
@@ -4013,6 +4030,35 @@ public sealed class CombatControllerTests
 
         Assert.False(controller.HasTarget);
         Assert.True(locks.IsLocked(ActionLockKind.Navigation));
+    }
+
+    /// <summary>
+    /// The reader keys on which of the client's logs a line came from, not on
+    /// its words: a player typing the kill sentence, or the damage sentence,
+    /// in chat must not end the fight or clear the give-up count.
+    /// Mutation: drop either log-type test in the physical result reader and
+    /// the matching half fails.
+    /// </summary>
+    [Fact]
+    public void SomebodyTypingTheKillSentenceInChatChangesNothing()
+    {
+        (FakeAutomation surface, CombatController controller, ActionLockTable locks) =
+            MeleeKillRig();
+
+        // Speech carries the local-speech log type, not the plain one.
+        surface.ChatMessages =
+        [
+            ChatLine(1, "You killed Drudge!", logTextType: 0x02u),
+        ];
+        controller.OnTick(0.25);
+
+        Assert.True(controller.HasTarget);
+        Assert.False(locks.IsLocked(ActionLockKind.Navigation));
+
+        surface.ChatMessages = [ChatLine(2, "You killed Drudge!")];
+        controller.OnTick(0.25);
+
+        Assert.False(controller.HasTarget);
     }
 
     /// <summary>
@@ -4088,7 +4134,10 @@ public sealed class CombatControllerTests
         surface.ChatMessages =
         [
             ChatLine(1, "Your missile attack hit the environment."),
-            ChatLine(2, "You slash Drudge for 43 points of slashing damage!"),
+            ChatLine(
+                2,
+                "You slash Drudge for 43 points of slashing damage!",
+                logTextType: 0x16u),
             ChatLine(3, "Your missile attack hit the environment."),
         ];
         controller.OnTick(0.25);

@@ -4440,7 +4440,8 @@ internal sealed partial class MossTankPanel : IBuffRuleHost
                     ownSpeech: message.Kind == SpellCastTracker.LocalSpeechChatKind
                         && message.SenderObjectId != 0u
                         && message.SenderObjectId
-                            == _host.Automation.Character.ObjectId);
+                            == _host.Automation.Character.ObjectId,
+                    logTextType: message.LogTextType);
             }
         }
         _castTracker.Advance(elapsed);

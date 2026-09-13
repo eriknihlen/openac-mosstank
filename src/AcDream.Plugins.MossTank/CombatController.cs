@@ -2376,8 +2376,14 @@ internal sealed class CombatController
         if (_physicalResultTargetId == 0u)
             return;
 
+        // Which log the line came from decides which of these arms may read
+        // it at all: the miss notice and the kill sentence are plain lines,
+        // and the damage report is the character's own combat log. A player
+        // typing any of those sentences in chat carries a different type and
+        // is ignored.
         string text = message.Text ?? string.Empty;
-        if (string.Equals(
+        if (message.LogTextType == CombatLogTextType.Default
+            && string.Equals(
                 text.Trim(),
                 CombatResultText.MissileHitEnvironment,
                 StringComparison.Ordinal))
@@ -2387,23 +2393,28 @@ internal sealed class CombatController
                 _physicalResultTargetId,
                 _physicalResultTargetName);
         }
-        else if (CombatResultText.IsDamageReport(text))
+        else if (message.LogTextType == CombatLogTextType.OwnCombat
+            && CombatResultText.IsDamageReport(text))
         {
             _failures.ResetAttempts(_physicalResultTargetId);
         }
 
-        if (!CombatResultText.IsKillingBlow(text, out string slain))
+        if (message.LogTextType != CombatLogTextType.Default
+            || !CombatResultText.IsKillingBlow(text, out string slain))
+        {
             return;
+        }
 
         // The looting hold goes up on the killing blow itself, before the
         // sentence is matched against our own target's name.
         ArmPostKillNavigationLock();
 
+        // The sentence has to name OUR monster, letter for letter. An unnamed
+        // stored target still refuses a sentence that names someone else.
         if (slain.Length > 0
-            && _physicalResultTargetName.Length > 0
             && !slain.Equals(
                 _physicalResultTargetName,
-                StringComparison.OrdinalIgnoreCase))
+                StringComparison.Ordinal))
         {
             return;
         }
@@ -2432,10 +2443,18 @@ internal sealed class CombatController
         IEquipmentAutomation equipment = _host.Automation.Equipment;
         if (!equipment.IsAvailable)
             return false;
-        foreach (PluginEquipmentItem item in equipment.CaptureOwnedEquipment())
+        // The question is about the WIELDED weapon, not about everything worn:
+        // a cleaving belt buckle does not make a kill sentence ambiguous. (The
+        // shield slot has an arm of its own in the reference, but it re-reads
+        // this same weapon's count, so it cannot change the answer.)
+        IReadOnlyList<PluginEquipmentItem> items = PassEquipment();
+        (uint weapon, _) = WieldedPair(items);
+        if (weapon == 0u)
+            return false;
+        foreach (PluginEquipmentItem item in items)
         {
-            if (item.IsEquipped && item.Cleaving > 1)
-                return true;
+            if (item.ObjectId == weapon)
+                return item.Cleaving > 1;
         }
         return false;
     }
@@ -2458,7 +2477,8 @@ internal sealed class CombatController
                 ownSpeech: message.Kind == SpellCastTracker.LocalSpeechChatKind
                     && message.SenderObjectId != 0u
                     && message.SenderObjectId
-                        == _host.Automation.Character.ObjectId);
+                        == _host.Automation.Character.ObjectId,
+                logTextType: message.LogTextType);
             if (_pendingItemDebuff is not { } pending
                 || !IsMatchingCastLine(message.Text, pending.Source.Spell.Name))
             {
