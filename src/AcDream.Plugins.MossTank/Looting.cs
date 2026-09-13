@@ -550,15 +550,21 @@ internal sealed partial class LootController
     public IReadOnlyDictionary<uint, uint> PendingScrollReads =>
         _pendingScrollReads;
 
-    /// <summary>Drops one queued scroll once the reading rule is done with it.</summary>
-    public void ForgetScrollRead(uint objectId)
+    /// <summary>
+    /// Drops the queued scrolls whose item has left the character's hands —
+    /// read, dropped, sold or given away. A scroll that is still held stays
+    /// queued however many times reading it has failed.
+    /// </summary>
+    public void ForgetUnownedScrollReads(
+        IReadOnlyList<PluginInventoryItem> owned)
     {
-        foreach ((uint spellId, uint itemId) in _pendingScrollReads)
-        {
-            if (itemId != objectId)
-                continue;
-            _pendingScrollReads.Remove(spellId);
+        ArgumentNullException.ThrowIfNull(owned);
+        if (_pendingScrollReads.Count == 0)
             return;
+        foreach ((uint spellId, uint itemId) in _pendingScrollReads.ToArray())
+        {
+            if (!owned.Any(item => item.ObjectId == itemId))
+                _pendingScrollReads.Remove(spellId);
         }
     }
 

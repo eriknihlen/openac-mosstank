@@ -63,7 +63,6 @@ internal sealed class ReadScrollController
     private readonly LootSettings _settings;
     private readonly LootController _loot;
     private uint _pendingItem;
-    private string _pendingName = string.Empty;
     private long _pendingRevision;
     private double _pendingAge;
 
@@ -77,18 +76,17 @@ internal sealed class ReadScrollController
         _loot = loot ?? throw new ArgumentNullException(nameof(loot));
     }
 
-    public string Status { get; private set; } = "No scrolls to read.";
-
     public Action<MacroLogChannel, string>? Log { get; set; }
 
     public bool Tick(double elapsedSeconds, bool canAct)
     {
+        // No looting gate here on purpose: the queue is filled while looting
+        // is on, and the scrolls already in it are read whether it stays on
+        // or not. The rule this stands in for has no such requirement either.
         IItemAutomation items = _host.Automation.Items;
-        if (!_settings.Enabled || !_host.Automation.IsAvailable
-            || !items.IsAvailable)
+        if (!_host.Automation.IsAvailable || !items.IsAvailable)
         {
             Clear();
-            Status = "No scrolls to read.";
             return false;
         }
 
@@ -102,71 +100,48 @@ internal sealed class ReadScrollController
         if (_pendingItem != 0u)
             return ContinueRead(items, elapsedSeconds);
         if (_loot.PendingScrollReads.Count == 0)
-        {
-            Status = "No scrolls to read.";
             return false;
-        }
         if (!canAct || items.IsBusy)
             return false;
 
         if (Choose(items) is not { } scroll)
-        {
-            Status = "No scrolls to read.";
             return false;
-        }
         PluginItemCommandResult use = items.Use(scroll.ObjectId);
         if (!use.Accepted)
-        {
-            Status = use.Status == PluginItemCommandStatus.Busy
-                ? "Waiting to read a scroll…"
-                : $"Could not read {scroll.Name}.";
             return use.Status == PluginItemCommandStatus.Busy;
-        }
         _pendingItem = scroll.ObjectId;
-        _pendingName = scroll.Name;
         _pendingRevision = items.LastCompletion.Revision;
         _pendingAge = 0d;
-        Status = $"Reading {scroll.Name}…";
         Log?.Invoke(
             MacroLogChannel.Loot,
             $"ReadScroll: reading {scroll.Name}");
         return true;
     }
 
-    public void Reset()
-    {
-        Clear();
-        Status = "No scrolls to read.";
-    }
-
+    /// <summary>
+    /// Waits out the read in flight. A read that fails or never answers
+    /// changes nothing: the scroll is still held, so it is still queued and
+    /// comes round again. Only the spell entering the spellbook, or the item
+    /// leaving the character's hands, takes it off the queue.
+    /// </summary>
     private bool ContinueRead(IItemAutomation items, double elapsedSeconds)
     {
         _pendingAge += Math.Max(0d, elapsedSeconds);
         PluginItemUseCompletion completion = items.LastCompletion;
-        if (completion.Revision <= _pendingRevision
-            || completion.SourceObjectId != _pendingItem)
+        if ((completion.Revision <= _pendingRevision
+                || completion.SourceObjectId != _pendingItem)
+            && _pendingAge < UseTimeoutSeconds)
         {
-            if (_pendingAge < UseTimeoutSeconds)
-            {
-                Status = $"Reading {_pendingName}…";
-                return true;
-            }
-            Status = $"Read timed out: {_pendingName}.";
+            return true;
         }
-        else
-        {
-            Status = completion.IsSuccess
-                ? $"Read {_pendingName}."
-                : $"Could not read {_pendingName}.";
-        }
-        _loot.ForgetScrollRead(_pendingItem);
         Clear();
         return true;
     }
 
     /// <summary>
-    /// Drops the queued spells the character has since learned, then takes the
-    /// first queued scroll still in inventory and still worth reading.
+    /// Drops the queued spells the character has since learned and the queued
+    /// scrolls it no longer holds, then takes the first one left that is still
+    /// worth reading.
     /// </summary>
     private PluginInventoryItem? Choose(IItemAutomation items)
     {
@@ -174,6 +149,7 @@ internal sealed class ReadScrollController
         if (_loot.PendingScrollReads.Count == 0)
             return null;
         IReadOnlyList<PluginInventoryItem> owned = items.CaptureOwnedItems();
+        _loot.ForgetUnownedScrollReads(owned);
         foreach (uint itemId in _loot.PendingScrollReads.Values)
         {
             foreach (PluginInventoryItem candidate in owned)
@@ -198,7 +174,6 @@ internal sealed class ReadScrollController
     private void Clear()
     {
         _pendingItem = 0u;
-        _pendingName = string.Empty;
         _pendingRevision = 0L;
         _pendingAge = 0d;
     }

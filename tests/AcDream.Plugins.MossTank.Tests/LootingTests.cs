@@ -1411,11 +1411,71 @@ public sealed class LootingTests
         return (controller, automation, corpse);
     }
 
+    /// <summary>
+    /// Mutation: take the scroll off the queue when the read fails or never
+    /// answers, instead of only when the item is gone.
+    /// </summary>
+    [Fact]
+    public void AFailedScrollReadIsTriedAgainInsteadOfDroppingTheScroll()
+    {
+        (LootController controller, ReadScrollController reader,
+            Automation automation, uint scroll, _) = ScrollScenario();
+
+        Assert.True(reader.Tick(0.1d, canAct: true));
+        Assert.Equal(new[] { scroll }, automation.Used);
+
+        // The server said no.
+        automation.UseCompletion =
+            new PluginItemUseCompletion(1L, scroll, 0u, 7u);
+        Assert.True(reader.Tick(0.1d, canAct: true));
+        Assert.Equal(
+            new Dictionary<uint, uint> { [777u] = scroll },
+            controller.PendingScrollReads);
+
+        Assert.True(reader.Tick(0.1d, canAct: true));
+        Assert.Equal(new[] { scroll, scroll }, automation.Used);
+    }
+
+    /// <summary>
+    /// Mutation: drop the call that sheds queued scrolls the character no
+    /// longer holds.
+    /// </summary>
+    [Fact]
+    public void AQueuedScrollTheCharacterNoLongerHoldsLeavesTheQueue()
+    {
+        (LootController controller, ReadScrollController reader,
+            Automation automation, uint scroll, _) = ScrollScenario();
+
+        Assert.True(reader.Tick(0.1d, canAct: true));
+        automation.UseCompletion =
+            new PluginItemUseCompletion(1L, scroll, 0u, 0u);
+        automation.Owned = [];
+        Assert.True(reader.Tick(0.1d, canAct: true));
+
+        Assert.False(reader.Tick(0.1d, canAct: true));
+        Assert.Empty(controller.PendingScrollReads);
+        Assert.Equal(new[] { scroll }, automation.Used);
+    }
+
+    /// <summary>
+    /// Mutation: gate the reading rule on the looting switch.
+    /// </summary>
+    [Fact]
+    public void AQueuedScrollIsStillReadAfterLootingIsSwitchedOff()
+    {
+        (_, ReadScrollController reader, Automation automation, uint scroll,
+            LootSettings settings) = ScrollScenario();
+        settings.Enabled = false;
+
+        Assert.True(reader.Tick(0.1d, canAct: true));
+        Assert.Equal(new[] { scroll }, automation.Used);
+    }
+
     [Fact]
     public void APickedUpScrollIsQueuedForTheReadingRuleInsteadOfReadInline()
     {
         (LootController controller, ReadScrollController reader,
-            Automation automation, uint scroll) = ScrollScenario();
+            Automation automation, uint scroll, _) = ScrollScenario();
 
         Assert.Empty(automation.Used);
         Assert.Equal(
@@ -1484,7 +1544,7 @@ public sealed class LootingTests
     public void AQueuedScrollIsDroppedOnceItsSpellIsKnown()
     {
         (LootController controller, ReadScrollController reader,
-            Automation automation, _) = ScrollScenario();
+            Automation automation, _, _) = ScrollScenario();
         automation.SpellLearned = true;
 
         Assert.False(reader.Tick(0.1d, canAct: true));
@@ -1494,7 +1554,8 @@ public sealed class LootingTests
 
     /// <summary>Loots one unknown scroll off a corpse and stops there.</summary>
     private static (LootController Controller, ReadScrollController Reader,
-        Automation Automation, uint Scroll) ScrollScenario()
+        Automation Automation, uint Scroll, LootSettings Settings)
+        ScrollScenario()
     {
         var settings = new LootSettings { Enabled = true };
         settings.Rules.Add(new LootRule
@@ -1544,7 +1605,8 @@ public sealed class LootingTests
             controller,
             new ReadScrollController(host, settings, controller),
             automation,
-            scroll);
+            scroll,
+            settings);
     }
 
     private static LootRule VtankRule(
