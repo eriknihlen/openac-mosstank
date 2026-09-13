@@ -34,6 +34,40 @@ internal sealed partial class LootController
         return true;
     }
 
+    /// <summary>
+    /// Drops the three slots an open took, the moment the container it was
+    /// waiting for is actually open.
+    /// <para>
+    /// The corpse-open slot is what says the three belong to an open rather
+    /// than to anything else, so it is both the test and the first thing
+    /// released. Without this the open's own window has to run out before the
+    /// looter may read the corpse it just opened — and the item slot it holds
+    /// is the very thing the loot rule is gated on, so the wait would be a
+    /// stall rather than a pause. This runs on the host's frame, beside the
+    /// slot clock, for the same reason: a rule pass cannot release the slot
+    /// that stops it running.
+    /// </para>
+    /// </summary>
+    /// <returns>True when the three slots were released this frame.</returns>
+    internal bool ObserveCorpseOpened()
+    {
+        if (_actionLocks is not { } locks
+            || !locks.IsLocked(ActionLockKind.CorpseOpenAttempt)
+            || _activeCorpse == 0u
+            || !_host.Automation.IsAvailable)
+        {
+            return false;
+        }
+        ILootAutomation loot = _host.Automation.Loot;
+        if (!loot.IsAvailable || loot.CurrentContainerId != _activeCorpse)
+            return false;
+
+        locks.Release(ActionLockKind.CorpseOpenAttempt);
+        locks.Release(ActionLockKind.Navigation);
+        locks.Release(ActionLockKind.ItemUse);
+        return true;
+    }
+
     private bool IsOwnDeathCorpse(in PluginLootContainer corpse)
     {
         string character = _host.Automation.Character.Name;

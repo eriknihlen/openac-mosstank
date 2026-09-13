@@ -799,10 +799,13 @@ internal sealed partial class LootController
         _stateAge = 0d;
         // Opening a corpse is not instant and it is not always local: a corpse
         // out of arm's reach is opened by walking to it first, and the walk is
-        // the client's, not this controller's. So the open holds three slots
-        // for the length of its own timeout — the item slot, the corpse-open
-        // slot, and navigation, that last one so the route rule does not steer
-        // against the walk the open just started.
+        // the client's, not this controller's. So the open holds three slots —
+        // the item slot, the corpse-open slot, and navigation, that last one so
+        // the route rule does not steer against the walk the open just started.
+        // The three are held only until the container actually opens; the
+        // timeout is the ceiling for an open that never lands, not the wait.
+        // See ObserveCorpseOpened, which is what gives them back and what the
+        // corpse-open slot exists to mark.
         double openWindow = Math.Max(0.25d, _settings.CorpseOpenTimeoutSeconds);
         _actionLocks?.Arm(ActionLockKind.ItemUse, openWindow);
         _actionLocks?.Arm(ActionLockKind.Navigation, openWindow);
