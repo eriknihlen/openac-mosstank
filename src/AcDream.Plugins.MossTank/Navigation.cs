@@ -77,7 +77,10 @@ internal sealed class RouteWaypoint
     public PluginNavigationPosition ReferencePosition { get; set; }
     public uint ObjectId { get; set; }
     public string ObjectName { get; set; } = string.Empty;
-    /// <summary>Decal ObjectClass retained for exact VTank NAV interchange.</summary>
+    /// <summary>
+    /// The object-class number the VTank NAV format carries, kept exactly as
+    /// written for interchange.
+    /// </summary>
     public int LegacyObjectClass { get; set; }
     public bool LegacyReferenceValid { get; set; } = true;
     public string Text { get; set; } = string.Empty;
@@ -396,7 +399,7 @@ internal sealed class NavigationController
 
     private double _now;
 
-    /// <summary>VTank <c>fd</c>'s <c>p</c> field (fd.cs:336-345).</summary>
+    /// <summary>When the mover last re-issued its facing.</summary>
     private double _faceHeadingStamp = NoFaceHeadingStamp;
 
     /// <summary>
@@ -1138,7 +1141,7 @@ internal sealed class NavigationController
             if (stopped != PluginNavigationCommandStatus.Accepted)
                 return stopped;
 
-            // fd.cs:336-339 — the `p` stamp.
+            // Outside the band: re-issue the facing, but only every so often.
             if (now - faceHeadingStamp >= FaceHeadingReissueSeconds)
             {
                 faceHeadingStamp = now;
@@ -1151,8 +1154,8 @@ internal sealed class NavigationController
             return PluginNavigationCommandStatus.Accepted;
         }
 
-        // fd.cs:344-345 — inside the band: move, and reset the stamp so the
-        // next departure re-issues immediately.
+        // Inside the band: move, and reset the stamp so the next departure
+        // re-issues immediately.
         faceHeadingStamp = NoFaceHeadingStamp;
         return navigation.SetMovementIntent(
             new PluginMovementIntent(Forward: true, Run: run));
@@ -1861,12 +1864,10 @@ internal sealed class NavigationController
     }
 
     /// <summary>
-    /// VTank's navigate rule teardown on the <c>Running = false</c> edge:
-    /// <c>g8.cs:137</c> forwards to <c>fd.c(false)</c>
-    /// (<c>fd.cs:261-271</c>), whose <c>b()</c> (<c>fd.cs:298-308</c>)
-    /// releases the held movement keys. Ours is the same thing in acdream's
-    /// terms — drop the movement intent — and it is what the scheduler wires
-    /// as <c>onLostTurn</c> for both navigate tiers.
+    /// The navigate rule's teardown on the losing-the-turn edge: the
+    /// reference client releases the held movement keys, and ours is the same
+    /// thing in acdream's terms — drop the movement intent. It is what the
+    /// scheduler wires as <c>onLostTurn</c> for both navigate tiers.
     /// </summary>
     internal void StopForLostTurn()
     {

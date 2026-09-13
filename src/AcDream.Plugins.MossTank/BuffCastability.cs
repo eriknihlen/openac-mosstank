@@ -120,8 +120,8 @@ internal sealed class BuffCastability : IBuffCastability
     }
 
     /// <summary>
-    /// <c>g6.b(string)</c> (<c>g6.cs:236-247</c>) — every owned item of that
-    /// name, summing <c>bc.cv</c> (StackCount, defaulting to 1).
+    /// Every owned item of that name, summing stack counts; an item with no
+    /// stack count of its own counts as one.
     /// </summary>
     private int CountOwned(string name)
     {

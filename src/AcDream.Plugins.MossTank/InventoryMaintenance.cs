@@ -5,7 +5,7 @@ namespace AcDream.Plugins.MossTank;
 internal sealed class InventorySettings
 {
     public bool ManaChargesWhenOff { get; set; } = true;
-    // Official VTank defaults from uTank2.Resources.defaultsettings.usd.
+    // The shipped VTank default settings profile's own values.
     public bool AutoStack { get; set; } = true;
     public bool AutoCram { get; set; }
     public bool AutoCraftItems { get; set; } = true;

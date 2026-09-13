@@ -45,14 +45,14 @@ internal static class CombatResultText
     private const RegexOptions Options =
         RegexOptions.CultureInvariant | RegexOptions.ExplicitCapture;
 
-    /// <summary><c>d3.cs:46-47</c> — <c>l.g.a</c>, plain fail/resist.</summary>
+    /// <summary>Plain fail/resist.</summary>
     private static readonly Regex[] FailPatterns =
     [
         new("^Your spell fizzled.$", Options),
         new("^(?<targetname>.*) resists your spell$", Options),
     ];
 
-    /// <summary><c>d3.cs:48-52</c> — <c>l.g.b</c>, permanent fail.</summary>
+    /// <summary>Permanent fail.</summary>
     private static readonly Regex[] PermanentFailPatterns =
     [
         new("^Target is out of range$", Options),
@@ -68,7 +68,7 @@ internal static class CombatResultText
         new("^(?<targetname>.*) is an invalid target.$", Options),
     ];
 
-    /// <summary><c>d3.cs:53-65</c> — <c>l.g.c</c>, success.</summary>
+    /// <summary>Success.</summary>
     private static readonly Regex[] SuccessPatterns =
     [
         new("^You cast (?<spellname>.*) on (?<targetname>.*), refreshing .*$", Options),
@@ -94,7 +94,7 @@ internal static class CombatResultText
             Options),
     ];
 
-    /// <summary><c>d3.cs:66-101</c> — <c>l.g.d</c>, kill.</summary>
+    /// <summary>Kill.</summary>
     private static readonly Regex[] KillPatterns =
     [
         new("^You knock (?<targetname>.*) into next Morningthaw!$", Options),

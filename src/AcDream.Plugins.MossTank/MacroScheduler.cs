@@ -168,7 +168,7 @@ internal sealed class MacroScheduler
 
     public Func<string>? LockStateSuffix { get; set; }
 
-    /// <summary>VTank's <c>ga.h()</c> (<c>ga.cs:116-119</c>).</summary>
+    /// <summary>Hold the pass while a blocking action is in flight.</summary>
     public void Suspend() => _suspension++;
 
     public void Resume()

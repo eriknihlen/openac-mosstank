@@ -50,7 +50,7 @@ internal sealed class BuffSelfRule
 
     private bool _bursting;
 
-    /// <summary><c>ActionLockType.BuffCastRecast</c> (<c>fz.cs:81-84,118</c>).</summary>
+    /// <summary>The buff-cast-recast cooldown slot.</summary>
     private double _buffCastRecastRemaining;
 
     /// <summary>The spell this rule has in flight, 0 when it has none.</summary>
@@ -73,8 +73,8 @@ internal sealed class BuffSelfRule
 
     /// <summary>
     /// AC's Item Enchantment skill id, which the plugin surface projects as a
-    /// spell's <c>School</c> — VTank's own <c>School.Name.Equals("Item
-    /// Enchantment")</c> test at <c>gj.cs:554</c>.
+    /// spell's school. The reference client asks the same question by school
+    /// name.
     /// </summary>
     private const uint ItemEnchantmentSchool = 32u;
 
@@ -203,7 +203,7 @@ internal sealed class BuffSelfRule
         _buffDue.ForceAll();
         _buffDue.ForceItems(CaptureForcedItemRows(automation));
         _itemLedger.ForceAll(_nowSeconds);
-        // uTank2/PluginCore.cs:233 — PluginCore.a("Force buff enabled.").
+        // The reference client's own wording for this.
         _owner.Announce("Force buff enabled.");
     }
 
@@ -258,7 +258,8 @@ internal sealed class BuffSelfRule
     private void CancelForceBuffCore()
     {
         _buffDue.CancelForce();
-        // eq.cs:383 — eq.e() ends on this.m_a.j.h() (dm.cs:354-366).
+        // Cancelling a force pass restores the item ledger, as finishing one
+        // does.
         _itemLedger.CancelForce();
         _owner.Announce("Force buff canceled.");
     }
@@ -378,8 +379,7 @@ internal sealed class BuffSelfRule
             return false;
         }
 
-        // eq.a(ActiveSpellInfo)/eq.b(ActiveSpellInfo) (eq.cs:428-475): fold
-        // the world into the tracked table before anything reads it.
+        // Fold the world into the tracked table before anything reads it.
         _buffDue.Observe(automation.Character.ActiveEnchantments);
         ConsumeCastOutcome();
 
@@ -389,7 +389,7 @@ internal sealed class BuffSelfRule
             return PauseBurst();
         }
 
-        // fz.cs:76-79 — `if (!f3.k("EnableBuffing")) return false;`.
+        // EnableBuffing, checked inside the rule.
         if (!_settings.Enabled)
         {
             DeclineReason = "EnableBuffing is off";
@@ -409,11 +409,12 @@ internal sealed class BuffSelfRule
         if (_buffCastRecastRemaining > 0d)
             threshold += _settings.BuffCastRecastSeconds;
 
-        // fz.cs:85-88 — `if (num < 10) num = 10;`.
+        // The reference client's floor on the rebuff window.
         if (threshold < 10d)
             threshold = 10d;
 
-        // fz.cs:89 — `return this.m_a.k.a(num, this.m_d, out this.m_e);`.
+        // The whole rule comes down to whether a buff is due within the
+        // window.
         if (!TryPickBuff(automation, threshold, out BuffPick pick))
         {
             string within = threshold.ToString(
@@ -452,7 +453,7 @@ internal sealed class BuffSelfRule
             return true;
         }
 
-        // fz.cs:118 — arm BuffCastRecast for BuffCastRecastReset_Seconds.
+        // Arm the buff-cast-recast cooldown for its reset window.
         _buffCastRecastRemaining = Math.Max(
             0d,
             _settings.BuffCastRecastResetSeconds);
@@ -533,8 +534,8 @@ internal sealed class BuffSelfRule
             {
                 continue;
             }
-            // eq.cs:371's j.d() zeroed every item entry's stamp too, so a
-            // forced row reads as having nothing left.
+            // A force pass zeroes every item entry's stamp too, so a forced
+            // row reads as having nothing left.
             double remaining = _buffDue.IsItemForced(item.ObjectId, spell.Family)
                 ? 0d
                 : ItemEnchantRemainingSeconds(automation, item.ObjectId, in spell);
@@ -565,7 +566,7 @@ internal sealed class BuffSelfRule
 
         foreach (string tierOneName in CharacterEnchantNames())
         {
-            // eq.cs:518 — the same fk.a resolve every other row uses.
+            // The same family resolve every other row uses.
             if (!TryResolveBestKnown(
                     automation,
                     tierOneName,
@@ -580,7 +581,7 @@ internal sealed class BuffSelfRule
                     ? 0d
                     : ItemEnchantRemainingSeconds(
                         automation, characterId, in spell);
-            // eq.cs:519 — `!(dm.b(d(item3.b), mySpell2).TotalSeconds >= this.b)`.
+            // Due when what is left on the enchantment is under the window.
             if (remaining >= threshold)
                 continue;
             pick = new BuffPick(spell, characterId, "yourself", true);
@@ -735,9 +736,8 @@ internal sealed class BuffSelfRule
         if (!haveReference)
             return false;
 
-        // fk.cs:186: `foreach (MySpell item in A_0.RealFamily)` — every
-        // known spell of the reference's family. MatchesReference keeps the
-        // walk on the reference's own line.
+        // Every known spell of the reference's family. MatchesReference keeps
+        // the walk on the reference's own line.
         var tiers = new List<PluginSpellInfo>();
         foreach (PluginSpellInfo candidate in known)
         {
@@ -886,8 +886,8 @@ internal sealed class BuffSelfRule
         _castAwaitingSpellId = spell.SpellId;
         _castAwaitingItemId = pick.IsItemEnchant ? pick.TargetObjectId : 0u;
         _castAwaitingItemFamily = pick.IsItemEnchant ? spell.Family : 0u;
-        // What dm.b(MySpell,int,bool,bool) (dm.cs:184-192) will need when the
-        // RESULT arrives: the spell's quality, its duration and its name.
+        // What the item ledger will need when the RESULT arrives: the spell's
+        // quality, its duration and its name.
         _castAwaitingItemQuality = pick.IsItemEnchant ? spell.Tier : 0;
         _castAwaitingItemDuration =
             pick.IsItemEnchant ? spell.DurationSeconds : 0d;

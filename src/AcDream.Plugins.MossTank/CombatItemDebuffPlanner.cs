@@ -143,8 +143,8 @@ internal static class CombatItemDebuffPlanner
                 AddGrenade(result, required, item, character, spells, isDue);
             if (result.Count == before)
             {
-                // dz.cs:303 — the item is not one of the object types this
-                // debuff can be applied from.
+                // The item is not one of the object types this debuff can be
+                // applied from.
                 log?.Invoke($"Find debuff choice ({text}): Stop, wrong object type");
                 continue;
             }

@@ -38,7 +38,7 @@ internal sealed partial class MossTankPanel : IBuffRuleHost
     private readonly MossTankMetaProfileStore _metaProfiles;
     private readonly MetaViewManager _metaViews;
     private readonly CombatController _combat;
-    /// <summary>VTank's one shared wield/mode subroutine, ga.a (ga.cs:1433-1573).</summary>
+    /// <summary>The one shared wield/combat-mode subroutine.</summary>
     private readonly CombatModeGate _combatModeGate;
     private readonly IdlePeaceRule _idlePeace;
     private readonly SummonPetRule _summonPet;
@@ -241,9 +241,9 @@ internal sealed partial class MossTankPanel : IBuffRuleHost
             Navigation = _navigationSettings,
             Meta = _metaSettings,
         };
-        // e0.cs:53-79 — VTank's official GameInfoDB, read from the profile
-        // directory beside the .usd files. Absent means EMPTY, not a guess:
-        // acdream does not ship Virindi's embedded defaultinfodb.ugd.
+        // The official monster-info database, read from the profile directory
+        // beside the .usd files. Absent means EMPTY, not a guess: acdream
+        // ships no embedded copy of it.
         _gameInfo = VtankGameInfoDatabase.Load(host.VtankProfiles);
         // A rule's `species` and `maxhp` are database facts. Without the
         // database every monster reads as unlisted, which is what the
@@ -2768,7 +2768,7 @@ internal sealed partial class MossTankPanel : IBuffRuleHost
             _buffSettings.ItemEnchantRows.Add(new BuffItemEnchantRow(item.Name, spellName));
     }
 
-    /// <summary><c>eq.b(int itemId)</c> (<c>eq.cs:59-68</c>).</summary>
+    /// <summary>Drop every authored enchant row for one item.</summary>
     private void ClearItemEnchantRows(string itemName)
     {
         for (int i = _buffSettings.ItemEnchantRows.Count - 1; i >= 0; i--)
@@ -4326,8 +4326,8 @@ internal sealed partial class MossTankPanel : IBuffRuleHost
     private void Stop(string status)
     {
         ClearFastCastMovement();
-        // gj.cs:262-276 / d() - the tracker is forced back to idle whenever
-        // the thing it was waiting on stops mattering.
+        // The tracker is forced back to idle whenever the thing it was
+        // waiting on stops mattering.
         _buffRule.Stop();
         _status = status;
         RestoreSelection();

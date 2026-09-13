@@ -8,7 +8,7 @@ internal sealed class BuffDueTracker
     private readonly HashSet<uint> _forced = [];
     private readonly List<uint> _scratch = [];
 
-    /// <summary><c>dm</c>'s half of the force (<c>eq.cs:371</c>).</summary>
+    /// <summary>The item-enchantment half of the force.</summary>
     private readonly HashSet<(uint ItemObjectId, uint Family)> _forcedItems = [];
 
     public IReadOnlySet<uint> ForcedSpellIds => _forced;
@@ -55,12 +55,10 @@ internal sealed class BuffDueTracker
     }
 
     /// <summary>
-    /// <c>eq.i()</c> (<c>eq.cs:362-372</c>), reached from
-    /// <c>PluginCore.ForceBuff()</c>: every tracked entry's <c>a</c> stamp is
-    /// set to now, so the due test <c>(entry.a - Now).TotalSeconds &gt;=
-    /// threshold</c> (<c>eq.cs:490</c>) fails for all of them and everything
-    /// reads as about to expire. The real <c>ExpireTime</c> (<c>d</c>) is not
-    /// touched.
+    /// What the Force Buff button asks for: every tracked entry's last-seen
+    /// stamp is set to now, so the due test (time left against the rebuff
+    /// threshold) fails for all of them and everything reads as about to
+    /// expire. The real expiry time is not touched.
     /// </summary>
     public void ForceAll()
     {
@@ -89,7 +87,7 @@ internal sealed class BuffDueTracker
     public void CancelForce()
     {
         _forced.Clear();
-        // eq.cs:383 — eq.e() ends on this.m_a.j.h(), dm's restore.
+        // A finished force pass ends by restoring the item ledger.
         _forcedItems.Clear();
     }
 

@@ -43,8 +43,8 @@ internal sealed class VtankGameInfoDatabase
     private static readonly MonsterDamageType[] NoElements = [];
 
     /// <summary>
-    /// <c>e0.m_b == false</c>: no database. Every lookup answers the way
-    /// <c>e0</c> answers with an unloaded database (<c>e0.cs:305-307,329</c>).
+    /// No database. Every lookup answers the way the reference client answers
+    /// with an unloaded one.
     /// </summary>
     public static VtankGameInfoDatabase Empty { get; } = new();
 

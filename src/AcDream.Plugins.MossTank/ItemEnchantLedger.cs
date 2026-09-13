@@ -10,10 +10,9 @@ internal sealed class ItemEnchantLedger
     }
 
     /// <summary>
-    /// <c>dm.b</c>, the three-level table
-    /// <c>MySortedList&lt;targetId, MySortedList&lt;RealFamily,
-    /// MySortedList&lt;spellId, b&gt;&gt;&gt;</c> (<c>dm.cs:66</c>), flattened
-    /// to one key because nothing here iterates a level on its own.
+    /// The reference client's three-level table (target, then family, then
+    /// spell), flattened to one key because nothing here iterates a level on
+    /// its own.
     /// </summary>
     private readonly Dictionary<(uint Item, uint Family, uint SpellId), Entry>
         _entries = [];
@@ -46,7 +45,7 @@ internal sealed class ItemEnchantLedger
         string spellName,
         Action<string>? log = null)
     {
-        // dm.cs:186 — `if (A_0.Duration > 0.0)`.
+        // A spell with no duration is not tracked at all.
         if (durationSeconds <= 0d)
             return;
 
@@ -99,9 +98,9 @@ internal sealed class ItemEnchantLedger
     }
 
     /// <summary>
-    /// <c>dm.h()</c> (<c>dm.cs:354-366</c>), the line <c>eq.e()</c> ends on
-    /// (<c>eq.cs:383</c>): <c>a = b</c> for every entry, putting the real
-    /// remaining time back.
+    /// The restore a finished or cancelled force pass ends on: every entry's
+    /// forced stamp goes back to its real expiry, putting the real remaining
+    /// time back.
     /// </summary>
     public void CancelForce()
     {
@@ -110,9 +109,8 @@ internal sealed class ItemEnchantLedger
     }
 
     /// <summary>
-    /// <c>dm.a(object, EventArgs)</c> (<c>dm.cs:153-176</c>) — the timer that
-    /// drops an entry once its real expiry <c>b</c> is in the past. Without
-    /// it the table would only ever grow.
+    /// The sweep that drops an entry once its real expiry is in the past.
+    /// Without it the table would only ever grow.
     /// </summary>
     public void Expire(double nowSeconds)
     {
@@ -120,7 +118,7 @@ internal sealed class ItemEnchantLedger
         foreach (KeyValuePair<(uint Item, uint Family, uint SpellId), Entry> pair
             in _entries)
         {
-            // dm.cs:162 — `if (this.b[key3][key4][key5].b < DateTimeOffset.Now)`.
+            // Compared against the real expiry, never the forced stamp.
             if (pair.Value.B < nowSeconds)
                 _scratch.Add(pair.Key);
         }
