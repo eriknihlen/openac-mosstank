@@ -613,6 +613,7 @@ internal sealed class CombatController
         _passCandidateRange = double.NaN;
         _passEquipment = null;
         _passInventory = null;
+        _passSelectionOrder = null;
     }
 
     private void RunAttackLoop(int budget)
@@ -1759,7 +1760,7 @@ internal sealed class CombatController
         PluginCombatTarget subject = target;
         ICharacterInfo character = _host.Automation.Character;
         return VtankWeaponLadder.Select(
-            items,
+            InProfileOrder(items),
             item => _settings.CombatItemObjectIds.Contains(item.ObjectId)
                 || _settings.CombatItemNames.Contains(item.Name),
             wanted,
@@ -1770,6 +1771,56 @@ internal sealed class CombatController
             voidTrained: IsTrained(character, VoidMagicSkill),
             excludeObjectId: actions.OffhandObjectId);
     }
+
+    /// <summary>
+    /// The owned items in the order the Items page fixes: what the page names
+    /// first, in page order, then whatever it does not name, and the object id
+    /// inside a group the page cannot tell apart.
+    ///
+    /// The walk that picks a weapon keeps the LAST candidate it saw at every
+    /// rung, so its answer is only as steady as the order it walks. What the
+    /// host hands out is sorted with the held items first, and that order
+    /// turns over the instant something is wielded: two equally rated items of
+    /// the same name pass the pick back and forth, and the character swaps
+    /// weapons for ever instead of fighting. The page's order is the one thing
+    /// in this list that a fight cannot move.
+    /// </summary>
+    private IReadOnlyList<PluginEquipmentItem> InProfileOrder(
+        IReadOnlyList<PluginEquipmentItem> items)
+    {
+        if (_passSelectionOrder is { } memo && ReferenceEquals(memo.Source, items))
+            return memo.Ordered;
+        if (items.Count < 2)
+            return items;
+
+        IList<string> page = _settings.CombatItemOrder;
+        int PageIndex(string name)
+        {
+            for (int index = 0; index < page.Count; index++)
+            {
+                if (string.Equals(page[index], name, StringComparison.Ordinal))
+                    return index;
+            }
+            return int.MaxValue;
+        }
+
+        var ordered = new List<PluginEquipmentItem>(items);
+        ordered.Sort((left, right) =>
+        {
+            int placed = PageIndex(left.Name).CompareTo(PageIndex(right.Name));
+            if (placed != 0)
+                return placed;
+            int name = string.CompareOrdinal(left.Name, right.Name);
+            return name != 0
+                ? name
+                : left.ObjectId.CompareTo(right.ObjectId);
+        });
+        _passSelectionOrder = (items, ordered);
+        return ordered;
+    }
+
+    private (IReadOnlyList<PluginEquipmentItem> Source,
+        IReadOnlyList<PluginEquipmentItem> Ordered)? _passSelectionOrder;
 
     /// <summary>
     /// The monster's species, or -1 when the game-info database does not name

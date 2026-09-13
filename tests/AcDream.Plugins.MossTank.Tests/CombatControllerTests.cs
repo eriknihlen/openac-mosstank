@@ -2656,6 +2656,69 @@ public sealed class CombatControllerTests
         Assert.Equal(default, surface.LastTargetedCast);
     }
 
+    /// <summary>
+    /// Two wands of the same name, neither of them named by the rule, both on
+    /// the Items page: the automatic pick has to name the same one on the pass
+    /// after it is wielded. The list the host hands out puts what is held
+    /// first, so the pick has to come from the page's order rather than that
+    /// one, or the two wands take turns and the character swaps for ever
+    /// without ever attacking.
+    ///
+    /// Mutation: hand <c>VtankWeaponLadder.Select</c> the projection itself
+    /// instead of <c>InProfileOrder</c> and this fails with two equips.
+    /// </summary>
+    [Fact]
+    public void TwoWandsOfOneNameDoNotTakeTurnsBeingWielded()
+    {
+        var surface = new FakeAutomation
+        {
+            CombatSnapshot = Physical() with { Mode = PluginCombatMode.Peace },
+            Targets = [Target(10, "Drudge", 2, 0)],
+            EquipmentItems =
+            [
+                Equipment(
+                    0x80000A4Cu,
+                    "Wand",
+                    damageType: 0,
+                    itemType: CombatModeGate.CasterItemType),
+                Equipment(
+                    0x80000B34u,
+                    "Wand",
+                    damageType: 0,
+                    itemType: CombatModeGate.CasterItemType),
+            ],
+        };
+        var settings = new CombatSettings();
+        settings.CombatItemNames.Add("Wand");
+        settings.CombatItemOrder.Add("Wand");
+        settings.Rules.Clear();
+        settings.Rules.Add(new MonsterRule(
+            "DEFAULT",
+            new MonsterRuleActions
+            {
+                Flags = MonsterActionFlags.Attack,
+                DamageType = MonsterDamageType.Auto,
+            }));
+        var controller = new CombatController(new FakeHost(surface), settings);
+
+        controller.Toggle();
+        controller.OnTick(0.25);
+
+        string[] first = surface.CallLog
+            .Where(static entry => entry.StartsWith("Equip:", StringComparison.Ordinal))
+            .ToArray();
+        Assert.Single(first);
+
+        controller.OnTick(0.25);
+        controller.OnTick(0.25);
+
+        string[] every = surface.CallLog
+            .Where(static entry => entry.StartsWith("Equip:", StringComparison.Ordinal))
+            .Distinct(StringComparer.Ordinal)
+            .ToArray();
+        Assert.Equal(first, every);
+    }
+
     [Fact]
     public void ExplicitMonsterWeaponUsesCanonicalEquipmentCommandBeforeAttack()
     {
@@ -2976,7 +3039,10 @@ public sealed class CombatControllerTests
                     damageType: 0x10,
                     combatUse: 3,
                     ammoType: 0x001u,
-                    stackSize: 20),
+                    stackSize: 20,
+                    // A quiver goes in the ammunition slot; it is not
+                    // something the character can be wielding.
+                    validLocations: AmmunitionSlot),
             ],
             ItemEntries =
             [
@@ -3037,7 +3103,10 @@ public sealed class CombatControllerTests
                     damageType: 0x10,
                     combatUse: 3,
                     ammoType: 0x001u,
-                    stackSize: 20),
+                    stackSize: 20,
+                    // A quiver goes in the ammunition slot; it is not
+                    // something the character can be wielding.
+                    validLocations: AmmunitionSlot),
             ],
             ItemEntries =
             [
@@ -3100,7 +3169,10 @@ public sealed class CombatControllerTests
                     damageType: 0x10,
                     combatUse: 3,
                     ammoType: 0x001u,
-                    stackSize: 20),
+                    stackSize: 20,
+                    // A quiver goes in the ammunition slot; it is not
+                    // something the character can be wielding.
+                    validLocations: AmmunitionSlot),
             ],
             ItemEntries =
             [
@@ -4559,8 +4631,14 @@ public sealed class CombatControllerTests
     }
 
     /// <summary>
-    /// Mutation: sort the unordered wands alphabetically again and this fails
-    /// — the first one on the Items page wins, whatever it is called.
+    /// The first wand on the Items page wins, whatever it is called. The page
+    /// puts the Zephyr Wand first even though the host hands the two of them
+    /// back the other way round — the host's list is alphabetical among
+    /// unheld items, so this only says anything at all because the two orders
+    /// disagree.
+    ///
+    /// Mutation: drop the page walk from <c>FindFirstProfiledWand</c> and this
+    /// fails — the Acid Wand comes back instead.
     /// </summary>
     [Fact]
     public void TheFirstProfiledWandWinsWithoutAnAlphabeticalTieBreak()
@@ -4588,6 +4666,8 @@ public sealed class CombatControllerTests
         settings.MaximumRange = 40d;
         settings.CombatItemNames.Add("Zephyr Wand");
         settings.CombatItemNames.Add("Acid Wand");
+        settings.CombatItemOrder.Add("Zephyr Wand");
+        settings.CombatItemOrder.Add("Acid Wand");
         var controller = new CombatController(new FakeHost(surface), settings);
 
         controller.Toggle();
@@ -4828,6 +4908,9 @@ public sealed class CombatControllerTests
         BaseRangeConstant = 80f,
     };
 
+    /// <summary>The slot a quiver of ammunition goes in, not a weapon slot.</summary>
+    private const uint AmmunitionSlot = 0x00800000u;
+
     private static PluginEquipmentItem Equipment(
         uint id,
         string name,
@@ -4837,11 +4920,12 @@ public sealed class CombatControllerTests
         uint itemType = 1,
         byte combatUse = 1,
         uint ammoType = 0,
-        int stackSize = 1) => new(
+        int stackSize = 1,
+        uint validLocations = 0x00100000u) => new(
             id,
             name,
             ItemType: itemType,
-            ValidLocations: 0x00100000,
+            ValidLocations: validLocations,
             EquippedLocation: equippedLocation,
             ContainerObjectId: 1,
             WielderObjectId: 0,
@@ -5022,10 +5106,28 @@ public sealed class CombatControllerTests
         bool IEquipmentAutomation.IsBusy =>
             SimulateAsyncEquip && _pendingEquipObjectId is not null;
         public int CaptureOwnedEquipmentCount { get; private set; }
+
+        /// <summary>
+        /// The host hands this list out held-first, then by name, then by
+        /// object id — an order that turns over the moment something is
+        /// wielded. A fixture that hands back its own insertion order instead
+        /// cannot see anything that goes wrong because of that.
+        /// </summary>
         public IReadOnlyList<PluginEquipmentItem> CaptureOwnedEquipment()
         {
             CaptureOwnedEquipmentCount++;
-            return EquipmentItems;
+            var projected = new List<PluginEquipmentItem>(EquipmentItems);
+            projected.Sort(static (left, right) =>
+            {
+                int equipped = right.IsEquipped.CompareTo(left.IsEquipped);
+                if (equipped != 0)
+                    return equipped;
+                int name = string.CompareOrdinal(left.Name, right.Name);
+                return name != 0
+                    ? name
+                    : left.ObjectId.CompareTo(right.ObjectId);
+            });
+            return projected;
         }
         public PluginEquipmentCommandResult Equip(
             uint objectId,
@@ -5048,13 +5150,33 @@ public sealed class CombatControllerTests
             _pendingEquipObjectId = null;
         }
 
+        /// <summary>
+        /// A slot holds one thing: wielding this item puts it where it goes
+        /// and takes whatever was already there out of the character's hands.
+        /// A fixture that lets two items share the weapon slot hides every
+        /// bug that turns on which of them the host calls the wielded one.
+        /// </summary>
         private static IReadOnlyList<PluginEquipmentItem> MarkEquipped(
             IReadOnlyList<PluginEquipmentItem> items,
-            uint objectId) => items
+            uint objectId)
+        {
+            uint slot = 0u;
+            foreach (PluginEquipmentItem item in items)
+            {
+                if (item.ObjectId == objectId)
+                {
+                    slot = item.ValidLocations;
+                    break;
+                }
+            }
+            return items
                 .Select(item => item.ObjectId == objectId
-                    ? item with { EquippedLocation = 0x00100000u }
-                    : item)
+                    ? item with { EquippedLocation = slot }
+                    : (item.EquippedLocation & slot) != 0u
+                        ? item with { EquippedLocation = 0u }
+                        : item)
                 .ToArray();
+        }
         bool IItemAutomation.IsAvailable => true;
         bool IItemAutomation.IsBusy => false;
         int IItemAutomation.ActiveOwnedPetCount => 0;
