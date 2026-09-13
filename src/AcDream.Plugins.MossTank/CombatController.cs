@@ -1054,26 +1054,77 @@ internal sealed class CombatController
         return null;
     }
 
+    /// <summary>
+    /// A void caster's drain arm. The pick is not a preference list: it is the
+    /// first step of the cheapest sequence of drains, martyrs and self-heals
+    /// that finishes this monster off without dropping the caster below the
+    /// health the recharge settings call normal.
+    /// </summary>
     private AttackSpellChoice? PlanDrain(
         in PluginCombatTarget target,
         bool ring)
     {
-        Func<PluginSpellInfo, bool> usable = IsUsableAttackSpell(target);
+        if (_health.TargetObjectId != target.ObjectId)
+            return null;
         ICharacterInfo character = _host.Automation.Character;
-        bool needsHealth = character.MaxHealth != 0u
-            && character.CurrentHealth / (double)character.MaxHealth < 0.75d;
-        string[] order = needsHealth
-            ? ["Drain Health Other", "Martyr's Hecatomb", "Harm Other"]
-            : ["Martyr's Hecatomb", "Drain Health Other", "Harm Other"];
-        foreach (string family in order)
+        int health = (int)Math.Min(int.MaxValue, character.CurrentHealth);
+        int maximumHealth = (int)Math.Min(int.MaxValue, character.MaxHealth);
+        int targetHealth = _health.RemainingHealth;
+        if (health == 0 || maximumHealth == 0 || targetHealth == 0)
+            return null;
+        // One point below the health the recharge rule calls normal, so a plan
+        // that lands exactly on the threshold still counts as safe.
+        int floor = (int)Math.Ceiling(
+            maximumHealth * Math.Clamp(_vitalSettings.NormalHealth, 0d, 1d)) - 1;
+        // A monster nothing magical can touch cannot be drained, and neither
+        // can one whose health is not a knowable number.
+        bool canDrain = !_settings.MonsterFacts.IsImmuneToMagic(target.Name)
+            && targetHealth != int.MaxValue;
+
+        PluginCombatTarget planTarget = target;
+        Func<PluginSpellInfo, bool> usable = IsUsableAttackSpell(planTarget);
+        uint spellId = CorpseDrainPlan.SelectSpell(
+            health,
+            maximumHealth,
+            floor,
+            targetHealth,
+            canDrain,
+            ring,
+            _gameInfo.DrainSpellOptions,
+            _gameInfo.MartyrSpellOptions,
+            candidate => FindKnownSpell(candidate) is { } spell
+                && usable(spell));
+        if (spellId == 0u || FindKnownSpell(spellId) is not { } chosen)
         {
-            if (_attackCatalog.ResolveFamily(family, usable) is not { } spell)
-                continue;
-            return new AttackSpellChoice(
-                spell,
-                ring ? VtankCombatSpellType.Ring : VtankCombatSpellType.War,
-                MonsterDamageType.DrainAuto,
-                CastWithoutTarget: false);
+            Log?.Invoke(
+                MacroLogChannel.DebuffChoice,
+                $"Drain: nothing better than a heal against {target.Name}");
+            return null;
+        }
+        Log?.Invoke(
+            MacroLogChannel.DebuffChoice,
+            $"Drain: {chosen.Name} ({targetHealth} left, floor {floor})");
+        return new AttackSpellChoice(
+            chosen,
+            ring ? VtankCombatSpellType.Ring : VtankCombatSpellType.War,
+            MonsterDamageType.DrainAuto,
+            CastWithoutTarget: false);
+    }
+
+    /// <summary>A spell of the character's own, by id.</summary>
+    private PluginSpellInfo? FindKnownSpell(uint spellId)
+    {
+        if (spellId == 0u)
+            return null;
+        foreach (PluginSpellInfo spell in _host.Automation.Spells.KnownCombatSpells)
+        {
+            if (spell.SpellId == spellId)
+                return spell;
+        }
+        foreach (PluginSpellInfo spell in _host.Automation.Spells.KnownAttackSpells)
+        {
+            if (spell.SpellId == spellId)
+                return spell;
         }
         return null;
     }

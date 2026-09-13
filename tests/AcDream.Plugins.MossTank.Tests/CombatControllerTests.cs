@@ -885,6 +885,58 @@ public sealed class CombatControllerTests
     }
 
     [Fact]
+    public void TheDrainArmCastsWhatThePlannerChose()
+    {
+        var surface = new FakeAutomation
+        {
+            CombatSnapshot = Physical() with { Mode = PluginCombatMode.Magic },
+            Targets =
+            [
+                new PluginCombatTarget(
+                    10u, "Olthoi Slasher", 1010u, 5f, 0f, true, 0.05f)
+                {
+                    HealthRevision = 4,
+                },
+            ],
+            KnownCombatSpells =
+            [
+                MagicSpell(1237, "Drain Health Other I", difficulty: 100),
+                MagicSpell(1238, "Drain Health Other II", difficulty: 150),
+                MagicSpell(1239, "Drain Health Other III", difficulty: 200),
+                MagicSpell(2760, "Martyr's Hecatomb I", difficulty: 100),
+                MagicSpell(2761, "Martyr's Hecatomb II", difficulty: 150),
+                MagicSpell(2762, "Martyr's Hecatomb III", difficulty: 200),
+            ],
+            EquipmentItems = [WieldedCaster()],
+        };
+        var settings = new CombatSettings
+        {
+            MaximumRange = 40d,
+            MonsterFacts = new MonsterFactTable(GameInfo),
+        };
+        settings.Rules.Clear();
+        settings.Rules.Add(new MonsterRule(
+            "DEFAULT",
+            new MonsterRuleActions
+            {
+                Flags = MonsterActionFlags.Attack,
+                DamageType = MonsterDamageType.DrainAuto,
+            }));
+        var controller = new CombatController(
+            new FakeHost(surface),
+            settings,
+            vitalSettings: null,
+            gameInfo: GameInfo);
+        controller.Toggle();
+        controller.OnTick(0.25);
+
+        // The database lists this monster as unaffectable by magic, so no
+        // drain may be planned at all; among the martyrs the plan takes the
+        // best monster health taken off per millisecond spent.
+        Assert.Equal((2761u, 10u), surface.LastTargetedCast);
+    }
+
+    [Fact]
     public void CastsNoOneEverAnswersGetTheMonsterDeleted()
     {
         var surface = new FakeAutomation
