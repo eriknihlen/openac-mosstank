@@ -1383,9 +1383,6 @@ internal sealed partial class LootController
         {
             return true;
         }
-        Log?.Invoke(
-            MacroLogChannel.Loot,
-            $"LootDecision: {item.Name} needs no ID");
         return false;
     }
 
@@ -1524,7 +1521,9 @@ internal sealed partial class LootController
             _host.Automation.Chat.CaptureMessages(_chatSequence);
         if (messages.Count == 0)
             return;
-        uint denied = _activeCorpse != 0u ? _activeCorpse : _selectedCorpse;
+        // Always the corpse the last pick chose, never the one that happens to
+        // be open — that is what the refusal is an answer to.
+        uint denied = _selectedCorpse;
         foreach (PluginChatMessage message in messages)
         {
             if (message.Sequence > _chatSequence)

@@ -1000,14 +1000,21 @@ public sealed class LootingTests
             out _));
     }
 
+    /// <summary>
+    /// Whether a spell's amount multiplies or adds is decided by truncating
+    /// the authored operation to a whole number and asking whether it is one.
+    /// Every row of the table authors the same number for the operation as for
+    /// the amount, so this pins the choice, not where it is read from.
+    /// Mutation: swap the two branches.
+    /// </summary>
     [Theory]
-    // Spell 3199 authors Change 1.10, which truncates to 1 and multiplies.
+    // Spell 3199 authors 1.10, which truncates to 1 and multiplies.
     [InlineData(3199u, 144u, 1d, 1.10d, true)]
     [InlineData(3199u, 144u, 1d, 1.11d, false)]
-    // Spell 2588 authors Change 0.05, which truncates to 0 and adds.
+    // Spell 2588 authors 0.05, which truncates to 0 and adds.
     [InlineData(2588u, 29u, 0.10d, 0.15d, true)]
     [InlineData(2588u, 29u, 0.10d, 0.16d, false)]
-    public void TheBuffedDoubleOperationComesFromTheAuthoredChangeField(
+    public void ABuffedDoubleMultipliesOnlyWhenTheAuthoredOperationIsOne(
         uint spellId,
         uint key,
         double baseValue,

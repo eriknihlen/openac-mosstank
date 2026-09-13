@@ -576,7 +576,8 @@ internal static class VtankLootRequirementEvaluator
         foreach (uint spellId in item.AppraisedSpellIds)
         {
             if (IntSpellBonuses.TryGetValue(spellId, out var bonus)
-                && bonus.Key == key)
+                && bonus.Key == key
+                && bonus.Bonus != 0)
             {
                 value += bonus.Bonus;
             }
@@ -594,8 +595,11 @@ internal static class VtankLootRequirementEvaluator
             return value;
         foreach (uint spellId in item.AppraisedSpellIds)
         {
+            // A bonus of zero is inert: it is what marks a table row that
+            // carries only an operation and no amount.
             if (!DoubleSpellBonuses.TryGetValue(spellId, out var bonus)
-                || bonus.Key != key)
+                || bonus.Key != key
+                || bonus.Bonus == 0d)
             {
                 continue;
             }
