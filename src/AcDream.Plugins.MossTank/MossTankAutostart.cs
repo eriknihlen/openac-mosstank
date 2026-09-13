@@ -19,11 +19,25 @@ internal sealed partial class MossTankPanel
         }
         if (_autostartAppliedForCurrentSession)
             return;
+
+        // The surface can report itself available before the character
+        // arrives. Every profile this applies belongs to a character, and
+        // binding a character re-reads which profile is selected from that
+        // character's own binding file — so a set applied before the name
+        // lands is thrown away silently on the tick the name does land, and
+        // the session runs on the wrong profile with no sign that anything
+        // happened. Wait for the name.
+        if (_host.Automation.Character.Name.Length == 0)
+            return;
+
         _autostartAppliedForCurrentSession = true;
 
         IReadOnlyDictionary<string, string> settings = _host.SessionSettings;
         if (settings.Count == 0)
             return;
+        // Settle the character's own binding first rather than trusting the
+        // order two tick subscribers happen to run in.
+        EnsureCharacterProfile();
         ApplyAutostart(settings);
     }
 

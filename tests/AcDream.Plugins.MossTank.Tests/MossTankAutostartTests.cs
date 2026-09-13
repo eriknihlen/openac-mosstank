@@ -620,6 +620,56 @@ public sealed class MossTankAutostartTests
     }
 
     /// <summary>
+    /// The automation surface can report itself available before the
+    /// character's name arrives — a live session does exactly that. Every
+    /// profile autostart applies belongs to a character, and binding a
+    /// character re-reads which profile is selected from that character's
+    /// own binding file, so a profile set applied before the name landed was
+    /// thrown away on the tick it did land: the declared settings, the loot
+    /// rules, the route and the open log channels all reverted to the
+    /// character's own defaults, and nothing said so. A bot then ran a whole
+    /// session on the wrong profile.
+    /// </summary>
+    [Fact]
+    public void AutostartWaitsForTheCharactersNameAndItsChoiceThenSurvivesTheBind()
+    {
+        var automation = new FakeAutomation { IsAvailable = true, Name = string.Empty };
+        var host = new FakeHost(automation);
+        WriteSessionProofFixture(host.VtankProfiles);
+        var panel = new MossTankPanel(host);
+        host.SessionSettingsValue = new Dictionary<string, string>
+        {
+            ["settingsProfile"] = "vt-proof-settings",
+            ["navProfile"] = "vt-proof-route",
+            ["logChannels"] = "RuleInfo",
+        };
+
+        // In world, but the character has not been named yet.
+        panel.TickAutostart();
+        Assert.NotEqual("vt-proof-settings.usd", panel.SelectedMacroProfile);
+
+        automation.Name = "TestChar";
+        panel.TickAutostart();
+        Assert.Equal("vt-proof-settings.usd", panel.SelectedMacroProfile);
+        Assert.Equal(4, panel.RouteRows.Count);
+
+        // The tick that binds the character must not undo any of it.
+        panel.OnTick(1d);
+        panel.OnTick(1d);
+
+        Assert.Equal("vt-proof-settings.usd", panel.SelectedMacroProfile);
+        Assert.Equal("vt-proof-route", panel.SelectedRouteProfile);
+        Assert.Equal(4, panel.RouteRows.Count);
+        Assert.True(panel.GetMetaOptionForTest("enablenav"), "EnableNav");
+        Command(panel, "log");
+        Assert.Contains(
+            ((FakeAutomation)host.Automation).Messages,
+            message => message.Contains("Log state", StringComparison.Ordinal)
+                && message.Contains("RuleInfo", StringComparison.Ordinal));
+        Assert.Empty(automation.Logger.Errors);
+    }
+
+    /// <summary>
     /// The proof's fixture folder, copied into the fake profile storage. One
     /// copy of these files exists in the tree — the live proof reads the same
     /// three — so this pin and that run cannot drift apart.
