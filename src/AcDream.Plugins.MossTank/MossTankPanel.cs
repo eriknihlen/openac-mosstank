@@ -4476,6 +4476,11 @@ internal sealed partial class MossTankPanel : IBuffRuleHost
         }
 
         _actionLocks.Advance(elapsedSeconds);
+        // Beside the slot clock rather than inside a rule pass: the slots an
+        // open takes include the one the loot rule is gated on, so only
+        // something running every frame can give them back.
+        if (_loot.ObserveCorpseOpened())
+            _scheduler.Poke();
         ObserveFastCastMovement(elapsedSeconds);
         _buffRule.Advance(elapsedSeconds);
         EnsureCharacterProfile();

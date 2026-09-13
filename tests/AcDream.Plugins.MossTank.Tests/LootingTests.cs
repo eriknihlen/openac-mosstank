@@ -1345,6 +1345,162 @@ public sealed class LootingTests
     }
 
     /// <summary>
+    /// Opening a corpse holds navigation as well as the item slot. A corpse
+    /// out of the server's own reach is opened by walking to it first, and
+    /// that walk is the client's — a route rule steering at the same time
+    /// cancels it, and the open then answers nothing at all.
+    ///
+    /// Mutation: drop the navigation arm and the slot is free the moment the
+    /// open is issued.
+    /// </summary>
+    [Fact]
+    public void OpeningACorpseHoldsTheSlotsTheWalkNeeds()
+    {
+        var settings = new LootSettings
+        {
+            Enabled = true,
+            ScanIntervalSeconds = 0.05d,
+            CorpseOpenTimeoutSeconds = 1.5d,
+        };
+        settings.Rules.Add(new LootRule { Expression = "*" });
+        const uint corpse = 0x70000C11u;
+        var automation = new Automation
+        {
+            Corpses =
+            [
+                new PluginLootContainer(
+                    corpse, 1u, "Corpse", 3f, false, false, false)
+                {
+                    IsIdentified = true,
+                    LongDescription = "Killed by Tester.",
+                },
+            ],
+        };
+        var locks = new ActionLockTable();
+        var controller = new LootController(new Host(automation), settings);
+        controller.BindActionLocks(locks);
+
+        Assert.False(locks.IsLocked(ActionLockKind.Navigation));
+        Assert.True(controller.Tick(0.1d, canAct: true));
+        Assert.Equal(new[] { corpse }, automation.Opened);
+
+        Assert.True(locks.IsLocked(ActionLockKind.Navigation));
+        Assert.True(locks.IsLocked(ActionLockKind.ItemUse));
+        Assert.True(locks.IsLocked(ActionLockKind.CorpseOpenAttempt));
+
+        locks.Advance(1.6d);
+        Assert.False(locks.IsLocked(ActionLockKind.Navigation));
+    }
+
+    /// <summary>
+    /// The three slots go back the instant the container is open, not when the
+    /// open's own window runs out. The corpse-open slot is the marker that
+    /// says the three belong to an open, so it is both the test and the first
+    /// released, and a second look releases nothing.
+    ///
+    /// Mutation: drop any one of the three releases and that slot is still
+    /// held; drop the whole observer and all three are.
+    /// </summary>
+    [Fact]
+    public void TheSlotsGoBackTheMomentTheCorpseIsOpen()
+    {
+        var settings = new LootSettings
+        {
+            Enabled = true,
+            ScanIntervalSeconds = 0.05d,
+            CorpseOpenTimeoutSeconds = 30d,
+        };
+        settings.Rules.Add(new LootRule { Expression = "*" });
+        const uint corpse = 0x70000C12u;
+        var automation = new Automation
+        {
+            Corpses =
+            [
+                new PluginLootContainer(
+                    corpse, 1u, "Corpse", 3f, false, false, false)
+                {
+                    IsIdentified = true,
+                    LongDescription = "Killed by Tester.",
+                },
+            ],
+        };
+        var locks = new ActionLockTable();
+        var controller = new LootController(new Host(automation), settings);
+        controller.BindActionLocks(locks);
+
+        Assert.True(controller.Tick(0.1d, canAct: true));
+        Assert.Equal(new[] { corpse }, automation.Opened);
+        // Nothing has opened yet, so nothing goes back.
+        Assert.False(controller.ObserveCorpseOpened());
+        Assert.True(locks.IsLocked(ActionLockKind.ItemUse));
+
+        automation.Requested = corpse;
+        automation.Current = corpse;
+
+        Assert.True(controller.ObserveCorpseOpened());
+        Assert.False(locks.IsLocked(ActionLockKind.CorpseOpenAttempt));
+        Assert.False(locks.IsLocked(ActionLockKind.Navigation));
+        Assert.False(locks.IsLocked(ActionLockKind.ItemUse));
+        Assert.False(controller.ObserveCorpseOpened());
+    }
+
+    /// <summary>
+    /// What the release is for: with a long open window, the pass that follows
+    /// the container opening reads the corpse and judges it. Both rules that
+    /// carry this controller are gated on the item slot being free, so a slot
+    /// still held here is not a pause — it is the looter unable to look at the
+    /// corpse it just opened, which is the reported symptom exactly.
+    ///
+    /// Mutation: remove the observer call and the item slot is still held
+    /// thirty seconds later, so the gate this asserts is closed.
+    /// </summary>
+    [Fact]
+    public void AfterTheCorpseOpensTheLooterJudgesOnTheNextPass()
+    {
+        var settings = new LootSettings
+        {
+            Enabled = true,
+            ScanIntervalSeconds = 0.05d,
+            CorpseOpenTimeoutSeconds = 30d,
+        };
+        settings.Rules.Add(new LootRule { Expression = "*" });
+        const uint corpse = 0x70000C13u;
+        const uint prize = 0x70000C14u;
+        var automation = new Automation
+        {
+            Corpses =
+            [
+                new PluginLootContainer(
+                    corpse, 1u, "Corpse", 3f, false, false, false)
+                {
+                    IsIdentified = true,
+                    LongDescription = "Killed by Tester.",
+                },
+            ],
+        };
+        var locks = new ActionLockTable();
+        var controller = new LootController(new Host(automation), settings);
+        controller.BindActionLocks(locks);
+        var judged = new List<string>();
+        controller.Log = (_, line) => judged.Add(line);
+
+        Assert.True(controller.Tick(0.1d, canAct: true));
+        Assert.Equal(new[] { corpse }, automation.Opened);
+
+        automation.Requested = corpse;
+        automation.Current = corpse;
+        automation.Contents = [Item(prize, "Plain Lockpick", 1)];
+        Assert.True(controller.ObserveCorpseOpened());
+
+        // The gate both loot rules are held by is what the release opens.
+        Assert.False(locks.IsLocked(ActionLockKind.ItemUse));
+        Assert.True(controller.Tick(0.2d, canAct: true));
+        Assert.Contains(
+            judged,
+            line => line.StartsWith("LootDecision: ", StringComparison.Ordinal));
+    }
+
+    /// <summary>
     /// The description is asked of every corpse the client is reporting, not
     /// only of the ones already in reach: a corpse whose description never
     /// arrives can never be judged, and by the time the character walks up to
