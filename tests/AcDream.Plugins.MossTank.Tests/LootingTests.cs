@@ -1307,6 +1307,78 @@ public sealed class LootingTests
         Assert.Equal(new[] { corpse }, automation.Opened);
     }
 
+    /// <summary>
+    /// The open step carries its own reach and does not borrow the approach
+    /// range. The approach range ships at zero, which is the setting a fresh
+    /// profile has, and a corpse three metres away is still opened.
+    ///
+    /// Mutation: narrow the scan to the approach range before selecting, and
+    /// the corpse is never opened.
+    /// </summary>
+    [Fact]
+    public void TheOpenStepReachesACorpseTheApproachRangeDoesNot()
+    {
+        var settings = new LootSettings
+        {
+            Enabled = true,
+            CorpseApproachRange = 0d,
+            ScanIntervalSeconds = 0.05d,
+        };
+        settings.Rules.Add(new LootRule { Expression = "*" });
+        const uint corpse = 0x70000C10u;
+        var automation = new Automation
+        {
+            Corpses =
+            [
+                new PluginLootContainer(
+                    corpse, 1u, "Corpse", 3f, false, false, false)
+                {
+                    IsIdentified = true,
+                    LongDescription = "Killed by Tester.",
+                },
+            ],
+        };
+        var controller = new LootController(new Host(automation), settings);
+
+        Assert.True(controller.Tick(0.1d, canAct: true));
+        Assert.Equal(new[] { corpse }, automation.Opened);
+    }
+
+    /// <summary>
+    /// The description is asked of every corpse the client is reporting, not
+    /// only of the ones already in reach: a corpse whose description never
+    /// arrives can never be judged, and by the time the character walks up to
+    /// it there is nothing to walk up for.
+    ///
+    /// Mutation: narrow the scan to the approach range before asking, and the
+    /// far corpse is never identified.
+    /// </summary>
+    [Fact]
+    public void ACorpseBeyondTheApproachRangeIsStillAskedForItsDescription()
+    {
+        var settings = new LootSettings
+        {
+            Enabled = true,
+            CorpseApproachRange = 0d,
+            ScanIntervalSeconds = 0.05d,
+        };
+        settings.Rules.Add(new LootRule { Expression = "*" });
+        const uint corpse = 0x70000C20u;
+        var automation = new Automation
+        {
+            Corpses =
+            [
+                new PluginLootContainer(
+                    corpse, 1u, "Corpse", 30f, false, false, false),
+            ],
+        };
+        var controller = new LootController(new Host(automation), settings);
+
+        Assert.True(controller.Tick(0.1d, canAct: true));
+        Assert.Equal(new[] { corpse }, automation.Identified);
+        Assert.Empty(automation.Opened);
+    }
+
     [Fact]
     public void AFinishedCorpseIsClosedWithASecondUse()
     {

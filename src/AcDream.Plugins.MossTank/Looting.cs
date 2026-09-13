@@ -707,24 +707,21 @@ internal sealed partial class LootController
 
         // The age clock the public and fellow timers measure against starts
         // when a corpse first streams into the client's known set, which is a
-        // far wider radius than the loot approach range — a corpse watched
+        // far wider radius than any of the loot ranges — a corpse watched
         // from across a field is already old enough by the time the player
-        // walks up to it. Selection then only considers the ones in range.
+        // walks up to it. Each step below then applies its own reach.
         IReadOnlyList<PluginLootContainer> known =
             loot.CaptureCorpses(float.MaxValue);
         PruneCorpseCache(known);
-        // Walked twice below — once to ask for a description, once to pick —
-        // so it is built once, and in a fixed order so two hosts asking the
-        // same question get the same answer.
+        // The set is walked twice below — once to ask for a description,
+        // once to pick — and the client hands it over already ordered by
+        // distance and then by id, so two hosts asking the same question get
+        // the same answer. It is NOT narrowed to the approach range first:
+        // the description is asked of every corpse the client is reporting,
+        // and the open step carries its own reach. The approach range is one
+        // step's range, not a filter on the pass.
         double approachRange =
             Math.Clamp(_settings.CorpseApproachRange, 2d, 100d);
-        List<PluginLootContainer> corpses =
-        [
-            .. known
-                .Where(corpse => corpse.Distance <= approachRange)
-                .OrderBy(static corpse => corpse.Distance)
-                .ThenBy(static corpse => corpse.ObjectId),
-        ];
 
         if (_awaitingCorpseAppraisal != 0u)
         {
@@ -752,7 +749,7 @@ internal sealed partial class LootController
 
         // A corpse whose long description has not arrived yet cannot be
         // judged, so ask for it first and try again next scan.
-        foreach (PluginLootContainer candidateCorpse in corpses)
+        foreach (PluginLootContainer candidateCorpse in known)
         {
             if (candidateCorpse.IsIdentified
                 || _completedCorpses.ContainsKey(candidateCorpse.ObjectId)
@@ -779,8 +776,8 @@ internal sealed partial class LootController
         // nearest corpse in the wider approach range win instead — that second
         // pick is the approach step's, which this controller carries itself.
         _selectedCorpse = 0u;
-        if ((SelectCorpse(corpses, CorpseOpenRangeMeters, byHeading: true)
-                ?? SelectCorpse(corpses, approachRange, byHeading: false))
+        if ((SelectCorpse(known, CorpseOpenRangeMeters, byHeading: true)
+                ?? SelectCorpse(known, approachRange, byHeading: false))
             is not { } corpse)
         {
             Status = "No nearby corpses.";
