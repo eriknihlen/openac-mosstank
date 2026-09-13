@@ -42,6 +42,7 @@ internal sealed partial class MossTankPanel : IBuffRuleHost
     private readonly CombatModeGate _combatModeGate;
     private readonly IdlePeaceRule _idlePeace;
     private readonly SummonPetRule _summonPet;
+    private readonly PetRefillRule _idlePetRefill;
     private readonly MacroScheduler _scheduler;
 
     /// <summary>
@@ -289,6 +290,11 @@ internal sealed partial class MossTankPanel : IBuffRuleHost
             host,
             _combatSettings,
             () => _combat.HasTarget);
+        _idlePetRefill = new PetRefillRule(
+            host,
+            _combatSettings,
+            () => _combatSettings.PetRefillCountIdle,
+            () => _combat.ReadyToActInPeace());
         _vitalRecharge = new VitalRechargeController(
             host,
             _vitalSettings,
@@ -4401,6 +4407,7 @@ internal sealed partial class MossTankPanel : IBuffRuleHost
         }
         _combatModeGate.Reset();
         _summonPet.Reset();
+        _idlePetRefill.Reset();
         _vitalRecharge.Reset();
         _vitalHelperRecharge.Reset();
         _dispel.Reset();
@@ -4702,6 +4709,7 @@ internal sealed partial class MossTankPanel : IBuffRuleHost
     private void ResetSessionScopedControllers()
     {
         _summonPet.Reset();
+        _idlePetRefill.Reset();
         _vitalRecharge.Reset();
         _vitalHelperRecharge.Reset();
         _dispel.Reset();

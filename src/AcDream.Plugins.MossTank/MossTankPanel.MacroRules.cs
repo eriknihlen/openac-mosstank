@@ -248,9 +248,18 @@ internal sealed partial class MossTankPanel : IMacroRuleProvider
                 context.CanAct),
             gate: () => ItemSlotIsFree() && _combat.Enabled
                 && !_buffRule.IsBursting),
-        MacroRuleSlot.RefillPetChargesIdle => new AbsentMacroRule(
+        // The idle band's own refill, with its own (higher, so more eager)
+        // charge threshold: down here nothing is being fought, so a device
+        // gets topped up long before the attack band would bother. It asks
+        // nothing about monsters, which is why it can stand this far from
+        // the attack; the Normal threshold still governs the refill that
+        // runs inside the attack itself.
+        MacroRuleSlot.RefillPetChargesIdle => new ControllerMacroRule(
             "RefillPetChargesIdle",
-            "fused into Attack — see RefillPetChargesNormal."),
+            _idlePetRefill.Tick,
+            gate: () => ItemSlotIsFree() && _combat.Enabled
+                && _combatSettings.Enabled,
+            runningDetail: () => _idlePetRefill.Status),
 
         MacroRuleSlot.BuffSelfIdle => new ControllerMacroRule(
             "BuffSelfIdle",

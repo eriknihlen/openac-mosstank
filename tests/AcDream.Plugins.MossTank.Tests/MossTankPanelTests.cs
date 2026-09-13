@@ -5227,6 +5227,45 @@ public sealed class MossTankPanelTests
     }
 
     [Fact]
+    public void TheIdleBandRefillsACombatPetOnTheIdleThresholdNotTheNormalOne()
+    {
+        var automation = new FakeAutomation
+        {
+            ItemEntries =
+            [
+                Item(10, "Cold Rift", 0, petClass: 49387) with
+                {
+                    Structure = 3,
+                    MaximumStructure = 50,
+                },
+                Item(11, "Encapsulated Spirit", 0) with
+                {
+                    WeenieClassId = PetDeviceCatalog.EncapsulatedSpiritWeenieClassId,
+                },
+            ],
+        };
+        var host = new FakeHost(automation);
+        automation.CurrentSelection = () => host.Selection.SelectedObjectId ?? 0u;
+        var panel = new MossTankPanel(host);
+        host.Selection.Select(10u);
+        panel.AddSelectedItem();
+        Command(panel, "opt set petrefillcount-normal 0");
+        Command(panel, "opt set petrefillcount-idle 3");
+        panel.ToggleCombat();
+
+        IMacroRule rule = ((IMacroRuleProvider)panel)
+            .Create(MacroRuleSlot.RefillPetChargesIdle);
+
+        // Three charges left is under the idle threshold and over the normal
+        // one: only a rule reading its own setting stops for this.
+        Assert.True(rule.ValidNow(new MacroPassContext(0.3d, true)));
+
+        Command(panel, "opt set petrefillcount-idle 0");
+
+        Assert.False(rule.ValidNow(new MacroPassContext(2d, true)));
+    }
+
+    [Fact]
     public void AProfileWhoseEnableMetaIsTrueLoadsWithTheMetaEngineRunning()
     {
         var storage = new MemoryStorage();

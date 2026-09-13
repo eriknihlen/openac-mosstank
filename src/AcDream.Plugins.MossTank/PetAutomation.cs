@@ -115,6 +115,100 @@ internal sealed class PetAutomation
         return true;
     }
 
+    /// <summary>
+    /// The refill on its own, with its own charge threshold and no interest
+    /// in monsters: a combat-item pet device of mine is below the threshold
+    /// and short of full, and I am carrying a spirit to top it up with. The
+    /// reference rule reads the combat-items list and those two structure
+    /// numbers and nothing else, which is why it can hold a position far
+    /// from the attack and still be the same rule.
+    /// </summary>
+    public bool TickRefill(
+        IItemAutomation automation,
+        CombatSettings settings,
+        int refillThreshold,
+        double now,
+        out string status,
+        Func<bool>? readyToRefillInPeace = null,
+        bool canAct = true)
+    {
+        ArgumentNullException.ThrowIfNull(automation);
+        ArgumentNullException.ThrowIfNull(settings);
+
+        ObserveCompletion(automation.LastCompletion, now, out string? completion);
+        status = completion ?? string.Empty;
+
+        if (_pendingSourceId != 0u)
+        {
+            status = "Refilling combat pet";
+            return true;
+        }
+        // A blocked pass still watches for the completion above; it must not
+        // start anything.
+        if (!canAct)
+            return false;
+        if (!automation.IsAvailable)
+            return false;
+        if (automation.IsBusy)
+        {
+            status = "Waiting to use combat pet";
+            return true;
+        }
+        if (now < _nextRefillAt)
+            return false;
+
+        IReadOnlyList<PluginInventoryItem> items = automation.CaptureOwnedItems();
+        if (SelectRefillDevice(items, settings, refillThreshold) is not { } device)
+            return false;
+        if (FindSpirit(items) is not { } spirit)
+            return false;
+        if (readyToRefillInPeace is not null && !readyToRefillInPeace())
+        {
+            status = "Entering peace mode to refill the combat pet";
+            return true;
+        }
+
+        PluginItemCommandResult result = automation.Apply(
+            spirit.ObjectId,
+            device.ObjectId);
+        if (result.Status == PluginItemCommandStatus.Started)
+        {
+            _pendingSourceId = spirit.ObjectId;
+            _pendingKind = PetAutomationActionKind.Refill;
+            status = $"Refilling {device.Name}";
+            return true;
+        }
+
+        _nextRefillAt = now + RefusalRetrySeconds;
+        status = result.Notice ?? $"Combat pet action refused: {result.Status}";
+        return true;
+    }
+
+    /// <summary>
+    /// First match in list order, not the best one: the reference rule stops
+    /// at the first low device it walks past.
+    /// </summary>
+    private static PluginInventoryItem? SelectRefillDevice(
+        IReadOnlyList<PluginInventoryItem> items,
+        CombatSettings settings,
+        int refillThreshold)
+    {
+        int threshold = Math.Max(0, refillThreshold);
+        foreach (PluginInventoryItem item in items)
+        {
+            if (!settings.CombatItemObjectIds.Contains(item.ObjectId)
+                && !settings.CombatItemNames.Contains(item.Name))
+            {
+                continue;
+            }
+            if (!item.IsPetDevice)
+                continue;
+            if (item.Structure <= threshold && item.Structure < item.MaximumStructure)
+                return item;
+        }
+        return null;
+    }
+
     internal static PetAutomationChoice Select(
         IReadOnlyList<PluginInventoryItem> items,
         IReadOnlyList<PluginCombatTarget> targets,
@@ -321,5 +415,62 @@ internal sealed class PetAutomation
                 ? "Combat pet summoned"
                 : "Combat pet refilled"
             : $"Combat pet failed (0x{completion.WeenieError:X})";
+    }
+}
+
+/// <summary>
+/// A pass position that does nothing but top a combat pet's charges back
+/// up. The rule exists twice in the reference pass — once high up, with the
+/// tight "normal" threshold, and once in the idle band with the looser one
+/// — because how empty a device has to be before it is worth stopping for
+/// depends on whether there is anything else to do. Only the second one
+/// stands here: the first is part of the attack.
+/// </summary>
+internal sealed class PetRefillRule
+{
+    private readonly IPluginHost _host;
+    private readonly CombatSettings _settings;
+    private readonly Func<int> _threshold;
+    private readonly Func<bool> _readyToRefillInPeace;
+    private readonly PetAutomation _pets = new();
+    private double _now;
+
+    public PetRefillRule(
+        IPluginHost host,
+        CombatSettings settings,
+        Func<int> threshold,
+        Func<bool> readyToRefillInPeace)
+    {
+        _host = host ?? throw new ArgumentNullException(nameof(host));
+        _settings = settings ?? throw new ArgumentNullException(nameof(settings));
+        _threshold = threshold ?? throw new ArgumentNullException(nameof(threshold));
+        _readyToRefillInPeace = readyToRefillInPeace
+            ?? throw new ArgumentNullException(nameof(readyToRefillInPeace));
+    }
+
+    public string Status { get; private set; } = string.Empty;
+
+    public bool Tick(MacroPassContext context)
+    {
+        _now += Math.Max(0d, context.ElapsedSeconds);
+        IAutomationSurface automation = _host.Automation;
+        if (!automation.IsAvailable)
+            return false;
+        bool claimed = _pets.TickRefill(
+            automation.Items,
+            _settings,
+            _threshold(),
+            _now,
+            out string status,
+            _readyToRefillInPeace,
+            context.CanAct);
+        Status = status;
+        return claimed;
+    }
+
+    public void Reset()
+    {
+        _now = 0d;
+        Status = string.Empty;
     }
 }
