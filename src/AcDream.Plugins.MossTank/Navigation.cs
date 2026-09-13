@@ -433,6 +433,12 @@ internal sealed class NavigationController
 
     internal void ResetOncePerRunWarnings() => _lowWaypointWarningPosted = false;
 
+    /// <summary>
+    /// Back to the top of the route. This is for a route that has changed
+    /// under the controller — loaded, edited, cleared — and for the end of a
+    /// session. Stopping the macro is NOT one of those; it uses
+    /// <see cref="StopForMacroStop"/>, which keeps the round's position.
+    /// </summary>
     public void Reset()
     {
         ResetOncePerRunWarnings();
@@ -440,6 +446,29 @@ internal sealed class NavigationController
         _index = 0;
         _reverse = false;
         _onceComplete = false;
+        _checkpointElapsed = 0d;
+        _followPath.Clear();
+        ClearDoor();
+        ClearAction();
+        _status = _settings.Enabled
+            ? "Route ready."
+            : "Navigation disabled.";
+    }
+
+    /// <summary>
+    /// What stopping the macro does to the route: everything in flight is put
+    /// down — the movement, the door being opened, the waypoint action being
+    /// worked, the checkpoint clock — and the round's own position is kept.
+    /// Which point of the loop the character had reached, and which way round
+    /// it was going, are the player's, not the macro run's: the reference's
+    /// stop leaves them alone entirely, so starting again resumes the round
+    /// instead of restarting it. Only loading a route or ending the session
+    /// puts the round back to its first point — see <see cref="Reset"/>.
+    /// </summary>
+    public void StopForMacroStop()
+    {
+        ResetOncePerRunWarnings();
+        StopMovement();
         _checkpointElapsed = 0d;
         _followPath.Clear();
         ClearDoor();

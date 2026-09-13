@@ -4379,73 +4379,29 @@ internal sealed partial class MossTankPanel : IBuffRuleHost
         _crafting.Reset();
         _loot.Reset();
         _profileGive.Reset();
-        _navigation.Reset();
+        // Not Reset: stopping puts down what the route had in flight and
+        // keeps where the round had got to. The reference's stop does not
+        // touch the route at all — it clears the cast tracker, cancels the
+        // jump and the kit sequence, drops the target and stops the pass —
+        // and starting again therefore carries on round the loop.
+        _navigation.StopForMacroStop();
     }
 
     /// <summary>
-    /// What a death turns off: four persisted toggles and nothing else. The
-    /// macro itself keeps running — the pass still comes round every 0.293 s,
-    /// finds every buffing, combat, navigation and looting rule declining, and
-    /// settles the character into peace on the terminal idle rule. That is
-    /// what makes the restore one step instead of a restart: nothing was torn
-    /// down, so the route is still on the waypoint it was walking to and the
-    /// buff clocks are still where the death left them.
+    /// Dying stops the macro, and changes nothing else. The setting's own name
+    /// says so. Stopping is not forgetting, though: the route keeps the
+    /// waypoint it was walking to, so starting the macro again picks the round
+    /// up where it broke off rather than at the first point.
     /// </summary>
-    private const string DeathDisabledNotice =
-        "You died! Buffing, Combat, Nav and Loot have been disabled. "
-        + "Type /vt deathrestore to restore them.";
-
-    private const string DeathRestoredNotice =
-        "Buffing, Combat, Nav and Loot have been restored to previous values.";
-
-    private const string NothingToRestoreNotice =
-        "Nothing to restore: no death has disabled anything this session.";
-
-    private bool _navBeforeDeath;
-    private bool _lootingBeforeDeath;
-    private bool _buffingBeforeDeath;
-    private bool _combatBeforeDeath;
-
-    /// <summary>
-    /// Whether a death has offered the restore. The reference registers the
-    /// restore as a chat link at the moment it disables the four settings, so
-    /// there is nothing to click before a death and the registration is never
-    /// withdrawn afterwards; this flag reproduces exactly that reachability
-    /// for the command that stands in for the link.
-    /// </summary>
-    private bool _deathRestoreOffered;
+    private const string DeathStoppedNotice =
+        "Macro stopped because the character died.";
 
     private void HandleDeath(bool macroRunning)
     {
         if (!macroRunning || !_combatSettings.StopMacroOnDeath)
             return;
-        _navBeforeDeath = GetMetaOption("EnableNav").IsTruthy;
-        _lootingBeforeDeath = GetMetaOption("EnableLooting").IsTruthy;
-        _buffingBeforeDeath = GetMetaOption("EnableBuffing").IsTruthy;
-        _combatBeforeDeath = GetMetaOption("EnableCombat").IsTruthy;
-        SetMetaOption("EnableNav", ExpressionValue.Boolean(false));
-        SetMetaOption("EnableLooting", ExpressionValue.Boolean(false));
-        SetMetaOption("EnableBuffing", ExpressionValue.Boolean(false));
-        SetMetaOption("EnableCombat", ExpressionValue.Boolean(false));
-        _deathRestoreOffered = true;
-        Announce(DeathDisabledNotice);
-    }
-
-    /// <summary>
-    /// Put the four toggles back the way the death found them. False when no
-    /// death has offered a restore, so the caller can say so rather than
-    /// quietly writing four defaults over live settings.
-    /// </summary>
-    internal bool TryRestoreAfterDeath()
-    {
-        if (!_deathRestoreOffered)
-            return false;
-        SetMetaOption("EnableNav", ExpressionValue.Boolean(_navBeforeDeath));
-        SetMetaOption("EnableLooting", ExpressionValue.Boolean(_lootingBeforeDeath));
-        SetMetaOption("EnableBuffing", ExpressionValue.Boolean(_buffingBeforeDeath));
-        SetMetaOption("EnableCombat", ExpressionValue.Boolean(_combatBeforeDeath));
-        Announce(DeathRestoredNotice);
-        return true;
+        SetMacroRunning(false);
+        Announce(DeathStoppedNotice);
     }
 
     private bool _wasDeadForMacro;

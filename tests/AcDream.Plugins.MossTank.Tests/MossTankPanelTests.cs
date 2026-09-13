@@ -2534,12 +2534,11 @@ public sealed class MossTankPanelTests
     }
 
     /// <summary>
-    /// A death turns off four persisted settings and nothing else. The macro
-    /// keeps running, which is what lets the restore be one step: nothing has
-    /// been torn down to rebuild.
+    /// Dying stops the macro and changes no setting, which is what the
+    /// setting's own name promises.
     /// </summary>
     [Fact]
-    public void DeathDisablesTheFourSettingsAndLeavesTheMacroRunning()
+    public void DeathWithStopMacroOnDeathStopsTheMacroAndChangesNoSetting()
     {
         var automation = new FakeAutomation
         {
@@ -2559,17 +2558,17 @@ public sealed class MossTankPanelTests
         automation.CurrentHealth = 0;
         panel.OnTick(0.1d);
 
-        Assert.True(panel.CombatMacroRunning);
-        Assert.False(panel.GetMetaOptionForTest("EnableNav"));
-        Assert.False(panel.GetMetaOptionForTest("EnableLooting"));
-        Assert.False(panel.GetMetaOptionForTest("EnableBuffing"));
-        Assert.False(panel.GetMetaOptionForTest("EnableCombat"));
+        Assert.False(panel.CombatMacroRunning);
+        Assert.True(panel.GetMetaOptionForTest("EnableNav"));
+        Assert.True(panel.GetMetaOptionForTest("EnableLooting"));
+        Assert.True(panel.GetMetaOptionForTest("EnableBuffing"));
+        Assert.True(panel.GetMetaOptionForTest("EnableCombat"));
         Assert.Contains(
             automation.Messages,
             static value => value.Contains(
-                "You died! Buffing, Combat, Nav and Loot have been disabled.",
+                "Macro stopped because the character died.",
                 StringComparison.Ordinal));
-        Assert.Contains(
+        Assert.DoesNotContain(
             automation.Messages,
             static value => value.Contains("deathrestore", StringComparison.Ordinal));
     }
@@ -2596,86 +2595,60 @@ public sealed class MossTankPanelTests
         Assert.True(panel.GetMetaOptionForTest("EnableNav"));
         Assert.DoesNotContain(
             automation.Messages,
-            static value => value.Contains("You died!", StringComparison.Ordinal));
+            static value => value.Contains("stopped because", StringComparison.Ordinal));
     }
 
     /// <summary>
-    /// The pass is still running after the death: it keeps coming round and
-    /// keeps saying so, which is the difference between "waiting, disabled"
-    /// and "stopped".
+    /// Stopping the macro is not forgetting the round. The reference's stop
+    /// leaves the route's position alone, so the next start carries on from
+    /// the waypoint the character was walking to.
     /// </summary>
     [Fact]
-    public void DeathLeavesTheSchedulerPassRunning()
+    public void StoppingTheMacroKeepsTheWaypointTheRouteWasWalkingTo()
     {
-        var automation = new FakeAutomation
-        {
-            CurrentHealth = 100,
-            MaxHealth = 100,
-        };
+        var automation = new FakeAutomation { NavigationSnapshot = NavigationAt(0f) };
         var panel = new MossTankPanel(new FakeHost(automation));
-        panel.ExecuteVtankCommand(new PluginCommand(
-            "vt", "log ActiveRule on", "/vt log ActiveRule on"));
-        // The one other thing that can keep the pass alive is the mana-charge
-        // exception, which would make this pin pass for the wrong reason.
-        panel.SetMetaOption("ManaChargesWhenOff", Truthy(false));
+        automation.CurrentHealth = 100;
+        automation.MaxHealth = 100;
+        panel.AddRoutePoint();
+        automation.NavigationSnapshot = automation.NavigationSnapshot with
+        {
+            Position = automation.NavigationSnapshot.Position with { EastWest = 50d },
+        };
+        panel.AddRoutePoint();
+        automation.NavigationSnapshot = automation.NavigationSnapshot with
+        {
+            Position = automation.NavigationSnapshot.Position with { EastWest = 0d },
+        };
+        panel.SetMetaOption("EnableNav", Truthy(true));
         panel.ToggleCombat();
-        panel.OnTick(0.1d);
-
-        automation.CurrentHealth = 0;
-        panel.OnTick(0.1d);
-        automation.Messages.Clear();
         for (int pass = 0; pass < 4; pass++)
             panel.OnTick(0.3d);
+        // Stand between the two points, so a route that had gone back to
+        // its first one could not quietly advance past it again and look
+        // like a route that had never moved.
+        automation.NavigationSnapshot = automation.NavigationSnapshot with
+        {
+            Position = automation.NavigationSnapshot.Position with { EastWest = 25d },
+        };
+        int walkingTo = panel.RouteWaypointIndexForTest;
+        Assert.Equal(1, walkingTo);
 
-        Assert.Contains(
-            automation.Messages,
-            static value => value.Contains(
-                "Primary logic loop started", StringComparison.Ordinal));
+        panel.ExecuteVtankCommand(new PluginCommand("vt", "stop", "/vt stop"));
+        Assert.False(panel.CombatMacroRunning);
+        Assert.Equal(walkingTo, panel.RouteWaypointIndexForTest);
+
+        panel.ExecuteVtankCommand(new PluginCommand("vt", "start", "/vt start"));
+        panel.OnTick(0.3d);
+
+        Assert.True(panel.CombatMacroRunning);
+        Assert.Equal(walkingTo, panel.RouteWaypointIndexForTest);
     }
 
     /// <summary>
-    /// With every other rule declining, the terminal idle rule is what the
-    /// pass reaches, and it puts the character in peace.
-    /// </summary>
-    [Fact]
-    public void TheIdleRuleDropsToPeaceOnceDeathHasDisabledEverything()
-    {
-        var automation = new CombatCapableFakeAutomation
-        {
-            CurrentHealth = 100,
-            MaxHealth = 100,
-            CurrentStamina = 100,
-            MaxStamina = 100,
-            CurrentMana = 100,
-            MaxMana = 100,
-        };
-        automation.CombatSnapshot = automation.CombatSnapshot with
-        {
-            Mode = PluginCombatMode.Magic,
-        };
-        var panel = new MossTankPanel(new FakeHost(automation));
-        panel.SetMetaOption("IdlePeaceMode", Truthy(true));
-        panel.ToggleCombat();
-        panel.OnTick(0.1d);
-
-        automation.CurrentHealth = 0;
-        panel.OnTick(0.1d);
-        // The character died in a combat stance and the server leaves it
-        // there; the disabled window is where the idle rule takes it off.
-        automation.CombatSnapshot = automation.CombatSnapshot with
-        {
-            Mode = PluginCombatMode.Magic,
-        };
-        automation.CallLog.Clear();
-        for (int pass = 0; pass < 8; pass++)
-            panel.OnTick(0.3d);
-
-        Assert.Contains("EnterMode:Peace", automation.CallLog);
-    }
-
-    /// <summary>
-    /// Route progress is not death's to reset: the restore resumes the walk to
-    /// the waypoint the character was heading for when it died.
+    /// The same thing through the death path, which is the way a player
+    /// actually meets it: die at waypoint two, start again, still waypoint
+    /// two.
     /// </summary>
     [Fact]
     public void DeathLeavesTheRouteOnTheWaypointItWasWalkingTo()
@@ -2698,73 +2671,57 @@ public sealed class MossTankPanelTests
         panel.ToggleCombat();
         for (int pass = 0; pass < 4; pass++)
             panel.OnTick(0.3d);
+        // Stand between the two points, so a route that had gone back to
+        // its first one could not quietly advance past it again and look
+        // like a route that had never moved.
+        automation.NavigationSnapshot = automation.NavigationSnapshot with
+        {
+            Position = automation.NavigationSnapshot.Position with { EastWest = 25d },
+        };
         int walkingTo = panel.RouteWaypointIndexForTest;
         Assert.Equal(1, walkingTo);
 
         automation.CurrentHealth = 0;
         panel.OnTick(0.1d);
+        Assert.False(panel.CombatMacroRunning);
+
+        automation.CurrentHealth = 100;
+        panel.ExecuteVtankCommand(new PluginCommand("vt", "start", "/vt start"));
+        panel.OnTick(0.3d);
 
         Assert.Equal(walkingTo, panel.RouteWaypointIndexForTest);
     }
 
-    /// <summary>The restore is the death's exact inverse, and says so.</summary>
-    [Fact]
-    public void TheRestoreVerbPutsTheFourSettingsBackAsTheyWere()
-    {
-        var automation = new FakeAutomation
-        {
-            CurrentHealth = 100,
-            MaxHealth = 100,
-        };
-        var panel = new MossTankPanel(new FakeHost(automation));
-        panel.SetMetaOption("EnableNav", Truthy(true));
-        panel.SetMetaOption("EnableLooting", Truthy(false));
-        panel.SetMetaOption("EnableBuffing", Truthy(true));
-        panel.SetMetaOption("EnableCombat", Truthy(true));
-        panel.ToggleCombat();
-        panel.OnTick(0.1d);
-        automation.CurrentHealth = 0;
-        panel.OnTick(0.1d);
-        automation.Messages.Clear();
-
-        panel.ExecuteVtankCommand(new PluginCommand(
-            "vt", "deathrestore", "/vt deathrestore"));
-
-        Assert.True(panel.GetMetaOptionForTest("EnableNav"));
-        Assert.False(panel.GetMetaOptionForTest("EnableLooting"));
-        Assert.True(panel.GetMetaOptionForTest("EnableBuffing"));
-        Assert.True(panel.GetMetaOptionForTest("EnableCombat"));
-        Assert.Contains(
-            automation.Messages,
-            static value => value.Contains(
-                "Buffing, Combat, Nav and Loot have been restored to previous values.",
-                StringComparison.Ordinal));
-    }
-
     /// <summary>
-    /// The reference has nothing to click before a death has offered it, so
-    /// the verb standing in for that click has nothing to do either — and says
-    /// so rather than writing four defaults over live settings.
+    /// The route that CHANGED under the controller is the one that goes back
+    /// to its first point — the reset path a stop must not borrow.
     /// </summary>
     [Fact]
-    public void TheRestoreVerbRefusesUntilADeathHasOfferedIt()
+    public void LoadingARouteStillPutsTheRoundBackToItsFirstPoint()
     {
-        var automation = new FakeAutomation
-        {
-            CurrentHealth = 100,
-            MaxHealth = 100,
-        };
+        var automation = new FakeAutomation { NavigationSnapshot = NavigationAt(0f) };
         var panel = new MossTankPanel(new FakeHost(automation));
+        automation.CurrentHealth = 100;
+        automation.MaxHealth = 100;
+        panel.AddRoutePoint();
+        automation.NavigationSnapshot = automation.NavigationSnapshot with
+        {
+            Position = automation.NavigationSnapshot.Position with { EastWest = 50d },
+        };
+        panel.AddRoutePoint();
+        automation.NavigationSnapshot = automation.NavigationSnapshot with
+        {
+            Position = automation.NavigationSnapshot.Position with { EastWest = 0d },
+        };
         panel.SetMetaOption("EnableNav", Truthy(true));
+        panel.ToggleCombat();
+        for (int pass = 0; pass < 4; pass++)
+            panel.OnTick(0.3d);
+        Assert.Equal(1, panel.RouteWaypointIndexForTest);
 
-        panel.ExecuteVtankCommand(new PluginCommand(
-            "vt", "deathrestore", "/vt deathrestore"));
+        panel.AddRoutePoint();
 
-        Assert.True(panel.GetMetaOptionForTest("EnableNav"));
-        Assert.Contains(
-            automation.Messages,
-            static value => value.Contains(
-                "Nothing to restore", StringComparison.Ordinal));
+        Assert.Equal(0, panel.RouteWaypointIndexForTest);
     }
 
     /// <summary>
@@ -2780,18 +2737,45 @@ public sealed class MossTankPanelTests
             MaxHealth = 100,
         };
         var panel = new MossTankPanel(new FakeHost(automation));
-        panel.SetMetaOption("EnableCombat", Truthy(true));
+        panel.SetMetaOption("StopMacroOnDeath", Truthy(true));
         panel.ToggleCombat();
         panel.OnTick(0.1d);
+        Assert.True(panel.CombatMacroRunning);
 
         panel.ExecuteVtankCommand(new PluginCommand(
             "vt", "fakedeath", "/vt fakedeath"));
 
-        Assert.False(panel.GetMetaOptionForTest("EnableCombat"));
+        Assert.False(panel.CombatMacroRunning);
         Assert.Contains(
             automation.Messages,
-            static value => value.Contains("You died!", StringComparison.Ordinal));
+            static value => value.Contains(
+                "Macro stopped because the character died.",
+                StringComparison.Ordinal));
     }
+
+    /// <summary>The restore verb the owner's decision removed stays removed.</summary>
+    [Fact]
+    public void ThereIsNoDeathRestoreVerb()
+    {
+        var automation = new FakeAutomation
+        {
+            CurrentHealth = 100,
+            MaxHealth = 100,
+        };
+        var panel = new MossTankPanel(new FakeHost(automation));
+
+        panel.ExecuteVtankCommand(new PluginCommand(
+            "vt", "deathrestore", "/vt deathrestore"));
+        panel.ExecuteVtankCommand(new PluginCommand("vt", "help", "/vt help"));
+
+        Assert.DoesNotContain(
+            automation.Messages,
+            static value => value.Contains("restored", StringComparison.Ordinal));
+        Assert.DoesNotContain(
+            automation.Messages,
+            static value => value.Contains("deathrestore", StringComparison.Ordinal));
+    }
+
 
     private static AcDream.Plugins.MossTank.Expressions.ExpressionValue Truthy(
         bool value) =>

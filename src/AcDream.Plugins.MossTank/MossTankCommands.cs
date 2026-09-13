@@ -10,7 +10,7 @@ internal sealed partial class MossTankPanel
     private static readonly string[] VtankHelp =
     [
         "/vt commands (profiles): settings nav loot meta opt testitem propertydump addnavpt refresh getdb addnavjump addnavcheckpoint",
-        "/vt commands (actions): start stop forcebuff cancelforcebuff setmetastate fakedeath deathrestore deletemonster reverseroute reverseroutequery equipitemsfor mexec echo tapjump jump setattackbar",
+        "/vt commands (actions): start stop forcebuff cancelforcebuff setmetastate fakedeath deletemonster reverseroute reverseroutequery equipitemsfor mexec echo tapjump jump setattackbar",
         "/vt commands (game info): dumpspells dumpspecies dumpmats dumpskills",
         "/vt commands (debug): log testmonster lockdump dumptracker clearlocks clearbusy listmonstervariables dumpmetavars listmetafunctions metafunchelp fakeimp pscount testspell testpet",
     ];
@@ -157,19 +157,12 @@ internal sealed partial class MossTankPanel
                 MetaFunctionHelp(arguments);
                 return;
             case "fakedeath":
-                // The reference's verb calls the death handler itself, so the
-                // whole death happens: the meta edge AND the four settings the
-                // handler turns off, with its restore offer.
+                // The reference's verb calls the death handler itself rather
+                // than only poking the meta engine, so the whole death
+                // happens — here, that is the meta edge and the macro stop.
                 _meta.TriggerFakeDeath();
                 HandleDeath(_combat.Enabled);
                 WriteVtank("Fake character death trigger fired.");
-                return;
-            case "deathrestore":
-                // The reference offers this as a chat link in the death
-                // notice; nothing here can route a click, so the same keyword
-                // is a verb.
-                if (!TryRestoreAfterDeath())
-                    WriteVtank(NothingToRestoreNotice);
                 return;
             case "pscount":
                 WriteVtank($"Portal space toggle count: {_commandPortalCount}");
