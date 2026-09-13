@@ -4285,6 +4285,70 @@ public sealed class CombatControllerTests
     }
 
     /// <summary>
+    /// The walk is its own pass. What the attack's pass learned and turned
+    /// off belongs to that pass and must not narrow the walk's choice of
+    /// monster: here the attack turns the near monster's attack column off
+    /// because nothing can be thrown at it, and the walk must still see it —
+    /// see it, and stop, because it is already inside weapon range.
+    /// Mutation: delete <c>ClearPassMemos()</c> from the head of
+    /// <c>CombatController.TickMonsterApproach</c> and both assertions fail —
+    /// the near monster is still excluded by the attack's cleared column, so
+    /// the walk picks the far one and sets off towards it.
+    /// </summary>
+    [Fact]
+    public void TheWalkDoesNotInheritTheColumnTheAttackTurnedOff()
+    {
+        var surface = new FakeAutomation
+        {
+            CombatSnapshot = Physical() with { Mode = PluginCombatMode.Magic },
+            Targets =
+            [
+                Target(10, "Drudge", distance: 4, angle: 0),
+                Target(20, "Mosswart", distance: 15, angle: 10),
+            ],
+            KnownAttackSpells =
+            [
+                Spell(100, "Incantation of Flame Bolt") with
+                {
+                    IsProjectile = true,
+                },
+            ],
+            EquipmentItems = [WieldedCaster()],
+            NavigationSnapshot = NavigationAt(heading: 0f),
+        };
+        // Nothing can be thrown at the near one.
+        surface.ProjectilePaths[10u] = new(
+            PluginProjectilePathStatus.Blocked,
+            CollisionChecks: 3,
+            BlockingObjectId: 0x50000001u);
+        // Somewhere for the walk to go if it wrongly picks the far one.
+        surface.NavigationObjects[20u] = new PluginNavigationObject(
+            20u,
+            "Mosswart",
+            new PluginNavigationPosition(0x7F7F0001, 0.1d, 0d, 0d, 0f, true));
+        var settings = FireAttackRule(new CombatSettings
+        {
+            MaximumRange = 5d,
+            ApproachDistance = 20d,
+            SelectionMethod = TargetSelectionMethod.Range,
+            UseProjectileAwareness = true,
+            ScanIntervalSeconds = 0.05d,
+        });
+        var controller = new CombatController(new FakeHost(surface), settings);
+
+        controller.Toggle();
+        controller.OnTick(0.25);
+
+        // The attack pass ran and found nothing it could do.
+        Assert.Equal((0u, 0u), surface.LastTargetedCast);
+
+        // Same pass, the walk's turn. The near monster is back in the running
+        // and it is already close enough, so there is nowhere to walk.
+        Assert.False(controller.TickMonsterApproach(0.05d, canAct: true));
+        Assert.Empty(surface.MovementIntents);
+    }
+
+    /// <summary>
     /// Mutation: make the retry unbounded (drop the budget) and a rule whose
     /// remaining column keeps failing would spin forever; make the budget the
     /// per-path sample cap again and this test's single blocked monster would
