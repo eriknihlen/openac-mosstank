@@ -1205,7 +1205,7 @@ internal sealed class MossTankProfileStore
             settings.Loot.CombineSalvage = CombineSalvage;
             settings.Loot.ManaStoneLootCount = Math.Clamp(ManaStoneLootCount, 0, 100);
             settings.Loot.ManaTankMinimumMana = Math.Clamp(ManaTankMinimumMana, 1, int.MaxValue);
-            settings.Loot.CorpseApproachRange = Math.Clamp(CorpseApproachRange, 2f, 100f);
+            settings.Loot.CorpseApproachRange = Math.Clamp(CorpseApproachRange, 0f, 100f);
             settings.Loot.CorpseOpenTimeoutSeconds = Math.Clamp(CorpseOpenTimeoutSeconds, 0.25d, 30d);
             settings.Loot.BlacklistCorpseOpenAttemptCount = Math.Clamp(
                 BlacklistCorpseOpenAttemptCount, 1, 1000);

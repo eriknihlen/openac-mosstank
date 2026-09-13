@@ -60,6 +60,7 @@ internal sealed partial class MossTankPanel : IBuffRuleHost
     private readonly CraftingController _crafting;
     private readonly ItemManaRechargeController _itemManaRecharge;
     private readonly LootController _loot;
+    private readonly CorpseApproachController _corpseApproach;
     private readonly ReadScrollController _readScroll;
     private readonly ProfileGiveController _profileGive;
     private readonly NavigationController _navigation;
@@ -330,6 +331,11 @@ internal sealed partial class MossTankPanel : IBuffRuleHost
             host,
             _inventorySettings.Loot);
         _loot.BindActionLocks(_actionLocks);
+        _corpseApproach = new CorpseApproachController(
+            host,
+            _inventorySettings.Loot,
+            _loot);
+        _corpseApproach.BindCombatModeGate(_combatModeGate, _combatSettings);
         _readScroll = new ReadScrollController(
             host,
             _inventorySettings.Loot,
@@ -867,7 +873,7 @@ internal sealed partial class MossTankPanel : IBuffRuleHost
     public Action LootRangeDown => () =>
     {
         _inventorySettings.Loot.CorpseApproachRange = Math.Max(
-            2f,
+            0f,
             _inventorySettings.Loot.CorpseApproachRange - 2f);
         SaveProfile();
     };
@@ -1522,9 +1528,20 @@ internal sealed partial class MossTankPanel : IBuffRuleHost
     public Action<string> SetRingRangeText => value =>
         SetDistanceText(value, 1f, 100f, distance =>
             _combatSettings.RingDistance = distance);
+    /// <summary>
+    /// The approach distance box sets two things, as it does in the reference:
+    /// how far the character will walk to a monster, and how far it will walk
+    /// to a corpse. They are separate settings — the corpse one has its own row
+    /// in the advanced list — but this box writes both, which is why a profile
+    /// that has ever had an approach distance typed into it walks to corpses at
+    /// all. Both ship at zero.
+    /// </summary>
     public Action<string> SetApproachRangeText => value =>
         SetDistanceText(value, 0f, 100f, distance =>
-            _combatSettings.ApproachDistance = distance);
+        {
+            _combatSettings.ApproachDistance = distance;
+            _inventorySettings.Loot.CorpseApproachRange = distance;
+        });
     public Action<string> SetFollowNavMinimumText => value =>
         SetDistanceText(value, 0.5f, 50f, distance =>
         {
@@ -3604,9 +3621,12 @@ internal sealed partial class MossTankPanel : IBuffRuleHost
                     100f);
                 break;
             case "corpseapproachrange-max":
+                // Zero is a real value here and the shipped one: it turns the
+                // walk to a corpse off outright, leaving the looter whatever
+                // the open step can already reach.
                 _inventorySettings.Loot.CorpseApproachRange = Math.Clamp(
                     checked((float)(value.AsNumber("CorpseApproachRange-Max") * 240d)),
-                    1f,
+                    0f,
                     100f);
                 break;
             case "corpseapproachrange-min":
@@ -4422,6 +4442,9 @@ internal sealed partial class MossTankPanel : IBuffRuleHost
         // route's own position not at all. Deciding where the round begins
         // belongs to the start, above.
         _navigation.StopForMacroStop();
+        // The walk to a corpse holds nothing but the keys, so putting those
+        // down is its whole teardown.
+        _corpseApproach.StopForLostTurn();
     }
 
     /// <summary>
@@ -4526,10 +4549,12 @@ internal sealed partial class MossTankPanel : IBuffRuleHost
         // pass rather than inside it.
         _combat.AdvanceHeldTurn(elapsedSeconds);
         _scheduler.ExternalSuspension = _prologueOwnsAction;
-        // The route mover runs on the host's frame, not on the scheduler pass
-        // that armed it. It steps before the pass so the pass sees the frame's
-        // work already done and never spends the same time twice.
+        // The movers run on the host's frame, not on the scheduler pass that
+        // armed them. They step before the pass so the pass sees the frame's
+        // work already done and never spends the same time twice. Only one of
+        // them is ever armed: the pass the winner takes disarms the other.
         _navigation.StepArmedMover(elapsedSeconds);
+        _corpseApproach.StepArmedMover(elapsedSeconds);
         _scheduler.Advance(elapsedSeconds);
         _combatModeGate.AdvancePass(elapsedSeconds);
 
