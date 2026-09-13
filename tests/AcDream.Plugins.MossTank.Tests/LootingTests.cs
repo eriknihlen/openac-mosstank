@@ -1028,6 +1028,112 @@ public sealed class LootingTests
                 out _));
     }
 
+    [Fact]
+    public void AFartherRareCorpseIsOpenedBeforeANearerMundaneOne()
+    {
+        var settings = new LootSettings { Enabled = true };
+        settings.Rules.Add(new LootRule { Expression = "*" });
+        const uint mundane = 0x70000800u;
+        const uint rare = 0x70000801u;
+        var automation = new Automation
+        {
+            Corpses =
+            [
+                new PluginLootContainer(
+                    mundane, 1u, "Corpse", 3f, false, false, false)
+                {
+                    IsIdentified = true,
+                    LongDescription = "Killed by Tester.",
+                },
+                new PluginLootContainer(
+                    rare, 1u, "Corpse", 25f, false, false, false)
+                {
+                    IsIdentified = true,
+                    IsGeneratedRare = true,
+                    LongDescription =
+                        "Killed by Tester. Generated rare treasure.",
+                },
+            ],
+        };
+        var controller = new LootController(new Host(automation), settings);
+
+        Assert.True(controller.Tick(0.25d, canAct: true));
+        Assert.Equal(new[] { rare }, automation.Opened);
+    }
+
+    [Fact]
+    public void ARefusedCorpseIsSkippedForTenSecondsWithoutRetrying()
+    {
+        var settings = new LootSettings
+        {
+            Enabled = true,
+            CorpseOpenTimeoutSeconds = 0.25d,
+            ScanIntervalSeconds = 0.05d,
+        };
+        settings.Rules.Add(new LootRule { Expression = "*" });
+        const uint corpse = 0x70000900u;
+        var automation = new Automation
+        {
+            Corpses =
+            [
+                new PluginLootContainer(
+                    corpse, 1u, "Corpse", 3f, false, false, false)
+                {
+                    IsIdentified = true,
+                    LongDescription = "Killed by Tester.",
+                },
+            ],
+        };
+        var controller = new LootController(new Host(automation), settings);
+
+        Assert.True(controller.Tick(0.1d, canAct: true));
+        Assert.Single(automation.Opened);
+        automation.ChatMessages.Add(new PluginChatMessage(
+            1uL,
+            0u,
+            0,
+            string.Empty,
+            "The Corpse of a Drudge Slinker is already in use by someone else!",
+            string.Empty));
+
+        Assert.False(controller.Tick(0.3d, canAct: true));
+        Assert.False(controller.Tick(9d, canAct: true));
+        Assert.Single(automation.Opened);
+
+        Assert.True(controller.Tick(1d, canAct: true));
+        Assert.Equal(2, automation.Opened.Count);
+    }
+
+    [Fact]
+    public void ACorpseSeenOutOfRangeIsAlreadyOldEnoughWhenItComesIntoRange()
+    {
+        var settings = new LootSettings
+        {
+            Enabled = true,
+            LootAllCorpses = true,
+            CorpseApproachRange = 20d,
+            ScanIntervalSeconds = 0.05d,
+        };
+        settings.Rules.Add(new LootRule { Expression = "*" });
+        const uint corpse = 0x70000A00u;
+        var far = new PluginLootContainer(
+            corpse, 1u, "Corpse", 80f, false, false, false)
+        {
+            IsIdentified = true,
+            LongDescription = "Killed by Stranger.",
+        };
+        var automation = new Automation { Corpses = [far] };
+        var controller = new LootController(new Host(automation), settings);
+
+        Assert.False(controller.Tick(0.1d, canAct: true));
+        Assert.False(controller.Tick(100d, canAct: true));
+        Assert.Empty(automation.Opened);
+
+        automation.Corpses = [far with { Distance = 3f }];
+        Assert.True(controller.Tick(0.1d, canAct: true));
+        Assert.Equal(new[] { corpse }, automation.Opened);
+    }
+
     private static LootRule VtankRule(
         string name,
         LootAction action,
@@ -1054,13 +1160,19 @@ public sealed class LootingTests
 
     private sealed class Automation
         : IAutomationSurface, ICharacterInfo, ISpellCatalog, IItemAutomation,
-          ILootAutomation, IFellowshipAutomation
+          ILootAutomation, IFellowshipAutomation, IPluginChat
     {
         public bool IsAvailable => true;
         public ICharacterInfo Character => this;
         public ISpellCatalog Spells => this;
         public IMagicCommands Magic => NoOpAutomationSurface.Instance;
-        public IPluginChat Chat => NoOpAutomationSurface.Instance;
+        public IPluginChat Chat => this;
+        public List<PluginChatMessage> ChatMessages { get; } = [];
+        public IReadOnlyList<PluginChatMessage> CaptureMessages(
+            ulong afterSequence) => ChatMessages
+                .Where(message => message.Sequence > afterSequence)
+                .ToArray();
+        public void PostSystemMessage(string text) { }
         public IItemAutomation Items => this;
         public ILootAutomation Loot => this;
         public IFellowshipAutomation Fellowship => this;

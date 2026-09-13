@@ -458,9 +458,15 @@ internal static class LootRuleEngine
     }
 }
 
-internal sealed class LootController
+internal sealed partial class LootController
 {
     private const double PickupTimeoutSeconds = 4d;
+
+    /// <summary>
+    /// How long a corpse the server refused stays skipped. Retail hard-codes
+    /// this; it is not one of the corpse-blacklist settings.
+    /// </summary>
+    private const double DenialSkipSeconds = 10d;
 
     private readonly IPluginHost _host;
     private readonly LootSettings _settings;
@@ -474,6 +480,9 @@ internal sealed class LootController
     private readonly Dictionary<uint, string> _externalClassifierByItem = [];
     private readonly Dictionary<uint, LootDecision?> _decisions = [];
     private readonly Dictionary<uint, double> _corpseFirstSeen = [];
+    private readonly Dictionary<uint, double> _corpseDeniedAt = [];
+    private uint _selectedCorpse;
+    private ulong _chatSequence;
     private double _scanRemaining;
     private double _stateAge;
     private uint _activeCorpse;
@@ -553,6 +562,7 @@ internal sealed class LootController
 
         _stateAge += Math.Max(0d, elapsedSeconds);
         _lifetime += Math.Max(0d, elapsedSeconds);
+        ObserveOwnershipDenials();
         if (_waitingItem != 0u)
             return ContinuePickup(loot);
         if (_postUseItem != 0u)
@@ -616,11 +626,20 @@ internal sealed class LootController
             return false;
         _scanRemaining = Math.Clamp(_settings.ScanIntervalSeconds, 0.05d, 5d);
 
-        IReadOnlyList<PluginLootContainer> corpses = loot.CaptureCorpses(
-            (float)Math.Clamp(_settings.CorpseApproachRange, 2d, 100d));
+        // The age clock the public and fellow timers measure against starts
+        // when a corpse first streams into the client's known set, which is a
+        // far wider radius than the loot approach range — a corpse watched
+        // from across a field is already old enough by the time the player
+        // walks up to it. Selection then only considers the ones in range.
+        IReadOnlyList<PluginLootContainer> known =
+            loot.CaptureCorpses(float.MaxValue);
         PruneCorpseCache();
-        foreach (PluginLootContainer seen in corpses)
+        foreach (PluginLootContainer seen in known)
             _corpseFirstSeen.TryAdd(seen.ObjectId, _lifetime);
+        float approachRange =
+            (float)Math.Clamp(_settings.CorpseApproachRange, 2d, 100d);
+        IEnumerable<PluginLootContainer> corpses = known.Where(
+            corpse => corpse.Distance <= approachRange);
 
         if (_awaitingCorpseAppraisal != 0u)
         {
@@ -646,38 +665,37 @@ internal sealed class LootController
             }
         }
 
-        PluginLootContainer? next = null;
-        foreach (PluginLootContainer candidateCorpse in corpses
-            .Where(corpse => !_completedCorpses.ContainsKey(corpse.ObjectId))
-            .Where(corpse => !IsCorpseBlacklisted(corpse.ObjectId))
-            .OrderBy(static corpse => corpse.Distance)
-            .ThenBy(static corpse => corpse.ObjectId))
+        // A corpse whose long description has not arrived yet cannot be
+        // judged, so ask for it first and try again next scan.
+        foreach (PluginLootContainer candidateCorpse in corpses)
         {
-            if (!candidateCorpse.IsIdentified)
+            if (candidateCorpse.IsIdentified
+                || _completedCorpses.ContainsKey(candidateCorpse.ObjectId)
+                || IsCorpseDenied(candidateCorpse.ObjectId)
+                || IsCorpseBlacklisted(candidateCorpse.ObjectId))
             {
-                PluginItemCommandResult identify = loot.Identify(
-                    candidateCorpse.ObjectId);
-                if (identify.Accepted)
-                {
-                    _awaitingCorpseAppraisal = candidateCorpse.ObjectId;
-                    _stateAge = 0d;
-                    Status = $"Identifying {candidateCorpse.Name}…";
-                    return true;
-                }
-                if (identify.Status == PluginItemCommandStatus.Busy)
-                    return true;
                 continue;
             }
-            if (!CanLoot(candidateCorpse))
-                continue;
-            next = candidateCorpse;
-            break;
+            PluginItemCommandResult identify = loot.Identify(
+                candidateCorpse.ObjectId);
+            if (identify.Accepted)
+            {
+                _awaitingCorpseAppraisal = candidateCorpse.ObjectId;
+                _stateAge = 0d;
+                Status = $"Identifying {candidateCorpse.Name}…";
+                return true;
+            }
+            if (identify.Status == PluginItemCommandStatus.Busy)
+                return true;
         }
-        if (next is not { } corpse)
+
+        _selectedCorpse = 0u;
+        if (SelectCorpse(corpses) is not { } corpse)
         {
             Status = "No nearby corpses.";
             return false;
         }
+        _selectedCorpse = corpse.ObjectId;
 
         PluginItemCommandResult opened = loot.Open(corpse.ObjectId);
         if (!opened.Accepted)
@@ -715,6 +733,9 @@ internal sealed class LootController
         _externalClassifierByItem.Clear();
         _decisions.Clear();
         _corpseFirstSeen.Clear();
+        _corpseDeniedAt.Clear();
+        _selectedCorpse = 0u;
+        _chatSequence = 0uL;
         _scanRemaining = 0d;
         _lifetime = 0d;
         _postUseItem = 0u;
@@ -1360,6 +1381,93 @@ internal sealed class LootController
         _itemAttempts[objectId] = attempts + 1;
     }
 
+    /// <summary>
+    /// Retail's corpse pick. Any rare corpse beats any non-rare one whatever
+    /// the distance: the first rare found becomes the pick outright, after
+    /// which only a nearer rare can replace it, and a non-rare can only win
+    /// while no rare has been picked at all.
+    /// </summary>
+    private PluginLootContainer? SelectCorpse(
+        IEnumerable<PluginLootContainer> corpses)
+    {
+        PluginLootContainer? selected = null;
+        double best = double.MaxValue;
+        bool rarePicked = false;
+        foreach (PluginLootContainer corpse in corpses)
+        {
+            if (_completedCorpses.ContainsKey(corpse.ObjectId)
+                || IsCorpseDenied(corpse.ObjectId)
+                || IsCorpseBlacklisted(corpse.ObjectId)
+                || !corpse.IsIdentified
+                || !CanLoot(corpse))
+            {
+                continue;
+            }
+            double metric = corpse.Distance;
+            if (corpse.IsGeneratedRare && !rarePicked)
+            {
+                rarePicked = true;
+                best = metric;
+                selected = corpse;
+            }
+            else if ((corpse.IsGeneratedRare || !rarePicked) && metric < best)
+            {
+                best = metric;
+                selected = corpse;
+            }
+        }
+        return selected;
+    }
+
+    /// <summary>
+    /// The server refuses a corpse someone else owns or has open with a plain
+    /// text line. Retail listens for it and skips that corpse outright for ten
+    /// seconds instead of grinding through thirty failed open attempts.
+    /// </summary>
+    private void ObserveOwnershipDenials()
+    {
+        IReadOnlyList<PluginChatMessage> messages =
+            _host.Automation.Chat.CaptureMessages(_chatSequence);
+        if (messages.Count == 0)
+            return;
+        uint denied = _activeCorpse != 0u ? _activeCorpse : _selectedCorpse;
+        foreach (PluginChatMessage message in messages)
+        {
+            if (message.Sequence > _chatSequence)
+                _chatSequence = message.Sequence;
+            if (denied == 0u
+                || (!CorpseAlreadyInUse().IsMatch(message.Text)
+                    && !NoRightToLoot().IsMatch(message.Text)))
+            {
+                continue;
+            }
+            _corpseDeniedAt[denied] = _lifetime;
+            Log?.Invoke(
+                MacroLogChannel.Loot,
+                $"LootCorpse: 0x{denied:X8} refused, skipping it for "
+                    + $"{DenialSkipSeconds:0} seconds");
+            if (_activeCorpse == denied)
+            {
+                _activeCorpse = 0u;
+                _activeCorpseSawContents = false;
+                _activeCorpseIsOwnDeath = false;
+                _stateAge = 0d;
+            }
+        }
+    }
+
+    private bool IsCorpseDenied(uint corpseId) =>
+        _corpseDeniedAt.TryGetValue(corpseId, out double at)
+        && _lifetime - at < DenialSkipSeconds;
+
+    [GeneratedRegex(
+        @"The (Corpse)|(Treasure) of ([a-zA-Z\ \-\']*) is already in use by someone else!")]
+    private static partial Regex CorpseAlreadyInUse();
+
+    [GeneratedRegex(
+        @"You do not yet have the right to loot the (Corpse)|(Treasure) of .*")]
+    private static partial Regex NoRightToLoot();
+
     private bool CanLoot(in PluginLootContainer corpse)
     {
         if (_settings.LootOnlyRareCorpses && !corpse.IsGeneratedRare)
@@ -1615,6 +1723,13 @@ internal sealed class LootController
         {
             _completedCorpses.Remove(id);
             _corpseFirstSeen.Remove(id);
+        }
+        foreach (uint id in _corpseDeniedAt
+            .Where(entry => _lifetime - entry.Value >= DenialSkipSeconds)
+            .Select(static entry => entry.Key)
+            .ToArray())
+        {
+            _corpseDeniedAt.Remove(id);
         }
     }
 
