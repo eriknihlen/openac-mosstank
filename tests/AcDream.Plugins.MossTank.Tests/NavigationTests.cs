@@ -955,6 +955,32 @@ public sealed class NavigationTests
         Assert.Equal(intentsAfterStop, automation.Intents.Count);
     }
 
+    /// <summary>
+    /// A start says which point it anchored the round to, on the rule-info
+    /// channel, before the mover has taken a step. Mutation: name the index
+    /// the round had instead of the one the anchor chose and this fails.
+    /// </summary>
+    [Fact]
+    public void AStartSaysWhichPointItAnchoredTheRoundTo()
+    {
+        var automation = new FakeAutomation
+        {
+            NavigationSnapshot = Snapshot(Position(0d, 15d, heading: 0f)),
+        };
+        var settings = new NavigationSettings { Enabled = true, Mode = RouteMode.Circular };
+        settings.Waypoints.Add(Waypoint(RouteWaypointType.Point, Position(0d, 0d)));
+        settings.Waypoints.Add(Waypoint(RouteWaypointType.Point, Position(0d, 8d)));
+        settings.Waypoints.Add(Waypoint(RouteWaypointType.Point, Position(0d, 16d)));
+        var controller = new NavigationController(new FakeHost(automation), settings);
+        var lines = new List<string>();
+        controller.Log = (_, line) => lines.Add(line);
+
+        controller.AnchorRoundToStart();
+
+        string said = Assert.Single(lines);
+        Assert.Contains("Waypoint 3/3", said, StringComparison.Ordinal);
+    }
+
     [Fact]
     public void PauseAndChatActionsObserveOfficialInitialDelay()
     {

@@ -374,6 +374,14 @@ internal sealed class NavigationController
     private readonly List<PluginNavigationPosition> _followPath = [];
     private uint _activeDoorObjectId;
     private ActionLockTable? _actionLocks;
+
+    /// <summary>
+    /// The macro log sink. The route is otherwise silent between the rule's
+    /// own lines, and the one thing worth a line of its own is where a
+    /// start put the round: a reader watching a restart cannot otherwise
+    /// tell an anchor from an arrival.
+    /// </summary>
+    internal Action<MacroLogChannel, string>? Log { get; set; }
     private uint _activeLockpickObjectId;
     private double _doorElapsed;
     private double _doorRetryElapsed;
@@ -540,7 +548,15 @@ internal sealed class NavigationController
         }
 
         if (_settings.Waypoints.Count > 0)
+        {
             ClearAction();
+            Log?.Invoke(
+                MacroLogChannel.RuleInfo,
+                $"Route starts at Waypoint {_index + 1}/{_settings.Waypoints.Count}"
+                    + (_settings.Mode == RouteMode.Once
+                        ? " (a once-through route starts at its head)"
+                        : " (the nearest point to the character)"));
+        }
     }
 
     private static bool IsAnchorCandidate(RouteWaypointType type) =>

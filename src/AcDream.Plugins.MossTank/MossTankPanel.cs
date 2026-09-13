@@ -379,6 +379,7 @@ internal sealed partial class MossTankPanel : IBuffRuleHost
         _combat.Log = EmitMacroLog;
         _loot.Log = EmitMacroLog;
         _readScroll.Log = EmitMacroLog;
+        _navigation.Log = EmitMacroLog;
         _initialized = true;
         ApplyPersistedOptionOverrides();
         EnsureDefaultMonsterRule();
