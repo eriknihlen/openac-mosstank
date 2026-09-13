@@ -46,6 +46,25 @@ public sealed class MossTankPanelTests
             static rule => Assert.NotEmpty(rule.Reason));
     }
 
+    /// <summary>
+    /// The door rule has a body. It sat in the right place in the order with
+    /// nothing behind it, so the door was only ever opened once a navigate turn
+    /// came around — which, on the ordinary route, is after attacking and after
+    /// both corpse rules.
+    /// </summary>
+    [Fact]
+    public void TheDoorSlotHoldsALiveRule()
+    {
+        var panel = new MossTankPanel(new FakeHost(new FakeAutomation()));
+
+        int door = panel.MacroRules
+            .ToList()
+            .FindIndex(static rule => rule.Name == "OpenDoor");
+
+        Assert.True(door >= 0, "the door slot is not filled at all.");
+        Assert.IsType<OpenDoorRule>(panel.MacroRules[door]);
+    }
+
     [Fact]
     public void WieldedManaRefillOutranksBuffSelf()
     {

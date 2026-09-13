@@ -1,0 +1,93 @@
+namespace AcDream.Plugins.MossTank;
+
+/// <summary>
+/// Opening a door in the way, as its own turn.
+/// </summary>
+/// <remarks>
+/// <para>
+/// A closed door is a wall, and a wall in front of a bot that is trying to walk
+/// somewhere stops everything downstream of it. That is why it is claimed
+/// before looting a corpse, before approaching one, and before attacking:
+/// whatever those rules want to do, they will want to do it on the other side.
+/// The rule sat in the right place in the order already, but it had no body —
+/// the door was opened from inside a navigate turn, which for the ordinary
+/// non-priority route only comes around after all three of those.
+/// </para>
+/// <para>
+/// The door logic itself stays on the navigation controller, which owns the
+/// mover and the door ranges; this class is the turn it takes.
+/// </para>
+/// </remarks>
+internal sealed class OpenDoorRule : IMacroRule
+{
+    private readonly NavigationController _navigation;
+    private readonly Func<bool> _enabled;
+    private bool _running;
+    private bool _gateClosed;
+    private bool _lockHeld;
+
+    internal OpenDoorRule(NavigationController navigation, Func<bool> enabled)
+    {
+        _navigation = navigation
+            ?? throw new ArgumentNullException(nameof(navigation));
+        _enabled = enabled ?? throw new ArgumentNullException(nameof(enabled));
+    }
+
+    public string Name => "OpenDoor";
+
+    public bool Running
+    {
+        get => _running;
+        set
+        {
+            if (_running == value)
+                return;
+            _running = value;
+            if (!value)
+                _navigation.StopForLostTurn();
+        }
+    }
+
+    public string? DeclineReason => _gateClosed
+        ? "the rule's own gate is closed"
+        : _lockHeld
+            ? "another rule holds a lock this one waits on"
+            : _navigation.Status;
+
+    /// <summary>
+    /// Whether something else currently holds a lock this rule must respect.
+    /// </summary>
+    /// <remarks>
+    /// MERGE SEAM. The named action-lock table is being built on the combat
+    /// branch; until it lands there is nothing to ask, so nothing is held.
+    /// When it lands this reads the table for the locks the door rule cares
+    /// about, and <see cref="Arm"/> takes the ones it holds while it acts. The
+    /// exact replacements are recorded in the slice-6 research note.
+    /// </remarks>
+    internal bool IsLocked => false;
+
+    /// <summary>
+    /// Takes the locks this rule holds while it is opening a door.
+    /// </summary>
+    /// <remarks>MERGE SEAM — see <see cref="IsLocked"/>.</remarks>
+    internal void Arm()
+    {
+    }
+
+    public bool ValidNow(in MacroPassContext context)
+    {
+        bool gateOpen = _enabled();
+        _gateClosed = !gateOpen;
+        _lockHeld = gateOpen && IsLocked;
+        if (!gateOpen || _lockHeld)
+            return false;
+
+        bool allowed = context.CanAct;
+        bool claimed = _navigation.TickDoorRule(
+            context.ElapsedSeconds,
+            allowed);
+        if (allowed && claimed)
+            Arm();
+        return allowed && claimed;
+    }
+}

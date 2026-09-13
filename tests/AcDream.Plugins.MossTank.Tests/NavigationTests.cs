@@ -438,8 +438,10 @@ public sealed class NavigationTests
             RouteWaypointType.Point,
             Position(1d, 0d)));
         var controller = new NavigationController(new FakeHost(automation), settings);
+        // The door takes its own turn, ahead of the route.
+        var door = new OpenDoorRule(controller, () => true);
 
-        Assert.True(controller.Tick(0.05d, canAct: true));
+        Assert.True(door.ValidNow(new MacroPassContext(0.05d, CanAct: true)));
         Assert.Equal([55u], automation.UsedObjects);
         Assert.Empty(automation.Intents);
 
@@ -447,8 +449,75 @@ public sealed class NavigationTests
         {
             IsOpen = true,
         };
+        Assert.False(door.ValidNow(new MacroPassContext(0.05d, CanAct: true)));
         Assert.True(controller.Tick(0.05d, canAct: true));
         Assert.True(Assert.Single(automation.Intents).Forward);
+    }
+
+    /// <summary>
+    /// A closed door is a wall, and everything downstream of it wants to be on
+    /// the other side, so the door takes its turn before looting a corpse,
+    /// approaching one, or attacking.
+    /// </summary>
+    [Fact]
+    public void TheDoorRuleTakesItsTurnAheadOfLootingAndAttacking()
+    {
+        int door = SlotPosition(MacroRuleSlot.OpenDoor);
+        Assert.InRange(door, 0, int.MaxValue);
+        Assert.True(
+            door < SlotPosition(MacroRuleSlot.LootCorpsePriority),
+            "the door must be claimed before priority looting.");
+        Assert.True(
+            door < SlotPosition(MacroRuleSlot.NavigateCorpsePriority),
+            "the door must be claimed before the priority corpse approach.");
+        Assert.True(
+            door < SlotPosition(MacroRuleSlot.Attack),
+            "the door must be claimed before attacking.");
+
+        static int SlotPosition(MacroRuleSlot slot)
+        {
+            for (int index = 0; index < MacroRuleTable.Entries.Count; index++)
+            {
+                if (MacroRuleTable.Entries[index].Slot == slot)
+                    return index;
+            }
+            return -1;
+        }
+    }
+
+    /// <summary>
+    /// The door rule stands down while another rule holds a lock it waits on.
+    /// The lock table itself is not built yet, so this pins the seam, not a
+    /// held lock.
+    /// </summary>
+    [Fact]
+    public void TheDoorRuleStandsDownWhileALockIsHeld()
+    {
+        var automation = new FakeAutomation
+        {
+            NavigationSnapshot = Snapshot(Position(0d, 0d, heading: 90f)),
+        };
+        automation.WorldObjects.Add(new PluginNavigationObject(
+            55u,
+            "Dungeon Door",
+            Position(0.01d, 0d))
+        {
+            IsDoor = true,
+            IsOpen = false,
+            HasLockState = true,
+        });
+        var settings = new NavigationSettings
+        {
+            Enabled = true,
+            OpenDoors = true,
+            Mode = RouteMode.Circular,
+        };
+        var controller = new NavigationController(new FakeHost(automation), settings);
+        var rule = new OpenDoorRule(controller, () => true);
+
+        Assert.False(rule.IsLocked);
+        Assert.True(rule.ValidNow(new MacroPassContext(0.05d, CanAct: true)));
+        Assert.Equal([55u], automation.UsedObjects);
     }
 
     [Fact]

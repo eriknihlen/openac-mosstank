@@ -509,9 +509,6 @@ internal sealed class NavigationController
             return false;
         }
 
-        if (TickDoor(navigation, snapshot, elapsedSeconds))
-            return true;
-
         if (_settings.Mode == RouteMode.Target)
             return TickFollow(navigation, snapshot);
         if (_onceComplete || _settings.Waypoints.Count == 0)
@@ -618,6 +615,34 @@ internal sealed class NavigationController
             }
         }
         return _followPath.Count == 0 ? target : _followPath[0];
+    }
+
+    /// <summary>
+    /// Opening a door is its own turn, taken before anything that might want
+    /// the same tick. It lives on the navigation controller because it shares
+    /// the mover and the door settings, but it is driven by
+    /// <see cref="OpenDoorRule"/> from the door's own place in the rule order,
+    /// not from inside a navigate turn.
+    /// </summary>
+    internal bool TickDoorRule(double elapsedSeconds, bool canAct)
+    {
+        elapsedSeconds = double.IsFinite(elapsedSeconds)
+            ? Math.Max(0d, elapsedSeconds)
+            : 0d;
+        _now += elapsedSeconds;
+        INavigationAutomation navigation = _host.Automation.Navigation;
+        PluginNavigationSnapshot snapshot = navigation.Snapshot;
+        if (!_settings.Enabled
+            || !_settings.OpenDoors
+            || !snapshot.IsAvailable
+            || snapshot.IsPortalSpace
+            || !canAct)
+        {
+            ClearDoor();
+            return false;
+        }
+
+        return TickDoor(navigation, snapshot, elapsedSeconds);
     }
 
     private bool TickDoor(

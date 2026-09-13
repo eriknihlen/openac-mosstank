@@ -99,10 +99,9 @@ internal sealed partial class MossTankPanel : IMacroRuleProvider
                 return false;
             }),
 
-        MacroRuleSlot.OpenDoor => new AbsentMacroRule(
-            "OpenDoor",
-            "fused into the Navigate rules — NavigationController.Tick runs "
-                + "TickDoor itself."),
+        MacroRuleSlot.OpenDoor => new OpenDoorRule(
+            _navigation,
+            () => _combat.Enabled && !_buffRule.IsBursting),
 
         MacroRuleSlot.ReadScrollPriority => new AbsentMacroRule(
             "ReadScrollPriority",
