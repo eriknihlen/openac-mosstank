@@ -74,6 +74,55 @@ internal sealed class LootRule
             return false;
         }
     }
+
+    /// <summary>
+    /// Answers "can this rule decide the item without appraisal data?" and,
+    /// when it can, whether it matches. A rule is only a decided match when
+    /// every requirement decided; a single definite non-match ends it, and a
+    /// single undecidable requirement leaves the whole rule open.
+    /// </summary>
+    public void EarlyMatch(
+        in PluginInventoryItem item,
+        in PluginItemProperties properties,
+        IPluginHost? host,
+        out bool hasDecision,
+        out bool isMatch)
+    {
+        if (VtankRequirements.Count == 0)
+        {
+            // A catch-all needs nothing to decide. Anything written in
+            // MossTank's own expression language stays open: that language
+            // has no per-clause appraisal-dependency model.
+            hasDecision = IsCatchAll;
+            isMatch = hasDecision;
+            return;
+        }
+
+        bool anyOpen = false;
+        foreach (VtankLootRequirement requirement in VtankRequirements)
+        {
+            VtankLootRequirementEvaluator.EarlyMatch(
+                requirement,
+                item,
+                properties,
+                host,
+                out bool requirementDecided,
+                out bool requirementMatched);
+            if (requirementDecided && !requirementMatched)
+            {
+                hasDecision = true;
+                isMatch = false;
+                return;
+            }
+            if (!requirementDecided)
+                anyOpen = true;
+        }
+        hasDecision = !anyOpen;
+        isMatch = !anyOpen;
+    }
+
+    private bool IsCatchAll => Expression is "*"
+        || Expression.Equals("DEFAULT", StringComparison.OrdinalIgnoreCase);
 }
 
 internal sealed class LootSettings
@@ -370,6 +419,43 @@ internal static class LootRuleEngine
         }
         return null;
     }
+
+    /// <summary>
+    /// One forward pass that answers "would appraising this item change which
+    /// rule wins?". A rule that can already decide short-circuits; so does a
+    /// later rule carrying the same action as an earlier still-open one,
+    /// because the outcome is the same either way. Only a later rule with a
+    /// different action than a still-open one forces the appraisal.
+    /// </summary>
+    public static bool NeedsIdentify(
+        in PluginInventoryItem item,
+        in PluginItemProperties properties,
+        IReadOnlyList<LootRule> rules,
+        IPluginHost? host = null)
+    {
+        ArgumentNullException.ThrowIfNull(rules);
+
+        bool open = false;
+        LootAction openAction = LootAction.NoLoot;
+        foreach (LootRule rule in rules)
+        {
+            if (open && rule.Action != openAction)
+                return true;
+            rule.EarlyMatch(
+                item,
+                properties,
+                host,
+                out bool hasDecision,
+                out bool isMatch);
+            if (hasDecision && isMatch)
+                return false;
+            if (hasDecision)
+                continue;
+            open = true;
+            openAction = rule.Action;
+        }
+        return open;
+    }
 }
 
 internal sealed class LootController
@@ -392,6 +478,7 @@ internal sealed class LootController
     private double _stateAge;
     private uint _activeCorpse;
     private bool _activeCorpseSawContents;
+    private bool _activeCorpseIsOwnDeath;
     private uint _waitingItem;
     private string _waitingName = string.Empty;
     private LootAction _waitingAction;
@@ -515,6 +602,7 @@ internal sealed class LootController
             BlacklistFailedCorpse(failedCorpse);
             _activeCorpse = 0u;
             _activeCorpseSawContents = false;
+            _activeCorpseIsOwnDeath = false;
             _stateAge = 0d;
             if (IsCorpseBlacklisted(failedCorpse))
                 return false;
@@ -601,6 +689,7 @@ internal sealed class LootController
         }
         _activeCorpse = corpse.ObjectId;
         _activeCorpseSawContents = false;
+        _activeCorpseIsOwnDeath = IsOwnDeathCorpse(corpse);
         _stateAge = 0d;
         Status = $"Opening {corpse.Name}…";
         Log?.Invoke(
@@ -713,8 +802,11 @@ internal sealed class LootController
             if (!canAct || loot.IsBusy)
                 return true;
 
+            PluginItemProperties properties = default;
+            _ = loot.TryCaptureProperties(item.ObjectId, out properties);
             PluginAppraisalState appraisal = loot.Appraisal;
-            if (appraisal.CurrentObjectId != item.ObjectId)
+            if (appraisal.CurrentObjectId != item.ObjectId
+                && NeedsIdentify(item, properties, owned))
             {
                 PluginItemCommandResult identify = loot.Identify(item.ObjectId);
                 if (identify.Accepted)
@@ -728,8 +820,6 @@ internal sealed class LootController
                     return true;
             }
 
-            PluginItemProperties properties = default;
-            _ = loot.TryCaptureProperties(item.ObjectId, out properties);
             RecordDecision(item, DecideItem(
                 item,
                 properties,
@@ -762,6 +852,7 @@ internal sealed class LootController
             MarkCorpseComplete(_activeCorpse);
             _activeCorpse = 0u;
             _activeCorpseSawContents = false;
+            _activeCorpseIsOwnDeath = false;
             _stateAge = 0d;
             Status = "Corpse complete.";
             return false;
@@ -1208,6 +1299,61 @@ internal sealed class LootController
         return true;
     }
 
+    /// <summary>
+    /// Retail appraises a corpse item only when the answer depends on it.
+    /// Three cases always appraise: an external classifier (which has no
+    /// early-decision contract), the player's own death corpse, and a magical
+    /// candidate while a spare mana stone is held, because only an appraisal
+    /// can say whether that candidate is a tank worth draining.
+    /// </summary>
+    private bool NeedsIdentify(
+        in PluginInventoryItem item,
+        in PluginItemProperties properties,
+        IReadOnlyList<PluginInventoryItem> owned)
+    {
+        if (!string.IsNullOrWhiteSpace(_settings.ExternalClassifierId))
+            return true;
+        if (_activeCorpseIsOwnDeath)
+            return true;
+        if (VtankLootRequirementEvaluator.IsMagical(item, properties)
+            && SpareManaStoneCount(owned) > 0)
+        {
+            return true;
+        }
+        if (LootRuleEngine.NeedsIdentify(
+            item,
+            properties,
+            _settings.Rules,
+            _host))
+        {
+            return true;
+        }
+        Log?.Invoke(
+            MacroLogChannel.Loot,
+            $"LootDecision: {item.Name} needs no ID");
+        return false;
+    }
+
+    private bool IsOwnDeathCorpse(in PluginLootContainer corpse)
+    {
+        string character = _host.Automation.Character.Name;
+        return character.Length != 0
+            && string.Equals(
+                corpse.Name,
+                "Corpse of " + character,
+                StringComparison.Ordinal);
+    }
+
+    private int SpareManaStoneCount(IReadOnlyList<PluginInventoryItem> owned)
+    {
+        const uint manaStoneType = 0x00080000u;
+        int stones = owned.Count(item =>
+            (item.ItemType & manaStoneType) != 0u);
+        int queued = _classifiedOwnedItems.Values.Count(
+            static action => action == LootAction.ManaTank);
+        return Math.Max(0, stones - queued);
+    }
+
     private void IncrementAttempt(uint objectId)
     {
         _itemAttempts.TryGetValue(objectId, out int attempts);
@@ -1491,6 +1637,7 @@ internal sealed class LootController
     {
         _activeCorpse = 0u;
         _activeCorpseSawContents = false;
+        _activeCorpseIsOwnDeath = false;
         _waitingItem = 0u;
         _waitingName = string.Empty;
         _waitingAction = LootAction.NoLoot;

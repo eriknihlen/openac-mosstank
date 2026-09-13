@@ -1,3 +1,4 @@
+using System.Globalization;
 using AcDream.Plugin.Abstractions;
 
 namespace AcDream.Plugins.MossTank.Tests;
@@ -818,6 +819,225 @@ public sealed class LootingTests
         Assert.True(controller.Tick(0.1d, canAct: true));
         Assert.Equal("Sold Ruby.", controller.Status);
     }
+
+    [Fact]
+    public void ADecidedRuleMatchMeansTheItemNeedsNoAppraisal()
+    {
+        PluginInventoryItem money = Item(10u, "Pyreal", 273u) with
+        {
+            ObjectClass = PluginObjectClass.Money,
+        };
+        LootRule[] rules =
+        [
+            VtankRule("Money", LootAction.Keep, Requirement(7, "7")),
+            VtankRule(
+                "Good weapons",
+                LootAction.Salvage,
+                Requirement(2003, "100", "218103842")),
+        ];
+
+        Assert.False(LootRuleEngine.NeedsIdentify(
+            money,
+            EmptyProperties,
+            rules));
+    }
+
+    [Fact]
+    public void AnOpenRuleIsMootWhenALaterDecidedRuleCarriesTheSameAction()
+    {
+        PluginInventoryItem money = Item(10u, "Pyreal", 273u) with
+        {
+            ObjectClass = PluginObjectClass.Money,
+        };
+        LootRule[] sameAction =
+        [
+            VtankRule(
+                "Good weapons",
+                LootAction.Keep,
+                Requirement(2003, "100", "218103842")),
+            VtankRule("Money", LootAction.Keep, Requirement(7, "7")),
+        ];
+        LootRule[] differentAction =
+        [
+            VtankRule(
+                "Good weapons",
+                LootAction.Keep,
+                Requirement(2003, "100", "218103842")),
+            VtankRule("Money", LootAction.Salvage, Requirement(7, "7")),
+        ];
+
+        Assert.False(LootRuleEngine.NeedsIdentify(
+            money,
+            EmptyProperties,
+            sameAction));
+        Assert.True(LootRuleEngine.NeedsIdentify(
+            money,
+            EmptyProperties,
+            differentAction));
+    }
+
+    [Fact]
+    public void SpellRequirementsStayOpenOnlyWhileTheItemClaimsToBeMagical()
+    {
+        LootRule[] rules =
+        [
+            VtankRule("Enchanted", LootAction.Keep, Requirement(8, "1")),
+            VtankRule("Everything else", LootAction.NoLoot),
+        ];
+        PluginInventoryItem plain = Item(10u, "Rock", 273u);
+        PluginInventoryItem magical = plain with { Effects = 1u };
+
+        Assert.False(LootRuleEngine.NeedsIdentify(
+            plain,
+            EmptyProperties,
+            rules));
+        Assert.True(LootRuleEngine.NeedsIdentify(
+            magical,
+            EmptyProperties,
+            rules));
+    }
+
+    [Fact]
+    public void ACatchAllProfileNeverAppraisesACorpseItem()
+    {
+        var settings = new LootSettings { Enabled = true };
+        settings.Rules.Add(new LootRule
+        {
+            Name = "Keep everything",
+            Expression = "*",
+            Action = LootAction.Keep,
+        });
+        const uint corpse = 0x70000600u;
+        const uint loose = 0x70000601u;
+        var automation = new Automation
+        {
+            Corpses =
+            [
+                new PluginLootContainer(
+                    corpse, 1u, "Corpse of a Drudge", 3f, false, false, false)
+                {
+                    IsIdentified = true,
+                    LongDescription = "Killed by Tester.",
+                },
+            ],
+        };
+        var controller = new LootController(new Host(automation), settings);
+
+        Assert.True(controller.Tick(0.25d, canAct: true));
+        automation.Current = corpse;
+        automation.Contents = [Item(loose, "Pyreal", 273u)];
+        Assert.True(controller.Tick(0.2d, canAct: true));
+
+        Assert.Empty(automation.Identified);
+        Assert.Equal(new[] { loose }, automation.Picked);
+    }
+
+    [Fact]
+    public void EverythingOnYourOwnDeathCorpseIsAppraised()
+    {
+        var settings = new LootSettings { Enabled = true };
+        settings.Rules.Add(new LootRule
+        {
+            Name = "Keep everything",
+            Expression = "*",
+            Action = LootAction.Keep,
+        });
+        const uint corpse = 0x70000700u;
+        const uint loose = 0x70000701u;
+        var automation = new Automation
+        {
+            Corpses =
+            [
+                new PluginLootContainer(
+                    corpse, 1u, "Corpse of Tester", 3f, false, false, false)
+                {
+                    IsIdentified = true,
+                    LongDescription = "Killed by Tester.",
+                },
+            ],
+        };
+        var controller = new LootController(new Host(automation), settings);
+
+        Assert.True(controller.Tick(0.25d, canAct: true));
+        automation.Current = corpse;
+        automation.Contents = [Item(loose, "Pyreal", 273u)];
+        Assert.True(controller.Tick(0.2d, canAct: true));
+
+        Assert.Equal(new[] { loose }, automation.Identified);
+    }
+
+    [Fact]
+    public void ABuffedKeyOnlyGainsItsSpellBonusWhenTheItemCarriesTheBaseKey()
+    {
+        // Spell 2598 is Blood Drinker: +2 to the item's damage key.
+        PluginInventoryItem noDamage = Item(10u, "Ruby", 273u) with
+        {
+            AppraisedSpellIds = [2598u],
+        };
+        PluginInventoryItem weapon = noDamage with { Damage = 5 };
+        VtankLootRequirement[] atLeastOne =
+            [Requirement(2003, "1", "218103842")];
+
+        Assert.False(VtankLootRequirementEvaluator.IsMatch(
+            atLeastOne,
+            noDamage,
+            EmptyProperties,
+            null,
+            out _));
+        Assert.True(VtankLootRequirementEvaluator.IsMatch(
+            atLeastOne,
+            weapon,
+            EmptyProperties,
+            null,
+            out _));
+    }
+
+    [Theory]
+    // Spell 3199 authors Change 1.10, which truncates to 1 and multiplies.
+    [InlineData(3199u, 144u, 1d, 1.10d, true)]
+    [InlineData(3199u, 144u, 1d, 1.11d, false)]
+    // Spell 2588 authors Change 0.05, which truncates to 0 and adds.
+    [InlineData(2588u, 29u, 0.10d, 0.15d, true)]
+    [InlineData(2588u, 29u, 0.10d, 0.16d, false)]
+    public void TheBuffedDoubleOperationComesFromTheAuthoredChangeField(
+        uint spellId,
+        uint key,
+        double baseValue,
+        double threshold,
+        bool expected)
+    {
+        PluginInventoryItem item = Item(10u, "Sword", 273u) with
+        {
+            AppraisedSpellIds = [spellId],
+        };
+        PluginItemProperties properties = EmptyProperties with
+        {
+            Floats = new Dictionary<uint, double> { [key] = baseValue },
+        };
+
+        Assert.Equal(
+            expected,
+            VtankLootRequirementEvaluator.IsMatch(
+                [Requirement(
+                    2005,
+                    threshold.ToString(CultureInfo.InvariantCulture),
+                    key.ToString(CultureInfo.InvariantCulture))],
+                item,
+                properties,
+                null,
+                out _));
+    }
+
+    private static LootRule VtankRule(
+        string name,
+        LootAction action,
+        params VtankLootRequirement[] requirements) => new()
+    {
+        Name = name,
+        Expression = "*",
+        Action = action,
+        VtankRequirements = [.. requirements],
+    };
 
     private static PluginInventoryItem Item(uint id, string name, uint wcid) =>
         new(
