@@ -58,6 +58,7 @@ internal sealed partial class MossTankPanel : IBuffRuleHost
     private readonly CraftingController _crafting;
     private readonly ItemManaRechargeController _itemManaRecharge;
     private readonly LootController _loot;
+    private readonly ReadScrollController _readScroll;
     private readonly ProfileGiveController _profileGive;
     private readonly NavigationController _navigation;
     private readonly FellowshipManager _fellowshipManager;
@@ -320,6 +321,11 @@ internal sealed partial class MossTankPanel : IBuffRuleHost
         _loot = new LootController(
             host,
             _inventorySettings.Loot);
+        _loot.BindActionLocks(_actionLocks);
+        _readScroll = new ReadScrollController(
+            host,
+            _inventorySettings.Loot,
+            _loot);
         _profileGive = new ProfileGiveController(host, _lootProfiles);
         _navigation = new NavigationController(host, _navigationSettings);
         _navigation.BindCombatModeGate(_combatModeGate, _combatSettings);
@@ -371,6 +377,7 @@ internal sealed partial class MossTankPanel : IBuffRuleHost
         _combatModeGate.Log = EmitMacroLog;
         _combat.Log = EmitMacroLog;
         _loot.Log = EmitMacroLog;
+        _readScroll.Log = EmitMacroLog;
         _initialized = true;
         ApplyPersistedOptionOverrides();
         EnsureDefaultMonsterRule();

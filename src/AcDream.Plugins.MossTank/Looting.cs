@@ -74,6 +74,55 @@ internal sealed class LootRule
             return false;
         }
     }
+
+    /// <summary>
+    /// Answers "can this rule decide the item without appraisal data?" and,
+    /// when it can, whether it matches. A rule is only a decided match when
+    /// every requirement decided; a single definite non-match ends it, and a
+    /// single undecidable requirement leaves the whole rule open.
+    /// </summary>
+    public void EarlyMatch(
+        in PluginInventoryItem item,
+        in PluginItemProperties properties,
+        IPluginHost? host,
+        out bool hasDecision,
+        out bool isMatch)
+    {
+        if (VtankRequirements.Count == 0)
+        {
+            // A catch-all needs nothing to decide. Anything written in
+            // MossTank's own expression language stays open: that language
+            // has no per-clause appraisal-dependency model.
+            hasDecision = IsCatchAll;
+            isMatch = hasDecision;
+            return;
+        }
+
+        bool anyOpen = false;
+        foreach (VtankLootRequirement requirement in VtankRequirements)
+        {
+            VtankLootRequirementEvaluator.EarlyMatch(
+                requirement,
+                item,
+                properties,
+                host,
+                out bool requirementDecided,
+                out bool requirementMatched);
+            if (requirementDecided && !requirementMatched)
+            {
+                hasDecision = true;
+                isMatch = false;
+                return;
+            }
+            if (!requirementDecided)
+                anyOpen = true;
+        }
+        hasDecision = !anyOpen;
+        isMatch = !anyOpen;
+    }
+
+    private bool IsCatchAll => Expression is "*"
+        || Expression.Equals("DEFAULT", StringComparison.OrdinalIgnoreCase);
 }
 
 internal sealed class LootSettings
@@ -370,11 +419,54 @@ internal static class LootRuleEngine
         }
         return null;
     }
+
+    /// <summary>
+    /// One forward pass that answers "would appraising this item change which
+    /// rule wins?". A rule that can already decide short-circuits; so does a
+    /// later rule carrying the same action as an earlier still-open one,
+    /// because the outcome is the same either way. Only a later rule with a
+    /// different action than a still-open one forces the appraisal.
+    /// </summary>
+    public static bool NeedsIdentify(
+        in PluginInventoryItem item,
+        in PluginItemProperties properties,
+        IReadOnlyList<LootRule> rules,
+        IPluginHost? host = null)
+    {
+        ArgumentNullException.ThrowIfNull(rules);
+
+        bool open = false;
+        LootAction openAction = LootAction.NoLoot;
+        foreach (LootRule rule in rules)
+        {
+            if (open && rule.Action != openAction)
+                return true;
+            rule.EarlyMatch(
+                item,
+                properties,
+                host,
+                out bool hasDecision,
+                out bool isMatch);
+            if (hasDecision && isMatch)
+                return false;
+            if (hasDecision)
+                continue;
+            open = true;
+            openAction = rule.Action;
+        }
+        return open;
+    }
 }
 
-internal sealed class LootController
+internal sealed partial class LootController
 {
     private const double PickupTimeoutSeconds = 4d;
+
+    /// <summary>
+    /// How long a corpse the server refused stays skipped. This one is fixed;
+    /// it is not one of the corpse-blacklist settings.
+    /// </summary>
+    private const double DenialSkipSeconds = 10d;
 
     private readonly IPluginHost _host;
     private readonly LootSettings _settings;
@@ -388,10 +480,25 @@ internal sealed class LootController
     private readonly Dictionary<uint, string> _externalClassifierByItem = [];
     private readonly Dictionary<uint, LootDecision?> _decisions = [];
     private readonly Dictionary<uint, double> _corpseFirstSeen = [];
+
+    /// <summary>
+    /// When each corpse last came into the client's known set. The eviction
+    /// clock runs from there, not from the last time it was looked at.
+    /// </summary>
+    private readonly Dictionary<uint, double> _corpseLastSeen = [];
+
+    /// <summary>The corpses the client has stopped reporting.</summary>
+    private readonly HashSet<uint> _releasedCorpses = [];
+    private readonly HashSet<uint> _presentCorpses = [];
+    private readonly List<uint> _evictedCorpses = [];
+    private readonly Dictionary<uint, double> _corpseDeniedAt = [];
+    private uint _selectedCorpse;
+    private ulong _chatSequence;
     private double _scanRemaining;
     private double _stateAge;
     private uint _activeCorpse;
     private bool _activeCorpseSawContents;
+    private bool _activeCorpseIsOwnDeath;
     private uint _waitingItem;
     private string _waitingName = string.Empty;
     private LootAction _waitingAction;
@@ -402,10 +509,7 @@ internal sealed class LootController
     private uint _awaitingAppraisal;
     private uint _awaitingCorpseAppraisal;
     private double _lifetime;
-    private uint _postUseItem;
-    private string _postUseName = string.Empty;
-    private bool _postUseStarted;
-    private long _postUseRevision;
+    private readonly Dictionary<uint, uint> _pendingScrollReads = [];
     private uint _salvagePendingItem;
     private string _salvagePendingName = string.Empty;
     private int _salvageAttempts;
@@ -417,6 +521,8 @@ internal sealed class LootController
     private readonly Dictionary<uint, int> _combineAttempts = [];
     private readonly HashSet<uint> _abandonedCombineBags = [];
 
+    private ActionLockTable? _actionLocks;
+
     public LootController(
         IPluginHost host,
         LootSettings settings)
@@ -424,6 +530,21 @@ internal sealed class LootController
         _host = host ?? throw new ArgumentNullException(nameof(host));
         _settings = settings ?? throw new ArgumentNullException(nameof(settings));
     }
+
+    /// <summary>
+    /// The shared action-lock table. A corpse is closed with an item use,
+    /// and that use waits its turn behind whatever else is holding the
+    /// item slot, the same way every other item rule does.
+    /// </summary>
+    internal void BindActionLocks(ActionLockTable locks) =>
+        _actionLocks = locks ?? throw new ArgumentNullException(nameof(locks));
+
+    /// <summary>
+    /// Whether the item slot is held. With the lock table bound that is the
+    /// table's answer; without one, the host's own busy flag stands in.
+    /// </summary>
+    private bool ItemSlotHeld(IItemAutomation items) =>
+        _actionLocks?.IsLocked(ActionLockKind.ItemUse) ?? items.IsBusy;
 
     public string Status { get; private set; } = "Looting disabled.";
 
@@ -437,6 +558,45 @@ internal sealed class LootController
 
     public IReadOnlyDictionary<uint, LootAction> ClassifiedOwnedItems =>
         _classifiedOwnedItems;
+
+    /// <summary>
+    /// The scrolls picked up for reading, spell id to item id. Reading them is
+    /// a separate rule's job, not a continuation of the pickup, so this is
+    /// what the two sides share.
+    /// </summary>
+    public IReadOnlyDictionary<uint, uint> PendingScrollReads =>
+        _pendingScrollReads;
+
+    /// <summary>
+    /// Drops the queued scrolls whose item has left the character's hands —
+    /// read, dropped, sold or given away. A scroll that is still held stays
+    /// queued however many times reading it has failed.
+    /// </summary>
+    public void ForgetUnownedScrollReads(
+        IReadOnlyList<PluginInventoryItem> owned)
+    {
+        ArgumentNullException.ThrowIfNull(owned);
+        if (_pendingScrollReads.Count == 0)
+            return;
+        foreach ((uint spellId, uint itemId) in _pendingScrollReads.ToArray())
+        {
+            if (!owned.Any(item => item.ObjectId == itemId))
+                _pendingScrollReads.Remove(spellId);
+        }
+    }
+
+    /// <summary>Drops the queued scrolls whose spell the character now knows.</summary>
+    public void ForgetKnownScrollReads()
+    {
+        if (_pendingScrollReads.Count == 0)
+            return;
+        ISpellCatalog spells = _host.Automation.Spells;
+        foreach (uint spellId in _pendingScrollReads.Keys.ToArray())
+        {
+            if (spells.IsKnown(spellId))
+                _pendingScrollReads.Remove(spellId);
+        }
+    }
 
     public bool Tick(double elapsedSeconds, bool canAct)
     {
@@ -461,15 +621,32 @@ internal sealed class LootController
             return false;
         }
 
+        // "Is a corpse open?" is re-answered from the client before anything
+        // else this pass asks it, because the rest of the loot work — salvage,
+        // combining, selling — is barred while one is. The corpse stops being
+        // this controller's business the moment the client reports the
+        // container is no longer open, which is also what ends the closing-use
+        // retry below.
+        uint current = loot.CurrentContainerId;
+        if (_activeCorpse != 0u
+            && current != _activeCorpse
+            && _completedCorpses.ContainsKey(_activeCorpse))
+        {
+            _activeCorpse = 0u;
+            _activeCorpseSawContents = false;
+            _activeCorpseIsOwnDeath = false;
+            _stateAge = 0d;
+        }
+
         if (_activeCorpse == 0u && _waitingItem == 0u)
             PruneRemovedExternalItems();
 
         _stateAge += Math.Max(0d, elapsedSeconds);
         _lifetime += Math.Max(0d, elapsedSeconds);
+        ObserveOwnershipDenials();
+
         if (_waitingItem != 0u)
             return ContinuePickup(loot);
-        if (_postUseItem != 0u)
-            return ContinuePostUse(canAct);
         if (_activeCorpse == 0u
             && (_manaTransfer is not null
                 || HasManaStoneTransfer())
@@ -499,7 +676,6 @@ internal sealed class LootController
             return true;
         }
 
-        uint current = loot.CurrentContainerId;
         if (_activeCorpse != 0u && current == _activeCorpse)
             return ContinueCurrentCorpse(loot, canAct);
 
@@ -515,6 +691,7 @@ internal sealed class LootController
             BlacklistFailedCorpse(failedCorpse);
             _activeCorpse = 0u;
             _activeCorpseSawContents = false;
+            _activeCorpseIsOwnDeath = false;
             _stateAge = 0d;
             if (IsCorpseBlacklisted(failedCorpse))
                 return false;
@@ -528,11 +705,26 @@ internal sealed class LootController
             return false;
         _scanRemaining = Math.Clamp(_settings.ScanIntervalSeconds, 0.05d, 5d);
 
-        IReadOnlyList<PluginLootContainer> corpses = loot.CaptureCorpses(
-            (float)Math.Clamp(_settings.CorpseApproachRange, 2d, 100d));
-        PruneCorpseCache();
-        foreach (PluginLootContainer seen in corpses)
-            _corpseFirstSeen.TryAdd(seen.ObjectId, _lifetime);
+        // The age clock the public and fellow timers measure against starts
+        // when a corpse first streams into the client's known set, which is a
+        // far wider radius than the loot approach range — a corpse watched
+        // from across a field is already old enough by the time the player
+        // walks up to it. Selection then only considers the ones in range.
+        IReadOnlyList<PluginLootContainer> known =
+            loot.CaptureCorpses(float.MaxValue);
+        PruneCorpseCache(known);
+        // Walked twice below — once to ask for a description, once to pick —
+        // so it is built once, and in a fixed order so two hosts asking the
+        // same question get the same answer.
+        double approachRange =
+            Math.Clamp(_settings.CorpseApproachRange, 2d, 100d);
+        List<PluginLootContainer> corpses =
+        [
+            .. known
+                .Where(corpse => corpse.Distance <= approachRange)
+                .OrderBy(static corpse => corpse.Distance)
+                .ThenBy(static corpse => corpse.ObjectId),
+        ];
 
         if (_awaitingCorpseAppraisal != 0u)
         {
@@ -558,38 +750,43 @@ internal sealed class LootController
             }
         }
 
-        PluginLootContainer? next = null;
-        foreach (PluginLootContainer candidateCorpse in corpses
-            .Where(corpse => !_completedCorpses.ContainsKey(corpse.ObjectId))
-            .Where(corpse => !IsCorpseBlacklisted(corpse.ObjectId))
-            .OrderBy(static corpse => corpse.Distance)
-            .ThenBy(static corpse => corpse.ObjectId))
+        // A corpse whose long description has not arrived yet cannot be
+        // judged, so ask for it first and try again next scan.
+        foreach (PluginLootContainer candidateCorpse in corpses)
         {
-            if (!candidateCorpse.IsIdentified)
+            if (candidateCorpse.IsIdentified
+                || _completedCorpses.ContainsKey(candidateCorpse.ObjectId)
+                || IsCorpseDenied(candidateCorpse.ObjectId)
+                || IsCorpseBlacklisted(candidateCorpse.ObjectId))
             {
-                PluginItemCommandResult identify = loot.Identify(
-                    candidateCorpse.ObjectId);
-                if (identify.Accepted)
-                {
-                    _awaitingCorpseAppraisal = candidateCorpse.ObjectId;
-                    _stateAge = 0d;
-                    Status = $"Identifying {candidateCorpse.Name}…";
-                    return true;
-                }
-                if (identify.Status == PluginItemCommandStatus.Busy)
-                    return true;
                 continue;
             }
-            if (!CanLoot(candidateCorpse))
-                continue;
-            next = candidateCorpse;
-            break;
+            PluginItemCommandResult identify = loot.Identify(
+                candidateCorpse.ObjectId);
+            if (identify.Accepted)
+            {
+                _awaitingCorpseAppraisal = candidateCorpse.ObjectId;
+                _stateAge = 0d;
+                Status = $"Identifying {candidateCorpse.Name}…";
+                return true;
+            }
+            if (identify.Status == PluginItemCommandStatus.Busy)
+                return true;
         }
-        if (next is not { } corpse)
+
+        // The open step picks within arm's reach by how nearly the character
+        // is already facing the corpse. Only when nothing is in reach does the
+        // nearest corpse in the wider approach range win instead — that second
+        // pick is the approach step's, which this controller carries itself.
+        _selectedCorpse = 0u;
+        if ((SelectCorpse(corpses, CorpseOpenRangeMeters, byHeading: true)
+                ?? SelectCorpse(corpses, approachRange, byHeading: false))
+            is not { } corpse)
         {
             Status = "No nearby corpses.";
             return false;
         }
+        _selectedCorpse = corpse.ObjectId;
 
         PluginItemCommandResult opened = loot.Open(corpse.ObjectId);
         if (!opened.Accepted)
@@ -601,6 +798,7 @@ internal sealed class LootController
         }
         _activeCorpse = corpse.ObjectId;
         _activeCorpseSawContents = false;
+        _activeCorpseIsOwnDeath = IsOwnDeathCorpse(corpse);
         _stateAge = 0d;
         Status = $"Opening {corpse.Name}…";
         Log?.Invoke(
@@ -626,12 +824,16 @@ internal sealed class LootController
         _externalClassifierByItem.Clear();
         _decisions.Clear();
         _corpseFirstSeen.Clear();
+        _corpseLastSeen.Clear();
+        _releasedCorpses.Clear();
+        _presentCorpses.Clear();
+        _evictedCorpses.Clear();
+        _corpseDeniedAt.Clear();
+        _pendingScrollReads.Clear();
+        _selectedCorpse = 0u;
+        _chatSequence = 0uL;
         _scanRemaining = 0d;
         _lifetime = 0d;
-        _postUseItem = 0u;
-        _postUseName = string.Empty;
-        _postUseStarted = false;
-        _postUseRevision = 0L;
         _salvagePendingItem = 0u;
         _salvagePendingName = string.Empty;
         _salvageAttempts = 0;
@@ -647,6 +849,13 @@ internal sealed class LootController
 
     private bool ContinueCurrentCorpse(ILootAutomation loot, bool canAct)
     {
+        // Once the item pass is done the corpse is marked looted and the only
+        // thing left is the closing use. That use is retried every pass until
+        // the container actually shuts — nothing re-reads the contents in
+        // between, and the corpse stays this pass's business meanwhile.
+        if (_completedCorpses.ContainsKey(_activeCorpse))
+            return CloseFinishedCorpse(_activeCorpse, canAct);
+
         if (_stateAge < 0.10d)
         {
             Status = "Reading corpse contents…";
@@ -713,8 +922,11 @@ internal sealed class LootController
             if (!canAct || loot.IsBusy)
                 return true;
 
+            PluginItemProperties properties = default;
+            _ = loot.TryCaptureProperties(item.ObjectId, out properties);
             PluginAppraisalState appraisal = loot.Appraisal;
-            if (appraisal.CurrentObjectId != item.ObjectId)
+            if (appraisal.CurrentObjectId != item.ObjectId
+                && NeedsIdentify(item, properties, owned))
             {
                 PluginItemCommandResult identify = loot.Identify(item.ObjectId);
                 if (identify.Accepted)
@@ -728,8 +940,6 @@ internal sealed class LootController
                     return true;
             }
 
-            PluginItemProperties properties = default;
-            _ = loot.TryCaptureProperties(item.ObjectId, out properties);
             RecordDecision(item, DecideItem(
                 item,
                 properties,
@@ -759,12 +969,13 @@ internal sealed class LootController
         {
             foreach (PluginInventoryItem item in contents)
                 _decisions.Remove(item.ObjectId);
-            MarkCorpseComplete(_activeCorpse);
-            _activeCorpse = 0u;
-            _activeCorpseSawContents = false;
+            uint finished = _activeCorpse;
+            MarkCorpseComplete(finished);
             _stateAge = 0d;
-            Status = "Corpse complete.";
-            return false;
+            Log?.Invoke(
+                MacroLogChannel.Loot,
+                $"CorpseWait: closing 0x{finished:X8}");
+            return CloseFinishedCorpse(finished, canAct);
         }
         if (!canAct || loot.IsBusy)
             return true;
@@ -848,12 +1059,12 @@ internal sealed class LootController
                 MacroLogChannel.Loot,
                 $"LootPickup: took {_waitingName} ({_waitingAction})");
             _itemAttempts.Remove(_waitingItem);
-            if (_waitingAction == LootAction.Read)
+            if (_waitingAction == LootAction.Read
+                && _waitingItemSnapshot.SpellId != 0u)
             {
-                _postUseItem = _waitingItem;
-                _postUseName = _waitingName;
-                _postUseStarted = false;
-                _postUseRevision = 0L;
+                _pendingScrollReads.TryAdd(
+                    _waitingItemSnapshot.SpellId,
+                    _waitingItem);
             }
         }
         else
@@ -877,54 +1088,6 @@ internal sealed class LootController
         _waitingClassifierId = string.Empty;
         _waitingInventoryRevision = 0L;
         _stateAge = 0d;
-        return true;
-    }
-
-    private bool ContinuePostUse(bool canAct)
-    {
-        IItemAutomation items = _host.Automation.Items;
-        if (_postUseStarted)
-        {
-            PluginItemUseCompletion completion = items.LastCompletion;
-            if (completion.Revision <= _postUseRevision
-                || completion.SourceObjectId != _postUseItem)
-            {
-                if (_stateAge < PickupTimeoutSeconds)
-                {
-                    Status = $"Reading {_postUseName}…";
-                    return true;
-                }
-                Status = $"Read timed out: {_postUseName}.";
-            }
-            else
-            {
-                Status = completion.IsSuccess
-                    ? $"Read {_postUseName}."
-                    : $"Could not read {_postUseName}.";
-            }
-            _postUseItem = 0u;
-            _postUseName = string.Empty;
-            _postUseStarted = false;
-            _postUseRevision = 0L;
-            _stateAge = 0d;
-            return true;
-        }
-        if (!canAct || !items.IsAvailable || items.IsBusy)
-            return true;
-        PluginItemCommandResult use = items.Use(_postUseItem);
-        if (!use.Accepted)
-        {
-            if (use.Status == PluginItemCommandStatus.Busy)
-                return true;
-            Status = $"Could not read {_postUseName}.";
-            _postUseItem = 0u;
-            _postUseName = string.Empty;
-            return false;
-        }
-        _postUseRevision = items.LastCompletion.Revision;
-        _postUseStarted = true;
-        _stateAge = 0d;
-        Status = $"Reading {_postUseName}…";
         return true;
     }
 
@@ -1208,46 +1371,52 @@ internal sealed class LootController
         return true;
     }
 
+    /// <summary>
+    /// A corpse item is appraised only when the answer depends on it.
+    /// Three cases always appraise: an external classifier (which has no
+    /// early-decision contract), the player's own death corpse, and a magical
+    /// candidate while a spare mana stone is held, because only an appraisal
+    /// can say whether that candidate is a tank worth draining.
+    /// </summary>
+    private bool NeedsIdentify(
+        in PluginInventoryItem item,
+        in PluginItemProperties properties,
+        IReadOnlyList<PluginInventoryItem> owned)
+    {
+        if (!string.IsNullOrWhiteSpace(_settings.ExternalClassifierId))
+            return true;
+        if (_activeCorpseIsOwnDeath)
+            return true;
+        if (VtankLootRequirementEvaluator.IsMagical(item, properties)
+            && SpareManaStoneCount(owned) > 0)
+        {
+            return true;
+        }
+        if (LootRuleEngine.NeedsIdentify(
+            item,
+            properties,
+            _settings.Rules,
+            _host))
+        {
+            return true;
+        }
+        return false;
+    }
+
+    private int SpareManaStoneCount(IReadOnlyList<PluginInventoryItem> owned)
+    {
+        const uint manaStoneType = 0x00080000u;
+        int stones = owned.Count(item =>
+            (item.ItemType & manaStoneType) != 0u);
+        int queued = _classifiedOwnedItems.Values.Count(
+            static action => action == LootAction.ManaTank);
+        return Math.Max(0, stones - queued);
+    }
+
     private void IncrementAttempt(uint objectId)
     {
         _itemAttempts.TryGetValue(objectId, out int attempts);
         _itemAttempts[objectId] = attempts + 1;
-    }
-
-    private bool CanLoot(in PluginLootContainer corpse)
-    {
-        if (_settings.LootOnlyRareCorpses && !corpse.IsGeneratedRare)
-            return false;
-        string killer = KillerName(corpse.LongDescription);
-        string character = _host.Automation.Character.Name;
-        if (killer.Length != 0
-            && character.Length != 0
-            && string.Equals(killer, character, StringComparison.OrdinalIgnoreCase))
-        {
-            return true;
-        }
-
-        if (corpse.IsGeneratedRare)
-            return false;
-
-        double firstSeen = _corpseFirstSeen.TryGetValue(
-            corpse.ObjectId,
-            out double value) ? value : _lifetime;
-        double age = _lifetime - firstSeen;
-        PluginFellowMember? fellow = _host.Automation.Fellowship
-            .CaptureMembers()
-            .FirstOrDefault(member => string.Equals(
-                member.Name,
-                killer,
-                StringComparison.OrdinalIgnoreCase));
-        if (fellow is { ObjectId: not 0u } member)
-        {
-            if (!_settings.LootFellowCorpses)
-                return false;
-            return member.ShareLoot || age >= 100d;
-        }
-
-        return _settings.LootAllCorpses && age >= 100d;
     }
 
     private LootDecision? DecideItem(
@@ -1388,109 +1557,19 @@ internal sealed class LootController
         return null;
     }
 
-    private bool IsReadableUnknownScroll(in PluginInventoryItem item)
-    {
-        if (!_settings.ReadUnknownScrolls
-            || item.SpellId == 0u
-            || _host.Automation.Spells.IsKnown(item.SpellId))
-        {
-            return false;
-        }
-
-        const uint miscItemType = 0x00000080u;
-        bool scrollShape = (item.ItemType & miscItemType) != 0u
-            && item.Name.EndsWith(" Scroll", StringComparison.OrdinalIgnoreCase);
-        if (!scrollShape
-            || !_host.Automation.Spells.TryGet(item.SpellId, out PluginSpellInfo spell))
-        {
-            return false;
-        }
-        return _host.Automation.Character.TryGetSkill(
-                spell.School,
-                out PluginSkillInfo skill)
-            && spell.Difficulty - 15 <= skill.Current;
-    }
-
-    private void BlacklistFailedCorpse(uint corpseId)
-    {
-        if (corpseId == 0u)
-            return;
-        _corpseOpenAttempts.TryGetValue(corpseId, out int attempts);
-        attempts++;
-        int threshold = Math.Clamp(
-            _settings.BlacklistCorpseOpenAttemptCount,
-            1,
-            1000);
-        if (attempts < threshold)
-        {
-            _corpseOpenAttempts[corpseId] = attempts;
-            Status = $"Retrying corpse ({attempts}/{threshold})…";
-            return;
-        }
-        _corpseOpenAttempts.Remove(corpseId);
-        _corpseBlacklistedAt[corpseId] = _lifetime;
-        Status = $"Blacklisted unopenable corpse for "
-            + $"{Math.Clamp(_settings.BlacklistCorpseOpenTimeoutSeconds, 1d, 3600d):0} seconds.";
-    }
-
-    private bool IsCorpseBlacklisted(uint corpseId)
-    {
-        if (!_corpseBlacklistedAt.TryGetValue(corpseId, out double since))
-            return false;
-        double timeout = Math.Clamp(
-            _settings.BlacklistCorpseOpenTimeoutSeconds,
-            1d,
-            3600d);
-        if (_lifetime - since < timeout)
-            return true;
-        _corpseBlacklistedAt.Remove(corpseId);
-        return false;
-    }
-
-    private void MarkCorpseComplete(uint corpseId)
-    {
-        if (corpseId == 0u)
-            return;
-        _completedCorpses[corpseId] = _lifetime;
-        _corpseOpenAttempts.Remove(corpseId);
-        _corpseBlacklistedAt.Remove(corpseId);
-    }
-
-    private void PruneCorpseCache()
-    {
-        double expiry = Math.Clamp(
-            _settings.CorpseCacheTimeoutMinutes,
-            1d,
-            1440d) * 60d;
-        foreach (uint id in _completedCorpses
-            .Where(entry => _lifetime - entry.Value >= expiry)
-            .Select(static entry => entry.Key)
-            .ToArray())
-        {
-            _completedCorpses.Remove(id);
-            _corpseFirstSeen.Remove(id);
-        }
-    }
-
-    internal static string KillerName(string description)
-    {
-        const string prefix = "Killed by ";
-        if (string.IsNullOrWhiteSpace(description)
-            || !description.StartsWith(prefix, StringComparison.OrdinalIgnoreCase))
-        {
-            return string.Empty;
-        }
-        string remainder = description[prefix.Length..];
-        int period = remainder.IndexOf('.');
-        if (period >= 0)
-            remainder = remainder[..period];
-        return remainder.Trim();
-    }
+    private bool IsReadableUnknownScroll(in PluginInventoryItem item) =>
+        ScrollReading.IsEligible(
+            _host,
+            _settings,
+            item,
+            _pendingScrollReads,
+            commit: true);
 
     private void ResetTransient()
     {
         _activeCorpse = 0u;
         _activeCorpseSawContents = false;
+        _activeCorpseIsOwnDeath = false;
         _waitingItem = 0u;
         _waitingName = string.Empty;
         _waitingAction = LootAction.NoLoot;
@@ -1500,10 +1579,6 @@ internal sealed class LootController
         _waitingInventoryRevision = 0L;
         _awaitingAppraisal = 0u;
         _awaitingCorpseAppraisal = 0u;
-        _postUseItem = 0u;
-        _postUseName = string.Empty;
-        _postUseStarted = false;
-        _postUseRevision = 0L;
         _salvagePendingItem = 0u;
         _salvagePendingName = string.Empty;
         _salvageAttempts = 0;

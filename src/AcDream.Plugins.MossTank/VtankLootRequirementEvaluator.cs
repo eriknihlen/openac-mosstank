@@ -10,6 +10,9 @@ internal static class VtankLootRequirementEvaluator
     private const uint VtankIntBase = 218_103_808u;
     private const uint VtankDoubleBase = 167_772_160u;
 
+    /// <summary>The item key whose bit 0 is the "magical" icon highlight.</summary>
+    private const uint IconHighlightKey = VtankIntBase + 16;
+
     private static readonly IReadOnlyDictionary<uint, (uint Key, int Bonus)>
         IntSpellBonuses = new Dictionary<uint, (uint, int)>
         {
@@ -23,21 +26,144 @@ internal static class VtankLootRequirementEvaluator
             [6095] = (28, 80),
         };
 
-    private static readonly IReadOnlyDictionary<uint, (uint Key, double Bonus, bool Change)>
-        DoubleSpellBonuses = new Dictionary<uint, (uint, double, bool)>
+    // Change and Bonus are two separate authored fields. Only Bonus is ever
+    // applied; Change truncated to an int selects the operation, so anything
+    // in [1, 2) multiplies and everything else adds.
+    private static readonly IReadOnlyDictionary<uint, (uint Key, double Change, double Bonus)>
+        DoubleSpellBonuses = new Dictionary<uint, (uint, double, double)>
         {
-            [3251] = (152, .01, false), [3250] = (152, .03, false),
-            [4670] = (152, .05, false), [6098] = (152, .07, false),
-            [2603] = (VtankDoubleBase + 12, .03, false),
-            [2591] = (VtankDoubleBase + 12, .05, false),
-            [4666] = (VtankDoubleBase + 12, .07, false),
-            [6094] = (VtankDoubleBase + 12, .09, false),
-            [2600] = (29, .03, false), [3985] = (29, .04, false),
-            [2588] = (29, .05, false), [4663] = (29, .07, false), [6091] = (29, .09, false),
-            [3201] = (144, 1.05, true), [3199] = (144, 1.10, true),
-            [3202] = (144, 1.15, true), [3200] = (144, 1.20, true),
-            [6086] = (144, 1.25, true), [6087] = (144, 1.30, true),
+            [3251] = (152, .01, .01), [3250] = (152, .03, .03),
+            [4670] = (152, .05, .05), [6098] = (152, .07, .07),
+            [2603] = (VtankDoubleBase + 12, .03, .03),
+            [2591] = (VtankDoubleBase + 12, .05, .05),
+            [4666] = (VtankDoubleBase + 12, .07, .07),
+            [6094] = (VtankDoubleBase + 12, .09, .09),
+            [2600] = (29, .03, .03), [3985] = (29, .04, .04),
+            [2588] = (29, .05, .05), [4663] = (29, .07, .07), [6091] = (29, .09, .09),
+            [3201] = (144, 1.05, 1.05), [3199] = (144, 1.10, 1.10),
+            [3202] = (144, 1.15, 1.15), [3200] = (144, 1.20, 1.20),
+            [6086] = (144, 1.25, 1.25), [6087] = (144, 1.30, 1.30),
         };
+
+    /// <summary>
+    /// The int keys whose value the server sends with the object itself; every
+    /// other key only arrives with an appraisal.
+    /// </summary>
+    private static readonly HashSet<uint> NonIdentifiedIntKeys =
+    [
+        10u, 19u, 91u, 92u, 131u,
+        VtankIntBase + 0, VtankIntBase + 1, VtankIntBase + 2,
+        VtankIntBase + 4, VtankIntBase + 5, VtankIntBase + 6,
+        VtankIntBase + 7, VtankIntBase + 9, VtankIntBase + 12,
+        VtankIntBase + 13, VtankIntBase + 14, VtankIntBase + 15,
+        VtankIntBase + 16, VtankIntBase + 17, VtankIntBase + 18,
+        VtankIntBase + 20, VtankIntBase + 24, VtankIntBase + 25,
+        VtankIntBase + 26, VtankIntBase + 27, VtankIntBase + 35,
+        VtankIntBase + 36, VtankIntBase + 37, VtankIntBase + 38,
+        VtankIntBase + 41, VtankIntBase + 42,
+    ];
+
+    internal static bool IsIdentifiedIntKey(uint key) =>
+        !NonIdentifiedIntKeys.Contains(key);
+
+    internal static bool IsIdentifiedStringKey(uint key) =>
+        key != 1u && key != 184_549_376u;
+
+    internal static bool IsIdentifiedDoubleKey(uint key) =>
+        key != VtankDoubleBase + 8 && key != VtankDoubleBase + 9;
+
+    /// <summary>
+    /// True when the server has flagged the item as magical, which is the only
+    /// pre-appraisal signal that it is expected to carry spells.
+    /// </summary>
+    internal static bool IsMagical(
+        in PluginInventoryItem item,
+        in PluginItemProperties properties) =>
+        (IntValue(IconHighlightKey, item, properties) & 1) != 0;
+
+    /// <summary>
+    /// Answers "could this requirement decide, without appraisal data?" and,
+    /// when it can, whether it matches. A requirement that cannot decide
+    /// leaves <paramref name="hasDecision"/> false so the rule stays open.
+    /// </summary>
+    public static void EarlyMatch(
+        VtankLootRequirement requirement,
+        in PluginInventoryItem item,
+        in PluginItemProperties properties,
+        IPluginHost? host,
+        out bool hasDecision,
+        out bool isMatch)
+    {
+        hasDecision = true;
+        isMatch = false;
+        try
+        {
+            string[] values = Lines(requirement.Payload);
+            switch (requirement.Type)
+            {
+                // Spell requirements: undecided only while the item claims to
+                // be magical, because then spell data is still to come.
+                case 0:
+                case 8:
+                case 9:
+                    hasDecision = !IsMagical(item, properties);
+                    return;
+                // Weapon-damage requirements: undecided only for the weapon
+                // class the requirement can apply to.
+                case 10:
+                case 2008:
+                    hasDecision =
+                        item.ObjectClass != PluginObjectClass.MeleeWeapon;
+                    return;
+                case 2000:
+                case 2006:
+                    hasDecision =
+                        item.ObjectClass != PluginObjectClass.MeleeWeapon
+                        && item.ObjectClass != PluginObjectClass.MissileWeapon;
+                    return;
+                case 2001:
+                    hasDecision =
+                        item.ObjectClass != PluginObjectClass.MissileWeapon;
+                    return;
+                // Buffed and rating requirements can never decide early.
+                case 2003:
+                case 2005:
+                case 2007:
+                    hasDecision = false;
+                    return;
+                // Retired, disabled, and preserved-unknown requirements are a
+                // decided non-match whatever the item is.
+                case 6:
+                case 9999:
+                case -1:
+                    return;
+                case 1:
+                    hasDecision = !IsIdentifiedStringKey(U32(values, 1));
+                    break;
+                case 2:
+                case 3:
+                case 11:
+                case 12:
+                case 13:
+                    hasDecision = !IsIdentifiedIntKey(U32(values, 1));
+                    break;
+                case 4:
+                case 5:
+                    hasDecision = !IsIdentifiedDoubleKey(U32(values, 1));
+                    break;
+                default:
+                    break;
+            }
+            isMatch = hasDecision
+                && IsMatch(requirement, item, properties, host);
+        }
+        catch (Exception failure) when (
+            failure is FormatException or ArgumentException or OverflowException)
+        {
+            hasDecision = true;
+            isMatch = false;
+        }
+    }
 
     private static readonly IReadOnlyDictionary<string, int[]> ArmorColorSlots =
         new Dictionary<string, int[]>(StringComparer.Ordinal)
@@ -388,6 +514,7 @@ internal static class VtankLootRequirementEvaluator
             case VtankIntBase + 10: value = checked((int)item.WielderObjectId); return true;
             case VtankIntBase + 11: value = checked((int)item.EquippedLocation); return true;
             case VtankIntBase + 14: value = checked((int)item.ValidLocations); return true;
+            case IconHighlightKey: value = checked((int)item.Effects); return true;
             case VtankIntBase + 18: value = checked((int)item.Useability); return true;
             case VtankIntBase + 23: value = checked((int)item.PublicFlags); return true;
             case VtankIntBase + 31: value = item.CombatUse; return true;
@@ -418,11 +545,9 @@ internal static class VtankLootRequirementEvaluator
             case VtankDoubleBase + 9: value = item.Workmanship; return true;
             case VtankDoubleBase + 11: value = item.DamageVariance; return true;
             case VtankDoubleBase + 12:
-                TryRawFloat(properties, 62, out value);
-                return true;
+                return TryRawFloat(properties, 62, out value);
             case VtankDoubleBase + 14:
-                TryRawFloat(properties, 63, out value);
-                return true;
+                return TryRawFloat(properties, 63, out value);
             default:
                 return TryRawFloat(properties, key, out value);
         }
@@ -451,7 +576,8 @@ internal static class VtankLootRequirementEvaluator
         foreach (uint spellId in item.AppraisedSpellIds)
         {
             if (IntSpellBonuses.TryGetValue(spellId, out var bonus)
-                && bonus.Key == key)
+                && bonus.Key == key
+                && bonus.Bonus != 0)
             {
                 value += bonus.Bonus;
             }
@@ -469,27 +595,39 @@ internal static class VtankLootRequirementEvaluator
             return value;
         foreach (uint spellId in item.AppraisedSpellIds)
         {
+            // A bonus of zero is inert: it is what marks a table row that
+            // carries only an operation and no amount.
             if (!DoubleSpellBonuses.TryGetValue(spellId, out var bonus)
-                || bonus.Key != key)
+                || bonus.Key != key
+                || bonus.Bonus == 0d)
             {
                 continue;
             }
-            value = bonus.Change ? value * bonus.Bonus : value + bonus.Bonus;
+            value = (int)bonus.Change == 1
+                ? value * bonus.Bonus
+                : value + bonus.Bonus;
         }
         return value;
     }
 
+    // The buffed getters only add a spell bonus when the item carries a base
+    // value for that key at all; an item with no such property keeps the
+    // caller's default. A key projected out of the item snapshot has no
+    // "absent" encoding, so the default value is the only signal we have.
     private static bool IntKeyExists(
         uint key,
         in PluginInventoryItem item,
         in PluginItemProperties properties) =>
-        TryIntValue(key, item, properties, out _);
+        properties.Ints?.ContainsKey(key) == true
+        || (TryIntValue(key, item, properties, out int value) && value != 0);
 
     private static bool DoubleKeyExists(
         uint key,
         in PluginInventoryItem item,
         in PluginItemProperties properties) =>
-        TryDoubleValue(key, item, properties, out _);
+        properties.Floats?.ContainsKey(key) == true
+        || (TryDoubleValue(key, item, properties, out double value)
+            && value != 0d);
 
     private static double MinimumDamage(in PluginInventoryItem item) =>
         item.Damage - (item.DamageVariance * item.Damage);

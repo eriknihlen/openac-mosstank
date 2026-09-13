@@ -112,6 +112,42 @@ public sealed class InventoryMaintenanceTests
         Assert.Equal("Stack/Cram idle", controller.Status);
     }
 
+    [Fact]
+    public void AStuckStackCramPairIsAbandonedOnlyAfterEightyAttempts()
+    {
+        var settings = new InventorySettings { AutoStack = true };
+        var automation = new Automation
+        {
+            Inventory =
+            [
+                Item(20, "Arrow", 77, Player, 10, 10),
+                Item(21, "Arrow", 77, Player, 6, 10),
+            ],
+        };
+        var controller = new InventoryMaintenanceController(
+            new Host(automation),
+            settings);
+
+        // Each pass observes the previous pass's refusal and then tries again.
+        for (int attempt = 1; attempt <= 81; attempt++)
+        {
+            Assert.True(controller.Tick(1d, canAct: true));
+            Assert.Equal(attempt, automation.Merges.Count);
+            automation.Busy = false;
+            automation.Completion = new PluginInventoryCompletion(
+                attempt,
+                PluginInventoryCommandKind.Merge,
+                20u,
+                0x10u);
+        }
+        Assert.Empty(automation.Messages);
+
+        // The eighty-first refusal is the one it gives up on.
+        Assert.False(controller.Tick(1d, canAct: true));
+        Assert.Single(automation.Messages);
+        Assert.Equal(81, automation.Merges.Count);
+    }
+
     private static PluginInventoryItem Item(
         uint id,
         string name,
@@ -166,7 +202,8 @@ public sealed class InventoryMaintenanceTests
             skill = default;
             return false;
         }
-        public void PostSystemMessage(string text) { }
+        public List<string> Messages { get; } = [];
+        public void PostSystemMessage(string text) => Messages.Add(text);
     }
 
     private sealed class Host(IAutomationSurface automation) : IPluginHost

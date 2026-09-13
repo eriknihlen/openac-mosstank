@@ -131,60 +131,77 @@ internal sealed partial class MossTankPanel : IMacroRuleProvider
             "fused into the Navigate rules — NavigationController.Tick runs "
                 + "TickDoor itself."),
 
-        MacroRuleSlot.ReadScrollPriority => new AbsentMacroRule(
+        MacroRuleSlot.ReadScrollPriority => new ControllerMacroRule(
             "ReadScrollPriority",
-            "no priority tier: MossTank's inventory maintenance is idle-only "
-                + "(the rule can run while a target is active)."),
-        MacroRuleSlot.StackCramPriority => new AbsentMacroRule(
+            context => _readScroll.Tick(
+                context.ElapsedSeconds,
+                context.CanAct),
+            gate: () => ItemSlotIsFree() && _combat.Enabled && !_buffRule.IsBursting
+                && _inventorySettings.Loot.PriorityBoost),
+        MacroRuleSlot.StackCramPriority => new ControllerMacroRule(
             "StackCramPriority",
-            "fused into ReadScrollIdle."),
-        MacroRuleSlot.SalvageItemsPriority => new AbsentMacroRule(
-            "SalvageItemsPriority",
-            "fused into ReadScrollIdle."),
-        MacroRuleSlot.ReadScrollIdle => new ControllerMacroRule(
-            "ReadScrollIdle",
             context => _inventoryMaintenance.Tick(
                 context.ElapsedSeconds,
                 context.CanAct),
-            gate: () => _combat.Enabled && !_buffRule.IsBursting),
-        MacroRuleSlot.StackCramIdle => new AbsentMacroRule(
+            gate: () => ItemSlotIsFree() && _combat.Enabled && !_buffRule.IsBursting
+                && _inventorySettings.Loot.PriorityBoost),
+        MacroRuleSlot.SalvageItemsPriority => new AbsentMacroRule(
+            "SalvageItemsPriority",
+            "fused into LootCorpsePriority — the loot controller runs the "
+                + "salvage and salvage-combine steps itself whenever no corpse "
+                + "is open, which is the same gate the separate rule uses."),
+        MacroRuleSlot.ReadScrollIdle => new ControllerMacroRule(
+            "ReadScrollIdle",
+            context => _readScroll.Tick(
+                context.ElapsedSeconds,
+                context.CanAct),
+            gate: () => ItemSlotIsFree() && !_inventorySettings.Loot.PriorityBoost
+                && _combat.Enabled && !_buffRule.IsBursting),
+        MacroRuleSlot.StackCramIdle => new ControllerMacroRule(
             "StackCramIdle",
-            "fused into ReadScrollIdle — InventoryMaintenanceController.Tick "
-                + "covers scrolls, stack cramming and salvage in one call."),
+            context => _inventoryMaintenance.Tick(
+                context.ElapsedSeconds,
+                context.CanAct),
+            gate: () => ItemSlotIsFree() && !_inventorySettings.Loot.PriorityBoost
+                && _combat.Enabled && !_buffRule.IsBursting),
         MacroRuleSlot.SalvageItemsIdle => new AbsentMacroRule(
             "SalvageItemsIdle",
-            "fused into ReadScrollIdle."),
+            "fused into LootCorpseIdle — see SalvageItemsPriority."),
 
         MacroRuleSlot.NavigateCorpsePriority => new ControllerMacroRule(
             "LootCorpsePriority",
             context => _loot.Tick(context.ElapsedSeconds, context.CanAct),
-            gate: () => _combat.Enabled && !_buffRule.IsBursting
+            gate: () => ItemSlotIsFree() && _combat.Enabled && !_buffRule.IsBursting
                 && _inventorySettings.Loot.PriorityBoost,
             bookkeepWhenBlocked: false),
         MacroRuleSlot.NavigateCorpseIdle => new ControllerMacroRule(
             "LootCorpseIdle",
             context => _loot.Tick(context.ElapsedSeconds, context.CanAct),
-            gate: () => !_inventorySettings.Loot.PriorityBoost
+            gate: () => ItemSlotIsFree() && !_inventorySettings.Loot.PriorityBoost
                 && _combat.Enabled && !_buffRule.IsBursting,
             bookkeepWhenBlocked: false),
         MacroRuleSlot.OpenCorpsePriority => new AbsentMacroRule(
             "OpenCorpsePriority",
-            "fused into LootCorpsePriority."),
+            "fused into LootCorpsePriority — the loot controller runs select, "
+                + "open, pick up and close as one state machine, and the four "
+                + "rules it replaces sit next to each other in the list, so "
+                + "nothing else can win a pass between them."),
         MacroRuleSlot.LootCorpsePriority => new AbsentMacroRule(
             "LootCorpsePriority (loot step)",
-            "fused into LootCorpsePriority."),
+            "fused into LootCorpsePriority — see OpenCorpsePriority."),
         MacroRuleSlot.CorpseWaitPriority => new AbsentMacroRule(
             "CorpseWaitPriority",
-            "fused into LootCorpsePriority."),
+            "fused into LootCorpsePriority — the controller issues the "
+                + "closing use itself once the corpse is fully processed."),
         MacroRuleSlot.OpenCorpseIdle => new AbsentMacroRule(
             "OpenCorpseIdle",
-            "fused into LootCorpseIdle."),
+            "fused into LootCorpseIdle — see OpenCorpsePriority."),
         MacroRuleSlot.LootCorpseIdle => new AbsentMacroRule(
             "LootCorpseIdle (loot step)",
-            "fused into LootCorpseIdle."),
+            "fused into LootCorpseIdle — see OpenCorpsePriority."),
         MacroRuleSlot.CorpseWaitIdle => new AbsentMacroRule(
             "CorpseWaitIdle",
-            "fused into LootCorpseIdle."),
+            "fused into LootCorpseIdle — see CorpseWaitPriority."),
 
         MacroRuleSlot.NavigateRoutePriority => new ControllerMacroRule(
             "NavigateRoutePriority",

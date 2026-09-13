@@ -1,3 +1,4 @@
+using System.Globalization;
 using AcDream.Plugin.Abstractions;
 
 namespace AcDream.Plugins.MossTank.Tests;
@@ -343,7 +344,8 @@ public sealed class LootingTests
         Assert.True(controller.Tick(0.1d, canAct: true));
         Assert.Equal(LootAction.Keep, controller.ClassifiedOwnedItems[coin]);
 
-        Assert.False(controller.Tick(0.2d, canAct: true));
+        // The pass the corpse finishes on is the pass that closes it.
+        Assert.True(controller.Tick(0.2d, canAct: true));
         Assert.Equal("Corpse complete.", controller.Status);
     }
 
@@ -473,7 +475,10 @@ public sealed class LootingTests
         Assert.Equal(item, looted.Item.ObjectId);
         Assert.Equal(PluginLootAction.User3, looted.Action);
 
-        Assert.False(controller.Tick(0.2d, canAct: true));
+        // The pass the corpse finishes on is the pass that closes it, and the
+        // corpse stays this controller's business until the container shuts.
+        Assert.True(controller.Tick(0.2d, canAct: true));
+        automation.Current = 0u;
         automation.Owned = [];
         Assert.False(controller.Tick(0.2d, canAct: true));
         Assert.Equal(new[] { item }, classifier.Removed);
@@ -525,7 +530,8 @@ public sealed class LootingTests
         automation.Contents = [Item(item, "Limited prize", 99u)];
         Assert.True(controller.Tick(0.2d, canAct: true));
         automation.AppraisalState = new PluginAppraisalState(1, 0u, item);
-        Assert.False(controller.Tick(0.1d, canAct: true));
+        // The pass the corpse finishes on is the pass that closes it.
+        Assert.True(controller.Tick(0.1d, canAct: true));
         Assert.Empty(automation.Picked);
 
         controller.Reset();
@@ -536,7 +542,8 @@ public sealed class LootingTests
         settings.ExternalClassifierId = "missing/classifier";
         Assert.True(controller.Tick(1d, canAct: true));
         automation.Current = corpse;
-        Assert.False(controller.Tick(0.2d, canAct: true));
+        // The pass the corpse finishes on is the pass that closes it.
+        Assert.True(controller.Tick(0.2d, canAct: true));
         Assert.Empty(automation.Picked);
     }
 
@@ -658,11 +665,7 @@ public sealed class LootingTests
         automation.Current = 0x70000200u;
         automation.Contents =
         [
-            Item(scroll, "Incantation of Testing Scroll", 88u) with
-            {
-                ItemType = 0x80u,
-                SpellId = 777u,
-            },
+            Scroll(scroll, "Incantation of Testing", 777u),
         ];
         Assert.True(controller.Tick(0.2d, canAct: true));
         automation.AppraisalState = new PluginAppraisalState(1, 0u, scroll);
@@ -758,7 +761,10 @@ public sealed class LootingTests
             source,
             0u);
         Assert.True(controller.Tick(0.1d, canAct: true));
-        Assert.False(controller.Tick(0.2d, canAct: true));
+        // The pass the corpse finishes on is the pass that closes it, and the
+        // corpse stays this controller's business until the container shuts.
+        Assert.True(controller.Tick(0.2d, canAct: true));
+        automation.Current = 0u;
 
         Assert.True(controller.Tick(0.1d, canAct: true));
         Assert.Equal(new[] { (tool, source) }, automation.Salvaged);
@@ -806,7 +812,10 @@ public sealed class LootingTests
             source,
             0u);
         Assert.True(controller.Tick(0.1d, canAct: true));
-        Assert.False(controller.Tick(0.2d, canAct: true));
+        // The pass the corpse finishes on is the pass that closes it, and the
+        // corpse stays this controller's business until the container shuts.
+        Assert.True(controller.Tick(0.2d, canAct: true));
+        automation.Current = 0u;
 
         Assert.False(controller.Tick(0.1d, canAct: true));
         Assert.Contains("queued", controller.Status);
@@ -819,10 +828,832 @@ public sealed class LootingTests
         Assert.Equal("Sold Ruby.", controller.Status);
     }
 
+    [Fact]
+    public void ADecidedRuleMatchMeansTheItemNeedsNoAppraisal()
+    {
+        PluginInventoryItem money = Item(10u, "Pyreal", 273u) with
+        {
+            ObjectClass = PluginObjectClass.Money,
+        };
+        LootRule[] rules =
+        [
+            VtankRule("Money", LootAction.Keep, Requirement(7, "7")),
+            VtankRule(
+                "Good weapons",
+                LootAction.Salvage,
+                Requirement(2003, "100", "218103842")),
+        ];
+
+        Assert.False(LootRuleEngine.NeedsIdentify(
+            money,
+            EmptyProperties,
+            rules));
+    }
+
+    [Fact]
+    public void AnOpenRuleIsMootWhenALaterDecidedRuleCarriesTheSameAction()
+    {
+        PluginInventoryItem money = Item(10u, "Pyreal", 273u) with
+        {
+            ObjectClass = PluginObjectClass.Money,
+        };
+        LootRule[] sameAction =
+        [
+            VtankRule(
+                "Good weapons",
+                LootAction.Keep,
+                Requirement(2003, "100", "218103842")),
+            VtankRule("Money", LootAction.Keep, Requirement(7, "7")),
+        ];
+        LootRule[] differentAction =
+        [
+            VtankRule(
+                "Good weapons",
+                LootAction.Keep,
+                Requirement(2003, "100", "218103842")),
+            VtankRule("Money", LootAction.Salvage, Requirement(7, "7")),
+        ];
+
+        Assert.False(LootRuleEngine.NeedsIdentify(
+            money,
+            EmptyProperties,
+            sameAction));
+        Assert.True(LootRuleEngine.NeedsIdentify(
+            money,
+            EmptyProperties,
+            differentAction));
+    }
+
+    [Fact]
+    public void SpellRequirementsStayOpenOnlyWhileTheItemClaimsToBeMagical()
+    {
+        LootRule[] rules =
+        [
+            VtankRule("Enchanted", LootAction.Keep, Requirement(8, "1")),
+            VtankRule("Everything else", LootAction.NoLoot),
+        ];
+        PluginInventoryItem plain = Item(10u, "Rock", 273u);
+        PluginInventoryItem magical = plain with { Effects = 1u };
+
+        Assert.False(LootRuleEngine.NeedsIdentify(
+            plain,
+            EmptyProperties,
+            rules));
+        Assert.True(LootRuleEngine.NeedsIdentify(
+            magical,
+            EmptyProperties,
+            rules));
+    }
+
+    [Fact]
+    public void ACatchAllProfileNeverAppraisesACorpseItem()
+    {
+        var settings = new LootSettings { Enabled = true };
+        settings.Rules.Add(new LootRule
+        {
+            Name = "Keep everything",
+            Expression = "*",
+            Action = LootAction.Keep,
+        });
+        const uint corpse = 0x70000600u;
+        const uint loose = 0x70000601u;
+        var automation = new Automation
+        {
+            Corpses =
+            [
+                new PluginLootContainer(
+                    corpse, 1u, "Corpse of a Drudge", 3f, false, false, false)
+                {
+                    IsIdentified = true,
+                    LongDescription = "Killed by Tester.",
+                },
+            ],
+        };
+        var controller = new LootController(new Host(automation), settings);
+
+        Assert.True(controller.Tick(0.25d, canAct: true));
+        automation.Current = corpse;
+        automation.Contents = [Item(loose, "Pyreal", 273u)];
+        Assert.True(controller.Tick(0.2d, canAct: true));
+
+        Assert.Empty(automation.Identified);
+        Assert.Equal(new[] { loose }, automation.Picked);
+    }
+
+    [Fact]
+    public void EverythingOnYourOwnDeathCorpseIsAppraised()
+    {
+        var settings = new LootSettings { Enabled = true };
+        settings.Rules.Add(new LootRule
+        {
+            Name = "Keep everything",
+            Expression = "*",
+            Action = LootAction.Keep,
+        });
+        const uint corpse = 0x70000700u;
+        const uint loose = 0x70000701u;
+        var automation = new Automation
+        {
+            Corpses =
+            [
+                new PluginLootContainer(
+                    corpse, 1u, "Corpse of Tester", 3f, false, false, false)
+                {
+                    IsIdentified = true,
+                    LongDescription = "Killed by Tester.",
+                },
+            ],
+        };
+        var controller = new LootController(new Host(automation), settings);
+
+        Assert.True(controller.Tick(0.25d, canAct: true));
+        automation.Current = corpse;
+        automation.Contents = [Item(loose, "Pyreal", 273u)];
+        Assert.True(controller.Tick(0.2d, canAct: true));
+
+        Assert.Equal(new[] { loose }, automation.Identified);
+    }
+
+    [Fact]
+    public void ABuffedKeyOnlyGainsItsSpellBonusWhenTheItemCarriesTheBaseKey()
+    {
+        // Spell 2598 is Blood Drinker: +2 to the item's damage key.
+        PluginInventoryItem noDamage = Item(10u, "Ruby", 273u) with
+        {
+            AppraisedSpellIds = [2598u],
+        };
+        PluginInventoryItem weapon = noDamage with { Damage = 5 };
+        VtankLootRequirement[] atLeastOne =
+            [Requirement(2003, "1", "218103842")];
+
+        Assert.False(VtankLootRequirementEvaluator.IsMatch(
+            atLeastOne,
+            noDamage,
+            EmptyProperties,
+            null,
+            out _));
+        Assert.True(VtankLootRequirementEvaluator.IsMatch(
+            atLeastOne,
+            weapon,
+            EmptyProperties,
+            null,
+            out _));
+    }
+
+    /// <summary>
+    /// Whether a spell's amount multiplies or adds is decided by truncating
+    /// the authored operation to a whole number and asking whether it is one.
+    /// Every row of the table authors the same number for the operation as for
+    /// the amount, so this pins the choice, not where it is read from.
+    /// Mutation: swap the two branches.
+    /// </summary>
+    [Theory]
+    // Spell 3199 authors 1.10, which truncates to 1 and multiplies.
+    [InlineData(3199u, 144u, 1d, 1.10d, true)]
+    [InlineData(3199u, 144u, 1d, 1.11d, false)]
+    // Spell 2588 authors 0.05, which truncates to 0 and adds.
+    [InlineData(2588u, 29u, 0.10d, 0.15d, true)]
+    [InlineData(2588u, 29u, 0.10d, 0.16d, false)]
+    public void ABuffedDoubleMultipliesOnlyWhenTheAuthoredOperationIsOne(
+        uint spellId,
+        uint key,
+        double baseValue,
+        double threshold,
+        bool expected)
+    {
+        PluginInventoryItem item = Item(10u, "Sword", 273u) with
+        {
+            AppraisedSpellIds = [spellId],
+        };
+        PluginItemProperties properties = EmptyProperties with
+        {
+            Floats = new Dictionary<uint, double> { [key] = baseValue },
+        };
+
+        Assert.Equal(
+            expected,
+            VtankLootRequirementEvaluator.IsMatch(
+                [Requirement(
+                    2005,
+                    threshold.ToString(CultureInfo.InvariantCulture),
+                    key.ToString(CultureInfo.InvariantCulture))],
+                item,
+                properties,
+                null,
+                out _));
+    }
+
+    [Fact]
+    public void AFartherRareCorpseIsOpenedBeforeANearerMundaneOne()
+    {
+        var settings = new LootSettings { Enabled = true };
+        settings.Rules.Add(new LootRule { Expression = "*" });
+        const uint mundane = 0x70000800u;
+        const uint rare = 0x70000801u;
+        var automation = new Automation
+        {
+            Corpses =
+            [
+                new PluginLootContainer(
+                    mundane, 1u, "Corpse", 2f, false, false, false)
+                {
+                    IsIdentified = true,
+                    LongDescription = "Killed by Tester.",
+                },
+                new PluginLootContainer(
+                    rare, 1u, "Corpse", 4.5f, false, false, false)
+                {
+                    IsIdentified = true,
+                    IsGeneratedRare = true,
+                    LongDescription =
+                        "Killed by Tester. Generated rare treasure.",
+                },
+            ],
+        };
+        var controller = new LootController(new Host(automation), settings);
+
+        Assert.True(controller.Tick(0.25d, canAct: true));
+        Assert.Equal(new[] { rare }, automation.Opened);
+    }
+
+    /// <summary>
+    /// Mutation: score the open pick by distance instead of by how far round
+    /// the character would have to turn.
+    /// </summary>
+    [Fact]
+    public void TheCorpseInReachTheCharacterIsFacingIsOpenedFirst()
+    {
+        var settings = new LootSettings { Enabled = true };
+        settings.Rules.Add(new LootRule { Expression = "*" });
+        const uint behind = 0x70000F00u;
+        const uint ahead = 0x70000F01u;
+        var automation = new Automation
+        {
+            NavigationSnapshot = new PluginNavigationSnapshot(
+                true,
+                false,
+                Player,
+                Place(0d, 0d, headingDegrees: 0f),
+                false,
+                false),
+            Corpses =
+            [
+                new PluginLootContainer(
+                    behind, 1u, "Corpse", 2f, false, false, false)
+                {
+                    IsIdentified = true,
+                    LongDescription = "Killed by Tester.",
+                    HasPosition = true,
+                    Position = Place(0d, -2d),
+                },
+                new PluginLootContainer(
+                    ahead, 1u, "Corpse", 4f, false, false, false)
+                {
+                    IsIdentified = true,
+                    LongDescription = "Killed by Tester.",
+                    HasPosition = true,
+                    Position = Place(0d, 4d),
+                },
+            ],
+        };
+        var controller = new LootController(new Host(automation), settings);
+
+        Assert.True(controller.Tick(0.25d, canAct: true));
+        Assert.Equal(new[] { ahead }, automation.Opened);
+    }
+
+    /// <summary>
+    /// Mutation: keep every corpse record for the life of the session instead
+    /// of dropping the ones the client has stopped reporting.
+    /// </summary>
+    [Fact]
+    public void ACorpseForgottenAfterTheCacheTimeoutStartsItsAgeClockAgain()
+    {
+        var settings = new LootSettings
+        {
+            Enabled = true,
+            LootAllCorpses = true,
+            CorpseCacheTimeoutMinutes = 1d,
+            ScanIntervalSeconds = 0.05d,
+        };
+        settings.Rules.Add(new LootRule { Expression = "*" });
+        const uint corpse = 0x70001200u;
+        PluginLootContainer container = new(
+            corpse, 1u, "Corpse", 3f, false, false, false)
+        {
+            IsIdentified = true,
+            LongDescription = "Killed by Someone Else.",
+        };
+        var automation = new Automation { Corpses = [container] };
+        var controller = new LootController(new Host(automation), settings);
+
+        Assert.False(controller.Tick(0.25d, canAct: true));
+
+        // Gone from the client for longer than the cache timeout: forgotten.
+        automation.Corpses = [];
+        Assert.False(controller.Tick(200d, canAct: true));
+
+        // Back again, and as far as the ownership timer is concerned it has
+        // only just been seen for the first time.
+        automation.Corpses = [container];
+        Assert.False(controller.Tick(200d, canAct: true));
+        Assert.Empty(automation.Opened);
+
+        Assert.True(controller.Tick(200d, canAct: true));
+        Assert.Equal(new[] { corpse }, automation.Opened);
+    }
+
+    /// <summary>
+    /// Mutation: drop the distance-metric fallback and pick only inside the
+    /// open radius.
+    /// </summary>
+    [Fact]
+    public void ACorpseBeyondArmsReachIsStillPickedByDistance()
+    {
+        var settings = new LootSettings { Enabled = true };
+        settings.Rules.Add(new LootRule { Expression = "*" });
+        const uint near = 0x70001000u;
+        const uint far = 0x70001001u;
+        var automation = new Automation
+        {
+            Corpses =
+            [
+                new PluginLootContainer(
+                    far, 1u, "Corpse", 30f, false, false, false)
+                {
+                    IsIdentified = true,
+                    LongDescription = "Killed by Tester.",
+                },
+                new PluginLootContainer(
+                    near, 1u, "Corpse", 12f, false, false, false)
+                {
+                    IsIdentified = true,
+                    LongDescription = "Killed by Tester.",
+                },
+            ],
+        };
+        var controller = new LootController(new Host(automation), settings);
+
+        Assert.True(controller.Tick(0.25d, canAct: true));
+        Assert.Equal(new[] { near }, automation.Opened);
+    }
+
+    /// <summary>
+    /// Mutation: read the rare flag off the wire property alone, ignoring a
+    /// description that is not a kill description.
+    /// </summary>
+    [Fact]
+    public void ACorpseWhoseDescriptionNamesNoKillerIsTreatedAsRare()
+    {
+        var settings = new LootSettings
+        {
+            Enabled = true,
+            LootAllCorpses = true,
+            ScanIntervalSeconds = 0.05d,
+        };
+        settings.Rules.Add(new LootRule { Expression = "*" });
+        const uint unattributed = 0x70001100u;
+        var automation = new Automation
+        {
+            Corpses =
+            [
+                new PluginLootContainer(
+                    unattributed, 1u, "Corpse", 3f, false, false, false)
+                {
+                    IsIdentified = true,
+                    LongDescription = "Generated treasure",
+                },
+            ],
+        };
+        var controller = new LootController(new Host(automation), settings);
+
+        // Rare, so it sorts first; nobody killed it, so it is never looted —
+        // not even once it is old enough for the loot-anything timer.
+        Assert.False(controller.Tick(200d, canAct: true));
+        Assert.False(controller.Tick(200d, canAct: true));
+        Assert.Empty(automation.Opened);
+    }
+
+    [Fact]
+    public void ARefusedCorpseIsSkippedForTenSecondsWithoutRetrying()
+    {
+        var settings = new LootSettings
+        {
+            Enabled = true,
+            CorpseOpenTimeoutSeconds = 0.25d,
+            ScanIntervalSeconds = 0.05d,
+        };
+        settings.Rules.Add(new LootRule { Expression = "*" });
+        const uint corpse = 0x70000900u;
+        var automation = new Automation
+        {
+            Corpses =
+            [
+                new PluginLootContainer(
+                    corpse, 1u, "Corpse", 3f, false, false, false)
+                {
+                    IsIdentified = true,
+                    LongDescription = "Killed by Tester.",
+                },
+            ],
+        };
+        var controller = new LootController(new Host(automation), settings);
+
+        Assert.True(controller.Tick(0.1d, canAct: true));
+        Assert.Single(automation.Opened);
+        automation.ChatMessages.Add(new PluginChatMessage(
+            1uL,
+            0u,
+            0,
+            string.Empty,
+            "The Corpse of a Drudge Slinker is already in use by someone else!",
+            string.Empty));
+
+        Assert.False(controller.Tick(0.3d, canAct: true));
+        Assert.False(controller.Tick(9d, canAct: true));
+        Assert.Single(automation.Opened);
+
+        Assert.True(controller.Tick(1d, canAct: true));
+        Assert.Equal(2, automation.Opened.Count);
+    }
+
+    [Fact]
+    public void ACorpseSeenOutOfRangeIsAlreadyOldEnoughWhenItComesIntoRange()
+    {
+        var settings = new LootSettings
+        {
+            Enabled = true,
+            LootAllCorpses = true,
+            CorpseApproachRange = 20d,
+            ScanIntervalSeconds = 0.05d,
+        };
+        settings.Rules.Add(new LootRule { Expression = "*" });
+        const uint corpse = 0x70000A00u;
+        var far = new PluginLootContainer(
+            corpse, 1u, "Corpse", 80f, false, false, false)
+        {
+            IsIdentified = true,
+            LongDescription = "Killed by Stranger.",
+        };
+        var automation = new Automation { Corpses = [far] };
+        var controller = new LootController(new Host(automation), settings);
+
+        Assert.False(controller.Tick(0.1d, canAct: true));
+        Assert.False(controller.Tick(100d, canAct: true));
+        Assert.Empty(automation.Opened);
+
+        automation.Corpses = [far with { Distance = 3f }];
+        Assert.True(controller.Tick(0.1d, canAct: true));
+        Assert.Equal(new[] { corpse }, automation.Opened);
+    }
+
+    [Fact]
+    public void AFinishedCorpseIsClosedWithASecondUse()
+    {
+        var settings = new LootSettings { Enabled = true };
+        settings.Rules.Add(new LootRule
+        {
+            Expression = "*",
+            Action = LootAction.NoLoot,
+        });
+        const uint corpse = 0x70000B00u;
+        var automation = new Automation
+        {
+            Corpses =
+            [
+                new PluginLootContainer(
+                    corpse, 1u, "Corpse", 3f, false, false, false)
+                {
+                    IsIdentified = true,
+                    LongDescription = "Killed by Tester.",
+                },
+            ],
+        };
+        var controller = new LootController(new Host(automation), settings);
+
+        Assert.True(controller.Tick(0.25d, canAct: true));
+        automation.Current = corpse;
+        automation.Contents = [Item(0x70000B01u, "Rock", 273u)];
+        Assert.True(controller.Tick(0.2d, canAct: true));
+
+        Assert.Equal("Corpse complete.", controller.Status);
+        Assert.Equal(new[] { corpse }, automation.Used);
+    }
+
+    /// <summary>
+    /// Mutation: drop the <c>canAct</c> / availability / busy gate from
+    /// <c>CloseFinishedCorpse</c>.
+    /// </summary>
+    [Fact]
+    public void AFinishedCorpseIsNotClosedUntilTheItemChannelIsFree()
+    {
+        (LootController controller, Automation automation, uint corpse) =
+            FinishedCorpseScenario(itemsBusy: true);
+
+        Assert.Empty(automation.Used);
+        Assert.Equal("Waiting to close corpse…", controller.Status);
+
+        // A pass the controller may not act on holds it back just as much.
+        automation.ItemsBusy = false;
+        Assert.True(controller.Tick(0.1d, canAct: false));
+        Assert.Empty(automation.Used);
+
+        Assert.True(controller.Tick(0.1d, canAct: true));
+        Assert.Equal(new[] { corpse }, automation.Used);
+    }
+
+    /// <summary>
+    /// Mutation: clear the corpse and answer false when the closing use is
+    /// refused, instead of keeping it and trying again.
+    /// </summary>
+    [Fact]
+    public void ARefusedCloseIsTriedAgainUntilTheContainerActuallyShuts()
+    {
+        (LootController controller, Automation automation, uint corpse) =
+            FinishedCorpseScenario(itemsBusy: false);
+
+        Assert.Equal(new[] { corpse }, automation.Used);
+
+        // The server did not shut the container, so the corpse is still this
+        // controller's business and the use comes round again.
+        Assert.True(controller.Tick(0.1d, canAct: true));
+        Assert.Equal(new[] { corpse, corpse }, automation.Used);
+        Assert.Empty(automation.Opened.Skip(1));
+
+        automation.Current = 0u;
+        Assert.False(controller.Tick(0.1d, canAct: true));
+        Assert.Equal(new[] { corpse, corpse }, automation.Used);
+    }
+
+    /// <summary>Opens one corpse holding nothing worth taking.</summary>
+    private static (LootController Controller, Automation Automation,
+        uint Corpse) FinishedCorpseScenario(bool itemsBusy)
+    {
+        var settings = new LootSettings { Enabled = true };
+        settings.Rules.Add(new LootRule
+        {
+            Expression = "*",
+            Action = LootAction.NoLoot,
+        });
+        const uint corpse = 0x70000E00u;
+        var automation = new Automation
+        {
+            Corpses =
+            [
+                new PluginLootContainer(
+                    corpse, 1u, "Corpse", 3f, false, false, false)
+                {
+                    IsIdentified = true,
+                    LongDescription = "Killed by Tester.",
+                },
+            ],
+        };
+        var controller = new LootController(new Host(automation), settings);
+
+        Assert.True(controller.Tick(0.25d, canAct: true));
+        automation.Current = corpse;
+        automation.Contents = [Item(0x70000E01u, "Rock", 273u)];
+        automation.ItemsBusy = itemsBusy;
+        Assert.True(controller.Tick(0.2d, canAct: true));
+        return (controller, automation, corpse);
+    }
+
+    /// <summary>
+    /// Mutation: take the scroll off the queue when the read fails or never
+    /// answers, instead of only when the item is gone.
+    /// </summary>
+    [Fact]
+    public void AFailedScrollReadIsTriedAgainInsteadOfDroppingTheScroll()
+    {
+        (LootController controller, ReadScrollController reader,
+            Automation automation, uint scroll, _) = ScrollScenario();
+
+        Assert.True(reader.Tick(0.1d, canAct: true));
+        Assert.Equal(new[] { scroll }, automation.Used);
+
+        // The server said no.
+        automation.UseCompletion =
+            new PluginItemUseCompletion(1L, scroll, 0u, 7u);
+        Assert.True(reader.Tick(0.1d, canAct: true));
+        Assert.Equal(
+            new Dictionary<uint, uint> { [777u] = scroll },
+            controller.PendingScrollReads);
+
+        Assert.True(reader.Tick(0.1d, canAct: true));
+        Assert.Equal(new[] { scroll, scroll }, automation.Used);
+    }
+
+    /// <summary>
+    /// Mutation: drop the call that sheds queued scrolls the character no
+    /// longer holds.
+    /// </summary>
+    [Fact]
+    public void AQueuedScrollTheCharacterNoLongerHoldsLeavesTheQueue()
+    {
+        (LootController controller, ReadScrollController reader,
+            Automation automation, uint scroll, _) = ScrollScenario();
+
+        Assert.True(reader.Tick(0.1d, canAct: true));
+        automation.UseCompletion =
+            new PluginItemUseCompletion(1L, scroll, 0u, 0u);
+        automation.Owned = [];
+        Assert.True(reader.Tick(0.1d, canAct: true));
+
+        Assert.False(reader.Tick(0.1d, canAct: true));
+        Assert.Empty(controller.PendingScrollReads);
+        Assert.Equal(new[] { scroll }, automation.Used);
+    }
+
+    /// <summary>
+    /// Mutation: gate the reading rule on the looting switch.
+    /// </summary>
+    [Fact]
+    public void AQueuedScrollIsStillReadAfterLootingIsSwitchedOff()
+    {
+        (_, ReadScrollController reader, Automation automation, uint scroll,
+            LootSettings settings) = ScrollScenario();
+        settings.Enabled = false;
+
+        Assert.True(reader.Tick(0.1d, canAct: true));
+        Assert.Equal(new[] { scroll }, automation.Used);
+    }
+
+    [Fact]
+    public void APickedUpScrollIsQueuedForTheReadingRuleInsteadOfReadInline()
+    {
+        (LootController controller, ReadScrollController reader,
+            Automation automation, uint scroll, _) = ScrollScenario();
+
+        Assert.Empty(automation.Used);
+        Assert.Equal(
+            new Dictionary<uint, uint> { [777u] = scroll },
+            controller.PendingScrollReads);
+
+        Assert.True(reader.Tick(0.1d, canAct: true));
+        Assert.Equal(new[] { scroll }, automation.Used);
+    }
+
+    /// <summary>
+    /// Mutation: test the item's misc type flag plus a name ending in
+    /// " Scroll" instead of the object class.
+    /// </summary>
+    [Fact]
+    public void AMiscItemThatMerelyLooksLikeAScrollIsNotRead()
+    {
+        var settings = new LootSettings { Enabled = true };
+        settings.Rules.Add(new LootRule
+        {
+            Expression = "*",
+            Action = LootAction.NoLoot,
+        });
+        const uint corpse = 0x70000D00u;
+        const uint fake = 0x70000D01u;
+        var automation = new Automation
+        {
+            KnownSpell = new PluginSpellInfo(
+                777u, "Incantation of Testing", 1u, 1, 100, 10, 0f,
+                34u, string.Empty, false, false),
+            SkillsValue =
+            [
+                new PluginSkillInfo(
+                    34u, "War Magic", PluginSkillTraining.Trained, 90u),
+            ],
+            Corpses =
+            [
+                new PluginLootContainer(
+                    corpse, 1u, "Corpse", 3f, false, false, false)
+                {
+                    IsIdentified = true,
+                    LongDescription = "Killed by Tester.",
+                },
+            ],
+        };
+        var controller = new LootController(new Host(automation), settings);
+
+        Assert.True(controller.Tick(0.25d, canAct: true));
+        automation.Current = corpse;
+        automation.Contents =
+        [
+            Item(fake, "Counterfeit Scroll", 88u) with
+            {
+                ItemType = 0x00000080u,
+                SpellId = 777u,
+                ObjectClass = PluginObjectClass.Misc,
+            },
+        ];
+        Assert.True(controller.Tick(0.2d, canAct: true));
+
+        Assert.Empty(automation.Picked);
+        Assert.Empty(controller.PendingScrollReads);
+    }
+
+    [Fact]
+    public void AQueuedScrollIsDroppedOnceItsSpellIsKnown()
+    {
+        (LootController controller, ReadScrollController reader,
+            Automation automation, _, _) = ScrollScenario();
+        automation.SpellLearned = true;
+
+        Assert.False(reader.Tick(0.1d, canAct: true));
+        Assert.Empty(automation.Used);
+        Assert.Empty(controller.PendingScrollReads);
+    }
+
+    /// <summary>Loots one unknown scroll off a corpse and stops there.</summary>
+    private static (LootController Controller, ReadScrollController Reader,
+        Automation Automation, uint Scroll, LootSettings Settings)
+        ScrollScenario()
+    {
+        var settings = new LootSettings { Enabled = true };
+        settings.Rules.Add(new LootRule
+        {
+            Expression = "*",
+            Action = LootAction.NoLoot,
+        });
+        const uint corpse = 0x70000C00u;
+        const uint scroll = 0x70000C01u;
+        var automation = new Automation
+        {
+            KnownSpell = new PluginSpellInfo(
+                777u, "Incantation of Testing", 1u, 1, 100, 10, 0f,
+                34u, string.Empty, false, false),
+            SkillsValue =
+            [
+                new PluginSkillInfo(
+                    34u, "War Magic", PluginSkillTraining.Trained, 90u),
+            ],
+            Corpses =
+            [
+                new PluginLootContainer(
+                    corpse, 1u, "Corpse", 3f, false, false, false)
+                {
+                    IsIdentified = true,
+                    LongDescription = "Killed by Tester.",
+                },
+            ],
+        };
+        var host = new Host(automation);
+        var controller = new LootController(host, settings);
+        PluginInventoryItem item = Scroll(scroll, "Incantation of Testing", 777u);
+
+        Assert.True(controller.Tick(0.25d, canAct: true));
+        automation.Current = corpse;
+        automation.Contents = [item];
+        Assert.True(controller.Tick(0.2d, canAct: true));
+        Assert.Equal(new[] { scroll }, automation.Picked);
+
+        automation.Contents = [];
+        automation.Owned = [item];
+        automation.InventoryCompletion = new PluginInventoryCompletion(
+            1, PluginInventoryCommandKind.Pickup, scroll, 0u);
+        Assert.True(controller.Tick(0.1d, canAct: true));
+
+        return (
+            controller,
+            new ReadScrollController(host, settings, controller),
+            automation,
+            scroll,
+            settings);
+    }
+
+    private static LootRule VtankRule(
+        string name,
+        LootAction action,
+        params VtankLootRequirement[] requirements) => new()
+    {
+        Name = name,
+        Expression = "*",
+        Action = action,
+        VtankRequirements = [.. requirements],
+    };
+
     private static PluginInventoryItem Item(uint id, string name, uint wcid) =>
         new(
             id, wcid, name, 0u, 0u, 0u, 0u, 0u, 0u, 0u, 0u,
             1, 0, 0, 0u, 0, 0, 0u, false, 0d, 0, 0, 0, 0d, 0, 0, 0);
+
+    /// <summary>A spot in the world, in metres east and north of nowhere.</summary>
+    private static PluginNavigationPosition Place(
+        double eastMeters,
+        double northMeters,
+        float headingDegrees = 0f) =>
+        new(1u, eastMeters / 240d, northMeters / 240d, 0d, headingDegrees, true);
+
+    /// <summary>
+    /// A real scroll: a writable item carrying the spell it teaches, which is
+    /// what makes the client classify it as a scroll. The name deliberately
+    /// does NOT end in " Scroll" — many do not, and the shape is what decides.
+    /// </summary>
+    private static PluginInventoryItem Scroll(
+        uint id,
+        string spellName,
+        uint spellId) =>
+        Item(id, spellName, 88u) with
+        {
+            ItemType = 0x00002000u,
+            SpellId = spellId,
+            ObjectClass = PluginObjectClass.Scroll,
+        };
 
     private static VtankLootRequirement Requirement(
         int type,
@@ -834,13 +1665,35 @@ public sealed class LootingTests
 
     private sealed class Automation
         : IAutomationSurface, ICharacterInfo, ISpellCatalog, IItemAutomation,
-          ILootAutomation, IFellowshipAutomation
+          ILootAutomation, IFellowshipAutomation, IPluginChat,
+          INavigationAutomation
     {
         public bool IsAvailable => true;
+        public INavigationAutomation Navigation => this;
+        public PluginNavigationSnapshot NavigationSnapshot { get; set; }
+        public PluginNavigationSnapshot Snapshot => NavigationSnapshot;
+        public bool TryGetObject(uint objectId, out PluginNavigationObject value)
+        {
+            value = default;
+            return false;
+        }
+        public PluginNavigationCommandStatus SetMovementIntent(
+            in PluginMovementIntent intent) =>
+            PluginNavigationCommandStatus.Unavailable;
+        public PluginNavigationCommandStatus ClearMovementIntent() =>
+            PluginNavigationCommandStatus.Unavailable;
+        public bool ItemsBusy { get; set; }
+        bool IItemAutomation.IsBusy => ItemsBusy;
         public ICharacterInfo Character => this;
         public ISpellCatalog Spells => this;
         public IMagicCommands Magic => NoOpAutomationSurface.Instance;
-        public IPluginChat Chat => NoOpAutomationSurface.Instance;
+        public IPluginChat Chat => this;
+        public List<PluginChatMessage> ChatMessages { get; } = [];
+        public IReadOnlyList<PluginChatMessage> CaptureMessages(
+            ulong afterSequence) => ChatMessages
+                .Where(message => message.Sequence > afterSequence)
+                .ToArray();
+        public void PostSystemMessage(string text) { }
         public IItemAutomation Items => this;
         public ILootAutomation Loot => this;
         public IFellowshipAutomation Fellowship => this;
@@ -892,6 +1745,14 @@ public sealed class LootingTests
         PluginInventoryCompletion ILootAutomation.LastInventoryCompletion =>
             InventoryCompletion;
         public List<uint> Opened { get; } = [];
+        public List<uint> Used { get; } = [];
+        public PluginItemUseCompletion UseCompletion { get; set; }
+        public PluginItemUseCompletion LastCompletion => UseCompletion;
+        public PluginItemCommandResult Use(uint objectId)
+        {
+            Used.Add(objectId);
+            return new(PluginItemCommandStatus.Started);
+        }
         public List<uint> Picked { get; } = [];
         public List<uint> Identified { get; } = [];
         public List<(uint Tool, uint Item)> Salvaged { get; } = [];
