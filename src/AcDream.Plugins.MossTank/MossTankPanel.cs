@@ -936,10 +936,15 @@ internal sealed partial class MossTankPanel : IBuffRuleHost
             _ => RouteInsertMode.AddToEnd,
         };
 
+    // Flipping a setting is not a route change. The reference re-anchors the
+    // round from route edits, route loads and the macro start, and from
+    // nothing else — turning navigation off and on again leaves the round
+    // exactly where it was. These three used to reset it, while setting the
+    // same three by name did not; the setting-by-name path was the faithful
+    // one, so these follow it.
     public Action ToggleNavigation => () =>
     {
         _navigationSettings.Enabled = !_navigationSettings.Enabled;
-        _navigation.Reset();
         SaveRouteProfile();
     };
     public Action ToggleNavigationPriority => () =>
@@ -951,13 +956,11 @@ internal sealed partial class MossTankPanel : IBuffRuleHost
     {
         _navigationSettings.FollowAroundCorners =
             !_navigationSettings.FollowAroundCorners;
-        _navigation.Reset();
         SaveRouteProfile();
     };
     public Action ToggleOpenDoors => () =>
     {
         _navigationSettings.OpenDoors = !_navigationSettings.OpenDoors;
-        _navigation.Reset();
         SaveRouteProfile();
     };
     public Action<string> SelectRouteMode => value =>
@@ -4360,7 +4363,20 @@ internal sealed partial class MossTankPanel : IBuffRuleHost
         if (_combat.Enabled == running)
             return;
         _combat.Toggle();
-        if (running || _combat.Enabled)
+        if (running)
+        {
+            // Starting decides where the round begins, and it is not simply
+            // where the last one stopped: the character has usually moved
+            // since — walked away, or died and woken at a lifestone — so the
+            // round is re-anchored to the nearest point of the route it could
+            // walk to. Only if the start actually took: the toggle refuses
+            // when there is no world yet, and the reference's start has its
+            // own guards ahead of the same step.
+            if (_combat.Enabled)
+                _navigation.AnchorRoundToStart();
+            return;
+        }
+        if (_combat.Enabled)
             return;
 
         if (_buffRule.IsBursting)
@@ -4380,10 +4396,11 @@ internal sealed partial class MossTankPanel : IBuffRuleHost
         _loot.Reset();
         _profileGive.Reset();
         // Not Reset: stopping puts down what the route had in flight and
-        // keeps where the round had got to. The reference's stop does not
-        // touch the route at all — it clears the cast tracker, cancels the
-        // jump and the kit sequence, drops the target and stops the pass —
-        // and starting again therefore carries on round the loop.
+        // keeps where the round had got to. The reference's stop clears every
+        // rule's running flag, the cast tracker, the jump and the kit
+        // sequence, drops the target and stops the pass — and touches the
+        // route's own position not at all. Deciding where the round begins
+        // belongs to the start, above.
         _navigation.StopForMacroStop();
     }
 

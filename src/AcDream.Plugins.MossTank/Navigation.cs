@@ -437,7 +437,12 @@ internal sealed class NavigationController
     /// Back to the top of the route. This is for a route that has changed
     /// under the controller — loaded, edited, cleared — and for the end of a
     /// session. Stopping the macro is NOT one of those; it uses
-    /// <see cref="StopForMacroStop"/>, which keeps the round's position.
+    /// <see cref="StopForMacroStop"/>, which keeps the round's position, and
+    /// the next start re-anchors it.
+    ///
+    /// The reference re-anchors on a route change too rather than going to
+    /// the head; that difference is the register's, not this method's, and
+    /// it is recorded there.
     /// </summary>
     public void Reset()
     {
@@ -456,14 +461,86 @@ internal sealed class NavigationController
     }
 
     /// <summary>
+    /// Where the round begins when the macro starts. Not where it left off,
+    /// and not the first point either: the character is wherever the last run
+    /// ended or wherever it died, so the round is re-anchored to the nearest
+    /// point it could actually walk to. A once-through route starts at its
+    /// head, and a follow route has no round to anchor.
+    ///
+    /// Only three waypoint kinds are candidates — the plain point, the portal
+    /// and the checkpoint. The rest (pause, chat, jump, recall, vendor, NPC,
+    /// portal-by-name) are things to do rather than places to be, and their
+    /// stored coordinate is not somewhere the character can be near.
+    /// </summary>
+    public void AnchorRoundToStart()
+    {
+        if (_settings.Mode == RouteMode.Target)
+            return;
+
+        if (_settings.Mode == RouteMode.Once)
+        {
+            _index = 0;
+        }
+        else
+        {
+            PluginNavigationPosition here =
+                _host.Automation.Navigation.Snapshot.Position;
+            int nearest = 0;
+            double best = double.MaxValue;
+            for (int index = 0; index < _settings.Waypoints.Count; index++)
+            {
+                RouteWaypoint waypoint = _settings.Waypoints[index];
+                if (!IsAnchorCandidate(waypoint.Type))
+                    continue;
+                double distance = SpatialDistanceMeters(here, waypoint.Position);
+                if (distance < best)
+                {
+                    best = distance;
+                    nearest = index;
+                }
+            }
+            // A route of nothing but actions anchors at its head, which is
+            // what the zero the search starts from already says.
+            _index = nearest;
+        }
+
+        if (_settings.Waypoints.Count > 0)
+            ClearAction();
+    }
+
+    private static bool IsAnchorCandidate(RouteWaypointType type) =>
+        type is RouteWaypointType.Point
+            or RouteWaypointType.Portal
+            or RouteWaypointType.Checkpoint;
+
+    /// <summary>
+    /// Straight-line distance including height, which is what picking the
+    /// nearest point of a route asks for — a point directly below you on the
+    /// floor of a dungeon is not the one you are standing at.
+    /// </summary>
+    private static double SpatialDistanceMeters(
+        in PluginNavigationPosition from,
+        in PluginNavigationPosition to)
+    {
+        double eastWest = from.EastWest - to.EastWest;
+        double northSouth = from.NorthSouth - to.NorthSouth;
+        double elevation = from.Elevation - to.Elevation;
+        return Math.Sqrt(
+            (eastWest * eastWest)
+            + (northSouth * northSouth)
+            + (elevation * elevation)) * 240d;
+    }
+
+    /// <summary>
     /// What stopping the macro does to the route: everything in flight is put
     /// down — the movement, the door being opened, the waypoint action being
     /// worked, the checkpoint clock — and the round's own position is kept.
     /// Which point of the loop the character had reached, and which way round
-    /// it was going, are the player's, not the macro run's: the reference's
-    /// stop leaves them alone entirely, so starting again resumes the round
-    /// instead of restarting it. Only loading a route or ending the session
-    /// puts the round back to its first point — see <see cref="Reset"/>.
+    /// it was going, are the player's, not the macro run's, and the
+    /// reference's stop leaves them alone. Starting again re-anchors the round
+    /// rather than resuming it blindly — see <see cref="AnchorRoundToStart"/>.
+    /// Loading or editing a route puts the round back to its first point; see
+    /// <see cref="Reset"/>.
     /// </summary>
     public void StopForMacroStop()
     {
