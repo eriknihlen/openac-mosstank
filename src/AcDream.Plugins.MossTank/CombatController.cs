@@ -114,6 +114,7 @@ internal sealed class CombatController
         _passCandidates.Remove(objectId);
     }
     private IReadOnlyList<PluginEquipmentItem>? _passEquipment;
+    private IReadOnlyList<PluginInventoryItem>? _passInventory;
     private uint _pendingAttackTarget;
     private PendingItemDebuff? _pendingItemDebuff;
     private ulong _observedChatSequence;
@@ -304,7 +305,7 @@ internal sealed class CombatController
             if (!equipment.IsAvailable || weapon == 0u)
                 return false;
             return ResolveAmmunitionPlan(
-                equipment.CaptureOwnedEquipment(),
+                PassEquipment(),
                 weapon,
                 element).Kind
                 != AmmunitionPlanKind.Satisfied;
@@ -314,8 +315,7 @@ internal sealed class CombatController
             IEquipmentAutomation equipment = _host.Automation.Equipment;
             if (!equipment.IsAvailable)
                 return false;
-            IReadOnlyList<PluginEquipmentItem> items =
-                equipment.CaptureOwnedEquipment();
+            IReadOnlyList<PluginEquipmentItem> items = PassEquipment();
             return TickAmmunition(items, _plannedWeapon, element);
         };
         return gate;
@@ -459,6 +459,7 @@ internal sealed class CombatController
         _passCandidates.Clear();
         _passCandidateRange = double.NaN;
         _passEquipment = null;
+        _passInventory = null;
 
         _lastElapsedSeconds = Math.Max(0d, elapsedSeconds);
         _now += _lastElapsedSeconds;
@@ -599,7 +600,8 @@ internal sealed class CombatController
                 _settings,
                 _now,
                 out string petStatus,
-                readyToRefillInPeace: ReadyToActInPeace))
+                readyToRefillInPeace: ReadyToActInPeace,
+                captured: PassInventory()))
         {
             Status = petStatus;
             return AttackPassOutcome.Claimed;
@@ -664,7 +666,7 @@ internal sealed class CombatController
         }
 
         IReadOnlyList<PluginInventoryItem> inventory =
-            _host.Automation.Items.CaptureOwnedItems();
+            PassInventory();
         PluginCombatTarget physicalTarget = FindTarget(_targetId);
         MonsterRuleActions physicalActions = ResolvePhysicalActions(
             DecisionActions,
@@ -1320,8 +1322,7 @@ internal sealed class CombatController
             return true;
         }
 
-        IReadOnlyList<PluginEquipmentItem> items =
-            equipment.CaptureOwnedEquipment();
+        IReadOnlyList<PluginEquipmentItem> items = PassEquipment();
         uint desiredWeapon;
         if (actions.WeaponToUseRaw == 0)
         {
@@ -1417,7 +1418,7 @@ internal sealed class CombatController
         }
 
         IReadOnlyList<PluginInventoryItem> inventory =
-            _host.Automation.Items.CaptureOwnedItems();
+            PassInventory();
         var counts = inventory
             .GroupBy(static item => item.Name, StringComparer.OrdinalIgnoreCase)
             .ToDictionary(
@@ -1573,7 +1574,7 @@ internal sealed class CombatController
         uint plannedWeapon = 0u;
         if (_plannedWeapon != 0u && equipment.IsAvailable)
         {
-            foreach (PluginEquipmentItem item in equipment.CaptureOwnedEquipment())
+            foreach (PluginEquipmentItem item in PassEquipment())
             {
                 if (item.ObjectId != _plannedWeapon)
                     continue;
@@ -1589,7 +1590,8 @@ internal sealed class CombatController
                 autoSelect: plannedWeapon == 0u,
                 element: _targetRule.Rule is null
                     ? MonsterDamageType.None
-                    : _targetRule.Actions.DamageType))
+                    : _targetRule.Actions.DamageType,
+                captured: PassEquipment()))
         {
             return true;
         }
@@ -1746,7 +1748,7 @@ internal sealed class CombatController
 
         RefreshSpellCatalogs();
         IReadOnlyList<PluginInventoryItem> items =
-            _host.Automation.Items.CaptureOwnedItems();
+            PassInventory();
         PluginCombatTarget target = FindTarget(_targetId);
         if (target.ObjectId == 0u)
             return false;
@@ -1931,7 +1933,8 @@ internal sealed class CombatController
         if (Gate.TryPrepare(
                 PluginCombatMode.Magic,
                 overrideItemId: attackWeapon,
-                autoSelect: attackWeapon == 0u))
+                autoSelect: attackWeapon == 0u,
+                captured: equipment))
         {
             return true;
         }
@@ -2057,8 +2060,7 @@ internal sealed class CombatController
         if (source.Kind == CombatDebuffSourceKind.Grenade
             && desiredOffhand != 0u)
         {
-            IReadOnlyList<PluginEquipmentItem> equipmentItems =
-                equipment.CaptureOwnedEquipment();
+            IReadOnlyList<PluginEquipmentItem> equipmentItems = PassEquipment();
             PluginEquipmentItem? offhand = null;
             foreach (PluginEquipmentItem candidate in equipmentItems)
             {
@@ -2749,11 +2751,8 @@ internal sealed class CombatController
         // higher-priority monster arriving mid-fight has to be able to win.
         RefreshSpellCatalogs();
         IReadOnlyList<PluginInventoryItem> inventory =
-            _host.Automation.Items.CaptureOwnedItems();
-        IReadOnlyList<PluginEquipmentItem> equipment =
-            _host.Automation.Equipment.IsAvailable
-                ? _host.Automation.Equipment.CaptureOwnedEquipment()
-                : Array.Empty<PluginEquipmentItem>();
+            PassInventory();
+        IReadOnlyList<PluginEquipmentItem> equipment = PassEquipment();
         (uint wieldedWeapon, uint wieldedOffhand) = WieldedPair(equipment);
 
         uint lastTarget = _targetId;
@@ -3100,6 +3099,14 @@ internal sealed class CombatController
         return MonsterDamageType.None;
     }
 
+    /// <summary>
+    /// The character's equipment as this pass sees it. The host builds that
+    /// projection by walking every object it knows and sorting the result, so
+    /// it is read once per pass and shared: a pass that has to choose again
+    /// ten times over unreachable monsters must not walk the world ten times.
+    /// Anything that changes what is worn ends the pass, so the pass can
+    /// never act on a stale answer.
+    /// </summary>
     private IReadOnlyList<PluginEquipmentItem> PassEquipment()
     {
         if (_passEquipment is not null)
@@ -3110,6 +3117,13 @@ internal sealed class CombatController
             : Array.Empty<PluginEquipmentItem>();
         return _passEquipment;
     }
+
+    /// <summary>
+    /// The character's carried items as this pass sees it, on the same terms
+    /// as <see cref="PassEquipment"/>.
+    /// </summary>
+    private IReadOnlyList<PluginInventoryItem> PassInventory() =>
+        _passInventory ??= _host.Automation.Items.CaptureOwnedItems();
 
     private static bool Contains(
         IReadOnlyList<MonsterDamageType> elements,
@@ -3222,7 +3236,7 @@ internal sealed class CombatController
         {
             if (answers.TryGetValue(name, out bool cached))
                 return cached;
-            counts ??= _host.Automation.Items.CaptureOwnedItems()
+            counts ??= PassInventory()
                 .GroupBy(static item => item.Name, StringComparer.OrdinalIgnoreCase)
                 .ToDictionary(
                     static group => group.Key,
@@ -3509,6 +3523,11 @@ internal sealed class CombatController
         }
 
         _now += Math.Max(0d, elapsedSeconds);
+        // This rule is its own pass: the attack's may not have run at all
+        // (its gate can refuse for seconds at a time), so the shared per-pass
+        // captures are taken fresh here rather than inherited stale.
+        _passEquipment = null;
+        _passInventory = null;
         if (SelectApproachTarget() is not { } approach)
         {
             StopApproachMovement();
@@ -3541,11 +3560,8 @@ internal sealed class CombatController
         PluginCombatSnapshot combat = _host.Automation.Combat.Snapshot;
         RefreshSpellCatalogs();
         IReadOnlyList<PluginInventoryItem> inventory =
-            _host.Automation.Items.CaptureOwnedItems();
-        IReadOnlyList<PluginEquipmentItem> equipment =
-            _host.Automation.Equipment.IsAvailable
-                ? _host.Automation.Equipment.CaptureOwnedEquipment()
-                : Array.Empty<PluginEquipmentItem>();
+            PassInventory();
+        IReadOnlyList<PluginEquipmentItem> equipment = PassEquipment();
         (uint wieldedWeapon, uint wieldedOffhand) = WieldedPair(equipment);
 
         var candidates = new List<CombatTargetCandidate>();

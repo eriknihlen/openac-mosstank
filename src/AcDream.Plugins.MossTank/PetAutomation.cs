@@ -39,7 +39,8 @@ internal sealed class PetAutomation
         out string status,
         bool allowRefill = true,
         bool allowSummon = true,
-        Func<bool>? readyToRefillInPeace = null)
+        Func<bool>? readyToRefillInPeace = null,
+        IReadOnlyList<PluginInventoryItem>? captured = null)
     {
         ArgumentNullException.ThrowIfNull(automation);
         ArgumentNullException.ThrowIfNull(character);
@@ -67,7 +68,10 @@ internal sealed class PetAutomation
             return true;
         }
 
-        IReadOnlyList<PluginInventoryItem> items = automation.CaptureOwnedItems();
+        // The caller's own per-pass projection when it has one: building it
+        // walks every object the client knows.
+        IReadOnlyList<PluginInventoryItem> items =
+            captured ?? automation.CaptureOwnedItems();
         PetAutomationChoice choice = Select(
             items,
             targets,

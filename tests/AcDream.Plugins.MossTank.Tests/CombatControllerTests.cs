@@ -2417,6 +2417,55 @@ public sealed class CombatControllerTests
     }
 
     /// <summary>
+    /// A pass that has to choose again — every monster in range unreachable —
+    /// re-runs the whole selection up to five hundred times. The host builds
+    /// the equipment and inventory projections by walking every object it
+    /// knows and sorting the result, so they are read once for the pass, not
+    /// once per attempt.
+    /// Mutation: read the host directly in <c>RefreshTarget</c> (or in
+    /// <c>TryPrepareAttack</c>) instead of the pass memo and the counts run
+    /// into the dozens.
+    /// </summary>
+    [Fact]
+    public void APassThatChoosesAgainStillCapturesTheCharacterOnlyOnce()
+    {
+        var targets = new List<PluginCombatTarget>();
+        for (uint i = 0; i < 8u; i++)
+            targets.Add(Target(10u + i, "Drudge", distance: 3f + i, angle: 0));
+        var surface = new FakeAutomation
+        {
+            CombatSnapshot = Physical() with { Mode = PluginCombatMode.Magic },
+            Targets = targets,
+            KnownAttackSpells =
+            [
+                Spell(100, "Incantation of Flame Bolt") with
+                {
+                    IsProjectile = true,
+                },
+            ],
+            EquipmentItems = [WieldedCaster()],
+            // Nothing can be reached, so every attempt turns a column off and
+            // the pass chooses again until it runs out of monsters.
+            ProjectilePath = new(PluginProjectilePathStatus.Blocked),
+        };
+        var settings = FireAttackRule(new CombatSettings
+        {
+            MaximumRange = 40d,
+            UseProjectileAwareness = true,
+        });
+        var controller = new CombatController(new FakeHost(surface), settings);
+
+        controller.Toggle();
+        controller.OnTick(0.25);
+
+        Assert.True(
+            surface.ProjectilePathChecks >= 2,
+            "the pass never had to choose again, so nothing is being measured");
+        Assert.InRange(surface.CaptureOwnedEquipmentCount, 1, 2);
+        Assert.InRange(surface.CaptureOwnedItemsCount, 1, 2);
+    }
+
+    /// <summary>
     /// A kill or a success starts the attempt count over; it does NOT lift a
     /// blacklist that is still running. Mutation: make <c>ResetAttempts</c>
     /// clear the deadline too and the second assertion fails.
@@ -4759,7 +4808,12 @@ public sealed class CombatControllerTests
         bool IItemAutomation.IsBusy => false;
         int IItemAutomation.ActiveOwnedPetCount => 0;
         PluginItemUseCompletion IItemAutomation.LastCompletion => LastItemCompletion;
-        public IReadOnlyList<PluginInventoryItem> CaptureOwnedItems() => ItemEntries;
+        public int CaptureOwnedItemsCount { get; private set; }
+        public IReadOnlyList<PluginInventoryItem> CaptureOwnedItems()
+        {
+            CaptureOwnedItemsCount++;
+            return ItemEntries;
+        }
         public PluginItemCommandResult Use(uint objectId)
         {
             LastUsedItem = objectId;

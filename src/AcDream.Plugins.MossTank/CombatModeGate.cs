@@ -115,11 +115,18 @@ internal sealed class CombatModeGate
     public void AdvancePass(double elapsedSeconds) =>
         _sinceModeRequest += Math.Max(0d, elapsedSeconds);
 
+    /// <param name="captured">
+    /// The caller's own equipment projection, when it already has one for
+    /// this pass. Building it walks and sorts every object the client knows,
+    /// so a caller that asks many times in one pass hands its copy in rather
+    /// than paying for it again. Omit it and the gate reads the host itself.
+    /// </param>
     public bool TryPrepare(
         PluginCombatMode wanted,
         uint overrideItemId = 0u,
         bool autoSelect = true,
-        MonsterDamageType element = MonsterDamageType.None)
+        MonsterDamageType element = MonsterDamageType.None,
+        IReadOnlyList<PluginEquipmentItem>? captured = null)
     {
         IAutomationSurface automation = _host.Automation;
         IEquipmentAutomation equipment = automation.Equipment;
@@ -134,7 +141,7 @@ internal sealed class CombatModeGate
             return TryPrepareMode(wielded: null, wanted);
 
         IReadOnlyList<PluginEquipmentItem> items =
-            equipment.CaptureOwnedEquipment();
+            captured ?? equipment.CaptureOwnedEquipment();
         PluginEquipmentItem? wielded = FindWielded(items);
 
         uint primary = overrideItemId;
