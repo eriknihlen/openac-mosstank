@@ -1222,15 +1222,38 @@ public sealed class CombatControllerTests
     }
 
     /// <summary>
-    /// Mutation: set the default back to "at range" and this fails — a fresh
-    /// profile would arc at five metres where the stock profile bolts, so the
-    /// visible attack spell differs from the reference client's on day one.
+    /// A profile saved before the arc default was corrected has no arc key at
+    /// all, and loading one must not put arcing back: a fresh character bolts
+    /// at five metres where an arcing one would throw over the monster's head.
+    /// Mutation: set either declared default back to "at range" and this
+    /// fails.
     /// </summary>
     [Fact]
-    public void AFreshProfileNeverArcs()
+    public void AProfileWithNoArcSettingLoadsWithArcsOff()
     {
-        Assert.Equal(UseArcsMode.No, new CombatSettings().UseArcs);
-        Assert.Equal(5d, new CombatSettings().ArcRange);
+        var storage = new MemoryStorage();
+        storage.WriteText(
+            "profile.json",
+            """{ "combat": { "maximumRange": 5.0 } }""");
+        var store = new MossTankProfileStore(
+            new StorageHost(storage, "Acdream", "Fixture"));
+        store.BindCharacter("Acdream");
+        var settings = new VtankSettingsProfileSerializer.AllSettings
+        {
+            Combat = new CombatSettings(),
+            Buffs = new BuffSettings(),
+            Vitals = new VitalSettings(),
+            Inventory = new InventorySettings(),
+            Navigation = new NavigationSettings(),
+        };
+
+        store.LoadCurrent(
+            settings,
+            new HashSet<string>(StringComparer.Ordinal),
+            new HashSet<string>(StringComparer.OrdinalIgnoreCase));
+
+        Assert.Equal(UseArcsMode.No, settings.Combat.UseArcs);
+        Assert.Equal(5d, settings.Combat.ArcRange, precision: 6);
     }
 
     [Fact]
@@ -1244,7 +1267,8 @@ public sealed class CombatControllerTests
 
         Assert.Equal((101u, 10u), CastWithUseArcs(known, UseArcsMode.Yes, distance: 20));
         Assert.Equal((100u, 10u), CastWithUseArcs(known, UseArcsMode.No, distance: 20));
-        // hi.cs:521-531 — AtRange arcs only once f7.e >= ArcRange.
+        // "At range" arcs only from the arc range outwards; inside it the
+        // bolt still wins.
         Assert.Equal(
             (101u, 10u),
             CastWithUseArcs(known, UseArcsMode.AtRange, distance: 20, arcRange: 10));
@@ -3716,7 +3740,7 @@ public sealed class CombatControllerTests
     }
 
     /// <summary>
-    /// Already in Peace: cm.cs:70-73's whole second half.
+    /// The rule has nothing to do when the character is already at peace.
     /// </summary>
     [Fact]
     public void IdlePeaceIsInvalidWhenAlreadyInPeace()
@@ -4567,6 +4591,44 @@ public sealed class CombatControllerTests
             0, 0, 0, 1, 0, 0, spellId, 0, 0, 0, false, 0,
             0, 0, 0, 0, 0, 0, 0);
 
+    /// <summary>A host with real storage, for profile round-trips.</summary>
+    private sealed class StorageHost(
+        IPluginStorage storage,
+        string characterName,
+        string worldName) : IPluginHost
+    {
+        public bool HasUi => false;
+        public IPluginLogger Log { get; } = new FakeLogger();
+        public IGameState State { get; } = new FakeState();
+        public IEvents Events { get; } = new FakeEvents();
+        public ISelectionService Selection { get; } = new FakeSelection();
+        public IUiRegistry Ui => NoOpUiRegistry.Instance;
+        public IAutomationSurface Automation { get; } = new FakeAutomation
+        {
+            CharacterName = characterName,
+            World = worldName,
+        };
+        public IPluginStorage Storage => storage;
+        public IPluginStorage VtankProfiles => storage;
+    }
+
+    private sealed class MemoryStorage : IPluginStorage
+    {
+        private readonly Dictionary<string, string> _text =
+            new(StringComparer.Ordinal);
+
+        public bool IsAvailable => true;
+        public string? ReadText(string key) =>
+            _text.TryGetValue(key, out string? value) ? value : null;
+        public IReadOnlyList<string> List(string prefix) => _text.Keys
+            .Where(key => prefix.Length == 0
+                || key.StartsWith(prefix + "/", StringComparison.Ordinal))
+            .OrderBy(static key => key, StringComparer.Ordinal)
+            .ToArray();
+        public void WriteText(string key, string content) => _text[key] = content;
+        public bool Delete(string key) => _text.Remove(key);
+    }
+
     private sealed class FakeHost(FakeAutomation automation) : IPluginHost
     {
         public bool HasUi => false;
@@ -4877,6 +4939,10 @@ public sealed class CombatControllerTests
                 .ToArray();
 
         public bool IsInWorld => IsAvailable;
+        public string CharacterName { get; init; } = "Fixture";
+        string ICharacterInfo.Name => CharacterName;
+        public string World { get; init; } = "FixtureWorld";
+        string ICharacterInfo.WorldName => World;
         public uint ObjectId => 1;
         public uint CurrentHealth => 100;
         public uint MaxHealth => 100;
