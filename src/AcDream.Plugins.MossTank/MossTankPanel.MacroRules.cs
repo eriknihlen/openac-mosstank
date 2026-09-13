@@ -284,7 +284,7 @@ internal sealed partial class MossTankPanel : IMacroRuleProvider
         MacroRuleSlot.RechargeSelfNoTarget => new AbsentMacroRule(
             "RechargeSelfNoTarget",
             "fused into RechargeSelfNormal — VitalPlan.Threshold merges the "
-                + "Normal and NoTarget settings (KB 02 §5.5)."),
+                + "Normal and NoTarget settings."),
 
         MacroRuleSlot.RandomHelper => new AbsentMacroRule(
             "RandomHelper",
