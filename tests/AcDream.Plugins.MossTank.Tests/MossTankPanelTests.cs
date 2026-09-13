@@ -4178,7 +4178,9 @@ public sealed class MossTankPanelTests
         Assert.Contains("name ~= coin", second.LootRuleRows[0], StringComparison.Ordinal);
         Assert.Equal("Keep up to 2", second.LootKeepCountText);
         Assert.Equal("Priority 1", second.LootPriorityText);
-        Assert.Equal("Corpse range 2m", second.LootRangeText);
+        // The shipped corpse range is zero — the walk to a corpse is off until
+        // a profile asks for it — and the down button floors there.
+        Assert.Equal("Corpse range 0m", second.LootRangeText);
     }
 
     private static string LegacyLootProfileKey(string value, bool byCharacter)

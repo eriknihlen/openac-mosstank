@@ -3,7 +3,7 @@ using AcDream.Plugin.Abstractions;
 
 namespace AcDream.Plugins.MossTank.Tests;
 
-public sealed class LootingTests
+public sealed partial class LootingTests
 {
     private const uint Player = 0x50000001u;
     private static readonly PluginItemProperties EmptyProperties = new(
@@ -1164,11 +1164,16 @@ public sealed class LootingTests
     }
 
     /// <summary>
-    /// Mutation: drop the distance-metric fallback and pick only inside the
-    /// open radius.
+    /// The open step reaches exactly as far as arm's reach and no further. A
+    /// corpse twelve metres off is not opened from where the character stands,
+    /// however long it waits: that corpse belongs to the walk, which is its own
+    /// rule one position above this one.
+    ///
+    /// Mutation: give the open a second pick at the approach range when nothing
+    /// is in reach, and the far corpse is opened from across the field.
     /// </summary>
     [Fact]
-    public void ACorpseBeyondArmsReachIsStillPickedByDistance()
+    public void TheOpenStepDoesNotReachBeyondArmsReach()
     {
         var settings = new LootSettings { Enabled = true };
         settings.Rules.Add(new LootRule { Expression = "*" });
@@ -1194,6 +1199,15 @@ public sealed class LootingTests
         };
         var controller = new LootController(new Host(automation), settings);
 
+        Assert.False(controller.Tick(0.25d, canAct: true));
+        Assert.Empty(automation.Opened);
+
+        // Walked to: the same corpse, now inside the open's own reach.
+        automation.Corpses =
+        [
+            automation.Corpses[0],
+            automation.Corpses[1] with { Distance = 3f },
+        ];
         Assert.True(controller.Tick(0.25d, canAct: true));
         Assert.Equal(new[] { near }, automation.Opened);
     }
@@ -1905,11 +1919,25 @@ public sealed class LootingTests
             value = default;
             return false;
         }
+        public List<PluginMovementIntent> Intents { get; } = [];
+        public int MovementClears { get; private set; }
+        public List<float> FacedHeadings { get; } = [];
         public PluginNavigationCommandStatus SetMovementIntent(
-            in PluginMovementIntent intent) =>
-            PluginNavigationCommandStatus.Unavailable;
-        public PluginNavigationCommandStatus ClearMovementIntent() =>
-            PluginNavigationCommandStatus.Unavailable;
+            in PluginMovementIntent intent)
+        {
+            Intents.Add(intent);
+            return PluginNavigationCommandStatus.Accepted;
+        }
+        public PluginNavigationCommandStatus ClearMovementIntent()
+        {
+            MovementClears++;
+            return PluginNavigationCommandStatus.Accepted;
+        }
+        public PluginNavigationCommandStatus FaceHeading(float headingDegrees)
+        {
+            FacedHeadings.Add(headingDegrees);
+            return PluginNavigationCommandStatus.Accepted;
+        }
         public bool ItemsBusy { get; set; }
         bool IItemAutomation.IsBusy => ItemsBusy;
         public ICharacterInfo Character => this;

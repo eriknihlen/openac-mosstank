@@ -463,6 +463,13 @@ internal sealed partial class LootController
     private const double PickupTimeoutSeconds = 4d;
 
     /// <summary>
+    /// How long one pull holds the item slot and navigation. It is the pace of
+    /// emptying a corpse, and it is what keeps the walk rule above this one
+    /// off the character between pulls.
+    /// </summary>
+    private const double PickupHoldSeconds = 0.75d;
+
+    /// <summary>
     /// How long a corpse the server refused stays skipped. This one is fixed;
     /// it is not one of the corpse-blacklist settings.
     /// </summary>
@@ -718,10 +725,8 @@ internal sealed partial class LootController
         // distance and then by id, so two hosts asking the same question get
         // the same answer. It is NOT narrowed to the approach range first:
         // the description is asked of every corpse the client is reporting,
-        // and the open step carries its own reach. The approach range is one
-        // step's range, not a filter on the pass.
-        double approachRange =
-            Math.Clamp(_settings.CorpseApproachRange, 2d, 100d);
+        // and the open step carries its own reach. The approach range is the
+        // walk's, and the walk is its own rule, one position above this one.
 
         if (_awaitingCorpseAppraisal != 0u)
         {
@@ -771,13 +776,13 @@ internal sealed partial class LootController
                 return true;
         }
 
-        // The open step picks within arm's reach by how nearly the character
-        // is already facing the corpse. Only when nothing is in reach does the
-        // nearest corpse in the wider approach range win instead — that second
-        // pick is the approach step's, which this controller carries itself.
+        // The open step picks within arm's reach, and only there, by how
+        // nearly the character is already facing the corpse: among corpses it
+        // could reach out and touch, the one being looked at wins. A corpse
+        // beyond that reach is the approach rule's business — it walks the
+        // character in until this pick can see it.
         _selectedCorpse = 0u;
-        if ((SelectCorpse(known, CorpseOpenRangeMeters, byHeading: true)
-                ?? SelectCorpse(known, approachRange, byHeading: false))
+        if (SelectCorpse(known, CorpseOpenRangeMeters, byHeading: true)
             is not { } corpse)
         {
             Status = "No nearby corpses.";
@@ -1004,6 +1009,13 @@ internal sealed partial class LootController
             return pickup.Status == PluginItemCommandStatus.Busy;
         }
 
+        // Every pull holds the item slot and navigation for three quarters of
+        // a second, the way the reference's pickup step does. The item slot is
+        // what paces the pulls; navigation is what stops the walk-to-a-corpse
+        // rule — which outranks this one — from steering the character away
+        // from the corpse it is standing over, one item into emptying it.
+        _actionLocks?.Arm(ActionLockKind.ItemUse, PickupHoldSeconds);
+        _actionLocks?.Arm(ActionLockKind.Navigation, PickupHoldSeconds);
         _waitingItem = chosen.Item.ObjectId;
         _waitingName = chosen.Item.Name;
         _waitingAction = chosen.Decision.Action;

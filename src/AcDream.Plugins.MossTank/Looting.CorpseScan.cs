@@ -85,6 +85,41 @@ internal sealed partial class LootController
     private const double CorpseOpenRangeMeters = 240d / 48d;
 
     /// <summary>
+    /// The corpse the approach step walks at: the nearest one it may loot
+    /// inside the approach range, over the whole set the client is reporting.
+    /// It is the SAME pick the open step makes, with the other metric and the
+    /// other radius — one place decides what "a corpse worth having" is, so a
+    /// corpse the looter would refuse is never walked to either.
+    /// </summary>
+    /// <param name="rangeMeters">The approach range, as the profile sets it.</param>
+    internal bool TrySelectApproachCorpse(
+        double rangeMeters,
+        out PluginLootContainer corpse)
+    {
+        corpse = default;
+        if (!_settings.Enabled || !_host.Automation.IsAvailable)
+            return false;
+        ILootAutomation loot = _host.Automation.Loot;
+        if (!loot.IsAvailable)
+            return false;
+        if (_settings.Rules.Count == 0
+            && string.IsNullOrWhiteSpace(_settings.ExternalClassifierId))
+        {
+            return false;
+        }
+        if (SelectCorpse(
+                loot.CaptureCorpses(float.MaxValue),
+                rangeMeters,
+                byHeading: false)
+            is not { } picked)
+        {
+            return false;
+        }
+        corpse = picked;
+        return true;
+    }
+
+    /// <summary>
     /// The corpse pick. Any rare corpse beats any non-rare one whatever the
     /// running best: the first rare found becomes the pick outright, after
     /// which only a better rare can replace it, and a non-rare can only win

@@ -289,34 +289,19 @@ internal sealed class NavigationSettings
 
 internal sealed class NavigationController
 {
-    internal const float HeadingToleranceDegrees = 4f;
+    // The mover's own numbers, named here too because the route is not the
+    // only reader: the combat approach and the tests reach for them through
+    // this class.
+    internal const float HeadingToleranceDegrees =
+        NavigationMover.HeadingToleranceDegrees;
 
-    /// <summary>
-    /// How often the mover may steer once the rule has armed it. The mover is
-    /// not the rule: the rule's turn only arms it, and it then runs on the
-    /// client's own frame, no faster than this. That distinction is what makes
-    /// the alignment band below reachable — one rule pass of held turn is
-    /// tens of degrees, several times the band, so a mover stepped once per
-    /// pass overshoots on every turn and hunts around the bearing forever.
-    /// </summary>
-    internal const double MoverIntervalSeconds = 0.047d;
+    internal const double MoverIntervalSeconds =
+        NavigationMover.MoverIntervalSeconds;
 
-    internal const double FaceHeadingReissueSeconds = 0.7d;
+    internal const double FaceHeadingReissueSeconds =
+        NavigationMover.FaceHeadingReissueSeconds;
 
-    internal const double NoFaceHeadingStamp = double.NegativeInfinity;
-
-    /// <summary>The near/far split the heading relaxation switches on.</summary>
-    private const double NearTargetMeters = 3d;
-
-    /// <summary>
-    /// Inside this the mover walks instead of running. A waypoint whose arrival
-    /// radius is wider than this is never approached at a walk, which is what
-    /// the low-minimum-distance warning is about.
-    /// </summary>
-    private const double CreepDistanceMeters = 240d / 160d;
-
-    private const float FarHeadingRelaxationDegrees = 45f;
-    private const float NearHeadingRelaxationDegrees = 15f;
+    internal const double NoFaceHeadingStamp = NavigationMover.NoFaceHeadingStamp;
     private const double ChatInitialDelaySeconds = 0.2d;
     private const double UseRetrySeconds = 2d;
     private const double PortalTimeoutSeconds = 30d;
@@ -390,17 +375,14 @@ internal sealed class NavigationController
     private double _doorRetryElapsed;
     private PluginNavigationPosition _portalOrigin;
     private bool _hasPortalOrigin;
-    private bool _hadMovementIntent;
     private bool _recallNeedsPositionCapture = true;
     private PluginNavigationPosition _recallLastPosition;
 
-    private bool _moverArmed;
-    private double _pendingMoverSeconds;
-
-    private double _now;
-
-    /// <summary>When the mover last re-issued its facing.</summary>
-    private double _faceHeadingStamp = NoFaceHeadingStamp;
+    /// <summary>
+    /// The route's own close-in mover. One per rule, as the reference builds
+    /// them: the corpse walk has its own, and the two never share armed state.
+    /// </summary>
+    private readonly NavigationMover _mover;
 
     /// <summary>
     /// The jump's own re-face stamp. It cannot share the mover's, which is
@@ -422,6 +404,25 @@ internal sealed class NavigationController
     {
         _host = host ?? throw new ArgumentNullException(nameof(host));
         _settings = settings ?? throw new ArgumentNullException(nameof(settings));
+        _mover = new NavigationMover(host)
+        {
+            Status = value => _status = value,
+            WarnLowStopDistance = WarnLowWaypointDistance,
+        };
+    }
+
+    /// <summary>
+    /// The route's warning about a waypoint tight enough to be walked at in
+    /// peace mode. The mover says when the case arises; the once-per-run
+    /// bookkeeping is the route's, because "the run" is the route's idea.
+    /// </summary>
+    private void WarnLowWaypointDistance()
+    {
+        if (_lowWaypointWarningPosted)
+            return;
+        _lowWaypointWarningPosted = true;
+        _host.Automation.Chat.PostSystemMessage(
+            "[MossTank] " + LowWaypointDistanceWarning);
     }
 
     public string Status => _status;
@@ -462,18 +463,13 @@ internal sealed class NavigationController
         "Warning: Idle peace selected with low waypoint minimum distance. "
         + "Will switch to magic mode.";
 
-    private CombatModeGate? _combatModeGate;
-    private CombatSettings? _combatSettings;
     private bool _lowWaypointWarningPosted;
 
     /// <summary>Warnings this run has already said once.</summary>
     private readonly HashSet<string> _postedWarnings = new(StringComparer.Ordinal);
 
-    internal void BindCombatModeGate(CombatModeGate gate, CombatSettings settings)
-    {
-        _combatModeGate = gate ?? throw new ArgumentNullException(nameof(gate));
-        _combatSettings = settings ?? throw new ArgumentNullException(nameof(settings));
-    }
+    internal void BindCombatModeGate(CombatModeGate gate, CombatSettings settings) =>
+        _mover.BindCombatModeGate(gate, settings);
 
     public void ToggleReverse()
     {
@@ -606,7 +602,7 @@ internal sealed class NavigationController
         StopForLostTurn();
         // The re-face throttle is a stamp on the mover's clock; a stopped
         // macro starts the next run without it.
-        _faceHeadingStamp = NoFaceHeadingStamp;
+        _mover.ClearFaceHeadingStamp();
         ResetOncePerRunWarnings();
         _checkpointElapsed = 0d;
         _followPath.Clear();
@@ -624,10 +620,8 @@ internal sealed class NavigationController
     /// </summary>
     public void ClearActionLocks()
     {
-        _moverArmed = false;
-        _pendingMoverSeconds = 0d;
-        _faceHeadingStamp = NoFaceHeadingStamp;
-        StopMovement();
+        _mover.StopForLostTurn();
+        _mover.ClearFaceHeadingStamp();
         _checkpointElapsed = 0d;
         ClearDoor();
         ClearAction();
@@ -643,8 +637,8 @@ internal sealed class NavigationController
     /// </summary>
     internal bool ClaimFromRulePass(bool canAct)
     {
-        bool claimed = Tick(TakePendingMoverSeconds(), canAct);
-        _moverArmed = claimed;
+        bool claimed = Tick(_mover.TakePendingSeconds(), canAct);
+        _mover.Arm(claimed);
         return claimed;
     }
 
@@ -655,24 +649,8 @@ internal sealed class NavigationController
     /// </summary>
     internal void StepArmedMover(double elapsedSeconds)
     {
-        double elapsed = double.IsFinite(elapsedSeconds) && elapsedSeconds > 0d
-            ? elapsedSeconds
-            : 0d;
-        AdvanceClock(elapsed);
-        if (!_moverArmed)
-        {
-            // A disarmed mover holds no time: the pass that arms it starts
-            // from this frame, not from however long the route was idle.
-            _pendingMoverSeconds = elapsed;
-            return;
-        }
-        _pendingMoverSeconds += elapsed;
-        if (_pendingMoverSeconds < MoverIntervalSeconds)
-            return;
-        // What the mover makes of this frame does not disarm it. Only the rule
-        // that armed it can take the turn back, which is the whole point of
-        // the two being separate.
-        _ = Tick(TakePendingMoverSeconds(), canAct: true);
+        if (_mover.TryTakeMoverFrame(elapsedSeconds, out double due))
+            _ = Tick(due, canAct: true);
     }
 
     /// <summary>
@@ -683,19 +661,8 @@ internal sealed class NavigationController
     /// interval measured against it — the re-face throttles above — ran at
     /// roughly double speed, and at an uneven rate besides.
     /// </summary>
-    internal void AdvanceClock(double elapsedSeconds)
-    {
-        if (!double.IsFinite(elapsedSeconds) || elapsedSeconds <= 0d)
-            return;
-        _now += elapsedSeconds;
-    }
-
-    private double TakePendingMoverSeconds()
-    {
-        double due = _pendingMoverSeconds;
-        _pendingMoverSeconds = 0d;
-        return due;
-    }
+    internal void AdvanceClock(double elapsedSeconds) =>
+        _mover.AdvanceClock(elapsedSeconds);
 
     public bool Tick(double elapsedSeconds, bool canAct)
     {
@@ -1113,9 +1080,10 @@ internal sealed class NavigationController
         if (_checkpointElapsed >= CheckpointRetrySeconds)
         {
             _checkpointElapsed = 0d;
-            _hadMovementIntent = navigation.SetMovementIntent(
-                new PluginMovementIntent(Forward: true, Run: false))
-                == PluginNavigationCommandStatus.Accepted;
+            _mover.NoteMovementIntent(
+                navigation.SetMovementIntent(
+                    new PluginMovementIntent(Forward: true, Run: false))
+                    == PluginNavigationCommandStatus.Accepted);
             _status = "Checkpoint: nudging for server confirmation.";
         }
         return true;
@@ -1162,74 +1130,6 @@ internal sealed class NavigationController
     }
 
     /// <summary>
-    /// Steers at a goal. Outside the alignment band the mover holds a turn key
-    /// and keeps walking, so the character curves onto the bearing; the two
-    /// relaxation tiers decide only whether it moves while it turns. The
-    /// absolute re-face is the typing branch, where a held key would go into
-    /// the chat entry.
-    /// </summary>
-    private bool Steer(
-        INavigationAutomation navigation,
-        in PluginNavigationPosition current,
-        in PluginNavigationPosition target,
-        double distanceMeters)
-    {
-        float desired = DesiredHeading(current, target);
-        float delta = SignedHeadingDelta(current.HeadingDegrees, desired);
-        float offset = Math.Abs(delta);
-
-        if (_host.Automation.Chat.IsInputActive)
-        {
-            // A held turn key would go into the chat entry, so this branch
-            // stops and re-faces the goal instead, at most once per re-face
-            // interval. Inside the band it makes the SAME stop decision as
-            // every other branch — the creep band and the forced magic-mode
-            // push are not skipped just because somebody is typing.
-            if (offset > HeadingToleranceDegrees)
-            {
-                bool claimed = ResolveStopDecision(
-                    navigation,
-                    false,
-                    0d,
-                    TurnHold.None);
-                if (_now - _faceHeadingStamp >= FaceHeadingReissueSeconds)
-                {
-                    _faceHeadingStamp = _now;
-                    _ = navigation.FaceHeading(desired);
-                }
-                return claimed;
-            }
-            _faceHeadingStamp = NoFaceHeadingStamp;
-            return ResolveStopDecision(
-                navigation,
-                true,
-                distanceMeters,
-                TurnHold.None);
-        }
-
-        if (offset <= HeadingToleranceDegrees)
-            return ResolveStopDecision(navigation, true, distanceMeters, TurnHold.None);
-
-        TurnHold turn = PrefersLeftTurn(current.HeadingDegrees, desired)
-            ? TurnHold.Left
-            : TurnHold.Right;
-        float relaxation = distanceMeters > NearTargetMeters
-            ? FarHeadingRelaxationDegrees
-            : NearHeadingRelaxationDegrees;
-        return offset > relaxation
-            ? ResolveStopDecision(navigation, false, 0d, turn)
-            : ResolveStopDecision(navigation, true, distanceMeters, turn);
-    }
-
-    /// <summary>Which way the mover holds the turn.</summary>
-    private enum TurnHold
-    {
-        None,
-        Left,
-        Right,
-    }
-
-    /// <summary>
     /// Turning down from the current heading by the unsigned offset and landing
     /// on the bearing means the bearing is counter-clockwise, so the turn is
     /// left. Heading grows clockwise, so this agrees with the sign of the
@@ -1259,64 +1159,13 @@ internal sealed class NavigationController
         return wrapped < 0f ? wrapped + 360f : wrapped;
     }
 
-    /// <summary>
-    /// Turns "should I be moving, and how far away is the goal" into the one
-    /// movement intent this host takes. Inside the creep band the mover walks
-    /// rather than runs, and while it is walking in peace mode it keeps asking
-    /// for magic mode: a waypoint that tight is meant to be stood on, and peace
-    /// mode there would leave the character unable to act on arrival.
-    /// </summary>
-    private bool ResolveStopDecision(
+    /// <summary>Steers the route's mover at a goal.</summary>
+    private bool Steer(
         INavigationAutomation navigation,
-        bool shouldMove,
-        double distanceMeters,
-        TurnHold turn)
-    {
-        bool creep = shouldMove && distanceMeters < CreepDistanceMeters;
-        bool run = shouldMove && distanceMeters >= CreepDistanceMeters;
-        if (creep && !TryPrepareCreepCombatMode())
-            creep = false;
-
-        bool forward = creep || run;
-        if (!forward && turn == TurnHold.None)
-        {
-            StopMovement();
-            return true;
-        }
-
-        _hadMovementIntent = navigation.SetMovementIntent(
-            new PluginMovementIntent(
-                Forward: forward,
-                TurnLeft: turn == TurnHold.Left,
-                TurnRight: turn == TurnHold.Right,
-                Run: run))
-            == PluginNavigationCommandStatus.Accepted;
-        return _hadMovementIntent;
-    }
-
-    /// <summary>
-    /// The forced magic-mode push, retried on every tick that wants to creep.
-    /// </summary>
-    private bool TryPrepareCreepCombatMode()
-    {
-        if (_combatModeGate is null || _combatSettings is null)
-            return true;
-        if (_host.Automation.Combat.Snapshot.Mode != PluginCombatMode.Peace)
-            return true;
-
-        if (_combatSettings.IdlePeaceMode && !_lowWaypointWarningPosted)
-        {
-            _lowWaypointWarningPosted = true;
-            _host.Automation.Chat.PostSystemMessage(
-                "[MossTank] " + LowWaypointDistanceWarning);
-        }
-
-        if (_combatModeGate.TryPrepare(PluginCombatMode.Magic))
-            return true;
-
-        _status = "Switching to magic mode at the waypoint.";
-        return false;
-    }
+        in PluginNavigationPosition current,
+        in PluginNavigationPosition target,
+        double distanceMeters) =>
+        _mover.Steer(navigation, current, target, distanceMeters);
 
     private bool TickAction(
         RouteWaypoint waypoint,
@@ -1734,12 +1583,14 @@ internal sealed class NavigationController
                 if (Math.Abs(delta) >= JumpHeadingToleranceDegrees)
                 {
                     INavigationAutomation nav = _host.Automation.Navigation;
-                    _hadMovementIntent = nav.ClearMovementIntent()
-                        == PluginNavigationCommandStatus.Accepted
-                        && _hadMovementIntent;
-                    if (_now - _jumpFaceHeadingStamp > JumpFaceHeadingReissueSeconds)
+                    _mover.NoteMovementIntent(
+                        nav.ClearMovementIntent()
+                            == PluginNavigationCommandStatus.Accepted
+                            && _mover.HasMovementIntent);
+                    if (_mover.Now - _jumpFaceHeadingStamp
+                        > JumpFaceHeadingReissueSeconds)
                     {
-                        _jumpFaceHeadingStamp = _now;
+                        _jumpFaceHeadingStamp = _mover.Now;
                         _ = nav.FaceHeading(waypoint.JumpHeadingDegrees);
                     }
                     _status = $"Aligning jump: {Math.Abs(delta):0.0}d.";
@@ -1757,9 +1608,9 @@ internal sealed class NavigationController
             if (hold)
             {
                 PluginMovementIntent intent = JumpIntent(waypoint, jump: true);
-                _hadMovementIntent = _host.Automation.Navigation
-                    .SetMovementIntent(intent)
-                    == PluginNavigationCommandStatus.Accepted;
+                _mover.NoteMovementIntent(
+                    _host.Automation.Navigation.SetMovementIntent(intent)
+                        == PluginNavigationCommandStatus.Accepted);
                 _status = $"Charging jump: {effectiveChargeMilliseconds}ms.";
                 return true;
             }
@@ -1869,20 +1720,9 @@ internal sealed class NavigationController
     /// thing in acdream's terms — drop the movement intent. It is what the
     /// scheduler wires as <c>onLostTurn</c> for both navigate tiers.
     /// </summary>
-    internal void StopForLostTurn()
-    {
-        _moverArmed = false;
-        _pendingMoverSeconds = 0d;
-        StopMovement();
-    }
+    internal void StopForLostTurn() => _mover.StopForLostTurn();
 
-    private void StopMovement()
-    {
-        if (!_hadMovementIntent)
-            return;
-        _ = _host.Automation.Navigation.ClearMovementIntent();
-        _hadMovementIntent = false;
-    }
+    private void StopMovement() => _mover.StopMovement();
 
     private double BoundedMinimumDistance() => Math.Clamp(
         _settings.MinimumDistanceMeters,
