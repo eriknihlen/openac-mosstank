@@ -384,6 +384,13 @@ public sealed class LootingTests
         automation.CompleteAppraisal(corpse, presentInUi: false);
         automation.Corpses = [unidentified with { IsIdentified = true }];
 
+        // The completion signal advanced -- but presentation, which is a
+        // different field entirely on the real host, never did. If
+        // CompleteAppraisal's presentInUi parameter were decorative (as it
+        // was before this assertion existed), this would not prove
+        // anything about the corpse identify being genuinely unpresented.
+        Assert.Equal(0u, automation.PresentedObjectId);
+
         Assert.True(controller.Tick(0.1d, canAct: true));
         Assert.Equal(new[] { corpse }, automation.Opened);
     }
@@ -905,16 +912,27 @@ public sealed class LootingTests
         }
 
         /// <summary>
+        /// The examination window's presentation target, separate from the
+        /// completion signal (AppraisalState.CurrentObjectId) -- mirrors
+        /// RuntimeInteractionTransactionState.CurrentAppraisalId. Only
+        /// CompleteAppraisal(..., presentInUi: true) ever moves this;
+        /// tests assert against it directly to prove a "not presented"
+        /// completion really did not touch presentation.
+        /// </summary>
+        public uint PresentedObjectId { get; private set; }
+
+        /// <summary>
         /// Simulates an appraisal response landing, through the same split
         /// the real host uses (AppAutomationSurface.ILootAutomation.
         /// Appraisal maps CurrentObjectId to the completion signal --
         /// RuntimeInteractionTransactionState.LastCompletedAppraisalId --
-        /// never to the examination window's presentation target). A test
-        /// that instead pokes AppraisalState.CurrentObjectId directly
-        /// cannot tell the two apart and would not have caught the HIGH-1
-        /// corpse-looting stall: the corpse identify is Automation-origin
-        /// and normally never presents (presentInUi: false here), yet the
-        /// completion signal must still advance so looting proceeds.
+        /// never to the examination window's presentation target,
+        /// PresentedObjectId here). A test that instead pokes
+        /// AppraisalState.CurrentObjectId directly cannot tell the two
+        /// apart and would not have caught the HIGH-1 corpse-looting
+        /// stall: the corpse identify is Automation-origin and normally
+        /// never presents (presentInUi: false here), yet the completion
+        /// signal must still advance so looting proceeds.
         /// </summary>
         public void CompleteAppraisal(uint objectId, bool presentInUi)
         {
@@ -924,8 +942,8 @@ public sealed class LootingTests
                 AwaitingObjectId = 0u,
                 CurrentObjectId = objectId,
             };
-            _ = presentInUi; // documents intent; CurrentObjectId never
-                              // depends on it -- see the summary above.
+            if (presentInUi)
+                PresentedObjectId = objectId;
         }
         public PluginItemCommandResult Pickup(
             uint objectId,
