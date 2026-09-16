@@ -25,7 +25,7 @@ public sealed class MossTankLootClassifierTests
     }
 
     [Fact]
-    public void ClassifyReturnsUnmatchedWhenTheLiveRuleResolvesToAManaTransferAction()
+    public void ClassifyReportsAManaTransferActionAsAMatchedNoLootRatherThanUnmatched()
     {
         var host = new Host();
         var rules = new List<LootRule>
@@ -38,9 +38,13 @@ public sealed class MossTankLootClassifierTests
             new PluginLootClassificationContext(Item(), Properties(), []));
 
         // MossTank's mana-transfer actions have no equivalent in the public
-        // PluginLootAction vocabulary, so a rule that resolves to one must
-        // not be misreported as some other action.
-        Assert.False(result.Matched);
+        // PluginLootAction vocabulary, but a rule DID resolve for this item
+        // -- reporting Matched=false would tell a caller that no rule fired
+        // at all, which is false. Report it as a match with the closest
+        // public equivalent, NoLoot, and keep the rule name/priority intact.
+        Assert.True(result.Matched);
+        Assert.Equal(PluginLootAction.NoLoot, result.Action);
+        Assert.Equal("Mana", result.RuleName);
     }
 
     [Fact]
@@ -172,6 +176,67 @@ public sealed class MossTankLootClassifierTests
         Assert.Equal(1, host.VtankReadCount);
     }
 
+    [Fact]
+    public void TryClassifyWithProfileDoesNotReReadWithinTheRecheckInterval()
+    {
+        var time = new FakeTimeProvider();
+        var host = new Host(new Dictionary<string, string>
+        {
+            ["loot-a.utl"] = ReadFixture("loot-a.utl"),
+        });
+        var classifier = new MossTankLootClassifier(host, () => [], time);
+
+        classifier.TryClassifyWithProfile(
+            "loot-a",
+            new PluginLootClassificationContext(Item(), Properties(), []),
+            out _);
+        time.Advance(TimeSpan.FromSeconds(4));
+        classifier.TryClassifyWithProfile(
+            "loot-a",
+            new PluginLootClassificationContext(Item(), Properties(), []),
+            out _);
+
+        Assert.Equal(1, host.VtankReadCount);
+    }
+
+    [Fact]
+    public void TryClassifyWithProfileFindsAProfileDroppedInAfterTheRecheckInterval()
+    {
+        // The cache used to be permanent in both directions: a profile
+        // requested before its file existed stayed "not found" forever,
+        // even after the file was dropped in later. Bound the cache instead
+        // so a later re-check picks it up.
+        var time = new FakeTimeProvider();
+        var host = new Host(new Dictionary<string, string>());
+        var classifier = new MossTankLootClassifier(host, () => [], time);
+
+        bool foundBeforeDropIn = classifier.TryClassifyWithProfile(
+            "loot-a",
+            new PluginLootClassificationContext(Item(), Properties(), []),
+            out _);
+        Assert.False(foundBeforeDropIn);
+
+        host.SetVtankText("loot-a.utl", ReadFixture("loot-a.utl"));
+
+        // Still within the interval: the stale "not found" answer is
+        // reused, and storage is not re-read.
+        bool foundStillWithinInterval = classifier.TryClassifyWithProfile(
+            "loot-a",
+            new PluginLootClassificationContext(Item(), Properties(), []),
+            out _);
+        Assert.False(foundStillWithinInterval);
+        Assert.Equal(1, host.VtankReadCount);
+
+        time.Advance(TimeSpan.FromSeconds(5));
+
+        bool foundAfterInterval = classifier.TryClassifyWithProfile(
+            "loot-a",
+            new PluginLootClassificationContext(Item(), Properties(), []),
+            out _);
+        Assert.True(foundAfterInterval);
+        Assert.Equal(2, host.VtankReadCount);
+    }
+
     private static string ReadFixture(string name) => File.ReadAllText(
         Path.Combine(AppContext.BaseDirectory, "Fixtures", "vtank", name));
 
@@ -203,10 +268,15 @@ public sealed class MossTankLootClassifierTests
     private sealed class Host(
         IReadOnlyDictionary<string, string>? vtankFiles = null) : IPluginHost
     {
-        private readonly IReadOnlyDictionary<string, string> _vtankFiles =
-            vtankFiles ?? new Dictionary<string, string>();
+        private readonly Dictionary<string, string> _vtankFiles =
+            vtankFiles is null
+                ? new Dictionary<string, string>()
+                : new Dictionary<string, string>(vtankFiles);
 
         public int VtankReadCount { get; private set; }
+
+        internal void SetVtankText(string key, string text) =>
+            _vtankFiles[key] = text;
 
         public bool HasUi => false;
         public IPluginLogger Log => NoOpLogger.Instance;
@@ -271,5 +341,14 @@ public sealed class MossTankLootClassifierTests
             return false;
         }
         public bool Clear() => false;
+    }
+
+    private sealed class FakeTimeProvider : TimeProvider
+    {
+        private DateTimeOffset _now = DateTimeOffset.UnixEpoch;
+
+        public override DateTimeOffset GetUtcNow() => _now;
+
+        public void Advance(TimeSpan by) => _now += by;
     }
 }

@@ -27,17 +27,35 @@ internal sealed class MossTankLootClassifier : IPluginLootClassifier
         0, 8, 9, 10, 2000, 2001, 2003, 2005, 2006, 2007,
     ];
 
+    /// <summary>
+    /// How long a resolved profile (found or not-found) is trusted before
+    /// TryLoadProfile re-reads storage. A stored profile rarely changes
+    /// mid-session, so caching forever was the original design, but that
+    /// also means a profile file dropped in after the plugin started was
+    /// never found. Bounding the cache keeps the common case (unchanged
+    /// file, repeated lookups) cheap while still noticing a later drop-in.
+    /// </summary>
+    private static readonly TimeSpan RecheckInterval = TimeSpan.FromSeconds(5);
+
+    private sealed record ProfileCacheEntry(
+        VtankLootProfile? Profile,
+        string? SourceText,
+        DateTimeOffset CheckedAt);
+
     private readonly IPluginHost _host;
     private readonly Func<IReadOnlyList<LootRule>> _liveRules;
-    private readonly Dictionary<string, VtankLootProfile?> _profileCache =
+    private readonly TimeProvider _time;
+    private readonly Dictionary<string, ProfileCacheEntry> _profileCache =
         new(StringComparer.OrdinalIgnoreCase);
 
     internal MossTankLootClassifier(
         IPluginHost host,
-        Func<IReadOnlyList<LootRule>> liveRules)
+        Func<IReadOnlyList<LootRule>> liveRules,
+        TimeProvider? timeProvider = null)
     {
         _host = host ?? throw new ArgumentNullException(nameof(host));
         _liveRules = liveRules ?? throw new ArgumentNullException(nameof(liveRules));
+        _time = timeProvider ?? TimeProvider.System;
     }
 
     public PluginLootClassification Classify(
@@ -90,14 +108,18 @@ internal sealed class MossTankLootClassifier : IPluginLootClassifier
             return default;
 
         // MossTank's own vocabulary has two mana-transfer actions the
-        // public PluginLootAction enum does not model; a rule that resolves
-        // to one of those cannot be reported through this surface.
-        if (found.Action is LootAction.ManaStone or LootAction.ManaTank)
-            return default;
+        // public PluginLootAction enum does not model. A rule that resolves
+        // to one of those still matched -- it is not "no rule fired" -- so
+        // report it as a match with the closest public equivalent, NoLoot,
+        // rather than telling the caller nothing decided this item at all.
+        PluginLootAction publicAction =
+            found.Action is LootAction.ManaStone or LootAction.ManaTank
+                ? PluginLootAction.NoLoot
+                : (PluginLootAction)(int)found.Action;
 
         return new PluginLootClassification(
             Matched: true,
-            Action: (PluginLootAction)(int)found.Action,
+            Action: publicAction,
             RuleName: found.RuleName,
             Priority: found.Priority,
             KeepCount: found.RuleIndex >= 0 && found.RuleIndex < rules.Count
@@ -116,25 +138,38 @@ internal sealed class MossTankLootClassifier : IPluginLootClassifier
             return false;
         }
 
-        if (_profileCache.TryGetValue(normalized, out VtankLootProfile? cached))
+        DateTimeOffset now = _time.GetUtcNow();
+        if (_profileCache.TryGetValue(normalized, out ProfileCacheEntry? cached)
+            && now - cached.CheckedAt < RecheckInterval)
         {
-            profile = cached;
-            return cached is not null;
+            profile = cached.Profile;
+            return cached.Profile is not null;
         }
 
         string? text = _host.VtankProfiles.IsAvailable
             ? _host.VtankProfiles.ReadText(normalized + ".utl")
             : null;
+
+        // Storage content has not changed since the last check: keep the
+        // previously parsed result (found or not-found) but refresh the
+        // stamp so the next lookup within the interval stays free.
+        if (cached is not null && text == cached.SourceText)
+        {
+            _profileCache[normalized] = cached with { CheckedAt = now };
+            profile = cached.Profile;
+            return cached.Profile is not null;
+        }
+
         if (text is null
             || !VtankLootProfileSerializer.TryRead(
                 text, out VtankLootProfile parsed, out _))
         {
-            _profileCache[normalized] = null;
+            _profileCache[normalized] = new ProfileCacheEntry(null, text, now);
             profile = null;
             return false;
         }
 
-        _profileCache[normalized] = parsed;
+        _profileCache[normalized] = new ProfileCacheEntry(parsed, text, now);
         profile = parsed;
         return true;
     }
