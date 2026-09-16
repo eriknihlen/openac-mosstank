@@ -107,15 +107,9 @@ internal sealed class MossTankLootClassifier : IPluginLootClassifier
         if (decision is not { } found)
             return default;
 
-        // MossTank's own vocabulary has two mana-transfer actions the
-        // public PluginLootAction enum does not model. A rule that resolves
-        // to one of those still matched -- it is not "no rule fired" -- so
-        // report it as a match with the closest public equivalent, NoLoot,
-        // rather than telling the caller nothing decided this item at all.
-        PluginLootAction publicAction =
-            found.Action is LootAction.ManaStone or LootAction.ManaTank
-                ? PluginLootAction.NoLoot
-                : (PluginLootAction)(int)found.Action;
+        // Both of MossTank's mana-transfer actions map 1:1 onto the public
+        // enum (ManaStone/ManaTank).
+        PluginLootAction publicAction = (PluginLootAction)(int)found.Action;
 
         return new PluginLootClassification(
             Matched: true,

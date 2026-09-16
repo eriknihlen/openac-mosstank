@@ -25,7 +25,7 @@ public sealed class MossTankLootClassifierTests
     }
 
     [Fact]
-    public void ClassifyReportsAManaTransferActionAsAMatchedNoLootRatherThanUnmatched()
+    public void ClassifyMapsManaStoneOntoItsPublicEquivalent()
     {
         var host = new Host();
         var rules = new List<LootRule>
@@ -37,13 +37,29 @@ public sealed class MossTankLootClassifierTests
         PluginLootClassification result = classifier.Classify(
             new PluginLootClassificationContext(Item(), Properties(), []));
 
-        // MossTank's mana-transfer actions have no equivalent in the public
-        // PluginLootAction vocabulary, but a rule DID resolve for this item
-        // -- reporting Matched=false would tell a caller that no rule fired
-        // at all, which is false. Report it as a match with the closest
-        // public equivalent, NoLoot, and keep the rule name/priority intact.
+        // PluginLootAction models MossTank's full vocabulary, including its
+        // two mana-transfer actions -- ManaStone maps straight across rather
+        // than collapsing onto NoLoot.
         Assert.True(result.Matched);
-        Assert.Equal(PluginLootAction.NoLoot, result.Action);
+        Assert.Equal(PluginLootAction.ManaStone, result.Action);
+        Assert.Equal("Mana", result.RuleName);
+    }
+
+    [Fact]
+    public void ClassifyMapsManaTankOntoItsPublicEquivalent()
+    {
+        var host = new Host();
+        var rules = new List<LootRule>
+        {
+            new() { Name = "Mana", Expression = "*", Action = LootAction.ManaTank },
+        };
+        var classifier = new MossTankLootClassifier(host, () => rules);
+
+        PluginLootClassification result = classifier.Classify(
+            new PluginLootClassificationContext(Item(), Properties(), []));
+
+        Assert.True(result.Matched);
+        Assert.Equal(PluginLootAction.ManaTank, result.Action);
         Assert.Equal("Mana", result.RuleName);
     }
 
