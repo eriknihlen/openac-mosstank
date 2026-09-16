@@ -92,6 +92,7 @@ internal sealed class MossTankLootClassifier : IPluginLootClassifier
         classification = DecideAgainst(profile.Rules, context);
         return true;
     }
+
     private PluginLootClassification DecideAgainst(
         IReadOnlyList<LootRule> rules,
         in PluginLootClassificationContext context)
@@ -110,7 +111,7 @@ internal sealed class MossTankLootClassifier : IPluginLootClassifier
         // enum (ManaStone/ManaTank). Guard the cast anyway: a future
         // MossTank-only action added without a matching public member
         // must not hand the caller an undefined enum value.
-        PluginLootAction publicAction = Enum.IsDefined(typeof(PluginLootAction), (int)found.Action)
+        PluginLootAction publicAction = Enum.IsDefined<PluginLootAction>((PluginLootAction)(int)found.Action)
             ? (PluginLootAction)(int)found.Action
             : PluginLootAction.NoLoot;
 
