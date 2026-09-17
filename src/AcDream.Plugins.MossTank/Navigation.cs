@@ -1395,9 +1395,14 @@ internal sealed class NavigationController
         PluginNavigationCommandStatus asked = navigation.GoTo(waypoint.Position, (float)BoundedMinimumDistance());
         if (asked != PluginNavigationCommandStatus.Accepted)
         {
-            _status = asked == PluginNavigationCommandStatus.Unavailable
-                ? "This client cannot walk route legs; turn off walking legs with client pathing."
-                : "The client refused the walk to the waypoint.";
+            _status = asked switch
+            {
+                PluginNavigationCommandStatus.Unavailable =>
+                    "This client cannot walk route legs; turn off walking legs with client pathing.",
+                PluginNavigationCommandStatus.Held =>
+                    "Another plugin or the player is driving the character; the walk to the waypoint waits.",
+                _ => "The client refused the walk to the waypoint.",
+            };
             return false;
         }
         _clientWalkGoal = waypoint;
@@ -1471,9 +1476,14 @@ internal sealed class NavigationController
         PluginNavigationCommandStatus asked = navigation.Follow(targetId, (float)BoundedMinimumDistance());
         if (asked != PluginNavigationCommandStatus.Accepted)
         {
-            _status = asked == PluginNavigationCommandStatus.Unavailable
-                ? "This client cannot follow; turn off walking legs with client pathing."
-                : "The client refused to follow the target.";
+            _status = asked switch
+            {
+                PluginNavigationCommandStatus.Unavailable =>
+                    "This client cannot follow; turn off walking legs with client pathing.",
+                PluginNavigationCommandStatus.Held =>
+                    "Another plugin or the player is driving the character; the follow waits.",
+                _ => "The client refused to follow the target.",
+            };
             return false;
         }
         _clientFollowSequence = navigation.GoToReport.Sequence;
