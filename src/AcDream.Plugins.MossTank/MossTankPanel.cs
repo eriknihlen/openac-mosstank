@@ -28,6 +28,13 @@ internal sealed partial class MossTankPanel : IBuffRuleHost
     private readonly VitalSettings _vitalSettings = new();
     private readonly CombatSettings _combatSettings = new();
     private readonly InventorySettings _inventorySettings = new();
+
+    /// <summary>
+    /// The live, character-bound loot rule list a registered loot
+    /// classifier evaluates against -- the same list the loot engine
+    /// itself reads and the loot-profile store mutates in place.
+    /// </summary>
+    internal IReadOnlyList<LootRule> LiveLootRules => _inventorySettings.Loot.Rules;
     private readonly NavigationSettings _navigationSettings = new();
     private readonly VtankSettingsProfileSerializer.AllSettings _allSettings;
     private readonly VtankGameInfoDatabase _gameInfo;
