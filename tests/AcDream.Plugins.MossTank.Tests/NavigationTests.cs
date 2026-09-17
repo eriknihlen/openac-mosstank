@@ -1479,6 +1479,18 @@ public sealed class NavigationTests
         public IPluginStorage Storage { get; } = storage ?? NoOpPluginStorage.Instance;
         public IAutomationSurface Automation { get; } = automation;
         public IPluginStorage VtankProfiles { get; } = storage ?? NoOpPluginStorage.Instance;
+        public IPluginLootClassifierRegistry LootClassifiers { get; } = new InertLootClassifierRegistry();
+    }
+
+    private sealed class InertLootClassifierRegistry : IPluginLootClassifierRegistry
+    {
+        public IDisposable Register(string classifierId, string displayName, IPluginLootClassifier classifier) =>
+            new Revocation();
+
+        private sealed class Revocation : IDisposable
+        {
+            public void Dispose() { }
+        }
     }
 
     private sealed class FakeAutomation
