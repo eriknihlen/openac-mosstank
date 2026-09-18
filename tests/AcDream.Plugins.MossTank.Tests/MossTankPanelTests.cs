@@ -3370,6 +3370,39 @@ public sealed class MossTankPanelTests
     }
 
     [Fact]
+    public void ARechargeWithNothingToUseNeverHoldsThePass()
+    {
+        // Health is low and nothing can answer it: no kit, no food, no spell.
+        // The rule must decline every pass, retry delay included, or the
+        // attack beneath it never runs and the character dies unarmed.
+        var automation = new FakeAutomation
+        {
+            CurrentHealth = 10,
+            MaxHealth = 100,
+            CurrentStamina = 100,
+            MaxStamina = 100,
+            CurrentMana = 100,
+            MaxMana = 100,
+        };
+        var host = new FakeHost(automation);
+        var panel = new MossTankPanel(host);
+        panel.ToggleCombat();
+
+        var held = new List<string>();
+        for (int tick = 0; tick < 12; tick++)
+        {
+            panel.OnTick(0.3d);
+            foreach (IMacroRule rule in panel.MacroRules)
+            {
+                if (rule.Running && rule.Name == "RechargeSelfNormal")
+                    held.Add(rule.Name);
+            }
+        }
+
+        Assert.Empty(held);
+    }
+
+    [Fact]
     public void WithTheMacroOffOnlyRefillWieldedManaMayRun()
     {
         var automation = new FakeAutomation
