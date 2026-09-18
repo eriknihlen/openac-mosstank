@@ -274,6 +274,55 @@ public sealed class MossTankPanelTests
             automation.Messages);
     }
 
+    /// <summary>
+    /// The reference's open rule is VALID while the item slot is held: the
+    /// pass after the open is still the open rule's, with the slot up, and
+    /// nothing below it runs. Mutation: put <c>ItemSlotIsFree()</c> back in
+    /// front of the idle open row's gate and the second pass line is not the
+    /// open rule's.
+    /// </summary>
+    [Fact]
+    public void TheOpenRuleHoldsThePassWhileItsOwnSlotIsUp()
+    {
+        var loot = new FrameLootSurface();
+        var automation = new FakeAutomation { LootSurface = loot };
+        var panel = new MossTankPanel(new FakeHost(automation));
+        panel.AddLootRule();
+        if (!panel.LootEnabled)
+            panel.ToggleLooting();
+        loot.Corpses =
+        [
+            new PluginLootContainer(
+                FrameLootSurface.CorpseId,
+                1u,
+                "Corpse",
+                3f,
+                false,
+                false,
+                false)
+            {
+                IsIdentified = true,
+                LongDescription = $"Killed by {automation.Name}.",
+            },
+        ];
+        panel.ExecuteVtankCommand(new PluginCommand(
+            "vt", "log ActiveRule on", "/vt log ActiveRule on"));
+        panel.ToggleCombat();
+        for (int tick = 0; tick < 12 && loot.Opened == 0u; tick++)
+            panel.OnTick(0.3d);
+        Assert.Equal(FrameLootSurface.CorpseId, loot.Opened);
+        Assert.True(panel.ActionLocks.IsLocked(ActionLockKind.ItemUse));
+
+        // The container has not opened; the slot is still up.
+        automation.Messages.Clear();
+        panel.OnTick(0.3d);
+
+        Assert.Contains(
+            automation.Messages,
+            line => line.Contains("Picked OpenCorpseIdle", StringComparison.Ordinal)
+                && line.Contains("I=True", StringComparison.Ordinal));
+    }
+
     private sealed class FrameLootSurface : ILootAutomation
     {
         internal const uint CorpseId = 0x70000D01u;
