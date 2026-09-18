@@ -4604,21 +4604,46 @@ internal sealed partial class MossTankPanel : IBuffRuleHost
     }
 
     /// <summary>
-    /// Dying stops the macro, and changes nothing else. The setting's own name
-    /// says so. Stopping is not forgetting, though: the route keeps the
-    /// waypoint it was walking to, so starting the macro again picks the round
-    /// up where it broke off rather than at the first point.
+    /// The reference's death: the macro keeps running; with the death setting
+    /// on, the four switches — navigation, looting, buffing, combat — are
+    /// saved and turned off, and a restore is offered. The route keeps the
+    /// waypoint it was walking to.
     /// </summary>
-    private const string DeathStoppedNotice =
-        "Macro stopped because the character died.";
+    private const string DeathNotice =
+        "You died! Buffing, Combat, Nav and Loot have been disabled. "
+        + "Use /vt deathrestore to restore them.";
+
+    private const string DeathRestoredNotice =
+        "Buffing, Combat, Nav and Loot have been restored to previous values.";
+
+    private bool _deathSavedNav;
+    private bool _deathSavedLoot;
+    private bool _deathSavedBuff;
+    private bool _deathSavedCombat;
 
     private void HandleDeath(bool macroRunning)
     {
         _buffRule.InvalidateItemTimers();
         if (!macroRunning || !_combatSettings.StopMacroOnDeath)
             return;
-        SetMacroRunning(false);
-        Announce(DeathStoppedNotice);
+        _deathSavedNav = GetMetaOptionForTest("EnableNav");
+        _deathSavedLoot = GetMetaOptionForTest("EnableLooting");
+        _deathSavedBuff = GetMetaOptionForTest("EnableBuffing");
+        _deathSavedCombat = GetMetaOptionForTest("EnableCombat");
+        SetMetaOption("EnableNav", ExpressionValue.Boolean(false));
+        SetMetaOption("EnableLooting", ExpressionValue.Boolean(false));
+        SetMetaOption("EnableBuffing", ExpressionValue.Boolean(false));
+        SetMetaOption("EnableCombat", ExpressionValue.Boolean(false));
+        Announce(DeathNotice);
+    }
+
+    private void RestoreAfterDeath()
+    {
+        SetMetaOption("EnableNav", ExpressionValue.Boolean(_deathSavedNav));
+        SetMetaOption("EnableLooting", ExpressionValue.Boolean(_deathSavedLoot));
+        SetMetaOption("EnableBuffing", ExpressionValue.Boolean(_deathSavedBuff));
+        SetMetaOption("EnableCombat", ExpressionValue.Boolean(_deathSavedCombat));
+        Announce(DeathRestoredNotice);
     }
 
     private bool _wasDeadForMacro;

@@ -10,7 +10,7 @@ internal sealed partial class MossTankPanel
     private static readonly string[] VtankHelp =
     [
         "/vt commands (profiles): settings nav loot meta opt testitem propertydump addnavpt refresh getdb addnavjump addnavcheckpoint",
-        "/vt commands (actions): start stop forcebuff cancelforcebuff setmetastate fakedeath deletemonster reverseroute reverseroutequery equipitemsfor mexec echo tapjump jump setattackbar",
+        "/vt commands (actions): start stop forcebuff cancelforcebuff setmetastate fakedeath deathrestore deletemonster reverseroute reverseroutequery equipitemsfor mexec echo tapjump jump setattackbar",
         "/vt commands (game info): dumpspells dumpspecies dumpmats dumpskills",
         "/vt commands (debug): log testmonster lockdump dumptracker clearlocks clearbusy listmonstervariables dumpmetavars listmetafunctions metafunchelp fakeimp pscount testspell testpet",
     ];
@@ -165,6 +165,9 @@ internal sealed partial class MossTankPanel
                 return;
             case "metafunchelp":
                 MetaFunctionHelp(arguments);
+                return;
+            case "deathrestore":
+                RestoreAfterDeath();
                 return;
             case "fakedeath":
                 // The reference's verb calls the death handler itself rather

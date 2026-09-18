@@ -2900,11 +2900,12 @@ public sealed class MossTankPanelTests
     }
 
     /// <summary>
-    /// Dying stops the macro and changes no setting, which is what the
-    /// setting's own name promises.
+    /// The reference's death keeps the macro running and turns the four
+    /// switches off, saved for the restore verb. Mutation: stop the macro
+    /// instead and the first assertion fails.
     /// </summary>
     [Fact]
-    public void DeathWithStopMacroOnDeathStopsTheMacroAndChangesNoSetting()
+    public void DeathWithStopMacroOnDeathKeepsTheMacroAndDisablesTheFourSwitches()
     {
         var automation = new FakeAutomation
         {
@@ -2924,19 +2925,25 @@ public sealed class MossTankPanelTests
         automation.CurrentHealth = 0;
         panel.OnTick(0.1d);
 
-        Assert.False(panel.CombatMacroRunning);
+        Assert.True(panel.CombatMacroRunning);
+        Assert.False(panel.GetMetaOptionForTest("EnableNav"));
+        Assert.False(panel.GetMetaOptionForTest("EnableLooting"));
+        Assert.False(panel.GetMetaOptionForTest("EnableBuffing"));
+        Assert.False(panel.GetMetaOptionForTest("EnableCombat"));
+        Assert.Contains(
+            automation.Messages,
+            static value => value.Contains("deathrestore", StringComparison.Ordinal));
+
+        panel.ExecuteVtankCommand(new PluginCommand(
+            "vt", "deathrestore", "/vt deathrestore"));
+
         Assert.True(panel.GetMetaOptionForTest("EnableNav"));
         Assert.True(panel.GetMetaOptionForTest("EnableLooting"));
         Assert.True(panel.GetMetaOptionForTest("EnableBuffing"));
         Assert.True(panel.GetMetaOptionForTest("EnableCombat"));
         Assert.Contains(
             automation.Messages,
-            static value => value.Contains(
-                "Macro stopped because the character died.",
-                StringComparison.Ordinal));
-        Assert.DoesNotContain(
-            automation.Messages,
-            static value => value.Contains("deathrestore", StringComparison.Ordinal));
+            static value => value.Contains("restored", StringComparison.Ordinal));
     }
 
     /// <summary>The reject branch of the same handler: nothing at all.</summary>
@@ -3016,7 +3023,7 @@ public sealed class MossTankPanelTests
         automation.CurrentHealth = 0;
         panel.OnTick(0.1d);
 
-        Assert.False(panel.CombatMacroRunning);
+        Assert.True(panel.CombatMacroRunning);
         Assert.Equal(1, panel.RouteWaypointIndexForTest);
     }
 
@@ -3244,17 +3251,16 @@ public sealed class MossTankPanelTests
         panel.ExecuteVtankCommand(new PluginCommand(
             "vt", "fakedeath", "/vt fakedeath"));
 
-        Assert.False(panel.CombatMacroRunning);
+        Assert.True(panel.CombatMacroRunning);
+        Assert.False(panel.GetMetaOptionForTest("EnableCombat"));
         Assert.Contains(
             automation.Messages,
-            static value => value.Contains(
-                "Macro stopped because the character died.",
-                StringComparison.Ordinal));
+            static value => value.Contains("You died!", StringComparison.Ordinal));
     }
 
-    /// <summary>The restore verb the owner's decision removed stays removed.</summary>
+    /// <summary>The restore verb is listed in the help, as the reference's link is offered.</summary>
     [Fact]
-    public void ThereIsNoDeathRestoreVerb()
+    public void TheDeathRestoreVerbIsListed()
     {
         var automation = new FakeAutomation
         {
@@ -3263,14 +3269,9 @@ public sealed class MossTankPanelTests
         };
         var panel = new MossTankPanel(new FakeHost(automation));
 
-        panel.ExecuteVtankCommand(new PluginCommand(
-            "vt", "deathrestore", "/vt deathrestore"));
         panel.ExecuteVtankCommand(new PluginCommand("vt", "help", "/vt help"));
 
-        Assert.DoesNotContain(
-            automation.Messages,
-            static value => value.Contains("restored", StringComparison.Ordinal));
-        Assert.DoesNotContain(
+        Assert.Contains(
             automation.Messages,
             static value => value.Contains("deathrestore", StringComparison.Ordinal));
     }
