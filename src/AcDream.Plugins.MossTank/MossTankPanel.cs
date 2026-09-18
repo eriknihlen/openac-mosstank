@@ -28,6 +28,13 @@ internal sealed partial class MossTankPanel : IBuffRuleHost
     private readonly VitalSettings _vitalSettings = new();
     private readonly CombatSettings _combatSettings = new();
     private readonly InventorySettings _inventorySettings = new();
+
+    /// <summary>
+    /// The live, character-bound loot rule list a registered loot
+    /// classifier evaluates against -- the same list the loot engine
+    /// itself reads and the loot-profile store mutates in place.
+    /// </summary>
+    internal IReadOnlyList<LootRule> LiveLootRules => _inventorySettings.Loot.Rules;
     private readonly NavigationSettings _navigationSettings = new();
     private readonly MetaSettings _metaSettings = new();
     private readonly VtankSettingsProfileSerializer.AllSettings _allSettings;
@@ -200,6 +207,10 @@ internal sealed partial class MossTankPanel : IBuffRuleHost
     private string _routeNotice = "Add the current position or a selected object.";
     private string _routeChatDraft = "/ls";
     private int _routePauseSeconds = 5;
+
+    /// <summary>Seconds the panel has ticked, and when the macro last won a pass attacking, for a walk waiting on a corpse.</summary>
+    private double _walkClock;
+    private double _lastAttackSeconds = double.NegativeInfinity;
     private RouteRecallKind _routeRecallKind = RouteRecallKind.PrimaryPortalRecall;
     private RouteInsertMode _routeInsertMode = RouteInsertMode.AddToEnd;
     private IReadOnlyList<string> _metaRows = Array.Empty<string>();
@@ -616,6 +627,58 @@ internal sealed partial class MossTankPanel : IBuffRuleHost
     public string BuffStatus => _status;
     public string CombatButtonText => _combat.ButtonText;
     public bool CombatMacroRunning => _combat.Enabled;
+
+    /// <summary>
+    /// How long after the macro last attacked it may still loot what it killed, so a walk
+    /// the client plans waits that long for the corpse to appear.
+    /// </summary>
+    internal const double CorpseWaitSeconds = 2.5d;
+
+    /// <summary>
+    /// What the macro is doing that needs the character, so a walk the client plans waits
+    /// for it, or null while the macro is idle.
+    /// </summary>
+    internal string? WalkPauseReason => WalkPauseReasonFor(
+        _scheduler.IsRunning,
+        _scheduler.LastExecutedRule?.Name,
+        _buffRule.IsBursting,
+        _navigationSettings.Enabled,
+        _inventorySettings.Loot.Enabled,
+        _walkClock - _lastAttackSeconds);
+
+    /// <summary>
+    /// The macro needs the character while it buffs, while it steers the character along
+    /// its own route, while a rule that outranks navigation won its last pass, and, when it
+    /// loots, for <see cref="CorpseWaitSeconds"/> after it last attacked. It is idle while
+    /// stopped, and when navigation or a rule below navigation won.
+    /// </summary>
+    internal static string? WalkPauseReasonFor(
+        bool running,
+        string? lastRule,
+        bool buffing,
+        bool routeNavigation,
+        bool looting,
+        double secondsSinceAttack)
+    {
+        if (buffing)
+            return "MossTank is buffing";
+        if (!running)
+            return null;
+        switch (lastRule)
+        {
+            case null or "RandomHelper" or "IdlePeace":
+                break;
+            case "NavigateRoutePriority" or "NavigateRouteIdle":
+                if (routeNavigation)
+                    return "MossTank is following its route";
+                break;
+            default:
+                return $"MossTank is running {lastRule}";
+        }
+        return looting && secondsSinceAttack < CorpseWaitSeconds
+            ? "MossTank is waiting for a corpse to loot"
+            : null;
+    }
     public string CombatStatus => _combat.Status;
     public string CombatTarget => _combat.TargetText;
     public string CombatMode => _combat.ModeText;
@@ -933,6 +996,28 @@ internal sealed partial class MossTankPanel : IBuffRuleHost
     public string SelectedRouteMode => _navigationSettings.Mode == RouteMode.Target
         ? "Follow"
         : _navigationSettings.Mode.ToString();
+    public IReadOnlyList<string> ClientPathingNames => ["Never", "When stuck", "Always"];
+    public string SelectedClientPathing => ClientPathingName(_navigationSettings.ClientPathing);
+    public Action<string> SelectClientPathing => value =>
+    {
+        ClientPathing chosen = value?.Trim().ToLowerInvariant() switch
+        {
+            "never" => ClientPathing.Never,
+            "always" => ClientPathing.Always,
+            _ => ClientPathing.WhenStuck,
+        };
+        if (chosen == _navigationSettings.ClientPathing)
+            return;
+        _navigationSettings.ClientPathing = chosen;
+        _navigation.ClientPathingChanged();
+        SaveProfile();
+    };
+    internal static string ClientPathingName(ClientPathing value) => value switch
+    {
+        ClientPathing.Never => "Never",
+        ClientPathing.Always => "Always",
+        _ => "When stuck",
+    };
     public IReadOnlyList<string> RouteRecallNames
     {
         get
@@ -4628,6 +4713,10 @@ internal sealed partial class MossTankPanel : IBuffRuleHost
             _navigation.StepArmedMover(elapsedSeconds);
         _corpseApproach.StepArmedMover(elapsedSeconds);
         _scheduler.Advance(elapsedSeconds);
+        if (double.IsFinite(elapsedSeconds) && elapsedSeconds > 0d)
+            _walkClock += elapsedSeconds;
+        if (_scheduler.LastExecutedRule?.Name == "Attack")
+            _lastAttackSeconds = _walkClock;
         _combatModeGate.AdvancePass(elapsedSeconds);
 
         // Display the idle-peace owner's status on the pass it wins.
@@ -4681,7 +4770,7 @@ internal sealed partial class MossTankPanel : IBuffRuleHost
                         && message.SenderObjectId != 0u
                         && message.SenderObjectId
                             == _host.Automation.Character.ObjectId,
-                    logTextType: message.LogTextType);
+                    logTextType: (uint)message.LogTextType);
             }
         }
         _castTracker.Advance(elapsed);

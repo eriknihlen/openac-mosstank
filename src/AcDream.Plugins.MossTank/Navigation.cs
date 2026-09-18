@@ -11,6 +11,23 @@ internal enum RouteMode
     Once,
 }
 
+/// <summary>When the route hands a leg to the client's own pathing.</summary>
+internal enum ClientPathing
+{
+    /// <summary>The reference's straight walk at every point; a stall is only said in chat.</summary>
+    Never,
+
+    /// <summary>
+    /// The straight walk, and once per visit to a waypoint, when it has not
+    /// covered ground for three seconds, the client walks that leg; the route
+    /// takes the keys back however the client's walk ends.
+    /// </summary>
+    WhenStuck,
+
+    /// <summary>Every leg goes to the client; a leg it cannot walk pauses the route.</summary>
+    Always,
+}
+
 internal enum RouteWaypointType
 {
     Point = 0,
@@ -280,6 +297,7 @@ internal sealed class NavigationSettings
     public uint FollowTargetObjectId { get; set; }
     public string FollowTargetName { get; set; } = string.Empty;
     public bool FollowAroundCorners { get; set; } = true;
+    public ClientPathing ClientPathing { get; set; } = ClientPathing.WhenStuck;
     public bool OpenDoors { get; set; }
     public double DoorIdentifyRangeMeters { get; set; } = 20d;
     public double DoorOpenRangeMeters { get; set; } = 4d;
@@ -383,6 +401,18 @@ internal sealed class NavigationController
     /// them: the corpse walk has its own, and the two never share armed state.
     /// </summary>
     private readonly NavigationMover _mover;
+
+    /// <summary>
+    /// The leg the client is walking for the route and that walk's sequence;
+    /// the waypoint index that already had its one hand-off this visit;
+    /// whether the route said it stalled again there; and whether a leg the
+    /// client could not walk has paused the route.
+    /// </summary>
+    private RouteWaypoint? _clientWalkGoal;
+    private long _clientWalkSequence;
+    private int _clientHandOffIndex = -1;
+    private bool _clientStallPosted;
+    private bool _clientLegPaused;
 
     /// <summary>
     /// The jump's own re-face stamp. It cannot share the mover's, which is
@@ -603,6 +633,9 @@ internal sealed class NavigationController
         // The re-face throttle is a stamp on the mover's clock; a stopped
         // macro starts the next run without it.
         _mover.ClearFaceHeadingStamp();
+        _clientLegPaused = false;
+        _clientHandOffIndex = -1;
+        _clientStallPosted = false;
         ResetOncePerRunWarnings();
         _checkpointElapsed = 0d;
         _followPath.Clear();
@@ -622,6 +655,9 @@ internal sealed class NavigationController
     {
         _mover.StopForLostTurn();
         _mover.ClearFaceHeadingStamp();
+        _clientLegPaused = false;
+        _clientHandOffIndex = -1;
+        _clientStallPosted = false;
         _checkpointElapsed = 0d;
         ClearDoor();
         ClearAction();
@@ -707,6 +743,12 @@ internal sealed class NavigationController
             return false;
         }
 
+        if (_clientLegPaused)
+        {
+            StopMovement();
+            return false;
+        }
+
         _index = Math.Clamp(_index, 0, _settings.Waypoints.Count - 1);
         RouteWaypoint waypoint = _settings.Waypoints[_index];
         if (waypoint.Type == RouteWaypointType.Point)
@@ -728,7 +770,7 @@ internal sealed class NavigationController
             _status = string.Create(
                 CultureInfo.InvariantCulture,
                 $"Waypoint {_index + 1}/{_settings.Waypoints.Count}: {distance:0.0}m");
-            return Steer(navigation, snapshot.Position, waypoint.Position, distance);
+            return SteerLeg(navigation, snapshot, waypoint, distance);
         }
         if (waypoint.Type == RouteWaypointType.Checkpoint)
             return TickCheckpoint(navigation, snapshot, waypoint, elapsedSeconds);
@@ -1055,11 +1097,7 @@ internal sealed class NavigationController
         {
             _checkpointElapsed = 0d;
             _status = string.Create(CultureInfo.InvariantCulture, $"Checkpoint {_index + 1}/{_settings.Waypoints.Count}: {liveDistance:0.0}m");
-            return Steer(
-                navigation,
-                snapshot.Position,
-                waypoint.Position,
-                liveDistance);
+            return SteerLeg(navigation, snapshot, waypoint, liveDistance);
         }
 
         StopMovement();
@@ -1166,6 +1204,163 @@ internal sealed class NavigationController
         in PluginNavigationPosition target,
         double distanceMeters) =>
         _mover.Steer(navigation, current, target, distanceMeters);
+
+    /// <summary>
+    /// Steers one leg of the route: the reference way, straight at the point
+    /// with held keys, unless the profile hands every leg to the client, or
+    /// the straight walk is stuck and the profile allows one hand-off per
+    /// visit to a waypoint. While the client walks, the rule keeps its turn
+    /// and only watches the report; every way that walk ends returns the
+    /// keys to the mover, and arriving advances the route.
+    /// </summary>
+    private bool SteerLeg(
+        INavigationAutomation navigation,
+        in PluginNavigationSnapshot snapshot,
+        RouteWaypoint waypoint,
+        double distance)
+    {
+        if (_clientWalkGoal is not null)
+            return WatchClientWalk(navigation, distance);
+        if (_settings.ClientPathing == ClientPathing.Always)
+            return AskClientWalk(navigation, waypoint, distance);
+
+        bool claimed = Steer(navigation, snapshot.Position, waypoint.Position, distance);
+        if (!_mover.IsStuck)
+            return claimed;
+        _mover.ResetStuckClock();
+        if (_settings.ClientPathing == ClientPathing.WhenStuck
+            && _clientHandOffIndex != _index)
+        {
+            _clientHandOffIndex = _index;
+            _mover.StopMovement();
+            return AskClientWalk(navigation, waypoint, distance);
+        }
+        if (!_clientStallPosted)
+        {
+            _clientStallPosted = true;
+            _host.Automation.Chat.PostSystemMessage(string.Create(
+                CultureInfo.InvariantCulture,
+                $"[MossTank] The route has not covered ground for {NavigationMover.StuckSeconds:0} seconds on the way to waypoint {_index + 1}."));
+        }
+        return claimed;
+    }
+
+    private bool AskClientWalk(
+        INavigationAutomation navigation,
+        RouteWaypoint waypoint,
+        double distance)
+    {
+        PluginNavigationCommandStatus asked = navigation.GoTo(
+            waypoint.Position,
+            (float)BoundedMinimumDistance());
+        if (asked != PluginNavigationCommandStatus.Accepted)
+        {
+            string why = asked switch
+            {
+                PluginNavigationCommandStatus.Unavailable => "this client cannot path",
+                PluginNavigationCommandStatus.Held =>
+                    "another plugin or the player is driving the character",
+                _ => "the client refused the walk",
+            };
+            if (_settings.ClientPathing == ClientPathing.Always)
+            {
+                PauseRoute($"Waypoint {_index + 1} could not be walked ({why})");
+                return false;
+            }
+            _status = string.Create(
+                CultureInfo.InvariantCulture,
+                $"Waypoint {_index + 1}/{_settings.Waypoints.Count}: {distance:0.0}m; {why}, walking on");
+            return true;
+        }
+        _clientWalkGoal = waypoint;
+        _clientWalkSequence = navigation.GoToReport.Sequence;
+        _status = ClientWalkStatus(distance);
+        return true;
+    }
+
+    private bool WatchClientWalk(INavigationAutomation navigation, double distance)
+    {
+        PluginGoToReport report = navigation.GoToReport;
+        if (report.Sequence != _clientWalkSequence)
+        {
+            // A newer walk replaced ours: whoever asked for it has the
+            // character, and the keys come back on the next steered frame.
+            _clientWalkGoal = null;
+            return true;
+        }
+        switch (report.State)
+        {
+            case PluginGoToState.Planning:
+            case PluginGoToState.Walking:
+            case PluginGoToState.Waiting:
+                _status = ClientWalkStatus(distance);
+                return true;
+            case PluginGoToState.Arrived:
+            case PluginGoToState.ArrivedWithoutSight:
+                _clientWalkGoal = null;
+                AdvanceWaypoint();
+                return true;
+            case PluginGoToState.Stopped:
+                _clientWalkGoal = null;
+                return true;
+            default:
+                _clientWalkGoal = null;
+                string reason = string.IsNullOrWhiteSpace(report.Reason)
+                    ? report.State.ToString()
+                    : report.Reason;
+                if (_settings.ClientPathing == ClientPathing.Always)
+                {
+                    PauseRoute($"Waypoint {_index + 1} could not be walked ({reason})");
+                    return false;
+                }
+                _status = string.Create(
+                    CultureInfo.InvariantCulture,
+                    $"Waypoint {_index + 1}/{_settings.Waypoints.Count}: {distance:0.0}m; the client's walk ended ({reason}), walking on");
+                return true;
+        }
+    }
+
+    private string ClientWalkStatus(double distance) => string.Create(
+        CultureInfo.InvariantCulture,
+        $"Waypoint {_index + 1}/{_settings.Waypoints.Count}: {distance:0.0}m, walked by the client");
+
+    /// <summary>
+    /// With every leg on the client, a leg it cannot walk stops the route
+    /// where it stands and says so once; the route goes on when it is reset
+    /// or the setting changes.
+    /// </summary>
+    private void PauseRoute(string why)
+    {
+        _clientLegPaused = true;
+        _status = why + "; the route is paused. Reset the route or change Client pathing.";
+        _host.Automation.Chat.PostSystemMessage("[MossTank] " + _status);
+    }
+
+    /// <summary>Ends the walk the route asked the client for, if it is still under way.</summary>
+    private void StopClientWalk()
+    {
+        if (_clientWalkGoal is null)
+            return;
+        _clientWalkGoal = null;
+        INavigationAutomation navigation = _host.Automation.Navigation;
+        PluginGoToReport report = navigation.GoToReport;
+        if (report.Sequence == _clientWalkSequence
+            && report.State is PluginGoToState.Planning
+                or PluginGoToState.Walking
+                or PluginGoToState.Waiting)
+        {
+            _ = navigation.StopGoTo();
+        }
+    }
+
+    /// <summary>The Client pathing setting changed: whatever walk it allowed is let go, and a paused route may try again.</summary>
+    internal void ClientPathingChanged()
+    {
+        StopClientWalk();
+        _clientLegPaused = false;
+        _clientHandOffIndex = -1;
+        _clientStallPosted = false;
+    }
 
     private bool TickAction(
         RouteWaypoint waypoint,
@@ -1450,7 +1645,7 @@ internal sealed class NavigationController
         foreach (PluginChatMessage message in messages)
         {
             _chatBaseline = Math.Max(_chatBaseline, message.Sequence);
-            bool answered = message.LogTextType switch
+            bool answered = (uint)message.LogTextType switch
             {
                 NpcTellLogTextType => ComposeTellLine(message).StartsWith(
                     npcName + " tells you, ",
@@ -1654,6 +1849,8 @@ internal sealed class NavigationController
     private void AdvanceWaypoint()
     {
         ClearAction();
+        _clientHandOffIndex = -1;
+        _clientStallPosted = false;
         _checkpointElapsed = 0d;
         int count = _settings.Waypoints.Count;
         if (count == 0)
@@ -1720,9 +1917,17 @@ internal sealed class NavigationController
     /// thing in acdream's terms — drop the movement intent. It is what the
     /// scheduler wires as <c>onLostTurn</c> for both navigate tiers.
     /// </summary>
-    internal void StopForLostTurn() => _mover.StopForLostTurn();
+    internal void StopForLostTurn()
+    {
+        StopClientWalk();
+        _mover.StopForLostTurn();
+    }
 
-    private void StopMovement() => _mover.StopMovement();
+    private void StopMovement()
+    {
+        StopClientWalk();
+        _mover.StopMovement();
+    }
 
     private double BoundedMinimumDistance() => Math.Clamp(
         _settings.MinimumDistanceMeters,

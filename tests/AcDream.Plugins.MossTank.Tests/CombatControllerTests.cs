@@ -2425,7 +2425,7 @@ public sealed class CombatControllerTests
             new PluginChatMessage(
                 1, 0, 0, string.Empty, "Drudge is an invalid target.", string.Empty)
             {
-                LogTextType = 0x07u,
+                LogTextType = 0x07,
             },
         ];
         controller.OnTick(0.25);
@@ -2471,7 +2471,7 @@ public sealed class CombatControllerTests
             new PluginChatMessage(
                 1, 0, 0, string.Empty, "Drudge is an invalid target.", string.Empty)
             {
-                LogTextType = 0x07u,
+                LogTextType = 0x07,
             },
         ];
         controller.OnTick(0.25);
@@ -3393,7 +3393,7 @@ public sealed class CombatControllerTests
                 "You cast Imperil Other VII on Drudge.",
                 string.Empty)
             {
-                LogTextType = 0x07u,
+                LogTextType = 0x07,
             },
         ];
         controller.OnTick(0.25);
@@ -3457,7 +3457,7 @@ public sealed class CombatControllerTests
                 "You cast Imperil Other VII on Drudge.",
                 string.Empty)
             {
-                LogTextType = 0x07u,
+                LogTextType = 0x07,
             },
         ];
         controller.OnTick(0.25);
@@ -3518,7 +3518,7 @@ public sealed class CombatControllerTests
                 "You cast Imperil Other VII on Drudge.",
                 string.Empty)
             {
-                LogTextType = 0x07u,
+                LogTextType = 0x07,
             },
         ];
         controller.OnTick(0.1);
@@ -4254,7 +4254,7 @@ public sealed class CombatControllerTests
         uint logTextType = 0u) =>
         new(sequence, 0u, 0, string.Empty, text, string.Empty)
         {
-            LogTextType = logTextType,
+            LogTextType = (int)logTextType,
         };
 
     /// <summary>
