@@ -149,11 +149,11 @@ internal sealed class PetAutomation
             return false;
         if (!automation.IsAvailable)
             return false;
+        // The reference rule asks nothing about the host being busy: its
+        // predicate is a low device and a spirit to use on it. A pass is
+        // never held for a use that has not been issued.
         if (automation.IsBusy)
-        {
-            status = "Waiting to use combat pet";
-            return true;
-        }
+            return false;
         if (now < _nextRefillAt)
             return false;
 
@@ -181,7 +181,7 @@ internal sealed class PetAutomation
 
         _nextRefillAt = now + RefusalRetrySeconds;
         status = result.Notice ?? $"Combat pet action refused: {result.Status}";
-        return true;
+        return false;
     }
 
     /// <summary>

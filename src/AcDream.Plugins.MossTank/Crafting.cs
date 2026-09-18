@@ -277,6 +277,13 @@ internal sealed class CraftingController
     private readonly CombatSettings _profiles;
     private CraftingPlan? _pending;
     private CraftingPlan? _pendingSplit;
+
+    /// <summary>
+    /// True while a craft use or the split ahead of it is still unanswered.
+    /// The reference's timed item use raises the global busy count for that
+    /// whole wait.
+    /// </summary>
+    internal bool UseInFlight => _pending is not null || _pendingSplit is not null;
     private long _observedCompletion;
     private long _observedInventoryCompletion;
     private double _untilScan;

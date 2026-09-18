@@ -1100,6 +1100,14 @@ internal sealed class VitalRechargeController
     private readonly VitalSettings _settings;
     private readonly CombatSettings _combatSettings;
     private Pending? _pending;
+
+    /// <summary>
+    /// True while a kit, a food item or a caster item this controller used
+    /// is still unanswered. The reference's kit sequencer and wand cast
+    /// tracker both raise the global busy count for that whole wait.
+    /// </summary>
+    internal bool ItemUseInFlight => _pending is { Choice.UsesItem: true };
+
     private double _retryDelay;
     private double _rechargeTraceDelay;
     private double _pendingSeconds;

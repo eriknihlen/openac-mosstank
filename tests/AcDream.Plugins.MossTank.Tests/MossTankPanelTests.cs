@@ -2166,6 +2166,42 @@ public sealed class MossTankPanelTests
             automation.Messages);
     }
 
+    /// <summary>
+    /// The reference's busy count is raised by a spell cast, a wand cast and
+    /// a kit or craft use, never by an open, a pickup or an identify. Here
+    /// the host's inventory flag is up (an identify is outstanding) and the
+    /// pass still runs. Mutation: put <c>automation.Items.IsBusy</c> back
+    /// into the in-flight test of <c>ObserveCastSuspension</c> and the pass
+    /// line never appears.
+    /// </summary>
+    [Fact]
+    public void AnOutstandingInventoryRequestDoesNotStopThePass()
+    {
+        var automation = new CombatCapableFakeAutomation
+        {
+            CurrentHealth = 100,
+            MaxHealth = 100,
+            ItemsBusy = true,
+        };
+        automation.CombatSnapshot = automation.CombatSnapshot with
+        {
+            Mode = PluginCombatMode.Melee,
+        };
+        var panel = new MossTankPanel(new FakeHost(automation));
+        panel.ToggleIdlePeaceMode();
+        panel.ExecuteVtankCommand(new PluginCommand(
+            "vt", "log ActiveRule on", "/vt log ActiveRule on"));
+        automation.Messages.Clear();
+        panel.ToggleCombat();
+
+        panel.OnTick(0.1d);
+        panel.OnTick(0.3d);
+
+        Assert.Contains(
+            "[MossTank] Picked IdlePeace P: 65   I=False, N=False, S=False",
+            automation.Messages);
+    }
+
     [Fact]
     public void VtLogActiveRuleOnPostsAllRulesInactiveWhenNothingIsValid()
     {
@@ -7478,7 +7514,8 @@ public sealed class MossTankPanelTests
         public void PostSystemMessage(string text) => Messages.Add(text);
 
         bool IItemAutomation.IsAvailable => true;
-        bool IItemAutomation.IsBusy => false;
+        public bool ItemsBusy { get; set; }
+        bool IItemAutomation.IsBusy => ItemsBusy;
         public IReadOnlyList<PluginInventoryItem> ItemEntries { get; set; } = [];
         public IReadOnlyList<PluginInventoryItem> CaptureOwnedItems() => ItemEntries;
         public int ApplyCount { get; private set; }

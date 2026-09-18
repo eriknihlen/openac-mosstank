@@ -463,6 +463,39 @@ public sealed class VitalRechargeTests
     }
 
     /// <summary>
+    /// A kit or food item the server has yet to answer for is what the
+    /// reference's kit sequencer raises the global busy count for; the
+    /// controller reports it for exactly that long. Mutation: make
+    /// <c>ItemUseInFlight</c> answer false and the first assertion fails.
+    /// </summary>
+    [Fact]
+    public void AKitOrFoodUseIsReportedInFlightUntilTheServerAnswers()
+    {
+        var surface = new Surface
+        {
+            CurrentHealth = 20,
+            MaxHealth = 100,
+            Items = [Food(10u, "Bread")],
+        };
+        var combat = new CombatSettings();
+        combat.ConsumableNames.Add("Bread");
+        var controller = new VitalRechargeController(
+            new Host(surface),
+            new VitalSettings(),
+            combat);
+        controller.BindActionLocks(new ActionLockTable());
+        Assert.False(controller.ItemUseInFlight);
+
+        controller.Tick(0.3d, enabled: true, noTarget: true, helpers: false);
+        Assert.Equal([10u], surface.UsedItemIds);
+        Assert.True(controller.ItemUseInFlight);
+
+        surface.LastItemCompletion = new PluginItemUseCompletion(1L, 10u, 0u, 0u);
+        controller.Tick(0.3d, enabled: true, noTarget: true, helpers: false);
+        Assert.False(controller.ItemUseInFlight);
+    }
+
+    /// <summary>
     /// A pass the rule does not win is not a reason to abandon an item the
     /// server has yet to answer for: the transaction keeps its slot and keeps
     /// waiting, so it cannot drop a window somebody else is holding and it

@@ -305,6 +305,20 @@ internal sealed class CombatController
 
     internal bool HasPendingItemDebuff => _pendingItemDebuff is not null;
 
+    /// <summary>
+    /// True while a cast from a HELD ITEM is outstanding. The reference's wand
+    /// cast tracker raises the global busy count for the life of such a cast,
+    /// so the pass runs no rule until it resolves.
+    /// </summary>
+    internal bool HeldItemCastInFlight =>
+        _pendingItemDebuff is { Source.Kind: CombatDebuffSourceKind.CasterItem };
+
+    /// <summary>
+    /// Set when the attack's own turn has already driven the held item's cast
+    /// this frame, so the frame driver does not drive it a second time.
+    /// </summary>
+    private bool _heldItemDrivenByTurn;
+
     public string ButtonText => Enabled ? "Stop Macro" : "Run Macro";
 
     public void BindAmmunitionCraftRequest(
@@ -554,6 +568,8 @@ internal sealed class CombatController
         if (_pendingItemDebuff is not null)
         {
             Status = $"Waiting on {_pendingItemDebuff.Source.Kind} debuff";
+            _heldItemDrivenByTurn =
+                _pendingItemDebuff.Source.Kind == CombatDebuffSourceKind.CasterItem;
             TickPendingItemDebuff(current);
             return;
         }
@@ -4102,8 +4118,12 @@ internal sealed class CombatController
     /// </summary>
     internal void ObserveHeldItemCast(double elapsedSeconds)
     {
-        if (!_paused
-            || _pendingItemDebuff is not
+        if (_heldItemDrivenByTurn)
+        {
+            _heldItemDrivenByTurn = false;
+            return;
+        }
+        if (_pendingItemDebuff is not
                 { Source.Kind: CombatDebuffSourceKind.CasterItem })
         {
             return;

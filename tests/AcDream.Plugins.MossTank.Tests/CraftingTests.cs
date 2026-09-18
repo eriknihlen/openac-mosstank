@@ -293,6 +293,42 @@ public sealed class CraftingTests
         Assert.NotEmpty(automation.Moves);
     }
 
+    /// <summary>
+    /// A craft use the server has yet to answer for is what the reference's
+    /// timed item use raises the global busy count for; the controller
+    /// reports it for exactly that long. Mutation: make <c>UseInFlight</c>
+    /// answer false and the last assertion fails.
+    /// </summary>
+    [Fact]
+    public void ACraftUseIsReportedInFlightOnceItHasBeenIssued()
+    {
+        var automation = new Automation
+        {
+            Inventory =
+            [
+                Item(1, "Chorizite Oil") with { StackSize = 2 },
+            ],
+        };
+        var settings = new InventorySettings
+        {
+            AutoCraftItems = true,
+            SplitPeas = false,
+        };
+        var profiles = new CombatSettings();
+        profiles.ConsumableNames.Add("Strong Chorizite Oil");
+        var controller = new CraftingController(
+            new Host(automation),
+            settings,
+            profiles);
+        controller.BindPeaceGate(() => true);
+        Assert.False(controller.UseInFlight);
+
+        Assert.True(controller.Tick(0.5d, canAct: true));
+
+        Assert.NotEmpty(automation.Moves);
+        Assert.True(controller.UseInFlight);
+    }
+
     [Fact]
     public void AmmunitionRequestCraftsEvenWhenGeneralAutoCraftIsDisabled()
     {

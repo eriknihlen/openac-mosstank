@@ -4710,7 +4710,6 @@ internal sealed partial class MossTankPanel : IBuffRuleHost
         // A turn in flight freezes the pass, so it needs a driver beside the
         // pass rather than inside it.
         _combat.AdvanceHeldTurn(elapsedSeconds);
-        _combat.ObserveHeldItemCast(elapsedSeconds);
         _scheduler.ExternalSuspension = _prologueOwnsAction;
         ReportSchedulerSuspension(commandJumpOwnsAction, giveOwnsAction);
         // The movers run on the host's frame, not on the scheduler pass that
@@ -4723,6 +4722,10 @@ internal sealed partial class MossTankPanel : IBuffRuleHost
             _navigation.StepArmedMover(elapsedSeconds);
         _corpseApproach.StepArmedMover(elapsedSeconds);
         _scheduler.Advance(elapsedSeconds);
+        // After the pass: a held item's cast is driven by the frame on every
+        // frame the attack's own turn did not drive it, whether the attack
+        // lost the turn or the whole pass stood still for the cast.
+        _combat.ObserveHeldItemCast(elapsedSeconds);
         if (double.IsFinite(elapsedSeconds) && elapsedSeconds > 0d)
             _walkClock += elapsedSeconds;
         if (_scheduler.LastExecutedRule?.Name == "Attack")
@@ -4788,10 +4791,17 @@ internal sealed partial class MossTankPanel : IBuffRuleHost
 
     private void ObserveCastSuspension(double elapsedSeconds)
     {
+        // The reference's global busy count: a spell cast, a wand cast, a
+        // kit, food or craft use. NOT the host's inventory flag, which every
+        // open, pickup and identify raises: those arm named locks instead,
+        // and the rules that would collide with them refuse on the lock.
         IAutomationSurface automation = _host.Automation;
         bool inFlight = _castTracker.IsBusy
             || automation.Magic.IsCasting
-            || automation.Items.IsBusy;
+            || _combat.HeldItemCastInFlight
+            || _vitalRecharge.ItemUseInFlight
+            || _vitalHelperRecharge.ItemUseInFlight
+            || _crafting.UseInFlight;
 
         if (_transactionSuspensionHeld)
         {
@@ -4833,7 +4843,7 @@ internal sealed partial class MossTankPanel : IBuffRuleHost
                 : giveOwnsAction
                     ? "a profile give owns the character"
                     : _transactionSuspensionHeld
-                        ? "a cast or item transaction is in flight"
+                        ? "a cast, a wand cast or a kit is in flight"
                         : _combat.TurnHoldsPass
                             ? "the combat turn holds the pass"
                             : _scheduler.IsSuspended
