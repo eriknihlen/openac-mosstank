@@ -4710,6 +4710,7 @@ internal sealed partial class MossTankPanel : IBuffRuleHost
         // A turn in flight freezes the pass, so it needs a driver beside the
         // pass rather than inside it.
         _combat.AdvanceHeldTurn(elapsedSeconds);
+        _combat.ObserveHeldItemCast(elapsedSeconds);
         _scheduler.ExternalSuspension = _prologueOwnsAction;
         ReportSchedulerSuspension(commandJumpOwnsAction, giveOwnsAction);
         // The movers run on the host's frame, not on the scheduler pass that

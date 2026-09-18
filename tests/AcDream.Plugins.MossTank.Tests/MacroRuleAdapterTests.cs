@@ -16,25 +16,14 @@ public class MacroRuleAdapterTests
         Assert.Equal("not ported", rule.Reason);
     }
 
+    /// <summary>
+    /// The gate is the rule's first refusal, as the reference's wrapper gates
+    /// and opening lock checks are: a closed gate means the body is not
+    /// consulted. Mutation: tick the controller with <c>CanAct: false</c>
+    /// behind a closed gate and the call count fails.
+    /// </summary>
     [Fact]
-    public void GateBlockedRuleStillTicksItsControllerByDefault()
-    {
-        var seen = new List<bool>();
-        var rule = new ControllerMacroRule(
-            "rule",
-            context =>
-            {
-                seen.Add(context.CanAct);
-                return true;
-            },
-            gate: () => false);
-
-        Assert.False(rule.ValidNow(new MacroPassContext(1d, CanAct: true)));
-        Assert.Equal([false], seen);
-    }
-
-    [Fact]
-    public void GateBlockedTieredRuleDoesNotTickItsController()
+    public void GateBlockedRuleDoesNotTickItsController()
     {
         int calls = 0;
         var rule = new ControllerMacroRule(
@@ -44,41 +33,29 @@ public class MacroRuleAdapterTests
                 calls++;
                 return true;
             },
-            gate: () => false,
-            bookkeepWhenBlocked: false);
+            gate: () => false);
 
         Assert.False(rule.ValidNow(new MacroPassContext(1d, CanAct: true)));
         Assert.Equal(0, calls);
+        Assert.Equal("the rule's own gate is closed", rule.DeclineReason);
     }
 
     [Fact]
-    public void ARuleBelowTheWinnerNeverClaimsEvenIfItsControllerSaysYes()
+    public void ARuleAskedWithoutTheTurnIsNotTickedAndDoesNotClaim()
     {
-        var rule = new ControllerMacroRule("rule", _ => true);
-
-        Assert.False(rule.ValidNow(new MacroPassContext(1d, CanAct: false)));
-        Assert.True(rule.ValidNow(new MacroPassContext(1d, CanAct: true)));
-    }
-
-    [Fact]
-    public void ATieredRuleBelowTheWinnerIsStillTickedWithCanActFalse()
-    {
-        var seen = new List<bool>();
+        int calls = 0;
         var rule = new ControllerMacroRule(
             "rule",
-            context =>
+            _ =>
             {
-                seen.Add(context.CanAct);
+                calls++;
                 return true;
-            },
-            gate: () => true,
-            bookkeepWhenBlocked: false);
+            });
 
         Assert.False(rule.ValidNow(new MacroPassContext(1d, CanAct: false)));
-        Assert.Equal([false], seen);
-
+        Assert.Equal(0, calls);
         Assert.True(rule.ValidNow(new MacroPassContext(1d, CanAct: true)));
-        Assert.Equal([false, true], seen);
+        Assert.Equal(1, calls);
     }
 
     [Fact]

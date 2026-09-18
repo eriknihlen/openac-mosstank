@@ -4223,6 +4223,54 @@ public sealed class CombatControllerTests
         Assert.Equal([100u], surface.CastSpellIds);
     }
 
+    /// <summary>
+    /// One wall clock: the frames a held turn advanced are not added a second
+    /// time when the attack's turn comes back and is handed the whole gap.
+    /// Mutation: add the turn's elapsed to the clock without subtracting what
+    /// the frames added, and the final reading is 2.0.
+    /// </summary>
+    [Fact]
+    public void FramesDrivenDuringAHeldTurnAreNotCountedTwiceOnTheNextTurn()
+    {
+        var surface = new FakeAutomation
+        {
+            CombatSnapshot = Physical() with { Mode = PluginCombatMode.Magic },
+            Targets = [Target(10, "Drudge", 5, 0)],
+            KnownAttackSpells =
+            [
+                Spell(100, "Incantation of Flame Bolt") with
+                {
+                    RequiresTurnTo = true,
+                },
+            ],
+            EquipmentItems = [WieldedCaster()],
+            NavigationSnapshot = NavigationAt(heading: 0f),
+        };
+        surface.NavigationObjects[10u] = new PluginNavigationObject(
+            10u,
+            "Drudge",
+            new PluginNavigationPosition(0x7F7F0001u, 0.1d, 0d, 0d, 0f, true));
+        var controller = new CombatController(
+            new FakeHost(surface),
+            FireAttackRule(new CombatSettings { UseBreakableTurnTo = true }));
+        controller.BindPassSuspension(static () => { }, static () => { });
+
+        controller.Toggle();
+        controller.OnTick(0.25);
+        Assert.Equal(0.25, controller.ClockSeconds, 6);
+
+        controller.AdvanceHeldTurn(0.25);
+        controller.AdvanceHeldTurn(0.25);
+        controller.AdvanceHeldTurn(0.25);
+        Assert.Equal(1.0, controller.ClockSeconds, 6);
+
+        // The turn comes back after the whole 1.0 s gap; 0.75 s of it the
+        // frames already counted.
+        surface.NavigationSnapshot = NavigationAt(heading: 90f);
+        controller.OnTick(1.0);
+        Assert.Equal(1.25, controller.ClockSeconds, 6);
+    }
+
     private static (FakeAutomation Surface, CombatController Controller, ActionLockTable Locks)
         MeleeKillRig(CombatSettings? settings = null)
     {

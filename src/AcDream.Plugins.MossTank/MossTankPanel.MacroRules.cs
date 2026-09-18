@@ -189,7 +189,6 @@ internal sealed partial class MossTankPanel : IMacroRuleProvider
                 && _navigationSettings.Enabled
                 && NavigationLocksAreClear(),
             onLostTurn: _corpseApproach.StopForLostTurn,
-            bookkeepWhenBlocked: false,
             runningDetail: () => _corpseApproach.RunningDetail,
             declineReason: () => _corpseApproach.Status),
         MacroRuleSlot.NavigateCorpseIdle => new MacroRulePreChain(
@@ -202,7 +201,6 @@ internal sealed partial class MossTankPanel : IMacroRuleProvider
                     && _navigationSettings.Enabled
                     && NavigationLocksAreClear(),
                 onLostTurn: _corpseApproach.StopForLostTurn,
-                bookkeepWhenBlocked: false,
                 runningDetail: () => _corpseApproach.RunningDetail,
                 declineReason: () => _corpseApproach.Status),
             fallbacks:
@@ -215,15 +213,13 @@ internal sealed partial class MossTankPanel : IMacroRuleProvider
             "OpenCorpsePriority",
             TickLootRule,
             gate: () => ItemSlotIsFree() && _combat.Enabled && !_buffRule.IsBursting
-                && _inventorySettings.Loot.PriorityBoost,
-            bookkeepWhenBlocked: false),
+                && _inventorySettings.Loot.PriorityBoost),
         MacroRuleSlot.OpenCorpseIdle => new MacroRulePreChain(
             new ControllerMacroRule(
                 "OpenCorpseIdle",
                 TickLootRule,
                 gate: () => ItemSlotIsFree() && !_inventorySettings.Loot.PriorityBoost
-                    && _combat.Enabled && !_buffRule.IsBursting,
-                bookkeepWhenBlocked: false),
+                    && _combat.Enabled && !_buffRule.IsBursting),
             fallbacks: [_idlePeace]),
         MacroRuleSlot.LootCorpsePriority => new AbsentMacroRule(
             "LootCorpsePriority (loot step)",
@@ -250,7 +246,6 @@ internal sealed partial class MossTankPanel : IMacroRuleProvider
                 && !_loot.HasPendingRouteLoot()
                 && NavigationLocksAreClear(),
             onLostTurn: _navigation.StopForLostTurn,
-            bookkeepWhenBlocked: false,
             runningDetail: () => _navigation.RunningDetail,
             declineReason: () => _navigation.Status),
         MacroRuleSlot.NavigateRouteIdle => new MacroRulePreChain(
@@ -262,7 +257,6 @@ internal sealed partial class MossTankPanel : IMacroRuleProvider
                     && _combat.Enabled && !_buffRule.IsBursting
                     && NavigationLocksAreClear(),
                 onLostTurn: _navigation.StopForLostTurn,
-                bookkeepWhenBlocked: false,
                 runningDetail: () => _navigation.RunningDetail,
                 declineReason: () => _navigation.Status),
             fallbacks: [_idlePeace]),
@@ -306,7 +300,6 @@ internal sealed partial class MossTankPanel : IMacroRuleProvider
             "BuffSelfIdle",
             context => _buffRule.Tick(context, idle: true),
             gate: () => ItemSlotIsFree() && _buffSettings.IdleBuffTopoff,
-            bookkeepWhenBlocked: false,
             declineReason: () => _buffRule.DeclineReason),
 
         // Walking to a monster is a navigation job that sits twenty positions
@@ -319,8 +312,7 @@ internal sealed partial class MossTankPanel : IMacroRuleProvider
                 context.CanAct),
             gate: () => _combat.Enabled && !_buffRule.IsBursting
                 && _navigationSettings.Enabled
-                && NavigationLocksAreClear(),
-            bookkeepWhenBlocked: false),
+                && NavigationLocksAreClear()),
 
         MacroRuleSlot.RechargeSelfNoTarget => new AbsentMacroRule(
             "RechargeSelfNoTarget",
@@ -344,12 +336,16 @@ internal sealed partial class MossTankPanel : IMacroRuleProvider
         _ => throw new ArgumentOutOfRangeException(nameof(slot), slot, null),
     };
 
+    /// <summary>
+    /// The attack's turn. Being asked at all means the rule may win, so the
+    /// pause the last lost turn put up comes down first; losing the turn is
+    /// the rule's <c>onLostTurn</c>, which puts it back up.
+    /// </summary>
     private bool TickCombatRule(MacroPassContext context)
     {
-        _combat.SetPaused(!context.CanAct);
+        _combat.SetPaused(false);
         _combat.OnTick(context.ElapsedSeconds);
-        return context.CanAct
-            && (_combat.HasTarget || _combat.HasPendingItemDebuff);
+        return _combat.HasTarget || _combat.HasPendingItemDebuff;
     }
 
     private bool TickLootRule(MacroPassContext context)

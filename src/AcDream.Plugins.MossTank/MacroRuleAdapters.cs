@@ -2,12 +2,18 @@ using AcDream.Plugin.Abstractions;
 
 namespace AcDream.Plugins.MossTank;
 
+/// <summary>
+/// A rule whose body is a controller's tick. The gate is the rule's first
+/// refusal, the way the reference's wrapper gates and each rule's opening
+/// lock checks are: while it is closed the controller is not consulted at
+/// all. When the gate is open the controller's tick answers the pass and, on
+/// the pass it wins, does the work; losing the turn is one call on the edge.
+/// </summary>
 internal sealed class ControllerMacroRule : IMacroRule
 {
     private readonly Func<MacroPassContext, bool> _tick;
     private readonly Func<bool>? _gate;
     private readonly Action? _onLostTurn;
-    private readonly bool _bookkeepWhenBlocked;
     private readonly Func<string?>? _runningDetail;
     private readonly Func<string?>? _declineReason;
     private bool _running;
@@ -18,7 +24,6 @@ internal sealed class ControllerMacroRule : IMacroRule
         Func<MacroPassContext, bool> tick,
         Func<bool>? gate = null,
         Action? onLostTurn = null,
-        bool bookkeepWhenBlocked = true,
         Func<string?>? runningDetail = null,
         Func<string?>? declineReason = null)
     {
@@ -26,7 +31,6 @@ internal sealed class ControllerMacroRule : IMacroRule
         _tick = tick ?? throw new ArgumentNullException(nameof(tick));
         _gate = gate;
         _onLostTurn = onLostTurn;
-        _bookkeepWhenBlocked = bookkeepWhenBlocked;
         _runningDetail = runningDetail;
         _declineReason = declineReason;
     }
@@ -48,11 +52,9 @@ internal sealed class ControllerMacroRule : IMacroRule
     {
         bool gateOpen = _gate is null || _gate();
         _gateClosed = !gateOpen;
-        if (!gateOpen && !_bookkeepWhenBlocked)
+        if (!gateOpen || !context.CanAct)
             return false;
-        bool allowed = context.CanAct && gateOpen;
-        bool claimed = _tick(new MacroPassContext(context.ElapsedSeconds, allowed));
-        return allowed && claimed;
+        return _tick(new MacroPassContext(context.ElapsedSeconds, CanAct: true));
     }
 
     public bool Running

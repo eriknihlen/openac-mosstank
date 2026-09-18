@@ -2301,11 +2301,10 @@ public sealed class MossTankPanelTests
     /// across those turnless passes, sees its own confirmation in the magic
     /// log, and puts the slot down early — driven here through the real rule
     /// table, not by calling the controller.
-    /// Mutation: restore the plain <c>if (_paused) return;</c> at the top of
-    /// <c>CombatController.OnTick</c> (dropping the in-flight item
-    /// transaction's branch) and the last two assertions fail — the slot stays
-    /// locked for its whole eleven-and-a-half seconds and the pass line still
-    /// reads as paused.
+    /// Mutation: empty <c>CombatController.ObserveHeldItemCast</c> (the frame
+    /// driver that watches the held item's cast while the attack has no turn)
+    /// and the last two assertions fail — the slot stays locked for its whole
+    /// eleven-and-a-half seconds and the attack stays paused.
     /// </summary>
     [Fact]
     public void AWandCastIsWatchedToItsEndThoughItsOwnSlotHoldsTheAttackOff()
@@ -2379,8 +2378,10 @@ public sealed class MossTankPanelTests
         panel.OnTick(0.3d);
 
         Assert.False(panel.ActionLocks.IsLocked(ActionLockKind.ItemUse));
-        Assert.Contains(
-            "applied to Drudge",
+        // The slot came down on the frame, ahead of the pass, so the attack
+        // had its turn back on that very pass and is no longer paused.
+        Assert.DoesNotContain(
+            "Paused",
             panel.CombatStatus,
             StringComparison.Ordinal);
     }

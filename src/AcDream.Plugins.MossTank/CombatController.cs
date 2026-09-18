@@ -148,6 +148,7 @@ internal sealed class CombatController
     private bool _approachMovementOwned;
     private bool _breakableTurnOwned;
 
+    private double _approachClock;
     private double _approachFaceHeadingStamp =
         NavigationController.NoFaceHeadingStamp;
 
@@ -454,27 +455,7 @@ internal sealed class CombatController
             return;
         }
         if (_paused)
-        {
-            // No turn this pass, so nothing new is started — but a HELD
-            // ITEM's cast is a transaction of its own: it began before this
-            // pass, it holds the item slot, and it finishes on its own clock
-            // whoever owns the pass meanwhile. It is watched to its end,
-            // including putting that slot down early.
-            //
-            // Only the held item is such a transaction. A weapon proc or a
-            // thrown one rides a physical swing, and losing the turn has just
-            // aborted that swing — advancing it here would release a swing
-            // that is no longer ours to release, including inside the very
-            // item window some other rule is holding the slot for.
-            _now += Math.Max(0d, elapsedSeconds);
-            if (_pendingItemDebuff is
-                { Source.Kind: CombatDebuffSourceKind.CasterItem })
-            {
-                ObserveItemTransaction();
-                TickPendingItemDebuff(_host.Automation.Combat.Snapshot);
-            }
             return;
-        }
         if (!_settings.Enabled)
         {
             if (_combatPolicySuspended)
@@ -501,8 +482,12 @@ internal sealed class CombatController
 
         ClearPassMemos();
 
+        // The clock is wall time as this controller sees it: the turn hands
+        // over the time since the rule was last asked, and whatever a frame
+        // driver already added while the turn was away is not added twice.
         _lastElapsedSeconds = Math.Max(0d, elapsedSeconds);
-        _now += _lastElapsedSeconds;
+        _now += Math.Max(0d, _lastElapsedSeconds - _frameAdvancedSinceTick);
+        _frameAdvancedSinceTick = 0d;
         PluginCastCompletion castCompletion =
             _host.Automation.Magic.LastCompletion;
         // The receipt moves the tracker from "did the request land" to "what
@@ -3838,7 +3823,10 @@ internal sealed class CombatController
             return false;
         }
 
-        _now += Math.Max(0d, elapsedSeconds);
+        // This rule's own clock: the attack's turn and this one are asked at
+        // different times, so the re-face throttle below is paced against
+        // the time THIS rule has been handed, not the attack's clock.
+        _approachClock += Math.Max(0d, elapsedSeconds);
         // This rule is its own pass: the attack's may not have run at all (its
         // gate can refuse for seconds at a time), so everything the attack
         // pass learns and forgets per pass is taken fresh here rather than
@@ -3933,7 +3921,7 @@ internal sealed class CombatController
                 navigation,
                 delta,
                 desired,
-                _now,
+                _approachClock,
                 ref _approachFaceHeadingStamp,
                 run: true)
             != PluginNavigationCommandStatus.Accepted)
@@ -4087,6 +4075,45 @@ internal sealed class CombatController
     internal bool TurnHoldsPass => _turnHoldsPass;
 
     /// <summary>
+    /// Seconds a frame driver has added to the clock since the attack's turn
+    /// last ran; the next turn subtracts them, so one wall clock is kept
+    /// between the turn and the frame.
+    /// </summary>
+    private double _frameAdvancedSinceTick;
+
+    private void AdvanceClockFromFrame(double elapsedSeconds)
+    {
+        double elapsed = Math.Max(0d, elapsedSeconds);
+        _now += elapsed;
+        _frameAdvancedSinceTick += elapsed;
+    }
+
+    /// <summary>The controller's clock, in seconds; a probe for tests.</summary>
+    internal double ClockSeconds => _now;
+
+    /// <summary>
+    /// A HELD ITEM's cast is a transaction of its own: it began on a turn the
+    /// attack owned, it holds the item slot, and it finishes on its own clock
+    /// whoever owns the pass meanwhile. While the attack is not being asked
+    /// (it lost the turn), the host frame watches that cast to its end here,
+    /// including putting the item slot down early. Only the held item is such
+    /// a transaction: a weapon proc or a thrown one rides a physical swing,
+    /// and losing the turn has just aborted that swing.
+    /// </summary>
+    internal void ObserveHeldItemCast(double elapsedSeconds)
+    {
+        if (!_paused
+            || _pendingItemDebuff is not
+                { Source.Kind: CombatDebuffSourceKind.CasterItem })
+        {
+            return;
+        }
+        AdvanceClockFromFrame(elapsedSeconds);
+        ObserveItemTransaction();
+        TickPendingItemDebuff(_host.Automation.Combat.Snapshot);
+    }
+
+    /// <summary>
     /// Steps a turn that is holding the pass. The pass itself is frozen while
     /// the hold is up, so the turn needs a driver outside it — the host frame.
     /// </summary>
@@ -4094,7 +4121,7 @@ internal sealed class CombatController
     {
         if (!_turnHoldsPass)
             return;
-        _now += Math.Max(0d, elapsedSeconds);
+        AdvanceClockFromFrame(elapsedSeconds);
         if (_breakableTurnTargetId == 0u
             || !DriveBreakableTurn(_breakableTurnTargetId))
         {

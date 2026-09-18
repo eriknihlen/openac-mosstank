@@ -1,5 +1,13 @@
 namespace AcDream.Plugins.MossTank;
 
+/// <summary>
+/// What a rule is handed when it is asked whether it is valid.
+/// <paramref name="ElapsedSeconds"/> is the time since this rule was last
+/// asked, not the time since the last pass. <paramref name="CanAct"/> is
+/// always true from the scheduler: a rule is asked only while it could still
+/// win the pass. The field remains for a wrapper's fallback evaluation and
+/// for tests that drive a rule directly.
+/// </summary>
 internal readonly record struct MacroPassContext(
     double ElapsedSeconds,
     bool CanAct);
@@ -134,6 +142,16 @@ internal sealed class MacroScheduler
     private bool _poked;
     private int _suspension;
 
+    /// <summary>
+    /// The pass clock, in seconds since the scheduler started, and the value
+    /// it had when each main rule was last asked. The reference reads wall
+    /// time inside every rule; here a rule is handed the time since its own
+    /// last evaluation, so a rule that was not asked for a while sees the
+    /// whole gap at once, exactly as a wall clock would show it.
+    /// </summary>
+    private double _passClock;
+    private readonly double[] _lastEvaluatedAt;
+
     public MacroScheduler(
         IReadOnlyList<IMacroRule> mainRules,
         IReadOnlyList<IMacroRule>? independentRules = null)
@@ -143,6 +161,7 @@ internal sealed class MacroScheduler
         _independent = independentRules is null
             ? []
             : [.. independentRules];
+        _lastEvaluatedAt = new double[_main.Count];
     }
 
     /// <summary>VTank's <c>dz.o.c</c> — the single "the macro is running" flag.</summary>
@@ -194,6 +213,8 @@ internal sealed class MacroScheduler
         _poked = true;
         LastExecutedRule = null;
         _suspendedMetaSeconds = 0d;
+        _passClock = 0d;
+        Array.Clear(_lastEvaluatedAt);
     }
 
     public void Stop()
@@ -250,6 +271,7 @@ internal sealed class MacroScheduler
             _suspendedMetaSeconds = 0d;
         }
 
+        _passClock += elapsed;
         var independentContext = new MacroPassContext(elapsed, CanAct: true);
         foreach (IMacroRule rule in _independent)
             rule.Running = rule.ValidNow(in independentContext);
@@ -261,18 +283,26 @@ internal sealed class MacroScheduler
             MacroLogChannel.ActiveRule,
             $"----------- Primary logic loop started ({_main.Count} rules) -----------");
 
+        // First valid rule wins, in list order, and the scan STOPS there: the
+        // rules after the winner are not asked anything this pass. A rule's
+        // validity is a question, not a turn, so a rule is only ever asked
+        // while it could still win. Every rule that is asked is handed the
+        // time since it was last asked.
         IMacroRule? winner = null;
         int winnerIndex = -1;
-        int index = 0;
-        foreach (IMacroRule rule in _main)
+        int evaluated = 0;
+        for (int index = 0; index < _main.Count; index++)
         {
-            var context = new MacroPassContext(elapsed, CanAct: winner is null);
-            if (rule.ValidNow(in context) && winner is null)
-            {
-                winner = rule;
-                winnerIndex = index;
-            }
-            index++;
+            IMacroRule rule = _main[index];
+            double sinceAsked = _passClock - _lastEvaluatedAt[index];
+            _lastEvaluatedAt[index] = _passClock;
+            evaluated = index + 1;
+            var context = new MacroPassContext(sinceAsked, CanAct: true);
+            if (!rule.ValidNow(in context))
+                continue;
+            winner = rule;
+            winnerIndex = index;
+            break;
         }
 
         string suffix = LockStateSuffix?.Invoke() ?? string.Empty;
@@ -299,7 +329,7 @@ internal sealed class MacroScheduler
                 $"({winner.Name}) Running{detail}");
         }
 
-        ReportDeclines(winner);
+        ReportDeclines(winner, evaluated);
 
         LastExecutedRule = winner;
         PassCount++;
@@ -309,14 +339,16 @@ internal sealed class MacroScheduler
     /// Say once, per rule, why a rule that could have run did not. Repeating
     /// it every 0.293 s would bury the channel, so a reason is printed when
     /// it appears and again only when it changes; a rule that wins the pass
-    /// forgets its last reason, so the next decline is printed again.
+    /// forgets its last reason, so the next decline is printed again. Only
+    /// the rules that were asked this pass have a reason worth printing.
     /// </summary>
-    private void ReportDeclines(IMacroRule? winner)
+    private void ReportDeclines(IMacroRule? winner, int evaluated)
     {
         if (Log is not { } log)
             return;
-        foreach (IMacroRule rule in _main)
+        for (int index = 0; index < evaluated; index++)
         {
+            IMacroRule rule = _main[index];
             if (ReferenceEquals(rule, winner))
             {
                 _reportedDeclines.Remove(rule.Name);

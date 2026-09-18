@@ -376,8 +376,13 @@ public sealed class NavigationTests
         Assert.True(automation.ClearCount > releasedBefore);
     }
 
+    /// <summary>
+    /// The reference's navigate rule releases the keys when the scheduler
+    /// hands the pass to somebody else, and that is the only thing a lost
+    /// turn does to it: the rule is not asked again until it could win.
+    /// </summary>
     [Fact]
-    public void ANavigateTierBelowTheWinnerStillClearsTheMovementIntent()
+    public void ANavigateTierThatLosesTheTurnClearsTheMovementIntent()
     {
         var automation = new FakeAutomation
         {
@@ -391,13 +396,13 @@ public sealed class NavigationTests
             "NavigateRouteIdle",
             context => controller.Tick(context.ElapsedSeconds, context.CanAct),
             gate: () => true,
-            onLostTurn: controller.StopForLostTurn,
-            bookkeepWhenBlocked: false);
+            onLostTurn: controller.StopForLostTurn);
 
         Assert.True(rule.ValidNow(new MacroPassContext(0.05d, CanAct: true)));
+        rule.Running = true;
         Assert.NotEmpty(automation.Intents);
 
-        Assert.False(rule.ValidNow(new MacroPassContext(0.05d, CanAct: false)));
+        rule.Running = false;
         Assert.Equal(1, automation.ClearCount);
     }
 

@@ -210,18 +210,52 @@ public class MacroSchedulerTests
         Assert.Equal([true], winner.RunningWrites);
     }
 
+    /// <summary>
+    /// The reference stops its scan at the first valid rule; the rules after
+    /// it are not asked anything that pass. Mutation: ask every rule and hand
+    /// the ones after the winner <c>CanAct: false</c>, and the call count on
+    /// the lower rule fails.
+    /// </summary>
     [Fact]
-    public void RulesBelowTheWinnerAreEvaluatedWithCanActFalse()
+    public void RulesAfterTheWinnerAreNotAskedThisPass()
     {
+        var above = new Probe("above");
         var winner = new Probe("winner", valid: true);
         var below = new Probe("below", valid: true);
-        MacroScheduler scheduler = Started(winner, below);
+        MacroScheduler scheduler = Started(above, winner, below);
 
         scheduler.RunPass(1d);
 
+        Assert.Equal([true], above.CanActSeen);
         Assert.Equal([true], winner.CanActSeen);
-        Assert.Equal([false], below.CanActSeen);
-        Assert.Equal(1, below.ValidNowCalls);
+        Assert.Equal(0, below.ValidNowCalls);
+        Assert.Empty(below.CanActSeen);
+        Assert.Equal([false], below.RunningWrites);
+    }
+
+    /// <summary>
+    /// A rule reads wall time in the reference. Here a rule that was not
+    /// asked for several passes is handed the whole gap the next time it is
+    /// asked, not the last pass's slice. Mutation: hand every asked rule the
+    /// pass's own elapsed and the assertion on the lower rule fails.
+    /// </summary>
+    [Fact]
+    public void ARuleNotAskedForSeveralPassesSeesTheWholeGapWhenNextAsked()
+    {
+        var upper = new ElapsedRecorder { Valid = true };
+        var lower = new ElapsedRecorder();
+        MacroScheduler scheduler = Started(upper, lower);
+
+        scheduler.RunPass(0.3d);
+        scheduler.RunPass(0.3d);
+        scheduler.RunPass(0.3d);
+        upper.Valid = false;
+        scheduler.RunPass(0.3d);
+
+        Assert.Equal(4, upper.Seen.Count);
+        Assert.All(upper.Seen, seen => Assert.Equal(0.3d, seen, 6));
+        double gap = Assert.Single(lower.Seen);
+        Assert.Equal(1.2d, gap, 6);
     }
 
     [Fact]
@@ -320,10 +354,12 @@ public class MacroSchedulerTests
 
         public List<double> Seen { get; } = [];
 
+        public bool Valid { get; set; }
+
         public bool ValidNow(in MacroPassContext context)
         {
             Seen.Add(context.ElapsedSeconds);
-            return false;
+            return Valid;
         }
 
         public bool Running { get; set; }
