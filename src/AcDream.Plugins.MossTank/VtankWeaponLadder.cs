@@ -86,7 +86,8 @@ internal static class VtankWeaponLadder
         Func<MonsterDamageType, bool> alreadyVulnerable,
         bool warTrained = true,
         bool voidTrained = true,
-        uint excludeObjectId = 0u)
+        uint excludeObjectId = 0u,
+        Action? onLastResort = null)
     {
         ArgumentNullException.ThrowIfNull(items);
         ArgumentNullException.ThrowIfNull(isProfiled);
@@ -220,7 +221,13 @@ internal static class VtankWeaponLadder
             return casterFallback;
         if (FirstCommon(wanted, elementOrder) is { } elementHit)
             return byElement[elementHit];
-        return anyLauncher != 0u ? anyLauncher : last;
+        if (anyLauncher != 0u)
+            return anyLauncher;
+        // Nothing on the page suits this monster: the reference says so once
+        // and takes the last item on the page regardless.
+        if (last != 0u)
+            onLastResort?.Invoke();
+        return last;
     }
 
     private static void Record(

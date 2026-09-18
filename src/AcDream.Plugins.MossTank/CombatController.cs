@@ -1807,7 +1807,10 @@ internal sealed class CombatController
             element => IsAlreadyVulnerable(in subject, element),
             warTrained: IsTrained(character, WarMagicSkill),
             voidTrained: IsTrained(character, VoidMagicSkill),
-            excludeObjectId: actions.OffhandObjectId);
+            excludeObjectId: actions.OffhandObjectId,
+            onLastResort: () => PostAttackWarning(
+                "Warning: no weapons found that can be autoselected for current "
+                + "target. Add some weapons to the items list!"));
     }
 
     /// <summary>

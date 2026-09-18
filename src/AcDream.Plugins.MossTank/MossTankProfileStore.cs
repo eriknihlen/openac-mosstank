@@ -760,7 +760,9 @@ internal sealed class MossTankProfileStore
             ISet<string> noBuffItemNames,
             ISet<string> logChannels) => new()
         {
-            ItemNames = Sorted(settings.Combat.CombatItemNames),
+            // In the order the Items page shows them: the weapon walk reads that
+            // order, and its last resort is the last item on the page.
+            ItemNames = InPageOrder(settings.Combat.CombatItemOrder, settings.Combat.CombatItemNames),
             ShowNavLines = settings.Navigation.ShowNavLines,
             ConsumableNames = Sorted(settings.Combat.ConsumableNames),
             ConsumableCategories = settings.Combat.ConsumableCategories.ToDictionary(
@@ -938,6 +940,19 @@ internal sealed class MossTankProfileStore
                 }
             }
         }
+    }
+
+    private static string[] InPageOrder(IEnumerable<string> order, IEnumerable<string> names)
+    {
+        var set = new HashSet<string>(names, StringComparer.Ordinal);
+        var result = new List<string>();
+        foreach (string name in order)
+        {
+            if (set.Remove(name))
+                result.Add(name);
+        }
+        result.AddRange(Sorted(set));
+        return [.. result];
     }
 
     private static string[] Sorted(IEnumerable<string> values) => values

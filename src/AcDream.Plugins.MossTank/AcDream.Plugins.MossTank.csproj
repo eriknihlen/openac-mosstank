@@ -23,5 +23,6 @@
     <EmbeddedResource Include="VtankCraftRecipes.tsv" />
     <EmbeddedResource Include="VtankAmmunitionOptions.tsv" />
     <EmbeddedResource Include="VtankDefaultSettings.usd" />
+    <EmbeddedResource Include="VtankDefaultGameInfo.ugd" />
   </ItemGroup>
 </Project>
