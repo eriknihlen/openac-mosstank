@@ -2083,7 +2083,7 @@ public sealed partial class LootingTests
         public IFellowshipAutomation Fellowship => this;
         public bool IsInWorld => true;
         public uint ObjectId => Player;
-        public string Name => "Tester";
+        public string Name { get; set; } = "Tester";
         public int CharacterLevel { get; set; }
         public int Level => CharacterLevel;
         public int MainPackSlots { get; set; }

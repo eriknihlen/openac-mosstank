@@ -307,7 +307,10 @@ internal sealed partial class LootController
         if (_settings.LootOnlyRareCorpses && !IsRare(corpse))
             return false;
         string killer = KillerName(corpse.LongDescription);
-        string character = _host.Automation.Character.Name;
+        // The local server writes the killer's name without the plus sign an
+        // admin character carries, so the character's own plus is not part
+        // of the comparison. See the divergence register.
+        string character = _host.Automation.Character.Name.TrimStart('+');
         if (killer.Length != 0
             && character.Length != 0
             && string.Equals(killer, character, StringComparison.OrdinalIgnoreCase))

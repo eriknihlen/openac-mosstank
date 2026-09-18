@@ -169,6 +169,27 @@ public sealed partial class LootingTests
     }
 
     /// <summary>
+    /// The local server writes the killer's name without the plus sign an
+    /// admin character carries; the character's own plus is not part of the
+    /// comparison (divergence register TS-101). Mutation: compare the name as
+    /// given and the corpse is never opened.
+    /// </summary>
+    [Fact]
+    public void AKillCreditedWithoutThePlusIsStillOurs()
+    {
+        const uint corpse = 0x70001161u;
+        var automation = new Automation
+        {
+            Name = "+Tester",
+            Corpses = [ChainCorpse(corpse)],
+        };
+        var controller = new LootController(new Host(automation), ChainSettings());
+
+        Assert.True(controller.Tick(0.3d, canAct: true));
+        Assert.Equal([corpse], automation.Opened);
+    }
+
+    /// <summary>
     /// The reference selects a corpse on every turn it is asked; there is no
     /// scan interval to wait out. With a five-second interval configured, a
     /// second corpse is still opened on the very next turn after the first
