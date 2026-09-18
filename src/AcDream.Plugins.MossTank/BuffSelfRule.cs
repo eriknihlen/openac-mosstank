@@ -894,7 +894,7 @@ internal sealed partial class BuffSelfRule
         if (gate != PluginCastGate.Ready)
         {
             _owner.SetStatus($"{spell.Name}: {gate}");
-            NoteCastRefused(spell, gate.ToString());
+            NoteCastRefused(spell, $"{gate} on {pick.TargetName}");
             return false;
         }
 
