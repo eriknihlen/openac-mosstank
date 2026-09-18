@@ -422,6 +422,43 @@ public sealed partial class LootingTests
     }
 
     [Fact]
+    public void ACorpseWithinReachIsDescribedOnTheFrameBeforeTheLootRuleGetsATurn()
+    {
+        var settings = new LootSettings
+        {
+            Enabled = true,
+            ScanIntervalSeconds = 0.05d,
+        };
+        settings.Rules.Add(new LootRule { Expression = "*" });
+        var automation = new Automation();
+        var controller = new LootController(new Host(automation), settings);
+        const uint corpse = 0x70000402u;
+        var unidentified = new PluginLootContainer(
+            corpse, 1u, "Corpse", 3f, false, false, false)
+        {
+            LongDescription = "Killed by Tester.",
+        };
+        automation.Corpses = [unidentified];
+
+        // The rule never had the pass; the frame asked anyway.
+        controller.TickIdentification(0.1d);
+        Assert.Equal(new[] { corpse }, automation.Identified);
+
+        // Nothing is asked twice while the answer is outstanding.
+        controller.TickIdentification(0.1d);
+        Assert.Equal(new[] { corpse }, automation.Identified);
+
+        automation.CompleteAppraisal(corpse, presentInUi: false);
+        automation.Corpses = [unidentified with { IsIdentified = true }];
+        controller.TickIdentification(0.1d);
+        Assert.Equal(new[] { corpse }, automation.Identified);
+
+        // The rule's first turn opens the corpse straight away.
+        Assert.True(controller.Tick(0.1d, canAct: true));
+        Assert.Equal(new[] { corpse }, automation.Opened);
+    }
+
+    [Fact]
     public void UnidentifiedCorpseIsOpenedOnceItsAutomationIdentifyCompletes_EvenWithoutPresentation()
     {
         // HIGH-1 regression guard. A corpse identify is always

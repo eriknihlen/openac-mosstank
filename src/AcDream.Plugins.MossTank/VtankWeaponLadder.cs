@@ -113,6 +113,7 @@ internal static class VtankWeaponLadder
         uint casterFallback = 0u;
         uint anyLauncher = 0u;
         uint last = 0u;
+        uint lastUnusable = 0u;
 
         foreach (PluginEquipmentItem item in items)
         {
@@ -130,10 +131,11 @@ internal static class VtankWeaponLadder
 
             if (caster)
             {
-                // A wand is remembered as the last-resort pick even when its
-                // school is untrained; what an untrained school cannot do is
-                // win a rung.
-                last = item.ObjectId;
+                // The reference remembers a wand as its last resort even when
+                // its school is untrained. That pick cannot attack at all, so
+                // here it stands behind any weapon that can; a page with only
+                // untrained wands still ends on one.
+                lastUnusable = item.ObjectId;
                 if ((warTrained || voidTrained)
                     && species >= 0
                     && item.SlayerCreatureType == species)
@@ -225,9 +227,9 @@ internal static class VtankWeaponLadder
             return anyLauncher;
         // Nothing on the page suits this monster: the reference says so once
         // and takes the last item on the page regardless.
-        if (last != 0u)
+        if (last != 0u || lastUnusable != 0u)
             onLastResort?.Invoke();
-        return last;
+        return last != 0u ? last : lastUnusable;
     }
 
     private static void Record(

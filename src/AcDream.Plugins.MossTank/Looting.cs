@@ -827,9 +827,21 @@ internal sealed partial class LootController
             return true;
         }
 
-        // A corpse whose long description has not arrived yet cannot be
-        // judged. Advance from the last accepted request so one corpse that
-        // never answers cannot monopolize every later request.
+        if (TryRequestNextCorpseDescription(loot, known))
+            return true;
+
+        Status = "No nearby corpses.";
+        return false;
+    }
+
+    // A corpse whose long description has not arrived yet cannot be judged.
+    // Advance from the last accepted request so one corpse that never
+    // answers cannot monopolize every later request. True when a request
+    // went out or the client is busy with one.
+    private bool TryRequestNextCorpseDescription(
+        ILootAutomation loot,
+        IReadOnlyList<PluginLootContainer> known)
+    {
         int lastRequestIndex = -1;
         for (int index = 0; index < known.Count; index++)
         {
@@ -857,15 +869,59 @@ internal sealed partial class LootController
                 _awaitingCorpseAppraisal = candidateCorpse.ObjectId;
                 _lastCorpseDescriptionRequest = candidateCorpse.ObjectId;
                 _stateAge = 0d;
+                _identifyAge = 0d;
                 Status = $"Identifying {candidateCorpse.Name}…";
+                Log?.Invoke(
+                    MacroLogChannel.Loot,
+                    $"Identifying corpse {candidateCorpse.Name} (0x{candidateCorpse.ObjectId:X8}) at {candidateCorpse.Distance:0.0}m");
                 return true;
             }
             if (identify.Status == PluginItemCommandStatus.Busy)
                 return true;
         }
-
-        Status = "No nearby corpses.";
         return false;
+    }
+
+    private double _identifyAge;
+
+    /// <summary>
+    /// Asks corpses for their descriptions as they come within reach, on the
+    /// host's frame rather than on the loot rule's turn: the reference
+    /// describes every corpse on its radar as it appears, so by the time the
+    /// fight is over the corpse is already known and the open follows at
+    /// once. Left to the rule, the description could only be asked for after
+    /// the attack gave the pass up, a whole pass late every time.
+    /// </summary>
+    internal void TickIdentification(double elapsedSeconds)
+    {
+        if (!_settings.ProfileActive
+            || !_settings.Enabled
+            || !_host.Automation.IsAvailable)
+        {
+            return;
+        }
+        ILootAutomation loot = _host.Automation.Loot;
+        if (!loot.IsAvailable)
+            return;
+        _identifyAge += Math.Max(0d, elapsedSeconds);
+        if (_activeCorpse != 0u || loot.CurrentContainerId != 0u || _waitingItem != 0u)
+            return;
+        if (_awaitingCorpseAppraisal != 0u)
+        {
+            PluginAppraisalState appraisal = loot.Appraisal;
+            bool answered = appraisal.CurrentObjectId == _awaitingCorpseAppraisal
+                && appraisal.AwaitingObjectId != _awaitingCorpseAppraisal;
+            bool expired = _identifyAge >= Math.Max(
+                1d,
+                _settings.CorpseOpenTimeoutSeconds * 2d);
+            if (!answered && !expired)
+                return;
+            _awaitingCorpseAppraisal = 0u;
+            _identifyAge = 0d;
+        }
+        IReadOnlyList<PluginLootContainer> known = loot.CaptureCorpses(
+            (float)Math.Max(CorpseOpenRangeMeters, _settings.CorpseApproachRange));
+        _ = TryRequestNextCorpseDescription(loot, known);
     }
 
     public void Reset()

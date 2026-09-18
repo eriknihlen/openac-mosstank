@@ -765,9 +765,27 @@ internal sealed class NavigationController
             }
             if (distance <= BoundedMinimumDistance())
             {
-                StopMovement();
+                // Arrival is not a stop: the next point is taken on this same
+                // frame and the mover decides, from the angle to it, whether
+                // the character turns while running or halts to turn. Only a
+                // point that ends the route, or one that is not a point, stops.
                 AdvanceWaypoint();
-                return true;
+                if (_onceComplete || _settings.Waypoints.Count == 0)
+                {
+                    // The arrival that ends the route still claims this pass;
+                    // the next one declines.
+                    StopMovement();
+                    _status = "Once route complete.";
+                    return true;
+                }
+                _index = Math.Clamp(_index, 0, _settings.Waypoints.Count - 1);
+                waypoint = _settings.Waypoints[_index];
+                if (waypoint.Type != RouteWaypointType.Point)
+                {
+                    StopMovement();
+                    return true;
+                }
+                distance = snapshot.Position.HorizontalDistanceMeters(waypoint.Position);
             }
             _status = string.Create(
                 CultureInfo.InvariantCulture,

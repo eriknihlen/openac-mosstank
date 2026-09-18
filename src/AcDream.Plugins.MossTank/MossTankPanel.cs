@@ -2077,6 +2077,11 @@ internal sealed partial class MossTankPanel : IBuffRuleHost
                 ?? "Loaded the complete rules before an incomplete profile tail.";
             _host.Log.Warn(_lootEditorNotice);
         }
+        // A run with no window in front of it has to be able to read which
+        // loot profile the character came up with, and whether it has rules.
+        _host.Log.Info(_lootProfiles.HasActiveProfile
+            ? $"Loot profile {_lootProfiles.Selected} active ({_inventorySettings.Loot.Rules.Count} rules)."
+            : "No loot profile is active.");
         _loot.Reset();
         RefreshLootEditor();
         return true;
@@ -4656,6 +4661,8 @@ internal sealed partial class MossTankPanel : IBuffRuleHost
         // something running every frame can give them back.
         if (_loot.ObserveCorpseOpened())
             _scheduler.Poke();
+        if (_combat.Enabled)
+            _loot.TickIdentification(elapsedSeconds);
         ObserveFastCastMovement(elapsedSeconds);
         _buffRule.Advance(elapsedSeconds);
         EnsureCharacterProfile();
