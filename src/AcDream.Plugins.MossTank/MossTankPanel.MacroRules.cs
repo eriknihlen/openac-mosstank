@@ -261,7 +261,8 @@ internal sealed partial class MossTankPanel : IMacroRuleProvider
             // slot is held and holds the pass through the open and each pull.
             gate: () => _combat.Enabled
                 && _inventorySettings.Loot.PriorityBoost
-                && WaitOnCorpseId()),
+                && WaitOnCorpseId(),
+            runningDetail: () => _loot.Status),
         MacroRuleSlot.OpenCorpseIdle => new MacroRulePreChain(
             new ControllerMacroRule(
                 "OpenCorpseIdle",
@@ -269,7 +270,8 @@ internal sealed partial class MossTankPanel : IMacroRuleProvider
                 gate: () => !_inventorySettings.Loot.PriorityBoost
                     && _combat.Enabled
                     && _inventorySettings.Loot.Enabled
-                    && WaitOnCorpseId()),
+                    && WaitOnCorpseId(),
+                runningDetail: () => _loot.Status),
             fallbacks: [_idlePeace]),
         MacroRuleSlot.LootCorpsePriority => new AbsentMacroRule(
             "LootCorpsePriority (loot step)",
