@@ -4703,6 +4703,7 @@ internal sealed partial class MossTankPanel : IBuffRuleHost
         // pass rather than inside it.
         _combat.AdvanceHeldTurn(elapsedSeconds);
         _scheduler.ExternalSuspension = _prologueOwnsAction;
+        ReportSchedulerSuspension(commandJumpOwnsAction, giveOwnsAction);
         // The movers run on the host's frame, not on the scheduler pass that
         // armed them. They step before the pass so the pass sees the frame's
         // work already done and never spends the same time twice. Only one of
@@ -4805,6 +4806,37 @@ internal sealed partial class MossTankPanel : IBuffRuleHost
     }
 
     internal void PokeScheduler() => _scheduler.Poke();
+
+    private string? _reportedSuspension;
+
+    /// <summary>
+    /// A suspended scheduler runs no pass and so prints no pass line, which
+    /// is the one state of the macro that leaves no trace of its own: the
+    /// log simply stops. So the cause of a suspension is said once on the
+    /// RuleInfo channel when it starts, and its end when it ends.
+    /// </summary>
+    private void ReportSchedulerSuspension(bool commandJumpOwnsAction, bool giveOwnsAction)
+    {
+        string? cause = !_scheduler.IsRunning
+            ? null
+            : commandJumpOwnsAction
+                ? "a command jump owns the character"
+                : giveOwnsAction
+                    ? "a profile give owns the character"
+                    : _transactionSuspensionHeld
+                        ? "a cast or item transaction is in flight"
+                        : _combat.TurnHoldsPass
+                            ? "the combat turn holds the pass"
+                            : _scheduler.IsSuspended
+                                ? "held by a rule"
+                                : null;
+        if (string.Equals(cause, _reportedSuspension, StringComparison.Ordinal))
+            return;
+        _reportedSuspension = cause;
+        EmitMacroLog(
+            MacroLogChannel.RuleInfo,
+            cause is null ? "(scheduler) resumed" : "(scheduler) suspended: " + cause);
+    }
 
     private void ShowFirstRunGuidance()
     {

@@ -4076,6 +4076,9 @@ internal sealed class CombatController
         _suspendPass();
     }
 
+    /// <summary>True while a turn to face the target holds the rule pass.</summary>
+    internal bool TurnHoldsPass => _turnHoldsPass;
+
     /// <summary>
     /// Steps a turn that is holding the pass. The pass itself is frozen while
     /// the hold is up, so the turn needs a driver outside it — the host frame.
