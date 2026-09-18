@@ -4977,6 +4977,46 @@ public sealed class MossTankPanelTests
     }
 
     [Fact]
+    public void ShowNavLinesDrawsTheLoadedRouteAndPersistsWithTheProfile()
+    {
+        var storage = new MemoryStorage();
+        storage.Text["imports/Legacy.nav"] = """
+            uTank2 NAV 1.2
+            4
+            1
+            0
+            12.5
+            -3.25
+            0
+            0
+            """;
+        var automation = new FakeAutomation { NavigationSnapshot = NavigationAt(0f) };
+        var lines = new RecordingWorldLines();
+        var panel = new MossTankPanel(new FakeHost(
+            automation, storage, worldLines: lines));
+        Command(panel, "nav load Legacy.nav");
+        panel.OnTick(0.3d);
+
+        // Off by default: the plugin asks the host for nothing.
+        Assert.False(panel.ShowNavLinesEnabled);
+        Assert.Empty(lines.Layers);
+
+        panel.ToggleShowNavLines();
+        Assert.True(panel.ShowNavLinesEnabled);
+        RecordingWorldLines.Layer layer = Assert.Single(lines.Layers);
+        // The one point is drawn as its arrival ring.
+        Assert.Equal(24, layer.Lines.Count);
+        Assert.Contains(
+            storage.Text,
+            pair => pair.Key.StartsWith("profiles/macro/sidecar/", StringComparison.Ordinal)
+                && pair.Value.Contains("\"ShowNavLines\": true", StringComparison.Ordinal));
+
+        panel.ToggleShowNavLines();
+        Assert.False(panel.ShowNavLinesEnabled);
+        Assert.Empty(layer.Lines);
+    }
+
+    [Fact]
     public void NavCommandsImportLegacyAndExportAf()
     {
         var storage = new MemoryStorage();
@@ -6538,9 +6578,12 @@ public sealed class MossTankPanelTests
         IAutomationSurface automation,
         IPluginStorage? storage = null,
         IPluginLootClassifierRegistry? lootClassifiers = null,
-        IPluginStorage? vtankProfiles = null) : IPluginHost
+        IPluginStorage? vtankProfiles = null,
+        IPluginWorldLines? worldLines = null) : IPluginHost
     {
         public bool HasUi => false;
+        public IPluginWorldLines WorldLines { get; } =
+            worldLines ?? NoOpPluginWorldLines.Instance;
         public FakeLogger Logger { get; } = new();
         public IPluginLogger Log => Logger;
         public IGameState State { get; } = new FakeState();
@@ -6554,6 +6597,26 @@ public sealed class MossTankPanelTests
             lootClassifiers ?? NoOpPluginLootClassifierRegistry.Instance;
         public IPluginStorage VtankProfiles { get; } =
             vtankProfiles ?? storage ?? NoOpPluginStorage.Instance;
+    }
+
+    private sealed class RecordingWorldLines : IPluginWorldLines
+    {
+        public List<Layer> Layers { get; } = [];
+
+        public IPluginWorldLineLayer? CreateLayer()
+        {
+            var layer = new Layer();
+            Layers.Add(layer);
+            return layer;
+        }
+
+        public sealed class Layer : IPluginWorldLineLayer
+        {
+            public IReadOnlyList<PluginWorldLine> Lines { get; private set; } = [];
+            public bool Disposed { get; private set; }
+            public void SetLines(IReadOnlyList<PluginWorldLine> lines) => Lines = lines;
+            public void Dispose() => Disposed = true;
+        }
     }
 
     private sealed class FakeLootClassifierRegistry(

@@ -60,6 +60,9 @@
             checked="{UseDispelItemsEnabled}" onclick="{ToggleUseDispelItems}" />
     <toggle x="282" y="68" w="120" h="20" text="Cast Dispel Self"
             checked="{CastDispelSelfEnabled}" onclick="{ToggleCastDispelSelf}" />
+    <toggle x="282" y="88" w="160" h="20" text="Show Nav Lines"
+            checked="{ShowNavLinesEnabled}" onclick="{ToggleShowNavLines}"
+            tooltip="Draw the loaded route and highlight its current waypoint in the world." />
     <toggle x="282" y="128" w="120" h="20" text="Auto Fellow Mgmt."
             checked="{AutoFellowManagementEnabled}" onclick="{ToggleAutoFellowManagement}" />
     <toggle x="282" y="148" w="160" h="20" text="M. Charges When Off"

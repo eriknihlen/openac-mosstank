@@ -4649,6 +4649,7 @@ internal sealed partial class MossTankPanel : IBuffRuleHost
             HandleSessionStarted();
         }
 
+        UpdateNavLines();
         _actionLocks.Advance(elapsedSeconds);
         // Beside the slot clock rather than inside a rule pass: the slots an
         // open takes include the one the loot rule is gated on, so only
@@ -4881,6 +4882,7 @@ internal sealed partial class MossTankPanel : IBuffRuleHost
 
     public void Disable()
     {
+        ClearNavLines();
         if (_combat.Enabled)
             SetMacroRunning(false);
         if (_buffRule.IsBursting)
@@ -4907,6 +4909,7 @@ internal sealed partial class MossTankPanel : IBuffRuleHost
         _assessmentTime = 0d;
         _nextAssessment = 0d;
         _nextAssessmentScan = 0d;
+        ClearNavLines();
         if (_combat.Enabled)
             _combat.OnTick(0d);
 

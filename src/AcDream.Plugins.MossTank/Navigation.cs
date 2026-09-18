@@ -284,6 +284,8 @@ internal sealed class RouteWaypoint
 
 internal sealed class NavigationSettings
 {
+    /// <summary>The reference client's "Show Nav Lines": draw the loaded route in the world.</summary>
+    public bool ShowNavLines { get; set; }
     public bool Enabled { get; set; }
     public bool Priority { get; set; }
     public RouteMode Mode { get; set; } = RouteMode.Circular;
