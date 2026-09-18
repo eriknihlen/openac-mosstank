@@ -101,7 +101,8 @@ internal sealed partial class MossTankPanel : IMacroRuleProvider
                 context.CanAct,
                 noTarget: false,
                 helpers: false),
-            gate: () => ItemSlotIsFree() && _combat.Enabled),
+            gate: () => ItemSlotIsFree() && _combat.Enabled,
+            runningDetail: () => _vitalRecharge.Status),
 
         MacroRuleSlot.RefillWieldedMana => new ControllerMacroRule(
             "RefillWieldedMana",
@@ -256,14 +257,16 @@ internal sealed partial class MossTankPanel : IMacroRuleProvider
         MacroRuleSlot.OpenCorpsePriority => new ControllerMacroRule(
             "OpenCorpsePriority",
             TickLootRule,
-            gate: () => ItemSlotIsFree() && _combat.Enabled
+            // No item-slot gate: the reference's open rule is VALID while the
+            // slot is held and holds the pass through the open and each pull.
+            gate: () => _combat.Enabled
                 && _inventorySettings.Loot.PriorityBoost
                 && WaitOnCorpseId()),
         MacroRuleSlot.OpenCorpseIdle => new MacroRulePreChain(
             new ControllerMacroRule(
                 "OpenCorpseIdle",
                 TickLootRule,
-                gate: () => ItemSlotIsFree() && !_inventorySettings.Loot.PriorityBoost
+                gate: () => !_inventorySettings.Loot.PriorityBoost
                     && _combat.Enabled
                     && _inventorySettings.Loot.Enabled
                     && WaitOnCorpseId()),
@@ -384,7 +387,8 @@ internal sealed partial class MossTankPanel : IMacroRuleProvider
                 context.CanAct,
                 noTarget: true,
                 helpers: false),
-            gate: () => ItemSlotIsFree() && _combat.Enabled),
+            gate: () => ItemSlotIsFree() && _combat.Enabled,
+            runningDetail: () => _vitalRecharge.Status),
 
         MacroRuleSlot.RandomHelper => new MacroRulePreChain(
             _randomHelper,
