@@ -15,7 +15,7 @@ public sealed partial class LootingTests
             Corpse(unanswered, 3f) with { IsIdentified = false });
         var looter = new LootController(new Host(automation), settings);
 
-        Assert.True(looter.Tick(0.25d, canAct: true));
+        looter.TickIdentification(0.25d);
         Assert.Equal([unanswered], automation.Identified);
 
         automation.Corpses =
@@ -34,7 +34,7 @@ public sealed partial class LootingTests
             automation.AppraisalState.Revision + 1,
             0u,
             somethingElse);
-        Assert.True(looter.Tick(4d, canAct: true));
+        looter.TickIdentification(4d);
         Assert.Equal([unanswered, unanswered], automation.Identified);
     }
 
@@ -51,21 +51,21 @@ public sealed partial class LootingTests
             new Host(automation),
             DescriptionRetrySettings());
 
-        Assert.True(looter.Tick(0.25d, canAct: true));
+        looter.TickIdentification(0.25d);
         Assert.Equal([first], automation.Identified);
 
         automation.AppraisalState = new PluginAppraisalState(
             automation.AppraisalState.Revision + 1,
             0u,
             somethingElse);
-        Assert.True(looter.Tick(4d, canAct: true));
+        looter.TickIdentification(4d);
         Assert.Equal([first, second], automation.Identified);
 
         automation.AppraisalState = new PluginAppraisalState(
             automation.AppraisalState.Revision + 1,
             0u,
             somethingElse);
-        Assert.True(looter.Tick(4d, canAct: true));
+        looter.TickIdentification(4d);
         Assert.Equal([first, second, first], automation.Identified);
     }
 
@@ -79,7 +79,7 @@ public sealed partial class LootingTests
             Corpse(corpse, 3f) with { IsIdentified = false });
         var looter = new LootController(new Host(automation), settings);
 
-        Assert.True(looter.Tick(0.25d, canAct: true));
+        looter.TickIdentification(0.25d);
         Assert.Equal([corpse], automation.Identified);
 
         automation.AppraisalState = new PluginAppraisalState(
@@ -87,8 +87,8 @@ public sealed partial class LootingTests
             0u,
             somethingElse);
 
-        Assert.True(looter.Tick(4d, canAct: true));
-        Assert.True(looter.Tick(0.25d, canAct: true));
+        looter.TickIdentification(4d);
+        looter.TickIdentification(0.25d);
         Assert.Equal([corpse, corpse], automation.Identified);
 
         automation.Corpses = [Corpse(corpse, 3f)];

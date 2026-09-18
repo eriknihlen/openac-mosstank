@@ -241,6 +241,7 @@ public sealed partial class LootingTests
         Assert.False(locks.IsLocked(ActionLockKind.Navigation));
 
         // Read the contents, decide, pull.
+        controller.TickIdentification(0.5d);
         Assert.True(controller.Tick(0.2d, canAct: true));
         Assert.True(controller.Tick(0.1d, canAct: true));
         Assert.Equal(new[] { coin }, automation.Picked);

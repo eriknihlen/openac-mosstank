@@ -334,10 +334,12 @@ public sealed partial class LootingTests
         automation.Requested = corpse;
         automation.Current = corpse;
         automation.Contents = [Item(coin, "Colosseum coin", 77)];
+        controller.TickIdentification(0.5d);
         Assert.True(controller.Tick(0.2d, canAct: true));
         Assert.Equal(new[] { coin }, automation.Identified);
 
         automation.AppraisalState = new PluginAppraisalState(1, 0u, coin);
+        controller.TickIdentification(0.5d);
         Assert.True(controller.Tick(0.1d, canAct: true));
         Assert.Equal(new[] { coin }, automation.Picked);
 
@@ -347,6 +349,7 @@ public sealed partial class LootingTests
             PluginInventoryCommandKind.Pickup,
             coin,
             0u);
+        controller.TickIdentification(0.5d);
         Assert.True(controller.Tick(0.1d, canAct: true));
         Assert.Equal(LootAction.Keep, controller.ClassifiedOwnedItems[coin]);
 
@@ -393,8 +396,10 @@ public sealed partial class LootingTests
         automation.Requested = corpse;
         automation.Current = corpse;
         automation.Contents = [Item(coin, "Colosseum coin", 77)];
+        controller.TickIdentification(0.5d);
         Assert.True(controller.Tick(0.2d, canAct: true));
         automation.AppraisalState = new PluginAppraisalState(1, 0u, coin);
+        controller.TickIdentification(0.5d);
         Assert.True(controller.Tick(0.1d, canAct: true));
         automation.Contents = [];
         automation.InventoryCompletion = new PluginInventoryCompletion(
@@ -402,6 +407,7 @@ public sealed partial class LootingTests
             PluginInventoryCommandKind.Pickup,
             coin,
             0u);
+        controller.TickIdentification(0.5d);
         Assert.True(controller.Tick(0.1d, canAct: true));
 
         Assert.All(logged, entry =>
@@ -487,10 +493,9 @@ public sealed partial class LootingTests
         };
         automation.Corpses = [unidentified];
 
-        Assert.True(controller.Tick(0.1d, canAct: true));
+        controller.TickIdentification(0.1d);
         Assert.Equal(new[] { corpse }, automation.Identified);
         Assert.Empty(automation.Opened);
-        Assert.Contains("Identifying", controller.Status);
 
         automation.CompleteAppraisal(corpse, presentInUi: false);
         automation.Corpses = [unidentified with { IsIdentified = true }];
@@ -545,8 +550,10 @@ public sealed partial class LootingTests
         Assert.True(controller.Tick(1d, canAct: true));
         automation.Current = corpse;
         automation.Contents = [Item(item, "External prize", 88u)];
+        controller.TickIdentification(0.5d);
         Assert.True(controller.Tick(0.2d, canAct: true));
         automation.AppraisalState = new PluginAppraisalState(1, 0u, item);
+        controller.TickIdentification(0.5d);
         Assert.True(controller.Tick(0.1d, canAct: true));
 
         Assert.Equal(new[] { item }, automation.Picked);
@@ -561,6 +568,7 @@ public sealed partial class LootingTests
             PluginInventoryCommandKind.Pickup,
             item,
             0u);
+        controller.TickIdentification(0.5d);
         Assert.True(controller.Tick(0.1d, canAct: true));
         PluginLootedItem looted = Assert.Single(classifier.Looted);
         Assert.Equal(item, looted.Item.ObjectId);
@@ -619,9 +627,11 @@ public sealed partial class LootingTests
         Assert.True(controller.Tick(1d, canAct: true));
         automation.Current = corpse;
         automation.Contents = [Item(item, "Limited prize", 99u)];
+        controller.TickIdentification(0.5d);
         Assert.True(controller.Tick(0.2d, canAct: true));
         automation.AppraisalState = new PluginAppraisalState(1, 0u, item);
         // The pass the corpse finishes on is the pass that closes it.
+        controller.TickIdentification(0.5d);
         Assert.True(controller.Tick(0.1d, canAct: true));
         Assert.Empty(automation.Picked);
 
@@ -750,16 +760,22 @@ public sealed partial class LootingTests
             ],
         };
         var controller = new LootController(new Host(automation), settings);
+        // The pull holds the item slot; without the slot a second turn is a
+        // second pull of the same scroll, as the reference would make it.
+        controller.BindActionLocks(new ActionLockTable());
         const uint scroll = 0x70000201u;
 
         Assert.True(controller.Tick(0.25d, canAct: true));
         automation.Current = 0x70000200u;
+        Assert.True(controller.ObserveCorpseOpened());
         automation.Contents =
         [
             Scroll(scroll, "Incantation of Testing", 777u),
         ];
+        controller.TickIdentification(0.5d);
         Assert.True(controller.Tick(0.2d, canAct: true));
         automation.AppraisalState = new PluginAppraisalState(1, 0u, scroll);
+        controller.TickIdentification(0.5d);
         Assert.True(controller.Tick(0.1d, canAct: true));
 
         Assert.Equal(new[] { scroll }, automation.Picked);
@@ -841,8 +857,10 @@ public sealed partial class LootingTests
         [
             Item(source, "Iron Sword", 100u) with { MaterialType = 12u },
         ];
+        controller.TickIdentification(0.5d);
         Assert.True(controller.Tick(0.2d, canAct: true));
         automation.AppraisalState = new PluginAppraisalState(1, 0u, source);
+        controller.TickIdentification(0.5d);
         Assert.True(controller.Tick(0.1d, canAct: true));
         automation.Contents = [];
         automation.Owned = [automation.Owned[0], Item(source, "Iron Sword", 100u)];
@@ -851,6 +869,7 @@ public sealed partial class LootingTests
             PluginInventoryCommandKind.Pickup,
             source,
             0u);
+        controller.TickIdentification(0.5d);
         Assert.True(controller.Tick(0.1d, canAct: true));
         // The pass the corpse finishes on is the pass that closes it, and the
         // corpse stays this controller's business until the container shuts.
@@ -892,8 +911,10 @@ public sealed partial class LootingTests
         Assert.True(controller.Tick(0.25d, canAct: true));
         automation.Current = corpse;
         automation.Contents = [Item(source, "Ruby", 101u)];
+        controller.TickIdentification(0.5d);
         Assert.True(controller.Tick(0.2d, canAct: true));
         automation.AppraisalState = new PluginAppraisalState(1, 0u, source);
+        controller.TickIdentification(0.5d);
         Assert.True(controller.Tick(0.1d, canAct: true));
         automation.Contents = [];
         automation.Owned = [Item(source, "Ruby", 101u)];
@@ -902,6 +923,7 @@ public sealed partial class LootingTests
             PluginInventoryCommandKind.Pickup,
             source,
             0u);
+        controller.TickIdentification(0.5d);
         Assert.True(controller.Tick(0.1d, canAct: true));
         // The pass the corpse finishes on is the pass that closes it, and the
         // corpse stays this controller's business until the container shuts.
@@ -1025,6 +1047,7 @@ public sealed partial class LootingTests
         Assert.True(controller.Tick(0.25d, canAct: true));
         automation.Current = corpse;
         automation.Contents = [Item(loose, "Pyreal", 273u)];
+        controller.TickIdentification(0.5d);
         Assert.True(controller.Tick(0.2d, canAct: true));
 
         Assert.Empty(automation.Identified);
@@ -1060,6 +1083,7 @@ public sealed partial class LootingTests
         Assert.True(controller.Tick(0.25d, canAct: true));
         automation.Current = corpse;
         automation.Contents = [Item(loose, "Pyreal", 273u)];
+        controller.TickIdentification(0.5d);
         Assert.True(controller.Tick(0.2d, canAct: true));
 
         Assert.Equal(new[] { loose }, automation.Identified);
@@ -1599,6 +1623,7 @@ public sealed partial class LootingTests
 
         // The gate both loot rules are held by is what the release opens.
         Assert.False(locks.IsLocked(ActionLockKind.ItemUse));
+        controller.TickIdentification(0.5d);
         Assert.True(controller.Tick(0.2d, canAct: true));
         Assert.Contains(
             judged,
@@ -1673,6 +1698,7 @@ public sealed partial class LootingTests
         Assert.True(controller.Tick(0.25d, canAct: true));
         automation.Current = corpse;
         automation.Contents = [Item(0x70000B01u, "Rock", 273u)];
+        controller.TickIdentification(0.5d);
         Assert.True(controller.Tick(0.2d, canAct: true));
 
         Assert.Equal("Corpse complete.", controller.Status);
@@ -1754,6 +1780,7 @@ public sealed partial class LootingTests
         automation.Current = corpse;
         automation.Contents = [Item(0x70000E01u, "Rock", 273u)];
         automation.ItemsBusy = itemsBusy;
+        controller.TickIdentification(0.5d);
         Assert.True(controller.Tick(0.2d, canAct: true));
         return (controller, automation, corpse);
     }
@@ -1881,6 +1908,7 @@ public sealed partial class LootingTests
                 ObjectClass = PluginObjectClass.Misc,
             },
         ];
+        controller.TickIdentification(0.5d);
         Assert.True(controller.Tick(0.2d, canAct: true));
 
         Assert.Empty(automation.Picked);
@@ -1939,6 +1967,7 @@ public sealed partial class LootingTests
         Assert.True(controller.Tick(0.25d, canAct: true));
         automation.Current = corpse;
         automation.Contents = [item];
+        controller.TickIdentification(0.5d);
         Assert.True(controller.Tick(0.2d, canAct: true));
         Assert.Equal(new[] { scroll }, automation.Picked);
 
@@ -1946,6 +1975,7 @@ public sealed partial class LootingTests
         automation.Owned = [item];
         automation.InventoryCompletion = new PluginInventoryCompletion(
             1, PluginInventoryCommandKind.Pickup, scroll, 0u);
+        controller.TickIdentification(0.5d);
         Assert.True(controller.Tick(0.1d, canAct: true));
 
         return (

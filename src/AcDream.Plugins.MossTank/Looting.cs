@@ -473,6 +473,7 @@ internal static class LootRuleEngine
 
 internal sealed partial class LootController
 {
+    /// <summary>How long the salvage, sell, mana-fill and combine steps wait for their answer.</summary>
     private const double PickupTimeoutSeconds = 4d;
 
     /// <summary>
@@ -515,7 +516,6 @@ internal sealed partial class LootController
     private readonly Dictionary<uint, double> _corpseDeniedAt = [];
     private uint _selectedCorpse;
     private ulong _chatSequence;
-    private double _scanRemaining;
     private double _stateAge;
     private uint _activeCorpse;
     private bool _activeCorpseSawContents;
@@ -526,7 +526,6 @@ internal sealed partial class LootController
     private int _waitingQuantity;
     private PluginInventoryItem _waitingItemSnapshot;
     private string _waitingClassifierId = string.Empty;
-    private long _waitingInventoryRevision;
     private uint _awaitingAppraisal;
     private uint _awaitingCorpseAppraisal;
     private uint _lastCorpseDescriptionRequest;
@@ -677,8 +676,21 @@ internal sealed partial class LootController
         _lifetime += Math.Max(0d, elapsedSeconds);
         ObserveOwnershipDenials();
 
-        if (_waitingItem != 0u)
-            return ContinuePickup(loot);
+        // The reference's open rule is valid — and holds the pass doing
+        // nothing — for as long as the item slot is held: an open attempt,
+        // a pull, any item use of ours is answered before the next loot
+        // step is taken. The slot comes down on the frame the container
+        // opens, or when its own window runs out.
+        if (_actionLocks is { } locks && locks.IsLocked(ActionLockKind.ItemUse))
+        {
+            Status = _waitingItem != 0u
+                ? $"Waiting for {_waitingName}…"
+                : _activeCorpse != 0u && current != _activeCorpse
+                    ? "Waiting for corpse contents…"
+                    : "Waiting for the item slot…";
+            return true;
+        }
+
         if ((_manaTransfer is not null
                 || HasManaStoneTransfer())
             && ContinueManaStoneTransfer(canAct))
@@ -728,70 +740,24 @@ internal sealed partial class LootController
                 return false;
         }
 
-        if (!canAct || loot.IsBusy)
+        if (!canAct)
             return false;
 
-        _scanRemaining -= Math.Max(0d, elapsedSeconds);
-        if (_scanRemaining > 0d)
-            return false;
-        _scanRemaining = Math.Clamp(_settings.ScanIntervalSeconds, 0.05d, 5d);
-
-        // The age clock the public and fellow timers measure against starts
-        // when a corpse first streams into the client's known set, which is a
-        // far wider radius than any of the loot ranges — a corpse watched
-        // from across a field is already old enough by the time the player
-        // walks up to it. Each step below then applies its own reach.
+        // Every pass, not on a pacing clock: the reference selects afresh
+        // each time it is asked. The age clock the public and fellow timers
+        // measure against starts when a corpse first streams into the
+        // client's known set, which is a far wider radius than any of the
+        // loot ranges — a corpse watched from across a field is already old
+        // enough by the time the player walks up to it.
         IReadOnlyList<PluginLootContainer> known =
             loot.CaptureCorpses(float.MaxValue);
         PruneCorpseCache(known);
-        // The rule's own turn reaches only as far as the character would walk
-        // for a corpse. Corpses beyond that are described on the host frame
-        // (TickIdentification) and never cost this rule a pass: spending the
-        // pass on a corpse a hundred metres away paused the route for it.
-        double reach = Math.Max(CorpseOpenRangeMeters, _settings.CorpseApproachRange);
-        List<PluginLootContainer> withinReach = [];
-        foreach (PluginLootContainer candidate in known)
-        {
-            if (candidate.Distance <= reach)
-                withinReach.Add(candidate);
-        }
-        // The set is walked below both to pick and to ask for descriptions,
-        // and the client hands it over already ordered by
-        // distance and then by id, so two hosts asking the same question get
-        // the same answer. It is NOT narrowed to the approach range first:
-        // the description is asked of every corpse the client is reporting,
-        // and the open step carries its own reach. The approach range is the
-        // walk's, and the walk is its own rule, one position above this one.
 
-        bool waitingForCorpseDescription = false;
-        if (_awaitingCorpseAppraisal != 0u)
-        {
-            PluginAppraisalState appraisal = loot.Appraisal;
-            if (appraisal.CurrentObjectId == _awaitingCorpseAppraisal
-                && appraisal.AwaitingObjectId != _awaitingCorpseAppraisal)
-            {
-                _awaitingCorpseAppraisal = 0u;
-                _stateAge = 0d;
-            }
-            else if (_stateAge < Math.Max(
-                1d,
-                _settings.CorpseOpenTimeoutSeconds * 2d))
-            {
-                waitingForCorpseDescription = true;
-            }
-            else
-            {
-                // Only the description request expired. The corpse has not
-                // been opened or emptied, so leave it eligible for another
-                // identify request on the next scan.
-                _awaitingCorpseAppraisal = 0u;
-                _stateAge = 0d;
-            }
-        }
-
-        // A described corpse is ready work even while another corpse's
-        // description is pending. The existing range and heading selector
-        // remains the authority for which ready corpse opens.
+        // Descriptions are the frame's business (TickIdentification), asked
+        // of every corpse the client reports as it appears; the rule's own
+        // turn never spends itself on one. Only a described corpse within
+        // arm's reach is ready work here; the walk is its own rule, one
+        // position above this one.
         _selectedCorpse = 0u;
         if (SelectCorpse(known, CorpseOpenRangeMeters, byHeading: true)
             is { } corpse)
@@ -832,35 +798,19 @@ internal sealed partial class LootController
             return true;
         }
 
-        if (waitingForCorpseDescription)
+        // A sale still queued for a vendor keeps its own status line; the
+        // corpse scan has nothing to add to it.
+        if (_sellPendingItem == 0u
+            && !_classifiedOwnedItems.Values.Contains(LootAction.Sell))
         {
-            Status = "Identifying corpse…";
-            return AwaitedCorpseIsWithin(withinReach);
+            Status = "No nearby corpses.";
         }
-
-        if (TryRequestNextCorpseDescription(loot, withinReach))
-            return true;
-
-        Status = "No nearby corpses.";
         return false;
     }
 
-    // A corpse whose long description has not arrived yet cannot be judged.
     // Advance from the last accepted request so one corpse that never
     // answers cannot monopolize every later request. True when a request
     // went out or the client is busy with one.
-    // The pass is held for an outstanding description only while the corpse
-    // it belongs to is within reach; a far one answers on its own time.
-    private bool AwaitedCorpseIsWithin(IReadOnlyList<PluginLootContainer> reach)
-    {
-        foreach (PluginLootContainer corpse in reach)
-        {
-            if (corpse.ObjectId == _awaitingCorpseAppraisal)
-                return true;
-        }
-        return false;
-    }
-
     private bool TryRequestNextCorpseDescription(
         ILootAutomation loot,
         IReadOnlyList<PluginLootContainer> known)
@@ -908,12 +858,23 @@ internal sealed partial class LootController
     private double _identifyAge;
 
     /// <summary>
-    /// Asks corpses for their descriptions as they come within reach, on the
-    /// host's frame rather than on the loot rule's turn: the reference
-    /// describes every corpse on its radar as it appears, so by the time the
-    /// fight is over the corpse is already known and the open follows at
-    /// once. Left to the rule, the description could only be asked for after
-    /// the attack gave the pass up, a whole pass late every time.
+    /// The reference's id queue sends one request every 499 ms, round robin
+    /// over everything waiting for an id.
+    /// </summary>
+    private const double IdentifyRequestIntervalSeconds = 0.499d;
+    private double _sinceIdentifyRequest = IdentifyRequestIntervalSeconds;
+
+    /// <summary>
+    /// Asks for descriptions and item ids on the host's frame rather than on
+    /// the loot rule's turn: the reference queues every corpse on its radar
+    /// as it appears and every item of an opened corpse as the contents
+    /// arrive, and sends the requests from a timer of its own. So by the
+    /// time the fight is over the corpse is already known and the open
+    /// follows at once, and while a corpse is open its items are described
+    /// beside the pass, never at the cost of one. Left to the rule, each
+    /// request could only be sent on a turn the rule won, a whole pass late
+    /// every time — and a request is an item transaction, which would have
+    /// stood the whole pass still.
     /// </summary>
     internal void TickIdentification(double elapsedSeconds)
     {
@@ -926,8 +887,18 @@ internal sealed partial class LootController
         ILootAutomation loot = _host.Automation.Loot;
         if (!loot.IsAvailable)
             return;
-        _identifyAge += Math.Max(0d, elapsedSeconds);
-        if (_activeCorpse != 0u || loot.CurrentContainerId != 0u || _waitingItem != 0u)
+        double elapsed = Math.Max(0d, elapsedSeconds);
+        _identifyAge += elapsed;
+        _sinceIdentifyRequest += elapsed;
+        if (_activeCorpse != 0u && loot.CurrentContainerId == _activeCorpse)
+        {
+            TickCorpseItemIdentification(loot);
+            return;
+        }
+        // Descriptions are asked whatever the loot state, as the reference's
+        // queue does; only an item id of ours already on the one appraisal
+        // slot holds the next request.
+        if (_awaitingAppraisal != 0u)
             return;
         if (_awaitingCorpseAppraisal != 0u)
         {
@@ -947,6 +918,85 @@ internal sealed partial class LootController
         // before the character walks up to it.
         IReadOnlyList<PluginLootContainer> known = loot.CaptureCorpses(float.MaxValue);
         _ = TryRequestNextCorpseDescription(loot, known);
+    }
+
+    /// <summary>
+    /// The item half of the frame's identification: while a corpse is open,
+    /// each item that needs an id is asked for one, one request at a time on
+    /// the reference's cadence, and each answer becomes a decision the rule's
+    /// next turn can act on. Items that need no id are decided as they are
+    /// seen.
+    /// </summary>
+    private void TickCorpseItemIdentification(ILootAutomation loot)
+    {
+        if (!loot.CurrentContentsReady)
+            return;
+        IReadOnlyList<PluginInventoryItem> contents = loot.CaptureCurrentContents();
+        IReadOnlyList<PluginInventoryItem> owned =
+            _host.Automation.Items.CaptureOwnedItems();
+        if (_awaitingAppraisal != 0u)
+        {
+            PluginAppraisalState appraisal = loot.Appraisal;
+            if (appraisal.CurrentObjectId == _awaitingAppraisal
+                && appraisal.AwaitingObjectId != _awaitingAppraisal)
+            {
+                if (contents.FirstOrDefault(
+                        item => item.ObjectId == _awaitingAppraisal) is { } answered
+                    && answered.ObjectId != 0u)
+                {
+                    PluginItemProperties identified = default;
+                    _ = loot.TryCaptureProperties(answered.ObjectId, out identified);
+                    RecordDecision(answered, DecideItem(
+                        answered,
+                        identified,
+                        owned,
+                        _pendingByName));
+                }
+                _awaitingAppraisal = 0u;
+                _identifyAge = 0d;
+            }
+            else if (_identifyAge < Math.Clamp(
+                _settings.CorpseItemIdentifyTimeoutSeconds,
+                1d,
+                600d))
+            {
+                return;
+            }
+            else
+            {
+                IncrementAttempt(_awaitingAppraisal);
+                _awaitingAppraisal = 0u;
+                _identifyAge = 0d;
+            }
+        }
+
+        foreach (PluginInventoryItem item in contents)
+        {
+            if (_decisions.ContainsKey(item.ObjectId))
+                continue;
+            PluginItemProperties properties = default;
+            _ = loot.TryCaptureProperties(item.ObjectId, out properties);
+            if (!NeedsIdentify(item, properties, owned))
+            {
+                RecordDecision(item, DecideItem(
+                    item,
+                    properties,
+                    owned,
+                    _pendingByName));
+                continue;
+            }
+            if (_sinceIdentifyRequest < IdentifyRequestIntervalSeconds)
+                return;
+            PluginItemCommandResult identify = loot.Identify(item.ObjectId);
+            if (identify.Accepted)
+            {
+                _awaitingAppraisal = item.ObjectId;
+                _identifyAge = 0d;
+                _sinceIdentifyRequest = 0d;
+            }
+            // Busy or refused: asked again on a later frame.
+            return;
+        }
     }
 
     public void Reset()
@@ -974,7 +1024,6 @@ internal sealed partial class LootController
         _pendingScrollReads.Clear();
         _selectedCorpse = 0u;
         _chatSequence = 0uL;
-        _scanRemaining = 0d;
         _lifetime = 0d;
         _salvagePendingItem = 0u;
         _salvagePendingName = string.Empty;
@@ -1025,80 +1074,21 @@ internal sealed partial class LootController
             Status = "Waiting for corpse items to appear…";
             return true;
         }
-        IReadOnlyList<PluginInventoryItem> owned =
-            _host.Automation.Items.CaptureOwnedItems();
-        if (_awaitingAppraisal != 0u)
-        {
-            PluginAppraisalState appraisal = loot.Appraisal;
-            if (appraisal.CurrentObjectId == _awaitingAppraisal
-                && appraisal.AwaitingObjectId != _awaitingAppraisal)
-            {
-                if (contents.FirstOrDefault(
-                        item => item.ObjectId == _awaitingAppraisal) is { } item
-                    && item.ObjectId != 0u)
-                {
-                    PluginItemProperties identified = default;
-                    _ = loot.TryCaptureProperties(item.ObjectId, out identified);
-                    RecordDecision(item, DecideItem(
-                        item,
-                        identified,
-                        owned,
-                        _pendingByName));
-                }
-                _awaitingAppraisal = 0u;
-                _stateAge = 0d;
-            }
-            else if (_stateAge < Math.Clamp(
-                _settings.CorpseItemIdentifyTimeoutSeconds,
-                1d,
-                600d))
-            {
-                Status = "Identifying corpse item…";
-                return true;
-            }
-            else
-            {
-                IncrementAttempt(_awaitingAppraisal);
-                _awaitingAppraisal = 0u;
-                _stateAge = 0d;
-            }
-        }
 
-        foreach (PluginInventoryItem item in contents)
-        {
-            if (_decisions.ContainsKey(item.ObjectId))
-                continue;
-            if (!canAct || loot.IsBusy)
-                return true;
+        ObservePickup(contents);
 
-            PluginItemProperties properties = default;
-            _ = loot.TryCaptureProperties(item.ObjectId, out properties);
-            PluginAppraisalState appraisal = loot.Appraisal;
-            if (appraisal.CurrentObjectId != item.ObjectId
-                && NeedsIdentify(item, properties, owned))
-            {
-                PluginItemCommandResult identify = loot.Identify(item.ObjectId);
-                if (identify.Accepted)
-                {
-                    _awaitingAppraisal = item.ObjectId;
-                    _stateAge = 0d;
-                    Status = $"Identifying {item.Name}…";
-                    return true;
-                }
-                if (identify.Status == PluginItemCommandStatus.Busy)
-                    return true;
-            }
-
-            RecordDecision(item, DecideItem(
-                item,
-                properties,
-                owned,
-                _pendingByName));
-        }
-
+        // Items still waiting on their description are the frame's business
+        // (TickIdentification); this turn works from the decisions already
+        // made, the way the reference's pull step works from its queue.
+        bool identifying = false;
         var candidates = new List<(PluginInventoryItem Item, LootDecision Decision)>();
         foreach (PluginInventoryItem item in contents)
         {
+            if (!_decisions.TryGetValue(item.ObjectId, out LootDecision? cached))
+            {
+                identifying = true;
+                continue;
+            }
             if (_itemAttempts.TryGetValue(item.ObjectId, out int attempts)
                 && attempts >= Math.Clamp(
                     _settings.CorpseLootItemMaxAttempts,
@@ -1107,15 +1097,26 @@ internal sealed partial class LootController
             {
                 continue;
             }
-            if (_decisions.TryGetValue(item.ObjectId, out LootDecision? cached)
-                && cached is { } decision)
-            {
+            if (cached is { } decision)
                 candidates.Add((item, decision));
-            }
         }
 
         if (candidates.Count == 0)
         {
+            if (identifying)
+            {
+                if (_stateAge < Math.Clamp(
+                    _settings.CorpseItemIdentifyTimeoutSeconds,
+                    1d,
+                    600d))
+                {
+                    Status = "Identifying corpse items…";
+                    return true;
+                }
+                Log?.Invoke(
+                    MacroLogChannel.Loot,
+                    $"CorpseWait: abandoned 0x{_activeCorpse:X8}, unable to receive an id for every item");
+            }
             foreach (PluginInventoryItem item in contents)
                 _decisions.Remove(item.ObjectId);
             uint finished = _activeCorpse;
@@ -1126,7 +1127,7 @@ internal sealed partial class LootController
                 $"CorpseWait: closing 0x{finished:X8}");
             return CloseFinishedCorpse(finished, canAct);
         }
-        if (!canAct || loot.IsBusy)
+        if (!canAct)
             return true;
 
         (PluginInventoryItem Item, LootDecision Decision) chosen = candidates
@@ -1135,19 +1136,23 @@ internal sealed partial class LootController
             .ThenBy(static candidate => candidate.Item.ContainerSlot)
             .ThenBy(static candidate => candidate.Item.ObjectId)
             .First();
+        // The pull is counted when it is issued, as the reference counts it:
+        // an item that is still in the corpse on the next turn is pulled
+        // again, until the profile's attempt ceiling drops it.
+        IncrementAttempt(chosen.Item.ObjectId);
         PluginItemCommandResult pickup = loot.Pickup(chosen.Item.ObjectId);
         if (!pickup.Accepted)
         {
-            IncrementAttempt(chosen.Item.ObjectId);
             Status = $"Pickup refused: {chosen.Item.Name}.";
             return pickup.Status == PluginItemCommandStatus.Busy;
         }
 
         // Every pull holds the item slot and navigation for three quarters of
         // a second, the way the reference's pickup step does. The item slot is
-        // what paces the pulls; navigation is what stops the walk-to-a-corpse
-        // rule — which outranks this one — from steering the character away
-        // from the corpse it is standing over, one item into emptying it.
+        // what paces the pulls — and what this rule holds the pass on
+        // meanwhile; navigation is what stops the walk-to-a-corpse rule —
+        // which outranks this one — from steering the character away from
+        // the corpse it is standing over, one item into emptying it.
         _actionLocks?.Arm(ActionLockKind.ItemUse, PickupHoldSeconds);
         _actionLocks?.Arm(ActionLockKind.Navigation, PickupHoldSeconds);
         _waitingItem = chosen.Item.ObjectId;
@@ -1156,8 +1161,6 @@ internal sealed partial class LootController
         _waitingQuantity = Math.Max(1, chosen.Item.StackSize);
         _waitingItemSnapshot = chosen.Item;
         _waitingClassifierId = chosen.Decision.ClassifierId;
-        _waitingInventoryRevision = loot.LastInventoryCompletion.Revision;
-        _stateAge = 0d;
         if (chosen.Decision.Action == LootAction.KeepUpTo)
         {
             _pendingByName.TryGetValue(chosen.Item.Name, out int pending);
@@ -1183,21 +1186,18 @@ internal sealed partial class LootController
                 : $"LootDecision: {item.Name} -> no rule matched");
     }
 
-    private bool ContinuePickup(ILootAutomation loot)
+    /// <summary>
+    /// The pull issued last turn, judged by the corpse: an item that is no
+    /// longer in the container was taken, and an item that still is will be
+    /// pulled again by the turn that follows. The reference keeps no
+    /// completion of its own for a pull; the container is the answer.
+    /// </summary>
+    private void ObservePickup(IReadOnlyList<PluginInventoryItem> contents)
     {
-        PluginInventoryCompletion completion = loot.LastInventoryCompletion;
-        bool advanced = completion.Revision > _waitingInventoryRevision
-            && completion.SourceObjectId == _waitingItem;
-        bool stillInCorpse = loot.CaptureCurrentContents().Any(
-            item => item.ObjectId == _waitingItem);
-        if (!advanced && stillInCorpse && _stateAge < PickupTimeoutSeconds)
-        {
-            Status = $"Waiting for {_waitingName}…";
-            return true;
-        }
-
-        bool success = !stillInCorpse || (advanced && completion.IsSuccess);
-        if (success)
+        if (_waitingItem == 0u)
+            return;
+        bool stillInCorpse = contents.Any(item => item.ObjectId == _waitingItem);
+        if (!stillInCorpse)
         {
             _classifiedOwnedItems[_waitingItem] = _waitingAction;
             if (_waitingClassifierId.Length != 0)
@@ -1225,7 +1225,6 @@ internal sealed partial class LootController
         }
         else
         {
-            IncrementAttempt(_waitingItem);
             Status = $"Retrying {_waitingName}.";
         }
         if (_waitingAction == LootAction.KeepUpTo
@@ -1236,15 +1235,17 @@ internal sealed partial class LootController
             else
                 _pendingByName[_waitingName] = pending - _waitingQuantity;
         }
+        ClearWaitingItem();
+    }
+
+    private void ClearWaitingItem()
+    {
         _waitingItem = 0u;
         _waitingName = string.Empty;
         _waitingAction = LootAction.NoLoot;
         _waitingQuantity = 0;
         _waitingItemSnapshot = default;
         _waitingClassifierId = string.Empty;
-        _waitingInventoryRevision = 0L;
-        _stateAge = 0d;
-        return true;
     }
 
     private bool ContinueSalvage(bool canAct)
@@ -1758,7 +1759,6 @@ internal sealed partial class LootController
         _waitingQuantity = 0;
         _waitingItemSnapshot = default;
         _waitingClassifierId = string.Empty;
-        _waitingInventoryRevision = 0L;
         _awaitingAppraisal = 0u;
         _awaitingCorpseAppraisal = 0u;
         _lastCorpseDescriptionRequest = 0u;
