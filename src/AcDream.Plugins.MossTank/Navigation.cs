@@ -673,6 +673,29 @@ internal sealed class NavigationController
     /// and, on the pass it claims, arms the mover; it does not carry the
     /// mover's clock, because the pass is not the mover's clock.
     /// </summary>
+    /// <summary>
+    /// The reference's gate on the route rule's idle-peace fallback: normal
+    /// movement is allowed while the goal is further than the creep distance
+    /// and the waypoint is not a recall. Inside the creep band, or at a
+    /// recall, the walk itself runs and the mover pushes into magic mode.
+    /// </summary>
+    internal bool AllowsNormalMovement()
+    {
+        PluginNavigationSnapshot snapshot = _host.Automation.Navigation.Snapshot;
+        if (!snapshot.IsAvailable
+            || _settings.Mode == RouteMode.Target
+            || _settings.Waypoints.Count == 0)
+        {
+            return true;
+        }
+        RouteWaypoint waypoint =
+            _settings.Waypoints[Math.Clamp(_index, 0, _settings.Waypoints.Count - 1)];
+        if (waypoint.Type == RouteWaypointType.Recall)
+            return false;
+        return snapshot.Position.HorizontalDistanceMeters(waypoint.Position)
+            >= NavigationMover.CreepDistanceMeters;
+    }
+
     internal bool ClaimFromRulePass(bool canAct)
     {
         bool claimed = Tick(_mover.TakePendingSeconds(), canAct);

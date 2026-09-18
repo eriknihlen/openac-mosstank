@@ -88,7 +88,7 @@ internal sealed partial class MossTankPanel : IMacroRuleProvider
                 context.ElapsedSeconds,
                 context.CanAct),
             gate: () => ItemSlotIsFree() && _combat.Enabled
-                && !_buffRule.IsBursting),
+               ),
         MacroRuleSlot.CraftFoodCritical => new AbsentMacroRule(
             "CraftFoodCritical",
             "fused into SplitPeasCritical — CraftingController.TickCritical "
@@ -124,7 +124,7 @@ internal sealed partial class MossTankPanel : IMacroRuleProvider
             "DispelSelf",
             context => _dispel.Tick(context.ElapsedSeconds, context.CanAct),
             gate: () => ItemSlotIsFree() && _combat.Enabled
-                && !_buffRule.IsBursting),
+               ),
         MacroRuleSlot.UseDispelItem => new AbsentMacroRule(
             "UseDispelItem",
             "fused into DispelSelf — DispelController.Tick tries the self "
@@ -151,7 +151,7 @@ internal sealed partial class MossTankPanel : IMacroRuleProvider
             "CraftFood",
             context => _crafting.Tick(context.ElapsedSeconds, context.CanAct),
             gate: () => ItemSlotIsFree() && _combat.Enabled
-                && !_buffRule.IsBursting),
+               ),
         MacroRuleSlot.RefillPetChargesNormal => new AbsentMacroRule(
             "RefillPetChargesNormal",
             "fused into Attack — PetAutomation's refill branch runs inside "
@@ -170,7 +170,7 @@ internal sealed partial class MossTankPanel : IMacroRuleProvider
 
         MacroRuleSlot.OpenDoor => new OpenDoorRule(
             _navigation,
-            () => _combat.Enabled && !_buffRule.IsBursting,
+            () => _combat.Enabled,
             // The door waits on four slots: the route's three and the item
             // slot, because opening is an item use.
             isLocked: () => !NavigationLocksAreClear()
@@ -181,14 +181,14 @@ internal sealed partial class MossTankPanel : IMacroRuleProvider
             context => _readScroll.Tick(
                 context.ElapsedSeconds,
                 context.CanAct),
-            gate: () => ItemSlotIsFree() && _combat.Enabled && !_buffRule.IsBursting
+            gate: () => ItemSlotIsFree() && _combat.Enabled
                 && _inventorySettings.Loot.PriorityBoost),
         MacroRuleSlot.StackCramPriority => new ControllerMacroRule(
             "StackCramPriority",
             context => _inventoryMaintenance.Tick(
                 context.ElapsedSeconds,
                 context.CanAct),
-            gate: () => ItemSlotIsFree() && _combat.Enabled && !_buffRule.IsBursting
+            gate: () => ItemSlotIsFree() && _combat.Enabled
                 && _inventorySettings.Loot.PriorityBoost),
         MacroRuleSlot.SalvageItemsPriority => new AbsentMacroRule(
             "SalvageItemsPriority",
@@ -202,7 +202,7 @@ internal sealed partial class MossTankPanel : IMacroRuleProvider
                     context.ElapsedSeconds,
                     context.CanAct),
                 gate: () => ItemSlotIsFree() && !_inventorySettings.Loot.PriorityBoost
-                    && _combat.Enabled && !_buffRule.IsBursting),
+                    && _combat.Enabled),
             fallbacks: [_idlePeace]),
         MacroRuleSlot.StackCramIdle => new MacroRulePreChain(
             new ControllerMacroRule(
@@ -211,7 +211,7 @@ internal sealed partial class MossTankPanel : IMacroRuleProvider
                     context.ElapsedSeconds,
                     context.CanAct),
                 gate: () => ItemSlotIsFree() && !_inventorySettings.Loot.PriorityBoost
-                    && _combat.Enabled && !_buffRule.IsBursting),
+                    && _combat.Enabled),
             fallbacks: [_idlePeace]),
         MacroRuleSlot.SalvageItemsIdle => new AbsentMacroRule(
             "SalvageItemsIdle",
@@ -225,7 +225,7 @@ internal sealed partial class MossTankPanel : IMacroRuleProvider
         MacroRuleSlot.NavigateCorpsePriority => new ControllerMacroRule(
             "NavigateCorpsePriority",
             context => _corpseApproach.ClaimFromRulePass(context.CanAct),
-            gate: () => _combat.Enabled && !_buffRule.IsBursting
+            gate: () => _combat.Enabled
                 && _inventorySettings.Loot.Enabled
                 && _inventorySettings.Loot.PriorityBoost
                 && WaitOnCorpseId()
@@ -238,7 +238,7 @@ internal sealed partial class MossTankPanel : IMacroRuleProvider
             new ControllerMacroRule(
                 "NavigateCorpseIdle",
                 context => _corpseApproach.ClaimFromRulePass(context.CanAct),
-                gate: () => _combat.Enabled && !_buffRule.IsBursting
+                gate: () => _combat.Enabled
                     && _inventorySettings.Loot.Enabled
                     && !_inventorySettings.Loot.PriorityBoost
                     && WaitOnCorpseId()
@@ -256,7 +256,7 @@ internal sealed partial class MossTankPanel : IMacroRuleProvider
         MacroRuleSlot.OpenCorpsePriority => new ControllerMacroRule(
             "OpenCorpsePriority",
             TickLootRule,
-            gate: () => ItemSlotIsFree() && _combat.Enabled && !_buffRule.IsBursting
+            gate: () => ItemSlotIsFree() && _combat.Enabled
                 && _inventorySettings.Loot.PriorityBoost
                 && WaitOnCorpseId()),
         MacroRuleSlot.OpenCorpseIdle => new MacroRulePreChain(
@@ -264,7 +264,7 @@ internal sealed partial class MossTankPanel : IMacroRuleProvider
                 "OpenCorpseIdle",
                 TickLootRule,
                 gate: () => ItemSlotIsFree() && !_inventorySettings.Loot.PriorityBoost
-                    && _combat.Enabled && !_buffRule.IsBursting
+                    && _combat.Enabled
                     && _inventorySettings.Loot.Enabled
                     && WaitOnCorpseId()),
             fallbacks: [_idlePeace]),
@@ -288,7 +288,7 @@ internal sealed partial class MossTankPanel : IMacroRuleProvider
         MacroRuleSlot.NavigateRoutePriority => new ControllerMacroRule(
             "NavigateRoutePriority",
             context => _navigation.ClaimFromRulePass(context.CanAct),
-            gate: () => _combat.Enabled && !_buffRule.IsBursting
+            gate: () => _combat.Enabled
                 && _navigationSettings.Priority
                 && WaitOnCorpseId()
                 && NavigationLocksAreClear(),
@@ -300,12 +300,19 @@ internal sealed partial class MossTankPanel : IMacroRuleProvider
                 "NavigateRouteIdle",
                 context => _navigation.ClaimFromRulePass(context.CanAct),
                 gate: () => !_navigationSettings.Priority
-                    && _combat.Enabled && !_buffRule.IsBursting
+                    && _combat.Enabled
                     && NavigationLocksAreClear(),
                 onLostTurn: _navigation.StopForLostTurn,
                 runningDetail: () => _navigation.RunningDetail,
                 declineReason: () => _navigation.Status),
-            fallbacks: [_idlePeace]),
+            // Idle peace while walking the route; inside the creep band and
+            // at a recall the walk itself runs and pushes into magic mode.
+            fallbacks:
+            [
+                new MacroRulePreChain(
+                    _idlePeace,
+                    [() => _navigation.AllowsNormalMovement()]),
+            ]),
 
         MacroRuleSlot.Attack => new ControllerMacroRule(
             "Attack",
@@ -328,7 +335,7 @@ internal sealed partial class MossTankPanel : IMacroRuleProvider
                 context.ElapsedSeconds,
                 context.CanAct),
             gate: () => ItemSlotIsFree() && _combat.Enabled
-                && !_buffRule.IsBursting),
+               ),
         // The idle band's own refill, with its own (higher, so more eager)
         // charge threshold: down here nothing is being fought, so a device
         // gets topped up long before the attack band would bother. It asks
@@ -351,14 +358,21 @@ internal sealed partial class MossTankPanel : IMacroRuleProvider
         // Walking to a monster is a navigation job that sits twenty positions
         // below the attack, not part of the attack: idle looting, idle buff
         // top-off and the route all outrank it.
-        MacroRuleSlot.NavigateMonster => new ControllerMacroRule(
-            "NavigateMonster",
-            context => _combat.TickMonsterApproach(
-                context.ElapsedSeconds,
-                context.CanAct),
-            gate: () => _combat.Enabled && !_buffRule.IsBursting
-                && _navigationSettings.Enabled
-                && NavigationLocksAreClear()),
+        MacroRuleSlot.NavigateMonster => new MacroRulePreChain(
+            new ControllerMacroRule(
+                "NavigateMonster",
+                context => _combat.TickMonsterApproach(
+                    context.ElapsedSeconds,
+                    context.CanAct),
+                gate: () => _combat.Enabled
+                    && _navigationSettings.Enabled
+                    && NavigationLocksAreClear()),
+            fallbacks:
+            [
+                new MacroRulePreChain(
+                    _idlePeace,
+                    [() => _combat.IsApproachOutsideCreepDistance()]),
+            ]),
 
         // Row 59: the idle recharge, below loot, the buff top-off and the
         // monster approach, against the no-target thresholds. Row 4 above
@@ -374,7 +388,7 @@ internal sealed partial class MossTankPanel : IMacroRuleProvider
 
         MacroRuleSlot.RandomHelper => new MacroRulePreChain(
             _randomHelper,
-            [() => _combat.Enabled && !_buffRule.IsBursting]),
+            [() => _combat.Enabled]),
 
         MacroRuleSlot.IdlePeace => new MacroRulePreChain(
             _idlePeace,

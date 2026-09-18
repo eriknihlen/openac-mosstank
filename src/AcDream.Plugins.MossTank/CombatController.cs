@@ -3827,6 +3827,20 @@ internal sealed class CombatController
     /// would have to walk to, or nothing below the attack ever runs.
     /// </summary>
     /// <returns>True while there is a monster worth walking to.</returns>
+    /// <summary>
+    /// The reference's gate on the monster approach's idle-peace fallback:
+    /// true while the monster worth walking to is further than the creep
+    /// distance, or while there is none.
+    /// </summary>
+    internal bool IsApproachOutsideCreepDistance()
+    {
+        if (!Enabled || !_settings.Enabled || !_host.Automation.IsAvailable)
+            return true;
+        ClearPassMemos();
+        return SelectApproachTarget() is not { } approach
+            || approach.Distance >= NavigationMover.CreepDistanceMeters;
+    }
+
     internal bool TickMonsterApproach(double elapsedSeconds, bool canAct)
     {
         if (!Enabled

@@ -2250,6 +2250,63 @@ public sealed class MossTankPanelTests
         Assert.IsType<ControllerMacroRule>(idle);
     }
 
+    /// <summary>
+    /// The reference gates the route rule's idle-peace fallback on normal
+    /// movement being allowed: inside the creep band of the waypoint the walk
+    /// itself runs (and pushes into magic mode); idle peace is not asked for
+    /// there. Mutation: leave the fallback ungated and peace is requested.
+    /// </summary>
+    [Fact]
+    public void InsideTheCreepBandTheRouteWalksInsteadOfAskingForPeace()
+    {
+        var automation = new CombatCapableFakeAutomation
+        {
+            CurrentHealth = 100,
+            MaxHealth = 100,
+        };
+        automation.CombatSnapshot = automation.CombatSnapshot with
+        {
+            Mode = PluginCombatMode.Melee,
+        };
+        var panel = new MossTankPanel(new FakeHost(automation));
+        // A waypoint one metre north: inside the creep band.
+        automation.NavigationSnapshot = automation.NavigationSnapshot with
+        {
+            Position = new PluginNavigationPosition(
+                0x00010001u, 0d, 1d / 240d, 0d, 0f, IsOutdoor: true),
+        };
+        panel.AddRoutePoint();
+        automation.NavigationSnapshot = automation.NavigationSnapshot with
+        {
+            Position = new PluginNavigationPosition(
+                0x00010001u, 0d, 0d, 0d, 0f, IsOutdoor: true),
+        };
+        panel.ToggleNavigation();
+        panel.ToggleIdlePeaceMode();
+        panel.ToggleCombat();
+
+        for (int tick = 0; tick < 4; tick++)
+            panel.OnTick(0.3d);
+
+        Assert.DoesNotContain("EnterMode:Peace", automation.CallLog);
+        IMacroRule route = panel.MacroRules.First(
+            static rule => rule.Name == "NavigateRouteIdle");
+        Assert.True(route.Running);
+    }
+
+    /// <summary>
+    /// The reference wires an idle-peace fallback on the monster approach,
+    /// gated on the monster being outside the creep band.
+    /// </summary>
+    [Fact]
+    public void TheMonsterApproachCarriesTheIdlePeaceFallback()
+    {
+        var panel = new MossTankPanel(new FakeHost(new CombatCapableFakeAutomation()));
+        IMacroRule approach = panel.MacroRules.First(
+            static rule => rule.Name == "NavigateMonster");
+        Assert.IsType<MacroRulePreChain>(approach);
+    }
+
     [Fact]
     public void VtLogActiveRuleOnPostsThePickedLineNamingTheWinner()
     {
