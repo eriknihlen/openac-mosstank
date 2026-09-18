@@ -322,10 +322,7 @@ internal sealed partial class MossTankPanel : IBuffRuleHost
         _buffRule.BindConsumables(_combatSettings, _actionLocks);
         _idlePeace = new IdlePeaceRule(host, _combatSettings);
         _randomHelper = new RandomHelperRule(host, _buffSettings, _actionLocks, _combatModeGate);
-        _summonPet = new SummonPetRule(
-            host,
-            _combatSettings,
-            () => _combat.HasTarget);
+        _summonPet = new SummonPetRule(host, _combatSettings);
         _idlePetRefill = new PetRefillRule(
             host,
             _combatSettings,

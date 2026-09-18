@@ -115,6 +115,64 @@ internal sealed class PetAutomation
         return true;
     }
 
+    /// <summary>Folds the last item completion into the pending state without acting.</summary>
+    public void Observe(IItemAutomation automation, double now)
+    {
+        ArgumentNullException.ThrowIfNull(automation);
+        ObserveCompletion(automation.LastCompletion, now, out _);
+    }
+
+    /// <summary>
+    /// The summon rule's predicate: the device to use and the monster it is
+    /// for, chosen without issuing anything. False while a use of ours is
+    /// still unanswered, while the summon is on its retry clock, or when
+    /// nothing qualifies.
+    /// </summary>
+    public bool TrySelectSummon(
+        IItemAutomation automation,
+        ICharacterInfo character,
+        IReadOnlyList<PluginCombatTarget> targets,
+        CombatSettings settings,
+        double now,
+        out PetAutomationChoice choice)
+    {
+        ArgumentNullException.ThrowIfNull(automation);
+        ArgumentNullException.ThrowIfNull(character);
+        ArgumentNullException.ThrowIfNull(targets);
+        ArgumentNullException.ThrowIfNull(settings);
+        choice = PetAutomationChoice.None;
+        if (_pendingSourceId != 0u || !settings.SummonPets || !automation.IsAvailable)
+            return false;
+        if (now < _nextSummonAt)
+            return false;
+        choice = Select(
+            automation.CaptureOwnedItems(),
+            targets,
+            character,
+            settings,
+            automation.ActiveOwnedPetCount,
+            allowRefill: false,
+            allowSummon: true);
+        return choice.Kind == PetAutomationActionKind.Summon;
+    }
+
+    /// <summary>The summon rule's turn: uses the device the predicate chose.</summary>
+    public string IssueSummon(IItemAutomation automation, PetAutomationChoice choice, double now)
+    {
+        ArgumentNullException.ThrowIfNull(automation);
+        if (choice.Kind != PetAutomationActionKind.Summon || _pendingSourceId != 0u)
+            return string.Empty;
+        PluginItemCommandResult result = automation.Use(choice.Device.ObjectId);
+        if (result.Status == PluginItemCommandStatus.Started)
+        {
+            _pendingSourceId = choice.Device.ObjectId;
+            _pendingKind = PetAutomationActionKind.Summon;
+            return $"Summoning {choice.Device.Name} for {choice.Target.Name}";
+        }
+        _nextSummonAt = now + RefusalRetrySeconds;
+        return result.Notice ?? $"Combat pet action refused: {result.Status}";
+    }
+
     /// <summary>
     /// The refill on its own, with its own charge threshold and no interest
     /// in monsters: a combat-item pet device of mine is below the threshold

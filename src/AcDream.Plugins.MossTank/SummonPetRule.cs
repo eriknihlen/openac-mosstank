@@ -10,21 +10,18 @@ internal sealed class SummonPetRule : IMacroRule
 
     private readonly IPluginHost _host;
     private readonly CombatSettings _settings;
-    private readonly Func<bool> _combatOwnsTarget;
     private readonly PetAutomation _pets = new();
 
     private double _now;
+    private PetAutomationChoice _choice;
     private bool _running;
 
     public SummonPetRule(
         IPluginHost host,
-        CombatSettings settings,
-        Func<bool> combatOwnsTarget)
+        CombatSettings settings)
     {
         _host = host ?? throw new ArgumentNullException(nameof(host));
         _settings = settings ?? throw new ArgumentNullException(nameof(settings));
-        _combatOwnsTarget = combatOwnsTarget
-            ?? throw new ArgumentNullException(nameof(combatOwnsTarget));
     }
 
     public string Name => "SummonPet";
@@ -34,10 +31,11 @@ internal sealed class SummonPetRule : IMacroRule
     public bool ValidNow(in MacroPassContext context)
     {
         _now += Math.Max(0d, context.ElapsedSeconds);
-
         IAutomationSurface automation = _host.Automation;
+        _choice = PetAutomationChoice.None;
         if (!automation.IsAvailable)
             return false;
+        _pets.Observe(automation.Items, _now);
         if (!_settings.Enabled)          // EnableCombat
             return false;
         if (!_settings.SummonPets)       // SummonPets
@@ -46,26 +44,25 @@ internal sealed class SummonPetRule : IMacroRule
             return false;
         if (HasSummonCooldown(automation.Character))
             return false;
-
-        if (_combatOwnsTarget())
-            return false;
-
         float range = (float)(_settings.PetRangeMode == PetRangeMode.Custom
             ? _settings.PetCustomRange
             : _settings.MaximumRange);
         IReadOnlyList<PluginCombatTarget> targets =
             automation.Combat.CaptureHostileTargets(range);
-
-        bool claimed = _pets.Tick(
-            automation.Items,
-            automation.Character,
-            targets,
-            _settings,
-            _now,
-            out string status,
-            allowRefill: false);
-        Status = status;
-        return claimed;
+        // The predicate caches its pick and issues nothing: the reference's
+        // rule chooses the device here and uses it only when it runs. It
+        // asks nothing about a selected target.
+        if (!_pets.TrySelectSummon(
+                automation.Items,
+                automation.Character,
+                targets,
+                _settings,
+                _now,
+                out _choice))
+        {
+            return false;
+        }
+        return true;
     }
 
     public bool Running
@@ -75,7 +72,12 @@ internal sealed class SummonPetRule : IMacroRule
         {
             _running = value;
             if (!value)
+            {
                 Status = string.Empty;
+                return;
+            }
+            if (_choice.Kind == PetAutomationActionKind.Summon)
+                Status = _pets.IssueSummon(_host.Automation.Items, _choice, _now);
         }
     }
 
