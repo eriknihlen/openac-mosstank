@@ -1963,7 +1963,7 @@ public sealed partial class LootingTests
     private sealed class Automation
         : IAutomationSurface, ICharacterInfo, ISpellCatalog, IItemAutomation,
           ILootAutomation, IFellowshipAutomation, IPluginChat,
-          INavigationAutomation
+          INavigationAutomation, IWorldObjectAutomation
     {
         public bool IsAvailable => true;
         public INavigationAutomation Navigation => this;
@@ -2072,6 +2072,41 @@ public sealed partial class LootingTests
         public uint VendorId { get; set; }
         public uint ActiveVendorObjectId => VendorId;
         public IReadOnlyList<PluginInventoryItem> CaptureOwnedItems() => Owned;
+        // The host's object table, as far as these tests need it: every owned
+        // item is there and already assessed, the state a kit or stone is in
+        // before the macro may use it.
+        public IWorldObjectAutomation Objects => this;
+        bool IWorldObjectAutomation.IsAvailable => true;
+        bool IWorldObjectAutomation.TryGet(uint objectId, out PluginWorldObject value)
+        {
+            foreach (PluginInventoryItem item in Owned)
+            {
+                if (item.ObjectId != objectId)
+                    continue;
+                value = new PluginWorldObject(
+                    item.ObjectId, item.WeenieClassId, item.Name, PluginObjectClass.Unknown,
+                    item.ItemType, item.ContainerObjectId, item.WielderObjectId)
+                {
+                    LastIdTime = 1,
+                };
+                return true;
+            }
+            // The corpses the tests stage are in the world too.
+            foreach (PluginLootContainer corpse in Corpses)
+            {
+                if (corpse.ObjectId != objectId)
+                    continue;
+                value = new PluginWorldObject(
+                    corpse.ObjectId, corpse.WeenieClassId, corpse.Name,
+                    PluginObjectClass.Unknown, 0u, 0u, 0u)
+                {
+                    LastIdTime = corpse.IsIdentified ? 1 : 0,
+                };
+                return true;
+            }
+            value = default;
+            return false;
+        }
         public IReadOnlyList<PluginLootContainer> CaptureCorpses(
             float maximumDistance) => Corpses
                 .Where(corpse => corpse.Distance <= maximumDistance)

@@ -4317,8 +4317,7 @@ public sealed class MossTankPanelTests
         panel.AddLootRule();
         panel.SetLootExpressionDraft("name ~= coin");
         panel.ApplyLootRule();
-        panel.SetLootProfileNameDraft("Currency");
-        panel.CopyLootProfile();
+        Vt(panel, "loot new Currency");
         panel.AddLootRule();
 
         Assert.Equal("Currency", panel.LootProfileName);
@@ -4807,8 +4806,7 @@ public sealed class MossTankPanelTests
         var automation = new FakeAutomation { Name = "Moss Wart" };
         var panel = new MossTankPanel(new FakeHost(automation, storage));
         panel.SetNormalHealth(0.42f);
-        panel.SetProfileNameDraft("Fellowship");
-        panel.CopyProfile();
+        Vt(panel, "settings save Fellowship");
 
         const string fellowshipFile = "--Moss Wart__Fellowship.usd";
         Assert.Equal(fellowshipFile, panel.SelectedMacroProfile);
@@ -4829,8 +4827,7 @@ public sealed class MossTankPanelTests
         var automation = new FakeAutomation { Name = "Moss Wart" };
         var panel = new MossTankPanel(new FakeHost(automation, storage));
         panel.SetNormalHealth(0.42f);
-        panel.SetProfileNameDraft("Fellowship");
-        panel.CopyProfile();
+        Vt(panel, "settings save Fellowship");
         const string fellowshipFile = "--Moss Wart__Fellowship.usd";
         Assert.Equal(fellowshipFile, panel.SelectedMacroProfile);
         Assert.Contains(fellowshipFile, panel.MacroProfileNames);
@@ -4860,8 +4857,7 @@ public sealed class MossTankPanelTests
     {
         var storage = new MemoryStorage();
         var panel = new MossTankPanel(new FakeHost(new FakeAutomation(), storage));
-        panel.SetRouteProfileNameDraft("Fellowship");
-        panel.CopyRouteProfile();
+        Vt(panel, "nav save Fellowship");
         Assert.Equal("Fellowship", panel.SelectedRouteProfile);
         Assert.Contains("Fellowship", panel.RouteProfileNames);
         Assert.True(storage.Text.ContainsKey("navs/Fellowship.af"));
@@ -4891,8 +4887,7 @@ public sealed class MossTankPanelTests
     {
         var storage = new MemoryStorage();
         var panel = new MossTankPanel(new FakeHost(new FakeAutomation(), storage));
-        panel.SetMetaProfileNameDraft("Fellowship");
-        panel.CopyMetaProfile();
+        Vt(panel, "meta save Fellowship");
         Assert.Equal("Fellowship", panel.SelectedMetaProfile);
         Assert.Contains("Fellowship", panel.MetaProfileNames);
         Assert.True(storage.Text.ContainsKey("metas/Fellowship.af"));
@@ -4922,8 +4917,7 @@ public sealed class MossTankPanelTests
     {
         var storage = new MemoryStorage();
         var panel = new MossTankPanel(new FakeHost(new FakeAutomation(), storage));
-        panel.SetLootProfileNameDraft("Fellowship");
-        panel.CopyLootProfile();
+        Vt(panel, "loot new Fellowship");
         Assert.Equal("Fellowship", panel.LootProfileName);
         Assert.Contains("Fellowship", panel.LootProfileNames);
 
@@ -5382,6 +5376,9 @@ public sealed class MossTankPanelTests
     /// <summary>
     /// Records a three-point route into the route profile "hunt", with client pathing checked
     /// or not, the way a player does from the Route tab, and returns where its points stand.
+    private static void Vt(MossTankPanel panel, string arguments) =>
+        panel.ExecuteVtankCommand(new PluginCommand("vt", arguments, "/vt " + arguments));
+
     /// </summary>
     private static PluginNavigationPosition[] RecordRoute(MemoryStorage storage, bool clientPathing)
     {
@@ -5689,8 +5686,7 @@ public sealed class MossTankPanelTests
         first.SelectMetaAction(nameof(MetaActionKind.ChatCommand));
         first.SetMetaActionTextDraft("/mt status");
         first.AddMetaRule();
-        first.SetMetaProfileNameDraft("Hunting");
-        first.CopyMetaProfile();
+        Vt(first, "meta save Hunting");
 
         Assert.Equal("Hunting", first.SelectedMetaProfile);
         Assert.Single(first.MetaRows);
@@ -6577,6 +6573,29 @@ public sealed class MossTankPanelTests
         public IItemAutomation Items => this;
         public INavigationAutomation Navigation => this;
         public IWorldObjectAutomation Objects => this;
+        // An assessed item answers a property capture; these tests need the
+        // bag to exist, not to say anything, unless a test fills it.
+        public Dictionary<uint, PluginItemProperties> Properties { get; } = [];
+
+        public bool TryCaptureProperties(uint objectId, out PluginItemProperties properties)
+        {
+            if (Properties.TryGetValue(objectId, out properties))
+                return true;
+            if (((IWorldObjectAutomation)this).TryGet(objectId, out _))
+            {
+                properties = new PluginItemProperties(
+                    new Dictionary<uint, int>(),
+                    new Dictionary<uint, long>(),
+                    new Dictionary<uint, bool>(),
+                    new Dictionary<uint, double>(),
+                    new Dictionary<uint, string>(),
+                    new Dictionary<uint, uint>(),
+                    new Dictionary<uint, uint>());
+                return true;
+            }
+            properties = default;
+            return false;
+        }
         public IRecoveryAutomation Recovery => this;
         public bool IsInWorld => IsAvailable;
         public string Name { get; set; } = "Test Character";
@@ -6637,6 +6656,20 @@ public sealed class MossTankPanelTests
                 if (candidate.ObjectId != objectId)
                     continue;
                 value = candidate;
+                return true;
+            }
+            // Owned items are in the object table too, already assessed: the
+            // state a profiled item is in before it may be used.
+            foreach (PluginInventoryItem item in ItemEntries)
+            {
+                if (item.ObjectId != objectId)
+                    continue;
+                value = new PluginWorldObject(
+                    item.ObjectId, item.WeenieClassId, item.Name, PluginObjectClass.Unknown,
+                    item.ItemType, item.ContainerObjectId, item.WielderObjectId)
+                {
+                    LastIdTime = 1,
+                };
                 return true;
             }
             value = default;
@@ -6920,6 +6953,71 @@ public sealed class MossTankPanelTests
     {
         public INavigationAutomation Navigation => this;
         public IWorldObjectAutomation Objects => this;
+        // An assessed item answers a property capture; these tests need the
+        // bag to exist, not to say anything, unless a test fills it.
+        public Dictionary<uint, PluginItemProperties> Properties { get; } = [];
+
+        public bool TryCaptureProperties(uint objectId, out PluginItemProperties properties)
+        {
+            if (Properties.TryGetValue(objectId, out properties))
+                return true;
+            if (((IWorldObjectAutomation)this).TryGet(objectId, out _))
+            {
+                properties = new PluginItemProperties(
+                    new Dictionary<uint, int>(),
+                    new Dictionary<uint, long>(),
+                    new Dictionary<uint, bool>(),
+                    new Dictionary<uint, double>(),
+                    new Dictionary<uint, string>(),
+                    new Dictionary<uint, uint>(),
+                    new Dictionary<uint, uint>());
+                return true;
+            }
+            properties = default;
+            return false;
+        }
+        // Owned equipment and items are in the object table, already assessed:
+        // the state a profiled item is in before the macro may use it.
+        bool IWorldObjectAutomation.TryGet(uint objectId, out PluginWorldObject value)
+        {
+            foreach (PluginEquipmentItem item in EquipmentItems)
+            {
+                if (item.ObjectId != objectId)
+                    continue;
+                value = new PluginWorldObject(
+                    item.ObjectId, 0u, item.Name, PluginObjectClass.Unknown,
+                    item.ItemType, item.ContainerObjectId, item.WielderObjectId)
+                {
+                    LastIdTime = 1,
+                };
+                return true;
+            }
+            foreach (PluginInventoryItem item in ItemEntries)
+            {
+                if (item.ObjectId != objectId)
+                    continue;
+                value = new PluginWorldObject(
+                    item.ObjectId, item.WeenieClassId, item.Name, PluginObjectClass.Unknown,
+                    item.ItemType, item.ContainerObjectId, item.WielderObjectId)
+                {
+                    LastIdTime = 1,
+                };
+                return true;
+            }
+            // The monsters the tests stage are in the world too: the controller
+            // drops a target the object table cannot find.
+            foreach (PluginCombatTarget target in Targets)
+            {
+                if (target.ObjectId != objectId)
+                    continue;
+                value = new PluginWorldObject(
+                    target.ObjectId, target.WeenieClassId, target.Name,
+                    PluginObjectClass.Unknown, 0u, 0u, 0u);
+                return true;
+            }
+            value = default;
+            return false;
+        }
         public PluginNavigationSnapshot NavigationSnapshot { get; set; } =
             NavigationAt(0f);
         public PluginNavigationSnapshot Snapshot => NavigationSnapshot;

@@ -696,6 +696,7 @@ public sealed class VitalRechargeTests
 
     private sealed class Surface :
         IAutomationSurface,
+        IWorldObjectAutomation,
         ICharacterInfo,
         ISpellCatalog,
         IMagicCommands,
@@ -729,6 +730,51 @@ public sealed class VitalRechargeTests
         public IReadOnlyList<PluginSpellInfo> Lookup { get; init; } = [];
         public IReadOnlyList<PluginSpellInfo> KnownSelfBuffs => Spells;
         public IReadOnlyList<PluginInventoryItem> Items { get; set; } = [];
+        // An assessed item answers a property capture; these tests need the
+        // bag to exist, not to say anything, unless a test fills it.
+        public Dictionary<uint, PluginItemProperties> Properties { get; } = [];
+
+        public bool TryCaptureProperties(uint objectId, out PluginItemProperties properties)
+        {
+            if (Properties.TryGetValue(objectId, out properties))
+                return true;
+            if (((IWorldObjectAutomation)this).TryGet(objectId, out _))
+            {
+                properties = new PluginItemProperties(
+                    new Dictionary<uint, int>(),
+                    new Dictionary<uint, long>(),
+                    new Dictionary<uint, bool>(),
+                    new Dictionary<uint, double>(),
+                    new Dictionary<uint, string>(),
+                    new Dictionary<uint, uint>(),
+                    new Dictionary<uint, uint>());
+                return true;
+            }
+            properties = default;
+            return false;
+        }
+        // The host's object table, as far as these tests need it: every owned
+        // item is there and already assessed, the state a kit or stone is in
+        // before the macro may use it.
+        public IWorldObjectAutomation Objects => this;
+        bool IWorldObjectAutomation.IsAvailable => true;
+        bool IWorldObjectAutomation.TryGet(uint objectId, out PluginWorldObject value)
+        {
+            foreach (PluginInventoryItem item in Items)
+            {
+                if (item.ObjectId != objectId)
+                    continue;
+                value = new PluginWorldObject(
+                    item.ObjectId, item.WeenieClassId, item.Name, PluginObjectClass.Unknown,
+                    item.ItemType, item.ContainerObjectId, item.WielderObjectId)
+                {
+                    LastIdTime = 1,
+                };
+                return true;
+            }
+            value = default;
+            return false;
+        }
 
         /// <summary><c>ActionLockType.ItemUse</c> (<c>fb.cs:75-78</c>).</summary>
         public bool ItemsBusy { get; set; }

@@ -5106,7 +5106,7 @@ public sealed class CombatControllerTests
         IAutomationSurface, ICharacterInfo, ISpellCatalog, IMagicCommands,
         IPluginChat, ICombatAutomation
         , IEquipmentAutomation, IItemAutomation, INavigationAutomation,
-        IProjectileAutomation, ISelectionAutomation
+        IProjectileAutomation, ISelectionAutomation, IWorldObjectAutomation
     {
         public bool IsAvailable { get; set; } = true;
         public ICharacterInfo Character => this;
@@ -5117,6 +5117,39 @@ public sealed class CombatControllerTests
         public IEquipmentAutomation Equipment => this;
         public IItemAutomation Items => this;
         public INavigationAutomation Navigation => this;
+        // The host's object table, as far as these tests need it: every owned
+        // piece of equipment is there and already assessed, the state a
+        // profiled weapon is in before the macro may wield it.
+        public IWorldObjectAutomation Objects => this;
+        bool IWorldObjectAutomation.IsAvailable => true;
+        bool IWorldObjectAutomation.TryGet(uint objectId, out PluginWorldObject value)
+        {
+            foreach (PluginEquipmentItem item in EquipmentItems)
+            {
+                if (item.ObjectId != objectId)
+                    continue;
+                value = new PluginWorldObject(
+                    item.ObjectId, 0u, item.Name, PluginObjectClass.Unknown,
+                    item.ItemType, item.ContainerObjectId, item.WielderObjectId)
+                {
+                    LastIdTime = 1,
+                };
+                return true;
+            }
+            // The monsters the tests stage are in the world too: the controller
+            // drops a target the object table cannot find.
+            foreach (PluginCombatTarget target in Targets)
+            {
+                if (target.ObjectId != objectId)
+                    continue;
+                value = new PluginWorldObject(
+                    target.ObjectId, target.WeenieClassId, target.Name,
+                    PluginObjectClass.Unknown, 0u, 0u, 0u);
+                return true;
+            }
+            value = default;
+            return false;
+        }
         public IProjectileAutomation Projectiles => this;
         public ISelectionAutomation Selection => this;
         public PluginCombatSnapshot CombatSnapshot { get; set; }
