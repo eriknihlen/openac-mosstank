@@ -744,6 +744,17 @@ internal sealed partial class LootController
         IReadOnlyList<PluginLootContainer> known =
             loot.CaptureCorpses(float.MaxValue);
         PruneCorpseCache(known);
+        // The rule's own turn reaches only as far as the character would walk
+        // for a corpse. Corpses beyond that are described on the host frame
+        // (TickIdentification) and never cost this rule a pass: spending the
+        // pass on a corpse a hundred metres away paused the route for it.
+        double reach = Math.Max(CorpseOpenRangeMeters, _settings.CorpseApproachRange);
+        List<PluginLootContainer> withinReach = [];
+        foreach (PluginLootContainer candidate in known)
+        {
+            if (candidate.Distance <= reach)
+                withinReach.Add(candidate);
+        }
         // The set is walked below both to pick and to ask for descriptions,
         // and the client hands it over already ordered by
         // distance and then by id, so two hosts asking the same question get
@@ -824,10 +835,10 @@ internal sealed partial class LootController
         if (waitingForCorpseDescription)
         {
             Status = "Identifying corpse…";
-            return true;
+            return AwaitedCorpseIsWithin(withinReach);
         }
 
-        if (TryRequestNextCorpseDescription(loot, known))
+        if (TryRequestNextCorpseDescription(loot, withinReach))
             return true;
 
         Status = "No nearby corpses.";
@@ -838,6 +849,18 @@ internal sealed partial class LootController
     // Advance from the last accepted request so one corpse that never
     // answers cannot monopolize every later request. True when a request
     // went out or the client is busy with one.
+    // The pass is held for an outstanding description only while the corpse
+    // it belongs to is within reach; a far one answers on its own time.
+    private bool AwaitedCorpseIsWithin(IReadOnlyList<PluginLootContainer> reach)
+    {
+        foreach (PluginLootContainer corpse in reach)
+        {
+            if (corpse.ObjectId == _awaitingCorpseAppraisal)
+                return true;
+        }
+        return false;
+    }
+
     private bool TryRequestNextCorpseDescription(
         ILootAutomation loot,
         IReadOnlyList<PluginLootContainer> known)
@@ -919,8 +942,10 @@ internal sealed partial class LootController
             _awaitingCorpseAppraisal = 0u;
             _identifyAge = 0d;
         }
-        IReadOnlyList<PluginLootContainer> known = loot.CaptureCorpses(
-            (float)Math.Max(CorpseOpenRangeMeters, _settings.CorpseApproachRange));
+        // Every corpse the client reports, as the reference's identify queue
+        // does: a corpse watched from across the field is described long
+        // before the character walks up to it.
+        IReadOnlyList<PluginLootContainer> known = loot.CaptureCorpses(float.MaxValue);
         _ = TryRequestNextCorpseDescription(loot, known);
     }
 

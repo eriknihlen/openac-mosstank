@@ -1609,10 +1609,12 @@ public sealed partial class LootingTests
     /// The description is asked of every corpse the client is reporting, not
     /// only of the ones already in reach: a corpse whose description never
     /// arrives can never be judged, and by the time the character walks up to
-    /// it there is nothing to walk up for.
+    /// it there is nothing to walk up for. The frame asks; the rule's own
+    /// turn reaches only as far as the character would walk, so a corpse a
+    /// field away never costs the route a pass.
     ///
-    /// Mutation: narrow the scan to the approach range before asking, and the
-    /// far corpse is never identified.
+    /// Mutation: narrow the frame scan to the approach range before asking,
+    /// and the far corpse is never identified.
     /// </summary>
     [Fact]
     public void ACorpseBeyondTheApproachRangeIsStillAskedForItsDescription()
@@ -1635,7 +1637,11 @@ public sealed partial class LootingTests
         };
         var controller = new LootController(new Host(automation), settings);
 
-        Assert.True(controller.Tick(0.1d, canAct: true));
+        // The rule's turn declines: nothing within reach.
+        Assert.False(controller.Tick(0.1d, canAct: true));
+        Assert.Empty(automation.Identified);
+
+        controller.TickIdentification(0.1d);
         Assert.Equal(new[] { corpse }, automation.Identified);
         Assert.Empty(automation.Opened);
     }

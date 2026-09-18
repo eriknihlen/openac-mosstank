@@ -547,6 +547,9 @@ internal sealed class CombatController
             _acquisitionRange = _settings.MaximumRange;
             _targets = _host.Automation.Combat.CaptureHostileTargets(
                 (float)_acquisitionRange);
+            Log?.Invoke(
+                MacroLogChannel.Timers,
+                $"Combat scan: {_targets.Count} hostile(s) within {_acquisitionRange:0.0}m");
             _failures.ObserveTargets(_targets, _now, _settings);
             foreach (PluginCombatTarget scanned in _targets)
             {
@@ -565,6 +568,7 @@ internal sealed class CombatController
 
         if (_pendingItemDebuff is not null)
         {
+            Status = $"Waiting on {_pendingItemDebuff.Source.Kind} debuff";
             TickPendingItemDebuff(current);
             return;
         }
