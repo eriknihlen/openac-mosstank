@@ -767,10 +767,19 @@ internal sealed partial class LootController
             PluginItemCommandResult opened = loot.Open(corpse.ObjectId);
             if (!opened.Accepted)
             {
-                Status = opened.Status == PluginItemCommandStatus.Busy
-                    ? "Waiting to open corpse…"
-                    : $"Could not open {corpse.Name}.";
-                return opened.Status == PluginItemCommandStatus.Busy;
+                if (opened.Status == PluginItemCommandStatus.Busy)
+                {
+                    Status = "Waiting to open corpse…";
+                    return true;
+                }
+                // The reference counts every open attempt, refused or not,
+                // and blacklists the corpse at the profile's attempt count.
+                Status = $"Could not open {corpse.Name} ({opened.Status}).";
+                Log?.Invoke(
+                    MacroLogChannel.Loot,
+                    $"LootCorpse: open of {corpse.Name} (0x{corpse.ObjectId:X8}) refused: {opened.Status}");
+                BlacklistFailedCorpse(corpse.ObjectId);
+                return false;
             }
             _activeCorpse = corpse.ObjectId;
             _activeCorpseSawContents = false;

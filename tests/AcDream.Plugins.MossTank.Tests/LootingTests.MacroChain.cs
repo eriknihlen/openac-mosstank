@@ -190,6 +190,34 @@ public sealed partial class LootingTests
     }
 
     /// <summary>
+    /// The reference counts every open attempt, refused or not, and
+    /// blacklists the corpse at the profile's attempt count. Mutation: drop
+    /// the <c>BlacklistFailedCorpse</c> call from the refused-open branch and
+    /// the third turn opens a third time.
+    /// </summary>
+    [Fact]
+    public void ARefusedOpenCountsTowardsTheCorpseBlacklist()
+    {
+        const uint corpse = 0x70001171u;
+        LootSettings settings = ChainSettings();
+        settings.BlacklistCorpseOpenAttemptCount = 2;
+        var automation = new Automation
+        {
+            Corpses = [ChainCorpse(corpse)],
+            OpenResult = PluginItemCommandStatus.Refused,
+        };
+        var controller = new LootController(new Host(automation), settings);
+
+        Assert.False(controller.Tick(0.3d, canAct: true));
+        Assert.False(controller.Tick(0.3d, canAct: true));
+        Assert.Equal([corpse, corpse], automation.Opened);
+        Assert.Contains("Blacklisted", controller.Status);
+
+        Assert.False(controller.Tick(0.3d, canAct: true));
+        Assert.Equal([corpse, corpse], automation.Opened);
+    }
+
+    /// <summary>
     /// The reference selects a corpse on every turn it is asked; there is no
     /// scan interval to wait out. With a five-second interval configured, a
     /// second corpse is still opened on the very next turn after the first

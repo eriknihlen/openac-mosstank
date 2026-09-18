@@ -2193,9 +2193,12 @@ public sealed partial class LootingTests
             properties = EmptyProperties;
             return true;
         }
+        public PluginItemCommandStatus OpenResult { get; set; } = PluginItemCommandStatus.Started;
         public PluginItemCommandResult Open(uint containerObjectId)
         {
             Opened.Add(containerObjectId);
+            if (OpenResult != PluginItemCommandStatus.Started)
+                return new(OpenResult);
             Requested = containerObjectId;
             return new(PluginItemCommandStatus.Started);
         }
