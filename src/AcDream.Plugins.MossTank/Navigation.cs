@@ -267,8 +267,6 @@ internal sealed class RouteWaypoint
 
 internal sealed class NavigationSettings
 {
-    public bool ShowNavLines { get; set; }
-    public bool ShowWalkableAreas { get; set; }
     public bool Enabled { get; set; }
     public bool Priority { get; set; }
     public RouteMode Mode { get; set; } = RouteMode.Circular;
@@ -289,7 +287,7 @@ internal sealed class NavigationSettings
     public List<RouteWaypoint> Waypoints { get; } = [];
 }
 
-internal sealed partial class NavigationController
+internal sealed class NavigationController
 {
     // The mover's own numbers, named here too because the route is not the
     // only reader: the combat approach and the tests reach for them through
@@ -475,7 +473,6 @@ internal sealed partial class NavigationController
 
     public void ToggleReverse()
     {
-        ClearNavigationPath();
         _reverse = !_reverse;
         _status = $"Nav backwards is {_reverse}.";
     }
@@ -519,7 +516,6 @@ internal sealed partial class NavigationController
     /// </summary>
     public void AnchorRoundToStart()
     {
-        ClearNavigationPath();
         if (_settings.Mode == RouteMode.Target)
             return;
 
@@ -624,7 +620,6 @@ internal sealed partial class NavigationController
     /// </summary>
     public void ClearActionLocks()
     {
-        ClearNavigationPath();
         _mover.StopForLostTurn();
         _mover.ClearFaceHeadingStamp();
         _checkpointElapsed = 0d;
@@ -678,7 +673,6 @@ internal sealed partial class NavigationController
         PluginNavigationSnapshot snapshot = navigation.Snapshot;
         if (!_settings.Enabled || !snapshot.IsAvailable)
         {
-            ClearNavigationPath();
             StopMovement();
             _status = _settings.Enabled
                 ? "Waiting for the world."
@@ -687,7 +681,6 @@ internal sealed partial class NavigationController
         }
         if (snapshot.IsPortalSpace)
         {
-            ClearNavigationPath();
             StopMovement();
             if (_activeAction?.Type is RouteWaypointType.Portal
                 or RouteWaypointType.PortalByName
@@ -700,49 +693,21 @@ internal sealed partial class NavigationController
         }
         if (!canAct)
         {
-            ClearNavigationPath();
             StopMovement();
             _status = "Navigation paused.";
             return false;
         }
 
         if (_settings.Mode == RouteMode.Target)
-        {
-            ClearNavigationPath();
             return TickFollow(navigation, snapshot);
-        }
         if (_onceComplete || _settings.Waypoints.Count == 0)
         {
-            ClearNavigationPath();
             StopMovement();
             _status = _onceComplete ? "Once route complete." : "Route is empty.";
             return false;
         }
 
         _index = Math.Clamp(_index, 0, _settings.Waypoints.Count - 1);
-        // Choose the next unreached point before steering. A turnaround can
-        // visit an endpoint twice, and a tight route can have every point
-        // inside the arrival radius, so bound the walk through the route.
-        int remainingAdvances = _settings.Waypoints.Count * 2 + 1;
-        while (_settings.Waypoints[_index].Type == RouteWaypointType.Point
-            && SpatialDistanceMeters(
-                snapshot.Position,
-                _settings.Waypoints[_index].Position) <= BoundedMinimumDistance())
-        {
-            AdvanceWaypoint();
-            if (_onceComplete || _settings.Waypoints.Count == 0)
-            {
-                StopMovement();
-                _status = "Once route complete.";
-                return false;
-            }
-            if (--remainingAdvances == 0)
-            {
-                StopMovement();
-                _status = "All route points are within arrival range.";
-                return false;
-            }
-        }
         RouteWaypoint waypoint = _settings.Waypoints[_index];
         if (waypoint.Type == RouteWaypointType.Point)
         {
@@ -754,30 +719,16 @@ internal sealed partial class NavigationController
                 _status = $"Waypoint is outside NavFarStopRange ({distance:0.0}m).";
                 return false;
             }
-            _status = string.Create(
-                CultureInfo.InvariantCulture,
-                $"Waypoint {_index + 1}/{_settings.Waypoints.Count}: {distance:0.0}m");
-            bool steering = SteerAlongNavigationPath(
-                navigation,
-                snapshot,
-                waypoint.Position,
-                waypoint.Type,
-                waypoint.ObjectId,
-                BoundedMinimumDistance(),
-                $"Waypoint {_index + 1}/{_settings.Waypoints.Count}",
-                out bool pathEnded);
-            if (!pathEnded)
-                return steering;
-
-            if (SpatialDistanceMeters(snapshot.Position, waypoint.Position)
-                <= BoundedMinimumDistance())
+            if (distance <= BoundedMinimumDistance())
             {
+                StopMovement();
                 AdvanceWaypoint();
                 return true;
             }
-
-            _status = $"Waypoint path ended before arrival ({distance:0.0}m).";
-            return false;
+            _status = string.Create(
+                CultureInfo.InvariantCulture,
+                $"Waypoint {_index + 1}/{_settings.Waypoints.Count}: {distance:0.0}m");
+            return Steer(navigation, snapshot.Position, waypoint.Position, distance);
         }
         if (waypoint.Type == RouteWaypointType.Checkpoint)
             return TickCheckpoint(navigation, snapshot, waypoint, elapsedSeconds);
@@ -1091,8 +1042,7 @@ internal sealed partial class NavigationController
         RouteWaypoint waypoint,
         double elapsedSeconds)
     {
-        double liveDistance = SpatialDistanceMeters(
-            snapshot.Position,
+        double liveDistance = snapshot.Position.HorizontalDistanceMeters(
             waypoint.Position);
         if (liveDistance > BoundedMaximumDistance())
         {
@@ -1104,38 +1054,19 @@ internal sealed partial class NavigationController
         if (liveDistance > BoundedMinimumDistance())
         {
             _checkpointElapsed = 0d;
-            _status = string.Create(
-                CultureInfo.InvariantCulture,
-                $"Checkpoint {_index + 1}/{_settings.Waypoints.Count}: {liveDistance:0.0}m");
-            bool steering = SteerAlongNavigationPath(
+            _status = string.Create(CultureInfo.InvariantCulture, $"Checkpoint {_index + 1}/{_settings.Waypoints.Count}: {liveDistance:0.0}m");
+            return Steer(
                 navigation,
-                snapshot,
-                waypoint.Position,
-                waypoint.Type,
-                waypoint.ObjectId,
-                BoundedMinimumDistance(),
-                $"Checkpoint {_index + 1}/{_settings.Waypoints.Count}",
-                out bool pathEnded);
-            if (!pathEnded)
-                return steering;
-            liveDistance = SpatialDistanceMeters(
                 snapshot.Position,
-                waypoint.Position);
-            if (liveDistance > BoundedMinimumDistance())
-            {
-                _status =
-                    $"Checkpoint path ended before arrival ({liveDistance:0.0}m).";
-                return false;
-            }
+                waypoint.Position,
+                liveDistance);
         }
 
-        ClearNavigationPath();
         StopMovement();
         PluginNavigationPosition confirmed = snapshot.ConfirmedPositionRevision == 0UL
             ? snapshot.Position
             : snapshot.ConfirmedPosition;
-        double confirmedDistance = SpatialDistanceMeters(
-            confirmed,
+        double confirmedDistance = confirmed.HorizontalDistanceMeters(
             waypoint.Position);
         if (confirmedDistance <= BoundedMinimumDistance())
         {
@@ -1418,8 +1349,7 @@ internal sealed partial class NavigationController
                 waypoint.ObjectId,
                 out PluginNavigationObject portal))
         {
-            double distance = SpatialDistanceMeters(
-                navigation.Position,
+            double distance = navigation.Position.HorizontalDistanceMeters(
                 portal.Position);
             if (distance > Math.Clamp(
                     _settings.PortalUseDistanceMeters,
@@ -1427,38 +1357,12 @@ internal sealed partial class NavigationController
                     50d))
             {
                 _status = $"Approaching {waypoint.ObjectName} ({distance:0.0}m).";
-                bool steering = SteerAlongNavigationPath(
+                return Steer(
                     _host.Automation.Navigation,
-                    navigation,
-                    portal.Position,
-                    waypoint.Type,
-                    portal.ObjectId,
-                    Math.Clamp(
-                        _settings.PortalUseDistanceMeters,
-                        0.5d,
-                        50d),
-                    $"Portal {waypoint.ObjectName}",
-                    out bool pathEnded);
-                if (steering)
-                    return true;
-                if (!pathEnded)
-                    return true;
-
-                distance = SpatialDistanceMeters(
                     navigation.Position,
-                    portal.Position);
-                if (distance > Math.Clamp(
-                        _settings.PortalUseDistanceMeters,
-                        0.5d,
-                        50d))
-                {
-                    _status =
-                        $"Portal path ended before use range ({distance:0.0}m).";
-                    return true;
-                }
+                    portal.Position,
+                    distance);
             }
-
-            ClearNavigationPath();
         }
 
         if (waypoint.Type == RouteWaypointType.UseNpc
@@ -1749,7 +1653,6 @@ internal sealed partial class NavigationController
 
     private void AdvanceWaypoint()
     {
-        ClearNavigationPath();
         ClearAction();
         _checkpointElapsed = 0d;
         int count = _settings.Waypoints.Count;
@@ -1817,11 +1720,7 @@ internal sealed partial class NavigationController
     /// thing in acdream's terms — drop the movement intent. It is what the
     /// scheduler wires as <c>onLostTurn</c> for both navigate tiers.
     /// </summary>
-    internal void StopForLostTurn()
-    {
-        ClearNavigationPath();
-        _mover.StopForLostTurn();
-    }
+    internal void StopForLostTurn() => _mover.StopForLostTurn();
 
     private void StopMovement() => _mover.StopMovement();
 

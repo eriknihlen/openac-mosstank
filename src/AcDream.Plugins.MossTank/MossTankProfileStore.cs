@@ -706,8 +706,6 @@ internal sealed class MossTankProfileStore
 
     private sealed class SideCarDocument
     {
-        public bool ShowNavLines { get; set; }
-        public bool ShowWalkableAreas { get; set; }
         public int Version { get; set; } = 1;
         public string[] ItemNames { get; set; } = [];
         public string[] ConsumableNames { get; set; } = [];
@@ -755,8 +753,6 @@ internal sealed class MossTankProfileStore
             ISet<string> logChannels) => new()
         {
             ItemNames = Sorted(settings.Combat.CombatItemNames),
-            ShowNavLines = settings.Navigation.ShowNavLines,
-            ShowWalkableAreas = settings.Navigation.ShowWalkableAreas,
             ConsumableNames = Sorted(settings.Combat.ConsumableNames),
             ConsumableCategories = settings.Combat.ConsumableCategories.ToDictionary(
                 static pair => pair.Key,
@@ -820,8 +816,6 @@ internal sealed class MossTankProfileStore
             IPluginLogger? logger = null)
         {
             Replace(settings.Combat.CombatItemNames, ItemNames);
-            settings.Navigation.ShowNavLines = ShowNavLines;
-            settings.Navigation.ShowWalkableAreas = ShowWalkableAreas;
             ReplaceOrder(settings.Combat.CombatItemOrder, ItemNames);
             settings.Combat.CombatItemObjectIds.Clear();
             Replace(settings.Combat.ConsumableNames, ConsumableNames);

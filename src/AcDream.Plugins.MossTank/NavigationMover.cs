@@ -169,9 +169,9 @@ internal sealed class NavigationMover
     }
 
     /// <summary>
-    /// Steers at a goal. Large turns stop forward movement until the remaining
-    /// angle enters the near or far steering band, then finish turning while
-    /// moving. The
+    /// Steers at a goal. Outside the alignment band the mover holds a turn key
+    /// and keeps walking, so the character curves onto the bearing; the two
+    /// relaxation tiers decide only whether it moves while it turns. The
     /// absolute re-face is the typing branch, where a held key would go into
     /// the chat entry.
     /// </summary>
