@@ -2653,7 +2653,7 @@ internal sealed class CombatController
                     && message.SenderObjectId != 0u
                     && message.SenderObjectId
                         == _host.Automation.Character.ObjectId,
-                logTextType: message.LogTextType);
+                logTextType: (uint)message.LogTextType);
         }
     }
 

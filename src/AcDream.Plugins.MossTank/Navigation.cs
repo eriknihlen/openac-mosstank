@@ -1450,7 +1450,7 @@ internal sealed class NavigationController
         foreach (PluginChatMessage message in messages)
         {
             _chatBaseline = Math.Max(_chatBaseline, message.Sequence);
-            bool answered = message.LogTextType switch
+            bool answered = (uint)message.LogTextType switch
             {
                 NpcTellLogTextType => ComposeTellLine(message).StartsWith(
                     npcName + " tells you, ",

@@ -1059,7 +1059,7 @@ public sealed class NavigationTests
             "Town Crier",
             "Welcome.",
             string.Empty)
-            { LogTextType = 3u });
+            { LogTextType = 3 });
         Assert.True(controller.Tick(0.05d, canAct: true));
         Assert.False(controller.Tick(0.05d, canAct: true));
     }
@@ -1904,7 +1904,7 @@ public sealed class NavigationTests
             Sender: sender,
             Text: text,
             ChannelName: string.Empty)
-            { LogTextType = logTextType });
+            { LogTextType = (int)logTextType });
 
         Assert.True(controller.Tick(0.05d, canAct: true));
 
