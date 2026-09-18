@@ -3852,6 +3852,48 @@ public sealed class MossTankPanelTests
     }
 
     [Fact]
+    public void AutostartLogChannelsAreTheSessionsAndSurviveAProfileLoad()
+    {
+        var storage = new MemoryStorage();
+        // An earlier session wrote the profile the run selects, with one
+        // channel of the profile's own.
+        var first = new MossTankPanel(new FakeHost(
+            new FakeAutomation { Name = "Prover" }, storage));
+        Command(first, "log ActiveRule on");
+        Command(first, "settings save vt-proof-settings");
+
+        var automation = new FakeAutomation { Name = "Prover" };
+        var host = new FakeHost(automation, storage)
+        {
+            SessionSettings = new Dictionary<string, string>(StringComparer.Ordinal)
+            {
+                ["settingsProfile"] = "vt-proof-settings",
+                ["logChannels"] = "SpellCast,RuleInfo",
+            },
+        };
+        var panel = new MossTankPanel(host);
+        panel.TickAutostart();
+        Assert.Empty(host.Logger.Errors);
+        Command(panel, "log");
+        Assert.Equal("Log state:  ActiveRule RuleInfo SpellCast", LastLogState(automation));
+
+        // The run reloads the same profile from outside, as the proof does.
+        Command(panel, "settings load vt-proof-settings.usd");
+        Command(panel, "log");
+        Assert.Equal("Log state:  ActiveRule RuleInfo SpellCast", LastLogState(automation));
+
+        // Turning a session channel off is honoured too.
+        Command(panel, "log SpellCast off");
+        Command(panel, "log");
+        Assert.Equal("Log state:  ActiveRule RuleInfo", LastLogState(automation));
+    }
+
+    private static string LastLogState(FakeAutomation automation) =>
+        automation.Messages.Last(message =>
+            message.StartsWith("Log state:", StringComparison.Ordinal)
+            || message == "Not currently logging.");
+
+    [Fact]
     public void TheVtLogChannelSelectionSurvivesAReload()
     {
         var storage = new MemoryStorage();
@@ -6584,6 +6626,8 @@ public sealed class MossTankPanelTests
         public bool HasUi => false;
         public IPluginWorldLines WorldLines { get; } =
             worldLines ?? NoOpPluginWorldLines.Instance;
+        public IReadOnlyDictionary<string, string> SessionSettings { get; set; } =
+            new Dictionary<string, string>(StringComparer.Ordinal);
         public FakeLogger Logger { get; } = new();
         public IPluginLogger Log => Logger;
         public IGameState State { get; } = new FakeState();

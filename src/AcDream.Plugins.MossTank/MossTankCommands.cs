@@ -17,6 +17,16 @@ internal sealed partial class MossTankPanel
 
     private readonly HashSet<string> _commandLogTypes =
         new(StringComparer.OrdinalIgnoreCase);
+
+    // Channels the session asked for from outside (autostart), kept apart
+    // from the profile's own: a profile load replaces those, and a request
+    // made for the whole session must outlive the loads within it.
+    private readonly HashSet<string> _sessionLogTypes =
+        new(StringComparer.OrdinalIgnoreCase);
+
+    private bool IsLogging(MacroLogChannel channel) =>
+        _commandLogTypes.Contains(channel.ToString())
+        || _sessionLogTypes.Contains(channel.ToString());
     private bool _commandJumpActive;
     private bool _commandJumpReleased;
     private bool _commandJumpCharging;
@@ -809,9 +819,11 @@ internal sealed partial class MossTankPanel
         string[] parts = arguments.Split(' ', StringSplitOptions.RemoveEmptyEntries);
         if (parts.Length == 0)
         {
-            WriteVtank(_commandLogTypes.Count == 0
+            var logging = new HashSet<string>(_commandLogTypes, StringComparer.OrdinalIgnoreCase);
+            logging.UnionWith(_sessionLogTypes);
+            WriteVtank(logging.Count == 0
                 ? "Not currently logging."
-                : "Log state:  " + string.Join(' ', _commandLogTypes.Order(StringComparer.OrdinalIgnoreCase)));
+                : "Log state:  " + string.Join(' ', logging.Order(StringComparer.OrdinalIgnoreCase)));
             WriteVtank("Valid logtypes: ActiveRule SalvageList SpellCast RuleInfo Timers CastInfo DebuffChoice Loot CharProps Misc BusyState");
             return;
         }
@@ -825,7 +837,7 @@ internal sealed partial class MossTankPanel
         string type = CanonicalLogChannelName(parts[0]);
         bool changed = parts[1] == "on"
             ? _commandLogTypes.Add(type)
-            : _commandLogTypes.Remove(type);
+            : _commandLogTypes.Remove(type) | _sessionLogTypes.Remove(type);
         WriteVtank((parts[1] == "on" ? "Set " : "Reset ") + type);
         if (changed)
             SaveProfile();
@@ -864,10 +876,10 @@ internal sealed partial class MossTankPanel
             if (name.Equals("All", StringComparison.OrdinalIgnoreCase))
             {
                 foreach (MacroLogChannel channel in Enum.GetValues<MacroLogChannel>())
-                    _commandLogTypes.Add(channel.ToString());
+                    _sessionLogTypes.Add(channel.ToString());
                 continue;
             }
-            _commandLogTypes.Add(CanonicalLogChannelName(name));
+            _sessionLogTypes.Add(CanonicalLogChannelName(name));
         }
     }
 
@@ -877,7 +889,7 @@ internal sealed partial class MossTankPanel
     private void EmitMacroLog(
         MacroLogChannel channel, string message, bool chat)
     {
-        if (!_commandLogTypes.Contains(channel.ToString()))
+        if (!IsLogging(channel))
             return;
         if (chat)
             _host.Automation.Chat.PostSystemMessage("[MossTank] " + message);
