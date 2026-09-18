@@ -31,6 +31,18 @@ internal sealed class NavigationMover
 
     internal const double FaceHeadingReissueSeconds = 0.7d;
 
+    /// <summary>
+    /// How long the mover may hold the forward key without the character
+    /// covering <see cref="StuckProgressMeters"/> before it reports itself
+    /// stuck. Longer than any turn in place, shorter than a player's patience
+    /// at a wall. The clock runs only while a forward key is held: a fight,
+    /// a corpse walk or a lost pass drops the key and the clock with it.
+    /// </summary>
+    internal const double StuckSeconds = 3d;
+
+    /// <summary>Ground the character must cover inside <see cref="StuckSeconds"/> to count as moving.</summary>
+    internal const double StuckProgressMeters = 0.75d;
+
     internal const double NoFaceHeadingStamp = double.NegativeInfinity;
 
     /// <summary>The near/far split the heading relaxation switches on.</summary>
@@ -54,6 +66,10 @@ internal sealed class NavigationMover
     private double _pendingSeconds;
     private double _now;
     private double _faceHeadingStamp = NoFaceHeadingStamp;
+    private bool _forwardHeld;
+    private bool _stuckAnchored;
+    private PluginNavigationPosition _stuckAnchor;
+    private double _stuckAnchorAt;
 
     internal NavigationMover(IPluginHost host) =>
         _host = host ?? throw new ArgumentNullException(nameof(host));
@@ -154,6 +170,44 @@ internal sealed class NavigationMover
     internal void ClearFaceHeadingStamp() => _faceHeadingStamp = NoFaceHeadingStamp;
 
     /// <summary>
+    /// The straight walk has held the forward key for <see cref="StuckSeconds"/>
+    /// without covering ground. Stays set until <see cref="ResetStuckClock"/>,
+    /// so the rule that reads it decides what to do exactly once.
+    /// </summary>
+    internal bool IsStuck { get; private set; }
+
+    /// <summary>Forgets the stuck clock's anchor and its verdict; the next held frame starts it over.</summary>
+    internal void ResetStuckClock()
+    {
+        _stuckAnchored = false;
+        IsStuck = false;
+    }
+
+    /// <summary>
+    /// One steering frame's worth of the stuck clock. Anchored where the
+    /// character stood when the forward key was first held, moved every time
+    /// it covers the progress distance, and read against the mover's clock.
+    /// </summary>
+    private void TrackProgress(in PluginNavigationPosition current)
+    {
+        if (!_forwardHeld)
+        {
+            _stuckAnchored = false;
+            return;
+        }
+        if (!_stuckAnchored
+            || current.HorizontalDistanceMeters(_stuckAnchor) >= StuckProgressMeters)
+        {
+            _stuckAnchored = true;
+            _stuckAnchor = current;
+            _stuckAnchorAt = _now;
+            return;
+        }
+        if (_now - _stuckAnchorAt >= StuckSeconds)
+            IsStuck = true;
+    }
+
+    /// <summary>
     /// Records that something other than the mover's own steer set or cleared
     /// the movement intent, so a later stop knows whether it has anything to
     /// clear. The jump waypoint is the one caller.
@@ -162,6 +216,8 @@ internal sealed class NavigationMover
 
     internal void StopMovement()
     {
+        _forwardHeld = false;
+        ResetStuckClock();
         if (!_hadMovementIntent)
             return;
         _ = _host.Automation.Navigation.ClearMovementIntent();
@@ -176,6 +232,17 @@ internal sealed class NavigationMover
     /// the chat entry.
     /// </summary>
     internal bool Steer(
+        INavigationAutomation navigation,
+        in PluginNavigationPosition current,
+        in PluginNavigationPosition target,
+        double distanceMeters)
+    {
+        bool claimed = SteerCore(navigation, in current, in target, distanceMeters);
+        TrackProgress(in current);
+        return claimed;
+    }
+
+    private bool SteerCore(
         INavigationAutomation navigation,
         in PluginNavigationPosition current,
         in PluginNavigationPosition target,
@@ -272,6 +339,7 @@ internal sealed class NavigationMover
                 TurnRight: turn == TurnHold.Right,
                 Run: run))
             == PluginNavigationCommandStatus.Accepted;
+        _forwardHeld = forward && _hadMovementIntent;
         return _hadMovementIntent;
     }
 

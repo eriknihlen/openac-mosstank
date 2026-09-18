@@ -260,6 +260,45 @@ public sealed class MossTankPanelTests
             MossTankPanel.WalkPauseReasonFor(running, lastRule, buffing, routeNavigation, looting, secondsSinceAttack));
     }
 
+    /// <summary>
+    /// The Client pathing choice lives in the macro profile's side-car and
+    /// comes back on reload; a side-car written by the older "walk legs with
+    /// client pathing" checkbox reads as Always, and one that says nothing
+    /// reads as the default, When stuck.
+    /// </summary>
+    [Fact]
+    public void ClientPathingIsSavedWithTheProfileAndTheOldCheckboxReadsAsAlways()
+    {
+        var storage = new MemoryStorage();
+        var automation = new FakeAutomation { Name = "Barris" };
+        var panel = new MossTankPanel(new FakeHost(automation, storage));
+        Assert.Equal("When stuck", panel.SelectedClientPathing);
+
+        panel.SelectClientPathing("Always");
+
+        Assert.Equal("Always", panel.SelectedClientPathing);
+        var reloaded = new MossTankPanel(new FakeHost(new FakeAutomation { Name = "Barris" }, storage));
+        Assert.Equal("Always", reloaded.SelectedClientPathing);
+
+        string key = Assert.Single(storage.Text.Keys, static k => k.Contains("sidecar", StringComparison.Ordinal));
+        string written = storage.Text[key];
+        Assert.Contains("NavigationClientPathing", written, StringComparison.Ordinal);
+
+        storage.Text[key] = System.Text.RegularExpressions.Regex.Replace(
+            written,
+            "\"NavigationClientPathing\"\\s*:\\s*\"Always\"",
+            "\"NavigationWalkLegsWithClient\": true");
+        var legacy = new MossTankPanel(new FakeHost(new FakeAutomation { Name = "Barris" }, storage));
+        Assert.Equal("Always", legacy.SelectedClientPathing);
+
+        storage.Text[key] = System.Text.RegularExpressions.Regex.Replace(
+            written,
+            "\"NavigationClientPathing\"\\s*:\\s*\"Always\",?",
+            string.Empty);
+        var silent = new MossTankPanel(new FakeHost(new FakeAutomation { Name = "Barris" }, storage));
+        Assert.Equal("When stuck", silent.SelectedClientPathing);
+    }
+
     [Fact]
     public void FirstLoadMigratesLegacyJsonMacroProfileToUsdAndDeletesTheJsonKey()
     {

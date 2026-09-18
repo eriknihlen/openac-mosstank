@@ -968,6 +968,28 @@ internal sealed partial class MossTankPanel : IBuffRuleHost
     public string SelectedRouteMode => _navigationSettings.Mode == RouteMode.Target
         ? "Follow"
         : _navigationSettings.Mode.ToString();
+    public IReadOnlyList<string> ClientPathingNames => ["Never", "When stuck", "Always"];
+    public string SelectedClientPathing => ClientPathingName(_navigationSettings.ClientPathing);
+    public Action<string> SelectClientPathing => value =>
+    {
+        ClientPathing chosen = value?.Trim().ToLowerInvariant() switch
+        {
+            "never" => ClientPathing.Never,
+            "always" => ClientPathing.Always,
+            _ => ClientPathing.WhenStuck,
+        };
+        if (chosen == _navigationSettings.ClientPathing)
+            return;
+        _navigationSettings.ClientPathing = chosen;
+        _navigation.ClientPathingChanged();
+        SaveProfile();
+    };
+    internal static string ClientPathingName(ClientPathing value) => value switch
+    {
+        ClientPathing.Never => "Never",
+        ClientPathing.Always => "Always",
+        _ => "When stuck",
+    };
     public IReadOnlyList<string> RouteRecallNames
     {
         get

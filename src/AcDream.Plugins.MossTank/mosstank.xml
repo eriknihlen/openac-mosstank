@@ -375,6 +375,11 @@
            onchange="{SetRouteChatDraft}" onsubmit="{SetRouteChatDraft}"
            maxlength="128" clearonsubmit="false" background="#E6000000"
            color="#FFE8DEC3" tooltip="Chat command added by Add Chat." />
+    <label x="604" y="16" w="88" h="20" text="Client pathing" color="#FFE8DEC3" />
+    <menu x="694" y="16" w="112" h="20" items="{ClientPathingNames}"
+          selected="{SelectedClientPathing}" onchange="{SelectClientPathing}"
+          rows="3" openupward="false"
+          tooltip="When the client's own pathing walks a leg for the route: never (the straight walk at every point), when the straight walk is stuck (once per waypoint), or for every leg (a leg the client cannot walk pauses the route)." />
 
     <label x="4" y="195" w="300" h="16" text="{NavigationStatus}" color="#FF9B9072" anchor="bottom" />
     <label x="310" y="195" w="300" h="16" text="{RouteNotice}" color="#FF9B9072" anchor="bottom" />

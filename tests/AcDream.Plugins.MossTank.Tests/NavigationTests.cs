@@ -2041,6 +2041,307 @@ public sealed class NavigationTests
         Assert.Equal([48u], magic.CastSpellIds);
     }
 
+
+    /// <summary>
+    /// The stuck hand-off: a straight walk that holds the forward key for
+    /// three seconds without covering ground lets go of the keys and asks
+    /// the client to walk the leg, to the waypoint, within the arrival
+    /// radius. Mutation: skip the mover's progress tracking in its steer and
+    /// the request never comes.
+    /// </summary>
+    [Fact]
+    public void AStraightWalkStuckForThreeSecondsHandsTheLegToTheClient()
+    {
+        PluginNavigationPosition goal = Position(0d, 12d / 240d);
+        var automation = new FakeAutomation
+        {
+            NavigationSnapshot = Snapshot(Position(0d, 0d, heading: 0f)),
+        };
+        NavigationController controller = Controller(
+            automation,
+            RouteMode.Circular,
+            minimumDistanceMeters: 2d,
+            Waypoint(RouteWaypointType.Point, goal));
+
+        Assert.True(controller.ClaimFromRulePass(canAct: true));
+        StepFrames(controller, 2.8d);
+        Assert.Empty(automation.GoToRequests);
+        Assert.Contains(automation.Intents, static intent => intent.Forward);
+
+        StepFrames(controller, 0.4d);
+
+        (PluginNavigationPosition where, float arrival) = Assert.Single(automation.GoToRequests);
+        Assert.Equal(goal, where);
+        Assert.Equal(2f, arrival);
+        Assert.Contains("walked by the client", controller.Status, StringComparison.Ordinal);
+        int intentsAtHandOff = automation.Intents.Count;
+        StepFrames(controller, 1d);
+        Assert.Equal(intentsAtHandOff, automation.Intents.Count);
+    }
+
+    /// <summary>A character that covers ground is not stuck, however long the leg takes.</summary>
+    [Fact]
+    public void CoveringGroundKeepsTheStuckClockFromRunning()
+    {
+        var automation = new FakeAutomation
+        {
+            NavigationSnapshot = Snapshot(Position(0d, 0d, heading: 0f)),
+        };
+        NavigationController controller = Controller(
+            automation,
+            RouteMode.Circular,
+            minimumDistanceMeters: 2d,
+            Waypoint(RouteWaypointType.Point, Position(0d, 200d / 240d)));
+
+        Assert.True(controller.ClaimFromRulePass(canAct: true));
+        for (int frame = 0; frame < 120; frame++)
+        {
+            PluginNavigationPosition here = automation.NavigationSnapshot.Position;
+            automation.NavigationSnapshot = automation.NavigationSnapshot with
+            {
+                Position = here with { NorthSouth = here.NorthSouth + 0.05d / 240d },
+            };
+            controller.StepArmedMover(0.05d);
+        }
+
+        Assert.Empty(automation.GoToRequests);
+        Assert.Empty(automation.PostedSystemMessages);
+    }
+
+    /// <summary>
+    /// The clock belongs to the armed mover: losing the pass (a fight, a
+    /// corpse) drops the keys and the clock, and the next turn starts it over.
+    /// </summary>
+    [Fact]
+    public void LosingThePassResetsTheStuckClock()
+    {
+        var automation = new FakeAutomation
+        {
+            NavigationSnapshot = Snapshot(Position(0d, 0d, heading: 0f)),
+        };
+        NavigationController controller = Controller(
+            automation,
+            RouteMode.Circular,
+            minimumDistanceMeters: 2d,
+            Waypoint(RouteWaypointType.Point, Position(0d, 12d / 240d)));
+
+        Assert.True(controller.ClaimFromRulePass(canAct: true));
+        StepFrames(controller, 2d);
+        controller.StopForLostTurn();
+        StepFrames(controller, 2d);
+        Assert.True(controller.ClaimFromRulePass(canAct: true));
+        StepFrames(controller, 2d);
+
+        Assert.Empty(automation.GoToRequests);
+
+        StepFrames(controller, 1.3d);
+
+        Assert.Single(automation.GoToRequests);
+    }
+
+    /// <summary>The client arriving is the leg done: the route advances and the keys come back for the next one.</summary>
+    [Fact]
+    public void TheClientArrivingAdvancesTheRouteAndReturnsTheKeys()
+    {
+        var automation = new FakeAutomation
+        {
+            NavigationSnapshot = Snapshot(Position(0d, 0d, heading: 0f)),
+        };
+        NavigationController controller = Controller(
+            automation,
+            RouteMode.Circular,
+            minimumDistanceMeters: 2d,
+            Waypoint(RouteWaypointType.Point, Position(0d, 12d / 240d)),
+            Waypoint(RouteWaypointType.Point, Position(12d / 240d, 0d)));
+
+        Assert.True(controller.ClaimFromRulePass(canAct: true));
+        StepFrames(controller, 3.3d);
+        Assert.Single(automation.GoToRequests);
+        int intentsAtHandOff = automation.Intents.Count;
+
+        automation.EndGoTo(PluginGoToState.Arrived, "arrived");
+        StepFrames(controller, 0.2d);
+
+        Assert.StartsWith("Waypoint 2/2", controller.Status, StringComparison.Ordinal);
+        Assert.True(automation.Intents.Count > intentsAtHandOff);
+        Assert.Single(automation.GoToRequests);
+    }
+
+    /// <summary>
+    /// A client walk that ends without arriving hands the keys back to the
+    /// straight walk, once per waypoint: a second stall there is said once
+    /// in chat and walked through, not handed off again.
+    /// </summary>
+    [Theory]
+    [InlineData(PluginGoToState.NoRoute)]
+    [InlineData(PluginGoToState.Blocked)]
+    [InlineData(PluginGoToState.Interrupted)]
+    [InlineData(PluginGoToState.Lost)]
+    public void AFailedClientWalkReturnsTheKeysAndTheWaypointGetsNoSecondHandOff(PluginGoToState ending)
+    {
+        var automation = new FakeAutomation
+        {
+            NavigationSnapshot = Snapshot(Position(0d, 0d, heading: 0f)),
+        };
+        NavigationController controller = Controller(
+            automation,
+            RouteMode.Circular,
+            minimumDistanceMeters: 2d,
+            Waypoint(RouteWaypointType.Point, Position(0d, 12d / 240d)));
+
+        Assert.True(controller.ClaimFromRulePass(canAct: true));
+        StepFrames(controller, 3.3d);
+        Assert.Single(automation.GoToRequests);
+        int intentsAtHandOff = automation.Intents.Count;
+
+        automation.EndGoTo(ending, "no way");
+        StepFrames(controller, 0.2d);
+        Assert.True(automation.Intents.Count > intentsAtHandOff);
+        Assert.Contains(automation.Intents.Skip(intentsAtHandOff), static intent => intent.Forward);
+
+        StepFrames(controller, 3.5d);
+        Assert.Single(automation.GoToRequests);
+        string said = Assert.Single(automation.PostedSystemMessages);
+        Assert.Contains("not covered ground", said, StringComparison.Ordinal);
+
+        StepFrames(controller, 3.5d);
+        Assert.Single(automation.PostedSystemMessages);
+    }
+
+    /// <summary>Losing the pass while the client walks stops that walk with the rest of the movement.</summary>
+    [Fact]
+    public void LosingThePassStopsTheClientsWalk()
+    {
+        var automation = new FakeAutomation
+        {
+            NavigationSnapshot = Snapshot(Position(0d, 0d, heading: 0f)),
+        };
+        NavigationController controller = Controller(
+            automation,
+            RouteMode.Circular,
+            minimumDistanceMeters: 2d,
+            Waypoint(RouteWaypointType.Point, Position(0d, 12d / 240d)));
+
+        Assert.True(controller.ClaimFromRulePass(canAct: true));
+        StepFrames(controller, 3.3d);
+        Assert.Single(automation.GoToRequests);
+
+        controller.StopForLostTurn();
+
+        Assert.Equal(1, automation.StopGoToCalls);
+        Assert.Equal(PluginGoToState.Stopped, automation.GoToReport.State);
+    }
+
+    /// <summary>A refused request (the player or another plugin has the character) is not a hand-off: the straight walk carries on.</summary>
+    [Fact]
+    public void ARefusedHandOffLeavesTheStraightWalkWalking()
+    {
+        var automation = new FakeAutomation
+        {
+            NavigationSnapshot = Snapshot(Position(0d, 0d, heading: 0f)),
+            GoToAnswer = PluginNavigationCommandStatus.Held,
+        };
+        NavigationController controller = Controller(
+            automation,
+            RouteMode.Circular,
+            minimumDistanceMeters: 2d,
+            Waypoint(RouteWaypointType.Point, Position(0d, 12d / 240d)));
+
+        Assert.True(controller.ClaimFromRulePass(canAct: true));
+        StepFrames(controller, 3.3d);
+        Assert.Single(automation.GoToRequests);
+        int intentsAfterRefusal = automation.Intents.Count;
+
+        StepFrames(controller, 0.2d);
+
+        Assert.True(automation.Intents.Count > intentsAfterRefusal);
+        Assert.Equal(0, automation.StopGoToCalls);
+    }
+
+    /// <summary>Never means never: the straight walk keeps the keys and only says in chat that it stalled.</summary>
+    [Fact]
+    public void NeverKeepsTheKeysAndOnlySaysItStalled()
+    {
+        var automation = new FakeAutomation
+        {
+            NavigationSnapshot = Snapshot(Position(0d, 0d, heading: 0f)),
+        };
+        NavigationController controller = Controller(
+            automation,
+            RouteMode.Circular,
+            minimumDistanceMeters: 2d,
+            ClientPathing.Never,
+            Waypoint(RouteWaypointType.Point, Position(0d, 12d / 240d)));
+
+        Assert.True(controller.ClaimFromRulePass(canAct: true));
+        StepFrames(controller, 7d);
+
+        Assert.Empty(automation.GoToRequests);
+        Assert.Single(automation.PostedSystemMessages);
+        Assert.Contains(automation.Intents.TakeLast(3), static intent => intent.Forward);
+    }
+
+    /// <summary>
+    /// Always sends every leg to the client at once, and a leg the client
+    /// cannot walk pauses the route where it stands, said once, until a reset.
+    /// </summary>
+    [Fact]
+    public void AlwaysSendsEveryLegAndPausesOnALegTheClientCannotWalk()
+    {
+        var automation = new FakeAutomation
+        {
+            NavigationSnapshot = Snapshot(Position(0d, 0d, heading: 0f)),
+        };
+        NavigationController controller = Controller(
+            automation,
+            RouteMode.Circular,
+            minimumDistanceMeters: 2d,
+            ClientPathing.Always,
+            Waypoint(RouteWaypointType.Point, Position(0d, 12d / 240d)));
+
+        Assert.True(controller.ClaimFromRulePass(canAct: true));
+        Assert.Single(automation.GoToRequests);
+        Assert.Empty(automation.Intents);
+
+        automation.EndGoTo(PluginGoToState.NoRoute, "no route");
+        StepFrames(controller, 0.2d);
+        Assert.False(controller.ClaimFromRulePass(canAct: true));
+        Assert.Contains("paused", controller.Status, StringComparison.Ordinal);
+        string said = Assert.Single(automation.PostedSystemMessages);
+        Assert.Contains("paused", said, StringComparison.Ordinal);
+        Assert.False(controller.ClaimFromRulePass(canAct: true));
+        Assert.Single(automation.GoToRequests);
+        Assert.Empty(automation.Intents);
+
+        controller.Reset();
+        Assert.True(controller.ClaimFromRulePass(canAct: true));
+        Assert.Equal(2, automation.GoToRequests.Count);
+    }
+
+    /// <summary>Steps the armed mover through a stretch of host frames, each long enough to be a steering frame.</summary>
+    private static void StepFrames(NavigationController controller, double seconds)
+    {
+        for (double elapsed = 0d; elapsed < seconds; elapsed += 0.05d)
+            controller.StepArmedMover(0.05d);
+    }
+
+    private static NavigationController Controller(
+        FakeAutomation automation,
+        RouteMode mode,
+        double minimumDistanceMeters,
+        ClientPathing clientPathing,
+        params RouteWaypoint[] waypoints)
+    {
+        var settings = new NavigationSettings
+        {
+            Enabled = true,
+            Mode = mode,
+            MinimumDistanceMeters = minimumDistanceMeters,
+            ClientPathing = clientPathing,
+        };
+        settings.Waypoints.AddRange(waypoints);
+        return new NavigationController(new FakeHost(automation), settings);
+    }
     private static NavigationController Controller(
         FakeAutomation automation,
         RouteMode mode,
@@ -2213,6 +2514,36 @@ public sealed class NavigationTests
             ClearCount++;
             return PluginNavigationCommandStatus.Accepted;
         }
+
+        public List<(PluginNavigationPosition Position, float ArrivalMeters)> GoToRequests { get; } = [];
+        public PluginNavigationCommandStatus GoToAnswer { get; set; } = PluginNavigationCommandStatus.Accepted;
+        public PluginGoToReport GoToReport { get; set; }
+        public int StopGoToCalls { get; private set; }
+
+        public PluginNavigationCommandStatus GoTo(PluginNavigationPosition position, float arrivalMeters)
+        {
+            GoToRequests.Add((position, arrivalMeters));
+            if (GoToAnswer != PluginNavigationCommandStatus.Accepted)
+                return GoToAnswer;
+            GoToReport = new PluginGoToReport(
+                GoToReport.Sequence + 1,
+                PluginGoToState.Walking,
+                0u,
+                0f,
+                0,
+                "walking");
+            return PluginNavigationCommandStatus.Accepted;
+        }
+
+        public PluginNavigationCommandStatus StopGoTo()
+        {
+            StopGoToCalls++;
+            GoToReport = GoToReport with { State = PluginGoToState.Stopped, Reason = "stopped" };
+            return PluginNavigationCommandStatus.Accepted;
+        }
+
+        public void EndGoTo(PluginGoToState state, string reason = "") =>
+            GoToReport = GoToReport with { State = state, Reason = reason };
 
         public List<float> FacedHeadings { get; } = [];
 
