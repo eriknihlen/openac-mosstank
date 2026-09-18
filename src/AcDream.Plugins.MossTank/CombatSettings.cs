@@ -135,6 +135,14 @@ internal sealed class CombatSettings
     public IList<string> CombatItemOrder { get; } = new List<string>();
     public ISet<string> ConsumableNames { get; } =
         new HashSet<string>(StringComparer.Ordinal);
+    /// <summary>
+    /// The reference's heal-kit table from its game-info database, by item
+    /// name: the restore and skill bonuses a kit is used with, read without
+    /// ever appraising the kit. Set by the host from the loaded database.
+    /// </summary>
+    public IReadOnlyDictionary<string, VtankHealKit> HealKits { get; set; } =
+        new Dictionary<string, VtankHealKit>(StringComparer.OrdinalIgnoreCase);
+
     public IDictionary<string, ConsumableCategory> ConsumableCategories { get; } =
         new Dictionary<string, ConsumableCategory>(StringComparer.Ordinal);
     public IList<MonsterRule> Rules { get; } =

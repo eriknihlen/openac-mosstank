@@ -262,6 +262,10 @@ internal sealed partial class MossTankPanel : IBuffRuleHost
         // database every monster reads as unlisted, which is what the
         // reference client does with no database of its own.
         _combatSettings.MonsterFacts = new MonsterFactTable(_gameInfo);
+        var healKits = new Dictionary<string, VtankHealKit>(StringComparer.OrdinalIgnoreCase);
+        foreach (VtankHealKit kit in _gameInfo.HealKits)
+            healKits[kit.Name] = kit;
+        _combatSettings.HealKits = healKits;
         _profiles = new MossTankProfileStore(host);
         _profiles.BindCharacter(host.Automation.Character.Name);
         _profiles.LoadCurrent(_allSettings, _noBuffItemNames, _commandLogTypes);

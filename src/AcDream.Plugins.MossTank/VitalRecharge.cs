@@ -734,20 +734,48 @@ internal static class VitalRechargePlanner
 
         bool found = false;
         PluginInventoryItem best = default;
+        double bestRestore = double.NegativeInfinity;
         foreach (PluginInventoryItem item in items)
         {
-            if (!combatSettings.ConsumableNames.Contains(item.Name)
-                || !ConfiguredSupplyReadiness.IsAssessed(
-                    automation,
-                    item.ObjectId)
-                || item.BoosterVital != (int)vital
-                || (item.PublicFlags & HealingKitPublicFlag) == 0u
-                || item.UseRequiresSkillLevel > healing.Current
-                || item.UseRequiresSkillSpecialized != 0
-                    && healing.Training != PluginSkillTraining.Specialized
-                || HealKitChance(
+            if (!combatSettings.ConsumableNames.Contains(item.Name))
+                continue;
+            // The reference never appraises a kit: its kind comes from the
+            // profile and its bonuses from the game-info table, by name. An
+            // appraised kit is judged by its own properties; an unappraised
+            // one by the profile's kind and the table, as the reference does.
+            int skillBonus;
+            double restoreBonus;
+            if (ConfiguredSupplyReadiness.IsAssessed(automation, item.ObjectId))
+            {
+                if (item.BoosterVital != (int)vital
+                    || (item.PublicFlags & HealingKitPublicFlag) == 0u
+                    || item.UseRequiresSkillLevel > healing.Current
+                    || item.UseRequiresSkillSpecialized != 0
+                        && healing.Training != PluginSkillTraining.Specialized)
+                {
+                    continue;
+                }
+                skillBonus = item.BoostValue;
+                restoreBonus = item.HealKitModifier;
+            }
+            else
+            {
+                if (!combatSettings.ConsumableCategories.TryGetValue(
+                        item.Name,
+                        out ConsumableCategory category)
+                    || category != KitCategoryFor(vital))
+                {
+                    continue;
+                }
+                bool listed = combatSettings.HealKits.TryGetValue(
+                    item.Name,
+                    out VtankHealKit tableRow);
+                skillBonus = listed ? tableRow.SkillBonus : 0;
+                restoreBonus = listed ? tableRow.RestoreBonus : 1d;
+            }
+            if (HealKitChance(
                     healing.Current,
-                    item.BoostValue,
+                    skillBonus,
                     automation.Character,
                     vital,
                     mode) * 100d < settings.MinimumHealKitSuccessChance)
@@ -755,11 +783,12 @@ internal static class VitalRechargePlanner
                 continue;
             }
             if (!found
-                || item.HealKitModifier > best.HealKitModifier
-                || item.HealKitModifier == best.HealKitModifier
+                || restoreBonus > bestRestore
+                || restoreBonus == bestRestore
                     && item.Structure < best.Structure)
             {
                 best = item;
+                bestRestore = restoreBonus;
                 found = true;
             }
         }
@@ -781,6 +810,20 @@ internal static class VitalRechargePlanner
         return true;
     }
 
+    private static ConsumableCategory KitCategoryFor(VitalKind vital) => vital switch
+    {
+        VitalKind.Stamina => ConsumableCategory.StaminaKit,
+        VitalKind.Mana => ConsumableCategory.ManaKit,
+        _ => ConsumableCategory.HealthKit,
+    };
+
+    private static ConsumableCategory FoodCategoryFor(VitalKind vital) => vital switch
+    {
+        VitalKind.Stamina => ConsumableCategory.StaminaFood,
+        VitalKind.Mana => ConsumableCategory.ManaFood,
+        _ => ConsumableCategory.HealthFood,
+    };
+
     private static bool TryFood(
         VitalKind vital,
         IAutomationSurface automation,
@@ -790,13 +833,20 @@ internal static class VitalRechargePlanner
     {
         foreach (PluginInventoryItem item in items)
         {
-            if (settings.ConsumableNames.Contains(item.Name)
-                && ConfiguredSupplyReadiness.IsAssessed(
-                    automation,
-                    item.ObjectId)
-                && item.BoosterVital == (int)vital
-                && (item.PublicFlags & HealingKitPublicFlag) == 0u
-                && item.UseRequiresSkill != (int)HealingSkill)
+            if (!settings.ConsumableNames.Contains(item.Name))
+                continue;
+            // As with kits: an appraised item by its properties, an unappraised
+            // one by the kind the profile gives it. The reference appraises
+            // neither.
+            bool eligible = ConfiguredSupplyReadiness.IsAssessed(automation, item.ObjectId)
+                ? item.BoosterVital == (int)vital
+                    && (item.PublicFlags & HealingKitPublicFlag) == 0u
+                    && item.UseRequiresSkill != (int)HealingSkill
+                : settings.ConsumableCategories.TryGetValue(
+                        item.Name,
+                        out ConsumableCategory category)
+                    && category == FoodCategoryFor(vital);
+            if (eligible)
             {
                 choice = new VitalRechargeChoice(
                     vital,

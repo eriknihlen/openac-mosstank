@@ -822,6 +822,9 @@ internal sealed class CombatController
             PluginCombatCommandStatus.WrongMode => "Waiting for combat mode",
             _ => $"Attack refused: {begin.Status}",
         };
+        Log?.Invoke(
+            MacroLogChannel.CastInfo,
+            $"Swing: {begin.Status} at {_targetName} (0x{_targetId:X8})");
         if (begin.Status == PluginCombatCommandStatus.InvalidTarget)
         {
             _host.Automation.Combat.AbortPhysicalAttack();

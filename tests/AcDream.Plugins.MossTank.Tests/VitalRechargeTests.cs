@@ -147,6 +147,66 @@ public sealed class VitalRechargeTests
         Assert.Equal((uint)SpellId.AdjaSIntervention, choice.SpellId);
     }
 
+    /// <summary>
+    /// The reference never appraises a kit: its kind is the profile's and its
+    /// bonuses come from the game-info table by name. An unappraised kit the
+    /// profile calls a health kit is used. Mutation: require the appraisal
+    /// again and the plan finds nothing.
+    /// </summary>
+    [Fact]
+    public void AnUnappraisedKitIsUsedByItsProfileKindAndTheTable()
+    {
+        var surface = new Surface
+        {
+            Mode = PluginCombatMode.Peace,
+            CurrentHealth = 50,
+            Skills = [Skill(21u, 400u)],
+            Items = [Item(10u, "Plentiful Healing Kit")],
+        };
+        surface.Unassessed.Add(10u);
+        var combat = new CombatSettings();
+        combat.ConsumableNames.Add("Plentiful Healing Kit");
+        combat.ConsumableCategories["Plentiful Healing Kit"] = ConsumableCategory.HealthKit;
+        combat.HealKits = new Dictionary<string, VtankHealKit>(StringComparer.OrdinalIgnoreCase)
+        {
+            ["Plentiful Healing Kit"] = new("Plentiful Healing Kit", 1.2, 0, 2),
+        };
+
+        Assert.True(VitalRechargePlanner.TryPlan(
+            VitalKind.Health,
+            surface,
+            new VitalSettings(),
+            combat,
+            out VitalRechargeChoice choice));
+        Assert.Equal(VitalRechargeSourceKind.Kit, choice.SourceKind);
+        Assert.Equal(10u, choice.ItemObjectId);
+    }
+
+    /// <summary>Food likewise: the profile's kind is enough.</summary>
+    [Fact]
+    public void AnUnappraisedFoodItemIsUsedByItsProfileKind()
+    {
+        var surface = new Surface
+        {
+            Mode = PluginCombatMode.Peace,
+            CurrentHealth = 50,
+            Items = [Item(11u, "Bread")],
+        };
+        surface.Unassessed.Add(11u);
+        var combat = new CombatSettings();
+        combat.ConsumableNames.Add("Bread");
+        combat.ConsumableCategories["Bread"] = ConsumableCategory.HealthFood;
+
+        Assert.True(VitalRechargePlanner.TryPlan(
+            VitalKind.Health,
+            surface,
+            new VitalSettings(),
+            combat,
+            out VitalRechargeChoice choice));
+        Assert.Equal(VitalRechargeSourceKind.Food, choice.SourceKind);
+        Assert.Equal(11u, choice.ItemObjectId);
+    }
+
     [Fact]
     public void MagicModeUsesProfiledViableKitBeforeRegularHealAboveEmergencyBand()
     {
@@ -848,13 +908,16 @@ public sealed class VitalRechargeTests
                     item.ObjectId, item.WeenieClassId, item.Name, PluginObjectClass.Unknown,
                     item.ItemType, item.ContainerObjectId, item.WielderObjectId)
                 {
-                    LastIdTime = 1,
+                    LastIdTime = Unassessed.Contains(item.ObjectId) ? 0 : 1,
                 };
                 return true;
             }
             value = default;
             return false;
         }
+
+        /// <summary>Items the client has not appraised.</summary>
+        public HashSet<uint> Unassessed { get; } = [];
 
         /// <summary><c>ActionLockType.ItemUse</c> (<c>fb.cs:75-78</c>).</summary>
         public bool ItemsBusy { get; set; }
