@@ -108,8 +108,6 @@ internal sealed partial class LootController
         ILootAutomation loot = _host.Automation.Loot;
         if (!loot.IsAvailable)
             return false;
-        if (HasStationaryCorpseWork())
-            return false;
         if (_settings.Rules.Count == 0
             && string.IsNullOrWhiteSpace(_settings.ExternalClassifierId))
         {

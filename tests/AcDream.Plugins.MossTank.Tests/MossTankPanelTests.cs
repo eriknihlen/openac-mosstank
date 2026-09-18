@@ -6573,14 +6573,35 @@ public sealed class MossTankPanelTests
         public IItemAutomation Items => this;
         public INavigationAutomation Navigation => this;
         public IWorldObjectAutomation Objects => this;
-        // An assessed item answers a property capture; these tests need the
-        // bag to exist, not to say anything, unless a test fills it.
+        // An assessed item answers a property capture. The bag carries what
+        // the item's own projection already knows, its mana above all, so a
+        // reader that keys on the appraised properties sees the same numbers.
         public Dictionary<uint, PluginItemProperties> Properties { get; } = [];
 
         public bool TryCaptureProperties(uint objectId, out PluginItemProperties properties)
         {
             if (Properties.TryGetValue(objectId, out properties))
                 return true;
+            foreach (PluginInventoryItem item in ItemEntries)
+            {
+                if (item.ObjectId != objectId)
+                    continue;
+                var ints = new Dictionary<uint, int>();
+                if (item.ItemMaximumMana > 0)
+                {
+                    ints[107u] = item.ItemCurrentMana;
+                    ints[108u] = item.ItemMaximumMana;
+                }
+                properties = new PluginItemProperties(
+                    ints,
+                    new Dictionary<uint, long>(),
+                    new Dictionary<uint, bool>(),
+                    new Dictionary<uint, double>(),
+                    new Dictionary<uint, string>(),
+                    new Dictionary<uint, uint>(),
+                    new Dictionary<uint, uint>());
+                return true;
+            }
             if (((IWorldObjectAutomation)this).TryGet(objectId, out _))
             {
                 properties = new PluginItemProperties(
@@ -6953,14 +6974,35 @@ public sealed class MossTankPanelTests
     {
         public INavigationAutomation Navigation => this;
         public IWorldObjectAutomation Objects => this;
-        // An assessed item answers a property capture; these tests need the
-        // bag to exist, not to say anything, unless a test fills it.
+        // An assessed item answers a property capture. The bag carries what
+        // the item's own projection already knows, its mana above all, so a
+        // reader that keys on the appraised properties sees the same numbers.
         public Dictionary<uint, PluginItemProperties> Properties { get; } = [];
 
         public bool TryCaptureProperties(uint objectId, out PluginItemProperties properties)
         {
             if (Properties.TryGetValue(objectId, out properties))
                 return true;
+            foreach (PluginInventoryItem item in ItemEntries)
+            {
+                if (item.ObjectId != objectId)
+                    continue;
+                var ints = new Dictionary<uint, int>();
+                if (item.ItemMaximumMana > 0)
+                {
+                    ints[107u] = item.ItemCurrentMana;
+                    ints[108u] = item.ItemMaximumMana;
+                }
+                properties = new PluginItemProperties(
+                    ints,
+                    new Dictionary<uint, long>(),
+                    new Dictionary<uint, bool>(),
+                    new Dictionary<uint, double>(),
+                    new Dictionary<uint, string>(),
+                    new Dictionary<uint, uint>(),
+                    new Dictionary<uint, uint>());
+                return true;
+            }
             if (((IWorldObjectAutomation)this).TryGet(objectId, out _))
             {
                 properties = new PluginItemProperties(

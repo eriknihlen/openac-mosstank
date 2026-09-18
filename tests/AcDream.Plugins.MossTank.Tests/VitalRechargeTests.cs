@@ -636,6 +636,7 @@ public sealed class VitalRechargeTests
             BoosterVital = booster,
             BoostValue = 0,
             HealKitModifier = 1.2,
+            PublicFlags = 0x00010000u,
         };
 
     /// <summary>Food needs no Healing skill, which is what tells it from a kit.</summary>
@@ -730,14 +731,35 @@ public sealed class VitalRechargeTests
         public IReadOnlyList<PluginSpellInfo> Lookup { get; init; } = [];
         public IReadOnlyList<PluginSpellInfo> KnownSelfBuffs => Spells;
         public IReadOnlyList<PluginInventoryItem> Items { get; set; } = [];
-        // An assessed item answers a property capture; these tests need the
-        // bag to exist, not to say anything, unless a test fills it.
+        // An assessed item answers a property capture. The bag carries what
+        // the item's own projection already knows, its mana above all, so a
+        // reader that keys on the appraised properties sees the same numbers.
         public Dictionary<uint, PluginItemProperties> Properties { get; } = [];
 
         public bool TryCaptureProperties(uint objectId, out PluginItemProperties properties)
         {
             if (Properties.TryGetValue(objectId, out properties))
                 return true;
+            foreach (PluginInventoryItem item in Items)
+            {
+                if (item.ObjectId != objectId)
+                    continue;
+                var ints = new Dictionary<uint, int>();
+                if (item.ItemMaximumMana > 0)
+                {
+                    ints[107u] = item.ItemCurrentMana;
+                    ints[108u] = item.ItemMaximumMana;
+                }
+                properties = new PluginItemProperties(
+                    ints,
+                    new Dictionary<uint, long>(),
+                    new Dictionary<uint, bool>(),
+                    new Dictionary<uint, double>(),
+                    new Dictionary<uint, string>(),
+                    new Dictionary<uint, uint>(),
+                    new Dictionary<uint, uint>());
+                return true;
+            }
             if (((IWorldObjectAutomation)this).TryGet(objectId, out _))
             {
                 properties = new PluginItemProperties(
