@@ -179,6 +179,101 @@ public sealed class MossTankPanelTests
             panel.ActionLocks.IsLocked(ActionLockKind.CorpseOpenAttempt));
     }
 
+    /// <summary>
+    /// The reference's corpse-id latch: with looting on, a corpse whose
+    /// description has not arrived, within the approach range (five metres
+    /// at least) plus ten, holds every walk off for the pass — the route
+    /// included — and the loot channel says so. Once the corpse is
+    /// described and turns out not to be ours, the walks are free again.
+    /// Mutation: drop <c>!_navigationWaitsOnCorpseId</c> from
+    /// <c>NavigationLocksAreClear</c> and the route wins the first pass.
+    /// </summary>
+    [Fact]
+    public void AnUndescribedCorpseWithinReachHoldsEveryWalkOffForThePass()
+    {
+        var loot = new FrameLootSurface();
+        var automation = new FakeAutomation
+        {
+            LootSurface = loot,
+            NavigationSnapshot = new PluginNavigationSnapshot(
+                true,
+                false,
+                1u,
+                new PluginNavigationPosition(0x00010001u, 0d, 0d, 0d, 0f, IsOutdoor: true),
+                false,
+                false),
+        };
+        var panel = new MossTankPanel(new FakeHost(automation));
+        panel.AddLootRule();
+        if (!panel.LootEnabled)
+            panel.ToggleLooting();
+        // One waypoint the character is nowhere near, so the route rule has
+        // something to do on every pass.
+        automation.NavigationSnapshot = automation.NavigationSnapshot with
+        {
+            Position = new PluginNavigationPosition(
+                0x00010001u, 0d, 1d, 0d, 0f, IsOutdoor: true),
+        };
+        panel.AddRoutePoint();
+        automation.NavigationSnapshot = automation.NavigationSnapshot with
+        {
+            Position = new PluginNavigationPosition(
+                0x00010001u, 0d, 0d, 0d, 0f, IsOutdoor: true),
+        };
+        panel.ToggleNavigation();
+        loot.Corpses =
+        [
+            new PluginLootContainer(
+                FrameLootSurface.CorpseId,
+                1u,
+                "Corpse",
+                8f,
+                false,
+                false,
+                false),
+        ];
+        panel.ExecuteVtankCommand(new PluginCommand(
+            "vt", "log ActiveRule on", "/vt log ActiveRule on"));
+        panel.ExecuteVtankCommand(new PluginCommand(
+            "vt", "log Loot on", "/vt log Loot on"));
+        automation.Messages.Clear();
+        panel.ToggleCombat();
+
+        panel.OnTick(0.3d);
+        panel.OnTick(0.3d);
+
+        Assert.Contains(
+            "[MossTank] Waiting this tick on corpse ID.",
+            automation.Messages);
+        Assert.DoesNotContain(
+            automation.Messages,
+            line => line.Contains("Picked NavigateRouteIdle", StringComparison.Ordinal));
+        Assert.DoesNotContain(
+            automation.Messages,
+            line => line.Contains("Picked NavigateCorpseIdle", StringComparison.Ordinal));
+
+        // Described now, and somebody else's kill: nothing to loot, nothing
+        // to wait for, and the route walks on.
+        loot.Corpses =
+        [
+            loot.Corpses[0] with
+            {
+                IsIdentified = true,
+                LongDescription = "Killed by Stranger.",
+            },
+        ];
+        automation.Messages.Clear();
+        panel.OnTick(0.3d);
+        panel.OnTick(0.3d);
+
+        Assert.Contains(
+            automation.Messages,
+            line => line.Contains("Picked NavigateRouteIdle", StringComparison.Ordinal));
+        Assert.DoesNotContain(
+            "[MossTank] Waiting this tick on corpse ID.",
+            automation.Messages);
+    }
+
     private sealed class FrameLootSurface : ILootAutomation
     {
         internal const uint CorpseId = 0x70000D01u;

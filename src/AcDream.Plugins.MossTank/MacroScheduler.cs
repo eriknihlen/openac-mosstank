@@ -179,6 +179,13 @@ internal sealed class MacroScheduler
 
     public Action<double>? MetaPass { get; set; }
 
+    /// <summary>
+    /// Raised at the top of every pass, before the meta and the rules: the
+    /// reference clears its two per-pass latches here (the "waiting on a
+    /// corpse id" pair), and whoever owns such latches clears them on this.
+    /// </summary>
+    public Action? PassStarting { get; set; }
+
     public long PassCount { get; private set; }
 
     private double _suspendedMetaSeconds;
@@ -260,6 +267,7 @@ internal sealed class MacroScheduler
     public void RunPass(double elapsedSeconds)
     {
         double elapsed = Math.Max(0d, elapsedSeconds);
+        PassStarting?.Invoke();
 
         if (IsSuspended)
         {

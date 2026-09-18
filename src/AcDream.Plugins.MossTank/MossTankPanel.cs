@@ -414,6 +414,7 @@ internal sealed partial class MossTankPanel : IBuffRuleHost
         _meta.SetEnabled(_metaSettings.Enabled);
         RegisterVtankExpressionFunctions();
         _scheduler = MacroRuleTable.Build(this);
+        _scheduler.PassStarting = ClearPassLatches;
         _scheduler.MetaPass = elapsed =>
         {
             if (_combat.Enabled)
@@ -4716,10 +4717,7 @@ internal sealed partial class MossTankPanel : IBuffRuleHost
         // armed them. They step before the pass so the pass sees the frame's
         // work already done and never spends the same time twice. Only one of
         // them is ever armed: the pass the winner takes disarms the other.
-        if (_loot.HasPendingRouteLoot())
-            _navigation.StopForLostTurn();
-        else
-            _navigation.StepArmedMover(elapsedSeconds);
+        _navigation.StepArmedMover(elapsedSeconds);
         _corpseApproach.StepArmedMover(elapsedSeconds);
         _scheduler.Advance(elapsedSeconds);
         // After the pass: a held item's cast is driven by the frame on every

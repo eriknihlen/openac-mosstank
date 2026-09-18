@@ -365,6 +365,45 @@ public class MacroSchedulerTests
         public bool Running { get; set; }
     }
 
+    /// <summary>
+    /// The reference clears its per-pass latches at the top of every pass,
+    /// before the meta and before any rule is asked. Mutation: drop the
+    /// <c>PassStarting</c> call from <c>RunPass</c> and both counts stay 0.
+    /// </summary>
+    [Fact]
+    public void PassStartingFiresBeforeTheRulesOnEveryPass()
+    {
+        int started = 0;
+        int startedWhenAsked = -1;
+        var scheduler = new MacroScheduler(
+            [new PassStartProbe(() => startedWhenAsked = started)])
+        {
+            PassStarting = () => started++,
+        };
+        scheduler.Start();
+
+        scheduler.RunPass(0.3d);
+        Assert.Equal(1, started);
+        Assert.Equal(1, startedWhenAsked);
+
+        scheduler.RunPass(0.3d);
+        Assert.Equal(2, started);
+        Assert.Equal(2, startedWhenAsked);
+    }
+
+    private sealed class PassStartProbe(Action asked) : IMacroRule
+    {
+        public string Name => "probe";
+
+        public bool ValidNow(in MacroPassContext context)
+        {
+            asked();
+            return false;
+        }
+
+        public bool Running { get; set; }
+    }
+
     [Fact]
     public void PokeForcesAnImmediatePass()
     {

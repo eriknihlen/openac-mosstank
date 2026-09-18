@@ -26,9 +26,51 @@ internal sealed partial class MossTankPanel : IMacroRuleProvider
     /// a door arms while it opens.
     /// </summary>
     private bool NavigationLocksAreClear() =>
-        !_actionLocks.IsLocked(ActionLockKind.Navigation)
+        !_navigationWaitsOnCorpseId
+        && !_actionLocks.IsLocked(ActionLockKind.Navigation)
         && !_actionLocks.IsLocked(ActionLockKind.SpreadLockTargetRequested)
         && !_actionLocks.IsLocked(ActionLockKind.DoorOpening);
+
+    /// <summary>
+    /// The reference's two per-pass latches: whether the corpse-id question
+    /// has been asked this pass, and its answer — an undescribed corpse
+    /// within the loot reach holds every walk off for the pass. Cleared at
+    /// the top of each pass.
+    /// </summary>
+    private bool _corpseIdWaitDecided;
+    private bool _navigationWaitsOnCorpseId;
+
+    private void ClearPassLatches()
+    {
+        _corpseIdWaitDecided = false;
+        _navigationWaitsOnCorpseId = false;
+    }
+
+    /// <summary>
+    /// The reference's "set waiting on corpse id" gate. It never refuses the
+    /// row it sits on; its job is the latch. Asked once per pass, by the
+    /// first of the five rows whose earlier gates passed: with looting on,
+    /// a corpse whose description has not arrived, within the approach
+    /// range (five metres at least) plus ten, holds every walk off this
+    /// pass.
+    /// </summary>
+    private bool WaitOnCorpseId()
+    {
+        if (_corpseIdWaitDecided)
+            return true;
+        _corpseIdWaitDecided = true;
+        if (!_inventorySettings.Loot.Enabled)
+            return true;
+        double reach = Math.Max(
+            LootController.CorpseOpenRangeMeters,
+            _inventorySettings.Loot.CorpseApproachRange)
+            + LootController.CorpseIdWaitMarginMeters;
+        if (!_loot.HasCorpseAwaitingDescriptionWithin(reach))
+            return true;
+        _navigationWaitsOnCorpseId = true;
+        EmitMacroLog(MacroLogChannel.Loot, "Waiting this tick on corpse ID.");
+        return true;
+    }
 
     private void StopMacroFromGate(string notice)
     {
@@ -186,6 +228,7 @@ internal sealed partial class MossTankPanel : IMacroRuleProvider
             gate: () => _combat.Enabled && !_buffRule.IsBursting
                 && _inventorySettings.Loot.Enabled
                 && _inventorySettings.Loot.PriorityBoost
+                && WaitOnCorpseId()
                 && _navigationSettings.Enabled
                 && NavigationLocksAreClear(),
             onLostTurn: _corpseApproach.StopForLostTurn,
@@ -198,6 +241,7 @@ internal sealed partial class MossTankPanel : IMacroRuleProvider
                 gate: () => _combat.Enabled && !_buffRule.IsBursting
                     && _inventorySettings.Loot.Enabled
                     && !_inventorySettings.Loot.PriorityBoost
+                    && WaitOnCorpseId()
                     && _navigationSettings.Enabled
                     && NavigationLocksAreClear(),
                 onLostTurn: _corpseApproach.StopForLostTurn,
@@ -213,13 +257,16 @@ internal sealed partial class MossTankPanel : IMacroRuleProvider
             "OpenCorpsePriority",
             TickLootRule,
             gate: () => ItemSlotIsFree() && _combat.Enabled && !_buffRule.IsBursting
-                && _inventorySettings.Loot.PriorityBoost),
+                && _inventorySettings.Loot.PriorityBoost
+                && WaitOnCorpseId()),
         MacroRuleSlot.OpenCorpseIdle => new MacroRulePreChain(
             new ControllerMacroRule(
                 "OpenCorpseIdle",
                 TickLootRule,
                 gate: () => ItemSlotIsFree() && !_inventorySettings.Loot.PriorityBoost
-                    && _combat.Enabled && !_buffRule.IsBursting),
+                    && _combat.Enabled && !_buffRule.IsBursting
+                    && _inventorySettings.Loot.Enabled
+                    && WaitOnCorpseId()),
             fallbacks: [_idlePeace]),
         MacroRuleSlot.LootCorpsePriority => new AbsentMacroRule(
             "LootCorpsePriority (loot step)",
@@ -243,7 +290,7 @@ internal sealed partial class MossTankPanel : IMacroRuleProvider
             context => _navigation.ClaimFromRulePass(context.CanAct),
             gate: () => _combat.Enabled && !_buffRule.IsBursting
                 && _navigationSettings.Priority
-                && !_loot.HasPendingRouteLoot()
+                && WaitOnCorpseId()
                 && NavigationLocksAreClear(),
             onLostTurn: _navigation.StopForLostTurn,
             runningDetail: () => _navigation.RunningDetail,
@@ -253,7 +300,6 @@ internal sealed partial class MossTankPanel : IMacroRuleProvider
                 "NavigateRouteIdle",
                 context => _navigation.ClaimFromRulePass(context.CanAct),
                 gate: () => !_navigationSettings.Priority
-                    && !_loot.HasPendingRouteLoot()
                     && _combat.Enabled && !_buffRule.IsBursting
                     && NavigationLocksAreClear(),
                 onLostTurn: _navigation.StopForLostTurn,

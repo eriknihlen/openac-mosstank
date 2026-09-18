@@ -86,7 +86,7 @@ internal sealed partial class LootController
     /// The radius the open step picks within — arm's reach, a little over five
     /// metres. Outside it the corpse is the approach step's business.
     /// </summary>
-    private const double CorpseOpenRangeMeters = 240d / 48d;
+    internal const double CorpseOpenRangeMeters = 240d / 48d;
 
     /// <summary>
     /// The corpse the approach step walks at: the nearest one it may loot
@@ -147,37 +147,37 @@ internal sealed partial class LootController
                 byHeading: true) is not null;
     }
 
-    internal bool HasStationaryCorpseWork() =>
-        HasPendingCorpseWork(CorpseOpenRangeMeters);
+    /// <summary>
+    /// The margin the reference adds to the approach range when it asks
+    /// whether an undescribed corpse is close enough to hold the walks off:
+    /// ten metres.
+    /// </summary>
+    internal const double CorpseIdWaitMarginMeters = 240d / 24d;
 
-    internal bool HasPendingRouteLoot() =>
-        HasPendingCorpseWork(Math.Max(CorpseOpenRangeMeters, _settings.CorpseApproachRange));
-
-    // A cooldown or an outstanding description does not mean looting is done.
-    // Keep movement out until nearby corpses can be judged and processed.
-    private bool HasPendingCorpseWork(double rangeMeters)
+    /// <summary>
+    /// Whether a corpse whose description has not arrived lies within
+    /// <paramref name="rangeMeters"/>. This is the reference's "a corpse id
+    /// request is pending" question: every corpse the client knows of is
+    /// asked for its description as it appears, so a corpse without one is a
+    /// corpse whose answer is still on its way.
+    /// </summary>
+    internal bool HasCorpseAwaitingDescriptionWithin(double rangeMeters)
     {
-        if (!_settings.ProfileActive || !_settings.Enabled
-            || !_host.Automation.IsAvailable
-            || (_settings.Rules.Count == 0
-                && string.IsNullOrWhiteSpace(_settings.ExternalClassifierId)))
+        if (!_host.Automation.IsAvailable)
             return false;
         ILootAutomation loot = _host.Automation.Loot;
         if (!loot.IsAvailable)
             return false;
-        if (_activeCorpse != 0u || loot.CurrentContainerId != 0u)
-            return true;
-
-        IReadOnlyList<PluginLootContainer> corpses = loot.CaptureCorpses(float.MaxValue);
-        if (SelectCorpse(corpses, rangeMeters, byHeading: false) is not null)
-            return true;
-        foreach (PluginLootContainer corpse in corpses)
+        foreach (PluginLootContainer corpse in loot.CaptureCorpses(float.MaxValue))
         {
-            if (!corpse.IsIdentified && corpse.Distance <= rangeMeters
+            if (!corpse.IsIdentified
+                && corpse.Distance <= rangeMeters
                 && !_completedCorpses.ContainsKey(corpse.ObjectId)
                 && !IsCorpseDenied(corpse.ObjectId)
                 && !IsCorpseBlacklisted(corpse.ObjectId))
+            {
                 return true;
+            }
         }
         return false;
     }
