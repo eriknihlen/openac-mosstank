@@ -25,14 +25,48 @@ internal sealed partial class MossTankPanel
             _assessmentRetries.Remove(objectId);
             return true;
         }
-        if (_assessmentTime < _nextAssessment || automation.Items.IsBusy
-            || _assessmentRetries.TryGetValue(objectId, out double retryAt)
-                && _assessmentTime < retryAt)
+        if (_assessmentRetries.TryGetValue(objectId, out double retryAt)
+            && _assessmentTime < retryAt)
+            return false;
+        if (_assessmentTime < _nextAssessment || automation.Items.IsBusy)
             return false;
         PluginItemCommandResult result = automation.Objects.Identify(objectId);
-        _nextAssessment = _assessmentTime + 2d;
-        _assessmentRetries[objectId] = _assessmentTime + (result.Accepted ? 10d : 2d);
+        NoteAssessmentRequest(objectId, result);
+        if (result.Accepted)
+        {
+            // One appraisal in flight at a time; its answer is what ends the
+            // wait, the ten seconds only bound a lost one.
+            _nextAssessment = _assessmentTime + 2d;
+            _assessmentRetries[objectId] = _assessmentTime + 10d;
+        }
+        else
+        {
+            // A request the client did not send costs nothing and must not
+            // hold the others: the item that cannot be assessed backs off by
+            // itself, and the scan goes on to the next one. Otherwise the
+            // first refused item in the bag kept every item after it
+            // unassessed for the whole session.
+            _assessmentRetries[objectId] = _assessmentTime
+                + (result.Status == PluginItemCommandStatus.Busy ? 1d : 10d);
+        }
         return false;
+    }
+
+    private readonly Dictionary<uint, string> _assessmentNotes = new();
+
+    // Said once per item and outcome: a profile item the client never gets
+    // to assess is a silent failure otherwise, and every rule that reads
+    // the item waits on it.
+    private void NoteAssessmentRequest(uint objectId, PluginItemCommandResult result)
+    {
+        string note = result.Status.ToString();
+        if (_assessmentNotes.TryGetValue(objectId, out string? previous)
+            && string.Equals(previous, note, StringComparison.Ordinal))
+            return;
+        _assessmentNotes[objectId] = note;
+        string name = _host.Automation.Items.CaptureOwnedItems()
+            .FirstOrDefault(item => item.ObjectId == objectId).Name ?? string.Empty;
+        EmitMacroLog(MacroLogChannel.Misc, $"Assessing {name} (0x{objectId:X8}): {note}");
     }
 
     private void TickConfiguredItemAssessment(double elapsed)

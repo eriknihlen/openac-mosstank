@@ -5059,6 +5059,74 @@ public sealed class MossTankPanelTests
     }
 
     [Fact]
+    public void AProfileItemLoadedWithTheCharacterIsAssessedWithoutBeingReAdded()
+    {
+        var storage = new MemoryStorage();
+        var first = new FakeAutomation
+        {
+            Name = "Prover",
+            ItemEntries = [Item(10, "Fire Sword", 1)],
+        };
+        var firstHost = new FakeHost(first, storage);
+        var firstPanel = new MossTankPanel(firstHost);
+        firstHost.Selection.Select(10);
+        firstPanel.AddSelectedItem();
+        Assert.Contains("Fire Sword", firstPanel.ItemRows);
+
+        // A fresh session: the same character, the same sword, not yet
+        // assessed by this client. The profile names it; nobody re-adds it.
+        var automation = new FakeAutomation
+        {
+            Name = "Prover",
+            ItemEntries = [Item(10, "Fire Sword", 1)],
+        };
+        automation.Unassessed.Add(10u);
+        var panel = new MossTankPanel(new FakeHost(automation, storage));
+        Assert.Contains("Fire Sword", panel.ItemRows);
+
+        for (int tick = 0; tick < 20; tick++)
+            panel.OnTick(0.3d);
+
+        Assert.Contains(10u, automation.Identified);
+        Assert.Empty(automation.Unassessed);
+    }
+
+    [Fact]
+    public void AnItemTheClientRefusesToAssessDoesNotStarveTheOthers()
+    {
+        var storage = new MemoryStorage();
+        var first = new FakeAutomation
+        {
+            Name = "Prover",
+            ItemEntries = [Item(10, "Fire Sword", 1), Item(11, "Ice Wand", 0x8000)],
+        };
+        var firstHost = new FakeHost(first, storage);
+        var firstPanel = new MossTankPanel(firstHost);
+        firstHost.Selection.Select(10);
+        firstPanel.AddSelectedItem();
+        firstHost.Selection.Select(11);
+        firstPanel.AddSelectedItem();
+
+        // A fresh session in which the client refuses the first item's
+        // appraisal outright, every time.
+        var automation = new FakeAutomation
+        {
+            Name = "Prover",
+            ItemEntries = [Item(10, "Fire Sword", 1), Item(11, "Ice Wand", 0x8000)],
+        };
+        automation.Unassessed.Add(10u);
+        automation.Unassessed.Add(11u);
+        automation.IdentifyRefusals.Add(10u);
+        var panel = new MossTankPanel(new FakeHost(automation, storage));
+
+        for (int tick = 0; tick < 20; tick++)
+            panel.OnTick(0.3d);
+
+        Assert.Contains(11u, automation.Identified);
+        Assert.Equal([10u], automation.Unassessed.Order());
+    }
+
+    [Fact]
     public void NavCommandsImportLegacyAndExportAf()
     {
         var storage = new MemoryStorage();
@@ -6787,6 +6855,23 @@ public sealed class MossTankPanelTests
         public IReadOnlyList<PluginWorldObject> CaptureObjects() => WorldObjects;
 
         public bool ItemsBusy { get; set; }
+        // Items this client has not assessed yet; an identify request the
+        // fake accepts assesses them. Empty, every item counts as assessed.
+        public HashSet<uint> Unassessed { get; } = [];
+        public List<uint> Identified { get; } = [];
+        public HashSet<uint> IdentifyRefusals { get; } = [];
+        public PluginItemCommandStatus IdentifyStatus { get; set; } =
+            PluginItemCommandStatus.Started;
+
+        public PluginItemCommandResult Identify(uint objectId)
+        {
+            Identified.Add(objectId);
+            if (IdentifyRefusals.Contains(objectId))
+                return new(PluginItemCommandStatus.Refused);
+            if (IdentifyStatus == PluginItemCommandStatus.Started)
+                Unassessed.Remove(objectId);
+            return new(IdentifyStatus);
+        }
 
         bool IItemAutomation.IsBusy => ItemsBusy;
 
@@ -6825,7 +6910,7 @@ public sealed class MossTankPanelTests
                     item.ObjectId, item.WeenieClassId, item.Name, PluginObjectClass.Unknown,
                     item.ItemType, item.ContainerObjectId, item.WielderObjectId)
                 {
-                    LastIdTime = 1,
+                    LastIdTime = Unassessed.Contains(item.ObjectId) ? 0 : 1,
                 };
                 return true;
             }

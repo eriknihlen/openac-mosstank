@@ -3026,7 +3026,7 @@ internal sealed class CombatController
         _nextTargetDiagnostic = _now + 5d;
         IReadOnlyList<PluginCombatTarget> visible =
             _host.Automation.Combat.CaptureHostileTargets(float.MaxValue);
-        _host.Log.Info($"Target scan: no selection, hostiles={visible.Count}, candidates={candidates.Count}, range={_settings.MinimumRange:F2}..{_acquisitionRange:F2}, selected=0x{(_host.Selection.SelectedObjectId ?? 0u):X8}");
+        Log?.Invoke(MacroLogChannel.RuleInfo, $"Target scan: no selection, hostiles={visible.Count}, candidates={candidates.Count}, range={_settings.MinimumRange:F2}..{_acquisitionRange:F2}, selected=0x{(_host.Selection.SelectedObjectId ?? 0u):X8}");
         foreach (PluginCombatTarget target in visible)
         {
             ResolvedMonsterRule rule = _settings.ResolveRule(target);
@@ -3039,7 +3039,7 @@ internal sealed class CombatController
                 : _passCandidates.TryGetValue(target.ObjectId, out CombatTargetCandidate? candidate)
                     ? candidate is null ? "no attack or due debuff after pass filtering" : "eligible candidate"
                 : "absent from current acquisition snapshot";
-            _host.Log.Info($"Target check: {target.Name} (0x{target.ObjectId:X8}), distance={target.Distance:F2}, angle={target.RelativeAngleDegrees:F1}, reason={reason}, rule={rule.Rule.Expression}, priority={rule.Priority}, attacks={rule.Actions.Attacks}, streak={rule.Actions.UsesStreak}");
+            Log?.Invoke(MacroLogChannel.RuleInfo, $"Target check: {target.Name} (0x{target.ObjectId:X8}), distance={target.Distance:F2}, angle={target.RelativeAngleDegrees:F1}, reason={reason}, rule={rule.Rule.Expression}, priority={rule.Priority}, attacks={rule.Actions.Attacks}, streak={rule.Actions.UsesStreak}");
         }
     }
 
