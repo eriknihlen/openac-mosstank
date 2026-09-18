@@ -1152,7 +1152,7 @@ internal sealed partial class LootController
         PluginItemCommandResult pickup = loot.Pickup(chosen.Item.ObjectId);
         if (!pickup.Accepted)
         {
-            Status = $"Pickup refused: {chosen.Item.Name}.";
+            Status = $"Pickup refused: {chosen.Item.Name} ({pickup.Status}).";
             return pickup.Status == PluginItemCommandStatus.Busy;
         }
 

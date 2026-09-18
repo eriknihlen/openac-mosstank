@@ -2260,6 +2260,49 @@ public sealed class MossTankPanelTests
             MaxStamina = 100,
             CurrentMana = 100,
             MaxMana = 100,
+        };
+        automation.CombatSnapshot = automation.CombatSnapshot with
+        {
+            Mode = PluginCombatMode.Melee,
+        };
+        var panel = new MossTankPanel(new FakeHost(automation));
+        panel.ToggleIdlePeaceMode();
+        panel.ToggleCombat();
+        // A cast this macro issued and is still waiting on.
+        SpellCastTracker tracker = ((IBuffRuleHost)panel).CastTracker;
+        tracker.Begin(1u, "Strength Self", 0u, string.Empty, false, issueRevision: 0L);
+
+        for (int tick = 0; tick < 5; tick++)
+            panel.OnTick(0.3d);
+
+        Assert.DoesNotContain("EnterMode:Peace", automation.CallLog);
+        Assert.Equal(PluginCombatMode.Melee, automation.CombatSnapshot.Mode);
+
+        tracker.Reset();
+        panel.OnTick(0.01d);
+        panel.OnTick(0.01d);
+
+        Assert.Contains("EnterMode:Peace", automation.CallLog);
+    }
+
+    /// <summary>
+    /// The host's casting flag is its inventory busy count under another
+    /// name: every open, pickup and appraisal raises it. The reference's
+    /// global busy count is raised by none of those, so the flag alone must
+    /// not hold the pass. Mutation: put <c>Magic.IsCasting</c> back into the
+    /// suspension predicate and the pass never reaches the peace rule.
+    /// </summary>
+    [Fact]
+    public void TheHostsInventoryBusyFlagAloneDoesNotSuspendThePass()
+    {
+        var automation = new CombatCapableFakeAutomation
+        {
+            CurrentHealth = 100,
+            MaxHealth = 100,
+            CurrentStamina = 100,
+            MaxStamina = 100,
+            CurrentMana = 100,
+            MaxMana = 100,
             IsCasting = true,
         };
         automation.CombatSnapshot = automation.CombatSnapshot with
@@ -2270,19 +2313,11 @@ public sealed class MossTankPanelTests
         panel.ToggleIdlePeaceMode();
         panel.ToggleCombat();
 
-        for (int tick = 0; tick < 10; tick++)
+        for (int tick = 0; tick < 5; tick++)
             panel.OnTick(0.3d);
-
-        Assert.DoesNotContain("EnterMode:Peace", automation.CallLog);
-        Assert.Equal(PluginCombatMode.Melee, automation.CombatSnapshot.Mode);
-
-        automation.IsCasting = false;
-        panel.OnTick(0.01d);
-        panel.OnTick(0.01d);
 
         Assert.Contains("EnterMode:Peace", automation.CallLog);
     }
-
 
     /// <summary>
     /// The reference has two self-recharge rows: the normal thresholds at
@@ -2932,7 +2967,6 @@ public sealed class MossTankPanelTests
             MaxStamina = 100,
             CurrentMana = 100,
             MaxMana = 100,
-            IsCasting = true,
         };
         automation.CombatSnapshot = automation.CombatSnapshot with
         {
@@ -2941,6 +2975,9 @@ public sealed class MossTankPanelTests
         var panel = new MossTankPanel(new FakeHost(automation));
         panel.ToggleIdlePeaceMode();
         panel.ToggleCombat();
+        // A cast the server never answers: the tracker's own budget ends it.
+        ((IBuffRuleHost)panel).CastTracker.Begin(
+            1u, "Strength Self", 0u, string.Empty, false, issueRevision: 0L);
 
         for (int tick = 0; tick < 34; tick++)
             panel.OnTick(0.3d);

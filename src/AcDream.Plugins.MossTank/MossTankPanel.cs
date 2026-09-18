@@ -4819,9 +4819,10 @@ internal sealed partial class MossTankPanel : IBuffRuleHost
         // kit, food or craft use. NOT the host's inventory flag, which every
         // open, pickup and identify raises: those arm named locks instead,
         // and the rules that would collide with them refuse on the lock.
-        IAutomationSurface automation = _host.Automation;
+        // The host's Magic.IsCasting IS that inventory flag under another
+        // name, so it is not consulted either: the plugin's own cast tracker
+        // knows every cast this macro issues.
         bool inFlight = _castTracker.IsBusy
-            || automation.Magic.IsCasting
             || _combat.HeldItemCastInFlight
             || _vitalRecharge.ItemUseInFlight
             || _vitalHelperRecharge.ItemUseInFlight
