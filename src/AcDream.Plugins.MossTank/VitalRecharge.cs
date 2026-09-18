@@ -1266,20 +1266,14 @@ internal sealed class VitalRechargeController
             Status = "Vitals ready";
             return false;
         }
-        // A need with nothing to answer it yet is no reason to hold the pass:
-        // every rule below this one, the attack first of all, is paused while
-        // it is held, and a character that cannot heal must still fight. The
-        // pass is claimed only while a use of ours is in flight (above), or
-        // once a choice is made below.
+        // The reference rule is valid whenever a vital is below its threshold,
+        // whatever it then finds to use: a vital it has no answer for holds
+        // the pass with a warning, not a yield. The retry delay only paces
+        // how often a plan is looked for again.
         if (_retryDelay > 0d)
         {
             Status = "Waiting to retry";
-            return false;
-        }
-        if (automation.Magic.IsCasting || automation.Items.IsBusy)
-        {
-            Status = "Waiting for the character";
-            return false;
+            return true;
         }
 
         VitalRechargeChoice choice;
@@ -1297,7 +1291,7 @@ internal sealed class VitalRechargeController
         {
             Status = $"No {need.Value} recharge available";
             _retryDelay = 1d;
-            return false;
+            return true;
         }
 
         if (choice.RequiredMode == PluginCombatMode.Magic

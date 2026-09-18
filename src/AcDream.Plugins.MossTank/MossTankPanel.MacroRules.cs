@@ -99,7 +99,7 @@ internal sealed partial class MossTankPanel : IMacroRuleProvider
             context => _vitalRecharge.Tick(
                 context.ElapsedSeconds,
                 context.CanAct,
-                noTarget: !_combat.HasTarget,
+                noTarget: false,
                 helpers: false),
             gate: () => ItemSlotIsFree() && _combat.Enabled),
 
@@ -360,10 +360,17 @@ internal sealed partial class MossTankPanel : IMacroRuleProvider
                 && _navigationSettings.Enabled
                 && NavigationLocksAreClear()),
 
-        MacroRuleSlot.RechargeSelfNoTarget => new AbsentMacroRule(
+        // Row 59: the idle recharge, below loot, the buff top-off and the
+        // monster approach, against the no-target thresholds. Row 4 above
+        // reads the normal thresholds alone.
+        MacroRuleSlot.RechargeSelfNoTarget => new ControllerMacroRule(
             "RechargeSelfNoTarget",
-            "fused into RechargeSelfNormal — VitalPlan.Threshold merges the "
-                + "Normal and NoTarget settings."),
+            context => _vitalRecharge.Tick(
+                context.ElapsedSeconds,
+                context.CanAct,
+                noTarget: true,
+                helpers: false),
+            gate: () => ItemSlotIsFree() && _combat.Enabled),
 
         MacroRuleSlot.RandomHelper => new MacroRulePreChain(
             _randomHelper,

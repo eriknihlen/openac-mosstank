@@ -2235,6 +2235,21 @@ public sealed class MossTankPanelTests
     }
 
 
+    /// <summary>
+    /// The reference has two self-recharge rows: the normal thresholds at
+    /// row 4 and the no-target thresholds at row 59, below loot, the buff
+    /// top-off and the monster approach. Both are live rules here.
+    /// </summary>
+    [Fact]
+    public void BothSelfRechargeRowsAreLiveRules()
+    {
+        var panel = new MossTankPanel(new FakeHost(new CombatCapableFakeAutomation()));
+        IMacroRule normal = panel.MacroRules.First(static rule => rule.Name == "RechargeSelfNormal");
+        IMacroRule idle = panel.MacroRules.First(static rule => rule.Name == "RechargeSelfNoTarget");
+        Assert.IsType<ControllerMacroRule>(normal);
+        Assert.IsType<ControllerMacroRule>(idle);
+    }
+
     [Fact]
     public void VtLogActiveRuleOnPostsThePickedLineNamingTheWinner()
     {
@@ -3501,12 +3516,18 @@ public sealed class MossTankPanelTests
         Assert.NotEmpty(automation.CastSpellIds);
     }
 
+    /// <summary>
+    /// The reference rule is valid whenever a vital is below its threshold,
+    /// and holds the pass with a warning when nothing can answer it; what
+    /// the reference never has is "nothing to use", because its kits need
+    /// no assessment and a heal spell is always a handler. The assessment
+    /// starvation that once left this character with nothing to use is
+    /// fixed at its cause; the rule keeps the reference's hold.
+    /// </summary>
     [Fact]
-    public void ARechargeWithNothingToUseNeverHoldsThePass()
+    public void ARechargeWithNothingToUseHoldsThePassAsTheReferenceDoes()
     {
         // Health is low and nothing can answer it: no kit, no food, no spell.
-        // The rule must decline every pass, retry delay included, or the
-        // attack beneath it never runs and the character dies unarmed.
         var automation = new FakeAutomation
         {
             CurrentHealth = 10,
@@ -3531,7 +3552,7 @@ public sealed class MossTankPanelTests
             }
         }
 
-        Assert.Empty(held);
+        Assert.NotEmpty(held);
     }
 
     [Fact]

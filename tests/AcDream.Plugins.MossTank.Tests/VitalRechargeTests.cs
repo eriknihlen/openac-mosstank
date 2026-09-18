@@ -496,6 +496,31 @@ public sealed class VitalRechargeTests
     }
 
     /// <summary>
+    /// The reference rule is valid whenever a vital is below its threshold,
+    /// whatever it then finds to use: a vital with no answer holds the pass
+    /// (with a warning), it does not yield it. Mutation: make the "no
+    /// recharge available" path return false and the assertion fails.
+    /// </summary>
+    [Fact]
+    public void AVitalBelowThresholdWithNothingToUseStillHoldsThePass()
+    {
+        var surface = new Surface
+        {
+            CurrentHealth = 20,
+            MaxHealth = 100,
+        };
+        var controller = new VitalRechargeController(
+            new Host(surface),
+            new VitalSettings(),
+            new CombatSettings());
+        controller.BindActionLocks(new ActionLockTable());
+
+        Assert.True(controller.Tick(0.3d, enabled: true, noTarget: false, helpers: false));
+        Assert.Contains("No Health recharge available", controller.Status);
+        Assert.True(controller.Tick(0.3d, enabled: true, noTarget: false, helpers: false));
+    }
+
+    /// <summary>
     /// A pass the rule does not win is not a reason to abandon an item the
     /// server has yet to answer for: the transaction keeps its slot and keeps
     /// waiting, so it cannot drop a window somebody else is holding and it
