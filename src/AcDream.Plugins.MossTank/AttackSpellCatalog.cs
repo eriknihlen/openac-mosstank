@@ -146,8 +146,7 @@ internal sealed class AttackSpellCatalog
             && element is MonsterDamageType.Nether or MonsterDamageType.VoidBasic)
         {
             return _byId.TryGetValue(VoidRingSpellId, out PluginSpellInfo voidRing)
-                && usable?.Invoke(voidRing) != false
-                ? voidRing
+                ? ResolveFamilyOf(voidRing, usable)
                 : null;
         }
         string? family = FamilyName(element, type);
@@ -163,6 +162,13 @@ internal sealed class AttackSpellCatalog
         MonsterDamageType element,
         VtankCombatSpellType type)
     {
+        if (type == VtankCombatSpellType.Ring
+            && element is MonsterDamageType.Nether or MonsterDamageType.VoidBasic)
+        {
+            return _byId.TryGetValue(VoidRingSpellId, out PluginSpellInfo voidRing)
+                ? voidRing
+                : null;
+        }
         string? family = FamilyName(element, type);
         if (family is null
             || !_families.TryGetValue(family, out List<PluginSpellInfo>? members))
@@ -178,6 +184,28 @@ internal sealed class AttackSpellCatalog
                 lowest = spell;
         }
         return lowest;
+    }
+
+    internal PluginSpellInfo? ResolveFamilyOf(
+        in PluginSpellInfo baseSpell,
+        Func<PluginSpellInfo, bool>? usable)
+    {
+        PluginSpellInfo? best = null;
+        foreach (PluginSpellInfo spell in _byId.Values)
+        {
+            if (spell.Family != baseSpell.Family
+                || spell.School != baseSpell.School
+                || spell.IsFellowship != baseSpell.IsFellowship
+                || spell.IsUntargeted != baseSpell.IsUntargeted
+                || spell.ComponentSet != baseSpell.ComponentSet
+                || usable?.Invoke(spell) == false)
+            {
+                continue;
+            }
+            if (best is not { } current || spell.Quality > current.Quality)
+                best = spell;
+        }
+        return best;
     }
 
     public PluginSpellInfo? ResolveFamily(

@@ -58,6 +58,14 @@ internal sealed class CorpseApproachController
                 + $"{_goalPosition.NorthSouth:0.######}, "
                 + $"{_goalPosition.Elevation:0.######} ]");
 
+    internal bool IsOutsideCreepDistance()
+    {
+        return _loot.TrySelectApproachCorpse(
+                _settings.CorpseApproachRange,
+                out PluginLootContainer corpse)
+            && corpse.Distance >= NavigationMover.CreepDistanceMeters;
+    }
+
     /// <summary>The walk's own turn: it answers the pass and arms the mover.</summary>
     internal bool ClaimFromRulePass(bool canAct)
     {

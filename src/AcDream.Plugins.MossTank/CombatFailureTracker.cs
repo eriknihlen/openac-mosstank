@@ -35,6 +35,13 @@ internal sealed class CombatFailureTracker
             // this tracker has an opinion about. Nothing else may write this.
             entry.IsCreature = true;
             entry.LastSeenAt = now;
+            if (entry.ReportedDeathUntil > 0d
+                && target.IsHealthKnown && target.HealthFraction > 0f
+                && target.HealthRevision > entry.DeathHealthRevision)
+            {
+                // A later health response disproves the chat-based inference.
+                entry.ReportedDeathUntil = 0d;
+            }
             // The attempt count is NOT cleared by the monster's health
             // moving. Only our own damage line clears it — a fellow's blow,
             // the monster's own regeneration or a heal are somebody else
@@ -168,11 +175,20 @@ internal sealed class CombatFailureTracker
         Get(objectId).IsDead = true;
     }
 
+    public void ReportDeath(uint objectId, double now, long healthRevision)
+    {
+        if (objectId == 0u)
+            return;
+        Entry entry = Get(objectId);
+        entry.ReportedDeathUntil = now + 4d;
+        entry.DeathHealthRevision = healthRevision;
+    }
+
     public CombatSuppressionReason Reason(uint objectId, double now)
     {
         if (!_entries.TryGetValue(objectId, out Entry? entry))
             return CombatSuppressionReason.None;
-        if (entry.IsDead)
+        if (entry.IsDead || entry.ReportedDeathUntil > now)
             return CombatSuppressionReason.Dead;
         return entry.BlacklistedUntil > now
             ? CombatSuppressionReason.Blacklisted
@@ -211,5 +227,7 @@ internal sealed class CombatFailureTracker
         public int SpellAttempts;
         public double BlacklistedUntil;
         public bool IsDead;
+        public double ReportedDeathUntil;
+        public long DeathHealthRevision;
     }
 }

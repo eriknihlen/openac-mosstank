@@ -128,6 +128,7 @@ internal sealed class LootRule
 internal sealed class LootSettings
 {
     // The shipped VTank default settings profile's own values.
+    public bool ProfileActive { get; set; } = true;
     public bool Enabled { get; set; }
     public string ExternalClassifierId { get; set; } = string.Empty;
     public bool PriorityBoost { get; set; }
@@ -167,33 +168,45 @@ internal readonly record struct ManaStoneTransferPlan(
 
 internal static class ManaStoneTransferPlanner
 {
-    private const uint ManaStoneItemType = 0x00080000u;
+    private const uint MagicalEffect = 0x00000001u;
     private const uint RetainedFlag = 0x01000000u;
+
+    internal static bool IsDonor(PluginInventoryItem item, int minimumTankMana) =>
+        !item.IsEquipped
+        && item.WielderObjectId == 0u
+        && item.ObjectClass != PluginObjectClass.ManaStone
+        && (item.ItemType & 0x00080000u) == 0u
+        && (item.Effects & MagicalEffect) != 0u
+        && item.ItemCurrentMana >= Math.Max(1, minimumTankMana)
+        && item.Workmanship > 0f
+        && item.NumTimesTinkered <= 0
+        && (item.PublicFlags & RetainedFlag) == 0u;
 
     public static ManaStoneTransferPlan? Plan(
         IReadOnlyList<PluginInventoryItem> owned,
         IReadOnlyDictionary<uint, LootAction> classified,
-        int minimumTankMana)
+        int minimumTankMana,
+        ISet<string>? configuredManaStoneNames = null,
+        Func<uint, bool>? canUse = null)
     {
         PluginInventoryItem stone = owned
-            .Where(item => classified.TryGetValue(
-                    item.ObjectId,
-                    out LootAction action)
-                && action == LootAction.ManaStone
-                && (item.ItemType & ManaStoneItemType) != 0u)
+            .Where(item => item.ObjectClass == PluginObjectClass.ManaStone
+                && !item.IsEquipped
+                && item.WielderObjectId == 0u
+                && (canUse?.Invoke(item.ObjectId) ?? true)
+                && (item.Effects & MagicalEffect) == 0u
+                && configuredManaStoneNames?.Contains(item.Name) == true)
             .OrderBy(static item => item.ObjectId)
             .FirstOrDefault();
         if (stone.ObjectId == 0u)
             return null;
-        int minimum = Math.Clamp(minimumTankMana, 1, int.MaxValue);
         PluginInventoryItem tank = owned
             .Where(item => classified.TryGetValue(
                     item.ObjectId,
                     out LootAction action)
                 && action == LootAction.ManaTank
-                && item.ItemCurrentMana >= minimum
-                && item.Value != 0
-                && (item.PublicFlags & RetainedFlag) == 0u)
+                && IsDonor(item, minimumTankMana)
+                && (canUse?.Invoke(item.ObjectId) ?? true))
             .OrderByDescending(static item => item.ItemCurrentMana)
             .ThenBy(static item => item.ObjectId)
             .FirstOrDefault();
@@ -477,6 +490,7 @@ internal sealed partial class LootController
 
     private readonly IPluginHost _host;
     private readonly LootSettings _settings;
+    private readonly ISet<string> _configuredConsumableNames;
     private readonly Dictionary<uint, double> _completedCorpses = [];
     private readonly Dictionary<uint, int> _corpseOpenAttempts = [];
     private readonly Dictionary<uint, double> _corpseBlacklistedAt = [];
@@ -525,6 +539,7 @@ internal sealed partial class LootController
     private string _sellPendingName = string.Empty;
     private ManaStoneTransferPlan? _manaTransfer;
     private long _manaTransferRevision;
+    private readonly HashSet<uint> _uncertainManaItems = [];
     private SalvageBagCombinePlan? _combinePending;
     private readonly Dictionary<uint, int> _combineAttempts = [];
     private readonly HashSet<uint> _abandonedCombineBags = [];
@@ -533,10 +548,13 @@ internal sealed partial class LootController
 
     public LootController(
         IPluginHost host,
-        LootSettings settings)
+        LootSettings settings,
+        ISet<string>? configuredConsumableNames = null)
     {
         _host = host ?? throw new ArgumentNullException(nameof(host));
         _settings = settings ?? throw new ArgumentNullException(nameof(settings));
+        _configuredConsumableNames = configuredConsumableNames
+            ?? new HashSet<string>(StringComparer.Ordinal);
     }
 
     /// <summary>
@@ -609,6 +627,12 @@ internal sealed partial class LootController
     public bool Tick(double elapsedSeconds, bool canAct)
     {
         ILootAutomation loot = _host.Automation.Loot;
+        if (!_settings.ProfileActive)
+        {
+            ResetTransient();
+            Status = "No loot profile is active.";
+            return false;
+        }
         if (!_settings.Enabled)
         {
             ResetTransient();
@@ -655,8 +679,7 @@ internal sealed partial class LootController
 
         if (_waitingItem != 0u)
             return ContinuePickup(loot);
-        if (_activeCorpse == 0u
-            && (_manaTransfer is not null
+        if ((_manaTransfer is not null
                 || HasManaStoneTransfer())
             && ContinueManaStoneTransfer(canAct))
         {
@@ -882,6 +905,7 @@ internal sealed partial class LootController
         _combinePending = null;
         _combineAttempts.Clear();
         _abandonedCombineBags.Clear();
+        _uncertainManaItems.Clear();
         Status = _settings.Enabled ? "Idle." : "Looting disabled.";
     }
 
@@ -897,6 +921,12 @@ internal sealed partial class LootController
         if (_stateAge < 0.10d)
         {
             Status = "Reading corpse contents…";
+            return true;
+        }
+
+        if (!loot.CurrentContentsReady)
+        {
+            Status = "Waiting for corpse item data…";
             return true;
         }
 
@@ -1272,41 +1302,49 @@ internal sealed partial class LootController
 
     private bool HasManaStoneTransfer()
     {
-        if (!_classifiedOwnedItems.Values.Contains(LootAction.ManaStone)
-            || !_classifiedOwnedItems.Values.Contains(LootAction.ManaTank))
-        {
+        if (!_classifiedOwnedItems.Values.Contains(LootAction.ManaTank))
             return false;
-        }
         return ManaStoneTransferPlanner.Plan(
             _host.Automation.Items.CaptureOwnedItems(),
             _classifiedOwnedItems,
-            _settings.ManaTankMinimumMana) is not null;
+            _settings.ManaTankMinimumMana,
+            _configuredConsumableNames,
+            CanUseManaItem) is not null;
     }
+
+    private bool CanUseManaItem(uint objectId) =>
+        !_uncertainManaItems.Contains(objectId)
+        && ConfiguredSupplyReadiness.IsAssessed(_host.Automation, objectId);
 
     private bool ContinueManaStoneTransfer(bool canAct)
     {
         IItemAutomation items = _host.Automation.Items;
         if (_manaTransfer is { } pending)
         {
-            PluginItemUseCompletion completion = items.LastCompletion;
-            if (completion.Revision <= _manaTransferRevision
-                || completion.SourceObjectId != pending.StoneObjectId)
+            ManaFillOutcome outcome = ManaStoneFillConfirmation.Observe(
+                pending, items.CaptureOwnedItems(), items.LastCompletion,
+                _manaTransferRevision, _stateAge >= PickupTimeoutSeconds);
+            if (outcome == ManaFillOutcome.Waiting)
             {
-                if (_stateAge < PickupTimeoutSeconds)
-                {
-                    Status = $"Filling {pending.StoneName}…";
-                    return true;
-                }
-                Status = $"Mana stone fill timed out: {pending.StoneName}.";
+                Status = $"Waiting for {pending.StoneName} charge confirmation…";
+                return true;
+            }
+            if (outcome == ManaFillOutcome.Confirmed)
+            {
+                RemoveClassifiedOwned(pending.TankObjectId);
+                Status = $"Filled {pending.StoneName}.";
+                _host.Automation.Objects.Identify(pending.StoneObjectId);
             }
             else
             {
-                Status = completion.IsSuccess
-                    ? $"Filled {pending.StoneName}."
-                    : $"Could not fill {pending.StoneName}.";
+                // Keep the donor reserved, but do not repeat an uncertain destructive use.
+                _uncertainManaItems.Add(pending.StoneObjectId);
+                _uncertainManaItems.Add(pending.TankObjectId);
+                Status = $"Mana fill unconfirmed; holding {pending.StoneName} and {pending.TankName}.";
             }
-            RemoveClassifiedOwned(pending.StoneObjectId);
-            RemoveClassifiedOwned(pending.TankObjectId);
+            _host.Log.Info($"Mana stone fill: {outcome}, source={pending.StoneName} " +
+                $"(0x{pending.StoneObjectId:X8}), donor={pending.TankName} " +
+                $"(0x{pending.TankObjectId:X8}), error=0x{items.LastCompletion.WeenieError:X8}");
             _manaTransfer = null;
             _manaTransferRevision = 0L;
             _stateAge = 0d;
@@ -1318,7 +1356,9 @@ internal sealed partial class LootController
         ManaStoneTransferPlan? plan = ManaStoneTransferPlanner.Plan(
             items.CaptureOwnedItems(),
             _classifiedOwnedItems,
-            _settings.ManaTankMinimumMana);
+            _settings.ManaTankMinimumMana,
+            _configuredConsumableNames,
+            CanUseManaItem);
         if (plan is not { } next)
             return false;
         PluginItemCommandResult result = items.Apply(
@@ -1331,6 +1371,7 @@ internal sealed partial class LootController
                 : $"Could not use {next.StoneName} on {next.TankName}.";
             return result.Status == PluginItemCommandStatus.Busy;
         }
+        _host.Log.Info($"Mana stone fill request: source={next.StoneName} (0x{next.StoneObjectId:X8}), donor={next.TankName} (0x{next.TankObjectId:X8})");
         _manaTransfer = next;
         _manaTransferRevision = items.LastCompletion.Revision;
         _stateAge = 0d;
@@ -1450,11 +1491,19 @@ internal sealed partial class LootController
 
     private int SpareManaStoneCount(IReadOnlyList<PluginInventoryItem> owned)
     {
-        const uint manaStoneType = 0x00080000u;
+        const uint magicalEffect = 0x00000001u;
         int stones = owned.Count(item =>
-            (item.ItemType & manaStoneType) != 0u);
-        int queued = _classifiedOwnedItems.Values.Count(
-            static action => action == LootAction.ManaTank);
+            item.ObjectClass == PluginObjectClass.ManaStone
+            && !item.IsEquipped
+            && (item.Effects & magicalEffect) == 0u
+            && _configuredConsumableNames.Contains(item.Name));
+        HashSet<uint> ownedIds = owned
+            .Select(static item => item.ObjectId)
+            .ToHashSet();
+        int queued = _classifiedOwnedItems.Count(entry =>
+            entry.Value == LootAction.ManaTank
+            && ownedIds.Contains(entry.Key));
+        queued += PendingDecisionCount(LootAction.ManaTank);
         return Math.Max(0, stones - queued);
     }
 
@@ -1580,27 +1629,29 @@ internal sealed partial class LootController
         in PluginInventoryItem item,
         IReadOnlyList<PluginInventoryItem> owned)
     {
-        const uint manaStoneType = 0x00080000u;
-        const uint retainedFlag = 0x01000000u;
-        int desired = Math.Clamp(_settings.ManaStoneLootCount, 0, 100);
+        int desired = _configuredConsumableNames.Count == 0
+            ? 0
+            : Math.Clamp(_settings.ManaStoneLootCount, 0, 100);
         int stones = owned.Count(ownedItem =>
-            (ownedItem.ItemType & manaStoneType) != 0u);
-        stones += _classifiedOwnedItems.Values.Count(
-            static action => action == LootAction.ManaStone);
-        if ((item.ItemType & manaStoneType) != 0u && stones < desired)
+            ownedItem.ObjectClass == PluginObjectClass.ManaStone
+            && _configuredConsumableNames.Contains(ownedItem.Name));
+        stones += PendingDecisionCount(LootAction.ManaStone);
+        if (item.ObjectClass == PluginObjectClass.ManaStone
+            && _configuredConsumableNames.Contains(item.Name)
+            && stones < desired)
+        {
             return LootAction.ManaStone;
-        if (stones < desired
-            && item.ItemCurrentMana >= Math.Clamp(
-                _settings.ManaTankMinimumMana,
-                1,
-                int.MaxValue)
-            && item.Value != 0
-            && (item.PublicFlags & retainedFlag) == 0u)
+        }
+        if (SpareManaStoneCount(owned) > 0
+            && ManaStoneTransferPlanner.IsDonor(item, _settings.ManaTankMinimumMana))
         {
             return LootAction.ManaTank;
         }
         return null;
     }
+
+    private int PendingDecisionCount(LootAction action) =>
+        _decisions.Values.Count(decision => decision?.Action == action);
 
     private bool IsReadableUnknownScroll(in PluginInventoryItem item) =>
         ScrollReading.IsEligible(
@@ -1612,6 +1663,11 @@ internal sealed partial class LootController
 
     private void ResetTransient()
     {
+        if (_manaTransfer is { } pendingFill)
+        {
+            _uncertainManaItems.Add(pendingFill.StoneObjectId);
+            _uncertainManaItems.Add(pendingFill.TankObjectId);
+        }
         _activeCorpse = 0u;
         _activeCorpseSawContents = false;
         _activeCorpseIsOwnDeath = false;

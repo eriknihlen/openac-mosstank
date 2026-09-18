@@ -53,7 +53,7 @@ internal sealed class CombatController
     /// that is what lets the debuff fallback drop a source the pass has
     /// already found unreachable while leaving untested sources alone.
     /// </summary>
-    private readonly Dictionary<(uint Target, PluginProjectilePathKind Kind), bool>
+    private readonly Dictionary<(uint Target, PluginProjectilePathKind Kind), PluginProjectilePathResult>
         _passClearance = [];
     private readonly Dictionary<DebuffIdentity, PluginSpellInfo?> _passDebuffSpells = [];
     private readonly Dictionary<(MonsterDamageType Element, uint Target), bool>
@@ -251,6 +251,7 @@ internal sealed class CombatController
     private bool _physicalResultArmed;
     private uint _physicalResultTargetId;
     private string _physicalResultTargetName = string.Empty;
+    private ushort _physicalResultIncarnation;
     private double _physicalCompletedAt = double.NegativeInfinity;
 
     private Action _suspendPass = static () => { };
@@ -295,6 +296,7 @@ internal sealed class CombatController
     private readonly VtankGameInfoDatabase _gameInfo;
 
     public bool Enabled { get; private set; }
+    private IDisposable? _combatControl;
     public string Status { get; private set; } = "Combat off";
     public string TargetText => _targetText;
     public string ModeText => _modeText;
@@ -397,6 +399,7 @@ internal sealed class CombatController
             return;
         }
 
+        _combatControl = _host.Automation.Combat.AcquireCombatControl();
         Enabled = true;
         _paused = false;
         _combatPolicySuspended = !_settings.Enabled;
@@ -846,6 +849,14 @@ internal sealed class CombatController
             && _attackCatalog.ResolveTuskerFists() is { } fists
             && IsUsableAttackSpell(target)(fists))
         {
+            if (fists.IsProjectile && !ProjectilePathIsClear(_targetId,
+                PluginProjectilePathKind.Straight, PluginAttackHeight.Medium,
+                out PluginProjectilePathResult fistsPath))
+            {
+                Status = ProjectileStatus(fistsPath, _targetName);
+                InvalidateForPass(_targetId);
+                return AttackPassOutcome.Retry;
+            }
             // Fists is the one arm that turns whatever the turning option
             // says, and it aims a shade off the monster's bearing.
             if (!FaceForFists(_targetId))
@@ -973,16 +984,31 @@ internal sealed class CombatController
         MonsterDamageType element,
         in PluginCombatTarget target)
     {
-        if (_attackCatalog.ResolveBaseTier(element, VtankCombatSpellType.Ring)
-            is not { } family
+        PluginSpellInfo? baseTier = _attackCatalog.ResolveBaseTier(
+            element,
+            VtankCombatSpellType.Ring);
+        bool voidRing = element is MonsterDamageType.Nether
+            or MonsterDamageType.VoidBasic;
+        if (baseTier is null
+            && voidRing
+            && _host.Automation.Spells.TryGet(
+                AttackSpellCatalog.VoidRingSpellId,
+                out PluginSpellInfo catalogBase))
+        {
+            baseTier = catalogBase;
+        }
+        if (baseTier is not { } family
             || !HasCastingComponents(family.SpellId))
         {
             return null;
         }
-        PluginSpellInfo spell = _attackCatalog.Resolve(
-            element,
-            VtankCombatSpellType.Ring,
-            IsUsableAttackSpell(target)) ?? family;
+        Func<PluginSpellInfo, bool> usable = IsUsableAttackSpell(target);
+        PluginSpellInfo spell = (voidRing
+            ? _attackCatalog.ResolveFamilyOf(family, usable)
+            : _attackCatalog.Resolve(
+                element,
+                VtankCombatSpellType.Ring,
+                usable)) ?? family;
         return new AttackSpellChoice(
             spell,
             VtankCombatSpellType.Ring,
@@ -1292,6 +1318,17 @@ internal sealed class CombatController
         in PluginCombatTarget target)
     {
         IMagicCommands magic = _host.Automation.Magic;
+        if (!choice.CastWithoutTarget && choice.Spell.IsProjectile
+            && !ProjectilePathIsClear(_targetId,
+                choice.Type == VtankCombatSpellType.Arc
+                    ? PluginProjectilePathKind.Arc : PluginProjectilePathKind.Straight,
+                HeightForShape(choice.Type == VtankCombatSpellType.Arc
+                    ? PluginProjectilePathKind.Arc : PluginProjectilePathKind.Straight),
+                out PluginProjectilePathResult path))
+        {
+            Status = ProjectileStatus(path, _targetName);
+            return;
+        }
         // Finishing a cast of one attack school holds the other off for a few
         // seconds; a hybrid that fires inside that window is simply refused.
         if (_castTracker.IsSchoolLockedOut(choice.Spell.School))
@@ -1357,7 +1394,8 @@ internal sealed class CombatController
             SpellCastTracker.CanKillFor(choice.Spell),
             checked((int)Math.Min(
                 int.MaxValue,
-                _host.Automation.Character.CurrentMana)));
+                _host.Automation.Character.CurrentMana)),
+            targetIncarnation: choice.CastWithoutTarget ? (ushort)0 : FindTarget(_targetId).Incarnation);
         Log?.Invoke(MacroLogChannel.CastInfo, "SpellCaster: Begin");
         if (!choice.CastWithoutTarget)
         {
@@ -1760,8 +1798,9 @@ internal sealed class CombatController
         ICharacterInfo character = _host.Automation.Character;
         return VtankWeaponLadder.Select(
             InProfileOrder(items),
-            item => _settings.CombatItemObjectIds.Contains(item.ObjectId)
-                || _settings.CombatItemNames.Contains(item.Name),
+            item => (_settings.CombatItemObjectIds.Contains(item.ObjectId)
+                || _settings.CombatItemNames.Contains(item.Name))
+                && ConfiguredSupplyReadiness.IsAssessed(_host.Automation, item.ObjectId),
             wanted,
             SpeciesOf(in subject),
             (item, element) => CanWeaponDeliver(in item, element),
@@ -2142,13 +2181,10 @@ internal sealed class CombatController
             result = new(PluginProjectilePathStatus.Clear);
             return true;
         }
-        if (_passClearance.TryGetValue((targetObjectId, kind), out bool memo))
+        if (_passClearance.TryGetValue((targetObjectId, kind), out PluginProjectilePathResult memo))
         {
-            result = new(
-                memo
-                    ? PluginProjectilePathStatus.Clear
-                    : PluginProjectilePathStatus.Blocked);
-            return memo;
+            result = memo;
+            return memo.IsClear;
         }
         result = _settings.ShowCollisionDebug
             ? _host.Automation.Projectiles.EvaluatePathWithDiagnostics(
@@ -2173,7 +2209,7 @@ internal sealed class CombatController
                 + $"{result.DebugSamples.Count} marker(s), "
                 + $"{result.CollisionChecks} check(s)");
         }
-        _passClearance[(targetObjectId, kind)] = result.IsClear;
+        _passClearance[(targetObjectId, kind)] = result;
         return result.IsClear;
     }
 
@@ -2183,8 +2219,8 @@ internal sealed class CombatController
     /// </summary>
     private bool KnownClear(uint targetObjectId, PluginProjectilePathKind? kind) =>
         kind is not { } shape
-        || !_passClearance.TryGetValue((targetObjectId, shape), out bool clear)
-        || clear;
+        || !_passClearance.TryGetValue((targetObjectId, shape), out PluginProjectilePathResult result)
+        || result.IsClear;
 
     private static string ProjectileStatus(
         in PluginProjectilePathResult result,
@@ -2516,6 +2552,7 @@ internal sealed class CombatController
         _physicalResultArmed = true;
         _physicalResultTargetId = targetObjectId;
         _physicalResultTargetName = targetName ?? string.Empty;
+        _physicalResultIncarnation = FindTarget(targetObjectId).Incarnation;
     }
 
     private void DisarmPhysicalResultText()
@@ -2549,6 +2586,10 @@ internal sealed class CombatController
             return;
         }
         if (_physicalResultTargetId == 0u)
+            return;
+        PluginCombatTarget currentPhysicalTarget = FindTarget(_physicalResultTargetId);
+        if (currentPhysicalTarget.ObjectId != 0u
+            && currentPhysicalTarget.Incarnation != _physicalResultIncarnation)
             return;
 
         // Which log the line came from decides which of these arms may read
@@ -2605,6 +2646,7 @@ internal sealed class CombatController
             $"AttackExecutor: Kill blow ({text})");
         _failures.ResetAttempts(_physicalResultTargetId);
         uint slainObjectId = _physicalResultTargetId;
+        _host.Log.Info($"Target death attribution: physical target=0x{slainObjectId:X8}, name={_physicalResultTargetName}, message={text}");
         DisarmPhysicalResultText();
         EndKilledTarget(slainObjectId);
     }
@@ -2711,6 +2753,10 @@ internal sealed class CombatController
     private void OnCastTrackerOutcome(SpellCastOutcomeInfo info)
     {
         uint objectId = info.TargetObjectId;
+        PluginCombatTarget currentTarget = FindTarget(objectId);
+        if (objectId != 0u && currentTarget.ObjectId != 0u
+            && currentTarget.Incarnation != info.TargetIncarnation)
+            return;
         switch (info.Outcome)
         {
             case SpellCastOutcome.Kill:
@@ -2732,7 +2778,10 @@ internal sealed class CombatController
                 // the sentence is about, so the blow is recorded but the
                 // target is not ended.
                 if (!info.HitsMultipleTargets)
+                {
+                    _host.Log.Info($"Target death attribution: spell target=0x{objectId:X8}, message={info.Text}");
                     EndKilledTarget(objectId);
+                }
                 return;
 
             case SpellCastOutcome.PermanentFail:
@@ -2799,7 +2848,9 @@ internal sealed class CombatController
 
     private void EndKilledTarget(uint objectId)
     {
-        _failures.MarkDead(objectId);
+        PluginCombatTarget observed = FindTarget(objectId);
+        _host.Log.Info($"Target marked dead: 0x{objectId:X8}, name={observed.Name}, healthKnown={observed.IsHealthKnown}, health={observed.HealthFraction}, healthRevision={observed.HealthRevision}, incarnation={observed.Incarnation}");
+        _failures.ReportDeath(objectId, _now, observed.HealthRevision);
         if (_pendingAttackTarget == objectId)
         {
             _pendingAttackSpell = 0u;
@@ -2965,6 +3016,33 @@ internal sealed class CombatController
         return default;
     }
 
+    private double _nextTargetDiagnostic;
+
+    private void TraceTargetSelection(IReadOnlyList<CombatTargetCandidate> candidates,
+        uint chosen)
+    {
+        if (chosen != 0u || _now < _nextTargetDiagnostic)
+            return;
+        _nextTargetDiagnostic = _now + 5d;
+        IReadOnlyList<PluginCombatTarget> visible =
+            _host.Automation.Combat.CaptureHostileTargets(float.MaxValue);
+        _host.Log.Info($"Target scan: no selection, hostiles={visible.Count}, candidates={candidates.Count}, range={_settings.MinimumRange:F2}..{_acquisitionRange:F2}, selected=0x{(_host.Selection.SelectedObjectId ?? 0u):X8}");
+        foreach (PluginCombatTarget target in visible)
+        {
+            ResolvedMonsterRule rule = _settings.ResolveRule(target);
+            CombatSuppressionReason suppression = _failures.Reason(target.ObjectId, _now);
+            string reason = target.Distance > _acquisitionRange ? "outside maximum range"
+                : target.Distance < _settings.MinimumRange ? "inside minimum range"
+                : suppression != CombatSuppressionReason.None ? suppression.ToString()
+                : _passInvalidTargets.Contains(target.ObjectId) ? "invalidated during attack pass"
+                : rule.Priority < 0 ? "negative rule priority"
+                : _passCandidates.TryGetValue(target.ObjectId, out CombatTargetCandidate? candidate)
+                    ? candidate is null ? "no attack or due debuff after pass filtering" : "eligible candidate"
+                : "absent from current acquisition snapshot";
+            _host.Log.Info($"Target check: {target.Name} (0x{target.ObjectId:X8}), distance={target.Distance:F2}, angle={target.RelativeAngleDegrees:F1}, reason={reason}, rule={rule.Rule.Expression}, priority={rule.Priority}, attacks={rule.Actions.Attacks}, streak={rule.Actions.UsesStreak}");
+        }
+    }
+
     private void RefreshTarget()
     {
         if (_targetId != 0u
@@ -3021,6 +3099,7 @@ internal sealed class CombatController
             wieldedOffhand);
 
         // No target chosen: drop whatever the pass was holding.
+        TraceTargetSelection(candidates, chosen.ObjectId);
         if (chosen.ObjectId == 0u)
         {
             if (_targetId != 0u)
@@ -3729,6 +3808,8 @@ internal sealed class CombatController
         _observedJiggleCastCompletion = 0;
         ClearTarget();
         Status = status;
+        _combatControl?.Dispose();
+        _combatControl = null;
     }
 
     /// <summary>

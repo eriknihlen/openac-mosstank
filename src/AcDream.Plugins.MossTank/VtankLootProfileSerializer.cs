@@ -68,12 +68,26 @@ internal static class VtankLootProfileSerializer
         out VtankLootProfile profile,
         out string error)
     {
+        VtankLootProfileReadResult result = ReadAllowingPartial(source);
+        error = result.Error;
+        if (result.IsComplete)
+        {
+            profile = result.Profile;
+            return true;
+        }
         profile = new VtankLootProfile();
-        error = string.Empty;
+        return false;
+    }
+
+    public static VtankLootProfileReadResult ReadAllowingPartial(string? source)
+    {
+        var profile = new VtankLootProfile();
         if (string.IsNullOrEmpty(source))
         {
-            error = "The VTClassic loot profile is empty.";
-            return false;
+            return new(
+                profile,
+                "The VTClassic loot profile is empty.",
+                IsComplete: false);
         }
 
         try
@@ -126,13 +140,11 @@ internal static class VtankLootProfileSerializer
                     });
                 }
             }
-            return true;
+            return new(profile, string.Empty, IsComplete: true);
         }
         catch (FormatException failure)
         {
-            profile = new VtankLootProfile();
-            error = failure.Message;
-            return false;
+            return new(profile, failure.Message, IsComplete: false);
         }
     }
 
@@ -440,3 +452,8 @@ internal static class VtankLootProfileSerializer
         }
     }
 }
+
+internal readonly record struct VtankLootProfileReadResult(
+    VtankLootProfile Profile,
+    string Error,
+    bool IsComplete);

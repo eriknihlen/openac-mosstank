@@ -4264,6 +4264,330 @@ public sealed class MossTankPanelTests
         Assert.True(storage.Text.ContainsKey("Currency.utl"));
     }
 
+    /// <summary>
+    /// A picker change is one activation transaction: an unreadable candidate
+    /// cannot become the selected label or character binding while the previous
+    /// rules continue to execute.
+    /// Mutation <c>PrematureSelectionCommit</c>: commit <c>_selected</c> and
+    /// the CDF in <c>Select</c>, before
+    /// <c>LoadCurrent</c> validates the candidate; the selected-name and CDF
+    /// assertions fail.
+    /// </summary>
+    [Fact]
+    public void LootProfilePickerRejectsMalformedCandidateWithoutChangingActiveProfileOrFiles()
+    {
+        var storage = new MemoryStorage();
+        var automation = new FakeAutomation
+        {
+            Name = "Looter",
+            WorldName = "Coldeve",
+        };
+        var host = new FakeHost(automation, storage);
+        var panel = new MossTankPanel(host);
+        Command(panel, "loot new Safe");
+        panel.AddLootRule();
+        string[] safeRules = panel.LootRuleRows.ToArray();
+        const string malformed = "UTL\r\n1\r\n1\r\nunfinished";
+        storage.Text["Loot5.utl"] = malformed;
+        string cdfKey = VtankProfileDirectory.CdfFileName("Looter", "Coldeve");
+        string cdfBefore = storage.Text[cdfKey];
+
+        panel.SelectLootProfile("Loot5");
+
+        Assert.Equal("Safe", panel.LootProfileName);
+        Assert.Equal(safeRules, panel.LootRuleRows);
+        Assert.Equal(cdfBefore, storage.Text[cdfKey]);
+        Assert.Equal(malformed, storage.Text["Loot5.utl"]);
+        Assert.Contains("Loot5", panel.LootEditorNotice, StringComparison.Ordinal);
+        Assert.Contains("Active profile remains Safe", panel.LootEditorNotice, StringComparison.Ordinal);
+        Assert.DoesNotContain(host.Logger.Infos, message =>
+            message.Contains("Loaded loot profile Loot5", StringComparison.Ordinal));
+    }
+
+    /// <summary>
+    /// The command path must surface the same rejected activation and must not
+    /// append its old unconditional success line.
+    /// Mutation <c>UnconditionalLootLoadedMessage</c>: emit the old success
+    /// message after the rejected load; the single-message assertion fails.
+    /// </summary>
+    [Fact]
+    public void LootLoadCommandReportsMalformedCandidateWithoutAFalseLoadedMessage()
+    {
+        var storage = new MemoryStorage();
+        var automation = new FakeAutomation
+        {
+            Name = "Looter",
+            WorldName = "Coldeve",
+        };
+        var panel = new MossTankPanel(new FakeHost(automation, storage));
+        Command(panel, "loot new Safe");
+        panel.AddLootRule();
+        const string malformed = "UTL\r\n1\r\n1\r\nunfinished";
+        storage.Text["Loot5.utl"] = malformed;
+        automation.Messages.Clear();
+
+        Command(panel, "loot load Loot5.utl");
+
+        Assert.Equal("Safe", panel.LootProfileName);
+        string message = Assert.Single(automation.Messages);
+        Assert.Contains("Loot5", message, StringComparison.Ordinal);
+        Assert.Contains("could not be read", message, StringComparison.Ordinal);
+        Assert.Contains("Active profile remains Safe", message, StringComparison.Ordinal);
+        Assert.DoesNotContain("Loaded loot profile", message, StringComparison.Ordinal);
+        Assert.Equal(malformed, storage.Text["Loot5.utl"]);
+    }
+
+    /// <summary>
+    /// Reloading the already-active name still validates the file before any
+    /// save. An external truncation must not be repaired from stale memory.
+    /// Mutation <c>OverwriteMalformedCurrentOnSave</c>: continue through
+    /// <c>SaveCurrent</c> after the existing file fails to parse; the raw-file
+    /// assertion fails.
+    /// </summary>
+    [Fact]
+    public void ReloadingActiveLootProfileDoesNotOverwriteExternalMalformedEdit()
+    {
+        var storage = new MemoryStorage();
+        var automation = new FakeAutomation
+        {
+            Name = "Looter",
+            WorldName = "Coldeve",
+        };
+        var panel = new MossTankPanel(new FakeHost(automation, storage));
+        Command(panel, "loot new Safe");
+        panel.AddLootRule();
+        const string malformed = "UTL\r\n1\r\n1\r\nunfinished";
+        storage.Text["Safe.utl"] = malformed;
+
+        Command(panel, "loot load Safe");
+        panel.ToggleLootPriorityBoost();
+
+        Assert.Equal("Safe", panel.LootProfileName);
+        Assert.Equal(malformed, storage.Text["Safe.utl"]);
+        Assert.Contains(automation.Messages, message =>
+            message.Contains("could not be read", StringComparison.Ordinal));
+    }
+
+    /// <summary>
+    /// A malformed profile named by the startup CDF cannot inherit the settings
+    /// sidecar's old rules or use its external classifier. It remains inactive,
+    /// and ordinary UI saves cannot overwrite either source file.
+    /// Mutation <c>IgnoreInactiveProfileInLootTick</c>: remove the inactive
+    /// guard from <c>LootController.Tick</c>; the corpse-open assertion fails.
+    /// </summary>
+    [Fact]
+    public void MalformedStartupLootBindingIsInactiveAndCannotBeOverwrittenByLaterSaves()
+    {
+        var storage = new MemoryStorage();
+        var classifiers = new FakeLootClassifierRegistry(
+            new PluginLootClassifierInfo("utility/loot", "Utility Loot"));
+        var firstAutomation = new FakeAutomation
+        {
+            Name = "Looter",
+            WorldName = "Coldeve",
+        };
+        var first = new MossTankPanel(new FakeHost(
+            firstAutomation,
+            storage,
+            classifiers));
+        Command(first, "loot new Loot5");
+        first.AddLootRule();
+        first.SelectLootClassifier("Utility Loot [utility/loot]");
+        if (!first.LootEnabled)
+            first.ToggleLooting();
+
+        const string malformed = "UTL\r\n1\r\n1\r\nunfinished";
+        storage.Text["Loot5.utl"] = malformed;
+        string cdfKey = VtankProfileDirectory.CdfFileName("Looter", "Coldeve");
+        string cdfBefore = storage.Text[cdfKey];
+        var loot = new FrameLootSurface
+        {
+            Corpses =
+            [
+                new PluginLootContainer(
+                    FrameLootSurface.CorpseId,
+                    1u,
+                    "Corpse",
+                    3f,
+                    false,
+                    false,
+                    false)
+                {
+                    IsIdentified = true,
+                    LongDescription = "Killed by Looter.",
+                },
+            ],
+        };
+        var restartedAutomation = new FakeAutomation
+        {
+            Name = "Looter",
+            WorldName = "Coldeve",
+            LootSurface = loot,
+        };
+        var restartedHost = new FakeHost(
+            restartedAutomation,
+            storage,
+            classifiers);
+
+        var restarted = new MossTankPanel(restartedHost);
+
+        Assert.Equal(MossTankLootProfileStore.NoActiveProfile, restarted.LootProfileName);
+        Assert.Empty(restarted.LootRuleRows);
+        Assert.Equal("Utility Loot [utility/loot]", restarted.SelectedLootClassifier);
+        Assert.Contains("No loot profile is active", restarted.LootEditorNotice, StringComparison.Ordinal);
+        Assert.Contains(restartedHost.Logger.Errors, message =>
+            message.Contains("Loot5", StringComparison.Ordinal)
+                && message.Contains("No loot profile is active", StringComparison.Ordinal));
+
+        restarted.ToggleLootPriorityBoost();
+        restarted.ToggleCombat();
+        for (int tick = 0; tick < 12; tick++)
+            restarted.OnTick(0.3d);
+
+        Assert.Equal(0u, loot.Opened);
+        Assert.Equal(malformed, storage.Text["Loot5.utl"]);
+        Assert.Equal(cdfBefore, storage.Text[cdfKey]);
+
+        var recovered = new VtankLootProfile
+        {
+            Rules = [new LootRule { Expression = "*", Action = LootAction.Keep }],
+        };
+        storage.Text["Recovered.utl"] = VtankLootProfileSerializer.Write(recovered);
+        restarted.SelectLootProfile("Recovered");
+
+        Assert.Equal("Recovered", restarted.LootProfileName);
+        Assert.Single(restarted.LootRuleRows);
+        Assert.Equal(malformed, storage.Text["Loot5.utl"]);
+        Assert.Contains(
+            "Recovered.utl",
+            storage.Text[cdfKey],
+            StringComparison.Ordinal);
+        for (int tick = 0; tick < 12 && loot.Opened == 0u; tick++)
+            restarted.OnTick(0.3d);
+        Assert.Equal(FrameLootSurface.CorpseId, loot.Opened);
+    }
+
+    /// <summary>
+    /// A named CDF target that is absent is a failed activation, not the
+    /// first-run By-char case. It must not be created from inherited sidecar
+    /// rules by the constructor or a later save.
+    /// Mutation <c>TreatMissingNamedBindingAsFirstRun</c>: route every missing
+    /// candidate through the By-char creation branch; the file appears.
+    /// </summary>
+    [Fact]
+    public void MissingNamedStartupLootBindingIsNotCreatedFromInheritedRules()
+    {
+        var storage = new MemoryStorage();
+        var automation = new FakeAutomation
+        {
+            Name = "Looter",
+            WorldName = "Coldeve",
+        };
+        var first = new MossTankPanel(new FakeHost(automation, storage));
+        Command(first, "loot new MissingLater");
+        first.AddLootRule();
+        storage.Text.Remove("MissingLater.utl");
+        string cdfKey = VtankProfileDirectory.CdfFileName("Looter", "Coldeve");
+        string cdfBefore = storage.Text[cdfKey];
+
+        var restartedHost = new FakeHost(
+            new FakeAutomation { Name = "Looter", WorldName = "Coldeve" },
+            storage);
+        var restarted = new MossTankPanel(restartedHost);
+        restarted.ToggleLootPriorityBoost();
+
+        Assert.False(storage.Text.ContainsKey("MissingLater.utl"));
+        Assert.Equal(MossTankLootProfileStore.NoActiveProfile, restarted.LootProfileName);
+        Assert.Empty(restarted.LootRuleRows);
+        Assert.Equal(cdfBefore, storage.Text[cdfKey]);
+        Assert.Contains(restartedHost.Logger.Errors, message =>
+            message.Contains("MissingLater", StringComparison.Ordinal)
+                && message.Contains("not found", StringComparison.Ordinal));
+    }
+
+    /// <summary>
+    /// A settings-profile load may replace the in-memory rule list from its
+    /// sidecar before the active loot file is checked. If that file was
+    /// truncated externally, the rules that were active before the settings
+    /// switch remain active and the source stays untouched.
+    /// Mutation <c>DropActiveRuleSnapshotRestore</c>: disable the snapshot
+    /// restore branch; the rule count falls back to the older sidecar copy.
+    /// </summary>
+    [Fact]
+    public void SettingsSwitchRetainsActiveLootRulesWhenActiveLootFileBecameMalformed()
+    {
+        var storage = new MemoryStorage();
+        var automation = new FakeAutomation
+        {
+            Name = "Looter",
+            WorldName = "Coldeve",
+        };
+        var panel = new MossTankPanel(new FakeHost(automation, storage));
+        Command(panel, "loot new Safe");
+        panel.AddLootRule();
+        Command(panel, "settings save OneRule");
+        Command(panel, "settings save TwoRules");
+        panel.AddLootRule();
+        Assert.Equal(2, panel.LootRuleRows.Count);
+        const string malformed = "UTL\r\n1\r\n1\r\nunfinished";
+        storage.Text["Safe.utl"] = malformed;
+
+        Command(panel, "settings load OneRule");
+        panel.ToggleLootPriorityBoost();
+
+        Assert.Equal(2, panel.LootRuleRows.Count);
+        Assert.Equal(malformed, storage.Text["Safe.utl"]);
+        Assert.Contains("could not be read", panel.LootEditorNotice, StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// Character binding starts a new ownership scope. A corrupt profile for
+    /// the next character cannot restore the previous character's rules after
+    /// the settings sidecar has loaded.
+    /// Mutation <c>RestoreRulesAcrossCharacterRebind</c>: restore the pre-bind
+    /// snapshot after every failed load; the empty-row assertion exposes the
+    /// old character's rules.
+    /// </summary>
+    [Fact]
+    public void CharacterRebindToMalformedLootProfileDoesNotRetainPreviousCharactersRules()
+    {
+        var storage = new MemoryStorage();
+        var automation = new FakeAutomation
+        {
+            Name = "First",
+            WorldName = "Coldeve",
+        };
+        var panel = new MossTankPanel(new FakeHost(automation, storage));
+        Command(panel, "loot new FirstLoot");
+        panel.AddLootRule();
+        Assert.Single(panel.LootRuleRows);
+
+        string secondSettings = VtankProfileDirectory.AutoCharacterFileName(
+            "Second",
+            "Coldeve",
+            "usd");
+        storage.Text[secondSettings] = VtankDefaultSettingsDatabase.Parse().Render();
+        const string malformed = "UTL\r\n1\r\n1\r\nunfinished";
+        storage.Text["SecondLoot.utl"] = malformed;
+        VtankProfileDirectory.WriteCharacterBinding(
+            storage,
+            "Second",
+            "Coldeve",
+            new VtankProfileDirectory.VtankCharacterBinding(
+                secondSettings,
+                "SecondLoot.utl",
+                string.Empty,
+                null));
+
+        automation.Name = "Second";
+        panel.OnTick(0.1d);
+
+        Assert.Equal(MossTankLootProfileStore.NoActiveProfile, panel.LootProfileName);
+        Assert.Empty(panel.LootRuleRows);
+        Assert.Equal(malformed, storage.Text["SecondLoot.utl"]);
+        Assert.Contains("No loot profile is active", panel.LootEditorNotice, StringComparison.Ordinal);
+    }
+
     [Fact]
     public void LootClassifierSelectionIsVisibleAndPersistsWithMacroProfile()
     {
@@ -4385,6 +4709,29 @@ public sealed class MossTankPanelTests
         Assert.Equal("1-5, 6-10", roundTrip.SalvageCombine.DefaultCombineString);
         Assert.Equal(75_000, roundTrip.SalvageCombine.MaterialValueModeValues[61]);
         Assert.Equal(1, Assert.Single(roundTrip.Rules).VtankRequirements[0].Type);
+    }
+
+    [Fact]
+    public void MacroSettingsRoundTripPreservesImportedLootConditions()
+    {
+        var host = new FakeHost(new FakeAutomation(), new MemoryStorage());
+        var store = new MossTankProfileStore(host);
+        var settings = new VtankSettingsProfileSerializer.AllSettings
+        {
+            Combat = new(), Buffs = new(), Vitals = new(), Inventory = new(), Navigation = new(),
+        };
+        settings.Inventory.Loot.Rules.Add(new LootRule
+        {
+            Name = "Only pyreals", Action = LootAction.Keep,
+            CustomExpression = "preserve me",
+            VtankRequirements = [new() { Type = 1, Payload = "^Pyreal$\r\n1\r\n" }],
+        });
+        store.SaveCurrent(settings, new HashSet<string>(), new HashSet<string>());
+        settings.Inventory.Loot.Rules.Clear();
+        store.LoadCurrent(settings, new HashSet<string>(), new HashSet<string>());
+        LootRule restored = Assert.Single(settings.Inventory.Loot.Rules);
+        Assert.Equal("^Pyreal$\r\n1\r\n", Assert.Single(restored.VtankRequirements).Payload);
+        Assert.Equal("preserve me", restored.CustomExpression);
     }
 
     [Fact]
@@ -4520,6 +4867,40 @@ public sealed class MossTankPanelTests
         Assert.DoesNotContain("Fellowship", panel.LootProfileNames);
         Assert.False(storage.Text.ContainsKey("Fellowship.utl"));
         Assert.Contains("Deleted", panel.LootEditorNotice, StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// Deleting a valid named profile starts a fresh fallback activation. A
+    /// malformed By-char destination leaves no active rules and is preserved.
+    /// Mutation <c>PrematureByCharacterFallbackOnDelete</c>: mark By-char
+    /// active before <c>LoadLootProfile</c>; the selected-name assertion fails.
+    /// </summary>
+    [Fact]
+    public void DeleteNamedLootProfileDoesNotActivateOrOverwriteMalformedByCharacterFallback()
+    {
+        var storage = new MemoryStorage();
+        var automation = new FakeAutomation
+        {
+            Name = "Looter",
+            WorldName = "Coldeve",
+        };
+        var panel = new MossTankPanel(new FakeHost(automation, storage));
+        string byCharacterFile = VtankProfileDirectory.AutoCharacterFileName(
+            "Looter",
+            "Coldeve",
+            "utl");
+        const string malformed = "UTL\r\n1\r\n1\r\nunfinished";
+        storage.Text[byCharacterFile] = malformed;
+        Command(panel, "loot new Named");
+        panel.AddLootRule();
+
+        panel.DeleteLootProfile();
+        panel.ToggleLootPriorityBoost();
+
+        Assert.Equal(MossTankLootProfileStore.NoActiveProfile, panel.LootProfileName);
+        Assert.Empty(panel.LootRuleRows);
+        Assert.Equal(malformed, storage.Text[byCharacterFile]);
+        Assert.Contains("could not be read", panel.LootEditorNotice, StringComparison.Ordinal);
     }
 
     [Fact]
@@ -6102,6 +6483,7 @@ public sealed class MossTankPanelTests
         public IRecoveryAutomation Recovery => this;
         public bool IsInWorld => IsAvailable;
         public string Name { get; set; } = "Test Character";
+        public string WorldName { get; set; } = string.Empty;
 
         public int Level { get; set; }
         public uint ObjectId { get; set; } = 1;
@@ -6687,9 +7069,11 @@ public sealed class MossTankPanelTests
         public List<string> Warnings { get; } = [];
 
         public List<string> Infos { get; } = [];
+        public List<string> Errors { get; } = [];
         public void Info(string message) => Infos.Add(message);
         public void Warn(string message) => Warnings.Add(message);
-        public void Error(string message, Exception? exception = null) { }
+        public void Error(string message, Exception? exception = null) =>
+            Errors.Add(message);
     }
 
     private sealed class MemoryStorage : IPluginStorage

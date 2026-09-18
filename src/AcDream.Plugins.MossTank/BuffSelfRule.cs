@@ -34,7 +34,7 @@ internal interface IBuffRuleHost
     void BeginFastCast(IAutomationSurface automation, in PluginSpellInfo spell);
 }
 
-internal sealed class BuffSelfRule
+internal sealed partial class BuffSelfRule
 {
     private readonly IPluginHost _host;
     private readonly BuffSettings _settings;
@@ -109,6 +109,7 @@ internal sealed class BuffSelfRule
         _buffCastRecastRemaining = Math.Max(
             0d, _buffCastRecastRemaining - elapsed);
         _nowSeconds += elapsed;
+        ObserveConsumableUse();
         _itemLedger.Expire(_nowSeconds);
     }
 
@@ -147,6 +148,10 @@ internal sealed class BuffSelfRule
     /// <summary>Session teardown: every scrap of state, the table included.</summary>
     public void Reset()
     {
+        ResetTimerScope();
+        ClearConsumableUse();
+        _consumableRetryAt.Clear();
+        _consumableFamilyRetryAt.Clear();
         _bursting = false;
         _buffCastRecastRemaining = 0d;
         _nowSeconds = 0d;
@@ -199,7 +204,7 @@ internal sealed class BuffSelfRule
             return;
         }
 
-        _buffDue.Observe(automation.Character.ActiveEnchantments);
+        _buffDue.Observe(automation.Character.TimedEnchantments);
         _buffDue.ForceAll();
         _buffDue.ForceItems(CaptureForcedItemRows(automation));
         _itemLedger.ForceAll(_nowSeconds);
@@ -273,7 +278,7 @@ internal sealed class BuffSelfRule
             BuffProfile.Build(automation.Spells.KnownSelfBuffs),
             automation.Character.Skills,
             automation.Character.Attributes,
-            automation.Character.ActiveEnchantments,
+            automation.Character.TimedEnchantments,
             _settings,
             force: false,
             rebuffWhenUnderSeconds,
@@ -357,6 +362,15 @@ internal sealed class BuffSelfRule
             return;
 
         _buffDue.NoteItemRecast(itemId, itemFamily);
+        PluginInventoryItem ownedItem = _host.Automation.Items.CaptureOwnedItems()
+            .FirstOrDefault(item => item.ObjectId == itemId);
+        if (ownedItem.ObjectId != 0u)
+        {
+            _itemLedger.NoteCast(ownedItem, itemFamily, spellId, itemQuality,
+                itemDuration, _nowSeconds, itemSpellName,
+                text => _owner.Log(MacroLogChannel.Misc, text));
+            return;
+        }
         _itemLedger.NoteCast(
             itemId,
             itemFamily,
@@ -380,8 +394,11 @@ internal sealed class BuffSelfRule
         }
 
         // Fold the world into the tracked table before anything reads it.
-        _buffDue.Observe(automation.Character.ActiveEnchantments);
+        _buffDue.Observe(automation.Character.TimedEnchantments);
         ConsumeCastOutcome();
+
+        if (_pendingConsumable != 0u)
+            return true;
 
         if (automation.Items.IsBusy)
         {
@@ -447,6 +464,9 @@ internal sealed class BuffSelfRule
         if (_owner.CastTracker.IsBusy || automation.Magic.IsCasting)
             return true;
 
+        if (pick.ConsumableObjectId != 0u)
+            return UseBuffConsumable(automation, pick);
+
         if (!_owner.Gate.TryPrepare(PluginCombatMode.Magic))
         {
             _owner.SetStatus(_owner.Gate.Status);
@@ -466,7 +486,8 @@ internal sealed class BuffSelfRule
         PluginSpellInfo Spell,
         uint TargetObjectId,
         string TargetName,
-        bool IsItemEnchant);
+        bool IsItemEnchant,
+        uint ConsumableObjectId = 0u);
 
     private bool TryPickBuff(
         IAutomationSurface automation,
@@ -480,7 +501,8 @@ internal sealed class BuffSelfRule
                 due[0], automation.Character.ObjectId, "yourself", false);
             return true;
         }
-        return TryPickItemEnchant(automation, threshold, out pick);
+        return TryPickItemEnchant(automation, threshold, out pick)
+            || TryPickConsumable(automation, threshold, out pick);
     }
 
     private bool TryPickItemEnchant(
@@ -779,12 +801,30 @@ internal sealed class BuffSelfRule
         uint itemObjectId,
         in PluginSpellInfo spell)
     {
-        double longest = _itemLedger.RemainingSeconds(
-            itemObjectId, spell.Family, spell.Tier, _nowSeconds);
+        double longest = 0d;
+        // Self-targeted auras are carried by the character even when their
+        // profile row belongs to a weapon. The server restores these timers
+        // at login, independently of casts observed during this session.
+        if (spell.IsSelfTargeted)
+        {
+            foreach (PluginActiveEnchantment held in automation.Character.TimedEnchantments)
+            {
+                if (held.Family == spell.Family && held.Tier >= spell.Tier)
+                    longest = Math.Max(longest, held.SecondsRemaining);
+            }
+            return longest;
+        }
+        PluginInventoryItem ownedItem = automation.Items.CaptureOwnedItems()
+            .FirstOrDefault(item => item.ObjectId == itemObjectId);
+        longest = ownedItem.ObjectId != 0u
+            ? _itemLedger.RemainingSeconds(ownedItem, spell.Family, spell.Tier, _nowSeconds)
+            : itemObjectId == automation.Character.ObjectId
+                ? _itemLedger.RemainingSeconds(itemObjectId, spell.Family, spell.Tier, _nowSeconds)
+                : 0d;
         foreach (PluginTrackedEnchantment held in
             automation.Enchantments.Capture(itemObjectId))
         {
-            if (held.Family != spell.Family || held.Quality < spell.Tier)
+            if (held.Family != spell.Family || held.Quality < spell.Difficulty)
                 continue;
             if (held.SecondsRemaining > longest)
                 longest = held.SecondsRemaining;
@@ -912,4 +952,3 @@ internal enum CastAttemptOutcome
 
     Timeout,
 }
-

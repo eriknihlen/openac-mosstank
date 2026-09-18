@@ -60,6 +60,12 @@
             checked="{UseDispelItemsEnabled}" onclick="{ToggleUseDispelItems}" />
     <toggle x="282" y="68" w="120" h="20" text="Cast Dispel Self"
             checked="{CastDispelSelfEnabled}" onclick="{ToggleCastDispelSelf}" />
+    <toggle x="282" y="88" w="160" h="20" text="Show Nav Lines"
+            checked="{ShowNavLinesEnabled}" onclick="{ToggleShowNavLines}"
+            tooltip="Draw the loaded route and highlight its current waypoint in the world." />
+    <toggle x="282" y="108" w="160" h="20" text="Show Walkable Areas"
+            checked="{ShowWalkableAreasEnabled}" onclick="{ToggleShowWalkableAreas}"
+            tooltip="Green outlines show nearby walkable navigation polygons. Requires navigation data for this area." />
     <toggle x="282" y="128" w="120" h="20" text="Auto Fellow Mgmt."
             checked="{AutoFellowManagementEnabled}" onclick="{ToggleAutoFellowManagement}" />
     <toggle x="282" y="148" w="160" h="20" text="M. Charges When Off"
@@ -98,6 +104,10 @@
     <toggle x="673" y="148" w="175" h="20" text="Run Macro"
             checked="{CombatMacroRunning}" onclick="{ToggleCombat}" />
     <label x="673" y="170" w="175" h="16" text="{CombatStatus}" color="#FFC7B98F" />
+    <button x="282" y="172" w="175" h="24" text="Generate Nearby Navdata"
+            onclick="{GenerateNearbyNavdata}" tooltip="Build and save navigation data for this landblock and its immediate neighbours in the background." />
+    <button x="463" y="172" w="80" h="24" text="Cancel" onclick="{CancelNavdataGeneration}" />
+    <label x="152" y="201" w="510" h="20" text="{NavdataGenerationText}" color="#FFC7B98F" />
   </group>
 
   <group x="8" y="42" w="976" h="229" visible="{ProfilesVisible}" anchor="left top right bottom">
@@ -110,9 +120,6 @@
             onclick="{ClearProfile}" />
     <toggle x="476" y="8" w="80" h="20" text="Mine only"
             checked="{MineOnlyEnabled}" onclick="{ToggleMineOnly}" />
-    <button x="566" y="8" w="76" h="20" text="Delete"
-            onclick="{DeleteProfile}"
-            tooltip="Delete the selected named profile's real .usd file. Not available for By char." />
 
     <toggle x="8" y="32" w="142" h="20" text="Enable Auto-Navigation"
             checked="{NavigationEnabled}" onclick="{ToggleNavigation}" />
@@ -122,9 +129,6 @@
     <button x="306" y="32" w="50" h="20" text="CopyTo" onclick="{CopyRouteProfile}" />
     <button x="366" y="32" w="100" h="20" text="Clear nav profile!"
             onclick="{ClearRouteProfile}" />
-    <button x="566" y="32" w="76" h="20" text="Delete"
-            onclick="{DeleteRouteProfile}"
-            tooltip="Delete the selected named route's real .af file. Not available for By char." />
 
     <toggle x="8" y="56" w="142" h="20" text="Enable Looting"
             checked="{LootEnabled}" onclick="{ToggleLooting}" />
@@ -132,11 +136,6 @@
           selected="{LootProfileName}" onchange="{SelectLootProfile}"
           rows="7" scroll="true" tooltip="Select the active loot profile." />
     <button x="306" y="56" w="50" h="20" text="New" onclick="{CreateLootProfile}" />
-    <button x="566" y="56" w="76" h="20" text="Delete"
-            onclick="{DeleteLootProfile}"
-            tooltip="Delete the selected named loot profile's real .utl file. Not available for By char." />
-    <toggle x="652" y="56" w="80" h="20" text="Show Editor"
-            checked="{LootEditorVisible}" onclick="{ToggleLootEditorVisible}" />
 
     <toggle x="8" y="80" w="142" h="20" text="Enable Meta Actions"
             checked="{MetaEnabled}" onclick="{ToggleMeta}" />
@@ -144,9 +143,6 @@
           selected="{SelectedMetaProfile}" onchange="{SelectMetaProfile}"
           rows="7" scroll="true" tooltip="Select the active meta profile." />
     <button x="306" y="80" w="50" h="20" text="CopyTo" onclick="{CopyMetaProfile}" />
-    <button x="566" y="80" w="76" h="20" text="Delete"
-            onclick="{DeleteMetaProfile}"
-            tooltip="Delete the selected named Meta profile's real .af file. Not available for By char." />
 
     <label x="8" y="108" w="400" h="16" text="{LootStatus}" color="#FF9B9072" />
   </group>

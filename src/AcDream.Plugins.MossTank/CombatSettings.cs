@@ -47,6 +47,11 @@ internal enum ConsumableCategory
     Pea,
     AllPeas,
     Lockpick,
+    ManaStone,
+    ManaSource,
+    Grenade,
+    SplitComponent,
+    BuffConsumable,
 }
 
 internal sealed class CombatSettings

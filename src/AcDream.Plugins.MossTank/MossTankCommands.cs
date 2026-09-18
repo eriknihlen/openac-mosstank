@@ -319,24 +319,24 @@ internal sealed partial class MossTankPanel
             WriteVtank(notice);
             return;
         }
-        if (!_lootProfiles.Select(name))
+        if (_lootProfiles.Exists(name))
         {
-            if (!_lootProfiles.TryImportLegacy(
+            SelectLootProfileCore(name);
+            WriteVtank(_lootEditorNotice);
+            return;
+        }
+        if (!_lootProfiles.TryImportLegacy(
                 name,
                 _inventorySettings.Loot.Rules,
                 _inventorySettings.Loot,
                 out string importNotice))
-            {
-                WriteVtank(importNotice);
-                return;
-            }
-            _loot.Reset();
-            RefreshLootEditor();
+        {
             WriteVtank(importNotice);
             return;
         }
-        LoadLootProfile();
-        WriteVtank($"Loaded loot profile {_lootProfiles.Selected}.");
+        _loot.Reset();
+        RefreshLootEditor();
+        WriteVtank(importNotice);
     }
 
     private void HandleMetaProfileCommand(string arguments)

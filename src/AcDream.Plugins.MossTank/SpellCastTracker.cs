@@ -46,7 +46,8 @@ internal readonly record struct SpellCastOutcomeInfo(
     string TargetName,
     bool HitsMultipleTargets,
     uint WeenieError,
-    string Text);
+    string Text,
+    ushort TargetIncarnation = 0);
 
 internal sealed class SpellCastTracker
 {
@@ -94,6 +95,7 @@ internal sealed class SpellCastTracker
     private uint _spellId;
     private string _spellName = string.Empty;
     private uint _targetObjectId;
+    private ushort _targetIncarnation;
 
     private string _targetName = string.Empty;
 
@@ -200,13 +202,15 @@ internal sealed class SpellCastTracker
         string saying = "",
         uint school = 0u,
         bool canKill = false,
-        int currentMana = int.MaxValue)
+        int currentMana = int.MaxValue,
+        ushort targetIncarnation = 0)
     {
         _state = SpellCastTrackerState.AwaitingLaunch;
         _saying = Normalize(saying);
         _spellId = spellId;
         _spellName = spellName ?? string.Empty;
         _targetObjectId = targetObjectId;
+        _targetIncarnation = targetIncarnation;
         // An item enchantment's success line names the ITEM, not the creature
         // it is worn by, so there is no target name to check it against.
         _targetName = school == ItemEnchantmentSchool
@@ -235,6 +239,7 @@ internal sealed class SpellCastTracker
         _spellId = 0u;
         _spellName = string.Empty;
         _targetObjectId = 0u;
+        _targetIncarnation = 0;
         _targetName = string.Empty;
         _hitsMultipleTargets = false;
         _saying = string.Empty;
@@ -472,7 +477,8 @@ internal sealed class SpellCastTracker
             _targetName,
             _hitsMultipleTargets,
             weenieError,
-            text);
+            text,
+            _targetIncarnation);
 
         _state = SpellCastTrackerState.Idle;
         _launchElapsed = 0d;

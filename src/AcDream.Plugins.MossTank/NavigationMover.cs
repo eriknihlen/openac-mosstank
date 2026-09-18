@@ -41,7 +41,7 @@ internal sealed class NavigationMover
     /// radius is wider than this is never approached at a walk, which is what
     /// the low-minimum-distance warning is about.
     /// </summary>
-    private const double CreepDistanceMeters = 240d / 160d;
+    internal const double CreepDistanceMeters = 240d / 160d;
 
     private const float FarHeadingRelaxationDegrees = 45f;
     private const float NearHeadingRelaxationDegrees = 15f;
@@ -169,9 +169,9 @@ internal sealed class NavigationMover
     }
 
     /// <summary>
-    /// Steers at a goal. Outside the alignment band the mover holds a turn key
-    /// and keeps walking, so the character curves onto the bearing; the two
-    /// relaxation tiers decide only whether it moves while it turns. The
+    /// Steers at a goal. Large turns stop forward movement until the remaining
+    /// angle enters the near or far steering band, then finish turning while
+    /// moving. The
     /// absolute re-face is the typing branch, where a held key would go into
     /// the chat entry.
     /// </summary>

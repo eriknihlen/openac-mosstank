@@ -60,6 +60,7 @@ public readonly record struct RechargeHandlerRow(
 internal static class VitalRechargePlanner
 {
     private const uint HealingSkill = 21u;
+    private const uint HealingKitPublicFlag = 0x00010000u;
     private const uint CasterItemType = 0x00008000u;
 
     public static bool TryPlan(
@@ -67,7 +68,8 @@ internal static class VitalRechargePlanner
         IAutomationSurface automation,
         VitalSettings settings,
         CombatSettings combatSettings,
-        out VitalRechargeChoice choice)
+        out VitalRechargeChoice choice,
+        Action<string>? trace = null)
     {
         ArgumentNullException.ThrowIfNull(automation);
         ArgumentNullException.ThrowIfNull(settings);
@@ -86,6 +88,33 @@ internal static class VitalRechargePlanner
         IReadOnlyList<PluginInventoryItem> items =
             automation.Items.CaptureOwnedItems();
 
+        if (trace is not null)
+        {
+            ICharacterInfo character = automation.Character;
+            bool hasHealing = character.TryGetSkill(HealingSkill, out PluginSkillInfo healing);
+            trace($"Recharge check: vital={vital}, percent={percent}, mode={mode}, handlers={string.Join(",", handlers)}, health={character.CurrentHealth}/{character.MaxHealth}, stamina={character.CurrentStamina}/{character.MaxStamina}, Healing={healing.Current}/{healing.Training}, skillPresent={hasHealing}, kitsInMagic={settings.UseKitsInMagicMode}, minimumKitChance={settings.MinimumHealKitSuccessChance}, healthThresholds={settings.NormalHealth}/{settings.NoTargetHealth}");
+            foreach (PluginInventoryItem item in items)
+            {
+                bool configured = combatSettings.ConsumableNames.Contains(item.Name);
+                if (!configured && (item.PublicFlags & HealingKitPublicFlag) == 0u
+                    && !item.Name.Contains("kit", StringComparison.OrdinalIgnoreCase))
+                    continue;
+                double chance = HealKitChance(healing.Current, item.BoostValue, character, vital, mode) * 100d;
+                string rejection = !configured ? "not configured"
+                    : !ConfiguredSupplyReadiness.IsAssessed(automation, item.ObjectId) ? "awaiting assessment"
+                    : mode == PluginCombatMode.Magic && !settings.UseKitsInMagicMode ? "kits disabled in magic"
+                    : vital != VitalKind.Stamina && character.CurrentStamina < 15u ? "stamina below 15"
+                    : !hasHealing || healing.Training is not (PluginSkillTraining.Trained or PluginSkillTraining.Specialized) ? "Healing not trained"
+                    : item.BoosterVital != (int)vital ? "vital does not match"
+                    : (item.PublicFlags & HealingKitPublicFlag) == 0u ? "missing healer flag"
+                    : item.UseRequiresSkillLevel > healing.Current ? "skill level too low"
+                    : item.UseRequiresSkillSpecialized != 0 && healing.Training != PluginSkillTraining.Specialized ? "specialization required"
+                    : chance < settings.MinimumHealKitSuccessChance ? "success chance below minimum"
+                    : "eligible";
+                trace($"Kit check: {item.Name} (0x{item.ObjectId:X8}), result={rejection}, configured={configured}, flags=0x{item.PublicFlags:X8}, boosterVital={item.BoosterVital}, bonus={item.BoostValue}, modifier={item.HealKitModifier}, uses={item.Structure}, requiredSkill={item.UseRequiresSkill}, requiredLevel={item.UseRequiresSkillLevel}, requiredSpec={item.UseRequiresSkillSpecialized}, chance={chance:F2}%");
+            }
+        }
+
         foreach (VitalRechargeMethod handler in handlers)
         {
             if (TryHandler(
@@ -97,6 +126,7 @@ internal static class VitalRechargePlanner
                     items,
                     out choice))
             {
+                trace?.Invoke($"Recharge selected: handler={handler}, source={choice.SourceKind}, name={choice.Name}");
                 return true;
             }
         }
@@ -525,7 +555,12 @@ internal static class VitalRechargePlanner
                     items,
                     out choice);
             case VitalRechargeMethod.Food:
-                return TryFood(vital, combatSettings, items, out choice);
+                return TryFood(
+                    vital,
+                    automation,
+                    combatSettings,
+                    items,
+                    out choice);
         }
 
         (string stem, VitalKind? sourceVital) = SpellStem(method, vital);
@@ -623,6 +658,12 @@ internal static class VitalRechargePlanner
             }
             if ((item.ItemType & CasterItemType) == 0u)
                 continue;
+            if (!ConfiguredSupplyReadiness.IsAssessed(
+                    automation,
+                    item.ObjectId))
+            {
+                continue;
+            }
 
             foreach (uint spellId in ItemSpellIds(item))
             {
@@ -696,8 +737,11 @@ internal static class VitalRechargePlanner
         foreach (PluginInventoryItem item in items)
         {
             if (!combatSettings.ConsumableNames.Contains(item.Name)
+                || !ConfiguredSupplyReadiness.IsAssessed(
+                    automation,
+                    item.ObjectId)
                 || item.BoosterVital != (int)vital
-                || item.UseRequiresSkill != (int)HealingSkill
+                || (item.PublicFlags & HealingKitPublicFlag) == 0u
                 || item.UseRequiresSkillLevel > healing.Current
                 || item.UseRequiresSkillSpecialized != 0
                     && healing.Training != PluginSkillTraining.Specialized
@@ -713,7 +757,7 @@ internal static class VitalRechargePlanner
             if (!found
                 || item.HealKitModifier > best.HealKitModifier
                 || item.HealKitModifier == best.HealKitModifier
-                    && item.ObjectId < best.ObjectId)
+                    && item.Structure < best.Structure)
             {
                 best = item;
                 found = true;
@@ -739,6 +783,7 @@ internal static class VitalRechargePlanner
 
     private static bool TryFood(
         VitalKind vital,
+        IAutomationSurface automation,
         CombatSettings settings,
         IReadOnlyList<PluginInventoryItem> items,
         out VitalRechargeChoice choice)
@@ -746,7 +791,11 @@ internal static class VitalRechargePlanner
         foreach (PluginInventoryItem item in items)
         {
             if (settings.ConsumableNames.Contains(item.Name)
+                && ConfiguredSupplyReadiness.IsAssessed(
+                    automation,
+                    item.ObjectId)
                 && item.BoosterVital == (int)vital
+                && (item.PublicFlags & HealingKitPublicFlag) == 0u
                 && item.UseRequiresSkill != (int)HealingSkill)
             {
                 choice = new VitalRechargeChoice(
@@ -1042,11 +1091,17 @@ internal static class VitalRechargePlanner
 /// <summary>One server-receipt-driven self-recharge state machine.</summary>
 internal sealed class VitalRechargeController
 {
+    private CombatModeGate? _combatModeGate;
+
+    internal void BindCombatModeGate(CombatModeGate gate) =>
+        _combatModeGate = gate ?? throw new ArgumentNullException(nameof(gate));
+
     private readonly IPluginHost _host;
     private readonly VitalSettings _settings;
     private readonly CombatSettings _combatSettings;
     private Pending? _pending;
     private double _retryDelay;
+    private double _rechargeTraceDelay;
     private double _pendingSeconds;
     private double _healthBoostRemaining;
     private double _staminaBoostRemaining;
@@ -1066,6 +1121,12 @@ internal sealed class VitalRechargeController
     }
 
     internal const string IdleStatus = "Vitals idle";
+
+    private void TraceRecharge(string message)
+    {
+        _rechargeTraceDelay = 5d;
+        _host.Log.Info(message);
+    }
 
     public string Status { get; private set; } = IdleStatus;
 
@@ -1097,6 +1158,7 @@ internal sealed class VitalRechargeController
         IAutomationSurface automation = _host.Automation;
         double elapsed = Math.Max(0d, elapsedSeconds);
         _retryDelay = Math.Max(0d, _retryDelay - elapsed);
+        _rechargeTraceDelay = Math.Max(0d, _rechargeTraceDelay - elapsed);
         _healthBoostRemaining = Math.Max(0d, _healthBoostRemaining - elapsed);
         _staminaBoostRemaining = Math.Max(0d, _staminaBoostRemaining - elapsed);
         _manaBoostRemaining = Math.Max(0d, _manaBoostRemaining - elapsed);
@@ -1161,6 +1223,7 @@ internal sealed class VitalRechargeController
                 wanted: _settings.HelpOthers && automation.Fellowship.IsInFellowship);
         }
 
+
         VitalKind? need = VitalPlan.DecideNeed(
             automation.Character,
             _settings,
@@ -1208,11 +1271,27 @@ internal sealed class VitalRechargeController
                      automation,
                      _settings,
                      _combatSettings,
-                     out choice))
+                     out choice,
+                     _rechargeTraceDelay <= 0d ? TraceRecharge : null))
         {
             Status = $"No {need.Value} recharge available";
             _retryDelay = 1d;
             return false;
+        }
+
+        if (choice.RequiredMode == PluginCombatMode.Magic
+            && _combatModeGate is { } preparation)
+        {
+            bool itemSpell = choice.SourceKind == VitalRechargeSourceKind.CasterItem;
+            if (!preparation.TryPrepare(
+                    PluginCombatMode.Magic,
+                    overrideItemId: itemSpell ? choice.ItemObjectId : 0u,
+                    autoSelect: !itemSpell))
+            {
+                ArmBoost(choice.Vital);
+                Status = preparation.Status;
+                return true;
+            }
         }
 
         if (choice.RequiredMode is { } required
@@ -1260,6 +1339,7 @@ internal sealed class VitalRechargeController
         _pending = null;
         _pendingSeconds = 0d;
         _retryDelay = 0d;
+        _rechargeTraceDelay = 0d;
         ClearBoosts();
         // The host drops its subscription with the session; only the
         // plugin-side memory of it is stale here.

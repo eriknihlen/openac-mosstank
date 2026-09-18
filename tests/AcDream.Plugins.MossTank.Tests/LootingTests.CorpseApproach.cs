@@ -71,6 +71,28 @@ public sealed partial class LootingTests
     }
 
     /// <summary>
+    /// No active profile bars the approach rule even when an external
+    /// classifier is configured and would otherwise make an empty native rule
+    /// list eligible.
+    /// Mutation <c>IgnoreInactiveProfileInCorpseApproach</c>: remove the
+    /// <c>ProfileActive</c> test from
+    /// <c>TrySelectApproachCorpse</c>; the character walks to the corpse.
+    /// </summary>
+    [Fact]
+    public void NoActiveProfileNeverWalksToACorpseForAnExternalClassifier()
+    {
+        var settings = ApproachSettings(range: 30d);
+        settings.ProfileActive = false;
+        settings.ExternalClassifierId = "utility/loot";
+        settings.Rules.Clear();
+        var automation = ApproachAutomation(Corpse(0x70002010u, 12f));
+        CorpseApproachController approach = Approach(automation, settings);
+
+        Assert.False(approach.ClaimFromRulePass(canAct: true));
+        Assert.Empty(automation.Intents);
+    }
+
+    /// <summary>
     /// The walk ends at the inner radius, not at the open's reach: the rule
     /// stops being valid there, which is what hands the corpse to the open. At
     /// four metres — already inside the five-metre open reach — the walk is

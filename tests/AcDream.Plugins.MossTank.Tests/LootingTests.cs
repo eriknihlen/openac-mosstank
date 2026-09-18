@@ -174,16 +174,21 @@ public sealed partial class LootingTests
         PluginInventoryItem stone = Item(1u, "Mana Stone", 1u) with
         {
             ItemType = 0x00080000u,
+            ObjectClass = PluginObjectClass.ManaStone,
         };
         PluginInventoryItem lowTank = Item(2u, "Low Tank", 2u) with
         {
             ItemCurrentMana = 1200,
             Value = 1,
+            Workmanship = 5,
+            Effects = 1,
         };
         PluginInventoryItem highTank = Item(3u, "High Tank", 3u) with
         {
             ItemCurrentMana = 3000,
             Value = 1,
+            Workmanship = 5,
+            Effects = 1,
         };
         var classified = new Dictionary<uint, LootAction>
         {
@@ -196,7 +201,8 @@ public sealed partial class LootingTests
             ManaStoneTransferPlanner.Plan(
                 [stone, lowTank, highTank],
                 classified,
-                minimumTankMana: 1000));
+                minimumTankMana: 1000,
+                configuredManaStoneNames: new HashSet<string> { "Mana Stone" }));
 
         Assert.Equal(stone.ObjectId, plan.StoneObjectId);
         Assert.Equal(highTank.ObjectId, plan.TankObjectId);

@@ -1,4 +1,4 @@
-﻿using System.Text.Json;
+using System.Text.Json;
 using AcDream.Plugin.Abstractions;
 
 namespace AcDream.Plugins.MossTank;
@@ -706,6 +706,8 @@ internal sealed class MossTankProfileStore
 
     private sealed class SideCarDocument
     {
+        public bool ShowNavLines { get; set; }
+        public bool ShowWalkableAreas { get; set; }
         public int Version { get; set; } = 1;
         public string[] ItemNames { get; set; } = [];
         public string[] ConsumableNames { get; set; } = [];
@@ -753,6 +755,8 @@ internal sealed class MossTankProfileStore
             ISet<string> logChannels) => new()
         {
             ItemNames = Sorted(settings.Combat.CombatItemNames),
+            ShowNavLines = settings.Navigation.ShowNavLines,
+            ShowWalkableAreas = settings.Navigation.ShowWalkableAreas,
             ConsumableNames = Sorted(settings.Combat.ConsumableNames),
             ConsumableCategories = settings.Combat.ConsumableCategories.ToDictionary(
                 static pair => pair.Key,
@@ -816,6 +820,8 @@ internal sealed class MossTankProfileStore
             IPluginLogger? logger = null)
         {
             Replace(settings.Combat.CombatItemNames, ItemNames);
+            settings.Navigation.ShowNavLines = ShowNavLines;
+            settings.Navigation.ShowWalkableAreas = ShowWalkableAreas;
             ReplaceOrder(settings.Combat.CombatItemOrder, ItemNames);
             settings.Combat.CombatItemObjectIds.Clear();
             Replace(settings.Combat.ConsumableNames, ConsumableNames);
@@ -983,6 +989,8 @@ internal sealed class MossTankProfileStore
         public LootAction Action { get; set; } = LootAction.Keep;
         public int KeepCount { get; set; } = 1;
         public int Priority { get; set; }
+        public string CustomExpression { get; set; } = string.Empty;
+        public VtankLootRequirement[] Requirements { get; set; } = [];
 
         public static LootRuleDocument From(LootRule rule) => new()
         {
@@ -991,6 +999,11 @@ internal sealed class MossTankProfileStore
             Action = rule.Action,
             KeepCount = rule.KeepCount,
             Priority = rule.Priority,
+            CustomExpression = rule.CustomExpression,
+            Requirements = rule.VtankRequirements.Select(requirement => new VtankLootRequirement
+            {
+                Type = requirement.Type, Payload = requirement.Payload,
+            }).ToArray(),
         };
 
         public LootRule ToRule() => new()
@@ -1000,6 +1013,11 @@ internal sealed class MossTankProfileStore
             Action = Action,
             KeepCount = Math.Clamp(KeepCount, 0, 100000),
             Priority = Math.Clamp(Priority, -1000, 1000),
+            CustomExpression = CustomExpression ?? string.Empty,
+            VtankRequirements = (Requirements ?? []).Select(requirement => new VtankLootRequirement
+            {
+                Type = requirement.Type, Payload = requirement.Payload,
+            }).ToList(),
         };
     }
 

@@ -41,6 +41,7 @@ internal sealed partial class MossTankPanel : IBuffRuleHost
     /// <summary>The one shared wield/combat-mode subroutine.</summary>
     private readonly CombatModeGate _combatModeGate;
     private readonly IdlePeaceRule _idlePeace;
+    private readonly RandomHelperRule _randomHelper;
     private readonly SummonPetRule _summonPet;
     private readonly PetRefillRule _idlePetRefill;
     private readonly MacroScheduler _scheduler;
@@ -254,15 +255,36 @@ internal sealed partial class MossTankPanel : IBuffRuleHost
         _profiles.BindCharacter(host.Automation.Character.Name);
         _profiles.LoadCurrent(_allSettings, _noBuffItemNames, _commandLogTypes);
         _lootProfiles = new MossTankLootProfileStore(host);
-        _lootProfiles.BindCharacter(host.Automation.Character.Name);
-        if (_lootProfiles.LoadCurrent(
-                _inventorySettings.Loot.Rules,
-                _inventorySettings.Loot)
-            == MossTankProfileLoad.Missing)
+        bool initialLootBound = _lootProfiles.BindCharacter(
+            host.Automation.Character.Name);
+        if (!initialLootBound)
         {
-            _lootProfiles.SaveCurrent(
-                _inventorySettings.Loot.Rules,
-                _inventorySettings.Loot);
+            _inventorySettings.Loot.Rules.Clear();
+            _inventorySettings.Loot.ProfileActive = false;
+        }
+        else
+        {
+            MossTankProfileLoad initialLootLoad = _lootProfiles.LoadCurrent(
+                    _inventorySettings.Loot.Rules,
+                    _inventorySettings.Loot);
+            if (initialLootLoad == MossTankProfileLoad.Missing)
+            {
+                _lootProfiles.SaveCurrent(
+                    _inventorySettings.Loot.Rules,
+                    _inventorySettings.Loot);
+            }
+            else if (initialLootLoad == MossTankProfileLoad.Failed)
+            {
+                _lootEditorNotice = _lootProfiles.LoadFailureNotice
+                    ?? "No loot profile is active.";
+                _host.Log.Error(_lootEditorNotice);
+            }
+            else if (initialLootLoad == MossTankProfileLoad.Partial)
+            {
+                _lootEditorNotice = _lootProfiles.LoadNotice
+                    ?? "Loaded the complete rules before an incomplete profile tail.";
+                _host.Log.Warn(_lootEditorNotice);
+            }
         }
         _routeProfiles = new MossTankRouteProfileStore(host);
         _routeProfiles.BindCharacter(host.Automation.Character.Name);
@@ -286,7 +308,9 @@ internal sealed partial class MossTankPanel : IBuffRuleHost
         _combat.BindCombatModeGate(_combatModeGate);
         _combat.BindActionLocks(_actionLocks, () => _inventorySettings.Loot.Enabled);
         _buffRule = new BuffSelfRule(host, _buffSettings, this);
+        _buffRule.BindConsumables(_combatSettings, _actionLocks);
         _idlePeace = new IdlePeaceRule(host, _combatSettings);
+        _randomHelper = new RandomHelperRule(host, _buffSettings, _actionLocks, _combatModeGate);
         _summonPet = new SummonPetRule(
             host,
             _combatSettings,
@@ -310,7 +334,9 @@ internal sealed partial class MossTankPanel : IBuffRuleHost
         // attack's item-use refusal means what it says.
         _combatModeGate.BindActionLocks(_actionLocks);
         _vitalRecharge.BindActionLocks(_actionLocks);
+        _vitalRecharge.BindCombatModeGate(_combatModeGate);
         _vitalHelperRecharge.BindActionLocks(_actionLocks);
+        _vitalHelperRecharge.BindCombatModeGate(_combatModeGate);
         _dispel.BindActionLocks(_actionLocks);
         _inventoryMaintenance = new InventoryMaintenanceController(
             host,
@@ -329,7 +355,8 @@ internal sealed partial class MossTankPanel : IBuffRuleHost
             _combatSettings);
         _loot = new LootController(
             host,
-            _inventorySettings.Loot);
+            _inventorySettings.Loot,
+            _combatSettings.ConsumableNames);
         _loot.BindActionLocks(_actionLocks);
         _corpseApproach = new CorpseApproachController(
             host,
@@ -395,6 +422,7 @@ internal sealed partial class MossTankPanel : IBuffRuleHost
         _loot.Log = EmitMacroLog;
         _readScroll.Log = EmitMacroLog;
         _navigation.Log = EmitMacroLog;
+        _randomHelper.Log = EmitMacroLog;
         _initialized = true;
         ApplyPersistedOptionOverrides();
         EnsureDefaultMonsterRule();
@@ -842,7 +870,7 @@ internal sealed partial class MossTankPanel : IBuffRuleHost
         CreateLootProfileCore(copyCurrent: false);
     };
     public Action CreateLootProfile => () =>
-        CreateLootProfileCore(copyCurrent: false);
+        ComposeProfileCommand("/vt loot new ");
     public Action CopyLootProfile => () =>
         CreateLootProfileCore(copyCurrent: true);
     public Action ClearLootProfile => ClearLootProfileCore;
@@ -1049,7 +1077,7 @@ internal sealed partial class MossTankPanel : IBuffRuleHost
     public Action CreateRouteProfile => () =>
         CreateRouteProfileCore(copyCurrent: false);
     public Action CopyRouteProfile => () =>
-        CreateRouteProfileCore(copyCurrent: true);
+        ComposeProfileCommand("/vt nav save ");
     public Action ClearRouteProfile => ClearRouteProfileCore;
     public Action DeleteRouteProfile => DeleteRouteProfileCore;
     public Action SetFollowTarget => CaptureFollowTarget;
@@ -1166,7 +1194,7 @@ internal sealed partial class MossTankPanel : IBuffRuleHost
         CreateMetaProfileCore(copyCurrent: false);
     };
     public Action CreateMetaProfile => () => CreateMetaProfileCore(copyCurrent: false);
-    public Action CopyMetaProfile => () => CreateMetaProfileCore(copyCurrent: true);
+    public Action CopyMetaProfile => () => ComposeProfileCommand("/vt meta save ");
     public Action ClearMetaProfile => ClearMetaProfileCore;
     public Action DeleteMetaProfile => DeleteMetaProfileCore;
 
@@ -1191,7 +1219,15 @@ internal sealed partial class MossTankPanel : IBuffRuleHost
         CreateProfileCore(copyCurrent: false);
     };
     public Action CreateProfile => () => CreateProfileCore(copyCurrent: false);
-    public Action CopyProfile => () => CreateProfileCore(copyCurrent: true);
+    public Action CopyProfile => () => ComposeProfileCommand(
+        _profiles.MineOnly ? "/vt settings savechar " : "/vt settings save ");
+
+    private void ComposeProfileCommand(string command)
+    {
+        if (!_host.Automation.Chat.Compose(command))
+            _host.Automation.Chat.PostSystemMessage(
+                $"Finish typing in chat, then try again. Command: {command}");
+    }
     public Action ClearProfile => ClearProfileCore;
     public Action DeleteProfile => DeleteProfileCore;
     public Action ToggleMineOnly => () =>
@@ -1871,7 +1907,6 @@ internal sealed partial class MossTankPanel : IBuffRuleHost
 
     private void SelectLootProfileCore(string name)
     {
-        SaveProfile();
         if (!_lootProfiles.Select(name))
         {
             _lootEditorNotice = $"Loot profile '{name}' is unavailable.";
@@ -1879,10 +1914,10 @@ internal sealed partial class MossTankPanel : IBuffRuleHost
         }
         if (!LoadLootProfile())
         {
-            _lootEditorNotice =
-                $"Loot profile {_lootProfiles.Selected} could not be read.";
             return;
         }
+        if (_lootProfiles.ActiveProfileIsPartial)
+            return;
         _lootEditorNotice = $"Loaded loot profile {_lootProfiles.Selected}.";
         ReportProfileLoaded("loot", _lootProfiles.Selected);
     }
@@ -1921,7 +1956,10 @@ internal sealed partial class MossTankPanel : IBuffRuleHost
             _lootEditorNotice = notice;
             return;
         }
-        LoadLootProfile();
+        _inventorySettings.Loot.Rules.Clear();
+        _inventorySettings.Loot.SalvageCombine = new VtankSalvageCombineSettings();
+        if (!LoadLootProfile())
+            return;
         _lootEditorNotice = notice;
     }
 
@@ -1942,12 +1980,17 @@ internal sealed partial class MossTankPanel : IBuffRuleHost
         }
         if (outcome == MossTankProfileLoad.Failed)
         {
-            _host.Log.Error(
-                $"Loot profile {_lootProfiles.Selected} could not be read; "
-                    + "the file was left as it is and the rules in memory are "
-                    + "unchanged.");
+            _lootEditorNotice = _lootProfiles.LoadFailureNotice
+                ?? "No loot profile is active.";
+            _host.Log.Error(_lootEditorNotice);
             RefreshLootEditor();
             return false;
+        }
+        if (outcome == MossTankProfileLoad.Partial)
+        {
+            _lootEditorNotice = _lootProfiles.LoadNotice
+                ?? "Loaded the complete rules before an incomplete profile tail.";
+            _host.Log.Warn(_lootEditorNotice);
         }
         _loot.Reset();
         RefreshLootEditor();
@@ -2748,12 +2791,10 @@ internal sealed partial class MossTankPanel : IBuffRuleHost
     }
 
     private void AddSelectedProfileItem(bool noBuffs)
+        => BeginProfileItemAddition(consumable: false, noBuffs);
+
+    private void CommitProfileItem(PluginInventoryItem item, bool noBuffs)
     {
-        if (!TryGetSelectedInventoryItem(out PluginInventoryItem item))
-        {
-            _profileNotice = "Select an owned inventory item first.";
-            return;
-        }
         _combatSettings.CombatItemObjectIds.Add(item.ObjectId);
         if (_combatSettings.CombatItemNames.Add(item.Name))
             _combatSettings.CombatItemOrder.Add(item.Name);
@@ -2801,15 +2842,13 @@ internal sealed partial class MossTankPanel : IBuffRuleHost
     }
 
     private void AddSelectedConsumableCore()
+        => BeginProfileItemAddition(consumable: true, noBuffs: false);
+
+    private void CommitConsumable(PluginInventoryItem item, ConsumableCategory category)
     {
-        if (!TryGetSelectedInventoryItem(out PluginInventoryItem item))
-        {
-            _profileNotice = "Select an owned consumable first.";
-            return;
-        }
         _combatSettings.ConsumableNames.Add(item.Name);
         _combatSettings.ConsumableCategories[item.Name] =
-            ConsumableClassifier.Classify(item);
+            category;
         _profileNotice = $"Added {item.Name}.";
         RefreshItemEditors();
         SaveProfile();
@@ -2852,8 +2891,10 @@ internal sealed partial class MossTankPanel : IBuffRuleHost
         {
             if (_combatSettings.ConsumableNames.Contains(item.Name))
             {
-                _combatSettings.ConsumableCategories[item.Name] =
-                    ConsumableClassifier.Classify(item);
+                if (_host.Automation.Items.TryCaptureProperties(item.ObjectId, out PluginItemProperties properties)
+                    && ProfileItemAdmission.TryConsumable(item, properties, _host.Automation,
+                        out ConsumableCategory category))
+                    _combatSettings.ConsumableCategories[item.Name] = category;
             }
         }
     }
@@ -4218,13 +4259,36 @@ internal sealed partial class MossTankPanel : IBuffRuleHost
 
     private void LoadSelectedProfile()
     {
+        bool retainActiveLoot = _lootProfiles.HasActiveProfile;
+        LootRule[] activeLootRules = _inventorySettings.Loot.Rules.ToArray();
+        VtankSalvageCombineSettings activeSalvage =
+            _inventorySettings.Loot.SalvageCombine.Clone();
         _profiles.LoadCurrent(_allSettings, _noBuffItemNames, _commandLogTypes);
         // The profile's own EnableMeta value is a stored setting, so a load
         // decides whether the meta runs exactly as it decides every other
         // option. Nothing here starts a meta pass by itself: the pass is
         // still gated on the macro running.
         _meta.SetEnabled(_metaSettings.Enabled);
-        LoadLootProfile();
+        bool lootLoaded = LoadLootProfile();
+        if (!lootLoaded)
+        {
+            if (retainActiveLoot)
+            {
+                _inventorySettings.Loot.Rules.Clear();
+                _inventorySettings.Loot.Rules.AddRange(activeLootRules);
+                _inventorySettings.Loot.SalvageCombine = activeSalvage;
+                _inventorySettings.Loot.ProfileActive = true;
+            }
+        }
+        else if (retainActiveLoot && _lootProfiles.ActiveProfileIsPartial)
+        {
+            _inventorySettings.Loot.Rules.Clear();
+            _inventorySettings.Loot.Rules.AddRange(activeLootRules);
+            _inventorySettings.Loot.SalvageCombine = activeSalvage;
+            _lootEditorNotice = $"Loot profile {_lootProfiles.Selected} has an "
+                + "incomplete tail; current rules were retained and source was preserved.";
+            _host.Log.Warn(_lootEditorNotice);
+        }
         LoadRouteProfile();
         ApplyPersistedOptionOverrides();
         ResetProfileConsumers();
@@ -4458,6 +4522,7 @@ internal sealed partial class MossTankPanel : IBuffRuleHost
 
     private void HandleDeath(bool macroRunning)
     {
+        _buffRule.InvalidateItemTimers();
         if (!macroRunning || !_combatSettings.StopMacroOnDeath)
             return;
         SetMacroRunning(false);
@@ -4476,6 +4541,7 @@ internal sealed partial class MossTankPanel : IBuffRuleHost
 
     private void ResetOncePerRunWarnings()
     {
+        _randomHelper.ResetOncePerRunWarnings();
         _combatModeGate.ResetOncePerRunWarnings();
         _navigation.ResetOncePerRunWarnings();
         _buffRule.ResetOncePerRunWarnings();
@@ -4498,6 +4564,9 @@ internal sealed partial class MossTankPanel : IBuffRuleHost
             HandleSessionStarted();
         }
 
+        UpdateNavLines();
+        UpdateWalkableAreas(elapsedSeconds);
+        UpdateNavdataGeneration();
         _actionLocks.Advance(elapsedSeconds);
         // Beside the slot clock rather than inside a rule pass: the slots an
         // open takes include the one the loot rule is gated on, so only
@@ -4507,6 +4576,9 @@ internal sealed partial class MossTankPanel : IBuffRuleHost
         ObserveFastCastMovement(elapsedSeconds);
         _buffRule.Advance(elapsedSeconds);
         EnsureCharacterProfile();
+        _buffRule.EnsureTimerPersistence();
+        TickConfiguredItemAssessment(elapsedSeconds);
+        TickProfileItemAddition(elapsedSeconds);
         ShowFirstRunGuidance();
         ObserveCommandPortalState();
         bool macroRunning = _combat.Enabled;
@@ -4553,7 +4625,10 @@ internal sealed partial class MossTankPanel : IBuffRuleHost
         // armed them. They step before the pass so the pass sees the frame's
         // work already done and never spends the same time twice. Only one of
         // them is ever armed: the pass the winner takes disarms the other.
-        _navigation.StepArmedMover(elapsedSeconds);
+        if (_loot.HasPendingRouteLoot())
+            _navigation.StopForLostTurn();
+        else
+            _navigation.StepArmedMover(elapsedSeconds);
         _corpseApproach.StepArmedMover(elapsedSeconds);
         _scheduler.Advance(elapsedSeconds);
         _combatModeGate.AdvancePass(elapsedSeconds);
@@ -4688,6 +4763,7 @@ internal sealed partial class MossTankPanel : IBuffRuleHost
 
     public void Disable()
     {
+        ClearNavLines();
         if (_combat.Enabled)
             SetMacroRunning(false);
         if (_buffRule.IsBursting)
@@ -4709,6 +4785,12 @@ internal sealed partial class MossTankPanel : IBuffRuleHost
 
     private void HandleSessionEnded()
     {
+        _pendingProfileAddition = null;
+        _assessmentRetries.Clear();
+        _assessmentTime = 0d;
+        _nextAssessment = 0d;
+        _nextAssessmentScan = 0d;
+        ClearNavLines();
         if (_combat.Enabled)
             _combat.OnTick(0d);
 
@@ -4738,6 +4820,7 @@ internal sealed partial class MossTankPanel : IBuffRuleHost
 
     private void ResetSessionScopedControllers()
     {
+        _randomHelper.Reset();
         _summonPet.Reset();
         _idlePetRefill.Reset();
         _vitalRecharge.Reset();

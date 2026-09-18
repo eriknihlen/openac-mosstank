@@ -28,6 +28,8 @@ internal sealed class CombatModeGate
     private PluginCombatMode _modeBeforeRequest = PluginCombatMode.Unknown;
     private bool _modeRequestInFlight;
     private bool _noWandNoticePosted;
+    private double _diagnosticTime;
+    private double _nextBusyDiagnostic;
 
     internal double SinceModeRequestSecondsForTests => _sinceModeRequest;
 
@@ -112,8 +114,11 @@ internal sealed class CombatModeGate
         Status = string.Empty;
     }
 
-    public void AdvancePass(double elapsedSeconds) =>
+    public void AdvancePass(double elapsedSeconds)
+    {
         _sinceModeRequest += Math.Max(0d, elapsedSeconds);
+        _diagnosticTime += Math.Max(0d, elapsedSeconds);
+    }
 
     /// <param name="captured">
     /// The caller's own equipment projection, when it already has one for
@@ -134,6 +139,15 @@ internal sealed class CombatModeGate
         if (equipment.IsBusy || automation.Items.IsBusy || automation.Magic.IsCasting)
         {
             Status = "Busy";
+            if (_diagnosticTime >= _nextBusyDiagnostic)
+            {
+                _nextBusyDiagnostic = _diagnosticTime + 5d;
+                PluginBusyState busy = automation.Recovery.CaptureBusyState();
+                _host.Log.Info($"Macro busy: count={busy.BusyCount}, inventory={busy.PendingInventory}, " +
+                    $"appraisal=0x{busy.AwaitingAppraisal:X8}, source=0x{busy.UseSource:X8}, " +
+                    $"target=0x{busy.UseTarget:X8}, awaitingUse={busy.AwaitingUseCompletion}, " +
+                    $"equipment={equipment.IsBusy}, magic={automation.Magic.IsCasting}");
+            }
             return false;
         }
 

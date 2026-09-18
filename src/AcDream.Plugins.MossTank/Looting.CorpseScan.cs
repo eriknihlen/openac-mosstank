@@ -101,10 +101,14 @@ internal sealed partial class LootController
         out PluginLootContainer corpse)
     {
         corpse = default;
-        if (!_settings.Enabled || !_host.Automation.IsAvailable)
+        if (!_settings.ProfileActive
+            || !_settings.Enabled
+            || !_host.Automation.IsAvailable)
             return false;
         ILootAutomation loot = _host.Automation.Loot;
         if (!loot.IsAvailable)
+            return false;
+        if (HasStationaryCorpseWork())
             return false;
         if (_settings.Rules.Count == 0
             && string.IsNullOrWhiteSpace(_settings.ExternalClassifierId))
@@ -121,6 +125,63 @@ internal sealed partial class LootController
         }
         corpse = picked;
         return true;
+    }
+
+    /// <summary>
+    /// Answers whether the open step still has known work while its paced scan
+    /// is waiting. Holding that rule's place keeps route movement from taking
+    /// one turn between adjacent corpses.
+    /// </summary>
+    internal bool HasEligibleCorpseInOpenRange()
+    {
+        if (!_settings.ProfileActive
+            || !_settings.Enabled
+            || !_host.Automation.IsAvailable)
+        {
+            return false;
+        }
+
+        ILootAutomation loot = _host.Automation.Loot;
+        return loot.IsAvailable
+            && SelectCorpse(
+                loot.CaptureCorpses(float.MaxValue),
+                CorpseOpenRangeMeters,
+                byHeading: true) is not null;
+    }
+
+    internal bool HasStationaryCorpseWork() =>
+        HasPendingCorpseWork(CorpseOpenRangeMeters);
+
+    internal bool HasPendingRouteLoot() =>
+        HasPendingCorpseWork(Math.Max(CorpseOpenRangeMeters, _settings.CorpseApproachRange));
+
+    // A cooldown or an outstanding description does not mean looting is done.
+    // Keep movement out until nearby corpses can be judged and processed.
+    private bool HasPendingCorpseWork(double rangeMeters)
+    {
+        if (!_settings.ProfileActive || !_settings.Enabled
+            || !_host.Automation.IsAvailable
+            || (_settings.Rules.Count == 0
+                && string.IsNullOrWhiteSpace(_settings.ExternalClassifierId)))
+            return false;
+        ILootAutomation loot = _host.Automation.Loot;
+        if (!loot.IsAvailable)
+            return false;
+        if (_activeCorpse != 0u || loot.CurrentContainerId != 0u)
+            return true;
+
+        IReadOnlyList<PluginLootContainer> corpses = loot.CaptureCorpses(float.MaxValue);
+        if (SelectCorpse(corpses, rangeMeters, byHeading: false) is not null)
+            return true;
+        foreach (PluginLootContainer corpse in corpses)
+        {
+            if (!corpse.IsIdentified && corpse.Distance <= rangeMeters
+                && !_completedCorpses.ContainsKey(corpse.ObjectId)
+                && !IsCorpseDenied(corpse.ObjectId)
+                && !IsCorpseBlacklisted(corpse.ObjectId))
+                return true;
+        }
+        return false;
     }
 
     /// <summary>
