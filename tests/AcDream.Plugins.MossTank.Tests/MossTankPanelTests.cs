@@ -112,7 +112,7 @@ public sealed class MossTankPanelTests
             CurrentMana = 100,
             MaxMana = 100,
             // BoosterVital 2 = VitalKind.Health (VitalPlan.cs:7).
-            ItemEntries = [Item(60, "Bread", 1) with { BoosterVital = 2 }],
+            ItemEntries = [Item(60, "Bread", 0x20) with { BoosterVital = 2 }],
         };
         var host = new FakeHost(automation);
         var panel = new MossTankPanel(host);
@@ -1603,10 +1603,11 @@ public sealed class MossTankPanelTests
     public void AnItemAlreadyEnchantedForLongerThanTheThresholdIsNotDue()
     {
         var automation = ItemEnchantAutomation();
-        automation.ItemEnchantments[10u] =
+        // The auras are self-targeted: the character carries their timers.
+        automation.ActiveEnchantments =
         [
-            new PluginTrackedEnchantment(10u, 101u, 201u, 1, false, 1800d),
-            new PluginTrackedEnchantment(10u, 102u, 202u, 1, false, 1800d),
+            new PluginActiveEnchantment(101u, 201u, 1, 1800d),
+            new PluginActiveEnchantment(102u, 202u, 1, 1800d),
         ];
         var host = new FakeHost(automation);
         automation.CurrentSelection = () => host.Selection.SelectedObjectId ?? 0u;
@@ -1625,11 +1626,11 @@ public sealed class MossTankPanelTests
     public void ForceBuffAlsoForcesTheItemEnchantRowsBecauseEqIEndsOnDmD()
     {
         FakeAutomation automation = ItemEnchantAutomation();
-        automation.ItemEnchantments[10u] =
+        automation.ActiveEnchantments =
         [
-            new PluginTrackedEnchantment(10u, 101u, 201u, 1, false, 1800d),
-            new PluginTrackedEnchantment(10u, 102u, 202u, 1, false, 1800d),
-            new PluginTrackedEnchantment(10u, 103u, 203u, 1, false, 1800d),
+            new PluginActiveEnchantment(101u, 201u, 1, 1800d),
+            new PluginActiveEnchantment(102u, 202u, 1, 1800d),
+            new PluginActiveEnchantment(103u, 203u, 1, 1800d),
         ];
         var host = new FakeHost(automation);
         automation.CurrentSelection = () => host.Selection.SelectedObjectId ?? 0u;
@@ -1949,7 +1950,7 @@ public sealed class MossTankPanelTests
             IsBeneficial: true);
 
     [Fact]
-    public void RandomHelperPositionIsHeldInertWithTheSettingOn()
+    public void RandomHelperBuffsGoToANearbyFellowWithTheSettingOn()
     {
         var automation = new CombatCapableFakeAutomation
         {
@@ -1991,7 +1992,7 @@ public sealed class MossTankPanelTests
         for (int tick = 0; tick < 200; tick++)
             panel.OnTick(0.3d);
 
-        Assert.Empty(automation.CastTargets);
+        Assert.Contains(0x50000009u, automation.CastTargets);
     }
 
     private static FakeAutomation BuffPassAutomation() => new()
@@ -2268,7 +2269,7 @@ public sealed class MossTankPanelTests
             CurrentMana = 100,
             MaxMana = 100,
             // BoosterVital 2 = VitalKind.Health (VitalPlan.cs:7).
-            ItemEntries = [Item(60, "Bread", 1) with { BoosterVital = 2 }],
+            ItemEntries = [Item(60, "Bread", 0x20) with { BoosterVital = 2 }],
         };
         var host = new FakeHost(automation);
         var panel = new MossTankPanel(host);
@@ -3168,7 +3169,7 @@ public sealed class MossTankPanelTests
                 Spell(1, 10, "Increases the caster's Life Magic skill by 10 points."),
             ],
             // BoosterVital 2 = VitalKind.Health (VitalPlan.cs:7).
-            ItemEntries = [Item(60, "Bread", 1) with { BoosterVital = 2 }],
+            ItemEntries = [Item(60, "Bread", 0x20) with { BoosterVital = 2 }],
         };
         var host = new FakeHost(automation);
         var panel = new MossTankPanel(host);
@@ -3388,7 +3389,7 @@ public sealed class MossTankPanelTests
             [
                 Spell(1, 10, "Increases the caster's Life Magic skill by 10 points."),
             ],
-            ItemEntries = [Item(60, "Bread", 1) with { BoosterVital = 2 }],
+            ItemEntries = [Item(60, "Bread", 0x20) with { BoosterVital = 2 }],
         };
         var host = new FakeHost(automation);
         var panel = new MossTankPanel(host);
@@ -3756,7 +3757,7 @@ public sealed class MossTankPanelTests
             ItemEntries =
             [
                 Item(20, "Iron Phial of Imperil", 0x100),
-                Item(21, "Black Marrow Pea", 0x20),
+                Item(21, "Iron Phial of Vulnerability", 0x100),
             ],
         };
         var host = new FakeHost(automation);
@@ -4317,7 +4318,7 @@ public sealed class MossTankPanelTests
         panel.AddLootRule();
         panel.SetLootExpressionDraft("name ~= coin");
         panel.ApplyLootRule();
-        Vt(panel, "loot new Currency");
+        Vt(panel, "loot save Currency"); // save copies the current rules under the new name
         panel.AddLootRule();
 
         Assert.Equal("Currency", panel.LootProfileName);
@@ -6339,9 +6340,37 @@ public sealed class MossTankPanelTests
         string name,
         uint itemType,
         uint validLocations = 0u,
-        int petClass = 0) => new(
-            id, 0, name, itemType, 1, 0, validLocations, 0, 0, 0, 0,
-            1, 0, 0, 0, petClass, 0, 0, false, 0, 0, 0, 0, 0, 0, 0, 0);
+        int petClass = 0) => new PluginInventoryItem(
+            id, 0, name, itemType, 1, 0,
+            validLocations != 0u ? validLocations : DefaultSlotFor(itemType),
+            0, 0, 0, 0,
+            1, 0, 0, 0, petClass, 0, 0, false, 0, 0, 0, 0, 0, 0, 0, 0)
+        {
+            ObjectClass = ClassFor(itemType),
+        };
+
+    // The panel admits an item by its class and the slot it can be wielded
+    // in, the way the host reports them; a fixture carries both so a test's
+    // item is judged as an owned item would be.
+    private static PluginObjectClass ClassFor(uint itemType) => itemType switch
+    {
+        _ when (itemType & 0x00008000u) != 0u => PluginObjectClass.WandStaffOrb,
+        _ when (itemType & 0x00000100u) != 0u => PluginObjectClass.MissileWeapon,
+        _ when (itemType & 0x00000001u) != 0u => PluginObjectClass.MeleeWeapon,
+        _ when (itemType & 0x00000020u) != 0u => PluginObjectClass.Food,
+        _ when (itemType & 0x00000800u) != 0u => PluginObjectClass.Gem,
+        _ when (itemType & 0x00001000u) != 0u => PluginObjectClass.SpellComponent,
+        _ when (itemType & 0x00000080u) != 0u => PluginObjectClass.Misc,
+        _ => PluginObjectClass.Unknown,
+    };
+
+    private static uint DefaultSlotFor(uint itemType) => itemType switch
+    {
+        _ when (itemType & 0x00008000u) != 0u => ItemEnchantDefaults.Wand,
+        _ when (itemType & 0x00000100u) != 0u => ItemEnchantDefaults.MissileWeapon,
+        _ when (itemType & 0x00000001u) != 0u => ItemEnchantDefaults.MeleeWeapon,
+        _ => 0u,
+    };
 
     private static PluginEquipmentItem EquipmentItem(
         uint id,
