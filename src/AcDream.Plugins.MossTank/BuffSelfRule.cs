@@ -466,7 +466,12 @@ internal sealed partial class BuffSelfRule
         if (!context.CanAct)
             return true;
 
-        if (_owner.CastTracker.IsBusy || automation.Magic.IsCasting)
+        // Only this macro's own cast holds the rule here. The host's casting
+        // flag is its inventory transaction count under another name, and a
+        // request that never completes leaves that count raised for good --
+        // which stalled the rule on every pass, claiming and casting
+        // nothing, with every rule below it starved.
+        if (_owner.CastTracker.IsBusy)
             return true;
 
         if (pick.ConsumableObjectId != 0u)

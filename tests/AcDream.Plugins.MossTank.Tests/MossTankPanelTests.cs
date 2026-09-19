@@ -2470,6 +2470,7 @@ public sealed class MossTankPanelTests
     {
         FakeAutomation automation = BuffPassAutomation();
         automation.ItemsBusy = true;
+        automation.IsCasting = true;
         var panel = new MossTankPanel(new FakeHost(automation));
         panel.ExecuteVtankCommand(new PluginCommand(
             "vt", "log ActiveRule on", "/vt log ActiveRule on"));
@@ -2478,13 +2479,15 @@ public sealed class MossTankPanelTests
         panel.ToggleCombat();
         panel.OnTick(0d);
 
-        // The rule keeps the pass. Whether the mode gate lets the cast out
-        // on this tick is its own business; what matters is that the pass
-        // does not fall through to the rules below, which is where the
-        // corpse rules live.
+        // The rule keeps the pass AND casts. The host's flags are its
+        // inventory transaction count under two names, raised by appraisals
+        // and pickups as much as by casts; a request that never completes
+        // leaves the count raised for good, and a rule that waits on it
+        // claims every pass, casts nothing, and starves every rule below.
         Assert.Contains(
             automation.Messages,
             line => line.Contains("Picked BuffSelf", StringComparison.Ordinal));
+        Assert.NotEmpty(automation.CastSpellIds);
     }
 
     [Fact]

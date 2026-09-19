@@ -136,7 +136,11 @@ internal sealed class CombatModeGate
         IAutomationSurface automation = _host.Automation;
         IEquipmentAutomation equipment = automation.Equipment;
 
-        if (equipment.IsBusy || automation.Items.IsBusy || automation.Magic.IsCasting)
+        // An equipment switch in flight is the only thing that stops a mode
+        // change here. The host's inventory transaction count is not: it is
+        // raised by appraisals and pickups as well as casts, and one that
+        // never completes would stall every rule that casts.
+        if (equipment.IsBusy)
         {
             Status = "Busy";
             if (_diagnosticTime >= _nextBusyDiagnostic)
