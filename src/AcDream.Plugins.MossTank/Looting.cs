@@ -664,7 +664,15 @@ internal sealed partial class LootController
             && current != _activeCorpse
             && _waitingItem != 0u)
         {
-            AbandonWaitingItem();
+            if (_host.Automation.Items.CaptureOwnedItems().Any(
+                    item => item.ObjectId == _waitingItem))
+            {
+                CompleteWaitingPickup();
+            }
+            else
+            {
+                AbandonWaitingItem();
+            }
         }
         if (_activeCorpse != 0u
             && current != _activeCorpse
@@ -1093,6 +1101,25 @@ internal sealed partial class LootController
 
         ObservePickup(contents);
 
+        // A receipt at its bounded retry ceiling is a definitive failed
+        // pickup. Reconcile it before choosing another item, otherwise the
+        // next accepted pull would inherit the old receipt and lose its own
+        // transfer classification.
+        int maximumAttempts = Math.Clamp(
+            _settings.CorpseLootItemMaxAttempts,
+            1,
+            100);
+        if (_waitingItem != 0u
+            && _itemAttempts.TryGetValue(_waitingItem, out int waitingAttempts)
+            && waitingAttempts >= maximumAttempts
+            && contents.Any(item => item.ObjectId == _waitingItem))
+        {
+            Log?.Invoke(
+                MacroLogChannel.Loot,
+                $"LootPickup: abandoned {_waitingName} after {waitingAttempts} attempts");
+            AbandonWaitingItem();
+        }
+
         // Items still waiting on their description are the frame's business
         // (TickIdentification); this turn works from the decisions already
         // made, the way the reference's pull step works from its queue.
@@ -1106,10 +1133,7 @@ internal sealed partial class LootController
                 continue;
             }
             if (_itemAttempts.TryGetValue(item.ObjectId, out int attempts)
-                && attempts >= Math.Clamp(
-                    _settings.CorpseLootItemMaxAttempts,
-                    1,
-                    100))
+                && attempts >= maximumAttempts)
             {
                 continue;
             }
@@ -1218,34 +1242,40 @@ internal sealed partial class LootController
         bool stillInCorpse = contents.Any(item => item.ObjectId == _waitingItem);
         if (!stillInCorpse)
         {
-            _classifiedOwnedItems[_waitingItem] = _waitingAction;
-            if (_waitingClassifierId.Length != 0)
-            {
-                _externalClassifierByItem[_waitingItem] = _waitingClassifierId;
-                _host.LootClassifiers.TryNotifyLooted(
-                    _waitingClassifierId,
-                    new PluginLootedItem(
-                        _waitingItemSnapshot,
-                        (PluginLootAction)(int)_waitingAction));
-            }
-            _decisions.Remove(_waitingItem);
-            Status = $"Looted {_waitingName}.";
-            Log?.Invoke(
-                MacroLogChannel.Loot,
-                $"LootPickup: took {_waitingName} ({_waitingAction})");
-            _itemAttempts.Remove(_waitingItem);
-            if (_waitingAction == LootAction.Read
-                && _waitingItemSnapshot.SpellId != 0u)
-            {
-                _pendingScrollReads.TryAdd(
-                    _waitingItemSnapshot.SpellId,
-                    _waitingItem);
-            }
+            CompleteWaitingPickup();
+            return;
         }
         else
         {
             Status = $"Retrying {_waitingName}.";
             return;
+        }
+    }
+
+    private void CompleteWaitingPickup()
+    {
+        _classifiedOwnedItems[_waitingItem] = _waitingAction;
+        if (_waitingClassifierId.Length != 0)
+        {
+            _externalClassifierByItem[_waitingItem] = _waitingClassifierId;
+            _host.LootClassifiers.TryNotifyLooted(
+                _waitingClassifierId,
+                new PluginLootedItem(
+                    _waitingItemSnapshot,
+                    (PluginLootAction)(int)_waitingAction));
+        }
+        _decisions.Remove(_waitingItem);
+        Status = $"Looted {_waitingName}.";
+        Log?.Invoke(
+            MacroLogChannel.Loot,
+            $"LootPickup: took {_waitingName} ({_waitingAction})");
+        _itemAttempts.Remove(_waitingItem);
+        if (_waitingAction == LootAction.Read
+            && _waitingItemSnapshot.SpellId != 0u)
+        {
+            _pendingScrollReads.TryAdd(
+                _waitingItemSnapshot.SpellId,
+                _waitingItem);
         }
         ReleaseWaitingReservation();
         ClearWaitingItem();

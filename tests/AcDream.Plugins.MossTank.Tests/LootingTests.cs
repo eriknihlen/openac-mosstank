@@ -850,6 +850,133 @@ public sealed partial class LootingTests
         Assert.Equal([first, first], automation.Picked);
     }
 
+    /// <summary>
+    /// A receipt at its retry ceiling is abandoned before another item is
+    /// selected, so the next transfer keeps its own classifier and reader
+    /// work.
+    /// Mutation: remove the exhausted-receipt reconciliation before candidate
+    /// selection in <c>ContinueCurrentCorpse</c>; the second pickup has no
+    /// receipt and the reader queue assertion fails.
+    /// </summary>
+    [Fact]
+    public void ExhaustedPickupReceiptDoesNotStealTheNextItemsTransfer()
+    {
+        const uint corpse = 0x700002A0u;
+        const uint first = 0x700002A1u;
+        const uint second = 0x700002A2u;
+        const uint spell = 778u;
+        var settings = new LootSettings
+        {
+            Enabled = true,
+            ExternalClassifierId = "classifier/read",
+            CorpseLootItemMaxAttempts = 1,
+        };
+        settings.Rules.Add(new LootRule { Expression = "*", Action = LootAction.NoLoot });
+        PluginInventoryItem firstItem = Scroll(first, "First scroll", spell);
+        PluginInventoryItem secondItem = Scroll(second, "Second scroll", spell);
+        var automation = new Automation
+        {
+            KnownSpell = new PluginSpellInfo(
+                spell, "Second scroll", 1u, 1, 100, 10, 0f, 34u,
+                string.Empty, false, false),
+            SkillsValue = [new PluginSkillInfo(34u, "War Magic", PluginSkillTraining.Trained, 90u)],
+            Corpses = [new PluginLootContainer(corpse, 1u, "Corpse", 3f, false, false, false)
+            {
+                IsIdentified = true,
+                LongDescription = "Killed by Tester.",
+            }],
+        };
+        var classifier = new ClassifierRegistry(
+            "classifier/read",
+            new PluginLootClassification(true, PluginLootAction.Read, "Read it"));
+        var host = new Host(automation, classifier);
+        var controller = new LootController(host, settings);
+        var locks = new ActionLockTable();
+        controller.BindActionLocks(locks);
+
+        Assert.True(controller.Tick(0.25d, canAct: true));
+        automation.Current = corpse;
+        automation.Contents = [firstItem, secondItem];
+        locks.Advance(settings.CorpseOpenTimeoutSeconds + 0.1d);
+        controller.TickIdentification(0.5d);
+        Assert.True(controller.Tick(0.2d, canAct: true));
+        automation.CompleteAppraisal(first, presentInUi: false);
+        controller.TickIdentification(0.5d);
+        Assert.True(controller.Tick(0.1d, canAct: true));
+        Assert.Equal([first], automation.Picked);
+
+        locks.Advance(1d);
+        Assert.True(controller.Tick(0.1d, canAct: true));
+        automation.CompleteAppraisal(second, presentInUi: false);
+        controller.TickIdentification(0.5d);
+        Assert.True(controller.Tick(0.1d, canAct: true));
+        Assert.Equal([first, second], automation.Picked);
+
+        locks.Advance(1d);
+        automation.Contents = [firstItem];
+        automation.Owned = [secondItem];
+        Assert.True(controller.Tick(0.1d, canAct: true));
+
+        Assert.DoesNotContain(first, controller.ClassifiedOwnedItems.Keys);
+        Assert.Equal(LootAction.Read, controller.ClassifiedOwnedItems[second]);
+        Assert.Equal(second, controller.PendingScrollReads[spell]);
+        Assert.Equal(second, Assert.Single(classifier.Looted).Item.ObjectId);
+        var reader = new ReadScrollController(host, settings, controller);
+        Assert.True(reader.Tick(0.1d, canAct: true));
+        Assert.Equal([second], automation.Used);
+    }
+
+    [Fact]
+    public void ClosedCorpseWithoutOwnedReceiptAbandonsItWithoutClassification()
+    {
+        const uint corpse = 0x700002C0u;
+        const uint scroll = 0x700002C1u;
+        const uint spell = 780u;
+        var settings = new LootSettings
+        {
+            Enabled = true,
+            ExternalClassifierId = "classifier/read",
+        };
+        settings.Rules.Add(new LootRule { Expression = "*", Action = LootAction.NoLoot });
+        PluginInventoryItem scrollItem = Scroll(scroll, "Absent scroll", spell);
+        var automation = new Automation
+        {
+            KnownSpell = new PluginSpellInfo(
+                spell, "Absent scroll", 1u, 1, 100, 10, 0f, 34u,
+                string.Empty, false, false),
+            SkillsValue = [new PluginSkillInfo(34u, "War Magic", PluginSkillTraining.Trained, 90u)],
+            Corpses = [new PluginLootContainer(corpse, 1u, "Corpse", 3f, false, false, false)
+            {
+                IsIdentified = true,
+                LongDescription = "Killed by Tester.",
+            }],
+        };
+        var classifier = new ClassifierRegistry(
+            "classifier/read",
+            new PluginLootClassification(true, PluginLootAction.Read, "Read it"));
+        var controller = new LootController(new Host(automation, classifier), settings);
+        var locks = new ActionLockTable();
+        controller.BindActionLocks(locks);
+
+        Assert.True(controller.Tick(0.25d, canAct: true));
+        automation.Current = corpse;
+        automation.Contents = [scrollItem];
+        locks.Advance(settings.CorpseOpenTimeoutSeconds + 0.1d);
+        controller.TickIdentification(0.5d);
+        Assert.True(controller.Tick(0.2d, canAct: true));
+        automation.CompleteAppraisal(scroll, presentInUi: false);
+        controller.TickIdentification(0.5d);
+        Assert.True(controller.Tick(0.1d, canAct: true));
+
+        locks.Advance(1d);
+        automation.Current = 0u;
+        Assert.True(controller.Tick(0.1d, canAct: true));
+
+        Assert.DoesNotContain(scroll, controller.ClassifiedOwnedItems.Keys);
+        Assert.Empty(controller.PendingScrollReads);
+        Assert.Empty(classifier.Looted);
+    }
+
     [Fact]
     public void UnknownReadableScrollOverridesNoLootAndIsPickedForReading()
     {
