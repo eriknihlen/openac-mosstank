@@ -4,8 +4,6 @@ namespace AcDream.Plugins.MossTank;
 
 internal sealed class CombatModeGate
 {
-    public const uint CasterItemType = 0x00008000u;
-
     public const string NoWandNotice =
         "You must add at least one wand to your profile.";
 
@@ -67,21 +65,8 @@ internal sealed class CombatModeGate
 
     public Func<MonsterDamageType, bool>? WieldAmmunition { get; set; }
 
-    public const uint MeleeWeaponItemType = 0x00000001u;
-    public const uint MissileWeaponItemType = 0x00000100u;
-
     public static bool IsCaster(in PluginEquipmentItem item) =>
-        (item.ItemType & CasterItemType) != 0u;
-
-    /// <summary>
-    /// A caster the character can actually hold. An item can carry the
-    /// caster type and still be worn somewhere that is not a weapon slot,
-    /// and asking to wield one of those gets "already equipped" back for
-    /// ever -- the gate never advances and every rule that casts stalls
-    /// behind it. The override path has always applied this same mask.
-    /// </summary>
-    private static bool IsWieldableCaster(in PluginEquipmentItem item) =>
-        IsCaster(in item) && (item.ValidLocations & WeaponReadyMask) != 0u;
+        item.ObjectClass == PluginObjectClass.WandStaffOrb;
 
     /// <summary>
     /// Which stance a weapon puts the character in. This is the item's CLASS,
@@ -91,11 +76,9 @@ internal sealed class CombatModeGate
     /// </summary>
     public static PluginCombatMode ModeFor(in PluginEquipmentItem item)
     {
-        if (IsCaster(in item))
-            return PluginCombatMode.Magic;
-        if ((item.ItemType & MeleeWeaponItemType) != 0u)
+        if (item.ObjectClass == PluginObjectClass.MeleeWeapon)
             return PluginCombatMode.Melee;
-        if ((item.ItemType & MissileWeaponItemType) != 0u)
+        if (item.ObjectClass == PluginObjectClass.MissileWeapon)
             return PluginCombatMode.Missile;
         return PluginCombatMode.Magic;
     }
@@ -176,8 +159,7 @@ internal sealed class CombatModeGate
         if (primary != 0u)
         {
             PluginEquipmentItem? requested = FindById(items, primary);
-            if (requested is not { } candidate
-                || (candidate.ValidLocations & WeaponReadyMask) == 0u)
+            if (!IsOwnedKnownObject(primary, requested))
             {
                 if (requested is { } named)
                 {
@@ -213,7 +195,9 @@ internal sealed class CombatModeGate
             if (wielded?.ObjectId != primary)
             {
                 PluginEquipmentItem? target = FindById(items, primary);
-                string name = target?.Name ?? "caster";
+                string name = target?.Name
+                    ?? (_host.Automation.Objects.TryGet(primary, out PluginWorldObject world)
+                        ? world.Name : "caster");
 
                 // The drop-to-peace branch, with the retry budget and the
                 // stuck-state recovery.
@@ -320,17 +304,54 @@ internal sealed class CombatModeGate
         return false;
     }
 
-    private PluginEquipmentItem? FindFirstProfiledWand(
+    private readonly record struct ProfiledCaster(uint ObjectId, string Name);
+
+    private bool IsOwnedKnownObject(
+        uint objectId, PluginEquipmentItem? projected)
+    {
+        IWorldObjectAutomation objects = _host.Automation.Objects;
+        if (objects.IsAvailable)
+            return objects.TryGet(objectId, out PluginWorldObject value)
+                && value.IsOwned;
+        return projected is not null;
+    }
+
+    private ProfiledCaster? FindFirstProfiledWand(
         IReadOnlyList<PluginEquipmentItem> items)
     {
+        IWorldObjectAutomation objects = _host.Automation.Objects;
+        if (objects.IsAvailable)
+        {
+            IReadOnlyList<PluginWorldObject> known = objects.CaptureObjects();
+            foreach (string name in _settings.CombatItemOrder)
+            {
+                foreach (PluginWorldObject item in known)
+                {
+                    if (item.IsOwned
+                        && item.ObjectClass == PluginObjectClass.WandStaffOrb
+                        && item.Name.Equals(name, StringComparison.Ordinal))
+                        return new(item.ObjectId, item.Name);
+                }
+            }
+            foreach (PluginWorldObject item in known)
+            {
+                if (item.IsOwned
+                    && item.ObjectClass == PluginObjectClass.WandStaffOrb
+                    && (_settings.CombatItemObjectIds.Contains(item.ObjectId)
+                        || _settings.CombatItemNames.Contains(item.Name))
+                    && !_settings.CombatItemOrder.Contains(item.Name))
+                    return new(item.ObjectId, item.Name);
+            }
+            return null;
+        }
         foreach (string name in _settings.CombatItemOrder)
         {
             foreach (PluginEquipmentItem item in items)
             {
-                if (IsWieldableCaster(in item)
+                if (IsCaster(in item)
                     && item.Name.Equals(name, StringComparison.Ordinal))
                 {
-                    return item;
+                    return new(item.ObjectId, item.Name);
                 }
             }
         }
@@ -339,11 +360,11 @@ internal sealed class CombatModeGate
         // back in — the FIRST wand wins, not the alphabetically smallest one.
         foreach (PluginEquipmentItem item in items)
         {
-            if (!IsWieldableCaster(in item) || !IsProfiled(in item))
+            if (!IsCaster(in item) || !IsProfiled(in item))
                 continue;
             if (_settings.CombatItemOrder.Contains(item.Name))
                 continue;
-            return item;
+            return new(item.ObjectId, item.Name);
         }
         return null;
     }
@@ -375,34 +396,19 @@ internal sealed class CombatModeGate
     {
         foreach (PluginEquipmentItem item in items)
         {
-            if ((item.EquippedLocation & WeaponReadyMask) != 0u)
+            if (IsWeaponSlot(item.EquippedLocation))
                 return item;
         }
         return null;
     }
 
-    /// <summary>
-    /// The held weapon that decides the stance we are asking for, when
-    /// there is one. The reference keeps a single weapon slot because
-    /// retail allows only one weapon at a time; a character carrying two
-    /// at once -- a two-hander and a caster, say -- makes "the wielded
-    /// weapon" ambiguous, and picking the wrong one leaves the gate asking
-    /// to equip something the character is already holding, for ever.
-    /// </summary>
+    internal static bool IsWeaponSlot(uint location) =>
+        location is 0x01000000u or 0x00100000u
+            or 0x00400000u or 0x02000000u;
+
     private static PluginEquipmentItem? FindWieldedFor(
         IReadOnlyList<PluginEquipmentItem> items,
-        PluginCombatMode wanted)
-    {
-        foreach (PluginEquipmentItem item in items)
-        {
-            if ((item.EquippedLocation & WeaponReadyMask) != 0u
-                && ModeFor(in item) == wanted)
-            {
-                return item;
-            }
-        }
-        return FindWielded(items);
-    }
+        PluginCombatMode wanted) => FindWielded(items);
 
     private PluginCombatMode EffectiveMode()
     {

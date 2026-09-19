@@ -349,27 +349,30 @@ internal sealed class CombatController
             notice => Disable(notice)));
 
     private CombatModeGate? _gate;
+    private AmmunitionPlan? _gateAmmunitionPlan;
 
     private CombatModeGate BindAmmunition(CombatModeGate gate)
     {
         gate.AmmunitionStale = (weapon, element) =>
         {
-            IEquipmentAutomation equipment = _host.Automation.Equipment;
-            if (!equipment.IsAvailable || weapon == 0u)
+            _gateAmmunitionPlan = null;
+            if (!_host.Automation.Equipment.IsAvailable || weapon == 0u)
                 return false;
-            return ResolveAmmunitionPlan(
-                PassEquipment(),
-                weapon,
-                element).Kind
-                != AmmunitionPlanKind.Satisfied;
+            AmmunitionPlan plan = ResolveAmmunitionPlan(
+                PassEquipment(), weapon, element);
+            if (plan.Kind is not (AmmunitionPlanKind.Wield
+                or AmmunitionPlanKind.Craft))
+                return false;
+            _gateAmmunitionPlan = plan;
+            return true;
         };
-        gate.WieldAmmunition = element =>
+        gate.WieldAmmunition = _ =>
         {
-            IEquipmentAutomation equipment = _host.Automation.Equipment;
-            if (!equipment.IsAvailable)
+            if (!_host.Automation.Equipment.IsAvailable
+                || _gateAmmunitionPlan is not { } plan)
                 return false;
-            IReadOnlyList<PluginEquipmentItem> items = PassEquipment();
-            return TickAmmunition(items, _plannedWeapon, element);
+            _gateAmmunitionPlan = null;
+            return ExecuteAmmunitionPlan(PassEquipment(), plan);
         };
         return gate;
     }
@@ -628,6 +631,7 @@ internal sealed class CombatController
         _passComponents.Clear();
         _passClearance.Clear();
         _passAmmunitionAvailability = null;
+        _gateAmmunitionPlan = null;
         _passInvalidTargets.Clear();
         _passClearedActions.Clear();
         _passCandidates.Clear();
@@ -1553,7 +1557,7 @@ internal sealed class CombatController
     {
         PluginEquipmentItem launcher = equipmentItems.FirstOrDefault(
             item => item.ObjectId == desiredWeapon);
-        int launcherType = VtankAmmunitionDatabase.LauncherType(launcher.AmmoType);
+        int launcherType = VtankAmmunitionDatabase.LauncherType(in launcher);
         if (launcherType == 0)
             return AmmunitionPlan.Satisfied;
 
@@ -1570,24 +1574,15 @@ internal sealed class CombatController
         {
             prismatic = VtankPrismaticAmmoPolicy.ForcePrismatic;
         }
-        if (damage is MonsterDamageType.None
-            or MonsterDamageType.VoidBasic
-            or MonsterDamageType.DrainAuto
-            or MonsterDamageType.Harm
-            or MonsterDamageType.Nether)
-        {
-            return AmmunitionPlan.Satisfied;
-        }
-
         IReadOnlyList<PluginInventoryItem> inventory =
             PassInventory();
         var counts = inventory
-            .GroupBy(static item => item.Name, StringComparer.OrdinalIgnoreCase)
+            .GroupBy(static item => item.Name, StringComparer.Ordinal)
             .ToDictionary(
                 static group => group.Key,
-                static group => group.Sum(item => Math.Max(1, item.StackSize)),
-                StringComparer.OrdinalIgnoreCase);
-        var craftable = new Dictionary<string, bool>(StringComparer.OrdinalIgnoreCase);
+                static group => group.Sum(item => item.StackSize),
+                StringComparer.Ordinal);
+        var craftable = new Dictionary<string, bool>(StringComparer.Ordinal);
         bool IsAvailable(string name)
         {
             if (counts.GetValueOrDefault(name) >= 1)
@@ -1625,16 +1620,20 @@ internal sealed class CombatController
         // still holds something: an empty quiver of the right name is not
         // ammunition.
         PluginEquipmentItem currentAmmo = equipmentItems.FirstOrDefault(
-            static item => item.CombatUse == 3 && item.IsEquipped);
+            static item => item.EquippedLocation == 0x00800000u);
         if (currentAmmo.StackSize > 0
             && string.Equals(currentAmmo.Name, option.Name, StringComparison.Ordinal))
         {
             return AmmunitionPlan.Satisfied;
         }
 
-        PluginEquipmentItem desiredAmmo = equipmentItems.FirstOrDefault(
-            item => item.Name.Equals(option.Name, StringComparison.Ordinal)
-                && item.StackSize > 0);
+        PluginEquipmentItem desiredAmmo = default;
+        foreach (PluginEquipmentItem item in equipmentItems)
+        {
+            if (item.Name.Equals(option.Name, StringComparison.Ordinal)
+                && item.StackSize > desiredAmmo.StackSize)
+                desiredAmmo = item;
+        }
         return desiredAmmo.ObjectId != 0u
             ? new AmmunitionPlan(
                 AmmunitionPlanKind.Wield,
@@ -1682,16 +1681,6 @@ internal sealed class CombatController
         Status = $"Waiting to craft {plan.Name}";
         return true;
     }
-
-    private bool TickAmmunition(
-        IReadOnlyList<PluginEquipmentItem> equipmentItems,
-        uint desiredWeapon,
-        MonsterDamageType configuredDamage) => ExecuteAmmunitionPlan(
-            equipmentItems,
-            ResolveAmmunitionPlan(
-                equipmentItems,
-                desiredWeapon,
-                configuredDamage));
 
     private MonsterRuleActions ResolvePhysicalActions(
         MonsterRuleActions actions,
@@ -1779,7 +1768,10 @@ internal sealed class CombatController
                 break;
             }
         }
-        if (desired is not { } selected || selected.IsEquipped)
+        if (desired is not { } selected
+            || (role == "weapon"
+                ? CombatModeGate.IsWeaponSlot(selected.EquippedLocation)
+                : selected.EquippedLocation == 0x00200000u))
             return false;
 
         if (!Gate.TryDropToPeace(items, selected.Name))
@@ -1922,7 +1914,7 @@ internal sealed class CombatController
         in PluginEquipmentItem item,
         MonsterDamageType element)
     {
-        int launcherType = VtankAmmunitionDatabase.LauncherType(item.AmmoType);
+        int launcherType = VtankAmmunitionDatabase.LauncherType(in item);
         if (launcherType == 0)
             return true;
         (MonsterDamageType, uint) key = (element, item.ObjectId);
@@ -3140,17 +3132,15 @@ internal sealed class CombatController
     private static (uint Weapon, uint Offhand) WieldedPair(
         IReadOnlyList<PluginEquipmentItem> equipment)
     {
-        const uint weaponReadyMask = 0x03500000u;
-        const uint shieldMask = 0x00000200u;
+        const uint shieldSlot = 0x00200000u;
         uint weapon = 0u;
         uint offhand = 0u;
         foreach (PluginEquipmentItem item in equipment)
         {
-            if (!item.IsEquipped)
-                continue;
-            if (weapon == 0u && (item.ValidLocations & weaponReadyMask) != 0u)
+            if (weapon == 0u
+                && CombatModeGate.IsWeaponSlot(item.EquippedLocation))
                 weapon = item.ObjectId;
-            else if (offhand == 0u && (item.ValidLocations & shieldMask) != 0u)
+            else if (offhand == 0u && item.EquippedLocation == shieldSlot)
                 offhand = item.ObjectId;
         }
         return (weapon, offhand);
@@ -3531,7 +3521,7 @@ internal sealed class CombatController
         {
             if (item.ObjectId != weapon)
                 continue;
-            launcherType = VtankAmmunitionDatabase.LauncherType(item.AmmoType);
+            launcherType = VtankAmmunitionDatabase.LauncherType(in item);
             break;
         }
         if (launcherType == 0)
@@ -3561,17 +3551,17 @@ internal sealed class CombatController
             return _passAmmunitionAvailability;
 
         Dictionary<string, int>? counts = null;
-        var answers = new Dictionary<string, bool>(StringComparer.OrdinalIgnoreCase);
+        var answers = new Dictionary<string, bool>(StringComparer.Ordinal);
         _passAmmunitionAvailability = name =>
         {
             if (answers.TryGetValue(name, out bool cached))
                 return cached;
             counts ??= PassInventory()
-                .GroupBy(static item => item.Name, StringComparer.OrdinalIgnoreCase)
+                .GroupBy(static item => item.Name, StringComparer.Ordinal)
                 .ToDictionary(
                     static group => group.Key,
-                    static group => group.Sum(item => Math.Max(1, item.StackSize)),
-                    StringComparer.OrdinalIgnoreCase);
+                    static group => group.Sum(item => item.StackSize),
+                    StringComparer.Ordinal);
             bool answer = counts.GetValueOrDefault(name) >= 1
                 || _canCraftAmmunition?.Invoke(name, 1) == true;
             answers[name] = answer;

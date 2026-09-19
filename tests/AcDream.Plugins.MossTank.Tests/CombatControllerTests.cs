@@ -1893,7 +1893,7 @@ public sealed class CombatControllerTests
                     990u,
                     "Fixture Wand",
                     damageType: 0,
-                    itemType: CombatModeGate.CasterItemType),
+                    itemType: 0x00008000u),
             ],
         };
         var settings = DebuffOnly(MonsterActionFlags.Imperil);
@@ -1917,7 +1917,7 @@ public sealed class CombatControllerTests
                 990u,
                 "Fixture Wand",
                 damageType: 0,
-                itemType: CombatModeGate.CasterItemType,
+                itemType: 0x00008000u,
                 equippedLocation: 0x00100000u),
         ];
         for (int tick = 0; tick < 4; tick++)
@@ -1951,12 +1951,12 @@ public sealed class CombatControllerTests
                     991u,
                     "Attack Wand",
                     damageType: 0x0010,
-                    itemType: CombatModeGate.CasterItemType),
+                    itemType: 0x00008000u),
                 Equipment(
                     990u,
                     "Spare Wand",
                     damageType: 0,
-                    itemType: CombatModeGate.CasterItemType),
+                    itemType: 0x00008000u),
             ],
         };
         var settings = new CombatSettings
@@ -2152,7 +2152,7 @@ public sealed class CombatControllerTests
             990u,
             "Flame Wand",
             damageType: 0x0010,
-            itemType: CombatModeGate.CasterItemType,
+            itemType: 0x00008000u,
             equippedLocation: 0x00100000u);
         var surface = new FakeAutomation
         {
@@ -2210,7 +2210,7 @@ public sealed class CombatControllerTests
                     990u,
                     "Spare Wand",
                     damageType: 0,
-                    itemType: CombatModeGate.CasterItemType),
+                    itemType: 0x00008000u),
                 Equipment(
                     991u,
                     "Imbued Sword",
@@ -2896,12 +2896,12 @@ public sealed class CombatControllerTests
                     0x80000A4Cu,
                     "Wand",
                     damageType: 0,
-                    itemType: CombatModeGate.CasterItemType),
+                    itemType: 0x00008000u),
                 Equipment(
                     0x80000B34u,
                     "Wand",
                     damageType: 0,
-                    itemType: CombatModeGate.CasterItemType),
+                    itemType: 0x00008000u),
             ],
         };
         var settings = new CombatSettings();
@@ -3046,7 +3046,7 @@ public sealed class CombatControllerTests
                     "War Wand",
                     damageType: 0,
                     equippedLocation: 0x00100000u,
-                    itemType: CombatModeGate.CasterItemType),
+                    itemType: 0x00008000u),
             ],
         };
         var settings = new CombatSettings();
@@ -3113,7 +3113,7 @@ public sealed class CombatControllerTests
                     700,
                     "War Wand",
                     damageType: 0,
-                    itemType: CombatModeGate.CasterItemType),
+                    itemType: 0x00008000u),
             ],
         };
         var settings = new CombatSettings();
@@ -3223,6 +3223,140 @@ public sealed class CombatControllerTests
         Assert.DoesNotContain("EnterDefaultMode", surface.CallLog);
     }
 
+    /// <summary>
+    /// Mutation: treat any equipped combat-use-3 item as the quiver or
+    /// select the first matching stack; item 801 then hides the larger stack.
+    /// </summary>
+    [Fact]
+    public void AmmunitionUsesExactQuiverSlotAndLargestMatchingStack()
+    {
+        var surface = new FakeAutomation
+        {
+            CombatSnapshot = Physical() with { Mode = PluginCombatMode.Peace },
+            CharacterSkills = [new PluginSkillInfo(47u, "Missile Weapons",
+                PluginSkillTraining.Trained, 300u) { Base = 300u }],
+            EquipmentItems =
+            [
+                Equipment(700, "Fire Bow", 0x10, itemType: 0x100u,
+                    equippedLocation: 0x00100000u, ammoType: 1u),
+                Equipment(801, "Deadly Fire Arrow", 0x10, combatUse: 3,
+                    equippedLocation: 0x00100000u, stackSize: 5,
+                    validLocations: AmmunitionSlot),
+                Equipment(802, "Deadly Fire Arrow", 0x10, combatUse: 3,
+                    stackSize: 10, validLocations: AmmunitionSlot),
+            ],
+            ItemEntries =
+            [
+                InventoryItem(801, "Deadly Fire Arrow", 0x100u, 0u, false),
+                InventoryItem(802, "Deadly Fire Arrow", 0x100u, 0u, false),
+            ],
+        };
+        CombatModeGate gate = BoundAmmunitionGate(surface);
+
+        Assert.True(gate.AmmunitionStale!(700u, MonsterDamageType.Fire));
+        Assert.True(gate.WieldAmmunition!(MonsterDamageType.Fire));
+        Assert.Equal(802u, surface.LastEquipObjectId);
+    }
+
+    /// <summary>
+    /// Mutation: compare names without case; the wrong-case row becomes
+    /// available.
+    /// </summary>
+    [Fact]
+    public void AmmunitionAvailabilityRequiresExactCase() =>
+        Assert.False(IsAmmunitionSelectionPending("deadly fire arrow", 1));
+
+    /// <summary>
+    /// Mutation: clamp an explicit zero stack to one; an empty row becomes
+    /// available.
+    /// </summary>
+    [Fact]
+    public void AmmunitionAvailabilityRequiresPositiveCount() =>
+        Assert.False(IsAmmunitionSelectionPending("Deadly Fire Arrow", 0));
+
+    private static bool IsAmmunitionSelectionPending(string name, int count)
+    {
+        var surface = new FakeAutomation
+        {
+            CombatSnapshot = Physical() with { Mode = PluginCombatMode.Peace },
+            CharacterSkills = [new PluginSkillInfo(47u, "Missile Weapons",
+                PluginSkillTraining.Trained, 300u) { Base = 300u }],
+            EquipmentItems =
+            [
+                Equipment(700, "Fire Bow", 0x10, itemType: 0x100u,
+                    equippedLocation: 0x00100000u, ammoType: 1u),
+            ],
+            ItemEntries = [InventoryItem(801, name, 0x100u, 0u, false)
+                with { StackSize = count }],
+        };
+        CombatModeGate gate = BoundAmmunitionGate(surface);
+
+        return gate.AmmunitionStale!(700u, MonsterDamageType.Fire);
+    }
+
+    /// <summary>
+    /// Mutation: recalculate the application from _plannedWeapon;
+    /// the callback loses the evaluated bow's arrow selection.
+    /// </summary>
+    [Fact]
+    public void AmmunitionApplicationUsesTheEvaluatedPrimary()
+    {
+        var surface = new FakeAutomation
+        {
+            CombatSnapshot = Physical() with { Mode = PluginCombatMode.Peace },
+            CharacterSkills = [new PluginSkillInfo(47u, "Missile Weapons",
+                PluginSkillTraining.Trained, 300u) { Base = 300u }],
+            EquipmentItems =
+            [
+                Equipment(700, "Fire Bow", 0x10, itemType: 0x100u,
+                    equippedLocation: 0x00100000u, ammoType: 1u),
+                Equipment(801, "Deadly Fire Arrow", 0x10, combatUse: 3,
+                    stackSize: 20, validLocations: AmmunitionSlot),
+            ],
+            ItemEntries =
+            [
+                InventoryItem(801, "Deadly Fire Arrow", 0x100u, 0u, false),
+            ],
+        };
+        CombatModeGate gate = BoundAmmunitionGate(surface);
+
+        Assert.True(gate.AmmunitionStale!(700u, MonsterDamageType.Fire));
+        Assert.True(gate.WieldAmmunition!(MonsterDamageType.Fire));
+        Assert.Equal(801u, surface.LastEquipObjectId);
+    }
+
+    /// <summary>
+    /// Mutation: treat an unavailable selection as stale;
+    /// the gate enters an action branch despite having no pending action.
+    /// </summary>
+    [Fact]
+    public void MissingAmmunitionIsNotAnActionInProgress()
+    {
+        var surface = new FakeAutomation
+        {
+            CombatSnapshot = Physical() with { Mode = PluginCombatMode.Peace },
+            EquipmentItems =
+            [
+                Equipment(700, "Fire Bow", 0x10, itemType: 0x100u,
+                    equippedLocation: 0x00100000u, ammoType: 1u),
+            ],
+        };
+        CombatModeGate gate = BoundAmmunitionGate(surface);
+
+        Assert.False(gate.AmmunitionStale!(700u, MonsterDamageType.Fire));
+        Assert.False(gate.WieldAmmunition!(MonsterDamageType.Fire));
+    }
+
+    private static CombatModeGate BoundAmmunitionGate(FakeAutomation surface)
+    {
+        var settings = new CombatSettings();
+        var host = new FakeHost(surface);
+        var controller = new CombatController(host, settings);
+        var gate = new CombatModeGate(host, settings,
+            new VitalSettings(), _ => { });
+        return controller.BindCombatModeGate(gate);
+    }
+
     [Fact]
     public void MissileLauncherSelectsOfficialBestAvailableAmmunition()
     {
@@ -3247,6 +3381,7 @@ public sealed class CombatControllerTests
                     700,
                     "Fire Bow",
                     damageType: 0x10,
+                    itemType: 0x100u,
                     equippedLocation: 0x00100000u,
                     ammoType: 0x001u),
                 Equipment(
@@ -3311,6 +3446,7 @@ public sealed class CombatControllerTests
                     700,
                     "Fire Bow",
                     damageType: 0x10,
+                    itemType: 0x100u,
                     equippedLocation: 0x00100000u,
                     ammoType: 0x001u),
                 Equipment(
@@ -3377,6 +3513,7 @@ public sealed class CombatControllerTests
                     700,
                     "Fire Bow",
                     damageType: 0x10,
+                    itemType: 0x100u,
                     equippedLocation: 0x00100000u,
                     ammoType: 0x001u),
                 Equipment(
@@ -4055,8 +4192,12 @@ public sealed class CombatControllerTests
         Assert.Equal(2, surface.PostedSystemMessages.Count);
     }
 
+    /// <summary>
+    /// Mutation: restore the ValidLocations weapon mask in the override
+    /// predicate; the owned object is spuriously warned away.
+    /// </summary>
     [Fact]
-    public void FcmIgnoringItemWarningReachesChatOncePerRun()
+    public void FcmOwnedObjectWithNoWeaponMaskIsAccepted()
     {
         var surface = new FakeAutomation
         {
@@ -4075,21 +4216,11 @@ public sealed class CombatControllerTests
 
         gate.AdvancePass(0.1d);
         gate.TryPrepare(PluginCombatMode.Magic, overrideItemId: 900u);
-        string warning = Assert.Single(surface.PostedSystemMessages);
-        Assert.Contains(
-            "Warning: FCM ignoring item Bread because it cannot currently be "
-            + "wielded.",
-            warning,
-            StringComparison.Ordinal);
+        Assert.Empty(surface.PostedSystemMessages);
 
         gate.AdvancePass(0.1d);
         gate.TryPrepare(PluginCombatMode.Magic, overrideItemId: 900u);
-        Assert.Single(surface.PostedSystemMessages);
-
-        gate.ResetOncePerRunWarnings();
-        gate.AdvancePass(0.1d);
-        gate.TryPrepare(PluginCombatMode.Magic, overrideItemId: 900u);
-        Assert.Equal(2, surface.PostedSystemMessages.Count);
+        Assert.Empty(surface.PostedSystemMessages);
     }
 
     [Fact]
@@ -4784,6 +4915,10 @@ public sealed class CombatControllerTests
     /// weapon skill) and this fails — a thrown weapon takes no ammunition and
     /// an unarmed weapon lists no damage, so both would be mis-stanced.
     /// </summary>
+    /// <summary>
+    /// Mutation: derive caster and stance from ItemType; Unknown then
+    /// masquerades as a caster instead of only receiving the default stance.
+    /// </summary>
     [Fact]
     public void AWeaponsStanceComesFromItsClassNotItsNumbers()
     {
@@ -4805,6 +4940,12 @@ public sealed class CombatControllerTests
 
         Assert.Equal(PluginCombatMode.Missile, CombatModeGate.ModeFor(in thrown));
         Assert.Equal(PluginCombatMode.Melee, CombatModeGate.ModeFor(in fists));
+        PluginEquipmentItem unknown = thrown with
+        {
+            ObjectClass = PluginObjectClass.Unknown,
+        };
+        Assert.Equal(PluginCombatMode.Magic, CombatModeGate.ModeFor(in unknown));
+        Assert.False(CombatModeGate.IsCaster(in unknown));
     }
 
     /// <summary>
@@ -4870,7 +5011,7 @@ public sealed class CombatControllerTests
                     990u,
                     "Fixture Wand",
                     damageType: 0,
-                    itemType: CombatModeGate.CasterItemType),
+                    itemType: 0x00008000u),
                 Equipment(991u, "Fire Sword", damageType: 0x0010),
             ],
         };
@@ -4918,12 +5059,12 @@ public sealed class CombatControllerTests
                     990u,
                     "Zephyr Wand",
                     damageType: 0,
-                    itemType: CombatModeGate.CasterItemType),
+                    itemType: 0x00008000u),
                 Equipment(
                     991u,
                     "Acid Wand",
                     damageType: 0,
-                    itemType: CombatModeGate.CasterItemType),
+                    itemType: 0x00008000u),
             ],
         };
         var settings = DebuffOnly(MonsterActionFlags.Imperil);
@@ -4995,7 +5136,7 @@ public sealed class CombatControllerTests
                     990u,
                     "Fixture Wand",
                     damageType: 0,
-                    itemType: CombatModeGate.CasterItemType),
+                    itemType: 0x00008000u),
                 WieldedPlannedWeapon(),
             ],
         };
@@ -5021,7 +5162,7 @@ public sealed class CombatControllerTests
                 990u,
                 "Fixture Wand",
                 damageType: 0,
-                itemType: CombatModeGate.CasterItemType,
+                itemType: 0x00008000u,
                 equippedLocation: 0x00100000u),
         ];
         settings.Rules[0] = new MonsterRule(
@@ -5201,6 +5342,11 @@ public sealed class CombatControllerTests
         {
             AmmoType = ammoType,
             StackSize = stackSize,
+            ObjectClass = (itemType & 0x8000u) != 0u
+                ? PluginObjectClass.WandStaffOrb
+                : (itemType & 0x100u) != 0u
+                    ? PluginObjectClass.MissileWeapon
+                    : PluginObjectClass.MeleeWeapon,
         };
 
     private static PluginEquipmentItem WieldedCaster(uint id = 990u) =>
@@ -5208,7 +5354,7 @@ public sealed class CombatControllerTests
             id,
             "Fixture Wand",
             damageType: 0,
-            itemType: CombatModeGate.CasterItemType,
+            itemType: 0x00008000u,
             equippedLocation: 0x00100000u);
 
     private static PluginEquipmentItem WieldedPlannedWeapon(uint id = 991u) =>
@@ -5315,10 +5461,11 @@ public sealed class CombatControllerTests
                 if (item.ObjectId != objectId)
                     continue;
                 value = new PluginWorldObject(
-                    item.ObjectId, 0u, item.Name, PluginObjectClass.Unknown,
+                    item.ObjectId, 0u, item.Name, item.ObjectClass,
                     item.ItemType, item.ContainerObjectId, item.WielderObjectId)
                 {
                     LastIdTime = 1,
+                    IsOwned = true,
                 };
                 return true;
             }
@@ -5335,6 +5482,21 @@ public sealed class CombatControllerTests
             }
             value = default;
             return false;
+        }
+        IReadOnlyList<PluginWorldObject> IWorldObjectAutomation.CaptureObjects()
+        {
+            var objects = new List<PluginWorldObject>();
+            foreach (PluginEquipmentItem item in EquipmentItems)
+            {
+                objects.Add(new PluginWorldObject(
+                    item.ObjectId, 0u, item.Name, item.ObjectClass,
+                    item.ItemType, item.ContainerObjectId, item.WielderObjectId)
+                {
+                    LastIdTime = 1,
+                    IsOwned = true,
+                });
+            }
+            return objects;
         }
         public IProjectileAutomation Projectiles => this;
         public ISelectionAutomation Selection => this;

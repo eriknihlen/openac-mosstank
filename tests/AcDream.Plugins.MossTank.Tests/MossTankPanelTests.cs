@@ -6904,7 +6904,10 @@ public sealed class MossTankPanelTests
             DamageType: 0,
             WeaponSkill: 44,
             Damage: 20,
-            DamageVariance: 0.25);
+            DamageVariance: 0.25)
+        {
+            ObjectClass = ClassFor(itemType),
+        };
 
     private static PluginSpellInfo Spell(uint id, uint family, string description) => new(
         id,
@@ -7615,10 +7618,11 @@ public sealed class MossTankPanelTests
                 if (item.ObjectId != objectId)
                     continue;
                 value = new PluginWorldObject(
-                    item.ObjectId, 0u, item.Name, PluginObjectClass.Unknown,
+                    item.ObjectId, 0u, item.Name, item.ObjectClass,
                     item.ItemType, item.ContainerObjectId, item.WielderObjectId)
                 {
                     LastIdTime = 1,
+                    IsOwned = true,
                 };
                 return true;
             }
@@ -7652,7 +7656,21 @@ public sealed class MossTankPanelTests
             NavigationAt(0f);
         public PluginNavigationSnapshot Snapshot => NavigationSnapshot;
         public List<PluginWorldObject> WorldObjects { get; } = [];
-        public IReadOnlyList<PluginWorldObject> CaptureObjects() => WorldObjects;
+        public IReadOnlyList<PluginWorldObject> CaptureObjects()
+        {
+            var objects = new List<PluginWorldObject>(WorldObjects);
+            foreach (PluginEquipmentItem item in EquipmentItems)
+            {
+                objects.Add(new PluginWorldObject(
+                    item.ObjectId, 0u, item.Name, item.ObjectClass,
+                    item.ItemType, item.ContainerObjectId, item.WielderObjectId)
+                {
+                    LastIdTime = 1,
+                    IsOwned = true,
+                });
+            }
+            return objects;
+        }
         public bool TryGetObject(uint objectId, out PluginNavigationObject value)
         {
             value = default;

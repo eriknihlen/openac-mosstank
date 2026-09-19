@@ -126,8 +126,8 @@ internal static class VtankWeaponLadder
             }
             PluginCombatMode stance = CombatModeGate.ModeFor(in item);
             bool launcher =
-                VtankAmmunitionDatabase.LauncherType(item.AmmoType) != 0;
-            bool caster = stance == PluginCombatMode.Magic;
+                VtankAmmunitionDatabase.LauncherType(in item) != 0;
+            bool caster = CombatModeGate.IsCaster(in item);
 
             if (caster)
             {

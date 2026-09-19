@@ -274,7 +274,8 @@ public sealed class VtankWeaponLadderTests
         string name,
         int damageType) => Weapon(id, name, damageType) with
         {
-            ItemType = CombatModeGate.CasterItemType,
+            ItemType = 0x00008000u,
+            ObjectClass = PluginObjectClass.WandStaffOrb,
         };
 
     private static uint Pick(
@@ -302,5 +303,8 @@ public sealed class VtankWeaponLadderTests
             DamageType: damageType,
             WeaponSkill: 44,
             Damage: 20,
-            DamageVariance: 0.25);
+            DamageVariance: 0.25)
+        {
+            ObjectClass = PluginObjectClass.MeleeWeapon,
+        };
 }
