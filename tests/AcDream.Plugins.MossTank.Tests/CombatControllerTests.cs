@@ -5791,6 +5791,144 @@ public sealed class CombatControllerTests
     }
 
     /// <summary>
+    /// A swing the server never answers must not hold the macro for ever: the
+    /// host refuses a second swing while the first is open, so the wait ends
+    /// itself and the attack is cancelled, which is what closes it server-side.
+    /// Mutation: delete the <c>GiveUpOnUnansweredSwing</c> call from the
+    /// waiting arm of <c>TickPhysical</c> and the second assertion fails — the
+    /// macro waits on that one swing until something unrelated interrupts it.
+    /// </summary>
+    [Fact]
+    public void ASwingThatIsNeverAnsweredIsCancelledOnceTheWaitRunsOut()
+    {
+        (FakeAutomation surface, CombatController controller, _) = MeleeKillRig();
+        Assert.Equal(10u, surface.LastBeginTarget);
+        int abortsAfterTheSwing = surface.AbortCount;
+
+        // The server took the swing and has said nothing since.
+        surface.CombatSnapshot = surface.CombatSnapshot with
+        {
+            ServerResponsePending = true,
+        };
+
+        // Four seconds of silence is still inside the wait.
+        controller.OnTick(4.0);
+        Assert.Equal(abortsAfterTheSwing, surface.AbortCount);
+
+        controller.OnTick(1.0);
+        Assert.Equal(abortsAfterTheSwing + 1, surface.AbortCount);
+    }
+
+    /// <summary>
+    /// Waits that keep running out are counted like any other attempt that
+    /// never reached the monster, so a target the character can never resolve
+    /// a swing against is given up and the next pass takes the other one.
+    /// Mutation: drop the <c>RecordMiss</c> from the give-up and this fails —
+    /// the macro cancels and re-swings at the same monster for ever.
+    /// </summary>
+    [Fact]
+    public void RepeatedUnansweredSwingsRetireTheTargetAndFreeTheNextOne()
+    {
+        (FakeAutomation surface, CombatController controller, _) = MeleeKillRig(
+            new CombatSettings
+            {
+                BlacklistMonsterAttemptCount = 1,
+                BlacklistMonsterTimeoutSeconds = 300,
+            });
+        surface.Targets =
+        [
+            Target(10, "Drudge", distance: 2, angle: 0),
+            Target(20, "Mosswart", distance: 3, angle: 0),
+        ];
+        surface.CombatSnapshot = surface.CombatSnapshot with
+        {
+            ServerResponsePending = true,
+        };
+
+        // One wait runs out per pass; the allowance is one, so the second
+        // retires the monster.
+        controller.OnTick(5.0);
+        controller.OnTick(5.0);
+
+        Assert.Contains(
+            surface.PostedSystemMessages,
+            message => message.Contains(
+                "Blacklisting unhittable target Drudge (10) for 300 seconds.",
+                StringComparison.Ordinal));
+        controller.OnTick(0.25);
+        Assert.Contains("Mosswart", controller.TargetText, StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// A monster the character is demonstrably hitting is never retired by
+    /// this path: one blow that lands starts the count over.
+    /// Mutation: point the give-up at a counter the damage line does not clear
+    /// and this fails — a monster being hit between slow answers would be
+    /// walked away from.
+    /// </summary>
+    [Fact]
+    public void ALandedBlowClearsTheUnansweredSwingCount()
+    {
+        (FakeAutomation surface, CombatController controller, _) = MeleeKillRig(
+            new CombatSettings
+            {
+                BlacklistMonsterAttemptCount = 1,
+                BlacklistMonsterTimeoutSeconds = 300,
+            });
+        surface.CombatSnapshot = surface.CombatSnapshot with
+        {
+            ServerResponsePending = true,
+        };
+
+        controller.OnTick(5.0);
+        surface.ChatMessages =
+        [
+            ChatLine(
+                1,
+                "You slash Drudge for 43 points of slashing damage!",
+                logTextType: 0x16u),
+        ];
+        controller.OnTick(0.25);
+        surface.ChatMessages = [];
+        controller.OnTick(5.0);
+
+        Assert.DoesNotContain(
+            surface.PostedSystemMessages,
+            message => message.Contains(
+                "Blacklisting unhittable target",
+                StringComparison.Ordinal));
+        Assert.Contains("Drudge", controller.TargetText, StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// Giving a monster up is a timeout, not a verdict: once the profile's
+    /// window has passed the same monster is a target again.
+    /// Mutation: make the suppression permanent and this fails.
+    /// </summary>
+    [Fact]
+    public void ARetiredTargetIsTakenUpAgainOnceItsWindowHasPassed()
+    {
+        (FakeAutomation surface, CombatController controller, _) = MeleeKillRig(
+            new CombatSettings
+            {
+                BlacklistMonsterAttemptCount = 1,
+                BlacklistMonsterTimeoutSeconds = 5,
+            });
+        surface.CombatSnapshot = surface.CombatSnapshot with
+        {
+            ServerResponsePending = true,
+        };
+
+        controller.OnTick(5.0);
+        controller.OnTick(5.0);
+        controller.OnTick(0.25);
+        Assert.DoesNotContain("Drudge", controller.TargetText, StringComparison.Ordinal);
+
+        controller.OnTick(6.0);
+        Assert.Contains("Drudge", controller.TargetText, StringComparison.Ordinal);
+    }
+
+    /// <summary>
     /// Mutation: take the retry out of the pass (return instead of choosing
     /// again after an undeliverable decision) and this fails — the macro
     /// stands there staring at the monster behind cover while a reachable one
@@ -6939,6 +7077,15 @@ public sealed class CombatControllerTests
         public PluginCombatCommandResult BeginPhysicalAttack(
             uint targetObjectId, PluginAttackHeight height, float power)
         {
+            // The host refuses a swing while one is still open: the three
+            // request flags are exactly what it looks at, so a fake that let
+            // a second swing through would hide the wait this macro depends on.
+            if (CombatSnapshot.RequestInProgress
+                || CombatSnapshot.ServerResponsePending
+                || CombatSnapshot.RepeatAttackInProgress)
+            {
+                return new(PluginCombatCommandStatus.Busy);
+            }
             LastBeginTarget = targetObjectId;
             LastBeginPower = power;
             BeginCount++;

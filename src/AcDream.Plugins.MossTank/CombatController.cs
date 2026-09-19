@@ -250,6 +250,27 @@ internal sealed class CombatController
     /// </summary>
     private const double PhysicalResultTextTailSeconds = 2d;
 
+    /// <summary>
+    /// How long a swing may stay outstanding with nothing coming back before
+    /// the macro treats it as an attempt that will never resolve.
+    ///
+    /// The reference macro re-presses the attack key every quarter second and
+    /// never waits on an answer, so it needs no such bound; this host refuses
+    /// a second swing while the first is still open, so the wait has to end
+    /// somewhere. The number is the one the reference already allows an
+    /// attempt that produces no result at all — four and a half seconds —
+    /// which sits well clear of the one-and-a-half to two-and-a-half seconds
+    /// a swing that does land takes to report.
+    /// </summary>
+    private const double UnansweredSwingSeconds = 4.5d;
+
+    /// <summary>
+    /// When the outstanding swing was sent. Re-stamped each time the wait is
+    /// given up on, so a host that never reports the attack finished costs one
+    /// counted attempt per bound rather than wedging the macro on one monster.
+    /// </summary>
+    private double _physicalSwingSentAt = double.NegativeInfinity;
+
     private bool _physicalResultArmed;
     private uint _physicalResultTargetId;
     private string _physicalResultTargetName = string.Empty;
@@ -771,6 +792,7 @@ internal sealed class CombatController
     {
         if (combat.ServerResponsePending || combat.RepeatAttackInProgress)
         {
+            GiveUpOnUnansweredSwing();
             Status = $"Attacking {_targetName}";
             return AttackPassOutcome.Claimed;
         }
@@ -854,9 +876,42 @@ internal sealed class CombatController
         else if (begin.Status == PluginCombatCommandStatus.Started)
         {
             _pendingPhysicalTarget = _targetId;
+            _physicalSwingSentAt = _now;
             ArmPhysicalResultText(_targetId, _targetName);
         }
         return AttackPassOutcome.Claimed;
+    }
+
+    /// <summary>
+    /// A swing that has been outstanding too long is given up on: the attack
+    /// is cancelled through the ordinary command, which is what ends it on the
+    /// server, and the monster is charged one attempt. Enough of those in a
+    /// row and it is given up as unhittable, exactly as a monster whose shots
+    /// all fly into the scenery is — one blow that lands clears the count.
+    /// </summary>
+    private void GiveUpOnUnansweredSwing()
+    {
+        if (_pendingPhysicalTarget == 0u
+            || _now - _physicalSwingSentAt < UnansweredSwingSeconds)
+        {
+            return;
+        }
+        uint stalled = _pendingPhysicalTarget;
+        // The wait starts over whether or not the cancel is answered, so a
+        // host that never reports the attack finished still costs one counted
+        // attempt per bound instead of holding the macro here for good.
+        _physicalSwingSentAt = _now;
+        _host.Automation.Combat.AbortPhysicalAttack();
+        Log?.Invoke(
+            MacroLogChannel.CastInfo,
+            $"Swing: no result from {_targetName} (0x{stalled:X8}) after "
+                + $"{UnansweredSwingSeconds:0.0}s, cancelling");
+        AnnounceBlacklist(
+            _failures.RecordMiss(stalled, _now, _settings),
+            stalled,
+            _physicalResultTargetId == stalled
+                ? _physicalResultTargetName
+                : _targetName);
     }
 
     private AttackPassOutcome TickMagic()
