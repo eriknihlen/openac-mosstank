@@ -463,6 +463,7 @@ internal sealed class CombatController
     public bool EquipOneStepForMonster(string monsterName)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(monsterName);
+        ClearPassMemos();
         var target = new PluginCombatTarget(
             0u,
             monsterName.Trim(),

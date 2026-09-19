@@ -3278,6 +3278,55 @@ public sealed class CombatControllerTests
     }
 
     /// <summary>
+    /// Mutation executed: remove the <c>ClearPassMemos()</c> call at the
+    /// start of <c>EquipOneStepForMonster</c>; the second command returns
+    /// ready without issuing the arrow wield.
+    /// </summary>
+    [Fact]
+    public void ManualEquipmentCommandReadsAmmunitionAddedBetweenCalls()
+    {
+        var surface = new FakeAutomation
+        {
+            CombatSnapshot = Physical() with { Mode = PluginCombatMode.Peace },
+            CharacterSkills = [new PluginSkillInfo(47u, "Missile Weapons",
+                PluginSkillTraining.Trained, 300u) { Base = 300u }],
+            EquipmentItems =
+            [
+                Equipment(700, "Fire Bow", 0x10, itemType: 0x100u,
+                    equippedLocation: 0x00100000u, ammoType: 1u),
+            ],
+        };
+        var settings = new CombatSettings();
+        settings.Rules.Clear();
+        settings.Rules.Add(new MonsterRule("DEFAULT", new MonsterRuleActions
+        {
+            Flags = MonsterActionFlags.Attack,
+            DamageType = MonsterDamageType.Fire,
+            WeaponObjectId = 700u,
+        }));
+        var controller = new CombatController(new FakeHost(surface), settings,
+            gameInfo: AmmoGameInfo);
+
+        Assert.False(controller.EquipOneStepForMonster("Fixture"));
+        Assert.Equal(0u, surface.LastEquipObjectId);
+
+        surface.EquipmentItems =
+        [
+            Equipment(700, "Fire Bow", 0x10, itemType: 0x100u,
+                equippedLocation: 0x00100000u, ammoType: 1u),
+            Equipment(801, "Deadly Fire Arrow", 0x10, combatUse: 3,
+                ammoType: 1u, stackSize: 20, validLocations: AmmunitionSlot),
+        ];
+        surface.ItemEntries =
+        [
+            InventoryItem(801, "Deadly Fire Arrow", 0x100u, 0u, false)
+                with { StackSize = 20 },
+        ];
+
+        Assert.False(controller.EquipOneStepForMonster("Fixture"));
+        Assert.Equal(801u, surface.LastEquipObjectId);
+    }
+    /// <summary>
     /// Mutation: treat any equipped combat-use-3 item as the quiver or
     /// select the first matching stack; item 801 then hides the larger stack.
     /// </summary>
