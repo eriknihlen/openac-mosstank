@@ -1036,6 +1036,65 @@ public sealed class CombatControllerTests
         Assert.False(controller.LearnedDebuffCastInFlight);
     }
 
+    /// <summary>
+    /// "You're too busy" is the server saying the character was not ready,
+    /// not that the spell did anything. Reading that answer frees the wait at
+    /// once, and with nothing else holding the macro back the very same cast
+    /// went out again on the next pass, and the one after, dozens of times a
+    /// second, for as long as the character stayed busy.
+    /// <para>
+    /// A refusal of that kind buys a short wait before the request may be
+    /// made again — the same wait a refused dispel already takes.
+    /// </para>
+    /// Mutation: drop the wait and the second count check sees the recast.
+    /// </summary>
+    [Fact]
+    public void ABusyRefusalHoldsTheNextDebuffRequestForItsWait()
+    {
+        PluginSpellInfo imperil = Spell(90, "Imperil Other VII") with
+        {
+            IsDebuff = true,
+            IsOffensive = true,
+            DurationSeconds = 60,
+        };
+        var surface = new FakeAutomation
+        {
+            CombatSnapshot = Physical() with { Mode = PluginCombatMode.Magic },
+            Targets = [Target(10, "Drudge", 5, 0)],
+            KnownCombatSpells = [imperil],
+            KnownAttackSpells = [Spell(100, "Incantation of Flame Bolt")],
+            EquipmentItems = [WieldedCaster()],
+        };
+        var settings = new CombatSettings();
+        settings.Rules.Clear();
+        settings.Rules.Add(new MonsterRule(
+            "DEFAULT",
+            new MonsterRuleActions
+            {
+                Flags = MonsterActionFlags.Imperil | MonsterActionFlags.Attack,
+                DamageType = MonsterDamageType.Fire,
+            }));
+        var controller = new CombatController(new FakeHost(surface), settings);
+
+        controller.Toggle();
+        controller.OnTick(0.25);
+        Assert.Equal((90u, 10u), surface.LastTargetedCast);
+        int issued = surface.CastSpellIds.Count;
+
+        // The server's answer: refused, 0x1D, "You're too busy!".
+        surface.LastCastCompletion = new PluginCastCompletion(1, 90, 10, 0x1Du);
+        controller.ObserveLearnedDebuffReceipt(0.05);
+        Assert.False(controller.LearnedDebuffCastInFlight);
+
+        // The next pass, a frame later: nothing new goes out.
+        controller.OnTick(0.05);
+        Assert.Equal(issued, surface.CastSpellIds.Count);
+
+        // Once the wait is up, the macro is free to try again.
+        controller.OnTick(0.3);
+        Assert.Equal(issued + 1, surface.CastSpellIds.Count);
+    }
+
     [Fact]
     public void RingArmAlsoRequiresNoStreakColumnAndANonZeroTally()
     {

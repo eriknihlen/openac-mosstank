@@ -136,6 +136,27 @@ internal static class DebuffSpellCatalog
 }
 
 /// <summary>
+/// What the server says when it will not take a request yet, and how long to
+/// leave it alone afterwards.
+/// </summary>
+internal static class CastRefusal
+{
+    /// <summary>
+    /// "The character is already doing something." It says the request never
+    /// happened, not that the spell failed, so the thing to do is wait and ask
+    /// again - but not on the very next frame.
+    /// </summary>
+    internal const uint CharacterWasBusy = 0x1Du;
+
+    /// <summary>
+    /// How long a refusal of that kind is left alone. A quarter of a second:
+    /// the same wait a refused dispel already takes, and the same order as the
+    /// reference macro's own retry interval.
+    /// </summary>
+    internal const double RetryWaitSeconds = 0.25d;
+}
+
+/// <summary>
 /// Session-local VTank spell tracker. A debuff becomes active only after the
 /// host publishes its matching server UseDone receipt.
 /// </summary>
@@ -144,8 +165,16 @@ internal sealed class DebuffTracker
     private readonly Dictionary<(uint Target, DebuffIdentity Identity), Applied> _applied = [];
     private Pending? _pending;
     private long _observedCompletionRevision;
+    private double _retryNotBefore = double.MinValue;
 
     public bool HasPending => _pending is not null;
+
+    /// <summary>
+    /// True while the last refusal's wait is still running. The request was
+    /// never taken, so the cast is still owed - but asking again immediately
+    /// is how one refusal becomes fifty a second.
+    /// </summary>
+    public bool RetryHeld(double now) => now < _retryNotBefore;
     public string PendingName => _pending?.Spell.Name ?? string.Empty;
     public uint PendingTarget => _pending?.TargetObjectId ?? 0u;
 
@@ -208,6 +237,8 @@ internal sealed class DebuffTracker
         _pending = null;
         if (!completion.IsSuccess)
         {
+            if (completion.WeenieError == CastRefusal.CharacterWasBusy)
+                _retryNotBefore = now + CastRefusal.RetryWaitSeconds;
             return new DebuffCompletion(
                 Completed: true,
                 Succeeded: false,
@@ -286,6 +317,7 @@ internal sealed class DebuffTracker
         _applied.Clear();
         _pending = null;
         _observedCompletionRevision = 0;
+        _retryNotBefore = double.MinValue;
     }
 
     private readonly record struct Pending(

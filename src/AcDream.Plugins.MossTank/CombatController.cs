@@ -1925,6 +1925,16 @@ internal sealed class CombatController
             return DebuffArmOutcome.Claimed;
         }
 
+        // The server refused the last one because the character was already
+        // doing something. The cast is still owed, and it holds the arm the
+        // same way an unanswered one does — asking again on the very next pass
+        // is how a single refusal turns into fifty requests a second.
+        if (_debuffs.RetryHeld(_now))
+        {
+            Status = "Waiting after a busy refusal";
+            return DebuffArmOutcome.Claimed;
+        }
+
         RefreshSpellCatalogs();
         IReadOnlyList<PluginInventoryItem> items =
             PassInventory();
