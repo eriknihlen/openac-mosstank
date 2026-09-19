@@ -527,6 +527,7 @@ internal sealed partial class LootController
     private int _waitingQuantity;
     private PluginInventoryItem _waitingItemSnapshot;
     private string _waitingClassifierId = string.Empty;
+    private bool _waitingPickupAccepted;
     private uint _awaitingAppraisal;
     private uint _awaitingCorpseAppraisal;
     private uint _lastCorpseDescriptionRequest;
@@ -1101,6 +1102,15 @@ internal sealed partial class LootController
 
         ObservePickup(contents);
 
+        if (_waitingItem != 0u
+            && _waitingPickupAccepted
+            && contents.Any(item => item.ObjectId == _waitingItem)
+            && _host.Automation.Items.IsBusy)
+        {
+            Status = $"Waiting for {_waitingName}…";
+            return true;
+        }
+
         // A receipt at its bounded retry ceiling is a definitive failed
         // pickup. Reconcile it before choosing another item, otherwise the
         // next accepted pull would inherit the old receipt and lose its own
@@ -1110,6 +1120,7 @@ internal sealed partial class LootController
             1,
             100);
         if (_waitingItem != 0u
+            && !_waitingPickupAccepted
             && _itemAttempts.TryGetValue(_waitingItem, out int waitingAttempts)
             && waitingAttempts >= maximumAttempts
             && contents.Any(item => item.ObjectId == _waitingItem))
@@ -1170,12 +1181,30 @@ internal sealed partial class LootController
         if (!canAct)
             return true;
 
+        if (_waitingItem != 0u
+            && _waitingPickupAccepted
+            && contents.Any(item => item.ObjectId == _waitingItem)
+            && _decisions.TryGetValue(_waitingItem, out LootDecision? waitingDecision)
+            && waitingDecision is { } pendingDecision)
+        {
+            IssuePickup(loot, new(
+                contents.First(item => item.ObjectId == _waitingItem), pendingDecision));
+            return true;
+        }
+
         (PluginInventoryItem Item, LootDecision Decision) chosen = candidates
             .OrderByDescending(static candidate => candidate.Decision.Priority)
             .ThenBy(static candidate => candidate.Decision.RuleIndex)
             .ThenBy(static candidate => candidate.Item.ContainerSlot)
             .ThenBy(static candidate => candidate.Item.ObjectId)
             .First();
+        return IssuePickup(loot, chosen);
+    }
+
+    private bool IssuePickup(
+        ILootAutomation loot,
+        (PluginInventoryItem Item, LootDecision Decision) chosen)
+    {
         // The pull is counted when it is issued, as the reference counts it:
         // an item that is still in the corpse on the next turn is pulled
         // again, until the profile's attempt ceiling drops it.
@@ -1183,6 +1212,8 @@ internal sealed partial class LootController
         PluginItemCommandResult pickup = loot.Pickup(chosen.Item.ObjectId);
         if (!pickup.Accepted)
         {
+            if (_waitingItem == chosen.Item.ObjectId)
+                _waitingPickupAccepted = false;
             Status = $"Pickup refused: {chosen.Item.Name} ({pickup.Status}).";
             return pickup.Status == PluginItemCommandStatus.Busy;
         }
@@ -1210,6 +1241,7 @@ internal sealed partial class LootController
                     pending + _waitingQuantity;
             }
         }
+        _waitingPickupAccepted = true;
         Status = $"Looting {chosen.Item.Name} ({chosen.Decision.RuleName})…";
         Log?.Invoke(
             MacroLogChannel.Loot,
@@ -1308,6 +1340,7 @@ internal sealed partial class LootController
         _waitingQuantity = 0;
         _waitingItemSnapshot = default;
         _waitingClassifierId = string.Empty;
+        _waitingPickupAccepted = false;
     }
 
     private bool ContinueSalvage(bool canAct)
