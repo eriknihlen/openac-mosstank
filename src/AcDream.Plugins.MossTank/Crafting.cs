@@ -408,7 +408,7 @@ internal sealed class CraftingController
         CraftingPlan? plan = _settings.SplitPeas
             ? CraftingPlanner.PlanPeaSplit(
                 inventory,
-                _profiles.ConsumableNames,
+                PeaConsumableNames(),
                 _settings.CriticalComponentMinimum)
             : null;
         plan ??= PlanCategoryCraft(
@@ -446,7 +446,7 @@ internal sealed class CraftingController
         CraftingPlan? plan = _settings.SplitPeas
             ? CraftingPlanner.PlanPeaSplit(
                 inventory,
-                _profiles.ConsumableNames,
+                PeaConsumableNames(),
                 _settings.NormalComponentMinimum)
             : null;
         plan ??= CraftingPlanner.Plan(
@@ -496,13 +496,29 @@ internal sealed class CraftingController
         CraftingPlan? plan = _settings.SplitPeas
             ? CraftingPlanner.PlanPeaSplit(
                 inventory,
-                _profiles.ConsumableNames,
+                PeaConsumableNames(),
                 _settings.IdleComponentMinimum)
             : null;
         plan ??= PlanCategoryCraft(inventory, idleCounts: true);
         return StartInPeace(items, plan);
     }
 
+    /// <summary>
+    /// Legacy name-only entries retain their existing split behavior. Imported
+    /// entries carry a reference category, so only its pea categories can
+    /// authorize a split.
+    /// </summary>
+    internal ISet<string> PeaConsumableNames()
+    {
+        var imported = _profiles.ImportedAssistItems
+            .Select(static item => item.Name)
+            .ToHashSet(StringComparer.Ordinal);
+        return _profiles.ConsumableNames
+            .Where(name => !imported.Contains(name)
+                || _profiles.ConsumableCategories.TryGetValue(name, out ConsumableCategory category)
+                && category is ConsumableCategory.Pea or ConsumableCategory.AllPeas)
+            .ToHashSet(StringComparer.Ordinal);
+    }
     private CraftingPlan? PlanCategoryCraft(
         IReadOnlyList<PluginInventoryItem> inventory,
         bool idleCounts)

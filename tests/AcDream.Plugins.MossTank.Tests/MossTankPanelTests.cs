@@ -4815,27 +4815,54 @@ public sealed class MossTankPanelTests
         Assert.Equal("copy proof", staleCopy.Find("CopyProof")!.Rows[0].Cells[0].AsString());
     }
 
+    /// <summary>
+    /// Mutation <c>SkipAssistItemsApply</c>: omit the imported-table apply
+    /// after loading; both known rows disappear from the planner inputs and
+    /// the assertions below fail. Mutation <c>RecreateAssistRows</c>: clear
+    /// and rebuild the table in Write; the unknown custom row is lost.
+    /// </summary>
     [Fact]
-    public void ImportedAssistItemsMapReferenceKindsWithoutGuessingUnknownKinds()
+    public void ImportedAssistItemsMapKindsAndPreserveUnknownCustomRowsOnSave()
     {
         VtankDatabase database = VtankDefaultSettingsDatabase.Parse();
         VtankTable table = database.Find("AssistItems")!;
-        table.Rows.Add(new VtankRow { Cells = { VtankCell.String("Health Kit"), VtankCell.Int(0) } });
-        table.Rows.Add(new VtankRow { Cells = { VtankCell.String("Gold Pea"), VtankCell.Int(9) } });
-        table.Rows.Add(new VtankRow { Cells = { VtankCell.String("Unknown"), VtankCell.Int(99) } });
+        table.ColumnNames.Add("Extension");
+        table.IndexFlags.Add(false);
+        table.Rows.Add(new VtankRow { Cells = { VtankCell.String("Health Kit"), VtankCell.Int(0), VtankCell.String("keep-health") } });
+        table.Rows.Add(new VtankRow { Cells = { VtankCell.String("Bread"), VtankCell.Int(1), VtankCell.String("keep-food") } });
+        table.Rows.Add(new VtankRow { Cells = { VtankCell.String("Unknown"), VtankCell.Int(99), VtankCell.String("keep-unknown") } });
         var combat = new CombatSettings();
-        VtankSettingsProfileSerializer.Load(database.Render(),
-            new VtankSettingsProfileSerializer.AllSettings
-            {
-                Combat = combat, Buffs = new BuffSettings(), Vitals = new VitalSettings(),
-                Inventory = new InventorySettings(), Navigation = new NavigationSettings(),
-            });
-        VtankAssistItems.Read(database, combat);
+        var settings = new VtankSettingsProfileSerializer.AllSettings
+        {
+            Combat = combat, Buffs = new BuffSettings(), Vitals = new VitalSettings(),
+            Inventory = new InventorySettings(), Navigation = new NavigationSettings(),
+        };
+        VtankSettingsProfileSerializer.Load(database.Render(), settings);
         VtankAssistItems.Apply(combat);
 
         Assert.Equal(ConsumableCategory.HealthKit, combat.ConsumableCategories["Health Kit"]);
-        Assert.Equal(ConsumableCategory.Pea, combat.ConsumableCategories["Gold Pea"]);
+        Assert.Equal(ConsumableCategory.HealthFood, combat.ConsumableCategories["Bread"]);
         Assert.DoesNotContain("Unknown", combat.ConsumableNames);
+
+        combat.ConsumableNames.Remove("Health Kit");
+        combat.ConsumableCategories.Remove("Health Kit");
+        for (int i = combat.ImportedAssistItems.Count - 1; i >= 0; i--)
+        {
+            if (combat.ImportedAssistItems[i].Name == "Health Kit")
+                combat.ImportedAssistItems.RemoveAt(i);
+        }
+        VtankSettingsProfileSerializer.Save(database, settings);
+        VtankTable saved = database.Find("AssistItems")!;
+        int objectColumn = saved.ColumnIndex("Object");
+        int typeColumn = saved.ColumnIndex("Type");
+        int extensionColumn = saved.ColumnIndex("Extension");
+        Assert.DoesNotContain(saved.Rows, row => row.Cells[objectColumn].AsString() == "Health Kit");
+        VtankRow food = Assert.Single(saved.Rows, row => row.Cells[objectColumn].AsString() == "Bread");
+        Assert.Equal(1, food.Cells[typeColumn].AsInt());
+        Assert.Equal("keep-food", food.Cells[extensionColumn].AsString());
+        VtankRow unknown = Assert.Single(saved.Rows, row => row.Cells[objectColumn].AsString() == "Unknown");
+        Assert.Equal(99, unknown.Cells[typeColumn].AsInt());
+        Assert.Equal("keep-unknown", unknown.Cells[extensionColumn].AsString());
     }
 
     [Fact]
@@ -4947,6 +4974,61 @@ public sealed class MossTankPanelTests
             panel.OnTick(0.3d);
 
         Assert.Empty(automation.UsedItemIds);
+    }
+
+    /// <summary>
+    /// Mutation <c>DoNotRemoveImportedAssistSelection</c>: leave the selected
+    /// imported name in the consumable collection; Save writes the removed
+    /// row back and the exact-row assertion fails.
+    /// </summary>
+    [Fact]
+    public void RemovingAnImportedConsumableDeletesOnlyItsExactAssistRow()
+    {
+        var storage = new MemoryStorage();
+        VtankDatabase imported = VtankDefaultSettingsDatabase.Parse();
+        VtankTable table = imported.Find("AssistItems")!;
+        table.ColumnNames.Add("Extension");
+        table.IndexFlags.Add(false);
+        table.Rows.Add(new VtankRow { Cells = { VtankCell.String("Bread"), VtankCell.Int(1), VtankCell.String("bread-custom") } });
+        table.Rows.Add(new VtankRow { Cells = { VtankCell.String("Mana Cake"), VtankCell.Int(5), VtankCell.String("cake-custom") } });
+        storage.Text["AssistRemove.usd"] = imported.Render();
+        var panel = new MossTankPanel(new FakeHost(new FakeAutomation(), storage));
+
+        Command(panel, "settings load AssistRemove");
+        Assert.Equal(["Bread", "Mana Cake"], panel.ConsumableRows);
+        panel.SelectConsumableRow(0);
+
+        VtankTable saved = VtankDatabase.Parse(storage.Text[panel.SelectedMacroProfile])
+            .Find("AssistItems")!;
+        int name = saved.ColumnIndex("Object");
+        int extension = saved.ColumnIndex("Extension");
+        Assert.DoesNotContain(saved.Rows, row => row.Cells[name].AsString() == "Bread");
+        VtankRow cake = Assert.Single(saved.Rows, row => row.Cells[name].AsString() == "Mana Cake");
+        Assert.Equal("cake-custom", cake.Cells[extension].AsString());
+    }
+    /// <summary>
+    /// Mutation <c>RetainImportedAssistItemsAcrossRead</c>: omit the initial
+    /// clear in the table reader; switching to the empty table leaves Bread
+    /// visible in the new profile.
+    /// </summary>
+    [Fact]
+    public void SwitchingToAnEmptyAssistItemsTableClearsImportedConsumables()
+    {
+        var storage = new MemoryStorage();
+        VtankDatabase imported = VtankDefaultSettingsDatabase.Parse();
+        imported.Find("AssistItems")!.Rows.Add(new VtankRow
+        {
+            Cells = { VtankCell.String("Bread"), VtankCell.Int(1) },
+        });
+        storage.Text["Assist.usd"] = imported.Render();
+        storage.Text["NoAssist.usd"] = VtankDefaultSettingsDatabase.Parse().Render();
+        var panel = new MossTankPanel(new FakeHost(new FakeAutomation(), storage));
+
+        Command(panel, "settings load Assist");
+        Assert.Contains("Bread", panel.ConsumableRows);
+        Command(panel, "settings load NoAssist");
+
+        Assert.DoesNotContain("Bread", panel.ConsumableRows);
     }
 
     [Fact]

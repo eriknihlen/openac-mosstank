@@ -932,6 +932,60 @@ public sealed partial class LootingTests
         Assert.Equal([second], automation.Used);
     }
 
+    /// <summary>
+    /// Mutation <c>IgnoreOwnedReceiptOnContainerChange</c>: replace the owned
+    /// receipt check in <c>LootController.Tick</c> with <c>false</c>; this
+    /// test then drops the transferred scroll instead of classifying and
+    /// queuing it exactly once.
+    /// </summary>
+    [Fact]
+    public void ClosedCorpseWithOwnedReceiptClassifiesAndQueuesExactlyOnce()
+    {
+        const uint corpse = 0x700002B0u;
+        const uint scroll = 0x700002B1u;
+        const uint spell = 779u;
+        var settings = new LootSettings { Enabled = true, ExternalClassifierId = "classifier/read" };
+        settings.Rules.Add(new LootRule { Expression = "*", Action = LootAction.NoLoot });
+        PluginInventoryItem scrollItem = Scroll(scroll, "Transferred scroll", spell);
+        var automation = new Automation
+        {
+            KnownSpell = new PluginSpellInfo(spell, "Transferred scroll", 1u, 1, 100, 10, 0f, 34u, string.Empty, false, false),
+            SkillsValue = [new PluginSkillInfo(34u, "War Magic", PluginSkillTraining.Trained, 90u)],
+            Corpses = [new PluginLootContainer(corpse, 1u, "Corpse", 3f, false, false, false) { IsIdentified = true, LongDescription = "Killed by Tester." }],
+        };
+        var classifier = new ClassifierRegistry("classifier/read", new PluginLootClassification(true, PluginLootAction.Read, "Read it"));
+        var host = new Host(automation, classifier);
+        var controller = new LootController(host, settings);
+        var locks = new ActionLockTable();
+        controller.BindActionLocks(locks);
+
+        Assert.True(controller.Tick(0.25d, canAct: true));
+        automation.Current = corpse;
+        automation.Contents = [scrollItem];
+        locks.Advance(settings.CorpseOpenTimeoutSeconds + 0.1d);
+        controller.TickIdentification(0.5d);
+        Assert.True(controller.Tick(0.2d, canAct: true));
+        automation.CompleteAppraisal(scroll, presentInUi: false);
+        controller.TickIdentification(0.5d);
+        Assert.True(controller.Tick(0.1d, canAct: true));
+        Assert.Equal([scroll], automation.Picked);
+
+        locks.Advance(1d);
+        automation.Current = 0u;
+        automation.Owned = [scrollItem];
+        Assert.True(controller.Tick(0.1d, canAct: true));
+
+        Assert.Equal(LootAction.Read, controller.ClassifiedOwnedItems[scroll]);
+        Assert.Equal(scroll, controller.PendingScrollReads[spell]);
+        Assert.Equal(scroll, Assert.Single(classifier.Looted).Item.ObjectId);
+        var reader = new ReadScrollController(host, settings, controller);
+        Assert.True(reader.Tick(0.1d, canAct: true));
+        Assert.Equal([scroll], automation.Used);
+
+        Assert.True(controller.Tick(0.1d, canAct: true));
+        Assert.Single(classifier.Looted);
+        Assert.Equal([scroll], automation.Used);
+    }
     [Fact]
     public void ClosedCorpseWithoutOwnedReceiptAbandonsItWithoutClassification()
     {

@@ -2091,6 +2091,11 @@ internal sealed partial class MossTankPanel : IBuffRuleHost, IDisposable
         string removed = names[ClampRow(_selectedConsumableRow, names.Length)];
         _combatSettings.ConsumableNames.Remove(removed);
         _combatSettings.ConsumableCategories.Remove(removed);
+        for (int i = _combatSettings.ImportedAssistItems.Count - 1; i >= 0; i--)
+        {
+            if (string.Equals(_combatSettings.ImportedAssistItems[i].Name, removed, StringComparison.Ordinal))
+                _combatSettings.ImportedAssistItems.RemoveAt(i);
+        }
         _profileNotice = $"Removed {removed}.";
         RefreshItemEditors();
         SaveProfile();

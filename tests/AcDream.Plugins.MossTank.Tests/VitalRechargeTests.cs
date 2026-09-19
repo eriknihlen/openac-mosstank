@@ -207,6 +207,57 @@ public sealed class VitalRechargeTests
         Assert.Equal(11u, choice.ItemObjectId);
     }
 
+    /// <summary>
+    /// Mutation <c>SkipAssistItemsApply</c>: do not apply loaded AssistItems;
+    /// neither imported row reaches the existing recharge selector.
+    /// </summary>
+    [Fact]
+    public void ImportedAssistKindsReachKitAndFoodRechargeSelection()
+    {
+        VtankDatabase database = VtankDefaultSettingsDatabase.Parse();
+        VtankTable table = database.Find("AssistItems")!;
+        table.Rows.Add(new VtankRow { Cells = { VtankCell.String("Plentiful Healing Kit"), VtankCell.Int(0) } });
+        table.Rows.Add(new VtankRow { Cells = { VtankCell.String("Bread"), VtankCell.Int(1) } });
+        var combat = new CombatSettings
+        {
+            HealKits = new Dictionary<string, VtankHealKit>(StringComparer.OrdinalIgnoreCase)
+            {
+                ["Plentiful Healing Kit"] = new("Plentiful Healing Kit", 1.2, 0, 2),
+            },
+        };
+        VtankSettingsProfileSerializer.Load(database.Render(),
+            new VtankSettingsProfileSerializer.AllSettings
+            {
+                Combat = combat, Buffs = new BuffSettings(), Vitals = new VitalSettings(),
+                Inventory = new InventorySettings(), Navigation = new NavigationSettings(),
+            });
+        VtankAssistItems.Apply(combat);
+
+        var kitSurface = new Surface
+        {
+            Mode = PluginCombatMode.Peace,
+            CurrentHealth = 50,
+            Skills = [Skill(21u, 400u)],
+            Items = [Item(10u, "Plentiful Healing Kit")],
+        };
+        kitSurface.Unassessed.Add(10u);
+        Assert.True(VitalRechargePlanner.TryPlan(VitalKind.Health, kitSurface,
+            new VitalSettings(), combat, out VitalRechargeChoice kit));
+        Assert.Equal(VitalRechargeSourceKind.Kit, kit.SourceKind);
+        Assert.Equal(10u, kit.ItemObjectId);
+
+        var foodSurface = new Surface
+        {
+            Mode = PluginCombatMode.Peace,
+            CurrentHealth = 50,
+            Items = [Item(11u, "Bread")],
+        };
+        foodSurface.Unassessed.Add(11u);
+        Assert.True(VitalRechargePlanner.TryPlan(VitalKind.Health, foodSurface,
+            new VitalSettings(), combat, out VitalRechargeChoice food));
+        Assert.Equal(VitalRechargeSourceKind.Food, food.SourceKind);
+        Assert.Equal(11u, food.ItemObjectId);
+    }
     [Fact]
     public void MagicModeUsesProfiledViableKitBeforeRegularHealAboveEmergencyBand()
     {

@@ -76,6 +76,28 @@ public sealed class CraftingTests
         Assert.Equal(2u, plan.SecondObjectId);
     }
 
+    /// <summary>
+    /// Mutation <c>ReturnConsumableNamesDirectly</c>: bypass the imported
+    /// category filter; the imported health-kit row incorrectly authorizes a
+    /// pea split and this assertion fails.
+    /// </summary>
+    [Fact]
+    public void ImportedNonPeaAssistRowDoesNotAuthorizePeaSplitting()
+    {
+        var profiles = new CombatSettings();
+        profiles.ConsumableNames.Add("Gold Pea");
+        profiles.ConsumableCategories["Gold Pea"] = ConsumableCategory.HealthKit;
+        profiles.ImportedAssistItems.Add(new AssistItem("Gold Pea", ConsumableCategory.HealthKit));
+        profiles.ConsumableNames.Add("Silver Pea");
+        profiles.ConsumableCategories["Silver Pea"] = ConsumableCategory.HealthKit;
+        var controller = new CraftingController(new Host(new Automation()),
+            new InventorySettings(), profiles);
+
+        ISet<string> peas = controller.PeaConsumableNames();
+
+        Assert.DoesNotContain("Gold Pea", peas);
+        Assert.Contains("Silver Pea", peas);
+    }
     [Fact]
     public void PeaSplitStopsAtTheRequestedComponentCount()
     {
