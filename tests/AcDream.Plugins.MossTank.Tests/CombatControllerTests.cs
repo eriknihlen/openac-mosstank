@@ -3880,6 +3880,31 @@ public sealed class CombatControllerTests
         Assert.Equal(2, surface.ModeChangeRequests);
     }
 
+    /// <summary>
+    /// Mutation pin: replace PendingInventory with BusyCount as the gate;
+    /// an appraisal reference then incorrectly blocks preparation.
+    /// </summary>
+    [Fact]
+    public void GateBlocksOnPendingInventoryButNotAppraisalBusyCount()
+    {
+        var surface = new FakeAutomation
+        {
+            CombatSnapshot = Physical() with { Mode = PluginCombatMode.Magic },
+            EquipmentItems =
+            [
+                Equipment(800, "Wand", damageType: 0, itemType: 0x00008000u,
+                    equippedLocation: 0x00100000u),
+            ],
+            BusyState = new PluginBusyState(1, false, 800u, 0u, 0u, false),
+        };
+        CombatModeGate gate = Gate(surface);
+
+        Assert.True(gate.TryPrepare(PluginCombatMode.Magic));
+        surface.BusyState = surface.BusyState with { PendingInventory = true };
+        Assert.False(gate.TryPrepare(PluginCombatMode.Magic));
+        Assert.Equal("Busy", gate.Status);
+    }
+
     [Fact]
     public void GateProfiledCasterNotWieldedWieldsThenEntersMagicInOrder()
     {
@@ -5497,7 +5522,8 @@ public sealed class CombatControllerTests
         IAutomationSurface, ICharacterInfo, ISpellCatalog, IMagicCommands,
         IPluginChat, ICombatAutomation
         , IEquipmentAutomation, IItemAutomation, INavigationAutomation,
-        IProjectileAutomation, ISelectionAutomation, IWorldObjectAutomation
+        IProjectileAutomation, ISelectionAutomation, IWorldObjectAutomation,
+        IRecoveryAutomation
     {
         public bool IsAvailable { get; set; } = true;
         public ICharacterInfo Character => this;
@@ -5506,6 +5532,9 @@ public sealed class CombatControllerTests
         public IPluginChat Chat => this;
         public ICombatAutomation Combat => this;
         public IEquipmentAutomation Equipment => this;
+        public IRecoveryAutomation Recovery => this;
+        public PluginBusyState BusyState { get; set; }
+        public PluginBusyState CaptureBusyState() => BusyState;
         public IItemAutomation Items => this;
         public INavigationAutomation Navigation => this;
         // The host's object table, as far as these tests need it: every owned

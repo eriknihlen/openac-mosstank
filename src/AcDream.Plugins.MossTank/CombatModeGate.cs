@@ -129,17 +129,16 @@ internal sealed class CombatModeGate
         IAutomationSurface automation = _host.Automation;
         IEquipmentAutomation equipment = automation.Equipment;
 
-        // An equipment switch in flight is the only thing that stops a mode
-        // change here. The host's inventory transaction count is not: it is
-        // raised by appraisals and pickups as well as casts, and one that
-        // never completes would stall every rule that casts.
-        if (equipment.IsBusy)
+        // A dispatched inventory operation blocks mode preparation. BusyCount
+        // also covers appraisals and use requests, so it cannot stand in for
+        // the outstanding inventory operation.
+        PluginBusyState busy = automation.Recovery.CaptureBusyState();
+        if (busy.PendingInventory)
         {
             Status = "Busy";
             if (_diagnosticTime >= _nextBusyDiagnostic)
             {
                 _nextBusyDiagnostic = _diagnosticTime + 5d;
-                PluginBusyState busy = automation.Recovery.CaptureBusyState();
                 _host.Log.Info($"Macro busy: count={busy.BusyCount}, inventory={busy.PendingInventory}, " +
                     $"appraisal=0x{busy.AwaitingAppraisal:X8}, source=0x{busy.UseSource:X8}, " +
                     $"target=0x{busy.UseTarget:X8}, awaitingUse={busy.AwaitingUseCompletion}, " +
