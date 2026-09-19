@@ -231,6 +231,14 @@ internal sealed class ItemManaRechargeController
     private readonly Dictionary<uint, (int Version, double AskedAt)>
         _wornAppraisalAsked = [];
 
+    /// <summary>
+    /// Items whose outstanding question was overtaken by a refill. The
+    /// question stays out — it is the one-at-a-time latch — but its answer
+    /// may have been worked out before the mana moved, so it is not kept as
+    /// a fresh reading and the item is asked about again.
+    /// </summary>
+    private readonly HashSet<uint> _wornAppraisalOvertaken = [];
+
     private double _wornClock;
     private ulong _chatSequence;
 
@@ -432,6 +440,7 @@ internal sealed class ItemManaRechargeController
             if (!IsStillWorn(owned, asked))
             {
                 _wornAppraisalAsked.Remove(asked);
+                _wornAppraisalOvertaken.Remove(asked);
                 continue;
             }
             (int version, double askedAt) = _wornAppraisalAsked[asked];
@@ -439,11 +448,22 @@ internal sealed class ItemManaRechargeController
             if (current != 0 && current != version)
             {
                 _wornAppraisalAsked.Remove(asked);
-                _wornAppraisedUntil[asked] = _wornClock + NextWornAppraisalWait();
+                if (_wornAppraisalOvertaken.Remove(asked))
+                {
+                    // The answer to a question a refill overtook says nothing
+                    // about what the item holds now, so the item stays due.
+                    _wornAppraisedUntil.Remove(asked);
+                }
+                else
+                {
+                    _wornAppraisedUntil[asked] =
+                        _wornClock + NextWornAppraisalWait();
+                }
             }
             else if (_wornClock - askedAt >= WornAppraisalReplySeconds)
             {
                 _wornAppraisalAsked.Remove(asked);
+                _wornAppraisalOvertaken.Remove(asked);
             }
         }
     }
@@ -633,8 +653,13 @@ internal sealed class ItemManaRechargeController
     private void ForgetWornReadings()
     {
         _wornAppraisedUntil.Clear();
-        _wornAppraisalAsked.Clear();
         _reportedLowItems.Clear();
+        // A question already out stays out. It is the one-at-a-time latch as
+        // well as a question, and dropping it would put a second question on
+        // the wire at once and leave the answer to the first one with nothing
+        // to stamp. It is marked instead, so its answer is not kept.
+        foreach (uint asked in _wornAppraisalAsked.Keys)
+            _wornAppraisalOvertaken.Add(asked);
     }
 
     private int AssessmentVersion(uint objectId) =>

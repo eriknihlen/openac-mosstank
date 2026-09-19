@@ -645,6 +645,77 @@ public sealed class ItemManaRechargeTests
         Assert.Equal([20u, 21u, 22u], surface.IdentifyRequests);
     }
 
+    /// <summary>
+    /// A refill ends every reading, but not the question already on the wire.
+    /// That question is also the one-at-a-time latch: letting it go puts a
+    /// second question out at once, and the answer to the first then has
+    /// nothing to stamp, so the item it was about is asked about for ever.
+    /// The answer is not kept either — it may have been worked out before the
+    /// mana moved — so the item stays due and is asked again in turn.
+    ///
+    /// Mutation: clear the outstanding question in <c>ForgetWornReadings</c>
+    /// and the second assertion fails, a second question having gone out on
+    /// the refill's own pass; keep its answer as a fresh reading and the last
+    /// fails, the item being held for two to six minutes on numbers taken
+    /// before the refill.
+    /// </summary>
+    [Fact]
+    public void ARefillLeavesTheQuestionAlreadyOutStandingButNotItsAnswer()
+    {
+        PluginInventoryItem[] worn =
+        [
+            Item(20, "Gauntlets") with
+            {
+                EquippedLocation = 0x00000002u,
+                ItemCurrentMana = 90,
+                ItemMaximumMana = 100,
+            },
+            Item(21, "Helm") with
+            {
+                EquippedLocation = 0x00000004u,
+                ItemCurrentMana = 90,
+                ItemMaximumMana = 100,
+            },
+        ];
+        var surface = new Surface { Inventory = worn };
+        foreach (PluginInventoryItem item in worn)
+            surface.Assess(item, 100, (107u, 90), (108u, 100));
+        var controller = new ItemManaRechargeController(
+            new Host(surface),
+            new InventorySettings
+            {
+                RefillWornMana = true,
+                RefillWornManaPercent = 33,
+            },
+            new CombatSettings());
+
+        Assert.False(controller.Tick(canAct: true, elapsedSeconds: 0.3d));
+        Assert.Equal([20u], surface.IdentifyRequests);
+
+        // A refill lands while that question is still out.
+        surface.ChatMessages.Add(new PluginChatMessage(
+            1u,
+            0u,
+            0,
+            string.Empty,
+            "The Mana Stone gives 1,200 points of mana to the "
+                + "following items: Gauntlets, Helm",
+            string.Empty));
+        Assert.False(controller.Tick(canAct: true, elapsedSeconds: 0.3d));
+        Assert.Equal([20u], surface.IdentifyRequests);
+
+        // The answer arrives; the turn passes to the other piece.
+        surface.ReplaceAssessmentVersion(20u, 101);
+        Assert.False(controller.Tick(canAct: true, elapsedSeconds: 0.3d));
+        Assert.Equal([20u, 21u], surface.IdentifyRequests);
+
+        // Nobody answers for that one, and the turn comes back round: the
+        // first piece is due again, because the answer it gave was about
+        // what it held before the refill.
+        Assert.False(controller.Tick(canAct: true, elapsedSeconds: 11d));
+        Assert.Equal([20u, 21u, 20u], surface.IdentifyRequests);
+    }
+
     private static IReadOnlyDictionary<string, ConsumableCategory> Kinds(
         params (string Name, ConsumableCategory Kind)[] rows) =>
         rows.ToDictionary(
