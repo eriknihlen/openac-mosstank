@@ -145,8 +145,30 @@ internal sealed class MossTankLootProfileStore
             notice = "'By char' is the built-in loot profile.";
             return false;
         }
-
+        if (copyCurrent && (!_hasActiveProfile || _activeProfileIsPartial))
+        {
+            notice = _activeProfileIsPartial
+                ? "Cannot copy an incomplete loot profile; source was preserved."
+                : "Cannot copy loot rules because no complete active profile is available.";
+            return false;
+        }
         string fileName = ToFileName(normalized);
+        string? existingText = VtankStorage.IsAvailable ? VtankStorage.ReadText(fileName) : null;
+        if (existingText is not null && !VtankLootProfileSerializer.TryRead(
+                existingText,
+                out _,
+                out string error))
+        {
+            RecoveryNotice = MossTankProfileRecovery.Preserve(
+                _host,
+                "loot",
+                fileName,
+                existingText,
+                new FormatException(error));
+            _host.Log.Warn(RecoveryNotice);
+            notice = $"Cannot overwrite unreadable loot profile {fileName}; source was preserved.";
+            return false;
+        }
         var profile = new VtankLootProfile
         {
             Rules = copyCurrent ? current.ToList() : [],

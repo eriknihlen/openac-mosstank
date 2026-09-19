@@ -4872,6 +4872,78 @@ public sealed class MossTankPanelTests
     }
 
     /// <summary>
+    /// Mutation <c>AllowPartialLootCopy</c>: remove the partial-source guard
+    /// in <c>MossTankLootProfileStore.Create</c>; the command replaces the
+    /// destination and changes the active binding.
+    /// </summary>
+    [Fact]
+    public void LootSaveCommandRefusesToCopyAnIncompleteActiveProfile()
+    {
+        var storage = new MemoryStorage();
+        var automation = new FakeAutomation
+        {
+            Name = "Looter",
+            WorldName = "Coldeve",
+        };
+        var host = new FakeHost(automation, storage);
+        var panel = new MossTankPanel(host);
+        const string partial = "UTL\r\n1\r\n2\r\nKeep\r\n\r\n0;1\r\nunfinished";
+        storage.Text["Partial.utl"] = partial;
+
+        Command(panel, "loot load Partial");
+        panel.AddLootRule();
+        string[] rowsBeforeSave = panel.LootRuleRows.ToArray();
+        string cdfKey = VtankProfileDirectory.CdfFileName("Looter", "Coldeve");
+        string bindingBefore = storage.Text[cdfKey];
+
+        Vt(panel, "loot save Copy");
+
+        Assert.Equal("Partial", panel.LootProfileName);
+        Assert.Equal(rowsBeforeSave, panel.LootRuleRows);
+        Assert.Equal(partial, storage.Text["Partial.utl"]);
+        Assert.False(storage.Text.ContainsKey("Copy.utl"));
+        Assert.Equal(bindingBefore, storage.Text[cdfKey]);
+        Assert.Contains(automation.Messages, message =>
+            message.Contains("incomplete", StringComparison.OrdinalIgnoreCase));
+    }
+
+    /// <summary>
+    /// Mutation <c>AllowInactiveLootCopy</c>: remove the no-active-profile
+    /// branch in <c>MossTankLootProfileStore.Create</c>; the command creates
+    /// a new document from an untrusted inactive startup profile.
+    /// </summary>
+    [Fact]
+    public void LootSaveCommandRefusesWithAnInactiveStartupProfile()
+    {
+        var storage = new MemoryStorage();
+        var firstAutomation = new FakeAutomation
+        {
+            Name = "Looter",
+            WorldName = "Coldeve",
+        };
+        var first = new MossTankPanel(new FakeHost(firstAutomation, storage));
+        Command(first, "loot new Broken");
+        const string malformed = "UTL\r\n1\r\n1\r\nunfinished";
+        storage.Text["Broken.utl"] = malformed;
+        string cdfKey = VtankProfileDirectory.CdfFileName("Looter", "Coldeve");
+        string bindingBefore = storage.Text[cdfKey];
+        var automation = new FakeAutomation
+        {
+            Name = "Looter",
+            WorldName = "Coldeve",
+        };
+        var panel = new MossTankPanel(new FakeHost(automation, storage));
+
+        Vt(panel, "loot save Copy");
+
+        Assert.Equal(MossTankLootProfileStore.NoActiveProfile, panel.LootProfileName);
+        Assert.Equal(malformed, storage.Text["Broken.utl"]);
+        Assert.False(storage.Text.ContainsKey("Copy.utl"));
+        Assert.Equal(bindingBefore, storage.Text[cdfKey]);
+        Assert.Contains(automation.Messages, message =>
+            message.Contains("no complete active profile", StringComparison.OrdinalIgnoreCase));
+    }
+    /// <summary>
     /// The command path must surface the same rejected activation and must not
     /// append its old unconditional success line.
     /// Mutation <c>UnconditionalLootLoadedMessage</c>: emit the old success
@@ -4935,6 +5007,33 @@ public sealed class MossTankPanelTests
             message.Contains("could not be read", StringComparison.Ordinal));
     }
 
+    /// <summary>
+    /// Mutation <c>AllowMalformedCopyTarget</c>: skip the target validation
+    /// in <c>MossTankLootProfileStore.Create</c>; the raw-file assertion
+    /// fails.
+    /// </summary>
+    [Fact]
+    public void LootSaveCommandDoesNotOverwriteMalformedDestination()
+    {
+        var storage = new MemoryStorage();
+        var automation = new FakeAutomation
+        {
+            Name = "Looter",
+            WorldName = "Coldeve",
+        };
+        var panel = new MossTankPanel(new FakeHost(automation, storage));
+        Command(panel, "loot new Source");
+        panel.AddLootRule();
+        const string malformed = "UTL\r\n1\r\n1\r\nunfinished";
+        storage.Text["Target.utl"] = malformed;
+
+        Command(panel, "loot save Target");
+
+        Assert.Equal("Source", panel.LootProfileName);
+        Assert.Equal(malformed, storage.Text["Target.utl"]);
+        Assert.Contains(automation.Messages, message =>
+            message.Contains("Cannot overwrite unreadable", StringComparison.Ordinal));
+    }
     /// <summary>
     /// A malformed profile named by the startup CDF cannot inherit the settings
     /// sidecar's old rules or use its external classifier. It remains inactive,
@@ -5220,6 +5319,11 @@ public sealed class MossTankPanelTests
             text => text.Contains("Fake cast complete", StringComparison.Ordinal));
     }
 
+    /// <summary>
+    /// Mutation <c>OmitLootSettingsFromCopy</c>: do not pass the active loot
+    /// settings to <c>MossTankLootProfileStore.Create</c>; the copied
+    /// salvage-combine settings revert to defaults.
+    /// </summary>
     [Fact]
     public void LootCommandsImportAndExportExactVtclassicUtlFiles()
     {
@@ -5264,11 +5368,12 @@ public sealed class MossTankPanelTests
             storage));
 
         Command(panel, "loot load Legacy.utl");
+        Command(panel, "loot save Copy");
 
-        Assert.Equal("Legacy", panel.LootProfileName);
+        Assert.Equal("Copy", panel.LootProfileName);
         Assert.Single(panel.LootRuleRows);
         Assert.Contains("KeepUpTo", panel.LootRuleRows[0], StringComparison.Ordinal);
-        string exported = storage.Text["Legacy.utl"];
+        string exported = storage.Text["Copy.utl"];
         Assert.True(VtankLootProfileSerializer.TryRead(
             exported,
             out VtankLootProfile roundTrip,

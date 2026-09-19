@@ -323,12 +323,15 @@ internal sealed partial class MossTankPanel
         name = StripExtension(name, ".utl", ".json");
         if (operation is "new" or "save")
         {
-            _lootProfiles.Create(
+            if (_lootProfiles.Create(
                 name,
                 copyCurrent: operation == "save",
                 _inventorySettings.Loot.Rules,
-                out string notice);
-            LoadLootProfile();
+                out string notice,
+                _inventorySettings.Loot))
+            {
+                LoadLootProfile();
+            }
             WriteVtank(notice);
             return;
         }
