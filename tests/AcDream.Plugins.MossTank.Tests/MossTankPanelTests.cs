@@ -2277,6 +2277,16 @@ public sealed class MossTankPanelTests
         return database.Render();
     }
 
+    private static VtankRow SettingRow(VtankTable table, string name, VtankCell value)
+    {
+        var row = new VtankRow();
+        for (int column = 0; column < table.ColumnNames.Count; column++)
+            row.Cells.Add(VtankCell.Int(0));
+        row.Cells[table.ColumnIndex("Setting")] = VtankCell.String(name);
+        row.Cells[table.ColumnIndex("Value")] = value;
+        return row;
+    }
+
     private static VtankRow ExemplarRow(int spellId)
     {
         var row = new VtankRow();
@@ -4549,6 +4559,52 @@ public sealed class MossTankPanelTests
         panel.ToggleCombatEnabled();
 
         Assert.Equal(malformed, storage.Text[profile]);
+    }
+
+    /// <summary>
+    /// Mutation <c>ApplySettingsBeforeCompleteValidation</c>: parse the
+    /// candidate directly into the active settings; the valid early option
+    /// survives the rejected late numeric row and is later saved into Safe.
+    /// </summary>
+    [Fact]
+    public void LateSettingsConversionFailureDoesNotMutateTheActiveProfile()
+    {
+        var storage = new MemoryStorage();
+        var automation = new FakeAutomation { Name = "Saver", WorldName = "Rune" };
+        var panel = new MossTankPanel(new FakeHost(automation, storage));
+        Command(panel, "settings save Safe");
+        Command(panel, "opt set AttackDistance 0.02");
+        string safe = panel.SelectedMacroProfile;
+
+        VtankDatabase candidate = VtankDefaultSettingsDatabase.Parse();
+        VtankTable settings = candidate.Find("Settings")!;
+        settings.Rows.Add(SettingRow(settings, "AttackDistance", VtankCell.Double(0.1d)));
+        settings.Rows.Add(SettingRow(settings, "SpellDiffExcessThreshold-Hunt", new VtankCell
+        {
+            Tag = "i", ScalarText = "not-an-integer",
+        }));
+        string malformed = candidate.Render();
+        storage.Text["LateBroken.usd"] = malformed;
+
+        Command(panel, "settings load LateBroken");
+        Command(panel, "opt set EnableBuffing false");
+
+        Assert.Equal(safe, panel.SelectedMacroProfile);
+        Assert.Equal(0.02d, panel.EvaluateExpression(
+            "uboptget['AttackDistance']").AsNumber(), precision: 7);
+        Assert.Equal(malformed, storage.Text["LateBroken.usd"]);
+    }
+
+    [Fact]
+    public void SetInAllPreservesAnExistingEmptySettingsFile()
+    {
+        var storage = new MemoryStorage();
+        storage.Text["Empty.usd"] = string.Empty;
+        var panel = new MossTankPanel(new FakeHost(new FakeAutomation(), storage));
+
+        Command(panel, "opt setinall AttackDistance 0.03");
+
+        Assert.Equal(string.Empty, storage.Text["Empty.usd"]);
     }
 
     [Fact]

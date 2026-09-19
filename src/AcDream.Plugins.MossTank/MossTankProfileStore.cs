@@ -305,12 +305,13 @@ internal sealed class MossTankProfileStore
         VtankDatabase database;
         try
         {
+            _ = VtankSettingsProfileSerializer.Load(text, CreateValidationSettings());
             database = VtankSettingsProfileSerializer.Load(
                 text,
                 settings,
                 message => _host.Log.Warn("MossTank " + message));
         }
-        catch (FormatException error)
+        catch (Exception error) when (error is FormatException or OverflowException)
         {
             RecoveryNotice = MossTankProfileRecovery.Preserve(
                 _host, "macro", fileName, text, error);
@@ -401,14 +402,16 @@ internal sealed class MossTankProfileStore
         foreach (string fileName in fileNames)
         {
             string? text = ReadUsdText(fileName);
+            if (!CanReplaceExisting(fileName, out _))
+                continue;
             VtankDatabase database;
             try
             {
-                database = string.IsNullOrEmpty(text)
+                database = text is null
                     ? VtankDefaultSettingsDatabase.Parse()
                     : VtankDatabase.Parse(text);
             }
-            catch (FormatException error)
+            catch (Exception error) when (error is FormatException or OverflowException)
             {
                 _host.Log.Warn($"MossTank could not update '{fileName}' for setinall: {error.Message}");
                 continue;
@@ -602,18 +605,11 @@ internal sealed class MossTankProfileStore
         }
         try
         {
-            _ = VtankSettingsProfileSerializer.Load(text, new VtankSettingsProfileSerializer.AllSettings
-            {
-                Combat = new CombatSettings(),
-                Buffs = new BuffSettings(),
-                Vitals = new VitalSettings(),
-                Inventory = new InventorySettings(),
-                Navigation = new NavigationSettings(),
-            });
+            _ = VtankSettingsProfileSerializer.Load(text, CreateValidationSettings());
             notice = string.Empty;
             return true;
         }
-        catch (FormatException error)
+        catch (Exception error) when (error is FormatException or OverflowException)
         {
             RecoveryNotice = MossTankProfileRecovery.Preserve(
                 _host, "macro", fileName, text, error);
@@ -622,6 +618,15 @@ internal sealed class MossTankProfileStore
             return false;
         }
     }
+
+    private static VtankSettingsProfileSerializer.AllSettings CreateValidationSettings() => new()
+    {
+        Combat = new CombatSettings(),
+        Buffs = new BuffSettings(),
+        Vitals = new VitalSettings(),
+        Inventory = new InventorySettings(),
+        Navigation = new NavigationSettings(),
+    };
 
     private void WriteBinding()
     {
