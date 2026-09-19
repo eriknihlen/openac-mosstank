@@ -247,6 +247,26 @@ public sealed class VtankSettingsProfileSerializerTests
         Assert.Equal(usd, rewritten);
     }
 
+    [Fact]
+    public void GemFoodRowsLoadSaveAndReplaceThePriorProfileRows()
+    {
+        string first = File.ReadAllText(Path.Combine(FixturesRoot, "owner-c.usd"));
+        VtankSettingsProfileSerializer.AllSettings settings = NewSettings();
+        VtankDatabase document = VtankSettingsProfileSerializer.Load(first, settings);
+
+        Assert.Contains(settings.Buffs.GemFoodItems,
+            entry => entry.Name == "Asheron's Benediction" && entry.SpellId == 3810u);
+        settings.Buffs.GemFoodItems.Clear();
+        settings.Buffs.GemFoodItems.Add(new GemFoodItem("Unknown Gem", 999999u));
+        string saved = VtankSettingsProfileSerializer.Save(document, settings);
+
+        VtankSettingsProfileSerializer.AllSettings reloaded = NewSettings();
+        VtankSettingsProfileSerializer.Load(saved, reloaded);
+        GemFoodItem item = Assert.Single(reloaded.Buffs.GemFoodItems);
+        Assert.Equal("Unknown Gem", item.Name);
+        Assert.Equal(999999u, item.SpellId);
+    }
+
     private static string SingleSettingUsd(string name, string valueTag, string valueText)
     {
         var lines = new List<string>

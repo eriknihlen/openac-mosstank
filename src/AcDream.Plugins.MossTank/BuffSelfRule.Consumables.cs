@@ -29,15 +29,21 @@ internal sealed partial class BuffSelfRule
             return false;
         foreach (PluginInventoryItem item in automation.Items.CaptureOwnedItems())
         {
-            if (!_consumableSettings.ConsumableNames.Contains(item.Name)
-                || !_consumableSettings.ConsumableCategories.TryGetValue(item.Name, out var category)
-                || category != ConsumableCategory.BuffConsumable
+            GemFoodItem? gem = _settings.GemFoodItems.FirstOrDefault(
+                entry => entry.Name.Equals(item.Name, StringComparison.Ordinal));
+            bool configuredGem = gem is not null;
+            uint configuredSpellId = gem?.SpellId ?? 0u;
+            bool configuredConsumable = _consumableSettings.ConsumableNames.Contains(item.Name)
+                && _consumableSettings.ConsumableCategories.TryGetValue(item.Name, out var category)
+                && category == ConsumableCategory.BuffConsumable;
+            uint spellId = configuredGem ? configuredSpellId : item.AppraisedSpellIds.FirstOrDefault();
+            if ((!configuredGem && !configuredConsumable)
                 || _consumableRetryAt.TryGetValue(item.ObjectId, out double retryAt)
                     && retryAt > _nowSeconds
                 || !automation.Objects.TryGet(item.ObjectId, out PluginWorldObject world)
                 || world.LastIdTime == 0
-                || item.AppraisedSpellIds.Count == 0
-                || !automation.Spells.TryGet(item.AppraisedSpellIds[0], out PluginSpellInfo spell)
+                || spellId == 0u
+                || !automation.Spells.TryGet(spellId, out PluginSpellInfo spell)
                 || _consumableFamilyRetryAt.TryGetValue(spell.Family, out double familyRetryAt)
                     && familyRetryAt > _nowSeconds
                 || spell.IsFellowship && !automation.Fellowship.IsInFellowship

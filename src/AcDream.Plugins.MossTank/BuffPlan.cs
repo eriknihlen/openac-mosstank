@@ -57,7 +57,11 @@ public sealed class BuffSettings
 
     internal IList<BuffItemEnchantRow> ItemEnchantRows { get; } =
         new List<BuffItemEnchantRow>();
+
+    internal IList<GemFoodItem> GemFoodItems { get; } = new List<GemFoodItem>();
 }
+
+internal sealed record GemFoodItem(string Name, uint SpellId);
 
 public interface IBuffCastability
 {

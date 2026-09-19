@@ -592,6 +592,7 @@ internal sealed class MossTankProfileStore
         }
         VtankProfiledItemIds.Read(database, target.Combat,
             target.PlayerObjectId());
+        VtankGemFoodItems.Read(database, target.Buffs);
     }
 
     private static bool ValidNamedProfile(string name, out string notice)
