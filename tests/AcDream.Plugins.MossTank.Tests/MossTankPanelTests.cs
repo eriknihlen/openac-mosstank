@@ -2453,6 +2453,40 @@ public sealed class MossTankPanelTests
             automation.Messages);
     }
 
+    /// <summary>
+    /// The reference gates a buff on the item-use slot and on whether a buff
+    /// is due, never on the host's inventory transaction state. The two are
+    /// not the same thing here: a cast raises that transaction count on its
+    /// way out, so a buff rule watching it declines for several passes after
+    /// each of its OWN casts, and every one of those passes falls through to
+    /// whatever wants it next -- which, standing over a corpse, is the open
+    /// rule. That is the "it tries to open a corpse between every spell"
+    /// report. Mutation: gate <c>BuffSelfRule</c> on
+    /// <c>automation.Items.IsBusy</c> again and the rule declines instead of
+    /// claiming the pass.
+    /// </summary>
+    [Fact]
+    public void AnOutstandingInventoryRequestDoesNotStopTheBuffRule()
+    {
+        FakeAutomation automation = BuffPassAutomation();
+        automation.ItemsBusy = true;
+        var panel = new MossTankPanel(new FakeHost(automation));
+        panel.ExecuteVtankCommand(new PluginCommand(
+            "vt", "log ActiveRule on", "/vt log ActiveRule on"));
+        automation.Messages.Clear();
+
+        panel.ToggleCombat();
+        panel.OnTick(0d);
+
+        // The rule keeps the pass. Whether the mode gate lets the cast out
+        // on this tick is its own business; what matters is that the pass
+        // does not fall through to the rules below, which is where the
+        // corpse rules live.
+        Assert.Contains(
+            automation.Messages,
+            line => line.Contains("Picked BuffSelf", StringComparison.Ordinal));
+    }
+
     [Fact]
     public void VtLogActiveRuleOnPostsAllRulesInactiveWhenNothingIsValid()
     {

@@ -87,8 +87,7 @@ internal sealed class DispelController
             || (!_settings.CastDispelSelf
                 && !_settings.UseDispelItems
                 && !_settings.UseDispelDrum)
-            || automation.Magic.IsCasting
-            || automation.Items.IsBusy)
+            || _actionLocks.IsLocked(ActionLockKind.ItemUse))
         {
             return false;
         }
@@ -232,7 +231,7 @@ internal sealed class DispelController
     private bool TryStartAllyDispel(IAutomationSurface automation)
     {
         // The item-use cooldown slot has to be free first.
-        if (automation.Items.IsBusy)
+        if (_actionLocks.IsLocked(ActionLockKind.ItemUse))
             return false;
         if (!automation.Fellowship.IsInFellowship
             || !TrySelectAwakener(automation, _combatSettings, out PluginInventoryItem drum)

@@ -745,20 +745,40 @@ public sealed class VitalRechargeTests
         Assert.Equal(VitalRechargeSourceKind.CasterItem, ok.SourceKind);
     }
 
+    /// <summary>
+    /// The reference gates the helper rows on the item-use slot, the slot a
+    /// kit or a heart holds while its animation runs. It never gates them on
+    /// the host's inventory transaction state, which is a different thing: a
+    /// cast raises that on its way out, so a rule watching it blocks itself
+    /// after its own casts. Mutation: gate the planner on
+    /// <c>automation.Items.IsBusy</c> again and the first pick is the spell,
+    /// not the heart.
+    /// </summary>
     [Fact]
-    public void AnItemUseInFlightBlocksTheHealersHeart()
+    public void TheItemSlotGatesTheHealersHeart_NotTheHostsTransactionFlag()
     {
-        Surface surface = HealersHeartSurface();
-        surface.ItemsBusy = true;
         var profiled = new CombatSettings();
         profiled.CombatItemNames.Add("The Healer's Heart");
+        var settings = new VitalSettings { UseHealersHeart = true };
 
+        // The host flag is up; the heart is still the right pick.
+        Surface busy = HealersHeartSurface();
+        busy.ItemsBusy = true;
         Assert.True(VitalRechargePlanner.TryPlanHelper(
-            surface,
-            new VitalSettings { UseHealersHeart = true },
-            profiled,
-            out VitalRechargeChoice choice));
-        Assert.Equal(VitalRechargeSourceKind.LearnedSpell, choice.SourceKind);
+            busy, settings, profiled, out VitalRechargeChoice choice));
+        Assert.Equal(VitalRechargeSourceKind.CasterItem, choice.SourceKind);
+
+        // The item slot is what holds the row off.
+        Surface ready = HealersHeartSurface();
+        var controller = new VitalRechargeController(
+            new Host(ready), settings, profiled);
+        var locks = new ActionLockTable();
+        controller.BindActionLocks(locks);
+        locks.Arm(ActionLockKind.ItemUse, 1d);
+
+        Assert.False(controller.Tick(
+            0.3d, enabled: true, noTarget: false, helpers: true));
+        Assert.Empty(ready.UsedItemIds);
     }
 
     private static Surface HealersHeartSurface() => new()

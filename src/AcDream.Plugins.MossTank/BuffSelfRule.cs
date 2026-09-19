@@ -400,9 +400,14 @@ internal sealed partial class BuffSelfRule
         if (_pendingConsumable != 0u)
             return true;
 
-        if (automation.Items.IsBusy)
+        // The reference gates a buff on the item-use slot, never on the
+        // host's inventory transaction state. The two are not the same: a
+        // cast raises that transaction count on its way out, so gating on
+        // it made this rule decline for several passes after each of its
+        // OWN casts, and the pass fell through to whatever wanted it next.
+        if (_consumableLocks.IsLocked(ActionLockKind.ItemUse))
         {
-            DeclineReason = "an item transaction is open";
+            DeclineReason = "the item slot is held";
             return PauseBurst();
         }
 

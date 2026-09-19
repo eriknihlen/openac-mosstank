@@ -235,8 +235,10 @@ internal static class VitalRechargePlanner
         out VitalRechargeChoice choice)
     {
         choice = default;
-        // The setting first, then the item-use cooldown slot.
-        if (!settings.UseHealersHeart || automation.Items.IsBusy)
+        // The item-use slot is the caller's gate, as the reference gates
+        // this row: never the host's inventory transaction state, which a
+        // cast of its own raises.
+        if (!settings.UseHealersHeart)
             return false;
         if (!automation.Character.TryGetSkill(33u, out PluginSkillInfo life)
             || life.Current < 245u
@@ -1305,13 +1307,16 @@ internal sealed class VitalRechargeController
         if (need is not null && !helpers)
         {
         }
+        // The reference gates both helper rows on the item-use slot, the
+        // same slot a kit or a heart holds while its animation runs.
         else if (need is null
-            && !VitalRechargePlanner.TryPlanHelper(
-                automation,
-                _settings,
-                _combatSettings,
-                TraceHelper,
-                out helper))
+            && (_actionLocks.IsLocked(ActionLockKind.ItemUse)
+                || !VitalRechargePlanner.TryPlanHelper(
+                    automation,
+                    _settings,
+                    _combatSettings,
+                    TraceHelper,
+                    out helper)))
         {
             Status = "Vitals ready";
             return false;
