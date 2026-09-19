@@ -361,8 +361,8 @@ internal sealed partial class MossTankPanel : IBuffRuleHost
             _combatSettings);
         _crafting.BindPeaceGate(ReadyToActInPeace);
         _combat.BindAmmunitionCraftRequest(
-            _crafting.CanRequest,
-            _crafting.Request);
+            _crafting.ResolveRequestPlan,
+            _crafting.RequestResolved);
         _itemManaRecharge = new ItemManaRechargeController(
             host,
             _inventorySettings,
@@ -417,6 +417,7 @@ internal sealed partial class MossTankPanel : IBuffRuleHost
         _meta.SetEnabled(_metaSettings.Enabled);
         RegisterVtankExpressionFunctions();
         _scheduler = MacroRuleTable.Build(this);
+        _combatModeGate.EquipmentSettled = _scheduler.Poke;
         _scheduler.PassStarting = ClearPassLatches;
         _scheduler.MetaPass = elapsed =>
         {

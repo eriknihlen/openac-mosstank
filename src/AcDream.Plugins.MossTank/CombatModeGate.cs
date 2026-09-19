@@ -19,12 +19,14 @@ internal sealed class CombatModeGate
     private readonly CombatSettings _settings;
     private readonly VitalSettings _vitalSettings;
     private readonly Action<string> _stopMacro;
+    private readonly EquipmentTracker _equipmentTracker;
 
     private int _dropToPeaceRetries;
 
     private double _sinceModeRequest = ModeConfirmationSeconds;
     private PluginCombatMode _modeBeforeRequest = PluginCombatMode.Unknown;
     private bool _modeRequestInFlight;
+    private long _ackRevisionAtRequest;
     private bool _noWandNoticePosted;
     private double _diagnosticTime;
     private double _nextBusyDiagnostic;
@@ -45,7 +47,11 @@ internal sealed class CombatModeGate
         _vitalSettings = vitalSettings
             ?? throw new ArgumentNullException(nameof(vitalSettings));
         _stopMacro = stopMacro ?? throw new ArgumentNullException(nameof(stopMacro));
+        _equipmentTracker = new EquipmentTracker(host.Automation,
+            () => EquipmentSettled?.Invoke());
     }
+
+    internal Action? EquipmentSettled { get; set; }
 
     public string Status { get; private set; } = string.Empty;
 
@@ -102,6 +108,7 @@ internal sealed class CombatModeGate
         _sinceModeRequest = ModeConfirmationSeconds;
         _modeBeforeRequest = PluginCombatMode.Unknown;
         _modeRequestInFlight = false;
+        _ackRevisionAtRequest = 0;
         _noWandNoticePosted = false;
         _postedWarnings.Clear();
         Status = string.Empty;
@@ -109,6 +116,7 @@ internal sealed class CombatModeGate
 
     public void AdvancePass(double elapsedSeconds)
     {
+        _equipmentTracker.Advance(elapsedSeconds);
         _sinceModeRequest += Math.Max(0d, elapsedSeconds);
         _diagnosticTime += Math.Max(0d, elapsedSeconds);
     }
@@ -124,7 +132,8 @@ internal sealed class CombatModeGate
         uint overrideItemId = 0u,
         bool autoSelect = true,
         MonsterDamageType element = MonsterDamageType.None,
-        IReadOnlyList<PluginEquipmentItem>? captured = null)
+        IReadOnlyList<PluginEquipmentItem>? captured = null,
+        uint? secondaryItemId = null)
     {
         IAutomationSurface automation = _host.Automation;
         IEquipmentAutomation equipment = automation.Equipment;
@@ -152,7 +161,7 @@ internal sealed class CombatModeGate
 
         IReadOnlyList<PluginEquipmentItem> items =
             captured ?? equipment.CaptureOwnedEquipment();
-        PluginEquipmentItem? wielded = FindWieldedFor(items, wanted);
+        PluginEquipmentItem? wielded = FindById(items, _equipmentTracker.WeaponId);
 
         uint primary = overrideItemId;
         if (primary != 0u)
@@ -188,20 +197,54 @@ internal sealed class CombatModeGate
             primary = fallback.ObjectId;
         }
 
-        bool flag2 = AmmunitionStale?.Invoke(primary, element) == true;
-        if (flag2 || wielded?.ObjectId != primary)
+        uint secondary = secondaryItemId ?? FindFirstProfiledShield(items);
+        bool needSecondary = IsTrackedObjectValid(secondary, items);
+        if (secondary == primary)
+            needSecondary = false;
+        else if (IsTrackedObjectValid(primary, items))
         {
-            if (wielded?.ObjectId != primary)
-            {
-                PluginEquipmentItem? target = FindById(items, primary);
-                string name = target?.Name
-                    ?? (_host.Automation.Objects.TryGet(primary, out PluginWorldObject world)
-                        ? world.Name : "caster");
+            PluginEquipmentItem? selected = FindById(items, primary);
+            if (selected is not { } weapon
+                || KindFor(in weapon) is not (WeaponKind.Melee or WeaponKind.Thrown)
+                || (weapon.ValidLocations & 0x02000000u) != 0u)
+                needSecondary = false;
+        }
 
-                // The drop-to-peace branch, with the retry budget and the
-                // stuck-state recovery.
-                if (!TryDropToPeace(items, name))
+        bool flag2 = AmmunitionStale?.Invoke(primary, element) == true;
+        bool weaponDiffers = _equipmentTracker.WeaponId != primary;
+        bool secondaryDiffers = needSecondary
+            && _equipmentTracker.ShieldId != secondary;
+        if (flag2 || weaponDiffers || secondaryDiffers)
+        {
+            PluginEquipmentItem? target = FindById(items, primary);
+            string name = target?.Name
+                ?? (_host.Automation.Objects.TryGet(primary, out PluginWorldObject world)
+                    ? world.Name : "caster");
+            if (!TryDropToPeace(items, name))
+                return false;
+
+            if (target is { } chosen
+                && KindFor(in chosen) == WeaponKind.Thrown
+                && secondaryDiffers)
+            {
+                if (_equipmentTracker.WeaponId != 0u)
+                {
+                    PluginItemCommandResult move = automation.Items.MoveToContainer(
+                        _equipmentTracker.WeaponId, automation.Character.ObjectId);
+                    Status = move.Notice ?? "Removing wielded weapon";
                     return false;
+                }
+                return SwapSecondary(secondary, items);
+            }
+
+            if (weaponDiffers)
+            {
+                if (!_equipmentTracker.TryArmSwap(primary,
+                    requirePeace: true, EffectiveMode()))
+                {
+                    Status = "Waiting for equipment";
+                    return false;
+                }
 
                 Log?.Invoke(MacroLogChannel.BusyState, $"(FCM) equip {name}");
                 PluginEquipmentCommandResult equip = equipment.Equip(primary);
@@ -220,12 +263,88 @@ internal sealed class CombatModeGate
                 return false;
             }
 
-            // Reached only once the weapon already matches.
-            if (flag2 && WieldAmmunition?.Invoke(element) == true)
+            if (secondaryDiffers)
+                return SwapSecondary(secondary, items);
+
+            if (flag2)
+            {
+                WieldAmmunition?.Invoke(element);
                 return false;
+            }
         }
 
-        return TryPrepareMode(wielded, wanted);
+        return TryPrepareMode(FindById(items, _equipmentTracker.WeaponId), wanted);
+    }
+
+    private bool SwapSecondary(uint secondary, IReadOnlyList<PluginEquipmentItem> items)
+    {
+        if (!_equipmentTracker.TryArmSwap(secondary,
+            requirePeace: true, EffectiveMode()))
+        {
+            Status = "Waiting for equipment";
+            return false;
+        }
+        PluginEquipmentCommandResult result =
+            _host.Automation.Equipment.EquipSecondary(secondary);
+        string name = FindById(items, secondary)?.Name ?? "secondary item";
+        Status = result.Status == PluginEquipmentCommandStatus.Started
+            ? $"Equipping {name}"
+            : result.Notice ?? $"Cannot equip {name} ({result.Status}).";
+        return false;
+    }
+
+    internal bool TryArmAmmunitionSwap(uint objectId) =>
+        _equipmentTracker.TryArmSwap(objectId,
+            requirePeace: false, EffectiveMode());
+
+    private bool IsTrackedObjectValid(uint objectId,
+        IReadOnlyList<PluginEquipmentItem> items)
+    {
+        if (objectId == 0u)
+            return false;
+        IWorldObjectAutomation objects = _host.Automation.Objects;
+        return objects.IsAvailable
+            ? objects.TryGet(objectId, out _)
+            : FindById(items, objectId) is not null;
+    }
+
+    private enum WeaponKind { None, Melee, Bow, Crossbow, Atlatl, Thrown, Caster, Shield }
+
+    private static WeaponKind KindFor(in PluginEquipmentItem item)
+    {
+        if (item.ObjectClass == PluginObjectClass.WandStaffOrb)
+            return WeaponKind.Caster;
+        if (item.ObjectClass == PluginObjectClass.MeleeWeapon)
+            return WeaponKind.Melee;
+        if (item.ObjectClass == PluginObjectClass.MissileWeapon)
+            return item.WeaponType switch
+            {
+                0 => WeaponKind.Thrown,
+                1 => WeaponKind.Bow,
+                2 => WeaponKind.Crossbow,
+                4 => WeaponKind.Atlatl,
+                _ => WeaponKind.None,
+            };
+        return item.ValidLocations == 0x00200000u
+            ? WeaponKind.Shield : WeaponKind.None;
+    }
+
+    private uint FindFirstProfiledShield(IReadOnlyList<PluginEquipmentItem> items)
+    {
+        IWorldObjectAutomation objects = _host.Automation.Objects;
+        foreach (uint id in _settings.CombatItemOrderIds)
+        {
+            PluginEquipmentItem? projected = FindById(items, id);
+            if (projected is not { } item
+                || KindFor(in item) != WeaponKind.Shield)
+                continue;
+            if (objects.IsAvailable
+                && (!objects.TryGet(id, out PluginWorldObject world)
+                    || !world.IsOwned))
+                continue;
+            return id;
+        }
+        return 0u;
     }
 
     /// <summary>
@@ -273,16 +392,14 @@ internal sealed class CombatModeGate
         _dropToPeaceRetries++;
         if (_dropToPeaceRetries >= _vitalSettings.DropToPeaceModeRetryCount)
         {
-            _dropToPeaceRetries = 0;
+            _actionLocks.Arm(
+                ActionLockKind.ItemUse,
+                ItemUseLock.ImmediateSeconds);
             if (FindFirstProfiledWand(items) is not { } recovery)
             {
                 PostNoWandNoticeAndStop();
                 return false;
             }
-
-            _actionLocks.Arm(
-                ActionLockKind.ItemUse,
-                ItemUseLock.ImmediateSeconds);
             PluginItemCommandResult use =
                 _host.Automation.Items.Use(recovery.ObjectId);
             Status = use.Status == PluginItemCommandStatus.Started
@@ -290,6 +407,7 @@ internal sealed class CombatModeGate
                 : $"Combat-state recovery with {recovery.Name}: {use.Status}";
             if (use.Status == PluginItemCommandStatus.Started)
                 _host.Automation.Chat.PostSystemMessage("[MossTank] " + BuggedCombatStateWarning);
+            _dropToPeaceRetries = 0;
             return false;
         }
 
@@ -385,12 +503,13 @@ internal sealed class CombatModeGate
 
     private PluginCombatMode EffectiveMode()
     {
-        PluginCombatMode live = _host.Automation.Combat.Snapshot.Mode;
-
-        if (_modeRequestInFlight && live != _modeBeforeRequest)
+        PluginCombatSnapshot snapshot = _host.Automation.Combat.Snapshot;
+        if (_modeRequestInFlight
+            && snapshot.QualifiedSelfMotionRevision > _ackRevisionAtRequest)
         {
             _modeRequestInFlight = false;
-            _sinceModeRequest = 0d;
+            _sinceModeRequest = Math.Max(0d,
+                snapshot.QualifiedSelfMotionAgeSeconds);
         }
 
         // The confirmation window is purely time-based — the reference
@@ -399,12 +518,14 @@ internal sealed class CombatModeGate
         // is the answer; outside it, the live one.
         return _sinceModeRequest < ModeConfirmationSeconds
             ? _modeBeforeRequest
-            : live;
+            : snapshot.Mode;
     }
 
     private bool RequestMode(PluginCombatMode mode)
     {
-        _modeBeforeRequest = _host.Automation.Combat.Snapshot.Mode;
+        PluginCombatSnapshot snapshot = _host.Automation.Combat.Snapshot;
+        _modeBeforeRequest = snapshot.Mode;
+        _ackRevisionAtRequest = snapshot.QualifiedSelfMotionRevision;
         _sinceModeRequest = 0d;
         _modeRequestInFlight = true;
         Log?.Invoke(MacroLogChannel.BusyState, $"(FCM) requesting {mode}");
@@ -413,7 +534,8 @@ internal sealed class CombatModeGate
         if (result.Status == PluginCombatCommandStatus.Unavailable)
         {
             _modeRequestInFlight = false;
-            return true;
+            Status = "Combat mode is unavailable";
+            return false;
         }
         Status = result.Status == PluginCombatCommandStatus.Refused
             ? result.Notice ?? $"Cannot enter {mode} mode"

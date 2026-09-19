@@ -1,4 +1,4 @@
-﻿using System.Globalization;
+using System.Globalization;
 using AcDream.Plugin.Abstractions;
 
 namespace AcDream.Plugins.MossTank.Tests;
@@ -1668,6 +1668,8 @@ public sealed class CombatControllerTests
             Targets = [Target(10, "Drudge", 5, 0)],
             SpellLookup = [imperil],
             ItemEntries = [phial],
+            EquipmentItems = [Equipment(200u, "Iron Phial of Imperil",
+                damageType: 0, itemType: 0x100u)],
             CharacterSkills = [new(38u, "Alchemy", PluginSkillTraining.Trained, 400)],
         };
         var settings = DebuffOnly(MonsterActionFlags.Imperil);
@@ -1963,6 +1965,9 @@ public sealed class CombatControllerTests
                 itemType: 0x00008000u,
                 equippedLocation: 0x00100000u),
         ];
+        surface.EmitPlacement(new PluginEquipmentObservation(991u, 0u, true));
+        surface.EmitPlacement(new PluginEquipmentObservation(
+            990u, 0x00100000u, false));
         for (int tick = 0; tick < 4; tick++)
             controller.OnTick(0.25);
 
@@ -4048,7 +4053,6 @@ public sealed class CombatControllerTests
         Assert.Equal(
             [
                 (MacroLogChannel.BusyState, "(FCM) requesting Peace"),
-                (MacroLogChannel.BusyState, "(FCM) requesting Peace"),
                 (MacroLogChannel.BusyState, "(FCM) equip Recovery Wand"),
                 (MacroLogChannel.BusyState, "(FCM) requesting Magic"),
             ],
@@ -4327,8 +4331,13 @@ public sealed class CombatControllerTests
         Assert.Equal("Ready", gate.Status);
     }
 
+    /// <summary>
+    /// Mutation pin: return ready for an unavailable mode command. The gate
+    /// reports success while the observed stance still differs.
+    /// Mutation executed: <c>the Unavailable branch return false was replaced with return true</c>.
+    /// </summary>
     [Fact]
-    public void GateTreatsAnUnavailableModeCommandAsReadyRatherThanDeadlock()
+    public void GateDoesNotReportReadyWhenModeCommandIsUnavailable()
     {
         var surface = new FakeAutomation
         {
@@ -4346,7 +4355,180 @@ public sealed class CombatControllerTests
         CombatModeGate gate = Gate(surface, settings);
 
         gate.AdvancePass(0.1d);
-        Assert.True(gate.TryPrepare(PluginCombatMode.Magic));
+        Assert.False(gate.TryPrepare(PluginCombatMode.Magic));
+        Assert.Equal("Combat mode is unavailable", gate.Status);
+    }
+
+    /// <summary>
+    /// Mutation pin: infer a mode acknowledgement from a changed raw mode.
+    /// That spuriously restarts the 600 ms window without a qualifying receipt.
+    /// Mutation executed: <c>the acknowledgement revision comparison was replaced with snapshot.Mode != _modeBeforeRequest</c>.
+    /// </summary>
+    [Fact]
+    public void RawModeChangeWithoutMotionAckDoesNotRestartWindow()
+    {
+        var surface = new FakeAutomation
+        {
+            CombatSnapshot = Physical(),
+            DeferModeConfirmation = true,
+        };
+        CombatModeGate gate = Gate(surface);
+
+        Assert.False(gate.TryDropToPeace([], "Sword"));
+        surface.CombatSnapshot = surface.CombatSnapshot with
+        {
+            Mode = PluginCombatMode.Peace,
+        };
+        gate.AdvancePass(0.61d);
+
+        Assert.True(gate.TryDropToPeace([], "Sword"));
+        Assert.Equal(["EnterMode:Peace"], surface.CallLog);
+    }
+
+    /// <summary>
+    /// Mutation pin: seed from held-first/name-sorted equipment instead of
+    /// the world table's enumeration. The last name-sorted weapon wins.
+    /// Mutation executed: <c>CaptureWorldPlacementsInOrder() was ordered by object ID</c>.
+    /// </summary>
+    [Fact]
+    public void EquipmentTrackerSeedsFromWorldOrderAndUsesExactSlots()
+    {
+        var surface = new FakeAutomation
+        {
+            EquipmentItems =
+            [
+                Equipment(10, "Zulu Sword", damageType: 1,
+                    equippedLocation: 0x02000000u),
+                Equipment(30, "Combined Mask", damageType: 1,
+                    equippedLocation: 0x00300000u),
+                Equipment(20, "Alpha Sword", damageType: 1,
+                    equippedLocation: 0x00100000u),
+            ],
+        };
+        using var tracker = new EquipmentTracker(surface, () => { });
+
+        Assert.Equal(20u, tracker.WeaponId);
+        Assert.Equal(0u, tracker.ShieldId);
+        Assert.Equal([10u, 30u, 20u], tracker.EquippedIds);
+    }
+
+    /// <summary>
+    /// Mutation pin: omit the independent settlement scheduled by an
+    /// unrelated authoritative receipt. The swap remains in cooldown after
+    /// its 100 ms receipt timer and the macro is never poked.
+    /// Mutation executed: <c>settlement was conditioned on ValidOrZero(objectId) != 0u</c>.
+    /// </summary>
+    [Fact]
+    public void EquipmentTrackerReceiptsSettleIndependentlyAndValidateIds()
+    {
+        var surface = new FakeAutomation
+        {
+            EquipmentItems = [Equipment(10, "Sword", damageType: 1,
+                equippedLocation: 0x00100000u)],
+        };
+        int pokes = 0;
+        using var tracker = new EquipmentTracker(surface, () => pokes++);
+        Assert.True(tracker.TryArmSwap(10u, requirePeace: true,
+            PluginCombatMode.Peace));
+        Assert.True(tracker.RecentlySwapped);
+
+        surface.EmitPlacement(new PluginEquipmentObservation(
+            99u, 0x00800000u, false));
+        Assert.Equal(0u, tracker.AmmoId); // receipt can predate the object
+        tracker.Advance(0.099d);
+        Assert.True(tracker.RecentlySwapped);
+        Assert.Equal(0, pokes);
+        tracker.Advance(0.001d);
+        Assert.False(tracker.RecentlySwapped);
+        Assert.Equal(1, pokes);
+
+        Assert.True(tracker.TryArmSwap(10u, requirePeace: false,
+            PluginCombatMode.Melee));
+        tracker.Advance(0.8d);
+        Assert.True(tracker.RecentlySwapped); // strict deadline comparison
+        tracker.Advance(0.001d);
+        Assert.False(tracker.RecentlySwapped);
+
+        surface.EmitPlacement(new PluginEquipmentObservation(10u, 0u, true));
+        Assert.Equal(0u, tracker.WeaponId);
+        Assert.DoesNotContain(10u, tracker.EquippedIds);
+    }
+
+    /// <summary>
+    /// Mutation pin: classify a shield-valid melee item as a shield before
+    /// checking its object class. That sends the wrong item to the offhand.
+    /// Mutation executed: <c>KindFor returned Shield for the exact location before checking ObjectClass</c>.
+    /// </summary>
+    [Theory]
+    [InlineData(PluginObjectClass.MeleeWeapon)]
+    [InlineData(PluginObjectClass.MissileWeapon)]
+    [InlineData(PluginObjectClass.WandStaffOrb)]
+    public void GateDefaultShieldUsesKindAfterWeaponClass(
+        PluginObjectClass maskedClass)
+    {
+        var surface = new FakeAutomation
+        {
+            CombatSnapshot = Physical() with { Mode = PluginCombatMode.Peace },
+            EquipmentItems =
+            [
+                Equipment(100u, "Sword", damageType: 1,
+                    equippedLocation: 0x00100000u),
+                Equipment(200u, "Misleading Sword", damageType: 1,
+                    validLocations: 0x00200000u)
+                    with { ObjectClass = maskedClass },
+                Equipment(300u, "Shield", damageType: 0,
+                    validLocations: 0x00200000u)
+                    with { ObjectClass = PluginObjectClass.Armor },
+            ],
+        };
+        var settings = new CombatSettings();
+        settings.CombatItemOrderIds.Add(200u);
+        settings.CombatItemOrderIds.Add(300u);
+        CombatModeGate gate = Gate(surface, settings);
+
+        Assert.False(gate.TryPrepare(PluginCombatMode.Melee,
+            overrideItemId: 100u, autoSelect: false));
+        Assert.Contains("EquipSecondary:0000012C", surface.CallLog);
+        Assert.DoesNotContain("EquipSecondary:000000C8", surface.CallLog);
+    }
+
+    /// <summary>
+    /// Mutation pin: swap the primary before the secondary for a thrown
+    /// weapon. The actual requests must remove old primary, equip secondary,
+    /// then equip thrown primary on separate passes.
+    /// Mutation executed: <c>the thrown-secondary branch condition was replaced with false</c>.
+    /// </summary>
+    [Fact]
+    public void GateThrownSecondaryPrecedesPrimaryAfterRemoval()
+    {
+        var surface = new FakeAutomation
+        {
+            CombatSnapshot = Physical() with { Mode = PluginCombatMode.Peace },
+            EquipmentItems =
+            [
+                Equipment(991u, "Old Sword", damageType: 1,
+                    equippedLocation: 0x00100000u),
+                Equipment(100u, "Thrown", damageType: 1,
+                    itemType: 0x100u),
+                Equipment(300u, "Shield", damageType: 0,
+                    validLocations: 0x00200000u)
+                    with { ObjectClass = PluginObjectClass.Armor },
+            ],
+        };
+        CombatModeGate gate = Gate(surface);
+
+        Assert.False(gate.TryPrepare(PluginCombatMode.Missile,
+            overrideItemId: 100u, autoSelect: false, secondaryItemId: 300u));
+        gate.AdvancePass(0.1d);
+        Assert.False(gate.TryPrepare(PluginCombatMode.Missile,
+            overrideItemId: 100u, autoSelect: false, secondaryItemId: 300u));
+        gate.AdvancePass(0.1d);
+        Assert.False(gate.TryPrepare(PluginCombatMode.Missile,
+            overrideItemId: 100u, autoSelect: false, secondaryItemId: 300u));
+
+        Assert.Equal(
+            ["Move:000003DF", "EquipSecondary:0000012C", "Equip:00000064"],
+            surface.CallLog);
     }
 
     [Fact]
@@ -5347,6 +5529,9 @@ public sealed class CombatControllerTests
                 itemType: 0x00008000u,
                 equippedLocation: 0x00100000u),
         ];
+        surface.EmitPlacement(new PluginEquipmentObservation(991u, 0u, true));
+        surface.EmitPlacement(new PluginEquipmentObservation(
+            990u, 0x00100000u, false));
         settings.Rules[0] = new MonsterRule(
             "DEFAULT",
             new MonsterRuleActions
@@ -5776,6 +5961,12 @@ public sealed class CombatControllerTests
         bool IEquipmentAutomation.IsAvailable => EquipmentAvailable;
         bool IEquipmentAutomation.IsBusy =>
             SimulateAsyncEquip && _pendingEquipObjectId is not null;
+        public event Action<PluginEquipmentObservation>? PlacementObserved;
+        public void EmitPlacement(PluginEquipmentObservation observation) =>
+            PlacementObserved?.Invoke(observation);
+        public IReadOnlyList<PluginEquipmentPlacement> CaptureWorldPlacementsInOrder() =>
+            EquipmentItems.Select(static item => new PluginEquipmentPlacement(
+                item.ObjectId, item.EquippedLocation)).ToArray();
         public int CaptureOwnedEquipmentCount { get; private set; }
 
         /// <summary>
@@ -5809,7 +6000,14 @@ public sealed class CombatControllerTests
             if (SimulateAsyncEquip)
                 _pendingEquipObjectId = objectId;
             else
-                EquipmentItems = MarkEquipped(EquipmentItems, objectId);
+                ApplyConfirmedEquip(objectId);
+            return new(PluginEquipmentCommandStatus.Started);
+        }
+        public PluginEquipmentCommandResult EquipSecondary(uint objectId)
+        {
+            LastEquipObjectId = objectId;
+            CallLog.Add($"EquipSecondary:{objectId:X8}");
+            ApplyConfirmedEquip(objectId);
             return new(PluginEquipmentCommandStatus.Started);
         }
 
@@ -5817,8 +6015,28 @@ public sealed class CombatControllerTests
         {
             if (_pendingEquipObjectId is not { } objectId)
                 return;
-            EquipmentItems = MarkEquipped(EquipmentItems, objectId);
+            ApplyConfirmedEquip(objectId);
             _pendingEquipObjectId = null;
+        }
+
+        private void ApplyConfirmedEquip(uint objectId)
+        {
+            IReadOnlyList<PluginEquipmentItem> previous = EquipmentItems;
+            EquipmentItems = MarkEquipped(previous, objectId);
+            foreach (PluginEquipmentItem before in previous)
+            {
+                if (before.EquippedLocation != 0u
+                    && EquipmentItems.First(item => item.ObjectId == before.ObjectId)
+                        .EquippedLocation == 0u)
+                {
+                    PlacementObserved?.Invoke(new PluginEquipmentObservation(
+                        before.ObjectId, 0u, true));
+                }
+            }
+            PluginEquipmentItem equipped = EquipmentItems.First(
+                item => item.ObjectId == objectId);
+            PlacementObserved?.Invoke(new PluginEquipmentObservation(
+                objectId, equipped.EquippedLocation, false));
         }
 
         /// <summary>
@@ -5863,6 +6081,19 @@ public sealed class CombatControllerTests
             LastUsedItem = objectId;
             return new(PluginItemCommandStatus.Started);
         }
+        public PluginItemCommandResult MoveToContainer(
+            uint objectId, uint containerObjectId, uint amount = 0u,
+            int placement = 0)
+        {
+            CallLog.Add($"Move:{objectId:X8}");
+            EquipmentItems = EquipmentItems.Select(item =>
+                item.ObjectId == objectId
+                    ? item with { EquippedLocation = 0u }
+                    : item).ToArray();
+            PlacementObserved?.Invoke(new PluginEquipmentObservation(
+                objectId, 0u, true));
+            return new(PluginItemCommandStatus.Started);
+        }
         public PluginItemCommandResult Apply(uint objectId, uint targetObjectId)
         {
             LastAppliedItem = (objectId, targetObjectId);
@@ -5903,7 +6134,13 @@ public sealed class CombatControllerTests
         {
             if (_pendingMode is not { } mode)
                 return;
-            CombatSnapshot = CombatSnapshot with { Mode = mode };
+            CombatSnapshot = CombatSnapshot with
+            {
+                Mode = mode,
+                QualifiedSelfMotionRevision =
+                    CombatSnapshot.QualifiedSelfMotionRevision + 1,
+                QualifiedSelfMotionAgeSeconds = 0d,
+            };
             _pendingMode = null;
         }
         public PluginCombatCommandResult BeginPhysicalAttack(

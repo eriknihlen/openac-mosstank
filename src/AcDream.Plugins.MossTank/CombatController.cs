@@ -25,6 +25,7 @@ internal sealed class CombatController
     private double _lastElapsedSeconds;
 
     private uint _plannedWeapon;
+    private uint _plannedOffhand;
 
     private double _untilScan;
     private double _acquisitionRange;
@@ -161,8 +162,8 @@ internal sealed class CombatController
     /// with a one-second budget.
     /// </summary>
     private const float BreakableTurnToleranceDegrees = 2f;
-    private Func<string, int, bool>? _requestAmmunitionCraft;
-    private Func<string, int, bool>? _canCraftAmmunition;
+    private Func<CraftingPlan, bool>? _requestAmmunitionCraft;
+    private Func<string, int, CraftingPlan?>? _resolveAmmunitionCraft;
     private int _randomDamageIndex;
     private long _observedJiggleCastCompletion;
     private bool _selectionJiggleActive;
@@ -330,11 +331,11 @@ internal sealed class CombatController
     public string ButtonText => Enabled ? "Stop Macro" : "Run Macro";
 
     public void BindAmmunitionCraftRequest(
-        Func<string, int, bool> canCraft,
-        Func<string, int, bool> request)
+        Func<string, int, CraftingPlan?> resolve,
+        Func<CraftingPlan, bool> request)
     {
-        _canCraftAmmunition = canCraft
-            ?? throw new ArgumentNullException(nameof(canCraft));
+        _resolveAmmunitionCraft = resolve
+            ?? throw new ArgumentNullException(nameof(resolve));
         _requestAmmunitionCraft = request
             ?? throw new ArgumentNullException(nameof(request));
     }
@@ -472,7 +473,9 @@ internal sealed class CombatController
             1f);
         _targetName = target.Name;
         _targetRule = _settings.ResolveRule(target);
-        return !TickEquipment();
+        if (TickEquipment())
+            return false;
+        return TryPrepareAttack();
     }
 
     public void OnTick(double elapsedSeconds)
@@ -1471,6 +1474,7 @@ internal sealed class CombatController
     private bool TickEquipment()
     {
         _plannedWeapon = 0u;
+        _plannedOffhand = 0u;
 
         MonsterRuleActions actions = _targetRule.Actions;
         bool primaryRequiresWeapon = actions.UsesPrimaryAttack
@@ -1482,12 +1486,6 @@ internal sealed class CombatController
         {
             return false;
         }
-        if (equipment.IsBusy)
-        {
-            Status = "Switching equipment";
-            return true;
-        }
-
         IReadOnlyList<PluginEquipmentItem> items = PassEquipment();
         uint desiredWeapon;
         if (actions.WeaponToUseRaw == 0)
@@ -1511,20 +1509,10 @@ internal sealed class CombatController
             }
         }
         _plannedWeapon = desiredWeapon;
-
-        if (TryEquipIfNeeded(equipment, items, desiredWeapon, "weapon"))
-            return true;
-        if (TryEquipIfNeeded(
-            equipment,
-            items,
-            ResolveEquipmentObjectId(
-                actions.OffhandObjectId,
-                actions.OffhandName,
-                items),
-            "offhand"))
-        {
-            return true;
-        }
+        _plannedOffhand = ResolveEquipmentObjectId(
+            actions.OffhandObjectId,
+            actions.OffhandName,
+            items);
         return false;
     }
 
@@ -1541,7 +1529,8 @@ internal sealed class CombatController
         AmmunitionPlanKind Kind,
         uint ObjectId,
         string Name,
-        string Notice)
+        string Notice,
+        CraftingPlan? Craft = null)
     {
         public static AmmunitionPlan Satisfied { get; } = new(
             AmmunitionPlanKind.Satisfied,
@@ -1586,16 +1575,17 @@ internal sealed class CombatController
                 static group => group.Key,
                 static group => group.Sum(item => item.StackSize),
                 StringComparer.Ordinal);
-        var craftable = new Dictionary<string, bool>(StringComparer.Ordinal);
+        var craftable = new Dictionary<string, CraftingPlan?>(StringComparer.Ordinal);
         bool IsAvailable(string name)
         {
             if (counts.GetValueOrDefault(name) >= 1)
                 return true;
-            if (craftable.TryGetValue(name, out bool cached))
-                return cached;
-            bool value = _canCraftAmmunition?.Invoke(name, 1) == true;
-            craftable[name] = value;
-            return value;
+            if (!craftable.TryGetValue(name, out CraftingPlan? cached))
+            {
+                cached = _resolveAmmunitionCraft?.Invoke(name, 1);
+                craftable[name] = cached;
+            }
+            return cached is not null;
         }
 
         // The owner's own gameinfodb.ugd wins over the bundled table when it
@@ -1646,7 +1636,8 @@ internal sealed class CombatController
                 AmmunitionPlanKind.Craft,
                 0u,
                 option.Name,
-                string.Empty);
+                string.Empty,
+                craftable.GetValueOrDefault(option.Name));
     }
 
     private bool ExecuteAmmunitionPlan(
@@ -1667,6 +1658,11 @@ internal sealed class CombatController
 
         if (plan.Kind == AmmunitionPlanKind.Wield)
         {
+            if (!Gate.TryArmAmmunitionSwap(plan.ObjectId))
+            {
+                Status = "Waiting for equipment";
+                return true;
+            }
             PluginEquipmentCommandResult equip =
                 _host.Automation.Equipment.Equip(plan.ObjectId);
             Status = equip.Status == PluginEquipmentCommandStatus.Refused
@@ -1675,7 +1671,8 @@ internal sealed class CombatController
             return true;
         }
 
-        if (_requestAmmunitionCraft?.Invoke(plan.Name, 1) == true)
+        if (plan.Craft is { } craft
+            && _requestAmmunitionCraft?.Invoke(craft) == true)
         {
             Status = "Crafting " + plan.Name;
             return true;
@@ -1744,53 +1741,12 @@ internal sealed class CombatController
                 element: _targetRule.Rule is null
                     ? MonsterDamageType.None
                     : _targetRule.Actions.DamageType,
-                captured: PassEquipment()))
+                captured: PassEquipment(),
+                secondaryItemId: _plannedOffhand))
         {
             return true;
         }
         Status = Gate.Status;
-        return false;
-    }
-
-    private bool TryEquipIfNeeded(
-        IEquipmentAutomation equipment,
-        IReadOnlyList<PluginEquipmentItem> items,
-        uint objectId,
-        string role)
-    {
-        if (objectId == 0u)
-            return false;
-
-        PluginEquipmentItem? desired = null;
-        foreach (PluginEquipmentItem item in items)
-        {
-            if (item.ObjectId == objectId)
-            {
-                desired = item;
-                break;
-            }
-        }
-        if (desired is not { } selected
-            || (role == "weapon"
-                ? CombatModeGate.IsWeaponSlot(selected.EquippedLocation)
-                : selected.EquippedLocation == 0x00200000u))
-            return false;
-
-        if (!Gate.TryDropToPeace(items, selected.Name))
-        {
-            Status = Gate.Status;
-            return true;
-        }
-
-        PluginEquipmentCommandResult result = equipment.Equip(objectId);
-        if (result.Status is PluginEquipmentCommandStatus.Started
-            or PluginEquipmentCommandStatus.Busy)
-        {
-            Status = $"Equipping {selected.Name}";
-            return true;
-        }
-        if (result.Status == PluginEquipmentCommandStatus.Refused)
-            Status = $"Cannot equip {role}: {selected.Name}";
         return false;
     }
 
@@ -3565,7 +3521,7 @@ internal sealed class CombatController
                     static group => group.Sum(item => item.StackSize),
                     StringComparer.Ordinal);
             bool answer = counts.GetValueOrDefault(name) >= 1
-                || _canCraftAmmunition?.Invoke(name, 1) == true;
+                || _resolveAmmunitionCraft?.Invoke(name, 1) is not null;
             answers[name] = answer;
             return answer;
         };
@@ -3819,6 +3775,7 @@ internal sealed class CombatController
         // latch up.
         _castTracker.Reset();
         _plannedWeapon = 0u;
+        _plannedOffhand = 0u;
         Gate.Reset();
         _randomDamageIndex = 0;
         _observedJiggleCastCompletion = 0;

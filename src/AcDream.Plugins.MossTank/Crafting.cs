@@ -344,20 +344,40 @@ internal sealed class CraftingController
     }
 
     public bool CanRequest(string resultName, int desiredCount = 1)
+        => ResolveRequestPlan(resultName, desiredCount) is not null;
+
+    internal CraftingPlan? ResolveRequestPlan(
+        string resultName, int desiredCount = 1)
     {
         if (string.IsNullOrWhiteSpace(resultName)
             || !_host.Automation.IsAvailable
             || !_host.Automation.Items.IsAvailable)
         {
-            return false;
+            return null;
         }
         return CraftingPlanner.Plan(
-                _host.Automation.Items.CaptureOwnedItems(),
-                [resultName],
-                _host.Automation.Character,
-                desiredCount,
-                _settings.ArrowheadFletchDifficultyExcess)
-            is not null;
+            _host.Automation.Items.CaptureOwnedItems(),
+            [resultName],
+            _host.Automation.Character,
+            desiredCount,
+            _settings.ArrowheadFletchDifficultyExcess);
+    }
+
+    internal bool RequestResolved(CraftingPlan plan)
+    {
+        if (_pending is not null || _pendingSplit is not null
+            || !_host.Automation.IsAvailable)
+            return false;
+        IItemAutomation items = _host.Automation.Items;
+        if (!items.IsAvailable || items.IsBusy
+            || plan.FirstObjectId == 0u || plan.SecondObjectId == 0u)
+            return false;
+        IWorldObjectAutomation objects = _host.Automation.Objects;
+        if (objects.IsAvailable
+            && (!objects.TryGet(plan.FirstObjectId, out _)
+                || !objects.TryGet(plan.SecondObjectId, out _)))
+            return false;
+        return StartInPeace(items, plan);
     }
 
     public bool TickCritical(double elapsedSeconds, bool canAct)

@@ -7204,7 +7204,8 @@ public sealed class MossTankPanelTests
     private sealed class FakeAutomation
         : IAutomationSurface, ICharacterInfo, ISpellCatalog, IMagicCommands,
           IPluginChat, IItemAutomation, INavigationAutomation,
-          IWorldObjectAutomation, IRecoveryAutomation, IEnchantmentAutomation
+          IWorldObjectAutomation, IRecoveryAutomation, IEnchantmentAutomation,
+          ICombatAutomation
     {
         /// <summary>
         /// Per-object tracked enchantments, VTank's <c>dm</c>
@@ -7236,6 +7237,29 @@ public sealed class MossTankPanelTests
         public ISpellCatalog Spells => this;
         public IMagicCommands Magic => this;
         public IPluginChat Chat => this;
+        public ICombatAutomation Combat => this;
+        public PluginCombatSnapshot CombatSnapshot { get; set; } = new()
+        {
+            Mode = PluginCombatMode.Magic,
+        };
+        PluginCombatSnapshot ICombatAutomation.Snapshot => CombatSnapshot;
+        PluginCombatCommandResult ICombatAutomation.EnterMode(
+            PluginCombatMode mode)
+        {
+            CombatSnapshot = CombatSnapshot with { Mode = mode };
+            return new(PluginCombatCommandStatus.ModeChangeSent);
+        }
+        IReadOnlyList<PluginCombatTarget>
+            ICombatAutomation.CaptureHostileTargets(float maximumDistance) => [];
+        PluginCombatCommandResult ICombatAutomation.EnterDefaultMode() =>
+            new(PluginCombatCommandStatus.Unavailable);
+        PluginCombatCommandResult ICombatAutomation.BeginPhysicalAttack(
+            uint targetObjectId, PluginAttackHeight height, float power) =>
+            new(PluginCombatCommandStatus.Unavailable);
+        PluginCombatCommandResult ICombatAutomation.ReleasePhysicalAttack() =>
+            new(PluginCombatCommandStatus.Unavailable);
+        PluginCombatCommandResult ICombatAutomation.AbortPhysicalAttack() =>
+            new(PluginCombatCommandStatus.Stopped);
         public IItemAutomation Items => this;
         public INavigationAutomation Navigation => this;
         public IWorldObjectAutomation Objects => this;
@@ -8001,6 +8025,11 @@ public sealed class MossTankPanelTests
         bool IEquipmentAutomation.IsAvailable => true;
         bool IEquipmentAutomation.IsBusy => false;
         public IReadOnlyList<PluginEquipmentItem> EquipmentItems { get; set; } = [];
+        public event Action<PluginEquipmentObservation>? PlacementObserved;
+        public IReadOnlyList<PluginEquipmentPlacement>
+            CaptureWorldPlacementsInOrder() =>
+            EquipmentItems.Select(static item => new PluginEquipmentPlacement(
+                item.ObjectId, item.EquippedLocation)).ToArray();
         public IReadOnlyList<PluginEquipmentItem> CaptureOwnedEquipment() =>
             EquipmentItems;
         public PluginEquipmentCommandResult Equip(
@@ -8008,11 +8037,20 @@ public sealed class MossTankPanelTests
             uint requestedLocation = 0u)
         {
             CallLog.Add($"Equip:{objectId:X8}");
+            IReadOnlyList<PluginEquipmentItem> before = EquipmentItems;
             EquipmentItems = EquipmentItems
                 .Select(item => item.ObjectId == objectId
                     ? item with { EquippedLocation = 0x00100000u }
                     : item with { EquippedLocation = 0u })
                 .ToArray();
+            foreach (PluginEquipmentItem old in before)
+            {
+                if (old.ObjectId != objectId && old.EquippedLocation != 0u)
+                    PlacementObserved?.Invoke(new PluginEquipmentObservation(
+                        old.ObjectId, 0u, true));
+            }
+            PlacementObserved?.Invoke(new PluginEquipmentObservation(
+                objectId, 0x00100000u, false));
             return new(PluginEquipmentCommandStatus.Started);
         }
     }

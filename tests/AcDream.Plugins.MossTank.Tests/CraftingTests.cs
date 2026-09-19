@@ -352,6 +352,39 @@ public sealed class CraftingTests
         Assert.Equal("Crafting Deadly Fire Arrow", controller.Status);
     }
 
+    /// <summary>
+    /// Mutation pin: resolve the result name again in RequestResolved. If the
+    /// inventory changes after selection, that applies a different pair.
+    /// Mutation executed: <c>RequestResolved replanned by result name before StartInPeace</c>.
+    /// </summary>
+    [Fact]
+    public void AmmunitionCraftAppliesTheResolvedComponentPair()
+    {
+        var automation = new Automation
+        {
+            TrainedSkill = 37u,
+            Inventory =
+            [
+                Item(10u, "Wrapped Bundle of Deadly Fire Arrowheads"),
+                Item(20u, "Wrapped Bundle of Arrowshafts"),
+            ],
+        };
+        var controller = new CraftingController(new Host(automation),
+            new InventorySettings(), new CombatSettings());
+        CraftingPlan chosen = Assert.IsType<CraftingPlan>(
+            controller.ResolveRequestPlan("Deadly Fire Arrow"));
+        Assert.Equal((10u, 20u),
+            (chosen.FirstObjectId, chosen.SecondObjectId));
+
+        automation.Inventory =
+        [
+            Item(30u, "Wrapped Bundle of Deadly Fire Arrowheads"),
+            Item(40u, "Wrapped Bundle of Arrowshafts"),
+        ];
+        Assert.True(controller.RequestResolved(chosen));
+        Assert.Equal([(10u, 20u)], automation.Applies);
+    }
+
     [Theory]
     [InlineData("Greater Stamina Kit", 0x00010000u, 0, (int)ConsumableCategory.StaminaKit)]
     [InlineData("Greater Mana Kit", 0x00010000u, 0, (int)ConsumableCategory.ManaKit)]

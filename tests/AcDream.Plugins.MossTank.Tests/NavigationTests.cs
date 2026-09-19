@@ -2443,6 +2443,10 @@ public sealed class NavigationTests
         bool IEquipmentAutomation.IsBusy => false;
         IReadOnlyList<PluginEquipmentItem> IEquipmentAutomation.CaptureOwnedEquipment() =>
             EquipmentItems;
+        IReadOnlyList<PluginEquipmentPlacement>
+            IEquipmentAutomation.CaptureWorldPlacementsInOrder() =>
+            EquipmentItems.Select(static item => new PluginEquipmentPlacement(
+                item.ObjectId, item.EquippedLocation)).ToArray();
         PluginEquipmentCommandResult IEquipmentAutomation.Equip(
             uint objectId,
             uint requestedLocation)
