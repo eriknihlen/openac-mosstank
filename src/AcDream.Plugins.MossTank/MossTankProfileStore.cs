@@ -203,6 +203,9 @@ internal sealed class MossTankProfileStore
             ? bareName
             : bareName + ".usd";
 
+    private static VtankDatabase CloneDatabase(VtankDatabase database) =>
+        VtankDatabase.Parse(database.Render());
+
     public bool Create(
         string? name,
         bool copyCurrent,
@@ -230,7 +233,11 @@ internal sealed class MossTankProfileStore
         SideCarDocument sidecar;
         if (copyCurrent)
         {
-            database = VtankSettingsProfileSerializer.CreateNew(settings);
+            // Copy the complete USD document, not just the settings fields we
+            // understand. Imported tables and custom cells are profile data.
+            database = _currentDatabase is null
+                ? VtankSettingsProfileSerializer.CreateNew(settings)
+                : CloneDatabase(_currentDatabase);
             sidecar = SideCarDocument.Capture(
                 settings, noBuffItemNames, logChannels);
         }

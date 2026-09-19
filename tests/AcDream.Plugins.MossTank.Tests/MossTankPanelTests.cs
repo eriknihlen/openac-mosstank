@@ -4742,6 +4742,59 @@ public sealed class MossTankPanelTests
             message.Contains("Cannot overwrite unreadable settings profile", StringComparison.Ordinal));
     }
 
+    /// <summary>
+    /// A copied settings profile starts with the complete active USD document,
+    /// including imported item enchant rows and tables the adapter does not
+    /// interpret. Mutation: create the copy from defaults; the raw row and
+    /// custom-table assertions fail.
+    /// </summary>
+    [Fact]
+    public void SettingsCopyPreservesImportedBuffedItemsAndUnknownTablesIndependently()
+    {
+        var storage = new MemoryStorage();
+        var automation = ItemEnchantAutomation();
+        automation.ItemEntries =
+        [
+            Item(10, "War Wand", 0x8000u, validLocations: 0x01000000u),
+            Item(11, "Equipped Wand", 0x8000u) with { EquippedLocation = 0x01000000u },
+        ];
+        var panel = new MossTankPanel(new FakeHost(automation, storage));
+        Command(panel, "settings save Source");
+        string source = panel.SelectedMacroProfile;
+        VtankDatabase sourceDatabase = VtankDatabase.Parse(storage.Text[source]);
+        VtankTable buffed = sourceDatabase.Find("BuffedItems")!;
+        buffed.Rows.Add(new VtankRow { Cells = { VtankCell.Int(10), VtankCell.Int(101) } });
+        buffed.Rows.Add(new VtankRow { Cells = { VtankCell.Int(10), VtankCell.Int(102) } });
+        buffed.Rows.Add(new VtankRow { Cells = { VtankCell.Int(-1), VtankCell.Int(101) } });
+        var custom = new VtankTable();
+        custom.ColumnNames.Add("Marker");
+        custom.IndexFlags.Add(false);
+        custom.Rows.Add(new VtankRow { Cells = { VtankCell.String("copy proof") } });
+        sourceDatabase.Tables.Add(("CopyProof", custom));
+        storage.Text[source] = sourceDatabase.Render();
+
+        Command(panel, "settings load Source");
+        Command(panel, "settings save Copy");
+        string copy = panel.SelectedMacroProfile;
+        VtankDatabase copied = VtankDatabase.Parse(storage.Text[copy]);
+        VtankTable copiedBuffed = copied.Find("BuffedItems")!;
+        Assert.Contains(copiedBuffed.Rows, row =>
+            row.Cells[copiedBuffed.ColumnIndex("Object")].AsInt() == 10
+            && row.Cells[copiedBuffed.ColumnIndex("Spell")].AsInt() == 101);
+        Assert.Contains(copiedBuffed.Rows, row =>
+            row.Cells[copiedBuffed.ColumnIndex("Object")].AsInt() == 10
+            && row.Cells[copiedBuffed.ColumnIndex("Spell")].AsInt() == 102);
+        Assert.Contains(copiedBuffed.Rows, row =>
+            row.Cells[copiedBuffed.ColumnIndex("Object")].AsInt() == -1
+            && row.Cells[copiedBuffed.ColumnIndex("Spell")].AsInt() == 101);
+        Assert.Equal("copy proof", copied.Find("CopyProof")!.Rows[0].Cells[0].AsString());
+
+        Command(panel, "opt set AttackDistance 0.02");
+        VtankDatabase sourceAfterCopySave = VtankDatabase.Parse(storage.Text[source]);
+        Assert.Equal("copy proof", sourceAfterCopySave.Find("CopyProof")!.Rows[0].Cells[0].AsString());
+        Assert.Equal(3, sourceAfterCopySave.Find("BuffedItems")!.Rows.Count);
+    }
+
     [Fact]
     public void InitialMalformedSettingsProfileStaysInactiveAndIsNeverSavedByAnOptionChange()
     {
