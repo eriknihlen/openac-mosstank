@@ -55,6 +55,57 @@ public class MacroSchedulerTests
         }
     }
 
+    /// <summary>
+    /// A stopped macro still keeps worn gear charged, and does only that:
+    /// the stopped-macro list runs on the same heartbeat as the main one,
+    /// and the main list is not asked anything at all. Running the main list
+    /// with everything gated instead is what let the stopped macro buff,
+    /// because not every rule in it carries that gate.
+    ///
+    /// Mutation: run the main list while stopped, or leave the stopped list
+    /// unrun, and one of these two counts moves.
+    /// </summary>
+    [Fact]
+    public void AStoppedMacroRunsOnlyItsOwnShortList()
+    {
+        var main = new Probe("Attack", valid: true);
+        var whenOff = new Probe("RefillWieldedMana", valid: true);
+        var scheduler = new MacroScheduler([main], null, [whenOff]);
+
+        // Never started: the stopped list is what the heartbeat drives.
+        Assert.True(scheduler.Advance(MacroScheduler.HeartbeatSeconds));
+        Assert.Equal(0, main.ValidNowCalls);
+        Assert.Equal(1, whenOff.ValidNowCalls);
+        Assert.True(whenOff.Running);
+
+        scheduler.Start();
+        Assert.False(whenOff.Running);
+        Assert.True(scheduler.Advance(MacroScheduler.HeartbeatSeconds));
+        Assert.Equal(1, main.ValidNowCalls);
+        Assert.Equal(1, whenOff.ValidNowCalls);
+
+        scheduler.Stop();
+        Assert.True(scheduler.Advance(MacroScheduler.HeartbeatSeconds));
+        Assert.Equal(1, main.ValidNowCalls);
+        Assert.Equal(2, whenOff.ValidNowCalls);
+    }
+
+    /// <summary>
+    /// A stopped-macro rule whose own gate is shut wins nothing, and the
+    /// pass is otherwise empty -- there is no second rule to fall through to.
+    /// </summary>
+    [Fact]
+    public void AShutGateLeavesTheStoppedPassEmpty()
+    {
+        var whenOff = new Probe("RefillWieldedMana", valid: false);
+        var scheduler = new MacroScheduler([new Probe("Attack")], null, [whenOff]);
+
+        Assert.True(scheduler.Advance(MacroScheduler.HeartbeatSeconds));
+
+        Assert.Equal(1, whenOff.ValidNowCalls);
+        Assert.False(whenOff.Running);
+    }
+
     private sealed class Provider : IMacroRuleProvider
     {
         public IMacroRule Create(MacroRuleSlot slot) => new Probe(slot.ToString());

@@ -4938,8 +4938,10 @@ internal sealed partial class MossTankPanel : IBuffRuleHost, IDisposable
 
         ObserveSchedulerPokes();
 
-        bool schedulerActive = macroRunning
-            || _inventorySettings.ManaChargesWhenOff;
+        // The macro's own switch, and nothing else: keeping gear charged
+        // while the macro is off is the stopped-macro list's job, and that
+        // list runs on its own beside this one.
+        bool schedulerActive = macroRunning;
         if (schedulerActive && !_scheduler.IsRunning)
         {
             _scheduler.Start();

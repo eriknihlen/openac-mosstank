@@ -133,6 +133,7 @@ internal sealed class MacroScheduler
 
     private readonly List<IMacroRule> _main;
     private readonly List<IMacroRule> _independent;
+    private readonly List<IMacroRule> _macroDisabled;
 
     private readonly Dictionary<string, string> _reportedDeclines =
         new(StringComparer.Ordinal);
@@ -154,15 +155,28 @@ internal sealed class MacroScheduler
 
     public MacroScheduler(
         IReadOnlyList<IMacroRule> mainRules,
-        IReadOnlyList<IMacroRule>? independentRules = null)
+        IReadOnlyList<IMacroRule>? independentRules = null,
+        IReadOnlyList<IMacroRule>? macroDisabledRules = null)
     {
         ArgumentNullException.ThrowIfNull(mainRules);
         _main = [.. mainRules];
         _independent = independentRules is null
             ? []
             : [.. independentRules];
+        _macroDisabled = macroDisabledRules is null
+            ? []
+            : [.. macroDisabledRules];
         _lastEvaluatedAt = new double[_main.Count];
     }
+
+    /// <summary>
+    /// The short list that runs while the macro is stopped. It is a list of
+    /// its own rather than the main list with everything gated off, because
+    /// the main list holds rules -- buffing among them -- that nobody asked
+    /// for with the macro stopped, and a gate missing from any one of them
+    /// would have the stopped macro quietly doing that rule's job.
+    /// </summary>
+    public IReadOnlyList<IMacroRule> MacroDisabledRules => _macroDisabled;
 
     /// <summary>VTank's <c>dz.o.c</c> — the single "the macro is running" flag.</summary>
     public bool IsRunning { get; private set; }
@@ -214,6 +228,8 @@ internal sealed class MacroScheduler
 
     public void Start()
     {
+        foreach (IMacroRule rule in _macroDisabled)
+            rule.Running = false;
         IsRunning = true;
         _suspension = 0;
         _untilPass = 0d;
@@ -242,8 +258,19 @@ internal sealed class MacroScheduler
         _sincePass += elapsed;
         if (!IsRunning)
         {
+            if (_macroDisabled.Count == 0)
+            {
+                _sincePass = 0d;
+                return false;
+            }
+            _untilPass -= elapsed;
+            if (_untilPass > 0d)
+                return false;
+            _untilPass = HeartbeatSeconds;
+            double offPass = _sincePass;
             _sincePass = 0d;
-            return false;
+            RunMacroDisabledPass(offPass);
+            return true;
         }
 
         _untilPass -= elapsed;
@@ -262,6 +289,36 @@ internal sealed class MacroScheduler
         _sincePass = 0d;
         RunPass(passElapsed);
         return true;
+    }
+
+    /// <summary>
+    /// One pass of the stopped-macro list: first valid rule wins, exactly as
+    /// the running list works, with no meta and no independent rules.
+    /// </summary>
+    public void RunMacroDisabledPass(double elapsedSeconds)
+    {
+        double elapsed = Math.Max(0d, elapsedSeconds);
+        PassStarting?.Invoke();
+        if (IsSuspended)
+            return;
+        var context = new MacroPassContext(elapsed, CanAct: true);
+        IMacroRule? winner = null;
+        foreach (IMacroRule rule in _macroDisabled)
+        {
+            if (!rule.ValidNow(in context))
+                continue;
+            winner = rule;
+            break;
+        }
+        foreach (IMacroRule rule in _macroDisabled)
+        {
+            if (!ReferenceEquals(rule, winner))
+                rule.Running = false;
+        }
+        if (winner is null)
+            return;
+        winner.Running = true;
+        Log?.Invoke(MacroLogChannel.RuleInfo, $"({winner.Name}) Running");
     }
 
     public void RunPass(double elapsedSeconds)

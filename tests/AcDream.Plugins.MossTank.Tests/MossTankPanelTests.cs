@@ -921,6 +921,59 @@ public sealed class MossTankPanelTests
             "Buffing", panel.BuffStatus, StringComparison.Ordinal);
     }
 
+    /// <summary>
+    /// With the macro stopped, keeping worn gear charged is the only job
+    /// left, and the character's own switch is the only thing gating it. The
+    /// running list's copy of the same rule carries no such switch and no
+    /// combat gate: it sits between the self-recharge and the buffing and
+    /// runs whenever the item slot is free.
+    ///
+    /// Mutation: put the switch back on the running list's copy, or add a
+    /// second rule to the stopped list, and this fails.
+    /// </summary>
+    [Fact]
+    public void TheStoppedMacroListIsTheWornManaRuleUnderItsOwnSwitch()
+    {
+        var automation = new FakeAutomation();
+        var panel = new MossTankPanel(new FakeHost(automation));
+        var context = new MacroPassContext(0.3d, CanAct: true);
+
+        IMacroRule whenOff = Assert.Single(panel.MacroDisabledRules);
+        Assert.Equal("RefillWieldedMana", whenOff.Name);
+
+        // Worn gear the rule would want to look at, so that whether the rule
+        // was asked at all is visible from outside.
+        automation.ItemEntries =
+        [
+            Item(0x50005001u, "Low Wand", 0x00000001u) with
+            {
+                EquippedLocation = 0x00000002u,
+                ItemCurrentMana = 10,
+                ItemMaximumMana = 100,
+            },
+        ];
+        Command(panel, "opt set RefillWornMana true");
+        Command(panel, "opt set ManaChargesWhenOff false");
+
+        Assert.False(whenOff.ValidNow(in context));
+        Assert.DoesNotContain(0x50005001u, automation.Identified);
+
+        Command(panel, "opt set ManaChargesWhenOff true");
+        Assert.False(whenOff.ValidNow(in context));
+        Assert.Contains(0x50005001u, automation.Identified);
+
+        IMacroRule inMacro = panel.MacroRules.First(
+            static rule => rule.Name == "RefillWieldedMana");
+        int refill = panel.MacroRules.ToList().FindIndex(
+            static rule => rule.Name == "RefillWieldedMana");
+        int recharge = panel.MacroRules.ToList().FindIndex(
+            static rule => rule.Name == "RechargeSelfNormal");
+        int buff = panel.MacroRules.ToList().FindIndex(
+            static rule => rule.Name == "BuffSelf");
+        Assert.True(recharge < refill && refill < buff);
+        Assert.NotSame(whenOff, inMacro);
+    }
+
     [Fact]
     public void StoppingTheMacroEndsTheBuffPassEvenWhenManaChargesKeepTheLoopAlive()
     {

@@ -8,6 +8,9 @@ internal sealed partial class MossTankPanel : IMacroRuleProvider
 
     internal IReadOnlyList<IMacroRule> MacroRules => _scheduler.MainRules;
 
+    internal IReadOnlyList<IMacroRule> MacroDisabledRules =>
+        _scheduler.MacroDisabledRules;
+
     internal ActionLockTable ActionLocks => _actionLocks;
 
     /// <summary>
@@ -104,12 +107,18 @@ internal sealed partial class MossTankPanel : IMacroRuleProvider
             gate: () => ItemSlotIsFree() && _combat.Enabled,
             runningDetail: () => _vitalRecharge.Status),
 
+        // No combat gate: keeping worn gear charged is not part of fighting,
+        // and it sits here between the self-recharge above and the buffing
+        // below.
         MacroRuleSlot.RefillWieldedMana => new ControllerMacroRule(
             "RefillWieldedMana",
             context => _itemManaRecharge.Tick(context.CanAct, context.ElapsedSeconds),
+            gate: ItemSlotIsFree),
+        MacroRuleSlot.RefillWieldedManaWhenOff => new ControllerMacroRule(
+            "RefillWieldedMana",
+            context => _itemManaRecharge.Tick(context.CanAct, context.ElapsedSeconds),
             gate: () => ItemSlotIsFree()
-                && (_combat.Enabled
-                    || _inventorySettings.ManaChargesWhenOff)),
+                && _inventorySettings.ManaChargesWhenOff),
 
         MacroRuleSlot.BuffSelfNormal => new ControllerMacroRule(
             "BuffSelf",
