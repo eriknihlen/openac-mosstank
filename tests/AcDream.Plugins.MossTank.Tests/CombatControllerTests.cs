@@ -5681,6 +5681,48 @@ public sealed class CombatControllerTests
     }
 
     /// <summary>
+    /// A swing outstanding at a monster that is dropped — killed here, and a
+    /// deliberate switch is the same — is cancelled with it, so the next
+    /// monster is swung at straight away instead of waiting out an answer
+    /// that can never come, and the dead one is not charged the miss.
+    /// Mutation: delete the swing teardown from <c>ClearTarget</c> and this
+    /// fails — the server is still holding the dead monster's swing, the
+    /// waiting arm claims every pass, and nothing is swung at the next
+    /// monster until that wait runs out against the wrong name.
+    /// </summary>
+    [Fact]
+    public void KillingTheTargetCancelsTheSwingThatWasOutstandingAtIt()
+    {
+        (FakeAutomation surface, CombatController controller, _) =
+            MeleeKillRig(tracksAttackRequests: true);
+        surface.Targets =
+        [
+            Target(10, "Drudge", distance: 2, angle: 0),
+            Target(20, "Mosswart", distance: 3, angle: 0),
+        ];
+        surface.FillPowerBar();
+        controller.OnTick(0.25);
+        Assert.True(surface.CombatSnapshot.ServerResponsePending);
+        int abortsWithTheSwingOut = surface.AbortCount;
+
+        // The monster dies and the server never answers that last swing.
+        surface.ChatMessages = [ChatLine(1, "You killed Drudge!")];
+        controller.OnTick(0.25);
+        surface.ChatMessages = [];
+        Assert.Equal(abortsWithTheSwingOut + 1, surface.AbortCount);
+        Assert.False(surface.CombatSnapshot.ServerResponsePending);
+
+        controller.OnTick(0.25);
+        controller.OnTick(0.25);
+        Assert.Equal(20u, surface.LastBeginTarget);
+        Assert.DoesNotContain(
+            surface.PostedSystemMessages,
+            message => message.Contains(
+                "Blacklisting unhittable target Drudge",
+                StringComparison.Ordinal));
+    }
+
+    /// <summary>
     /// The reader keys on which of the client's logs a line came from, not on
     /// its words: a player typing the kill sentence, or the damage sentence,
     /// in chat must not end the fight or clear the give-up count.

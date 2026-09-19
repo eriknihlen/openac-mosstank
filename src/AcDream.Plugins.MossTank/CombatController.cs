@@ -2979,7 +2979,7 @@ internal sealed class CombatController
         }
         if (_targetId != objectId)
             return;
-        _host.Automation.Combat.AbortPhysicalAttack();
+        // Dropping the target is what cancels its swing; one owner does it.
         ClearTarget();
         _untilScan = 0d;
         Status = "Waiting for a target";
@@ -3973,6 +3973,18 @@ internal sealed class CombatController
     {
         _health.Clear(_now);
         DisarmPhysicalResultText();
+        // A swing belongs to the monster it was armed at. Dropping the target
+        // drops the swing with it — the cancel is what ends it on the server —
+        // and the wait on an answer that can no longer mean anything goes with
+        // it, so the next monster is not held behind a dead one's swing and
+        // the dead one is not charged a miss for never answering.
+        if (_pendingPhysicalTarget != 0u)
+        {
+            _pendingPhysicalTarget = 0u;
+            _host.Automation.Combat.AbortPhysicalAttack();
+        }
+        _physicalSwingSentAt = double.NegativeInfinity;
+        _physicalSwingClosestDistance = float.PositiveInfinity;
         StopApproachMovement();
         StopBreakableTurnMovement();
         StopSelectionJiggle();
