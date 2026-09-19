@@ -55,6 +55,10 @@ public sealed class BuffSettings
     public ISet<string> BlacklistedBuffFamilyNames { get; } =
         new HashSet<string>(StringComparer.Ordinal);
 
+    internal IList<uint> ExtraBuffSpellIds { get; } = new List<uint>();
+
+    internal IList<uint> AntiExtraBuffSpellIds { get; } = new List<uint>();
+
     internal IList<BuffItemEnchantRow> ItemEnchantRows { get; } =
         new List<BuffItemEnchantRow>();
 
@@ -97,7 +101,8 @@ public static class BuffPlan
         double? rebuffWhenUnderSeconds = null,
         int characterLevel = 0,
         IReadOnlySet<uint>? forcedSpellIds = null,
-        IBuffCastability? castability = null)
+        IBuffCastability? castability = null,
+        ISpellCatalog? spellCatalog = null)
     {
         if (!settings.Enabled)
             return [];
@@ -140,6 +145,11 @@ public static class BuffPlan
             skillLevels[skill.SkillId] = skill.Current;
 
         var plan = new List<(int Rank, PluginSpellInfo Spell)>();
+        HashSet<uint> extraFamilies = ResolveFamilies(
+            lines, settings.ExtraBuffSpellIds, settings.ExtraBuffSpellNames, spellCatalog);
+        HashSet<uint> excludedFamilies = ResolveFamilies(
+            lines, settings.AntiExtraBuffSpellIds,
+            settings.BlacklistedBuffFamilyNames, spellCatalog);
 
         foreach (BuffLine line in lines)
         {
@@ -167,7 +177,9 @@ public static class BuffPlan
                 BuffTargetKind.Other => schoolAvailable && settings.BuffOther,
                 _ => false,
             };
-            if (!wanted)
+            if (!schoolAvailable
+                || (!wanted && !extraFamilies.Contains(line.Family))
+                || excludedFamilies.Contains(line.Family))
                 continue;
 
             bool resolved = TryPickTier(
@@ -202,6 +214,45 @@ public static class BuffPlan
         foreach ((int _, PluginSpellInfo spell) in plan)
             ordered.Add(spell);
         return ordered;
+    }
+
+    private static HashSet<uint> ResolveFamilies(
+        IReadOnlyList<BuffLine> lines,
+        IEnumerable<uint> exemplarIds,
+        IEnumerable<string> names,
+        ISpellCatalog? spellCatalog)
+    {
+        var families = new HashSet<uint>();
+        foreach (uint exemplarId in exemplarIds)
+        {
+            if (spellCatalog is not null
+                && spellCatalog.TryGet(exemplarId, out PluginSpellInfo exemplar))
+            {
+                families.Add(exemplar.Family);
+                continue;
+            }
+            foreach (BuffLine line in lines)
+            {
+                if (line.Tiers.Any(tier => tier.SpellId == exemplarId))
+                    families.Add(line.Family);
+            }
+        }
+        foreach (string name in names)
+        {
+            if (spellCatalog is not null
+                && spellCatalog.TryFindByName(name, partialMatch: false,
+                    out PluginSpellInfo exemplar))
+            {
+                families.Add(exemplar.Family);
+                continue;
+            }
+            foreach (BuffLine line in lines)
+            {
+                if (line.Tiers.Any(tier => tier.Name.Equals(name, StringComparison.Ordinal)))
+                    families.Add(line.Family);
+            }
+        }
+        return families;
     }
 
     private static bool IsCovered(

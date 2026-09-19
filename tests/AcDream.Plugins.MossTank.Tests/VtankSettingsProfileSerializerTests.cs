@@ -319,6 +319,62 @@ public sealed class VtankSettingsProfileSerializerTests
         Assert.Empty(settings.Buffs.GemFoodItems);
     }
 
+    [Fact]
+    public void ExtraBuffExemplarsLoadRoundTripAndPreserveUnknownCells()
+    {
+        VtankDatabase seed = VtankDefaultSettingsDatabase.Parse();
+        VtankTable extra = seed.Find("ExtraBuffSpells")!;
+        extra.ColumnNames.Add("Extension");
+        extra.IndexFlags.Add(false);
+        extra.Rows.Add(ExemplarRow(extra, 999999, "keep-extra"));
+        extra.Rows.Add(ExemplarRow(extra, 999999, "duplicate-extra"));
+        extra.Rows.Add(ExemplarRow(extra, 0, "invalid-extra"));
+        VtankTable anti = seed.Find("AntiExtraBuffSpells")!;
+        anti.Rows.Add(ExemplarRow(anti, 999998, null));
+        string original = seed.Render();
+
+        VtankSettingsProfileSerializer.AllSettings settings = NewSettings();
+        VtankDatabase document = VtankSettingsProfileSerializer.Load(original, settings);
+        Assert.Equal([999999u], settings.Buffs.ExtraBuffSpellIds);
+        Assert.Equal([999998u], settings.Buffs.AntiExtraBuffSpellIds);
+        Assert.Equal(original, VtankSettingsProfileSerializer.Save(document, settings));
+
+        settings.Buffs.ExtraBuffSpellIds.Clear();
+        settings.Buffs.ExtraBuffSpellIds.Add(999997u);
+        string saved = VtankSettingsProfileSerializer.Save(document, settings);
+        VtankTable rewritten = VtankDatabase.Parse(saved).Find("ExtraBuffSpells")!;
+        int extension = rewritten.ColumnIndex("Extension");
+        Assert.Contains(rewritten.Rows, row => row.Cells[extension].AsString() == "invalid-extra");
+    }
+
+    [Fact]
+    public void ExtraBuffExemplarsClearWhenTheNextProfileOmitsTheirTables()
+    {
+        VtankSettingsProfileSerializer.AllSettings settings = NewSettings();
+        VtankSettingsProfileSerializer.Load(
+            File.ReadAllText(Path.Combine(FixturesRoot, "owner-c.usd")), settings);
+        settings.Buffs.ExtraBuffSpellIds.Add(100u);
+        settings.Buffs.AntiExtraBuffSpellIds.Add(200u);
+
+        VtankDatabase withoutTables = VtankDefaultSettingsDatabase.Parse();
+        withoutTables.Tables.RemoveAll(static entry => entry.Name is "ExtraBuffSpells" or "AntiExtraBuffSpells");
+        VtankSettingsProfileSerializer.Load(withoutTables.Render(), settings);
+
+        Assert.Empty(settings.Buffs.ExtraBuffSpellIds);
+        Assert.Empty(settings.Buffs.AntiExtraBuffSpellIds);
+    }
+
+    private static VtankRow ExemplarRow(VtankTable table, int exemplarId, string? extension)
+    {
+        var row = new VtankRow();
+        for (int column = 0; column < table.ColumnNames.Count; column++)
+            row.Cells.Add(VtankCell.Int(0));
+        row.Cells[table.ColumnIndex("ExemplarId")] = VtankCell.Int(exemplarId);
+        if (extension is not null)
+            row.Cells[table.ColumnIndex("Extension")] = VtankCell.String(extension);
+        return row;
+    }
+
     private static VtankRow GemFoodRow(
         VtankTable table, string name, int spell, string extension)
     {

@@ -110,6 +110,76 @@ public class BuffPlanTests
             new BuffSettings { BuffBanes = false }));
     }
 
+    /// <summary>
+    /// Mutation pin: omitting the extra-exemplar family makes the otherwise
+    /// disabled line disappear; an anti exemplar still removes that family.
+    /// </summary>
+    [Fact]
+    public void ExtraExemplarAddsItsFamilyAndAntiExemplarRemovesIt()
+    {
+        PluginSpellInfo exemplar = Spell(
+            100u, 700u, 1, "An optional self effect.");
+        PluginSpellInfo knownHigherTier = Spell(
+            101u, 700u, 6, "An optional self effect.");
+        var settings = new BuffSettings { BuffOther = false };
+        settings.ExtraBuffSpellIds.Add(exemplar.SpellId);
+        PluginSkillInfo[] skills =
+        [
+            Skill(CreatureEnchantmentSkill, "Creature Enchantment",
+                PluginSkillTraining.Specialized),
+        ];
+
+        List<PluginSpellInfo> extra = BuffPlan.Build(
+            Lines(knownHigherTier), skills, Array.Empty<PluginAttributeInfo>(),
+            Array.Empty<PluginActiveEnchantment>(), settings,
+            spellCatalog: new ExtraCatalog(exemplar));
+
+        Assert.Equal([knownHigherTier.SpellId], extra.Select(static spell => spell.SpellId));
+
+        settings.AntiExtraBuffSpellIds.Add(exemplar.SpellId);
+        Assert.Empty(BuffPlan.Build(
+            Lines(knownHigherTier), skills, Array.Empty<PluginAttributeInfo>(),
+            Array.Empty<PluginActiveEnchantment>(), settings,
+            spellCatalog: new ExtraCatalog(exemplar)));
+    }
+
+    [Fact]
+    public void ExtraExemplarStillRequiresAnAvailableMagicSchool()
+    {
+        PluginSpellInfo exemplar = Spell(
+            100u, 700u, 1, "An optional self effect.");
+        PluginSpellInfo knownHigherTier = Spell(
+            101u, 700u, 6, "An optional self effect.");
+        var settings = new BuffSettings { BuffOther = false };
+        settings.ExtraBuffSpellIds.Add(exemplar.SpellId);
+
+        Assert.Empty(BuffPlan.Build(
+            Lines(knownHigherTier), Array.Empty<PluginSkillInfo>(),
+            Array.Empty<PluginAttributeInfo>(), Array.Empty<PluginActiveEnchantment>(),
+            settings, characterLevel: settings.BuffWithUntrainedCreatureSkill + 1,
+            spellCatalog: new ExtraCatalog(exemplar)));
+    }
+
+    [Fact]
+    public void LegacyExtraNameResolvesAnUnknownExemplarThroughTheCatalog()
+    {
+        PluginSpellInfo exemplar = Spell(
+            100u, 700u, 1, "An optional self effect.");
+        PluginSpellInfo knownHigherTier = Spell(
+            101u, 700u, 6, "An optional self effect.");
+        var settings = new BuffSettings { BuffOther = false };
+        settings.ExtraBuffSpellNames.Add(exemplar.Name);
+
+        List<PluginSpellInfo> extra = BuffPlan.Build(
+            Lines(knownHigherTier),
+            [Skill(CreatureEnchantmentSkill, "Creature Enchantment",
+                PluginSkillTraining.Specialized)],
+            Array.Empty<PluginAttributeInfo>(), Array.Empty<PluginActiveEnchantment>(),
+            settings, spellCatalog: new ExtraCatalog(exemplar));
+
+        Assert.Equal([knownHigherTier.SpellId], extra.Select(static spell => spell.SpellId));
+    }
+
     [Fact]
     public void ImpenetrabilityLeavesTheSelfListWithTheBanes()
     {
@@ -555,6 +625,27 @@ public class BuffPlanTests
             Array.Empty<PluginActiveEnchantment>(),
             new BuffSettings { BuffOther = true },
             force: true);
+
+    private sealed class ExtraCatalog(params PluginSpellInfo[] spells) : ISpellCatalog
+    {
+        public IReadOnlyList<PluginSpellInfo> KnownSelfBuffs => [];
+
+        public IReadOnlyList<PluginSpellInfo> All => spells;
+
+        public bool TryGet(uint spellId, out PluginSpellInfo info)
+        {
+            foreach (PluginSpellInfo spell in spells)
+            {
+                if (spell.SpellId == spellId)
+                {
+                    info = spell;
+                    return true;
+                }
+            }
+            info = default;
+            return false;
+        }
+    }
 
     [Fact]
     public void AGemSpellCarryingTheOtherLinesCompSetIsNeverATierCandidate()

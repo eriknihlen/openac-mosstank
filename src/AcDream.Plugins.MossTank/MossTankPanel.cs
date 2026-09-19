@@ -1455,21 +1455,25 @@ internal sealed partial class MossTankPanel : IBuffRuleHost, IDisposable
     public bool VitalUpkeepEnabled => _vitalSettings.Enabled;
     public bool HelpOthersEnabled => _vitalSettings.HelpOthers;
 
-    public IReadOnlyList<string> ExtraBuffRows => Sorted(_buffSettings.ExtraBuffSpellNames);
-    public IReadOnlyList<string> BlacklistedBuffFamilyRows =>
-        Sorted(_buffSettings.BlacklistedBuffFamilyNames);
+    public IReadOnlyList<string> ExtraBuffRows => BuffRows(
+        _buffSettings.ExtraBuffSpellNames, _buffSettings.ExtraBuffSpellIds);
+    public IReadOnlyList<string> BlacklistedBuffFamilyRows => BuffRows(
+        _buffSettings.BlacklistedBuffFamilyNames, _buffSettings.AntiExtraBuffSpellIds);
     public int SelectedExtraBuffIndex => _selectedExtraBuffRow;
     public int SelectedBlacklistedBuffIndex => _selectedBlacklistedBuffRow;
     public Action<int> DeleteExtraBuffAt => row =>
     {
         _selectedExtraBuffRow = row;
-        DeleteFromNamedSet(_buffSettings.ExtraBuffSpellNames, row);
+        DeleteBuffRow(_buffSettings.ExtraBuffSpellNames, _buffSettings.ExtraBuffSpellIds, row);
         SaveProfile();
     };
     public Action<int> DeleteBlacklistedBuffFamilyAt => row =>
     {
         _selectedBlacklistedBuffRow = row;
-        DeleteFromNamedSet(_buffSettings.BlacklistedBuffFamilyNames, row);
+        DeleteBuffRow(
+            _buffSettings.BlacklistedBuffFamilyNames,
+            _buffSettings.AntiExtraBuffSpellIds,
+            row);
         SaveProfile();
     };
     public Action ShowExtraBuffPicker => () => ShowBuffPickerCore(forBlacklist: false);
@@ -1900,15 +1904,35 @@ internal sealed partial class MossTankPanel : IBuffRuleHost, IDisposable
         SaveProfile();
     }
 
-    private static string[] Sorted(IEnumerable<string> names) =>
-        names.OrderBy(static name => name, StringComparer.Ordinal).ToArray();
+    private IReadOnlyList<string> BuffRows(ISet<string> names, IList<uint> ids) =>
+        names.Concat(ids.Select(BuffRowName))
+            .Distinct(StringComparer.Ordinal)
+            .OrderBy(static name => name, StringComparer.Ordinal)
+            .ToArray();
 
-    private static void DeleteFromNamedSet(ISet<string> set, int row)
+    private string BuffRowName(uint spellId) =>
+        _host.Automation.Spells.TryGet(spellId, out PluginSpellInfo spell)
+            ? spell.Name
+            : $"Spell {spellId}";
+
+    private void DeleteBuffRow(ISet<string> names, IList<uint> ids, int row)
     {
-        string[] names = Sorted(set);
-        if ((uint)row >= (uint)names.Length)
+        IReadOnlyList<string> rows = BuffRows(names, ids);
+        if ((uint)row >= (uint)rows.Count)
             return;
-        set.Remove(names[row]);
+        string selected = rows[row];
+        names.Remove(selected);
+        for (int idIndex = ids.Count - 1; idIndex >= 0; idIndex--)
+        {
+            if (BuffRowName(ids[idIndex]).Equals(selected, StringComparison.Ordinal))
+                ids.RemoveAt(idIndex);
+        }
+    }
+
+    private static void AddExemplar(IList<uint> ids, uint spellId)
+    {
+        if (spellId != 0u && !ids.Contains(spellId))
+            ids.Add(spellId);
     }
 
     private void ShowBuffPickerCore(bool forBlacklist)
@@ -1925,10 +1949,18 @@ internal sealed partial class MossTankPanel : IBuffRuleHost, IDisposable
         if ((uint)row >= (uint)rows.Length)
             return;
         string name = rows[row];
+        PluginSpellInfo spell = _host.Automation.Spells.KnownSelfBuffs
+            .FirstOrDefault(candidate => candidate.Name.Equals(name, StringComparison.Ordinal));
         if (_buffPickerForBlacklist)
+        {
             _buffSettings.BlacklistedBuffFamilyNames.Add(name);
+            AddExemplar(_buffSettings.AntiExtraBuffSpellIds, spell.SpellId);
+        }
         else
+        {
             _buffSettings.ExtraBuffSpellNames.Add(name);
+            AddExemplar(_buffSettings.ExtraBuffSpellIds, spell.SpellId);
+        }
         _buffPickerVisible = false;
         SaveProfile();
     }

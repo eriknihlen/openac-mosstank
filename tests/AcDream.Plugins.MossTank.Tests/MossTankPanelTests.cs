@@ -2277,6 +2277,13 @@ public sealed class MossTankPanelTests
         return database.Render();
     }
 
+    private static VtankRow ExemplarRow(int spellId)
+    {
+        var row = new VtankRow();
+        row.Cells.Add(VtankCell.Int(spellId));
+        return row;
+    }
+
     private static FakeAutomation BuffPassAutomation() => new()
     {
         CurrentHealth = 100,
@@ -4349,11 +4356,44 @@ public sealed class MossTankPanelTests
         Assert.Equal(["Spell 1"], first.ExtraBuffRows);
         Assert.Equal(["Spell 2"], first.BlacklistedBuffFamilyRows);
 
+        string usd = Assert.Single(storage.Text,
+            static entry => entry.Key.EndsWith(".usd", StringComparison.Ordinal)).Value;
+        VtankDatabase document = VtankDatabase.Parse(usd);
+        Assert.Equal(1, Assert.Single(document.Find("ExtraBuffSpells")!.Rows).Cells[0].AsInt());
+        Assert.Equal(2, Assert.Single(document.Find("AntiExtraBuffSpells")!.Rows).Cells[0].AsInt());
+
         var second = new MossTankPanel(new FakeHost(
             new FakeAutomation { Name = "Persist Check" }, storage));
 
         Assert.Equal(["Spell 1"], second.ExtraBuffRows);
         Assert.Equal(["Spell 2"], second.BlacklistedBuffFamilyRows);
+    }
+
+    [Fact]
+    public void ImportedExtraBuffExemplarIsVisibleAndRemovableFromTheBuffUi()
+    {
+        var storage = new MemoryStorage();
+        VtankDatabase profile = VtankDefaultSettingsDatabase.Parse();
+        profile.Find("ExtraBuffSpells")!.Rows.Add(ExemplarRow(1));
+        storage.Text[VtankProfileDirectory.AutoCharacterFileName(
+            "Imported Extra", string.Empty, "usd")] = profile.Render();
+        var automation = new FakeAutomation
+        {
+            Name = "Imported Extra",
+            KnownSelfBuffs =
+            [
+                Spell(1, 10, "Increases the caster's Strength by 10 points."),
+            ],
+        };
+        var panel = new MossTankPanel(new FakeHost(automation, storage));
+
+        Assert.Equal(["Spell 1"], panel.ExtraBuffRows);
+        panel.DeleteExtraBuffAt(0);
+
+        Assert.Empty(panel.ExtraBuffRows);
+        string usd = storage.Text[VtankProfileDirectory.AutoCharacterFileName(
+            "Imported Extra", string.Empty, "usd")];
+        Assert.Empty(VtankDatabase.Parse(usd).Find("ExtraBuffSpells")!.Rows);
     }
 
     /// <summary>

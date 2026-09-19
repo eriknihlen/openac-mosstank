@@ -54,6 +54,7 @@ internal static class VtankSettingsProfileSerializer
         VtankProfiledItemIds.Read(database, target.Combat,
             target.PlayerObjectId());
         VtankGemFoodItems.Read(database, target.Buffs);
+        VtankBuffExemplars.Read(database, target.Buffs);
         return database;
     }
 
@@ -80,6 +81,7 @@ internal static class VtankSettingsProfileSerializer
         VtankMonsterRuleTable.Write(document, [.. source.Combat.Rules]);
         VtankProfiledItemIds.Write(document, source.Combat);
         VtankGemFoodItems.Write(document, source.Buffs);
+        VtankBuffExemplars.Write(document, source.Buffs);
         return document.Render();
     }
 

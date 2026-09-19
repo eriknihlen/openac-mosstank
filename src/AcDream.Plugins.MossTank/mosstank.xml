@@ -306,7 +306,7 @@
 
   <group x="8" y="42" w="976" h="229" visible="{BuffsVisible}" anchor="left top right bottom">
     <label x="4" y="0" w="320" h="16" text="Extra Buff Spells" color="#FFE8DEC3"
-           tooltip="Named spell exemplars — stored and shown here, not yet used when choosing what to cast (#491)." />
+           tooltip="Named spell exemplars selected for self-buff upkeep." />
     <list x="4" y="18" w="320" h="151" rowheight="17" anchor="left top bottom"
           items="{ExtraBuffRows}" selected="{SelectedExtraBuffIndex}"
           onchange="{DeleteExtraBuffAt}" tooltip="Click a row to remove it." />
@@ -314,7 +314,7 @@
 
     <label x="652" y="0" w="320" h="16" text="Blacklisted Buff Families" color="#FFE8DEC3"
            anchor="right"
-           tooltip="Named buff families — stored and shown here, not yet used when choosing what to cast (#491)." />
+           tooltip="Named buff families excluded from self-buff upkeep." />
     <list x="652" y="18" w="320" h="151" rowheight="17" anchor="right top bottom"
           items="{BlacklistedBuffFamilyRows}" selected="{SelectedBlacklistedBuffIndex}"
           onchange="{DeleteBlacklistedBuffFamilyAt}" tooltip="Click a row to remove it." />

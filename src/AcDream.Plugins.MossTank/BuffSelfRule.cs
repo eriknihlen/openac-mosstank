@@ -284,7 +284,8 @@ internal sealed partial class BuffSelfRule
             rebuffWhenUnderSeconds,
             automation.Character.Level,
             _buffDue.ForcedSpellIds,
-            BuildCastability(automation));
+            BuildCastability(automation),
+            automation.Spells);
     }
 
     private BuffCastability BuildCastability(IAutomationSurface automation) =>
