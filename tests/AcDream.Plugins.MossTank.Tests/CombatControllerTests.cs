@@ -4740,6 +4740,45 @@ public sealed class CombatControllerTests
     }
 
     /// <summary>
+    /// Mutation: resolve a rule's named offhand from the pack without asking
+    /// where the item can be worn. A pack item that merely shares the name is
+    /// then requested on every pass, never reaches the hand, and the pass
+    /// never reports the character ready, so it never attacks.
+    /// Mutation executed: <c>dropped the off-hand location check from the pack fallback</c>.
+    /// </summary>
+    [Fact]
+    public void NamedOffhandSkipsPackItemThatCannotBeHeld()
+    {
+        const uint primary = 700u;
+        const uint packItem = 0x8001_B292u;
+        var surface = new FakeAutomation
+        {
+            CombatSnapshot = Peaceful(),
+            EquipmentItems = [Equipment(primary, "Primary", 0x0010)],
+            ItemEntries =
+            [
+                // A trophy sharing the shield's name: worn nowhere at all.
+                InventoryItem(packItem, "Shield of Souls", 1u,
+                    spellId: 0u, equipped: false),
+            ],
+        };
+        surface.WorldOnlyObjectIds.Add(packItem);
+        var settings = new CombatSettings();
+        settings.Rules.Clear();
+        settings.Rules.Add(new MonsterRule("DEFAULT", new MonsterRuleActions
+        {
+            Flags = MonsterActionFlags.Attack,
+            DamageType = MonsterDamageType.Fire,
+            WeaponObjectId = primary,
+            OffhandName = "Shield of Souls",
+        }));
+        var controller = new CombatController(new FakeHost(surface), settings);
+
+        Assert.True(DriveEquipPasses(controller));
+        Assert.DoesNotContain("EquipSecondary:8001B292", surface.CallLog);
+    }
+
+    /// <summary>
     /// Mutation: return zero when an explicit offhand is absent from the
     /// equipment projection. The current inventory fallback is still needed
     /// for an object the world knows but whose equipment view has not caught

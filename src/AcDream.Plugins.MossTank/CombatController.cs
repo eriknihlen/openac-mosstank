@@ -2040,10 +2040,7 @@ internal sealed class CombatController
                 target,
                 combat,
                 items,
-                ResolveInventoryObjectId(
-                    actions.OffhandObjectId,
-                    actions.OffhandName,
-                    items));
+                ResolveInventoryOffhandObjectId(actions, items));
             return itemResult == DebuffStartResult.Handled
                 ? DebuffPassResult.Claimed
                 : DebuffPassResult.Idle;
@@ -2400,25 +2397,47 @@ internal sealed class CombatController
         return 0u;
     }
 
-    private static uint ResolveInventoryObjectId(
-        uint sessionObjectId,
-        string durableName,
+    /// <summary>Where an item has to fit before it can serve as an offhand.</summary>
+    private const uint OffHandLocations =
+        ItemEnchantDefaults.Shield | ItemEnchantDefaults.MeleeWeapon;
+
+    /// <summary>
+    /// The pack item a rule's named offhand means. An id names one object and
+    /// is taken at its word, but a name belongs just as easily to something
+    /// that cannot be held at all, and asking for that one costs everything:
+    /// the request goes out on every pass, nothing ever reaches the hand, and
+    /// the character never becomes ready to attack. So only an item that could
+    /// occupy the off hand answers to the name.
+    /// </summary>
+    private static uint ResolveInventoryOffhandObjectId(
+        MonsterRuleActions actions,
         IReadOnlyList<PluginInventoryItem> items)
     {
-        if (sessionObjectId != 0u
-            && items.Any(item => item.ObjectId == sessionObjectId))
+        if (actions.OffhandObjectId != 0u
+            && items.Any(item => item.ObjectId == actions.OffhandObjectId))
         {
-            return sessionObjectId;
+            return actions.OffhandObjectId;
         }
-        if (string.IsNullOrWhiteSpace(durableName))
+        if (string.IsNullOrWhiteSpace(actions.OffhandName))
             return 0u;
         foreach (PluginInventoryItem item in items)
         {
-            if (item.Name.Equals(durableName, StringComparison.Ordinal))
+            if (item.Name.Equals(actions.OffhandName, StringComparison.Ordinal)
+                && CanFillOffHand(in item))
+            {
                 return item.ObjectId;
+            }
         }
         return 0u;
     }
+
+    /// <summary>
+    /// Whether the item could be held in the off hand at all: a shield, or a
+    /// melee weapon that does not already claim both hands.
+    /// </summary>
+    private static bool CanFillOffHand(in PluginInventoryItem item) =>
+        (item.ValidLocations & OffHandLocations) != 0u
+        && (item.ValidLocations & ItemEnchantDefaults.TwoHanded) == 0u;
 
     private void EnterDebuffMode(PluginCombatMode mode)
     {
@@ -3215,7 +3234,7 @@ internal sealed class CombatController
         if (weapon == 0u && actions.WeaponToUseRaw != 0)
             weapon = SelectAutomaticWeapon(equipment, actions, target);
         uint offhand = PlannedSecondaryFor(
-            actions, equipment, weapon, () => inventory) ?? 0u;
+            actions, equipment, weapon, inventory) ?? 0u;
         return (weapon, offhand, element);
     }
 
@@ -3231,17 +3250,34 @@ internal sealed class CombatController
         MonsterRuleActions actions,
         IReadOnlyList<PluginEquipmentItem> items,
         uint primary,
+        IReadOnlyList<PluginInventoryItem> inventory)
+    {
+        uint? selected = ResolveSecondaryEquipment(actions, items, primary);
+        return NeedsInventoryOffhand(actions, selected)
+            ? ResolveInventoryOffhandObjectId(actions, inventory)
+            : selected;
+    }
+
+    /// <summary>
+    /// The same plan for a caller that has no pack listing in hand yet, and
+    /// would rather not pay for one on a pass that does not need it.
+    /// </summary>
+    private uint? PlannedSecondaryFor(
+        MonsterRuleActions actions,
+        IReadOnlyList<PluginEquipmentItem> items,
+        uint primary,
         Func<IReadOnlyList<PluginInventoryItem>> inventory)
     {
         uint? selected = ResolveSecondaryEquipment(actions, items, primary);
-        if (selected != 0u
-            || (actions.OffhandObjectId == 0u && actions.OffhandName.Length == 0))
-        {
-            return selected;
-        }
-        return ResolveInventoryObjectId(
-            actions.OffhandObjectId, actions.OffhandName, inventory());
+        return NeedsInventoryOffhand(actions, selected)
+            ? ResolveInventoryOffhandObjectId(actions, inventory())
+            : selected;
     }
+
+    private static bool NeedsInventoryOffhand(
+        MonsterRuleActions actions, uint? selected) =>
+        selected == 0u
+        && (actions.OffhandObjectId != 0u || actions.OffhandName.Length != 0);
 
     private uint? ResolveSecondaryEquipment(MonsterRuleActions actions,
         IReadOnlyList<PluginEquipmentItem> items, uint primary)
