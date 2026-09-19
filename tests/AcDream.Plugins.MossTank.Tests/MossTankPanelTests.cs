@@ -4794,7 +4794,7 @@ public sealed class MossTankPanelTests
         Assert.Equal("copy proof", sourceAfterCopySave.Find("CopyProof")!.Rows[0].Cells[0].AsString());
         Assert.Equal(3, sourceAfterCopySave.Find("BuffedItems")!.Rows.Count);
 
-        storage.Text[source] = "externally corrupted source";
+        storage.Text[panel.SelectedMacroProfile] = "externally corrupted source";
         panel.ToggleAutoStack();
         Assert.False(panel.AutoStackEnabled);
         panel.DeleteItemRowAt(0);
@@ -4813,6 +4813,29 @@ public sealed class MossTankPanelTests
             row.Cells[staleBuffed.ColumnIndex("Object")].AsInt() == 10
             && row.Cells[staleBuffed.ColumnIndex("Spell")].AsInt() == 102);
         Assert.Equal("copy proof", staleCopy.Find("CopyProof")!.Rows[0].Cells[0].AsString());
+    }
+
+    [Fact]
+    public void ImportedAssistItemsMapReferenceKindsWithoutGuessingUnknownKinds()
+    {
+        VtankDatabase database = VtankDefaultSettingsDatabase.Parse();
+        VtankTable table = database.Find("AssistItems")!;
+        table.Rows.Add(new VtankRow { Cells = { VtankCell.String("Health Kit"), VtankCell.Int(0) } });
+        table.Rows.Add(new VtankRow { Cells = { VtankCell.String("Gold Pea"), VtankCell.Int(9) } });
+        table.Rows.Add(new VtankRow { Cells = { VtankCell.String("Unknown"), VtankCell.Int(99) } });
+        var combat = new CombatSettings();
+        VtankSettingsProfileSerializer.Load(database.Render(),
+            new VtankSettingsProfileSerializer.AllSettings
+            {
+                Combat = combat, Buffs = new BuffSettings(), Vitals = new VitalSettings(),
+                Inventory = new InventorySettings(), Navigation = new NavigationSettings(),
+            });
+        VtankAssistItems.Read(database, combat);
+        VtankAssistItems.Apply(combat);
+
+        Assert.Equal(ConsumableCategory.HealthKit, combat.ConsumableCategories["Health Kit"]);
+        Assert.Equal(ConsumableCategory.Pea, combat.ConsumableCategories["Gold Pea"]);
+        Assert.DoesNotContain("Unknown", combat.ConsumableNames);
     }
 
     [Fact]

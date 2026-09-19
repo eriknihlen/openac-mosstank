@@ -336,6 +336,7 @@ internal sealed class MossTankProfileStore
         _currentDatabaseFileName = fileName;
         (ReadJson<SideCarDocument>(SideCarKey(fileName)) ?? SideCarDocument.CreateDefaults())
             .Apply(settings, noBuffItemNames, logChannels, _host.Log);
+        VtankAssistItems.Apply(settings.Combat);
         Activate(fileName);
         return MossTankProfileLoad.Loaded;
     }
