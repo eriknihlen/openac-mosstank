@@ -974,6 +974,52 @@ public sealed class MossTankPanelTests
         Assert.NotSame(whenOff, inMacro);
     }
 
+    /// <summary>
+    /// Stopping the macro in the middle of a cast or a use must not cost the
+    /// pass its hold. The hold is a count, and the panel gives back exactly
+    /// the one it raised: dropping its own flag alone left a count nobody
+    /// could give back, and every later pass -- the stopped list included, so
+    /// worn gear was never charged again -- returned at the hold for the rest
+    /// of the session.
+    ///
+    /// Mutation: clear the flag without resuming, or reset the count inside
+    /// the start, and the worn item is never looked at again.
+    /// </summary>
+    [Fact]
+    public void StoppingTheMacroInsideACastStillLeavesTheStoppedListRunning()
+    {
+        FakeAutomation automation = BuffPassAutomation();
+        automation.SuppressCastCompletion = true;
+        automation.ItemEntries =
+        [
+            Item(0x50005001u, "Low Wand", 0x00000001u) with
+            {
+                EquippedLocation = 0x00000002u,
+                ItemCurrentMana = 10,
+                ItemMaximumMana = 100,
+            },
+        ];
+        var panel = new MossTankPanel(new FakeHost(automation));
+        Command(panel, "opt set RefillWornMana true");
+        Command(panel, "opt set ManaChargesWhenOff true");
+
+        panel.ToggleCombat();
+        panel.OnTick(0d);
+        Assert.Single(automation.CastSpellIds);
+        // One more frame, which is where the hold on the pass is taken: it is
+        // taken beside the pass, on the frame after the cast went out.
+        panel.OnTick(0.1d);
+
+        // Stopped with the cast still unanswered and the hold in place.
+        panel.ToggleCombat();
+        automation.Identified.Clear();
+
+        for (int tick = 0; tick < 40; tick++)
+            panel.OnTick(0.3d);
+
+        Assert.Contains(0x50005001u, automation.Identified);
+    }
+
     [Fact]
     public void StoppingTheMacroEndsTheBuffPassEvenWhenManaChargesKeepTheLoopAlive()
     {

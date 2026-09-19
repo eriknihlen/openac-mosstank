@@ -4944,17 +4944,15 @@ internal sealed partial class MossTankPanel : IBuffRuleHost, IDisposable
         bool schedulerActive = macroRunning;
         if (schedulerActive && !_scheduler.IsRunning)
         {
+            ReleaseTransactionSuspension();
             _scheduler.Start();
             _actionLocks.ClearAll();
-            _transactionSuspensionHeld = false;
-            _transactionSuspensionElapsed = 0d;
             ResetOncePerRunWarnings();
         }
         else if (!schedulerActive && _scheduler.IsRunning)
         {
+            ReleaseTransactionSuspension();
             _scheduler.Stop();
-            _transactionSuspensionHeld = false;
-            _transactionSuspensionElapsed = 0d;
         }
         ObserveCastResult(elapsedSeconds);
         ObservePendingTransactions(elapsedSeconds);
@@ -5085,9 +5083,7 @@ internal sealed partial class MossTankPanel : IBuffRuleHost, IDisposable
             {
                 return;
             }
-            _transactionSuspensionHeld = false;
-            _transactionSuspensionElapsed = 0d;
-            _scheduler.Resume();
+            ReleaseTransactionSuspension();
             return;
         }
 
@@ -5096,6 +5092,22 @@ internal sealed partial class MossTankPanel : IBuffRuleHost, IDisposable
         _transactionSuspensionHeld = true;
         _transactionSuspensionElapsed = 0d;
         _scheduler.Suspend();
+    }
+
+    /// <summary>
+    /// Give back the one hold this panel raises, and only if it is holding
+    /// one. The hold and the pass's count are two halves of the same thing,
+    /// so they are only ever put down together: dropping the flag alone left
+    /// a count nobody would ever give back, and the pass stayed held for the
+    /// rest of the session.
+    /// </summary>
+    private void ReleaseTransactionSuspension()
+    {
+        _transactionSuspensionElapsed = 0d;
+        if (!_transactionSuspensionHeld)
+            return;
+        _transactionSuspensionHeld = false;
+        _scheduler.Resume();
     }
 
     internal void PokeScheduler() => _scheduler.Poke();

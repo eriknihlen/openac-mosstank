@@ -231,7 +231,10 @@ internal sealed class MacroScheduler
         foreach (IMacroRule rule in _macroDisabled)
             rule.Running = false;
         IsRunning = true;
-        _suspension = 0;
+        // The count is NOT reset here. It belongs to whoever raised it, and a
+        // hold raised for an action still in flight outlives a stop: zeroing
+        // it here left the holder believing it still held a count that was
+        // gone, and the pass ran inside the very action it was waiting on.
         _untilPass = 0d;
         _poked = true;
         LastExecutedRule = null;
