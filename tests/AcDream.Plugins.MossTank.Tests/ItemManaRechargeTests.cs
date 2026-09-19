@@ -523,6 +523,64 @@ public sealed class ItemManaRechargeTests
         Assert.Equal([(10u, 1u)], surface.ApplyCalls);
     }
 
+    /// <summary>
+    /// A charge is in the character's hands from the moment it is used until
+    /// the server answers for it, so it takes the one item slot every rule
+    /// that consumes an item asks for first -- and the answer is read on the
+    /// host frame, because the pass that would otherwise read it is the very
+    /// thing the use is holding.
+    ///
+    /// Mutation: take the slot away and the first hold reads free; stop
+    /// reading the answer on the frame and the slot is still held after it
+    /// has landed, for the whole fifteen seconds of the watchdog.
+    /// </summary>
+    [Fact]
+    public void AChargeInFlightHoldsTheItemSlotUntilTheFrameReadsTheAnswer()
+    {
+        PluginInventoryItem charge = Item(10, "Mana Charge", 0x00080000u) with
+        {
+            ItemCurrentMana = 100,
+            Effects = 0x00000001u,
+        };
+        PluginInventoryItem worn = Item(20, "Low Gauntlets") with
+        {
+            EquippedLocation = 0x00000002u,
+            ItemCurrentMana = 10,
+            ItemMaximumMana = 100,
+        };
+        var surface = new Surface { Inventory = [charge, worn] };
+        surface.Assess(charge, 100, (107u, 100));
+        surface.Assess(worn, 100, (107u, 10), (108u, 100));
+        var profiles = new CombatSettings();
+        profiles.ConsumableNames.Add(charge.Name);
+        profiles.ConsumableCategories[charge.Name] = ConsumableCategory.ManaSource;
+        var locks = new ActionLockTable();
+        var controller = new ItemManaRechargeController(
+            new Host(surface),
+            new InventorySettings
+            {
+                RefillWornMana = true,
+                RefillWornManaPercent = 33,
+            },
+            profiles);
+        controller.BindActionLocks(locks);
+
+        Assert.False(controller.Tick(canAct: true));
+        surface.ReplaceAssessmentVersion(20u, 101);
+        Assert.False(locks.IsLocked(ActionLockKind.ItemUse));
+
+        Assert.True(controller.Tick(canAct: true));
+        Assert.Equal([(10u, 1u)], surface.ApplyCalls);
+        Assert.True(locks.IsLocked(ActionLockKind.ItemUse));
+
+        // No turn from here: only frames run while the pass is held.
+        surface.LastItemCompletion = new PluginItemUseCompletion(
+            1L, 10u, surface.ObjectId, 0u);
+        controller.ObservePendingReceipt(0.05d);
+
+        Assert.False(locks.IsLocked(ActionLockKind.ItemUse));
+    }
+
     private static IReadOnlyDictionary<string, ConsumableCategory> Kinds(
         params (string Name, ConsumableCategory Kind)[] rows) =>
         rows.ToDictionary(

@@ -142,6 +142,61 @@ internal sealed class ItemManaRechargeController
     private uint _pendingRecipientObjectId;
     private long _observedCompletion;
     private double _pendingAge;
+    private double _frameObservedSeconds;
+    private ActionLockTable _actionLocks = new();
+
+    /// <summary>How long an unanswered use is waited out before it is given up.</summary>
+    private const double PendingTimeoutSeconds = 15d;
+
+    /// <summary>
+    /// Shares the macro's cooldown table. A charge is in the character's
+    /// hands for as long as the macro waits on it, so nothing else -- the
+    /// attack included -- acts inside that window.
+    /// </summary>
+    internal void BindActionLocks(ActionLockTable locks) =>
+        _actionLocks = locks ?? throw new ArgumentNullException(nameof(locks));
+
+    /// <summary>
+    /// Reads the server's answer to the use this owner issued, on the host
+    /// frame rather than on the macro pass. An unanswered use holds the pass,
+    /// so the pass cannot be what ends the wait -- it would be waiting on
+    /// itself, and the hold could then only end on the watchdog, seconds
+    /// after the server had already answered. Nothing is issued here.
+    /// </summary>
+    internal void ObservePendingReceipt(double elapsedSeconds)
+    {
+        if (_pending is null || !_host.Automation.IsAvailable)
+            return;
+        double elapsed = Math.Max(0d, elapsedSeconds);
+        _frameObservedSeconds += elapsed;
+        ObserveCompletion(_host.Automation.Items);
+        AgePending(elapsed);
+    }
+
+    /// <summary>
+    /// Charge the wait the seconds that have passed, and give it up once it
+    /// has waited long enough. True when it was given up.
+    /// </summary>
+    private bool AgePending(double elapsedSeconds)
+    {
+        if (_pending is not { } waiting)
+            return false;
+        _pendingAge += Math.Max(0d, elapsedSeconds);
+        if (_pendingAge < PendingTimeoutSeconds)
+            return false;
+        Status = $"Mana refill unconfirmed; holding {waiting.ChargeName}.";
+        _host.Log.Info($"{Status} source=0x{waiting.ChargeObjectId:X8}, recipient=0x{_pendingRecipientObjectId:X8}");
+        ClearPending();
+        return true;
+    }
+
+    private void ClearPending()
+    {
+        _pending = null;
+        _pendingAge = 0d;
+        _frameObservedSeconds = 0d;
+        _actionLocks.Release(ActionLockKind.ItemUse);
+    }
 
     /// <summary>
     /// How long a worn item's appraisal is believed, in seconds. Gear spends
@@ -207,17 +262,14 @@ internal sealed class ItemManaRechargeController
                 };
         }
         ObserveCompletion(items);
-        if (_pending is { } waiting)
-        {
-            _pendingAge += Math.Max(0d, elapsedSeconds);
-            if (_pendingAge >= 15d)
-            {
-                Status = $"Mana refill unconfirmed; holding {waiting.ChargeName}.";
-                _host.Log.Info($"{Status} source=0x{waiting.ChargeObjectId:X8}, recipient=0x{_pendingRecipientObjectId:X8}");
-                _pending = null;
-                return false;
-            }
-        }
+        // Whatever the frame driver already watched off this transaction is
+        // not counted a second time here: one wall clock between the two.
+        double pendingElapsed = Math.Max(
+            0d,
+            Math.Max(0d, elapsedSeconds) - _frameObservedSeconds);
+        _frameObservedSeconds = 0d;
+        if (AgePending(pendingElapsed))
+            return false;
         if (_pending is not null)
             return true;
         if (!canAct
@@ -285,6 +337,10 @@ internal sealed class ItemManaRechargeController
         }
         _pending = next;
         _pendingAge = 0d;
+        _frameObservedSeconds = 0d;
+        // The charge is in the character's hands until the server answers
+        // for it; every other rule that consumes an item waits that out.
+        _actionLocks.Arm(ActionLockKind.ItemUse, ItemUseLock.TransactionSeconds);
         _pendingSourceAssessmentVersion = sourceAssessmentVersion;
         _pendingRecipientObjectId = recipientObjectId;
         _usedCharges[next.ChargeObjectId] = new UsedChargeSnapshot(
@@ -522,7 +578,7 @@ internal sealed class ItemManaRechargeController
         _postedWarnings.Clear();
         _wornClock = 0d;
         _chatSequence = 0u;
-        _pending = null;
+        ClearPending();
         _pendingSourceAssessmentVersion = 0;
         _pendingRecipientObjectId = 0u;
         Status = "Worn mana ready";
@@ -607,7 +663,7 @@ internal sealed class ItemManaRechargeController
         Status = completion.IsSuccess
             ? $"Refilled {pending.TargetName}"
             : $"Mana refill failed (0x{completion.WeenieError:X})";
-        _pending = null;
+        ClearPending();
         _pendingSourceAssessmentVersion = 0;
         _pendingRecipientObjectId = 0u;
     }

@@ -380,6 +380,7 @@ internal sealed partial class MossTankPanel : IBuffRuleHost, IDisposable
             host,
             _inventorySettings,
             _combatSettings);
+        _itemManaRecharge.BindActionLocks(_actionLocks);
         _loot = new LootController(
             host,
             _inventorySettings.Loot,
@@ -5053,6 +5054,7 @@ internal sealed partial class MossTankPanel : IBuffRuleHost, IDisposable
         _vitalHelperRecharge.ObservePendingReceipt(elapsedSeconds);
         _dispel.ObservePendingReceipt(elapsedSeconds);
         _crafting.ObservePendingReceipt(elapsedSeconds);
+        _itemManaRecharge.ObservePendingReceipt(elapsedSeconds);
         _combat.ObserveLearnedDebuffReceipt(elapsedSeconds);
     }
 
