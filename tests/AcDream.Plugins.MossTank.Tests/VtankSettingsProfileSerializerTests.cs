@@ -25,6 +25,43 @@ public sealed class VtankSettingsProfileSerializerTests
         Navigation = new NavigationSettings(),
     };
 
+    /// <summary>
+    /// Mutation pin: skip reading BuffedItems identities; the ordered-ID
+    /// assertion fails even though the raw spell rows remain in the document.
+    /// </summary>
+    [Fact]
+    public void BuffedItemsSupplyDistinctOrderedIdsAndKeepSpellRows()
+    {
+        VtankDatabase document = VtankDefaultSettingsDatabase.Parse();
+        VtankTable table = document.Find("BuffedItems")!;
+        table.Rows.Add(BuffedItem(802, 17));
+        table.Rows.Add(BuffedItem(801, 18));
+        table.Rows.Add(BuffedItem(802, 19));
+        table.Rows.Add(BuffedItem(900, 20));
+        table.Rows.Add(BuffedItem(-1, 21));
+        string original = document.Render();
+        var settings = new VtankSettingsProfileSerializer.AllSettings
+        {
+            Combat = new(), Buffs = new(), Vitals = new(),
+            Inventory = new(), Navigation = new(),
+            PlayerObjectId = static () => 900u,
+        };
+
+        VtankDatabase loaded = VtankSettingsProfileSerializer.Load(original, settings);
+
+        Assert.Equal([802u, 801u], settings.Combat.CombatItemOrderIds);
+        Assert.Equal([801u, 802u], settings.Combat.CombatItemObjectIds.Order());
+        Assert.Equal(original, VtankSettingsProfileSerializer.Save(loaded, settings));
+    }
+
+    private static VtankRow BuffedItem(int objectId, int spellId)
+    {
+        var row = new VtankRow();
+        row.Cells.Add(VtankCell.Int(objectId));
+        row.Cells.Add(VtankCell.Int(spellId));
+        return row;
+    }
+
     [Theory]
     [MemberData(nameof(UsdFixtureData))]
     public void EveryUsdFixtureLoads(string path)

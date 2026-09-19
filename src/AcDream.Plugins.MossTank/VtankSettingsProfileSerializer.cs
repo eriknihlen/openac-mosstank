@@ -21,6 +21,7 @@ internal static class VtankSettingsProfileSerializer
         /// profile's EnableMeta both applies and saves.
         /// </summary>
         public MetaSettings Meta { get; init; } = new();
+        public Func<uint> PlayerObjectId { get; init; } = static () => 0u;
     }
 
     public static VtankDatabase Load(
@@ -50,6 +51,8 @@ internal static class VtankSettingsProfileSerializer
             foreach (MonsterRule rule in rules)
                 target.Combat.Rules.Add(rule);
         }
+        VtankProfiledItemIds.Read(database, target.Combat,
+            target.PlayerObjectId());
         return database;
     }
 
@@ -74,6 +77,7 @@ internal static class VtankSettingsProfileSerializer
             row.Cells[valueColumn] = captured;
         }
         VtankMonsterRuleTable.Write(document, [.. source.Combat.Rules]);
+        VtankProfiledItemIds.Write(document, source.Combat);
         return document.Render();
     }
 

@@ -253,6 +253,7 @@ internal sealed partial class MossTankPanel : IBuffRuleHost
             Inventory = _inventorySettings,
             Navigation = _navigationSettings,
             Meta = _metaSettings,
+            PlayerObjectId = () => _host.Automation.Character.ObjectId,
         };
         // The official monster-info database, read from the profile directory
         // beside the .usd files. Absent means EMPTY, not a guess: acdream
@@ -1786,6 +1787,7 @@ internal sealed partial class MossTankPanel : IBuffRuleHost
         if ((uint)row >= (uint)names.Length)
             return;
         string removed = names[row];
+        RemoveProfiledObjectIdsNamed(removed);
         _combatSettings.CombatItemNames.Remove(removed);
         _combatSettings.CombatItemOrder.Remove(removed);
         _noBuffItemNames.Remove(removed);
@@ -1910,6 +1912,7 @@ internal sealed partial class MossTankPanel : IBuffRuleHost
             return;
         }
         string removed = names[ClampRow(_selectedItemRow, names.Length)];
+        RemoveProfiledObjectIdsNamed(removed);
         _combatSettings.CombatItemNames.Remove(removed);
         _combatSettings.CombatItemOrder.Remove(removed);
         _noBuffItemNames.Remove(removed);
@@ -2887,7 +2890,9 @@ internal sealed partial class MossTankPanel : IBuffRuleHost
 
     private void CommitProfileItem(PluginInventoryItem item, bool noBuffs)
     {
-        _combatSettings.CombatItemObjectIds.Add(item.ObjectId);
+        if (_combatSettings.CombatItemObjectIds.Add(item.ObjectId))
+            _combatSettings.CombatItemOrderIds.Add(item.ObjectId);
+        _combatSettings.RemovedCombatItemObjectIds.Remove(item.ObjectId);
         if (_combatSettings.CombatItemNames.Add(item.Name))
             _combatSettings.CombatItemOrder.Add(item.Name);
         if (noBuffs)
@@ -2900,6 +2905,18 @@ internal sealed partial class MossTankPanel : IBuffRuleHost
             : $"Added {item.Name}.";
         RefreshItemEditors();
         SaveProfile();
+    }
+
+    private void RemoveProfiledObjectIdsNamed(string name)
+    {
+        foreach (PluginInventoryItem item in _host.Automation.Items.CaptureOwnedItems())
+        {
+            if (!item.Name.Equals(name, StringComparison.Ordinal)
+                || !_combatSettings.CombatItemObjectIds.Remove(item.ObjectId))
+                continue;
+            _combatSettings.CombatItemOrderIds.Remove(item.ObjectId);
+            _combatSettings.RemovedCombatItemObjectIds.Add(item.ObjectId);
+        }
     }
 
     private void PopulateItemEnchantRows(in PluginInventoryItem item, bool noBuffs)

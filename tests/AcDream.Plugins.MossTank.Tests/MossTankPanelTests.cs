@@ -1628,6 +1628,46 @@ public sealed class MossTankPanelTests
         Assert.Equal(10u, host.Selection.SelectedObjectId);
     }
 
+    /// <summary>
+    /// Mutation pin: omit the ordered-ID append when admitting an item;
+    /// the saved BuffedItems table has no selected-object row.
+    /// </summary>
+    [Fact]
+    public void AddingSelectedItemPersistsItsObjectIdentityInUsd()
+    {
+        var storage = new MemoryStorage();
+        var automation = ItemEnchantAutomation();
+        var host = new FakeHost(automation, storage);
+        var panel = new MossTankPanel(host);
+        host.Selection.Select(10u);
+
+        panel.AddSelectedItem();
+
+        string usd = Assert.Single(storage.Text,
+            entry => entry.Key.EndsWith(".usd", StringComparison.Ordinal)).Value;
+        VtankTable table = VtankDatabase.Parse(usd).Find("BuffedItems")!;
+        VtankRow row = Assert.Single(table.Rows);
+        Assert.Equal(10, row.Cells[table.ColumnIndex("Object")].AsInt());
+        Assert.Equal(-1, row.Cells[table.ColumnIndex("Spell")].AsInt());
+    }
+
+    [Fact]
+    public void RemovingSelectedOwnedItemRemovesItsUsdIdentity()
+    {
+        var storage = new MemoryStorage();
+        var automation = ItemEnchantAutomation();
+        var host = new FakeHost(automation, storage);
+        var panel = new MossTankPanel(host);
+        host.Selection.Select(10u);
+        panel.AddSelectedItem();
+
+        panel.RemoveSelectedItem();
+
+        string usd = Assert.Single(storage.Text,
+            entry => entry.Key.EndsWith(".usd", StringComparison.Ordinal)).Value;
+        Assert.Empty(VtankDatabase.Parse(usd).Find("BuffedItems")!.Rows);
+    }
+
     [Fact]
     public void AddingAShieldPopulatesTheSevenBanesAndImpenetrability()
     {

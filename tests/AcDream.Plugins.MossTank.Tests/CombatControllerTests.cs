@@ -1479,6 +1479,48 @@ public sealed class CombatControllerTests
         Assert.Equal(UseArcsMode.No, bare.Combat.UseArcs);
     }
 
+    /// <summary>
+    /// Mutation pin: clear ordered IDs while applying the name sidecar;
+    /// the first reload loses both identities.
+    /// </summary>
+    [Fact]
+    public void ProfileReloadKeepsUsdItemIdsAcrossSidecarAndSwitches()
+    {
+        var storage = new MemoryStorage();
+        var store = new MossTankProfileStore(
+            new StorageHost(storage, "Acdream", "Fixture"));
+        store.BindCharacter("Acdream");
+        var settings = new VtankSettingsProfileSerializer.AllSettings
+        {
+            Combat = new(), Buffs = new(), Vitals = new(),
+            Inventory = new(), Navigation = new(),
+        };
+        var noBuffs = new HashSet<string>(StringComparer.Ordinal);
+        var logs = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        settings.Combat.CombatItemNames.Add("Same Wand");
+        settings.Combat.CombatItemOrder.Add("Same Wand");
+        settings.Combat.CombatItemObjectIds.UnionWith([801u, 802u]);
+        settings.Combat.CombatItemOrderIds.Add(802u);
+        settings.Combat.CombatItemOrderIds.Add(801u);
+        store.SaveCurrent(settings, noBuffs, logs);
+
+        settings.Combat.CombatItemObjectIds.Clear();
+        settings.Combat.CombatItemOrderIds.Clear();
+        store.LoadCurrent(settings, noBuffs, logs);
+        Assert.Equal([802u, 801u], settings.Combat.CombatItemOrderIds);
+        Assert.Equal(["Same Wand"], settings.Combat.CombatItemOrder);
+
+        Assert.True(store.Create("Empty", copyCurrent: false,
+            settings, noBuffs, logs, out _));
+        Assert.Empty(settings.Combat.CombatItemOrderIds);
+        Assert.True(store.Select(MossTankProfileStore.ByCharacter));
+        store.LoadCurrent(settings, noBuffs, logs);
+        Assert.Equal([802u, 801u], settings.Combat.CombatItemOrderIds);
+        Assert.True(store.Select("Empty"));
+        store.LoadCurrent(settings, noBuffs, logs);
+        Assert.Empty(settings.Combat.CombatItemOrderIds);
+    }
+
     [Fact]
     public void UseArcsDecidesOnlyAnExactQualityTie()
     {
@@ -1899,6 +1941,7 @@ public sealed class CombatControllerTests
         var settings = DebuffOnly(MonsterActionFlags.Imperil);
         settings.MaximumRange = 40d;
         settings.CombatItemNames.Add("Fixture Wand");
+        settings.CombatItemOrderIds.Add(990u);
         var controller = new CombatController(new FakeHost(surface), settings);
 
         controller.Toggle();
@@ -1975,6 +2018,8 @@ public sealed class CombatControllerTests
         settings.CombatItemNames.Add("Attack Wand");
         settings.CombatItemNames.Add("Spare Wand");
         settings.CombatItemOrder.Add("Spare Wand");
+        settings.CombatItemOrderIds.Add(990u);
+        settings.CombatItemOrderIds.Add(991u);
         var controller = new CombatController(new FakeHost(surface), settings);
         controller.Toggle();
         controller.OnTick(0.25);
@@ -2227,6 +2272,7 @@ public sealed class CombatControllerTests
         };
         var settings = new CombatSettings { MaximumRange = 40d };
         settings.CombatItemNames.Add("Spare Wand");
+        settings.CombatItemOrderIds.Add(990u);
         settings.Rules.Clear();
         settings.Rules.Add(new MonsterRule(
             "DEFAULT",
@@ -2907,6 +2953,8 @@ public sealed class CombatControllerTests
         var settings = new CombatSettings();
         settings.CombatItemNames.Add("Wand");
         settings.CombatItemOrder.Add("Wand");
+        settings.CombatItemOrderIds.Add(0x80000A4Cu);
+        settings.CombatItemOrderIds.Add(0x80000B34u);
         settings.Rules.Clear();
         settings.Rules.Add(new MonsterRule(
             "DEFAULT",
@@ -3118,6 +3166,7 @@ public sealed class CombatControllerTests
         };
         var settings = new CombatSettings();
         settings.CombatItemNames.Add("War Wand");
+        settings.CombatItemOrderIds.Add(700u);
         settings.Rules.Clear();
         settings.Rules.Add(new MonsterRule(
             "DEFAULT",
@@ -3613,6 +3662,7 @@ public sealed class CombatControllerTests
         };
         var settings = new CombatSettings();
         settings.CombatItemNames.Add("Recovery Wand");
+        settings.CombatItemOrderIds.Add(800u);
         settings.Rules.Clear();
         settings.Rules.Add(new MonsterRule(
             "DEFAULT",
@@ -3921,6 +3971,7 @@ public sealed class CombatControllerTests
         var settings = new CombatSettings();
         settings.CombatItemNames.Add("Recovery Wand");
         settings.CombatItemOrder.Add("Recovery Wand");
+        settings.CombatItemOrderIds.Add(800u);
         CombatModeGate gate = Gate(surface, settings);
 
         gate.AdvancePass(0.1);
@@ -3981,6 +4032,7 @@ public sealed class CombatControllerTests
         var settings = new CombatSettings();
         settings.CombatItemNames.Add("Recovery Wand");
         settings.CombatItemOrder.Add("Recovery Wand");
+        settings.CombatItemOrderIds.Add(800u);
         CombatModeGate gate = Gate(surface, settings);
         var log = new List<(MacroLogChannel Channel, string Message)>();
         gate.Log = (channel, message) => log.Add((channel, message));
@@ -4038,6 +4090,68 @@ public sealed class CombatControllerTests
         Assert.Equal(2, surface.PostedSystemMessages.Count);
     }
 
+    /// <summary>
+    /// Mutation pin: restore name matching as a fallback; a legacy sidecar
+    /// name then equips the unselected caster instead of refusing.
+    /// </summary>
+    [Fact]
+    public void GateDoesNotTreatSidecarNamesAsItemIdentity()
+    {
+        var surface = new FakeAutomation
+        {
+            CombatSnapshot = Peaceful(),
+            EquipmentItems =
+            [
+                Equipment(801u, "Same Wand", damageType: 0,
+                    itemType: 0x00008000u),
+            ],
+        };
+        var settings = new CombatSettings();
+        settings.CombatItemNames.Add("Same Wand");
+        settings.CombatItemOrder.Add("Same Wand");
+        var stops = new List<string>();
+        CombatModeGate gate = Gate(surface, settings, stops: stops);
+
+        Assert.False(gate.TryPrepare(PluginCombatMode.Magic));
+        Assert.Equal(CombatModeGate.NoWandNotice, gate.Status);
+        Assert.Equal([CombatModeGate.NoWandNotice], stops);
+        Assert.Empty(surface.CallLog);
+    }
+
+    /// <summary>
+    /// Mutation pin: sort authored IDs before selection; the first valid
+    /// caster becomes 800 rather than the authored 802.
+    /// </summary>
+    [Fact]
+    public void GateUsesOrderedIdWithDuplicateNamesAndSkipsMissingOrForeignObjects()
+    {
+        var surface = new FakeAutomation
+        {
+            CombatSnapshot = Peaceful(),
+            EquipmentItems =
+            [
+                Equipment(801u, "Same Wand", damageType: 0,
+                    itemType: 0x00008000u),
+                Equipment(802u, "Same Wand", damageType: 0,
+                    itemType: 0x00008000u),
+                Equipment(800u, "Same Wand", damageType: 0,
+                    itemType: 0x00008000u),
+            ],
+        };
+        surface.UnownedEquipmentIds.Add(801u);
+        var settings = new CombatSettings();
+        settings.CombatItemNames.Add("Same Wand");
+        settings.CombatItemOrder.Add("Same Wand");
+        settings.CombatItemOrderIds.Add(803u); // no such object
+        settings.CombatItemOrderIds.Add(801u); // not owned
+        settings.CombatItemOrderIds.Add(802u); // first valid authored ID
+        settings.CombatItemOrderIds.Add(800u); // valid but later
+        CombatModeGate gate = Gate(surface, settings);
+
+        Assert.False(gate.TryPrepare(PluginCombatMode.Magic));
+        Assert.Equal(802u, surface.LastEquipObjectId);
+    }
+
     [Fact]
     public void GateModeRequestNeverConfirmedKeepsAskingWithoutGivingUp()
     {
@@ -4087,6 +4201,7 @@ public sealed class CombatControllerTests
         var settings = new CombatSettings();
         settings.CombatItemNames.Add("Recovery Wand");
         settings.CombatItemOrder.Add("Recovery Wand");
+        settings.CombatItemOrderIds.Add(800u);
         var stops = new List<string>();
         CombatModeGate gate = Gate(
             surface,
@@ -4131,6 +4246,8 @@ public sealed class CombatControllerTests
         settings.CombatItemNames.Add("Adamant Wand");
         settings.CombatItemOrder.Add("Zephyr Wand");
         settings.CombatItemOrder.Add("Adamant Wand");
+        settings.CombatItemOrderIds.Add(801u);
+        settings.CombatItemOrderIds.Add(802u);
         CombatModeGate gate = Gate(surface, settings);
 
         gate.AdvancePass(0.1);
@@ -4183,6 +4300,7 @@ public sealed class CombatControllerTests
         var settings = new CombatSettings();
         settings.CombatItemNames.Add("Recovery Wand");
         settings.CombatItemOrder.Add("Recovery Wand");
+        settings.CombatItemOrderIds.Add(800u);
         CombatModeGate gate = Gate(surface, settings);
 
         gate.AdvancePass(0.1);
@@ -4297,6 +4415,7 @@ public sealed class CombatControllerTests
         var settings = new CombatSettings();
         settings.CombatItemNames.Add("Recovery Wand");
         settings.CombatItemOrder.Add("Recovery Wand");
+        settings.CombatItemOrderIds.Add(800u);
         CombatModeGate gate = Gate(surface, settings);
 
         // Ask for Peace so the wand can be wielded.
@@ -4336,6 +4455,7 @@ public sealed class CombatControllerTests
         var settings = new CombatSettings();
         settings.CombatItemNames.Add("Recovery Wand");
         settings.CombatItemOrder.Add("Recovery Wand");
+        settings.CombatItemOrderIds.Add(800u);
         CombatModeGate gate = Gate(surface, settings);
 
         Assert.True(gate.TryPrepare(PluginCombatMode.Magic));
@@ -5077,6 +5197,7 @@ public sealed class CombatControllerTests
         var settings = new CombatSettings { MaximumRange = 40d };
         settings.CombatItemNames.Add("Fixture Wand");
         settings.CombatItemNames.Add("Fire Sword");
+        settings.CombatItemOrderIds.Add(990u);
         settings.Rules.Clear();
         settings.Rules.Add(new MonsterRule(
             "DEFAULT",
@@ -5132,6 +5253,8 @@ public sealed class CombatControllerTests
         settings.CombatItemNames.Add("Acid Wand");
         settings.CombatItemOrder.Add("Zephyr Wand");
         settings.CombatItemOrder.Add("Acid Wand");
+        settings.CombatItemOrderIds.Add(990u);
+        settings.CombatItemOrderIds.Add(991u);
         var controller = new CombatController(new FakeHost(surface), settings);
 
         controller.Toggle();
@@ -5553,7 +5676,7 @@ public sealed class CombatControllerTests
                     item.ItemType, item.ContainerObjectId, item.WielderObjectId)
                 {
                     LastIdTime = 1,
-                    IsOwned = true,
+                    IsOwned = !UnownedEquipmentIds.Contains(item.ObjectId),
                 };
                 return true;
             }
@@ -5581,7 +5704,7 @@ public sealed class CombatControllerTests
                     item.ItemType, item.ContainerObjectId, item.WielderObjectId)
                 {
                     LastIdTime = 1,
-                    IsOwned = true,
+                    IsOwned = !UnownedEquipmentIds.Contains(item.ObjectId),
                 });
             }
             return objects;
@@ -5614,6 +5737,7 @@ public sealed class CombatControllerTests
         public uint LastUntargetedCast { get; private set; }
         public List<uint> CastSpellIds { get; } = [];
         public IReadOnlyList<PluginEquipmentItem> EquipmentItems { get; set; } = [];
+        public ISet<uint> UnownedEquipmentIds { get; } = new HashSet<uint>();
         public uint LastEquipObjectId { get; private set; }
         public IReadOnlyList<PluginInventoryItem> ItemEntries { get; set; } = [];
         public uint LastUsedItem { get; private set; }

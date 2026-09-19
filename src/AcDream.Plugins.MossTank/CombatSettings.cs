@@ -130,6 +130,8 @@ internal sealed class CombatSettings
     public bool AutoFellowManagement { get; set; } = true;
     public string BlacklistedSpellComponents { get; set; } = string.Empty;
     public ISet<uint> CombatItemObjectIds { get; } = new HashSet<uint>();
+    public IList<uint> CombatItemOrderIds { get; } = new List<uint>();
+    internal ISet<uint> RemovedCombatItemObjectIds { get; } = new HashSet<uint>();
     public ISet<string> CombatItemNames { get; } =
         new HashSet<string>(StringComparer.Ordinal);
     public IList<string> CombatItemOrder { get; } = new List<string>();

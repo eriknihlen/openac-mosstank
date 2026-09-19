@@ -319,58 +319,32 @@ internal sealed class CombatModeGate
         IReadOnlyList<PluginEquipmentItem> items)
     {
         IWorldObjectAutomation objects = _host.Automation.Objects;
+        uint playerId = _host.Automation.Character.ObjectId;
         if (objects.IsAvailable)
         {
-            IReadOnlyList<PluginWorldObject> known = objects.CaptureObjects();
-            foreach (string name in _settings.CombatItemOrder)
+            foreach (uint id in _settings.CombatItemOrderIds)
             {
-                foreach (PluginWorldObject item in known)
-                {
-                    if (item.IsOwned
-                        && item.ObjectClass == PluginObjectClass.WandStaffOrb
-                        && item.Name.Equals(name, StringComparison.Ordinal))
-                        return new(item.ObjectId, item.Name);
-                }
-            }
-            foreach (PluginWorldObject item in known)
-            {
-                if (item.IsOwned
-                    && item.ObjectClass == PluginObjectClass.WandStaffOrb
-                    && (_settings.CombatItemObjectIds.Contains(item.ObjectId)
-                        || _settings.CombatItemNames.Contains(item.Name))
-                    && !_settings.CombatItemOrder.Contains(item.Name))
-                    return new(item.ObjectId, item.Name);
+                if (id is 0u or uint.MaxValue || id == playerId
+                    || !objects.TryGet(id, out PluginWorldObject item)
+                    || !item.IsOwned
+                    || item.ObjectClass != PluginObjectClass.WandStaffOrb)
+                    continue;
+                return new(item.ObjectId, item.Name);
             }
             return null;
         }
-        foreach (string name in _settings.CombatItemOrder)
+        foreach (uint id in _settings.CombatItemOrderIds)
         {
+            if (id is 0u or uint.MaxValue || id == playerId)
+                continue;
             foreach (PluginEquipmentItem item in items)
             {
-                if (IsCaster(in item)
-                    && item.Name.Equals(name, StringComparison.Ordinal))
-                {
+                if (item.ObjectId == id && IsCaster(in item))
                     return new(item.ObjectId, item.Name);
-                }
             }
-        }
-
-        // Whatever the Items page did not order is taken in the order it comes
-        // back in — the FIRST wand wins, not the alphabetically smallest one.
-        foreach (PluginEquipmentItem item in items)
-        {
-            if (!IsCaster(in item) || !IsProfiled(in item))
-                continue;
-            if (_settings.CombatItemOrder.Contains(item.Name))
-                continue;
-            return new(item.ObjectId, item.Name);
         }
         return null;
     }
-
-    private bool IsProfiled(in PluginEquipmentItem item) =>
-        _settings.CombatItemObjectIds.Contains(item.ObjectId)
-        || _settings.CombatItemNames.Contains(item.Name);
 
     private static PluginEquipmentItem? FindById(
         IReadOnlyList<PluginEquipmentItem> items,

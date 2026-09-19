@@ -590,6 +590,8 @@ internal sealed class MossTankProfileStore
             VtankSettingsProfileSerializer.Apply(
                 row.Cells[nameColumn].AsString(), row.Cells[valueColumn], target);
         }
+        VtankProfiledItemIds.Read(database, target.Combat,
+            target.PlayerObjectId());
     }
 
     private static bool ValidNamedProfile(string name, out string notice)
@@ -830,7 +832,6 @@ internal sealed class MossTankProfileStore
             Replace(settings.Combat.CombatItemNames, ItemNames);
             settings.Navigation.ShowNavLines = ShowNavLines;
             ReplaceOrder(settings.Combat.CombatItemOrder, ItemNames);
-            settings.Combat.CombatItemObjectIds.Clear();
             Replace(settings.Combat.ConsumableNames, ConsumableNames);
             settings.Combat.ConsumableCategories.Clear();
             foreach ((string itemName, ConsumableCategory category) in
@@ -1131,6 +1132,8 @@ internal sealed class MossTankProfileStore
             Replace(combat.CombatItemNames, ItemNames);
             ReplaceOrder(combat.CombatItemOrder, ItemNames);
             combat.CombatItemObjectIds.Clear();
+            combat.CombatItemOrderIds.Clear();
+            combat.RemovedCombatItemObjectIds.Clear();
             Replace(combat.ConsumableNames, ConsumableNames);
             combat.ConsumableCategories.Clear();
             foreach ((string itemName, ConsumableCategory category) in
