@@ -385,6 +385,42 @@ internal static partial class SalvageBagCombinePlanner
     private static partial Regex SalvageBagName();
 }
 
+/// <summary>Why the rule list chose nothing for an item.</summary>
+internal enum LootRefusalKind
+{
+    /// <summary>No rule in the list matched the item at all.</summary>
+    NoRule,
+
+    /// <summary>A rule matched, and it says the item stays where it is.</summary>
+    RuleDeclined,
+
+    /// <summary>A rule matched, and the character already holds its limit.</summary>
+    RuleAtCap,
+}
+
+/// <summary>
+/// The rule list's answer when it chose nothing. All three reasons look the
+/// same from outside — the item is left behind — and one log line covering
+/// all three is what makes a profile quietly sitting at its keep limit
+/// indistinguishable from one whose rule never fired at all.
+/// </summary>
+internal readonly record struct LootRefusal(
+    LootRefusalKind Kind,
+    string RuleName = "",
+    int Limit = 0,
+    int Held = 0)
+{
+    public static LootRefusal NoRule => new(LootRefusalKind.NoRule);
+
+    public string Describe() => Kind switch
+    {
+        LootRefusalKind.RuleDeclined => $"{RuleName} says leave it",
+        LootRefusalKind.RuleAtCap =>
+            $"{RuleName} keeps up to {Limit} (holding {Held})",
+        _ => "no rule matched",
+    };
+}
+
 internal static class LootRuleEngine
 {
     public static LootDecision? Decide(
@@ -393,18 +429,42 @@ internal static class LootRuleEngine
         IReadOnlyList<LootRule> rules,
         IReadOnlyList<PluginInventoryItem> ownedItems,
         IReadOnlyDictionary<string, int>? pendingByName = null,
+        IPluginHost? host = null) =>
+        Decide(
+            item,
+            properties,
+            rules,
+            ownedItems,
+            out _,
+            pendingByName,
+            host);
+
+    public static LootDecision? Decide(
+        in PluginInventoryItem item,
+        in PluginItemProperties properties,
+        IReadOnlyList<LootRule> rules,
+        IReadOnlyList<PluginInventoryItem> ownedItems,
+        out LootRefusal refusal,
+        IReadOnlyDictionary<string, int>? pendingByName = null,
         IPluginHost? host = null)
     {
         ArgumentNullException.ThrowIfNull(rules);
         ArgumentNullException.ThrowIfNull(ownedItems);
 
+        refusal = LootRefusal.NoRule;
         for (int index = 0; index < rules.Count; index++)
         {
             LootRule rule = rules[index];
             if (!rule.IsMatch(item, properties, host, out _))
                 continue;
+            string ruleName = string.IsNullOrWhiteSpace(rule.Name)
+                ? $"Rule {index + 1}"
+                : rule.Name;
             if (rule.Action == LootAction.NoLoot)
+            {
+                refusal = new LootRefusal(LootRefusalKind.RuleDeclined, ruleName);
                 return null;
+            }
             if (rule.Action == LootAction.KeepUpTo)
             {
                 int limit = Math.Max(0, rule.KeepCount);
@@ -421,15 +481,17 @@ internal static class LootRuleEngine
                     held += pending;
                 }
                 if (held >= limit)
+                {
+                    refusal = new LootRefusal(
+                        LootRefusalKind.RuleAtCap, ruleName, limit, held);
                     return null;
+                }
             }
             return new LootDecision(
                 rule.Action,
                 rule.Priority,
                 index,
-                string.IsNullOrWhiteSpace(rule.Name)
-                    ? $"Rule {index + 1}"
-                    : rule.Name);
+                ruleName);
         }
         return null;
     }
@@ -972,11 +1034,15 @@ internal sealed partial class LootController
                 {
                     PluginItemProperties identified = default;
                     _ = loot.TryCaptureProperties(answered.ObjectId, out identified);
-                    RecordDecision(answered, DecideItem(
+                    RecordDecision(
                         answered,
-                        identified,
-                        owned,
-                        _pendingByName));
+                        DecideItem(
+                            answered,
+                            identified,
+                            owned,
+                            _pendingByName,
+                            out LootRefusal answeredRefusal),
+                        answeredRefusal);
                 }
                 _awaitingAppraisal = 0u;
                 _identifyAge = 0d;
@@ -1004,11 +1070,15 @@ internal sealed partial class LootController
             _ = loot.TryCaptureProperties(item.ObjectId, out properties);
             if (!NeedsIdentify(item, properties, owned))
             {
-                RecordDecision(item, DecideItem(
+                RecordDecision(
                     item,
-                    properties,
-                    owned,
-                    _pendingByName));
+                    DecideItem(
+                        item,
+                        properties,
+                        owned,
+                        _pendingByName,
+                        out LootRefusal refusal),
+                    refusal);
                 continue;
             }
             if (_sinceIdentifyRequest < IdentifyRequestIntervalSeconds)
@@ -1252,15 +1322,18 @@ internal sealed partial class LootController
         return true;
     }
 
-    /// <summary>Store a decision and say what it was.</summary>
-    private void RecordDecision(in PluginInventoryItem item, LootDecision? decision)
+    /// <summary>Store a decision and say what it was, or why there was none.</summary>
+    private void RecordDecision(
+        in PluginInventoryItem item,
+        LootDecision? decision,
+        in LootRefusal refusal)
     {
         _decisions[item.ObjectId] = decision;
         Log?.Invoke(
             MacroLogChannel.Loot,
             decision is { } chosen
                 ? $"LootDecision: {item.Name} -> {chosen.Action} ({chosen.RuleName})"
-                : $"LootDecision: {item.Name} -> no rule matched");
+                : $"LootDecision: {item.Name} -> {refusal.Describe()}");
     }
 
     /// <summary>
@@ -1708,7 +1781,8 @@ internal sealed partial class LootController
         in PluginInventoryItem item,
         in PluginItemProperties properties,
         IReadOnlyList<PluginInventoryItem> owned,
-        IReadOnlyDictionary<string, int> pending)
+        IReadOnlyDictionary<string, int> pending,
+        out LootRefusal refusal)
     {
         LootDecision? decision = string.IsNullOrWhiteSpace(
             _settings.ExternalClassifierId)
@@ -1717,9 +1791,11 @@ internal sealed partial class LootController
                 properties,
                 _settings.Rules,
                 owned,
+                out refusal,
                 pending,
                 _host)
-            : DecideWithExternalClassifier(item, properties, owned, pending);
+            : DecideWithExternalClassifier(
+                item, properties, owned, pending, out refusal);
         if (decision is not null || !IsReadableUnknownScroll(item))
         {
             if (decision is not null)
@@ -1748,8 +1824,10 @@ internal sealed partial class LootController
         in PluginInventoryItem item,
         in PluginItemProperties properties,
         IReadOnlyList<PluginInventoryItem> owned,
-        IReadOnlyDictionary<string, int> pending)
+        IReadOnlyDictionary<string, int> pending,
+        out LootRefusal refusal)
     {
+        refusal = LootRefusal.NoRule;
         var context = new PluginLootClassificationContext(
             item,
             properties,
@@ -1764,9 +1842,15 @@ internal sealed partial class LootController
             return null;
         }
 
+        string ruleName = string.IsNullOrWhiteSpace(classification.RuleName)
+            ? _settings.ExternalClassifierId
+            : classification.RuleName.Trim();
         LootAction action = (LootAction)(int)classification.Action;
         if (action == LootAction.NoLoot)
+        {
+            refusal = new LootRefusal(LootRefusalKind.RuleDeclined, ruleName);
             return null;
+        }
         if (action == LootAction.KeepUpTo)
         {
             int limit = Math.Max(0, classification.KeepCount);
@@ -1780,16 +1864,18 @@ internal sealed partial class LootController
             if (pending.TryGetValue(itemName, out int pendingCount))
                 held += pendingCount;
             if (held >= limit)
+            {
+                refusal = new LootRefusal(
+                    LootRefusalKind.RuleAtCap, ruleName, limit, held);
                 return null;
+            }
         }
 
         return new LootDecision(
             action,
             classification.Priority,
             RuleIndex: -1,
-            RuleName: string.IsNullOrWhiteSpace(classification.RuleName)
-                ? _settings.ExternalClassifierId
-                : classification.RuleName.Trim(),
+            RuleName: ruleName,
             ClassifierId: _settings.ExternalClassifierId);
     }
 

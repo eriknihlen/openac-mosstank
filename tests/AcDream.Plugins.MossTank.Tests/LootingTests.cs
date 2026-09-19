@@ -2506,11 +2506,23 @@ public sealed partial class LootingTests
                 .ToArray();
         public IReadOnlyList<PluginInventoryItem> CaptureCurrentContents() =>
             Contents;
+        /// <summary>
+        /// What an appraisal delivered, per object. The real host answers
+        /// this per object and an item nobody has appraised carries none of
+        /// the mana, workmanship or scribe values the mana rules read, so a
+        /// fake that hands every object the same empty table cannot tell a
+        /// donor from anything else.
+        /// </summary>
+        public Dictionary<uint, PluginItemProperties> ItemProperties { get; } = [];
+
         public bool TryCaptureProperties(
             uint objectId,
             out PluginItemProperties properties)
         {
-            properties = EmptyProperties;
+            properties = ItemProperties.TryGetValue(
+                objectId, out PluginItemProperties stored)
+                ? stored
+                : EmptyProperties;
             return true;
         }
         public PluginItemCommandStatus OpenResult { get; set; } = PluginItemCommandStatus.Started;
