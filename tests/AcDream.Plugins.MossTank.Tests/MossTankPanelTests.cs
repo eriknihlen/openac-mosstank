@@ -4441,6 +4441,116 @@ public sealed class MossTankPanelTests
         Assert.Contains("Spell 3811", panel.BuffStatus, StringComparison.Ordinal);
     }
 
+    /// <summary>
+    /// A settings load is an activation transaction. Mutation
+    /// <c>ApplyDefaultsAfterFailedSettingsLoad</c>: apply a fresh default
+    /// database after the parse error; the selected profile, binding, and
+    /// retained option assertions fail.
+    /// </summary>
+    [Fact]
+    public void SettingsLoadCommandPreservesTheActiveProfileWhenTheCandidateIsMalformed()
+    {
+        var storage = new MemoryStorage();
+        var automation = new FakeAutomation { Name = "Saver", WorldName = "Rune" };
+        var panel = new MossTankPanel(new FakeHost(automation, storage));
+        Command(panel, "settings save Safe");
+        Command(panel, "opt set AttackDistance 0.02");
+        string safe = panel.SelectedMacroProfile;
+        string cdfKey = VtankProfileDirectory.CdfFileName("Saver", "Rune");
+        string binding = storage.Text[cdfKey];
+        const string malformed = "not a settings database";
+        storage.Text["Broken.usd"] = malformed;
+        automation.Messages.Clear();
+
+        Command(panel, "settings load Broken");
+        Command(panel, "opt set EnableBuffing false");
+
+        Assert.Equal(safe, panel.SelectedMacroProfile);
+        Assert.Equal(0.02d, panel.EvaluateExpression(
+            "uboptget['AttackDistance']").AsNumber(), precision: 7);
+        Assert.Equal(binding, storage.Text[cdfKey]);
+        Assert.Equal(malformed, storage.Text["Broken.usd"]);
+        Assert.Contains(automation.Messages, message =>
+            message.Contains("could not be read", StringComparison.Ordinal));
+        Assert.DoesNotContain(automation.Messages, message =>
+            message.Contains("Loaded settings profile Broken", StringComparison.Ordinal));
+    }
+
+    /// <summary>
+    /// Mutation <c>SkipSettingsCopyTargetValidation</c>: omit the existing
+    /// target parse before copying; the malformed target becomes a new
+    /// settings document.
+    /// </summary>
+    [Fact]
+    public void SettingsSaveCommandDoesNotOverwriteAnUnreadableTarget()
+    {
+        var storage = new MemoryStorage();
+        var automation = new FakeAutomation { Name = "Saver", WorldName = "Rune" };
+        var panel = new MossTankPanel(new FakeHost(automation, storage));
+        Command(panel, "settings save Safe");
+        string selected = panel.SelectedMacroProfile;
+        string cdfKey = VtankProfileDirectory.CdfFileName("Saver", "Rune");
+        string binding = storage.Text[cdfKey];
+        string target = VtankProfileDirectory.SubProfilePrefix("Saver", "Rune") + "Target.usd";
+        const string malformed = "not a settings database";
+        storage.Text[target] = malformed;
+
+        Command(panel, "settings save Target");
+
+        Assert.Equal(selected, panel.SelectedMacroProfile);
+        Assert.Equal(binding, storage.Text[cdfKey]);
+        Assert.Equal(malformed, storage.Text[target]);
+        Assert.Contains(automation.Messages, message =>
+            message.Contains("Cannot overwrite unreadable settings profile", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public void InitialMalformedSettingsProfileStaysInactiveAndIsNeverSavedByAnOptionChange()
+    {
+        var storage = new MemoryStorage();
+        const string character = "Saver";
+        const string world = "Rune";
+        string profile = VtankProfileDirectory.AutoCharacterFileName(character, world, "usd");
+        const string malformed = "not a settings database";
+        storage.Text[profile] = malformed;
+        VtankProfileDirectory.WriteCharacterBinding(storage, character, world,
+            new VtankProfileDirectory.VtankCharacterBinding(profile, string.Empty, string.Empty, null));
+        var automation = new FakeAutomation { Name = character, WorldName = world };
+        var panel = new MossTankPanel(new FakeHost(automation, storage));
+
+        Command(panel, "opt set EnableBuffing false");
+        Command(panel, "settings save Copy");
+        panel.ToggleCombat();
+
+        Assert.Equal(malformed, storage.Text[profile]);
+        Assert.False(storage.Text.ContainsKey(
+            VtankProfileDirectory.SubProfilePrefix(character, world) + "Copy.usd"));
+        Assert.False(panel.CombatMacroRunning);
+        Assert.Contains("Raw data was preserved", panel.ProfileLifecycleNotice,
+            StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// Mutation <c>SkipExistingSettingsSaveValidation</c>: omit the save-time
+    /// parse of the current file; the option write replaces the malformed
+    /// external edit.
+    /// </summary>
+    [Fact]
+    public void OptionChangesDoNotOverwriteAnExternallyCorruptedActiveSettingsProfile()
+    {
+        var storage = new MemoryStorage();
+        var automation = new FakeAutomation { Name = "Saver", WorldName = "Rune" };
+        var panel = new MossTankPanel(new FakeHost(automation, storage));
+        Command(panel, "settings save Safe");
+        string profile = panel.SelectedMacroProfile;
+        const string malformed = "not a settings database";
+        storage.Text[profile] = malformed;
+
+        panel.ToggleCombatEnabled();
+
+        Assert.Equal(malformed, storage.Text[profile]);
+    }
+
     [Fact]
     public void SwitchingToAProfileWithoutGemFoodClearsItsOwnedConsumables()
     {

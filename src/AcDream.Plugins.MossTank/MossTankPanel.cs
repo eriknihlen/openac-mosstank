@@ -270,7 +270,12 @@ internal sealed partial class MossTankPanel : IBuffRuleHost, IDisposable
         _combatSettings.HealKits = healKits;
         _profiles = new MossTankProfileStore(host);
         _profiles.BindCharacter(host.Automation.Character.Name);
-        _profiles.LoadCurrent(_allSettings, _noBuffItemNames, _commandLogTypes);
+        if (_profiles.LoadCurrent(_allSettings, _noBuffItemNames, _commandLogTypes)
+            == MossTankProfileLoad.Failed)
+        {
+            _profileLifecycleNotice = _profiles.LoadFailureNotice
+                ?? "The settings profile could not be read.";
+        }
         _lootProfiles = new MossTankLootProfileStore(host);
         bool initialLootBound = _lootProfiles.BindCharacter(
             host.Automation.Character.Name);
@@ -4367,7 +4372,8 @@ internal sealed partial class MossTankPanel : IBuffRuleHost, IDisposable
             _profileLifecycleNotice = $"Profile '{name}' is unavailable.";
             return;
         }
-        LoadSelectedProfile();
+        if (LoadSelectedProfile() == MossTankProfileLoad.Failed)
+            return;
         _profileLifecycleNotice = $"Loaded {_profiles.Selected}.";
         ReportProfileLoaded("settings", _profiles.Selected);
     }
@@ -4416,13 +4422,20 @@ internal sealed partial class MossTankPanel : IBuffRuleHost, IDisposable
         _profileLifecycleNotice = notice;
     }
 
-    private void LoadSelectedProfile()
+    private MossTankProfileLoad LoadSelectedProfile()
     {
         bool retainActiveLoot = _lootProfiles.HasActiveProfile;
         LootRule[] activeLootRules = _inventorySettings.Loot.Rules.ToArray();
         VtankSalvageCombineSettings activeSalvage =
             _inventorySettings.Loot.SalvageCombine.Clone();
-        _profiles.LoadCurrent(_allSettings, _noBuffItemNames, _commandLogTypes);
+        MossTankProfileLoad settingsLoad = _profiles.LoadCurrent(
+            _allSettings, _noBuffItemNames, _commandLogTypes);
+        if (settingsLoad == MossTankProfileLoad.Failed)
+        {
+            _profileLifecycleNotice = _profiles.LoadFailureNotice
+                ?? "The settings profile could not be read.";
+            return settingsLoad;
+        }
         // The profile's own EnableMeta value is a stored setting, so a load
         // decides whether the meta runs exactly as it decides every other
         // option. Nothing here starts a meta pass by itself: the pass is
@@ -4451,6 +4464,7 @@ internal sealed partial class MossTankPanel : IBuffRuleHost, IDisposable
         LoadRouteProfile();
         ApplyPersistedOptionOverrides();
         ResetProfileConsumers();
+        return settingsLoad;
     }
 
     private void ResetProfileConsumers()
@@ -4513,8 +4527,8 @@ internal sealed partial class MossTankPanel : IBuffRuleHost, IDisposable
         bool metaChanged = _metaProfiles.BindCharacter(characterName);
         if (!macroChanged && !lootChanged && !routeChanged && !metaChanged)
             return;
-        if (macroChanged)
-            LoadSelectedProfile();
+        if (macroChanged && LoadSelectedProfile() == MossTankProfileLoad.Failed)
+            return;
         else
         {
             if (lootChanged)
@@ -4622,6 +4636,13 @@ internal sealed partial class MossTankPanel : IBuffRuleHost, IDisposable
 
     private void SetMacroRunning(bool running)
     {
+        if (running && !_profiles.HasActiveProfile)
+        {
+            _status = _profiles.LoadFailureNotice
+                ?? "Cannot start without a complete settings profile.";
+            Announce(_status);
+            return;
+        }
         if (_combat.Enabled == running)
             return;
         _combat.Toggle();

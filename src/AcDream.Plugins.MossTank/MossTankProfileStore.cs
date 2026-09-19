@@ -25,6 +25,8 @@ internal sealed class MossTankProfileStore
     private string? _pendingLegacyBareName;
     private VtankDatabase? _currentDatabase;
     private string? _currentDatabaseFileName;
+    private string? _activeFileName;
+    private bool _hasActiveProfile;
     private bool _rosterSwept;
 
     public MossTankProfileStore(IPluginHost host)
@@ -38,6 +40,8 @@ internal sealed class MossTankProfileStore
     public string Selected => _selected;
     public bool MineOnly => _preferences.MineOnly;
     public string? RecoveryNotice { get; private set; }
+    public string? LoadFailureNotice { get; private set; }
+    public bool HasActiveProfile => _hasActiveProfile;
 
     private string Server => _host.Automation.Character.WorldName;
     private IPluginStorage VtankStorage => _host.VtankProfiles;
@@ -70,6 +74,8 @@ internal sealed class MossTankProfileStore
         _pendingLegacyBareName = null;
         _currentDatabase = null;
         _currentDatabaseFileName = null;
+        _activeFileName = null;
+        _hasActiveProfile = false;
         VtankProfileDirectory.VtankCharacterBinding? binding = CanBindFiles
             ? VtankProfileDirectory.TryReadCharacterBinding(VtankStorage, _characterName, Server)
             : null;
@@ -100,7 +106,6 @@ internal sealed class MossTankProfileStore
         {
             _selected = ByCharacter;
             _pendingLegacyBareName = null;
-            WriteBinding();
             return true;
         }
 
@@ -112,7 +117,6 @@ internal sealed class MossTankProfileStore
         {
             _selected = existing;
             _pendingLegacyBareName = null;
-            WriteBinding();
             return true;
         }
 
@@ -122,7 +126,6 @@ internal sealed class MossTankProfileStore
         {
             _selected = subProfile;
             _pendingLegacyBareName = null;
-            WriteBinding();
             return true;
         }
 
@@ -130,7 +133,6 @@ internal sealed class MossTankProfileStore
         {
             _selected = named;
             _pendingLegacyBareName = null;
-            WriteBinding();
             return true;
         }
 
@@ -141,7 +143,6 @@ internal sealed class MossTankProfileStore
             // it at this exact sub-profile file name.
             _selected = subProfile;
             _pendingLegacyBareName = normalized;
-            WriteBinding();
             return true;
         }
 
@@ -214,8 +215,17 @@ internal sealed class MossTankProfileStore
         if (!ValidNamedProfile(normalized, out notice))
             return false;
 
+        if (copyCurrent && !_hasActiveProfile
+            && ReadUsdText(CurrentFileName()) is not null)
+        {
+            notice = "Cannot copy settings because no complete active profile is available.";
+            return false;
+        }
+
         string fileName = VtankProfileDirectory.SubProfilePrefix(_characterName, Server)
             + normalized + ".usd";
+        if (copyCurrent && !CanReplaceExisting(fileName, out notice))
+            return false;
         VtankDatabase database;
         SideCarDocument sidecar;
         if (copyCurrent)
@@ -235,6 +245,8 @@ internal sealed class MossTankProfileStore
         WriteJson(SideCarKey(fileName), sidecar);
         _currentDatabase = database;
         _currentDatabaseFileName = fileName;
+        _activeFileName = fileName;
+        _hasActiveProfile = true;
         _selected = fileName;
         _pendingLegacyBareName = null;
         WriteBinding();
@@ -260,12 +272,14 @@ internal sealed class MossTankProfileStore
         _pendingLegacyBareName = null;
         _currentDatabase = null;
         _currentDatabaseFileName = null;
+        _activeFileName = null;
+        _hasActiveProfile = false;
         WriteBinding();
         notice = $"Deleted profile {fileName}.";
         return true;
     }
 
-    public void LoadCurrent(
+    public MossTankProfileLoad LoadCurrent(
         VtankSettingsProfileSerializer.AllSettings settings,
         ISet<string> noBuffItemNames,
         ISet<string> logChannels)
@@ -284,7 +298,8 @@ internal sealed class MossTankProfileStore
                 .Apply(settings, noBuffItemNames, logChannels, _host.Log);
             _currentDatabase = fresh;
             _currentDatabaseFileName = fileName;
-            return;
+            Activate(fileName);
+            return MossTankProfileLoad.Missing;
         }
 
         VtankDatabase database;
@@ -300,26 +315,31 @@ internal sealed class MossTankProfileStore
             RecoveryNotice = MossTankProfileRecovery.Preserve(
                 _host, "macro", fileName, text, error);
             _host.Log.Warn(RecoveryNotice);
-            VtankDatabase fresh = VtankDefaultSettingsDatabase.Parse();
-            ApplyFromDatabase(fresh, settings);
-            SideCarDocument.CreateDefaults()
-                .Apply(settings, noBuffItemNames, logChannels, _host.Log);
-            _currentDatabase = fresh;
-            _currentDatabaseFileName = fileName;
-            return;
+            LoadFailureNotice = $"Settings profile '{fileName}' could not be read; source was preserved."
+                + (_hasActiveProfile ? $" Active profile remains {_activeFileName}." : string.Empty);
+            _host.Log.Error("MossTank " + LoadFailureNotice);
+            if (_hasActiveProfile && _activeFileName is not null)
+                _selected = _activeFileName;
+            return MossTankProfileLoad.Failed;
         }
         _currentDatabase = database;
         _currentDatabaseFileName = fileName;
         (ReadJson<SideCarDocument>(SideCarKey(fileName)) ?? SideCarDocument.CreateDefaults())
             .Apply(settings, noBuffItemNames, logChannels, _host.Log);
+        Activate(fileName);
+        return MossTankProfileLoad.Loaded;
     }
 
-    public void SaveCurrent(
+    public bool SaveCurrent(
         VtankSettingsProfileSerializer.AllSettings settings,
         ISet<string> noBuffItemNames,
         ISet<string> logChannels)
     {
         string fileName = CurrentFileName();
+        if (!_hasActiveProfile && ReadUsdText(fileName) is not null)
+            return false;
+        if (!CanReplaceExisting(fileName, out _))
+            return false;
         VtankDatabase database = fileName.Equals(_currentDatabaseFileName, StringComparison.Ordinal)
             && _currentDatabase is not null
                 ? _currentDatabase
@@ -331,6 +351,8 @@ internal sealed class MossTankProfileStore
             SideCarDocument.Capture(settings, noBuffItemNames, logChannels));
         _currentDatabase = database;
         _currentDatabaseFileName = fileName;
+        Activate(fileName);
+        return true;
     }
 
     public void ClearCurrent(
@@ -347,6 +369,7 @@ internal sealed class MossTankProfileStore
         WriteJson(SideCarKey(fileName), SideCarDocument.CreateDefaults());
         _currentDatabase = database;
         _currentDatabaseFileName = fileName;
+        Activate(fileName);
     }
 
     public int SetOptionInAll(string name, VtankSettingsProfileSerializer.AllSettings current)
@@ -560,6 +583,45 @@ internal sealed class MossTankProfileStore
     private string CurrentFileName() => _selected.Equals(ByCharacter, StringComparison.OrdinalIgnoreCase)
         ? VtankProfileDirectory.AutoCharacterFileName(_characterName, Server, "usd")
         : _selected;
+
+    private void Activate(string fileName)
+    {
+        _activeFileName = fileName;
+        _hasActiveProfile = true;
+        LoadFailureNotice = null;
+        WriteBinding();
+    }
+
+    private bool CanReplaceExisting(string fileName, out string notice)
+    {
+        string? text = ReadUsdText(fileName);
+        if (text is null)
+        {
+            notice = string.Empty;
+            return true;
+        }
+        try
+        {
+            _ = VtankSettingsProfileSerializer.Load(text, new VtankSettingsProfileSerializer.AllSettings
+            {
+                Combat = new CombatSettings(),
+                Buffs = new BuffSettings(),
+                Vitals = new VitalSettings(),
+                Inventory = new InventorySettings(),
+                Navigation = new NavigationSettings(),
+            });
+            notice = string.Empty;
+            return true;
+        }
+        catch (FormatException error)
+        {
+            RecoveryNotice = MossTankProfileRecovery.Preserve(
+                _host, "macro", fileName, text, error);
+            _host.Log.Warn(RecoveryNotice);
+            notice = $"Cannot overwrite unreadable settings profile {fileName}; source was preserved.";
+            return false;
+        }
+    }
 
     private void WriteBinding()
     {

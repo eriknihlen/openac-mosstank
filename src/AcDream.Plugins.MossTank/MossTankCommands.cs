@@ -266,7 +266,11 @@ internal sealed partial class MossTankPanel
             WriteVtank($"Settings profile '{name}' was not found.");
             return;
         }
-        LoadSelectedProfile();
+        if (LoadSelectedProfile() == MossTankProfileLoad.Failed)
+        {
+            WriteVtank(_profileLifecycleNotice);
+            return;
+        }
         WriteVtank($"Loaded settings profile {_profiles.Selected}.");
     }
 
