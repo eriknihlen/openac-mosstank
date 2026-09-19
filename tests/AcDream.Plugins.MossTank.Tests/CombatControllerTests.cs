@@ -4493,6 +4493,47 @@ public sealed class CombatControllerTests
     }
 
     /// <summary>
+    /// Mutation pin: retain signed direct equipment ids when parsing a
+    /// monster rule before forwarding its primary and one-hand secondary.
+    /// Mutation executed: <c>WeaponObjectId used weapon &gt; 0 and
+    /// OffhandObjectId used offhand &gt;= ListedTypesEnd</c>.
+    /// </summary>
+    [Fact]
+    public void SignedMonsterEquipmentIdsReachPrimaryAndOneHandSecondaryDispatch()
+    {
+        const uint primaryId = 0x8001_AC87u;
+        const uint secondaryId = 0x8001_B291u;
+        VtankDatabase profile = VtankDefaultSettingsDatabase.Parse();
+        VtankTable monsters = profile.Find(VtankMonsterRuleTable.TableName)!;
+        monsters.Rows[0].Cells[3] = VtankCell.Int(unchecked((int)primaryId));
+        monsters.Rows[0].Cells[19] = VtankCell.Int(unchecked((int)secondaryId));
+        MonsterRuleActions actions = Assert.Single(
+            VtankMonsterRuleTable.TryRead(profile)!).Actions;
+        var surface = new FakeAutomation
+        {
+            CombatSnapshot = Physical() with { Mode = PluginCombatMode.Peace },
+            EquipmentItems =
+            [
+                Equipment(primaryId, "Primary", damageType: 1),
+                Equipment(secondaryId, "Secondary", damageType: 1),
+            ],
+        };
+        using CombatModeGate gate = Gate(surface);
+
+        Assert.False(gate.TryPrepare(PluginCombatMode.Melee,
+            overrideItemId: actions.WeaponObjectId, autoSelect: false,
+            secondaryItemId: actions.OffhandObjectId));
+        gate.AdvancePass(0.1d);
+        Assert.False(gate.TryPrepare(PluginCombatMode.Melee,
+            overrideItemId: actions.WeaponObjectId, autoSelect: false,
+            secondaryItemId: actions.OffhandObjectId));
+
+        Assert.Equal(
+            ["Equip:8001AC87", "EquipSecondary:8001B291"],
+            surface.CallLog);
+    }
+
+    /// <summary>
     /// Mutation pin: swap the primary before the secondary for a thrown
     /// weapon. The actual requests must remove old primary, equip secondary,
     /// then equip thrown primary on separate passes.

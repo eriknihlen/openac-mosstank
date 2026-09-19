@@ -88,15 +88,16 @@ internal static class VtankMonsterRuleTable
                     PetDamageType = VtankDamageElement.ToMonsterDamageType(
                         row.Cells[20].AsInt(),
                         MonsterDamageType.PlayerAuto),
-                    // The wield subroutine treats WeaponToUse as an object id;
-                    // the shipped "no override" values are 0 and -1.
-                    WeaponObjectId = weapon > 0 ? unchecked((uint)weapon) : 0u,
+                    // Zero requests caster handling and -1 keeps automatic
+                    // selection; every other signed spelling is an object id.
+                    WeaponObjectId = weapon is not (0 or -1)
+                        ? unchecked((uint)weapon)
+                        : 0u,
                     WeaponToUseRaw = weapon,
-                    // The off-hand column packs four modes (Auto, AutoShield,
-                    // AutoWeapon, None) below LISTEDTYPES_END and an object id
-                    // above it.
-                    OffhandObjectId =
-                        offhand >= (int)VtankSecondaryEquip.ListedTypesEnd
+                    // Only the four values from Auto through None are modes.
+                    // Values outside that range retain their object-id bits.
+                    OffhandObjectId = offhand is < (int)VtankSecondaryEquip.Auto
+                        or >= (int)VtankSecondaryEquip.ListedTypesEnd
                             ? unchecked((uint)offhand)
                             : 0u,
                     SecondaryEquipRaw = offhand,

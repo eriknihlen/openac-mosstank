@@ -59,6 +59,32 @@ public sealed class VtankMonsterRuleTableTests
         Assert.Equal(original, database.Render());
     }
 
+    /// <summary>
+    /// Mutation pin: keep the signed bits of direct primary and secondary
+    /// object ids instead of treating a negative signed spelling as a mode.
+    /// Mutation executed: <c>WeaponObjectId used weapon &gt; 0 and
+    /// OffhandObjectId used offhand &gt;= ListedTypesEnd</c>.
+    /// </summary>
+    [Fact]
+    public void SignedDirectEquipmentIdsSurviveParseAndRoundTrip()
+    {
+        const uint primaryId = 0x8000_DEB2u;
+        const uint secondaryId = 0x8001_AC87u;
+        VtankDatabase database = VtankDefaultSettingsDatabase.Parse();
+        VtankTable monsters = database.Find(VtankMonsterRuleTable.TableName)!;
+        monsters.Rows[0].Cells[3] = VtankCell.Int(unchecked((int)primaryId));
+        monsters.Rows[0].Cells[19] = VtankCell.Int(unchecked((int)secondaryId));
+
+        MonsterRuleActions actions = Assert.Single(
+            VtankMonsterRuleTable.TryRead(database)!).Actions;
+
+        Assert.Equal(primaryId, actions.WeaponObjectId);
+        Assert.Equal(secondaryId, actions.OffhandObjectId);
+        VtankMonsterRuleTable.Write(database, [new MonsterRule("DEFAULT", actions)]);
+        Assert.Equal(unchecked((int)primaryId), monsters.Rows[0].Cells[3].AsInt());
+        Assert.Equal(unchecked((int)secondaryId), monsters.Rows[0].Cells[19].AsInt());
+    }
+
     [Theory]
     [InlineData(0)]
     [InlineData(1)]
