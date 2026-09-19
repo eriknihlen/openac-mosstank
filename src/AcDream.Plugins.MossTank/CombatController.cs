@@ -304,6 +304,16 @@ internal sealed class CombatController
     private float _physicalSwingClosestDistance = float.PositiveInfinity;
 
     private bool _physicalResultArmed;
+
+    /// <summary>
+    /// True when the swing just given up on has already cost its attempt and
+    /// its own outcome line has not arrived yet. One swing is one attempt:
+    /// giving up on it and then reading the line that explains it must not
+    /// count twice. The next such line clears this, so the shot after it is
+    /// counted normally.
+    /// </summary>
+    private bool _physicalResultAttemptCharged;
+
     private uint _physicalResultTargetId;
     private string _physicalResultTargetName = string.Empty;
     private ushort _physicalResultIncarnation;
@@ -1010,6 +1020,9 @@ internal sealed class CombatController
         if (_now - _physicalSwingSentAt < UnansweredSwingSeconds)
             return;
         uint stalled = _pendingPhysicalTarget;
+        // This swing has now cost its attempt, so its own outcome line —
+        // which can still arrive after the cancel — must not cost another.
+        _physicalResultAttemptCharged = true;
         // The wait starts over whether or not the cancel is answered, so a
         // host that never reports the attack finished still costs one counted
         // attempt per bound instead of holding the macro here for good.
@@ -2721,6 +2734,7 @@ internal sealed class CombatController
     private void ArmPhysicalResultText(uint targetObjectId, string targetName)
     {
         _physicalResultArmed = true;
+        _physicalResultAttemptCharged = false;
         _physicalResultTargetId = targetObjectId;
         _physicalResultTargetName = targetName ?? string.Empty;
         _physicalResultIncarnation = FindTarget(targetObjectId).Incarnation;
@@ -2775,10 +2789,21 @@ internal sealed class CombatController
                 CombatResultText.MissileHitEnvironment,
                 StringComparison.Ordinal))
         {
-            AnnounceBlacklist(
-                _failures.RecordMiss(_physicalResultTargetId, _now, _settings),
-                _physicalResultTargetId,
-                _physicalResultTargetName);
+            // Unless the swing this explains has already been charged for,
+            // in which case the line is that swing's own account of itself
+            // arriving after the fact.
+            if (_physicalResultAttemptCharged)
+            {
+                _physicalResultAttemptCharged = false;
+            }
+            else
+            {
+                AnnounceBlacklist(
+                    _failures.RecordMiss(
+                        _physicalResultTargetId, _now, _settings),
+                    _physicalResultTargetId,
+                    _physicalResultTargetName);
+            }
         }
         else if (message.LogTextType == CombatLogTextType.OwnCombat
             && CombatResultText.IsDamageReport(text))

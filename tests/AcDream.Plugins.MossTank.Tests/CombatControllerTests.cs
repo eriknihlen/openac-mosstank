@@ -6000,6 +6000,46 @@ public sealed class CombatControllerTests
     }
 
     /// <summary>
+    /// One swing costs one attempt. A swing given up on and then explained by
+    /// its own late outcome line — the shot flew into the scenery — is still
+    /// one attempt, not two.
+    /// Mutation: charge the outcome line unconditionally and this fails — two
+    /// attempts land on a monster that was only swung at once, and the
+    /// allowance is spent at twice the rate.
+    /// </summary>
+    [Fact]
+    public void AGivenUpSwingAndItsOwnLateOutcomeLineCostOneAttempt()
+    {
+        (FakeAutomation surface, CombatController controller, _) = MeleeKillRig(
+            new CombatSettings
+            {
+                BlacklistMonsterAttemptCount = 1,
+                BlacklistMonsterTimeoutSeconds = 300,
+            },
+            tracksAttackRequests: true);
+        surface.FillPowerBar();
+        controller.OnTick(0.25);
+        Assert.Equal(1, surface.ReleaseCount);
+
+        // The wait runs out: that is the swing's one attempt.
+        controller.OnTick(5.0);
+
+        // The shot's own outcome arrives after the cancel.
+        surface.ChatMessages =
+        [
+            ChatLine(1, "Your missile attack hit the environment."),
+        ];
+        controller.OnTick(0.25);
+
+        Assert.DoesNotContain(
+            surface.PostedSystemMessages,
+            message => message.Contains(
+                "Blacklisting unhittable target",
+                StringComparison.Ordinal));
+        Assert.Contains("Drudge", controller.TargetText, StringComparison.Ordinal);
+    }
+
+    /// <summary>
     /// A monster the character is demonstrably hitting is never retired by
     /// this path: one blow that lands starts the count over.
     /// Mutation: point the give-up at a counter the damage line does not clear
