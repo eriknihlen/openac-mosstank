@@ -438,9 +438,14 @@ internal sealed class CombatController
         _paused = paused;
         if (paused && Enabled)
         {
+            // The attack losing its turn aborts the attack and the turn it
+            // was holding -- its own work. It does NOT stop the walk to a
+            // monster: that is a separate rule twenty positions below, with
+            // its own lost-turn teardown, and it is often the very rule the
+            // attack just lost the pass to. Stopping it here cancelled the
+            // walk on the pass it was armed.
             _host.Automation.Combat.AbortPhysicalAttack();
             DisarmPhysicalResultText();
-            StopApproachMovement();
             StopBreakableTurnMovement();
             Status = "Paused for buffing";
         }

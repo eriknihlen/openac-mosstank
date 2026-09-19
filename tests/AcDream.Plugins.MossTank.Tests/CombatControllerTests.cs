@@ -12,6 +12,53 @@ public sealed class CombatControllerTests
     /// still twelve metres away, so nothing below it would ever run.
     /// </summary>
     /// <summary>
+    /// The winner acts before the losers are torn down here, which the
+    /// reference does the other way round, so a teardown that reaches
+    /// outside its own rule can undo the work the winner just did. The
+    /// attack's teardown used to stop the walk to a monster -- a rule
+    /// twenty positions below it, and usually the very rule the attack just
+    /// lost the pass to, so the walk was cancelled on the pass it was
+    /// armed. Each teardown releases only what its own rule holds now.
+    /// Mutation: put <c>StopApproachMovement</c> back into the paused
+    /// branch of <c>SetPaused</c> and the intent is cleared.
+    /// </summary>
+    [Fact]
+    public void TheAttacksTeardownLeavesTheMonsterWalkAlone()
+    {
+        var surface = new FakeAutomation
+        {
+            CombatSnapshot = Physical(),
+            Targets = [Target(10, "Drudge", distance: 12, angle: 0)],
+            NavigationSnapshot = NavigationAt(heading: 0f),
+            EquipmentItems = [WieldedPlannedWeapon()],
+        };
+        surface.NavigationObjects[10u] = new PluginNavigationObject(
+            10u,
+            "Drudge",
+            new PluginNavigationPosition(0x7F7F0001, 0d, 0.1d, 0d, 0f, true));
+        var settings = new CombatSettings
+        {
+            MaximumRange = 5f,
+            ApproachDistance = 20f,
+            ScanIntervalSeconds = 0.05d,
+        };
+        ProfileFixtureWeapon(settings);
+        var controller = new CombatController(new FakeHost(surface), settings);
+
+        controller.Toggle();
+        controller.OnTick(0.05d);
+        // The approach rule wins the pass and arms the walk.
+        Assert.True(controller.TickMonsterApproach(0.05d, canAct: true));
+        Assert.Single(surface.MovementIntents);
+        int clearedBefore = surface.ClearMovementCount;
+
+        // The attack, which lost that same pass, is torn down afterwards.
+        controller.SetPaused(true);
+
+        Assert.Equal(clearedBefore, surface.ClearMovementCount);
+    }
+
+    /// <summary>
     /// The reference writes Running=false to every loser on every pass, and
     /// a navigate rule told that releases the keys it was holding. The
     /// monster-approach rule sits twenty positions below the attack, so it
