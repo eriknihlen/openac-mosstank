@@ -13,46 +13,90 @@ internal readonly record struct ItemManaRechargePlan(
 
 internal static class ItemManaRechargePlanner
 {
-    private const uint ManaStoneItemType = 0x00080000u;
     private const uint ChargedManaEffect = 0x00000001u;
 
+    /// <summary>
+    /// Pick what to spend on worn gear that has run low. The gear is looked
+    /// at first, because a source is only worth finding when something wants
+    /// it; <paramref name="sourceMissing"/> comes back true exactly when
+    /// something wanted mana and there was nothing to give it.
+    /// </summary>
+    /// <param name="reportLow">Told about each worn item that has run low.</param>
     public static ItemManaRechargePlan? Plan(
         IReadOnlyList<PluginInventoryItem> inventory,
-        ISet<string> consumableNames,
+        IReadOnlyDictionary<string, ConsumableCategory> consumableKinds,
         int thresholdPercent,
+        out bool sourceMissing,
         IReadOnlyList<uint>? wieldOrder = null,
         Func<uint, bool>? isChargeReady = null,
-        Func<uint, bool>? isTargetReady = null)
+        Func<uint, bool>? isTargetReady = null,
+        Action<PluginInventoryItem, int, int>? reportLow = null)
     {
         ArgumentNullException.ThrowIfNull(inventory);
-        ArgumentNullException.ThrowIfNull(consumableNames);
+        ArgumentNullException.ThrowIfNull(consumableKinds);
+        sourceMissing = false;
         int threshold = Math.Clamp(thresholdPercent, 0, 99);
-        PluginInventoryItem charge = inventory
-            .Where(item => (item.ItemType & ManaStoneItemType) != 0u
-                && (item.Effects & ChargedManaEffect) != 0u
-                && consumableNames.Contains(item.Name)
-                && !item.IsEquipped
-                && (isChargeReady?.Invoke(item.ObjectId) ?? true))
-            .Where(static item => item.ItemCurrentMana > 0)
-            .OrderBy(static item => item.Name, StringComparer.Ordinal)
-            .ThenBy(static item => item.ObjectId)
-            .FirstOrDefault();
-        if (charge.ObjectId == 0u)
-            return null;
 
-        IEnumerable<PluginInventoryItem> needsCharge = inventory
+        List<PluginInventoryItem> needsCharge = inventory
             .Where(item => item.IsEquipped
                 && item.CombatUse != 3
                 && (isTargetReady?.Invoke(item.ObjectId) ?? true)
                 && item.ItemMaximumMana > 0
                 && 100L * Math.Max(0, item.ItemCurrentMana)
-                    / item.ItemMaximumMana < threshold);
+                    / item.ItemMaximumMana < threshold)
+            .ToList();
+        if (needsCharge.Count == 0)
+            return null;
+        if (reportLow is not null)
+        {
+            foreach (PluginInventoryItem low in needsCharge)
+            {
+                reportLow(
+                    low,
+                    Math.Max(0, low.ItemCurrentMana),
+                    low.ItemMaximumMana);
+            }
+        }
+
+        // A charged stone the profile knows by name comes first, because it
+        // is the reusable one; only when there is none does a one-shot charge
+        // get spent. A charge is whatever the profile files under that kind,
+        // whatever the client calls the item.
+        bool Ready(PluginInventoryItem item) =>
+            !item.IsEquipped && (isChargeReady?.Invoke(item.ObjectId) ?? true);
+        ConsumableCategory Kind(PluginInventoryItem item) =>
+            consumableKinds.TryGetValue(item.Name, out ConsumableCategory kind)
+                ? kind
+                : ConsumableCategory.Other;
+        PluginInventoryItem charge = inventory
+            .Where(item => item.ObjectClass == PluginObjectClass.ManaStone
+                && Kind(item) == ConsumableCategory.ManaStone
+                && (item.Effects & ChargedManaEffect) != 0u
+                && Ready(item))
+            .OrderBy(static item => item.Name, StringComparer.Ordinal)
+            .ThenBy(static item => item.ObjectId)
+            .FirstOrDefault();
+        if (charge.ObjectId == 0u)
+        {
+            charge = inventory
+                .Where(item => Kind(item) == ConsumableCategory.ManaSource
+                    && Ready(item))
+                .OrderBy(static item => item.Name, StringComparer.Ordinal)
+                .ThenBy(static item => item.ObjectId)
+                .FirstOrDefault();
+        }
+        if (charge.ObjectId == 0u)
+        {
+            sourceMissing = true;
+            return null;
+        }
+
         PluginInventoryItem target = wieldOrder is null
             ? needsCharge
                 .OrderBy(item => 100d * Math.Max(0, item.ItemCurrentMana)
                     / item.ItemMaximumMana)
                 .ThenBy(static item => item.ObjectId)
-                .FirstOrDefault()
+                .First()
             // Otherwise the oldest still-queued worn item.
             : needsCharge
                 .OrderBy(item =>
@@ -61,17 +105,15 @@ internal static class ItemManaRechargePlanner
                     return position < 0 ? int.MaxValue : position;
                 })
                 .ThenBy(static item => item.ObjectId)
-                .FirstOrDefault();
-        return target.ObjectId == 0u
-            ? null
-            : new ItemManaRechargePlan(
-                charge.ObjectId,
-                target.ObjectId,
-                charge.Name,
-                target.Name,
-                charge.ItemCurrentMana,
-                target.ItemCurrentMana,
-                target.ItemMaximumMana);
+                .First();
+        return new ItemManaRechargePlan(
+            charge.ObjectId,
+            target.ObjectId,
+            charge.Name,
+            target.Name,
+            charge.ItemCurrentMana,
+            target.ItemCurrentMana,
+            target.ItemMaximumMana);
     }
 
     private static int IndexOf(IReadOnlyList<uint> order, uint objectId)
@@ -92,7 +134,6 @@ internal sealed class ItemManaRechargeController
         int CurrentMana,
         bool ObservedEmpty = false);
 
-    private const uint ManaStoneItemType = 0x00080000u;
     private readonly IPluginHost _host;
     private readonly InventorySettings _settings;
     private readonly CombatSettings _profiles;
@@ -121,6 +162,8 @@ internal sealed class ItemManaRechargeController
     private readonly List<uint> _wieldOrder = [];
     private readonly Dictionary<uint, UsedChargeSnapshot> _usedCharges = [];
     private readonly Random _wornAppraisalSpread = new();
+    private readonly HashSet<string> _postedWarnings = new(StringComparer.Ordinal);
+    private readonly Dictionary<uint, string> _reportedLowItems = [];
 
     /// <summary>When each worn item's appraisal stops being believed.</summary>
     private readonly Dictionary<uint, double> _wornAppraisedUntil = [];
@@ -194,13 +237,23 @@ internal sealed class ItemManaRechargeController
         RequestWornAppraisals(owned);
         ItemManaRechargePlan? plan = ItemManaRechargePlanner.Plan(
             owned,
-            _profiles.ConsumableNames,
+            _profiles.ConsumableCategories.AsReadOnly(),
             _settings.RefillWornManaPercent,
+            out bool sourceMissing,
             _wieldOrder,
             ChargeManaKnown,
-            TargetManaKnown);
+            TargetManaKnown,
+            ReportLowItem);
         if (plan is not { } next)
         {
+            if (sourceMissing)
+            {
+                WarnOnce("Warning: No mana charges/stones available, but "
+                    + "equipped items need mana.");
+                Status = "No mana charge or stone to spend";
+                return false;
+            }
+            _reportedLowItems.Clear();
             Status = HasPendingAssessment(owned)
                 ? "Waiting for item assessment"
                 : "Worn mana ready";
@@ -270,10 +323,11 @@ internal sealed class ItemManaRechargeController
     {
         foreach (PluginInventoryItem item in owned)
         {
-            bool configuredCharge =
-                (item.ItemType & ManaStoneItemType) != 0u
-                && _profiles.ConsumableNames.Contains(item.Name)
-                && !item.IsEquipped;
+            bool configuredCharge = !item.IsEquipped
+                && _profiles.ConsumableCategories.TryGetValue(
+                    item.Name,
+                    out ConsumableCategory kind)
+                && kind == ConsumableCategory.ManaStone;
             if (configuredCharge
                 && !ConfiguredSupplyReadiness.IsAssessed(
                     _host.Automation,
@@ -378,8 +432,51 @@ internal sealed class ItemManaRechargeController
         }
     }
 
+    /// <summary>
+    /// Say, once per item and per level, that a worn item has run low. The
+    /// same item saying the same thing three times a second would bury the
+    /// log; it speaks again when its level moves or when it stops being low.
+    /// </summary>
+    private void ReportLowItem(
+        PluginInventoryItem item,
+        int currentMana,
+        int maximumMana)
+    {
+        int percent = maximumMana == 0 ? 0 : (int)(100L * currentMana / maximumMana);
+        string line = $"Item {item.Name} low on mana, {percent}%, "
+            + $"{currentMana}/{maximumMana}";
+        if (_reportedLowItems.TryGetValue(item.ObjectId, out string? already)
+            && string.Equals(already, line, StringComparison.Ordinal))
+        {
+            return;
+        }
+        _reportedLowItems[item.ObjectId] = line;
+        _host.Log.Info(line);
+    }
+
+    /// <summary>
+    /// Said once a run. A character wearing mana-hungry gear with nothing to
+    /// feed it would otherwise repeat this every pass for as long as the
+    /// macro runs.
+    /// </summary>
+    private void WarnOnce(string text)
+    {
+        if (!_postedWarnings.Add(text))
+            return;
+        _host.Log.Info(text);
+        _host.Automation.Chat.PostSystemMessage("[MossTank] " + text);
+    }
+
+    public void ResetOncePerRunWarnings() => _postedWarnings.Clear();
+
     private bool ChargeManaKnown(uint objectId)
     {
+        // An item this owner has never spent is ready as it stands. Only one
+        // it has just spent has to prove it changed, and that proof is the
+        // mana an appraisal reports -- which a one-shot charge does not
+        // carry at all, so demanding it up front ruled every charge out.
+        if (!_usedCharges.TryGetValue(objectId, out UsedChargeSnapshot used))
+            return true;
         if (!ConfiguredSupplyReadiness.TryCaptureProperties(
                 _host.Automation,
                 objectId,
@@ -388,8 +485,6 @@ internal sealed class ItemManaRechargeController
         {
             return false;
         }
-        if (!_usedCharges.TryGetValue(objectId, out UsedChargeSnapshot used))
-            return true;
 
         int assessmentVersion = AssessmentVersion(objectId);
         if (assessmentVersion == 0
@@ -421,6 +516,8 @@ internal sealed class ItemManaRechargeController
         _usedCharges.Clear();
         _wornAppraisedUntil.Clear();
         _wornAppraisalAsked.Clear();
+        _reportedLowItems.Clear();
+        _postedWarnings.Clear();
         _wornClock = 0d;
         _pending = null;
         _pendingSourceAssessmentVersion = 0;

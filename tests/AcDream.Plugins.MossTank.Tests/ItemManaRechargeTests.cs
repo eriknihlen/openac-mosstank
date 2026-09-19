@@ -7,10 +7,7 @@ public sealed class ItemManaRechargeTests
     [Fact]
     public void PlannerUsesProfiledManaChargeOnMostDepletedWornItem()
     {
-        var names = new HashSet<string>(StringComparer.Ordinal)
-        {
-            "Mana Charge",
-        };
+        var names = Kinds(("Mana Charge", ConsumableCategory.ManaSource));
         PluginInventoryItem planTarget = Item(20, "Low Wand") with
         {
             EquippedLocation = 0x01000000u,
@@ -34,7 +31,8 @@ public sealed class ItemManaRechargeTests
                     },
                 ],
                 names,
-                thresholdPercent: 33));
+                thresholdPercent: 33,
+                sourceMissing: out _));
 
         Assert.Equal(10u, plan.ChargeObjectId);
         Assert.Equal(20u, plan.TargetObjectId);
@@ -44,7 +42,7 @@ public sealed class ItemManaRechargeTests
     [Fact]
     public void TheOldestQueuedWornItemIsChargedFirstNotTheMostDepleted()
     {
-        var names = new HashSet<string>(StringComparer.Ordinal) { "Mana Charge" };
+        var names = Kinds(("Mana Charge", ConsumableCategory.ManaSource));
         PluginInventoryItem[] inventory =
         [
             Item(10, "Mana Charge", 0x00080000u) with
@@ -68,11 +66,16 @@ public sealed class ItemManaRechargeTests
 
         ItemManaRechargePlan queued = Assert.IsType<ItemManaRechargePlan>(
             ItemManaRechargePlanner.Plan(
-                inventory, names, thresholdPercent: 33, wieldOrder: [21u, 20u]));
+                inventory,
+                names,
+                thresholdPercent: 33,
+                sourceMissing: out _,
+                wieldOrder: [21u, 20u]));
         Assert.Equal(21u, queued.TargetObjectId);
 
         ItemManaRechargePlan depleted = Assert.IsType<ItemManaRechargePlan>(
-            ItemManaRechargePlanner.Plan(inventory, names, thresholdPercent: 33));
+            ItemManaRechargePlanner.Plan(
+                inventory, names, thresholdPercent: 33, sourceMissing: out _));
         Assert.Equal(20u, depleted.TargetObjectId);
     }
 
@@ -91,14 +94,22 @@ public sealed class ItemManaRechargeTests
             ItemMaximumMana = 100,
         };
 
+        // Nothing in the profile names the charge: there is a want and no
+        // source.
+        Assert.Null(ItemManaRechargePlanner.Plan(
+            [charge, wand with { ItemCurrentMana = 10 }],
+            Kinds(),
+            33,
+            out bool missing));
+        Assert.True(missing);
+        // The charge is named, but the wand is above the threshold, so
+        // nothing is wanted and no source is looked for.
         Assert.Null(ItemManaRechargePlanner.Plan(
             [charge, wand],
-            new HashSet<string>(StringComparer.Ordinal),
-            33));
-        Assert.Null(ItemManaRechargePlanner.Plan(
-            [charge, wand],
-            new HashSet<string>(StringComparer.Ordinal) { "Mana Charge" },
-            33));
+            Kinds(("Mana Charge", ConsumableCategory.ManaSource)),
+            33,
+            out missing));
+        Assert.False(missing);
     }
 
     /// <summary>
@@ -140,6 +151,7 @@ public sealed class ItemManaRechargeTests
         surface.Assess(thresholdItem, 100, (107u, 10), (108u, 100));
         var profiles = new CombatSettings();
         profiles.ConsumableNames.Add(charge.Name);
+        profiles.ConsumableCategories[charge.Name] = ConsumableCategory.ManaSource;
         var host = new Host(surface);
         var controller = new ItemManaRechargeController(
             host,
@@ -234,6 +246,7 @@ public sealed class ItemManaRechargeTests
     {
         PluginInventoryItem emptyStone = Item(10, "Mana Stone", 0x00080000u) with
         {
+            ObjectClass = PluginObjectClass.ManaStone,
             ItemCurrentMana = 100,
             Effects = 0u,
         };
@@ -245,9 +258,180 @@ public sealed class ItemManaRechargeTests
         };
         Assert.Null(ItemManaRechargePlanner.Plan(
             [emptyStone, armor],
-            new HashSet<string>(StringComparer.Ordinal) { emptyStone.Name },
-            33));
+            Kinds((emptyStone.Name, ConsumableCategory.ManaStone)),
+            33,
+            out bool missing));
+        Assert.True(missing);
     }
+
+    /// <summary>
+    /// A charged stone is spent before a one-shot charge, and a charge is
+    /// whatever the profile files under that kind -- a gem, a nut, anything.
+    /// The old planner asked for the mana-stone item type and a charged
+    /// effect, which no mana charge in the game carries, so a character with
+    /// nothing but charges could never top its gear up.
+    ///
+    /// Mutation: look for the charge before the stone, or narrow the charge
+    /// to the stone item type, and one of these two answers changes.
+    /// </summary>
+    [Fact]
+    public void AChargedStoneOutranksACharge_AndACharge_IsAnyKindSixItem()
+    {
+        PluginInventoryItem gemCharge = Item(11, "Great Mana Charge") with
+        {
+            ObjectClass = PluginObjectClass.Gem,
+        };
+        PluginInventoryItem chargedStone = Item(12, "Major Mana Stone") with
+        {
+            ObjectClass = PluginObjectClass.ManaStone,
+            Effects = 0x00000001u,
+        };
+        PluginInventoryItem wand = Item(20, "Low Wand") with
+        {
+            EquippedLocation = 1u,
+            ItemCurrentMana = 10,
+            ItemMaximumMana = 100,
+        };
+        var kinds = Kinds(
+            ("Great Mana Charge", ConsumableCategory.ManaSource),
+            ("Major Mana Stone", ConsumableCategory.ManaStone));
+
+        ItemManaRechargePlan both = Assert.IsType<ItemManaRechargePlan>(
+            ItemManaRechargePlanner.Plan(
+                [gemCharge, chargedStone, wand], kinds, 33, out _));
+        Assert.Equal(12u, both.ChargeObjectId);
+
+        ItemManaRechargePlan chargeOnly = Assert.IsType<ItemManaRechargePlan>(
+            ItemManaRechargePlanner.Plan(
+                [gemCharge, wand], kinds, 33, out _));
+        Assert.Equal(11u, chargeOnly.ChargeObjectId);
+    }
+
+    /// <summary>
+    /// The same order through the controller, with the real apply: a charged
+    /// stone is used when there is one, and a plain charge -- a gem, here --
+    /// when there is not.
+    ///
+    /// Mutation: swap the two lookups in the planner and the first case uses
+    /// the gem.
+    /// </summary>
+    [Theory]
+    [InlineData(true, 12u)]
+    [InlineData(false, 11u)]
+    public void TheControllerSpendsAStoneWhenThereIsOneAndACharge_Otherwise(
+        bool holdingAStone,
+        uint expected)
+    {
+        PluginInventoryItem gemCharge = Item(11, "Great Mana Charge") with
+        {
+            ObjectClass = PluginObjectClass.Gem,
+        };
+        PluginInventoryItem stone = Item(12, "Major Mana Stone") with
+        {
+            ObjectClass = PluginObjectClass.ManaStone,
+            Effects = 0x00000001u,
+        };
+        PluginInventoryItem wand = Item(20, "Low Wand") with
+        {
+            EquippedLocation = 0x00000002u,
+            ItemCurrentMana = 10,
+            ItemMaximumMana = 100,
+        };
+        var surface = new Surface
+        {
+            Inventory = holdingAStone
+                ? [gemCharge, stone, wand]
+                : [gemCharge, wand],
+        };
+        surface.Assess(wand, 100, (107u, 10), (108u, 100));
+        var profiles = new CombatSettings();
+        profiles.ConsumableCategories["Great Mana Charge"] =
+            ConsumableCategory.ManaSource;
+        profiles.ConsumableCategories["Major Mana Stone"] =
+            ConsumableCategory.ManaStone;
+        var host = new Host(surface);
+        var controller = new ItemManaRechargeController(
+            host,
+            new InventorySettings
+            {
+                RefillWornMana = true,
+                RefillWornManaPercent = 33,
+            },
+            profiles);
+
+        Assert.False(controller.Tick(canAct: true));
+        Assert.Equal([20u], surface.IdentifyRequests);
+        surface.ReplaceAssessmentVersion(20u, 101);
+
+        Assert.True(controller.Tick(canAct: true));
+
+        Assert.Equal([(expected, 1u)], surface.ApplyCalls);
+        Assert.Contains(
+            host.Logger.Infos,
+            line => line == "Item Low Wand low on mana, 10%, 10/100");
+    }
+
+    /// <summary>
+    /// Gear that wants mana with nothing in the pack to give it says so once
+    /// a run, not three times a second.
+    ///
+    /// Mutation: drop the once-a-run guard and the warning is counted many
+    /// times over; drop the "wanted but had nothing" answer from the planner
+    /// and it is never said at all.
+    /// </summary>
+    [Fact]
+    public void NothingToSpendOnLowGearIsSaidOnceARun()
+    {
+        PluginInventoryItem wand = Item(20, "Low Wand") with
+        {
+            EquippedLocation = 0x00000002u,
+            ItemCurrentMana = 10,
+            ItemMaximumMana = 100,
+        };
+        var surface = new Surface { Inventory = [wand] };
+        surface.Assess(wand, 100, (107u, 10), (108u, 100));
+        var host = new Host(surface);
+        var controller = new ItemManaRechargeController(
+            host,
+            new InventorySettings
+            {
+                RefillWornMana = true,
+                RefillWornManaPercent = 33,
+            },
+            new CombatSettings());
+
+        Assert.False(controller.Tick(canAct: true));
+        surface.ReplaceAssessmentVersion(20u, 101);
+        for (int pass = 0; pass < 5; pass++)
+            Assert.False(controller.Tick(canAct: true, elapsedSeconds: 0.3d));
+
+        Assert.Equal("No mana charge or stone to spend", controller.Status);
+        Assert.Equal(
+            1,
+            host.Logger.Infos.Count(line => line.StartsWith(
+                "Warning: No mana charges/stones available",
+                StringComparison.Ordinal)));
+        // The item's own line is said once too, while it says the same thing.
+        Assert.Equal(
+            1,
+            host.Logger.Infos.Count(
+                line => line == "Item Low Wand low on mana, 10%, 10/100"));
+
+        controller.ResetOncePerRunWarnings();
+        Assert.False(controller.Tick(canAct: true, elapsedSeconds: 0.3d));
+        Assert.Equal(
+            2,
+            host.Logger.Infos.Count(line => line.StartsWith(
+                "Warning: No mana charges/stones available",
+                StringComparison.Ordinal)));
+    }
+
+    private static IReadOnlyDictionary<string, ConsumableCategory> Kinds(
+        params (string Name, ConsumableCategory Kind)[] rows) =>
+        rows.ToDictionary(
+            static row => row.Name,
+            static row => row.Kind,
+            StringComparer.Ordinal);
 
     /// <summary>
     /// Worn gear is appraised once and then let alone for two to six minutes
@@ -279,6 +463,7 @@ public sealed class ItemManaRechargeTests
         surface.Assess(worn, 100, (107u, 90), (108u, 100));
         var profiles = new CombatSettings();
         profiles.ConsumableNames.Add(charge.Name);
+        profiles.ConsumableCategories[charge.Name] = ConsumableCategory.ManaSource;
         var controller = new ItemManaRechargeController(
             new Host(surface),
             new InventorySettings

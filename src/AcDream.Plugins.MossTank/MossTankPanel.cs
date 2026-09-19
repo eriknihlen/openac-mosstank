@@ -4883,6 +4883,7 @@ internal sealed partial class MossTankPanel : IBuffRuleHost, IDisposable
         _combatModeGate.ResetOncePerRunWarnings();
         _navigation.ResetOncePerRunWarnings();
         _buffRule.ResetOncePerRunWarnings();
+        _itemManaRecharge.ResetOncePerRunWarnings();
     }
 
     public void OnTick(double elapsedSeconds)
