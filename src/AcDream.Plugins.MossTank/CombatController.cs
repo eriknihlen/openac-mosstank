@@ -1,4 +1,4 @@
-﻿using System.Globalization;
+using System.Globalization;
 using AcDream.Plugin.Abstractions;
 
 namespace AcDream.Plugins.MossTank;
@@ -25,7 +25,7 @@ internal sealed class CombatController
     private double _lastElapsedSeconds;
 
     private uint _plannedWeapon;
-    private uint _plannedOffhand;
+    private uint? _plannedOffhand;
 
     private double _untilScan;
     private double _acquisitionRange;
@@ -1475,7 +1475,7 @@ internal sealed class CombatController
     private bool TickEquipment()
     {
         _plannedWeapon = 0u;
-        _plannedOffhand = 0u;
+        _plannedOffhand = null;
 
         MonsterRuleActions actions = _targetRule.Actions;
         bool primaryRequiresWeapon = actions.UsesPrimaryAttack
@@ -1510,10 +1510,7 @@ internal sealed class CombatController
             }
         }
         _plannedWeapon = desiredWeapon;
-        _plannedOffhand = ResolveEquipmentObjectId(
-            actions.OffhandObjectId,
-            actions.OffhandName,
-            items);
+        _plannedOffhand = ResolveSecondaryEquipment(actions, items, desiredWeapon);
         return false;
     }
 
@@ -1772,6 +1769,7 @@ internal sealed class CombatController
             InProfileOrder(items),
             item => (_settings.CombatItemObjectIds.Contains(item.ObjectId)
                 || _settings.CombatItemNames.Contains(item.Name))
+                && (VtankItemUseSpecifiers.UsesFor(_settings, item.ObjectId) & 1) != 0
                 && ConfiguredSupplyReadiness.IsAssessed(_host.Automation, item.ObjectId),
             wanted,
             SpeciesOf(in subject),
@@ -3215,20 +3213,64 @@ internal sealed class CombatController
                 equipment);
         if (weapon == 0u && actions.WeaponToUseRaw != 0)
             weapon = SelectAutomaticWeapon(equipment, actions, target);
-        uint offhand = ResolveEquipmentObjectId(
-            actions.OffhandObjectId,
-            actions.OffhandName,
-            equipment);
-        if (offhand == 0u)
-        {
-            offhand = ResolveInventoryObjectId(
-                actions.OffhandObjectId,
-                actions.OffhandName,
-                inventory);
-        }
+        uint offhand = ResolveSecondaryEquipment(actions, equipment, weapon)
+            ?? ResolveInventoryObjectId(actions.OffhandObjectId, actions.OffhandName, inventory);
         return (weapon, offhand, element);
     }
 
+    private uint? ResolveSecondaryEquipment(MonsterRuleActions actions,
+        IReadOnlyList<PluginEquipmentItem> items, uint primary)
+    {
+        if (actions.OffhandObjectId != 0u || actions.OffhandName.Length != 0)
+            return ResolveEquipmentObjectId(actions.OffhandObjectId, actions.OffhandName, items);
+        return actions.SecondaryEquipRaw switch
+        {
+            (int)VtankSecondaryEquip.None => 0u,
+            (int)VtankSecondaryEquip.AutoWeapon => SelectAutomaticSecondaryWeapon(items, primary),
+            (int)VtankSecondaryEquip.AutoShield => null,
+            (int)VtankSecondaryEquip.Auto => ResolveAutomaticSecondary(items, primary),
+            _ => 0u,
+        };
+    }
+
+    private uint? ResolveAutomaticSecondary(IReadOnlyList<PluginEquipmentItem> items, uint primary)
+    {
+        bool shield = IsTrained(_host.Automation.Character, 48u);
+        bool dualWield = IsTrained(_host.Automation.Character, 49u);
+        uint shieldItem = SelectAutomaticShield(items);
+        if (shield && !dualWield)
+            return shieldItem;
+        uint weapon = SelectAutomaticSecondaryWeapon(items, primary);
+        if (!shield && dualWield)
+            return weapon;
+        return shieldItem != 0u ? shieldItem : weapon;
+    }
+    private uint SelectAutomaticShield(IReadOnlyList<PluginEquipmentItem> items)
+    {
+        foreach (PluginEquipmentItem item in InProfileOrder(items))
+        {
+            if (item.ValidLocations == 0x00200000u
+                && item.ObjectClass is not (PluginObjectClass.MeleeWeapon or PluginObjectClass.MissileWeapon or PluginObjectClass.WandStaffOrb)
+                && (_settings.CombatItemObjectIds.Contains(item.ObjectId) || _settings.CombatItemNames.Contains(item.Name)))
+                return item.ObjectId;
+        }
+        return 0u;
+    }
+    private uint SelectAutomaticSecondaryWeapon(IReadOnlyList<PluginEquipmentItem> items, uint primary)
+    {
+        foreach (PluginEquipmentItem item in InProfileOrder(items))
+        {
+            if (item.ObjectId == primary || item.ObjectClass != PluginObjectClass.MeleeWeapon
+                || (item.ValidLocations & 0x02000000u) != 0u
+                || (VtankItemUseSpecifiers.UsesFor(_settings, item.ObjectId) & 2) == 0
+                || (!_settings.CombatItemObjectIds.Contains(item.ObjectId)
+                    && !_settings.CombatItemNames.Contains(item.Name))
+                || !ConfiguredSupplyReadiness.IsAssessed(_host.Automation, item.ObjectId))
+                continue;
+            return item.ObjectId;
+        }
+        return 0u;
+    }
     private MonsterDamageType ResolveAttackElement(
         MonsterRuleActions actions,
         in PluginCombatTarget target)
@@ -3335,7 +3377,11 @@ internal sealed class CombatController
         // Nothing was named and nothing could be picked for the element the
         // rule asked for, so the weapon already in hand is what the fight will
         // be had with.
-        return CombatModeGate.FindWielded(owned)?.ObjectId ?? 0u;
+        PluginEquipmentItem? wielded = CombatModeGate.FindWielded(owned);
+        return wielded is { } current
+            && (VtankItemUseSpecifiers.UsesFor(_settings, current.ObjectId) & 1) != 0
+                ? current.ObjectId
+                : 0u;
     }
 
     /// <summary>
@@ -3776,7 +3822,7 @@ internal sealed class CombatController
         // latch up.
         _castTracker.Reset();
         _plannedWeapon = 0u;
-        _plannedOffhand = 0u;
+        _plannedOffhand = null;
         Gate.Reset();
         _randomDamageIndex = 0;
         _observedJiggleCastCompletion = 0;

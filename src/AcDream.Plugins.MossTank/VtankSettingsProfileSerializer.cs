@@ -53,6 +53,7 @@ internal static class VtankSettingsProfileSerializer
         }
         VtankProfiledItemIds.Read(database, target.Combat, target.Buffs,
             target.PlayerObjectId());
+        VtankItemUseSpecifiers.Read(database, target.Combat);
         VtankAssistItems.Read(database, target.Combat);
         VtankGemFoodItems.Read(database, target.Buffs);
         VtankBuffExemplars.Read(database, target.Buffs);

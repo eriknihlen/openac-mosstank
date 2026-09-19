@@ -3148,7 +3148,9 @@ internal sealed partial class MossTankPanel : IBuffRuleHost, IDisposable
         foreach (PluginInventoryItem item in
             _host.Automation.Items.CaptureOwnedItems())
         {
-            if (_combatSettings.ConsumableNames.Contains(item.Name))
+            if (_combatSettings.ConsumableNames.Contains(item.Name)
+                && !_combatSettings.ImportedAssistItems.Any(imported =>
+                    string.Equals(imported.Name, item.Name, StringComparison.Ordinal)))
             {
                 if (_host.Automation.Items.TryCaptureProperties(item.ObjectId, out PluginItemProperties properties)
                     && ProfileItemAdmission.TryConsumable(item, properties, _host.Automation,

@@ -150,6 +150,7 @@ internal sealed class CombatSettings
     public IDictionary<string, ConsumableCategory> ConsumableCategories { get; } =
         new Dictionary<string, ConsumableCategory>(StringComparer.Ordinal);
     internal IList<AssistItem> ImportedAssistItems { get; } = new List<AssistItem>();
+    internal IDictionary<uint, int> ItemUseSpecifiers { get; } = new Dictionary<uint, int>();
     public IList<MonsterRule> Rules { get; } =
         new List<MonsterRule> { new("DEFAULT", 0) };
 

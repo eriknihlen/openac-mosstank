@@ -89,6 +89,35 @@ public sealed class VtankSettingsProfileSerializerTests
         Assert.Equal(original, VtankSettingsProfileSerializer.Save(loaded, settings));
     }
 
+    /// <summary>
+    /// Mutation <c>DiscardSignedItemUseSpecifierIds</c>: parse Object as a
+    /// positive integer; the signed object id is no longer available to the
+    /// automatic hand filter.
+    /// </summary>
+    [Fact]
+    public void ItemUseSpecifiersRetainSignedIdsAndClearOnProfileSwitch()
+    {
+        const uint signed = 0x8000_DF43u;
+        VtankDatabase first = VtankDefaultSettingsDatabase.Parse();
+        VtankTable table = first.Find("ItemUseSpecifiers")!;
+        table.Rows.Add(new VtankRow { Cells = { VtankCell.Int(unchecked((int)signed)), VtankCell.Int(0) } });
+        table.Rows.Add(new VtankRow { Cells = { VtankCell.Int(2), VtankCell.Int(1) } });
+        table.Rows.Add(new VtankRow { Cells = { VtankCell.Int(3), VtankCell.Int(2) } });
+        table.Rows.Add(new VtankRow { Cells = { VtankCell.Int(4), VtankCell.Int(3) } });
+        VtankDatabase second = VtankDefaultSettingsDatabase.Parse();
+        second.Tables.RemoveAll(static entry => entry.Name == "ItemUseSpecifiers");
+        var settings = NewSettings();
+
+        VtankSettingsProfileSerializer.Load(first.Render(), settings);
+        Assert.Equal(0, VtankItemUseSpecifiers.UsesFor(settings.Combat, signed));
+        Assert.Equal(1, VtankItemUseSpecifiers.UsesFor(settings.Combat, 2));
+        Assert.Equal(2, VtankItemUseSpecifiers.UsesFor(settings.Combat, 3));
+        Assert.Equal(3, VtankItemUseSpecifiers.UsesFor(settings.Combat, 4));
+        Assert.Equal(3, VtankItemUseSpecifiers.UsesFor(settings.Combat, 99));
+
+        VtankSettingsProfileSerializer.Load(second.Render(), settings);
+        Assert.Empty(settings.Combat.ItemUseSpecifiers);
+    }
     [Fact]
     public void LoadingAProfileWithoutBuffedItemsClearsEarlierProfiledRows()
     {

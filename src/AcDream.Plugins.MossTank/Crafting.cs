@@ -511,13 +511,16 @@ internal sealed class CraftingController
     internal ISet<string> PeaConsumableNames()
     {
         var imported = _profiles.ImportedAssistItems
-            .Select(static item => item.Name)
-            .ToHashSet(StringComparer.Ordinal);
+            .GroupBy(static item => item.Name, StringComparer.Ordinal)
+            .ToDictionary(static group => group.Key, static group => group.Last().Category,
+                StringComparer.Ordinal);
         return _profiles.ConsumableNames
-            .Where(name => !imported.Contains(name)
-                || _profiles.ConsumableCategories.TryGetValue(name, out ConsumableCategory category)
-                && category is ConsumableCategory.Pea or ConsumableCategory.AllPeas)
+            .Where(name => !imported.TryGetValue(name, out ConsumableCategory category)
+                || (name == CraftingPlanner.AllPeas
+                    ? category == ConsumableCategory.AllPeas
+                    : category == ConsumableCategory.Pea))
             .ToHashSet(StringComparer.Ordinal);
+
     }
     private CraftingPlan? PlanCategoryCraft(
         IReadOnlyList<PluginInventoryItem> inventory,
