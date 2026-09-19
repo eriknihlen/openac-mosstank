@@ -177,6 +177,7 @@ internal sealed class ItemManaRechargeController
         _wornAppraisalAsked = [];
 
     private double _wornClock;
+    private ulong _chatSequence;
 
     public ItemManaRechargeController(
         IPluginHost host,
@@ -194,6 +195,7 @@ internal sealed class ItemManaRechargeController
     {
         IItemAutomation items = _host.Automation.Items;
         _wornClock += Math.Max(0d, elapsedSeconds);
+        ObserveRefillAnnouncement();
         foreach (PluginInventoryItem item in items.CaptureOwnedItems())
         {
             if ((item.Effects & 1u) == 0u
@@ -519,10 +521,49 @@ internal sealed class ItemManaRechargeController
         _reportedLowItems.Clear();
         _postedWarnings.Clear();
         _wornClock = 0d;
+        _chatSequence = 0u;
         _pending = null;
         _pendingSourceAssessmentVersion = 0;
         _pendingRecipientObjectId = 0u;
         Status = "Worn mana ready";
+    }
+
+    /// <summary>
+    /// The line the server prints when a charge is spent, which names every
+    /// item that took mana from it. The server sends no property update for
+    /// those items, so this line and the receipt are the only two ways of
+    /// knowing that every reading of worn gear is now out of date.
+    /// </summary>
+    private const string RefillAnnouncement =
+        "points of mana to the following items";
+
+    private void ObserveRefillAnnouncement()
+    {
+        foreach (PluginChatMessage message in
+            _host.Automation.Chat.CaptureMessages(_chatSequence))
+        {
+            _chatSequence = Math.Max(_chatSequence, message.Sequence);
+            if (message.Text is { } text
+                && text.Contains(RefillAnnouncement, StringComparison.Ordinal))
+            {
+                ForgetWornReadings();
+            }
+        }
+    }
+
+    /// <summary>
+    /// Give up every reading of worn gear. A refill moves mana into items the
+    /// server then says nothing more about, so the numbers held for them are
+    /// worth no more than a guess: the gear is asked about again, and nothing
+    /// is spent on it until fresh answers arrive. Without this the same gear
+    /// read low for the next two to six minutes and every charge carried was
+    /// poured into kit that was already full.
+    /// </summary>
+    private void ForgetWornReadings()
+    {
+        _wornAppraisedUntil.Clear();
+        _wornAppraisalAsked.Clear();
+        _reportedLowItems.Clear();
     }
 
     private int AssessmentVersion(uint objectId) =>
@@ -561,6 +602,7 @@ internal sealed class ItemManaRechargeController
                 $"{pending.ChargeName} (0x{pending.ChargeObjectId:X8}), " +
                 $"priorVersion={_pendingSourceAssessmentVersion}, " +
                 $"result={assessment.Status}");
+            ForgetWornReadings();
         }
         Status = completion.IsSuccess
             ? $"Refilled {pending.TargetName}"

@@ -213,7 +213,9 @@ public sealed class ItemManaRechargeTests
         ];
 
         Assert.False(controller.Tick(canAct: true));
-        Assert.Equal([10u], surface.IdentifyRequests);
+        // The spent charge, and the worn gear the refill has just made a
+        // stranger of: a refill ends the life of every reading.
+        Assert.Equal([10u, 19u, 20u], surface.IdentifyRequests);
         Assert.Equal([(10u, 1u)], surface.ApplyCalls);
 
         // A newer stamp alone is insufficient because appraisal application
@@ -230,6 +232,11 @@ public sealed class ItemManaRechargeTests
         // A real empty-to-charged transition may refill to exactly the old amount.
         surface.Inventory = [charge, missingCurrentMana, thresholdItem];
         Assert.False(controller.Tick(canAct: true)); // Still the appraisal from before charging.
+        // The worn gear answers the questions the refill made it owe, so it
+        // can be spent on again; without them nothing more would be spent.
+        surface.ReplaceAssessmentVersion(19u, 102);
+        surface.ReplaceAssessmentVersion(20u, 102);
+        Assert.False(controller.Tick(canAct: true));
         surface.ReplaceAssessmentVersion(charge.ObjectId, 102);
         Assert.True(controller.Tick(canAct: true));
         Assert.Equal([(10u, 1u), (10u, 1u)], surface.ApplyCalls);
@@ -426,6 +433,96 @@ public sealed class ItemManaRechargeTests
                 StringComparison.Ordinal)));
     }
 
+    /// <summary>
+    /// A refill moves mana into every worn item at once and the server says
+    /// nothing further about any of them: the only word of it is the line it
+    /// prints. So a refill ends the life of every reading this owner holds,
+    /// and nothing more is spent until fresh ones arrive. Without that, gear
+    /// went on reading low for two to six minutes and every charge in the
+    /// pack was poured into kit that was already full.
+    ///
+    /// Mutation: leave the readings standing after a refill and all three
+    /// charges are spent on the one item.
+    /// </summary>
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void ARefillEndsEveryReadingOfWornGear(bool throughTheSpokenLine)
+    {
+        PluginInventoryItem[] charges =
+        [
+            Item(10, "Mana Charge", 0x00080000u) with
+            {
+                ItemCurrentMana = 100,
+                Effects = 0x00000001u,
+            },
+            Item(11, "Mana Charge", 0x00080000u) with
+            {
+                ItemCurrentMana = 100,
+                Effects = 0x00000001u,
+            },
+            Item(12, "Mana Charge", 0x00080000u) with
+            {
+                ItemCurrentMana = 100,
+                Effects = 0x00000001u,
+            },
+        ];
+        PluginInventoryItem worn = Item(20, "Low Gauntlets") with
+        {
+            EquippedLocation = 0x00000002u,
+            ItemCurrentMana = 10,
+            ItemMaximumMana = 100,
+        };
+        var surface = new Surface { Inventory = [.. charges, worn] };
+        foreach (PluginInventoryItem charge in charges)
+            surface.Assess(charge, 100, (107u, 100));
+        surface.Assess(worn, 100, (107u, 10), (108u, 100));
+        var profiles = new CombatSettings();
+        profiles.ConsumableNames.Add("Mana Charge");
+        profiles.ConsumableCategories["Mana Charge"] =
+            ConsumableCategory.ManaSource;
+        var controller = new ItemManaRechargeController(
+            new Host(surface),
+            new InventorySettings
+            {
+                RefillWornMana = true,
+                RefillWornManaPercent = 33,
+            },
+            profiles);
+
+        Assert.False(controller.Tick(canAct: true));
+        surface.ReplaceAssessmentVersion(20u, 101);
+        Assert.True(controller.Tick(canAct: true));
+        Assert.Equal([(10u, 1u)], surface.ApplyCalls);
+
+        if (throughTheSpokenLine)
+        {
+            // A receipt that says nothing good, so the spoken line is the
+            // only thing here that can end the readings -- and the wait on
+            // the receipt is over either way.
+            surface.LastItemCompletion = new PluginItemUseCompletion(
+                1L, 10u, surface.ObjectId, 0x1Du);
+            surface.ChatMessages.Add(new PluginChatMessage(
+                1u,
+                0u,
+                0,
+                string.Empty,
+                "The Mana Stone gives 1,200 points of mana to the "
+                    + "following items: Low Gauntlets",
+                string.Empty));
+        }
+        else
+        {
+            surface.LastItemCompletion = new PluginItemUseCompletion(
+                1L, 10u, surface.ObjectId, 0u);
+        }
+
+        for (int pass = 0; pass < 10; pass++)
+            controller.Tick(canAct: true, elapsedSeconds: 0.3d);
+
+        Assert.Equal([(10u, 1u)], surface.ApplyCalls);
+    }
+
     private static IReadOnlyDictionary<string, ConsumableCategory> Kinds(
         params (string Name, ConsumableCategory Kind)[] rows) =>
         rows.ToDictionary(
@@ -524,8 +621,15 @@ public sealed class ItemManaRechargeTests
         IAutomationSurface,
         ICharacterInfo,
         IItemAutomation,
+        IPluginChat,
         IWorldObjectAutomation
     {
+        public List<PluginChatMessage> ChatMessages { get; } = [];
+        public IReadOnlyList<PluginChatMessage> CaptureMessages(
+            ulong afterSequence) => ChatMessages
+                .Where(message => message.Sequence > afterSequence)
+                .ToArray();
+        public void PostSystemMessage(string text) { }
         private readonly Dictionary<uint, PluginWorldObject> _objects = [];
         private readonly Dictionary<uint, PluginItemProperties> _properties = [];
 
@@ -533,7 +637,7 @@ public sealed class ItemManaRechargeTests
         public ICharacterInfo Character => this;
         public ISpellCatalog Spells => NoOpAutomationSurface.Instance;
         public IMagicCommands Magic => NoOpAutomationSurface.Instance;
-        public IPluginChat Chat => NoOpAutomationSurface.Instance;
+        public IPluginChat Chat => this;
         public IItemAutomation Items => this;
         public IWorldObjectAutomation Objects => this;
         public bool IsInWorld => true;
