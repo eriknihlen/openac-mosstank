@@ -20,13 +20,53 @@ public sealed class ManaStoneSupplyTests
         Assert.Null(Plan(Donor with { NumTimesTinkered = 1 }));
         Assert.Null(Plan(Donor with { EquippedLocation = 1 }));
         Assert.Null(Plan(Donor with { WielderObjectId = 1 }));
-        Assert.Null(Plan(Donor with { PublicFlags = 0x01000000 }));
-        Assert.Null(Plan(Donor with { ItemCurrentMana = 999 }));
         Assert.Null(Plan(Donor with { Effects = 0 }));
-        Assert.Null(Plan(Donor with { ObjectClass = PluginObjectClass.ManaStone }));
+        // The floor is exact: one point short is short.
+        Assert.Null(Plan(Donor with { ItemCurrentMana = 999 }));
+        Assert.NotNull(Plan(Donor with { ItemCurrentMana = 1000 }));
+        Assert.NotNull(Plan(Donor with { ItemCurrentMana = 1001 }));
         classes[20] = LootAction.Keep;
         Assert.Null(Plan(Donor));
     }
+
+    /// <summary>
+    /// Nobody's writing gets emptied into a stone. Either half of an
+    /// inscription -- the text or the name of whoever wrote it -- says the
+    /// item was meant to be kept.
+    ///
+    /// Mutation: drop either key from <c>IsUninscribed</c> and its case here
+    /// becomes a drainable donor.
+    /// </summary>
+    [Theory]
+    [InlineData(7u)]
+    [InlineData(8u)]
+    public void AnInscribedDonorIsNeverDrained(uint written)
+    {
+        var classes = new Dictionary<uint, LootAction> { [20] = LootAction.ManaTank };
+        PluginItemProperties? Written(uint objectId) => Text(
+            objectId == 20 ? new Dictionary<uint, string> { [written] = "Erik" }
+                : new Dictionary<uint, string>());
+
+        Assert.NotNull(ManaStoneTransferPlanner.Plan(
+            [Stone, Donor], classes, 1000, ProfiledStone, null,
+            static _ => Text(new Dictionary<uint, string>())));
+        Assert.Null(ManaStoneTransferPlanner.Plan(
+            [Stone, Donor], classes, 1000, ProfiledStone, null, Written));
+        // Properties the client cannot produce are not a licence to drain.
+        Assert.Null(ManaStoneTransferPlanner.Plan(
+            [Stone, Donor], classes, 1000, ProfiledStone, null,
+            static _ => null));
+    }
+
+    private static PluginItemProperties Text(
+        IReadOnlyDictionary<uint, string> strings) => new(
+            new Dictionary<uint, int>(),
+            new Dictionary<uint, long>(),
+            new Dictionary<uint, bool>(),
+            new Dictionary<uint, double>(),
+            strings,
+            new Dictionary<uint, uint>(),
+            new Dictionary<uint, uint>());
 
     [Fact]
     public void ChargedUnconfiguredOrHeldSourcesCannotDrainDonors()

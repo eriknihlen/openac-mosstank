@@ -150,4 +150,102 @@ public sealed partial class LootingTests
 
         Assert.Contains($"LootDecision: Major Mana Stone -> {expected}", logged);
     }
+
+    /// <summary>
+    /// The whole drain, through the looter: a charged item found on a corpse
+    /// while a spare stone is held is taken for its mana and emptied into the
+    /// stone -- unless somebody has written on it, in which case it is taken
+    /// and left alone.
+    ///
+    /// Mutation: drop the inscription check from the drain and the written
+    /// case issues the same use as the plain one.
+    /// </summary>
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void ACorpseDonorIsDrainedIntoASpareStoneUnlessSomebodyWroteOnIt(
+        bool inscribed)
+    {
+        const uint corpse = 0x70009201u;
+        const uint stone = 0x70009210u;
+        const uint donor = 0x70009211u;
+        PluginInventoryItem spare = Item(stone, "Major Mana Stone", 47u) with
+        {
+            ObjectClass = PluginObjectClass.ManaStone,
+        };
+        PluginInventoryItem wand = Item(donor, "Sturdy Wand", 48u) with
+        {
+            Effects = 1u,
+            ItemCurrentMana = 1500,
+            Workmanship = 5f,
+        };
+        var automation = new Automation
+        {
+            Corpses =
+            [
+                new PluginLootContainer(
+                    corpse, 1u, "Corpse", 3f, false, false, false)
+                {
+                    IsIdentified = true,
+                    LongDescription = "Killed by Tester.",
+                },
+            ],
+            Owned = [spare],
+        };
+        if (inscribed)
+        {
+            automation.ItemProperties[donor] = new PluginItemProperties(
+                new Dictionary<uint, int>(),
+                new Dictionary<uint, long>(),
+                new Dictionary<uint, bool>(),
+                new Dictionary<uint, double>(),
+                new Dictionary<uint, string> { [7u] = "For Horan" },
+                new Dictionary<uint, uint>(),
+                new Dictionary<uint, uint>());
+        }
+        var settings = new LootSettings
+        {
+            Enabled = true,
+            ManaStoneLootCount = 4,
+            ManaTankMinimumMana = 1000,
+        };
+        settings.Rules.Add(VtankRule(
+            "Leave junk", LootAction.NoLoot, Requirement(1, "Junk", "1")));
+        var controller = new LootController(
+            new Host(automation),
+            settings,
+            new HashSet<string>(StringComparer.Ordinal) { "Major Mana Stone" },
+            new Dictionary<string, ConsumableCategory>(StringComparer.Ordinal)
+            {
+                ["Major Mana Stone"] = ConsumableCategory.ManaStone,
+            });
+
+        Assert.True(controller.Tick(1d, canAct: true));
+        automation.Requested = corpse;
+        automation.Current = corpse;
+        automation.Contents = [wand];
+        controller.TickIdentification(0.5d);
+        Assert.Equal([donor], automation.Identified);
+
+        automation.AppraisalState = new PluginAppraisalState(1, 0u, donor);
+        controller.TickIdentification(0.5d);
+        Assert.True(controller.Tick(0.1d, canAct: true));
+        Assert.Equal([donor], automation.Picked);
+
+        automation.Contents = [];
+        automation.Owned = [spare, wand];
+        automation.InventoryCompletion = new PluginInventoryCompletion(
+            1, PluginInventoryCommandKind.Pickup, donor, 0u);
+        controller.TickIdentification(0.5d);
+        Assert.True(controller.Tick(0.1d, canAct: true));
+        Assert.Equal(LootAction.ManaTank, controller.ClassifiedOwnedItems[donor]);
+
+        // The corpse is done; the drain is what is left to do.
+        for (int pass = 0; pass < 4 && automation.Applied.Count == 0; pass++)
+            controller.Tick(0.2d, canAct: true);
+
+        Assert.Equal(
+            inscribed ? [] : new[] { (stone, donor) },
+            automation.Applied);
+    }
 }

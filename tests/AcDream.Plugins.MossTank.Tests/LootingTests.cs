@@ -2459,6 +2459,17 @@ public sealed partial class LootingTests
             Used.Add(objectId);
             return new(PluginItemCommandStatus.Started);
         }
+        /// <summary>
+        /// Every "use this on that" the looter issued. The mana drain is one
+        /// of these, and a fake without it left the whole drain step
+        /// unreachable from any test.
+        /// </summary>
+        public List<(uint Source, uint Target)> Applied { get; } = [];
+        public PluginItemCommandResult Apply(uint objectId, uint targetObjectId)
+        {
+            Applied.Add((objectId, targetObjectId));
+            return new(PluginItemCommandStatus.Started);
+        }
         public List<uint> Picked { get; } = [];
         public Queue<PluginItemCommandStatus> PickupResults { get; } = [];
         public List<uint> Identified { get; } = [];

@@ -170,25 +170,46 @@ internal readonly record struct ManaStoneTransferPlan(
 internal static class ManaStoneTransferPlanner
 {
     private const uint MagicalEffect = 0x00000001u;
-    private const uint RetainedFlag = 0x01000000u;
+    private const uint InscriptionProperty = 7u;
+    private const uint ScribeProperty = 8u;
 
+    /// <summary>
+    /// An item worth emptying into a stone: something of the character's own
+    /// making that still holds mana. Four things decide it -- it carries its
+    /// own charge, it holds at least the floor the profile set, it has a
+    /// workmanship of its own, and nobody has tinkered it. A tinkered item is
+    /// somebody's work and draining it would be the last thing they wanted.
+    /// </summary>
     internal static bool IsDonor(PluginInventoryItem item, int minimumTankMana) =>
         !item.IsEquipped
         && item.WielderObjectId == 0u
-        && item.ObjectClass != PluginObjectClass.ManaStone
-        && (item.ItemType & 0x00080000u) == 0u
         && (item.Effects & MagicalEffect) != 0u
-        && item.ItemCurrentMana >= Math.Max(1, minimumTankMana)
+        && item.ItemCurrentMana >= minimumTankMana
         && item.Workmanship > 0f
-        && item.NumTimesTinkered <= 0
-        && (item.PublicFlags & RetainedFlag) == 0u;
+        && item.NumTimesTinkered <= 0;
+
+    /// <summary>
+    /// Whether nobody has written on the item. An inscribed item carries both
+    /// the text and the name of whoever wrote it, and either one is enough to
+    /// say that somebody meant to keep it. Checked where the character
+    /// already holds the item, because that is where the writing is known.
+    /// </summary>
+    internal static bool IsUninscribed(in PluginItemProperties properties) =>
+        !HasText(properties, InscriptionProperty)
+        && !HasText(properties, ScribeProperty);
+
+    private static bool HasText(in PluginItemProperties properties, uint key) =>
+        properties.Strings is { } strings
+        && strings.TryGetValue(key, out string? text)
+        && !string.IsNullOrEmpty(text);
 
     public static ManaStoneTransferPlan? Plan(
         IReadOnlyList<PluginInventoryItem> owned,
         IReadOnlyDictionary<uint, LootAction> classified,
         int minimumTankMana,
         Func<PluginInventoryItem, bool>? isProfiledManaStone = null,
-        Func<uint, bool>? canUse = null)
+        Func<uint, bool>? canUse = null,
+        Func<uint, PluginItemProperties?>? capture = null)
     {
         PluginInventoryItem stone = owned
             .Where(item => !item.IsEquipped
@@ -206,7 +227,10 @@ internal static class ManaStoneTransferPlanner
                     out LootAction action)
                 && action == LootAction.ManaTank
                 && IsDonor(item, minimumTankMana)
-                && (canUse?.Invoke(item.ObjectId) ?? true))
+                && (canUse?.Invoke(item.ObjectId) ?? true)
+                && (capture is null
+                    || (capture(item.ObjectId) is { } written
+                        && IsUninscribed(written))))
             .OrderByDescending(static item => item.ItemCurrentMana)
             .ThenBy(static item => item.ObjectId)
             .FirstOrDefault();
@@ -1602,12 +1626,20 @@ internal sealed partial class LootController
             _classifiedOwnedItems,
             _settings.ManaTankMinimumMana,
             item => IsProfiledManaStone(item),
-            CanUseManaItem) is not null;
+            CanUseManaItem,
+            CaptureOwnedProperties) is not null;
     }
 
     private bool CanUseManaItem(uint objectId) =>
         !_uncertainManaItems.Contains(objectId)
         && ConfiguredSupplyReadiness.IsAssessed(_host.Automation, objectId);
+
+    private PluginItemProperties? CaptureOwnedProperties(uint objectId) =>
+        _host.Automation.Items.TryCaptureProperties(
+            objectId,
+            out PluginItemProperties properties)
+            ? properties
+            : null;
 
     private bool ContinueManaStoneTransfer(bool canAct)
     {
@@ -1651,7 +1683,8 @@ internal sealed partial class LootController
             _classifiedOwnedItems,
             _settings.ManaTankMinimumMana,
             item => IsProfiledManaStone(item),
-            CanUseManaItem);
+            CanUseManaItem,
+            CaptureOwnedProperties);
         if (plan is not { } next)
             return false;
         PluginItemCommandResult result = items.Apply(
