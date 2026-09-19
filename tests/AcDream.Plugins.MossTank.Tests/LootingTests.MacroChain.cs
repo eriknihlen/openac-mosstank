@@ -190,6 +190,44 @@ public sealed partial class LootingTests
     }
 
     /// <summary>
+    /// The reference arms the item slot, navigation and the corpse-open
+    /// slot after EVERY open attempt, whether the use went out or came
+    /// back refused, and that slot is what paces the retries. Without it
+    /// the attempt ceiling is spent at the heartbeat -- thirty tries in a
+    /// few seconds -- and a corpse that would have opened on the next pass
+    /// is written off for the profile's blacklist timeout. Mutation: drop
+    /// the <c>ArmCorpseOpenSlots</c> call from the refused-open branch and
+    /// the second attempt lands on the very next turn.
+    /// </summary>
+    [Fact]
+    public void ARefusedOpenPacesTheNextAttemptOnTheOpenSlot()
+    {
+        const uint corpse = 0x70001172u;
+        LootSettings settings = ChainSettings();
+        settings.CorpseOpenTimeoutSeconds = 1.5d;
+        var automation = new Automation
+        {
+            Corpses = [ChainCorpse(corpse)],
+            OpenResult = PluginItemCommandStatus.Refused,
+        };
+        var controller = new LootController(new Host(automation), settings);
+        var locks = new ActionLockTable();
+        controller.BindActionLocks(locks);
+
+        controller.Tick(0.3d, canAct: true);
+        Assert.Equal([corpse], automation.Opened);
+        Assert.True(locks.IsLocked(ActionLockKind.CorpseOpenAttempt));
+
+        // Inside the slot the rule holds the pass and attempts nothing.
+        Assert.True(controller.Tick(0.3d, canAct: true));
+        Assert.Equal([corpse], automation.Opened);
+
+        locks.Advance(1.6d);
+        controller.Tick(0.3d, canAct: true);
+        Assert.Equal([corpse, corpse], automation.Opened);
+    }
+
+    /// <summary>
     /// The reference counts every open attempt, refused or not, and
     /// blacklists the corpse at the profile's attempt count. Mutation: drop
     /// the <c>BlacklistFailedCorpse</c> call from the refused-open branch and

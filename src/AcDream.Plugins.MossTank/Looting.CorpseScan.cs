@@ -341,6 +341,20 @@ internal sealed partial class LootController
         return _settings.LootAllCorpses && age >= 100d;
     }
 
+    /// <summary>
+    /// The three slots an open attempt holds, for the profile's open
+    /// timeout. The reference arms them after every attempt, whether the
+    /// use went out or was refused, so the retries are paced by the slot
+    /// rather than by the heartbeat.
+    /// </summary>
+    private void ArmCorpseOpenSlots()
+    {
+        double openWindow = Math.Max(0.25d, _settings.CorpseOpenTimeoutSeconds);
+        _actionLocks?.Arm(ActionLockKind.ItemUse, openWindow);
+        _actionLocks?.Arm(ActionLockKind.Navigation, openWindow);
+        _actionLocks?.Arm(ActionLockKind.CorpseOpenAttempt, openWindow);
+    }
+
     private void BlacklistFailedCorpse(uint corpseId)
     {
         if (corpseId == 0u)

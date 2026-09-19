@@ -774,11 +774,16 @@ internal sealed partial class LootController
                 }
                 // The reference counts every open attempt, refused or not,
                 // and blacklists the corpse at the profile's attempt count.
+                // It also arms the same three slots after every attempt,
+                // refused or not -- which is what paces the retries. Without
+                // the arms the attempt ceiling is spent in a couple of
+                // seconds at the heartbeat and the corpse is written off.
                 Status = $"Could not open {corpse.Name} ({opened.Status}).";
                 Log?.Invoke(
                     MacroLogChannel.Loot,
                     $"LootCorpse: open of {corpse.Name} (0x{corpse.ObjectId:X8}) refused: {opened.Status}");
                 BlacklistFailedCorpse(corpse.ObjectId);
+                ArmCorpseOpenSlots();
                 return false;
             }
             _activeCorpse = corpse.ObjectId;
@@ -794,12 +799,7 @@ internal sealed partial class LootController
             // timeout is the ceiling for an open that never lands, not the wait.
             // See ObserveCorpseOpened, which is what gives them back and what the
             // corpse-open slot exists to mark.
-            double openWindow = Math.Max(
-                0.25d,
-                _settings.CorpseOpenTimeoutSeconds);
-            _actionLocks?.Arm(ActionLockKind.ItemUse, openWindow);
-            _actionLocks?.Arm(ActionLockKind.Navigation, openWindow);
-            _actionLocks?.Arm(ActionLockKind.CorpseOpenAttempt, openWindow);
+            ArmCorpseOpenSlots();
             Status = $"Opening {corpse.Name}…";
             Log?.Invoke(
                 MacroLogChannel.Loot,
