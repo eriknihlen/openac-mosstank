@@ -42,7 +42,9 @@ internal static class VtankAssistItems
         ArgumentNullException.ThrowIfNull(settings);
         VtankTable? table = database.Find(TableName);
         var desired = settings.ImportedAssistItems
-            .Where(item => !settings.ConsumableCategories.ContainsKey(item.Name))
+            .Where(item => !settings.ConsumableCategories.TryGetValue(item.Name, out ConsumableCategory current)
+                || settings.ImportedAssistItems.Any(other => other.Name == item.Name
+                    && other.Category == current))
             .Concat(settings.ConsumableNames
                 .Where(name => settings.ConsumableCategories.TryGetValue(name, out _))
                 .Select(name => new AssistItem(name, settings.ConsumableCategories[name])))
