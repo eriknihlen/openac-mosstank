@@ -35,6 +35,13 @@ internal sealed partial class MossTankPanel : IBuffRuleHost, IDisposable
     /// itself reads and the loot-profile store mutates in place.
     /// </summary>
     internal IReadOnlyList<LootRule> LiveLootRules => _inventorySettings.Loot.Rules;
+
+    /// <summary>
+    /// The consumables the live splitting engine will actually act on, read
+    /// from that engine rather than rebuilt here: what the profile carries
+    /// and what the panel edits both have to reach it.
+    /// </summary>
+    internal ISet<string> LivePeaConsumables => _crafting.PeaConsumableNames();
     private readonly NavigationSettings _navigationSettings = new();
     private readonly MetaSettings _metaSettings = new();
     private readonly VtankSettingsProfileSerializer.AllSettings _allSettings;
@@ -3106,23 +3113,51 @@ internal sealed partial class MossTankPanel : IBuffRuleHost, IDisposable
     private void CommitConsumable(PluginInventoryItem item, ConsumableCategory category)
     {
         _combatSettings.ConsumableNames.Add(item.Name);
-        _combatSettings.ConsumableCategories[item.Name] =
-            category;
+        SetConsumableCategory(item.Name, category);
         _profileNotice = $"Added {item.Name}.";
         RefreshItemEditors();
         SaveProfile();
+    }
+
+    /// <summary>
+    /// Say what a consumable is for. This is an explicit choice, so it is
+    /// also the last word on the kind the profile was loaded with: leaving
+    /// that row as it was means the loaded kind goes on deciding what the
+    /// consumable is actually used for, and the choice never reaches the
+    /// engine that reads it.
+    /// </summary>
+    /// <returns>True when this changed anything.</returns>
+    private bool SetConsumableCategory(string name, ConsumableCategory category)
+    {
+        bool changed = !_combatSettings.ConsumableCategories.TryGetValue(
+                name, out ConsumableCategory current)
+            || current != category;
+        _combatSettings.ConsumableCategories[name] = category;
+        for (int i = 0; i < _combatSettings.ImportedAssistItems.Count; i++)
+        {
+            AssistItem loaded = _combatSettings.ImportedAssistItems[i];
+            if (!string.Equals(loaded.Name, name, StringComparison.Ordinal)
+                || loaded.Category == category)
+            {
+                continue;
+            }
+            _combatSettings.ImportedAssistItems[i] =
+                loaded with { Category = category };
+            changed = true;
+        }
+        return changed;
     }
 
     private void AddAllPeasCore()
     {
         bool added = _combatSettings.ConsumableNames.Add(
             CraftingPlanner.AllPeas);
-        _combatSettings.ConsumableCategories[CraftingPlanner.AllPeas] =
-            ConsumableCategory.AllPeas;
+        bool changed = SetConsumableCategory(
+            CraftingPlanner.AllPeas, ConsumableCategory.AllPeas) || added;
         _profileNotice = added
             ? "Added [All Peas]."
             : "[All Peas] is already in this profile.";
-        if (added)
+        if (changed)
         {
             RefreshItemEditors();
             SaveProfile();

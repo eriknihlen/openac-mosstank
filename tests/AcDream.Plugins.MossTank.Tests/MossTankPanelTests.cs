@@ -5031,6 +5031,184 @@ public sealed class MossTankPanelTests
         Assert.DoesNotContain("Bread", panel.ConsumableRows);
     }
 
+    /// <summary>
+    /// The profile came in saying "[All Peas]" is an ordinary single pea, so
+    /// the splitter ignores it. Pressing Add All Peas is the owner saying
+    /// otherwise, and it has to take effect at once and still be there after
+    /// a reload -- the name was already in the list, which is exactly why the
+    /// edit used to be dropped on the floor.
+    ///
+    /// Mutation executed: <c>the explicit edit left the imported row alone
+    /// and skipped the save when the name already existed</c> (the state
+    /// before this fix). The splitter then keeps reading the imported kind
+    /// and nothing is written to the profile.
+    /// </summary>
+    [Fact]
+    public void AddingAllPeasOverAnImportedSinglePeaRowActsAndPersists()
+    {
+        var storage = new MemoryStorage();
+        VtankDatabase imported = VtankDefaultSettingsDatabase.Parse();
+        VtankTable table = imported.Find("AssistItems")!;
+        table.ColumnNames.Add("Extension");
+        table.IndexFlags.Add(false);
+        table.Rows.Add(new VtankRow
+        {
+            Cells =
+            {
+                VtankCell.String(CraftingPlanner.AllPeas),
+                VtankCell.Int(9),
+                VtankCell.String("keep-custom"),
+            },
+        });
+        storage.Text["AssistAllPeas.usd"] = imported.Render();
+        var panel = new MossTankPanel(new FakeHost(new FakeAutomation(), storage));
+
+        Command(panel, "settings load AssistAllPeas");
+        Assert.DoesNotContain(CraftingPlanner.AllPeas, panel.LivePeaConsumables);
+
+        panel.AddAllPeas();
+
+        Assert.Contains(CraftingPlanner.AllPeas, panel.LivePeaConsumables);
+        VtankTable saved = VtankDatabase.Parse(
+            storage.Text[panel.SelectedMacroProfile]).Find("AssistItems")!;
+        int name = saved.ColumnIndex("Object");
+        VtankRow row = Assert.Single(saved.Rows,
+            candidate => candidate.Cells[name].AsString() == CraftingPlanner.AllPeas);
+        Assert.Equal(11, row.Cells[saved.ColumnIndex("Type")].AsInt());
+        Assert.Equal("keep-custom",
+            row.Cells[saved.ColumnIndex("Extension")].AsString());
+    }
+
+    /// <summary>
+    /// The wildcard name and the single-pea kind are two halves of one rule,
+    /// and a profile that pairs them the wrong way round means neither. The
+    /// splitter must not take the name on its own or the kind on its own.
+    ///
+    /// Mutation executed: <c>the splitter was handed the consumable names
+    /// without the imported-kind filter</c>. Both mismatched rows then
+    /// authorize splitting.
+    /// </summary>
+    [Fact]
+    public void MismatchedPeaNameAndKindPairsAuthorizeNothing()
+    {
+        var storage = new MemoryStorage();
+        VtankDatabase imported = VtankDefaultSettingsDatabase.Parse();
+        VtankTable table = imported.Find("AssistItems")!;
+        // The wildcard name carrying the single-pea kind, and a single pea
+        // carrying the wildcard kind.
+        table.Rows.Add(new VtankRow
+        {
+            Cells = { VtankCell.String(CraftingPlanner.AllPeas), VtankCell.Int(9) },
+        });
+        table.Rows.Add(new VtankRow
+        {
+            Cells = { VtankCell.String("Gold Pea"), VtankCell.Int(11) },
+        });
+        storage.Text["AssistMismatch.usd"] = imported.Render();
+        var panel = new MossTankPanel(new FakeHost(new FakeAutomation(), storage));
+
+        Command(panel, "settings load AssistMismatch");
+
+        Assert.Contains(CraftingPlanner.AllPeas, panel.ConsumableRows);
+        Assert.Contains("Gold Pea", panel.ConsumableRows);
+        Assert.Empty(panel.LivePeaConsumables);
+    }
+
+    /// <summary>
+    /// Two rows for one name, each with its own custom columns, are the
+    /// profile's business and not ours: saving something unrelated has to
+    /// hand them back unchanged.
+    ///
+    /// Mutation executed: <c>a row whose kind is not the live one was dropped
+    /// from the desired set on save</c>. The second Bread row and its custom
+    /// cell are then lost the first time anything is saved.
+    /// </summary>
+    [Fact]
+    public void DuplicateImportedRowsAndCustomCellsSurviveAnUnrelatedSave()
+    {
+        var storage = new MemoryStorage();
+        VtankDatabase imported = VtankDefaultSettingsDatabase.Parse();
+        VtankTable table = imported.Find("AssistItems")!;
+        table.ColumnNames.Add("Extension");
+        table.IndexFlags.Add(false);
+        table.Rows.Add(new VtankRow
+        {
+            Cells =
+            {
+                VtankCell.String("Bread"), VtankCell.Int(1),
+                VtankCell.String("first-custom"),
+            },
+        });
+        table.Rows.Add(new VtankRow
+        {
+            Cells =
+            {
+                VtankCell.String("Bread"), VtankCell.Int(5),
+                VtankCell.String("second-custom"),
+            },
+        });
+        storage.Text["AssistDuplicate.usd"] = imported.Render();
+        var panel = new MossTankPanel(new FakeHost(new FakeAutomation(), storage));
+
+        Command(panel, "settings load AssistDuplicate");
+        panel.ToggleAutoStack();
+
+        VtankTable saved = VtankDatabase.Parse(
+            storage.Text[panel.SelectedMacroProfile]).Find("AssistItems")!;
+        int name = saved.ColumnIndex("Object");
+        int type = saved.ColumnIndex("Type");
+        int extension = saved.ColumnIndex("Extension");
+        VtankRow[] bread = saved.Rows
+            .Where(row => row.Cells[name].AsString() == "Bread")
+            .ToArray();
+        Assert.Equal(2, bread.Length);
+        Assert.Equal([1, 5], bread.Select(row => row.Cells[type].AsInt()).ToArray());
+        Assert.Equal(
+            ["first-custom", "second-custom"],
+            bread.Select(row => row.Cells[extension].AsString()).ToArray());
+    }
+
+    /// <summary>
+    /// The profile says this bread is drunk for mana. The bag says it is
+    /// food, and food restores health -- but the profile was explicit, and
+    /// the periodic look through the bag must not quietly overrule it.
+    ///
+    /// Mutation executed: <c>the imported-row check was dropped from the
+    /// periodic assessment sweep</c>. The bread is reclassified as health
+    /// food on the first sweep.
+    /// </summary>
+    [Fact]
+    public void ThePeriodicSweepDoesNotOverruleAnImportedConsumableKind()
+    {
+        var storage = new MemoryStorage();
+        VtankDatabase imported = VtankDefaultSettingsDatabase.Parse();
+        imported.Find("AssistItems")!.Rows.Add(new VtankRow
+        {
+            Cells = { VtankCell.String("Bread"), VtankCell.Int(5) },
+        });
+        storage.Text["AssistBread.usd"] = imported.Render();
+        var automation = new FakeAutomation
+        {
+            ItemEntries =
+            [
+                Item(77u, "Bread", 0x00000020u) with { BoosterVital = 2 },
+            ],
+        };
+        var panel = new MossTankPanel(new FakeHost(automation, storage));
+
+        Command(panel, "settings load AssistBread");
+        for (int tick = 0; tick < 4; tick++)
+            panel.OnTick(0.6d);
+
+        panel.ToggleAutoStack();
+        VtankTable saved = VtankDatabase.Parse(
+            storage.Text[panel.SelectedMacroProfile]).Find("AssistItems")!;
+        int name = saved.ColumnIndex("Object");
+        VtankRow row = Assert.Single(saved.Rows,
+            candidate => candidate.Cells[name].AsString() == "Bread");
+        Assert.Equal(5, row.Cells[saved.ColumnIndex("Type")].AsInt());
+    }
+
     [Fact]
     public void UiAuthoredBuffConsumableStillUsesItsAppraisedSpell()
     {

@@ -88,7 +88,13 @@ internal sealed partial class MossTankPanel
                 continue;
             if (!EnsureItemAssessed(item.ObjectId))
                 continue;
+            // What the bag says about an item only fills in a kind nobody
+            // stated. A profile that came in saying what this consumable is
+            // for has said it, and looking at the item again must not
+            // quietly overrule that.
             if (_combatSettings.ConsumableNames.Contains(item.Name)
+                && !_combatSettings.ImportedAssistItems.Any(loaded =>
+                    string.Equals(loaded.Name, item.Name, StringComparison.Ordinal))
                 && _host.Automation.Items.TryCaptureProperties(item.ObjectId, out PluginItemProperties properties)
                 && ProfileItemAdmission.TryConsumable(item, properties, _host.Automation,
                     out ConsumableCategory category))
