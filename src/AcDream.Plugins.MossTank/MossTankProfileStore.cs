@@ -206,6 +206,21 @@ internal sealed class MossTankProfileStore
     private static VtankDatabase CloneDatabase(VtankDatabase database) =>
         VtankDatabase.Parse(database.Render());
 
+    private static void ApplyCurrentSettingsPreservingBuffedItems(
+        VtankDatabase database,
+        VtankSettingsProfileSerializer.AllSettings settings)
+    {
+        VtankDatabase raw = CloneDatabase(database);
+        _ = VtankSettingsProfileSerializer.Save(database, settings);
+        int destination = database.Tables.FindIndex(
+            entry => entry.Name.Equals("BuffedItems", StringComparison.Ordinal));
+        int source = raw.Tables.FindIndex(
+            entry => entry.Name.Equals("BuffedItems", StringComparison.Ordinal));
+        if (destination >= 0 && source >= 0)
+            database.Tables[destination] = raw.Tables[source];
+        VtankProfiledItemIds.Write(database, settings.Combat);
+    }
+
     public bool Create(
         string? name,
         bool copyCurrent,
@@ -238,6 +253,8 @@ internal sealed class MossTankProfileStore
             database = _currentDatabase is null
                 ? VtankSettingsProfileSerializer.CreateNew(settings)
                 : CloneDatabase(_currentDatabase);
+            if (_currentDatabase is not null)
+                ApplyCurrentSettingsPreservingBuffedItems(database, settings);
             sidecar = SideCarDocument.Capture(
                 settings, noBuffItemNames, logChannels);
         }

@@ -4793,6 +4793,19 @@ public sealed class MossTankPanelTests
         VtankDatabase sourceAfterCopySave = VtankDatabase.Parse(storage.Text[source]);
         Assert.Equal("copy proof", sourceAfterCopySave.Find("CopyProof")!.Rows[0].Cells[0].AsString());
         Assert.Equal(3, sourceAfterCopySave.Find("BuffedItems")!.Rows.Count);
+
+        storage.Text[source] = "externally corrupted source";
+        panel.ToggleAutoStack();
+        Assert.False(panel.AutoStackEnabled);
+        Command(panel, "settings save StaleCopy");
+        VtankDatabase staleCopy = VtankDatabase.Parse(storage.Text[panel.SelectedMacroProfile]);
+        VtankTable staleSettings = staleCopy.Find("Settings")!;
+        VtankRow autoStack = Assert.Single(staleSettings.Rows, row =>
+            row.Cells[staleSettings.ColumnIndex("Setting")].AsString()
+                .Equals("AutoStack", StringComparison.OrdinalIgnoreCase));
+        Assert.False(autoStack.Cells[staleSettings.ColumnIndex("Value")].AsBool());
+        Assert.Equal(3, staleCopy.Find("BuffedItems")!.Rows.Count);
+        Assert.Equal("copy proof", staleCopy.Find("CopyProof")!.Rows[0].Cells[0].AsString());
     }
 
     [Fact]
