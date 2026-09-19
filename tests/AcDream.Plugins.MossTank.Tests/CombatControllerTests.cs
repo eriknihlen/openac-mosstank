@@ -4609,6 +4609,420 @@ public sealed class CombatControllerTests
     }
 
     /// <summary>
+    /// Mutation: remove the primary-use bit from
+    /// <c>SelectAutomaticWeapon</c>; the disabled and left-only rows then
+    /// equip the signed item. This reaches the controller through a loaded
+    /// hand-use setting rather than only testing the profile serializer.
+    /// Mutation executed: <c>removed the ItemUseSpecifiers primary-bit predicate</c>.
+    /// </summary>
+    [Theory]
+    [InlineData(0, false)]
+    [InlineData(1, true)]
+    [InlineData(2, false)]
+    [InlineData(3, true)]
+    [InlineData(-1, true)] // no imported row defaults to both hands
+    public void AutomaticPrimaryHonorsImportedHandUseFlagsIncludingSignedIds(
+        int importedUses, bool expectsEquip)
+    {
+        const uint signedSword = 0x8001_AC87u;
+        var surface = new FakeAutomation
+        {
+            CombatSnapshot = Peaceful(),
+            EquipmentItems = [Equipment(signedSword, "Signed Fire Sword", 0x0010)],
+        };
+        var settings = new CombatSettings();
+        settings.CombatItemObjectIds.Add(signedSword);
+        settings.CombatItemOrderIds.Add(signedSword);
+        if (importedUses >= 0)
+            settings.ItemUseSpecifiers[signedSword] = importedUses;
+        settings.Rules.Clear();
+        settings.Rules.Add(new MonsterRule("DEFAULT", new MonsterRuleActions
+        {
+            Flags = MonsterActionFlags.Attack,
+            DamageType = MonsterDamageType.Fire,
+        }));
+        var controller = new CombatController(new FakeHost(surface), settings);
+
+        controller.EquipOneStepForMonster("Fixture");
+
+        Assert.Equal(expectsEquip,
+            surface.CallLog.Contains("Equip:8001AC87", StringComparer.Ordinal));
+    }
+
+    /// <summary>
+    /// When nothing can be picked automatically the fight is had with
+    /// whatever is already in hand -- but a weapon the profile has turned off
+    /// for that hand is not "in hand" for this purpose, so the plan falls back
+    /// to no weapon at all. With no weapon the stance is a caster's, and a
+    /// character with only life magic is told it is about to drain.
+    ///
+    /// Mutation executed: <c>replaced the primary-bit check in the
+    /// wielded-weapon fallback with true</c>. The held sword then becomes the
+    /// plan, the stance is a swordsman's, and the notice is never posted.
+    /// </summary>
+    [Fact]
+    public void DisabledHeldWeaponIsNotTheAutomaticPrimaryFallback()
+    {
+        const uint signedSword = 0x8001_B291u;
+        var surface = new FakeAutomation
+        {
+            CombatSnapshot = Peaceful(),
+            Targets = [Target(10, "Drudge", distance: 5, angle: 0)],
+            CharacterSkills =
+            [
+                new PluginSkillInfo(33u, "Life Magic",
+                    PluginSkillTraining.Trained, 300u),
+            ],
+            EquipmentItems =
+            [
+                Equipment(signedSword, "Disabled Held Sword", 0x0010,
+                    equippedLocation: 0x00100000u),
+            ],
+        };
+        var settings = new CombatSettings { MaximumRange = 40d };
+        settings.CombatItemObjectIds.Add(signedSword);
+        settings.ItemUseSpecifiers[signedSword] = 0;
+        settings.Rules.Clear();
+        settings.Rules.Add(new MonsterRule("DEFAULT", new MonsterRuleActions
+        {
+            Flags = MonsterActionFlags.Attack,
+            DamageType = MonsterDamageType.Auto,
+        }));
+        var controller = new CombatController(new FakeHost(surface), settings);
+
+        controller.Toggle();
+        controller.OnTick(0.25d);
+
+        Assert.Contains(
+            surface.PostedSystemMessages,
+            message => message.Contains("autoselecting drain",
+                StringComparison.Ordinal));
+        Assert.DoesNotContain("Equip:8001B291", surface.CallLog);
+    }
+
+    /// <summary>
+    /// Mutation: run the imported hand bits through every equipment request.
+    /// Explicit monster equipment is deliberately not an automatic pick, so
+    /// both disabled ids must still reach their hand commands.
+    /// Mutation executed: <c>applied ItemUseSpecifiers to explicit primary and secondary resolution</c>.
+    /// </summary>
+    [Fact]
+    public void ExplicitEquipmentIdsBypassImportedHandUseFlags()
+    {
+        const uint primary = 0x8000_DEB2u;
+        const uint secondary = 0x8001_AC87u;
+        var surface = new FakeAutomation
+        {
+            CombatSnapshot = Peaceful(),
+            EquipmentItems =
+            [
+                Equipment(primary, "Explicit Primary", 0x0010),
+                Equipment(secondary, "Explicit Secondary", 0x0010),
+            ],
+        };
+        var settings = new CombatSettings();
+        settings.ItemUseSpecifiers[primary] = 0;
+        settings.ItemUseSpecifiers[secondary] = 0;
+        settings.Rules.Clear();
+        settings.Rules.Add(new MonsterRule("DEFAULT", new MonsterRuleActions
+        {
+            Flags = MonsterActionFlags.Attack,
+            DamageType = MonsterDamageType.Fire,
+            WeaponObjectId = primary,
+            OffhandObjectId = secondary,
+        }));
+        var controller = new CombatController(new FakeHost(surface), settings);
+
+        DriveEquipPasses(controller);
+
+        Assert.Contains("Equip:8000DEB2", surface.CallLog);
+        Assert.Contains("EquipSecondary:8001AC87", surface.CallLog);
+    }
+
+    /// <summary>
+    /// Mutation: return zero when an explicit offhand is absent from the
+    /// equipment projection. The current inventory fallback is still needed
+    /// for an object the world knows but whose equipment view has not caught
+    /// up yet.
+    /// Mutation executed: <c>removed ResolveWieldPlan's ResolveInventoryObjectId fallback</c>.
+    /// </summary>
+    [Fact]
+    public void MissingEquipmentViewOffhandRetainsInventoryFallback()
+    {
+        const uint primary = 700u;
+        const uint inventoryOnlySecondary = 0x8001_B291u;
+        var surface = new FakeAutomation
+        {
+            CombatSnapshot = Peaceful(),
+            EquipmentItems = [Equipment(primary, "Primary", 0x0010)],
+            ItemEntries =
+            [
+                InventoryItem(inventoryOnlySecondary, "Inventory Offhand", 1u,
+                    spellId: 0u, equipped: false),
+            ],
+        };
+        surface.WorldOnlyObjectIds.Add(inventoryOnlySecondary);
+        var settings = new CombatSettings();
+        settings.Rules.Clear();
+        settings.Rules.Add(new MonsterRule("DEFAULT", new MonsterRuleActions
+        {
+            Flags = MonsterActionFlags.Attack,
+            DamageType = MonsterDamageType.Fire,
+            WeaponObjectId = primary,
+            OffhandObjectId = inventoryOnlySecondary,
+        }));
+        var controller = new CombatController(new FakeHost(surface), settings);
+
+        DriveEquipPasses(controller);
+
+        Assert.Contains("EquipSecondary:8001B291", surface.CallLog);
+    }
+
+    /// <summary>
+    /// Mutation: return the first profiled item from
+    /// <c>SelectAutomaticSecondaryWeapon</c>. That admits the primary,
+    /// caster, two-handed, or primary-only rows before the one eligible
+    /// left-hand melee item.
+    /// Mutation executed: <c>replaced the secondary candidate guards with a profiled-item check</c>.
+    /// </summary>
+    [Fact]
+    public void AutoWeaponExcludesPrimaryCasterTwoHandAndPrimaryOnlyRows()
+    {
+        const uint primary = 100u;
+        const uint caster = 200u;
+        const uint twoHand = 300u;
+        const uint primaryOnly = 400u;
+        const uint leftHand = 500u;
+        var surface = new FakeAutomation
+        {
+            CombatSnapshot = Peaceful(),
+            EquipmentItems =
+            [
+                Equipment(primary, "Primary", 0x0010),
+                Equipment(caster, "Caster", 0, itemType: 0x8000u),
+                Equipment(twoHand, "Two hand", 0x0010,
+                    validLocations: 0x02100000u),
+                Equipment(primaryOnly, "Primary only", 0x0010),
+                Equipment(leftHand, "Left hand", 0x0010),
+            ],
+        };
+        var settings = SecondarySettings(primary, VtankSecondaryEquip.AutoWeapon);
+        foreach (uint id in new[] { primary, caster, twoHand, primaryOnly, leftHand })
+        {
+            settings.CombatItemObjectIds.Add(id);
+            settings.CombatItemOrderIds.Add(id);
+        }
+        settings.ItemUseSpecifiers[primaryOnly] = 1;
+        settings.ItemUseSpecifiers[leftHand] = 2;
+        var controller = new CombatController(new FakeHost(surface), settings);
+
+        DriveEquipPasses(controller);
+
+        Assert.Contains("EquipSecondary:000001F4", surface.CallLog);
+        Assert.DoesNotContain("EquipSecondary:00000064", surface.CallLog);
+        Assert.DoesNotContain("EquipSecondary:000000C8", surface.CallLog);
+        Assert.DoesNotContain("EquipSecondary:0000012C", surface.CallLog);
+        Assert.DoesNotContain("EquipSecondary:00000190", surface.CallLog);
+    }
+
+    [Theory]
+    [InlineData((int)VtankSecondaryEquip.AutoShield, false, false, 300u)]
+    [InlineData((int)VtankSecondaryEquip.AutoWeapon, false, false, 200u)]
+    [InlineData((int)VtankSecondaryEquip.None, false, false, 0u)]
+    [InlineData((int)VtankSecondaryEquip.Auto, true, false, 300u)]
+    [InlineData((int)VtankSecondaryEquip.Auto, false, true, 200u)]
+    [InlineData((int)VtankSecondaryEquip.Auto, true, true, 300u)]
+    [InlineData((int)VtankSecondaryEquip.Auto, false, false, 300u)]
+    public void SecondaryEquipModesDispatchByTrainedSkills(
+        int mode, bool shieldTrained, bool dualWieldTrained,
+        uint expectedSecondary)
+    {
+        const uint primary = 100u;
+        const uint weapon = 200u;
+        const uint shield = 300u;
+        var surface = new FakeAutomation
+        {
+            CombatSnapshot = Peaceful(),
+            CharacterSkills = SecondarySkills(shieldTrained, dualWieldTrained),
+            EquipmentItems =
+            [
+                Equipment(primary, "Primary", 0x0010),
+                Equipment(weapon, "Secondary Weapon", 0x0010),
+                Equipment(shield, "Shield", 0,
+                    validLocations: 0x00200000u) with
+                    {
+                        ObjectClass = PluginObjectClass.Armor,
+                    },
+            ],
+        };
+        var settings = SecondarySettings(primary, (VtankSecondaryEquip)mode);
+        settings.CombatItemObjectIds.Add(weapon);
+        settings.CombatItemObjectIds.Add(shield);
+        settings.CombatItemOrderIds.Add(weapon);
+        settings.CombatItemOrderIds.Add(shield);
+        settings.ItemUseSpecifiers[weapon] = 2;
+        var controller = new CombatController(new FakeHost(surface), settings);
+
+        DriveEquipPasses(controller);
+
+        string[] secondary = surface.CallLog
+            .Where(static call => call.StartsWith("EquipSecondary:", StringComparison.Ordinal))
+            .ToArray();
+        if (expectedSecondary == 0u)
+            Assert.Empty(secondary);
+        else
+            Assert.Contains($"EquipSecondary:{expectedSecondary:X8}", secondary);
+    }
+
+    /// <summary>
+    /// A hand restriction belongs to the profile that carried it. Loading a
+    /// profile that says nothing about the sword must not leave the previous
+    /// profile's "never in the right hand" in force, or the character stands
+    /// there unarmed for the rest of the session.
+    ///
+    /// Mutation executed: <c>the imported-flag table was not cleared before
+    /// reading a profile</c> (the clear was dropped from the table reader).
+    /// The sword then stays forbidden under the second profile and is never
+    /// equipped.
+    /// </summary>
+    [Fact]
+    public void LoadingAProfileWithoutHandRulesReleasesTheEarlierRestriction()
+    {
+        const uint sword = 0x8001_AC87u;
+        var surface = new FakeAutomation
+        {
+            CombatSnapshot = Peaceful(),
+            EquipmentItems = [Equipment(sword, "Signed Fire Sword", 0x0010)],
+        };
+        VtankDatabase restricted = VtankDefaultSettingsDatabase.Parse();
+        restricted.Find("ItemUseSpecifiers")!.Rows.Add(new VtankRow
+        {
+            Cells = { VtankCell.Int(unchecked((int)sword)), VtankCell.Int(0) },
+        });
+        VtankDatabase unrestricted = VtankDefaultSettingsDatabase.Parse();
+        unrestricted.Tables.RemoveAll(
+            static entry => entry.Name == "ItemUseSpecifiers");
+
+        var all = new VtankSettingsProfileSerializer.AllSettings
+        {
+            Combat = new CombatSettings(),
+            Buffs = new BuffSettings(),
+            Vitals = new VitalSettings(),
+            Inventory = new InventorySettings(),
+            Navigation = new NavigationSettings(),
+        };
+        VtankSettingsProfileSerializer.Load(restricted.Render(), all);
+        CombatSettings settings = all.Combat;
+        settings.CombatItemObjectIds.Add(sword);
+        settings.CombatItemOrderIds.Add(sword);
+        settings.Rules.Clear();
+        settings.Rules.Add(new MonsterRule("DEFAULT", new MonsterRuleActions
+        {
+            Flags = MonsterActionFlags.Attack,
+            DamageType = MonsterDamageType.Fire,
+        }));
+
+        var restrictedController = new CombatController(
+            new FakeHost(surface), settings);
+        DriveEquipPasses(restrictedController);
+        Assert.DoesNotContain("Equip:8001AC87", surface.CallLog);
+
+        VtankSettingsProfileSerializer.Load(unrestricted.Render(), all);
+        settings.CombatItemObjectIds.Add(sword);
+        settings.CombatItemOrderIds.Add(sword);
+        settings.Rules.Clear();
+        settings.Rules.Add(new MonsterRule("DEFAULT", new MonsterRuleActions
+        {
+            Flags = MonsterActionFlags.Attack,
+            DamageType = MonsterDamageType.Fire,
+        }));
+        var releasedController = new CombatController(
+            new FakeHost(surface), settings);
+        DriveEquipPasses(releasedController);
+
+        Assert.Contains("Equip:8001AC87", surface.CallLog);
+    }
+
+    /// <summary>
+    /// The shield the offhand reaches for is chosen by a different rule than
+    /// the weapon ladder, and a weapon-hand restriction says nothing about a
+    /// shield. A shield marked "right hand only" is still the shield.
+    ///
+    /// Mutation executed: <c>the weapon hand-flag predicate was added to the
+    /// automatic shield helper</c>. The shield is then refused and the
+    /// offhand stays empty.
+    /// </summary>
+    [Fact]
+    public void ShieldSelectionIgnoresWeaponHandRestrictions()
+    {
+        const uint primary = 100u;
+        const uint shield = 300u;
+        var surface = new FakeAutomation
+        {
+            CombatSnapshot = Peaceful(),
+            EquipmentItems =
+            [
+                Equipment(primary, "Primary", 0x0010),
+                Equipment(shield, "Shield", 0, validLocations: 0x00200000u)
+                    with { ObjectClass = PluginObjectClass.Armor },
+            ],
+        };
+        var settings = SecondarySettings(primary, VtankSecondaryEquip.Auto);
+        settings.CombatItemObjectIds.Add(shield);
+        settings.CombatItemOrderIds.Add(shield);
+        // Right hand only: meaningless for a shield, and it must be ignored.
+        settings.ItemUseSpecifiers[shield] = 1;
+        var controller = new CombatController(new FakeHost(surface), settings);
+
+        DriveEquipPasses(controller);
+
+        Assert.Contains("EquipSecondary:0000012C", surface.CallLog);
+    }
+
+    /// <summary>
+    /// Preparing to cast is not the ranked weapon pick either: the first
+    /// profiled wand is taken as it is. A wand a profile has marked "left
+    /// hand only" is still the wand that gets held to cast.
+    ///
+    /// Mutation executed: <c>the weapon hand-flag predicate was added to the
+    /// profiled-caster walk</c>. No wand is then found and the macro stops
+    /// with the add-a-wand notice instead of equipping it.
+    /// </summary>
+    [Fact]
+    public void CasterSelectionIgnoresWeaponHandRestrictions()
+    {
+        const uint wand = 990u;
+        var surface = new FakeAutomation
+        {
+            CombatSnapshot = Peaceful(),
+            EquipmentItems =
+            [
+                Equipment(wand, "Fixture Wand", 0, itemType: 0x00008000u),
+            ],
+        };
+        var settings = new CombatSettings();
+        settings.CombatItemObjectIds.Add(wand);
+        settings.CombatItemOrderIds.Add(wand);
+        settings.ItemUseSpecifiers[wand] = 2;
+        settings.Rules.Clear();
+        settings.Rules.Add(new MonsterRule("DEFAULT", new MonsterRuleActions
+        {
+            Flags = MonsterActionFlags.Attack,
+            DamageType = MonsterDamageType.Fire,
+            WeaponToUseRaw = 0,
+        }));
+        var controller = new CombatController(new FakeHost(surface), settings);
+
+        DriveEquipPasses(controller);
+
+        Assert.Contains("Equip:000003DE", surface.CallLog);
+        Assert.DoesNotContain(
+            surface.PostedSystemMessages,
+            message => message.Contains("add at least one wand",
+                StringComparison.Ordinal));
+    }
+
+    /// <summary>
     /// Mutation pin: swap the primary before the secondary for a thrown
     /// weapon. The actual requests must remove old primary, equip secondary,
     /// then equip thrown primary on separate passes.
@@ -5740,6 +6154,52 @@ public sealed class CombatControllerTests
         Assert.False(locks.IsLocked(ActionLockKind.Navigation));
     }
 
+    /// <summary>
+    /// Equipping is a several-pass errand: one request goes out per pass, and
+    /// the character's hands only settle once the pass clock moves. Calling
+    /// the step over and over without advancing that clock leaves the swap
+    /// cooldown armed, so nothing past the first request is ever sent. The
+    /// host advances the same clock between passes.
+    /// </summary>
+    /// <returns>True once the gate reports the character ready.</returns>
+    private static bool DriveEquipPasses(
+        CombatController controller, int passes = 12)
+    {
+        for (int pass = 0; pass < passes; pass++)
+        {
+            if (controller.EquipOneStepForMonster("Fixture"))
+                return true;
+            controller.Gate.AdvancePass(0.1d);
+        }
+        return false;
+    }
+
+    private static CombatSettings SecondarySettings(
+        uint primary, VtankSecondaryEquip secondary)
+    {
+        var settings = new CombatSettings();
+        settings.Rules.Clear();
+        settings.Rules.Add(new MonsterRule("DEFAULT", new MonsterRuleActions
+        {
+            Flags = MonsterActionFlags.Attack,
+            DamageType = MonsterDamageType.Fire,
+            WeaponObjectId = primary,
+            SecondaryEquipRaw = (int)secondary,
+        }));
+        return settings;
+    }
+
+    private static IReadOnlyList<PluginSkillInfo> SecondarySkills(
+        bool shieldTrained, bool dualWieldTrained)
+    {
+        var skills = new List<PluginSkillInfo>();
+        if (shieldTrained)
+            skills.Add(new PluginSkillInfo(48u, "Shield", PluginSkillTraining.Trained, 300u));
+        if (dualWieldTrained)
+            skills.Add(new PluginSkillInfo(49u, "Dual Wield", PluginSkillTraining.Trained, 300u));
+        return skills;
+    }
+
     private static CombatSettings DebuffOnly(MonsterActionFlags flag)
     {
         var settings = new CombatSettings();
@@ -5992,6 +6452,24 @@ public sealed class CombatControllerTests
                     PluginObjectClass.Unknown, 0u, 0u, 0u);
                 return true;
             }
+            if (WorldOnlyObjectIds.Contains(objectId))
+            {
+                PluginInventoryItem? inventory = ItemEntries.FirstOrDefault(
+                    item => item.ObjectId == objectId);
+                value = new PluginWorldObject(
+                    objectId,
+                    0u,
+                    inventory?.Name ?? "Inventory item",
+                    PluginObjectClass.Unknown,
+                    inventory?.ItemType ?? 0u,
+                    1u,
+                    0u)
+                {
+                    LastIdTime = 1,
+                    IsOwned = true,
+                };
+                return true;
+            }
             value = default;
             return false;
         }
@@ -6039,6 +6517,7 @@ public sealed class CombatControllerTests
         public List<uint> CastSpellIds { get; } = [];
         public IReadOnlyList<PluginEquipmentItem> EquipmentItems { get; set; } = [];
         public ISet<uint> UnownedEquipmentIds { get; } = new HashSet<uint>();
+        public ISet<uint> WorldOnlyObjectIds { get; } = new HashSet<uint>();
         public uint LastEquipObjectId { get; private set; }
         public IReadOnlyList<PluginInventoryItem> ItemEntries { get; set; } = [];
         public uint LastUsedItem { get; private set; }
@@ -6137,6 +6616,11 @@ public sealed class CombatControllerTests
 
         private void ApplyConfirmedEquip(uint objectId)
         {
+            // An item the equipment view does not carry yet still takes the
+            // command; the placement is only reported once the view catches
+            // up with it, which is not this pass.
+            if (!EquipmentItems.Any(item => item.ObjectId == objectId))
+                return;
             IReadOnlyList<PluginEquipmentItem> previous = EquipmentItems;
             EquipmentItems = MarkEquipped(previous, objectId);
             foreach (PluginEquipmentItem before in previous)

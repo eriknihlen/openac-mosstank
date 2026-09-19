@@ -1510,7 +1510,8 @@ internal sealed class CombatController
             }
         }
         _plannedWeapon = desiredWeapon;
-        _plannedOffhand = ResolveSecondaryEquipment(actions, items, desiredWeapon);
+        _plannedOffhand = PlannedSecondaryFor(
+            actions, items, desiredWeapon, PassInventory);
         return false;
     }
 
@@ -3213,13 +3214,33 @@ internal sealed class CombatController
                 equipment);
         if (weapon == 0u && actions.WeaponToUseRaw != 0)
             weapon = SelectAutomaticWeapon(equipment, actions, target);
-        uint? selectedOffhand = ResolveSecondaryEquipment(actions, equipment, weapon);
-        uint offhand = selectedOffhand is null
-            ? 0u
-            : selectedOffhand.Value != 0u
-                ? selectedOffhand.Value
-                : ResolveInventoryObjectId(actions.OffhandObjectId, actions.OffhandName, inventory);
+        uint offhand = PlannedSecondaryFor(
+            actions, equipment, weapon, () => inventory) ?? 0u;
         return (weapon, offhand, element);
+    }
+
+    /// <summary>
+    /// The offhand this rule will actually ask for. A rule that names its
+    /// offhand by id or by name means that one item even when the equipment
+    /// view has not caught up with it, so a named offhand missing from that
+    /// view falls back to what the pack knows: the request has to go out
+    /// either way. Null means "no particular item" and leaves the choice of
+    /// shield to the wield gate.
+    /// </summary>
+    private uint? PlannedSecondaryFor(
+        MonsterRuleActions actions,
+        IReadOnlyList<PluginEquipmentItem> items,
+        uint primary,
+        Func<IReadOnlyList<PluginInventoryItem>> inventory)
+    {
+        uint? selected = ResolveSecondaryEquipment(actions, items, primary);
+        if (selected != 0u
+            || (actions.OffhandObjectId == 0u && actions.OffhandName.Length == 0))
+        {
+            return selected;
+        }
+        return ResolveInventoryObjectId(
+            actions.OffhandObjectId, actions.OffhandName, inventory());
     }
 
     private uint? ResolveSecondaryEquipment(MonsterRuleActions actions,
