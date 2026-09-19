@@ -3213,8 +3213,12 @@ internal sealed class CombatController
                 equipment);
         if (weapon == 0u && actions.WeaponToUseRaw != 0)
             weapon = SelectAutomaticWeapon(equipment, actions, target);
-        uint offhand = ResolveSecondaryEquipment(actions, equipment, weapon)
-            ?? ResolveInventoryObjectId(actions.OffhandObjectId, actions.OffhandName, inventory);
+        uint? selectedOffhand = ResolveSecondaryEquipment(actions, equipment, weapon);
+        uint offhand = selectedOffhand is null
+            ? 0u
+            : selectedOffhand.Value != 0u
+                ? selectedOffhand.Value
+                : ResolveInventoryObjectId(actions.OffhandObjectId, actions.OffhandName, inventory);
         return (weapon, offhand, element);
     }
 
