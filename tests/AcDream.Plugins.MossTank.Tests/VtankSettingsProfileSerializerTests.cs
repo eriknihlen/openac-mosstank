@@ -267,6 +267,10 @@ public sealed class VtankSettingsProfileSerializerTests
         Assert.Equal(999999u, item.SpellId);
     }
 
+    /// <summary>
+    /// Mutation pin: rebuilding the GemFood table with <c>Rows.Clear()</c>
+    /// loses the extension cell and invalid source row before any user edit.
+    /// </summary>
     [Fact]
     public void GemFoodWritesKeepCustomCellsInvalidRowsAndUnchangedRowsVerbatim()
     {
