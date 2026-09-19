@@ -288,6 +288,15 @@ internal sealed class CombatController
     private const float SwingClosingProgressMeters = 0.5f;
 
     /// <summary>
+    /// When the outstanding swing was ASKED for. The host holds the request
+    /// open with the power bar stopped while the character is in no position
+    /// to attack — a missile reload, a shield up — and if that never clears,
+    /// nothing is ever sent and there is nothing to wait on. Negative
+    /// infinity once the swing is away, when the send stamp takes over.
+    /// </summary>
+    private double _physicalSwingArmedAt = double.NegativeInfinity;
+
+    /// <summary>
     /// The nearest the outstanding swing's monster has been since the swing
     /// went out. Only ground actually gained counts, so a monster milling
     /// about at one range cannot hold the wait open for ever.
@@ -813,6 +822,9 @@ internal sealed class CombatController
 
     private AttackPassOutcome TickPhysical(PluginCombatSnapshot combat)
     {
+        // The repeat arm is inert while the macro drives combat: the host
+        // only repeats an attack of its own accord when nothing holds combat
+        // control, and the macro holds it for as long as it is running.
         if (combat.ServerResponsePending || combat.RepeatAttackInProgress)
         {
             // The first pass that finds the server holding the swing is the
@@ -826,15 +838,17 @@ internal sealed class CombatController
 
         if (combat.RequestInProgress)
         {
+            bool sent = false;
             if (combat.BuildInProgress
                 && combat.PowerBarLevel + PowerReleaseEpsilon
                     >= combat.DesiredPower)
             {
                 PluginCombatCommandResult release =
                     _host.Automation.Combat.ReleasePhysicalAttack();
-                if (release.Status == PluginCombatCommandStatus.Released)
+                sent = release.Status == PluginCombatCommandStatus.Released;
+                if (sent)
                     StampSwingSent();
-                Status = release.Status == PluginCombatCommandStatus.Released
+                Status = sent
                     ? $"Attacking {_targetName}"
                     : $"Attack release: {release.Status}";
             }
@@ -842,6 +856,8 @@ internal sealed class CombatController
             {
                 Status = $"Charging {combat.PowerBarLevel * 100f:0}%";
             }
+            if (!sent)
+                GiveUpOnSwingThatNeverWentOut();
             return AttackPassOutcome.Claimed;
         }
 
@@ -906,7 +922,9 @@ internal sealed class CombatController
         {
             _pendingPhysicalTarget = _targetId;
             // The press only starts the power bar: nothing has reached the
-            // server yet, so the wait on an answer has not begun.
+            // server yet, so the wait on an answer has not begun — the wait
+            // on the bar moving at all does.
+            _physicalSwingArmedAt = _now;
             _physicalSwingSentAt = double.NegativeInfinity;
             _physicalSwingClosestDistance = float.PositiveInfinity;
             ArmPhysicalResultText(_targetId, _targetName);
@@ -929,7 +947,39 @@ internal sealed class CombatController
             return;
         }
         _physicalSwingSentAt = _now;
+        _physicalSwingArmedAt = double.NegativeInfinity;
         _physicalSwingClosestDistance = float.PositiveInfinity;
+    }
+
+    /// <summary>
+    /// A swing that was asked for and never got out. The host stops the power
+    /// bar while the character is in no position to attack, and if that never
+    /// clears the request stands with nothing sent — no server answer to wait
+    /// for, and no second swing allowed either. It is torn down so the next
+    /// pass can ask again.
+    ///
+    /// No miss is charged for it. The reference counts an attempt against a
+    /// monster when a request that went out produced no result, or when the
+    /// server says the shot hit the environment; nothing here ever reached
+    /// the monster, so it has failed nothing and must not be given up as
+    /// unhittable for a stall on our own side.
+    /// </summary>
+    private void GiveUpOnSwingThatNeverWentOut()
+    {
+        if (double.IsNegativeInfinity(_physicalSwingArmedAt)
+            || _now - _physicalSwingArmedAt < UnansweredSwingSeconds)
+        {
+            return;
+        }
+        _physicalSwingArmedAt = double.NegativeInfinity;
+        _pendingPhysicalTarget = 0u;
+        DisarmPhysicalResultText();
+        _host.Automation.Combat.AbortPhysicalAttack();
+        Log?.Invoke(
+            MacroLogChannel.CastInfo,
+            $"Swing: never left the client for {_targetName} "
+                + $"(0x{_targetId:X8}) after {UnansweredSwingSeconds:0.0}s, "
+                + "asking again");
     }
 
     private void GiveUpOnUnansweredSwing()
@@ -3984,6 +4034,7 @@ internal sealed class CombatController
             _host.Automation.Combat.AbortPhysicalAttack();
         }
         _physicalSwingSentAt = double.NegativeInfinity;
+        _physicalSwingArmedAt = double.NegativeInfinity;
         _physicalSwingClosestDistance = float.PositiveInfinity;
         StopApproachMovement();
         StopBreakableTurnMovement();

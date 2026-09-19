@@ -5836,6 +5836,52 @@ public sealed class CombatControllerTests
     }
 
     /// <summary>
+    /// A swing that never leaves the client is torn down too. The host holds
+    /// the request open with the power bar stopped while the character is in
+    /// no position to attack; if that never clears, nothing is sent, there is
+    /// no answer to wait for, and no second swing is allowed either. The
+    /// monster is not charged a miss for it — nothing reached it.
+    /// Mutation: delete the <c>GiveUpOnSwingThatNeverWentOut</c> call from
+    /// the request arm of <c>TickPhysical</c> and this fails — the macro
+    /// stands there charging a bar that is not moving and never asks again.
+    /// </summary>
+    [Fact]
+    public void ASwingWhoseBarNeverMovesIsTornDownAndAskedForAgain()
+    {
+        (FakeAutomation surface, CombatController controller, _) = MeleeKillRig(
+            new CombatSettings
+            {
+                BlacklistMonsterAttemptCount = 1,
+                BlacklistMonsterTimeoutSeconds = 300,
+            },
+            tracksAttackRequests: true);
+        Assert.Equal(1, surface.BeginCount);
+        Assert.True(surface.CombatSnapshot.RequestInProgress);
+        int abortsAfterTheArm = surface.AbortCount;
+
+        // The bar stays where it was: the character is in no position to
+        // swing and the host is holding the request open.
+        controller.OnTick(4.0);
+        Assert.Equal(abortsAfterTheArm, surface.AbortCount);
+        Assert.Equal(1, surface.BeginCount);
+
+        controller.OnTick(1.0);
+        Assert.Equal(abortsAfterTheArm + 1, surface.AbortCount);
+        Assert.False(surface.CombatSnapshot.RequestInProgress);
+
+        // The next pass asks again, and the monster has been charged nothing
+        // for a swing that never reached it.
+        controller.OnTick(0.25);
+        Assert.Equal(2, surface.BeginCount);
+        Assert.Equal(10u, surface.LastBeginTarget);
+        Assert.DoesNotContain(
+            surface.PostedSystemMessages,
+            message => message.Contains(
+                "Blacklisting unhittable target",
+                StringComparison.Ordinal));
+    }
+
+    /// <summary>
     /// A swing the server never answers must not hold the macro for ever: the
     /// host refuses a second swing while the first is open, so the wait ends
     /// itself and the attack is cancelled, which is what closes it server-side.
