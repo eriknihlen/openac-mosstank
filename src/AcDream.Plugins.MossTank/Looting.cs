@@ -1439,14 +1439,17 @@ internal sealed partial class LootController
 
     private void CompleteWaitingPickup()
     {
-        // An item taken for its mana is reserved against a spare stone, and
-        // that reservation is only made once the item is in hand and the
-        // second look has passed. An item somebody wrote on or tinkered is
-        // taken and then left alone: it must not go on holding a stone back
-        // for the rest of the run.
+        // An item taken for its mana keeps what it was taken as unless the
+        // second look, now that it is in hand, says otherwise: somebody wrote
+        // on it or tinkered it, and it is left alone. A description that
+        // cannot be read yet is not that verdict — the item arrives before
+        // its description does — and treating it as one dropped the item's
+        // whole classification for good, so that donor was never drained.
+        // The stone it reserves is released where the stones are counted,
+        // once the writing on it is known.
         if (_waitingAction != LootAction.ManaTank
-            || (CaptureOwnedProperties(_waitingItem) is { } written
-                && ManaStoneTransferPlanner.IsDrainableInHand(written)))
+            || CaptureOwnedProperties(_waitingItem) is not { } written
+            || ManaStoneTransferPlanner.IsDrainableInHand(written))
         {
             _classifiedOwnedItems[_waitingItem] = _waitingAction;
         }
@@ -1851,10 +1854,22 @@ internal sealed partial class LootController
             .ToHashSet();
         int queued = _classifiedOwnedItems.Count(entry =>
             entry.Value == LootAction.ManaTank
-            && ownedIds.Contains(entry.Key));
+            && ownedIds.Contains(entry.Key)
+            && ReservesAManaStone(entry.Key));
         queued += PendingDecisionCount(LootAction.ManaTank);
         return Math.Max(0, stones - queued);
     }
+
+    /// <summary>
+    /// Whether a tank the character is carrying still holds a stone back. An
+    /// item whose description has since arrived and says somebody wrote on it
+    /// or tinkered it is left alone, so it stops reserving anything. One
+    /// whose description still cannot be read keeps its reservation: it is
+    /// what the stone is being saved for.
+    /// </summary>
+    private bool ReservesAManaStone(uint objectId) =>
+        CaptureOwnedProperties(objectId) is not { } written
+        || ManaStoneTransferPlanner.IsDrainableInHand(written);
 
     private void IncrementAttempt(uint objectId)
     {

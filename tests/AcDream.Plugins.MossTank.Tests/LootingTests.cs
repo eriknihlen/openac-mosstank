@@ -2528,10 +2528,21 @@ public sealed partial class LootingTests
         /// </summary>
         public Dictionary<uint, PluginItemProperties> ItemProperties { get; } = [];
 
+        /// <summary>
+        /// Items the host cannot describe yet — an item that has left the
+        /// corpse but whose description has not caught up.
+        /// </summary>
+        public HashSet<uint> UnreadableProperties { get; } = [];
+
         public bool TryCaptureProperties(
             uint objectId,
             out PluginItemProperties properties)
         {
+            if (UnreadableProperties.Contains(objectId))
+            {
+                properties = EmptyProperties;
+                return false;
+            }
             properties = ItemProperties.TryGetValue(
                 objectId, out PluginItemProperties stored)
                 ? stored
