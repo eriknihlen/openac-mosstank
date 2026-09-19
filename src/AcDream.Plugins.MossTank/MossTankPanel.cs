@@ -6,7 +6,7 @@ using AcDream.Plugins.MossTank.Expressions;
 
 namespace AcDream.Plugins.MossTank;
 
-internal sealed partial class MossTankPanel : IBuffRuleHost
+internal sealed partial class MossTankPanel : IBuffRuleHost, IDisposable
 {
     private enum TankTab
     {
@@ -4981,6 +4981,12 @@ internal sealed partial class MossTankPanel : IBuffRuleHost
         _metaViews.DestroyAll();
         _expressions.DestroyAuxiliaryViews();
         _expressions.ClearSession();
+    }
+
+    public void Dispose()
+    {
+        Disable();
+        _combatModeGate.Dispose();
     }
 
     private void HandleSessionEnded()

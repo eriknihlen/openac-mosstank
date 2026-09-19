@@ -2,7 +2,7 @@ using AcDream.Plugin.Abstractions;
 
 namespace AcDream.Plugins.MossTank;
 
-internal sealed class CombatModeGate
+internal sealed class CombatModeGate : IDisposable
 {
     public const string NoWandNotice =
         "You must add at least one wand to your profile.";
@@ -113,6 +113,8 @@ internal sealed class CombatModeGate
         _postedWarnings.Clear();
         Status = string.Empty;
     }
+
+    public void Dispose() => _equipmentTracker.Dispose();
 
     public void AdvancePass(double elapsedSeconds)
     {

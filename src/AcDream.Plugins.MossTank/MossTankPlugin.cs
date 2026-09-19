@@ -117,7 +117,9 @@ public sealed class MossTankPlugin : IAcDreamPlugin
         _lootClassifierRegistration = null;
         _tick = null;
         _autostartTick = null;
-        _panel?.Disable();
+        _panel?.Dispose();
+        _panel = null;
         _host?.Log.Info("MossTank disabled");
+        _host = null;
     }
 }
