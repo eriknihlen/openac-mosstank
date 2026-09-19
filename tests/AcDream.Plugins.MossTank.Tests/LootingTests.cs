@@ -718,6 +718,138 @@ public sealed partial class LootingTests
         Assert.Single(automation.Opened);
     }
 
+    /// <summary>
+    /// Mutation <c>DropWaitingPickupReceipt</c>: clear the receipt when the
+    /// item remains in the corpse. The busy retry then loses the Read action,
+    /// classifier notification and reader queue after the original pickup lands.
+    /// </summary>
+    [Fact]
+    public void AcceptedReadPickupKeepsItsReceiptAcrossBusyRetryUntilTransfer()
+    {
+        const uint corpse = 0x70000280u;
+        const uint scroll = 0x70000281u;
+        var settings = new LootSettings
+        {
+            Enabled = true,
+            ExternalClassifierId = "classifier/read",
+        };
+        settings.Rules.Add(new LootRule { Expression = "*", Action = LootAction.NoLoot });
+        PluginInventoryItem scrollItem = Scroll(scroll, "Incantation of Testing", 777u);
+        var automation = new Automation
+        {
+            KnownSpell = new PluginSpellInfo(
+                777u, "Incantation of Testing", 1u, 1, 100, 10, 0f,
+                34u, string.Empty, false, false),
+            SkillsValue =
+            [
+                new PluginSkillInfo(
+                    34u, "War Magic", PluginSkillTraining.Trained, 90u),
+            ],
+            Corpses =
+            [
+                new PluginLootContainer(
+                    corpse, 1u, "Corpse", 3f, false, false, false)
+                {
+                    IsIdentified = true,
+                    LongDescription = "Killed by Tester.",
+                },
+            ],
+        };
+        var classifier = new ClassifierRegistry(
+            "classifier/read",
+            new PluginLootClassification(true, PluginLootAction.Read, "Read it"));
+        var host = new Host(automation, classifier);
+        var controller = new LootController(host, settings);
+        var locks = new ActionLockTable();
+        controller.BindActionLocks(locks);
+
+        Assert.True(controller.Tick(0.25d, canAct: true));
+        automation.Current = corpse;
+        automation.Contents = [scrollItem];
+        locks.Advance(settings.CorpseOpenTimeoutSeconds + 0.1d);
+        controller.TickIdentification(0.5d);
+        Assert.True(controller.Tick(0.2d, canAct: true));
+        automation.CompleteAppraisal(scroll, presentInUi: false);
+        controller.TickIdentification(0.5d);
+        Assert.True(controller.Tick(0.1d, canAct: true));
+        Assert.Equal([scroll], automation.Picked);
+
+        locks.Advance(1d);
+        automation.PickupResults.Enqueue(PluginItemCommandStatus.Busy);
+        Assert.True(controller.Tick(0.1d, canAct: true));
+        Assert.Equal([scroll, scroll], automation.Picked);
+        Assert.Empty(classifier.Looted);
+
+        automation.Contents = [];
+        automation.Owned = [scrollItem];
+        automation.InventoryCompletion = new PluginInventoryCompletion(
+            1, PluginInventoryCommandKind.Pickup, scroll, 0u);
+        Assert.True(controller.Tick(0.1d, canAct: true));
+
+        Assert.Equal(LootAction.Read, controller.ClassifiedOwnedItems[scroll]);
+        Assert.Equal(scroll, controller.PendingScrollReads[777u]);
+        PluginLootedItem looted = Assert.Single(classifier.Looted);
+        Assert.Equal(scroll, looted.Item.ObjectId);
+        Assert.Equal(PluginLootAction.Read, looted.Action);
+
+        var reader = new ReadScrollController(host, settings, controller);
+        Assert.True(reader.Tick(0.1d, canAct: true));
+        Assert.Equal([scroll], automation.Used);
+    }
+
+    /// <summary>Mutation <c>DropWaitingPickupReceipt</c>: release the reservation before the transfer arrives.</summary>
+    [Fact]
+    public void KeepUpToReceiptRemainsReservedAcrossBusyRetry()
+    {
+        const uint corpse = 0x70000290u;
+        const uint first = 0x70000291u;
+        const uint second = 0x70000292u;
+        var settings = new LootSettings { Enabled = true };
+        settings.Rules.Add(new LootRule
+        {
+            Expression = "*",
+            Action = LootAction.KeepUpTo,
+            KeepCount = 1,
+        });
+        PluginInventoryItem firstItem = Item(first, "Limited prize", 99u);
+        PluginInventoryItem secondItem = Item(second, "Limited prize", 99u);
+        var automation = new Automation
+        {
+            Corpses =
+            [
+                new PluginLootContainer(
+                    corpse, 1u, "Corpse", 3f, false, false, false)
+                {
+                    IsIdentified = true,
+                    LongDescription = "Killed by Tester.",
+                },
+            ],
+        };
+        var controller = new LootController(new Host(automation), settings);
+        var locks = new ActionLockTable();
+        controller.BindActionLocks(locks);
+
+        Assert.True(controller.Tick(0.25d, canAct: true));
+        automation.Current = corpse;
+        automation.Contents = [firstItem];
+        locks.Advance(settings.CorpseOpenTimeoutSeconds + 0.1d);
+        controller.TickIdentification(0.5d);
+        Assert.True(controller.Tick(0.2d, canAct: true));
+        Assert.Equal([first], automation.Picked);
+
+        locks.Advance(1d);
+        automation.Contents = [firstItem, secondItem];
+        automation.PickupResults.Enqueue(PluginItemCommandStatus.Busy);
+        Assert.True(controller.Tick(0.1d, canAct: true));
+        controller.TickIdentification(0.5d);
+
+        automation.Contents = [secondItem];
+        automation.Owned = [firstItem];
+        Assert.True(controller.Tick(0.1d, canAct: true));
+
+        Assert.Equal([first, first], automation.Picked);
+    }
+
     [Fact]
     public void UnknownReadableScrollOverridesNoLootAndIsPickedForReading()
     {
@@ -2139,6 +2271,7 @@ public sealed partial class LootingTests
             return new(PluginItemCommandStatus.Started);
         }
         public List<uint> Picked { get; } = [];
+        public Queue<PluginItemCommandStatus> PickupResults { get; } = [];
         public List<uint> Identified { get; } = [];
         public List<(uint Tool, uint Item)> Salvaged { get; } = [];
         public List<uint> Sold { get; } = [];
@@ -2257,7 +2390,10 @@ public sealed partial class LootingTests
             bool mainPack = false)
         {
             Picked.Add(objectId);
-            return new(PluginItemCommandStatus.Started);
+            PluginItemCommandStatus status = PickupResults.Count == 0
+                ? PluginItemCommandStatus.Started
+                : PickupResults.Dequeue();
+            return new(status);
         }
         public PluginItemCommandResult Salvage(
             uint toolObjectId,

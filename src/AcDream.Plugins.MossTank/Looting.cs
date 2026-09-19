@@ -662,6 +662,12 @@ internal sealed partial class LootController
         uint current = loot.CurrentContainerId;
         if (_activeCorpse != 0u
             && current != _activeCorpse
+            && _waitingItem != 0u)
+        {
+            AbandonWaitingItem();
+        }
+        if (_activeCorpse != 0u
+            && current != _activeCorpse
             && _completedCorpses.ContainsKey(_activeCorpse))
         {
             _activeCorpse = 0u;
@@ -1165,17 +1171,20 @@ internal sealed partial class LootController
         // the corpse it is standing over, one item into emptying it.
         _actionLocks?.Arm(ActionLockKind.ItemUse, PickupHoldSeconds);
         _actionLocks?.Arm(ActionLockKind.Navigation, PickupHoldSeconds);
-        _waitingItem = chosen.Item.ObjectId;
-        _waitingName = chosen.Item.Name;
-        _waitingAction = chosen.Decision.Action;
-        _waitingQuantity = Math.Max(1, chosen.Item.StackSize);
-        _waitingItemSnapshot = chosen.Item;
-        _waitingClassifierId = chosen.Decision.ClassifierId;
-        if (chosen.Decision.Action == LootAction.KeepUpTo)
+        if (_waitingItem == 0u)
         {
-            _pendingByName.TryGetValue(chosen.Item.Name, out int pending);
-            _pendingByName[chosen.Item.Name] =
-                pending + _waitingQuantity;
+            _waitingItem = chosen.Item.ObjectId;
+            _waitingName = chosen.Item.Name;
+            _waitingAction = chosen.Decision.Action;
+            _waitingQuantity = Math.Max(1, chosen.Item.StackSize);
+            _waitingItemSnapshot = chosen.Item;
+            _waitingClassifierId = chosen.Decision.ClassifierId;
+            if (chosen.Decision.Action == LootAction.KeepUpTo)
+            {
+                _pendingByName.TryGetValue(chosen.Item.Name, out int pending);
+                _pendingByName[chosen.Item.Name] =
+                    pending + _waitingQuantity;
+            }
         }
         Status = $"Looting {chosen.Item.Name} ({chosen.Decision.RuleName})…";
         Log?.Invoke(
@@ -1236,16 +1245,29 @@ internal sealed partial class LootController
         else
         {
             Status = $"Retrying {_waitingName}.";
+            return;
         }
-        if (_waitingAction == LootAction.KeepUpTo
-            && _pendingByName.TryGetValue(_waitingName, out int pending))
-        {
-            if (pending <= _waitingQuantity)
-                _pendingByName.Remove(_waitingName);
-            else
-                _pendingByName[_waitingName] = pending - _waitingQuantity;
-        }
+        ReleaseWaitingReservation();
         ClearWaitingItem();
+    }
+
+    private void AbandonWaitingItem()
+    {
+        ReleaseWaitingReservation();
+        ClearWaitingItem();
+    }
+
+    private void ReleaseWaitingReservation()
+    {
+        if (_waitingAction != LootAction.KeepUpTo
+            || !_pendingByName.TryGetValue(_waitingName, out int pending))
+        {
+            return;
+        }
+        if (pending <= _waitingQuantity)
+            _pendingByName.Remove(_waitingName);
+        else
+            _pendingByName[_waitingName] = pending - _waitingQuantity;
     }
 
     private void ClearWaitingItem()
@@ -1763,12 +1785,7 @@ internal sealed partial class LootController
         _activeCorpse = 0u;
         _activeCorpseSawContents = false;
         _activeCorpseIsOwnDeath = false;
-        _waitingItem = 0u;
-        _waitingName = string.Empty;
-        _waitingAction = LootAction.NoLoot;
-        _waitingQuantity = 0;
-        _waitingItemSnapshot = default;
-        _waitingClassifierId = string.Empty;
+        AbandonWaitingItem();
         _awaitingAppraisal = 0u;
         _awaitingCorpseAppraisal = 0u;
         _lastCorpseDescriptionRequest = 0u;
