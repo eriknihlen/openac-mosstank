@@ -10,6 +10,7 @@ internal static class VtankProfiledItemIds
         settings.CombatItemOrderIds.Clear();
         settings.CombatItemObjectIds.Clear();
         settings.RemovedCombatItemObjectIds.Clear();
+        settings.RemovedBuffedItemRows.Clear();
         for (int index = buffs.ItemEnchantRows.Count - 1; index >= 0; index--)
         {
             if (buffs.ItemEnchantRows[index].IsProfiledItemRow)
@@ -90,6 +91,17 @@ internal static class VtankProfiledItemIds
         int spellColumn = table.ColumnIndex("Spell");
         if (objectColumn < 0 || spellColumn < 0)
             throw new FormatException("'BuffedItems' table is missing Object/Spell columns.");
+
+        foreach (BuffedItemKey removed in settings.RemovedBuffedItemRows)
+        {
+            int index = table.Rows.FindIndex(row => TryReadRow(
+                row, objectColumn, spellColumn, out int rawObject, out int rawSpell)
+                && unchecked((uint)rawObject) == removed.ObjectId
+                && unchecked((uint)rawSpell) == removed.SpellId);
+            if (index >= 0)
+                table.Rows.RemoveAt(index);
+        }
+        settings.RemovedBuffedItemRows.Clear();
 
         if (settings.RemovedCombatItemObjectIds.Count != 0)
         {

@@ -166,6 +166,7 @@ internal sealed partial class MossTankPanel : IBuffRuleHost, IDisposable
     private IReadOnlyList<string> _itemRows = Array.Empty<string>();
     private IReadOnlyList<string> _itemBaseNames = Array.Empty<string>();
     private IReadOnlyList<uint?> _itemRowObjectIds = Array.Empty<uint?>();
+    private IReadOnlyList<BuffItemEnchantRow?> _itemRowEnchantRows = Array.Empty<BuffItemEnchantRow?>();
     private IReadOnlyList<string> _consumableRows = Array.Empty<string>();
     private int _selectedItemRow;
     private int _selectedConsumableRow;
@@ -1765,32 +1766,70 @@ internal sealed partial class MossTankPanel : IBuffRuleHost, IDisposable
         foreach (PluginInventoryItem item in _host.Automation.Items.CaptureOwnedItems())
             ownedById.TryAdd(item.ObjectId, item);
         var baseNames = new List<string>();
+        var displayNames = new List<string>();
         var rowIds = new List<uint?>();
+        var enchantRows = new List<BuffItemEnchantRow?>();
         var resolvedNames = new HashSet<string>(StringComparer.Ordinal);
+        var profiledIds = new HashSet<uint>();
+        foreach (BuffItemEnchantRow row in _buffSettings.ItemEnchantRows)
+        {
+            if (!row.IsProfiledItemRow)
+                continue;
+            uint objectId = row.ObjectId!.Value;
+            string name;
+            if (objectId == uint.MaxValue)
+            {
+                name = "Equipped weapon";
+            }
+            else if (ownedById.TryGetValue(objectId, out PluginInventoryItem item))
+            {
+                name = item.Name;
+                resolvedNames.Add(name);
+                profiledIds.Add(objectId);
+            }
+            else
+            {
+                name = $"<INVALID 0x{objectId:X8}>";
+                profiledIds.Add(objectId);
+            }
+            baseNames.Add(name);
+            displayNames.Add(ProfiledItemRowText(name, row));
+            rowIds.Add(objectId == uint.MaxValue ? null : objectId);
+            enchantRows.Add(row);
+        }
         foreach (uint id in _combatSettings.CombatItemOrderIds)
         {
+            if (profiledIds.Contains(id))
+                continue;
             if (ownedById.TryGetValue(id, out PluginInventoryItem item))
             {
                 baseNames.Add(item.Name);
+                displayNames.Add(item.Name);
                 resolvedNames.Add(item.Name);
             }
             else
             {
-                baseNames.Add($"<INVALID 0x{id:X8}>");
+                string invalid = $"<INVALID 0x{id:X8}>";
+                baseNames.Add(invalid);
+                displayNames.Add(invalid);
             }
             rowIds.Add(id);
+            enchantRows.Add(null);
         }
         foreach (string name in SortedCombatItemNames())
         {
             if (resolvedNames.Contains(name))
                 continue;
             baseNames.Add(name);
+            displayNames.Add(name);
             rowIds.Add(null);
+            enchantRows.Add(null);
         }
         _itemBaseNames = baseNames;
         _itemRowObjectIds = rowIds;
-        _itemRows = baseNames
-            .Select(name => _noBuffItemNames.Contains(name)
+        _itemRowEnchantRows = enchantRows;
+        _itemRows = displayNames
+            .Select((name, index) => _noBuffItemNames.Contains(baseNames[index])
                 ? name + "   [no buffs]"
                 : name)
             .ToArray();
@@ -1815,6 +1854,15 @@ internal sealed partial class MossTankPanel : IBuffRuleHost, IDisposable
             _excludedComponentRows.Count);
     }
 
+    private string ProfiledItemRowText(string itemName, in BuffItemEnchantRow row)
+    {
+        if (row.CastsNothing)
+            return itemName;
+        string spellName = _host.Automation.Spells.TryGet(row.SpellId!.Value, out PluginSpellInfo spell)
+            ? spell.Name
+            : $"Spell 0x{row.SpellId.Value:X8}";
+        return $"{itemName} — {spellName}";
+    }
     private int HandednessIndex(string name) =>
         _itemHandedness.TryGetValue(name, out int value) ? value : 0;
 
@@ -1823,6 +1871,14 @@ internal sealed partial class MossTankPanel : IBuffRuleHost, IDisposable
         if ((uint)row >= (uint)_itemBaseNames.Count)
             return;
         string removed = _itemBaseNames[row];
+        if (_itemRowEnchantRows[row] is BuffItemEnchantRow imported)
+        {
+            RemoveProfiledItemEnchantRow(imported, removed);
+            _profileNotice = $"Removed {removed}.";
+            RefreshItemEditors();
+            SaveProfile();
+            return;
+        }
         uint? objectId = _itemRowObjectIds[row];
         if (objectId.HasValue)
         {
@@ -1843,6 +1899,40 @@ internal sealed partial class MossTankPanel : IBuffRuleHost, IDisposable
         _profileNotice = $"Removed {removed}.";
         RefreshItemEditors();
         SaveProfile();
+    }
+
+    private void RemoveProfiledItemEnchantRow(
+        in BuffItemEnchantRow removed,
+        string displayName)
+    {
+        uint objectId = removed.ObjectId!.Value;
+        uint spellId = removed.SpellId!.Value;
+        for (int index = 0; index < _buffSettings.ItemEnchantRows.Count; index++)
+        {
+            BuffItemEnchantRow candidate = _buffSettings.ItemEnchantRows[index];
+            if (!candidate.IsProfiledItemRow
+                || candidate.ObjectId != objectId
+                || candidate.SpellId != spellId)
+            {
+                continue;
+            }
+            _buffSettings.ItemEnchantRows.RemoveAt(index);
+            break;
+        }
+        _combatSettings.RemovedBuffedItemRows.Add(new BuffedItemKey(objectId, spellId));
+        if (objectId == uint.MaxValue)
+            return;
+        if (_buffSettings.ItemEnchantRows.Any(candidate =>
+                candidate.IsProfiledItemRow && candidate.ObjectId == objectId))
+        {
+            return;
+        }
+        _combatSettings.CombatItemObjectIds.Remove(objectId);
+        _combatSettings.CombatItemOrderIds.Remove(objectId);
+        _combatSettings.CombatItemNames.Remove(displayName);
+        _combatSettings.CombatItemOrder.Remove(displayName);
+        _noBuffItemNames.Remove(displayName);
+        _itemHandedness.Remove(displayName);
     }
 
     private void CycleItemHandsAtCore(int row)

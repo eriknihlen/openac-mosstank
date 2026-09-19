@@ -132,6 +132,8 @@ internal sealed class CombatSettings
     public ISet<uint> CombatItemObjectIds { get; } = new HashSet<uint>();
     public IList<uint> CombatItemOrderIds { get; } = new List<uint>();
     internal ISet<uint> RemovedCombatItemObjectIds { get; } = new HashSet<uint>();
+    internal IList<BuffedItemKey> RemovedBuffedItemRows { get; } =
+        new List<BuffedItemKey>();
     public ISet<string> CombatItemNames { get; } =
         new HashSet<string>(StringComparer.Ordinal);
     public IList<string> CombatItemOrder { get; } = new List<string>();

@@ -251,7 +251,7 @@ internal sealed partial class BuffSelfRule
             bool resolved = row.SpellId is uint spellId
                 ? automation.Spells.TryGet(spellId, out PluginSpellInfo exemplar)
                     && TryResolveBestKnown(
-                        automation, exemplar.Name, _settings, castability, out spell)
+                        automation, exemplar, _settings, castability, out spell)
                 : TryResolveBestKnown(
                     automation, row.SpellName, _settings, castability, out spell);
             if (resolved && !spell.IsUntargeted)
@@ -572,7 +572,7 @@ internal sealed partial class BuffSelfRule
             if (row.SpellId.HasValue)
             {
                 resolved = automation.Spells.TryGet(row.SpellId.Value, out PluginSpellInfo exemplar)
-                    && TryResolveBestKnown(automation, exemplar.Name, _settings, castability, out spell);
+                    && TryResolveBestKnown(automation, exemplar, _settings, castability, out spell);
             }
             else
             {
@@ -816,11 +816,19 @@ internal sealed partial class BuffSelfRule
                 }
             }
         }
-        if (!haveReference)
-            return false;
+        return haveReference && TryResolveBestKnown(
+            automation, reference, settings, castability, out spell);
+    }
 
-        // Every known spell of the reference's family. MatchesReference keeps
-        // the walk on the reference's own line.
+    private static bool TryResolveBestKnown(
+        IAutomationSurface automation,
+        in PluginSpellInfo reference,
+        BuffSettings settings,
+        IBuffCastability? castability,
+        out PluginSpellInfo spell)
+    {
+        spell = default;
+        IReadOnlyList<PluginSpellInfo> known = automation.Spells.KnownSelfBuffs;
         var tiers = new List<PluginSpellInfo>();
         foreach (PluginSpellInfo candidate in known)
         {
@@ -840,10 +848,8 @@ internal sealed partial class BuffSelfRule
         foreach (PluginSkillInfo skill in automation.Character.Skills)
             skillLevels[skill.SkillId] = skill.Current;
 
-        // Kind/TargetName are not read by TryPickTier; the tier list, the
-        // family and the reference are.
         var line = new BuffLine(
-            reference.Family, BuffTargetKind.Other, stem, tiers)
+            reference.Family, BuffTargetKind.Other, StemOf(reference.Name), tiers)
         {
             ReferenceOverride = reference,
         };

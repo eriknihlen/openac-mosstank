@@ -15,6 +15,8 @@ internal readonly record struct BuffItemEnchantRow(
     public bool IsProfiledItemRow => ObjectId.HasValue && SpellId.HasValue;
 }
 
+internal readonly record struct BuffedItemKey(uint ObjectId, uint SpellId);
+
 internal static class ItemEnchantDefaults
 {
     public const uint MeleeWeapon = 0x00100000u;

@@ -1827,24 +1827,125 @@ public sealed class MossTankPanelTests
         {
             ItemEntries = [Item(11, "Twin Sword", 1)],
         }, storage));
-        Assert.Equal(["<INVALID 0x0000000A>", "Twin Sword"], second.ItemRows);
+        Assert.Equal(
+            ["<INVALID 0x0000000A>", "Twin Sword", "<INVALID 0x0000000A> — Spell 0x00000011"],
+            second.ItemRows);
 
         second.DeleteItemRowAt(0);
 
-        Assert.Equal(["Twin Sword"], second.ItemRows);
+        Assert.Equal(["Twin Sword", "<INVALID 0x0000000A> — Spell 0x00000011"], second.ItemRows);
         table = VtankDatabase.Parse(storage.Text[usdKey]).Find("BuffedItems")!;
         Assert.Contains(table.Rows, row => row.Cells[table.ColumnIndex("Object")]
             .AsInt() == 11);
         Assert.Contains(table.Rows, row => row.Cells[table.ColumnIndex("Object")]
             .AsString() == "not-an-object-id");
 
-        second.RemoveSelectedItem();
+        second.DeleteItemRowAt(1);
+        Assert.Equal(["Twin Sword"], second.ItemRows);
+
+        second.DeleteItemRowAt(0);
 
         Assert.Empty(second.ItemRows);
         table = VtankDatabase.Parse(storage.Text[usdKey]).Find("BuffedItems")!;
         Assert.Single(table.Rows);
         Assert.Equal("not-an-object-id", table.Rows[0].Cells[
             table.ColumnIndex("Object")].AsString());
+    }
+
+    /// <summary>
+    /// Imported rows identify a single Object/Spell pair. Their removal must
+    /// update the live plan as well as the saved table, leaving other spells
+    /// and the equipment row for the same object intact.
+    /// Mutation: omit the profiled-row branch in
+    /// <c>DeleteItemRowAtCore</c>; the imported spell stays in the UI and
+    /// the post-delete row assertion fails.
+    /// </summary>
+    [Fact]
+    public void ImportedBuffedItemUiDeletesOneSpellPairAndKeepsItsSiblings()
+    {
+        var storage = new MemoryStorage();
+        VtankDatabase database = VtankDefaultSettingsDatabase.Parse();
+        VtankTable table = database.Find("BuffedItems")!;
+        table.Rows.Add(new VtankRow { Cells = { VtankCell.Int(10), VtankCell.Int(-1) } });
+        table.Rows.Add(new VtankRow { Cells = { VtankCell.Int(10), VtankCell.Int(101) } });
+        table.Rows.Add(new VtankRow { Cells = { VtankCell.Int(10), VtankCell.Int(102) } });
+        storage.Text["Imported.usd"] = database.Render();
+        FakeAutomation automation = ItemEnchantAutomation();
+        var host = new FakeHost(automation, storage);
+        automation.CurrentSelection = () => host.Selection.SelectedObjectId ?? 0u;
+        var panel = new MossTankPanel(host);
+
+        Command(panel, "settings load Imported");
+        Assert.Equal(
+            ["War Wand", "War Wand — Aura of Defender Self I", "War Wand — Aura of Hermetic Link Self I"],
+            panel.ItemRows);
+
+        panel.DeleteItemRowAt(1);
+
+        Assert.Equal(
+            ["War Wand", "War Wand — Aura of Hermetic Link Self I"],
+            panel.ItemRows);
+        panel.ToggleCombat();
+        for (int tick = 0; tick < 8; tick++)
+            panel.OnTick(0.3d);
+
+        Assert.Equal([102u], automation.CastSpellIds);
+        table = VtankDatabase.Parse(storage.Text["Imported.usd"]).Find("BuffedItems")!;
+        Assert.Contains(table.Rows, row => row.Cells[table.ColumnIndex("Object")].AsInt() == 10
+            && row.Cells[table.ColumnIndex("Spell")].AsInt() == -1);
+        Assert.DoesNotContain(table.Rows, row => row.Cells[table.ColumnIndex("Object")].AsInt() == 10
+            && row.Cells[table.ColumnIndex("Spell")].AsInt() == 101);
+        Assert.Contains(table.Rows, row => row.Cells[table.ColumnIndex("Object")].AsInt() == 10
+            && row.Cells[table.ColumnIndex("Spell")].AsInt() == 102);
+    }
+
+    /// <summary>
+    /// A numeric profile spell supplies a family even when its old display
+    /// name does not match a known higher tier's name.
+    /// Mutation: resolve the numeric row through <c>exemplar.Name</c> rather
+    /// than the exemplar itself; the renamed known tier is not cast.
+    /// </summary>
+    [Fact]
+    public void ImportedBuffedItemNumericExemplarResolvesKnownTierByFamily()
+    {
+        var storage = new MemoryStorage();
+        VtankDatabase database = VtankDefaultSettingsDatabase.Parse();
+        database.Find("BuffedItems")!.Rows.Add(new VtankRow
+        {
+            Cells = { VtankCell.Int(10), VtankCell.Int(100) },
+        });
+        storage.Text["Imported.usd"] = database.Render();
+        FakeAutomation automation = ItemEnchantAutomation();
+        automation.Skills =
+        [
+            new PluginSkillInfo(
+                ItemEnchantmentSchoolId,
+                "Item Enchantment",
+                PluginSkillTraining.Trained,
+                300),
+        ];
+        automation.KnownSelfBuffs =
+        [
+            NamedSpell(101, 201, "Renamed Higher Aura VI", ItemEnchantmentSchoolId)
+                with { Tier = 6, IsSelfTargeted = true },
+        ];
+        automation.CatalogSpells =
+        [
+            NamedSpell(100, 201, "Old Exemplar I", ItemEnchantmentSchoolId)
+                with { IsSelfTargeted = true },
+        ];
+        var host = new FakeHost(automation, storage);
+        automation.CurrentSelection = () => host.Selection.SelectedObjectId ?? 0u;
+        var panel = new MossTankPanel(host);
+
+        Command(panel, "settings load Imported");
+        Assert.Equal(["War Wand — Old Exemplar I"], panel.ItemRows);
+        panel.ToggleCombat();
+        for (int tick = 0; tick < 6; tick++)
+            panel.OnTick(0.3d);
+
+        Assert.Equal([101u], automation.CastSpellIds);
+        Assert.Equal([10u], automation.CastSelectionIds);
     }
 
     [Fact]
@@ -7795,6 +7896,7 @@ public sealed class MossTankPanelTests
                 ? held
                 : [];
         private IReadOnlyList<PluginSpellInfo> _knownSelfBuffs = [];
+        public IReadOnlyList<PluginSpellInfo> CatalogSpells { get; set; } = [];
 
         public bool IsAvailable { get; set; } = true;
         public ICharacterInfo Character => this;
@@ -8005,6 +8107,14 @@ public sealed class MossTankPanelTests
         public bool TryGet(uint spellId, out PluginSpellInfo info)
         {
             foreach (PluginSpellInfo candidate in _knownSelfBuffs)
+            {
+                if (candidate.SpellId == spellId)
+                {
+                    info = candidate;
+                    return true;
+                }
+            }
+            foreach (PluginSpellInfo candidate in CatalogSpells)
             {
                 if (candidate.SpellId == spellId)
                 {
