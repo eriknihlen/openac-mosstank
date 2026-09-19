@@ -1020,8 +1020,13 @@ public sealed class MossTankPanelTests
         Assert.Contains(0x50005001u, automation.Identified);
     }
 
+    /// <summary>
+    /// With the macro off, keeping worn gear charged keeps the pass alive --
+    /// and that is the only job it keeps alive. A buff pass left half done
+    /// ends with the macro, and the stopped list casts nothing of its own.
+    /// </summary>
     [Fact]
-    public void StoppingTheMacroEndsTheBuffPassEvenWhenManaChargesKeepTheLoopAlive()
+    public void TheStoppedMacroListKeepsThePassAliveWithoutBuffing()
     {
         var automation = BuffPassAutomation();
         var panel = new MossTankPanel(new FakeHost(automation));
