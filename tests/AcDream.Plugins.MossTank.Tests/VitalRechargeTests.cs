@@ -680,6 +680,48 @@ public sealed class VitalRechargeTests
     }
 
     /// <summary>
+    /// Receipts are read on every frame, beside every other owner that has
+    /// one outstanding, so a receipt on its own says nothing about whose it
+    /// is: a door the walk opened or an item the mode gate used raises the
+    /// same stamp. Taking one of those for the answer would let go of the
+    /// item slot while the character still had the elixir in hand, and the
+    /// next turn would drink a second one.
+    ///
+    /// Mutation: complete on any newer stamp, as before, and the foreign
+    /// receipt ends the wait.
+    /// </summary>
+    [Fact]
+    public void AReceiptForSomebodyElsesUseDoesNotEndThisOne()
+    {
+        var surface = new Surface
+        {
+            CurrentHealth = 20,
+            MaxHealth = 100,
+            Items = [Food(10u, "Bread")],
+        };
+        var combat = new CombatSettings();
+        combat.ConsumableNames.Add("Bread");
+        var controller = new VitalRechargeController(
+            new Host(surface),
+            new VitalSettings(),
+            combat);
+        controller.BindActionLocks(new ActionLockTable());
+
+        controller.Tick(0.3d, enabled: true, noTarget: false, helpers: false);
+        Assert.True(controller.ItemUseInFlight);
+
+        // Somebody else's item answers first.
+        surface.LastItemCompletion = new PluginItemUseCompletion(1L, 777u, 0u, 0u);
+        controller.ObservePendingReceipt(0.05d);
+        Assert.True(controller.ItemUseInFlight);
+
+        // And then this one's.
+        surface.LastItemCompletion = new PluginItemUseCompletion(2L, 10u, 0u, 0u);
+        controller.ObservePendingReceipt(0.05d);
+        Assert.False(controller.ItemUseInFlight);
+    }
+
+    /// <summary>
     /// The frame and the turn share one clock for the give-up timer: time the
     /// frame has already watched off is not charged again when the turn comes
     /// back. Mutation: drop the <c>_frameObservedSeconds</c> subtraction in

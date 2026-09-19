@@ -1575,12 +1575,39 @@ internal sealed class VitalRechargeController
     /// <summary>How long an unanswered use is waited out before it is given up.</summary>
     private const double PendingTimeoutSeconds = 15d;
 
+    /// <summary>
+    /// Whether the server has answered for THIS use or cast. Receipts are
+    /// read on every frame now, beside every other owner of one, so a receipt
+    /// alone says nothing: a door opened by the walk or an item used by the
+    /// combat-mode gate raises the same stamp. A receipt that is not this
+    /// one is stepped over -- its stamp is taken as the new floor, so it can
+    /// never be read twice -- and the wait goes on.
+    /// </summary>
     private static bool TryComplete(IAutomationSurface automation, Pending pending)
     {
         if (pending.Choice.SourceKind == VitalRechargeSourceKind.LearnedSpell)
-            return automation.Magic.LastCompletion.Revision > pending.Revision;
-        return automation.Items.LastCompletion.Revision > pending.Revision;
+        {
+            PluginCastCompletion cast = automation.Magic.LastCompletion;
+            if (cast.Revision <= pending.Revision)
+                return false;
+            pending.Revision = cast.Revision;
+            return cast.SpellId == pending.Choice.SpellId;
+        }
+
+        PluginItemUseCompletion use = automation.Items.LastCompletion;
+        if (use.Revision <= pending.Revision)
+            return false;
+        pending.Revision = use.Revision;
+        return use.SourceObjectId == pending.Choice.ItemObjectId;
     }
 
-    private sealed record Pending(VitalRechargeChoice Choice, long Revision);
+    private sealed class Pending(VitalRechargeChoice choice, long revision)
+    {
+        public VitalRechargeChoice Choice { get; } = choice;
+
+        /// <summary>
+        /// The newest receipt stamp this wait has already looked at.
+        /// </summary>
+        public long Revision { get; set; } = revision;
+    }
 }
