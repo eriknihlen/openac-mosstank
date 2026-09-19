@@ -81,10 +81,14 @@ internal sealed partial class MossTankPanel
             _assessmentRetries.Remove(missing);
         foreach (PluginInventoryItem item in owned)
         {
+            // Worn gear is not in this scan: the worn-mana rule asks about it
+            // on its own clock, and it has to keep asking, because gear that
+            // has been appraised once never looks any emptier. Two owners
+            // asking would only crowd the one appraisal the client sends at
+            // a time.
             if (!_combatSettings.ConsumableNames.Contains(item.Name)
                 && !_combatSettings.CombatItemNames.Contains(item.Name)
-                && !_combatSettings.CombatItemObjectIds.Contains(item.ObjectId)
-                && !(_inventorySettings.RefillWornMana && item.IsEquipped && item.CombatUse != 3))
+                && !_combatSettings.CombatItemObjectIds.Contains(item.ObjectId))
                 continue;
             if (!EnsureItemAssessed(item.ObjectId))
                 continue;

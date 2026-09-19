@@ -150,6 +150,16 @@ public sealed class ItemManaRechargeTests
             },
             profiles);
 
+        // Worn gear is asked about first: what the client already holds about
+        // an item this owner never had appraised does not date its mana.
+        Assert.False(controller.Tick(canAct: true));
+        Assert.Equal("Waiting for item assessment", controller.Status);
+        Assert.Equal([19u, 20u], surface.IdentifyRequests);
+        Assert.Empty(surface.ApplyCalls);
+        surface.ReplaceAssessmentVersion(19u, 101);
+        surface.ReplaceAssessmentVersion(20u, 101);
+        surface.IdentifyRequests.Clear();
+
         Assert.True(controller.Tick(canAct: true));
 
         Assert.Equal([(10u, 1u)], surface.ApplyCalls);
@@ -237,6 +247,65 @@ public sealed class ItemManaRechargeTests
             [emptyStone, armor],
             new HashSet<string>(StringComparer.Ordinal) { emptyStone.Name },
             33));
+    }
+
+    /// <summary>
+    /// Worn gear is appraised once and then let alone for two to six minutes
+    /// before being looked at again. Without the second look the mana numbers
+    /// the first one gave never change, so an item that drains after it was
+    /// appraised is never seen to need anything.
+    ///
+    /// Mutation: stamp the appraisal with no expiry (or none at all) and the
+    /// item is either never looked at again or looked at every pass.
+    /// </summary>
+    [Fact]
+    public void WornGearIsAppraisedAgainOnlyOnceItsNumbersHaveGoneStale()
+    {
+        PluginInventoryItem charge = Item(10, "Mana Charge", 0x00080000u) with
+        {
+            ItemCurrentMana = 100,
+            Effects = 0x00000001u,
+        };
+        // Comfortably above the threshold, so nothing is ever applied and the
+        // passes measure the appraisal cadence alone.
+        PluginInventoryItem worn = Item(20, "Full Gauntlets") with
+        {
+            EquippedLocation = 0x00000002u,
+            ItemCurrentMana = 90,
+            ItemMaximumMana = 100,
+        };
+        var surface = new Surface { Inventory = [charge, worn] };
+        surface.Assess(charge, 100, (107u, 100));
+        surface.Assess(worn, 100, (107u, 90), (108u, 100));
+        var profiles = new CombatSettings();
+        profiles.ConsumableNames.Add(charge.Name);
+        var controller = new ItemManaRechargeController(
+            new Host(surface),
+            new InventorySettings
+            {
+                RefillWornMana = true,
+                RefillWornManaPercent = 33,
+            },
+            profiles);
+
+        Assert.False(controller.Tick(canAct: true));
+        Assert.Equal([20u], surface.IdentifyRequests);
+        surface.ReplaceAssessmentVersion(20u, 101);
+        surface.IdentifyRequests.Clear();
+
+        // The pass that takes the answer in: the wait starts here, at 0.1 s.
+        Assert.False(controller.Tick(canAct: true, elapsedSeconds: 0.1d));
+        Assert.Empty(surface.IdentifyRequests);
+        Assert.Equal("Worn mana ready", controller.Status);
+
+        // Two minutes on is inside every draw of the band.
+        Assert.False(controller.Tick(canAct: true, elapsedSeconds: 119.9d));
+        Assert.Empty(surface.IdentifyRequests);
+
+        // Six minutes on is past every draw of it.
+        Assert.False(controller.Tick(canAct: true, elapsedSeconds: 240.2d));
+        Assert.Equal([20u], surface.IdentifyRequests);
+        Assert.Empty(surface.ApplyCalls);
     }
 
     private static PluginInventoryItem Item(

@@ -102,8 +102,38 @@ internal sealed class ItemManaRechargeController
     private long _observedCompletion;
     private double _pendingAge;
 
+    /// <summary>
+    /// How long a worn item's appraisal is believed, in seconds. Gear spends
+    /// its own mana as it is used, so the numbers an appraisal gave go stale
+    /// and the item has to be looked at again. The wait is drawn fresh per
+    /// item inside this band so a whole kit does not come due on the same
+    /// pass and queue up behind the one appraisal the client sends at a time.
+    /// </summary>
+    private const double WornAppraisalMinimumSeconds = 120d;
+    private const double WornAppraisalMaximumSeconds = 360d;
+
+    /// <summary>
+    /// How long an unanswered appraisal request holds its item back. The
+    /// answer is what normally ends the wait; this only bounds a lost one.
+    /// </summary>
+    private const double WornAppraisalReplySeconds = 10d;
+
     private readonly List<uint> _wieldOrder = [];
     private readonly Dictionary<uint, UsedChargeSnapshot> _usedCharges = [];
+    private readonly Random _wornAppraisalSpread = new();
+
+    /// <summary>When each worn item's appraisal stops being believed.</summary>
+    private readonly Dictionary<uint, double> _wornAppraisedUntil = [];
+
+    /// <summary>
+    /// The worn items an appraisal has been asked for and not yet answered:
+    /// the stamp the client held when it was asked, which is how a fresh
+    /// answer is told from the old one, and when the asking happened.
+    /// </summary>
+    private readonly Dictionary<uint, (int Version, double AskedAt)>
+        _wornAppraisalAsked = [];
+
+    private double _wornClock;
 
     public ItemManaRechargeController(
         IPluginHost host,
@@ -120,6 +150,7 @@ internal sealed class ItemManaRechargeController
     public bool Tick(bool canAct, double elapsedSeconds = 0d)
     {
         IItemAutomation items = _host.Automation.Items;
+        _wornClock += Math.Max(0d, elapsedSeconds);
         foreach (PluginInventoryItem item in items.CaptureOwnedItems())
         {
             if ((item.Effects & 1u) == 0u
@@ -155,6 +186,12 @@ internal sealed class ItemManaRechargeController
 
         IReadOnlyList<PluginInventoryItem> owned = items.CaptureOwnedItems();
         ObserveWieldOrder(owned);
+        // Worn gear is looked at before anything is decided about it: what
+        // the client holds about an item that has never been appraised, or
+        // was appraised long enough ago to have spent mana since, cannot say
+        // whether the item needs any.
+        ObserveWornAppraisals(owned);
+        RequestWornAppraisals(owned);
         ItemManaRechargePlan? plan = ItemManaRechargePlanner.Plan(
             owned,
             _profiles.ConsumableNames,
@@ -237,16 +274,108 @@ internal sealed class ItemManaRechargeController
                 (item.ItemType & ManaStoneItemType) != 0u
                 && _profiles.ConsumableNames.Contains(item.Name)
                 && !item.IsEquipped;
-            bool wornTarget = item.IsEquipped && item.CombatUse != 3;
-            if ((configuredCharge || wornTarget)
+            if (configuredCharge
                 && !ConfiguredSupplyReadiness.IsAssessed(
                     _host.Automation,
                     item.ObjectId))
             {
                 return true;
             }
+            if (IsWornTarget(item)
+                && !_wornAppraisedUntil.ContainsKey(item.ObjectId))
+            {
+                return true;
+            }
         }
         return false;
+    }
+
+    /// <summary>
+    /// Gear the refill can top up: something in an equipment slot that is not
+    /// the ammunition the character has nocked. Ammunition sits in a slot and
+    /// holds no mana worth spending a charge on.
+    /// </summary>
+    private static bool IsWornTarget(in PluginInventoryItem item) =>
+        item.IsEquipped && item.CombatUse != 3;
+
+    /// <summary>
+    /// Take in the appraisals that have landed and forget the gear that is no
+    /// longer worn. An answer is a stamp newer than the one held when the
+    /// question was asked; it buys the item its band of quiet. A question
+    /// nobody answered is let go after a while so the item can be asked
+    /// about again.
+    /// </summary>
+    private void ObserveWornAppraisals(IReadOnlyList<PluginInventoryItem> owned)
+    {
+        foreach (uint tracked in _wornAppraisedUntil.Keys.ToArray())
+        {
+            if (!IsStillWorn(owned, tracked))
+                _wornAppraisedUntil.Remove(tracked);
+        }
+        foreach (uint asked in _wornAppraisalAsked.Keys.ToArray())
+        {
+            if (!IsStillWorn(owned, asked))
+            {
+                _wornAppraisalAsked.Remove(asked);
+                continue;
+            }
+            (int version, double askedAt) = _wornAppraisalAsked[asked];
+            int current = AssessmentVersion(asked);
+            if (current != 0 && current != version)
+            {
+                _wornAppraisalAsked.Remove(asked);
+                _wornAppraisedUntil[asked] = _wornClock + NextWornAppraisalWait();
+            }
+            else if (_wornClock - askedAt >= WornAppraisalReplySeconds)
+            {
+                _wornAppraisalAsked.Remove(asked);
+            }
+        }
+    }
+
+    private static bool IsStillWorn(
+        IReadOnlyList<PluginInventoryItem> owned,
+        uint objectId)
+    {
+        foreach (PluginInventoryItem item in owned)
+        {
+            if (item.ObjectId == objectId)
+                return IsWornTarget(item);
+        }
+        return false;
+    }
+
+    private double NextWornAppraisalWait() => _wornAppraisalSpread.Next(
+        (int)(WornAppraisalMinimumSeconds * 1000d),
+        (int)(WornAppraisalMaximumSeconds * 1000d)) / 1000d;
+
+    /// <summary>
+    /// Ask about the worn gear that is due: never appraised, or appraised
+    /// long enough ago that its numbers are no longer believed. A question
+    /// the client refuses costs nothing and is simply asked again next pass.
+    /// </summary>
+    private void RequestWornAppraisals(IReadOnlyList<PluginInventoryItem> owned)
+    {
+        foreach (PluginInventoryItem item in owned)
+        {
+            if (!IsWornTarget(item)
+                || _wornAppraisalAsked.ContainsKey(item.ObjectId))
+            {
+                continue;
+            }
+            int version = AssessmentVersion(item.ObjectId);
+            bool due = version == 0
+                || !_wornAppraisedUntil.TryGetValue(
+                    item.ObjectId,
+                    out double until)
+                || until <= _wornClock;
+            if (!due)
+                continue;
+            PluginItemCommandResult asked =
+                _host.Automation.Objects.Identify(item.ObjectId);
+            if (asked.Accepted)
+                _wornAppraisalAsked[item.ObjectId] = (version, _wornClock);
+        }
     }
 
     private bool ChargeManaKnown(uint objectId)
@@ -275,7 +404,11 @@ internal sealed class ItemManaRechargeController
     }
 
     private bool TargetManaKnown(uint objectId) =>
-        ConfiguredSupplyReadiness.TryCaptureProperties(
+        // Only an appraisal this owner asked for and saw answered counts: it
+        // is what dates the mana numbers, and a number nobody can date is
+        // not worth spending a charge on.
+        _wornAppraisedUntil.ContainsKey(objectId)
+        && ConfiguredSupplyReadiness.TryCaptureProperties(
             _host.Automation,
             objectId,
             out PluginItemProperties properties)
@@ -286,6 +419,9 @@ internal sealed class ItemManaRechargeController
     {
         _wieldOrder.Clear();
         _usedCharges.Clear();
+        _wornAppraisedUntil.Clear();
+        _wornAppraisalAsked.Clear();
+        _wornClock = 0d;
         _pending = null;
         _pendingSourceAssessmentVersion = 0;
         _pendingRecipientObjectId = 0u;
