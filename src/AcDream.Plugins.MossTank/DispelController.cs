@@ -73,11 +73,34 @@ internal sealed class DispelController
     internal void BindActionLocks(ActionLockTable locks) =>
         _actionLocks = locks ?? throw new ArgumentNullException(nameof(locks));
 
+    /// <summary>
+    /// Seconds the frame driver has already watched off the transaction since
+    /// the rule was last asked; the next turn subtracts them.
+    /// </summary>
+    private double _frameObservedSeconds;
+
+    /// <summary>
+    /// Reads the server's answer to the dispel this controller issued, on the
+    /// host frame rather than on the macro pass. An unanswered cast holds the
+    /// pass, so the pass cannot be what ends the wait: only a driver outside
+    /// it sees the answer land. Nothing is issued here.
+    /// </summary>
+    internal void ObservePendingReceipt(double elapsedSeconds)
+    {
+        if (_pending is null || !_host.Automation.IsAvailable)
+            return;
+        double elapsed = Math.Max(0d, elapsedSeconds);
+        _frameObservedSeconds += elapsed;
+        ObservePending(elapsed);
+    }
+
     public bool Tick(double elapsedSeconds, bool canAct)
     {
         double elapsed = Math.Max(0d, elapsedSeconds);
+        double pendingElapsed = Math.Max(0d, elapsed - _frameObservedSeconds);
+        _frameObservedSeconds = 0d;
         _retryDelay = Math.Max(0d, _retryDelay - elapsed);
-        if (ObservePending(elapsed))
+        if (ObservePending(pendingElapsed))
             return true;
 
         IAutomationSurface automation = _host.Automation;
@@ -130,6 +153,7 @@ internal sealed class DispelController
     {
         _pending = null;
         _pendingSeconds = 0d;
+        _frameObservedSeconds = 0d;
         _retryDelay = 0d;
         Status = "Dispel idle";
     }

@@ -643,6 +643,79 @@ public sealed class VitalRechargeTests
     }
 
     /// <summary>
+    /// A use in flight holds the macro pass, and the pass is the only thing
+    /// that asks this controller anything — so if the pass were also the only
+    /// place the server's answer were read, the hold would be waiting on the
+    /// very thing it had stopped and could end only on its watchdog, many
+    /// seconds after the character had already drunk the elixir. The answer
+    /// is read on the host frame instead, with no turn of any kind.
+    /// Mutation: make <c>ObservePendingReceipt</c> return without observing
+    /// and the second assertion fails — the use stays in flight forever.
+    /// </summary>
+    [Fact]
+    public void TheServersAnswerIsReadOnTheFrameWithoutAPass()
+    {
+        var surface = new Surface
+        {
+            CurrentHealth = 20,
+            MaxHealth = 100,
+            Items = [Food(10u, "Bread")],
+        };
+        var combat = new CombatSettings();
+        combat.ConsumableNames.Add("Bread");
+        var controller = new VitalRechargeController(
+            new Host(surface),
+            new VitalSettings(),
+            combat);
+        controller.BindActionLocks(new ActionLockTable());
+
+        controller.Tick(0.3d, enabled: true, noTarget: false, helpers: false);
+        Assert.True(controller.ItemUseInFlight);
+
+        // No Tick at all from here: the pass is held, only frames run.
+        surface.LastItemCompletion = new PluginItemUseCompletion(1L, 10u, 0u, 0u);
+        controller.ObservePendingReceipt(0.05d);
+
+        Assert.False(controller.ItemUseInFlight);
+    }
+
+    /// <summary>
+    /// The frame and the turn share one clock for the give-up timer: time the
+    /// frame has already watched off is not charged again when the turn comes
+    /// back. Mutation: drop the <c>_frameObservedSeconds</c> subtraction in
+    /// <c>Tick</c> and the use is given up on the first turn instead.
+    /// </summary>
+    [Fact]
+    public void TheFrameAndTheTurnDoNotBothChargeTheSameSecondsToTheTimeout()
+    {
+        var surface = new Surface
+        {
+            CurrentHealth = 20,
+            MaxHealth = 100,
+            Items = [Food(10u, "Bread")],
+        };
+        var combat = new CombatSettings();
+        combat.ConsumableNames.Add("Bread");
+        var controller = new VitalRechargeController(
+            new Host(surface),
+            new VitalSettings(),
+            combat);
+        controller.BindActionLocks(new ActionLockTable());
+
+        controller.Tick(0.3d, enabled: true, noTarget: false, helpers: false);
+        Assert.True(controller.ItemUseInFlight);
+
+        // Eight seconds of frames, then the turn is handed the same eight.
+        for (int frame = 0; frame < 80; frame++)
+            controller.ObservePendingReceipt(0.1d);
+        controller.Tick(8d, enabled: true, noTarget: false, helpers: false);
+
+        // Sixteen seconds would have been past the give-up point; eight is not.
+        Assert.True(controller.ItemUseInFlight);
+        Assert.DoesNotContain("Timed out", controller.Status, StringComparison.Ordinal);
+    }
+
+    /// <summary>
     /// The reference rule is valid whenever a vital is below its threshold,
     /// whatever it then finds to use: a vital with no answer holds the pass
     /// (with a warning), it does not yield it. Mutation: make the "no

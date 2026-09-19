@@ -380,11 +380,44 @@ internal sealed class CraftingController
         return StartInPeace(items, plan);
     }
 
+    /// <summary>
+    /// Seconds the frame driver has already watched off the split since the
+    /// rule was last asked; the next turn subtracts them.
+    /// </summary>
+    private double _frameObservedSplitSeconds;
+
+    /// <summary>
+    /// Reads the server's answer to the craft or the split this controller
+    /// issued, on the host frame rather than on the macro pass. An unanswered
+    /// use holds the pass, so the pass cannot be what ends the wait: only a
+    /// driver outside it sees the answer land. Nothing is issued here — the
+    /// craft that follows a finished split stays with the turn.
+    /// </summary>
+    internal void ObservePendingReceipt(double elapsedSeconds)
+    {
+        if (!_host.Automation.IsAvailable
+            || (_pending is null && _pendingSplit is null))
+        {
+            return;
+        }
+        IItemAutomation items = _host.Automation.Items;
+        ObserveCompletion(items);
+        if (_pendingSplit is null)
+            return;
+        double elapsed = Math.Max(0d, elapsedSeconds);
+        _frameObservedSplitSeconds += elapsed;
+        ObserveSplitCompletion(items, elapsed, canAct: false, advanceClock: true);
+    }
+
     public bool TickCritical(double elapsedSeconds, bool canAct)
     {
         IItemAutomation items = _host.Automation.Items;
+        double splitElapsed = Math.Max(
+            0d,
+            Math.Max(0d, elapsedSeconds) - _frameObservedSplitSeconds);
+        _frameObservedSplitSeconds = 0d;
         ObserveCompletion(items);
-        if (ObserveSplitCompletion(items, elapsedSeconds, canAct, advanceClock: true))
+        if (ObserveSplitCompletion(items, splitElapsed, canAct, advanceClock: true))
             return true;
         if (_pending is not null)
         {
@@ -610,6 +643,7 @@ internal sealed class CraftingController
         _untilCriticalScan = 0d;
         _untilIdleScan = 0d;
         _splitElapsed = 0d;
+        _frameObservedSplitSeconds = 0d;
         _splitAcknowledged = false;
         Status = "AutoCraft idle";
     }

@@ -375,6 +375,41 @@ public sealed class CraftingTests
     }
 
     /// <summary>
+    /// A craft in flight holds the macro pass, and the pass is the only thing
+    /// that asks this controller anything: reading the server's answer only
+    /// on the pass would leave the hold waiting on what it had stopped. The
+    /// answer is read on the host frame instead. Mutation: make
+    /// <c>ObservePendingReceipt</c> return without observing and the last
+    /// assertion fails.
+    /// </summary>
+    [Fact]
+    public void TheServersAnswerToACraftIsReadOnTheFrameWithoutAPass()
+    {
+        var automation = new Automation
+        {
+            TrainedSkill = 37u,
+            Inventory =
+            [
+                Item(1u, "Wrapped Bundle of Deadly Fire Arrowheads"),
+                Item(2u, "Wrapped Bundle of Arrowshafts"),
+            ],
+        };
+        var controller = new CraftingController(
+            new Host(automation),
+            new InventorySettings { AutoCraftItems = false },
+            new CombatSettings());
+
+        Assert.True(controller.Request("Deadly Fire Arrow"));
+        Assert.True(controller.UseInFlight);
+
+        // No Tick from here: the pass is held, only frames run.
+        automation.UseCompletion = new PluginItemUseCompletion(1L, 1u, 0u, 0u);
+        controller.ObservePendingReceipt(0.05d);
+
+        Assert.False(controller.UseInFlight);
+    }
+
+    /// <summary>
     /// Mutation pin: resolve the result name again in RequestResolved. If the
     /// inventory changes after selection, that applies a different pair.
     /// Mutation executed: <c>RequestResolved replanned by result name before StartInPeace</c>.
@@ -522,6 +557,8 @@ public sealed class CraftingTests
         public PluginInventoryCompletion InventoryCompletion { get; set; }
         public PluginInventoryCompletion LastInventoryCompletion =>
             InventoryCompletion;
+        public PluginItemUseCompletion UseCompletion { get; set; }
+        public PluginItemUseCompletion LastCompletion => UseCompletion;
         public IReadOnlyList<PluginInventoryItem> Inventory { get; set; } = [];
         public List<(uint Source, uint Container, uint Amount)> Moves { get; } = [];
         public List<(uint Source, uint Target)> Applies { get; } = [];

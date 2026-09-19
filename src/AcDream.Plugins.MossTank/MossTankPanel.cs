@@ -4953,6 +4953,7 @@ internal sealed partial class MossTankPanel : IBuffRuleHost, IDisposable
             _transactionSuspensionElapsed = 0d;
         }
         ObserveCastResult(elapsedSeconds);
+        ObservePendingTransactions(elapsedSeconds);
         ObserveCastSuspension(elapsedSeconds);
         // A turn in flight freezes the pass, so it needs a driver beside the
         // pass rather than inside it.
@@ -5031,6 +5032,26 @@ internal sealed partial class MossTankPanel : IBuffRuleHost, IDisposable
             }
         }
         _castTracker.Advance(elapsed);
+    }
+
+    /// <summary>
+    /// The pass is held while a use or a cast is in flight, and the owners of
+    /// those transactions only ever ran inside the pass: the hold was waiting
+    /// on the one thing it had stopped, so it could only ever end on its own
+    /// watchdog — seconds after the server had already answered, and once more
+    /// for every owner still holding, because only the winning rule of a pass
+    /// is asked anything. Each owner is watched here on the host frame
+    /// instead, beside the pass, so the hold ends when the answer lands. This
+    /// only watches; every one of these owners starts its next action on its
+    /// own turn.
+    /// </summary>
+    private void ObservePendingTransactions(double elapsedSeconds)
+    {
+        _vitalRecharge.ObservePendingReceipt(elapsedSeconds);
+        _vitalHelperRecharge.ObservePendingReceipt(elapsedSeconds);
+        _dispel.ObservePendingReceipt(elapsedSeconds);
+        _crafting.ObservePendingReceipt(elapsedSeconds);
+        _combat.ObserveLearnedDebuffReceipt(elapsedSeconds);
     }
 
     private void ObserveCastSuspension(double elapsedSeconds)

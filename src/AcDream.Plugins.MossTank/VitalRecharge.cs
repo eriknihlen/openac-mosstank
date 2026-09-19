@@ -1224,6 +1224,10 @@ internal sealed class VitalRechargeController
     {
         IAutomationSurface automation = _host.Automation;
         double elapsed = Math.Max(0d, elapsedSeconds);
+        // Whatever the frame driver already watched off this transaction is
+        // not counted a second time here: one wall clock between the two.
+        double pendingElapsed = Math.Max(0d, elapsed - _frameObservedSeconds);
+        _frameObservedSeconds = 0d;
         _retryDelay = Math.Max(0d, _retryDelay - elapsed);
         _rechargeTraceDelay = Math.Max(0d, _rechargeTraceDelay - elapsed);
         _healthBoostRemaining = Math.Max(0d, _healthBoostRemaining - elapsed);
@@ -1233,46 +1237,17 @@ internal sealed class VitalRechargeController
         {
             ReleaseItemUse();
             _pending = null;
+            _frameObservedSeconds = 0d;
             ClearBoosts();
             Status = IdleStatus;
             SyncVitalsRequest(automation, wanted: false);
             return false;
         }
-        // An item the server has yet to answer for is a transaction of its
-        // own: it holds the shared slot and it is watched to its end whoever
-        // owns the pass meanwhile, because a losing tick is not a reason to
-        // abandon it — and abandoning it is what would drop the slot early
-        // under another owner's feet.
+        ObservePending(pendingElapsed);
         if (_pending is { } pending)
         {
-            _pendingSeconds += Math.Max(0d, elapsedSeconds);
-            if (TryComplete(automation, pending))
-            {
-                if (_settings.ClearLevelBoostFlagOnCast
-                    && pending.Choice.SourceKind
-                        == VitalRechargeSourceKind.LearnedSpell
-                    && IsLevelBoostSpell(pending.Choice))
-                {
-                    ClearBoost(pending.Choice.Vital);
-                }
-                ReleaseItemUse();
-                _pending = null;
-                _pendingSeconds = 0d;
-                _retryDelay = 0.25d;
-            }
-            else if (_pendingSeconds >= 15d)
-            {
-                Status = $"Timed out: {pending.Choice.Name}";
-                ReleaseItemUse();
-                _pending = null;
-                _pendingSeconds = 0d;
-                _retryDelay = 1d;
-            }
-            else
-            {
-                Status = $"Recharging {pending.Choice.Vital}: {pending.Choice.Name}";
-                return true;
-            }
+            Status = $"Recharging {pending.Choice.Vital}: {pending.Choice.Name}";
+            return true;
         }
 
         // No turn this pass, so nothing new is begun.
@@ -1415,6 +1390,7 @@ internal sealed class VitalRechargeController
         ReleaseItemUse();
         _pending = null;
         _pendingSeconds = 0d;
+        _frameObservedSeconds = 0d;
         _retryDelay = 0d;
         _rechargeTraceDelay = 0d;
         ClearBoosts();
@@ -1536,6 +1512,68 @@ internal sealed class VitalRechargeController
         };
         return result.Accepted;
     }
+
+    /// <summary>
+    /// Seconds the frame driver has already watched off the transaction since
+    /// the rule was last asked; the next turn subtracts them.
+    /// </summary>
+    private double _frameObservedSeconds;
+
+    /// <summary>
+    /// Reads the server's answer to a use or a cast this controller issued,
+    /// on the host frame rather than on the macro pass. An unanswered use
+    /// holds the pass, so the pass cannot be what ends the wait — it would be
+    /// waiting on itself, and the hold could then only end on its watchdog,
+    /// seconds after the server had already answered. Nothing is issued here:
+    /// this only watches, and starting the next use stays with the turn.
+    /// </summary>
+    internal void ObservePendingReceipt(double elapsedSeconds)
+    {
+        if (_pending is null || !_host.Automation.IsAvailable)
+            return;
+        double elapsed = Math.Max(0d, elapsedSeconds);
+        _frameObservedSeconds += elapsed;
+        ObservePending(elapsed);
+    }
+
+    /// <summary>
+    /// An item the server has yet to answer for is a transaction of its own:
+    /// it holds the shared slot and it is watched to its end whoever owns the
+    /// pass meanwhile, because a losing tick is not a reason to abandon it —
+    /// and abandoning it is what would drop the slot early under another
+    /// owner's feet.
+    /// </summary>
+    private void ObservePending(double elapsedSeconds)
+    {
+        if (_pending is not { } pending)
+            return;
+        _pendingSeconds += Math.Max(0d, elapsedSeconds);
+        if (TryComplete(_host.Automation, pending))
+        {
+            if (_settings.ClearLevelBoostFlagOnCast
+                && pending.Choice.SourceKind
+                    == VitalRechargeSourceKind.LearnedSpell
+                && IsLevelBoostSpell(pending.Choice))
+            {
+                ClearBoost(pending.Choice.Vital);
+            }
+            ReleaseItemUse();
+            _pending = null;
+            _pendingSeconds = 0d;
+            _retryDelay = 0.25d;
+            return;
+        }
+        if (_pendingSeconds < PendingTimeoutSeconds)
+            return;
+        Status = $"Timed out: {pending.Choice.Name}";
+        ReleaseItemUse();
+        _pending = null;
+        _pendingSeconds = 0d;
+        _retryDelay = 1d;
+    }
+
+    /// <summary>How long an unanswered use is waited out before it is given up.</summary>
+    private const double PendingTimeoutSeconds = 15d;
 
     private static bool TryComplete(IAutomationSurface automation, Pending pending)
     {

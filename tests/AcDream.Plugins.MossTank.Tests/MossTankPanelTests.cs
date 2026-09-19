@@ -3002,6 +3002,51 @@ public sealed class MossTankPanelTests
     }
 
     /// <summary>
+    /// The whole point of the hold: a bite eaten, the server's answer, and
+    /// the next bite, all inside a second. The hold is what stops the pass,
+    /// and the pass used to be the only place the answer was ever read — so
+    /// the hold waited on the thing it had stopped and ended only on its
+    /// watchdog, more than eight seconds after the server had answered, with
+    /// the character standing still for all of it. Mutation: delete the
+    /// <c>_vitalRecharge.ObservePendingReceipt</c> call from
+    /// <c>ObservePendingTransactions</c> and the second bite never comes.
+    /// </summary>
+    [Fact]
+    public void AnsweredConsumableUsesFollowOneAnotherInsideASecond()
+    {
+        var automation = new FakeAutomation
+        {
+            CurrentHealth = 100,
+            MaxHealth = 100,
+            CurrentStamina = 100,
+            MaxStamina = 100,
+            CurrentMana = 100,
+            MaxMana = 100,
+            // BoosterVital 2 = VitalKind.Health (VitalPlan.cs:7).
+            ItemEntries = [Item(60, "Bread", 0x20) with { BoosterVital = 2 }],
+        };
+        var host = new FakeHost(automation);
+        var panel = new MossTankPanel(host);
+        host.Selection.Select(60u);
+        panel.AddSelectedConsumable();
+        panel.ToggleCombat();
+        panel.OnTick(0d);
+
+        automation.CurrentHealth = 10;
+        for (int tick = 0; tick < 6; tick++)
+            panel.OnTick(0.1d);
+        Assert.Equal([60u], automation.UsedItemIds);
+
+        // The server answers, and one second of frames follows — a fraction of
+        // the suspension watchdog.
+        automation.ItemCompletion = new PluginItemUseCompletion(1L, 60u, 0u, 0u);
+        for (int tick = 0; tick < 10; tick++)
+            panel.OnTick(0.1d);
+
+        Assert.Equal([60u, 60u], automation.UsedItemIds);
+    }
+
+    /// <summary>
     /// The wand's cast holds the very slot the attack's first refusal reads,
     /// so from the pass after it starts the attack has no turn at all. The
     /// cast is nobody else's business but its own: it keeps being watched
@@ -8452,6 +8497,15 @@ public sealed class MossTankPanelTests
             UsedItemIds.Add(objectId);
             return new PluginItemCommandResult(PluginItemCommandStatus.Started);
         }
+
+        /// <summary>
+        /// The server's answer to a use, as the host publishes it: the latest
+        /// receipt, read by polling, with a revision that only ever moves
+        /// forward. Left alone it never moves, which is the unanswered case.
+        /// </summary>
+        public PluginItemUseCompletion ItemCompletion { get; set; }
+
+        PluginItemUseCompletion IItemAutomation.LastCompletion => ItemCompletion;
 
         bool IWorldObjectAutomation.TryGet(
             uint objectId,

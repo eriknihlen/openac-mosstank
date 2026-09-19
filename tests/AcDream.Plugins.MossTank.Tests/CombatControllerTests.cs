@@ -989,6 +989,53 @@ public sealed class CombatControllerTests
         Assert.False(controller.LearnedDebuffCastInFlight);
     }
 
+    /// <summary>
+    /// That same cast holds the whole pass, and the attack is only asked
+    /// anything on a pass it wins — which it cannot do while its own cast is
+    /// what is holding the pass. So the answer has to be read on the host
+    /// frame, with no turn at all, or the hold ends only on its watchdog.
+    /// Mutation: make <c>ObserveLearnedDebuffReceipt</c> return without
+    /// observing and the last assertion fails.
+    /// </summary>
+    [Fact]
+    public void TheServersAnswerToALearnedDebuffIsReadOnTheFrameWithoutATurn()
+    {
+        PluginSpellInfo imperil = Spell(90, "Imperil Other VII") with
+        {
+            IsDebuff = true,
+            IsOffensive = true,
+            DurationSeconds = 60,
+        };
+        var surface = new FakeAutomation
+        {
+            CombatSnapshot = Physical() with { Mode = PluginCombatMode.Magic },
+            Targets = [Target(10, "Drudge", 5, 0)],
+            KnownCombatSpells = [imperil],
+            KnownAttackSpells = [Spell(100, "Incantation of Flame Bolt")],
+            EquipmentItems = [WieldedCaster()],
+        };
+        var settings = new CombatSettings();
+        settings.Rules.Clear();
+        settings.Rules.Add(new MonsterRule(
+            "DEFAULT",
+            new MonsterRuleActions
+            {
+                Flags = MonsterActionFlags.Imperil | MonsterActionFlags.Attack,
+                DamageType = MonsterDamageType.Fire,
+            }));
+        var controller = new CombatController(new FakeHost(surface), settings);
+
+        controller.Toggle();
+        controller.OnTick(0.25);
+        Assert.True(controller.LearnedDebuffCastInFlight);
+
+        // No OnTick from here: the pass is held, only frames run.
+        surface.LastCastCompletion = new PluginCastCompletion(1, 90, 10, 0);
+        controller.ObserveLearnedDebuffReceipt(0.05);
+
+        Assert.False(controller.LearnedDebuffCastInFlight);
+    }
+
     [Fact]
     public void RingArmAlsoRequiresNoStreakColumnAndANonZeroTally()
     {

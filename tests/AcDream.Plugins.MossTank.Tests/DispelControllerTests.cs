@@ -43,6 +43,38 @@ public sealed class DispelControllerTests
     }
 
     /// <summary>
+    /// A dispel in flight holds the pass, and the pass is the only thing that
+    /// asks this controller anything: the answer therefore has to be read on
+    /// the host frame, or the hold waits on the thing it stopped. Mutation:
+    /// make <c>ObservePendingReceipt</c> return without observing and the
+    /// last assertion fails.
+    /// </summary>
+    [Fact]
+    public void TheServersAnswerToADispelIsReadOnTheFrameWithoutAPass()
+    {
+        var automation = new Automation
+        {
+            Active = [new PluginActiveEnchantment(100u, 7u, 7, 120d)],
+            SpellLookup = [Vulnerability(100u, 400), SelfDispelSpell()],
+            KnownSpellIds = new HashSet<uint> { SelfDispel },
+            Inventory = [Item(10u, "Chorizite")],
+            Mode = PluginCombatMode.Magic,
+        };
+        var controller = new DispelController(
+            new Host(automation),
+            new VitalSettings { CastDispelSelf = true });
+
+        Assert.True(controller.Tick(0d, canAct: true));
+        Assert.True(controller.CastInFlight);
+
+        // No Tick from here: the pass is held, only frames run.
+        automation.CastCompletion = new PluginCastCompletion(1, SelfDispel, 1u, 0u);
+        controller.ObservePendingReceipt(0.05d);
+
+        Assert.False(controller.CastInFlight);
+    }
+
+    /// <summary>
     /// The reference raises its global busy count for the life of ANY cast
     /// it issues, a dispel included, so no other rule runs while one is
     /// outstanding. The host's own casting flag used to carry this by

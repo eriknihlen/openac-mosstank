@@ -4221,6 +4221,26 @@ internal sealed class CombatController
     }
 
     /// <summary>
+    /// Reads the server's answer to a LEARNED debuff cast, on the host frame
+    /// rather than on the attack's turn. Such a cast holds the whole pass, so
+    /// the pass cannot be what ends the wait — it would be waiting on itself,
+    /// and worse, the attack only gets a turn when it wins the pass, which it
+    /// cannot do while its own cast is holding it. Nothing is issued here.
+    /// </summary>
+    internal void ObserveLearnedDebuffReceipt(double elapsedSeconds)
+    {
+        if (!_debuffs.HasPending || !_host.Automation.IsAvailable)
+            return;
+        AdvanceClockFromFrame(elapsedSeconds);
+        DebuffCompletion completion = _debuffs.Observe(
+            _host.Automation.Magic.LastCompletion,
+            _now);
+        if (completion.Completed && !completion.Succeeded)
+            Status = $"{completion.SpellName} failed (0x{completion.WeenieError:X})";
+        _debuffs.ExpirePending(_now);
+    }
+
+    /// <summary>
     /// Steps a turn that is holding the pass. The pass itself is frozen while
     /// the hold is up, so the turn needs a driver outside it — the host frame.
     /// </summary>
