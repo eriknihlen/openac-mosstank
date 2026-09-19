@@ -74,6 +74,16 @@ internal sealed class CombatModeGate
         (item.ItemType & CasterItemType) != 0u;
 
     /// <summary>
+    /// A caster the character can actually hold. An item can carry the
+    /// caster type and still be worn somewhere that is not a weapon slot,
+    /// and asking to wield one of those gets "already equipped" back for
+    /// ever -- the gate never advances and every rule that casts stalls
+    /// behind it. The override path has always applied this same mask.
+    /// </summary>
+    private static bool IsWieldableCaster(in PluginEquipmentItem item) =>
+        IsCaster(in item) && (item.ValidLocations & WeaponReadyMask) != 0u;
+
+    /// <summary>
     /// Which stance a weapon puts the character in. This is the item's CLASS,
     /// not a guess from its numbers: a thrown weapon is a missile weapon even
     /// though it takes no ammunition, and a weapon that lists no damage is
@@ -160,7 +170,7 @@ internal sealed class CombatModeGate
 
         IReadOnlyList<PluginEquipmentItem> items =
             captured ?? equipment.CaptureOwnedEquipment();
-        PluginEquipmentItem? wielded = FindWielded(items);
+        PluginEquipmentItem? wielded = FindWieldedFor(items, wanted);
 
         uint primary = overrideItemId;
         if (primary != 0u)
@@ -212,9 +222,15 @@ internal sealed class CombatModeGate
 
                 Log?.Invoke(MacroLogChannel.BusyState, $"(FCM) equip {name}");
                 PluginEquipmentCommandResult equip = equipment.Equip(primary);
-                if (equip.Status == PluginEquipmentCommandStatus.Refused)
+                // Only a started switch is progress. Anything else will say
+                // the same thing on the next pass and the one after, so it
+                // is reported as the standstill it is rather than as an
+                // equip that is under way.
+                if (equip.Status != PluginEquipmentCommandStatus.Started)
                 {
-                    Status = equip.Notice ?? $"Cannot equip {name}.";
+                    Status = equip.Notice
+                        ?? $"Cannot equip {name} ({equip.Status}).";
+                    PostWarningOnce(Status);
                     return false;
                 }
                 Status = $"Equipping {name}";
@@ -311,7 +327,7 @@ internal sealed class CombatModeGate
         {
             foreach (PluginEquipmentItem item in items)
             {
-                if (IsCaster(in item)
+                if (IsWieldableCaster(in item)
                     && item.Name.Equals(name, StringComparison.Ordinal))
                 {
                     return item;
@@ -323,7 +339,7 @@ internal sealed class CombatModeGate
         // back in — the FIRST wand wins, not the alphabetically smallest one.
         foreach (PluginEquipmentItem item in items)
         {
-            if (!IsCaster(in item) || !IsProfiled(in item))
+            if (!IsWieldableCaster(in item) || !IsProfiled(in item))
                 continue;
             if (_settings.CombatItemOrder.Contains(item.Name))
                 continue;
@@ -348,15 +364,44 @@ internal sealed class CombatModeGate
         return null;
     }
 
+    /// <summary>
+    /// The weapon the character is holding: the item sitting in one of the
+    /// four slots a weapon occupies, which is the slot it is IN and not
+    /// merely one it could go in -- the reference reads the same four
+    /// wielded-location values.
+    /// </summary>
     internal static PluginEquipmentItem? FindWielded(
         IReadOnlyList<PluginEquipmentItem> items)
     {
         foreach (PluginEquipmentItem item in items)
         {
-            if (item.IsEquipped && (item.ValidLocations & WeaponReadyMask) != 0u)
+            if ((item.EquippedLocation & WeaponReadyMask) != 0u)
                 return item;
         }
         return null;
+    }
+
+    /// <summary>
+    /// The held weapon that decides the stance we are asking for, when
+    /// there is one. The reference keeps a single weapon slot because
+    /// retail allows only one weapon at a time; a character carrying two
+    /// at once -- a two-hander and a caster, say -- makes "the wielded
+    /// weapon" ambiguous, and picking the wrong one leaves the gate asking
+    /// to equip something the character is already holding, for ever.
+    /// </summary>
+    private static PluginEquipmentItem? FindWieldedFor(
+        IReadOnlyList<PluginEquipmentItem> items,
+        PluginCombatMode wanted)
+    {
+        foreach (PluginEquipmentItem item in items)
+        {
+            if ((item.EquippedLocation & WeaponReadyMask) != 0u
+                && ModeFor(in item) == wanted)
+            {
+                return item;
+            }
+        }
+        return FindWielded(items);
     }
 
     private PluginCombatMode EffectiveMode()
