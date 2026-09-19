@@ -3326,6 +3326,38 @@ public sealed class CombatControllerTests
     }
 
     /// <summary>
+    /// Mutation: substitute the bundled ammo table when the game database
+    /// is unloaded or has no rows; the arrow then becomes an action.
+    /// </summary>
+    [Fact]
+    public void AmmoGateDoesNotSubstituteBundledOptionsForMissingRows()
+    {
+        foreach (VtankGameInfoDatabase database in new[]
+            { VtankGameInfoDatabase.Empty, VtankGameInfoDatabase.LoadDefault() })
+        {
+            var surface = new FakeAutomation
+            {
+                CombatSnapshot = Physical() with { Mode = PluginCombatMode.Peace },
+                CharacterSkills = [new PluginSkillInfo(47u, "Missile Weapons",
+                    PluginSkillTraining.Trained, 300u) { Base = 300u }],
+                EquipmentItems =
+                [
+                    Equipment(700, "Fire Bow", 0x10, itemType: 0x100u,
+                        equippedLocation: 0x00100000u, ammoType: 1u),
+                    Equipment(801, "Deadly Fire Arrow", 0x10, combatUse: 3,
+                        stackSize: 20, validLocations: AmmunitionSlot),
+                ],
+                ItemEntries =
+                [
+                    InventoryItem(801, "Deadly Fire Arrow", 0x100u, 0u, false),
+                ],
+            };
+            CombatModeGate gate = BoundAmmunitionGate(surface, database);
+            Assert.False(gate.AmmunitionStale!(700u, MonsterDamageType.Fire));
+        }
+    }
+
+    /// <summary>
     /// Mutation: treat an unavailable selection as stale;
     /// the gate enters an action branch despite having no pending action.
     /// </summary>
@@ -3347,11 +3379,13 @@ public sealed class CombatControllerTests
         Assert.False(gate.WieldAmmunition!(MonsterDamageType.Fire));
     }
 
-    private static CombatModeGate BoundAmmunitionGate(FakeAutomation surface)
+    private static CombatModeGate BoundAmmunitionGate(
+        FakeAutomation surface, VtankGameInfoDatabase? gameInfo = null)
     {
         var settings = new CombatSettings();
         var host = new FakeHost(surface);
-        var controller = new CombatController(host, settings);
+        var controller = new CombatController(host, settings,
+            gameInfo: gameInfo ?? AmmoGameInfo);
         var gate = new CombatModeGate(host, settings,
             new VitalSettings(), _ => { });
         return controller.BindCombatModeGate(gate);
@@ -3415,7 +3449,7 @@ public sealed class CombatControllerTests
                 DamageType = MonsterDamageType.Fire,
                 WeaponObjectId = 700,
             }));
-        var controller = new CombatController(new FakeHost(surface), settings);
+        var controller = new CombatController(new FakeHost(surface), settings, gameInfo: AmmoGameInfo);
 
         controller.Toggle();
         for (int tick = 0; tick < 4; tick++)
@@ -3475,7 +3509,7 @@ public sealed class CombatControllerTests
                 DamageType = MonsterDamageType.Fire,
                 WeaponObjectId = 700,
             }));
-        var controller = new CombatController(new FakeHost(surface), settings);
+        var controller = new CombatController(new FakeHost(surface), settings, gameInfo: AmmoGameInfo);
 
         controller.Toggle();
         for (int tick = 0; tick < 6; tick++)
@@ -3544,7 +3578,7 @@ public sealed class CombatControllerTests
             }));
         var vitals = new VitalSettings();
         var host = new FakeHost(surface);
-        var controller = new CombatController(host, settings, vitals);
+        var controller = new CombatController(host, settings, vitals, AmmoGameInfo);
 
         // Exactly MossTankPanel.cs:420-425 — the one shared gate, injected.
         var gate = new CombatModeGate(host, settings, vitals, _ => { });
@@ -5292,6 +5326,31 @@ public sealed class CombatControllerTests
     /// (<c>e0.cs:53-79</c>). Any pin whose subject is a monster's damage
     /// preferences needs one, because acdream ships no embedded default.
     /// </summary>
+    private static readonly VtankGameInfoDatabase AmmoGameInfo =
+        CreateAmmoGameInfo();
+
+    private static VtankGameInfoDatabase CreateAmmoGameInfo()
+    {
+        var document = VtankDatabase.Parse(File.ReadAllText(
+            Path.Combine(AppContext.BaseDirectory, "Fixtures", "vtank",
+                "gameinfodb-excerpt.ugd")));
+        VtankTable ammo = document.Find("AmmunitionOptions")!;
+        var row = new VtankRow();
+        row.Cells.AddRange(
+        [
+            VtankCell.String("Deadly Fire Arrow"),
+            VtankCell.Int(5),
+            VtankCell.Int(230),
+            VtankCell.Int(6),
+            VtankCell.Int(20),
+            VtankCell.Int(0),
+            VtankCell.Int(0),
+            VtankCell.Int(0),
+        ]);
+        ammo.Rows.Add(row);
+        return VtankGameInfoDatabase.Parse(document.Render());
+    }
+
     private static readonly VtankGameInfoDatabase GameInfo =
         VtankGameInfoDatabase.Parse(
             File.ReadAllText(

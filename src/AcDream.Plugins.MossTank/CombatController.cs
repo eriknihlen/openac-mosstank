@@ -1560,6 +1560,10 @@ internal sealed class CombatController
         int launcherType = VtankAmmunitionDatabase.LauncherType(in launcher);
         if (launcherType == 0)
             return AmmunitionPlan.Satisfied;
+        if (!_gameInfo.IsLoaded)
+            return new AmmunitionPlan(
+                AmmunitionPlanKind.Unavailable, 0u, string.Empty,
+                "Ammunition database is unavailable");
 
         MonsterDamageType damage = configuredDamage;
         VtankPrismaticAmmoPolicy prismatic = VtankPrismaticAmmoPolicy.NoPrismatic;
@@ -1597,9 +1601,7 @@ internal sealed class CombatController
         // The owner's own gameinfodb.ugd wins over the bundled table when it
         // is there — one AmmunitionOptions table, read the way e0 reads it.
         VtankAmmunitionOption? selected = VtankAmmunitionDatabase.Select(
-            _gameInfo.AmmunitionOptions.Count > 0
-                ? _gameInfo.AmmunitionOptions
-                : VtankAmmunitionDatabase.Options,
+            _gameInfo.AmmunitionOptions,
             launcherType,
             damage,
             prismatic,
@@ -1917,13 +1919,13 @@ internal sealed class CombatController
         int launcherType = VtankAmmunitionDatabase.LauncherType(in item);
         if (launcherType == 0)
             return true;
+        if (!_gameInfo.IsLoaded)
+            return false;
         (MonsterDamageType, uint) key = (element, item.ObjectId);
         if (_passDeliverable.TryGetValue(key, out bool cached))
             return cached;
         bool deliverable = VtankAmmunitionDatabase.Select(
-            _gameInfo.AmmunitionOptions.Count > 0
-                ? _gameInfo.AmmunitionOptions
-                : VtankAmmunitionDatabase.Options,
+            _gameInfo.AmmunitionOptions,
             launcherType,
             element,
             VtankPrismaticAmmoPolicy.Any,
@@ -3526,11 +3528,11 @@ internal sealed class CombatController
         }
         if (launcherType == 0)
             return true;
+        if (!_gameInfo.IsLoaded)
+            return false;
 
         return VtankAmmunitionDatabase.Select(
-            _gameInfo.AmmunitionOptions.Count > 0
-                ? _gameInfo.AmmunitionOptions
-                : VtankAmmunitionDatabase.Options,
+            _gameInfo.AmmunitionOptions,
             launcherType,
             element,
             VtankPrismaticAmmoPolicy.Any,
