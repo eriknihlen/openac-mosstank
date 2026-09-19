@@ -165,6 +165,7 @@ internal sealed partial class MossTankPanel : IBuffRuleHost
     ];
     private IReadOnlyList<string> _itemRows = Array.Empty<string>();
     private IReadOnlyList<string> _itemBaseNames = Array.Empty<string>();
+    private IReadOnlyList<uint?> _itemRowObjectIds = Array.Empty<uint?>();
     private IReadOnlyList<string> _consumableRows = Array.Empty<string>();
     private int _selectedItemRow;
     private int _selectedConsumableRow;
@@ -1750,8 +1751,34 @@ internal sealed partial class MossTankPanel : IBuffRuleHost
     private void RefreshItemEditors()
     {
         RefreshConsumableCategories();
-        string[] baseNames = SortedCombatItemNames();
+        var ownedById = new Dictionary<uint, PluginInventoryItem>();
+        foreach (PluginInventoryItem item in _host.Automation.Items.CaptureOwnedItems())
+            ownedById.TryAdd(item.ObjectId, item);
+        var baseNames = new List<string>();
+        var rowIds = new List<uint?>();
+        var resolvedNames = new HashSet<string>(StringComparer.Ordinal);
+        foreach (uint id in _combatSettings.CombatItemOrderIds)
+        {
+            if (ownedById.TryGetValue(id, out PluginInventoryItem item))
+            {
+                baseNames.Add(item.Name);
+                resolvedNames.Add(item.Name);
+            }
+            else
+            {
+                baseNames.Add($"<INVALID 0x{id:X8}>");
+            }
+            rowIds.Add(id);
+        }
+        foreach (string name in SortedCombatItemNames())
+        {
+            if (resolvedNames.Contains(name))
+                continue;
+            baseNames.Add(name);
+            rowIds.Add(null);
+        }
         _itemBaseNames = baseNames;
+        _itemRowObjectIds = rowIds;
         _itemRows = baseNames
             .Select(name => _noBuffItemNames.Contains(name)
                 ? name + "   [no buffs]"
@@ -1783,16 +1810,26 @@ internal sealed partial class MossTankPanel : IBuffRuleHost
 
     private void DeleteItemRowAtCore(int row)
     {
-        string[] names = SortedCombatItemNames();
-        if ((uint)row >= (uint)names.Length)
+        if ((uint)row >= (uint)_itemBaseNames.Count)
             return;
-        string removed = names[row];
-        RemoveProfiledObjectIdsNamed(removed);
-        _combatSettings.CombatItemNames.Remove(removed);
-        _combatSettings.CombatItemOrder.Remove(removed);
-        _noBuffItemNames.Remove(removed);
-        _itemHandedness.Remove(removed);
-        ClearItemEnchantRows(removed);
+        string removed = _itemBaseNames[row];
+        uint? objectId = _itemRowObjectIds[row];
+        if (objectId.HasValue)
+        {
+            _combatSettings.CombatItemObjectIds.Remove(objectId.Value);
+            _combatSettings.CombatItemOrderIds.Remove(objectId.Value);
+            _combatSettings.RemovedCombatItemObjectIds.Add(objectId.Value);
+        }
+        bool anotherNamedRow = _itemBaseNames.Where((name, index) =>
+            index != row && string.Equals(name, removed, StringComparison.Ordinal)).Any();
+        if (!anotherNamedRow)
+        {
+            _combatSettings.CombatItemNames.Remove(removed);
+            _combatSettings.CombatItemOrder.Remove(removed);
+            _noBuffItemNames.Remove(removed);
+            _itemHandedness.Remove(removed);
+            ClearItemEnchantRows(removed);
+        }
         _profileNotice = $"Removed {removed}.";
         RefreshItemEditors();
         SaveProfile();
@@ -1905,21 +1942,12 @@ internal sealed partial class MossTankPanel : IBuffRuleHost
 
     private void RemoveSelectedItemCore()
     {
-        string[] names = SortedCombatItemNames();
-        if (names.Length == 0)
+        if (_itemBaseNames.Count == 0)
         {
             _profileNotice = "The Items profile is empty.";
             return;
         }
-        string removed = names[ClampRow(_selectedItemRow, names.Length)];
-        RemoveProfiledObjectIdsNamed(removed);
-        _combatSettings.CombatItemNames.Remove(removed);
-        _combatSettings.CombatItemOrder.Remove(removed);
-        _noBuffItemNames.Remove(removed);
-        ClearItemEnchantRows(removed);
-        _profileNotice = $"Removed {removed}.";
-        RefreshItemEditors();
-        SaveProfile();
+        DeleteItemRowAtCore(ClampRow(_selectedItemRow, _itemBaseNames.Count));
     }
 
     private void RemoveSelectedConsumableCore()
@@ -2905,18 +2933,6 @@ internal sealed partial class MossTankPanel : IBuffRuleHost
             : $"Added {item.Name}.";
         RefreshItemEditors();
         SaveProfile();
-    }
-
-    private void RemoveProfiledObjectIdsNamed(string name)
-    {
-        foreach (PluginInventoryItem item in _host.Automation.Items.CaptureOwnedItems())
-        {
-            if (!item.Name.Equals(name, StringComparison.Ordinal)
-                || !_combatSettings.CombatItemObjectIds.Remove(item.ObjectId))
-                continue;
-            _combatSettings.CombatItemOrderIds.Remove(item.ObjectId);
-            _combatSettings.RemovedCombatItemObjectIds.Add(item.ObjectId);
-        }
     }
 
     private void PopulateItemEnchantRows(in PluginInventoryItem item, bool noBuffs)

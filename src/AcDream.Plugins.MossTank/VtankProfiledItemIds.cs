@@ -19,7 +19,7 @@ internal static class VtankProfiledItemIds
         foreach (VtankRow row in table.Rows)
         {
             int rawId = row.Cells[objectColumn].AsInt();
-            if (rawId is -1 or 0)
+            if (rawId == -1)
                 continue;
             uint id = unchecked((uint)rawId);
             if (id == playerObjectId || !settings.CombatItemObjectIds.Add(id))

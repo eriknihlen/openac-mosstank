@@ -38,6 +38,7 @@ public sealed class VtankSettingsProfileSerializerTests
         table.Rows.Add(BuffedItem(801, 18));
         table.Rows.Add(BuffedItem(802, 19));
         table.Rows.Add(BuffedItem(900, 20));
+        table.Rows.Add(BuffedItem(0, 22));
         table.Rows.Add(BuffedItem(-1, 21));
         string original = document.Render();
         var settings = new VtankSettingsProfileSerializer.AllSettings
@@ -49,8 +50,8 @@ public sealed class VtankSettingsProfileSerializerTests
 
         VtankDatabase loaded = VtankSettingsProfileSerializer.Load(original, settings);
 
-        Assert.Equal([802u, 801u], settings.Combat.CombatItemOrderIds);
-        Assert.Equal([801u, 802u], settings.Combat.CombatItemObjectIds.Order());
+        Assert.Equal([802u, 801u, 0u], settings.Combat.CombatItemOrderIds);
+        Assert.Equal([0u, 801u, 802u], settings.Combat.CombatItemObjectIds.Order());
         Assert.Equal(original, VtankSettingsProfileSerializer.Save(loaded, settings));
     }
 

@@ -1668,6 +1668,58 @@ public sealed class MossTankPanelTests
         Assert.Empty(VtankDatabase.Parse(usd).Find("BuffedItems")!.Rows);
     }
 
+    /// <summary>
+    /// Mutation pin: replace the selected row's stored object ID with a lookup
+    /// by its current name. The absent first item stays in BuffedItems, or the
+    /// second item with the same name is removed instead.
+    /// </summary>
+    [Fact]
+    public void ItemRowsDeleteTheSelectedIdentityEvenWhenMissingOrNamesMatch()
+    {
+        var storage = new MemoryStorage();
+        var originalItems = new FakeAutomation
+        {
+            ItemEntries =
+            [
+                Item(10, "Twin Sword", 1),
+                Item(11, "Twin Sword", 1),
+            ],
+        };
+        var firstHost = new FakeHost(originalItems, storage);
+        var first = new MossTankPanel(firstHost);
+        firstHost.Selection.Select(10u);
+        first.AddSelectedItem();
+        firstHost.Selection.Select(11u);
+        first.AddSelectedItem();
+        string usdKey = Assert.Single(storage.Text.Keys,
+            key => key.EndsWith(".usd", StringComparison.Ordinal));
+        VtankDatabase document = VtankDatabase.Parse(storage.Text[usdKey]);
+        VtankTable table = document.Find("BuffedItems")!;
+        var spellRow = new VtankRow();
+        spellRow.Cells.Add(VtankCell.Int(10));
+        spellRow.Cells.Add(VtankCell.Int(17));
+        table.Rows.Add(spellRow);
+        storage.Text[usdKey] = document.Render();
+
+        var second = new MossTankPanel(new FakeHost(new FakeAutomation
+        {
+            ItemEntries = [Item(11, "Twin Sword", 1)],
+        }, storage));
+        Assert.Equal(["<INVALID 0x0000000A>", "Twin Sword"], second.ItemRows);
+
+        second.DeleteItemRowAt(0);
+
+        Assert.Equal(["Twin Sword"], second.ItemRows);
+        table = VtankDatabase.Parse(storage.Text[usdKey]).Find("BuffedItems")!;
+        Assert.All(table.Rows, row => Assert.Equal(11,
+            row.Cells[table.ColumnIndex("Object")].AsInt()));
+
+        second.RemoveSelectedItem();
+
+        Assert.Empty(second.ItemRows);
+        Assert.Empty(VtankDatabase.Parse(storage.Text[usdKey]).Find("BuffedItems")!.Rows);
+    }
+
     [Fact]
     public void AddingAShieldPopulatesTheSevenBanesAndImpenetrability()
     {
