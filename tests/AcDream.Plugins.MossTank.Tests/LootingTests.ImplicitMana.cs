@@ -238,7 +238,13 @@ public sealed partial class LootingTests
             1, PluginInventoryCommandKind.Pickup, donor, 0u);
         controller.TickIdentification(0.5d);
         Assert.True(controller.Tick(0.1d, canAct: true));
-        Assert.Equal(LootAction.ManaTank, controller.ClassifiedOwnedItems[donor]);
+        // A written item is taken but never reserved against the stone: a
+        // reservation it can never spend would hold that stone back for the
+        // rest of the run and, with enough of them, stop the drain entirely.
+        if (inscribed)
+            Assert.DoesNotContain(donor, controller.ClassifiedOwnedItems.Keys);
+        else
+            Assert.Equal(LootAction.ManaTank, controller.ClassifiedOwnedItems[donor]);
 
         // The corpse is done; the drain is what is left to do.
         for (int pass = 0; pass < 4 && automation.Applied.Count == 0; pass++)

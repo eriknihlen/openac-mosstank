@@ -172,6 +172,7 @@ internal static class ManaStoneTransferPlanner
     private const uint MagicalEffect = 0x00000001u;
     private const uint InscriptionProperty = 7u;
     private const uint ScribeProperty = 8u;
+    private const uint TinkerCountProperty = 171u;
 
     /// <summary>
     /// An item worth emptying into a stone: something of the character's own
@@ -197,6 +198,19 @@ internal static class ManaStoneTransferPlanner
     internal static bool IsUninscribed(in PluginItemProperties properties) =>
         !HasText(properties, InscriptionProperty)
         && !HasText(properties, ScribeProperty);
+
+    /// <summary>
+    /// The second look, taken once the character holds the item: nobody has
+    /// written on it and nobody has tinkered it. Both are somebody's work on
+    /// an item they meant to keep, and both are only properly readable in
+    /// hand, so an item that fails here is neither drained nor counted
+    /// against the stone that was waiting for it.
+    /// </summary>
+    internal static bool IsDrainableInHand(in PluginItemProperties properties) =>
+        IsUninscribed(properties)
+        && (properties.Ints is not { } ints
+            || !ints.TryGetValue(TinkerCountProperty, out int tinkers)
+            || tinkers <= 0);
 
     private static bool HasText(in PluginItemProperties properties, uint key) =>
         properties.Strings is { } strings
@@ -1425,7 +1439,17 @@ internal sealed partial class LootController
 
     private void CompleteWaitingPickup()
     {
-        _classifiedOwnedItems[_waitingItem] = _waitingAction;
+        // An item taken for its mana is reserved against a spare stone, and
+        // that reservation is only made once the item is in hand and the
+        // second look has passed. An item somebody wrote on or tinkered is
+        // taken and then left alone: it must not go on holding a stone back
+        // for the rest of the run.
+        if (_waitingAction != LootAction.ManaTank
+            || (CaptureOwnedProperties(_waitingItem) is { } written
+                && ManaStoneTransferPlanner.IsDrainableInHand(written)))
+        {
+            _classifiedOwnedItems[_waitingItem] = _waitingAction;
+        }
         if (_waitingClassifierId.Length != 0)
         {
             _externalClassifierByItem[_waitingItem] = _waitingClassifierId;
