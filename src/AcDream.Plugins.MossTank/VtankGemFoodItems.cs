@@ -14,11 +14,9 @@ internal static class VtankGemFoodItems
             return;
         foreach (VtankRow row in table.Rows)
         {
-            string itemName = row.Cells[name].AsString();
-            int rawSpell = row.Cells[spell].AsInt();
-            if (itemName.Length == 0 || rawSpell <= 0)
+            if (!TryReadItem(row, name, spell, out GemFoodItem item))
                 continue;
-            settings.GemFoodItems.Add(new GemFoodItem(itemName, unchecked((uint)rawSpell)));
+            settings.GemFoodItems.Add(item);
         }
     }
 
@@ -39,28 +37,46 @@ internal static class VtankGemFoodItems
         if (name < 0 || spell < 0)
             throw new FormatException("'GemFoodItems' table is missing Name/Spell columns.");
         var remaining = new List<GemFoodItem>(settings.GemFoodItems);
+        var matches = new GemFoodItem?[table.Rows.Count];
+        for (int rowIndex = 0; rowIndex < table.Rows.Count; rowIndex++)
+        {
+            VtankRow row = table.Rows[rowIndex];
+            if (!TryReadItem(row, name, spell, out GemFoodItem source))
+                continue;
+            int entryIndex = remaining.FindIndex(entry =>
+                entry.Name.Equals(source.Name, StringComparison.Ordinal)
+                && entry.SpellId == source.SpellId);
+            if (entryIndex < 0)
+                continue;
+            matches[rowIndex] = remaining[entryIndex];
+            remaining.RemoveAt(entryIndex);
+        }
+        for (int rowIndex = 0; rowIndex < table.Rows.Count; rowIndex++)
+        {
+            if (matches[rowIndex] is not null
+                || !TryReadItem(table.Rows[rowIndex], name, spell, out GemFoodItem source))
+            {
+                continue;
+            }
+            int entryIndex = remaining.FindIndex(entry =>
+                entry.Name.Equals(source.Name, StringComparison.Ordinal));
+            if (entryIndex < 0)
+                continue;
+            matches[rowIndex] = remaining[entryIndex];
+            remaining.RemoveAt(entryIndex);
+        }
         for (int rowIndex = table.Rows.Count - 1; rowIndex >= 0; rowIndex--)
         {
             VtankRow row = table.Rows[rowIndex];
-            string itemName = row.Cells[name].AsString();
-            int rawSpell = row.Cells[spell].AsInt();
-            if (itemName.Length == 0 || rawSpell <= 0)
+            if (!TryReadItem(row, name, spell, out GemFoodItem source))
                 continue;
-
-            int entryIndex = remaining.FindIndex(entry =>
-                entry.Name.Equals(itemName, StringComparison.Ordinal)
-                && entry.SpellId == unchecked((uint)rawSpell));
-            entryIndex = entryIndex >= 0 ? entryIndex : remaining.FindIndex(entry =>
-                entry.Name.Equals(itemName, StringComparison.Ordinal));
-            if (entryIndex < 0)
+            GemFoodItem? entry = matches[rowIndex];
+            if (entry is null)
             {
                 table.Rows.RemoveAt(rowIndex);
                 continue;
             }
-
-            GemFoodItem entry = remaining[entryIndex];
-            remaining.RemoveAt(entryIndex);
-            if (entry.SpellId != unchecked((uint)rawSpell))
+            if (entry.SpellId != source.SpellId)
                 row.Cells[spell] = VtankCell.Int(unchecked((int)entry.SpellId));
         }
 
@@ -72,6 +88,34 @@ internal static class VtankGemFoodItems
             row.Cells[name] = VtankCell.String(entry.Name);
             row.Cells[spell] = VtankCell.Int(unchecked((int)entry.SpellId));
             table.Rows.Add(row);
+        }
+    }
+
+    private static bool TryReadItem(
+        VtankRow row, int nameColumn, int spellColumn, out GemFoodItem item)
+    {
+        item = null!;
+        if ((uint)nameColumn >= (uint)row.Cells.Count
+            || (uint)spellColumn >= (uint)row.Cells.Count)
+        {
+            return false;
+        }
+        try
+        {
+            string name = row.Cells[nameColumn].AsString();
+            int spell = row.Cells[spellColumn].AsInt();
+            if (name.Length == 0 || spell <= 0)
+                return false;
+            item = new GemFoodItem(name, unchecked((uint)spell));
+            return true;
+        }
+        catch (FormatException)
+        {
+            return false;
+        }
+        catch (OverflowException)
+        {
+            return false;
         }
     }
 }

@@ -306,6 +306,62 @@ public sealed class VtankSettingsProfileSerializerTests
     }
 
     [Fact]
+    public void GemFoodInvalidNumericCellsStayInertAndRoundTripVerbatim()
+    {
+        VtankDatabase seed = VtankDefaultSettingsDatabase.Parse();
+        VtankTable table = seed.Find("GemFoodItems")!;
+        table.ColumnNames.Add("Extension");
+        table.IndexFlags.Add(false);
+        table.Rows.Clear();
+        VtankRow nonNumeric = GemFoodRow(table, "Broken text", 1, string.Empty);
+        nonNumeric.Cells[table.ColumnIndex("Spell")] = new VtankCell
+        {
+            Tag = "i", ScalarText = "not-an-id",
+        };
+        VtankRow overflow = GemFoodRow(table, "Broken overflow", 1, string.Empty);
+        overflow.Cells[table.ColumnIndex("Spell")] = new VtankCell
+        {
+            Tag = "i", ScalarText = "999999999999999999999",
+        };
+        table.Rows.Add(nonNumeric);
+        table.Rows.Add(overflow);
+        string original = seed.Render();
+
+        VtankSettingsProfileSerializer.AllSettings settings = NewSettings();
+        VtankDatabase document = VtankSettingsProfileSerializer.Load(original, settings);
+
+        Assert.Empty(settings.Buffs.GemFoodItems);
+        Assert.Equal(original, VtankSettingsProfileSerializer.Save(document, settings));
+    }
+
+    /// <summary>
+    /// The exact source row reserves its custom cells before a same-name
+    /// fallback is considered for the changed spell row.
+    /// </summary>
+    [Fact]
+    public void GemFoodRemovalKeepsTheExactSameNameSourceRow()
+    {
+        VtankDatabase seed = VtankDefaultSettingsDatabase.Parse();
+        VtankTable table = seed.Find("GemFoodItems")!;
+        table.ColumnNames.Add("Extension");
+        table.IndexFlags.Add(false);
+        table.Rows.Clear();
+        table.Rows.Add(GemFoodRow(table, "Gem", 1, "custom-a"));
+        table.Rows.Add(GemFoodRow(table, "Gem", 2, "custom-b"));
+        VtankSettingsProfileSerializer.AllSettings settings = NewSettings();
+        VtankDatabase document = VtankSettingsProfileSerializer.Load(seed.Render(), settings);
+        settings.Buffs.GemFoodItems.Clear();
+        settings.Buffs.GemFoodItems.Add(new GemFoodItem("Gem", 1u));
+
+        VtankTable saved = VtankDatabase.Parse(
+            VtankSettingsProfileSerializer.Save(document, settings)).Find("GemFoodItems")!;
+
+        VtankRow row = Assert.Single(saved.Rows);
+        Assert.Equal(1, row.Cells[saved.ColumnIndex("Spell")].AsInt());
+        Assert.Equal("custom-a", row.Cells[saved.ColumnIndex("Extension")].AsString());
+    }
+
+    [Fact]
     public void GemFoodRowsClearWhenTheNextProfileHasNoTable()
     {
         VtankSettingsProfileSerializer.AllSettings settings = NewSettings();
@@ -329,6 +385,12 @@ public sealed class VtankSettingsProfileSerializerTests
         extra.Rows.Add(ExemplarRow(extra, 999999, "keep-extra"));
         extra.Rows.Add(ExemplarRow(extra, 999999, "duplicate-extra"));
         extra.Rows.Add(ExemplarRow(extra, 0, "invalid-extra"));
+        VtankRow overflow = ExemplarRow(extra, 1, "overflow-extra");
+        overflow.Cells[extra.ColumnIndex("ExemplarId")] = new VtankCell
+        {
+            Tag = "i", ScalarText = "999999999999999999999",
+        };
+        extra.Rows.Add(overflow);
         VtankTable anti = seed.Find("AntiExtraBuffSpells")!;
         anti.Rows.Add(ExemplarRow(anti, 999998, null));
         string original = seed.Render();
@@ -345,6 +407,7 @@ public sealed class VtankSettingsProfileSerializerTests
         VtankTable rewritten = VtankDatabase.Parse(saved).Find("ExtraBuffSpells")!;
         int extension = rewritten.ColumnIndex("Extension");
         Assert.Contains(rewritten.Rows, row => row.Cells[extension].AsString() == "invalid-extra");
+        Assert.Contains(rewritten.Rows, row => row.Cells[extension].AsString() == "overflow-extra");
     }
 
     [Fact]

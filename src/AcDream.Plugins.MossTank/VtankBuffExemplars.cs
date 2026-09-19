@@ -93,5 +93,9 @@ internal static class VtankBuffExemplars
         {
             return false;
         }
+        catch (OverflowException)
+        {
+            return false;
+        }
     }
 }
