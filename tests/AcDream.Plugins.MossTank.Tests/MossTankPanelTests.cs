@@ -5169,6 +5169,61 @@ public sealed class MossTankPanelTests
     }
 
     /// <summary>
+    /// An explicit kind speaks for every row carrying that name. The second
+    /// row and its custom cell are still the profile's business, so saying
+    /// what a consumable is for must not be a way of deleting them.
+    ///
+    /// Mutation executed: <c>the explicit edit re-kinded only the first row
+    /// for the name</c>. The second row then no longer matches what is wanted
+    /// and is dropped, with its custom cell, on the same save.
+    /// </summary>
+    [Fact]
+    public void AnExplicitKindReKindsEveryRowForTheNameAndKeepsThem()
+    {
+        var storage = new MemoryStorage();
+        VtankDatabase imported = VtankDefaultSettingsDatabase.Parse();
+        VtankTable table = imported.Find("AssistItems")!;
+        table.ColumnNames.Add("Extension");
+        table.IndexFlags.Add(false);
+        table.Rows.Add(new VtankRow
+        {
+            Cells =
+            {
+                VtankCell.String(CraftingPlanner.AllPeas), VtankCell.Int(9),
+                VtankCell.String("first-custom"),
+            },
+        });
+        table.Rows.Add(new VtankRow
+        {
+            Cells =
+            {
+                VtankCell.String(CraftingPlanner.AllPeas), VtankCell.Int(1),
+                VtankCell.String("second-custom"),
+            },
+        });
+        storage.Text["AssistTwoPeaRows.usd"] = imported.Render();
+        var panel = new MossTankPanel(new FakeHost(new FakeAutomation(), storage));
+
+        Command(panel, "settings load AssistTwoPeaRows");
+        panel.AddAllPeas();
+
+        VtankTable saved = VtankDatabase.Parse(
+            storage.Text[panel.SelectedMacroProfile]).Find("AssistItems")!;
+        int name = saved.ColumnIndex("Object");
+        VtankRow[] peas = saved.Rows
+            .Where(row => row.Cells[name].AsString() == CraftingPlanner.AllPeas)
+            .ToArray();
+        Assert.Equal(2, peas.Length);
+        Assert.Equal(
+            [11, 11],
+            peas.Select(row => row.Cells[saved.ColumnIndex("Type")].AsInt()).ToArray());
+        Assert.Equal(
+            ["first-custom", "second-custom"],
+            peas.Select(row => row.Cells[saved.ColumnIndex("Extension")].AsString())
+                .ToArray());
+    }
+
+    /// <summary>
     /// The profile says this bread is drunk for mana. The bag says it is
     /// food, and food restores health -- but the profile was explicit, and
     /// the periodic look through the bag must not quietly overrule it.

@@ -70,23 +70,56 @@ internal static class VtankAssistItems
             if (TryRead(row, name, type, out AssistItem item) && desired.Contains(item))
                 exact.Add(item);
         }
-        foreach (AssistItem item in desired.Where(item => !exact.Contains(item)))
+        foreach (IGrouping<string, AssistItem> group in desired
+            .GroupBy(static item => item.Name, StringComparer.Ordinal))
         {
-            VtankRow? fallback = table.Rows.FirstOrDefault(row =>
-                TryRead(row, name, type, out AssistItem existing)
-                && string.Equals(existing.Name, item.Name, StringComparison.Ordinal));
-            if (fallback is null)
+            // The rows carrying this name that no wanted kind covers yet.
+            List<VtankRow> rows = table.Rows
+                .Where(row => TryRead(row, name, type, out AssistItem existing)
+                    && string.Equals(existing.Name, group.Key, StringComparison.Ordinal)
+                    && !desired.Contains(existing))
+                .ToList();
+            if (group.Count() == 1)
             {
-                fallback = new VtankRow();
-                for (int column = 0; column < table.ColumnNames.Count; column++)
-                    fallback.Cells.Add(VtankCell.Int(-1));
-                fallback.Cells[name] = VtankCell.String(item.Name);
-                table.Rows.Add(fallback);
+                // One kind wanted for a name is a choice someone made, and it
+                // speaks for every row carrying that name: they are all
+                // re-kinded where they stand. Re-kinding one and leaving the
+                // rest reading something nobody asked for would cost those
+                // rows, and the custom columns the profile keeps in them, on
+                // the sweep at the end.
+                AssistItem only = group.First();
+                if (rows.Count == 0 && !exact.Contains(only))
+                    AddRow(table, name, type, only);
+                foreach (VtankRow row in rows)
+                    row.Cells[type] = VtankCell.Int(Unmap(only.Category));
+                continue;
             }
-            fallback.Cells[type] = VtankCell.Int(Unmap(item.Category));
+            // Several kinds under one name: a profile of someone else's
+            // making, so one row goes to each kind and the rest stand.
+            foreach (AssistItem item in group.Where(item => !exact.Contains(item)))
+            {
+                if (rows.Count == 0)
+                {
+                    AddRow(table, name, type, item);
+                    continue;
+                }
+                rows[0].Cells[type] = VtankCell.Int(Unmap(item.Category));
+                rows.RemoveAt(0);
+            }
         }
         table.Rows.RemoveAll(row => TryRead(row, name, type, out AssistItem item)
             && !desired.Contains(item));
+    }
+
+    private static void AddRow(
+        VtankTable table, int name, int type, AssistItem item)
+    {
+        var row = new VtankRow();
+        for (int column = 0; column < table.ColumnNames.Count; column++)
+            row.Cells.Add(VtankCell.Int(-1));
+        row.Cells[name] = VtankCell.String(item.Name);
+        row.Cells[type] = VtankCell.Int(Unmap(item.Category));
+        table.Rows.Add(row);
     }
 
     internal static bool TryMap(int type, out ConsumableCategory category)
