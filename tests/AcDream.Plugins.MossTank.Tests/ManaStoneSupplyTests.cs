@@ -13,9 +13,8 @@ public sealed class ManaStoneSupplyTests
     public void DonorMustRemainUntinkeredUnwornAndExplicitlyClassified()
     {
         var classes = new Dictionary<uint, LootAction> { [20] = LootAction.ManaTank };
-        var names = new HashSet<string> { "Stone" };
         ManaStoneTransferPlan? Plan(PluginInventoryItem donor) =>
-            ManaStoneTransferPlanner.Plan([Stone, donor], classes, 1000, names);
+            ManaStoneTransferPlanner.Plan([Stone, donor], classes, 1000, ProfiledStone);
         Assert.NotNull(Plan(Donor)); // Value zero is allowed; workmanship is the criterion.
         Assert.Null(Plan(Donor with { Workmanship = 0, Value = 100 }));
         Assert.Null(Plan(Donor with { NumTimesTinkered = 1 }));
@@ -33,12 +32,20 @@ public sealed class ManaStoneSupplyTests
     public void ChargedUnconfiguredOrHeldSourcesCannotDrainDonors()
     {
         var classes = new Dictionary<uint, LootAction> { [20] = LootAction.ManaTank };
-        var names = new HashSet<string> { "Stone" };
-        Assert.Null(ManaStoneTransferPlanner.Plan([Stone with { Effects = 1 }, Donor], classes, 1000, names));
-        Assert.Null(ManaStoneTransferPlanner.Plan([Stone, Donor], classes, 1000, new HashSet<string>()));
-        Assert.Null(ManaStoneTransferPlanner.Plan([Stone, Donor], classes, 1000, names, id => id != 10));
-        Assert.Null(ManaStoneTransferPlanner.Plan([Stone, Donor], classes, 1000, names, id => id != 20));
+        Assert.Null(ManaStoneTransferPlanner.Plan([Stone with { Effects = 1 }, Donor], classes, 1000, ProfiledStone));
+        Assert.Null(ManaStoneTransferPlanner.Plan([Stone, Donor], classes, 1000, static _ => false));
+        Assert.Null(ManaStoneTransferPlanner.Plan([Stone, Donor], classes, 1000, ProfiledStone, id => id != 10));
+        Assert.Null(ManaStoneTransferPlanner.Plan([Stone, Donor], classes, 1000, ProfiledStone, id => id != 20));
     }
+
+    /// <summary>
+    /// A stone the profile's helper list names as one: the client's own class
+    /// AND the profile's kind, which is what the macro reads before it treats
+    /// an item as a fillable stone.
+    /// </summary>
+    private static bool ProfiledStone(PluginInventoryItem item) =>
+        item.ObjectClass == PluginObjectClass.ManaStone
+        && item.Name == "Stone";
 
     [Fact]
     public void SuccessfulReplyWaitsForInventoryAndChargeAndMatchesBothIds()

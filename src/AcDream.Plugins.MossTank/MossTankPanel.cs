@@ -383,7 +383,8 @@ internal sealed partial class MossTankPanel : IBuffRuleHost, IDisposable
         _loot = new LootController(
             host,
             _inventorySettings.Loot,
-            _combatSettings.ConsumableNames);
+            _combatSettings.ConsumableNames,
+            _combatSettings.ConsumableCategories);
         _loot.BindActionLocks(_actionLocks);
         _corpseApproach = new CorpseApproachController(
             host,

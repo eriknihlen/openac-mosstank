@@ -187,16 +187,15 @@ internal static class ManaStoneTransferPlanner
         IReadOnlyList<PluginInventoryItem> owned,
         IReadOnlyDictionary<uint, LootAction> classified,
         int minimumTankMana,
-        ISet<string>? configuredManaStoneNames = null,
+        Func<PluginInventoryItem, bool>? isProfiledManaStone = null,
         Func<uint, bool>? canUse = null)
     {
         PluginInventoryItem stone = owned
-            .Where(item => item.ObjectClass == PluginObjectClass.ManaStone
-                && !item.IsEquipped
+            .Where(item => !item.IsEquipped
                 && item.WielderObjectId == 0u
                 && (canUse?.Invoke(item.ObjectId) ?? true)
                 && (item.Effects & MagicalEffect) == 0u
-                && configuredManaStoneNames?.Contains(item.Name) == true)
+                && isProfiledManaStone?.Invoke(item) == true)
             .OrderBy(static item => item.ObjectId)
             .FirstOrDefault();
         if (stone.ObjectId == 0u)
@@ -555,6 +554,8 @@ internal sealed partial class LootController
     private readonly IPluginHost _host;
     private readonly LootSettings _settings;
     private readonly ISet<string> _configuredConsumableNames;
+    private readonly IDictionary<string, ConsumableCategory>
+        _configuredConsumableKinds;
     private readonly Dictionary<uint, double> _completedCorpses = [];
     private readonly Dictionary<uint, int> _corpseOpenAttempts = [];
     private readonly Dictionary<uint, double> _corpseBlacklistedAt = [];
@@ -613,13 +614,41 @@ internal sealed partial class LootController
     public LootController(
         IPluginHost host,
         LootSettings settings,
-        ISet<string>? configuredConsumableNames = null)
+        ISet<string>? configuredConsumableNames = null,
+        IDictionary<string, ConsumableCategory>? configuredConsumableKinds = null)
     {
         _host = host ?? throw new ArgumentNullException(nameof(host));
         _settings = settings ?? throw new ArgumentNullException(nameof(settings));
         _configuredConsumableNames = configuredConsumableNames
             ?? new HashSet<string>(StringComparer.Ordinal);
+        _configuredConsumableKinds = configuredConsumableKinds
+            ?? new Dictionary<string, ConsumableCategory>(StringComparer.Ordinal);
     }
+
+    /// <summary>
+    /// A mana stone the profile knows by that name: it is an item the client
+    /// classes as a mana stone AND the profile's helper list names as one.
+    /// The kind matters, not merely the presence of the name: the same list
+    /// carries mana charges, healing kits and food under their own kinds, and
+    /// treating any of them as a stone would have the looter fill up on the
+    /// wrong thing.
+    /// </summary>
+    private bool IsProfiledManaStone(in PluginInventoryItem item) =>
+        item.ObjectClass == PluginObjectClass.ManaStone
+        && _configuredConsumableKinds.TryGetValue(
+            item.Name,
+            out ConsumableCategory kind)
+        && kind == ConsumableCategory.ManaStone;
+
+    /// <summary>
+    /// Whether the profile asks for mana stones at all. Without one helper
+    /// row of that kind the wanted count is zero whatever the stone-count
+    /// setting says, because nothing has told the macro which item is a
+    /// stone it may pick up.
+    /// </summary>
+    private bool ProfileNamesAManaStone =>
+        _configuredConsumableKinds.Values.Any(
+            static kind => kind == ConsumableCategory.ManaStone);
 
     /// <summary>
     /// The shared action-lock table. A corpse is closed with an item use,
@@ -1572,7 +1601,7 @@ internal sealed partial class LootController
             _host.Automation.Items.CaptureOwnedItems(),
             _classifiedOwnedItems,
             _settings.ManaTankMinimumMana,
-            _configuredConsumableNames,
+            item => IsProfiledManaStone(item),
             CanUseManaItem) is not null;
     }
 
@@ -1621,7 +1650,7 @@ internal sealed partial class LootController
             items.CaptureOwnedItems(),
             _classifiedOwnedItems,
             _settings.ManaTankMinimumMana,
-            _configuredConsumableNames,
+            item => IsProfiledManaStone(item),
             CanUseManaItem);
         if (plan is not { } next)
             return false;
@@ -1757,10 +1786,9 @@ internal sealed partial class LootController
     {
         const uint magicalEffect = 0x00000001u;
         int stones = owned.Count(item =>
-            item.ObjectClass == PluginObjectClass.ManaStone
-            && !item.IsEquipped
+            !item.IsEquipped
             && (item.Effects & magicalEffect) == 0u
-            && _configuredConsumableNames.Contains(item.Name));
+            && IsProfiledManaStone(item));
         HashSet<uint> ownedIds = owned
             .Select(static item => item.ObjectId)
             .ToHashSet();
@@ -1906,19 +1934,13 @@ internal sealed partial class LootController
         in PluginInventoryItem item,
         IReadOnlyList<PluginInventoryItem> owned)
     {
-        int desired = _configuredConsumableNames.Count == 0
-            ? 0
-            : Math.Clamp(_settings.ManaStoneLootCount, 0, 100);
-        int stones = owned.Count(ownedItem =>
-            ownedItem.ObjectClass == PluginObjectClass.ManaStone
-            && _configuredConsumableNames.Contains(ownedItem.Name));
+        int desired = ProfileNamesAManaStone
+            ? Math.Clamp(_settings.ManaStoneLootCount, 0, 100)
+            : 0;
+        int stones = owned.Count(ownedItem => IsProfiledManaStone(ownedItem));
         stones += PendingDecisionCount(LootAction.ManaStone);
-        if (item.ObjectClass == PluginObjectClass.ManaStone
-            && _configuredConsumableNames.Contains(item.Name)
-            && stones < desired)
-        {
+        if (IsProfiledManaStone(item) && stones < desired)
             return LootAction.ManaStone;
-        }
         if (SpareManaStoneCount(owned) > 0
             && ManaStoneTransferPlanner.IsDonor(item, _settings.ManaTankMinimumMana))
         {

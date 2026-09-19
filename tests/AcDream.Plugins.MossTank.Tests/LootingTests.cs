@@ -202,7 +202,9 @@ public sealed partial class LootingTests
                 [stone, lowTank, highTank],
                 classified,
                 minimumTankMana: 1000,
-                configuredManaStoneNames: new HashSet<string> { "Mana Stone" }));
+                isProfiledManaStone: static candidate =>
+                    candidate.ObjectClass == PluginObjectClass.ManaStone
+                    && candidate.Name == "Mana Stone"));
 
         Assert.Equal(stone.ObjectId, plan.StoneObjectId);
         Assert.Equal(highTank.ObjectId, plan.TankObjectId);

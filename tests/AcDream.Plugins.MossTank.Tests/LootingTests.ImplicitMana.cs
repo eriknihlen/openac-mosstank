@@ -78,4 +78,76 @@ public sealed partial class LootingTests
             "LootDecision: Mystery Trinket -> no rule matched",
             logged);
     }
+
+    /// <summary>
+    /// A mana stone is picked up outside the rule file only when the
+    /// profile's helper list names it as a mana stone. The same name filed
+    /// under any other kind — a mana charge, food, a kit — wants no stone at
+    /// all, however high the stone count is set, because nothing has told the
+    /// macro that this item is a stone it should carry.
+    ///
+    /// Mutation: make the membership test read the helper names without their
+    /// kinds and the charge row is looted as a stone.
+    /// </summary>
+    [Theory]
+    [InlineData(true, "ManaStone (ManaStone)")]
+    [InlineData(false, "no rule matched")]
+    public void OnlyAHelperRowOfTheStoneKindMakesTheLooterTakeAStone(
+        bool filedAsAStone,
+        string expected)
+    {
+        ConsumableCategory kind = filedAsAStone
+            ? ConsumableCategory.ManaStone
+            : ConsumableCategory.ManaFood;
+        const uint corpse = 0x70009101u;
+        var automation = new Automation
+        {
+            Corpses =
+            [
+                new PluginLootContainer(
+                    corpse, 1u, "Corpse", 3f, false, false, false)
+                {
+                    IsIdentified = true,
+                    LongDescription = "Killed by Tester.",
+                },
+            ],
+        };
+        var settings = new LootSettings
+        {
+            Enabled = true,
+            ManaStoneLootCount = 4,
+        };
+        // A rule file that says nothing about stones: the stone job is the
+        // one the macro takes on by itself, outside the rules.
+        settings.Rules.Add(VtankRule(
+            "Leave junk", LootAction.NoLoot, Requirement(1, "Junk", "1")));
+        var logged = new List<string>();
+        var controller = new LootController(
+            new Host(automation),
+            settings,
+            new HashSet<string>(StringComparer.Ordinal) { "Major Mana Stone" },
+            new Dictionary<string, ConsumableCategory>(StringComparer.Ordinal)
+            {
+                ["Major Mana Stone"] = kind,
+            })
+        {
+            Log = (_, line) => logged.Add(line),
+        };
+        controller.BindActionLocks(new ActionLockTable());
+
+        Assert.True(controller.Tick(1d, canAct: true));
+        automation.Requested = corpse;
+        automation.Current = corpse;
+        automation.Contents =
+        [
+            Item(0x70009110u, "Major Mana Stone", 47u) with
+            {
+                ObjectClass = PluginObjectClass.ManaStone,
+            },
+        ];
+        Assert.True(controller.ObserveCorpseOpened());
+        controller.TickIdentification(0.5d);
+
+        Assert.Contains($"LootDecision: Major Mana Stone -> {expected}", logged);
+    }
 }
