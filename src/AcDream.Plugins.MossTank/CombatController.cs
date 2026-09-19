@@ -251,25 +251,48 @@ internal sealed class CombatController
     private const double PhysicalResultTextTailSeconds = 2d;
 
     /// <summary>
-    /// How long a swing may stay outstanding with nothing coming back before
-    /// the macro treats it as an attempt that will never resolve.
+    /// How long a swing that has been SENT may stay outstanding with nothing
+    /// coming back before the macro treats it as an attempt that will never
+    /// resolve.
     ///
     /// The reference macro re-presses the attack key every quarter second and
     /// never waits on an answer, so it needs no such bound; this host refuses
     /// a second swing while the first is still open, so the wait has to end
-    /// somewhere. The number is the one the reference already allows an
-    /// attempt that produces no result at all — four and a half seconds —
+    /// somewhere. The number is the one the reference already allows a
+    /// request that produces no result at all — four and a half seconds —
     /// which sits well clear of the one-and-a-half to two-and-a-half seconds
     /// a swing that does land takes to report.
     /// </summary>
     private const double UnansweredSwingSeconds = 4.5d;
 
     /// <summary>
-    /// When the outstanding swing was sent. Re-stamped each time the wait is
-    /// given up on, so a host that never reports the attack finished costs one
-    /// counted attempt per bound rather than wedging the macro on one monster.
+    /// When the outstanding swing was SENT, which is the release and not the
+    /// press that starts the power bar: the bar takes up to a second to build
+    /// and the server hears nothing at all until it is let go, so a clock
+    /// started at the press would spend a fifth of the wait on our own charge.
+    /// Negative infinity means nothing is in flight and the wait does not run.
+    /// Re-stamped each time the wait is given up on, so a host that never
+    /// reports the attack finished costs one counted attempt per bound rather
+    /// than wedging the macro on one monster.
     /// </summary>
     private double _physicalSwingSentAt = double.NegativeInfinity;
+
+    /// <summary>
+    /// How much nearer the monster has to come for the wait on an outstanding
+    /// swing to start over. The server runs the character in to a monster the
+    /// swing cannot yet reach and only strikes on arrival, which from across a
+    /// room with a slow weapon takes longer than the whole wait; while that
+    /// run-in is demonstrably making ground the swing is working, not stuck.
+    /// Half a metre is a step's worth of ground.
+    /// </summary>
+    private const float SwingClosingProgressMeters = 0.5f;
+
+    /// <summary>
+    /// The nearest the outstanding swing's monster has been since the swing
+    /// went out. Only ground actually gained counts, so a monster milling
+    /// about at one range cannot hold the wait open for ever.
+    /// </summary>
+    private float _physicalSwingClosestDistance = float.PositiveInfinity;
 
     private bool _physicalResultArmed;
     private uint _physicalResultTargetId;
@@ -792,6 +815,10 @@ internal sealed class CombatController
     {
         if (combat.ServerResponsePending || combat.RepeatAttackInProgress)
         {
+            // The first pass that finds the server holding the swing is the
+            // latest moment it can have gone out, so a swing released by any
+            // route but the branch below still starts its wait here.
+            StampSwingSent();
             GiveUpOnUnansweredSwing();
             Status = $"Attacking {_targetName}";
             return AttackPassOutcome.Claimed;
@@ -805,6 +832,8 @@ internal sealed class CombatController
             {
                 PluginCombatCommandResult release =
                     _host.Automation.Combat.ReleasePhysicalAttack();
+                if (release.Status == PluginCombatCommandStatus.Released)
+                    StampSwingSent();
                 Status = release.Status == PluginCombatCommandStatus.Released
                     ? $"Attacking {_targetName}"
                     : $"Attack release: {release.Status}";
@@ -876,7 +905,10 @@ internal sealed class CombatController
         else if (begin.Status == PluginCombatCommandStatus.Started)
         {
             _pendingPhysicalTarget = _targetId;
-            _physicalSwingSentAt = _now;
+            // The press only starts the power bar: nothing has reached the
+            // server yet, so the wait on an answer has not begun.
+            _physicalSwingSentAt = double.NegativeInfinity;
+            _physicalSwingClosestDistance = float.PositiveInfinity;
             ArmPhysicalResultText(_targetId, _targetName);
         }
         return AttackPassOutcome.Claimed;
@@ -889,13 +921,44 @@ internal sealed class CombatController
     /// row and it is given up as unhittable, exactly as a monster whose shots
     /// all fly into the scenery is — one blow that lands clears the count.
     /// </summary>
-    private void GiveUpOnUnansweredSwing()
+    private void StampSwingSent()
     {
         if (_pendingPhysicalTarget == 0u
-            || _now - _physicalSwingSentAt < UnansweredSwingSeconds)
+            || !double.IsNegativeInfinity(_physicalSwingSentAt))
         {
             return;
         }
+        _physicalSwingSentAt = _now;
+        _physicalSwingClosestDistance = float.PositiveInfinity;
+    }
+
+    private void GiveUpOnUnansweredSwing()
+    {
+        if (_pendingPhysicalTarget == 0u
+            || double.IsNegativeInfinity(_physicalSwingSentAt))
+        {
+            return;
+        }
+        // Ground gained towards the monster is the swing working rather than
+        // stalling — the server walks the character in before it strikes — so
+        // the wait starts over on it. Only a range nearer than the nearest yet
+        // seen counts, which bounds how often that can happen.
+        float distance = FindTarget(_pendingPhysicalTarget).Distance;
+        if (distance > 0f && distance < _physicalSwingClosestDistance)
+        {
+            // The first range seen is only the mark to measure from.
+            bool closed = !float.IsPositiveInfinity(_physicalSwingClosestDistance)
+                && distance + SwingClosingProgressMeters
+                    <= _physicalSwingClosestDistance;
+            _physicalSwingClosestDistance = distance;
+            if (closed)
+            {
+                _physicalSwingSentAt = _now;
+                return;
+            }
+        }
+        if (_now - _physicalSwingSentAt < UnansweredSwingSeconds)
+            return;
         uint stalled = _pendingPhysicalTarget;
         // The wait starts over whether or not the cancel is answered, so a
         // host that never reports the attack finished still costs one counted

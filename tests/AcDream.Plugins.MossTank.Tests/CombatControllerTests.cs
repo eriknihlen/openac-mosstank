@@ -5625,13 +5625,16 @@ public sealed class CombatControllerTests
     }
 
     private static (FakeAutomation Surface, CombatController Controller, ActionLockTable Locks)
-        MeleeKillRig(CombatSettings? settings = null)
+        MeleeKillRig(
+            CombatSettings? settings = null,
+            bool tracksAttackRequests = false)
     {
         var surface = new FakeAutomation
         {
             CombatSnapshot = Physical() with { SelectedObjectId = 10u },
             Targets = [Target(10, "Drudge", distance: 2, angle: 0)],
             EquipmentItems = [WieldedPlannedWeapon()],
+            TracksAttackRequests = tracksAttackRequests,
         };
         CombatSettings resolved = settings ?? new CombatSettings();
         resolved.ScanIntervalSeconds = 0.05d;
@@ -5794,27 +5797,75 @@ public sealed class CombatControllerTests
     /// A swing the server never answers must not hold the macro for ever: the
     /// host refuses a second swing while the first is open, so the wait ends
     /// itself and the attack is cancelled, which is what closes it server-side.
+    /// The whole press → charge → release path is travelled here, and the
+    /// wait is measured from the release: the charge is the macro's own time,
+    /// not the server's.
     /// Mutation: delete the <c>GiveUpOnUnansweredSwing</c> call from the
-    /// waiting arm of <c>TickPhysical</c> and the second assertion fails — the
+    /// waiting arm of <c>TickPhysical</c> and the last assertion fails — the
     /// macro waits on that one swing until something unrelated interrupts it.
+    /// Mutation: take the wait's clock from the press instead of the release
+    /// and the middle assertion fails — the two seconds spent charging come
+    /// off the wait and an answer four seconds after the send arrives too
+    /// late.
     /// </summary>
     [Fact]
     public void ASwingThatIsNeverAnsweredIsCancelledOnceTheWaitRunsOut()
     {
-        (FakeAutomation surface, CombatController controller, _) = MeleeKillRig();
+        (FakeAutomation surface, CombatController controller, _) =
+            MeleeKillRig(tracksAttackRequests: true);
         Assert.Equal(10u, surface.LastBeginTarget);
+        Assert.True(surface.CombatSnapshot.BuildInProgress);
         int abortsAfterTheSwing = surface.AbortCount;
 
-        // The server took the swing and has said nothing since.
-        surface.CombatSnapshot = surface.CombatSnapshot with
-        {
-            ServerResponsePending = true,
-        };
+        // Two seconds on the power bar before the swing is let go.
+        controller.OnTick(2.0);
+        Assert.Equal(0, surface.ReleaseCount);
 
-        // Four seconds of silence is still inside the wait.
+        surface.FillPowerBar();
+        controller.OnTick(0.25);
+        Assert.Equal(1, surface.ReleaseCount);
+        Assert.True(surface.CombatSnapshot.ServerResponsePending);
+
+        // Four seconds of silence after the send is still inside the wait,
+        // however long the charge before it took.
         controller.OnTick(4.0);
         Assert.Equal(abortsAfterTheSwing, surface.AbortCount);
 
+        controller.OnTick(0.75);
+        Assert.Equal(abortsAfterTheSwing + 1, surface.AbortCount);
+    }
+
+    /// <summary>
+    /// The server walks the character in to a monster the swing cannot yet
+    /// reach and strikes on arrival, which from a distance with a slow weapon
+    /// outlasts the whole wait. While the ground is demonstrably being gained
+    /// the wait starts over; once it stops being gained the wait runs out as
+    /// usual.
+    /// Mutation: delete the closing-distance arm of the give-up and the first
+    /// assertion fails — a swing the server is still running in for is
+    /// cancelled and the monster charged a miss it never had a chance at.
+    /// </summary>
+    [Fact]
+    public void ASwingIsNotCutShortWhileTheServerIsStillClosingTheGround()
+    {
+        (FakeAutomation surface, CombatController controller, _) =
+            MeleeKillRig(tracksAttackRequests: true);
+        surface.FillPowerBar();
+        controller.OnTick(0.25);
+        Assert.Equal(1, surface.ReleaseCount);
+        int abortsAfterTheSwing = surface.AbortCount;
+
+        // The range the swing went out at is the mark to measure from.
+        controller.OnTick(4.0);
+
+        // Most of a metre nearer: the run-in is working.
+        surface.Targets = [Target(10, "Drudge", distance: 1.2f, angle: 0)];
+        controller.OnTick(1.0);
+        Assert.Equal(abortsAfterTheSwing, surface.AbortCount);
+
+        // No more ground gained, and now the wait runs out.
+        controller.OnTick(4.0);
+        Assert.Equal(abortsAfterTheSwing, surface.AbortCount);
         controller.OnTick(1.0);
         Assert.Equal(abortsAfterTheSwing + 1, surface.AbortCount);
     }
@@ -5845,8 +5896,9 @@ public sealed class CombatControllerTests
             ServerResponsePending = true,
         };
 
-        // One wait runs out per pass; the allowance is one, so the second
-        // retires the monster.
+        // The first pass registers the swing as sent; after that one wait
+        // runs out per pass, and the second retires the monster.
+        controller.OnTick(5.0);
         controller.OnTick(5.0);
         controller.OnTick(5.0);
 
@@ -5919,6 +5971,7 @@ public sealed class CombatControllerTests
             ServerResponsePending = true,
         };
 
+        controller.OnTick(5.0);
         controller.OnTick(5.0);
         controller.OnTick(5.0);
         controller.OnTick(0.25);
@@ -6840,6 +6893,19 @@ public sealed class CombatControllerTests
         public PluginCastCompletion LastCastCompletion { get; set; }
         public PluginCastCompletion LastCompletion => LastCastCompletion;
         public uint LastBeginTarget { get; private set; }
+
+        /// <summary>
+        /// Opt-in: the fake walks the host's own attack states — the press
+        /// starts the power bar, the release hands the swing to the server,
+        /// a cancel ends it — so a pin can travel the whole press → build →
+        /// release path instead of declaring the server already holds a swing.
+        /// </summary>
+        public bool TracksAttackRequests { get; set; }
+
+        /// <summary>The power bar reaching the top, as a charging pass would.</summary>
+        public void FillPowerBar() =>
+            CombatSnapshot = CombatSnapshot with { PowerBarLevel = 1f };
+
         public int BeginCount { get; private set; }
         public int ReleaseCount { get; private set; }
         public int AbortCount { get; private set; }
@@ -7089,16 +7155,46 @@ public sealed class CombatControllerTests
             LastBeginTarget = targetObjectId;
             LastBeginPower = power;
             BeginCount++;
+            if (TracksAttackRequests)
+            {
+                CombatSnapshot = CombatSnapshot with
+                {
+                    RequestInProgress = true,
+                    BuildInProgress = true,
+                    PowerBarLevel = 0f,
+                    ServerResponsePending = false,
+                };
+            }
             return new(PluginCombatCommandStatus.Started);
         }
         public PluginCombatCommandResult ReleasePhysicalAttack()
         {
             ReleaseCount++;
+            if (TracksAttackRequests)
+            {
+                CombatSnapshot = CombatSnapshot with
+                {
+                    RequestInProgress = false,
+                    BuildInProgress = false,
+                    ServerResponsePending = true,
+                };
+            }
             return new(PluginCombatCommandStatus.Released);
         }
         public PluginCombatCommandResult AbortPhysicalAttack()
         {
             AbortCount++;
+            if (TracksAttackRequests)
+            {
+                CombatSnapshot = CombatSnapshot with
+                {
+                    RequestInProgress = false,
+                    BuildInProgress = false,
+                    ServerResponsePending = false,
+                    RepeatAttackInProgress = false,
+                    PowerBarLevel = 0f,
+                };
+            }
             return new(PluginCombatCommandStatus.Stopped);
         }
 
