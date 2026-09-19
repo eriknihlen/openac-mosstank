@@ -314,6 +314,14 @@ internal sealed class CombatController
         _pendingItemDebuff is { Source.Kind: CombatDebuffSourceKind.CasterItem };
 
     /// <summary>
+    /// True while a debuff cast from a LEARNED SPELL is still unanswered.
+    /// The reference makes no distinction between a wand cast and a spell
+    /// cast for its busy count: both hold the whole pass until they
+    /// resolve, so a walk can never start under either.
+    /// </summary>
+    internal bool LearnedDebuffCastInFlight => _debuffs.HasPending;
+
+    /// <summary>
     /// Set when the attack's own turn has already driven the held item's cast
     /// this frame, so the frame driver does not drive it a second time.
     /// </summary>
@@ -4181,6 +4189,15 @@ internal sealed class CombatController
         _host.Automation.Navigation.ClearMovementIntent();
         _breakableTurnOwned = false;
     }
+
+    /// <summary>
+    /// The monster-approach rule losing its turn. The reference writes
+    /// Running=false to every loser on every pass, and a navigate rule
+    /// told that releases the keys it was holding -- otherwise the walk it
+    /// started carries on unsupervised under whichever rule won, and two
+    /// movement owners steer at once.
+    /// </summary>
+    internal void StopMonsterApproachForLostTurn() => StopApproachMovement();
 
     private void StopApproachMovement()
     {

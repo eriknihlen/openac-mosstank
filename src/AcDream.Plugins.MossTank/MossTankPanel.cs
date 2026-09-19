@@ -4824,8 +4824,12 @@ internal sealed partial class MossTankPanel : IBuffRuleHost
         // knows every cast this macro issues.
         bool inFlight = _castTracker.IsBusy
             || _combat.HeldItemCastInFlight
+            || _combat.LearnedDebuffCastInFlight
+            || _dispel.CastInFlight
             || _vitalRecharge.ItemUseInFlight
+            || _vitalRecharge.CastInFlight
             || _vitalHelperRecharge.ItemUseInFlight
+            || _vitalHelperRecharge.CastInFlight
             || _crafting.UseInFlight;
 
         if (_transactionSuspensionHeld)

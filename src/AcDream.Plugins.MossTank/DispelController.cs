@@ -37,6 +37,13 @@ internal sealed class DispelController
     private readonly CombatSettings _combatSettings;
 
     private Pending? _pending;
+
+    /// <summary>
+    /// True while a dispel cast from a LEARNED SPELL is still unanswered.
+    /// The reference raises the global busy count for the life of any cast,
+    /// so no rule runs until it resolves.
+    /// </summary>
+    internal bool CastInFlight => _pending is { Source: DispelSource.Spell };
     private double _pendingSeconds;
     private double _retryDelay;
 

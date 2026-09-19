@@ -42,6 +42,38 @@ public sealed class DispelControllerTests
             controller.Status);
     }
 
+    /// <summary>
+    /// The reference raises its global busy count for the life of ANY cast
+    /// it issues, a dispel included, so no other rule runs while one is
+    /// outstanding. The host's own casting flag used to carry this by
+    /// accident; it is the plugin's job now. Mutation: answer false from
+    /// <c>CastInFlight</c> and the middle assertion fails.
+    /// </summary>
+    [Fact]
+    public void ASelfDispelCastIsReportedInFlightUntilTheServerAnswers()
+    {
+        var automation = new Automation
+        {
+            Active = [new PluginActiveEnchantment(100u, 7u, 7, 120d)],
+            SpellLookup = [Vulnerability(100u, 400), SelfDispelSpell()],
+            KnownSpellIds = new HashSet<uint> { SelfDispel },
+            Inventory = [Item(10u, "Chorizite")],
+            Mode = PluginCombatMode.Magic,
+        };
+        var controller = new DispelController(
+            new Host(automation),
+            new VitalSettings { CastDispelSelf = true });
+        Assert.False(controller.CastInFlight);
+
+        Assert.True(controller.Tick(0d, canAct: true));
+        Assert.Equal((SelfDispel, 1u), automation.TargetedCast);
+        Assert.True(controller.CastInFlight);
+
+        automation.CastCompletion = new PluginCastCompletion(1, SelfDispel, 1u, 0u);
+        Assert.True(controller.Tick(0.05d, canAct: true));
+        Assert.False(controller.CastInFlight);
+    }
+
     [Fact]
     public void MissingChoriziteFallsThroughToOfficialDispelItemOrder()
     {

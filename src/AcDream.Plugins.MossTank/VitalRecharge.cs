@@ -1158,6 +1158,13 @@ internal sealed class VitalRechargeController
     /// </summary>
     internal bool ItemUseInFlight => _pending is { Choice.UsesItem: true };
 
+    /// <summary>
+    /// True while a recharge cast from a LEARNED SPELL is still unanswered.
+    /// The reference raises the global busy count for the life of any cast
+    /// it issues, so the pass runs no rule until it resolves.
+    /// </summary>
+    internal bool CastInFlight => _pending is { Choice.UsesItem: false };
+
     private double _retryDelay;
     private double _rechargeTraceDelay;
     private double _pendingSeconds;
