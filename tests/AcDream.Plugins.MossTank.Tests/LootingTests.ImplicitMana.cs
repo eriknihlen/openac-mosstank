@@ -248,4 +248,168 @@ public sealed partial class LootingTests
             inscribed ? [] : new[] { (stone, donor) },
             automation.Applied);
     }
+
+    /// <summary>
+    /// The drain destroys what it empties, so only an item this run took off a
+    /// corpse for its mana may be emptied. Everything the character was
+    /// already carrying is untouchable however well it fits the shape of a
+    /// donor -- a spare weapon in a pack, a shield with a workmanship, a piece
+    /// of armour -- because nothing ever said it was there to be spent.
+    ///
+    /// Mutation: let the plan take any item that fits the donor shape, rather
+    /// than only one this run classified for its mana, and all three of these
+    /// are emptied into the stone.
+    /// </summary>
+    [Fact]
+    public void NothingTheCharacterAlreadyCarriedIsEverEmptiedIntoAStone()
+    {
+        const uint stone = 0x70009310u;
+        PluginInventoryItem spare = Item(stone, "Major Mana Stone", 47u) with
+        {
+            ObjectClass = PluginObjectClass.ManaStone,
+        };
+        PluginInventoryItem[] carried =
+        [
+            Item(0x70009311u, "Sturdy Wand", 48u) with
+            {
+                Effects = 1u,
+                ItemCurrentMana = 1500,
+                Workmanship = 5f,
+            },
+            Item(0x70009312u, "Metal Round Shield", 49u) with
+            {
+                Effects = 1u,
+                ItemCurrentMana = 2000,
+                Workmanship = 8f,
+            },
+            Item(0x70009313u, "Chainmail Girth", 50u) with
+            {
+                Effects = 1u,
+                ItemCurrentMana = 1200,
+                Workmanship = 7f,
+            },
+        ];
+        const uint corpse = 0x70009301u;
+        var automation = new Automation
+        {
+            Corpses =
+            [
+                new PluginLootContainer(
+                    corpse, 1u, "Corpse", 3f, false, false, false)
+                {
+                    IsIdentified = true,
+                    LongDescription = "Killed by Tester.",
+                },
+            ],
+            Owned = [spare, .. carried],
+        };
+        var settings = new LootSettings
+        {
+            Enabled = true,
+            ManaStoneLootCount = 4,
+            ManaTankMinimumMana = 1000,
+        };
+        settings.Rules.Add(VtankRule(
+            "Leave junk", LootAction.NoLoot, Requirement(1, "Junk", "1")));
+        var controller = new LootController(
+            new Host(automation),
+            settings,
+            new HashSet<string>(StringComparer.Ordinal) { "Major Mana Stone" },
+            new Dictionary<string, ConsumableCategory>(StringComparer.Ordinal)
+            {
+                ["Major Mana Stone"] = ConsumableCategory.ManaStone,
+            });
+
+        // A corpse is worked through so the drain step is reached: it is the
+        // step after the corpse, and it is what must find nothing to do.
+        Assert.True(controller.Tick(1d, canAct: true));
+        automation.Requested = corpse;
+        automation.Current = corpse;
+        automation.Contents = [Item(0x70009314u, "Rusty Junk", 51u)];
+        controller.TickIdentification(0.5d);
+        for (int pass = 0; pass < 8; pass++)
+            controller.Tick(0.2d, canAct: true);
+
+        Assert.Empty(automation.Applied);
+        Assert.Empty(controller.ClassifiedOwnedItems);
+    }
+
+    /// <summary>
+    /// A rule that claims an item claims it whole. An item taken because the
+    /// profile asked for it is the character's to keep, so however much mana
+    /// it carries it is never the one emptied: the rules are asked first, and
+    /// the mana job only ever speaks for what no rule wanted.
+    ///
+    /// Mutation: let the plan take any item that fits the donor shape and the
+    /// kept wand is emptied into the stone on the pass after it is picked up.
+    /// </summary>
+    [Fact]
+    public void AnItemAKeepRuleClaimedIsNeverEmptiedIntoAStone()
+    {
+        const uint corpse = 0x70009401u;
+        const uint stone = 0x70009410u;
+        const uint kept = 0x70009411u;
+        PluginInventoryItem spare = Item(stone, "Major Mana Stone", 47u) with
+        {
+            ObjectClass = PluginObjectClass.ManaStone,
+        };
+        PluginInventoryItem wand = Item(kept, "Sturdy Wand", 48u) with
+        {
+            Effects = 1u,
+            ItemCurrentMana = 1500,
+            Workmanship = 5f,
+        };
+        var automation = new Automation
+        {
+            Corpses =
+            [
+                new PluginLootContainer(
+                    corpse, 1u, "Corpse", 3f, false, false, false)
+                {
+                    IsIdentified = true,
+                    LongDescription = "Killed by Tester.",
+                },
+            ],
+            Owned = [spare],
+        };
+        var settings = new LootSettings
+        {
+            Enabled = true,
+            ManaStoneLootCount = 4,
+            ManaTankMinimumMana = 1000,
+        };
+        settings.Rules.Add(VtankRule(
+            "Wands", LootAction.Keep, Requirement(1, "Sturdy Wand", "1")));
+        var controller = new LootController(
+            new Host(automation),
+            settings,
+            new HashSet<string>(StringComparer.Ordinal) { "Major Mana Stone" },
+            new Dictionary<string, ConsumableCategory>(StringComparer.Ordinal)
+            {
+                ["Major Mana Stone"] = ConsumableCategory.ManaStone,
+            });
+
+        Assert.True(controller.Tick(1d, canAct: true));
+        automation.Requested = corpse;
+        automation.Current = corpse;
+        automation.Contents = [wand];
+        controller.TickIdentification(0.5d);
+        automation.AppraisalState = new PluginAppraisalState(1, 0u, kept);
+        controller.TickIdentification(0.5d);
+        Assert.True(controller.Tick(0.1d, canAct: true));
+        Assert.Equal([kept], automation.Picked);
+
+        automation.Contents = [];
+        automation.Owned = [spare, wand];
+        automation.InventoryCompletion = new PluginInventoryCompletion(
+            1, PluginInventoryCommandKind.Pickup, kept, 0u);
+        controller.TickIdentification(0.5d);
+        Assert.True(controller.Tick(0.1d, canAct: true));
+        Assert.Equal(LootAction.Keep, controller.ClassifiedOwnedItems[kept]);
+
+        for (int pass = 0; pass < 6; pass++)
+            controller.Tick(0.2d, canAct: true);
+
+        Assert.Empty(automation.Applied);
+    }
 }
