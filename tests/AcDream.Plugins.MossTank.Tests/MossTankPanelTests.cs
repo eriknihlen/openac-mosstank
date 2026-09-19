@@ -2231,6 +2231,52 @@ public sealed class MossTankPanelTests
         Assert.Contains(0x50000009u, automation.CastTargets);
     }
 
+    private static FakeAutomation GemFoodAutomation(string itemName = "Blackmoor's Favor") => new()
+    {
+        CurrentHealth = 100,
+        MaxHealth = 100,
+        CurrentStamina = 100,
+        MaxStamina = 100,
+        CurrentMana = 100,
+        MaxMana = 100,
+        KnownSelfBuffs =
+        [
+            Spell(3810, 518, "An appraised effect.") with { DurationSeconds = 600f },
+            Spell(3811, 519, "A configured effect."),
+        ],
+        ItemEntries =
+        [
+            Item(101, itemName, 0x800u)
+                with { AppraisedSpellIds = [3810u] },
+        ],
+    };
+
+    private static string SettingsWithGemFood(params (string Name, uint SpellId)[] entries)
+    {
+        VtankDatabase database = VtankDefaultSettingsDatabase.Parse();
+        VtankTable table = database.Find("GemFoodItems")!;
+        int name = table.ColumnIndex("Name");
+        int spell = table.ColumnIndex("Spell");
+        table.Rows.Clear();
+        foreach ((string itemName, uint spellId) in entries)
+        {
+            var row = new VtankRow();
+            for (int column = 0; column < table.ColumnNames.Count; column++)
+                row.Cells.Add(VtankCell.Int(0));
+            row.Cells[name] = VtankCell.String(itemName);
+            row.Cells[spell] = VtankCell.Int(unchecked((int)spellId));
+            table.Rows.Add(row);
+        }
+        return database.Render();
+    }
+
+    private static string SettingsWithoutGemFood()
+    {
+        VtankDatabase database = VtankDefaultSettingsDatabase.Parse();
+        database.Tables.RemoveAll(static entry => entry.Name == "GemFoodItems");
+        return database.Render();
+    }
+
     private static FakeAutomation BuffPassAutomation() => new()
     {
         CurrentHealth = 100,
@@ -4308,6 +4354,86 @@ public sealed class MossTankPanelTests
 
         Assert.Equal(["Spell 1"], second.ExtraBuffRows);
         Assert.Equal(["Spell 2"], second.BlacklistedBuffFamilyRows);
+    }
+
+    /// <summary>
+    /// A GemFood row owns its spell choice. Mutation: choose the first
+    /// appraised spell for configured gems and this selects Spell 3810 rather
+    /// than the profile's Spell 3811.
+    /// </summary>
+    [Fact]
+    public void LoadedGemFoodUsesItsConfiguredSpellWithoutAConsumablesProfileRow()
+    {
+        var storage = new MemoryStorage();
+        storage.Text["GemFood.usd"] = SettingsWithGemFood(
+            ("Unknown Gem", 999999u),
+            ("Blackmoor's Favor", 3811u));
+        var automation = new FakeAutomation
+        {
+            Name = "Gem Tester",
+            CurrentHealth = 100,
+            MaxHealth = 100,
+            CurrentStamina = 100,
+            MaxStamina = 100,
+            CurrentMana = 100,
+            MaxMana = 100,
+            KnownSelfBuffs =
+            [
+                Spell(3810, 518, "An unconfigured effect."),
+                Spell(3811, 519, "A configured effect."),
+            ],
+            ItemEntries =
+            [
+                Item(100, "Unknown Gem", 0x800u)
+                    with { AppraisedSpellIds = [3810u] },
+                Item(101, "Blackmoor's Favor", 0x800u)
+                    with { AppraisedSpellIds = [3810u] },
+            ],
+        };
+        var panel = new MossTankPanel(new FakeHost(automation, storage));
+
+        Command(panel, "settings load GemFood");
+        panel.ToggleCombat();
+        for (int tick = 0; tick < 8; tick++)
+            panel.OnTick(0.3d);
+
+        Assert.Equal([101u], automation.UsedItemIds);
+        Assert.Contains("Spell 3811", panel.BuffStatus, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void SwitchingToAProfileWithoutGemFoodClearsItsOwnedConsumables()
+    {
+        var storage = new MemoryStorage();
+        storage.Text["GemFood.usd"] = SettingsWithGemFood(("Blackmoor's Favor", 3811u));
+        storage.Text["NoGemFood.usd"] = SettingsWithoutGemFood();
+        var automation = GemFoodAutomation();
+        var panel = new MossTankPanel(new FakeHost(automation, storage));
+
+        Command(panel, "settings load GemFood");
+        Command(panel, "settings load NoGemFood");
+        panel.ToggleCombat();
+        for (int tick = 0; tick < 8; tick++)
+            panel.OnTick(0.3d);
+
+        Assert.Empty(automation.UsedItemIds);
+    }
+
+    [Fact]
+    public void UiAuthoredBuffConsumableStillUsesItsAppraisedSpell()
+    {
+        var automation = GemFoodAutomation("Ui Authored Gem");
+        var host = new FakeHost(automation);
+        var panel = new MossTankPanel(host);
+
+        host.Selection.Select(101u);
+        panel.AddSelectedConsumable();
+        panel.ToggleCombat();
+        for (int tick = 0; tick < 8; tick++)
+            panel.OnTick(0.3d);
+
+        Assert.Equal([101u], automation.UsedItemIds);
+        Assert.Contains("Spell 3810", panel.BuffStatus, StringComparison.Ordinal);
     }
 
     [Fact]

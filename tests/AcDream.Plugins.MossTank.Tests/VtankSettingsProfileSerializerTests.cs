@@ -267,6 +267,66 @@ public sealed class VtankSettingsProfileSerializerTests
         Assert.Equal(999999u, item.SpellId);
     }
 
+    [Fact]
+    public void GemFoodWritesKeepCustomCellsInvalidRowsAndUnchangedRowsVerbatim()
+    {
+        VtankDatabase seed = VtankDefaultSettingsDatabase.Parse();
+        VtankTable table = seed.Find("GemFoodItems")!;
+        table.ColumnNames.Add("Extension");
+        table.IndexFlags.Add(false);
+        table.Rows.Clear();
+        table.Rows.Add(GemFoodRow(table, "Blackmoor's Favor", 3811, "keep-this"));
+        table.Rows.Add(GemFoodRow(table, "Broken entry", 0, "invalid-row"));
+        string original = seed.Render();
+
+        VtankSettingsProfileSerializer.AllSettings settings = NewSettings();
+        VtankDatabase document = VtankSettingsProfileSerializer.Load(original, settings);
+        Assert.Equal(original, VtankSettingsProfileSerializer.Save(document, settings));
+
+        settings.Buffs.GemFoodItems.Clear();
+        settings.Buffs.GemFoodItems.Add(new GemFoodItem("Blackmoor's Favor", 3812u));
+        string edited = VtankSettingsProfileSerializer.Save(document, settings);
+        VtankTable rewritten = VtankDatabase.Parse(edited).Find("GemFoodItems")!;
+        int extension = rewritten.ColumnIndex("Extension");
+        Assert.Contains(rewritten.Rows, row =>
+            row.Cells[extension].AsString() == "keep-this");
+        Assert.Contains(rewritten.Rows, row =>
+            row.Cells[extension].AsString() == "invalid-row");
+        Assert.Contains(rewritten.Rows, row => row.Cells[rewritten.ColumnIndex("Spell")].AsInt() == 3812);
+
+        settings.Buffs.GemFoodItems.Clear();
+        VtankSettingsProfileSerializer.Save(document, settings);
+        VtankTable afterRemoval = document.Find("GemFoodItems")!;
+        Assert.Single(afterRemoval.Rows);
+        Assert.Equal("Broken entry", afterRemoval.Rows[0].Cells[afterRemoval.ColumnIndex("Name")].AsString());
+    }
+
+    [Fact]
+    public void GemFoodRowsClearWhenTheNextProfileHasNoTable()
+    {
+        VtankSettingsProfileSerializer.AllSettings settings = NewSettings();
+        VtankSettingsProfileSerializer.Load(
+            File.ReadAllText(Path.Combine(FixturesRoot, "owner-c.usd")), settings);
+        Assert.NotEmpty(settings.Buffs.GemFoodItems);
+
+        VtankSettingsProfileSerializer.Load(
+            SingleSettingUsd("EnableBuffing", "b", "True"), settings);
+
+        Assert.Empty(settings.Buffs.GemFoodItems);
+    }
+
+    private static VtankRow GemFoodRow(
+        VtankTable table, string name, int spell, string extension)
+    {
+        var row = new VtankRow();
+        for (int column = 0; column < table.ColumnNames.Count; column++)
+            row.Cells.Add(VtankCell.Int(0));
+        row.Cells[table.ColumnIndex("Name")] = VtankCell.String(name);
+        row.Cells[table.ColumnIndex("Spell")] = VtankCell.Int(spell);
+        row.Cells[table.ColumnIndex("Extension")] = VtankCell.String(extension);
+        return row;
+    }
+
     private static string SingleSettingUsd(string name, string valueTag, string valueText)
     {
         var lines = new List<string>

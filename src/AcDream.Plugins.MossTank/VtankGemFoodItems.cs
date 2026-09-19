@@ -38,8 +38,33 @@ internal static class VtankGemFoodItems
         int spell = table.ColumnIndex("Spell");
         if (name < 0 || spell < 0)
             throw new FormatException("'GemFoodItems' table is missing Name/Spell columns.");
-        table.Rows.Clear();
-        foreach (GemFoodItem entry in settings.GemFoodItems)
+        var remaining = new List<GemFoodItem>(settings.GemFoodItems);
+        for (int rowIndex = table.Rows.Count - 1; rowIndex >= 0; rowIndex--)
+        {
+            VtankRow row = table.Rows[rowIndex];
+            string itemName = row.Cells[name].AsString();
+            int rawSpell = row.Cells[spell].AsInt();
+            if (itemName.Length == 0 || rawSpell <= 0)
+                continue;
+
+            int entryIndex = remaining.FindIndex(entry =>
+                entry.Name.Equals(itemName, StringComparison.Ordinal)
+                && entry.SpellId == unchecked((uint)rawSpell));
+            entryIndex = entryIndex >= 0 ? entryIndex : remaining.FindIndex(entry =>
+                entry.Name.Equals(itemName, StringComparison.Ordinal));
+            if (entryIndex < 0)
+            {
+                table.Rows.RemoveAt(rowIndex);
+                continue;
+            }
+
+            GemFoodItem entry = remaining[entryIndex];
+            remaining.RemoveAt(entryIndex);
+            if (entry.SpellId != unchecked((uint)rawSpell))
+                row.Cells[spell] = VtankCell.Int(unchecked((int)entry.SpellId));
+        }
+
+        foreach (GemFoodItem entry in remaining)
         {
             var row = new VtankRow();
             for (int column = 0; column < table.ColumnNames.Count; column++)
