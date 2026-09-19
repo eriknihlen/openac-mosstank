@@ -528,6 +528,7 @@ internal sealed partial class LootController
     private PluginInventoryItem _waitingItemSnapshot;
     private string _waitingClassifierId = string.Empty;
     private bool _waitingPickupAccepted;
+    private long _waitingPickupCompletionRevision;
     private uint _awaitingAppraisal;
     private uint _awaitingCorpseAppraisal;
     private uint _lastCorpseDescriptionRequest;
@@ -1100,7 +1101,7 @@ internal sealed partial class LootController
             return true;
         }
 
-        ObservePickup(contents);
+        ObservePickup(loot, contents);
 
         if (_waitingItem != 0u
             && _waitingPickupAccepted
@@ -1213,7 +1214,7 @@ internal sealed partial class LootController
         if (!pickup.Accepted)
         {
             if (_waitingItem == chosen.Item.ObjectId)
-                _waitingPickupAccepted = false;
+            _waitingPickupAccepted = false;
             Status = $"Pickup refused: {chosen.Item.Name} ({pickup.Status}).";
             return pickup.Status == PluginItemCommandStatus.Busy;
         }
@@ -1242,6 +1243,7 @@ internal sealed partial class LootController
             }
         }
         _waitingPickupAccepted = true;
+        _waitingPickupCompletionRevision = loot.LastInventoryCompletion.Revision;
         Status = $"Looting {chosen.Item.Name} ({chosen.Decision.RuleName})…";
         Log?.Invoke(
             MacroLogChannel.Loot,
@@ -1267,10 +1269,21 @@ internal sealed partial class LootController
     /// pulled again by the turn that follows. The reference keeps no
     /// completion of its own for a pull; the container is the answer.
     /// </summary>
-    private void ObservePickup(IReadOnlyList<PluginInventoryItem> contents)
+    private void ObservePickup(
+        ILootAutomation loot,
+        IReadOnlyList<PluginInventoryItem> contents)
     {
         if (_waitingItem == 0u)
             return;
+        PluginInventoryCompletion completion = loot.LastInventoryCompletion;
+        if (_waitingPickupAccepted
+            && completion.Revision > _waitingPickupCompletionRevision
+            && completion.Kind == PluginInventoryCommandKind.Pickup
+            && completion.SourceObjectId == _waitingItem
+            && completion.WeenieError != 0u)
+        {
+            _waitingPickupAccepted = false;
+        }
         bool stillInCorpse = contents.Any(item => item.ObjectId == _waitingItem);
         if (!stillInCorpse)
         {
@@ -1341,6 +1354,7 @@ internal sealed partial class LootController
         _waitingItemSnapshot = default;
         _waitingClassifierId = string.Empty;
         _waitingPickupAccepted = false;
+        _waitingPickupCompletionRevision = 0L;
     }
 
     private bool ContinueSalvage(bool canAct)

@@ -910,13 +910,12 @@ public sealed partial class LootingTests
         Assert.True(controller.Tick(0.1d, canAct: true));
         Assert.Equal([first], automation.Picked);
         automation.ItemsBusy = false;
-        automation.PickupResults.Enqueue(PluginItemCommandStatus.Busy);
+        automation.InventoryCompletion = new PluginInventoryCompletion(
+            1, PluginInventoryCommandKind.Pickup, first, 1u);
         Assert.True(controller.Tick(0.1d, canAct: true));
         automation.CompleteAppraisal(second, presentInUi: false);
         controller.TickIdentification(0.5d);
         Assert.True(controller.Tick(0.1d, canAct: true));
-        if (automation.Picked[^1] == first)
-            Assert.True(controller.Tick(0.1d, canAct: true));
         Assert.Equal(second, automation.Picked[^1]);
 
         locks.Advance(1d);

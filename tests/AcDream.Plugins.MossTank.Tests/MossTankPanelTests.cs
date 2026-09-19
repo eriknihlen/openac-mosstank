@@ -4797,6 +4797,7 @@ public sealed class MossTankPanelTests
         storage.Text[source] = "externally corrupted source";
         panel.ToggleAutoStack();
         Assert.False(panel.AutoStackEnabled);
+        panel.DeleteItemRowAt(0);
         Command(panel, "settings save StaleCopy");
         VtankDatabase staleCopy = VtankDatabase.Parse(storage.Text[panel.SelectedMacroProfile]);
         VtankTable staleSettings = staleCopy.Find("Settings")!;
@@ -4804,7 +4805,13 @@ public sealed class MossTankPanelTests
             row.Cells[staleSettings.ColumnIndex("Setting")].AsString()
                 .Equals("AutoStack", StringComparison.OrdinalIgnoreCase));
         Assert.False(autoStack.Cells[staleSettings.ColumnIndex("Value")].AsBool());
-        Assert.Equal(3, staleCopy.Find("BuffedItems")!.Rows.Count);
+        VtankTable staleBuffed = staleCopy.Find("BuffedItems")!;
+        Assert.DoesNotContain(staleBuffed.Rows, row =>
+            row.Cells[staleBuffed.ColumnIndex("Object")].AsInt() == 10
+            && row.Cells[staleBuffed.ColumnIndex("Spell")].AsInt() == 101);
+        Assert.Contains(staleBuffed.Rows, row =>
+            row.Cells[staleBuffed.ColumnIndex("Object")].AsInt() == 10
+            && row.Cells[staleBuffed.ColumnIndex("Spell")].AsInt() == 102);
         Assert.Equal("copy proof", staleCopy.Find("CopyProof")!.Rows[0].Cells[0].AsString());
     }
 
