@@ -234,6 +234,9 @@ internal sealed class ItemManaRechargeController
     private double _wornClock;
     private ulong _chatSequence;
 
+    /// <summary>The worn item asked about last, so the next turn is somebody else's.</summary>
+    private uint _lastWornAppraisalAsked;
+
     public ItemManaRechargeController(
         IPluginHost host,
         InventorySettings settings,
@@ -462,32 +465,43 @@ internal sealed class ItemManaRechargeController
         (int)(WornAppraisalMaximumSeconds * 1000d)) / 1000d;
 
     /// <summary>
-    /// Ask about the worn gear that is due: never appraised, or appraised
-    /// long enough ago that its numbers are no longer believed. A question
-    /// the client refuses costs nothing and is simply asked again next pass.
+    /// Ask about one piece of worn gear that is due: never appraised, or
+    /// appraised long enough ago that its numbers are no longer believed.
+    ///
+    /// One question at a time, and the gear takes its turn. The client
+    /// answers appraisals one at a time and the looter asks for its own
+    /// through the same slot, so a whole kit asked on one pass simply queued
+    /// up behind itself; and because a question nobody answers is let go
+    /// rather than stamped, asking in list order would let one such item be
+    /// asked again for ever while the rest were never asked at all.
     /// </summary>
     private void RequestWornAppraisals(IReadOnlyList<PluginInventoryItem> owned)
     {
+        if (_wornAppraisalAsked.Count != 0)
+            return;
+        var due = new List<uint>();
         foreach (PluginInventoryItem item in owned)
         {
-            if (!IsWornTarget(item)
-                || _wornAppraisalAsked.ContainsKey(item.ObjectId))
-            {
+            if (!IsWornTarget(item))
                 continue;
-            }
-            int version = AssessmentVersion(item.ObjectId);
-            bool due = version == 0
+            bool isDue = AssessmentVersion(item.ObjectId) == 0
                 || !_wornAppraisedUntil.TryGetValue(
                     item.ObjectId,
                     out double until)
                 || until <= _wornClock;
-            if (!due)
-                continue;
-            PluginItemCommandResult asked =
-                _host.Automation.Objects.Identify(item.ObjectId);
-            if (asked.Accepted)
-                _wornAppraisalAsked[item.ObjectId] = (version, _wornClock);
+            if (isDue)
+                due.Add(item.ObjectId);
         }
+        if (due.Count == 0)
+            return;
+        int start = due.IndexOf(_lastWornAppraisalAsked);
+        uint next = due[start < 0 ? 0 : (start + 1) % due.Count];
+        PluginItemCommandResult asked =
+            _host.Automation.Objects.Identify(next);
+        if (!asked.Accepted)
+            return;
+        _wornAppraisalAsked[next] = (AssessmentVersion(next), _wornClock);
+        _lastWornAppraisalAsked = next;
     }
 
     /// <summary>
@@ -574,6 +588,7 @@ internal sealed class ItemManaRechargeController
         _usedCharges.Clear();
         _wornAppraisedUntil.Clear();
         _wornAppraisalAsked.Clear();
+        _lastWornAppraisalAsked = 0u;
         _reportedLowItems.Clear();
         _postedWarnings.Clear();
         _wornClock = 0d;

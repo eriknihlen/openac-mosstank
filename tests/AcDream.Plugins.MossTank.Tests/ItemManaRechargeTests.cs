@@ -164,11 +164,14 @@ public sealed class ItemManaRechargeTests
 
         // Worn gear is asked about first: what the client already holds about
         // an item this owner never had appraised does not date its mana.
+        // One question at a time, and the gear takes its turn.
         Assert.False(controller.Tick(canAct: true));
         Assert.Equal("Waiting for item assessment", controller.Status);
-        Assert.Equal([19u, 20u], surface.IdentifyRequests);
+        Assert.Equal([19u], surface.IdentifyRequests);
         Assert.Empty(surface.ApplyCalls);
         surface.ReplaceAssessmentVersion(19u, 101);
+        Assert.False(controller.Tick(canAct: true));
+        Assert.Equal([19u, 20u], surface.IdentifyRequests);
         surface.ReplaceAssessmentVersion(20u, 101);
         surface.IdentifyRequests.Clear();
 
@@ -215,7 +218,7 @@ public sealed class ItemManaRechargeTests
         Assert.False(controller.Tick(canAct: true));
         // The spent charge, and the worn gear the refill has just made a
         // stranger of: a refill ends the life of every reading.
-        Assert.Equal([10u, 19u, 20u], surface.IdentifyRequests);
+        Assert.Equal([10u, 19u], surface.IdentifyRequests);
         Assert.Equal([(10u, 1u)], surface.ApplyCalls);
 
         // A newer stamp alone is insufficient because appraisal application
@@ -235,6 +238,7 @@ public sealed class ItemManaRechargeTests
         // The worn gear answers the questions the refill made it owe, so it
         // can be spent on again; without them nothing more would be spent.
         surface.ReplaceAssessmentVersion(19u, 102);
+        Assert.False(controller.Tick(canAct: true));
         surface.ReplaceAssessmentVersion(20u, 102);
         Assert.False(controller.Tick(canAct: true));
         surface.ReplaceAssessmentVersion(charge.ObjectId, 102);
@@ -579,6 +583,66 @@ public sealed class ItemManaRechargeTests
         controller.ObservePendingReceipt(0.05d);
 
         Assert.False(locks.IsLocked(ActionLockKind.ItemUse));
+    }
+
+    /// <summary>
+    /// Worn gear is asked about one piece at a time, and in turn. The client
+    /// answers one appraisal at a time and the looter asks for its own
+    /// through the same slot, so a kit asked all at once queued up behind
+    /// itself; and since a question nobody answers is let go rather than
+    /// stamped, asking in list order would leave the first item asking for
+    /// ever while the rest were never asked at all.
+    ///
+    /// Mutation: ask every due item on the pass and the first count is three;
+    /// drop the turn-taking and the unanswered first item is the only one
+    /// ever asked.
+    /// </summary>
+    [Fact]
+    public void WornGearIsAskedAboutOneAtATimeAndInTurn()
+    {
+        PluginInventoryItem[] worn =
+        [
+            Item(20, "Gauntlets") with
+            {
+                EquippedLocation = 0x00000002u,
+                ItemCurrentMana = 90,
+                ItemMaximumMana = 100,
+            },
+            Item(21, "Helm") with
+            {
+                EquippedLocation = 0x00000004u,
+                ItemCurrentMana = 90,
+                ItemMaximumMana = 100,
+            },
+            Item(22, "Girth") with
+            {
+                EquippedLocation = 0x00000008u,
+                ItemCurrentMana = 90,
+                ItemMaximumMana = 100,
+            },
+        ];
+        var surface = new Surface { Inventory = worn };
+        foreach (PluginInventoryItem item in worn)
+            surface.Assess(item, 100, (107u, 90), (108u, 100));
+        var controller = new ItemManaRechargeController(
+            new Host(surface),
+            new InventorySettings
+            {
+                RefillWornMana = true,
+                RefillWornManaPercent = 33,
+            },
+            new CombatSettings());
+
+        Assert.False(controller.Tick(canAct: true, elapsedSeconds: 0.3d));
+        Assert.Equal([20u], surface.IdentifyRequests);
+
+        // Nobody answers for the first one, and the question is let go after
+        // ten seconds; the turn then passes to the next piece, not back to
+        // the one that went unanswered.
+        Assert.False(controller.Tick(canAct: true, elapsedSeconds: 11d));
+        Assert.Equal([20u, 21u], surface.IdentifyRequests);
+        Assert.False(controller.Tick(canAct: true, elapsedSeconds: 11d));
+        Assert.Equal([20u, 21u, 22u], surface.IdentifyRequests);
     }
 
     private static IReadOnlyDictionary<string, ConsumableCategory> Kinds(
