@@ -4,10 +4,15 @@ namespace AcDream.Plugins.MossTank;
 
 internal readonly record struct BuffItemEnchantRow(
     string ItemName,
-    string SpellName)
+    string SpellName,
+    uint? ObjectId = null,
+    uint? SpellId = null)
 {
     /// <summary>An authored row that deliberately casts nothing.</summary>
-    public bool CastsNothing => SpellName.Length == 0;
+    public bool CastsNothing => SpellId == uint.MaxValue
+        || (!SpellId.HasValue && SpellName.Length == 0);
+
+    public bool IsProfiledItemRow => ObjectId.HasValue && SpellId.HasValue;
 }
 
 internal static class ItemEnchantDefaults

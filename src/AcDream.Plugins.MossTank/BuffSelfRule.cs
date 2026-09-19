@@ -242,20 +242,20 @@ internal sealed partial class BuffSelfRule
             return rows;
         foreach (BuffItemEnchantRow row in _settings.ItemEnchantRows)
         {
-            if (row.CastsNothing)
-                continue;
-            if (!TryFindOwned(owned, row.ItemName, out PluginInventoryItem item))
-                continue;
-            if (!TryResolveBestKnown(
-                    automation,
-                    row.SpellName,
-                    _settings,
-                    castability,
-                    out PluginSpellInfo spell))
+            if (row.CastsNothing
+                || !TryResolveItemTarget(owned, row, out PluginInventoryItem item))
             {
                 continue;
             }
-            rows.Add((item.ObjectId, spell.Family));
+            PluginSpellInfo spell = default;
+            bool resolved = row.SpellId is uint spellId
+                ? automation.Spells.TryGet(spellId, out PluginSpellInfo exemplar)
+                    && TryResolveBestKnown(
+                        automation, exemplar.Name, _settings, castability, out spell)
+                : TryResolveBestKnown(
+                    automation, row.SpellName, _settings, castability, out spell);
+            if (resolved && !spell.IsUntargeted)
+                rows.Add((item.ObjectId, spell.Family));
         }
         return rows;
     }
@@ -274,6 +274,12 @@ internal sealed partial class BuffSelfRule
         IAutomationSurface automation,
         double? rebuffWhenUnderSeconds = null)
     {
+        uint[] untargetedProfileSpells = _settings.ItemEnchantRows
+            .Where(static row => row.IsProfiledItemRow && !row.CastsNothing)
+            .Select(static row => row.SpellId!.Value)
+            .Where(spellId => automation.Spells.TryGet(spellId, out PluginSpellInfo spell)
+                && spell.IsUntargeted)
+            .ToArray();
         return BuffPlan.Build(
             BuffProfile.Build(automation.Spells.KnownSelfBuffs),
             automation.Character.Skills,
@@ -285,7 +291,8 @@ internal sealed partial class BuffSelfRule
             automation.Character.Level,
             _buffDue.ForcedSpellIds,
             BuildCastability(automation),
-            automation.Spells);
+            automation.Spells,
+            untargetedProfileSpells);
     }
 
     private BuffCastability BuildCastability(IAutomationSurface automation) =>
@@ -551,19 +558,28 @@ internal sealed partial class BuffSelfRule
 
         foreach (BuffItemEnchantRow row in rows)
         {
-            if (!TryFindOwned(owned, row.ItemName, out PluginInventoryItem item))
-            {
-                PostItemMissingWarningOnce(row.ItemName);
-                continue;
-            }
             if (row.CastsNothing)
                 continue;
-            if (!TryResolveBestKnown(
-                    automation,
-                    row.SpellName,
-                    _settings,
-                    castability,
-                    out PluginSpellInfo spell))
+            if (!TryResolveItemTarget(owned, row, out PluginInventoryItem item))
+            {
+                PostItemMissingWarningOnce(row.ObjectId.HasValue
+                    ? row.ObjectId.Value == uint.MaxValue ? "equipped weapon" : row.ObjectId.Value.ToString()
+                    : row.ItemName);
+                continue;
+            }
+            PluginSpellInfo spell = default;
+            bool resolved;
+            if (row.SpellId.HasValue)
+            {
+                resolved = automation.Spells.TryGet(row.SpellId.Value, out PluginSpellInfo exemplar)
+                    && TryResolveBestKnown(automation, exemplar.Name, _settings, castability, out spell);
+            }
+            else
+            {
+                resolved = TryResolveBestKnown(
+                    automation, row.SpellName, _settings, castability, out spell);
+            }
+            if (!resolved || spell.IsUntargeted)
             {
                 continue;
             }
@@ -581,6 +597,40 @@ internal sealed partial class BuffSelfRule
             return true;
         }
         return false;
+    }
+
+    private static bool TryResolveItemTarget(
+        IReadOnlyList<PluginInventoryItem> owned,
+        in BuffItemEnchantRow row,
+        out PluginInventoryItem item)
+    {
+        if (row.ObjectId is uint objectId)
+        {
+            if (objectId == uint.MaxValue)
+            {
+                foreach (PluginInventoryItem candidate in owned)
+                {
+                    if (CombatModeGate.IsWeaponSlot(candidate.EquippedLocation))
+                    {
+                        item = candidate;
+                        return true;
+                    }
+                }
+                item = default;
+                return false;
+            }
+            foreach (PluginInventoryItem candidate in owned)
+            {
+                if (candidate.ObjectId == objectId)
+                {
+                    item = candidate;
+                    return true;
+                }
+            }
+            item = default;
+            return false;
+        }
+        return TryFindOwned(owned, row.ItemName, out item);
     }
 
     private bool TryPickCharacterEnchant(

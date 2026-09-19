@@ -657,7 +657,7 @@ internal sealed class MossTankProfileStore
             VtankSettingsProfileSerializer.Apply(
                 row.Cells[nameColumn].AsString(), row.Cells[valueColumn], target);
         }
-        VtankProfiledItemIds.Read(database, target.Combat,
+        VtankProfiledItemIds.Read(database, target.Combat, target.Buffs,
             target.PlayerObjectId());
         VtankGemFoodItems.Read(database, target.Buffs);
         VtankBuffExemplars.Read(database, target.Buffs);
@@ -864,6 +864,7 @@ internal sealed class MossTankProfileStore
             BuffExtraSpellNames = Sorted(settings.Buffs.ExtraBuffSpellNames),
             BuffBlacklistedFamilyNames = Sorted(settings.Buffs.BlacklistedBuffFamilyNames),
             BuffItemEnchantRows = settings.Buffs.ItemEnchantRows
+                .Where(static row => !row.IsProfiledItemRow)
                 .Select(static row => new ItemEnchantRowDocument
                 {
                     ItemName = row.ItemName,
@@ -950,7 +951,11 @@ internal sealed class MossTankProfileStore
             settings.Buffs.BuffTrainedSkillsOnly = BuffTrainedSkillsOnly;
             Replace(settings.Buffs.ExtraBuffSpellNames, BuffExtraSpellNames);
             Replace(settings.Buffs.BlacklistedBuffFamilyNames, BuffBlacklistedFamilyNames);
-            settings.Buffs.ItemEnchantRows.Clear();
+            for (int index = settings.Buffs.ItemEnchantRows.Count - 1; index >= 0; index--)
+            {
+                if (!settings.Buffs.ItemEnchantRows[index].IsProfiledItemRow)
+                    settings.Buffs.ItemEnchantRows.RemoveAt(index);
+            }
             foreach (ItemEnchantRowDocument row in BuffItemEnchantRows)
             {
                 if (string.IsNullOrEmpty(row.ItemName))

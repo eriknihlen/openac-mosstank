@@ -5,27 +5,73 @@ internal static class VtankProfiledItemIds
     private const string TableName = "BuffedItems";
 
     public static void Read(VtankDatabase database, CombatSettings settings,
-        uint playerObjectId)
+        BuffSettings buffs, uint playerObjectId)
     {
         settings.CombatItemOrderIds.Clear();
         settings.CombatItemObjectIds.Clear();
         settings.RemovedCombatItemObjectIds.Clear();
+        for (int index = buffs.ItemEnchantRows.Count - 1; index >= 0; index--)
+        {
+            if (buffs.ItemEnchantRows[index].IsProfiledItemRow)
+                buffs.ItemEnchantRows.RemoveAt(index);
+        }
 
         VtankTable? table = database.Find(TableName);
         int objectColumn = table?.ColumnIndex("Object") ?? -1;
-        if (table is null || objectColumn < 0)
+        int spellColumn = table?.ColumnIndex("Spell") ?? -1;
+        if (table is null || objectColumn < 0 || spellColumn < 0)
             return;
 
         foreach (VtankRow row in table.Rows)
         {
-            int rawId = row.Cells[objectColumn].AsInt();
+            if (!TryReadRow(row, objectColumn, spellColumn, out int rawId, out int rawSpell))
+                continue;
             if (rawId == -1)
+            {
+                if (rawSpell > 0 || rawSpell == -1)
+                    buffs.ItemEnchantRows.Add(new BuffItemEnchantRow(
+                        string.Empty, string.Empty, uint.MaxValue, unchecked((uint)rawSpell)));
                 continue;
+            }
             uint id = unchecked((uint)rawId);
-            if (id == playerObjectId || !settings.CombatItemObjectIds.Add(id))
-                continue;
-            settings.CombatItemOrderIds.Add(id);
+            if (id != playerObjectId && settings.CombatItemObjectIds.Add(id))
+                settings.CombatItemOrderIds.Add(id);
+            if (rawSpell > 0 || rawSpell == -1)
+                buffs.ItemEnchantRows.Add(new BuffItemEnchantRow(
+                    string.Empty, string.Empty, id, unchecked((uint)rawSpell)));
         }
+    }
+
+    private static bool TryReadRow(
+        VtankRow row, int objectColumn, int spellColumn, out int objectId, out int spellId)
+    {
+        objectId = 0;
+        spellId = 0;
+        if ((uint)objectColumn >= (uint)row.Cells.Count
+            || (uint)spellColumn >= (uint)row.Cells.Count)
+            return false;
+        try
+        {
+            objectId = row.Cells[objectColumn].AsInt();
+            spellId = row.Cells[spellColumn].AsInt();
+            return true;
+        }
+        catch (FormatException) { return false; }
+        catch (OverflowException) { return false; }
+    }
+
+    private static bool TryReadObjectId(VtankRow row, int objectColumn, out uint id)
+    {
+        id = 0u;
+        if ((uint)objectColumn >= (uint)row.Cells.Count)
+            return false;
+        try
+        {
+            id = unchecked((uint)row.Cells[objectColumn].AsInt());
+            return true;
+        }
+        catch (FormatException) { return false; }
+        catch (OverflowException) { return false; }
     }
 
     public static void Write(VtankDatabase database, CombatSettings settings)
@@ -47,14 +93,17 @@ internal static class VtankProfiledItemIds
 
         if (settings.RemovedCombatItemObjectIds.Count != 0)
         {
-            table.Rows.RemoveAll(row => settings.RemovedCombatItemObjectIds.Contains(
-                unchecked((uint)row.Cells[objectColumn].AsInt())));
+            table.Rows.RemoveAll(row => TryReadObjectId(row, objectColumn, out uint id)
+                && settings.RemovedCombatItemObjectIds.Contains(id));
             settings.RemovedCombatItemObjectIds.Clear();
         }
 
         var present = new HashSet<uint>();
         foreach (VtankRow row in table.Rows)
-            present.Add(unchecked((uint)row.Cells[objectColumn].AsInt()));
+        {
+            if (TryReadObjectId(row, objectColumn, out uint id))
+                present.Add(id);
+        }
         foreach (uint id in settings.CombatItemOrderIds)
         {
             if (id is 0u or uint.MaxValue || !present.Add(id))

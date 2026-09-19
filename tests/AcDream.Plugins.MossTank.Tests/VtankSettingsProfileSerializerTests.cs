@@ -37,6 +37,7 @@ public sealed class VtankSettingsProfileSerializerTests
         table.Rows.Add(BuffedItem(802, 17));
         table.Rows.Add(BuffedItem(801, 18));
         table.Rows.Add(BuffedItem(802, 19));
+        table.Rows.Add(BuffedItem(802, -1));
         table.Rows.Add(BuffedItem(900, 20));
         table.Rows.Add(BuffedItem(0, 22));
         table.Rows.Add(BuffedItem(-1, 21));
@@ -52,14 +53,66 @@ public sealed class VtankSettingsProfileSerializerTests
 
         Assert.Equal([802u, 801u, 0u], settings.Combat.CombatItemOrderIds);
         Assert.Equal([0u, 801u, 802u], settings.Combat.CombatItemObjectIds.Order());
+        Assert.Contains(settings.Buffs.ItemEnchantRows, row =>
+            row.ObjectId == 802u && row.SpellId == 17u);
+        Assert.Contains(settings.Buffs.ItemEnchantRows, row =>
+            row.ObjectId == uint.MaxValue && row.SpellId == 21u);
+        Assert.Contains(settings.Buffs.ItemEnchantRows, row =>
+            row.ObjectId == 802u && row.CastsNothing);
         Assert.Equal(original, VtankSettingsProfileSerializer.Save(loaded, settings));
     }
 
-    private static VtankRow BuffedItem(int objectId, int spellId)
+    /// <summary>Mutation <c>UnsafeBuffedItemsWrite</c>: throw while inspecting a malformed raw object cell.</summary>
+    [Fact]
+    public void BuffedItemsKeepMalformedDuplicateAndCustomRowsOnRoundTrip()
+    {
+        VtankDatabase document = VtankDefaultSettingsDatabase.Parse();
+        VtankTable table = document.Find("BuffedItems")!;
+        table.ColumnNames.Add("Custom");
+        table.IndexFlags.Add(false);
+        table.Rows.Add(BuffedItem(801, 17, "first"));
+        table.Rows.Add(BuffedItem(801, 18, "second"));
+        table.Rows.Add(new VtankRow
+        {
+            Cells = { VtankCell.String("not-an-id"), VtankCell.Int(19), VtankCell.String("raw") },
+        });
+        table.Rows.Add(new VtankRow
+        {
+            Cells = { VtankCell.UInt(uint.MaxValue), VtankCell.Int(20), VtankCell.String("overflow") },
+        });
+        string original = document.Render();
+        var settings = NewSettings();
+
+        VtankDatabase loaded = VtankSettingsProfileSerializer.Load(original, settings);
+
+        Assert.Equal([801u], settings.Combat.CombatItemOrderIds);
+        Assert.Equal(original, VtankSettingsProfileSerializer.Save(loaded, settings));
+    }
+
+    [Fact]
+    public void LoadingAProfileWithoutBuffedItemsClearsEarlierProfiledRows()
+    {
+        VtankDatabase first = VtankDefaultSettingsDatabase.Parse();
+        first.Find("BuffedItems")!.Rows.Add(BuffedItem(801, 17));
+        VtankDatabase second = VtankDefaultSettingsDatabase.Parse();
+        second.Tables.RemoveAll(static entry => entry.Name == "BuffedItems");
+        var settings = NewSettings();
+
+        VtankSettingsProfileSerializer.Load(first.Render(), settings);
+        VtankSettingsProfileSerializer.Load(second.Render(), settings);
+
+        Assert.Empty(settings.Combat.CombatItemOrderIds);
+        Assert.DoesNotContain(settings.Buffs.ItemEnchantRows,
+            static row => row.IsProfiledItemRow);
+    }
+
+    private static VtankRow BuffedItem(int objectId, int spellId, string? custom = null)
     {
         var row = new VtankRow();
         row.Cells.Add(VtankCell.Int(objectId));
         row.Cells.Add(VtankCell.Int(spellId));
+        if (custom is not null)
+            row.Cells.Add(VtankCell.String(custom));
         return row;
     }
 

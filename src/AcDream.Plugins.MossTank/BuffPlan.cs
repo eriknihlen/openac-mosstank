@@ -102,7 +102,8 @@ public static class BuffPlan
         int characterLevel = 0,
         IReadOnlySet<uint>? forcedSpellIds = null,
         IBuffCastability? castability = null,
-        ISpellCatalog? spellCatalog = null)
+        ISpellCatalog? spellCatalog = null,
+        IEnumerable<uint>? additionalExtraSpellIds = null)
     {
         if (!settings.Enabled)
             return [];
@@ -145,8 +146,11 @@ public static class BuffPlan
             skillLevels[skill.SkillId] = skill.Current;
 
         var plan = new List<(int Rank, PluginSpellInfo Spell)>();
+        IEnumerable<uint> extraIds = additionalExtraSpellIds is null
+            ? settings.ExtraBuffSpellIds
+            : settings.ExtraBuffSpellIds.Concat(additionalExtraSpellIds);
         HashSet<uint> extraFamilies = ResolveFamilies(
-            lines, settings.ExtraBuffSpellIds, settings.ExtraBuffSpellNames, spellCatalog);
+            lines, extraIds, settings.ExtraBuffSpellNames, spellCatalog);
         HashSet<uint> excludedFamilies = ResolveFamilies(
             lines, settings.AntiExtraBuffSpellIds,
             settings.BlacklistedBuffFamilyNames, spellCatalog);

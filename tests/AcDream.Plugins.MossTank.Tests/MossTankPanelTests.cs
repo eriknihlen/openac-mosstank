@@ -1,4 +1,4 @@
-﻿using System.Reflection;
+using System.Reflection;
 using AcDream.Plugin.Abstractions;
 
 namespace AcDream.Plugins.MossTank.Tests;
@@ -1651,6 +1651,124 @@ public sealed class MossTankPanelTests
         Assert.Equal(-1, row.Cells[table.ColumnIndex("Spell")].AsInt());
     }
 
+    /// <summary>
+    /// Mutation <c>IgnoreProfiledItemSpellRows</c>: omit the numeric
+    /// BuffedItems row adapter and no cast is selected for object 11.
+    /// </summary>
+    [Fact]
+    public void ImportedBuffedItemSpellTargetsItsExactSameNameObject()
+    {
+        var storage = new MemoryStorage();
+        VtankDatabase database = VtankDefaultSettingsDatabase.Parse();
+        database.Find("BuffedItems")!.Rows.Add(new VtankRow
+        {
+            Cells =
+            {
+                VtankCell.Int(11),
+                VtankCell.Int(101),
+            },
+        });
+        storage.Text["Imported.usd"] = database.Render();
+        FakeAutomation automation = ItemEnchantAutomation();
+        automation.ItemEntries =
+        [
+            Item(10, "War Wand", 0x8000u, validLocations: 0x01000000u),
+            Item(11, "War Wand", 0x8000u, validLocations: 0x01000000u),
+        ];
+        var host = new FakeHost(automation, storage);
+        automation.CurrentSelection = () => host.Selection.SelectedObjectId ?? 0u;
+        var panel = new MossTankPanel(host);
+
+        Command(panel, "settings load Imported");
+        host.Selection.Select(10u);
+        panel.ToggleCombat();
+        for (int tick = 0; tick < 6; tick++)
+            panel.OnTick(0.3d);
+
+        Assert.Equal([101u], automation.CastSpellIds);
+        Assert.Equal([11u], automation.CastSelectionIds);
+    }
+
+    [Fact]
+    public void ImportedBuffedItemWeaponSentinelUsesTheEquippedWeapon()
+    {
+        var storage = new MemoryStorage();
+        VtankDatabase database = VtankDefaultSettingsDatabase.Parse();
+        database.Find("BuffedItems")!.Rows.Add(new VtankRow
+        {
+            Cells = { VtankCell.Int(-1), VtankCell.Int(101) },
+        });
+        storage.Text["Imported.usd"] = database.Render();
+        FakeAutomation automation = ItemEnchantAutomation();
+        automation.ItemEntries =
+        [
+            Item(10, "Worn Coat", 2u) with { EquippedLocation = 0x00000001u },
+            Item(11, "War Wand", 0x8000u) with { EquippedLocation = 0x01000000u },
+        ];
+        var host = new FakeHost(automation, storage);
+        automation.CurrentSelection = () => host.Selection.SelectedObjectId ?? 0u;
+        var panel = new MossTankPanel(host);
+
+        Command(panel, "settings load Imported");
+        panel.ToggleCombat();
+        for (int tick = 0; tick < 6; tick++)
+            panel.OnTick(0.3d);
+
+        Assert.Equal([101u], automation.CastSpellIds);
+        Assert.Equal([11u], automation.CastSelectionIds);
+    }
+
+    [Fact]
+    public void ImportedUntargetedBuffedItemSpellJoinsTheNormalBuffPlan()
+    {
+        var storage = new MemoryStorage();
+        VtankDatabase database = VtankDefaultSettingsDatabase.Parse();
+        database.Find("BuffedItems")!.Rows.Add(new VtankRow
+        {
+            Cells = { VtankCell.Int(10), VtankCell.Int(101) },
+        });
+        storage.Text["Imported.usd"] = database.Render();
+        FakeAutomation automation = ItemEnchantAutomation();
+        automation.Skills = [new PluginSkillInfo(32, "Item Enchantment", PluginSkillTraining.Trained, 300)];
+        automation.KnownSelfBuffs =
+        [
+            NamedSpell(101, 201, "Untargeted Aura I", ItemEnchantmentSchoolId)
+                with { IsUntargeted = true, IsSelfTargeted = true },
+        ];
+        var host = new FakeHost(automation, storage);
+        automation.CurrentSelection = () => host.Selection.SelectedObjectId ?? 0u;
+        var panel = new MossTankPanel(host);
+
+        Command(panel, "settings load Imported");
+        panel.ToggleCombat();
+        for (int tick = 0; tick < 6; tick++)
+            panel.OnTick(0.3d);
+
+        Assert.Equal([101u], automation.CastSpellIds);
+        Assert.Equal([0u], automation.CastSelectionIds);
+    }
+
+    [Fact]
+    public void UnknownAndEmptyImportedBuffedItemSpellsStayInert()
+    {
+        var storage = new MemoryStorage();
+        VtankDatabase database = VtankDefaultSettingsDatabase.Parse();
+        VtankTable table = database.Find("BuffedItems")!;
+        table.Rows.Add(new VtankRow { Cells = { VtankCell.Int(10), VtankCell.Int(999) } });
+        table.Rows.Add(new VtankRow { Cells = { VtankCell.Int(10), VtankCell.Int(-1) } });
+        storage.Text["Imported.usd"] = database.Render();
+        FakeAutomation automation = ItemEnchantAutomation();
+        var host = new FakeHost(automation, storage);
+        var panel = new MossTankPanel(host);
+
+        Command(panel, "settings load Imported");
+        panel.ToggleCombat();
+        for (int tick = 0; tick < 6; tick++)
+            panel.OnTick(0.3d);
+
+        Assert.Empty(automation.CastSpellIds);
+    }
+
     [Fact]
     public void RemovingSelectedOwnedItemRemovesItsUsdIdentity()
     {
@@ -1669,9 +1787,9 @@ public sealed class MossTankPanelTests
     }
 
     /// <summary>
-    /// Mutation pin: replace the selected row's stored object ID with a lookup
-    /// by its current name. The absent first item stays in BuffedItems, or the
-    /// second item with the same name is removed instead.
+    /// Mutation <c>SkipExactBuffedItemRemoval</c>: omit the selected stored ID
+    /// from removal. The missing row remains while the same-name item and raw rows
+    /// must stay intact.
     /// </summary>
     [Fact]
     public void ItemRowsDeleteTheSelectedIdentityEvenWhenMissingOrNamesMatch()
@@ -1699,6 +1817,10 @@ public sealed class MossTankPanelTests
         spellRow.Cells.Add(VtankCell.Int(10));
         spellRow.Cells.Add(VtankCell.Int(17));
         table.Rows.Add(spellRow);
+        table.Rows.Add(new VtankRow
+        {
+            Cells = { VtankCell.String("not-an-object-id"), VtankCell.Int(99) },
+        });
         storage.Text[usdKey] = document.Render();
 
         var second = new MossTankPanel(new FakeHost(new FakeAutomation
@@ -1711,13 +1833,18 @@ public sealed class MossTankPanelTests
 
         Assert.Equal(["Twin Sword"], second.ItemRows);
         table = VtankDatabase.Parse(storage.Text[usdKey]).Find("BuffedItems")!;
-        Assert.All(table.Rows, row => Assert.Equal(11,
-            row.Cells[table.ColumnIndex("Object")].AsInt()));
+        Assert.Contains(table.Rows, row => row.Cells[table.ColumnIndex("Object")]
+            .AsInt() == 11);
+        Assert.Contains(table.Rows, row => row.Cells[table.ColumnIndex("Object")]
+            .AsString() == "not-an-object-id");
 
         second.RemoveSelectedItem();
 
         Assert.Empty(second.ItemRows);
-        Assert.Empty(VtankDatabase.Parse(storage.Text[usdKey]).Find("BuffedItems")!.Rows);
+        table = VtankDatabase.Parse(storage.Text[usdKey]).Find("BuffedItems")!;
+        Assert.Single(table.Rows);
+        Assert.Equal("not-an-object-id", table.Rows[0].Cells[
+            table.ColumnIndex("Object")].AsString());
     }
 
     [Fact]
@@ -7763,6 +7890,7 @@ public sealed class MossTankPanelTests
         public IReadOnlyList<PluginInventoryItem> ItemEntries { get; set; } = [];
         public List<string> Messages { get; } = [];
         public List<uint> CastSpellIds { get; } = [];
+        public List<uint> CastSelectionIds { get; } = [];
         public List<PluginMovementIntent> MovementIntents { get; } = [];
         public int ClearMovementCount { get; private set; }
         public IReadOnlyList<PluginWorldObject> WorldObjects { get; set; } = [];
@@ -7973,6 +8101,7 @@ public sealed class MossTankPanelTests
             if (RefusedCastSpellIds.Contains(spellId))
                 return false;
             CastSpellIds.Add(spellId);
+            CastSelectionIds.Add(CurrentSelection?.Invoke() ?? 0u);
             if (!SuppressCastCompletion)
             {
                 _lastCompletion = new PluginCastCompletion(

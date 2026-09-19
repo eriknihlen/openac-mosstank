@@ -51,7 +51,7 @@ internal static class VtankSettingsProfileSerializer
             foreach (MonsterRule rule in rules)
                 target.Combat.Rules.Add(rule);
         }
-        VtankProfiledItemIds.Read(database, target.Combat,
+        VtankProfiledItemIds.Read(database, target.Combat, target.Buffs,
             target.PlayerObjectId());
         VtankGemFoodItems.Read(database, target.Buffs);
         VtankBuffExemplars.Read(database, target.Buffs);
