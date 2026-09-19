@@ -38,6 +38,7 @@ internal sealed class LootRule
     public int Priority { get; set; }
     public string CustomExpression { get; set; } = string.Empty;
     public List<VtankLootRequirement> VtankRequirements { get; set; } = [];
+    public bool HasImportedRequirements { get; set; }
 
     public bool IsMatch(
         in PluginInventoryItem item,

@@ -599,11 +599,11 @@ internal sealed class MossTankLootProfileStore
         payload.Append(profile.Rules.Count.ToString(CultureInfo.InvariantCulture)).Append("\r\n");
         foreach (LootRule rule in profile.Rules)
         {
-            // A rule with real VtankRequirements (imported from a genuine
-            // VTClassic file, never touched by MossTank's own editor) has
-            // nothing of ours to preserve — record an empty slot so load
-            // leaves its VtankRequirements-derived state alone.
-            string expression = rule.VtankRequirements.Count > 0 ? string.Empty : rule.Expression;
+            // Preserve the imported requirement representation, including an
+            // unconditional rule whose requirement list is empty.
+            string expression = rule.HasImportedRequirements || rule.VtankRequirements.Count > 0
+                ? string.Empty
+                : rule.Expression;
             payload.Append(expression.Length.ToString(CultureInfo.InvariantCulture)).Append("\r\n");
             payload.Append(expression);
         }
@@ -645,6 +645,7 @@ internal sealed class MossTankLootProfileStore
                 continue;
             profile.Rules[index].Expression = expression;
             profile.Rules[index].VtankRequirements.Clear();
+            profile.Rules[index].HasImportedRequirements = false;
         }
     }
 
@@ -716,6 +717,7 @@ internal sealed class MossTankLootProfileStore
         public int Priority { get; set; }
         public string CustomExpression { get; set; } = string.Empty;
         public VtankLootRequirementDocument[] Requirements { get; set; } = [];
+        public bool HasImportedRequirements { get; set; }
 
         public static LootRuleDocument From(LootRule rule) => new()
         {
@@ -725,6 +727,7 @@ internal sealed class MossTankLootProfileStore
             KeepCount = rule.KeepCount,
             Priority = rule.Priority,
             CustomExpression = rule.CustomExpression,
+            HasImportedRequirements = rule.HasImportedRequirements,
             Requirements = rule.VtankRequirements.Select(
                 VtankLootRequirementDocument.From).ToArray(),
         };
@@ -739,6 +742,7 @@ internal sealed class MossTankLootProfileStore
             KeepCount = Math.Clamp(KeepCount, 0, 100000),
             Priority = Math.Clamp(Priority, -1000, 1000),
             CustomExpression = CustomExpression ?? string.Empty,
+            HasImportedRequirements = HasImportedRequirements,
             VtankRequirements = (Requirements ?? [])
                 .Select(static requirement => requirement.ToRequirement())
                 .ToList(),

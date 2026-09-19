@@ -198,6 +198,7 @@ internal static class VtankLootProfileSerializer
             CustomExpression = customExpression,
             Action = (LootAction)actionValue,
             Priority = priority,
+            HasImportedRequirements = true,
         };
         if (rule.Action == LootAction.KeepUpTo)
         {
@@ -277,7 +278,7 @@ internal static class VtankLootProfileSerializer
     private static IReadOnlyList<VtankLootRequirement> ExportRequirements(
         LootRule rule)
     {
-        if (rule.VtankRequirements.Count > 0)
+        if (rule.HasImportedRequirements || rule.VtankRequirements.Count > 0)
             return rule.VtankRequirements;
 
         return

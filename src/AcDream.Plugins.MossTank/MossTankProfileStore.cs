@@ -1018,6 +1018,7 @@ internal sealed class MossTankProfileStore
         public int Priority { get; set; }
         public string CustomExpression { get; set; } = string.Empty;
         public VtankLootRequirement[] Requirements { get; set; } = [];
+        public bool HasImportedRequirements { get; set; }
 
         public static LootRuleDocument From(LootRule rule) => new()
         {
@@ -1027,6 +1028,7 @@ internal sealed class MossTankProfileStore
             KeepCount = rule.KeepCount,
             Priority = rule.Priority,
             CustomExpression = rule.CustomExpression,
+            HasImportedRequirements = rule.HasImportedRequirements,
             Requirements = rule.VtankRequirements.Select(requirement => new VtankLootRequirement
             {
                 Type = requirement.Type, Payload = requirement.Payload,
@@ -1041,6 +1043,7 @@ internal sealed class MossTankProfileStore
             KeepCount = Math.Clamp(KeepCount, 0, 100000),
             Priority = Math.Clamp(Priority, -1000, 1000),
             CustomExpression = CustomExpression ?? string.Empty,
+            HasImportedRequirements = HasImportedRequirements,
             VtankRequirements = (Requirements ?? []).Select(requirement => new VtankLootRequirement
             {
                 Type = requirement.Type, Payload = requirement.Payload,

@@ -118,6 +118,37 @@ public sealed class VtankLootProfileSerializerTests
         Assert.Contains("truncated", error, StringComparison.OrdinalIgnoreCase);
     }
 
+    /// <summary>
+    /// Mutation <c>ExportRequirementsWithoutImportedProvenance</c>: omit the
+    /// imported-requirements branch in <c>ExportRequirements</c>; the saved
+    /// header gains requirement 9999 and the reloaded rule stops matching.
+    /// </summary>
+    [Fact]
+    public void ImportedEmptyRequirementSetRoundTripsAsAnUnconditionalKeep()
+    {
+        const string source = "UTL\r\n1\r\n1\r\nAlways keep\r\n\r\n0;1\r\n";
+
+        Assert.True(VtankLootProfileSerializer.TryRead(
+            source,
+            out VtankLootProfile profile,
+            out string error), error);
+        LootRule imported = Assert.Single(profile.Rules);
+        Assert.Empty(imported.VtankRequirements);
+        Assert.True(imported.HasImportedRequirements);
+
+        string written = VtankLootProfileSerializer.Write(profile);
+        Assert.DoesNotContain(";9999\r\n", written, StringComparison.Ordinal);
+        Assert.True(VtankLootProfileSerializer.TryRead(
+            written,
+            out VtankLootProfile reloaded,
+            out error), error);
+        LootRule roundTrip = Assert.Single(reloaded.Rules);
+        Assert.Empty(roundTrip.VtankRequirements);
+        Assert.True(roundTrip.HasImportedRequirements);
+
+        LootDecision? decision = LootRuleEngine.Decide(default, default, [roundTrip], []);
+        Assert.Equal(LootAction.Keep, decision?.Action);
+    }
     [Fact]
     public void NativeExpressionsExportDisabledInsteadOfAccidentalMatchAll()
     {

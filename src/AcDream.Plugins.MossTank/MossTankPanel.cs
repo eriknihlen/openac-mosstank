@@ -2134,6 +2134,7 @@ internal sealed partial class MossTankPanel : IBuffRuleHost, IDisposable
             rule.Expression = _lootExpressionDraft;
             rule.CustomExpression = string.Empty;
             rule.VtankRequirements.Clear();
+            rule.HasImportedRequirements = false;
             _lootEditorNotice = $"Updated {rule.Name}.";
             _loot.Reset();
             RefreshLootEditor();
