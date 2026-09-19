@@ -100,7 +100,8 @@ internal sealed class EquipmentTracker : IDisposable
             TrackRemoved(observation.ObjectId);
         else
             TrackEquipped(observation.ObjectId,
-                observation.EquippedLocation, scheduleSettlement: true);
+                observation.EquippedLocation,
+                scheduleSettlement: !observation.IsInitialPlacement);
     }
 
     private void TrackEquipped(

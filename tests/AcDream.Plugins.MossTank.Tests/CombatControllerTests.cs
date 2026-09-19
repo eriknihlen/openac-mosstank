@@ -4413,6 +4413,32 @@ public sealed class CombatControllerTests
     }
 
     /// <summary>
+    /// Mutation executed: <c>scheduleSettlement: !observation.IsInitialPlacement</c>
+    /// was replaced with <c>scheduleSettlement: true</c>; the initial world
+    /// placement then incorrectly woke the gate after 100 ms.
+    /// </summary>
+    [Fact]
+    public void EquipmentTrackerAcceptsInitialEquippedObjectWithoutSettlement()
+    {
+        var surface = new FakeAutomation { EquipmentItems = [] };
+        int pokes = 0;
+        using var tracker = new EquipmentTracker(surface, () => pokes++);
+
+        surface.EquipmentItems = [Equipment(10u, "Held Wand", damageType: 0,
+            itemType: 0x00008000u, equippedLocation: 0x01000000u)];
+        surface.EmitPlacement(new PluginEquipmentObservation(
+            10u, 0x01000000u, false)
+        {
+            IsInitialPlacement = true,
+        });
+
+        Assert.Equal(10u, tracker.WeaponId);
+        Assert.Equal([10u], tracker.EquippedIds);
+        tracker.Advance(0.1d);
+        Assert.Equal(0, pokes);
+    }
+
+    /// <summary>
     /// Mutation pin: omit the independent settlement scheduled by an
     /// unrelated authoritative receipt. The swap remains in cooldown after
     /// its 100 ms receipt timer and the macro is never poked.
