@@ -1480,6 +1480,54 @@ public sealed class CombatControllerTests
     }
 
     /// <summary>
+    /// Every road onto a different profile has to leave the old profile's
+    /// imported tables behind. Seeding from the shipped defaults used to read
+    /// only some of them, so the profile just left went on saying which hand
+    /// each item is used in and what each consumable is for.
+    /// Mutation executed: <c>seeded from the defaults without re-reading the imported tables</c>.
+    /// </summary>
+    [Fact]
+    public void SeedingFromTheDefaultsDropsThePreviousImportedTables()
+    {
+        var storage = new MemoryStorage();
+        var store = new MossTankProfileStore(
+            new StorageHost(storage, "Acdream", "Fixture"));
+        store.BindCharacter("Acdream");
+        var settings = new VtankSettingsProfileSerializer.AllSettings
+        {
+            Combat = new(), Buffs = new(), Vitals = new(),
+            Inventory = new(), Navigation = new(),
+        };
+        var noBuffs = new HashSet<string>(StringComparer.Ordinal);
+        var logs = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+        // No file for this character yet: the load seeds from the defaults.
+        StaleImportedTables(settings.Combat);
+        Assert.Equal(
+            MossTankProfileLoad.Missing,
+            store.LoadCurrent(settings, noBuffs, logs));
+        Assert.Empty(settings.Combat.ItemUseSpecifiers);
+        Assert.Empty(settings.Combat.ImportedAssistItems);
+        Assert.Empty(settings.Combat.CombatItemObjectIds);
+
+        // And a brand new profile, which seeds from the same defaults.
+        StaleImportedTables(settings.Combat);
+        Assert.True(store.Create(
+            "Empty", copyCurrent: false, settings, noBuffs, logs, out _));
+        Assert.Empty(settings.Combat.ItemUseSpecifiers);
+        Assert.Empty(settings.Combat.ImportedAssistItems);
+        Assert.Empty(settings.Combat.CombatItemObjectIds);
+
+        static void StaleImportedTables(CombatSettings combat)
+        {
+            combat.ItemUseSpecifiers[901u] = 1;
+            combat.ImportedAssistItems.Add(
+                new AssistItem("Stale Pea", ConsumableCategory.Pea));
+            combat.CombatItemObjectIds.Add(901u);
+        }
+    }
+
+    /// <summary>
     /// Mutation pin: clear ordered IDs while applying the name sidecar;
     /// the first reload loses both identities.
     /// </summary>

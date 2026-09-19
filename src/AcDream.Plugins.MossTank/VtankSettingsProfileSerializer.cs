@@ -31,6 +31,42 @@ internal static class VtankSettingsProfileSerializer
     {
         ArgumentNullException.ThrowIfNull(target);
         VtankDatabase database = VtankDatabase.Parse(text);
+        ApplyDatabase(database, target, warn);
+        return database;
+    }
+
+    /// <summary>
+    /// Put a parsed profile into the live settings: its settings, its monster
+    /// rules and every table of items imported beside them.
+    /// </summary>
+    public static void ApplyDatabase(
+        VtankDatabase database,
+        AllSettings target,
+        Action<string>? warn = null)
+    {
+        ApplySeedDatabase(database, target);
+        if (VtankMonsterRuleTable.TryRead(database, warn) is { Count: > 0 } rules)
+        {
+            target.Combat.Rules.Clear();
+            foreach (MonsterRule rule in rules)
+                target.Combat.Rules.Add(rule);
+        }
+    }
+
+    /// <summary>
+    /// The same, for a profile being seeded from the shipped defaults rather
+    /// than read off disk: those roads take their monster rules from the
+    /// record saved beside the profile instead. Everything else is read here,
+    /// because every road onto a different profile has to leave the previous
+    /// profile's tables behind and each reader below clears what it owns
+    /// before it reads. Keep this list and the load's the same one.
+    /// </summary>
+    public static void ApplySeedDatabase(
+        VtankDatabase database,
+        AllSettings target)
+    {
+        ArgumentNullException.ThrowIfNull(database);
+        ArgumentNullException.ThrowIfNull(target);
         VtankTable? settings = database.Find(SettingsTable);
         if (settings is null)
             throw new FormatException("missing required 'Settings' table.");
@@ -45,19 +81,12 @@ internal static class VtankSettingsProfileSerializer
             Apply(name, row.Cells[valueColumn], target);
         }
 
-        if (VtankMonsterRuleTable.TryRead(database, warn) is { Count: > 0 } rules)
-        {
-            target.Combat.Rules.Clear();
-            foreach (MonsterRule rule in rules)
-                target.Combat.Rules.Add(rule);
-        }
         VtankProfiledItemIds.Read(database, target.Combat, target.Buffs,
             target.PlayerObjectId());
         VtankItemUseSpecifiers.Read(database, target.Combat);
         VtankAssistItems.Read(database, target.Combat);
         VtankGemFoodItems.Read(database, target.Buffs);
         VtankBuffExemplars.Read(database, target.Buffs);
-        return database;
     }
 
     public static string Save(VtankDatabase document, AllSettings source)

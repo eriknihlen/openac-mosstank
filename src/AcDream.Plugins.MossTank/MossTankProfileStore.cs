@@ -249,6 +249,7 @@ internal sealed class MossTankProfileStore
             ApplyFromDatabase(database, settings);
             sidecar = SideCarDocument.CreateDefaults();
             sidecar.Apply(settings, noBuffItemNames, logChannels, _host.Log);
+            VtankAssistItems.Apply(settings.Combat);
         }
         WriteUsdText(fileName, database.Render());
         WriteJson(SideCarKey(fileName), sidecar);
@@ -305,6 +306,7 @@ internal sealed class MossTankProfileStore
             ApplyFromDatabase(fresh, settings);
             SideCarDocument.CreateDefaults()
                 .Apply(settings, noBuffItemNames, logChannels, _host.Log);
+            VtankAssistItems.Apply(settings.Combat);
             _currentDatabase = fresh;
             _currentDatabaseFileName = fileName;
             Activate(fileName);
@@ -653,25 +655,16 @@ internal sealed class MossTankProfileStore
             existing with { SettingsFileName = CurrentFileName() });
     }
 
+    /// <summary>
+    /// Seed the live settings from a database the store did not read off
+    /// disk. This is the same reader the normal load uses, so a seeded
+    /// profile drops every table the previous one filled in rather than a
+    /// hand-kept subset of them.
+    /// </summary>
     private static void ApplyFromDatabase(
         VtankDatabase database,
-        VtankSettingsProfileSerializer.AllSettings target)
-    {
-        VtankTable? settings = database.Find("Settings");
-        int nameColumn = settings?.ColumnIndex("Setting") ?? -1;
-        int valueColumn = settings?.ColumnIndex("Value") ?? -1;
-        if (settings is null || nameColumn < 0 || valueColumn < 0)
-            return;
-        foreach (VtankRow row in settings.Rows)
-        {
-            VtankSettingsProfileSerializer.Apply(
-                row.Cells[nameColumn].AsString(), row.Cells[valueColumn], target);
-        }
-        VtankProfiledItemIds.Read(database, target.Combat, target.Buffs,
-            target.PlayerObjectId());
-        VtankGemFoodItems.Read(database, target.Buffs);
-        VtankBuffExemplars.Read(database, target.Buffs);
-    }
+        VtankSettingsProfileSerializer.AllSettings target) =>
+        VtankSettingsProfileSerializer.ApplySeedDatabase(database, target);
 
     private static bool ValidNamedProfile(string name, out string notice)
     {
