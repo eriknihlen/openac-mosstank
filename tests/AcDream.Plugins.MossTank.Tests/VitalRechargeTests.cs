@@ -508,7 +508,7 @@ public sealed class VitalRechargeTests
             combat);
         controller.BindActionLocks(locks);
 
-        controller.Tick(0.3d, enabled: true, noTarget: true, helpers: false);
+        controller.Tick(0.3d, enabled: true, noTarget: false, helpers: false);
 
         Assert.Equal([10u], surface.UsedItemIds);
         Assert.True(locks.IsLocked(ActionLockKind.ItemUse));
@@ -517,9 +517,45 @@ public sealed class VitalRechargeTests
         Assert.True(locks.IsLocked(ActionLockKind.ItemUse));
 
         surface.LastItemCompletion = new PluginItemUseCompletion(1L, 10u, 0u, 0u);
-        controller.Tick(0.3d, enabled: true, noTarget: true, helpers: false);
+        controller.Tick(0.3d, enabled: true, noTarget: false, helpers: false);
 
         Assert.False(locks.IsLocked(ActionLockKind.ItemUse));
+    }
+
+    /// <summary>
+    /// The reference's two self-recharge rows read one named setting each:
+    /// the normal thresholds up the list, the no-target thresholds far
+    /// below loot and the monster approach. Merging the two sets lets the
+    /// upper row claim at the lower row's threshold, after which the lower
+    /// row can never fire at all. Mutation: return
+    /// <c>Math.Max(NormalHealth, NoTargetHealth)</c> from
+    /// <c>VitalPlan.Threshold</c> again and the lower row uses a kit at a
+    /// vital only the upper row's threshold covers.
+    /// </summary>
+    [Fact]
+    public void TheNoTargetRowReadsItsOwnThresholdAndNotTheNormalOne()
+    {
+        // Half health: below the normal threshold (75%), far above the
+        // no-target one (1%).
+        var surface = new Surface
+        {
+            CurrentHealth = 50,
+            MaxHealth = 100,
+            Items = [Food(10u, "Bread")],
+        };
+        var combat = new CombatSettings();
+        combat.ConsumableNames.Add("Bread");
+        var controller = new VitalRechargeController(
+            new Host(surface),
+            new VitalSettings(),
+            combat);
+        controller.BindActionLocks(new ActionLockTable());
+
+        controller.Tick(0.3d, enabled: true, noTarget: true, helpers: false);
+        Assert.Empty(surface.UsedItemIds);
+
+        controller.Tick(0.3d, enabled: true, noTarget: false, helpers: false);
+        Assert.Equal([10u], surface.UsedItemIds);
     }
 
     /// <summary>
@@ -546,12 +582,12 @@ public sealed class VitalRechargeTests
         controller.BindActionLocks(new ActionLockTable());
         Assert.False(controller.ItemUseInFlight);
 
-        controller.Tick(0.3d, enabled: true, noTarget: true, helpers: false);
+        controller.Tick(0.3d, enabled: true, noTarget: false, helpers: false);
         Assert.Equal([10u], surface.UsedItemIds);
         Assert.True(controller.ItemUseInFlight);
 
         surface.LastItemCompletion = new PluginItemUseCompletion(1L, 10u, 0u, 0u);
-        controller.Tick(0.3d, enabled: true, noTarget: true, helpers: false);
+        controller.Tick(0.3d, enabled: true, noTarget: false, helpers: false);
         Assert.False(controller.ItemUseInFlight);
     }
 
@@ -608,18 +644,18 @@ public sealed class VitalRechargeTests
             combat);
         controller.BindActionLocks(locks);
 
-        controller.Tick(0.3d, enabled: true, noTarget: true, helpers: false);
+        controller.Tick(0.3d, enabled: true, noTarget: false, helpers: false);
         Assert.Equal([10u], surface.UsedItemIds);
         Assert.True(locks.IsLocked(ActionLockKind.ItemUse));
 
         // Two passes some other rule won.
-        controller.Tick(0.3d, enabled: false, noTarget: true, helpers: false);
-        controller.Tick(0.3d, enabled: false, noTarget: true, helpers: false);
+        controller.Tick(0.3d, enabled: false, noTarget: false, helpers: false);
+        controller.Tick(0.3d, enabled: false, noTarget: false, helpers: false);
         Assert.True(locks.IsLocked(ActionLockKind.ItemUse));
         Assert.Equal([10u], surface.UsedItemIds);
 
         surface.LastItemCompletion = new PluginItemUseCompletion(1L, 10u, 0u, 0u);
-        controller.Tick(0.3d, enabled: false, noTarget: true, helpers: false);
+        controller.Tick(0.3d, enabled: false, noTarget: false, helpers: false);
         Assert.False(locks.IsLocked(ActionLockKind.ItemUse));
     }
 

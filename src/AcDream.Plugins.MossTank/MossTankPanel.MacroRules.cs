@@ -371,7 +371,8 @@ internal sealed partial class MossTankPanel : IMacroRuleProvider
                     context.CanAct),
                 gate: () => _combat.Enabled
                     && _navigationSettings.Enabled
-                    && NavigationLocksAreClear()),
+                    && NavigationLocksAreClear(),
+                onLostTurn: _combat.StopMonsterApproachForLostTurn),
             fallbacks:
             [
                 new MacroRulePreChain(

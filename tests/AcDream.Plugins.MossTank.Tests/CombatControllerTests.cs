@@ -11,6 +11,50 @@ public sealed class CombatControllerTests
     /// second half fails — the attack would claim the pass with the monster
     /// still twelve metres away, so nothing below it would ever run.
     /// </summary>
+    /// <summary>
+    /// The reference writes Running=false to every loser on every pass, and
+    /// a navigate rule told that releases the keys it was holding. The
+    /// monster-approach rule sits twenty positions below the attack, so it
+    /// loses the pass often, and without the teardown the walk it started
+    /// carries on under whichever rule won -- two movement owners steering
+    /// at once, against the route. Mutation: drop
+    /// <c>StopMonsterApproachForLostTurn</c> from the NavigateMonster row's
+    /// <c>onLostTurn</c> and the intent is never cleared.
+    /// </summary>
+    [Fact]
+    public void LosingTheTurnStopsTheMonsterApproachWalk()
+    {
+        var surface = new FakeAutomation
+        {
+            CombatSnapshot = Physical(),
+            Targets = [Target(10, "Drudge", distance: 12, angle: 0)],
+            NavigationSnapshot = NavigationAt(heading: 0f),
+            EquipmentItems = [WieldedPlannedWeapon()],
+        };
+        surface.NavigationObjects[10u] = new PluginNavigationObject(
+            10u,
+            "Drudge",
+            new PluginNavigationPosition(0x7F7F0001, 0d, 0.1d, 0d, 0f, true));
+        var settings = new CombatSettings
+        {
+            MaximumRange = 5f,
+            ApproachDistance = 20f,
+            ScanIntervalSeconds = 0.05d,
+        };
+        ProfileFixtureWeapon(settings);
+        var controller = new CombatController(new FakeHost(surface), settings);
+
+        controller.Toggle();
+        controller.OnTick(0.05d);
+        Assert.True(controller.TickMonsterApproach(0.05d, canAct: true));
+        Assert.Single(surface.MovementIntents);
+        int clearedBefore = surface.ClearMovementCount;
+
+        controller.StopMonsterApproachForLostTurn();
+
+        Assert.Equal(clearedBefore + 1, surface.ClearMovementCount);
+    }
+
     [Fact]
     public void WalkingToAMonsterIsItsOwnJobBelowTheAttack()
     {
@@ -849,6 +893,53 @@ public sealed class CombatControllerTests
         surface.LastCastCompletion = new PluginCastCompletion(1, 90, 10, 0);
         controller.OnTick(0.25);
         Assert.Contains(100u, surface.CastSpellIds);
+    }
+
+    /// <summary>
+    /// The reference makes no distinction between a wand cast and a learned
+    /// spell for its busy count: both hold the whole pass until the server
+    /// answers, so a walk can never start under either. The host's own
+    /// casting flag used to carry the spell case by accident. Mutation:
+    /// answer false from <c>LearnedDebuffCastInFlight</c> and the middle
+    /// assertion fails.
+    /// </summary>
+    [Fact]
+    public void ALearnedDebuffCastIsReportedInFlightUntilTheServerAnswers()
+    {
+        PluginSpellInfo imperil = Spell(90, "Imperil Other VII") with
+        {
+            IsDebuff = true,
+            IsOffensive = true,
+            DurationSeconds = 60,
+        };
+        var surface = new FakeAutomation
+        {
+            CombatSnapshot = Physical() with { Mode = PluginCombatMode.Magic },
+            Targets = [Target(10, "Drudge", 5, 0)],
+            KnownCombatSpells = [imperil],
+            KnownAttackSpells = [Spell(100, "Incantation of Flame Bolt")],
+            EquipmentItems = [WieldedCaster()],
+        };
+        var settings = new CombatSettings();
+        settings.Rules.Clear();
+        settings.Rules.Add(new MonsterRule(
+            "DEFAULT",
+            new MonsterRuleActions
+            {
+                Flags = MonsterActionFlags.Imperil | MonsterActionFlags.Attack,
+                DamageType = MonsterDamageType.Fire,
+            }));
+        var controller = new CombatController(new FakeHost(surface), settings);
+        Assert.False(controller.LearnedDebuffCastInFlight);
+
+        controller.Toggle();
+        controller.OnTick(0.25);
+        Assert.Equal((90u, 10u), surface.LastTargetedCast);
+        Assert.True(controller.LearnedDebuffCastInFlight);
+
+        surface.LastCastCompletion = new PluginCastCompletion(1, 90, 10, 0);
+        controller.OnTick(0.25);
+        Assert.False(controller.LearnedDebuffCastInFlight);
     }
 
     [Fact]

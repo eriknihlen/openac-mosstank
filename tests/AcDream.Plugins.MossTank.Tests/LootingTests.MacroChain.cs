@@ -6,7 +6,7 @@ namespace AcDream.Plugins.MossTank.Tests;
 /// The corpse chain as the reference schedules it: the open rule holds the
 /// pass while the item slot is held, descriptions and item ids are asked on
 /// the frame, a pull is counted when it is issued, and a corpse is selected
-/// on every turn. See the research note on the VTank macro state machine.
+/// on every turn. See the research note on the macro state machine.
 /// </summary>
 public sealed partial class LootingTests
 {
