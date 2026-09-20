@@ -456,6 +456,7 @@ internal sealed class CombatController
     public void ClearActionLocks()
     {
         _host.Automation.Combat.AbortPhysicalAttack();
+        ResetSwingExecutor();
         StopApproachMovement();
         StopBreakableTurnMovement();
         StopSelectionJiggle();
@@ -516,8 +517,7 @@ internal sealed class CombatController
             // its own lost-turn teardown, and it is often the very rule the
             // attack just lost the pass to. Stopping it here cancelled the
             // walk on the pass it was armed.
-            _host.Automation.Combat.AbortPhysicalAttack();
-            DisarmPhysicalResultText();
+            DisarmSwingExecutor();
             StopBreakableTurnMovement();
             // The status is the attack's answer to "why did you decline",
             // and losing the turn is not an answer to that: whatever the
@@ -568,6 +568,7 @@ internal sealed class CombatController
             _combatPolicySuspended = true;
             if (_targetId != 0u || _pendingPhysicalTarget != 0u)
                 _host.Automation.Combat.AbortPhysicalAttack();
+            ResetSwingExecutor();
             _pendingPhysicalTarget = 0u;
             _pendingAttackSpell = 0u;
             _pendingAttackTarget = 0u;
@@ -860,74 +861,30 @@ internal sealed class CombatController
         // The repeat arm is inert while the macro drives combat: the host
         // only repeats an attack of its own accord when nothing holds combat
         // control, and the macro holds it for as long as it is running.
-        if (combat.ServerResponsePending || combat.RepeatAttackInProgress)
+        if ((combat.ServerResponsePending || combat.RepeatAttackInProgress)
+            && _pendingPhysicalTarget == 0u
+            && !combat.ServerResponsePending
+            && combat.SelectedObjectId != _targetId)
         {
-            if (_pendingPhysicalTarget == 0u
-                && !combat.ServerResponsePending
-                && combat.SelectedObjectId != _targetId)
-            {
-                // The character repeats a swing of its own while the option
-                // for it is on, and it repeats at whatever it was last
-                // pointed at. This pass is waiting on no swing of its own,
-                // and what is being swung at is not what it is fighting, so
-                // the repeat is ended rather than waited on - otherwise the
-                // pass stands still behind a monster it has finished with.
-                _host.Automation.Combat.AbortPhysicalAttack();
-                Status = "Ending a repeat at another monster";
-                return AttackPassOutcome.Claimed;
-            }
-            // The first pass that finds the server holding the swing is the
-            // latest moment it can have gone out, so a swing released by any
-            // route but the branch below still starts its wait here.
-            StampSwingSent();
-            GiveUpOnUnansweredSwing();
-            Status = $"Attacking {_targetName}";
+            // The character repeats a swing of its own while the option
+            // for it is on, and it repeats at whatever it was last
+            // pointed at. This pass is waiting on no swing of its own,
+            // and what is being swung at is not what it is fighting, so
+            // the repeat is ended rather than waited on - otherwise the
+            // pass stands still behind a monster it has finished with.
+            _host.Automation.Combat.AbortPhysicalAttack();
+            Status = "Ending a repeat at another monster";
             return AttackPassOutcome.Claimed;
         }
 
-        if (combat.RequestInProgress)
+        // A swing already in the air belongs to the swing executor, which
+        // runs on its own clock beside the pass. The pass does not touch it:
+        // it steps the executor and gets out of the way.
+        if (combat.RequestInProgress
+            || combat.ServerResponsePending
+            || combat.RepeatAttackInProgress)
         {
-            bool sent = false;
-            if (combat.BuildInProgress
-                && combat.PowerBarLevel + PowerReleaseEpsilon
-                    >= combat.DesiredPower)
-            {
-                PluginCombatCommandResult release =
-                    _host.Automation.Combat.ReleasePhysicalAttack();
-                sent = release.Status == PluginCombatCommandStatus.Released;
-                if (sent)
-                    StampSwingSent();
-                Status = sent
-                    ? $"Attacking {_targetName}"
-                    : $"Attack release: {release.Status}";
-                if (release.Status is PluginCombatCommandStatus.InvalidTarget
-                    or PluginCombatCommandStatus.Refused)
-                {
-                    // The swing never left the client and the answer names the
-                    // monster as the reason - it has died, or it has gone out
-                    // of play. There is nothing to wait for, so it leaves the
-                    // running for the rest of this pass and the choice is made
-                    // again from what is left, exactly as a refused request is.
-                    // No attempt is charged: nothing reached the server.
-                    Log?.Invoke(
-                        MacroLogChannel.CastInfo,
-                        $"Swing: {release.Status} releasing at {_targetName} "
-                            + $"(0x{_targetId:X8})"
-                            + (string.IsNullOrWhiteSpace(release.Notice)
-                                ? string.Empty
-                                : $" - {release.Notice}"));
-                    InvalidateForPass(_targetId);
-                    ClearTarget();
-                    return AttackPassOutcome.Retry;
-                }
-            }
-            else
-            {
-                Status = $"Charging {combat.PowerBarLevel * 100f:0}%";
-            }
-            if (!sent)
-                GiveUpOnSwingThatNeverWentOut();
-            return AttackPassOutcome.Claimed;
+            return TranslateSwingOutcome(PumpSwingExecutor());
         }
 
         IReadOnlyList<PluginInventoryItem> inventory =
@@ -966,22 +923,230 @@ internal sealed class CombatController
         // Every arm tears the turn down before it issues: a swing and a turn
         // both want the character, and the swing wins once it is armed.
         StopBreakableTurnMovement();
+        // The pass's whole part in a physical attack: point the executor at
+        // this monster, at this height and this power. When and how often the
+        // swing actually goes out is the executor's business.
+        ArmSwingExecutor(
+            _targetId,
+            _targetName,
+            _settings.AttackHeight,
+            desiredPower);
+        return TranslateSwingOutcome(PumpSwingExecutor());
+    }
+
+    private static AttackPassOutcome TranslateSwingOutcome(
+        SwingExecutorOutcome outcome) =>
+        outcome == SwingExecutorOutcome.Retry
+            ? AttackPassOutcome.Retry
+            : AttackPassOutcome.Claimed;
+
+    /// <summary>
+    /// What one step of the swing executor leaves for the rule pass to do.
+    /// </summary>
+    private enum SwingExecutorOutcome
+    {
+        /// <summary>Nothing; the swing is the executor's business.</summary>
+        None,
+
+        /// <summary>
+        /// The monster is out of play. The pass that hears this should choose
+        /// again from what is left.
+        /// </summary>
+        Retry,
+    }
+
+    /// <summary>
+    /// How often the swing executor may ask for a swing: roughly a quarter of
+    /// a second, the reference's own repeat period.
+    /// </summary>
+    /// <remarks>
+    /// There is no timer behind this. The executor is stepped by the host's
+    /// fixed 15 ms plugin tick and by the rule pass, and it fires on the first
+    /// step at or past its due instant — so the true period is this number
+    /// rounded UP to a whole number of host ticks, 270 ms rather than 263 ms,
+    /// and it can never fire twice in one tick.
+    /// </remarks>
+    private const double SwingRepeatSeconds = 0.263d;
+
+    /// <summary>
+    /// How long asking for a swing holds the shot slot. It is the floor on how
+    /// fast the character may be asked to swing again, and it exists so the
+    /// executor cannot press into the animation of the swing it just asked
+    /// for.
+    /// </summary>
+    private const double SwingShotFloorSeconds = 0.75d;
+
+    /// <summary>
+    /// How long calling a swing OFF holds the shot slot — longer than a swing
+    /// does, because the character has to come out of what it was doing before
+    /// it can be asked for anything else.
+    /// </summary>
+    private const double SwingStopFloorSeconds = 1d;
+
+    /// <summary>True while the executor has a monster to swing at.</summary>
+    private bool _swingArmed;
+
+    /// <summary>
+    /// True while the executor is being stepped at all. The teardown stops it,
+    /// the way the reference's own repeat timer is stopped, so a torn-down
+    /// executor costs nothing per host tick.
+    /// </summary>
+    private bool _swingTimerRunning;
+
+    private uint _swingTargetId;
+    private string _swingTargetName = string.Empty;
+    private PluginAttackHeight _swingHeight;
+    private float _swingPower;
+
+    /// <summary>The next instant the executor may ask for a swing.</summary>
+    private double _nextSwingAt;
+
+    /// <summary>
+    /// How many times the teardown has run to completion. The teardown is not
+    /// finished the first time: the call off is made, the shot slot goes up
+    /// for a second, and only a second call off past that slot says the
+    /// character is really standing still again.
+    /// </summary>
+    private int _swingStopCount;
+
+    /// <summary>
+    /// Point the executor at a monster. A monster it is already pointed at
+    /// leaves the repeat clock alone — the whole value of the clock is that it
+    /// keeps its own pace whatever the pass is doing — and a new one starts it
+    /// over.
+    /// </summary>
+    private void ArmSwingExecutor(
+        uint targetObjectId,
+        string targetName,
+        PluginAttackHeight height,
+        float power)
+    {
+        if (_swingTargetId != targetObjectId)
+        {
+            // The host's own attack command selects the monster and swings at
+            // it in one step, so there is nothing to spend a first step on:
+            // the swing at a monster just taken up goes out at once, and the
+            // repeat period governs every swing after it.
+            _nextSwingAt = _now;
+        }
+        _swingTargetId = targetObjectId;
+        _swingTargetName = targetName ?? string.Empty;
+        _swingHeight = height;
+        _swingPower = power;
+        _swingArmed = true;
+        _swingTimerRunning = true;
+        _swingStopCount = 0;
+    }
+
+    /// <summary>
+    /// One step of the executor: let go of a charged swing, watch one already
+    /// on the wire, or ask for the next one. Stepped by the host frame and by
+    /// the rule pass; it advances no clock of its own, so both callers can
+    /// step it without the time being counted twice.
+    /// </summary>
+    private SwingExecutorOutcome PumpSwingExecutor()
+    {
+        if (!_swingTimerRunning || !Enabled || !_host.Automation.IsAvailable)
+            return SwingExecutorOutcome.None;
+
+        _actionLocks.AdvanceTo(_now);
+        PluginCombatSnapshot combat = _host.Automation.Combat.Snapshot;
+        if (combat.RequestInProgress)
+        {
+            // The bar is ours to watch: the swing reaches the server when it
+            // is let go, and letting it go a whole rule pass after it was
+            // ready cost a fraction of a second on every swing.
+            if (combat.BuildInProgress
+                && combat.PowerBarLevel + PowerReleaseEpsilon
+                    >= combat.DesiredPower)
+            {
+                return ReleaseChargedSwing();
+            }
+            Status = $"Charging {combat.PowerBarLevel * 100f:0}%";
+            GiveUpOnSwingThatNeverWentOut();
+            return SwingExecutorOutcome.None;
+        }
+
+        if (combat.ServerResponsePending || combat.RepeatAttackInProgress)
+        {
+            // The first step that finds the server holding the swing is the
+            // latest moment it can have gone out, so a swing released by any
+            // route but the branch above still starts its wait here.
+            StampSwingSent();
+            GiveUpOnUnansweredSwing();
+            Status = $"Attacking {_swingTargetName}";
+            return SwingExecutorOutcome.None;
+        }
+
+        if (!_swingArmed)
+        {
+            StopSwingExecutor();
+            return SwingExecutorOutcome.None;
+        }
+
+        if (_now < _nextSwingAt)
+            return SwingExecutorOutcome.None;
+        _nextSwingAt = _now + SwingRepeatSeconds;
+        return AskForSwing();
+    }
+
+    private SwingExecutorOutcome ReleaseChargedSwing()
+    {
+        PluginCombatCommandResult release =
+            _host.Automation.Combat.ReleasePhysicalAttack();
+        if (release.Status == PluginCombatCommandStatus.Released)
+        {
+            StampSwingSent();
+            Status = $"Attacking {_swingTargetName}";
+            return SwingExecutorOutcome.None;
+        }
+        Status = $"Attack release: {release.Status}";
+        if (release.Status is not (PluginCombatCommandStatus.InvalidTarget
+            or PluginCombatCommandStatus.Refused))
+        {
+            GiveUpOnSwingThatNeverWentOut();
+            return SwingExecutorOutcome.None;
+        }
+        // The swing never left the client and the answer names the monster as
+        // the reason - it has died, or it has gone out of play. There is
+        // nothing to wait for, so it leaves the running and the choice is made
+        // again from what is left. No attempt is charged: nothing reached the
+        // server.
+        Log?.Invoke(
+            MacroLogChannel.CastInfo,
+            $"Swing: {release.Status} releasing at {_swingTargetName} "
+                + $"(0x{_swingTargetId:X8})"
+                + (string.IsNullOrWhiteSpace(release.Notice)
+                    ? string.Empty
+                    : $" - {release.Notice}"));
+        InvalidateForPass(_swingTargetId);
+        ClearTarget();
+        return SwingExecutorOutcome.Retry;
+    }
+
+    private SwingExecutorOutcome AskForSwing()
+    {
+        // The shot slot is the floor between one swing and the next. While it
+        // is up the executor keeps its pace and asks for nothing.
+        if (_actionLocks.IsLocked(ActionLockKind.MeleeAttackShot))
+            return SwingExecutorOutcome.None;
+
         PluginCombatCommandResult begin =
             _host.Automation.Combat.BeginPhysicalAttack(
-                _targetId,
-                _settings.AttackHeight,
-                desiredPower);
+                _swingTargetId,
+                _swingHeight,
+                _swingPower);
         Status = begin.Status switch
         {
-            PluginCombatCommandStatus.Started => $"Charging {_targetName}",
-            PluginCombatCommandStatus.Busy => $"Waiting on {_targetName}",
+            PluginCombatCommandStatus.Started => $"Charging {_swingTargetName}",
+            PluginCombatCommandStatus.Busy => $"Waiting on {_swingTargetName}",
             PluginCombatCommandStatus.InvalidTarget => "Target disappeared",
             PluginCombatCommandStatus.WrongMode => "Waiting for combat mode",
             _ => $"Attack refused: {begin.Status}",
         };
         Log?.Invoke(
             MacroLogChannel.CastInfo,
-            $"Swing: {begin.Status} at {_targetName} (0x{_targetId:X8})"
+            $"Swing: {begin.Status} at {_swingTargetName} (0x{_swingTargetId:X8})"
             + (string.IsNullOrWhiteSpace(begin.Notice)
                 ? string.Empty
                 : $" - {begin.Notice}"));
@@ -990,27 +1155,127 @@ internal sealed class CombatController
         {
             // Nothing armed, and the answer names the monster as the reason
             // as often as not: it has died, or it has gone out of play. There
-            // is nothing to wait for either way, so it leaves the running for
-            // the REST OF THIS PASS and the choice is made again from what is
-            // left. No attempt is charged against it - an attempt counts for a
-            // request that reached the server, and this one never did.
+            // is nothing to wait for either way, so it leaves the running and
+            // the choice is made again from what is left. No attempt is
+            // charged against it - an attempt counts for a request that
+            // reached the server, and this one never did.
             _host.Automation.Combat.AbortPhysicalAttack();
-            InvalidateForPass(_targetId);
+            InvalidateForPass(_swingTargetId);
             ClearTarget();
-            return AttackPassOutcome.Retry;
+            return SwingExecutorOutcome.Retry;
         }
         if (begin.Status == PluginCombatCommandStatus.Started)
         {
-            _pendingPhysicalTarget = _targetId;
+            // The floor starts here, where the reference starts it: at the
+            // moment the swing is ASKED for. The charge that follows is this
+            // client's own step, and putting the floor after it would let the
+            // pace drift with the power setting.
+            _actionLocks.Arm(
+                ActionLockKind.MeleeAttackShot,
+                SwingShotFloorSeconds);
+            _pendingPhysicalTarget = _swingTargetId;
             // The press only starts the power bar: nothing has reached the
             // server yet, so the wait on an answer has not begun — the wait
             // on the bar moving at all does.
             _physicalSwingArmedAt = _now;
             _physicalSwingSentAt = double.NegativeInfinity;
             _physicalSwingClosestDistance = float.PositiveInfinity;
-            ArmPhysicalResultText(_targetId, _targetName);
+            ArmPhysicalResultText(_swingTargetId, _swingTargetName);
         }
-        return AttackPassOutcome.Claimed;
+        return SwingExecutorOutcome.None;
+    }
+
+    /// <summary>
+    /// The executor's own teardown: call the swing off, put the stop floor up
+    /// and stop stepping. It refuses to run while a swing is armed, and while
+    /// the shot slot is up — which is what makes the second call off land a
+    /// second later rather than on the same step.
+    /// </summary>
+    private void StopSwingExecutor()
+    {
+        if (_swingArmed
+            || _actionLocks.IsLocked(ActionLockKind.MeleeAttackShot))
+        {
+            return;
+        }
+        _swingStopCount++;
+        _swingTargetId = 0u;
+        _swingTargetName = string.Empty;
+        _host.Automation.Combat.AbortPhysicalAttack();
+        _pendingPhysicalTarget = 0u;
+        DisarmPhysicalResultText();
+        _physicalSwingSentAt = double.NegativeInfinity;
+        _physicalSwingArmedAt = double.NegativeInfinity;
+        _physicalSwingClosestDistance = float.PositiveInfinity;
+        _actionLocks.Arm(
+            ActionLockKind.MeleeAttackShot,
+            SwingStopFloorSeconds);
+        _swingTimerRunning = false;
+    }
+
+    /// <summary>
+    /// The attack rule losing its turn. The executor lets the monster go, the
+    /// shot floor from its last swing comes down, and the teardown begins.
+    /// Answers true once the character is really standing still again, which
+    /// takes a second call off past the stop floor.
+    /// </summary>
+    private bool DisarmSwingExecutor()
+    {
+        if (_swingArmed)
+        {
+            _swingArmed = false;
+            _actionLocks.Release(ActionLockKind.MeleeAttackShot);
+            _swingStopCount = 0;
+            _swingTimerRunning = true;
+        }
+        if (_swingStopCount <= 1)
+            StopSwingExecutor();
+        return _swingStopCount > 1;
+    }
+
+    /// <summary>
+    /// The monster the executor was pointed at is finished with — killed, or
+    /// out of play — and another one is about to be chosen. This is a hand
+    /// over, not a teardown: no stop floor is charged for it, because the
+    /// reference pays that floor only for standing down from the fight, never
+    /// for moving from one monster to the next.
+    /// </summary>
+    private void ReleaseSwingExecutorForRetarget()
+    {
+        _swingArmed = false;
+        _swingTimerRunning = false;
+        _swingStopCount = 0;
+        _swingTargetId = 0u;
+        _swingTargetName = string.Empty;
+    }
+
+    /// <summary>
+    /// The executor put down entirely, with no call off and no floor: the
+    /// macro is stopping, or the whole action-lock table has been cleared.
+    /// </summary>
+    private void ResetSwingExecutor()
+    {
+        ReleaseSwingExecutorForRetarget();
+        _nextSwingAt = 0d;
+    }
+
+    /// <summary>
+    /// Steps the swing executor on the host's own frame, which is what makes
+    /// it independent of the rule pass: a swing is let go the moment its bar
+    /// is full and the next one is asked for on the executor's own period,
+    /// whether or not the attack won the pass in between.
+    /// </summary>
+    internal void DriveSwingExecutor(double elapsedSeconds)
+    {
+        if (!_swingTimerRunning
+            || !Enabled
+            || _paused
+            || !_host.Automation.IsAvailable)
+        {
+            return;
+        }
+        AdvanceClockFromFrame(elapsedSeconds);
+        _ = PumpSwingExecutor();
     }
 
     /// <summary>
@@ -4261,6 +4526,7 @@ internal sealed class CombatController
             _pendingPhysicalTarget = 0u;
             _host.Automation.Combat.AbortPhysicalAttack();
         }
+        ReleaseSwingExecutorForRetarget();
         _physicalSwingSentAt = double.NegativeInfinity;
         _physicalSwingArmedAt = double.NegativeInfinity;
         _physicalSwingClosestDistance = float.PositiveInfinity;
@@ -4277,6 +4543,7 @@ internal sealed class CombatController
     private void Disable(string status)
     {
         _host.Automation.Combat.AbortPhysicalAttack();
+        ResetSwingExecutor();
         StopApproachMovement();
         StopBreakableTurnMovement();
         Enabled = false;

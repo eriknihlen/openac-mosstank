@@ -79,6 +79,19 @@ internal sealed class ActionLockTable
         _now += Math.Max(0d, elapsedSeconds);
 
     /// <summary>
+    /// Pushes the clock to one owner's own reading of it, and never back. The
+    /// table is shared by owners that each keep their own elapsed-seconds
+    /// clock off the same wall time; whichever of them has counted furthest is
+    /// the instant the deadlines are measured against, so a deadline behaves
+    /// the same whether the frame or an owner is driving.
+    /// </summary>
+    public void AdvanceTo(double now)
+    {
+        if (now > _now)
+            _now = now;
+    }
+
+    /// <summary>
     /// Arms a slot for <paramref name="seconds"/>. An arm never SHORTENS a
     /// lock that is already up: the later of the two deadlines wins, so a
     /// short window cannot cancel a long one that is still running.

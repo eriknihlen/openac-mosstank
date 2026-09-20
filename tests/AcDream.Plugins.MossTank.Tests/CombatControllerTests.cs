@@ -51,7 +51,9 @@ public sealed class CombatControllerTests
         ];
         surface.UnattackableTargets.Add(10u);
         surface.BeginTargets.Clear();
-        controller.OnTick(0.25d);
+        // Past the shot floor the swing at the first monster put up: the
+        // swing at the next one waits that floor out like any other.
+        controller.OnTick(1.0d);
         controller.OnTick(0.25d);
 
         Assert.Equal(20u, surface.LastBeginTarget);
@@ -145,7 +147,7 @@ public sealed class CombatControllerTests
         surface.CombatSnapshot = Physical();
         surface.Targets = [Target(10, "First", distance: 1.5f, angle: 0)];
         surface.BeginTargets.Clear();
-        controller.OnTick(0.25d);
+        controller.OnTick(1.0d);
 
         Assert.Contains(10u, surface.BeginTargets);
     }
@@ -670,7 +672,7 @@ public sealed class CombatControllerTests
             Target(10, "Drudge", distance: 3, angle: 0),
             Target(20, "Olthoi Soldier", distance: 15, angle: 60),
         ];
-        controller.OnTick(0.25);
+        controller.OnTick(1.0);
 
         Assert.Equal(20u, surface.LastBeginTarget);
     }
@@ -768,7 +770,7 @@ public sealed class CombatControllerTests
             Target(10, "Drudge", 2, 0),
             Target(20, "Olthoi Soldier", 4, 20),
         ];
-        controller.OnTick(0.1);
+        controller.OnTick(1.0);
 
         Assert.Equal(20u, surface.LastBeginTarget);
         Assert.Contains("Olthoi Soldier", controller.TargetText, StringComparison.Ordinal);
@@ -6095,8 +6097,9 @@ public sealed class CombatControllerTests
         controller.OnTick(0.25);
         Assert.Equal(1, surface.ReleaseCount);
 
-        // One pass later the character is swinging at the one still alive.
-        controller.OnTick(0.25);
+        // One pass past the shot floor the character is swinging at the one
+        // still alive.
+        controller.OnTick(1.0);
         Assert.Equal(20u, surface.LastBeginTarget);
     }
 
@@ -6168,7 +6171,7 @@ public sealed class CombatControllerTests
         surface.ChatMessages = [];
 
         Assert.True(locks.IsLocked(ActionLockKind.Navigation));
-        controller.OnTick(0.25);
+        controller.OnTick(1.0);
         controller.OnTick(0.25);
         Assert.Equal(20u, surface.LastBeginTarget);
     }
@@ -6196,7 +6199,7 @@ public sealed class CombatControllerTests
             },
             Target(20, "Mosswart", distance: 3, angle: 0),
         ];
-        controller.OnTick(0.25);
+        controller.OnTick(1.0);
         controller.OnTick(0.25);
 
         Assert.Equal(20u, surface.LastBeginTarget);
@@ -6610,6 +6613,85 @@ public sealed class CombatControllerTests
         Assert.Equal(abortsAfterTheSwing, surface.AbortCount);
         controller.OnTick(1.0);
         Assert.Equal(abortsAfterTheSwing + 1, surface.AbortCount);
+    }
+
+    /// <summary>
+    /// A charged swing goes the moment its bar is full, on the host's own
+    /// frame. It used to wait for the attack to win another rule pass, which
+    /// cost a fraction of a second on every swing of a whole session.
+    /// Mutation: take the release out of the executor and put it back on the
+    /// pass and this fails — a frame with no pass in it lets nothing go.
+    /// </summary>
+    [Fact]
+    public void AChargedSwingIsLetGoOnTheHostFrameWithoutWaitingForAPass()
+    {
+        (FakeAutomation surface, CombatController controller, _) =
+            MeleeKillRig(tracksAttackRequests: true);
+        Assert.Equal(1, surface.BeginCount);
+        Assert.Equal(0, surface.ReleaseCount);
+
+        surface.FillPowerBar();
+        // One host frame, and not a single rule pass.
+        controller.DriveSwingExecutor(0.015d);
+
+        Assert.Equal(1, surface.ReleaseCount);
+    }
+
+    /// <summary>
+    /// The next swing is asked for on the executor's own period and behind its
+    /// own floor, neither of which is the rule pass's business. The floor is
+    /// what stops the executor pressing into the animation of the swing it
+    /// just asked for; the period is how often it looks.
+    /// Mutation: drop the shot floor and the first assertion fails — a second
+    /// swing is asked for a quarter of a second after the first. Mutation:
+    /// ask for the swing from the pass instead of the executor and the second
+    /// fails — these frames contain no pass at all.
+    /// </summary>
+    [Fact]
+    public void TheNextSwingIsAskedForOnTheExecutorsOwnPeriod()
+    {
+        (FakeAutomation surface, CombatController controller, _) =
+            MeleeKillRig(tracksAttackRequests: true);
+        surface.FillPowerBar();
+        controller.DriveSwingExecutor(0.015d);
+        Assert.Equal(1, surface.ReleaseCount);
+
+        // The server answers and the swing is over: nothing is in flight.
+        surface.CombatSnapshot = surface.CombatSnapshot with
+        {
+            ServerResponsePending = false,
+            PowerBarLevel = 0f,
+        };
+
+        // Half a second of frames is inside the floor the swing put up.
+        for (int frame = 0; frame < 33; frame++)
+            controller.DriveSwingExecutor(0.015d);
+        Assert.Equal(1, surface.BeginCount);
+
+        // Past the floor, still without a rule pass, the next swing goes out.
+        for (int frame = 0; frame < 34; frame++)
+            controller.DriveSwingExecutor(0.015d);
+        Assert.Equal(2, surface.BeginCount);
+    }
+
+    /// <summary>
+    /// The attack losing its turn calls the swing off, and holds the shot slot
+    /// for longer than a swing does: the character has to come out of what it
+    /// was doing before it can be asked for anything else.
+    /// Mutation: drop the stop floor and the second assertion fails — the very
+    /// next pass asks for a swing into the tail of the one just cancelled.
+    /// </summary>
+    [Fact]
+    public void LosingTheTurnCallsTheSwingOffAndHoldsTheShotSlot()
+    {
+        (FakeAutomation surface, CombatController controller, ActionLockTable locks) =
+            MeleeKillRig(tracksAttackRequests: true);
+        int abortsBefore = surface.AbortCount;
+
+        controller.SetPaused(true);
+
+        Assert.Equal(abortsBefore + 1, surface.AbortCount);
+        Assert.True(locks.IsLocked(ActionLockKind.MeleeAttackShot));
     }
 
     /// <summary>
@@ -7496,7 +7578,7 @@ public sealed class CombatControllerTests
         surface.UnattackableTargets.Add(10u);
         surface.BeginTargets.Clear();
         for (int tick = 0; tick < 4; tick++)
-            controller.OnTick(0.25d);
+            controller.OnTick(0.5d);
 
         Assert.DoesNotContain("Equip:000002BC", surface.CallLog);
         Assert.DoesNotContain("EnterMode:Magic", surface.CallLog);

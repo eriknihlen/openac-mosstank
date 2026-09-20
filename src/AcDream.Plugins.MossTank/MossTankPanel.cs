@@ -5000,6 +5000,10 @@ internal sealed partial class MossTankPanel : IBuffRuleHost, IDisposable
         // them is ever armed: the pass the winner takes disarms the other.
         _navigation.StepArmedMover(elapsedSeconds);
         _corpseApproach.StepArmedMover(elapsedSeconds);
+        // The swing runs on the host's frame, not on the pass that armed it:
+        // that is what lets a charged swing go the moment it is ready and the
+        // next one be asked for on its own period.
+        _combat.DriveSwingExecutor(elapsedSeconds);
         _scheduler.Advance(elapsedSeconds);
         // After the pass: a held item's cast is driven by the frame on every
         // frame the attack's own turn did not drive it, whether the attack
