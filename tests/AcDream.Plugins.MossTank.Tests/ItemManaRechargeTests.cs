@@ -383,6 +383,56 @@ public sealed class ItemManaRechargeTests
     }
 
     /// <summary>
+    /// The profile's refill percentage is what the worn-gear refill compares
+    /// against, and it is a strict "below": a wand sitting at forty percent is
+    /// topped up under a fifty-percent profile and left alone under a
+    /// thirty-percent one.
+    ///
+    /// Mutation: hand the planner a constant percentage and both rows answer
+    /// the same way.
+    /// </summary>
+    [Theory]
+    [InlineData(50, true)]
+    [InlineData(30, false)]
+    public void TheRefillPercentageIsTheProfilesOwnNumber(
+        int thresholdPercent,
+        bool refills)
+    {
+        PluginInventoryItem charge = Item(10, "Mana Charge", 0x00080000u) with
+        {
+            ItemCurrentMana = 100,
+            Effects = 0x00000001u,
+        };
+        PluginInventoryItem wand = Item(20, "Half Wand") with
+        {
+            EquippedLocation = 0x00000002u,
+            ItemCurrentMana = 40,
+            ItemMaximumMana = 100,
+        };
+        var surface = new Surface { Inventory = [charge, wand] };
+        surface.Assess(charge, 100, (107u, 100));
+        surface.Assess(wand, 100, (107u, 40), (108u, 100));
+        var profiles = new CombatSettings();
+        profiles.ConsumableNames.Add(charge.Name);
+        profiles.ConsumableCategories[charge.Name] = ConsumableCategory.ManaSource;
+        var controller = new ItemManaRechargeController(
+            new Host(surface),
+            new InventorySettings
+            {
+                RefillWornMana = true,
+                RefillWornManaPercent = thresholdPercent,
+            },
+            profiles);
+
+        // The gear is asked about first; one question at a time.
+        Assert.False(controller.Tick(canAct: true));
+        surface.ReplaceAssessmentVersion(20u, 101);
+
+        Assert.Equal(refills, controller.Tick(canAct: true));
+        Assert.Equal(refills, surface.ApplyCalls.Count != 0);
+    }
+
+    /// <summary>
     /// Gear that wants mana with nothing in the pack to give it says so once
     /// a run, not three times a second.
     ///

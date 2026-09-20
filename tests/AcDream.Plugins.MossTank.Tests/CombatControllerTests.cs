@@ -1741,7 +1741,53 @@ public sealed class CombatControllerTests
         Assert.Empty(StalledHealthScenario("Drudge").DismissedGhosts);
     }
 
-    private static FakeAutomation StalledHealthScenario(string name)
+    /// <summary>
+    /// Forgetting a monster whose health never moved is a profile choice. With
+    /// it off, the very same silent monster is left alone however long the
+    /// fight drags on, and the character keeps swinging at it.
+    ///
+    /// Mutation: sweep for silent monsters whatever the profile says and the
+    /// second row forgets one.
+    /// </summary>
+    [Theory]
+    [InlineData(true, true)]
+    [InlineData(false, false)]
+    public void ForgettingASilentMonsterIsAProfileChoice(
+        bool byHealthTracker,
+        bool forgets)
+    {
+        FakeAutomation surface = StalledHealthScenario(
+            "Olthoi Slasher",
+            byHealthTracker: byHealthTracker);
+
+        Assert.Equal(forgets, surface.DismissedGhosts.Count != 0);
+    }
+
+    /// <summary>
+    /// How long the silence has to last is the profile's number: thirty
+    /// seconds of an unmoving health bar is long enough under a ten-second
+    /// profile and not yet long enough under a sixty-second one.
+    ///
+    /// Mutation: compare against a constant and both rows answer the same way.
+    /// </summary>
+    [Theory]
+    [InlineData(10d, true)]
+    [InlineData(60d, false)]
+    public void TheSilenceThatMakesAMonsterAGhostIsTheProfilesOwnLength(
+        double staleSeconds,
+        bool forgets)
+    {
+        FakeAutomation surface = StalledHealthScenario(
+            "Olthoi Slasher",
+            staleSeconds: staleSeconds);
+
+        Assert.Equal(forgets, surface.DismissedGhosts.Count != 0);
+    }
+
+    private static FakeAutomation StalledHealthScenario(
+        string name,
+        bool byHealthTracker = true,
+        double staleSeconds = 10d)
     {
         var surface = new FakeAutomation
         {
@@ -1753,8 +1799,8 @@ public sealed class CombatControllerTests
         var settings = new CombatSettings
         {
             MaximumRange = 40d,
-            DeleteGhostMonstersByHealthTracker = true,
-            GhostDeleteHealthTrackerSeconds = 10d,
+            DeleteGhostMonstersByHealthTracker = byHealthTracker,
+            GhostDeleteHealthTrackerSeconds = staleSeconds,
             MonsterFacts = new MonsterFactTable(GameInfo),
         };
         settings.Rules.Clear();

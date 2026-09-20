@@ -2338,6 +2338,47 @@ public sealed partial class LootingTests
     /// what makes the client classify it as a scroll. The name deliberately
     /// does NOT end in " Scroll" — many do not, and the shape is what decides.
     /// </summary>
+    /// <summary>
+    /// Reading scrolls the character cannot yet cast is a profile choice. With
+    /// it off, a scroll that passes every other test -- an unknown spell, a
+    /// school the character is skilled enough in -- is still not worth reading,
+    /// so the looter never queues it and the reading rule never gets one.
+    ///
+    /// Mutation: drop the option from the eligibility test and the scroll is
+    /// read whatever the profile says.
+    /// </summary>
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public void ReadingUnknownScrollsIsAProfileChoice(bool reads)
+    {
+        var automation = new Automation
+        {
+            KnownSpell = new PluginSpellInfo(
+                777u, "Incantation of Testing", 1u, 1, 100, 10, 0f,
+                34u, string.Empty, false, false),
+            SkillsValue =
+            [
+                new PluginSkillInfo(
+                    34u, "War Magic", PluginSkillTraining.Trained, 90u),
+            ],
+        };
+        var settings = new LootSettings
+        {
+            Enabled = true,
+            ReadUnknownScrolls = reads,
+        };
+
+        Assert.Equal(
+            reads,
+            ScrollReading.IsEligible(
+                new Host(automation),
+                settings,
+                Scroll(0x70000C01u, "Incantation of Testing", 777u),
+                new Dictionary<uint, uint>(),
+                commit: true));
+    }
+
     private static PluginInventoryItem Scroll(
         uint id,
         string spellName,
