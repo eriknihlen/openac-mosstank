@@ -845,6 +845,20 @@ internal sealed class CombatController
         // control, and the macro holds it for as long as it is running.
         if (combat.ServerResponsePending || combat.RepeatAttackInProgress)
         {
+            if (_pendingPhysicalTarget == 0u
+                && !combat.ServerResponsePending
+                && combat.SelectedObjectId != _targetId)
+            {
+                // The character repeats a swing of its own while the option
+                // for it is on, and it repeats at whatever it was last
+                // pointed at. This pass is waiting on no swing of its own,
+                // and what is being swung at is not what it is fighting, so
+                // the repeat is ended rather than waited on - otherwise the
+                // pass stands still behind a monster it has finished with.
+                _host.Automation.Combat.AbortPhysicalAttack();
+                Status = "Ending a repeat at another monster";
+                return AttackPassOutcome.Claimed;
+            }
             // The first pass that finds the server holding the swing is the
             // latest moment it can have gone out, so a swing released by any
             // route but the branch below still starts its wait here.

@@ -151,6 +151,43 @@ public sealed class CombatControllerTests
     }
 
     /// <summary>
+    /// The character can be set to keep swinging on its own, and it keeps
+    /// swinging at whatever it was last pointed at - which, after a kill, is
+    /// a corpse. The pass is waiting on no swing of its own, so it ends that
+    /// repeat instead of standing behind it. Mutation: let the repeat fall
+    /// through to the wait and the pass claims the tick with nothing asked
+    /// for and nothing cancelled.
+    /// </summary>
+    [Fact]
+    public void ARepeatAtSomethingElseIsEndedRatherThanWaitedOn()
+    {
+        var surface = new FakeAutomation
+        {
+            CombatSnapshot = Physical() with
+            {
+                SelectedObjectId = 99u,
+                RepeatAttackInProgress = true,
+            },
+            Targets = [Target(10, "Drudge", distance: 2f, angle: 0)],
+            EquipmentItems = [WieldedPlannedWeapon()],
+        };
+        var settings = new CombatSettings
+        {
+            MaximumRange = 8f,
+            SelectionMethod = TargetSelectionMethod.Range,
+            ScanIntervalSeconds = 0.05d,
+        };
+        ProfileFixtureWeapon(settings);
+        var controller = new CombatController(new FakeHost(surface), settings);
+
+        controller.Toggle();
+        controller.OnTick(0.25d);
+
+        Assert.Equal(1, surface.AbortCount);
+        Assert.Empty(surface.BeginTargets);
+    }
+
+    /// <summary>
     /// With nothing else in range the attack has no target, so it yields the
     /// pass and whatever sits below it -- looting, above all -- gets to run.
     /// Mutation: hold the refused monster as the target and the rule claims
