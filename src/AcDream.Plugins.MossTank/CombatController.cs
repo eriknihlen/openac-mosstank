@@ -922,7 +922,10 @@ internal sealed class CombatController
         };
         Log?.Invoke(
             MacroLogChannel.CastInfo,
-            $"Swing: {begin.Status} at {_targetName} (0x{_targetId:X8})");
+            $"Swing: {begin.Status} at {_targetName} (0x{_targetId:X8})"
+            + (string.IsNullOrWhiteSpace(begin.Notice)
+                ? string.Empty
+                : $" - {begin.Notice}"));
         if (begin.Status == PluginCombatCommandStatus.InvalidTarget)
         {
             _host.Automation.Combat.AbortPhysicalAttack();
