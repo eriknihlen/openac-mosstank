@@ -783,6 +783,120 @@ public sealed class ItemManaRechargeTests
         Assert.Empty(surface.ApplyCalls);
     }
 
+    /// <summary>
+    /// A description is asked for only on a pass with nothing to spend. The
+    /// client answers one description at a time and every rule that looks
+    /// before it acts shares that one channel, so a question asked on a pass
+    /// the refill already knew what to do with is a question taken from
+    /// somebody who needed it. Mutation: ask before the plan is made and a
+    /// third question goes out on the pass that spends the charge.
+    /// </summary>
+    [Fact]
+    public void NoDescriptionIsAskedForOnAPassThatHasSomethingToSpend()
+    {
+        PluginInventoryItem charge = Item(10, "Mana Charge", 0x00080000u) with
+        {
+            ItemCurrentMana = 100,
+            Effects = 0x00000001u,
+        };
+        // Worn, so it is always worth a fresh look, but it holds no mana:
+        // never a target, and never answered, so it stays due for ever.
+        PluginInventoryItem helm = Item(19, "Plain Helm") with
+        {
+            EquippedLocation = 0x00000001u,
+        };
+        PluginInventoryItem wand = Item(20, "Low Wand") with
+        {
+            EquippedLocation = 0x00000002u,
+            ItemCurrentMana = 10,
+            ItemMaximumMana = 100,
+        };
+        var surface = new Surface { Inventory = [charge, helm, wand] };
+        surface.Assess(charge, 100, (107u, 100));
+        surface.Assess(wand, 100, (107u, 10), (108u, 100));
+        var profiles = new CombatSettings();
+        profiles.ConsumableCategories[charge.Name] =
+            ConsumableCategory.ManaSource;
+        var controller = new ItemManaRechargeController(
+            new Host(surface),
+            new InventorySettings
+            {
+                RefillWornMana = true,
+                RefillWornManaPercent = 33,
+            },
+            profiles);
+
+        // Nothing is spendable yet, so the gear is asked about, in turn.
+        Assert.False(controller.Tick(canAct: true));
+        Assert.Equal([19u], surface.IdentifyRequests);
+        Assert.False(controller.Tick(canAct: true, elapsedSeconds: 11d));
+        Assert.Equal([19u, 20u], surface.IdentifyRequests);
+        surface.ReplaceAssessmentVersion(20u, 101);
+
+        // The wand's answer landed: this pass has a charge to spend, and it
+        // spends it instead of asking after the helm again.
+        Assert.True(controller.Tick(canAct: true, elapsedSeconds: 11d));
+
+        Assert.Equal([(10u, 1u)], surface.ApplyCalls);
+        Assert.Equal([19u, 20u], surface.IdentifyRequests);
+    }
+
+    /// <summary>
+    /// A use the server never answered stops holding the pass when the
+    /// window it armed runs out. Left claiming it, one unanswered charge
+    /// kept every rule below this one -- the looter among them -- off the
+    /// character for the whole fifteen-second watchdog while the item slot
+    /// itself read free. Mutation: return true unconditionally while
+    /// something is pending and the later pass is claimed again.
+    /// </summary>
+    [Fact]
+    public void AnUnansweredRefillStopsClaimingThePassWhenItsWindowRunsOut()
+    {
+        PluginInventoryItem charge = Item(10, "Mana Charge", 0x00080000u) with
+        {
+            ItemCurrentMana = 100,
+            Effects = 0x00000001u,
+        };
+        PluginInventoryItem wand = Item(20, "Low Wand") with
+        {
+            EquippedLocation = 0x00000002u,
+            ItemCurrentMana = 10,
+            ItemMaximumMana = 100,
+        };
+        var surface = new Surface { Inventory = [charge, wand] };
+        surface.Assess(charge, 100, (107u, 100));
+        surface.Assess(wand, 100, (107u, 10), (108u, 100));
+        var profiles = new CombatSettings();
+        profiles.ConsumableCategories[charge.Name] =
+            ConsumableCategory.ManaSource;
+        var locks = new ActionLockTable();
+        var controller = new ItemManaRechargeController(
+            new Host(surface),
+            new InventorySettings
+            {
+                RefillWornMana = true,
+                RefillWornManaPercent = 33,
+            },
+            profiles);
+        controller.BindActionLocks(locks);
+
+        Assert.False(controller.Tick(canAct: true));
+        surface.ReplaceAssessmentVersion(20u, 101);
+        Assert.True(controller.Tick(canAct: true));
+        Assert.Equal([(10u, 1u)], surface.ApplyCalls);
+        Assert.True(locks.IsLocked(ActionLockKind.ItemUse));
+
+        // Inside the window the charge owns the character.
+        locks.Advance(1d);
+        Assert.True(controller.Tick(canAct: true, elapsedSeconds: 1d));
+
+        // Past it, with no answer: the slot is free and so is the pass.
+        locks.Advance(1d);
+        Assert.False(locks.IsLocked(ActionLockKind.ItemUse));
+        Assert.False(controller.Tick(canAct: true, elapsedSeconds: 1d));
+        Assert.Equal([(10u, 1u)], surface.ApplyCalls);
+    }
+
     private static PluginInventoryItem Item(
         uint id,
         string name,

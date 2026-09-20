@@ -1210,11 +1210,34 @@ internal sealed class VitalRechargeController
     private void ReleaseItemUse()
     {
         if (_pending is { } pending
-            && pending.Choice.SourceKind != VitalRechargeSourceKind.LearnedSpell)
+            && pending.Choice.SourceKind != VitalRechargeSourceKind.LearnedSpell
+            // Only while the window this owner armed is still running: past
+            // it the slot may belong to somebody else, and releasing it then
+            // would pull the floor out from under whoever holds it.
+            && _actionLocks.Now < _pendingHoldUntil)
         {
             _actionLocks.Release(ActionLockKind.ItemUse);
         }
+        _pendingHoldUntil = 0d;
     }
+
+    /// <summary>
+    /// When the item-slot window this owner armed for the outstanding use
+    /// runs out. Past it the use is still watched to its end, but it no
+    /// longer holds the character.
+    /// </summary>
+    private double _pendingHoldUntil;
+
+    /// <summary>
+    /// Whether the outstanding use still holds the pass. A cast does for as
+    /// long as it is in flight; an item use does for the window it armed and
+    /// no longer, because waiting out an answer that is not coming is this
+    /// owner's business, not everybody else's.
+    /// </summary>
+    private bool PendingStillHoldsThePass =>
+        _pending is { } waiting
+        && (waiting.Choice.SourceKind == VitalRechargeSourceKind.LearnedSpell
+            || _actionLocks.Now < _pendingHoldUntil);
 
     public bool Tick(
         double elapsedSeconds,
@@ -1247,7 +1270,7 @@ internal sealed class VitalRechargeController
         if (_pending is { } pending)
         {
             Status = $"Recharging {pending.Choice.Vital}: {pending.Choice.Name}";
-            return true;
+            return PendingStillHoldsThePass;
         }
 
         // No turn this pass, so nothing new is begun.
@@ -1376,6 +1399,8 @@ internal sealed class VitalRechargeController
             _actionLocks.Arm(
                 ActionLockKind.ItemUse,
                 ItemUseLock.TransactionSeconds);
+            _pendingHoldUntil =
+                _actionLocks.Now + ItemUseLock.TransactionSeconds;
         }
         _pendingSeconds = 0d;
         Status = $"Recharging {choice.Vital}: {choice.Name}";

@@ -46,9 +46,12 @@ internal static class ItemUseLock
     /// <summary>
     /// A use whose result the macro waits for. The slot is held for the whole
     /// wait and dropped the moment the transaction ends, so a kit that
-    /// finishes early does not cost the rest of the window.
+    /// finishes early does not cost the rest of the window. It is a second
+    /// and a half, the longest any single item use is worth holding the
+    /// character for: a longer window is not patience, it is the looter and
+    /// the attack standing still for seconds after the server has answered.
     /// </summary>
-    public const double TransactionSeconds = 5d;
+    public const double TransactionSeconds = 1.5d;
 
     /// <summary>
     /// A spell cast from a held item: its launch window, its result window,

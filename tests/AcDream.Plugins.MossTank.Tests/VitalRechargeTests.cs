@@ -564,13 +564,57 @@ public sealed class VitalRechargeTests
         Assert.Equal([10u], surface.UsedItemIds);
         Assert.True(locks.IsLocked(ActionLockKind.ItemUse));
 
-        locks.Advance(4d);
+        locks.Advance(1d);
         Assert.True(locks.IsLocked(ActionLockKind.ItemUse));
 
         surface.LastItemCompletion = new PluginItemUseCompletion(1L, 10u, 0u, 0u);
         controller.Tick(0.3d, enabled: true, noTarget: false, helpers: false);
 
         Assert.False(locks.IsLocked(ActionLockKind.ItemUse));
+    }
+
+    /// <summary>
+    /// A use the server never answered is watched to its end, but it stops
+    /// holding the character when the window it armed runs out: waiting out
+    /// a lost answer is this owner's business, not everybody else's. Left
+    /// claiming the pass, a single unanswered use kept every rule below it --
+    /// the looter among them -- off the character for the whole watchdog.
+    /// Mutation: return true unconditionally while something is pending and
+    /// the second pass is claimed again.
+    /// </summary>
+    [Fact]
+    public void AnUnansweredUseStopsClaimingThePassWhenItsWindowRunsOut()
+    {
+        var surface = new Surface
+        {
+            CurrentHealth = 20,
+            MaxHealth = 100,
+            Items = [Food(10u, "Bread")],
+        };
+        var combat = new CombatSettings();
+        combat.ConsumableNames.Add("Bread");
+        var locks = new ActionLockTable();
+        var controller = new VitalRechargeController(
+            new Host(surface),
+            new VitalSettings(),
+            combat);
+        controller.BindActionLocks(locks);
+
+        Assert.True(controller.Tick(
+            0.3d, enabled: true, noTarget: false, helpers: false));
+        Assert.Equal([10u], surface.UsedItemIds);
+
+        // Still inside the window: the use owns the character.
+        locks.Advance(1d);
+        Assert.True(controller.Tick(
+            0.3d, enabled: true, noTarget: false, helpers: false));
+
+        // Past it, with no answer: the slot is free and so is the pass.
+        locks.Advance(1d);
+        Assert.False(locks.IsLocked(ActionLockKind.ItemUse));
+        Assert.False(controller.Tick(
+            0.3d, enabled: true, noTarget: false, helpers: false));
+        Assert.Equal([10u], surface.UsedItemIds);
     }
 
     /// <summary>

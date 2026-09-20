@@ -145,6 +145,13 @@ internal sealed class ItemManaRechargeController
     private double _frameObservedSeconds;
     private ActionLockTable _actionLocks = new();
 
+    /// <summary>
+    /// When the item-slot window this owner armed for the outstanding use
+    /// runs out. Past it the use is still watched, but it is no longer
+    /// holding the character: it neither claims the pass nor owns the slot.
+    /// </summary>
+    private double _pendingHoldUntil;
+
     /// <summary>How long an unanswered use is waited out before it is given up.</summary>
     private const double PendingTimeoutSeconds = 15d;
 
@@ -195,8 +202,23 @@ internal sealed class ItemManaRechargeController
         _pending = null;
         _pendingAge = 0d;
         _frameObservedSeconds = 0d;
-        _actionLocks.Release(ActionLockKind.ItemUse);
+        // Only while the window this owner armed is still running: past it
+        // the slot may belong to somebody else, and releasing it then would
+        // pull the floor out from under whoever is standing on it.
+        if (_actionLocks.Now < _pendingHoldUntil)
+            _actionLocks.Release(ActionLockKind.ItemUse);
+        _pendingHoldUntil = 0d;
     }
+
+    /// <summary>
+    /// Whether the outstanding use still holds the character. It does for
+    /// the window it armed, not for the whole watchdog: waiting out an
+    /// answer that is not coming is this owner's business, not everybody
+    /// else's, and holding the pass for it kept the looter off its corpse
+    /// for seconds at a time while the slot itself read free.
+    /// </summary>
+    private bool PendingStillHoldsThePass =>
+        _pending is not null && _actionLocks.Now < _pendingHoldUntil;
 
     /// <summary>
     /// How long a worn item's appraisal is believed, in seconds. Gear spends
@@ -282,7 +304,7 @@ internal sealed class ItemManaRechargeController
         if (AgePending(pendingElapsed))
             return false;
         if (_pending is not null)
-            return true;
+            return PendingStillHoldsThePass;
         if (!canAct
             || !_settings.RefillWornMana
             || !_host.Automation.IsAvailable
@@ -299,7 +321,6 @@ internal sealed class ItemManaRechargeController
         // was appraised long enough ago to have spent mana since, cannot say
         // whether the item needs any.
         ObserveWornAppraisals(owned);
-        RequestWornAppraisals(owned);
         ItemManaRechargePlan? plan = ItemManaRechargePlanner.Plan(
             owned,
             _profiles.ConsumableCategories.AsReadOnly(),
@@ -311,6 +332,11 @@ internal sealed class ItemManaRechargeController
             ReportLowItem);
         if (plan is not { } next)
         {
+            // Only now, with nothing to spend this pass: a description asked
+            // for before the plan was made put a question on the wire even
+            // on the passes the refill already knew what it was doing, and
+            // the client answers one at a time.
+            RequestWornAppraisals(owned);
             if (sourceMissing)
             {
                 WarnOnce("Warning: No mana charges/stones available, but "
@@ -352,6 +378,7 @@ internal sealed class ItemManaRechargeController
         // The charge is in the character's hands until the server answers
         // for it; every other rule that consumes an item waits that out.
         _actionLocks.Arm(ActionLockKind.ItemUse, ItemUseLock.TransactionSeconds);
+        _pendingHoldUntil = _actionLocks.Now + ItemUseLock.TransactionSeconds;
         _pendingSourceAssessmentVersion = sourceAssessmentVersion;
         _pendingRecipientObjectId = recipientObjectId;
         _usedCharges[next.ChargeObjectId] = new UsedChargeSnapshot(
