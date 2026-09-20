@@ -2393,6 +2393,153 @@ public sealed class NavigationTests
         Assert.Equal(2, automation.GoToRequests.Count);
     }
 
+    /// <summary>
+    /// The far stop range is the outer bound on what counts as a goal at all,
+    /// not a second arrival radius: a waypoint further away than it is not
+    /// walked to, so the route rule declines and nothing is asked of the
+    /// character. Inside it the same waypoint is walked to normally.
+    ///
+    /// Mutation: drop the far bound from the leg test, and the waypoint twenty
+    /// metres out is walked to as well.
+    /// </summary>
+    [Theory]
+    [InlineData(8d, true)]
+    [InlineData(20d, false)]
+    public void TheFarStopRangeBoundsWhichWaypointIsAGoalAtAll(
+        double waypointMetres,
+        bool walks)
+    {
+        var automation = new FakeAutomation
+        {
+            NavigationSnapshot = Snapshot(Position(0d, 0d, heading: 90f)),
+        };
+        var settings = new NavigationSettings
+        {
+            Enabled = true,
+            Mode = RouteMode.Circular,
+            MinimumDistanceMeters = 2d,
+            MaximumDistanceMeters = 10d,
+        };
+        settings.Waypoints.Add(Waypoint(
+            RouteWaypointType.Point,
+            Position(waypointMetres / 240d, 0d)));
+        var controller = new NavigationController(new FakeHost(automation), settings);
+
+        Assert.Equal(walks, controller.Tick(0.05d, canAct: true));
+        Assert.Equal(walks, automation.Intents.Count != 0);
+    }
+
+    /// <summary>
+    /// The same bound holds a follow target: further away than the far stop
+    /// range the follow is not a goal, and the character is not sent after it.
+    ///
+    /// Mutation: take the far bound out of the follow test and the character
+    /// chases a target the profile put out of bounds.
+    /// </summary>
+    [Theory]
+    [InlineData(8d, true)]
+    [InlineData(20d, false)]
+    public void TheFarStopRangeAlsoBoundsAFollowTarget(
+        double targetMetres,
+        bool follows)
+    {
+        var automation = new FakeAutomation
+        {
+            NavigationSnapshot = Snapshot(Position(0d, 0d, heading: 90f)),
+        };
+        automation.Objects[42u] = new PluginNavigationObject(
+            42u,
+            "Partner",
+            Position(targetMetres / 240d, 0d));
+        var settings = new NavigationSettings
+        {
+            Enabled = true,
+            Mode = RouteMode.Target,
+            MinimumDistanceMeters = 2d,
+            MaximumDistanceMeters = 10d,
+            FollowTargetObjectId = 42u,
+        };
+        var controller = new NavigationController(new FakeHost(automation), settings);
+
+        Assert.Equal(follows, controller.Tick(0.05d, canAct: true));
+        Assert.Equal(follows, automation.Intents.Count != 0);
+    }
+
+    /// <summary>
+    /// The portal-use distance decides between walking at a portal and pulling
+    /// it: outside the profile's distance the waypoint steers and no use goes
+    /// out, inside it the use is dispatched and the character stands still.
+    ///
+    /// Mutation: ignore the setting and the portal is used from wherever the
+    /// character happens to be standing.
+    /// </summary>
+    [Theory]
+    [InlineData(10d, false)]
+    [InlineData(2d, true)]
+    public void ThePortalUseDistanceDecidesBetweenWalkingAndPulling(
+        double portalMetres,
+        bool uses)
+    {
+        var automation = new FakeAutomation
+        {
+            NavigationSnapshot = Snapshot(Position(0d, 0d, heading: 90f)),
+        };
+        automation.Objects[77u] = new PluginNavigationObject(
+            77u,
+            "Portal",
+            Position(portalMetres / 240d, 0d));
+        var settings = new NavigationSettings
+        {
+            Enabled = true,
+            Mode = RouteMode.Once,
+            PortalUseDistanceMeters = 4d,
+        };
+        RouteWaypoint portal = Waypoint(RouteWaypointType.Portal, Position(0d, 0d));
+        portal.ObjectId = 77u;
+        portal.ObjectName = "Portal";
+        settings.Waypoints.Add(portal);
+        var controller = new NavigationController(new FakeHost(automation), settings);
+
+        Assert.True(controller.Tick(0.05d, canAct: true));
+        Assert.Equal(uses, automation.UsedObjects.Count != 0);
+        Assert.Equal(!uses, automation.Intents.Count != 0);
+    }
+
+    /// <summary>
+    /// The portal-use distance is a profile number, so a profile that widens it
+    /// pulls the same portal from further out.
+    ///
+    /// Mutation: replace the setting with a constant and the wide profile walks
+    /// instead of pulling.
+    /// </summary>
+    [Fact]
+    public void AWiderPortalUseDistancePullsTheSamePortalFromFurtherOut()
+    {
+        var automation = new FakeAutomation
+        {
+            NavigationSnapshot = Snapshot(Position(0d, 0d, heading: 90f)),
+        };
+        automation.Objects[78u] = new PluginNavigationObject(
+            78u,
+            "Portal",
+            Position(10d / 240d, 0d));
+        var settings = new NavigationSettings
+        {
+            Enabled = true,
+            Mode = RouteMode.Once,
+            PortalUseDistanceMeters = 15d,
+        };
+        RouteWaypoint portal = Waypoint(RouteWaypointType.Portal, Position(0d, 0d));
+        portal.ObjectId = 78u;
+        portal.ObjectName = "Portal";
+        settings.Waypoints.Add(portal);
+        var controller = new NavigationController(new FakeHost(automation), settings);
+
+        Assert.True(controller.Tick(0.05d, canAct: true));
+        Assert.Equal([78u], automation.UsedObjects);
+        Assert.Empty(automation.Intents);
+    }
+
     /// <summary>Steps the armed mover through a stretch of host frames, each long enough to be a steering frame.</summary>
     private static void StepFrames(NavigationController controller, double seconds)
     {
