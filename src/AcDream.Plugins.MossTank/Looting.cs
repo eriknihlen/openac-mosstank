@@ -217,18 +217,29 @@ internal static class ManaStoneTransferPlanner
         && strings.TryGetValue(key, out string? text)
         && !string.IsNullOrEmpty(text);
 
+    /// <param name="canUseStone">
+    /// Whether a stone may be spent on this pass. Nothing here asks whether it
+    /// has been appraised: empty or charged is something the client says about
+    /// the object itself, and a stone nobody has ever looked at is still
+    /// somewhere to put mana.
+    /// </param>
+    /// <param name="canDrainTank">
+    /// Whether an item may be emptied. This one does wait on an appraisal --
+    /// how much mana the item holds is only known from one.
+    /// </param>
     public static ManaStoneTransferPlan? Plan(
         IReadOnlyList<PluginInventoryItem> owned,
         IReadOnlyDictionary<uint, LootAction> classified,
         int minimumTankMana,
         Func<PluginInventoryItem, bool>? isProfiledManaStone = null,
-        Func<uint, bool>? canUse = null,
+        Func<uint, bool>? canUseStone = null,
+        Func<uint, bool>? canDrainTank = null,
         Func<uint, PluginItemProperties?>? capture = null)
     {
         PluginInventoryItem stone = owned
             .Where(item => !item.IsEquipped
                 && item.WielderObjectId == 0u
-                && (canUse?.Invoke(item.ObjectId) ?? true)
+                && (canUseStone?.Invoke(item.ObjectId) ?? true)
                 && (item.Effects & MagicalEffect) == 0u
                 && isProfiledManaStone?.Invoke(item) == true)
             .OrderBy(static item => item.ObjectId)
@@ -241,7 +252,7 @@ internal static class ManaStoneTransferPlanner
                     out LootAction action)
                 && action == LootAction.ManaTank
                 && IsDonor(item, minimumTankMana)
-                && (canUse?.Invoke(item.ObjectId) ?? true)
+                && (canDrainTank?.Invoke(item.ObjectId) ?? true)
                 && (capture is null
                     || (capture(item.ObjectId) is { } written
                         && IsUninscribed(written))))
@@ -662,6 +673,13 @@ internal sealed partial class LootController
     private string _sellPendingName = string.Empty;
     private ManaStoneTransferPlan? _manaTransfer;
     private long _manaTransferRevision;
+
+    /// <summary>
+    /// When the item-slot window the outstanding drain armed runs out. Past
+    /// it the slot may be somebody else's, and giving it back then would pull
+    /// the floor out from under whoever is standing on it.
+    /// </summary>
+    private double _manaTransferHoldUntil;
     private readonly HashSet<uint> _uncertainManaItems = [];
     private SalvageBagCombinePlan? _combinePending;
     private readonly Dictionary<uint, int> _combineAttempts = [];
@@ -862,7 +880,13 @@ internal sealed partial class LootController
         // a pull, any item use of ours is answered before the next loot
         // step is taken. The slot comes down on the frame the container
         // opens, or when its own window runs out.
-        if (_actionLocks is { } locks && locks.IsLocked(ActionLockKind.ItemUse))
+        // A drain this controller has already issued is the one thing read
+        // through a held slot: the slot it is waiting behind is its own, and
+        // a pass that cannot look at its own answer would only ever end the
+        // wait on the watchdog.
+        if (_manaTransfer is null
+            && _actionLocks is { } locks
+            && locks.IsLocked(ActionLockKind.ItemUse))
         {
             Status = _waitingItem != 0u
                 ? $"Waiting for {_waitingName}…"
@@ -1245,6 +1269,7 @@ internal sealed partial class LootController
         _sellPendingName = string.Empty;
         _manaTransfer = null;
         _manaTransferRevision = 0L;
+        _manaTransferHoldUntil = 0d;
         _combinePending = null;
         _combineAttempts.Clear();
         _abandonedCombineBags.Clear();
@@ -1746,11 +1771,26 @@ internal sealed partial class LootController
             _classifiedOwnedItems,
             _settings.ManaTankMinimumMana,
             item => IsProfiledManaStone(item),
-            CanUseManaItem,
+            CanUseManaStone,
+            CanDrainManaItem,
             CaptureOwnedProperties) is not null;
     }
 
-    private bool CanUseManaItem(uint objectId) =>
+    /// <summary>
+    /// Whether a stone may be filled. Empty or charged comes with the object
+    /// itself, so no appraisal is waited for: asking for one benched every
+    /// stone a character simply carries -- nothing appraises those -- and a
+    /// run's worth of items taken for their mana sat in the pack undrained.
+    /// A pair whose last use could not be accounted for is left alone.
+    /// </summary>
+    private bool CanUseManaStone(uint objectId) =>
+        !_uncertainManaItems.Contains(objectId);
+
+    /// <summary>
+    /// Whether an item may be emptied. How much mana it holds is known only
+    /// from an appraisal, so this one waits for one.
+    /// </summary>
+    private bool CanDrainManaItem(uint objectId) =>
         !_uncertainManaItems.Contains(objectId)
         && ConfiguredSupplyReadiness.IsAssessed(_host.Automation, objectId);
 
@@ -1778,6 +1818,9 @@ internal sealed partial class LootController
             {
                 RemoveClassifiedOwned(pending.TankObjectId);
                 Status = $"Filled {pending.StoneName}.";
+                Log?.Invoke(
+                    MacroLogChannel.Loot,
+                    $"ManaDrain: filled {pending.StoneName} from {pending.TankName}");
                 _host.Automation.Objects.Identify(pending.StoneObjectId);
             }
             else
@@ -1786,10 +1829,15 @@ internal sealed partial class LootController
                 _uncertainManaItems.Add(pending.StoneObjectId);
                 _uncertainManaItems.Add(pending.TankObjectId);
                 Status = $"Mana fill unconfirmed; holding {pending.StoneName} and {pending.TankName}.";
+                Log?.Invoke(
+                    MacroLogChannel.Loot,
+                    $"ManaDrain: no answer for {pending.StoneName} on " +
+                    $"{pending.TankName}; leaving both alone");
             }
             _host.Log.Info($"Mana stone fill: {outcome}, source={pending.StoneName} " +
                 $"(0x{pending.StoneObjectId:X8}), donor={pending.TankName} " +
                 $"(0x{pending.TankObjectId:X8}), error=0x{items.LastCompletion.WeenieError:X8}");
+            ReleaseManaTransferHold();
             _manaTransfer = null;
             _manaTransferRevision = 0L;
             _stateAge = 0d;
@@ -1803,7 +1851,8 @@ internal sealed partial class LootController
             _classifiedOwnedItems,
             _settings.ManaTankMinimumMana,
             item => IsProfiledManaStone(item),
-            CanUseManaItem,
+            CanUseManaStone,
+            CanDrainManaItem,
             CaptureOwnedProperties);
         if (plan is not { } next)
             return false;
@@ -1812,17 +1861,51 @@ internal sealed partial class LootController
             next.TankObjectId);
         if (!result.Accepted)
         {
-            Status = result.Status == PluginItemCommandStatus.Busy
-                ? "Waiting to fill mana stone…"
-                : $"Could not use {next.StoneName} on {next.TankName}.";
-            return result.Status == PluginItemCommandStatus.Busy;
+            if (result.Status == PluginItemCommandStatus.Busy)
+            {
+                Status = "Waiting to fill mana stone…";
+                return true;
+            }
+            // Refused outright: nothing was sent and nothing changed, so the
+            // answer is about this item and asking again would only produce
+            // it again. It stops being one this run means to empty, which
+            // ends the retry and hands the stone it was holding back to the
+            // next item worth draining.
+            _uncertainManaItems.Add(next.TankObjectId);
+            RemoveClassifiedOwned(next.TankObjectId);
+            Status = $"Could not use {next.StoneName} on {next.TankName}.";
+            Log?.Invoke(
+                MacroLogChannel.Loot,
+                $"ManaDrain: could not empty {next.TankName} into " +
+                $"{next.StoneName} ({result.Status}); leaving it alone");
+            return false;
         }
         _host.Log.Info($"Mana stone fill request: source={next.StoneName} (0x{next.StoneObjectId:X8}), donor={next.TankName} (0x{next.TankObjectId:X8})");
+        Log?.Invoke(
+            MacroLogChannel.Loot,
+            $"ManaDrain: emptying {next.TankName} into {next.StoneName}");
         _manaTransfer = next;
         _manaTransferRevision = items.LastCompletion.Revision;
         _stateAge = 0d;
+        // The drain is an item use like any other and the character's hands
+        // are full until the server answers for it, so the item slot is held
+        // the same way every other rule that consumes an item holds it.
+        _actionLocks?.Arm(ActionLockKind.ItemUse, ItemUseLock.TransactionSeconds);
+        _manaTransferHoldUntil =
+            (_actionLocks?.Now ?? 0d) + ItemUseLock.TransactionSeconds;
         Status = $"Filling {next.StoneName} from {next.TankName}…";
         return true;
+    }
+
+    /// <summary>
+    /// Gives back the item slot the outstanding drain took, but only while
+    /// the window it armed is still running.
+    /// </summary>
+    private void ReleaseManaTransferHold()
+    {
+        if (_actionLocks is { } locks && locks.Now < _manaTransferHoldUntil)
+            locks.Release(ActionLockKind.ItemUse);
+        _manaTransferHoldUntil = 0d;
     }
 
     private bool HasSalvageBagCombine() => SalvageBagCombinePlanner.Plan(

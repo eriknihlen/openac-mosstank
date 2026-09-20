@@ -48,13 +48,13 @@ public sealed class ManaStoneSupplyTests
                 : new Dictionary<uint, string>());
 
         Assert.NotNull(ManaStoneTransferPlanner.Plan(
-            [Stone, Donor], classes, 1000, ProfiledStone, null,
+            [Stone, Donor], classes, 1000, ProfiledStone, null, null,
             static _ => Text(new Dictionary<uint, string>())));
         Assert.Null(ManaStoneTransferPlanner.Plan(
-            [Stone, Donor], classes, 1000, ProfiledStone, null, Written));
+            [Stone, Donor], classes, 1000, ProfiledStone, null, null, Written));
         // Properties the client cannot produce are not a licence to drain.
         Assert.Null(ManaStoneTransferPlanner.Plan(
-            [Stone, Donor], classes, 1000, ProfiledStone, null,
+            [Stone, Donor], classes, 1000, ProfiledStone, null, null,
             static _ => null));
     }
 
@@ -75,7 +75,7 @@ public sealed class ManaStoneSupplyTests
         Assert.Null(ManaStoneTransferPlanner.Plan([Stone with { Effects = 1 }, Donor], classes, 1000, ProfiledStone));
         Assert.Null(ManaStoneTransferPlanner.Plan([Stone, Donor], classes, 1000, static _ => false));
         Assert.Null(ManaStoneTransferPlanner.Plan([Stone, Donor], classes, 1000, ProfiledStone, id => id != 10));
-        Assert.Null(ManaStoneTransferPlanner.Plan([Stone, Donor], classes, 1000, ProfiledStone, id => id != 20));
+        Assert.Null(ManaStoneTransferPlanner.Plan([Stone, Donor], classes, 1000, ProfiledStone, null, id => id != 20));
     }
 
     /// <summary>

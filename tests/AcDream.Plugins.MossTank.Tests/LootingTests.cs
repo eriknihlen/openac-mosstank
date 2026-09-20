@@ -2468,10 +2468,58 @@ public sealed partial class LootingTests
         /// unreachable from any test.
         /// </summary>
         public List<(uint Source, uint Target)> Applied { get; } = [];
+
+        /// <summary>
+        /// What the client answers the next "use this on that" with, oldest
+        /// first; anything asked after the queue runs dry is accepted.
+        /// </summary>
+        public Queue<PluginItemCommandResult> ApplyResults { get; } = [];
+
+        /// <summary>
+        /// Models what a drain does to the pack: the stone the mana went into
+        /// comes back charged and the item it came out of is gone, destroyed
+        /// by the drain. Off by default so the tests that only care about
+        /// what was asked stay as they were.
+        /// </summary>
+        public bool ManaDrainConsumesDonor { get; set; }
+
+        private readonly List<(uint Stone, uint Donor)> _unsettledDrains = [];
+
         public PluginItemCommandResult Apply(uint objectId, uint targetObjectId)
         {
             Applied.Add((objectId, targetObjectId));
-            return new(PluginItemCommandStatus.Started);
+            PluginItemCommandResult answer = ApplyResults.Count > 0
+                ? ApplyResults.Dequeue()
+                : new(PluginItemCommandStatus.Started);
+            if (answer.Accepted && ManaDrainConsumesDonor)
+                _unsettledDrains.Add((objectId, targetObjectId));
+            return answer;
+        }
+
+        /// <summary>
+        /// The server answers the drains that went out. It is a separate step
+        /// because it is a separate moment: a use is accepted first and
+        /// answered afterwards, and a fake that answers inside the call leaves
+        /// no version of the pack for the macro to have asked about.
+        /// </summary>
+        public void SettleManaDrains()
+        {
+            foreach ((uint stone, uint donor) in _unsettledDrains)
+            {
+                var remaining = new List<PluginInventoryItem>();
+                foreach (PluginInventoryItem item in Owned)
+                {
+                    if (item.ObjectId == donor)
+                        continue;
+                    remaining.Add(item.ObjectId == stone
+                        ? item with { Effects = item.Effects | 1u }
+                        : item);
+                }
+                Owned = remaining;
+                UseCompletion = new PluginItemUseCompletion(
+                    UseCompletion.Revision + 1, stone, donor, 0u);
+            }
+            _unsettledDrains.Clear();
         }
         public List<uint> Picked { get; } = [];
         public Queue<PluginItemCommandResult> PickupResults { get; } = [];
@@ -2483,7 +2531,10 @@ public sealed partial class LootingTests
         public IReadOnlyList<PluginInventoryItem> CaptureOwnedItems() => Owned;
         // The host's object table, as far as these tests need it: every owned
         // item is there and already assessed, the state a kit or stone is in
-        // before the macro may use it.
+        // before the macro may use it -- bar the ones a test names as never
+        // having been appraised, which is what a stone bought or looted and
+        // never looked at reads like.
+        public HashSet<uint> Unassessed { get; } = [];
         public IWorldObjectAutomation Objects => this;
         bool IWorldObjectAutomation.IsAvailable => true;
         bool IWorldObjectAutomation.TryGet(uint objectId, out PluginWorldObject value)
@@ -2496,7 +2547,7 @@ public sealed partial class LootingTests
                     item.ObjectId, item.WeenieClassId, item.Name, PluginObjectClass.Unknown,
                     item.ItemType, item.ContainerObjectId, item.WielderObjectId)
                 {
-                    LastIdTime = 1,
+                    LastIdTime = Unassessed.Contains(item.ObjectId) ? 0 : 1,
                 };
                 return true;
             }
