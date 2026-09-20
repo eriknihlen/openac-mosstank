@@ -5779,6 +5779,37 @@ public sealed class MossTankPanelTests
         Assert.Contains("BuffProfile_Banes", panel.AdvancedOptionNames);
     }
 
+    /// <summary>
+    /// The advanced list shows the four plain value kinds -- switch, choice,
+    /// whole number and decimal -- and nothing else. A table-valued setting has
+    /// no plain value to type, and an edit made against it here would be
+    /// dropped without a word, so it is not offered at all; the recharge
+    /// handler table is the only one of its kind.
+    ///
+    /// Mutation: filter only text settings out again and the table reappears
+    /// in the list as an editable row.
+    /// </summary>
+    [Fact]
+    public void AdvancedOptionListOffersOnlyThePlainValueKinds()
+    {
+        var panel = new MossTankPanel(new FakeHost(new FakeAutomation()));
+
+        Assert.DoesNotContain("RechargeHandlerSet", panel.AdvancedOptionNames);
+
+        foreach (string name in panel.AdvancedOptionNames)
+        {
+            Assert.Contains(
+                VtankOptionCatalog.DeclaredType(name),
+                new[]
+                {
+                    VtankSettingValueType.Bool,
+                    VtankSettingValueType.Enum,
+                    VtankSettingValueType.Int,
+                    VtankSettingValueType.Double,
+                });
+        }
+    }
+
     [Fact]
     public void AdvancedOptionCategoryEnabledIsNotTheMutableBackingArray()
     {

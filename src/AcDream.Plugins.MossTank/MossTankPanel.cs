@@ -566,12 +566,23 @@ internal sealed partial class MossTankPanel : IBuffRuleHost, IDisposable
             if (_advancedOptionCategoryEnabled[i])
                 enabledMask |= VtankOptionCatalog.CategoryBits[i];
 
+        // Only the four plain value kinds are listed: a switch, a choice, a
+        // whole number and a decimal. Anything else -- free text, or a
+        // setting whose value is a whole table -- has no single value to type
+        // into this editor, and an edit made against one here would be
+        // dropped without a word.
         return VtankOptionCatalog.Names.Where(name =>
-            VtankOptionCatalog.DeclaredType(name) != VtankSettingValueType.String
+            IsPlainAdvancedOptionValue(VtankOptionCatalog.DeclaredType(name))
             && (!VtankDefaultSettingsDatabase.SettingCategoryBitmasks.TryGetValue(name, out int mask)
                 || mask == 0
                 || (mask & enabledMask) != 0)).ToArray();
     }
+
+    private static bool IsPlainAdvancedOptionValue(VtankSettingValueType type) =>
+        type is VtankSettingValueType.Bool
+            or VtankSettingValueType.Enum
+            or VtankSettingValueType.Int
+            or VtankSettingValueType.Double;
 
     private void RefreshAdvancedOptions()
     {
