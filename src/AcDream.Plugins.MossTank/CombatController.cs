@@ -319,15 +319,6 @@ internal sealed class CombatController
 
     private bool _physicalResultArmed;
 
-    /// <summary>
-    /// True when the swing just given up on has already cost its attempt and
-    /// its own outcome line has not arrived yet. One swing is one attempt:
-    /// giving up on it and then reading the line that explains it must not
-    /// count twice. The next such line clears this, so the shot after it is
-    /// counted normally.
-    /// </summary>
-    private bool _physicalResultAttemptCharged;
-
     private uint _physicalResultTargetId;
     private string _physicalResultTargetName = string.Empty;
     private ushort _physicalResultIncarnation;
@@ -1023,11 +1014,8 @@ internal sealed class CombatController
     }
 
     /// <summary>
-    /// A swing that has been outstanding too long is given up on: the attack
-    /// is cancelled through the ordinary command, which is what ends it on the
-    /// server, and the monster is charged one attempt. Enough of those in a
-    /// row and it is given up as unhittable, exactly as a monster whose shots
-    /// all fly into the scenery is — one blow that lands clears the count.
+    /// Marks the instant the outstanding swing reached the server, which is
+    /// what the wait below is measured from.
     /// </summary>
     private void StampSwingSent()
     {
@@ -1100,24 +1088,15 @@ internal sealed class CombatController
         if (_now - _physicalSwingSentAt < UnansweredSwingSeconds)
             return;
         uint stalled = _pendingPhysicalTarget;
-        // This swing has now cost its attempt, so its own outcome line —
-        // which can still arrive after the cancel — must not cost another.
-        _physicalResultAttemptCharged = true;
         // The wait starts over whether or not the cancel is answered, so a
-        // host that never reports the attack finished still costs one counted
-        // attempt per bound instead of holding the macro here for good.
+        // host that never reports the attack finished still lets the next
+        // pass ask again rather than holding the macro here for good.
         _physicalSwingSentAt = _now;
         _host.Automation.Combat.AbortPhysicalAttack();
         Log?.Invoke(
             MacroLogChannel.CastInfo,
             $"Swing: no result from {_targetName} (0x{stalled:X8}) after "
                 + $"{UnansweredSwingSeconds:0.0}s, cancelling");
-        AnnounceBlacklist(
-            _failures.RecordMiss(stalled, _now, _settings),
-            stalled,
-            _physicalResultTargetId == stalled
-                ? _physicalResultTargetName
-                : _targetName);
     }
 
     private AttackPassOutcome TickMagic()
@@ -2916,7 +2895,6 @@ internal sealed class CombatController
     private void ArmPhysicalResultText(uint targetObjectId, string targetName)
     {
         _physicalResultArmed = true;
-        _physicalResultAttemptCharged = false;
         _physicalResultTargetId = targetObjectId;
         _physicalResultTargetName = targetName ?? string.Empty;
         _physicalResultIncarnation = FindTarget(targetObjectId).Incarnation;
@@ -2969,21 +2947,11 @@ internal sealed class CombatController
                 CombatResultText.MissileHitEnvironment,
                 StringComparison.Ordinal))
         {
-            // Unless the swing this explains has already been charged for,
-            // in which case the line is that swing's own account of itself
-            // arriving after the fact.
-            if (_physicalResultAttemptCharged)
-            {
-                _physicalResultAttemptCharged = false;
-            }
-            else
-            {
-                AnnounceBlacklist(
-                    _failures.RecordMiss(
-                        _physicalResultTargetId, _now, _settings),
-                    _physicalResultTargetId,
-                    _physicalResultTargetName);
-            }
+            AnnounceBlacklist(
+                _failures.RecordMiss(
+                    _physicalResultTargetId, _now, _settings),
+                _physicalResultTargetId,
+                _physicalResultTargetName);
         }
         else if (message.LogTextType == CombatLogTextType.OwnCombat
             && CombatResultText.IsDamageReport(text))

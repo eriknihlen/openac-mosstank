@@ -6613,14 +6613,19 @@ public sealed class CombatControllerTests
     }
 
     /// <summary>
-    /// Waits that keep running out are counted like any other attempt that
-    /// never reached the monster, so a target the character can never resolve
-    /// a swing against is given up and the next pass takes the other one.
-    /// Mutation: drop the <c>RecordMiss</c> from the give-up and this fails —
-    /// the macro cancels and re-swings at the same monster for ever.
+    /// A swing nobody answers is not a miss. Two things are evidence that a
+    /// monster cannot be reached — the client saying the shot flew into the
+    /// scenery, and a cast whose result never comes — and a swing left
+    /// hanging is neither: the silence is on this side of the wire, so it
+    /// says nothing about the monster. The wait still ends and the swing is
+    /// still cancelled; the monster is simply charged nothing for it, and is
+    /// still there to be swung at on the next pass.
+    /// Mutation: charge an attempt in the give-up and this fails — a stall
+    /// of our own puts a perfectly hittable monster out of play for the whole
+    /// blacklist window.
     /// </summary>
     [Fact]
-    public void RepeatedUnansweredSwingsRetireTheTargetAndFreeTheNextOne()
+    public void AnUnansweredSwingCostsTheMonsterNothing()
     {
         (FakeAutomation surface, CombatController controller, _) = MeleeKillRig(
             new CombatSettings
@@ -6639,93 +6644,14 @@ public sealed class CombatControllerTests
         };
 
         // The first pass registers the swing as sent; after that one wait
-        // runs out per pass, and the second retires the monster.
+        // runs out per pass. However many run out, none of them is a miss.
+        controller.OnTick(5.0);
+        int abortsBefore = surface.AbortCount;
         controller.OnTick(5.0);
         controller.OnTick(5.0);
         controller.OnTick(5.0);
 
-        Assert.Contains(
-            surface.PostedSystemMessages,
-            message => message.Contains(
-                "Blacklisting unhittable target Drudge (10) for 300 seconds.",
-                StringComparison.Ordinal));
-        controller.OnTick(0.25);
-        Assert.Contains("Mosswart", controller.TargetText, StringComparison.Ordinal);
-    }
-
-    /// <summary>
-    /// One swing costs one attempt. A swing given up on and then explained by
-    /// its own late outcome line — the shot flew into the scenery — is still
-    /// one attempt, not two.
-    /// Mutation: charge the outcome line unconditionally and this fails — two
-    /// attempts land on a monster that was only swung at once, and the
-    /// allowance is spent at twice the rate.
-    /// </summary>
-    [Fact]
-    public void AGivenUpSwingAndItsOwnLateOutcomeLineCostOneAttempt()
-    {
-        (FakeAutomation surface, CombatController controller, _) = MeleeKillRig(
-            new CombatSettings
-            {
-                BlacklistMonsterAttemptCount = 1,
-                BlacklistMonsterTimeoutSeconds = 300,
-            },
-            tracksAttackRequests: true);
-        surface.FillPowerBar();
-        controller.OnTick(0.25);
-        Assert.Equal(1, surface.ReleaseCount);
-
-        // The wait runs out: that is the swing's one attempt.
-        controller.OnTick(5.0);
-
-        // The shot's own outcome arrives after the cancel.
-        surface.ChatMessages =
-        [
-            ChatLine(1, "Your missile attack hit the environment."),
-        ];
-        controller.OnTick(0.25);
-
-        Assert.DoesNotContain(
-            surface.PostedSystemMessages,
-            message => message.Contains(
-                "Blacklisting unhittable target",
-                StringComparison.Ordinal));
-        Assert.Contains("Drudge", controller.TargetText, StringComparison.Ordinal);
-    }
-
-    /// <summary>
-    /// A monster the character is demonstrably hitting is never retired by
-    /// this path: one blow that lands starts the count over.
-    /// Mutation: point the give-up at a counter the damage line does not clear
-    /// and this fails — a monster being hit between slow answers would be
-    /// walked away from.
-    /// </summary>
-    [Fact]
-    public void ALandedBlowClearsTheUnansweredSwingCount()
-    {
-        (FakeAutomation surface, CombatController controller, _) = MeleeKillRig(
-            new CombatSettings
-            {
-                BlacklistMonsterAttemptCount = 1,
-                BlacklistMonsterTimeoutSeconds = 300,
-            });
-        surface.CombatSnapshot = surface.CombatSnapshot with
-        {
-            ServerResponsePending = true,
-        };
-
-        controller.OnTick(5.0);
-        surface.ChatMessages =
-        [
-            ChatLine(
-                1,
-                "You slash Drudge for 43 points of slashing damage!",
-                logTextType: 0x16u),
-        ];
-        controller.OnTick(0.25);
-        surface.ChatMessages = [];
-        controller.OnTick(5.0);
-
+        Assert.True(surface.AbortCount > abortsBefore);
         Assert.DoesNotContain(
             surface.PostedSystemMessages,
             message => message.Contains(
@@ -6748,15 +6674,14 @@ public sealed class CombatControllerTests
                 BlacklistMonsterAttemptCount = 1,
                 BlacklistMonsterTimeoutSeconds = 5,
             });
-        surface.CombatSnapshot = surface.CombatSnapshot with
-        {
-            ServerResponsePending = true,
-        };
 
-        controller.OnTick(5.0);
-        controller.OnTick(5.0);
-        controller.OnTick(5.0);
+        surface.ChatMessages =
+        [
+            ChatLine(1, "Your missile attack hit the environment."),
+            ChatLine(2, "Your missile attack hit the environment."),
+        ];
         controller.OnTick(0.25);
+        surface.ChatMessages = [];
         Assert.DoesNotContain("Drudge", controller.TargetText, StringComparison.Ordinal);
 
         controller.OnTick(6.0);
