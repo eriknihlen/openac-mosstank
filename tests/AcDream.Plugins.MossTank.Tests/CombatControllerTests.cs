@@ -6102,6 +6102,148 @@ public sealed class CombatControllerTests
         Assert.Equal(PluginAttackHeight.High, surface.LastBeginHeight);
     }
 
+    /// <summary>
+    /// The host takes the selection away the instant the monster dies, which
+    /// is what really happens on a live server, and the kill sentence lands
+    /// after that. The sentence still belongs to the swing that was armed, so
+    /// the monster is credited and the one beside it is swung at on the next
+    /// pass. Mutation: gate the chat reader on the host's current selection
+    /// again and the sentence is thrown away — the macro re-arms at the
+    /// corpse and loses the seconds this whole arrangement exists to save.
+    /// </summary>
+    [Fact]
+    public void AKillLineArrivingAfterTheHostDroppedTheSelectionStillCredits()
+    {
+        (FakeAutomation surface, CombatController controller, ActionLockTable locks) =
+            MeleeKillRig();
+        Assert.Equal(10u, surface.LastBeginTarget);
+        surface.Targets =
+        [
+            Target(10, "Drudge", distance: 2, angle: 0),
+            Target(20, "Mosswart", distance: 3, angle: 0),
+        ];
+
+        // The host answers the death first: the selection is gone before the
+        // sentence is logged.
+        surface.CombatSnapshot = surface.CombatSnapshot with
+        {
+            SelectedObjectId = 0u,
+        };
+        surface.ChatMessages = [ChatLine(1, "You killed Drudge!")];
+        controller.OnTick(0.25);
+        surface.ChatMessages = [];
+
+        Assert.True(locks.IsLocked(ActionLockKind.Navigation));
+        controller.OnTick(0.25);
+        controller.OnTick(0.25);
+        Assert.Equal(20u, surface.LastBeginTarget);
+    }
+
+    /// <summary>
+    /// The host saying the creature is dead is enough on its own: no kill
+    /// sentence, and no health ever asked for. Mutation: take the death out
+    /// of the plugin's dead test and the corpse stays the target, because
+    /// nothing else in the pass can tell it is a corpse.
+    /// </summary>
+    [Fact]
+    public void TheHostsDeathFactAloneDropsTheTarget()
+    {
+        (FakeAutomation surface, CombatController controller, _) = MeleeKillRig();
+        Assert.Equal(10u, surface.LastBeginTarget);
+
+        surface.Targets =
+        [
+            // Health was never asked for, so it still reads as untouched.
+            Target(10, "Drudge", distance: 2, angle: 0) with
+            {
+                IsHealthKnown = false,
+                HealthFraction = 1f,
+                IsDead = true,
+            },
+            Target(20, "Mosswart", distance: 3, angle: 0),
+        ];
+        controller.OnTick(0.25);
+        controller.OnTick(0.25);
+
+        Assert.Equal(20u, surface.LastBeginTarget);
+    }
+
+    /// <summary>
+    /// A cleaving weapon fells the creature beside the one the swing was
+    /// aimed at. The sentence names that creature, and it is that creature
+    /// the macro gives up for dead — the swing at our own monster carries on.
+    /// Mutation: restore the early return on a cleaving weapon and the
+    /// bystander is left in the list as a live candidate, to be walked to and
+    /// swung at once our own monster falls.
+    /// </summary>
+    [Fact]
+    public void ACleaveKillSentenceEndsTheMonsterItNames()
+    {
+        var surface = new FakeAutomation
+        {
+            CombatSnapshot = Physical() with { SelectedObjectId = 10u },
+            Targets =
+            [
+                Target(10, "Drudge", distance: 2, angle: 0),
+                Target(20, "Mosswart", distance: 2, angle: 20),
+            ],
+            EquipmentItems = [CleavingWieldedWeapon()],
+        };
+        var settings = new CombatSettings { ScanIntervalSeconds = 0.05d };
+        ProfileFixtureWeapon(settings);
+        var controller = new CombatController(new FakeHost(surface), settings);
+        controller.Toggle();
+        controller.OnTick(0.25);
+        Assert.Equal(10u, surface.LastBeginTarget);
+
+        surface.ChatMessages = [ChatLine(1, "You killed Mosswart!")];
+        controller.OnTick(0.25);
+        surface.ChatMessages = [];
+
+        // Our own monster is still the one being fought.
+        Assert.True(controller.HasTarget);
+        // And the one the cleave took is not picked up when it falls.
+        surface.Targets = [Target(20, "Mosswart", distance: 2, angle: 20)];
+        controller.OnTick(0.25);
+        controller.OnTick(0.25);
+        Assert.NotEqual(20u, surface.LastBeginTarget);
+    }
+
+    /// <summary>
+    /// Two live monsters of one name, and a cleaving weapon: the sentence
+    /// cannot say which of them fell, so neither is given up for dead. The
+    /// host's own death fact settles it a moment later.
+    /// </summary>
+    [Fact]
+    public void ACleaveSentenceNamingOneOfTwoAlikeMonstersCreditsNeither()
+    {
+        var surface = new FakeAutomation
+        {
+            CombatSnapshot = Physical() with { SelectedObjectId = 10u },
+            Targets =
+            [
+                Target(10, "Drudge", distance: 2, angle: 0),
+                Target(20, "Mosswart", distance: 2, angle: 20),
+                Target(30, "Mosswart", distance: 3, angle: 40),
+            ],
+            EquipmentItems = [CleavingWieldedWeapon()],
+        };
+        var settings = new CombatSettings { ScanIntervalSeconds = 0.05d };
+        ProfileFixtureWeapon(settings);
+        var controller = new CombatController(new FakeHost(surface), settings);
+        controller.Toggle();
+        controller.OnTick(0.25);
+
+        surface.ChatMessages = [ChatLine(1, "You killed Mosswart!")];
+        controller.OnTick(0.25);
+        surface.ChatMessages = [];
+
+        Assert.True(controller.HasTarget);
+    }
+
+    private static PluginEquipmentItem CleavingWieldedWeapon() =>
+        WieldedPlannedWeapon() with { Cleaving = 2 };
+
     private static (FakeAutomation Surface, CombatController Controller, ActionLockTable Locks)
         MeleeKillRig(
             CombatSettings? settings = null,

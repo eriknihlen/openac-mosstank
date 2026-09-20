@@ -2933,19 +2933,17 @@ internal sealed class CombatController
     /// chat: this is what tells the macro the monster is dead, that a shot
     /// flew into the scenery, or that a swing landed.
     /// </summary>
-    private void ObservePhysicalResultText(
-        in PluginChatMessage message,
-        in PluginCombatSnapshot combat)
+    private void ObservePhysicalResultText(in PluginChatMessage message)
     {
         // Read only while a swing is armed at our own target, or for a brief
         // moment after the sequence ended — the last swing's outcome line can
-        // still arrive after the server has closed the attack.
-        if (_physicalResultArmed)
-        {
-            if (combat.SelectedObjectId != _physicalResultTargetId)
-                return;
-        }
-        else if (_now - _physicalCompletedAt > PhysicalResultTextTailSeconds)
+        // still arrive after the server has closed the attack. What the line
+        // belongs to is the target the swing was ARMED at: a killing blow
+        // takes the selection away, so asking what is selected now would
+        // throw away the sentence that says the monster died. The incarnation
+        // check below is what keeps the line off a different creature.
+        if (!_physicalResultArmed
+            && _now - _physicalCompletedAt > PhysicalResultTextTailSeconds)
         {
             return;
         }
@@ -3000,30 +2998,65 @@ internal sealed class CombatController
         // sentence is matched against our own target's name.
         ArmPostKillNavigationLock();
 
-        // The sentence has to name OUR monster, letter for letter. An unnamed
-        // stored target still refuses a sentence that names someone else.
-        if (slain.Length > 0
+        uint slainObjectId = _physicalResultTargetId;
+        string slainName = _physicalResultTargetName;
+        if (slain.Length > 0 && WieldingCleavingWeapon())
+        {
+            // A cleaving weapon can fell a creature standing beside the one
+            // the swing was aimed at, so here the sentence, not the aim, says
+            // who died — and something did die, which is worth knowing even
+            // when it was not the target. The sentence has to say so
+            // unambiguously: with two live monsters of one name it cannot
+            // tell them apart, and the wrong one would be given up for dead.
+            if (FindLiveTargetNamed(slain) is not uint cleaved)
+                return;
+            slainObjectId = cleaved;
+            slainName = slain;
+        }
+        else if (slain.Length > 0
             && !slain.Equals(
                 _physicalResultTargetName,
                 StringComparison.Ordinal))
         {
-            return;
-        }
-        if (WieldingCleavingWeapon())
-        {
-            // A cleaving weapon can kill something other than the creature the
-            // swing was aimed at, so the sentence does not identify our target.
+            // The sentence has to name OUR monster, letter for letter. An
+            // unnamed stored target still refuses a sentence that names
+            // someone else.
             return;
         }
 
         Log?.Invoke(
             MacroLogChannel.CastInfo,
             $"AttackExecutor: Kill blow ({text})");
-        _failures.ResetAttempts(_physicalResultTargetId);
-        uint slainObjectId = _physicalResultTargetId;
-        _host.Log.Info($"Target death attribution: physical target=0x{slainObjectId:X8}, name={_physicalResultTargetName}, message={text}");
-        DisarmPhysicalResultText();
+        _failures.ResetAttempts(slainObjectId);
+        _host.Log.Info($"Target death attribution: physical target=0x{slainObjectId:X8}, name={slainName}, message={text}");
+        // A bystander the cleave took does not end the swing that is still
+        // running at our own monster.
+        if (slainObjectId == _physicalResultTargetId)
+            DisarmPhysicalResultText();
         EndKilledTarget(slainObjectId);
+    }
+
+    /// <summary>
+    /// The one creature still standing that carries <paramref name="name"/>,
+    /// or null when none does or when more than one does and the name cannot
+    /// tell them apart.
+    /// </summary>
+    private uint? FindLiveTargetNamed(string name)
+    {
+        uint found = 0u;
+        foreach (PluginCombatTarget target in _targets)
+        {
+            if (target.ObjectId == 0u
+                || !string.Equals(target.Name, name, StringComparison.Ordinal)
+                || IsKnownDead(in target))
+            {
+                continue;
+            }
+            if (found != 0u)
+                return null;
+            found = target.ObjectId;
+        }
+        return found == 0u ? null : found;
     }
 
     /// <summary>
@@ -3053,14 +3086,13 @@ internal sealed class CombatController
 
     private void ObserveItemDebuffReceipts()
     {
-        PluginCombatSnapshot combat = _host.Automation.Combat.Snapshot;
         foreach (PluginChatMessage message in
             _host.Automation.Chat.CaptureMessages(_observedChatSequence))
         {
             _observedChatSequence = Math.Max(
                 _observedChatSequence,
                 message.Sequence);
-            ObservePhysicalResultText(in message, in combat);
+            ObservePhysicalResultText(in message);
             _castTracker.ObserveChat(
                 message.Sequence,
                 message.Text,
@@ -3384,12 +3416,13 @@ internal sealed class CombatController
     /// <summary>
     /// Nothing left to kill. The capture carries a creature on for a while
     /// after it dies, so "it is still in the list" does not mean it can be
-    /// fought; its health being known and gone does.
+    /// fought. The host saying the creature died settles it; a health reading
+    /// of zero is the older, weaker answer and is still accepted.
     /// </summary>
     private static bool IsKnownDead(in PluginCombatTarget target) =>
         target.ObjectId != 0u
-        && target.IsHealthKnown
-        && target.HealthFraction <= 0f;
+        && (target.IsDead
+            || (target.IsHealthKnown && target.HealthFraction <= 0f));
 
     private PluginCombatTarget FindTarget(uint objectId)
     {
