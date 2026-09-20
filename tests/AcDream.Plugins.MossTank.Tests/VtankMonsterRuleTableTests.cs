@@ -3,7 +3,7 @@ namespace AcDream.Plugins.MossTank.Tests;
 public sealed class VtankMonsterRuleTableTests
 {
     [Fact]
-    public void ShippedDefaultRowParsesToRetailsOwnValues()
+    public void ShippedDefaultRowParsesToTheShippedValues()
     {
         // The shipped default settings row: <DEFAULT>, priority 1,
         // DamageType 8 (Auto), WeaponToUse -1, Attack and Streak set,
@@ -313,7 +313,7 @@ public sealed class VtankMonsterRuleTableTests
     /// is straight. Reading it inverted would make every authored profile
     /// fight exactly the monsters it was told to leave alone.
     /// Mutation: negate either side and
-    /// <see cref="ShippedDefaultRowParsesToRetailsOwnValues"/> reads the
+    /// <see cref="ShippedDefaultRowParsesToTheShippedValues"/> reads the
     /// shipped "attack anything" default as a row that never attacks.
     /// </summary>
     [Fact]

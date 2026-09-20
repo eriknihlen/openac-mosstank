@@ -294,7 +294,7 @@ public sealed class SpellCastTrackerTests
     [InlineData(new[] { 110u, 77u }, 0u, true)]
     [InlineData(new[] { 77u, 110u }, 0u, false)]
     [InlineData(new uint[0], 638u, true)]
-    public void HitsMultipleTargetsMatchesMySpell(
+    public void HitsMultipleTargetsMatchesTheSpellTable(
         uint[] components,
         uint family,
         bool expected)
