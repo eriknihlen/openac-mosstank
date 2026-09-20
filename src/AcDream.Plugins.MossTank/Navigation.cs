@@ -462,6 +462,17 @@ internal sealed class NavigationController
     public string Status => _status;
 
     /// <summary>
+    /// Why the door turn did what it did. It is deliberately NOT the route's
+    /// status: that sentence is about a waypoint and carries a live distance,
+    /// so a door reason borrowed from it differs on every pass and the
+    /// scheduler can never suppress the repeat. Every sentence written here
+    /// is stable while the situation is.
+    /// </summary>
+    internal string DoorStatus => _doorStatus;
+
+    private string _doorStatus = "no door in reach";
+
+    /// <summary>
     /// The goal this rule is steering at, in the oracle's own shape: the
     /// range to it and where it is. It rides the rule's "Running" line so a
     /// route that looks stuck can be told apart from a route steering at the
@@ -913,6 +924,7 @@ internal sealed class NavigationController
             // an open sequence that resets every time anything else takes a
             // turn can never finish. The pass a rule does not win is a pass a
             // rule is not asked about.
+            _doorStatus = "another rule has the turn";
             return false;
         }
         INavigationAutomation navigation = _host.Automation.Navigation;
@@ -922,6 +934,9 @@ internal sealed class NavigationController
             || !snapshot.IsAvailable
             || snapshot.IsPortalSpace)
         {
+            _doorStatus = !_settings.Enabled || !_settings.OpenDoors
+                ? "door opening is off"
+                : "waiting for the world";
             ClearDoor();
             return false;
         }
@@ -936,6 +951,7 @@ internal sealed class NavigationController
     {
         if (!_settings.OpenDoors)
         {
+            _doorStatus = "door opening is off";
             ClearDoor();
             return false;
         }
@@ -982,6 +998,7 @@ internal sealed class NavigationController
 
         if (!found)
         {
+            _doorStatus = "no door in reach";
             ClearDoor();
             return false;
         }
@@ -995,7 +1012,7 @@ internal sealed class NavigationController
             if (nearest <= _settings.DoorOpenRangeMeters)
             {
                 StopMovement();
-                _status = $"Identifying door: {door.Name}.";
+                _doorStatus = $"identifying door: {door.Name}";
                 if (_actionLocks is { } identifying)
                 {
                     // While the door is being identified nobody walks: the
@@ -1007,10 +1024,12 @@ internal sealed class NavigationController
                 }
                 return true;
             }
+            _doorStatus = $"waiting for the lock state of {door.Name}";
             return false;
         }
         if (nearest > _settings.DoorOpenRangeMeters)
         {
+            _doorStatus = $"{door.Name} is not in open range";
             ClearDoor();
             return false;
         }
@@ -1026,7 +1045,7 @@ internal sealed class NavigationController
                 : 0u;
             if (door.IsLocked && _activeLockpickObjectId == 0u)
             {
-                _status = $"Locked door skipped: {door.Name}.";
+                _doorStatus = $"locked door skipped: {door.Name}";
                 ClearDoor();
                 return false;
             }
@@ -1037,7 +1056,7 @@ internal sealed class NavigationController
         _doorRetryElapsed += elapsedSeconds;
         if (_doorElapsed >= DoorActionTimeoutSeconds)
         {
-            _status = $"Door timed out: {door.Name}.";
+            _doorStatus = $"door timed out: {door.Name}";
             ClearDoor();
             return false;
         }
@@ -1070,11 +1089,11 @@ internal sealed class NavigationController
                     _activeLockpickObjectId,
                     door.ObjectId);
             _doorRetryElapsed = 0d;
-            _status = result.Accepted
+            _doorStatus = result.Accepted
                 ? _activeLockpickObjectId == 0u
-                    ? $"Opening door: {door.Name}."
-                    : $"Picking lock: {door.Name}."
-                : $"Waiting for door: {door.Name}.";
+                    ? $"opening door: {door.Name}"
+                    : $"picking lock: {door.Name}"
+                : $"waiting for door: {door.Name}";
         }
         return true;
     }

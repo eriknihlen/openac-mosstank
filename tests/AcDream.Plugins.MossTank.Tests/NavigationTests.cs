@@ -792,6 +792,76 @@ public sealed class NavigationTests
         Assert.Equal(1, armed);
     }
 
+    /// <summary>
+    /// The door rule says why the DOOR declined. It used to fall through to
+    /// the route's status line, which is a sentence about a waypoint and
+    /// carries a live distance in it — so it never matched the previous one,
+    /// the scheduler's duplicate-decline suppression could never fire, and a
+    /// run with no door in it at all printed a decline on every walking pass.
+    ///
+    /// Mutation: return the route's status from <c>DeclineReason</c> again and
+    /// the two reasons below become waypoint lines that differ every pass.
+    /// </summary>
+    [Fact]
+    public void TheDoorRuleGivesItsOwnStableDeclineReason()
+    {
+        var automation = new FakeAutomation
+        {
+            NavigationSnapshot = Snapshot(Position(0d, 0d, heading: 90f)),
+        };
+        var settings = new NavigationSettings
+        {
+            Enabled = true,
+            OpenDoors = true,
+            Mode = RouteMode.Circular,
+        };
+        // A route under way, so the route's status is a live waypoint line.
+        settings.Waypoints.Add(Waypoint(RouteWaypointType.Point, Position(1d, 0d)));
+        var controller = new NavigationController(new FakeHost(automation), settings);
+        var rule = new OpenDoorRule(controller, () => true);
+
+        Assert.False(rule.ValidNow(new MacroPassContext(0.05d, CanAct: true)));
+        string first = Assert.IsType<string>(rule.DeclineReason);
+        Assert.Equal("no door in reach", first);
+
+        // The character has walked on; the reason must not have moved with it.
+        automation.NavigationSnapshot = Snapshot(Position(0.05d, 0d, heading: 90f));
+        Assert.False(rule.ValidNow(new MacroPassContext(0.05d, CanAct: true)));
+        Assert.Equal(first, rule.DeclineReason);
+        Assert.DoesNotContain("Waypoint", first, StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// The pass the door wins says what the door is doing, and the route's
+    /// own line is left describing the route.
+    /// </summary>
+    [Fact]
+    public void TheDoorRuleReportsItsOwnWorkOnThePassItWins()
+    {
+        (NavigationController controller, _, _) = DoorFixture();
+        var rule = new OpenDoorRule(controller, () => true);
+
+        Assert.True(rule.ValidNow(new MacroPassContext(0.05d, CanAct: true)));
+        Assert.Equal("opening door: Dungeon Door", rule.RunningDetail);
+        Assert.DoesNotContain("door", controller.Status, StringComparison.OrdinalIgnoreCase);
+    }
+
+    /// <summary>
+    /// Every other refusal the door makes is its own sentence too, and none of
+    /// them is the route's.
+    /// </summary>
+    [Fact]
+    public void TheDoorRuleNamesTheDoorItIsWaitingOn()
+    {
+        (NavigationController controller, FakeAutomation automation, _) =
+            DoorFixture(hasLockState: false);
+        var rule = new OpenDoorRule(controller, () => true);
+
+        Assert.False(rule.ValidNow(new MacroPassContext(0.05d, CanAct: true)));
+        Assert.Equal("identifying door: Dungeon Door", rule.DeclineReason);
+        Assert.NotEqual(controller.Status, rule.DeclineReason);
+    }
+
     private static (NavigationController controller, FakeAutomation automation, ActionLockTable locks) DoorFixture(
         bool hasLockState = true)
     {

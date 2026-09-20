@@ -51,11 +51,25 @@ internal sealed class OpenDoorRule : IMacroRule
     /// </summary>
     public bool Running { get; set; }
 
+    /// <summary>
+    /// What the door is doing on the pass it wins. It says the same sentences
+    /// the decline does, because the door's state is the door's state either
+    /// way, and it is the only place that work is visible now that the door
+    /// no longer writes over the route's line.
+    /// </summary>
+    public string? RunningDetail => _navigation.DoorStatus;
+
+    /// <summary>
+    /// Why this rule declined, in its own words. It used to fall through to
+    /// the route's status line — a waypoint sentence with a live distance in
+    /// it — which is not a door reason at all and, because it changed on
+    /// every pass, could never be suppressed as a repeat.
+    /// </summary>
     public string? DeclineReason => _gateClosed
         ? "the rule's own gate is closed"
         : _lockHeld
             ? "another rule holds a lock this one waits on"
-            : _navigation.Status;
+            : _navigation.DoorStatus;
 
     /// <summary>
     /// Whether something else currently holds a lock this rule must respect.
