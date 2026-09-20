@@ -87,6 +87,13 @@ internal sealed class MossTankProfileStore
 
     private bool CanBindFiles => _characterName.Length > 0 && Server.Length > 0;
 
+    /// <summary>
+    /// Whether a character has been named. Everything this store writes is
+    /// filed under that name, so until there is one there is nowhere real
+    /// to write.
+    /// </summary>
+    public bool HasCharacterName => _characterName.Length > 0;
+
     public void SetMineOnly(bool value)
     {
         if (_preferences.MineOnly == value)
@@ -348,6 +355,13 @@ internal sealed class MossTankProfileStore
         ISet<string> noBuffItemNames,
         ISet<string> logChannels)
     {
+        // Nobody has said whose profile this is yet. The character profile's
+        // name is built from the character's, so saving now writes a file
+        // under a blank name that the character, once known, never reads --
+        // and whatever was being saved is gone with it. Refusing says so;
+        // writing it quietly loses the work.
+        if (!HasCharacterName)
+            return false;
         string fileName = CurrentFileName();
         if (!_hasActiveProfile && ReadUsdText(fileName) is not null)
             return false;

@@ -1887,9 +1887,10 @@ internal sealed partial class MossTankPanel : IBuffRuleHost, IDisposable
         if (_itemRowEnchantRows[row] is BuffItemEnchantRow imported)
         {
             RemoveProfiledItemEnchantRow(imported, removed);
-            _profileNotice = $"Removed {removed}.";
             RefreshItemEditors();
-            SaveProfile();
+            _profileNotice = SaveProfile()
+                ? $"Removed {removed}."
+                : UnsavedProfileNotice($"Removed {removed}");
             return;
         }
         uint? objectId = _itemRowObjectIds[row];
@@ -1909,9 +1910,10 @@ internal sealed partial class MossTankPanel : IBuffRuleHost, IDisposable
             _itemHandedness.Remove(removed);
             ClearItemEnchantRows(removed);
         }
-        _profileNotice = $"Removed {removed}.";
         RefreshItemEditors();
-        SaveProfile();
+        _profileNotice = SaveProfile()
+            ? $"Removed {removed}."
+            : UnsavedProfileNotice($"Removed {removed}");
     }
 
     private void RemoveProfiledItemEnchantRow(
@@ -3075,11 +3077,16 @@ internal sealed partial class MossTankPanel : IBuffRuleHost, IDisposable
         else
             _noBuffItemNames.Remove(item.Name);
         PopulateItemEnchantRows(item, noBuffs);
-        _profileNotice = noBuffs
-            ? $"Added {item.Name} (no buffs)."
-            : $"Added {item.Name}.";
         RefreshItemEditors();
-        SaveProfile();
+        // Written first, reported second: "Added" is a promise that the item
+        // is still there next session, and it is only true once the profile
+        // is on disk.
+        string added = noBuffs
+            ? $"Added {item.Name} (no buffs)"
+            : $"Added {item.Name}";
+        _profileNotice = SaveProfile()
+            ? added + "."
+            : UnsavedProfileNotice(added);
     }
 
     private void PopulateItemEnchantRows(in PluginInventoryItem item, bool noBuffs)
@@ -3120,9 +3127,10 @@ internal sealed partial class MossTankPanel : IBuffRuleHost, IDisposable
     {
         _combatSettings.ConsumableNames.Add(item.Name);
         SetConsumableCategory(item.Name, category);
-        _profileNotice = $"Added {item.Name}.";
         RefreshItemEditors();
-        SaveProfile();
+        _profileNotice = SaveProfile()
+            ? $"Added {item.Name}."
+            : UnsavedProfileNotice($"Added {item.Name}");
     }
 
     /// <summary>
@@ -4684,15 +4692,34 @@ internal sealed partial class MossTankPanel : IBuffRuleHost, IDisposable
                 : _host.Automation.Character.Name + ".");
     }
 
-    private void SaveProfile()
+    /// <summary>
+    /// Writes the profile out. False when the settings profile did not
+    /// reach disk -- nobody has named the character yet, or the file on
+    /// disk cannot be read and so must not be overwritten. A caller that
+    /// has just told the user it changed something has to know, because a
+    /// change nobody wrote down is gone with the session.
+    /// </summary>
+    private bool SaveProfile()
     {
-        _profiles.SaveCurrent(_allSettings, _noBuffItemNames, _commandLogTypes);
+        bool saved = _profiles.SaveCurrent(
+            _allSettings, _noBuffItemNames, _commandLogTypes);
         _lootProfiles.SaveCurrent(
             _inventorySettings.Loot.Rules,
             _inventorySettings.Loot);
         SaveRouteProfile();
         SaveMetaProfile();
+        return saved;
     }
+
+    /// <summary>
+    /// Why the settings profile could not be written, for a notice the user
+    /// reads instead of a success they did not get.
+    /// </summary>
+    private string UnsavedProfileNotice(string change) =>
+        _profiles.LoadFailureNotice is { Length: > 0 } failure
+            ? $"{change}, but nothing was saved: {failure}"
+            : $"{change}, but nothing was saved: no character profile is "
+                + "active yet. Try again once you are in the world.";
 
     private void ApplyPersistedOptionOverrides()
     {

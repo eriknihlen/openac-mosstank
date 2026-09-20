@@ -6558,6 +6558,9 @@ public sealed class MossTankPanelTests
     {
         var host = new FakeHost(new FakeAutomation(), new MemoryStorage());
         var store = new MossTankProfileStore(host);
+        // A profile belongs to a character; the store writes nothing until it
+        // knows whose it is.
+        store.BindCharacter("Prover");
         var settings = new VtankSettingsProfileSerializer.AllSettings
         {
             Combat = new(), Buffs = new(), Vitals = new(), Inventory = new(), Navigation = new(),
@@ -6791,6 +6794,138 @@ public sealed class MossTankPanelTests
         Assert.False(panel.ShowNavLinesEnabled);
         Assert.Empty(layer.Lines);
     }
+
+    /// <summary>
+    /// The weapon in the character's hands is added to the Items list the
+    /// same way anything else is, and it is still there after a restart.
+    /// </summary>
+    [Fact]
+    public void AWieldedWeaponAddedToTheItemsListSurvivesARestart()
+    {
+        var storage = new MemoryStorage();
+        PluginInventoryItem blade = Wielded(Item(10, "Decapitator's Blade", 1));
+        var first = new FakeAutomation
+        {
+            Name = "Prover",
+            ItemEntries = [blade],
+        };
+        first.Unassessed.Add(10u);
+        var firstHost = new FakeHost(first, storage);
+        var firstPanel = new MossTankPanel(firstHost);
+        firstHost.Selection.Select(10);
+        firstPanel.AddSelectedItem();
+        for (int tick = 0; tick < 20
+            && !firstPanel.ItemRows.Contains("Decapitator's Blade"); tick++)
+        {
+            firstPanel.OnTick(0.3d);
+        }
+
+        Assert.Contains("Decapitator's Blade", firstPanel.ItemRows);
+
+        var second = new FakeAutomation
+        {
+            Name = "Prover",
+            ItemEntries = [blade],
+        };
+        var panel = new MossTankPanel(new FakeHost(second, storage));
+
+        Assert.Contains("Decapitator's Blade", panel.ItemRows);
+    }
+
+    /// <summary>
+    /// Dropping the row for an object the character no longer carries leaves
+    /// every other row of the list where it was, on disk as well as on the
+    /// page.
+    /// </summary>
+    [Fact]
+    public void RemovingARowForAMissingObjectKeepsTheRestOfTheList()
+    {
+        var storage = new MemoryStorage();
+        PluginInventoryItem blade = Wielded(Item(10, "Decapitator's Blade", 1));
+        PluginInventoryItem wand = Item(11, "War Wand", 0x8000);
+        var automation = new FakeAutomation
+        {
+            Name = "Prover",
+            ItemEntries = [blade, wand],
+        };
+        var host = new FakeHost(automation, storage);
+        var panel = new MossTankPanel(host);
+        host.Selection.Select(10);
+        panel.AddSelectedItem();
+        host.Selection.Select(11);
+        panel.AddSelectedItem();
+        Assert.Contains("Decapitator's Blade", panel.ItemRows);
+        Assert.Contains("War Wand", panel.ItemRows);
+
+        // The wand is given away: its row is still listed, by the object id
+        // nobody can resolve any more.
+        automation.ItemEntries = [blade];
+        panel.CycleItemHandsAt(0);
+        panel.CycleItemHandsAt(0);
+        int invalid = panel.ItemRows
+            .ToList()
+            .FindIndex(row => row.StartsWith("<INVALID", StringComparison.Ordinal));
+        Assert.True(invalid >= 0, "expected an unresolved row");
+
+        panel.DeleteItemRowAt(invalid);
+
+        Assert.Contains("Decapitator's Blade", panel.ItemRows);
+        Assert.DoesNotContain(
+            panel.ItemRows,
+            row => row.StartsWith("<INVALID", StringComparison.Ordinal));
+
+        var reloaded = new MossTankPanel(new FakeHost(
+            new FakeAutomation { Name = "Prover", ItemEntries = [blade] },
+            storage));
+        Assert.Contains("Decapitator's Blade", reloaded.ItemRows);
+    }
+
+    /// <summary>
+    /// "Added" is a promise that the item is still there next session, so it
+    /// is only said once the profile is on disk. Before a character is
+    /// named there is nowhere real to write -- the profile file is named
+    /// after the character, and a file written under a blank name is one
+    /// the character never reads -- so the add is reported as unsaved and
+    /// nothing is written. Mutation: report the add before saving, or let
+    /// the store write a nameless profile, and the add reads as a success
+    /// that vanishes at the next restart.
+    /// </summary>
+    [Fact]
+    public void AnAddThatReachedNoProfileIsReportedAsUnsavedNotAsAdded()
+    {
+        var storage = new MemoryStorage();
+        PluginInventoryItem blade = Wielded(Item(10, "Decapitator's Blade", 1));
+        var automation = new FakeAutomation
+        {
+            Name = string.Empty,
+            ItemEntries = [blade],
+        };
+        var host = new FakeHost(automation, storage);
+        var panel = new MossTankPanel(host);
+        host.Selection.Select(10);
+
+        panel.AddSelectedItem();
+
+        Assert.Contains("nothing was saved", panel.ProfileNotice, StringComparison.Ordinal);
+        Assert.DoesNotContain(
+            storage.Text,
+            pair => pair.Value.Contains("Decapitator", StringComparison.Ordinal));
+
+        // Named, and the same add is written and reported as an add.
+        automation.Name = "Prover";
+        panel.OnTick(0.3d);
+        host.Selection.Select(10);
+        panel.AddSelectedItem();
+
+        Assert.Equal("Added Decapitator's Blade.", panel.ProfileNotice);
+        Assert.Contains("Decapitator's Blade", panel.ItemRows);
+        Assert.Contains(
+            storage.Text,
+            pair => pair.Value.Contains("Decapitator", StringComparison.Ordinal));
+    }
+
+    private static PluginInventoryItem Wielded(PluginInventoryItem item) =>
+        item with { EquippedLocation = item.ValidLocations, WielderObjectId = 1u };
 
     [Fact]
     public void AProfileItemLoadedWithTheCharacterIsAssessedWithoutBeingReAdded()
