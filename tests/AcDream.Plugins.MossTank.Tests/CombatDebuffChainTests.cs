@@ -133,8 +133,8 @@ public sealed class CombatDebuffChainTests
     [Fact]
     public void AnElementlessPlanHasNoNaturalVulnStep()
     {
-        // fk.a(None, Vuln) returns MySpell.InvalidSpell (fk.cs:433), so the
-        // step's own dm.b(guid, null) is TimeSpan.MaxValue — never due.
+        // An elementless Vulnerability lookup resolves to no spell at all, so
+        // the step's own due test is TimeSpan.MaxValue — never due.
         IReadOnlyList<CombatDebuffStep> steps = CombatDebuffChain.Build(
             new MonsterRuleActions { Flags = MonsterActionFlags.Vulnerability },
             MonsterDamageType.None,
@@ -146,7 +146,7 @@ public sealed class CombatDebuffChainTests
     [Fact]
     public void ChooseTakesTheFirstDueStepAndStops()
     {
-        // hi.cs:123-206 — every arm ends in `return;`. There is no second kind
+        // Every arm ends in `return;`. There is no second kind
         // this tick and no ranking between kinds.
         IReadOnlyList<CombatDebuffStep> steps = CombatDebuffChain.Build(
             new MonsterRuleActions

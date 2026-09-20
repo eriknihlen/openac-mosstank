@@ -469,7 +469,7 @@ public sealed partial class LootingTests
     [Fact]
     public void UnidentifiedCorpseIsOpenedOnceItsAutomationIdentifyCompletes_EvenWithoutPresentation()
     {
-        // HIGH-1 regression guard. A corpse identify is always
+        // Regression guard for the corpse-looting stall. A corpse identify is always
         // Automation-origin and, on the real host, only ever advances the
         // examination window's presentation target if that window already
         // happens to be showing the corpse -- which it normally is not.
@@ -2754,7 +2754,7 @@ public sealed partial class LootingTests
         /// never to the examination window's presentation target,
         /// PresentedObjectId here). A test that instead pokes
         /// AppraisalState.CurrentObjectId directly cannot tell the two
-        /// apart and would not have caught the HIGH-1 corpse-looting
+        /// apart and would not have caught the corpse-looting
         /// stall: the corpse identify is Automation-origin and normally
         /// never presents (presentInUi: false here), yet the completion
         /// signal must still advance so looting proceeds.

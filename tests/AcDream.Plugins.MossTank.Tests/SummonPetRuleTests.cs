@@ -55,7 +55,7 @@ public sealed class SummonPetRuleTests
         Assert.Equal([1u], automation.Uses);
     }
 
-    /// <summary>h1.cs:32-35 — EnableCombat.</summary>
+    /// <summary>EnableCombat gates the rule.</summary>
     [Fact]
     public void CombatDisabledIsInvalid()
     {
@@ -67,7 +67,7 @@ public sealed class SummonPetRuleTests
         Assert.Empty(automation.Uses);
     }
 
-    /// <summary>h1.cs:36-39 — SummonPets.</summary>
+    /// <summary>SummonPets gates the rule.</summary>
     [Fact]
     public void SummonPetsOffIsInvalid()
     {
@@ -80,7 +80,7 @@ public sealed class SummonPetRuleTests
         Assert.Empty(automation.Uses);
     }
 
-    /// <summary>h1.cs:40-43 — the Summoning skill must be trained.</summary>
+    /// <summary>The Summoning skill must be trained.</summary>
     [Fact]
     public void UntrainedSummoningIsInvalid()
     {

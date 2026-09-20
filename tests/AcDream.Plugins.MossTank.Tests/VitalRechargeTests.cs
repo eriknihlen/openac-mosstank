@@ -903,7 +903,7 @@ public sealed class VitalRechargeTests
     }
 
     /// <summary>
-    /// <c>fb.cs:85-94</c> — "The Healer's Heart" takes rank 1 and "Legendary
+    /// "The Healer's Heart" takes rank 1 and "Legendary
     /// Seed of Mornings" rank 2, and each arm only overwrites when
     /// <c>num &lt; rank</c>, so the Seed wins whichever order the scan meets
     /// them in.
@@ -1537,7 +1537,7 @@ public sealed class VitalRechargeTests
         /// <summary>Items the client has not appraised.</summary>
         public HashSet<uint> Unassessed { get; } = [];
 
-        /// <summary><c>ActionLockType.ItemUse</c> (<c>fb.cs:75-78</c>).</summary>
+        /// <summary><c>ActionLockType.ItemUse</c>.</summary>
         public bool ItemsBusy { get; set; }
         public bool InFellowship { get; init; }
         public IReadOnlyList<PluginFellowMember> Fellows { get; init; } = [];

@@ -5,7 +5,7 @@ public sealed class VtankMonsterRuleTableTests
     [Fact]
     public void ShippedDefaultRowParsesToRetailsOwnValues()
     {
-        // uTank2.Resources.defaultsettings.usd:93-134 — <DEFAULT>, priority 1,
+        // The shipped default settings row: <DEFAULT>, priority 1,
         // DamageType 8 (Auto), WeaponToUse -1, Attack and Streak set,
         // SecondaryVuln 98 (None), SecondaryEquip 0 (Auto),
         // PetDamageType 101 (PAuto).
@@ -460,7 +460,7 @@ public sealed class VtankMonsterRuleTableTests
         Assert.Equal(
             MonsterDamageType.PlayerAuto,
             VtankDamageElement.ToMonsterDamageType(101));
-        // bv.cs:94-97 folds the legacy prismatic database id onto Prismatic.
+        // The legacy prismatic database id folds onto Prismatic.
         Assert.Equal(
             MonsterDamageType.Prismatic,
             VtankDamageElement.ToMonsterDamageType(100));

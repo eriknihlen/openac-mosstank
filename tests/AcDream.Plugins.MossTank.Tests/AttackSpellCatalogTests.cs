@@ -106,8 +106,8 @@ public sealed class AttackSpellCatalogTests
     [Fact]
     public void VoidRingIsResolvedBySpellIdNotByName()
     {
-        // fk.cs:560 — `result = this.m_b.f.c(5361);` is the only entry in the
-        // whole table that is not a name lookup.
+        // Spell id 5361 is the only entry in the whole table that is looked
+        // up by id rather than by name.
         AttackSpellCatalog catalog = AttackSpellCatalog.Build(
         [
             Spell(AttackSpellCatalog.VoidRingSpellId, "Coldeve's Fury", difficulty: 400),

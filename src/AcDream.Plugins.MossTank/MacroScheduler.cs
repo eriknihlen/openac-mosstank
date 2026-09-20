@@ -178,7 +178,7 @@ internal sealed class MacroScheduler
     /// </summary>
     public IReadOnlyList<IMacroRule> MacroDisabledRules => _macroDisabled;
 
-    /// <summary>VTank's <c>dz.o.c</c> — the single "the macro is running" flag.</summary>
+    /// <summary>VTank's single "the macro is running" flag.</summary>
     public bool IsRunning { get; private set; }
 
     public bool IsSuspended => _suspension > 0 || ExternalSuspension;

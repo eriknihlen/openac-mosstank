@@ -614,7 +614,8 @@ internal sealed class CombatController
         PluginCastCompletion castCompletion =
             _host.Automation.Magic.LastCompletion;
         // The receipt moves the tracker from "did the request land" to "what
-        // did it do" (gj's b -> c edge). Idempotent by revision: the panel
+        // did it do" (the AwaitingLaunch -> AwaitingResult edge). Idempotent
+        // by revision: the panel
         // hands it the same snapshot every host frame.
         _castTracker.ObserveCompletion(castCompletion);
         ObserveSelectionJiggle(castCompletion);
@@ -1422,10 +1423,10 @@ internal sealed class CombatController
             return AttackPassOutcome.Claimed;
         }
 
-        bool flag3 = actions.UsesPrimaryAttack;                 // !a10.t
-        bool flag4 = actions.UsesRing;                          // a10.j
-        bool flag5 = actions.UsesStreak;                        // a10.s
-        int ringCount = CountNearbyRingTargets();               // dz.p.c
+        bool flag3 = actions.UsesPrimaryAttack;
+        bool flag4 = actions.UsesRing;
+        bool flag5 = actions.UsesStreak;
+        int ringCount = CountNearbyRingTargets();
         AttackSpellChoice? plan;
 
         if ((flag4 && ringCount >= _settings.MinimumRingTargets)
@@ -1846,7 +1847,7 @@ internal sealed class CombatController
         return answer;
     }
 
-    /// <summary>VTank's own element word in its warning text (<c>f3.a</c>).</summary>
+    /// <summary>VTank's own element word in its warning text.</summary>
     private static string ElementName(MonsterDamageType element) => element switch
     {
         MonsterDamageType.Electric => "Lightning",
@@ -2120,7 +2121,7 @@ internal sealed class CombatController
         }
 
         // The owner's own gameinfodb.ugd wins over the bundled table when it
-        // is there — one AmmunitionOptions table, read the way e0 reads it.
+        // is there — one AmmunitionOptions table, read the way VTank reads it.
         VtankAmmunitionOption? selected = VtankAmmunitionDatabase.Select(
             _gameInfo.AmmunitionOptions,
             launcherType,
@@ -2609,7 +2610,7 @@ internal sealed class CombatController
     }
 
     /// <summary>
-    /// What one turn of <c>hi</c>'s debuff arm did with the pass.
+    /// What one turn of the debuff arm did with the pass.
     /// </summary>
     private enum DebuffPassResult
     {
@@ -3525,8 +3526,9 @@ internal sealed class CombatController
     }
 
     /// <summary>
-    /// <c>gj</c>'s <c>this.m_g.HitsMultipleTargets</c>, which now lives on the
-    /// tracker that owns <c>m_g</c>.
+    /// Whether a cast hits more than one target. VTank hangs this off the
+    /// spell it is casting; here it lives on the tracker that owns the
+    /// in-flight spell.
     /// </summary>
     private static bool HitsMultipleTargets(in PluginSpellInfo spell) =>
         SpellCastTracker.HitsMultipleTargetsFor(spell);

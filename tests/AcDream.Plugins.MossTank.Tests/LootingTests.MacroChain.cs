@@ -171,7 +171,7 @@ public sealed partial class LootingTests
     /// <summary>
     /// The local server writes the killer's name without the plus sign an
     /// admin character carries; the character's own plus is not part of the
-    /// comparison (divergence register TS-101). Mutation: compare the name as
+    /// comparison. Mutation: compare the name as
     /// given and the corpse is never opened.
     /// </summary>
     [Fact]

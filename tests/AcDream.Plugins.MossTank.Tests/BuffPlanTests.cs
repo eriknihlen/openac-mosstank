@@ -319,8 +319,8 @@ public class BuffPlanTests
             Array.Empty<PluginActiveEnchantment>(),
             Default);
 
-        // Armor Self is eq.cs:159's own entry and stays; Impenetrability is
-        // eq.cs:246's and does not.
+        // Armor Self has an entry of its own and stays; Impenetrability does
+        // not.
         Assert.Equal([3u], plan.Select(static spell => spell.SpellId));
     }
 

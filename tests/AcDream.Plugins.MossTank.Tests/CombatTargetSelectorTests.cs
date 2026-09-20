@@ -17,7 +17,7 @@ public sealed class CombatTargetSelectorTests
     [Fact]
     public void PriorityWinsBeforeDistance()
     {
-        // dz.cs:740-750 — step 1.
+        // Step 1 of the selection order.
         CombatTargetCandidate chosen = Select(
             [
                 Candidate(10, priority: 1, distance: 2),
@@ -59,7 +59,7 @@ public sealed class CombatTargetSelectorTests
     [Fact]
     public void DebuffEachFirstPriorityBreaksATieOnDebuffNeed()
     {
-        // dz.cs:771-781 — step 2 within one priority tier.
+        // Step 2, within one priority tier.
         CombatTargetCandidate chosen = Select(
             [
                 Candidate(10, priority: 2, distance: 2),
@@ -88,7 +88,7 @@ public sealed class CombatTargetSelectorTests
     [Fact]
     public void HigherUrgencyScoreWinsOutright()
     {
-        // dz.cs:782-787 — step 3, ahead of TargetLock, wield-match, sticky and
+        // Step 3, ahead of TargetLock, wield-match, sticky and
         // the selection method.
         CombatTargetCandidate chosen = Select(
             [
@@ -255,7 +255,8 @@ public sealed class CombatTargetSelectorTests
     [Fact]
     public void NoCandidatesYieldsTheEmptyBest()
     {
-        // dz.cs:925 — `if (this.a.b != 0)`.
+        // With nothing to choose from the best candidate is the empty one,
+        // object id 0.
         Assert.Equal(0u, Select([], TargetSelectionMethod.Range).ObjectId);
     }
 

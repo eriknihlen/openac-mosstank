@@ -1733,7 +1733,7 @@ public sealed class NavigationTests
         }
     }
 
-    // ── fd.cs:129-138, the nav-minimum-distance idle-peace override ──────
+    // ── The nav-minimum-distance idle-peace override ─────────────────────
 
     private static (NavigationController Controller, FakeAutomation Automation)
         ArrivalOverride(double minimumDistanceMeters, bool idlePeaceMode)
@@ -1810,7 +1810,7 @@ public sealed class NavigationTests
     }
 
     /// <summary>
-    /// fd.cs:131 — the SETTING gates only the warning. With Idle Peace off,
+    /// The SETTING gates only the warning. With Idle Peace off,
     /// the forced push into Magic mode still happens.
     /// </summary>
     [Fact]

@@ -111,7 +111,7 @@ public sealed class MossTankPanelTests
             MaxStamina = 100,
             CurrentMana = 100,
             MaxMana = 100,
-            // BoosterVital 2 = VitalKind.Health (VitalPlan.cs:7).
+            // BoosterVital 2 = VitalKind.Health.
             ItemEntries = [Item(60, "Bread", 0x20) with { BoosterVital = 2 }],
         };
         var host = new FakeHost(automation);
@@ -1307,7 +1307,7 @@ public sealed class MossTankPanelTests
         Assert.False(automation.IsCasting);
         Assert.Single(automation.CastSpellIds);
 
-        // Past the 5000 ms attempt watchdog (gj.cs:319-324) the tracker drops
+        // Past the 5000 ms attempt watchdog the tracker drops
         // to idle and re-issues the SAME spell; it never walks the queue.
         for (int i = 0; i < 12; i++)
             panel.OnTick(0.3d);
@@ -1763,9 +1763,9 @@ public sealed class MossTankPanelTests
         panel.OnTick(0.3d);
         Assert.Empty(automation.CastSpellIds);
 
-        // eq.i() - everything now reads as about to expire...
+        // Force-buff - everything now reads as about to expire...
         panel.ForceBuff();
-        // ...and eq.e() puts it back before the next heartbeat can act.
+        // ...and cancelling it puts it back before the next heartbeat can act.
         panel.CancelForceBuff();
         for (int tick = 0; tick < 6; tick++)
             panel.OnTick(0.3d);
@@ -2359,9 +2359,9 @@ public sealed class MossTankPanelTests
     }
 
     /// <summary>
-    /// <c>eq.a(out, out)</c> walks <c>b()</c> — the SELF list — to exhaustion
-    /// before it ever reaches <c>g()</c> (<c>eq.cs:481</c> then
-    /// <c>eq.cs:510</c>). A self buff that is due therefore always outranks
+    /// The reference buff pick walks the SELF list to exhaustion before it
+    /// ever reaches the item list. A self buff that is due therefore always
+    /// outranks
     /// every item enchantment.
     /// Mutation: try the item rows first in TryPickBuff and this fails.
     /// </summary>
@@ -3242,7 +3242,7 @@ public sealed class MossTankPanelTests
             MaxStamina = 100,
             CurrentMana = 100,
             MaxMana = 100,
-            // BoosterVital 2 = VitalKind.Health (VitalPlan.cs:7).
+            // BoosterVital 2 = VitalKind.Health.
             ItemEntries = [Item(60, "Bread", 0x20) with { BoosterVital = 2 }],
         };
         var host = new FakeHost(automation);
@@ -3289,7 +3289,7 @@ public sealed class MossTankPanelTests
             MaxStamina = 100,
             CurrentMana = 100,
             MaxMana = 100,
-            // BoosterVital 2 = VitalKind.Health (VitalPlan.cs:7).
+            // BoosterVital 2 = VitalKind.Health.
             ItemEntries = [Item(60, "Bread", 0x20) with { BoosterVital = 2 }],
         };
         var host = new FakeHost(automation);
@@ -4121,7 +4121,7 @@ public sealed class MossTankPanelTests
         var panel = new MossTankPanel(new FakeHost(automation));
 
         // No wand anywhere: the gate's own path here is
-        // PostNoWandNoticeAndStop, exactly as ga.cs:1471-1473.
+        // PostNoWandNoticeAndStop, exactly as the reference does.
         panel.ToggleCombat();
         panel.ForceBuff();
         for (int tick = 0; tick < 5; tick++)
@@ -4191,7 +4191,7 @@ public sealed class MossTankPanelTests
             [
                 Spell(1, 10, "Increases the caster's Life Magic skill by 10 points."),
             ],
-            // BoosterVital 2 = VitalKind.Health (VitalPlan.cs:7).
+            // BoosterVital 2 = VitalKind.Health.
             ItemEntries = [Item(60, "Bread", 0x20) with { BoosterVital = 2 }],
         };
         var host = new FakeHost(automation);
@@ -8836,8 +8836,8 @@ public sealed class MossTankPanelTests
           ICombatAutomation
     {
         /// <summary>
-        /// Per-object tracked enchantments, VTank's <c>dm</c>
-        /// (<c>dm.cs:287-321</c>) — what an item-enchant row's due test reads.
+        /// Per-object tracked enchantments — what an item-enchant row's due
+        /// test reads.
         /// </summary>
         public Dictionary<uint, List<PluginTrackedEnchantment>> ItemEnchantments
         { get; } = [];
@@ -9241,7 +9241,7 @@ public sealed class MossTankPanelTests
 
         public Func<uint>? CurrentSelection { get; set; }
 
-        /// <summary><c>eq.a(ActiveSpellInfo)</c> (<c>eq.cs:447-475</c>).</summary>
+        /// <summary>Fold a landed enchantment into the tracked table.</summary>
         private void LandEnchantment(uint spellId)
         {
             foreach (PluginSpellInfo spell in KnownSelfBuffs)

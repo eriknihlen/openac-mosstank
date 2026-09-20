@@ -18,9 +18,9 @@ internal sealed class BuffDueTracker
     public bool HasForcedItems => _forcedItems.Count > 0;
 
     /// <summary>
-    /// The polled equivalent of <c>eq.a(ActiveSpellInfo)</c> /
-    /// <c>eq.b(ActiveSpellInfo)</c>: fold this pass's snapshot into the table.
-    /// A newly-seen entry gets <c>a = d</c>, which is "not forced"; an entry
+    /// The polled equivalent of the reference macro's two active-enchantment
+    /// hooks: fold this pass's snapshot into the table.
+    /// A newly-seen entry starts out "not forced"; an entry
     /// that left the snapshot is dropped outright.
     /// </summary>
     public void Observe(IReadOnlyList<PluginActiveEnchantment> active)

@@ -4,7 +4,7 @@ namespace AcDream.Plugins.MossTank;
 
 internal enum SpellCastTrackerState
 {
-    /// <summary><c>gj.b.a</c> — nothing in flight.</summary>
+    /// <summary>Nothing in flight.</summary>
     Idle,
 
     AwaitingLaunch,
@@ -157,7 +157,7 @@ internal sealed class SpellCastTracker
     }
 
     /// <summary>
-    /// <c>MySpell.CanKill</c>: only these spells' casts are allowed to claim a
+    /// The can-kill test: only these spells' casts are allowed to claim a
     /// killing blow, so a fellow's or a pet's kill line arriving mid-debuff is
     /// not credited to the debuff's target.
     /// </summary>

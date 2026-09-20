@@ -1502,7 +1502,7 @@ public sealed class CombatControllerTests
         Assert.Equal(102u, targeted.Item1);
 
         // Ring only, but the monster is beyond RingDistance so the tally is
-        // zero (dz.cs:736-739): the ring arm fails and the pass bolts.
+        // zero: the ring arm fails and the pass bolts.
         (untargeted, targeted) = CastRingScenario(
             known,
             MonsterActionFlags.Ring,
@@ -3520,7 +3520,7 @@ public sealed class CombatControllerTests
         controller.Toggle();
         controller.OnTick(0.25);
 
-        // Pierce is eDamageElement 0, the first entry of ga.cs:772-774's walk.
+        // Pierce is eDamageElement 0, the first entry of the element walk.
         Assert.Equal((100u, 10u), surface.LastTargetedCast);
         Assert.DoesNotContain(85u, surface.CastSpellIds);
         Assert.Contains(
@@ -3755,7 +3755,7 @@ public sealed class CombatControllerTests
             new PluginCastCompletion(1, 100u, 10u, 0u));
         Assert.True(controller.HasTarget);
 
-        // 4 x 907 ms of the result timer (gj.cs:254-255).
+        // 4 x 907 ms of the result timer.
         controller.CastTracker.Advance(3.7d);
         controller.OnTick(0.25);
 
@@ -4134,8 +4134,7 @@ public sealed class CombatControllerTests
         controller.OnTick(0.25);
 
         // The wand is already wielded; only the mode is wrong. The gate
-        // recomputes the mode the wielded item implies and asks for it
-        // (ga.cs:1556-1565).
+        // recomputes the mode the wielded item implies and asks for it.
         Assert.Contains("EnterMode:Magic", surface.CallLog);
         Assert.Equal(PluginCombatMode.Magic, surface.CombatSnapshot.Mode);
     }
@@ -4646,8 +4645,7 @@ public sealed class CombatControllerTests
         for (int tick = 0; tick < 6; tick++)
             controller.OnTick(0.25);
 
-        // bv.cs:194-195 then :204 — Peace is asked for BEFORE the arrow is
-        // wielded, never after.
+        // Peace is asked for BEFORE the arrow is wielded, never after.
         int peace = surface.CallLog.IndexOf("EnterMode:Peace");
         int equip = surface.CallLog.IndexOf("Equip:00000321");
         Assert.True(peace >= 0, "Peace was never requested: "
@@ -4711,7 +4709,7 @@ public sealed class CombatControllerTests
         var host = new FakeHost(surface);
         var controller = new CombatController(host, settings, vitals, AmmoGameInfo);
 
-        // Exactly MossTankPanel.cs:420-425 — the one shared gate, injected.
+        // Exactly what the panel builds — the one shared gate, injected.
         var gate = new CombatModeGate(host, settings, vitals, _ => { });
         controller.BindCombatModeGate(gate);
 
@@ -5061,11 +5059,11 @@ public sealed class CombatControllerTests
         Assert.Equal(["EnterMode:Peace"], surface.CallLog);
 
         surface.ConfirmPendingModeChange();
-        // R2-15: the ack RESTARTS the 600 ms window (f9.cs:322-328 stamps
-        // m_h again), so f9.e() still reports the PRE-request mode for one
+        // The ack RESTARTS the 600 ms window — it re-stamps the request time
+        // — so the gate still reports the PRE-request mode for one
         // more pass and the drop-to-peace branch re-asks. That second request
-        // re-stamps m_g from the now-Peace live mode, which is what lets the
-        // pass after it proceed.
+        // re-stamps the saved mode from the now-Peace live mode, which is
+        // what lets the pass after it proceed.
         gate.AdvancePass(1.0);
         Assert.False(gate.TryPrepare(PluginCombatMode.Magic));
         Assert.Equal(
@@ -6202,7 +6200,7 @@ public sealed class CombatControllerTests
         Assert.False(gate.TryDropToPeace(surface.EquipmentItems, "Recovery Wand"));
         Assert.Equal(["EnterMode:Peace"], surface.CallLog);
 
-        // The ack arrives. The window RESTARTS, so f9.e() still reports the
+        // The ack arrives. The window RESTARTS, so the gate still reports the
         // pre-request Melee and the branch re-asks — which re-stamps the
         // saved mode from the now-Peace live one.
         surface.ConfirmPendingModeChange();
@@ -7845,8 +7843,8 @@ public sealed class CombatControllerTests
 
     /// <summary>
     /// A real excerpt of the owner's own <c>gameinfodb.ugd</c> — VTank's
-    /// official GameInfoDB, which <c>e0</c> loads from the profile directory
-    /// (<c>e0.cs:53-79</c>). Any pin whose subject is a monster's damage
+    /// official GameInfoDB, loaded from the profile directory.
+    /// Any pin whose subject is a monster's damage
     /// preferences needs one, because acdream ships no embedded default.
     /// </summary>
     private static readonly VtankGameInfoDatabase AmmoGameInfo =
