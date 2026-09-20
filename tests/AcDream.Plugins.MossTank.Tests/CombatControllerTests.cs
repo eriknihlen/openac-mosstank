@@ -6,6 +6,182 @@ namespace AcDream.Plugins.MossTank.Tests;
 public sealed class CombatControllerTests
 {
     /// <summary>
+    /// A monster with no health left is a corpse, and the host refuses a
+    /// swing at it. The macro used to keep it and ask again every pass, so a
+    /// character standing in a crowd swung at the one thing that could not be
+    /// hit while the rest of the crowd hit back. Mutation: take the health
+    /// gate out of the candidate walk and the next swing goes back to the
+    /// dead monster.
+    /// </summary>
+    [Fact]
+    public void ADeadMonsterIsDroppedAndTheNextOneIsAttacked()
+    {
+        var surface = new FakeAutomation
+        {
+            CombatSnapshot = Physical(),
+            Targets =
+            [
+                Target(10, "First", distance: 1.5f, angle: 0),
+                Target(20, "Second", distance: 2f, angle: 5),
+                Target(30, "Third", distance: 3f, angle: 10),
+            ],
+            EquipmentItems = [WieldedPlannedWeapon()],
+        };
+        var settings = new CombatSettings
+        {
+            MaximumRange = 8f,
+            SelectionMethod = TargetSelectionMethod.Range,
+            ScanIntervalSeconds = 0.05d,
+        };
+        ProfileFixtureWeapon(settings);
+        var controller = new CombatController(new FakeHost(surface), settings);
+
+        controller.Toggle();
+        controller.OnTick(0.25d);
+        Assert.Equal(10u, surface.LastBeginTarget);
+
+        // The swing lands and the monster dies: the capture still carries it,
+        // with no health left, and the host refuses a swing at it.
+        surface.CombatSnapshot = Physical();
+        surface.Targets =
+        [
+            Target(10, "First", distance: 1.5f, angle: 0, health: 0f),
+            Target(20, "Second", distance: 2f, angle: 5),
+            Target(30, "Third", distance: 3f, angle: 10),
+        ];
+        surface.UnattackableTargets.Add(10u);
+        surface.BeginTargets.Clear();
+        controller.OnTick(0.25d);
+        controller.OnTick(0.25d);
+
+        Assert.Equal(20u, surface.LastBeginTarget);
+        Assert.DoesNotContain(10u, surface.BeginTargets);
+    }
+
+    /// <summary>
+    /// The host answers a swing it cannot arm with the reason. Whatever the
+    /// reason, the monster is not one this pass can act on, so the pass lets
+    /// it go and chooses again instead of holding the character in front of
+    /// it. Nothing went out, so nothing is charged against the monster: an
+    /// attempt counts against a request that reached the server. Mutation:
+    /// leave the refusal claiming the pass and the second monster is never
+    /// swung at.
+    /// </summary>
+    [Fact]
+    public void ARefusedSwingLetsTheTargetGoAndThePassChoosesAgain()
+    {
+        var surface = new FakeAutomation
+        {
+            CombatSnapshot = Physical(),
+            Targets =
+            [
+                Target(10, "First", distance: 1.5f, angle: 0),
+                Target(20, "Second", distance: 2f, angle: 5),
+            ],
+            EquipmentItems = [WieldedPlannedWeapon()],
+        };
+        surface.UnattackableTargets.Add(10u);
+        var settings = new CombatSettings
+        {
+            MaximumRange = 8f,
+            SelectionMethod = TargetSelectionMethod.Range,
+            ScanIntervalSeconds = 0.05d,
+        };
+        ProfileFixtureWeapon(settings);
+        var controller = new CombatController(new FakeHost(surface), settings);
+        var lines = new List<string>();
+        controller.Log = (_, text) => lines.Add(text);
+
+        controller.Toggle();
+        controller.OnTick(0.25d);
+
+        Assert.Equal(20u, surface.LastBeginTarget);
+        Assert.DoesNotContain(
+            lines,
+            static line => line.Contains("Blacklist", StringComparison.OrdinalIgnoreCase));
+    }
+
+    /// <summary>
+    /// What a pass learns about ONE monster is about that monster only, and it
+    /// dies with the pass. The refused monster is out of the running until the
+    /// next pass rebuilds the picture; every other monster in range is
+    /// untouched, and the refused one is asked about again next pass.
+    /// Mutation: keep the pass-invalid set across ticks and the later swing
+    /// never returns to the first monster.
+    /// </summary>
+    [Fact]
+    public void OnlyTheRefusedMonsterLeavesTheRunningAndOnlyForThatPass()
+    {
+        var surface = new FakeAutomation
+        {
+            CombatSnapshot = Physical(),
+            Targets =
+            [
+                Target(10, "First", distance: 1.5f, angle: 0),
+                Target(20, "Second", distance: 2f, angle: 5),
+                Target(30, "Third", distance: 3f, angle: 10),
+            ],
+            EquipmentItems = [WieldedPlannedWeapon()],
+        };
+        surface.UnattackableTargets.Add(10u);
+        var settings = new CombatSettings
+        {
+            MaximumRange = 8f,
+            SelectionMethod = TargetSelectionMethod.Range,
+            ScanIntervalSeconds = 0.05d,
+        };
+        ProfileFixtureWeapon(settings);
+        var controller = new CombatController(new FakeHost(surface), settings);
+
+        controller.Toggle();
+        controller.OnTick(0.25d);
+        Assert.Equal(20u, surface.LastBeginTarget);
+
+        // The refusal was the monster being out of play for a moment, not a
+        // verdict on it. With the two it was passed over for gone, the next
+        // pass asks about it again - the pass it failed took nothing with it
+        // and left nothing behind.
+        surface.UnattackableTargets.Clear();
+        surface.CombatSnapshot = Physical();
+        surface.Targets = [Target(10, "First", distance: 1.5f, angle: 0)];
+        surface.BeginTargets.Clear();
+        controller.OnTick(0.25d);
+
+        Assert.Contains(10u, surface.BeginTargets);
+    }
+
+    /// <summary>
+    /// With nothing else in range the attack has no target, so it yields the
+    /// pass and whatever sits below it -- looting, above all -- gets to run.
+    /// Mutation: hold the refused monster as the target and the rule claims
+    /// the pass for ever.
+    /// </summary>
+    [Fact]
+    public void ARefusedLoneMonsterLeavesTheAttackWithNothingToClaim()
+    {
+        var surface = new FakeAutomation
+        {
+            CombatSnapshot = Physical(),
+            Targets = [Target(10, "Only", distance: 1.5f, angle: 0)],
+            EquipmentItems = [WieldedPlannedWeapon()],
+        };
+        surface.UnattackableTargets.Add(10u);
+        var settings = new CombatSettings
+        {
+            MaximumRange = 8f,
+            SelectionMethod = TargetSelectionMethod.Range,
+            ScanIntervalSeconds = 0.05d,
+        };
+        ProfileFixtureWeapon(settings);
+        var controller = new CombatController(new FakeHost(surface), settings);
+
+        controller.Toggle();
+        controller.OnTick(0.25d);
+
+        Assert.False(controller.HasTarget);
+    }
+
+    /// <summary>
     /// Mutation: put the approach back inside the attack (build the attack's
     /// candidates out to the approach range and walk from there) and the
     /// second half fails — the attack would claim the pass with the monster
@@ -6958,8 +7134,9 @@ public sealed class CombatControllerTests
                     "gameinfodb-excerpt.ugd")));
 
     private static PluginCombatTarget Target(
-        uint id, string name, float distance, float angle) => new(
-            id, name, id + 1000, distance, angle, true, 1f);
+        uint id, string name, float distance, float angle,
+        float health = 1f) => new(
+            id, name, id + 1000, distance, angle, true, health);
 
     private static PluginSpellInfo Spell(uint id, string name) => new(
         id, name, Family: 1, Tier: 8, Difficulty: 350, ManaCost: 30,
@@ -7197,6 +7374,16 @@ public sealed class CombatControllerTests
         public PluginCastCompletion LastCastCompletion { get; set; }
         public PluginCastCompletion LastCompletion => LastCastCompletion;
         public uint LastBeginTarget { get; private set; }
+
+        /// <summary>
+        /// Monsters the host will refuse a swing at, the way it refuses one
+        /// at a creature that is no longer in play: the request is answered,
+        /// with the reason, and nothing is armed.
+        /// </summary>
+        public HashSet<uint> UnattackableTargets { get; } = [];
+
+        /// <summary>Every target a swing was asked for, in order.</summary>
+        public List<uint> BeginTargets { get; } = [];
 
         /// <summary>
         /// Opt-in: the fake walks the host's own attack states — the press
@@ -7455,6 +7642,13 @@ public sealed class CombatControllerTests
                 || CombatSnapshot.RepeatAttackInProgress)
             {
                 return new(PluginCombatCommandStatus.Busy);
+            }
+            BeginTargets.Add(targetObjectId);
+            if (UnattackableTargets.Contains(targetObjectId))
+            {
+                return new(
+                    PluginCombatCommandStatus.Refused,
+                    "The target cannot be attacked: it is out of sight or out of play.");
             }
             LastBeginTarget = targetObjectId;
             LastBeginPower = power;

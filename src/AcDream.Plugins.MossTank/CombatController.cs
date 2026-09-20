@@ -777,6 +777,14 @@ internal sealed class CombatController
 
     private AttackPassOutcome RunAttackAttempt()
     {
+        if (IsKnownDead(FindTarget(_targetId)))
+        {
+            // It died under the pass. The choice is made again from what is
+            // left rather than at the next scan, which is a fight away.
+            Status = $"{_targetName} is dead";
+            InvalidateForPass(_targetId);
+            return AttackPassOutcome.Retry;
+        }
         StopApproachMovement();
         _decisionActions = ResolveRandomDamage(PassActions);
 
@@ -926,12 +934,21 @@ internal sealed class CombatController
             + (string.IsNullOrWhiteSpace(begin.Notice)
                 ? string.Empty
                 : $" - {begin.Notice}"));
-        if (begin.Status == PluginCombatCommandStatus.InvalidTarget)
+        if (begin.Status is PluginCombatCommandStatus.InvalidTarget
+            or PluginCombatCommandStatus.Refused)
         {
+            // Nothing armed, and the answer names the monster as the reason
+            // as often as not: it has died, or it has gone out of play. There
+            // is nothing to wait for either way, so it leaves the running for
+            // the REST OF THIS PASS and the choice is made again from what is
+            // left. No attempt is charged against it - an attempt counts for a
+            // request that reached the server, and this one never did.
             _host.Automation.Combat.AbortPhysicalAttack();
+            InvalidateForPass(_targetId);
             ClearTarget();
+            return AttackPassOutcome.Retry;
         }
-        else if (begin.Status == PluginCombatCommandStatus.Started)
+        if (begin.Status == PluginCombatCommandStatus.Started)
         {
             _pendingPhysicalTarget = _targetId;
             // The press only starts the power bar: nothing has reached the
@@ -3205,6 +3222,16 @@ internal sealed class CombatController
         _attackCatalog = AttackSpellCatalog.Build(union);
     }
 
+    /// <summary>
+    /// Nothing left to kill. The capture carries a creature on for a while
+    /// after it dies, so "it is still in the list" does not mean it can be
+    /// fought; its health being known and gone does.
+    /// </summary>
+    private static bool IsKnownDead(in PluginCombatTarget target) =>
+        target.ObjectId != 0u
+        && target.IsHealthKnown
+        && target.HealthFraction <= 0f;
+
     private PluginCombatTarget FindTarget(uint objectId)
     {
         foreach (PluginCombatTarget target in _targets)
@@ -3359,6 +3386,16 @@ internal sealed class CombatController
         }
         if (_passInvalidTargets.Contains(target.ObjectId))
             return false;
+
+        // A corpse is not a candidate. Nothing below this gate can tell the
+        // difference on its own, so without it the character stands in front
+        // of the thing it has just killed while everything still alive is
+        // beside it.
+        if (IsKnownDead(in target))
+        {
+            _passCandidates[target.ObjectId] = null;
+            return false;
+        }
 
         if (_failures.Reason(target.ObjectId, _now)
             != CombatSuppressionReason.None)
