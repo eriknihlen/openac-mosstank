@@ -97,8 +97,13 @@ internal sealed class CombatSettings
     public bool ShowCollisionDebug { get; set; }
 
     /// <summary>
-    /// How many times ONE pass may choose again after finding it cannot carry
-    /// out its decision against the monster it picked.
+    /// How many attempts ONE pass may make in a single tick. Each attempt
+    /// picks a monster and works out how to attack it, so the number is also
+    /// the ceiling on how many monsters the character cannot reach -- shot at
+    /// through cover, most often -- that a pass will consider before it gives
+    /// up for this tick. It is the whole pass&apos;s budget, not a per-monster
+    /// one, and it is read only while the flight check is on: with that off,
+    /// a pass gets exactly one attempt.
     /// </summary>
     public int MaximumCollisionChecksPerTick { get; set; } = 500;
 

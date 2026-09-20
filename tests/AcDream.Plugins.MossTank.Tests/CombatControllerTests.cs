@@ -2107,6 +2107,119 @@ public sealed class CombatControllerTests
     }
 
     /// <summary>
+    /// The per-tick budget counts attempts, and one attempt evaluates one
+    /// chosen monster: four monsters the character cannot shoot cost four
+    /// attempts with a budget of four, and only two with a budget of two. The
+    /// budget is the ceiling on the whole pass, not a ceiling on each monster.
+    ///
+    /// Mutation: read the budget as the number of extra choices after the
+    /// first, or ignore it, and the counted attempts stop matching.
+    /// </summary>
+    [Theory]
+    [InlineData(2, 2)]
+    [InlineData(4, 4)]
+    public void ThePerTickBudgetCapsHowManyMonstersOnePassEvaluates(
+        int budget,
+        int attempts)
+    {
+        var surface = new FakeAutomation
+        {
+            CombatSnapshot = Physical() with { Mode = PluginCombatMode.Magic },
+            Targets =
+            [
+                Target(10, "Drudge", 5, 0),
+                Target(11, "Drudge", 6, 0),
+                Target(12, "Drudge", 7, 0),
+                Target(13, "Drudge", 8, 0),
+            ],
+            KnownCombatSpells =
+            [
+                MagicSpell(102, "Flame Streak VII", difficulty: 350),
+            ],
+            ProjectilePath = new(
+                PluginProjectilePathStatus.Blocked,
+                CollisionChecks: 3,
+                BlockingObjectId: 0x50000001u),
+            EquipmentItems = [WieldedCaster()],
+        };
+        var settings = new CombatSettings
+        {
+            MaximumRange = 40d,
+            UseProjectileAwareness = true,
+            MaximumCollisionChecksPerTick = budget,
+        };
+        settings.Rules.Clear();
+        settings.Rules.Add(new MonsterRule(
+            "DEFAULT",
+            new MonsterRuleActions
+            {
+                Flags = MonsterActionFlags.Streak,
+                DamageType = MonsterDamageType.Fire,
+            }));
+        var controller = new CombatController(new FakeHost(surface), settings);
+        var lines = new List<string>();
+        controller.Log = (_, text) => lines.Add(text);
+
+        controller.Toggle();
+        controller.OnTick(0.25);
+
+        Assert.Contains(
+            lines,
+            line => line.EndsWith($"Loop iterations: {attempts}", StringComparison.Ordinal));
+        Assert.Empty(surface.CastSpellIds);
+    }
+
+    /// <summary>
+    /// With the flight check off there is nothing an undeliverable decision
+    /// could teach the pass, so the pass gets exactly one attempt whatever the
+    /// budget says. The two settings are coupled.
+    ///
+    /// Mutation: honour the budget with the flight check off and the pass
+    /// churns through every monster in the scan.
+    /// </summary>
+    [Fact]
+    public void TheBudgetIsIgnoredWhileTheFlightCheckIsOff()
+    {
+        var surface = new FakeAutomation
+        {
+            CombatSnapshot = Physical() with { Mode = PluginCombatMode.Magic },
+            Targets =
+            [
+                Target(10, "Drudge", 5, 0),
+                Target(11, "Drudge", 6, 0),
+                Target(12, "Drudge", 7, 0),
+                Target(13, "Drudge", 8, 0),
+            ],
+            KnownCombatSpells = [],
+            EquipmentItems = [WieldedCaster()],
+        };
+        var settings = new CombatSettings
+        {
+            MaximumRange = 40d,
+            UseProjectileAwareness = false,
+            MaximumCollisionChecksPerTick = 4,
+        };
+        settings.Rules.Clear();
+        settings.Rules.Add(new MonsterRule(
+            "DEFAULT",
+            new MonsterRuleActions
+            {
+                Flags = MonsterActionFlags.Streak,
+                DamageType = MonsterDamageType.Fire,
+            }));
+        var controller = new CombatController(new FakeHost(surface), settings);
+        var lines = new List<string>();
+        controller.Log = (_, text) => lines.Add(text);
+
+        controller.Toggle();
+        controller.OnTick(0.25);
+
+        Assert.Contains(
+            lines,
+            line => line.EndsWith("Loop iterations: 1", StringComparison.Ordinal));
+    }
+
+    /// <summary>
     /// Mutation: drop the streak's flight test and the first assertion fails
     /// — the streak is cast straight into the wall, every pass, for ever.
     /// </summary>
