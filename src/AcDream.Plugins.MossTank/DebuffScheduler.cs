@@ -66,9 +66,14 @@ internal static class DebuffSpellCatalog
             flag = MonsterActionFlags.Imperil;
         else if (name.StartsWith("Magic Yield Other", StringComparison.OrdinalIgnoreCase))
             flag = MonsterActionFlags.Yield;
+        // A creature vulnerability is the "<element> Vulnerability Other"
+        // family and nothing else. A Lure of the same element is an ITEM
+        // enchantment - it sharpens a weapon or a shield, it is not a
+        // creature enchantment - so the server refuses every one aimed at a
+        // monster ("You fail to affect ... "). It is not a weaker
+        // vulnerability, it is a different spell for a different target.
         else if (name.Contains(" Vulnerability Other", StringComparison.OrdinalIgnoreCase)
-            || name.StartsWith("Vulnerability Other", StringComparison.OrdinalIgnoreCase)
-            || IsClassicLure(name))
+            || name.StartsWith("Vulnerability Other", StringComparison.OrdinalIgnoreCase))
         {
             flag = MonsterActionFlags.Vulnerability;
             damage = DamageFromName(name);
@@ -102,15 +107,6 @@ internal static class DebuffSpellCatalog
             ? name[incantation.Length..]
             : name;
     }
-
-    private static bool IsClassicLure(string name) =>
-        name.StartsWith("Acid Lure", StringComparison.OrdinalIgnoreCase)
-        || name.StartsWith("Blade Lure", StringComparison.OrdinalIgnoreCase)
-        || name.StartsWith("Bludgeon Lure", StringComparison.OrdinalIgnoreCase)
-        || name.StartsWith("Flame Lure", StringComparison.OrdinalIgnoreCase)
-        || name.StartsWith("Frost Lure", StringComparison.OrdinalIgnoreCase)
-        || name.StartsWith("Lightning Lure", StringComparison.OrdinalIgnoreCase)
-        || name.StartsWith("Piercing Lure", StringComparison.OrdinalIgnoreCase);
 
     internal static MonsterDamageType DamageFromName(string name)
     {

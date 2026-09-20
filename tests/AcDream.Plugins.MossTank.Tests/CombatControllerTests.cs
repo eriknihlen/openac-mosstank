@@ -2638,6 +2638,88 @@ public sealed class CombatControllerTests
         Assert.Equal(71u, surface.LastTargetedCast.Item1);
     }
 
+    /// <summary>
+    /// A Lure is an item enchantment; the vulnerability the column asks for
+    /// is the creature spell of the same element. Knowing both must not make
+    /// the Lure a candidate.
+    /// Mutation: accept a Lure as a vulnerability again and the Lure - the
+    /// lower-difficulty spell of the two - wins the choice, which is the cast
+    /// the server answered with "You fail to affect".
+    /// </summary>
+    [Fact]
+    public void ALureIsNeverChosenAsACreatureVulnerability()
+    {
+        var surface = new FakeAutomation
+        {
+            CombatSnapshot = Physical() with { Mode = PluginCombatMode.Magic },
+            Targets = [Target(10, "Drudge", 5, 0)],
+            KnownCombatSpells =
+            [
+                MagicSpell(100, "Flame Bolt VII", difficulty: 300),
+                Debuff(80, "Flame Lure III"),
+                Debuff(81, "Fire Vulnerability Other VII"),
+            ],
+            EquipmentItems = [WieldedCaster()],
+        };
+        var controller = new CombatController(
+            new FakeHost(surface),
+            FireVulnerabilityRule());
+
+        controller.Toggle();
+        controller.OnTick(0.25);
+
+        Assert.Equal((81u, 10u), surface.LastTargetedCast);
+        Assert.DoesNotContain(80u, surface.CastSpellIds);
+    }
+
+    /// <summary>
+    /// With only Lures known there is no vulnerability to cast at all, so the
+    /// pass goes straight to the attack rather than spending itself on a
+    /// spell the monster cannot be the target of.
+    /// Mutation: accept a Lure as a vulnerability again and the first
+    /// assertion fails - the Lure goes out instead of the bolt.
+    /// </summary>
+    [Fact]
+    public void KnowingOnlyLuresCastsNothingAtTheCreature()
+    {
+        var surface = new FakeAutomation
+        {
+            CombatSnapshot = Physical() with { Mode = PluginCombatMode.Magic },
+            Targets = [Target(10, "Drudge", 5, 0)],
+            KnownCombatSpells =
+            [
+                MagicSpell(100, "Flame Bolt VII", difficulty: 300),
+                Debuff(80, "Flame Lure III"),
+            ],
+            EquipmentItems = [WieldedCaster()],
+        };
+        var controller = new CombatController(
+            new FakeHost(surface),
+            FireVulnerabilityRule());
+
+        controller.Toggle();
+        controller.OnTick(0.25);
+
+        Assert.Equal((100u, 10u), surface.LastTargetedCast);
+        Assert.DoesNotContain(80u, surface.CastSpellIds);
+    }
+
+    /// <summary>Attack with fire, and tick the vulnerability column.</summary>
+    private static CombatSettings FireVulnerabilityRule()
+    {
+        var settings = new CombatSettings { MaximumRange = 40d };
+        settings.Rules.Clear();
+        settings.Rules.Add(new MonsterRule(
+            "DEFAULT",
+            new MonsterRuleActions
+            {
+                Flags = MonsterActionFlags.Attack
+                    | MonsterActionFlags.Vulnerability,
+                DamageType = MonsterDamageType.Fire,
+            }));
+        return settings;
+    }
+
     [Fact]
     public void AFistsRowCastsTuskerFistsBeforeTheEnchantmentIsUp()
     {
