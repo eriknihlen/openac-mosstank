@@ -6996,6 +6996,51 @@ public sealed class MossTankPanelTests
     }
 
     [Fact]
+    public void AnItemTheChannelIsBusyOnDoesNotStarveTheOthersAndIsComeBackTo()
+    {
+        var storage = new MemoryStorage();
+        var seed = new FakeAutomation
+        {
+            Name = "Prover",
+            ItemEntries = [Item(10, "Fire Sword", 1), Item(11, "Ice Wand", 0x8000)],
+        };
+        var seedHost = new FakeHost(seed, storage);
+        var seedPanel = new MossTankPanel(seedHost);
+        seedHost.Selection.Select(10);
+        seedPanel.AddSelectedItem();
+        seedHost.Selection.Select(11);
+        seedPanel.AddSelectedItem();
+
+        // The description channel is held by somebody else's question about
+        // the first item — the shape a corpse identification in flight puts
+        // this sweep in.
+        var automation = new FakeAutomation
+        {
+            Name = "Prover",
+            ItemEntries = [Item(10, "Fire Sword", 1), Item(11, "Ice Wand", 0x8000)],
+        };
+        automation.Unassessed.Add(10u);
+        automation.Unassessed.Add(11u);
+        automation.IdentifyBusy.Add(10u);
+        var panel = new MossTankPanel(new FakeHost(automation, storage));
+
+        for (int tick = 0; tick < 20; tick++)
+            panel.OnTick(0.3d);
+
+        // The second item is served meanwhile, and the busy one is still
+        // being asked about rather than written off.
+        Assert.Contains(11u, automation.Identified);
+        Assert.DoesNotContain(11u, automation.Unassessed);
+        Assert.True(automation.Identified.Count(id => id == 10u) > 1);
+
+        automation.IdentifyBusy.Clear();
+        for (int tick = 0; tick < 20; tick++)
+            panel.OnTick(0.3d);
+
+        Assert.Empty(automation.Unassessed);
+    }
+
+    [Fact]
     public void NavCommandsImportLegacyAndExportAf()
     {
         var storage = new MemoryStorage();
@@ -8787,12 +8832,21 @@ public sealed class MossTankPanelTests
         public HashSet<uint> Unassessed { get; } = [];
         public List<uint> Identified { get; } = [];
         public HashSet<uint> IdentifyRefusals { get; } = [];
+
+        /// <summary>
+        /// Items the one description channel is busy on — somebody else's
+        /// question is outstanding, so this one is not taken. The sweep has
+        /// to leave such an item and come back to it rather than stop.
+        /// </summary>
+        public HashSet<uint> IdentifyBusy { get; } = [];
         public PluginItemCommandStatus IdentifyStatus { get; set; } =
             PluginItemCommandStatus.Started;
 
         public PluginItemCommandResult Identify(uint objectId)
         {
             Identified.Add(objectId);
+            if (IdentifyBusy.Contains(objectId))
+                return new(PluginItemCommandStatus.Busy);
             if (IdentifyRefusals.Contains(objectId))
                 return new(PluginItemCommandStatus.Refused);
             if (IdentifyStatus == PluginItemCommandStatus.Started)
