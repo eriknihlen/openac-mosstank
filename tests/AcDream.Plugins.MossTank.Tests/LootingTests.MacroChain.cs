@@ -270,6 +270,62 @@ public sealed partial class LootingTests
     }
 
     /// <summary>
+    /// A busy answer to an open is the host saying "not yet" -- it paces two
+    /// uses apart, and closing the corpse just before was one of them. That
+    /// is not this corpse failing to open: it costs it no attempt and arms
+    /// no slot, so the very next turn opens it. Mutation: fall through to the
+    /// refused branch and the turn counts an attempt, arms the open slots and
+    /// leaves "Retrying corpse" on the status line -- the pause a live
+    /// session showed between one corpse and the next.
+    /// </summary>
+    [Fact]
+    public void AnOpenTheHostIsPacingCostsTheCorpseNothing()
+    {
+        const uint first = 0x70001181u;
+        const uint second = 0x70001182u;
+        LootSettings settings = ChainSettings();
+        settings.CorpseItemAppearanceTimeoutSeconds = 0d;
+        settings.CorpseOpenTimeoutSeconds = 1.5d;
+        var automation = new Automation { Corpses = [ChainCorpse(first)] };
+        var controller = new LootController(new Host(automation), settings);
+        var locks = new ActionLockTable();
+        controller.BindActionLocks(locks);
+
+        Assert.True(controller.Tick(0.3d, canAct: true));
+        Assert.Equal([first], automation.Opened);
+        automation.Requested = first;
+        automation.Current = first;
+        // The container is open: the frame gives the open's slots back, the
+        // way the host does beside the rule pass.
+        Assert.True(controller.ObserveCorpseOpened());
+        Assert.True(controller.Tick(0.3d, canAct: true));
+        Assert.Equal([first], automation.Closed);
+
+        // The close was a use; the open of the next corpse lands inside the
+        // host's pacing window and comes back busy.
+        automation.Requested = 0u;
+        automation.Current = 0u;
+        automation.Corpses = [ChainCorpse(second)];
+        automation.OpenResult = PluginItemCommandStatus.Busy;
+        locks.Advance(0.1d);
+        Assert.True(controller.Tick(0.1d, canAct: true));
+        Assert.Equal([first, second], automation.Opened);
+        Assert.DoesNotContain(
+            "Retrying corpse",
+            controller.Status,
+            StringComparison.Ordinal);
+        Assert.False(locks.IsLocked(ActionLockKind.ItemUse));
+        Assert.False(locks.IsLocked(ActionLockKind.CorpseOpenAttempt));
+
+        // The window has passed: the same open goes out on the next turn.
+        automation.OpenResult = PluginItemCommandStatus.Started;
+        locks.Advance(0.1d);
+        Assert.True(controller.Tick(0.1d, canAct: true));
+        Assert.Equal([first, second, second], automation.Opened);
+        Assert.Contains("Opening", controller.Status, StringComparison.Ordinal);
+    }
+
+    /// <summary>
     /// The reference counts every open attempt, refused or not, and
     /// blacklists the corpse at the profile's attempt count. Mutation: drop
     /// the <c>BlacklistFailedCorpse</c> call from the refused-open branch and
