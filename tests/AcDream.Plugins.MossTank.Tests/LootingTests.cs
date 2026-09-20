@@ -777,7 +777,7 @@ public sealed partial class LootingTests
         Assert.Equal([scroll], automation.Picked);
 
         locks.Advance(1d);
-        automation.PickupResults.Enqueue(PluginItemCommandStatus.Busy);
+        automation.PickupResults.Enqueue(new(PluginItemCommandStatus.Busy));
         Assert.True(controller.Tick(0.1d, canAct: true));
         Assert.Equal([scroll, scroll], automation.Picked);
         Assert.Empty(classifier.Looted);
@@ -786,6 +786,9 @@ public sealed partial class LootingTests
         automation.Owned = [scrollItem];
         automation.InventoryCompletion = new PluginInventoryCompletion(
             1, PluginInventoryCommandKind.Pickup, scroll, 0u);
+        // A busy pull holds the item slot exactly as a sent one does, so the
+        // turn that reads the transfer is the one after the hold runs out.
+        locks.Advance(1d);
         Assert.True(controller.Tick(0.1d, canAct: true));
 
         Assert.Equal(LootAction.Read, controller.ClassifiedOwnedItems[scroll]);
@@ -841,7 +844,7 @@ public sealed partial class LootingTests
 
         locks.Advance(1d);
         automation.Contents = [firstItem, secondItem];
-        automation.PickupResults.Enqueue(PluginItemCommandStatus.Busy);
+        automation.PickupResults.Enqueue(new(PluginItemCommandStatus.Busy));
         Assert.True(controller.Tick(0.1d, canAct: true));
         controller.TickIdentification(0.5d);
 
@@ -2471,7 +2474,7 @@ public sealed partial class LootingTests
             return new(PluginItemCommandStatus.Started);
         }
         public List<uint> Picked { get; } = [];
-        public Queue<PluginItemCommandStatus> PickupResults { get; } = [];
+        public Queue<PluginItemCommandResult> PickupResults { get; } = [];
         public List<uint> Identified { get; } = [];
         public List<(uint Tool, uint Item)> Salvaged { get; } = [];
         public List<uint> Sold { get; } = [];
@@ -2657,10 +2660,9 @@ public sealed partial class LootingTests
             bool mainPack = false)
         {
             Picked.Add(objectId);
-            PluginItemCommandStatus status = PickupResults.Count == 0
-                ? PluginItemCommandStatus.Started
+            return PickupResults.Count == 0
+                ? new(PluginItemCommandStatus.Started)
                 : PickupResults.Dequeue();
-            return new(status);
         }
         public PluginItemCommandResult Salvage(
             uint toolObjectId,

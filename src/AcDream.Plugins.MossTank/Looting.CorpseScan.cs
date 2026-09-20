@@ -427,6 +427,34 @@ internal sealed partial class LootController
         return false;
     }
 
+    /// <summary>
+    /// A corpse this pass is done with, however it ended: emptied, or given
+    /// up on because the client would not send a pull for it. Both endings
+    /// close the container and let the corpse go; only the first records it
+    /// as looted.
+    /// </summary>
+    private bool IsCorpseFinished(uint corpseId) =>
+        corpseId != 0u
+        && (_completedCorpses.ContainsKey(corpseId)
+            || corpseId == _abandonedCorpse);
+
+    /// <summary>
+    /// Lets go of the corpse the pass is working when the client will not
+    /// send a pull for what is in it. The corpse is skipped for the profile's
+    /// blacklist period rather than recorded as looted — nothing was taken
+    /// from it, and once the packs have room again it is worth another visit.
+    /// </summary>
+    private void GiveUpOnCorpse(uint corpseId, string reason)
+    {
+        if (corpseId == 0u)
+            return;
+        _abandonedCorpse = corpseId;
+        _corpseBlacklistedAt[corpseId] = _lifetime;
+        Log?.Invoke(
+            MacroLogChannel.Loot,
+            $"LootCorpse: giving up on 0x{corpseId:X8}: {reason}");
+    }
+
     private void MarkCorpseComplete(uint corpseId)
     {
         if (corpseId == 0u)

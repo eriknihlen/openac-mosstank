@@ -623,6 +623,19 @@ internal sealed partial class LootController
     /// go of instead of holding the character still for ever.
     /// </summary>
     private readonly Dictionary<uint, int> _corpseDescriptionAttempts = [];
+
+    /// <summary>
+    /// Items already reported as dropped from the pass for spending their
+    /// attempts, so the line is written once rather than on every turn.
+    /// </summary>
+    private readonly HashSet<uint> _abandonedItems = [];
+
+    /// <summary>
+    /// The corpse the pass gave up on, still open and waiting for its closing
+    /// use. It is deliberately NOT a completed corpse: nothing was taken from
+    /// it, and once the packs have room again it is worth another visit.
+    /// </summary>
+    private uint _abandonedCorpse;
     private uint _selectedCorpse;
     private ulong _chatSequence;
     private double _stateAge;
@@ -809,13 +822,14 @@ internal sealed partial class LootController
             }
             else
             {
-                AbandonWaitingItem();
+                AbandonWaitingItem("the corpse closed before it arrived");
             }
         }
         if (_activeCorpse != 0u
             && current != _activeCorpse
-            && _completedCorpses.ContainsKey(_activeCorpse))
+            && IsCorpseFinished(_activeCorpse))
         {
+            _abandonedCorpse = 0u;
             _activeCorpse = 0u;
             _activeCorpseSawContents = false;
             _activeCorpseIsOwnDeath = false;
@@ -1208,6 +1222,8 @@ internal sealed partial class LootController
         _corpseDescriptionAttempts.Clear();
         _corpseBlacklistedAt.Clear();
         _itemAttempts.Clear();
+        _abandonedItems.Clear();
+        _abandonedCorpse = 0u;
         _pendingByName.Clear();
         _classifiedOwnedItems.Clear();
         _externalClassifierByItem.Clear();
@@ -1242,7 +1258,7 @@ internal sealed partial class LootController
         // thing left is the closing use. That use is retried every pass until
         // the container actually shuts — nothing re-reads the contents in
         // between, and the corpse stays this pass's business meanwhile.
-        if (_completedCorpses.ContainsKey(_activeCorpse))
+        if (IsCorpseFinished(_activeCorpse))
             return CloseFinishedCorpse(_activeCorpse, canAct);
 
         // No settling pause before the contents are read: whether they have
@@ -1294,10 +1310,7 @@ internal sealed partial class LootController
             && waitingAttempts >= maximumAttempts
             && contents.Any(item => item.ObjectId == _waitingItem))
         {
-            Log?.Invoke(
-                MacroLogChannel.Loot,
-                $"LootPickup: abandoned {_waitingName} after {waitingAttempts} attempts");
-            AbandonWaitingItem();
+            AbandonWaitingItem($"{waitingAttempts} attempts spent");
         }
 
         // Items still waiting on their description are the frame's business
@@ -1315,6 +1328,15 @@ internal sealed partial class LootController
             if (_itemAttempts.TryGetValue(item.ObjectId, out int attempts)
                 && attempts >= maximumAttempts)
             {
+                // Dropping an item out of the pass is a decision, and a
+                // silent one left a run with no record of why an item was
+                // still sitting in the corpse when it was closed.
+                if (_abandonedItems.Add(item.ObjectId))
+                {
+                    Log?.Invoke(
+                        MacroLogChannel.Loot,
+                        $"LootPickup: abandoned {item.Name}: {attempts} attempts spent");
+                }
                 continue;
             }
             if (cached is { } decision)
@@ -1374,27 +1396,55 @@ internal sealed partial class LootController
         ILootAutomation loot,
         (PluginInventoryItem Item, LootDecision Decision) chosen)
     {
+        PluginItemCommandResult pickup = loot.Pickup(chosen.Item.ObjectId);
+
+        // Every pull holds the item slot and navigation for three quarters of
+        // a second, whether or not it actually went out, the way the
+        // reference's pickup step does. The item slot is what paces the pulls
+        // — and what this rule holds the pass on meanwhile; navigation is what
+        // stops the walk-to-a-corpse rule — which outranks this one — from
+        // steering the character away from the corpse it is standing over, one
+        // item into emptying it. A pull the client would not send needs the
+        // pace most of all: without the hold it is re-issued on every
+        // heartbeat, the whole attempt ceiling is spent in a fraction of a
+        // second, and the client's own notice is re-printed each time.
+        _actionLocks?.Arm(ActionLockKind.ItemUse, PickupHoldSeconds);
+        _actionLocks?.Arm(ActionLockKind.Navigation, PickupHoldSeconds);
+
+        if (pickup.Status == PluginItemCommandStatus.Busy)
+        {
+            // Busy is the client's own one-request-at-a-time gate: it never
+            // looked at this item, so this is not an attempt on it. Sitting
+            // out the hold and asking again is the whole answer.
+            if (_waitingItem == chosen.Item.ObjectId)
+                _waitingPickupAccepted = false;
+            Status = $"Waiting to take {chosen.Item.Name}…";
+            return true;
+        }
+
         // The pull is counted when it is issued, as the reference counts it:
         // an item that is still in the corpse on the next turn is pulled
         // again, until the profile's attempt ceiling drops it.
         IncrementAttempt(chosen.Item.ObjectId);
-        PluginItemCommandResult pickup = loot.Pickup(chosen.Item.ObjectId);
+
         if (!pickup.Accepted)
         {
+            // The client decided against sending this one, and nothing this
+            // rule does on the next heartbeat changes that — a pack with no
+            // room is still full a tenth of a second later. So the corpse is
+            // let go of instead of asked again, and set aside rather than
+            // recorded as looted: nothing was taken from it.
             if (_waitingItem == chosen.Item.ObjectId)
-            _waitingPickupAccepted = false;
+                _waitingPickupAccepted = false;
             Status = $"Pickup refused: {chosen.Item.Name} ({pickup.Status}).";
-            return pickup.Status == PluginItemCommandStatus.Busy;
+            GiveUpOnCorpse(
+                _activeCorpse,
+                string.IsNullOrWhiteSpace(pickup.Notice)
+                    ? $"{chosen.Item.Name} was refused ({pickup.Status})"
+                    : $"{chosen.Item.Name} was refused: {pickup.Notice}");
+            return true;
         }
 
-        // Every pull holds the item slot and navigation for three quarters of
-        // a second, the way the reference's pickup step does. The item slot is
-        // what paces the pulls — and what this rule holds the pass on
-        // meanwhile; navigation is what stops the walk-to-a-corpse rule —
-        // which outranks this one — from steering the character away from
-        // the corpse it is standing over, one item into emptying it.
-        _actionLocks?.Arm(ActionLockKind.ItemUse, PickupHoldSeconds);
-        _actionLocks?.Arm(ActionLockKind.Navigation, PickupHoldSeconds);
         if (_waitingItem == 0u)
         {
             _waitingItem = chosen.Item.ObjectId;
@@ -1499,6 +1549,7 @@ internal sealed partial class LootController
             MacroLogChannel.Loot,
             $"LootPickup: took {_waitingName} ({_waitingAction})");
         _itemAttempts.Remove(_waitingItem);
+        _abandonedItems.Remove(_waitingItem);
         if (_waitingAction == LootAction.Read
             && _waitingItemSnapshot.SpellId != 0u)
         {
@@ -1510,8 +1561,19 @@ internal sealed partial class LootController
         ClearWaitingItem();
     }
 
-    private void AbandonWaitingItem()
+    /// <summary>
+    /// Lets go of the item the pass was waiting on and says why. Every way an
+    /// item leaves the pass without arriving goes through here, so a run
+    /// always has exactly one line for it.
+    /// </summary>
+    private void AbandonWaitingItem(string reason)
     {
+        if (_waitingItem != 0u)
+        {
+            Log?.Invoke(
+                MacroLogChannel.Loot,
+                $"LootPickup: abandoned {_waitingName}: {reason}");
+        }
         ReleaseWaitingReservation();
         ClearWaitingItem();
     }
@@ -2073,7 +2135,8 @@ internal sealed partial class LootController
         _activeCorpse = 0u;
         _activeCorpseSawContents = false;
         _activeCorpseIsOwnDeath = false;
-        AbandonWaitingItem();
+        _abandonedCorpse = 0u;
+        AbandonWaitingItem("the pass stopped");
         _awaitingAppraisal = 0u;
         _awaitingCorpseAppraisal = 0u;
         _lastCorpseDescriptionRequest = 0u;
