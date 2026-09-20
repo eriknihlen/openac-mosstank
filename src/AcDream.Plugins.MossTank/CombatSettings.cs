@@ -152,7 +152,7 @@ internal sealed class CombatSettings
     internal IList<AssistItem> ImportedAssistItems { get; } = new List<AssistItem>();
     internal IDictionary<uint, int> ItemUseSpecifiers { get; } = new Dictionary<uint, int>();
     public IList<MonsterRule> Rules { get; } =
-        new List<MonsterRule> { new("DEFAULT", 0) };
+        new List<MonsterRule> { MonsterRule.Fresh("DEFAULT") };
 
     /// <summary>
     /// Where a rule's <c>species</c> and <c>maxhp</c> come from. Both are

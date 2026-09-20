@@ -373,6 +373,76 @@ public sealed class VtankMonsterRuleTableTests
             rules[1].Actions.Flags & MonsterActionFlags.Imperil);
     }
 
+    /// <summary>
+    /// A brand-new monster row, column for column: priority one, automatic
+    /// damage, automatic weapon, attack and streak ticked, every other tick
+    /// off, no extra vulnerability, automatic off-hand and an automatic pet
+    /// element. A fresh row that does not match this writes a profile the
+    /// editor would show differently from the one the player just made, and a
+    /// row added beside authored rows would behave differently from its
+    /// neighbours for no reason the player can see.
+    /// Mutation: drop the streak tick, or put priority back to zero, and this
+    /// fails on exactly that column.
+    /// </summary>
+    [Fact]
+    public void AFreshMonsterRowIsWrittenColumnForColumn()
+    {
+        VtankDatabase database = VtankDefaultSettingsDatabase.Parse();
+
+        VtankMonsterRuleTable.Write(database, [MonsterRule.Fresh("DEFAULT")]);
+
+        VtankRow row = database.Find(VtankMonsterRuleTable.TableName)!.Rows[0];
+        Assert.Equal(VtankMonsterRuleTable.DefaultRowName, row.Cells[0].AsString());
+        Assert.Equal(1, row.Cells[1].AsInt());
+        Assert.Equal(8, row.Cells[2].AsInt());
+        Assert.Equal(-1, row.Cells[3].AsInt());
+        Assert.True(row.Cells[8].AsBool());
+        Assert.True(row.Cells[17].AsBool());
+        foreach (int column in new[] { 4, 5, 6, 7, 9, 10, 11, 12, 13, 14, 15, 16 })
+            Assert.False(row.Cells[column].AsBool());
+        Assert.Equal(98, row.Cells[18].AsInt());
+        Assert.Equal(0, row.Cells[19].AsInt());
+        Assert.Equal(101, row.Cells[20].AsInt());
+    }
+
+    /// <summary>
+    /// A profile whose only rule is an untouched fresh row still needs no
+    /// monster table written into a file that never had one.
+    /// </summary>
+    [Fact]
+    public void AnUntouchedFreshRowDoesNotFabricateAMonsterTable()
+    {
+        var database = new VtankDatabase();
+
+        VtankMonsterRuleTable.Write(database, [MonsterRule.Fresh("DEFAULT")]);
+
+        Assert.Null(database.Find(VtankMonsterRuleTable.TableName));
+    }
+
+    /// <summary>
+    /// But a row the player did touch is written even when it is the only
+    /// one, because dropping it would silently lose the edit.
+    /// </summary>
+    [Fact]
+    public void AnEditedLoneDefaultRowIsWrittenEvenWithoutAnExistingTable()
+    {
+        var database = new VtankDatabase();
+
+        VtankMonsterRuleTable.Write(
+            database,
+            [
+                new MonsterRule(
+                    "DEFAULT",
+                    MonsterRuleActions.FreshRow with
+                    {
+                        DamageType = MonsterDamageType.Fire,
+                    }),
+            ]);
+
+        VtankTable table = database.Find(VtankMonsterRuleTable.TableName)!;
+        Assert.Equal(6, table.Rows[0].Cells[2].AsInt());
+    }
+
     [Fact]
     public void DamageElementNumbersAreVtanksNotMossTanks()
     {

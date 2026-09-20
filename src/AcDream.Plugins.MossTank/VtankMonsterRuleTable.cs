@@ -118,10 +118,13 @@ internal static class VtankMonsterRuleTable
         VtankTable? table = database.Find(TableName);
         if (table is null)
         {
+            // A file that never had a monster table keeps none while the
+            // only rule is a DEFAULT row nobody has touched. Comparing the
+            // whole row, not a couple of its columns, keeps an edit to any
+            // other column from being dropped on the way out.
             if (rules.Count == 0
                 || (rules.Count == 1 && rules[0].IsDefault
-                    && rules[0].Actions.Flags == MonsterActionFlags.Attack
-                    && rules[0].Actions.Priority == 0))
+                    && rules[0].Actions == MonsterRuleActions.FreshRow))
             {
                 return;
             }

@@ -70,6 +70,26 @@ internal sealed record MonsterRuleActions
     public MonsterDamageType PetDamageType { get; init; } =
         MonsterDamageType.PlayerAuto;
 
+    /// <summary>
+    /// The columns a brand-new monster row starts with: priority one, attack
+    /// and streak ticked, automatic attack element, no extra vulnerability,
+    /// automatic weapon and off-hand, and an automatic pet element. Both the
+    /// DEFAULT row a profile is born with and every row added to it later
+    /// start here, so an untouched row behaves the same way whichever editor
+    /// wrote the profile, and sorts beside authored rules instead of below
+    /// all of them.
+    /// </summary>
+    public static MonsterRuleActions FreshRow => new()
+    {
+        Priority = 1,
+        Flags = MonsterActionFlags.Attack | MonsterActionFlags.Streak,
+        DamageType = MonsterDamageType.Auto,
+        ExtraVulnerability = MonsterDamageType.None,
+        WeaponToUseRaw = -1,
+        SecondaryEquipRaw = (int)VtankSecondaryEquip.Auto,
+        PetDamageType = MonsterDamageType.PlayerAuto,
+    };
+
     public int BoundedPriority => Math.Clamp(Priority, -1, 4);
     public bool Attacks => (Flags
         & (MonsterActionFlags.Attack | MonsterActionFlags.Ring)) != 0;
@@ -146,16 +166,13 @@ internal sealed class MonsterRule
 
     /// <summary>
     /// The fallback row a profile with no DEFAULT row of its own falls back
-    /// to: attack at priority one, and finish with a streak.
+    /// to, which is the fresh row: attack at priority one, finishing with a
+    /// streak.
     /// </summary>
-    public static MonsterRule RetailDefault() => new(
-        "DEFAULT",
-        new MonsterRuleActions
-        {
-            Priority = 1,
-            Flags = MonsterActionFlags.Attack | MonsterActionFlags.Streak,
-            ExtraVulnerability = MonsterDamageType.None,
-        });
+    public static MonsterRule RetailDefault() => Fresh("DEFAULT");
+
+    public static MonsterRule Fresh(string expression) =>
+        new(expression, MonsterRuleActions.FreshRow);
 
     public string Expression { get; }
     public MonsterRuleActions Actions { get; }

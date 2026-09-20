@@ -6966,12 +6966,12 @@ public sealed class MossTankPanelTests
         first.AddMonsterRule(); // row 1: "species==drudge"
         first.ToggleMonsterImperilAt(1);
         first.CycleMonsterDamageAt(1); // Auto -> Void Basic (MonsterDamageCycle order)
-        first.CycleMonsterPriorityAt(1); // 0 -> 1
+        first.CycleMonsterPriorityAt(1); // a new row starts at 1, so 1 -> 2
 
         Assert.Equal(["DEFAULT", "species==drudge"], first.MonsterNameColumn);
         Assert.True(first.MonsterImperilColumn[1]);
         Assert.Equal("Void Basic", first.MonsterDamageColumn[1]);
-        Assert.Equal("1", first.MonsterPriorityColumn[1]);
+        Assert.Equal("2", first.MonsterPriorityColumn[1]);
         Assert.Equal(string.Empty, first.MonsterExpressionDraft);
 
         var second = new MossTankPanel(new FakeHost(
@@ -6983,7 +6983,7 @@ public sealed class MossTankPanelTests
             second.MonsterNameColumn);
         Assert.True(second.MonsterImperilColumn[1]);
         Assert.Equal("Void Basic", second.MonsterDamageColumn[1]);
-        Assert.Equal("1", second.MonsterPriorityColumn[1]);
+        Assert.Equal("2", second.MonsterPriorityColumn[1]);
     }
 
     [Fact]
@@ -7008,9 +7008,9 @@ public sealed class MossTankPanelTests
     public void CycleMonsterPriorityAtWrapsExactlyNegativeOneThroughFour()
     {
         var panel = new MossTankPanel(new FakeHost(new FakeAutomation()));
-        Assert.Equal("0", panel.MonsterPriorityColumn[0]); // DEFAULT starts at 0
+        Assert.Equal("1", panel.MonsterPriorityColumn[0]); // a fresh row starts at 1
 
-        foreach (string next in new[] { "1", "2", "3", "4", "-1", "0" })
+        foreach (string next in new[] { "2", "3", "4", "-1", "0", "1" })
         {
             panel.CycleMonsterPriorityAt(0);
             Assert.Equal(next, panel.MonsterPriorityColumn[0]);
@@ -7116,6 +7116,35 @@ public sealed class MossTankPanelTests
         Assert.Equal(3, panel.MonsterMoveUpIcons.Count);
         Assert.All(panel.MonsterMoveUpIcons, id => Assert.Equal(0x060028FCu, id));
         Assert.All(panel.MonsterMoveDownIcons, id => Assert.Equal(0x060028FDu, id));
+    }
+
+    /// <summary>
+    /// Both the DEFAULT row a fresh profile is born with and a row the player
+    /// adds afterwards start as the same fresh row: priority one, attack and
+    /// streak ticked, nothing else. A row that started at priority zero with
+    /// no streak sorted below every authored rule and fired plain bolts where
+    /// its neighbours finished with a streak.
+    /// Mutation: start a new row at priority zero, or without the streak tick,
+    /// and this fails on that column for both rows.
+    /// </summary>
+    [Fact]
+    public void EveryNewMonsterRowStartsAtPriorityOneWithAttackAndStreak()
+    {
+        var panel = new MossTankPanel(new FakeHost(new FakeAutomation()));
+
+        panel.SetMonsterExpressionDraft("species==drudge");
+        panel.AddMonsterRule();
+
+        Assert.Equal(["DEFAULT", "species==drudge"], panel.MonsterNameColumn);
+        for (int row = 0; row < 2; row++)
+        {
+            Assert.Equal("1", panel.MonsterPriorityColumn[row]);
+            Assert.True(panel.MonsterAttackColumn[row]);
+            Assert.True(panel.MonsterStreakColumn[row]);
+            Assert.False(panel.MonsterRingColumn[row]);
+            Assert.False(panel.MonsterImperilColumn[row]);
+            Assert.False(panel.MonsterVulnerabilityColumn[row]);
+        }
     }
 
     [Fact]

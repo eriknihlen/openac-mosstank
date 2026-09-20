@@ -942,7 +942,7 @@ internal sealed class MossTankProfileStore
                 }
             }
             if (!settings.Combat.Rules.Any(static rule => rule.IsDefault))
-                settings.Combat.Rules.Add(new MonsterRule("DEFAULT", 0));
+                settings.Combat.Rules.Add(MonsterRule.Fresh("DEFAULT"));
             ApplyRuleItemNames(settings.Combat);
 
             settings.Buffs.BuffAttributes = BuffAttributes;
@@ -1389,7 +1389,7 @@ internal sealed class MossTankProfileStore
         public Dictionary<string, DynamicSettingDocument> DynamicSettings { get; set; } =
             new(StringComparer.OrdinalIgnoreCase);
         public MonsterRuleDocument[] Rules { get; set; } =
-            [MonsterRuleDocument.From(new MonsterRule("DEFAULT", 0))];
+            [MonsterRuleDocument.From(MonsterRule.Fresh("DEFAULT"))];
 
         public static LegacyCombatProfileDocument Capture(CombatSettings value) => new()
         {
@@ -1484,7 +1484,7 @@ internal sealed class MossTankProfileStore
                 }
             }
             if (!value.Rules.Any(static rule => rule.IsDefault))
-                value.Rules.Add(new MonsterRule("DEFAULT", 0));
+                value.Rules.Add(MonsterRule.Fresh("DEFAULT"));
         }
     }
 

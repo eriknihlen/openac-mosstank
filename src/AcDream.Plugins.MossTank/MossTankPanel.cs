@@ -2789,7 +2789,7 @@ internal sealed partial class MossTankPanel : IBuffRuleHost, IDisposable
     private void EnsureDefaultMonsterRule()
     {
         if (_combatSettings.Rules.Count == 0)
-            _combatSettings.Rules.Add(new MonsterRule("DEFAULT", 0));
+            _combatSettings.Rules.Add(MonsterRule.Fresh("DEFAULT"));
     }
 
     private void RefreshMonsterEditor()
@@ -2879,7 +2879,7 @@ internal sealed partial class MossTankPanel : IBuffRuleHost, IDisposable
     {
         try
         {
-            var rule = new MonsterRule(expression, new MonsterRuleActions());
+            var rule = MonsterRule.Fresh(expression);
             _combatSettings.Rules.Add(rule);
             _monsterEditorNotice = $"Added {expression}.";
             RefreshMonsterEditor();
