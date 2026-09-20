@@ -228,6 +228,48 @@ public sealed partial class LootingTests
     }
 
     /// <summary>
+    /// An open still waiting for its container while another rule holds the
+    /// item slot is held up, not failing: the wait belongs to the holder and
+    /// must not be charged against the open timeout that writes a corpse
+    /// off. Mutation: charge the state age on every turn and the corpse is
+    /// counted as a failed open the moment the other rule lets go.
+    /// </summary>
+    [Fact]
+    public void AnOpenHeldUpByAnotherRuleIsNotCountedAgainstTheCorpse()
+    {
+        const uint corpse = 0x70001173u;
+        LootSettings settings = ChainSettings();
+        settings.CorpseOpenTimeoutSeconds = 1.5d;
+        var automation = new Automation { Corpses = [ChainCorpse(corpse)] };
+        var controller = new LootController(new Host(automation), settings);
+        var locks = new ActionLockTable();
+        controller.BindActionLocks(locks);
+
+        Assert.True(controller.Tick(0.3d, canAct: true));
+        Assert.Equal([corpse], automation.Opened);
+        automation.Requested = corpse;
+
+        // Another rule uses an item of its own. Its window outlives the
+        // open's, so the item slot stays held after the corpse-open slot has
+        // gone -- which is what says the hold is somebody else's.
+        locks.Arm(ActionLockKind.ItemUse, 10d);
+        locks.Advance(2d);
+        Assert.False(locks.IsLocked(ActionLockKind.CorpseOpenAttempt));
+        Assert.True(locks.IsLocked(ActionLockKind.ItemUse));
+
+        Assert.True(controller.Tick(2d, canAct: true));
+        Assert.Equal([corpse], automation.Opened);
+
+        // The other rule is done; the open is looked at again, still inside
+        // its own timeout.
+        locks.Advance(9d);
+        Assert.True(controller.Tick(0.1d, canAct: true));
+        Assert.Equal([corpse], automation.Opened);
+        Assert.DoesNotContain("Retrying corpse", controller.Status, StringComparison.Ordinal);
+        Assert.DoesNotContain("Blacklisted", controller.Status, StringComparison.Ordinal);
+    }
+
+    /// <summary>
     /// The reference counts every open attempt, refused or not, and
     /// blacklists the corpse at the profile's attempt count. Mutation: drop
     /// the <c>BlacklistFailedCorpse</c> call from the refused-open branch and

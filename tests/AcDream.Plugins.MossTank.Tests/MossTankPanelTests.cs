@@ -323,18 +323,68 @@ public sealed class MossTankPanelTests
                 && line.Contains("I=True", StringComparison.Ordinal));
     }
 
+    /// <summary>
+    /// Emptying a corpse is a chain of small waits, and a pass that ends in
+    /// "still waiting" costs the rest of a heartbeat unless the answer it
+    /// was waiting for wakes the pass itself. The container opening and
+    /// shutting, and its contents arriving, are three such answers: each
+    /// runs the next pass on the frame it lands. Mutation: drop the
+    /// container/contents fields from the poke watch and each of these ticks
+    /// runs no pass at all.
+    /// </summary>
+    [Fact]
+    public void ACorpseReceiptRunsTheNextPassOnItsOwnFrame()
+    {
+        var loot = new FrameLootSurface();
+        var automation = new FakeAutomation { LootSurface = loot };
+        var panel = new MossTankPanel(new FakeHost(automation));
+        panel.AddLootRule();
+        if (!panel.LootEnabled)
+            panel.ToggleLooting();
+        panel.ToggleCombat();
+        // Settle: nothing is changing, so nothing pokes and the pass runs on
+        // the heartbeat alone.
+        for (int tick = 0; tick < 4; tick++)
+            panel.OnTick(0.3d);
+        long settled = panel.MacroPassCount;
+        panel.OnTick(0.01d);
+        Assert.Equal(settled, panel.MacroPassCount);
+
+        // The container opened.
+        loot.Current = FrameLootSurface.CorpseId;
+        panel.OnTick(0.01d);
+        Assert.Equal(settled + 1, panel.MacroPassCount);
+
+        // Its contents arrived.
+        loot.ContentsReady = false;
+        panel.OnTick(0.3d);
+        long beforeContents = panel.MacroPassCount;
+        loot.ContentsReady = true;
+        panel.OnTick(0.01d);
+        Assert.Equal(beforeContents + 1, panel.MacroPassCount);
+
+        // The container shut.
+        panel.OnTick(0.3d);
+        long beforeClose = panel.MacroPassCount;
+        loot.Current = 0u;
+        panel.OnTick(0.01d);
+        Assert.Equal(beforeClose + 1, panel.MacroPassCount);
+    }
+
     private sealed class FrameLootSurface : ILootAutomation
     {
         internal const uint CorpseId = 0x70000D01u;
 
         public uint Opened { get; private set; }
         public uint Current { get; set; }
+        public bool ContentsReady { get; set; } = true;
         public IReadOnlyList<PluginLootContainer> Corpses { get; set; } = [];
 
         public bool IsAvailable => true;
         public bool IsBusy => false;
         public uint RequestedContainerId => Opened;
         public uint CurrentContainerId => Current;
+        public bool CurrentContentsReady => ContentsReady;
 
         public IReadOnlyList<PluginLootContainer> CaptureCorpses(
             float maximumDistance) => Corpses;

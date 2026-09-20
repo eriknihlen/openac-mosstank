@@ -818,8 +818,22 @@ internal sealed partial class LootController
         if (_activeCorpse == 0u && _waitingItem == 0u)
             PruneRemovedExternalItems();
 
-        _stateAge += Math.Max(0d, elapsedSeconds);
-        _lifetime += Math.Max(0d, elapsedSeconds);
+        double elapsed = Math.Max(0d, elapsedSeconds);
+        // An open still waiting for its container, held up behind somebody
+        // else's item use, is not an open that is failing: the wait belongs
+        // to the holder. Charging it against the open timeout wrote off
+        // perfectly good corpses -- the attempt count climbed and the corpse
+        // was blacklisted -- whenever another rule happened to be mid-use.
+        // Our own open holds the corpse-open slot as well, which is what
+        // tells the two apart.
+        bool delayedByAnotherHolder = _activeCorpse != 0u
+            && current != _activeCorpse
+            && _actionLocks is { } holdTable
+            && holdTable.IsLocked(ActionLockKind.ItemUse)
+            && !holdTable.IsLocked(ActionLockKind.CorpseOpenAttempt);
+        if (!delayedByAnotherHolder)
+            _stateAge += elapsed;
+        _lifetime += elapsed;
         ObserveOwnershipDenials();
 
         // The reference's open rule is valid — and holds the pass doing
@@ -1211,12 +1225,9 @@ internal sealed partial class LootController
         if (_completedCorpses.ContainsKey(_activeCorpse))
             return CloseFinishedCorpse(_activeCorpse, canAct);
 
-        if (_stateAge < 0.10d)
-        {
-            Status = "Reading corpse contents…";
-            return true;
-        }
-
+        // No settling pause before the contents are read: whether they have
+        // arrived is a question the client answers, and a fixed wait on top
+        // of it only cost a heartbeat per corpse.
         if (!loot.CurrentContentsReady)
         {
             Status = "Waiting for corpse item data…";

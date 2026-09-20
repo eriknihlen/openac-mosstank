@@ -103,6 +103,10 @@ internal sealed partial class MossTankPanel : IBuffRuleHost, IDisposable
     private long _pokeItemRevision;
     private PluginCombatMode _pokeCombatMode;
     private bool _pokeEquipmentBusy;
+    private long _pokeInventoryRevision;
+    private long _pokeAppraisalRevision;
+    private uint _pokeContainerId;
+    private bool _pokeContentsReady;
     private string _status = "Idle.";
     private string _vitals = string.Empty;
     private string _coverage = string.Empty;
@@ -4988,6 +4992,15 @@ internal sealed partial class MossTankPanel : IBuffRuleHost, IDisposable
             RefreshRouteEditor();
     }
 
+    /// <summary>
+    /// Run the next pass on the frame an answer the macro is waiting for
+    /// arrives, rather than on the next heartbeat. A corpse is emptied as a
+    /// chain of small waits -- the container opens, its contents arrive,
+    /// each description lands, each pull completes, the container shuts --
+    /// and a pass that ends in "still waiting" costs the rest of a heartbeat
+    /// unless the answer itself wakes the pass. Left to the heartbeat alone
+    /// those waits added up to seconds between one corpse and the next.
+    /// </summary>
     private void ObserveSchedulerPokes()
     {
         IAutomationSurface automation = _host.Automation;
@@ -4995,10 +5008,19 @@ internal sealed partial class MossTankPanel : IBuffRuleHost, IDisposable
         long items = automation.Items.LastCompletion.Revision;
         PluginCombatMode mode = automation.Combat.Snapshot.Mode;
         bool equipping = automation.Equipment.IsBusy;
+        ILootAutomation loot = automation.Loot;
+        long inventory = loot.LastInventoryCompletion.Revision;
+        long appraisal = loot.Appraisal.Revision;
+        uint container = loot.CurrentContainerId;
+        bool contentsReady = loot.CurrentContentsReady;
         if (magic == _pokeMagicRevision
             && items == _pokeItemRevision
             && mode == _pokeCombatMode
-            && equipping == _pokeEquipmentBusy)
+            && equipping == _pokeEquipmentBusy
+            && inventory == _pokeInventoryRevision
+            && appraisal == _pokeAppraisalRevision
+            && container == _pokeContainerId
+            && contentsReady == _pokeContentsReady)
         {
             return;
         }
@@ -5007,6 +5029,10 @@ internal sealed partial class MossTankPanel : IBuffRuleHost, IDisposable
         _pokeItemRevision = items;
         _pokeCombatMode = mode;
         _pokeEquipmentBusy = equipping;
+        _pokeInventoryRevision = inventory;
+        _pokeAppraisalRevision = appraisal;
+        _pokeContainerId = container;
+        _pokeContentsReady = contentsReady;
         _scheduler.Poke();
     }
 
@@ -5113,6 +5139,9 @@ internal sealed partial class MossTankPanel : IBuffRuleHost, IDisposable
     }
 
     internal void PokeScheduler() => _scheduler.Poke();
+
+    /// <summary>How many rule passes have run; the pace of the macro.</summary>
+    internal long MacroPassCount => _scheduler.PassCount;
 
     private string? _reportedSuspension;
 
