@@ -127,6 +127,37 @@ public sealed class MossTankPanelTests
     }
 
     /// <summary>
+    /// The item channel going free is a receipt, and the pass waiting behind
+    /// it runs on that frame rather than at the next heartbeat. The loot
+    /// rules hold the pass whenever an item request cannot go out — an open,
+    /// a pull, a close — and the route stands still behind them, so a third
+    /// of a second of that wait is paid on every corpse.
+    ///
+    /// Mutation: drop the item-channel flag from the frame's poke watch and
+    /// the small frame below runs no pass.
+    /// </summary>
+    [Fact]
+    public void TheFramePassPokesWhenTheItemChannelGoesFree()
+    {
+        var automation = new FakeAutomation { ItemsBusy = true };
+        var panel = new MossTankPanel(new FakeHost(automation));
+
+        panel.ToggleCombat();
+        for (int tick = 0; tick < 4; tick++)
+            panel.OnTick(0.3d);
+        long settled = panel.MacroPassCount;
+
+        // A frame well inside the heartbeat, on its own, is not a pass.
+        panel.OnTick(0.01d);
+        Assert.Equal(settled, panel.MacroPassCount);
+
+        automation.ItemsBusy = false;
+        panel.OnTick(0.01d);
+
+        Assert.Equal(settled + 1, panel.MacroPassCount);
+    }
+
+    /// <summary>
     /// The slots a corpse open takes are given back on the host's frame, not
     /// on a rule pass — a rule pass cannot release the item slot, because that
     /// slot is what stops the loot rules running at all. So the frame has to

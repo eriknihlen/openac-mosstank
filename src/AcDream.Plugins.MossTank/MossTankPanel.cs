@@ -103,6 +103,7 @@ internal sealed partial class MossTankPanel : IBuffRuleHost, IDisposable
     private long _pokeItemRevision;
     private PluginCombatMode _pokeCombatMode;
     private bool _pokeEquipmentBusy;
+    private bool _pokeItemsBusy;
     private long _pokeInventoryRevision;
     private long _pokeAppraisalRevision;
     private uint _pokeContainerId;
@@ -5041,6 +5042,11 @@ internal sealed partial class MossTankPanel : IBuffRuleHost, IDisposable
         IAutomationSurface automation = _host.Automation;
         long magic = automation.Magic.LastCompletion.Revision;
         long items = automation.Items.LastCompletion.Revision;
+        // The item channel going free is a receipt like any other. The loot
+        // rules hold the pass -- and the route with it -- whenever an item
+        // request cannot go out, so without this the wait behind a channel
+        // that freed up early still ran to the next heartbeat.
+        bool itemsBusy = automation.Items.IsBusy;
         PluginCombatMode mode = automation.Combat.Snapshot.Mode;
         bool equipping = automation.Equipment.IsBusy;
         ILootAutomation loot = automation.Loot;
@@ -5052,6 +5058,7 @@ internal sealed partial class MossTankPanel : IBuffRuleHost, IDisposable
             && items == _pokeItemRevision
             && mode == _pokeCombatMode
             && equipping == _pokeEquipmentBusy
+            && itemsBusy == _pokeItemsBusy
             && inventory == _pokeInventoryRevision
             && appraisal == _pokeAppraisalRevision
             && container == _pokeContainerId
@@ -5064,6 +5071,7 @@ internal sealed partial class MossTankPanel : IBuffRuleHost, IDisposable
         _pokeItemRevision = items;
         _pokeCombatMode = mode;
         _pokeEquipmentBusy = equipping;
+        _pokeItemsBusy = itemsBusy;
         _pokeInventoryRevision = inventory;
         _pokeAppraisalRevision = appraisal;
         _pokeContainerId = container;
