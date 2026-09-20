@@ -304,8 +304,20 @@ public sealed class VtankMonsterRuleTableTests
         Assert.Equal("name#^Olthoi", read[2].Expression);
     }
 
+    /// <summary>
+    /// The attack column is stored exactly the way the row's tick box shows
+    /// it: a row that attacks stores True, a row that does not stores False.
+    /// This earns a pin of its own because the field the column is built from
+    /// is negated twice - once on the way into the file and once on the way
+    /// into the tick box - so the two negations cancel and the stored column
+    /// is straight. Reading it inverted would make every authored profile
+    /// fight exactly the monsters it was told to leave alone.
+    /// Mutation: negate either side and
+    /// <see cref="ShippedDefaultRowParsesToRetailsOwnValues"/> reads the
+    /// shipped "attack anything" default as a row that never attacks.
+    /// </summary>
     [Fact]
-    public void AttackColumnIsStoredInvertedExactlyAsRetailDoes()
+    public void TheAttackColumnIsStoredTheSameWayTheTickBoxShowsIt()
     {
         VtankDatabase database = VtankDefaultSettingsDatabase.Parse();
         VtankMonsterRuleTable.Write(
@@ -324,6 +336,41 @@ public sealed class VtankMonsterRuleTableTests
         VtankTable table = database.Find(VtankMonsterRuleTable.TableName)!;
         Assert.True(table.Rows[0].Cells[8].AsBool());
         Assert.False(table.Rows[1].Cells[8].AsBool());
+
+        // And the two rows read back to the flags they were written from.
+        List<MonsterRule> read = VtankMonsterRuleTable.TryRead(database)!;
+        Assert.True(read[0].Actions.UsesPrimaryAttack);
+        Assert.False(read[1].Actions.UsesPrimaryAttack);
+    }
+
+    /// <summary>
+    /// The shape authored profiles really use: a blanket row that attacks
+    /// everything it meets, and beneath it a range-keyed row that leaves
+    /// distant monsters alone while still debuffing them. Read the attack
+    /// column inverted and those two swap, which is the profile inside out.
+    /// </summary>
+    [Fact]
+    public void ARangeKeyedRowThatOnlyDebuffsDoesNotAttack()
+    {
+        VtankDatabase database = VtankDefaultSettingsDatabase.Parse();
+        VtankTable table = database.Find(VtankMonsterRuleTable.TableName)!;
+        var distant = new VtankRow();
+        foreach (VtankCell cell in table.Rows[0].Cells)
+            distant.Cells.Add(cell);
+        distant.Cells[0] = VtankCell.String("range>5");
+        distant.Cells[4] = VtankCell.Bool(true);
+        distant.Cells[8] = VtankCell.Bool(false);
+        table.Rows.Add(distant);
+
+        List<MonsterRule> rules = VtankMonsterRuleTable.TryRead(database)!;
+
+        Assert.True(rules[0].IsDefault);
+        Assert.True(rules[0].Actions.UsesPrimaryAttack);
+        Assert.Equal("range>5", rules[1].Expression);
+        Assert.False(rules[1].Actions.UsesPrimaryAttack);
+        Assert.Equal(
+            MonsterActionFlags.Imperil,
+            rules[1].Actions.Flags & MonsterActionFlags.Imperil);
     }
 
     [Fact]
