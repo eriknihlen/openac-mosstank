@@ -976,6 +976,65 @@ public sealed class MossTankPanelTests
         Assert.StartsWith("Buffing", panel.BuffStatus, StringComparison.Ordinal);
     }
 
+    /// <summary>
+    /// The idle top-off has a window of its own, wider than the ordinary
+    /// rebuff one, and it is the profile's number. A buff with ten minutes
+    /// left is due under a twenty-minute window and comfortably fresh under a
+    /// five-minute one.
+    ///
+    /// Mutation: read the ordinary rebuff window for the idle pass, or a
+    /// constant, and both rows answer the same way.
+    /// </summary>
+    [Theory]
+    [InlineData(1200d, true)]
+    [InlineData(300d, false)]
+    public void TheIdleTopoffWindowIsItsOwnProfileNumber(
+        double idleWindowSeconds,
+        bool casts)
+    {
+        var automation = new FakeAutomation
+        {
+            CurrentHealth = 100,
+            MaxHealth = 100,
+            CurrentStamina = 100,
+            MaxStamina = 100,
+            CurrentMana = 100,
+            MaxMana = 100,
+            Skills =
+            [
+                new PluginSkillInfo(
+                    1,
+                    "Life Magic",
+                    PluginSkillTraining.Trained,
+                    300),
+            ],
+            KnownSelfBuffs =
+            [
+                Spell(
+                    1,
+                    10,
+                    "Increases the caster's Life Magic skill by 10 points."),
+            ],
+            ActiveEnchantments = [new PluginActiveEnchantment(1, 10, 1, 600)],
+        };
+        var panel = new MossTankPanel(new FakeHost(automation));
+        panel.SetMetaOption(
+            "IdleBuffTopoffTimeSeconds",
+            AcDream.Plugins.MossTank.Expressions.ExpressionValue.Number(
+                idleWindowSeconds));
+
+        // Ten minutes left is outside the ordinary rebuff window either way,
+        // so nothing is cast until the idle pass is switched on.
+        panel.ToggleCombat();
+        panel.OnTick(0d);
+        Assert.Empty(automation.CastSpellIds);
+
+        panel.ToggleIdleBuffTopoff();
+        panel.OnTick(1d);
+
+        Assert.Equal(casts, automation.CastSpellIds.Count != 0);
+    }
+
     [Fact]
     public void StoppingTheMacroEndsAnAutomaticBuffPassInProgress()
     {
