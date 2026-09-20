@@ -528,11 +528,14 @@ internal sealed class CombatController
             _host.Automation.Combat.AbortPhysicalAttack();
             DisarmPhysicalResultText();
             StopBreakableTurnMovement();
-            Status = "Paused for buffing";
+            // The status is the attack's answer to "why did you decline",
+            // and losing the turn is not an answer to that: whatever the
+            // pass just worked out -- no target, waiting on the mode, the
+            // bar still charging -- is the true reason and stands. Writing
+            // one here renamed every decline after the fact.
         }
         else if (Enabled)
         {
-            Status = "Scanning for targets";
             _untilScan = 0d;
         }
     }

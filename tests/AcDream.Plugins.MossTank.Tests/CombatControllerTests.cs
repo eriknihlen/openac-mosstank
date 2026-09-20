@@ -272,6 +272,40 @@ public sealed class CombatControllerTests
     }
 
     /// <summary>
+    /// Losing the turn is not a reason for anything. The attack reports why it
+    /// declined, and the reason is whatever its own pass produced — "waiting
+    /// for a target", "charging", "waiting for combat mode". The teardown that
+    /// runs afterwards, once another rule has won, must leave that sentence
+    /// alone: a teardown that writes its own reason over it renames every
+    /// decline after the fact, and the log then says the attack was standing
+    /// down for a buff when it was doing nothing of the kind.
+    /// Mutation: write a status in the paused branch of <c>SetPaused</c> and
+    /// this fails — the true reason is overwritten before it is ever read.
+    /// </summary>
+    [Fact]
+    public void LosingTheTurnLeavesTheAttacksOwnReasonStanding()
+    {
+        var surface = new FakeAutomation
+        {
+            CombatSnapshot = Physical(),
+            Targets = [],
+            EquipmentItems = [WieldedPlannedWeapon()],
+        };
+        var settings = new CombatSettings { ScanIntervalSeconds = 0.05d };
+        ProfileFixtureWeapon(settings);
+        var controller = new CombatController(new FakeHost(surface), settings);
+
+        controller.Toggle();
+        controller.OnTick(0.25d);
+        string reason = controller.Status;
+        Assert.Equal("Waiting for a target", reason);
+
+        controller.SetPaused(true);
+
+        Assert.Equal(reason, controller.Status);
+    }
+
+    /// <summary>
     /// The reference writes Running=false to every loser on every pass, and
     /// a navigate rule told that releases the keys it was holding. The
     /// monster-approach rule sits twenty positions below the attack, so it
