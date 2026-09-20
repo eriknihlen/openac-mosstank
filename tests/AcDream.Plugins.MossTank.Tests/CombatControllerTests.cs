@@ -3740,7 +3740,7 @@ public sealed class CombatControllerTests
     }
 
     [Fact]
-    public void AttackWithAWieldedSwordButNoProfiledWeaponStillTakesTheMagicArm()
+    public void AttackWithAWieldedSwordButNoProfiledWeaponSaysWhatIsMissing()
     {
         var surface = new FakeAutomation
         {
@@ -3768,16 +3768,24 @@ public sealed class CombatControllerTests
         for (int tick = 0; tick < 4; tick++)
             controller.OnTick(0.25);
 
-        Assert.Equal(
-            "[MossTank] " + CombatModeGate.NoWandNotice,
-            Assert.Single(
-                surface.PostedSystemMessages,
-                message => message.Contains(
-                    CombatModeGate.NoWandNotice,
-                    StringComparison.Ordinal)));
-        Assert.False(controller.Enabled);
+        // The character is holding a weapon the profile does not list and
+        // the list offers nothing to put in its place. It is told what is
+        // missing, once, and the attack steps aside; the weapon in its hand
+        // is left alone rather than swapped out for a wand it cannot throw
+        // anything with.
+        Assert.Single(
+            surface.PostedSystemMessages,
+            message => message.Contains(
+                "Add the weapon you fight with to the Items list.",
+                StringComparison.Ordinal));
+        Assert.DoesNotContain(
+            surface.PostedSystemMessages,
+            message => message.Contains(
+                CombatModeGate.NoWandNotice,
+                StringComparison.Ordinal));
+        Assert.True(controller.Enabled);
         Assert.DoesNotContain("EnterDefaultMode", surface.CallLog);
-        Assert.DoesNotContain("EnterMode:Melee", surface.CallLog);
+        Assert.DoesNotContain("EnterMode:Magic", surface.CallLog);
         Assert.Equal(0, surface.BeginCount);
     }
 
@@ -7169,6 +7177,149 @@ public sealed class CombatControllerTests
                     "Fixtures",
                     "vtank",
                     "gameinfodb-excerpt.ugd")));
+
+    /// <summary>
+    /// The profile lists its items by object id: one wand, and one object the
+    /// character no longer carries. The pack holds a weapon that merely SHARES
+    /// the name of a listed row. It is a different object and the profile
+    /// never asked for it, so the fight must not reach for it -- and the row
+    /// for the object that is gone must not hold the pass up either.
+    ///
+    /// With no weapon it may use and no war or void magic to cast with the
+    /// wand, the fight says what is missing once and lets the monster go, so
+    /// the rules below the attack still get their turn.
+    ///
+    /// Mutation executed: let the item-NAME list answer for a profile that
+    /// lists object ids (restore the CombatItemNames arm in the selection
+    /// predicate) and the unlisted copy is chosen and wielded.
+    /// </summary>
+    [Fact]
+    public void AnUnlistedCopyOfAListedWeaponIsNeverChosen()
+    {
+        var surface = new FakeAutomation
+        {
+            CombatSnapshot = Peaceful(),
+            Targets =
+            [
+                Target(10, "Plasma Golem", distance: 1.8f, angle: 0),
+                Target(11, "Banderling Savage", distance: 2.1f, angle: 8),
+            ],
+            EquipmentItems =
+            [
+                Equipment(700, "Wings of Rakhil", damageType: 0,
+                    itemType: 0x00008000u),
+                // In hand. Same name as the listed-but-absent row 999, a
+                // different object, and on no list of its own.
+                Equipment(900, "Decapitator's Blade", damageType: 0x0001,
+                    equippedLocation: 0x02000000u,
+                    validLocations: 0x02000000u),
+            ],
+        };
+        var settings = new CombatSettings { MaximumRange = 8f };
+        settings.CombatItemNames.Add("Wings of Rakhil");
+        settings.CombatItemNames.Add("Decapitator's Blade");
+        settings.CombatItemObjectIds.Add(700u);
+        settings.CombatItemOrderIds.Add(700u);
+        // Listed, and no longer in the pack.
+        settings.CombatItemObjectIds.Add(999u);
+        settings.CombatItemOrderIds.Add(999u);
+        settings.Rules.Clear();
+        settings.Rules.Add(new MonsterRule(
+            "DEFAULT",
+            new MonsterRuleActions { Flags = MonsterActionFlags.Attack }));
+        var controller = new CombatController(new FakeHost(surface), settings);
+
+        controller.Toggle();
+        for (int tick = 0; tick < 8; tick++)
+            controller.OnTick(0.25d);
+
+        Assert.DoesNotContain("Equip:00000384", surface.CallLog);
+        Assert.DoesNotContain("Equip:000002BC", surface.CallLog);
+        Assert.Equal(0, surface.BeginCount);
+        Assert.Single(
+            surface.PostedSystemMessages,
+            message => message.Contains(
+                "Add the weapon you fight with to the Items list.",
+                StringComparison.Ordinal));
+        // The fight steps aside; it does not stop the macro, so looting and
+        // navigation still get their turn.
+        Assert.True(controller.Enabled);
+    }
+
+    /// <summary>
+    /// Once the weapon IS listed, the fight keeps it. A wand that is also
+    /// listed is the last rung the automatic choice reaches for, and which
+    /// rung answers changes with every monster -- so the character used to
+    /// put its weapon away after each kill, take the wand out, and take the
+    /// weapon back for the monster after that, all while the monsters it had
+    /// stopped fighting were still hitting it.
+    ///
+    /// Mutation executed: drop the second walk that prefers something that
+    /// can strike, and the wand is wielded between the two kills.
+    /// </summary>
+    [Fact]
+    public void AListedWeaponIsKeptBetweenKillsRatherThanSwappingToTheWand()
+    {
+        PluginEquipmentItem RatedWand() => Equipment(
+            700, "Wings of Rakhil", damageType: 0, itemType: 0x00008000u)
+            with { ImbuedEffect = 0x0001 };
+        PluginEquipmentItem HeldBlade() => Equipment(
+            900, "Decapitator's Blade", damageType: 0x0001,
+            equippedLocation: 0x02000000u, validLocations: 0x02000000u);
+
+        var surface = new FakeAutomation
+        {
+            CombatSnapshot = Physical(),
+            // War magic is trained, so the wand is a weapon the walk will
+            // reach for: it is the last rung, and it answers for every
+            // monster no listed weapon's element suits.
+            CharacterSkills =
+            [
+                new PluginSkillInfo(34u, "War Magic",
+                    PluginSkillTraining.Trained, 300u) { Base = 300u },
+            ],
+            Targets =
+            [
+                Target(10, "Plasma Golem", distance: 1.8f, angle: 0),
+                Target(11, "Banderling Savage", distance: 2.1f, angle: 8),
+            ],
+            EquipmentItems = [RatedWand(), HeldBlade()],
+        };
+        var settings = new CombatSettings
+        {
+            MaximumRange = 8f,
+            SelectionMethod = TargetSelectionMethod.Range,
+            ScanIntervalSeconds = 0.05d,
+        };
+        settings.CombatItemObjectIds.Add(700u);
+        settings.CombatItemOrderIds.Add(700u);
+        settings.CombatItemObjectIds.Add(900u);
+        settings.CombatItemOrderIds.Add(900u);
+        settings.Rules.Clear();
+        settings.Rules.Add(new MonsterRule(
+            "DEFAULT",
+            new MonsterRuleActions { Flags = MonsterActionFlags.Attack }));
+        var controller = new CombatController(new FakeHost(surface), settings);
+
+        controller.Toggle();
+        controller.OnTick(0.25d);
+        Assert.Equal(10u, surface.LastBeginTarget);
+
+        // The first monster dies with the second still at arm's length.
+        surface.Targets =
+        [
+            Target(10, "Plasma Golem", distance: 1.8f, angle: 0, health: 0f),
+            Target(11, "Banderling Savage", distance: 2.1f, angle: 8),
+        ];
+        surface.UnattackableTargets.Add(10u);
+        surface.BeginTargets.Clear();
+        for (int tick = 0; tick < 4; tick++)
+            controller.OnTick(0.25d);
+
+        Assert.DoesNotContain("Equip:000002BC", surface.CallLog);
+        Assert.DoesNotContain("EnterMode:Magic", surface.CallLog);
+        Assert.Equal(11u, surface.LastBeginTarget);
+    }
 
     private static PluginCombatTarget Target(
         uint id, string name, float distance, float angle,

@@ -95,6 +95,20 @@ internal sealed class CombatController
     private readonly Dictionary<uint, CombatTargetCandidate?> _passCandidates = [];
     private double _passCandidateRange = double.NaN;
 
+    /// <summary>
+    /// Why a monster went out of the running this pass, in the words the
+    /// scan trace prints. Without it a monster the fight could not equip for
+    /// reads as "invalidated during attack pass", which names the symptom and
+    /// hides the cause.
+    /// </summary>
+    private readonly Dictionary<uint, string> _passTargetReasons = [];
+
+    private void NoteTargetReason(uint objectId, string reason)
+    {
+        if (objectId != 0u)
+            _passTargetReasons[objectId] = reason;
+    }
+
     private void InvalidateForPass(uint objectId)
     {
         if (objectId == 0u)
@@ -702,6 +716,7 @@ internal sealed class CombatController
         _passInvalidTargets.Clear();
         _passClearedActions.Clear();
         _passCandidates.Clear();
+        _passTargetReasons.Clear();
         _passCandidateRange = double.NaN;
         _passEquipment = null;
         _passInventory = null;
@@ -822,7 +837,15 @@ internal sealed class CombatController
         }
 
         if (!TryPrepareAttack())
-            return AttackPassOutcome.Claimed;
+        {
+            // Equipment that cannot be settled is something to wait on; a
+            // fight this character is not equipped for at all is not. The
+            // second yields the monster so the rest of the pass -- and the
+            // rules under the attack -- still get their turn.
+            return _attackHasNoUsableWeapon
+                ? AttackPassOutcome.Retry
+                : AttackPassOutcome.Claimed;
+        }
 
         combat = _host.Automation.Combat.Snapshot;
 
@@ -1687,10 +1710,18 @@ internal sealed class CombatController
 
     private int CountNearbyRingTargets() => _ringCandidateCount;
 
+    /// <summary>
+    /// Set when the weapon walk was asked for an automatic choice and came
+    /// back with nothing at all: no listed item the character owns could be
+    /// wielded against this monster.
+    /// </summary>
+    private bool _plannedWeaponSearchFoundNothing;
+
     private bool TickEquipment()
     {
         _plannedWeapon = 0u;
         _plannedOffhand = null;
+        _plannedWeaponSearchFoundNothing = false;
 
         MonsterRuleActions actions = _targetRule.Actions;
         bool primaryRequiresWeapon = actions.UsesPrimaryAttack
@@ -1722,6 +1753,8 @@ internal sealed class CombatController
                     items,
                     actions,
                     FindTarget(_targetId));
+                _plannedWeaponSearchFoundNothing =
+                    NothingListedCanFight(items, desiredWeapon);
             }
         }
         _plannedWeapon = desiredWeapon;
@@ -1927,8 +1960,15 @@ internal sealed class CombatController
             : [],
         "the combat pet");
 
+    /// <summary>
+    /// Set when the pass found nothing it could fight this monster WITH, as
+    /// opposed to equipment that simply has not settled yet.
+    /// </summary>
+    private bool _attackHasNoUsableWeapon;
+
     private bool TryPrepareAttack()
     {
+        _attackHasNoUsableWeapon = false;
         // The plan is Magic until an owned item backs it. Without an
         // equipment projection nothing can back it, but the combat mode is
         // still a hard requirement: answering "ready" here would let the pass
@@ -1946,6 +1986,29 @@ internal sealed class CombatController
                 plannedWeapon = _plannedWeapon;
                 break;
             }
+        }
+
+        // Nothing in the profile's item list can fight this monster: the
+        // walk that picks a weapon found no candidate at all. Wielding a wand
+        // on the strength of that would put the fight into magic mode with
+        // nothing to throw, and every monster in reach would be written off
+        // for the pass with no word said about why. The fight says what is
+        // missing instead, once, and leaves the pass to the rules below it.
+        if (_plannedWeaponSearchFoundNothing)
+        {
+            const string notice =
+                "No weapon in the profile's item list can be used against "
+                + "this monster. Add the weapon you fight with to the Items "
+                + "list.";
+            PostAttackWarning("Warning: " + notice);
+            Status = notice;
+            _attackHasNoUsableWeapon = true;
+            NoteTargetReason(_targetId, "no usable listed weapon");
+            ClearActionsForPass(
+                _targetId,
+                MonsterActionFlags.Attack | MonsterActionFlags.Streak
+                    | MonsterActionFlags.Ring);
+            return false;
         }
 
         if (Gate.TryPrepare(
@@ -1981,22 +2044,84 @@ internal sealed class CombatController
                 : [actions.DamageType];
         PluginCombatTarget subject = target;
         ICharacterInfo character = _host.Automation.Character;
-        return VtankWeaponLadder.Select(
-            InProfileOrder(items),
-            item => (_settings.CombatItemObjectIds.Contains(item.ObjectId)
-                || _settings.CombatItemNames.Contains(item.Name))
-                && (VtankItemUseSpecifiers.UsesFor(_settings, item.ObjectId) & 1) != 0
-                && ConfiguredSupplyReadiness.IsAssessed(_host.Automation, item.ObjectId),
-            wanted,
-            SpeciesOf(in subject),
-            (item, element) => CanWeaponDeliver(in item, element),
-            element => IsAlreadyVulnerable(in subject, element),
-            warTrained: IsTrained(character, WarMagicSkill),
-            voidTrained: IsTrained(character, VoidMagicSkill),
-            excludeObjectId: actions.OffhandObjectId,
-            onLastResort: () => PostAttackWarning(
-                "Warning: no weapons found that can be autoselected for current "
-                + "target. Add some weapons to the items list!"));
+
+        bool IsSelectable(PluginEquipmentItem item) =>
+            CombatProfileItems.IsProfiled(_settings, item.ObjectId, item.Name)
+            && (VtankItemUseSpecifiers.UsesFor(_settings, item.ObjectId) & 1) != 0
+            && ConfiguredSupplyReadiness.IsAssessed(_host.Automation, item.ObjectId);
+
+        uint Walk(Func<PluginEquipmentItem, bool> selectable, Action? lastResort) =>
+            VtankWeaponLadder.Select(
+                InProfileOrder(items),
+                selectable,
+                wanted,
+                SpeciesOf(in subject),
+                (item, element) => CanWeaponDeliver(in item, element),
+                element => IsAlreadyVulnerable(in subject, element),
+                warTrained: IsTrained(character, WarMagicSkill),
+                voidTrained: IsTrained(character, VoidMagicSkill),
+                excludeObjectId: actions.OffhandObjectId,
+                onLastResort: lastResort);
+
+        uint chosen = Walk(IsSelectable, () => PostAttackWarning(
+            "Warning: no weapons found that can be autoselected for current "
+            + "target. Add some weapons to the items list!"));
+
+        // A wand is what a rule that casts for a living asks for outright. It
+        // is not what a rule that SWINGS should be handed because the monster
+        // in front of it happens not to match any listed weapon's element:
+        // that answer changes with every monster, so the character put its
+        // weapon away after each kill, took the wand out, and took the weapon
+        // back for the monster after that. Whenever something that can
+        // actually strike is listed and in the pack, the fight keeps that.
+        if (chosen != 0u && IsProfiledCaster(items, chosen))
+        {
+            uint striking = Walk(
+                item => IsSelectable(item) && !CombatModeGate.IsCaster(in item),
+                lastResort: null);
+            if (striking != 0u)
+                chosen = striking;
+        }
+        return chosen;
+    }
+
+    /// <summary>
+    /// Whether the automatic choice has left the fight with nothing it can
+    /// strike or cast with.
+    ///
+    /// The choice coming back empty, or coming back with a wand this
+    /// character can cast no war or void magic from, is not by itself the
+    /// answer: a character holding nothing, or holding a wand, still has the
+    /// magic arm to fall back on, and that is what the fight has always done.
+    /// It IS the answer when the character is standing there holding a weapon
+    /// the profile does not list: putting that weapon away for a wand it
+    /// cannot throw anything with leaves it swinging at nothing, and the
+    /// choice flips back and forth as each new monster is measured.
+    /// </summary>
+    private bool NothingListedCanFight(
+        IReadOnlyList<PluginEquipmentItem> items, uint chosen)
+    {
+        if (chosen != 0u && !IsProfiledCaster(items, chosen))
+            return false;
+        ICharacterInfo character = _host.Automation.Character;
+        if (IsTrained(character, WarMagicSkill)
+            || IsTrained(character, VoidMagicSkill))
+        {
+            return false;
+        }
+        return CombatModeGate.FindWielded(items) is { } worn
+            && !CombatModeGate.IsCaster(in worn);
+    }
+
+    private static bool IsProfiledCaster(
+        IReadOnlyList<PluginEquipmentItem> items, uint objectId)
+    {
+        foreach (PluginEquipmentItem item in items)
+        {
+            if (item.ObjectId == objectId)
+                return CombatModeGate.IsCaster(in item);
+        }
+        return false;
     }
 
     /// <summary>
@@ -3274,6 +3399,7 @@ internal sealed class CombatController
             string reason = target.Distance > _acquisitionRange ? "outside maximum range"
                 : target.Distance < _settings.MinimumRange ? "inside minimum range"
                 : suppression != CombatSuppressionReason.None ? suppression.ToString()
+                : _passTargetReasons.TryGetValue(target.ObjectId, out string? noted) ? noted
                 : _passInvalidTargets.Contains(target.ObjectId) ? "invalidated during attack pass"
                 : rule.Priority < 0 ? "negative rule priority"
                 : _passCandidates.TryGetValue(target.ObjectId, out CombatTargetCandidate? candidate)
@@ -3569,7 +3695,7 @@ internal sealed class CombatController
         {
             if (item.ValidLocations == 0x00200000u
                 && item.ObjectClass is not (PluginObjectClass.MeleeWeapon or PluginObjectClass.MissileWeapon or PluginObjectClass.WandStaffOrb)
-                && (_settings.CombatItemObjectIds.Contains(item.ObjectId) || _settings.CombatItemNames.Contains(item.Name)))
+                && CombatProfileItems.IsProfiled(_settings, item.ObjectId, item.Name))
                 return item.ObjectId;
         }
         return 0u;
@@ -3581,8 +3707,7 @@ internal sealed class CombatController
             if (item.ObjectId == primary || item.ObjectClass != PluginObjectClass.MeleeWeapon
                 || (item.ValidLocations & 0x02000000u) != 0u
                 || (VtankItemUseSpecifiers.UsesFor(_settings, item.ObjectId) & 2) == 0
-                || (!_settings.CombatItemObjectIds.Contains(item.ObjectId)
-                    && !_settings.CombatItemNames.Contains(item.Name))
+                || !CombatProfileItems.IsProfiled(_settings, item.ObjectId, item.Name)
                 || !ConfiguredSupplyReadiness.IsAssessed(_host.Automation, item.ObjectId))
                 continue;
             return item.ObjectId;
