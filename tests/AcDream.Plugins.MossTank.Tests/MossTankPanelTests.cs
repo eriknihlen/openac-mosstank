@@ -2598,6 +2598,29 @@ public sealed class MossTankPanelTests
             IsSelfTargeted: false,
             IsBeneficial: true);
 
+    /// <summary>
+    /// Running the fellowship -- answering tells, handling votes -- is a
+    /// profile choice, and with it off the manager does nothing and says so
+    /// rather than quietly watching chat.
+    ///
+    /// Mutation: run the manager whatever the profile says and the second row
+    /// reports the in-world state instead.
+    /// </summary>
+    [Theory]
+    [InlineData(true, "Not in a fellowship")]
+    [InlineData(false, "Fellow manager disabled")]
+    public void ManagingTheFellowshipIsAProfileChoice(bool manages, string status)
+    {
+        var panel = new MossTankPanel(new FakeHost(new FakeAutomation()));
+        panel.SetMetaOption("AutoFellowManagement", Truthy(manages));
+
+        panel.ToggleCombat();
+        for (int tick = 0; tick < 4; tick++)
+            panel.OnTick(0.3d);
+
+        Assert.Equal(status, panel.FellowshipManagerStatus);
+    }
+
     [Fact]
     public void RandomHelperBuffsGoToANearbyFellowWithTheSettingOn()
     {

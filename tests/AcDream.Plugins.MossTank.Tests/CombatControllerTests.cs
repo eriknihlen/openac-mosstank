@@ -2385,6 +2385,111 @@ public sealed class CombatControllerTests
         Assert.Equal(PluginAttackHeight.Low, surface.LastProjectileHeight);
     }
 
+    /// <summary>
+    /// The flight check is a fat ray walked in steps, and the profile sets
+    /// both: how wide the ray is and how far apart the samples along it are.
+    /// A profile that widens the ray or shortens the stride asks a different
+    /// question of the client, so both numbers have to reach it unchanged.
+    ///
+    /// Mutation: send a constant width or stride and the asked-for shape stops
+    /// matching the profile.
+    /// </summary>
+    [Theory]
+    [InlineData(0.4d, 0.7d)]
+    [InlineData(1.25d, 0.2d)]
+    public void TheFlightCheckIsAskedForInTheProfilesOwnShape(
+        double radius,
+        double step)
+    {
+        var surface = new FakeAutomation
+        {
+            CombatSnapshot = Physical() with { Mode = PluginCombatMode.Magic },
+            Targets = [Target(10, "Drudge", 5, 0)],
+            KnownCombatSpells =
+            [
+                MagicSpell(102, "Flame Streak VII", difficulty: 350),
+            ],
+            ProjectilePath = new(
+                PluginProjectilePathStatus.Blocked,
+                CollisionChecks: 3,
+                BlockingObjectId: 0x50000001u),
+            EquipmentItems = [WieldedCaster()],
+        };
+        var settings = new CombatSettings
+        {
+            MaximumRange = 40d,
+            UseProjectileAwareness = true,
+            CollisionProjectileRadius = radius,
+            CollisionStepDistance = step,
+        };
+        settings.Rules.Clear();
+        settings.Rules.Add(new MonsterRule(
+            "DEFAULT",
+            new MonsterRuleActions
+            {
+                Flags = MonsterActionFlags.Streak,
+                DamageType = MonsterDamageType.Fire,
+            }));
+        var controller = new CombatController(new FakeHost(surface), settings);
+
+        controller.Toggle();
+        controller.OnTick(0.25);
+
+        Assert.True(surface.ProjectilePathChecks > 0);
+        Assert.Equal((float)radius, surface.LastProjectileRadius);
+        Assert.Equal((float)step, surface.LastProjectileStepDistance);
+    }
+
+    /// <summary>
+    /// Jumping clear of a wand cast is a profile choice: with it on the
+    /// character is asked to jump once shortly after the wand went off, and
+    /// with it off it is not asked to jump at all.
+    ///
+    /// Mutation: jump whatever the profile says, or never jump, and one of the
+    /// two rows fails.
+    /// </summary>
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public void JumpingClearOfAWandCastIsAProfileChoice(bool jumps)
+    {
+        PluginSpellInfo imperil = Spell(1323, "Imperil Other VI") with
+        {
+            School = 31,
+            IsDebuff = true,
+            IsOffensive = true,
+            DurationSeconds = 60,
+        };
+        var surface = new FakeAutomation
+        {
+            CombatSnapshot = Physical() with { Mode = PluginCombatMode.Magic },
+            Targets = [Target(10, "Drudge", 5, 0)],
+            SpellLookup = [imperil],
+            ItemEntries =
+            [
+                InventoryItem(200, "Wand of Imperil", 0x8000u, 0, equipped: true)
+                    with { SpellId = imperil.SpellId },
+            ],
+            EquipmentItems =
+            [
+                Equipment(200u, "Wand of Imperil", damageType: 0, itemType: 0x8000u),
+            ],
+        };
+        CombatSettings settings = DebuffOnly(MonsterActionFlags.Imperil);
+        settings.MaximumRange = 40d;
+        settings.JumpOutWandCasting = jumps;
+        settings.CombatItemNames.Add("Wand of Imperil");
+        var controller = new CombatController(new FakeHost(surface), settings);
+
+        controller.Toggle();
+        for (int tick = 0; tick < 8; tick++)
+            controller.OnTick(0.25);
+
+        Assert.Equal(
+            jumps,
+            surface.MovementIntents.Any(static intent => intent.Jump));
+    }
+
     private static PluginAttackHeight ClearanceHeightFor(
         IReadOnlyList<PluginSpellInfo> known,
         UseArcsMode mode)
@@ -8220,6 +8325,8 @@ public sealed class CombatControllerTests
         public PluginAttackHeight LastProjectileHeight { get; private set; }
         public PluginProjectilePathKind LastProjectileKind { get; private set; }
         public int ProjectilePathChecks { get; private set; }
+        public float LastProjectileRadius { get; private set; }
+        public float LastProjectileStepDistance { get; private set; }
 
         /// <summary>Per-target overrides for the flight-path check.</summary>
         public Dictionary<uint, PluginProjectilePathResult> ProjectilePaths
@@ -8569,6 +8676,8 @@ public sealed class CombatControllerTests
             LastProjectileTarget = targetObjectId;
             LastProjectileHeight = targetHeight;
             LastProjectileKind = kind;
+            LastProjectileRadius = projectileRadius;
+            LastProjectileStepDistance = stepDistance;
             ProjectilePathChecks++;
             return ProjectilePaths.TryGetValue(
                 targetObjectId,
