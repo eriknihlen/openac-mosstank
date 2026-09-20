@@ -1229,6 +1229,120 @@ public sealed class VitalRechargeTests
             controller.Tick(0.3d, enabled: true, noTarget: false, helpers: false));
     }
 
+    /// <summary>
+    /// Each vital the helper watches has its own reach, and a fellow beyond
+    /// that vital's reach is not a candidate for it. Health first: the same
+    /// hurt fellow forty metres off is helped at fifty and ignored at thirty.
+    ///
+    /// Mutation: share one reach across the three vitals, or drop the
+    /// distance test, and the short row helps anyway.
+    /// </summary>
+    [Theory]
+    [InlineData(50d, true)]
+    [InlineData(30d, false)]
+    public void TheHelpersHealthReachIsItsOwnProfileNumber(double reach, bool helps)
+    {
+        var surface = new Surface
+        {
+            Mode = PluginCombatMode.Magic,
+            Spells = [Spell(300u, "Adja's Grace", 900u, 350)],
+            Lookup = [Spell((uint)SpellId.AdjaSGift, "Adja's Gift", 900u, 100)],
+            InFellowship = true,
+            Fellows = [Fellow(71u, "Hurt", health: 5, distance: 40f)],
+        };
+
+        Assert.Equal(
+            helps,
+            VitalRechargePlanner.TryPlanHelper(
+                surface,
+                new VitalSettings { HelperHealthDistance = reach },
+                out VitalRechargeChoice choice));
+        if (helps)
+            Assert.Equal(VitalKind.Health, choice.Vital);
+    }
+
+    /// <summary>
+    /// Stamina carries its own reach, and shortening it drops the fellow from
+    /// the stamina row while the profile's other reaches are untouched.
+    ///
+    /// Mutation: read the health reach for the stamina row and the short row
+    /// helps anyway.
+    /// </summary>
+    [Theory]
+    [InlineData(50d, true)]
+    [InlineData(30d, false)]
+    public void TheHelpersStaminaReachIsItsOwnProfileNumber(double reach, bool helps)
+    {
+        var surface = new Surface
+        {
+            Mode = PluginCombatMode.Magic,
+            Spells = [Spell(301u, "Replenish Greater", 81u, 350)],
+            Lookup = [Spell((uint)SpellId.Replenish, "Replenish", 81u, 100)],
+            InFellowship = true,
+            Fellows =
+            [
+                Fellow(71u, "Winded", health: 100, distance: 40f)
+                    with { CurrentStamina = 5u },
+            ],
+        };
+
+        Assert.Equal(
+            helps,
+            VitalRechargePlanner.TryPlanHelper(
+                surface,
+                new VitalSettings
+                {
+                    HelperStamina = 0.5d,
+                    HelperHealthDistance = 50d,
+                    HelperStaminaDistance = reach,
+                },
+                out VitalRechargeChoice choice));
+        if (helps)
+            Assert.Equal(VitalKind.Stamina, choice.Vital);
+    }
+
+    /// <summary>
+    /// Mana's reach is shorter than the other two out of the box, and it is
+    /// read for the mana row alone.
+    ///
+    /// Mutation: read the health reach for the mana row and the short row
+    /// helps anyway.
+    /// </summary>
+    [Theory]
+    [InlineData(50d, true)]
+    [InlineData(30d, false)]
+    public void TheHelpersManaReachIsItsOwnProfileNumber(double reach, bool helps)
+    {
+        var surface = new Surface
+        {
+            Mode = PluginCombatMode.Magic,
+            Spells = [Spell(302u, "Gift of Essence Greater", 950u, 350)],
+            Lookup =
+                [Spell((uint)SpellId.GiftOfEssence, "Gift of Essence", 950u, 100)],
+            InFellowship = true,
+            Fellows =
+            [
+                Fellow(71u, "Drained", health: 100, distance: 40f)
+                    with { CurrentMana = 5u },
+            ],
+        };
+
+        Assert.Equal(
+            helps,
+            VitalRechargePlanner.TryPlanHelper(
+                surface,
+                new VitalSettings
+                {
+                    HelperMana = 0.5d,
+                    HelperHealthDistance = 50d,
+                    HelperStaminaDistance = 50d,
+                    HelperManaDistance = reach,
+                },
+                out VitalRechargeChoice choice));
+        if (helps)
+            Assert.Equal(VitalKind.Mana, choice.Vital);
+    }
+
     private static Surface HealersHeartSurface() => new()
     {
         Mode = PluginCombatMode.Magic,

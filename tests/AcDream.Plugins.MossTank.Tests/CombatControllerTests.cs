@@ -2376,6 +2376,48 @@ public sealed class CombatControllerTests
         }
     }
 
+    /// <summary>
+    /// A debuff is renewed before it lapses, and the profile says how far
+    /// before: the step comes due once the enchantment has that many seconds
+    /// left. Forty-five seconds into a sixty-second curse, a five-second lead
+    /// is not due yet and a twenty-second one is.
+    ///
+    /// Mutation: renew only on a lapsed enchantment (a zero lead) and the
+    /// wide-lead row never recasts.
+    /// </summary>
+    [Theory]
+    [InlineData(5d, false)]
+    [InlineData(20d, true)]
+    public void TheDebuffLeadDecidesWhenACurseIsRenewed(
+        double precastSeconds,
+        bool renews)
+    {
+        var surface = new FakeAutomation
+        {
+            CombatSnapshot = Physical() with { Mode = PluginCombatMode.Magic },
+            Targets = [Target(10, "Drudge", 5, 0)],
+            KnownCombatSpells = [Debuff(83, "Imperil Other VII")],
+            EquipmentItems = [WieldedCaster()],
+        };
+        CombatSettings settings = DebuffOnly(MonsterActionFlags.Imperil);
+        settings.MaximumRange = 40d;
+        settings.DebuffPrecastSeconds = precastSeconds;
+        var controller = new CombatController(new FakeHost(surface), settings);
+        controller.Toggle();
+
+        // The curse goes out and the server answers it: sixty seconds on it.
+        controller.OnTick(0.25);
+        Assert.Equal([83u], surface.CastSpellIds);
+        surface.LastCastCompletion = new PluginCastCompletion(1L, 83u, 10u, 0);
+        controller.OnTick(0.25);
+
+        // Forty-five seconds on, with fifteen seconds of curse left.
+        for (int frame = 0; frame < 180; frame++)
+            controller.OnTick(0.25);
+
+        Assert.Equal(renews, surface.CastSpellIds.Count > 1);
+    }
+
     [Fact]
     public void OnlyOneDebuffKindIsDispatchedPerPass()
     {
