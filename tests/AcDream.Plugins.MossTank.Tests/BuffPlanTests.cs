@@ -143,6 +143,121 @@ public class BuffPlanTests
             spellCatalog: new ExtraCatalog(exemplar)));
     }
 
+    /// <summary>
+    /// The buff margin is the headroom the profile insists on above a spell's
+    /// difficulty before it will cast it. A skill of 300 against a difficulty
+    /// of 290 is enough with a margin of five and not enough with one of fifty,
+    /// so the higher tier is taken in the first case and the lower in the
+    /// second.
+    ///
+    /// Mutation: compare the skill with the bare difficulty and both rows take
+    /// the higher tier.
+    /// </summary>
+    [Theory]
+    [InlineData(5, 2u)]
+    [InlineData(50, 1u)]
+    public void TheBuffMarginIsTheHeadroomTheProfileInsistsOn(
+        int margin,
+        uint expectedSpellId)
+    {
+        var settings = new BuffSettings
+        {
+            BuffOther = false,
+            SkillExcessOverDifficulty = margin,
+        };
+        List<BuffLine> lines = Lines(
+            Spell(1, 700u, 1, "Increases the caster's Strength by 10 points.",
+                difficulty: 100),
+            Spell(2, 700u, 6, "Increases the caster's Strength by 10 points.",
+                difficulty: 290));
+
+        List<PluginSpellInfo> plan = BuffPlan.Build(
+            lines,
+            [Skill(CreatureEnchantmentSkill, "Creature Enchantment",
+                PluginSkillTraining.Specialized)],
+            [Attribute(1, "Strength")],
+            Array.Empty<PluginActiveEnchantment>(),
+            settings);
+
+        Assert.Equal([expectedSpellId], plan.Select(static spell => spell.SpellId));
+    }
+
+    /// <summary>
+    /// A buff already on the character is only left alone while it has more
+    /// time left than the profile's rebuff threshold. Six hundred seconds left
+    /// is comfortable under a three-hundred-second threshold and short under a
+    /// nine-hundred-second one, so the second case recasts.
+    ///
+    /// Mutation: compare the remaining time against a constant and both rows
+    /// answer the same way.
+    /// </summary>
+    [Theory]
+    [InlineData(300d, false)]
+    [InlineData(900d, true)]
+    public void TheRebuffThresholdDecidesWhenAHeldBuffIsTooShort(
+        double rebuffUnderSeconds,
+        bool recasts)
+    {
+        var settings = new BuffSettings
+        {
+            BuffOther = false,
+            RebuffWhenUnderSeconds = rebuffUnderSeconds,
+        };
+        PluginSpellInfo held = Spell(
+            1, 700u, 1, "Increases the caster's Strength by 10 points.");
+
+        List<PluginSpellInfo> plan = BuffPlan.Build(
+            Lines(held),
+            [Skill(CreatureEnchantmentSkill, "Creature Enchantment",
+                PluginSkillTraining.Specialized)],
+            [Attribute(1, "Strength")],
+            [new PluginActiveEnchantment(held.SpellId, 700u, 1, 600d)],
+            settings);
+
+        Assert.Equal(recasts, plan.Count != 0);
+    }
+
+    /// <summary>
+    /// A school the character never trained is still usable up to the level
+    /// the profile allows, and life magic carries its own ceiling. A character
+    /// one level under the ceiling casts the life buff; one level over it does
+    /// not.
+    ///
+    /// Mutation: read the creature or item ceiling for the life school and the
+    /// rows stop matching the profile's own life number.
+    /// </summary>
+    [Theory]
+    [InlineData(59, true)]
+    [InlineData(61, false)]
+    public void TheUntrainedLifeCeilingIsItsOwnProfileNumber(
+        int characterLevel,
+        bool casts)
+    {
+        var settings = new BuffSettings
+        {
+            BuffOther = false,
+            // Deliberately unlike the other two ceilings, so a consumer that
+            // read one of those instead would answer differently.
+            BuffWithUntrainedLifeSkill = 60,
+            BuffWithUntrainedItemSkill = 200,
+            BuffWithUntrainedCreatureSkill = 200,
+        };
+        List<BuffLine> lines = Lines(
+            Spell(1, 105u, 1,
+                "Increases the caster's natural armor by 20 points.",
+                school: LifeMagicSkill));
+
+        List<PluginSpellInfo> plan = BuffPlan.Build(
+            lines,
+            [Skill(LifeMagicSkill, "Life Magic", PluginSkillTraining.Untrained)],
+            Array.Empty<PluginAttributeInfo>(),
+            Array.Empty<PluginActiveEnchantment>(),
+            settings,
+            characterLevel: characterLevel);
+
+        Assert.Equal(casts, plan.Count != 0);
+    }
+
     [Fact]
     public void ExtraExemplarStillRequiresAnAvailableMagicSchool()
     {
