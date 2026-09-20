@@ -2563,15 +2563,59 @@ public sealed partial class LootingTests
             Closed.Add(containerObjectId);
             return new(PluginItemCommandStatus.Started);
         }
+        /// <summary>
+        /// Models the host's one-question-at-a-time description channel:
+        /// while an answer is outstanding every other Identify comes back
+        /// Busy, as the real surface's gate does. Off by default so the
+        /// tests that only care about what was asked stay as they were.
+        /// </summary>
+        public bool OneDescriptionAtATime { get; set; }
+
+        /// <summary>
+        /// The bound the host puts on one unanswered question, after which
+        /// it gives up and says so. Counted in Identify calls made while the
+        /// silent object holds the channel, which is what
+        /// <see cref="ReleaseStalledDescription"/> spends.
+        /// </summary>
+        public HashSet<uint> NeverAnswers { get; } = [];
+
         public PluginItemCommandResult Identify(uint objectId)
         {
+            if (OneDescriptionAtATime && AppraisalState.AwaitingObjectId != 0u)
+                return new(PluginItemCommandStatus.Busy);
             Identified.Add(objectId);
             AppraisalState = AppraisalState with
             {
                 Revision = AppraisalState.Revision + 1,
                 AwaitingObjectId = objectId,
+                LastAbandonedObjectId =
+                    AppraisalState.LastAbandonedObjectId == objectId
+                        ? 0u
+                        : AppraisalState.LastAbandonedObjectId,
             };
+            // Only the channel-modelling fake answers by itself; the rest of
+            // the tests stage the answer they want by hand.
+            if (OneDescriptionAtATime && !NeverAnswers.Contains(objectId))
+                CompleteAppraisal(objectId, presentInUi: false);
             return new(PluginItemCommandStatus.Started);
+        }
+
+        /// <summary>
+        /// The host giving up on a question the server never answered: the
+        /// channel is freed and the asker is told, exactly as the runtime
+        /// owner's own bound does it.
+        /// </summary>
+        public void ReleaseStalledDescription()
+        {
+            uint awaiting = AppraisalState.AwaitingObjectId;
+            if (awaiting == 0u)
+                return;
+            AppraisalState = AppraisalState with
+            {
+                Revision = AppraisalState.Revision + 1,
+                AwaitingObjectId = 0u,
+                LastAbandonedObjectId = awaiting,
+            };
         }
 
         /// <summary>

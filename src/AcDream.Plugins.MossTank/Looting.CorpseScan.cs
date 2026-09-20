@@ -355,6 +355,42 @@ internal sealed partial class LootController
         _actionLocks?.Arm(ActionLockKind.CorpseOpenAttempt, openWindow);
     }
 
+    /// <summary>
+    /// How many times a corpse may fail to answer for itself before the
+    /// looter stops asking. Three is enough to ride out a lost answer or a
+    /// question crowded off the one asking slot, and short enough that a
+    /// corpse that will never answer — the character's own old one, or
+    /// anything else the server stays quiet about — stops holding the
+    /// character still within seconds rather than for good.
+    /// </summary>
+    private const int CorpseDescriptionAttemptLimit = 3;
+
+    /// <summary>
+    /// Counts a description that never arrived, and after the third one
+    /// skips the corpse for the profile's blacklist period. That is what
+    /// takes it out of <see cref="HasCorpseAwaitingDescriptionWithin"/>, so
+    /// a corpse nobody will ever describe stops holding every walk off.
+    /// </summary>
+    private void NoteCorpseDescriptionFailed(uint corpseId)
+    {
+        if (corpseId == 0u || IsCorpseBlacklisted(corpseId))
+            return;
+        _corpseDescriptionAttempts.TryGetValue(corpseId, out int attempts);
+        attempts++;
+        if (attempts < CorpseDescriptionAttemptLimit)
+        {
+            _corpseDescriptionAttempts[corpseId] = attempts;
+            return;
+        }
+        _corpseDescriptionAttempts.Remove(corpseId);
+        _corpseBlacklistedAt[corpseId] = _lifetime;
+        Log?.Invoke(
+            MacroLogChannel.Loot,
+            $"Skipping corpse 0x{corpseId:X8}: no description after "
+                + $"{attempts} attempts, for "
+                + $"{Math.Clamp(_settings.BlacklistCorpseOpenTimeoutSeconds, 1d, 3600d):0} seconds");
+    }
+
     private void BlacklistFailedCorpse(uint corpseId)
     {
         if (corpseId == 0u)
@@ -397,6 +433,7 @@ internal sealed partial class LootController
             return;
         _completedCorpses[corpseId] = _lifetime;
         _corpseOpenAttempts.Remove(corpseId);
+        _corpseDescriptionAttempts.Remove(corpseId);
         _corpseBlacklistedAt.Remove(corpseId);
     }
 
@@ -453,6 +490,7 @@ internal sealed partial class LootController
             _corpseDeniedAt.Remove(id);
             _corpseBlacklistedAt.Remove(id);
             _corpseOpenAttempts.Remove(id);
+            _corpseDescriptionAttempts.Remove(id);
         }
     }
 

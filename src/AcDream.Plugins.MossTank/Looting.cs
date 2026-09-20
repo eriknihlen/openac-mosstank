@@ -616,6 +616,13 @@ internal sealed partial class LootController
     private readonly HashSet<uint> _presentCorpses = [];
     private readonly List<uint> _evictedCorpses = [];
     private readonly Dictionary<uint, double> _corpseDeniedAt = [];
+
+    /// <summary>
+    /// How many times each corpse has been asked to describe itself without
+    /// an answer coming back. Counted so a corpse that never answers is let
+    /// go of instead of holding the character still for ever.
+    /// </summary>
+    private readonly Dictionary<uint, int> _corpseDescriptionAttempts = [];
     private uint _selectedCorpse;
     private ulong _chatSequence;
     private double _stateAge;
@@ -1064,21 +1071,28 @@ internal sealed partial class LootController
             TickCorpseItemIdentification(loot);
             return;
         }
-        // Descriptions are asked whatever the loot state, as the reference's
-        // queue does; only an item id of ours already on the one appraisal
-        // slot holds the next request.
-        if (_awaitingAppraisal != 0u)
-            return;
+        // The item latch belongs to the corpse that is open: with none open
+        // there is no item left to be waiting for, and the one description
+        // outstanding when a corpse shut used to be held for ever right
+        // here, which stopped every later corpse from being described at
+        // all.
+        _awaitingAppraisal = 0u;
         if (_awaitingCorpseAppraisal != 0u)
         {
             PluginAppraisalState appraisal = loot.Appraisal;
             bool answered = appraisal.CurrentObjectId == _awaitingCorpseAppraisal
                 && appraisal.AwaitingObjectId != _awaitingCorpseAppraisal;
+            // The client says outright when it has given up on a question,
+            // which is a failure to count now rather than a wait to sit out.
+            bool dropped =
+                appraisal.LastAbandonedObjectId == _awaitingCorpseAppraisal;
             bool expired = _identifyAge >= Math.Max(
                 1d,
                 _settings.CorpseOpenTimeoutSeconds * 2d);
-            if (!answered && !expired)
+            if (!answered && !dropped && !expired)
                 return;
+            if (!answered)
+                NoteCorpseDescriptionFailed(_awaitingCorpseAppraisal);
             _awaitingCorpseAppraisal = 0u;
             _identifyAge = 0d;
         }
@@ -1128,10 +1142,15 @@ internal sealed partial class LootController
                 _awaitingAppraisal = 0u;
                 _identifyAge = 0d;
             }
-            else if (_identifyAge < Math.Clamp(
-                _settings.CorpseItemIdentifyTimeoutSeconds,
-                1d,
-                600d))
+            // A question the client has already given up on is a failure
+            // now, not a wait to sit out: without this the item pass stood
+            // still for the whole identify timeout over an answer that was
+            // never coming, and the corpse behind it with it.
+            else if (appraisal.LastAbandonedObjectId != _awaitingAppraisal
+                && _identifyAge < Math.Clamp(
+                    _settings.CorpseItemIdentifyTimeoutSeconds,
+                    1d,
+                    600d))
             {
                 return;
             }
@@ -1186,6 +1205,7 @@ internal sealed partial class LootController
         ResetTransient();
         _completedCorpses.Clear();
         _corpseOpenAttempts.Clear();
+        _corpseDescriptionAttempts.Clear();
         _corpseBlacklistedAt.Clear();
         _itemAttempts.Clear();
         _pendingByName.Clear();
