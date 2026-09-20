@@ -6021,6 +6021,87 @@ public sealed class CombatControllerTests
         Assert.Equal(1.25, controller.ClockSeconds, 6);
     }
 
+    /// <summary>
+    /// A swing the host would not let out is the monster saying it is gone,
+    /// whether or not anything has said so yet. The macro lets it go and puts
+    /// the next one in front of the character instead of standing there for
+    /// the unanswered-swing bound. Mutation: treat any answer but "released"
+    /// as "carry on" and the next begin still names the monster that is dead.
+    /// </summary>
+    [Fact]
+    public void ASwingThatNeverLeftTheClientLetsTheMonsterGoAndTakesTheNext()
+    {
+        var surface = new FakeAutomation
+        {
+            CombatSnapshot = Physical() with { SelectedObjectId = 10u },
+            Targets =
+            [
+                Target(10, "Drudge", distance: 2, angle: 0),
+                Target(20, "Banderling", distance: 3, angle: 0),
+            ],
+            EquipmentItems = [WieldedPlannedWeapon()],
+            TracksAttackRequests = true,
+        };
+        // The creature is dead on the server; nothing the macro can see says so
+        // yet, and the host will not let a swing out at it.
+        surface.UnreleasableTargets.Add(10u);
+        var settings = new CombatSettings { ScanIntervalSeconds = 0.05d };
+        ProfileFixtureWeapon(settings);
+        var controller = new CombatController(new FakeHost(surface), settings);
+        controller.Toggle();
+        controller.OnTick(0.25);
+        Assert.Equal(10u, surface.LastBeginTarget);
+
+        // The bar fills and the macro lets go of the swing.
+        surface.CombatSnapshot = surface.CombatSnapshot with
+        {
+            PowerBarLevel = 1f,
+            DesiredPower = 1f,
+        };
+        controller.OnTick(0.25);
+        Assert.Equal(1, surface.ReleaseCount);
+
+        // One pass later the character is swinging at the one still alive.
+        controller.OnTick(0.25);
+        Assert.Equal(20u, surface.LastBeginTarget);
+    }
+
+    /// <summary>
+    /// The profile's power and height are what go out, wherever the player left
+    /// the bar. Mutation: fall back to the host's bar setting for the power and
+    /// a quarter-charged marker is what the character swings at.
+    /// </summary>
+    [Fact]
+    public void TheProfilePowerAndHeightGoOutWhereverThePlayerLeftTheBar()
+    {
+        var surface = new FakeAutomation
+        {
+            // The player left the marker at a quarter.
+            CombatSnapshot = Physical() with
+            {
+                SelectedObjectId = 10u,
+                DesiredPower = 0.25f,
+            },
+            Targets = [Target(10, "Drudge", distance: 2, angle: 0)],
+            EquipmentItems = [WieldedPlannedWeapon()],
+        };
+        var settings = new CombatSettings
+        {
+            ScanIntervalSeconds = 0.05d,
+            AttackHeight = PluginAttackHeight.High,
+            AutoAttackPower = true,
+            UseRecklessness = false,
+        };
+        ProfileFixtureWeapon(settings);
+        var controller = new CombatController(new FakeHost(surface), settings);
+        controller.Toggle();
+        controller.OnTick(0.25);
+
+        Assert.Equal(10u, surface.LastBeginTarget);
+        Assert.Equal(1f, surface.LastBeginPower, 3);
+        Assert.Equal(PluginAttackHeight.High, surface.LastBeginHeight);
+    }
+
     private static (FakeAutomation Surface, CombatController Controller, ActionLockTable Locks)
         MeleeKillRig(
             CombatSettings? settings = null,
@@ -7602,6 +7683,8 @@ public sealed class CombatControllerTests
         public PluginItemUseCompletion LastItemCompletion { get; set; }
         public IReadOnlyList<PluginChatMessage> ChatMessages { get; set; } = [];
         public float LastBeginPower { get; private set; }
+
+        public PluginAttackHeight LastBeginHeight { get; private set; }
         public PluginNavigationSnapshot NavigationSnapshot { get; set; }
         public bool IgnoreModeChanges { get; set; }
         public int ModeChangeRequests { get; private set; }
@@ -7819,15 +7902,29 @@ public sealed class CombatControllerTests
             };
             _pendingMode = null;
         }
+        /// <summary>
+        /// The creature the open swing was armed at, which is what the host
+        /// compares a fresh request against.
+        /// </summary>
+        private uint _armedTarget;
+
+        /// <summary>
+        /// A swing the host will not let out, as one at a creature that has
+        /// died behaves: the request ends with nothing on the wire.
+        /// </summary>
+        public HashSet<uint> UnreleasableTargets { get; } = [];
+
         public PluginCombatCommandResult BeginPhysicalAttack(
             uint targetObjectId, PluginAttackHeight height, float power)
         {
-            // The host refuses a swing while one is still open: the three
-            // request flags are exactly what it looks at, so a fake that let
-            // a second swing through would hide the wait this macro depends on.
-            if (CombatSnapshot.RequestInProgress
-                || CombatSnapshot.ServerResponsePending
-                || CombatSnapshot.RepeatAttackInProgress)
+            // The host refuses a second swing at the SAME creature while one is
+            // still open - that wait is the pace of a fight. A request aimed at
+            // a different creature ends the open one and arms the new one, so a
+            // kill is not paid for with a wait on the corpse's swing.
+            if ((CombatSnapshot.RequestInProgress
+                    || CombatSnapshot.ServerResponsePending
+                    || CombatSnapshot.RepeatAttackInProgress)
+                && _armedTarget == targetObjectId)
             {
                 return new(PluginCombatCommandStatus.Busy);
             }
@@ -7840,7 +7937,9 @@ public sealed class CombatControllerTests
             }
             LastBeginTarget = targetObjectId;
             LastBeginPower = power;
+            LastBeginHeight = height;
             BeginCount++;
+            _armedTarget = targetObjectId;
             if (TracksAttackRequests)
             {
                 CombatSnapshot = CombatSnapshot with
@@ -7849,6 +7948,7 @@ public sealed class CombatControllerTests
                     BuildInProgress = true,
                     PowerBarLevel = 0f,
                     ServerResponsePending = false,
+                    RepeatAttackInProgress = false,
                 };
             }
             return new(PluginCombatCommandStatus.Started);
@@ -7856,6 +7956,23 @@ public sealed class CombatControllerTests
         public PluginCombatCommandResult ReleasePhysicalAttack()
         {
             ReleaseCount++;
+            if (UnreleasableTargets.Contains(_armedTarget))
+            {
+                _armedTarget = 0u;
+                if (TracksAttackRequests)
+                {
+                    CombatSnapshot = CombatSnapshot with
+                    {
+                        RequestInProgress = false,
+                        BuildInProgress = false,
+                        ServerResponsePending = false,
+                        PowerBarLevel = 0f,
+                    };
+                }
+                return new(
+                    PluginCombatCommandStatus.Refused,
+                    "The target cannot be attacked: it is out of sight or out of play.");
+            }
             if (TracksAttackRequests)
             {
                 CombatSnapshot = CombatSnapshot with
@@ -7870,6 +7987,7 @@ public sealed class CombatControllerTests
         public PluginCombatCommandResult AbortPhysicalAttack()
         {
             AbortCount++;
+            _armedTarget = 0u;
             if (TracksAttackRequests)
             {
                 CombatSnapshot = CombatSnapshot with

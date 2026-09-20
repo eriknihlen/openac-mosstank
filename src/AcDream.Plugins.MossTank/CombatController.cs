@@ -906,6 +906,26 @@ internal sealed class CombatController
                 Status = sent
                     ? $"Attacking {_targetName}"
                     : $"Attack release: {release.Status}";
+                if (release.Status is PluginCombatCommandStatus.InvalidTarget
+                    or PluginCombatCommandStatus.Refused)
+                {
+                    // The swing never left the client and the answer names the
+                    // monster as the reason - it has died, or it has gone out
+                    // of play. There is nothing to wait for, so it leaves the
+                    // running for the rest of this pass and the choice is made
+                    // again from what is left, exactly as a refused request is.
+                    // No attempt is charged: nothing reached the server.
+                    Log?.Invoke(
+                        MacroLogChannel.CastInfo,
+                        $"Swing: {release.Status} releasing at {_targetName} "
+                            + $"(0x{_targetId:X8})"
+                            + (string.IsNullOrWhiteSpace(release.Notice)
+                                ? string.Empty
+                                : $" - {release.Notice}"));
+                    InvalidateForPass(_targetId);
+                    ClearTarget();
+                    return AttackPassOutcome.Retry;
+                }
             }
             else
             {
