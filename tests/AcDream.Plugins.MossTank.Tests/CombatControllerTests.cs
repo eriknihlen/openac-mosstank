@@ -263,7 +263,7 @@ public sealed class CombatControllerTests
         controller.Toggle();
         controller.OnTick(0.05d);
         // The approach rule wins the pass and arms the walk.
-        Assert.True(controller.TickMonsterApproach(0.05d, canAct: true));
+        Assert.True(controller.TickMonsterApproach(canAct: true));
         Assert.Single(surface.MovementIntents);
         int clearedBefore = surface.ClearMovementCount;
 
@@ -342,7 +342,7 @@ public sealed class CombatControllerTests
 
         controller.Toggle();
         controller.OnTick(0.05d);
-        Assert.True(controller.TickMonsterApproach(0.05d, canAct: true));
+        Assert.True(controller.TickMonsterApproach(canAct: true));
         Assert.Single(surface.MovementIntents);
         int clearedBefore = surface.ClearMovementCount;
 
@@ -383,7 +383,7 @@ public sealed class CombatControllerTests
         Assert.Empty(surface.MovementIntents);
         Assert.Equal(0, surface.BeginCount);
 
-        Assert.True(controller.TickMonsterApproach(0.05d, canAct: true));
+        Assert.True(controller.TickMonsterApproach(canAct: true));
         PluginMovementIntent intent = Assert.Single(surface.MovementIntents);
         Assert.True(intent.Forward);
         Assert.Contains("Approaching", controller.Status, StringComparison.Ordinal);
@@ -393,7 +393,7 @@ public sealed class CombatControllerTests
 
         Assert.Equal(10u, surface.LastBeginTarget);
         // Nothing left to walk to.
-        Assert.False(controller.TickMonsterApproach(0.05d, canAct: true));
+        Assert.False(controller.TickMonsterApproach(canAct: true));
     }
 
     /// <summary>
@@ -432,7 +432,7 @@ public sealed class CombatControllerTests
         controller.Toggle();
         controller.OnTick(0.05d);
 
-        Assert.True(controller.TickMonsterApproach(0.05d, canAct: true));
+        Assert.True(controller.TickMonsterApproach(canAct: true));
         Assert.Contains(
             "Olthoi Soldier",
             controller.Status,
@@ -471,71 +471,206 @@ public sealed class CombatControllerTests
         return (surface, controller);
     }
 
+    /// <summary>
+    /// The walk steers through the same close-in mover as the route: outside
+    /// the alignment band it HOLDS a turn key and keeps running, so the
+    /// character curves onto the bearing at speed. It used to stop dead for
+    /// any error over four degrees and re-face on a throttle, which is the
+    /// mover's typing branch used as the normal one, and that turned every
+    /// approach into a stop-turn-stop shuffle.
+    ///
+    /// Mutation: steer with the stop-and-face branch again and the held turn
+    /// key disappears along with the forward intent.
+    /// </summary>
     [Fact]
-    public void ApproachStopsAndFacesTheTargetOutsideTheFourDegreeBand()
+    public void ApproachHoldsATurnAndKeepsRunningInsideTheFarRelaxation()
     {
+        // Target ~40 degrees east of north, twelve metres off.
         (FakeAutomation surface, CombatController controller) =
             ApproachRig(selfHeading: 0f, targetEastWest: 0.0839d, targetNorthSouth: 0.1d);
 
-        controller.TickMonsterApproach(0.05d, canAct: true);
+        controller.TickMonsterApproach(canAct: true);
 
-        Assert.Empty(surface.MovementIntents);
-        Assert.Equal(1, surface.ClearMovementCount);
-        float faced = Assert.Single(surface.FacedHeadings);
-        Assert.InRange(faced, 39f, 41f);
-        Assert.Contains("Turning to", controller.Status, StringComparison.Ordinal);
+        PluginMovementIntent intent = Assert.Single(surface.MovementIntents);
+        Assert.True(intent.Forward);
+        Assert.True(intent.Run);
+        Assert.True(intent.TurnLeft ^ intent.TurnRight);
+        Assert.Empty(surface.FacedHeadings);
+        Assert.Equal(0, surface.ClearMovementCount);
     }
 
+    /// <summary>
+    /// Past the far relaxation the mover turns in place instead: the turn key
+    /// stays held, the forward key does not. Forty-five degrees is the line
+    /// while the goal is further than three metres.
+    /// </summary>
+    [Theory]
+    // ~44 degrees east of north: inside the relaxation, so it runs.
+    [InlineData(0.0966d, true)]
+    // ~46 degrees east of north: past it, so it turns on the spot.
+    [InlineData(0.1036d, false)]
+    public void TheFarRelaxationIsFortyFiveDegrees(
+        double targetEastWest,
+        bool expectForward)
+    {
+        (FakeAutomation surface, CombatController controller) =
+            ApproachRig(selfHeading: 0f, targetEastWest, targetNorthSouth: 0.1d);
+
+        controller.TickMonsterApproach(canAct: true);
+
+        PluginMovementIntent intent = Assert.Single(surface.MovementIntents);
+        Assert.True(intent.TurnRight);
+        Assert.Equal(expectForward, intent.Forward);
+        Assert.Equal(expectForward, intent.Run);
+        Assert.Empty(surface.FacedHeadings);
+    }
+
+    /// <summary>
+    /// The absolute re-face belongs to the branch where a held key would be
+    /// typed into the chat entry, and to nothing else.
+    /// </summary>
     [Fact]
-    public void ApproachDoesNotReissueFaceHeadingInsideSevenTenthsOfASecond()
+    public void ApproachOnlyFacesTheTargetWhileSomebodyIsTyping()
     {
         (FakeAutomation surface, CombatController controller) =
             ApproachRig(selfHeading: 0f, targetEastWest: 0.0839d, targetNorthSouth: 0.1d);
+        surface.ChatInputActive = true;
 
-        // Two 293 ms passes fall inside the 0.7 s re-issue window.
-        controller.TickMonsterApproach(0.293d, canAct: true);
-        controller.TickMonsterApproach(0.293d, canAct: true);
+        controller.TickMonsterApproach(canAct: true);
 
-        Assert.Single(surface.FacedHeadings);
-
-        controller.TickMonsterApproach(0.293d, canAct: true);
-        Assert.Single(surface.FacedHeadings);
-        controller.TickMonsterApproach(0.293d, canAct: true);
-        Assert.Equal(2, surface.FacedHeadings.Count);
+        Assert.Empty(surface.MovementIntents);
+        float faced = Assert.Single(surface.FacedHeadings);
+        Assert.InRange(faced, 39f, 41f);
     }
 
     [Fact]
     public void ApproachRunsForwardInsideTheFourDegreeBandWithoutFacingAgain()
     {
-        // Target ~1.7° east of north.
+        // Target ~1.7 degrees east of north.
         (FakeAutomation surface, CombatController controller) =
             ApproachRig(selfHeading: 0f, targetEastWest: 0.003d, targetNorthSouth: 0.1d);
 
-        controller.TickMonsterApproach(0.05d, canAct: true);
+        controller.TickMonsterApproach(canAct: true);
 
         PluginMovementIntent intent = Assert.Single(surface.MovementIntents);
         Assert.True(intent.Forward);
         Assert.True(intent.Run);
+        Assert.False(intent.TurnLeft);
+        Assert.False(intent.TurnRight);
         Assert.Empty(surface.FacedHeadings);
         Assert.Contains("Approaching", controller.Status, StringComparison.Ordinal);
     }
 
-    [Theory]
-    [InlineData(0f)]
-    [InlineData(40f)]
-    [InlineData(-40f)]
-    [InlineData(140f)]
-    public void ApproachNeverIssuesHeldTurnKeyIntents(float selfHeading)
+    /// <summary>
+    /// The walk is a navigation goal, so it steers on the mover's own
+    /// interval on the host's frame — not once per rule pass, which is six
+    /// times coarser and only on the passes this row wins, twenty rows below
+    /// the attack.
+    ///
+    /// Mutation: step the mover from the rule pass again and the half-interval
+    /// frame below steers too.
+    /// </summary>
+    [Fact]
+    public void TheArmedWalkStepsOnTheMoverInterval()
     {
         (FakeAutomation surface, CombatController controller) =
-            ApproachRig(selfHeading, targetEastWest: 0d, targetNorthSouth: 0.1d);
+            ApproachRig(selfHeading: 0f, targetEastWest: 0.003d, targetNorthSouth: 0.1d);
 
-        for (int pass = 0; pass < 6; pass++)
-            controller.TickMonsterApproach(0.293d, canAct: true);
+        Assert.True(controller.ClaimMonsterApproachFromRulePass(canAct: true));
+        Assert.Single(surface.MovementIntents);
 
-        Assert.DoesNotContain(
-            surface.MovementIntents,
-            static intent => intent.TurnLeft || intent.TurnRight);
+        controller.StepArmedApproachMover(NavigationMover.MoverIntervalSeconds / 2d);
+        Assert.Single(surface.MovementIntents);
+
+        controller.StepArmedApproachMover(NavigationMover.MoverIntervalSeconds);
+        Assert.Equal(2, surface.MovementIntents.Count);
+    }
+
+    /// <summary>
+    /// A disarmed mover steers at nothing: the walk only runs while the rule
+    /// that armed it is winning passes.
+    /// </summary>
+    [Fact]
+    public void ADisarmedWalkDoesNotSteer()
+    {
+        (FakeAutomation surface, CombatController controller) =
+            ApproachRig(selfHeading: 0f, targetEastWest: 0.003d, targetNorthSouth: 0.1d);
+
+        controller.StepArmedApproachMover(1d);
+
+        Assert.Empty(surface.MovementIntents);
+    }
+
+    /// <summary>
+    /// Which monster is worth walking to is re-asked on every mover frame,
+    /// not once per rule pass: the whole comparison chain runs again at the
+    /// approach range, so a better monster appearing mid-walk is walked to
+    /// instead.
+    /// </summary>
+    [Fact]
+    public void TheWalkRepicksItsTargetOnEveryMoverFrame()
+    {
+        (FakeAutomation surface, CombatController controller) =
+            ApproachRig(selfHeading: 0f, targetEastWest: 0.003d, targetNorthSouth: 0.1d);
+
+        Assert.True(controller.ClaimMonsterApproachFromRulePass(canAct: true));
+        Assert.Contains("Drudge", controller.Status, StringComparison.Ordinal);
+
+        surface.Targets = [Target(20, "Mosswart", distance: 9, angle: 0)];
+        surface.NavigationObjects[20u] = new PluginNavigationObject(
+            20u,
+            "Mosswart",
+            new PluginNavigationPosition(0x7F7F0001, 0.003d, 0.1d, 0d, 0f, true));
+
+        controller.StepArmedApproachMover(NavigationMover.MoverIntervalSeconds);
+
+        Assert.Contains("Mosswart", controller.Status, StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// The walk ends where the attack begins: the character closes to weapon
+    /// range and stops there. There is one stop distance and it is the same
+    /// maximum target range the attack picks its own candidates at, whatever
+    /// the weapon — a melee profile closes to melee range because that is
+    /// what the profile's range says.
+    /// </summary>
+    [Fact]
+    public void TheWalkStopsAtTheAttacksOwnMaximumRange()
+    {
+        var surface = new FakeAutomation
+        {
+            CombatSnapshot = Physical(),
+            Targets = [Target(10, "Drudge", distance: 12, angle: 0)],
+            NavigationSnapshot = NavigationAt(heading: 0f),
+            EquipmentItems = [WieldedPlannedWeapon()],
+        };
+        surface.NavigationObjects[10u] = new PluginNavigationObject(
+            10u,
+            "Drudge",
+            new PluginNavigationPosition(0x7F7F0001, 0.003d, 0.1d, 0d, 0f, true));
+        // The owner's melee profile: eight metres of attack distance.
+        var settings = new CombatSettings
+        {
+            MaximumRange = 8d,
+            ApproachDistance = 25d,
+            ScanIntervalSeconds = 0.05d,
+        };
+        ProfileFixtureWeapon(settings);
+        var controller = new CombatController(new FakeHost(surface), settings);
+        controller.Toggle();
+
+        Assert.True(controller.ClaimMonsterApproachFromRulePass(canAct: true));
+        int clearedBefore = surface.ClearMovementCount;
+
+        // Still outside melee range: the walk carries on.
+        surface.Targets = [Target(10, "Drudge", distance: 8.5f, angle: 0)];
+        Assert.True(controller.ClaimMonsterApproachFromRulePass(canAct: true));
+
+        // One step inside it, and the walk is over: the keys go down and the
+        // attack row above takes it from here.
+        surface.Targets = [Target(10, "Drudge", distance: 7.5f, angle: 0)];
+        Assert.False(controller.ClaimMonsterApproachFromRulePass(canAct: true));
+        Assert.Equal(clearedBefore + 1, surface.ClearMovementCount);
     }
 
 
@@ -6875,7 +7010,7 @@ public sealed class CombatControllerTests
 
         // Same pass, the walk's turn. The near monster is back in the running
         // and it is already close enough, so there is nowhere to walk.
-        Assert.False(controller.TickMonsterApproach(0.05d, canAct: true));
+        Assert.False(controller.TickMonsterApproach(canAct: true));
         Assert.Empty(surface.MovementIntents);
     }
 
@@ -7731,6 +7866,8 @@ public sealed class CombatControllerTests
         public ISpellCatalog Spells => this;
         public IMagicCommands Magic => this;
         public IPluginChat Chat => this;
+        public bool ChatInputActive { get; set; }
+        bool IPluginChat.IsInputActive => ChatInputActive;
         public ICombatAutomation Combat => this;
         public IEquipmentAutomation Equipment => this;
         public IRecoveryAutomation Recovery => this;

@@ -404,6 +404,9 @@ internal sealed partial class MossTankPanel : IBuffRuleHost, IDisposable
         _navigation = new NavigationController(host, _navigationSettings);
         _navigation.BindActionLocks(_actionLocks);
         _navigation.BindCombatModeGate(_combatModeGate, _combatSettings);
+        // One low-stop-distance warning for the whole run, whichever mover
+        // runs into it first.
+        _combat.BindLowStopDistanceWarning(_navigation.LowStopDistanceWarning);
         _fellowshipManager = new FellowshipManager(host);
         _metaProfiles = new MossTankMetaProfileStore(host);
         _metaViews = new MetaViewManager(host);
@@ -4997,9 +5000,10 @@ internal sealed partial class MossTankPanel : IBuffRuleHost, IDisposable
         // The movers run on the host's frame, not on the scheduler pass that
         // armed them. They step before the pass so the pass sees the frame's
         // work already done and never spends the same time twice. Only one of
-        // them is ever armed: the pass the winner takes disarms the other.
+        // them is ever armed: the pass the winner takes disarms the others.
         _navigation.StepArmedMover(elapsedSeconds);
         _corpseApproach.StepArmedMover(elapsedSeconds);
+        _combat.StepArmedApproachMover(elapsedSeconds);
         // The swing runs on the host's frame, not on the pass that armed it:
         // that is what lets a charged swing go the moment it is ready and the
         // next one be asked for on its own period.

@@ -375,8 +375,7 @@ internal sealed partial class MossTankPanel : IMacroRuleProvider
         MacroRuleSlot.NavigateMonster => new MacroRulePreChain(
             new ControllerMacroRule(
                 "NavigateMonster",
-                context => _combat.TickMonsterApproach(
-                    context.ElapsedSeconds,
+                context => _combat.ClaimMonsterApproachFromRulePass(
                     context.CanAct),
                 gate: () => _combat.Enabled
                     && _navigationSettings.Enabled

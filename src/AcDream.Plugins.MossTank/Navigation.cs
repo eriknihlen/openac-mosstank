@@ -448,6 +448,8 @@ internal sealed class NavigationController
     /// peace mode. The mover says when the case arises; the once-per-run
     /// bookkeeping is the route's, because "the run" is the route's idea.
     /// </summary>
+    internal Action LowStopDistanceWarning => WarnLowWaypointDistance;
+
     private void WarnLowWaypointDistance()
     {
         if (_lowWaypointWarningPosted)

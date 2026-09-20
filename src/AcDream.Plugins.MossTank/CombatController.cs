@@ -160,12 +160,14 @@ internal sealed class CombatController
     private ulong _itemTransactionChatSequence;
     private long _observedItemCompletion;
     private bool _combatPolicySuspended;
-    private bool _approachMovementOwned;
     private bool _breakableTurnOwned;
 
-    private double _approachClock;
-    private double _approachFaceHeadingStamp =
-        NavigationController.NoFaceHeadingStamp;
+    /// <summary>
+    /// The walk to a monster steers through the same close-in mover as the
+    /// route and the corpse walk, and owns its own instance: a mover torn
+    /// down by the rule that lost a pass must not disarm another rule's.
+    /// </summary>
+    private readonly NavigationMover _approachMover;
 
     /// <summary>The same stamp for the breakable turn-to.</summary>
     private double _breakableTurnFaceHeadingStamp =
@@ -210,6 +212,7 @@ internal sealed class CombatController
     {
         _host = host ?? throw new ArgumentNullException(nameof(host));
         _settings = settings ?? throw new ArgumentNullException(nameof(settings));
+        _approachMover = new NavigationMover(_host);
         _vitalSettings = vitalSettings ?? new VitalSettings();
         _gameInfo = gameInfo ?? VtankGameInfoDatabase.Empty;
         _health = new MonsterHealthTracker(
@@ -450,7 +453,21 @@ internal sealed class CombatController
     {
         ArgumentNullException.ThrowIfNull(gate);
         _gate = BindAmmunition(gate);
+        // The walk's creep band pushes out of peace mode on arrival exactly
+        // as the route's does, so it needs the same gate.
+        _approachMover.BindCombatModeGate(_gate, _settings);
         return _gate;
+    }
+
+    /// <summary>
+    /// The once-per-run warning about walking at a goal tight enough to be
+    /// crept at while in peace mode. One warning covers the whole run across
+    /// every mover, so whoever keeps that bookkeeping hands it in here.
+    /// </summary>
+    internal void BindLowStopDistanceWarning(Action warn)
+    {
+        ArgumentNullException.ThrowIfNull(warn);
+        _approachMover.WarnLowStopDistance = warn;
     }
 
     public void ClearActionLocks()
@@ -4600,7 +4617,34 @@ internal sealed class CombatController
             || approach.Distance >= NavigationMover.CreepDistanceMeters;
     }
 
-    internal bool TickMonsterApproach(double elapsedSeconds, bool canAct)
+    /// <summary>
+    /// The walk's own turn on the rule pass: it answers the pass and arms
+    /// the mover.
+    /// </summary>
+    internal bool ClaimMonsterApproachFromRulePass(bool canAct)
+    {
+        // The pass consumes whatever the mover was owed, so a rule turn and
+        // a mover frame never both spend the same time.
+        _ = _approachMover.TakePendingSeconds();
+        bool claimed = TickMonsterApproach(canAct);
+        _approachMover.Arm(claimed);
+        return claimed;
+    }
+
+    /// <summary>
+    /// One host frame of the armed mover. The monster moves and so does the
+    /// character, so the choice of monster, the bearing and the range are all
+    /// re-asked on the mover's own interval rather than once per rule pass —
+    /// a walk steered once per pass overshoots every turn, because one pass
+    /// of held turn is tens of degrees against a four-degree band.
+    /// </summary>
+    internal void StepArmedApproachMover(double elapsedSeconds)
+    {
+        if (_approachMover.TryTakeMoverFrame(elapsedSeconds, out _))
+            _ = TickMonsterApproach(canAct: true);
+    }
+
+    internal bool TickMonsterApproach(bool canAct)
     {
         if (!Enabled
             || !_settings.Enabled
@@ -4612,10 +4656,6 @@ internal sealed class CombatController
             return false;
         }
 
-        // This rule's own clock: the attack's turn and this one are asked at
-        // different times, so the re-face throttle below is paced against
-        // the time THIS rule has been handed, not the attack's clock.
-        _approachClock += Math.Max(0d, elapsedSeconds);
         // This rule is its own pass: the attack's may not have run at all (its
         // gate can refuse for seconds at a time), so everything the attack
         // pass learns and forgets per pass is taken fresh here rather than
@@ -4699,34 +4739,15 @@ internal sealed class CombatController
             return false;
         }
 
-        float desired = NavigationController.DesiredHeading(
-            self.Position,
-            target.Position);
-        float delta = NavigationController.SignedHeadingDelta(
-            self.Position.HeadingDegrees,
-            desired);
-
-        if (NavigationController.SteerTowards(
-                navigation,
-                delta,
-                desired,
-                _approachClock,
-                ref _approachFaceHeadingStamp,
-                run: true)
-            != PluginNavigationCommandStatus.Accepted)
-        {
-            _approachMovementOwned = false;
-            return false;
-        }
-
-        _approachMovementOwned = true;
         string label = string.IsNullOrWhiteSpace(name)
             ? $"0x{objectId:X8}"
             : name;
-        Status = MathF.Abs(delta) > NavigationController.HeadingToleranceDegrees
-            ? $"Turning to {label} ({delta:+0.0;-0.0}°)"
-            : $"Approaching {label} ({distance:0.0}m)";
-        return true;
+        Status = $"Approaching {label} ({distance:0.0}m)";
+        return _approachMover.Steer(
+            navigation,
+            self.Position,
+            target.Position,
+            distance);
     }
 
     private bool ReadyForBreakableTurn(
@@ -4965,17 +4986,14 @@ internal sealed class CombatController
     /// started carries on unsupervised under whichever rule won, and two
     /// movement owners steer at once.
     /// </summary>
-    internal void StopMonsterApproachForLostTurn() => StopApproachMovement();
+    internal void StopMonsterApproachForLostTurn() =>
+        _approachMover.StopForLostTurn();
 
-    private void StopApproachMovement()
-    {
-        _approachFaceHeadingStamp =
-            NavigationController.NoFaceHeadingStamp;
-        if (!_approachMovementOwned)
-            return;
-        _ = _host.Automation.Navigation.ClearMovementIntent();
-        _approachMovementOwned = false;
-    }
+    /// <summary>
+    /// Drops whatever the walk is holding without taking the turn away: the
+    /// pass that armed the mover is the only thing allowed to disarm it.
+    /// </summary>
+    private void StopApproachMovement() => _approachMover.StopMovement();
 
     private readonly record struct RuleCandidate(
         PluginCombatTarget Target,
