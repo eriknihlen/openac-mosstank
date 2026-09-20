@@ -642,6 +642,16 @@ internal sealed partial class LootController
     private readonly HashSet<uint> _abandonedItems = [];
 
     /// <summary>
+    /// The items of the corpse now open that the client would not take.
+    /// Asking again on the next heartbeat changes nothing -- a pack is no
+    /// emptier a tenth of a second later and an item too heavy stays too
+    /// heavy -- so each refusal retires that one item from this corpse's
+    /// pass and the rest of what is in there is still worked. Emptied when a
+    /// corpse is opened, so a later visit asks for every one of them afresh.
+    /// </summary>
+    private readonly HashSet<uint> _refusedItems = [];
+
+    /// <summary>
     /// The corpse the pass gave up on, still open and waiting for its closing
     /// use. It is deliberately NOT a completed corpse: nothing was taken from
     /// it, and once the packs have room again it is worth another visit.
@@ -994,6 +1004,7 @@ internal sealed partial class LootController
             _activeCorpse = corpse.ObjectId;
             _activeCorpseSawContents = false;
             _activeCorpseIsOwnDeath = IsOwnDeathCorpse(corpse);
+            _refusedItems.Clear();
             _stateAge = 0d;
             // Opening a corpse is not instant and it is not always local: a corpse
             // out of arm's reach is opened by walking to it first, and the walk is
@@ -1247,6 +1258,7 @@ internal sealed partial class LootController
         _corpseBlacklistedAt.Clear();
         _itemAttempts.Clear();
         _abandonedItems.Clear();
+        _refusedItems.Clear();
         _abandonedCorpse = 0u;
         _pendingByName.Clear();
         _classifiedOwnedItems.Clear();
@@ -1350,6 +1362,10 @@ internal sealed partial class LootController
                 identifying = true;
                 continue;
             }
+            // An item the client already refused for this corpse is out of
+            // the pass; the refusal said its one line when it happened.
+            if (_refusedItems.Contains(item.ObjectId))
+                continue;
             if (_itemAttempts.TryGetValue(item.ObjectId, out int attempts)
                 && attempts >= maximumAttempts)
             {
@@ -1387,7 +1403,23 @@ internal sealed partial class LootController
             foreach (PluginInventoryItem item in contents)
                 _decisions.Remove(item.ObjectId);
             uint finished = _activeCorpse;
-            MarkCorpseComplete(finished);
+            // Nothing left to work. Which ending that is depends on why: a
+            // corpse whose wanted items were all refused was never emptied,
+            // so it is set aside for another visit rather than recorded as
+            // looted, and it says so once.
+            if (_refusedItems.Count > 0)
+            {
+                if (_abandonedCorpse != finished)
+                {
+                    GiveUpOnCorpse(
+                        finished,
+                        "the client would not take any of what is in it");
+                }
+            }
+            else
+            {
+                MarkCorpseComplete(finished);
+            }
             _stateAge = 0d;
             Log?.Invoke(
                 MacroLogChannel.Loot,
@@ -1455,18 +1487,33 @@ internal sealed partial class LootController
         if (!pickup.Accepted)
         {
             // The client decided against sending this one, and nothing this
-            // rule does on the next heartbeat changes that — a pack with no
-            // room is still full a tenth of a second later. So the corpse is
-            // let go of instead of asked again, and set aside rather than
-            // recorded as looted: nothing was taken from it.
+            // rule does on the next heartbeat changes that. So THIS ITEM is
+            // retired from the corpse's pass rather than asked again -- one
+            // item the client will not take says nothing about the rest of
+            // what is in there, and letting the whole corpse go over it cost
+            // every other wanted item in it.
+            string notice = string.IsNullOrWhiteSpace(pickup.Notice)
+                ? pickup.Status.ToString()
+                : pickup.Notice!;
+            if (_refusedItems.Add(chosen.Item.ObjectId))
+            {
+                Log?.Invoke(
+                    MacroLogChannel.Loot,
+                    $"LootPickup: refused {chosen.Item.Name}: {notice}");
+            }
+            // The refusal line above is this item's one line, so the waiting
+            // record is let go of without a second one.
             if (_waitingItem == chosen.Item.ObjectId)
-                _waitingPickupAccepted = false;
+            {
+                ReleaseWaitingReservation();
+                ClearWaitingItem();
+            }
             Status = $"Pickup refused: {chosen.Item.Name} ({pickup.Status}).";
-            GiveUpOnCorpse(
-                _activeCorpse,
-                string.IsNullOrWhiteSpace(pickup.Notice)
-                    ? $"{chosen.Item.Name} was refused ({pickup.Status})"
-                    : $"{chosen.Item.Name} was refused: {pickup.Notice}");
+            // A pack with nowhere to put anything is the one refusal that
+            // does end the corpse: nothing else in there will fit either,
+            // bar a stack that merges into one the character already holds.
+            if (IsPackFull(pickup.Notice))
+                RetireWhatCannotFit(loot, notice);
             return true;
         }
 
@@ -1493,6 +1540,129 @@ internal sealed partial class LootController
             $"LootPickup: taking {chosen.Item.Name} x{_waitingQuantity} "
                 + $"({chosen.Decision.Action}, {chosen.Decision.RuleName})");
         return true;
+    }
+
+    /// <summary>
+    /// Whether the client's refusal means there is nowhere left to put
+    /// anything. Two things say so: the notice the client wrote, which names
+    /// the room rather than the item, and a free-slot count of zero across
+    /// the character's own pack and the packs in it.
+    /// </summary>
+    private bool IsPackFull(string? notice) =>
+        (notice is { Length: > 0 }
+            && notice.Contains("room", StringComparison.OrdinalIgnoreCase))
+        || FreeItemSlots() == 0;
+
+    /// <summary>The free-slot count is not something the client can answer yet.</summary>
+    private const int UnknownFreeSlots = -1;
+
+    /// <summary>
+    /// How many loose-item slots the character has left, counting the main
+    /// pack and every pack inside it. Answers
+    /// <see cref="UnknownFreeSlots"/> when the client has not described the
+    /// character's own container, or any pack in it, well enough to say --
+    /// an unknown capacity must never read as a full one, or the first
+    /// refusal of a session would end the corpse behind it.
+    /// </summary>
+    private int FreeItemSlots()
+    {
+        IWorldObjectAutomation objects = _host.Automation.Objects;
+        uint playerId = _host.Automation.Character.ObjectId;
+        if (playerId == 0u
+            || !objects.TryGet(playerId, out PluginWorldObject player)
+            || player.ItemsCapacity <= 0)
+        {
+            return UnknownFreeSlots;
+        }
+        IReadOnlyList<PluginWorldObject> all = objects.CaptureObjects();
+        int free = FreeSlotsIn(player, all);
+        foreach (PluginWorldObject held in all)
+        {
+            if (held.ContainerObjectId != playerId
+                || held.ObjectClass != PluginObjectClass.Container)
+            {
+                continue;
+            }
+            if (held.ItemsCapacity <= 0)
+                return UnknownFreeSlots;
+            free += FreeSlotsIn(held, all);
+        }
+        return free;
+    }
+
+    /// <summary>
+    /// The room left in one container: its loose-item capacity less the
+    /// loose items in it. Packs do not count -- they take a pack slot of
+    /// their own, which is a separate ceiling.
+    /// </summary>
+    private static int FreeSlotsIn(
+        in PluginWorldObject container,
+        IReadOnlyList<PluginWorldObject> all)
+    {
+        int loose = 0;
+        foreach (PluginWorldObject held in all)
+        {
+            if (held.ContainerObjectId == container.ObjectId
+                && held.ObjectClass != PluginObjectClass.Container)
+            {
+                loose++;
+            }
+        }
+        return Math.Max(0, container.ItemsCapacity - loose);
+    }
+
+    /// <summary>
+    /// Whether the item would go into a stack the character already holds
+    /// rather than needing a slot of its own. A pack with no free slot still
+    /// has room for one of these, which is why a pack-full refusal does not
+    /// end the pass for them.
+    /// </summary>
+    private bool MergesIntoHeldStack(in PluginInventoryItem item)
+    {
+        if (item.MaximumStackSize <= 1)
+            return false;
+        uint weenie = item.WeenieClassId;
+        foreach (PluginInventoryItem held in
+            _host.Automation.Items.CaptureOwnedItems())
+        {
+            if (held.WeenieClassId == weenie
+                && held.MaximumStackSize > 1
+                && Math.Max(1, held.StackSize) < held.MaximumStackSize)
+            {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /// <summary>
+    /// Ends the corpse once the client has said there is nowhere to put
+    /// anything: everything left in it that would need a slot of its own is
+    /// retired without being asked for, because the answer is already known.
+    /// A stack that merges into one the character holds needs no slot, so
+    /// those stay in the pass; when none do, the corpse is let go of at once
+    /// rather than a refusal at a time.
+    /// </summary>
+    private void RetireWhatCannotFit(ILootAutomation loot, string reason)
+    {
+        bool anythingStillFits = false;
+        foreach (PluginInventoryItem item in loot.CaptureCurrentContents())
+        {
+            if (_refusedItems.Contains(item.ObjectId))
+                continue;
+            if (MergesIntoHeldStack(item))
+            {
+                anythingStillFits = true;
+                continue;
+            }
+            _refusedItems.Add(item.ObjectId);
+        }
+        if (!anythingStillFits)
+        {
+            GiveUpOnCorpse(
+                _activeCorpse,
+                $"nothing left in it will fit: {reason}");
+        }
     }
 
     /// <summary>Store a decision and say what it was, or why there was none.</summary>
@@ -2219,6 +2389,7 @@ internal sealed partial class LootController
         _activeCorpseSawContents = false;
         _activeCorpseIsOwnDeath = false;
         _abandonedCorpse = 0u;
+        _refusedItems.Clear();
         AbandonWaitingItem("the pass stopped");
         _awaitingAppraisal = 0u;
         _awaitingCorpseAppraisal = 0u;

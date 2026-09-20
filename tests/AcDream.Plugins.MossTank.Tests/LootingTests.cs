@@ -2535,10 +2535,33 @@ public sealed partial class LootingTests
         // having been appraised, which is what a stone bought or looted and
         // never looked at reads like.
         public HashSet<uint> Unassessed { get; } = [];
+
+        /// <summary>
+        /// How many loose items the character's own pack holds. Zero is what
+        /// a client that has not described the character yet reports, and
+        /// that is the state every test bar the pack-full ones wants.
+        /// </summary>
+        public int ItemCapacity { get; set; }
         public IWorldObjectAutomation Objects => this;
         bool IWorldObjectAutomation.IsAvailable => true;
+        IReadOnlyList<PluginWorldObject> IWorldObjectAutomation.CaptureObjects() =>
+            Owned
+                .Select(item => new PluginWorldObject(
+                    item.ObjectId, item.WeenieClassId, item.Name,
+                    item.ObjectClass, item.ItemType, item.ContainerObjectId,
+                    item.WielderObjectId))
+                .ToArray();
         bool IWorldObjectAutomation.TryGet(uint objectId, out PluginWorldObject value)
         {
+            if (objectId == Player)
+            {
+                value = new PluginWorldObject(
+                    Player, 1u, Name, PluginObjectClass.Player, 0u, 0u, 0u)
+                {
+                    ItemsCapacity = ItemCapacity,
+                };
+                return true;
+            }
             foreach (PluginInventoryItem item in Owned)
             {
                 if (item.ObjectId != objectId)
