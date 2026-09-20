@@ -35,6 +35,20 @@ internal static class CombatDebuffChain
     private const int NaturalVulnerabilityStep = 7;
     private const int ExtraVulnerabilityStep = 8;
 
+    /// <summary>
+    /// Whether step 9, the extra vulnerability, is part of the chain at all.
+    /// It stands on its own: unlike step 8 it is NOT gated on the
+    /// vulnerability column, and it is present exactly when its column names
+    /// an element. "Automatic" is not an element until it has been resolved
+    /// against the monster, and a column that resolved to nothing - the
+    /// monster has no listed weakness, or the column names something that is
+    /// not an element at all - contributes no step.
+    /// This is the one rule: every caller asks here rather than spelling the
+    /// test out again.
+    /// </summary>
+    public static bool HasExtraVulnerability(MonsterDamageType element) =>
+        element is not (MonsterDamageType.None or MonsterDamageType.Auto);
+
     public static IReadOnlyList<CombatDebuffStep> Build(
         MonsterRuleActions actions,
         MonsterDamageType attackElement,
@@ -58,11 +72,8 @@ internal static class CombatDebuffChain
             }
             else if (i == ExtraVulnerabilityStep)
             {
-                if (extraVulnerability is MonsterDamageType.None
-                    or MonsterDamageType.Auto)
-                {
+                if (!HasExtraVulnerability(extraVulnerability))
                     continue;
-                }
                 element = extraVulnerability;
             }
             else if ((actions.Flags & flag) == 0)

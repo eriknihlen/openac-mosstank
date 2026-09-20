@@ -1,4 +1,4 @@
-﻿namespace AcDream.Plugins.MossTank;
+namespace AcDream.Plugins.MossTank;
 
 [Flags]
 internal enum MonsterActionFlags
@@ -47,8 +47,18 @@ internal sealed record MonsterRuleActions
     public MonsterActionFlags Flags { get; init; } = MonsterActionFlags.Attack;
     public int Priority { get; init; }
     public MonsterDamageType DamageType { get; init; } = MonsterDamageType.Auto;
+
+    /// <summary>
+    /// The extra vulnerability column, which is OFF unless the row asks for
+    /// it. The attack element defaults to automatic because a rule that says
+    /// nothing still has to pick something to hit with; the extra
+    /// vulnerability is a second element debuff stacked on top of the chain,
+    /// so a rule that says nothing must ask for nothing. Automatic here would
+    /// resolve to the monster's first listed weakness and quietly debuff
+    /// almost every monster, which is not what a fresh row means.
+    /// </summary>
     public MonsterDamageType ExtraVulnerability { get; init; } =
-        MonsterDamageType.Auto;
+        MonsterDamageType.None;
     public uint WeaponObjectId { get; init; }
     public uint OffhandObjectId { get; init; }
 

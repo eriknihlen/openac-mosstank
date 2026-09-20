@@ -1,4 +1,4 @@
-﻿namespace AcDream.Plugins.MossTank.Tests;
+namespace AcDream.Plugins.MossTank.Tests;
 
 public sealed class VtankMonsterRuleTableTests
 {
@@ -24,6 +24,60 @@ public sealed class VtankMonsterRuleTableTests
         Assert.Equal(MonsterDamageType.PlayerAuto, rule.Actions.PetDamageType);
         Assert.Equal(0u, rule.Actions.WeaponObjectId);
         Assert.Equal(0u, rule.Actions.OffhandObjectId);
+    }
+
+    /// <summary>
+    /// The extra vulnerability column's file codes: 98 is "none", 8 is
+    /// "automatic", 3 is acid. Every one of them survives a read and a write
+    /// unchanged, byte for byte.
+    /// </summary>
+    [Fact]
+    public void TheExtraVulnerabilityColumnRoundTripsItsFileCodes()
+    {
+        const int extraVulnerabilityColumn = 18;
+        foreach ((int code, MonsterDamageType expected) in new[]
+        {
+            (98, MonsterDamageType.None),
+            (8, MonsterDamageType.Auto),
+            (3, MonsterDamageType.Acid),
+        })
+        {
+            VtankDatabase seed = VtankDefaultSettingsDatabase.Parse();
+            seed.Find(VtankMonsterRuleTable.TableName)!
+                .Rows[0].Cells[extraVulnerabilityColumn] = VtankCell.Int(code);
+            string original = seed.Render();
+
+            VtankDatabase database = VtankDatabase.Parse(original);
+            List<MonsterRule> rules = VtankMonsterRuleTable.TryRead(database)!;
+            Assert.Equal(expected, rules[0].Actions.ExtraVulnerability);
+
+            VtankMonsterRuleTable.Write(database, rules);
+
+            Assert.Equal(original, database.Render());
+        }
+    }
+
+    /// <summary>
+    /// A row nobody has edited asks for no extra vulnerability, and saves as
+    /// the "none" code.
+    /// Mutation: default <c>MonsterRuleActions.ExtraVulnerability</c> to
+    /// automatic again and this writes 8 - the spelling that made a profile
+    /// with the vulnerability column unticked debuff every monster it met.
+    /// </summary>
+    [Fact]
+    public void AFreshRowWritesTheExtraVulnerabilityColumnOff()
+    {
+        const int extraVulnerabilityColumn = 18;
+        VtankDatabase database = VtankDefaultSettingsDatabase.Parse();
+
+        VtankMonsterRuleTable.Write(
+            database,
+            [new MonsterRule("DEFAULT", new MonsterRuleActions())]);
+
+        Assert.Equal(
+            98,
+            database.Find(VtankMonsterRuleTable.TableName)!
+                .Rows[0].Cells[extraVulnerabilityColumn].AsInt());
     }
 
     [Fact]

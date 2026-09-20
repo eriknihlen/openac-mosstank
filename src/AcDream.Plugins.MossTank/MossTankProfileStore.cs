@@ -1148,7 +1148,11 @@ internal sealed class MossTankProfileStore
         public MonsterActionFlags Flags { get; set; } = MonsterActionFlags.Attack;
         public int Priority { get; set; }
         public MonsterDamageType DamageType { get; set; } = MonsterDamageType.Auto;
-        public MonsterDamageType ExtraVulnerability { get; set; } = MonsterDamageType.Auto;
+
+        // A stored profile that never wrote the column means the column was
+        // off, the same as a fresh row; automatic here would turn an unasked
+        // extra vulnerability into a cast on almost every monster.
+        public MonsterDamageType ExtraVulnerability { get; set; } = MonsterDamageType.None;
         public uint WeaponObjectId { get; set; }
         public uint OffhandObjectId { get; set; }
         public string WeaponName { get; set; } = string.Empty;

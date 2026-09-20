@@ -1,4 +1,4 @@
-﻿using AcDream.Plugin.Abstractions;
+using AcDream.Plugin.Abstractions;
 
 namespace AcDream.Plugins.MossTank;
 
@@ -36,8 +36,9 @@ internal static class DebuffSpellCatalog
             required.Add(new DebuffIdentity(flag, damage));
         }
 
-        if ((actions.Flags & MonsterActionFlags.Vulnerability) != 0
-            && actions.ExtraVulnerability != MonsterDamageType.Auto)
+        // The extra vulnerability is not gated on the vulnerability column;
+        // it stands on its own. One rule decides whether the step exists.
+        if (CombatDebuffChain.HasExtraVulnerability(actions.ExtraVulnerability))
         {
             required.Add(new DebuffIdentity(
                 MonsterActionFlags.Vulnerability,

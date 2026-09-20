@@ -2544,6 +2544,100 @@ public sealed class CombatControllerTests
         Assert.Equal((104u, 10u), surface.LastTargetedCast);
     }
 
+    /// <summary>
+    /// The extra vulnerability column is off unless the row asks for it. A
+    /// default row with every debuff column unticked debuffs nothing, however
+    /// weak the monster is to an element.
+    /// Mutation: default <c>MonsterRuleActions.ExtraVulnerability</c> to
+    /// automatic again and this fails - the column resolves to the Magma
+    /// Golem's first listed weakness and an element vulnerability goes out
+    /// before the first bolt, which is what the live session showed.
+    /// </summary>
+    [Fact]
+    public void ADefaultRowWithNoDebuffColumnsCastsNoVulnerability()
+    {
+        var surface = new FakeAutomation
+        {
+            CombatSnapshot = Physical() with { Mode = PluginCombatMode.Magic },
+            Targets = [Target(10, "Magma Golem", 5, 0)],
+            KnownCombatSpells =
+            [
+                // The Magma Golem's first listed weakness is cold, so the
+                // character has both an attack and a debuff available for it.
+                MagicSpell(104, "Frost Bolt VII", difficulty: 300),
+                Debuff(85, "Cold Vulnerability Other VII"),
+            ],
+            EquipmentItems = [WieldedCaster()],
+        };
+        var settings = new CombatSettings { MaximumRange = 40d };
+        settings.Rules.Clear();
+        settings.Rules.Add(new MonsterRule(
+            "DEFAULT",
+            new MonsterRuleActions
+            {
+                Flags = MonsterActionFlags.Attack,
+                DamageType = MonsterDamageType.Auto,
+            }));
+        var controller = new CombatController(
+            new FakeHost(surface),
+            settings,
+            vitalSettings: null,
+            GameInfo);
+
+        controller.Toggle();
+        controller.OnTick(0.25);
+
+        Assert.Equal((104u, 10u), surface.LastTargetedCast);
+        Assert.DoesNotContain(85u, surface.CastSpellIds);
+    }
+
+    /// <summary>
+    /// With the vulnerability column ticked AND an extra vulnerability
+    /// element, both are cast, the attack element first: they are steps 8 and
+    /// 9 of the chain, in that order.
+    /// Mutation: swap the two chain entries and the second assertion fails;
+    /// gate the extra vulnerability away and nothing follows the first.
+    /// </summary>
+    [Fact]
+    public void VulnAndAnExtraVulnerabilityCastTheAttackElementFirst()
+    {
+        var surface = new FakeAutomation
+        {
+            CombatSnapshot = Physical() with { Mode = PluginCombatMode.Magic },
+            Targets = [Target(10, "Drudge", 5, 0)],
+            KnownCombatSpells =
+            [
+                MagicSpell(100, "Flame Bolt VII", difficulty: 300),
+                Debuff(70, "Fire Vulnerability Other VII"),
+                Debuff(71, "Acid Vulnerability Other VII"),
+            ],
+            EquipmentItems = [WieldedCaster()],
+        };
+        var settings = new CombatSettings { MaximumRange = 40d };
+        settings.Rules.Clear();
+        settings.Rules.Add(new MonsterRule(
+            "DEFAULT",
+            new MonsterRuleActions
+            {
+                Flags = MonsterActionFlags.Attack
+                    | MonsterActionFlags.Vulnerability,
+                DamageType = MonsterDamageType.Fire,
+                ExtraVulnerability = MonsterDamageType.Acid,
+            }));
+        var controller = new CombatController(new FakeHost(surface), settings);
+
+        controller.Toggle();
+        controller.OnTick(0.25);
+        Assert.Equal(70u, surface.LastTargetedCast.Item1);
+
+        // The first debuff is still in flight, so let it finish.
+        surface.LastCastCompletion = new PluginCastCompletion(1, 70, 10, 0);
+        controller.OnTick(0.25);
+        controller.OnTick(0.25);
+
+        Assert.Equal(71u, surface.LastTargetedCast.Item1);
+    }
+
     [Fact]
     public void AFistsRowCastsTuskerFistsBeforeTheEnchantmentIsUp()
     {
