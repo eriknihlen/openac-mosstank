@@ -162,6 +162,15 @@ internal sealed class MossTankRouteProfileStore
         string? text = VtankStorage.IsAvailable ? VtankStorage.ReadText(fileName) : null;
         if (text is null)
             return MossTankProfileLoad.Missing;
+        if (IsDroppedForeignFormat(fileName))
+        {
+            if (VtankNavRouteSerializer.TryLoad(text, target, spells, out string navError))
+                return MossTankProfileLoad.Loaded;
+            RecoveryNotice = MossTankProfileRecovery.Preserve(
+                _host, "route", fileName, text, new FormatException(navError));
+            _host.Log.Warn(RecoveryNotice);
+            return MossTankProfileLoad.Failed;
+        }
         if (!MetafSerializer.TryLoadNav(text, target, spells, out string error))
         {
             RecoveryNotice = MossTankProfileRecovery.Preserve(
@@ -172,8 +181,17 @@ internal sealed class MossTankRouteProfileStore
         return MossTankProfileLoad.Loaded;
     }
 
-    public void SaveCurrent(NavigationSettings settings) =>
-        WriteAf(CurrentFileName(), MetafSerializer.SaveNav(settings));
+    public void SaveCurrent(NavigationSettings settings)
+    {
+        string target = SaveTargetFor(CurrentFileName());
+        WriteAf(target, MetafSerializer.SaveNav(settings));
+        if (!_selected.Equals(ByCharacter, StringComparison.OrdinalIgnoreCase)
+            && !target.Equals(_selected, StringComparison.Ordinal))
+        {
+            _selected = target;
+            WriteBinding();
+        }
+    }
 
     public bool TryImportLegacy(
         string? name,
@@ -372,8 +390,29 @@ internal sealed class MossTankRouteProfileStore
         ? $"{VtankProfileDirectory.NavFolder}/{VtankProfileDirectory.AutoCharacterFileName(_characterName, Server, "af")}"
         : _selected;
 
+    /// <summary>
+    /// A route named in the plugin's own format, unless the name says
+    /// otherwise: a file dropped into the folder as the older ".nav" form is
+    /// addressed exactly as it sits there, so picking it loads it.
+    /// </summary>
     private static string ToFileName(string bareName) =>
-        $"{VtankProfileDirectory.NavFolder}/{bareName}.af";
+        bareName.EndsWith(".nav", StringComparison.OrdinalIgnoreCase)
+        || bareName.EndsWith(".af", StringComparison.OrdinalIgnoreCase)
+            ? $"{VtankProfileDirectory.NavFolder}/{bareName}"
+            : $"{VtankProfileDirectory.NavFolder}/{bareName}.af";
+
+    private static bool IsDroppedForeignFormat(string key) =>
+        key.EndsWith(".nav", StringComparison.OrdinalIgnoreCase);
+
+    /// <summary>
+    /// Where a save goes. A dropped file is never rewritten: the plugin's
+    /// own format is written beside it under the same name, and that is what
+    /// the selection follows from then on.
+    /// </summary>
+    private static string SaveTargetFor(string key) =>
+        IsDroppedForeignFormat(key)
+            ? string.Concat(key.AsSpan(0, key.Length - ".nav".Length), ".af")
+            : key;
 
     private void WriteBinding()
     {

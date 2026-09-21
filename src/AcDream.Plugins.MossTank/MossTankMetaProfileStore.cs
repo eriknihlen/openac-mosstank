@@ -32,6 +32,35 @@ internal sealed class MossTankMetaProfileStore
 
     private const string FolderPrefix = VtankProfileDirectory.MetaFolder + "/";
 
+    /// <summary>
+    /// A meta named in the plugin's own format, unless the name says
+    /// otherwise: a file dropped into the folder as the older ".met" form is
+    /// addressed exactly as it sits there, so picking it loads it.
+    /// </summary>
+    private static string ToFileName(string name)
+    {
+        string bareName = VtankProfileDirectory.StripFolder(
+            name, VtankProfileDirectory.MetaFolder);
+        if (!bareName.EndsWith(".af", StringComparison.OrdinalIgnoreCase)
+            && !bareName.EndsWith(".met", StringComparison.OrdinalIgnoreCase))
+        {
+            bareName += ".af";
+        }
+        return $"{VtankProfileDirectory.MetaFolder}/{bareName}";
+    }
+
+    private static bool IsDroppedForeignFormat(string key) =>
+        key.EndsWith(".met", StringComparison.OrdinalIgnoreCase);
+
+    /// <summary>
+    /// Where a save goes. A dropped file is never rewritten: the plugin's
+    /// own format is written beside it under the same name.
+    /// </summary>
+    private static string SaveTargetFor(string key) =>
+        IsDroppedForeignFormat(key)
+            ? string.Concat(key.AsSpan(0, key.Length - ".met".Length), ".af")
+            : key;
+
     private static string StripAf(string name)
     {
         if (name.Equals(ByCharacter, StringComparison.OrdinalIgnoreCase))
@@ -84,6 +113,18 @@ internal sealed class MossTankMetaProfileStore
         string? text = VtankStorage.IsAvailable ? VtankStorage.ReadText(fileName) : null;
         if (text is null)
             return new MetaProfile();
+        if (IsDroppedForeignFormat(fileName))
+        {
+            if (VtankMetaProfileSerializer.TryLoad(
+                    text, _host.Automation.Spells, out MetaProfile dropped, out string metError))
+            {
+                return dropped;
+            }
+            RecoveryNotice = MossTankProfileRecovery.Preserve(
+                _host, "meta", fileName, text, new FormatException(metError));
+            _host.Log.Warn(RecoveryNotice);
+            return new MetaProfile();
+        }
         if (!MetafSerializer.TryLoadMeta(text, _host.Automation.Spells, out MetaProfile profile, out string error))
         {
             RecoveryNotice = MossTankProfileRecovery.Preserve(
@@ -96,7 +137,7 @@ internal sealed class MossTankMetaProfileStore
 
     public bool SaveCurrent(MetaProfile profile)
     {
-        string fileName = CurrentFileName();
+        string fileName = SaveTargetFor(CurrentFileName());
         string text;
         try
         {
@@ -121,6 +162,14 @@ internal sealed class MossTankMetaProfileStore
             return false;
         }
         SaveNotice = null;
+        // A dropped file was left as it is and the plugin's own format was
+        // written beside it; the selection follows the file it now owns.
+        if (!_selected.Equals(ByCharacter, StringComparison.OrdinalIgnoreCase)
+            && !fileName.Equals(_selected, StringComparison.Ordinal))
+        {
+            _selected = fileName;
+            WriteBinding();
+        }
         return true;
     }
 
@@ -137,10 +186,7 @@ internal sealed class MossTankMetaProfileStore
             return true;
         }
 
-        string bare = normalized.EndsWith(".af", StringComparison.OrdinalIgnoreCase)
-            ? normalized
-            : normalized + ".af";
-        string plain = $"{VtankProfileDirectory.MetaFolder}/{bare}";
+        string plain = ToFileName(normalized);
         if (VtankStorage.IsAvailable && VtankStorage.ReadText(plain) is not null)
         {
             _selected = plain;
@@ -168,10 +214,7 @@ internal sealed class MossTankMetaProfileStore
         if (normalized.Equals(ByCharacter, StringComparison.OrdinalIgnoreCase))
             return true;
 
-        string bare = normalized.EndsWith(".af", StringComparison.OrdinalIgnoreCase)
-            ? normalized
-            : normalized + ".af";
-        string plain = $"{VtankProfileDirectory.MetaFolder}/{bare}";
+        string plain = ToFileName(normalized);
         if (VtankStorage.IsAvailable && VtankStorage.ReadText(plain) is not null)
             return true;
 
@@ -192,10 +235,7 @@ internal sealed class MossTankMetaProfileStore
             notice = "Enter a unique Meta profile name (1-64 characters).";
             return false;
         }
-        string bare = normalized.EndsWith(".af", StringComparison.OrdinalIgnoreCase)
-            ? normalized
-            : normalized + ".af";
-        string fileName = $"{VtankProfileDirectory.MetaFolder}/{bare}";
+        string fileName = ToFileName(normalized);
         MetaProfile document = copyCurrent ? Clone(current) : new MetaProfile();
         if (!SaveTo(fileName, document, out notice))
             return false;
@@ -203,8 +243,8 @@ internal sealed class MossTankMetaProfileStore
         _pendingLegacyBareName = null;
         WriteBinding();
         notice = copyCurrent
-            ? $"Copied Meta profile to {bare}."
-            : $"Created Meta profile {bare}.";
+            ? $"Copied Meta profile to {StripAf(fileName)}."
+            : $"Created Meta profile {StripAf(fileName)}.";
         return true;
     }
 
@@ -240,10 +280,7 @@ internal sealed class MossTankMetaProfileStore
             notice = $"Could not import {Path.GetFileName(key)}: {error}";
             return false;
         }
-        string bare = normalized.EndsWith(".af", StringComparison.OrdinalIgnoreCase)
-            ? normalized
-            : normalized + ".af";
-        string fileName = $"{VtankProfileDirectory.MetaFolder}/{bare}";
+        string fileName = ToFileName(normalized);
         if (!SaveTo(fileName, profile, out string saveNotice))
         {
             notice = saveNotice;
@@ -252,7 +289,7 @@ internal sealed class MossTankMetaProfileStore
         _selected = fileName;
         _pendingLegacyBareName = null;
         WriteBinding();
-        notice = $"Imported VTank Meta profile {bare}.";
+        notice = $"Imported VTank Meta profile {StripAf(fileName)}.";
         return true;
     }
 

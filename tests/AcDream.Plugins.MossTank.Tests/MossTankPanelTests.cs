@@ -753,6 +753,29 @@ public sealed class MossTankPanelTests
 
 
     [Fact]
+    public void AMetDroppedIntoTheMetasFolderLoadsAndSavesBesideItself()
+    {
+        var storage = new MemoryStorage();
+        storage.Text["mosstank/metas/Dropped.met"] = File.ReadAllText(Path.Combine(
+            AppContext.BaseDirectory, "Fixtures", "vtank", "met", "bella.met"));
+        var store = new MossTankMetaProfileStore(
+            new FakeHost(new FakeAutomation { Name = "Barris" }, storage));
+        store.BindCharacter("Barris");
+
+        Assert.Contains("Dropped.met", store.AvailableNames);
+        Assert.True(store.Select("Dropped.met"));
+
+        MetaProfile loaded = store.LoadCurrent();
+        Assert.NotEmpty(loaded.Rules);
+
+        string dropped = storage.Text["mosstank/metas/Dropped.met"];
+        Assert.True(store.SaveCurrent(loaded));
+
+        Assert.Equal(dropped, storage.Text["mosstank/metas/Dropped.met"]);
+        Assert.True(storage.Text.ContainsKey("mosstank/metas/Dropped.af"));
+    }
+
+    [Fact]
     public void MetaStoreRefusesToLoadANavOnlyFileWithNoticeNamingNavsFolder()
     {
         string navOnlyContent = File.ReadAllText(

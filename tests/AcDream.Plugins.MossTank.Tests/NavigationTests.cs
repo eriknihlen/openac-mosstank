@@ -1453,6 +1453,34 @@ public sealed class NavigationTests
 
 
     [Fact]
+    public void ANavDroppedIntoTheNavsFolderLoadsAndSavesBesideItself()
+    {
+        var storage = new MemoryStorage();
+        storage.Text["mosstank/navs/Dropped.nav"] = File.ReadAllText(Path.Combine(
+            AppContext.BaseDirectory, "Fixtures", "vtank", "nav", "nav_ab.nav"));
+        var store = new MossTankRouteProfileStore(
+            new FakeHost(new FakeAutomation(), storage));
+        store.BindCharacter("Barris");
+
+        Assert.Contains("Dropped.nav", store.AvailableNames);
+        Assert.True(store.Select("Dropped.nav"));
+
+        var route = new NavigationSettings();
+        Assert.Equal(
+            MossTankProfileLoad.Loaded,
+            store.LoadCurrent(route, MetafSerializer.NoOpSpells.Instance));
+        Assert.NotEmpty(route.Waypoints);
+
+        string dropped = storage.Text["mosstank/navs/Dropped.nav"];
+        store.SaveCurrent(route);
+
+        // The dropped file belongs to whoever dropped it; the plugin's own
+        // format goes beside it under the same name.
+        Assert.Equal(dropped, storage.Text["mosstank/navs/Dropped.nav"]);
+        Assert.True(storage.Text.ContainsKey("mosstank/navs/Dropped.af"));
+    }
+
+    [Fact]
     public void RouteStoreRefusesToLoadAMetaOnlyFileWithNoticeNamingMetasFolder()
     {
         string metaOnlyContent = File.ReadAllText(
