@@ -55,6 +55,23 @@ internal sealed class MossTankMetaProfileStore
         return $"{VtankProfileDirectory.MetaFolder}/{bareName}";
     }
 
+    /// <summary>
+    /// The file a name stands for, if one is there. A bare name means the
+    /// plugin's own format first and a dropped meta second, so both a
+    /// command typed without an extension and a name picked straight out of
+    /// the folder resolve to the file that exists.
+    /// </summary>
+    private string? ResolveExisting(string name)
+    {
+        if (!VtankStorage.IsAvailable)
+            return null;
+        string candidate = ToFileName(name);
+        if (VtankStorage.ReadText(candidate) is not null)
+            return candidate;
+        string dropped = $"{VtankProfileDirectory.MetaFolder}/{name}.met";
+        return VtankStorage.ReadText(dropped) is not null ? dropped : null;
+    }
+
     private static bool IsDroppedForeignFormat(string key) =>
         key.EndsWith(".met", StringComparison.OrdinalIgnoreCase);
 
@@ -197,9 +214,9 @@ internal sealed class MossTankMetaProfileStore
         }
 
         string plain = ToFileName(normalized);
-        if (VtankStorage.IsAvailable && VtankStorage.ReadText(plain) is not null)
+        if (ResolveExisting(normalized) is { } found)
         {
-            _selected = plain;
+            _selected = found;
             _pendingLegacyBareName = null;
             WriteBinding();
             return true;
@@ -224,8 +241,7 @@ internal sealed class MossTankMetaProfileStore
         if (normalized.Equals(ByCharacter, StringComparison.OrdinalIgnoreCase))
             return true;
 
-        string plain = ToFileName(normalized);
-        if (VtankStorage.IsAvailable && VtankStorage.ReadText(plain) is not null)
+        if (ResolveExisting(normalized) is not null)
             return true;
 
         return _host.Storage.IsAvailable

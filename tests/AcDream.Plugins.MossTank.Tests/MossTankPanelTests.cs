@@ -791,6 +791,39 @@ public sealed class MossTankPanelTests
                     StringComparison.Ordinal));
     }
 
+    [Theory]
+    [InlineData("nav load Dropped")]
+    [InlineData("nav load Dropped.nav")]
+    public void ADroppedRouteLoadsByCommandWithOrWithoutItsExtension(string arguments)
+    {
+        var storage = new MemoryStorage();
+        storage.Text["mosstank/navs/Dropped.nav"] = File.ReadAllText(Path.Combine(
+            AppContext.BaseDirectory, "Fixtures", "vtank", "nav", "nav_ab.nav"));
+        var automation = new FakeAutomation { Name = "Barris", WorldName = "Coldeve" };
+        var panel = new MossTankPanel(new FakeHost(automation, storage));
+
+        Command(panel, arguments);
+
+        Assert.Equal("Dropped.nav", panel.SelectedRouteProfile);
+        Assert.NotEmpty(panel.RouteRows);
+    }
+
+    [Theory]
+    [InlineData("meta load Dropped")]
+    [InlineData("meta load Dropped.met")]
+    public void ADroppedMetaLoadsByCommandWithOrWithoutItsExtension(string arguments)
+    {
+        var storage = new MemoryStorage();
+        storage.Text["mosstank/metas/Dropped.met"] = File.ReadAllText(Path.Combine(
+            AppContext.BaseDirectory, "Fixtures", "vtank", "met", "bella.met"));
+        var automation = new FakeAutomation { Name = "Barris", WorldName = "Coldeve" };
+        var panel = new MossTankPanel(new FakeHost(automation, storage));
+
+        Command(panel, arguments);
+
+        Assert.Equal("Dropped.met", panel.SelectedMetaProfile);
+    }
+
     [Fact]
     public void AFailedLoadNamesTheFullPathItTried()
     {

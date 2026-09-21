@@ -90,9 +90,9 @@ internal sealed class MossTankRouteProfileStore
         }
 
         string candidate = ToFileName(normalized);
-        if (VtankStorage.IsAvailable && VtankStorage.ReadText(candidate) is not null)
+        if (ResolveExisting(normalized) is { } found)
         {
-            _selected = candidate;
+            _selected = found;
             _pendingLegacyBareName = null;
             WriteBinding();
             return true;
@@ -116,8 +116,7 @@ internal sealed class MossTankRouteProfileStore
         if (normalized.Equals(ByCharacter, StringComparison.OrdinalIgnoreCase))
             return true;
 
-        string candidate = ToFileName(normalized);
-        if (VtankStorage.IsAvailable && VtankStorage.ReadText(candidate) is not null)
+        if (ResolveExisting(normalized) is not null)
             return true;
 
         return _host.Storage.IsAvailable
@@ -404,6 +403,23 @@ internal sealed class MossTankRouteProfileStore
         || bareName.EndsWith(".af", StringComparison.OrdinalIgnoreCase)
             ? $"{VtankProfileDirectory.NavFolder}/{bareName}"
             : $"{VtankProfileDirectory.NavFolder}/{bareName}.af";
+
+    /// <summary>
+    /// The file a name stands for, if one is there. A bare name means the
+    /// plugin's own format first and a dropped route second, so both a
+    /// command typed without an extension and a name picked straight out of
+    /// the folder resolve to the file that exists.
+    /// </summary>
+    private string? ResolveExisting(string name)
+    {
+        if (!VtankStorage.IsAvailable)
+            return null;
+        string candidate = ToFileName(name);
+        if (VtankStorage.ReadText(candidate) is not null)
+            return candidate;
+        string dropped = $"{VtankProfileDirectory.NavFolder}/{name}.nav";
+        return VtankStorage.ReadText(dropped) is not null ? dropped : null;
+    }
 
     private static bool IsDroppedForeignFormat(string key) =>
         key.EndsWith(".nav", StringComparison.OrdinalIgnoreCase);
