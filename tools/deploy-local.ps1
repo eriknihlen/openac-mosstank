@@ -20,7 +20,10 @@ dotnet build $repo -c Release --nologo -v q | Out-Host
 if ($LASTEXITCODE) { throw 'Build failed.' }
 if (-not $SkipTests) { dotnet test $repo -c Release --no-build --nologo | Out-Host; if ($LASTEXITCODE) { throw 'Tests failed.' } }
 $out = Join-Path $repo 'src\AcDream.Plugins.MossTank\bin\Release\net10.0'
-$backup = "$InstallDir.backup-$(Get-Date -Format yyyy-MM-dd)"
+# Outside the plugins root: a second folder with the same plugin id there makes the client refuse both.
+$backupRoot = Join-Path (Split-Path (Split-Path $InstallDir -Parent) -Parent) 'plugin-backups'
+New-Item -ItemType Directory -Force $backupRoot | Out-Null
+$backup = Join-Path $backupRoot "acdream.mosstank.backup-$(Get-Date -Format yyyy-MM-dd)"
 if (-not (Test-Path -LiteralPath $backup)) { Copy-Item -LiteralPath $InstallDir -Destination $backup -Recurse }
 $names = @('AcDream.Plugins.MossTank.dll','AcDream.Plugins.MossTank.pdb','AcDream.Plugins.MossTank.deps.json','plugin.json') +
     @(Get-ChildItem -LiteralPath $out -Filter 'mosstank*.xml' | ForEach-Object Name)
