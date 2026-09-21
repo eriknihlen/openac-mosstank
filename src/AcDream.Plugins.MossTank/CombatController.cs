@@ -394,7 +394,13 @@ internal sealed class CombatController
                     "0.0", System.Globalization.CultureInfo.InvariantCulture) + " m";
                 break;
             }
-            return $"{_targetName} (0x{_targetId:X8}, {distance}): {Status}";
+            PluginCombatSnapshot held = _host.Automation.Combat.Snapshot;
+            return $"{_targetName} (0x{_targetId:X8}, {distance}): {Status}"
+                + $" [tick {_diagnosticTicks}, attempt {_diagnosticAttempts},"
+                + $" mode {held.Mode}, request {held.RequestInProgress},"
+                + $" build {held.BuildInProgress}, pending {held.ServerResponsePending},"
+                + $" repeat {held.RepeatAttackInProgress}, timer {_swingTimerRunning},"
+                + $" armed {_swingArmed}]";
         }
     }
 
@@ -626,6 +632,7 @@ internal sealed class CombatController
             Status = "Scanning for targets";
         }
 
+        _diagnosticTicks++;
         ClearPassMemos();
 
         // The clock is wall time as this controller sees it: the turn hands
@@ -830,8 +837,12 @@ internal sealed class CombatController
 
     private MonsterRuleActions? _decisionActions;
 
+    private long _diagnosticTicks;
+    private long _diagnosticAttempts;
+
     private AttackPassOutcome RunAttackAttempt()
     {
+        _diagnosticAttempts++;
         if (IsKnownDead(FindTarget(_targetId)))
         {
             // It died under the pass. The choice is made again from what is
@@ -935,6 +946,20 @@ internal sealed class CombatController
             || combat.ServerResponsePending
             || combat.RepeatAttackInProgress)
         {
+            if (!_swingTimerRunning)
+            {
+                // The client is still holding an attack, and nothing here is
+                // steering it: it was begun at a monster that has since been
+                // dropped -- killed while the next swing was still building.
+                // Waiting on it waits for ever, so it is ended and this
+                // monster gets its own swing on the next step.
+                _host.Automation.Combat.AbortPhysicalAttack();
+                Log?.Invoke(
+                    MacroLogChannel.CastInfo,
+                    "Swing: ended an attack left over from a dropped monster");
+                Status = $"Ending a leftover attack before {_targetName}";
+                return AttackPassOutcome.Claimed;
+            }
             return TranslateSwingOutcome(PumpSwingExecutor());
         }
 

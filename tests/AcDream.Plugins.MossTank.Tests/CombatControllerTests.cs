@@ -6999,6 +6999,42 @@ public sealed class CombatControllerTests
     }
 
     /// <summary>
+    /// The client is left holding an attack at a monster that has been
+    /// dropped. Nothing is steering it, so it is ended and the next monster
+    /// is swung at, instead of the pass waiting on it for good.
+    /// </summary>
+    [Fact]
+    public void AnAttackLeftOverFromADroppedMonsterIsEndedNotWaitedOn()
+    {
+        (FakeAutomation surface, CombatController controller, _) =
+            MeleeKillRig(tracksAttackRequests: true);
+        surface.Targets = [Target(10, "Drudge", distance: 2, angle: 0)];
+        controller.OnTick(0.25);
+        Assert.Equal(10u, surface.LastBeginTarget);
+
+        surface.ChatMessages = [ChatLine(1, "You killed Drudge!")];
+        controller.OnTick(0.25);
+        surface.ChatMessages = [];
+        surface.Targets = [Target(20, "Mosswart", distance: 3, angle: 0)];
+        // What the live client was seen to do: the attack goes on repeating.
+        surface.CombatSnapshot = surface.CombatSnapshot with
+        {
+            RequestInProgress = false,
+            BuildInProgress = false,
+            RepeatAttackInProgress = true,
+            SelectedObjectId = 20u,
+        };
+
+        var seen = new List<string>();
+        for (int pass = 0; pass < 8; pass++)
+        {
+            controller.OnTick(0.25);
+            seen.Add(controller.RunningDetail);
+        }
+        Assert.True(20u == surface.LastBeginTarget, string.Join(" | ", seen));
+    }
+
+    /// <summary>
     /// The kill lands while the NEXT swing at the same monster is still
     /// building on the power bar. The next monster is swung at all the same.
     /// </summary>
