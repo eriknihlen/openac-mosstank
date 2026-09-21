@@ -8,6 +8,8 @@
   </PropertyGroup>
   <ItemGroup>
     <InternalsVisibleTo Include="AcDream.Plugins.MossTank.Tests" />
+    <!-- The graphical client's suite builds this plugin's panel markup against the real UI
+         engine, which reaches the panel type itself. -->
     <InternalsVisibleTo Include="AcDream.App.Tests" />
   </ItemGroup>
   <ItemGroup>
