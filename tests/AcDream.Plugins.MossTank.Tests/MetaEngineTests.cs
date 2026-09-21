@@ -244,7 +244,7 @@ public sealed class MetaEngineTests
         public bool IsInWorld => true;
         public string Name => "Meta Tester";
         public string WorldName => "Coldeve";
-        public string AccountName => "testaccount";
+        public string AccountName => "example-account";
         public uint ObjectId => 1;
         public uint CurrentHealth { get; set; } = 100;
         public uint MaxHealth => 100;

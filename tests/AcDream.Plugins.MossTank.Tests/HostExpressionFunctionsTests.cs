@@ -962,7 +962,7 @@ public sealed class HostExpressionFunctionsTests
         public bool IsInWorld => true;
         public string Name => "Expression Tester";
         public string WorldName => "Coldeve";
-        public string AccountName => "testaccount";
+        public string AccountName => "example-account";
         public int CharacterIndex => 2;
         public uint ObjectId => 1;
         public uint CurrentHealth => 90;
