@@ -17,6 +17,30 @@ public sealed class MossTankMarkupContractTests
         Assert.Contains("column", InteractiveElementNames);
     }
 
+    /// <summary>
+    /// The extra vulnerability column is the one column whose effect is not
+    /// obvious from its heading: it casts on its own account, with no check
+    /// box of its own to tick, so a row set to anything but None debuffs
+    /// targets while every check box on the row is clear. Its heading has to
+    /// say so, or the setting is invisible to whoever inherits the profile.
+    /// </summary>
+    [Fact]
+    public void TheExtraVulnerabilityHeadingExplainsThatItCastsWithoutTheVulnCheck()
+    {
+        XDocument document = XDocument.Load(
+            Path.Combine(AppContext.BaseDirectory, "mosstank.xml"));
+        XElement root = Assert.IsType<XElement>(document.Root);
+
+        XElement heading = Assert.Single(
+            root.Descendants("label"),
+            static label => (string?)label.Attribute("text") == "Ex. Vuln");
+        string tooltip = (string?)heading.Attribute("tooltip") ?? string.Empty;
+
+        Assert.Contains("None", tooltip, StringComparison.Ordinal);
+        Assert.Contains("Auto", tooltip, StringComparison.Ordinal);
+        Assert.Contains("does NOT need V ticked", tooltip, StringComparison.Ordinal);
+    }
+
     [Fact]
     public void VtankTabOrderAndEveryBindingResolveAgainstTheLivePanel()
     {

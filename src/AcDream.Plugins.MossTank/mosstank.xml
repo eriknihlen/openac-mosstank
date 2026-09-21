@@ -215,7 +215,8 @@
     <label x="280" y="0" w="127" text="Name" color="#FFE8DEC3" />
     <label x="407" y="0" w="27" text="P" color="#FFE8DEC3" tooltip="Priority" />
     <label x="434" y="0" w="63" text="Dmg type" color="#FFE8DEC3" />
-    <label x="497" y="0" w="63" text="Ex. Vuln" color="#FFE8DEC3" />
+    <label x="497" y="0" w="63" text="Ex. Vuln" color="#FFE8DEC3"
+           tooltip="Extra vulnerability. A second vulnerability cast in its own right: it does NOT need V ticked. None casts nothing; Auto casts the element this monster is weakest to." />
     <label x="560" y="0" w="87" text="Weapon" color="#FFE8DEC3" />
     <label x="647" y="0" w="87" text="Offhand" color="#FFE8DEC3" />
     <label x="734" y="0" w="63" text="PetDmg" color="#FFE8DEC3" />

@@ -7450,6 +7450,45 @@ public sealed class MossTankPanelTests
         }
     }
 
+    /// <summary>
+    /// The DEFAULT row's extra vulnerability is editable from the grid and is
+    /// written with the profile, so a profile that carries one is one the
+    /// owner can also clear.
+    /// Mutation: have <c>CycleMonsterExtraVulnerabilityAt</c> skip row 0, or
+    /// drop the column from the profile writer, and this goes red.
+    /// </summary>
+    [Fact]
+    public void TheDefaultRowsExtraVulnerabilityIsEditableAndSurvivesAReload()
+    {
+        var storage = new MemoryStorage();
+        var first = new MossTankPanel(new FakeHost(
+            new FakeAutomation { Name = "Vuln Setter" }, storage));
+
+        Assert.Equal("DEFAULT", first.MonsterNameColumn[0]);
+        Assert.Equal("None", first.MonsterExtraVulnColumn[0]);
+        int guard = 0;
+        while (first.MonsterExtraVulnColumn[0] != "Auto")
+        {
+            first.CycleMonsterExtraVulnerabilityAt(0);
+            Assert.True(++guard <= 12, "the cycle never reached Auto");
+        }
+
+        var second = new MossTankPanel(new FakeHost(
+            new FakeAutomation { Name = "Vuln Setter" }, storage));
+        Assert.Equal("Auto", second.MonsterExtraVulnColumn[0]);
+
+        guard = 0;
+        while (second.MonsterExtraVulnColumn[0] != "None")
+        {
+            second.CycleMonsterExtraVulnerabilityAt(0);
+            Assert.True(++guard <= 12, "the cycle never reached None");
+        }
+
+        var third = new MossTankPanel(new FakeHost(
+            new FakeAutomation { Name = "Vuln Setter" }, storage));
+        Assert.Equal("None", third.MonsterExtraVulnColumn[0]);
+    }
+
     [Fact]
     public void DeleteMonsterRuleAtRemovesNonDefaultRowsButNeverDefault()
     {
