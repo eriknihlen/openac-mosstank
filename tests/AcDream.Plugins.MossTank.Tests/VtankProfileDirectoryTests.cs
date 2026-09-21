@@ -45,10 +45,10 @@ public sealed class VtankProfileDirectoryTests
     public void ListSettingsProfilesSeedsDefaultAndByCharFirst()
     {
         var storage = new MemoryStorage();
-        storage.WriteText("Shared.usd", "1\r\n");
-        storage.WriteText("--Barris_Coldeve.usd", "1\r\n");
-        storage.WriteText("--Barris_Coldeve_Base.usd", "1\r\n");
-        storage.WriteText("--Someone_Coldeve.usd", "1\r\n");
+        storage.WriteText("mosstank/profiles/Shared.usd", "1\r\n");
+        storage.WriteText("mosstank/profiles/--Barris_Coldeve.usd", "1\r\n");
+        storage.WriteText("mosstank/profiles/--Barris_Coldeve_Base.usd", "1\r\n");
+        storage.WriteText("mosstank/profiles/--Someone_Coldeve.usd", "1\r\n");
 
         IReadOnlyList<VtankProfileDirectory.ProfileEntry> entries =
             VtankProfileDirectory.ListSettingsProfiles(
@@ -66,9 +66,9 @@ public sealed class VtankProfileDirectoryTests
     public void ListNavigationProfilesFiltersBothReservedPrefixesWithinNavsFolder()
     {
         var storage = new MemoryStorage();
-        storage.WriteText("navs/Hunt.af", "1\r\n");
-        storage.WriteText("navs/--Barris_Coldeve.af", "1\r\n");
-        storage.WriteText("navs/~~backup.af", "1\r\n");
+        storage.WriteText("mosstank/navs/Hunt.af", "1\r\n");
+        storage.WriteText("mosstank/navs/--Barris_Coldeve.af", "1\r\n");
+        storage.WriteText("mosstank/navs/~~backup.af", "1\r\n");
 
         IReadOnlyList<VtankProfileDirectory.ProfileEntry> entries =
             VtankProfileDirectory.ListNavigationProfiles(storage);
@@ -76,7 +76,7 @@ public sealed class VtankProfileDirectoryTests
         Assert.Equal(VtankProfileDirectory.NoneLabel, entries[0].DisplayName);
         Assert.Equal(VtankProfileDirectory.ByCharacterLabel, entries[1].DisplayName);
         Assert.Contains(entries, static e => e.DisplayName == "Hunt.af");
-        Assert.Contains(entries, static e => e.FileName == "navs/Hunt.af");
+        Assert.Contains(entries, static e => e.FileName == "mosstank/navs/Hunt.af");
         Assert.DoesNotContain(entries, static e => e.DisplayName.StartsWith("--", StringComparison.Ordinal));
         Assert.DoesNotContain(entries, static e => e.DisplayName.StartsWith("~~", StringComparison.Ordinal));
     }
@@ -85,22 +85,22 @@ public sealed class VtankProfileDirectoryTests
     public void NavigationAndMetaPickersEachSeeOnlyTheirOwnFolder()
     {
         var storage = new MemoryStorage();
-        storage.WriteText("navs/Hunt.af", "1\r\n");
-        storage.WriteText("metas/Hunt.af", "1\r\n"); // same bare name, other folder.
-        storage.WriteText("navs/--Barris_Coldeve.af", "1\r\n");
-        storage.WriteText("metas/--Barris_Coldeve.af", "1\r\n");
+        storage.WriteText("mosstank/navs/Hunt.af", "1\r\n");
+        storage.WriteText("mosstank/metas/Hunt.af", "1\r\n"); // same bare name, other folder.
+        storage.WriteText("mosstank/navs/--Barris_Coldeve.af", "1\r\n");
+        storage.WriteText("mosstank/metas/--Barris_Coldeve.af", "1\r\n");
 
         IReadOnlyList<VtankProfileDirectory.ProfileEntry> navEntries =
             VtankProfileDirectory.ListNavigationProfiles(storage);
         IReadOnlyList<VtankProfileDirectory.ProfileEntry> metaEntries =
             VtankProfileDirectory.ListMetaProfiles(storage);
 
-        Assert.Contains(navEntries, static e => e.FileName == "navs/Hunt.af");
-        Assert.DoesNotContain(navEntries, static e => e.FileName == "metas/Hunt.af");
+        Assert.Contains(navEntries, static e => e.FileName == "mosstank/navs/Hunt.af");
+        Assert.DoesNotContain(navEntries, static e => e.FileName == "mosstank/metas/Hunt.af");
         Assert.DoesNotContain(navEntries, static e => e.DisplayName.StartsWith("--", StringComparison.Ordinal));
 
-        Assert.Contains(metaEntries, static e => e.FileName == "metas/Hunt.af");
-        Assert.DoesNotContain(metaEntries, static e => e.FileName == "navs/Hunt.af");
+        Assert.Contains(metaEntries, static e => e.FileName == "mosstank/metas/Hunt.af");
+        Assert.DoesNotContain(metaEntries, static e => e.FileName == "mosstank/navs/Hunt.af");
         Assert.DoesNotContain(metaEntries, static e => e.DisplayName.StartsWith("--", StringComparison.Ordinal));
     }
 
@@ -109,7 +109,7 @@ public sealed class VtankProfileDirectoryTests
     {
         var storage = new MemoryStorage();
         storage.WriteText(
-            "navs/" + VtankProfileDirectory.AutoCharacterFileName("Someone", "Coldeve", "af"),
+            "mosstank/navs/" + VtankProfileDirectory.AutoCharacterFileName("Someone", "Coldeve", "af"),
             "1\r\n");
 
         IReadOnlyList<VtankProfileDirectory.ProfileEntry> navEntries =
@@ -135,47 +135,49 @@ public sealed class VtankProfileDirectoryTests
     {
         var storage = new MemoryStorage();
         storage.WriteText("subdir/Nested.usd", "1\r\n");
-        storage.WriteText("Flat.usd", "1\r\n");
+        storage.WriteText("mosstank/profiles/Flat.usd", "1\r\n");
 
         IReadOnlyList<VtankProfileDirectory.ProfileEntry> entries =
             VtankProfileDirectory.ListSettingsProfiles(
                 storage, "Barris", "Coldeve", mineOnly: false);
 
-        Assert.Contains(entries, static e => e.FileName == "Flat.usd");
-        Assert.DoesNotContain(entries, static e => e.FileName.Contains('/'));
+        Assert.Contains(entries, static e => e.FileName == "mosstank/profiles/Flat.usd");
+        Assert.DoesNotContain(
+            entries,
+            static e => e.FileName.Contains("subdir", StringComparison.Ordinal));
     }
 
     [Fact]
     public void MineOnlyKeepsTheCurrentlySelectedSharedFileVisible()
     {
         var storage = new MemoryStorage();
-        storage.WriteText("Shared.usd", "1\r\n");
-        storage.WriteText("OtherShared.usd", "1\r\n");
+        storage.WriteText("mosstank/profiles/Shared.usd", "1\r\n");
+        storage.WriteText("mosstank/profiles/OtherShared.usd", "1\r\n");
 
         IReadOnlyList<VtankProfileDirectory.ProfileEntry> withoutCurrent =
             VtankProfileDirectory.ListSettingsProfiles(
                 storage, "Barris", "Coldeve", mineOnly: true);
-        Assert.DoesNotContain(withoutCurrent, static e => e.FileName == "Shared.usd");
-        Assert.DoesNotContain(withoutCurrent, static e => e.FileName == "OtherShared.usd");
+        Assert.DoesNotContain(withoutCurrent, static e => e.FileName == "mosstank/profiles/Shared.usd");
+        Assert.DoesNotContain(withoutCurrent, static e => e.FileName == "mosstank/profiles/OtherShared.usd");
 
         IReadOnlyList<VtankProfileDirectory.ProfileEntry> withCurrent =
             VtankProfileDirectory.ListSettingsProfiles(
-                storage, "Barris", "Coldeve", mineOnly: true, currentFileName: "Shared.usd");
-        Assert.Contains(withCurrent, static e => e.FileName == "Shared.usd");
-        Assert.DoesNotContain(withCurrent, static e => e.FileName == "OtherShared.usd");
+                storage, "Barris", "Coldeve", mineOnly: true, currentFileName: "mosstank/profiles/Shared.usd");
+        Assert.Contains(withCurrent, static e => e.FileName == "mosstank/profiles/Shared.usd");
+        Assert.DoesNotContain(withCurrent, static e => e.FileName == "mosstank/profiles/OtherShared.usd");
     }
 
     [Fact]
     public void MineOnlyUncheckedIgnoresCurrentFileAndKeepsEverything()
     {
         var storage = new MemoryStorage();
-        storage.WriteText("Shared.usd", "1\r\n");
+        storage.WriteText("mosstank/profiles/Shared.usd", "1\r\n");
 
         IReadOnlyList<VtankProfileDirectory.ProfileEntry> entries =
             VtankProfileDirectory.ListSettingsProfiles(
                 storage, "Barris", "Coldeve", mineOnly: false, currentFileName: null);
 
-        Assert.Contains(entries, static e => e.FileName == "Shared.usd");
+        Assert.Contains(entries, static e => e.FileName == "mosstank/profiles/Shared.usd");
     }
 
     [Fact]
@@ -190,7 +192,7 @@ public sealed class VtankProfileDirectoryTests
     public void CdfFileNameUsesServerNameOrderReversedFromAst()
     {
         Assert.Equal(
-            "Coldeve_Barris.cdf",
+            "mosstank/profiles/Coldeve_Barris.cdf",
             VtankProfileDirectory.CdfFileName("Barris", "Coldeve"));
     }
 
@@ -199,17 +201,21 @@ public sealed class VtankProfileDirectoryTests
     {
         var storage = new MemoryStorage();
         storage.WriteText(
-            "Coldeve_Barris.cdf",
+            "mosstank/profiles/Coldeve_Barris.cdf",
             "uTank2 CDF 1.0\r\n--Barris_Coldeve.usd\r\nLoot.utl\r\n--Barris_Coldeve.nav\r\nHunt.met\r\n");
 
         VtankProfileDirectory.VtankCharacterBinding? binding =
             VtankProfileDirectory.TryReadCharacterBinding(storage, "Barris", "Coldeve");
 
         Assert.NotNull(binding);
-        Assert.Equal("--Barris_Coldeve.usd", binding!.Value.SettingsFileName);
-        Assert.Equal("Loot.utl", binding.Value.LootFileName);
-        Assert.Equal("--Barris_Coldeve.nav", binding.Value.NavFileName);
-        Assert.Equal("Hunt.met", binding.Value.MetaFileName);
+        Assert.Equal(
+            "mosstank/profiles/--Barris_Coldeve.usd",
+            binding!.Value.SettingsFileName);
+        Assert.Equal("mosstank/loot/Loot.utl", binding.Value.LootFileName);
+        Assert.Equal(
+            "mosstank/navs/--Barris_Coldeve.nav",
+            binding.Value.NavFileName);
+        Assert.Equal("mosstank/metas/Hunt.met", binding.Value.MetaFileName);
     }
 
     [Fact]
@@ -217,7 +223,7 @@ public sealed class VtankProfileDirectoryTests
     {
         var storage = new MemoryStorage();
         storage.WriteText(
-            "Coldeve_Barris.cdf",
+            "mosstank/profiles/Coldeve_Barris.cdf",
             "uTank2 CDF 1.0\r\n--Barris_Coldeve.usd\r\nLoot.utl\r\n--Barris_Coldeve.nav\r\n");
 
         VtankProfileDirectory.VtankCharacterBinding? binding =
@@ -232,13 +238,15 @@ public sealed class VtankProfileDirectoryTests
     {
         var storage = new MemoryStorage();
         storage.WriteText(
-            "Coldeve_Barris.cdf",
+            "mosstank/profiles/Coldeve_Barris.cdf",
             "uTank2 CDF 1.0\r\n--Barris_Coldeve.uts\r\nLoot.utl\r\n--Barris_Coldeve.nav\r\n");
 
         VtankProfileDirectory.VtankCharacterBinding? binding =
             VtankProfileDirectory.TryReadCharacterBinding(storage, "Barris", "Coldeve");
 
-        Assert.Equal("--Barris_Coldeve.usd", binding!.Value.SettingsFileName);
+        Assert.Equal(
+            "mosstank/profiles/--Barris_Coldeve.usd",
+            binding!.Value.SettingsFileName);
     }
 
     [Fact]
@@ -246,7 +254,7 @@ public sealed class VtankProfileDirectoryTests
     {
         var storage = new MemoryStorage();
         storage.WriteText(
-            "Coldeve_Barris.cdf",
+            "mosstank/profiles/Coldeve_Barris.cdf",
             "uTank2 CDF 0.9\r\n--Barris_Coldeve.usd\r\nLoot.utl\r\n--Barris_Coldeve.nav\r\n");
 
         Assert.Null(VtankProfileDirectory.TryReadCharacterBinding(storage, "Barris", "Coldeve"));

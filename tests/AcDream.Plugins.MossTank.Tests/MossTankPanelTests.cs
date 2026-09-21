@@ -431,7 +431,8 @@ public sealed class MossTankPanelTests
     public void CorruptSideCarMonsterRuleIsLoggedNotSilentlySwallowed()
     {
         var storage = new MemoryStorage();
-        string usdKey = VtankProfileDirectory.AutoCharacterFileName("Barris", string.Empty, "usd");
+        string usdKey = SettingsKey(
+            VtankProfileDirectory.AutoCharacterFileName("Barris", string.Empty, "usd"));
         storage.Text[usdKey] = VtankDefaultSettingsDatabase.Parse().Render();
         storage.Text["profiles/macro/sidecar/--Barris_.usd.json"] = """
             {
@@ -540,7 +541,8 @@ public sealed class MossTankPanelTests
         var panel = new MossTankPanel(new FakeHost(automation, storage));
 
         Assert.False(storage.Text.ContainsKey(legacyKey));
-        string usdKey = VtankProfileDirectory.AutoCharacterFileName("Barris", string.Empty, "usd");
+        string usdKey = SettingsKey(
+            VtankProfileDirectory.AutoCharacterFileName("Barris", string.Empty, "usd"));
         Assert.True(storage.Text.ContainsKey(usdKey));
         Assert.Equal(0.2d, panel.EvaluateExpression("uboptget['AttackDistance']").AsNumber(), precision: 7);
         Assert.Contains("Wand of Testing", panel.ItemProfileText, StringComparison.Ordinal);
@@ -558,7 +560,8 @@ public sealed class MossTankPanelTests
         var automation = new FakeAutomation { Name = "Barris" };
         string legacyKey = LegacyByCharacterProfileKey("Barris");
         storage.Text[legacyKey] = """{ "Combat": { "MaximumRange": 240.0 } }""";
-        string usdKey = VtankProfileDirectory.AutoCharacterFileName("Barris", string.Empty, "usd");
+        string usdKey = SettingsKey(
+            VtankProfileDirectory.AutoCharacterFileName("Barris", string.Empty, "usd"));
         var seedCombat = new CombatSettings { MaximumRange = 120d };
         VtankDatabase seedDatabase = VtankSettingsProfileSerializer.CreateNew(
             new VtankSettingsProfileSerializer.AllSettings
@@ -582,7 +585,8 @@ public sealed class MossTankPanelTests
     {
         var storage = new MemoryStorage();
         var automation = new FakeAutomation { Name = "Barris" };
-        string usdKey = VtankProfileDirectory.AutoCharacterFileName("Barris", string.Empty, "usd");
+        string usdKey = SettingsKey(
+            VtankProfileDirectory.AutoCharacterFileName("Barris", string.Empty, "usd"));
 
         VtankDatabase database = VtankDefaultSettingsDatabase.Parse();
         VtankTable settingsTable = database.Find("Settings")!;
@@ -635,10 +639,12 @@ public sealed class MossTankPanelTests
 
         // MineOnly recovered from the old roster's own shape...
         Assert.False(panel.MineOnlyEnabled);
-        string farmingUsd = VtankProfileDirectory.SubProfilePrefix("Barris", string.Empty)
-            + "Farming.usd";
-        string buffingUsd = VtankProfileDirectory.SubProfilePrefix("Barris", string.Empty)
-            + "Buffing.usd";
+        string farmingUsd = SettingsKey(
+            VtankProfileDirectory.SubProfilePrefix("Barris", string.Empty)
+            + "Farming.usd");
+        string buffingUsd = SettingsKey(
+            VtankProfileDirectory.SubProfilePrefix("Barris", string.Empty)
+            + "Buffing.usd");
         Assert.Equal(42d, RangeOf(storage, farmingUsd));
         Assert.Equal(24d, RangeOf(storage, buffingUsd));
 
@@ -729,7 +735,7 @@ public sealed class MossTankPanelTests
         {
             Rules = [new MetaRule { Action = new MetaAction { Kind = MetaActionKind.ChatCommand, Text = "/say stale" } }],
         });
-        string realKey = "metas/" + VtankProfileDirectory.AutoCharacterFileName("Barris", string.Empty, "af");
+        string realKey = "mosstank/metas/" + VtankProfileDirectory.AutoCharacterFileName("Barris", string.Empty, "af");
         storage.Text[realKey] = MetafSerializer.SaveMeta(new MetaProfile
         {
             Rules = [new MetaRule { Action = new MetaAction { Kind = MetaActionKind.ChatCommand, Text = "/say real" } }],
@@ -759,7 +765,7 @@ public sealed class MossTankPanelTests
         store.BindCharacter("Barris");
         store.LoadCurrent();
 
-        Assert.True(storage.Text.ContainsKey("metas/Shared.af"));
+        Assert.True(storage.Text.ContainsKey("mosstank/metas/Shared.af"));
         Assert.False(storage.Text.ContainsKey("Shared.af"));
 
         // Idempotent second run: nothing left at the root to migrate.
@@ -767,7 +773,7 @@ public sealed class MossTankPanelTests
             new FakeHost(new FakeAutomation { Name = "Barris" }, storage));
         reopened.BindCharacter("Barris");
         reopened.LoadCurrent();
-        Assert.True(storage.Text.ContainsKey("metas/Shared.af"));
+        Assert.True(storage.Text.ContainsKey("mosstank/metas/Shared.af"));
         Assert.False(storage.Text.ContainsKey("Shared.af"));
     }
 
@@ -785,8 +791,8 @@ public sealed class MossTankPanelTests
 
         Assert.True(storage.Text.ContainsKey("nav_Hunt.af"));
         Assert.True(storage.Text.ContainsKey("--nav_Barris_Coldeve.af"));
-        Assert.False(storage.Text.ContainsKey("metas/nav_Hunt.af"));
-        Assert.False(storage.Text.ContainsKey("metas/--nav_Barris_Coldeve.af"));
+        Assert.False(storage.Text.ContainsKey("mosstank/metas/nav_Hunt.af"));
+        Assert.False(storage.Text.ContainsKey("mosstank/metas/--nav_Barris_Coldeve.af"));
     }
 
     [Fact]
@@ -797,7 +803,7 @@ public sealed class MossTankPanelTests
         {
             Rules = [new MetaRule { Action = new MetaAction { Kind = MetaActionKind.ChatCommand, Text = "/say canonical" } }],
         });
-        storage.Text["metas/Shared.af"] = canonicalContent;
+        storage.Text["mosstank/metas/Shared.af"] = canonicalContent;
         storage.Text["Shared.af"] = MetafSerializer.SaveMeta(new MetaProfile
         {
             Rules = [new MetaRule { Action = new MetaAction { Kind = MetaActionKind.ChatCommand, Text = "/say stale-flat" } }],
@@ -808,12 +814,12 @@ public sealed class MossTankPanelTests
         store.BindCharacter("Barris");
         store.LoadCurrent();
 
-        Assert.Equal(canonicalContent, storage.Text["metas/Shared.af"]);
+        Assert.Equal(canonicalContent, storage.Text["mosstank/metas/Shared.af"]);
         Assert.True(storage.Text.ContainsKey("Shared.af"));
         Assert.Contains(
             host.Logger.Warnings,
             message => message.Contains("Shared.af", StringComparison.Ordinal)
-                && message.Contains("metas/Shared.af", StringComparison.Ordinal));
+                && message.Contains("mosstank/metas/Shared.af", StringComparison.Ordinal));
     }
 
 
@@ -823,7 +829,7 @@ public sealed class MossTankPanelTests
         string navOnlyContent = File.ReadAllText(
             Path.Combine(AppContext.BaseDirectory, "Fixtures", "vtank", "af", "nav_ab.af"));
         var storage = new MemoryStorage();
-        storage.Text["metas/Misplaced.af"] = navOnlyContent;
+        storage.Text["mosstank/metas/Misplaced.af"] = navOnlyContent;
 
         var host = new FakeHost(new FakeAutomation { Name = "Barris" }, storage);
         var store = new MossTankMetaProfileStore(host);
@@ -834,7 +840,7 @@ public sealed class MossTankPanelTests
 
         Assert.Empty(loaded.Rules);
         Assert.NotNull(store.RecoveryNotice);
-        Assert.Contains("navs/", store.RecoveryNotice, StringComparison.Ordinal);
+        Assert.Contains("mosstank/navs/", store.RecoveryNotice, StringComparison.Ordinal);
     }
 
     private static string LegacyMetaNamedKey(string name)
@@ -869,10 +875,10 @@ public sealed class MossTankPanelTests
         Assert.False(storage.Text.ContainsKey(LegacyMetaNamedKey("Buffing")));
         Assert.False(storage.Text.ContainsKey("profiles/meta/index.json"));
         Assert.True(MetafSerializer.TryLoadMeta(
-            storage.Text["metas/Farming.af"], NoOpSpellCatalogForExport.Instance, out MetaProfile farming, out _));
+            storage.Text["mosstank/metas/Farming.af"], NoOpSpellCatalogForExport.Instance, out MetaProfile farming, out _));
         Assert.Equal("/say farming", Assert.Single(farming.Rules).Action.Text);
         Assert.True(MetafSerializer.TryLoadMeta(
-            storage.Text["metas/Buffing.af"], NoOpSpellCatalogForExport.Instance, out MetaProfile buffing, out _));
+            storage.Text["mosstank/metas/Buffing.af"], NoOpSpellCatalogForExport.Instance, out MetaProfile buffing, out _));
         Assert.Equal("/say buffing", Assert.Single(buffing.Rules).Action.Text);
 
         // Idempotent: a fresh store against the same storage sweeps nothing
@@ -881,8 +887,8 @@ public sealed class MossTankPanelTests
             new FakeHost(new FakeAutomation { Name = "Barris" }, storage));
         reopened.BindCharacter("Barris");
         reopened.LoadCurrent();
-        Assert.True(storage.Text.ContainsKey("metas/Farming.af"));
-        Assert.True(storage.Text.ContainsKey("metas/Buffing.af"));
+        Assert.True(storage.Text.ContainsKey("mosstank/metas/Farming.af"));
+        Assert.True(storage.Text.ContainsKey("mosstank/metas/Buffing.af"));
     }
 
     [Fact]
@@ -897,7 +903,7 @@ public sealed class MossTankPanelTests
             Rules = [new MetaRule { Action = new MetaAction { Kind = MetaActionKind.ChatCommand, Text = "/say good" } }],
         };
         Assert.True(store.SaveCurrent(enabledOnly));
-        string key = "metas/" + VtankProfileDirectory.AutoCharacterFileName("Barris", string.Empty, "af");
+        string key = "mosstank/metas/" + VtankProfileDirectory.AutoCharacterFileName("Barris", string.Empty, "af");
         string goodContent = storage.Text[key];
 
         var withDisabledRule = new MetaProfile
@@ -1912,7 +1918,7 @@ public sealed class MossTankPanelTests
                 VtankCell.Int(101),
             },
         });
-        storage.Text["Imported.usd"] = database.Render();
+        storage.Text["mosstank/profiles/Imported.usd"] = database.Render();
         FakeAutomation automation = ItemEnchantAutomation();
         automation.ItemEntries =
         [
@@ -1942,7 +1948,7 @@ public sealed class MossTankPanelTests
         {
             Cells = { VtankCell.Int(-1), VtankCell.Int(101) },
         });
-        storage.Text["Imported.usd"] = database.Render();
+        storage.Text["mosstank/profiles/Imported.usd"] = database.Render();
         FakeAutomation automation = ItemEnchantAutomation();
         automation.ItemEntries =
         [
@@ -1971,7 +1977,7 @@ public sealed class MossTankPanelTests
         {
             Cells = { VtankCell.Int(10), VtankCell.Int(101) },
         });
-        storage.Text["Imported.usd"] = database.Render();
+        storage.Text["mosstank/profiles/Imported.usd"] = database.Render();
         FakeAutomation automation = ItemEnchantAutomation();
         automation.Skills = [new PluginSkillInfo(32, "Item Enchantment", PluginSkillTraining.Trained, 300)];
         automation.KnownSelfBuffs =
@@ -2000,7 +2006,7 @@ public sealed class MossTankPanelTests
         VtankTable table = database.Find("BuffedItems")!;
         table.Rows.Add(new VtankRow { Cells = { VtankCell.Int(10), VtankCell.Int(999) } });
         table.Rows.Add(new VtankRow { Cells = { VtankCell.Int(10), VtankCell.Int(-1) } });
-        storage.Text["Imported.usd"] = database.Render();
+        storage.Text["mosstank/profiles/Imported.usd"] = database.Render();
         FakeAutomation automation = ItemEnchantAutomation();
         var host = new FakeHost(automation, storage);
         var panel = new MossTankPanel(host);
@@ -2113,7 +2119,7 @@ public sealed class MossTankPanelTests
         table.Rows.Add(new VtankRow { Cells = { VtankCell.Int(10), VtankCell.Int(-1) } });
         table.Rows.Add(new VtankRow { Cells = { VtankCell.Int(10), VtankCell.Int(101) } });
         table.Rows.Add(new VtankRow { Cells = { VtankCell.Int(10), VtankCell.Int(102) } });
-        storage.Text["Imported.usd"] = database.Render();
+        storage.Text["mosstank/profiles/Imported.usd"] = database.Render();
         FakeAutomation automation = ItemEnchantAutomation();
         var host = new FakeHost(automation, storage);
         automation.CurrentSelection = () => host.Selection.SelectedObjectId ?? 0u;
@@ -2134,7 +2140,7 @@ public sealed class MossTankPanelTests
             panel.OnTick(0.3d);
 
         Assert.Equal([102u], automation.CastSpellIds);
-        table = VtankDatabase.Parse(storage.Text["Imported.usd"]).Find("BuffedItems")!;
+        table = VtankDatabase.Parse(storage.Text["mosstank/profiles/Imported.usd"]).Find("BuffedItems")!;
         Assert.Contains(table.Rows, row => row.Cells[table.ColumnIndex("Object")].AsInt() == 10
             && row.Cells[table.ColumnIndex("Spell")].AsInt() == -1);
         Assert.DoesNotContain(table.Rows, row => row.Cells[table.ColumnIndex("Object")].AsInt() == 10
@@ -2158,7 +2164,7 @@ public sealed class MossTankPanelTests
         {
             Cells = { VtankCell.Int(10), VtankCell.Int(100) },
         });
-        storage.Text["Imported.usd"] = database.Render();
+        storage.Text["mosstank/profiles/Imported.usd"] = database.Render();
         FakeAutomation automation = ItemEnchantAutomation();
         automation.Skills =
         [
@@ -4925,8 +4931,8 @@ public sealed class MossTankPanelTests
         var storage = new MemoryStorage();
         VtankDatabase profile = VtankDefaultSettingsDatabase.Parse();
         profile.Find("ExtraBuffSpells")!.Rows.Add(ExemplarRow(1));
-        storage.Text[VtankProfileDirectory.AutoCharacterFileName(
-            "Imported Extra", string.Empty, "usd")] = profile.Render();
+        storage.Text[SettingsKey(VtankProfileDirectory.AutoCharacterFileName(
+            "Imported Extra", string.Empty, "usd"))] = profile.Render();
         var automation = new FakeAutomation
         {
             Name = "Imported Extra",
@@ -4941,8 +4947,8 @@ public sealed class MossTankPanelTests
         panel.DeleteExtraBuffAt(0);
 
         Assert.Empty(panel.ExtraBuffRows);
-        string usd = storage.Text[VtankProfileDirectory.AutoCharacterFileName(
-            "Imported Extra", string.Empty, "usd")];
+        string usd = storage.Text[SettingsKey(VtankProfileDirectory.AutoCharacterFileName(
+            "Imported Extra", string.Empty, "usd"))];
         Assert.Empty(VtankDatabase.Parse(usd).Find("ExtraBuffSpells")!.Rows);
     }
 
@@ -4955,7 +4961,7 @@ public sealed class MossTankPanelTests
     public void LoadedGemFoodUsesItsConfiguredSpellWithoutAConsumablesProfileRow()
     {
         var storage = new MemoryStorage();
-        storage.Text["GemFood.usd"] = SettingsWithGemFood(
+        storage.Text["mosstank/profiles/GemFood.usd"] = SettingsWithGemFood(
             ("Unknown Gem", 999999u),
             ("Blackmoor's Favor", 3811u));
         var automation = new FakeAutomation
@@ -5009,7 +5015,7 @@ public sealed class MossTankPanelTests
         string cdfKey = VtankProfileDirectory.CdfFileName("Saver", "Rune");
         string binding = storage.Text[cdfKey];
         const string malformed = "not a settings database";
-        storage.Text["Broken.usd"] = malformed;
+        storage.Text["mosstank/profiles/Broken.usd"] = malformed;
         automation.Messages.Clear();
 
         Command(panel, "settings load Broken");
@@ -5019,7 +5025,7 @@ public sealed class MossTankPanelTests
         Assert.Equal(0.02d, panel.EvaluateExpression(
             "uboptget['AttackDistance']").AsNumber(), precision: 7);
         Assert.Equal(binding, storage.Text[cdfKey]);
-        Assert.Equal(malformed, storage.Text["Broken.usd"]);
+        Assert.Equal(malformed, storage.Text["mosstank/profiles/Broken.usd"]);
         Assert.Contains(automation.Messages, message =>
             message.Contains("could not be read", StringComparison.Ordinal));
         Assert.DoesNotContain(automation.Messages, message =>
@@ -5041,7 +5047,8 @@ public sealed class MossTankPanelTests
         string selected = panel.SelectedMacroProfile;
         string cdfKey = VtankProfileDirectory.CdfFileName("Saver", "Rune");
         string binding = storage.Text[cdfKey];
-        string target = VtankProfileDirectory.SubProfilePrefix("Saver", "Rune") + "Target.usd";
+        string target = SettingsKey(
+            VtankProfileDirectory.SubProfilePrefix("Saver", "Rune") + "Target.usd");
         const string malformed = "not a settings database";
         storage.Text[target] = malformed;
 
@@ -5072,7 +5079,7 @@ public sealed class MossTankPanelTests
         ];
         var panel = new MossTankPanel(new FakeHost(automation, storage));
         Command(panel, "settings save Source");
-        string source = panel.SelectedMacroProfile;
+        string source = SettingsKey(panel.SelectedMacroProfile);
         VtankDatabase sourceDatabase = VtankDatabase.Parse(storage.Text[source]);
         VtankTable buffed = sourceDatabase.Find("BuffedItems")!;
         buffed.Rows.Add(new VtankRow { Cells = { VtankCell.Int(10), VtankCell.Int(101) } });
@@ -5087,7 +5094,7 @@ public sealed class MossTankPanelTests
 
         Command(panel, "settings load Source");
         Command(panel, "settings save Copy");
-        string copy = panel.SelectedMacroProfile;
+        string copy = SettingsKey(panel.SelectedMacroProfile);
         VtankDatabase copied = VtankDatabase.Parse(storage.Text[copy]);
         VtankTable copiedBuffed = copied.Find("BuffedItems")!;
         Assert.Contains(copiedBuffed.Rows, row =>
@@ -5106,12 +5113,13 @@ public sealed class MossTankPanelTests
         Assert.Equal("copy proof", sourceAfterCopySave.Find("CopyProof")!.Rows[0].Cells[0].AsString());
         Assert.Equal(3, sourceAfterCopySave.Find("BuffedItems")!.Rows.Count);
 
-        storage.Text[panel.SelectedMacroProfile] = "externally corrupted source";
+        storage.Text[SettingsKey(panel.SelectedMacroProfile)] = "externally corrupted source";
         panel.ToggleAutoStack();
         Assert.False(panel.AutoStackEnabled);
         panel.DeleteItemRowAt(0);
         Command(panel, "settings save StaleCopy");
-        VtankDatabase staleCopy = VtankDatabase.Parse(storage.Text[panel.SelectedMacroProfile]);
+        VtankDatabase staleCopy = VtankDatabase.Parse(
+            storage.Text[SettingsKey(panel.SelectedMacroProfile)]);
         VtankTable staleSettings = staleCopy.Find("Settings")!;
         VtankRow autoStack = Assert.Single(staleSettings.Rows, row =>
             row.Cells[staleSettings.ColumnIndex("Setting")].AsString()
@@ -5183,7 +5191,8 @@ public sealed class MossTankPanelTests
         var storage = new MemoryStorage();
         const string character = "Saver";
         const string world = "Rune";
-        string profile = VtankProfileDirectory.AutoCharacterFileName(character, world, "usd");
+        string profile = SettingsKey(
+            VtankProfileDirectory.AutoCharacterFileName(character, world, "usd"));
         const string malformed = "not a settings database";
         storage.Text[profile] = malformed;
         VtankProfileDirectory.WriteCharacterBinding(storage, character, world,
@@ -5197,7 +5206,8 @@ public sealed class MossTankPanelTests
 
         Assert.Equal(malformed, storage.Text[profile]);
         Assert.False(storage.Text.ContainsKey(
-            VtankProfileDirectory.SubProfilePrefix(character, world) + "Copy.usd"));
+            SettingsKey(
+                VtankProfileDirectory.SubProfilePrefix(character, world) + "Copy.usd")));
         Assert.False(panel.CombatMacroRunning);
         Assert.Contains("Raw data was preserved", panel.ProfileLifecycleNotice,
             StringComparison.Ordinal);
@@ -5247,7 +5257,7 @@ public sealed class MossTankPanelTests
             Tag = "i", ScalarText = "not-an-integer",
         }));
         string malformed = candidate.Render();
-        storage.Text["LateBroken.usd"] = malformed;
+        storage.Text["mosstank/profiles/LateBroken.usd"] = malformed;
 
         Command(panel, "settings load LateBroken");
         Command(panel, "opt set EnableBuffing false");
@@ -5255,27 +5265,27 @@ public sealed class MossTankPanelTests
         Assert.Equal(safe, panel.SelectedMacroProfile);
         Assert.Equal(0.02d, panel.EvaluateExpression(
             "uboptget['AttackDistance']").AsNumber(), precision: 7);
-        Assert.Equal(malformed, storage.Text["LateBroken.usd"]);
+        Assert.Equal(malformed, storage.Text["mosstank/profiles/LateBroken.usd"]);
     }
 
     [Fact]
     public void SetInAllPreservesAnExistingEmptySettingsFile()
     {
         var storage = new MemoryStorage();
-        storage.Text["Empty.usd"] = string.Empty;
+        storage.Text["mosstank/profiles/Empty.usd"] = string.Empty;
         var panel = new MossTankPanel(new FakeHost(new FakeAutomation(), storage));
 
         Command(panel, "opt setinall AttackDistance 0.03");
 
-        Assert.Equal(string.Empty, storage.Text["Empty.usd"]);
+        Assert.Equal(string.Empty, storage.Text["mosstank/profiles/Empty.usd"]);
     }
 
     [Fact]
     public void SwitchingToAProfileWithoutGemFoodClearsItsOwnedConsumables()
     {
         var storage = new MemoryStorage();
-        storage.Text["GemFood.usd"] = SettingsWithGemFood(("Blackmoor's Favor", 3811u));
-        storage.Text["NoGemFood.usd"] = SettingsWithoutGemFood();
+        storage.Text["mosstank/profiles/GemFood.usd"] = SettingsWithGemFood(("Blackmoor's Favor", 3811u));
+        storage.Text["mosstank/profiles/NoGemFood.usd"] = SettingsWithoutGemFood();
         var automation = GemFoodAutomation();
         var panel = new MossTankPanel(new FakeHost(automation, storage));
 
@@ -5303,14 +5313,14 @@ public sealed class MossTankPanelTests
         table.IndexFlags.Add(false);
         table.Rows.Add(new VtankRow { Cells = { VtankCell.String("Bread"), VtankCell.Int(1), VtankCell.String("bread-custom") } });
         table.Rows.Add(new VtankRow { Cells = { VtankCell.String("Mana Cake"), VtankCell.Int(5), VtankCell.String("cake-custom") } });
-        storage.Text["AssistRemove.usd"] = imported.Render();
+        storage.Text["mosstank/profiles/AssistRemove.usd"] = imported.Render();
         var panel = new MossTankPanel(new FakeHost(new FakeAutomation(), storage));
 
         Command(panel, "settings load AssistRemove");
         Assert.Equal(["Bread", "Mana Cake"], panel.ConsumableRows);
         panel.SelectConsumableRow(0);
 
-        VtankTable saved = VtankDatabase.Parse(storage.Text[panel.SelectedMacroProfile])
+        VtankTable saved = VtankDatabase.Parse(storage.Text[SettingsKey(panel.SelectedMacroProfile)])
             .Find("AssistItems")!;
         int name = saved.ColumnIndex("Object");
         int extension = saved.ColumnIndex("Extension");
@@ -5332,8 +5342,8 @@ public sealed class MossTankPanelTests
         {
             Cells = { VtankCell.String("Bread"), VtankCell.Int(1) },
         });
-        storage.Text["Assist.usd"] = imported.Render();
-        storage.Text["NoAssist.usd"] = VtankDefaultSettingsDatabase.Parse().Render();
+        storage.Text["mosstank/profiles/Assist.usd"] = imported.Render();
+        storage.Text["mosstank/profiles/NoAssist.usd"] = VtankDefaultSettingsDatabase.Parse().Render();
         var panel = new MossTankPanel(new FakeHost(new FakeAutomation(), storage));
 
         Command(panel, "settings load Assist");
@@ -5372,7 +5382,7 @@ public sealed class MossTankPanelTests
                 VtankCell.String("keep-custom"),
             },
         });
-        storage.Text["AssistAllPeas.usd"] = imported.Render();
+        storage.Text["mosstank/profiles/AssistAllPeas.usd"] = imported.Render();
         var panel = new MossTankPanel(new FakeHost(new FakeAutomation(), storage));
 
         Command(panel, "settings load AssistAllPeas");
@@ -5382,7 +5392,7 @@ public sealed class MossTankPanelTests
 
         Assert.Contains(CraftingPlanner.AllPeas, panel.LivePeaConsumables);
         VtankTable saved = VtankDatabase.Parse(
-            storage.Text[panel.SelectedMacroProfile]).Find("AssistItems")!;
+            storage.Text[SettingsKey(panel.SelectedMacroProfile)]).Find("AssistItems")!;
         int name = saved.ColumnIndex("Object");
         VtankRow row = Assert.Single(saved.Rows,
             candidate => candidate.Cells[name].AsString() == CraftingPlanner.AllPeas);
@@ -5416,7 +5426,7 @@ public sealed class MossTankPanelTests
         {
             Cells = { VtankCell.String("Gold Pea"), VtankCell.Int(11) },
         });
-        storage.Text["AssistMismatch.usd"] = imported.Render();
+        storage.Text["mosstank/profiles/AssistMismatch.usd"] = imported.Render();
         var panel = new MossTankPanel(new FakeHost(new FakeAutomation(), storage));
 
         Command(panel, "settings load AssistMismatch");
@@ -5459,14 +5469,14 @@ public sealed class MossTankPanelTests
                 VtankCell.String("second-custom"),
             },
         });
-        storage.Text["AssistDuplicate.usd"] = imported.Render();
+        storage.Text["mosstank/profiles/AssistDuplicate.usd"] = imported.Render();
         var panel = new MossTankPanel(new FakeHost(new FakeAutomation(), storage));
 
         Command(panel, "settings load AssistDuplicate");
         panel.ToggleAutoStack();
 
         VtankTable saved = VtankDatabase.Parse(
-            storage.Text[panel.SelectedMacroProfile]).Find("AssistItems")!;
+            storage.Text[SettingsKey(panel.SelectedMacroProfile)]).Find("AssistItems")!;
         int name = saved.ColumnIndex("Object");
         int type = saved.ColumnIndex("Type");
         int extension = saved.ColumnIndex("Extension");
@@ -5513,14 +5523,14 @@ public sealed class MossTankPanelTests
                 VtankCell.String("second-custom"),
             },
         });
-        storage.Text["AssistTwoPeaRows.usd"] = imported.Render();
+        storage.Text["mosstank/profiles/AssistTwoPeaRows.usd"] = imported.Render();
         var panel = new MossTankPanel(new FakeHost(new FakeAutomation(), storage));
 
         Command(panel, "settings load AssistTwoPeaRows");
         panel.AddAllPeas();
 
         VtankTable saved = VtankDatabase.Parse(
-            storage.Text[panel.SelectedMacroProfile]).Find("AssistItems")!;
+            storage.Text[SettingsKey(panel.SelectedMacroProfile)]).Find("AssistItems")!;
         int name = saved.ColumnIndex("Object");
         VtankRow[] peas = saved.Rows
             .Where(row => row.Cells[name].AsString() == CraftingPlanner.AllPeas)
@@ -5553,7 +5563,7 @@ public sealed class MossTankPanelTests
         {
             Cells = { VtankCell.String("Bread"), VtankCell.Int(5) },
         });
-        storage.Text["AssistBread.usd"] = imported.Render();
+        storage.Text["mosstank/profiles/AssistBread.usd"] = imported.Render();
         var automation = new FakeAutomation
         {
             ItemEntries =
@@ -5569,7 +5579,7 @@ public sealed class MossTankPanelTests
 
         panel.ToggleAutoStack();
         VtankTable saved = VtankDatabase.Parse(
-            storage.Text[panel.SelectedMacroProfile]).Find("AssistItems")!;
+            storage.Text[SettingsKey(panel.SelectedMacroProfile)]).Find("AssistItems")!;
         int name = saved.ColumnIndex("Object");
         VtankRow row = Assert.Single(saved.Rows,
             candidate => candidate.Cells[name].AsString() == "Bread");
@@ -6120,10 +6130,10 @@ public sealed class MossTankPanelTests
 
         var panel = new MossTankPanel(new FakeHost(automation, storage));
 
-        string byCharacterFile = VtankProfileDirectory.AutoCharacterFileName(
-            "Barris", string.Empty, "utl");
+        string byCharacterFile = LootKey(
+            VtankProfileDirectory.AutoCharacterFileName("Barris", string.Empty, "utl"));
         Assert.True(storage.Text.ContainsKey(byCharacterFile));
-        Assert.True(storage.Text.ContainsKey("Farming.utl"));
+        Assert.True(storage.Text.ContainsKey("mosstank/loot/Farming.utl"));
         Assert.False(storage.Text.ContainsKey(LegacyLootProfileKey("Barris", byCharacter: true)));
         Assert.False(storage.Text.ContainsKey(LegacyLootProfileKey("Farming", byCharacter: false)));
         Assert.False(storage.Text.ContainsKey("profiles/loot/index.json"));
@@ -6159,7 +6169,7 @@ public sealed class MossTankPanelTests
         Assert.Single(panel.LootRuleRows);
         panel.SelectLootProfile("Currency");
         Assert.Equal(2, panel.LootRuleRows.Count);
-        Assert.True(storage.Text.ContainsKey("Currency.utl"));
+        Assert.True(storage.Text.ContainsKey("mosstank/loot/Currency.utl"));
     }
 
     /// <summary>
@@ -6186,7 +6196,7 @@ public sealed class MossTankPanelTests
         panel.AddLootRule();
         string[] safeRules = panel.LootRuleRows.ToArray();
         const string malformed = "UTL\r\n1\r\n1\r\nunfinished";
-        storage.Text["Loot5.utl"] = malformed;
+        storage.Text["mosstank/loot/Loot5.utl"] = malformed;
         string cdfKey = VtankProfileDirectory.CdfFileName("Looter", "Coldeve");
         string cdfBefore = storage.Text[cdfKey];
 
@@ -6195,7 +6205,7 @@ public sealed class MossTankPanelTests
         Assert.Equal("Safe", panel.LootProfileName);
         Assert.Equal(safeRules, panel.LootRuleRows);
         Assert.Equal(cdfBefore, storage.Text[cdfKey]);
-        Assert.Equal(malformed, storage.Text["Loot5.utl"]);
+        Assert.Equal(malformed, storage.Text["mosstank/loot/Loot5.utl"]);
         Assert.Contains("Loot5", panel.LootEditorNotice, StringComparison.Ordinal);
         Assert.Contains("Active profile remains Safe", panel.LootEditorNotice, StringComparison.Ordinal);
         Assert.DoesNotContain(host.Logger.Infos, message =>
@@ -6219,7 +6229,7 @@ public sealed class MossTankPanelTests
         var host = new FakeHost(automation, storage);
         var panel = new MossTankPanel(host);
         const string partial = "UTL\r\n1\r\n2\r\nKeep\r\n\r\n0;1\r\nunfinished";
-        storage.Text["Partial.utl"] = partial;
+        storage.Text["mosstank/loot/Partial.utl"] = partial;
 
         Command(panel, "loot load Partial");
         panel.AddLootRule();
@@ -6231,8 +6241,8 @@ public sealed class MossTankPanelTests
 
         Assert.Equal("Partial", panel.LootProfileName);
         Assert.Equal(rowsBeforeSave, panel.LootRuleRows);
-        Assert.Equal(partial, storage.Text["Partial.utl"]);
-        Assert.False(storage.Text.ContainsKey("Copy.utl"));
+        Assert.Equal(partial, storage.Text["mosstank/loot/Partial.utl"]);
+        Assert.False(storage.Text.ContainsKey("mosstank/loot/Copy.utl"));
         Assert.Equal(bindingBefore, storage.Text[cdfKey]);
         Assert.Contains(automation.Messages, message =>
             message.Contains("incomplete", StringComparison.OrdinalIgnoreCase));
@@ -6255,7 +6265,7 @@ public sealed class MossTankPanelTests
         var first = new MossTankPanel(new FakeHost(firstAutomation, storage));
         Command(first, "loot new Broken");
         const string malformed = "UTL\r\n1\r\n1\r\nunfinished";
-        storage.Text["Broken.utl"] = malformed;
+        storage.Text["mosstank/loot/Broken.utl"] = malformed;
         string cdfKey = VtankProfileDirectory.CdfFileName("Looter", "Coldeve");
         string bindingBefore = storage.Text[cdfKey];
         var automation = new FakeAutomation
@@ -6268,8 +6278,8 @@ public sealed class MossTankPanelTests
         Vt(panel, "loot save Copy");
 
         Assert.Equal(MossTankLootProfileStore.NoActiveProfile, panel.LootProfileName);
-        Assert.Equal(malformed, storage.Text["Broken.utl"]);
-        Assert.False(storage.Text.ContainsKey("Copy.utl"));
+        Assert.Equal(malformed, storage.Text["mosstank/loot/Broken.utl"]);
+        Assert.False(storage.Text.ContainsKey("mosstank/loot/Copy.utl"));
         Assert.Equal(bindingBefore, storage.Text[cdfKey]);
         Assert.Contains(automation.Messages, message =>
             message.Contains("no complete active profile", StringComparison.OrdinalIgnoreCase));
@@ -6293,7 +6303,7 @@ public sealed class MossTankPanelTests
         Command(panel, "loot new Safe");
         panel.AddLootRule();
         const string malformed = "UTL\r\n1\r\n1\r\nunfinished";
-        storage.Text["Loot5.utl"] = malformed;
+        storage.Text["mosstank/loot/Loot5.utl"] = malformed;
         automation.Messages.Clear();
 
         Command(panel, "loot load Loot5.utl");
@@ -6304,7 +6314,7 @@ public sealed class MossTankPanelTests
         Assert.Contains("could not be read", message, StringComparison.Ordinal);
         Assert.Contains("Active profile remains Safe", message, StringComparison.Ordinal);
         Assert.DoesNotContain("Loaded loot profile", message, StringComparison.Ordinal);
-        Assert.Equal(malformed, storage.Text["Loot5.utl"]);
+        Assert.Equal(malformed, storage.Text["mosstank/loot/Loot5.utl"]);
     }
 
     /// <summary>
@@ -6327,13 +6337,13 @@ public sealed class MossTankPanelTests
         Command(panel, "loot new Safe");
         panel.AddLootRule();
         const string malformed = "UTL\r\n1\r\n1\r\nunfinished";
-        storage.Text["Safe.utl"] = malformed;
+        storage.Text["mosstank/loot/Safe.utl"] = malformed;
 
         Command(panel, "loot load Safe");
         panel.ToggleLootPriorityBoost();
 
         Assert.Equal("Safe", panel.LootProfileName);
-        Assert.Equal(malformed, storage.Text["Safe.utl"]);
+        Assert.Equal(malformed, storage.Text["mosstank/loot/Safe.utl"]);
         Assert.Contains(automation.Messages, message =>
             message.Contains("could not be read", StringComparison.Ordinal));
     }
@@ -6356,12 +6366,12 @@ public sealed class MossTankPanelTests
         Command(panel, "loot new Source");
         panel.AddLootRule();
         const string malformed = "UTL\r\n1\r\n1\r\nunfinished";
-        storage.Text["Target.utl"] = malformed;
+        storage.Text["mosstank/loot/Target.utl"] = malformed;
 
         Command(panel, "loot save Target");
 
         Assert.Equal("Source", panel.LootProfileName);
-        Assert.Equal(malformed, storage.Text["Target.utl"]);
+        Assert.Equal(malformed, storage.Text["mosstank/loot/Target.utl"]);
         Assert.Contains(automation.Messages, message =>
             message.Contains("Cannot overwrite unreadable", StringComparison.Ordinal));
     }
@@ -6394,7 +6404,7 @@ public sealed class MossTankPanelTests
             first.ToggleLooting();
 
         const string malformed = "UTL\r\n1\r\n1\r\nunfinished";
-        storage.Text["Loot5.utl"] = malformed;
+        storage.Text["mosstank/loot/Loot5.utl"] = malformed;
         string cdfKey = VtankProfileDirectory.CdfFileName("Looter", "Coldeve");
         string cdfBefore = storage.Text[cdfKey];
         var loot = new FrameLootSurface
@@ -6442,19 +6452,19 @@ public sealed class MossTankPanelTests
             restarted.OnTick(0.3d);
 
         Assert.Equal(0u, loot.Opened);
-        Assert.Equal(malformed, storage.Text["Loot5.utl"]);
+        Assert.Equal(malformed, storage.Text["mosstank/loot/Loot5.utl"]);
         Assert.Equal(cdfBefore, storage.Text[cdfKey]);
 
         var recovered = new VtankLootProfile
         {
             Rules = [new LootRule { Expression = "*", Action = LootAction.Keep }],
         };
-        storage.Text["Recovered.utl"] = VtankLootProfileSerializer.Write(recovered);
+        storage.Text["mosstank/loot/Recovered.utl"] = VtankLootProfileSerializer.Write(recovered);
         restarted.SelectLootProfile("Recovered");
 
         Assert.Equal("Recovered", restarted.LootProfileName);
         Assert.Single(restarted.LootRuleRows);
-        Assert.Equal(malformed, storage.Text["Loot5.utl"]);
+        Assert.Equal(malformed, storage.Text["mosstank/loot/Loot5.utl"]);
         Assert.Contains(
             "Recovered.utl",
             storage.Text[cdfKey],
@@ -6483,7 +6493,7 @@ public sealed class MossTankPanelTests
         var first = new MossTankPanel(new FakeHost(automation, storage));
         Command(first, "loot new MissingLater");
         first.AddLootRule();
-        storage.Text.Remove("MissingLater.utl");
+        storage.Text.Remove("mosstank/loot/MissingLater.utl");
         string cdfKey = VtankProfileDirectory.CdfFileName("Looter", "Coldeve");
         string cdfBefore = storage.Text[cdfKey];
 
@@ -6493,7 +6503,7 @@ public sealed class MossTankPanelTests
         var restarted = new MossTankPanel(restartedHost);
         restarted.ToggleLootPriorityBoost();
 
-        Assert.False(storage.Text.ContainsKey("MissingLater.utl"));
+        Assert.False(storage.Text.ContainsKey("mosstank/loot/MissingLater.utl"));
         Assert.Equal(MossTankLootProfileStore.NoActiveProfile, restarted.LootProfileName);
         Assert.Empty(restarted.LootRuleRows);
         Assert.Equal(cdfBefore, storage.Text[cdfKey]);
@@ -6527,13 +6537,13 @@ public sealed class MossTankPanelTests
         panel.AddLootRule();
         Assert.Equal(2, panel.LootRuleRows.Count);
         const string malformed = "UTL\r\n1\r\n1\r\nunfinished";
-        storage.Text["Safe.utl"] = malformed;
+        storage.Text["mosstank/loot/Safe.utl"] = malformed;
 
         Command(panel, "settings load OneRule");
         panel.ToggleLootPriorityBoost();
 
         Assert.Equal(2, panel.LootRuleRows.Count);
-        Assert.Equal(malformed, storage.Text["Safe.utl"]);
+        Assert.Equal(malformed, storage.Text["mosstank/loot/Safe.utl"]);
         Assert.Contains("could not be read", panel.LootEditorNotice, StringComparison.Ordinal);
     }
 
@@ -6559,13 +6569,11 @@ public sealed class MossTankPanelTests
         panel.AddLootRule();
         Assert.Single(panel.LootRuleRows);
 
-        string secondSettings = VtankProfileDirectory.AutoCharacterFileName(
-            "Second",
-            "Coldeve",
-            "usd");
+        string secondSettings = SettingsKey(
+            VtankProfileDirectory.AutoCharacterFileName("Second", "Coldeve", "usd"));
         storage.Text[secondSettings] = VtankDefaultSettingsDatabase.Parse().Render();
         const string malformed = "UTL\r\n1\r\n1\r\nunfinished";
-        storage.Text["SecondLoot.utl"] = malformed;
+        storage.Text["mosstank/loot/SecondLoot.utl"] = malformed;
         VtankProfileDirectory.WriteCharacterBinding(
             storage,
             "Second",
@@ -6581,7 +6589,7 @@ public sealed class MossTankPanelTests
 
         Assert.Equal(MossTankLootProfileStore.NoActiveProfile, panel.LootProfileName);
         Assert.Empty(panel.LootRuleRows);
-        Assert.Equal(malformed, storage.Text["SecondLoot.utl"]);
+        Assert.Equal(malformed, storage.Text["mosstank/loot/SecondLoot.utl"]);
         Assert.Contains("No loot profile is active", panel.LootEditorNotice, StringComparison.Ordinal);
     }
 
@@ -6704,7 +6712,7 @@ public sealed class MossTankPanelTests
         Assert.Equal("Copy", panel.LootProfileName);
         Assert.Single(panel.LootRuleRows);
         Assert.Contains("KeepUpTo", panel.LootRuleRows[0], StringComparison.Ordinal);
-        string exported = storage.Text["Copy.utl"];
+        string exported = storage.Text["mosstank/loot/Copy.utl"];
         Assert.True(VtankLootProfileSerializer.TryRead(
             exported,
             out VtankLootProfile roundTrip,
@@ -6801,13 +6809,13 @@ public sealed class MossTankPanelTests
         Vt(panel, "nav save Fellowship");
         Assert.Equal("Fellowship", panel.SelectedRouteProfile);
         Assert.Contains("Fellowship", panel.RouteProfileNames);
-        Assert.True(storage.Text.ContainsKey("navs/Fellowship.af"));
+        Assert.True(storage.Text.ContainsKey("mosstank/navs/Fellowship.af"));
 
         panel.DeleteRouteProfile();
 
         Assert.Equal(MossTankRouteProfileStore.ByCharacter, panel.SelectedRouteProfile);
         Assert.DoesNotContain("Fellowship", panel.RouteProfileNames);
-        Assert.False(storage.Text.ContainsKey("navs/Fellowship.af"));
+        Assert.False(storage.Text.ContainsKey("mosstank/navs/Fellowship.af"));
         Assert.Contains("Deleted", panel.RouteNotice, StringComparison.Ordinal);
     }
 
@@ -6831,13 +6839,13 @@ public sealed class MossTankPanelTests
         Vt(panel, "meta save Fellowship");
         Assert.Equal("Fellowship", panel.SelectedMetaProfile);
         Assert.Contains("Fellowship", panel.MetaProfileNames);
-        Assert.True(storage.Text.ContainsKey("metas/Fellowship.af"));
+        Assert.True(storage.Text.ContainsKey("mosstank/metas/Fellowship.af"));
 
         panel.DeleteMetaProfile();
 
         Assert.Equal(MossTankMetaProfileStore.ByCharacter, panel.SelectedMetaProfile);
         Assert.DoesNotContain("Fellowship", panel.MetaProfileNames);
-        Assert.False(storage.Text.ContainsKey("metas/Fellowship.af"));
+        Assert.False(storage.Text.ContainsKey("mosstank/metas/Fellowship.af"));
         Assert.Contains("Deleted", panel.MetaNotice, StringComparison.Ordinal);
     }
 
@@ -6866,7 +6874,7 @@ public sealed class MossTankPanelTests
 
         Assert.Equal(MossTankLootProfileStore.ByCharacter, panel.LootProfileName);
         Assert.DoesNotContain("Fellowship", panel.LootProfileNames);
-        Assert.False(storage.Text.ContainsKey("Fellowship.utl"));
+        Assert.False(storage.Text.ContainsKey("mosstank/loot/Fellowship.utl"));
         Assert.Contains("Deleted", panel.LootEditorNotice, StringComparison.Ordinal);
     }
 
@@ -6886,10 +6894,8 @@ public sealed class MossTankPanelTests
             WorldName = "Coldeve",
         };
         var panel = new MossTankPanel(new FakeHost(automation, storage));
-        string byCharacterFile = VtankProfileDirectory.AutoCharacterFileName(
-            "Looter",
-            "Coldeve",
-            "utl");
+        string byCharacterFile = LootKey(
+            VtankProfileDirectory.AutoCharacterFileName("Looter", "Coldeve", "utl"));
         const string malformed = "UTL\r\n1\r\n1\r\nunfinished";
         storage.Text[byCharacterFile] = malformed;
         Command(panel, "loot new Named");
@@ -7228,7 +7234,7 @@ public sealed class MossTankPanelTests
         Command(panel, "nav save Exported.nav");
         Assert.Contains(
             "NAV: ",
-            storage.Text["navs/Exported.af"],
+            storage.Text["mosstank/navs/Exported.af"],
             StringComparison.Ordinal);
     }
 
@@ -7240,8 +7246,8 @@ public sealed class MossTankPanelTests
 
         Command(panel, "nav save Foo.af");
 
-        Assert.True(storage.Text.ContainsKey("navs/Foo.af"));
-        Assert.False(storage.Text.ContainsKey("navs/Foo.af.af"));
+        Assert.True(storage.Text.ContainsKey("mosstank/navs/Foo.af"));
+        Assert.False(storage.Text.ContainsKey("mosstank/navs/Foo.af.af"));
     }
 
     [Fact]
@@ -7259,15 +7265,15 @@ public sealed class MossTankPanelTests
         Command(panel, "meta save Same.met");
         Command(panel, "nav save Same.nav");
 
-        Assert.True(storage.Text.ContainsKey("metas/Same.af"));
-        Assert.True(storage.Text.ContainsKey("navs/Same.af"));
+        Assert.True(storage.Text.ContainsKey("mosstank/metas/Same.af"));
+        Assert.True(storage.Text.ContainsKey("mosstank/navs/Same.af"));
         Assert.Contains(
             "STATE: ",
-            storage.Text["metas/Same.af"],
+            storage.Text["mosstank/metas/Same.af"],
             StringComparison.Ordinal);
         Assert.Contains(
             "NAV: ",
-            storage.Text["navs/Same.af"],
+            storage.Text["mosstank/navs/Same.af"],
             StringComparison.Ordinal);
     }
 
@@ -7296,10 +7302,10 @@ public sealed class MossTankPanelTests
         Command(panel, "meta save Exported.met");
         Assert.Contains(
             "STATE: ",
-            storage.Text["metas/Exported.af"],
+            storage.Text["mosstank/metas/Exported.af"],
             StringComparison.Ordinal);
         Assert.True(MetafSerializer.TryLoadMeta(
-            storage.Text["metas/Exported.af"],
+            storage.Text["mosstank/metas/Exported.af"],
             NoOpSpellCatalogForExport.Instance,
             out MetaProfile exported,
             out string error), error);
@@ -7314,8 +7320,8 @@ public sealed class MossTankPanelTests
 
         Command(panel, "meta save Foo.af");
 
-        Assert.True(storage.Text.ContainsKey("metas/Foo.af"));
-        Assert.False(storage.Text.ContainsKey("metas/Foo.af.af"));
+        Assert.True(storage.Text.ContainsKey("mosstank/metas/Foo.af"));
+        Assert.False(storage.Text.ContainsKey("mosstank/metas/Foo.af.af"));
     }
 
     private sealed class NoOpSpellCatalogForExport : ISpellCatalog
@@ -8196,8 +8202,8 @@ public sealed class MossTankPanelTests
         Assert.True(reloaded.MetaEnabled);
     }
 
-    private static string MetaProfileKey =>
-        VtankProfileDirectory.AutoCharacterFileName("Metaphile", string.Empty, "usd");
+    private static string MetaProfileKey => SettingsKey(
+        VtankProfileDirectory.AutoCharacterFileName("Metaphile", string.Empty, "usd"));
 
     private static string ProfileTextWithEnableMeta(bool value)
     {
@@ -8328,7 +8334,7 @@ public sealed class MossTankPanelTests
         const string minimalUsd =
             "1\r\nSettings\r\n4\r\nSetting\r\nValue\r\nDescription\r\nSettingType\r\n"
             + "y\r\nn\r\nn\r\nn\r\n1\r\ns\r\nEnableNav\r\nb\r\nFalse\r\ns\r\n\r\ni\r\n1\r\n";
-        storage.Text["Other.usd"] = minimalUsd;
+        storage.Text["mosstank/profiles/Other.usd"] = minimalUsd;
 
         var store = new MossTankProfileStore(new FakeHost(automation, storage));
         var settings = new VtankSettingsProfileSerializer.AllSettings
@@ -8343,7 +8349,7 @@ public sealed class MossTankPanelTests
 
         int count = store.SetOptionInAll("EnableLooting", settings);
 
-        VtankDatabase rewritten = VtankDatabase.Parse(storage.Text["Other.usd"]);
+        VtankDatabase rewritten = VtankDatabase.Parse(storage.Text["mosstank/profiles/Other.usd"]);
         VtankTable table = rewritten.Find("Settings")!;
         int nameColumn = table.ColumnIndex("Setting");
         int valueColumn = table.ColumnIndex("Value");
@@ -8907,6 +8913,12 @@ public sealed class MossTankPanelTests
             0x00010001u, 0d, 0d, 0d, heading, IsOutdoor: true),
         IsMoving: false,
         IsAirborne: false);
+
+    private static string SettingsKey(string bareFileName) =>
+        $"{VtankProfileDirectory.SettingsFolder}/{bareFileName}";
+
+    private static string LootKey(string bareFileName) =>
+        $"{VtankProfileDirectory.LootFolder}/{bareFileName}";
 
     private static void Command(MossTankPanel panel, string arguments) =>
         panel.ExecuteVtankCommand(new PluginCommand(
