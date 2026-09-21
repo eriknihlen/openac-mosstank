@@ -1548,6 +1548,29 @@ internal sealed partial class MossTankPanel : IBuffRuleHost, IDisposable
         $"Target lock: {OnOff(_combatSettings.TargetLock)}";
     public string AttackRangeText =>
         $"Maximum target range: {_combatSettings.MaximumRange:0}m";
+    /// <summary>
+    /// The window's title, carrying the version this build was made as, so
+    /// what the player reads in game is what was released and not a number
+    /// somebody has to remember to retype.
+    /// </summary>
+    public string WindowTitle => "MossTank  v" + PluginVersion;
+
+    internal static string PluginVersion { get; } = ReadPluginVersion();
+
+    private static string ReadPluginVersion()
+    {
+        System.Reflection.Assembly assembly = typeof(MossTankPanel).Assembly;
+        string? informational = System.Reflection.CustomAttributeExtensions
+            .GetCustomAttribute<System.Reflection.AssemblyInformationalVersionAttribute>(assembly)
+            ?.InformationalVersion;
+        // A build stamps the commit after a plus sign; the player wants the
+        // release number alone.
+        string version = informational?.Split('+')[0]
+            ?? assembly.GetName().Version?.ToString(3)
+            ?? "0.0.0";
+        return version;
+    }
+
     public string MonsterRangeValueText =>
         _combatSettings.MaximumRange.ToString("0.#", CultureInfo.InvariantCulture);
     public string RingRangeValueText =>

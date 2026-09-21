@@ -637,6 +637,10 @@ public sealed class MossTankMarkupContractTests
             XElement root = Assert.IsType<XElement>(document.Root);
             foreach (XElement child in root.Elements())
             {
+                // The main window's title is itself a label, so that it can
+                // carry the version the build was made as.
+                if ((string?)child.Attribute("text") == "{WindowTitle}")
+                    continue;
                 Assert.True(
                     Number(child, "y") >= TitleRowBottom,
                     $"<{child.Name}> at y={Number(child, "y")} in "

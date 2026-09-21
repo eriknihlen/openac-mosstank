@@ -394,13 +394,7 @@ internal sealed class CombatController
                     "0.0", System.Globalization.CultureInfo.InvariantCulture) + " m";
                 break;
             }
-            PluginCombatSnapshot held = _host.Automation.Combat.Snapshot;
-            return $"{_targetName} (0x{_targetId:X8}, {distance}): {Status}"
-                + $" [tick {_diagnosticTicks}, attempt {_diagnosticAttempts},"
-                + $" mode {held.Mode}, request {held.RequestInProgress},"
-                + $" build {held.BuildInProgress}, pending {held.ServerResponsePending},"
-                + $" repeat {held.RepeatAttackInProgress}, timer {_swingTimerRunning},"
-                + $" armed {_swingArmed}]";
+            return $"{_targetName} (0x{_targetId:X8}, {distance}): {Status}";
         }
     }
 
@@ -632,7 +626,6 @@ internal sealed class CombatController
             Status = "Scanning for targets";
         }
 
-        _diagnosticTicks++;
         ClearPassMemos();
 
         // The clock is wall time as this controller sees it: the turn hands
@@ -837,12 +830,8 @@ internal sealed class CombatController
 
     private MonsterRuleActions? _decisionActions;
 
-    private long _diagnosticTicks;
-    private long _diagnosticAttempts;
-
     private AttackPassOutcome RunAttackAttempt()
     {
-        _diagnosticAttempts++;
         if (IsKnownDead(FindTarget(_targetId)))
         {
             // It died under the pass. The choice is made again from what is

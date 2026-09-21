@@ -65,6 +65,19 @@ public sealed class MossTankManifestTests
         Assert.Equal(manifestVersion, VersionCore(assemblyVersion));
     }
 
+    /// <summary>What the player reads in the window's title is the version that was built and
+    /// released, not a number typed into the layout.</summary>
+    [Fact]
+    public void TheWindowTitleCarriesTheManifestVersion()
+    {
+        string? manifestVersion = BuiltManifest().GetProperty("version").GetString();
+
+        Assert.Equal(manifestVersion, MossTankPanel.PluginVersion);
+        Assert.DoesNotContain(
+            "title=\"MossTank",
+            File.ReadAllText(Path.Combine(PluginOutputDirectory(), "mosstank.xml")));
+    }
+
     /// <summary>The other half of the contract boundary: the plugin compiles against one contract
     /// assembly, and its dependency list has to say the same, or a host would be asked to load a
     /// client assembly out of a plugin folder.</summary>
