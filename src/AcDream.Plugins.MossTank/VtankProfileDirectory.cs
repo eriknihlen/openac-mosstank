@@ -106,9 +106,6 @@ internal static class VtankProfileDirectory
         return isHidden ? HiddenPrefix + rest : rest;
     }
 
-    internal static IReadOnlyList<string> ListFlatAfFileNames(IPluginStorage storage) =>
-        EnumerateFileNames(storage, ".af").ToList();
-
     /// <summary>
     /// Every settings document in the profiles folder, whoever owns it. The
     /// pickers hide another character's reserved family; an operation that
@@ -331,19 +328,6 @@ internal static class VtankProfileDirectory
         storage.WriteText(
             CdfFileName(characterName, server),
             string.Join("\r\n", lines) + "\r\n");
-    }
-
-    private static IEnumerable<string> EnumerateFileNames(IPluginStorage storage, string extension)
-    {
-        if (!storage.IsAvailable)
-            yield break;
-        foreach (string key in storage.List(string.Empty)
-            .Where(key => !key.Contains('/', StringComparison.Ordinal))
-            .Where(key => key.EndsWith(extension, StringComparison.OrdinalIgnoreCase))
-            .OrderBy(static key => key, StringComparer.OrdinalIgnoreCase))
-        {
-            yield return key;
-        }
     }
 
     private static IEnumerable<string> EnumerateFolderFileNames(
