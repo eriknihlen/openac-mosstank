@@ -537,6 +537,57 @@ public sealed class MossTankMarkupContractTests
     }
 
     /// <summary>
+    /// A text field draws its own background and nothing else: no border, no
+    /// focus outline. Against a dark page that leaves nothing to see and
+    /// nowhere obvious to type, which is what the Monsters page and the
+    /// advanced options looked like. Each field therefore sits one pixel
+    /// inside a bordered well that draws the background for it.
+    /// Mutation: give a field its own opaque background again, or drop the
+    /// well's border, and the field stops reading as a field.
+    /// </summary>
+    [Fact]
+    public void EveryEditableFieldSitsInABorderedWellThatMakesItLookLikeAField()
+    {
+        foreach (string path in Directory.GetFiles(
+            AppContext.BaseDirectory, "mosstank*.xml"))
+        {
+            string fileName = Path.GetFileName(path);
+            XDocument document = XDocument.Load(path);
+            XElement root = Assert.IsType<XElement>(document.Root);
+            XElement[] fields = root.Descendants("field").ToArray();
+            Assert.NotEmpty(fields);
+
+            foreach (XElement field in fields)
+            {
+                XElement well = Assert.IsType<XElement>(field.Parent);
+                Assert.Equal("group", well.Name.LocalName);
+                Assert.Equal(
+                    "#00000000",
+                    (string?)field.Attribute("background"));
+                Assert.False(
+                    string.IsNullOrWhiteSpace((string?)well.Attribute("background")),
+                    $"A field well in {fileName} draws no background.");
+                Assert.False(
+                    string.IsNullOrWhiteSpace((string?)well.Attribute("border")),
+                    $"A field well in {fileName} draws no border, so its field "
+                    + "has no visible edge.");
+
+                // The well is the field's own rectangle, and the field sits a
+                // pixel inside it so the border stays visible.
+                Assert.Single(well.Elements());
+                Assert.Equal(1f, Number(field, "x"));
+                Assert.Equal(1f, Number(field, "y"));
+                Assert.Equal(Number(well, "w") - 2f, Number(field, "w"));
+                Assert.Equal(Number(well, "h") - 2f, Number(field, "h"));
+
+                // A well that moves with the window takes the anchor: the
+                // field inside it is positioned against the well.
+                Assert.Null(field.Attribute("anchor"));
+            }
+        }
+    }
+
+    /// <summary>
     /// Every page of the main window is laid out for exactly one rectangle,
     /// and the pages the player is not looking at take no part in a resize:
     /// a page opened after one came back with its bottom row hanging below

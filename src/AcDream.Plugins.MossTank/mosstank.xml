@@ -31,21 +31,29 @@
 
   <group x="8" y="42" w="976" h="229" visible="{OptionsVisible}" anchor="left top right bottom">
     <label x="8" y="8" w="80" h="16" text="Monster Range:" color="#FFE8DEC3" />
-    <field x="8" y="24" w="40" h="16" text="{MonsterRangeValueText}"
-           onchange="{SetMonsterRangeText}" maxlength="6" background="#E6000000"
-           tooltip="Maximum monster acquisition range in meters." />
+    <group x="8" y="24" w="40" h="16" background="#FF0C0906" border="#FF8C7B4E">
+      <field x="1" y="1" w="38" h="14" text="{MonsterRangeValueText}"
+             onchange="{SetMonsterRangeText}" maxlength="6" background="#00000000"
+             tooltip="Maximum monster acquisition range in meters." />
+    </group>
     <label x="8" y="40" w="80" h="16" text="Ring Range:" color="#FFE8DEC3" />
-    <field x="8" y="56" w="40" h="16" text="{RingRangeValueText}"
-           onchange="{SetRingRangeText}" maxlength="6" background="#E6000000"
-           tooltip="Maximum range for ring-spell target density." />
+    <group x="8" y="56" w="40" h="16" background="#FF0C0906" border="#FF8C7B4E">
+      <field x="1" y="1" w="38" h="14" text="{RingRangeValueText}" onchange="{SetRingRangeText}"
+             maxlength="6" background="#00000000"
+             tooltip="Maximum range for ring-spell target density." />
+    </group>
     <label x="8" y="72" w="80" h="16" text="Approach Range:" color="#FFE8DEC3" />
-    <field x="8" y="88" w="40" h="16" text="{ApproachRangeValueText}"
-           onchange="{SetApproachRangeText}" maxlength="6" background="#E6000000"
-           tooltip="Distance at which MossTank approaches its combat target." />
+    <group x="8" y="88" w="40" h="16" background="#FF0C0906" border="#FF8C7B4E">
+      <field x="1" y="1" w="38" h="14" text="{ApproachRangeValueText}"
+             onchange="{SetApproachRangeText}" maxlength="6" background="#00000000"
+             tooltip="Distance at which MossTank approaches its combat target." />
+    </group>
     <label x="8" y="104" w="80" h="16" text="Follow/Nav Min Distance:" color="#FFE8DEC3" />
-    <field x="8" y="120" w="40" h="16" text="{FollowNavMinimumValueText}"
-           onchange="{SetFollowNavMinimumText}" maxlength="6" background="#E6000000"
-           tooltip="Minimum distance maintained while following or navigating." />
+    <group x="8" y="120" w="40" h="16" background="#FF0C0906" border="#FF8C7B4E">
+      <field x="1" y="1" w="38" h="14" text="{FollowNavMinimumValueText}"
+             onchange="{SetFollowNavMinimumText}" maxlength="6" background="#00000000"
+             tooltip="Minimum distance maintained while following or navigating." />
+    </group>
 
     <button x="152" y="8" w="112" h="25" text="Force Buff" onclick="{ForceBuff}" />
     <button x="152" y="38" w="112" h="25" text="Cancel Force Buff"
@@ -98,13 +106,17 @@
             checked="{SummonPetsEnabled}" onclick="{ToggleSummonPets}" />
     <toggle x="614" y="28" w="120" h="20" text="Custom Pet Range:"
             checked="{CustomPetRangeEnabled}" onclick="{TogglePetRangeMode}" />
-    <field x="734" y="28" w="40" h="16" text="{PetCustomRangeValueText}"
-           onchange="{SetPetCustomRangeText}" maxlength="6" background="#E6000000"
-           tooltip="Custom pet summon range in meters." />
+    <group x="734" y="28" w="40" h="16" background="#FF0C0906" border="#FF8C7B4E">
+      <field x="1" y="1" w="38" h="14" text="{PetCustomRangeValueText}"
+             onchange="{SetPetCustomRangeText}" maxlength="6" background="#00000000"
+             tooltip="Custom pet summon range in meters." />
+    </group>
     <label x="614" y="48" w="120" h="16" text="Pet Min. Monsters:" color="#FFE8DEC3" />
-    <field x="734" y="48" w="40" h="16" text="{PetDensityValueText}"
-           onchange="{SetPetDensityText}" maxlength="3" background="#E6000000"
-           tooltip="Minimum nearby monsters required before summoning a pet." />
+    <group x="734" y="48" w="40" h="16" background="#FF0C0906" border="#FF8C7B4E">
+      <field x="1" y="1" w="38" h="14" text="{PetDensityValueText}"
+             onchange="{SetPetDensityText}" maxlength="3" background="#00000000"
+             tooltip="Minimum nearby monsters required before summoning a pet." />
+    </group>
     <toggle x="673" y="128" w="175" h="20" text="Advanced Options"
             checked="{AdvancedOptionsVisible}" onclick="{ToggleAdvancedOptionsVisible}" />
     <toggle x="673" y="148" w="175" h="20" text="Run Macro"
@@ -259,10 +271,11 @@
       <column type="text" width="*" items="{MonsterFillerColumn}" onclick="{MonsterFillerClick}" />
     </list>
 
-    <field x="8" y="171" w="388" h="16" text="{MonsterExpressionDraft}"
-           onchange="{SetMonsterExpressionDraft}" maxlength="256"
-           background="#E6000000" color="#FFE8DEC3" anchor="bottom"
-           tooltip="Monster name or expression to match." />
+    <group x="8" y="171" w="388" h="16" background="#FF0C0906" border="#FF8C7B4E" anchor="bottom">
+      <field x="1" y="1" w="386" h="14" text="{MonsterExpressionDraft}"
+             onchange="{SetMonsterExpressionDraft}" maxlength="256" background="#00000000"
+             color="#FFE8DEC3" tooltip="Monster name or expression to match." />
+    </group>
     <button x="404" y="171" w="50" h="16" text="Add" onclick="{AddMonsterRule}"
             anchor="bottom"
             tooltip="Add a new monster rule using the name/expression above." />
@@ -367,16 +380,19 @@
           rows="7" openupward="false"
           tooltip="Choose the recall type added by Add Recall." />
     <button x="380" y="82" w="88" h="16" text="Add Pause" onclick="{AddRoutePause}" />
-    <field x="474" y="82" w="68" h="16" text="{RoutePauseSecondsFieldText}"
-           onchange="{SetRoutePauseSecondsText}" onsubmit="{SetRoutePauseSecondsText}"
-           maxlength="4" clearonsubmit="false" background="#E6000000"
-           color="#FFE8DEC3" tooltip="Pause duration in seconds, added by Add Pause." />
+    <group x="474" y="82" w="68" h="16" background="#FF0C0906" border="#FF8C7B4E">
+      <field x="1" y="1" w="66" h="14" text="{RoutePauseSecondsFieldText}"
+             onchange="{SetRoutePauseSecondsText}" onsubmit="{SetRoutePauseSecondsText}"
+             maxlength="4" clearonsubmit="false" background="#00000000" color="#FFE8DEC3"
+             tooltip="Pause duration in seconds, added by Add Pause." />
+    </group>
     <label x="547" y="82" w="50" h="16" text="seconds" color="#FFE8DEC3" />
     <button x="380" y="104" w="88" h="16" text="Add Chat" onclick="{AddRouteChat}" />
-    <field x="474" y="104" w="120" h="16" text="{RouteChatDraft}"
-           onchange="{SetRouteChatDraft}" onsubmit="{SetRouteChatDraft}"
-           maxlength="128" clearonsubmit="false" background="#E6000000"
-           color="#FFE8DEC3" tooltip="Chat command added by Add Chat." />
+    <group x="474" y="104" w="120" h="16" background="#FF0C0906" border="#FF8C7B4E">
+      <field x="1" y="1" w="118" h="14" text="{RouteChatDraft}" onchange="{SetRouteChatDraft}"
+             onsubmit="{SetRouteChatDraft}" maxlength="128" clearonsubmit="false"
+             background="#00000000" color="#FFE8DEC3" tooltip="Chat command added by Add Chat." />
+    </group>
     <button x="380" y="126" w="88" h="16" text="Follow" onclick="{SetFollowTarget}"
             tooltip="Turn the loaded route into a follow route that trails the character selected in the world." />
     <label x="474" y="126" w="200" h="16" text="{RouteFollowTargetText}" color="#FFC7B98F" />
