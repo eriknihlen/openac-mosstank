@@ -1502,7 +1502,7 @@ public sealed class CombatControllerTests
         Assert.Equal(102u, targeted.Item1);
 
         // Ring only, but the monster is beyond RingDistance so the tally is
-        // zero (dz.cs:736-739): the ring arm fails and the pass bolts.
+        // zero: the ring arm fails and the pass bolts.
         (untargeted, targeted) = CastRingScenario(
             known,
             MonsterActionFlags.Ring,
@@ -1741,7 +1741,53 @@ public sealed class CombatControllerTests
         Assert.Empty(StalledHealthScenario("Drudge").DismissedGhosts);
     }
 
-    private static FakeAutomation StalledHealthScenario(string name)
+    /// <summary>
+    /// Forgetting a monster whose health never moved is a profile choice. With
+    /// it off, the very same silent monster is left alone however long the
+    /// fight drags on, and the character keeps swinging at it.
+    ///
+    /// Mutation: sweep for silent monsters whatever the profile says and the
+    /// second row forgets one.
+    /// </summary>
+    [Theory]
+    [InlineData(true, true)]
+    [InlineData(false, false)]
+    public void ForgettingASilentMonsterIsAProfileChoice(
+        bool byHealthTracker,
+        bool forgets)
+    {
+        FakeAutomation surface = StalledHealthScenario(
+            "Olthoi Slasher",
+            byHealthTracker: byHealthTracker);
+
+        Assert.Equal(forgets, surface.DismissedGhosts.Count != 0);
+    }
+
+    /// <summary>
+    /// How long the silence has to last is the profile's number: thirty
+    /// seconds of an unmoving health bar is long enough under a ten-second
+    /// profile and not yet long enough under a sixty-second one.
+    ///
+    /// Mutation: compare against a constant and both rows answer the same way.
+    /// </summary>
+    [Theory]
+    [InlineData(10d, true)]
+    [InlineData(60d, false)]
+    public void TheSilenceThatMakesAMonsterAGhostIsTheProfilesOwnLength(
+        double staleSeconds,
+        bool forgets)
+    {
+        FakeAutomation surface = StalledHealthScenario(
+            "Olthoi Slasher",
+            staleSeconds: staleSeconds);
+
+        Assert.Equal(forgets, surface.DismissedGhosts.Count != 0);
+    }
+
+    private static FakeAutomation StalledHealthScenario(
+        string name,
+        bool byHealthTracker = true,
+        double staleSeconds = 10d)
     {
         var surface = new FakeAutomation
         {
@@ -1753,8 +1799,8 @@ public sealed class CombatControllerTests
         var settings = new CombatSettings
         {
             MaximumRange = 40d,
-            DeleteGhostMonstersByHealthTracker = true,
-            GhostDeleteHealthTrackerSeconds = 10d,
+            DeleteGhostMonstersByHealthTracker = byHealthTracker,
+            GhostDeleteHealthTrackerSeconds = staleSeconds,
             MonsterFacts = new MonsterFactTable(GameInfo),
         };
         settings.Rules.Clear();
@@ -2107,6 +2153,119 @@ public sealed class CombatControllerTests
     }
 
     /// <summary>
+    /// The per-tick budget counts attempts, and one attempt evaluates one
+    /// chosen monster: four monsters the character cannot shoot cost four
+    /// attempts with a budget of four, and only two with a budget of two. The
+    /// budget is the ceiling on the whole pass, not a ceiling on each monster.
+    ///
+    /// Mutation: read the budget as the number of extra choices after the
+    /// first, or ignore it, and the counted attempts stop matching.
+    /// </summary>
+    [Theory]
+    [InlineData(2, 2)]
+    [InlineData(4, 4)]
+    public void ThePerTickBudgetCapsHowManyMonstersOnePassEvaluates(
+        int budget,
+        int attempts)
+    {
+        var surface = new FakeAutomation
+        {
+            CombatSnapshot = Physical() with { Mode = PluginCombatMode.Magic },
+            Targets =
+            [
+                Target(10, "Drudge", 5, 0),
+                Target(11, "Drudge", 6, 0),
+                Target(12, "Drudge", 7, 0),
+                Target(13, "Drudge", 8, 0),
+            ],
+            KnownCombatSpells =
+            [
+                MagicSpell(102, "Flame Streak VII", difficulty: 350),
+            ],
+            ProjectilePath = new(
+                PluginProjectilePathStatus.Blocked,
+                CollisionChecks: 3,
+                BlockingObjectId: 0x50000001u),
+            EquipmentItems = [WieldedCaster()],
+        };
+        var settings = new CombatSettings
+        {
+            MaximumRange = 40d,
+            UseProjectileAwareness = true,
+            MaximumCollisionChecksPerTick = budget,
+        };
+        settings.Rules.Clear();
+        settings.Rules.Add(new MonsterRule(
+            "DEFAULT",
+            new MonsterRuleActions
+            {
+                Flags = MonsterActionFlags.Streak,
+                DamageType = MonsterDamageType.Fire,
+            }));
+        var controller = new CombatController(new FakeHost(surface), settings);
+        var lines = new List<string>();
+        controller.Log = (_, text) => lines.Add(text);
+
+        controller.Toggle();
+        controller.OnTick(0.25);
+
+        Assert.Contains(
+            lines,
+            line => line.EndsWith($"Loop iterations: {attempts}", StringComparison.Ordinal));
+        Assert.Empty(surface.CastSpellIds);
+    }
+
+    /// <summary>
+    /// With the flight check off there is nothing an undeliverable decision
+    /// could teach the pass, so the pass gets exactly one attempt whatever the
+    /// budget says. The two settings are coupled.
+    ///
+    /// Mutation: honour the budget with the flight check off and the pass
+    /// churns through every monster in the scan.
+    /// </summary>
+    [Fact]
+    public void TheBudgetIsIgnoredWhileTheFlightCheckIsOff()
+    {
+        var surface = new FakeAutomation
+        {
+            CombatSnapshot = Physical() with { Mode = PluginCombatMode.Magic },
+            Targets =
+            [
+                Target(10, "Drudge", 5, 0),
+                Target(11, "Drudge", 6, 0),
+                Target(12, "Drudge", 7, 0),
+                Target(13, "Drudge", 8, 0),
+            ],
+            KnownCombatSpells = [],
+            EquipmentItems = [WieldedCaster()],
+        };
+        var settings = new CombatSettings
+        {
+            MaximumRange = 40d,
+            UseProjectileAwareness = false,
+            MaximumCollisionChecksPerTick = 4,
+        };
+        settings.Rules.Clear();
+        settings.Rules.Add(new MonsterRule(
+            "DEFAULT",
+            new MonsterRuleActions
+            {
+                Flags = MonsterActionFlags.Streak,
+                DamageType = MonsterDamageType.Fire,
+            }));
+        var controller = new CombatController(new FakeHost(surface), settings);
+        var lines = new List<string>();
+        controller.Log = (_, text) => lines.Add(text);
+
+        controller.Toggle();
+        controller.OnTick(0.25);
+
+        Assert.Contains(
+            lines,
+            line => line.EndsWith("Loop iterations: 1", StringComparison.Ordinal));
+    }
+
+    /// <summary>
     /// Mutation: drop the streak's flight test and the first assertion fails
     /// — the streak is cast straight into the wall, every pass, for ever.
     /// </summary>
@@ -2224,6 +2383,111 @@ public sealed class CombatControllerTests
             PluginProjectilePathKind.Missile,
             surface.LastProjectileKind);
         Assert.Equal(PluginAttackHeight.Low, surface.LastProjectileHeight);
+    }
+
+    /// <summary>
+    /// The flight check is a fat ray walked in steps, and the profile sets
+    /// both: how wide the ray is and how far apart the samples along it are.
+    /// A profile that widens the ray or shortens the stride asks a different
+    /// question of the client, so both numbers have to reach it unchanged.
+    ///
+    /// Mutation: send a constant width or stride and the asked-for shape stops
+    /// matching the profile.
+    /// </summary>
+    [Theory]
+    [InlineData(0.4d, 0.7d)]
+    [InlineData(1.25d, 0.2d)]
+    public void TheFlightCheckIsAskedForInTheProfilesOwnShape(
+        double radius,
+        double step)
+    {
+        var surface = new FakeAutomation
+        {
+            CombatSnapshot = Physical() with { Mode = PluginCombatMode.Magic },
+            Targets = [Target(10, "Drudge", 5, 0)],
+            KnownCombatSpells =
+            [
+                MagicSpell(102, "Flame Streak VII", difficulty: 350),
+            ],
+            ProjectilePath = new(
+                PluginProjectilePathStatus.Blocked,
+                CollisionChecks: 3,
+                BlockingObjectId: 0x50000001u),
+            EquipmentItems = [WieldedCaster()],
+        };
+        var settings = new CombatSettings
+        {
+            MaximumRange = 40d,
+            UseProjectileAwareness = true,
+            CollisionProjectileRadius = radius,
+            CollisionStepDistance = step,
+        };
+        settings.Rules.Clear();
+        settings.Rules.Add(new MonsterRule(
+            "DEFAULT",
+            new MonsterRuleActions
+            {
+                Flags = MonsterActionFlags.Streak,
+                DamageType = MonsterDamageType.Fire,
+            }));
+        var controller = new CombatController(new FakeHost(surface), settings);
+
+        controller.Toggle();
+        controller.OnTick(0.25);
+
+        Assert.True(surface.ProjectilePathChecks > 0);
+        Assert.Equal((float)radius, surface.LastProjectileRadius);
+        Assert.Equal((float)step, surface.LastProjectileStepDistance);
+    }
+
+    /// <summary>
+    /// Jumping clear of a wand cast is a profile choice: with it on the
+    /// character is asked to jump once shortly after the wand went off, and
+    /// with it off it is not asked to jump at all.
+    ///
+    /// Mutation: jump whatever the profile says, or never jump, and one of the
+    /// two rows fails.
+    /// </summary>
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public void JumpingClearOfAWandCastIsAProfileChoice(bool jumps)
+    {
+        PluginSpellInfo imperil = Spell(1323, "Imperil Other VI") with
+        {
+            School = 31,
+            IsDebuff = true,
+            IsOffensive = true,
+            DurationSeconds = 60,
+        };
+        var surface = new FakeAutomation
+        {
+            CombatSnapshot = Physical() with { Mode = PluginCombatMode.Magic },
+            Targets = [Target(10, "Drudge", 5, 0)],
+            SpellLookup = [imperil],
+            ItemEntries =
+            [
+                InventoryItem(200, "Wand of Imperil", 0x8000u, 0, equipped: true)
+                    with { SpellId = imperil.SpellId },
+            ],
+            EquipmentItems =
+            [
+                Equipment(200u, "Wand of Imperil", damageType: 0, itemType: 0x8000u),
+            ],
+        };
+        CombatSettings settings = DebuffOnly(MonsterActionFlags.Imperil);
+        settings.MaximumRange = 40d;
+        settings.JumpOutWandCasting = jumps;
+        settings.CombatItemNames.Add("Wand of Imperil");
+        var controller = new CombatController(new FakeHost(surface), settings);
+
+        controller.Toggle();
+        for (int tick = 0; tick < 8; tick++)
+            controller.OnTick(0.25);
+
+        Assert.Equal(
+            jumps,
+            surface.MovementIntents.Any(static intent => intent.Jump));
     }
 
     private static PluginAttackHeight ClearanceHeightFor(
@@ -2374,6 +2638,48 @@ public sealed class CombatControllerTests
                 ++revision, expected, 10u, 0);
             controller.OnTick(0.25);
         }
+    }
+
+    /// <summary>
+    /// A debuff is renewed before it lapses, and the profile says how far
+    /// before: the step comes due once the enchantment has that many seconds
+    /// left. Forty-five seconds into a sixty-second curse, a five-second lead
+    /// is not due yet and a twenty-second one is.
+    ///
+    /// Mutation: renew only on a lapsed enchantment (a zero lead) and the
+    /// wide-lead row never recasts.
+    /// </summary>
+    [Theory]
+    [InlineData(5d, false)]
+    [InlineData(20d, true)]
+    public void TheDebuffLeadDecidesWhenACurseIsRenewed(
+        double precastSeconds,
+        bool renews)
+    {
+        var surface = new FakeAutomation
+        {
+            CombatSnapshot = Physical() with { Mode = PluginCombatMode.Magic },
+            Targets = [Target(10, "Drudge", 5, 0)],
+            KnownCombatSpells = [Debuff(83, "Imperil Other VII")],
+            EquipmentItems = [WieldedCaster()],
+        };
+        CombatSettings settings = DebuffOnly(MonsterActionFlags.Imperil);
+        settings.MaximumRange = 40d;
+        settings.DebuffPrecastSeconds = precastSeconds;
+        var controller = new CombatController(new FakeHost(surface), settings);
+        controller.Toggle();
+
+        // The curse goes out and the server answers it: sixty seconds on it.
+        controller.OnTick(0.25);
+        Assert.Equal([83u], surface.CastSpellIds);
+        surface.LastCastCompletion = new PluginCastCompletion(1L, 83u, 10u, 0);
+        controller.OnTick(0.25);
+
+        // Forty-five seconds on, with fifteen seconds of curse left.
+        for (int frame = 0; frame < 180; frame++)
+            controller.OnTick(0.25);
+
+        Assert.Equal(renews, surface.CastSpellIds.Count > 1);
     }
 
     [Fact]
@@ -3214,7 +3520,7 @@ public sealed class CombatControllerTests
         controller.Toggle();
         controller.OnTick(0.25);
 
-        // Pierce is eDamageElement 0, the first entry of ga.cs:772-774's walk.
+        // Pierce is eDamageElement 0, the first entry of the element walk.
         Assert.Equal((100u, 10u), surface.LastTargetedCast);
         Assert.DoesNotContain(85u, surface.CastSpellIds);
         Assert.Contains(
@@ -3449,7 +3755,7 @@ public sealed class CombatControllerTests
             new PluginCastCompletion(1, 100u, 10u, 0u));
         Assert.True(controller.HasTarget);
 
-        // 4 x 907 ms of the result timer (gj.cs:254-255).
+        // 4 x 907 ms of the result timer.
         controller.CastTracker.Advance(3.7d);
         controller.OnTick(0.25);
 
@@ -3828,8 +4134,7 @@ public sealed class CombatControllerTests
         controller.OnTick(0.25);
 
         // The wand is already wielded; only the mode is wrong. The gate
-        // recomputes the mode the wielded item implies and asks for it
-        // (ga.cs:1556-1565).
+        // recomputes the mode the wielded item implies and asks for it.
         Assert.Contains("EnterMode:Magic", surface.CallLog);
         Assert.Equal(PluginCombatMode.Magic, surface.CombatSnapshot.Mode);
     }
@@ -4340,8 +4645,7 @@ public sealed class CombatControllerTests
         for (int tick = 0; tick < 6; tick++)
             controller.OnTick(0.25);
 
-        // bv.cs:194-195 then :204 — Peace is asked for BEFORE the arrow is
-        // wielded, never after.
+        // Peace is asked for BEFORE the arrow is wielded, never after.
         int peace = surface.CallLog.IndexOf("EnterMode:Peace");
         int equip = surface.CallLog.IndexOf("Equip:00000321");
         Assert.True(peace >= 0, "Peace was never requested: "
@@ -4405,7 +4709,7 @@ public sealed class CombatControllerTests
         var host = new FakeHost(surface);
         var controller = new CombatController(host, settings, vitals, AmmoGameInfo);
 
-        // Exactly MossTankPanel.cs:420-425 — the one shared gate, injected.
+        // Exactly what the panel builds — the one shared gate, injected.
         var gate = new CombatModeGate(host, settings, vitals, _ => { });
         controller.BindCombatModeGate(gate);
 
@@ -4755,11 +5059,11 @@ public sealed class CombatControllerTests
         Assert.Equal(["EnterMode:Peace"], surface.CallLog);
 
         surface.ConfirmPendingModeChange();
-        // R2-15: the ack RESTARTS the 600 ms window (f9.cs:322-328 stamps
-        // m_h again), so f9.e() still reports the PRE-request mode for one
+        // The ack RESTARTS the 600 ms window — it re-stamps the request time
+        // — so the gate still reports the PRE-request mode for one
         // more pass and the drop-to-peace branch re-asks. That second request
-        // re-stamps m_g from the now-Peace live mode, which is what lets the
-        // pass after it proceed.
+        // re-stamps the saved mode from the now-Peace live mode, which is
+        // what lets the pass after it proceed.
         gate.AdvancePass(1.0);
         Assert.False(gate.TryPrepare(PluginCombatMode.Magic));
         Assert.Equal(
@@ -5896,7 +6200,7 @@ public sealed class CombatControllerTests
         Assert.False(gate.TryDropToPeace(surface.EquipmentItems, "Recovery Wand"));
         Assert.Equal(["EnterMode:Peace"], surface.CallLog);
 
-        // The ack arrives. The window RESTARTS, so f9.e() still reports the
+        // The ack arrives. The window RESTARTS, so the gate still reports the
         // pre-request Melee and the branch re-asks — which re-stamps the
         // saved mode from the now-Peace live one.
         surface.ConfirmPendingModeChange();
@@ -7539,8 +7843,8 @@ public sealed class CombatControllerTests
 
     /// <summary>
     /// A real excerpt of the owner's own <c>gameinfodb.ugd</c> — VTank's
-    /// official GameInfoDB, which <c>e0</c> loads from the profile directory
-    /// (<c>e0.cs:53-79</c>). Any pin whose subject is a monster's damage
+    /// official GameInfoDB, loaded from the profile directory.
+    /// Any pin whose subject is a monster's damage
     /// preferences needs one, because acdream ships no embedded default.
     /// </summary>
     private static readonly VtankGameInfoDatabase AmmoGameInfo =
@@ -8019,6 +8323,8 @@ public sealed class CombatControllerTests
         public PluginAttackHeight LastProjectileHeight { get; private set; }
         public PluginProjectilePathKind LastProjectileKind { get; private set; }
         public int ProjectilePathChecks { get; private set; }
+        public float LastProjectileRadius { get; private set; }
+        public float LastProjectileStepDistance { get; private set; }
 
         /// <summary>Per-target overrides for the flight-path check.</summary>
         public Dictionary<uint, PluginProjectilePathResult> ProjectilePaths
@@ -8368,6 +8674,8 @@ public sealed class CombatControllerTests
             LastProjectileTarget = targetObjectId;
             LastProjectileHeight = targetHeight;
             LastProjectileKind = kind;
+            LastProjectileRadius = projectileRadius;
+            LastProjectileStepDistance = stepDistance;
             ProjectilePathChecks++;
             return ProjectilePaths.TryGetValue(
                 targetObjectId,

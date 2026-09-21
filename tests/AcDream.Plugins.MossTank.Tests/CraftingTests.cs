@@ -498,6 +498,92 @@ public sealed class CraftingTests
         Assert.Equal("Crafting Plentiful Healing Kit", controller.Status);
     }
 
+    /// <summary>
+    /// Idle restocking reads the count belonging to the category it is
+    /// restocking, and no other. Every row here crafts the same thing from the
+    /// same two ingredients; the only difference is which category the profile
+    /// files the result under, and therefore which of the six counts is read.
+    /// Zero for that category is "do not restock it", so the pass declines.
+    ///
+    /// Mutation: read one count for every category, or read a neighbouring
+    /// one, and a row with its own count at zero crafts anyway.
+    /// </summary>
+    [Theory]
+    [InlineData((int)ConsumableCategory.HealthKit)]
+    [InlineData((int)ConsumableCategory.StaminaKit)]
+    [InlineData((int)ConsumableCategory.ManaKit)]
+    [InlineData((int)ConsumableCategory.HealthFood)]
+    [InlineData((int)ConsumableCategory.StaminaFood)]
+    [InlineData((int)ConsumableCategory.ManaFood)]
+    public void IdleRestockingReadsTheCountForItsOwnCategory(int categoryValue)
+    {
+        var category = (ConsumableCategory)categoryValue;
+        Assert.True(TickIdleWithCategoryCount(category, count: 2));
+        Assert.False(TickIdleWithCategoryCount(category, count: 0));
+    }
+
+    /// <summary>
+    /// One idle restock pass with every category's count at zero except the
+    /// named one, which is set to <paramref name="count"/>. True when the pass
+    /// crafts.
+    /// </summary>
+    private static bool TickIdleWithCategoryCount(
+        ConsumableCategory category,
+        int count)
+    {
+        var automation = new Automation
+        {
+            TrainedSkill = 21u,
+            Inventory =
+            [
+                Item(1u, "Soft Bandages"),
+                Item(2u, "Combined Hyssop and Mandrake"),
+                Item(3u, "Plentiful Healing Kit"),
+            ],
+        };
+        var settings = new InventorySettings
+        {
+            AutoCraftItems = true,
+            SplitPeas = false,
+            IdleHealthKitCount = 0,
+            IdleStaminaKitCount = 0,
+            IdleManaKitCount = 0,
+            IdleHealthFoodCount = 0,
+            IdleStaminaFoodCount = 0,
+            IdleManaFoodCount = 0,
+        };
+        switch (category)
+        {
+            case ConsumableCategory.HealthKit:
+                settings.IdleHealthKitCount = count;
+                break;
+            case ConsumableCategory.StaminaKit:
+                settings.IdleStaminaKitCount = count;
+                break;
+            case ConsumableCategory.ManaKit:
+                settings.IdleManaKitCount = count;
+                break;
+            case ConsumableCategory.HealthFood:
+                settings.IdleHealthFoodCount = count;
+                break;
+            case ConsumableCategory.StaminaFood:
+                settings.IdleStaminaFoodCount = count;
+                break;
+            case ConsumableCategory.ManaFood:
+                settings.IdleManaFoodCount = count;
+                break;
+        }
+        var profiles = new CombatSettings();
+        profiles.ConsumableNames.Add("Plentiful Healing Kit");
+        profiles.ConsumableCategories["Plentiful Healing Kit"] = category;
+        var controller = new CraftingController(
+            new Host(automation),
+            settings,
+            profiles);
+
+        return controller.TickIdle(0d, canAct: true);
+    }
+
     private static PluginInventoryItem Item(uint id, string name) => new(
         id, 0u, name, 0x80u, 1u, 0u, 0u, 0u, 0u, 0u, 0u,
         1, 0, 0, 0u, 0, 0, 0u, false, 0d, 0, 0, 0, 0d, 0, 0, 0);

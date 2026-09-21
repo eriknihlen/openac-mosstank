@@ -309,7 +309,7 @@ internal sealed partial class LootController
         string killer = KillerName(corpse.LongDescription);
         // The local server writes the killer's name without the plus sign an
         // admin character carries, so the character's own plus is not part
-        // of the comparison. See the divergence register.
+        // of the comparison. That is a deliberate deviation.
         string character = _host.Automation.Character.Name.TrimStart('+');
         if (killer.Length != 0
             && character.Length != 0

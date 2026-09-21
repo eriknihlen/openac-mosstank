@@ -111,7 +111,7 @@ public sealed class MossTankPanelTests
             MaxStamina = 100,
             CurrentMana = 100,
             MaxMana = 100,
-            // BoosterVital 2 = VitalKind.Health (VitalPlan.cs:7).
+            // BoosterVital 2 = VitalKind.Health.
             ItemEntries = [Item(60, "Bread", 0x20) with { BoosterVital = 2 }],
         };
         var host = new FakeHost(automation);
@@ -976,6 +976,65 @@ public sealed class MossTankPanelTests
         Assert.StartsWith("Buffing", panel.BuffStatus, StringComparison.Ordinal);
     }
 
+    /// <summary>
+    /// The idle top-off has a window of its own, wider than the ordinary
+    /// rebuff one, and it is the profile's number. A buff with ten minutes
+    /// left is due under a twenty-minute window and comfortably fresh under a
+    /// five-minute one.
+    ///
+    /// Mutation: read the ordinary rebuff window for the idle pass, or a
+    /// constant, and both rows answer the same way.
+    /// </summary>
+    [Theory]
+    [InlineData(1200d, true)]
+    [InlineData(300d, false)]
+    public void TheIdleTopoffWindowIsItsOwnProfileNumber(
+        double idleWindowSeconds,
+        bool casts)
+    {
+        var automation = new FakeAutomation
+        {
+            CurrentHealth = 100,
+            MaxHealth = 100,
+            CurrentStamina = 100,
+            MaxStamina = 100,
+            CurrentMana = 100,
+            MaxMana = 100,
+            Skills =
+            [
+                new PluginSkillInfo(
+                    1,
+                    "Life Magic",
+                    PluginSkillTraining.Trained,
+                    300),
+            ],
+            KnownSelfBuffs =
+            [
+                Spell(
+                    1,
+                    10,
+                    "Increases the caster's Life Magic skill by 10 points."),
+            ],
+            ActiveEnchantments = [new PluginActiveEnchantment(1, 10, 1, 600)],
+        };
+        var panel = new MossTankPanel(new FakeHost(automation));
+        panel.SetMetaOption(
+            "IdleBuffTopoffTimeSeconds",
+            AcDream.Plugins.MossTank.Expressions.ExpressionValue.Number(
+                idleWindowSeconds));
+
+        // Ten minutes left is outside the ordinary rebuff window either way,
+        // so nothing is cast until the idle pass is switched on.
+        panel.ToggleCombat();
+        panel.OnTick(0d);
+        Assert.Empty(automation.CastSpellIds);
+
+        panel.ToggleIdleBuffTopoff();
+        panel.OnTick(1d);
+
+        Assert.Equal(casts, automation.CastSpellIds.Count != 0);
+    }
+
     [Fact]
     public void StoppingTheMacroEndsAnAutomaticBuffPassInProgress()
     {
@@ -1248,7 +1307,7 @@ public sealed class MossTankPanelTests
         Assert.False(automation.IsCasting);
         Assert.Single(automation.CastSpellIds);
 
-        // Past the 5000 ms attempt watchdog (gj.cs:319-324) the tracker drops
+        // Past the 5000 ms attempt watchdog the tracker drops
         // to idle and re-issues the SAME spell; it never walks the queue.
         for (int i = 0; i < 12; i++)
             panel.OnTick(0.3d);
@@ -1704,9 +1763,9 @@ public sealed class MossTankPanelTests
         panel.OnTick(0.3d);
         Assert.Empty(automation.CastSpellIds);
 
-        // eq.i() - everything now reads as about to expire...
+        // Force-buff - everything now reads as about to expire...
         panel.ForceBuff();
-        // ...and eq.e() puts it back before the next heartbeat can act.
+        // ...and cancelling it puts it back before the next heartbeat can act.
         panel.CancelForceBuff();
         for (int tick = 0; tick < 6; tick++)
             panel.OnTick(0.3d);
@@ -2300,9 +2359,9 @@ public sealed class MossTankPanelTests
     }
 
     /// <summary>
-    /// <c>eq.a(out, out)</c> walks <c>b()</c> — the SELF list — to exhaustion
-    /// before it ever reaches <c>g()</c> (<c>eq.cs:481</c> then
-    /// <c>eq.cs:510</c>). A self buff that is due therefore always outranks
+    /// The reference buff pick walks the SELF list to exhaustion before it
+    /// ever reaches the item list. A self buff that is due therefore always
+    /// outranks
     /// every item enchantment.
     /// Mutation: try the item rows first in TryPickBuff and this fails.
     /// </summary>
@@ -2597,6 +2656,29 @@ public sealed class MossTankPanelTests
             "Increases a weapon's damage value by 2 points.",
             IsSelfTargeted: false,
             IsBeneficial: true);
+
+    /// <summary>
+    /// Running the fellowship -- answering tells, handling votes -- is a
+    /// profile choice, and with it off the manager does nothing and says so
+    /// rather than quietly watching chat.
+    ///
+    /// Mutation: run the manager whatever the profile says and the second row
+    /// reports the in-world state instead.
+    /// </summary>
+    [Theory]
+    [InlineData(true, "Not in a fellowship")]
+    [InlineData(false, "Fellow manager disabled")]
+    public void ManagingTheFellowshipIsAProfileChoice(bool manages, string status)
+    {
+        var panel = new MossTankPanel(new FakeHost(new FakeAutomation()));
+        panel.SetMetaOption("AutoFellowManagement", Truthy(manages));
+
+        panel.ToggleCombat();
+        for (int tick = 0; tick < 4; tick++)
+            panel.OnTick(0.3d);
+
+        Assert.Equal(status, panel.FellowshipManagerStatus);
+    }
 
     [Fact]
     public void RandomHelperBuffsGoToANearbyFellowWithTheSettingOn()
@@ -3160,7 +3242,7 @@ public sealed class MossTankPanelTests
             MaxStamina = 100,
             CurrentMana = 100,
             MaxMana = 100,
-            // BoosterVital 2 = VitalKind.Health (VitalPlan.cs:7).
+            // BoosterVital 2 = VitalKind.Health.
             ItemEntries = [Item(60, "Bread", 0x20) with { BoosterVital = 2 }],
         };
         var host = new FakeHost(automation);
@@ -3207,7 +3289,7 @@ public sealed class MossTankPanelTests
             MaxStamina = 100,
             CurrentMana = 100,
             MaxMana = 100,
-            // BoosterVital 2 = VitalKind.Health (VitalPlan.cs:7).
+            // BoosterVital 2 = VitalKind.Health.
             ItemEntries = [Item(60, "Bread", 0x20) with { BoosterVital = 2 }],
         };
         var host = new FakeHost(automation);
@@ -4039,7 +4121,7 @@ public sealed class MossTankPanelTests
         var panel = new MossTankPanel(new FakeHost(automation));
 
         // No wand anywhere: the gate's own path here is
-        // PostNoWandNoticeAndStop, exactly as ga.cs:1471-1473.
+        // PostNoWandNoticeAndStop, exactly as the reference does.
         panel.ToggleCombat();
         panel.ForceBuff();
         for (int tick = 0; tick < 5; tick++)
@@ -4109,7 +4191,7 @@ public sealed class MossTankPanelTests
             [
                 Spell(1, 10, "Increases the caster's Life Magic skill by 10 points."),
             ],
-            // BoosterVital 2 = VitalKind.Health (VitalPlan.cs:7).
+            // BoosterVital 2 = VitalKind.Health.
             ItemEntries = [Item(60, "Bread", 0x20) with { BoosterVital = 2 }],
         };
         var host = new FakeHost(automation);
@@ -5777,6 +5859,54 @@ public sealed class MossTankPanelTests
 
         Assert.Contains("BuffProfile_Prots", panel.AdvancedOptionNames);
         Assert.Contains("BuffProfile_Banes", panel.AdvancedOptionNames);
+    }
+
+    /// <summary>
+    /// A setting nothing in the macro reads is not an option here at all: a
+    /// row the player can change that changes nothing is worse than no row.
+    /// A profile written elsewhere may still carry the name; it is ignored
+    /// on load like any other name the macro does not know.
+    ///
+    /// Mutation: put the name back in the option catalog and the row returns.
+    /// </summary>
+    [Fact]
+    public void ASettingNothingReadsIsNotAnOption()
+    {
+        var panel = new MossTankPanel(new FakeHost(new FakeAutomation()));
+
+        Assert.DoesNotContain("WhoYouGonnaCall", panel.AdvancedOptionNames);
+        Assert.DoesNotContain("WhoYouGonnaCall", VtankOptionCatalog.Names);
+    }
+
+    /// <summary>
+    /// The advanced list shows the four plain value kinds -- switch, choice,
+    /// whole number and decimal -- and nothing else. A table-valued setting has
+    /// no plain value to type, and an edit made against it here would be
+    /// dropped without a word, so it is not offered at all; the recharge
+    /// handler table is the only one of its kind.
+    ///
+    /// Mutation: filter only text settings out again and the table reappears
+    /// in the list as an editable row.
+    /// </summary>
+    [Fact]
+    public void AdvancedOptionListOffersOnlyThePlainValueKinds()
+    {
+        var panel = new MossTankPanel(new FakeHost(new FakeAutomation()));
+
+        Assert.DoesNotContain("RechargeHandlerSet", panel.AdvancedOptionNames);
+
+        foreach (string name in panel.AdvancedOptionNames)
+        {
+            Assert.Contains(
+                VtankOptionCatalog.DeclaredType(name),
+                new[]
+                {
+                    VtankSettingValueType.Bool,
+                    VtankSettingValueType.Enum,
+                    VtankSettingValueType.Int,
+                    VtankSettingValueType.Double,
+                });
+        }
     }
 
     [Fact]
@@ -8015,7 +8145,9 @@ public sealed class MossTankPanelTests
         var storage = new MemoryStorage();
         var first = new MossTankPanel(new FakeHost(new FakeAutomation(), storage));
 
-        Assert.Equal(137, VtankOptionCatalog.Names.Length);
+        // One fewer than the shipped settings file names: the one setting no
+        // rule reads is not an option here.
+        Assert.Equal(136, VtankOptionCatalog.Names.Length);
         Assert.Equal(10d, first.EvaluateExpression(
             "uboptget['ArrowheadFletchDiffExcessThreshold']").AsNumber());
         Assert.Equal(0.0833333333333333d, first.EvaluateExpression(
@@ -8723,8 +8855,8 @@ public sealed class MossTankPanelTests
           ICombatAutomation
     {
         /// <summary>
-        /// Per-object tracked enchantments, VTank's <c>dm</c>
-        /// (<c>dm.cs:287-321</c>) — what an item-enchant row's due test reads.
+        /// Per-object tracked enchantments — what an item-enchant row's due
+        /// test reads.
         /// </summary>
         public Dictionary<uint, List<PluginTrackedEnchantment>> ItemEnchantments
         { get; } = [];
@@ -9128,7 +9260,7 @@ public sealed class MossTankPanelTests
 
         public Func<uint>? CurrentSelection { get; set; }
 
-        /// <summary><c>eq.a(ActiveSpellInfo)</c> (<c>eq.cs:447-475</c>).</summary>
+        /// <summary>Fold a landed enchantment into the tracked table.</summary>
         private void LandEnchantment(uint spellId)
         {
             foreach (PluginSpellInfo spell in KnownSelfBuffs)

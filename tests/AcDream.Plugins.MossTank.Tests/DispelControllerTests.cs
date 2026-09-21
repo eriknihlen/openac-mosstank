@@ -209,8 +209,7 @@ public sealed class DispelControllerTests
                 [4u] = [Tracked(4u, fire), Tracked(4u, cold)],
             },
         };
-        // af.cs:84 scans PluginCore.PC.ec, the ITEMS PROFILE, not the whole
-        // inventory.
+        // The scan covers the ITEMS PROFILE, not the whole inventory.
         var profile = new CombatSettings();
         profile.CombatItemNames.Add("Attenuated Awakener");
         var controller = new DispelController(

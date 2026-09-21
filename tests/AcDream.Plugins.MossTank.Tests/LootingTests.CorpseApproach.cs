@@ -287,6 +287,48 @@ public sealed partial class LootingTests
         }
     }
 
+    /// <summary>
+    /// The inner radius is the profile's own number, not a constant: raise it
+    /// and the walk to the very same corpse is already over, lower it and the
+    /// walk is still on. The walk ending is what hands the corpse to the open.
+    ///
+    /// Mutation: compare against a fixed inner stop instead of the profile's
+    /// and both rows answer the same way.
+    /// </summary>
+    [Theory]
+    [InlineData(3d, true)]
+    [InlineData(8d, false)]
+    public void TheInnerRadiusComesFromTheProfile(double minimumRange, bool walks)
+    {
+        var settings = ApproachSettings(range: 30d);
+        settings.CorpseMinimumApproachRange = minimumRange;
+        var automation = ApproachAutomation(Corpse(0x70002020u, 6f));
+        CorpseApproachController approach = Approach(automation, settings);
+
+        Assert.Equal(walks, approach.ClaimFromRulePass(canAct: true));
+        Assert.Equal(walks, automation.Intents.Count != 0);
+    }
+
+    /// <summary>
+    /// The two radii are independent: an inner stop wider than the outer reach
+    /// leaves no band at all, and nothing is walked to whatever the corpse's
+    /// range.
+    ///
+    /// Mutation: clamp the inner radius to the outer one and the corpse inside
+    /// the reach is walked to again.
+    /// </summary>
+    [Fact]
+    public void AnInnerRadiusWiderThanTheOuterReachLeavesNoBand()
+    {
+        var settings = ApproachSettings(range: 10d);
+        settings.CorpseMinimumApproachRange = 20d;
+        var automation = ApproachAutomation(Corpse(0x70002021u, 8f));
+        CorpseApproachController approach = Approach(automation, settings);
+
+        Assert.False(approach.ClaimFromRulePass(canAct: true));
+        Assert.Empty(automation.Intents);
+    }
+
     private static LootSettings ApproachSettings(double range)
     {
         var settings = new LootSettings

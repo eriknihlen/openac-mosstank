@@ -59,7 +59,7 @@ public sealed class SpellCastTrackerTests
     }
 
     /// <summary>
-    /// <c>gj.cs:442-453</c> — a success line ends the wait.
+    /// A success line ends the wait.
     /// Mutation: drop the <c>Success</c> arm from <c>ObserveChat</c> and this
     /// fails, because the tracker stays busy.
     /// </summary>
@@ -148,7 +148,7 @@ public sealed class SpellCastTrackerTests
     }
 
     /// <summary>
-    /// <c>gj.cs:409-413</c> — and it DOES end the wait for a single-target one.
+    /// And it DOES end the wait for a single-target one.
     /// Mutation: return <c>None</c> from the <c>PermanentFail</c> arm and this
     /// fails.
     /// </summary>
@@ -294,7 +294,7 @@ public sealed class SpellCastTrackerTests
     [InlineData(new[] { 110u, 77u }, 0u, true)]
     [InlineData(new[] { 77u, 110u }, 0u, false)]
     [InlineData(new uint[0], 638u, true)]
-    public void HitsMultipleTargetsMatchesMySpell(
+    public void HitsMultipleTargetsMatchesTheSpellTable(
         uint[] components,
         uint family,
         bool expected)
@@ -324,7 +324,7 @@ public sealed class SpellCastTrackerTests
         tracker.Begin(1u, "Strength Self VI", 5u, "yourself", false, 0L, "casfaen");
         Assert.Equal(SpellCastTrackerState.AwaitingLaunch, tracker.State);
 
-        // gj.cs:352 — ToLowerInvariant().Replace(" ", "").
+        // The echo is matched after ToLowerInvariant().Replace(" ", "").
         tracker.ObserveChat(
             1uL,
             "Cas Faen",

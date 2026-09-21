@@ -16,7 +16,7 @@ internal interface IBuffRuleHost
 
     void Announce(string text);
 
-    /// <summary><c>ga.a(string, eLogState)</c>, gated by <c>/vt log</c>.</summary>
+    /// <summary>Write a macro log line, gated by <c>/vt log</c>.</summary>
     void Log(MacroLogChannel channel, string message);
 
     void MirrorToLog(MacroLogChannel channel, string message);

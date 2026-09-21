@@ -80,8 +80,8 @@ internal sealed class OpenDoorRule : IMacroRule
     /// it lands the caller passes a reader for the four locks the door rule
     /// waits on — navigation, item use, door opening and the spread-lock
     /// target request — and an <see cref="Arm"/> that takes the ones it holds
-    /// while it acts. The exact replacements are recorded in the slice-6
-    /// research note.
+    /// while it acts. The exact replacements are recorded in the research
+    /// note on the action-lock table.
     /// </remarks>
     internal bool IsLocked => _isLocked();
 

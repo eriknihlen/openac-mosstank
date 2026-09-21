@@ -213,7 +213,7 @@ internal static class CombatItemDebuffPlanner
                 (item.ItemType & MissileWeapon) != 0u
                     ? PluginProjectilePathKind.Missile
                     : null);
-            // ga.a uses the first qualifying item spell.
+            // The first qualifying item spell is the one used.
             return;
         }
     }

@@ -469,7 +469,7 @@ public sealed partial class LootingTests
     [Fact]
     public void UnidentifiedCorpseIsOpenedOnceItsAutomationIdentifyCompletes_EvenWithoutPresentation()
     {
-        // HIGH-1 regression guard. A corpse identify is always
+        // Regression guard for the corpse-looting stall. A corpse identify is always
         // Automation-origin and, on the real host, only ever advances the
         // examination window's presentation target if that window already
         // happens to be showing the corpse -- which it normally is not.
@@ -2338,6 +2338,47 @@ public sealed partial class LootingTests
     /// what makes the client classify it as a scroll. The name deliberately
     /// does NOT end in " Scroll" — many do not, and the shape is what decides.
     /// </summary>
+    /// <summary>
+    /// Reading scrolls the character cannot yet cast is a profile choice. With
+    /// it off, a scroll that passes every other test -- an unknown spell, a
+    /// school the character is skilled enough in -- is still not worth reading,
+    /// so the looter never queues it and the reading rule never gets one.
+    ///
+    /// Mutation: drop the option from the eligibility test and the scroll is
+    /// read whatever the profile says.
+    /// </summary>
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public void ReadingUnknownScrollsIsAProfileChoice(bool reads)
+    {
+        var automation = new Automation
+        {
+            KnownSpell = new PluginSpellInfo(
+                777u, "Incantation of Testing", 1u, 1, 100, 10, 0f,
+                34u, string.Empty, false, false),
+            SkillsValue =
+            [
+                new PluginSkillInfo(
+                    34u, "War Magic", PluginSkillTraining.Trained, 90u),
+            ],
+        };
+        var settings = new LootSettings
+        {
+            Enabled = true,
+            ReadUnknownScrolls = reads,
+        };
+
+        Assert.Equal(
+            reads,
+            ScrollReading.IsEligible(
+                new Host(automation),
+                settings,
+                Scroll(0x70000C01u, "Incantation of Testing", 777u),
+                new Dictionary<uint, uint>(),
+                commit: true));
+    }
+
     private static PluginInventoryItem Scroll(
         uint id,
         string spellName,
@@ -2713,7 +2754,7 @@ public sealed partial class LootingTests
         /// never to the examination window's presentation target,
         /// PresentedObjectId here). A test that instead pokes
         /// AppraisalState.CurrentObjectId directly cannot tell the two
-        /// apart and would not have caught the HIGH-1 corpse-looting
+        /// apart and would not have caught the corpse-looting
         /// stall: the corpse identify is Automation-origin and normally
         /// never presents (presentInUi: false here), yet the completion
         /// signal must still advance so looting proceeds.

@@ -64,7 +64,7 @@ internal sealed class VtankGameInfoDatabase
         MartyrSpellOptions = [];
     }
 
-    /// <summary><c>e0.m_b</c> — is there a database at all?</summary>
+    /// <summary>Is there a database at all?</summary>
     public bool IsLoaded { get; private init; }
 
     public IReadOnlyDictionary<string, IReadOnlyList<MonsterDamageType>>

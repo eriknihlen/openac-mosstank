@@ -903,7 +903,7 @@ public sealed class VitalRechargeTests
     }
 
     /// <summary>
-    /// <c>fb.cs:85-94</c> — "The Healer's Heart" takes rank 1 and "Legendary
+    /// "The Healer's Heart" takes rank 1 and "Legendary
     /// Seed of Mornings" rank 2, and each arm only overwrites when
     /// <c>num &lt; rank</c>, so the Seed wins whichever order the scan meets
     /// them in.
@@ -989,6 +989,358 @@ public sealed class VitalRechargeTests
         Assert.False(controller.Tick(
             0.3d, enabled: true, noTarget: false, helpers: true));
         Assert.Empty(ready.UsedItemIds);
+    }
+
+    /// <summary>
+    /// Kits in magic stance are a profile choice: with the option on, a kit is
+    /// the plan while the character is mid-spell-stance; with it off there is
+    /// no plan at all, and the character keeps casting rather than bandaging.
+    ///
+    /// Mutation: drop the stance test from the kit step and the second row
+    /// plans the kit as well.
+    /// </summary>
+    [Theory]
+    [InlineData(true, true)]
+    [InlineData(false, false)]
+    public void KitsInMagicStanceAreAProfileChoice(bool allowed, bool plans)
+    {
+        var surface = new Surface
+        {
+            Mode = PluginCombatMode.Magic,
+            CurrentHealth = 50,
+            Skills = [Skill(21u, 400u)],
+            Items = [Kit(10u, "Plentiful Healing Kit", booster: 2)],
+        };
+        var combat = new CombatSettings();
+        combat.ConsumableNames.Add("Plentiful Healing Kit");
+
+        Assert.Equal(
+            plans,
+            VitalRechargePlanner.TryPlan(
+                VitalKind.Health,
+                surface,
+                new VitalSettings { UseKitsInMagicMode = allowed },
+                combat,
+                out VitalRechargeChoice choice));
+        if (plans)
+            Assert.Equal(VitalRechargeSourceKind.Kit, choice.SourceKind);
+    }
+
+    /// <summary>
+    /// The same option never touches a stance the character is not in: in
+    /// melee stance the kit is planned whichever way the option is set.
+    ///
+    /// Mutation: widen the stance test to every stance and the kit is refused
+    /// with the option off.
+    /// </summary>
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public void KitsOutsideMagicStanceAreUnaffectedByThatChoice(bool allowed)
+    {
+        var surface = new Surface
+        {
+            Mode = PluginCombatMode.Melee,
+            CurrentHealth = 50,
+            Skills = [Skill(21u, 400u)],
+            Items = [Kit(10u, "Plentiful Healing Kit", booster: 2)],
+        };
+        var combat = new CombatSettings();
+        combat.ConsumableNames.Add("Plentiful Healing Kit");
+
+        Assert.True(VitalRechargePlanner.TryPlan(
+            VitalKind.Health,
+            surface,
+            new VitalSettings { UseKitsInMagicMode = allowed },
+            combat,
+            out VitalRechargeChoice choice));
+        Assert.Equal(VitalRechargeSourceKind.Kit, choice.SourceKind);
+    }
+
+    /// <summary>
+    /// A kit can be asked for from any stance: with the option on the plan
+    /// carries a stance requirement the recharge honours before it uses the
+    /// kit, and with it off the kit is used from whatever stance the character
+    /// is already in.
+    ///
+    /// Mutation: always attach the peace requirement, or never attach it, and
+    /// one of the two rows fails.
+    /// </summary>
+    [Theory]
+    [InlineData(true, PluginCombatMode.Peace)]
+    [InlineData(false, null)]
+    public void GoingToPeaceForAKitIsAProfileChoice(
+        bool goToPeace,
+        PluginCombatMode? required)
+    {
+        var surface = new Surface
+        {
+            Mode = PluginCombatMode.Melee,
+            CurrentHealth = 50,
+            Skills = [Skill(21u, 400u)],
+            Items = [Kit(10u, "Plentiful Healing Kit", booster: 2)],
+        };
+        var combat = new CombatSettings();
+        combat.ConsumableNames.Add("Plentiful Healing Kit");
+
+        Assert.True(VitalRechargePlanner.TryPlan(
+            VitalKind.Health,
+            surface,
+            new VitalSettings { GoToPeaceModeToUseKits = goToPeace },
+            combat,
+            out VitalRechargeChoice choice));
+        Assert.Equal(VitalRechargeSourceKind.Kit, choice.SourceKind);
+        Assert.Equal(required, choice.RequiredMode);
+    }
+
+    /// <summary>
+    /// The boost is hysteresis, counted in vital points: while it is armed the
+    /// recharge reads the character as that many points worse off than it is,
+    /// so a recharge already under way is not abandoned the moment the vital
+    /// creeps back over the threshold. Here the character is above the
+    /// threshold with nothing left to use, and the boost is the only reason
+    /// the recharge still says it has work.
+    ///
+    /// Mutation: pass zero instead of the profile's amount and the second pass
+    /// already reports the vitals ready.
+    /// </summary>
+    [Fact]
+    public void TheBoostAmountKeepsANeedAliveAboveTheThreshold()
+    {
+        var surface = new Surface
+        {
+            CurrentHealth = 50,
+            MaxHealth = 100,
+            Skills = [Skill(33u, 400u)],
+            Spells = [Spell(100u, "Heal Self VII", family: 1u, quality: 300)],
+        };
+        var settings = new VitalSettings
+        {
+            NormalHealth = 0.75d,
+            RechargeBoostAmount = 40,
+            RechargeBoostTimeSeconds = 5d,
+        };
+        var controller = new VitalRechargeController(
+            new Host(surface),
+            settings,
+            new CombatSettings());
+        controller.BindActionLocks(new ActionLockTable());
+
+        // Peace stance with only a spell to recharge with: the stance is asked
+        // for, and the wait for it is what arms the boost.
+        Assert.True(controller.Tick(0.3d, enabled: true, noTarget: false, helpers: false));
+
+        // Back above the threshold, with nothing left to use. Read straight,
+        // the character is fine; read through the boost it is still short.
+        surface.CurrentHealth = 80u;
+        surface.Spells = [];
+        Assert.True(controller.Tick(0.3d, enabled: true, noTarget: false, helpers: false));
+        Assert.Contains("No Health", controller.Status, StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// The boost is a window, and the profile sets how long it is: past it the
+    /// character is read straight again and the recharge is done.
+    ///
+    /// Mutation: arm the window from a constant and the pass past the
+    /// profile's five seconds still reports work to do.
+    /// </summary>
+    [Fact]
+    public void TheBoostWindowIsTheProfilesOwnLength()
+    {
+        var surface = new Surface
+        {
+            CurrentHealth = 50,
+            MaxHealth = 100,
+            Skills = [Skill(33u, 400u)],
+            Spells = [Spell(100u, "Heal Self VII", family: 1u, quality: 300)],
+        };
+        var settings = new VitalSettings
+        {
+            NormalHealth = 0.75d,
+            RechargeBoostAmount = 40,
+            RechargeBoostTimeSeconds = 5d,
+        };
+        var controller = new VitalRechargeController(
+            new Host(surface),
+            settings,
+            new CombatSettings());
+        controller.BindActionLocks(new ActionLockTable());
+
+        Assert.True(controller.Tick(0.3d, enabled: true, noTarget: false, helpers: false));
+
+        surface.CurrentHealth = 80u;
+        surface.Spells = [];
+        Assert.False(controller.Tick(6d, enabled: true, noTarget: false, helpers: false));
+        Assert.Equal("Vitals ready", controller.Status);
+    }
+
+    /// <summary>
+    /// The boost exists to carry a recharge as far as its cast; this option
+    /// decides whether landing that cast ends it. With the flag set the window
+    /// is dropped the moment the spell lands and the character is read
+    /// straight again; with it clear the window runs its own length out.
+    ///
+    /// Mutation: drop the window unconditionally on a landed cast and the
+    /// second row reports the vitals ready.
+    /// </summary>
+    [Theory]
+    [InlineData(true, false)]
+    [InlineData(false, true)]
+    public void LandingTheBoostSpellEndsTheWindowOnlyWhenTheProfileSaysSo(
+        bool clearOnCast,
+        bool stillBusy)
+    {
+        var surface = new Surface
+        {
+            CurrentHealth = 50,
+            MaxHealth = 100,
+            Skills = [Skill(33u, 400u)],
+            Spells = [Spell(100u, "Adja's Intervention", family: 1u, quality: 300)],
+        };
+        var settings = new VitalSettings
+        {
+            NormalHealth = 0.75d,
+            RechargeBoostAmount = 40,
+            RechargeBoostTimeSeconds = 5d,
+            ClearLevelBoostFlagOnCast = clearOnCast,
+        };
+        var controller = new VitalRechargeController(
+            new Host(surface),
+            settings,
+            new CombatSettings());
+        controller.BindActionLocks(new ActionLockTable());
+
+        // Peace stance: the stance is asked for and the boost is armed.
+        Assert.True(controller.Tick(0.3d, enabled: true, noTarget: false, helpers: false));
+
+        // In stance the cast goes out, and the server answers it.
+        surface.Mode = PluginCombatMode.Magic;
+        Assert.True(controller.Tick(0.3d, enabled: true, noTarget: false, helpers: false));
+        surface.LastCastCompletion = new PluginCastCompletion(1L, 100u, 0u, 0u);
+        Assert.True(controller.Tick(0.3d, enabled: true, noTarget: false, helpers: false));
+
+        // Back above the threshold with nothing left to use: only a window
+        // still standing can report work.
+        surface.CurrentHealth = 80u;
+        surface.Spells = [];
+        Assert.Equal(
+            stillBusy,
+            controller.Tick(0.3d, enabled: true, noTarget: false, helpers: false));
+    }
+
+    /// <summary>
+    /// Each vital the helper watches has its own reach, and a fellow beyond
+    /// that vital's reach is not a candidate for it. Health first: the same
+    /// hurt fellow forty metres off is helped at fifty and ignored at thirty.
+    ///
+    /// Mutation: share one reach across the three vitals, or drop the
+    /// distance test, and the short row helps anyway.
+    /// </summary>
+    [Theory]
+    [InlineData(50d, true)]
+    [InlineData(30d, false)]
+    public void TheHelpersHealthReachIsItsOwnProfileNumber(double reach, bool helps)
+    {
+        var surface = new Surface
+        {
+            Mode = PluginCombatMode.Magic,
+            Spells = [Spell(300u, "Adja's Grace", 900u, 350)],
+            Lookup = [Spell((uint)SpellId.AdjaSGift, "Adja's Gift", 900u, 100)],
+            InFellowship = true,
+            Fellows = [Fellow(71u, "Hurt", health: 5, distance: 40f)],
+        };
+
+        Assert.Equal(
+            helps,
+            VitalRechargePlanner.TryPlanHelper(
+                surface,
+                new VitalSettings { HelperHealthDistance = reach },
+                out VitalRechargeChoice choice));
+        if (helps)
+            Assert.Equal(VitalKind.Health, choice.Vital);
+    }
+
+    /// <summary>
+    /// Stamina carries its own reach, and shortening it drops the fellow from
+    /// the stamina row while the profile's other reaches are untouched.
+    ///
+    /// Mutation: read the health reach for the stamina row and the short row
+    /// helps anyway.
+    /// </summary>
+    [Theory]
+    [InlineData(50d, true)]
+    [InlineData(30d, false)]
+    public void TheHelpersStaminaReachIsItsOwnProfileNumber(double reach, bool helps)
+    {
+        var surface = new Surface
+        {
+            Mode = PluginCombatMode.Magic,
+            Spells = [Spell(301u, "Replenish Greater", 81u, 350)],
+            Lookup = [Spell((uint)SpellId.Replenish, "Replenish", 81u, 100)],
+            InFellowship = true,
+            Fellows =
+            [
+                Fellow(71u, "Winded", health: 100, distance: 40f)
+                    with { CurrentStamina = 5u },
+            ],
+        };
+
+        Assert.Equal(
+            helps,
+            VitalRechargePlanner.TryPlanHelper(
+                surface,
+                new VitalSettings
+                {
+                    HelperStamina = 0.5d,
+                    HelperHealthDistance = 50d,
+                    HelperStaminaDistance = reach,
+                },
+                out VitalRechargeChoice choice));
+        if (helps)
+            Assert.Equal(VitalKind.Stamina, choice.Vital);
+    }
+
+    /// <summary>
+    /// Mana's reach is shorter than the other two out of the box, and it is
+    /// read for the mana row alone.
+    ///
+    /// Mutation: read the health reach for the mana row and the short row
+    /// helps anyway.
+    /// </summary>
+    [Theory]
+    [InlineData(50d, true)]
+    [InlineData(30d, false)]
+    public void TheHelpersManaReachIsItsOwnProfileNumber(double reach, bool helps)
+    {
+        var surface = new Surface
+        {
+            Mode = PluginCombatMode.Magic,
+            Spells = [Spell(302u, "Gift of Essence Greater", 950u, 350)],
+            Lookup =
+                [Spell((uint)SpellId.GiftOfEssence, "Gift of Essence", 950u, 100)],
+            InFellowship = true,
+            Fellows =
+            [
+                Fellow(71u, "Drained", health: 100, distance: 40f)
+                    with { CurrentMana = 5u },
+            ],
+        };
+
+        Assert.Equal(
+            helps,
+            VitalRechargePlanner.TryPlanHelper(
+                surface,
+                new VitalSettings
+                {
+                    HelperMana = 0.5d,
+                    HelperHealthDistance = 50d,
+                    HelperStaminaDistance = 50d,
+                    HelperManaDistance = reach,
+                },
+                out VitalRechargeChoice choice));
+        if (helps)
+            Assert.Equal(VitalKind.Mana, choice.Vital);
     }
 
     private static Surface HealersHeartSurface() => new()
@@ -1102,7 +1454,7 @@ public sealed class VitalRechargeTests
         public IFellowshipAutomation Fellowship => this;
         public bool IsInWorld => true;
         public uint ObjectId => 1u;
-        public uint CurrentHealth { get; init; } = 100u;
+        public uint CurrentHealth { get; set; } = 100u;
         public uint MaxHealth { get; init; } = 100u;
         public uint CurrentStamina { get; init; } = 100u;
         public uint MaxStamina { get; init; } = 100u;
@@ -1185,17 +1537,19 @@ public sealed class VitalRechargeTests
         /// <summary>Items the client has not appraised.</summary>
         public HashSet<uint> Unassessed { get; } = [];
 
-        /// <summary><c>ActionLockType.ItemUse</c> (<c>fb.cs:75-78</c>).</summary>
+        /// <summary><c>ActionLockType.ItemUse</c>.</summary>
         public bool ItemsBusy { get; set; }
         public bool InFellowship { get; init; }
         public IReadOnlyList<PluginFellowMember> Fellows { get; init; } = [];
-        public PluginCombatMode Mode { get; init; } = PluginCombatMode.Peace;
+        public PluginCombatMode Mode { get; set; } = PluginCombatMode.Peace;
         public PluginCombatSnapshot Snapshot => new(0u, Mode, default, 0f, 0f,
             false, false, false, false);
         bool IItemAutomation.IsAvailable => true;
         bool IItemAutomation.IsBusy => ItemsBusy;
         bool IFellowshipAutomation.IsInFellowship => InFellowship;
         public bool IsCasting => false;
+        public PluginCastCompletion LastCastCompletion { get; set; }
+        PluginCastCompletion IMagicCommands.LastCompletion => LastCastCompletion;
 
         public bool TryGetSkill(uint skillId, out PluginSkillInfo skill)
         {

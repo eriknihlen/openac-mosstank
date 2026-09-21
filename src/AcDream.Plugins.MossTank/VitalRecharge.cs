@@ -1103,7 +1103,7 @@ internal static class VitalRechargePlanner
         int quality = candidate.Quality.CompareTo(current.Quality);
         if (quality != 0)
             return quality > 0;
-        // dz.cs/m.cs: a direct learned spell wins the final source tie.
+        // A direct learned spell wins the final source tie.
         if ((candidateItem == 0u) != (currentItem == 0u))
             return candidateItem == 0u;
         return candidateItem < currentItem;
@@ -1321,7 +1321,7 @@ internal sealed class VitalRechargeController
         }
         if (helpers && need is not null)
         {
-            // Rows 11/12 (fb/gu) are the HELPER rules; a self need belongs to
+            // Rows 11/12 are the HELPER rules; a self need belongs to
             // row 4 and was already offered there this pass.
             Status = "Vitals ready";
             return false;

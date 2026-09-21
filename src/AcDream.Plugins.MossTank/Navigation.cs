@@ -536,8 +536,8 @@ internal sealed class NavigationController
     /// the next start re-anchors it.
     ///
     /// The reference re-anchors on a route change too rather than going to
-    /// the head; that difference is the register's, not this method's, and
-    /// it is recorded there.
+    /// the head; that difference is a deliberate deviation and is recorded
+    /// with the project's other known deviations.
     /// </summary>
     public void Reset()
     {
@@ -1236,7 +1236,7 @@ internal sealed class NavigationController
     /// on the bearing means the bearing is counter-clockwise, so the turn is
     /// left. Heading grows clockwise, so this agrees with the sign of the
     /// wrapped difference everywhere except at exactly half a turn, where the
-    /// choice is arbitrary and this one is the retail one.
+    /// choice is arbitrary and this one matches the reference behaviour.
     /// </summary>
     internal static bool PrefersLeftTurn(float current, float desired)
     {

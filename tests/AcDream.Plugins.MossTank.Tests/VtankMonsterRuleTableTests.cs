@@ -3,9 +3,9 @@ namespace AcDream.Plugins.MossTank.Tests;
 public sealed class VtankMonsterRuleTableTests
 {
     [Fact]
-    public void ShippedDefaultRowParsesToRetailsOwnValues()
+    public void ShippedDefaultRowParsesToTheShippedValues()
     {
-        // uTank2.Resources.defaultsettings.usd:93-134 — <DEFAULT>, priority 1,
+        // The shipped default settings row: <DEFAULT>, priority 1,
         // DamageType 8 (Auto), WeaponToUse -1, Attack and Streak set,
         // SecondaryVuln 98 (None), SecondaryEquip 0 (Auto),
         // PetDamageType 101 (PAuto).
@@ -313,7 +313,7 @@ public sealed class VtankMonsterRuleTableTests
     /// is straight. Reading it inverted would make every authored profile
     /// fight exactly the monsters it was told to leave alone.
     /// Mutation: negate either side and
-    /// <see cref="ShippedDefaultRowParsesToRetailsOwnValues"/> reads the
+    /// <see cref="ShippedDefaultRowParsesToTheShippedValues"/> reads the
     /// shipped "attack anything" default as a row that never attacks.
     /// </summary>
     [Fact]
@@ -460,7 +460,7 @@ public sealed class VtankMonsterRuleTableTests
         Assert.Equal(
             MonsterDamageType.PlayerAuto,
             VtankDamageElement.ToMonsterDamageType(101));
-        // bv.cs:94-97 folds the legacy prismatic database id onto Prismatic.
+        // The legacy prismatic database id folds onto Prismatic.
         Assert.Equal(
             MonsterDamageType.Prismatic,
             VtankDamageElement.ToMonsterDamageType(100));
