@@ -7942,6 +7942,91 @@ public sealed class MossTankPanelTests
         Assert.Equal("3600", panel.RoutePauseSecondsFieldText); // unchanged on bad input
     }
 
+    /// <summary>
+    /// Follow turns the loaded route into a follow route aimed at the selected
+    /// character, with no waypoints needed, and says who is followed.
+    /// Mutation: leave the route mode alone and the mode menu still reads
+    /// Circular, so the route walks its own (empty) waypoint list instead.
+    /// </summary>
+    [Fact]
+    public void FollowTurnsTheLoadedRouteIntoAFollowRouteOnTheSelectedCharacter()
+    {
+        var automation = new FakeAutomation();
+        automation.NavigationObjects.Add(new PluginNavigationObject(
+            77u, "Horan", default));
+        var host = new FakeHost(automation);
+        var panel = new MossTankPanel(host);
+        panel.ToggleNavigation(); // navigation on, as a follower would have it
+        Assert.Equal("Circular", panel.SelectedRouteMode);
+        Assert.Empty(panel.RouteWaypointTextColumn);
+
+        host.Selection.Select(77u);
+        panel.SetFollowTarget();
+
+        Assert.Equal("Follow", panel.SelectedRouteMode);
+        Assert.Equal("Follow target: Horan", panel.RouteFollowTargetText);
+        Assert.Equal("Following Horan.", panel.RouteNotice);
+        Assert.Empty(panel.RouteWaypointTextColumn);
+    }
+
+    /// <summary>
+    /// A follow route set up while navigation is switched off says so, instead
+    /// of leaving a button that looks as if it did nothing.
+    /// </summary>
+    [Fact]
+    public void FollowSaysWhenNavigationIsStillSwitchedOff()
+    {
+        var automation = new FakeAutomation();
+        automation.NavigationObjects.Add(new PluginNavigationObject(
+            77u, "Horan", default));
+        var host = new FakeHost(automation);
+        var panel = new MossTankPanel(host);
+
+        host.Selection.Select(77u);
+        panel.SetFollowTarget();
+
+        Assert.Contains("Enable Navigation", panel.RouteNotice, StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// With nothing selected, Follow says so and leaves the route alone.
+    /// </summary>
+    [Fact]
+    public void FollowWithNothingSelectedLeavesTheRouteAlone()
+    {
+        var panel = new MossTankPanel(new FakeHost(new FakeAutomation()));
+
+        panel.SetFollowTarget();
+
+        Assert.Equal("Circular", panel.SelectedRouteMode);
+        Assert.Equal("Follow target: [None]", panel.RouteFollowTargetText);
+        Assert.Equal("Select a live object to follow first.", panel.RouteNotice);
+    }
+
+    /// <summary>
+    /// A follow route survives the round trip through the route profile the
+    /// window saves it to, target and all.
+    /// </summary>
+    [Fact]
+    public void AFollowRouteIsSavedAndReloadedWithItsTarget()
+    {
+        var storage = new MemoryStorage();
+        var automation = new FakeAutomation { Name = "Follower" };
+        automation.NavigationObjects.Add(new PluginNavigationObject(
+            77u, "Horan", default));
+        var host = new FakeHost(automation, storage);
+        var panel = new MossTankPanel(host);
+
+        host.Selection.Select(77u);
+        panel.SetFollowTarget();
+
+        var reloaded = new MossTankPanel(new FakeHost(
+            new FakeAutomation { Name = "Follower" }, storage));
+
+        Assert.Equal("Follow", reloaded.SelectedRouteMode);
+        Assert.Equal("Follow target: Horan", reloaded.RouteFollowTargetText);
+    }
+
     [Fact]
     public void MetaTabEditsAndExecutesTheLiveStateMachine()
     {
@@ -9464,8 +9549,19 @@ public sealed class MossTankPanelTests
         /// <summary>How long a landed fake buff runs for.</summary>
         public double EnchantmentDurationSeconds { get; set; } = 1800d;
         public void PostSystemMessage(string text) => Messages.Add(text);
+
+        /// <summary>Objects the navigation surface can be asked about by id.</summary>
+        public List<PluginNavigationObject> NavigationObjects { get; } = [];
+
         public bool TryGetObject(uint objectId, out PluginNavigationObject value)
         {
+            foreach (PluginNavigationObject candidate in NavigationObjects)
+            {
+                if (candidate.ObjectId != objectId)
+                    continue;
+                value = candidate;
+                return true;
+            }
             value = default;
             return false;
         }

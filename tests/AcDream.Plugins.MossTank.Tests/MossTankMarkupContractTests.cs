@@ -549,6 +549,44 @@ public sealed class MossTankMarkupContractTests
     }
 
     /// <summary>
+    /// A follow route can only be aimed from the window, so the navigation
+    /// page needs the control that aims it and the readout that says who is
+    /// followed. Without them the mode menu offers Follow with no way to name
+    /// a target.
+    /// </summary>
+    [Fact]
+    public void TheNavigationPageCanAimAFollowRouteAndSaysWhoIsFollowed()
+    {
+        XDocument document = XDocument.Load(
+            Path.Combine(AppContext.BaseDirectory, "mosstank.xml"));
+        XElement root = Assert.IsType<XElement>(document.Root);
+
+        XElement group = Assert.Single(
+            root.Elements("group"),
+            static candidate =>
+                (string?)candidate.Attribute("visible") == "{RouteVisible}");
+
+        XElement follow = Assert.Single(
+            group.Elements("button"),
+            static button =>
+                (string?)button.Attribute("onclick") == "{SetFollowTarget}");
+        Assert.Equal("Follow", (string?)follow.Attribute("text"));
+
+        Assert.Single(
+            group.Elements("label"),
+            static label =>
+                (string?)label.Attribute("text") == "{RouteFollowTargetText}");
+        Assert.Contains(
+            "Follow",
+            Assert.IsType<string>((string?)Assert.Single(
+                group.Elements("menu"),
+                static menu =>
+                    (string?)menu.Attribute("items") == "{RouteModeNames}")
+                .Attribute("tooltip")),
+            StringComparison.Ordinal);
+    }
+
+    /// <summary>
     /// Glyph advances of the captions used by the monster table's headings,
     /// in the client's default interface font. Measured offline by building
     /// this markup with the client's own markup engine and the font the client

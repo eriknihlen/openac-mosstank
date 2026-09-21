@@ -2640,11 +2640,18 @@ internal sealed partial class MossTankPanel : IBuffRuleHost, IDisposable
         }
         _navigationSettings.FollowTargetObjectId = target.ObjectId;
         _navigationSettings.FollowTargetName = target.Name;
+        // A follow route needs no waypoints of its own: the target is the
+        // whole route. Switching the loaded route's mode is therefore all it
+        // takes to turn an empty or a freshly created route into one.
         _navigationSettings.Mode = RouteMode.Target;
         _navigation.Reset();
         RefreshRouteEditor();
         SaveRouteProfile();
-        _routeNotice = $"Following {target.Name}.";
+        // Say when the route is set up but switched off, rather than leave a
+        // button that looks as if it did nothing.
+        _routeNotice = _navigationSettings.Enabled
+            ? $"Following {target.Name}."
+            : $"Following {target.Name}. Turn Enable Navigation on to start.";
     }
 
     private void SelectRouteProfileCore(string name)

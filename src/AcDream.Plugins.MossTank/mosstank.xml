@@ -365,6 +365,12 @@
            onchange="{SetRouteChatDraft}" onsubmit="{SetRouteChatDraft}"
            maxlength="128" clearonsubmit="false" background="#E6000000"
            color="#FFE8DEC3" tooltip="Chat command added by Add Chat." />
+    <button x="380" y="126" w="88" h="16" text="Follow" onclick="{SetFollowTarget}"
+            tooltip="Turn the loaded route into a follow route that trails the character selected in the world." />
+    <label x="474" y="126" w="200" h="16" text="{RouteFollowTargetText}" color="#FFC7B98F" />
+    <toggle x="380" y="146" w="200" h="20" text="Follow Around Corners"
+            checked="{FollowAroundCornersEnabled}" onclick="{ToggleFollowAroundCorners}"
+            tooltip="Retrace the followed character's own path instead of walking straight at them." />
     <label x="604" y="16" w="88" h="20" text="Client pathing" color="#FFE8DEC3" />
     <menu x="694" y="16" w="112" h="20" items="{ClientPathingNames}"
           selected="{SelectedClientPathing}" onchange="{SelectClientPathing}"
