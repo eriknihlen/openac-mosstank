@@ -1854,6 +1854,33 @@ public sealed class MossTankPanelTests
         Assert.All(automation.CastSpellIds, id => Assert.Equal(1u, id));
     }
 
+    /// <summary>
+    /// Every way an Items add can be refused says so through the notice the
+    /// page shows. A refused add that reports nothing is indistinguishable
+    /// from a page with no Add button.
+    /// </summary>
+    [Fact]
+    public void AnItemsAddThatIsRefusedSaysWhy()
+    {
+        var automation = ItemEnchantAutomation();
+        var host = new FakeHost(automation);
+        automation.CurrentSelection = () => host.Selection.SelectedObjectId ?? 0u;
+        var panel = new MossTankPanel(host);
+
+        panel.AddSelectedItem(); // nothing selected
+        Assert.Equal("Select an owned inventory item first.", panel.ProfileNotice);
+
+        panel.RemoveSelectedItem(); // nothing in the list yet
+        Assert.Equal("The Items profile is empty.", panel.ProfileNotice);
+
+        host.Selection.Select(10);
+        panel.AddSelectedItem();
+        Assert.Contains("War Wand", panel.ItemNameColumn);
+
+        panel.AddSelectedItem(); // the same item twice
+        Assert.Contains("already in this list", panel.ProfileNotice, StringComparison.Ordinal);
+    }
+
     [Fact]
     public void AddingAWandPopulatesItsThreeDefaultAurasAndCastsThemAtTheItem()
     {

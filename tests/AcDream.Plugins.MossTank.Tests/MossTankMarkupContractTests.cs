@@ -549,6 +549,43 @@ public sealed class MossTankMarkupContractTests
     }
 
     /// <summary>
+    /// The Items page adds the item the player has selected, and every reason
+    /// an add can be refused is reported through the profile notice. Without
+    /// that readout on the page, a refused add looks exactly like a page with
+    /// no Add button at all.
+    /// </summary>
+    [Fact]
+    public void TheItemsPageAddsTheSelectedItemAndShowsWhyAnAddWasRefused()
+    {
+        XDocument document = XDocument.Load(
+            Path.Combine(AppContext.BaseDirectory, "mosstank.xml"));
+        XElement root = Assert.IsType<XElement>(document.Root);
+
+        XElement group = Assert.Single(
+            root.Elements("group"),
+            static candidate =>
+                (string?)candidate.Attribute("visible") == "{ItemsVisible}");
+
+        foreach (string action in new[]
+        {
+            "{AddSelectedItem}", "{AddSelectedItemNoBuffs}", "{RemoveSelectedItem}",
+        })
+        {
+            XElement button = Assert.Single(
+                group.Elements("button"),
+                candidate => (string?)candidate.Attribute("onclick") == action);
+            Assert.False(
+                string.IsNullOrWhiteSpace((string?)button.Attribute("tooltip")),
+                $"The Items page button {action} says nothing about what it "
+                + "acts on.");
+        }
+
+        Assert.Single(
+            group.Elements("label"),
+            static label => (string?)label.Attribute("text") == "{ProfileNotice}");
+    }
+
+    /// <summary>
     /// A follow route can only be aimed from the window, so the navigation
     /// page needs the control that aims it and the readout that says who is
     /// followed. Without them the mode menu offers Follow with no way to name
