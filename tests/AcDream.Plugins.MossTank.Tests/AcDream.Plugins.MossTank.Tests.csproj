@@ -28,10 +28,9 @@
     <None Include="Fixtures\vtank\**\*.*" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
   <ItemGroup>
-    <!-- The automation-session proof's own profile inputs. The offline
-         autostart pin and the live proof run read the same three files, so
-         the pin cannot pass against a fixture the live run no longer uses. -->
-    <Content Include="..\AcDream.Headless.Tests\Fixtures\vt-proof\**\*">
+    <!-- The automation-session proof's own profile inputs, owned by this
+         project so they travel with the plugin. -->
+    <Content Include="Fixtures\vt-proof\**\*">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
       <Link>Fixtures\vt-proof\%(RecursiveDir)%(Filename)%(Extension)</Link>
     </Content>

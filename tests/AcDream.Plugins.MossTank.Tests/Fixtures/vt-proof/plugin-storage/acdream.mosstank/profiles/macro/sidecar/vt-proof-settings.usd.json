@@ -1,0 +1,10 @@
+{
+  "Version": 1,
+  "LogChannels": [
+    "ActiveRule", "RuleInfo", "BusyState", "SpellCast",
+    "DebuffChoice", "CastInfo", "Misc", "Timers", "Loot"
+  ],
+  "ItemNames": [
+    "Wand"
+  ]
+}
