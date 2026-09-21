@@ -28,6 +28,35 @@ public sealed class MossTankPluginTests
         Assert.True(registered.Revoked);
     }
 
+    /// <summary>
+    /// Mutation pin: leave the panel in reset-only shutdown. Its equipment
+    /// observer remains attached, so loading a second plugin instance adds a
+    /// duplicate observer.
+    /// Mutation executed: <c>_panel?.Dispose() was replaced with _panel?.Disable()</c>.
+    /// </summary>
+    [Fact]
+    public void ReloadDetachesEquipmentObserverBeforeTheNextPanelSubscribes()
+    {
+        var lootClassifiers = new RecordingLootClassifierRegistry();
+        var host = new FakeHost(lootClassifiers);
+        var first = new MossTankPlugin();
+
+        first.Initialize(host);
+        first.Enable();
+        Assert.Equal(1, host.AutomationForTests.PlacementObserverCount);
+
+        first.Disable();
+        Assert.Equal(0, host.AutomationForTests.PlacementObserverCount);
+
+        var second = new MossTankPlugin();
+        second.Initialize(host);
+        second.Enable();
+        Assert.Equal(1, host.AutomationForTests.PlacementObserverCount);
+
+        second.Disable();
+        Assert.Equal(0, host.AutomationForTests.PlacementObserverCount);
+    }
+
     private sealed class RecordingLootClassifierRegistry : IPluginLootClassifierRegistry
     {
         public List<Entry> Registered { get; } = [];
@@ -68,7 +97,8 @@ public sealed class MossTankPluginTests
         public IEvents Events { get; } = new NoOpEvents();
         public ISelectionService Selection { get; } = new NoOpSelection();
         public IUiRegistry Ui => NoOpUiRegistry.Instance;
-        public IAutomationSurface Automation { get; } = new MinimalAutomation();
+        public MinimalAutomation AutomationForTests { get; } = new();
+        public IAutomationSurface Automation => AutomationForTests;
         public IPluginLootClassifierRegistry LootClassifiers { get; } =
             lootClassifiers;
     }
@@ -80,13 +110,31 @@ public sealed class MossTankPluginTests
     // default, which is fine for Enable()/Disable() -- neither touches it.
     private sealed class MinimalAutomation
         : IAutomationSurface, ICharacterInfo, ISpellCatalog, IMagicCommands,
-          IPluginChat
+          IPluginChat, IEquipmentAutomation
     {
+        private Action<PluginEquipmentObservation>? _placementObserved;
+
         public bool IsAvailable => true;
         public ICharacterInfo Character => this;
         public ISpellCatalog Spells => this;
         public IMagicCommands Magic => this;
         public IPluginChat Chat => this;
+        public IEquipmentAutomation Equipment => this;
+        public bool IsBusy => false;
+        public int PlacementObserverCount { get; private set; }
+        public event Action<PluginEquipmentObservation> PlacementObserved
+        {
+            add
+            {
+                _placementObserved += value;
+                PlacementObserverCount++;
+            }
+            remove
+            {
+                _placementObserved -= value;
+                PlacementObserverCount--;
+            }
+        }
 
         public bool IsInWorld => true;
         public uint ObjectId => 0u;

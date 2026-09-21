@@ -31,12 +31,19 @@ internal sealed class DispelController
     private readonly VitalSettings _settings;
 
     /// <summary>
-    /// The Items profile, which is what <c>af.cs:84</c>'s
-    /// <c>PluginCore.PC.ec</c> scan reads.
+    /// The Items profile: the reference client's own dispel-item scan reads
+    /// the same list.
     /// </summary>
     private readonly CombatSettings _combatSettings;
 
     private Pending? _pending;
+
+    /// <summary>
+    /// True while a dispel cast from a LEARNED SPELL is still unanswered.
+    /// The reference raises the global busy count for the life of any cast,
+    /// so no rule runs until it resolves.
+    /// </summary>
+    internal bool CastInFlight => _pending is { Source: DispelSource.Spell };
     private double _pendingSeconds;
     private double _retryDelay;
 
@@ -57,11 +64,43 @@ internal sealed class DispelController
     internal void BindCombatModeGate(CombatModeGate gate) =>
         _gate = gate ?? throw new ArgumentNullException(nameof(gate));
 
+    private ActionLockTable _actionLocks = new();
+
+    /// <summary>
+    /// Shares the macro's cooldown table: a dispel item or drum is an item
+    /// use like any other, and holds the slot while its animation runs.
+    /// </summary>
+    internal void BindActionLocks(ActionLockTable locks) =>
+        _actionLocks = locks ?? throw new ArgumentNullException(nameof(locks));
+
+    /// <summary>
+    /// Seconds the frame driver has already watched off the transaction since
+    /// the rule was last asked; the next turn subtracts them.
+    /// </summary>
+    private double _frameObservedSeconds;
+
+    /// <summary>
+    /// Reads the server's answer to the dispel this controller issued, on the
+    /// host frame rather than on the macro pass. An unanswered cast holds the
+    /// pass, so the pass cannot be what ends the wait: only a driver outside
+    /// it sees the answer land. Nothing is issued here.
+    /// </summary>
+    internal void ObservePendingReceipt(double elapsedSeconds)
+    {
+        if (_pending is null || !_host.Automation.IsAvailable)
+            return;
+        double elapsed = Math.Max(0d, elapsedSeconds);
+        _frameObservedSeconds += elapsed;
+        ObservePending(elapsed);
+    }
+
     public bool Tick(double elapsedSeconds, bool canAct)
     {
         double elapsed = Math.Max(0d, elapsedSeconds);
+        double pendingElapsed = Math.Max(0d, elapsed - _frameObservedSeconds);
+        _frameObservedSeconds = 0d;
         _retryDelay = Math.Max(0d, _retryDelay - elapsed);
-        if (ObservePending(elapsed))
+        if (ObservePending(pendingElapsed))
             return true;
 
         IAutomationSurface automation = _host.Automation;
@@ -71,8 +110,7 @@ internal sealed class DispelController
             || (!_settings.CastDispelSelf
                 && !_settings.UseDispelItems
                 && !_settings.UseDispelDrum)
-            || automation.Magic.IsCasting
-            || automation.Items.IsBusy)
+            || _actionLocks.IsLocked(ActionLockKind.ItemUse))
         {
             return false;
         }
@@ -89,6 +127,9 @@ internal sealed class DispelController
             PluginItemCommandResult result = automation.Items.Use(item.ObjectId);
             if (result.Accepted)
             {
+                _actionLocks.Arm(
+                    ActionLockKind.ItemUse,
+                    ItemUseLock.ImmediateSeconds);
                 _pending = new Pending(
                     DispelSource.Item,
                     item.ObjectId,
@@ -112,6 +153,7 @@ internal sealed class DispelController
     {
         _pending = null;
         _pendingSeconds = 0d;
+        _frameObservedSeconds = 0d;
         _retryDelay = 0d;
         Status = "Dispel idle";
     }
@@ -212,8 +254,8 @@ internal sealed class DispelController
 
     private bool TryStartAllyDispel(IAutomationSurface automation)
     {
-        // af.cs:79-82 — `if (m_a.o.n.b(ActionLockType.ItemUse)) return false;`.
-        if (automation.Items.IsBusy)
+        // The item-use cooldown slot has to be free first.
+        if (_actionLocks.IsLocked(ActionLockKind.ItemUse))
             return false;
         if (!automation.Fellowship.IsInFellowship
             || !TrySelectAwakener(automation, _combatSettings, out PluginInventoryItem drum)
@@ -252,6 +294,14 @@ internal sealed class DispelController
             Status = $"Waiting to use {drum.Name} on {target.Name}";
             return result.Status == PluginItemCommandStatus.Busy;
         }
+        // Applying the drum to an ally is an item use like any other, so it
+        // holds the slot for the same one-shot window the self-dispel item
+        // does. The two share this controller and its pending slot, so an
+        // unarmed ally path would let the attack swing inside the drum's own
+        // animation where the self path would not.
+        _actionLocks.Arm(
+            ActionLockKind.ItemUse,
+            ItemUseLock.ImmediateSeconds);
         _pending = new Pending(
             DispelSource.AllyItem,
             drum.ObjectId,
@@ -291,7 +341,7 @@ internal sealed class DispelController
                 continue;
             }
             drum = item;
-            break;   // af.cs:89
+            break;   // the first match wins
         }
         if (drum.ObjectId == 0u)
             return false;

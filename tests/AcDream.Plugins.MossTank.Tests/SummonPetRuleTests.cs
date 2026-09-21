@@ -13,7 +13,7 @@ public sealed class SummonPetRuleTests
         Automation automation,
         CombatSettings settings,
         bool combatOwnsTarget = false) =>
-        new(new FakeHost(automation), settings, () => combatOwnsTarget);
+        new(new FakeHost(automation), settings);
 
     private static CombatSettings Settings()
     {
@@ -48,11 +48,14 @@ public sealed class SummonPetRuleTests
         Automation automation = Ready();
         SummonPetRule rule = Rule(automation, Settings());
 
+        // The predicate picks and issues nothing; the turn uses the device.
         Assert.True(rule.ValidNow(Pass()));
+        Assert.Empty(automation.Uses);
+        rule.Running = true;
         Assert.Equal([1u], automation.Uses);
     }
 
-    /// <summary>h1.cs:32-35 — EnableCombat.</summary>
+    /// <summary>EnableCombat gates the rule.</summary>
     [Fact]
     public void CombatDisabledIsInvalid()
     {
@@ -64,7 +67,7 @@ public sealed class SummonPetRuleTests
         Assert.Empty(automation.Uses);
     }
 
-    /// <summary>h1.cs:36-39 — SummonPets.</summary>
+    /// <summary>SummonPets gates the rule.</summary>
     [Fact]
     public void SummonPetsOffIsInvalid()
     {
@@ -77,7 +80,7 @@ public sealed class SummonPetRuleTests
         Assert.Empty(automation.Uses);
     }
 
-    /// <summary>h1.cs:40-43 — the Summoning skill must be trained.</summary>
+    /// <summary>The Summoning skill must be trained.</summary>
     [Fact]
     public void UntrainedSummoningIsInvalid()
     {
@@ -124,13 +127,14 @@ public sealed class SummonPetRuleTests
     }
 
     [Fact]
-    public void CombatAlreadyOwningATargetIsInvalid()
+    public void ASelectedTargetDoesNotRefuseTheSummon()
     {
+        // The reference rule asks nothing about a selected target: it fires
+        // off the in-range monster census alone.
         Automation automation = Ready();
 
-        Assert.False(
+        Assert.True(
             Rule(automation, Settings(), combatOwnsTarget: true).ValidNow(Pass()));
-        Assert.Empty(automation.Uses);
     }
 
     [Fact]

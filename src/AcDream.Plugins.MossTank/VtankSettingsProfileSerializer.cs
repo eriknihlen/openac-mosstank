@@ -14,6 +14,14 @@ internal static class VtankSettingsProfileSerializer
         public required VitalSettings Vitals { get; init; }
         public required InventorySettings Inventory { get; init; }
         public required NavigationSettings Navigation { get; init; }
+
+        /// <summary>
+        /// Optional so the many call sites that only care about the five
+        /// big groups need not name it; the panel passes the live one so a
+        /// profile's EnableMeta both applies and saves.
+        /// </summary>
+        public MetaSettings Meta { get; init; } = new();
+        public Func<uint> PlayerObjectId { get; init; } = static () => 0u;
     }
 
     public static VtankDatabase Load(
@@ -23,6 +31,42 @@ internal static class VtankSettingsProfileSerializer
     {
         ArgumentNullException.ThrowIfNull(target);
         VtankDatabase database = VtankDatabase.Parse(text);
+        ApplyDatabase(database, target, warn);
+        return database;
+    }
+
+    /// <summary>
+    /// Put a parsed profile into the live settings: its settings, its monster
+    /// rules and every table of items imported beside them.
+    /// </summary>
+    public static void ApplyDatabase(
+        VtankDatabase database,
+        AllSettings target,
+        Action<string>? warn = null)
+    {
+        ApplySeedDatabase(database, target);
+        if (VtankMonsterRuleTable.TryRead(database, warn) is { Count: > 0 } rules)
+        {
+            target.Combat.Rules.Clear();
+            foreach (MonsterRule rule in rules)
+                target.Combat.Rules.Add(rule);
+        }
+    }
+
+    /// <summary>
+    /// The same, for a profile being seeded from the shipped defaults rather
+    /// than read off disk: those roads take their monster rules from the
+    /// record saved beside the profile instead. Everything else is read here,
+    /// because every road onto a different profile has to leave the previous
+    /// profile's tables behind and each reader below clears what it owns
+    /// before it reads. Keep this list and the load's the same one.
+    /// </summary>
+    public static void ApplySeedDatabase(
+        VtankDatabase database,
+        AllSettings target)
+    {
+        ArgumentNullException.ThrowIfNull(database);
+        ArgumentNullException.ThrowIfNull(target);
         VtankTable? settings = database.Find(SettingsTable);
         if (settings is null)
             throw new FormatException("missing required 'Settings' table.");
@@ -37,13 +81,12 @@ internal static class VtankSettingsProfileSerializer
             Apply(name, row.Cells[valueColumn], target);
         }
 
-        if (VtankMonsterRuleTable.TryRead(database, warn) is { Count: > 0 } rules)
-        {
-            target.Combat.Rules.Clear();
-            foreach (MonsterRule rule in rules)
-                target.Combat.Rules.Add(rule);
-        }
-        return database;
+        VtankProfiledItemIds.Read(database, target.Combat, target.Buffs,
+            target.PlayerObjectId());
+        VtankItemUseSpecifiers.Read(database, target.Combat);
+        VtankAssistItems.Read(database, target.Combat);
+        VtankGemFoodItems.Read(database, target.Buffs);
+        VtankBuffExemplars.Read(database, target.Buffs);
     }
 
     public static string Save(VtankDatabase document, AllSettings source)
@@ -67,6 +110,10 @@ internal static class VtankSettingsProfileSerializer
             row.Cells[valueColumn] = captured;
         }
         VtankMonsterRuleTable.Write(document, [.. source.Combat.Rules]);
+        VtankProfiledItemIds.Write(document, source.Combat);
+        VtankAssistItems.Write(document, source.Combat);
+        VtankGemFoodItems.Write(document, source.Buffs);
+        VtankBuffExemplars.Write(document, source.Buffs);
         return document.Render();
     }
 
@@ -209,7 +256,6 @@ internal static class VtankSettingsProfileSerializer
             case "navpriorityboost": n.Priority = cell.AsBool(); break;
             case "deleteghostmonsters": c.DeleteGhostMonsters = cell.AsBool(); break;
             case "ghostmonsterspellattemptcount": c.GhostMonsterSpellAttemptCount = cell.AsInt(); break;
-            case "whoyougonnacall": c.WhoYouGonnaCall = cell.AsBool(); break;
             case "blacklistmonsterattemptcount": c.BlacklistMonsterAttemptCount = cell.AsInt(); break;
             case "blacklistmonstertimeoutseconds": c.BlacklistMonsterTimeoutSeconds = cell.AsDouble(); break;
             case "combinesalvage": i.Loot.CombineSalvage = cell.AsBool(); break;
@@ -228,7 +274,7 @@ internal static class VtankSettingsProfileSerializer
             case "idlecraftcount_manafood": i.IdleManaFoodCount = cell.AsInt(); break;
             case "buffcastrecast_seconds": b.BuffCastRecastSeconds = cell.AsDouble(); break;
             case "buffcastrecastreset_seconds": b.BuffCastRecastResetSeconds = cell.AsDouble(); break;
-            case "enablemeta": break; // live MetaEngine.Enabled, not a stored settings field.
+            case "enablemeta": s.Meta.Enabled = cell.AsBool(); break;
             case "blacklistedspellcomps":
                 b.BlacklistedSpellComponents = cell.AsString();
                 c.BlacklistedSpellComponents = cell.AsString();
@@ -369,7 +415,6 @@ internal static class VtankSettingsProfileSerializer
             "navpriorityboost" => VtankCell.Bool(n.Priority),
             "deleteghostmonsters" => VtankCell.Bool(c.DeleteGhostMonsters),
             "ghostmonsterspellattemptcount" => Num(name, c.GhostMonsterSpellAttemptCount),
-            "whoyougonnacall" => VtankCell.Bool(c.WhoYouGonnaCall),
             "blacklistmonsterattemptcount" => Num(name, c.BlacklistMonsterAttemptCount),
             "blacklistmonstertimeoutseconds" => Num(name, c.BlacklistMonsterTimeoutSeconds),
             "combinesalvage" => VtankCell.Bool(i.Loot.CombineSalvage),
@@ -413,9 +458,10 @@ internal static class VtankSettingsProfileSerializer
             "buffwithuntrained-creature" => Num(name, b.BuffWithUntrainedCreatureSkill),
             "buffwithuntrained-life" => Num(name, b.BuffWithUntrainedLifeSkill),
             "allowdebufffallback" => VtankCell.Bool(c.AllowDebuffFallback),
-            _ => null, // "enablemeta" (live engine state) and "rechargehandlerset"
-                       // (no write path exists in real VTank either, section 2 row 137)
-                       // are deliberately left untouched.
+            "enablemeta" => VtankCell.Bool(s.Meta.Enabled),
+            _ => null, // "rechargehandlerset" has no write path in the
+                       // reference client either (section 2 row 137), so it
+                       // is deliberately left untouched.
         };
     }
 

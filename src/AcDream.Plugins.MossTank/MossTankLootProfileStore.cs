@@ -9,6 +9,7 @@ namespace AcDream.Plugins.MossTank;
 internal sealed class MossTankLootProfileStore
 {
     public const string ByCharacter = "By char";
+    public const string NoActiveProfile = "No active loot profile";
 
     private const string LegacyRosterKey = "profiles/loot/index.json";
 
@@ -20,7 +21,11 @@ internal sealed class MossTankLootProfileStore
 
     private readonly IPluginHost _host;
     private string _characterName = string.Empty;
-    private string _selected = ByCharacter;
+    private string _selected = NoActiveProfile;
+    private string? _pendingSelection;
+    private bool _pendingSelectionShouldPersist;
+    private bool _hasActiveProfile;
+    private bool _activeProfileIsPartial;
     private bool _rosterSwept;
 
     public MossTankLootProfileStore(IPluginHost host)
@@ -29,7 +34,11 @@ internal sealed class MossTankLootProfileStore
     }
 
     public string Selected => StripUtl(_selected);
+    public bool HasActiveProfile => _hasActiveProfile;
+    public bool ActiveProfileIsPartial => _activeProfileIsPartial;
     public string? RecoveryNotice { get; private set; }
+    public string? LoadFailureNotice { get; private set; }
+    public string? LoadNotice { get; private set; }
 
     private static string StripUtl(string name) => name.Equals(
         ByCharacter, StringComparison.OrdinalIgnoreCase)
@@ -46,7 +55,10 @@ internal sealed class MossTankLootProfileStore
     {
         get
         {
-            var names = new List<string> { ByCharacter };
+            var names = new List<string>();
+            if (!_hasActiveProfile)
+                names.Add(NoActiveProfile);
+            names.Add(ByCharacter);
             foreach (VtankProfileDirectory.ProfileEntry entry in
                 VtankProfileDirectory.ListLootProfiles(VtankStorage))
             {
@@ -69,9 +81,15 @@ internal sealed class MossTankLootProfileStore
         VtankProfileDirectory.VtankCharacterBinding? binding = CanBindFiles
             ? VtankProfileDirectory.TryReadCharacterBinding(VtankStorage, _characterName, Server)
             : null;
-        _selected = binding is { LootFileName.Length: > 0 } bound
+        _selected = NoActiveProfile;
+        _hasActiveProfile = false;
+        _activeProfileIsPartial = false;
+        _pendingSelection = binding is { LootFileName.Length: > 0 } bound
             ? bound.LootFileName
             : ByCharacter;
+        _pendingSelectionShouldPersist = false;
+        LoadFailureNotice = null;
+        LoadNotice = null;
         return true;
     }
 
@@ -82,16 +100,16 @@ internal sealed class MossTankLootProfileStore
             return false;
         if (normalized.Equals(ByCharacter, StringComparison.OrdinalIgnoreCase))
         {
-            _selected = ByCharacter;
-            WriteBinding();
+            _pendingSelection = ByCharacter;
+            _pendingSelectionShouldPersist = true;
             return true;
         }
 
         string candidate = ToFileName(normalized);
         if (VtankStorage.IsAvailable && VtankStorage.ReadText(candidate) is not null)
         {
-            _selected = candidate;
-            WriteBinding();
+            _pendingSelection = candidate;
+            _pendingSelectionShouldPersist = true;
             return true;
         }
         return false;
@@ -127,8 +145,30 @@ internal sealed class MossTankLootProfileStore
             notice = "'By char' is the built-in loot profile.";
             return false;
         }
-
+        if (copyCurrent && (!_hasActiveProfile || _activeProfileIsPartial))
+        {
+            notice = _activeProfileIsPartial
+                ? "Cannot copy an incomplete loot profile; source was preserved."
+                : "Cannot copy loot rules because no complete active profile is available.";
+            return false;
+        }
         string fileName = ToFileName(normalized);
+        string? existingText = VtankStorage.IsAvailable ? VtankStorage.ReadText(fileName) : null;
+        if (existingText is not null && !VtankLootProfileSerializer.TryRead(
+                existingText,
+                out _,
+                out string error))
+        {
+            RecoveryNotice = MossTankProfileRecovery.Preserve(
+                _host,
+                "loot",
+                fileName,
+                existingText,
+                new FormatException(error));
+            _host.Log.Warn(RecoveryNotice);
+            notice = $"Cannot overwrite unreadable loot profile {fileName}; source was preserved.";
+            return false;
+        }
         var profile = new VtankLootProfile
         {
             Rules = copyCurrent ? current.ToList() : [],
@@ -138,6 +178,12 @@ internal sealed class MossTankLootProfileStore
         };
         WriteUtl(fileName, profile);
         _selected = fileName;
+        _hasActiveProfile = true;
+        _activeProfileIsPartial = false;
+        _pendingSelection = null;
+        _pendingSelectionShouldPersist = false;
+        if (settings is not null)
+            settings.ProfileActive = true;
         WriteBinding();
         notice = copyCurrent
             ? $"Copied loot rules to {_selected}."
@@ -146,27 +192,61 @@ internal sealed class MossTankLootProfileStore
     }
 
     /// <summary>Returns false when no document exists (legacy migration seam).</summary>
-    public bool LoadCurrent(List<LootRule> target, LootSettings? settings = null)
+    public MossTankProfileLoad LoadCurrent(
+        List<LootRule> target,
+        LootSettings? settings = null)
     {
         ArgumentNullException.ThrowIfNull(target);
         SweepLegacyRosterIfNeeded();
-        string fileName = CurrentFileName();
+        string fileName = PendingOrCurrentFileName();
+        if (fileName.Length == 0)
+        {
+            LoadFailureNotice = "No loot profile is active.";
+            DeactivateIfNeeded(target, settings);
+            return MossTankProfileLoad.Failed;
+        }
         string? text = VtankStorage.IsAvailable ? VtankStorage.ReadText(fileName) : null;
         if (text is null)
-            return false;
-        if (!VtankLootProfileSerializer.TryRead(text, out VtankLootProfile profile, out string error))
+        {
+            if (IsByCharacter(fileName))
+            {
+                Activate(ByCharacter, settings);
+                return MossTankProfileLoad.Missing;
+            }
+            return RejectLoad(
+                fileName,
+                "The selected loot profile was not found.",
+                target,
+                settings);
+        }
+        VtankLootProfileReadResult read =
+            VtankLootProfileSerializer.ReadAllowingPartial(text);
+        if (!read.IsComplete)
         {
             RecoveryNotice = MossTankProfileRecovery.Preserve(
-                _host, "loot", fileName, text, new FormatException(error));
+                _host, "loot", fileName, text, new FormatException(read.Error));
             _host.Log.Warn(RecoveryNotice);
-            return false;
+            if (read.Profile.Rules.Count == 0)
+                return RejectLoad(fileName, read.Error, target, settings);
+
+            ApplyMossTankExpressions(read.Profile);
+            target.Clear();
+            target.AddRange(read.Profile.Rules);
+            if (settings is not null)
+                settings.SalvageCombine = read.Profile.SalvageCombine.Clone();
+            Activate(fileName, settings, partial: true);
+            LoadNotice = $"Loaded {read.Profile.Rules.Count} rules; incomplete "
+                + "profile tail was not loaded and source was preserved.";
+            return MossTankProfileLoad.Partial;
         }
+        VtankLootProfile profile = read.Profile;
         ApplyMossTankExpressions(profile);
         target.Clear();
         target.AddRange(profile.Rules);
         if (settings is not null)
             settings.SalvageCombine = profile.SalvageCombine.Clone();
-        return true;
+        Activate(fileName, settings);
+        return MossTankProfileLoad.Loaded;
     }
 
     public bool TryLoadNamed(string? name, List<LootRule> target)
@@ -198,6 +278,10 @@ internal sealed class MossTankLootProfileStore
         IReadOnlyList<LootRule> rules,
         LootSettings? settings = null)
     {
+        if (!_hasActiveProfile)
+            return;
+        if (_activeProfileIsPartial)
+            return;
         string fileName = CurrentFileName();
         var profile = new VtankLootProfile
         {
@@ -205,9 +289,22 @@ internal sealed class MossTankLootProfileStore
             SalvageCombine = settings?.SalvageCombine.Clone() ?? new VtankSalvageCombineSettings(),
         };
         string? existingText = VtankStorage.IsAvailable ? VtankStorage.ReadText(fileName) : null;
-        if (existingText is not null
-            && VtankLootProfileSerializer.TryRead(existingText, out VtankLootProfile existing, out _))
+        if (existingText is not null)
         {
+            if (!VtankLootProfileSerializer.TryRead(
+                    existingText,
+                    out VtankLootProfile existing,
+                    out string error))
+            {
+                RecoveryNotice = MossTankProfileRecovery.Preserve(
+                    _host,
+                    "loot",
+                    fileName,
+                    existingText,
+                    new FormatException(error));
+                _host.Log.Warn(RecoveryNotice);
+                return;
+            }
             profile.UnknownBlocks = existing.UnknownBlocks;
         }
         WriteUtl(fileName, profile);
@@ -215,6 +312,11 @@ internal sealed class MossTankLootProfileStore
 
     public bool Delete(out string notice)
     {
+        if (!_hasActiveProfile)
+        {
+            notice = "No loot profile is active.";
+            return false;
+        }
         if (_selected.Equals(ByCharacter, StringComparison.OrdinalIgnoreCase))
         {
             notice = "'By char' is the built-in loot profile and cannot be deleted.";
@@ -223,8 +325,11 @@ internal sealed class MossTankLootProfileStore
         string fileName = _selected;
         if (VtankStorage.IsAvailable)
             VtankStorage.Delete(fileName);
-        _selected = ByCharacter;
-        WriteBinding();
+        _selected = NoActiveProfile;
+        _hasActiveProfile = false;
+        _activeProfileIsPartial = false;
+        _pendingSelection = ByCharacter;
+        _pendingSelectionShouldPersist = true;
         notice = $"Deleted loot profile {StripUtl(fileName)}.";
         return true;
     }
@@ -277,6 +382,12 @@ internal sealed class MossTankLootProfileStore
         string fileName = ToFileName(normalized);
         WriteUtl(fileName, imported);
         _selected = fileName;
+        _hasActiveProfile = true;
+        _activeProfileIsPartial = false;
+        _pendingSelection = null;
+        _pendingSelectionShouldPersist = false;
+        if (settings is not null)
+            settings.ProfileActive = true;
         WriteBinding();
         target.Clear();
         target.AddRange(imported.Rules);
@@ -295,7 +406,10 @@ internal sealed class MossTankLootProfileStore
         if (!_host.Storage.IsAvailable)
             return;
 
-        string byCharacterFileName = CurrentFileName();
+        string byCharacterFileName = VtankProfileDirectory.AutoCharacterFileName(
+            _characterName,
+            Server,
+            "utl");
         if (VtankStorage.ReadText(byCharacterFileName) is null)
         {
             LootProfileDocument? byCharacter = ReadLegacyJson(
@@ -389,9 +503,76 @@ internal sealed class MossTankLootProfileStore
     // File naming, storage plumbing.
     // ------------------------------------------------------------------
 
-    private string CurrentFileName() => _selected.Equals(ByCharacter, StringComparison.OrdinalIgnoreCase)
+    private string CurrentFileName() => IsByCharacter(_selected)
         ? VtankProfileDirectory.AutoCharacterFileName(_characterName, Server, "utl")
         : _selected;
+
+    private string PendingOrCurrentFileName()
+    {
+        string selection = _pendingSelection
+            ?? (_hasActiveProfile ? _selected : string.Empty);
+        return IsByCharacter(selection)
+            ? VtankProfileDirectory.AutoCharacterFileName(_characterName, Server, "utl")
+            : selection;
+    }
+
+    private bool IsByCharacter(string fileName) => fileName.Equals(
+        ByCharacter,
+        StringComparison.OrdinalIgnoreCase)
+        || fileName.Equals(
+            VtankProfileDirectory.AutoCharacterFileName(_characterName, Server, "utl"),
+            StringComparison.OrdinalIgnoreCase);
+
+    private void Activate(
+        string fileName,
+        LootSettings? settings,
+        bool partial = false)
+    {
+        bool writeBinding = _pendingSelectionShouldPersist;
+        _selected = IsByCharacter(fileName) ? ByCharacter : fileName;
+        _pendingSelection = null;
+        _pendingSelectionShouldPersist = false;
+        _hasActiveProfile = true;
+        _activeProfileIsPartial = partial;
+        LoadFailureNotice = null;
+        LoadNotice = null;
+        if (settings is not null)
+            settings.ProfileActive = true;
+        if (writeBinding)
+            WriteBinding();
+    }
+
+    private MossTankProfileLoad RejectLoad(
+        string fileName,
+        string error,
+        List<LootRule> target,
+        LootSettings? settings)
+    {
+        _pendingSelection = null;
+        _pendingSelectionShouldPersist = false;
+        string requested = StripUtl(fileName);
+        LoadFailureNotice = _hasActiveProfile
+            ? $"Loot profile '{requested}' could not be read: {error} "
+                + $"Active profile remains {Selected}."
+            : $"Loot profile '{requested}' could not be read: {error} "
+                + "No loot profile is active.";
+        DeactivateIfNeeded(target, settings);
+        return MossTankProfileLoad.Failed;
+    }
+
+    private void DeactivateIfNeeded(List<LootRule> target, LootSettings? settings)
+    {
+        if (_hasActiveProfile)
+            return;
+        _selected = NoActiveProfile;
+        _activeProfileIsPartial = false;
+        target.Clear();
+        if (settings is not null)
+        {
+            settings.SalvageCombine = new VtankSalvageCombineSettings();
+            settings.ProfileActive = false;
+        }
+    }
 
     private static string ToFileName(string bareName) =>
         bareName.EndsWith(".utl", StringComparison.OrdinalIgnoreCase)
@@ -440,11 +621,11 @@ internal sealed class MossTankLootProfileStore
         payload.Append(profile.Rules.Count.ToString(CultureInfo.InvariantCulture)).Append("\r\n");
         foreach (LootRule rule in profile.Rules)
         {
-            // A rule with real VtankRequirements (imported from a genuine
-            // VTClassic file, never touched by MossTank's own editor) has
-            // nothing of ours to preserve — record an empty slot so load
-            // leaves its VtankRequirements-derived state alone.
-            string expression = rule.VtankRequirements.Count > 0 ? string.Empty : rule.Expression;
+            // Preserve the imported requirement representation, including an
+            // unconditional rule whose requirement list is empty.
+            string expression = rule.HasImportedRequirements || rule.VtankRequirements.Count > 0
+                ? string.Empty
+                : rule.Expression;
             payload.Append(expression.Length.ToString(CultureInfo.InvariantCulture)).Append("\r\n");
             payload.Append(expression);
         }
@@ -486,6 +667,7 @@ internal sealed class MossTankLootProfileStore
                 continue;
             profile.Rules[index].Expression = expression;
             profile.Rules[index].VtankRequirements.Clear();
+            profile.Rules[index].HasImportedRequirements = false;
         }
     }
 
@@ -557,6 +739,7 @@ internal sealed class MossTankLootProfileStore
         public int Priority { get; set; }
         public string CustomExpression { get; set; } = string.Empty;
         public VtankLootRequirementDocument[] Requirements { get; set; } = [];
+        public bool HasImportedRequirements { get; set; }
 
         public static LootRuleDocument From(LootRule rule) => new()
         {
@@ -566,6 +749,7 @@ internal sealed class MossTankLootProfileStore
             KeepCount = rule.KeepCount,
             Priority = rule.Priority,
             CustomExpression = rule.CustomExpression,
+            HasImportedRequirements = rule.HasImportedRequirements,
             Requirements = rule.VtankRequirements.Select(
                 VtankLootRequirementDocument.From).ToArray(),
         };
@@ -580,6 +764,7 @@ internal sealed class MossTankLootProfileStore
             KeepCount = Math.Clamp(KeepCount, 0, 100000),
             Priority = Math.Clamp(Priority, -1000, 1000),
             CustomExpression = CustomExpression ?? string.Empty,
+            HasImportedRequirements = HasImportedRequirements,
             VtankRequirements = (Requirements ?? [])
                 .Select(static requirement => requirement.ToRequirement())
                 .ToList(),

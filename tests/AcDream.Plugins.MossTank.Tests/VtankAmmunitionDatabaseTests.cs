@@ -1,4 +1,4 @@
-﻿using AcDream.Plugin.Abstractions;
+using AcDream.Plugin.Abstractions;
 
 namespace AcDream.Plugins.MossTank.Tests;
 
@@ -8,9 +8,9 @@ public sealed class VtankAmmunitionDatabaseTests
     public void LoadsCompleteOfficialGameInfoTable()
     {
         Assert.Equal(120, VtankAmmunitionDatabase.Options.Count);
-        Assert.Equal(5, VtankAmmunitionDatabase.LauncherType(0x001u));
-        Assert.Equal(6, VtankAmmunitionDatabase.LauncherType(0x080u));
-        Assert.Equal(7, VtankAmmunitionDatabase.LauncherType(0x020u));
+        Assert.Equal(5, VtankAmmunitionDatabase.LauncherType(Launcher(1u)));
+        Assert.Equal(6, VtankAmmunitionDatabase.LauncherType(Launcher(2u)));
+        Assert.Equal(7, VtankAmmunitionDatabase.LauncherType(Launcher(4u)));
     }
 
     [Fact]
@@ -144,6 +144,96 @@ public sealed class VtankAmmunitionDatabaseTests
         Assert.Equal("Deadly Fire Arrow", withoutFletching.Name);
         Assert.Equal("Deadly Prismatic Arrow", withFletching.Name);
     }
+
+    /// <summary>
+    /// Mutation: classify launchers from AmmoType alone; the melee item
+    /// incorrectly becomes a bow, and the extended bit becomes a crossbow.
+    /// </summary>
+    [Fact]
+    public void LauncherKindRequiresMissileClassAndAnExactAmmoType()
+    {
+        Assert.Equal(0, VtankAmmunitionDatabase.LauncherType(
+            Launcher(1u) with { ObjectClass = PluginObjectClass.MeleeWeapon }));
+        Assert.Equal(0, VtankAmmunitionDatabase.LauncherType(Launcher(0x80u)));
+        Assert.Equal(VtankAmmunitionDatabase.MissileKind.Thrown,
+            VtankAmmunitionDatabase.Kind(Launcher(0u)));
+    }
+
+    /// <summary>
+    /// Mutation: recognize only element 100 as prismatic; the current
+    /// element-11 row ceases to be selected for a non-element request.
+    /// </summary>
+    [Fact]
+    public void CurrentAndLegacyPrismaticRowsRemainCandidatesForHarm()
+    {
+        VtankAmmunitionOption[] options =
+        [
+            new("Current Prism", 5, 0, 11, 300, 0, 0u, 0),
+            new("Legacy Prism", 5, 0, 100, 301, 0, 0u, 0),
+        ];
+
+        VtankAmmunitionOption current = Assert.IsType<VtankAmmunitionOption>(
+            VtankAmmunitionDatabase.Select(options[..1], 5, MonsterDamageType.Harm,
+                VtankPrismaticAmmoPolicy.Any, 0, new Character([]),
+                static _ => true));
+        Assert.Equal("Current Prism", current.Name);
+        VtankAmmunitionOption chosen = Assert.IsType<VtankAmmunitionOption>(
+            VtankAmmunitionDatabase.Select(options, 5, MonsterDamageType.Harm,
+                VtankPrismaticAmmoPolicy.Any, 0, new Character([]),
+                static _ => true));
+        Assert.Equal("Legacy Prism", chosen.Name);
+        Assert.Equal(100, options[1].Element);
+    }
+
+    /// <summary>
+    /// Mutation: permit Unknown primary training as though it were trained;
+    /// the requirement-bearing option becomes available again.
+    /// </summary>
+    [Fact]
+    public void PrimaryRequirementRejectsUnknownTraining()
+    {
+        var character = new Character(
+        [
+            new PluginSkillInfo(47u, "Missile Weapons",
+                PluginSkillTraining.Unknown, 500u) { Base = 500u },
+        ]);
+        VtankAmmunitionOption[] options =
+        [
+            new("Trained Arrow", 5, 300, 6, 100, 0, 0u, 0),
+        ];
+
+        Assert.Null(VtankAmmunitionDatabase.Select(options, 5,
+            MonsterDamageType.Fire, VtankPrismaticAmmoPolicy.NoPrismatic,
+            0, character, static _ => true));
+    }
+
+    /// <summary>
+    /// Mutation: return Pierce for a prismatic request; the Pierce row
+    /// outranks the requested prismatic row.
+    /// </summary>
+    [Fact]
+    public void RequestedPrismaticElementIsDistinctFromItsPolicy()
+    {
+        VtankAmmunitionOption[] options =
+        [
+            new("Prism", 5, 0, 11, 200, 0, 0u, 0),
+            new("Pierce", 5, 0, 0, 2000, 0, 0u, 0),
+        ];
+        VtankAmmunitionOption chosen = Assert.IsType<VtankAmmunitionOption>(
+            VtankAmmunitionDatabase.Select(options, 5,
+                MonsterDamageType.Prismatic,
+                VtankPrismaticAmmoPolicy.ForcePrismatic, 0,
+                new Character([]), static _ => true));
+        Assert.Equal("Prism", chosen.Name);
+    }
+
+    private static PluginEquipmentItem Launcher(uint ammoType) => new(
+        1u, "Launcher", 0x100u, 0x00100000u, 0u, 1u, 0u, 2,
+        0, 47, 1, 0.1)
+    {
+        ObjectClass = PluginObjectClass.MissileWeapon,
+        AmmoType = ammoType,
+    };
 
     private sealed class Character(IReadOnlyList<PluginSkillInfo> skills)
         : ICharacterInfo

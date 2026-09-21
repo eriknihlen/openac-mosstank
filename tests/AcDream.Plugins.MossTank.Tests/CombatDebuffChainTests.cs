@@ -43,6 +43,51 @@ public sealed class CombatDebuffChainTests
             steps.Select(static step => step.Identity));
     }
 
+    /// <summary>
+    /// The extra vulnerability stands on its own: it is NOT gated on the
+    /// vulnerability column, and the chain and the item planner ask the same
+    /// one question about it.
+    /// Mutation: gate either side on the vulnerability column and the two
+    /// halves disagree - one of the two assertions fails.
+    /// </summary>
+    [Fact]
+    public void TheExtraVulnerabilityIsNotGatedOnTheVulnerabilityColumn()
+    {
+        var actions = new MonsterRuleActions
+        {
+            Flags = MonsterActionFlags.Attack,
+            DamageType = MonsterDamageType.Auto,
+            ExtraVulnerability = MonsterDamageType.Acid,
+        };
+        var extra = new DebuffIdentity(
+            MonsterActionFlags.Vulnerability,
+            MonsterDamageType.Acid);
+
+        Assert.Equal(
+            [extra],
+            CombatDebuffChain.Build(
+                actions,
+                MonsterDamageType.Auto,
+                MonsterDamageType.Acid)
+                .Select(static step => step.Identity));
+        Assert.Contains(extra, DebuffSpellCatalog.Required(actions));
+    }
+
+    /// <summary>
+    /// An extra vulnerability that resolved to nothing - the column was off,
+    /// or "automatic" found the monster no listed weakness - adds no step.
+    /// </summary>
+    [Fact]
+    public void AnUnresolvedExtraVulnerabilityAddsNoStep()
+    {
+        Assert.False(
+            CombatDebuffChain.HasExtraVulnerability(MonsterDamageType.None));
+        Assert.False(
+            CombatDebuffChain.HasExtraVulnerability(MonsterDamageType.Auto));
+        Assert.True(
+            CombatDebuffChain.HasExtraVulnerability(MonsterDamageType.Acid));
+    }
+
     [Fact]
     public void OnlyCorruptionDestructiveCurseAndCorrosionAreZeroTolerance()
     {
@@ -88,8 +133,8 @@ public sealed class CombatDebuffChainTests
     [Fact]
     public void AnElementlessPlanHasNoNaturalVulnStep()
     {
-        // fk.a(None, Vuln) returns MySpell.InvalidSpell (fk.cs:433), so the
-        // step's own dm.b(guid, null) is TimeSpan.MaxValue — never due.
+        // An elementless Vulnerability lookup resolves to no spell at all, so
+        // the step's own due test is TimeSpan.MaxValue — never due.
         IReadOnlyList<CombatDebuffStep> steps = CombatDebuffChain.Build(
             new MonsterRuleActions { Flags = MonsterActionFlags.Vulnerability },
             MonsterDamageType.None,
@@ -101,7 +146,7 @@ public sealed class CombatDebuffChainTests
     [Fact]
     public void ChooseTakesTheFirstDueStepAndStops()
     {
-        // hi.cs:123-206 — every arm ends in `return;`. There is no second kind
+        // Every arm ends in `return;`. There is no second kind
         // this tick and no ranking between kinds.
         IReadOnlyList<CombatDebuffStep> steps = CombatDebuffChain.Build(
             new MonsterRuleActions

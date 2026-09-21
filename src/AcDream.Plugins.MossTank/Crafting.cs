@@ -277,6 +277,13 @@ internal sealed class CraftingController
     private readonly CombatSettings _profiles;
     private CraftingPlan? _pending;
     private CraftingPlan? _pendingSplit;
+
+    /// <summary>
+    /// True while a craft use or the split ahead of it is still unanswered.
+    /// The reference's timed item use raises the global busy count for that
+    /// whole wait.
+    /// </summary>
+    internal bool UseInFlight => _pending is not null || _pendingSplit is not null;
     private long _observedCompletion;
     private long _observedInventoryCompletion;
     private double _untilScan;
@@ -337,27 +344,80 @@ internal sealed class CraftingController
     }
 
     public bool CanRequest(string resultName, int desiredCount = 1)
+        => ResolveRequestPlan(resultName, desiredCount) is not null;
+
+    internal CraftingPlan? ResolveRequestPlan(
+        string resultName, int desiredCount = 1)
     {
         if (string.IsNullOrWhiteSpace(resultName)
             || !_host.Automation.IsAvailable
             || !_host.Automation.Items.IsAvailable)
         {
-            return false;
+            return null;
         }
         return CraftingPlanner.Plan(
-                _host.Automation.Items.CaptureOwnedItems(),
-                [resultName],
-                _host.Automation.Character,
-                desiredCount,
-                _settings.ArrowheadFletchDifficultyExcess)
-            is not null;
+            _host.Automation.Items.CaptureOwnedItems(),
+            [resultName],
+            _host.Automation.Character,
+            desiredCount,
+            _settings.ArrowheadFletchDifficultyExcess);
+    }
+
+    internal bool RequestResolved(CraftingPlan plan)
+    {
+        if (_pending is not null || _pendingSplit is not null
+            || !_host.Automation.IsAvailable)
+            return false;
+        IItemAutomation items = _host.Automation.Items;
+        if (!items.IsAvailable || items.IsBusy
+            || plan.FirstObjectId == 0u || plan.SecondObjectId == 0u)
+            return false;
+        IWorldObjectAutomation objects = _host.Automation.Objects;
+        if (objects.IsAvailable
+            && (!objects.TryGet(plan.FirstObjectId, out _)
+                || !objects.TryGet(plan.SecondObjectId, out _)))
+            return false;
+        return StartInPeace(items, plan);
+    }
+
+    /// <summary>
+    /// Seconds the frame driver has already watched off the split since the
+    /// rule was last asked; the next turn subtracts them.
+    /// </summary>
+    private double _frameObservedSplitSeconds;
+
+    /// <summary>
+    /// Reads the server's answer to the craft or the split this controller
+    /// issued, on the host frame rather than on the macro pass. An unanswered
+    /// use holds the pass, so the pass cannot be what ends the wait: only a
+    /// driver outside it sees the answer land. Nothing is issued here — the
+    /// craft that follows a finished split stays with the turn.
+    /// </summary>
+    internal void ObservePendingReceipt(double elapsedSeconds)
+    {
+        if (!_host.Automation.IsAvailable
+            || (_pending is null && _pendingSplit is null))
+        {
+            return;
+        }
+        IItemAutomation items = _host.Automation.Items;
+        ObserveCompletion(items);
+        if (_pendingSplit is null)
+            return;
+        double elapsed = Math.Max(0d, elapsedSeconds);
+        _frameObservedSplitSeconds += elapsed;
+        ObserveSplitCompletion(items, elapsed, canAct: false, advanceClock: true);
     }
 
     public bool TickCritical(double elapsedSeconds, bool canAct)
     {
         IItemAutomation items = _host.Automation.Items;
+        double splitElapsed = Math.Max(
+            0d,
+            Math.Max(0d, elapsedSeconds) - _frameObservedSplitSeconds);
+        _frameObservedSplitSeconds = 0d;
         ObserveCompletion(items);
-        if (ObserveSplitCompletion(items, elapsedSeconds, canAct, advanceClock: true))
+        if (ObserveSplitCompletion(items, splitElapsed, canAct, advanceClock: true))
             return true;
         if (_pending is not null)
         {
@@ -381,7 +441,7 @@ internal sealed class CraftingController
         CraftingPlan? plan = _settings.SplitPeas
             ? CraftingPlanner.PlanPeaSplit(
                 inventory,
-                _profiles.ConsumableNames,
+                PeaConsumableNames(),
                 _settings.CriticalComponentMinimum)
             : null;
         plan ??= PlanCategoryCraft(
@@ -419,7 +479,7 @@ internal sealed class CraftingController
         CraftingPlan? plan = _settings.SplitPeas
             ? CraftingPlanner.PlanPeaSplit(
                 inventory,
-                _profiles.ConsumableNames,
+                PeaConsumableNames(),
                 _settings.NormalComponentMinimum)
             : null;
         plan ??= CraftingPlanner.Plan(
@@ -469,13 +529,32 @@ internal sealed class CraftingController
         CraftingPlan? plan = _settings.SplitPeas
             ? CraftingPlanner.PlanPeaSplit(
                 inventory,
-                _profiles.ConsumableNames,
+                PeaConsumableNames(),
                 _settings.IdleComponentMinimum)
             : null;
         plan ??= PlanCategoryCraft(inventory, idleCounts: true);
         return StartInPeace(items, plan);
     }
 
+    /// <summary>
+    /// Legacy name-only entries retain their existing split behavior. Imported
+    /// entries carry a reference category, so only its pea categories can
+    /// authorize a split.
+    /// </summary>
+    internal ISet<string> PeaConsumableNames()
+    {
+        var imported = _profiles.ImportedAssistItems
+            .GroupBy(static item => item.Name, StringComparer.Ordinal)
+            .ToDictionary(static group => group.Key, static group => group.Last().Category,
+                StringComparer.Ordinal);
+        return _profiles.ConsumableNames
+            .Where(name => !imported.TryGetValue(name, out ConsumableCategory category)
+                || (name == CraftingPlanner.AllPeas
+                    ? category == ConsumableCategory.AllPeas
+                    : category == ConsumableCategory.Pea))
+            .ToHashSet(StringComparer.Ordinal);
+
+    }
     private CraftingPlan? PlanCategoryCraft(
         IReadOnlyList<PluginInventoryItem> inventory,
         bool idleCounts)
@@ -564,6 +643,7 @@ internal sealed class CraftingController
         _untilCriticalScan = 0d;
         _untilIdleScan = 0d;
         _splitElapsed = 0d;
+        _frameObservedSplitSeconds = 0d;
         _splitAcknowledged = false;
         Status = "AutoCraft idle";
     }

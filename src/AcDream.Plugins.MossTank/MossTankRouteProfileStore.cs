@@ -153,7 +153,9 @@ internal sealed class MossTankRouteProfileStore
         return true;
     }
 
-    public bool LoadCurrent(NavigationSettings target, ISpellCatalog spells)
+    public MossTankProfileLoad LoadCurrent(
+        NavigationSettings target,
+        ISpellCatalog spells)
     {
         ArgumentNullException.ThrowIfNull(target);
         ArgumentNullException.ThrowIfNull(spells);
@@ -163,15 +165,15 @@ internal sealed class MossTankRouteProfileStore
         string fileName = CurrentFileName();
         string? text = VtankStorage.IsAvailable ? VtankStorage.ReadText(fileName) : null;
         if (text is null)
-            return false;
+            return MossTankProfileLoad.Missing;
         if (!MetafSerializer.TryLoadNav(text, target, spells, out string error))
         {
             RecoveryNotice = MossTankProfileRecovery.Preserve(
                 _host, "route", fileName, text, new FormatException(error));
             _host.Log.Warn(RecoveryNotice);
-            return false;
+            return MossTankProfileLoad.Failed;
         }
-        return true;
+        return MossTankProfileLoad.Loaded;
     }
 
     public void SaveCurrent(NavigationSettings settings) =>

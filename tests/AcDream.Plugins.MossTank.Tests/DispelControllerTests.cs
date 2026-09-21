@@ -42,6 +42,70 @@ public sealed class DispelControllerTests
             controller.Status);
     }
 
+    /// <summary>
+    /// A dispel in flight holds the pass, and the pass is the only thing that
+    /// asks this controller anything: the answer therefore has to be read on
+    /// the host frame, or the hold waits on the thing it stopped. Mutation:
+    /// make <c>ObservePendingReceipt</c> return without observing and the
+    /// last assertion fails.
+    /// </summary>
+    [Fact]
+    public void TheServersAnswerToADispelIsReadOnTheFrameWithoutAPass()
+    {
+        var automation = new Automation
+        {
+            Active = [new PluginActiveEnchantment(100u, 7u, 7, 120d)],
+            SpellLookup = [Vulnerability(100u, 400), SelfDispelSpell()],
+            KnownSpellIds = new HashSet<uint> { SelfDispel },
+            Inventory = [Item(10u, "Chorizite")],
+            Mode = PluginCombatMode.Magic,
+        };
+        var controller = new DispelController(
+            new Host(automation),
+            new VitalSettings { CastDispelSelf = true });
+
+        Assert.True(controller.Tick(0d, canAct: true));
+        Assert.True(controller.CastInFlight);
+
+        // No Tick from here: the pass is held, only frames run.
+        automation.CastCompletion = new PluginCastCompletion(1, SelfDispel, 1u, 0u);
+        controller.ObservePendingReceipt(0.05d);
+
+        Assert.False(controller.CastInFlight);
+    }
+
+    /// <summary>
+    /// The reference raises its global busy count for the life of ANY cast
+    /// it issues, a dispel included, so no other rule runs while one is
+    /// outstanding. The host's own casting flag used to carry this by
+    /// accident; it is the plugin's job now. Mutation: answer false from
+    /// <c>CastInFlight</c> and the middle assertion fails.
+    /// </summary>
+    [Fact]
+    public void ASelfDispelCastIsReportedInFlightUntilTheServerAnswers()
+    {
+        var automation = new Automation
+        {
+            Active = [new PluginActiveEnchantment(100u, 7u, 7, 120d)],
+            SpellLookup = [Vulnerability(100u, 400), SelfDispelSpell()],
+            KnownSpellIds = new HashSet<uint> { SelfDispel },
+            Inventory = [Item(10u, "Chorizite")],
+            Mode = PluginCombatMode.Magic,
+        };
+        var controller = new DispelController(
+            new Host(automation),
+            new VitalSettings { CastDispelSelf = true });
+        Assert.False(controller.CastInFlight);
+
+        Assert.True(controller.Tick(0d, canAct: true));
+        Assert.Equal((SelfDispel, 1u), automation.TargetedCast);
+        Assert.True(controller.CastInFlight);
+
+        automation.CastCompletion = new PluginCastCompletion(1, SelfDispel, 1u, 0u);
+        Assert.True(controller.Tick(0.05d, canAct: true));
+        Assert.False(controller.CastInFlight);
+    }
+
     [Fact]
     public void MissingChoriziteFallsThroughToOfficialDispelItemOrder()
     {
@@ -145,8 +209,7 @@ public sealed class DispelControllerTests
                 [4u] = [Tracked(4u, fire), Tracked(4u, cold)],
             },
         };
-        // af.cs:84 scans PluginCore.PC.ec, the ITEMS PROFILE, not the whole
-        // inventory.
+        // The scan covers the ITEMS PROFILE, not the whole inventory.
         var profile = new CombatSettings();
         profile.CombatItemNames.Add("Attenuated Awakener");
         var controller = new DispelController(

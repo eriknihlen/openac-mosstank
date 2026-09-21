@@ -4,11 +4,18 @@ namespace AcDream.Plugins.MossTank;
 
 internal readonly record struct BuffItemEnchantRow(
     string ItemName,
-    string SpellName)
+    string SpellName,
+    uint? ObjectId = null,
+    uint? SpellId = null)
 {
-    /// <summary><c>eq.cs:516</c> — <c>item3.a != -1</c>.</summary>
-    public bool CastsNothing => SpellName.Length == 0;
+    /// <summary>An authored row that deliberately casts nothing.</summary>
+    public bool CastsNothing => SpellId == uint.MaxValue
+        || (!SpellId.HasValue && SpellName.Length == 0);
+
+    public bool IsProfiledItemRow => ObjectId.HasValue && SpellId.HasValue;
 }
+
+internal readonly record struct BuffedItemKey(uint ObjectId, uint SpellId);
 
 internal static class ItemEnchantDefaults
 {
@@ -18,7 +25,7 @@ internal static class ItemEnchantDefaults
     public const uint Wand = 0x01000000u;
     public const uint TwoHanded = 0x02000000u;
 
-    /// <summary><c>PluginCore.cs:8363-8366</c> and <c>:8390-8392</c>.</summary>
+    /// <summary>The defaults a melee weapon gets when it is added.</summary>
     private static readonly string[] MeleeAuras =
     [
         "Aura of Defender Self I",
@@ -34,7 +41,7 @@ internal static class ItemEnchantDefaults
         "Aura of Swift Killer Self I",
     ];
 
-    /// <summary><c>PluginCore.cs:8408-8410</c>.</summary>
+    /// <summary>The defaults a wand gets when it is added.</summary>
     private static readonly string[] WandAuras =
     [
         "Aura of Defender Self I",
@@ -61,7 +68,7 @@ internal static class ItemEnchantDefaults
         in PluginInventoryItem item,
         bool noBuffs)
     {
-        // PluginCore.cs:8340-8353 — a pet is always a single -1 row.
+        // A pet device is always a single casts-nothing row.
         if (item.IsPetDevice)
             return [];
         if (noBuffs)

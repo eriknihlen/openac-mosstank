@@ -46,6 +46,25 @@ public sealed class MossTankPanelTests
             static rule => Assert.NotEmpty(rule.Reason));
     }
 
+    /// <summary>
+    /// The door rule has a body. It sat in the right place in the order with
+    /// nothing behind it, so the door was only ever opened once a navigate turn
+    /// came around — which, on the ordinary route, is after attacking and after
+    /// both corpse rules.
+    /// </summary>
+    [Fact]
+    public void TheDoorSlotHoldsALiveRule()
+    {
+        var panel = new MossTankPanel(new FakeHost(new FakeAutomation()));
+
+        int door = panel.MacroRules
+            .ToList()
+            .FindIndex(static rule => rule.Name == "OpenDoor");
+
+        Assert.True(door >= 0, "the door slot is not filled at all.");
+        Assert.IsType<OpenDoorRule>(panel.MacroRules[door]);
+    }
+
     [Fact]
     public void WieldedManaRefillOutranksBuffSelf()
     {
@@ -92,8 +111,8 @@ public sealed class MossTankPanelTests
             MaxStamina = 100,
             CurrentMana = 100,
             MaxMana = 100,
-            // BoosterVital 2 = VitalKind.Health (VitalPlan.cs:7).
-            ItemEntries = [Item(60, "Bread", 1) with { BoosterVital = 2 }],
+            // BoosterVital 2 = VitalKind.Health.
+            ItemEntries = [Item(60, "Bread", 0x20) with { BoosterVital = 2 }],
         };
         var host = new FakeHost(automation);
         var panel = new MossTankPanel(host);
@@ -105,6 +124,307 @@ public sealed class MossTankPanelTests
             panel.OnTick(0.3d);
 
         Assert.Equal([60u], automation.UsedItemIds);
+    }
+
+    /// <summary>
+    /// The item channel going free is a receipt, and the pass waiting behind
+    /// it runs on that frame rather than at the next heartbeat. The loot
+    /// rules hold the pass whenever an item request cannot go out — an open,
+    /// a pull, a close — and the route stands still behind them, so a third
+    /// of a second of that wait is paid on every corpse.
+    ///
+    /// Mutation: drop the item-channel flag from the frame's poke watch and
+    /// the small frame below runs no pass.
+    /// </summary>
+    [Fact]
+    public void TheFramePassPokesWhenTheItemChannelGoesFree()
+    {
+        var automation = new FakeAutomation { ItemsBusy = true };
+        var panel = new MossTankPanel(new FakeHost(automation));
+
+        panel.ToggleCombat();
+        for (int tick = 0; tick < 4; tick++)
+            panel.OnTick(0.3d);
+        long settled = panel.MacroPassCount;
+
+        // A frame well inside the heartbeat, on its own, is not a pass.
+        panel.OnTick(0.01d);
+        Assert.Equal(settled, panel.MacroPassCount);
+
+        automation.ItemsBusy = false;
+        panel.OnTick(0.01d);
+
+        Assert.Equal(settled + 1, panel.MacroPassCount);
+    }
+
+    /// <summary>
+    /// The slots a corpse open takes are given back on the host's frame, not
+    /// on a rule pass — a rule pass cannot release the item slot, because that
+    /// slot is what stops the loot rules running at all. So the frame has to
+    /// carry the call, and this is the only test that says so.
+    ///
+    /// Mutation: delete `if (_loot.ObserveCorpseOpened()) _scheduler.Poke();`
+    /// from the frame pass and the slot is still held after the container has
+    /// opened.
+    /// </summary>
+    [Fact]
+    public void TheFramePassGivesBackTheSlotsACorpseOpenTook()
+    {
+        var loot = new FrameLootSurface();
+        var automation = new FakeAutomation { LootSurface = loot };
+        var panel = new MossTankPanel(new FakeHost(automation));
+        panel.AddLootRule();
+        if (!panel.LootEnabled)
+            panel.ToggleLooting();
+        loot.Corpses =
+        [
+            new PluginLootContainer(
+                FrameLootSurface.CorpseId,
+                1u,
+                "Corpse",
+                3f,
+                false,
+                false,
+                false)
+            {
+                IsIdentified = true,
+                LongDescription = $"Killed by {automation.Name}.",
+            },
+        ];
+
+        panel.ToggleCombat();
+        for (int tick = 0; tick < 12 && loot.Opened == 0u; tick++)
+            panel.OnTick(0.3d);
+
+        Assert.Equal(FrameLootSurface.CorpseId, loot.Opened);
+        Assert.True(panel.ActionLocks.IsLocked(ActionLockKind.ItemUse));
+        Assert.True(panel.ActionLocks.IsLocked(ActionLockKind.Navigation));
+
+        // The container is open now, which is the moment the slots go back.
+        loot.Current = FrameLootSurface.CorpseId;
+        panel.OnTick(0.05d);
+
+        Assert.False(panel.ActionLocks.IsLocked(ActionLockKind.ItemUse));
+        Assert.False(panel.ActionLocks.IsLocked(ActionLockKind.Navigation));
+        Assert.False(
+            panel.ActionLocks.IsLocked(ActionLockKind.CorpseOpenAttempt));
+    }
+
+    /// <summary>
+    /// The reference's corpse-id latch: with looting on, a corpse whose
+    /// description has not arrived, within the approach range (five metres
+    /// at least) plus ten, holds every walk off for the pass — the route
+    /// included — and the loot channel says so. Once the corpse is
+    /// described and turns out not to be ours, the walks are free again.
+    /// Mutation: drop <c>!_navigationWaitsOnCorpseId</c> from
+    /// <c>NavigationLocksAreClear</c> and the route wins the first pass.
+    /// </summary>
+    [Fact]
+    public void AnUndescribedCorpseWithinReachHoldsEveryWalkOffForThePass()
+    {
+        var loot = new FrameLootSurface();
+        var automation = new FakeAutomation
+        {
+            LootSurface = loot,
+            NavigationSnapshot = new PluginNavigationSnapshot(
+                true,
+                false,
+                1u,
+                new PluginNavigationPosition(0x00010001u, 0d, 0d, 0d, 0f, IsOutdoor: true),
+                false,
+                false),
+        };
+        var panel = new MossTankPanel(new FakeHost(automation));
+        panel.AddLootRule();
+        if (!panel.LootEnabled)
+            panel.ToggleLooting();
+        // One waypoint the character is nowhere near, so the route rule has
+        // something to do on every pass.
+        automation.NavigationSnapshot = automation.NavigationSnapshot with
+        {
+            Position = new PluginNavigationPosition(
+                0x00010001u, 0d, 1d, 0d, 0f, IsOutdoor: true),
+        };
+        panel.AddRoutePoint();
+        automation.NavigationSnapshot = automation.NavigationSnapshot with
+        {
+            Position = new PluginNavigationPosition(
+                0x00010001u, 0d, 0d, 0d, 0f, IsOutdoor: true),
+        };
+        panel.ToggleNavigation();
+        loot.Corpses =
+        [
+            new PluginLootContainer(
+                FrameLootSurface.CorpseId,
+                1u,
+                "Corpse",
+                8f,
+                false,
+                false,
+                false),
+        ];
+        panel.ExecuteVtankCommand(new PluginCommand(
+            "vt", "log ActiveRule on", "/vt log ActiveRule on"));
+        panel.ExecuteVtankCommand(new PluginCommand(
+            "vt", "log Loot on", "/vt log Loot on"));
+        automation.Messages.Clear();
+        panel.ToggleCombat();
+
+        panel.OnTick(0.3d);
+        panel.OnTick(0.3d);
+
+        Assert.Contains(
+            "[MossTank] Waiting this tick on corpse ID.",
+            automation.Messages);
+        Assert.DoesNotContain(
+            automation.Messages,
+            line => line.Contains("Picked NavigateRouteIdle", StringComparison.Ordinal));
+        Assert.DoesNotContain(
+            automation.Messages,
+            line => line.Contains("Picked NavigateCorpseIdle", StringComparison.Ordinal));
+
+        // Described now, and somebody else's kill: nothing to loot, nothing
+        // to wait for, and the route walks on.
+        loot.Corpses =
+        [
+            loot.Corpses[0] with
+            {
+                IsIdentified = true,
+                LongDescription = "Killed by Stranger.",
+            },
+        ];
+        automation.Messages.Clear();
+        panel.OnTick(0.3d);
+        panel.OnTick(0.3d);
+
+        Assert.Contains(
+            automation.Messages,
+            line => line.Contains("Picked NavigateRouteIdle", StringComparison.Ordinal));
+        Assert.DoesNotContain(
+            "[MossTank] Waiting this tick on corpse ID.",
+            automation.Messages);
+    }
+
+    /// <summary>
+    /// The reference's open rule is VALID while the item slot is held: the
+    /// pass after the open is still the open rule's, with the slot up, and
+    /// nothing below it runs. Mutation: put <c>ItemSlotIsFree()</c> back in
+    /// front of the idle open row's gate and the second pass line is not the
+    /// open rule's.
+    /// </summary>
+    [Fact]
+    public void TheOpenRuleHoldsThePassWhileItsOwnSlotIsUp()
+    {
+        var loot = new FrameLootSurface();
+        var automation = new FakeAutomation { LootSurface = loot };
+        var panel = new MossTankPanel(new FakeHost(automation));
+        panel.AddLootRule();
+        if (!panel.LootEnabled)
+            panel.ToggleLooting();
+        loot.Corpses =
+        [
+            new PluginLootContainer(
+                FrameLootSurface.CorpseId,
+                1u,
+                "Corpse",
+                3f,
+                false,
+                false,
+                false)
+            {
+                IsIdentified = true,
+                LongDescription = $"Killed by {automation.Name}.",
+            },
+        ];
+        panel.ExecuteVtankCommand(new PluginCommand(
+            "vt", "log ActiveRule on", "/vt log ActiveRule on"));
+        panel.ToggleCombat();
+        for (int tick = 0; tick < 12 && loot.Opened == 0u; tick++)
+            panel.OnTick(0.3d);
+        Assert.Equal(FrameLootSurface.CorpseId, loot.Opened);
+        Assert.True(panel.ActionLocks.IsLocked(ActionLockKind.ItemUse));
+
+        // The container has not opened; the slot is still up.
+        automation.Messages.Clear();
+        panel.OnTick(0.3d);
+
+        Assert.Contains(
+            automation.Messages,
+            line => line.Contains("Picked OpenCorpseIdle", StringComparison.Ordinal)
+                && line.Contains("I=True", StringComparison.Ordinal));
+    }
+
+    /// <summary>
+    /// Emptying a corpse is a chain of small waits, and a pass that ends in
+    /// "still waiting" costs the rest of a heartbeat unless the answer it
+    /// was waiting for wakes the pass itself. The container opening and
+    /// shutting, and its contents arriving, are three such answers: each
+    /// runs the next pass on the frame it lands. Mutation: drop the
+    /// container/contents fields from the poke watch and each of these ticks
+    /// runs no pass at all.
+    /// </summary>
+    [Fact]
+    public void ACorpseReceiptRunsTheNextPassOnItsOwnFrame()
+    {
+        var loot = new FrameLootSurface();
+        var automation = new FakeAutomation { LootSurface = loot };
+        var panel = new MossTankPanel(new FakeHost(automation));
+        panel.AddLootRule();
+        if (!panel.LootEnabled)
+            panel.ToggleLooting();
+        panel.ToggleCombat();
+        // Settle: nothing is changing, so nothing pokes and the pass runs on
+        // the heartbeat alone.
+        for (int tick = 0; tick < 4; tick++)
+            panel.OnTick(0.3d);
+        long settled = panel.MacroPassCount;
+        panel.OnTick(0.01d);
+        Assert.Equal(settled, panel.MacroPassCount);
+
+        // The container opened.
+        loot.Current = FrameLootSurface.CorpseId;
+        panel.OnTick(0.01d);
+        Assert.Equal(settled + 1, panel.MacroPassCount);
+
+        // Its contents arrived.
+        loot.ContentsReady = false;
+        panel.OnTick(0.3d);
+        long beforeContents = panel.MacroPassCount;
+        loot.ContentsReady = true;
+        panel.OnTick(0.01d);
+        Assert.Equal(beforeContents + 1, panel.MacroPassCount);
+
+        // The container shut.
+        panel.OnTick(0.3d);
+        long beforeClose = panel.MacroPassCount;
+        loot.Current = 0u;
+        panel.OnTick(0.01d);
+        Assert.Equal(beforeClose + 1, panel.MacroPassCount);
+    }
+
+    private sealed class FrameLootSurface : ILootAutomation
+    {
+        internal const uint CorpseId = 0x70000D01u;
+
+        public uint Opened { get; private set; }
+        public uint Current { get; set; }
+        public bool ContentsReady { get; set; } = true;
+        public IReadOnlyList<PluginLootContainer> Corpses { get; set; } = [];
+
+        public bool IsAvailable => true;
+        public bool IsBusy => false;
+        public uint RequestedContainerId => Opened;
+        public uint CurrentContainerId => Current;
+        public bool CurrentContentsReady => ContentsReady;
+
+        public IReadOnlyList<PluginLootContainer> CaptureCorpses(
+            float maximumDistance) => Corpses;
+
+        public PluginItemCommandResult Open(uint containerObjectId)
+        {
+            Opened = containerObjectId;
+            return new(PluginItemCommandStatus.Started);
+        }
     }
 
     [Fact]
@@ -165,19 +485,43 @@ public sealed class MossTankPanelTests
             MossTankPanel.WalkPauseReasonFor(running, lastRule, buffing, routeNavigation, looting, secondsSinceAttack));
     }
 
+    /// <summary>
+    /// The Client pathing choice lives in the macro profile's side-car and
+    /// comes back on reload; a side-car written by the older "walk legs with
+    /// client pathing" checkbox reads as Always, and one that says nothing
+    /// reads as the default, When stuck.
+    /// </summary>
     [Fact]
-    public void WalkingLegsWithClientPathingIsSavedWithTheProfile()
+    public void ClientPathingIsSavedWithTheProfileAndTheOldCheckboxReadsAsAlways()
     {
         var storage = new MemoryStorage();
         var automation = new FakeAutomation { Name = "Barris" };
         var panel = new MossTankPanel(new FakeHost(automation, storage));
-        Assert.False(panel.WalkLegsWithClientEnabled);
+        Assert.Equal("When stuck", panel.SelectedClientPathing);
 
-        panel.ToggleWalkLegsWithClient();
+        panel.SelectClientPathing("Always");
 
-        Assert.True(panel.WalkLegsWithClientEnabled);
+        Assert.Equal("Always", panel.SelectedClientPathing);
         var reloaded = new MossTankPanel(new FakeHost(new FakeAutomation { Name = "Barris" }, storage));
-        Assert.True(reloaded.WalkLegsWithClientEnabled);
+        Assert.Equal("Always", reloaded.SelectedClientPathing);
+
+        string key = Assert.Single(storage.Text.Keys, static k => k.Contains("sidecar", StringComparison.Ordinal));
+        string written = storage.Text[key];
+        Assert.Contains("NavigationClientPathing", written, StringComparison.Ordinal);
+
+        storage.Text[key] = System.Text.RegularExpressions.Regex.Replace(
+            written,
+            "\"NavigationClientPathing\"\\s*:\\s*\"Always\"",
+            "\"NavigationWalkLegsWithClient\": true");
+        var legacy = new MossTankPanel(new FakeHost(new FakeAutomation { Name = "Barris" }, storage));
+        Assert.Equal("Always", legacy.SelectedClientPathing);
+
+        storage.Text[key] = System.Text.RegularExpressions.Regex.Replace(
+            written,
+            "\"NavigationClientPathing\"\\s*:\\s*\"Always\",?",
+            string.Empty);
+        var silent = new MossTankPanel(new FakeHost(new FakeAutomation { Name = "Barris" }, storage));
+        Assert.Equal("When stuck", silent.SelectedClientPathing);
     }
 
     [Fact]
@@ -632,6 +976,65 @@ public sealed class MossTankPanelTests
         Assert.StartsWith("Buffing", panel.BuffStatus, StringComparison.Ordinal);
     }
 
+    /// <summary>
+    /// The idle top-off has a window of its own, wider than the ordinary
+    /// rebuff one, and it is the profile's number. A buff with ten minutes
+    /// left is due under a twenty-minute window and comfortably fresh under a
+    /// five-minute one.
+    ///
+    /// Mutation: read the ordinary rebuff window for the idle pass, or a
+    /// constant, and both rows answer the same way.
+    /// </summary>
+    [Theory]
+    [InlineData(1200d, true)]
+    [InlineData(300d, false)]
+    public void TheIdleTopoffWindowIsItsOwnProfileNumber(
+        double idleWindowSeconds,
+        bool casts)
+    {
+        var automation = new FakeAutomation
+        {
+            CurrentHealth = 100,
+            MaxHealth = 100,
+            CurrentStamina = 100,
+            MaxStamina = 100,
+            CurrentMana = 100,
+            MaxMana = 100,
+            Skills =
+            [
+                new PluginSkillInfo(
+                    1,
+                    "Life Magic",
+                    PluginSkillTraining.Trained,
+                    300),
+            ],
+            KnownSelfBuffs =
+            [
+                Spell(
+                    1,
+                    10,
+                    "Increases the caster's Life Magic skill by 10 points."),
+            ],
+            ActiveEnchantments = [new PluginActiveEnchantment(1, 10, 1, 600)],
+        };
+        var panel = new MossTankPanel(new FakeHost(automation));
+        panel.SetMetaOption(
+            "IdleBuffTopoffTimeSeconds",
+            AcDream.Plugins.MossTank.Expressions.ExpressionValue.Number(
+                idleWindowSeconds));
+
+        // Ten minutes left is outside the ordinary rebuff window either way,
+        // so nothing is cast until the idle pass is switched on.
+        panel.ToggleCombat();
+        panel.OnTick(0d);
+        Assert.Empty(automation.CastSpellIds);
+
+        panel.ToggleIdleBuffTopoff();
+        panel.OnTick(1d);
+
+        Assert.Equal(casts, automation.CastSpellIds.Count != 0);
+    }
+
     [Fact]
     public void StoppingTheMacroEndsAnAutomaticBuffPassInProgress()
     {
@@ -658,8 +1061,112 @@ public sealed class MossTankPanelTests
             "Buffing", panel.BuffStatus, StringComparison.Ordinal);
     }
 
+    /// <summary>
+    /// With the macro stopped, keeping worn gear charged is the only job
+    /// left, and the character's own switch is the only thing gating it. The
+    /// running list's copy of the same rule carries no such switch and no
+    /// combat gate: it sits between the self-recharge and the buffing and
+    /// runs whenever the item slot is free.
+    ///
+    /// Mutation: put the switch back on the running list's copy, or add a
+    /// second rule to the stopped list, and this fails.
+    /// </summary>
     [Fact]
-    public void StoppingTheMacroEndsTheBuffPassEvenWhenManaChargesKeepTheLoopAlive()
+    public void TheStoppedMacroListIsTheWornManaRuleUnderItsOwnSwitch()
+    {
+        var automation = new FakeAutomation();
+        var panel = new MossTankPanel(new FakeHost(automation));
+        var context = new MacroPassContext(0.3d, CanAct: true);
+
+        IMacroRule whenOff = Assert.Single(panel.MacroDisabledRules);
+        Assert.Equal("RefillWieldedMana", whenOff.Name);
+
+        // Worn gear the rule would want to look at, so that whether the rule
+        // was asked at all is visible from outside.
+        automation.ItemEntries =
+        [
+            Item(0x50005001u, "Low Wand", 0x00000001u) with
+            {
+                EquippedLocation = 0x00000002u,
+                ItemCurrentMana = 10,
+                ItemMaximumMana = 100,
+            },
+        ];
+        Command(panel, "opt set RefillWornMana true");
+        Command(panel, "opt set ManaChargesWhenOff false");
+
+        Assert.False(whenOff.ValidNow(in context));
+        Assert.DoesNotContain(0x50005001u, automation.Identified);
+
+        Command(panel, "opt set ManaChargesWhenOff true");
+        Assert.False(whenOff.ValidNow(in context));
+        Assert.Contains(0x50005001u, automation.Identified);
+
+        IMacroRule inMacro = panel.MacroRules.First(
+            static rule => rule.Name == "RefillWieldedMana");
+        int refill = panel.MacroRules.ToList().FindIndex(
+            static rule => rule.Name == "RefillWieldedMana");
+        int recharge = panel.MacroRules.ToList().FindIndex(
+            static rule => rule.Name == "RechargeSelfNormal");
+        int buff = panel.MacroRules.ToList().FindIndex(
+            static rule => rule.Name == "BuffSelf");
+        Assert.True(recharge < refill && refill < buff);
+        Assert.NotSame(whenOff, inMacro);
+    }
+
+    /// <summary>
+    /// Stopping the macro in the middle of a cast or a use must not cost the
+    /// pass its hold. The hold is a count, and the panel gives back exactly
+    /// the one it raised: dropping its own flag alone left a count nobody
+    /// could give back, and every later pass -- the stopped list included, so
+    /// worn gear was never charged again -- returned at the hold for the rest
+    /// of the session.
+    ///
+    /// Mutation: clear the flag without resuming, or reset the count inside
+    /// the start, and the worn item is never looked at again.
+    /// </summary>
+    [Fact]
+    public void StoppingTheMacroInsideACastStillLeavesTheStoppedListRunning()
+    {
+        FakeAutomation automation = BuffPassAutomation();
+        automation.SuppressCastCompletion = true;
+        automation.ItemEntries =
+        [
+            Item(0x50005001u, "Low Wand", 0x00000001u) with
+            {
+                EquippedLocation = 0x00000002u,
+                ItemCurrentMana = 10,
+                ItemMaximumMana = 100,
+            },
+        ];
+        var panel = new MossTankPanel(new FakeHost(automation));
+        Command(panel, "opt set RefillWornMana true");
+        Command(panel, "opt set ManaChargesWhenOff true");
+
+        panel.ToggleCombat();
+        panel.OnTick(0d);
+        Assert.Single(automation.CastSpellIds);
+        // One more frame, which is where the hold on the pass is taken: it is
+        // taken beside the pass, on the frame after the cast went out.
+        panel.OnTick(0.1d);
+
+        // Stopped with the cast still unanswered and the hold in place.
+        panel.ToggleCombat();
+        automation.Identified.Clear();
+
+        for (int tick = 0; tick < 40; tick++)
+            panel.OnTick(0.3d);
+
+        Assert.Contains(0x50005001u, automation.Identified);
+    }
+
+    /// <summary>
+    /// With the macro off, keeping worn gear charged keeps the pass alive --
+    /// and that is the only job it keeps alive. A buff pass left half done
+    /// ends with the macro, and the stopped list casts nothing of its own.
+    /// </summary>
+    [Fact]
+    public void TheStoppedMacroListKeepsThePassAliveWithoutBuffing()
     {
         var automation = BuffPassAutomation();
         var panel = new MossTankPanel(new FakeHost(automation));
@@ -800,7 +1307,7 @@ public sealed class MossTankPanelTests
         Assert.False(automation.IsCasting);
         Assert.Single(automation.CastSpellIds);
 
-        // Past the 5000 ms attempt watchdog (gj.cs:319-324) the tracker drops
+        // Past the 5000 ms attempt watchdog the tracker drops
         // to idle and re-issues the SAME spell; it never walks the queue.
         for (int i = 0; i < 12; i++)
             panel.OnTick(0.3d);
@@ -1256,9 +1763,9 @@ public sealed class MossTankPanelTests
         panel.OnTick(0.3d);
         Assert.Empty(automation.CastSpellIds);
 
-        // eq.i() - everything now reads as about to expire...
+        // Force-buff - everything now reads as about to expire...
         panel.ForceBuff();
-        // ...and eq.e() puts it back before the next heartbeat can act.
+        // ...and cancelling it puts it back before the next heartbeat can act.
         panel.CancelForceBuff();
         for (int tick = 0; tick < 6; tick++)
             panel.OnTick(0.3d);
@@ -1363,6 +1870,326 @@ public sealed class MossTankPanelTests
 
         Assert.Equal([101u, 102u, 103u], automation.CastSpellIds);
         Assert.Equal(10u, host.Selection.SelectedObjectId);
+    }
+
+    /// <summary>
+    /// Mutation pin: omit the ordered-ID append when admitting an item;
+    /// the saved BuffedItems table has no selected-object row.
+    /// </summary>
+    [Fact]
+    public void AddingSelectedItemPersistsItsObjectIdentityInUsd()
+    {
+        var storage = new MemoryStorage();
+        var automation = ItemEnchantAutomation();
+        var host = new FakeHost(automation, storage);
+        var panel = new MossTankPanel(host);
+        host.Selection.Select(10u);
+
+        panel.AddSelectedItem();
+
+        string usd = Assert.Single(storage.Text,
+            entry => entry.Key.EndsWith(".usd", StringComparison.Ordinal)).Value;
+        VtankTable table = VtankDatabase.Parse(usd).Find("BuffedItems")!;
+        VtankRow row = Assert.Single(table.Rows);
+        Assert.Equal(10, row.Cells[table.ColumnIndex("Object")].AsInt());
+        Assert.Equal(-1, row.Cells[table.ColumnIndex("Spell")].AsInt());
+    }
+
+    /// <summary>
+    /// Mutation <c>IgnoreProfiledItemSpellRows</c>: omit the numeric
+    /// BuffedItems row adapter and no cast is selected for object 11.
+    /// </summary>
+    [Fact]
+    public void ImportedBuffedItemSpellTargetsItsExactSameNameObject()
+    {
+        var storage = new MemoryStorage();
+        VtankDatabase database = VtankDefaultSettingsDatabase.Parse();
+        database.Find("BuffedItems")!.Rows.Add(new VtankRow
+        {
+            Cells =
+            {
+                VtankCell.Int(11),
+                VtankCell.Int(101),
+            },
+        });
+        storage.Text["Imported.usd"] = database.Render();
+        FakeAutomation automation = ItemEnchantAutomation();
+        automation.ItemEntries =
+        [
+            Item(10, "War Wand", 0x8000u, validLocations: 0x01000000u),
+            Item(11, "War Wand", 0x8000u, validLocations: 0x01000000u),
+        ];
+        var host = new FakeHost(automation, storage);
+        automation.CurrentSelection = () => host.Selection.SelectedObjectId ?? 0u;
+        var panel = new MossTankPanel(host);
+
+        Command(panel, "settings load Imported");
+        host.Selection.Select(10u);
+        panel.ToggleCombat();
+        for (int tick = 0; tick < 6; tick++)
+            panel.OnTick(0.3d);
+
+        Assert.Equal([101u], automation.CastSpellIds);
+        Assert.Equal([11u], automation.CastSelectionIds);
+    }
+
+    [Fact]
+    public void ImportedBuffedItemWeaponSentinelUsesTheEquippedWeapon()
+    {
+        var storage = new MemoryStorage();
+        VtankDatabase database = VtankDefaultSettingsDatabase.Parse();
+        database.Find("BuffedItems")!.Rows.Add(new VtankRow
+        {
+            Cells = { VtankCell.Int(-1), VtankCell.Int(101) },
+        });
+        storage.Text["Imported.usd"] = database.Render();
+        FakeAutomation automation = ItemEnchantAutomation();
+        automation.ItemEntries =
+        [
+            Item(10, "Worn Coat", 2u) with { EquippedLocation = 0x00000001u },
+            Item(11, "War Wand", 0x8000u) with { EquippedLocation = 0x01000000u },
+        ];
+        var host = new FakeHost(automation, storage);
+        automation.CurrentSelection = () => host.Selection.SelectedObjectId ?? 0u;
+        var panel = new MossTankPanel(host);
+
+        Command(panel, "settings load Imported");
+        panel.ToggleCombat();
+        for (int tick = 0; tick < 6; tick++)
+            panel.OnTick(0.3d);
+
+        Assert.Equal([101u], automation.CastSpellIds);
+        Assert.Equal([11u], automation.CastSelectionIds);
+    }
+
+    [Fact]
+    public void ImportedUntargetedBuffedItemSpellJoinsTheNormalBuffPlan()
+    {
+        var storage = new MemoryStorage();
+        VtankDatabase database = VtankDefaultSettingsDatabase.Parse();
+        database.Find("BuffedItems")!.Rows.Add(new VtankRow
+        {
+            Cells = { VtankCell.Int(10), VtankCell.Int(101) },
+        });
+        storage.Text["Imported.usd"] = database.Render();
+        FakeAutomation automation = ItemEnchantAutomation();
+        automation.Skills = [new PluginSkillInfo(32, "Item Enchantment", PluginSkillTraining.Trained, 300)];
+        automation.KnownSelfBuffs =
+        [
+            NamedSpell(101, 201, "Untargeted Aura I", ItemEnchantmentSchoolId)
+                with { IsUntargeted = true, IsSelfTargeted = true },
+        ];
+        var host = new FakeHost(automation, storage);
+        automation.CurrentSelection = () => host.Selection.SelectedObjectId ?? 0u;
+        var panel = new MossTankPanel(host);
+
+        Command(panel, "settings load Imported");
+        panel.ToggleCombat();
+        for (int tick = 0; tick < 6; tick++)
+            panel.OnTick(0.3d);
+
+        Assert.Equal([101u], automation.CastSpellIds);
+        Assert.Equal([0u], automation.CastSelectionIds);
+    }
+
+    [Fact]
+    public void UnknownAndEmptyImportedBuffedItemSpellsStayInert()
+    {
+        var storage = new MemoryStorage();
+        VtankDatabase database = VtankDefaultSettingsDatabase.Parse();
+        VtankTable table = database.Find("BuffedItems")!;
+        table.Rows.Add(new VtankRow { Cells = { VtankCell.Int(10), VtankCell.Int(999) } });
+        table.Rows.Add(new VtankRow { Cells = { VtankCell.Int(10), VtankCell.Int(-1) } });
+        storage.Text["Imported.usd"] = database.Render();
+        FakeAutomation automation = ItemEnchantAutomation();
+        var host = new FakeHost(automation, storage);
+        var panel = new MossTankPanel(host);
+
+        Command(panel, "settings load Imported");
+        panel.ToggleCombat();
+        for (int tick = 0; tick < 6; tick++)
+            panel.OnTick(0.3d);
+
+        Assert.Empty(automation.CastSpellIds);
+    }
+
+    [Fact]
+    public void RemovingSelectedOwnedItemRemovesItsUsdIdentity()
+    {
+        var storage = new MemoryStorage();
+        var automation = ItemEnchantAutomation();
+        var host = new FakeHost(automation, storage);
+        var panel = new MossTankPanel(host);
+        host.Selection.Select(10u);
+        panel.AddSelectedItem();
+
+        panel.RemoveSelectedItem();
+
+        string usd = Assert.Single(storage.Text,
+            entry => entry.Key.EndsWith(".usd", StringComparison.Ordinal)).Value;
+        Assert.Empty(VtankDatabase.Parse(usd).Find("BuffedItems")!.Rows);
+    }
+
+    /// <summary>
+    /// Mutation <c>SkipExactBuffedItemRemoval</c>: omit the selected stored ID
+    /// from removal. The missing row remains while the same-name item and raw rows
+    /// must stay intact.
+    /// </summary>
+    [Fact]
+    public void ItemRowsDeleteTheSelectedIdentityEvenWhenMissingOrNamesMatch()
+    {
+        var storage = new MemoryStorage();
+        var originalItems = new FakeAutomation
+        {
+            ItemEntries =
+            [
+                Item(10, "Twin Sword", 1),
+                Item(11, "Twin Sword", 1),
+            ],
+        };
+        var firstHost = new FakeHost(originalItems, storage);
+        var first = new MossTankPanel(firstHost);
+        firstHost.Selection.Select(10u);
+        first.AddSelectedItem();
+        firstHost.Selection.Select(11u);
+        first.AddSelectedItem();
+        string usdKey = Assert.Single(storage.Text.Keys,
+            key => key.EndsWith(".usd", StringComparison.Ordinal));
+        VtankDatabase document = VtankDatabase.Parse(storage.Text[usdKey]);
+        VtankTable table = document.Find("BuffedItems")!;
+        var spellRow = new VtankRow();
+        spellRow.Cells.Add(VtankCell.Int(10));
+        spellRow.Cells.Add(VtankCell.Int(17));
+        table.Rows.Add(spellRow);
+        table.Rows.Add(new VtankRow
+        {
+            Cells = { VtankCell.String("not-an-object-id"), VtankCell.Int(99) },
+        });
+        storage.Text[usdKey] = document.Render();
+
+        var second = new MossTankPanel(new FakeHost(new FakeAutomation
+        {
+            ItemEntries = [Item(11, "Twin Sword", 1)],
+        }, storage));
+        Assert.Equal(
+            ["<INVALID 0x0000000A>", "Twin Sword", "<INVALID 0x0000000A> — Spell 0x00000011"],
+            second.ItemRows);
+
+        second.DeleteItemRowAt(0);
+
+        Assert.Equal(["Twin Sword", "<INVALID 0x0000000A> — Spell 0x00000011"], second.ItemRows);
+        table = VtankDatabase.Parse(storage.Text[usdKey]).Find("BuffedItems")!;
+        Assert.Contains(table.Rows, row => row.Cells[table.ColumnIndex("Object")]
+            .AsInt() == 11);
+        Assert.Contains(table.Rows, row => row.Cells[table.ColumnIndex("Object")]
+            .AsString() == "not-an-object-id");
+
+        second.DeleteItemRowAt(1);
+        Assert.Equal(["Twin Sword"], second.ItemRows);
+
+        second.DeleteItemRowAt(0);
+
+        Assert.Empty(second.ItemRows);
+        table = VtankDatabase.Parse(storage.Text[usdKey]).Find("BuffedItems")!;
+        Assert.Single(table.Rows);
+        Assert.Equal("not-an-object-id", table.Rows[0].Cells[
+            table.ColumnIndex("Object")].AsString());
+    }
+
+    /// <summary>
+    /// Imported rows identify a single Object/Spell pair. Their removal must
+    /// update the live plan as well as the saved table, leaving other spells
+    /// and the equipment row for the same object intact.
+    /// Mutation: omit the profiled-row branch in
+    /// <c>DeleteItemRowAtCore</c>; the imported spell stays in the UI and
+    /// the post-delete row assertion fails.
+    /// </summary>
+    [Fact]
+    public void ImportedBuffedItemUiDeletesOneSpellPairAndKeepsItsSiblings()
+    {
+        var storage = new MemoryStorage();
+        VtankDatabase database = VtankDefaultSettingsDatabase.Parse();
+        VtankTable table = database.Find("BuffedItems")!;
+        table.Rows.Add(new VtankRow { Cells = { VtankCell.Int(10), VtankCell.Int(-1) } });
+        table.Rows.Add(new VtankRow { Cells = { VtankCell.Int(10), VtankCell.Int(101) } });
+        table.Rows.Add(new VtankRow { Cells = { VtankCell.Int(10), VtankCell.Int(102) } });
+        storage.Text["Imported.usd"] = database.Render();
+        FakeAutomation automation = ItemEnchantAutomation();
+        var host = new FakeHost(automation, storage);
+        automation.CurrentSelection = () => host.Selection.SelectedObjectId ?? 0u;
+        var panel = new MossTankPanel(host);
+
+        Command(panel, "settings load Imported");
+        Assert.Equal(
+            ["War Wand", "War Wand — Aura of Defender Self I", "War Wand — Aura of Hermetic Link Self I"],
+            panel.ItemRows);
+
+        panel.DeleteItemRowAt(1);
+
+        Assert.Equal(
+            ["War Wand", "War Wand — Aura of Hermetic Link Self I"],
+            panel.ItemRows);
+        panel.ToggleCombat();
+        for (int tick = 0; tick < 8; tick++)
+            panel.OnTick(0.3d);
+
+        Assert.Equal([102u], automation.CastSpellIds);
+        table = VtankDatabase.Parse(storage.Text["Imported.usd"]).Find("BuffedItems")!;
+        Assert.Contains(table.Rows, row => row.Cells[table.ColumnIndex("Object")].AsInt() == 10
+            && row.Cells[table.ColumnIndex("Spell")].AsInt() == -1);
+        Assert.DoesNotContain(table.Rows, row => row.Cells[table.ColumnIndex("Object")].AsInt() == 10
+            && row.Cells[table.ColumnIndex("Spell")].AsInt() == 101);
+        Assert.Contains(table.Rows, row => row.Cells[table.ColumnIndex("Object")].AsInt() == 10
+            && row.Cells[table.ColumnIndex("Spell")].AsInt() == 102);
+    }
+
+    /// <summary>
+    /// A numeric profile spell supplies a family even when its old display
+    /// name does not match a known higher tier's name.
+    /// Mutation: resolve the numeric row through <c>exemplar.Name</c> rather
+    /// than the exemplar itself; the renamed known tier is not cast.
+    /// </summary>
+    [Fact]
+    public void ImportedBuffedItemNumericExemplarResolvesKnownTierByFamily()
+    {
+        var storage = new MemoryStorage();
+        VtankDatabase database = VtankDefaultSettingsDatabase.Parse();
+        database.Find("BuffedItems")!.Rows.Add(new VtankRow
+        {
+            Cells = { VtankCell.Int(10), VtankCell.Int(100) },
+        });
+        storage.Text["Imported.usd"] = database.Render();
+        FakeAutomation automation = ItemEnchantAutomation();
+        automation.Skills =
+        [
+            new PluginSkillInfo(
+                ItemEnchantmentSchoolId,
+                "Item Enchantment",
+                PluginSkillTraining.Trained,
+                300),
+        ];
+        automation.KnownSelfBuffs =
+        [
+            NamedSpell(101, 201, "Renamed Higher Aura VI", ItemEnchantmentSchoolId)
+                with { Tier = 6, IsSelfTargeted = true },
+        ];
+        automation.CatalogSpells =
+        [
+            NamedSpell(100, 201, "Old Exemplar I", ItemEnchantmentSchoolId)
+                with { IsSelfTargeted = true },
+        ];
+        var host = new FakeHost(automation, storage);
+        automation.CurrentSelection = () => host.Selection.SelectedObjectId ?? 0u;
+        var panel = new MossTankPanel(host);
+
+        Command(panel, "settings load Imported");
+        Assert.Equal(["War Wand — Old Exemplar I"], panel.ItemRows);
+        panel.ToggleCombat();
+        for (int tick = 0; tick < 6; tick++)
+            panel.OnTick(0.3d);
+
+        Assert.Equal([101u], automation.CastSpellIds);
+        Assert.Equal([10u], automation.CastSelectionIds);
     }
 
     [Fact]
@@ -1484,10 +2311,11 @@ public sealed class MossTankPanelTests
     public void AnItemAlreadyEnchantedForLongerThanTheThresholdIsNotDue()
     {
         var automation = ItemEnchantAutomation();
-        automation.ItemEnchantments[10u] =
+        // The auras are self-targeted: the character carries their timers.
+        automation.ActiveEnchantments =
         [
-            new PluginTrackedEnchantment(10u, 101u, 201u, 1, false, 1800d),
-            new PluginTrackedEnchantment(10u, 102u, 202u, 1, false, 1800d),
+            new PluginActiveEnchantment(101u, 201u, 1, 1800d),
+            new PluginActiveEnchantment(102u, 202u, 1, 1800d),
         ];
         var host = new FakeHost(automation);
         automation.CurrentSelection = () => host.Selection.SelectedObjectId ?? 0u;
@@ -1506,11 +2334,11 @@ public sealed class MossTankPanelTests
     public void ForceBuffAlsoForcesTheItemEnchantRowsBecauseEqIEndsOnDmD()
     {
         FakeAutomation automation = ItemEnchantAutomation();
-        automation.ItemEnchantments[10u] =
+        automation.ActiveEnchantments =
         [
-            new PluginTrackedEnchantment(10u, 101u, 201u, 1, false, 1800d),
-            new PluginTrackedEnchantment(10u, 102u, 202u, 1, false, 1800d),
-            new PluginTrackedEnchantment(10u, 103u, 203u, 1, false, 1800d),
+            new PluginActiveEnchantment(101u, 201u, 1, 1800d),
+            new PluginActiveEnchantment(102u, 202u, 1, 1800d),
+            new PluginActiveEnchantment(103u, 203u, 1, 1800d),
         ];
         var host = new FakeHost(automation);
         automation.CurrentSelection = () => host.Selection.SelectedObjectId ?? 0u;
@@ -1531,9 +2359,9 @@ public sealed class MossTankPanelTests
     }
 
     /// <summary>
-    /// <c>eq.a(out, out)</c> walks <c>b()</c> — the SELF list — to exhaustion
-    /// before it ever reaches <c>g()</c> (<c>eq.cs:481</c> then
-    /// <c>eq.cs:510</c>). A self buff that is due therefore always outranks
+    /// The reference buff pick walks the SELF list to exhaustion before it
+    /// ever reaches the item list. A self buff that is due therefore always
+    /// outranks
     /// every item enchantment.
     /// Mutation: try the item rows first in TryPickBuff and this fails.
     /// </summary>
@@ -1829,60 +2657,31 @@ public sealed class MossTankPanelTests
             IsSelfTargeted: false,
             IsBeneficial: true);
 
-    [Fact]
-    public void RandomHelperDrawsItsTargetAtRandomAcrossTheNearbyPlayers()
+    /// <summary>
+    /// Running the fellowship -- answering tells, handling votes -- is a
+    /// profile choice, and with it off the manager does nothing and says so
+    /// rather than quietly watching chat.
+    ///
+    /// Mutation: run the manager whatever the profile says and the second row
+    /// reports the in-world state instead.
+    /// </summary>
+    [Theory]
+    [InlineData(true, "Not in a fellowship")]
+    [InlineData(false, "Fellow manager disabled")]
+    public void ManagingTheFellowshipIsAProfileChoice(bool manages, string status)
     {
-        var automation = RandomHelperAutomation();
-        automation.WorldObjects.Add(NearbyPlayer(0x50000009u, "Fellow A"));
-        automation.WorldObjects.Add(NearbyPlayer(0x5000000Au, "Fellow B"));
-        var host = new FakeHost(automation);
-        var panel = new MossTankPanel(host);
-        host.Selection.Select(10);
-        panel.AddSelectedItem();   // the gate needs a profiled wand
-        panel.SetMetaOption("RandomHelperBuffs", Truthy(true));
-        panel.ToggleCombat();
+        var panel = new MossTankPanel(new FakeHost(new FakeAutomation()));
+        panel.SetMetaOption("AutoFellowManagement", Truthy(manages));
 
-        for (int tick = 0; tick < 200; tick++)
+        panel.ToggleCombat();
+        for (int tick = 0; tick < 4; tick++)
             panel.OnTick(0.3d);
 
-        Assert.True(
-            automation.CastTargets.Count >= 5,
-            $"only {automation.CastTargets.Count} helper casts");
-        Assert.Equal(2, automation.CastTargets.Distinct().Count());
+        Assert.Equal(status, panel.FellowshipManagerStatus);
     }
 
     [Fact]
-    public void RandomHelperCastsTheBestKnownTierOfTheDrawnStem()
-    {
-        var automation = RandomHelperAutomation();
-        automation.KnownSelfBuffs =
-        [
-            NamedSpell(500, 600, "Armor Other I", 33u),
-            NamedSpell(506, 600, "Armor Other VI", 33u) with { Tier = 6 },
-        ];
-        automation.WorldObjects.Add(NearbyPlayer(0x50000009u, "Fellow A"));
-        var host = new FakeHost(automation);
-        var panel = new MossTankPanel(host);
-        host.Selection.Select(10);
-        panel.AddSelectedItem();   // the gate needs a profiled wand
-        panel.SetMetaOption("RandomHelperBuffs", Truthy(true));
-        panel.ToggleCombat();
-
-        for (int tick = 0; tick < 20; tick++)
-            panel.OnTick(0.3d);
-
-        Assert.NotEmpty(automation.CastSpellIds);
-        Assert.All(automation.CastSpellIds, id => Assert.Equal(506u, id));
-    }
-
-    private static PluginWorldObject NearbyPlayer(uint objectId, string name) =>
-        new(objectId, 123u, name, PluginObjectClass.Player, 0u, 0u, 0u)
-        {
-            HasPosition = true,
-            Position = NavigationAt(0f).Position,
-        };
-
-    private static CombatCapableFakeAutomation RandomHelperAutomation()
+    public void RandomHelperBuffsGoToANearbyFellowWithTheSettingOn()
     {
         var automation = new CombatCapableFakeAutomation
         {
@@ -1907,7 +2706,87 @@ public sealed class MossTankPanelTests
         {
             Mode = PluginCombatMode.Magic,
         };
-        return automation;
+        automation.WorldObjects.Add(
+            new PluginWorldObject(
+                0x50000009u, 123u, "Fellow A", PluginObjectClass.Player, 0u, 0u, 0u)
+            {
+                HasPosition = true,
+                Position = NavigationAt(0f).Position,
+            });
+        var host = new FakeHost(automation);
+        var panel = new MossTankPanel(host);
+        host.Selection.Select(10);
+        panel.AddSelectedItem();
+        panel.SetMetaOption("RandomHelperBuffs", Truthy(true));
+        panel.ToggleCombat();
+
+        for (int tick = 0; tick < 200; tick++)
+            panel.OnTick(0.3d);
+
+        Assert.Contains(0x50000009u, automation.CastTargets);
+    }
+
+    private static FakeAutomation GemFoodAutomation(string itemName = "Blackmoor's Favor") => new()
+    {
+        CurrentHealth = 100,
+        MaxHealth = 100,
+        CurrentStamina = 100,
+        MaxStamina = 100,
+        CurrentMana = 100,
+        MaxMana = 100,
+        KnownSelfBuffs =
+        [
+            Spell(3810, 518, "An appraised effect.") with { DurationSeconds = 600f },
+            Spell(3811, 519, "A configured effect."),
+        ],
+        ItemEntries =
+        [
+            Item(101, itemName, 0x800u)
+                with { AppraisedSpellIds = [3810u] },
+        ],
+    };
+
+    private static string SettingsWithGemFood(params (string Name, uint SpellId)[] entries)
+    {
+        VtankDatabase database = VtankDefaultSettingsDatabase.Parse();
+        VtankTable table = database.Find("GemFoodItems")!;
+        int name = table.ColumnIndex("Name");
+        int spell = table.ColumnIndex("Spell");
+        table.Rows.Clear();
+        foreach ((string itemName, uint spellId) in entries)
+        {
+            var row = new VtankRow();
+            for (int column = 0; column < table.ColumnNames.Count; column++)
+                row.Cells.Add(VtankCell.Int(0));
+            row.Cells[name] = VtankCell.String(itemName);
+            row.Cells[spell] = VtankCell.Int(unchecked((int)spellId));
+            table.Rows.Add(row);
+        }
+        return database.Render();
+    }
+
+    private static string SettingsWithoutGemFood()
+    {
+        VtankDatabase database = VtankDefaultSettingsDatabase.Parse();
+        database.Tables.RemoveAll(static entry => entry.Name == "GemFoodItems");
+        return database.Render();
+    }
+
+    private static VtankRow SettingRow(VtankTable table, string name, VtankCell value)
+    {
+        var row = new VtankRow();
+        for (int column = 0; column < table.ColumnNames.Count; column++)
+            row.Cells.Add(VtankCell.Int(0));
+        row.Cells[table.ColumnIndex("Setting")] = VtankCell.String(name);
+        row.Cells[table.ColumnIndex("Value")] = value;
+        return row;
+    }
+
+    private static VtankRow ExemplarRow(int spellId)
+    {
+        var row = new VtankRow();
+        row.Cells.Add(VtankCell.Int(spellId));
+        return row;
     }
 
     private static FakeAutomation BuffPassAutomation() => new()
@@ -2031,6 +2910,49 @@ public sealed class MossTankPanelTests
             MaxStamina = 100,
             CurrentMana = 100,
             MaxMana = 100,
+        };
+        automation.CombatSnapshot = automation.CombatSnapshot with
+        {
+            Mode = PluginCombatMode.Melee,
+        };
+        var panel = new MossTankPanel(new FakeHost(automation));
+        panel.ToggleIdlePeaceMode();
+        panel.ToggleCombat();
+        // A cast this macro issued and is still waiting on.
+        SpellCastTracker tracker = ((IBuffRuleHost)panel).CastTracker;
+        tracker.Begin(1u, "Strength Self", 0u, string.Empty, false, issueRevision: 0L);
+
+        for (int tick = 0; tick < 5; tick++)
+            panel.OnTick(0.3d);
+
+        Assert.DoesNotContain("EnterMode:Peace", automation.CallLog);
+        Assert.Equal(PluginCombatMode.Melee, automation.CombatSnapshot.Mode);
+
+        tracker.Reset();
+        panel.OnTick(0.01d);
+        panel.OnTick(0.01d);
+
+        Assert.Contains("EnterMode:Peace", automation.CallLog);
+    }
+
+    /// <summary>
+    /// The host's casting flag is its inventory busy count under another
+    /// name: every open, pickup and appraisal raises it. The reference's
+    /// global busy count is raised by none of those, so the flag alone must
+    /// not hold the pass. Mutation: put <c>Magic.IsCasting</c> back into the
+    /// suspension predicate and the pass never reaches the peace rule.
+    /// </summary>
+    [Fact]
+    public void TheHostsInventoryBusyFlagAloneDoesNotSuspendThePass()
+    {
+        var automation = new CombatCapableFakeAutomation
+        {
+            CurrentHealth = 100,
+            MaxHealth = 100,
+            CurrentStamina = 100,
+            MaxStamina = 100,
+            CurrentMana = 100,
+            MaxMana = 100,
             IsCasting = true,
         };
         automation.CombatSnapshot = automation.CombatSnapshot with
@@ -2041,19 +2963,83 @@ public sealed class MossTankPanelTests
         panel.ToggleIdlePeaceMode();
         panel.ToggleCombat();
 
-        for (int tick = 0; tick < 10; tick++)
+        for (int tick = 0; tick < 5; tick++)
             panel.OnTick(0.3d);
-
-        Assert.DoesNotContain("EnterMode:Peace", automation.CallLog);
-        Assert.Equal(PluginCombatMode.Melee, automation.CombatSnapshot.Mode);
-
-        automation.IsCasting = false;
-        panel.OnTick(0.01d);
-        panel.OnTick(0.01d);
 
         Assert.Contains("EnterMode:Peace", automation.CallLog);
     }
 
+    /// <summary>
+    /// The reference has two self-recharge rows: the normal thresholds at
+    /// row 4 and the no-target thresholds at row 59, below loot, the buff
+    /// top-off and the monster approach. Both are live rules here.
+    /// </summary>
+    [Fact]
+    public void BothSelfRechargeRowsAreLiveRules()
+    {
+        var panel = new MossTankPanel(new FakeHost(new CombatCapableFakeAutomation()));
+        IMacroRule normal = panel.MacroRules.First(static rule => rule.Name == "RechargeSelfNormal");
+        IMacroRule idle = panel.MacroRules.First(static rule => rule.Name == "RechargeSelfNoTarget");
+        Assert.IsType<ControllerMacroRule>(normal);
+        Assert.IsType<ControllerMacroRule>(idle);
+    }
+
+    /// <summary>
+    /// The reference gates the route rule's idle-peace fallback on normal
+    /// movement being allowed: inside the creep band of the waypoint the walk
+    /// itself runs (and pushes into magic mode); idle peace is not asked for
+    /// there. Mutation: leave the fallback ungated and peace is requested.
+    /// </summary>
+    [Fact]
+    public void InsideTheCreepBandTheRouteWalksInsteadOfAskingForPeace()
+    {
+        var automation = new CombatCapableFakeAutomation
+        {
+            CurrentHealth = 100,
+            MaxHealth = 100,
+        };
+        automation.CombatSnapshot = automation.CombatSnapshot with
+        {
+            Mode = PluginCombatMode.Melee,
+        };
+        var panel = new MossTankPanel(new FakeHost(automation));
+        // A waypoint one metre north: inside the creep band.
+        automation.NavigationSnapshot = automation.NavigationSnapshot with
+        {
+            Position = new PluginNavigationPosition(
+                0x00010001u, 0d, 1d / 240d, 0d, 0f, IsOutdoor: true),
+        };
+        panel.AddRoutePoint();
+        automation.NavigationSnapshot = automation.NavigationSnapshot with
+        {
+            Position = new PluginNavigationPosition(
+                0x00010001u, 0d, 0d, 0d, 0f, IsOutdoor: true),
+        };
+        panel.ToggleNavigation();
+        panel.ToggleIdlePeaceMode();
+        panel.ToggleCombat();
+
+        for (int tick = 0; tick < 4; tick++)
+            panel.OnTick(0.3d);
+
+        Assert.DoesNotContain("EnterMode:Peace", automation.CallLog);
+        IMacroRule route = panel.MacroRules.First(
+            static rule => rule.Name == "NavigateRouteIdle");
+        Assert.True(route.Running);
+    }
+
+    /// <summary>
+    /// The reference wires an idle-peace fallback on the monster approach,
+    /// gated on the monster being outside the creep band.
+    /// </summary>
+    [Fact]
+    public void TheMonsterApproachCarriesTheIdlePeaceFallback()
+    {
+        var panel = new MossTankPanel(new FakeHost(new CombatCapableFakeAutomation()));
+        IMacroRule approach = panel.MacroRules.First(
+            static rule => rule.Name == "NavigateMonster");
+        Assert.IsType<MacroRulePreChain>(approach);
+    }
 
     [Fact]
     public void VtLogActiveRuleOnPostsThePickedLineNamingTheWinner()
@@ -2081,6 +3067,79 @@ public sealed class MossTankPanelTests
             automation.Messages);
     }
 
+    /// <summary>
+    /// The reference's busy count is raised by a spell cast, a wand cast and
+    /// a kit or craft use, never by an open, a pickup or an identify. Here
+    /// the host's inventory flag is up (an identify is outstanding) and the
+    /// pass still runs. Mutation: put <c>automation.Items.IsBusy</c> back
+    /// into the in-flight test of <c>ObserveCastSuspension</c> and the pass
+    /// line never appears.
+    /// </summary>
+    [Fact]
+    public void AnOutstandingInventoryRequestDoesNotStopThePass()
+    {
+        var automation = new CombatCapableFakeAutomation
+        {
+            CurrentHealth = 100,
+            MaxHealth = 100,
+            ItemsBusy = true,
+        };
+        automation.CombatSnapshot = automation.CombatSnapshot with
+        {
+            Mode = PluginCombatMode.Melee,
+        };
+        var panel = new MossTankPanel(new FakeHost(automation));
+        panel.ToggleIdlePeaceMode();
+        panel.ExecuteVtankCommand(new PluginCommand(
+            "vt", "log ActiveRule on", "/vt log ActiveRule on"));
+        automation.Messages.Clear();
+        panel.ToggleCombat();
+
+        panel.OnTick(0.1d);
+        panel.OnTick(0.3d);
+
+        Assert.Contains(
+            "[MossTank] Picked IdlePeace P: 65   I=False, N=False, S=False",
+            automation.Messages);
+    }
+
+    /// <summary>
+    /// The reference gates a buff on the item-use slot and on whether a buff
+    /// is due, never on the host's inventory transaction state. The two are
+    /// not the same thing here: a cast raises that transaction count on its
+    /// way out, so a buff rule watching it declines for several passes after
+    /// each of its OWN casts, and every one of those passes falls through to
+    /// whatever wants it next -- which, standing over a corpse, is the open
+    /// rule. That is the "it tries to open a corpse between every spell"
+    /// report. Mutation: gate <c>BuffSelfRule</c> on
+    /// <c>automation.Items.IsBusy</c> again and the rule declines instead of
+    /// claiming the pass.
+    /// </summary>
+    [Fact]
+    public void AnOutstandingInventoryRequestDoesNotStopTheBuffRule()
+    {
+        FakeAutomation automation = BuffPassAutomation();
+        automation.ItemsBusy = true;
+        automation.IsCasting = true;
+        var panel = new MossTankPanel(new FakeHost(automation));
+        panel.ExecuteVtankCommand(new PluginCommand(
+            "vt", "log ActiveRule on", "/vt log ActiveRule on"));
+        automation.Messages.Clear();
+
+        panel.ToggleCombat();
+        panel.OnTick(0d);
+
+        // The rule keeps the pass AND casts. The host's flags are its
+        // inventory transaction count under two names, raised by appraisals
+        // and pickups as much as by casts; a request that never completes
+        // leaves the count raised for good, and a rule that waits on it
+        // claims every pass, casts nothing, and starves every rule below.
+        Assert.Contains(
+            automation.Messages,
+            line => line.Contains("Picked BuffSelf", StringComparison.Ordinal));
+        Assert.NotEmpty(automation.CastSpellIds);
+    }
+
     [Fact]
     public void VtLogActiveRuleOnPostsAllRulesInactiveWhenNothingIsValid()
     {
@@ -2105,6 +3164,445 @@ public sealed class MossTankPanelTests
         Assert.Contains(
             "[MossTank] All rules inactive.   I=False, N=False, S=False",
             automation.Messages);
+    }
+
+    /// <summary>
+    /// Mutation: delete the Attack rule's
+    /// <c>gate: () =&gt; !_actionLocks.IsLocked(ActionLockKind.ItemUse)</c> and
+    /// the first assertion fails — the bot keeps swinging inside the item's
+    /// own cooldown.
+    /// </summary>
+    [Fact]
+    public void AnItemUseLockHoldsTheAttackRuleOffUntilItExpires()
+    {
+        var automation = new CombatCapableFakeAutomation
+        {
+            CurrentHealth = 100,
+            MaxHealth = 100,
+            ItemEntries = [Item(20, "Battle Axe", itemType: 1)],
+            EquipmentItems = [EquipmentItem(20, "Battle Axe", itemType: 1)],
+            Targets = [new PluginCombatTarget(30, "Drudge", 700, 2f, 0f, true, 1f)],
+        };
+        automation.CombatSnapshot = automation.CombatSnapshot with
+        {
+            Mode = PluginCombatMode.Melee,
+        };
+        var host = new FakeHost(automation);
+        var panel = new MossTankPanel(host);
+        host.Selection.Select(20);
+        panel.AddSelectedItem();
+        panel.CycleMonsterWeaponAt(0);
+        panel.ToggleCombat();
+
+        bool attacked = false;
+        for (int tick = 0; tick < 60 && !attacked; tick++)
+        {
+            panel.OnTick(0.7d);
+            attacked = automation.BeginCount > 0;
+        }
+        Assert.True(
+            attacked,
+            "the rig never attacks at all. CallLog: "
+                + string.Join(" | ", automation.CallLog));
+
+        panel.ActionLocks.Arm(ActionLockKind.ItemUse, 5d);
+        int before = automation.BeginCount;
+        for (int tick = 0; tick < 5; tick++)
+            panel.OnTick(0.7d);
+
+        Assert.Equal(before, automation.BeginCount);
+
+        for (int tick = 0; tick < 5; tick++)
+            panel.OnTick(0.7d);
+
+        Assert.True(
+            automation.BeginCount > before,
+            "the attack never resumed after the item-use lock expired");
+    }
+
+    /// <summary>
+    /// The item slot is not the attack's alone: every rule that consumes an
+    /// item reads it first, which is what makes one shared release safe — with
+    /// only one owner at a time, no rule can put down a window another one is
+    /// holding. Here the slot is held by somebody else and the self-recharge
+    /// eats nothing until it comes free.
+    /// Mutation: drop <c>ItemSlotIsFree() &amp;&amp;</c> from
+    /// <c>RechargeSelfNormal</c>'s gate and the first assertion fails — the
+    /// bread is eaten inside another owner's window, and the recharge's own
+    /// release then deletes that owner's deadline.
+    /// </summary>
+    [Fact]
+    public void TheItemSlotHoldsTheConsumableRulesOffAsWellAsTheAttack()
+    {
+        var automation = new FakeAutomation
+        {
+            CurrentHealth = 100,
+            MaxHealth = 100,
+            CurrentStamina = 100,
+            MaxStamina = 100,
+            CurrentMana = 100,
+            MaxMana = 100,
+            // BoosterVital 2 = VitalKind.Health.
+            ItemEntries = [Item(60, "Bread", 0x20) with { BoosterVital = 2 }],
+        };
+        var host = new FakeHost(automation);
+        var panel = new MossTankPanel(host);
+        host.Selection.Select(60u);
+        panel.AddSelectedConsumable();
+        panel.ToggleCombat();
+        // The macro clears every slot as it starts, so the window opens after
+        // the first frame.
+        panel.OnTick(0d);
+
+        // Somebody else's window, and only now is health worth a bite: two
+        // seconds of passes eat nothing.
+        panel.ActionLocks.Arm(ActionLockKind.ItemUse, 5d);
+        automation.CurrentHealth = 10;
+        for (int tick = 0; tick < 6; tick++)
+            panel.OnTick(0.3d);
+        Assert.Empty(automation.UsedItemIds);
+
+        panel.ActionLocks.Release(ActionLockKind.ItemUse);
+        for (int tick = 0; tick < 6; tick++)
+            panel.OnTick(0.3d);
+        Assert.Equal([60u], automation.UsedItemIds);
+    }
+
+    /// <summary>
+    /// The whole point of the hold: a bite eaten, the server's answer, and
+    /// the next bite, all inside a second. The hold is what stops the pass,
+    /// and the pass used to be the only place the answer was ever read — so
+    /// the hold waited on the thing it had stopped and ended only on its
+    /// watchdog, more than eight seconds after the server had answered, with
+    /// the character standing still for all of it. Mutation: delete the
+    /// <c>_vitalRecharge.ObservePendingReceipt</c> call from
+    /// <c>ObservePendingTransactions</c> and the second bite never comes.
+    /// </summary>
+    [Fact]
+    public void AnsweredConsumableUsesFollowOneAnotherInsideASecond()
+    {
+        var automation = new FakeAutomation
+        {
+            CurrentHealth = 100,
+            MaxHealth = 100,
+            CurrentStamina = 100,
+            MaxStamina = 100,
+            CurrentMana = 100,
+            MaxMana = 100,
+            // BoosterVital 2 = VitalKind.Health.
+            ItemEntries = [Item(60, "Bread", 0x20) with { BoosterVital = 2 }],
+        };
+        var host = new FakeHost(automation);
+        var panel = new MossTankPanel(host);
+        host.Selection.Select(60u);
+        panel.AddSelectedConsumable();
+        panel.ToggleCombat();
+        panel.OnTick(0d);
+
+        automation.CurrentHealth = 10;
+        for (int tick = 0; tick < 6; tick++)
+            panel.OnTick(0.1d);
+        Assert.Equal([60u], automation.UsedItemIds);
+
+        // The server answers, and one second of frames follows — a fraction of
+        // the suspension watchdog.
+        automation.ItemCompletion = new PluginItemUseCompletion(1L, 60u, 0u, 0u);
+        for (int tick = 0; tick < 10; tick++)
+            panel.OnTick(0.1d);
+
+        Assert.Equal([60u, 60u], automation.UsedItemIds);
+    }
+
+    /// <summary>
+    /// The wand's cast holds the very slot the attack's first refusal reads,
+    /// so from the pass after it starts the attack has no turn at all. The
+    /// cast is nobody else's business but its own: it keeps being watched
+    /// across those turnless passes, sees its own confirmation in the magic
+    /// log, and puts the slot down early — driven here through the real rule
+    /// table, not by calling the controller.
+    /// Mutation: empty <c>CombatController.ObserveHeldItemCast</c> (the frame
+    /// driver that watches the held item's cast while the attack has no turn)
+    /// and the last two assertions fail — the slot stays locked for its whole
+    /// eleven-and-a-half seconds and the attack stays paused.
+    /// </summary>
+    [Fact]
+    public void AWandCastIsWatchedToItsEndThoughItsOwnSlotHoldsTheAttackOff()
+    {
+        var imperil = new PluginSpellInfo(
+            90u,
+            "Imperil Other VII",
+            Family: 1,
+            Tier: 8,
+            Difficulty: 350,
+            ManaCost: 30,
+            DurationSeconds: 60,
+            School: 31,
+            Description: string.Empty,
+            IsSelfTargeted: false,
+            IsBeneficial: false)
+        {
+            IsDebuff = true,
+            IsOffensive = true,
+            BaseRangeConstant = 80f,
+        };
+        var automation = new CombatCapableFakeAutomation
+        {
+            CurrentHealth = 100,
+            MaxHealth = 100,
+            CurrentMana = 100,
+            MaxMana = 100,
+            ItemEntries =
+            [
+                Item(800, "Imperil Lens", itemType: 0x8000) with
+                {
+                    EquippedLocation = 0x00100000u,
+                    SpellId = 90u,
+                    ItemSpellcraft = 400,
+                },
+            ],
+            EquipmentItems = [EquipmentItem(800, "Imperil Lens", itemType: 0x8000)],
+            Targets = [new PluginCombatTarget(30, "Drudge", 700, 2f, 0f, true, 1f)],
+        };
+        automation.SpellLookup.Add(imperil);
+        automation.CombatSnapshot = automation.CombatSnapshot with
+        {
+            Mode = PluginCombatMode.Magic,
+        };
+        var host = new FakeHost(automation);
+        var panel = new MossTankPanel(host);
+        host.Selection.Select(800);
+        panel.AddSelectedItem();
+        panel.ToggleMonsterImperilAt(0);
+        panel.SetMetaOption("EnableBuffing", Truthy(false));
+        panel.ToggleCombat();
+
+        for (int tick = 0; tick < 40 && automation.ApplyCount == 0; tick++)
+            panel.OnTick(0.3d);
+        Assert.True(
+            automation.ApplyCount > 0,
+            "the rig never used the wand at all. CallLog: "
+                + string.Join(" | ", automation.CallLog));
+        Assert.Equal((800u, 30u), automation.LastAppliedItem);
+        Assert.True(panel.ActionLocks.IsLocked(ActionLockKind.ItemUse));
+
+        // Several passes with the attack's gate shut. Two seconds in, well
+        // short of the cast's own window.
+        for (int tick = 0; tick < 7; tick++)
+            panel.OnTick(0.3d);
+        Assert.True(panel.ActionLocks.IsLocked(ActionLockKind.ItemUse));
+
+        automation.PostChat(
+            "You cast Imperil Other VII on Drudge.",
+            logTextType: 0x07u);
+        panel.OnTick(0.3d);
+
+        Assert.False(panel.ActionLocks.IsLocked(ActionLockKind.ItemUse));
+        // The slot came down on the frame, ahead of the pass, so the attack
+        // had its turn back on that very pass and is no longer paused.
+        Assert.DoesNotContain(
+            "Paused",
+            panel.CombatStatus,
+            StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// A weapon proc's debuff rides a physical swing, and it arms no item
+    /// slot of its own. So when some OTHER rule takes the item slot — a kit,
+    /// a dispel item, the mode-gate's recovery — the attack loses its turn,
+    /// its swing is aborted, and that is the end of it: nothing may go on to
+    /// release a swing that is no longer running, least of all inside the
+    /// window the other rule took the slot for.
+    /// Mutation: widen the turnless branch at the top of
+    /// <c>CombatController.OnTick</c> back to <c>_pendingItemDebuff is not
+    /// null</c> (dropping the <c>CasterItem</c> pattern) and the last
+    /// assertion fails — the charge is released on the very passes the
+    /// attack has no turn on.
+    /// </summary>
+    [Fact]
+    public void AProcChargeIsNotReleasedOnAPassTheAttackLost()
+    {
+        var imperil = new PluginSpellInfo(
+            91u,
+            "Imperil Other VII",
+            Family: 1,
+            Tier: 8,
+            Difficulty: 350,
+            ManaCost: 30,
+            DurationSeconds: 60,
+            School: 31,
+            Description: string.Empty,
+            IsSelfTargeted: false,
+            IsBeneficial: false)
+        {
+            IsDebuff = true,
+            IsOffensive = true,
+            BaseRangeConstant = 80f,
+        };
+        var automation = new CombatCapableFakeAutomation
+        {
+            CurrentHealth = 100,
+            MaxHealth = 100,
+            CurrentMana = 100,
+            MaxMana = 100,
+            ItemEntries =
+            [
+                Item(801, "Imperil Sword", itemType: 0x0001) with
+                {
+                    EquippedLocation = 0x00100000u,
+                    ItemSpellcraft = 400,
+                    AppraisedSpellIds = [91u],
+                },
+            ],
+            EquipmentItems = [EquipmentItem(801, "Imperil Sword", itemType: 0x0001)],
+            Targets = [new PluginCombatTarget(30, "Drudge", 700, 2f, 0f, true, 1f)],
+        };
+        automation.SpellLookup.Add(imperil);
+        automation.CombatSnapshot = automation.CombatSnapshot with
+        {
+            Mode = PluginCombatMode.Melee,
+        };
+        var host = new FakeHost(automation);
+        var panel = new MossTankPanel(host);
+        host.Selection.Select(801);
+        panel.AddSelectedItem();
+        panel.ToggleMonsterImperilAt(0);
+        panel.SetMetaOption("EnableBuffing", Truthy(false));
+        panel.ToggleCombat();
+
+        for (int tick = 0; tick < 40 && automation.BeginCount == 0; tick++)
+            panel.OnTick(0.3d);
+        Assert.True(
+            automation.BeginCount > 0,
+            "the rig never began the proc's swing at all. CallLog: "
+                + string.Join(" | ", automation.CallLog));
+        Assert.Equal(30u, automation.LastBeginTarget);
+        // The proc arms nothing: the slot is free until someone else takes it.
+        Assert.False(panel.ActionLocks.IsLocked(ActionLockKind.ItemUse));
+        Assert.Equal(0, automation.ReleaseCount);
+
+        // Another rule takes the item slot for its own five-second window, and
+        // the swing it interrupted is sitting at full power.
+        panel.ActionLocks.Arm(ActionLockKind.ItemUse, 5d);
+        automation.CombatSnapshot = automation.CombatSnapshot with
+        {
+            RequestInProgress = true,
+            BuildInProgress = true,
+            PowerBarLevel = 1f,
+        };
+        for (int tick = 0; tick < 8; tick++)
+            panel.OnTick(0.3d);
+
+        Assert.True(panel.ActionLocks.IsLocked(ActionLockKind.ItemUse));
+        Assert.Equal(0, automation.ReleaseCount);
+    }
+
+    /// <summary>
+    /// Mutation: drop <c>NavigationLocksAreClear()</c> from the two navigate
+    /// gates and this fails — the route advances over the corpse the kill just
+    /// made.
+    /// </summary>
+    [Fact]
+    public void ANavigationLockHoldsTheRouteRuleOff()
+    {
+        var automation = new CombatCapableFakeAutomation
+        {
+            CurrentHealth = 100,
+            MaxHealth = 100,
+        };
+        var panel = new MossTankPanel(new FakeHost(automation));
+        // One waypoint the character is nowhere near, so the route rule has
+        // something to do on every pass.
+        automation.NavigationSnapshot = automation.NavigationSnapshot with
+        {
+            Position = new PluginNavigationPosition(
+                0x00010001u, 0d, 1d, 0d, 0f, IsOutdoor: true),
+        };
+        panel.AddRoutePoint();
+        automation.NavigationSnapshot = automation.NavigationSnapshot with
+        {
+            Position = new PluginNavigationPosition(
+                0x00010001u, 0d, 0d, 0d, 0f, IsOutdoor: true),
+        };
+        panel.ToggleNavigation();
+        panel.ToggleCombat();
+        panel.OnTick(0.3d);
+
+        IMacroRule route = panel.MacroRules.First(
+            static rule => rule.Name == "NavigateRouteIdle");
+        var context = new MacroPassContext(0.3d, CanAct: true);
+        Assert.True(
+            route.ValidNow(in context),
+            "the rig's route rule is not valid even with every lock clear");
+
+        panel.ActionLocks.Arm(ActionLockKind.Navigation, 3d);
+        Assert.False(route.ValidNow(in context));
+
+        panel.ActionLocks.Release(ActionLockKind.Navigation);
+        panel.ActionLocks.Arm(ActionLockKind.DoorOpening, 3d);
+        Assert.False(route.ValidNow(in context));
+
+        panel.ActionLocks.Release(ActionLockKind.DoorOpening);
+        panel.ActionLocks.Arm(ActionLockKind.SpreadLockTargetRequested, 3d);
+        Assert.False(route.ValidNow(in context));
+    }
+
+    /// <summary>
+    /// Mutation: build the attack's candidates out to the approach range again
+    /// and this fails — the attack claims the pass for a monster it cannot
+    /// reach and every rule below it starves.
+    /// </summary>
+    [Fact]
+    public void AMonsterOutOfWeaponRangeDoesNotStarveTheRulesBelowTheAttack()
+    {
+        var automation = new CombatCapableFakeAutomation
+        {
+            CurrentHealth = 100,
+            MaxHealth = 100,
+            ItemEntries = [Item(20, "Battle Axe", itemType: 1)],
+            EquipmentItems = [EquipmentItem(20, "Battle Axe", itemType: 1)],
+            Targets = [new PluginCombatTarget(30, "Drudge", 700, 12f, 0f, true, 1f)],
+        };
+        automation.CombatSnapshot = automation.CombatSnapshot with
+        {
+            Mode = PluginCombatMode.Melee,
+        };
+        var host = new FakeHost(automation);
+        var panel = new MossTankPanel(host);
+        host.Selection.Select(20);
+        panel.AddSelectedItem();
+        panel.CycleMonsterWeaponAt(0);
+        panel.SetApproachRangeText("20");
+        // Navigation off, so the monster-approach rule cannot claim the pass
+        // either: what runs has to come from below both of them.
+        panel.ToggleIdlePeaceMode();
+        panel.ToggleCombat();
+
+        for (int tick = 0; tick < 20; tick++)
+            panel.OnTick(0.3d);
+
+        Assert.Equal(0, automation.BeginCount);
+        Assert.Contains("EnterMode:Peace", automation.CallLog);
+    }
+
+    [Fact]
+    public void MonsterApproachSitsBelowIdleBuffAndAboveTheRoute()
+    {
+        var panel = new MossTankPanel(new FakeHost(new FakeAutomation()));
+        List<IMacroRule> rules = [.. panel.MacroRules];
+
+        int idleBuff = rules.FindIndex(static rule => rule.Name == "BuffSelfIdle");
+        int approach = rules.FindIndex(
+            static rule => rule.Name == "NavigateMonster");
+        int route = rules.FindIndex(
+            static rule => rule.Name == "NavigateRouteIdle");
+
+        Assert.True(idleBuff >= 0 && approach >= 0 && route >= 0);
+        Assert.True(
+            idleBuff < approach,
+            $"idle buff top-off at {idleBuff} must outrank the approach at {approach}.");
+        Assert.True(
+            approach < route,
+            $"the approach at {approach} must outrank the route at {route}.");
     }
 
     [Fact]
@@ -2201,7 +3699,6 @@ public sealed class MossTankPanelTests
             MaxStamina = 100,
             CurrentMana = 100,
             MaxMana = 100,
-            IsCasting = true,
         };
         automation.CombatSnapshot = automation.CombatSnapshot with
         {
@@ -2210,6 +3707,9 @@ public sealed class MossTankPanelTests
         var panel = new MossTankPanel(new FakeHost(automation));
         panel.ToggleIdlePeaceMode();
         panel.ToggleCombat();
+        // A cast the server never answers: the tracker's own budget ends it.
+        ((IBuffRuleHost)panel).CastTracker.Begin(
+            1u, "Strength Self", 0u, string.Empty, false, issueRevision: 0L);
 
         for (int tick = 0; tick < 34; tick++)
             panel.OnTick(0.3d);
@@ -2217,64 +3717,13 @@ public sealed class MossTankPanelTests
         Assert.Contains("EnterMode:Peace", automation.CallLog);
     }
 
+    /// <summary>
+    /// The reference's death keeps the macro running and turns the four
+    /// switches off, saved for the restore verb. Mutation: stop the macro
+    /// instead and the first assertion fails.
+    /// </summary>
     [Fact]
-    public void RandomHelperPreparesThroughTheSharedGateBeforeCasting()
-    {
-        var automation = new CombatCapableFakeAutomation
-        {
-            CurrentHealth = 100,
-            MaxHealth = 100,
-            CurrentStamina = 100,
-            MaxStamina = 100,
-            CurrentMana = 100,
-            MaxMana = 100,
-            ItemEntries = [Item(10, "War Wand", itemType: 0x00008000u)],
-            EquipmentItems =
-            [
-                EquipmentItem(10, "War Wand", itemType: 0x00008000u),
-            ],
-        };
-        automation.CombatSnapshot = automation.CombatSnapshot with
-        {
-            Mode = PluginCombatMode.Melee,
-        };
-        automation.KnownSelfBuffs =
-        [
-            NamedSpell(500, 600, "Armor Other I", 33u),
-        ];
-        automation.WorldObjects.Add(new PluginWorldObject(
-            0x50000009u,
-            123u,
-            "Fellow",
-            PluginObjectClass.Player,
-            0u,
-            0u,
-            0u)
-        {
-            HasPosition = true,
-            Position = NavigationAt(0f).Position,
-        });
-        var host = new FakeHost(automation);
-        var panel = new MossTankPanel(host);
-        host.Selection.Select(10);
-        panel.AddSelectedItem();
-        panel.SetMetaOption("RandomHelperBuffs", Truthy(true));
-
-        panel.ToggleCombat();
-        for (int tick = 0; tick < 20; tick++)
-            panel.OnTick(0.3d);
-
-        int peace = automation.CallLog.IndexOf("EnterMode:Peace");
-        int equip = automation.CallLog.IndexOf("Equip:0000000A");
-        int magic = automation.CallLog.IndexOf("EnterMode:Magic");
-        Assert.True(
-            peace >= 0 && equip > peace && magic > equip,
-            "RandomHelper did not sequence through the gate. CallLog: "
-                + string.Join(" | ", automation.CallLog));
-    }
-
-    [Fact]
-    public void DeathWithStopMacroOnDeathStopsTheMacroAndChangesNoSetting()
+    public void DeathWithStopMacroOnDeathKeepsTheMacroAndDisablesTheFourSwitches()
     {
         var automation = new FakeAutomation
         {
@@ -2294,19 +3743,25 @@ public sealed class MossTankPanelTests
         automation.CurrentHealth = 0;
         panel.OnTick(0.1d);
 
-        Assert.False(panel.CombatMacroRunning);
+        Assert.True(panel.CombatMacroRunning);
+        Assert.False(panel.GetMetaOptionForTest("EnableNav"));
+        Assert.False(panel.GetMetaOptionForTest("EnableLooting"));
+        Assert.False(panel.GetMetaOptionForTest("EnableBuffing"));
+        Assert.False(panel.GetMetaOptionForTest("EnableCombat"));
+        Assert.Contains(
+            automation.Messages,
+            static value => value.Contains("deathrestore", StringComparison.Ordinal));
+
+        panel.ExecuteVtankCommand(new PluginCommand(
+            "vt", "deathrestore", "/vt deathrestore"));
+
         Assert.True(panel.GetMetaOptionForTest("EnableNav"));
         Assert.True(panel.GetMetaOptionForTest("EnableLooting"));
         Assert.True(panel.GetMetaOptionForTest("EnableBuffing"));
         Assert.True(panel.GetMetaOptionForTest("EnableCombat"));
         Assert.Contains(
             automation.Messages,
-            static value => value.Contains(
-                "Macro stopped because the character died.",
-                StringComparison.Ordinal));
-        Assert.DoesNotContain(
-            automation.Messages,
-            static value => value.Contains("deathrestore", StringComparison.Ordinal));
+            static value => value.Contains("restored", StringComparison.Ordinal));
     }
 
     /// <summary>The reject branch of the same handler: nothing at all.</summary>
@@ -2331,8 +3786,314 @@ public sealed class MossTankPanelTests
         Assert.True(panel.GetMetaOptionForTest("EnableNav"));
         Assert.DoesNotContain(
             automation.Messages,
+            static value => value.Contains("stopped because", StringComparison.Ordinal));
+    }
+
+    /// <summary>
+    /// Stopping the macro is not forgetting the round. The reference's stop
+    /// leaves the route's position alone; where the round begins again is the
+    /// start's business, not the stop's.
+    /// </summary>
+    [Fact]
+    public void StoppingTheMacroKeepsTheWaypointTheRouteWasWalkingTo()
+    {
+        var automation = new FakeAutomation { NavigationSnapshot = NavigationAt(0f) };
+        var panel = new MossTankPanel(new FakeHost(automation));
+        automation.CurrentHealth = 100;
+        automation.MaxHealth = 100;
+        TwoPointRoute(panel, automation);
+        panel.SetMetaOption("EnableNav", Truthy(true));
+        panel.ToggleCombat();
+        for (int pass = 0; pass < 4; pass++)
+            panel.OnTick(0.3d);
+        // Stand between the two points, so a route that had gone back to its
+        // first one could not quietly advance past it again and look like a
+        // route that had never moved.
+        StandAt(automation, 25d);
+        Assert.Equal(1, panel.RouteWaypointIndexForTest);
+
+        panel.ExecuteVtankCommand(new PluginCommand("vt", "stop", "/vt stop"));
+
+        Assert.False(panel.CombatMacroRunning);
+        Assert.Equal(1, panel.RouteWaypointIndexForTest);
+    }
+
+    /// <summary>
+    /// The same thing through the death path, which is the way a player
+    /// actually meets it: die on the way to waypoint two, and the round is
+    /// still on waypoint two afterwards.
+    /// </summary>
+    [Fact]
+    public void DeathLeavesTheRouteOnTheWaypointItWasWalkingTo()
+    {
+        var automation = new FakeAutomation { NavigationSnapshot = NavigationAt(0f) };
+        var panel = new MossTankPanel(new FakeHost(automation));
+        automation.CurrentHealth = 100;
+        automation.MaxHealth = 100;
+        TwoPointRoute(panel, automation);
+        panel.SetMetaOption("EnableNav", Truthy(true));
+        panel.ToggleCombat();
+        for (int pass = 0; pass < 4; pass++)
+            panel.OnTick(0.3d);
+        StandAt(automation, 25d);
+        Assert.Equal(1, panel.RouteWaypointIndexForTest);
+
+        automation.CurrentHealth = 0;
+        panel.OnTick(0.1d);
+
+        Assert.True(panel.CombatMacroRunning);
+        Assert.Equal(1, panel.RouteWaypointIndexForTest);
+    }
+
+    /// <summary>
+    /// Starting decides where the round begins, and it is the nearest point
+    /// of the route the character could walk to — not wherever the last run
+    /// stopped. A character that died and woke at a lifestone, or simply
+    /// walked away, picks the round up beside itself.
+    /// </summary>
+    [Fact]
+    public void StartingTheMacroAnchorsTheRoundToTheNearestPointOfTheRoute()
+    {
+        var automation = new FakeAutomation { NavigationSnapshot = NavigationAt(0f) };
+        var panel = new MossTankPanel(new FakeHost(automation));
+        automation.CurrentHealth = 100;
+        automation.MaxHealth = 100;
+        TwoPointRoute(panel, automation);
+        panel.SetMetaOption("EnableNav", Truthy(true));
+
+        StandAt(automation, 48d);
+        panel.ExecuteVtankCommand(new PluginCommand("vt", "start", "/vt start"));
+        Assert.Equal(1, panel.RouteWaypointIndexForTest);
+
+        panel.ExecuteVtankCommand(new PluginCommand("vt", "stop", "/vt stop"));
+        StandAt(automation, 2d);
+        panel.ExecuteVtankCommand(new PluginCommand("vt", "start", "/vt start"));
+
+        Assert.Equal(0, panel.RouteWaypointIndexForTest);
+    }
+
+    /// <summary>
+    /// Only places are candidates. A pause is something to do, not somewhere
+    /// to be, so the coordinate it happens to carry does not make it the
+    /// nearest point of the route.
+    /// </summary>
+    [Fact]
+    public void OnlyThePlacesOnARouteCanAnchorTheRound()
+    {
+        var automation = new FakeAutomation { NavigationSnapshot = NavigationAt(0f) };
+        var panel = new MossTankPanel(new FakeHost(automation));
+        automation.CurrentHealth = 100;
+        automation.MaxHealth = 100;
+        panel.AddRoutePoint();                 // 0: a place, at 0
+        StandAt(automation, 50d);
+        panel.AddRoutePoint();                 // 1: a place, at 50
+        StandAt(automation, 99d);
+        panel.AddRoutePause();                 // 2: not a place, at 99
+        panel.SetMetaOption("EnableNav", Truthy(true));
+
+        StandAt(automation, 98d);
+        panel.ExecuteVtankCommand(new PluginCommand("vt", "start", "/vt start"));
+
+        Assert.Equal(1, panel.RouteWaypointIndexForTest);
+    }
+
+    /// <summary>
+    /// Nearest is nearest in three dimensions. Two points of a dungeon route
+    /// can sit one above the other, and the one on your own floor is the one
+    /// you are at.
+    /// </summary>
+    [Fact]
+    public void HeightCountsWhenPickingTheNearestPointOfTheRoute()
+    {
+        var automation = new FakeAutomation { NavigationSnapshot = NavigationAt(0f) };
+        var panel = new MossTankPanel(new FakeHost(automation));
+        automation.CurrentHealth = 100;
+        automation.MaxHealth = 100;
+        StandAtHeight(automation, 0d);
+        panel.AddRoutePoint();                 // 0: the floor below
+        StandAtHeight(automation, 10d);
+        panel.AddRoutePoint();                 // 1: the floor above
+        panel.SetMetaOption("EnableNav", Truthy(true));
+
+        StandAtHeight(automation, 9d);
+        panel.ExecuteVtankCommand(new PluginCommand("vt", "start", "/vt start"));
+
+        Assert.Equal(1, panel.RouteWaypointIndexForTest);
+    }
+
+    /// <summary>A once-through route starts at its head, wherever you are.</summary>
+    [Fact]
+    public void AOnceRouteStartsAtItsHead()
+    {
+        var automation = new FakeAutomation { NavigationSnapshot = NavigationAt(0f) };
+        var panel = new MossTankPanel(new FakeHost(automation));
+        automation.CurrentHealth = 100;
+        automation.MaxHealth = 100;
+        TwoPointRoute(panel, automation);
+        panel.SelectRouteMode("Once");
+        panel.SetMetaOption("EnableNav", Truthy(true));
+
+        StandAt(automation, 48d);
+        panel.ExecuteVtankCommand(new PluginCommand("vt", "start", "/vt start"));
+
+        Assert.Equal(0, panel.RouteWaypointIndexForTest);
+    }
+
+    /// <summary>
+    /// A follow route has no round to anchor — there is one target and the
+    /// index means nothing — so the start leaves it alone.
+    /// </summary>
+    [Fact]
+    public void AFollowRouteHasNoRoundToAnchor()
+    {
+        var automation = new FakeAutomation { NavigationSnapshot = NavigationAt(0f) };
+        var panel = new MossTankPanel(new FakeHost(automation));
+        automation.CurrentHealth = 100;
+        automation.MaxHealth = 100;
+        TwoPointRoute(panel, automation);
+        panel.SetMetaOption("EnableNav", Truthy(true));
+        panel.ToggleCombat();
+        for (int pass = 0; pass < 4; pass++)
+            panel.OnTick(0.3d);
+        Assert.Equal(1, panel.RouteWaypointIndexForTest);
+        panel.ExecuteVtankCommand(new PluginCommand("vt", "stop", "/vt stop"));
+
+        // Switching the mode is a route change and resets the round, so the
+        // index is put back deliberately to give the start something to leave
+        // alone.
+        panel.SelectRouteMode("Target");
+        panel.ExecuteVtankCommand(new PluginCommand("vt", "stop", "/vt stop"));
+        StandAt(automation, 48d);
+        int before = panel.RouteWaypointIndexForTest;
+        panel.ExecuteVtankCommand(new PluginCommand("vt", "start", "/vt start"));
+
+        Assert.Equal(before, panel.RouteWaypointIndexForTest);
+    }
+
+    /// <summary>
+    /// Flipping a setting is not a route change. Turning navigation off and
+    /// on again leaves the round where it was — and the toolbar toggle has to
+    /// agree with setting the same thing by name, which never reset it.
+    /// </summary>
+    [Fact]
+    public void TurningNavigationOffAndOnAgainKeepsTheRound()
+    {
+        var automation = new FakeAutomation { NavigationSnapshot = NavigationAt(0f) };
+        var panel = new MossTankPanel(new FakeHost(automation));
+        automation.CurrentHealth = 100;
+        automation.MaxHealth = 100;
+        TwoPointRoute(panel, automation);
+        panel.SetMetaOption("EnableNav", Truthy(true));
+        panel.ToggleCombat();
+        for (int pass = 0; pass < 4; pass++)
+            panel.OnTick(0.3d);
+        StandAt(automation, 25d);
+        Assert.Equal(1, panel.RouteWaypointIndexForTest);
+
+        panel.ToggleNavigation();
+        panel.ToggleNavigation();
+        panel.ToggleFollowAroundCorners();
+        panel.ToggleOpenDoors();
+
+        Assert.Equal(1, panel.RouteWaypointIndexForTest);
+    }
+
+    /// <summary>
+    /// The route that CHANGED under the controller is the one that goes back
+    /// to its first point — the reset path a stop must not borrow.
+    /// </summary>
+    [Fact]
+    public void LoadingARouteStillPutsTheRoundBackToItsFirstPoint()
+    {
+        var automation = new FakeAutomation { NavigationSnapshot = NavigationAt(0f) };
+        var panel = new MossTankPanel(new FakeHost(automation));
+        automation.CurrentHealth = 100;
+        automation.MaxHealth = 100;
+        TwoPointRoute(panel, automation);
+        panel.SetMetaOption("EnableNav", Truthy(true));
+        panel.ToggleCombat();
+        for (int pass = 0; pass < 4; pass++)
+            panel.OnTick(0.3d);
+        Assert.Equal(1, panel.RouteWaypointIndexForTest);
+
+        panel.AddRoutePoint();
+
+        Assert.Equal(0, panel.RouteWaypointIndexForTest);
+    }
+
+    /// <summary>Two points, at east-west 0 and 50, with the character back at 0.</summary>
+    private static void TwoPointRoute(MossTankPanel panel, FakeAutomation automation)
+    {
+        panel.AddRoutePoint();
+        StandAt(automation, 50d);
+        panel.AddRoutePoint();
+        StandAt(automation, 0d);
+    }
+
+    private static void StandAt(FakeAutomation automation, double eastWest) =>
+        automation.NavigationSnapshot = automation.NavigationSnapshot with
+        {
+            Position = automation.NavigationSnapshot.Position with
+            {
+                EastWest = eastWest,
+            },
+        };
+
+    private static void StandAtHeight(FakeAutomation automation, double elevation) =>
+        automation.NavigationSnapshot = automation.NavigationSnapshot with
+        {
+            Position = automation.NavigationSnapshot.Position with
+            {
+                Elevation = elevation,
+            },
+        };
+
+    /// <summary>
+    /// The fake-death verb is the whole death, not just the meta edge: the
+    /// reference's verb calls the same handler a real death does.
+    /// </summary>
+    [Fact]
+    public void TheFakeDeathVerbRunsTheWholeDeathHandler()
+    {
+        var automation = new FakeAutomation
+        {
+            CurrentHealth = 100,
+            MaxHealth = 100,
+        };
+        var panel = new MossTankPanel(new FakeHost(automation));
+        panel.SetMetaOption("StopMacroOnDeath", Truthy(true));
+        panel.ToggleCombat();
+        panel.OnTick(0.1d);
+        Assert.True(panel.CombatMacroRunning);
+
+        panel.ExecuteVtankCommand(new PluginCommand(
+            "vt", "fakedeath", "/vt fakedeath"));
+
+        Assert.True(panel.CombatMacroRunning);
+        Assert.False(panel.GetMetaOptionForTest("EnableCombat"));
+        Assert.Contains(
+            automation.Messages,
             static value => value.Contains("You died!", StringComparison.Ordinal));
     }
+
+    /// <summary>The restore verb is listed in the help, as the reference's link is offered.</summary>
+    [Fact]
+    public void TheDeathRestoreVerbIsListed()
+    {
+        var automation = new FakeAutomation
+        {
+            CurrentHealth = 100,
+            MaxHealth = 100,
+        };
+        var panel = new MossTankPanel(new FakeHost(automation));
+
+        panel.ExecuteVtankCommand(new PluginCommand("vt", "help", "/vt help"));
+
+        Assert.Contains(
+            automation.Messages,
+            static value => value.Contains("deathrestore", StringComparison.Ordinal));
+    }
+
 
     private static AcDream.Plugins.MossTank.Expressions.ExpressionValue Truthy(
         bool value) =>
@@ -2360,7 +4121,7 @@ public sealed class MossTankPanelTests
         var panel = new MossTankPanel(new FakeHost(automation));
 
         // No wand anywhere: the gate's own path here is
-        // PostNoWandNoticeAndStop, exactly as ga.cs:1471-1473.
+        // PostNoWandNoticeAndStop, exactly as the reference does.
         panel.ToggleCombat();
         panel.ForceBuff();
         for (int tick = 0; tick < 5; tick++)
@@ -2430,8 +4191,8 @@ public sealed class MossTankPanelTests
             [
                 Spell(1, 10, "Increases the caster's Life Magic skill by 10 points."),
             ],
-            // BoosterVital 2 = VitalKind.Health (VitalPlan.cs:7).
-            ItemEntries = [Item(60, "Bread", 1) with { BoosterVital = 2 }],
+            // BoosterVital 2 = VitalKind.Health.
+            ItemEntries = [Item(60, "Bread", 0x20) with { BoosterVital = 2 }],
         };
         var host = new FakeHost(automation);
         var panel = new MossTankPanel(host);
@@ -2631,6 +4392,45 @@ public sealed class MossTankPanelTests
         Assert.NotEmpty(automation.CastSpellIds);
     }
 
+    /// <summary>
+    /// The reference rule is valid whenever a vital is below its threshold,
+    /// and holds the pass with a warning when nothing can answer it; what
+    /// the reference never has is "nothing to use", because its kits need
+    /// no assessment and a heal spell is always a handler. The assessment
+    /// starvation that once left this character with nothing to use is
+    /// fixed at its cause; the rule keeps the reference's hold.
+    /// </summary>
+    [Fact]
+    public void ARechargeWithNothingToUseHoldsThePassAsTheReferenceDoes()
+    {
+        // Health is low and nothing can answer it: no kit, no food, no spell.
+        var automation = new FakeAutomation
+        {
+            CurrentHealth = 10,
+            MaxHealth = 100,
+            CurrentStamina = 100,
+            MaxStamina = 100,
+            CurrentMana = 100,
+            MaxMana = 100,
+        };
+        var host = new FakeHost(automation);
+        var panel = new MossTankPanel(host);
+        panel.ToggleCombat();
+
+        var held = new List<string>();
+        for (int tick = 0; tick < 12; tick++)
+        {
+            panel.OnTick(0.3d);
+            foreach (IMacroRule rule in panel.MacroRules)
+            {
+                if (rule.Running && rule.Name == "RechargeSelfNormal")
+                    held.Add(rule.Name);
+            }
+        }
+
+        Assert.NotEmpty(held);
+    }
+
     [Fact]
     public void WithTheMacroOffOnlyRefillWieldedManaMayRun()
     {
@@ -2651,7 +4451,7 @@ public sealed class MossTankPanelTests
             [
                 Spell(1, 10, "Increases the caster's Life Magic skill by 10 points."),
             ],
-            ItemEntries = [Item(60, "Bread", 1) with { BoosterVital = 2 }],
+            ItemEntries = [Item(60, "Bread", 0x20) with { BoosterVital = 2 }],
         };
         var host = new FakeHost(automation);
         var panel = new MossTankPanel(host);
@@ -3019,7 +4819,7 @@ public sealed class MossTankPanelTests
             ItemEntries =
             [
                 Item(20, "Iron Phial of Imperil", 0x100),
-                Item(21, "Black Marrow Pea", 0x20),
+                Item(21, "Iron Phial of Vulnerability", 0x100),
             ],
         };
         var host = new FakeHost(automation);
@@ -3106,12 +4906,734 @@ public sealed class MossTankPanelTests
         Assert.Equal(["Spell 1"], first.ExtraBuffRows);
         Assert.Equal(["Spell 2"], first.BlacklistedBuffFamilyRows);
 
+        string usd = Assert.Single(storage.Text,
+            static entry => entry.Key.EndsWith(".usd", StringComparison.Ordinal)).Value;
+        VtankDatabase document = VtankDatabase.Parse(usd);
+        Assert.Equal(1, Assert.Single(document.Find("ExtraBuffSpells")!.Rows).Cells[0].AsInt());
+        Assert.Equal(2, Assert.Single(document.Find("AntiExtraBuffSpells")!.Rows).Cells[0].AsInt());
+
         var second = new MossTankPanel(new FakeHost(
             new FakeAutomation { Name = "Persist Check" }, storage));
 
         Assert.Equal(["Spell 1"], second.ExtraBuffRows);
         Assert.Equal(["Spell 2"], second.BlacklistedBuffFamilyRows);
     }
+
+    [Fact]
+    public void ImportedExtraBuffExemplarIsVisibleAndRemovableFromTheBuffUi()
+    {
+        var storage = new MemoryStorage();
+        VtankDatabase profile = VtankDefaultSettingsDatabase.Parse();
+        profile.Find("ExtraBuffSpells")!.Rows.Add(ExemplarRow(1));
+        storage.Text[VtankProfileDirectory.AutoCharacterFileName(
+            "Imported Extra", string.Empty, "usd")] = profile.Render();
+        var automation = new FakeAutomation
+        {
+            Name = "Imported Extra",
+            KnownSelfBuffs =
+            [
+                Spell(1, 10, "Increases the caster's Strength by 10 points."),
+            ],
+        };
+        var panel = new MossTankPanel(new FakeHost(automation, storage));
+
+        Assert.Equal(["Spell 1"], panel.ExtraBuffRows);
+        panel.DeleteExtraBuffAt(0);
+
+        Assert.Empty(panel.ExtraBuffRows);
+        string usd = storage.Text[VtankProfileDirectory.AutoCharacterFileName(
+            "Imported Extra", string.Empty, "usd")];
+        Assert.Empty(VtankDatabase.Parse(usd).Find("ExtraBuffSpells")!.Rows);
+    }
+
+    /// <summary>
+    /// A GemFood row owns its spell choice. Mutation: choose the first
+    /// appraised spell for configured gems and this selects Spell 3810 rather
+    /// than the profile's Spell 3811.
+    /// </summary>
+    [Fact]
+    public void LoadedGemFoodUsesItsConfiguredSpellWithoutAConsumablesProfileRow()
+    {
+        var storage = new MemoryStorage();
+        storage.Text["GemFood.usd"] = SettingsWithGemFood(
+            ("Unknown Gem", 999999u),
+            ("Blackmoor's Favor", 3811u));
+        var automation = new FakeAutomation
+        {
+            Name = "Gem Tester",
+            CurrentHealth = 100,
+            MaxHealth = 100,
+            CurrentStamina = 100,
+            MaxStamina = 100,
+            CurrentMana = 100,
+            MaxMana = 100,
+            KnownSelfBuffs =
+            [
+                Spell(3810, 518, "An unconfigured effect."),
+                Spell(3811, 519, "A configured effect."),
+            ],
+            ItemEntries =
+            [
+                Item(100, "Unknown Gem", 0x800u)
+                    with { AppraisedSpellIds = [3810u] },
+                Item(101, "Blackmoor's Favor", 0x800u)
+                    with { AppraisedSpellIds = [3810u] },
+            ],
+        };
+        var panel = new MossTankPanel(new FakeHost(automation, storage));
+
+        Command(panel, "settings load GemFood");
+        panel.ToggleCombat();
+        for (int tick = 0; tick < 8; tick++)
+            panel.OnTick(0.3d);
+
+        Assert.Equal([101u], automation.UsedItemIds);
+        Assert.Contains("Spell 3811", panel.BuffStatus, StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// A settings load is an activation transaction. Mutation
+    /// <c>ApplyDefaultsAfterFailedSettingsLoad</c>: apply a fresh default
+    /// database after the parse error; the selected profile, binding, and
+    /// retained option assertions fail.
+    /// </summary>
+    [Fact]
+    public void SettingsLoadCommandPreservesTheActiveProfileWhenTheCandidateIsMalformed()
+    {
+        var storage = new MemoryStorage();
+        var automation = new FakeAutomation { Name = "Saver", WorldName = "Rune" };
+        var panel = new MossTankPanel(new FakeHost(automation, storage));
+        Command(panel, "settings save Safe");
+        Command(panel, "opt set AttackDistance 0.02");
+        string safe = panel.SelectedMacroProfile;
+        string cdfKey = VtankProfileDirectory.CdfFileName("Saver", "Rune");
+        string binding = storage.Text[cdfKey];
+        const string malformed = "not a settings database";
+        storage.Text["Broken.usd"] = malformed;
+        automation.Messages.Clear();
+
+        Command(panel, "settings load Broken");
+        Command(panel, "opt set EnableBuffing false");
+
+        Assert.Equal(safe, panel.SelectedMacroProfile);
+        Assert.Equal(0.02d, panel.EvaluateExpression(
+            "uboptget['AttackDistance']").AsNumber(), precision: 7);
+        Assert.Equal(binding, storage.Text[cdfKey]);
+        Assert.Equal(malformed, storage.Text["Broken.usd"]);
+        Assert.Contains(automation.Messages, message =>
+            message.Contains("could not be read", StringComparison.Ordinal));
+        Assert.DoesNotContain(automation.Messages, message =>
+            message.Contains("Loaded settings profile Broken", StringComparison.Ordinal));
+    }
+
+    /// <summary>
+    /// Mutation <c>SkipSettingsCopyTargetValidation</c>: omit the existing
+    /// target parse before copying; the malformed target becomes a new
+    /// settings document.
+    /// </summary>
+    [Fact]
+    public void SettingsSaveCommandDoesNotOverwriteAnUnreadableTarget()
+    {
+        var storage = new MemoryStorage();
+        var automation = new FakeAutomation { Name = "Saver", WorldName = "Rune" };
+        var panel = new MossTankPanel(new FakeHost(automation, storage));
+        Command(panel, "settings save Safe");
+        string selected = panel.SelectedMacroProfile;
+        string cdfKey = VtankProfileDirectory.CdfFileName("Saver", "Rune");
+        string binding = storage.Text[cdfKey];
+        string target = VtankProfileDirectory.SubProfilePrefix("Saver", "Rune") + "Target.usd";
+        const string malformed = "not a settings database";
+        storage.Text[target] = malformed;
+
+        Command(panel, "settings save Target");
+
+        Assert.Equal(selected, panel.SelectedMacroProfile);
+        Assert.Equal(binding, storage.Text[cdfKey]);
+        Assert.Equal(malformed, storage.Text[target]);
+        Assert.Contains(automation.Messages, message =>
+            message.Contains("Cannot overwrite unreadable settings profile", StringComparison.Ordinal));
+    }
+
+    /// <summary>
+    /// A copied settings profile starts with the complete active USD document,
+    /// including imported item enchant rows and tables the adapter does not
+    /// interpret. Mutation: create the copy from defaults; the raw row and
+    /// custom-table assertions fail.
+    /// </summary>
+    [Fact]
+    public void SettingsCopyPreservesImportedBuffedItemsAndUnknownTablesIndependently()
+    {
+        var storage = new MemoryStorage();
+        var automation = ItemEnchantAutomation();
+        automation.ItemEntries =
+        [
+            Item(10, "War Wand", 0x8000u, validLocations: 0x01000000u),
+            Item(11, "Equipped Wand", 0x8000u) with { EquippedLocation = 0x01000000u },
+        ];
+        var panel = new MossTankPanel(new FakeHost(automation, storage));
+        Command(panel, "settings save Source");
+        string source = panel.SelectedMacroProfile;
+        VtankDatabase sourceDatabase = VtankDatabase.Parse(storage.Text[source]);
+        VtankTable buffed = sourceDatabase.Find("BuffedItems")!;
+        buffed.Rows.Add(new VtankRow { Cells = { VtankCell.Int(10), VtankCell.Int(101) } });
+        buffed.Rows.Add(new VtankRow { Cells = { VtankCell.Int(10), VtankCell.Int(102) } });
+        buffed.Rows.Add(new VtankRow { Cells = { VtankCell.Int(-1), VtankCell.Int(101) } });
+        var custom = new VtankTable();
+        custom.ColumnNames.Add("Marker");
+        custom.IndexFlags.Add(false);
+        custom.Rows.Add(new VtankRow { Cells = { VtankCell.String("copy proof") } });
+        sourceDatabase.Tables.Add(("CopyProof", custom));
+        storage.Text[source] = sourceDatabase.Render();
+
+        Command(panel, "settings load Source");
+        Command(panel, "settings save Copy");
+        string copy = panel.SelectedMacroProfile;
+        VtankDatabase copied = VtankDatabase.Parse(storage.Text[copy]);
+        VtankTable copiedBuffed = copied.Find("BuffedItems")!;
+        Assert.Contains(copiedBuffed.Rows, row =>
+            row.Cells[copiedBuffed.ColumnIndex("Object")].AsInt() == 10
+            && row.Cells[copiedBuffed.ColumnIndex("Spell")].AsInt() == 101);
+        Assert.Contains(copiedBuffed.Rows, row =>
+            row.Cells[copiedBuffed.ColumnIndex("Object")].AsInt() == 10
+            && row.Cells[copiedBuffed.ColumnIndex("Spell")].AsInt() == 102);
+        Assert.Contains(copiedBuffed.Rows, row =>
+            row.Cells[copiedBuffed.ColumnIndex("Object")].AsInt() == -1
+            && row.Cells[copiedBuffed.ColumnIndex("Spell")].AsInt() == 101);
+        Assert.Equal("copy proof", copied.Find("CopyProof")!.Rows[0].Cells[0].AsString());
+
+        Command(panel, "opt set AttackDistance 0.02");
+        VtankDatabase sourceAfterCopySave = VtankDatabase.Parse(storage.Text[source]);
+        Assert.Equal("copy proof", sourceAfterCopySave.Find("CopyProof")!.Rows[0].Cells[0].AsString());
+        Assert.Equal(3, sourceAfterCopySave.Find("BuffedItems")!.Rows.Count);
+
+        storage.Text[panel.SelectedMacroProfile] = "externally corrupted source";
+        panel.ToggleAutoStack();
+        Assert.False(panel.AutoStackEnabled);
+        panel.DeleteItemRowAt(0);
+        Command(panel, "settings save StaleCopy");
+        VtankDatabase staleCopy = VtankDatabase.Parse(storage.Text[panel.SelectedMacroProfile]);
+        VtankTable staleSettings = staleCopy.Find("Settings")!;
+        VtankRow autoStack = Assert.Single(staleSettings.Rows, row =>
+            row.Cells[staleSettings.ColumnIndex("Setting")].AsString()
+                .Equals("AutoStack", StringComparison.OrdinalIgnoreCase));
+        Assert.False(autoStack.Cells[staleSettings.ColumnIndex("Value")].AsBool());
+        VtankTable staleBuffed = staleCopy.Find("BuffedItems")!;
+        Assert.DoesNotContain(staleBuffed.Rows, row =>
+            row.Cells[staleBuffed.ColumnIndex("Object")].AsInt() == 10
+            && row.Cells[staleBuffed.ColumnIndex("Spell")].AsInt() == 101);
+        Assert.Contains(staleBuffed.Rows, row =>
+            row.Cells[staleBuffed.ColumnIndex("Object")].AsInt() == 10
+            && row.Cells[staleBuffed.ColumnIndex("Spell")].AsInt() == 102);
+        Assert.Equal("copy proof", staleCopy.Find("CopyProof")!.Rows[0].Cells[0].AsString());
+    }
+
+    /// <summary>
+    /// Mutation <c>SkipAssistItemsApply</c>: omit the imported-table apply
+    /// after loading; both known rows disappear from the planner inputs and
+    /// the assertions below fail. Mutation <c>RecreateAssistRows</c>: clear
+    /// and rebuild the table in Write; the unknown custom row is lost.
+    /// </summary>
+    [Fact]
+    public void ImportedAssistItemsMapKindsAndPreserveUnknownCustomRowsOnSave()
+    {
+        VtankDatabase database = VtankDefaultSettingsDatabase.Parse();
+        VtankTable table = database.Find("AssistItems")!;
+        table.ColumnNames.Add("Extension");
+        table.IndexFlags.Add(false);
+        table.Rows.Add(new VtankRow { Cells = { VtankCell.String("Health Kit"), VtankCell.Int(0), VtankCell.String("keep-health") } });
+        table.Rows.Add(new VtankRow { Cells = { VtankCell.String("Bread"), VtankCell.Int(1), VtankCell.String("keep-food") } });
+        table.Rows.Add(new VtankRow { Cells = { VtankCell.String("Unknown"), VtankCell.Int(99), VtankCell.String("keep-unknown") } });
+        var combat = new CombatSettings();
+        var settings = new VtankSettingsProfileSerializer.AllSettings
+        {
+            Combat = combat, Buffs = new BuffSettings(), Vitals = new VitalSettings(),
+            Inventory = new InventorySettings(), Navigation = new NavigationSettings(),
+        };
+        VtankSettingsProfileSerializer.Load(database.Render(), settings);
+        VtankAssistItems.Apply(combat);
+
+        Assert.Equal(ConsumableCategory.HealthKit, combat.ConsumableCategories["Health Kit"]);
+        Assert.Equal(ConsumableCategory.HealthFood, combat.ConsumableCategories["Bread"]);
+        Assert.DoesNotContain("Unknown", combat.ConsumableNames);
+
+        combat.ConsumableNames.Remove("Health Kit");
+        combat.ConsumableCategories.Remove("Health Kit");
+        for (int i = combat.ImportedAssistItems.Count - 1; i >= 0; i--)
+        {
+            if (combat.ImportedAssistItems[i].Name == "Health Kit")
+                combat.ImportedAssistItems.RemoveAt(i);
+        }
+        VtankSettingsProfileSerializer.Save(database, settings);
+        VtankTable saved = database.Find("AssistItems")!;
+        int objectColumn = saved.ColumnIndex("Object");
+        int typeColumn = saved.ColumnIndex("Type");
+        int extensionColumn = saved.ColumnIndex("Extension");
+        Assert.DoesNotContain(saved.Rows, row => row.Cells[objectColumn].AsString() == "Health Kit");
+        VtankRow food = Assert.Single(saved.Rows, row => row.Cells[objectColumn].AsString() == "Bread");
+        Assert.Equal(1, food.Cells[typeColumn].AsInt());
+        Assert.Equal("keep-food", food.Cells[extensionColumn].AsString());
+        VtankRow unknown = Assert.Single(saved.Rows, row => row.Cells[objectColumn].AsString() == "Unknown");
+        Assert.Equal(99, unknown.Cells[typeColumn].AsInt());
+        Assert.Equal("keep-unknown", unknown.Cells[extensionColumn].AsString());
+    }
+
+    [Fact]
+    public void InitialMalformedSettingsProfileStaysInactiveAndIsNeverSavedByAnOptionChange()
+    {
+        var storage = new MemoryStorage();
+        const string character = "Saver";
+        const string world = "Rune";
+        string profile = VtankProfileDirectory.AutoCharacterFileName(character, world, "usd");
+        const string malformed = "not a settings database";
+        storage.Text[profile] = malformed;
+        VtankProfileDirectory.WriteCharacterBinding(storage, character, world,
+            new VtankProfileDirectory.VtankCharacterBinding(profile, string.Empty, string.Empty, null));
+        var automation = new FakeAutomation { Name = character, WorldName = world };
+        var panel = new MossTankPanel(new FakeHost(automation, storage));
+
+        Command(panel, "opt set EnableBuffing false");
+        Command(panel, "settings save Copy");
+        panel.ToggleCombat();
+
+        Assert.Equal(malformed, storage.Text[profile]);
+        Assert.False(storage.Text.ContainsKey(
+            VtankProfileDirectory.SubProfilePrefix(character, world) + "Copy.usd"));
+        Assert.False(panel.CombatMacroRunning);
+        Assert.Contains("Raw data was preserved", panel.ProfileLifecycleNotice,
+            StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// Mutation <c>SkipExistingSettingsSaveValidation</c>: omit the save-time
+    /// parse of the current file; the option write replaces the malformed
+    /// external edit.
+    /// </summary>
+    [Fact]
+    public void OptionChangesDoNotOverwriteAnExternallyCorruptedActiveSettingsProfile()
+    {
+        var storage = new MemoryStorage();
+        var automation = new FakeAutomation { Name = "Saver", WorldName = "Rune" };
+        var panel = new MossTankPanel(new FakeHost(automation, storage));
+        Command(panel, "settings save Safe");
+        string profile = panel.SelectedMacroProfile;
+        const string malformed = "not a settings database";
+        storage.Text[profile] = malformed;
+
+        panel.ToggleCombatEnabled();
+
+        Assert.Equal(malformed, storage.Text[profile]);
+    }
+
+    /// <summary>
+    /// Mutation <c>ApplySettingsBeforeCompleteValidation</c>: parse the
+    /// candidate directly into the active settings; the valid early option
+    /// survives the rejected late numeric row and is later saved into Safe.
+    /// </summary>
+    [Fact]
+    public void LateSettingsConversionFailureDoesNotMutateTheActiveProfile()
+    {
+        var storage = new MemoryStorage();
+        var automation = new FakeAutomation { Name = "Saver", WorldName = "Rune" };
+        var panel = new MossTankPanel(new FakeHost(automation, storage));
+        Command(panel, "settings save Safe");
+        Command(panel, "opt set AttackDistance 0.02");
+        string safe = panel.SelectedMacroProfile;
+
+        VtankDatabase candidate = VtankDefaultSettingsDatabase.Parse();
+        VtankTable settings = candidate.Find("Settings")!;
+        settings.Rows.Add(SettingRow(settings, "AttackDistance", VtankCell.Double(0.1d)));
+        settings.Rows.Add(SettingRow(settings, "SpellDiffExcessThreshold-Hunt", new VtankCell
+        {
+            Tag = "i", ScalarText = "not-an-integer",
+        }));
+        string malformed = candidate.Render();
+        storage.Text["LateBroken.usd"] = malformed;
+
+        Command(panel, "settings load LateBroken");
+        Command(panel, "opt set EnableBuffing false");
+
+        Assert.Equal(safe, panel.SelectedMacroProfile);
+        Assert.Equal(0.02d, panel.EvaluateExpression(
+            "uboptget['AttackDistance']").AsNumber(), precision: 7);
+        Assert.Equal(malformed, storage.Text["LateBroken.usd"]);
+    }
+
+    [Fact]
+    public void SetInAllPreservesAnExistingEmptySettingsFile()
+    {
+        var storage = new MemoryStorage();
+        storage.Text["Empty.usd"] = string.Empty;
+        var panel = new MossTankPanel(new FakeHost(new FakeAutomation(), storage));
+
+        Command(panel, "opt setinall AttackDistance 0.03");
+
+        Assert.Equal(string.Empty, storage.Text["Empty.usd"]);
+    }
+
+    [Fact]
+    public void SwitchingToAProfileWithoutGemFoodClearsItsOwnedConsumables()
+    {
+        var storage = new MemoryStorage();
+        storage.Text["GemFood.usd"] = SettingsWithGemFood(("Blackmoor's Favor", 3811u));
+        storage.Text["NoGemFood.usd"] = SettingsWithoutGemFood();
+        var automation = GemFoodAutomation();
+        var panel = new MossTankPanel(new FakeHost(automation, storage));
+
+        Command(panel, "settings load GemFood");
+        Command(panel, "settings load NoGemFood");
+        panel.ToggleCombat();
+        for (int tick = 0; tick < 8; tick++)
+            panel.OnTick(0.3d);
+
+        Assert.Empty(automation.UsedItemIds);
+    }
+
+    /// <summary>
+    /// Mutation <c>DoNotRemoveImportedAssistSelection</c>: leave the selected
+    /// imported name in the consumable collection; Save writes the removed
+    /// row back and the exact-row assertion fails.
+    /// </summary>
+    [Fact]
+    public void RemovingAnImportedConsumableDeletesOnlyItsExactAssistRow()
+    {
+        var storage = new MemoryStorage();
+        VtankDatabase imported = VtankDefaultSettingsDatabase.Parse();
+        VtankTable table = imported.Find("AssistItems")!;
+        table.ColumnNames.Add("Extension");
+        table.IndexFlags.Add(false);
+        table.Rows.Add(new VtankRow { Cells = { VtankCell.String("Bread"), VtankCell.Int(1), VtankCell.String("bread-custom") } });
+        table.Rows.Add(new VtankRow { Cells = { VtankCell.String("Mana Cake"), VtankCell.Int(5), VtankCell.String("cake-custom") } });
+        storage.Text["AssistRemove.usd"] = imported.Render();
+        var panel = new MossTankPanel(new FakeHost(new FakeAutomation(), storage));
+
+        Command(panel, "settings load AssistRemove");
+        Assert.Equal(["Bread", "Mana Cake"], panel.ConsumableRows);
+        panel.SelectConsumableRow(0);
+
+        VtankTable saved = VtankDatabase.Parse(storage.Text[panel.SelectedMacroProfile])
+            .Find("AssistItems")!;
+        int name = saved.ColumnIndex("Object");
+        int extension = saved.ColumnIndex("Extension");
+        Assert.DoesNotContain(saved.Rows, row => row.Cells[name].AsString() == "Bread");
+        VtankRow cake = Assert.Single(saved.Rows, row => row.Cells[name].AsString() == "Mana Cake");
+        Assert.Equal("cake-custom", cake.Cells[extension].AsString());
+    }
+    /// <summary>
+    /// Mutation <c>RetainImportedAssistItemsAcrossRead</c>: omit the initial
+    /// clear in the table reader; switching to the empty table leaves Bread
+    /// visible in the new profile.
+    /// </summary>
+    [Fact]
+    public void SwitchingToAnEmptyAssistItemsTableClearsImportedConsumables()
+    {
+        var storage = new MemoryStorage();
+        VtankDatabase imported = VtankDefaultSettingsDatabase.Parse();
+        imported.Find("AssistItems")!.Rows.Add(new VtankRow
+        {
+            Cells = { VtankCell.String("Bread"), VtankCell.Int(1) },
+        });
+        storage.Text["Assist.usd"] = imported.Render();
+        storage.Text["NoAssist.usd"] = VtankDefaultSettingsDatabase.Parse().Render();
+        var panel = new MossTankPanel(new FakeHost(new FakeAutomation(), storage));
+
+        Command(panel, "settings load Assist");
+        Assert.Contains("Bread", panel.ConsumableRows);
+        Command(panel, "settings load NoAssist");
+
+        Assert.DoesNotContain("Bread", panel.ConsumableRows);
+    }
+
+    /// <summary>
+    /// The profile came in saying "[All Peas]" is an ordinary single pea, so
+    /// the splitter ignores it. Pressing Add All Peas is the owner saying
+    /// otherwise, and it has to take effect at once and still be there after
+    /// a reload -- the name was already in the list, which is exactly why the
+    /// edit used to be dropped on the floor.
+    ///
+    /// Mutation executed: <c>the explicit edit left the imported row alone
+    /// and skipped the save when the name already existed</c> (the state
+    /// before this fix). The splitter then keeps reading the imported kind
+    /// and nothing is written to the profile.
+    /// </summary>
+    [Fact]
+    public void AddingAllPeasOverAnImportedSinglePeaRowActsAndPersists()
+    {
+        var storage = new MemoryStorage();
+        VtankDatabase imported = VtankDefaultSettingsDatabase.Parse();
+        VtankTable table = imported.Find("AssistItems")!;
+        table.ColumnNames.Add("Extension");
+        table.IndexFlags.Add(false);
+        table.Rows.Add(new VtankRow
+        {
+            Cells =
+            {
+                VtankCell.String(CraftingPlanner.AllPeas),
+                VtankCell.Int(9),
+                VtankCell.String("keep-custom"),
+            },
+        });
+        storage.Text["AssistAllPeas.usd"] = imported.Render();
+        var panel = new MossTankPanel(new FakeHost(new FakeAutomation(), storage));
+
+        Command(panel, "settings load AssistAllPeas");
+        Assert.DoesNotContain(CraftingPlanner.AllPeas, panel.LivePeaConsumables);
+
+        panel.AddAllPeas();
+
+        Assert.Contains(CraftingPlanner.AllPeas, panel.LivePeaConsumables);
+        VtankTable saved = VtankDatabase.Parse(
+            storage.Text[panel.SelectedMacroProfile]).Find("AssistItems")!;
+        int name = saved.ColumnIndex("Object");
+        VtankRow row = Assert.Single(saved.Rows,
+            candidate => candidate.Cells[name].AsString() == CraftingPlanner.AllPeas);
+        Assert.Equal(11, row.Cells[saved.ColumnIndex("Type")].AsInt());
+        Assert.Equal("keep-custom",
+            row.Cells[saved.ColumnIndex("Extension")].AsString());
+    }
+
+    /// <summary>
+    /// The wildcard name and the single-pea kind are two halves of one rule,
+    /// and a profile that pairs them the wrong way round means neither. The
+    /// splitter must not take the name on its own or the kind on its own.
+    ///
+    /// Mutation executed: <c>the splitter was handed the consumable names
+    /// without the imported-kind filter</c>. Both mismatched rows then
+    /// authorize splitting.
+    /// </summary>
+    [Fact]
+    public void MismatchedPeaNameAndKindPairsAuthorizeNothing()
+    {
+        var storage = new MemoryStorage();
+        VtankDatabase imported = VtankDefaultSettingsDatabase.Parse();
+        VtankTable table = imported.Find("AssistItems")!;
+        // The wildcard name carrying the single-pea kind, and a single pea
+        // carrying the wildcard kind.
+        table.Rows.Add(new VtankRow
+        {
+            Cells = { VtankCell.String(CraftingPlanner.AllPeas), VtankCell.Int(9) },
+        });
+        table.Rows.Add(new VtankRow
+        {
+            Cells = { VtankCell.String("Gold Pea"), VtankCell.Int(11) },
+        });
+        storage.Text["AssistMismatch.usd"] = imported.Render();
+        var panel = new MossTankPanel(new FakeHost(new FakeAutomation(), storage));
+
+        Command(panel, "settings load AssistMismatch");
+
+        Assert.Contains(CraftingPlanner.AllPeas, panel.ConsumableRows);
+        Assert.Contains("Gold Pea", panel.ConsumableRows);
+        Assert.Empty(panel.LivePeaConsumables);
+    }
+
+    /// <summary>
+    /// Two rows for one name, each with its own custom columns, are the
+    /// profile's business and not ours: saving something unrelated has to
+    /// hand them back unchanged.
+    ///
+    /// Mutation executed: <c>a row whose kind is not the live one was dropped
+    /// from the desired set on save</c>. The second Bread row and its custom
+    /// cell are then lost the first time anything is saved.
+    /// </summary>
+    [Fact]
+    public void DuplicateImportedRowsAndCustomCellsSurviveAnUnrelatedSave()
+    {
+        var storage = new MemoryStorage();
+        VtankDatabase imported = VtankDefaultSettingsDatabase.Parse();
+        VtankTable table = imported.Find("AssistItems")!;
+        table.ColumnNames.Add("Extension");
+        table.IndexFlags.Add(false);
+        table.Rows.Add(new VtankRow
+        {
+            Cells =
+            {
+                VtankCell.String("Bread"), VtankCell.Int(1),
+                VtankCell.String("first-custom"),
+            },
+        });
+        table.Rows.Add(new VtankRow
+        {
+            Cells =
+            {
+                VtankCell.String("Bread"), VtankCell.Int(5),
+                VtankCell.String("second-custom"),
+            },
+        });
+        storage.Text["AssistDuplicate.usd"] = imported.Render();
+        var panel = new MossTankPanel(new FakeHost(new FakeAutomation(), storage));
+
+        Command(panel, "settings load AssistDuplicate");
+        panel.ToggleAutoStack();
+
+        VtankTable saved = VtankDatabase.Parse(
+            storage.Text[panel.SelectedMacroProfile]).Find("AssistItems")!;
+        int name = saved.ColumnIndex("Object");
+        int type = saved.ColumnIndex("Type");
+        int extension = saved.ColumnIndex("Extension");
+        VtankRow[] bread = saved.Rows
+            .Where(row => row.Cells[name].AsString() == "Bread")
+            .ToArray();
+        Assert.Equal(2, bread.Length);
+        Assert.Equal([1, 5], bread.Select(row => row.Cells[type].AsInt()).ToArray());
+        Assert.Equal(
+            ["first-custom", "second-custom"],
+            bread.Select(row => row.Cells[extension].AsString()).ToArray());
+    }
+
+    /// <summary>
+    /// An explicit kind speaks for every row carrying that name. The second
+    /// row and its custom cell are still the profile's business, so saying
+    /// what a consumable is for must not be a way of deleting them.
+    ///
+    /// Mutation executed: <c>the explicit edit re-kinded only the first row
+    /// for the name</c>. The second row then no longer matches what is wanted
+    /// and is dropped, with its custom cell, on the same save.
+    /// </summary>
+    [Fact]
+    public void AnExplicitKindReKindsEveryRowForTheNameAndKeepsThem()
+    {
+        var storage = new MemoryStorage();
+        VtankDatabase imported = VtankDefaultSettingsDatabase.Parse();
+        VtankTable table = imported.Find("AssistItems")!;
+        table.ColumnNames.Add("Extension");
+        table.IndexFlags.Add(false);
+        table.Rows.Add(new VtankRow
+        {
+            Cells =
+            {
+                VtankCell.String(CraftingPlanner.AllPeas), VtankCell.Int(9),
+                VtankCell.String("first-custom"),
+            },
+        });
+        table.Rows.Add(new VtankRow
+        {
+            Cells =
+            {
+                VtankCell.String(CraftingPlanner.AllPeas), VtankCell.Int(1),
+                VtankCell.String("second-custom"),
+            },
+        });
+        storage.Text["AssistTwoPeaRows.usd"] = imported.Render();
+        var panel = new MossTankPanel(new FakeHost(new FakeAutomation(), storage));
+
+        Command(panel, "settings load AssistTwoPeaRows");
+        panel.AddAllPeas();
+
+        VtankTable saved = VtankDatabase.Parse(
+            storage.Text[panel.SelectedMacroProfile]).Find("AssistItems")!;
+        int name = saved.ColumnIndex("Object");
+        VtankRow[] peas = saved.Rows
+            .Where(row => row.Cells[name].AsString() == CraftingPlanner.AllPeas)
+            .ToArray();
+        Assert.Equal(2, peas.Length);
+        Assert.Equal(
+            [11, 11],
+            peas.Select(row => row.Cells[saved.ColumnIndex("Type")].AsInt()).ToArray());
+        Assert.Equal(
+            ["first-custom", "second-custom"],
+            peas.Select(row => row.Cells[saved.ColumnIndex("Extension")].AsString())
+                .ToArray());
+    }
+
+    /// <summary>
+    /// The profile says this bread is drunk for mana. The bag says it is
+    /// food, and food restores health -- but the profile was explicit, and
+    /// the periodic look through the bag must not quietly overrule it.
+    ///
+    /// Mutation executed: <c>the imported-row check was dropped from the
+    /// periodic assessment sweep</c>. The bread is reclassified as health
+    /// food on the first sweep.
+    /// </summary>
+    [Fact]
+    public void ThePeriodicSweepDoesNotOverruleAnImportedConsumableKind()
+    {
+        var storage = new MemoryStorage();
+        VtankDatabase imported = VtankDefaultSettingsDatabase.Parse();
+        imported.Find("AssistItems")!.Rows.Add(new VtankRow
+        {
+            Cells = { VtankCell.String("Bread"), VtankCell.Int(5) },
+        });
+        storage.Text["AssistBread.usd"] = imported.Render();
+        var automation = new FakeAutomation
+        {
+            ItemEntries =
+            [
+                Item(77u, "Bread", 0x00000020u) with { BoosterVital = 2 },
+            ],
+        };
+        var panel = new MossTankPanel(new FakeHost(automation, storage));
+
+        Command(panel, "settings load AssistBread");
+        for (int tick = 0; tick < 4; tick++)
+            panel.OnTick(0.6d);
+
+        panel.ToggleAutoStack();
+        VtankTable saved = VtankDatabase.Parse(
+            storage.Text[panel.SelectedMacroProfile]).Find("AssistItems")!;
+        int name = saved.ColumnIndex("Object");
+        VtankRow row = Assert.Single(saved.Rows,
+            candidate => candidate.Cells[name].AsString() == "Bread");
+        Assert.Equal(5, row.Cells[saved.ColumnIndex("Type")].AsInt());
+    }
+
+    [Fact]
+    public void UiAuthoredBuffConsumableStillUsesItsAppraisedSpell()
+    {
+        var automation = GemFoodAutomation("Ui Authored Gem");
+        var host = new FakeHost(automation);
+        var panel = new MossTankPanel(host);
+
+        host.Selection.Select(101u);
+        panel.AddSelectedConsumable();
+        panel.ToggleCombat();
+        for (int tick = 0; tick < 8; tick++)
+            panel.OnTick(0.3d);
+
+        Assert.Equal([101u], automation.UsedItemIds);
+        Assert.Contains("Spell 3810", panel.BuffStatus, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void AutostartLogChannelsAreTheSessionsAndSurviveAProfileLoad()
+    {
+        var storage = new MemoryStorage();
+        // An earlier session wrote the profile the run selects, with one
+        // channel of the profile's own.
+        var first = new MossTankPanel(new FakeHost(
+            new FakeAutomation { Name = "Prover" }, storage));
+        Command(first, "log ActiveRule on");
+        Command(first, "settings save vt-proof-settings");
+
+        var automation = new FakeAutomation { Name = "Prover" };
+        var host = new FakeHost(automation, storage)
+        {
+            SessionSettings = new Dictionary<string, string>(StringComparer.Ordinal)
+            {
+                ["settingsProfile"] = "vt-proof-settings",
+                ["logChannels"] = "SpellCast,RuleInfo",
+            },
+        };
+        var panel = new MossTankPanel(host);
+        panel.TickAutostart();
+        Assert.Empty(host.Logger.Errors);
+        Command(panel, "log");
+        Assert.Equal("Log state:  ActiveRule RuleInfo SpellCast", LastLogState(automation));
+
+        // The run reloads the same profile from outside, as the proof does.
+        Command(panel, "settings load vt-proof-settings.usd");
+        Command(panel, "log");
+        Assert.Equal("Log state:  ActiveRule RuleInfo SpellCast", LastLogState(automation));
+
+        // Turning a session channel off is honoured too.
+        Command(panel, "log SpellCast off");
+        Command(panel, "log");
+        Assert.Equal("Log state:  ActiveRule RuleInfo", LastLogState(automation));
+    }
+
+    private static string LastLogState(FakeAutomation automation) =>
+        automation.Messages.Last(message =>
+            message.StartsWith("Log state:", StringComparison.Ordinal)
+            || message == "Not currently logging.");
 
     [Fact]
     public void TheVtLogChannelSelectionSurvivesAReload()
@@ -3339,6 +5861,54 @@ public sealed class MossTankPanelTests
         Assert.Contains("BuffProfile_Banes", panel.AdvancedOptionNames);
     }
 
+    /// <summary>
+    /// A setting nothing in the macro reads is not an option here at all: a
+    /// row the player can change that changes nothing is worse than no row.
+    /// A profile written elsewhere may still carry the name; it is ignored
+    /// on load like any other name the macro does not know.
+    ///
+    /// Mutation: put the name back in the option catalog and the row returns.
+    /// </summary>
+    [Fact]
+    public void ASettingNothingReadsIsNotAnOption()
+    {
+        var panel = new MossTankPanel(new FakeHost(new FakeAutomation()));
+
+        Assert.DoesNotContain("WhoYouGonnaCall", panel.AdvancedOptionNames);
+        Assert.DoesNotContain("WhoYouGonnaCall", VtankOptionCatalog.Names);
+    }
+
+    /// <summary>
+    /// The advanced list shows the four plain value kinds -- switch, choice,
+    /// whole number and decimal -- and nothing else. A table-valued setting has
+    /// no plain value to type, and an edit made against it here would be
+    /// dropped without a word, so it is not offered at all; the recharge
+    /// handler table is the only one of its kind.
+    ///
+    /// Mutation: filter only text settings out again and the table reappears
+    /// in the list as an editable row.
+    /// </summary>
+    [Fact]
+    public void AdvancedOptionListOffersOnlyThePlainValueKinds()
+    {
+        var panel = new MossTankPanel(new FakeHost(new FakeAutomation()));
+
+        Assert.DoesNotContain("RechargeHandlerSet", panel.AdvancedOptionNames);
+
+        foreach (string name in panel.AdvancedOptionNames)
+        {
+            Assert.Contains(
+                VtankOptionCatalog.DeclaredType(name),
+                new[]
+                {
+                    VtankSettingValueType.Bool,
+                    VtankSettingValueType.Enum,
+                    VtankSettingValueType.Int,
+                    VtankSettingValueType.Double,
+                });
+        }
+    }
+
     [Fact]
     public void AdvancedOptionCategoryEnabledIsNotTheMutableBackingArray()
     {
@@ -3507,7 +6077,9 @@ public sealed class MossTankPanelTests
         Assert.Contains("name ~= coin", second.LootRuleRows[0], StringComparison.Ordinal);
         Assert.Equal("Keep up to 2", second.LootKeepCountText);
         Assert.Equal("Priority 1", second.LootPriorityText);
-        Assert.Equal("Corpse range 2m", second.LootRangeText);
+        // The shipped corpse range is zero — the walk to a corpse is off until
+        // a profile asks for it — and the down button floors there.
+        Assert.Equal("Corpse range 0m", second.LootRangeText);
     }
 
     private static string LegacyLootProfileKey(string value, bool byCharacter)
@@ -3578,8 +6150,7 @@ public sealed class MossTankPanelTests
         panel.AddLootRule();
         panel.SetLootExpressionDraft("name ~= coin");
         panel.ApplyLootRule();
-        panel.SetLootProfileNameDraft("Currency");
-        panel.CopyLootProfile();
+        Vt(panel, "loot save Currency"); // save copies the current rules under the new name
         panel.AddLootRule();
 
         Assert.Equal("Currency", panel.LootProfileName);
@@ -3589,6 +6160,429 @@ public sealed class MossTankPanelTests
         panel.SelectLootProfile("Currency");
         Assert.Equal(2, panel.LootRuleRows.Count);
         Assert.True(storage.Text.ContainsKey("Currency.utl"));
+    }
+
+    /// <summary>
+    /// A picker change is one activation transaction: an unreadable candidate
+    /// cannot become the selected label or character binding while the previous
+    /// rules continue to execute.
+    /// Mutation <c>PrematureSelectionCommit</c>: commit <c>_selected</c> and
+    /// the CDF in <c>Select</c>, before
+    /// <c>LoadCurrent</c> validates the candidate; the selected-name and CDF
+    /// assertions fail.
+    /// </summary>
+    [Fact]
+    public void LootProfilePickerRejectsMalformedCandidateWithoutChangingActiveProfileOrFiles()
+    {
+        var storage = new MemoryStorage();
+        var automation = new FakeAutomation
+        {
+            Name = "Looter",
+            WorldName = "Coldeve",
+        };
+        var host = new FakeHost(automation, storage);
+        var panel = new MossTankPanel(host);
+        Command(panel, "loot new Safe");
+        panel.AddLootRule();
+        string[] safeRules = panel.LootRuleRows.ToArray();
+        const string malformed = "UTL\r\n1\r\n1\r\nunfinished";
+        storage.Text["Loot5.utl"] = malformed;
+        string cdfKey = VtankProfileDirectory.CdfFileName("Looter", "Coldeve");
+        string cdfBefore = storage.Text[cdfKey];
+
+        panel.SelectLootProfile("Loot5");
+
+        Assert.Equal("Safe", panel.LootProfileName);
+        Assert.Equal(safeRules, panel.LootRuleRows);
+        Assert.Equal(cdfBefore, storage.Text[cdfKey]);
+        Assert.Equal(malformed, storage.Text["Loot5.utl"]);
+        Assert.Contains("Loot5", panel.LootEditorNotice, StringComparison.Ordinal);
+        Assert.Contains("Active profile remains Safe", panel.LootEditorNotice, StringComparison.Ordinal);
+        Assert.DoesNotContain(host.Logger.Infos, message =>
+            message.Contains("Loaded loot profile Loot5", StringComparison.Ordinal));
+    }
+
+    /// <summary>
+    /// Mutation <c>AllowPartialLootCopy</c>: remove the partial-source guard
+    /// in <c>MossTankLootProfileStore.Create</c>; the command replaces the
+    /// destination and changes the active binding.
+    /// </summary>
+    [Fact]
+    public void LootSaveCommandRefusesToCopyAnIncompleteActiveProfile()
+    {
+        var storage = new MemoryStorage();
+        var automation = new FakeAutomation
+        {
+            Name = "Looter",
+            WorldName = "Coldeve",
+        };
+        var host = new FakeHost(automation, storage);
+        var panel = new MossTankPanel(host);
+        const string partial = "UTL\r\n1\r\n2\r\nKeep\r\n\r\n0;1\r\nunfinished";
+        storage.Text["Partial.utl"] = partial;
+
+        Command(panel, "loot load Partial");
+        panel.AddLootRule();
+        string[] rowsBeforeSave = panel.LootRuleRows.ToArray();
+        string cdfKey = VtankProfileDirectory.CdfFileName("Looter", "Coldeve");
+        string bindingBefore = storage.Text[cdfKey];
+
+        Vt(panel, "loot save Copy");
+
+        Assert.Equal("Partial", panel.LootProfileName);
+        Assert.Equal(rowsBeforeSave, panel.LootRuleRows);
+        Assert.Equal(partial, storage.Text["Partial.utl"]);
+        Assert.False(storage.Text.ContainsKey("Copy.utl"));
+        Assert.Equal(bindingBefore, storage.Text[cdfKey]);
+        Assert.Contains(automation.Messages, message =>
+            message.Contains("incomplete", StringComparison.OrdinalIgnoreCase));
+    }
+
+    /// <summary>
+    /// Mutation <c>AllowInactiveLootCopy</c>: remove the no-active-profile
+    /// branch in <c>MossTankLootProfileStore.Create</c>; the command creates
+    /// a new document from an untrusted inactive startup profile.
+    /// </summary>
+    [Fact]
+    public void LootSaveCommandRefusesWithAnInactiveStartupProfile()
+    {
+        var storage = new MemoryStorage();
+        var firstAutomation = new FakeAutomation
+        {
+            Name = "Looter",
+            WorldName = "Coldeve",
+        };
+        var first = new MossTankPanel(new FakeHost(firstAutomation, storage));
+        Command(first, "loot new Broken");
+        const string malformed = "UTL\r\n1\r\n1\r\nunfinished";
+        storage.Text["Broken.utl"] = malformed;
+        string cdfKey = VtankProfileDirectory.CdfFileName("Looter", "Coldeve");
+        string bindingBefore = storage.Text[cdfKey];
+        var automation = new FakeAutomation
+        {
+            Name = "Looter",
+            WorldName = "Coldeve",
+        };
+        var panel = new MossTankPanel(new FakeHost(automation, storage));
+
+        Vt(panel, "loot save Copy");
+
+        Assert.Equal(MossTankLootProfileStore.NoActiveProfile, panel.LootProfileName);
+        Assert.Equal(malformed, storage.Text["Broken.utl"]);
+        Assert.False(storage.Text.ContainsKey("Copy.utl"));
+        Assert.Equal(bindingBefore, storage.Text[cdfKey]);
+        Assert.Contains(automation.Messages, message =>
+            message.Contains("no complete active profile", StringComparison.OrdinalIgnoreCase));
+    }
+    /// <summary>
+    /// The command path must surface the same rejected activation and must not
+    /// append its old unconditional success line.
+    /// Mutation <c>UnconditionalLootLoadedMessage</c>: emit the old success
+    /// message after the rejected load; the single-message assertion fails.
+    /// </summary>
+    [Fact]
+    public void LootLoadCommandReportsMalformedCandidateWithoutAFalseLoadedMessage()
+    {
+        var storage = new MemoryStorage();
+        var automation = new FakeAutomation
+        {
+            Name = "Looter",
+            WorldName = "Coldeve",
+        };
+        var panel = new MossTankPanel(new FakeHost(automation, storage));
+        Command(panel, "loot new Safe");
+        panel.AddLootRule();
+        const string malformed = "UTL\r\n1\r\n1\r\nunfinished";
+        storage.Text["Loot5.utl"] = malformed;
+        automation.Messages.Clear();
+
+        Command(panel, "loot load Loot5.utl");
+
+        Assert.Equal("Safe", panel.LootProfileName);
+        string message = Assert.Single(automation.Messages);
+        Assert.Contains("Loot5", message, StringComparison.Ordinal);
+        Assert.Contains("could not be read", message, StringComparison.Ordinal);
+        Assert.Contains("Active profile remains Safe", message, StringComparison.Ordinal);
+        Assert.DoesNotContain("Loaded loot profile", message, StringComparison.Ordinal);
+        Assert.Equal(malformed, storage.Text["Loot5.utl"]);
+    }
+
+    /// <summary>
+    /// Reloading the already-active name still validates the file before any
+    /// save. An external truncation must not be repaired from stale memory.
+    /// Mutation <c>OverwriteMalformedCurrentOnSave</c>: continue through
+    /// <c>SaveCurrent</c> after the existing file fails to parse; the raw-file
+    /// assertion fails.
+    /// </summary>
+    [Fact]
+    public void ReloadingActiveLootProfileDoesNotOverwriteExternalMalformedEdit()
+    {
+        var storage = new MemoryStorage();
+        var automation = new FakeAutomation
+        {
+            Name = "Looter",
+            WorldName = "Coldeve",
+        };
+        var panel = new MossTankPanel(new FakeHost(automation, storage));
+        Command(panel, "loot new Safe");
+        panel.AddLootRule();
+        const string malformed = "UTL\r\n1\r\n1\r\nunfinished";
+        storage.Text["Safe.utl"] = malformed;
+
+        Command(panel, "loot load Safe");
+        panel.ToggleLootPriorityBoost();
+
+        Assert.Equal("Safe", panel.LootProfileName);
+        Assert.Equal(malformed, storage.Text["Safe.utl"]);
+        Assert.Contains(automation.Messages, message =>
+            message.Contains("could not be read", StringComparison.Ordinal));
+    }
+
+    /// <summary>
+    /// Mutation <c>AllowMalformedCopyTarget</c>: skip the target validation
+    /// in <c>MossTankLootProfileStore.Create</c>; the raw-file assertion
+    /// fails.
+    /// </summary>
+    [Fact]
+    public void LootSaveCommandDoesNotOverwriteMalformedDestination()
+    {
+        var storage = new MemoryStorage();
+        var automation = new FakeAutomation
+        {
+            Name = "Looter",
+            WorldName = "Coldeve",
+        };
+        var panel = new MossTankPanel(new FakeHost(automation, storage));
+        Command(panel, "loot new Source");
+        panel.AddLootRule();
+        const string malformed = "UTL\r\n1\r\n1\r\nunfinished";
+        storage.Text["Target.utl"] = malformed;
+
+        Command(panel, "loot save Target");
+
+        Assert.Equal("Source", panel.LootProfileName);
+        Assert.Equal(malformed, storage.Text["Target.utl"]);
+        Assert.Contains(automation.Messages, message =>
+            message.Contains("Cannot overwrite unreadable", StringComparison.Ordinal));
+    }
+    /// <summary>
+    /// A malformed profile named by the startup CDF cannot inherit the settings
+    /// sidecar's old rules or use its external classifier. It remains inactive,
+    /// and ordinary UI saves cannot overwrite either source file.
+    /// Mutation <c>IgnoreInactiveProfileInLootTick</c>: remove the inactive
+    /// guard from <c>LootController.Tick</c>; the corpse-open assertion fails.
+    /// </summary>
+    [Fact]
+    public void MalformedStartupLootBindingIsInactiveAndCannotBeOverwrittenByLaterSaves()
+    {
+        var storage = new MemoryStorage();
+        var classifiers = new FakeLootClassifierRegistry(
+            new PluginLootClassifierInfo("utility/loot", "Utility Loot"));
+        var firstAutomation = new FakeAutomation
+        {
+            Name = "Looter",
+            WorldName = "Coldeve",
+        };
+        var first = new MossTankPanel(new FakeHost(
+            firstAutomation,
+            storage,
+            classifiers));
+        Command(first, "loot new Loot5");
+        first.AddLootRule();
+        first.SelectLootClassifier("Utility Loot [utility/loot]");
+        if (!first.LootEnabled)
+            first.ToggleLooting();
+
+        const string malformed = "UTL\r\n1\r\n1\r\nunfinished";
+        storage.Text["Loot5.utl"] = malformed;
+        string cdfKey = VtankProfileDirectory.CdfFileName("Looter", "Coldeve");
+        string cdfBefore = storage.Text[cdfKey];
+        var loot = new FrameLootSurface
+        {
+            Corpses =
+            [
+                new PluginLootContainer(
+                    FrameLootSurface.CorpseId,
+                    1u,
+                    "Corpse",
+                    3f,
+                    false,
+                    false,
+                    false)
+                {
+                    IsIdentified = true,
+                    LongDescription = "Killed by Looter.",
+                },
+            ],
+        };
+        var restartedAutomation = new FakeAutomation
+        {
+            Name = "Looter",
+            WorldName = "Coldeve",
+            LootSurface = loot,
+        };
+        var restartedHost = new FakeHost(
+            restartedAutomation,
+            storage,
+            classifiers);
+
+        var restarted = new MossTankPanel(restartedHost);
+
+        Assert.Equal(MossTankLootProfileStore.NoActiveProfile, restarted.LootProfileName);
+        Assert.Empty(restarted.LootRuleRows);
+        Assert.Equal("Utility Loot [utility/loot]", restarted.SelectedLootClassifier);
+        Assert.Contains("No loot profile is active", restarted.LootEditorNotice, StringComparison.Ordinal);
+        Assert.Contains(restartedHost.Logger.Errors, message =>
+            message.Contains("Loot5", StringComparison.Ordinal)
+                && message.Contains("No loot profile is active", StringComparison.Ordinal));
+
+        restarted.ToggleLootPriorityBoost();
+        restarted.ToggleCombat();
+        for (int tick = 0; tick < 12; tick++)
+            restarted.OnTick(0.3d);
+
+        Assert.Equal(0u, loot.Opened);
+        Assert.Equal(malformed, storage.Text["Loot5.utl"]);
+        Assert.Equal(cdfBefore, storage.Text[cdfKey]);
+
+        var recovered = new VtankLootProfile
+        {
+            Rules = [new LootRule { Expression = "*", Action = LootAction.Keep }],
+        };
+        storage.Text["Recovered.utl"] = VtankLootProfileSerializer.Write(recovered);
+        restarted.SelectLootProfile("Recovered");
+
+        Assert.Equal("Recovered", restarted.LootProfileName);
+        Assert.Single(restarted.LootRuleRows);
+        Assert.Equal(malformed, storage.Text["Loot5.utl"]);
+        Assert.Contains(
+            "Recovered.utl",
+            storage.Text[cdfKey],
+            StringComparison.Ordinal);
+        for (int tick = 0; tick < 12 && loot.Opened == 0u; tick++)
+            restarted.OnTick(0.3d);
+        Assert.Equal(FrameLootSurface.CorpseId, loot.Opened);
+    }
+
+    /// <summary>
+    /// A named CDF target that is absent is a failed activation, not the
+    /// first-run By-char case. It must not be created from inherited sidecar
+    /// rules by the constructor or a later save.
+    /// Mutation <c>TreatMissingNamedBindingAsFirstRun</c>: route every missing
+    /// candidate through the By-char creation branch; the file appears.
+    /// </summary>
+    [Fact]
+    public void MissingNamedStartupLootBindingIsNotCreatedFromInheritedRules()
+    {
+        var storage = new MemoryStorage();
+        var automation = new FakeAutomation
+        {
+            Name = "Looter",
+            WorldName = "Coldeve",
+        };
+        var first = new MossTankPanel(new FakeHost(automation, storage));
+        Command(first, "loot new MissingLater");
+        first.AddLootRule();
+        storage.Text.Remove("MissingLater.utl");
+        string cdfKey = VtankProfileDirectory.CdfFileName("Looter", "Coldeve");
+        string cdfBefore = storage.Text[cdfKey];
+
+        var restartedHost = new FakeHost(
+            new FakeAutomation { Name = "Looter", WorldName = "Coldeve" },
+            storage);
+        var restarted = new MossTankPanel(restartedHost);
+        restarted.ToggleLootPriorityBoost();
+
+        Assert.False(storage.Text.ContainsKey("MissingLater.utl"));
+        Assert.Equal(MossTankLootProfileStore.NoActiveProfile, restarted.LootProfileName);
+        Assert.Empty(restarted.LootRuleRows);
+        Assert.Equal(cdfBefore, storage.Text[cdfKey]);
+        Assert.Contains(restartedHost.Logger.Errors, message =>
+            message.Contains("MissingLater", StringComparison.Ordinal)
+                && message.Contains("not found", StringComparison.Ordinal));
+    }
+
+    /// <summary>
+    /// A settings-profile load may replace the in-memory rule list from its
+    /// sidecar before the active loot file is checked. If that file was
+    /// truncated externally, the rules that were active before the settings
+    /// switch remain active and the source stays untouched.
+    /// Mutation <c>DropActiveRuleSnapshotRestore</c>: disable the snapshot
+    /// restore branch; the rule count falls back to the older sidecar copy.
+    /// </summary>
+    [Fact]
+    public void SettingsSwitchRetainsActiveLootRulesWhenActiveLootFileBecameMalformed()
+    {
+        var storage = new MemoryStorage();
+        var automation = new FakeAutomation
+        {
+            Name = "Looter",
+            WorldName = "Coldeve",
+        };
+        var panel = new MossTankPanel(new FakeHost(automation, storage));
+        Command(panel, "loot new Safe");
+        panel.AddLootRule();
+        Command(panel, "settings save OneRule");
+        Command(panel, "settings save TwoRules");
+        panel.AddLootRule();
+        Assert.Equal(2, panel.LootRuleRows.Count);
+        const string malformed = "UTL\r\n1\r\n1\r\nunfinished";
+        storage.Text["Safe.utl"] = malformed;
+
+        Command(panel, "settings load OneRule");
+        panel.ToggleLootPriorityBoost();
+
+        Assert.Equal(2, panel.LootRuleRows.Count);
+        Assert.Equal(malformed, storage.Text["Safe.utl"]);
+        Assert.Contains("could not be read", panel.LootEditorNotice, StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// Character binding starts a new ownership scope. A corrupt profile for
+    /// the next character cannot restore the previous character's rules after
+    /// the settings sidecar has loaded.
+    /// Mutation <c>RestoreRulesAcrossCharacterRebind</c>: restore the pre-bind
+    /// snapshot after every failed load; the empty-row assertion exposes the
+    /// old character's rules.
+    /// </summary>
+    [Fact]
+    public void CharacterRebindToMalformedLootProfileDoesNotRetainPreviousCharactersRules()
+    {
+        var storage = new MemoryStorage();
+        var automation = new FakeAutomation
+        {
+            Name = "First",
+            WorldName = "Coldeve",
+        };
+        var panel = new MossTankPanel(new FakeHost(automation, storage));
+        Command(panel, "loot new FirstLoot");
+        panel.AddLootRule();
+        Assert.Single(panel.LootRuleRows);
+
+        string secondSettings = VtankProfileDirectory.AutoCharacterFileName(
+            "Second",
+            "Coldeve",
+            "usd");
+        storage.Text[secondSettings] = VtankDefaultSettingsDatabase.Parse().Render();
+        const string malformed = "UTL\r\n1\r\n1\r\nunfinished";
+        storage.Text["SecondLoot.utl"] = malformed;
+        VtankProfileDirectory.WriteCharacterBinding(
+            storage,
+            "Second",
+            "Coldeve",
+            new VtankProfileDirectory.VtankCharacterBinding(
+                secondSettings,
+                "SecondLoot.utl",
+                string.Empty,
+                null));
+
+        automation.Name = "Second";
+        panel.OnTick(0.1d);
+
+        Assert.Equal(MossTankLootProfileStore.NoActiveProfile, panel.LootProfileName);
+        Assert.Empty(panel.LootRuleRows);
+        Assert.Equal(malformed, storage.Text["SecondLoot.utl"]);
+        Assert.Contains("No loot profile is active", panel.LootEditorNotice, StringComparison.Ordinal);
     }
 
     [Fact]
@@ -3656,6 +6650,11 @@ public sealed class MossTankPanelTests
             text => text.Contains("Fake cast complete", StringComparison.Ordinal));
     }
 
+    /// <summary>
+    /// Mutation <c>OmitLootSettingsFromCopy</c>: do not pass the active loot
+    /// settings to <c>MossTankLootProfileStore.Create</c>; the copied
+    /// salvage-combine settings revert to defaults.
+    /// </summary>
     [Fact]
     public void LootCommandsImportAndExportExactVtclassicUtlFiles()
     {
@@ -3700,11 +6699,12 @@ public sealed class MossTankPanelTests
             storage));
 
         Command(panel, "loot load Legacy.utl");
+        Command(panel, "loot save Copy");
 
-        Assert.Equal("Legacy", panel.LootProfileName);
+        Assert.Equal("Copy", panel.LootProfileName);
         Assert.Single(panel.LootRuleRows);
         Assert.Contains("KeepUpTo", panel.LootRuleRows[0], StringComparison.Ordinal);
-        string exported = storage.Text["Legacy.utl"];
+        string exported = storage.Text["Copy.utl"];
         Assert.True(VtankLootProfileSerializer.TryRead(
             exported,
             out VtankLootProfile roundTrip,
@@ -3715,14 +6715,39 @@ public sealed class MossTankPanelTests
     }
 
     [Fact]
+    public void MacroSettingsRoundTripPreservesImportedLootConditions()
+    {
+        var host = new FakeHost(new FakeAutomation(), new MemoryStorage());
+        var store = new MossTankProfileStore(host);
+        // A profile belongs to a character; the store writes nothing until it
+        // knows whose it is.
+        store.BindCharacter("Prover");
+        var settings = new VtankSettingsProfileSerializer.AllSettings
+        {
+            Combat = new(), Buffs = new(), Vitals = new(), Inventory = new(), Navigation = new(),
+        };
+        settings.Inventory.Loot.Rules.Add(new LootRule
+        {
+            Name = "Only pyreals", Action = LootAction.Keep,
+            CustomExpression = "preserve me",
+            VtankRequirements = [new() { Type = 1, Payload = "^Pyreal$\r\n1\r\n" }],
+        });
+        store.SaveCurrent(settings, new HashSet<string>(), new HashSet<string>());
+        settings.Inventory.Loot.Rules.Clear();
+        store.LoadCurrent(settings, new HashSet<string>(), new HashSet<string>());
+        LootRule restored = Assert.Single(settings.Inventory.Loot.Rules);
+        Assert.Equal("^Pyreal$\r\n1\r\n", Assert.Single(restored.VtankRequirements).Payload);
+        Assert.Equal("preserve me", restored.CustomExpression);
+    }
+
+    [Fact]
     public void NamedProfileCopyHotLoadsWithoutMixingByCharacterSettings()
     {
         var storage = new MemoryStorage();
         var automation = new FakeAutomation { Name = "Moss Wart" };
         var panel = new MossTankPanel(new FakeHost(automation, storage));
         panel.SetNormalHealth(0.42f);
-        panel.SetProfileNameDraft("Fellowship");
-        panel.CopyProfile();
+        Vt(panel, "settings save Fellowship");
 
         const string fellowshipFile = "--Moss Wart__Fellowship.usd";
         Assert.Equal(fellowshipFile, panel.SelectedMacroProfile);
@@ -3743,8 +6768,7 @@ public sealed class MossTankPanelTests
         var automation = new FakeAutomation { Name = "Moss Wart" };
         var panel = new MossTankPanel(new FakeHost(automation, storage));
         panel.SetNormalHealth(0.42f);
-        panel.SetProfileNameDraft("Fellowship");
-        panel.CopyProfile();
+        Vt(panel, "settings save Fellowship");
         const string fellowshipFile = "--Moss Wart__Fellowship.usd";
         Assert.Equal(fellowshipFile, panel.SelectedMacroProfile);
         Assert.Contains(fellowshipFile, panel.MacroProfileNames);
@@ -3774,8 +6798,7 @@ public sealed class MossTankPanelTests
     {
         var storage = new MemoryStorage();
         var panel = new MossTankPanel(new FakeHost(new FakeAutomation(), storage));
-        panel.SetRouteProfileNameDraft("Fellowship");
-        panel.CopyRouteProfile();
+        Vt(panel, "nav save Fellowship");
         Assert.Equal("Fellowship", panel.SelectedRouteProfile);
         Assert.Contains("Fellowship", panel.RouteProfileNames);
         Assert.True(storage.Text.ContainsKey("navs/Fellowship.af"));
@@ -3805,8 +6828,7 @@ public sealed class MossTankPanelTests
     {
         var storage = new MemoryStorage();
         var panel = new MossTankPanel(new FakeHost(new FakeAutomation(), storage));
-        panel.SetMetaProfileNameDraft("Fellowship");
-        panel.CopyMetaProfile();
+        Vt(panel, "meta save Fellowship");
         Assert.Equal("Fellowship", panel.SelectedMetaProfile);
         Assert.Contains("Fellowship", panel.MetaProfileNames);
         Assert.True(storage.Text.ContainsKey("metas/Fellowship.af"));
@@ -3836,8 +6858,7 @@ public sealed class MossTankPanelTests
     {
         var storage = new MemoryStorage();
         var panel = new MossTankPanel(new FakeHost(new FakeAutomation(), storage));
-        panel.SetLootProfileNameDraft("Fellowship");
-        panel.CopyLootProfile();
+        Vt(panel, "loot new Fellowship");
         Assert.Equal("Fellowship", panel.LootProfileName);
         Assert.Contains("Fellowship", panel.LootProfileNames);
 
@@ -3847,6 +6868,40 @@ public sealed class MossTankPanelTests
         Assert.DoesNotContain("Fellowship", panel.LootProfileNames);
         Assert.False(storage.Text.ContainsKey("Fellowship.utl"));
         Assert.Contains("Deleted", panel.LootEditorNotice, StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// Deleting a valid named profile starts a fresh fallback activation. A
+    /// malformed By-char destination leaves no active rules and is preserved.
+    /// Mutation <c>PrematureByCharacterFallbackOnDelete</c>: mark By-char
+    /// active before <c>LoadLootProfile</c>; the selected-name assertion fails.
+    /// </summary>
+    [Fact]
+    public void DeleteNamedLootProfileDoesNotActivateOrOverwriteMalformedByCharacterFallback()
+    {
+        var storage = new MemoryStorage();
+        var automation = new FakeAutomation
+        {
+            Name = "Looter",
+            WorldName = "Coldeve",
+        };
+        var panel = new MossTankPanel(new FakeHost(automation, storage));
+        string byCharacterFile = VtankProfileDirectory.AutoCharacterFileName(
+            "Looter",
+            "Coldeve",
+            "utl");
+        const string malformed = "UTL\r\n1\r\n1\r\nunfinished";
+        storage.Text[byCharacterFile] = malformed;
+        Command(panel, "loot new Named");
+        panel.AddLootRule();
+
+        panel.DeleteLootProfile();
+        panel.ToggleLootPriorityBoost();
+
+        Assert.Equal(MossTankLootProfileStore.NoActiveProfile, panel.LootProfileName);
+        Assert.Empty(panel.LootRuleRows);
+        Assert.Equal(malformed, storage.Text[byCharacterFile]);
+        Assert.Contains("could not be read", panel.LootEditorNotice, StringComparison.Ordinal);
     }
 
     [Fact]
@@ -3859,6 +6914,291 @@ public sealed class MossTankPanelTests
 
         Assert.Equal(MossTankLootProfileStore.ByCharacter, panel.LootProfileName);
         Assert.Contains("cannot be deleted", panel.LootEditorNotice, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void ShowNavLinesDrawsTheLoadedRouteAndPersistsWithTheProfile()
+    {
+        var storage = new MemoryStorage();
+        storage.Text["imports/Legacy.nav"] = """
+            uTank2 NAV 1.2
+            4
+            1
+            0
+            12.5
+            -3.25
+            0
+            0
+            """;
+        var automation = new FakeAutomation { NavigationSnapshot = NavigationAt(0f) };
+        var lines = new RecordingWorldLines();
+        var panel = new MossTankPanel(new FakeHost(
+            automation, storage, worldLines: lines));
+        Command(panel, "nav load Legacy.nav");
+        panel.OnTick(0.3d);
+
+        // Off by default: the plugin asks the host for nothing.
+        Assert.False(panel.ShowNavLinesEnabled);
+        Assert.Empty(lines.Layers);
+
+        panel.ToggleShowNavLines();
+        Assert.True(panel.ShowNavLinesEnabled);
+        RecordingWorldLines.Layer layer = Assert.Single(lines.Layers);
+        // The one point is drawn as its arrival ring.
+        Assert.Equal(24, layer.Lines.Count);
+        Assert.Contains(
+            storage.Text,
+            pair => pair.Key.StartsWith("profiles/macro/sidecar/", StringComparison.Ordinal)
+                && pair.Value.Contains("\"ShowNavLines\": true", StringComparison.Ordinal));
+
+        panel.ToggleShowNavLines();
+        Assert.False(panel.ShowNavLinesEnabled);
+        Assert.Empty(layer.Lines);
+    }
+
+    /// <summary>
+    /// The weapon in the character's hands is added to the Items list the
+    /// same way anything else is, and it is still there after a restart.
+    /// </summary>
+    [Fact]
+    public void AWieldedWeaponAddedToTheItemsListSurvivesARestart()
+    {
+        var storage = new MemoryStorage();
+        PluginInventoryItem blade = Wielded(Item(10, "Decapitator's Blade", 1));
+        var first = new FakeAutomation
+        {
+            Name = "Prover",
+            ItemEntries = [blade],
+        };
+        first.Unassessed.Add(10u);
+        var firstHost = new FakeHost(first, storage);
+        var firstPanel = new MossTankPanel(firstHost);
+        firstHost.Selection.Select(10);
+        firstPanel.AddSelectedItem();
+        for (int tick = 0; tick < 20
+            && !firstPanel.ItemRows.Contains("Decapitator's Blade"); tick++)
+        {
+            firstPanel.OnTick(0.3d);
+        }
+
+        Assert.Contains("Decapitator's Blade", firstPanel.ItemRows);
+
+        var second = new FakeAutomation
+        {
+            Name = "Prover",
+            ItemEntries = [blade],
+        };
+        var panel = new MossTankPanel(new FakeHost(second, storage));
+
+        Assert.Contains("Decapitator's Blade", panel.ItemRows);
+    }
+
+    /// <summary>
+    /// Dropping the row for an object the character no longer carries leaves
+    /// every other row of the list where it was, on disk as well as on the
+    /// page.
+    /// </summary>
+    [Fact]
+    public void RemovingARowForAMissingObjectKeepsTheRestOfTheList()
+    {
+        var storage = new MemoryStorage();
+        PluginInventoryItem blade = Wielded(Item(10, "Decapitator's Blade", 1));
+        PluginInventoryItem wand = Item(11, "War Wand", 0x8000);
+        var automation = new FakeAutomation
+        {
+            Name = "Prover",
+            ItemEntries = [blade, wand],
+        };
+        var host = new FakeHost(automation, storage);
+        var panel = new MossTankPanel(host);
+        host.Selection.Select(10);
+        panel.AddSelectedItem();
+        host.Selection.Select(11);
+        panel.AddSelectedItem();
+        Assert.Contains("Decapitator's Blade", panel.ItemRows);
+        Assert.Contains("War Wand", panel.ItemRows);
+
+        // The wand is given away: its row is still listed, by the object id
+        // nobody can resolve any more.
+        automation.ItemEntries = [blade];
+        panel.CycleItemHandsAt(0);
+        panel.CycleItemHandsAt(0);
+        int invalid = panel.ItemRows
+            .ToList()
+            .FindIndex(row => row.StartsWith("<INVALID", StringComparison.Ordinal));
+        Assert.True(invalid >= 0, "expected an unresolved row");
+
+        panel.DeleteItemRowAt(invalid);
+
+        Assert.Contains("Decapitator's Blade", panel.ItemRows);
+        Assert.DoesNotContain(
+            panel.ItemRows,
+            row => row.StartsWith("<INVALID", StringComparison.Ordinal));
+
+        var reloaded = new MossTankPanel(new FakeHost(
+            new FakeAutomation { Name = "Prover", ItemEntries = [blade] },
+            storage));
+        Assert.Contains("Decapitator's Blade", reloaded.ItemRows);
+    }
+
+    /// <summary>
+    /// "Added" is a promise that the item is still there next session, so it
+    /// is only said once the profile is on disk. Before a character is
+    /// named there is nowhere real to write -- the profile file is named
+    /// after the character, and a file written under a blank name is one
+    /// the character never reads -- so the add is reported as unsaved and
+    /// nothing is written. Mutation: report the add before saving, or let
+    /// the store write a nameless profile, and the add reads as a success
+    /// that vanishes at the next restart.
+    /// </summary>
+    [Fact]
+    public void AnAddThatReachedNoProfileIsReportedAsUnsavedNotAsAdded()
+    {
+        var storage = new MemoryStorage();
+        PluginInventoryItem blade = Wielded(Item(10, "Decapitator's Blade", 1));
+        var automation = new FakeAutomation
+        {
+            Name = string.Empty,
+            ItemEntries = [blade],
+        };
+        var host = new FakeHost(automation, storage);
+        var panel = new MossTankPanel(host);
+        host.Selection.Select(10);
+
+        panel.AddSelectedItem();
+
+        Assert.Contains("nothing was saved", panel.ProfileNotice, StringComparison.Ordinal);
+        Assert.DoesNotContain(
+            storage.Text,
+            pair => pair.Value.Contains("Decapitator", StringComparison.Ordinal));
+
+        // Named, and the same add is written and reported as an add.
+        automation.Name = "Prover";
+        panel.OnTick(0.3d);
+        host.Selection.Select(10);
+        panel.AddSelectedItem();
+
+        Assert.Equal("Added Decapitator's Blade.", panel.ProfileNotice);
+        Assert.Contains("Decapitator's Blade", panel.ItemRows);
+        Assert.Contains(
+            storage.Text,
+            pair => pair.Value.Contains("Decapitator", StringComparison.Ordinal));
+    }
+
+    private static PluginInventoryItem Wielded(PluginInventoryItem item) =>
+        item with { EquippedLocation = item.ValidLocations, WielderObjectId = 1u };
+
+    [Fact]
+    public void AProfileItemLoadedWithTheCharacterIsAssessedWithoutBeingReAdded()
+    {
+        var storage = new MemoryStorage();
+        var first = new FakeAutomation
+        {
+            Name = "Prover",
+            ItemEntries = [Item(10, "Fire Sword", 1)],
+        };
+        var firstHost = new FakeHost(first, storage);
+        var firstPanel = new MossTankPanel(firstHost);
+        firstHost.Selection.Select(10);
+        firstPanel.AddSelectedItem();
+        Assert.Contains("Fire Sword", firstPanel.ItemRows);
+
+        // A fresh session: the same character, the same sword, not yet
+        // assessed by this client. The profile names it; nobody re-adds it.
+        var automation = new FakeAutomation
+        {
+            Name = "Prover",
+            ItemEntries = [Item(10, "Fire Sword", 1)],
+        };
+        automation.Unassessed.Add(10u);
+        var panel = new MossTankPanel(new FakeHost(automation, storage));
+        Assert.Contains("Fire Sword", panel.ItemRows);
+
+        for (int tick = 0; tick < 20; tick++)
+            panel.OnTick(0.3d);
+
+        Assert.Contains(10u, automation.Identified);
+        Assert.Empty(automation.Unassessed);
+    }
+
+    [Fact]
+    public void AnItemTheClientRefusesToAssessDoesNotStarveTheOthers()
+    {
+        var storage = new MemoryStorage();
+        var first = new FakeAutomation
+        {
+            Name = "Prover",
+            ItemEntries = [Item(10, "Fire Sword", 1), Item(11, "Ice Wand", 0x8000)],
+        };
+        var firstHost = new FakeHost(first, storage);
+        var firstPanel = new MossTankPanel(firstHost);
+        firstHost.Selection.Select(10);
+        firstPanel.AddSelectedItem();
+        firstHost.Selection.Select(11);
+        firstPanel.AddSelectedItem();
+
+        // A fresh session in which the client refuses the first item's
+        // appraisal outright, every time.
+        var automation = new FakeAutomation
+        {
+            Name = "Prover",
+            ItemEntries = [Item(10, "Fire Sword", 1), Item(11, "Ice Wand", 0x8000)],
+        };
+        automation.Unassessed.Add(10u);
+        automation.Unassessed.Add(11u);
+        automation.IdentifyRefusals.Add(10u);
+        var panel = new MossTankPanel(new FakeHost(automation, storage));
+
+        for (int tick = 0; tick < 20; tick++)
+            panel.OnTick(0.3d);
+
+        Assert.Contains(11u, automation.Identified);
+        Assert.Equal([10u], automation.Unassessed.Order());
+    }
+
+    [Fact]
+    public void AnItemTheChannelIsBusyOnDoesNotStarveTheOthersAndIsComeBackTo()
+    {
+        var storage = new MemoryStorage();
+        var seed = new FakeAutomation
+        {
+            Name = "Prover",
+            ItemEntries = [Item(10, "Fire Sword", 1), Item(11, "Ice Wand", 0x8000)],
+        };
+        var seedHost = new FakeHost(seed, storage);
+        var seedPanel = new MossTankPanel(seedHost);
+        seedHost.Selection.Select(10);
+        seedPanel.AddSelectedItem();
+        seedHost.Selection.Select(11);
+        seedPanel.AddSelectedItem();
+
+        // The description channel is held by somebody else's question about
+        // the first item — the shape a corpse identification in flight puts
+        // this sweep in.
+        var automation = new FakeAutomation
+        {
+            Name = "Prover",
+            ItemEntries = [Item(10, "Fire Sword", 1), Item(11, "Ice Wand", 0x8000)],
+        };
+        automation.Unassessed.Add(10u);
+        automation.Unassessed.Add(11u);
+        automation.IdentifyBusy.Add(10u);
+        var panel = new MossTankPanel(new FakeHost(automation, storage));
+
+        for (int tick = 0; tick < 20; tick++)
+            panel.OnTick(0.3d);
+
+        // The second item is served meanwhile, and the busy one is still
+        // being asked about rather than written off.
+        Assert.Contains(11u, automation.Identified);
+        Assert.DoesNotContain(11u, automation.Unassessed);
+        Assert.True(automation.Identified.Count(id => id == 10u) > 1);
+
+        automation.IdentifyBusy.Clear();
+        for (int tick = 0; tick < 20; tick++)
+            panel.OnTick(0.3d);
+
+        Assert.Empty(automation.Unassessed);
     }
 
     [Fact]
@@ -4017,12 +7357,12 @@ public sealed class MossTankPanelTests
         first.AddMonsterRule(); // row 1: "species==drudge"
         first.ToggleMonsterImperilAt(1);
         first.CycleMonsterDamageAt(1); // Auto -> Void Basic (MonsterDamageCycle order)
-        first.CycleMonsterPriorityAt(1); // 0 -> 1
+        first.CycleMonsterPriorityAt(1); // a new row starts at 1, so 1 -> 2
 
         Assert.Equal(["DEFAULT", "species==drudge"], first.MonsterNameColumn);
         Assert.True(first.MonsterImperilColumn[1]);
         Assert.Equal("Void Basic", first.MonsterDamageColumn[1]);
-        Assert.Equal("1", first.MonsterPriorityColumn[1]);
+        Assert.Equal("2", first.MonsterPriorityColumn[1]);
         Assert.Equal(string.Empty, first.MonsterExpressionDraft);
 
         var second = new MossTankPanel(new FakeHost(
@@ -4034,7 +7374,7 @@ public sealed class MossTankPanelTests
             second.MonsterNameColumn);
         Assert.True(second.MonsterImperilColumn[1]);
         Assert.Equal("Void Basic", second.MonsterDamageColumn[1]);
-        Assert.Equal("1", second.MonsterPriorityColumn[1]);
+        Assert.Equal("2", second.MonsterPriorityColumn[1]);
     }
 
     [Fact]
@@ -4059,9 +7399,9 @@ public sealed class MossTankPanelTests
     public void CycleMonsterPriorityAtWrapsExactlyNegativeOneThroughFour()
     {
         var panel = new MossTankPanel(new FakeHost(new FakeAutomation()));
-        Assert.Equal("0", panel.MonsterPriorityColumn[0]); // DEFAULT starts at 0
+        Assert.Equal("1", panel.MonsterPriorityColumn[0]); // a fresh row starts at 1
 
-        foreach (string next in new[] { "1", "2", "3", "4", "-1", "0" })
+        foreach (string next in new[] { "2", "3", "4", "-1", "0", "1" })
         {
             panel.CycleMonsterPriorityAt(0);
             Assert.Equal(next, panel.MonsterPriorityColumn[0]);
@@ -4169,6 +7509,35 @@ public sealed class MossTankPanelTests
         Assert.All(panel.MonsterMoveDownIcons, id => Assert.Equal(0x060028FDu, id));
     }
 
+    /// <summary>
+    /// Both the DEFAULT row a fresh profile is born with and a row the player
+    /// adds afterwards start as the same fresh row: priority one, attack and
+    /// streak ticked, nothing else. A row that started at priority zero with
+    /// no streak sorted below every authored rule and fired plain bolts where
+    /// its neighbours finished with a streak.
+    /// Mutation: start a new row at priority zero, or without the streak tick,
+    /// and this fails on that column for both rows.
+    /// </summary>
+    [Fact]
+    public void EveryNewMonsterRowStartsAtPriorityOneWithAttackAndStreak()
+    {
+        var panel = new MossTankPanel(new FakeHost(new FakeAutomation()));
+
+        panel.SetMonsterExpressionDraft("species==drudge");
+        panel.AddMonsterRule();
+
+        Assert.Equal(["DEFAULT", "species==drudge"], panel.MonsterNameColumn);
+        for (int row = 0; row < 2; row++)
+        {
+            Assert.Equal("1", panel.MonsterPriorityColumn[row]);
+            Assert.True(panel.MonsterAttackColumn[row]);
+            Assert.True(panel.MonsterStreakColumn[row]);
+            Assert.False(panel.MonsterRingColumn[row]);
+            Assert.False(panel.MonsterImperilColumn[row]);
+            Assert.False(panel.MonsterVulnerabilityColumn[row]);
+        }
+    }
+
     [Fact]
     public void AddMonsterRuleUsesTheDraftTextAndAddSelectedMonsterUsesTheWorldTarget()
     {
@@ -4256,69 +7625,15 @@ public sealed class MossTankPanelTests
     /// it, and while the macro runs its legs are walked by the client's navigation, one walk to
     /// each waypoint in turn, instead of being steered at.
     /// </summary>
-    [Fact]
-    public void ALoadedRouteWithClientPathingCheckedIsWalkedByTheClientsNavigationLegByLeg()
-    {
-        var storage = new MemoryStorage();
-        PluginNavigationPosition[] points = RecordRoute(storage, clientPathing: true);
-
-        var automation = new FakeAutomation { NavigationSnapshot = NavigationAt(0f) };
-        var panel = new MossTankPanel(new FakeHost(automation, storage));
-        panel.SelectRouteProfile("hunt");
-
-        Assert.Equal(3, panel.RouteWaypointTextColumn.Count);
-        Assert.True(panel.WalkLegsWithClientEnabled);
-        if (!panel.NavigationEnabled)
-            panel.ToggleNavigation();
-
-        panel.ToggleCombat();
-        for (int tick = 0; tick < 6; tick++)
-            panel.OnTick(0.3d);
-
-        // A route file keeps its points as map coordinates with no cell, and the client places
-        // such a point by its coordinates alone.
-        Assert.Equal(MapPoint(points[0]), MapPoint(Assert.Single(automation.Walks)));
-        Assert.Equal(0u, automation.Walks[0].CellId);
-        Assert.Empty(automation.MovementIntents);
-
-        automation.NavigationSnapshot = automation.NavigationSnapshot with { Position = points[0] };
-        automation.GoToReport = automation.GoToReport with { State = PluginGoToState.Arrived, Reason = "arrived" };
-        for (int tick = 0; tick < 6; tick++)
-            panel.OnTick(0.3d);
-
-        Assert.Equal([MapPoint(points[0]), MapPoint(points[1])], automation.Walks.Select(MapPoint));
-        Assert.Empty(automation.MovementIntents);
-    }
-
     private static (double NorthSouth, double EastWest, double Elevation) MapPoint(PluginNavigationPosition position) =>
         (Math.Round(position.NorthSouth, 5), Math.Round(position.EastWest, 5), Math.Round(position.Elevation, 5));
-
-    /// <summary>The same loaded route with client pathing unchecked is steered at as before, and nothing asks the client to walk.</summary>
-    [Fact]
-    public void ALoadedRouteWithClientPathingUncheckedIsSteeredAtAsBefore()
-    {
-        var storage = new MemoryStorage();
-        RecordRoute(storage, clientPathing: false);
-
-        var automation = new FakeAutomation { NavigationSnapshot = NavigationAt(0f) };
-        var panel = new MossTankPanel(new FakeHost(automation, storage));
-        panel.SelectRouteProfile("hunt");
-        Assert.Equal(3, panel.RouteWaypointTextColumn.Count);
-        Assert.False(panel.WalkLegsWithClientEnabled);
-        if (!panel.NavigationEnabled)
-            panel.ToggleNavigation();
-
-        panel.ToggleCombat();
-        for (int tick = 0; tick < 6; tick++)
-            panel.OnTick(0.3d);
-
-        Assert.Empty(automation.Walks);
-        Assert.NotEmpty(automation.MovementIntents);
-    }
 
     /// <summary>
     /// Records a three-point route into the route profile "hunt", with client pathing checked
     /// or not, the way a player does from the Route tab, and returns where its points stand.
+    private static void Vt(MossTankPanel panel, string arguments) =>
+        panel.ExecuteVtankCommand(new PluginCommand("vt", arguments, "/vt " + arguments));
+
     /// </summary>
     private static PluginNavigationPosition[] RecordRoute(MemoryStorage storage, bool clientPathing)
     {
@@ -4336,8 +7651,6 @@ public sealed class MossTankPanelTests
             automation.NavigationSnapshot = automation.NavigationSnapshot with { Position = points[index] };
             panel.AddRoutePoint();
         }
-        if (clientPathing)
-            panel.ToggleWalkLegsWithClient();
         return points;
     }
 
@@ -4366,6 +7679,41 @@ public sealed class MossTankPanelTests
         panel.DeleteRouteWaypointAt(0);
         Assert.Single(panel.RouteWaypointTextColumn);
         Assert.Equal(["1"], panel.RouteWaypointCountColumn);
+    }
+
+    /// <summary>
+    /// The rule pass arms the route mover; it does not drive it. A mover that
+    /// only steers on the pass has a control period several times its own
+    /// heading tolerance, so it overshoots every turn and hunts around the
+    /// bearing instead of settling on it.
+    /// </summary>
+    [Fact]
+    public void TheRouteMoverSteersOnHostFramesBetweenSchedulerPasses()
+    {
+        var automation = new FakeAutomation { NavigationSnapshot = NavigationAt(0f) };
+        var panel = new MossTankPanel(new FakeHost(automation));
+
+        panel.AddRoutePoint();
+        automation.NavigationSnapshot = automation.NavigationSnapshot with
+        {
+            // Twelve metres west of the waypoint, so the mover has a real leg.
+            Position = automation.NavigationSnapshot.Position with { EastWest = 0.05d },
+        };
+        panel.ToggleNavigation();
+        Assert.True(panel.NavigationEnabled);
+        panel.ToggleCombat();
+
+        // The first frame carries the pass that arms the mover.
+        panel.OnTick(0.05d);
+        Assert.NotEmpty(automation.MovementIntents);
+        int afterArming = automation.MovementIntents.Count;
+
+        // Four more frames, none of which carries a pass: the scheduler's
+        // heartbeat is 0.293 s and only 0.2 s of it has gone by.
+        for (int frame = 0; frame < 4; frame++)
+            panel.OnTick(0.05d);
+
+        Assert.Equal(afterArming + 4, automation.MovementIntents.Count);
     }
 
     [Fact]
@@ -4593,8 +7941,7 @@ public sealed class MossTankPanelTests
         first.SelectMetaAction(nameof(MetaActionKind.ChatCommand));
         first.SetMetaActionTextDraft("/mt status");
         first.AddMetaRule();
-        first.SetMetaProfileNameDraft("Hunting");
-        first.CopyMetaProfile();
+        Vt(first, "meta save Hunting");
 
         Assert.Equal("Hunting", first.SelectedMetaProfile);
         Assert.Single(first.MetaRows);
@@ -4687,12 +8034,120 @@ public sealed class MossTankPanelTests
     }
 
     [Fact]
+    public void TheIdleBandRefillsACombatPetOnTheIdleThresholdNotTheNormalOne()
+    {
+        var automation = new FakeAutomation
+        {
+            ItemEntries =
+            [
+                Item(10, "Cold Rift", 0, petClass: 49387) with
+                {
+                    Structure = 3,
+                    MaximumStructure = 50,
+                },
+                Item(11, "Encapsulated Spirit", 0) with
+                {
+                    WeenieClassId = PetDeviceCatalog.EncapsulatedSpiritWeenieClassId,
+                },
+            ],
+        };
+        var host = new FakeHost(automation);
+        automation.CurrentSelection = () => host.Selection.SelectedObjectId ?? 0u;
+        var panel = new MossTankPanel(host);
+        host.Selection.Select(10u);
+        panel.AddSelectedItem();
+        Command(panel, "opt set petrefillcount-normal 0");
+        Command(panel, "opt set petrefillcount-idle 3");
+        panel.ToggleCombat();
+
+        IMacroRule rule = ((IMacroRuleProvider)panel)
+            .Create(MacroRuleSlot.RefillPetChargesIdle);
+
+        // Three charges left is under the idle threshold and over the normal
+        // one: only a rule reading its own setting stops for this.
+        Assert.True(rule.ValidNow(new MacroPassContext(0.3d, true)));
+
+        Command(panel, "opt set petrefillcount-idle 0");
+
+        Assert.False(rule.ValidNow(new MacroPassContext(2d, true)));
+    }
+
+    [Fact]
+    public void AProfileWhoseEnableMetaIsTrueLoadsWithTheMetaEngineRunning()
+    {
+        var storage = new MemoryStorage();
+        storage.Text[MetaProfileKey] = ProfileTextWithEnableMeta(true);
+
+        var panel = new MossTankPanel(
+            new FakeHost(new FakeAutomation { Name = "Metaphile" }, storage));
+
+        Assert.True(panel.MetaEnabled);
+        Assert.True(panel.EvaluateExpression("uboptget['EnableMeta']").IsTruthy);
+    }
+
+    [Fact]
+    public void TheMetaCheckboxIsStoredInTheProfileAndOutlivesReloadAndReconnect()
+    {
+        var storage = new MemoryStorage();
+        var automation = new FakeAutomation { Name = "Metaphile" };
+        var panel = new MossTankPanel(new FakeHost(automation, storage));
+        Assert.False(panel.MetaEnabled);
+
+        panel.ToggleMeta();
+
+        Assert.True(panel.MetaEnabled);
+        Assert.True(StoredEnableMeta(storage.Text[MetaProfileKey]));
+
+        automation.IsAvailable = false;
+        panel.OnTick(0.1d);
+        automation.IsAvailable = true;
+        panel.OnTick(0.1d);
+
+        Assert.True(panel.MetaEnabled);
+
+        var reloaded = new MossTankPanel(
+            new FakeHost(new FakeAutomation { Name = "Metaphile" }, storage));
+
+        Assert.True(reloaded.MetaEnabled);
+    }
+
+    private static string MetaProfileKey =>
+        VtankProfileDirectory.AutoCharacterFileName("Metaphile", string.Empty, "usd");
+
+    private static string ProfileTextWithEnableMeta(bool value)
+    {
+        VtankDatabase database = VtankDefaultSettingsDatabase.Parse();
+        VtankTable settings = database.Find("Settings")!;
+        int nameColumn = settings.ColumnIndex("Setting");
+        int valueColumn = settings.ColumnIndex("Value");
+        VtankRow row = settings.Rows.First(candidate =>
+            candidate.Cells[nameColumn].AsString().Equals(
+                "EnableMeta", StringComparison.OrdinalIgnoreCase));
+        row.Cells[valueColumn] = VtankCell.Bool(value);
+        return database.Render();
+    }
+
+    private static bool StoredEnableMeta(string profileText)
+    {
+        VtankTable settings = VtankDatabase.Parse(profileText).Find("Settings")!;
+        int nameColumn = settings.ColumnIndex("Setting");
+        int valueColumn = settings.ColumnIndex("Value");
+        return settings.Rows
+            .First(candidate => candidate.Cells[nameColumn].AsString().Equals(
+                "EnableMeta", StringComparison.OrdinalIgnoreCase))
+            .Cells[valueColumn]
+            .AsBool();
+    }
+
+    [Fact]
     public void OfficialVtankOptionDefaultsAndDynamicOverridesAreDurable()
     {
         var storage = new MemoryStorage();
         var first = new MossTankPanel(new FakeHost(new FakeAutomation(), storage));
 
-        Assert.Equal(137, VtankOptionCatalog.Names.Length);
+        // One fewer than the shipped settings file names: the one setting no
+        // rule reads is not an option here.
+        Assert.Equal(136, VtankOptionCatalog.Names.Length);
         Assert.Equal(10d, first.EvaluateExpression(
             "uboptget['ArrowheadFletchDiffExcessThreshold']").AsNumber());
         Assert.Equal(0.0833333333333333d, first.EvaluateExpression(
@@ -5141,9 +8596,37 @@ public sealed class MossTankPanelTests
         string name,
         uint itemType,
         uint validLocations = 0u,
-        int petClass = 0) => new(
-            id, 0, name, itemType, 1, 0, validLocations, 0, 0, 0, 0,
-            1, 0, 0, 0, petClass, 0, 0, false, 0, 0, 0, 0, 0, 0, 0, 0);
+        int petClass = 0) => new PluginInventoryItem(
+            id, 0, name, itemType, 1, 0,
+            validLocations != 0u ? validLocations : DefaultSlotFor(itemType),
+            0, 0, 0, 0,
+            1, 0, 0, 0, petClass, 0, 0, false, 0, 0, 0, 0, 0, 0, 0, 0)
+        {
+            ObjectClass = ClassFor(itemType),
+        };
+
+    // The panel admits an item by its class and the slot it can be wielded
+    // in, the way the host reports them; a fixture carries both so a test's
+    // item is judged as an owned item would be.
+    private static PluginObjectClass ClassFor(uint itemType) => itemType switch
+    {
+        _ when (itemType & 0x00008000u) != 0u => PluginObjectClass.WandStaffOrb,
+        _ when (itemType & 0x00000100u) != 0u => PluginObjectClass.MissileWeapon,
+        _ when (itemType & 0x00000001u) != 0u => PluginObjectClass.MeleeWeapon,
+        _ when (itemType & 0x00000020u) != 0u => PluginObjectClass.Food,
+        _ when (itemType & 0x00000800u) != 0u => PluginObjectClass.Gem,
+        _ when (itemType & 0x00001000u) != 0u => PluginObjectClass.SpellComponent,
+        _ when (itemType & 0x00000080u) != 0u => PluginObjectClass.Misc,
+        _ => PluginObjectClass.Unknown,
+    };
+
+    private static uint DefaultSlotFor(uint itemType) => itemType switch
+    {
+        _ when (itemType & 0x00008000u) != 0u => ItemEnchantDefaults.Wand,
+        _ when (itemType & 0x00000100u) != 0u => ItemEnchantDefaults.MissileWeapon,
+        _ when (itemType & 0x00000001u) != 0u => ItemEnchantDefaults.MeleeWeapon,
+        _ => 0u,
+    };
 
     private static PluginEquipmentItem EquipmentItem(
         uint id,
@@ -5160,7 +8643,10 @@ public sealed class MossTankPanelTests
             DamageType: 0,
             WeaponSkill: 44,
             Damage: 20,
-            DamageVariance: 0.25);
+            DamageVariance: 0.25)
+        {
+            ObjectClass = ClassFor(itemType),
+        };
 
     private static PluginSpellInfo Spell(uint id, uint family, string description) => new(
         id,
@@ -5236,8 +8722,16 @@ public sealed class MossTankPanelTests
         Assert.Equal([1u], automation.CastSpellIds);
     }
 
+    /// <summary>
+    /// Only a gesture ends the launch wait. The character's own words in
+    /// local chat look identical, so the log they came from is what tells the
+    /// two apart.
+    /// Mutation: drop the log-type half of the launch arm's test in
+    /// <c>SpellCastTracker.ObserveChat</c> and the middle assertion fails —
+    /// typing in local chat cancels the cast in flight.
+    /// </summary>
     [Fact]
-    public void OwnLocalSpeechOfTheSpellWordsIsStillTheGestureEcho()
+    public void OnlyAGestureEndsTheLaunchWaitNotTypedLocalSpeech()
     {
         var automation = new FakeAutomation
         {
@@ -5266,10 +8760,16 @@ public sealed class MossTankPanelTests
             panel.OnTick(0.3d);
         Assert.Equal([1u], automation.CastSpellIds);
 
-        // A DIFFERENT spell's words, spoken locally by us: gj.cs:359's a(gj.b.a)
-        // — this wait is over, the latch drops, and the pass re-derives the
-        // same pick.
+        // The same words typed into local chat are not a gesture: they carry
+        // the plain log type, and the wait goes on.
         automation.PostChatFrom(0x50000001u, 0, "hocus pocus");
+        for (int tick = 0; tick < 3; tick++)
+            panel.OnTick(0.3d);
+        Assert.Equal([1u], automation.CastSpellIds);
+
+        // A DIFFERENT spell's words, gestured by us: this wait is over, the
+        // latch drops, and the pass re-derives the same pick.
+        automation.PostChatFrom(0x50000001u, 0, "hocus pocus", logTextType: 0x11u);
         for (int tick = 0; tick < 3; tick++)
             panel.OnTick(0.3d);
 
@@ -5297,9 +8797,14 @@ public sealed class MossTankPanelTests
         IAutomationSurface automation,
         IPluginStorage? storage = null,
         IPluginLootClassifierRegistry? lootClassifiers = null,
-        IPluginStorage? vtankProfiles = null) : IPluginHost
+        IPluginStorage? vtankProfiles = null,
+        IPluginWorldLines? worldLines = null) : IPluginHost
     {
         public bool HasUi => false;
+        public IPluginWorldLines WorldLines { get; } =
+            worldLines ?? NoOpPluginWorldLines.Instance;
+        public IReadOnlyDictionary<string, string> SessionSettings { get; set; } =
+            new Dictionary<string, string>(StringComparer.Ordinal);
         public FakeLogger Logger { get; } = new();
         public IPluginLogger Log => Logger;
         public IGameState State { get; } = new FakeState();
@@ -5315,6 +8820,26 @@ public sealed class MossTankPanelTests
             vtankProfiles ?? storage ?? NoOpPluginStorage.Instance;
     }
 
+    private sealed class RecordingWorldLines : IPluginWorldLines
+    {
+        public List<Layer> Layers { get; } = [];
+
+        public IPluginWorldLineLayer? CreateLayer()
+        {
+            var layer = new Layer();
+            Layers.Add(layer);
+            return layer;
+        }
+
+        public sealed class Layer : IPluginWorldLineLayer
+        {
+            public IReadOnlyList<PluginWorldLine> Lines { get; private set; } = [];
+            public bool Disposed { get; private set; }
+            public void SetLines(IReadOnlyList<PluginWorldLine> lines) => Lines = lines;
+            public void Dispose() => Disposed = true;
+        }
+    }
+
     private sealed class FakeLootClassifierRegistry(
         params PluginLootClassifierInfo[] available)
         : IPluginLootClassifierRegistry
@@ -5326,34 +8851,114 @@ public sealed class MossTankPanelTests
     private sealed class FakeAutomation
         : IAutomationSurface, ICharacterInfo, ISpellCatalog, IMagicCommands,
           IPluginChat, IItemAutomation, INavigationAutomation,
-          IWorldObjectAutomation, IRecoveryAutomation, IEnchantmentAutomation
+          IWorldObjectAutomation, IRecoveryAutomation, IEnchantmentAutomation,
+          ICombatAutomation
     {
         /// <summary>
-        /// Per-object tracked enchantments, VTank's <c>dm</c>
-        /// (<c>dm.cs:287-321</c>) — what an item-enchant row's due test reads.
+        /// Per-object tracked enchantments — what an item-enchant row's due
+        /// test reads.
         /// </summary>
         public Dictionary<uint, List<PluginTrackedEnchantment>> ItemEnchantments
         { get; } = [];
 
         public IEnchantmentAutomation Enchantments => this;
 
+        /// <summary>
+        /// The corpses and open container this run reports, when a test needs
+        /// them. Left unset the surface is the inert one every other test
+        /// here has always had.
+        /// </summary>
+        public ILootAutomation? LootSurface { get; set; }
+
+        ILootAutomation IAutomationSurface.Loot =>
+            LootSurface ?? NoOpAutomationSurface.Instance;
+
         public IReadOnlyList<PluginTrackedEnchantment> Capture(uint targetObjectId) =>
             ItemEnchantments.TryGetValue(targetObjectId, out var held)
                 ? held
                 : [];
         private IReadOnlyList<PluginSpellInfo> _knownSelfBuffs = [];
+        public IReadOnlyList<PluginSpellInfo> CatalogSpells { get; set; } = [];
 
         public bool IsAvailable { get; set; } = true;
         public ICharacterInfo Character => this;
         public ISpellCatalog Spells => this;
         public IMagicCommands Magic => this;
         public IPluginChat Chat => this;
+        public ICombatAutomation Combat => this;
+        public PluginCombatSnapshot CombatSnapshot { get; set; } = new()
+        {
+            Mode = PluginCombatMode.Magic,
+        };
+        PluginCombatSnapshot ICombatAutomation.Snapshot => CombatSnapshot;
+        PluginCombatCommandResult ICombatAutomation.EnterMode(
+            PluginCombatMode mode)
+        {
+            CombatSnapshot = CombatSnapshot with { Mode = mode };
+            return new(PluginCombatCommandStatus.ModeChangeSent);
+        }
+        IReadOnlyList<PluginCombatTarget>
+            ICombatAutomation.CaptureHostileTargets(float maximumDistance) => [];
+        PluginCombatCommandResult ICombatAutomation.EnterDefaultMode() =>
+            new(PluginCombatCommandStatus.Unavailable);
+        PluginCombatCommandResult ICombatAutomation.BeginPhysicalAttack(
+            uint targetObjectId, PluginAttackHeight height, float power) =>
+            new(PluginCombatCommandStatus.Unavailable);
+        PluginCombatCommandResult ICombatAutomation.ReleasePhysicalAttack() =>
+            new(PluginCombatCommandStatus.Unavailable);
+        PluginCombatCommandResult ICombatAutomation.AbortPhysicalAttack() =>
+            new(PluginCombatCommandStatus.Stopped);
         public IItemAutomation Items => this;
         public INavigationAutomation Navigation => this;
         public IWorldObjectAutomation Objects => this;
+        // An assessed item answers a property capture. The bag carries what
+        // the item's own projection already knows, its mana above all, so a
+        // reader that keys on the appraised properties sees the same numbers.
+        public Dictionary<uint, PluginItemProperties> Properties { get; } = [];
+
+        public bool TryCaptureProperties(uint objectId, out PluginItemProperties properties)
+        {
+            if (Properties.TryGetValue(objectId, out properties))
+                return true;
+            foreach (PluginInventoryItem item in ItemEntries)
+            {
+                if (item.ObjectId != objectId)
+                    continue;
+                var ints = new Dictionary<uint, int>();
+                if (item.ItemMaximumMana > 0)
+                {
+                    ints[107u] = item.ItemCurrentMana;
+                    ints[108u] = item.ItemMaximumMana;
+                }
+                properties = new PluginItemProperties(
+                    ints,
+                    new Dictionary<uint, long>(),
+                    new Dictionary<uint, bool>(),
+                    new Dictionary<uint, double>(),
+                    new Dictionary<uint, string>(),
+                    new Dictionary<uint, uint>(),
+                    new Dictionary<uint, uint>());
+                return true;
+            }
+            if (((IWorldObjectAutomation)this).TryGet(objectId, out _))
+            {
+                properties = new PluginItemProperties(
+                    new Dictionary<uint, int>(),
+                    new Dictionary<uint, long>(),
+                    new Dictionary<uint, bool>(),
+                    new Dictionary<uint, double>(),
+                    new Dictionary<uint, string>(),
+                    new Dictionary<uint, uint>(),
+                    new Dictionary<uint, uint>());
+                return true;
+            }
+            properties = default;
+            return false;
+        }
         public IRecoveryAutomation Recovery => this;
         public bool IsInWorld => IsAvailable;
         public string Name { get; set; } = "Test Character";
+        public string WorldName { get; set; } = string.Empty;
 
         public int Level { get; set; }
         public uint ObjectId { get; set; } = 1;
@@ -5369,6 +8974,7 @@ public sealed class MossTankPanelTests
         public IReadOnlyList<PluginInventoryItem> ItemEntries { get; set; } = [];
         public List<string> Messages { get; } = [];
         public List<uint> CastSpellIds { get; } = [];
+        public List<uint> CastSelectionIds { get; } = [];
         public List<PluginMovementIntent> MovementIntents { get; } = [];
         public int ClearMovementCount { get; private set; }
         public IReadOnlyList<PluginWorldObject> WorldObjects { get; set; } = [];
@@ -5384,6 +8990,32 @@ public sealed class MossTankPanelTests
         public IReadOnlyList<PluginWorldObject> CaptureObjects() => WorldObjects;
 
         public bool ItemsBusy { get; set; }
+        // Items this client has not assessed yet; an identify request the
+        // fake accepts assesses them. Empty, every item counts as assessed.
+        public HashSet<uint> Unassessed { get; } = [];
+        public List<uint> Identified { get; } = [];
+        public HashSet<uint> IdentifyRefusals { get; } = [];
+
+        /// <summary>
+        /// Items the one description channel is busy on — somebody else's
+        /// question is outstanding, so this one is not taken. The sweep has
+        /// to leave such an item and come back to it rather than stop.
+        /// </summary>
+        public HashSet<uint> IdentifyBusy { get; } = [];
+        public PluginItemCommandStatus IdentifyStatus { get; set; } =
+            PluginItemCommandStatus.Started;
+
+        public PluginItemCommandResult Identify(uint objectId)
+        {
+            Identified.Add(objectId);
+            if (IdentifyBusy.Contains(objectId))
+                return new(PluginItemCommandStatus.Busy);
+            if (IdentifyRefusals.Contains(objectId))
+                return new(PluginItemCommandStatus.Refused);
+            if (IdentifyStatus == PluginItemCommandStatus.Started)
+                Unassessed.Remove(objectId);
+            return new(IdentifyStatus);
+        }
 
         bool IItemAutomation.IsBusy => ItemsBusy;
 
@@ -5401,6 +9033,15 @@ public sealed class MossTankPanelTests
             return new PluginItemCommandResult(PluginItemCommandStatus.Started);
         }
 
+        /// <summary>
+        /// The server's answer to a use, as the host publishes it: the latest
+        /// receipt, read by polling, with a revision that only ever moves
+        /// forward. Left alone it never moves, which is the unanswered case.
+        /// </summary>
+        public PluginItemUseCompletion ItemCompletion { get; set; }
+
+        PluginItemUseCompletion IItemAutomation.LastCompletion => ItemCompletion;
+
         bool IWorldObjectAutomation.TryGet(
             uint objectId,
             out PluginWorldObject value)
@@ -5410,6 +9051,20 @@ public sealed class MossTankPanelTests
                 if (candidate.ObjectId != objectId)
                     continue;
                 value = candidate;
+                return true;
+            }
+            // Owned items are in the object table too, already assessed: the
+            // state a profiled item is in before it may be used.
+            foreach (PluginInventoryItem item in ItemEntries)
+            {
+                if (item.ObjectId != objectId)
+                    continue;
+                value = new PluginWorldObject(
+                    item.ObjectId, item.WeenieClassId, item.Name, PluginObjectClass.Unknown,
+                    item.ItemType, item.ContainerObjectId, item.WielderObjectId)
+                {
+                    LastIdTime = Unassessed.Contains(item.ObjectId) ? 0 : 1,
+                };
                 return true;
             }
             value = default;
@@ -5459,6 +9114,14 @@ public sealed class MossTankPanelTests
                     return true;
                 }
             }
+            foreach (PluginSpellInfo candidate in CatalogSpells)
+            {
+                if (candidate.SpellId == spellId)
+                {
+                    info = candidate;
+                    return true;
+                }
+            }
             info = default;
             return false;
         }
@@ -5486,13 +9149,27 @@ public sealed class MossTankPanelTests
             return result;
         }
 
-        public void PostChat(string text) =>
+        /// <summary>
+        /// A line the client logged. <paramref name="logTextType"/> is the log
+        /// it came from: 0x07 for a spell result, 0 for a plain line.
+        /// </summary>
+        public void PostChat(string text, uint logTextType = 0u) =>
             ChatLines.Add(new PluginChatMessage(
-                ++_chatSequence, 0u, 0, string.Empty, text, string.Empty));
-        public void PostChatFrom(uint senderObjectId, int kind, string text) =>
+                ++_chatSequence, 0u, 0, string.Empty, text, string.Empty)
+            {
+                LogTextType = (int)logTextType,
+            });
+        public void PostChatFrom(
+            uint senderObjectId,
+            int kind,
+            string text,
+            uint logTextType = 0u) =>
             ChatLines.Add(new PluginChatMessage(
                 ++_chatSequence, senderObjectId, kind, string.Empty, text,
-                string.Empty));
+                string.Empty)
+            {
+                LogTextType = (int)logTextType,
+            });
 
 
         private PluginCastCompletion _lastCompletion;
@@ -5534,6 +9211,7 @@ public sealed class MossTankPanelTests
             if (RefusedCastSpellIds.Contains(spellId))
                 return false;
             CastSpellIds.Add(spellId);
+            CastSelectionIds.Add(CurrentSelection?.Invoke() ?? 0u);
             if (!SuppressCastCompletion)
             {
                 _lastCompletion = new PluginCastCompletion(
@@ -5549,7 +9227,9 @@ public sealed class MossTankPanelTests
                 string name = TryGet(spellId, out PluginSpellInfo spell)
                     ? spell.Name
                     : $"Spell {spellId}";
-                PostChat(CastResultText ?? $"You cast {name} on yourself");
+                PostChat(
+                    CastResultText ?? $"You cast {name} on yourself",
+                    logTextType: 0x07u);
             }
 
             if (NextCastWeenieError == 0u
@@ -5580,7 +9260,7 @@ public sealed class MossTankPanelTests
 
         public Func<uint>? CurrentSelection { get; set; }
 
-        /// <summary><c>eq.a(ActiveSpellInfo)</c> (<c>eq.cs:447-475</c>).</summary>
+        /// <summary>Fold a landed enchantment into the tracked table.</summary>
         private void LandEnchantment(uint spellId)
         {
             foreach (PluginSpellInfo spell in KnownSelfBuffs)
@@ -5677,11 +9357,112 @@ public sealed class MossTankPanelTests
     {
         public INavigationAutomation Navigation => this;
         public IWorldObjectAutomation Objects => this;
+        // An assessed item answers a property capture. The bag carries what
+        // the item's own projection already knows, its mana above all, so a
+        // reader that keys on the appraised properties sees the same numbers.
+        public Dictionary<uint, PluginItemProperties> Properties { get; } = [];
+
+        public bool TryCaptureProperties(uint objectId, out PluginItemProperties properties)
+        {
+            if (Properties.TryGetValue(objectId, out properties))
+                return true;
+            foreach (PluginInventoryItem item in ItemEntries)
+            {
+                if (item.ObjectId != objectId)
+                    continue;
+                var ints = new Dictionary<uint, int>();
+                if (item.ItemMaximumMana > 0)
+                {
+                    ints[107u] = item.ItemCurrentMana;
+                    ints[108u] = item.ItemMaximumMana;
+                }
+                properties = new PluginItemProperties(
+                    ints,
+                    new Dictionary<uint, long>(),
+                    new Dictionary<uint, bool>(),
+                    new Dictionary<uint, double>(),
+                    new Dictionary<uint, string>(),
+                    new Dictionary<uint, uint>(),
+                    new Dictionary<uint, uint>());
+                return true;
+            }
+            if (((IWorldObjectAutomation)this).TryGet(objectId, out _))
+            {
+                properties = new PluginItemProperties(
+                    new Dictionary<uint, int>(),
+                    new Dictionary<uint, long>(),
+                    new Dictionary<uint, bool>(),
+                    new Dictionary<uint, double>(),
+                    new Dictionary<uint, string>(),
+                    new Dictionary<uint, uint>(),
+                    new Dictionary<uint, uint>());
+                return true;
+            }
+            properties = default;
+            return false;
+        }
+        // Owned equipment and items are in the object table, already assessed:
+        // the state a profiled item is in before the macro may use it.
+        bool IWorldObjectAutomation.TryGet(uint objectId, out PluginWorldObject value)
+        {
+            foreach (PluginEquipmentItem item in EquipmentItems)
+            {
+                if (item.ObjectId != objectId)
+                    continue;
+                value = new PluginWorldObject(
+                    item.ObjectId, 0u, item.Name, item.ObjectClass,
+                    item.ItemType, item.ContainerObjectId, item.WielderObjectId)
+                {
+                    LastIdTime = 1,
+                    IsOwned = true,
+                };
+                return true;
+            }
+            foreach (PluginInventoryItem item in ItemEntries)
+            {
+                if (item.ObjectId != objectId)
+                    continue;
+                value = new PluginWorldObject(
+                    item.ObjectId, item.WeenieClassId, item.Name, PluginObjectClass.Unknown,
+                    item.ItemType, item.ContainerObjectId, item.WielderObjectId)
+                {
+                    LastIdTime = 1,
+                };
+                return true;
+            }
+            // The monsters the tests stage are in the world too: the controller
+            // drops a target the object table cannot find.
+            foreach (PluginCombatTarget target in Targets)
+            {
+                if (target.ObjectId != objectId)
+                    continue;
+                value = new PluginWorldObject(
+                    target.ObjectId, target.WeenieClassId, target.Name,
+                    PluginObjectClass.Unknown, 0u, 0u, 0u);
+                return true;
+            }
+            value = default;
+            return false;
+        }
         public PluginNavigationSnapshot NavigationSnapshot { get; set; } =
             NavigationAt(0f);
         public PluginNavigationSnapshot Snapshot => NavigationSnapshot;
         public List<PluginWorldObject> WorldObjects { get; } = [];
-        public IReadOnlyList<PluginWorldObject> CaptureObjects() => WorldObjects;
+        public IReadOnlyList<PluginWorldObject> CaptureObjects()
+        {
+            var objects = new List<PluginWorldObject>(WorldObjects);
+            foreach (PluginEquipmentItem item in EquipmentItems)
+            {
+                objects.Add(new PluginWorldObject(
+                    item.ObjectId, 0u, item.Name, item.ObjectClass,
+                    item.ItemType, item.ContainerObjectId, item.WielderObjectId)
+                {
+                    LastIdTime = 1,
+                    IsOwned = true,
+                });
+            }
+            return objects;
+        }
         public bool TryGetObject(uint objectId, out PluginNavigationObject value)
         {
             value = default;
@@ -5732,9 +9513,20 @@ public sealed class MossTankPanelTests
             skill = default;
             return false;
         }
+        /// <summary>Spells the catalog knows that are not self buffs.</summary>
+        public List<PluginSpellInfo> SpellLookup { get; } = [];
+
         public bool TryGet(uint spellId, out PluginSpellInfo info)
         {
             foreach (PluginSpellInfo candidate in KnownSelfBuffs)
+            {
+                if (candidate.SpellId == spellId)
+                {
+                    info = candidate;
+                    return true;
+                }
+            }
+            foreach (PluginSpellInfo candidate in SpellLookup)
             {
                 if (candidate.SpellId == spellId)
                 {
@@ -5769,9 +9561,16 @@ public sealed class MossTankPanelTests
             return result;
         }
 
-        public void PostChat(string text) =>
+        /// <summary>
+        /// A line the client logged. <paramref name="logTextType"/> is the log
+        /// it came from: 0x07 for a spell result, 0 for a plain line.
+        /// </summary>
+        public void PostChat(string text, uint logTextType = 0u) =>
             ChatLines.Add(new PluginChatMessage(
-                ++_chatSequence, 0u, 0, string.Empty, text, string.Empty));
+                ++_chatSequence, 0u, 0, string.Empty, text, string.Empty)
+            {
+                LogTextType = (int)logTextType,
+            });
 
         public List<uint> CastTargets { get; } = [];
 
@@ -5798,7 +9597,7 @@ public sealed class MossTankPanelTests
                 string castName = TryGet(spellId, out PluginSpellInfo cast)
                     ? cast.Name
                     : $"Spell {spellId}";
-                PostChat($"You cast {castName} on yourself");
+                PostChat($"You cast {castName} on yourself", logTextType: 0x07u);
             }
             foreach (PluginSpellInfo spell in KnownSelfBuffs)
             {
@@ -5822,9 +9621,23 @@ public sealed class MossTankPanelTests
         public void PostSystemMessage(string text) => Messages.Add(text);
 
         bool IItemAutomation.IsAvailable => true;
-        bool IItemAutomation.IsBusy => false;
+        public bool ItemsBusy { get; set; }
+        bool IItemAutomation.IsBusy => ItemsBusy;
         public IReadOnlyList<PluginInventoryItem> ItemEntries { get; set; } = [];
         public IReadOnlyList<PluginInventoryItem> CaptureOwnedItems() => ItemEntries;
+        public int ApplyCount { get; private set; }
+        public (uint Item, uint Target) LastAppliedItem { get; private set; }
+        public PluginItemUseCompletion ItemCompletion { get; set; }
+        PluginItemUseCompletion IItemAutomation.LastCompletion => ItemCompletion;
+        PluginItemCommandResult IItemAutomation.Apply(
+            uint objectId,
+            uint targetObjectId)
+        {
+            ApplyCount++;
+            LastAppliedItem = (objectId, targetObjectId);
+            CallLog.Add($"Apply:{objectId:X8}->{targetObjectId:X8}");
+            return new(PluginItemCommandStatus.Started);
+        }
 
         public PluginCombatSnapshot CombatSnapshot { get; set; } = new(
             SelectedObjectId: 0,
@@ -5874,8 +9687,13 @@ public sealed class MossTankPanelTests
             CallLog.Add($"Attack:{targetObjectId:X8}");
             return new(PluginCombatCommandStatus.Started);
         }
-        public PluginCombatCommandResult ReleasePhysicalAttack() =>
-            new(PluginCombatCommandStatus.Released);
+        public int ReleaseCount { get; private set; }
+        public PluginCombatCommandResult ReleasePhysicalAttack()
+        {
+            ReleaseCount++;
+            CallLog.Add("Release");
+            return new(PluginCombatCommandStatus.Released);
+        }
         public PluginCombatCommandResult AbortPhysicalAttack() =>
             new(PluginCombatCommandStatus.Stopped);
 
@@ -5883,6 +9701,11 @@ public sealed class MossTankPanelTests
         bool IEquipmentAutomation.IsAvailable => true;
         bool IEquipmentAutomation.IsBusy => false;
         public IReadOnlyList<PluginEquipmentItem> EquipmentItems { get; set; } = [];
+        public event Action<PluginEquipmentObservation>? PlacementObserved;
+        public IReadOnlyList<PluginEquipmentPlacement>
+            CaptureWorldPlacementsInOrder() =>
+            EquipmentItems.Select(static item => new PluginEquipmentPlacement(
+                item.ObjectId, item.EquippedLocation)).ToArray();
         public IReadOnlyList<PluginEquipmentItem> CaptureOwnedEquipment() =>
             EquipmentItems;
         public PluginEquipmentCommandResult Equip(
@@ -5890,11 +9713,20 @@ public sealed class MossTankPanelTests
             uint requestedLocation = 0u)
         {
             CallLog.Add($"Equip:{objectId:X8}");
+            IReadOnlyList<PluginEquipmentItem> before = EquipmentItems;
             EquipmentItems = EquipmentItems
                 .Select(item => item.ObjectId == objectId
                     ? item with { EquippedLocation = 0x00100000u }
                     : item with { EquippedLocation = 0u })
                 .ToArray();
+            foreach (PluginEquipmentItem old in before)
+            {
+                if (old.ObjectId != objectId && old.EquippedLocation != 0u)
+                    PlacementObserved?.Invoke(new PluginEquipmentObservation(
+                        old.ObjectId, 0u, true));
+            }
+            PlacementObserved?.Invoke(new PluginEquipmentObservation(
+                objectId, 0x00100000u, false));
             return new(PluginEquipmentCommandStatus.Started);
         }
     }
@@ -5904,9 +9736,11 @@ public sealed class MossTankPanelTests
         public List<string> Warnings { get; } = [];
 
         public List<string> Infos { get; } = [];
+        public List<string> Errors { get; } = [];
         public void Info(string message) => Infos.Add(message);
         public void Warn(string message) => Warnings.Add(message);
-        public void Error(string message, Exception? exception = null) { }
+        public void Error(string message, Exception? exception = null) =>
+            Errors.Add(message);
     }
 
     private sealed class MemoryStorage : IPluginStorage

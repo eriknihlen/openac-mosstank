@@ -76,6 +76,28 @@ public sealed class CraftingTests
         Assert.Equal(2u, plan.SecondObjectId);
     }
 
+    /// <summary>
+    /// Mutation <c>ReturnConsumableNamesDirectly</c>: bypass the imported
+    /// category filter; the imported health-kit row incorrectly authorizes a
+    /// pea split and this assertion fails.
+    /// </summary>
+    [Fact]
+    public void ImportedNonPeaAssistRowDoesNotAuthorizePeaSplitting()
+    {
+        var profiles = new CombatSettings();
+        profiles.ConsumableNames.Add("Gold Pea");
+        profiles.ConsumableCategories["Gold Pea"] = ConsumableCategory.HealthKit;
+        profiles.ImportedAssistItems.Add(new AssistItem("Gold Pea", ConsumableCategory.HealthKit));
+        profiles.ConsumableNames.Add("Silver Pea");
+        profiles.ConsumableCategories["Silver Pea"] = ConsumableCategory.HealthKit;
+        var controller = new CraftingController(new Host(new Automation()),
+            new InventorySettings(), profiles);
+
+        ISet<string> peas = controller.PeaConsumableNames();
+
+        Assert.DoesNotContain("Gold Pea", peas);
+        Assert.Contains("Silver Pea", peas);
+    }
     [Fact]
     public void PeaSplitStopsAtTheRequestedComponentCount()
     {
@@ -293,6 +315,42 @@ public sealed class CraftingTests
         Assert.NotEmpty(automation.Moves);
     }
 
+    /// <summary>
+    /// A craft use the server has yet to answer for is what the reference's
+    /// timed item use raises the global busy count for; the controller
+    /// reports it for exactly that long. Mutation: make <c>UseInFlight</c>
+    /// answer false and the last assertion fails.
+    /// </summary>
+    [Fact]
+    public void ACraftUseIsReportedInFlightOnceItHasBeenIssued()
+    {
+        var automation = new Automation
+        {
+            Inventory =
+            [
+                Item(1, "Chorizite Oil") with { StackSize = 2 },
+            ],
+        };
+        var settings = new InventorySettings
+        {
+            AutoCraftItems = true,
+            SplitPeas = false,
+        };
+        var profiles = new CombatSettings();
+        profiles.ConsumableNames.Add("Strong Chorizite Oil");
+        var controller = new CraftingController(
+            new Host(automation),
+            settings,
+            profiles);
+        controller.BindPeaceGate(() => true);
+        Assert.False(controller.UseInFlight);
+
+        Assert.True(controller.Tick(0.5d, canAct: true));
+
+        Assert.NotEmpty(automation.Moves);
+        Assert.True(controller.UseInFlight);
+    }
+
     [Fact]
     public void AmmunitionRequestCraftsEvenWhenGeneralAutoCraftIsDisabled()
     {
@@ -314,6 +372,74 @@ public sealed class CraftingTests
 
         Assert.Equal([(1u, 2u)], automation.Applies);
         Assert.Equal("Crafting Deadly Fire Arrow", controller.Status);
+    }
+
+    /// <summary>
+    /// A craft in flight holds the macro pass, and the pass is the only thing
+    /// that asks this controller anything: reading the server's answer only
+    /// on the pass would leave the hold waiting on what it had stopped. The
+    /// answer is read on the host frame instead. Mutation: make
+    /// <c>ObservePendingReceipt</c> return without observing and the last
+    /// assertion fails.
+    /// </summary>
+    [Fact]
+    public void TheServersAnswerToACraftIsReadOnTheFrameWithoutAPass()
+    {
+        var automation = new Automation
+        {
+            TrainedSkill = 37u,
+            Inventory =
+            [
+                Item(1u, "Wrapped Bundle of Deadly Fire Arrowheads"),
+                Item(2u, "Wrapped Bundle of Arrowshafts"),
+            ],
+        };
+        var controller = new CraftingController(
+            new Host(automation),
+            new InventorySettings { AutoCraftItems = false },
+            new CombatSettings());
+
+        Assert.True(controller.Request("Deadly Fire Arrow"));
+        Assert.True(controller.UseInFlight);
+
+        // No Tick from here: the pass is held, only frames run.
+        automation.UseCompletion = new PluginItemUseCompletion(1L, 1u, 0u, 0u);
+        controller.ObservePendingReceipt(0.05d);
+
+        Assert.False(controller.UseInFlight);
+    }
+
+    /// <summary>
+    /// Mutation pin: resolve the result name again in RequestResolved. If the
+    /// inventory changes after selection, that applies a different pair.
+    /// Mutation executed: <c>RequestResolved replanned by result name before StartInPeace</c>.
+    /// </summary>
+    [Fact]
+    public void AmmunitionCraftAppliesTheResolvedComponentPair()
+    {
+        var automation = new Automation
+        {
+            TrainedSkill = 37u,
+            Inventory =
+            [
+                Item(10u, "Wrapped Bundle of Deadly Fire Arrowheads"),
+                Item(20u, "Wrapped Bundle of Arrowshafts"),
+            ],
+        };
+        var controller = new CraftingController(new Host(automation),
+            new InventorySettings(), new CombatSettings());
+        CraftingPlan chosen = Assert.IsType<CraftingPlan>(
+            controller.ResolveRequestPlan("Deadly Fire Arrow"));
+        Assert.Equal((10u, 20u),
+            (chosen.FirstObjectId, chosen.SecondObjectId));
+
+        automation.Inventory =
+        [
+            Item(30u, "Wrapped Bundle of Deadly Fire Arrowheads"),
+            Item(40u, "Wrapped Bundle of Arrowshafts"),
+        ];
+        Assert.True(controller.RequestResolved(chosen));
+        Assert.Equal([(10u, 20u)], automation.Applies);
     }
 
     [Theory]
@@ -370,6 +496,92 @@ public sealed class CraftingTests
         Assert.True(controller.TickIdle(0d, canAct: true));
         Assert.Equal([(1u, 2u)], automation.Applies);
         Assert.Equal("Crafting Plentiful Healing Kit", controller.Status);
+    }
+
+    /// <summary>
+    /// Idle restocking reads the count belonging to the category it is
+    /// restocking, and no other. Every row here crafts the same thing from the
+    /// same two ingredients; the only difference is which category the profile
+    /// files the result under, and therefore which of the six counts is read.
+    /// Zero for that category is "do not restock it", so the pass declines.
+    ///
+    /// Mutation: read one count for every category, or read a neighbouring
+    /// one, and a row with its own count at zero crafts anyway.
+    /// </summary>
+    [Theory]
+    [InlineData((int)ConsumableCategory.HealthKit)]
+    [InlineData((int)ConsumableCategory.StaminaKit)]
+    [InlineData((int)ConsumableCategory.ManaKit)]
+    [InlineData((int)ConsumableCategory.HealthFood)]
+    [InlineData((int)ConsumableCategory.StaminaFood)]
+    [InlineData((int)ConsumableCategory.ManaFood)]
+    public void IdleRestockingReadsTheCountForItsOwnCategory(int categoryValue)
+    {
+        var category = (ConsumableCategory)categoryValue;
+        Assert.True(TickIdleWithCategoryCount(category, count: 2));
+        Assert.False(TickIdleWithCategoryCount(category, count: 0));
+    }
+
+    /// <summary>
+    /// One idle restock pass with every category's count at zero except the
+    /// named one, which is set to <paramref name="count"/>. True when the pass
+    /// crafts.
+    /// </summary>
+    private static bool TickIdleWithCategoryCount(
+        ConsumableCategory category,
+        int count)
+    {
+        var automation = new Automation
+        {
+            TrainedSkill = 21u,
+            Inventory =
+            [
+                Item(1u, "Soft Bandages"),
+                Item(2u, "Combined Hyssop and Mandrake"),
+                Item(3u, "Plentiful Healing Kit"),
+            ],
+        };
+        var settings = new InventorySettings
+        {
+            AutoCraftItems = true,
+            SplitPeas = false,
+            IdleHealthKitCount = 0,
+            IdleStaminaKitCount = 0,
+            IdleManaKitCount = 0,
+            IdleHealthFoodCount = 0,
+            IdleStaminaFoodCount = 0,
+            IdleManaFoodCount = 0,
+        };
+        switch (category)
+        {
+            case ConsumableCategory.HealthKit:
+                settings.IdleHealthKitCount = count;
+                break;
+            case ConsumableCategory.StaminaKit:
+                settings.IdleStaminaKitCount = count;
+                break;
+            case ConsumableCategory.ManaKit:
+                settings.IdleManaKitCount = count;
+                break;
+            case ConsumableCategory.HealthFood:
+                settings.IdleHealthFoodCount = count;
+                break;
+            case ConsumableCategory.StaminaFood:
+                settings.IdleStaminaFoodCount = count;
+                break;
+            case ConsumableCategory.ManaFood:
+                settings.IdleManaFoodCount = count;
+                break;
+        }
+        var profiles = new CombatSettings();
+        profiles.ConsumableNames.Add("Plentiful Healing Kit");
+        profiles.ConsumableCategories["Plentiful Healing Kit"] = category;
+        var controller = new CraftingController(
+            new Host(automation),
+            settings,
+            profiles);
+
+        return controller.TickIdle(0d, canAct: true);
     }
 
     private static PluginInventoryItem Item(uint id, string name) => new(
@@ -431,6 +643,8 @@ public sealed class CraftingTests
         public PluginInventoryCompletion InventoryCompletion { get; set; }
         public PluginInventoryCompletion LastInventoryCompletion =>
             InventoryCompletion;
+        public PluginItemUseCompletion UseCompletion { get; set; }
+        public PluginItemUseCompletion LastCompletion => UseCompletion;
         public IReadOnlyList<PluginInventoryItem> Inventory { get; set; } = [];
         public List<(uint Source, uint Container, uint Amount)> Moves { get; } = [];
         public List<(uint Source, uint Target)> Applies { get; } = [];

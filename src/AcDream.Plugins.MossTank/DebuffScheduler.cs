@@ -1,4 +1,4 @@
-﻿using AcDream.Plugin.Abstractions;
+using AcDream.Plugin.Abstractions;
 
 namespace AcDream.Plugins.MossTank;
 
@@ -36,8 +36,9 @@ internal static class DebuffSpellCatalog
             required.Add(new DebuffIdentity(flag, damage));
         }
 
-        if ((actions.Flags & MonsterActionFlags.Vulnerability) != 0
-            && actions.ExtraVulnerability != MonsterDamageType.Auto)
+        // The extra vulnerability is not gated on the vulnerability column;
+        // it stands on its own. One rule decides whether the step exists.
+        if (CombatDebuffChain.HasExtraVulnerability(actions.ExtraVulnerability))
         {
             required.Add(new DebuffIdentity(
                 MonsterActionFlags.Vulnerability,
@@ -65,9 +66,14 @@ internal static class DebuffSpellCatalog
             flag = MonsterActionFlags.Imperil;
         else if (name.StartsWith("Magic Yield Other", StringComparison.OrdinalIgnoreCase))
             flag = MonsterActionFlags.Yield;
+        // A creature vulnerability is the "<element> Vulnerability Other"
+        // family and nothing else. A Lure of the same element is an ITEM
+        // enchantment - it sharpens a weapon or a shield, it is not a
+        // creature enchantment - so the server refuses every one aimed at a
+        // monster ("You fail to affect ... "). It is not a weaker
+        // vulnerability, it is a different spell for a different target.
         else if (name.Contains(" Vulnerability Other", StringComparison.OrdinalIgnoreCase)
-            || name.StartsWith("Vulnerability Other", StringComparison.OrdinalIgnoreCase)
-            || IsClassicLure(name))
+            || name.StartsWith("Vulnerability Other", StringComparison.OrdinalIgnoreCase))
         {
             flag = MonsterActionFlags.Vulnerability;
             damage = DamageFromName(name);
@@ -102,15 +108,6 @@ internal static class DebuffSpellCatalog
             : name;
     }
 
-    private static bool IsClassicLure(string name) =>
-        name.StartsWith("Acid Lure", StringComparison.OrdinalIgnoreCase)
-        || name.StartsWith("Blade Lure", StringComparison.OrdinalIgnoreCase)
-        || name.StartsWith("Bludgeon Lure", StringComparison.OrdinalIgnoreCase)
-        || name.StartsWith("Flame Lure", StringComparison.OrdinalIgnoreCase)
-        || name.StartsWith("Frost Lure", StringComparison.OrdinalIgnoreCase)
-        || name.StartsWith("Lightning Lure", StringComparison.OrdinalIgnoreCase)
-        || name.StartsWith("Piercing Lure", StringComparison.OrdinalIgnoreCase);
-
     internal static MonsterDamageType DamageFromName(string name)
     {
         if (name.Contains("Blade", StringComparison.OrdinalIgnoreCase))
@@ -136,6 +133,27 @@ internal static class DebuffSpellCatalog
 }
 
 /// <summary>
+/// What the server says when it will not take a request yet, and how long to
+/// leave it alone afterwards.
+/// </summary>
+internal static class CastRefusal
+{
+    /// <summary>
+    /// "The character is already doing something." It says the request never
+    /// happened, not that the spell failed, so the thing to do is wait and ask
+    /// again - but not on the very next frame.
+    /// </summary>
+    internal const uint CharacterWasBusy = 0x1Du;
+
+    /// <summary>
+    /// How long a refusal of that kind is left alone. A quarter of a second:
+    /// the same wait a refused dispel already takes, and the same order as the
+    /// reference macro's own retry interval.
+    /// </summary>
+    internal const double RetryWaitSeconds = 0.25d;
+}
+
+/// <summary>
 /// Session-local VTank spell tracker. A debuff becomes active only after the
 /// host publishes its matching server UseDone receipt.
 /// </summary>
@@ -144,8 +162,16 @@ internal sealed class DebuffTracker
     private readonly Dictionary<(uint Target, DebuffIdentity Identity), Applied> _applied = [];
     private Pending? _pending;
     private long _observedCompletionRevision;
+    private double _retryNotBefore = double.MinValue;
 
     public bool HasPending => _pending is not null;
+
+    /// <summary>
+    /// True while the last refusal's wait is still running. The request was
+    /// never taken, so the cast is still owed - but asking again immediately
+    /// is how one refusal becomes fifty a second.
+    /// </summary>
+    public bool RetryHeld(double now) => now < _retryNotBefore;
     public string PendingName => _pending?.Spell.Name ?? string.Empty;
     public uint PendingTarget => _pending?.TargetObjectId ?? 0u;
 
@@ -208,6 +234,8 @@ internal sealed class DebuffTracker
         _pending = null;
         if (!completion.IsSuccess)
         {
+            if (completion.WeenieError == CastRefusal.CharacterWasBusy)
+                _retryNotBefore = now + CastRefusal.RetryWaitSeconds;
             return new DebuffCompletion(
                 Completed: true,
                 Succeeded: false,
@@ -286,6 +314,7 @@ internal sealed class DebuffTracker
         _applied.Clear();
         _pending = null;
         _observedCompletionRevision = 0;
+        _retryNotBefore = double.MinValue;
     }
 
     private readonly record struct Pending(

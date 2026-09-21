@@ -18,6 +18,14 @@ public class MacroSchedulerTests
 
         public bool Valid { get; set; }
 
+        public string? Reason { get; set; }
+
+        public string? Detail { get; set; }
+
+        public string? DeclineReason => Reason;
+
+        public string? RunningDetail => Detail;
+
         /// <summary>Validity the rule reports only while it may act.</summary>
         public bool RequiresCanAct { get; set; } = true;
 
@@ -45,6 +53,57 @@ public class MacroSchedulerTests
                 _running = value;
             }
         }
+    }
+
+    /// <summary>
+    /// A stopped macro still keeps worn gear charged, and does only that:
+    /// the stopped-macro list runs on the same heartbeat as the main one,
+    /// and the main list is not asked anything at all. Running the main list
+    /// with everything gated instead is what let the stopped macro buff,
+    /// because not every rule in it carries that gate.
+    ///
+    /// Mutation: run the main list while stopped, or leave the stopped list
+    /// unrun, and one of these two counts moves.
+    /// </summary>
+    [Fact]
+    public void AStoppedMacroRunsOnlyItsOwnShortList()
+    {
+        var main = new Probe("Attack", valid: true);
+        var whenOff = new Probe("RefillWieldedMana", valid: true);
+        var scheduler = new MacroScheduler([main], null, [whenOff]);
+
+        // Never started: the stopped list is what the heartbeat drives.
+        Assert.True(scheduler.Advance(MacroScheduler.HeartbeatSeconds));
+        Assert.Equal(0, main.ValidNowCalls);
+        Assert.Equal(1, whenOff.ValidNowCalls);
+        Assert.True(whenOff.Running);
+
+        scheduler.Start();
+        Assert.False(whenOff.Running);
+        Assert.True(scheduler.Advance(MacroScheduler.HeartbeatSeconds));
+        Assert.Equal(1, main.ValidNowCalls);
+        Assert.Equal(1, whenOff.ValidNowCalls);
+
+        scheduler.Stop();
+        Assert.True(scheduler.Advance(MacroScheduler.HeartbeatSeconds));
+        Assert.Equal(1, main.ValidNowCalls);
+        Assert.Equal(2, whenOff.ValidNowCalls);
+    }
+
+    /// <summary>
+    /// A stopped-macro rule whose own gate is shut wins nothing, and the
+    /// pass is otherwise empty -- there is no second rule to fall through to.
+    /// </summary>
+    [Fact]
+    public void AShutGateLeavesTheStoppedPassEmpty()
+    {
+        var whenOff = new Probe("RefillWieldedMana", valid: false);
+        var scheduler = new MacroScheduler([new Probe("Attack")], null, [whenOff]);
+
+        Assert.True(scheduler.Advance(MacroScheduler.HeartbeatSeconds));
+
+        Assert.Equal(1, whenOff.ValidNowCalls);
+        Assert.False(whenOff.Running);
     }
 
     private sealed class Provider : IMacroRuleProvider
@@ -202,18 +261,52 @@ public class MacroSchedulerTests
         Assert.Equal([true], winner.RunningWrites);
     }
 
+    /// <summary>
+    /// The reference stops its scan at the first valid rule; the rules after
+    /// it are not asked anything that pass. Mutation: ask every rule and hand
+    /// the ones after the winner <c>CanAct: false</c>, and the call count on
+    /// the lower rule fails.
+    /// </summary>
     [Fact]
-    public void RulesBelowTheWinnerAreEvaluatedWithCanActFalse()
+    public void RulesAfterTheWinnerAreNotAskedThisPass()
     {
+        var above = new Probe("above");
         var winner = new Probe("winner", valid: true);
         var below = new Probe("below", valid: true);
-        MacroScheduler scheduler = Started(winner, below);
+        MacroScheduler scheduler = Started(above, winner, below);
 
         scheduler.RunPass(1d);
 
+        Assert.Equal([true], above.CanActSeen);
         Assert.Equal([true], winner.CanActSeen);
-        Assert.Equal([false], below.CanActSeen);
-        Assert.Equal(1, below.ValidNowCalls);
+        Assert.Equal(0, below.ValidNowCalls);
+        Assert.Empty(below.CanActSeen);
+        Assert.Equal([false], below.RunningWrites);
+    }
+
+    /// <summary>
+    /// A rule reads wall time in the reference. Here a rule that was not
+    /// asked for several passes is handed the whole gap the next time it is
+    /// asked, not the last pass's slice. Mutation: hand every asked rule the
+    /// pass's own elapsed and the assertion on the lower rule fails.
+    /// </summary>
+    [Fact]
+    public void ARuleNotAskedForSeveralPassesSeesTheWholeGapWhenNextAsked()
+    {
+        var upper = new ElapsedRecorder { Valid = true };
+        var lower = new ElapsedRecorder();
+        MacroScheduler scheduler = Started(upper, lower);
+
+        scheduler.RunPass(0.3d);
+        scheduler.RunPass(0.3d);
+        scheduler.RunPass(0.3d);
+        upper.Valid = false;
+        scheduler.RunPass(0.3d);
+
+        Assert.Equal(4, upper.Seen.Count);
+        Assert.All(upper.Seen, seen => Assert.Equal(0.3d, seen, 6));
+        double gap = Assert.Single(lower.Seen);
+        Assert.Equal(1.2d, gap, 6);
     }
 
     [Fact]
@@ -312,9 +405,50 @@ public class MacroSchedulerTests
 
         public List<double> Seen { get; } = [];
 
+        public bool Valid { get; set; }
+
         public bool ValidNow(in MacroPassContext context)
         {
             Seen.Add(context.ElapsedSeconds);
+            return Valid;
+        }
+
+        public bool Running { get; set; }
+    }
+
+    /// <summary>
+    /// The reference clears its per-pass latches at the top of every pass,
+    /// before the meta and before any rule is asked. Mutation: drop the
+    /// <c>PassStarting</c> call from <c>RunPass</c> and both counts stay 0.
+    /// </summary>
+    [Fact]
+    public void PassStartingFiresBeforeTheRulesOnEveryPass()
+    {
+        int started = 0;
+        int startedWhenAsked = -1;
+        var scheduler = new MacroScheduler(
+            [new PassStartProbe(() => startedWhenAsked = started)])
+        {
+            PassStarting = () => started++,
+        };
+        scheduler.Start();
+
+        scheduler.RunPass(0.3d);
+        Assert.Equal(1, started);
+        Assert.Equal(1, startedWhenAsked);
+
+        scheduler.RunPass(0.3d);
+        Assert.Equal(2, started);
+        Assert.Equal(2, startedWhenAsked);
+    }
+
+    private sealed class PassStartProbe(Action asked) : IMacroRule
+    {
+        public string Name => "probe";
+
+        public bool ValidNow(in MacroPassContext context)
+        {
+            asked();
             return false;
         }
 
@@ -512,6 +646,90 @@ public class MacroSchedulerTests
         Assert.False(fallback.Running);
     }
 
+
+    /// <summary>
+    /// A rule that declines every pass forever is the hardest thing to read
+    /// out of this log: the winner line says nothing about it and the
+    /// inactive line says nothing about anyone. A rule that knows its own
+    /// reason states it, once, and again only when the reason changes — a
+    /// line every 0.293 s would bury the channel it shares with the pass
+    /// header.
+    /// </summary>
+    [Fact]
+    public void RuleInfoStatesADeclinedRulesReasonOnceAndAgainWhenItChanges()
+    {
+        var quiet = new Probe("quiet");
+        var talkative = new Probe("BuffSelf") { Reason = "EnableBuffing is off" };
+        var scheduler = new MacroScheduler([quiet, talkative]);
+        List<(MacroLogChannel Channel, string Message)> log = Recorder(scheduler);
+        scheduler.Start();
+
+        scheduler.RunPass(1d);
+        scheduler.RunPass(1d);
+        talkative.Reason = "nothing is due";
+        scheduler.RunPass(1d);
+
+        Assert.Equal(
+            [
+                (MacroLogChannel.RuleInfo, "(BuffSelf) declined: EnableBuffing is off"),
+                (MacroLogChannel.RuleInfo, "(BuffSelf) declined: nothing is due"),
+            ],
+            log.Where(entry => entry.Channel == MacroLogChannel.RuleInfo).ToArray());
+    }
+
+    /// <summary>
+    /// Winning clears the rule's last reason, so the decline after a run is
+    /// reported again rather than swallowed as a repeat.
+    /// </summary>
+    [Fact]
+    public void ARuleThatWinsAndThenDeclinesAgainStatesItsReasonAgain()
+    {
+        var rule = new Probe("BuffSelf") { Reason = "nothing is due" };
+        var scheduler = new MacroScheduler([rule]);
+        List<(MacroLogChannel Channel, string Message)> log = Recorder(scheduler);
+        scheduler.Start();
+
+        scheduler.RunPass(1d);
+        rule.Valid = true;
+        rule.Reason = null;
+        scheduler.RunPass(1d);
+        rule.Valid = false;
+        rule.Reason = "nothing is due";
+        scheduler.RunPass(1d);
+
+        Assert.Equal(
+            [
+                (MacroLogChannel.RuleInfo, "(BuffSelf) declined: nothing is due"),
+                (MacroLogChannel.RuleInfo, "(BuffSelf) Running"),
+                (MacroLogChannel.RuleInfo, "(BuffSelf) declined: nothing is due"),
+            ],
+            log.Where(entry => entry.Channel == MacroLogChannel.RuleInfo).ToArray());
+    }
+
+    /// <summary>
+    /// The oracle writes the "Running" payload per rule, not centrally: its
+    /// navigation rule names the range and place it is steering at. A rule
+    /// with nothing to add still prints the bare line.
+    /// </summary>
+    [Fact]
+    public void RuleInfoCarriesTheWinnersOwnRunningDetailWhenItHasOne()
+    {
+        var rule = new Probe("NavigateRouteIdle", valid: true)
+        {
+            Detail = "[targ range 5.657, targ loc 33.79, 42.106, 0.401 ]",
+        };
+        var scheduler = new MacroScheduler([rule]);
+        List<(MacroLogChannel Channel, string Message)> log = Recorder(scheduler);
+        scheduler.Start();
+
+        scheduler.RunPass(1d);
+
+        Assert.Contains(
+            (MacroLogChannel.RuleInfo,
+                "(NavigateRouteIdle) Running "
+                    + "[targ range 5.657, targ loc 33.79, 42.106, 0.401 ]"),
+            log);
+    }
 
     private static List<(MacroLogChannel Channel, string Message)> Recorder(
         MacroScheduler scheduler)

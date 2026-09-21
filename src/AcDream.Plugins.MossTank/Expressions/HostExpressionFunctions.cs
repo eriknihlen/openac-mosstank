@@ -21,18 +21,22 @@ internal static class HostExpressionFunctions
         "Evensong", "Evensong-and-Half", "Gloaming", "Gloaming-and-Half",
     ];
 
-    public static void Register(ExpressionFunctionRegistry registry, IPluginHost host)
+    public static void Register(
+        ExpressionFunctionRegistry registry,
+        IPluginHost host,
+        ExpressionHostPolicy? policy = null)
     {
         ArgumentNullException.ThrowIfNull(registry);
         ArgumentNullException.ThrowIfNull(host);
+        policy ??= new ExpressionHostPolicy();
         RegisterCharacter(registry, host);
-        RegisterSpells(registry, host);
-        RegisterObjects(registry, host);
+        RegisterSpells(registry, host, policy);
+        RegisterObjects(registry, host, policy);
         RegisterLoot(registry, host);
         RegisterFellowship(registry, host);
         RegisterWorldTime(registry, host);
         RegisterUi(registry, host);
-        RegisterActions(registry, host);
+        RegisterActions(registry, host, policy);
         RegisterCombatAndMovement(registry, host);
         RegisterLogin(registry, host);
         RegisterNetwork(registry, host);
@@ -50,21 +54,30 @@ internal static class HostExpressionFunctions
                 ? ExpressionValue.UiControl(new ExpressionUiControl(view, control))
                 : ExpressionValue.Zero;
         }, "uigetcontrol[windowName,controlName]");
+        // A control that cannot take a label is an error, not a false.
         registry.Register("uisetlabel", 2, 2, (_, args) =>
         {
             ExpressionUiControl control = args[0].AsUiControl("uisetlabel");
-            return ExpressionValue.Boolean(host.Ui.SetControlLabel(
-                control.View,
-                control.Control,
-                args[1].AsString("uisetlabel")));
+            if (!host.Ui.SetControlLabel(
+                    control.View,
+                    control.Control,
+                    args[1].AsString("uisetlabel")))
+            {
+                throw new ExpressionEvaluationException(
+                    "uisetlabel: Improper control type specified");
+            }
+            return ExpressionValue.One;
         }, "uisetlabel[control,label]");
+        // Any non-zero number means visible, and the second argument is
+        // handed back unchanged.
         registry.Register("uisetvisible", 2, 2, (_, args) =>
         {
             ExpressionUiControl control = args[0].AsUiControl("uisetvisible");
-            return ExpressionValue.Boolean(host.Ui.SetControlVisible(
+            host.Ui.SetControlVisible(
                 control.View,
                 control.Control,
-                args[1].AsNumber("uisetvisible") >= 1d));
+                args[1].AsNumber("uisetvisible") != 0d);
+            return args[1];
         }, "uisetvisible[control,visible]");
         registry.Register("uiviewexists", 1, 1, (_, args) =>
             ExpressionValue.Boolean(host.Ui.ViewExists(
@@ -189,8 +202,12 @@ internal static class HostExpressionFunctions
         registry.Register("getcharskill_traininglevel", 1, 1, (_, args) =>
             ExpressionValue.Number(Skill(character, args[0], SkillRead.Training)),
             "getcharskill_traininglevel[skillId]");
+        // Three separate reads of the same vital: the unbuffed maximum, the
+        // live value, and the buffed maximum. A profile compares the first
+        // against the third to decide whether a vital buff is still needed,
+        // so they must not collapse onto one field. Each is floored at 1.
         registry.Register("getcharvital_base", 1, 1, (_, args) =>
-            ExpressionValue.Number(Vital(character, args[0], VitalRead.Maximum)),
+            ExpressionValue.Number(Vital(character, args[0], VitalRead.Base)),
             "getcharvital_base[vitalId]");
         registry.Register("getcharvital_buffedmax", 1, 1, (_, args) =>
             ExpressionValue.Number(Vital(character, args[0], VitalRead.Maximum)),
@@ -317,7 +334,8 @@ internal static class HostExpressionFunctions
 
     private static void RegisterSpells(
         ExpressionFunctionRegistry registry,
-        IPluginHost host)
+        IPluginHost host,
+        ExpressionHostPolicy policy)
     {
         ISpellCatalog spells = host.Automation.Spells;
         ICharacterInfo character = host.Automation.Character;
@@ -391,19 +409,28 @@ internal static class HostExpressionFunctions
             ExpressionValue.Number(spells.GetCooldownRemaining(
                 ToUInt(args[0], "getcooldownexpiration"))),
             "getcooldownexpiration[cooldownId]");
+        // Two questions, two answers: the buffing and hunting margins over a
+        // spell's difficulty are separate profile settings.
         registry.Register("getcancastspell_buff", 1, 1, (_, args) =>
-            ExpressionValue.Boolean(host.Automation.Magic.EvaluateGate(
-                ToUInt(args[0], "getcancastspell_buff")) == PluginCastGate.Ready),
+            ExpressionValue.Boolean(CanCastNow(
+                host,
+                policy,
+                ToUInt(args[0], "getcancastspell_buff"),
+                hunting: false)),
             "getcancastspell_buff[spellId]");
         registry.Register("getcancastspell_hunt", 1, 1, (_, args) =>
-            ExpressionValue.Boolean(host.Automation.Magic.EvaluateGate(
-                ToUInt(args[0], "getcancastspell_hunt")) == PluginCastGate.Ready),
+            ExpressionValue.Boolean(CanCastNow(
+                host,
+                policy,
+                ToUInt(args[0], "getcancastspell_hunt"),
+                hunting: true)),
             "getcancastspell_hunt[spellId]");
     }
 
     private static void RegisterObjects(
         ExpressionFunctionRegistry registry,
-        IPluginHost host)
+        IPluginHost host,
+        ExpressionHostPolicy policy)
     {
         IWorldObjectAutomation objects = host.Automation.Objects;
         registry.Register("wobjectfindbyid", 1, 1, (context, args) =>
@@ -427,9 +454,11 @@ internal static class HostExpressionFunctions
         registry.Register("wobjectgetid", 1, 1, (_, args) =>
             ExpressionValue.Number(args[0].AsObjectId("wobjectgetid")),
             "wobjectgetid[object]");
+        // The name a profile reads off an object is its DISPLAY name: the
+        // material in front of the bare name.
         registry.Register("wobjectgetname", 1, 1, (_, args) =>
             TryObject(objects, args[0], "wobjectgetname", out PluginWorldObject obj)
-                ? ExpressionValue.String(obj.Name)
+                ? ExpressionValue.String(DisplayName(objects, obj))
                 : ExpressionValue.Zero, "wobjectgetname[object]");
         registry.Register("wobjectgetobjectclass", 1, 1, (_, args) =>
             TryObject(objects, args[0], "wobjectgetobjectclass", out PluginWorldObject obj)
@@ -443,7 +472,6 @@ internal static class HostExpressionFunctions
             TryObject(objects, args[0], "wobjectgetinternaltype", out PluginWorldObject obj)
                 ? ExpressionValue.Number(obj.ItemType)
                 : ExpressionValue.Zero, "wobjectgetinternaltype[object]");
-        registry.Alias("getobjectinternaltype", "wobjectgetinternaltype");
         registry.Register("wobjecthasdata", 1, 1, (_, args) =>
             ExpressionValue.Boolean(
                 TryObject(objects, args[0], "wobjecthasdata", out PluginWorldObject obj)
@@ -504,14 +532,15 @@ internal static class HostExpressionFunctions
                 : ExpressionValue.List(new ExpressionList()),
             "wobjectgetactivespellids[object]");
 
-        RegisterObjectFinders(registry, host);
+        RegisterObjectFinders(registry, host, policy);
         RegisterInventoryCounts(registry, host);
         RegisterObjectVitals(registry, host);
     }
 
     private static void RegisterObjectFinders(
         ExpressionFunctionRegistry registry,
-        IPluginHost host)
+        IPluginHost host,
+        ExpressionHostPolicy policy)
     {
         registry.Register("wobjectfindall", 0, 0, (_, _) =>
             ObjectList(host.Automation.Objects.CaptureObjects()), "wobjectfindall[]");
@@ -542,15 +571,22 @@ internal static class HostExpressionFunctions
             return ObjectList(host.Automation.Objects.CaptureObjects().Where(
                 obj => obj.ContainerObjectId == container));
         }, "wobjectfindallbycontainer[container]");
+        // Exact match, case included: a profile naming "Health Elixir" must
+        // not pick up "health elixir".
         registry.Register("wobjectfindininventorybyname", 1, 1, (_, args) =>
             FirstObject(host, ObjectSet.Inventory, obj => obj.Name.Equals(
                 args[0].AsString("wobjectfindininventorybyname"),
-                StringComparison.OrdinalIgnoreCase)),
+                StringComparison.Ordinal)),
             "wobjectfindininventorybyname[name]");
+        // The regex is matched against the DISPLAY name, so `^Silver ` finds
+        // a silver sword; only the exact finder above reads the bare name.
         registry.Register("wobjectfindininventorybynamerx", 1, 1, (_, args) =>
         {
-            Regex regex = CreateRegex(args[0].AsString("wobjectfindininventorybynamerx"));
-            return FirstObject(host, ObjectSet.Inventory, obj => regex.IsMatch(obj.Name));
+            IWorldObjectAutomation objects = host.Automation.Objects;
+            Regex regex = CreateCaseSensitiveRegex(
+                args[0].AsString("wobjectfindininventorybynamerx"));
+            return FirstObject(host, ObjectSet.Inventory, obj =>
+                regex.IsMatch(DisplayName(objects, obj)));
         }, "wobjectfindininventorybynamerx[pattern]");
         registry.Register("wobjectfindininventorybytemplatetype", 1, 1, (_, args) =>
             FirstObject(host, ObjectSet.Inventory, obj =>
@@ -561,13 +597,23 @@ internal static class HostExpressionFunctions
             (obj, args) => (int)obj.ObjectClass == args[0].AsInt32());
         RegisterNearest(registry, host, "wobjectfindnearestbytemplatetype",
             (obj, args) => obj.WeenieClassId == ToUInt(args[0], "template type"));
-        RegisterNearest(registry, host, "wobjectfindnearestbynameandobjectclass",
-            (obj, args) => obj.Name.Equals(args[0].AsString(), StringComparison.OrdinalIgnoreCase)
-                && (int)obj.ObjectClass == args[1].AsInt32(), argumentCount: 2);
+        // Object class first, then a case-sensitive REGEX over the name.
+        registry.Register("wobjectfindnearestbynameandobjectclass", 2, 2, (_, args) =>
+        {
+            IWorldObjectAutomation objects = host.Automation.Objects;
+            int objectClass = args[0].AsInt32("wobjectfindnearestbynameandobjectclass");
+            Regex regex = CreateCaseSensitiveRegex(
+                args[1].AsString("wobjectfindnearestbynameandobjectclass"));
+            return Nearest(host, obj =>
+                (int)obj.ObjectClass == objectClass
+                && regex.IsMatch(DisplayName(objects, obj)));
+        }, "wobjectfindnearestbynameandobjectclass[objectClass,namePattern]");
         RegisterNearest(registry, host, "wobjectfindnearestdoor",
             (obj, _) => obj.ObjectClass == PluginObjectClass.Door, argumentCount: 0);
+        // Only monsters the combat pass is tracking and has not blacklisted.
         RegisterNearest(registry, host, "wobjectfindnearestmonster",
-            (obj, _) => obj.ObjectClass == PluginObjectClass.Monster, argumentCount: 0);
+            (obj, _) => obj.ObjectClass == PluginObjectClass.Monster
+                && policy.IsEligibleMonster(obj.ObjectId), argumentCount: 0);
     }
 
     private static void RegisterInventoryCounts(
@@ -638,20 +684,38 @@ internal static class HostExpressionFunctions
 
     private static void RegisterActions(
         ExpressionFunctionRegistry registry,
-        IPluginHost host)
+        IPluginHost host,
+        ExpressionHostPolicy policy)
     {
         registry.Register("echo", 1, 1, (_, args) =>
         {
             host.Automation.Chat.PostSystemMessage(args[0].ToDisplayString());
             return args[0];
         }, "echo[text]");
-        registry.Register("chatbox", 1, 1, (_, args) => ExpressionValue.Boolean(
-            host.Automation.Chat.Submit(args[0].ToDisplayString())), "chatbox[text]");
-        registry.Register("chatboxpaste", 1, 1, (_, args) => ExpressionValue.Boolean(
-            host.Automation.Chat.Submit(args[0].ToDisplayString())), "chatboxpaste[text]");
-        registry.Register("actiontryselect", 1, 1, (_, args) => ExpressionValue.Boolean(
-            host.Selection.Select(args[0].AsObjectId("actiontryselect"))),
-            "actiontryselect[object]");
+        // `chatbox` sends and hands the argument straight back. Both chat
+        // verbs take a STRING and nothing else.
+        registry.Register("chatbox", 1, 1, (_, args) =>
+        {
+            string text = args[0].AsString("chatbox");
+            if (text.Length != 0)
+                host.Automation.Chat.Submit(text);
+            return args[0];
+        }, "chatbox[text]");
+        // `chatboxpaste` only STAGES the text in the chat entry, control
+        // characters removed, for the player to finish and send themselves.
+        registry.Register("chatboxpaste", 1, 1, (_, args) =>
+        {
+            string text = StripControlCharacters(args[0].AsString("chatboxpaste"));
+            return ExpressionValue.Boolean(
+                text.Length != 0 && host.Automation.Chat.Compose(text));
+        }, "chatboxpaste[text]");
+        // The selection is attempted and the answer is always false: there is
+        // no success path, and a profile branches on that.
+        registry.Register("actiontryselect", 1, 1, (_, args) =>
+        {
+            host.Selection.Select(args[0].AsObjectId("actiontryselect"));
+            return ExpressionValue.Zero;
+        }, "actiontryselect[object]");
         registry.Register("actiontryuseitem", 1, 1, (_, args) => ExpressionValue.Boolean(
             host.Automation.Items.Use(args[0].AsObjectId("actiontryuseitem")).Accepted),
             "actiontryuseitem[object]");
@@ -688,26 +752,25 @@ internal static class HostExpressionFunctions
                 destination,
                 ToUInt(args[1], "actiontrysplit")).Accepted);
         }, "actiontrysplit[item,newStackSize,destination?]");
+        // 2 impossible, 0 not attempted yet, 1 begun. `actiontrycastbyid`
+        // only casts spells that need no target; the ontarget form only casts
+        // spells that do.
         registry.Register("actiontrycastbyid", 1, 1, (_, args) => CastResult(
-            host.Automation.Magic,
+            host,
+            policy,
             ToUInt(args[0], "actiontrycastbyid"),
             target: null), "actiontrycastbyid[spellId]");
         registry.Register("actiontrycastbyidontarget", 2, 2, (_, args) => CastResult(
-            host.Automation.Magic,
+            host,
+            policy,
             ToUInt(args[0], "actiontrycastbyidontarget"),
             args[1].AsObjectId("actiontrycastbyidontarget")),
             "actiontrycastbyidontarget[spellId,target]");
+        // One step towards being able to cast, and true only once there is
+        // nothing left to do.
         registry.Register("actiontryequipanywand", 0, 0, (_, _) =>
-        {
-            PluginEquipmentItem? wand = host.Automation.Equipment
-                .CaptureOwnedEquipment()
-                .FirstOrDefault(static item =>
-                    (item.ValidLocations & 0x01000000u) != 0u);
-            return wand is { ObjectId: > 0u } item
-                ? ExpressionValue.Boolean(item.IsEquipped
-                    || host.Automation.Equipment.Equip(item.ObjectId).Accepted)
-                : ExpressionValue.Zero;
-        }, "actiontryequipanywand[]");
+            ExpressionValue.Boolean(MagicModeStep(host)),
+            "actiontryequipanywand[]");
     }
 
     private static void RegisterFellowship(
@@ -831,10 +894,8 @@ internal static class HostExpressionFunctions
             return ExpressionValue.Boolean(
                 host.Automation.Combat.EnterMode(mode).Accepted);
         }, "setcombatstate[state]");
-        registry.Register("getbusystate", 0, 0, (_, _) => ExpressionValue.Number(
-            host.Automation.Items.IsBusy
-            || host.Automation.Equipment.IsBusy
-            || host.Automation.Magic.IsCasting ? 1d : 0d), "getbusystate[]");
+        registry.Register("getbusystate", 0, 0, (_, _) =>
+            ExpressionValue.Number(IsBusy(host) ? 1d : 0d), "getbusystate[]");
         registry.Register("getequippedweapontype", 0, 0, (_, _) =>
         {
             foreach (PluginEquipmentItem item in host.Automation.Equipment
@@ -915,6 +976,12 @@ internal static class HostExpressionFunctions
             set).Where(obj => predicate(obj, args[0]))), $"{name}[value]");
     }
 
+    /// <summary>
+    /// The shared body of the three list-every-match pattern finders. They
+    /// have no counterpart among the built-ins this plugin reproduces, but a
+    /// pattern has to mean one thing throughout the plugin, so they match the
+    /// same DISPLAY name the single-match finders do.
+    /// </summary>
     private static void RegisterRegexFinder(
         ExpressionFunctionRegistry registry,
         IPluginHost host,
@@ -923,10 +990,10 @@ internal static class HostExpressionFunctions
     {
         registry.Register(name, 1, 1, (_, args) =>
         {
+            IWorldObjectAutomation objects = host.Automation.Objects;
             Regex regex = CreateRegex(args[0].AsString(name));
-            return ObjectList(FilterSet(
-                host.Automation.Objects.CaptureObjects(),
-                set).Where(obj => regex.IsMatch(obj.Name)));
+            return ObjectList(FilterSet(objects.CaptureObjects(), set)
+                .Where(obj => regex.IsMatch(DisplayName(objects, obj))));
         }, $"{name}[pattern]");
     }
 
@@ -937,21 +1004,52 @@ internal static class HostExpressionFunctions
         Func<PluginWorldObject, IReadOnlyList<ExpressionValue>, bool> predicate,
         int argumentCount = 1)
     {
-        registry.Register(name, argumentCount, argumentCount, (_, args) =>
-        {
-            PluginNavigationSnapshot player = host.Automation.Navigation.Snapshot;
-            if (!player.IsAvailable)
-                return ExpressionValue.Zero;
-            PluginWorldObject? nearest = host.Automation.Objects.CaptureObjects()
-                .Where(obj => obj.IsLandscape && obj.HasPosition && predicate(obj, args))
-                .OrderBy(obj => player.Position.HorizontalDistanceMeters(obj.Position))
-                .ThenBy(static obj => obj.ObjectId)
-                .Cast<PluginWorldObject?>()
-                .FirstOrDefault();
-            return nearest is { } found
-                ? ExpressionValue.WorldObject(found.ObjectId)
-                : ExpressionValue.Zero;
-        }, $"{name}[...]" );
+        registry.Register(
+            name,
+            argumentCount,
+            argumentCount,
+            (_, args) => Nearest(host, obj => predicate(obj, args)),
+            $"{name}[...]");
+    }
+
+    /// <summary>
+    /// The nearest matching object to the player, measured in three
+    /// dimensions and never the player's own object. Every object the client
+    /// knows is a candidate — one in a pack or in the character's hand counts
+    /// just as much as one lying on the ground — and an object whose position
+    /// is not known sorts last but is still the answer when nothing else
+    /// matched. Ties break on the object id, which the pool's own enumeration
+    /// order does not promise.
+    /// </summary>
+    private static ExpressionValue Nearest(
+        IPluginHost host,
+        Func<PluginWorldObject, bool> predicate)
+    {
+        PluginNavigationSnapshot player = host.Automation.Navigation.Snapshot;
+        if (!player.IsAvailable)
+            return ExpressionValue.Zero;
+        uint self = host.Automation.Character.ObjectId;
+        PluginWorldObject? nearest = host.Automation.Objects.CaptureObjects()
+            .Where(obj => obj.ObjectId != self && predicate(obj))
+            .OrderBy(obj => obj.HasPosition
+                ? DistanceMeters(player.Position, obj.Position)
+                : double.MaxValue)
+            .ThenBy(static obj => obj.ObjectId)
+            .Cast<PluginWorldObject?>()
+            .FirstOrDefault();
+        return nearest is { } found
+            ? ExpressionValue.WorldObject(found.ObjectId)
+            : ExpressionValue.Zero;
+    }
+
+    /// <summary>Straight-line distance in metres, elevation included.</summary>
+    private static double DistanceMeters(
+        in PluginNavigationPosition from,
+        in PluginNavigationPosition to)
+    {
+        double flat = from.HorizontalDistanceMeters(to);
+        double elevation = from.Elevation - to.Elevation;
+        return Math.Sqrt((flat * flat) + (elevation * elevation));
     }
 
     private static ExpressionValue FirstObject(
@@ -1062,14 +1160,21 @@ internal static class HostExpressionFunctions
         in ExpressionValue id,
         VitalRead read)
     {
-        (uint current, uint maximum) = id.AsInt32("character vital") switch
+        (uint current, uint maximum, uint baseMaximum) =
+            id.AsInt32("character vital") switch
+            {
+                1 => (character.CurrentHealth, character.MaxHealth, character.BaseHealth),
+                2 => (character.CurrentStamina, character.MaxStamina, character.BaseStamina),
+                3 => (character.CurrentMana, character.MaxMana, character.BaseMana),
+                _ => (0u, 0u, 0u),
+            };
+        double value = read switch
         {
-            1 => (character.CurrentHealth, character.MaxHealth),
-            2 => (character.CurrentStamina, character.MaxStamina),
-            3 => (character.CurrentMana, character.MaxMana),
-            _ => (0u, 0u),
+            VitalRead.Current => current,
+            VitalRead.Base => baseMaximum,
+            _ => maximum,
         };
-        return read == VitalRead.Current ? current : maximum;
+        return value < 1d ? 1d : value;
     }
 
     private static double ObjectVital(
@@ -1130,24 +1235,99 @@ internal static class HostExpressionFunctions
         return Math.Max(0, capacity - used);
     }
 
+    /// <summary>
+    /// Castability as a profile asks it: the spell is in the book, its
+    /// components are to hand, and the buffed school skill clears the spell's
+    /// difficulty plus the profile's margin. A school the host HAS named but
+    /// whose skill it has not reported yet reads as skill 0 and FAILS the
+    /// comparison, which is the same answer a character who has never trained
+    /// that school gets. A spell carrying no school at all names no skill to
+    /// compare against, so it is not castable either.
+    /// </summary>
+    private static bool CanCastNow(
+        IPluginHost host,
+        ExpressionHostPolicy policy,
+        uint spellId,
+        bool hunting)
+    {
+        ISpellCatalog spells = host.Automation.Spells;
+        if (!spells.TryGet(spellId, out PluginSpellInfo spell))
+            return false;
+        if (!spells.IsKnown(spellId))
+            return false;
+        if (!host.Automation.Magic.HasComponents(spellId))
+            return false;
+        if (spell.School == 0u)
+            return false;
+        long skill = host.Automation.Character.TryGetSkill(
+            spell.School,
+            out PluginSkillInfo info)
+                ? info.Current
+                : 0L;
+        return skill >= spell.Difficulty + policy.Margin(hunting);
+    }
+
+    /// <summary>The host has an action of its own in flight.</summary>
+    private static bool IsBusy(IPluginHost host) =>
+        host.Automation.Items.IsBusy
+        || host.Automation.Equipment.IsBusy
+        || host.Automation.Magic.IsCasting;
+
+    /// <summary>
+    /// One step towards being able to cast: wield a wand, then take the magic
+    /// stance. True only when both are already done. A busy character takes no
+    /// step at all — an expression-driven rule ticks every pass, and without
+    /// this the equip and stance requests would be re-issued mid-action.
+    /// </summary>
+    private static bool MagicModeStep(IPluginHost host)
+    {
+        if (IsBusy(host))
+            return false;
+        IEquipmentAutomation equipment = host.Automation.Equipment;
+        PluginEquipmentItem? wand = equipment
+            .CaptureOwnedEquipment()
+            .Cast<PluginEquipmentItem?>()
+            .FirstOrDefault(static item =>
+                (item!.Value.ValidLocations & 0x01000000u) != 0u
+                || (item.Value.EquippedLocation & 0x01000000u) != 0u);
+        if (wand is not { } item)
+            return false;
+        if (!item.IsEquipped)
+        {
+            equipment.Equip(item.ObjectId);
+            return false;
+        }
+        if (host.Automation.Combat.Snapshot.Mode != PluginCombatMode.Magic)
+        {
+            host.Automation.Combat.EnterMode(PluginCombatMode.Magic);
+            return false;
+        }
+        return true;
+    }
+
     private static ExpressionValue CastResult(
-        IMagicCommands magic,
+        IPluginHost host,
+        ExpressionHostPolicy policy,
         uint spellId,
         uint? target)
     {
-        PluginCastGate gate = target is uint objectId
-            ? magic.EvaluateGate(spellId, objectId)
-            : magic.EvaluateGate(spellId);
-        if (gate == PluginCastGate.Ready)
-        {
-            bool started = target is uint id
-                ? magic.Cast(spellId, id)
-                : magic.Cast(spellId);
-            return ExpressionValue.Number(started ? 1d : 0d);
-        }
-        return ExpressionValue.Number(gate is PluginCastGate.NotKnown
-            or PluginCastGate.Unavailable
-            or PluginCastGate.Refused ? 2d : 0d);
+        const double Impossible = 2d;
+        const double NotAttempted = 0d;
+        const double Begun = 1d;
+
+        if (!host.Automation.Spells.TryGet(spellId, out PluginSpellInfo spell))
+            return ExpressionValue.Number(Impossible);
+        if (!CanCastNow(host, policy, spellId, hunting: true))
+            return ExpressionValue.Number(Impossible);
+        if (spell.IsUntargeted != (target is null))
+            return ExpressionValue.Number(Impossible);
+        if (!MagicModeStep(host))
+            return ExpressionValue.Number(NotAttempted);
+
+        bool started = target is uint objectId
+            ? host.Automation.Magic.Cast(spellId, objectId)
+            : host.Automation.Magic.Cast(spellId);
+        return ExpressionValue.Number(started ? Begun : NotAttempted);
     }
 
     private static ExpressionValue SpellProperty(
@@ -1225,6 +1405,50 @@ internal static class HostExpressionFunctions
         RegexOptions.IgnoreCase | RegexOptions.CultureInvariant,
         RegexTimeout);
 
+    /// <summary>
+    /// The name a profile means when it writes a name pattern: the object's
+    /// material in front of its bare name, as in "Silver Long Sword". An
+    /// object with no material, or one whose material has no name of its own,
+    /// keeps the bare name.
+    /// </summary>
+    /// <remarks>
+    /// This runs once per candidate inside the finders' predicates, so it
+    /// reads the one property it needs rather than capturing the object's
+    /// whole property bundle.
+    /// </remarks>
+    private static string DisplayName(
+        IWorldObjectAutomation objects,
+        in PluginWorldObject obj)
+    {
+        const uint MaterialTypeProperty = 131u;
+        if (!objects.TryGetIntProperty(
+                obj.ObjectId,
+                MaterialTypeProperty,
+                out int material)
+            || MaterialNames.Name(material) is not { } prefix)
+        {
+            return obj.Name;
+        }
+        return prefix + " " + obj.Name;
+    }
+
+    /// <summary>
+    /// The regex flavour the two name-matching built-ins use: no IgnoreCase,
+    /// so a pattern means exactly what it says. The timeout is a runaway
+    /// guard, not a matching rule.
+    /// </summary>
+    private static Regex CreateCaseSensitiveRegex(string pattern) => new(
+        pattern,
+        RegexOptions.CultureInvariant,
+        RegexTimeout);
+
+    private static string StripControlCharacters(string text)
+    {
+        if (text.Length == 0 || !text.Any(char.IsControl))
+            return text;
+        return string.Concat(text.Where(static value => !char.IsControl(value)));
+    }
+
     private static uint ToUInt(in ExpressionValue value, string operation) =>
         checked((uint)value.AsNumber(operation));
 
@@ -1263,7 +1487,7 @@ internal static class HostExpressionFunctions
 
     private enum PropertyKind { Int, Int64, Double, Bool, String }
     private enum SkillRead { Base, Buffed, Training }
-    private enum VitalRead { Current, Maximum }
+    private enum VitalRead { Current, Base, Maximum }
     private enum VitalObjectRead { Fraction, Health, Stamina, Mana }
     private enum ObjectSet { All, Inventory, Landscape }
 }
