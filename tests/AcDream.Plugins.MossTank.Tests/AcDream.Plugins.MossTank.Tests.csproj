@@ -19,6 +19,22 @@
   <ItemGroup>
     <ProjectReference Include="..\..\src\AcDream.Plugins.MossTank\AcDream.Plugins.MossTank.csproj" />
   </ItemGroup>
+  <!-- The plugin takes the contract compile-only, because a host supplies it at
+       runtime. A test run has no host, so this project brings its own copy;
+       without it the test assembly loads and finds no contract. It reaches the
+       contract the same two ways the plugin does, so a run against the
+       published package proves the plugin as it will ship. -->
+  <PropertyGroup>
+    <UsePluginApiPackage Condition="'$(UsePluginApiPackage)' == ''">false</UsePluginApiPackage>
+    <PluginApiPackageVersion Condition="'$(PluginApiPackageVersion)' == ''">$(Version)</PluginApiPackageVersion>
+  </PropertyGroup>
+  <ItemGroup Condition="'$(UsePluginApiPackage)' != 'true'">
+    <ProjectReference Include="..\..\src\AcDream.Plugin.Abstractions\AcDream.Plugin.Abstractions.csproj" />
+  </ItemGroup>
+  <ItemGroup Condition="'$(UsePluginApiPackage)' == 'true'">
+    <PackageReference Include="AcDream.Plugin.Abstractions"
+                      VersionOverride="$(PluginApiPackageVersion)" />
+  </ItemGroup>
   <ItemGroup>
     <None Include="..\..\src\AcDream.Plugins.MossTank\mosstank*.xml"
           Link="%(Filename)%(Extension)"
@@ -26,5 +42,13 @@
   </ItemGroup>
   <ItemGroup>
     <None Include="Fixtures\vtank\**\*.*" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+  <ItemGroup>
+    <!-- The automation-session proof's own profile inputs, owned by this
+         project so they travel with the plugin. -->
+    <Content Include="Fixtures\vt-proof\**\*">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+      <Link>Fixtures\vt-proof\%(RecursiveDir)%(Filename)%(Extension)</Link>
+    </Content>
   </ItemGroup>
 </Project>

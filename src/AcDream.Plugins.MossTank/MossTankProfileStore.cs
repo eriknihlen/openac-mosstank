@@ -1,4 +1,4 @@
-﻿using System.Text.Json;
+using System.Text.Json;
 using AcDream.Plugin.Abstractions;
 
 namespace AcDream.Plugins.MossTank;
@@ -25,6 +25,8 @@ internal sealed class MossTankProfileStore
     private string? _pendingLegacyBareName;
     private VtankDatabase? _currentDatabase;
     private string? _currentDatabaseFileName;
+    private string? _activeFileName;
+    private bool _hasActiveProfile;
     private bool _rosterSwept;
 
     public MossTankProfileStore(IPluginHost host)
@@ -38,6 +40,8 @@ internal sealed class MossTankProfileStore
     public string Selected => _selected;
     public bool MineOnly => _preferences.MineOnly;
     public string? RecoveryNotice { get; private set; }
+    public string? LoadFailureNotice { get; private set; }
+    public bool HasActiveProfile => _hasActiveProfile;
 
     private string Server => _host.Automation.Character.WorldName;
     private IPluginStorage VtankStorage => _host.VtankProfiles;
@@ -70,6 +74,8 @@ internal sealed class MossTankProfileStore
         _pendingLegacyBareName = null;
         _currentDatabase = null;
         _currentDatabaseFileName = null;
+        _activeFileName = null;
+        _hasActiveProfile = false;
         VtankProfileDirectory.VtankCharacterBinding? binding = CanBindFiles
             ? VtankProfileDirectory.TryReadCharacterBinding(VtankStorage, _characterName, Server)
             : null;
@@ -80,6 +86,13 @@ internal sealed class MossTankProfileStore
     }
 
     private bool CanBindFiles => _characterName.Length > 0 && Server.Length > 0;
+
+    /// <summary>
+    /// Whether a character has been named. Everything this store writes is
+    /// filed under that name, so until there is one there is nowhere real
+    /// to write.
+    /// </summary>
+    public bool HasCharacterName => _characterName.Length > 0;
 
     public void SetMineOnly(bool value)
     {
@@ -100,7 +113,6 @@ internal sealed class MossTankProfileStore
         {
             _selected = ByCharacter;
             _pendingLegacyBareName = null;
-            WriteBinding();
             return true;
         }
 
@@ -112,7 +124,6 @@ internal sealed class MossTankProfileStore
         {
             _selected = existing;
             _pendingLegacyBareName = null;
-            WriteBinding();
             return true;
         }
 
@@ -122,7 +133,13 @@ internal sealed class MossTankProfileStore
         {
             _selected = subProfile;
             _pendingLegacyBareName = null;
-            WriteBinding();
+            return true;
+        }
+
+        if (TryResolveProfileFileName(normalized) is { } named)
+        {
+            _selected = named;
+            _pendingLegacyBareName = null;
             return true;
         }
 
@@ -133,7 +150,6 @@ internal sealed class MossTankProfileStore
             // it at this exact sub-profile file name.
             _selected = subProfile;
             _pendingLegacyBareName = normalized;
-            WriteBinding();
             return true;
         }
 
@@ -160,9 +176,42 @@ internal sealed class MossTankProfileStore
         if (VtankStorage.IsAvailable && VtankStorage.ReadText(subProfile) is not null)
             return true;
 
+        if (TryResolveProfileFileName(normalized) is not null)
+            return true;
+
         return _host.Storage.IsAvailable
             && _host.Storage.ReadText(LegacyProfileKey(normalized, byCharacter: false)) is not null;
     }
+
+    /// <summary>
+    /// Resolve a profile name against the profile directory itself rather
+    /// than against the picker's list. The "mine only" checkbox decides what
+    /// the profiles tab shows; it never decides what exists, so a profile
+    /// file that was simply placed in the directory — a shared build, a
+    /// fresh install, an automated run's fixture — stays selectable by name
+    /// the way loot and route profiles already are. The reserved "--" family
+    /// remains invisible to every character except the one that owns it.
+    /// </summary>
+    private string? TryResolveProfileFileName(string normalized)
+    {
+        if (!VtankStorage.IsAvailable)
+            return null;
+        string fileName = ToFileName(normalized);
+        if (VtankProfileDirectory.IsHiddenFromOtherCharacters(
+                fileName, _characterName, Server))
+        {
+            return null;
+        }
+        return VtankStorage.ReadText(fileName) is not null ? fileName : null;
+    }
+
+    private static string ToFileName(string bareName) =>
+        bareName.EndsWith(".usd", StringComparison.OrdinalIgnoreCase)
+            ? bareName
+            : bareName + ".usd";
+
+    private static VtankDatabase CloneDatabase(VtankDatabase database) =>
+        VtankDatabase.Parse(database.Render());
 
     public bool Create(
         string? name,
@@ -176,13 +225,28 @@ internal sealed class MossTankProfileStore
         if (!ValidNamedProfile(normalized, out notice))
             return false;
 
+        if (copyCurrent && !_hasActiveProfile
+            && ReadUsdText(CurrentFileName()) is not null)
+        {
+            notice = "Cannot copy settings because no complete active profile is available.";
+            return false;
+        }
+
         string fileName = VtankProfileDirectory.SubProfilePrefix(_characterName, Server)
             + normalized + ".usd";
+        if (copyCurrent && !CanReplaceExisting(fileName, out notice))
+            return false;
         VtankDatabase database;
         SideCarDocument sidecar;
         if (copyCurrent)
         {
-            database = VtankSettingsProfileSerializer.CreateNew(settings);
+            // Copy the complete USD document, not just the settings fields we
+            // understand. Imported tables and custom cells are profile data.
+            database = _currentDatabase is null
+                ? VtankSettingsProfileSerializer.CreateNew(settings)
+                : CloneDatabase(_currentDatabase);
+            if (_currentDatabase is not null)
+                _ = VtankSettingsProfileSerializer.Save(database, settings);
             sidecar = SideCarDocument.Capture(
                 settings, noBuffItemNames, logChannels);
         }
@@ -192,11 +256,14 @@ internal sealed class MossTankProfileStore
             ApplyFromDatabase(database, settings);
             sidecar = SideCarDocument.CreateDefaults();
             sidecar.Apply(settings, noBuffItemNames, logChannels, _host.Log);
+            VtankAssistItems.Apply(settings.Combat);
         }
         WriteUsdText(fileName, database.Render());
         WriteJson(SideCarKey(fileName), sidecar);
         _currentDatabase = database;
         _currentDatabaseFileName = fileName;
+        _activeFileName = fileName;
+        _hasActiveProfile = true;
         _selected = fileName;
         _pendingLegacyBareName = null;
         WriteBinding();
@@ -222,12 +289,14 @@ internal sealed class MossTankProfileStore
         _pendingLegacyBareName = null;
         _currentDatabase = null;
         _currentDatabaseFileName = null;
+        _activeFileName = null;
+        _hasActiveProfile = false;
         WriteBinding();
         notice = $"Deleted profile {fileName}.";
         return true;
     }
 
-    public void LoadCurrent(
+    public MossTankProfileLoad LoadCurrent(
         VtankSettingsProfileSerializer.AllSettings settings,
         ISet<string> noBuffItemNames,
         ISet<string> logChannels)
@@ -244,44 +313,60 @@ internal sealed class MossTankProfileStore
             ApplyFromDatabase(fresh, settings);
             SideCarDocument.CreateDefaults()
                 .Apply(settings, noBuffItemNames, logChannels, _host.Log);
+            VtankAssistItems.Apply(settings.Combat);
             _currentDatabase = fresh;
             _currentDatabaseFileName = fileName;
-            return;
+            Activate(fileName);
+            return MossTankProfileLoad.Missing;
         }
 
         VtankDatabase database;
         try
         {
+            _ = VtankSettingsProfileSerializer.Load(text, CreateValidationSettings());
             database = VtankSettingsProfileSerializer.Load(
                 text,
                 settings,
                 message => _host.Log.Warn("MossTank " + message));
         }
-        catch (FormatException error)
+        catch (Exception error) when (error is FormatException or OverflowException)
         {
             RecoveryNotice = MossTankProfileRecovery.Preserve(
                 _host, "macro", fileName, text, error);
             _host.Log.Warn(RecoveryNotice);
-            VtankDatabase fresh = VtankDefaultSettingsDatabase.Parse();
-            ApplyFromDatabase(fresh, settings);
-            SideCarDocument.CreateDefaults()
-                .Apply(settings, noBuffItemNames, logChannels, _host.Log);
-            _currentDatabase = fresh;
-            _currentDatabaseFileName = fileName;
-            return;
+            LoadFailureNotice = $"Settings profile '{fileName}' could not be read; source was preserved."
+                + (_hasActiveProfile ? $" Active profile remains {_activeFileName}." : string.Empty);
+            _host.Log.Error("MossTank " + LoadFailureNotice);
+            if (_hasActiveProfile && _activeFileName is not null)
+                _selected = _activeFileName;
+            return MossTankProfileLoad.Failed;
         }
         _currentDatabase = database;
         _currentDatabaseFileName = fileName;
         (ReadJson<SideCarDocument>(SideCarKey(fileName)) ?? SideCarDocument.CreateDefaults())
             .Apply(settings, noBuffItemNames, logChannels, _host.Log);
+        VtankAssistItems.Apply(settings.Combat);
+        Activate(fileName);
+        return MossTankProfileLoad.Loaded;
     }
 
-    public void SaveCurrent(
+    public bool SaveCurrent(
         VtankSettingsProfileSerializer.AllSettings settings,
         ISet<string> noBuffItemNames,
         ISet<string> logChannels)
     {
+        // Nobody has said whose profile this is yet. The character profile's
+        // name is built from the character's, so saving now writes a file
+        // under a blank name that the character, once known, never reads --
+        // and whatever was being saved is gone with it. Refusing says so;
+        // writing it quietly loses the work.
+        if (!HasCharacterName)
+            return false;
         string fileName = CurrentFileName();
+        if (!_hasActiveProfile && ReadUsdText(fileName) is not null)
+            return false;
+        if (!CanReplaceExisting(fileName, out _))
+            return false;
         VtankDatabase database = fileName.Equals(_currentDatabaseFileName, StringComparison.Ordinal)
             && _currentDatabase is not null
                 ? _currentDatabase
@@ -293,6 +378,8 @@ internal sealed class MossTankProfileStore
             SideCarDocument.Capture(settings, noBuffItemNames, logChannels));
         _currentDatabase = database;
         _currentDatabaseFileName = fileName;
+        Activate(fileName);
+        return true;
     }
 
     public void ClearCurrent(
@@ -309,6 +396,7 @@ internal sealed class MossTankProfileStore
         WriteJson(SideCarKey(fileName), SideCarDocument.CreateDefaults());
         _currentDatabase = database;
         _currentDatabaseFileName = fileName;
+        Activate(fileName);
     }
 
     public int SetOptionInAll(string name, VtankSettingsProfileSerializer.AllSettings current)
@@ -340,14 +428,16 @@ internal sealed class MossTankProfileStore
         foreach (string fileName in fileNames)
         {
             string? text = ReadUsdText(fileName);
+            if (!CanReplaceExisting(fileName, out _))
+                continue;
             VtankDatabase database;
             try
             {
-                database = string.IsNullOrEmpty(text)
+                database = text is null
                     ? VtankDefaultSettingsDatabase.Parse()
                     : VtankDatabase.Parse(text);
             }
-            catch (FormatException error)
+            catch (Exception error) when (error is FormatException or OverflowException)
             {
                 _host.Log.Warn($"MossTank could not update '{fileName}' for setinall: {error.Message}");
                 continue;
@@ -523,6 +613,47 @@ internal sealed class MossTankProfileStore
         ? VtankProfileDirectory.AutoCharacterFileName(_characterName, Server, "usd")
         : _selected;
 
+    private void Activate(string fileName)
+    {
+        _activeFileName = fileName;
+        _hasActiveProfile = true;
+        LoadFailureNotice = null;
+        WriteBinding();
+    }
+
+    private bool CanReplaceExisting(string fileName, out string notice)
+    {
+        string? text = ReadUsdText(fileName);
+        if (text is null)
+        {
+            notice = string.Empty;
+            return true;
+        }
+        try
+        {
+            _ = VtankSettingsProfileSerializer.Load(text, CreateValidationSettings());
+            notice = string.Empty;
+            return true;
+        }
+        catch (Exception error) when (error is FormatException or OverflowException)
+        {
+            RecoveryNotice = MossTankProfileRecovery.Preserve(
+                _host, "macro", fileName, text, error);
+            _host.Log.Warn(RecoveryNotice);
+            notice = $"Cannot overwrite unreadable settings profile {fileName}; source was preserved.";
+            return false;
+        }
+    }
+
+    private static VtankSettingsProfileSerializer.AllSettings CreateValidationSettings() => new()
+    {
+        Combat = new CombatSettings(),
+        Buffs = new BuffSettings(),
+        Vitals = new VitalSettings(),
+        Inventory = new InventorySettings(),
+        Navigation = new NavigationSettings(),
+    };
+
     private void WriteBinding()
     {
         if (!CanBindFiles || !VtankStorage.IsAvailable)
@@ -538,21 +669,16 @@ internal sealed class MossTankProfileStore
             existing with { SettingsFileName = CurrentFileName() });
     }
 
+    /// <summary>
+    /// Seed the live settings from a database the store did not read off
+    /// disk. This is the same reader the normal load uses, so a seeded
+    /// profile drops every table the previous one filled in rather than a
+    /// hand-kept subset of them.
+    /// </summary>
     private static void ApplyFromDatabase(
         VtankDatabase database,
-        VtankSettingsProfileSerializer.AllSettings target)
-    {
-        VtankTable? settings = database.Find("Settings");
-        int nameColumn = settings?.ColumnIndex("Setting") ?? -1;
-        int valueColumn = settings?.ColumnIndex("Value") ?? -1;
-        if (settings is null || nameColumn < 0 || valueColumn < 0)
-            return;
-        foreach (VtankRow row in settings.Rows)
-        {
-            VtankSettingsProfileSerializer.Apply(
-                row.Cells[nameColumn].AsString(), row.Cells[valueColumn], target);
-        }
-    }
+        VtankSettingsProfileSerializer.AllSettings target) =>
+        VtankSettingsProfileSerializer.ApplySeedDatabase(database, target);
 
     private static bool ValidNamedProfile(string name, out string notice)
     {
@@ -668,6 +794,7 @@ internal sealed class MossTankProfileStore
 
     private sealed class SideCarDocument
     {
+        public bool ShowNavLines { get; set; }
         public int Version { get; set; } = 1;
         public string[] ItemNames { get; set; } = [];
         public string[] ConsumableNames { get; set; } = [];
@@ -700,9 +827,15 @@ internal sealed class MossTankProfileStore
         public string InventoryLootClassifierId { get; set; } = string.Empty;
         public double InventoryLootScanIntervalSeconds { get; set; } = 0.25d;
         public LootRuleDocument[] InventoryLootRules { get; set; } = [];
-        public bool NavigationWalkLegsWithClient { get; set; }
 
-        /// <summary>One <c>eq.c</c> row (<c>eq.cs:25-36</c>) on disk.</summary>
+        /// <summary>The Client pathing choice by name; absent in files written before it existed.</summary>
+        public string? NavigationClientPathing { get; set; }
+
+        /// <summary>The checkbox this choice replaced: true reads as Always.</summary>
+        [System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)]
+        public bool? NavigationWalkLegsWithClient { get; set; }
+
+        /// <summary>One authored item-enchant row on disk.</summary>
         public sealed class ItemEnchantRowDocument
         {
             public string ItemName { get; set; } = string.Empty;
@@ -715,7 +848,10 @@ internal sealed class MossTankProfileStore
             ISet<string> noBuffItemNames,
             ISet<string> logChannels) => new()
         {
-            ItemNames = Sorted(settings.Combat.CombatItemNames),
+            // In the order the Items page shows them: the weapon walk reads that
+            // order, and its last resort is the last item on the page.
+            ItemNames = InPageOrder(settings.Combat.CombatItemOrder, settings.Combat.CombatItemNames),
+            ShowNavLines = settings.Navigation.ShowNavLines,
             ConsumableNames = Sorted(settings.Combat.ConsumableNames),
             ConsumableCategories = settings.Combat.ConsumableCategories.ToDictionary(
                 static pair => pair.Key,
@@ -745,6 +881,7 @@ internal sealed class MossTankProfileStore
             BuffExtraSpellNames = Sorted(settings.Buffs.ExtraBuffSpellNames),
             BuffBlacklistedFamilyNames = Sorted(settings.Buffs.BlacklistedBuffFamilyNames),
             BuffItemEnchantRows = settings.Buffs.ItemEnchantRows
+                .Where(static row => !row.IsProfiledItemRow)
                 .Select(static row => new ItemEnchantRowDocument
                 {
                     ItemName = row.ItemName,
@@ -758,7 +895,7 @@ internal sealed class MossTankProfileStore
             InventoryLootRules = settings.Inventory.Loot.Rules
                 .Select(LootRuleDocument.From)
                 .ToArray(),
-            NavigationWalkLegsWithClient = settings.Navigation.WalkLegsWithClient,
+            NavigationClientPathing = settings.Navigation.ClientPathing.ToString(),
         };
 
         public static SideCarDocument CreateDefaults() => Capture(
@@ -780,8 +917,8 @@ internal sealed class MossTankProfileStore
             IPluginLogger? logger = null)
         {
             Replace(settings.Combat.CombatItemNames, ItemNames);
+            settings.Navigation.ShowNavLines = ShowNavLines;
             ReplaceOrder(settings.Combat.CombatItemOrder, ItemNames);
-            settings.Combat.CombatItemObjectIds.Clear();
             Replace(settings.Combat.ConsumableNames, ConsumableNames);
             settings.Combat.ConsumableCategories.Clear();
             foreach ((string itemName, ConsumableCategory category) in
@@ -819,7 +956,7 @@ internal sealed class MossTankProfileStore
                 }
             }
             if (!settings.Combat.Rules.Any(static rule => rule.IsDefault))
-                settings.Combat.Rules.Add(new MonsterRule("DEFAULT", 0));
+                settings.Combat.Rules.Add(MonsterRule.Fresh("DEFAULT"));
             ApplyRuleItemNames(settings.Combat);
 
             settings.Buffs.BuffAttributes = BuffAttributes;
@@ -831,7 +968,11 @@ internal sealed class MossTankProfileStore
             settings.Buffs.BuffTrainedSkillsOnly = BuffTrainedSkillsOnly;
             Replace(settings.Buffs.ExtraBuffSpellNames, BuffExtraSpellNames);
             Replace(settings.Buffs.BlacklistedBuffFamilyNames, BuffBlacklistedFamilyNames);
-            settings.Buffs.ItemEnchantRows.Clear();
+            for (int index = settings.Buffs.ItemEnchantRows.Count - 1; index >= 0; index--)
+            {
+                if (!settings.Buffs.ItemEnchantRows[index].IsProfiledItemRow)
+                    settings.Buffs.ItemEnchantRows.RemoveAt(index);
+            }
             foreach (ItemEnchantRowDocument row in BuffItemEnchantRows)
             {
                 if (string.IsNullOrEmpty(row.ItemName))
@@ -852,7 +993,12 @@ internal sealed class MossTankProfileStore
             settings.Inventory.Loot.Rules.Clear();
             foreach (LootRuleDocument rule in InventoryLootRules ?? [])
                 settings.Inventory.Loot.Rules.Add(rule.ToRule());
-            settings.Navigation.WalkLegsWithClient = NavigationWalkLegsWithClient;
+            settings.Navigation.ClientPathing =
+                Enum.TryParse(NavigationClientPathing, ignoreCase: true, out ClientPathing pathing)
+                    ? pathing
+                    : NavigationWalkLegsWithClient == true
+                        ? ClientPathing.Always
+                        : ClientPathing.WhenStuck;
         }
 
         private void ApplyRuleItemNames(CombatSettings combat)
@@ -866,8 +1012,7 @@ internal sealed class MossTankProfileStore
                 {
                     // The fallback row's spelling depends on which side wrote
                     // it — MossTank's editor says DEFAULT, the .usd says
-                    // <DEFAULT> (d1.cs:117) — so match it by identity, not by
-                    // text.
+                    // <DEFAULT> — so match it by identity, not by text.
                     bool matches = MonsterRule.IsDefaultName(stored.Expression)
                         ? rule.IsDefault
                         : string.Equals(
@@ -887,6 +1032,19 @@ internal sealed class MossTankProfileStore
                 }
             }
         }
+    }
+
+    private static string[] InPageOrder(IEnumerable<string> order, IEnumerable<string> names)
+    {
+        var set = new HashSet<string>(names, StringComparer.Ordinal);
+        var result = new List<string>();
+        foreach (string name in order)
+        {
+            if (set.Remove(name))
+                result.Add(name);
+        }
+        result.AddRange(Sorted(set));
+        return [.. result];
     }
 
     private static string[] Sorted(IEnumerable<string> values) => values
@@ -949,6 +1107,9 @@ internal sealed class MossTankProfileStore
         public LootAction Action { get; set; } = LootAction.Keep;
         public int KeepCount { get; set; } = 1;
         public int Priority { get; set; }
+        public string CustomExpression { get; set; } = string.Empty;
+        public VtankLootRequirement[] Requirements { get; set; } = [];
+        public bool HasImportedRequirements { get; set; }
 
         public static LootRuleDocument From(LootRule rule) => new()
         {
@@ -957,6 +1118,12 @@ internal sealed class MossTankProfileStore
             Action = rule.Action,
             KeepCount = rule.KeepCount,
             Priority = rule.Priority,
+            CustomExpression = rule.CustomExpression,
+            HasImportedRequirements = rule.HasImportedRequirements,
+            Requirements = rule.VtankRequirements.Select(requirement => new VtankLootRequirement
+            {
+                Type = requirement.Type, Payload = requirement.Payload,
+            }).ToArray(),
         };
 
         public LootRule ToRule() => new()
@@ -966,6 +1133,12 @@ internal sealed class MossTankProfileStore
             Action = Action,
             KeepCount = Math.Clamp(KeepCount, 0, 100000),
             Priority = Math.Clamp(Priority, -1000, 1000),
+            CustomExpression = CustomExpression ?? string.Empty,
+            HasImportedRequirements = HasImportedRequirements,
+            VtankRequirements = (Requirements ?? []).Select(requirement => new VtankLootRequirement
+            {
+                Type = requirement.Type, Payload = requirement.Payload,
+            }).ToList(),
         };
     }
 
@@ -989,7 +1162,11 @@ internal sealed class MossTankProfileStore
         public MonsterActionFlags Flags { get; set; } = MonsterActionFlags.Attack;
         public int Priority { get; set; }
         public MonsterDamageType DamageType { get; set; } = MonsterDamageType.Auto;
-        public MonsterDamageType ExtraVulnerability { get; set; } = MonsterDamageType.Auto;
+
+        // A stored profile that never wrote the column means the column was
+        // off, the same as a fresh row; automatic here would turn an unasked
+        // extra vulnerability into a cast on almost every monster.
+        public MonsterDamageType ExtraVulnerability { get; set; } = MonsterDamageType.None;
         public uint WeaponObjectId { get; set; }
         public uint OffhandObjectId { get; set; }
         public string WeaponName { get; set; } = string.Empty;
@@ -1053,6 +1230,8 @@ internal sealed class MossTankProfileStore
             Replace(combat.CombatItemNames, ItemNames);
             ReplaceOrder(combat.CombatItemOrder, ItemNames);
             combat.CombatItemObjectIds.Clear();
+            combat.CombatItemOrderIds.Clear();
+            combat.RemovedCombatItemObjectIds.Clear();
             Replace(combat.ConsumableNames, ConsumableNames);
             combat.ConsumableCategories.Clear();
             foreach ((string itemName, ConsumableCategory category) in
@@ -1171,7 +1350,7 @@ internal sealed class MossTankProfileStore
             settings.Loot.CombineSalvage = CombineSalvage;
             settings.Loot.ManaStoneLootCount = Math.Clamp(ManaStoneLootCount, 0, 100);
             settings.Loot.ManaTankMinimumMana = Math.Clamp(ManaTankMinimumMana, 1, int.MaxValue);
-            settings.Loot.CorpseApproachRange = Math.Clamp(CorpseApproachRange, 2f, 100f);
+            settings.Loot.CorpseApproachRange = Math.Clamp(CorpseApproachRange, 0f, 100f);
             settings.Loot.CorpseOpenTimeoutSeconds = Math.Clamp(CorpseOpenTimeoutSeconds, 0.25d, 30d);
             settings.Loot.BlacklistCorpseOpenAttemptCount = Math.Clamp(
                 BlacklistCorpseOpenAttemptCount, 1, 1000);
@@ -1204,7 +1383,7 @@ internal sealed class MossTankProfileStore
         public DebuffSelectionMethod DebuffSelectionMethod { get; set; } = DebuffSelectionMethod.Skill;
         public double DebuffPrecastSeconds { get; set; } = 5d;
         public bool SwitchWandsToDebuff { get; set; }
-        public UseArcsMode UseArcs { get; set; } = UseArcsMode.AtRange;
+        public UseArcsMode UseArcs { get; set; } = UseArcsMode.No;
         public double ArcRange { get; set; } = 5d;
         public double RingDistance { get; set; } = 5d;
         public int MinimumRingTargets { get; set; } = 4;
@@ -1224,7 +1403,7 @@ internal sealed class MossTankProfileStore
         public Dictionary<string, DynamicSettingDocument> DynamicSettings { get; set; } =
             new(StringComparer.OrdinalIgnoreCase);
         public MonsterRuleDocument[] Rules { get; set; } =
-            [MonsterRuleDocument.From(new MonsterRule("DEFAULT", 0))];
+            [MonsterRuleDocument.From(MonsterRule.Fresh("DEFAULT"))];
 
         public static LegacyCombatProfileDocument Capture(CombatSettings value) => new()
         {
@@ -1319,7 +1498,7 @@ internal sealed class MossTankProfileStore
                 }
             }
             if (!value.Rules.Any(static rule => rule.IsDefault))
-                value.Rules.Add(new MonsterRule("DEFAULT", 0));
+                value.Rules.Add(MonsterRule.Fresh("DEFAULT"));
         }
     }
 

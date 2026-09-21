@@ -1,11 +1,11 @@
-﻿namespace AcDream.Plugins.MossTank.Tests;
+namespace AcDream.Plugins.MossTank.Tests;
 
 public sealed class VtankMonsterRuleTableTests
 {
     [Fact]
-    public void ShippedDefaultRowParsesToRetailsOwnValues()
+    public void ShippedDefaultRowParsesToTheShippedValues()
     {
-        // uTank2.Resources.defaultsettings.usd:93-134 — <DEFAULT>, priority 1,
+        // The shipped default settings row: <DEFAULT>, priority 1,
         // DamageType 8 (Auto), WeaponToUse -1, Attack and Streak set,
         // SecondaryVuln 98 (None), SecondaryEquip 0 (Auto),
         // PetDamageType 101 (PAuto).
@@ -24,6 +24,60 @@ public sealed class VtankMonsterRuleTableTests
         Assert.Equal(MonsterDamageType.PlayerAuto, rule.Actions.PetDamageType);
         Assert.Equal(0u, rule.Actions.WeaponObjectId);
         Assert.Equal(0u, rule.Actions.OffhandObjectId);
+    }
+
+    /// <summary>
+    /// The extra vulnerability column's file codes: 98 is "none", 8 is
+    /// "automatic", 3 is acid. Every one of them survives a read and a write
+    /// unchanged, byte for byte.
+    /// </summary>
+    [Fact]
+    public void TheExtraVulnerabilityColumnRoundTripsItsFileCodes()
+    {
+        const int extraVulnerabilityColumn = 18;
+        foreach ((int code, MonsterDamageType expected) in new[]
+        {
+            (98, MonsterDamageType.None),
+            (8, MonsterDamageType.Auto),
+            (3, MonsterDamageType.Acid),
+        })
+        {
+            VtankDatabase seed = VtankDefaultSettingsDatabase.Parse();
+            seed.Find(VtankMonsterRuleTable.TableName)!
+                .Rows[0].Cells[extraVulnerabilityColumn] = VtankCell.Int(code);
+            string original = seed.Render();
+
+            VtankDatabase database = VtankDatabase.Parse(original);
+            List<MonsterRule> rules = VtankMonsterRuleTable.TryRead(database)!;
+            Assert.Equal(expected, rules[0].Actions.ExtraVulnerability);
+
+            VtankMonsterRuleTable.Write(database, rules);
+
+            Assert.Equal(original, database.Render());
+        }
+    }
+
+    /// <summary>
+    /// A row nobody has edited asks for no extra vulnerability, and saves as
+    /// the "none" code.
+    /// Mutation: default <c>MonsterRuleActions.ExtraVulnerability</c> to
+    /// automatic again and this writes 8 - the spelling that made a profile
+    /// with the vulnerability column unticked debuff every monster it met.
+    /// </summary>
+    [Fact]
+    public void AFreshRowWritesTheExtraVulnerabilityColumnOff()
+    {
+        const int extraVulnerabilityColumn = 18;
+        VtankDatabase database = VtankDefaultSettingsDatabase.Parse();
+
+        VtankMonsterRuleTable.Write(
+            database,
+            [new MonsterRule("DEFAULT", new MonsterRuleActions())]);
+
+        Assert.Equal(
+            98,
+            database.Find(VtankMonsterRuleTable.TableName)!
+                .Rows[0].Cells[extraVulnerabilityColumn].AsInt());
     }
 
     [Fact]
@@ -57,6 +111,32 @@ public sealed class VtankMonsterRuleTableTests
         VtankMonsterRuleTable.Write(database, rules);
 
         Assert.Equal(original, database.Render());
+    }
+
+    /// <summary>
+    /// Mutation pin: keep the signed bits of direct primary and secondary
+    /// object ids instead of treating a negative signed spelling as a mode.
+    /// Mutation executed: <c>WeaponObjectId used weapon &gt; 0 and
+    /// OffhandObjectId used offhand &gt;= ListedTypesEnd</c>.
+    /// </summary>
+    [Fact]
+    public void SignedDirectEquipmentIdsSurviveParseAndRoundTrip()
+    {
+        const uint primaryId = 0x8000_DEB2u;
+        const uint secondaryId = 0x8001_AC87u;
+        VtankDatabase database = VtankDefaultSettingsDatabase.Parse();
+        VtankTable monsters = database.Find(VtankMonsterRuleTable.TableName)!;
+        monsters.Rows[0].Cells[3] = VtankCell.Int(unchecked((int)primaryId));
+        monsters.Rows[0].Cells[19] = VtankCell.Int(unchecked((int)secondaryId));
+
+        MonsterRuleActions actions = Assert.Single(
+            VtankMonsterRuleTable.TryRead(database)!).Actions;
+
+        Assert.Equal(primaryId, actions.WeaponObjectId);
+        Assert.Equal(secondaryId, actions.OffhandObjectId);
+        VtankMonsterRuleTable.Write(database, [new MonsterRule("DEFAULT", actions)]);
+        Assert.Equal(unchecked((int)primaryId), monsters.Rows[0].Cells[3].AsInt());
+        Assert.Equal(unchecked((int)secondaryId), monsters.Rows[0].Cells[19].AsInt());
     }
 
     [Theory]
@@ -224,8 +304,20 @@ public sealed class VtankMonsterRuleTableTests
         Assert.Equal("name#^Olthoi", read[2].Expression);
     }
 
+    /// <summary>
+    /// The attack column is stored exactly the way the row's tick box shows
+    /// it: a row that attacks stores True, a row that does not stores False.
+    /// This earns a pin of its own because the field the column is built from
+    /// is negated twice - once on the way into the file and once on the way
+    /// into the tick box - so the two negations cancel and the stored column
+    /// is straight. Reading it inverted would make every authored profile
+    /// fight exactly the monsters it was told to leave alone.
+    /// Mutation: negate either side and
+    /// <see cref="ShippedDefaultRowParsesToTheShippedValues"/> reads the
+    /// shipped "attack anything" default as a row that never attacks.
+    /// </summary>
     [Fact]
-    public void AttackColumnIsStoredInvertedExactlyAsRetailDoes()
+    public void TheAttackColumnIsStoredTheSameWayTheTickBoxShowsIt()
     {
         VtankDatabase database = VtankDefaultSettingsDatabase.Parse();
         VtankMonsterRuleTable.Write(
@@ -244,6 +336,111 @@ public sealed class VtankMonsterRuleTableTests
         VtankTable table = database.Find(VtankMonsterRuleTable.TableName)!;
         Assert.True(table.Rows[0].Cells[8].AsBool());
         Assert.False(table.Rows[1].Cells[8].AsBool());
+
+        // And the two rows read back to the flags they were written from.
+        List<MonsterRule> read = VtankMonsterRuleTable.TryRead(database)!;
+        Assert.True(read[0].Actions.UsesPrimaryAttack);
+        Assert.False(read[1].Actions.UsesPrimaryAttack);
+    }
+
+    /// <summary>
+    /// The shape authored profiles really use: a blanket row that attacks
+    /// everything it meets, and beneath it a range-keyed row that leaves
+    /// distant monsters alone while still debuffing them. Read the attack
+    /// column inverted and those two swap, which is the profile inside out.
+    /// </summary>
+    [Fact]
+    public void ARangeKeyedRowThatOnlyDebuffsDoesNotAttack()
+    {
+        VtankDatabase database = VtankDefaultSettingsDatabase.Parse();
+        VtankTable table = database.Find(VtankMonsterRuleTable.TableName)!;
+        var distant = new VtankRow();
+        foreach (VtankCell cell in table.Rows[0].Cells)
+            distant.Cells.Add(cell);
+        distant.Cells[0] = VtankCell.String("range>5");
+        distant.Cells[4] = VtankCell.Bool(true);
+        distant.Cells[8] = VtankCell.Bool(false);
+        table.Rows.Add(distant);
+
+        List<MonsterRule> rules = VtankMonsterRuleTable.TryRead(database)!;
+
+        Assert.True(rules[0].IsDefault);
+        Assert.True(rules[0].Actions.UsesPrimaryAttack);
+        Assert.Equal("range>5", rules[1].Expression);
+        Assert.False(rules[1].Actions.UsesPrimaryAttack);
+        Assert.Equal(
+            MonsterActionFlags.Imperil,
+            rules[1].Actions.Flags & MonsterActionFlags.Imperil);
+    }
+
+    /// <summary>
+    /// A brand-new monster row, column for column: priority one, automatic
+    /// damage, automatic weapon, attack and streak ticked, every other tick
+    /// off, no extra vulnerability, automatic off-hand and an automatic pet
+    /// element. A fresh row that does not match this writes a profile the
+    /// editor would show differently from the one the player just made, and a
+    /// row added beside authored rows would behave differently from its
+    /// neighbours for no reason the player can see.
+    /// Mutation: drop the streak tick, or put priority back to zero, and this
+    /// fails on exactly that column.
+    /// </summary>
+    [Fact]
+    public void AFreshMonsterRowIsWrittenColumnForColumn()
+    {
+        VtankDatabase database = VtankDefaultSettingsDatabase.Parse();
+
+        VtankMonsterRuleTable.Write(database, [MonsterRule.Fresh("DEFAULT")]);
+
+        VtankRow row = database.Find(VtankMonsterRuleTable.TableName)!.Rows[0];
+        Assert.Equal(VtankMonsterRuleTable.DefaultRowName, row.Cells[0].AsString());
+        Assert.Equal(1, row.Cells[1].AsInt());
+        Assert.Equal(8, row.Cells[2].AsInt());
+        Assert.Equal(-1, row.Cells[3].AsInt());
+        Assert.True(row.Cells[8].AsBool());
+        Assert.True(row.Cells[17].AsBool());
+        foreach (int column in new[] { 4, 5, 6, 7, 9, 10, 11, 12, 13, 14, 15, 16 })
+            Assert.False(row.Cells[column].AsBool());
+        Assert.Equal(98, row.Cells[18].AsInt());
+        Assert.Equal(0, row.Cells[19].AsInt());
+        Assert.Equal(101, row.Cells[20].AsInt());
+    }
+
+    /// <summary>
+    /// A profile whose only rule is an untouched fresh row still needs no
+    /// monster table written into a file that never had one.
+    /// </summary>
+    [Fact]
+    public void AnUntouchedFreshRowDoesNotFabricateAMonsterTable()
+    {
+        var database = new VtankDatabase();
+
+        VtankMonsterRuleTable.Write(database, [MonsterRule.Fresh("DEFAULT")]);
+
+        Assert.Null(database.Find(VtankMonsterRuleTable.TableName));
+    }
+
+    /// <summary>
+    /// But a row the player did touch is written even when it is the only
+    /// one, because dropping it would silently lose the edit.
+    /// </summary>
+    [Fact]
+    public void AnEditedLoneDefaultRowIsWrittenEvenWithoutAnExistingTable()
+    {
+        var database = new VtankDatabase();
+
+        VtankMonsterRuleTable.Write(
+            database,
+            [
+                new MonsterRule(
+                    "DEFAULT",
+                    MonsterRuleActions.FreshRow with
+                    {
+                        DamageType = MonsterDamageType.Fire,
+                    }),
+            ]);
+
+        VtankTable table = database.Find(VtankMonsterRuleTable.TableName)!;
+        Assert.Equal(6, table.Rows[0].Cells[2].AsInt());
     }
 
     [Fact]
@@ -263,7 +460,7 @@ public sealed class VtankMonsterRuleTableTests
         Assert.Equal(
             MonsterDamageType.PlayerAuto,
             VtankDamageElement.ToMonsterDamageType(101));
-        // bv.cs:94-97 folds the legacy prismatic database id onto Prismatic.
+        // The legacy prismatic database id folds onto Prismatic.
         Assert.Equal(
             MonsterDamageType.Prismatic,
             VtankDamageElement.ToMonsterDamageType(100));

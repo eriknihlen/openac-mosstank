@@ -8,20 +8,44 @@
   </PropertyGroup>
   <ItemGroup>
     <InternalsVisibleTo Include="AcDream.Plugins.MossTank.Tests" />
-    <InternalsVisibleTo Include="AcDream.App.Tests" />
   </ItemGroup>
-  <ItemGroup>
+  <!-- How this plugin reaches the plugin contract. In this repository it is the checkout next
+       door, so a contract change and its use land in one build. Set UsePluginApiPackage=true to
+       build against the published contract package instead, which is how the plugin builds once it
+       lives in its own repository; PluginApiPackageVersion picks the contract version and defaults
+       to this repository's own. Either way the reference is compile-only: the host ships the
+       contract, and a second copy beside the plugin would hand it types the host cannot accept. -->
+  <PropertyGroup>
+    <UsePluginApiPackage Condition="'$(UsePluginApiPackage)' == ''">false</UsePluginApiPackage>
+    <PluginApiPackageVersion Condition="'$(PluginApiPackageVersion)' == ''">$(Version)</PluginApiPackageVersion>
+    <!-- The committed lock file describes the checkout build. The package build resolves a
+         different graph, so it keeps its own lock file out of the way in the intermediate folder
+         rather than rewriting the committed one. -->
+    <NuGetLockFilePath Condition="'$(UsePluginApiPackage)' == 'true'">$(MSBuildProjectDirectory)/obj/packages.plugin-api-package.lock.json</NuGetLockFilePath>
+  </PropertyGroup>
+  <ItemGroup Condition="'$(UsePluginApiPackage)' != 'true'">
     <ProjectReference Include="..\AcDream.Plugin.Abstractions\AcDream.Plugin.Abstractions.csproj">
       <Private>false</Private>
       <ExcludeAssets>runtime</ExcludeAssets>
     </ProjectReference>
   </ItemGroup>
+  <ItemGroup Condition="'$(UsePluginApiPackage)' == 'true'">
+    <PackageReference Include="AcDream.Plugin.Abstractions"
+                      VersionOverride="$(PluginApiPackageVersion)"
+                      ExcludeAssets="runtime" />
+  </ItemGroup>
   <ItemGroup>
+    <!-- The manifest the host reads before it loads any code, and the panel markup, both ship
+         beside the assembly in the plugin's own folder. -->
+    <None Update="plugin.json">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </None>
     <None Update="mosstank*.xml">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
     </None>
     <EmbeddedResource Include="VtankCraftRecipes.tsv" />
     <EmbeddedResource Include="VtankAmmunitionOptions.tsv" />
     <EmbeddedResource Include="VtankDefaultSettings.usd" />
+    <EmbeddedResource Include="VtankDefaultGameInfo.ugd" />
   </ItemGroup>
 </Project>

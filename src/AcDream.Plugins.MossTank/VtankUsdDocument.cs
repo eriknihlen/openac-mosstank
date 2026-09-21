@@ -167,7 +167,7 @@ internal sealed class VtankTable
     }
 }
 
-/// <summary>The whole <c>y</c> database: an ordered set of named tables.</summary>
+/// <summary>The whole settings database: an ordered set of named tables.</summary>
 internal sealed class VtankDatabase
 {
     public List<(string Name, VtankTable Table)> Tables { get; } = [];

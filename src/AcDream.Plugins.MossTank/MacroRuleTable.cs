@@ -42,6 +42,12 @@ internal enum MacroRuleSlot
     NavigateRouteIdle,
     RandomHelper,
     IdlePeace,
+
+    /// <summary>
+    /// The same worn-mana job, in the list that runs while the macro is
+    /// stopped. Not part of the running list, and so not in the table below.
+    /// </summary>
+    RefillWieldedManaWhenOff,
 }
 
 internal enum MacroIndependentSlot
@@ -163,6 +169,14 @@ internal static class MacroRuleTable
         foreach (MacroIndependentSlot slot in IndependentEntries)
             independent.Add(provider.Create(slot));
 
-        return new MacroScheduler(main, independent);
+        // The stopped-macro list: keeping gear charged is the one job the
+        // macro still does with everything else switched off, and the
+        // character's own switch for it is the only gate on it.
+        var macroDisabled = new List<IMacroRule>
+        {
+            provider.Create(MacroRuleSlot.RefillWieldedManaWhenOff),
+        };
+
+        return new MacroScheduler(main, independent, macroDisabled);
     }
 }

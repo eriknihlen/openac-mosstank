@@ -1,4 +1,4 @@
-﻿namespace AcDream.Plugins.MossTank;
+namespace AcDream.Plugins.MossTank;
 
 [Flags]
 internal enum MonsterActionFlags
@@ -47,8 +47,18 @@ internal sealed record MonsterRuleActions
     public MonsterActionFlags Flags { get; init; } = MonsterActionFlags.Attack;
     public int Priority { get; init; }
     public MonsterDamageType DamageType { get; init; } = MonsterDamageType.Auto;
+
+    /// <summary>
+    /// The extra vulnerability column, which is OFF unless the row asks for
+    /// it. The attack element defaults to automatic because a rule that says
+    /// nothing still has to pick something to hit with; the extra
+    /// vulnerability is a second element debuff stacked on top of the chain,
+    /// so a rule that says nothing must ask for nothing. Automatic here would
+    /// resolve to the monster's first listed weakness and quietly debuff
+    /// almost every monster, which is not what a fresh row means.
+    /// </summary>
     public MonsterDamageType ExtraVulnerability { get; init; } =
-        MonsterDamageType.Auto;
+        MonsterDamageType.None;
     public uint WeaponObjectId { get; init; }
     public uint OffhandObjectId { get; init; }
 
@@ -59,6 +69,26 @@ internal sealed record MonsterRuleActions
     public string OffhandName { get; init; } = string.Empty;
     public MonsterDamageType PetDamageType { get; init; } =
         MonsterDamageType.PlayerAuto;
+
+    /// <summary>
+    /// The columns a brand-new monster row starts with: priority one, attack
+    /// and streak ticked, automatic attack element, no extra vulnerability,
+    /// automatic weapon and off-hand, and an automatic pet element. Both the
+    /// DEFAULT row a profile is born with and every row added to it later
+    /// start here, so an untouched row behaves the same way whichever editor
+    /// wrote the profile, and sorts beside authored rules instead of below
+    /// all of them.
+    /// </summary>
+    public static MonsterRuleActions FreshRow => new()
+    {
+        Priority = 1,
+        Flags = MonsterActionFlags.Attack | MonsterActionFlags.Streak,
+        DamageType = MonsterDamageType.Auto,
+        ExtraVulnerability = MonsterDamageType.None,
+        WeaponToUseRaw = -1,
+        SecondaryEquipRaw = (int)VtankSecondaryEquip.Auto,
+        PetDamageType = MonsterDamageType.PlayerAuto,
+    };
 
     public int BoundedPriority => Math.Clamp(Priority, -1, 4);
     public bool Attacks => (Flags
@@ -86,6 +116,23 @@ internal sealed class MonsterRule
         if (!IsDefault)
             _compiled = MonsterExpression.Compile(Expression);
     }
+
+    private MonsterRule(MonsterRule source, MonsterRuleActions actions)
+    {
+        Expression = source.Expression;
+        Actions = actions;
+        IsIgnoredSpec = source.IsIgnoredSpec;
+        _compiled = source._compiled;
+    }
+
+    /// <summary>
+    /// The same row with different action columns, for the copy a single pass
+    /// is allowed to scribble on when it discovers one of them cannot be
+    /// carried out against this monster right now. The match expression is
+    /// shared, not recompiled.
+    /// </summary>
+    public MonsterRule WithActions(MonsterRuleActions actions) =>
+        new(this, actions ?? throw new ArgumentNullException(nameof(actions)));
 
     private MonsterRule(string expression, MonsterRuleActions actions, bool ignored)
     {
@@ -116,6 +163,16 @@ internal sealed class MonsterRule
     }
 
     public const string RetailDefaultName = "<DEFAULT>";
+
+    /// <summary>
+    /// The fallback row a profile with no DEFAULT row of its own falls back
+    /// to, which is the fresh row: attack at priority one, finishing with a
+    /// streak.
+    /// </summary>
+    public static MonsterRule RetailDefault() => Fresh("DEFAULT");
+
+    public static MonsterRule Fresh(string expression) =>
+        new(expression, MonsterRuleActions.FreshRow);
 
     public string Expression { get; }
     public MonsterRuleActions Actions { get; }
@@ -175,7 +232,7 @@ internal static class MonsterRuleResolver
             firstError ??= error;
         }
 
-        fallback ??= new MonsterRule("DEFAULT", 0);
+        fallback ??= MonsterRule.RetailDefault();
         return new ResolvedMonsterRule(fallback, firstError);
     }
 }

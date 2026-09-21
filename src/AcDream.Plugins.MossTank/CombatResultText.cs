@@ -1,6 +1,31 @@
+using System.Globalization;
 using System.Text.RegularExpressions;
 
 namespace AcDream.Plugins.MossTank;
+
+/// <summary>
+/// The client's own log-text types the combat reader keys on. The same
+/// sentence typed by a player in local chat carries a different one, so these
+/// are what tell the character's own combat log from anyone else's words.
+/// </summary>
+internal static class CombatLogTextType
+{
+    /// <summary>The plain type: the miss notice and the kill sentence.</summary>
+    public const uint Default = 0x00u;
+
+    /// <summary>The character's own blow: "you hit X for N points".</summary>
+    public const uint OwnCombat = 0x16u;
+
+    /// <summary>A spell's own result line.</summary>
+    public const uint Magic = 0x07u;
+
+    /// <summary>
+    /// The spoken words of a spell being cast. The server logs a caster's own
+    /// gesture words under this type, which is what tells them apart from the
+    /// same words typed into local chat.
+    /// </summary>
+    public const uint Spellcasting = 0x11u;
+}
 
 internal enum CombatResultTextClass
 {
@@ -20,14 +45,14 @@ internal static class CombatResultText
     private const RegexOptions Options =
         RegexOptions.CultureInvariant | RegexOptions.ExplicitCapture;
 
-    /// <summary><c>d3.cs:46-47</c> — <c>l.g.a</c>, plain fail/resist.</summary>
+    /// <summary>Plain fail/resist.</summary>
     private static readonly Regex[] FailPatterns =
     [
         new("^Your spell fizzled.$", Options),
         new("^(?<targetname>.*) resists your spell$", Options),
     ];
 
-    /// <summary><c>d3.cs:48-52</c> — <c>l.g.b</c>, permanent fail.</summary>
+    /// <summary>Permanent fail.</summary>
     private static readonly Regex[] PermanentFailPatterns =
     [
         new("^Target is out of range$", Options),
@@ -43,7 +68,7 @@ internal static class CombatResultText
         new("^(?<targetname>.*) is an invalid target.$", Options),
     ];
 
-    /// <summary><c>d3.cs:53-65</c> — <c>l.g.c</c>, success.</summary>
+    /// <summary>Success.</summary>
     private static readonly Regex[] SuccessPatterns =
     [
         new("^You cast (?<spellname>.*) on (?<targetname>.*), refreshing .*$", Options),
@@ -69,7 +94,7 @@ internal static class CombatResultText
             Options),
     ];
 
-    /// <summary><c>d3.cs:66-101</c> — <c>l.g.d</c>, kill.</summary>
+    /// <summary>Kill.</summary>
     private static readonly Regex[] KillPatterns =
     [
         new("^You knock (?<targetname>.*) into next Morningthaw!$", Options),
@@ -121,6 +146,61 @@ internal static class CombatResultText
         new("^(?<targetname>.*) is dessicated by your attack!$", Options),
         new("^(?<targetname>.*)'s last strength withers before you!$", Options),
     ];
+
+    /// <summary>
+    /// The one line that says a shot never reached its target: it hit the
+    /// world instead. This is the ONLY thing that advances the give-up counter
+    /// for a physical attack — an ordinary miss or evade does not.
+    /// </summary>
+    public const string MissileHitEnvironment =
+        "Your missile attack hit the environment.";
+
+    /// <summary>
+    /// A damage report: the swing reached the monster, so the give-up counter
+    /// starts over.
+    /// </summary>
+    private static readonly Regex DamageReportPattern = new(
+        @"^(Critical hit\!)?[ ]*You .* for .* point(s)? of .*\!$",
+        Options);
+
+    public static bool IsDamageReport(string text) =>
+        !string.IsNullOrEmpty(text) && DamageReportPattern.IsMatch(text);
+
+    /// <summary>The spell damage figure, as the reference reads it.</summary>
+    private static readonly Regex SpellDamagePattern = new(
+        "(?:You .* for )(?<points>[0-9]+)(?: points with .*)",
+        Options);
+
+    /// <summary>
+    /// How much a spell of ours just took off a monster, read out of the
+    /// sentence that reports it.
+    /// </summary>
+    public static bool TryReadSpellDamage(string? text, out int points)
+    {
+        points = 0;
+        if (string.IsNullOrEmpty(text))
+            return false;
+        Match match = SpellDamagePattern.Match(text);
+        return match.Success
+            && int.TryParse(
+                match.Groups["points"].Value,
+                NumberStyles.Integer,
+                CultureInfo.InvariantCulture,
+                out points);
+    }
+
+    /// <summary>
+    /// True when the line is one of the killing-blow sentences, with the slain
+    /// creature's name in <paramref name="targetName"/> when the sentence
+    /// names it.
+    /// </summary>
+    public static bool IsKillingBlow(string text, out string targetName)
+    {
+        string spellName = string.Empty;
+        targetName = string.Empty;
+        return !string.IsNullOrEmpty(text)
+            && TryMatch(KillPatterns, text, ref spellName, ref targetName);
+    }
 
     public static CombatResultTextClass Classify(
         string text,

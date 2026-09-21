@@ -105,15 +105,23 @@ internal static class CoreExpressionFunctions
                 throw new ExpressionEvaluationException("ord expects a non-empty string");
             return ExpressionValue.Number(char.ConvertToUtf32(value, 0));
         }, "ord[text]");
+        // Group separators are accepted, and an unparsable string is 0 rather
+        // than an error. The culture is pinned so a profile reads the same on
+        // every machine.
         registry.Register("cnumber", 1, 1, (_, args) =>
             double.TryParse(
                 args[0].AsString("cnumber"),
-                NumberStyles.Float,
+                NumberStyles.Float | NumberStyles.AllowThousands,
                 CultureInfo.InvariantCulture,
                 out double result)
                     ? ExpressionValue.Number(result)
                     : ExpressionValue.Zero,
             "cnumber[text]");
+        // Type introspection over ANY value: it answers with the expression
+        // token's own type tag, not with a game item type.
+        registry.Register("getobjectinternaltype", 1, 1, (_, args) =>
+            ExpressionValue.Number(InternalTypeTag(args[0].Kind)),
+            "getobjectinternaltype[value]");
         registry.Register("cstr", 1, 1, (_, args) => ExpressionValue.String(
             args[0].AsNumber("cstr").ToString("G15", CultureInfo.InvariantCulture)),
             "cstr[number]");
@@ -122,7 +130,7 @@ internal static class CoreExpressionFunctions
             double number = args[0].AsNumber("cstrf");
             string format = args[1].AsString("cstrf");
             return ExpressionValue.String(
-                format.Contains('X', StringComparison.OrdinalIgnoreCase)
+                IsStandardHexFormat(format)
                     ? checked((uint)number).ToString(format, CultureInfo.InvariantCulture)
                     : number.ToString(format, CultureInfo.InvariantCulture));
         }, "cstrf[number,format]");
@@ -168,6 +176,17 @@ internal static class CoreExpressionFunctions
                 : ExpressionValue.Zero;
         }, "getregexmatch[text,pattern]");
     }
+
+    /// <summary>
+    /// The type tags an expression exposes: 0 none, 1 number, 3 string,
+    /// 7 object. Booleans ride a number, so they report 1.
+    /// </summary>
+    private static double InternalTypeTag(ExpressionValueKind kind) => kind switch
+    {
+        ExpressionValueKind.Number or ExpressionValueKind.Boolean => 1d,
+        ExpressionValueKind.String => 3d,
+        _ => 7d,
+    };
 
     private static void RegisterUnaryMath(
         ExpressionFunctionRegistry registry,
@@ -529,6 +548,24 @@ internal static class CoreExpressionFunctions
         if ((uint)index >= (uint)list.Items.Count)
             throw BadIndex(operation, index, list.Items.Count, allowEnd: false);
         return index;
+    }
+
+    /// <summary>
+    /// A whole-string hex specifier — "X", "x", "X4" and so on, nothing else.
+    /// `cstrf` renders through an unsigned integer for those and through the
+    /// number itself for every other format, so a custom format that merely
+    /// contains a literal x ("0.0 x") keeps its fractional digits.
+    /// </summary>
+    private static bool IsStandardHexFormat(string format)
+    {
+        if (format.Length == 0 || format[0] is not ('X' or 'x'))
+            return false;
+        for (int index = 1; index < format.Length; index++)
+        {
+            if (!char.IsAsciiDigit(format[index]))
+                return false;
+        }
+        return true;
     }
 
     private static int ToTruncatedInt(in ExpressionValue value, string operation) =>

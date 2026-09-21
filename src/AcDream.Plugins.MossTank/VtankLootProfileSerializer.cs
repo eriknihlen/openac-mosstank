@@ -68,12 +68,26 @@ internal static class VtankLootProfileSerializer
         out VtankLootProfile profile,
         out string error)
     {
+        VtankLootProfileReadResult result = ReadAllowingPartial(source);
+        error = result.Error;
+        if (result.IsComplete)
+        {
+            profile = result.Profile;
+            return true;
+        }
         profile = new VtankLootProfile();
-        error = string.Empty;
+        return false;
+    }
+
+    public static VtankLootProfileReadResult ReadAllowingPartial(string? source)
+    {
+        var profile = new VtankLootProfile();
         if (string.IsNullOrEmpty(source))
         {
-            error = "The VTClassic loot profile is empty.";
-            return false;
+            return new(
+                profile,
+                "The VTClassic loot profile is empty.",
+                IsComplete: false);
         }
 
         try
@@ -109,16 +123,16 @@ internal static class VtankLootProfileSerializer
                     reader.ReadLine(),
                     $"{blockType} block length",
                     16 * 1024 * 1024);
-                string payload = reader.ReadCharacters(length);
                 if (string.Equals(
                     blockType,
                     SalvageBlock,
                     StringComparison.Ordinal))
                 {
-                    profile.SalvageCombine = ReadSalvage(payload);
+                    profile.SalvageCombine = ReadSalvage(reader);
                 }
                 else
                 {
+                    string payload = reader.ReadCharacters(length);
                     profile.UnknownBlocks.Add(new VtankLootExtraBlock
                     {
                         Type = blockType,
@@ -126,13 +140,11 @@ internal static class VtankLootProfileSerializer
                     });
                 }
             }
-            return true;
+            return new(profile, string.Empty, IsComplete: true);
         }
         catch (FormatException failure)
         {
-            profile = new VtankLootProfile();
-            error = failure.Message;
-            return false;
+            return new(profile, failure.Message, IsComplete: false);
         }
     }
 
@@ -186,6 +198,7 @@ internal static class VtankLootProfileSerializer
             CustomExpression = customExpression,
             Action = (LootAction)actionValue,
             Priority = priority,
+            HasImportedRequirements = true,
         };
         if (rule.Action == LootAction.KeepUpTo)
         {
@@ -206,7 +219,10 @@ internal static class VtankLootProfileSerializer
                     reader.ReadLine(),
                     $"rule {ruleIndex + 1} requirement length",
                     16 * 1024 * 1024);
-                payload = reader.ReadCharacters(length);
+                int knownLines = LegacyPayloadLineCount(type);
+                payload = knownLines >= 0
+                    ? ReadKnownPayload(reader, knownLines)
+                    : reader.ReadCharacters(length);
             }
             else
             {
@@ -262,7 +278,7 @@ internal static class VtankLootProfileSerializer
     private static IReadOnlyList<VtankLootRequirement> ExportRequirements(
         LootRule rule)
     {
-        if (rule.VtankRequirements.Count > 0)
+        if (rule.HasImportedRequirements || rule.VtankRequirements.Count > 0)
             return rule.VtankRequirements;
 
         return
@@ -275,9 +291,16 @@ internal static class VtankLootProfileSerializer
         ];
     }
 
-    private static VtankSalvageCombineSettings ReadSalvage(string payload)
+    private static string ReadKnownPayload(CharacterReader reader, int lineCount)
     {
-        var reader = new CharacterReader(payload);
+        var payload = new StringBuilder();
+        for (int line = 0; line < lineCount; line++)
+            AppendLine(payload, reader.ReadLine());
+        return payload.ToString();
+    }
+
+    private static VtankSalvageCombineSettings ReadSalvage(CharacterReader reader)
+    {
         _ = ParseInt(reader.ReadLine(), "salvage block version");
         var result = new VtankSalvageCombineSettings
         {
@@ -430,3 +453,8 @@ internal static class VtankLootProfileSerializer
         }
     }
 }
+
+internal readonly record struct VtankLootProfileReadResult(
+    VtankLootProfile Profile,
+    string Error,
+    bool IsComplete);

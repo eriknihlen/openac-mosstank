@@ -43,7 +43,9 @@ internal static class CombatTargetSelector
     {
         ArgumentNullException.ThrowIfNull(candidates);
 
-        // dz.cs:712-713
+        // The two debuff-first modes, kept as the reference client reads
+        // them: one asks "needs a debuff" as a tiebreak, the other lets it
+        // outrank priority.
         bool flag = debuffEachFirst
             is DebuffEachFirst.All or DebuffEachFirst.Priority;
         bool flag2 = debuffEachFirst == DebuffEachFirst.All;
@@ -72,8 +74,7 @@ internal static class CombatTargetSelector
     }
 
     /// <summary>
-    /// Step 1 — priority, with <c>DebuffEachFirst == All</c>'s override
-    /// (<c>dz.cs:740-766</c>).
+    /// Step 1 — priority, with <c>DebuffEachFirst == All</c>'s override.
     /// </summary>
     private static bool Accepts(
         in CombatTargetCandidate f10,
@@ -87,7 +88,8 @@ internal static class CombatTargetSelector
     {
         if (!flag2)
         {
-            // dz.cs:740-750
+            // Higher priority wins outright; an equal one goes to the
+            // tiebreaks.
             if (f10.Priority <= best.Priority)
             {
                 if (f10.Priority < best.Priority)
@@ -98,7 +100,7 @@ internal static class CombatTargetSelector
             return true;
         }
 
-        // dz.cs:751-765 — "All": needing a debuff outranks priority itself.
+        // "All": needing a debuff outranks priority itself.
         if (!f10.NeedsDebuff || best.NeedsDebuff)
         {
             if (!f10.NeedsDebuff && best.NeedsDebuff)
@@ -124,7 +126,7 @@ internal static class CombatTargetSelector
         uint wieldedWeapon,
         uint wieldedOffhand)
     {
-        // Step 2 — dz.cs:771-781. DebuffEachFirst == One skips this entirely.
+        // Step 2. DebuffEachFirst == One skips this entirely.
         if (flag)
         {
             if (f10.NeedsDebuff && !best.NeedsDebuff)
@@ -133,13 +135,13 @@ internal static class CombatTargetSelector
                 return false;
         }
 
-        // Step 3 — dz.cs:782-787.
+        // Step 3 — urgency.
         if (f10.Urgency > best.Urgency)
             return true;
         if (f10.Urgency < best.Urgency)
             return false;
 
-        // Step 4 — dz.cs:788-793.
+        // Step 4 — a locked selection.
         if (f10.IsLockSelection && !best.IsLockSelection)
             return true;
         if (!f10.IsLockSelection && best.IsLockSelection)
@@ -157,7 +159,7 @@ internal static class CombatTargetSelector
                 return false;
         }
 
-        // Step 6 — dz.cs:825-830, the sticky previous target (ga.e).
+        // Step 6 — the sticky previous target.
         if (f10.IsLastTarget && !best.IsLastTarget)
             return true;
         if (!f10.IsLastTarget && best.IsLastTarget)
@@ -198,7 +200,7 @@ internal static class CombatTargetSelector
                     return false;
                 return f10.Distance < best.Distance;
 
-            default: // dz.cs:913-914 — an unknown method keeps the incumbent.
+            default: // an unknown method keeps the incumbent.
                 return false;
         }
     }

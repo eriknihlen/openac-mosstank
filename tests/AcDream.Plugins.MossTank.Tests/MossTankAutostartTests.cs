@@ -95,6 +95,44 @@ public sealed class MossTankAutostartTests
         Assert.Empty(automation.Logger.Errors);
     }
 
+    /// <summary>
+    /// A session with no window in front of it must still leave a record of
+    /// which profiles it came up with. The tabs' own notices are invisible
+    /// there, so each selection says so in the log.
+    /// </summary>
+    [Fact]
+    public void SelectingAProfileSaysSoInTheLogNotOnlyInTheTabsNotice()
+    {
+        var automation = new FakeAutomation { IsAvailable = true };
+        var host = new FakeHost(automation);
+        var panel = new MossTankPanel(host);
+
+        Command(panel, "settings save myprofile");
+        Command(panel, "meta save myMeta");
+        Command(panel, "nav save myNav");
+        Command(panel, "loot new myLoot");
+
+        host.SessionSettingsValue = new Dictionary<string, string>
+        {
+            ["settingsProfile"] = "myprofile",
+            ["metaProfile"] = "myMeta",
+            ["navProfile"] = "myNav",
+            ["lootProfile"] = "myLoot",
+        };
+        automation.Logger.Infos.Clear();
+
+        panel.TickAutostart();
+
+        Assert.Empty(automation.Logger.Errors);
+        foreach (string profile in new[] { "myprofile", "myMeta", "myNav", "myLoot" })
+        {
+            Assert.Contains(
+                automation.Logger.Infos,
+                message => message.Contains("oaded", StringComparison.Ordinal)
+                    && message.Contains(profile, StringComparison.OrdinalIgnoreCase));
+        }
+    }
+
     [Fact]
     public void EnableMetaTrueEnablesTheEngineAndSelectsItsDeclaredProfile()
     {
@@ -128,7 +166,11 @@ public sealed class MossTankAutostartTests
         Command(panel, "settings save myprofile");
         Command(panel, "opt set enablemeta true");
         Assert.True(panel.MetaEnabled);
-        panel.ToggleMeta();
+        // A second profile that says no. EnableMeta is a stored setting on
+        // both sides, so switching profiles is what makes the live state
+        // differ from the one autostart will name.
+        Command(panel, "settings save plain");
+        Command(panel, "opt set enablemeta false");
         Assert.False(panel.MetaEnabled);
 
         host.SessionSettingsValue = new Dictionary<string, string>
@@ -326,6 +368,76 @@ public sealed class MossTankAutostartTests
         Assert.Equal(storageBefore, ((MemoryStorage)host.Storage).Text);
     }
 
+    /// <summary>
+    /// "Mine only" is a picker filter: it decides which files the profiles
+    /// tab lists, not which files exist. A settings profile dropped into the
+    /// profile directory by hand — which is how a bot run, a shared build or
+    /// a fresh install gets one — must still be selectable by name, exactly
+    /// as the loot and route profiles already are.
+    /// </summary>
+    [Fact]
+    public void ASettingsProfileFileIsSelectableByNameEvenWhileTheMineOnlyPickerHidesIt()
+    {
+        var automation = new FakeAutomation { IsAvailable = true };
+        var host = new FakeHost(automation);
+        host.VtankProfiles.WriteText(
+            "vt-proof-settings.usd",
+            VtankDefaultSettingsDatabase.Parse().Render());
+        var store = new MossTankProfileStore(host);
+        store.BindCharacter("TestChar");
+
+        Assert.True(store.MineOnly);
+        Assert.DoesNotContain("vt-proof-settings.usd", store.AvailableNames);
+
+        Assert.True(store.Exists("vt-proof-settings"));
+        Assert.True(store.Select("vt-proof-settings"));
+        Assert.Equal("vt-proof-settings.usd", store.Selected);
+    }
+
+    /// <summary>
+    /// The reserved "--" family still belongs to whichever character owns it.
+    /// Resolving a bare name against the directory must not become a way
+    /// around that.
+    /// </summary>
+    [Fact]
+    public void ANamedLookupStillRefusesAnotherCharactersReservedProfileFile()
+    {
+        var automation = new FakeAutomation { IsAvailable = true };
+        var host = new FakeHost(automation);
+        host.VtankProfiles.WriteText(
+            "--SomeoneElse_Coldeve.usd",
+            VtankDefaultSettingsDatabase.Parse().Render());
+        var store = new MossTankProfileStore(host);
+        store.BindCharacter("TestChar");
+
+        Assert.False(store.Exists("--SomeoneElse_Coldeve"));
+        Assert.False(store.Select("--SomeoneElse_Coldeve"));
+    }
+
+    /// <summary>
+    /// The whole autostart path, end to end: a named settings profile that
+    /// only exists as a file is applied without an error line.
+    /// </summary>
+    [Fact]
+    public void AutostartAppliesASettingsProfileThatOnlyExistsAsAFileInTheProfileDirectory()
+    {
+        var automation = new FakeAutomation { IsAvailable = true };
+        var host = new FakeHost(automation);
+        host.VtankProfiles.WriteText(
+            "vt-proof-settings.usd",
+            VtankDefaultSettingsDatabase.Parse().Render());
+        var panel = new MossTankPanel(host);
+        host.SessionSettingsValue = new Dictionary<string, string>
+        {
+            ["settingsProfile"] = "vt-proof-settings",
+        };
+
+        panel.TickAutostart();
+
+        Assert.Empty(automation.Logger.Errors);
+        Assert.Equal("vt-proof-settings.usd", panel.SelectedMacroProfile);
+    }
+
     [Fact]
     public void MetaProfileStoreExistsProbeDoesNotMutateSelectionOrStorage()
     {
@@ -386,6 +498,259 @@ public sealed class MossTankAutostartTests
         Assert.Equal(selectedBefore, store.Selected);
         Assert.Equal(storageBefore, ((MemoryStorage)host.Storage).Text);
     }
+
+    /// <summary>
+    /// The whole autostart path against profiles nobody in this process
+    /// wrote: the very files the automation-session proof feeds a live bot,
+    /// read straight off disk. Every offline autostart case before this one
+    /// SAVED a profile from the running panel first, so "an externally
+    /// authored .usd / .utl / .af applies" was never pinned — and when the
+    /// live proof reported that no rule was ever valid, nothing here could
+    /// say whether the fixture had arrived at all.
+    /// </summary>
+    [Fact]
+    public void AutostartAppliesTheSessionProofsOwnAuthoredProfilesWithNoSidecar()
+    {
+        var automation = new FakeAutomation { IsAvailable = true };
+        var host = new FakeHost(automation);
+        WriteSessionProofFixture(host.VtankProfiles);
+        var panel = new MossTankPanel(host);
+        host.SessionSettingsValue = new Dictionary<string, string>
+        {
+            ["settingsProfile"] = "vt-proof-settings",
+            ["lootProfile"] = "vt-proof-loot",
+            ["navProfile"] = "vt-proof-route",
+            ["enableMeta"] = "false",
+            ["startMacro"] = "true",
+        };
+
+        panel.TickAutostart();
+
+        Assert.Empty(automation.Logger.Errors);
+        Assert.Equal("vt-proof-settings.usd", panel.SelectedMacroProfile);
+        Assert.Equal("vt-proof-loot", panel.LootProfileName);
+        Assert.Equal("vt-proof-route", panel.SelectedRouteProfile);
+
+        // The four switches the proof's red rows all depend on.
+        Assert.True(panel.GetMetaOptionForTest("enablebuffing"), "EnableBuffing");
+        Assert.True(panel.GetMetaOptionForTest("enablecombat"), "EnableCombat");
+        Assert.True(panel.GetMetaOptionForTest("enablenav"), "EnableNav");
+        Assert.True(panel.GetMetaOptionForTest("enablelooting"), "EnableLooting");
+
+        // The route really reached the live navigation settings.
+        Assert.Equal(4, panel.RouteRows.Count);
+        Assert.Equal("Circular", panel.SelectedRouteMode);
+
+        // startMacro takes the same path the Run Macro checkbox takes, down
+        // to the announcement: the combat controller is enabled, which is
+        // what nearly every rule's gate reads, and it said so.
+        Assert.True(panel.CombatMacroRunning);
+        Assert.Contains(
+            ((FakeAutomation)host.Automation).Messages,
+            message => message.Contains("Macro started.", StringComparison.Ordinal));
+        Assert.DoesNotContain(
+            ((FakeAutomation)host.Automation).Messages,
+            message => message.Contains("Macro stopped.", StringComparison.Ordinal)
+                || message.Contains("Not in world", StringComparison.Ordinal));
+    }
+
+    /// <summary>
+    /// The proof's fixture has to name a caster on the Items page or the
+    /// whole macro stops on its first pass: every rule that casts goes
+    /// through the shared preparation gate, and a gate that finds no
+    /// profiled wand posts its notice and stops the macro. The .usd format
+    /// has no table for the Items page — its ten tables are the settings,
+    /// the monster rules and eight lists that hold none of this — so the
+    /// list travels in the companion document beside it, and this pins that
+    /// the two arrive together.
+    /// </summary>
+    [Fact]
+    public void AutostartTakesTheProofsWandFromTheCompanionDocumentBesideItsUsd()
+    {
+        var automation = new FakeAutomation { IsAvailable = true };
+        var host = new FakeHost(automation);
+        WriteSessionProofFixture(host.VtankProfiles);
+        WriteSessionProofPluginState(host.Storage);
+        var panel = new MossTankPanel(host);
+        host.SessionSettingsValue = new Dictionary<string, string>
+        {
+            ["settingsProfile"] = "vt-proof-settings",
+        };
+
+        panel.TickAutostart();
+
+        Assert.Empty(automation.Logger.Errors);
+        Assert.Equal("vt-proof-settings.usd", panel.SelectedMacroProfile);
+        Assert.Contains("Wand", panel.ItemRows);
+    }
+
+    /// <summary>
+    /// A route profile that is on disk but will not parse must keep its file
+    /// and must not be reported as loaded. The loader used to answer the
+    /// failure by writing whatever route happened to be in memory back over
+    /// the author's file and then announcing "Loaded route ..." — so a
+    /// destroyed route and a good one looked identical from outside.
+    /// </summary>
+    [Fact]
+    public void ARouteProfileThatWillNotParseKeepsItsFileAndIsNotReportedLoaded()
+    {
+        const string unreadable = "~~ {\nNAV: broken 4\n";
+        var automation = new FakeAutomation { IsAvailable = true };
+        var host = new FakeHost(automation);
+        host.VtankProfiles.WriteText("navs/vt-broken-route.af", unreadable);
+        var panel = new MossTankPanel(host);
+
+        // A route the panel already holds, so a silent overwrite would have
+        // something of its own to write.
+        WriteSessionProofFixture(host.VtankProfiles);
+        panel.SelectRouteProfile("vt-proof-route");
+        Assert.Equal(4, panel.RouteRows.Count);
+        automation.Logger.Infos.Clear();
+
+        panel.SelectRouteProfile("vt-broken-route");
+
+        Assert.Equal(unreadable, host.VtankProfiles.ReadText("navs/vt-broken-route.af"));
+        Assert.DoesNotContain(
+            automation.Logger.Infos,
+            message => message.Contains("Loaded route profile", StringComparison.Ordinal)
+                || (message.Contains("vt-broken-route", StringComparison.Ordinal)
+                    && message.Contains("oaded", StringComparison.Ordinal)));
+        Assert.Contains(
+            automation.Logger.Errors,
+            message => message.Contains("vt-broken-route", StringComparison.Ordinal));
+        Assert.Contains("could not be read", panel.RouteNotice, StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// A session with no window in front of it cannot type /vt log in time.
+    /// Several of the plugin's most useful lines are emitted once per run —
+    /// the buff planner's refusal among them — so a channel switched on
+    /// after the macro has started has already missed them, and the run's
+    /// record is silent about the very thing it was meant to explain.
+    /// Autostart therefore opens the declared channels before it starts the
+    /// macro, and any casing names the same channel the emitter uses.
+    /// </summary>
+    [Fact]
+    public void AutostartOpensTheDeclaredLogChannelsBeforeItStartsTheMacro()
+    {
+        var automation = new FakeAutomation { IsAvailable = true };
+        var host = new FakeHost(automation);
+        var panel = new MossTankPanel(host);
+        host.SessionSettingsValue = new Dictionary<string, string>
+        {
+            ["logChannels"] = "misc, RuleInfo activerule",
+            ["startMacro"] = "true",
+        };
+
+        panel.TickAutostart();
+        panel.OnTick(1d);
+
+        Assert.Empty(automation.Logger.Errors);
+        Assert.True(panel.CombatMacroRunning);
+        // The very first scheduler pass is already on the record. Turning the
+        // channel on afterwards, which is all a session could do from
+        // outside, would have lost it.
+        Assert.Contains(
+            automation.Logger.Infos,
+            message => message.Contains(
+                "[vt log ActiveRule] ----------- Primary logic loop started",
+                StringComparison.Ordinal));
+
+        Command(panel, "log");
+        Assert.Contains(
+            ((FakeAutomation)host.Automation).Messages,
+            message => message.Contains("ActiveRule", StringComparison.Ordinal)
+                && message.Contains("Misc", StringComparison.Ordinal)
+                && message.Contains("RuleInfo", StringComparison.Ordinal));
+    }
+
+    /// <summary>
+    /// The automation surface can report itself available before the
+    /// character's name arrives — a live session does exactly that. Every
+    /// profile autostart applies belongs to a character, and binding a
+    /// character re-reads which profile is selected from that character's
+    /// own binding file, so a profile set applied before the name landed was
+    /// thrown away on the tick it did land: the declared settings, the loot
+    /// rules, the route and the open log channels all reverted to the
+    /// character's own defaults, and nothing said so. A bot then ran a whole
+    /// session on the wrong profile.
+    /// </summary>
+    [Fact]
+    public void AutostartWaitsForTheCharactersNameAndItsChoiceThenSurvivesTheBind()
+    {
+        var automation = new FakeAutomation { IsAvailable = true, Name = string.Empty };
+        var host = new FakeHost(automation);
+        WriteSessionProofFixture(host.VtankProfiles);
+        var panel = new MossTankPanel(host);
+        host.SessionSettingsValue = new Dictionary<string, string>
+        {
+            ["settingsProfile"] = "vt-proof-settings",
+            ["navProfile"] = "vt-proof-route",
+            ["logChannels"] = "RuleInfo",
+        };
+
+        // In world, but the character has not been named yet.
+        panel.TickAutostart();
+        Assert.NotEqual("vt-proof-settings.usd", panel.SelectedMacroProfile);
+
+        automation.Name = "TestChar";
+        panel.TickAutostart();
+        Assert.Equal("vt-proof-settings.usd", panel.SelectedMacroProfile);
+        Assert.Equal(4, panel.RouteRows.Count);
+
+        // The tick that binds the character must not undo any of it.
+        panel.OnTick(1d);
+        panel.OnTick(1d);
+
+        Assert.Equal("vt-proof-settings.usd", panel.SelectedMacroProfile);
+        Assert.Equal("vt-proof-route", panel.SelectedRouteProfile);
+        Assert.Equal(4, panel.RouteRows.Count);
+        Assert.True(panel.GetMetaOptionForTest("enablenav"), "EnableNav");
+        Command(panel, "log");
+        Assert.Contains(
+            ((FakeAutomation)host.Automation).Messages,
+            message => message.Contains("Log state", StringComparison.Ordinal)
+                && message.Contains("RuleInfo", StringComparison.Ordinal));
+        Assert.Empty(automation.Logger.Errors);
+    }
+
+    /// <summary>
+    /// The proof's fixture folder, copied into the fake profile storage. One
+    /// copy of these files exists in the tree — the live proof reads the same
+    /// three — so this pin and that run cannot drift apart.
+    /// </summary>
+    private static string SessionProofFixtureRoot => Path.Combine(
+        AppContext.BaseDirectory, "Fixtures", "vt-proof");
+
+    private static void WriteSessionProofFixture(IPluginStorage storage)
+    {
+        string root = SessionProofFixtureRoot;
+        storage.WriteText(
+            "vt-proof-settings.usd",
+            File.ReadAllText(Path.Combine(root, "vt-proof-settings.usd")));
+        storage.WriteText(
+            "vt-proof-loot.utl",
+            File.ReadAllText(Path.Combine(root, "vt-proof-loot.utl")));
+        storage.WriteText(
+            "navs/vt-proof-route.af",
+            File.ReadAllText(Path.Combine(root, "navs", "vt-proof-route.af")));
+    }
+
+    /// <summary>
+    /// The companion document the session proof ships beside its .usd, read
+    /// off disk at the exact key the plugin will look it up under.
+    /// </summary>
+    private static void WriteSessionProofPluginState(IPluginStorage storage) =>
+        storage.WriteText(
+            SessionProofSidecarKey,
+            File.ReadAllText(Path.Combine(
+                SessionProofFixtureRoot,
+                "plugin-storage",
+                "acdream.mosstank",
+                SessionProofSidecarKey.Replace('/', Path.DirectorySeparatorChar))));
+
+    private const string SessionProofSidecarKey =
+        "profiles/macro/sidecar/vt-proof-settings.usd.json";
 
     private static void Command(MossTankPanel panel, string arguments) =>
         panel.ExecuteVtankCommand(new PluginCommand(
@@ -462,7 +827,8 @@ public sealed class MossTankAutostartTests
     private sealed class FakeLogger : IPluginLogger
     {
         public List<string> Errors { get; } = [];
-        public void Info(string message) { }
+        public List<string> Infos { get; } = [];
+        public void Info(string message) => Infos.Add(message);
         public void Warn(string message) { }
         public void Error(string message, Exception? exception = null) =>
             Errors.Add(message);

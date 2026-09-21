@@ -60,6 +60,9 @@
             checked="{UseDispelItemsEnabled}" onclick="{ToggleUseDispelItems}" />
     <toggle x="282" y="68" w="120" h="20" text="Cast Dispel Self"
             checked="{CastDispelSelfEnabled}" onclick="{ToggleCastDispelSelf}" />
+    <toggle x="282" y="88" w="160" h="20" text="Show Nav Lines"
+            checked="{ShowNavLinesEnabled}" onclick="{ToggleShowNavLines}"
+            tooltip="Draw the loaded route and highlight its current waypoint in the world." />
     <toggle x="282" y="128" w="120" h="20" text="Auto Fellow Mgmt."
             checked="{AutoFellowManagementEnabled}" onclick="{ToggleAutoFellowManagement}" />
     <toggle x="282" y="148" w="160" h="20" text="M. Charges When Off"
@@ -110,9 +113,6 @@
             onclick="{ClearProfile}" />
     <toggle x="476" y="8" w="80" h="20" text="Mine only"
             checked="{MineOnlyEnabled}" onclick="{ToggleMineOnly}" />
-    <button x="566" y="8" w="76" h="20" text="Delete"
-            onclick="{DeleteProfile}"
-            tooltip="Delete the selected named profile's real .usd file. Not available for By char." />
 
     <toggle x="8" y="32" w="142" h="20" text="Enable Auto-Navigation"
             checked="{NavigationEnabled}" onclick="{ToggleNavigation}" />
@@ -122,9 +122,6 @@
     <button x="306" y="32" w="50" h="20" text="CopyTo" onclick="{CopyRouteProfile}" />
     <button x="366" y="32" w="100" h="20" text="Clear nav profile!"
             onclick="{ClearRouteProfile}" />
-    <button x="566" y="32" w="76" h="20" text="Delete"
-            onclick="{DeleteRouteProfile}"
-            tooltip="Delete the selected named route's real .af file. Not available for By char." />
 
     <toggle x="8" y="56" w="142" h="20" text="Enable Looting"
             checked="{LootEnabled}" onclick="{ToggleLooting}" />
@@ -132,11 +129,6 @@
           selected="{LootProfileName}" onchange="{SelectLootProfile}"
           rows="7" scroll="true" tooltip="Select the active loot profile." />
     <button x="306" y="56" w="50" h="20" text="New" onclick="{CreateLootProfile}" />
-    <button x="566" y="56" w="76" h="20" text="Delete"
-            onclick="{DeleteLootProfile}"
-            tooltip="Delete the selected named loot profile's real .utl file. Not available for By char." />
-    <toggle x="652" y="56" w="80" h="20" text="Show Editor"
-            checked="{LootEditorVisible}" onclick="{ToggleLootEditorVisible}" />
 
     <toggle x="8" y="80" w="142" h="20" text="Enable Meta Actions"
             checked="{MetaEnabled}" onclick="{ToggleMeta}" />
@@ -144,9 +136,6 @@
           selected="{SelectedMetaProfile}" onchange="{SelectMetaProfile}"
           rows="7" scroll="true" tooltip="Select the active meta profile." />
     <button x="306" y="80" w="50" h="20" text="CopyTo" onclick="{CopyMetaProfile}" />
-    <button x="566" y="80" w="76" h="20" text="Delete"
-            onclick="{DeleteMetaProfile}"
-            tooltip="Delete the selected named Meta profile's real .af file. Not available for By char." />
 
     <label x="8" y="108" w="400" h="16" text="{LootStatus}" color="#FF9B9072" />
   </group>
@@ -317,7 +306,7 @@
 
   <group x="8" y="42" w="976" h="229" visible="{BuffsVisible}" anchor="left top right bottom">
     <label x="4" y="0" w="320" h="16" text="Extra Buff Spells" color="#FFE8DEC3"
-           tooltip="Named spell exemplars — stored and shown here, not yet used when choosing what to cast (#491)." />
+           tooltip="Named spell exemplars selected for self-buff upkeep." />
     <list x="4" y="18" w="320" h="151" rowheight="17" anchor="left top bottom"
           items="{ExtraBuffRows}" selected="{SelectedExtraBuffIndex}"
           onchange="{DeleteExtraBuffAt}" tooltip="Click a row to remove it." />
@@ -325,7 +314,7 @@
 
     <label x="652" y="0" w="320" h="16" text="Blacklisted Buff Families" color="#FFE8DEC3"
            anchor="right"
-           tooltip="Named buff families — stored and shown here, not yet used when choosing what to cast (#491)." />
+           tooltip="Named buff families excluded from self-buff upkeep." />
     <list x="652" y="18" w="320" h="151" rowheight="17" anchor="right top bottom"
           items="{BlacklistedBuffFamilyRows}" selected="{SelectedBlacklistedBuffIndex}"
           onchange="{DeleteBlacklistedBuffFamilyAt}" tooltip="Click a row to remove it." />
@@ -375,9 +364,11 @@
            onchange="{SetRouteChatDraft}" onsubmit="{SetRouteChatDraft}"
            maxlength="128" clearonsubmit="false" background="#E6000000"
            color="#FFE8DEC3" tooltip="Chat command added by Add Chat." />
-    <toggle x="604" y="16" w="220" h="20" text="Walk legs with client pathing"
-            checked="{WalkLegsWithClientEnabled}" onclick="{ToggleWalkLegsWithClient}"
-            tooltip="Have the client plan and walk each leg of the route: around walls, creatures and doors, and back from wherever a fight left the character." />
+    <label x="604" y="16" w="88" h="20" text="Client pathing" color="#FFE8DEC3" />
+    <menu x="694" y="16" w="112" h="20" items="{ClientPathingNames}"
+          selected="{SelectedClientPathing}" onchange="{SelectClientPathing}"
+          rows="3" openupward="false"
+          tooltip="When the client's own pathing walks a leg for the route: never (the straight walk at every point), when the straight walk is stuck (once per waypoint), or for every leg (a leg the client cannot walk pauses the route)." />
 
     <label x="4" y="195" w="300" h="16" text="{NavigationStatus}" color="#FF9B9072" anchor="bottom" />
     <label x="310" y="195" w="300" h="16" text="{RouteNotice}" color="#FF9B9072" anchor="bottom" />

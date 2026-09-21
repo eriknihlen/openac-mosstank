@@ -26,7 +26,8 @@ internal sealed class StatusHudManager(IPluginHost host)
 
     public bool Update(string key, string value, uint? color = null)
     {
-        if (string.IsNullOrEmpty(key))
+        // No key, or no window host to show the status in, is a plain false.
+        if (string.IsNullOrEmpty(key) || (!host.HasUi && _registration is null))
             return false;
         _entries[key] = new StatusEntry(value ?? string.Empty, color ?? DefaultColor);
         _binding.Rows = _entries.Select(static pair =>

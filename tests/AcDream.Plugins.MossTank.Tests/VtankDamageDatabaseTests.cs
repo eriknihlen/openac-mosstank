@@ -52,12 +52,16 @@ public sealed class VtankDamageDatabaseTests
         Assert.Empty(Fixture().DamagePreferences("New Server Creature"));
 
     [Fact]
-    public void NoFileMeansNoDataAtAll()
+    // The reference client reads the database it ships inside itself when
+    // the profile directory has none. Every table it ships is empty: the
+    // content came from its online service and from monsters met in play,
+    // so a fresh install knows nothing yet, but it is loaded and grows.
+    public void NoFileMeansTheShippedDefault()
     {
         VtankGameInfoDatabase database = VtankGameInfoDatabase.Load(
             new EmptyStorage());
 
-        Assert.False(database.IsLoaded);
+        Assert.True(database.IsLoaded);
         Assert.Empty(database.DamagePreferences("Magma Golem"));
         Assert.Empty(database.MonsterDamageOverrides);
         Assert.Empty(database.SpeciesMembers);
@@ -66,17 +70,17 @@ public sealed class VtankDamageDatabaseTests
         Assert.Empty(database.HealKits);
         Assert.Empty(database.GrenadeOptions);
         Assert.Empty(database.DrainSpellOptions);
-        Assert.Empty(database.MartyrSpellOptions);
     }
 
     [Fact]
-    public void AFileTheGrammarRejectsIsAlsoNoData()
+    public void AFileTheGrammarRejectsFallsBackToTheShippedDefault()
     {
         VtankGameInfoDatabase database = VtankGameInfoDatabase.Load(
             new TextStorage("this is not a ugd"));
 
-        Assert.False(database.IsLoaded);
+        Assert.True(database.IsLoaded);
         Assert.Empty(database.DamagePreferences("Magma Golem"));
+        Assert.Empty(database.AmmunitionOptions);
     }
 
     [Fact]

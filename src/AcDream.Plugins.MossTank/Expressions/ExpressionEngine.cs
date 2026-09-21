@@ -135,8 +135,9 @@ internal sealed class ExpressionProgram
                     lhs.AsNumber("division") / rhs.AsNumber("division")),
                 TokenKind.Percent => ExpressionValue.Number(
                     lhs.AsNumber("modulo") % rhs.AsNumber("modulo")),
-                TokenKind.Caret => ExpressionValue.Number(Math.Pow(
-                    lhs.AsNumber("power"), rhs.AsNumber("power"))),
+                TokenKind.Caret => ExpressionValue.Number(
+                    unchecked((int)lhs.AsNumber("bitwise xor"))
+                    ^ unchecked((int)rhs.AsNumber("bitwise xor"))),
                 TokenKind.ShiftLeft => ExpressionValue.Number(
                     lhs.AsInt32("left shift") << rhs.AsInt32("left shift")),
                 TokenKind.ShiftRight => ExpressionValue.Number(
@@ -383,8 +384,17 @@ internal sealed class ExpressionProgram
             if (TryOperator(out Token operation))
                 return operation;
 
-            while (_offset < source.Length && !IsDelimiter(source[_offset]))
+            while (_offset < source.Length)
+            {
+                if (source[_offset] == '\\' && _offset + 1 < source.Length)
+                {
+                    _offset += 2;
+                    continue;
+                }
+                if (IsDelimiter(source[_offset]))
+                    break;
                 _offset++;
+            }
             string text = source[start.._offset].Trim();
             if (text.Length == 0)
             {
@@ -572,7 +582,7 @@ internal sealed class ExpressionProgram
 
         private Node ParseAssignment()
         {
-            Node left = ParseOr();
+            Node left = ParseLogical();
             if (_current.Kind != TokenKind.Equal)
                 return left;
             Token operation = _current;
@@ -586,8 +596,11 @@ internal sealed class ExpressionProgram
             return new AssignmentNode(variable, ParseAssignment(), operation.Offset);
         }
 
-        private Node ParseOr() => ParseLeft(ParseAnd, TokenKind.OrOr);
-        private Node ParseAnd() => ParseLeft(ParseComparison, TokenKind.AndAnd);
+        private Node ParseLogical() => ParseLeft(
+            ParseComparison,
+            TokenKind.AndAnd,
+            TokenKind.OrOr,
+            TokenKind.Caret);
         private Node ParseComparison() => ParseLeft(
             ParseRegex,
             TokenKind.EqualEqual,
@@ -608,24 +621,10 @@ internal sealed class ExpressionProgram
             TokenKind.Plus,
             TokenKind.Minus);
         private Node ParseMultiplicative() => ParseLeft(
-            ParsePower,
+            ParseUnary,
             TokenKind.Star,
             TokenKind.Slash,
             TokenKind.Percent);
-
-        private Node ParsePower()
-        {
-            Node left = ParseUnary();
-            if (_current.Kind != TokenKind.Caret)
-                return left;
-            Token operation = _current;
-            Advance();
-            return new BinaryNode(
-                operation.Kind,
-                left,
-                ParsePower(),
-                operation.Offset);
-        }
 
         private Node ParseUnary()
         {

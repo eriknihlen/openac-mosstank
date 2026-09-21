@@ -73,17 +73,18 @@ public sealed class VitalSettings
         set => NormalStamina = Clamp(value);
     }
 
+    // The reference has two self-recharge rows, each reading ONE named
+    // setting: the normal thresholds high up the list, the no-target
+    // thresholds far below loot, the buff top-off and the monster
+    // approach. The row order is what makes the second set mean "when
+    // nothing else wants the pass", so the two sets are never merged --
+    // merging them lets the upper row claim at the lower row's threshold
+    // and the lower row can then never fire.
     internal double Threshold(VitalKind vital, bool noTarget) => vital switch
     {
-        VitalKind.Health => noTarget
-            ? Math.Max(NormalHealth, NoTargetHealth)
-            : NormalHealth,
-        VitalKind.Stamina => noTarget
-            ? Math.Max(NormalStamina, NoTargetStamina)
-            : NormalStamina,
-        VitalKind.Mana => noTarget
-            ? Math.Max(NormalMana, NoTargetMana)
-            : NormalMana,
+        VitalKind.Health => noTarget ? NoTargetHealth : NormalHealth,
+        VitalKind.Stamina => noTarget ? NoTargetStamina : NormalStamina,
+        VitalKind.Mana => noTarget ? NoTargetMana : NormalMana,
         _ => 0d,
     };
 

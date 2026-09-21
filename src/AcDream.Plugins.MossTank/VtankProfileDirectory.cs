@@ -168,7 +168,7 @@ internal static class VtankProfileDirectory
     public static string CdfFileName(string characterName, string server) =>
         $"{server}_{characterName}.cdf";
 
-    /// <summary>The literal version header a valid <c>.cdf</c> starts with (<c>da.cs:15</c>).</summary>
+    /// <summary>The literal version header a valid <c>.cdf</c> starts with.</summary>
     internal const string CdfHeader = "uTank2 CDF 1.0";
 
     public readonly record struct VtankCharacterBinding(

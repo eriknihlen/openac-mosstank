@@ -28,13 +28,30 @@ internal static class VtankAmmunitionDatabase
 
     public static IReadOnlyList<VtankAmmunitionOption> Options => Loaded.Value;
 
-    public static int LauncherType(uint ammoType) => ammoType switch
+    internal enum MissileKind
     {
-        0x001u or 0x008u or 0x040u => 5,
-        0x002u or 0x010u or 0x080u => 6,
-        0x004u or 0x020u or 0x100u => 7,
-        _ => 0,
-    };
+        None = 0,
+        Bow = 5,
+        Crossbow = 6,
+        Atlatl = 7,
+        Thrown = 8,
+    }
+
+    public static MissileKind Kind(in PluginEquipmentItem item) =>
+        item.ObjectClass != PluginObjectClass.MissileWeapon
+            ? MissileKind.None
+            : item.AmmoType switch
+            {
+                1u => MissileKind.Bow,
+                2u => MissileKind.Crossbow,
+                4u => MissileKind.Atlatl,
+                0u => MissileKind.Thrown,
+                _ => MissileKind.None,
+            };
+
+    public static int LauncherType(in PluginEquipmentItem item) =>
+        Kind(in item) is MissileKind.Bow or MissileKind.Crossbow
+            or MissileKind.Atlatl ? (int)Kind(in item) : 0;
 
     /// <summary>
     /// The bundled table. Kept as the fallback for a session with no
@@ -68,7 +85,7 @@ internal static class VtankAmmunitionDatabase
         ArgumentNullException.ThrowIfNull(character);
         ArgumentNullException.ThrowIfNull(isAvailable);
         int desiredElement = Element(damage);
-        if (launcherType == 0 || desiredElement < 0)
+        if (launcherType == 0)
             return null;
 
         VtankAmmunitionOption? best = null;
@@ -77,15 +94,16 @@ internal static class VtankAmmunitionDatabase
         {
             if (option.LauncherType != launcherType)
                 continue;
+            int optionElement = option.Element == 100 ? 11 : option.Element;
             int quality = option.Quality;
             if (prismatic == VtankPrismaticAmmoPolicy.ForcePrismatic
-                && option.Element != 100)
+                && optionElement != 11)
             {
                 quality -= 1000;
             }
-            if (option.Element != desiredElement)
+            if (optionElement != desiredElement)
             {
-                if (option.Element != 100)
+                if (optionElement != 11)
                     continue;
                 if (prismatic == VtankPrismaticAmmoPolicy.NoPrismatic)
                     quality -= 1000;
@@ -111,7 +129,8 @@ internal static class VtankAmmunitionDatabase
         if (option.WieldRequirement > 0)
         {
             if (!character.TryGetSkill(47u, out PluginSkillInfo missile)
-                || missile.Training == PluginSkillTraining.Untrained
+                || missile.Training is PluginSkillTraining.Unknown
+                    or PluginSkillTraining.Untrained
                 || missile.Base < option.WieldRequirement)
             {
                 return false;
@@ -135,7 +154,16 @@ internal static class VtankAmmunitionDatabase
         MonsterDamageType.Electric => 4,
         MonsterDamageType.Cold => 5,
         MonsterDamageType.Fire => 6,
-        MonsterDamageType.Prismatic => 0,
+        MonsterDamageType.Harm => 7,
+        MonsterDamageType.Auto => 8,
+        MonsterDamageType.VoidBasic => 9,
+        MonsterDamageType.DrainAuto => 10,
+        MonsterDamageType.Prismatic => 11,
+        MonsterDamageType.Random => 12,
+        MonsterDamageType.Fists => 13,
+        MonsterDamageType.None => 98,
+        MonsterDamageType.Physical => 99,
+        MonsterDamageType.PlayerAuto => 101,
         _ => -1,
     };
 

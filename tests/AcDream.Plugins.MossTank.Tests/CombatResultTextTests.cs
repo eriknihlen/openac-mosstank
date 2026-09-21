@@ -3,11 +3,10 @@ namespace AcDream.Plugins.MossTank.Tests;
 public sealed class CombatResultTextTests
 {
     [Theory]
-    // d3.cs:46-47 — l.g.a, plain fail.
+    // Plain fail.
     [InlineData("Your spell fizzled.", CombatResultTextClass.Fail, "")]
     [InlineData("Drudge Slinker resists your spell", CombatResultTextClass.Fail, "Drudge Slinker")]
-    // d3.cs:48-52 — l.g.b, permanent fail: the ONLY thing that force-trips the
-    // blacklist (gj.cs:412 -> fp.a).
+    // Permanent fail: the ONLY thing that force-trips the blacklist.
     [InlineData("Target is out of range", CombatResultTextClass.PermanentFail, "")]
     [InlineData(
         "Drudge Slinker is an invalid target.",
@@ -17,7 +16,7 @@ public sealed class CombatResultTextTests
         "You fail to affect Drudge Slinker because you are not a player killer!",
         CombatResultTextClass.PermanentFail,
         "Drudge Slinker")]
-    // d3.cs:53-65 — l.g.c, success.
+    // Success.
     [InlineData(
         "You cast Frost Bolt VII on Drudge Slinker",
         CombatResultTextClass.Success,
@@ -26,7 +25,7 @@ public sealed class CombatResultTextTests
         "You cast Imperil Other VII on Drudge Slinker, refreshing Imperil Other VI",
         CombatResultTextClass.Success,
         "Drudge Slinker")]
-    // d3.cs:66-101 — l.g.d, kill.
+    // Kill.
     [InlineData("You killed Drudge Slinker!", CombatResultTextClass.Kill, "Drudge Slinker")]
     [InlineData("You obliterate Drudge Slinker!", CombatResultTextClass.Kill, "Drudge Slinker")]
     [InlineData(

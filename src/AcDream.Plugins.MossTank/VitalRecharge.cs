@@ -60,6 +60,7 @@ public readonly record struct RechargeHandlerRow(
 internal static class VitalRechargePlanner
 {
     private const uint HealingSkill = 21u;
+    private const uint HealingKitPublicFlag = 0x00010000u;
     private const uint CasterItemType = 0x00008000u;
 
     public static bool TryPlan(
@@ -67,7 +68,8 @@ internal static class VitalRechargePlanner
         IAutomationSurface automation,
         VitalSettings settings,
         CombatSettings combatSettings,
-        out VitalRechargeChoice choice)
+        out VitalRechargeChoice choice,
+        Action<string>? trace = null)
     {
         ArgumentNullException.ThrowIfNull(automation);
         ArgumentNullException.ThrowIfNull(settings);
@@ -86,6 +88,33 @@ internal static class VitalRechargePlanner
         IReadOnlyList<PluginInventoryItem> items =
             automation.Items.CaptureOwnedItems();
 
+        if (trace is not null)
+        {
+            ICharacterInfo character = automation.Character;
+            bool hasHealing = character.TryGetSkill(HealingSkill, out PluginSkillInfo healing);
+            trace($"Recharge check: vital={vital}, percent={percent}, mode={mode}, handlers={string.Join(",", handlers)}, health={character.CurrentHealth}/{character.MaxHealth}, stamina={character.CurrentStamina}/{character.MaxStamina}, Healing={healing.Current}/{healing.Training}, skillPresent={hasHealing}, kitsInMagic={settings.UseKitsInMagicMode}, minimumKitChance={settings.MinimumHealKitSuccessChance}, healthThresholds={settings.NormalHealth}/{settings.NoTargetHealth}");
+            foreach (PluginInventoryItem item in items)
+            {
+                bool configured = combatSettings.ConsumableNames.Contains(item.Name);
+                if (!configured && (item.PublicFlags & HealingKitPublicFlag) == 0u
+                    && !item.Name.Contains("kit", StringComparison.OrdinalIgnoreCase))
+                    continue;
+                double chance = HealKitChance(healing.Current, item.BoostValue, character, vital, mode) * 100d;
+                string rejection = !configured ? "not configured"
+                    : !ConfiguredSupplyReadiness.IsAssessed(automation, item.ObjectId) ? "awaiting assessment"
+                    : mode == PluginCombatMode.Magic && !settings.UseKitsInMagicMode ? "kits disabled in magic"
+                    : vital != VitalKind.Stamina && character.CurrentStamina < 15u ? "stamina below 15"
+                    : !hasHealing || healing.Training is not (PluginSkillTraining.Trained or PluginSkillTraining.Specialized) ? "Healing not trained"
+                    : item.BoosterVital != (int)vital ? "vital does not match"
+                    : (item.PublicFlags & HealingKitPublicFlag) == 0u ? "missing healer flag"
+                    : item.UseRequiresSkillLevel > healing.Current ? "skill level too low"
+                    : item.UseRequiresSkillSpecialized != 0 && healing.Training != PluginSkillTraining.Specialized ? "specialization required"
+                    : chance < settings.MinimumHealKitSuccessChance ? "success chance below minimum"
+                    : "eligible";
+                trace($"Kit check: {item.Name} (0x{item.ObjectId:X8}), result={rejection}, configured={configured}, flags=0x{item.PublicFlags:X8}, boosterVital={item.BoosterVital}, bonus={item.BoostValue}, modifier={item.HealKitModifier}, uses={item.Structure}, requiredSkill={item.UseRequiresSkill}, requiredLevel={item.UseRequiresSkillLevel}, requiredSpec={item.UseRequiresSkillSpecialized}, chance={chance:F2}%");
+            }
+        }
+
         foreach (VitalRechargeMethod handler in handlers)
         {
             if (TryHandler(
@@ -97,6 +126,7 @@ internal static class VitalRechargePlanner
                     items,
                     out choice))
             {
+                trace?.Invoke($"Recharge selected: handler={handler}, source={choice.SourceKind}, name={choice.Name}");
                 return true;
             }
         }
@@ -117,6 +147,23 @@ internal static class VitalRechargePlanner
         IAutomationSurface automation,
         VitalSettings settings,
         CombatSettings combatSettings,
+        out VitalRechargeChoice choice) => TryPlanHelper(
+            automation,
+            settings,
+            combatSettings,
+            trace: null,
+            out choice);
+
+    /// <summary>
+    /// <paramref name="trace"/> receives the helper spell walk's pick and
+    /// rejections, in the buff pass's own wording, so a connected run can
+    /// show why a tier was skipped or nothing was cast at all.
+    /// </summary>
+    public static bool TryPlanHelper(
+        IAutomationSurface automation,
+        VitalSettings settings,
+        CombatSettings combatSettings,
+        Action<string>? trace,
         out VitalRechargeChoice choice)
     {
         ArgumentNullException.ThrowIfNull(automation);
@@ -154,12 +201,11 @@ internal static class VitalRechargePlanner
                 return true;
             }
             if (!automation.Spells.TryGet(baseSpell, out PluginSpellInfo basis)
-                || !TryFindFamily(
-                    automation.Spells.KnownSelfBuffs,
-                    basis.Family,
-                    automation.Character,
-                    automation.Spells,
-                    combatSettings.BlacklistedSpellComponents,
+                || !TryResolveHelperSpell(
+                    automation,
+                    basis,
+                    combatSettings,
+                    trace,
                     out PluginSpellInfo spell))
             {
                 continue;
@@ -189,8 +235,10 @@ internal static class VitalRechargePlanner
         out VitalRechargeChoice choice)
     {
         choice = default;
-        // fb.cs:71-78 — the setting, then the ItemUse lock.
-        if (!settings.UseHealersHeart || automation.Items.IsBusy)
+        // The item-use slot is the caller's gate, as the reference gates
+        // this row: never the host's inventory transaction state, which a
+        // cast of its own raises.
+        if (!settings.UseHealersHeart)
             return false;
         if (!automation.Character.TryGetSkill(33u, out PluginSkillInfo life)
             || life.Current < 245u
@@ -509,7 +557,12 @@ internal static class VitalRechargePlanner
                     items,
                     out choice);
             case VitalRechargeMethod.Food:
-                return TryFood(vital, combatSettings, items, out choice);
+                return TryFood(
+                    vital,
+                    automation,
+                    combatSettings,
+                    items,
+                    out choice);
         }
 
         (string stem, VitalKind? sourceVital) = SpellStem(method, vital);
@@ -607,6 +660,12 @@ internal static class VitalRechargePlanner
             }
             if ((item.ItemType & CasterItemType) == 0u)
                 continue;
+            if (!ConfiguredSupplyReadiness.IsAssessed(
+                    automation,
+                    item.ObjectId))
+            {
+                continue;
+            }
 
             foreach (uint spellId in ItemSpellIds(item))
             {
@@ -677,17 +736,48 @@ internal static class VitalRechargePlanner
 
         bool found = false;
         PluginInventoryItem best = default;
+        double bestRestore = double.NegativeInfinity;
         foreach (PluginInventoryItem item in items)
         {
-            if (!combatSettings.ConsumableNames.Contains(item.Name)
-                || item.BoosterVital != (int)vital
-                || item.UseRequiresSkill != (int)HealingSkill
-                || item.UseRequiresSkillLevel > healing.Current
-                || item.UseRequiresSkillSpecialized != 0
-                    && healing.Training != PluginSkillTraining.Specialized
-                || HealKitChance(
+            if (!combatSettings.ConsumableNames.Contains(item.Name))
+                continue;
+            // The reference never appraises a kit: its kind comes from the
+            // profile and its bonuses from the game-info table, by name. An
+            // appraised kit is judged by its own properties; an unappraised
+            // one by the profile's kind and the table, as the reference does.
+            int skillBonus;
+            double restoreBonus;
+            if (ConfiguredSupplyReadiness.IsAssessed(automation, item.ObjectId))
+            {
+                if (item.BoosterVital != (int)vital
+                    || (item.PublicFlags & HealingKitPublicFlag) == 0u
+                    || item.UseRequiresSkillLevel > healing.Current
+                    || item.UseRequiresSkillSpecialized != 0
+                        && healing.Training != PluginSkillTraining.Specialized)
+                {
+                    continue;
+                }
+                skillBonus = item.BoostValue;
+                restoreBonus = item.HealKitModifier;
+            }
+            else
+            {
+                if (!combatSettings.ConsumableCategories.TryGetValue(
+                        item.Name,
+                        out ConsumableCategory category)
+                    || category != KitCategoryFor(vital))
+                {
+                    continue;
+                }
+                bool listed = combatSettings.HealKits.TryGetValue(
+                    item.Name,
+                    out VtankHealKit tableRow);
+                skillBonus = listed ? tableRow.SkillBonus : 0;
+                restoreBonus = listed ? tableRow.RestoreBonus : 1d;
+            }
+            if (HealKitChance(
                     healing.Current,
-                    item.BoostValue,
+                    skillBonus,
                     automation.Character,
                     vital,
                     mode) * 100d < settings.MinimumHealKitSuccessChance)
@@ -695,11 +785,12 @@ internal static class VitalRechargePlanner
                 continue;
             }
             if (!found
-                || item.HealKitModifier > best.HealKitModifier
-                || item.HealKitModifier == best.HealKitModifier
-                    && item.ObjectId < best.ObjectId)
+                || restoreBonus > bestRestore
+                || restoreBonus == bestRestore
+                    && item.Structure < best.Structure)
             {
                 best = item;
+                bestRestore = restoreBonus;
                 found = true;
             }
         }
@@ -721,17 +812,43 @@ internal static class VitalRechargePlanner
         return true;
     }
 
+    private static ConsumableCategory KitCategoryFor(VitalKind vital) => vital switch
+    {
+        VitalKind.Stamina => ConsumableCategory.StaminaKit,
+        VitalKind.Mana => ConsumableCategory.ManaKit,
+        _ => ConsumableCategory.HealthKit,
+    };
+
+    private static ConsumableCategory FoodCategoryFor(VitalKind vital) => vital switch
+    {
+        VitalKind.Stamina => ConsumableCategory.StaminaFood,
+        VitalKind.Mana => ConsumableCategory.ManaFood,
+        _ => ConsumableCategory.HealthFood,
+    };
+
     private static bool TryFood(
         VitalKind vital,
+        IAutomationSurface automation,
         CombatSettings settings,
         IReadOnlyList<PluginInventoryItem> items,
         out VitalRechargeChoice choice)
     {
         foreach (PluginInventoryItem item in items)
         {
-            if (settings.ConsumableNames.Contains(item.Name)
-                && item.BoosterVital == (int)vital
-                && item.UseRequiresSkill != (int)HealingSkill)
+            if (!settings.ConsumableNames.Contains(item.Name))
+                continue;
+            // As with kits: an appraised item by its properties, an unappraised
+            // one by the kind the profile gives it. The reference appraises
+            // neither.
+            bool eligible = ConfiguredSupplyReadiness.IsAssessed(automation, item.ObjectId)
+                ? item.BoosterVital == (int)vital
+                    && (item.PublicFlags & HealingKitPublicFlag) == 0u
+                    && item.UseRequiresSkill != (int)HealingSkill
+                : settings.ConsumableCategories.TryGetValue(
+                        item.Name,
+                        out ConsumableCategory category)
+                    && category == FoodCategoryFor(vital);
+            if (eligible)
             {
                 choice = new VitalRechargeChoice(
                     vital,
@@ -852,6 +969,13 @@ internal static class VitalRechargePlanner
             checked((int)Math.Floor(sourceCurrent * multiplier)));
     }
 
+    /// <summary>
+    /// A fellow's vitals are trusted only this long after the server last
+    /// streamed them; older samples (or none at all) mean "unknown", never
+    /// "still low".
+    /// </summary>
+    internal const double FellowVitalsTrustSeconds = 10d;
+
     private static PluginFellowMember? Lowest(
         IReadOnlyList<PluginFellowMember> members,
         VitalKind vital,
@@ -862,8 +986,12 @@ internal static class VitalRechargePlanner
         double bestFraction = double.PositiveInfinity;
         foreach (PluginFellowMember member in members)
         {
-            if (member.Distance > maximumDistance)
+            if (member.VitalsAgeSeconds is not { } age
+                || age >= FellowVitalsTrustSeconds
+                || member.Distance > maximumDistance)
+            {
                 continue;
+            }
             (uint current, uint maximum) = vital switch
             {
                 VitalKind.Health => (member.CurrentHealth, member.MaxHealth),
@@ -883,34 +1011,82 @@ internal static class VitalRechargePlanner
         return best;
     }
 
-    private static bool TryFindFamily(
-        IReadOnlyList<PluginSpellInfo> known,
-        uint family,
-        ICharacterInfo character,
-        ISpellCatalog catalog,
-        string blacklistedComponents,
-        out PluginSpellInfo pick)
+    /// <summary>
+    /// The helper spell is the best castable tier of the reference's family
+    /// that stays on the reference's own line — a family holds both the Self
+    /// and the Other line, and only the component set tells them apart. Same
+    /// accept as the buff walk, with the hunting skill margin.
+    /// </summary>
+    private static bool TryResolveHelperSpell(
+        IAutomationSurface automation,
+        in PluginSpellInfo reference,
+        CombatSettings combatSettings,
+        Action<string>? trace,
+        out PluginSpellInfo spell)
     {
-        pick = default;
-        bool found = false;
-        foreach (PluginSpellInfo spell in known)
+        var tiers = new List<PluginSpellInfo>();
+        foreach (PluginSpellInfo candidate in automation.Spells.KnownSelfBuffs)
         {
-            if (spell.Family != family
-                || SpellComponentPolicy.UsesBlacklistedComponent(
-                    catalog,
-                    spell,
-                    blacklistedComponents)
-                || !CanCast(character, spell))
-                continue;
-            if (!found
-                || spell.Quality > pick.Quality
-                || spell.Quality == pick.Quality && spell.Tier > pick.Tier)
-            {
-                pick = spell;
-                found = true;
-            }
+            if (candidate.Family == reference.Family)
+                tiers.Add(candidate);
         }
-        return found;
+        tiers.Sort(static (a, b) =>
+        {
+            if (a.Tier != b.Tier)
+                return b.Tier.CompareTo(a.Tier);
+            if (a.Quality != b.Quality)
+                return b.Quality.CompareTo(a.Quality);
+            return a.SpellId.CompareTo(b.SpellId);
+        });
+
+        var skillLevels = new Dictionary<uint, uint>();
+        foreach (PluginSkillInfo skill in automation.Character.Skills)
+            skillLevels[skill.SkillId] = skill.Current;
+
+        var castability = new BuffCastability(
+            automation.Spells,
+            automation.Magic,
+            automation.Items.IsAvailable
+                ? automation.Items.CaptureOwnedItems()
+                : [],
+            combatSettings.BlacklistedSpellComponents,
+            text => trace?.Invoke(text),
+            (walked, pick, rejections) =>
+                trace?.Invoke(FormatHelperTrace(walked, pick, rejections)));
+        var line = new BuffLine(
+            reference.Family, BuffTargetKind.Other, reference.Name, tiers)
+        {
+            ReferenceOverride = reference,
+        };
+        return BuffPlan.TryPickTier(
+            line,
+            skillLevels,
+            combatSettings.HuntSkillExcessOverDifficulty,
+            castability,
+            out spell);
+    }
+
+    /// <summary>
+    /// The buff pass's tier-trace wording: the pick, then every rejected
+    /// tier above it with its reason (all of them when nothing was picked).
+    /// </summary>
+    private static string FormatHelperTrace(
+        BuffLine line,
+        PluginSpellInfo? pick,
+        IReadOnlyList<BuffTierRejection> rejections)
+    {
+        int floor = pick?.Tier ?? int.MinValue;
+        var higher = new List<string>();
+        foreach (BuffTierRejection rejection in rejections)
+        {
+            if (rejection.Spell.Tier > floor)
+                higher.Add($"{rejection.Spell.Name} {rejection.Reason}");
+        }
+        string pickedText = pick is { } spell
+            ? $"picked {spell.Name} (gen {spell.Tier})"
+            : "picked nothing";
+        string rejectedText = higher.Count == 0 ? "none" : string.Join(", ", higher);
+        return $"Helping: {line.Reference.Name} \u2014 {pickedText}; rejected: {rejectedText}";
     }
 
     private static bool CanCast(ICharacterInfo character, PluginSpellInfo spell) =>
@@ -927,7 +1103,7 @@ internal static class VitalRechargePlanner
         int quality = candidate.Quality.CompareTo(current.Quality);
         if (quality != 0)
             return quality > 0;
-        // dz.cs/m.cs: a direct learned spell wins the final source tie.
+        // A direct learned spell wins the final source tie.
         if ((candidateItem == 0u) != (currentItem == 0u))
             return candidateItem == 0u;
         return candidateItem < currentItem;
@@ -967,15 +1143,38 @@ internal static class VitalRechargePlanner
 /// <summary>One server-receipt-driven self-recharge state machine.</summary>
 internal sealed class VitalRechargeController
 {
+    private CombatModeGate? _combatModeGate;
+
+    internal void BindCombatModeGate(CombatModeGate gate) =>
+        _combatModeGate = gate ?? throw new ArgumentNullException(nameof(gate));
+
     private readonly IPluginHost _host;
     private readonly VitalSettings _settings;
     private readonly CombatSettings _combatSettings;
     private Pending? _pending;
+
+    /// <summary>
+    /// True while a kit, a food item or a caster item this controller used
+    /// is still unanswered. The reference's kit sequencer and wand cast
+    /// tracker both raise the global busy count for that whole wait.
+    /// </summary>
+    internal bool ItemUseInFlight => _pending is { Choice.UsesItem: true };
+
+    /// <summary>
+    /// True while a recharge cast from a LEARNED SPELL is still unanswered.
+    /// The reference raises the global busy count for the life of any cast
+    /// it issues, so the pass runs no rule until it resolves.
+    /// </summary>
+    internal bool CastInFlight => _pending is { Choice.UsesItem: false };
+
     private double _retryDelay;
+    private double _rechargeTraceDelay;
     private double _pendingSeconds;
     private double _healthBoostRemaining;
     private double _staminaBoostRemaining;
     private double _manaBoostRemaining;
+    private bool _vitalsRequested;
+    private readonly HashSet<string> _helperTraceLines = new(StringComparer.Ordinal);
 
     public VitalRechargeController(
         IPluginHost host,
@@ -990,7 +1189,55 @@ internal sealed class VitalRechargeController
 
     internal const string IdleStatus = "Vitals idle";
 
+    private void TraceRecharge(string message)
+    {
+        _rechargeTraceDelay = 5d;
+        _host.Log.Info(message);
+    }
+
     public string Status { get; private set; } = IdleStatus;
+
+    private ActionLockTable _actionLocks = new();
+
+    /// <summary>
+    /// Shares the macro's cooldown table. A kit, a stone or a bite of food
+    /// holds the item slot for as long as the macro waits on it, so nothing
+    /// else — the attack included — acts inside that window.
+    /// </summary>
+    internal void BindActionLocks(ActionLockTable locks) =>
+        _actionLocks = locks ?? throw new ArgumentNullException(nameof(locks));
+
+    private void ReleaseItemUse()
+    {
+        if (_pending is { } pending
+            && pending.Choice.SourceKind != VitalRechargeSourceKind.LearnedSpell
+            // Only while the window this owner armed is still running: past
+            // it the slot may belong to somebody else, and releasing it then
+            // would pull the floor out from under whoever holds it.
+            && _actionLocks.Now < _pendingHoldUntil)
+        {
+            _actionLocks.Release(ActionLockKind.ItemUse);
+        }
+        _pendingHoldUntil = 0d;
+    }
+
+    /// <summary>
+    /// When the item-slot window this owner armed for the outstanding use
+    /// runs out. Past it the use is still watched to its end, but it no
+    /// longer holds the character.
+    /// </summary>
+    private double _pendingHoldUntil;
+
+    /// <summary>
+    /// Whether the outstanding use still holds the pass. A cast does for as
+    /// long as it is in flight; an item use does for the window it armed and
+    /// no longer, because waiting out an answer that is not coming is this
+    /// owner's business, not everybody else's.
+    /// </summary>
+    private bool PendingStillHoldsThePass =>
+        _pending is { } waiting
+        && (waiting.Choice.SourceKind == VitalRechargeSourceKind.LearnedSpell
+            || _actionLocks.Now < _pendingHoldUntil);
 
     public bool Tick(
         double elapsedSeconds,
@@ -1000,47 +1247,47 @@ internal sealed class VitalRechargeController
     {
         IAutomationSurface automation = _host.Automation;
         double elapsed = Math.Max(0d, elapsedSeconds);
+        // Whatever the frame driver already watched off this transaction is
+        // not counted a second time here: one wall clock between the two.
+        double pendingElapsed = Math.Max(0d, elapsed - _frameObservedSeconds);
+        _frameObservedSeconds = 0d;
         _retryDelay = Math.Max(0d, _retryDelay - elapsed);
+        _rechargeTraceDelay = Math.Max(0d, _rechargeTraceDelay - elapsed);
         _healthBoostRemaining = Math.Max(0d, _healthBoostRemaining - elapsed);
         _staminaBoostRemaining = Math.Max(0d, _staminaBoostRemaining - elapsed);
         _manaBoostRemaining = Math.Max(0d, _manaBoostRemaining - elapsed);
-        if (!enabled || !_settings.Enabled || !automation.IsAvailable)
+        if (!_settings.Enabled || !automation.IsAvailable)
         {
+            ReleaseItemUse();
             _pending = null;
+            _frameObservedSeconds = 0d;
             ClearBoosts();
             Status = IdleStatus;
+            SyncVitalsRequest(automation, wanted: false);
             return false;
         }
-
+        ObservePending(pendingElapsed);
         if (_pending is { } pending)
         {
-            _pendingSeconds += Math.Max(0d, elapsedSeconds);
-            if (TryComplete(automation, pending))
-            {
-                if (_settings.ClearLevelBoostFlagOnCast
-                    && pending.Choice.SourceKind
-                        == VitalRechargeSourceKind.LearnedSpell
-                    && IsLevelBoostSpell(pending.Choice))
-                {
-                    ClearBoost(pending.Choice.Vital);
-                }
-                _pending = null;
-                _pendingSeconds = 0d;
-                _retryDelay = 0.25d;
-            }
-            else if (_pendingSeconds >= 15d)
-            {
-                Status = $"Timed out: {pending.Choice.Name}";
-                _pending = null;
-                _pendingSeconds = 0d;
-                _retryDelay = 1d;
-            }
-            else
-            {
-                Status = $"Recharging {pending.Choice.Vital}: {pending.Choice.Name}";
-                return true;
-            }
+            Status = $"Recharging {pending.Choice.Vital}: {pending.Choice.Name}";
+            return PendingStillHoldsThePass;
         }
+
+        // No turn this pass, so nothing new is begun.
+        if (!enabled)
+        {
+            ClearBoosts();
+            Status = IdleStatus;
+            SyncVitalsRequest(automation, wanted: false);
+            return false;
+        }
+        if (helpers)
+        {
+            SyncVitalsRequest(
+                automation,
+                wanted: _settings.HelpOthers && automation.Fellowship.IsInFellowship);
+        }
+
 
         VitalKind? need = VitalPlan.DecideNeed(
             automation.Character,
@@ -1058,25 +1305,36 @@ internal sealed class VitalRechargeController
         if (need is not null && !helpers)
         {
         }
+        // The reference gates both helper rows on the item-use slot, the
+        // same slot a kit or a heart holds while its animation runs.
         else if (need is null
-            && !VitalRechargePlanner.TryPlanHelper(
-                automation,
-                _settings,
-                _combatSettings,
-                out helper))
+            && (_actionLocks.IsLocked(ActionLockKind.ItemUse)
+                || !VitalRechargePlanner.TryPlanHelper(
+                    automation,
+                    _settings,
+                    _combatSettings,
+                    TraceHelper,
+                    out helper)))
         {
             Status = "Vitals ready";
             return false;
         }
         if (helpers && need is not null)
         {
-            // Rows 11/12 (fb/gu) are the HELPER rules; a self need belongs to
+            // Rows 11/12 are the HELPER rules; a self need belongs to
             // row 4 and was already offered there this pass.
             Status = "Vitals ready";
             return false;
         }
-        if (_retryDelay > 0d || automation.Magic.IsCasting || automation.Items.IsBusy)
+        // The reference rule is valid whenever a vital is below its threshold,
+        // whatever it then finds to use: a vital it has no answer for holds
+        // the pass with a warning, not a yield. The retry delay only paces
+        // how often a plan is looked for again.
+        if (_retryDelay > 0d)
+        {
+            Status = "Waiting to retry";
             return true;
+        }
 
         VitalRechargeChoice choice;
         if (need is null)
@@ -1088,11 +1346,27 @@ internal sealed class VitalRechargeController
                      automation,
                      _settings,
                      _combatSettings,
-                     out choice))
+                     out choice,
+                     _rechargeTraceDelay <= 0d ? TraceRecharge : null))
         {
             Status = $"No {need.Value} recharge available";
             _retryDelay = 1d;
-            return false;
+            return true;
+        }
+
+        if (choice.RequiredMode == PluginCombatMode.Magic
+            && _combatModeGate is { } preparation)
+        {
+            bool itemSpell = choice.SourceKind == VitalRechargeSourceKind.CasterItem;
+            if (!preparation.TryPrepare(
+                    PluginCombatMode.Magic,
+                    overrideItemId: itemSpell ? choice.ItemObjectId : 0u,
+                    autoSelect: !itemSpell))
+            {
+                ArmBoost(choice.Vital);
+                Status = preparation.Status;
+                return true;
+            }
         }
 
         if (choice.RequiredMode is { } required
@@ -1118,18 +1392,63 @@ internal sealed class VitalRechargeController
             return true;
         }
         _pending = new Pending(choice, revision);
+        if (choice.UsesItem)
+        {
+            // An item is in the character's hands until the server answers
+            // for it; the attack and every other item rule wait that out.
+            _actionLocks.Arm(
+                ActionLockKind.ItemUse,
+                ItemUseLock.TransactionSeconds);
+            _pendingHoldUntil =
+                _actionLocks.Now + ItemUseLock.TransactionSeconds;
+        }
         _pendingSeconds = 0d;
         Status = $"Recharging {choice.Vital}: {choice.Name}";
+        _host.Log.Info(choice.TargetObjectId == 0u
+            ? $"Vitals: {choice.Vital} \u2192 {choice.Name} on self"
+            : $"Vitals: {choice.Vital} \u2192 {choice.Name} at fellow 0x{choice.TargetObjectId:X8}");
         return true;
     }
 
     public void Reset()
     {
+        ReleaseItemUse();
         _pending = null;
         _pendingSeconds = 0d;
+        _frameObservedSeconds = 0d;
         _retryDelay = 0d;
+        _rechargeTraceDelay = 0d;
         ClearBoosts();
+        // The host drops its subscription with the session; only the
+        // plugin-side memory of it is stale here.
+        _vitalsRequested = false;
+        _helperTraceLines.Clear();
         Status = IdleStatus;
+    }
+
+    /// <summary>
+    /// Each distinct helper walk line reaches the launch log once per session:
+    /// the walk result and its missing-component warnings interleave, so a
+    /// last-line memory would repeat both on every tick.
+    /// </summary>
+    private void TraceHelper(string line)
+    {
+        if (!_helperTraceLines.Add(line))
+            return;
+        _host.Log.Info(line);
+    }
+
+    private void SyncVitalsRequest(IAutomationSurface automation, bool wanted)
+    {
+        if (wanted == _vitalsRequested)
+            return;
+        if (!automation.IsAvailable)
+        {
+            _vitalsRequested = false;
+            return;
+        }
+        if (automation.Fellowship.RequestVitals(wanted).Accepted)
+            _vitalsRequested = wanted;
     }
 
     private void ArmBoost(VitalKind vital)
@@ -1219,12 +1538,101 @@ internal sealed class VitalRechargeController
         return result.Accepted;
     }
 
+    /// <summary>
+    /// Seconds the frame driver has already watched off the transaction since
+    /// the rule was last asked; the next turn subtracts them.
+    /// </summary>
+    private double _frameObservedSeconds;
+
+    /// <summary>
+    /// Reads the server's answer to a use or a cast this controller issued,
+    /// on the host frame rather than on the macro pass. An unanswered use
+    /// holds the pass, so the pass cannot be what ends the wait — it would be
+    /// waiting on itself, and the hold could then only end on its watchdog,
+    /// seconds after the server had already answered. Nothing is issued here:
+    /// this only watches, and starting the next use stays with the turn.
+    /// </summary>
+    internal void ObservePendingReceipt(double elapsedSeconds)
+    {
+        if (_pending is null || !_host.Automation.IsAvailable)
+            return;
+        double elapsed = Math.Max(0d, elapsedSeconds);
+        _frameObservedSeconds += elapsed;
+        ObservePending(elapsed);
+    }
+
+    /// <summary>
+    /// An item the server has yet to answer for is a transaction of its own:
+    /// it holds the shared slot and it is watched to its end whoever owns the
+    /// pass meanwhile, because a losing tick is not a reason to abandon it —
+    /// and abandoning it is what would drop the slot early under another
+    /// owner's feet.
+    /// </summary>
+    private void ObservePending(double elapsedSeconds)
+    {
+        if (_pending is not { } pending)
+            return;
+        _pendingSeconds += Math.Max(0d, elapsedSeconds);
+        if (TryComplete(_host.Automation, pending))
+        {
+            if (_settings.ClearLevelBoostFlagOnCast
+                && pending.Choice.SourceKind
+                    == VitalRechargeSourceKind.LearnedSpell
+                && IsLevelBoostSpell(pending.Choice))
+            {
+                ClearBoost(pending.Choice.Vital);
+            }
+            ReleaseItemUse();
+            _pending = null;
+            _pendingSeconds = 0d;
+            _retryDelay = 0.25d;
+            return;
+        }
+        if (_pendingSeconds < PendingTimeoutSeconds)
+            return;
+        Status = $"Timed out: {pending.Choice.Name}";
+        ReleaseItemUse();
+        _pending = null;
+        _pendingSeconds = 0d;
+        _retryDelay = 1d;
+    }
+
+    /// <summary>How long an unanswered use is waited out before it is given up.</summary>
+    private const double PendingTimeoutSeconds = 15d;
+
+    /// <summary>
+    /// Whether the server has answered for THIS use or cast. Receipts are
+    /// read on every frame now, beside every other owner of one, so a receipt
+    /// alone says nothing: a door opened by the walk or an item used by the
+    /// combat-mode gate raises the same stamp. A receipt that is not this
+    /// one is stepped over -- its stamp is taken as the new floor, so it can
+    /// never be read twice -- and the wait goes on.
+    /// </summary>
     private static bool TryComplete(IAutomationSurface automation, Pending pending)
     {
         if (pending.Choice.SourceKind == VitalRechargeSourceKind.LearnedSpell)
-            return automation.Magic.LastCompletion.Revision > pending.Revision;
-        return automation.Items.LastCompletion.Revision > pending.Revision;
+        {
+            PluginCastCompletion cast = automation.Magic.LastCompletion;
+            if (cast.Revision <= pending.Revision)
+                return false;
+            pending.Revision = cast.Revision;
+            return cast.SpellId == pending.Choice.SpellId;
+        }
+
+        PluginItemUseCompletion use = automation.Items.LastCompletion;
+        if (use.Revision <= pending.Revision)
+            return false;
+        pending.Revision = use.Revision;
+        return use.SourceObjectId == pending.Choice.ItemObjectId;
     }
 
-    private sealed record Pending(VitalRechargeChoice Choice, long Revision);
+    private sealed class Pending(VitalRechargeChoice choice, long revision)
+    {
+        public VitalRechargeChoice Choice { get; } = choice;
+
+        /// <summary>
+        /// The newest receipt stamp this wait has already looked at.
+        /// </summary>
+        public long Revision { get; set; } = revision;
+    }
 }

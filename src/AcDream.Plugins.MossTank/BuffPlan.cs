@@ -55,9 +55,17 @@ public sealed class BuffSettings
     public ISet<string> BlacklistedBuffFamilyNames { get; } =
         new HashSet<string>(StringComparer.Ordinal);
 
+    internal IList<uint> ExtraBuffSpellIds { get; } = new List<uint>();
+
+    internal IList<uint> AntiExtraBuffSpellIds { get; } = new List<uint>();
+
     internal IList<BuffItemEnchantRow> ItemEnchantRows { get; } =
         new List<BuffItemEnchantRow>();
+
+    internal IList<GemFoodItem> GemFoodItems { get; } = new List<GemFoodItem>();
 }
+
+internal sealed record GemFoodItem(string Name, uint SpellId);
 
 public interface IBuffCastability
 {
@@ -70,7 +78,7 @@ public interface IBuffCastability
         return IsCastable(tier);
     }
 
-    /// <summary><c>eq.cs:504-508</c>'s once-per-run "buff SKIPPED." line.</summary>
+    /// <summary>The once-per-run "buff SKIPPED." line.</summary>
     void NoteNoCastableTier(BuffLine line);
 
     void NoteTierPick(
@@ -93,7 +101,9 @@ public static class BuffPlan
         double? rebuffWhenUnderSeconds = null,
         int characterLevel = 0,
         IReadOnlySet<uint>? forcedSpellIds = null,
-        IBuffCastability? castability = null)
+        IBuffCastability? castability = null,
+        ISpellCatalog? spellCatalog = null,
+        IEnumerable<uint>? additionalExtraSpellIds = null)
     {
         if (!settings.Enabled)
             return [];
@@ -136,6 +146,14 @@ public static class BuffPlan
             skillLevels[skill.SkillId] = skill.Current;
 
         var plan = new List<(int Rank, PluginSpellInfo Spell)>();
+        IEnumerable<uint> extraIds = additionalExtraSpellIds is null
+            ? settings.ExtraBuffSpellIds
+            : settings.ExtraBuffSpellIds.Concat(additionalExtraSpellIds);
+        HashSet<uint> extraFamilies = ResolveFamilies(
+            lines, extraIds, settings.ExtraBuffSpellNames, spellCatalog);
+        HashSet<uint> excludedFamilies = ResolveFamilies(
+            lines, settings.AntiExtraBuffSpellIds,
+            settings.BlacklistedBuffFamilyNames, spellCatalog);
 
         foreach (BuffLine line in lines)
         {
@@ -163,7 +181,9 @@ public static class BuffPlan
                 BuffTargetKind.Other => schoolAvailable && settings.BuffOther,
                 _ => false,
             };
-            if (!wanted)
+            if (!schoolAvailable
+                || (!wanted && !extraFamilies.Contains(line.Family))
+                || excludedFamilies.Contains(line.Family))
                 continue;
 
             bool resolved = TryPickTier(
@@ -198,6 +218,45 @@ public static class BuffPlan
         foreach ((int _, PluginSpellInfo spell) in plan)
             ordered.Add(spell);
         return ordered;
+    }
+
+    private static HashSet<uint> ResolveFamilies(
+        IReadOnlyList<BuffLine> lines,
+        IEnumerable<uint> exemplarIds,
+        IEnumerable<string> names,
+        ISpellCatalog? spellCatalog)
+    {
+        var families = new HashSet<uint>();
+        foreach (uint exemplarId in exemplarIds)
+        {
+            if (spellCatalog is not null
+                && spellCatalog.TryGet(exemplarId, out PluginSpellInfo exemplar))
+            {
+                families.Add(exemplar.Family);
+                continue;
+            }
+            foreach (BuffLine line in lines)
+            {
+                if (line.Tiers.Any(tier => tier.SpellId == exemplarId))
+                    families.Add(line.Family);
+            }
+        }
+        foreach (string name in names)
+        {
+            if (spellCatalog is not null
+                && spellCatalog.TryFindByName(name, partialMatch: false,
+                    out PluginSpellInfo exemplar))
+            {
+                families.Add(exemplar.Family);
+                continue;
+            }
+            foreach (BuffLine line in lines)
+            {
+                if (line.Tiers.Any(tier => tier.Name.Equals(name, StringComparison.Ordinal)))
+                    families.Add(line.Family);
+            }
+        }
+        return families;
     }
 
     private static bool IsCovered(
@@ -356,14 +415,27 @@ public static class BuffPlan
         IReadOnlyDictionary<uint, uint> skillLevels,
         BuffSettings settings,
         IBuffCastability? castability,
+        out PluginSpellInfo pick) =>
+        TryPickTier(
+            line,
+            skillLevels,
+            settings.SkillExcessOverDifficulty,
+            castability,
+            out pick);
+
+    public static bool TryPickTier(
+        BuffLine line,
+        IReadOnlyDictionary<uint, uint> skillLevels,
+        int skillExcessOverDifficulty,
+        IBuffCastability? castability,
         out PluginSpellInfo pick)
     {
         pick = default;
         if (line.Tiers.Count == 0)
             return false;
 
-        // fk.cs:189's first five terms, all against the family's reference
-        // spell (fk.a's A_0). See MatchesReference.
+        // The first five terms of the reference client's family match, all
+        // against the family's reference spell. See MatchesReference.
         PluginSpellInfo reference = line.Reference;
 
         List<BuffTierRejection>? rejections = castability is null ? null : [];
@@ -384,7 +456,7 @@ public static class BuffPlan
                 rejections?.Add(new BuffTierRejection(tier, "skill unknown"));
                 continue;
             }
-            int needed = tier.Difficulty + settings.SkillExcessOverDifficulty;
+            int needed = tier.Difficulty + skillExcessOverDifficulty;
             if (level < needed)
             {
                 rejections?.Add(new BuffTierRejection(tier, $"skill {level} < {needed}"));

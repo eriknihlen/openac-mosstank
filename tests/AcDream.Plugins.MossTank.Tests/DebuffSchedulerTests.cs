@@ -11,13 +11,12 @@ public sealed class DebuffSchedulerTests
     [InlineData("Incantation of Imperil Other", 1 << 3, 0)]
     [InlineData("Magic Yield Other VI", 1 << 4, 0)]
     [InlineData("Incantation of Fire Vulnerability Other", 1 << 5, 5)]
-    [InlineData("Acid Lure VI", 1 << 5, 6)]
-    [InlineData("Incantation of Blade Lure", 1 << 5, 1)]
-    [InlineData("Incantation of Bludgeon Lure", 1 << 5, 3)]
-    [InlineData("Incantation of Frost Lure", 1 << 5, 4)]
-    [InlineData("Incantation of Flame Lure", 1 << 5, 5)]
-    [InlineData("Incantation of Lightning Lure", 1 << 5, 7)]
-    [InlineData("Incantation of Piercing Lure", 1 << 5, 2)]
+    [InlineData("Acid Vulnerability Other VI", 1 << 5, 6)]
+    [InlineData("Blade Vulnerability Other VI", 1 << 5, 1)]
+    [InlineData("Bludgeoning Vulnerability Other VI", 1 << 5, 3)]
+    [InlineData("Cold Vulnerability Other VI", 1 << 5, 4)]
+    [InlineData("Lightning Vulnerability Other VI", 1 << 5, 7)]
+    [InlineData("Piercing Vulnerability Other VI", 1 << 5, 2)]
     [InlineData("Weakening Curse VII", 1 << 9, 0)]
     [InlineData("Festering Curse VII", 1 << 10, 0)]
     [InlineData("Corruption VII", 1 << 11, 0)]
@@ -36,11 +35,28 @@ public sealed class DebuffSchedulerTests
         Assert.Equal((MonsterDamageType)expectedDamage, identity.DamageType);
     }
 
-    [Fact]
-    public void LureBladeItemSpellIsNotAClassicVulnerabilityLure()
+    /// <summary>
+    /// No Lure is a creature vulnerability, whatever its element and whatever
+    /// its spelling. A Lure enchants an item, so the server refuses every one
+    /// aimed at a monster; treating one as a vulnerability spends a cast and
+    /// a spell component on a refusal, and leaves the monster undebuffed.
+    /// Mutation: accept a Lure as a vulnerability again and every case here
+    /// fails.
+    /// </summary>
+    [Theory]
+    [InlineData("Incantation of Lure Blade")]
+    [InlineData("Acid Lure VI")]
+    [InlineData("Blade Lure III")]
+    [InlineData("Bludgeon Lure VI")]
+    [InlineData("Flame Lure III")]
+    [InlineData("Frost Lure VI")]
+    [InlineData("Lightning Lure III")]
+    [InlineData("Piercing Lure VI")]
+    [InlineData("Incantation of Flame Lure")]
+    public void NoLureIsACreatureVulnerability(string name)
     {
         Assert.False(DebuffSpellCatalog.TryClassify(
-            Spell(1, "Incantation of Lure Blade"),
+            Spell(1, name),
             out _,
             out _));
     }

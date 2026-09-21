@@ -7,13 +7,25 @@ public sealed class ExpressionEngineTests
     [Theory]
     [InlineData("1+2*3", 7d)]
     [InlineData("(1+2)*3", 9d)]
-    [InlineData("2^3^2", 512d)]
     [InlineData("0x10+1", 17d)]
     [InlineData("~1", -2d)]
     [InlineData("16>>2", 4d)]
     public void ArithmeticUsesUtilityBeltPrecedence(string source, double expected)
     {
         Assert.Equal(expected, Evaluate(source).AsNumber(), 10);
+    }
+
+    [Theory]
+    [InlineData("0^1", 1d)]
+    [InlineData("7.9^3.2", 4d)]
+    [InlineData("1||0^1", 0d)]
+    [InlineData("1||0&&0", 0d)]
+    [InlineData("2^3==1", 2d)]
+    public void BitwiseXorAndLogicalOperatorsShareLowestPrecedence(
+        string source,
+        double expected)
+    {
+        Assert.Equal(expected, Evaluate(source).AsNumber());
     }
 
     [Fact]
@@ -67,6 +79,16 @@ public sealed class ExpressionEngineTests
         Assert.True(Evaluate("`Olthoi`==`olthoi`").IsTruthy);
         Assert.Equal("Olthoi-Noble", Evaluate("Olthoi-Noble").AsString());
         Assert.Equal("Olthoi Noble", Evaluate("`Olthoi `+Noble").AsString());
+    }
+
+    [Theory]
+    [InlineData(@"\/vt nav load +cstr[3]", "/vt nav load3")]
+    [InlineData(@"\/f Pick flowers\: +cstr[3]", "/f Pick flowers:3")]
+    public void EscapedDelimitersRemainPartOfBareStrings(
+        string source,
+        string expected)
+    {
+        Assert.Equal(expected, Evaluate(source).AsString());
     }
 
     [Fact]
@@ -150,8 +172,11 @@ public sealed class ExpressionEngineTests
         Assert.Equal(24d, Evaluate(
             "coordinatedistanceflat[coordinateparse[`0N, 0E`],"
             + "coordinateparse[`0.1N, 0E`]]").AsNumber(), 8);
-        Assert.Equal("12.5S, 3.0E", Evaluate(
+        // Each half is rounded to one decimal and a trailing ".0" is dropped.
+        Assert.Equal("12.5S, 3E", Evaluate(
             "coordinatetostring[coordinateparse[`12.5S, 3.0E`]]").AsString());
+        Assert.Equal("12.6S, 3.1E", Evaluate(
+            "coordinatetostring[coordinateparse[`12.55S, 3.14E`]]").AsString());
     }
 
     [Fact]

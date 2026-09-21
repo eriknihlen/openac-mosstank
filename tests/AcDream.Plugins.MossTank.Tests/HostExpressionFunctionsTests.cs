@@ -24,6 +24,28 @@ public sealed class HostExpressionFunctionsTests
         Assert.Equal(90d, runtime.Evaluate("getheading[wobjectgetplayer[]]").AsNumber());
     }
 
+    /// <summary>
+    /// The three vital reads are three DIFFERENT numbers — unbuffed maximum,
+    /// current, buffed maximum — and each is floored at 1. Mutation: pointing
+    /// base and buffed maximum at the same field makes the first two
+    /// assertions equal, and dropping the floor makes the last one 0.
+    /// </summary>
+    [Fact]
+    public void VitalReadsSeparateBaseCurrentAndBuffedMaximumAndFloorAtOne()
+    {
+        var automation = CreateAutomation();
+        using var runtime = new MossTankExpressionRuntime(new Host(automation));
+
+        Assert.Equal(80d, runtime.Evaluate("getcharvital_base[1]").AsNumber());
+        Assert.Equal(90d, runtime.Evaluate("getcharvital_current[1]").AsNumber());
+        Assert.Equal(100d, runtime.Evaluate("getcharvital_buffedmax[1]").AsNumber());
+        Assert.Equal(70d, runtime.Evaluate("getcharvital_base[2]").AsNumber());
+        Assert.Equal(60d, runtime.Evaluate("getcharvital_base[3]").AsNumber());
+        Assert.Equal(1d, runtime.Evaluate("getcharvital_current[9]").AsNumber());
+        Assert.Equal(1d, runtime.Evaluate("getcharvital_base[9]").AsNumber());
+        Assert.Equal(1d, runtime.Evaluate("getcharvital_buffedmax[9]").AsNumber());
+    }
+
     [Fact]
     public void ObjectDiscoveryCountsPropertiesAndNearestMatchUtilityBeltShape()
     {
@@ -48,6 +70,229 @@ public sealed class HostExpressionFunctionsTests
             "wobjectlastidtime[wobjectfindbyid[20]]").AsNumber());
     }
 
+    /// <summary>
+    /// Inventory lookups by name are exact and case-SENSITIVE, and the regex
+    /// variant compiles its pattern without IgnoreCase. Mutation: comparing
+    /// with OrdinalIgnoreCase, or adding RegexOptions.IgnoreCase, makes the
+    /// lower-case probes find the item.
+    /// </summary>
+    [Fact]
+    public void InventoryNameLookupsAreCaseSensitive()
+    {
+        var automation = CreateAutomation();
+        using var runtime = new MossTankExpressionRuntime(new Host(automation));
+
+        Assert.Equal(10d, runtime.Evaluate(
+            "wobjectgetid[wobjectfindininventorybyname['Health Elixir']]").AsNumber());
+        Assert.Equal(0d, runtime.Evaluate(
+            "wobjectfindininventorybyname['health elixir']").AsNumber());
+        Assert.Equal(10d, runtime.Evaluate(
+            "wobjectgetid[wobjectfindininventorybynamerx['^Health']]").AsNumber());
+        Assert.Equal(0d, runtime.Evaluate(
+            "wobjectfindininventorybynamerx['^health']").AsNumber());
+    }
+
+    /// <summary>
+    /// A name PATTERN is matched against the display name — the material in
+    /// front of the bare name — while the exact-name finder keeps reading the
+    /// bare name. A material id that only names a group adds no prefix.
+    /// Mutation: matching the bare name in either regex finder makes the
+    /// `^Silver ` and `^Oak ` probes answer 0; prefixing inside the exact
+    /// finder makes the `Long Sword` probe answer 0; giving the grouping id 9
+    /// a name of its own turns "Shard" into "Gem Shard".
+    /// </summary>
+    [Fact]
+    public void NamePatternsMatchTheMaterialPrefixedDisplayName()
+    {
+        var automation = CreateAutomation();
+        automation.WorldObjects.Add(new PluginWorldObject(
+            12, 102, "Long Sword", PluginObjectClass.MeleeWeapon, 0x1, 1, 0)
+        {
+            IsOwned = true,
+        });
+        automation.WorldObjects.Add(new PluginWorldObject(
+            13, 103, "Shard", PluginObjectClass.Gem, 0x2, 1, 0)
+        {
+            IsOwned = true,
+        });
+        automation.WorldObjects.Add(new PluginWorldObject(
+            22, 104, "Chest", PluginObjectClass.Container, 0x200, 0, 0)
+        {
+            IsLandscape = true,
+            HasPosition = true,
+            Position = automation.Position with { EastWest = 10.2d },
+        });
+        automation.Properties[12] = Properties(
+            ints: new Dictionary<uint, int> { [131] = 63 });
+        automation.Properties[13] = Properties(
+            ints: new Dictionary<uint, int> { [131] = 9 });
+        automation.Properties[22] = Properties(
+            ints: new Dictionary<uint, int> { [131] = 75 });
+        using var runtime = new MossTankExpressionRuntime(new Host(automation));
+
+        Assert.Equal("Silver Long Sword", runtime.Evaluate(
+            "wobjectgetname[wobjectfindbyid[12]]").AsString());
+        Assert.Equal(12d, runtime.Evaluate(
+            "wobjectgetid[wobjectfindininventorybynamerx['^Silver ']]").AsNumber());
+        Assert.Equal(0d, runtime.Evaluate(
+            "wobjectfindininventorybyname['Silver Long Sword']").AsNumber());
+        Assert.Equal(12d, runtime.Evaluate(
+            "wobjectgetid[wobjectfindininventorybyname['Long Sword']]").AsNumber());
+        Assert.Equal("Shard", runtime.Evaluate(
+            "wobjectgetname[wobjectfindbyid[13]]").AsString());
+        Assert.Equal(13d, runtime.Evaluate(
+            "wobjectgetid[wobjectfindininventorybynamerx['^Shard$']]").AsNumber());
+        Assert.Equal(22d, runtime.Evaluate(
+            "wobjectgetid[wobjectfindnearestbynameandobjectclass[10,'^Oak ']]")
+            .AsNumber());
+    }
+
+    /// <summary>
+    /// The three additive list-every-match pattern finders read the same
+    /// display name the single-match ones do, so a pattern means one thing
+    /// everywhere inside the plugin. Mutation: matching the bare name in the
+    /// shared registration makes all three `^Silver ` and `^Oak ` probes
+    /// answer an empty list, while the two-object `Long Sword` probe still
+    /// answers 2.
+    /// </summary>
+    [Fact]
+    public void AdditivePatternFindersMatchTheSameDisplayName()
+    {
+        var automation = CreateAutomation();
+        automation.WorldObjects.Add(new PluginWorldObject(
+            12, 102, "Long Sword", PluginObjectClass.MeleeWeapon, 0x1, 1, 0)
+        {
+            IsOwned = true,
+        });
+        automation.WorldObjects.Add(new PluginWorldObject(
+            22, 104, "Long Sword", PluginObjectClass.MeleeWeapon, 0x1, 0, 0)
+        {
+            IsLandscape = true,
+            HasPosition = true,
+            Position = automation.Position with { EastWest = 10.2d },
+        });
+        // 63 is Silver, 75 is Oak.
+        automation.Properties[12] = Properties(
+            ints: new Dictionary<uint, int> { [131] = 63 });
+        automation.Properties[22] = Properties(
+            ints: new Dictionary<uint, int> { [131] = 75 });
+        using var runtime = new MossTankExpressionRuntime(new Host(automation));
+
+        Assert.Equal(2d, runtime.Evaluate(
+            "listcount[wobjectfindallbynamerx['Long Sword']]").AsNumber());
+        Assert.Equal(1d, runtime.Evaluate(
+            "listcount[wobjectfindallbynamerx['^Silver ']]").AsNumber());
+        Assert.Equal(1d, runtime.Evaluate(
+            "listcount[wobjectfindallbynamerx['^Oak ']]").AsNumber());
+        Assert.Equal(1d, runtime.Evaluate(
+            "listcount[wobjectfindallinventorybynamerx['^Silver ']]").AsNumber());
+        Assert.Equal(0d, runtime.Evaluate(
+            "listcount[wobjectfindallinventorybynamerx['^Oak ']]").AsNumber());
+        Assert.Equal(1d, runtime.Evaluate(
+            "listcount[wobjectfindalllandscapebynamerx['^Oak ']]").AsNumber());
+        Assert.Equal(0d, runtime.Evaluate(
+            "listcount[wobjectfindalllandscapebynamerx['^Silver ']]").AsNumber());
+    }
+
+    /// <summary>
+    /// The nearest-by-name-and-class lookup takes the object class FIRST and a
+    /// case-sensitive REGEX second. Mutation: the previous argument order plus
+    /// literal case-insensitive equality fails every assertion here — the
+    /// regex probe outright throws, because argument 0 is a number.
+    /// </summary>
+    [Fact]
+    public void NearestByNameAndObjectClassTakesClassThenCaseSensitiveRegex()
+    {
+        var automation = CreateAutomation();
+        using var runtime = new MossTankExpressionRuntime(new Host(automation));
+
+        Assert.Equal(20d, runtime.Evaluate(
+            "wobjectgetid[wobjectfindnearestbynameandobjectclass[5,'^Dru']]").AsNumber());
+        Assert.Equal(20d, runtime.Evaluate(
+            "wobjectgetid[wobjectfindnearestbynameandobjectclass[5,'Drudge']]").AsNumber());
+        Assert.Equal(0d, runtime.Evaluate(
+            "wobjectfindnearestbynameandobjectclass[5,'^dru']").AsNumber());
+        Assert.Equal(0d, runtime.Evaluate(
+            "wobjectfindnearestbynameandobjectclass[6,'^Dru']").AsNumber());
+    }
+
+    /// <summary>
+    /// The nearest lookups skip the player's own object and rank by the 3-D
+    /// distance. Mutation: dropping the self-exclusion returns the player for
+    /// the player class, and ranking on the flat distance picks the object
+    /// that is closer on the map but a hundred metres up.
+    /// </summary>
+    [Fact]
+    public void NearestLookupsExcludeSelfAndRankInThreeDimensions()
+    {
+        var automation = CreateAutomation();
+        automation.WorldObjects.Add(new PluginWorldObject(
+            21, 200, "Skywards Drudge", PluginObjectClass.Monster, 0x10, 0, 0)
+        {
+            IsLandscape = true,
+            HasPosition = true,
+            Position = automation.Position with
+            {
+                EastWest = 10.05d,
+                Elevation = automation.Position.Elevation + 100d,
+            },
+        });
+        using var runtime = new MossTankExpressionRuntime(new Host(automation));
+
+        Assert.Equal(0d, runtime.Evaluate(
+            "wobjectfindnearestbyobjectclass[24]").AsNumber());
+        Assert.Equal(20d, runtime.Evaluate(
+            "wobjectgetid[wobjectfindnearestmonster[]]").AsNumber());
+    }
+
+    /// <summary>
+    /// A nearest lookup searches every object of the class the client knows,
+    /// not only the ones lying loose on the ground: an object in a pack or in
+    /// the character's hand is found too, and an object with no known
+    /// position still answers when it is the only match. Mutation: requiring
+    /// the object to be loose on the ground and to have a position makes both
+    /// probes here answer 0.
+    /// </summary>
+    [Fact]
+    public void NearestLookupsSearchOwnedAndPositionlessObjectsToo()
+    {
+        var automation = CreateAutomation();
+        automation.WorldObjects.Add(new PluginWorldObject(
+            30, 300, "Wielded Wand", PluginObjectClass.WandStaffOrb, 0x1, 0, 1)
+        {
+            IsOwned = true,
+        });
+        automation.WorldObjects.Add(new PluginWorldObject(
+            31, 301, "Packed Lockpick", PluginObjectClass.Lockpick, 0x1, 11, 0)
+        {
+            IsOwned = true,
+        });
+        using var runtime = new MossTankExpressionRuntime(new Host(automation));
+
+        Assert.Equal(30d, runtime.Evaluate(
+            "wobjectgetid[wobjectfindnearestbyobjectclass[31]]").AsNumber());
+        Assert.Equal(31d, runtime.Evaluate(
+            "wobjectgetid[wobjectfindnearestbytemplatetype[301]]").AsNumber());
+    }
+
+    /// <summary>
+    /// The nearest-monster lookup honours the combat pass's blacklist.
+    /// Mutation: matching on the object class alone still returns the
+    /// blacklisted drudge.
+    /// </summary>
+    [Fact]
+    public void NearestMonsterSkipsMonstersTheCombatPassHasBlacklisted()
+    {
+        var automation = CreateAutomation();
+        using var runtime = new MossTankExpressionRuntime(new Host(automation));
+        Assert.Equal(20d, runtime.Evaluate(
+            "wobjectgetid[wobjectfindnearestmonster[]]").AsNumber());
+
+        runtime.Policy.MonsterEligibility = objectId => objectId != 20u;
+
+        Assert.Equal(0d, runtime.Evaluate("wobjectfindnearestmonster[]").AsNumber());
+    }
+
     [Fact]
     public void ActionFunctionsUseSharedSelectionInventoryMagicAndMovementCommands()
     {
@@ -55,16 +300,190 @@ public sealed class HostExpressionFunctionsTests
         var host = new Host(automation);
         using var runtime = new MossTankExpressionRuntime(host);
 
-        Assert.True(runtime.Evaluate("actiontryselect[20]").IsTruthy);
+        runtime.Evaluate("actiontryselect[20]");
         Assert.Equal(20u, host.Selection.SelectedObjectId);
         Assert.True(runtime.Evaluate("actiontryuseitem[10]").IsTruthy);
         Assert.Equal(10u, automation.UsedObject);
-        Assert.Equal(1d, runtime.Evaluate("actiontrycastbyidontarget[1001,20]").AsNumber());
-        Assert.Equal((1001u, 20u), automation.LastCast);
         Assert.True(runtime.Evaluate("setmotion['Forward',1]").IsTruthy);
         Assert.True(automation.LastIntent.Forward);
         Assert.True(runtime.Evaluate("clearmotion[]").IsTruthy);
         Assert.Equal(1, automation.ClearMovementCount);
+    }
+
+    /// <summary>
+    /// Selecting from an expression always reports false, whatever the
+    /// selection did — a profile branching on the result relies on it.
+    /// Mutation: returning the real selection result flips the branch.
+    /// </summary>
+    [Fact]
+    public void SelectingAlwaysReportsFalseEvenWhenItSucceeded()
+    {
+        var automation = CreateAutomation();
+        var host = new Host(automation);
+        using var runtime = new MossTankExpressionRuntime(host);
+
+        Assert.False(runtime.Evaluate("actiontryselect[20]").IsTruthy);
+        Assert.Equal(20u, host.Selection.SelectedObjectId);
+    }
+
+    /// <summary>
+    /// The castability questions differ: hunting and buffing each apply their
+    /// own skill margin over the spell's difficulty, on top of the spellbook
+    /// and component checks. Mutation: answering both from one host gate
+    /// makes the two calls agree at every skill level.
+    /// </summary>
+    [Fact]
+    public void CastabilityAppliesTheHuntingAndBuffingSkillMarginsSeparately()
+    {
+        var automation = CreateAutomation();
+        automation.Spells[1001] = Spell(1001, school: 34, difficulty: 250);
+        using var runtime = new MossTankExpressionRuntime(new Host(automation));
+        // The fake's War Magic is 300 buffed.
+        runtime.Policy.SkillMargin = hunting => hunting ? 75 : 25;
+
+        Assert.False(runtime.Evaluate("getcancastspell_hunt[1001]").IsTruthy);
+        Assert.True(runtime.Evaluate("getcancastspell_buff[1001]").IsTruthy);
+
+        automation.HasComponents = false;
+        Assert.False(runtime.Evaluate("getcancastspell_buff[1001]").IsTruthy);
+        automation.HasComponents = true;
+        Assert.False(runtime.Evaluate("getcancastspell_buff[2002]").IsTruthy);
+    }
+
+    /// <summary>
+    /// A spell whose school the host has not reported yet is NOT castable:
+    /// the unknown skill reads 0 and fails the difficulty comparison. This is
+    /// the state a fresh session is in before the skill table arrives.
+    /// Mutation: skipping the comparison when the skill is unknown makes both
+    /// castability questions answer true, and the cast answers 0 instead of 2.
+    /// </summary>
+    [Fact]
+    public void CastabilityFailsClosedWhenTheSchoolSkillIsUnknown()
+    {
+        var automation = CreateAutomation();
+        // The fake reports War Magic (34) only; Life Magic (33) is unknown.
+        automation.Spells[1001] = Spell(1001, school: 33, difficulty: 1);
+        using var runtime = new MossTankExpressionRuntime(new Host(automation));
+
+        Assert.False(runtime.Evaluate("getcancastspell_hunt[1001]").IsTruthy);
+        Assert.False(runtime.Evaluate("getcancastspell_buff[1001]").IsTruthy);
+        Assert.Equal(2d, runtime.Evaluate("actiontrycastbyid[1001]").AsNumber());
+
+        automation.Skills =
+        [
+            .. automation.Skills,
+            new PluginSkillInfo(33, "Life Magic", PluginSkillTraining.Trained, 300),
+        ];
+        Assert.True(runtime.Evaluate("getcancastspell_hunt[1001]").IsTruthy);
+    }
+
+    /// <summary>
+    /// A spell the host reports with no school at all is not castable either,
+    /// even when nothing else stands in the way: there is no skill to compare
+    /// it against, and no school-less spell a character can actually cast.
+    /// The difficulty here is 0, so a comparison against an unknown skill of 0
+    /// would PASS — only the closed door answers false. Mutation: skipping the
+    /// comparison for a school of 0, or dropping the school test and comparing
+    /// anyway, makes both castability questions answer true and the cast
+    /// answer 0.
+    /// </summary>
+    [Fact]
+    public void CastabilityIsClosedForASpellWithNoSchool()
+    {
+        var automation = CreateAutomation();
+        automation.Spells[1003] = Spell(1003, school: 0, difficulty: 0);
+        using var runtime = new MossTankExpressionRuntime(new Host(automation));
+
+        Assert.False(runtime.Evaluate("getcancastspell_hunt[1003]").IsTruthy);
+        Assert.False(runtime.Evaluate("getcancastspell_buff[1003]").IsTruthy);
+        Assert.Equal(2d, runtime.Evaluate("actiontrycastbyid[1003]").AsNumber());
+    }
+
+    /// <summary>
+    /// Casting from an expression answers 2 (impossible), 0 (not attempted
+    /// yet) or 1 (begun) — never a bare boolean. An untargeted spell is only
+    /// castable through `actiontrycastbyid`, a targeted one only through
+    /// `actiontrycastbyidontarget`, and neither casts until a wand is wielded
+    /// and the character is in magic mode. Mutation: gating on the host cast
+    /// gate alone returns 1 straight away with no weapon and no mode.
+    /// </summary>
+    [Fact]
+    public void CastingReportsImpossibleNotYetAndBegunAndTakesOneStepFirst()
+    {
+        var automation = CreateAutomation();
+        automation.Spells[1001] = Spell(1001, school: 34, difficulty: 10);
+        automation.Spells[1002] = Spell(1002, school: 34, difficulty: 10) with
+        {
+            IsUntargeted = true,
+        };
+        automation.Equipment =
+        [
+            new PluginEquipmentItem(
+                50, "Wand", 0u, 0x01000000u, 0u, 1u, 0u, 0, 0, 0, 0, 0d),
+        ];
+        using var runtime = new MossTankExpressionRuntime(new Host(automation));
+
+        Assert.Equal(2d, runtime.Evaluate("actiontrycastbyid[9999]").AsNumber());
+        Assert.Equal(2d, runtime.Evaluate("actiontrycastbyid[1001]").AsNumber());
+        Assert.Equal(2d, runtime.Evaluate(
+            "actiontrycastbyidontarget[1002,20]").AsNumber());
+
+        // Step one: the wand is not wielded yet.
+        Assert.Equal(0d, runtime.Evaluate("actiontrycastbyid[1002]").AsNumber());
+        Assert.False(runtime.Evaluate("actiontryequipanywand[]").IsTruthy);
+        Assert.Equal(50u, automation.EquippedObject);
+
+        // Step two: wielded, but still in peace mode.
+        automation.Equipment =
+        [
+            automation.Equipment[0] with { EquippedLocation = 0x01000000u },
+        ];
+        Assert.Equal(0d, runtime.Evaluate("actiontrycastbyid[1002]").AsNumber());
+        Assert.Equal(PluginCombatMode.Magic, automation.RequestedMode);
+
+        // Ready: the cast begins.
+        automation.Mode = PluginCombatMode.Magic;
+        Assert.True(runtime.Evaluate("actiontryequipanywand[]").IsTruthy);
+        Assert.Equal(1d, runtime.Evaluate("actiontrycastbyid[1002]").AsNumber());
+        Assert.Equal((1002u, 0u), automation.LastCast);
+        Assert.Equal(1d, runtime.Evaluate(
+            "actiontrycastbyidontarget[1001,20]").AsNumber());
+        Assert.Equal((1001u, 20u), automation.LastCast);
+    }
+
+    /// <summary>
+    /// A busy character takes NO step towards magic mode: no equip request,
+    /// no stance request, and the step answers false. An expression rule ticks
+    /// every pass, so without the gate the same two requests are re-issued
+    /// while an action is already in flight. Mutation: dropping the busy gate
+    /// makes `automation.EquippedObject` 50 on the first evaluation.
+    /// </summary>
+    [Fact]
+    public void MagicModeStepTakesNoStepWhileTheHostIsBusy()
+    {
+        var automation = CreateAutomation();
+        automation.Spells[1002] = Spell(1002, school: 34, difficulty: 10) with
+        {
+            IsUntargeted = true,
+        };
+        automation.Equipment =
+        [
+            new PluginEquipmentItem(
+                50, "Wand", 0u, 0x01000000u, 0u, 1u, 0u, 0, 0, 0, 0, 0d),
+        ];
+        automation.IsBusy = true;
+        using var runtime = new MossTankExpressionRuntime(new Host(automation));
+
+        Assert.Equal(1d, runtime.Evaluate("getbusystate[]").AsNumber());
+        Assert.False(runtime.Evaluate("actiontryequipanywand[]").IsTruthy);
+        Assert.Equal(0u, automation.EquippedObject);
+        Assert.Equal(0d, runtime.Evaluate("actiontrycastbyid[1002]").AsNumber());
+        Assert.Equal(0u, automation.EquippedObject);
+        Assert.Equal((0u, 0u), automation.LastCast);
+
+        automation.IsBusy = false;
+        Assert.False(runtime.Evaluate("actiontryequipanywand[]").IsTruthy);
+        Assert.Equal(50u, automation.EquippedObject);
     }
 
     [Fact]
@@ -88,6 +507,92 @@ public sealed class HostExpressionFunctionsTests
         Assert.Equal(10u, automation.NextLoginObjectId);
         Assert.True(runtime.Evaluate("clearnextlogin[]").IsTruthy);
         Assert.Equal(0u, automation.NextLoginObjectId);
+    }
+
+    /// <summary>
+    /// `chatbox` sends and gives its argument back; `chatboxpaste` stages the
+    /// text in the chat entry WITHOUT sending it, strips control characters,
+    /// and reports false when there is nothing to paste or the player is
+    /// already typing. Mutation: pointing chatboxpaste at the same submit
+    /// call sends the text and leaves the entry empty.
+    /// </summary>
+    [Fact]
+    public void ChatboxSendsAndChatboxPasteOnlyStagesTheText()
+    {
+        var automation = CreateAutomation();
+        using var runtime = new MossTankExpressionRuntime(new Host(automation));
+        automation.SubmittedChat.Clear();
+
+        Assert.Equal("/say hi", runtime.Evaluate("chatbox['/say hi']").AsString());
+        Assert.Equal(["/say hi"], automation.SubmittedChat);
+
+        Assert.True(runtime.Evaluate("chatboxpaste['/tell Bob, ']").IsTruthy);
+        Assert.Equal("/tell Bob, ", automation.ComposedChat);
+        Assert.Equal(["/say hi"], automation.SubmittedChat);
+
+        Assert.True(runtime.Evaluate(
+            "chatboxpaste[chr[9]+'a'+chr[10]+'b']").IsTruthy);
+        Assert.Equal("ab", automation.ComposedChat);
+        Assert.False(runtime.Evaluate("chatboxpaste[chr[9]]").IsTruthy);
+
+        automation.CanCompose = false;
+        Assert.False(runtime.Evaluate("chatboxpaste['/tell Bob, ']").IsTruthy);
+    }
+
+    /// <summary>
+    /// Both chat verbs take a STRING; a number is a type error, not a number
+    /// rendered as text. A status-hud colour, on the other hand, is a 32-bit
+    /// pattern and a negative one is legal. Mutation: rendering the chat
+    /// argument through the display form makes the first two probes pass
+    /// "5" and "6" to chat, and taking the colour as a checked unsigned
+    /// number makes the third throw an overflow.
+    /// </summary>
+    [Fact]
+    public void ChatVerbsRequireStringsAndTheStatusColourAcceptsNegatives()
+    {
+        var automation = CreateAutomation();
+        using var runtime = new MossTankExpressionRuntime(new Host(automation));
+        automation.SubmittedChat.Clear();
+
+        Assert.Throws<ExpressionEvaluationException>(
+            () => runtime.Evaluate("chatbox[5]"));
+        Assert.Throws<ExpressionEvaluationException>(
+            () => runtime.Evaluate("chatboxpaste[6]"));
+        Assert.Empty(automation.SubmittedChat);
+        Assert.Equal(string.Empty, automation.ComposedChat);
+
+        Assert.False(runtime.Evaluate("statushudcolored['k','v',0-1]").IsTruthy);
+    }
+
+    /// <summary>
+    /// `uisetvisible` treats ANY non-zero number as visible and hands back its
+    /// second argument; `uisetlabel` answers 1 and raises an error for a
+    /// control that cannot take a label. Mutation: the previous ">= 1" test
+    /// hides a control at 0.5, and returning the host's bool loses both the
+    /// echoed argument and the error.
+    /// </summary>
+    [Fact]
+    public void UiVisibilityUsesNonZeroTruthAndLabelFailureIsAnError()
+    {
+        var automation = CreateAutomation();
+        var ui = new RecordingUiRegistry();
+        using var runtime = new MossTankExpressionRuntime(new Host(automation, ui: ui));
+
+        Assert.Equal(0.5d, runtime.Evaluate(
+            "uisetvisible[uigetcontrol['view','control'],0.5]").AsNumber());
+        Assert.True(ui.LastVisible);
+        Assert.Equal(-1d, runtime.Evaluate(
+            "uisetvisible[uigetcontrol['view','control'],0-1]").AsNumber());
+        Assert.True(ui.LastVisible);
+        Assert.Equal(0d, runtime.Evaluate(
+            "uisetvisible[uigetcontrol['view','control'],0]").AsNumber());
+        Assert.False(ui.LastVisible);
+
+        Assert.Equal(1d, runtime.Evaluate(
+            "uisetlabel[uigetcontrol['view','control'],'Go']").AsNumber());
+        ui.LabelAccepted = false;
+        Assert.Throws<ExpressionEvaluationException>(() => runtime.Evaluate(
+            "uisetlabel[uigetcontrol['view','control'],'Go']"));
     }
 
     [Fact]
@@ -342,6 +847,7 @@ public sealed class HostExpressionFunctionsTests
         automation.WorldObjects.Add(new PluginWorldObject(
             1, 1, "Expression Tester", PluginObjectClass.Player, 0x10, 0, 0)
         {
+            IsLandscape = true,
             HasPosition = true,
             Position = automation.Position,
             ItemsCapacity = 10,
@@ -388,21 +894,35 @@ public sealed class HostExpressionFunctionsTests
             new Dictionary<uint, uint>(),
             new Dictionary<uint, uint>());
 
+    private static PluginSpellInfo Spell(uint id, uint school, int difficulty) => new(
+        id,
+        $"Spell {id}",
+        1u,
+        1,
+        difficulty,
+        10,
+        30f,
+        school,
+        string.Empty,
+        false,
+        true);
+
     private static PluginInventoryItem InventoryItem(uint id, string name) => new(
         id, 0u, name, 0u, 1u, 0u, 0u, 0u, 0u, 0u, 0u,
         1, 0, 0, 0u, 0, 0, 0u, false, 0d, 0, 0, 0, 0d, 0, 0, 0);
 
     private sealed class Host(
         Automation automation,
-        IPluginStorage? storage = null) : IPluginHost
+        IPluginStorage? storage = null,
+        IUiRegistry? ui = null) : IPluginHost
     {
-        public bool HasUi => false;
+        public bool HasUi => ui is not null;
         public IPluginLogger Log { get; } = new Logger();
         public IGameState State { get; } = new State();
         public IEvents Events { get; } = new Events();
         public Selection Selection { get; } = new();
         ISelectionService IPluginHost.Selection => Selection;
-        public IUiRegistry Ui => NoOpUiRegistry.Instance;
+        public IUiRegistry Ui => ui ?? NoOpUiRegistry.Instance;
         public IPluginStorage Storage { get; } = storage ?? NoOpPluginStorage.Instance;
         public IAutomationSurface Automation { get; } = automation;
     }
@@ -420,12 +940,16 @@ public sealed class HostExpressionFunctionsTests
         IWorldTimeAutomation,
         ILootAutomation,
         ILoginAutomation,
-        INetworkAutomation
+        INetworkAutomation,
+        IEquipmentAutomation,
+        ICombatAutomation
     {
         public bool IsAvailable => true;
         public ICharacterInfo Character => this;
-        public ISpellCatalog Spells => this;
+        ISpellCatalog IAutomationSurface.Spells => this;
         public IMagicCommands Magic => this;
+        IEquipmentAutomation IAutomationSurface.Equipment => this;
+        public ICombatAutomation Combat => this;
         public IPluginChat Chat => this;
         public IWorldObjectAutomation Objects => this;
         public IItemAutomation Items => this;
@@ -443,10 +967,13 @@ public sealed class HostExpressionFunctionsTests
         public uint ObjectId => 1;
         public uint CurrentHealth => 90;
         public uint MaxHealth => 100;
+        public uint BaseHealth => 80;
         public uint CurrentStamina => 80;
         public uint MaxStamina => 100;
+        public uint BaseStamina => 70;
         public uint CurrentMana => 70;
         public uint MaxMana => 100;
+        public uint BaseMana => 60;
         public IReadOnlyList<PluginSkillInfo> Skills { get; set; } = [];
         public IReadOnlyList<PluginAttributeInfo> Attributes { get; set; } = [];
         public IReadOnlyList<PluginActiveEnchantment> ActiveEnchantments => [];
@@ -519,12 +1046,51 @@ public sealed class HostExpressionFunctionsTests
             return false;
         }
 
-        public bool IsKnown(uint spellId) => spellId == 1001;
-        public bool TryGet(uint spellId, out PluginSpellInfo info)
+        public Dictionary<uint, PluginSpellInfo> Spells { get; } = [];
+        public bool HasComponents { get; set; } = true;
+        public IReadOnlyList<PluginEquipmentItem> Equipment { get; set; } = [];
+        public uint EquippedObject { get; private set; }
+        public PluginCombatMode Mode { get; set; } = PluginCombatMode.Peace;
+        public PluginCombatMode RequestedMode { get; private set; }
+
+        public bool IsBusy { get; set; }
+
+        public bool IsKnown(uint spellId) => spellId == 1001 || Spells.ContainsKey(spellId);
+        public bool TryGet(uint spellId, out PluginSpellInfo info) =>
+            Spells.TryGetValue(spellId, out info);
+        bool IMagicCommands.HasComponents(uint spellId) => HasComponents;
+
+        IReadOnlyList<PluginEquipmentItem> IEquipmentAutomation.CaptureOwnedEquipment() =>
+            Equipment;
+        PluginEquipmentCommandResult IEquipmentAutomation.Equip(
+            uint objectId,
+            uint requestedLocation)
         {
-            info = default;
-            return false;
+            EquippedObject = objectId;
+            return new PluginEquipmentCommandResult(
+                PluginEquipmentCommandStatus.Started);
         }
+
+        PluginCombatSnapshot ICombatAutomation.Snapshot => new(
+            0u, Mode, PluginAttackHeight.Medium, 0f, 0f, false, false, false, false);
+        IReadOnlyList<PluginCombatTarget> ICombatAutomation.CaptureHostileTargets(
+            float maximumDistance) => [];
+        PluginCombatCommandResult ICombatAutomation.EnterDefaultMode() =>
+            new(PluginCombatCommandStatus.Unavailable);
+        PluginCombatCommandResult ICombatAutomation.EnterMode(PluginCombatMode mode)
+        {
+            RequestedMode = mode;
+            return new PluginCombatCommandResult(
+                PluginCombatCommandStatus.ModeChangeSent);
+        }
+        PluginCombatCommandResult ICombatAutomation.BeginPhysicalAttack(
+            uint targetObjectId,
+            PluginAttackHeight height,
+            float power) => new(PluginCombatCommandStatus.Unavailable);
+        PluginCombatCommandResult ICombatAutomation.ReleasePhysicalAttack() =>
+            new(PluginCombatCommandStatus.Unavailable);
+        PluginCombatCommandResult ICombatAutomation.AbortPhysicalAttack() =>
+            new(PluginCombatCommandStatus.Unavailable);
         public bool TryGetComponent(uint componentId, out PluginSpellComponentInfo info) =>
             Components.TryGetValue(componentId, out info);
         public bool IsCasting => false;
@@ -604,6 +1170,33 @@ public sealed class HostExpressionFunctionsTests
         public bool Submit(string text)
         {
             SubmittedChat.Add(text);
+            return true;
+        }
+        public bool CanCompose { get; set; } = true;
+        public string ComposedChat { get; private set; } = string.Empty;
+        public bool Compose(string text)
+        {
+            if (!CanCompose)
+                return false;
+            ComposedChat = text;
+            return true;
+        }
+    }
+
+    private sealed class RecordingUiRegistry : IUiRegistry
+    {
+        public bool LabelAccepted { get; set; } = true;
+        public bool LastVisible { get; private set; }
+
+        public void AddMarkupPanel(string markupPath, object binding) { }
+        public bool ViewExists(string viewName) => true;
+        public bool IsViewVisible(string viewName) => true;
+        public bool ControlExists(string viewName, string controlName) => true;
+        public bool SetControlLabel(string viewName, string controlName, string label) =>
+            LabelAccepted;
+        public bool SetControlVisible(string viewName, string controlName, bool visible)
+        {
+            LastVisible = visible;
             return true;
         }
     }

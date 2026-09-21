@@ -189,6 +189,98 @@ public sealed class PetAutomationTests
         Assert.Equal(2, items.Uses.Count);
     }
 
+    [Fact]
+    public void TickRefill_TopsUpTheFirstLowDeviceAtTheThresholdItIsGiven()
+    {
+        var settings = Settings(MonsterDamageType.Cold);
+        // Nothing about the refill depends on summoning being wanted or on a
+        // monster being there: that is what lets it stand in the idle band.
+        settings.SummonPets = false;
+        var items = new ItemAutomation
+        {
+            Items =
+            [
+                // Under the threshold but already full: nothing to add.
+                Device(1, 49387, mastery: 3, level: 100, structure: 2, maximum: 2),
+                Device(2, 49380, mastery: 3, level: 100, structure: 3, maximum: 50),
+                Device(3, 49373, mastery: 3, level: 100, structure: 1, maximum: 50),
+                Item(4, PetDeviceCatalog.EncapsulatedSpiritWeenieClassId),
+            ],
+        };
+        var automation = new PetAutomation();
+
+        Assert.True(automation.TickRefill(items, settings, 3, 1d, out _));
+
+        Assert.Equal([(4u, 2u)], items.Applies);
+    }
+
+    [Fact]
+    public void TickRefill_LeavesADeviceAloneUntilItIsUnderTheThreshold()
+    {
+        var settings = Settings(MonsterDamageType.Cold);
+        var items = new ItemAutomation
+        {
+            Items =
+            [
+                Device(1, 49387, mastery: 3, level: 100, structure: 3, maximum: 50),
+                Item(2, PetDeviceCatalog.EncapsulatedSpiritWeenieClassId),
+            ],
+        };
+        var automation = new PetAutomation();
+
+        Assert.False(automation.TickRefill(items, settings, 1, 1d, out _));
+        Assert.Empty(items.Applies);
+
+        Assert.True(automation.TickRefill(items, settings, 3, 2d, out _));
+        Assert.Equal([(2u, 1u)], items.Applies);
+    }
+
+    [Fact]
+    public void TickRefill_NeedsASpiritAndWaitsForPeaceMode()
+    {
+        var settings = Settings(MonsterDamageType.Cold);
+        var items = new ItemAutomation
+        {
+            Items = [Device(1, 49387, mastery: 3, level: 100, structure: 1, maximum: 50)],
+        };
+        var automation = new PetAutomation();
+        bool inPeace = false;
+
+        Assert.False(automation.TickRefill(items, settings, 3, 1d, out _));
+
+        items.Items = [.. items.Items, Item(2, PetDeviceCatalog.EncapsulatedSpiritWeenieClassId)];
+
+        Assert.True(automation.TickRefill(
+            items, settings, 3, 2d, out string blocked, () => inPeace));
+        Assert.Empty(items.Applies);
+        Assert.Contains("peace mode", blocked, StringComparison.Ordinal);
+
+        inPeace = true;
+        Assert.True(automation.TickRefill(
+            items, settings, 3, 3d, out _, () => inPeace));
+        Assert.Equal([(2u, 1u)], items.Applies);
+    }
+
+    [Fact]
+    public void TickRefill_StartsNothingWhileThePassIsBlocked()
+    {
+        var settings = Settings(MonsterDamageType.Cold);
+        var items = new ItemAutomation
+        {
+            Items =
+            [
+                Device(1, 49387, mastery: 3, level: 100, structure: 1, maximum: 50),
+                Item(2, PetDeviceCatalog.EncapsulatedSpiritWeenieClassId),
+            ],
+        };
+        var automation = new PetAutomation();
+
+        Assert.False(automation.TickRefill(
+            items, settings, 3, 1d, out _, canAct: false));
+
+        Assert.Empty(items.Applies);
+    }
+
     [Theory]
     [InlineData(48886u, (int)MonsterDamageType.Bludgeon)]
     [InlineData(49366u, (int)MonsterDamageType.Acid)]

@@ -20,8 +20,8 @@ internal readonly record struct AttackSpellChoice(
 internal sealed class AttackSpellCatalog
 {
     /// <summary>
-    /// <c>fk.cs:560</c> — the Void ring is the ONLY table entry named by spell
-    /// id rather than by name (<c>this.m_b.f.c(5361)</c>).
+    /// The Void ring is the ONLY entry in the reference attack-spell table
+    /// named by spell id rather than by name.
     /// </summary>
     public const uint VoidRingSpellId = 5361u;
 
@@ -116,7 +116,8 @@ internal sealed class AttackSpellCatalog
                 MonsterDamageType.Pierce => "Nuhmudira's Spines",
                 MonsterDamageType.Slash => "Horizon's Blades",
                 MonsterDamageType.Harm => "Curse of Raven Fury",
-                // Nether/VoidBasic: fk.cs:560 names spell id 5361 directly.
+                // Nether/VoidBasic: the reference table names the spell id
+                // directly, so there is no name to look up here.
                 _ => null,
             },
             VtankCombatSpellType.Streak => element switch
@@ -145,12 +146,66 @@ internal sealed class AttackSpellCatalog
             && element is MonsterDamageType.Nether or MonsterDamageType.VoidBasic)
         {
             return _byId.TryGetValue(VoidRingSpellId, out PluginSpellInfo voidRing)
-                && usable?.Invoke(voidRing) != false
-                ? voidRing
+                ? ResolveFamilyOf(voidRing, usable)
                 : null;
         }
         string? family = FamilyName(element, type);
         return family is null ? null : ResolveFamily(family, usable);
+    }
+
+    /// <summary>
+    /// The first rung of a family rather than the best one known. Some arms
+    /// name a spell outright instead of walking the tiers, and what they name
+    /// is always the level-one spell.
+    /// </summary>
+    public PluginSpellInfo? ResolveBaseTier(
+        MonsterDamageType element,
+        VtankCombatSpellType type)
+    {
+        if (type == VtankCombatSpellType.Ring
+            && element is MonsterDamageType.Nether or MonsterDamageType.VoidBasic)
+        {
+            return _byId.TryGetValue(VoidRingSpellId, out PluginSpellInfo voidRing)
+                ? voidRing
+                : null;
+        }
+        string? family = FamilyName(element, type);
+        if (family is null
+            || !_families.TryGetValue(family, out List<PluginSpellInfo>? members))
+        {
+            return null;
+        }
+        PluginSpellInfo? lowest = null;
+        foreach (PluginSpellInfo spell in members)
+        {
+            if (spell.Name.Equals(family + " I", StringComparison.OrdinalIgnoreCase))
+                return spell;
+            if (lowest is not { } current || spell.Quality < current.Quality)
+                lowest = spell;
+        }
+        return lowest;
+    }
+
+    internal PluginSpellInfo? ResolveFamilyOf(
+        in PluginSpellInfo baseSpell,
+        Func<PluginSpellInfo, bool>? usable)
+    {
+        PluginSpellInfo? best = null;
+        foreach (PluginSpellInfo spell in _byId.Values)
+        {
+            if (spell.Family != baseSpell.Family
+                || spell.School != baseSpell.School
+                || spell.IsFellowship != baseSpell.IsFellowship
+                || spell.IsUntargeted != baseSpell.IsUntargeted
+                || spell.ComponentSet != baseSpell.ComponentSet
+                || usable?.Invoke(spell) == false)
+            {
+                continue;
+            }
+            if (best is not { } current || spell.Quality > current.Quality)
+                best = spell;
+        }
+        return best;
     }
 
     public PluginSpellInfo? ResolveFamily(
@@ -170,6 +225,43 @@ internal sealed class AttackSpellCatalog
             best = spell;
         }
         return best;
+    }
+
+    /// <summary>
+    /// The flight shape a spell's own family declares: a straight bolt, an
+    /// arc, or nothing at all. A spell with no shape is never clearance-tested
+    /// — it reaches wherever the server says it reaches.
+    /// </summary>
+    public static PluginProjectilePathKind? ProjectileShapeFor(uint family) =>
+        family switch
+        {
+            243u or 244u or 245u or 246u or 247u or 248u or 249u or 639u
+                or 117u or 118u or 119u or 120u or 121u or 122u or 123u
+                or 640u or 100080u or 100082u or 100084u or 637u or 638u =>
+                PluginProjectilePathKind.Straight,
+            100117u or 100118u or 100119u or 100120u or 100121u or 100122u
+                or 100123u or 100640u => PluginProjectilePathKind.Arc,
+            _ => null,
+        };
+
+    /// <summary>
+    /// The furthest a spell reaches, in metres, for the caster's skill in its
+    /// own school. Zero when the school is unknown or the range collapses.
+    /// </summary>
+    public static float RangeMeters(
+        in PluginSpellInfo spell,
+        ICharacterInfo character,
+        double rangeFudge)
+    {
+        ArgumentNullException.ThrowIfNull(character);
+        uint skill = spell.School != 0u
+            && character.TryGetSkill(spell.School, out PluginSkillInfo info)
+            ? info.Current
+            : 0u;
+        float range = spell.BaseRangeConstant
+            + (spell.BaseRangeModifier * skill)
+            - (float)rangeFudge;
+        return Math.Clamp(range, 0f, 75f);
     }
 
     public PluginSpellInfo? ResolveTuskerFists() =>

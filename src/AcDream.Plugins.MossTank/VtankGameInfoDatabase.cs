@@ -1,3 +1,4 @@
+using System.Reflection;
 using AcDream.Plugin.Abstractions;
 
 namespace AcDream.Plugins.MossTank;
@@ -43,8 +44,8 @@ internal sealed class VtankGameInfoDatabase
     private static readonly MonsterDamageType[] NoElements = [];
 
     /// <summary>
-    /// <c>e0.m_b == false</c>: no database. Every lookup answers the way
-    /// <c>e0</c> answers with an unloaded database (<c>e0.cs:305-307,329</c>).
+    /// No database. Every lookup answers the way the reference client answers
+    /// with an unloaded one.
     /// </summary>
     public static VtankGameInfoDatabase Empty { get; } = new();
 
@@ -63,7 +64,7 @@ internal sealed class VtankGameInfoDatabase
         MartyrSpellOptions = [];
     }
 
-    /// <summary><c>e0.m_b</c> — is there a database at all?</summary>
+    /// <summary>Is there a database at all?</summary>
     public bool IsLoaded { get; private init; }
 
     public IReadOnlyDictionary<string, IReadOnlyList<MonsterDamageType>>
@@ -71,6 +72,43 @@ internal sealed class VtankGameInfoDatabase
 
     public IReadOnlyDictionary<string, VtankSpeciesMember> SpeciesMembers
     { get; private init; }
+
+    /// <summary>Monster name -&gt; immunity mask.</summary>
+    public IReadOnlyDictionary<string, int> MonsterImmunities { get; private init; }
+        = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
+
+    /// <summary>The bit that says a monster cannot be affected by magic.</summary>
+    public const int ImmuneToMagicMask = 2;
+
+    /// <summary>
+    /// The species column of the monster's <c>SpeciesMembers</c> row, or
+    /// <c>-1</c> when there is no database or no row for the name.
+    /// </summary>
+    public int SpeciesOf(string? monsterName) =>
+        Member(monsterName) is { } member ? member.Species : -1;
+
+    /// <summary>
+    /// The maximum-health column of the monster's <c>SpeciesMembers</c> row,
+    /// or <c>-1</c> when there is no database or no row for the name. This is
+    /// the only source a monster's maximum health has: the client is never
+    /// told it.
+    /// </summary>
+    public int MaximumHealthOf(string? monsterName) =>
+        Member(monsterName) is { } member ? member.MaximumHealth : -1;
+
+    /// <summary>Is the monster listed as unaffectable by magic?</summary>
+    public bool IsImmuneToMagic(string? monsterName) =>
+        IsLoaded
+        && !string.IsNullOrWhiteSpace(monsterName)
+        && MonsterImmunities.TryGetValue(monsterName, out int mask)
+        && (mask & ImmuneToMagicMask) != 0;
+
+    private VtankSpeciesMember? Member(string? monsterName) =>
+        IsLoaded
+        && !string.IsNullOrWhiteSpace(monsterName)
+        && SpeciesMembers.TryGetValue(monsterName, out VtankSpeciesMember member)
+            ? member
+            : null;
 
     public IReadOnlyDictionary<int, IReadOnlyList<MonsterDamageType>> SpeciesDamages
     { get; private init; }
@@ -92,19 +130,40 @@ internal sealed class VtankGameInfoDatabase
             return Empty;
         string? text = storage.ReadText(FileName);
         if (string.IsNullOrWhiteSpace(text))
-            return Empty;
+            return LoadDefault();
         try
         {
             return Parse(text);
         }
         catch (FormatException)
         {
-            return Empty;
+            return LoadDefault();
         }
         catch (InvalidOperationException)
         {
-            return Empty;
+            return LoadDefault();
         }
+    }
+
+    private const string DefaultResourceSuffix = ".VtankDefaultGameInfo.ugd";
+
+    /// <summary>
+    /// The database the reference client ships inside itself and reads when
+    /// the profile directory has none, or an unreadable one. Every table it
+    /// ships is empty (its content came from the reference client's online
+    /// service and from monsters met in play); a profile-directory file with
+    /// content takes precedence.
+    /// </summary>
+    public static VtankGameInfoDatabase LoadDefault()
+    {
+        Assembly assembly = typeof(VtankGameInfoDatabase).Assembly;
+        string resource = assembly.GetManifestResourceNames().Single(
+            static name => name.EndsWith(DefaultResourceSuffix, StringComparison.Ordinal));
+        using Stream stream = assembly.GetManifestResourceStream(resource)
+            ?? throw new InvalidOperationException(
+                "The embedded default game information database is missing.");
+        using var reader = new StreamReader(stream);
+        return Parse(reader.ReadToEnd());
     }
 
     public static VtankGameInfoDatabase Parse(string text)
@@ -116,6 +175,7 @@ internal sealed class VtankGameInfoDatabase
             IsLoaded = true,
             MonsterDamageOverrides = ReadNamedElements(database, "MonsterDamageOverrides"),
             SpeciesMembers = ReadSpeciesMembers(database),
+            MonsterImmunities = ReadMonsterImmunities(database),
             SpeciesDamages = ReadSpeciesDamages(database),
             AmmunitionOptions = ReadAmmunitionOptions(database),
             HealKits = ReadHealKits(database),
@@ -167,6 +227,15 @@ internal sealed class VtankGameInfoDatabase
                 row.Cells[1].AsInt(),
                 row.Cells[2].AsInt());
         }
+        return result;
+    }
+
+    private static Dictionary<string, int> ReadMonsterImmunities(
+        VtankDatabase database)
+    {
+        var result = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
+        foreach (VtankRow row in Rows(database, "MonsterImmunities", 2))
+            result[row.Cells[0].AsString()] = row.Cells[1].AsInt();
         return result;
     }
 

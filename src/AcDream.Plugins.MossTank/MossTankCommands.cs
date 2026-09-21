@@ -10,13 +10,23 @@ internal sealed partial class MossTankPanel
     private static readonly string[] VtankHelp =
     [
         "/vt commands (profiles): settings nav loot meta opt testitem propertydump addnavpt refresh getdb addnavjump addnavcheckpoint",
-        "/vt commands (actions): start stop forcebuff cancelforcebuff setmetastate fakedeath deletemonster reverseroute reverseroutequery equipitemsfor mexec echo tapjump jump setattackbar",
+        "/vt commands (actions): start stop forcebuff cancelforcebuff setmetastate fakedeath deathrestore deletemonster reverseroute reverseroutequery equipitemsfor mexec echo tapjump jump setattackbar",
         "/vt commands (game info): dumpspells dumpspecies dumpmats dumpskills",
         "/vt commands (debug): log testmonster lockdump dumptracker clearlocks clearbusy listmonstervariables dumpmetavars listmetafunctions metafunchelp fakeimp pscount testspell testpet",
     ];
 
     private readonly HashSet<string> _commandLogTypes =
         new(StringComparer.OrdinalIgnoreCase);
+
+    // Channels the session asked for from outside (autostart), kept apart
+    // from the profile's own: a profile load replaces those, and a request
+    // made for the whole session must outlive the loads within it.
+    private readonly HashSet<string> _sessionLogTypes =
+        new(StringComparer.OrdinalIgnoreCase);
+
+    private bool IsLogging(MacroLogChannel channel) =>
+        _commandLogTypes.Contains(channel.ToString())
+        || _sessionLogTypes.Contains(channel.ToString());
     private bool _commandJumpActive;
     private bool _commandJumpReleased;
     private bool _commandJumpCharging;
@@ -156,8 +166,15 @@ internal sealed partial class MossTankPanel
             case "metafunchelp":
                 MetaFunctionHelp(arguments);
                 return;
+            case "deathrestore":
+                RestoreAfterDeath();
+                return;
             case "fakedeath":
+                // The reference's verb calls the death handler itself rather
+                // than only poking the meta engine, so the whole death
+                // happens — here, that is the meta edge and the macro stop.
                 _meta.TriggerFakeDeath();
+                HandleDeath(_combat.Enabled);
                 WriteVtank("Fake character death trigger fired.");
                 return;
             case "pscount":
@@ -249,7 +266,11 @@ internal sealed partial class MossTankPanel
             WriteVtank($"Settings profile '{name}' was not found.");
             return;
         }
-        LoadSelectedProfile();
+        if (LoadSelectedProfile() == MossTankProfileLoad.Failed)
+        {
+            WriteVtank(_profileLifecycleNotice);
+            return;
+        }
         WriteVtank($"Loaded settings profile {_profiles.Selected}.");
     }
 
@@ -306,33 +327,36 @@ internal sealed partial class MossTankPanel
         name = StripExtension(name, ".utl", ".json");
         if (operation is "new" or "save")
         {
-            _lootProfiles.Create(
+            if (_lootProfiles.Create(
                 name,
                 copyCurrent: operation == "save",
                 _inventorySettings.Loot.Rules,
-                out string notice);
-            LoadLootProfile();
+                out string notice,
+                _inventorySettings.Loot))
+            {
+                LoadLootProfile();
+            }
             WriteVtank(notice);
             return;
         }
-        if (!_lootProfiles.Select(name))
+        if (_lootProfiles.Exists(name))
         {
-            if (!_lootProfiles.TryImportLegacy(
+            SelectLootProfileCore(name);
+            WriteVtank(_lootEditorNotice);
+            return;
+        }
+        if (!_lootProfiles.TryImportLegacy(
                 name,
                 _inventorySettings.Loot.Rules,
                 _inventorySettings.Loot,
                 out string importNotice))
-            {
-                WriteVtank(importNotice);
-                return;
-            }
-            _loot.Reset();
-            RefreshLootEditor();
+        {
             WriteVtank(importNotice);
             return;
         }
-        LoadLootProfile();
-        WriteVtank($"Loaded loot profile {_lootProfiles.Selected}.");
+        _loot.Reset();
+        RefreshLootEditor();
+        WriteVtank(importNotice);
     }
 
     private void HandleMetaProfileCommand(string arguments)
@@ -805,9 +829,11 @@ internal sealed partial class MossTankPanel
         string[] parts = arguments.Split(' ', StringSplitOptions.RemoveEmptyEntries);
         if (parts.Length == 0)
         {
-            WriteVtank(_commandLogTypes.Count == 0
+            var logging = new HashSet<string>(_commandLogTypes, StringComparer.OrdinalIgnoreCase);
+            logging.UnionWith(_sessionLogTypes);
+            WriteVtank(logging.Count == 0
                 ? "Not currently logging."
-                : "Log state:  " + string.Join(' ', _commandLogTypes.Order(StringComparer.OrdinalIgnoreCase)));
+                : "Log state:  " + string.Join(' ', logging.Order(StringComparer.OrdinalIgnoreCase)));
             WriteVtank("Valid logtypes: ActiveRule SalvageList SpellCast RuleInfo Timers CastInfo DebuffChoice Loot CharProps Misc BusyState");
             return;
         }
@@ -818,13 +844,53 @@ internal sealed partial class MossTankPanel
             WriteVtank("Usage: /vt log [type] [on/off]");
             return;
         }
-        string type = parts[0];
+        string type = CanonicalLogChannelName(parts[0]);
         bool changed = parts[1] == "on"
             ? _commandLogTypes.Add(type)
-            : _commandLogTypes.Remove(type);
+            : _commandLogTypes.Remove(type) | _sessionLogTypes.Remove(type);
         WriteVtank((parts[1] == "on" ? "Set " : "Reset ") + type);
         if (changed)
             SaveProfile();
+    }
+
+    /// <summary>
+    /// The channel name as the emitter spells it, so a channel asked for in
+    /// any casing is the channel that then logs. A name that is not one of
+    /// ours is kept as typed — the oracle's list has two channels this port
+    /// has no emitter for, and remembering them costs nothing.
+    /// </summary>
+    private static string CanonicalLogChannelName(string requested)
+    {
+        foreach (MacroLogChannel channel in Enum.GetValues<MacroLogChannel>())
+        {
+            string name = channel.ToString();
+            if (name.Equals(requested, StringComparison.OrdinalIgnoreCase))
+                return name;
+        }
+        return requested;
+    }
+
+    /// <summary>
+    /// Turn on the named log channels before the first scheduler pass runs.
+    /// A session with no window in front of it cannot type <c>/vt log</c>
+    /// in time: several of the plugin's most useful lines — the buff
+    /// planner's refusal among them — are emitted once per run, so a channel
+    /// switched on after the macro starts has already missed them.
+    /// </summary>
+    internal void ApplyLogChannels(string requested)
+    {
+        foreach (string name in requested.Split(
+            [',', ' ', ';'],
+            StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
+        {
+            if (name.Equals("All", StringComparison.OrdinalIgnoreCase))
+            {
+                foreach (MacroLogChannel channel in Enum.GetValues<MacroLogChannel>())
+                    _sessionLogTypes.Add(channel.ToString());
+                continue;
+            }
+            _sessionLogTypes.Add(CanonicalLogChannelName(name));
+        }
     }
 
     private void EmitMacroLog(MacroLogChannel channel, string message) =>
@@ -833,7 +899,7 @@ internal sealed partial class MossTankPanel
     private void EmitMacroLog(
         MacroLogChannel channel, string message, bool chat)
     {
-        if (!_commandLogTypes.Contains(channel.ToString()))
+        if (!IsLogging(channel))
             return;
         if (chat)
             _host.Automation.Chat.PostSystemMessage("[MossTank] " + message);
