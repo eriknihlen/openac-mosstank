@@ -1,0 +1,27 @@
+# Build output
+bin/
+obj/
+out/
+**/TestResults/
+
+# The local folder feed the plugin contract package is dropped into
+packages-local/
+
+# Release staging
+artifacts/
+
+# IDEs
+.vs/
+.idea/
+*.user
+*.suo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Local agent/session state
+.claude/
+.codex/
+.agents/
+.worktrees/

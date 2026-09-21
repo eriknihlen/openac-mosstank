@@ -1,0 +1,17 @@
+<Project>
+  <PropertyGroup>
+    <ManagePackageVersionsCentrally>true</ManagePackageVersionsCentrally>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <!-- The plugin contract. Its version comes from PluginApiPackageVersion in
+         Directory.Build.props, which the project files pass as a
+         VersionOverride, so this entry only has to exist. -->
+    <PackageVersion Include="AcDream.Plugin.Abstractions" Version="0.1.12" />
+
+    <PackageVersion Include="coverlet.collector" Version="6.0.4" />
+    <PackageVersion Include="Microsoft.NET.Test.Sdk" Version="17.14.1" />
+    <PackageVersion Include="xunit" Version="2.9.3" />
+    <PackageVersion Include="xunit.runner.visualstudio" Version="3.1.4" />
+  </ItemGroup>
+</Project>
