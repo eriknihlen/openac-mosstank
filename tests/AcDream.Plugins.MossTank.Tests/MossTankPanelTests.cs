@@ -1855,9 +1855,10 @@ public sealed class MossTankPanelTests
     }
 
     /// <summary>
-    /// Every way an Items add can be refused says so through the notice the
-    /// page shows. A refused add that reports nothing is indistinguishable
-    /// from a page with no Add button.
+    /// The Items page has no notice line of its own, so every refusal and
+    /// every success answers in chat. A refused add that reports nothing is
+    /// indistinguishable from a page with no Add button.
+    /// Mutation: set the notice without announcing it and chat stays silent.
     /// </summary>
     [Fact]
     public void AnItemsAddThatIsRefusedSaysWhy()
@@ -1879,6 +1880,18 @@ public sealed class MossTankPanelTests
 
         panel.AddSelectedItem(); // the same item twice
         Assert.Contains("already in this list", panel.ProfileNotice, StringComparison.Ordinal);
+
+        // Each of those four outcomes reached the player, in chat.
+        Assert.Collection(
+            automation.Messages,
+            message => Assert.Contains(
+                "Select an owned inventory item first.", message, StringComparison.Ordinal),
+            message => Assert.Contains(
+                "The Items profile is empty.", message, StringComparison.Ordinal),
+            message => Assert.Contains(
+                "Added War Wand.", message, StringComparison.Ordinal),
+            message => Assert.Contains(
+                "already in this list", message, StringComparison.Ordinal));
     }
 
     [Fact]

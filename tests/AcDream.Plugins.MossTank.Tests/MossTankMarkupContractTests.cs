@@ -549,13 +549,12 @@ public sealed class MossTankMarkupContractTests
     }
 
     /// <summary>
-    /// The Items page adds the item the player has selected, and every reason
-    /// an add can be refused is reported through the profile notice. Without
-    /// that readout on the page, a refused add looks exactly like a page with
-    /// no Add button at all.
+    /// The Items page adds the item the player has selected, so each of its
+    /// buttons has to say what it acts on: a page of unlabelled buttons that
+    /// answer only in chat reads as a page with no Add button at all.
     /// </summary>
     [Fact]
-    public void TheItemsPageAddsTheSelectedItemAndShowsWhyAnAddWasRefused()
+    public void EveryItemsPageButtonSaysWhatItActsOn()
     {
         XDocument document = XDocument.Load(
             Path.Combine(AppContext.BaseDirectory, "mosstank.xml"));
@@ -580,9 +579,6 @@ public sealed class MossTankMarkupContractTests
                 + "acts on.");
         }
 
-        Assert.Single(
-            group.Elements("label"),
-            static label => (string?)label.Attribute("text") == "{ProfileNotice}");
     }
 
     /// <summary>

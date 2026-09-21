@@ -110,13 +110,13 @@ internal sealed partial class MossTankPanel
     {
         if (!TryGetSelectedInventoryItem(out PluginInventoryItem item))
         {
-            _profileNotice = "Select an owned inventory item first.";
+            AnnounceProfileNotice("Select an owned inventory item first.");
             return;
         }
         if (consumable ? _combatSettings.ConsumableNames.Contains(item.Name)
             : _combatSettings.CombatItemObjectIds.Contains(item.ObjectId))
         {
-            _profileNotice = $"{item.Name} is already in this list.";
+            AnnounceProfileNotice($"{item.Name} is already in this list.");
             return;
         }
         _pendingProfileAddition = new(item.ObjectId, consumable, noBuffs, _profiles.Selected);
@@ -138,8 +138,9 @@ internal sealed partial class MossTankPanel
         if (item.ObjectId == 0u || pending.Elapsed >= 30d)
         {
             _pendingProfileAddition = null;
-            _profileNotice = item.ObjectId == 0u ? "The selected item is no longer owned."
-                : "Assessment did not complete. Select the item and try again.";
+            AnnounceProfileNotice(item.ObjectId == 0u
+                ? "The selected item is no longer owned."
+                : "Assessment did not complete. Select the item and try again.");
             return;
         }
         if (!EnsureItemAssessed(item.ObjectId))
@@ -150,7 +151,7 @@ internal sealed partial class MossTankPanel
         _pendingProfileAddition = null;
         if (!_host.Automation.Items.TryCaptureProperties(item.ObjectId, out PluginItemProperties properties))
         {
-            _profileNotice = "Item properties are unavailable. Try again.";
+            AnnounceProfileNotice("Item properties are unavailable. Try again.");
             return;
         }
         if (pending.Consumable)
@@ -159,12 +160,12 @@ internal sealed partial class MossTankPanel
                 out ConsumableCategory category))
                 CommitConsumable(item, category);
             else
-                _profileNotice = $"{item.Name} is not a supported consumable.";
+                AnnounceProfileNotice($"{item.Name} is not a supported consumable.");
         }
         else if (!ItemEnchantDefaults.IsProfileEligible(item)
             || item.ValidLocations == ItemEnchantDefaults.MissileWeapon && item.AmmoType == 0u)
         {
-            _profileNotice = $"{item.Name} is not supported in Items.";
+            AnnounceProfileNotice($"{item.Name} is not supported in Items.");
         }
         else
         {

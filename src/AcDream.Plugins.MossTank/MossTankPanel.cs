@@ -2113,7 +2113,7 @@ internal sealed partial class MossTankPanel : IBuffRuleHost, IDisposable
     {
         if (_itemBaseNames.Count == 0)
         {
-            _profileNotice = "The Items profile is empty.";
+            AnnounceProfileNotice("The Items profile is empty.");
             return;
         }
         DeleteItemRowAtCore(ClampRow(_selectedItemRow, _itemBaseNames.Count));
@@ -3136,6 +3136,16 @@ internal sealed partial class MossTankPanel : IBuffRuleHost, IDisposable
     private void AddSelectedProfileItem(bool noBuffs)
         => BeginProfileItemAddition(consumable: false, noBuffs);
 
+    // What a button press did, said where the player is looking. The Items
+    // page has no notice line of its own, so an add or a remove that was
+    // refused there would otherwise be silent: it answers in chat, the way
+    // the macro answers a typed command.
+    private void AnnounceProfileNotice(string notice)
+    {
+        _profileNotice = notice;
+        WriteVtank("[MossTank] " + notice);
+    }
+
     private void CommitProfileItem(PluginInventoryItem item, bool noBuffs)
     {
         if (_combatSettings.CombatItemObjectIds.Add(item.ObjectId))
@@ -3155,9 +3165,9 @@ internal sealed partial class MossTankPanel : IBuffRuleHost, IDisposable
         string added = noBuffs
             ? $"Added {item.Name} (no buffs)"
             : $"Added {item.Name}";
-        _profileNotice = SaveProfile()
+        AnnounceProfileNotice(SaveProfile()
             ? added + "."
-            : UnsavedProfileNotice(added);
+            : UnsavedProfileNotice(added));
     }
 
     private void PopulateItemEnchantRows(in PluginInventoryItem item, bool noBuffs)

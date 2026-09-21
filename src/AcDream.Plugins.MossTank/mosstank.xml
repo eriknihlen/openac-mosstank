@@ -279,8 +279,6 @@
     <button x="284" y="189" w="126" h="25" text="Remove"
             onclick="{RemoveSelectedItem}" anchor="bottom"
             tooltip="Remove the row selected in the list above." />
-    <label x="440" y="195" w="520" h="16" text="{ProfileNotice}" color="#FF9B9072"
-           anchor="bottom" />
   </group>
 
   <group x="8" y="42" w="976" h="229" visible="{ConsumablesVisible}" anchor="left top right bottom">
