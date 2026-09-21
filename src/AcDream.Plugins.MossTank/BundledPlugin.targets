@@ -1,0 +1,61 @@
+<Project>
+  <!-- Stages this plugin into a host's `plugins/<folder>` build and publish output, so a developer
+       build has it in the same layout a player's plugins directory uses: the plugin's own build
+       output, checked-in `plugin.json` and all. Every host that ships the plugin imports this file,
+       so the graphical and windowless hosts cannot drift apart in what they stage or how. -->
+  <PropertyGroup>
+    <_BundledPluginDirectory>$(MSBuildThisFileDirectory)</_BundledPluginDirectory>
+    <_BundledPluginProject>$(_BundledPluginDirectory)AcDream.Plugins.MossTank.csproj</_BundledPluginProject>
+    <_BundledPluginFolderName>AcDream.Plugins.MossTank</_BundledPluginFolderName>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <!-- Build order only: the host links nothing from the plugin, it only copies its output. -->
+    <ProjectReference Include="$(_BundledPluginProject)">
+      <ReferenceOutputAssembly>false</ReferenceOutputAssembly>
+      <SkipGetTargetFrameworkProperties>true</SkipGetTargetFrameworkProperties>
+    </ProjectReference>
+  </ItemGroup>
+
+  <Target
+    Name="StageBundledPluginToBuildOutput"
+    AfterTargets="Build"
+    Condition="'$(IsCrossTargetingBuild)' != 'true'">
+    <MSBuild
+      Projects="$(_BundledPluginProject)"
+      Targets="GetTargetPath"
+      Properties="Configuration=$(Configuration);TargetFramework=$(TargetFramework);RuntimeIdentifier=$(RuntimeIdentifier);OutputPath=$(OutputPath)">
+      <Output TaskParameter="TargetOutputs" ItemName="_BundledPluginAssembly" />
+    </MSBuild>
+    <ItemGroup>
+      <_BundledPluginStagedFile
+        Include="%(_BundledPluginAssembly.RootDir)%(_BundledPluginAssembly.Directory)**\*" />
+    </ItemGroup>
+    <MakeDir Directories="$(OutputPath)plugins\$(_BundledPluginFolderName)" />
+    <Copy
+      SourceFiles="@(_BundledPluginStagedFile)"
+      DestinationFiles="@(_BundledPluginStagedFile->'$(OutputPath)plugins\$(_BundledPluginFolderName)\%(RecursiveDir)%(Filename)%(Extension)')"
+      SkipUnchangedFiles="true" />
+  </Target>
+
+  <Target
+    Name="StageBundledPluginToPublishOutput"
+    AfterTargets="Publish"
+    Condition="'$(IsCrossTargetingBuild)' != 'true'">
+    <MSBuild
+      Projects="$(_BundledPluginProject)"
+      Targets="GetTargetPath"
+      Properties="Configuration=$(Configuration);TargetFramework=$(TargetFramework);RuntimeIdentifier=$(RuntimeIdentifier);OutputPath=$(OutputPath)">
+      <Output TaskParameter="TargetOutputs" ItemName="_BundledPluginPublishAssembly" />
+    </MSBuild>
+    <ItemGroup>
+      <_BundledPluginPublishedFile
+        Include="%(_BundledPluginPublishAssembly.RootDir)%(_BundledPluginPublishAssembly.Directory)**\*" />
+    </ItemGroup>
+    <MakeDir Directories="$(PublishDir)plugins\$(_BundledPluginFolderName)" />
+    <Copy
+      SourceFiles="@(_BundledPluginPublishedFile)"
+      DestinationFiles="@(_BundledPluginPublishedFile->'$(PublishDir)plugins\$(_BundledPluginFolderName)\%(RecursiveDir)%(Filename)%(Extension)')"
+      SkipUnchangedFiles="true" />
+  </Target>
+</Project>

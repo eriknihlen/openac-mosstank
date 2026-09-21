@@ -17,6 +17,11 @@
     </ProjectReference>
   </ItemGroup>
   <ItemGroup>
+    <!-- The manifest the host reads before it loads any code, and the panel markup, both ship
+         beside the assembly in the plugin's own folder. -->
+    <None Update="plugin.json">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </None>
     <None Update="mosstank*.xml">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
     </None>
