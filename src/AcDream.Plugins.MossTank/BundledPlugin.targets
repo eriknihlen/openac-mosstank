@@ -29,12 +29,12 @@
     </MSBuild>
     <ItemGroup>
       <_BundledPluginStagedFile
-        Include="%(_BundledPluginAssembly.RootDir)%(_BundledPluginAssembly.Directory)**\*" />
+        Include="%(_BundledPluginAssembly.RootDir)%(_BundledPluginAssembly.Directory)**/*" />
     </ItemGroup>
-    <MakeDir Directories="$(OutputPath)plugins\$(_BundledPluginFolderName)" />
+    <MakeDir Directories="$(OutputPath)plugins/$(_BundledPluginFolderName)" />
     <Copy
       SourceFiles="@(_BundledPluginStagedFile)"
-      DestinationFiles="@(_BundledPluginStagedFile->'$(OutputPath)plugins\$(_BundledPluginFolderName)\%(RecursiveDir)%(Filename)%(Extension)')"
+      DestinationFiles="@(_BundledPluginStagedFile->'$(OutputPath)plugins/$(_BundledPluginFolderName)/%(RecursiveDir)%(Filename)%(Extension)')"
       SkipUnchangedFiles="true" />
   </Target>
 
@@ -50,12 +50,12 @@
     </MSBuild>
     <ItemGroup>
       <_BundledPluginPublishedFile
-        Include="%(_BundledPluginPublishAssembly.RootDir)%(_BundledPluginPublishAssembly.Directory)**\*" />
+        Include="%(_BundledPluginPublishAssembly.RootDir)%(_BundledPluginPublishAssembly.Directory)**/*" />
     </ItemGroup>
-    <MakeDir Directories="$(PublishDir)plugins\$(_BundledPluginFolderName)" />
+    <MakeDir Directories="$(PublishDir)plugins/$(_BundledPluginFolderName)" />
     <Copy
       SourceFiles="@(_BundledPluginPublishedFile)"
-      DestinationFiles="@(_BundledPluginPublishedFile->'$(PublishDir)plugins\$(_BundledPluginFolderName)\%(RecursiveDir)%(Filename)%(Extension)')"
+      DestinationFiles="@(_BundledPluginPublishedFile->'$(PublishDir)plugins/$(_BundledPluginFolderName)/%(RecursiveDir)%(Filename)%(Extension)')"
       SkipUnchangedFiles="true" />
   </Target>
 </Project>
