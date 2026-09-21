@@ -16,7 +16,6 @@ internal sealed class MossTankMetaProfileStore
     private string _selected = ByCharacter;
     private string? _pendingLegacyBareName;
     private bool _rosterSwept;
-    private bool _flatFolderMigrationSwept;
 
     public MossTankMetaProfileStore(IPluginHost host)
     {
@@ -79,7 +78,6 @@ internal sealed class MossTankMetaProfileStore
 
     public MetaProfile LoadCurrent()
     {
-        MigrateFlatFilesToMetasFolderIfNeeded();
         SweepLegacyRosterIfNeeded();
         MigrateLegacyIfNeeded();
         string fileName = CurrentFileName();
@@ -282,39 +280,6 @@ internal sealed class MossTankMetaProfileStore
         return empty;
     }
 
-
-    private void MigrateFlatFilesToMetasFolderIfNeeded()
-    {
-        if (_flatFolderMigrationSwept)
-            return;
-        _flatFolderMigrationSwept = true;
-        if (!VtankStorage.IsAvailable)
-            return;
-        int migrated = 0;
-        foreach (string bareName in VtankProfileDirectory.ListFlatAfFileNames(VtankStorage))
-        {
-            if (VtankProfileDirectory.IsLegacyFlatRouteFileName(bareName))
-                continue; // MossTankRouteProfileStore's own sweep owns this one.
-            string destination = $"{VtankProfileDirectory.MetaFolder}/{bareName}";
-            if (VtankStorage.ReadText(destination) is not null)
-            {
-                _host.Log.Warn(
-                    $"MossTank left flat Meta profile '{bareName}' in place: '{destination}' already exists.");
-                continue;
-            }
-            string? content = VtankStorage.ReadText(bareName);
-            if (content is null)
-                continue; // listed but unreadable; skip defensively.
-            VtankStorage.WriteText(destination, content);
-            VtankStorage.Delete(bareName);
-            migrated++;
-        }
-        if (migrated > 0)
-        {
-            _host.Log.Warn(
-                $"Migrated {migrated} flat MossTank Meta profile(s) into {VtankProfileDirectory.MetaFolder}/.");
-        }
-    }
 
     // ------------------------------------------------------------------
     // Legacy JSON -> .af migration.

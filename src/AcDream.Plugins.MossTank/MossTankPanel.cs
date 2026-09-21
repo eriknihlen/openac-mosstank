@@ -281,6 +281,9 @@ internal sealed partial class MossTankPanel : IBuffRuleHost, IDisposable
         foreach (VtankHealKit kit in _gameInfo.HealKits)
             healKits[kit.Name] = kit;
         _combatSettings.HealKits = healKits;
+        // Before any store reads anything: every key they use is addressed
+        // inside the plugin's own folder now.
+        MigrateFileLayout();
         _profiles = new MossTankProfileStore(host);
         _profiles.BindCharacter(host.Automation.Character.Name);
         if (_profiles.LoadCurrent(_allSettings, _noBuffItemNames, _commandLogTypes)
@@ -4985,6 +4988,7 @@ internal sealed partial class MossTankPanel : IBuffRuleHost, IDisposable
         _buffRule.EnsureTimerPersistence();
         TickConfiguredItemAssessment(elapsedSeconds);
         TickProfileItemAddition(elapsedSeconds);
+        FlushQueuedAnnouncements();
         ShowFirstRunGuidance();
         ObserveCommandPortalState();
         bool macroRunning = _combat.Enabled;

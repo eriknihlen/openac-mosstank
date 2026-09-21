@@ -16,7 +16,6 @@ internal sealed class MossTankRouteProfileStore
     private string _selected = ByCharacter;
     private string? _pendingLegacyBareName;
     private bool _rosterSwept;
-    private bool _flatFolderMigrationSwept;
 
     public MossTankRouteProfileStore(IPluginHost host)
     {
@@ -157,7 +156,6 @@ internal sealed class MossTankRouteProfileStore
     {
         ArgumentNullException.ThrowIfNull(target);
         ArgumentNullException.ThrowIfNull(spells);
-        MigrateFlatFilesToNavsFolderIfNeeded();
         SweepLegacyRosterIfNeeded();
         MigrateLegacyIfNeeded(target, spells);
         string fileName = CurrentFileName();
@@ -247,40 +245,6 @@ internal sealed class MossTankRouteProfileStore
         SaveCurrent(target);
     }
 
-
-    private void MigrateFlatFilesToNavsFolderIfNeeded()
-    {
-        if (_flatFolderMigrationSwept)
-            return;
-        _flatFolderMigrationSwept = true;
-        if (!VtankStorage.IsAvailable)
-            return;
-        int migrated = 0;
-        foreach (string bareName in VtankProfileDirectory.ListFlatAfFileNames(VtankStorage))
-        {
-            if (!VtankProfileDirectory.IsLegacyFlatRouteFileName(bareName))
-                continue; // MossTankMetaProfileStore's own sweep owns this one.
-            string strippedName = VtankProfileDirectory.StripLegacyNavMarker(bareName);
-            string destination = $"{VtankProfileDirectory.NavFolder}/{strippedName}";
-            if (VtankStorage.ReadText(destination) is not null)
-            {
-                _host.Log.Warn(
-                    $"MossTank left flat route profile '{bareName}' in place: '{destination}' already exists.");
-                continue;
-            }
-            string? content = VtankStorage.ReadText(bareName);
-            if (content is null)
-                continue; // listed but unreadable; skip defensively.
-            VtankStorage.WriteText(destination, content);
-            VtankStorage.Delete(bareName);
-            migrated++;
-        }
-        if (migrated > 0)
-        {
-            _host.Log.Warn(
-                $"Migrated {migrated} flat MossTank route profile(s) into {VtankProfileDirectory.NavFolder}/.");
-        }
-    }
 
     // ------------------------------------------------------------------
     // Legacy JSON -> .af migration.
