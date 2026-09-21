@@ -3121,6 +3121,7 @@ public sealed class CombatControllerTests
         };
         var settings = new CombatSettings { MaximumRange = 40d };
         settings.CombatItemNames.Add("Spare Wand");
+        settings.CombatItemNames.Add("Imbued Sword");
         settings.CombatItemOrderIds.Add(990u);
         settings.Rules.Clear();
         settings.Rules.Add(new MonsterRule(
@@ -4021,6 +4022,7 @@ public sealed class CombatControllerTests
             ],
         };
         var settings = new CombatSettings();
+        settings.CombatItemObjectIds.Add(700u);
         settings.Rules.Clear();
         settings.Rules.Add(new MonsterRule(
             "DEFAULT",
@@ -4052,6 +4054,9 @@ public sealed class CombatControllerTests
             ],
         };
         var settings = new CombatSettings();
+        // An older profile lists its items by name alone, which is exactly
+        // what still matches the same sword under a new object id.
+        settings.CombatItemNames.Add("Fire Sword");
         settings.Rules.Clear();
         settings.Rules.Add(new MonsterRule(
             "DEFAULT",
@@ -4069,6 +4074,96 @@ public sealed class CombatControllerTests
 
         Assert.Equal(900u, surface.LastEquipObjectId);
         Assert.Equal(0, surface.BeginCount);
+    }
+
+    /// <summary>
+    /// The Items page is the whole roster the fight may reach for. A rule
+    /// carrying a weapon the page does not list - a pick made before the item
+    /// was removed, or written by an editor that offered more than the page -
+    /// is not wielded: the pick is dropped and the automatic choice among
+    /// listed items answers instead. The fight says so once, not per pass.
+    ///
+    /// Mutation: resolve the rule's weapon against owned equipment without
+    /// asking whether it is listed, and the unlisted blade is wielded.
+    /// </summary>
+    [Fact]
+    public void AnUnlistedRuleWeaponIsNeverWieldedAndTheAutomaticChoiceAnswers()
+    {
+        var surface = new FakeAutomation
+        {
+            CombatSnapshot = Physical(),
+            Targets = [Target(10, "Drudge", 2, 0)],
+            EquipmentItems =
+            [
+                Equipment(700, "Unlisted Blade", damageType: 0x10),
+                Equipment(701, "Listed Sword", damageType: 0x10),
+            ],
+        };
+        var settings = new CombatSettings();
+        settings.CombatItemObjectIds.Add(701u);
+        settings.Rules.Clear();
+        settings.Rules.Add(new MonsterRule(
+            "DEFAULT",
+            new MonsterRuleActions
+            {
+                Flags = MonsterActionFlags.Attack,
+                DamageType = MonsterDamageType.Fire,
+                WeaponObjectId = 700u,
+            }));
+        var controller = new CombatController(new FakeHost(surface), settings);
+
+        controller.Toggle();
+        for (int tick = 0; tick < 8; tick++)
+            controller.OnTick(0.25);
+
+        Assert.DoesNotContain("Equip:000002BC", surface.CallLog);   // 700
+        Assert.Equal(701u, surface.LastEquipObjectId);
+        Assert.Single(
+            surface.PostedSystemMessages,
+            line => line.Contains(
+                "not in the Items list", StringComparison.Ordinal));
+    }
+
+    /// <summary>
+    /// The same rule with the same weapon, once the Items page carries it:
+    /// the named pick is honoured, and nothing is said about it.
+    /// </summary>
+    [Fact]
+    public void AListedRuleWeaponIsStillWieldedByName()
+    {
+        var surface = new FakeAutomation
+        {
+            CombatSnapshot = Physical(),
+            Targets = [Target(10, "Drudge", 2, 0)],
+            EquipmentItems =
+            [
+                Equipment(700, "Unlisted Blade", damageType: 0x10),
+                Equipment(701, "Listed Sword", damageType: 0x10),
+            ],
+        };
+        var settings = new CombatSettings();
+        settings.CombatItemObjectIds.Add(700u);
+        settings.CombatItemObjectIds.Add(701u);
+        settings.Rules.Clear();
+        settings.Rules.Add(new MonsterRule(
+            "DEFAULT",
+            new MonsterRuleActions
+            {
+                Flags = MonsterActionFlags.Attack,
+                DamageType = MonsterDamageType.Fire,
+                WeaponObjectId = 700u,
+            }));
+        var controller = new CombatController(new FakeHost(surface), settings);
+
+        controller.Toggle();
+        for (int tick = 0; tick < 8; tick++)
+            controller.OnTick(0.25);
+
+        Assert.Equal(700u, surface.LastEquipObjectId);
+        Assert.DoesNotContain(
+            surface.PostedSystemMessages,
+            line => line.Contains(
+                "not in the Items list", StringComparison.Ordinal));
     }
 
     [Fact]
@@ -4324,6 +4419,7 @@ public sealed class CombatControllerTests
             ],
         };
         var settings = new CombatSettings();
+        settings.CombatItemObjectIds.Add(700u);
         settings.Rules.Clear();
         settings.Rules.Add(new MonsterRule("DEFAULT", new MonsterRuleActions
         {
@@ -4570,6 +4666,7 @@ public sealed class CombatControllerTests
             ],
         };
         var settings = new CombatSettings();
+        settings.CombatItemObjectIds.Add(700u);
         settings.Rules.Clear();
         settings.Rules.Add(new MonsterRule(
             "DEFAULT",
@@ -4630,6 +4727,7 @@ public sealed class CombatControllerTests
             ],
         };
         var settings = new CombatSettings();
+        settings.CombatItemObjectIds.Add(700u);
         settings.Rules.Clear();
         settings.Rules.Add(new MonsterRule(
             "DEFAULT",
@@ -4705,6 +4803,7 @@ public sealed class CombatControllerTests
                 DamageType = MonsterDamageType.Fire,
                 WeaponObjectId = 700,
             }));
+        settings.CombatItemObjectIds.Add(700u);
         var vitals = new VitalSettings();
         var host = new FakeHost(surface);
         var controller = new CombatController(host, settings, vitals, AmmoGameInfo);
@@ -5747,6 +5846,7 @@ public sealed class CombatControllerTests
             ],
         };
         var settings = new CombatSettings();
+        settings.CombatItemObjectIds.Add(primary);
         settings.ItemUseSpecifiers[primary] = 0;
         settings.ItemUseSpecifiers[secondary] = 0;
         settings.Rules.Clear();
@@ -5790,6 +5890,7 @@ public sealed class CombatControllerTests
         };
         surface.WorldOnlyObjectIds.Add(packItem);
         var settings = new CombatSettings();
+        settings.CombatItemObjectIds.Add(primary);
         settings.Rules.Clear();
         settings.Rules.Add(new MonsterRule("DEFAULT", new MonsterRuleActions
         {
@@ -5828,6 +5929,7 @@ public sealed class CombatControllerTests
         };
         surface.WorldOnlyObjectIds.Add(inventoryOnlySecondary);
         var settings = new CombatSettings();
+        settings.CombatItemObjectIds.Add(primary);
         settings.Rules.Clear();
         settings.Rules.Add(new MonsterRule("DEFAULT", new MonsterRuleActions
         {
@@ -7790,6 +7892,8 @@ public sealed class CombatControllerTests
         uint primary, VtankSecondaryEquip secondary)
     {
         var settings = new CombatSettings();
+        // A rule may only name a weapon the Items page carries.
+        settings.CombatItemObjectIds.Add(primary);
         settings.Rules.Clear();
         settings.Rules.Add(new MonsterRule("DEFAULT", new MonsterRuleActions
         {

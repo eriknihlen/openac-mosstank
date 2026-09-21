@@ -1880,6 +1880,10 @@ internal sealed partial class MossTankPanel : IBuffRuleHost, IDisposable
         _selectedExcludedComponentRow = ClampRow(
             _selectedExcludedComponentRow,
             _excludedComponentRows.Count);
+        // A monster rule's Weapon cell reads off the Items page, so a change
+        // to that page changes the Monsters grid too: an item taken off the
+        // page has to stop reading like a weapon the fight will wield.
+        RefreshMonsterEditor();
     }
 
     private string ProfiledItemRowText(string itemName, in BuffItemEnchantRow row)
@@ -2862,7 +2866,8 @@ internal sealed partial class MossTankPanel : IBuffRuleHost, IDisposable
             priorities[i] = actions.Priority.ToString(CultureInfo.InvariantCulture);
             damage[i] = DamageTypeDisplay(actions.DamageType);
             extraVuln[i] = DamageTypeDisplay(actions.ExtraVulnerability);
-            weapon[i] = ItemDisplayName(actions.WeaponObjectId, actions.WeaponName);
+            weapon[i] = RuleWeaponDisplayName(
+                actions.WeaponObjectId, actions.WeaponName);
             offhand[i] = ItemDisplayName(actions.OffhandObjectId, actions.OffhandName);
             petDamage[i] = DamageTypeDisplay(actions.PetDamageType);
             moveUpIcons[i] = 0x060028FCu;
@@ -3031,6 +3036,26 @@ internal sealed partial class MossTankPanel : IBuffRuleHost, IDisposable
         MonsterDamageType.PlayerAuto => "PAuto",
         _ => value.ToString(),
     };
+
+    /// <summary>
+    /// The Weapon cell's text. A pick the Items list no longer carries will
+    /// not be wielded, so the cell must not read like an ordinary choice: it
+    /// says INVALID, in the same words the Items page uses for one of its own
+    /// rows that has gone missing.
+    /// </summary>
+    private string RuleWeaponDisplayName(uint objectId, string durableName)
+    {
+        if (objectId == 0u && string.IsNullOrWhiteSpace(durableName))
+            return "<AUTO>";
+        if (CombatProfileItems.IsProfiled(
+                _combatSettings, objectId, durableName))
+        {
+            return ItemDisplayName(objectId, durableName);
+        }
+        return objectId != 0u
+            ? $"<INVALID 0x{objectId:X8}>"
+            : $"<INVALID {durableName}>";
+    }
 
     private string ItemDisplayName(uint objectId, string durableName)
     {

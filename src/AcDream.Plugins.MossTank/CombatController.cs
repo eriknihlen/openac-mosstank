@@ -2028,10 +2028,18 @@ internal sealed class CombatController
         }
         else
         {
-            desiredWeapon = ResolveEquipmentObjectId(
-                actions.WeaponObjectId,
-                actions.WeaponName,
-                items);
+            desiredWeapon = ResolveRuleWeaponObjectId(
+                actions,
+                items,
+                out bool unlisted);
+            if (unlisted)
+            {
+                PostAttackWarning(
+                    "Warning: this rule's Weapon column names an item that is "
+                    + "not in the Items list, so it will not be wielded. Add "
+                    + "it to the Items list, or set the column back to "
+                    + "<AUTO>.");
+            }
             if (desiredWeapon == 0u)
             {
                 desiredWeapon = SelectAutomaticWeapon(
@@ -3012,6 +3020,48 @@ internal sealed class CombatController
         return DebuffStartResult.Handled;
     }
 
+    /// <summary>
+    /// The weapon a monster rule names, honoured only while that item is one
+    /// of the profile's items.
+    ///
+    /// The Items page is the whole roster the fight may reach for, and the
+    /// weapon column is a pick from it. A rule can still be carrying a pick
+    /// made before the item left the page - or written by an editor that
+    /// offered more than the page - and fighting with gear the profile was
+    /// never set up for is worse than fighting with none: nothing was buffed
+    /// for it, and nobody asked for it. So an unlisted pick is dropped and
+    /// automatic selection, which only ever walks listed items, answers
+    /// instead.
+    /// </summary>
+    private uint ResolveRuleWeaponObjectId(
+        MonsterRuleActions actions,
+        IReadOnlyList<PluginEquipmentItem> items,
+        out bool unlisted)
+    {
+        unlisted = false;
+        uint resolved = ResolveEquipmentObjectId(
+            actions.WeaponObjectId,
+            actions.WeaponName,
+            items);
+        if (resolved == 0u)
+            return 0u;
+        foreach (PluginEquipmentItem item in items)
+        {
+            if (item.ObjectId != resolved)
+                continue;
+            if (CombatProfileItems.IsProfiled(_settings, item.ObjectId, item.Name))
+                return resolved;
+            unlisted = true;
+            return 0u;
+        }
+        return 0u;
+    }
+
+    private uint ResolveRuleWeaponObjectId(
+        MonsterRuleActions actions,
+        IReadOnlyList<PluginEquipmentItem> items) =>
+        ResolveRuleWeaponObjectId(actions, items, out _);
+
     private static uint ResolveEquipmentObjectId(
         uint sessionObjectId,
         string durableName,
@@ -3918,10 +3968,7 @@ internal sealed class CombatController
         MonsterDamageType element = ResolveAttackElement(actions, target);
         uint weapon = actions.WeaponToUseRaw == 0
             ? 0u
-            : ResolveEquipmentObjectId(
-                actions.WeaponObjectId,
-                actions.WeaponName,
-                equipment);
+            : ResolveRuleWeaponObjectId(actions, equipment);
         if (weapon == 0u && actions.WeaponToUseRaw != 0)
             weapon = SelectAutomaticWeapon(equipment, actions, target);
         uint offhand = PlannedSecondaryFor(
@@ -4116,10 +4163,7 @@ internal sealed class CombatController
     {
         if (actions.WeaponToUseRaw == 0)
             return 0u;
-        uint named = ResolveEquipmentObjectId(
-            actions.WeaponObjectId,
-            actions.WeaponName,
-            owned);
+        uint named = ResolveRuleWeaponObjectId(actions, owned);
         if (named != 0u)
             return named;
         uint automatic = SelectAutomaticWeapon(owned, actions, in target);
@@ -4218,10 +4262,7 @@ internal sealed class CombatController
         IReadOnlyList<PluginEquipmentItem> owned = PassEquipment();
         if (owned.Count == 0)
             return null;
-        uint weapon = ResolveEquipmentObjectId(
-            actions.WeaponObjectId,
-            actions.WeaponName,
-            owned);
+        uint weapon = ResolveRuleWeaponObjectId(actions, owned);
         if (weapon == 0u)
             return null;
         foreach (PluginEquipmentItem item in owned)

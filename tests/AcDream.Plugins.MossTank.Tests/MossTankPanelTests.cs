@@ -7630,6 +7630,52 @@ public sealed class MossTankPanelTests
         Assert.Equal("Fire Sword", second.MonsterWeaponColumn[0]);
     }
 
+    /// <summary>
+    /// A Weapon cell holding a pick the Items page no longer carries reads
+    /// INVALID, in the same words the Items page uses for one of its own rows
+    /// that has gone missing. Showing the item's ordinary name would promise a
+    /// weapon the fight will never wield.
+    /// Mutation: print the resolved item name whatever the Items page holds,
+    /// and the cell reads "Unlisted Blade".
+    /// </summary>
+    [Fact]
+    public void AMonsterWeaponCellNamingAnUnlistedItemReadsInvalid()
+    {
+        var automation = new FakeAutomation
+        {
+            Name = "Rule Maker",
+            ItemEntries =
+            [
+                Item(0x800013FAu, "Blade", 1),
+                Item(0x800013FBu, "Sword", 1),
+            ],
+        };
+        var host = new FakeHost(automation, new MemoryStorage());
+        var panel = new MossTankPanel(host);
+        host.Selection.Select(0x800013FAu);
+        panel.AddSelectedItem();
+        host.Selection.Select(0x800013FBu);
+        panel.AddSelectedItem();
+
+        // The rule picks the blade while the Items page still carries it.
+        int guard = 0;
+        while (panel.MonsterWeaponColumn[0] != "Blade")
+        {
+            panel.CycleMonsterWeaponAt(0);
+            Assert.True(++guard <= 6, "the weapon cycle never reached Blade");
+        }
+
+        // The blade then leaves the Items page, and the rule is left holding
+        // a pick nothing will honour.
+        panel.SelectItemRow(
+            panel.ItemNameColumn
+                .Select(static (name, index) => (name, index))
+                .First(static row => row.name == "Blade").index);
+        panel.RemoveSelectedItem();
+
+        Assert.Equal("<INVALID 0x800013FA>", panel.MonsterWeaponColumn[0]);
+    }
+
     [Fact]
     public void MonsterGridColumnsDoNotScanLiveInventoryOrAllocateOnEveryRead()
     {
