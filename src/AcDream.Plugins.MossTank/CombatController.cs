@@ -5040,7 +5040,7 @@ internal sealed class CombatController
         if (combat.CompletionRevision > _observedPhysicalCompletion)
         {
             _observedPhysicalCompletion = combat.CompletionRevision;
-            // The server says the attack sequence finished. Retail keeps
+            // The server says the attack sequence finished. The macro keeps
             // reading result text for two seconds past this point, because
             // the last swing's outcome line can still be in flight.
             _physicalCompletedAt = _now;
