@@ -286,8 +286,10 @@ internal sealed partial class MossTankPanel : IBuffRuleHost, IDisposable
         MigrateFileLayout();
         _profiles = new MossTankProfileStore(host);
         _profiles.BindCharacter(host.Automation.Character.Name);
-        if (_profiles.LoadCurrent(_allSettings, _noBuffItemNames, _commandLogTypes)
-            == MossTankProfileLoad.Failed)
+        MossTankProfileLoad initialSettingsLoad = _profiles.LoadCurrent(
+            _allSettings, _noBuffItemNames, _commandLogTypes);
+        AnnounceLoadOutcome("settings", _profiles.LastLoadKey, initialSettingsLoad);
+        if (initialSettingsLoad == MossTankProfileLoad.Failed)
         {
             _profileLifecycleNotice = _profiles.LoadFailureNotice
                 ?? "The settings profile could not be read.";
@@ -305,6 +307,7 @@ internal sealed partial class MossTankPanel : IBuffRuleHost, IDisposable
             MossTankProfileLoad initialLootLoad = _lootProfiles.LoadCurrent(
                     _inventorySettings.Loot.Rules,
                     _inventorySettings.Loot);
+            AnnounceLoadOutcome("loot", _lootProfiles.LastLoadKey, initialLootLoad);
             if (initialLootLoad == MossTankProfileLoad.Missing)
             {
                 _lootProfiles.SaveCurrent(
@@ -326,11 +329,11 @@ internal sealed partial class MossTankPanel : IBuffRuleHost, IDisposable
         }
         _routeProfiles = new MossTankRouteProfileStore(host);
         _routeProfiles.BindCharacter(host.Automation.Character.Name);
-        if (_routeProfiles.LoadCurrent(_navigationSettings, host.Automation.Spells)
-            == MossTankProfileLoad.Missing)
-        {
+        MossTankProfileLoad initialRouteLoad =
+            _routeProfiles.LoadCurrent(_navigationSettings, host.Automation.Spells);
+        AnnounceLoadOutcome("navigation", _routeProfiles.LastLoadKey, initialRouteLoad);
+        if (initialRouteLoad == MossTankProfileLoad.Missing)
             _routeProfiles.SaveCurrent(_navigationSettings);
-        }
         _castTracker.Completed += OnBuffCastOutcome;
         _combat = new CombatController(
             host,
@@ -2260,6 +2263,7 @@ internal sealed partial class MossTankPanel : IBuffRuleHost, IDisposable
         MossTankProfileLoad outcome = _lootProfiles.LoadCurrent(
             _inventorySettings.Loot.Rules,
             _inventorySettings.Loot);
+        AnnounceLoadOutcome("loot", _lootProfiles.LastLoadKey, outcome);
         if (outcome == MossTankProfileLoad.Missing)
         {
             _lootProfiles.SaveCurrent(
@@ -2709,6 +2713,7 @@ internal sealed partial class MossTankPanel : IBuffRuleHost, IDisposable
     {
         MossTankProfileLoad outcome =
             _routeProfiles.LoadCurrent(_navigationSettings, _host.Automation.Spells);
+        AnnounceLoadOutcome("navigation", _routeProfiles.LastLoadKey, outcome);
         if (outcome == MossTankProfileLoad.Missing)
             _routeProfiles.SaveCurrent(_navigationSettings);
         if (outcome == MossTankProfileLoad.Failed)
@@ -3493,6 +3498,14 @@ internal sealed partial class MossTankPanel : IBuffRuleHost, IDisposable
     private void LoadMetaProfile()
     {
         _metaProfile = _metaProfiles.LoadCurrent();
+        AnnounceLoadOutcome(
+            "Meta",
+            _metaProfiles.LastLoadKey,
+            _metaProfiles.LastLoadSucceeded
+                ? MossTankProfileLoad.Loaded
+                : _metaProfiles.RecoveryNotice is null
+                    ? MossTankProfileLoad.Missing
+                    : MossTankProfileLoad.Failed);
         _meta.ReplaceProfile(_metaProfile);
         if (_initialized)
             ApplyPersistedOptionOverrides();
@@ -4614,6 +4627,7 @@ internal sealed partial class MossTankPanel : IBuffRuleHost, IDisposable
             _inventorySettings.Loot.SalvageCombine.Clone();
         MossTankProfileLoad settingsLoad = _profiles.LoadCurrent(
             _allSettings, _noBuffItemNames, _commandLogTypes);
+        AnnounceLoadOutcome("settings", _profiles.LastLoadKey, settingsLoad);
         if (settingsLoad == MossTankProfileLoad.Failed)
         {
             _profileLifecycleNotice = _profiles.LoadFailureNotice

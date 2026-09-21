@@ -24,6 +24,12 @@ internal sealed class MossTankMetaProfileStore
 
     public string Selected => StripAf(_selected);
     public string? RecoveryNotice { get; private set; }
+
+    /// <summary>The file the last load read, or tried to read.</summary>
+    public string? LastLoadKey { get; private set; }
+
+    /// <summary>Whether the last load found and read that file.</summary>
+    public bool LastLoadSucceeded { get; private set; }
     public string? SaveNotice { get; private set; }
 
     private string Server => _host.Automation.Character.WorldName;
@@ -110,6 +116,8 @@ internal sealed class MossTankMetaProfileStore
         SweepLegacyRosterIfNeeded();
         MigrateLegacyIfNeeded();
         string fileName = CurrentFileName();
+        LastLoadKey = fileName;
+        LastLoadSucceeded = false;
         string? text = VtankStorage.IsAvailable ? VtankStorage.ReadText(fileName) : null;
         if (text is null)
             return new MetaProfile();
@@ -118,6 +126,7 @@ internal sealed class MossTankMetaProfileStore
             if (VtankMetaProfileSerializer.TryLoad(
                     text, _host.Automation.Spells, out MetaProfile dropped, out string metError))
             {
+                LastLoadSucceeded = true;
                 return dropped;
             }
             RecoveryNotice = MossTankProfileRecovery.Preserve(
@@ -132,6 +141,7 @@ internal sealed class MossTankMetaProfileStore
             _host.Log.Warn(RecoveryNotice);
             return new MetaProfile();
         }
+        LastLoadSucceeded = true;
         return profile;
     }
 

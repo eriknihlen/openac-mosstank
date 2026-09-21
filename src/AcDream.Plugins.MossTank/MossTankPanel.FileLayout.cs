@@ -50,15 +50,36 @@ internal sealed partial class MossTankPanel
     /// The one line a load produces: what kind of profile, which file, and
     /// the full path it came off. A user who cannot see which file the
     /// client actually read cannot tell a stale profile from a live one.
+    /// Nothing is said for a profile that does not exist yet -- there was no
+    /// load to report.
     /// </summary>
-    internal void AnnounceProfileLoaded(string kind, string storageKey) =>
-        QueueAnnouncement(
-            $"Loaded {kind} profile {FileNameOf(storageKey)} from {FullPathOf(storageKey)}");
-
-    internal void AnnounceProfileLoadFailed(string kind, string storageKey, string why) =>
-        QueueAnnouncement(
-            $"Could not load {kind} profile {FileNameOf(storageKey)} from "
-            + $"{FullPathOf(storageKey)}: {why}");
+    private void AnnounceLoadOutcome(
+        string kind,
+        string? storageKey,
+        MossTankProfileLoad outcome)
+    {
+        if (storageKey is not { Length: > 0 } key)
+            return;
+        switch (outcome)
+        {
+            case MossTankProfileLoad.Loaded:
+                QueueAnnouncement(
+                    $"Loaded {kind} profile {FileNameOf(key)} from {FullPathOf(key)}");
+                break;
+            case MossTankProfileLoad.Partial:
+                QueueAnnouncement(
+                    $"Loaded {kind} profile {FileNameOf(key)} from {FullPathOf(key)} "
+                    + "up to an incomplete tail");
+                break;
+            case MossTankProfileLoad.Failed:
+                QueueAnnouncement(
+                    $"Could not load {kind} profile {FileNameOf(key)} from "
+                    + FullPathOf(key));
+                break;
+            default:
+                break;
+        }
+    }
 
     private static string FileNameOf(string storageKey) =>
         storageKey[(storageKey.LastIndexOf('/') + 1)..];

@@ -25,6 +25,9 @@ internal sealed class MossTankRouteProfileStore
     public string Selected => Strip(_selected);
     public string? RecoveryNotice { get; private set; }
 
+    /// <summary>The file the last load read, or tried to read.</summary>
+    public string? LastLoadKey { get; private set; }
+
     private string Server => _host.Automation.Character.WorldName;
     private IPluginStorage VtankStorage => _host.VtankProfiles;
     private bool CanBindFiles => _characterName.Length > 0 && Server.Length > 0;
@@ -159,6 +162,7 @@ internal sealed class MossTankRouteProfileStore
         SweepLegacyRosterIfNeeded();
         MigrateLegacyIfNeeded(target, spells);
         string fileName = CurrentFileName();
+        LastLoadKey = fileName;
         string? text = VtankStorage.IsAvailable ? VtankStorage.ReadText(fileName) : null;
         if (text is null)
             return MossTankProfileLoad.Missing;

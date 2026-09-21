@@ -43,6 +43,9 @@ internal sealed class MossTankProfileStore
     public string? LoadFailureNotice { get; private set; }
     public bool HasActiveProfile => _hasActiveProfile;
 
+    /// <summary>The file the last load read, or tried to read.</summary>
+    public string? LastLoadKey { get; private set; }
+
     private string Server => _host.Automation.Character.WorldName;
     private IPluginStorage VtankStorage => _host.VtankProfiles;
 
@@ -319,6 +322,7 @@ internal sealed class MossTankProfileStore
         SweepLegacyRosterIfNeeded();
         MigrateLegacyIfNeeded(settings, noBuffItemNames);
         string fileName = CurrentFileName();
+        LastLoadKey = fileName;
         string? text = ReadUsdText(fileName);
         if (text is null)
         {

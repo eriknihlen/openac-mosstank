@@ -40,6 +40,9 @@ internal sealed class MossTankLootProfileStore
     public string? LoadFailureNotice { get; private set; }
     public string? LoadNotice { get; private set; }
 
+    /// <summary>The file the last load read, or tried to read.</summary>
+    public string? LastLoadKey { get; private set; }
+
     /// <summary>
     /// The plain name a user sees and types: neither the folder the profile
     /// lives in nor its extension.
@@ -206,6 +209,7 @@ internal sealed class MossTankLootProfileStore
         ArgumentNullException.ThrowIfNull(target);
         SweepLegacyRosterIfNeeded();
         string fileName = PendingOrCurrentFileName();
+        LastLoadKey = fileName;
         if (fileName.Length == 0)
         {
             LoadFailureNotice = "No loot profile is active.";

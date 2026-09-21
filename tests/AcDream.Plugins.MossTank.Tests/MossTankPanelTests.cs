@@ -753,6 +753,66 @@ public sealed class MossTankPanelTests
 
 
     [Fact]
+    public void EveryProfileLoadSaysWhichFileAndWhichFullPathItCameFrom()
+    {
+        var storage = new MemoryStorage { RootPath = Path.Combine("data", "vtank") };
+        storage.Text["mosstank/navs/Hunt.af"] =
+            MetafSerializer.SaveNav(new NavigationSettings());
+        storage.Text[SettingsKey("Shared.usd")] =
+            VtankDefaultSettingsDatabase.Parse().Render();
+        var automation = new FakeAutomation { Name = "Barris", WorldName = "Coldeve" };
+        var panel = new MossTankPanel(new FakeHost(automation, storage));
+        panel.OnTick(0.1d);
+        automation.Messages.Clear();
+
+        Command(panel, "nav load Hunt");
+        panel.OnTick(0.1d);
+
+        string expectedPath = Path.Combine(
+            "data",
+            "vtank",
+            "mosstank",
+            "navs",
+            "Hunt.af");
+        Assert.Contains(
+            automation.Messages,
+            message => message.Contains("navigation profile Hunt.af", StringComparison.Ordinal)
+                && message.Contains(expectedPath, StringComparison.Ordinal));
+
+        automation.Messages.Clear();
+        Command(panel, "settings load Shared");
+        panel.OnTick(0.1d);
+
+        Assert.Contains(
+            automation.Messages,
+            message => message.Contains("settings profile Shared.usd", StringComparison.Ordinal)
+                && message.Contains(
+                    Path.Combine("data", "vtank", "mosstank", "profiles", "Shared.usd"),
+                    StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public void AFailedLoadNamesTheFullPathItTried()
+    {
+        var storage = new MemoryStorage { RootPath = Path.Combine("data", "vtank") };
+        storage.Text["mosstank/navs/Broken.af"] = "not a route at all";
+        var automation = new FakeAutomation { Name = "Barris", WorldName = "Coldeve" };
+        var panel = new MossTankPanel(new FakeHost(automation, storage));
+        panel.OnTick(0.1d);
+        automation.Messages.Clear();
+
+        Command(panel, "nav load Broken");
+        panel.OnTick(0.1d);
+
+        Assert.Contains(
+            automation.Messages,
+            message => message.Contains("Could not load", StringComparison.Ordinal)
+                && message.Contains(
+                    Path.Combine("data", "vtank", "mosstank", "navs", "Broken.af"),
+                    StringComparison.Ordinal));
+    }
+
+    [Fact]
     public void AMetDroppedIntoTheMetasFolderLoadsAndSavesBesideItself()
     {
         var storage = new MemoryStorage();
@@ -6261,11 +6321,20 @@ public sealed class MossTankPanelTests
         Command(panel, "loot load Loot5.utl");
 
         Assert.Equal("Safe", panel.LootProfileName);
-        string message = Assert.Single(automation.Messages);
-        Assert.Contains("Loot5", message, StringComparison.Ordinal);
-        Assert.Contains("could not be read", message, StringComparison.Ordinal);
-        Assert.Contains("Active profile remains Safe", message, StringComparison.Ordinal);
-        Assert.DoesNotContain("Loaded loot profile", message, StringComparison.Ordinal);
+        Assert.Contains(
+            automation.Messages,
+            message => message.Contains("Loot5", StringComparison.Ordinal)
+                && message.Contains("could not be read", StringComparison.Ordinal)
+                && message.Contains("Active profile remains Safe", StringComparison.Ordinal));
+        // The failure line names the file it tried, and nothing claims a load.
+        Assert.Contains(
+            automation.Messages,
+            message => message.Contains(
+                "Could not load loot profile Loot5.utl",
+                StringComparison.Ordinal));
+        Assert.DoesNotContain(
+            automation.Messages,
+            message => message.Contains("Loaded loot profile", StringComparison.Ordinal));
         Assert.Equal(malformed, storage.Text["mosstank/loot/Loot5.utl"]);
     }
 
@@ -9831,6 +9900,7 @@ public sealed class MossTankPanelTests
         public Dictionary<string, string> Text { get; } =
             new(StringComparer.Ordinal);
         public bool IsAvailable => true;
+        public string? RootPath { get; set; }
         public string? ReadText(string key) =>
             Text.TryGetValue(key, out string? value) ? value : null;
         public IReadOnlyList<string> List(string prefix) => Text.Keys
