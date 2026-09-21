@@ -162,8 +162,20 @@ internal sealed class MossTankMetaProfileStore
         return profile;
     }
 
+    /// <summary>
+    /// The automatic, per-character file of a character nobody has named yet.
+    /// There is no such file: a name arrives some way into a login and goes
+    /// away again during a relog, and a file filed under the gap between
+    /// them is one the character, once named, never reads.
+    /// </summary>
+    private bool FilesUnderNobody =>
+        _character.Length == 0
+        && _selected.Equals(ByCharacter, StringComparison.OrdinalIgnoreCase);
+
     public bool SaveCurrent(MetaProfile profile)
     {
+        if (FilesUnderNobody)
+            return false;
         string fileName = SaveTargetFor(CurrentFileName());
         string text;
         try

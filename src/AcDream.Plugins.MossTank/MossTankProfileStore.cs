@@ -321,6 +321,27 @@ internal sealed class MossTankProfileStore
     {
         SweepLegacyRosterIfNeeded();
         MigrateLegacyIfNeeded(settings, noBuffItemNames);
+        if (!HasCharacterName
+            && _selected.Equals(ByCharacter, StringComparison.OrdinalIgnoreCase))
+        {
+            // Nobody is named yet, so there is no character's file to read:
+            // the shipped defaults stand in, in memory only, until a name
+            // arrives and that character's own profile is loaded over them.
+            VtankDatabase unnamed = VtankDefaultSettingsDatabase.Parse();
+            ApplyFromDatabase(unnamed, settings);
+            SideCarDocument.CreateDefaults()
+                .Apply(settings, noBuffItemNames, logChannels, _host.Log);
+            VtankAssistItems.Apply(settings.Combat);
+            LastLoadKey = string.Empty;
+            // A complete set of settings is in force, so the macro may run;
+            // it is just not anybody's file, and nothing is written for it.
+            _currentDatabase = null;
+            _currentDatabaseFileName = null;
+            _activeFileName = null;
+            _hasActiveProfile = true;
+            LoadFailureNotice = null;
+            return MossTankProfileLoad.Missing;
+        }
         string fileName = CurrentFileName();
         LastLoadKey = fileName;
         string? text = ReadUsdText(fileName);

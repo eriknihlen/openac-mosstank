@@ -285,10 +285,21 @@ internal sealed class MossTankLootProfileStore
         return true;
     }
 
+    /// <summary>
+    /// The automatic, per-character file of a character nobody has named yet.
+    /// There is no such file: a name arrives some way into a login and goes
+    /// away again during a relog, and a file filed under the gap between
+    /// them is one the character, once named, never reads.
+    /// </summary>
+    private bool FilesUnderNobody =>
+        _characterName.Length == 0 && IsByCharacter(_selected);
+
     public void SaveCurrent(
         IReadOnlyList<LootRule> rules,
         LootSettings? settings = null)
     {
+        if (FilesUnderNobody)
+            return;
         if (!_hasActiveProfile)
             return;
         if (_activeProfileIsPartial)

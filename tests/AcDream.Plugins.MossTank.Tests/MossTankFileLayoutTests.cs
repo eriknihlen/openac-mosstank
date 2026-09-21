@@ -228,6 +228,33 @@ public sealed class MossTankFileLayoutTests
                 && key.Contains('+', StringComparison.Ordinal));
     }
 
+    /// <summary>
+    /// The old flat folder goes on existing, and an older build of the plugin
+    /// may go on writing to it. Whatever turns up there later is stale: a
+    /// profile already in the new layout is the live one and is never
+    /// replaced from the old folder, on this run or any later day's.
+    /// </summary>
+    [Fact]
+    public void MigrationNeverReplacesAProfileTheNewLayoutAlreadyHas()
+    {
+        var storage = new MemoryStorage();
+        storage.WriteText("mosstank/profiles/--Mossy_sawato.usd", "the live profile\r\n");
+        storage.WriteText("mosstank/profiles/sawato_Mossy.cdf", "the live binding\r\n");
+        // Written afterwards, under the marked spelling, by an older build.
+        storage.WriteText("--+Mossy_sawato.usd", "a stale blank profile\r\n");
+        storage.WriteText("sawato_+Mossy.cdf", "a stale binding\r\n");
+
+        MossTankFileLayoutMigration.Run(storage, Now);
+        MossTankFileLayoutMigration.Run(storage, Now.AddDays(1));
+
+        Assert.Equal(
+            "the live profile",
+            storage.ReadText("mosstank/profiles/--Mossy_sawato.usd")?.Trim());
+        Assert.Equal(
+            "the live binding",
+            storage.ReadText("mosstank/profiles/sawato_Mossy.cdf")?.Trim());
+    }
+
     [Fact]
     public void MigrationSaysWhatItCopiedAndWhere()
     {

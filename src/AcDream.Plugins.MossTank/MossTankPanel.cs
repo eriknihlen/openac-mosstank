@@ -4760,6 +4760,13 @@ internal sealed partial class MossTankPanel : IBuffRuleHost, IDisposable
     private void EnsureCharacterProfile()
     {
         string characterName = _host.Automation.Character.Name;
+        // The name goes away while the character logs out and comes back.
+        // That gap is nobody: binding to it would swap the character's
+        // settings for the defaults, and file whatever was saved meanwhile
+        // under a blank name. The binding waits for a name; the same
+        // character returning is no change, and a different one rebinds.
+        if (VtankProfileDirectory.CanonicalCharacterKey(characterName).Length == 0)
+            return;
         bool macroChanged = _profiles.BindCharacter(characterName);
         bool lootChanged = _lootProfiles.BindCharacter(characterName);
         bool routeChanged = _routeProfiles.BindCharacter(characterName);

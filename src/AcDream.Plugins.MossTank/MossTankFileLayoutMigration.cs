@@ -67,6 +67,11 @@ internal static class MossTankFileLayoutMigration
         int navs = 0;
         int metas = 0;
         int twins = 0;
+        // What this run itself put into the new layout. Only such a file may
+        // be displaced by its marked twin: a file that was already there
+        // before the run is the live one, and whatever the old folder holds
+        // under either spelling is older than it.
+        var writtenThisRun = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         // A file whose name carries the display marker is copied last, so
         // that when both spellings of one character exist the marked one --
         // the one the session went on writing once the character's own
@@ -78,7 +83,7 @@ internal static class MossTankFileLayoutMigration
         {
             if (Destination(key) is not { } destination)
                 continue;
-            if (!TryCopy(storage, key, destination, now, out bool keptTwin))
+            if (!TryCopy(storage, key, destination, now, writtenThisRun, out bool keptTwin))
                 continue;
             if (keptTwin)
                 twins++;
@@ -197,6 +202,7 @@ internal static class MossTankFileLayoutMigration
         string sourceKey,
         string destinationKey,
         DateTimeOffset now,
+        HashSet<string> writtenThisRun,
         out bool keptTwin)
     {
         keptTwin = false;
@@ -212,8 +218,8 @@ internal static class MossTankFileLayoutMigration
                 destinationKey[(destinationKey.LastIndexOf('/') + 1)..];
             bool isTwin = !sourceBareName.Equals(
                 destinationBareName, StringComparison.OrdinalIgnoreCase);
-            if (!isTwin)
-                return false; // already copied on an earlier run.
+            if (!isTwin || !writtenThisRun.Contains(destinationKey))
+                return false; // already here before this run: the live file.
 
             // Two files for one character, written in the same session under
             // the two spellings of its name. The marked one is the one the
@@ -231,6 +237,7 @@ internal static class MossTankFileLayoutMigration
         }
 
         storage.WriteText(destinationKey, content);
+        writtenThisRun.Add(destinationKey);
         return true;
     }
 }

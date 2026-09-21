@@ -1,4 +1,4 @@
-using System.Reflection;
+﻿using System.Reflection;
 using AcDream.Plugin.Abstractions;
 
 namespace AcDream.Plugins.MossTank.Tests;
@@ -9143,6 +9143,51 @@ public sealed class MossTankPanelTests
         Assert.DoesNotContain(
             bindingFiles,
             static key => key.Contains('+', StringComparison.Ordinal));
+    }
+
+    /// <summary>
+    /// A session's whole life as the client reports it: no name while the
+    /// plugin loads, the plain name from the character list, the marked name
+    /// once the character is in the world, no name again while it logs out
+    /// and back in, then the same two spellings again. All of it is one
+    /// character, so it is one profile: nothing is filed under an empty name,
+    /// and what was set before the relog is still in force after it.
+    /// </summary>
+    [Fact]
+    public void ARelogKeepsTheCharactersOneProfile()
+    {
+        var storage = new MemoryStorage();
+        var automation = new FakeAutomation { Name = string.Empty, WorldName = "sawato" };
+        var panel = new MossTankPanel(new FakeHost(automation, storage));
+        panel.OnTick(0.1d);
+
+        automation.Name = "Mossy";
+        panel.OnTick(0.1d);
+        automation.Name = "+Mossy";
+        panel.OnTick(0.1d);
+        panel.SetNormalHealth(0.44f);
+
+        // The relog: the name goes away and comes back.
+        automation.Name = string.Empty;
+        panel.OnTick(0.1d);
+        // Nobody is named, so nobody else's settings take over meanwhile.
+        Assert.Equal(0.44f, panel.NormalHealthValue, 3);
+        automation.Name = "Mossy";
+        panel.OnTick(0.1d);
+        automation.Name = "+Mossy";
+        panel.OnTick(0.1d);
+
+        string[] settingsFiles = [.. storage.Text.Keys
+            .Where(static key => key.EndsWith(".usd", StringComparison.Ordinal))];
+        string[] bindingFiles = [.. storage.Text.Keys
+            .Where(static key => key.EndsWith(".cdf", StringComparison.Ordinal))];
+
+        Assert.Equal([SettingsKey("--Mossy_sawato.usd")], settingsFiles);
+        Assert.Single(bindingFiles);
+        Assert.DoesNotContain(
+            storage.Text.Keys,
+            static key => key.Contains("--_", StringComparison.Ordinal));
+        Assert.Equal(0.44f, panel.NormalHealthValue, 3);
     }
 
     private static PluginSpellComponentInfo Component(uint id, string name) => new(
