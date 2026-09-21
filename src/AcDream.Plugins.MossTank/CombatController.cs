@@ -723,6 +723,7 @@ internal sealed class CombatController
         _passDebuffSpells.Clear();
         _passDeliverable.Clear();
         _passComponents.Clear();
+        _passSpellRefusals.Clear();
         _passClearance.Clear();
         _passAmmunitionAvailability = null;
         _gateAmmunitionPlan = null;
@@ -754,6 +755,7 @@ internal sealed class CombatController
                 Status = "Waiting for a target";
                 return;
             }
+            _cannotAttackReason = null;
             if (RunAttackAttempt() != AttackPassOutcome.Retry)
             {
                 Log?.Invoke(
@@ -763,7 +765,9 @@ internal sealed class CombatController
             }
             Log?.Invoke(
                 MacroLogChannel.RuleInfo,
-                $"Attack: {_targetName} yielded nothing this pass, choosing again");
+                $"Attack: {_targetName} yielded nothing this pass ({Status}), choosing again");
+            if (_cannotAttackReason is { } cannot)
+                ReportGivenUpTarget(_targetId, _targetName, cannot);
             ClearTarget();
         }
         Log?.Invoke(
@@ -1458,6 +1462,7 @@ internal sealed class CombatController
             if (!flag3 || !flag5)
             {
                 Status = $"No attack configured for {_targetName}";
+                _cannotAttackReason = "no attack is configured for it on the Monsters tab";
                 // No action was decided at all: this monster is out of the
                 // running for the rest of the pass.
                 InvalidateForPass(_targetId);
@@ -1478,7 +1483,13 @@ internal sealed class CombatController
 
         if (plan is not { } chosen)
         {
-            Status ??= "No usable attack spell";
+            if (!Status.StartsWith(NoUsableAttackSpell, StringComparison.Ordinal)
+                && _passSpellRefusals.Count > 0)
+            {
+                Status = NoUsableAttackSpellReason();
+            }
+            if (Status.StartsWith(NoUsableAttackSpell, StringComparison.Ordinal))
+                _cannotAttackReason = Status;
             // No action could be decided at all, so the monster is out of the
             // running for the rest of the pass — unless a planner turned a
             // column off and left something else it might still be owed.
@@ -1650,7 +1661,7 @@ internal sealed class CombatController
                 PostAttackWarning(
                     "Warning: no usable attack spell detected for element \""
                     + ElementName(element) + "\"");
-                Status = projectileRefusal ?? "No usable attack spell";
+                Status = projectileRefusal ?? NoUsableAttackSpellReason();
                 return null;
             }
 
@@ -1826,12 +1837,85 @@ internal sealed class CombatController
 
     private Func<PluginSpellInfo, bool> IsUsableAttackSpell(
         PluginCombatTarget target) => spell =>
-            !SpellComponentPolicy.UsesBlacklistedComponent(
-                _host.Automation.Spells,
-                spell,
-                _settings.BlacklistedSpellComponents)
-            && HasCastingComponents(spell.SpellId)
-            && CanCastHuntSpell(spell);
+        {
+            string? refusal =
+                SpellComponentPolicy.UsesBlacklistedComponent(
+                    _host.Automation.Spells,
+                    spell,
+                    _settings.BlacklistedSpellComponents)
+                    ? "uses a blacklisted component"
+                : !HasCastingComponents(spell.SpellId)
+                    ? "missing components"
+                : !CanCastHuntSpell(spell)
+                    ? "skill too low"
+                : null;
+            if (refusal is null)
+                return true;
+            _passSpellRefusals[spell.SpellId] = (spell.Name, spell.Quality, refusal);
+            return false;
+        };
+
+    private const string NoUsableAttackSpell = "No usable attack spell";
+
+    /// <summary>
+    /// Every attack spell this pass looked at and turned down, and why.
+    /// </summary>
+    private readonly Dictionary<uint, (string Name, int Quality, string Reason)>
+        _passSpellRefusals = [];
+
+    /// <summary>
+    /// Why the pass found no attack spell, in the player's terms: one clause
+    /// per reason, naming the best spell turned down for it. With nothing
+    /// turned down, no spell of the wanted kind is known at all.
+    /// </summary>
+    private string NoUsableAttackSpellReason()
+    {
+        if (_passSpellRefusals.Count == 0)
+            return NoUsableAttackSpell + ": none of the wanted kind is known";
+        IEnumerable<string> clauses = _passSpellRefusals.Values
+            .GroupBy(static refusal => refusal.Reason, StringComparer.Ordinal)
+            .OrderBy(static group => group.Key, StringComparer.Ordinal)
+            .Select(static group =>
+            {
+                string best = group
+                    .OrderByDescending(static refusal => refusal.Quality)
+                    .ThenBy(static refusal => refusal.Name, StringComparer.Ordinal)
+                    .First().Name;
+                int others = group.Count() - 1;
+                return others == 0
+                    ? $"{best}: {group.Key}"
+                    : $"{best} and {others} lower: {group.Key}";
+            });
+        return NoUsableAttackSpell + " (" + string.Join("; ", clauses) + ")";
+    }
+
+    /// <summary>
+    /// Says in chat why a monster was given up on: once per monster and
+    /// reason, so every monster gets its answer and a standing one is not
+    /// repeated each pass.
+    /// </summary>
+    private void ReportGivenUpTarget(uint targetId, string? name, string reason)
+    {
+        if (targetId == 0u
+            || (_reportedGiveUps.TryGetValue(targetId, out string? said)
+                && said.Equals(reason, StringComparison.Ordinal)))
+        {
+            return;
+        }
+        if (_reportedGiveUps.Count >= 256)
+            _reportedGiveUps.Clear();
+        _reportedGiveUps[targetId] = reason;
+        _host.Automation.Chat.PostSystemMessage(
+            $"[MossTank] Not attacking {name}: {reason}");
+    }
+
+    private readonly Dictionary<uint, string> _reportedGiveUps = [];
+
+    /// <summary>
+    /// Set by an attempt that gave a monster up because the character CANNOT
+    /// attack it, as opposed to one that is merely finished with it.
+    /// </summary>
+    private string? _cannotAttackReason;
 
     /// <summary>
     /// A tier the pack cannot pay for is not a candidate. Without this the

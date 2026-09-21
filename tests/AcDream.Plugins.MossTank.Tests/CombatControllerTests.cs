@@ -3532,6 +3532,48 @@ public sealed class CombatControllerTests
     }
 
     /// <summary>
+    /// A monster the character cannot attack is given up on with the reason
+    /// said out loud: which spell was turned down and why, in chat once per
+    /// monster and in the log on every pass.
+    /// </summary>
+    [Fact]
+    public void AMonsterGivenUpForWantOfASpellIsToldWhy()
+    {
+        var surface = new FakeAutomation
+        {
+            CombatSnapshot = Physical() with { Mode = PluginCombatMode.Magic },
+            Targets = [Target(10, "Drudge", 5, 0), Target(11, "Golem", 6, 0)],
+            KnownCombatSpells =
+            [
+                MagicSpell(100, "Flame Bolt VII", difficulty: 300),
+                MagicSpell(27, "Flame Bolt I", difficulty: 1),
+            ],
+            EquipmentItems = [WieldedCaster()],
+        };
+        surface.MissingComponentSpellIds.Add(100u);
+        surface.MissingComponentSpellIds.Add(27u);
+        var settings = FireAttackRule(new CombatSettings { MaximumRange = 40d });
+        var controller = new CombatController(new FakeHost(surface), settings);
+        var lines = new List<string>();
+        controller.Log = (_, text) => lines.Add(text);
+
+        controller.Toggle();
+        controller.OnTick(0.25);
+        controller.OnTick(0.25);
+
+        const string why =
+            "No usable attack spell (Flame Bolt VII and 1 lower: missing components)";
+        Assert.Equal(
+            ["[MossTank] Not attacking Drudge: " + why, "[MossTank] Not attacking Golem: " + why],
+            surface.PostedSystemMessages
+                .Where(static message => message.Contains("Not attacking", StringComparison.Ordinal))
+                .ToArray());
+        Assert.Contains(
+            lines,
+            line => line == $"Attack: Drudge yielded nothing this pass ({why}), choosing again");
+    }
+
+    /// <summary>
     /// Every rule shares one cast tracker, so a buff cast at the character's
     /// own guid reaches the combat controller's result-timeout arm like any
     /// other. Giving a target up is a verdict about a creature the pass
