@@ -37,11 +37,14 @@ internal sealed class MossTankProfileStore
             ?? new PreferencesDocument();
     }
 
-    public string Selected => _selected;
+    public string Selected => StripFolder(_selected);
     public bool MineOnly => _preferences.MineOnly;
     public string? RecoveryNotice { get; private set; }
     public string? LoadFailureNotice { get; private set; }
     public bool HasActiveProfile => _hasActiveProfile;
+
+    /// <summary>The file the last load read, or tried to read.</summary>
+    public string? LastLoadKey { get; private set; }
 
     private string Server => _host.Automation.Character.WorldName;
     private IPluginStorage VtankStorage => _host.VtankProfiles;
@@ -56,17 +59,28 @@ internal sealed class MossTankProfileStore
             {
                 if (entry.FileName.Length == 0)
                     continue;
-                names.Add(entry.FileName);
+                names.Add(StripFolder(entry.FileName));
             }
             return names;
         }
     }
 
+    /// <summary>
+    /// The picker and every command name a settings profile by its file
+    /// name; the folder it lives in is this store's business.
+    /// </summary>
+    private static string StripFolder(string key) => key.Equals(
+        ByCharacter, StringComparison.OrdinalIgnoreCase)
+            ? key
+            : VtankProfileDirectory.StripFolder(
+                key, VtankProfileDirectory.SettingsFolder);
+
+    private static string ToKey(string bareFileName) =>
+        $"{VtankProfileDirectory.SettingsFolder}/{bareFileName}";
+
     public bool BindCharacter(string? characterName)
     {
-        string normalized = string.IsNullOrWhiteSpace(characterName)
-            ? string.Empty
-            : characterName.Trim();
+        string normalized = VtankProfileDirectory.CanonicalCharacterKey(characterName);
         if (string.Equals(normalized, _characterName, StringComparison.OrdinalIgnoreCase))
             return false;
 
@@ -99,7 +113,7 @@ internal sealed class MossTankProfileStore
         if (_preferences.MineOnly == value)
             return;
         _preferences.MineOnly = value;
-        if (!AvailableNames.Contains(_selected, StringComparer.Ordinal))
+        if (!AvailableNames.Contains(StripFolder(_selected), StringComparer.Ordinal))
             _selected = ByCharacter;
         SavePreferences();
     }
@@ -122,13 +136,14 @@ internal sealed class MossTankProfileStore
                 candidate.Equals(normalized, StringComparison.OrdinalIgnoreCase));
         if (existing is not null)
         {
-            _selected = existing;
+            _selected = ToKey(existing);
             _pendingLegacyBareName = null;
             return true;
         }
 
-        string subProfile = VtankProfileDirectory.SubProfilePrefix(_characterName, Server)
-            + normalized + ".usd";
+        string subProfile = ToKey(
+            VtankProfileDirectory.SubProfilePrefix(_characterName, Server)
+                + normalized + ".usd");
         if (VtankStorage.IsAvailable && VtankStorage.ReadText(subProfile) is not null)
         {
             _selected = subProfile;
@@ -171,8 +186,9 @@ internal sealed class MossTankProfileStore
         if (existing is not null)
             return true;
 
-        string subProfile = VtankProfileDirectory.SubProfilePrefix(_characterName, Server)
-            + normalized + ".usd";
+        string subProfile = ToKey(
+            VtankProfileDirectory.SubProfilePrefix(_characterName, Server)
+                + normalized + ".usd");
         if (VtankStorage.IsAvailable && VtankStorage.ReadText(subProfile) is not null)
             return true;
 
@@ -202,7 +218,8 @@ internal sealed class MossTankProfileStore
         {
             return null;
         }
-        return VtankStorage.ReadText(fileName) is not null ? fileName : null;
+        string key = ToKey(fileName);
+        return VtankStorage.ReadText(key) is not null ? key : null;
     }
 
     private static string ToFileName(string bareName) =>
@@ -232,8 +249,9 @@ internal sealed class MossTankProfileStore
             return false;
         }
 
-        string fileName = VtankProfileDirectory.SubProfilePrefix(_characterName, Server)
-            + normalized + ".usd";
+        string fileName = ToKey(
+            VtankProfileDirectory.SubProfilePrefix(_characterName, Server)
+                + normalized + ".usd");
         if (copyCurrent && !CanReplaceExisting(fileName, out notice))
             return false;
         VtankDatabase database;
@@ -268,8 +286,8 @@ internal sealed class MossTankProfileStore
         _pendingLegacyBareName = null;
         WriteBinding();
         notice = copyCurrent
-            ? $"Copied current settings to {fileName}."
-            : $"Created profile {fileName}.";
+            ? $"Copied current settings to {StripFolder(fileName)}."
+            : $"Created profile {StripFolder(fileName)}.";
         return true;
     }
 
@@ -292,7 +310,7 @@ internal sealed class MossTankProfileStore
         _activeFileName = null;
         _hasActiveProfile = false;
         WriteBinding();
-        notice = $"Deleted profile {fileName}.";
+        notice = $"Deleted profile {StripFolder(fileName)}.";
         return true;
     }
 
@@ -304,6 +322,7 @@ internal sealed class MossTankProfileStore
         SweepLegacyRosterIfNeeded();
         MigrateLegacyIfNeeded(settings, noBuffItemNames);
         string fileName = CurrentFileName();
+        LastLoadKey = fileName;
         string? text = ReadUsdText(fileName);
         if (text is null)
         {
@@ -409,16 +428,12 @@ internal sealed class MossTankProfileStore
         if (captured is null)
             return 0;
 
-        var fileNames = new HashSet<string>(StringComparer.Ordinal);
-        foreach (string key in VtankStorage.List(string.Empty))
+        var fileNames = new HashSet<string>(
+            VtankProfileDirectory.ListEverySettingsKey(VtankStorage),
+            StringComparer.Ordinal)
         {
-            if (!key.Contains('/', StringComparison.Ordinal)
-                && key.EndsWith(".usd", StringComparison.OrdinalIgnoreCase))
-            {
-                fileNames.Add(key);
-            }
-        }
-        fileNames.Add(CurrentFileName());
+            CurrentFileName(),
+        };
 
         DynamicSettingDocument? dynamicDocument = current.Combat.DynamicSettings.TryGetValue(
             canonical, out MonsterValue liveDynamicValue)
@@ -507,8 +522,9 @@ internal sealed class MossTankProfileStore
             if (legacy is null)
                 continue;
 
-            string fileName = VtankProfileDirectory.SubProfilePrefix(_characterName, Server)
-                + name + ".usd";
+            string fileName = ToKey(
+                VtankProfileDirectory.SubProfilePrefix(_characterName, Server)
+                    + name + ".usd");
             if (ReadUsdText(fileName) is null)
             {
                 var settings = new VtankSettingsProfileSerializer.AllSettings
@@ -610,7 +626,7 @@ internal sealed class MossTankProfileStore
     // ------------------------------------------------------------------
 
     private string CurrentFileName() => _selected.Equals(ByCharacter, StringComparison.OrdinalIgnoreCase)
-        ? VtankProfileDirectory.AutoCharacterFileName(_characterName, Server, "usd")
+        ? ToKey(VtankProfileDirectory.AutoCharacterFileName(_characterName, Server, "usd"))
         : _selected;
 
     private void Activate(string fileName)
@@ -706,8 +722,13 @@ internal sealed class MossTankProfileStore
         return $"profiles/macro/{hash}.json";
     }
 
+    /// <summary>
+    /// The side-car's key is built from the settings file's own name, never
+    /// from the folder holding it: moving the profiles into their own folder
+    /// must not orphan the side-car already written beside the old name.
+    /// </summary>
     private static string SideCarKey(string fileName) =>
-        SideCarDirectory + Sanitize(fileName) + ".json";
+        SideCarDirectory + Sanitize(StripFolder(fileName)) + ".json";
 
     private static string Sanitize(string value)
     {

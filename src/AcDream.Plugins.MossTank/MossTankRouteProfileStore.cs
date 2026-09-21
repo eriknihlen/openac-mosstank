@@ -16,7 +16,6 @@ internal sealed class MossTankRouteProfileStore
     private string _selected = ByCharacter;
     private string? _pendingLegacyBareName;
     private bool _rosterSwept;
-    private bool _flatFolderMigrationSwept;
 
     public MossTankRouteProfileStore(IPluginHost host)
     {
@@ -25,6 +24,9 @@ internal sealed class MossTankRouteProfileStore
 
     public string Selected => Strip(_selected);
     public string? RecoveryNotice { get; private set; }
+
+    /// <summary>The file the last load read, or tried to read.</summary>
+    public string? LastLoadKey { get; private set; }
 
     private string Server => _host.Automation.Character.WorldName;
     private IPluginStorage VtankStorage => _host.VtankProfiles;
@@ -60,9 +62,7 @@ internal sealed class MossTankRouteProfileStore
 
     public bool BindCharacter(string? characterName)
     {
-        string normalized = string.IsNullOrWhiteSpace(characterName)
-            ? string.Empty
-            : characterName.Trim();
+        string normalized = VtankProfileDirectory.CanonicalCharacterKey(characterName);
         if (string.Equals(normalized, _characterName, StringComparison.OrdinalIgnoreCase))
             return false;
         _characterName = normalized;
@@ -90,9 +90,9 @@ internal sealed class MossTankRouteProfileStore
         }
 
         string candidate = ToFileName(normalized);
-        if (VtankStorage.IsAvailable && VtankStorage.ReadText(candidate) is not null)
+        if (ResolveExisting(normalized) is { } found)
         {
-            _selected = candidate;
+            _selected = found;
             _pendingLegacyBareName = null;
             WriteBinding();
             return true;
@@ -116,8 +116,7 @@ internal sealed class MossTankRouteProfileStore
         if (normalized.Equals(ByCharacter, StringComparison.OrdinalIgnoreCase))
             return true;
 
-        string candidate = ToFileName(normalized);
-        if (VtankStorage.IsAvailable && VtankStorage.ReadText(candidate) is not null)
+        if (ResolveExisting(normalized) is not null)
             return true;
 
         return _host.Storage.IsAvailable
@@ -159,13 +158,22 @@ internal sealed class MossTankRouteProfileStore
     {
         ArgumentNullException.ThrowIfNull(target);
         ArgumentNullException.ThrowIfNull(spells);
-        MigrateFlatFilesToNavsFolderIfNeeded();
         SweepLegacyRosterIfNeeded();
         MigrateLegacyIfNeeded(target, spells);
         string fileName = CurrentFileName();
+        LastLoadKey = fileName;
         string? text = VtankStorage.IsAvailable ? VtankStorage.ReadText(fileName) : null;
         if (text is null)
             return MossTankProfileLoad.Missing;
+        if (IsDroppedForeignFormat(fileName))
+        {
+            if (VtankNavRouteSerializer.TryLoad(text, target, spells, out string navError))
+                return MossTankProfileLoad.Loaded;
+            RecoveryNotice = MossTankProfileRecovery.Preserve(
+                _host, "route", fileName, text, new FormatException(navError));
+            _host.Log.Warn(RecoveryNotice);
+            return MossTankProfileLoad.Failed;
+        }
         if (!MetafSerializer.TryLoadNav(text, target, spells, out string error))
         {
             RecoveryNotice = MossTankProfileRecovery.Preserve(
@@ -176,8 +184,17 @@ internal sealed class MossTankRouteProfileStore
         return MossTankProfileLoad.Loaded;
     }
 
-    public void SaveCurrent(NavigationSettings settings) =>
-        WriteAf(CurrentFileName(), MetafSerializer.SaveNav(settings));
+    public void SaveCurrent(NavigationSettings settings)
+    {
+        string target = SaveTargetFor(CurrentFileName());
+        WriteAf(target, MetafSerializer.SaveNav(settings));
+        if (!_selected.Equals(ByCharacter, StringComparison.OrdinalIgnoreCase)
+            && !target.Equals(_selected, StringComparison.Ordinal))
+        {
+            _selected = target;
+            WriteBinding();
+        }
+    }
 
     public bool TryImportLegacy(
         string? name,
@@ -249,40 +266,6 @@ internal sealed class MossTankRouteProfileStore
         SaveCurrent(target);
     }
 
-
-    private void MigrateFlatFilesToNavsFolderIfNeeded()
-    {
-        if (_flatFolderMigrationSwept)
-            return;
-        _flatFolderMigrationSwept = true;
-        if (!VtankStorage.IsAvailable)
-            return;
-        int migrated = 0;
-        foreach (string bareName in VtankProfileDirectory.ListFlatAfFileNames(VtankStorage))
-        {
-            if (!VtankProfileDirectory.IsLegacyFlatRouteFileName(bareName))
-                continue; // MossTankMetaProfileStore's own sweep owns this one.
-            string strippedName = VtankProfileDirectory.StripLegacyNavMarker(bareName);
-            string destination = $"{VtankProfileDirectory.NavFolder}/{strippedName}";
-            if (VtankStorage.ReadText(destination) is not null)
-            {
-                _host.Log.Warn(
-                    $"MossTank left flat route profile '{bareName}' in place: '{destination}' already exists.");
-                continue;
-            }
-            string? content = VtankStorage.ReadText(bareName);
-            if (content is null)
-                continue; // listed but unreadable; skip defensively.
-            VtankStorage.WriteText(destination, content);
-            VtankStorage.Delete(bareName);
-            migrated++;
-        }
-        if (migrated > 0)
-        {
-            _host.Log.Warn(
-                $"Migrated {migrated} flat MossTank route profile(s) into {VtankProfileDirectory.NavFolder}/.");
-        }
-    }
 
     // ------------------------------------------------------------------
     // Legacy JSON -> .af migration.
@@ -410,8 +393,46 @@ internal sealed class MossTankRouteProfileStore
         ? $"{VtankProfileDirectory.NavFolder}/{VtankProfileDirectory.AutoCharacterFileName(_characterName, Server, "af")}"
         : _selected;
 
+    /// <summary>
+    /// A route named in the plugin's own format, unless the name says
+    /// otherwise: a file dropped into the folder as the older ".nav" form is
+    /// addressed exactly as it sits there, so picking it loads it.
+    /// </summary>
     private static string ToFileName(string bareName) =>
-        $"{VtankProfileDirectory.NavFolder}/{bareName}.af";
+        bareName.EndsWith(".nav", StringComparison.OrdinalIgnoreCase)
+        || bareName.EndsWith(".af", StringComparison.OrdinalIgnoreCase)
+            ? $"{VtankProfileDirectory.NavFolder}/{bareName}"
+            : $"{VtankProfileDirectory.NavFolder}/{bareName}.af";
+
+    /// <summary>
+    /// The file a name stands for, if one is there. A bare name means the
+    /// plugin's own format first and a dropped route second, so both a
+    /// command typed without an extension and a name picked straight out of
+    /// the folder resolve to the file that exists.
+    /// </summary>
+    private string? ResolveExisting(string name)
+    {
+        if (!VtankStorage.IsAvailable)
+            return null;
+        string candidate = ToFileName(name);
+        if (VtankStorage.ReadText(candidate) is not null)
+            return candidate;
+        string dropped = $"{VtankProfileDirectory.NavFolder}/{name}.nav";
+        return VtankStorage.ReadText(dropped) is not null ? dropped : null;
+    }
+
+    private static bool IsDroppedForeignFormat(string key) =>
+        key.EndsWith(".nav", StringComparison.OrdinalIgnoreCase);
+
+    /// <summary>
+    /// Where a save goes. A dropped file is never rewritten: the plugin's
+    /// own format is written beside it under the same name, and that is what
+    /// the selection follows from then on.
+    /// </summary>
+    private static string SaveTargetFor(string key) =>
+        IsDroppedForeignFormat(key)
+            ? string.Concat(key.AsSpan(0, key.Length - ".nav".Length), ".af")
+            : key;
 
     private void WriteBinding()
     {

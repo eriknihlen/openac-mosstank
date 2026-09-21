@@ -16,7 +16,6 @@ internal sealed class MossTankMetaProfileStore
     private string _selected = ByCharacter;
     private string? _pendingLegacyBareName;
     private bool _rosterSwept;
-    private bool _flatFolderMigrationSwept;
 
     public MossTankMetaProfileStore(IPluginHost host)
     {
@@ -25,6 +24,12 @@ internal sealed class MossTankMetaProfileStore
 
     public string Selected => StripAf(_selected);
     public string? RecoveryNotice { get; private set; }
+
+    /// <summary>The file the last load read, or tried to read.</summary>
+    public string? LastLoadKey { get; private set; }
+
+    /// <summary>Whether the last load found and read that file.</summary>
+    public bool LastLoadSucceeded { get; private set; }
     public string? SaveNotice { get; private set; }
 
     private string Server => _host.Automation.Character.WorldName;
@@ -32,6 +37,52 @@ internal sealed class MossTankMetaProfileStore
     private bool CanBindFiles => _character.Length > 0 && Server.Length > 0;
 
     private const string FolderPrefix = VtankProfileDirectory.MetaFolder + "/";
+
+    /// <summary>
+    /// A meta named in the plugin's own format, unless the name says
+    /// otherwise: a file dropped into the folder as the older ".met" form is
+    /// addressed exactly as it sits there, so picking it loads it.
+    /// </summary>
+    private static string ToFileName(string name)
+    {
+        string bareName = VtankProfileDirectory.StripFolder(
+            name, VtankProfileDirectory.MetaFolder);
+        if (!bareName.EndsWith(".af", StringComparison.OrdinalIgnoreCase)
+            && !bareName.EndsWith(".met", StringComparison.OrdinalIgnoreCase))
+        {
+            bareName += ".af";
+        }
+        return $"{VtankProfileDirectory.MetaFolder}/{bareName}";
+    }
+
+    /// <summary>
+    /// The file a name stands for, if one is there. A bare name means the
+    /// plugin's own format first and a dropped meta second, so both a
+    /// command typed without an extension and a name picked straight out of
+    /// the folder resolve to the file that exists.
+    /// </summary>
+    private string? ResolveExisting(string name)
+    {
+        if (!VtankStorage.IsAvailable)
+            return null;
+        string candidate = ToFileName(name);
+        if (VtankStorage.ReadText(candidate) is not null)
+            return candidate;
+        string dropped = $"{VtankProfileDirectory.MetaFolder}/{name}.met";
+        return VtankStorage.ReadText(dropped) is not null ? dropped : null;
+    }
+
+    private static bool IsDroppedForeignFormat(string key) =>
+        key.EndsWith(".met", StringComparison.OrdinalIgnoreCase);
+
+    /// <summary>
+    /// Where a save goes. A dropped file is never rewritten: the plugin's
+    /// own format is written beside it under the same name.
+    /// </summary>
+    private static string SaveTargetFor(string key) =>
+        IsDroppedForeignFormat(key)
+            ? string.Concat(key.AsSpan(0, key.Length - ".met".Length), ".af")
+            : key;
 
     private static string StripAf(string name)
     {
@@ -63,9 +114,7 @@ internal sealed class MossTankMetaProfileStore
 
     public bool BindCharacter(string? characterName)
     {
-        string normalized = string.IsNullOrWhiteSpace(characterName)
-            ? string.Empty
-            : characterName.Trim();
+        string normalized = VtankProfileDirectory.CanonicalCharacterKey(characterName);
         if (normalized.Equals(_character, StringComparison.OrdinalIgnoreCase))
             return false;
         _character = normalized;
@@ -81,13 +130,27 @@ internal sealed class MossTankMetaProfileStore
 
     public MetaProfile LoadCurrent()
     {
-        MigrateFlatFilesToMetasFolderIfNeeded();
         SweepLegacyRosterIfNeeded();
         MigrateLegacyIfNeeded();
         string fileName = CurrentFileName();
+        LastLoadKey = fileName;
+        LastLoadSucceeded = false;
         string? text = VtankStorage.IsAvailable ? VtankStorage.ReadText(fileName) : null;
         if (text is null)
             return new MetaProfile();
+        if (IsDroppedForeignFormat(fileName))
+        {
+            if (VtankMetaProfileSerializer.TryLoad(
+                    text, _host.Automation.Spells, out MetaProfile dropped, out string metError))
+            {
+                LastLoadSucceeded = true;
+                return dropped;
+            }
+            RecoveryNotice = MossTankProfileRecovery.Preserve(
+                _host, "meta", fileName, text, new FormatException(metError));
+            _host.Log.Warn(RecoveryNotice);
+            return new MetaProfile();
+        }
         if (!MetafSerializer.TryLoadMeta(text, _host.Automation.Spells, out MetaProfile profile, out string error))
         {
             RecoveryNotice = MossTankProfileRecovery.Preserve(
@@ -95,12 +158,13 @@ internal sealed class MossTankMetaProfileStore
             _host.Log.Warn(RecoveryNotice);
             return new MetaProfile();
         }
+        LastLoadSucceeded = true;
         return profile;
     }
 
     public bool SaveCurrent(MetaProfile profile)
     {
-        string fileName = CurrentFileName();
+        string fileName = SaveTargetFor(CurrentFileName());
         string text;
         try
         {
@@ -125,6 +189,14 @@ internal sealed class MossTankMetaProfileStore
             return false;
         }
         SaveNotice = null;
+        // A dropped file was left as it is and the plugin's own format was
+        // written beside it; the selection follows the file it now owns.
+        if (!_selected.Equals(ByCharacter, StringComparison.OrdinalIgnoreCase)
+            && !fileName.Equals(_selected, StringComparison.Ordinal))
+        {
+            _selected = fileName;
+            WriteBinding();
+        }
         return true;
     }
 
@@ -141,13 +213,10 @@ internal sealed class MossTankMetaProfileStore
             return true;
         }
 
-        string bare = normalized.EndsWith(".af", StringComparison.OrdinalIgnoreCase)
-            ? normalized
-            : normalized + ".af";
-        string plain = $"{VtankProfileDirectory.MetaFolder}/{bare}";
-        if (VtankStorage.IsAvailable && VtankStorage.ReadText(plain) is not null)
+        string plain = ToFileName(normalized);
+        if (ResolveExisting(normalized) is { } found)
         {
-            _selected = plain;
+            _selected = found;
             _pendingLegacyBareName = null;
             WriteBinding();
             return true;
@@ -172,11 +241,7 @@ internal sealed class MossTankMetaProfileStore
         if (normalized.Equals(ByCharacter, StringComparison.OrdinalIgnoreCase))
             return true;
 
-        string bare = normalized.EndsWith(".af", StringComparison.OrdinalIgnoreCase)
-            ? normalized
-            : normalized + ".af";
-        string plain = $"{VtankProfileDirectory.MetaFolder}/{bare}";
-        if (VtankStorage.IsAvailable && VtankStorage.ReadText(plain) is not null)
+        if (ResolveExisting(normalized) is not null)
             return true;
 
         return _host.Storage.IsAvailable
@@ -196,10 +261,7 @@ internal sealed class MossTankMetaProfileStore
             notice = "Enter a unique Meta profile name (1-64 characters).";
             return false;
         }
-        string bare = normalized.EndsWith(".af", StringComparison.OrdinalIgnoreCase)
-            ? normalized
-            : normalized + ".af";
-        string fileName = $"{VtankProfileDirectory.MetaFolder}/{bare}";
+        string fileName = ToFileName(normalized);
         MetaProfile document = copyCurrent ? Clone(current) : new MetaProfile();
         if (!SaveTo(fileName, document, out notice))
             return false;
@@ -207,8 +269,8 @@ internal sealed class MossTankMetaProfileStore
         _pendingLegacyBareName = null;
         WriteBinding();
         notice = copyCurrent
-            ? $"Copied Meta profile to {bare}."
-            : $"Created Meta profile {bare}.";
+            ? $"Copied Meta profile to {StripAf(fileName)}."
+            : $"Created Meta profile {StripAf(fileName)}.";
         return true;
     }
 
@@ -244,10 +306,7 @@ internal sealed class MossTankMetaProfileStore
             notice = $"Could not import {Path.GetFileName(key)}: {error}";
             return false;
         }
-        string bare = normalized.EndsWith(".af", StringComparison.OrdinalIgnoreCase)
-            ? normalized
-            : normalized + ".af";
-        string fileName = $"{VtankProfileDirectory.MetaFolder}/{bare}";
+        string fileName = ToFileName(normalized);
         if (!SaveTo(fileName, profile, out string saveNotice))
         {
             notice = saveNotice;
@@ -256,7 +315,7 @@ internal sealed class MossTankMetaProfileStore
         _selected = fileName;
         _pendingLegacyBareName = null;
         WriteBinding();
-        notice = $"Imported VTank Meta profile {bare}.";
+        notice = $"Imported VTank Meta profile {StripAf(fileName)}.";
         return true;
     }
 
@@ -284,39 +343,6 @@ internal sealed class MossTankMetaProfileStore
         return empty;
     }
 
-
-    private void MigrateFlatFilesToMetasFolderIfNeeded()
-    {
-        if (_flatFolderMigrationSwept)
-            return;
-        _flatFolderMigrationSwept = true;
-        if (!VtankStorage.IsAvailable)
-            return;
-        int migrated = 0;
-        foreach (string bareName in VtankProfileDirectory.ListFlatAfFileNames(VtankStorage))
-        {
-            if (VtankProfileDirectory.IsLegacyFlatRouteFileName(bareName))
-                continue; // MossTankRouteProfileStore's own sweep owns this one.
-            string destination = $"{VtankProfileDirectory.MetaFolder}/{bareName}";
-            if (VtankStorage.ReadText(destination) is not null)
-            {
-                _host.Log.Warn(
-                    $"MossTank left flat Meta profile '{bareName}' in place: '{destination}' already exists.");
-                continue;
-            }
-            string? content = VtankStorage.ReadText(bareName);
-            if (content is null)
-                continue; // listed but unreadable; skip defensively.
-            VtankStorage.WriteText(destination, content);
-            VtankStorage.Delete(bareName);
-            migrated++;
-        }
-        if (migrated > 0)
-        {
-            _host.Log.Warn(
-                $"Migrated {migrated} flat MossTank Meta profile(s) into {VtankProfileDirectory.MetaFolder}/.");
-        }
-    }
 
     // ------------------------------------------------------------------
     // Legacy JSON -> .af migration.

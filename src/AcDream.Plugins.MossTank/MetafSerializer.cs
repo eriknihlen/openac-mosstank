@@ -243,7 +243,8 @@ internal static class MetafSerializer
             {
                 throw cursor.Error(
                     "contains only NAV: block(s) and no STATE: block — this looks like "
-                    + "a stand-alone route profile that belongs in the navs/ folder, "
+                    + "a stand-alone route profile that belongs in the "
+                    + VtankProfileDirectory.NavFolder + "/ folder, "
                     + "not a Meta profile.");
             }
             // Second pass: EmbedNav actions reference navs that may be defined
@@ -656,12 +657,14 @@ internal static class MetafSerializer
                 throw cursor.Error(
                     "found a STATE: rule section — this is a Meta profile "
                     + "(possibly with an embedded nav), not a stand-alone "
-                    + "route; load it from the metas/ folder instead.");
+                    + "route; load it from the "
+                    + VtankProfileDirectory.MetaFolder + "/ folder instead.");
             }
             if (navs.Count == 0)
                 throw cursor.Error(
                     "no NAV: block found — this looks like a Meta profile that belongs "
-                    + "in the metas/ folder, not a route.");
+                    + "in the " + VtankProfileDirectory.MetaFolder
+                    + "/ folder, not a route.");
             var (navType, nodes, followId, followName) = navs.First().Value;
             ApplyNavBody(target, navType, nodes, followId, followName);
             error = string.Empty;

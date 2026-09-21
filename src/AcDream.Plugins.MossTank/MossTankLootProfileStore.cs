@@ -40,12 +40,23 @@ internal sealed class MossTankLootProfileStore
     public string? LoadFailureNotice { get; private set; }
     public string? LoadNotice { get; private set; }
 
-    private static string StripUtl(string name) => name.Equals(
-        ByCharacter, StringComparison.OrdinalIgnoreCase)
-            ? name
-            : name.EndsWith(".utl", StringComparison.OrdinalIgnoreCase)
-                ? name[..^4]
-                : name;
+    /// <summary>The file the last load read, or tried to read.</summary>
+    public string? LastLoadKey { get; private set; }
+
+    /// <summary>
+    /// The plain name a user sees and types: neither the folder the profile
+    /// lives in nor its extension.
+    /// </summary>
+    private static string StripUtl(string name)
+    {
+        if (name.Equals(ByCharacter, StringComparison.OrdinalIgnoreCase))
+            return name;
+        string bareName = VtankProfileDirectory.StripFolder(
+            name, VtankProfileDirectory.LootFolder);
+        return bareName.EndsWith(".utl", StringComparison.OrdinalIgnoreCase)
+            ? bareName[..^4]
+            : bareName;
+    }
 
     private string Server => _host.Automation.Character.WorldName;
     private IPluginStorage VtankStorage => _host.VtankProfiles;
@@ -72,9 +83,7 @@ internal sealed class MossTankLootProfileStore
 
     public bool BindCharacter(string? characterName)
     {
-        string normalized = string.IsNullOrWhiteSpace(characterName)
-            ? string.Empty
-            : characterName.Trim();
+        string normalized = VtankProfileDirectory.CanonicalCharacterKey(characterName);
         if (string.Equals(normalized, _characterName, StringComparison.OrdinalIgnoreCase))
             return false;
         _characterName = normalized;
@@ -166,7 +175,8 @@ internal sealed class MossTankLootProfileStore
                 existingText,
                 new FormatException(error));
             _host.Log.Warn(RecoveryNotice);
-            notice = $"Cannot overwrite unreadable loot profile {fileName}; source was preserved.";
+            notice = $"Cannot overwrite unreadable loot profile {StripUtl(fileName)}; "
+                + "source was preserved.";
             return false;
         }
         var profile = new VtankLootProfile
@@ -186,8 +196,8 @@ internal sealed class MossTankLootProfileStore
             settings.ProfileActive = true;
         WriteBinding();
         notice = copyCurrent
-            ? $"Copied loot rules to {_selected}."
-            : $"Created loot profile {_selected}.";
+            ? $"Copied loot rules to {Selected}."
+            : $"Created loot profile {Selected}.";
         return true;
     }
 
@@ -199,6 +209,7 @@ internal sealed class MossTankLootProfileStore
         ArgumentNullException.ThrowIfNull(target);
         SweepLegacyRosterIfNeeded();
         string fileName = PendingOrCurrentFileName();
+        LastLoadKey = fileName;
         if (fileName.Length == 0)
         {
             LoadFailureNotice = "No loot profile is active.";
@@ -406,10 +417,7 @@ internal sealed class MossTankLootProfileStore
         if (!_host.Storage.IsAvailable)
             return;
 
-        string byCharacterFileName = VtankProfileDirectory.AutoCharacterFileName(
-            _characterName,
-            Server,
-            "utl");
+        string byCharacterFileName = ByCharacterKey();
         if (VtankStorage.ReadText(byCharacterFileName) is null)
         {
             LootProfileDocument? byCharacter = ReadLegacyJson(
@@ -504,7 +512,7 @@ internal sealed class MossTankLootProfileStore
     // ------------------------------------------------------------------
 
     private string CurrentFileName() => IsByCharacter(_selected)
-        ? VtankProfileDirectory.AutoCharacterFileName(_characterName, Server, "utl")
+        ? ByCharacterKey()
         : _selected;
 
     private string PendingOrCurrentFileName()
@@ -512,7 +520,7 @@ internal sealed class MossTankLootProfileStore
         string selection = _pendingSelection
             ?? (_hasActiveProfile ? _selected : string.Empty);
         return IsByCharacter(selection)
-            ? VtankProfileDirectory.AutoCharacterFileName(_characterName, Server, "utl")
+            ? ByCharacterKey()
             : selection;
     }
 
@@ -520,7 +528,7 @@ internal sealed class MossTankLootProfileStore
         ByCharacter,
         StringComparison.OrdinalIgnoreCase)
         || fileName.Equals(
-            VtankProfileDirectory.AutoCharacterFileName(_characterName, Server, "utl"),
+            ByCharacterKey(),
             StringComparison.OrdinalIgnoreCase);
 
     private void Activate(
@@ -574,10 +582,17 @@ internal sealed class MossTankLootProfileStore
         }
     }
 
-    private static string ToFileName(string bareName) =>
-        bareName.EndsWith(".utl", StringComparison.OrdinalIgnoreCase)
-            ? bareName
-            : bareName + ".utl";
+    private static string ToFileName(string name)
+    {
+        string bareName = VtankProfileDirectory.StripFolder(
+            name, VtankProfileDirectory.LootFolder);
+        if (!bareName.EndsWith(".utl", StringComparison.OrdinalIgnoreCase))
+            bareName += ".utl";
+        return $"{VtankProfileDirectory.LootFolder}/{bareName}";
+    }
+
+    private string ByCharacterKey() => ToFileName(
+        VtankProfileDirectory.AutoCharacterFileName(_characterName, Server, "utl"));
 
     private void WriteBinding()
     {

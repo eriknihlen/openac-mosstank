@@ -223,12 +223,12 @@ public sealed class MossTankAutostartTests
 
         panel.SetMetaOption("spelldiffexcessthreshold-hunt", ExpressionValue.Number(77));
         Command(panel, "settings save myprofile");
-        string macroKey = panel.SelectedMacroProfile;
+        string macroKey = SettingsKey(panel.SelectedMacroProfile);
         string savedMyProfileText = host.Storage.ReadText(macroKey)!;
         Assert.False(string.IsNullOrEmpty(savedMyProfileText));
 
         Command(panel, "settings save otherprofile");
-        Assert.NotEqual(macroKey, panel.SelectedMacroProfile);
+        Assert.NotEqual(macroKey, SettingsKey(panel.SelectedMacroProfile));
         panel.SetMetaOption("spelldiffexcessthreshold-hunt", ExpressionValue.Number(13));
 
         host.SessionSettingsValue = new Dictionary<string, string>
@@ -238,7 +238,7 @@ public sealed class MossTankAutostartTests
         panel.TickAutostart();
 
         Assert.Equal(savedMyProfileText, host.Storage.ReadText(macroKey));
-        Assert.Equal(macroKey, panel.SelectedMacroProfile);
+        Assert.Equal(macroKey, SettingsKey(panel.SelectedMacroProfile));
         Assert.Empty(automation.Logger.Errors);
     }
 
@@ -315,7 +315,7 @@ public sealed class MossTankAutostartTests
         Command(panel, "loot new myLoot");
         panel.AddLootRule();
         Assert.Single(panel.LootRuleRows);
-        string lootKey = "myLoot.utl";
+        string lootKey = $"{VtankProfileDirectory.LootFolder}/myLoot.utl";
         string savedMyLootText = host.Storage.ReadText(lootKey)!;
         Assert.False(string.IsNullOrEmpty(savedMyLootText));
 
@@ -381,7 +381,7 @@ public sealed class MossTankAutostartTests
         var automation = new FakeAutomation { IsAvailable = true };
         var host = new FakeHost(automation);
         host.VtankProfiles.WriteText(
-            "vt-proof-settings.usd",
+            "mosstank/profiles/vt-proof-settings.usd",
             VtankDefaultSettingsDatabase.Parse().Render());
         var store = new MossTankProfileStore(host);
         store.BindCharacter("TestChar");
@@ -405,7 +405,7 @@ public sealed class MossTankAutostartTests
         var automation = new FakeAutomation { IsAvailable = true };
         var host = new FakeHost(automation);
         host.VtankProfiles.WriteText(
-            "--SomeoneElse_Coldeve.usd",
+            "mosstank/profiles/--SomeoneElse_Coldeve.usd",
             VtankDefaultSettingsDatabase.Parse().Render());
         var store = new MossTankProfileStore(host);
         store.BindCharacter("TestChar");
@@ -424,7 +424,7 @@ public sealed class MossTankAutostartTests
         var automation = new FakeAutomation { IsAvailable = true };
         var host = new FakeHost(automation);
         host.VtankProfiles.WriteText(
-            "vt-proof-settings.usd",
+            "mosstank/profiles/vt-proof-settings.usd",
             VtankDefaultSettingsDatabase.Parse().Render());
         var panel = new MossTankPanel(host);
         host.SessionSettingsValue = new Dictionary<string, string>
@@ -597,7 +597,7 @@ public sealed class MossTankAutostartTests
         const string unreadable = "~~ {\nNAV: broken 4\n";
         var automation = new FakeAutomation { IsAvailable = true };
         var host = new FakeHost(automation);
-        host.VtankProfiles.WriteText("navs/vt-broken-route.af", unreadable);
+        host.VtankProfiles.WriteText("mosstank/navs/vt-broken-route.af", unreadable);
         var panel = new MossTankPanel(host);
 
         // A route the panel already holds, so a silent overwrite would have
@@ -609,7 +609,7 @@ public sealed class MossTankAutostartTests
 
         panel.SelectRouteProfile("vt-broken-route");
 
-        Assert.Equal(unreadable, host.VtankProfiles.ReadText("navs/vt-broken-route.af"));
+        Assert.Equal(unreadable, host.VtankProfiles.ReadText("mosstank/navs/vt-broken-route.af"));
         Assert.DoesNotContain(
             automation.Logger.Infos,
             message => message.Contains("Loaded route profile", StringComparison.Ordinal)
@@ -726,13 +726,13 @@ public sealed class MossTankAutostartTests
     {
         string root = SessionProofFixtureRoot;
         storage.WriteText(
-            "vt-proof-settings.usd",
+            "mosstank/profiles/vt-proof-settings.usd",
             File.ReadAllText(Path.Combine(root, "vt-proof-settings.usd")));
         storage.WriteText(
-            "vt-proof-loot.utl",
+            "mosstank/loot/vt-proof-loot.utl",
             File.ReadAllText(Path.Combine(root, "vt-proof-loot.utl")));
         storage.WriteText(
-            "navs/vt-proof-route.af",
+            "mosstank/navs/vt-proof-route.af",
             File.ReadAllText(Path.Combine(root, "navs", "vt-proof-route.af")));
     }
 
@@ -751,6 +751,9 @@ public sealed class MossTankAutostartTests
 
     private const string SessionProofSidecarKey =
         "profiles/macro/sidecar/vt-proof-settings.usd.json";
+
+    private static string SettingsKey(string bareFileName) =>
+        $"{VtankProfileDirectory.SettingsFolder}/{bareFileName}";
 
     private static void Command(MossTankPanel panel, string arguments) =>
         panel.ExecuteVtankCommand(new PluginCommand(

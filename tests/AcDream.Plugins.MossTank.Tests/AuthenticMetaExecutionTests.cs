@@ -91,7 +91,7 @@ public sealed class AuthenticMetaExecutionTests
     {
         string fixture = ReadNeftetFixture();
         var profiles = new MemoryStorage();
-        profiles.Text["metas/neftet.af"] = fixture;
+        profiles.Text["mosstank/metas/neftet.af"] = fixture;
         var automation = new Automation();
         var host = new Host(automation, profiles);
         var panel = new MossTankPanel(host);
@@ -135,7 +135,7 @@ public sealed class AuthenticMetaExecutionTests
     {
         string fixture = ReadNeftetFixture();
         var profiles = new MemoryStorage();
-        profiles.Text["metas/neftet.af"] = fixture;
+        profiles.Text["mosstank/metas/neftet.af"] = fixture;
         var automation = new Automation();
         var host = new Host(automation, profiles);
         var panel = new MossTankPanel(host);

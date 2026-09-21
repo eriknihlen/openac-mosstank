@@ -18,11 +18,79 @@ internal static class VtankProfileDirectory
     internal const string DefaultLabel = "[Default]";
     internal const string NoneLabel = "[None]";
 
-    internal const string MetaFolder = "metas";
+    /// <summary>
+    /// A marker the world puts in front of some characters' display names.
+    /// It is not part of the character's name.
+    /// </summary>
+    private const char DisplayMarker = '+';
 
-    internal const string NavFolder = "navs";
+    /// <summary>
+    /// The one name a character's files are filed under, whatever spelling
+    /// the world happens to report at the moment it is asked.
+    /// </summary>
+    /// <remarks>
+    /// The reported name arrives in two spellings during a single login: the
+    /// plain name while only the character list has it, and the same name
+    /// behind a display marker once the character's own object has streamed
+    /// in. Keying files by the reported string therefore files one session
+    /// under two names — settings are written to one file and read back from
+    /// the other. The marker is display only, and a character's name never
+    /// starts with one, so dropping it gives a key that is the same before
+    /// and after the object arrives and the same one a character without a
+    /// marker already has.
+    /// </remarks>
+    public static string CanonicalCharacterKey(string? reportedName) =>
+        string.IsNullOrWhiteSpace(reportedName)
+            ? string.Empty
+            : reportedName.Trim().TrimStart(DisplayMarker).Trim();
+
+    /// <summary>
+    /// The one folder the plugin keeps every file it owns in, beneath the
+    /// shared profile directory the host hands out. Nothing outside it is
+    /// written once the first-run copy has filled it.
+    /// </summary>
+    internal const string Root = "mosstank";
+
+    /// <summary>Settings documents and the per-character binding.</summary>
+    internal const string SettingsFolder = Root + "/profiles";
+
+    internal const string MetaFolder = Root + "/metas";
+
+    internal const string NavFolder = Root + "/navs";
+
+    internal const string LootFolder = Root + "/loot";
+
+    /// <summary>The old flat layout the first-run copy reads from.</summary>
+    internal const string LegacyNavFolder = "navs";
+
+    internal const string LegacyMetaFolder = "metas";
+
+    /// <summary>
+    /// The suffix a settings file keeps when it loses a name collision, so
+    /// nothing is thrown away.
+    /// </summary>
+    internal const string TwinSuffix = ".twin-";
 
     private const string LegacyNavMarker = "nav_";
+
+    /// <summary>
+    /// A file a picker never offers: something another tool or this plugin
+    /// left beside a real profile rather than a profile of its own.
+    /// </summary>
+    internal static bool IsSideFile(string bareFileName) =>
+        bareFileName.Contains(".bak", StringComparison.OrdinalIgnoreCase)
+        || bareFileName.Contains(TwinSuffix, StringComparison.OrdinalIgnoreCase)
+        || bareFileName.EndsWith(".tmp", StringComparison.OrdinalIgnoreCase)
+        || bareFileName.StartsWith('.');
+
+    /// <summary>The bare file name inside <paramref name="folder"/>.</summary>
+    internal static string StripFolder(string key, string folder)
+    {
+        string prefix = folder + "/";
+        return key.StartsWith(prefix, StringComparison.OrdinalIgnoreCase)
+            ? key[prefix.Length..]
+            : key;
+    }
 
     internal static bool IsLegacyFlatRouteFileName(string bareFileName) =>
         bareFileName.StartsWith(LegacyNavMarker, StringComparison.Ordinal)
@@ -38,8 +106,14 @@ internal static class VtankProfileDirectory
         return isHidden ? HiddenPrefix + rest : rest;
     }
 
-    internal static IReadOnlyList<string> ListFlatAfFileNames(IPluginStorage storage) =>
-        EnumerateFileNames(storage, ".af").ToList();
+    /// <summary>
+    /// Every settings document in the profiles folder, whoever owns it. The
+    /// pickers hide another character's reserved family; an operation that
+    /// spans every profile on disk must not.
+    /// </summary>
+    internal static IReadOnlyList<string> ListEverySettingsKey(IPluginStorage storage) =>
+        [.. EnumerateFolderFileNames(storage, SettingsFolder, ".usd")
+            .Select(bareName => $"{SettingsFolder}/{bareName}")];
 
     public static string AutoCharacterFileName(
         string characterName,
@@ -91,22 +165,26 @@ internal static class VtankProfileDirectory
             new(string.Empty, DefaultLabel),
             new(string.Empty, ByCharacterLabel),
         };
-        foreach (string fileName in EnumerateFileNames(storage, ".usd"))
+        string? currentBareName = currentFileName is null
+            ? null
+            : StripFolder(currentFileName, SettingsFolder);
+        foreach (string fileName in EnumerateFolderFileNames(storage, SettingsFolder, ".usd"))
         {
+            string key = $"{SettingsFolder}/{fileName}";
             string? subProfileDisplay = TryDisplayName(fileName, characterName, server);
             if (subProfileDisplay is not null)
             {
-                entries.Add(new ProfileEntry(fileName, subProfileDisplay));
+                entries.Add(new ProfileEntry(key, subProfileDisplay));
                 continue;
             }
             if (fileName.StartsWith(HiddenPrefix, StringComparison.Ordinal))
                 continue; // someone else's --Name_Server(.usd|_*) family.
             if (mineOnly
-                && !fileName.Equals(currentFileName, StringComparison.Ordinal))
+                && !fileName.Equals(currentBareName, StringComparison.Ordinal))
             {
                 continue;
             }
-            entries.Add(new ProfileEntry(fileName, fileName));
+            entries.Add(new ProfileEntry(key, fileName));
         }
         return entries;
     }
@@ -118,7 +196,11 @@ internal static class VtankProfileDirectory
             new(string.Empty, NoneLabel),
             new(string.Empty, ByCharacterLabel),
         };
-        foreach (string bareName in EnumerateFolderFileNames(storage, NavFolder, ".af"))
+        // A route dropped in as the older ".nav" form is offered as it is:
+        // picking it loads it, and a later save writes this plugin's own
+        // ".af" beside it rather than over it.
+        foreach (string bareName in EnumerateFolderFileNames(
+            storage, NavFolder, ".af", ".nav"))
         {
             if (bareName.StartsWith(HiddenPrefix, StringComparison.Ordinal)
                 || bareName.StartsWith(NavHiddenPrefix, StringComparison.Ordinal))
@@ -137,7 +219,10 @@ internal static class VtankProfileDirectory
             new(string.Empty, NoneLabel),
             new(string.Empty, ByCharacterLabel),
         };
-        foreach (string bareName in EnumerateFolderFileNames(storage, MetaFolder, ".af"))
+        // As with routes: a meta dropped in as the older ".met" form is
+        // offered as it is and loaded in place.
+        foreach (string bareName in EnumerateFolderFileNames(
+            storage, MetaFolder, ".af", ".met"))
         {
             if (bareName.StartsWith(HiddenPrefix, StringComparison.Ordinal))
                 continue;
@@ -153,11 +238,11 @@ internal static class VtankProfileDirectory
             new(string.Empty, NoneLabel),
             new(string.Empty, ByCharacterLabel),
         };
-        foreach (string fileName in EnumerateFileNames(storage, ".utl"))
+        foreach (string bareName in EnumerateFolderFileNames(storage, LootFolder, ".utl"))
         {
-            if (fileName.StartsWith(HiddenPrefix, StringComparison.Ordinal))
+            if (bareName.StartsWith(HiddenPrefix, StringComparison.Ordinal))
                 continue;
-            entries.Add(new ProfileEntry(fileName, fileName));
+            entries.Add(new ProfileEntry($"{LootFolder}/{bareName}", bareName));
         }
         return entries;
     }
@@ -166,7 +251,21 @@ internal static class VtankProfileDirectory
         $"{characterName}_{server}.ast";
 
     public static string CdfFileName(string characterName, string server) =>
-        $"{server}_{characterName}.cdf";
+        $"{SettingsFolder}/{server}_{characterName}.cdf";
+
+    /// <summary>
+    /// Re-roots one name out of a binding file into the folder its kind
+    /// lives in. A binding copied in from the old flat layout, or written by
+    /// hand, names a file without saying which folder holds it; the kind
+    /// does, so an unrooted name is read as the bare file name it is.
+    /// </summary>
+    private static string ReRoot(string storedName, string folder)
+    {
+        if (storedName.Length == 0)
+            return storedName;
+        string bareName = storedName[(storedName.LastIndexOf('/') + 1)..];
+        return $"{folder}/{bareName}";
+    }
 
     /// <summary>The literal version header a valid <c>.cdf</c> starts with.</summary>
     internal const string CdfHeader = "uTank2 CDF 1.0";
@@ -199,7 +298,11 @@ internal static class VtankProfileDirectory
             ? string.Concat(lines[1].AsSpan(0, lines[1].Length - 4), ".usd")
             : lines[1];
         string? meta = lines.Length >= 5 && lines[4].Length > 0 ? lines[4] : null;
-        return new VtankCharacterBinding(settings, lines[2], lines[3], meta);
+        return new VtankCharacterBinding(
+            ReRoot(settings, SettingsFolder),
+            ReRoot(lines[2], LootFolder),
+            ReRoot(lines[3], NavFolder),
+            meta is null ? null : ReRoot(meta, MetaFolder));
     }
 
     public static void WriteCharacterBinding(
@@ -227,23 +330,10 @@ internal static class VtankProfileDirectory
             string.Join("\r\n", lines) + "\r\n");
     }
 
-    private static IEnumerable<string> EnumerateFileNames(IPluginStorage storage, string extension)
-    {
-        if (!storage.IsAvailable)
-            yield break;
-        foreach (string key in storage.List(string.Empty)
-            .Where(key => !key.Contains('/', StringComparison.Ordinal))
-            .Where(key => key.EndsWith(extension, StringComparison.OrdinalIgnoreCase))
-            .OrderBy(static key => key, StringComparer.OrdinalIgnoreCase))
-        {
-            yield return key;
-        }
-    }
-
     private static IEnumerable<string> EnumerateFolderFileNames(
         IPluginStorage storage,
         string folder,
-        string extension)
+        params string[] extensions)
     {
         if (!storage.IsAvailable)
             yield break;
@@ -252,7 +342,9 @@ internal static class VtankProfileDirectory
             .Where(key => key.StartsWith(folderPrefix, StringComparison.Ordinal))
             .Select(key => key[folderPrefix.Length..])
             .Where(bareName => !bareName.Contains('/', StringComparison.Ordinal))
-            .Where(bareName => bareName.EndsWith(extension, StringComparison.OrdinalIgnoreCase))
+            .Where(bareName => extensions.Any(extension =>
+                bareName.EndsWith(extension, StringComparison.OrdinalIgnoreCase)))
+            .Where(static bareName => !IsSideFile(bareName))
             .OrderBy(static bareName => bareName, StringComparer.OrdinalIgnoreCase))
         {
             yield return bareName;
