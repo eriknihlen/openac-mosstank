@@ -367,8 +367,32 @@ internal sealed class CombatModeGate : IDisposable
             return false;
         }
 
+        if (ModeChangeUnconfirmed())
+        {
+            Status = $"Entering {implied} mode";
+            return false;
+        }
+
         Status = "Ready";
         return true;
+    }
+
+    /// <summary>
+    /// Whether the last mode change is still only the client's word. The
+    /// client reports the new mode the moment it sends the request; the
+    /// server takes it a little later, after the stance the body is leaving
+    /// has played out, and a spell that arrives in between is cast in the
+    /// old mode and fizzles when the change lands during its windup. The
+    /// server's own word is the stance it then puts the body in, which
+    /// arrives as this character's motion; until it has, or the
+    /// confirmation window has run out with nothing said, the change is not
+    /// one to act on.
+    /// </summary>
+    private bool ModeChangeUnconfirmed()
+    {
+        _ = EffectiveMode();
+        return _modeRequestInFlight
+            && _sinceModeRequest < ModeConfirmationSeconds;
     }
 
     public bool TryDropToPeace(

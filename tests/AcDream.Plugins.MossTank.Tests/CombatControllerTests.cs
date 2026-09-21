@@ -5153,6 +5153,75 @@ public sealed class CombatControllerTests
             vitals ?? new VitalSettings(),
             notice => (stops ?? []).Add(notice));
 
+    /// <summary>
+    /// The client says "magic" the moment it sends the change; the server
+    /// says so only once the body has left its old stance, and a spell sent
+    /// in between fizzles. The gate is not ready until the server's stance
+    /// arrives, or the confirmation window runs out with nothing heard.
+    /// </summary>
+    [Fact]
+    public void GateWaitsForTheServersStanceAfterAModeChangeBeforeItIsReady()
+    {
+        var surface = new FakeAutomation
+        {
+            CombatSnapshot = Physical() with { Mode = PluginCombatMode.Peace },
+            WithholdModeEcho = true,
+            EquipmentItems =
+            [
+                Equipment(
+                    800,
+                    "Recovery Wand",
+                    damageType: 0,
+                    itemType: 0x00008000u,
+                    equippedLocation: 0x00100000u),
+            ],
+        };
+        CombatModeGate gate = Gate(surface);
+
+        gate.AdvancePass(0.1);
+        Assert.False(gate.TryPrepare(PluginCombatMode.Magic));
+        Assert.Equal(1, surface.ModeChangeRequests);
+        Assert.Equal(PluginCombatMode.Magic, surface.CombatSnapshot.Mode);
+
+        gate.AdvancePass(0.1);
+        Assert.False(gate.TryPrepare(PluginCombatMode.Magic));
+        Assert.Equal("Entering Magic mode", gate.Status);
+        Assert.Equal(1, surface.ModeChangeRequests);
+
+        surface.ConfirmPendingModeChange();
+        gate.AdvancePass(0.1);
+        Assert.True(gate.TryPrepare(PluginCombatMode.Magic));
+        Assert.Equal("Ready", gate.Status);
+    }
+
+    [Fact]
+    public void GateGivesUpWaitingForTheServersStanceAfterTheConfirmationWindow()
+    {
+        var surface = new FakeAutomation
+        {
+            CombatSnapshot = Physical() with { Mode = PluginCombatMode.Peace },
+            WithholdModeEcho = true,
+            EquipmentItems =
+            [
+                Equipment(
+                    800,
+                    "Recovery Wand",
+                    damageType: 0,
+                    itemType: 0x00008000u,
+                    equippedLocation: 0x00100000u),
+            ],
+        };
+        CombatModeGate gate = Gate(surface);
+
+        gate.AdvancePass(0.1);
+        Assert.False(gate.TryPrepare(PluginCombatMode.Magic));
+        gate.AdvancePass(0.5);
+        Assert.False(gate.TryPrepare(PluginCombatMode.Magic));
+        gate.AdvancePass(0.11);
+        Assert.True(gate.TryPrepare(PluginCombatMode.Magic));
+        Assert.Equal(1, surface.ModeChangeRequests);
+    }
+
     [Fact]
     public void GateWieldedCasterInPeaceReAsksForMagicUntilTheClientAgrees()
     {
@@ -5302,8 +5371,12 @@ public sealed class CombatControllerTests
         }
         Assert.True(ready, "gate never converged");
 
+        // Peace is asked for twice: once to leave melee, and once more on
+        // the pass the server's stance arrives, while the confirmation
+        // window still reports the old mode. That is what a live swap logs.
         Assert.Equal(
             [
+                (MacroLogChannel.BusyState, "(FCM) requesting Peace"),
                 (MacroLogChannel.BusyState, "(FCM) requesting Peace"),
                 (MacroLogChannel.BusyState, "(FCM) equip Recovery Wand"),
                 (MacroLogChannel.BusyState, "(FCM) requesting Magic"),
@@ -8742,6 +8815,14 @@ public sealed class CombatControllerTests
         }
 
         public bool DeferModeConfirmation { get; set; }
+
+        /// <summary>
+        /// The client reports the new mode at once but the server has not
+        /// yet put the body in its stance, so no motion of this character
+        /// has arrived: what the live host looks like between sending a
+        /// change and the server taking it.
+        /// </summary>
+        public bool WithholdModeEcho { get; set; }
         private PluginCombatMode? _pendingMode;
         public bool ModeCommandUnavailable { get; set; }
 
@@ -8758,7 +8839,21 @@ public sealed class CombatControllerTests
                 _pendingMode = mode;
                 return new(PluginCombatCommandStatus.ModeChangeSent);
             }
-            CombatSnapshot = CombatSnapshot with { Mode = mode };
+            if (WithholdModeEcho)
+            {
+                CombatSnapshot = CombatSnapshot with { Mode = mode };
+                _pendingMode = mode;
+                return new(PluginCombatCommandStatus.ModeChangeSent);
+            }
+            // The client reports the mode at once and the server's stance
+            // follows on its heels, as it does when nothing is in the way.
+            CombatSnapshot = CombatSnapshot with
+            {
+                Mode = mode,
+                QualifiedSelfMotionRevision =
+                    CombatSnapshot.QualifiedSelfMotionRevision + 1,
+                QualifiedSelfMotionAgeSeconds = 0d,
+            };
             return new(PluginCombatCommandStatus.ModeChangeSent);
         }
 
