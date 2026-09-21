@@ -375,6 +375,29 @@ internal sealed class CombatController
     public string ModeText => _modeText;
     public bool HasTarget => _targetId != 0u;
 
+    /// <summary>
+    /// What the attack is holding the turn for: the monster it has, how far
+    /// away the client has it, and what it is doing or waiting on.
+    /// </summary>
+    public string RunningDetail
+    {
+        get
+        {
+            if (_targetId == 0u)
+                return _pendingItemDebuff is null ? Status : $"no target; {Status}";
+            string distance = "not in the last scan";
+            foreach (PluginCombatTarget target in _targets)
+            {
+                if (target.ObjectId != _targetId)
+                    continue;
+                distance = target.Distance.ToString(
+                    "0.0", System.Globalization.CultureInfo.InvariantCulture) + " m";
+                break;
+            }
+            return $"{_targetName} (0x{_targetId:X8}, {distance}): {Status}";
+        }
+    }
+
     internal bool HasPendingItemDebuff => _pendingItemDebuff is not null;
 
     /// <summary>
@@ -838,13 +861,19 @@ internal sealed class CombatController
         switch (TickDebuffs(combat))
         {
             case DebuffArmOutcome.Claimed:
+                if (Status == "Waiting for a target")
+                    Status = $"Debuffing {_targetName}";
                 return AttackPassOutcome.Claimed;
             case DebuffArmOutcome.Retry:
                 return AttackPassOutcome.Retry;
         }
 
         if (TickEquipment())
+        {
+            if (Status == "Waiting for a target")
+                Status = $"Changing equipment for {_targetName}";
             return AttackPassOutcome.Claimed;
+        }
 
         if (!DecisionActions.Attacks && !DecisionActions.UsesStreak)
         {
@@ -1069,7 +1098,10 @@ internal sealed class CombatController
     private SwingExecutorOutcome PumpSwingExecutor()
     {
         if (!_swingTimerRunning || !Enabled || !_host.Automation.IsAvailable)
+        {
+            Status = "Swing timer is not running";
             return SwingExecutorOutcome.None;
+        }
 
         _actionLocks.AdvanceTo(_now);
         PluginCombatSnapshot combat = _host.Automation.Combat.Snapshot;
@@ -1102,12 +1134,18 @@ internal sealed class CombatController
 
         if (!_swingArmed)
         {
+            Status = "Swing is not armed";
             StopSwingExecutor();
             return SwingExecutorOutcome.None;
         }
 
         if (_now < _nextSwingAt)
+        {
+            Status = string.Create(
+                System.Globalization.CultureInfo.InvariantCulture,
+                $"Next swing at {_swingTargetName} in {_nextSwingAt - _now:0.0} s");
             return SwingExecutorOutcome.None;
+        }
         _nextSwingAt = _now + SwingRepeatSeconds;
         return AskForSwing();
     }
@@ -1151,7 +1189,10 @@ internal sealed class CombatController
         // The shot slot is the floor between one swing and the next. While it
         // is up the executor keeps its pace and asks for nothing.
         if (_actionLocks.IsLocked(ActionLockKind.MeleeAttackShot))
+        {
+            Status = $"Waiting out the interval between shots at {_swingTargetName}";
             return SwingExecutorOutcome.None;
+        }
 
         PluginCombatCommandResult begin =
             _host.Automation.Combat.BeginPhysicalAttack(

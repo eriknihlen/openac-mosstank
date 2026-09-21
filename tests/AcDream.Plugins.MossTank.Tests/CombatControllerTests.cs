@@ -6999,6 +6999,35 @@ public sealed class CombatControllerTests
     }
 
     /// <summary>
+    /// The kill lands while the NEXT swing at the same monster is still
+    /// building on the power bar. The next monster is swung at all the same.
+    /// </summary>
+    [Fact]
+    public void AKillWhileTheNextSwingIsStillChargingDoesNotEndTheFight()
+    {
+        (FakeAutomation surface, CombatController controller, _) =
+            MeleeKillRig(tracksAttackRequests: true);
+        surface.Targets =
+        [
+            Target(10, "Drudge", distance: 2, angle: 0),
+            Target(20, "Mosswart", distance: 3, angle: 0),
+        ];
+        controller.OnTick(0.25);
+        Assert.True(surface.CombatSnapshot.BuildInProgress);
+        Assert.Equal(10u, surface.LastBeginTarget);
+
+        surface.ChatMessages =
+            [ChatLine(1, "Drudge catches your attack, with dire consequences!")];
+        controller.OnTick(0.25);
+        surface.ChatMessages = [];
+        surface.Targets = [Target(20, "Mosswart", distance: 3, angle: 0)];
+
+        for (int pass = 0; pass < 12; pass++)
+            controller.OnTick(0.25);
+        Assert.Equal(20u, surface.LastBeginTarget);
+    }
+
+    /// <summary>
     /// The reader keys on which of the client's logs a line came from, not on
     /// its words: a player typing the kill sentence, or the damage sentence,
     /// in chat must not end the fight or clear the give-up count.

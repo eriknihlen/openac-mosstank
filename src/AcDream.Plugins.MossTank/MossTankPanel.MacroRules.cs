@@ -336,7 +336,10 @@ internal sealed partial class MossTankPanel : IMacroRuleProvider
             // that window only eats the item's own animation.
             gate: ItemSlotIsFree,
             onLostTurn: () => _combat.SetPaused(true),
-            declineReason: () => _combat.Status),
+            declineReason: () => _combat.Status,
+            // What the attack is doing, or waiting on, while it holds the
+            // turn: without it a held turn reads as a bare "Running".
+            runningDetail: () => _combat.RunningDetail),
 
         // Rows 38-40.
         MacroRuleSlot.SplitPeasIdle => new AbsentMacroRule(
