@@ -1,0 +1,159 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+    tags: ['v*']
+    # Prose-only changes do not need the build and test gates. GitHub ignores
+    # path filters for tag pushes, so a release always runs everything. Keep
+    # the two lists identical.
+    paths-ignore:
+      - '**.md'
+      - 'LICENSE'
+  pull_request:
+    branches: [main]
+    paths-ignore:
+      - '**.md'
+      - 'LICENSE'
+
+permissions:
+  contents: read
+
+env:
+  # The OpenAC release whose assets carry the plugin contract package this
+  # plugin builds against. ONE place names it; every job below downloads
+  # AcDream.Plugin.Abstractions from this release into ./packages-local, and
+  # PluginApiPackageVersion in Directory.Build.props has to name the version
+  # that package carries.
+  OPENAC_API_RELEASE_TAG: v0.1.13-dev.1
+
+jobs:
+  build-and-test:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-latest, ubuntu-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Install the pinned .NET SDK
+        uses: actions/setup-dotnet@v4
+        with:
+          global-json-file: global.json
+
+      - name: Fetch the plugin contract package
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          mkdir -p packages-local
+          gh release download "$OPENAC_API_RELEASE_TAG" \
+            --repo eriknihlen/OpenAC \
+            --pattern 'AcDream.Plugin.Abstractions.*.nupkg' \
+            --dir packages-local
+          ls -l packages-local
+
+      - name: Build
+        shell: pwsh
+        run: dotnet build MossTank.slnx -c Release --nologo
+
+      - name: Test
+        shell: pwsh
+        run: |
+          dotnet test tests/AcDream.Plugins.MossTank.Tests/AcDream.Plugins.MossTank.Tests.csproj `
+            -c Release --no-build --nologo
+
+  release:
+    # Tag pushes only, and only once both platforms are green.
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: [build-and-test]
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v6
+
+      # acdream-plugincheck is the launcher's own install code, so it cannot
+      # disagree with an install. It is not published as an asset, so it is
+      # built here from the same OpenAC release the contract package comes
+      # from.
+      - name: Check out OpenAC for acdream-plugincheck
+        uses: actions/checkout@v6
+        with:
+          repository: eriknihlen/OpenAC
+          ref: ${{ env.OPENAC_API_RELEASE_TAG }}
+          path: .openac
+          filter: blob:none
+
+      - name: Install the pinned .NET SDK
+        uses: actions/setup-dotnet@v4
+        with:
+          global-json-file: global.json
+
+      - name: Fetch the plugin contract package
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          mkdir -p packages-local
+          gh release download "$OPENAC_API_RELEASE_TAG" \
+            --repo eriknihlen/OpenAC \
+            --pattern 'AcDream.Plugin.Abstractions.*.nupkg' \
+            --dir packages-local
+
+      - name: Build
+        shell: pwsh
+        run: dotnet build MossTank.slnx -c Release --nologo
+
+      - name: Test
+        shell: pwsh
+        run: |
+          dotnet test tests/AcDream.Plugins.MossTank.Tests/AcDream.Plugins.MossTank.Tests.csproj `
+            -c Release --no-build --nologo
+
+      - name: Assemble the release assets
+        shell: pwsh
+        run: ./tools/build-release-zip.ps1 -Configuration Release -OutputDirectory artifacts
+
+      # The tag is the version a player's launcher will compare against, and
+      # the manifest's version is what the installer reads out of the zip. A
+      # tag that names a different version installs as the wrong release, so
+      # it stops the run here rather than at someone's install.
+      - name: The tag has to name the manifest's version
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $version = (Get-Content -Raw artifacts/plugin.json | ConvertFrom-Json).version
+          $expected = "v$version"
+          if ('${{ github.ref_name }}' -ne $expected) {
+            throw "Tag '${{ github.ref_name }}' does not name the manifest version ($expected)."
+          }
+          "zip=artifacts/acdream.mosstank-$version.zip" >> $env:GITHUB_ENV
+
+      - name: Check the zip with the launcher's own install code
+        shell: bash
+        run: |
+          set -euo pipefail
+          dotnet run --project .openac/src/AcDream.PluginCheck -c Release -- "$zip"
+
+      - name: Publish the GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          name: MossTank ${{ github.ref_name }}
+          files: |
+            artifacts/plugin.json
+            artifacts/acdream.mosstank-*.zip
+            artifacts/acdream.mosstank-*.zip.sha256
+          fail_on_unmatched_files: true
+          generate_release_notes: true
+          # A tag with a SemVer prerelease part (v0.3.0-beta.1) publishes a
+          # prerelease, which the launcher offers only to players who opted
+          # this plugin into its Beta channel. The release GitHub marks
+          # *latest* must never be one.
+          prerelease: ${{ contains(github.ref_name, '-') }}
+          make_latest: ${{ !contains(github.ref_name, '-') }}
