@@ -1,6 +1,15 @@
 <?xml version="1.0" encoding="utf-8"?>
+<!--
+  The window is a fixed-size dashboard: every page is laid out for exactly
+  this rectangle, and the pages the player is not looking at do not take part
+  in a resize, so a page opened after one would come back with its bottom row
+  hanging below the window (the Items page's Add buttons disappeared that way)
+  or climbing over the list above it. The anchors on each page are kept for
+  the day the client re-lays out a hidden page on a resize; until then the
+  window does not offer one.
+-->
 <panel x="28" y="42" w="984" h="271" title="MossTank  v0.1.0"
-       visible="{WindowAvailable}" resizable="true" minw="856" minh="236">
+       visible="{WindowAvailable}" resize="none">
   <tab x="8"   y="22" w="58" h="18" text="Options"
        selected="{OptionsSelected}" enabled="{OptionsTabEnabled}" onclick="{ShowOptions}" />
   <tab x="66"  y="22" w="56" h="18" text="Profiles"

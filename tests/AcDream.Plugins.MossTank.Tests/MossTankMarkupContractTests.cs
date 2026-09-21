@@ -312,18 +312,6 @@ public sealed class MossTankMarkupContractTests
     }
 
     [Fact]
-    public void PanelIsResizableFlooredAtThePreRoundDAuthoredSize()
-    {
-        XDocument document = XDocument.Load(
-            Path.Combine(AppContext.BaseDirectory, "mosstank.xml"));
-        XElement root = Assert.IsType<XElement>(document.Root);
-
-        Assert.Equal("true", (string?)root.Attribute("resizable"));
-        Assert.Equal(856f, Number(root, "minw"));
-        Assert.Equal(236f, Number(root, "minh"));
-    }
-
-    [Fact]
     public void EveryStretchingListDeclaresARealAnchor()
     {
         (string GroupVisible, int ExpectedListCount)[] stretchingListGroups =
@@ -445,10 +433,10 @@ public sealed class MossTankMarkupContractTests
     private static readonly Dictionary<string, (float Width, float Height)> ExpectedPopupBounds =
         new(StringComparer.OrdinalIgnoreCase)
         {
-            ["mosstank-advanced.xml"] = (392f, 300f),
+            ["mosstank-advanced.xml"] = (392f, 318f),
             ["mosstank-loot-editor.xml"] = (268f, 300f),
             ["mosstank-buffpicker.xml"] = (268f, 236f),
-            ["mosstank-metaeditor.xml"] = (630f, 160f),
+            ["mosstank-metaeditor.xml"] = (630f, 174f),
         };
 
     [Fact]
@@ -545,6 +533,65 @@ public sealed class MossTankMarkupContractTests
             Assert.False(
                 string.IsNullOrWhiteSpace((string?)element.Attribute("tooltip")),
                 $"<{element.Name}> text='{text}' needs a tooltip.");
+        }
+    }
+
+    /// <summary>
+    /// Every page of the main window is laid out for exactly one rectangle,
+    /// and the pages the player is not looking at take no part in a resize:
+    /// a page opened after one came back with its bottom row hanging below
+    /// the window or sitting over the list above it. Until the client
+    /// re-lays out a hidden page, the window offers no resize at all.
+    /// Mutation: make the window resizable again and the pages drift.
+    /// </summary>
+    [Fact]
+    public void TheMainWindowIsFixedSizeSoNoPageCanDriftOnAResize()
+    {
+        XDocument document = XDocument.Load(
+            Path.Combine(AppContext.BaseDirectory, "mosstank.xml"));
+        XElement root = Assert.IsType<XElement>(document.Root);
+
+        Assert.Null(root.Attribute("resizable"));
+        Assert.Equal("none", (string?)root.Attribute("resize"));
+        Assert.Equal(984f, Number(root, "w"));
+        Assert.Equal(271f, Number(root, "h"));
+
+        // Each page fills the window under the tab row, and its own contents
+        // stay inside it.
+        foreach (XElement group in root.Elements("group"))
+        {
+            Assert.Equal(8f, Number(group, "x"));
+            Assert.Equal(42f, Number(group, "y"));
+            Assert.Equal(976f, Number(group, "w"));
+            Assert.Equal(229f, Number(group, "h"));
+        }
+        AssertWithinParent(root);
+    }
+
+    /// <summary>
+    /// The window's own title is drawn inside the same rectangle as its
+    /// contents, so a control placed in the top rows is drawn over -- and two
+    /// popups had their first row of fields there, hiding the title that says
+    /// which editor is open.
+    /// Mutation: move any first row back up into the title's rows.
+    /// </summary>
+    [Fact]
+    public void NoControlSitsInTheTitleRowsOfAnyWindow()
+    {
+        const float TitleRowBottom = 20f;
+        foreach (string path in Directory.GetFiles(
+            AppContext.BaseDirectory, "mosstank*.xml"))
+        {
+            XDocument document = XDocument.Load(path);
+            XElement root = Assert.IsType<XElement>(document.Root);
+            foreach (XElement child in root.Elements())
+            {
+                Assert.True(
+                    Number(child, "y") >= TitleRowBottom,
+                    $"<{child.Name}> at y={Number(child, "y")} in "
+                    + $"{Path.GetFileName(path)} is drawn under the window "
+                    + "title.");
+            }
         }
     }
 
