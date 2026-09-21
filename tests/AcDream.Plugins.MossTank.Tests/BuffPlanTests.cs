@@ -80,7 +80,7 @@ public class BuffPlanTests
     }
 
     [Fact]
-    public void BanesAreClassifiedFromRetailsTargetYourselfInstruction()
+    public void BanesAreClassifiedFromAuthenticTargetYourselfInstruction()
     {
         const string bane =
             "Increases a shield or piece of armor's resistance to slashing damage by 10%. "

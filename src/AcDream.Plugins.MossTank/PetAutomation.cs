@@ -21,7 +21,7 @@ internal readonly record struct PetAutomationChoice(
 
 internal sealed class PetAutomation
 {
-    private const double RetailPetCooldownSeconds = 45d;
+    private const double AuthenticPetCooldownSeconds = 45d;
     private const double RefusalRetrySeconds = 1d;
 
     private long _observedCompletionRevision;
@@ -465,7 +465,7 @@ internal sealed class PetAutomation
         _pendingSourceId = 0u;
         _pendingKind = PetAutomationActionKind.None;
         if (completed == PetAutomationActionKind.Summon)
-            _nextSummonAt = now + RetailPetCooldownSeconds;
+            _nextSummonAt = now + AuthenticPetCooldownSeconds;
         else
             _nextRefillAt = now + RefusalRetrySeconds;
         status = completion.IsSuccess

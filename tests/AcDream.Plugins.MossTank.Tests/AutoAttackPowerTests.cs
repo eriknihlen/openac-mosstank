@@ -45,7 +45,7 @@ public sealed class AutoAttackPowerTests
     }
 
     [Fact]
-    public void MissileAndRecklessnessUseFullThenClampToRetailRange()
+    public void MissileAndRecklessnessUseFullThenClampToAuthenticRange()
     {
         PluginInventoryItem bow = Weapon(1, 0x100, 0x2, 0x00400000);
         var settings = new CombatSettings

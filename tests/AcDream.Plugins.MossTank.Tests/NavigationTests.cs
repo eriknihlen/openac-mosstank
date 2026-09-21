@@ -24,7 +24,7 @@ public sealed class NavigationTests
     [InlineData(350f, 10f, 20f)]
     [InlineData(10f, 350f, -20f)]
     [InlineData(90f, 270f, 180f)]
-    public void SignedHeadingDeltaChoosesShortestRetailTurn(
+    public void SignedHeadingDeltaChoosesShortestAuthenticTurn(
         float current,
         float desired,
         float expected) =>
@@ -237,7 +237,7 @@ public sealed class NavigationTests
     }
 
     /// <summary>
-    /// Half a turn is the one heading where the two arcs are equal. Retail
+    /// Half a turn is the one heading where the two arcs are equal. The original
     /// resolves it left.
     /// </summary>
     [Theory]
@@ -246,7 +246,7 @@ public sealed class NavigationTests
     [InlineData(0f, 270f, true)]
     [InlineData(350f, 10f, false)]
     [InlineData(10f, 350f, true)]
-    public void TurnDirectionFollowsTheRetailAlignmentTest(
+    public void TurnDirectionFollowsTheAuthenticAlignmentTest(
         float current,
         float desired,
         bool expectLeft) =>
@@ -1194,7 +1194,7 @@ public sealed class NavigationTests
     }
 
     [Fact]
-    public void JumpChargeExecutionClampsAtRetailTwoThousandMillisecondCeiling()
+    public void JumpChargeExecutionClampsAtAuthenticTwoThousandMillisecondCeiling()
     {
         var automation = new FakeAutomation
         {

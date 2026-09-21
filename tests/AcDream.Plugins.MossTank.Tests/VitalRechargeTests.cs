@@ -5,7 +5,7 @@ namespace AcDream.Plugins.MossTank.Tests;
 public sealed class VitalRechargeTests
 {
     [Fact]
-    public void RetailDefaultsAreExactNineThresholds()
+    public void AuthenticDefaultsAreExactNineThresholds()
     {
         var settings = new VitalSettings();
 
@@ -870,7 +870,7 @@ public sealed class VitalRechargeTests
     }
 
     [Fact]
-    public void HealKitChanceUsesRetailLogisticDifficultyFormula()
+    public void HealKitChanceUsesAuthenticLogisticDifficultyFormula()
     {
         var surface = new Surface { CurrentHealth = 50 };
         double chance = VitalRechargePlanner.HealKitChance(

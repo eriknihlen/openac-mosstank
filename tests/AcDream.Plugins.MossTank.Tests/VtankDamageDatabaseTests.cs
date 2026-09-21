@@ -84,7 +84,7 @@ public sealed class VtankDamageDatabaseTests
     }
 
     [Fact]
-    public void TheFileIsReadFromTheProfileDirectoryByItsRetailName()
+    public void TheFileIsReadFromTheProfileDirectoryByItsAuthenticName()
     {
         var storage = new TextStorage(File.ReadAllText(FixturePath));
 

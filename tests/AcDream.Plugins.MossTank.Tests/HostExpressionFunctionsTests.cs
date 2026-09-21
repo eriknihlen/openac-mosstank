@@ -789,7 +789,7 @@ public sealed class HostExpressionFunctionsTests
     }
 
     [Fact]
-    public void ComponentFunctionsUseTheRetailDatCatalogProjection()
+    public void ComponentFunctionsUseTheAuthenticDatCatalogProjection()
     {
         var automation = CreateAutomation();
         automation.Components[7] = new PluginSpellComponentInfo(

@@ -40,7 +40,7 @@ public sealed class CombatResultTextTests
     [InlineData("You say, \"Frost Bolt VII\"", CombatResultTextClass.None, "")]
     [InlineData("Drudge Slinker hits you for 12 points of slashing damage!",
         CombatResultTextClass.None, "")]
-    internal void ClassifiesRetailsOwnResultLines(
+    internal void ClassifiesAuthenticOwnResultLines(
         string text,
         CombatResultTextClass expected,
         string expectedTarget)
@@ -65,7 +65,7 @@ public sealed class CombatResultTextTests
     }
 
     [Fact]
-    public void EveryRetailKillVerbIsCovered()
+    public void EveryAuthenticKillVerbIsCovered()
     {
         string[] lines =
         [

@@ -45,7 +45,7 @@ public sealed class CombatItemDebuffPlannerTests
     }
 
     [Fact]
-    public void SourcesAnswersForOneKindOnlyAndEmitsRetailsDebuffChoiceLines()
+    public void SourcesAnswersForOneKindOnlyAndEmitsAuthenticDebuffChoiceLines()
     {
         PluginSpellInfo imperil = Spell(1, "Imperil Other VI", 300, 31);
         PluginSpellInfo yield = Spell(2, "Magic Yield Other VII", 350, 31);
@@ -85,7 +85,7 @@ public sealed class CombatItemDebuffPlannerTests
     }
 
     [Fact]
-    public void SourcesLogsRetailsWrongObjectTypeStopForAProfiledNonSource()
+    public void SourcesLogsAuthenticWrongObjectTypeStopForAProfiledNonSource()
     {
         PluginSpellInfo imperil = Spell(1, "Imperil Other VI", 300, 31);
         var catalog = new Catalog([imperil], [imperil]);

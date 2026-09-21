@@ -475,7 +475,7 @@ public sealed class MetafSerializerTests
     }
 
     [Fact]
-    public void JumpNodeLoadPreservesAuthoredChargeMillisecondsAboveRetailCeiling()
+    public void JumpNodeLoadPreservesAuthoredChargeMillisecondsAboveAuthenticCeiling()
     {
         const string af = """
             NAV: j once
@@ -505,7 +505,7 @@ public sealed class MetafSerializerTests
     }
 
     [Fact]
-    public void JumpNodeSaveThenLoadRoundTripsChargeMillisecondsAboveRetailCeiling()
+    public void JumpNodeSaveThenLoadRoundTripsChargeMillisecondsAboveAuthenticCeiling()
     {
         var source = new NavigationSettings { Mode = RouteMode.Once };
         source.Waypoints.Add(new RouteWaypoint

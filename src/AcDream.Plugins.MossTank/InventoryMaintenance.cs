@@ -169,7 +169,7 @@ internal static class InventoryMaintenancePlanner
 /// </summary>
 internal sealed class InventoryMaintenanceController
 {
-    private const int RetailAbandonAttempts = 80;
+    private const int AuthenticAbandonAttempts = 80;
     private readonly IPluginHost _host;
     private readonly InventorySettings _settings;
     private readonly Dictionary<(uint Source, uint Target), int> _attempts = [];
@@ -273,7 +273,7 @@ internal sealed class InventoryMaintenanceController
             int attempts = _attempts.GetValueOrDefault(key) + 1;
             _attempts[key] = attempts;
             Status = $"Stack/Cram failed (0x{completion.WeenieError:X})";
-            if (attempts > RetailAbandonAttempts)
+            if (attempts > AuthenticAbandonAttempts)
             {
                 _ignored.Add(pending.SourceObjectId);
                 _ignored.Add(pending.TargetObjectId);

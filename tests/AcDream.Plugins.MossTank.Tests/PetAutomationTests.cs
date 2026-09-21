@@ -156,7 +156,7 @@ public sealed class PetAutomationTests
     }
 
     [Fact]
-    public void Tick_WaitsForUseDoneAndHonorsRetailCooldown()
+    public void Tick_WaitsForUseDoneAndHonorsAuthenticCooldown()
     {
         var items = new ItemAutomation
         {
@@ -287,7 +287,7 @@ public sealed class PetAutomationTests
     [InlineData(49380u, (int)MonsterDamageType.Fire)]
     [InlineData(49387u, (int)MonsterDamageType.Cold)]
     [InlineData(49373u, (int)MonsterDamageType.Electric)]
-    public void Catalog_MapsRetailDeviceWcids(
+    public void Catalog_MapsAuthenticDeviceWcids(
         uint wcid,
         int expected)
         => Assert.Equal(

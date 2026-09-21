@@ -44,7 +44,7 @@ public sealed class AttackSpellCatalogTests
     [InlineData(MonsterDamageType.Slash, VtankCombatSpellType.Vuln, "Blade Vulnerability Other")]
     [InlineData(MonsterDamageType.Harm, VtankCombatSpellType.Vuln, "Drain Health Other")]
     [InlineData(MonsterDamageType.VoidBasic, VtankCombatSpellType.Vuln, "Destructive Curse")]
-    internal void FamilyTableMatchesRetailVerbatim(
+    internal void FamilyTableMatchesAuthenticVerbatim(
         MonsterDamageType element,
         VtankCombatSpellType type,
         string expected) =>
@@ -58,7 +58,7 @@ public sealed class AttackSpellCatalogTests
     [InlineData(MonsterDamageType.DrainAuto)]
     [InlineData(MonsterDamageType.Prismatic)]
     [InlineData(MonsterDamageType.Physical)]
-    internal void ElementsRetailHasNoCaseForResolveToNothing(MonsterDamageType element)
+    internal void ElementsAuthenticHasNoCaseForResolveToNothing(MonsterDamageType element)
     {
         foreach (VtankCombatSpellType type in Enum.GetValues<VtankCombatSpellType>())
             Assert.Null(AttackSpellCatalog.FamilyName(element, type));

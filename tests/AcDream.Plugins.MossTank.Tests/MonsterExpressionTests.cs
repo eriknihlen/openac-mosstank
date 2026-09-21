@@ -138,7 +138,7 @@ public sealed class MonsterExpressionTests
     }
 
     [Fact]
-    public void ResolverFallsBackToDefaultAndKeepsRetailsUnclampedPriority()
+    public void ResolverFallsBackToDefaultAndKeepsAuthenticUnclampedPriority()
     {
         var fallback = new MonsterRule("DEFAULT", 99);
 

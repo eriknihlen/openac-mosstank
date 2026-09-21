@@ -164,7 +164,7 @@ public sealed class MossTankMarkupContractTests
     }
 
     [Fact]
-    public void MonstersGridHasVtanksTwentyThreeColumnsInOrderWithRetailHeaderTooltips()
+    public void MonstersGridHasVtanksTwentyThreeColumnsInOrderWithAuthenticHeaderTooltips()
     {
         XDocument document = XDocument.Load(
             Path.Combine(AppContext.BaseDirectory, "mosstank.xml"));
@@ -496,7 +496,7 @@ public sealed class MossTankMarkupContractTests
     }
 
     [Fact]
-    public void TextlessAndAbbreviatedControlsHaveAccessibleRetailTooltips()
+    public void TextlessAndAbbreviatedControlsHaveAccessibleAuthenticTooltips()
     {
         XDocument document = XDocument.Load(
             Path.Combine(AppContext.BaseDirectory, "mosstank.xml"));

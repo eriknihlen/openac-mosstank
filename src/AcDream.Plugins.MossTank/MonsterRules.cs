@@ -162,14 +162,14 @@ internal sealed class MonsterRule
         }
     }
 
-    public const string RetailDefaultName = "<DEFAULT>";
+    public const string AuthenticDefaultName = "<DEFAULT>";
 
     /// <summary>
     /// The fallback row a profile with no DEFAULT row of its own falls back
     /// to, which is the fresh row: attack at priority one, finishing with a
     /// streak.
     /// </summary>
-    public static MonsterRule RetailDefault() => Fresh("DEFAULT");
+    public static MonsterRule AuthenticDefault() => Fresh("DEFAULT");
 
     public static MonsterRule Fresh(string expression) =>
         new(expression, MonsterRuleActions.FreshRow);
@@ -184,7 +184,7 @@ internal sealed class MonsterRule
         expression is not null
         && (expression.Equals("DEFAULT", StringComparison.OrdinalIgnoreCase)
             || expression.Equals(
-                RetailDefaultName,
+                AuthenticDefaultName,
                 StringComparison.OrdinalIgnoreCase));
     public bool IsDynamic => _compiled?.IsDynamic == true;
 
@@ -232,7 +232,7 @@ internal static class MonsterRuleResolver
             firstError ??= error;
         }
 
-        fallback ??= MonsterRule.RetailDefault();
+        fallback ??= MonsterRule.AuthenticDefault();
         return new ResolvedMonsterRule(fallback, firstError);
     }
 }

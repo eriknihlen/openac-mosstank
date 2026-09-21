@@ -1274,7 +1274,7 @@ public sealed class MossTankPanelTests
     }
 
     [Fact]
-    public void APermanentlyRefusedSpellIsPickedAgainForeverBecauseRetailNeverGivesUp()
+    public void APermanentlyRefusedSpellIsPickedAgainForeverBecauseAuthenticNeverGivesUp()
     {
         var automation = BuffPassAutomation();
         automation.NextCastWeenieError = 0x1Du;
@@ -5920,7 +5920,7 @@ public sealed class MossTankPanelTests
     }
 
     [Fact]
-    public void AdvancedOptionDescriptionSurfacesRealRetailHelpText()
+    public void AdvancedOptionDescriptionSurfacesRealAuthenticHelpText()
     {
         var panel = new MossTankPanel(new FakeHost(new FakeAutomation()));
         int index = panel.AdvancedOptionNames.ToList().IndexOf("DoHelp");
@@ -7370,7 +7370,7 @@ public sealed class MossTankPanelTests
             storage));
 
         Assert.Equal(
-            [MonsterRule.RetailDefaultName, "species==drudge"],
+            [MonsterRule.AuthenticDefaultName, "species==drudge"],
             second.MonsterNameColumn);
         Assert.True(second.MonsterImperilColumn[1]);
         Assert.Equal("Void Basic", second.MonsterDamageColumn[1]);
@@ -7409,7 +7409,7 @@ public sealed class MossTankPanelTests
     }
 
     [Fact]
-    public void MonsterDamageColumnsCycleInTheExactRetailOrder()
+    public void MonsterDamageColumnsCycleInTheExactAuthenticOrder()
     {
         var panel = new MossTankPanel(new FakeHost(new FakeAutomation()));
 
@@ -8203,7 +8203,7 @@ public sealed class MossTankPanelTests
     }
 
     [Fact]
-    public void VtankSetInAllReportsRetailsExactMessageText()
+    public void VtankSetInAllReportsAuthenticExactMessageText()
     {
         var automation = new FakeAutomation();
         var panel = new MossTankPanel(new FakeHost(automation));
@@ -8223,7 +8223,7 @@ public sealed class MossTankPanelTests
     [Theory]
     [InlineData("set")]
     [InlineData("setinall")]
-    public void VtankOptSetRejectsAWrongTypedValueWithRetailsExactText(string operation)
+    public void VtankOptSetRejectsAWrongTypedValueWithAuthenticExactText(string operation)
     {
         var automation = new FakeAutomation();
         var panel = new MossTankPanel(new FakeHost(automation));

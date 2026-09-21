@@ -450,7 +450,7 @@ public sealed class CraftingTests
     [InlineData("Stamina Food", 0u, 4, (int)ConsumableCategory.StaminaFood)]
     [InlineData("Health Food", 0u, 2, (int)ConsumableCategory.HealthFood)]
     [InlineData("Intricate Lockpick", 0x00020000u, 0, (int)ConsumableCategory.Lockpick)]
-    public void ConsumableClassificationUsesRetailPropertiesAndExactKitExceptions(
+    public void ConsumableClassificationUsesAuthenticPropertiesAndExactKitExceptions(
         string name,
         uint publicFlags,
         int boosterVital,

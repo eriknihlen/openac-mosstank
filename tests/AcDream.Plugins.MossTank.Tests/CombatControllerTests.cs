@@ -1204,7 +1204,7 @@ public sealed class CombatControllerTests
     }
 
     [Fact]
-    public void DoJiggleUsesRetailSelectionCycleInsteadOfMovingTheCharacter()
+    public void DoJiggleUsesAuthenticSelectionCycleInsteadOfMovingTheCharacter()
     {
         PluginSpellInfo attack = Spell(100, "Incantation of Flame Bolt") with
         {
@@ -2596,7 +2596,7 @@ public sealed class CombatControllerTests
         };
 
     [Fact]
-    public void DebuffsGoOutInRetailsTwelveStepOrder()
+    public void DebuffsGoOutInAuthenticTwelveStepOrder()
     {
         var surface = new FakeAutomation
         {
@@ -3490,7 +3490,7 @@ public sealed class CombatControllerTests
     };
 
     [Fact]
-    public void UnknownMonsterFallsToRetailsUnlistedElementAndCastsNoExtraVuln()
+    public void UnknownMonsterFallsToAuthenticUnlistedElementAndCastsNoExtraVuln()
     {
         var surface = new FakeAutomation
         {
@@ -4590,7 +4590,7 @@ public sealed class CombatControllerTests
     }
 
     [Fact]
-    public void AmmunitionWieldGoesThroughRetailsDropToPeacePrologue()
+    public void AmmunitionWieldGoesThroughAuthenticDropToPeacePrologue()
     {
         var surface = new FakeAutomation
         {
@@ -4723,7 +4723,7 @@ public sealed class CombatControllerTests
     }
 
     [Fact]
-    public void StuckCombatModeUsesProfiledCasterAfterRetailRetryCount()
+    public void StuckCombatModeUsesProfiledCasterAfterAuthenticRetryCount()
     {
         var surface = new FakeAutomation
         {

@@ -3,7 +3,7 @@ namespace AcDream.Plugins.MossTank.Tests;
 public sealed class CombatDebuffChainTests
 {
     [Fact]
-    public void ChainOrderIsRetailsTwelveSteps()
+    public void ChainOrderIsAuthenticTwelveSteps()
     {
         IReadOnlyList<CombatDebuffStep> steps = CombatDebuffChain.Build(
             new MonsterRuleActions

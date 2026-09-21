@@ -1143,7 +1143,7 @@ public sealed partial class LootingTests
     }
 
     [Fact]
-    public void SalvageRuleRunsRealRetailSalvageAfterCorpseIsComplete()
+    public void SalvageRuleRunsRealAuthenticSalvageAfterCorpseIsComplete()
     {
         var settings = new LootSettings { Enabled = true };
         settings.Rules.Add(new LootRule
