@@ -18,6 +18,32 @@ internal static class VtankProfileDirectory
     internal const string DefaultLabel = "[Default]";
     internal const string NoneLabel = "[None]";
 
+    /// <summary>
+    /// A marker the world puts in front of some characters' display names.
+    /// It is not part of the character's name.
+    /// </summary>
+    private const char DisplayMarker = '+';
+
+    /// <summary>
+    /// The one name a character's files are filed under, whatever spelling
+    /// the world happens to report at the moment it is asked.
+    /// </summary>
+    /// <remarks>
+    /// The reported name arrives in two spellings during a single login: the
+    /// plain name while only the character list has it, and the same name
+    /// behind a display marker once the character's own object has streamed
+    /// in. Keying files by the reported string therefore files one session
+    /// under two names — settings are written to one file and read back from
+    /// the other. The marker is display only, and a character's name never
+    /// starts with one, so dropping it gives a key that is the same before
+    /// and after the object arrives and the same one a character without a
+    /// marker already has.
+    /// </remarks>
+    public static string CanonicalCharacterKey(string? reportedName) =>
+        string.IsNullOrWhiteSpace(reportedName)
+            ? string.Empty
+            : reportedName.Trim().TrimStart(DisplayMarker).Trim();
+
     internal const string MetaFolder = "metas";
 
     internal const string NavFolder = "navs";

@@ -8862,6 +8862,40 @@ public sealed class MossTankPanelTests
     }
 
 
+    [Fact]
+    public void LoginBindsExactlyOneSettingsFileAndOneBindingFile()
+    {
+        // The world reports the character's name without the server's display
+        // marker until the character's own object has arrived, and with it
+        // afterwards. Both spellings have to file under one profile.
+        var storage = new MemoryStorage();
+        var automation = new FakeAutomation
+        {
+            Name = "Acdream",
+            WorldName = "sawato",
+        };
+        var panel = new MossTankPanel(new FakeHost(automation, storage));
+        panel.SetNormalHealth(0.33f);
+
+        automation.Name = "+Acdream";
+        panel.OnTick(0.1d);
+        panel.SetNormalHealth(0.44f);
+
+        string[] settingsFiles = [.. storage.Text.Keys
+            .Where(static key => key.EndsWith(".usd", StringComparison.Ordinal))];
+        string[] bindingFiles = [.. storage.Text.Keys
+            .Where(static key => key.EndsWith(".cdf", StringComparison.Ordinal))];
+
+        Assert.Single(settingsFiles);
+        Assert.Single(bindingFiles);
+        Assert.DoesNotContain(
+            settingsFiles,
+            static key => key.Contains('+', StringComparison.Ordinal));
+        Assert.DoesNotContain(
+            bindingFiles,
+            static key => key.Contains('+', StringComparison.Ordinal));
+    }
+
     private static PluginSpellComponentInfo Component(uint id, string name) => new(
         id, id, name, 1d, 0u, 1d, 0u, id, "Scarab", string.Empty);
 

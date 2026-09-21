@@ -63,9 +63,7 @@ internal sealed class MossTankMetaProfileStore
 
     public bool BindCharacter(string? characterName)
     {
-        string normalized = string.IsNullOrWhiteSpace(characterName)
-            ? string.Empty
-            : characterName.Trim();
+        string normalized = VtankProfileDirectory.CanonicalCharacterKey(characterName);
         if (normalized.Equals(_character, StringComparison.OrdinalIgnoreCase))
             return false;
         _character = normalized;
