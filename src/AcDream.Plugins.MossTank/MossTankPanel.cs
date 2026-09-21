@@ -1382,12 +1382,19 @@ internal sealed partial class MossTankPanel : IBuffRuleHost, IDisposable
     public Action<int> SelectMonsterListRow => row => _monsterListSelectedRow = row;
     public Action<string> SetMonsterExpressionDraft => value =>
         _monsterExpressionDraft = value;
+    // A monster rule matches by name, so a row added under a placeholder
+    // caption matches nothing and quietly does nothing all session. With no
+    // expression typed, the row takes the name of the creature the player has
+    // selected; with nothing selected either, no row is added and the status
+    // line says why.
     public Action AddMonsterRule => () =>
     {
-        string expression = string.IsNullOrWhiteSpace(_monsterExpressionDraft)
-            ? "New monster"
-            : _monsterExpressionDraft;
-        AddMonsterRuleCore(expression);
+        if (string.IsNullOrWhiteSpace(_monsterExpressionDraft))
+        {
+            AddSelectedMonsterCore();
+            return;
+        }
+        AddMonsterRuleCore(_monsterExpressionDraft);
         _monsterExpressionDraft = string.Empty;
     };
     public Action AddSelectedMonster => AddSelectedMonsterCore;
@@ -2919,24 +2926,41 @@ internal sealed partial class MossTankPanel : IBuffRuleHost, IDisposable
 
     private void AddSelectedMonsterCore()
     {
+        if (!TryResolveSelectedMonsterName(out string name))
+        {
+            _monsterEditorNotice = "Select a monster in the world first.";
+            return;
+        }
+        AddMonsterRuleCore(EscapeMonsterLiteral(name));
+    }
+
+    private bool TryResolveSelectedMonsterName(out string name)
+    {
+        name = string.Empty;
         uint selectedId = _host.Selection.SelectedObjectId ?? 0u;
-        PluginCombatTarget selected = default;
-        bool found = false;
+        if (selectedId == 0u)
+            return false;
         foreach (PluginCombatTarget candidate in
             _host.Automation.Combat.CaptureHostileTargets(float.MaxValue))
         {
             if (candidate.ObjectId != selectedId)
                 continue;
-            selected = candidate;
-            found = true;
-            break;
+            if (string.IsNullOrWhiteSpace(candidate.Name))
+                return false;
+            name = candidate.Name;
+            return true;
         }
-        if (!found || string.IsNullOrWhiteSpace(selected.Name))
+        // A creature the combat scan leaves out -- one that is not hostile to
+        // us at this moment -- still carries its name in the object table, and
+        // that name is all a rule needs to match on later.
+        if (_host.Automation.Objects.TryGet(selectedId, out PluginWorldObject world)
+            && world.ObjectClass == PluginObjectClass.Monster
+            && !string.IsNullOrWhiteSpace(world.Name))
         {
-            _monsterEditorNotice = "Select a monster in the world first.";
-            return;
+            name = world.Name;
+            return true;
         }
-        AddMonsterRuleCore(EscapeMonsterLiteral(selected.Name));
+        return false;
     }
 
     private static string EscapeMonsterLiteral(string value)

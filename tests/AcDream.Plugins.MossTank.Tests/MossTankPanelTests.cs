@@ -7381,7 +7381,8 @@ public sealed class MossTankPanelTests
     public void ToggleMonsterFlagAtWritesOnlyTheTargetedRow()
     {
         var panel = new MossTankPanel(new FakeHost(new FakeAutomation()));
-        panel.AddMonsterRule(); // row 1: "New monster" (empty draft default)
+        panel.SetMonsterExpressionDraft("drudge");
+        panel.AddMonsterRule(); // row 1: "drudge"
 
         Assert.False(panel.MonsterImperilColumn[0]);
         Assert.False(panel.MonsterImperilColumn[1]);
@@ -7595,6 +7596,69 @@ public sealed class MossTankPanelTests
         host.Selection.Select(30);
         panel.AddSelectedMonster();
         Assert.Equal(["DEFAULT", "species==drudge", "Drudge"], panel.MonsterNameColumn);
+    }
+
+    /// <summary>
+    /// Add with an empty expression box takes the selected creature's name.
+    /// Mutation: give the empty box a placeholder caption instead, and the
+    /// row is named after the placeholder, which matches no creature.
+    /// </summary>
+    [Fact]
+    public void AddWithAnEmptyExpressionTakesTheSelectedCreaturesName()
+    {
+        var automation = new CombatCapableFakeAutomation
+        {
+            Targets = [new PluginCombatTarget(30, "Drudge Slinker", 700, 2f, 0f, true, 1f)],
+        };
+        var host = new FakeHost(automation);
+        var panel = new MossTankPanel(host);
+
+        host.Selection.Select(30);
+        panel.AddMonsterRule();
+
+        Assert.Equal(["DEFAULT", "Drudge Slinker"], panel.MonsterNameColumn);
+        Assert.Contains("Drudge Slinker", panel.MonsterEditorNotice, StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// With nothing selected and nothing typed, Add says so and adds no row.
+    /// Mutation: add the row anyway and the name column grows.
+    /// </summary>
+    [Fact]
+    public void AddWithNoExpressionAndNoSelectionAddsNothingAndSaysSo()
+    {
+        var panel = new MossTankPanel(new FakeHost(new CombatCapableFakeAutomation()));
+
+        panel.AddMonsterRule();
+
+        Assert.Equal(["DEFAULT"], panel.MonsterNameColumn);
+        Assert.Equal("Select a monster in the world first.", panel.MonsterEditorNotice);
+    }
+
+    /// <summary>
+    /// A creature that is not hostile to us right now is not in the combat
+    /// scan, but its name is in the object table, and that name is all the
+    /// rule matches on.
+    /// Mutation: drop the object-table fallback and the row is never added.
+    /// </summary>
+    [Fact]
+    public void AddSelectedMonsterFallsBackToTheObjectTableForANonHostileCreature()
+    {
+        var automation = new FakeAutomation
+        {
+            WorldObjects =
+            [
+                new PluginWorldObject(
+                    42u, 0u, "Sclavus", PluginObjectClass.Monster, 0u, 0u, 0u),
+            ],
+        };
+        var host = new FakeHost(automation);
+        var panel = new MossTankPanel(host);
+
+        host.Selection.Select(42);
+        panel.AddSelectedMonster();
+
+        Assert.Equal(["DEFAULT", "Sclavus"], panel.MonsterNameColumn);
     }
 
     [Fact]
