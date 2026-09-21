@@ -5194,6 +5194,52 @@ public sealed class CombatControllerTests
         Assert.Equal("Ready", gate.Status);
     }
 
+    /// <summary>
+    /// On a host that passes the server's word on, the gate is ready the
+    /// moment the server agrees with the client, and not before: not on the
+    /// client's own word, and not when the confirmation window runs out.
+    /// </summary>
+    [Fact]
+    public void GateIsReadyTheMomentTheServerAgreesWhenTheHostSaysWhatTheServerSaid()
+    {
+        var surface = new FakeAutomation
+        {
+            CombatSnapshot = Physical() with
+            {
+                Mode = PluginCombatMode.Peace,
+                ServerMode = PluginCombatMode.Peace,
+            },
+            WithholdModeEcho = true,
+            EquipmentItems =
+            [
+                Equipment(
+                    800,
+                    "Recovery Wand",
+                    damageType: 0,
+                    itemType: 0x00008000u,
+                    equippedLocation: 0x00100000u),
+            ],
+        };
+        CombatModeGate gate = Gate(surface);
+
+        gate.AdvancePass(0.1);
+        Assert.False(gate.TryPrepare(PluginCombatMode.Magic));
+        Assert.Equal(PluginCombatMode.Magic, surface.CombatSnapshot.Mode);
+        Assert.Equal(PluginCombatMode.Peace, surface.CombatSnapshot.ServerMode);
+
+        // The window running out changes nothing while the server disagrees.
+        gate.AdvancePass(0.7);
+        Assert.False(gate.TryPrepare(PluginCombatMode.Magic));
+        Assert.Equal("Entering Magic mode", gate.Status);
+        Assert.Equal(1, surface.ModeChangeRequests);
+
+        surface.ConfirmPendingModeChange();
+        Assert.Equal(PluginCombatMode.Magic, surface.CombatSnapshot.ServerMode);
+        gate.AdvancePass(0.01);
+        Assert.True(gate.TryPrepare(PluginCombatMode.Magic));
+        Assert.Equal("Ready", gate.Status);
+    }
+
     [Fact]
     public void GateGivesUpWaitingForTheServersStanceAfterTheConfirmationWindow()
     {
@@ -8847,12 +8893,16 @@ public sealed class CombatControllerTests
             }
             // The client reports the mode at once and the server's stance
             // follows on its heels, as it does when nothing is in the way.
+            // A host that passes the server's word on agrees at once too.
             CombatSnapshot = CombatSnapshot with
             {
                 Mode = mode,
                 QualifiedSelfMotionRevision =
                     CombatSnapshot.QualifiedSelfMotionRevision + 1,
                 QualifiedSelfMotionAgeSeconds = 0d,
+                ServerMode = CombatSnapshot.ServerMode == PluginCombatMode.Unknown
+                    ? PluginCombatMode.Unknown
+                    : mode,
             };
             return new(PluginCombatCommandStatus.ModeChangeSent);
         }
@@ -8867,6 +8917,9 @@ public sealed class CombatControllerTests
                 QualifiedSelfMotionRevision =
                     CombatSnapshot.QualifiedSelfMotionRevision + 1,
                 QualifiedSelfMotionAgeSeconds = 0d,
+                ServerMode = CombatSnapshot.ServerMode == PluginCombatMode.Unknown
+                    ? PluginCombatMode.Unknown
+                    : mode,
             };
             _pendingMode = null;
         }

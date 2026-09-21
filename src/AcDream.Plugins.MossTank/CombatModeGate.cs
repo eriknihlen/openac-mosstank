@@ -382,14 +382,19 @@ internal sealed class CombatModeGate : IDisposable
     /// client reports the new mode the moment it sends the request; the
     /// server takes it a little later, after the stance the body is leaving
     /// has played out, and a spell that arrives in between is cast in the
-    /// old mode and fizzles when the change lands during its windup. The
-    /// server's own word is the stance it then puts the body in, which
+    /// old mode and fizzles when the change lands during its windup. A host
+    /// that passes the server's word on says so in the snapshot, and the
+    /// change is confirmed the moment the two agree. On a host that does
+    /// not, the server's word is the stance it puts the body in, which
     /// arrives as this character's motion; until it has, or the
     /// confirmation window has run out with nothing said, the change is not
     /// one to act on.
     /// </summary>
     private bool ModeChangeUnconfirmed()
     {
+        PluginCombatSnapshot snapshot = _host.Automation.Combat.Snapshot;
+        if (snapshot.ServerMode != PluginCombatMode.Unknown)
+            return snapshot.ServerMode != snapshot.Mode;
         _ = EffectiveMode();
         return _modeRequestInFlight
             && _sinceModeRequest < ModeConfirmationSeconds;
