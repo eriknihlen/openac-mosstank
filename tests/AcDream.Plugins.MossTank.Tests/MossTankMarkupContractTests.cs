@@ -548,6 +548,118 @@ public sealed class MossTankMarkupContractTests
         }
     }
 
+    /// <summary>
+    /// Glyph advances of the captions used by the monster table's headings,
+    /// in the client's default interface font. Measured offline by building
+    /// this markup with the client's own markup engine and the font the client
+    /// loads for it; the engine draws a heading's text from the heading's left
+    /// edge, with no way to centre it, so the authored x is the only place the
+    /// centring can live.
+    /// </summary>
+    private static readonly Dictionary<string, float> CaptionWidths = new(
+        StringComparer.Ordinal)
+    {
+        ["F"] = 6f, ["B"] = 7f, ["G"] = 9f, ["I"] = 3f, ["Y"] = 7f,
+        ["V"] = 9f, ["A"] = 9f, ["R"] = 7f, ["S"] = 7f,
+        ["WC"] = 19f, ["FC"] = 14f, ["Cp"] = 14f, ["DC"] = 17f, ["Cs"] = 13f,
+    };
+
+    /// <summary>
+    /// The lamp a check cell draws is centred in its column, so its heading
+    /// has to be centred over the same point or the table reads one column
+    /// out. The cell centres the lamp inside a one-pixel inset, which is the
+    /// arithmetic repeated here.
+    /// Mutation: shift any heading back to its column's left edge, or change
+    /// a check column's width, and the heading no longer sits over its lamp.
+    /// </summary>
+    [Fact]
+    public void EveryCheckColumnHeadingIsCentredOverTheLampItsColumnDraws()
+    {
+        const float LampSize = 11f;
+        XDocument document = XDocument.Load(
+            Path.Combine(AppContext.BaseDirectory, "mosstank.xml"));
+        XElement root = Assert.IsType<XElement>(document.Root);
+
+        XElement group = Assert.Single(
+            root.Elements("group"),
+            static candidate =>
+                (string?)candidate.Attribute("visible") == "{MonstersVisible}");
+        XElement table = Assert.Single(group.Elements("list"));
+        XElement[] checkColumns = table.Elements("column")
+            .Where(static column => (string?)column.Attribute("type") == "check")
+            .ToArray();
+        string[] captions = group.Elements("label")
+            .Select(static label => (string?)label.Attribute("text") ?? string.Empty)
+            .Where(CaptionWidths.ContainsKey)
+            .ToArray();
+
+        Assert.Equal(checkColumns.Length, captions.Length);
+
+        float columnLeft = 0f;
+        for (int index = 0; index < checkColumns.Length; index++)
+        {
+            float columnWidth = Number(checkColumns[index], "width");
+            Assert.True(columnWidth > 0f, "A check column needs a fixed width.");
+            float lampCentre = columnLeft + 1f
+                + MathF.Max(0f, columnWidth - 2f - LampSize) * 0.5f
+                + LampSize * 0.5f;
+
+            string caption = captions[index];
+            XElement heading = Assert.Single(
+                group.Elements("label"),
+                label => (string?)label.Attribute("text") == caption);
+            float headingCentre =
+                Number(heading, "x") + CaptionWidths[caption] * 0.5f;
+
+            Assert.True(
+                MathF.Abs(headingCentre - lampCentre) <= 1f,
+                $"Heading '{caption}' is centred at {headingCentre} but its "
+                + $"column's lamp at {lampCentre}.");
+            columnLeft += columnWidth;
+        }
+    }
+
+    /// <summary>
+    /// A text column draws its cell text one padding step in from the
+    /// column's left edge, so its heading starts there too.
+    /// Mutation: put a heading back on the column edge and it sits left of
+    /// the values underneath it.
+    /// </summary>
+    [Fact]
+    public void EveryTextColumnHeadingStartsWhereItsCellTextDoes()
+    {
+        const float CellPadding = 3f;
+        XDocument document = XDocument.Load(
+            Path.Combine(AppContext.BaseDirectory, "mosstank.xml"));
+        XElement root = Assert.IsType<XElement>(document.Root);
+
+        XElement group = Assert.Single(
+            root.Elements("group"),
+            static candidate =>
+                (string?)candidate.Attribute("visible") == "{MonstersVisible}");
+        XElement table = Assert.Single(group.Elements("list"));
+
+        // Heading caption -> the column it belongs to, counted in document
+        // order across the whole column list.
+        (string Caption, int Column)[] headings =
+        [
+            ("Name", 14), ("P", 15), ("Dmg type", 16), ("Ex. Vuln", 17),
+            ("Weapon", 18), ("Offhand", 19), ("PetDmg", 20),
+        ];
+        XElement[] columns = table.Elements("column").ToArray();
+
+        foreach ((string caption, int columnIndex) in headings)
+        {
+            float columnLeft = columns.Take(columnIndex)
+                .Sum(column => Number(column, "width"));
+            XElement heading = Assert.Single(
+                group.Elements("label"),
+                label => (string?)label.Attribute("text") == caption);
+
+            Assert.Equal(columnLeft + CellPadding, Number(heading, "x"));
+        }
+    }
+
     private static void AssertBindingType(
         XElement element,
         string attributeName,

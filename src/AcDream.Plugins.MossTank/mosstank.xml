@@ -198,28 +198,28 @@
   </group>
 
   <group x="8" y="42" w="976" h="229" visible="{MonstersVisible}" anchor="left top right bottom">
-    <label x="0"   y="0" w="20" text="F"  color="#FFE8DEC3" tooltip="Fester" />
-    <label x="20"  y="0" w="20" text="B"  color="#FFE8DEC3" tooltip="Broadside of a Barn" />
-    <label x="40"  y="0" w="20" text="G"  color="#FFE8DEC3" tooltip="Gravity Well" />
-    <label x="60"  y="0" w="20" text="I"  color="#FFE8DEC3" tooltip="Imperil" />
-    <label x="80"  y="0" w="20" text="Y"  color="#FFE8DEC3" tooltip="Yield" />
-    <label x="100" y="0" w="20" text="V"  color="#FFE8DEC3" tooltip="Vuln (Element)" />
-    <label x="120" y="0" w="20" text="A"  color="#FFE8DEC3" tooltip="Attack" />
-    <label x="140" y="0" w="20" text="R"  color="#FFE8DEC3" tooltip="Ring Spell" />
-    <label x="160" y="0" w="20" text="S"  color="#FFE8DEC3" tooltip="Streak" />
+    <label x="7"   y="0" w="20" text="F"  color="#FFE8DEC3" tooltip="Fester" />
+    <label x="27"  y="0" w="20" text="B"  color="#FFE8DEC3" tooltip="Broadside of a Barn" />
+    <label x="46"  y="0" w="20" text="G"  color="#FFE8DEC3" tooltip="Gravity Well" />
+    <label x="69"  y="0" w="20" text="I"  color="#FFE8DEC3" tooltip="Imperil" />
+    <label x="87"  y="0" w="20" text="Y"  color="#FFE8DEC3" tooltip="Yield" />
+    <label x="106" y="0" w="20" text="V"  color="#FFE8DEC3" tooltip="Vuln (Element)" />
+    <label x="126" y="0" w="20" text="A"  color="#FFE8DEC3" tooltip="Attack" />
+    <label x="147" y="0" w="20" text="R"  color="#FFE8DEC3" tooltip="Ring Spell" />
+    <label x="167" y="0" w="20" text="S"  color="#FFE8DEC3" tooltip="Streak" />
     <label x="181" y="0" w="19" text="WC" color="#FFE8DEC3" tooltip="Weakening Curse" />
     <label x="203" y="0" w="14" text="FC" color="#FFE8DEC3" tooltip="Festering Curse" />
     <label x="223" y="0" w="14" text="Cp" color="#FFE8DEC3" tooltip="Corruption" />
     <label x="242" y="0" w="17" text="DC" color="#FFE8DEC3" tooltip="Destructive Curse" />
     <label x="264" y="0" w="13" text="Cs" color="#FFE8DEC3" tooltip="Corrosion" />
-    <label x="280" y="0" w="127" text="Name" color="#FFE8DEC3" />
-    <label x="407" y="0" w="27" text="P" color="#FFE8DEC3" tooltip="Priority" />
-    <label x="434" y="0" w="63" text="Dmg type" color="#FFE8DEC3" />
-    <label x="497" y="0" w="63" text="Ex. Vuln" color="#FFE8DEC3"
+    <label x="283" y="0" w="127" text="Name" color="#FFE8DEC3" />
+    <label x="410" y="0" w="27" text="P" color="#FFE8DEC3" tooltip="Priority" />
+    <label x="437" y="0" w="63" text="Dmg type" color="#FFE8DEC3" />
+    <label x="500" y="0" w="63" text="Ex. Vuln" color="#FFE8DEC3"
            tooltip="Extra vulnerability. A second vulnerability cast in its own right: it does NOT need V ticked. None casts nothing; Auto casts the element this monster is weakest to." />
-    <label x="560" y="0" w="87" text="Weapon" color="#FFE8DEC3" />
-    <label x="647" y="0" w="87" text="Offhand" color="#FFE8DEC3" />
-    <label x="734" y="0" w="63" text="PetDmg" color="#FFE8DEC3" />
+    <label x="563" y="0" w="87" text="Weapon" color="#FFE8DEC3" />
+    <label x="650" y="0" w="87" text="Offhand" color="#FFE8DEC3" />
+    <label x="737" y="0" w="63" text="PetDmg" color="#FFE8DEC3" />
 
     <list x="0" y="16" w="976" h="151" anchor="left right top bottom"
           selected="{SelectedMonsterListRow}" onchange="{SelectMonsterListRow}"
