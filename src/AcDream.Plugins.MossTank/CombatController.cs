@@ -2907,6 +2907,17 @@ internal sealed class CombatController
                 + $"{result.DebugSamples.Count} marker(s), "
                 + $"{result.CollisionChecks} check(s)");
         }
+        if (result.Status == PluginProjectilePathStatus.Unavailable)
+        {
+            // A client that cannot test a flight has said nothing about the
+            // flight. The shot goes ahead untested, as it does with the
+            // option off; refusing it would leave the character standing
+            // beside a monster it never attacks.
+            PostAttackWarning(
+                "Warning: this client cannot test projectile paths, so "
+                + "\"Don't Shoot at Walls\" has no effect.");
+            result = new(PluginProjectilePathStatus.Clear);
+        }
         _passClearance[(targetObjectId, kind)] = result;
         return result.IsClear;
     }

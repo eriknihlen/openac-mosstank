@@ -1165,6 +1165,42 @@ public sealed class CombatControllerTests
         Assert.Equal(0u, surface.LastProjectileTarget);
     }
 
+    /// <summary>
+    /// A client that cannot test a flight has not said the flight is blocked.
+    /// The spell is cast untested and the player is told the wall check is
+    /// doing nothing.
+    /// </summary>
+    [Fact]
+    public void AClientThatCannotTestAFlightDoesNotStopTheCast()
+    {
+        var surface = new FakeAutomation
+        {
+            CombatSnapshot = Physical() with { Mode = PluginCombatMode.Magic },
+            Targets = [Target(10, "Drudge", 5, 0)],
+            KnownAttackSpells =
+            [
+                Spell(100, "Incantation of Flame Bolt") with
+                {
+                    IsProjectile = true,
+                },
+            ],
+            ProjectilePath = new(PluginProjectilePathStatus.Unavailable),
+            EquipmentItems = [WieldedCaster()],
+        };
+        var controller = new CombatController(
+            new FakeHost(surface),
+            FireAttackRule(new CombatSettings { UseProjectileAwareness = true }));
+
+        controller.Toggle();
+        controller.OnTick(0.25);
+
+        Assert.Contains(100u, surface.CastSpellIds);
+        Assert.Contains(
+            surface.PostedSystemMessages,
+            message => message.Contains(
+                "cannot test projectile paths", StringComparison.Ordinal));
+    }
+
     [Fact]
     public void CollisionDebugPublishesDiagnosticSamplesToTheGraphicalHost()
     {
