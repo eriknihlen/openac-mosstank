@@ -256,7 +256,6 @@ internal static class VtankSettingsProfileSerializer
             case "navpriorityboost": n.Priority = cell.AsBool(); break;
             case "deleteghostmonsters": c.DeleteGhostMonsters = cell.AsBool(); break;
             case "ghostmonsterspellattemptcount": c.GhostMonsterSpellAttemptCount = cell.AsInt(); break;
-            case "whoyougonnacall": c.WhoYouGonnaCall = cell.AsBool(); break;
             case "blacklistmonsterattemptcount": c.BlacklistMonsterAttemptCount = cell.AsInt(); break;
             case "blacklistmonstertimeoutseconds": c.BlacklistMonsterTimeoutSeconds = cell.AsDouble(); break;
             case "combinesalvage": i.Loot.CombineSalvage = cell.AsBool(); break;
@@ -416,7 +415,6 @@ internal static class VtankSettingsProfileSerializer
             "navpriorityboost" => VtankCell.Bool(n.Priority),
             "deleteghostmonsters" => VtankCell.Bool(c.DeleteGhostMonsters),
             "ghostmonsterspellattemptcount" => Num(name, c.GhostMonsterSpellAttemptCount),
-            "whoyougonnacall" => VtankCell.Bool(c.WhoYouGonnaCall),
             "blacklistmonsterattemptcount" => Num(name, c.BlacklistMonsterAttemptCount),
             "blacklistmonstertimeoutseconds" => Num(name, c.BlacklistMonsterTimeoutSeconds),
             "combinesalvage" => VtankCell.Bool(i.Loot.CombineSalvage),

@@ -131,7 +131,6 @@ internal sealed class CombatSettings
     public int PetRefillCountNormal { get; set; } = 1;
     public bool AllowDebuffFallback { get; set; }
     public int UseSpecialAmmo { get; set; }
-    public bool WhoYouGonnaCall { get; set; } = true;
     public bool AutoFellowManagement { get; set; } = true;
     public string BlacklistedSpellComponents { get; set; } = string.Empty;
     public ISet<uint> CombatItemObjectIds { get; } = new HashSet<uint>();

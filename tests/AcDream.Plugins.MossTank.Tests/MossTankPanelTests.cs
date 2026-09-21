@@ -5862,6 +5862,23 @@ public sealed class MossTankPanelTests
     }
 
     /// <summary>
+    /// A setting nothing in the macro reads is not an option here at all: a
+    /// row the player can change that changes nothing is worse than no row.
+    /// A profile written elsewhere may still carry the name; it is ignored
+    /// on load like any other name the macro does not know.
+    ///
+    /// Mutation: put the name back in the option catalog and the row returns.
+    /// </summary>
+    [Fact]
+    public void ASettingNothingReadsIsNotAnOption()
+    {
+        var panel = new MossTankPanel(new FakeHost(new FakeAutomation()));
+
+        Assert.DoesNotContain("WhoYouGonnaCall", panel.AdvancedOptionNames);
+        Assert.DoesNotContain("WhoYouGonnaCall", VtankOptionCatalog.Names);
+    }
+
+    /// <summary>
     /// The advanced list shows the four plain value kinds -- switch, choice,
     /// whole number and decimal -- and nothing else. A table-valued setting has
     /// no plain value to type, and an edit made against it here would be
@@ -8128,7 +8145,9 @@ public sealed class MossTankPanelTests
         var storage = new MemoryStorage();
         var first = new MossTankPanel(new FakeHost(new FakeAutomation(), storage));
 
-        Assert.Equal(137, VtankOptionCatalog.Names.Length);
+        // One fewer than the shipped settings file names: the one setting no
+        // rule reads is not an option here.
+        Assert.Equal(136, VtankOptionCatalog.Names.Length);
         Assert.Equal(10d, first.EvaluateExpression(
             "uboptget['ArrowheadFletchDiffExcessThreshold']").AsNumber());
         Assert.Equal(0.0833333333333333d, first.EvaluateExpression(

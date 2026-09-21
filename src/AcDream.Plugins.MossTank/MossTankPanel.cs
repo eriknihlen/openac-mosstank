@@ -3759,8 +3759,6 @@ internal sealed partial class MossTankPanel : IBuffRuleHost, IDisposable
                 _vitalSettings.RechargeBoostAmount),
             "clearlevelboostflagoncast" => ExpressionValue.Boolean(
                 _vitalSettings.ClearLevelBoostFlagOnCast),
-            "whoyougonnacall" => ExpressionValue.Boolean(
-                _combatSettings.WhoYouGonnaCall),
             "castdispelself" => ExpressionValue.Boolean(
                 _vitalSettings.CastDispelSelf),
             "usedispelitems" => ExpressionValue.Boolean(
@@ -4348,9 +4346,6 @@ internal sealed partial class MossTankPanel : IBuffRuleHost, IDisposable
                 break;
             case "clearlevelboostflagoncast":
                 _vitalSettings.ClearLevelBoostFlagOnCast = value.IsTruthy;
-                break;
-            case "whoyougonnacall":
-                _combatSettings.WhoYouGonnaCall = value.IsTruthy;
                 break;
             case "castdispelself":
                 _vitalSettings.CastDispelSelf = value.IsTruthy;
