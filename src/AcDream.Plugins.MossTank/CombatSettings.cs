@@ -141,6 +141,15 @@ internal sealed class CombatSettings
     public ISet<string> CombatItemNames { get; } =
         new HashSet<string>(StringComparer.Ordinal);
     public IList<string> CombatItemOrder { get; } = new List<string>();
+
+    /// <summary>
+    /// The name each listed item had when it was last seen in the inventory.
+    /// An item is listed by its object id, and an id says nothing to a reader
+    /// while the inventory is not there to look it up in: logged out, or just
+    /// logged in. The remembered name is what the Items page shows then.
+    /// </summary>
+    public IDictionary<uint, string> CombatItemNamesById { get; } =
+        new Dictionary<uint, string>();
     public ISet<string> ConsumableNames { get; } =
         new HashSet<string>(StringComparer.Ordinal);
     /// <summary>

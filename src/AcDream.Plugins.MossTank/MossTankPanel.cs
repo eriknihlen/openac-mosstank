@@ -1848,12 +1848,13 @@ internal sealed partial class MossTankPanel : IBuffRuleHost, IDisposable
             else if (ownedById.TryGetValue(objectId, out PluginInventoryItem item))
             {
                 name = item.Name;
+                _combatSettings.CombatItemNamesById[objectId] = name;
                 resolvedNames.Add(name);
                 profiledIds.Add(objectId);
             }
             else
             {
-                name = $"<INVALID 0x{objectId:X8}>";
+                name = UnheldItemRowName(objectId, ownedById.Count == 0, resolvedNames);
                 profiledIds.Add(objectId);
             }
             baseNames.Add(name);
@@ -1867,15 +1868,16 @@ internal sealed partial class MossTankPanel : IBuffRuleHost, IDisposable
                 continue;
             if (ownedById.TryGetValue(id, out PluginInventoryItem item))
             {
+                _combatSettings.CombatItemNamesById[id] = item.Name;
                 baseNames.Add(item.Name);
                 displayNames.Add(item.Name);
                 resolvedNames.Add(item.Name);
             }
             else
             {
-                string invalid = $"<INVALID 0x{id:X8}>";
-                baseNames.Add(invalid);
-                displayNames.Add(invalid);
+                string unheld = UnheldItemRowName(id, ownedById.Count == 0, resolvedNames);
+                baseNames.Add(unheld);
+                displayNames.Add(unheld);
             }
             rowIds.Add(id);
             enchantRows.Add(null);
@@ -1953,6 +1955,7 @@ internal sealed partial class MossTankPanel : IBuffRuleHost, IDisposable
         {
             _combatSettings.CombatItemObjectIds.Remove(objectId.Value);
             _combatSettings.CombatItemOrderIds.Remove(objectId.Value);
+            _combatSettings.CombatItemNamesById.Remove(objectId.Value);
             _combatSettings.RemovedCombatItemObjectIds.Add(objectId.Value);
         }
         bool anotherNamedRow = _itemBaseNames.Where((name, index) =>
@@ -1999,6 +2002,7 @@ internal sealed partial class MossTankPanel : IBuffRuleHost, IDisposable
         }
         _combatSettings.CombatItemObjectIds.Remove(objectId);
         _combatSettings.CombatItemOrderIds.Remove(objectId);
+        _combatSettings.CombatItemNamesById.Remove(objectId);
         _combatSettings.CombatItemNames.Remove(displayName);
         _combatSettings.CombatItemOrder.Remove(displayName);
         _noBuffItemNames.Remove(displayName);
@@ -2133,6 +2137,26 @@ internal sealed partial class MossTankPanel : IBuffRuleHost, IDisposable
     private static int ClampRow(int index, int count) => count == 0
         ? 0
         : Math.Clamp(index, 0, count - 1);
+
+    /// <summary>
+    /// What a listed item the inventory does not hold is called. With no
+    /// inventory to look in at all -- logged out, or not arrived yet -- the
+    /// item is simply its remembered name: nothing is wrong with it. With an
+    /// inventory that does not hold it, the row says INVALID, by name when
+    /// the name is remembered. Either way the name is accounted for, so the
+    /// same item is not listed a second time by its name alone.
+    /// </summary>
+    private string UnheldItemRowName(
+        uint objectId, bool inventoryUnknown, HashSet<string> resolvedNames)
+    {
+        if (!_combatSettings.CombatItemNamesById.TryGetValue(objectId, out string? remembered)
+            || string.IsNullOrWhiteSpace(remembered))
+        {
+            return $"<INVALID 0x{objectId:X8}>";
+        }
+        resolvedNames.Add(remembered);
+        return inventoryUnknown ? remembered : $"<INVALID {remembered}>";
+    }
 
     private string[] SortedCombatItemNames() => _combatSettings.CombatItemNames
         .OrderBy(static name => name, StringComparer.Ordinal)
@@ -3181,6 +3205,7 @@ internal sealed partial class MossTankPanel : IBuffRuleHost, IDisposable
     {
         if (_combatSettings.CombatItemObjectIds.Add(item.ObjectId))
             _combatSettings.CombatItemOrderIds.Add(item.ObjectId);
+        _combatSettings.CombatItemNamesById[item.ObjectId] = item.Name;
         _combatSettings.RemovedCombatItemObjectIds.Remove(item.ObjectId);
         if (_combatSettings.CombatItemNames.Add(item.Name))
             _combatSettings.CombatItemOrder.Add(item.Name);

@@ -839,6 +839,13 @@ internal sealed class MossTankProfileStore
         public bool ShowNavLines { get; set; }
         public int Version { get; set; } = 1;
         public string[] ItemNames { get; set; } = [];
+
+        /// <summary>
+        /// The name each listed item was last seen under, by its object id
+        /// in hexadecimal. The settings file lists items by id alone.
+        /// </summary>
+        public Dictionary<string, string> ItemNamesById { get; set; } =
+            new(StringComparer.OrdinalIgnoreCase);
         public string[] ConsumableNames { get; set; } = [];
         public Dictionary<string, ConsumableCategory> ConsumableCategories { get; set; } =
             new(StringComparer.Ordinal);
@@ -893,6 +900,12 @@ internal sealed class MossTankProfileStore
             // In the order the Items page shows them: the weapon walk reads that
             // order, and its last resort is the last item on the page.
             ItemNames = InPageOrder(settings.Combat.CombatItemOrder, settings.Combat.CombatItemNames),
+            ItemNamesById = settings.Combat.CombatItemNamesById
+                .Where(pair => settings.Combat.CombatItemObjectIds.Contains(pair.Key))
+                .ToDictionary(
+                    static pair => pair.Key.ToString("X8", System.Globalization.CultureInfo.InvariantCulture),
+                    static pair => pair.Value,
+                    StringComparer.OrdinalIgnoreCase),
             ShowNavLines = settings.Navigation.ShowNavLines,
             ConsumableNames = Sorted(settings.Combat.ConsumableNames),
             ConsumableCategories = settings.Combat.ConsumableCategories.ToDictionary(
@@ -959,6 +972,19 @@ internal sealed class MossTankProfileStore
             IPluginLogger? logger = null)
         {
             Replace(settings.Combat.CombatItemNames, ItemNames);
+            settings.Combat.CombatItemNamesById.Clear();
+            foreach ((string id, string name) in ItemNamesById)
+            {
+                if (uint.TryParse(
+                        id,
+                        System.Globalization.NumberStyles.HexNumber,
+                        System.Globalization.CultureInfo.InvariantCulture,
+                        out uint objectId)
+                    && !string.IsNullOrWhiteSpace(name))
+                {
+                    settings.Combat.CombatItemNamesById[objectId] = name;
+                }
+            }
             settings.Navigation.ShowNavLines = ShowNavLines;
             ReplaceOrder(settings.Combat.CombatItemOrder, ItemNames);
             Replace(settings.Combat.ConsumableNames, ConsumableNames);

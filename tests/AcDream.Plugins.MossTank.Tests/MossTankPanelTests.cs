@@ -2126,6 +2126,47 @@ public sealed class MossTankPanelTests
     /// from removal. The missing row remains while the same-name item and raw rows
     /// must stay intact.
     /// </summary>
+    /// <summary>
+    /// An item is listed by its object id, and an id cannot be looked up
+    /// while there is no inventory: logged out, or just logged in. The page
+    /// then showed every item twice -- once as an INVALID id and once by its
+    /// name. Each item is one row, under the name it was last seen with, and
+    /// nothing is called invalid that is merely not looked up yet. With an
+    /// inventory that really does not hold the item, the row says so by name.
+    /// </summary>
+    [Fact]
+    public void AListedItemIsOneRowUnderItsNameWhileThereIsNoInventory()
+    {
+        var storage = new MemoryStorage();
+        var firstHost = new FakeHost(new FakeAutomation
+        {
+            ItemEntries =
+            [
+                Item(10, "Decapitator's Blade", 1),
+                Item(11, "Wings of Rakhil", 1),
+            ],
+        }, storage);
+        var first = new MossTankPanel(firstHost);
+        firstHost.Selection.Select(10u);
+        first.AddSelectedItem();
+        firstHost.Selection.Select(11u);
+        first.AddSelectedItem();
+
+        var loggedOut = new MossTankPanel(
+            new FakeHost(new FakeAutomation { ItemEntries = [] }, storage));
+
+        Assert.Equal(["Decapitator's Blade", "Wings of Rakhil"], loggedOut.ItemRows);
+
+        var withoutTheBlade = new MossTankPanel(new FakeHost(new FakeAutomation
+        {
+            ItemEntries = [Item(11, "Wings of Rakhil", 1)],
+        }, storage));
+
+        Assert.Equal(
+            ["<INVALID Decapitator's Blade>", "Wings of Rakhil"],
+            withoutTheBlade.ItemRows);
+    }
+
     [Fact]
     public void ItemRowsDeleteTheSelectedIdentityEvenWhenMissingOrNamesMatch()
     {
@@ -2163,12 +2204,12 @@ public sealed class MossTankPanelTests
             ItemEntries = [Item(11, "Twin Sword", 1)],
         }, storage));
         Assert.Equal(
-            ["<INVALID 0x0000000A>", "Twin Sword", "<INVALID 0x0000000A> — Spell 0x00000011"],
+            ["<INVALID Twin Sword>", "Twin Sword", "<INVALID Twin Sword> — Spell 0x00000011"],
             second.ItemRows);
 
         second.DeleteItemRowAt(0);
 
-        Assert.Equal(["Twin Sword", "<INVALID 0x0000000A> — Spell 0x00000011"], second.ItemRows);
+        Assert.Equal(["Twin Sword", "<INVALID Twin Sword> — Spell 0x00000011"], second.ItemRows);
         table = VtankDatabase.Parse(storage.Text[usdKey]).Find("BuffedItems")!;
         Assert.Contains(table.Rows, row => row.Cells[table.ColumnIndex("Object")]
             .AsInt() == 11);
