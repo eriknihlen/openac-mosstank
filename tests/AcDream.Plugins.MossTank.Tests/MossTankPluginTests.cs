@@ -58,6 +58,59 @@ public sealed class MossTankPluginTests
         Assert.Equal(0, host.AutomationForTests.PlacementObserverCount);
     }
 
+    /// <summary>
+    /// /vt and /ub are two words for one dispatcher, and both are given up
+    /// when the plugin is. Mutation: dropping the /ub registration (or its
+    /// disposal in Disable) fails the second or last assertion.
+    /// </summary>
+    [Fact]
+    public void EnableRegistersVtAndUbOnOneHandlerAndDisableRevokesBoth()
+    {
+        var commands = new RecordingCommandRegistry();
+        var host = new FakeHost(new RecordingLootClassifierRegistry(), commands);
+        var plugin = new MossTankPlugin();
+        plugin.Initialize(host);
+
+        plugin.Enable();
+
+        Assert.Equal(["vt", "ub"], commands.Registered.Select(entry => entry.Verb));
+        Assert.Equal(
+            commands.Registered[0].Handler.Method,
+            commands.Registered[1].Handler.Method);
+        Assert.Same(
+            commands.Registered[0].Handler.Target,
+            commands.Registered[1].Handler.Target);
+        Assert.All(commands.Registered, entry => Assert.False(entry.Revoked));
+
+        plugin.Disable();
+
+        Assert.All(commands.Registered, entry => Assert.True(entry.Revoked));
+    }
+
+    private sealed class RecordingCommandRegistry : IPluginCommandRegistry
+    {
+        public List<Entry> Registered { get; } = [];
+
+        public IDisposable Register(string verb, Action<PluginCommand> handler)
+        {
+            var entry = new Entry(verb, handler);
+            Registered.Add(entry);
+            return new Revocation(entry);
+        }
+
+        internal sealed class Entry(string verb, Action<PluginCommand> handler)
+        {
+            public string Verb { get; } = verb;
+            public Action<PluginCommand> Handler { get; } = handler;
+            public bool Revoked { get; internal set; }
+        }
+
+        private sealed class Revocation(Entry entry) : IDisposable
+        {
+            public void Dispose() => entry.Revoked = true;
+        }
+    }
+
     private sealed class RecordingLootClassifierRegistry : IPluginLootClassifierRegistry
     {
         public List<Entry> Registered { get; } = [];
@@ -90,8 +143,11 @@ public sealed class MossTankPluginTests
     }
 
     private sealed class FakeHost(
-        IPluginLootClassifierRegistry lootClassifiers) : IPluginHost
+        IPluginLootClassifierRegistry lootClassifiers,
+        IPluginCommandRegistry? commands = null) : IPluginHost
     {
+        public IPluginCommandRegistry Commands { get; } =
+            commands ?? NoOpPluginCommandRegistry.Instance;
         public bool HasUi => false;
         public IPluginLogger Log { get; } = new NoOpLogger();
         public IGameState State { get; } = new NoOpState();

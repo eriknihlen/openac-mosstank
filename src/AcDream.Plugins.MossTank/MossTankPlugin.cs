@@ -9,6 +9,7 @@ public sealed class MossTankPlugin : IAcDreamPlugin
     private Action<double>? _tick;
     private Action<double>? _autostartTick;
     private IDisposable? _commandRegistration;
+    private IDisposable? _ubCommandRegistration;
     private IDisposable? _goToPause;
     private IDisposable? _lootClassifierRegistration;
 
@@ -118,8 +119,13 @@ public sealed class MossTankPlugin : IAcDreamPlugin
             Path.Combine(directory, "mosstank-ub-dungeon.xml"),
             _panel);
 
+        // Two words, one dispatcher: metas written for UtilityBelt type /ub
+        // for the same commands a VTank meta types /vt for.
         _commandRegistration = _host.Commands.Register(
-            "vt",
+            MossTankPanel.VtankVerb,
+            _panel.ExecuteVtankCommand);
+        _ubCommandRegistration = _host.Commands.Register(
+            MossTankPanel.UbVerb,
             _panel.ExecuteVtankCommand);
 
         _lootClassifierRegistration = _host.LootClassifiers.Register(
@@ -151,6 +157,8 @@ public sealed class MossTankPlugin : IAcDreamPlugin
             _host.Events.Tick -= _autostartTick;
         _commandRegistration?.Dispose();
         _commandRegistration = null;
+        _ubCommandRegistration?.Dispose();
+        _ubCommandRegistration = null;
         _goToPause?.Dispose();
         _goToPause = null;
         _lootClassifierRegistration?.Dispose();

@@ -89,6 +89,7 @@ internal sealed partial class MossTankPanel : IBuffRuleHost, IDisposable
     private readonly NavigationController _navigation;
     private readonly FellowshipManager _fellowshipManager;
     private readonly MossTankExpressionRuntime _expressions;
+    private readonly PrepClickController _prepClick;
     private MetaProfile _metaProfile;
     private readonly MetaEngine _meta;
 
@@ -444,6 +445,7 @@ internal sealed partial class MossTankPanel : IBuffRuleHost, IDisposable
         _metaProfiles.BindCharacter(host.Automation.Character.Name);
         _metaProfile = _metaProfiles.LoadCurrent();
         _expressions = new MossTankExpressionRuntime(host);
+        _prepClick = new PrepClickController(host, WriteVtank);
         // The castability built-ins ask the profile how much skill headroom
         // over a spell's difficulty it insists on; hunting and buffing each
         // have their own setting.
@@ -5195,6 +5197,7 @@ internal sealed partial class MossTankPanel : IBuffRuleHost, IDisposable
         ShowFirstRunGuidance();
         ObserveCommandPortalState();
         TickDelayedCommands(elapsedSeconds);
+        _prepClick.OnTick(elapsedSeconds);
         bool macroRunning = _combat.Enabled;
         bool dead = _host.Automation.IsAvailable
             && _host.Automation.Character.MaxHealth > 0u
@@ -5574,6 +5577,9 @@ internal sealed partial class MossTankPanel : IBuffRuleHost, IDisposable
         _equipProfile.Dispose();
         DisposeDungeonMap();
         DisposeTinkering();
+        _prepClick.Dispose();
+        // A key the macro held must not outlive the plugin that pressed it.
+        _expressions.HeldMotions.ReleaseIfHeld();
         _combatModeGate.Dispose();
         _meta.Dispose();
     }

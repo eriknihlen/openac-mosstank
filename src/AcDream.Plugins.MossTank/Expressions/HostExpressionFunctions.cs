@@ -24,11 +24,13 @@ internal static class HostExpressionFunctions
     public static void Register(
         ExpressionFunctionRegistry registry,
         IPluginHost host,
-        ExpressionHostPolicy? policy = null)
+        ExpressionHostPolicy? policy = null,
+        HeldMotions? heldMotions = null)
     {
         ArgumentNullException.ThrowIfNull(registry);
         ArgumentNullException.ThrowIfNull(host);
         policy ??= new ExpressionHostPolicy();
+        heldMotions ??= new HeldMotions(host);
         RegisterCharacter(registry, host);
         RegisterSpells(registry, host, policy);
         RegisterObjects(registry, host, policy);
@@ -37,7 +39,7 @@ internal static class HostExpressionFunctions
         RegisterWorldTime(registry, host);
         RegisterUi(registry, host);
         RegisterActions(registry, host, policy);
-        RegisterCombatAndMovement(registry, host);
+        RegisterCombatAndMovement(registry, host, heldMotions);
         RegisterLogin(registry, host);
         RegisterNetwork(registry, host);
     }
@@ -887,7 +889,8 @@ internal static class HostExpressionFunctions
 
     private static void RegisterCombatAndMovement(
         ExpressionFunctionRegistry registry,
-        IPluginHost host)
+        IPluginHost host,
+        HeldMotions heldMotions)
     {
         registry.Register("getcombatstate", 0, 0, (_, _) => ExpressionValue.String(
             host.Automation.Combat.Snapshot.Mode.ToString()), "getcombatstate[]");
@@ -924,14 +927,13 @@ internal static class HostExpressionFunctions
         {
             string motion = args[0].AsString("setmotion");
             bool enabled = args[1].AsNumber("setmotion") != 0d;
-            PluginNavigationSnapshot snapshot = host.Automation.Navigation.Snapshot;
-            PluginMovementIntent intent = enabled
-                ? MotionIntent(motion)
-                : default;
-            PluginNavigationCommandStatus result = enabled
-                ? host.Automation.Navigation.SetMovementIntent(intent)
-                : host.Automation.Navigation.ClearMovementIntent();
-            return ExpressionValue.Boolean(result == PluginNavigationCommandStatus.Accepted);
+            if (!HeldMotions.TryParse(motion, out HeldMotion held))
+            {
+                throw new ExpressionEvaluationException(
+                    $"Invalid motion '{motion}'. Valid values are: {HeldMotions.ValidNames}");
+            }
+            return ExpressionValue.Boolean(
+                heldMotions.Set(held, enabled) == PluginNavigationCommandStatus.Accepted);
         }, "setmotion[motion,state]");
         registry.Register("getmotion", 1, 1, (_, args) =>
         {
@@ -941,8 +943,7 @@ internal static class HostExpressionFunctions
                 && motion is not null ? 2d : 0d);
         }, "getmotion[motion]");
         registry.Register("clearmotion", 0, 0, (_, _) => ExpressionValue.Boolean(
-            host.Automation.Navigation.ClearMovementIntent()
-                == PluginNavigationCommandStatus.Accepted), "clearmotion[]");
+            heldMotions.Clear() == PluginNavigationCommandStatus.Accepted), "clearmotion[]");
     }
 
     private static void RegisterObjectProperty(
@@ -1374,20 +1375,6 @@ internal static class HostExpressionFunctions
         }
         return 0d;
     }
-
-    private static PluginMovementIntent MotionIntent(string motion) =>
-        motion.Trim().ToLowerInvariant() switch
-        {
-            "forward" => new PluginMovementIntent(Forward: true),
-            "backward" or "backup" => new PluginMovementIntent(Backward: true),
-            "turnright" => new PluginMovementIntent(TurnRight: true),
-            "turnleft" => new PluginMovementIntent(TurnLeft: true),
-            "straferight" => new PluginMovementIntent(StrafeRight: true),
-            "strafeleft" => new PluginMovementIntent(StrafeLeft: true),
-            "walk" => new PluginMovementIntent(Forward: true, Run: false),
-            _ => throw new ExpressionEvaluationException(
-                $"Invalid motion '{motion}'."),
-        };
 
     private static ExpressionValue Coordinates(in PluginNavigationPosition position) =>
         ExpressionValue.Coordinates(new ExpressionCoordinates(

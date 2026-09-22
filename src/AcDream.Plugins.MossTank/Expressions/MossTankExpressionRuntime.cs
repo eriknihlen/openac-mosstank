@@ -38,7 +38,8 @@ internal sealed class MossTankExpressionRuntime : IDisposable
         _salvage = new SalvageStagingManager(host);
         _statusHud = new StatusHudManager(host);
         _functions = CoreExpressionFunctions.CreateDefault(random);
-        HostExpressionFunctions.Register(_functions, host, _policy);
+        HeldMotions = new HeldMotions(host);
+        HostExpressionFunctions.Register(_functions, host, _policy, HeldMotions);
         RegisterExperienceFunctions();
         RegisterQuestFunctions();
         RegisterSalvageFunctions();
@@ -53,6 +54,13 @@ internal sealed class MossTankExpressionRuntime : IDisposable
     /// Profile-owned hooks the built-ins consult; the owner wires them once.
     /// </summary>
     internal ExpressionHostPolicy Policy => _policy;
+
+    /// <summary>
+    /// The movement keys a macro holds. The setmotion command and the
+    /// setmotion[] expression share it, so either can release what the other
+    /// pressed.
+    /// </summary>
+    internal HeldMotions HeldMotions { get; }
 
     internal ExpressionFunctionRegistry Registry => _functions;
     public IReadOnlyCollection<ExpressionFunction> Functions => _functions.Functions;

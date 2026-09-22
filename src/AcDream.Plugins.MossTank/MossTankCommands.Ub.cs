@@ -1,4 +1,5 @@
 using System.Globalization;
+using System.Text.RegularExpressions;
 using AcDream.Plugin.Abstractions;
 using AcDream.Plugins.MossTank.Expressions;
 
@@ -167,6 +168,37 @@ internal sealed partial class MossTankPanel
         WriteVtank("/vt commands (documented): "
             + string.Join(", ", UbCommandHelp.Entries.Select(entry => entry.Name)));
         WriteVtank("For help with a specific command, use /vt help [command].");
+    }
+
+    // ── /vt setmotion ───────────────────────────────────────────────────
+
+    [GeneratedRegex(
+        @"^(?<motion>\w.+) (?<state>[01])$",
+        RegexOptions.IgnoreCase | RegexOptions.CultureInvariant)]
+    private static partial Regex SetMotionPattern();
+
+    /// <summary>
+    /// <c>/vt setmotion &lt;motion&gt; &lt;0|1&gt;</c>: presses or releases
+    /// one movement key and leaves it that way, through the same held keys
+    /// the <c>setmotion[]</c> expression uses.
+    /// </summary>
+    private void HandleSetMotionCommand(string arguments)
+    {
+        Match match = SetMotionPattern().Match(arguments.Trim());
+        if (!match.Success)
+        {
+            WriteVtank("Bad command syntax");
+            WriteVtank("Usage: " + HeldMotions.Usage);
+            return;
+        }
+        string name = match.Groups["motion"].Value;
+        if (!HeldMotions.TryParse(name, out HeldMotion motion))
+        {
+            WriteVtank(
+                $"Invalid option ({name}). Valid values are: {HeldMotions.ValidNames}");
+            return;
+        }
+        _expressions.HeldMotions.Set(motion, match.Groups["state"].Value == "1");
     }
 
     // ── /vt ig ──────────────────────────────────────────────────────────

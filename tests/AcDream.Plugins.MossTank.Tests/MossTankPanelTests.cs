@@ -10350,9 +10350,20 @@ public sealed partial class MossTankPanelTests
         : IAutomationSurface, ICharacterInfo, ISpellCatalog, IMagicCommands,
           IPluginChat, IItemAutomation, INavigationAutomation,
           IWorldObjectAutomation, IRecoveryAutomation, IEnchantmentAutomation,
-          ICombatAutomation, ILoginAutomation
+          ICombatAutomation, ILoginAutomation, IDialogAutomation
     {
         public ILoginAutomation Login => this;
+
+        public IDialogAutomation Dialogs => this;
+
+        /// <summary>The confirmations answered, in order, and how.</summary>
+        public List<(uint ContextId, bool Accept)> Answered { get; } = [];
+
+        bool IDialogAutomation.Answer(uint contextId, bool accept)
+        {
+            Answered.Add((contextId, accept));
+            return true;
+        }
 
         /// <summary>
         /// The account's characters as the client last heard them, in the
@@ -11419,6 +11430,8 @@ public sealed partial class MossTankPanelTests
 
     private sealed class FakeEvents : IEvents
     {
+        private Action<PluginConfirmation>? _confirmation;
+
         public event Action<WorldEntitySnapshot> EntitySpawned
         {
             add { }
@@ -11430,6 +11443,19 @@ public sealed partial class MossTankPanelTests
             add { }
             remove { }
         }
+
+        public event Action<PluginConfirmation> ConfirmationRequested
+        {
+            add => _confirmation += value;
+            remove => _confirmation -= value;
+        }
+
+        /// <summary>How many handlers are listening for confirmations.</summary>
+        public int ConfirmationListenerCount =>
+            _confirmation?.GetInvocationList().Length ?? 0;
+
+        public void RaiseConfirmation(PluginConfirmation confirmation) =>
+            _confirmation?.Invoke(confirmation);
     }
 
     private sealed class FakeSelection : ISelectionService

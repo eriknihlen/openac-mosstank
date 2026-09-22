@@ -10,10 +10,16 @@ internal sealed partial class MossTankPanel
     private static readonly string[] VtankHelp =
     [
         "MossTank /vt — profiles: settings nav loot meta opt testitem propertydump addnavpt refresh getdb addnavjump addnavcheckpoint",
-        "MossTank /vt — actions: start stop forcebuff cancelforcebuff setmetastate fakedeath deathrestore deletemonster reverseroute reverseroutequery equipitemsfor equip mexec echo tapjump jump face setattackbar count login give autovendor vendor xp",
+        "MossTank /vt — actions: start stop forcebuff cancelforcebuff setmetastate fakedeath deathrestore deletemonster reverseroute reverseroutequery equipitemsfor equip mexec echo tapjump jump face setattackbar setmotion clearmotion prepclick count login give autovendor vendor xp",
         "MossTank /vt — game info: dumpspells dumpspecies dumpmats dumpskills",
         "MossTank /vt — debug: log testmonster lockdump dumptracker clearlocks clearbusy listmonstervariables dumpmetavars listmetafunctions metafunchelp fakeimp pscount testspell testpet",
     ];
+
+    /// <summary>The macro's own command word.</summary>
+    internal const string VtankVerb = "vt";
+
+    /// <summary>The second command word, the one UtilityBelt metas type.</summary>
+    internal const string UbVerb = "ub";
 
     private readonly HashSet<string> _commandLogTypes =
         new(StringComparer.OrdinalIgnoreCase);
@@ -66,10 +72,22 @@ internal sealed partial class MossTankPanel
     private bool _commandPortalState;
     private int _commandPortalCount;
 
+    /// <summary>
+    /// Runs one line typed under either verb, <c>/vt</c> or <c>/ub</c>: the
+    /// two answer to the same commands, so a meta written for either runs
+    /// unchanged. Only a bare verb differs: <c>/vt</c> alone prints the help,
+    /// <c>/ub</c> alone the compatibility line, as <c>/vt ub</c> does.
+    /// </summary>
     internal void ExecuteVtankCommand(PluginCommand command)
     {
         try
         {
+            if (command.Verb.Equals(UbVerb, StringComparison.OrdinalIgnoreCase)
+                && string.IsNullOrWhiteSpace(command.Arguments))
+            {
+                WriteUbVersion();
+                return;
+            }
             ExecuteVtankCommandCore(command.Arguments);
         }
         catch (Exception error)
@@ -250,6 +268,15 @@ internal sealed partial class MossTankPanel
                 return;
             case "face":
                 HandleFaceCommand(arguments);
+                return;
+            case "setmotion":
+                HandleSetMotionCommand(arguments);
+                return;
+            case "clearmotion":
+                _expressions.HeldMotions.Clear();
+                return;
+            case "prepclick":
+                _prepClick.Command(arguments);
                 return;
             case "addnavjump":
                 HandleJumpCommand(arguments, addToRoute: true);
@@ -1608,6 +1635,8 @@ internal sealed partial class MossTankPanel
         // A line scheduled before the session ended must not arrive after it:
         // the character it was typed for is no longer the one standing there.
         _delayedCommands.Clear();
+        _prepClick.Reset();
+        _expressions.HeldMotions.Reset();
     }
 
     private void WriteVtank(string text) =>
