@@ -1119,6 +1119,59 @@ public sealed partial class MossTankPanelTests
         Assert.NotEmpty(panel.RouteRows);
     }
 
+    /// <summary>
+    /// A route a meta carries inside itself shows by its name in the route
+    /// selector and is never written to the route file that was selected
+    /// before it; loading that file again gets the author's route back.
+    /// Mutation: save the embedded route to the selected profile and the
+    /// circuit comes back as the one-point embedded route.
+    /// </summary>
+    [Fact]
+    public void AnEmbeddedRouteShowsByNameAndNeverOverwritesTheSelectedRouteFile()
+    {
+        var storage = new MemoryStorage();
+        storage.Text["mosstank/navs/Circuit.nav"] = File.ReadAllText(Path.Combine(
+            AppContext.BaseDirectory, "Fixtures", "vtank", "nav", "nav_ab.nav"));
+        storage.Text["mosstank/metas/Stipend.af"] =
+            "STATE: {Default} ~~ {\r\n"
+            + "\tIF:\tAlways\r\n"
+            + "\t\tDO:\tDoAll\r\n"
+            + "\t\t\t\tEmbedNav nav0__stipend_nav {stipend.nav}\r\n"
+            + "\t\t\t\tSetState {Walk}\r\n"
+            + "STATE: {Walk} ~~ {\r\n"
+            + "\tIF:\tNever\r\n"
+            + "\t\tDO:\tNone\r\n"
+            + "NAV: nav0__stipend_nav once ~~ {\r\n"
+            + "\tpnt 47.1 26.1 0.2\r\n";
+        var panel = new MossTankPanel(new FakeHost(
+            new FakeAutomation { Name = "Barris", WorldName = "Coldeve" }, storage));
+        Command(panel, "nav load Circuit");
+        int circuitPoints = panel.RouteRows.Count;
+        Assert.True(circuitPoints > 1);
+
+        Command(panel, "meta load Stipend");
+        panel.ToggleMeta();
+        panel.ToggleCombat();
+        var before = new Dictionary<string, string>(storage.Text);
+        panel.OnTick(0.3d);
+
+        Assert.Equal("Walk", panel.MetaState);
+        Assert.Equal("stipend.nav (embedded)", panel.SelectedRouteProfile);
+        Assert.Contains("stipend.nav (embedded)", panel.RouteProfileNames);
+        Assert.Single(panel.RouteRows);
+        foreach ((string key, string text) in storage.Text)
+        {
+            if (key.StartsWith("mosstank/navs/", StringComparison.Ordinal))
+                Assert.Equal(before.GetValueOrDefault(key), text);
+        }
+
+        Command(panel, "nav load Circuit");
+
+        Assert.Equal("Circuit", panel.SelectedRouteProfile);
+        Assert.DoesNotContain("stipend.nav (embedded)", panel.RouteProfileNames);
+        Assert.Equal(circuitPoints, panel.RouteRows.Count);
+    }
+
     [Theory]
     [InlineData("meta load Dropped")]
     [InlineData("meta load Dropped.met")]

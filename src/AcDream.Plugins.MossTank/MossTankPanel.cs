@@ -234,6 +234,9 @@ internal sealed partial class MossTankPanel : IBuffRuleHost, IDisposable
     private int _selectedRouteWaypoint;
     private string _routeProfileNameDraft = string.Empty;
     private string _routeNotice = "Add the current position or a selected object.";
+    // The selector label of a route a meta loaded from inside itself; null
+    // while the route in memory is the selected profile's.
+    private string? _embeddedRouteLabel;
     private string _routeChatDraft = "/ls";
     private int _routePauseSeconds = 5;
 
@@ -1131,8 +1134,10 @@ internal sealed partial class MossTankPanel : IBuffRuleHost, IDisposable
     }
     public string SelectedRouteRecall => RouteWaypoint.RecallShortCaption(_routeRecallKind);
     public IReadOnlyList<string> RouteProfileNames =>
-        _routeProfiles.AvailableNames;
-    public string SelectedRouteProfile => _routeProfiles.Selected;
+        _embeddedRouteLabel is null
+            ? _routeProfiles.AvailableNames
+            : [_embeddedRouteLabel, .. _routeProfiles.AvailableNames];
+    public string SelectedRouteProfile => _embeddedRouteLabel ?? _routeProfiles.Selected;
     public string RouteProfileNameDraft => _routeProfileNameDraft;
     public string RouteNotice => _routeNotice;
     public string RouteChatDraft => _routeChatDraft;
@@ -2765,6 +2770,8 @@ internal sealed partial class MossTankPanel : IBuffRuleHost, IDisposable
 
     private void SelectRouteProfileCore(string name)
     {
+        if (string.Equals(name, _embeddedRouteLabel, StringComparison.Ordinal))
+            return;
         SaveRouteProfile();
         if (!_routeProfiles.Select(name))
         {
@@ -2799,6 +2806,7 @@ internal sealed partial class MossTankPanel : IBuffRuleHost, IDisposable
 
     private void ClearRouteProfileCore()
     {
+        _embeddedRouteLabel = null;
         _routeProfiles.ClearCurrent(_navigationSettings);
         _navigation.Reset();
         RefreshRouteEditor();
@@ -2841,6 +2849,7 @@ internal sealed partial class MossTankPanel : IBuffRuleHost, IDisposable
             RefreshRouteEditor();
             return false;
         }
+        _embeddedRouteLabel = null;
         if (_initialized)
             ApplyPersistedOptionOverrides();
         _navigation.Reset();
@@ -2848,8 +2857,17 @@ internal sealed partial class MossTankPanel : IBuffRuleHost, IDisposable
         return true;
     }
 
-    private void SaveRouteProfile() =>
-        _routeProfiles.SaveCurrent(_navigationSettings);
+    /// <summary>
+    /// Write the route in memory to the selected profile, unless the route in
+    /// memory is one a meta carries inside itself. That route belongs to the
+    /// meta, not to any file: saving it wrote the meta's route over the
+    /// selected profile, which then loaded in place of the author's route.
+    /// </summary>
+    private void SaveRouteProfile()
+    {
+        if (_embeddedRouteLabel is null)
+            _routeProfiles.SaveCurrent(_navigationSettings);
+    }
 
     private void SelectTab(TankTab tab)
     {
@@ -3741,7 +3759,7 @@ internal sealed partial class MossTankPanel : IBuffRuleHost, IDisposable
         return nearest;
     }
 
-    private void LoadEmbeddedNavigationRoute(NavigationSettings? route)
+    private void LoadEmbeddedNavigationRoute(NavigationSettings? route, string name)
     {
         _navigation.Reset();
         if (route is null)
@@ -3751,11 +3769,16 @@ internal sealed partial class MossTankPanel : IBuffRuleHost, IDisposable
             return;
         }
         VtankNavRouteSerializer.Apply(route, _navigationSettings);
-        _routeProfiles.SaveCurrent(_navigationSettings);
+        _embeddedRouteLabel = EmbeddedRouteLabel(name);
         _selectedRouteWaypoint = 0;
         RefreshRouteEditor();
-        _routeNotice = $"Loaded embedded route ({_navigationSettings.Waypoints.Count} points).";
+        _routeNotice =
+            $"Loaded {_embeddedRouteLabel} ({_navigationSettings.Waypoints.Count} points).";
     }
+
+    /// <summary>What the route selector shows for a route a meta carries.</summary>
+    internal static string EmbeddedRouteLabel(string name) =>
+        string.IsNullOrWhiteSpace(name) ? "(embedded)" : $"{name.Trim()} (embedded)";
 
     private int CountMonstersByPriority(int priority, double distance)
     {

@@ -130,7 +130,7 @@ internal sealed class MetaServices
         static () => double.PositiveInfinity;
     public Func<int, double, int> CountMonstersByPriority { get; init; } =
         static (_, _) => 0;
-    public Action<NavigationSettings?> LoadEmbeddedNavigationRoute { get; init; } = static _ => { };
+    public Action<NavigationSettings?, string> LoadEmbeddedNavigationRoute { get; init; } = static (_, _) => { };
     public Func<string, ExpressionValue> GetOption { get; init; } =
         static _ => ExpressionValue.Zero;
     public Func<string, ExpressionValue, bool> SetOption { get; init; } =
@@ -570,7 +570,7 @@ internal sealed class MetaEngine : IDisposable
                 }
                 return true;
             case MetaActionKind.LoadEmbeddedNavigationRoute:
-                _services.LoadEmbeddedNavigationRoute(action.EmbeddedRoute);
+                _services.LoadEmbeddedNavigationRoute(action.EmbeddedRoute, action.SecondaryText);
                 return true;
             case MetaActionKind.CallMetaState:
                 if (_callStack.Count >= MaximumCallDepth)
