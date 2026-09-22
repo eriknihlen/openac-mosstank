@@ -458,7 +458,7 @@ internal sealed partial class MossTankPanel : IBuffRuleHost, IDisposable
             _metaProfile,
             new MetaServices
             {
-                IsNavigationRouteEmpty = () => _navigationSettings.Waypoints.Count == 0,
+                IsNavigationRouteEmpty = () => _navigation.HasNothingLeftToWalk,
                 NeedsBuff = () => _buffRule.HasAnythingDue(),
                 DistanceFromAnyRoutePoint = DistanceFromAnyRoutePoint,
                 CountMonstersByPriority = CountMonstersByPriority,
@@ -3673,14 +3673,29 @@ internal sealed partial class MossTankPanel : IBuffRuleHost, IDisposable
         return false;
     }
 
-    private static string DescribeMetaCondition(MetaCondition condition) =>
+    /// <summary>
+    /// One line for a meta condition. A compound condition (all, any, not)
+    /// lists what it holds, so a rule reads as what it tests rather than as
+    /// "All" with nothing after it; a condition that carries no number shows
+    /// none.
+    /// </summary>
+    internal static string DescribeMetaCondition(MetaCondition condition) =>
         condition.Kind switch
         {
+            MetaConditionKind.All => Compound("All", condition.Children),
+            MetaConditionKind.Any => Compound("Any", condition.Children),
+            MetaConditionKind.Not => condition.Children.Count == 1
+                ? $"Not {DescribeMetaCondition(condition.Children[0])}"
+                : Compound("Not", condition.Children),
             MetaConditionKind.Expression => $"Expression: {condition.Text}",
             MetaConditionKind.ChatMessage or MetaConditionKind.ChatMessageCapture =>
                 $"{condition.Kind}: {condition.Text}",
             MetaConditionKind.Always or MetaConditionKind.Never
                 or MetaConditionKind.CharacterDeath
+                or MetaConditionKind.NavigationRouteEmpty
+                or MetaConditionKind.AnyVendorOpen or MetaConditionKind.VendorClosed
+                or MetaConditionKind.NeedToBuff
+                or MetaConditionKind.PortalspaceEntered or MetaConditionKind.PortalspaceExited
                 or MetaConditionKind.LoginComplete or MetaConditionKind.Logoff
                 or MetaConditionKind.PortalTransition or MetaConditionKind.ItemUseCompleted
                 or MetaConditionKind.ContainerOpened or MetaConditionKind.ContainerClosed
@@ -3689,8 +3704,20 @@ internal sealed partial class MossTankPanel : IBuffRuleHost, IDisposable
             _ => $"{condition.Kind} {condition.Number:0.###}",
         };
 
-    private static string DescribeMetaAction(MetaAction action) => action.Kind switch
+    private static string Compound(string name, List<MetaCondition> children) =>
+        children.Count == 0
+            ? name
+            : $"{name} ({string.Join("; ", children.Select(DescribeMetaCondition))})";
+
+    /// <summary>
+    /// One line for a meta action; an action that does several things lists
+    /// them in order.
+    /// </summary>
+    internal static string DescribeMetaAction(MetaAction action) => action.Kind switch
     {
+        MetaActionKind.All => action.Children.Count == 0
+            ? "All"
+            : $"All ({string.Join("; ", action.Children.Select(DescribeMetaAction))})",
         MetaActionKind.SetMetaState or MetaActionKind.CallMetaState
             or MetaActionKind.ChatCommand or MetaActionKind.ExpressionAction
             or MetaActionKind.ChatExpression => $"{action.Kind}: {action.Text}",

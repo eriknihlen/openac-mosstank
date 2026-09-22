@@ -471,6 +471,9 @@ public sealed class NavigationTests
             settings.Waypoints.Add(Waypoint(RouteWaypointType.Point, here));
         var controller = new NavigationController(new FakeHost(automation), settings);
 
+        // A meta's "navigation route empty" is false while points remain.
+        Assert.False(controller.HasNothingLeftToWalk);
+
         // Three arrivals walk the cursor off the end of the route.
         Assert.True(controller.Tick(0.05d, canAct: true));
         Assert.Equal(1, controller.CurrentWaypointIndex);
@@ -484,6 +487,10 @@ public sealed class NavigationTests
         Assert.False(controller.Tick(0.05d, canAct: true));
         Assert.Equal("Once route complete.", controller.Status);
         Assert.Equal(3, settings.Waypoints.Count);
+        // Seen live: a meta waiting on "navigation route empty" never moved
+        // on, because the finished route still held its points. Mutation:
+        // the point count alone as the answer turns this red.
+        Assert.True(controller.HasNothingLeftToWalk);
     }
 
     /// <summary>

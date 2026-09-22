@@ -582,6 +582,15 @@ internal sealed class NavigationController
     public string Status => _status;
 
     /// <summary>
+    /// Whether the route has nothing left to walk: no points at all, or a
+    /// once route that has run to its end. A once route keeps its points (so
+    /// its file is never rewritten short), so the point count alone cannot
+    /// answer this; a meta's "navigation route empty" asks this instead.
+    /// </summary>
+    public bool HasNothingLeftToWalk =>
+        _settings.Waypoints.Count == 0 || _onceComplete;
+
+    /// <summary>
     /// Why the door turn did what it did. It is deliberately NOT the route's
     /// status: that sentence is about a waypoint and carries a live distance,
     /// so a door reason borrowed from it differs on every pass and the
