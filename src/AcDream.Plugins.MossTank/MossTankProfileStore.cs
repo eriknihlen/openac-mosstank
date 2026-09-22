@@ -753,11 +753,7 @@ internal sealed class MossTankProfileStore
 
     private static string Sanitize(string value)
     {
-        char[] invalid = Path.GetInvalidFileNameChars();
-        var result = new System.Text.StringBuilder(value.Length);
-        foreach (char c in value)
-            result.Append(invalid.Contains(c) ? '_' : c);
-        return result.ToString();
+        return StorageLayout.PortableFileName(value);
     }
 
     private static string NormalizeName(string? name) => name?.Trim() ?? string.Empty;

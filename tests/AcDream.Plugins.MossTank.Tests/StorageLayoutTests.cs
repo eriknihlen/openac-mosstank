@@ -219,7 +219,7 @@ public sealed class StorageLayoutTests
         preparer.PrepareCharacter(storage, "Frostfell", "Acdream");
 
         string line = Assert.Single(log);
-        Assert.Contains("C:\\memory\\mosstank\\ub\\maps", line);
+        Assert.Contains(Path.Combine("C:\\memory", "mosstank", "ub", "maps"), line);
         Assert.Single(chat);
     }
 

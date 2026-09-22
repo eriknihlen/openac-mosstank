@@ -106,10 +106,27 @@ internal static class StorageLayout
     {
         if (string.IsNullOrWhiteSpace(value))
             return string.Empty;
-        char[] invalid = Path.GetInvalidFileNameChars();
+        return PortableFileName(value.Trim());
+    }
+
+    /// <summary>
+    /// A name with every character that some supported system refuses in a
+    /// file or folder name replaced by an underscore. The set is fixed rather
+    /// than asked of the host, so a name is spelled the same on every system
+    /// and a folder written on one can be copied to another: the Unix set is
+    /// only the slash and the null character, and a name that is legal there
+    /// can be one Windows cannot hold.
+    /// </summary>
+    internal static string PortableFileName(string value)
+    {
         var text = new System.Text.StringBuilder(value.Length);
-        foreach (char character in value.Trim())
-            text.Append(invalid.Contains(character) ? '_' : character);
+        foreach (char character in value)
+            text.Append(IsRefusedAnywhere(character) ? '_' : character);
         return text.ToString();
     }
+
+    private static bool IsRefusedAnywhere(char character) =>
+        character < ' '
+        || character is '"' or '<' or '>' or '|' or ':' or '*' or '?'
+            or '\\' or '/';
 }

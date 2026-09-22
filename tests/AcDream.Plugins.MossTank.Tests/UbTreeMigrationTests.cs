@@ -130,8 +130,10 @@ public sealed class UbTreeMigrationTests
         string line = Assert.IsType<string>(result.Describe("C:\\memory"));
 
         Assert.Equal(
-            "MossTank copied 2 UtilityBelt file(s) into C:\\memory\\mosstank\\ub "
-            + "(the originals were left where they were).",
+            // The line names the folder the way this system writes paths.
+            "MossTank copied 2 UtilityBelt file(s) into "
+            + Path.Combine("C:\\memory", "mosstank", "ub")
+            + " (the originals were left where they were).",
             line);
     }
 
