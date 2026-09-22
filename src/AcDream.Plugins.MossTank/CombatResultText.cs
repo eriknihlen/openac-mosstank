@@ -1,0 +1,245 @@
+using System.Globalization;
+using System.Text.RegularExpressions;
+
+namespace AcDream.Plugins.MossTank;
+
+/// <summary>
+/// The client's own log-text types the combat reader keys on. The same
+/// sentence typed by a player in local chat carries a different one, so these
+/// are what tell the character's own combat log from anyone else's words.
+/// </summary>
+internal static class CombatLogTextType
+{
+    /// <summary>The plain type: the miss notice and the kill sentence.</summary>
+    public const uint Default = 0x00u;
+
+    /// <summary>The character's own blow: "you hit X for N points".</summary>
+    public const uint OwnCombat = 0x16u;
+
+    /// <summary>A spell's own result line.</summary>
+    public const uint Magic = 0x07u;
+
+    /// <summary>
+    /// The spoken words of a spell being cast. The server logs a caster's own
+    /// gesture words under this type, which is what tells them apart from the
+    /// same words typed into local chat.
+    /// </summary>
+    public const uint Spellcasting = 0x11u;
+}
+
+internal enum CombatResultTextClass
+{
+    None,
+
+    Fail,
+
+    PermanentFail,
+
+    Success,
+
+    Kill,
+}
+
+internal static class CombatResultText
+{
+    private const RegexOptions Options =
+        RegexOptions.CultureInvariant | RegexOptions.ExplicitCapture;
+
+    /// <summary>Plain fail/resist.</summary>
+    private static readonly Regex[] FailPatterns =
+    [
+        new("^Your spell fizzled.$", Options),
+        new("^(?<targetname>.*) resists your spell$", Options),
+    ];
+
+    /// <summary>Permanent fail.</summary>
+    private static readonly Regex[] PermanentFailPatterns =
+    [
+        new("^Target is out of range$", Options),
+        new(
+            "^You fail to affect (?<targetname>.*) because you are not a player killer!$",
+            Options),
+        new(
+            "^You fail to affect (?<targetname>.*) because .* is not a player killer!$",
+            Options),
+        new(
+            "^You fail to affect (?<targetname>.*) because beneficial spells do not affect .*!$",
+            Options),
+        new("^(?<targetname>.*) is an invalid target.$", Options),
+    ];
+
+    /// <summary>Success.</summary>
+    private static readonly Regex[] SuccessPatterns =
+    [
+        new("^You cast (?<spellname>.*) on (?<targetname>.*), refreshing .*$", Options),
+        new("^You cast (?<spellname>.*) on (?<targetname>.*), surpassing .*$", Options),
+        new(
+            "^You cast (?<spellname>.*) on (?<targetname>.*), but it is surpassed by .*$",
+            Options),
+        new("^You cast (?<spellname>.*) on (?<targetname>.*)$", Options),
+        new("^You .* due to casting (?<spellname>.*) on (?<targetname>.*)$", Options),
+        new("^With (?<spellname>.*) you .* from (?<targetname>.*)\\.$", Options),
+        new("^With (?<spellname>.*) you .* to (?<targetname>.*)\\.$", Options),
+        new(
+            "^(Critical hit! )?(Sneak Attack! )?You .* .* for .* points with (?<spellname>.*)\\.$",
+            Options),
+        new("^You cast (?<spellname>.*) and restore .* points of your .*\\.$", Options),
+        new(
+            "^You cast (?<spellname>.*) on yourself and lose .* points of .* and also gain .* points of .*$",
+            Options),
+        new("^You have been teleported.$", Options),
+        new("^You cast (?<spellname>.*) on (?<targetname>.*) and dispel: .*\\.$", Options),
+        new(
+            "^You cast (?<spellname>.*) on (?<targetname>.*), but the dispel fails.$",
+            Options),
+    ];
+
+    /// <summary>Kill.</summary>
+    private static readonly Regex[] KillPatterns =
+    [
+        new("^You knock (?<targetname>.*) into next Morningthaw!$", Options),
+        new("^You obliterate (?<targetname>.*)!$", Options),
+        new("^(?<targetname>.*) is utterly destroyed by your attack!$", Options),
+        new("^(?<targetname>.*) catches your attack, with dire consequences!$", Options),
+        new(
+            "^The deadly force of your attack is so strong that (?<targetname>.*)'s ancestors feel it!$",
+            Options),
+        new("^You smite (?<targetname>.*) mightily!$", Options),
+        new(
+            "^You slay (?<targetname>.*) viciously enough to impart death several times over!$",
+            Options),
+        new("^You killed (?<targetname>.*)!$", Options),
+        new("^(?<targetname>.*) is torn to ribbons by your assault!$", Options),
+        new("^You cleave (?<targetname>.*) in twain!$", Options),
+        new("^Your killing blow nearly turns (?<targetname>.*) inside-out!$", Options),
+        new("^You split (?<targetname>.*) apart!$", Options),
+        new(
+            "^The thunder of crushing (?<targetname>.*) is followed by the deafening silence of death!$",
+            Options),
+        new("^You beat (?<targetname>.*) to a lifeless pulp!$", Options),
+        new("^(?<targetname>.*) is shattered by your assault!$", Options),
+        new(
+            "^You flatten (?<targetname>.*)'s body with the force of your assault!$",
+            Options),
+        new("^(?<targetname>.*) is fatally punctured!$", Options),
+        new("^(?<targetname>.*)'s perforated corpse falls before you!$", Options),
+        new("^You run (?<targetname>.*) through!$", Options),
+        new(
+            "^(?<targetname>.*)'s death is preceded by a sharp, stabbing pain!$",
+            Options),
+        new("^You bring (?<targetname>.*) to a fiery end!$", Options),
+        new("^(?<targetname>.*) is incinerated by your assault!$", Options),
+        new("^(?<targetname>.*) is reduced to cinders!$", Options),
+        new("^(?<targetname>.*)'s seared corpse smolders before you!$", Options),
+        new(
+            "^Your lightning coruscates over (?<targetname>.*)'s mortal remains!$",
+            Options),
+        new("^Blistered by lightning, (?<targetname>.*) falls!$", Options),
+        new("^Electricity tears (?<targetname>.*) apart!$", Options),
+        new("^Your assault sends (?<targetname>.*) to an icy death!$", Options),
+        new("^Your attack stops (?<targetname>.*) cold!$", Options),
+        new("^(?<targetname>.*) suffers a frozen fate!$", Options),
+        new("^(?<targetname>.*)'s last strength dissolves before you!$", Options),
+        new("^(?<targetname>.*) is liquified by your attack!$", Options),
+        new("^You reduce (?<targetname>.*) to a sizzling, oozing mass!$", Options),
+        new("^You reduce (?<targetname>.*) to a drained, twisted corpse!$", Options),
+        new("^(?<targetname>.*) is dessicated by your attack!$", Options),
+        new("^(?<targetname>.*)'s last strength withers before you!$", Options),
+    ];
+
+    /// <summary>
+    /// The one line that says a shot never reached its target: it hit the
+    /// world instead. This is the ONLY thing that advances the give-up counter
+    /// for a physical attack — an ordinary miss or evade does not.
+    /// </summary>
+    public const string MissileHitEnvironment =
+        "Your missile attack hit the environment.";
+
+    /// <summary>
+    /// A damage report: the swing reached the monster, so the give-up counter
+    /// starts over.
+    /// </summary>
+    private static readonly Regex DamageReportPattern = new(
+        @"^(Critical hit\!)?[ ]*You .* for .* point(s)? of .*\!$",
+        Options);
+
+    public static bool IsDamageReport(string text) =>
+        !string.IsNullOrEmpty(text) && DamageReportPattern.IsMatch(text);
+
+    /// <summary>The spell damage figure, as the reference reads it.</summary>
+    private static readonly Regex SpellDamagePattern = new(
+        "(?:You .* for )(?<points>[0-9]+)(?: points with .*)",
+        Options);
+
+    /// <summary>
+    /// How much a spell of ours just took off a monster, read out of the
+    /// sentence that reports it.
+    /// </summary>
+    public static bool TryReadSpellDamage(string? text, out int points)
+    {
+        points = 0;
+        if (string.IsNullOrEmpty(text))
+            return false;
+        Match match = SpellDamagePattern.Match(text);
+        return match.Success
+            && int.TryParse(
+                match.Groups["points"].Value,
+                NumberStyles.Integer,
+                CultureInfo.InvariantCulture,
+                out points);
+    }
+
+    /// <summary>
+    /// True when the line is one of the killing-blow sentences, with the slain
+    /// creature's name in <paramref name="targetName"/> when the sentence
+    /// names it.
+    /// </summary>
+    public static bool IsKillingBlow(string text, out string targetName)
+    {
+        string spellName = string.Empty;
+        targetName = string.Empty;
+        return !string.IsNullOrEmpty(text)
+            && TryMatch(KillPatterns, text, ref spellName, ref targetName);
+    }
+
+    public static CombatResultTextClass Classify(
+        string text,
+        out string spellName,
+        out string targetName)
+    {
+        spellName = string.Empty;
+        targetName = string.Empty;
+        if (string.IsNullOrEmpty(text))
+            return CombatResultTextClass.None;
+
+        if (TryMatch(KillPatterns, text, ref spellName, ref targetName))
+            return CombatResultTextClass.Kill;
+        if (TryMatch(PermanentFailPatterns, text, ref spellName, ref targetName))
+            return CombatResultTextClass.PermanentFail;
+        if (TryMatch(FailPatterns, text, ref spellName, ref targetName))
+            return CombatResultTextClass.Fail;
+        if (TryMatch(SuccessPatterns, text, ref spellName, ref targetName))
+            return CombatResultTextClass.Success;
+        return CombatResultTextClass.None;
+    }
+
+    private static bool TryMatch(
+        Regex[] patterns,
+        string text,
+        ref string spellName,
+        ref string targetName)
+    {
+        foreach (Regex pattern in patterns)
+        {
+            Match match = pattern.Match(text);
+            if (!match.Success)
+                continue;
+            Group spell = match.Groups["spellname"];
+            Group target = match.Groups["targetname"];
+            spellName = spell.Success ? spell.Value : string.Empty;
+            targetName = target.Success ? target.Value : string.Empty;
+            return true;
+        }
+        return false;
+    }
+}

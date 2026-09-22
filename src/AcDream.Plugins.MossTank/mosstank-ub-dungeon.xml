@@ -1,0 +1,42 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  The dungeon map's controls. The map itself is a canvas the host paints
+  under every window, at its own place near the top left; this strip is a
+  window of its own, authored below the main window with the editors so
+  it never opens over the page it was opened from. The canvas takes the
+  pointer too: a drag pans, a shift-drag turns and the wheel zooms at the
+  cursor; the buttons here make the same moves in fixed steps, and the
+  slider picks the storey drawn, which also stops the map following you
+  until Follow is pressed again.
+-->
+<panel x="253" y="405" w="320" h="96" title="MossTank Dungeon"
+       visible="{UbDungeonVisible}" resize="none">
+  <button x="4" y="22" w="76" h="20" text="{UbDungeonFollowText}" onclick="{ToggleUbDungeonFollow}"
+          tooltip="Keep the map centred on you and turned the way you face." />
+  <button x="84" y="22" w="24" h="20" text="+" onclick="{UbDungeonZoomIn}"
+          tooltip="Zoom in a step." />
+  <button x="110" y="22" w="24" h="20" text="-" onclick="{UbDungeonZoomOut}"
+          tooltip="Zoom out a step." />
+  <button x="140" y="22" w="24" h="20" text="&lt;" onclick="{UbDungeonPanLeft}"
+          tooltip="Slide the map to show what lies to the left." />
+  <button x="166" y="22" w="24" h="20" text="&gt;" onclick="{UbDungeonPanRight}"
+          tooltip="Slide the map to show what lies to the right." />
+  <button x="192" y="22" w="24" h="20" text="^" onclick="{UbDungeonPanUp}"
+          tooltip="Slide the map to show what lies ahead." />
+  <button x="218" y="22" w="24" h="20" text="v" onclick="{UbDungeonPanDown}"
+          tooltip="Slide the map to show what lies behind." />
+  <button x="262" y="22" w="54" h="20" text="Close" onclick="{HideUbDungeon}"
+          tooltip="Hide this window; the map stays unless its draw-when-closed row is off." />
+  <button x="4" y="46" w="76" h="20" text="{UbDungeonLayersText}" onclick="{ToggleUbDungeonLayers}"
+          tooltip="Draw every storey plainly, or only the ones near you, dimmed by distance." />
+  <button x="84" y="46" w="24" h="20" text="(" onclick="{UbDungeonTurnLeft}"
+          tooltip="Turn the map anticlockwise a step." />
+  <button x="110" y="46" w="24" h="20" text=")" onclick="{UbDungeonTurnRight}"
+          tooltip="Turn the map clockwise a step." />
+  <label x="140" y="48" w="22" h="16" text="Z" color="#FFE8DEC3" />
+  <slider x="166" y="46" w="150" h="20" min="0" max="100"
+          value="{UbDungeonHeight}" onchange="{SetUbDungeonHeight}"
+          tooltip="Which storey is drawn, from the lowest to the highest; stops following you." />
+  <label x="4" y="70" w="312" h="16" text="{UbDungeonStatusText}" color="#FFC7B98F"
+         tooltip="Which dungeon the map is of, and how much of it you have walked." />
+</panel>

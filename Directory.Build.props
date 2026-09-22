@@ -1,0 +1,35 @@
+<Project>
+  <PropertyGroup>
+    <!-- Repository-wide language and warning policy. Project files only override
+         these values when a target has a documented, target-specific need. -->
+    <TargetFramework>net10.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <LangVersion>latest</LangVersion>
+    <AnalysisLevel>latest</AnalysisLevel>
+    <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
+    <Deterministic>true</Deterministic>
+
+    <!-- The plugin's own version line, independent of any client release. It is
+         the release tag minus the leading `v`, and `plugin.json` has to name the
+         same number: MossTankManifestTests fails when the two drift. -->
+    <Version>0.2.5</Version>
+
+    <!-- The plugin reaches the plugin contract as a compile-only package, never
+         as a project reference into a client checkout: the host supplies the
+         contract assembly at runtime, and a second copy beside the plugin would
+         hand it types the host cannot accept.
+
+         PluginApiPackageVersion is the one place the contract version is named.
+         It must match the `AcDream.Plugin.Abstractions` .nupkg that CI drops in
+         ./packages-local, which comes from the OpenAC release named by
+         OPENAC_API_RELEASE_TAG in .github/workflows/ci.yml. -->
+    <UsePluginApiPackage>true</UsePluginApiPackage>
+    <PluginApiPackageVersion>0.1.15</PluginApiPackageVersion>
+
+    <!-- No lock files. Restore resolves the contract from a folder feed whose
+         contents change with the contract release, which a committed lock file
+         would only ever fight. -->
+    <RestorePackagesWithLockFile>false</RestorePackagesWithLockFile>
+  </PropertyGroup>
+</Project>

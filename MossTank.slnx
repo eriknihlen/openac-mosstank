@@ -1,0 +1,8 @@
+<Solution>
+  <Folder Name="/src/">
+    <Project Path="src/AcDream.Plugins.MossTank/AcDream.Plugins.MossTank.csproj" />
+  </Folder>
+  <Folder Name="/tests/">
+    <Project Path="tests/AcDream.Plugins.MossTank.Tests/AcDream.Plugins.MossTank.Tests.csproj" />
+  </Folder>
+</Solution>

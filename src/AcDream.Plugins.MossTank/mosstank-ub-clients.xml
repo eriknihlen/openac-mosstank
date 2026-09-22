@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  The clients readout's window. The readout itself is a canvas the host
+  paints under every window, at its own place near the top left; this
+  window lists the same characters, this one first, so one can be
+  selected without the pointer. Which other characters are listed is the
+  NetworkUI.SelectedTag row on the UB page. Authored below the main
+  window, beside the editors, so it never opens over the page it was
+  opened from.
+-->
+<panel x="660" y="405" w="268" h="200" title="MossTank Clients"
+       visible="{UbClientsVisible}" resize="none">
+  <label x="4" y="22" w="260" h="16" text="{UbClientsTagText}" color="#FFE8DEC3"
+         tooltip="Which tag's characters are listed; the NetworkUI.SelectedTag setting." />
+  <list x="4" y="40" w="260" h="120" rowheight="17"
+        items="{UbClientNames}" selected="{SelectedUbClientIndex}"
+        onchange="{SelectUbClient}"
+        tooltip="Click a character to select it." />
+  <label x="4" y="162" w="200" h="16" text="{UbClientsNotice}" color="#FFC7B98F" />
+  <button x="210" y="176" w="54" h="20" text="Close" onclick="{HideUbClients}"
+          tooltip="Close this window. The readout stays if its setting says so." />
+</panel>

@@ -1,0 +1,400 @@
+using AcDream.Plugin.Abstractions;
+
+namespace AcDream.Plugins.MossTank;
+
+internal readonly record struct DebuffIdentity(
+    MonsterActionFlags Flag,
+    MonsterDamageType DamageType);
+
+internal static class DebuffSpellCatalog
+{
+    private static readonly MonsterActionFlags[] Columns =
+    [
+        MonsterActionFlags.Fester,
+        MonsterActionFlags.Broadside,
+        MonsterActionFlags.GravityWell,
+        MonsterActionFlags.Imperil,
+        MonsterActionFlags.Yield,
+        MonsterActionFlags.Vulnerability,
+        MonsterActionFlags.WeakeningCurse,
+        MonsterActionFlags.FesteringCurse,
+        MonsterActionFlags.Corruption,
+        MonsterActionFlags.DestructiveCurse,
+        MonsterActionFlags.Corrosion,
+    ];
+
+    internal static HashSet<DebuffIdentity> Required(MonsterRuleActions actions)
+    {
+        var required = new HashSet<DebuffIdentity>();
+        foreach (MonsterActionFlags flag in Columns)
+        {
+            if ((actions.Flags & flag) == 0)
+                continue;
+            MonsterDamageType damage = flag == MonsterActionFlags.Vulnerability
+                ? actions.DamageType
+                : MonsterDamageType.Auto;
+            required.Add(new DebuffIdentity(flag, damage));
+        }
+
+        // The extra vulnerability is not gated on the vulnerability column;
+        // it stands on its own. One rule decides whether the step exists.
+        if (CombatDebuffChain.HasExtraVulnerability(actions.ExtraVulnerability))
+        {
+            required.Add(new DebuffIdentity(
+                MonsterActionFlags.Vulnerability,
+                actions.ExtraVulnerability));
+        }
+        return required;
+    }
+
+    internal static bool TryClassify(
+        PluginSpellInfo spell,
+        out DebuffIdentity identity,
+        out int order)
+    {
+        string name = Normalize(spell.Name);
+        MonsterActionFlags flag;
+        MonsterDamageType damage = MonsterDamageType.Auto;
+
+        if (name.StartsWith("Fester Other", StringComparison.OrdinalIgnoreCase))
+            flag = MonsterActionFlags.Fester;
+        else if (name.StartsWith("Broadside of a Barn", StringComparison.OrdinalIgnoreCase))
+            flag = MonsterActionFlags.Broadside;
+        else if (name.StartsWith("Gravity Well", StringComparison.OrdinalIgnoreCase))
+            flag = MonsterActionFlags.GravityWell;
+        else if (name.StartsWith("Imperil Other", StringComparison.OrdinalIgnoreCase))
+            flag = MonsterActionFlags.Imperil;
+        else if (name.StartsWith("Magic Yield Other", StringComparison.OrdinalIgnoreCase))
+            flag = MonsterActionFlags.Yield;
+        // A creature vulnerability is the "<element> Vulnerability Other"
+        // family and nothing else. A Lure of the same element is an ITEM
+        // enchantment - it sharpens a weapon or a shield, it is not a
+        // creature enchantment - so the server refuses every one aimed at a
+        // monster ("You fail to affect ... "). It is not a weaker
+        // vulnerability, it is a different spell for a different target.
+        else if (name.Contains(" Vulnerability Other", StringComparison.OrdinalIgnoreCase)
+            || name.StartsWith("Vulnerability Other", StringComparison.OrdinalIgnoreCase))
+        {
+            flag = MonsterActionFlags.Vulnerability;
+            damage = DamageFromName(name);
+        }
+        else if (name.StartsWith("Weakening Curse", StringComparison.OrdinalIgnoreCase))
+            flag = MonsterActionFlags.WeakeningCurse;
+        else if (name.StartsWith("Festering Curse", StringComparison.OrdinalIgnoreCase))
+            flag = MonsterActionFlags.FesteringCurse;
+        else if (name.StartsWith("Corruption", StringComparison.OrdinalIgnoreCase))
+            flag = MonsterActionFlags.Corruption;
+        else if (name.StartsWith("Destructive Curse", StringComparison.OrdinalIgnoreCase))
+            flag = MonsterActionFlags.DestructiveCurse;
+        else if (name.StartsWith("Corrosion", StringComparison.OrdinalIgnoreCase))
+            flag = MonsterActionFlags.Corrosion;
+        else
+        {
+            identity = default;
+            order = int.MaxValue;
+            return false;
+        }
+
+        order = CombatDebuffChain.OrderOf(flag);
+        identity = new DebuffIdentity(flag, damage);
+        return true;
+    }
+
+    private static string Normalize(string name)
+    {
+        const string incantation = "Incantation of ";
+        return name.StartsWith(incantation, StringComparison.OrdinalIgnoreCase)
+            ? name[incantation.Length..]
+            : name;
+    }
+
+    internal static MonsterDamageType DamageFromName(string name)
+    {
+        if (name.Contains("Blade", StringComparison.OrdinalIgnoreCase))
+            return MonsterDamageType.Slash;
+        if (name.Contains("Piercing", StringComparison.OrdinalIgnoreCase))
+            return MonsterDamageType.Pierce;
+        if (name.Contains("Bludgeon", StringComparison.OrdinalIgnoreCase))
+            return MonsterDamageType.Bludgeon;
+        if (name.Contains("Cold", StringComparison.OrdinalIgnoreCase)
+            || name.Contains("Frost", StringComparison.OrdinalIgnoreCase))
+            return MonsterDamageType.Cold;
+        if (name.Contains("Fire", StringComparison.OrdinalIgnoreCase)
+            || name.Contains("Flame", StringComparison.OrdinalIgnoreCase))
+            return MonsterDamageType.Fire;
+        if (name.Contains("Acid", StringComparison.OrdinalIgnoreCase))
+            return MonsterDamageType.Acid;
+        if (name.Contains("Lightning", StringComparison.OrdinalIgnoreCase))
+            return MonsterDamageType.Electric;
+        if (name.Contains("Nether", StringComparison.OrdinalIgnoreCase))
+            return MonsterDamageType.Nether;
+        return MonsterDamageType.Auto;
+    }
+}
+
+/// <summary>
+/// What the server says when it will not take a request yet, and how long to
+/// leave it alone afterwards.
+/// </summary>
+internal static class CastRefusal
+{
+    /// <summary>
+    /// "The character is already doing something." It says the request never
+    /// happened, not that the spell failed, so the thing to do is wait and ask
+    /// again - but not on the very next frame.
+    /// </summary>
+    internal const uint CharacterWasBusy = 0x1Du;
+
+    /// <summary>
+    /// How long a refusal of that kind is left alone. A quarter of a second:
+    /// the same wait a refused dispel already takes, and the same order as the
+    /// reference macro's own retry interval.
+    /// </summary>
+    internal const double RetryWaitSeconds = 0.25d;
+}
+
+/// <summary>
+/// Session-local VTank spell tracker. A debuff becomes active only after the
+/// host publishes its matching server UseDone receipt.
+/// </summary>
+internal sealed class DebuffTracker
+{
+    private readonly Dictionary<(uint Target, DebuffIdentity Identity), Applied> _applied = [];
+    private Pending? _pending;
+    private long _observedCompletionRevision;
+    private double _retryNotBefore = double.MinValue;
+
+    public bool HasPending => _pending is not null;
+
+    /// <summary>
+    /// True while the last refusal's wait is still running. The request was
+    /// never taken, so the cast is still owed - but asking again immediately
+    /// is how one refusal becomes fifty a second.
+    /// </summary>
+    public bool RetryHeld(double now) => now < _retryNotBefore;
+    public string PendingName => _pending?.Spell.Name ?? string.Empty;
+    public uint PendingTarget => _pending?.TargetObjectId ?? 0u;
+
+    public bool IsDue(
+        uint targetObjectId,
+        DebuffIdentity identity,
+        PluginSpellInfo spell,
+        double now,
+        double toleranceSeconds)
+    {
+        if (!_applied.TryGetValue((targetObjectId, identity), out Applied applied))
+            return true;
+        if (applied.SpellId != spell.SpellId && spell.Tier > applied.Tier)
+            return true;
+        return now >= applied.ExpiresAt - Math.Max(0d, toleranceSeconds);
+    }
+
+    public bool IsApplied(
+        uint targetObjectId,
+        DebuffIdentity identity,
+        PluginSpellInfo? spell,
+        double now)
+    {
+        if (spell is not { } known)
+            return false;
+        if (!_applied.TryGetValue((targetObjectId, identity), out Applied applied))
+            return false;
+        return applied.SpellId == known.SpellId
+            ? now < applied.ExpiresAt
+            : applied.Tier >= known.Tier && now < applied.ExpiresAt;
+    }
+
+    public void Begin(
+        uint targetObjectId,
+        DebuffIdentity identity,
+        PluginSpellInfo spell,
+        double now,
+        long completionRevision)
+    {
+        _observedCompletionRevision = Math.Max(
+            _observedCompletionRevision,
+            completionRevision);
+        _pending = new Pending(targetObjectId, identity, spell, now);
+    }
+
+    public DebuffCompletion Observe(
+        PluginCastCompletion completion,
+        double now)
+    {
+        if (completion.Revision <= _observedCompletionRevision)
+            return default;
+        _observedCompletionRevision = completion.Revision;
+        if (_pending is not { } pending
+            || pending.Spell.SpellId != completion.SpellId
+            || pending.TargetObjectId != completion.TargetObjectId)
+        {
+            return default;
+        }
+
+        _pending = null;
+        if (!completion.IsSuccess)
+        {
+            if (completion.WeenieError == CastRefusal.CharacterWasBusy)
+                _retryNotBefore = now + CastRefusal.RetryWaitSeconds;
+            return new DebuffCompletion(
+                Completed: true,
+                Succeeded: false,
+                pending.Spell.Name,
+                completion.WeenieError,
+                pending.TargetObjectId,
+                pending.Spell);
+        }
+
+        double duration = Math.Max(0d, pending.Spell.DurationSeconds);
+        _applied[(pending.TargetObjectId, pending.Identity)] = new Applied(
+            pending.Spell.SpellId,
+            pending.Spell.Tier,
+            now + duration);
+        return new DebuffCompletion(
+            Completed: true,
+            Succeeded: true,
+            pending.Spell.Name,
+            0u,
+            pending.TargetObjectId,
+            pending.Spell);
+    }
+
+    public bool ExpirePending(double now, double timeoutSeconds = 15d)
+    {
+        if (_pending is not { } pending
+            || now - pending.DispatchedAt < timeoutSeconds)
+        {
+            return false;
+        }
+        _pending = null;
+        return true;
+    }
+
+    public void RecordApplied(
+        uint targetObjectId,
+        DebuffIdentity identity,
+        PluginSpellInfo spell,
+        double now)
+    {
+        double duration = Math.Max(0d, spell.DurationSeconds);
+        _applied[(targetObjectId, identity)] = new Applied(
+            spell.SpellId,
+            spell.Tier,
+            now + duration);
+    }
+
+    /// <summary>
+    /// Records a cast another client on this computer reported landing. The
+    /// caller has already found the spell in this client's own catalogue and
+    /// classified it there; nothing about it is taken from the wire. What is
+    /// left of the effect arrives as seconds remaining, already aged by the
+    /// host, and is stamped onto this tracker's own clock as
+    /// <paramref name="now"/> plus those seconds: the other client's wall
+    /// time means nothing here.
+    /// </summary>
+    /// <remarks>
+    /// It merges rather than overwrites. The tier can only rise and the
+    /// expiry can only move later, so a weaker or shorter report never
+    /// shortens what this client saw land itself, and a stronger one is taken
+    /// up without giving away the longer tail already known. One record per
+    /// target and debuff is kept, so a weaker effect that outlives a stronger
+    /// one is read at the stronger tier until it lapses; that errs on the
+    /// side of not re-casting something already up.
+    /// </remarks>
+    /// <returns>True when the record changed.</returns>
+    public bool RecordRemote(
+        uint targetObjectId,
+        DebuffIdentity identity,
+        PluginSpellInfo spell,
+        double now,
+        double secondsRemaining)
+    {
+        // Zero, negative or not a number: nothing is left to record, and a
+        // live record must not be replaced by a lapsed one.
+        if (!(secondsRemaining > 0d))
+            return false;
+        double expiresAt = now + secondsRemaining;
+        (uint, DebuffIdentity) key = (targetObjectId, identity);
+        if (!_applied.TryGetValue(key, out Applied existing))
+        {
+            _applied[key] = new Applied(spell.SpellId, spell.Tier, expiresAt);
+            return true;
+        }
+
+        bool stronger = spell.Tier > existing.Tier;
+        bool longer = expiresAt > existing.ExpiresAt;
+        if (!stronger && !longer)
+            return false;
+        // The record keeps the identity of whichever spell holds the tier:
+        // a report that only lengthens the tail leaves the local spell in
+        // place.
+        _applied[key] = new Applied(
+            stronger ? spell.SpellId : existing.SpellId,
+            Math.Max(existing.Tier, spell.Tier),
+            Math.Max(existing.ExpiresAt, expiresAt));
+        return true;
+    }
+
+    /// <summary>
+    /// VTank's <c>/vt fakeimp</c> records Gossamer Flesh locally for 3,000
+    /// seconds. It is deliberately stronger than every learnable Imperil tier
+    /// so the debug marker remains authoritative for its requested duration.
+    /// </summary>
+    public void RecordFakeImperil(uint targetObjectId, double now)
+    {
+        const uint gossamerFlesh = 0x081Au;
+        const double durationSeconds = 3000d;
+        _applied[(targetObjectId, new DebuffIdentity(
+            MonsterActionFlags.Imperil,
+            MonsterDamageType.Auto))] = new Applied(
+                gossamerFlesh,
+                int.MaxValue,
+                now + durationSeconds);
+    }
+
+    public void ClearPending() => _pending = null;
+
+    public void RetainTargets(IReadOnlySet<uint> liveTargets)
+    {
+        if (_applied.Count == 0)
+            return;
+        foreach ((uint Target, DebuffIdentity Identity) key in _applied.Keys.ToArray())
+        {
+            if (!liveTargets.Contains(key.Target))
+                _applied.Remove(key);
+        }
+    }
+
+    public void Reset()
+    {
+        _applied.Clear();
+        _pending = null;
+        _observedCompletionRevision = 0;
+        _retryNotBefore = double.MinValue;
+    }
+
+    private readonly record struct Pending(
+        uint TargetObjectId,
+        DebuffIdentity Identity,
+        PluginSpellInfo Spell,
+        double DispatchedAt);
+
+    private readonly record struct Applied(
+        uint SpellId,
+        int Tier,
+        double ExpiresAt);
+}
+
+/// <summary>
+/// What the server's answer to a learned debuff cast meant, once matched to
+/// the cast in flight. The target and spell are the ones the cast went out
+/// with, so a landed one can be told to the other clients without asking the
+/// tracker again.
+/// </summary>
+internal readonly record struct DebuffCompletion(
+    bool Completed,
+    bool Succeeded,
+    string SpellName,
+    uint WeenieError,
+    uint TargetObjectId = 0u,
+    PluginSpellInfo? Spell = null);

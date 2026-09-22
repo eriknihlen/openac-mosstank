@@ -1,0 +1,33 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  One page for every list setting there is: the experience policy, the
+  tracked items, this character's tags, the aliases and the event handlers.
+  Each of them is a list of lines, so a page per list would be five pages to
+  keep in step. The title says which list is open and how long it is; every
+  change is saved as it is made.
+-->
+<panel x="253" y="405" w="268" h="300" title="MossTank List"
+       visible="{UbListVisible}" resize="none">
+  <label x="4" y="22" w="260" h="16" text="{UbListTitle}" color="#FFE8DEC3" />
+  <list x="4" y="40" w="260" h="163" rowheight="17"
+        items="{UbListRows}" selected="{SelectedUbListIndex}"
+        onchange="{SelectUbListRow}"
+        tooltip="Select an entry to edit or remove it." />
+  <label x="4" y="206" w="260" h="16" text="{UbListNotice}" color="#FFC7B98F"
+         tooltip="What is wrong with the list, when something is." />
+  <group x="4" y="226" w="260" h="18" background="#FF0C0906" border="#FF8C7B4E">
+    <field x="1" y="1" w="258" h="16" text="{UbListDraft}"
+           onchange="{SetUbListDraft}" onsubmit="{AddUbListEntry}"
+           maxlength="160" clearonsubmit="false" background="#00000000"
+           color="#FFE8DEC3"
+           tooltip="Type an entry and press Enter to add it." />
+  </group>
+  <button x="4" y="250" w="82" h="20" text="Add" onclick="{AddUbListEntryFromDraft}"
+          tooltip="Add what is typed above as a new entry." />
+  <button x="92" y="250" w="84" h="20" text="Replace" onclick="{ReplaceUbListEntry}"
+          tooltip="Overwrite the selected entry with what is typed above." />
+  <button x="182" y="250" w="82" h="20" text="Remove" onclick="{RemoveUbListEntry}"
+          tooltip="Delete the selected entry." />
+  <button x="4" y="274" w="260" h="20" text="Close" onclick="{HideUbListEditor}"
+          tooltip="Close this list." />
+</panel>

@@ -1,0 +1,35 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <LangVersion>latest</LangVersion>
+    <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
+  </PropertyGroup>
+  <ItemGroup>
+    <InternalsVisibleTo Include="AcDream.Plugins.MossTank.Tests" />
+  </ItemGroup>
+  <!-- How this plugin reaches the plugin contract: as a package, compile-only. The host ships the
+       contract, and a second copy beside the plugin would hand it types the host cannot accept.
+       PluginApiPackageVersion comes from Directory.Build.props. -->
+  <ItemGroup>
+    <PackageReference Include="AcDream.Plugin.Abstractions"
+                      VersionOverride="$(PluginApiPackageVersion)"
+                      ExcludeAssets="runtime" />
+  </ItemGroup>
+  <ItemGroup>
+    <!-- The manifest the host reads before it loads any code, and the panel markup, both ship
+         beside the assembly in the plugin's own folder. -->
+    <None Update="plugin.json">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </None>
+    <None Update="mosstank*.xml">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </None>
+    <EmbeddedResource Include="VtankCraftRecipes.tsv" />
+    <EmbeddedResource Include="VtankAmmunitionOptions.tsv" />
+    <EmbeddedResource Include="VtankDefaultSettings.usd" />
+    <EmbeddedResource Include="VtankDefaultGameInfo.ugd" />
+    <EmbeddedResource Include="ExperienceCosts.tsv" />
+  </ItemGroup>
+</Project>

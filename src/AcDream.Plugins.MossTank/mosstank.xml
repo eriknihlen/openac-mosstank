@@ -1,0 +1,704 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  The window resizes from its authored size upwards, and never below it:
+  every page is laid out for exactly this rectangle, so the authored size is
+  the floor and the look at that floor is pixel for pixel what it always was.
+  Above it, each page's lists, text boxes and bottom rows follow the edges
+  they are anchored to.
+
+  One caveat the client still owns: a page's own children are laid out on the
+  frame that page is drawn, so a page never opened in this session and then
+  resized past will lay itself out against the window's new size the first
+  time it is opened: its rows keep their authored places inside a taller
+  page. Opening a page once, at any size, settles it for good. This is a note
+  for whoever fixes the layout pass, not something a plugin can work around
+  from here.
+-->
+<panel x="28" y="42" w="984" h="271"
+       visible="{WindowAvailable}"
+       resizable="true" minw="984" minh="271" resize="both">
+  <label x="8" y="4" w="300" h="16" text="{WindowTitle}" color="#FFFFFFFF" />
+  <tab x="8"   y="22" w="58" h="18" text="Options"
+       selected="{OptionsSelected}" enabled="{OptionsTabEnabled}" onclick="{ShowOptions}" />
+  <tab x="66"  y="22" w="56" h="18" text="Profiles"
+       selected="{ProfilesSelected}" enabled="{ProfilesTabEnabled}" onclick="{ShowProfiles}" />
+  <tab x="122" y="22" w="42" h="18" text="Vitals"
+       selected="{VitalsSelected}" enabled="{VitalsTabEnabled}" onclick="{ShowVitals}" />
+  <tab x="164" y="22" w="62" h="18" text="Monsters"
+       selected="{MonstersSelected}" enabled="{MonstersTabEnabled}" onclick="{ShowMonsters}" />
+  <tab x="226" y="22" w="42" h="18" text="Items"
+       selected="{ItemsSelected}" enabled="{ItemsTabEnabled}" onclick="{ShowItems}" />
+  <tab x="268" y="22" w="86" h="18" text="Consumables"
+       selected="{ConsumablesSelected}" enabled="{ConsumablesTabEnabled}" onclick="{ShowConsumables}" />
+  <tab x="354" y="22" w="42" h="18" text="Buffs"
+       selected="{BuffsSelected}" enabled="{BuffsTabEnabled}" onclick="{ShowBuffs}" />
+  <tab x="396" y="22" w="44" h="18" text="Route"
+       selected="{RouteSelected}" enabled="{RouteTabEnabled}" onclick="{ShowRoute}" />
+  <tab x="440" y="22" w="38" h="18" text="Meta"
+       selected="{MetaSelected}" enabled="{MetaTabEnabled}" onclick="{ShowMeta}" />
+  <tab x="478" y="22" w="30" h="18" text="UB"
+       selected="{UbSelected}" enabled="{UbTabEnabled}" onclick="{ShowUb}" />
+  <tab x="508" y="22" w="82" h="18" text="UB settings"
+       selected="{UbSettingsSelected}" enabled="{UbSettingsTabEnabled}" onclick="{ShowUbSettings}" />
+  <tab x="590" y="22" w="48" h="18" text="Tinker"
+       selected="{TinkerSelected}" enabled="{TinkerTabEnabled}" onclick="{ShowTinker}" />
+
+  <group x="8" y="42" w="976" h="229" visible="{OptionsVisible}" anchor="left top right bottom">
+    <label x="8" y="8" w="80" h="16" text="Monster Range:" color="#FFE8DEC3" />
+    <group x="8" y="24" w="40" h="16" background="#FF0C0906" border="#FF8C7B4E">
+      <field x="1" y="1" w="38" h="14" text="{MonsterRangeValueText}"
+             onchange="{SetMonsterRangeText}" maxlength="6" background="#00000000"
+             tooltip="Maximum monster acquisition range in meters." />
+    </group>
+    <label x="8" y="40" w="80" h="16" text="Ring Range:" color="#FFE8DEC3" />
+    <group x="8" y="56" w="40" h="16" background="#FF0C0906" border="#FF8C7B4E">
+      <field x="1" y="1" w="38" h="14" text="{RingRangeValueText}" onchange="{SetRingRangeText}"
+             maxlength="6" background="#00000000"
+             tooltip="Maximum range for ring-spell target density." />
+    </group>
+    <label x="8" y="72" w="80" h="16" text="Approach Range:" color="#FFE8DEC3" />
+    <group x="8" y="88" w="40" h="16" background="#FF0C0906" border="#FF8C7B4E">
+      <field x="1" y="1" w="38" h="14" text="{ApproachRangeValueText}"
+             onchange="{SetApproachRangeText}" maxlength="6" background="#00000000"
+             tooltip="Distance at which MossTank approaches its combat target." />
+    </group>
+    <label x="8" y="104" w="80" h="16" text="Follow/Nav Min Distance:" color="#FFE8DEC3" />
+    <group x="8" y="120" w="40" h="16" background="#FF0C0906" border="#FF8C7B4E">
+      <field x="1" y="1" w="38" h="14" text="{FollowNavMinimumValueText}"
+             onchange="{SetFollowNavMinimumText}" maxlength="6" background="#00000000"
+             tooltip="Minimum distance maintained while following or navigating." />
+    </group>
+
+    <button x="152" y="8" w="112" h="25" text="Force Buff" onclick="{ForceBuff}" />
+    <button x="152" y="38" w="112" h="25" text="Cancel Force Buff"
+            onclick="{CancelForceBuff}" />
+    <toggle x="152" y="68" w="120" h="20" text="Enable Buffing"
+            checked="{BuffingEnabled}" onclick="{ToggleBuffing}" />
+    <toggle x="152" y="88" w="120" h="20" text="Enable Combat"
+            checked="{CombatEnabled}" onclick="{ToggleCombatEnabled}" />
+    <toggle x="152" y="108" w="120" h="20" text="Enable Navigation"
+            checked="{NavigationEnabled}" onclick="{ToggleNavigation}" />
+    <toggle x="152" y="128" w="120" h="20" text="Enable Looting"
+            checked="{LootEnabled}" onclick="{ToggleLooting}" />
+    <toggle x="152" y="148" w="120" h="20" text="Enable Meta"
+            checked="{MetaEnabled}" onclick="{ToggleMeta}" />
+
+    <toggle x="282" y="8" w="160" h="20" text="Enable Autostack"
+            checked="{AutoStackEnabled}" onclick="{ToggleAutoStack}" />
+    <toggle x="282" y="28" w="160" h="20" text="Enable Autocram"
+            checked="{AutoCramEnabled}" onclick="{ToggleAutoCram}" />
+    <toggle x="282" y="48" w="120" h="20" text="Use Dispel Items"
+            checked="{UseDispelItemsEnabled}" onclick="{ToggleUseDispelItems}" />
+    <toggle x="282" y="68" w="120" h="20" text="Cast Dispel Self"
+            checked="{CastDispelSelfEnabled}" onclick="{ToggleCastDispelSelf}" />
+    <toggle x="282" y="88" w="160" h="20" text="Show Nav Lines"
+            checked="{ShowNavLinesEnabled}" onclick="{ToggleShowNavLines}"
+            tooltip="Draw the loaded route and highlight its current waypoint in the world." />
+    <toggle x="282" y="128" w="120" h="20" text="Auto Fellow Mgmt."
+            checked="{AutoFellowManagementEnabled}" onclick="{ToggleAutoFellowManagement}" />
+    <toggle x="282" y="148" w="160" h="20" text="M. Charges When Off"
+            checked="{ManaChargesWhenOffEnabled}" onclick="{ToggleManaChargesWhenOff}" />
+
+    <toggle x="448" y="8" w="160" h="20" text="Boost Nav. Priority"
+            checked="{NavigationPriorityEnabled}" onclick="{ToggleNavigationPriority}" />
+    <toggle x="448" y="28" w="160" h="20" text="Boost Loot Priority"
+            checked="{LootPriorityBoostEnabled}" onclick="{ToggleLootPriorityBoost}" />
+    <toggle x="448" y="48" w="160" h="20" text="Loot Only Rare Corpses"
+            checked="{LootOnlyRareCorpsesEnabled}" onclick="{ToggleLootOnlyRareCorpses}" />
+    <toggle x="448" y="68" w="160" h="20" text="Peace Mode When Idle"
+            checked="{IdlePeaceModeEnabled}" onclick="{ToggleIdlePeaceMode}" />
+    <toggle x="448" y="88" w="160" h="20" text="Rebuff When Idle"
+            checked="{IdleBuffTopoffEnabled}" onclick="{ToggleIdleBuffTopoff}" />
+    <toggle x="448" y="108" w="160" h="20" text="Fastcast Buffs"
+            checked="{FastCastBuffsEnabled}" onclick="{ToggleFastCastBuffs}" />
+    <toggle x="448" y="128" w="160" h="20" text="Don't Shoot at Walls"
+            checked="{DontShootAtWallsEnabled}" onclick="{ToggleDontShootAtWalls}" />
+    <toggle x="448" y="148" w="160" h="20" text="Fallback Debuffs if Blocked"
+            checked="{DebuffFallbackEnabled}" onclick="{ToggleDebuffFallback}" />
+
+    <toggle x="614" y="8" w="160" h="20" text="Summon Pets"
+            checked="{SummonPetsEnabled}" onclick="{ToggleSummonPets}" />
+    <toggle x="614" y="28" w="120" h="20" text="Custom Pet Range:"
+            checked="{CustomPetRangeEnabled}" onclick="{TogglePetRangeMode}" />
+    <group x="734" y="28" w="40" h="16" background="#FF0C0906" border="#FF8C7B4E">
+      <field x="1" y="1" w="38" h="14" text="{PetCustomRangeValueText}"
+             onchange="{SetPetCustomRangeText}" maxlength="6" background="#00000000"
+             tooltip="Custom pet summon range in meters." />
+    </group>
+    <label x="614" y="48" w="120" h="16" text="Pet Min. Monsters:" color="#FFE8DEC3" />
+    <group x="734" y="48" w="40" h="16" background="#FF0C0906" border="#FF8C7B4E">
+      <field x="1" y="1" w="38" h="14" text="{PetDensityValueText}"
+             onchange="{SetPetDensityText}" maxlength="3" background="#00000000"
+             tooltip="Minimum nearby monsters required before summoning a pet." />
+    </group>
+    <toggle x="673" y="128" w="175" h="20" text="Advanced Options"
+            checked="{AdvancedOptionsVisible}" onclick="{ToggleAdvancedOptionsVisible}" />
+    <toggle x="673" y="148" w="175" h="20" text="Run Macro"
+            checked="{CombatMacroRunning}" onclick="{ToggleCombat}" />
+    <label x="673" y="170" w="175" h="16" text="{CombatStatus}" color="#FFC7B98F"
+           anchor="right top" />
+  </group>
+
+  <group x="8" y="42" w="976" h="229" visible="{ProfilesVisible}" anchor="left top right bottom">
+    <label x="8" y="8" w="142" h="16" text="Macro Settings" color="#FFE8DEC3" />
+    <menu x="156" y="8" w="140" h="20" items="{MacroProfileNames}"
+          selected="{SelectedMacroProfile}" onchange="{SelectMacroProfile}"
+          rows="7" scroll="true" tooltip="Select the active macro profile." />
+    <button x="306" y="8" w="50" h="20" text="CopyTo" onclick="{CopyProfile}" />
+    <button x="366" y="8" w="100" h="20" text="Clear profile!"
+            onclick="{ClearProfile}" />
+    <toggle x="476" y="8" w="80" h="20" text="Mine only"
+            checked="{MineOnlyEnabled}" onclick="{ToggleMineOnly}" />
+
+    <toggle x="8" y="32" w="142" h="20" text="Enable Auto-Navigation"
+            checked="{NavigationEnabled}" onclick="{ToggleNavigation}" />
+    <menu x="156" y="32" w="140" h="20" items="{RouteProfileNames}"
+          selected="{SelectedRouteProfile}" onchange="{SelectRouteProfile}"
+          rows="7" scroll="true" tooltip="Select the active navigation profile." />
+    <button x="306" y="32" w="50" h="20" text="CopyTo" onclick="{CopyRouteProfile}" />
+    <button x="366" y="32" w="100" h="20" text="Clear nav profile!"
+            onclick="{ClearRouteProfile}" />
+
+    <toggle x="8" y="56" w="142" h="20" text="Enable Looting"
+            checked="{LootEnabled}" onclick="{ToggleLooting}" />
+    <menu x="156" y="56" w="140" h="20" items="{LootProfileNames}"
+          selected="{LootProfileName}" onchange="{SelectLootProfile}"
+          rows="7" scroll="true" tooltip="Select the active loot profile." />
+    <button x="306" y="56" w="50" h="20" text="New" onclick="{CreateLootProfile}" />
+
+    <toggle x="8" y="80" w="142" h="20" text="Enable Meta Actions"
+            checked="{MetaEnabled}" onclick="{ToggleMeta}" />
+    <menu x="156" y="80" w="140" h="20" items="{MetaProfileNames}"
+          selected="{SelectedMetaProfile}" onchange="{SelectMetaProfile}"
+          rows="7" scroll="true" tooltip="Select the active meta profile." />
+    <button x="306" y="80" w="50" h="20" text="CopyTo" onclick="{CopyMetaProfile}" />
+
+    <label x="8" y="108" w="400" h="16" text="{LootStatus}" color="#FF9B9072"
+           anchor="left top right" />
+  </group>
+
+  <group x="8" y="42" w="976" h="229" visible="{VitalsVisible}" anchor="left top right bottom">
+    <label x="8" y="0" w="80" h="16" text="Heal at:" color="#FFE8DEC3" />
+    <slider x="100" y="0" w="144" h="16" min="0" max="100"
+            value="{NormalHealthPercent}" onchange="{SetNormalHealthPercent}"
+            tooltip="Combat health recharge threshold." />
+    <label x="252" y="0" w="80" h="16" text="{NormalHealthText}" color="#FFC7B98F" />
+    <label x="8" y="16" w="80" h="16" text="Restam at:" color="#FFE8DEC3" />
+    <slider x="100" y="16" w="144" h="16" min="0" max="100"
+            value="{NormalStaminaPercent}" onchange="{SetNormalStaminaPercent}"
+            tooltip="Combat stamina recharge threshold." />
+    <label x="252" y="16" w="80" h="16" text="{NormalStaminaText}" color="#FFC7B98F" />
+    <label x="8" y="32" w="80" h="16" text="Get Mana at:" color="#FFE8DEC3" />
+    <slider x="100" y="32" w="144" h="16" min="0" max="100"
+            value="{NormalManaPercent}" onchange="{SetNormalManaPercent}"
+            tooltip="Combat mana recharge threshold." />
+    <label x="252" y="32" w="80" h="16" text="{NormalManaText}" color="#FFC7B98F" />
+
+    <label x="8" y="56" w="80" h="16" text="Top-off HP:" color="#FFE8DEC3" />
+    <slider x="100" y="56" w="144" h="16" min="0" max="100"
+            value="{NoTargetHealthPercent}" onchange="{SetNoTargetHealthPercent}"
+            tooltip="Idle health top-off threshold." />
+    <label x="252" y="56" w="80" h="16" text="{NoTargetHealthText}" color="#FFC7B98F" />
+    <label x="8" y="72" w="80" h="16" text="Top-off Stam:" color="#FFE8DEC3" />
+    <slider x="100" y="72" w="144" h="16" min="0" max="100"
+            value="{NoTargetStaminaPercent}" onchange="{SetNoTargetStaminaPercent}"
+            tooltip="Idle stamina top-off threshold." />
+    <label x="252" y="72" w="80" h="16" text="{NoTargetStaminaText}" color="#FFC7B98F" />
+    <label x="8" y="88" w="80" h="16" text="Top-off Mana:" color="#FFE8DEC3" />
+    <slider x="100" y="88" w="144" h="16" min="0" max="100"
+            value="{NoTargetManaPercent}" onchange="{SetNoTargetManaPercent}"
+            tooltip="Idle mana top-off threshold." />
+    <label x="252" y="88" w="80" h="16" text="{NoTargetManaText}" color="#FFC7B98F" />
+
+    <label x="8" y="112" w="80" h="16" text="Heal others at:" color="#FFE8DEC3" />
+    <slider x="100" y="112" w="144" h="16" min="0" max="100"
+            value="{HelperHealthPercent}" onchange="{SetHelperHealthPercent}"
+            tooltip="Fellowship healing threshold." />
+    <label x="252" y="112" w="80" h="16" text="{HelperHealthText}" color="#FFC7B98F" />
+    <label x="8" y="128" w="80" h="16" text="Restam others at:" color="#FFE8DEC3" />
+    <slider x="100" y="128" w="144" h="16" min="0" max="100"
+            value="{HelperStaminaPercent}" onchange="{SetHelperStaminaPercent}"
+            tooltip="Fellowship stamina-restoration threshold." />
+    <label x="252" y="128" w="80" h="16" text="{HelperStaminaText}" color="#FFC7B98F" />
+    <label x="8" y="144" w="80" h="16" text="Infuse others at:" color="#FFE8DEC3" />
+    <slider x="100" y="144" w="144" h="16" min="0" max="100"
+            value="{HelperManaPercent}" onchange="{SetHelperManaPercent}"
+            tooltip="Fellowship mana-infusion threshold." />
+    <label x="252" y="144" w="80" h="16" text="{HelperManaText}" color="#FFC7B98F" />
+
+    <toggle x="360" y="4" w="190" h="20" text="Enable vital recharge"
+            checked="{VitalUpkeepEnabled}" onclick="{ToggleVitalUpkeep}" />
+    <toggle x="360" y="28" w="190" h="20" text="Help fellows"
+            checked="{HelpOthersEnabled}" onclick="{ToggleHelpOthers}" />
+    <label x="360" y="60" w="290" h="16" text="{VitalStatus}" color="#FFC7B98F" />
+    <label x="360" y="88" w="290" h="16" text="{Vitals}" color="#FFE8DEC3" />
+  </group>
+
+  <group x="8" y="42" w="976" h="229" visible="{MonstersVisible}" anchor="left top right bottom">
+    <label x="7"   y="0" w="20" text="F"  color="#FFE8DEC3" tooltip="Fester" />
+    <label x="27"  y="0" w="20" text="B"  color="#FFE8DEC3" tooltip="Broadside of a Barn" />
+    <label x="46"  y="0" w="20" text="G"  color="#FFE8DEC3" tooltip="Gravity Well" />
+    <label x="69"  y="0" w="20" text="I"  color="#FFE8DEC3" tooltip="Imperil" />
+    <label x="87"  y="0" w="20" text="Y"  color="#FFE8DEC3" tooltip="Yield" />
+    <label x="106" y="0" w="20" text="V"  color="#FFE8DEC3" tooltip="Vuln (Element)" />
+    <label x="126" y="0" w="20" text="A"  color="#FFE8DEC3" tooltip="Attack" />
+    <label x="147" y="0" w="20" text="R"  color="#FFE8DEC3" tooltip="Ring Spell" />
+    <label x="167" y="0" w="20" text="S"  color="#FFE8DEC3" tooltip="Streak" />
+    <label x="181" y="0" w="19" text="WC" color="#FFE8DEC3" tooltip="Weakening Curse" />
+    <label x="203" y="0" w="14" text="FC" color="#FFE8DEC3" tooltip="Festering Curse" />
+    <label x="223" y="0" w="14" text="Cp" color="#FFE8DEC3" tooltip="Corruption" />
+    <label x="242" y="0" w="17" text="DC" color="#FFE8DEC3" tooltip="Destructive Curse" />
+    <label x="264" y="0" w="13" text="Cs" color="#FFE8DEC3" tooltip="Corrosion" />
+    <label x="283" y="0" w="127" text="Name" color="#FFE8DEC3" />
+    <label x="410" y="0" w="27" text="P" color="#FFE8DEC3" tooltip="Priority" />
+    <label x="437" y="0" w="63" text="Dmg type" color="#FFE8DEC3" />
+    <label x="500" y="0" w="63" text="Ex. Vuln" color="#FFE8DEC3"
+           tooltip="Extra vulnerability. A second vulnerability cast in its own right: it does NOT need V ticked. None casts nothing; Auto casts the element this monster is weakest to." />
+    <label x="563" y="0" w="87" text="Weapon" color="#FFE8DEC3" />
+    <label x="650" y="0" w="87" text="Offhand" color="#FFE8DEC3" />
+    <label x="737" y="0" w="63" text="PetDmg" color="#FFE8DEC3" />
+
+    <list x="0" y="16" w="976" h="151" anchor="left right top bottom"
+          selected="{SelectedMonsterListRow}" onchange="{SelectMonsterListRow}"
+          tooltip="Click a check to toggle it, a name to delete the rule, or another cell to cycle its value.">
+      <column type="check" width="20" values="{MonsterFesterColumn}" onchange="{ToggleMonsterFesterAt}" />
+      <column type="check" width="20" values="{MonsterBroadsideColumn}" onchange="{ToggleMonsterBroadsideAt}" />
+      <column type="check" width="20" values="{MonsterGravityWellColumn}" onchange="{ToggleMonsterGravityWellAt}" />
+      <column type="check" width="20" values="{MonsterImperilColumn}" onchange="{ToggleMonsterImperilAt}" />
+      <column type="check" width="20" values="{MonsterYieldColumn}" onchange="{ToggleMonsterYieldAt}" />
+      <column type="check" width="20" values="{MonsterVulnerabilityColumn}" onchange="{ToggleMonsterVulnerabilityAt}" />
+      <column type="check" width="20" values="{MonsterAttackColumn}" onchange="{ToggleMonsterAttackAt}" />
+      <column type="check" width="20" values="{MonsterRingColumn}" onchange="{ToggleMonsterRingAt}" />
+      <column type="check" width="20" values="{MonsterStreakColumn}" onchange="{ToggleMonsterStreakAt}" />
+      <column type="check" width="20" values="{MonsterWeakeningColumn}" onchange="{ToggleMonsterWeakeningAt}" />
+      <column type="check" width="20" values="{MonsterFesteringColumn}" onchange="{ToggleMonsterFesteringAt}" />
+      <column type="check" width="20" values="{MonsterCorruptionColumn}" onchange="{ToggleMonsterCorruptionAt}" />
+      <column type="check" width="20" values="{MonsterDestructiveColumn}" onchange="{ToggleMonsterDestructiveAt}" />
+      <column type="check" width="20" values="{MonsterCorrosionColumn}" onchange="{ToggleMonsterCorrosionAt}" />
+      <column type="text" width="127" items="{MonsterNameColumn}" onclick="{DeleteMonsterRuleAt}" />
+      <column type="text" width="27" items="{MonsterPriorityColumn}" onclick="{CycleMonsterPriorityAt}" />
+      <column type="text" width="63" items="{MonsterDamageColumn}" onclick="{CycleMonsterDamageAt}" />
+      <column type="text" width="63" items="{MonsterExtraVulnColumn}" onclick="{CycleMonsterExtraVulnerabilityAt}" />
+      <column type="text" width="87" items="{MonsterWeaponColumn}" onclick="{CycleMonsterWeaponAt}" />
+      <column type="text" width="87" items="{MonsterOffhandColumn}" onclick="{CycleMonsterOffhandAt}" />
+      <column type="text" width="63" items="{MonsterPetDamageColumn}" onclick="{CycleMonsterPetDamageAt}" />
+      <column type="icon" width="23" iconkind="did" values="{MonsterMoveUpIcons}" onclick="{MoveMonsterRuleUpAt}" />
+      <column type="icon" width="23" iconkind="did" values="{MonsterMoveDownIcons}" onclick="{MoveMonsterRuleDownAt}" />
+      <column type="text" width="*" items="{MonsterFillerColumn}" onclick="{MonsterFillerClick}" />
+    </list>
+
+    <group x="8" y="171" w="388" h="16" background="#FF0C0906" border="#FF8C7B4E" anchor="bottom">
+      <field x="1" y="1" w="386" h="14" text="{MonsterExpressionDraft}"
+             onchange="{SetMonsterExpressionDraft}" maxlength="256" background="#00000000"
+             color="#FFE8DEC3" tooltip="Monster name or expression to match." />
+    </group>
+    <button x="404" y="171" w="50" h="16" text="Add" onclick="{AddMonsterRule}"
+            anchor="bottom"
+            tooltip="Add a new monster rule using the name/expression above." />
+    <button x="462" y="171" w="50" h="16" text="Add Sel" onclick="{AddSelectedMonster}"
+            anchor="bottom"
+            tooltip="Add the monster currently selected in the world." />
+  </group>
+
+  <group x="8" y="42" w="976" h="229" visible="{ItemsVisible}" anchor="left top right bottom">
+    <label x="4" y="8" w="327" text="Weapons / Wands / Shields / Pets" color="#FFE8DEC3" />
+    <label x="331" y="8" w="103" text="Hands" color="#FFE8DEC3" />
+    <list x="4" y="28" w="430" h="147" rowheight="18" anchor="left top bottom"
+          selected="{SelectedItemRowIndex}" onchange="{SelectItemRow}"
+          tooltip="Click a name to remove it, or Hands to cycle 1-Handed/2-Handed.">
+      <column type="text" width="327" items="{ItemNameColumn}" onclick="{DeleteItemRowAt}" />
+      <column type="text" width="103" items="{ItemHandsColumn}" onclick="{CycleItemHandsAt}" />
+    </list>
+    <button x="4" y="189" w="126" h="25" text="Add" onclick="{AddSelectedItem}" anchor="bottom"
+            tooltip="Add the item selected in your inventory, with the buffs it wants kept up." />
+    <button x="138" y="189" w="138" h="25" text="Add (no buffs)"
+            onclick="{AddSelectedItemNoBuffs}" anchor="bottom"
+            tooltip="Add the item selected in your inventory without keeping any buff on it." />
+    <button x="284" y="189" w="126" h="25" text="Remove"
+            onclick="{RemoveSelectedItem}" anchor="bottom"
+            tooltip="Remove the row selected in the list above." />
+  </group>
+
+  <group x="8" y="42" w="976" h="229" visible="{ConsumablesVisible}" anchor="left top right bottom">
+    <label x="4" y="8"
+           text="Gems / Food / Kits / Potions / Charges / Grenades / Lockpicks"
+           color="#FFE8DEC3" />
+    <label x="566" y="8" text="Excluded Scarab Types:" color="#FFE8DEC3" anchor="right" />
+    <list x="4" y="28" w="414" h="147" rowheight="18" anchor="left top bottom"
+          items="{ConsumableRows}" selected="{SelectedConsumableRowIndex}"
+          onchange="{SelectConsumableRow}" tooltip="Click a row to remove it." />
+    <list x="566" y="28" w="406" h="147" rowheight="18" anchor="right top bottom"
+          selected="{SelectedExcludedComponentIndex}" onchange="{SelectExcludedComponentRow}"
+          tooltip="Click a row to remove it from the blacklist.">
+      <column type="icon" width="23" iconkind="did" values="{ExcludedComponentIcons}"
+              onclick="{DeleteExcludedComponentAt}" />
+      <column type="text" width="*" items="{ExcludedComponentRows}"
+              onclick="{DeleteExcludedComponentAt}" />
+    </list>
+    <button x="4" y="189" w="176" h="25" text="Add"
+            onclick="{AddSelectedConsumable}" anchor="bottom" />
+    <button x="188" y="189" w="110" h="25" text="Add All Peas"
+            onclick="{AddAllPeas}" anchor="bottom" />
+    <button x="306" y="189" w="104" h="25" text="Remove"
+            onclick="{RemoveSelectedConsumable}" anchor="bottom" />
+    <button x="566" y="189" w="176" h="24" text="Add Selected"
+            onclick="{AddSelectedComponent}" anchor="right bottom" />
+    <label x="566" y="213" w="176" h="16" text="{ProfileNotice}" color="#FF9B9072" anchor="right bottom" />
+  </group>
+
+  <group x="8" y="42" w="976" h="229" visible="{BuffsVisible}" anchor="left top right bottom">
+    <label x="4" y="0" w="320" h="16" text="Extra Buff Spells" color="#FFE8DEC3"
+           tooltip="Named spell exemplars selected for self-buff upkeep." />
+    <list x="4" y="18" w="320" h="151" rowheight="17" anchor="left top bottom"
+          items="{ExtraBuffRows}" selected="{SelectedExtraBuffIndex}"
+          onchange="{DeleteExtraBuffAt}" tooltip="Click a row to remove it." />
+    <button x="4" y="173" w="120" h="18" text="Add..." onclick="{ShowExtraBuffPicker}" anchor="bottom" />
+
+    <label x="652" y="0" w="320" h="16" text="Blacklisted Buff Families" color="#FFE8DEC3"
+           anchor="right"
+           tooltip="Named buff families excluded from self-buff upkeep." />
+    <list x="652" y="18" w="320" h="151" rowheight="17" anchor="right top bottom"
+          items="{BlacklistedBuffFamilyRows}" selected="{SelectedBlacklistedBuffIndex}"
+          onchange="{DeleteBlacklistedBuffFamilyAt}" tooltip="Click a row to remove it." />
+    <button x="652" y="173" w="120" h="18" text="Add..." onclick="{ShowBlacklistedBuffPicker}" anchor="right bottom" />
+  </group>
+
+  <group x="8" y="42" w="976" h="229" visible="{RouteVisible}" anchor="left top right bottom">
+    <label x="4" y="0" w="370" h="16" text="Navigation Waypoints" color="#FFE8DEC3" />
+    <list x="4" y="16" w="370" h="151" rowheight="17" anchor="left top bottom"
+          selected="{SelectedRouteWaypointIndex}" onchange="{SelectRouteWaypoint}"
+          tooltip="Click a waypoint to remove it.">
+      <column type="text" width="324" items="{RouteWaypointTextColumn}"
+              colors="{RouteWaypointColors}" onclick="{DeleteRouteWaypointAt}" />
+      <column type="text" width="30" items="{RouteWaypointCountColumn}"
+              colors="{RouteWaypointColors}" onclick="{DeleteRouteWaypointAt}" />
+      <column type="text" width="*" items="{RouteWaypointFillerColumn}"
+              colors="{RouteWaypointColors}" onclick="{RouteWaypointFillerClick}" />
+    </list>
+
+    <menu x="4" y="171" w="80" h="16" items="{RouteModeNames}" anchor="bottom"
+          selected="{SelectedRouteMode}" onchange="{SelectRouteMode}"
+          rows="4" openupward="true" tooltip="Choose Circular, Linear, Follow, or Once route behavior." />
+    <menu x="90" y="171" w="120" h="16" items="{RouteInsertModeNames}" anchor="bottom"
+          selected="{SelectedRouteInsertMode}" onchange="{SelectRouteInsertMode}"
+          rows="3" openupward="true" tooltip="Where Add buttons insert the new waypoint." />
+    <button x="214" y="171" w="16" h="16" icon="0x060028FD" iconkind="did" anchor="bottom"
+            onclick="{MoveRouteWaypointDown}" tooltip="Advance the current point." />
+    <button x="230" y="171" w="16" h="16" icon="0x060028FC" iconkind="did" anchor="bottom"
+            onclick="{MoveRouteWaypointUp}" tooltip="Regress the current point." />
+    <button x="246" y="171" w="16" h="16" icon="0x060011F7" iconkind="did" anchor="bottom"
+            onclick="{SelectNearestRouteWaypoint}" tooltip="Select the nearest waypoint." />
+
+    <button x="380" y="16" w="88" h="16" text="Add" onclick="{AddRoutePoint}" />
+    <button x="474" y="16" w="88" h="16" text="Open Vendor" onclick="{AddRouteOpenVendor}" />
+    <button x="380" y="38" w="88" h="16" text="Add Portal/NPC" onclick="{AddRoutePortal}" />
+    <button x="474" y="38" w="88" h="16" text="Add NPC Talk" onclick="{AddRouteUseSelected}" />
+    <button x="380" y="60" w="88" h="16" text="Add Recall" onclick="{AddRouteRecall}" />
+    <menu x="474" y="60" w="120" h="16" items="{RouteRecallNames}"
+          selected="{SelectedRouteRecall}" onchange="{SelectRouteRecall}"
+          rows="7" openupward="false"
+          tooltip="Choose the recall type added by Add Recall." />
+    <button x="380" y="82" w="88" h="16" text="Add Pause" onclick="{AddRoutePause}" />
+    <group x="474" y="82" w="68" h="16" background="#FF0C0906" border="#FF8C7B4E">
+      <field x="1" y="1" w="66" h="14" text="{RoutePauseSecondsFieldText}"
+             onchange="{SetRoutePauseSecondsText}" onsubmit="{SetRoutePauseSecondsText}"
+             maxlength="4" clearonsubmit="false" background="#00000000" color="#FFE8DEC3"
+             tooltip="Pause duration in seconds, added by Add Pause." />
+    </group>
+    <label x="547" y="82" w="50" h="16" text="seconds" color="#FFE8DEC3" />
+    <button x="380" y="104" w="88" h="16" text="Add Chat" onclick="{AddRouteChat}" />
+    <group x="474" y="104" w="120" h="16" background="#FF0C0906" border="#FF8C7B4E">
+      <field x="1" y="1" w="118" h="14" text="{RouteChatDraft}" onchange="{SetRouteChatDraft}"
+             onsubmit="{SetRouteChatDraft}" maxlength="128" clearonsubmit="false"
+             background="#00000000" color="#FFE8DEC3" tooltip="Chat command added by Add Chat." />
+    </group>
+    <button x="380" y="126" w="88" h="16" text="Follow" onclick="{SetFollowTarget}"
+            tooltip="Turn the loaded route into a follow route that trails the character selected in the world." />
+    <label x="474" y="126" w="200" h="16" text="{RouteFollowTargetText}" color="#FFC7B98F" />
+    <toggle x="380" y="146" w="200" h="20" text="Follow Around Corners"
+            checked="{FollowAroundCornersEnabled}" onclick="{ToggleFollowAroundCorners}"
+            tooltip="Retrace the followed character's own path instead of walking straight at them." />
+    <label x="604" y="16" w="88" h="20" text="Client pathing" color="#FFE8DEC3" />
+    <menu x="694" y="16" w="112" h="20" items="{ClientPathingNames}"
+          selected="{SelectedClientPathing}" onchange="{SelectClientPathing}"
+          rows="3" openupward="false"
+          tooltip="When the client's own pathing walks a leg for the route: never (the straight walk at every point), when the straight walk is stuck (once per waypoint), or for every leg (a leg the client cannot walk pauses the route)." />
+
+    <label x="4" y="195" w="300" h="16" text="{NavigationStatus}" color="#FF9B9072" anchor="bottom" />
+    <label x="310" y="195" w="300" h="16" text="{RouteNotice}" color="#FF9B9072" anchor="bottom" />
+  </group>
+
+  <group x="8" y="42" w="976" h="229" visible="{MetaVisible}" anchor="left top right bottom">
+    <list x="4" y="16" w="968" h="151" rowheight="17" anchor="left right top bottom"
+          selected="{SelectedMetaRuleIndex}" onchange="{SelectMetaRule}"
+          tooltip="Click State/Condition/Action to edit; delete/move-up/move-down cells act immediately.">
+      <column type="text" width="23" items="{MetaDeleteColumn}" onclick="{DeleteMetaRuleAt}" />
+      <column type="icon" width="23" iconkind="did" values="{MetaMoveUpIcons}" onclick="{MoveMetaRuleUpAt}" />
+      <column type="icon" width="23" iconkind="did" values="{MetaMoveDownIcons}" onclick="{MoveMetaRuleDownAt}" />
+      <column type="text" width="157" items="{MetaStateColumn}" onclick="{SelectMetaRule}" />
+      <column type="text" width="*" items="{MetaConditionColumn}" onclick="{SelectMetaRule}" />
+      <column type="text" width="*" items="{MetaActionColumn}" onclick="{SelectMetaRule}" />
+    </list>
+
+    <label x="4" y="171" w="136" h="16" text="Current State:" color="#FFE8DEC3" anchor="bottom" />
+    <menu x="140" y="171" w="120" h="16" items="{MetaCurrentStateNames}" anchor="bottom"
+          selected="{SelectedMetaCurrentState}" onchange="{SetMetaCurrentState}"
+          rows="8" openupward="true"
+          tooltip="Force the live Meta engine into a state directly." />
+    <button x="462" y="171" w="50" h="16" text="Create" onclick="{CreateMetaRule}" anchor="bottom" />
+
+    <label x="4" y="213" w="500" h="16" text="{MetaStatus}" color="#FFC7B98F" anchor="bottom" />
+  </group>
+
+  <!--
+    A hundred and fifty-four settings, drawn by twenty-odd elements. The list
+    on the right is filled from the catalogue: the category list narrows it,
+    the field under it filters by name or description, and the one draft
+    field on the right edits whichever row is selected. A switch and a
+    choice are changed by clicking the value itself; a colour and a list
+    open the sub-page they need, because neither fits one line of text.
+  -->
+  <!--
+    The UB page, laid out as the tool it comes from lays out its own front
+    page: three columns of push buttons, each saying whether one tool is
+    running and flipping it when pressed. Every button is a view of the
+    catalogue row the UB settings tab shows; nothing here keeps a second
+    copy of a switch.
+  -->
+  <group x="8" y="42" w="976" h="229" visible="{UbVisible}" anchor="left top right bottom">
+    <label x="4" y="0" w="300" h="16" text="Tools" color="#FFE8DEC3" />
+
+    <button x="4" y="20" w="136" h="24" text="{UbAutoVendorButtonText}"
+            color="{UbAutoVendorButtonColor}" onclick="{ToggleUbAutoVendor}"
+            tooltip="Buy and sell at a vendor without being asked." />
+    <button x="144" y="20" w="52" h="24" text="{UbAutoVendorTestButtonText}"
+            color="{UbAutoVendorTestButtonColor}" onclick="{ToggleUbAutoVendorTestMode}"
+            tooltip="Test mode: a vendor run says what it would buy and sell and touches nothing." />
+    <button x="4" y="52" w="136" h="24" text="{UbDungeonMapsButtonText}"
+            color="{UbDungeonMapsButtonColor}" onclick="{ToggleUbDungeonMaps}"
+            tooltip="Draw the floor plan of the dungeon you are standing in." />
+    <button x="4" y="84" w="136" h="24" text="{UbLandscapeMapsButtonText}"
+            color="{UbLandscapeMapsButtonColor}" onclick="{ToggleUbLandscapeMaps}"
+            tooltip="Draw the countryside map." />
+    <button x="4" y="116" w="136" h="24" text="{UbNametagsButtonText}"
+            color="{UbNametagsButtonColor}" onclick="{ToggleUbNametags}"
+            tooltip="Draw a name over every object the name-tag rules cover." />
+
+    <button x="204" y="20" w="136" h="24" text="{UbVitalSharingButtonText}"
+            color="{UbVitalSharingButtonColor}" onclick="{ToggleUbVitalSharing}"
+            tooltip="Tell your other characters on this computer how you are doing, and take in what they cast." />
+    <button x="204" y="52" w="136" h="24" text="{UbNetworkUiButtonText}"
+            color="{UbNetworkUiButtonColor}" onclick="{ToggleUbNetworkUi}"
+            tooltip="Show the readout listing your other characters on this computer." />
+    <button x="204" y="84" w="136" h="24" text="{UbAliasesButtonText}"
+            color="{UbAliasesButtonColor}" onclick="{ToggleUbAliases}"
+            tooltip="Rewrite what you type using your alias list." />
+    <button x="204" y="116" w="136" h="24" text="{UbGameEventsButtonText}"
+            color="{UbGameEventsButtonColor}" onclick="{ToggleUbGameEvents}"
+            tooltip="Run your own handlers when something happens." />
+
+    <button x="404" y="20" w="136" h="24" text="Settings" onclick="{ShowUbSettings}"
+            tooltip="Open the whole settings catalogue." />
+    <button x="404" y="52" w="136" h="24" text="Tinker" onclick="{ShowTinker}"
+            tooltip="Open the tinkering page." />
+
+    <label x="4" y="210" w="968" h="16" text="{UbSettingNotice}" color="#FFC7B98F"
+           anchor="left bottom right" />
+  </group>
+
+  <group x="8" y="42" w="976" h="229" visible="{UbSettingsVisible}" anchor="left top right bottom">
+    <label x="4" y="0" w="150" h="16" text="Tool" color="#FFE8DEC3" />
+    <list x="4" y="16" w="150" h="178" rowheight="17" anchor="left top bottom"
+          items="{UbCategoryNames}" selected="{SelectedUbCategoryIndex}"
+          onchange="{SelectUbCategory}"
+          tooltip="Show only the settings of one tool." />
+
+    <label x="158" y="0" w="360" h="16" text="Setting" color="#FFE8DEC3" />
+    <label x="522" y="0" w="136" h="16" text="Value" color="#FFE8DEC3"
+           tooltip="Click a value to flip a switch, step a choice, or open a colour or list editor." />
+    <list x="158" y="16" w="500" h="160" rowheight="17" anchor="left top right bottom"
+          selected="{SelectedUbSettingIndex}" onchange="{SelectUbSetting}"
+          tooltip="Every setting of the selected tool. Click a value to change it.">
+      <column type="text" width="364" items="{UbSettingNames}" onclick="{SelectUbSetting}" />
+      <column type="text" width="*" items="{UbSettingValues}" onclick="{ClickUbSettingValue}" />
+    </list>
+    <label x="158" y="180" w="40" h="16" text="Find:" color="#FFE8DEC3" anchor="left bottom" />
+    <group x="200" y="178" w="458" h="18" background="#FF0C0906" border="#FF8C7B4E"
+           anchor="left bottom right">
+      <field x="1" y="1" w="456" h="16" text="{UbFilterText}" anchor="left top right"
+             onchange="{SetUbFilterText}" maxlength="64" clearonsubmit="false"
+             background="#00000000" color="#FFE8DEC3"
+             tooltip="Live-filters the list by name or description." />
+    </group>
+
+    <!-- A label draws one line, so the description comes as four lines
+         wrapped by the page to this width; the width here is the one the
+         page wraps to. -->
+    <label x="664" y="16" w="308" h="16" text="{UbSettingDescription}" color="#FFE8DEC3"
+           anchor="right top" />
+    <label x="664" y="32" w="308" h="16" text="{UbSettingDescriptionLine2}" color="#FFE8DEC3"
+           anchor="right top" />
+    <label x="664" y="48" w="308" h="16" text="{UbSettingDescriptionLine3}" color="#FFE8DEC3"
+           anchor="right top" />
+    <label x="664" y="64" w="308" h="16" text="{UbSettingDescriptionLine4}" color="#FFE8DEC3"
+           anchor="right top" />
+    <label x="664" y="84" w="308" h="16" text="{UbSettingScopeText}" color="#FFC7B98F"
+           anchor="right top" />
+    <label x="664" y="102" w="50" h="16" text="Value:" color="#FFE8DEC3" anchor="right top" />
+    <group x="664" y="120" w="308" h="18" background="#FF0C0906" border="#FF8C7B4E"
+           anchor="right top">
+      <field x="1" y="1" w="306" h="16" text="{UbSettingValueDraft}"
+             onchange="{SetUbSettingValueDraft}" onsubmit="{SubmitUbSetting}"
+             maxlength="160" clearonsubmit="false" background="#00000000"
+             color="#FFE8DEC3"
+             tooltip="Type a new value and press Enter, or use Set." />
+    </group>
+    <button x="664" y="142" w="74" h="20" text="Set" onclick="{SubmitUbSettingDraft}"
+            anchor="right top" tooltip="Save what is typed above into the selected setting." />
+    <button x="742" y="142" w="74" h="20" text="Default" onclick="{ResetUbSettingToDefault}"
+            anchor="right top" tooltip="Put the selected setting back to its shipped value." />
+    <button x="820" y="142" w="74" h="20" text="Colour..." onclick="{ShowUbColorEditor}"
+            anchor="right top" tooltip="Edit the selected colour setting." />
+    <button x="664" y="166" w="120" h="20" text="Edit list..." onclick="{ShowUbListEditor}"
+            anchor="right top" tooltip="Edit the entries of the selected list setting." />
+    <button x="664" y="188" w="92" h="20" text="Map..." onclick="{ShowUbMap}"
+            anchor="right bottom" tooltip="Open the countryside map." />
+    <button x="760" y="188" w="92" h="20" text="Clients..." onclick="{ShowUbClients}"
+            anchor="right bottom" tooltip="Open the readout of the other characters on this computer." />
+    <button x="856" y="188" w="92" h="20" text="Dungeon..." onclick="{ShowUbDungeon}"
+            anchor="right bottom" tooltip="Open the dungeon map's controls." />
+
+    <label x="4" y="198" w="44" h="16" text="Profile:" color="#FFE8DEC3" anchor="bottom" />
+    <menu x="52" y="198" w="102" h="16" items="{UbProfileNames}" anchor="bottom"
+          selected="{SelectedUbProfile}" onchange="{SelectUbProfile}"
+          rows="8" openupward="true"
+          tooltip="Which shareable settings profile this character uses." />
+    <group x="158" y="197" w="120" h="18" background="#FF0C0906" border="#FF8C7B4E"
+           anchor="bottom">
+      <field x="1" y="1" w="118" h="16" text="{UbProfileNameDraft}"
+             onchange="{SetUbProfileNameDraft}" onsubmit="{CreateNamedUbProfile}"
+             maxlength="64" background="#00000000" color="#FFE8DEC3"
+             tooltip="Name a new or copied settings profile." />
+    </group>
+    <button x="282" y="197" w="44" h="18" text="New" onclick="{CreateUbProfile}"
+            anchor="bottom"
+            tooltip="Make an empty profile under the name typed to the left, and open it." />
+    <button x="330" y="197" w="54" h="18" text="CopyTo" onclick="{CopyUbProfile}"
+            anchor="bottom"
+            tooltip="Make a profile holding what this one holds, and open it." />
+    <label x="390" y="198" w="270" h="16" text="{UbSettingNotice}" color="#FFC7B98F"
+           anchor="left bottom right" />
+  </group>
+
+  <!-- The Tinker page. Its content lives here as one self-contained group
+       and in MossTankPanel.Tinker.cs, so it can be added beside other work
+       on this window without either touching the other. -->
+  <group x="8" y="42" w="976" h="229" visible="{TinkerVisible}"
+         anchor="left top right bottom">
+    <label x="4" y="0" w="40" h="16" text="Item:" color="#FFE8DEC3" />
+    <label x="46" y="0" w="300" h="16" text="{TinkerItemName}" color="#FFC7B98F" />
+    <button x="4" y="18" w="120" h="20" text="Add Selected Item"
+            onclick="{AddSelectedTinkerItem}"
+            tooltip="Take whatever is selected in the world as the item to tinker." />
+    <label x="130" y="20" w="54" h="16" text="Salvage:" color="#FFE8DEC3" />
+    <menu x="186" y="18" w="120" h="18" items="{TinkerSalvageNames}"
+          selected="{SelectedTinkerSalvage}" onchange="{SelectTinkerSalvage}"
+          rows="10"
+          tooltip="Which salvage to spend. Granite/Iron picks the better of the two per tink." />
+    <label x="312" y="20" w="46" h="16" text="Min %:" color="#FFE8DEC3" />
+    <group x="360" y="18" w="56" h="18" background="#FF0C0906" border="#FF8C7B4E">
+      <field x="1" y="1" w="54" h="16" text="{TinkerMinimumPercentText}"
+             onchange="{SetTinkerMinimumPercentText}" maxlength="8"
+             clearonsubmit="false" background="#00000000" color="#FFE8DEC3"
+             tooltip="An attempt below this chance is never queued." />
+    </group>
+
+    <button x="4" y="40" w="76" h="20" text="Populate" onclick="{PopulateTinkerList}"
+            tooltip="Plan the tinks on the item above." />
+    <button x="84" y="40" w="56" h="20" text="Start" onclick="{StartTinker}"
+            tooltip="Work through the planned tinks." />
+    <button x="144" y="40" w="56" h="20" text="Stop" onclick="{StopTinker}"
+            tooltip="Stop the run and drop what is left of the plan." />
+    <label x="206" y="42" w="48" h="16" text="Stop at:" color="#FFE8DEC3" />
+    <menu x="256" y="40" w="48" h="18" items="{TinkerMaxTinksChoices}"
+          selected="{SelectedTinkerMaxTinks}" onchange="{SelectTinkerMaxTinks}"
+          rows="10" tooltip="The attempt number the run stops at." />
+
+    <label x="4" y="62" w="24" h="16" text="#" color="#FFE8DEC3" />
+    <label x="28" y="62" w="170" h="16" text="Item" color="#FFE8DEC3" />
+    <label x="198" y="62" w="150" h="16" text="Salvage" color="#FFE8DEC3" />
+    <label x="348" y="62" w="60" h="16" text="%" color="#FFE8DEC3" />
+    <list x="4" y="80" w="470" h="124" rowheight="17" anchor="left top bottom"
+          selected="{SelectedTinkerRowIndex}" onchange="{SelectTinkerRow}"
+          tooltip="The planned tinks. Click a row to select its item.">
+      <column type="text" width="24" items="{TinkerRowNumbers}"
+              colors="{TinkerRowColors}"
+              onclick="{SelectTinkerRow}" />
+      <column type="text" width="170" items="{TinkerRowItems}"
+              colors="{TinkerRowColors}"
+              onclick="{SelectTinkerRow}" />
+      <column type="text" width="150" items="{TinkerRowSalvage}"
+              colors="{TinkerRowColors}"
+              onclick="{SelectTinkerRow}" />
+      <column type="text" width="*" items="{TinkerRowChances}"
+              colors="{TinkerRowColors}"
+              onclick="{SelectTinkerRow}" />
+    </list>
+
+    <label x="490" y="0" w="120" h="16" text="Imbue" color="#FFE8DEC3"
+           anchor="left top" />
+    <label x="490" y="20" w="58" h="16" text="Damage:" color="#FFE8DEC3"
+           anchor="left top" />
+    <menu x="552" y="18" w="110" h="18" items="{ImbueDamageTypeNames}"
+          selected="{SelectedImbueDamageType}" onchange="{SelectImbueDamageType}"
+          rows="10" anchor="left top"
+          tooltip="Which damage type to rend; the salvage follows it." />
+    <label x="668" y="20" w="54" h="16" text="Salvage:" color="#FFE8DEC3"
+           anchor="left top" />
+    <menu x="724" y="18" w="110" h="18" items="{ImbueSalvageNames}"
+          selected="{SelectedImbueSalvage}" onchange="{SelectImbueSalvage}"
+          rows="10" anchor="left top"
+          tooltip="Which imbue salvage to spend." />
+    <button x="490" y="40" w="76" h="20" text="Rend All" onclick="{RendAllImbue}"
+            anchor="left top"
+            tooltip="Plan one rend for every weapon that can still take one." />
+    <button x="570" y="40" w="70" h="20" text="Refresh" onclick="{RefreshImbueList}"
+            anchor="left top"
+            tooltip="Re-read the packs and plan the chosen rend again." />
+    <button x="644" y="40" w="56" h="20" text="Start" onclick="{StartImbue}"
+            anchor="left top" tooltip="Work through the planned rends." />
+    <button x="704" y="40" w="56" h="20" text="Stop" onclick="{StopImbue}"
+            anchor="left top"
+            tooltip="Stop the run and drop what is left of the plan." />
+
+    <label x="490" y="62" w="24" h="16" text="#" color="#FFE8DEC3"
+           anchor="left top" />
+    <label x="514" y="62" w="170" h="16" text="Item" color="#FFE8DEC3"
+           anchor="left top" />
+    <label x="684" y="62" w="140" h="16" text="Salvage" color="#FFE8DEC3"
+           anchor="left top" />
+    <label x="824" y="62" w="60" h="16" text="%" color="#FFE8DEC3"
+           anchor="left top" />
+    <list x="490" y="80" w="482" h="124" rowheight="17"
+          anchor="left top right bottom"
+          selected="{SelectedImbueRowIndex}" onchange="{SelectImbueRow}"
+          tooltip="The planned rends. Click a row to select its item.">
+      <column type="text" width="24" items="{ImbueRowNumbers}"
+              colors="{ImbueRowColors}"
+              onclick="{SelectImbueRow}" />
+      <column type="text" width="170" items="{ImbueRowItems}"
+              colors="{ImbueRowColors}"
+              onclick="{SelectImbueRow}" />
+      <column type="text" width="140" items="{ImbueRowSalvage}"
+              colors="{ImbueRowColors}"
+              onclick="{SelectImbueRow}" />
+      <column type="text" width="*" items="{ImbueRowChances}"
+              colors="{ImbueRowColors}"
+              onclick="{SelectImbueRow}" />
+    </list>
+
+    <label x="4" y="208" w="968" h="16" text="{TinkerNotice}" color="#FFC7B98F"
+           anchor="left bottom right" />
+  </group>
+
+</panel>

@@ -1,0 +1,26 @@
+~~ {
+~~ The VT session proof route: four points due north of the outdoor arena
+~~ the proof harness teleports to. Coordinates are game coordinates
+~~ (east-west, north-south, elevation).
+~~
+~~ The route runs north because that is the only direction out of the arena
+~~ with room to walk in. The arena point stands at the south-east corner of a
+~~ building -- there is a door 0.7 m away -- and a walk sweep of the eight
+~~ compass directions from it travelled 0.0 m south, 0.0 m west, 1.8 m east
+~~ and 75.6 m north. The square loop this file used to hold was 8 m on a
+~~ side, centred on the arena, so half of it was inside that building: the
+~~ bot walked into an inside corner, had its velocity killed against two
+~~ walls every physics quantum, and stood there for the whole window. Any
+~~ mover without a pathfinder does that, so the route is what had to change.
+~~
+~~ The elevation column is informational: the mover and the milestone both
+~~ measure horizontally. The ground falls away going north, so it is the
+~~ arena's own ground height rather than a per-point survey.
+~~ }
+
+NAV: vtproof circular ~~ {
+	pnt 33.8066816 42.1557993 0.3916875
+	pnt 33.8066816 42.1891327 0.3916875
+	pnt 33.8066816 42.2224660 0.3916875
+	pnt 33.8066816 42.2557993 0.3916875
+~~ }

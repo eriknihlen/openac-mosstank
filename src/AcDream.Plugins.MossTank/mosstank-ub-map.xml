@@ -1,0 +1,33 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  The countryside map's controls. The map itself is a canvas the host paints
+  under every window, at its own place near the top left; this strip is a
+  window of its own, authored below the main window with the editors so
+  it never opens over the page it was opened from. The canvas takes the
+  pointer too: a drag slides the map and the wheel zooms at the cursor;
+  the buttons here make the same moves in fixed steps about the middle,
+  and the readout is the coordinate under the cursor, or at the middle.
+-->
+<panel x="253" y="405" w="320" h="76" title="MossTank Map"
+       visible="{UbMapVisible}" resize="none">
+  <button x="4" y="22" w="76" h="20" text="{UbMapFollowText}" onclick="{ToggleUbMapFollow}"
+          tooltip="Keep the map centred on you as you move." />
+  <button x="84" y="22" w="24" h="20" text="+" onclick="{UbMapZoomIn}"
+          tooltip="Zoom in about the middle of the map." />
+  <button x="110" y="22" w="24" h="20" text="-" onclick="{UbMapZoomOut}"
+          tooltip="Zoom out about the middle of the map." />
+  <button x="140" y="22" w="24" h="20" text="&lt;" onclick="{UbMapPanLeft}"
+          tooltip="Slide the map to show what lies west." />
+  <button x="166" y="22" w="24" h="20" text="&gt;" onclick="{UbMapPanRight}"
+          tooltip="Slide the map to show what lies east." />
+  <button x="192" y="22" w="24" h="20" text="^" onclick="{UbMapPanUp}"
+          tooltip="Slide the map to show what lies north." />
+  <button x="218" y="22" w="24" h="20" text="v" onclick="{UbMapPanDown}"
+          tooltip="Slide the map to show what lies south." />
+  <button x="262" y="22" w="54" h="20" text="Close" onclick="{HideUbMap}"
+          tooltip="Hide the map and this window." />
+  <label x="4" y="46" w="150" h="16" text="{UbMapReadout}" color="#FFE8DEC3"
+         tooltip="The coordinate at the middle of the map." />
+  <label x="158" y="46" w="158" h="16" text="{UbMapMarkerCountText}" color="#FFC7B98F"
+         tooltip="How many points of interest were read from the marker files." />
+</panel>
