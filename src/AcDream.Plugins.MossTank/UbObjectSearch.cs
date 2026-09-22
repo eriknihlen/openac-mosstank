@@ -150,6 +150,88 @@ internal static class UbObjectSearch
     }
 
     /// <summary>
+    /// The fellowship member a name stands for, the way the reference's
+    /// fellow commands look: an object id (decimal or hexadecimal) or the word
+    /// "selected" may name anyone on the roster, the character included; a
+    /// name, whole or <paramref name="partial"/>, names the nearest other
+    /// member it matches, and a blank name the nearest other member.
+    /// </summary>
+    internal static bool TryFindFellow(
+        IPluginHost host,
+        IReadOnlyList<PluginFellowMember> roster,
+        string? name,
+        bool partial,
+        out PluginFellowMember found)
+    {
+        ArgumentNullException.ThrowIfNull(host);
+        ArgumentNullException.ThrowIfNull(roster);
+        string text = name?.Trim() ?? string.Empty;
+        if (TryFellowById(roster, text, out found))
+            return true;
+        // The reference matches the word itself, so a character called
+        // "Selected" can still be named by typing it with its capital.
+        if (text.Equals("selected", StringComparison.Ordinal)
+            && host.Selection.SelectedObjectId is { } selected
+            && selected != 0u
+            && TryFellow(roster, selected, out found))
+        {
+            return true;
+        }
+
+        uint self = host.Automation.Character.ObjectId;
+        PluginFellowMember? best = null;
+        foreach (PluginFellowMember candidate in roster)
+        {
+            if (candidate.ObjectId == self || !Matches(candidate.Name, text, partial))
+                continue;
+            if (best is { } current && current.Distance <= candidate.Distance)
+                continue;
+            best = candidate;
+        }
+        if (best is not { } value)
+        {
+            found = default;
+            return false;
+        }
+        found = value;
+        return true;
+    }
+
+    private static bool TryFellowById(
+        IReadOnlyList<PluginFellowMember> roster,
+        string text,
+        out PluginFellowMember found)
+    {
+        found = default;
+        if (text.Length == 0)
+            return false;
+        if (uint.TryParse(text, NumberStyles.Integer, CultureInfo.InvariantCulture, out uint decimalId)
+            && TryFellow(roster, decimalId, out found))
+        {
+            return true;
+        }
+        string hex = text.StartsWith("0x", StringComparison.OrdinalIgnoreCase) ? text[2..] : text;
+        return uint.TryParse(hex, NumberStyles.HexNumber, CultureInfo.InvariantCulture, out uint hexId)
+            && TryFellow(roster, hexId, out found);
+    }
+
+    private static bool TryFellow(
+        IReadOnlyList<PluginFellowMember> roster,
+        uint objectId,
+        out PluginFellowMember found)
+    {
+        foreach (PluginFellowMember candidate in roster)
+        {
+            if (candidate.ObjectId != objectId)
+                continue;
+            found = candidate;
+            return true;
+        }
+        found = default;
+        return false;
+    }
+
+    /// <summary>
     /// Flat ground distance from the character, in meters. An object with no
     /// position of its own is on the character, so it is zero away.
     /// </summary>

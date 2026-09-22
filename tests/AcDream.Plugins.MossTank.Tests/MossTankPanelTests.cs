@@ -10433,6 +10433,12 @@ public sealed partial class MossTankPanelTests
         IAllegianceAutomation IAutomationSurface.Allegiance =>
             AllegianceSurface ?? NoOpAutomationSurface.Instance;
 
+        /// <summary>The fellowship a test stages; unset, the inert one.</summary>
+        public IFellowshipAutomation? FellowshipSurface { get; set; }
+
+        IFellowshipAutomation IAutomationSurface.Fellowship =>
+            FellowshipSurface ?? NoOpAutomationSurface.Instance;
+
         /// <summary>
         /// The labels hung over the world, when a test records them. Left
         /// unset the surface is the inert one, which shows nothing.

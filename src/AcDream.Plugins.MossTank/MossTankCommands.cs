@@ -10,7 +10,7 @@ internal sealed partial class MossTankPanel
     private static readonly string[] VtankHelp =
     [
         "MossTank /vt — profiles: settings nav loot meta opt testitem propertydump addnavpt refresh getdb addnavjump addnavcheckpoint",
-        "MossTank /vt — actions: start stop forcebuff cancelforcebuff setmetastate fakedeath deathrestore deletemonster reverseroute reverseroutequery equipitemsfor equip mexec echo tapjump jump face setattackbar setmotion clearmotion prepclick count login give autovendor vendor xp",
+        "MossTank /vt — actions: start stop forcebuff cancelforcebuff setmetastate fakedeath deathrestore deletemonster reverseroute reverseroutequery equipitemsfor equip mexec echo tapjump jump face setattackbar setmotion clearmotion prepclick fellow count login give autovendor vendor xp",
         "MossTank /vt — game info: dumpspells dumpspecies dumpmats dumpskills",
         "MossTank /vt — debug: log testmonster lockdump dumptracker clearlocks clearbusy listmonstervariables dumpmetavars listmetafunctions metafunchelp fakeimp pscount testspell testpet",
     ];
@@ -277,6 +277,9 @@ internal sealed partial class MossTankPanel
                 return;
             case "prepclick":
                 _prepClick.Command(arguments);
+                return;
+            case "fellow":
+                HandleFellowCommand(arguments);
                 return;
             case "addnavjump":
                 HandleJumpCommand(arguments, addToRoute: true);
