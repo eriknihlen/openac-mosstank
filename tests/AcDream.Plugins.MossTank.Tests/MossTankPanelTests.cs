@@ -770,6 +770,19 @@ public sealed partial class MossTankPanelTests
         return $"profiles/macro/{hash}.json";
     }
 
+    /// <summary>
+    /// Following the route holds a walk the client plans, except the
+    /// route's own hand-off: holding that one left the character standing
+    /// until the meta's watchdog restarted the route. Mutation: ignore the
+    /// route's own walk and the route holds it again.
+    /// </summary>
+    [Theory]
+    [InlineData(true, false, true)]
+    [InlineData(true, true, false)]
+    [InlineData(false, false, false)]
+    public void TheRouteNeverHoldsItsOwnClientWalk(bool routeEnabled, bool routeOwnsWalk, bool holds) =>
+        Assert.Equal(holds, MossTankPanel.RouteHoldsClientWalks(routeEnabled, routeOwnsWalk));
+
     [Theory]
     [InlineData(false, "Attack", false, false, false, 99d, null)]
     [InlineData(true, null, false, false, false, 99d, null)]

@@ -531,6 +531,9 @@ internal sealed class NavigationController
     /// client could not walk has paused the route.
     /// </summary>
     private RouteWaypoint? _clientWalkGoal;
+
+    /// <summary>Whether a leg of the route is being walked by the client's own pathing.</summary>
+    internal bool IsClientWalking => _clientWalkGoal is not null;
     private long _clientWalkSequence;
     private int _clientHandOffIndex = -1;
     private bool _clientStallPosted;

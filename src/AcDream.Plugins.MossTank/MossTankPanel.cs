@@ -726,9 +726,18 @@ internal sealed partial class MossTankPanel : IBuffRuleHost, IDisposable
         _scheduler.IsRunning,
         _scheduler.LastExecutedRule?.Name,
         _buffRule.IsBursting,
-        _navigationSettings.Enabled,
+        RouteHoldsClientWalks(_navigationSettings.Enabled, _navigation.IsClientWalking),
         _inventorySettings.Loot.Enabled,
         _walkClock - _lastAttackSeconds);
+
+    /// <summary>
+    /// Whether following the route holds a walk the client plans. It does,
+    /// except while the walk is the route's own: a leg the steering could not
+    /// cover is handed to the client's pathing, and holding that walk left
+    /// the character standing until the meta's watchdog restarted the route.
+    /// </summary>
+    internal static bool RouteHoldsClientWalks(bool routeEnabled, bool routeOwnsClientWalk) =>
+        routeEnabled && !routeOwnsClientWalk;
 
     /// <summary>
     /// The macro needs the character while it buffs, while it steers the character along

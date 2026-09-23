@@ -2569,6 +2569,9 @@ public sealed class NavigationTests
         Assert.Equal(goal, where);
         Assert.Equal(2f, arrival);
         Assert.Contains("walked by the client", controller.Status, StringComparison.Ordinal);
+        // The walk is the route's own, so the route does not hold it.
+        Assert.True(controller.IsClientWalking);
+        Assert.False(MossTankPanel.RouteHoldsClientWalks(routeEnabled: true, controller.IsClientWalking));
         int intentsAtHandOff = automation.Intents.Count;
         StepFrames(controller, 1d);
         Assert.Equal(intentsAtHandOff, automation.Intents.Count);
