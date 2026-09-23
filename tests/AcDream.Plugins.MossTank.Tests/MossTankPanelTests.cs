@@ -1160,6 +1160,7 @@ public sealed partial class MossTankPanelTests
             new FakeAutomation { Name = "Barris", WorldName = "Coldeve" }, storage));
         Command(panel, "nav load Circuit");
         int circuitPoints = panel.RouteRows.Count;
+        string circuitName = panel.SelectedRouteProfile;
         Assert.True(circuitPoints > 1);
 
         Command(panel, "meta load Stipend");
@@ -1180,9 +1181,56 @@ public sealed partial class MossTankPanelTests
 
         Command(panel, "nav load Circuit");
 
-        Assert.Equal("Circuit", panel.SelectedRouteProfile);
+        Assert.Equal(circuitName, panel.SelectedRouteProfile);
         Assert.DoesNotContain("stipend.nav (embedded)", panel.RouteProfileNames);
         Assert.Equal(circuitPoints, panel.RouteRows.Count);
+    }
+
+    /// <summary>
+    /// Setting an option writes the settings profile and nothing else: a meta
+    /// and a route edited on disk while they are loaded keep the edit. The
+    /// meta here sets an option itself, as metas do all the time. Nor is a
+    /// meta written by any other settings change, or on switching to another.
+    /// Mutation: save the whole profile set on an option change, save the
+    /// meta with the other settings, or save it before a switch, and the
+    /// edit is written over.
+    /// </summary>
+    [Fact]
+    public void SettingAnOptionLeavesTheLoadedMetaAndRouteFilesAlone()
+    {
+        var storage = new MemoryStorage();
+        storage.Text["mosstank/navs/Circuit.nav"] = File.ReadAllText(Path.Combine(
+            AppContext.BaseDirectory, "Fixtures", "vtank", "nav", "nav_ab.nav"));
+        storage.Text["mosstank/metas/Edited.af"] =
+            "STATE: {Default} ~~ {\r\n"
+            + "\tIF:\tAlways\r\n"
+            + "\t\tDO:\tChat {/vt opt set enablebuffing true}\r\n";
+        var panel = new MossTankPanel(new FakeHost(
+            new FakeAutomation { Name = "Barris", WorldName = "Coldeve" }, storage));
+        Command(panel, "nav load Circuit");
+        Command(panel, "meta load Edited");
+        const string editedMeta =
+            "STATE: {Default} ~~ {\r\n"
+            + "\tIF:\tAlways\r\n"
+            + "\t\tDO:\tChat {/vt opt set enablelooting true}\r\n";
+        const string editedRoute = "edited on disk";
+        storage.Text["mosstank/metas/Edited.af"] = editedMeta;
+        storage.Text["mosstank/navs/Circuit.nav"] = editedRoute;
+
+        Command(panel, "opt set enablebuffing false");
+        Command(panel, "opt toggle enablelooting");
+
+        Assert.Equal(editedMeta, storage.Text["mosstank/metas/Edited.af"]);
+        Assert.Equal(editedRoute, storage.Text["mosstank/navs/Circuit.nav"]);
+
+        Command(panel, "setattackbar 0.5");
+        storage.Text["mosstank/metas/Other.af"] =
+            "STATE: {Default} ~~ {\r\n"
+            + "\tIF:\tNever\r\n"
+            + "\t\tDO:\tNone\r\n";
+        Command(panel, "meta load Other");
+
+        Assert.Equal(editedMeta, storage.Text["mosstank/metas/Edited.af"]);
     }
 
     [Theory]

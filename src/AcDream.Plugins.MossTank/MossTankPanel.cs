@@ -3627,7 +3627,6 @@ internal sealed partial class MossTankPanel : IBuffRuleHost, IDisposable
 
     private void SelectMetaProfileCore(string name)
     {
-        SaveMetaProfile();
         if (!_metaProfiles.Select(name))
         {
             _metaNotice = $"Meta profile '{name}' is unavailable.";
@@ -4803,7 +4802,7 @@ internal sealed partial class MossTankPanel : IBuffRuleHost, IDisposable
         }
         _combatSettings.DynamicSettings[canonical] = ToMonsterValue(value);
         if (!_applyingProfileOptions)
-            SaveProfile();
+            SaveSettingsProfile();
         return true;
     }
 
@@ -5025,6 +5024,16 @@ internal sealed partial class MossTankPanel : IBuffRuleHost, IDisposable
     /// has just told the user it changed something has to know, because a
     /// change nobody wrote down is gone with the session.
     /// </summary>
+    /// <summary>
+    /// What an option change writes: the settings profile, where every option
+    /// value is kept and from which it is put back on load. The loot profile,
+    /// route and meta are their own files; writing the copies held in memory
+    /// over them on every option change undid any edit made to those files
+    /// while the macro ran, and a meta sets options all the time.
+    /// </summary>
+    private bool SaveSettingsProfile() =>
+        _profiles.SaveCurrent(_allSettings, _noBuffItemNames, _commandLogTypes);
+
     private bool SaveProfile()
     {
         bool saved = _profiles.SaveCurrent(
@@ -5033,7 +5042,8 @@ internal sealed partial class MossTankPanel : IBuffRuleHost, IDisposable
             _inventorySettings.Loot.Rules,
             _inventorySettings.Loot);
         SaveRouteProfile();
-        SaveMetaProfile();
+        // Not the meta: a meta file is the author's, written only by an
+        // edit made in the meta editor, which saves as it goes.
         return saved;
     }
 
