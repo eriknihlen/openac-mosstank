@@ -3,27 +3,30 @@ using AcDream.Plugin.Abstractions;
 
 namespace AcDream.Plugins.MossTank;
 
-/// <summary>What the game-information service answered, or why it did not.</summary>
+/// <summary>What the download answered, or why it did not.</summary>
 internal readonly record struct VtankGameInfoAnswer(bool Succeeded, string Text);
 
 /// <summary>
-/// How the update check reaches the game-information service. The plugin
-/// hands the panel the HTTP one; a panel built without one never asks.
+/// How the update check fetches the game database. The plugin hands the
+/// panel the HTTP one; a panel built without one never downloads anything.
 /// </summary>
 internal interface IVtankGameInfoTransport
 {
     Task<VtankGameInfoAnswer> GetAsync(Uri address, CancellationToken cancellation);
 }
 
-/// <summary>A plain GET with a timeout and a size cap. Every failure comes back as a reason.</summary>
+/// <summary>
+/// A plain GET that follows redirects, with a timeout and a size cap. Every
+/// failure comes back as a reason.
+/// </summary>
 internal sealed class HttpVtankGameInfoTransport : IVtankGameInfoTransport, IDisposable
 {
-    /// <summary>How long the service has to answer before the check gives up.</summary>
+    /// <summary>How long the download has to finish before the check gives up.</summary>
     internal static readonly TimeSpan DefaultTimeout = TimeSpan.FromSeconds(30);
 
     /// <summary>
-    /// The largest answer taken. A whole database is well under a megabyte;
-    /// anything near this is not one.
+    /// The largest answer taken. A whole database is a few megabytes; anything
+    /// near this is not one.
     /// </summary>
     internal const long DefaultMaximumAnswerBytes = 32L * 1024 * 1024;
 
@@ -31,7 +34,7 @@ internal sealed class HttpVtankGameInfoTransport : IVtankGameInfoTransport, IDis
     private readonly TimeSpan _timeout;
 
     /// <param name="handler">What sends the request: the network, unless a test supplies one.</param>
-    /// <param name="timeout">How long the service has to answer.</param>
+    /// <param name="timeout">How long the download has to finish.</param>
     /// <param name="maximumAnswerBytes">The largest answer taken.</param>
     public HttpVtankGameInfoTransport(
         HttpMessageHandler? handler = null,
@@ -39,6 +42,8 @@ internal sealed class HttpVtankGameInfoTransport : IVtankGameInfoTransport, IDis
         long maximumAnswerBytes = DefaultMaximumAnswerBytes)
     {
         _timeout = timeout ?? DefaultTimeout;
+        // The release link answers with a redirect to the file itself; the
+        // default handler follows it.
         _client = new HttpClient(handler ?? new HttpClientHandler(), disposeHandler: true)
         {
             Timeout = _timeout,
@@ -89,32 +94,41 @@ internal sealed record VtankGameInfoUpdateResult(
     VtankGameInfoDatabase? Database);
 
 /// <summary>
-/// The reference client's game-information update. It asks the service for
-/// everything that changed since the database's own last-update time, at the
-/// database's own version; an answer with any record beyond its update-time
-/// row is merged into the database table by table, keyed on each table's
-/// index column, and the result is saved beside the profiles. An answer with
-/// nothing else in it means the database is current; only its time row is
-/// kept, so the file says when it was last known current (the reference
-/// client saves nothing then, but it also checks at every login, which this
-/// need not: a database checked within the window is not asked about again).
+/// Keeps the player's game database current from openac-gamedata, an
+/// independent project that publishes a complete database, generated from
+/// the ACE server's world data, as a release file. Each check downloads the
+/// whole file; one that reads as a whole database at the built-in version,
+/// and was built from newer world data than the one the player has, replaces
+/// the player's file. A database whose last check is younger than the window
+/// is not checked again.
 /// </summary>
 /// <remarks>
-/// The request, the merge and the save run off the game thread; the outcome
-/// waits for <see cref="Drain"/>, which the panel calls from its tick. Only an
-/// answer whose every value reads is merged, only a merged database that
-/// reads back is written, and the host's write replaces the file in one
-/// step, so a failure at any point leaves the old file as it was. Once the
-/// updater is disposed nothing more is written.
+/// The download, the checks and the save run off the game thread; the
+/// outcome waits for <see cref="Drain"/>, which the panel calls from its
+/// tick. Only a database whose every value reads is written, and the host's
+/// write replaces the file in one step, so a failure at any point leaves the
+/// old file as it was. Once the updater is disposed nothing more is written.
 /// </remarks>
 internal sealed class VtankGameInfoUpdater : IDisposable
 {
-    internal const string ServiceAddress =
-        "http://auth.virindi.net/plugins/gamedb/get2.php";
+    /// <summary>The newest published database; the link redirects to the file.</summary>
+    internal const string SourceAddress =
+        "https://github.com/eriknihlen/openac-gamedata/releases/latest/download/gameinfodb.ugd";
+
+    /// <summary>Where the source is named in chat.</summary>
+    internal const string SourceName = "openac-gamedata";
+
+    /// <summary>
+    /// The plugin's own note of when the database was last checked, in
+    /// seconds since 1970. It lives beside the plugin's other state, not in
+    /// the database, whose own time says which world data it was built from.
+    /// </summary>
+    internal const string LastCheckKey = "gamedb/last-check.txt";
 
     private const string KeptOld = " The game database you had is kept.";
 
     private readonly IPluginStorage _profiles;
+    private readonly IPluginStorage _state;
     private readonly IVtankGameInfoTransport? _transport;
     private readonly Func<DateTimeOffset> _clock;
     private readonly CancellationTokenSource _cancellation = new();
@@ -124,17 +138,23 @@ internal sealed class VtankGameInfoUpdater : IDisposable
     private Task<VtankGameInfoUpdateResult>? _pending;
     private bool _disposed;
 
+    /// <param name="profiles">The VTank profile folder the database is kept in.</param>
+    /// <param name="state">The plugin's own storage, for the note of the last check.</param>
+    /// <param name="transport">How the file is fetched; none means no downloads.</param>
+    /// <param name="clock">The time now.</param>
     public VtankGameInfoUpdater(
         IPluginStorage profiles,
+        IPluginStorage state,
         IVtankGameInfoTransport? transport,
         Func<DateTimeOffset>? clock = null)
     {
         _profiles = profiles ?? throw new ArgumentNullException(nameof(profiles));
+        _state = state ?? throw new ArgumentNullException(nameof(state));
         _transport = transport;
         _clock = clock ?? (static () => DateTimeOffset.UtcNow);
     }
 
-    /// <summary>Can this session download at all: a service to ask and a folder to keep the answer in?</summary>
+    /// <summary>Can this session download at all: a source to fetch from and a folder to keep the file in?</summary>
     public bool CanUpdate => _transport is not null && _profiles.IsAvailable;
 
     public bool IsRunning => _pending is not null;
@@ -147,9 +167,9 @@ internal sealed class VtankGameInfoUpdater : IDisposable
     /// check with. The reason it did not start, or null when it did.
     /// </summary>
     /// <param name="skipIfCheckedWithin">
-    /// A database whose own time is younger than this is not asked about;
-    /// the check hands over what the file holds instead. Zero forces the
-    /// question.
+    /// A database last checked less than this long ago is not downloaded
+    /// again; the check hands over what the file holds instead. Zero forces
+    /// the download.
     /// </param>
     public string? Start(TimeSpan skipIfCheckedWithin = default)
     {
@@ -199,183 +219,155 @@ internal sealed class VtankGameInfoUpdater : IDisposable
         CancellationToken cancellation)
     {
         VtankDatabase local = VtankGameInfoFile.LoadBase(_profiles);
-        int date;
-        try
+        if (skipIfCheckedWithin > TimeSpan.Zero
+            && ReadLastCheck(_state) is { } lastCheck)
         {
-            date = LastUpdateTime(local);
-        }
-        catch (Exception error) when (error is FormatException or OverflowException)
-        {
-            return Failed("the database has no readable update time");
-        }
-        int version = VtankGameInfoFile.Version(local);
-        if (date > 0 && skipIfCheckedWithin > TimeSpan.Zero)
-        {
-            DateTimeOffset nextCheck = FromUnixSeconds(date) + skipIfCheckedWithin;
+            DateTimeOffset nextCheck = lastCheck + skipIfCheckedWithin;
             if (_clock() < nextCheck)
             {
-                // Another session may have checked since this one loaded the
-                // file, so what the file holds now is handed over.
+                // Another session may have downloaded since this one loaded
+                // the file, so what the file holds now is handed over.
                 return new VtankGameInfoUpdateResult(
                     "Game database checked recently; the next check is after "
                     + FormatUtc(nextCheck) + ".",
                     VtankGameInfoDatabase.From(local));
             }
         }
+        int localTime = TryLastUpdateTime(local) ?? 0;
 
-        var address = new Uri(
-            ServiceAddress
-            + "?date=" + date.ToString(CultureInfo.InvariantCulture)
-            + "&dbver=" + version.ToString(CultureInfo.InvariantCulture));
         VtankGameInfoAnswer answer = await transport
-            .GetAsync(address, cancellation)
+            .GetAsync(new Uri(SourceAddress), cancellation)
             .ConfigureAwait(false);
         if (!answer.Succeeded)
             return Failed(answer.Text);
 
-        VtankDatabase update;
+        VtankDatabase downloaded;
         try
         {
-            update = VtankDatabase.Parse(answer.Text);
+            downloaded = VtankDatabase.Parse(answer.Text);
         }
         catch (Exception error) when (
             error is FormatException or OverflowException or InvalidOperationException)
         {
-            return Failed("the answer is not a game database (" + error.Message + ")");
+            return Failed("the download is not a game database (" + error.Message + ")");
         }
-        if (!VtankGameInfoFile.EveryValueReads(update))
-            return Failed("the answer is not a game database (a value in it does not read)");
-
-        // Nothing past the time row means current. The time row itself is
-        // still merged and kept, so the file says when it was last known to
-        // be current and the next session can tell it was checked recently.
-        int changed = update.Tables.Sum(static entry => entry.Table.Rows.Count) - 1;
-        bool current = changed <= 0;
-
-        VtankGameInfoDatabase merged;
-        string text;
-        try
+        if (!VtankGameInfoFile.EveryValueReads(downloaded))
+            return Failed("the download is not a game database (a value in it does not read)");
+        int version = VtankGameInfoFile.Version(downloaded);
+        if (version != VtankGameInfoFile.BuiltInVersion)
         {
-            Merge(local, update);
-            text = local.Render();
-            // What is written is what is used: the saved text, read back.
-            merged = VtankGameInfoDatabase.Parse(text);
+            return Failed(
+                "the download is database version "
+                + version.ToString(CultureInfo.InvariantCulture) + ", not "
+                + VtankGameInfoFile.BuiltInVersion.ToString(CultureInfo.InvariantCulture));
         }
-        catch (Exception error) when (
-            error is FormatException or OverflowException or InvalidOperationException)
+        if (TryLastUpdateTime(downloaded) is not { } downloadedTime)
+            return Failed("the download does not say which world data it was built from");
+
+        string built = FormatDate(downloadedTime);
+        if (downloadedTime <= localTime)
         {
-            return Failed("the answer does not fit the database (" + error.Message + ")");
+            lock (_writeGate)
+            {
+                cancellation.ThrowIfCancellationRequested();
+                return new VtankGameInfoUpdateResult(
+                    "Game database is up to date (" + built + ", " + SourceName + ")."
+                    + NoteCheck(),
+                    null);
+            }
         }
 
-        string count = changed.ToString(CultureInfo.InvariantCulture)
-            + (changed == 1 ? " record changed" : " records changed");
+        VtankGameInfoDatabase database = VtankGameInfoDatabase.From(downloaded);
         lock (_writeGate)
         {
             // A plugin that has been switched off writes nothing more.
             cancellation.ThrowIfCancellationRequested();
             try
             {
-                _profiles.WriteText(VtankGameInfoDatabase.FileName, text);
+                _profiles.WriteText(VtankGameInfoDatabase.FileName, answer.Text);
             }
             catch (Exception error) when (
                 error is IOException or UnauthorizedAccessException or NotSupportedException)
             {
-                string reason = error.Message.TrimEnd('.');
-                if (current)
-                {
-                    return new VtankGameInfoUpdateResult(
-                        "Game database is up to date (the time of this check could not be saved: "
-                        + reason + ").",
-                        merged);
-                }
-                // The download is good; only keeping it failed. The reference
-                // client goes on using a database it could not save, and so
-                // does this.
+                // The download is good; only keeping it failed, so it is used
+                // for as long as the plugin runs.
                 return new VtankGameInfoUpdateResult(
-                    "Game database downloaded (" + count + ") but could not be saved: "
-                    + reason + ". It is used until MossTank stops.",
-                    merged);
+                    "Game database updated to " + built + " from " + SourceName
+                    + " but could not be saved: " + error.Message.TrimEnd('.')
+                    + ". It is used until MossTank stops.",
+                    database);
             }
+            return new VtankGameInfoUpdateResult(
+                "Game database updated to " + built + " from " + SourceName + "."
+                + NoteCheck(),
+                database);
         }
-        return new VtankGameInfoUpdateResult(
-            current ? "Game database is up to date." : "Game database updated: " + count + ".",
-            merged);
+    }
+
+    /// <summary>
+    /// Keeps the time of a check that reached the source, so a login within
+    /// the window does not download again. The empty string when it is kept;
+    /// otherwise the reason, for the end of the line.
+    /// </summary>
+    private string NoteCheck()
+    {
+        if (!_state.IsAvailable)
+            return string.Empty;
+        try
+        {
+            _state.WriteText(
+                LastCheckKey,
+                _clock().ToUnixTimeSeconds().ToString(CultureInfo.InvariantCulture));
+            return string.Empty;
+        }
+        catch (Exception error) when (
+            error is IOException or UnauthorizedAccessException or NotSupportedException)
+        {
+            return " (The time of this check could not be kept: " + error.Message.TrimEnd('.') + ".)";
+        }
+    }
+
+    /// <summary>When the database was last checked, or null when no check has been kept.</summary>
+    internal static DateTimeOffset? ReadLastCheck(IPluginStorage state)
+    {
+        ArgumentNullException.ThrowIfNull(state);
+        return state.IsAvailable
+            && long.TryParse(
+                state.ReadText(LastCheckKey)?.Trim(),
+                NumberStyles.Integer,
+                CultureInfo.InvariantCulture,
+                out long seconds)
+            && seconds > 0
+                ? DateTimeOffset.FromUnixTimeSeconds(seconds)
+                : null;
     }
 
     private static VtankGameInfoUpdateResult Failed(string reason) =>
         new("Game database update failed: " + reason.TrimEnd('.') + "." + KeptOld, null);
 
-    /// <summary>The <c>DBLastUpdateTime</c> row's time, in seconds since 1970.</summary>
-    internal static int LastUpdateTime(VtankDatabase database)
+    /// <summary>The <c>DBLastUpdateTime</c> row's time, in seconds since 1970, or null when it has none.</summary>
+    internal static int? TryLastUpdateTime(VtankDatabase database)
     {
         VtankTable? table = database.Find("DBLastUpdateTime");
-        if (table is not { Rows.Count: > 0 } || table.Rows[0].Cells.Count < 2)
-            throw new FormatException("DBLastUpdateTime has no row.");
-        return table.Rows[0].Cells[1].AsInt();
+        return table is { Rows.Count: > 0 } && table.Rows[0].Cells.Count >= 2
+            && int.TryParse(
+                table.Rows[0].Cells[1].ScalarText,
+                NumberStyles.Integer,
+                CultureInfo.InvariantCulture,
+                out int seconds)
+                ? seconds
+                : null;
     }
-
-    /// <summary>
-    /// Every table the database already has takes the rows the update has
-    /// for it: a row whose index-column value matches an existing row
-    /// overwrites that row's other columns, any other row is added. A table
-    /// the database does not have, or one whose column count differs, is
-    /// left out, exactly as the reference client leaves it out.
-    /// </summary>
-    internal static void Merge(VtankDatabase database, VtankDatabase update)
-    {
-        foreach ((string name, VtankTable table) in database.Tables)
-        {
-            VtankTable? incoming = update.Find(name);
-            if (incoming is null || incoming.ColumnNames.Count != table.ColumnNames.Count)
-                continue;
-            int key = Math.Max(0, table.IndexFlags.IndexOf(true));
-            if (key >= table.ColumnNames.Count)
-                continue;
-            // The first row with a key is the one a lookup finds.
-            var byKey = new Dictionary<string, VtankRow>(StringComparer.OrdinalIgnoreCase);
-            foreach (VtankRow row in table.Rows)
-                byKey.TryAdd(KeyOf(row.Cells[key]), row);
-            foreach (VtankRow row in incoming.Rows)
-            {
-                string rowKey = KeyOf(row.Cells[key]);
-                if (!byKey.TryGetValue(rowKey, out VtankRow? existing))
-                {
-                    var added = new VtankRow();
-                    added.Cells.AddRange(row.Cells);
-                    table.Rows.Add(added);
-                    byKey.Add(rowKey, added);
-                    continue;
-                }
-                for (int column = 0; column < existing.Cells.Count; column++)
-                {
-                    if (column != key)
-                        existing.Cells[column] = row.Cells[column];
-                }
-            }
-        }
-    }
-
-    /// <summary>
-    /// An index value as the lookup compares it: text without case, a number
-    /// by its value, and values of two different kinds never alike. The
-    /// lookup's comparer ignores case, which leaves numbers untouched.
-    /// </summary>
-    private static string KeyOf(VtankCell cell) => cell.Tag switch
-    {
-        "s" => "s\0" + cell.AsString(),
-        "i" => "i\0" + cell.AsInt().ToString(CultureInfo.InvariantCulture),
-        "u" => "u\0" + cell.AsUInt().ToString(CultureInfo.InvariantCulture),
-        "d" => "d\0" + cell.AsDouble().ToString("R", CultureInfo.InvariantCulture),
-        "f" => "f\0" + cell.AsFloat().ToString("R", CultureInfo.InvariantCulture),
-        _ => throw new InvalidOperationException(
-            $"An index value of kind '{cell.Tag}' cannot be compared."),
-    };
 
     internal static DateTimeOffset FromUnixSeconds(int seconds) =>
         new DateTimeOffset(1970, 1, 1, 0, 0, 0, TimeSpan.Zero) + TimeSpan.FromSeconds(seconds);
 
     internal static string FormatUtc(DateTimeOffset time) =>
         time.UtcDateTime.ToString("yyyy-MM-dd HH:mm 'UTC'", CultureInfo.InvariantCulture);
+
+    /// <summary>A database's own time as the day its world data is from.</summary>
+    internal static string FormatDate(int seconds) =>
+        FromUnixSeconds(seconds).UtcDateTime.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture);
 
     /// <summary>
     /// Stops a check for good: it is cancelled, a save already under way is

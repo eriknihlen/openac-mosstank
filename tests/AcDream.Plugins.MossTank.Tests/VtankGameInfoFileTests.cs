@@ -69,64 +69,6 @@ public sealed class VtankGameInfoFileTests
         Assert.Equal(3, database.MartyrSpellOptions.Count);
     }
 
-    /// <summary>
-    /// The built-in database is built in code, not shipped, and it has to
-    /// take every table the service sends, in the service's shape, or the
-    /// merge drops that table. One row per table, merged into it, lands in
-    /// every table; the craft table is looked up by its ID column, and the
-    /// database asks at version 9 from time zero. Mutations: leave a table
-    /// out of the built-in list, or give one a different column count (its
-    /// row is dropped); key the craft table on column 0 (the second row with
-    /// the same ID is added instead of replacing the first).
-    /// </summary>
-    [Fact]
-    public void TheBuiltInDatabaseTakesEveryTableTheServiceSends()
-    {
-        (string Name, int Columns)[] sent =
-        [
-            ("DBLastUpdateTime", 2), ("MonsterDamageOverrides", 2), ("SpeciesDamages", 2),
-            ("SpeciesMembers", 3), ("CraftInteractions", 9), ("CooldownIDs", 2),
-            ("AmmunitionOptions", 8), ("GrenadeOptions", 6), ("SpellQualityOverrides", 4),
-            ("HealKits", 4), ("DrainSpellOptions", 5), ("MartyrSpellOptions", 4),
-            ("MonsterImmunities", 2),
-        ];
-        var answer = new VtankDatabase();
-        foreach ((string name, int columns) in sent)
-        {
-            var table = new VtankTable();
-            for (int column = 0; column < columns; column++)
-            {
-                table.ColumnNames.Add("C" + column);
-                table.IndexFlags.Add(false);
-            }
-            // The service's time row is keyed on its zero column, as the built-in one is.
-            table.Rows.Add(Row(columns, first: name == "DBLastUpdateTime" ? 0 : 1, last: 7));
-            if (name == "CraftInteractions")
-                table.Rows.Add(Row(columns, first: 2, last: 7));
-            answer.Tables.Add((name, table));
-        }
-        VtankDatabase database = VtankGameInfoFile.BuiltIn();
-
-        VtankGameInfoUpdater.Merge(database, answer);
-
-        Assert.Equal(9, VtankGameInfoFile.Version(database));
-        foreach ((string name, _) in sent)
-            Assert.Single(database.Find(name)!.Rows);
-        Assert.Equal(2, database.Find("CraftInteractions")!.Rows[0].Cells[0].AsInt());
-        Assert.Equal(7, VtankGameInfoUpdater.LastUpdateTime(database));
-
-        static VtankRow Row(int columns, int first, int last)
-        {
-            var row = new VtankRow();
-            row.Cells.Add(VtankCell.Int(first));
-            for (int column = 1; column < columns - 1; column++)
-                row.Cells.Add(VtankCell.Int(column));
-            if (columns > 1)
-                row.Cells.Add(VtankCell.Int(last));
-            return row;
-        }
-    }
-
     [Fact]
     public void TheBuiltInDatabaseStartsAtVersion9WithNoUpdateTime()
     {

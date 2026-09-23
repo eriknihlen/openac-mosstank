@@ -16,7 +16,7 @@ public sealed class MossTankPlugin : IAcDreamPlugin
     public void Initialize(IPluginHost host)
     {
         _host = host;
-        // The one place the real game-information service is handed over:
+        // The one place the real game-database download is handed over:
         // every host that loads the plugin, windowed or headless, comes
         // through here.
         _panel = new MossTankPanel(host, new HttpVtankGameInfoTransport());

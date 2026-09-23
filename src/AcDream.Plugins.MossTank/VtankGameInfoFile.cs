@@ -17,14 +17,13 @@ namespace AcDream.Plugins.MossTank;
 /// </remarks>
 internal static class VtankGameInfoFile
 {
-    /// <summary>The version the built-in database carries, and so the one the service is asked for.</summary>
+    /// <summary>The version the built-in database carries, and the only one a download may have.</summary>
     public const int BuiltInVersion = 9;
 
     /// <summary>
     /// Every table a game database has: its name, its columns and which
-    /// column it is looked up by. An update is merged only into the tables
-    /// listed here, and only when its column count matches, so this list is
-    /// what decides which parts of the service's answer are taken.
+    /// column it is looked up by. The built-in database has exactly these,
+    /// empty.
     /// </summary>
     internal static readonly (string Name, string[] Columns, int IndexColumn)[] Tables =
     [

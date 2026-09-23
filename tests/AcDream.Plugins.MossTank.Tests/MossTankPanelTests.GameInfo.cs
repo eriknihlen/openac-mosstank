@@ -10,7 +10,7 @@ public sealed partial class MossTankPanelTests
     /// on the tick the answer arrives -- combat, crafting, the monster facts
     /// and the heal kit table. Mutations: leave any one reader out of the hand-over
     /// (its database stays the old one); drop the once-a-session latch (the
-    /// service is asked again on the next tick).
+    /// source is asked again on the next tick).
     /// </summary>
     [Fact]
     public async Task TheSessionChecksTheGameDatabaseOnceAndEveryReaderTakesTheNewOne()
@@ -31,7 +31,7 @@ public sealed partial class MossTankPanelTests
         Assert.Null(panel.GameInfoUpdatePendingForTest);
         Assert.Single(transport.Requests);
         Assert.Equal(
-            "Game database updated: 1 record changed.",
+            "Game database updated to 2022-11-06 from openac-gamedata.",
             Assert.Single(automation.Messages, static line => line.StartsWith("Game database", StringComparison.Ordinal)));
         IReadOnlyList<VtankGameInfoDatabase> readers = panel.GameInfoReadersForTest;
         Assert.NotSame(before, readers[0]);
@@ -41,18 +41,20 @@ public sealed partial class MossTankPanelTests
     }
 
     /// <summary>
-    /// A new session checks again. Mutation: never clear the latch at the end
-    /// of a session, and the second session asks nothing.
+    /// A new session checks again (with no freshness window, so the check
+    /// reaches the source). Mutation: never clear the latch at the end of a
+    /// session, and the second session asks nothing.
     /// </summary>
     [Fact]
     public async Task EachNewSessionChecksTheGameDatabaseAgain()
     {
         var automation = new FakeAutomation();
         var transport = new VtankGameInfoUpdaterTests.FakeTransport(
-            VtankGameInfoUpdaterTests.Answer(1));
+            VtankGameInfoUpdaterTests.Download(1));
         var panel = new MossTankPanel(
             new FakeHost(automation, new MemoryStorage(), vtankProfiles: new MemoryStorage()),
             transport);
+        Command(panel, "gamedb interval 0");
 
         panel.OnTick(0.1d);
         await panel.GameInfoUpdatePendingForTest!.WaitAsync(TimeSpan.FromSeconds(5));
@@ -68,12 +70,12 @@ public sealed partial class MossTankPanelTests
     }
 
     /// <summary>
-    /// A service that cannot be reached leaves the session on the database
+    /// A source that cannot be reached leaves the session on the database
     /// it had and says why; nothing is written. Mutation: hand over the
     /// built-in database on a failure, and the readers change.
     /// </summary>
     [Fact]
-    public async Task AnUnreachableServiceKeepsTheDatabaseTheSessionHad()
+    public async Task AnUnreachableSourceKeepsTheDatabaseTheSessionHad()
     {
         var automation = new FakeAutomation();
         var profiles = new MemoryStorage();
@@ -102,7 +104,7 @@ public sealed partial class MossTankPanelTests
     /// <c>/vt gamedb update</c> checks now, <c>/vt getdb</c> is the
     /// reference's word for the same, and <c>/vt gamedb</c> says what is
     /// loaded. Mutation: leave getdb on its old "nothing to download" line,
-    /// and the service is asked only twice.
+    /// and the source is asked only twice.
     /// </summary>
     [Fact]
     public async Task GameDbCommandsCheckNowAndReportWhatIsLoaded()
@@ -117,7 +119,7 @@ public sealed partial class MossTankPanelTests
         Command(panel, "gamedb");
         Assert.Contains(
             "Game database: no gameinfodb.ugd in the VTank profile folder; /vt gamedb update "
-            + "downloads it. Loaded: version 9, last checked never. Ammunition 0, "
+            + "downloads it. Loaded: version 9, world data of none. Ammunition 0, "
             + "monster damage 0, species damage 0, species members 0, immunities 0, "
             + "heal kits 0, grenades 0, drain spells 0, martyr spells 0, craft recipes 0.",
             automation.Messages);
@@ -143,21 +145,22 @@ public sealed partial class MossTankPanelTests
         Assert.Equal(2, automation.Messages.Count);
         Assert.StartsWith(
             "Game database: gameinfodb.ugd in the VTank profile folder. Loaded: version 9, "
-            + "last checked 2022-11-06 07:52 UTC.",
+            + "world data of 2022-11-06.",
             automation.Messages[0],
             StringComparison.Ordinal);
         Assert.Contains("heal kits 1,", automation.Messages[0], StringComparison.Ordinal);
-        Assert.Equal(
-            "Game database: checked every 6 hours; the next check is after 2022-11-06 13:52 UTC.",
-            automation.Messages[1]);
+        Assert.StartsWith(
+            "Game database: checked every 6 hours; the next check is after ",
+            automation.Messages[1],
+            StringComparison.Ordinal);
     }
 
     /// <summary>
-    /// A panel with no service to ask says so instead of trying, and its
+    /// A panel with no source to fetch from says so instead of trying, and its
     /// session never asks by itself.
     /// </summary>
     [Fact]
-    public void WithoutAServiceTheUpdateSaysItIsNotAvailable()
+    public void WithoutASourceTheUpdateSaysItIsNotAvailable()
     {
         var automation = new FakeAutomation();
         var panel = new MossTankPanel(
@@ -184,10 +187,12 @@ public sealed partial class MossTankPanelTests
             TaskCreationOptions.RunContinuationsAsynchronously);
         var transport = new SequenceTransport(
             first.Task,
-            Task.FromResult(VtankGameInfoUpdaterTests.Answer(1667721149)));
+            Task.FromResult(VtankGameInfoUpdaterTests.Download(1667721149)));
         var panel = new MossTankPanel(
             new FakeHost(automation, new MemoryStorage(), vtankProfiles: new MemoryStorage()),
             transport);
+        // No freshness window, so the second session's check reaches the source.
+        Command(panel, "gamedb interval 0");
 
         panel.OnTick(0.1d);
         Task<VtankGameInfoUpdateResult> running = panel.GameInfoUpdatePendingForTest!;
@@ -202,7 +207,7 @@ public sealed partial class MossTankPanelTests
         panel.OnTick(0.1d);
 
         Assert.True(panel.HealKitsForTest.ContainsKey("Tested Healing Kit"));
-        Assert.Contains("Game database updated: 1 record changed.", automation.Messages);
+        Assert.Contains("Game database updated to 2022-11-06 from openac-gamedata.", automation.Messages);
         Assert.NotNull(panel.GameInfoUpdatePendingForTest);
         await panel.GameInfoUpdatePendingForTest!.WaitAsync(TimeSpan.FromSeconds(5));
         Assert.Equal(2, transport.Requests);
@@ -220,25 +225,24 @@ public sealed partial class MossTankPanelTests
     }
 
     /// <summary>
-    /// A login skips the check while the database is younger than the
+    /// A login skips the check while the last one is younger than the
     /// preference's interval, and says so in one line; <c>/vt gamedb interval
     /// 0</c> makes every login ask again, and the preference is kept.
     /// Mutations: start the login's check with no window (the recent
-    /// database is asked about); ignore the stored interval (the second
+    /// check is repeated); ignore the stored interval (the second
     /// session still skips).
     /// </summary>
     [Fact]
-    public async Task ALoginSkipsTheCheckWhileTheDatabaseIsRecent()
+    public async Task ALoginSkipsTheCheckWhileTheLastOneIsRecent()
     {
         var automation = new FakeAutomation();
         var storage = new MemoryStorage();
         var profiles = new MemoryStorage();
-        VtankDatabase recent = VtankDatabase.Parse(VtankGameInfoUpdaterTests.ExcerptText);
-        recent.Find("DBLastUpdateTime")!.Rows[0].Cells[1] = VtankCell.Int(
-            (int)DateTimeOffset.UtcNow.AddHours(-1).ToUnixTimeSeconds());
-        profiles.Text[VtankGameInfoDatabase.FileName] = recent.Render();
+        profiles.Text[VtankGameInfoDatabase.FileName] = VtankGameInfoUpdaterTests.ExcerptText;
+        storage.Text[VtankGameInfoUpdater.LastCheckKey] = DateTimeOffset.UtcNow.AddHours(-1)
+            .ToUnixTimeSeconds().ToString(System.Globalization.CultureInfo.InvariantCulture);
         var transport = new VtankGameInfoUpdaterTests.FakeTransport(
-            VtankGameInfoUpdaterTests.Answer((int)DateTimeOffset.UtcNow.ToUnixTimeSeconds()));
+            VtankGameInfoUpdaterTests.Download(1700000000));
         var panel = new MossTankPanel(
             new FakeHost(automation, storage, vtankProfiles: profiles),
             transport);
@@ -272,15 +276,18 @@ public sealed partial class MossTankPanelTests
     }
 
     private static VtankGameInfoAnswer UpdateWithAHealKit() =>
-        VtankGameInfoUpdaterTests.Answer(
+        VtankGameInfoUpdaterTests.Download(
             1667721149,
-            ("HealKits", ["KitName", "RestoreBonus", "SkillBonus", "WhichVital"],
-            [
+            change: static database =>
+            {
+                var kit = new VtankRow();
+                kit.Cells.AddRange(
                 [
                     VtankCell.String("Tested Healing Kit"),
                     VtankCell.Double(1.5),
                     VtankCell.Int(10),
                     VtankCell.Int(0),
-                ],
-            ]));
+                ]);
+                database.Find("HealKits")!.Rows.Add(kit);
+            });
 }

@@ -3,344 +3,317 @@ using AcDream.Plugin.Abstractions;
 namespace AcDream.Plugins.MossTank.Tests;
 
 /// <summary>
-/// The game-information update against a transport that answers from the
-/// test: what it asks, what it saves, and what it keeps when the answer is
-/// no good.
+/// The game-database update against a transport that answers from the test:
+/// what it fetches, when it replaces the player's file, and what it keeps
+/// when the download is no good.
 /// </summary>
 public sealed class VtankGameInfoUpdaterTests
 {
     internal static readonly string ExcerptText = File.ReadAllText(Path.Combine(
         AppContext.BaseDirectory, "Fixtures", "vtank", "gameinfodb-excerpt.ugd"));
 
-    /// <summary>The fixture's own update time: 2023-11-14 22:13:20 UTC.</summary>
+    /// <summary>The fixture's own time: 2023-11-14 22:13:20 UTC.</summary>
     private const int ExcerptTime = 1700000000;
 
-    /// <summary>
-    /// With no file, the check asks for everything since 1970 at the
-    /// built-in database's version; with one, since the file's own time.
-    /// Mutation: send a fixed <c>date=0</c>, and the second request is wrong.
-    /// </summary>
-    [Fact]
-    public async Task TheRequestCarriesTheDatabasesOwnTimeAndVersion()
-    {
-        var empty = new MemoryStorage();
-        var transport = new FakeTransport(Answer(ExcerptTime + 1));
-        await RunAsync(new VtankGameInfoUpdater(empty, transport));
-
-        var profiles = new MemoryStorage();
-        profiles.Text[VtankGameInfoDatabase.FileName] = ExcerptText;
-        await RunAsync(new VtankGameInfoUpdater(profiles, transport));
-
-        Assert.Equal(
-            [
-                VtankGameInfoUpdater.ServiceAddress + "?date=0&dbver=9",
-                VtankGameInfoUpdater.ServiceAddress + "?date=" + ExcerptTime + "&dbver=9",
-            ],
-            transport.Requests.Select(static address => address.ToString()));
-    }
+    private const int OneDay = 86400;
 
     /// <summary>
-    /// A file of another version is the reference client's cue to start
-    /// over from its built-in database, so the check asks for everything.
-    /// Mutation: take the file whatever its version, and the request carries
-    /// its time.
+    /// A download built from newer world data than the player's file
+    /// replaces it, as it came, and is handed over; the check is noted.
+    /// Mutation: keep the player's file whatever the download's time (the
+    /// newer database is reported up to date).
     /// </summary>
     [Fact]
-    public async Task AFileOfAnotherVersionIsUpdatedFromTheBuiltInDatabase()
-    {
-        VtankDatabase old = VtankDatabase.Parse(ExcerptText);
-        old.Find("DBVersion")!.Rows[0].Cells[0] = VtankCell.Int(4);
-        var profiles = new MemoryStorage();
-        profiles.Text[VtankGameInfoDatabase.FileName] = old.Render();
-        var transport = new FakeTransport(Answer(ExcerptTime + 1));
-
-        await RunAsync(new VtankGameInfoUpdater(profiles, transport));
-
-        Assert.Equal(
-            VtankGameInfoUpdater.ServiceAddress + "?date=0&dbver=9",
-            Assert.Single(transport.Requests).ToString());
-    }
-
-    /// <summary>
-    /// An answer with records beyond its time row is merged in: a row whose
-    /// index value matches (without case) overwrites that row, any other row
-    /// is added, a table the database does not have is left out. The merged
-    /// database is saved, handed over, and said with its record count.
-    /// Mutation: leave the existing rows out of the lookup, so every row is
-    /// added (the quarrel is there twice).
-    /// </summary>
-    [Fact]
-    public async Task AnUpdateIsMergedSavedAndHandedOver()
+    public async Task ANewerDatabaseReplacesTheFileAndIsHandedOver()
     {
         var profiles = new MemoryStorage();
         profiles.Text[VtankGameInfoDatabase.FileName] = ExcerptText;
-        var transport = new FakeTransport(Answer(
-            ExcerptTime + 60,
-            ("AmmunitionOptions", AmmoColumns,
-            [
-                Ammo("fixture quarrel", quality: 7),
-                Ammo("Tested Fire Arrow", launcher: 5, element: 6, quality: 20),
-            ]),
-            ("NotInTheDatabase", ["Name"], [[VtankCell.String("x")]])));
-        var updater = new VtankGameInfoUpdater(profiles, transport);
+        var state = new MemoryStorage();
+        VtankGameInfoAnswer download = Download(ExcerptTime + OneDay, "Downloaded Arrow");
+        var transport = new FakeTransport(download);
+        DateTimeOffset now = VtankGameInfoUpdater.FromUnixSeconds(ExcerptTime + 2 * OneDay);
 
-        (List<string> said, List<VtankGameInfoDatabase> applied) = await RunAsync(updater);
+        (List<string> said, List<VtankGameInfoDatabase> applied) =
+            await RunAsync(new VtankGameInfoUpdater(profiles, state, transport, () => now));
 
-        Assert.Equal("Game database updated: 3 records changed.", said[^1]);
-        VtankGameInfoDatabase database = Assert.Single(applied);
-        Assert.Equal(ExcerptTime + 60, database.LastUpdateTime);
-        Assert.Equal(8, database.AmmunitionOptions.Count);
-        VtankAmmunitionOption quarrel = Assert.Single(
-            database.AmmunitionOptions,
-            static option => option.Name.Equals("Fixture Quarrel", StringComparison.OrdinalIgnoreCase));
-        Assert.Equal("Fixture Quarrel", quarrel.Name);
-        Assert.Equal(7, quarrel.Quality);
-        Assert.Contains(database.AmmunitionOptions, static option => option.Name == "Tested Fire Arrow");
-
-        string saved = profiles.Text[VtankGameInfoDatabase.FileName];
-        VtankDatabase reread = VtankDatabase.Parse(saved);
-        Assert.Null(reread.Find("NotInTheDatabase"));
-        Assert.Equal(8, VtankGameInfoDatabase.Parse(saved).AmmunitionOptions.Count);
-        // Everything the excerpt had that the answer did not touch is still there.
-        Assert.Equal(
-            VtankGameInfoDatabase.Parse(ExcerptText).HealKits,
-            VtankGameInfoDatabase.Parse(saved).HealKits);
+        Assert.Equal(VtankGameInfoUpdater.SourceAddress, Assert.Single(transport.Requests).ToString());
+        Assert.Equal("Game database updated to 2023-11-15 from openac-gamedata.", said[^1]);
+        Assert.Equal(download.Text, profiles.Text[VtankGameInfoDatabase.FileName]);
+        Assert.Equal("Downloaded Arrow", Assert.Single(Assert.Single(applied).AmmunitionOptions).Name);
+        Assert.Equal(now, VtankGameInfoUpdater.ReadLastCheck(state));
     }
 
     /// <summary>
-    /// With no file at all, the downloaded tables land in the built-in
-    /// database and are saved as the profile folder's first file.
-    /// Mutation: merge into an empty database instead of the built-in one,
-    /// and the saved file has no DBVersion table.
+    /// A download no newer than the player's file leaves the file alone and
+    /// says it is up to date, naming the world data it holds; the check is
+    /// still noted. Mutation: take a download of the same time as newer (the
+    /// file is rewritten).
     /// </summary>
     [Fact]
-    public async Task AFirstDownloadIsSavedOnTopOfTheBuiltInDatabase()
+    public async Task ADatabaseNoNewerThanTheFileIsUpToDate()
     {
         var profiles = new MemoryStorage();
-        var transport = new FakeTransport(Answer(
+        profiles.Text[VtankGameInfoDatabase.FileName] = ExcerptText;
+        var state = new MemoryStorage();
+        var transport = new FakeTransport(Download(ExcerptTime, "Downloaded Arrow"));
+
+        (List<string> said, List<VtankGameInfoDatabase> applied) =
+            await RunAsync(new VtankGameInfoUpdater(profiles, state, transport));
+
+        Assert.Equal("Game database is up to date (2023-11-14, openac-gamedata).", said[^1]);
+        Assert.Empty(applied);
+        Assert.Equal(0, profiles.Writes);
+        Assert.NotNull(VtankGameInfoUpdater.ReadLastCheck(state));
+    }
+
+    /// <summary>
+    /// With no file, or one of another version (which is read as the empty
+    /// built-in database), any good download is taken. Mutation: compare
+    /// against the file's own time even when it was dropped for the built-in
+    /// database (the version-4 file's newer time keeps the download out).
+    /// </summary>
+    [Fact]
+    public async Task WithNoUsableFileAnyGoodDownloadIsTaken()
+    {
+        var none = new MemoryStorage();
+        VtankDatabase oldVersion = VtankDatabase.Parse(ExcerptText);
+        oldVersion.Find("DBVersion")!.Rows[0].Cells[0] = VtankCell.Int(4);
+        oldVersion.Find("DBLastUpdateTime")!.Rows[0].Cells[1] = VtankCell.Int(ExcerptTime + 9 * OneDay);
+        var other = new MemoryStorage();
+        other.Text[VtankGameInfoDatabase.FileName] = oldVersion.Render();
+
+        foreach (MemoryStorage profiles in new[] { none, other })
+        {
+            (List<string> said, _) = await RunAsync(new VtankGameInfoUpdater(
+                profiles, new MemoryStorage(), new FakeTransport(Download(ExcerptTime))));
+
+            Assert.Equal("Game database updated to 2023-11-14 from openac-gamedata.", said[^1]);
+            Assert.Equal(1, profiles.Writes);
+        }
+    }
+
+    /// <summary>
+    /// A download of another database version is refused: the next start
+    /// would drop it for the empty built-in one. Mutation: drop the version
+    /// check, and it is written.
+    /// </summary>
+    [Fact]
+    public async Task ADownloadOfAnotherVersionIsRefused()
+    {
+        var profiles = new MemoryStorage();
+        var state = new MemoryStorage();
+        VtankGameInfoAnswer download = Download(
             ExcerptTime,
-            ("AmmunitionOptions", AmmoColumns, [Ammo("Tested Fire Arrow", launcher: 5, element: 6)])));
-
-        (List<string> said, List<VtankGameInfoDatabase> applied) =
-            await RunAsync(new VtankGameInfoUpdater(profiles, transport));
-
-        Assert.Equal("Game database updated: 1 record changed.", said[^1]);
-        VtankGameInfoDatabase saved = VtankGameInfoDatabase.Parse(
-            profiles.Text[VtankGameInfoDatabase.FileName]);
-        Assert.Equal(9, saved.Version);
-        Assert.Equal(ExcerptTime, saved.LastUpdateTime);
-        Assert.Equal("Tested Fire Arrow", Assert.Single(saved.AmmunitionOptions).Name);
-        Assert.Equal("Tested Fire Arrow", Assert.Single(applied).AmmunitionOptions.Single().Name);
-    }
-
-    /// <summary>
-    /// An answer holding nothing but its time row means the database is
-    /// current. Only the time row is kept, so the file says when it was last
-    /// known current; every table keeps what it had. Mutations: count every
-    /// row as a change (the line says "updated"); keep nothing for a current
-    /// answer (the file keeps its old time and the next login asks again).
-    /// </summary>
-    [Fact]
-    public async Task AnAnswerWithOnlyItsTimeRowMeansCurrentAndKeepsItsTime()
-    {
-        var profiles = new MemoryStorage();
-        profiles.Text[VtankGameInfoDatabase.FileName] = ExcerptText;
-        var transport = new FakeTransport(Answer(ExcerptTime + 60));
-
-        (List<string> said, List<VtankGameInfoDatabase> applied) =
-            await RunAsync(new VtankGameInfoUpdater(profiles, transport));
-
-        Assert.Equal("Game database is up to date.", said[^1]);
-        VtankGameInfoDatabase saved = VtankGameInfoDatabase.Parse(
-            profiles.Text[VtankGameInfoDatabase.FileName]);
-        Assert.Equal(ExcerptTime + 60, saved.LastUpdateTime);
-        Assert.Equal(ExcerptTime + 60, Assert.Single(applied).LastUpdateTime);
-        VtankGameInfoDatabase before = VtankGameInfoDatabase.Parse(ExcerptText);
-        Assert.Equal(before.AmmunitionOptions, saved.AmmunitionOptions);
-        Assert.Equal(before.HealKits, saved.HealKits);
-    }
-
-    /// <summary>
-    /// A database whose own time is inside the window is not asked about:
-    /// the check hands over what the file holds and says when the next one
-    /// is due. Past the window, or with no window (a forced check), it asks.
-    /// Mutation: ignore the window, and the recent database is asked about.
-    /// </summary>
-    [Fact]
-    public async Task ARecentlyCheckedDatabaseIsNotAskedAboutAgain()
-    {
-        var profiles = new MemoryStorage();
-        profiles.Text[VtankGameInfoDatabase.FileName] = ExcerptText;
-        var transport = new FakeTransport(Answer(ExcerptTime + 60));
-        DateTimeOffset checkedAt = VtankGameInfoUpdater.FromUnixSeconds(ExcerptTime);
-        TimeSpan window = TimeSpan.FromHours(6);
+            change: static database => database.Find("DBVersion")!.Rows[0].Cells[0] = VtankCell.Int(10));
 
         (List<string> said, List<VtankGameInfoDatabase> applied) = await RunAsync(
-            new VtankGameInfoUpdater(profiles, transport, () => checkedAt + TimeSpan.FromHours(1)),
-            window);
+            new VtankGameInfoUpdater(profiles, state, new FakeTransport(download)));
 
-        Assert.Empty(transport.Requests);
         Assert.Equal(
-            "Game database checked recently; the next check is after 2023-11-15 04:13 UTC.",
+            "Game database update failed: the download is database version 10, not 9. "
+            + "The game database you had is kept.",
             said[^1]);
-        Assert.Equal(7, Assert.Single(applied).AmmunitionOptions.Count);
-        Assert.Equal(0, profiles.Writes);
-
-        await RunAsync(
-            new VtankGameInfoUpdater(profiles, transport, () => checkedAt + TimeSpan.FromHours(7)),
-            window);
-        await RunAsync(
-            new VtankGameInfoUpdater(profiles, transport, () => checkedAt + TimeSpan.FromMinutes(1)),
-            TimeSpan.Zero);
-        Assert.Equal(2, transport.Requests.Count);
-    }
-
-    /// <summary>
-    /// An answer that is not a game database leaves the old file alone and
-    /// says why. Mutation: write the answer before parsing it.
-    /// </summary>
-    [Fact]
-    public async Task AnUnreadableAnswerKeepsTheOldFile()
-    {
-        var profiles = new MemoryStorage();
-        profiles.Text[VtankGameInfoDatabase.FileName] = ExcerptText;
-        var transport = new FakeTransport(new VtankGameInfoAnswer(
-            true, "<html><body>Service moved</body></html>"));
-
-        (List<string> said, List<VtankGameInfoDatabase> applied) =
-            await RunAsync(new VtankGameInfoUpdater(profiles, transport));
-
-        Assert.StartsWith(
-            "Game database update failed: the answer is not a game database (",
-            said[^1],
-            StringComparison.Ordinal);
         Assert.Empty(applied);
         Assert.Equal(0, profiles.Writes);
-        Assert.Equal(ExcerptText, profiles.Text[VtankGameInfoDatabase.FileName]);
+        Assert.Null(VtankGameInfoUpdater.ReadLastCheck(state));
     }
 
     /// <summary>
-    /// An answer that reads as tables but holds a value that does not read
-    /// as its kind (text tagged as a number) is refused whole before anything
-    /// is merged or written. Mutation: skip the value check, and the broken
-    /// value is merged and saved.
+    /// A download holding a value that does not read as its kind is refused
+    /// whole. Mutation: skip the value check, and the broken file is written.
     /// </summary>
     [Fact]
-    public async Task AnAnswerWithAValueThatDoesNotReadIsNotWritten()
+    public async Task ADownloadWithAValueThatDoesNotReadIsRefused()
     {
         var profiles = new MemoryStorage();
-        profiles.Text[VtankGameInfoDatabase.FileName] = ExcerptText;
-        VtankCell[] broken = Ammo("Broken Arrow");
-        broken[1] = new VtankCell { Tag = "i", ScalarText = "bow" };
-        var transport = new FakeTransport(Answer(
-            ExcerptTime + 60,
-            ("AmmunitionOptions", AmmoColumns, [broken])));
+        VtankGameInfoAnswer download = Download(
+            ExcerptTime,
+            change: static database =>
+            {
+                var row = new VtankRow();
+                row.Cells.AddRange(
+                [
+                    VtankCell.String("Broken Kit"),
+                    new VtankCell { Tag = "d", ScalarText = "lots" },
+                    VtankCell.Int(0),
+                    VtankCell.Int(1),
+                ]);
+                database.Find("HealKits")!.Rows.Add(row);
+            });
 
-        (List<string> said, List<VtankGameInfoDatabase> applied) =
-            await RunAsync(new VtankGameInfoUpdater(profiles, transport));
+        (List<string> said, _) = await RunAsync(
+            new VtankGameInfoUpdater(profiles, new MemoryStorage(), new FakeTransport(download)));
 
         Assert.Equal(
-            "Game database update failed: the answer is not a game database "
+            "Game database update failed: the download is not a game database "
             + "(a value in it does not read). The game database you had is kept.",
             said[^1]);
-        Assert.Empty(applied);
         Assert.Equal(0, profiles.Writes);
     }
 
     /// <summary>
-    /// A download that cannot be saved is still a good download: it is
-    /// handed over and used, and the line says it was not kept. Mutation:
-    /// treat a failed save as a failed update, and nothing is handed over.
+    /// A download that is not a database at all, or one that does not say
+    /// which world data it is from, is refused and the file kept.
+    /// Mutation: take a download with no time as the oldest possible one
+    /// (it is compared, and reported up to date instead of refused).
+    /// </summary>
+    [Fact]
+    public async Task ADownloadThatIsNotADatedDatabaseIsRefused()
+    {
+        var profiles = new MemoryStorage();
+        profiles.Text[VtankGameInfoDatabase.FileName] = ExcerptText;
+        VtankGameInfoAnswer undated = Download(
+            ExcerptTime,
+            change: static database => database.Find("DBLastUpdateTime")!.Rows.Clear());
+
+        (List<string> page, _) = await RunAsync(new VtankGameInfoUpdater(
+            profiles, new MemoryStorage(),
+            new FakeTransport(new VtankGameInfoAnswer(true, "<html>moved</html>"))));
+        (List<string> noTime, _) = await RunAsync(new VtankGameInfoUpdater(
+            profiles, new MemoryStorage(), new FakeTransport(undated)));
+
+        Assert.StartsWith(
+            "Game database update failed: the download is not a game database (",
+            page[^1],
+            StringComparison.Ordinal);
+        Assert.Equal(
+            "Game database update failed: the download does not say which world data "
+            + "it was built from. The game database you had is kept.",
+            noTime[^1]);
+        Assert.Equal(0, profiles.Writes);
+    }
+
+    /// <summary>
+    /// A download that fails says the transport's reason, keeps the file, and
+    /// notes no check, so the next login tries again. Mutation: note the
+    /// check before the download (the failure counts as a check).
+    /// </summary>
+    [Fact]
+    public async Task AFailedDownloadSaysWhyAndNotesNoCheck()
+    {
+        var profiles = new MemoryStorage();
+        profiles.Text[VtankGameInfoDatabase.FileName] = ExcerptText;
+        var state = new MemoryStorage();
+        var transport = new FakeTransport(new VtankGameInfoAnswer(false, "HTTP 503 Service Unavailable"));
+
+        (List<string> said, List<VtankGameInfoDatabase> applied) =
+            await RunAsync(new VtankGameInfoUpdater(profiles, state, transport));
+
+        Assert.Equal(
+            "Game database update failed: HTTP 503 Service Unavailable. The game database you had is kept.",
+            said[^1]);
+        Assert.Empty(applied);
+        Assert.Equal(0, profiles.Writes);
+        Assert.Null(VtankGameInfoUpdater.ReadLastCheck(state));
+    }
+
+    /// <summary>
+    /// A newer download that cannot be saved is still used, and the line
+    /// says it was not kept. Mutation: treat a failed save as a failed
+    /// update, and nothing is handed over.
     /// </summary>
     [Fact]
     public async Task ADownloadThatCannotBeSavedIsStillUsed()
     {
         var profiles = new MemoryStorage { WriteFailure = new IOException("The disk is full.") };
         profiles.Text[VtankGameInfoDatabase.FileName] = ExcerptText;
-        var transport = new FakeTransport(Answer(
-            ExcerptTime + 60,
-            ("AmmunitionOptions", AmmoColumns, [Ammo("Tested Fire Arrow", launcher: 5, element: 6)])));
+        var transport = new FakeTransport(Download(ExcerptTime + OneDay, "Downloaded Arrow"));
 
         (List<string> said, List<VtankGameInfoDatabase> applied) =
-            await RunAsync(new VtankGameInfoUpdater(profiles, transport));
+            await RunAsync(new VtankGameInfoUpdater(profiles, new MemoryStorage(), transport));
 
         Assert.Equal(
-            "Game database downloaded (1 record changed) but could not be saved: "
+            "Game database updated to 2023-11-15 from openac-gamedata but could not be saved: "
             + "The disk is full. It is used until MossTank stops.",
             said[^1]);
-        Assert.Contains(
-            Assert.Single(applied).AmmunitionOptions,
-            static option => option.Name == "Tested Fire Arrow");
+        Assert.Single(applied);
         Assert.Equal(ExcerptText, profiles.Text[VtankGameInfoDatabase.FileName]);
     }
 
     /// <summary>
-    /// A table is merged on its own index column, not on its first one:
-    /// CraftInteractions is keyed on its ID (column 8), so a row with an ID
-    /// already there replaces that recipe even when its items differ, and a
-    /// row with a new ID is added. Mutation: key every table on column 0, and
-    /// the changed recipe is added as a seventh instead of replacing 9002.
+    /// A check noted within the window is not repeated: nothing is fetched,
+    /// what the file holds is handed over, and the line says when the next
+    /// check is due. Past the window, or with no window (a forced check), it
+    /// fetches. Mutation: ignore the window, and the recent check fetches.
     /// </summary>
     [Fact]
-    public async Task AMergeKeysOnTheTablesOwnIndexColumn()
+    public async Task ARecentCheckIsNotRepeated()
     {
         var profiles = new MemoryStorage();
         profiles.Text[VtankGameInfoDatabase.FileName] = ExcerptText;
-        string[] columns =
-        [
-            "UseItem1", "UseItem2", "ResultItem", "ResultCount", "SuccessMsg",
-            "FailMsg", "ReqSkill", "ReqDiff", "ID",
-        ];
-        static VtankCell[] Recipe(string first, string result, int id) =>
-        [
-            VtankCell.String(first), VtankCell.String("Fixture Binding"),
-            VtankCell.String(result), VtankCell.Int(1), VtankCell.String("Made."),
-            VtankCell.String("Not made."), VtankCell.Int(21), VtankCell.Int(0),
-            VtankCell.Int(id),
-        ];
-        var transport = new FakeTransport(Answer(
-            ExcerptTime + 60,
-            ("CraftInteractions", columns,
-            [
-                Recipe("Fixture Bandages", "Plentiful Healing Kit", 9002),
-                Recipe("Fixture Bandages", "Fixture Kit", 9100),
-            ])));
+        var state = new MemoryStorage();
+        DateTimeOffset checkedAt = VtankGameInfoUpdater.FromUnixSeconds(ExcerptTime + OneDay);
+        state.Text[VtankGameInfoUpdater.LastCheckKey] =
+            checkedAt.ToUnixTimeSeconds().ToString(System.Globalization.CultureInfo.InvariantCulture);
+        var transport = new FakeTransport(Download(ExcerptTime));
+        TimeSpan window = TimeSpan.FromHours(6);
 
-        (_, List<VtankGameInfoDatabase> applied) =
-            await RunAsync(new VtankGameInfoUpdater(profiles, transport));
+        (List<string> said, List<VtankGameInfoDatabase> applied) = await RunAsync(
+            new VtankGameInfoUpdater(profiles, state, transport, () => checkedAt.AddHours(1)),
+            window);
 
-        VtankCraftDatabase crafts = Assert.Single(applied).Crafts;
-        Assert.Equal(7, crafts.Recipes.Count);
-        VtankCraftRecipe kit = Assert.Single(crafts.ForResult("Plentiful Healing Kit"));
-        Assert.Equal(("Fixture Bandages", 9002), (kit.FirstItem, kit.Id));
-        Assert.Single(crafts.ForResult("Fixture Kit"));
+        Assert.Empty(transport.Requests);
+        Assert.Equal(
+            "Game database checked recently; the next check is after 2023-11-16 04:13 UTC.",
+            said[^1]);
+        Assert.Equal(7, Assert.Single(applied).AmmunitionOptions.Count);
+
+        await RunAsync(
+            new VtankGameInfoUpdater(profiles, state, transport, () => checkedAt.AddHours(7)),
+            window);
+        await RunAsync(
+            new VtankGameInfoUpdater(profiles, state, transport, () => checkedAt.AddMinutes(1)),
+            TimeSpan.Zero);
+        Assert.Equal(2, transport.Requests.Count);
     }
 
     /// <summary>
-    /// A table in the answer whose column count differs from the database's
-    /// own is left out whole; the rest of the answer still lands. Mutation:
-    /// drop the column-count test, and the merge breaks on the short rows.
+    /// One check at a time: a second start while one is in flight is
+    /// refused, and nothing is said about the first until it ends.
+    /// Mutation: drop the in-flight refusal, and the source is asked twice.
     /// </summary>
     [Fact]
-    public async Task ATableWhoseColumnsDifferIsLeftOut()
+    public async Task OnlyOneCheckRunsAtATime()
     {
         var profiles = new MemoryStorage();
-        profiles.Text[VtankGameInfoDatabase.FileName] = ExcerptText;
-        var transport = new FakeTransport(Answer(
-            ExcerptTime + 60,
-            ("HealKits", ["KitName", "RestoreBonus", "SkillBonus"],
-            [[VtankCell.String("Fixture Healing Kit"), VtankCell.Double(9), VtankCell.Int(9)]]),
-            ("AmmunitionOptions", AmmoColumns, [Ammo("Tested Fire Arrow", launcher: 5, element: 6)])));
+        var answer = new TaskCompletionSource<VtankGameInfoAnswer>(
+            TaskCreationOptions.RunContinuationsAsynchronously);
+        var transport = new FakeTransport(answer.Task);
+        using var updater = new VtankGameInfoUpdater(profiles, new MemoryStorage(), transport);
 
-        (List<string> said, List<VtankGameInfoDatabase> applied) =
-            await RunAsync(new VtankGameInfoUpdater(profiles, transport));
+        Assert.Null(updater.Start());
+        Assert.True(SpinWait.SpinUntil(() => transport.Requests.Count == 1, 5000));
+        Assert.Equal("A game database update is already running.", updater.Start());
+        var said = new List<string>();
+        updater.Drain(said.Add, static _ => { });
+        Assert.Empty(said);
 
-        Assert.Equal("Game database updated: 2 records changed.", said[^1]);
-        VtankGameInfoDatabase database = Assert.Single(applied);
+        answer.SetResult(Download(ExcerptTime));
+        await updater.PendingForTest!.WaitAsync(TimeSpan.FromSeconds(5));
+        updater.Drain(said.Add, static _ => { });
+
+        Assert.Single(transport.Requests);
+        Assert.Equal("Game database updated to 2023-11-14 from openac-gamedata.", said[^1]);
+        Assert.False(updater.IsRunning);
+    }
+
+    /// <summary>
+    /// Without a source or a folder to keep the file in there is no check,
+    /// and the refusal says which.
+    /// </summary>
+    [Fact]
+    public void ACheckNeedsASourceAndAFolder()
+    {
+        using var noSource = new VtankGameInfoUpdater(new MemoryStorage(), new MemoryStorage(), null);
+        using var noFolder = new VtankGameInfoUpdater(
+            NoOpPluginStorage.Instance, new MemoryStorage(), new FakeTransport(Download(0)));
+
+        Assert.False(noSource.CanUpdate);
+        Assert.False(noFolder.CanUpdate);
+        Assert.Equal("Game database updates are not available in this session.", noSource.Start());
         Assert.Equal(
-            VtankGameInfoDatabase.Parse(ExcerptText).HealKits,
-            database.HealKits);
-        Assert.Contains(database.AmmunitionOptions, static option => option.Name == "Tested Fire Arrow");
+            "Game database updates need a VTank profile folder to keep the database in.",
+            noFolder.Start());
     }
 
     /// <summary>
@@ -351,10 +324,9 @@ public sealed class VtankGameInfoUpdaterTests
     [Fact]
     public async Task ATransportThatThrowsSaysWhy()
     {
-        var profiles = new MemoryStorage();
         var transport = new FakeTransport(
             Task.FromException<VtankGameInfoAnswer>(new InvalidOperationException("No route.")));
-        using var updater = new VtankGameInfoUpdater(profiles, transport);
+        using var updater = new VtankGameInfoUpdater(new MemoryStorage(), new MemoryStorage(), transport);
 
         Assert.Null(updater.Start());
         Task<VtankGameInfoUpdateResult> pending = updater.PendingForTest!;
@@ -370,7 +342,7 @@ public sealed class VtankGameInfoUpdaterTests
 
     /// <summary>
     /// Disposing the updater (the plugin switched off) stops a check for
-    /// good: an answer that arrives afterwards is not written. Mutation:
+    /// good: a download that arrives afterwards is not written. Mutation:
     /// drop the cancellation test before the write, and it is.
     /// </summary>
     [Fact]
@@ -381,15 +353,13 @@ public sealed class VtankGameInfoUpdaterTests
         var answer = new TaskCompletionSource<VtankGameInfoAnswer>(
             TaskCreationOptions.RunContinuationsAsynchronously);
         var transport = new FakeTransport(answer.Task);
-        var updater = new VtankGameInfoUpdater(profiles, transport);
+        var updater = new VtankGameInfoUpdater(profiles, new MemoryStorage(), transport);
         Assert.Null(updater.Start());
         Task<VtankGameInfoUpdateResult> pending = updater.PendingForTest!;
         Assert.True(SpinWait.SpinUntil(() => transport.Requests.Count == 1, 5000));
 
         updater.Dispose();
-        answer.SetResult(Answer(
-            ExcerptTime + 60,
-            ("AmmunitionOptions", AmmoColumns, [Ammo("Tested Fire Arrow", launcher: 5, element: 6)])));
+        answer.SetResult(Download(ExcerptTime + OneDay, "Downloaded Arrow"));
         await Assert.ThrowsAnyAsync<OperationCanceledException>(() => pending);
 
         Assert.Equal(0, profiles.Writes);
@@ -397,126 +367,33 @@ public sealed class VtankGameInfoUpdaterTests
     }
 
     /// <summary>
-    /// A request that fails says the transport's reason and keeps the file.
-    /// Mutation: report a failed request as current, and the reason is lost.
+    /// A whole database as the source publishes one: every table, at the
+    /// built-in version, with its world-data time and the ammunition rows
+    /// named, changed however the test needs.
     /// </summary>
-    [Fact]
-    public async Task AFailedRequestSaysWhyAndKeepsTheOldFile()
-    {
-        var profiles = new MemoryStorage();
-        profiles.Text[VtankGameInfoDatabase.FileName] = ExcerptText;
-        var transport = new FakeTransport(new VtankGameInfoAnswer(
-            false, "HTTP 503 Service Unavailable"));
-
-        (List<string> said, List<VtankGameInfoDatabase> applied) =
-            await RunAsync(new VtankGameInfoUpdater(profiles, transport));
-
-        Assert.Equal("Game database update failed: HTTP 503 Service Unavailable. The game database you had is kept.", said[^1]);
-        Assert.Empty(applied);
-        Assert.Equal(0, profiles.Writes);
-    }
-
-    /// <summary>
-    /// One check at a time: a second start while one is in flight is
-    /// refused, and nothing is said about the first until it ends.
-    /// Mutation: drop the in-flight refusal, and the transport is asked twice.
-    /// </summary>
-    [Fact]
-    public async Task OnlyOneCheckRunsAtATime()
-    {
-        var profiles = new MemoryStorage();
-        var answer = new TaskCompletionSource<VtankGameInfoAnswer>(
-            TaskCreationOptions.RunContinuationsAsynchronously);
-        var transport = new FakeTransport(answer.Task);
-        using var updater = new VtankGameInfoUpdater(profiles, transport);
-
-        Assert.Null(updater.Start());
-        Assert.True(SpinWait.SpinUntil(() => transport.Requests.Count == 1, 5000));
-        Assert.Equal("A game database update is already running.", updater.Start());
-        var said = new List<string>();
-        updater.Drain(said.Add, static _ => { });
-        Assert.Empty(said);
-
-        answer.SetResult(Answer(ExcerptTime));
-        await updater.PendingForTest!.WaitAsync(TimeSpan.FromSeconds(5));
-        updater.Drain(said.Add, static _ => { });
-
-        Assert.Single(transport.Requests);
-        Assert.Equal("Game database is up to date.", said[^1]);
-        Assert.False(updater.IsRunning);
-    }
-
-    /// <summary>
-    /// Without a service or a folder to keep the answer in there is no
-    /// check, and the refusal says which.
-    /// </summary>
-    [Fact]
-    public void ACheckNeedsAServiceAndAFolder()
-    {
-        using var noService = new VtankGameInfoUpdater(new MemoryStorage(), null);
-        using var noFolder = new VtankGameInfoUpdater(
-            NoOpPluginStorage.Instance, new FakeTransport(Answer(0)));
-
-        Assert.False(noService.CanUpdate);
-        Assert.False(noFolder.CanUpdate);
-        Assert.Equal("Game database updates are not available in this session.", noService.Start());
-        Assert.Equal(
-            "Game database updates need a VTank profile folder to keep the database in.",
-            noFolder.Start());
-    }
-
-    internal static readonly string[] AmmoColumns =
-    [
-        "AmmoName", "LauncherType", "WieldReq", "Element",
-        "Quality", "Special", "WieldReq2Skill", "WieldReq2Value",
-    ];
-
-    internal static VtankCell[] Ammo(
-        string name,
-        int launcher = 6,
-        int wieldRequirement = 0,
-        int element = 0,
-        int quality = 1) =>
-    [
-        VtankCell.String(name),
-        VtankCell.Int(launcher),
-        VtankCell.Int(wieldRequirement),
-        VtankCell.Int(element),
-        VtankCell.Int(quality),
-        VtankCell.Int(0),
-        VtankCell.Int(0),
-        VtankCell.Int(0),
-    ];
-
-    /// <summary>
-    /// An answer as the service writes one: its time row, then each table
-    /// with every index flag off.
-    /// </summary>
-    internal static VtankGameInfoAnswer Answer(
+    internal static VtankGameInfoAnswer Download(
         int time,
-        params (string Name, string[] Columns, VtankCell[][] Rows)[] tables)
-    {
-        var database = new VtankDatabase();
-        database.Tables.Add(("DBLastUpdateTime", BuildTable(
-            ["Zero", "Time"],
-            [[VtankCell.Int(0), VtankCell.Int(time)]])));
-        foreach ((string name, string[] columns, VtankCell[][] rows) in tables)
-            database.Tables.Add((name, BuildTable(columns, rows)));
-        return new VtankGameInfoAnswer(true, database.Render());
-    }
+        params string[] ammunition) => Download(time, null, ammunition);
 
-    private static VtankTable BuildTable(string[] columns, VtankCell[][] rows)
+    internal static VtankGameInfoAnswer Download(
+        int time,
+        Action<VtankDatabase>? change,
+        params string[] ammunition)
     {
-        var table = new VtankTable();
-        table.ColumnNames.AddRange(columns);
-        table.IndexFlags.AddRange(columns.Select(static _ => false));
-        foreach (VtankCell[] cells in rows)
+        VtankDatabase database = VtankGameInfoFile.BuiltIn();
+        database.Find("DBLastUpdateTime")!.Rows[0].Cells[1] = VtankCell.Int(time);
+        foreach (string name in ammunition)
         {
             var row = new VtankRow();
-            row.Cells.AddRange(cells);
-            table.Rows.Add(row);
+            row.Cells.AddRange(
+            [
+                VtankCell.String(name), VtankCell.Int(5), VtankCell.Int(0), VtankCell.Int(6),
+                VtankCell.Int(1), VtankCell.Int(0), VtankCell.Int(0), VtankCell.Int(0),
+            ]);
+            database.Find("AmmunitionOptions")!.Rows.Add(row);
         }
-        return table;
+        change?.Invoke(database);
+        return new VtankGameInfoAnswer(true, database.Render());
     }
 
     private static async Task<(List<string> Said, List<VtankGameInfoDatabase> Applied)> RunAsync(

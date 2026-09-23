@@ -20,11 +20,12 @@ internal sealed partial class MossTankPanel
         _gameInfoUpdater.PendingForTest;
 
     /// <summary>
-    /// Once a session, as soon as it is in the world, the game database asks
-    /// its service for what changed -- the reference client's own check at
-    /// login -- unless the database was checked within the interval the
-    /// preferences set, so many sessions logging in do not all ask. The request runs off the game thread; what it says and the
-    /// database it brings back arrive here, on the tick.
+    /// Once a session, as soon as it is in the world, the game database is
+    /// checked against the newest one openac-gamedata publishes, as VTank
+    /// checked its own at login -- unless it was checked within the interval
+    /// the preferences set, so many sessions logging in do not all download.
+    /// The download runs off the game thread; what it says and the database
+    /// it brings back arrive here, on the tick.
     /// </summary>
     private void TickGameInfoUpdate()
     {
@@ -112,7 +113,7 @@ internal sealed partial class MossTankPanel
     private TimeSpan GameInfoCheckInterval =>
         TimeSpan.FromHours(_profiles.GameDbCheckIntervalHours);
 
-    /// <summary>When the next login will ask the service, and how that is decided.</summary>
+    /// <summary>When the next login will check, and how that is decided.</summary>
     private string DescribeNextGameInfoCheck()
     {
         int hours = _profiles.GameDbCheckIntervalHours;
@@ -120,11 +121,10 @@ internal sealed partial class MossTankPanel
             return "Game database: checked at every login (/vt gamedb interval sets how often).";
         string every = "every " + hours.ToString(CultureInfo.InvariantCulture)
             + (hours == 1 ? " hour" : " hours");
-        if (_gameInfo.LastUpdateTime is not { } seconds || seconds <= 0)
+        if (VtankGameInfoUpdater.ReadLastCheck(_host.Storage) is not { } lastCheck)
             return "Game database: checked " + every + "; the next login checks.";
         return "Game database: checked " + every + "; the next check is after "
-            + VtankGameInfoUpdater.FormatUtc(
-                VtankGameInfoUpdater.FromUnixSeconds(seconds) + GameInfoCheckInterval)
+            + VtankGameInfoUpdater.FormatUtc(lastCheck + GameInfoCheckInterval)
             + ".";
     }
 
@@ -145,12 +145,12 @@ internal sealed partial class MossTankPanel
         string version = _gameInfo.Version is { } number
             ? number.ToString(CultureInfo.InvariantCulture)
             : "none";
-        string updated = _gameInfo.LastUpdateTime is { } seconds && seconds > 0
-            ? VtankGameInfoUpdater.FormatUtc(VtankGameInfoUpdater.FromUnixSeconds(seconds))
-            : "never";
+        string built = _gameInfo.LastUpdateTime is { } seconds && seconds > 0
+            ? VtankGameInfoUpdater.FormatDate(seconds)
+            : "none";
         string running = _gameInfoUpdater.IsRunning ? " An update is running." : string.Empty;
         return "Game database: " + source + ". Loaded: version " + version
-            + ", last checked " + updated
+            + ", world data of " + built
             + ". Ammunition " + Count(_gameInfo.AmmunitionOptions.Count)
             + ", monster damage " + Count(_gameInfo.MonsterDamageOverrides.Count)
             + ", species damage " + Count(_gameInfo.SpeciesDamages.Count)

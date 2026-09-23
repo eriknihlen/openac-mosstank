@@ -148,8 +148,9 @@ internal sealed class VtankGameInfoDatabase
     public static VtankGameInfoDatabase LoadDefault() => From(VtankGameInfoFile.BuiltIn());
 
     /// <summary>
-    /// When the service last changed what this database holds, in seconds
-    /// since 1970, or null when it does not say.
+    /// The database's own time, in seconds since 1970 -- for one from
+    /// openac-gamedata, the world data it was built from -- or null when it
+    /// does not say.
     /// </summary>
     public int? LastUpdateTime { get; private init; }
 

@@ -8,7 +8,7 @@ namespace AcDream.Plugins.MossTank.Tests;
 /// </summary>
 public sealed class HttpVtankGameInfoTransportTests
 {
-    private static readonly Uri Address = new(VtankGameInfoUpdater.ServiceAddress + "?date=0&dbver=9");
+    private static readonly Uri Address = new(VtankGameInfoUpdater.SourceAddress);
 
     [Fact]
     public async Task AnAnswerIsReadWhole()

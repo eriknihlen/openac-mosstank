@@ -283,13 +283,13 @@ internal sealed partial class MossTankPanel : IBuffRuleHost, IDisposable
     }
 
     /// <param name="gameInfoTransport">
-    /// How the game-information update reaches its service. Without one the
+    /// How the game-database update fetches its file. Without one the
     /// panel never downloads anything; the plugin gives it the real one.
     /// </param>
     internal MossTankPanel(IPluginHost host, IVtankGameInfoTransport? gameInfoTransport)
     {
         _host = host;
-        _gameInfoUpdater = new VtankGameInfoUpdater(host.VtankProfiles, gameInfoTransport);
+        _gameInfoUpdater = new VtankGameInfoUpdater(host.VtankProfiles, host.Storage, gameInfoTransport);
         _advancedOptionCategoryEnabledView =
             new ReadOnlyCollection<bool>(_advancedOptionCategoryEnabled);
         _firstRunGuidancePending = NeedsFirstRunGuidance(host);
