@@ -2710,7 +2710,7 @@ internal sealed partial class MossTankPanel : IBuffRuleHost, IDisposable
         for (int i = 0; i < _navigationSettings.Waypoints.Count; i++)
         {
             RouteWaypoint waypoint = _navigationSettings.Waypoints[i];
-            if (waypoint.Position.CellId == 0u)
+            if (waypoint.Position == default)
                 continue;
             double distance = player.Position.HorizontalDistanceMeters(waypoint.Position);
             if (distance < bestDistance)
@@ -3748,14 +3748,25 @@ internal sealed partial class MossTankPanel : IBuffRuleHost, IDisposable
         PluginNavigationSnapshot player = _host.Automation.Navigation.Snapshot;
         if (!player.IsAvailable)
             return double.PositiveInfinity;
+        return NearestRouteDistanceMeters(player.Position, _navigationSettings.Waypoints);
+    }
+
+    /// <summary>
+    /// How far the nearest route point is. A point read from a route file
+    /// carries only coordinates (no cell), and that is a real position: the
+    /// distance is measured on the map coordinates. Only a point with no
+    /// position at all is left out.
+    /// </summary>
+    internal static double NearestRouteDistanceMeters(
+        in PluginNavigationPosition player,
+        IReadOnlyList<RouteWaypoint> waypoints)
+    {
         double nearest = double.PositiveInfinity;
-        foreach (RouteWaypoint waypoint in _navigationSettings.Waypoints)
+        foreach (RouteWaypoint waypoint in waypoints)
         {
-            if (waypoint.Position.CellId == 0u)
+            if (waypoint.Position == default)
                 continue;
-            nearest = Math.Min(
-                nearest,
-                player.Position.HorizontalDistanceMeters(waypoint.Position));
+            nearest = Math.Min(nearest, player.HorizontalDistanceMeters(waypoint.Position));
         }
         return nearest;
     }
