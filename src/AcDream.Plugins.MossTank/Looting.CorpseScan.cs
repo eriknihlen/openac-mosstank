@@ -158,8 +158,9 @@ internal sealed partial class LootController
     /// Whether a corpse whose description has not arrived lies within
     /// <paramref name="rangeMeters"/>. This is the reference's "a corpse id
     /// request is pending" question: every corpse the client knows of is
-    /// asked for its description as it appears, so a corpse without one is a
-    /// corpse whose answer is still on its way.
+    /// asked for its description as it appears, so a corpse the server has
+    /// not answered yet is one whose answer is still on its way. A corpse
+    /// answered without a description is not waited on.
     /// </summary>
     internal bool HasCorpseAwaitingDescriptionWithin(double rangeMeters)
     {
@@ -170,7 +171,7 @@ internal sealed partial class LootController
             return false;
         foreach (PluginLootContainer corpse in loot.CaptureCorpses(float.MaxValue))
         {
-            if (!corpse.IsIdentified
+            if (!IsDescriptionAnswered(corpse)
                 && corpse.Distance <= rangeMeters
                 && !_completedCorpses.ContainsKey(corpse.ObjectId)
                 && !IsCorpseDenied(corpse.ObjectId)
@@ -181,6 +182,20 @@ internal sealed partial class LootController
         }
         return false;
     }
+
+    /// <summary>
+    /// Has the server answered this corpse's description request, with the
+    /// description or without one? A corpse the server no longer has (it
+    /// decayed while the character was elsewhere) is answered with nothing
+    /// and never gains a description, but its answer is in: it is no longer
+    /// waited on or asked about, as the reference stops waiting once a
+    /// corpse's id request has left its queue. Without a description it is
+    /// still never picked to open (the pick needs the killer's name), so it
+    /// is simply passed over. The client's own flag says so; one already
+    /// described has been answered either way.
+    /// </summary>
+    internal static bool IsDescriptionAnswered(in PluginLootContainer corpse) =>
+        corpse.IsIdentified || corpse.IsAppraisalAnswered;
 
     /// <summary>
     /// The corpse pick. Any rare corpse beats any non-rare one whatever the

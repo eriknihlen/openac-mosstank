@@ -1071,7 +1071,7 @@ internal sealed partial class LootController
         {
             int index = (lastRequestIndex + offset) % known.Count;
             PluginLootContainer candidateCorpse = known[index];
-            if (candidateCorpse.IsIdentified
+            if (IsDescriptionAnswered(candidateCorpse)
                 || _completedCorpses.ContainsKey(candidateCorpse.ObjectId)
                 || IsCorpseDenied(candidateCorpse.ObjectId)
                 || IsCorpseBlacklisted(candidateCorpse.ObjectId))
