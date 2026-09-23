@@ -2384,6 +2384,53 @@ public sealed class CombatControllerTests
     /// Mutation: hard-code <c>PluginAttackHeight.Medium</c> in the debuff
     /// clearance check again and this fails.
     /// </summary>
+    /// <summary>
+    /// Grenades come from the game database in use: with the built-in one
+    /// (no GrenadeOptions rows) the phial is nothing, and once a downloaded
+    /// database replaces it the very next pass throws the phial. Mutation:
+    /// read the grenade table from the database the controller was built
+    /// with, and the phial is never thrown.
+    /// </summary>
+    [Fact]
+    public void GrenadesComeFromTheGameDatabaseInUse()
+    {
+        PluginSpellInfo imperil = Spell(1323, "Imperil Other I") with
+        {
+            School = 31,
+            IsDebuff = true,
+            IsOffensive = true,
+            DurationSeconds = 60,
+        };
+        PluginInventoryItem phial = InventoryItem(
+            200, "Iron Phial of Imperil", 0x100, 0, equipped: false)
+            with { CombatUse = 0 };
+        var surface = new FakeAutomation
+        {
+            CombatSnapshot = Physical() with { Mode = PluginCombatMode.Missile },
+            Targets = [Target(10, "Drudge", 5, 0)],
+            SpellLookup = [imperil],
+            ItemEntries = [phial],
+            EquipmentItems = [Equipment(200u, "Iron Phial of Imperil",
+                damageType: 0, itemType: 0x100u)],
+            CharacterSkills = [new(38u, "Alchemy", PluginSkillTraining.Trained, 400)],
+        };
+        var settings = DebuffOnly(MonsterActionFlags.Imperil);
+        settings.ConsumableNames.Add("Iron Phial of Imperil");
+        settings.UseProjectileAwareness = true;
+        var controller = new CombatController(
+            new FakeHost(surface), settings, gameInfo: VtankGameInfoDatabase.LoadDefault());
+
+        controller.Toggle();
+        controller.OnTick(0.25);
+        Assert.Equal(0u, surface.LastProjectileTarget);
+
+        controller.ReplaceGameInfo(GameInfo);
+        controller.OnTick(0.25);
+
+        Assert.Equal(10u, surface.LastProjectileTarget);
+        Assert.Equal(PluginProjectilePathKind.Missile, surface.LastProjectileKind);
+    }
+
     [Fact]
     public void ADebuffsClearanceUsesItsOwnFlightHeight()
     {
@@ -2412,7 +2459,7 @@ public sealed class CombatControllerTests
         settings.UseProjectileAwareness = true;
         // Deliberately neither of the two shape heights.
         settings.AttackHeight = PluginAttackHeight.Low;
-        var controller = new CombatController(new FakeHost(surface), settings);
+        var controller = new CombatController(new FakeHost(surface), settings, gameInfo: GameInfo);
 
         controller.Toggle();
         controller.OnTick(0.25);

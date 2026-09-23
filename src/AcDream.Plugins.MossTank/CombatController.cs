@@ -4662,6 +4662,7 @@ internal sealed class CombatController
             _host.Automation.Character,
             _host.Automation.Spells,
             inventory,
+            _gameInfo.GrenadeOptions,
             target.Distance,
             log);
         _passDebuffSources[key] = sources;

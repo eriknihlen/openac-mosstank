@@ -56,13 +56,13 @@ is its own installed folder, to load its panel markup. The originals of any
 profiles you copy in, wherever they live, are not read, not moved and not
 rewritten. The panel tells you where the folders are.
 
-The game information VTank kept in `gameinfodb.ugd` (ammunition, monster
-damage and species, drain and martyr spells, craft recipes) is not shipped
-with MossTank. Once each session, as VTank did at login, MossTank asks
+The game information VTank kept in `gameinfodb.ugd` (ammunition, grenades,
+monster damage and species, drain and martyr spells, craft recipes) is not
+shipped with MossTank. Once each session, as VTank did at login, MossTank asks
 Virindi's game-information service for what changed and keeps the answer in
 `gameinfodb.ugd` in the VTank profile folder, saying the outcome in one chat
 line. A failed check keeps the file you had. Until the first download there
-are no ammunition choices and no craft recipes. `/vt gamedb` shows what is
+are no ammunition choices, grenades or craft recipes. `/vt gamedb` shows what is
 loaded; `/vt gamedb update` checks now.
 
 ## Building from source

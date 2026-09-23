@@ -119,7 +119,7 @@ public sealed partial class MossTankPanelTests
             "Game database: no gameinfodb.ugd in the VTank profile folder; /vt gamedb update "
             + "downloads it. Loaded: version 9, last updated never. Ammunition 0, "
             + "monster damage 0, species damage 0, species members 0, immunities 0, "
-            + "heal kits 0, drain spells 0, martyr spells 0, craft recipes 0.",
+            + "heal kits 0, grenades 0, drain spells 0, martyr spells 0, craft recipes 0.",
             automation.Messages);
 
         Command(panel, "gamedb update");

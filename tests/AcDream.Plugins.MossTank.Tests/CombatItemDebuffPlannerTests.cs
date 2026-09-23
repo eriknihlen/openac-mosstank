@@ -4,6 +4,12 @@ namespace AcDream.Plugins.MossTank.Tests;
 
 public sealed class CombatItemDebuffPlannerTests
 {
+    /// <summary>The fixture game database's GrenadeOptions rows, written for the tests.</summary>
+    private static readonly IReadOnlyList<VtankGrenadeOption> Grenades =
+        VtankGameInfoDatabase.Parse(File.ReadAllText(Path.Combine(
+            AppContext.BaseDirectory, "Fixtures", "vtank", "gameinfodb-excerpt.ugd")))
+            .GrenadeOptions;
+
     [Fact]
     public void SpellLevelAndSkillMethodsUseOfficialComparisonOrder()
     {
@@ -29,6 +35,7 @@ public sealed class CombatItemDebuffPlannerTests
                 character,
                 catalog,
                 [lens],
+                Grenades,
                 static (_, _) => true).Take(1));
         Assert.Equal(CombatDebuffSourceKind.CasterItem, byLevel.Kind);
 
@@ -40,6 +47,7 @@ public sealed class CombatItemDebuffPlannerTests
                 character,
                 catalog,
                 [lens],
+                Grenades,
                 static (_, _) => true).Take(1));
         Assert.Equal(CombatDebuffSourceKind.LearnedSpell, bySkill.Kind);
     }
@@ -69,6 +77,7 @@ public sealed class CombatItemDebuffPlannerTests
             character,
             catalog,
             [lens],
+            Grenades,
             targetDistance: 0d,
             log.Add);
 
@@ -100,6 +109,7 @@ public sealed class CombatItemDebuffPlannerTests
             new Character((31u, 500u)),
             catalog,
             [armour],
+            Grenades,
             targetDistance: 0d,
             log.Add);
 
@@ -122,17 +132,55 @@ public sealed class CombatItemDebuffPlannerTests
         var settings = new CombatSettings();
 
         Assert.Empty(CombatItemDebuffPlanner.Candidates(
-            Imperil(), settings, character, catalog, [grenade],
+            Imperil(), settings, character, catalog, [grenade], Grenades,
             static (_, _) => true));
 
         settings.ConsumableNames.Add("Iron Phial of Imperil");
         CombatDebuffSource source = Assert.Single(
             CombatItemDebuffPlanner.Candidates(
-                Imperil(), settings, character, catalog, [grenade],
+                Imperil(), settings, character, catalog, [grenade], Grenades,
                 static (_, _) => true));
         Assert.Equal(CombatDebuffSourceKind.Grenade, source.Kind);
         Assert.Equal(200u, source.ItemObjectId);
-        Assert.Equal(100, source.SourceSkill);
+        Assert.Equal(110, source.SourceSkill);
+    }
+
+    /// <summary>
+    /// A grenade is whatever the game database's GrenadeOptions row says:
+    /// the row is found by name without case, its skill requirement must be
+    /// met, and a row whose spell the client does not know is no grenade.
+    /// Mutations: match names with case (the lower-case phial is missed);
+    /// ignore the row's skill requirement (the frost phial is thrown at 250).
+    /// </summary>
+    [Fact]
+    public void AGrenadeIsWhatItsGameDatabaseRowSays()
+    {
+        PluginSpellInfo imperil = Spell(1323, "Imperil Other I", 100, 31);
+        // The test catalogue decides what spell 1061 is; here it is another imperil.
+        PluginSpellInfo frost = Spell(1061, "Imperil Other II", 150, 31);
+        var catalog = new Catalog([], [imperil, frost]);
+        PluginInventoryItem lowerCase = Item(200, "iron phial of imperil", 0x100, 0);
+        PluginInventoryItem frostPhial = Item(201, "Fixture Phial of Frost", 0x100, 0);
+        PluginInventoryItem unknownSpell = Item(202, "Fixture Phial of Nothing", 0x100, 0);
+        var settings = new CombatSettings();
+        settings.ConsumableNames.Add(lowerCase.Name);
+        settings.ConsumableNames.Add(frostPhial.Name);
+        settings.ConsumableNames.Add(unknownSpell.Name);
+        MonsterRuleActions actions = Imperil();
+
+        IReadOnlyList<CombatDebuffSource> unskilled = CombatItemDebuffPlanner.Candidates(
+            actions, settings, new Character((38u, 250u)), catalog,
+            [lowerCase, frostPhial, unknownSpell], Grenades, static (_, _) => true);
+        IReadOnlyList<CombatDebuffSource> skilled = CombatItemDebuffPlanner.Candidates(
+            actions, settings, new Character((38u, 350u)), catalog,
+            [lowerCase, frostPhial, unknownSpell], Grenades, static (_, _) => true);
+
+        Assert.Equal([200u], unskilled.Select(static source => source.ItemObjectId));
+        Assert.Equal(
+            [200u, 201u],
+            skilled.Select(static source => source.ItemObjectId).Order());
+        Assert.All(skilled, static source =>
+            Assert.Equal(CombatDebuffSourceKind.Grenade, source.Kind));
     }
 
     [Fact]
@@ -151,7 +199,7 @@ public sealed class CombatItemDebuffPlannerTests
 
         CombatDebuffSource source = Assert.Single(
             CombatItemDebuffPlanner.Candidates(
-                Imperil(), settings, new Character(), catalog, [weapon],
+                Imperil(), settings, new Character(), catalog, [weapon], Grenades,
                 static (_, _) => true));
 
         Assert.Equal(CombatDebuffSourceKind.ProcWeapon, source.Kind);

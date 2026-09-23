@@ -107,6 +107,7 @@ internal sealed partial class MossTankPanel
             + ", species members " + Count(_gameInfo.SpeciesMembers.Count)
             + ", immunities " + Count(_gameInfo.MonsterImmunities.Count)
             + ", heal kits " + Count(_gameInfo.HealKits.Count)
+            + ", grenades " + Count(_gameInfo.GrenadeOptions.Count)
             + ", drain spells " + Count(_gameInfo.DrainSpellOptions.Count)
             + ", martyr spells " + Count(_gameInfo.MartyrSpellOptions.Count)
             + ", craft recipes " + Count(_gameInfo.Crafts.Recipes.Count)

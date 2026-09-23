@@ -37,7 +37,8 @@ internal static class CombatItemDebuffPlanner
     private const uint Caster = 0x00008000u;
     private const uint WarMagicSkill = 34u;
     private const uint VoidMagicSkill = 43u;
-    private const uint AlchemySkill = 38u;
+    /// <summary>A GrenadeOptions wield requirement on a skill (the column says which).</summary>
+    private const int SkillWieldRequirement = 2;
 
     public static IReadOnlyList<CombatDebuffSource> Candidates(
         MonsterRuleActions actions,
@@ -45,6 +46,7 @@ internal static class CombatItemDebuffPlanner
         ICharacterInfo character,
         ISpellCatalog spells,
         IReadOnlyList<PluginInventoryItem> items,
+        IReadOnlyList<VtankGrenadeOption> grenades,
         Func<DebuffIdentity, PluginSpellInfo, bool> isDue,
         double targetDistance = 0d)
     {
@@ -54,6 +56,7 @@ internal static class CombatItemDebuffPlanner
         ArgumentNullException.ThrowIfNull(spells);
         ArgumentNullException.ThrowIfNull(items);
         ArgumentNullException.ThrowIfNull(isDue);
+        ArgumentNullException.ThrowIfNull(grenades);
 
         HashSet<DebuffIdentity> required = DebuffSpellCatalog.Required(actions);
         if (required.Count == 0)
@@ -64,6 +67,7 @@ internal static class CombatItemDebuffPlanner
             character,
             spells,
             items,
+            grenades,
             isDue,
             targetDistance);
     }
@@ -74,12 +78,14 @@ internal static class CombatItemDebuffPlanner
         ICharacterInfo character,
         ISpellCatalog spells,
         IReadOnlyList<PluginInventoryItem> items,
+        IReadOnlyList<VtankGrenadeOption> grenades,
         double targetDistance = 0d,
         Action<string>? log = null)
     {
         ArgumentNullException.ThrowIfNull(settings);
         ArgumentNullException.ThrowIfNull(character);
         ArgumentNullException.ThrowIfNull(spells);
+        ArgumentNullException.ThrowIfNull(grenades);
         ArgumentNullException.ThrowIfNull(items);
         return Collect(
             new HashSet<DebuffIdentity> { identity },
@@ -87,6 +93,7 @@ internal static class CombatItemDebuffPlanner
             character,
             spells,
             items,
+            grenades,
             isDue: null,
             targetDistance,
             log);
@@ -98,6 +105,7 @@ internal static class CombatItemDebuffPlanner
         ICharacterInfo character,
         ISpellCatalog spells,
         IReadOnlyList<PluginInventoryItem> items,
+        IReadOnlyList<VtankGrenadeOption> grenades,
         Func<DebuffIdentity, PluginSpellInfo, bool>? isDue,
         double targetDistance,
         Action<string>? log = null)
@@ -140,7 +148,7 @@ internal static class CombatItemDebuffPlanner
             if (profiled)
                 AddProfileItem(result, required, item, spells, isDue);
             if (consumable)
-                AddGrenade(result, required, item, character, spells, isDue);
+                AddGrenade(result, required, item, grenades, character, spells, isDue);
             if (result.Count == before)
             {
                 // The item is not one of the object types this debuff can be
@@ -222,14 +230,19 @@ internal static class CombatItemDebuffPlanner
         ICollection<CombatDebuffSource> result,
         IReadOnlySet<DebuffIdentity> required,
         PluginInventoryItem item,
+        IReadOnlyList<VtankGrenadeOption> grenades,
         ICharacterInfo character,
         ISpellCatalog spells,
         Func<DebuffIdentity, PluginSpellInfo, bool>? isDue)
     {
         if ((item.ItemType & MissileWeapon) == 0u
             || item.CombatUse != 0
-            || !GrenadeCatalog.TryGet(item.Name, out GrenadeDefinition grenade)
-            || CurrentSkill(character, AlchemySkill) < grenade.RequiredAlchemy
+            || FindGrenade(grenades, item.Name) is not { } grenade
+            || (grenade.WieldRequirementType == SkillWieldRequirement
+                && CurrentSkill(character, unchecked((uint)grenade.WieldRequirementAttribute))
+                    < grenade.WieldRequirementValue)
+            // A row whose spell this client does not know is no grenade at
+            // all, as the reference treats it.
             || !spells.TryGet(grenade.SpellId, out PluginSpellInfo spell))
         {
             return;
@@ -243,6 +256,23 @@ internal static class CombatItemDebuffPlanner
             grenade.Spellcraft,
             isDue,
             PluginProjectilePathKind.Missile);
+    }
+
+    /// <summary>
+    /// The game database's GrenadeOptions row for this item. Names are
+    /// matched without case and the first row with the name is the one, as
+    /// the reference looks a row up by its index column.
+    /// </summary>
+    private static VtankGrenadeOption? FindGrenade(
+        IReadOnlyList<VtankGrenadeOption> grenades,
+        string name)
+    {
+        foreach (VtankGrenadeOption option in grenades)
+        {
+            if (option.Name.Equals(name, StringComparison.OrdinalIgnoreCase))
+                return option;
+        }
+        return null;
     }
 
     private static void AddIfRequired(
