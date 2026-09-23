@@ -10,7 +10,7 @@ internal sealed partial class MossTankPanel
     private static readonly string[] VtankHelp =
     [
         "MossTank /vt — profiles: settings nav loot meta opt testitem propertydump addnavpt refresh getdb addnavjump addnavcheckpoint",
-        "MossTank /vt — actions: start stop forcebuff cancelforcebuff setmetastate fakedeath deathrestore deletemonster reverseroute reverseroutequery equipitemsfor equip mexec metainterval echo tapjump jump face setattackbar setmotion clearmotion prepclick fellow count login give autovendor vendor xp",
+        "MossTank /vt — actions: start stop forcebuff cancelforcebuff setmetastate fakedeath deathrestore deletemonster reverseroute reverseroutequery equipitemsfor equip mexec metainterval nextwp echo tapjump jump face setattackbar setmotion clearmotion prepclick fellow count login give autovendor vendor xp",
         "MossTank /vt — game info: dumpspells dumpspecies dumpmats dumpskills",
         "MossTank /vt — debug: log testmonster lockdump dumptracker clearlocks clearbusy listmonstervariables dumpmetavars listmetafunctions metafunchelp fakeimp pscount testspell testpet",
     ];
@@ -156,6 +156,9 @@ internal sealed partial class MossTankPanel
                 return;
             case "opt":
                 HandleOptionCommand(arguments);
+                return;
+            case "nextwp":
+                HandleNextWaypointCommand(arguments);
                 return;
             case "metainterval":
                 HandleMetaIntervalCommand(arguments);
@@ -824,6 +827,20 @@ internal sealed partial class MossTankPanel
         _loot.Reset();
         RefreshLootEditor();
         WriteVtank(importNotice);
+    }
+
+    private void HandleNextWaypointCommand(string arguments)
+    {
+        string value = arguments.Trim();
+        int count = 1;
+        if (value.Length != 0
+            && (!int.TryParse(value, NumberStyles.Integer, CultureInfo.InvariantCulture, out count)
+                || count < 1))
+        {
+            WriteVtank("Syntax: /vt nextwp [number of waypoints, default 1]");
+            return;
+        }
+        WriteVtank(SkipRouteWaypoints(count));
     }
 
     private void HandleMetaIntervalCommand(string arguments)

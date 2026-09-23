@@ -1259,6 +1259,35 @@ public sealed partial class MossTankPanelTests
                 && pair.Value.Contains("MetaInterval", StringComparison.OrdinalIgnoreCase));
     }
 
+    /// <summary>
+    /// /vt nextwp skips one waypoint, /vt nextwp 2 skips two, and anything
+    /// else is refused with the syntax; the Route tab's button skips one.
+    /// Mutation: ignore the count and the second command moves one point.
+    /// </summary>
+    [Fact]
+    public void NextWaypointSkipsOneByDefaultOrTheCountGiven()
+    {
+        var storage = new MemoryStorage();
+        storage.Text["mosstank/navs/Circuit.nav"] = File.ReadAllText(Path.Combine(
+            AppContext.BaseDirectory, "Fixtures", "vtank", "nav", "nav_ab.nav"));
+        var automation = new FakeAutomation { Name = "Barris", WorldName = "Coldeve" };
+        var panel = new MossTankPanel(new FakeHost(automation, storage));
+        Command(panel, "nav load Circuit");
+        int count = panel.RouteRows.Count;
+        Assert.True(count > 3);
+        int start = panel.CurrentRouteWaypointIndexForTest;
+
+        Command(panel, "nextwp");
+        Assert.Equal((start + 1) % count, panel.CurrentRouteWaypointIndexForTest);
+        Command(panel, "nextwp 2");
+        Assert.Equal((start + 3) % count, panel.CurrentRouteWaypointIndexForTest);
+        Command(panel, "nextwp zero");
+        Assert.Equal((start + 3) % count, panel.CurrentRouteWaypointIndexForTest);
+        Assert.Contains(automation.Messages, message => message.Contains("Syntax: /vt nextwp", StringComparison.Ordinal));
+        panel.SkipRouteWaypoint();
+        Assert.Equal((start + 4) % count, panel.CurrentRouteWaypointIndexForTest);
+    }
+
     [Theory]
     [InlineData("meta load Dropped")]
     [InlineData("meta load Dropped.met")]

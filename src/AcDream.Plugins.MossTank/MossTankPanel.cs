@@ -1105,6 +1105,23 @@ internal sealed partial class MossTankPanel : IBuffRuleHost, IDisposable
     public Action<int> RouteWaypointFillerClick => static _ => { };
     public Action<int> DeleteRouteWaypointAt => DeleteRouteWaypointAtCore;
     public Action SelectNearestRouteWaypoint => SelectNearestRouteWaypointCore;
+    public Action SkipRouteWaypoint => () => WriteVtank(SkipRouteWaypoints(1));
+
+    /// <summary>Skips waypoints on the loaded route and says where it is heading now.</summary>
+    internal string SkipRouteWaypoints(int count)
+    {
+        if (_navigationSettings.Mode == RouteMode.Target)
+            return "A follow route has no waypoints to skip.";
+        int skipped = _navigation.SkipWaypoints(count);
+        if (skipped == 0)
+            return "The route has no waypoint left to skip.";
+        RefreshRouteEditor();
+        string noun = skipped == 1 ? "waypoint" : "waypoints";
+        return _navigation.HasNothingLeftToWalk
+            ? $"Skipped {skipped} {noun}; the route is complete."
+            : $"Skipped {skipped} {noun}; now heading for waypoint "
+                + $"{_navigation.CurrentWaypointIndex + 1}/{_navigationSettings.Waypoints.Count}.";
+    }
     public IReadOnlyList<string> RouteModeNames =>
         ["Circular", "Linear", "Follow", "Once"];
     public string SelectedRouteMode => _navigationSettings.Mode == RouteMode.Target
@@ -3675,6 +3692,8 @@ internal sealed partial class MossTankPanel : IBuffRuleHost, IDisposable
     }
 
     internal int MetaIntervalMillisecondsForTest => _meta.IntervalMilliseconds;
+
+    internal int CurrentRouteWaypointIndexForTest => _navigation.CurrentWaypointIndex;
 
     /// <summary>MossTank's own pace for looking at the meta, on the engine and the pass alike.</summary>
     internal void ApplyMetaInterval()

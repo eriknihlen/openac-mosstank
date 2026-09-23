@@ -634,6 +634,27 @@ internal sealed class NavigationController
     public int CurrentWaypointIndex => _index;
 
     /// <summary>
+    /// Moves the route on past the waypoint it is heading for, as if that one
+    /// had been reached, <paramref name="count"/> times; a walk the client is
+    /// making toward it ends. A once route that runs out is complete. Returns
+    /// how many were skipped: fewer when a once route ran out, none for a
+    /// follow route or a route with nothing left to walk.
+    /// </summary>
+    public int SkipWaypoints(int count)
+    {
+        if (count <= 0 || _settings.Mode == RouteMode.Target || HasNothingLeftToWalk)
+            return 0;
+        StopClientWalk();
+        int skipped = 0;
+        while (skipped < count && !_onceComplete)
+        {
+            AdvanceWaypoint();
+            skipped++;
+        }
+        return skipped;
+    }
+
+    /// <summary>
     /// Whether a once route has already run this waypoint. A once route
     /// consumes by moving its cursor, never by removing the point, so the
     /// waypoints behind the cursor are the spent ones; every other mode

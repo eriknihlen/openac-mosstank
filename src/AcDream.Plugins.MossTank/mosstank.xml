@@ -388,6 +388,9 @@
             onclick="{MoveRouteWaypointUp}" tooltip="Regress the current point." />
     <button x="246" y="171" w="16" h="16" icon="0x060011F7" iconkind="did" anchor="bottom"
             onclick="{SelectNearestRouteWaypoint}" tooltip="Select the nearest waypoint." />
+    <button x="268" y="171" w="64" h="16" text="Next WP" anchor="bottom"
+            onclick="{SkipRouteWaypoint}"
+            tooltip="Skip the waypoint the route is heading for (/vt nextwp [n] skips n)." />
 
     <button x="380" y="16" w="88" h="16" text="Add" onclick="{AddRoutePoint}" />
     <button x="474" y="16" w="88" h="16" text="Open Vendor" onclick="{AddRouteOpenVendor}" />
