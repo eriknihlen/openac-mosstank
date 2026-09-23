@@ -44,13 +44,35 @@ public sealed class VtankGameInfoUpdaterTests
     }
 
     /// <summary>
-    /// A download no newer than the player's file leaves the file alone and
-    /// says it is up to date, naming the world data it holds; the check is
-    /// still noted. Mutation: take a download of the same time as newer (the
-    /// file is rewritten).
+    /// A database from anywhere else (a VTank install, another service) is
+    /// replaced even when its own time is later than the download's: only
+    /// openac-gamedata's database is kept, and the line says it replaced
+    /// another. Mutation: replace only a database older than the download
+    /// (the foreign one is reported up to date and kept).
     /// </summary>
     [Fact]
-    public async Task ADatabaseNoNewerThanTheFileIsUpToDate()
+    public async Task AForeignDatabaseWithALaterTimeIsReplaced()
+    {
+        var profiles = new MemoryStorage();
+        profiles.Text[VtankGameInfoDatabase.FileName] = ExcerptText;
+        VtankGameInfoAnswer download = Download(ExcerptTime - OneDay, "Downloaded Arrow");
+
+        (List<string> said, List<VtankGameInfoDatabase> applied) = await RunAsync(
+            new VtankGameInfoUpdater(profiles, new MemoryStorage(), new FakeTransport(download)));
+
+        Assert.Equal("Game database replaced with openac-gamedata's (2023-11-13).", said[^1]);
+        Assert.Equal(download.Text, profiles.Text[VtankGameInfoDatabase.FileName]);
+        Assert.Equal("Downloaded Arrow", Assert.Single(Assert.Single(applied).AmmunitionOptions).Name);
+    }
+
+    /// <summary>
+    /// A download with the same time as the player's file leaves the file
+    /// alone and says it is up to date, naming the world data it holds; the
+    /// check is still noted. Mutation: replace on an equal time too (the file
+    /// is rewritten).
+    /// </summary>
+    [Fact]
+    public async Task ADatabaseWithTheFilesTimeIsUpToDate()
     {
         var profiles = new MemoryStorage();
         profiles.Text[VtankGameInfoDatabase.FileName] = ExcerptText;

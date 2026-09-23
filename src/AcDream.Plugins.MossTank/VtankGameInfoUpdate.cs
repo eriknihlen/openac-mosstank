@@ -98,8 +98,8 @@ internal sealed record VtankGameInfoUpdateResult(
 /// independent project that publishes a complete database, generated from
 /// the ACE server's world data, as a release file. Each check downloads the
 /// whole file; one that reads as a whole database at the built-in version,
-/// and was built from newer world data than the one the player has, replaces
-/// the player's file. A database whose last check is younger than the window
+/// and whose time differs from the database the player has, replaces the
+/// player's file: an older release, or a database from anywhere else. A database whose last check is younger than the window
 /// is not checked again.
 /// </summary>
 /// <remarks>
@@ -265,7 +265,10 @@ internal sealed class VtankGameInfoUpdater : IDisposable
             return Failed("the download does not say which world data it was built from");
 
         string built = FormatDate(downloadedTime);
-        if (downloadedTime <= localTime)
+        // Any other time means another database: an older release, or one
+        // that came from somewhere else (a VTank install, another service),
+        // whose time may even be later. Only openac-gamedata's own is kept.
+        if (downloadedTime == localTime)
         {
             lock (_writeGate)
             {
@@ -298,7 +301,9 @@ internal sealed class VtankGameInfoUpdater : IDisposable
                     database);
             }
             return new VtankGameInfoUpdateResult(
-                "Game database updated to " + built + " from " + SourceName + "."
+                (downloadedTime < localTime
+                    ? "Game database replaced with " + SourceName + "'s (" + built + ")."
+                    : "Game database updated to " + built + " from " + SourceName + ".")
                 + NoteCheck(),
                 database);
         }

@@ -62,9 +62,10 @@ craft recipes) is not shipped with MossTank. It comes from
 [openac-gamedata](https://github.com/eriknihlen/openac-gamedata), an
 independent project (AGPL-3.0) that generates a complete `gameinfodb.ugd` from
 the ACE server's world data and publishes it as a release file. At login
-MossTank downloads the newest release into `gameinfodb.ugd` in the VTank
-profile folder when it was built from newer world data than the file you have,
-and says the outcome in one chat line. A check made within the last 6 hours is
+MossTank downloads the newest release and, unless the file you have is that
+same release, puts it in `gameinfodb.ugd` in the VTank profile folder,
+replacing any database that came from elsewhere, and says the outcome in one
+chat line. A check made within the last 6 hours is
 not repeated, so many sessions logging in do not all download;
 `/vt gamedb interval [hours]` changes that (0 checks at every login). A failed
 check keeps the file you had. Until the first download there are no
