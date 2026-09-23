@@ -84,6 +84,10 @@ How that interoperability was achieved, stated plainly:
 - The game-information database (`gameinfodb.ugd`) is not included. MossTank
   downloads it from Virindi's service on the player's own machine, as VTank
   does, and stores it only in that player's VTank profile folder.
+- The documents a new settings profile and an empty game database start from
+  are built by MossTank in code, in VTank's file formats, from MossTank's own
+  option defaults and table definitions; no VTank file is shipped for them.
+  The option descriptions shown in MossTank are written in MossTank's own words.
 
 VTank is not open source. Its license terms are Virindi's; this notice
 claims no license to VTank and grants none.

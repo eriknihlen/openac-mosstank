@@ -6552,7 +6552,7 @@ public sealed class CombatControllerTests
     {
         const uint primaryId = 0x8001_AC87u;
         const uint secondaryId = 0x8001_B291u;
-        VtankDatabase profile = VtankDefaultSettingsDatabase.Parse();
+        VtankDatabase profile = VtankDefaultSettingsDatabase.Create();
         VtankTable monsters = profile.Find(VtankMonsterRuleTable.TableName)!;
         monsters.Rows[0].Cells[3] = VtankCell.Int(unchecked((int)primaryId));
         monsters.Rows[0].Cells[19] = VtankCell.Int(unchecked((int)secondaryId));
@@ -6910,12 +6910,12 @@ public sealed class CombatControllerTests
             CombatSnapshot = Peaceful(),
             EquipmentItems = [Equipment(sword, "Signed Fire Sword", 0x0010)],
         };
-        VtankDatabase restricted = VtankDefaultSettingsDatabase.Parse();
+        VtankDatabase restricted = VtankDefaultSettingsDatabase.Create();
         restricted.Find("ItemUseSpecifiers")!.Rows.Add(new VtankRow
         {
             Cells = { VtankCell.Int(unchecked((int)sword)), VtankCell.Int(0) },
         });
-        VtankDatabase unrestricted = VtankDefaultSettingsDatabase.Parse();
+        VtankDatabase unrestricted = VtankDefaultSettingsDatabase.Create();
         unrestricted.Tables.RemoveAll(
             static entry => entry.Name == "ItemUseSpecifiers");
 

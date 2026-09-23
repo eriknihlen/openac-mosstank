@@ -302,7 +302,7 @@ internal sealed class MossTankProfileStore
         }
         else
         {
-            database = VtankDefaultSettingsDatabase.Parse();
+            database = VtankDefaultSettingsDatabase.Create();
             ApplyFromDatabase(database, settings);
             sidecar = SideCarDocument.CreateDefaults();
             sidecar.Apply(settings, noBuffItemNames, logChannels, _host.Log);
@@ -359,7 +359,7 @@ internal sealed class MossTankProfileStore
             // Nobody is named yet, so there is no character's file to read:
             // the shipped defaults stand in, in memory only, until a name
             // arrives and that character's own profile is loaded over them.
-            VtankDatabase unnamed = VtankDefaultSettingsDatabase.Parse();
+            VtankDatabase unnamed = VtankDefaultSettingsDatabase.Create();
             ApplyFromDatabase(unnamed, settings);
             SideCarDocument.CreateDefaults()
                 .Apply(settings, noBuffItemNames, logChannels, _host.Log);
@@ -381,7 +381,7 @@ internal sealed class MossTankProfileStore
         {
             // VTank's own behavior for a missing file: seed from the shipped
             // template/defaults rather than leaving the live settings alone.
-            VtankDatabase fresh = VtankDefaultSettingsDatabase.Parse();
+            VtankDatabase fresh = VtankDefaultSettingsDatabase.Create();
             ApplyFromDatabase(fresh, settings);
             SideCarDocument.CreateDefaults()
                 .Apply(settings, noBuffItemNames, logChannels, _host.Log);
@@ -459,7 +459,7 @@ internal sealed class MossTankProfileStore
         ISet<string> noBuffItemNames,
         ISet<string> logChannels)
     {
-        VtankDatabase database = VtankDefaultSettingsDatabase.Parse();
+        VtankDatabase database = VtankDefaultSettingsDatabase.Create();
         ApplyFromDatabase(database, settings);
         SideCarDocument.CreateDefaults()
             .Apply(settings, noBuffItemNames, logChannels, _host.Log);
@@ -502,7 +502,7 @@ internal sealed class MossTankProfileStore
             try
             {
                 database = text is null
-                    ? VtankDefaultSettingsDatabase.Parse()
+                    ? VtankDefaultSettingsDatabase.Create()
                     : VtankDatabase.Parse(text);
             }
             catch (Exception error) when (error is FormatException or OverflowException)

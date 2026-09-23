@@ -120,7 +120,7 @@ internal static class VtankSettingsProfileSerializer
     public static VtankDatabase CreateNew(AllSettings source)
     {
         ArgumentNullException.ThrowIfNull(source);
-        VtankDatabase database = VtankDefaultSettingsDatabase.Parse();
+        VtankDatabase database = VtankDefaultSettingsDatabase.Create();
         _ = Save(database, source);
         return database;
     }

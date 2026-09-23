@@ -10,7 +10,7 @@ public sealed class VtankMonsterRuleTableTests
         // SecondaryVuln 98 (None), SecondaryEquip 0 (Auto),
         // PetDamageType 101 (PAuto).
         List<MonsterRule>? rules = VtankMonsterRuleTable.TryRead(
-            VtankDefaultSettingsDatabase.Parse());
+            VtankDefaultSettingsDatabase.Create());
 
         MonsterRule rule = Assert.Single(rules!);
         Assert.True(rule.IsDefault);
@@ -42,7 +42,7 @@ public sealed class VtankMonsterRuleTableTests
             (3, MonsterDamageType.Acid),
         })
         {
-            VtankDatabase seed = VtankDefaultSettingsDatabase.Parse();
+            VtankDatabase seed = VtankDefaultSettingsDatabase.Create();
             seed.Find(VtankMonsterRuleTable.TableName)!
                 .Rows[0].Cells[extraVulnerabilityColumn] = VtankCell.Int(code);
             string original = seed.Render();
@@ -68,7 +68,7 @@ public sealed class VtankMonsterRuleTableTests
     public void AFreshRowWritesTheExtraVulnerabilityColumnOff()
     {
         const int extraVulnerabilityColumn = 18;
-        VtankDatabase database = VtankDefaultSettingsDatabase.Parse();
+        VtankDatabase database = VtankDefaultSettingsDatabase.Create();
 
         VtankMonsterRuleTable.Write(
             database,
@@ -85,7 +85,7 @@ public sealed class VtankMonsterRuleTableTests
     {
         // Save() rewrites the table from the live rules, so an untouched
         // profile must still render exactly what it parsed.
-        string original = VtankDefaultSettingsDatabase.Parse().Render();
+        string original = VtankDefaultSettingsDatabase.Create().Render();
         VtankDatabase database = VtankDatabase.Parse(original);
         List<MonsterRule> rules = VtankMonsterRuleTable.TryRead(database)!;
 
@@ -97,7 +97,7 @@ public sealed class VtankMonsterRuleTableTests
     [Fact]
     public void PriorityWeaponAndSecondaryEquipShapesRoundTripByteForByte()
     {
-        VtankDatabase seed = VtankDefaultSettingsDatabase.Parse();
+        VtankDatabase seed = VtankDefaultSettingsDatabase.Create();
         VtankRow row = seed.Find(VtankMonsterRuleTable.TableName)!.Rows[0];
         row.Cells[1] = VtankCell.Int(7);
         row.Cells[3] = VtankCell.Int(0);
@@ -124,7 +124,7 @@ public sealed class VtankMonsterRuleTableTests
     {
         const uint primaryId = 0x8000_DEB2u;
         const uint secondaryId = 0x8001_AC87u;
-        VtankDatabase database = VtankDefaultSettingsDatabase.Parse();
+        VtankDatabase database = VtankDefaultSettingsDatabase.Create();
         VtankTable monsters = database.Find(VtankMonsterRuleTable.TableName)!;
         monsters.Rows[0].Cells[3] = VtankCell.Int(unchecked((int)primaryId));
         monsters.Rows[0].Cells[19] = VtankCell.Int(unchecked((int)secondaryId));
@@ -146,7 +146,7 @@ public sealed class VtankMonsterRuleTableTests
     [InlineData(3)]
     public void EverySecondaryEquipModeSurvivesASave(int mode)
     {
-        VtankDatabase database = VtankDefaultSettingsDatabase.Parse();
+        VtankDatabase database = VtankDefaultSettingsDatabase.Create();
         VtankTable monsters = database.Find(VtankMonsterRuleTable.TableName)!;
         monsters.Rows[0].Cells[19] = VtankCell.Int(mode);
 
@@ -162,7 +162,7 @@ public sealed class VtankMonsterRuleTableTests
     [InlineData(0x4000_0011, 0x4000_0011)]
     public void WeaponToUseKeepsTheSpellingTheFileUsed(int stored, int expected)
     {
-        VtankDatabase database = VtankDefaultSettingsDatabase.Parse();
+        VtankDatabase database = VtankDefaultSettingsDatabase.Create();
         VtankTable monsters = database.Find(VtankMonsterRuleTable.TableName)!;
         monsters.Rows[0].Cells[3] = VtankCell.Int(stored);
 
@@ -175,7 +175,7 @@ public sealed class VtankMonsterRuleTableTests
     [Fact]
     public void AnUnparseableSpecIsLoggedAndIgnoredInsteadOfLosingTheProfile()
     {
-        VtankDatabase database = VtankDefaultSettingsDatabase.Parse();
+        VtankDatabase database = VtankDefaultSettingsDatabase.Create();
         VtankTable monsters = database.Find(VtankMonsterRuleTable.TableName)!;
         monsters.Rows[0].Cells[0] = VtankCell.String("(((");
         var warnings = new List<string>();
@@ -213,7 +213,7 @@ public sealed class VtankMonsterRuleTableTests
     [Fact]
     public void LoadKeepsEverySettingWhenOneMonsterSpecIsUnparseable()
     {
-        VtankDatabase seed = VtankDefaultSettingsDatabase.Parse();
+        VtankDatabase seed = VtankDefaultSettingsDatabase.Create();
         seed.Find(VtankMonsterRuleTable.TableName)!.Rows[0].Cells[0] =
             VtankCell.String("(((");
         var combat = new CombatSettings();
@@ -275,7 +275,7 @@ public sealed class VtankMonsterRuleTableTests
                 DamageType = MonsterDamageType.VoidBasic,
             }),
         };
-        VtankDatabase database = VtankDefaultSettingsDatabase.Parse();
+        VtankDatabase database = VtankDefaultSettingsDatabase.Create();
 
         VtankMonsterRuleTable.Write(database, rules);
         List<MonsterRule> read = VtankMonsterRuleTable.TryRead(database)!;
@@ -319,7 +319,7 @@ public sealed class VtankMonsterRuleTableTests
     [Fact]
     public void TheAttackColumnIsStoredTheSameWayTheTickBoxShowsIt()
     {
-        VtankDatabase database = VtankDefaultSettingsDatabase.Parse();
+        VtankDatabase database = VtankDefaultSettingsDatabase.Create();
         VtankMonsterRuleTable.Write(
             database,
             [
@@ -352,7 +352,7 @@ public sealed class VtankMonsterRuleTableTests
     [Fact]
     public void ARangeKeyedRowThatOnlyDebuffsDoesNotAttack()
     {
-        VtankDatabase database = VtankDefaultSettingsDatabase.Parse();
+        VtankDatabase database = VtankDefaultSettingsDatabase.Create();
         VtankTable table = database.Find(VtankMonsterRuleTable.TableName)!;
         var distant = new VtankRow();
         foreach (VtankCell cell in table.Rows[0].Cells)
@@ -387,7 +387,7 @@ public sealed class VtankMonsterRuleTableTests
     [Fact]
     public void AFreshMonsterRowIsWrittenColumnForColumn()
     {
-        VtankDatabase database = VtankDefaultSettingsDatabase.Parse();
+        VtankDatabase database = VtankDefaultSettingsDatabase.Create();
 
         VtankMonsterRuleTable.Write(database, [MonsterRule.Fresh("DEFAULT")]);
 
@@ -469,7 +469,7 @@ public sealed class VtankMonsterRuleTableTests
     [Fact]
     public void ADropInVtankProfilesRulesBecomeLive()
     {
-        VtankDatabase source = VtankDefaultSettingsDatabase.Parse();
+        VtankDatabase source = VtankDefaultSettingsDatabase.Create();
         VtankMonsterRuleTable.Write(
             source,
             [

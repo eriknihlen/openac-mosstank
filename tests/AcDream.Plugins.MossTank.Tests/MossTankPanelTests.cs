@@ -744,7 +744,7 @@ public sealed partial class MossTankPanelTests
         var storage = new MemoryStorage();
         string usdKey = SettingsKey(
             VtankProfileDirectory.AutoCharacterFileName("Barris", string.Empty, "usd"));
-        storage.Text[usdKey] = VtankDefaultSettingsDatabase.Parse().Render();
+        storage.Text[usdKey] = VtankDefaultSettingsDatabase.Create().Render();
         storage.Text["profiles/macro/sidecar/--Barris_.usd.json"] = """
             {
               "CombatRules": [
@@ -912,7 +912,7 @@ public sealed partial class MossTankPanelTests
         string usdKey = SettingsKey(
             VtankProfileDirectory.AutoCharacterFileName("Barris", string.Empty, "usd"));
 
-        VtankDatabase database = VtankDefaultSettingsDatabase.Parse();
+        VtankDatabase database = VtankDefaultSettingsDatabase.Create();
         VtankTable settingsTable = database.Find("Settings")!;
         int nameColumn = settingsTable.ColumnIndex("Setting");
         int valueColumn = settingsTable.ColumnIndex("Value");
@@ -1083,7 +1083,7 @@ public sealed partial class MossTankPanelTests
         storage.Text["mosstank/navs/Hunt.af"] =
             MetafSerializer.SaveNav(new NavigationSettings());
         storage.Text[SettingsKey("Shared.usd")] =
-            VtankDefaultSettingsDatabase.Parse().Render();
+            VtankDefaultSettingsDatabase.Create().Render();
         var automation = new FakeAutomation { Name = "Barris", WorldName = "Coldeve" };
         var panel = new MossTankPanel(new FakeHost(automation, storage));
         panel.OnTick(0.1d);
@@ -2474,7 +2474,7 @@ public sealed partial class MossTankPanelTests
     public void ImportedBuffedItemSpellTargetsItsExactSameNameObject()
     {
         var storage = new MemoryStorage();
-        VtankDatabase database = VtankDefaultSettingsDatabase.Parse();
+        VtankDatabase database = VtankDefaultSettingsDatabase.Create();
         database.Find("BuffedItems")!.Rows.Add(new VtankRow
         {
             Cells =
@@ -2508,7 +2508,7 @@ public sealed partial class MossTankPanelTests
     public void ImportedBuffedItemWeaponSentinelUsesTheEquippedWeapon()
     {
         var storage = new MemoryStorage();
-        VtankDatabase database = VtankDefaultSettingsDatabase.Parse();
+        VtankDatabase database = VtankDefaultSettingsDatabase.Create();
         database.Find("BuffedItems")!.Rows.Add(new VtankRow
         {
             Cells = { VtankCell.Int(-1), VtankCell.Int(101) },
@@ -2537,7 +2537,7 @@ public sealed partial class MossTankPanelTests
     public void ImportedUntargetedBuffedItemSpellJoinsTheNormalBuffPlan()
     {
         var storage = new MemoryStorage();
-        VtankDatabase database = VtankDefaultSettingsDatabase.Parse();
+        VtankDatabase database = VtankDefaultSettingsDatabase.Create();
         database.Find("BuffedItems")!.Rows.Add(new VtankRow
         {
             Cells = { VtankCell.Int(10), VtankCell.Int(101) },
@@ -2567,7 +2567,7 @@ public sealed partial class MossTankPanelTests
     public void UnknownAndEmptyImportedBuffedItemSpellsStayInert()
     {
         var storage = new MemoryStorage();
-        VtankDatabase database = VtankDefaultSettingsDatabase.Parse();
+        VtankDatabase database = VtankDefaultSettingsDatabase.Create();
         VtankTable table = database.Find("BuffedItems")!;
         table.Rows.Add(new VtankRow { Cells = { VtankCell.Int(10), VtankCell.Int(999) } });
         table.Rows.Add(new VtankRow { Cells = { VtankCell.Int(10), VtankCell.Int(-1) } });
@@ -2720,7 +2720,7 @@ public sealed partial class MossTankPanelTests
     public void ImportedBuffedItemUiDeletesOneSpellPairAndKeepsItsSiblings()
     {
         var storage = new MemoryStorage();
-        VtankDatabase database = VtankDefaultSettingsDatabase.Parse();
+        VtankDatabase database = VtankDefaultSettingsDatabase.Create();
         VtankTable table = database.Find("BuffedItems")!;
         table.Rows.Add(new VtankRow { Cells = { VtankCell.Int(10), VtankCell.Int(-1) } });
         table.Rows.Add(new VtankRow { Cells = { VtankCell.Int(10), VtankCell.Int(101) } });
@@ -2765,7 +2765,7 @@ public sealed partial class MossTankPanelTests
     public void ImportedBuffedItemNumericExemplarResolvesKnownTierByFamily()
     {
         var storage = new MemoryStorage();
-        VtankDatabase database = VtankDefaultSettingsDatabase.Parse();
+        VtankDatabase database = VtankDefaultSettingsDatabase.Create();
         database.Find("BuffedItems")!.Rows.Add(new VtankRow
         {
             Cells = { VtankCell.Int(10), VtankCell.Int(100) },
@@ -3360,7 +3360,7 @@ public sealed partial class MossTankPanelTests
 
     private static string SettingsWithGemFood(params (string Name, uint SpellId)[] entries)
     {
-        VtankDatabase database = VtankDefaultSettingsDatabase.Parse();
+        VtankDatabase database = VtankDefaultSettingsDatabase.Create();
         VtankTable table = database.Find("GemFoodItems")!;
         int name = table.ColumnIndex("Name");
         int spell = table.ColumnIndex("Spell");
@@ -3379,7 +3379,7 @@ public sealed partial class MossTankPanelTests
 
     private static string SettingsWithoutGemFood()
     {
-        VtankDatabase database = VtankDefaultSettingsDatabase.Parse();
+        VtankDatabase database = VtankDefaultSettingsDatabase.Create();
         database.Tables.RemoveAll(static entry => entry.Name == "GemFoodItems");
         return database.Render();
     }
@@ -5566,7 +5566,7 @@ public sealed partial class MossTankPanelTests
     public void ImportedExtraBuffExemplarIsVisibleAndRemovableFromTheBuffUi()
     {
         var storage = new MemoryStorage();
-        VtankDatabase profile = VtankDefaultSettingsDatabase.Parse();
+        VtankDatabase profile = VtankDefaultSettingsDatabase.Create();
         profile.Find("ExtraBuffSpells")!.Rows.Add(ExemplarRow(1));
         storage.Text[SettingsKey(VtankProfileDirectory.AutoCharacterFileName(
             "Imported Extra", string.Empty, "usd"))] = profile.Render();
@@ -5781,7 +5781,7 @@ public sealed partial class MossTankPanelTests
     [Fact]
     public void ImportedAssistItemsMapKindsAndPreserveUnknownCustomRowsOnSave()
     {
-        VtankDatabase database = VtankDefaultSettingsDatabase.Parse();
+        VtankDatabase database = VtankDefaultSettingsDatabase.Create();
         VtankTable table = database.Find("AssistItems")!;
         table.ColumnNames.Add("Extension");
         table.IndexFlags.Add(false);
@@ -5886,7 +5886,7 @@ public sealed partial class MossTankPanelTests
         Command(panel, "opt set AttackDistance 0.02");
         string safe = panel.SelectedMacroProfile;
 
-        VtankDatabase candidate = VtankDefaultSettingsDatabase.Parse();
+        VtankDatabase candidate = VtankDefaultSettingsDatabase.Create();
         VtankTable settings = candidate.Find("Settings")!;
         settings.Rows.Add(SettingRow(settings, "AttackDistance", VtankCell.Double(0.1d)));
         settings.Rows.Add(SettingRow(settings, "SpellDiffExcessThreshold-Hunt", new VtankCell
@@ -5944,7 +5944,7 @@ public sealed partial class MossTankPanelTests
     public void RemovingAnImportedConsumableDeletesOnlyItsExactAssistRow()
     {
         var storage = new MemoryStorage();
-        VtankDatabase imported = VtankDefaultSettingsDatabase.Parse();
+        VtankDatabase imported = VtankDefaultSettingsDatabase.Create();
         VtankTable table = imported.Find("AssistItems")!;
         table.ColumnNames.Add("Extension");
         table.IndexFlags.Add(false);
@@ -5974,13 +5974,13 @@ public sealed partial class MossTankPanelTests
     public void SwitchingToAnEmptyAssistItemsTableClearsImportedConsumables()
     {
         var storage = new MemoryStorage();
-        VtankDatabase imported = VtankDefaultSettingsDatabase.Parse();
+        VtankDatabase imported = VtankDefaultSettingsDatabase.Create();
         imported.Find("AssistItems")!.Rows.Add(new VtankRow
         {
             Cells = { VtankCell.String("Bread"), VtankCell.Int(1) },
         });
         storage.Text["mosstank/profiles/Assist.usd"] = imported.Render();
-        storage.Text["mosstank/profiles/NoAssist.usd"] = VtankDefaultSettingsDatabase.Parse().Render();
+        storage.Text["mosstank/profiles/NoAssist.usd"] = VtankDefaultSettingsDatabase.Create().Render();
         var panel = new MossTankPanel(new FakeHost(new FakeAutomation(), storage));
 
         Command(panel, "settings load Assist");
@@ -6006,7 +6006,7 @@ public sealed partial class MossTankPanelTests
     public void AddingAllPeasOverAnImportedSinglePeaRowActsAndPersists()
     {
         var storage = new MemoryStorage();
-        VtankDatabase imported = VtankDefaultSettingsDatabase.Parse();
+        VtankDatabase imported = VtankDefaultSettingsDatabase.Create();
         VtankTable table = imported.Find("AssistItems")!;
         table.ColumnNames.Add("Extension");
         table.IndexFlags.Add(false);
@@ -6051,7 +6051,7 @@ public sealed partial class MossTankPanelTests
     public void MismatchedPeaNameAndKindPairsAuthorizeNothing()
     {
         var storage = new MemoryStorage();
-        VtankDatabase imported = VtankDefaultSettingsDatabase.Parse();
+        VtankDatabase imported = VtankDefaultSettingsDatabase.Create();
         VtankTable table = imported.Find("AssistItems")!;
         // The wildcard name carrying the single-pea kind, and a single pea
         // carrying the wildcard kind.
@@ -6086,7 +6086,7 @@ public sealed partial class MossTankPanelTests
     public void DuplicateImportedRowsAndCustomCellsSurviveAnUnrelatedSave()
     {
         var storage = new MemoryStorage();
-        VtankDatabase imported = VtankDefaultSettingsDatabase.Parse();
+        VtankDatabase imported = VtankDefaultSettingsDatabase.Create();
         VtankTable table = imported.Find("AssistItems")!;
         table.ColumnNames.Add("Extension");
         table.IndexFlags.Add(false);
@@ -6140,7 +6140,7 @@ public sealed partial class MossTankPanelTests
     public void AnExplicitKindReKindsEveryRowForTheNameAndKeepsThem()
     {
         var storage = new MemoryStorage();
-        VtankDatabase imported = VtankDefaultSettingsDatabase.Parse();
+        VtankDatabase imported = VtankDefaultSettingsDatabase.Create();
         VtankTable table = imported.Find("AssistItems")!;
         table.ColumnNames.Add("Extension");
         table.IndexFlags.Add(false);
@@ -6195,7 +6195,7 @@ public sealed partial class MossTankPanelTests
     public void ThePeriodicSweepDoesNotOverruleAnImportedConsumableKind()
     {
         var storage = new MemoryStorage();
-        VtankDatabase imported = VtankDefaultSettingsDatabase.Parse();
+        VtankDatabase imported = VtankDefaultSettingsDatabase.Create();
         imported.Find("AssistItems")!.Rows.Add(new VtankRow
         {
             Cells = { VtankCell.String("Bread"), VtankCell.Int(5) },
@@ -7217,7 +7217,7 @@ public sealed partial class MossTankPanelTests
 
         string secondSettings = SettingsKey(
             VtankProfileDirectory.AutoCharacterFileName("Second", "Coldeve", "usd"));
-        storage.Text[secondSettings] = VtankDefaultSettingsDatabase.Parse().Render();
+        storage.Text[secondSettings] = VtankDefaultSettingsDatabase.Create().Render();
         const string malformed = "UTL\r\n1\r\n1\r\nunfinished";
         storage.Text["mosstank/loot/SecondLoot.utl"] = malformed;
         VtankProfileDirectory.WriteCharacterBinding(
@@ -9146,7 +9146,7 @@ public sealed partial class MossTankPanelTests
 
     private static string ProfileTextWithEnableMeta(bool value)
     {
-        VtankDatabase database = VtankDefaultSettingsDatabase.Parse();
+        VtankDatabase database = VtankDefaultSettingsDatabase.Create();
         VtankTable settings = database.Find("Settings")!;
         int nameColumn = settings.ColumnIndex("Setting");
         int valueColumn = settings.ColumnIndex("Value");
@@ -9776,7 +9776,7 @@ public sealed partial class MossTankPanelTests
     {
         var storage = new MemoryStorage();
         storage.Text[SettingsKey("Tight.usd")] =
-            VtankDefaultSettingsDatabase.Parse().Render();
+            VtankDefaultSettingsDatabase.Create().Render();
         storage.Text["profiles/macro/sidecar/Tight.usd.json"] =
             """{ "InventoryGiveRangeMeters": 2 }""";
         var automation = new FakeAutomation

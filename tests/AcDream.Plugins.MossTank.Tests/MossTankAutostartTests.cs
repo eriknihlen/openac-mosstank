@@ -382,7 +382,7 @@ public sealed class MossTankAutostartTests
         var host = new FakeHost(automation);
         host.VtankProfiles.WriteText(
             "mosstank/profiles/vt-proof-settings.usd",
-            VtankDefaultSettingsDatabase.Parse().Render());
+            VtankDefaultSettingsDatabase.Create().Render());
         var store = new MossTankProfileStore(host);
         store.BindCharacter("TestChar");
 
@@ -406,7 +406,7 @@ public sealed class MossTankAutostartTests
         var host = new FakeHost(automation);
         host.VtankProfiles.WriteText(
             "mosstank/profiles/--SomeoneElse_Coldeve.usd",
-            VtankDefaultSettingsDatabase.Parse().Render());
+            VtankDefaultSettingsDatabase.Create().Render());
         var store = new MossTankProfileStore(host);
         store.BindCharacter("TestChar");
 
@@ -425,7 +425,7 @@ public sealed class MossTankAutostartTests
         var host = new FakeHost(automation);
         host.VtankProfiles.WriteText(
             "mosstank/profiles/vt-proof-settings.usd",
-            VtankDefaultSettingsDatabase.Parse().Render());
+            VtankDefaultSettingsDatabase.Create().Render());
         var panel = new MossTankPanel(host);
         host.SessionSettingsValue = new Dictionary<string, string>
         {

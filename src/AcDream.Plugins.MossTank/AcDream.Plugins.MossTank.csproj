@@ -26,7 +26,6 @@
     <None Update="mosstank*.xml">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
     </None>
-    <EmbeddedResource Include="VtankDefaultSettings.usd" />
     <EmbeddedResource Include="ExperienceCosts.tsv" />
   </ItemGroup>
 </Project>
