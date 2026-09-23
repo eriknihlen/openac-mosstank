@@ -17,9 +17,70 @@ namespace AcDream.Plugins.MossTank;
 /// </remarks>
 internal static class VtankGameInfoFile
 {
-    /// <summary>The built-in database, as the reference client ships it.</summary>
-    public static VtankDatabase BuiltIn() =>
-        VtankDatabase.Parse(VtankGameInfoDatabase.DefaultText());
+    /// <summary>The version the built-in database carries, and so the one the service is asked for.</summary>
+    public const int BuiltInVersion = 9;
+
+    /// <summary>
+    /// Every table a game database has: its name, its columns and which
+    /// column it is looked up by. An update is merged only into the tables
+    /// listed here, and only when its column count matches, so this list is
+    /// what decides which parts of the service's answer are taken.
+    /// </summary>
+    internal static readonly (string Name, string[] Columns, int IndexColumn)[] Tables =
+    [
+        ("AmmunitionOptions",
+            ["AmmoName", "LauncherType", "WieldReq", "Element", "Quality", "Special",
+                "WieldReq2Skill", "WieldReq2Value"], 0),
+        ("CooldownIDs", ["Itemname", "CooldownID"], 0),
+        ("CraftInteractions",
+            ["UseItem1", "UseItem2", "ResultItem", "ResultCount", "SuccessMsg", "FailMsg",
+                "ReqSkill", "ReqDiff", "ID"], 8),
+        ("DBLastUpdateTime", ["Zero", "Time"], -1),
+        ("DBVersion", ["VersionInt"], -1),
+        ("DrainSpellOptions",
+            ["SpellID", "CastTimeMilliseconds", "EnemyDrainFactor", "EnemyDrainMaximumPoints",
+                "ResultMultiplier"], 0),
+        ("GrenadeOptions",
+            ["GrenName", "WieldReqType", "WieldReqAttribute", "WieldReqValue", "Spell",
+                "Spellcraft"], 0),
+        ("HealKits", ["KitName", "RestoreBonus", "SkillBonus", "WhichVital"], 0),
+        ("MartyrSpellOptions",
+            ["SpellID", "CastTimeMilliseconds", "SelfDrainFactor", "ResultMultiplier"], 0),
+        ("MonsterDamageOverrides", ["Monster", "DamageString"], 0),
+        ("MonsterImmunities", ["Monster", "ImmunityMask"], 0),
+        ("SpeciesDamages", ["Species", "DamageString"], 0),
+        ("SpeciesMembers", ["Monster", "Species", "MaximumHealth"], 0),
+        ("SpellQualityOverrides", ["SpellID", "Valid", "NewQuality", "NewFamily"], 0),
+    ];
+
+    /// <summary>
+    /// The database a session has before anything is downloaded: every
+    /// table, empty, at the built-in version and with no update time, so the
+    /// first check asks for everything. MossTank builds it here rather than
+    /// shipping a file.
+    /// </summary>
+    public static VtankDatabase BuiltIn()
+    {
+        var database = new VtankDatabase();
+        foreach ((string name, string[] columns, int indexColumn) in Tables)
+        {
+            var table = new VtankTable();
+            table.ColumnNames.AddRange(columns);
+            for (int column = 0; column < columns.Length; column++)
+                table.IndexFlags.Add(column == indexColumn);
+            database.Tables.Add((name, table));
+        }
+        AddRow(database, "DBLastUpdateTime", VtankCell.Int(0), VtankCell.Int(0));
+        AddRow(database, "DBVersion", VtankCell.Int(BuiltInVersion));
+        return database;
+    }
+
+    private static void AddRow(VtankDatabase database, string tableName, params VtankCell[] cells)
+    {
+        var row = new VtankRow();
+        row.Cells.AddRange(cells);
+        database.Find(tableName)!.Rows.Add(row);
+    }
 
     /// <summary>
     /// The profile folder's database when it reads and carries the built-in

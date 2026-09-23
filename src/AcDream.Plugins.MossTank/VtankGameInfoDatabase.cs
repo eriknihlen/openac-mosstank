@@ -1,5 +1,4 @@
 using System.Globalization;
-using System.Reflection;
 using AcDream.Plugin.Abstractions;
 
 namespace AcDream.Plugins.MossTank;
@@ -140,29 +139,13 @@ internal sealed class VtankGameInfoDatabase
         return From(VtankGameInfoFile.LoadBase(storage));
     }
 
-    private const string DefaultResourceSuffix = ".VtankDefaultGameInfo.ugd";
-
     /// <summary>
-    /// The database the reference client ships inside itself and reads when
-    /// the profile directory has none, or an unreadable one. Every table it
-    /// ships is empty (its content came from the reference client's online
-    /// service and from monsters met in play); a profile-directory file with
-    /// content takes precedence.
+    /// The empty built-in database (see <see cref="VtankGameInfoFile.BuiltIn"/>),
+    /// read when the profile directory has none or an unreadable one, as the
+    /// reference client reads its own; a profile-directory file with content
+    /// takes precedence.
     /// </summary>
     public static VtankGameInfoDatabase LoadDefault() => From(VtankGameInfoFile.BuiltIn());
-
-    /// <summary>The built-in database's text, as the reference client ships it.</summary>
-    internal static string DefaultText()
-    {
-        Assembly assembly = typeof(VtankGameInfoDatabase).Assembly;
-        string resource = assembly.GetManifestResourceNames().Single(
-            static name => name.EndsWith(DefaultResourceSuffix, StringComparison.Ordinal));
-        using Stream stream = assembly.GetManifestResourceStream(resource)
-            ?? throw new InvalidOperationException(
-                "The embedded default game information database is missing.");
-        using var reader = new StreamReader(stream);
-        return reader.ReadToEnd();
-    }
 
     /// <summary>
     /// When the service last changed what this database holds, in seconds

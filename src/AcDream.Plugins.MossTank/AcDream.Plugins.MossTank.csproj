@@ -27,7 +27,6 @@
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
     </None>
     <EmbeddedResource Include="VtankDefaultSettings.usd" />
-    <EmbeddedResource Include="VtankDefaultGameInfo.ugd" />
     <EmbeddedResource Include="ExperienceCosts.tsv" />
   </ItemGroup>
 </Project>
