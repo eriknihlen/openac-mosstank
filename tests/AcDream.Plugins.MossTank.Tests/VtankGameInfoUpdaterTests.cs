@@ -178,13 +178,13 @@ public sealed class VtankGameInfoUpdaterTests
     }
 
     /// <summary>
-    /// An answer that reads as tables but not as a game database (a number
-    /// column holding text) is checked before it is written, and is not.
-    /// Mutation: write the merged text before reading it back as a game
-    /// database, and the broken file replaces the good one.
+    /// An answer that reads as tables but holds a value that does not read
+    /// as its kind (text tagged as a number) is refused whole before anything
+    /// is merged or written. Mutation: skip the value check, and the broken
+    /// value is merged and saved.
     /// </summary>
     [Fact]
-    public async Task AMergedDatabaseThatDoesNotReadBackIsNotWritten()
+    public async Task AnAnswerWithAValueThatDoesNotReadIsNotWritten()
     {
         var profiles = new MemoryStorage();
         profiles.Text[VtankGameInfoDatabase.FileName] = ExcerptText;
@@ -197,12 +197,161 @@ public sealed class VtankGameInfoUpdaterTests
         (List<string> said, List<VtankGameInfoDatabase> applied) =
             await RunAsync(new VtankGameInfoUpdater(profiles, transport));
 
-        Assert.StartsWith(
-            "Game database update failed: the answer does not fit the database (",
-            said[^1],
-            StringComparison.Ordinal);
+        Assert.Equal(
+            "Game database update failed: the answer is not a game database "
+            + "(a value in it does not read). The game database you had is kept.",
+            said[^1]);
         Assert.Empty(applied);
+        Assert.Equal(0, profiles.Writes);
+    }
+
+    /// <summary>
+    /// A download that cannot be saved is still a good download: it is
+    /// handed over and used, and the line says it was not kept. Mutation:
+    /// treat a failed save as a failed update, and nothing is handed over.
+    /// </summary>
+    [Fact]
+    public async Task ADownloadThatCannotBeSavedIsStillUsed()
+    {
+        var profiles = new MemoryStorage { WriteFailure = new IOException("The disk is full.") };
+        profiles.Text[VtankGameInfoDatabase.FileName] = ExcerptText;
+        var transport = new FakeTransport(Answer(
+            ExcerptTime + 60,
+            ("AmmunitionOptions", AmmoColumns, [Ammo("Tested Fire Arrow", launcher: 5, element: 6)])));
+
+        (List<string> said, List<VtankGameInfoDatabase> applied) =
+            await RunAsync(new VtankGameInfoUpdater(profiles, transport));
+
+        Assert.Equal(
+            "Game database downloaded (1 record changed) but could not be saved: "
+            + "The disk is full. It is used until MossTank stops.",
+            said[^1]);
+        Assert.Contains(
+            Assert.Single(applied).AmmunitionOptions,
+            static option => option.Name == "Tested Fire Arrow");
         Assert.Equal(ExcerptText, profiles.Text[VtankGameInfoDatabase.FileName]);
+    }
+
+    /// <summary>
+    /// A table is merged on its own index column, not on its first one:
+    /// CraftInteractions is keyed on its ID (column 8), so a row with an ID
+    /// already there replaces that recipe even when its items differ, and a
+    /// row with a new ID is added. Mutation: key every table on column 0, and
+    /// the changed recipe is added as a seventh instead of replacing 9002.
+    /// </summary>
+    [Fact]
+    public async Task AMergeKeysOnTheTablesOwnIndexColumn()
+    {
+        var profiles = new MemoryStorage();
+        profiles.Text[VtankGameInfoDatabase.FileName] = ExcerptText;
+        string[] columns =
+        [
+            "UseItem1", "UseItem2", "ResultItem", "ResultCount", "SuccessMsg",
+            "FailMsg", "ReqSkill", "ReqDiff", "ID",
+        ];
+        static VtankCell[] Recipe(string first, string result, int id) =>
+        [
+            VtankCell.String(first), VtankCell.String("Fixture Binding"),
+            VtankCell.String(result), VtankCell.Int(1), VtankCell.String("Made."),
+            VtankCell.String("Not made."), VtankCell.Int(21), VtankCell.Int(0),
+            VtankCell.Int(id),
+        ];
+        var transport = new FakeTransport(Answer(
+            ExcerptTime + 60,
+            ("CraftInteractions", columns,
+            [
+                Recipe("Fixture Bandages", "Plentiful Healing Kit", 9002),
+                Recipe("Fixture Bandages", "Fixture Kit", 9100),
+            ])));
+
+        (_, List<VtankGameInfoDatabase> applied) =
+            await RunAsync(new VtankGameInfoUpdater(profiles, transport));
+
+        VtankCraftDatabase crafts = Assert.Single(applied).Crafts;
+        Assert.Equal(7, crafts.Recipes.Count);
+        VtankCraftRecipe kit = Assert.Single(crafts.ForResult("Plentiful Healing Kit"));
+        Assert.Equal(("Fixture Bandages", 9002), (kit.FirstItem, kit.Id));
+        Assert.Single(crafts.ForResult("Fixture Kit"));
+    }
+
+    /// <summary>
+    /// A table in the answer whose column count differs from the database's
+    /// own is left out whole; the rest of the answer still lands. Mutation:
+    /// drop the column-count test, and the merge breaks on the short rows.
+    /// </summary>
+    [Fact]
+    public async Task ATableWhoseColumnsDifferIsLeftOut()
+    {
+        var profiles = new MemoryStorage();
+        profiles.Text[VtankGameInfoDatabase.FileName] = ExcerptText;
+        var transport = new FakeTransport(Answer(
+            ExcerptTime + 60,
+            ("HealKits", ["KitName", "RestoreBonus", "SkillBonus"],
+            [[VtankCell.String("Fixture Healing Kit"), VtankCell.Double(9), VtankCell.Int(9)]]),
+            ("AmmunitionOptions", AmmoColumns, [Ammo("Tested Fire Arrow", launcher: 5, element: 6)])));
+
+        (List<string> said, List<VtankGameInfoDatabase> applied) =
+            await RunAsync(new VtankGameInfoUpdater(profiles, transport));
+
+        Assert.Equal("Game database updated: 2 records changed.", said[^1]);
+        VtankGameInfoDatabase database = Assert.Single(applied);
+        Assert.Equal(
+            VtankGameInfoDatabase.Parse(ExcerptText).HealKits,
+            database.HealKits);
+        Assert.Contains(database.AmmunitionOptions, static option => option.Name == "Tested Fire Arrow");
+    }
+
+    /// <summary>
+    /// A transport that throws instead of answering ends the check with the
+    /// reason, on the tick, like any other failure. Mutation: pass over a
+    /// faulted check in silence, and nothing is said.
+    /// </summary>
+    [Fact]
+    public async Task ATransportThatThrowsSaysWhy()
+    {
+        var profiles = new MemoryStorage();
+        var transport = new FakeTransport(
+            Task.FromException<VtankGameInfoAnswer>(new InvalidOperationException("No route.")));
+        using var updater = new VtankGameInfoUpdater(profiles, transport);
+
+        Assert.Null(updater.Start());
+        Task<VtankGameInfoUpdateResult> pending = updater.PendingForTest!;
+        await Assert.ThrowsAsync<InvalidOperationException>(() => pending);
+        var said = new List<string>();
+        updater.Drain(said.Add, static _ => { });
+
+        Assert.Equal(
+            ["Game database update failed: No route. The game database you had is kept."],
+            said);
+        Assert.False(updater.IsRunning);
+    }
+
+    /// <summary>
+    /// Disposing the updater (the plugin switched off) stops a check for
+    /// good: an answer that arrives afterwards is not written. Mutation:
+    /// drop the cancellation test before the write, and it is.
+    /// </summary>
+    [Fact]
+    public async Task DisposeDuringACheckWritesNothing()
+    {
+        var profiles = new MemoryStorage();
+        profiles.Text[VtankGameInfoDatabase.FileName] = ExcerptText;
+        var answer = new TaskCompletionSource<VtankGameInfoAnswer>(
+            TaskCreationOptions.RunContinuationsAsynchronously);
+        var transport = new FakeTransport(answer.Task);
+        var updater = new VtankGameInfoUpdater(profiles, transport);
+        Assert.Null(updater.Start());
+        Task<VtankGameInfoUpdateResult> pending = updater.PendingForTest!;
+        Assert.True(SpinWait.SpinUntil(() => transport.Requests.Count == 1, 5000));
+
+        updater.Dispose();
+        answer.SetResult(Answer(
+            ExcerptTime + 60,
+            ("AmmunitionOptions", AmmoColumns, [Ammo("Tested Fire Arrow", launcher: 5, element: 6)])));
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => pending);
+
+        Assert.Equal(0, profiles.Writes);
+        Assert.False(updater.IsRunning);
     }
 
     /// <summary>
@@ -367,11 +516,14 @@ public sealed class VtankGameInfoUpdaterTests
     {
         public Dictionary<string, string> Text { get; } = new(StringComparer.Ordinal);
         public int Writes { get; private set; }
+        public Exception? WriteFailure { get; init; }
         public bool IsAvailable => true;
         public string? ReadText(string key) =>
             Text.TryGetValue(key, out string? value) ? value : null;
         public void WriteText(string key, string content)
         {
+            if (WriteFailure is not null)
+                throw WriteFailure;
             Writes++;
             Text[key] = content;
         }

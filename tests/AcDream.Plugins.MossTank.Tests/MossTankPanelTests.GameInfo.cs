@@ -161,6 +161,55 @@ public sealed partial class MossTankPanelTests
         Assert.Contains("Game database updates are not available in this session.", automation.Messages);
     }
 
+    /// <summary>
+    /// A check still running when the session ends is not lost: the next
+    /// session lets it finish, hands its database over, and then asks for
+    /// itself. Mutation: count the new session as checked before its own
+    /// check starts, and the second session never asks.
+    /// </summary>
+    [Fact]
+    public async Task ACheckRunningAtSessionEndIsHandedOverAndTheNextSessionAsksToo()
+    {
+        var automation = new FakeAutomation();
+        var first = new TaskCompletionSource<VtankGameInfoAnswer>(
+            TaskCreationOptions.RunContinuationsAsynchronously);
+        var transport = new SequenceTransport(
+            first.Task,
+            Task.FromResult(VtankGameInfoUpdaterTests.Answer(1667721149)));
+        var panel = new MossTankPanel(
+            new FakeHost(automation, new MemoryStorage(), vtankProfiles: new MemoryStorage()),
+            transport);
+
+        panel.OnTick(0.1d);
+        Task<VtankGameInfoUpdateResult> running = panel.GameInfoUpdatePendingForTest!;
+        automation.IsAvailable = false;
+        panel.OnTick(0.1d);
+        automation.IsAvailable = true;
+        panel.OnTick(0.1d);
+        Assert.Same(running, panel.GameInfoUpdatePendingForTest);
+
+        first.SetResult(UpdateWithAHealKit());
+        await running.WaitAsync(TimeSpan.FromSeconds(5));
+        panel.OnTick(0.1d);
+
+        Assert.True(panel.HealKitsForTest.ContainsKey("Tested Healing Kit"));
+        Assert.Contains("Game database updated: 1 record changed.", automation.Messages);
+        Assert.NotNull(panel.GameInfoUpdatePendingForTest);
+        await panel.GameInfoUpdatePendingForTest!.WaitAsync(TimeSpan.FromSeconds(5));
+        Assert.Equal(2, transport.Requests);
+    }
+
+    private sealed class SequenceTransport(params Task<VtankGameInfoAnswer>[] answers)
+        : IVtankGameInfoTransport
+    {
+        private int _requests;
+
+        public int Requests => Volatile.Read(ref _requests);
+
+        public Task<VtankGameInfoAnswer> GetAsync(Uri address, CancellationToken cancellation) =>
+            answers[Interlocked.Increment(ref _requests) - 1];
+    }
+
     private static VtankGameInfoAnswer UpdateWithAHealKit() =>
         VtankGameInfoUpdaterTests.Answer(
             1667721149,

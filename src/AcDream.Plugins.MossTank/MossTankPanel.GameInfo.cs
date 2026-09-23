@@ -27,15 +27,18 @@ internal sealed partial class MossTankPanel
     /// </summary>
     private void TickGameInfoUpdate()
     {
-        if (!_gameInfoCheckedThisSession)
-        {
-            _gameInfoCheckedThisSession = true;
-            // A session with nothing to check with has nothing to say; the
-            // command says why when it is asked for.
-            if (_gameInfoUpdater.CanUpdate)
-                _gameInfoUpdater.Start();
-        }
         _gameInfoUpdater.Drain(WriteVtank, ApplyGameInfo);
+        // The session counts as checked only once its own check has started.
+        // One still running from the session before (a quick relog) is let
+        // finish and handed over first, and this session asks after it. A
+        // session with nothing to check with has nothing to say; the command
+        // says why when it is asked for.
+        if (!_gameInfoCheckedThisSession
+            && _gameInfoUpdater.CanUpdate
+            && !_gameInfoUpdater.IsRunning)
+        {
+            _gameInfoCheckedThisSession = _gameInfoUpdater.Start() is null;
+        }
     }
 
     /// <summary>

@@ -1,3 +1,4 @@
+using System.Globalization;
 using System.Reflection;
 using AcDream.Plugin.Abstractions;
 
@@ -126,26 +127,17 @@ internal sealed class VtankGameInfoDatabase
     /// <summary>The <c>CraftInteractions</c> table: every recipe the crafter knows.</summary>
     public VtankCraftDatabase Crafts { get; private init; } = VtankCraftDatabase.Empty;
 
+    /// <summary>
+    /// The profile folder's database, read the way the reference client
+    /// reads it (see <see cref="VtankGameInfoFile.LoadBase"/>): the same
+    /// database the update check starts from.
+    /// </summary>
     public static VtankGameInfoDatabase Load(IPluginStorage storage)
     {
         ArgumentNullException.ThrowIfNull(storage);
         if (!storage.IsAvailable)
             return Empty;
-        string? text = storage.ReadText(FileName);
-        if (string.IsNullOrWhiteSpace(text))
-            return LoadDefault();
-        try
-        {
-            return Parse(text);
-        }
-        catch (FormatException)
-        {
-            return LoadDefault();
-        }
-        catch (InvalidOperationException)
-        {
-            return LoadDefault();
-        }
+        return From(VtankGameInfoFile.LoadBase(storage));
     }
 
     private const string DefaultResourceSuffix = ".VtankDefaultGameInfo.ugd";
@@ -157,7 +149,7 @@ internal sealed class VtankGameInfoDatabase
     /// service and from monsters met in play); a profile-directory file with
     /// content takes precedence.
     /// </summary>
-    public static VtankGameInfoDatabase LoadDefault() => Parse(DefaultText());
+    public static VtankGameInfoDatabase LoadDefault() => From(VtankGameInfoFile.BuiltIn());
 
     /// <summary>The built-in database's text, as the reference client ships it.</summary>
     internal static string DefaultText()
@@ -181,10 +173,16 @@ internal sealed class VtankGameInfoDatabase
     /// <summary>The database's own version number, or null when it does not say.</summary>
     public int? Version { get; private init; }
 
+    /// <summary>Reads a whole database text; throws <see cref="FormatException"/> when its layout does not read.</summary>
     public static VtankGameInfoDatabase Parse(string text)
     {
         ArgumentNullException.ThrowIfNull(text);
-        VtankDatabase database = VtankDatabase.Parse(text);
+        return From(VtankDatabase.Parse(text));
+    }
+
+    internal static VtankGameInfoDatabase From(VtankDatabase database)
+    {
+        ArgumentNullException.ThrowIfNull(database);
         return new VtankGameInfoDatabase
         {
             IsLoaded = true,
@@ -227,8 +225,13 @@ internal sealed class VtankGameInfoDatabase
     {
         VtankTable? table = database.Find(tableName);
         return table is { Rows.Count: > 0 } && table.Rows[0].Cells.Count > column
-            ? table.Rows[0].Cells[column].AsInt()
-            : null;
+            && int.TryParse(
+                table.Rows[0].Cells[column].ScalarText,
+                NumberStyles.Integer,
+                CultureInfo.InvariantCulture,
+                out int value)
+                ? value
+                : null;
     }
 
     private static Dictionary<string, IReadOnlyList<MonsterDamageType>> ReadNamedElements(
@@ -237,8 +240,12 @@ internal sealed class VtankGameInfoDatabase
     {
         var result = new Dictionary<string, IReadOnlyList<MonsterDamageType>>(
             StringComparer.OrdinalIgnoreCase);
-        foreach (VtankRow row in Rows(database, tableName, 2))
-            result[row.Cells[0].AsString()] = VtankDamageElements.Parse(row.Cells[1].AsString());
+        foreach ((string name, IReadOnlyList<MonsterDamageType> elements) in ReadRows(
+            database, tableName, 2,
+            static cells => (cells[0].AsString(), VtankDamageElements.Parse(cells[1].AsString()))))
+        {
+            result[name] = elements;
+        }
         return result;
     }
 
@@ -247,11 +254,13 @@ internal sealed class VtankGameInfoDatabase
     {
         var result = new Dictionary<string, VtankSpeciesMember>(
             StringComparer.OrdinalIgnoreCase);
-        foreach (VtankRow row in Rows(database, "SpeciesMembers", 3))
+        foreach ((string name, VtankSpeciesMember member) in ReadRows(
+            database, "SpeciesMembers", 3,
+            static cells => (
+                cells[0].AsString(),
+                new VtankSpeciesMember(cells[1].AsInt(), cells[2].AsInt()))))
         {
-            result[row.Cells[0].AsString()] = new VtankSpeciesMember(
-                row.Cells[1].AsInt(),
-                row.Cells[2].AsInt());
+            result[name] = member;
         }
         return result;
     }
@@ -260,8 +269,12 @@ internal sealed class VtankGameInfoDatabase
         VtankDatabase database)
     {
         var result = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
-        foreach (VtankRow row in Rows(database, "MonsterImmunities", 2))
-            result[row.Cells[0].AsString()] = row.Cells[1].AsInt();
+        foreach ((string name, int mask) in ReadRows(
+            database, "MonsterImmunities", 2,
+            static cells => (cells[0].AsString(), cells[1].AsInt())))
+        {
+            result[name] = mask;
+        }
         return result;
     }
 
@@ -269,87 +282,56 @@ internal sealed class VtankGameInfoDatabase
         VtankDatabase database)
     {
         var result = new Dictionary<int, IReadOnlyList<MonsterDamageType>>();
-        foreach (VtankRow row in Rows(database, "SpeciesDamages", 2))
-            result[row.Cells[0].AsInt()] = VtankDamageElements.Parse(row.Cells[1].AsString());
-        return result;
-    }
-
-    private static List<VtankAmmunitionOption> ReadAmmunitionOptions(VtankDatabase database)
-    {
-        var result = new List<VtankAmmunitionOption>();
-        foreach (VtankRow row in Rows(database, "AmmunitionOptions", 8))
+        foreach ((int species, IReadOnlyList<MonsterDamageType> elements) in ReadRows(
+            database, "SpeciesDamages", 2,
+            static cells => (cells[0].AsInt(), VtankDamageElements.Parse(cells[1].AsString()))))
         {
-            result.Add(new VtankAmmunitionOption(
-                row.Cells[0].AsString(),
-                row.Cells[1].AsInt(),
-                row.Cells[2].AsInt(),
-                row.Cells[3].AsInt(),
-                row.Cells[4].AsInt(),
-                row.Cells[5].AsInt(),
-                unchecked((uint)row.Cells[6].AsInt()),
-                row.Cells[7].AsInt()));
+            result[species] = elements;
         }
         return result;
     }
 
-    private static List<VtankHealKit> ReadHealKits(VtankDatabase database)
-    {
-        var result = new List<VtankHealKit>();
-        foreach (VtankRow row in Rows(database, "HealKits", 4))
-        {
-            result.Add(new VtankHealKit(
-                row.Cells[0].AsString(),
-                row.Cells[1].AsDouble(),
-                row.Cells[2].AsInt(),
-                row.Cells[3].AsInt()));
-        }
-        return result;
-    }
+    private static List<VtankAmmunitionOption> ReadAmmunitionOptions(VtankDatabase database) =>
+        ReadRows(database, "AmmunitionOptions", 8, static cells => new VtankAmmunitionOption(
+            cells[0].AsString(),
+            cells[1].AsInt(),
+            cells[2].AsInt(),
+            cells[3].AsInt(),
+            cells[4].AsInt(),
+            cells[5].AsInt(),
+            unchecked((uint)cells[6].AsInt()),
+            cells[7].AsInt()));
 
-    private static List<VtankGrenadeOption> ReadGrenadeOptions(VtankDatabase database)
-    {
-        var result = new List<VtankGrenadeOption>();
-        foreach (VtankRow row in Rows(database, "GrenadeOptions", 6))
-        {
-            result.Add(new VtankGrenadeOption(
-                row.Cells[0].AsString(),
-                row.Cells[1].AsInt(),
-                row.Cells[2].AsInt(),
-                row.Cells[3].AsInt(),
-                unchecked((uint)row.Cells[4].AsInt()),
-                row.Cells[5].AsInt()));
-        }
-        return result;
-    }
+    private static List<VtankHealKit> ReadHealKits(VtankDatabase database) =>
+        ReadRows(database, "HealKits", 4, static cells => new VtankHealKit(
+            cells[0].AsString(),
+            cells[1].AsDouble(),
+            cells[2].AsInt(),
+            cells[3].AsInt()));
 
-    private static List<VtankDrainSpellOption> ReadDrainSpellOptions(VtankDatabase database)
-    {
-        var result = new List<VtankDrainSpellOption>();
-        foreach (VtankRow row in Rows(database, "DrainSpellOptions", 5))
-        {
-            result.Add(new VtankDrainSpellOption(
-                unchecked((uint)row.Cells[0].AsInt()),
-                row.Cells[1].AsInt(),
-                row.Cells[2].AsDouble(),
-                row.Cells[3].AsInt(),
-                row.Cells[4].AsDouble()));
-        }
-        return result;
-    }
+    private static List<VtankGrenadeOption> ReadGrenadeOptions(VtankDatabase database) =>
+        ReadRows(database, "GrenadeOptions", 6, static cells => new VtankGrenadeOption(
+            cells[0].AsString(),
+            cells[1].AsInt(),
+            cells[2].AsInt(),
+            cells[3].AsInt(),
+            unchecked((uint)cells[4].AsInt()),
+            cells[5].AsInt()));
 
-    private static List<VtankMartyrSpellOption> ReadMartyrSpellOptions(VtankDatabase database)
-    {
-        var result = new List<VtankMartyrSpellOption>();
-        foreach (VtankRow row in Rows(database, "MartyrSpellOptions", 4))
-        {
-            result.Add(new VtankMartyrSpellOption(
-                unchecked((uint)row.Cells[0].AsInt()),
-                row.Cells[1].AsInt(),
-                row.Cells[2].AsDouble(),
-                row.Cells[3].AsDouble()));
-        }
-        return result;
-    }
+    private static List<VtankDrainSpellOption> ReadDrainSpellOptions(VtankDatabase database) =>
+        ReadRows(database, "DrainSpellOptions", 5, static cells => new VtankDrainSpellOption(
+            unchecked((uint)cells[0].AsInt()),
+            cells[1].AsInt(),
+            cells[2].AsDouble(),
+            cells[3].AsInt(),
+            cells[4].AsDouble()));
+
+    private static List<VtankMartyrSpellOption> ReadMartyrSpellOptions(VtankDatabase database) =>
+        ReadRows(database, "MartyrSpellOptions", 4, static cells => new VtankMartyrSpellOption(
+            unchecked((uint)cells[0].AsInt()),
+            cells[1].AsInt(),
+            cells[2].AsDouble(),
+            cells[3].AsDouble()));
 
     /// <summary>
     /// The columns the reference client reads by position: the two items,
@@ -359,34 +341,49 @@ internal sealed class VtankGameInfoDatabase
     /// </summary>
     private static VtankCraftDatabase ReadCraftInteractions(VtankDatabase database)
     {
-        var result = new List<VtankCraftRecipe>();
-        foreach (VtankRow row in Rows(database, "CraftInteractions", 9))
-        {
-            result.Add(new VtankCraftRecipe(
-                row.Cells[0].AsString(),
-                row.Cells[1].AsString(),
-                row.Cells[2].AsString(),
-                row.Cells[3].AsInt(),
-                unchecked((uint)row.Cells[6].AsInt()),
-                row.Cells[7].AsInt(),
-                row.Cells[8].AsInt()));
-        }
+        List<VtankCraftRecipe> result = ReadRows(
+            database, "CraftInteractions", 9, static cells => new VtankCraftRecipe(
+                cells[0].AsString(),
+                cells[1].AsString(),
+                cells[2].AsString(),
+                cells[3].AsInt(),
+                unchecked((uint)cells[6].AsInt()),
+                cells[7].AsInt(),
+                cells[8].AsInt()));
         return result.Count == 0 ? VtankCraftDatabase.Empty : new VtankCraftDatabase(result);
     }
 
-    private static IEnumerable<VtankRow> Rows(
+    /// <summary>
+    /// Every row of a table that reads as the kind this client needs. A row
+    /// with too few columns, or a column that does not hold the number it
+    /// should, is passed over on its own: the reference client only finds
+    /// out when it looks that row up, and nothing else in the table is
+    /// affected by it.
+    /// </summary>
+    private static List<T> ReadRows<T>(
         VtankDatabase database,
         string tableName,
-        int columns)
+        int columns,
+        Func<IReadOnlyList<VtankCell>, T> read)
     {
+        var result = new List<T>();
         VtankTable? table = database.Find(tableName);
         if (table is null)
-            yield break;
+            return result;
         foreach (VtankRow row in table.Rows)
         {
-            if (row.Cells.Count >= columns)
-                yield return row;
+            if (row.Cells.Count < columns)
+                continue;
+            try
+            {
+                result.Add(read(row.Cells));
+            }
+            catch (Exception error) when (error is FormatException or OverflowException)
+            {
+                // This row only; see the summary.
+            }
         }
+        return result;
     }
 }
 

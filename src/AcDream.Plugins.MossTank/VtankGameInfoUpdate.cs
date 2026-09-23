@@ -15,13 +15,36 @@ internal interface IVtankGameInfoTransport
     Task<VtankGameInfoAnswer> GetAsync(Uri address, CancellationToken cancellation);
 }
 
-/// <summary>A plain GET with a timeout. Every failure comes back as a reason.</summary>
+/// <summary>A plain GET with a timeout and a size cap. Every failure comes back as a reason.</summary>
 internal sealed class HttpVtankGameInfoTransport : IVtankGameInfoTransport, IDisposable
 {
     /// <summary>How long the service has to answer before the check gives up.</summary>
-    internal static readonly TimeSpan Timeout = TimeSpan.FromSeconds(30);
+    internal static readonly TimeSpan DefaultTimeout = TimeSpan.FromSeconds(30);
 
-    private readonly HttpClient _client = new() { Timeout = Timeout };
+    /// <summary>
+    /// The largest answer taken. A whole database is well under a megabyte;
+    /// anything near this is not one.
+    /// </summary>
+    internal const long DefaultMaximumAnswerBytes = 32L * 1024 * 1024;
+
+    private readonly HttpClient _client;
+    private readonly TimeSpan _timeout;
+
+    /// <param name="handler">What sends the request: the network, unless a test supplies one.</param>
+    /// <param name="timeout">How long the service has to answer.</param>
+    /// <param name="maximumAnswerBytes">The largest answer taken.</param>
+    public HttpVtankGameInfoTransport(
+        HttpMessageHandler? handler = null,
+        TimeSpan? timeout = null,
+        long maximumAnswerBytes = DefaultMaximumAnswerBytes)
+    {
+        _timeout = timeout ?? DefaultTimeout;
+        _client = new HttpClient(handler ?? new HttpClientHandler(), disposeHandler: true)
+        {
+            Timeout = _timeout,
+            MaxResponseContentBufferSize = maximumAnswerBytes,
+        };
+    }
 
     public async Task<VtankGameInfoAnswer> GetAsync(
         Uri address,
@@ -51,7 +74,9 @@ internal sealed class HttpVtankGameInfoTransport : IVtankGameInfoTransport, IDis
         {
             return new VtankGameInfoAnswer(
                 false,
-                $"no answer within {Timeout.TotalSeconds:0} seconds");
+                "no answer within "
+                + _timeout.TotalSeconds.ToString("0.##", CultureInfo.InvariantCulture)
+                + " seconds");
         }
     }
 
@@ -73,10 +98,11 @@ internal sealed record VtankGameInfoUpdateResult(
 /// </summary>
 /// <remarks>
 /// The request, the merge and the save run off the game thread; the outcome
-/// waits for <see cref="Drain"/>, which the panel calls from its tick. Only a
-/// merged database that reads back as a whole game-information database is
-/// written, and the host's write replaces the file in one step, so a failure
-/// at any point leaves the old file as it was.
+/// waits for <see cref="Drain"/>, which the panel calls from its tick. Only an
+/// answer whose every value reads is merged, only a merged database that
+/// reads back is written, and the host's write replaces the file in one
+/// step, so a failure at any point leaves the old file as it was. Once the
+/// updater is disposed nothing more is written.
 /// </remarks>
 internal sealed class VtankGameInfoUpdater : IDisposable
 {
@@ -88,6 +114,9 @@ internal sealed class VtankGameInfoUpdater : IDisposable
     private readonly IPluginStorage _profiles;
     private readonly IVtankGameInfoTransport? _transport;
     private readonly CancellationTokenSource _cancellation = new();
+
+    /// <summary>Held for the write, and by <see cref="Dispose"/> to wait one out.</summary>
+    private readonly object _writeGate = new();
     private Task<VtankGameInfoUpdateResult>? _pending;
     private bool _disposed;
 
@@ -153,7 +182,7 @@ internal sealed class VtankGameInfoUpdater : IDisposable
         IVtankGameInfoTransport transport,
         CancellationToken cancellation)
     {
-        VtankDatabase local = LoadBase(_profiles);
+        VtankDatabase local = VtankGameInfoFile.LoadBase(_profiles);
         int date;
         try
         {
@@ -163,7 +192,7 @@ internal sealed class VtankGameInfoUpdater : IDisposable
         {
             return Failed("the database has no readable update time");
         }
-        int version = DatabaseVersion(local);
+        int version = VtankGameInfoFile.Version(local);
 
         var address = new Uri(
             ServiceAddress
@@ -180,10 +209,13 @@ internal sealed class VtankGameInfoUpdater : IDisposable
         {
             update = VtankDatabase.Parse(answer.Text);
         }
-        catch (Exception error) when (error is FormatException or OverflowException)
+        catch (Exception error) when (
+            error is FormatException or OverflowException or InvalidOperationException)
         {
             return Failed("the answer is not a game database (" + error.Message + ")");
         }
+        if (!VtankGameInfoFile.EveryValueReads(update))
+            return Failed("the answer is not a game database (a value in it does not read)");
 
         int changed = update.Tables.Sum(static entry => entry.Table.Rows.Count) - 1;
         if (changed <= 0)
@@ -195,6 +227,7 @@ internal sealed class VtankGameInfoUpdater : IDisposable
         {
             Merge(local, update);
             text = local.Render();
+            // What is written is what is used: the saved text, read back.
             merged = VtankGameInfoDatabase.Parse(text);
         }
         catch (Exception error) when (
@@ -203,63 +236,33 @@ internal sealed class VtankGameInfoUpdater : IDisposable
             return Failed("the answer does not fit the database (" + error.Message + ")");
         }
 
-        try
+        string count = changed.ToString(CultureInfo.InvariantCulture)
+            + (changed == 1 ? " record changed" : " records changed");
+        lock (_writeGate)
         {
-            _profiles.WriteText(VtankGameInfoDatabase.FileName, text);
+            // A plugin that has been switched off writes nothing more.
+            cancellation.ThrowIfCancellationRequested();
+            try
+            {
+                _profiles.WriteText(VtankGameInfoDatabase.FileName, text);
+            }
+            catch (Exception error) when (
+                error is IOException or UnauthorizedAccessException or NotSupportedException)
+            {
+                // The download is good; only keeping it failed. The reference
+                // client goes on using a database it could not save, and so
+                // does this.
+                return new VtankGameInfoUpdateResult(
+                    "Game database downloaded (" + count + ") but could not be saved: "
+                    + error.Message.TrimEnd('.') + ". It is used until MossTank stops.",
+                    merged);
+            }
         }
-        catch (Exception error) when (
-            error is IOException or UnauthorizedAccessException or NotSupportedException)
-        {
-            return Failed("it could not be saved (" + error.Message + ")");
-        }
-        return new VtankGameInfoUpdateResult(
-            "Game database updated: " + changed.ToString(CultureInfo.InvariantCulture)
-            + (changed == 1 ? " record changed." : " records changed."),
-            merged);
+        return new VtankGameInfoUpdateResult("Game database updated: " + count + ".", merged);
     }
 
     private static VtankGameInfoUpdateResult Failed(string reason) =>
         new("Game database update failed: " + reason.TrimEnd('.') + "." + KeptOld, null);
-
-    /// <summary>
-    /// The database the check updates: the profile folder's file when it
-    /// reads as a game database and carries the built-in database's version,
-    /// the built-in one otherwise -- which is also the one the reference
-    /// client would have loaded.
-    /// </summary>
-    internal static VtankDatabase LoadBase(IPluginStorage profiles)
-    {
-        VtankDatabase builtIn = VtankDatabase.Parse(VtankGameInfoDatabase.DefaultText());
-        string? text = profiles.ReadText(VtankGameInfoDatabase.FileName);
-        if (string.IsNullOrWhiteSpace(text))
-            return builtIn;
-        VtankDatabase file;
-        try
-        {
-            file = VtankDatabase.Parse(text);
-            _ = VtankGameInfoDatabase.Parse(text);
-        }
-        catch (Exception error) when (error is FormatException or OverflowException)
-        {
-            return builtIn;
-        }
-        return DatabaseVersion(file) == DatabaseVersion(builtIn) ? file : builtIn;
-    }
-
-    /// <summary>The <c>DBVersion</c> row's number; 1 when there is none to read.</summary>
-    internal static int DatabaseVersion(VtankDatabase database)
-    {
-        VtankTable? table = database.Find("DBVersion");
-        if (table is not { Rows.Count: > 0 } || table.Rows[0].Cells.Count < 1)
-            return 1;
-        return int.TryParse(
-            table.Rows[0].Cells[0].ScalarText,
-            NumberStyles.Integer,
-            CultureInfo.InvariantCulture,
-            out int version)
-            ? version
-            : 1;
-    }
 
     /// <summary>The <c>DBLastUpdateTime</c> row's time, in seconds since 1970.</summary>
     internal static int LastUpdateTime(VtankDatabase database)
@@ -330,13 +333,27 @@ internal sealed class VtankGameInfoUpdater : IDisposable
     internal static DateTimeOffset FromUnixSeconds(int seconds) =>
         new DateTimeOffset(1970, 1, 1, 0, 0, 0, TimeSpan.Zero) + TimeSpan.FromSeconds(seconds);
 
+    /// <summary>
+    /// Stops a check for good: it is cancelled, a save already under way is
+    /// waited out, and none starts after this returns. Whatever the check
+    /// ends with is observed here, so nothing is left unobserved.
+    /// </summary>
     public void Dispose()
     {
         if (_disposed)
             return;
         _disposed = true;
         _cancellation.Cancel();
-        _cancellation.Dispose();
+        lock (_writeGate)
+        {
+            // Only waits for a write that had already started.
+        }
+        _pending?.ContinueWith(
+            static finished => _ = finished.Exception,
+            CancellationToken.None,
+            TaskContinuationOptions.OnlyOnFaulted | TaskContinuationOptions.ExecuteSynchronously,
+            TaskScheduler.Default);
+        _pending = null;
         (_transport as IDisposable)?.Dispose();
     }
 }
