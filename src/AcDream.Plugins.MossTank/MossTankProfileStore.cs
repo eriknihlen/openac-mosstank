@@ -39,6 +39,21 @@ internal sealed class MossTankProfileStore
 
     public string Selected => StripFolder(_selected);
     public bool MineOnly => _preferences.MineOnly;
+
+    /// <summary>How often the meta is looked at; MossTank's own, not a VTank option.</summary>
+    public int MetaIntervalMilliseconds => Math.Clamp(
+        _preferences.MetaIntervalMilliseconds,
+        MetaEngine.MinimumIntervalMilliseconds,
+        MetaEngine.MaximumIntervalMilliseconds);
+
+    public void SetMetaIntervalMilliseconds(int milliseconds)
+    {
+        _preferences.MetaIntervalMilliseconds = Math.Clamp(
+            milliseconds,
+            MetaEngine.MinimumIntervalMilliseconds,
+            MetaEngine.MaximumIntervalMilliseconds);
+        SavePreferences();
+    }
     public string? RecoveryNotice { get; private set; }
     public string? LoadFailureNotice { get; private set; }
     public bool HasActiveProfile => _hasActiveProfile;
@@ -815,6 +830,8 @@ internal sealed class MossTankProfileStore
     private sealed class PreferencesDocument
     {
         public bool MineOnly { get; set; } = true;
+        public int MetaIntervalMilliseconds { get; set; } =
+            (int)Math.Round(MetaEngine.DecisionIntervalSeconds * 1000d);
     }
 
 

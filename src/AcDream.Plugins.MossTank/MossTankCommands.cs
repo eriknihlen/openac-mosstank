@@ -10,7 +10,7 @@ internal sealed partial class MossTankPanel
     private static readonly string[] VtankHelp =
     [
         "MossTank /vt — profiles: settings nav loot meta opt testitem propertydump addnavpt refresh getdb addnavjump addnavcheckpoint",
-        "MossTank /vt — actions: start stop forcebuff cancelforcebuff setmetastate fakedeath deathrestore deletemonster reverseroute reverseroutequery equipitemsfor equip mexec echo tapjump jump face setattackbar setmotion clearmotion prepclick fellow count login give autovendor vendor xp",
+        "MossTank /vt — actions: start stop forcebuff cancelforcebuff setmetastate fakedeath deathrestore deletemonster reverseroute reverseroutequery equipitemsfor equip mexec metainterval echo tapjump jump face setattackbar setmotion clearmotion prepclick fellow count login give autovendor vendor xp",
         "MossTank /vt — game info: dumpspells dumpspecies dumpmats dumpskills",
         "MossTank /vt — debug: log testmonster lockdump dumptracker clearlocks clearbusy listmonstervariables dumpmetavars listmetafunctions metafunchelp fakeimp pscount testspell testpet",
     ];
@@ -156,6 +156,9 @@ internal sealed partial class MossTankPanel
                 return;
             case "opt":
                 HandleOptionCommand(arguments);
+                return;
+            case "metainterval":
+                HandleMetaIntervalCommand(arguments);
                 return;
             case "setmetastate":
                 SetMetaStateFromCommand(arguments);
@@ -821,6 +824,25 @@ internal sealed partial class MossTankPanel
         _loot.Reset();
         RefreshLootEditor();
         WriteVtank(importNotice);
+    }
+
+    private void HandleMetaIntervalCommand(string arguments)
+    {
+        string value = arguments.Trim();
+        if (value.Length != 0)
+        {
+            if (!int.TryParse(value, NumberStyles.Integer, CultureInfo.InvariantCulture, out int milliseconds))
+            {
+                WriteVtank(
+                    $"Syntax: /vt metainterval [{MetaEngine.MinimumIntervalMilliseconds}-{MetaEngine.MaximumIntervalMilliseconds} ms]");
+                return;
+            }
+            _profiles.SetMetaIntervalMilliseconds(milliseconds);
+            ApplyMetaInterval();
+        }
+        WriteVtank(
+            $"Meta is checked every {_meta.IntervalMilliseconds} ms "
+            + $"(VTank: {(int)Math.Round(MetaEngine.DecisionIntervalSeconds * 1000d)} ms).");
     }
 
     private void HandleMetaProfileCommand(string arguments)

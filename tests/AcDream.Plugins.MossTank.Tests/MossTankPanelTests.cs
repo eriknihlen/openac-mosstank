@@ -1233,6 +1233,32 @@ public sealed partial class MossTankPanelTests
         Assert.Equal(editedMeta, storage.Text["mosstank/metas/Edited.af"]);
     }
 
+    /// <summary>
+    /// The meta interval is MossTank's own preference: the command sets it,
+    /// the engine uses it at once, and a new session reads it back. It is not
+    /// a VTank option, so it never lands in a settings profile.
+    /// Mutation: skip saving the preference and the second panel is back at
+    /// the reference pace.
+    /// </summary>
+    [Fact]
+    public void TheMetaIntervalIsSavedAndReadBackAsMossTanksOwnPreference()
+    {
+        var storage = new MemoryStorage();
+        var automation = new FakeAutomation { Name = "Barris", WorldName = "Coldeve" };
+        var panel = new MossTankPanel(new FakeHost(automation, storage));
+        Assert.Equal(293, panel.MetaIntervalMillisecondsForTest);
+
+        Command(panel, "metainterval 100");
+
+        Assert.Equal(100, panel.MetaIntervalMillisecondsForTest);
+        var again = new MossTankPanel(new FakeHost(automation, storage));
+        Assert.Equal(100, again.MetaIntervalMillisecondsForTest);
+        Assert.DoesNotContain(
+            storage.Text,
+            pair => pair.Key.EndsWith(".usd", StringComparison.OrdinalIgnoreCase)
+                && pair.Value.Contains("MetaInterval", StringComparison.OrdinalIgnoreCase));
+    }
+
     [Theory]
     [InlineData("meta load Dropped")]
     [InlineData("meta load Dropped.met")]

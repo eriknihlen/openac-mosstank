@@ -151,7 +151,10 @@ internal sealed class MetaServices
 internal sealed class MetaEngine : IDisposable
 {
     public const string DefaultState = "Default";
+    /// <summary>How often the reference macro looks at its meta.</summary>
     public const double DecisionIntervalSeconds = 0.293d;
+    public const int MinimumIntervalMilliseconds = 50;
+    public const int MaximumIntervalMilliseconds = 2000;
     public const int MaximumCallDepth = 10_000;
     private static readonly TimeSpan RegexTimeout = TimeSpan.FromMilliseconds(100);
 
@@ -163,6 +166,7 @@ internal sealed class MetaEngine : IDisposable
     private readonly List<PluginChatMessage> _chatBatch = [];
     private MetaProfile _profile;
     private double _decisionAccumulator;
+    private double _intervalSeconds = DecisionIntervalSeconds;
     private double _stateSeconds;
     private double _persistentStateSeconds;
     private ulong _chatSequence;
@@ -298,6 +302,20 @@ internal sealed class MetaEngine : IDisposable
         .Order(StringComparer.OrdinalIgnoreCase)
         .ToArray();
 
+    /// <summary>
+    /// How often the meta is looked at, in milliseconds. The default is the
+    /// reference macro's own pace; checking more often lets a rule that must
+    /// catch a moment (the character facing a portal it is about to walk
+    /// into) see it, at the price of a state that bounces between states
+    /// running its entry actions that much more often.
+    /// </summary>
+    public int IntervalMilliseconds
+    {
+        get => (int)Math.Round(_intervalSeconds * 1000d);
+        set => _intervalSeconds = Math.Clamp(
+            value, MinimumIntervalMilliseconds, MaximumIntervalMilliseconds) / 1000d;
+    }
+
     public void SetEnabled(bool enabled)
     {
         if (Enabled == enabled)
@@ -306,7 +324,7 @@ internal sealed class MetaEngine : IDisposable
         if (enabled)
         {
             _stateSeconds = 0d;
-            _decisionAccumulator = DecisionIntervalSeconds;
+            _decisionAccumulator = _intervalSeconds;
             _status = $"Meta running: {CurrentState}.";
         }
         else
@@ -369,9 +387,9 @@ internal sealed class MetaEngine : IDisposable
         _persistentStateSeconds += elapsedSeconds;
         _decisionAccumulator += elapsedSeconds;
         UpdateWatchdog(elapsedSeconds);
-        if (_decisionAccumulator < DecisionIntervalSeconds)
+        if (_decisionAccumulator < _intervalSeconds)
             return;
-        _decisionAccumulator %= DecisionIntervalSeconds;
+        _decisionAccumulator %= _intervalSeconds;
         EvaluatePass();
         _portalEntered = false;
         _portalExited = false;

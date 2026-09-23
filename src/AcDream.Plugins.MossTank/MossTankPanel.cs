@@ -487,6 +487,7 @@ internal sealed partial class MossTankPanel : IBuffRuleHost, IDisposable
             if (_combat.Enabled)
                 _meta.OnTick(elapsed);
         };
+        ApplyMetaInterval();
         _combat.BindPassSuspension(_scheduler.Suspend, _scheduler.Resume);
         _scheduler.Log = EmitMacroLog;
         // The three columns are cooldown-slot states, not controller
@@ -3671,6 +3672,16 @@ internal sealed partial class MossTankPanel : IBuffRuleHost, IDisposable
         }
         LoadMetaProfile();
         _metaNotice = notice;
+    }
+
+    internal int MetaIntervalMillisecondsForTest => _meta.IntervalMilliseconds;
+
+    /// <summary>MossTank's own pace for looking at the meta, on the engine and the pass alike.</summary>
+    internal void ApplyMetaInterval()
+    {
+        int milliseconds = _profiles.MetaIntervalMilliseconds;
+        _meta.IntervalMilliseconds = milliseconds;
+        _scheduler.MetaIntervalSeconds = _meta.IntervalMilliseconds / 1000d;
     }
 
     private void LoadMetaProfile()
