@@ -17,18 +17,11 @@ public sealed class VendorTradeControllerTests
     private const uint Coins = 30u;
 
     /// <summary>
-    /// The whole visit, round by round: the run starts on the open, the
-    /// stack pass goes first, the buy round stages and commits, the sell
-    /// round follows the server's answer, and the run ends when a round has
-    /// nothing left to do. Mutation: replanning before the server answers
-    /// commits the same sell twice.
-    /// </summary>
-    /// <summary>
     /// Only pyreal coins pay for a buy. Peas are money-class items but the
     /// server does not count them as coin, so counting their stacks as
     /// pyreals plans a buy the server refuses outright.
     /// Mutation: count every money-class stack as coin and the buy asks for
-    /// 10 rations it cannot pay for.
+    /// 9 rations it cannot pay for.
     /// </summary>
     [Fact]
     public void PeasAreNotCountedAsCoinWhenSizingABuy()
@@ -51,10 +44,18 @@ public sealed class VendorTradeControllerTests
         for (int i = 0; i < 6 && automation.BuyAllCalls.Count == 0; i++)
             controller.Tick(0.1d, canAct: true);
 
-        // 30 pyreals at 5 a ration buy 6, not the 10 that 30 + 20 peas would.
-        Assert.Equal([(RationListing, 6)], automation.BuyAllCalls.Single());
+        // 30 pyreals at 5 a ration buy 5 once the server's rounding is
+        // allowed for, not the 9 that 30 + 20 peas would.
+        Assert.Equal([(RationListing, 5)], automation.BuyAllCalls.Single());
     }
 
+    /// <summary>
+    /// The whole visit, round by round: the run starts on the open, the
+    /// stack pass goes first, the buy round stages and commits, the sell
+    /// round follows the server's answer, and the run ends when a round has
+    /// nothing left to do. Mutation: replanning before the server answers
+    /// commits the same sell twice.
+    /// </summary>
     [Fact]
     public void AVisitBuysThenSellsThenFinishes()
     {

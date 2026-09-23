@@ -175,6 +175,13 @@ internal sealed class VendorTradeController : IDisposable
     private double _sinceProgress;
     private double _sinceCompletion;
     private long _expectedCoin;
+    // How far the server's charge may run past the planned cost (see
+    // VendorTradePlan.BuySlack); the settle accepts that much more.
+    private long _coinSlack;
+
+    // What the outstanding buy or sell asked for, said with a failure so the
+    // player sees what the server refused.
+    private string _attempt = string.Empty;
     private long _coinBefore;
     private long _splitRevision;
     private uint _splitObjectId;
@@ -509,7 +516,8 @@ internal sealed class VendorTradeController : IDisposable
             if (!transaction.Success)
             {
                 Stop($"Vendor run stopped: {transaction.Kind} failed"
-                    + (string.IsNullOrWhiteSpace(transaction.Notice) ? "." : $": {transaction.Notice}"));
+                    + (string.IsNullOrWhiteSpace(transaction.Notice) ? "" : $": {transaction.Notice}")
+                    + (_attempt.Length == 0 ? "" : $" ({_attempt})"));
                 continue;
             }
             _phase = Phase.Settle;
@@ -581,11 +589,15 @@ internal sealed class VendorTradeController : IDisposable
             }
             _coinBefore = purse.CoinOnHand;
             _expectedCoin = -plan.BuyCost;
+            _coinSlack = plan.BuySlack;
             _phase = Phase.AwaitTransaction;
             _sinceProgress = 0d;
             Status = string.Create(
                 CultureInfo.InvariantCulture,
                 $"Buying {string.Join(", ", plan.Buys.Select(l => $"{l.Count} {l.Name}"))} for {plan.BuyCost:n0}.");
+            _attempt = string.Create(
+                CultureInfo.InvariantCulture,
+                $"tried {string.Join(", ", plan.Buys.Select(l => $"{l.Count} {l.Name}"))} for {plan.BuyCost:n0} with {purse.CoinOnHand:n0} coin counted");
             return;
         }
         if (plan.Sells.Count > 0)
@@ -606,11 +618,15 @@ internal sealed class VendorTradeController : IDisposable
             }
             _coinBefore = purse.CoinOnHand;
             _expectedCoin = plan.SellProceeds;
+            _coinSlack = 0L;
             _phase = Phase.AwaitTransaction;
             _sinceProgress = 0d;
             Status = string.Create(
                 CultureInfo.InvariantCulture,
                 $"Selling {plan.Sells.Count} item(s) for {plan.SellProceeds:n0}.");
+            _attempt = string.Create(
+                CultureInfo.InvariantCulture,
+                $"tried selling {plan.Sells.Count} item(s) for {plan.SellProceeds:n0}");
             return;
         }
         Stop("Vendor run finished: " + _vendorName, think: true);
@@ -623,7 +639,7 @@ internal sealed class VendorTradeController : IDisposable
         long coinNow = CoinOnHand(owned, _host.Automation.Vendor.Profile);
         long remaining = _expectedCoin - (coinNow - _coinBefore);
         bool soldGone = !owned.Any(item => _pendingSell.Contains(item.ObjectId));
-        if ((Math.Abs(remaining) < CoinTolerance && soldGone)
+        if ((Math.Abs(remaining) < CoinTolerance + _coinSlack && soldGone)
             || _sinceCompletion >= SettleTimeoutSeconds)
         {
             _pendingSell.Clear();
