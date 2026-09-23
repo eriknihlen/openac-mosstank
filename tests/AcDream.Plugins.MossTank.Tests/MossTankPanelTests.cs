@@ -4532,6 +4532,36 @@ public sealed partial class MossTankPanelTests
     }
 
     /// <summary>Two points, at east-west 0 and 50, with the character back at 0.</summary>
+    /// <summary>
+    /// A circular route loaded while the macro runs (a meta swapping from its
+    /// travel route to its hunting circuit) starts at the point nearest the
+    /// character, as a macro start does. Seen live: the circuit started at
+    /// its first point 190 m away, out of the client's reach, and the
+    /// character stood still until the meta's watchdog restarted everything.
+    /// Mutation: go to the head on a load and the index is 0.
+    /// </summary>
+    [Fact]
+    public void ACircuitLoadedWhileRunningStartsAtItsNearestPoint()
+    {
+        var storage = new MemoryStorage();
+        storage.Text["mosstank/navs/Circle.af"] =
+            "NAV: nav0 circular ~~ {\r\n"
+            + "\tpnt 0 0 0\r\n"
+            + "\tpnt 0.2 0 0\r\n"
+            + "\tpnt 0.4 0 0\r\n";
+        var automation = new FakeAutomation { NavigationSnapshot = NavigationAt(0f) };
+        var panel = new MossTankPanel(new FakeHost(automation, storage));
+        automation.CurrentHealth = 100;
+        automation.MaxHealth = 100;
+        panel.ToggleCombat();
+        Assert.True(panel.CombatEnabled);
+
+        StandAt(automation, 0.4d);
+        Command(panel, "nav load Circle");
+
+        Assert.Equal(2, panel.RouteWaypointIndexForTest);
+    }
+
     private static void TwoPointRoute(MossTankPanel panel, FakeAutomation automation)
     {
         panel.AddRoutePoint();

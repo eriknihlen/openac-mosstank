@@ -687,10 +687,8 @@ internal sealed class NavigationController
     /// session. Stopping the macro is NOT one of those; it uses
     /// <see cref="StopForMacroStop"/>, which keeps the round's position, and
     /// the next start re-anchors it.
-    ///
-    /// The reference re-anchors on a route change too rather than going to
-    /// the head; that difference is a deliberate deviation and is recorded
-    /// with the project's other known deviations.
+    /// A route loaded while the macro runs is re-anchored straight after,
+    /// as the reference does (see the panel's route restart).
     /// </summary>
     public void Reset()
     {

@@ -2862,7 +2862,7 @@ internal sealed partial class MossTankPanel : IBuffRuleHost, IDisposable
         _embeddedRouteLabel = null;
         if (_initialized)
             ApplyPersistedOptionOverrides();
-        _navigation.Reset();
+        RestartRouteRound();
         RefreshRouteEditor();
         return true;
     }
@@ -3782,7 +3782,7 @@ internal sealed partial class MossTankPanel : IBuffRuleHost, IDisposable
 
     private void LoadEmbeddedNavigationRoute(NavigationSettings? route, string name)
     {
-        _navigation.Reset();
+        RestartRouteRound();
         if (route is null)
         {
             _routeNotice = "Embedded route rejected: unresolved Nav tag.";
@@ -3795,6 +3795,21 @@ internal sealed partial class MossTankPanel : IBuffRuleHost, IDisposable
         RefreshRouteEditor();
         _routeNotice =
             $"Loaded {_embeddedRouteLabel} ({_navigationSettings.Waypoints.Count} points).";
+    }
+
+    /// <summary>
+    /// A route loaded while the macro runs -- a meta swapping routes, say --
+    /// starts the way a macro start does: a circular or back-and-forth route
+    /// at the point nearest the character, a once-through route at its head.
+    /// Starting a newly loaded circuit at its first point sent the character
+    /// across the map to it, or left it standing when that point was out of
+    /// reach.
+    /// </summary>
+    private void RestartRouteRound()
+    {
+        _navigation.Reset();
+        if (_combat.Enabled)
+            _navigation.AnchorRoundToStart();
     }
 
     /// <summary>What the route selector shows for a route a meta carries.</summary>
