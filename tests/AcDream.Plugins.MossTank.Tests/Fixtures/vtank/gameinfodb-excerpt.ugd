@@ -169,7 +169,7 @@ n
 n
 n
 y
-3
+8
 s
 Wrapped Bundle of Barbed Arrowheads
 s
@@ -224,6 +224,96 @@ i
 220
 i
 3
+s
+Treated Mandrake
+s
+Treated Hyssop
+s
+Combined Hyssop and Mandrake
+i
+1
+s
+You make it.
+s
+You fail.
+i
+21
+i
+0
+i
+9001
+s
+Soft Bandages
+s
+Combined Hyssop and Mandrake
+s
+Plentiful Healing Kit
+i
+1
+s
+You make it.
+s
+You fail.
+i
+21
+i
+0
+i
+9002
+s
+Splitting Tool
+s
+Brimstone Pea
+s
+Brimstone
+i
+50
+s
+You make it.
+s
+You fail.
+i
+33
+i
+0
+i
+9003
+s
+Chorizite Oil
+s
+Chorizite Oil
+s
+Strong Chorizite Oil
+i
+0
+s
+You make it.
+s
+You fail.
+i
+0
+i
+0
+i
+9004
+s
+Wrapped Bundle of Deadly Fire Arrowheads
+s
+Wrapped Bundle of Arrowshafts
+s
+Deadly Fire Arrow
+i
+250
+s
+You make it.
+s
+You fail.
+i
+37
+i
+200
+i
+9005
 DBLastUpdateTime
 2
 Zero

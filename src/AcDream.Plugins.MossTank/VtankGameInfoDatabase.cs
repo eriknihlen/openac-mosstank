@@ -123,6 +123,9 @@ internal sealed class VtankGameInfoDatabase
 
     public IReadOnlyList<VtankMartyrSpellOption> MartyrSpellOptions { get; private init; }
 
+    /// <summary>The <c>CraftInteractions</c> table: every recipe the crafter knows.</summary>
+    public VtankCraftDatabase Crafts { get; private init; } = VtankCraftDatabase.Empty;
+
     public static VtankGameInfoDatabase Load(IPluginStorage storage)
     {
         ArgumentNullException.ThrowIfNull(storage);
@@ -196,6 +199,7 @@ internal sealed class VtankGameInfoDatabase
             GrenadeOptions = ReadGrenadeOptions(database),
             DrainSpellOptions = ReadDrainSpellOptions(database),
             MartyrSpellOptions = ReadMartyrSpellOptions(database),
+            Crafts = ReadCraftInteractions(database),
         };
     }
 
@@ -345,6 +349,29 @@ internal sealed class VtankGameInfoDatabase
                 row.Cells[3].AsDouble()));
         }
         return result;
+    }
+
+    /// <summary>
+    /// The columns the reference client reads by position: the two items,
+    /// the result, how many it makes, the skill it needs (column 6), the
+    /// difficulty and the row's id. The two message columns are the game's
+    /// own and are not needed.
+    /// </summary>
+    private static VtankCraftDatabase ReadCraftInteractions(VtankDatabase database)
+    {
+        var result = new List<VtankCraftRecipe>();
+        foreach (VtankRow row in Rows(database, "CraftInteractions", 9))
+        {
+            result.Add(new VtankCraftRecipe(
+                row.Cells[0].AsString(),
+                row.Cells[1].AsString(),
+                row.Cells[2].AsString(),
+                row.Cells[3].AsInt(),
+                unchecked((uint)row.Cells[6].AsInt()),
+                row.Cells[7].AsInt(),
+                row.Cells[8].AsInt()));
+        }
+        return result.Count == 0 ? VtankCraftDatabase.Empty : new VtankCraftDatabase(result);
     }
 
     private static IEnumerable<VtankRow> Rows(

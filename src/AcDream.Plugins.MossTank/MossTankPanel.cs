@@ -415,7 +415,9 @@ internal sealed partial class MossTankPanel : IBuffRuleHost, IDisposable
         _crafting = new CraftingController(
             host,
             _inventorySettings,
-            _combatSettings);
+            _combatSettings,
+            _gameInfo);
+        _crafting.Warning = text => WriteVtank("[MossTank] " + text);
         _crafting.BindPeaceGate(ReadyToActInPeace);
         _combat.BindAmmunitionCraftRequest(
             _crafting.ResolveRequestPlan,

@@ -10,6 +10,7 @@ internal sealed partial class MossTankPanel
         _gameInfo,
         _combat.GameInfo,
         _combatSettings.MonsterFacts.Database,
+        _crafting.GameInfo,
     ];
 
     internal IReadOnlyDictionary<string, VtankHealKit> HealKitsForTest =>
@@ -38,8 +39,9 @@ internal sealed partial class MossTankPanel
     }
 
     /// <summary>
-    /// The one place a newer game database is handed over. Every reader is
-    /// given the new one here; none of them keeps a table of its own.
+    /// The one place a newer game database is handed over. Every reader --
+    /// combat, crafting, the monster facts, the heal kit table -- is given
+    /// the new one here; none of them keeps a table of its own.
     /// </summary>
     private void ApplyGameInfo(VtankGameInfoDatabase gameInfo)
     {
@@ -47,6 +49,7 @@ internal sealed partial class MossTankPanel
         _combatSettings.MonsterFacts.Replace(gameInfo);
         _combatSettings.HealKits = HealKitTable(gameInfo);
         _combat.ReplaceGameInfo(gameInfo);
+        _crafting.ReplaceGameInfo(gameInfo);
     }
 
     private static Dictionary<string, VtankHealKit> HealKitTable(VtankGameInfoDatabase gameInfo)
@@ -106,6 +109,7 @@ internal sealed partial class MossTankPanel
             + ", heal kits " + Count(_gameInfo.HealKits.Count)
             + ", drain spells " + Count(_gameInfo.DrainSpellOptions.Count)
             + ", martyr spells " + Count(_gameInfo.MartyrSpellOptions.Count)
+            + ", craft recipes " + Count(_gameInfo.Crafts.Recipes.Count)
             + "." + running;
 
         static string Count(int value) => value.ToString(CultureInfo.InvariantCulture);

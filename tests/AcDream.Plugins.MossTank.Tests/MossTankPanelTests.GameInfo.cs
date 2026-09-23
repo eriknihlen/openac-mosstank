@@ -7,8 +7,8 @@ public sealed partial class MossTankPanelTests
     /// <summary>
     /// The session checks the game database by itself, once, as soon as it
     /// is in the world, and every reader of the database takes the new one
-    /// on the tick the answer arrives -- combat, the monster facts and the
-    /// heal kit table. Mutations: leave any one reader out of the hand-over
+    /// on the tick the answer arrives -- combat, crafting, the monster facts
+    /// and the heal kit table. Mutations: leave any one reader out of the hand-over
     /// (its database stays the old one); drop the once-a-session latch (the
     /// service is asked again on the next tick).
     /// </summary>
@@ -119,7 +119,7 @@ public sealed partial class MossTankPanelTests
             "Game database: no gameinfodb.ugd in the VTank profile folder; /vt gamedb update "
             + "downloads it. Loaded: version 9, last updated never. Ammunition 0, "
             + "monster damage 0, species damage 0, species members 0, immunities 0, "
-            + "heal kits 0, drain spells 0, martyr spells 0.",
+            + "heal kits 0, drain spells 0, martyr spells 0, craft recipes 0.",
             automation.Messages);
 
         Command(panel, "gamedb update");
