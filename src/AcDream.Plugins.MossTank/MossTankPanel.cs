@@ -417,6 +417,7 @@ internal sealed partial class MossTankPanel : IBuffRuleHost, IDisposable
             _combatSettings.ConsumableNames,
             _combatSettings.ConsumableCategories);
         _loot.BindActionLocks(_actionLocks);
+        _loot.Warning = text => WriteVtank("[MossTank] " + text);
         _corpseApproach = new CorpseApproachController(
             host,
             _inventorySettings.Loot,

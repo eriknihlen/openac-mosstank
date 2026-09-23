@@ -602,6 +602,14 @@ internal sealed partial class LootController
 
     private readonly IPluginHost _host;
     private readonly LootSettings _settings;
+
+    /// <summary>
+    /// A warning the player should see in chat, such as salvage waiting for a
+    /// tool. The loot work goes on regardless; this only tells.
+    /// </summary>
+    public Action<string>? Warning { get; set; }
+
+    private bool _warnedNoSalvageTool;
     private readonly ISet<string> _configuredConsumableNames;
     private readonly IDictionary<string, ConsumableCategory>
         _configuredConsumableKinds;
@@ -1858,9 +1866,19 @@ internal sealed partial class LootController
             item => (item.ItemType & tinkeringTool) != 0u);
         if (tool.ObjectId == 0u)
         {
+            // The rest of the loot work carries on; the items stay marked for
+            // salvage and go the moment a tool is in the pack. Said once, and
+            // again only after a tool has come and gone.
             Status = "Salvage action is waiting for a salvage tool.";
+            if (!_warnedNoSalvageTool)
+            {
+                _warnedNoSalvageTool = true;
+                Warning?.Invoke(
+                    "No Ust in your inventory: items marked for salvage are kept until you carry one.");
+            }
             return false;
         }
+        _warnedNoSalvageTool = false;
 
         PluginInventoryItem source = ownedById[sourceId];
         PluginItemCommandResult result = items.Salvage(tool.ObjectId, [sourceId]);
@@ -2334,6 +2352,10 @@ internal sealed partial class LootController
             RuleName: ruleName,
             ClassifierId: _settings.ExternalClassifierId);
     }
+
+    /// <summary>Marks an item already in the pack, as a looted one is marked.</summary>
+    internal void MarkOwnedForTest(uint objectId, LootAction action) =>
+        _classifiedOwnedItems[objectId] = action;
 
     private void RemoveClassifiedOwned(uint objectId)
     {
