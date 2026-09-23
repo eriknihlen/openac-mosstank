@@ -82,8 +82,9 @@ How that interoperability was achieved, stated plainly:
   warning and help text is written in MossTank's own words.
 - Chat patterns MossTank reads are the game's own messages, not VTank's.
 - The game-information database (`gameinfodb.ugd`) is not included. MossTank
-  downloads it from Virindi's service on the player's own machine, as VTank
-  does, and stores it only in that player's VTank profile folder.
+  downloads it at run time, on the player's own machine, into that player's
+  VTank profile folder, from openac-gamedata (see below), not from any VTank
+  service.
 - The documents a new settings profile and an empty game database start from
   are built by MossTank in code, in VTank's file formats, from MossTank's own
   option defaults and table definitions; no VTank file is shipped for them.
@@ -91,6 +92,16 @@ How that interoperability was achieved, stated plainly:
 
 VTank is not open source. Its license terms are Virindi's; this notice
 claims no license to VTank and grants none.
+
+## openac-gamedata
+
+The game database MossTank downloads comes from **openac-gamedata**
+(https://github.com/eriknihlen/openac-gamedata), an independent project
+licensed under the GNU Affero General Public License v3.0. It generates a
+complete `gameinfodb.ugd` from the world data of the ACE (Asheron's Call
+Emulator) server and publishes it as a release file. MossTank bundles none of
+it: the file is fetched at run time into the player's own profile folder, and
+its license terms are that project's.
 
 ## metaf
 

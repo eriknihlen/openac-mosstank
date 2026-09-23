@@ -56,17 +56,20 @@ is its own installed folder, to load its panel markup. The originals of any
 profiles you copy in, wherever they live, are not read, not moved and not
 rewritten. The panel tells you where the folders are.
 
-The game information VTank kept in `gameinfodb.ugd` (ammunition, grenades,
-monster damage and species, drain and martyr spells, craft recipes) is not
-shipped with MossTank. At login, as VTank did, MossTank asks Virindi's
-game-information service for what changed and keeps the answer in
-`gameinfodb.ugd` in the VTank profile folder, saying the outcome in one chat
-line. A database checked within the last 6 hours is not asked about again, so
-many sessions logging in do not all ask; `/vt gamedb interval [hours]` changes
-that (0 asks at every login). A failed check keeps the file you had. Until the
-first download there are no ammunition choices, grenades or craft recipes.
-`/vt gamedb` shows what is loaded and when the next check is due;
-`/vt gamedb update` checks now.
+The game information a VTank profile folder keeps in `gameinfodb.ugd`
+(ammunition, grenades, monster damage and species, drain and martyr spells,
+craft recipes) is not shipped with MossTank. It comes from
+[openac-gamedata](https://github.com/eriknihlen/openac-gamedata), an
+independent project (AGPL-3.0) that generates a complete `gameinfodb.ugd` from
+the ACE server's world data and publishes it as a release file. At login
+MossTank downloads the newest release into `gameinfodb.ugd` in the VTank
+profile folder when it was built from newer world data than the file you have,
+and says the outcome in one chat line. A check made within the last 6 hours is
+not repeated, so many sessions logging in do not all download;
+`/vt gamedb interval [hours]` changes that (0 checks at every login). A failed
+check keeps the file you had. Until the first download there are no
+ammunition choices, grenades or craft recipes. `/vt gamedb` shows what is
+loaded and when the next check is due; `/vt gamedb update` checks now.
 
 ## Building from source
 
