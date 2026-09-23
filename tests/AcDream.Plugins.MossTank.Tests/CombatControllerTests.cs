@@ -5196,6 +5196,36 @@ public sealed class CombatControllerTests
     }
 
     /// <summary>
+    /// A launcher with no ammunition it can load says so, once, instead of
+    /// leaving the fight to re-enter its mode against a server that drops an
+    /// empty quiver out of combat. Mutation: return quietly on an unavailable
+    /// selection and nothing is said.
+    /// </summary>
+    [Fact]
+    public void AnUnavailableAmmunitionSelectionIsSaidOnce()
+    {
+        var surface = new FakeAutomation
+        {
+            CombatSnapshot = Physical() with { Mode = PluginCombatMode.Peace },
+            CharacterSkills = [new PluginSkillInfo(47u, "Missile Weapons",
+                PluginSkillTraining.Trained, 300u) { Base = 300u }],
+            EquipmentItems =
+            [
+                Equipment(700, "Fire Bow", 0x10, itemType: 0x100u,
+                    equippedLocation: 0x00100000u, ammoType: 1u),
+            ],
+        };
+        CombatModeGate gate = BoundAmmunitionGate(surface, VtankGameInfoDatabase.LoadDefault());
+
+        Assert.False(gate.AmmunitionStale!(700u, MonsterDamageType.Fire));
+        Assert.False(gate.AmmunitionStale!(700u, MonsterDamageType.Fire));
+
+        Assert.Single(
+            surface.PostedSystemMessages,
+            message => message.Contains("ammunition", StringComparison.OrdinalIgnoreCase));
+    }
+
+    /// <summary>
     /// Mutation: treat an unavailable selection as stale;
     /// the gate enters an action branch despite having no pending action.
     /// </summary>

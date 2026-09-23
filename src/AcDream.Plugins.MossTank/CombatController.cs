@@ -465,6 +465,15 @@ internal sealed class CombatController
                 return false;
             AmmunitionPlan plan = ResolveAmmunitionPlan(
                 PassEquipment(), weapon, element);
+            if (plan.Kind == AmmunitionPlanKind.Unavailable)
+            {
+                // Said, not swallowed: the server answers a launcher with an
+                // empty quiver by dropping the character out of combat, and
+                // without a word here the fight just re-enters its mode.
+                Status = plan.Notice;
+                PostAttackWarning("Warning: " + plan.Notice + ".");
+                return false;
+            }
             if (plan.Kind is not (AmmunitionPlanKind.Wield
                 or AmmunitionPlanKind.Craft))
                 return false;
