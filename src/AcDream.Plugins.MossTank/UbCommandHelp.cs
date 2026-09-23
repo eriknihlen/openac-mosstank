@@ -73,8 +73,9 @@ internal static class UbCommandHelp
             "/vt follow[p] <name>",
             "Sets a navigation route to follow a player."),
         new("gamedb",
-            "/vt gamedb [update]",
-            "Shows the game information database in use, or checks its service for an update now (MossTank also checks once each session)."),
+            "/vt gamedb [update | interval [hours]]",
+            "Shows the game information database in use, checks its service for an update now, "
+            + "or shows or sets how many hours a check stays fresh (MossTank checks at login when it is older; 0 checks at every login)."),
         new("getdb",
             "/vt getdb",
             "Checks the game information database's service for an update now."),

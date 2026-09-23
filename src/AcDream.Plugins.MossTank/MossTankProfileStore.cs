@@ -54,6 +54,23 @@ internal sealed class MossTankProfileStore
             MetaEngine.MaximumIntervalMilliseconds);
         SavePreferences();
     }
+
+    /// <summary>The longest automatic game-database checks may be apart, in hours.</summary>
+    public const int MaximumGameDbCheckIntervalHours = 168;
+
+    /// <summary>
+    /// How long a game database stays fresh enough that a login does not ask
+    /// its service again; MossTank's own, not a VTank option. Zero asks at
+    /// every login, as VTank did.
+    /// </summary>
+    public int GameDbCheckIntervalHours => Math.Clamp(
+        _preferences.GameDbCheckIntervalHours, 0, MaximumGameDbCheckIntervalHours);
+
+    public void SetGameDbCheckIntervalHours(int hours)
+    {
+        _preferences.GameDbCheckIntervalHours = Math.Clamp(hours, 0, MaximumGameDbCheckIntervalHours);
+        SavePreferences();
+    }
     public string? RecoveryNotice { get; private set; }
     public string? LoadFailureNotice { get; private set; }
     public bool HasActiveProfile => _hasActiveProfile;
@@ -832,6 +849,7 @@ internal sealed class MossTankProfileStore
         public bool MineOnly { get; set; } = true;
         public int MetaIntervalMilliseconds { get; set; } =
             (int)Math.Round(MetaEngine.DecisionIntervalSeconds * 1000d);
+        public int GameDbCheckIntervalHours { get; set; } = 6;
     }
 
 

@@ -102,12 +102,12 @@ public sealed partial class MossTankPanelTests
     /// <c>/vt gamedb update</c> checks now, <c>/vt getdb</c> is the
     /// reference's word for the same, and <c>/vt gamedb</c> says what is
     /// loaded. Mutation: leave getdb on its old "nothing to download" line,
-    /// and the service is asked only once.
+    /// and the service is asked only twice.
     /// </summary>
     [Fact]
     public async Task GameDbCommandsCheckNowAndReportWhatIsLoaded()
     {
-        var automation = new FakeAutomation { IsAvailable = false };
+        var automation = new FakeAutomation();
         var profiles = new MemoryStorage();
         var transport = new VtankGameInfoUpdaterTests.FakeTransport(UpdateWithAHealKit());
         var panel = new MossTankPanel(
@@ -117,15 +117,21 @@ public sealed partial class MossTankPanelTests
         Command(panel, "gamedb");
         Assert.Contains(
             "Game database: no gameinfodb.ugd in the VTank profile folder; /vt gamedb update "
-            + "downloads it. Loaded: version 9, last updated never. Ammunition 0, "
+            + "downloads it. Loaded: version 9, last checked never. Ammunition 0, "
             + "monster damage 0, species damage 0, species members 0, immunities 0, "
             + "heal kits 0, grenades 0, drain spells 0, martyr spells 0, craft recipes 0.",
             automation.Messages);
+        Assert.Contains(
+            "Game database: checked every 6 hours; the next login checks.",
+            automation.Messages);
 
+        // The login's own check, then the two asked for.
+        panel.OnTick(0.1d);
+        await panel.GameInfoUpdatePendingForTest!.WaitAsync(TimeSpan.FromSeconds(5));
+        panel.OnTick(0.1d);
         Command(panel, "gamedb update");
         await panel.GameInfoUpdatePendingForTest!.WaitAsync(TimeSpan.FromSeconds(5));
         Assert.Contains("Checking the game database for updates.", automation.Messages);
-        automation.IsAvailable = true;
         panel.OnTick(0.1d);
         Command(panel, "getdb");
         await panel.GameInfoUpdatePendingForTest!.WaitAsync(TimeSpan.FromSeconds(5));
@@ -133,14 +139,17 @@ public sealed partial class MossTankPanelTests
         automation.Messages.Clear();
         Command(panel, "gamedb");
 
-        Assert.Equal(2, transport.Requests.Count);
-        string status = Assert.Single(automation.Messages);
+        Assert.Equal(3, transport.Requests.Count);
+        Assert.Equal(2, automation.Messages.Count);
         Assert.StartsWith(
             "Game database: gameinfodb.ugd in the VTank profile folder. Loaded: version 9, "
-            + "last updated 2022-11-06 07:52 UTC.",
-            status,
+            + "last checked 2022-11-06 07:52 UTC.",
+            automation.Messages[0],
             StringComparison.Ordinal);
-        Assert.Contains("heal kits 1,", status, StringComparison.Ordinal);
+        Assert.Contains("heal kits 1,", automation.Messages[0], StringComparison.Ordinal);
+        Assert.Equal(
+            "Game database: checked every 6 hours; the next check is after 2022-11-06 13:52 UTC.",
+            automation.Messages[1]);
     }
 
     /// <summary>
@@ -208,6 +217,58 @@ public sealed partial class MossTankPanelTests
 
         public Task<VtankGameInfoAnswer> GetAsync(Uri address, CancellationToken cancellation) =>
             answers[Interlocked.Increment(ref _requests) - 1];
+    }
+
+    /// <summary>
+    /// A login skips the check while the database is younger than the
+    /// preference's interval, and says so in one line; <c>/vt gamedb interval
+    /// 0</c> makes every login ask again, and the preference is kept.
+    /// Mutations: start the login's check with no window (the recent
+    /// database is asked about); ignore the stored interval (the second
+    /// session still skips).
+    /// </summary>
+    [Fact]
+    public async Task ALoginSkipsTheCheckWhileTheDatabaseIsRecent()
+    {
+        var automation = new FakeAutomation();
+        var storage = new MemoryStorage();
+        var profiles = new MemoryStorage();
+        VtankDatabase recent = VtankDatabase.Parse(VtankGameInfoUpdaterTests.ExcerptText);
+        recent.Find("DBLastUpdateTime")!.Rows[0].Cells[1] = VtankCell.Int(
+            (int)DateTimeOffset.UtcNow.AddHours(-1).ToUnixTimeSeconds());
+        profiles.Text[VtankGameInfoDatabase.FileName] = recent.Render();
+        var transport = new VtankGameInfoUpdaterTests.FakeTransport(
+            VtankGameInfoUpdaterTests.Answer((int)DateTimeOffset.UtcNow.ToUnixTimeSeconds()));
+        var panel = new MossTankPanel(
+            new FakeHost(automation, storage, vtankProfiles: profiles),
+            transport);
+
+        panel.OnTick(0.1d);
+        await panel.GameInfoUpdatePendingForTest!.WaitAsync(TimeSpan.FromSeconds(5));
+        panel.OnTick(0.1d);
+
+        Assert.Empty(transport.Requests);
+        Assert.Single(
+            automation.Messages,
+            static line => line.StartsWith(
+                "Game database checked recently; the next check is after ",
+                StringComparison.Ordinal));
+
+        Command(panel, "gamedb interval 0");
+        Assert.Contains(
+            "Game database: checked at every login (/vt gamedb interval sets how often).",
+            automation.Messages);
+        Assert.Contains(
+            "\"GameDbCheckIntervalHours\": 0",
+            storage.Text["profiles/macro/preferences.json"],
+            StringComparison.Ordinal);
+        automation.IsAvailable = false;
+        panel.OnTick(0.1d);
+        automation.IsAvailable = true;
+        panel.OnTick(0.1d);
+        await panel.GameInfoUpdatePendingForTest!.WaitAsync(TimeSpan.FromSeconds(5));
+
+        Assert.Single(transport.Requests);
     }
 
     private static VtankGameInfoAnswer UpdateWithAHealKit() =>

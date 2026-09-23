@@ -22,7 +22,8 @@ internal sealed partial class MossTankPanel
     /// <summary>
     /// Once a session, as soon as it is in the world, the game database asks
     /// its service for what changed -- the reference client's own check at
-    /// login. The request runs off the game thread; what it says and the
+    /// login -- unless the database was checked within the interval the
+    /// preferences set, so many sessions logging in do not all ask. The request runs off the game thread; what it says and the
     /// database it brings back arrive here, on the tick.
     /// </summary>
     private void TickGameInfoUpdate()
@@ -37,7 +38,7 @@ internal sealed partial class MossTankPanel
             && _gameInfoUpdater.CanUpdate
             && !_gameInfoUpdater.IsRunning)
         {
-            _gameInfoCheckedThisSession = _gameInfoUpdater.Start() is null;
+            _gameInfoCheckedThisSession = _gameInfoUpdater.Start(GameInfoCheckInterval) is null;
         }
     }
 
@@ -63,21 +64,68 @@ internal sealed partial class MossTankPanel
         return healKits;
     }
 
-    /// <summary><c>/vt gamedb [update]</c>, and the reference's own <c>/vt getdb</c>.</summary>
+    internal const string GameDbSyntax = "Syntax: /vt gamedb [update | interval [hours]]";
+
+    /// <summary>
+    /// <c>/vt gamedb [update | interval [hours]]</c>, and the reference's own
+    /// <c>/vt getdb</c>.
+    /// </summary>
     private void HandleGameDbCommand(string arguments)
     {
-        string value = arguments.Trim();
-        if (value.Length == 0)
+        (string verb, string rest) = SplitHead(arguments.Trim());
+        switch (verb.ToLowerInvariant())
         {
-            WriteVtank(DescribeGameInfo());
-            return;
+            case "":
+                WriteVtank(DescribeGameInfo());
+                WriteVtank(DescribeNextGameInfoCheck());
+                return;
+            case "update":
+                StartGameInfoUpdate();
+                return;
+            case "interval":
+                HandleGameDbIntervalCommand(rest.Trim());
+                return;
+            default:
+                WriteVtank(GameDbSyntax);
+                return;
         }
-        if (!value.Equals("update", StringComparison.OrdinalIgnoreCase))
+    }
+
+    private void HandleGameDbIntervalCommand(string value)
+    {
+        if (value.Length != 0)
         {
-            WriteVtank("Syntax: /vt gamedb [update]");
-            return;
+            if (!int.TryParse(value, NumberStyles.Integer, CultureInfo.InvariantCulture, out int hours)
+                || hours < 0)
+            {
+                WriteVtank(
+                    "Syntax: /vt gamedb interval [0-"
+                    + MossTankProfileStore.MaximumGameDbCheckIntervalHours.ToString(CultureInfo.InvariantCulture)
+                    + " hours]");
+                return;
+            }
+            _profiles.SetGameDbCheckIntervalHours(hours);
         }
-        StartGameInfoUpdate();
+        WriteVtank(DescribeNextGameInfoCheck());
+    }
+
+    private TimeSpan GameInfoCheckInterval =>
+        TimeSpan.FromHours(_profiles.GameDbCheckIntervalHours);
+
+    /// <summary>When the next login will ask the service, and how that is decided.</summary>
+    private string DescribeNextGameInfoCheck()
+    {
+        int hours = _profiles.GameDbCheckIntervalHours;
+        if (hours == 0)
+            return "Game database: checked at every login (/vt gamedb interval sets how often).";
+        string every = "every " + hours.ToString(CultureInfo.InvariantCulture)
+            + (hours == 1 ? " hour" : " hours");
+        if (_gameInfo.LastUpdateTime is not { } seconds || seconds <= 0)
+            return "Game database: checked " + every + "; the next login checks.";
+        return "Game database: checked " + every + "; the next check is after "
+            + VtankGameInfoUpdater.FormatUtc(
+                VtankGameInfoUpdater.FromUnixSeconds(seconds) + GameInfoCheckInterval)
+            + ".";
     }
 
     private void StartGameInfoUpdate()
@@ -98,12 +146,11 @@ internal sealed partial class MossTankPanel
             ? number.ToString(CultureInfo.InvariantCulture)
             : "none";
         string updated = _gameInfo.LastUpdateTime is { } seconds && seconds > 0
-            ? VtankGameInfoUpdater.FromUnixSeconds(seconds)
-                .ToString("yyyy-MM-dd HH:mm 'UTC'", CultureInfo.InvariantCulture)
+            ? VtankGameInfoUpdater.FormatUtc(VtankGameInfoUpdater.FromUnixSeconds(seconds))
             : "never";
         string running = _gameInfoUpdater.IsRunning ? " An update is running." : string.Empty;
         return "Game database: " + source + ". Loaded: version " + version
-            + ", last updated " + updated
+            + ", last checked " + updated
             + ". Ammunition " + Count(_gameInfo.AmmunitionOptions.Count)
             + ", monster damage " + Count(_gameInfo.MonsterDamageOverrides.Count)
             + ", species damage " + Count(_gameInfo.SpeciesDamages.Count)

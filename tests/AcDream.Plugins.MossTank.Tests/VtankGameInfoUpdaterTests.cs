@@ -135,11 +135,13 @@ public sealed class VtankGameInfoUpdaterTests
 
     /// <summary>
     /// An answer holding nothing but its time row means the database is
-    /// current: nothing is saved and nothing handed over. Mutation: count
-    /// every row as a change, and the file is rewritten.
+    /// current. Only the time row is kept, so the file says when it was last
+    /// known current; every table keeps what it had. Mutations: count every
+    /// row as a change (the line says "updated"); keep nothing for a current
+    /// answer (the file keeps its old time and the next login asks again).
     /// </summary>
     [Fact]
-    public async Task AnAnswerWithOnlyItsTimeRowMeansCurrent()
+    public async Task AnAnswerWithOnlyItsTimeRowMeansCurrentAndKeepsItsTime()
     {
         var profiles = new MemoryStorage();
         profiles.Text[VtankGameInfoDatabase.FileName] = ExcerptText;
@@ -149,8 +151,48 @@ public sealed class VtankGameInfoUpdaterTests
             await RunAsync(new VtankGameInfoUpdater(profiles, transport));
 
         Assert.Equal("Game database is up to date.", said[^1]);
-        Assert.Empty(applied);
+        VtankGameInfoDatabase saved = VtankGameInfoDatabase.Parse(
+            profiles.Text[VtankGameInfoDatabase.FileName]);
+        Assert.Equal(ExcerptTime + 60, saved.LastUpdateTime);
+        Assert.Equal(ExcerptTime + 60, Assert.Single(applied).LastUpdateTime);
+        VtankGameInfoDatabase before = VtankGameInfoDatabase.Parse(ExcerptText);
+        Assert.Equal(before.AmmunitionOptions, saved.AmmunitionOptions);
+        Assert.Equal(before.HealKits, saved.HealKits);
+    }
+
+    /// <summary>
+    /// A database whose own time is inside the window is not asked about:
+    /// the check hands over what the file holds and says when the next one
+    /// is due. Past the window, or with no window (a forced check), it asks.
+    /// Mutation: ignore the window, and the recent database is asked about.
+    /// </summary>
+    [Fact]
+    public async Task ARecentlyCheckedDatabaseIsNotAskedAboutAgain()
+    {
+        var profiles = new MemoryStorage();
+        profiles.Text[VtankGameInfoDatabase.FileName] = ExcerptText;
+        var transport = new FakeTransport(Answer(ExcerptTime + 60));
+        DateTimeOffset checkedAt = VtankGameInfoUpdater.FromUnixSeconds(ExcerptTime);
+        TimeSpan window = TimeSpan.FromHours(6);
+
+        (List<string> said, List<VtankGameInfoDatabase> applied) = await RunAsync(
+            new VtankGameInfoUpdater(profiles, transport, () => checkedAt + TimeSpan.FromHours(1)),
+            window);
+
+        Assert.Empty(transport.Requests);
+        Assert.Equal(
+            "Game database checked recently; the next check is after 2023-11-15 04:13 UTC.",
+            said[^1]);
+        Assert.Equal(7, Assert.Single(applied).AmmunitionOptions.Count);
         Assert.Equal(0, profiles.Writes);
+
+        await RunAsync(
+            new VtankGameInfoUpdater(profiles, transport, () => checkedAt + TimeSpan.FromHours(7)),
+            window);
+        await RunAsync(
+            new VtankGameInfoUpdater(profiles, transport, () => checkedAt + TimeSpan.FromMinutes(1)),
+            TimeSpan.Zero);
+        Assert.Equal(2, transport.Requests.Count);
     }
 
     /// <summary>
@@ -478,11 +520,12 @@ public sealed class VtankGameInfoUpdaterTests
     }
 
     private static async Task<(List<string> Said, List<VtankGameInfoDatabase> Applied)> RunAsync(
-        VtankGameInfoUpdater updater)
+        VtankGameInfoUpdater updater,
+        TimeSpan skipIfCheckedWithin = default)
     {
         using (updater)
         {
-            Assert.Null(updater.Start());
+            Assert.Null(updater.Start(skipIfCheckedWithin));
             await updater.PendingForTest!.WaitAsync(TimeSpan.FromSeconds(5));
             var said = new List<string>();
             var applied = new List<VtankGameInfoDatabase>();

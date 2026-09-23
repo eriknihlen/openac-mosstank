@@ -94,7 +94,10 @@ internal sealed record VtankGameInfoUpdateResult(
 /// database's own version; an answer with any record beyond its update-time
 /// row is merged into the database table by table, keyed on each table's
 /// index column, and the result is saved beside the profiles. An answer with
-/// nothing else in it means the database is current, and nothing is saved.
+/// nothing else in it means the database is current; only its time row is
+/// kept, so the file says when it was last known current (the reference
+/// client saves nothing then, but it also checks at every login, which this
+/// need not: a database checked within the window is not asked about again).
 /// </summary>
 /// <remarks>
 /// The request, the merge and the save run off the game thread; the outcome
@@ -113,6 +116,7 @@ internal sealed class VtankGameInfoUpdater : IDisposable
 
     private readonly IPluginStorage _profiles;
     private readonly IVtankGameInfoTransport? _transport;
+    private readonly Func<DateTimeOffset> _clock;
     private readonly CancellationTokenSource _cancellation = new();
 
     /// <summary>Held for the write, and by <see cref="Dispose"/> to wait one out.</summary>
@@ -120,10 +124,14 @@ internal sealed class VtankGameInfoUpdater : IDisposable
     private Task<VtankGameInfoUpdateResult>? _pending;
     private bool _disposed;
 
-    public VtankGameInfoUpdater(IPluginStorage profiles, IVtankGameInfoTransport? transport)
+    public VtankGameInfoUpdater(
+        IPluginStorage profiles,
+        IVtankGameInfoTransport? transport,
+        Func<DateTimeOffset>? clock = null)
     {
         _profiles = profiles ?? throw new ArgumentNullException(nameof(profiles));
         _transport = transport;
+        _clock = clock ?? (static () => DateTimeOffset.UtcNow);
     }
 
     /// <summary>Can this session download at all: a service to ask and a folder to keep the answer in?</summary>
@@ -138,7 +146,12 @@ internal sealed class VtankGameInfoUpdater : IDisposable
     /// Starts a check unless one is already running or there is nothing to
     /// check with. The reason it did not start, or null when it did.
     /// </summary>
-    public string? Start()
+    /// <param name="skipIfCheckedWithin">
+    /// A database whose own time is younger than this is not asked about;
+    /// the check hands over what the file holds instead. Zero forces the
+    /// question.
+    /// </param>
+    public string? Start(TimeSpan skipIfCheckedWithin = default)
     {
         ObjectDisposedException.ThrowIf(_disposed, this);
         if (_transport is null)
@@ -149,7 +162,9 @@ internal sealed class VtankGameInfoUpdater : IDisposable
             return "A game database update is already running.";
         IVtankGameInfoTransport transport = _transport;
         CancellationToken cancellation = _cancellation.Token;
-        _pending = Task.Run(() => RunAsync(transport, cancellation), cancellation);
+        _pending = Task.Run(
+            () => RunAsync(transport, skipIfCheckedWithin, cancellation),
+            cancellation);
         return null;
     }
 
@@ -180,6 +195,7 @@ internal sealed class VtankGameInfoUpdater : IDisposable
 
     private async Task<VtankGameInfoUpdateResult> RunAsync(
         IVtankGameInfoTransport transport,
+        TimeSpan skipIfCheckedWithin,
         CancellationToken cancellation)
     {
         VtankDatabase local = VtankGameInfoFile.LoadBase(_profiles);
@@ -193,6 +209,19 @@ internal sealed class VtankGameInfoUpdater : IDisposable
             return Failed("the database has no readable update time");
         }
         int version = VtankGameInfoFile.Version(local);
+        if (date > 0 && skipIfCheckedWithin > TimeSpan.Zero)
+        {
+            DateTimeOffset nextCheck = FromUnixSeconds(date) + skipIfCheckedWithin;
+            if (_clock() < nextCheck)
+            {
+                // Another session may have checked since this one loaded the
+                // file, so what the file holds now is handed over.
+                return new VtankGameInfoUpdateResult(
+                    "Game database checked recently; the next check is after "
+                    + FormatUtc(nextCheck) + ".",
+                    VtankGameInfoDatabase.From(local));
+            }
+        }
 
         var address = new Uri(
             ServiceAddress
@@ -217,9 +246,11 @@ internal sealed class VtankGameInfoUpdater : IDisposable
         if (!VtankGameInfoFile.EveryValueReads(update))
             return Failed("the answer is not a game database (a value in it does not read)");
 
+        // Nothing past the time row means current. The time row itself is
+        // still merged and kept, so the file says when it was last known to
+        // be current and the next session can tell it was checked recently.
         int changed = update.Tables.Sum(static entry => entry.Table.Rows.Count) - 1;
-        if (changed <= 0)
-            return new VtankGameInfoUpdateResult("Game database is up to date.", null);
+        bool current = changed <= 0;
 
         VtankGameInfoDatabase merged;
         string text;
@@ -249,16 +280,26 @@ internal sealed class VtankGameInfoUpdater : IDisposable
             catch (Exception error) when (
                 error is IOException or UnauthorizedAccessException or NotSupportedException)
             {
+                string reason = error.Message.TrimEnd('.');
+                if (current)
+                {
+                    return new VtankGameInfoUpdateResult(
+                        "Game database is up to date (the time of this check could not be saved: "
+                        + reason + ").",
+                        merged);
+                }
                 // The download is good; only keeping it failed. The reference
                 // client goes on using a database it could not save, and so
                 // does this.
                 return new VtankGameInfoUpdateResult(
                     "Game database downloaded (" + count + ") but could not be saved: "
-                    + error.Message.TrimEnd('.') + ". It is used until MossTank stops.",
+                    + reason + ". It is used until MossTank stops.",
                     merged);
             }
         }
-        return new VtankGameInfoUpdateResult("Game database updated: " + count + ".", merged);
+        return new VtankGameInfoUpdateResult(
+            current ? "Game database is up to date." : "Game database updated: " + count + ".",
+            merged);
     }
 
     private static VtankGameInfoUpdateResult Failed(string reason) =>
@@ -332,6 +373,9 @@ internal sealed class VtankGameInfoUpdater : IDisposable
 
     internal static DateTimeOffset FromUnixSeconds(int seconds) =>
         new DateTimeOffset(1970, 1, 1, 0, 0, 0, TimeSpan.Zero) + TimeSpan.FromSeconds(seconds);
+
+    internal static string FormatUtc(DateTimeOffset time) =>
+        time.UtcDateTime.ToString("yyyy-MM-dd HH:mm 'UTC'", CultureInfo.InvariantCulture);
 
     /// <summary>
     /// Stops a check for good: it is cancelled, a save already under way is

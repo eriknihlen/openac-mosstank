@@ -58,12 +58,15 @@ rewritten. The panel tells you where the folders are.
 
 The game information VTank kept in `gameinfodb.ugd` (ammunition, grenades,
 monster damage and species, drain and martyr spells, craft recipes) is not
-shipped with MossTank. Once each session, as VTank did at login, MossTank asks
-Virindi's game-information service for what changed and keeps the answer in
+shipped with MossTank. At login, as VTank did, MossTank asks Virindi's
+game-information service for what changed and keeps the answer in
 `gameinfodb.ugd` in the VTank profile folder, saying the outcome in one chat
-line. A failed check keeps the file you had. Until the first download there
-are no ammunition choices, grenades or craft recipes. `/vt gamedb` shows what is
-loaded; `/vt gamedb update` checks now.
+line. A database checked within the last 6 hours is not asked about again, so
+many sessions logging in do not all ask; `/vt gamedb interval [hours]` changes
+that (0 asks at every login). A failed check keeps the file you had. Until the
+first download there are no ammunition choices, grenades or craft recipes.
+`/vt gamedb` shows what is loaded and when the next check is due;
+`/vt gamedb update` checks now.
 
 ## Building from source
 
