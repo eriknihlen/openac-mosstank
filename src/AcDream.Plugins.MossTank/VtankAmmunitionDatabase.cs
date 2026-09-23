@@ -1,6 +1,4 @@
-﻿using System.Globalization;
-using System.Reflection;
-using AcDream.Plugin.Abstractions;
+﻿using AcDream.Plugin.Abstractions;
 
 namespace AcDream.Plugins.MossTank;
 
@@ -23,11 +21,6 @@ internal readonly record struct VtankAmmunitionOption(
 
 internal static class VtankAmmunitionDatabase
 {
-    private const string ResourceSuffix = ".VtankAmmunitionOptions.tsv";
-    private static readonly Lazy<VtankAmmunitionOption[]> Loaded = new(Load);
-
-    public static IReadOnlyList<VtankAmmunitionOption> Options => Loaded.Value;
-
     internal enum MissileKind
     {
         None = 0,
@@ -54,24 +47,10 @@ internal static class VtankAmmunitionDatabase
             or MissileKind.Atlatl ? (int)Kind(in item) : 0;
 
     /// <summary>
-    /// The bundled table. Kept as the fallback for a session with no
-    /// <c>gameinfodb.ugd</c> in its profile directory.
+    /// The best row of the game database's AmmunitionOptions table for this
+    /// launcher and element that the character can wield and has (or can
+    /// make). With no table there is no choice.
     /// </summary>
-    public static VtankAmmunitionOption? Select(
-        int launcherType,
-        MonsterDamageType damage,
-        VtankPrismaticAmmoPolicy prismatic,
-        int enabledSpecialMask,
-        ICharacterInfo character,
-        Func<string, bool> isAvailable) => Select(
-            Loaded.Value,
-            launcherType,
-            damage,
-            prismatic,
-            enabledSpecialMask,
-            character,
-            isAvailable);
-
     public static VtankAmmunitionOption? Select(
         IReadOnlyList<VtankAmmunitionOption> options,
         int launcherType,
@@ -166,42 +145,4 @@ internal static class VtankAmmunitionDatabase
         MonsterDamageType.PlayerAuto => 101,
         _ => -1,
     };
-
-    private static VtankAmmunitionOption[] Load()
-    {
-        Assembly assembly = typeof(VtankAmmunitionDatabase).Assembly;
-        string resource = assembly.GetManifestResourceNames().Single(
-            static name => name.EndsWith(ResourceSuffix, StringComparison.Ordinal));
-        using Stream stream = assembly.GetManifestResourceStream(resource)
-            ?? throw new InvalidOperationException(
-                "The embedded VTank AmmunitionOptions table is missing.");
-        using var reader = new StreamReader(stream);
-        var all = new List<VtankAmmunitionOption>(120);
-        while (reader.ReadLine() is { } line)
-        {
-            if (line.Length == 0 || line[0] == '#')
-                continue;
-            string[] fields = line.Split('\t');
-            if (fields.Length != 8)
-                throw new InvalidDataException("Malformed VTank ammunition row.");
-            all.Add(new VtankAmmunitionOption(
-                fields[0],
-                Parse(fields[1]),
-                Parse(fields[2]),
-                Parse(fields[3]),
-                Parse(fields[4]),
-                Parse(fields[5]),
-                (uint)Parse(fields[6]),
-                Parse(fields[7])));
-        }
-        if (all.Count != 120)
-        {
-            throw new InvalidDataException(
-                $"Expected 120 official VTank ammunition rows, found {all.Count}.");
-        }
-        return [.. all];
-    }
-
-    private static int Parse(string value) =>
-        int.Parse(value, CultureInfo.InvariantCulture);
 }

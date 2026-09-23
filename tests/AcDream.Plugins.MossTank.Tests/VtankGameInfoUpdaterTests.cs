@@ -89,7 +89,7 @@ public sealed class VtankGameInfoUpdaterTests
         Assert.Equal("Game database updated: 3 records changed.", said[^1]);
         VtankGameInfoDatabase database = Assert.Single(applied);
         Assert.Equal(ExcerptTime + 60, database.LastUpdateTime);
-        Assert.Equal(4, database.AmmunitionOptions.Count);
+        Assert.Equal(8, database.AmmunitionOptions.Count);
         VtankAmmunitionOption quarrel = Assert.Single(
             database.AmmunitionOptions,
             static option => option.Name.Equals("Barbed Quarrel", StringComparison.OrdinalIgnoreCase));
@@ -100,7 +100,7 @@ public sealed class VtankGameInfoUpdaterTests
         string saved = profiles.Text[VtankGameInfoDatabase.FileName];
         VtankDatabase reread = VtankDatabase.Parse(saved);
         Assert.Null(reread.Find("NotInTheDatabase"));
-        Assert.Equal(4, VtankGameInfoDatabase.Parse(saved).AmmunitionOptions.Count);
+        Assert.Equal(8, VtankGameInfoDatabase.Parse(saved).AmmunitionOptions.Count);
         // Everything the excerpt had that the answer did not touch is still there.
         Assert.Equal(
             VtankGameInfoDatabase.Parse(ExcerptText).HealKits,

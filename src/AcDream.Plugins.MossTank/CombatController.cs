@@ -2293,8 +2293,8 @@ internal sealed class CombatController
             return cached is not null;
         }
 
-        // The owner's own gameinfodb.ugd wins over the bundled table when it
-        // is there — one AmmunitionOptions table, read the way VTank reads it.
+        // The one AmmunitionOptions table is the game database's, read the
+        // way VTank reads it; there is no other to fall back on.
         VtankAmmunitionOption? selected = VtankAmmunitionDatabase.Select(
             _gameInfo.AmmunitionOptions,
             launcherType,
