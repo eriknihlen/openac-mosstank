@@ -2562,9 +2562,9 @@ public sealed class CombatControllerTests
             MagicSpell(102, "Flame Streak VII", difficulty: 350),
         ];
 
-        // "Olthoi Slasher" is listed in the fixture database at 3190 health,
+        // "Olthoi Slasher" is listed in the fixture database at 2000 health,
         // and the streak's difficulty of 350 sets the bar at 50 points until a
-        // real blow is seen: 2871 left bolts, 32 left finishes.
+        // real blow is seen: 1800 left bolts, 20 left finishes.
         Assert.Equal(100u, CastAgainstHealth(known, healthFraction: 0.9f).Item1);
         Assert.Equal(102u, CastAgainstHealth(known, healthFraction: 0.01f).Item1);
 
@@ -8813,10 +8813,9 @@ public sealed class CombatControllerTests
             RepeatAttackInProgress: false);
 
     /// <summary>
-    /// A real excerpt of the owner's own <c>gameinfodb.ugd</c> — VTank's
-    /// official GameInfoDB, loaded from the profile directory.
-    /// Any pin whose subject is a monster's damage
-    /// preferences needs one, because acdream ships no embedded default.
+    /// A game database in the format of <c>gameinfodb.ugd</c>, every row of it
+    /// written for the tests. Any pin whose subject is a monster's damage
+    /// preferences needs one, because the built-in database is empty.
     /// </summary>
     private static readonly VtankGameInfoDatabase AmmoGameInfo =
         CreateAmmoGameInfo();

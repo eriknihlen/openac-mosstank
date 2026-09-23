@@ -19,7 +19,7 @@ n
 n
 7
 s
-Barbed Quarrel
+Fixture Quarrel
 i
 6
 i
@@ -27,7 +27,7 @@ i
 i
 0
 i
-4
+5
 i
 0
 i
@@ -35,7 +35,7 @@ i
 i
 0
 s
-Greater Barbed Quarrel
+Fixture Greater Quarrel
 i
 6
 i
@@ -43,7 +43,7 @@ i
 i
 0
 i
-9
+10
 i
 0
 i
@@ -51,15 +51,15 @@ i
 i
 0
 s
-Deadly Barbed Quarrel
+Fixture Deadly Quarrel
 i
 6
 i
-230
+200
 i
 0
 i
-22
+21
 i
 0
 i
@@ -136,19 +136,15 @@ Itemname
 CooldownID
 y
 n
-3
+2
 s
-Asheron's Benediction
+Fixture Cooldown Potion
 i
--32766
+-32001
 s
-Asheron's Lesser Benediction
+Fixture Cooldown Elixir
 i
--32766
-s
-Blackmoor's Favor
-i
--32765
+-32002
 CraftInteractions
 9
 UseItem1
@@ -169,61 +165,25 @@ n
 n
 n
 y
-8
+6
 s
-Wrapped Bundle of Barbed Arrowheads
+Fixture Arrowheads
 s
-Wrapped Bundle of Arrowshafts
+Fixture Shafts
 s
-Barbed Arrow
+Fixture Arrow
 i
-250
+100
 s
-You make a big bundle of barbed arrows.
+You make it.
 s
-You fail to make any barbed arrows.
-i
-37
-i
-55
-i
-1
-s
-Wrapped Bundle of Greater Barbed Arrowheads
-s
-Wrapped Bundle of Arrowshafts
-s
-Greater Barbed Arrow
-i
-250
-s
-You make a big bundle of greater barbed arrows.
-s
-You fail to make any greater barbed arrows.
+You fail.
 i
 37
 i
-209
+50
 i
-2
-s
-Wrapped Bundle of Deadly Barbed Arrowheads
-s
-Wrapped Bundle of Arrowshafts
-s
-Deadly Barbed Arrow
-i
-250
-s
-You make a big bundle of deadly barbed arrows.
-s
-You fail to make any deadly barbed arrows.
-i
-37
-i
-220
-i
-3
+9000
 s
 Treated Mandrake
 s
@@ -324,7 +284,7 @@ n
 i
 0
 i
-1667721089
+1700000000
 DBVersion
 1
 VersionInt
@@ -348,33 +308,33 @@ n
 i
 1237
 i
-500
+400
 d
-0.25
+0.2
 i
-30
+25
 d
 2
 i
 1238
 i
-1100
+1000
 d
-0.25
+0.2
 i
-50
+45
 d
-1.6
+1.5
 i
 1239
 i
-1550
+1500
 d
-0.25
+0.2
 i
-75
+70
 d
-1.33
+1.25
 GrenadeOptions
 6
 GrenName
@@ -397,35 +357,35 @@ i
 i
 38
 i
-75
+60
 i
 1323
 i
-100
+110
 s
-Iron Phial of Blade Vulnerability
+Fixture Phial of Frost
 i
 2
 i
 38
 i
-75
+300
 i
-1128
+1061
 i
-100
+400
 s
-Iron Phial of Acid Vulnerability
+Fixture Phial of Nothing
 i
 2
 i
 38
 i
-75
+10
 i
-522
+999999
 i
-100
+50
 HealKits
 4
 KitName
@@ -438,29 +398,29 @@ n
 n
 3
 s
-Handy Healing Kit
+Fixture Healing Kit
 d
-1
+1.25
 i
-50
+40
 i
 1
 s
-Adept Healing Kit
+Fixture Stamina Kit
 d
 1
 i
-0
+20
 i
-1
+3
 s
-Gifted Healing Kit
+Fixture Mana Kit
 d
-1
+1.5
 i
-100
+60
 i
-1
+5
 MartyrSpellOptions
 4
 SpellID
@@ -475,25 +435,25 @@ n
 i
 2760
 i
-550
+400
 d
-0.25
+0.2
 d
 0.75
 i
 2761
 i
-1150
+1000
 d
-0.25
+0.2
 d
 0.9
 i
 2762
 i
-1600
+1500
 d
-0.25
+0.2
 d
 1.05
 MonsterDamageOverrides
@@ -506,30 +466,26 @@ n
 s
 Magma Golem
 s
-5;1;0;2
+5;2;6
 s
-Mist Golem
+Fixture Golem
 s
-5;4;3;6;2;0;1
+4;3
 MonsterImmunities
 2
 Monster
 ImmunityMask
 y
 n
-3
+2
 s
 Olthoi Slasher
 i
-3
+2
 s
-Olthoi Slayer
+Fixture Wisp
 i
-3
-s
-Olthoi Ripper
-i
-3
+2
 SpeciesDamages
 2
 Species
@@ -540,15 +496,15 @@ n
 i
 1
 s
-1;0;2;5;6;4;3
+1;2;0;6;5;3;4
 i
 12
 s
-2
+1
 i
 25
 s
-2
+0
 SpeciesMembers
 3
 Monster
@@ -563,19 +519,19 @@ Black Rabbit
 i
 25
 i
-5
+8
 s
 Olthoi Slasher
 i
 1
 i
-3190
+2000
 s
-Cow
+Fixture Beast
 i
 12
 i
-20
+40
 SpellQualityOverrides
 4
 SpellID
@@ -586,28 +542,12 @@ y
 n
 n
 n
-3
+1
 i
-5182
+9001
 b
 False
 i
-400
+100
 i
-695
-i
-5183
-b
-False
-i
-400
-i
-154
-i
-4400
-b
-False
-i
-400
-i
-156
+1

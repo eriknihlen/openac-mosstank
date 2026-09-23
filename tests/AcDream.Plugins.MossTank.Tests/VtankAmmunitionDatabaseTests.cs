@@ -5,8 +5,8 @@ namespace AcDream.Plugins.MossTank.Tests;
 public sealed class VtankAmmunitionDatabaseTests
 {
     /// <summary>
-    /// The fixture game database's AmmunitionOptions rows. The four bow rows
-    /// were written for these tests; none is anyone's real data.
+    /// The fixture game database's AmmunitionOptions rows, all written for the
+    /// tests; none is anyone's real data.
     /// </summary>
     private static readonly IReadOnlyList<VtankAmmunitionOption> FixtureOptions =
         VtankGameInfoDatabase.Parse(File.ReadAllText(Path.Combine(

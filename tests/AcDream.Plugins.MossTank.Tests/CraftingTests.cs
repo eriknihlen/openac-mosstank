@@ -5,8 +5,7 @@ namespace AcDream.Plugins.MossTank.Tests;
 public sealed class CraftingTests
 {
     /// <summary>
-    /// The fixture game database. Its craft rows past the first three were
-    /// written for these tests.
+    /// The fixture game database, whose rows were all written for the tests.
     /// </summary>
     private static readonly VtankGameInfoDatabase GameInfo =
         VtankGameInfoDatabase.Parse(File.ReadAllText(Path.Combine(
@@ -23,7 +22,7 @@ public sealed class CraftingTests
     [Fact]
     public void TheGameDatabaseCraftTableIsReadByColumn()
     {
-        Assert.Equal(8, Crafts.Recipes.Count);
+        Assert.Equal(6, Crafts.Recipes.Count);
         VtankCraftRecipe kit = Assert.Single(Crafts.ForResult("Plentiful Healing Kit"));
         Assert.Equal("Soft Bandages", kit.FirstItem);
         Assert.Equal("Combined Hyssop and Mandrake", kit.SecondItem);

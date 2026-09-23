@@ -12,8 +12,8 @@ public sealed class VtankGameInfoUpdaterTests
     internal static readonly string ExcerptText = File.ReadAllText(Path.Combine(
         AppContext.BaseDirectory, "Fixtures", "vtank", "gameinfodb-excerpt.ugd"));
 
-    /// <summary>The excerpt's own update time: 2022-11-06 07:51:29 UTC.</summary>
-    private const int ExcerptTime = 1667721089;
+    /// <summary>The fixture's own update time: 2023-11-14 22:13:20 UTC.</summary>
+    private const int ExcerptTime = 1700000000;
 
     /// <summary>
     /// With no file, the check asks for everything since 1970 at the
@@ -78,7 +78,7 @@ public sealed class VtankGameInfoUpdaterTests
             ExcerptTime + 60,
             ("AmmunitionOptions", AmmoColumns,
             [
-                Ammo("barbed quarrel", quality: 5),
+                Ammo("fixture quarrel", quality: 7),
                 Ammo("Tested Fire Arrow", launcher: 5, element: 6, quality: 20),
             ]),
             ("NotInTheDatabase", ["Name"], [[VtankCell.String("x")]])));
@@ -92,9 +92,9 @@ public sealed class VtankGameInfoUpdaterTests
         Assert.Equal(8, database.AmmunitionOptions.Count);
         VtankAmmunitionOption quarrel = Assert.Single(
             database.AmmunitionOptions,
-            static option => option.Name.Equals("Barbed Quarrel", StringComparison.OrdinalIgnoreCase));
-        Assert.Equal("Barbed Quarrel", quarrel.Name);
-        Assert.Equal(5, quarrel.Quality);
+            static option => option.Name.Equals("Fixture Quarrel", StringComparison.OrdinalIgnoreCase));
+        Assert.Equal("Fixture Quarrel", quarrel.Name);
+        Assert.Equal(7, quarrel.Quality);
         Assert.Contains(database.AmmunitionOptions, static option => option.Name == "Tested Fire Arrow");
 
         string saved = profiles.Text[VtankGameInfoDatabase.FileName];
