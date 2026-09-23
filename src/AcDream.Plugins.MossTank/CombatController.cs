@@ -376,7 +376,18 @@ internal sealed class CombatController
 
     private readonly SpellCastTracker _castTracker;
 
-    private readonly VtankGameInfoDatabase _gameInfo;
+    private VtankGameInfoDatabase _gameInfo;
+
+    /// <summary>The game-information database every combat decision reads.</summary>
+    internal VtankGameInfoDatabase GameInfo => _gameInfo;
+
+    /// <summary>
+    /// Takes a newer game-information database. Nothing here keeps a copy of
+    /// a table: every reader goes through the field, so the next decision
+    /// already reads the new one.
+    /// </summary>
+    internal void ReplaceGameInfo(VtankGameInfoDatabase gameInfo) =>
+        _gameInfo = gameInfo ?? throw new ArgumentNullException(nameof(gameInfo));
 
     public bool Enabled { get; private set; }
     private IDisposable? _combatControl;

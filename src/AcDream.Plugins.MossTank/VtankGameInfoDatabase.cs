@@ -154,7 +154,10 @@ internal sealed class VtankGameInfoDatabase
     /// service and from monsters met in play); a profile-directory file with
     /// content takes precedence.
     /// </summary>
-    public static VtankGameInfoDatabase LoadDefault()
+    public static VtankGameInfoDatabase LoadDefault() => Parse(DefaultText());
+
+    /// <summary>The built-in database's text, as the reference client ships it.</summary>
+    internal static string DefaultText()
     {
         Assembly assembly = typeof(VtankGameInfoDatabase).Assembly;
         string resource = assembly.GetManifestResourceNames().Single(
@@ -163,8 +166,17 @@ internal sealed class VtankGameInfoDatabase
             ?? throw new InvalidOperationException(
                 "The embedded default game information database is missing.");
         using var reader = new StreamReader(stream);
-        return Parse(reader.ReadToEnd());
+        return reader.ReadToEnd();
     }
+
+    /// <summary>
+    /// When the service last changed what this database holds, in seconds
+    /// since 1970, or null when it does not say.
+    /// </summary>
+    public int? LastUpdateTime { get; private init; }
+
+    /// <summary>The database's own version number, or null when it does not say.</summary>
+    public int? Version { get; private init; }
 
     public static VtankGameInfoDatabase Parse(string text)
     {
@@ -173,6 +185,8 @@ internal sealed class VtankGameInfoDatabase
         return new VtankGameInfoDatabase
         {
             IsLoaded = true,
+            LastUpdateTime = ReadCellInt(database, "DBLastUpdateTime", 1),
+            Version = ReadCellInt(database, "DBVersion", 0),
             MonsterDamageOverrides = ReadNamedElements(database, "MonsterDamageOverrides"),
             SpeciesMembers = ReadSpeciesMembers(database),
             MonsterImmunities = ReadMonsterImmunities(database),
@@ -203,6 +217,14 @@ internal sealed class VtankGameInfoDatabase
             return species;
         }
         return NoElements;
+    }
+
+    private static int? ReadCellInt(VtankDatabase database, string tableName, int column)
+    {
+        VtankTable? table = database.Find(tableName);
+        return table is { Rows.Count: > 0 } && table.Rows[0].Cells.Count > column
+            ? table.Rows[0].Cells[column].AsInt()
+            : null;
     }
 
     private static Dictionary<string, IReadOnlyList<MonsterDamageType>> ReadNamedElements(

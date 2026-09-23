@@ -48,7 +48,13 @@ internal sealed partial class MossTankPanel : IBuffRuleHost, IDisposable
     private readonly NavigationSettings _navigationSettings = new();
     private readonly MetaSettings _metaSettings = new();
     private readonly VtankSettingsProfileSerializer.AllSettings _allSettings;
-    private readonly VtankGameInfoDatabase _gameInfo;
+    /// <summary>
+    /// The game-information database in use. It changes only through
+    /// <see cref="ApplyGameInfo"/>, which hands it to every reader.
+    /// </summary>
+    private VtankGameInfoDatabase _gameInfo;
+    private readonly VtankGameInfoUpdater _gameInfoUpdater;
+    private bool _gameInfoCheckedThisSession;
     private readonly MossTankProfileStore _profiles;
     private readonly MossTankLootProfileStore _lootProfiles;
     private readonly MossTankRouteProfileStore _routeProfiles;
@@ -272,8 +278,18 @@ internal sealed partial class MossTankPanel : IBuffRuleHost, IDisposable
     private uint? _selectionBeforePass;
 
     public MossTankPanel(IPluginHost host)
+        : this(host, gameInfoTransport: null)
+    {
+    }
+
+    /// <param name="gameInfoTransport">
+    /// How the game-information update reaches its service. Without one the
+    /// panel never downloads anything; the plugin gives it the real one.
+    /// </param>
+    internal MossTankPanel(IPluginHost host, IVtankGameInfoTransport? gameInfoTransport)
     {
         _host = host;
+        _gameInfoUpdater = new VtankGameInfoUpdater(host.VtankProfiles, gameInfoTransport);
         _advancedOptionCategoryEnabledView =
             new ReadOnlyCollection<bool>(_advancedOptionCategoryEnabled);
         _firstRunGuidancePending = NeedsFirstRunGuidance(host);
@@ -288,17 +304,15 @@ internal sealed partial class MossTankPanel : IBuffRuleHost, IDisposable
             PlayerObjectId = () => _host.Automation.Character.ObjectId,
         };
         // The official monster-info database, read from the profile directory
-        // beside the .usd files. Absent means EMPTY, not a guess: acdream
-        // ships no embedded copy of it.
+        // beside the .usd files. Absent means the reference client's own
+        // built-in one, whose tables are empty until the session's update
+        // check downloads the real content into the profile directory.
         _gameInfo = VtankGameInfoDatabase.Load(host.VtankProfiles);
         // A rule's `species` and `maxhp` are database facts. Without the
         // database every monster reads as unlisted, which is what the
         // reference client does with no database of its own.
         _combatSettings.MonsterFacts = new MonsterFactTable(_gameInfo);
-        var healKits = new Dictionary<string, VtankHealKit>(StringComparer.OrdinalIgnoreCase);
-        foreach (VtankHealKit kit in _gameInfo.HealKits)
-            healKits[kit.Name] = kit;
-        _combatSettings.HealKits = healKits;
+        _combatSettings.HealKits = HealKitTable(_gameInfo);
         // Before any store reads anything: every key they use is addressed
         // inside the plugin's own folder now.
         MigrateFileLayout();
@@ -5320,6 +5334,7 @@ internal sealed partial class MossTankPanel : IBuffRuleHost, IDisposable
         TickConfiguredItemAssessment(elapsedSeconds);
         TickProfileItemAddition(elapsedSeconds);
         FlushQueuedAnnouncements();
+        TickGameInfoUpdate();
         ShowFirstRunGuidance();
         ObserveCommandPortalState();
         TickDelayedCommands(elapsedSeconds);
@@ -5708,10 +5723,14 @@ internal sealed partial class MossTankPanel : IBuffRuleHost, IDisposable
         _expressions.HeldMotions.ReleaseIfHeld();
         _combatModeGate.Dispose();
         _meta.Dispose();
+        _gameInfoUpdater.Dispose();
     }
 
     private void HandleSessionEnded()
     {
+        // The next session checks the game database again, as a new login
+        // does in the reference client.
+        _gameInfoCheckedThisSession = false;
         _pendingProfileAddition = null;
         _assessmentRetries.Clear();
         _assessmentTime = 0d;

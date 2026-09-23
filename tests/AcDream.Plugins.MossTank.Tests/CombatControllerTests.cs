@@ -5247,6 +5247,47 @@ public sealed class CombatControllerTests
         Assert.False(gate.WieldAmmunition!(MonsterDamageType.Fire));
     }
 
+    /// <summary>
+    /// A database downloaded in the middle of a session is read by the very
+    /// next ammunition choice: the built-in one has no arrows to choose,
+    /// the new one does. Mutation: keep reading the database the controller
+    /// was built with, and the arrow is never chosen.
+    /// </summary>
+    [Fact]
+    public void AmmunitionSelectionReadsADatabaseReplacedMidSession()
+    {
+        var surface = new FakeAutomation
+        {
+            CombatSnapshot = Physical() with { Mode = PluginCombatMode.Peace },
+            CharacterSkills = [new PluginSkillInfo(47u, "Missile Weapons",
+                PluginSkillTraining.Trained, 300u) { Base = 300u }],
+            EquipmentItems =
+            [
+                Equipment(700, "Fire Bow", 0x10, itemType: 0x100u,
+                    equippedLocation: 0x00100000u, ammoType: 1u),
+                Equipment(801, "Deadly Fire Arrow", 0x10, combatUse: 3,
+                    stackSize: 20, validLocations: AmmunitionSlot),
+            ],
+            ItemEntries =
+            [
+                InventoryItem(801, "Deadly Fire Arrow", 0x100u, 0u, false),
+            ],
+        };
+        var settings = new CombatSettings();
+        var host = new FakeHost(surface);
+        var controller = new CombatController(host, settings,
+            gameInfo: VtankGameInfoDatabase.LoadDefault());
+        CombatModeGate gate = controller.BindCombatModeGate(new CombatModeGate(
+            host, settings, new VitalSettings(), _ => { }));
+        Assert.False(gate.AmmunitionStale!(700u, MonsterDamageType.Fire));
+
+        controller.ReplaceGameInfo(AmmoGameInfo);
+
+        Assert.True(gate.AmmunitionStale!(700u, MonsterDamageType.Fire));
+        Assert.True(gate.WieldAmmunition!(MonsterDamageType.Fire));
+        Assert.Equal(801u, surface.LastEquipObjectId);
+    }
+
     private static CombatModeGate BoundAmmunitionGate(
         FakeAutomation surface, VtankGameInfoDatabase? gameInfo = null)
     {

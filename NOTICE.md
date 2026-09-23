@@ -81,6 +81,9 @@ How that interoperability was achieved, stated plainly:
   identical, because compatibility requires it. MossTank's own status,
   warning and help text is written in MossTank's own words.
 - Chat patterns MossTank reads are the game's own messages, not VTank's.
+- The game-information database (`gameinfodb.ugd`) is not included. MossTank
+  downloads it from Virindi's service on the player's own machine, as VTank
+  does, and stores it only in that player's VTank profile folder.
 
 VTank is not open source. Its license terms are Virindi's; this notice
 claims no license to VTank and grants none.
