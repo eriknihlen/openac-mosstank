@@ -6,7 +6,7 @@
   "apiVersion": 1,
   "kinds": ["Gameplay"],
   "hosts": ["Graphical", "Headless"],
-  "minHostVersion": "0.1.15",
+  "minHostVersion": "0.1.16",
   "capabilitiesVersion": 1,
   "capabilities": [
     { "name": "chat", "note": "Reads chat to follow combat and loot results, and posts its own status lines." }
