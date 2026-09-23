@@ -785,9 +785,12 @@ internal sealed class VendorTradeController : IDisposable
     {
         bool alternate = profile.UsesAlternateCurrency;
         uint currency = alternate ? profile.AlternateCurrencyWeenieClassId : CoinWeenieClassId;
+        // Only the currency itself pays: pyreal coins, or the vendor's own
+        // alternate currency. Peas and trade notes are money-class items the
+        // server does not count as coin; counting their stacks planned buys
+        // it refused outright.
         return owned
-            .Where(item => item.WeenieClassId == currency
-                || (!alternate && item.ObjectClass == PluginObjectClass.Money))
+            .Where(item => item.WeenieClassId == currency)
             .Sum(static item => (long)Math.Max(1, item.StackSize));
     }
 
