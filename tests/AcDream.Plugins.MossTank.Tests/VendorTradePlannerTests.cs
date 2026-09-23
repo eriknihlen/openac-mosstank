@@ -10,6 +10,37 @@ namespace AcDream.Plugins.MossTank.Tests;
 /// </summary>
 public sealed class VendorTradePlannerTests
 {
+    /// <summary>
+    /// Seen live: 1409 Prismatic Tapers listed at 34 were planned for 47,906
+    /// with 47,916 coin, and the server refused. A taper is worth 22 at this
+    /// vendor's markup of about 1.55: 34.1 a taper, listed as 34, but the
+    /// server prices each stack of up to 1000 as a whole (34,100 for 1000).
+    /// The count bought must fit the coin at the dearest price the listing
+    /// allows. Mutation: coin / listed price buys 1409, which costs 48,047.
+    /// </summary>
+    [Fact]
+    public void ABuyFitsTheCoinAtTheServersStackPrice()
+    {
+        const long coin = 47_916;
+        int count = VendorTradePlanner.AffordableCount(coin, unitPrice: 34, maxStack: 1000);
+
+        Assert.True(ServerCost(count, perItem: 34.1d, maxStack: 1000) <= coin);
+        Assert.True(count >= 1390, $"bought only {count}; the margin is too wide");
+        Assert.True(VendorTradePlanner.WorstCaseCost(34, count, 1000) <= coin);
+    }
+
+    // The server's charge: each stack priced whole, rounded up from a tenth over.
+    private static long ServerCost(int count, double perItem, int maxStack)
+    {
+        long total = 0;
+        for (int left = count; left > 0; left -= maxStack)
+        {
+            int stack = Math.Min(left, maxStack);
+            total += (long)Math.Ceiling(perItem * stack - 0.1d);
+        }
+        return total;
+    }
+
     private static readonly PluginVendorProfile ThreeQuarters = new(
         0.75f,
         DealsInItemTypes: 0x0000_0001u | 0x0000_0020u,

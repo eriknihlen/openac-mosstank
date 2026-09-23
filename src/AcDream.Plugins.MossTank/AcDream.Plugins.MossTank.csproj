@@ -26,10 +26,6 @@
     <None Update="mosstank*.xml">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
     </None>
-    <EmbeddedResource Include="VtankCraftRecipes.tsv" />
-    <EmbeddedResource Include="VtankAmmunitionOptions.tsv" />
-    <EmbeddedResource Include="VtankDefaultSettings.usd" />
-    <EmbeddedResource Include="VtankDefaultGameInfo.ugd" />
     <EmbeddedResource Include="ExperienceCosts.tsv" />
   </ItemGroup>
 </Project>

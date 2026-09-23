@@ -204,6 +204,18 @@ internal sealed class MacroScheduler
 
     private double _suspendedMetaSeconds;
 
+    /// <summary>
+    /// How often the meta is looked at. At the heartbeat (the default, the
+    /// reference macro's pace) it is looked at once per pass and nowhere
+    /// else; shorter, it is also looked at on its own between passes, with
+    /// no rules run. Each look is handed only the time since the previous
+    /// one, so the meta's clocks run at the same speed either way.
+    /// </summary>
+    public double MetaIntervalSeconds { get; set; } = HeartbeatSeconds;
+
+    /// <summary>Time since the last pass already handed to the meta between passes.</summary>
+    private double _metaSecondsGivenBetweenPasses;
+
     public Action<MacroLogChannel, string>? Log { get; set; }
 
     public Func<string>? LockStateSuffix { get; set; }
@@ -239,6 +251,7 @@ internal sealed class MacroScheduler
         _poked = true;
         LastExecutedRule = null;
         _suspendedMetaSeconds = 0d;
+        _metaSecondsGivenBetweenPasses = 0d;
         _passClock = 0d;
         Array.Clear(_lastEvaluatedAt);
     }
@@ -284,6 +297,7 @@ internal sealed class MacroScheduler
         }
         else if (_untilPass > 0d)
         {
+            RunMetaBetweenPasses();
             return false;
         }
 
@@ -292,6 +306,17 @@ internal sealed class MacroScheduler
         _sincePass = 0d;
         RunPass(passElapsed);
         return true;
+    }
+
+    private void RunMetaBetweenPasses()
+    {
+        if (MetaIntervalSeconds >= HeartbeatSeconds || IsSuspended || MetaPass is null)
+            return;
+        double pending = _sincePass - _metaSecondsGivenBetweenPasses;
+        if (pending < MetaIntervalSeconds)
+            return;
+        MetaPass(pending);
+        _metaSecondsGivenBetweenPasses += pending;
     }
 
     /// <summary>
@@ -335,9 +360,12 @@ internal sealed class MacroScheduler
         }
         else
         {
-            MetaPass?.Invoke(elapsed + _suspendedMetaSeconds);
+            MetaPass?.Invoke(Math.Max(
+                0d,
+                elapsed + _suspendedMetaSeconds - _metaSecondsGivenBetweenPasses));
             _suspendedMetaSeconds = 0d;
         }
+        _metaSecondsGivenBetweenPasses = 0d;
 
         _passClock += elapsed;
         var independentContext = new MacroPassContext(elapsed, CanAct: true);

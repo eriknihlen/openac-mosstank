@@ -39,6 +39,38 @@ internal sealed class MossTankProfileStore
 
     public string Selected => StripFolder(_selected);
     public bool MineOnly => _preferences.MineOnly;
+
+    /// <summary>How often the meta is looked at; MossTank's own, not a VTank option.</summary>
+    public int MetaIntervalMilliseconds => Math.Clamp(
+        _preferences.MetaIntervalMilliseconds,
+        MetaEngine.MinimumIntervalMilliseconds,
+        MetaEngine.MaximumIntervalMilliseconds);
+
+    public void SetMetaIntervalMilliseconds(int milliseconds)
+    {
+        _preferences.MetaIntervalMilliseconds = Math.Clamp(
+            milliseconds,
+            MetaEngine.MinimumIntervalMilliseconds,
+            MetaEngine.MaximumIntervalMilliseconds);
+        SavePreferences();
+    }
+
+    /// <summary>The longest automatic game-database checks may be apart, in hours.</summary>
+    public const int MaximumGameDbCheckIntervalHours = 168;
+
+    /// <summary>
+    /// How long a game database stays fresh enough that a login does not ask
+    /// its service again; MossTank's own, not a VTank option. Zero asks at
+    /// every login, as VTank did.
+    /// </summary>
+    public int GameDbCheckIntervalHours => Math.Clamp(
+        _preferences.GameDbCheckIntervalHours, 0, MaximumGameDbCheckIntervalHours);
+
+    public void SetGameDbCheckIntervalHours(int hours)
+    {
+        _preferences.GameDbCheckIntervalHours = Math.Clamp(hours, 0, MaximumGameDbCheckIntervalHours);
+        SavePreferences();
+    }
     public string? RecoveryNotice { get; private set; }
     public string? LoadFailureNotice { get; private set; }
     public bool HasActiveProfile => _hasActiveProfile;
@@ -270,7 +302,7 @@ internal sealed class MossTankProfileStore
         }
         else
         {
-            database = VtankDefaultSettingsDatabase.Parse();
+            database = VtankDefaultSettingsDatabase.Create();
             ApplyFromDatabase(database, settings);
             sidecar = SideCarDocument.CreateDefaults();
             sidecar.Apply(settings, noBuffItemNames, logChannels, _host.Log);
@@ -327,7 +359,7 @@ internal sealed class MossTankProfileStore
             // Nobody is named yet, so there is no character's file to read:
             // the shipped defaults stand in, in memory only, until a name
             // arrives and that character's own profile is loaded over them.
-            VtankDatabase unnamed = VtankDefaultSettingsDatabase.Parse();
+            VtankDatabase unnamed = VtankDefaultSettingsDatabase.Create();
             ApplyFromDatabase(unnamed, settings);
             SideCarDocument.CreateDefaults()
                 .Apply(settings, noBuffItemNames, logChannels, _host.Log);
@@ -349,7 +381,7 @@ internal sealed class MossTankProfileStore
         {
             // VTank's own behavior for a missing file: seed from the shipped
             // template/defaults rather than leaving the live settings alone.
-            VtankDatabase fresh = VtankDefaultSettingsDatabase.Parse();
+            VtankDatabase fresh = VtankDefaultSettingsDatabase.Create();
             ApplyFromDatabase(fresh, settings);
             SideCarDocument.CreateDefaults()
                 .Apply(settings, noBuffItemNames, logChannels, _host.Log);
@@ -427,7 +459,7 @@ internal sealed class MossTankProfileStore
         ISet<string> noBuffItemNames,
         ISet<string> logChannels)
     {
-        VtankDatabase database = VtankDefaultSettingsDatabase.Parse();
+        VtankDatabase database = VtankDefaultSettingsDatabase.Create();
         ApplyFromDatabase(database, settings);
         SideCarDocument.CreateDefaults()
             .Apply(settings, noBuffItemNames, logChannels, _host.Log);
@@ -470,7 +502,7 @@ internal sealed class MossTankProfileStore
             try
             {
                 database = text is null
-                    ? VtankDefaultSettingsDatabase.Parse()
+                    ? VtankDefaultSettingsDatabase.Create()
                     : VtankDatabase.Parse(text);
             }
             catch (Exception error) when (error is FormatException or OverflowException)
@@ -815,6 +847,9 @@ internal sealed class MossTankProfileStore
     private sealed class PreferencesDocument
     {
         public bool MineOnly { get; set; } = true;
+        public int MetaIntervalMilliseconds { get; set; } =
+            (int)Math.Round(MetaEngine.DecisionIntervalSeconds * 1000d);
+        public int GameDbCheckIntervalHours { get; set; } = 6;
     }
 
 

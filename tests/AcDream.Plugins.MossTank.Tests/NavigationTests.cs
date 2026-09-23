@@ -410,6 +410,41 @@ public sealed class NavigationTests
         Assert.Equal(1, automation.ClearCount);
     }
 
+    /// <summary>
+    /// Skipping moves the cursor as arriving does: a circular route wraps, a
+    /// once route that runs out is complete, and a follow route has nothing to
+    /// skip. Mutation: skip without wrapping and the circular cursor runs off
+    /// the end; skip a follow route and it reports a skip it cannot make.
+    /// </summary>
+    [Fact]
+    public void SkippingWaypointsMovesTheCursorTheWayArrivingDoes()
+    {
+        PluginNavigationPosition far = Position(5d, 5d);
+        RouteWaypoint[] points =
+        [
+            Waypoint(RouteWaypointType.Point, Position(0d, 0d)),
+            Waypoint(RouteWaypointType.Point, Position(1d, 0d)),
+            Waypoint(RouteWaypointType.Point, Position(2d, 0d)),
+        ];
+        var automation = new FakeAutomation { NavigationSnapshot = Snapshot(far) };
+
+        NavigationController circular = Controller(automation, RouteMode.Circular, points);
+        Assert.Equal(2, circular.SkipWaypoints(2));
+        Assert.Equal(2, circular.CurrentWaypointIndex);
+        Assert.Equal(1, circular.SkipWaypoints(1));
+        Assert.Equal(0, circular.CurrentWaypointIndex);
+
+        NavigationController once = Controller(automation, RouteMode.Once, points);
+        Assert.Equal(1, once.SkipWaypoints(1));
+        Assert.Equal(1, once.CurrentWaypointIndex);
+        Assert.Equal(2, once.SkipWaypoints(5));
+        Assert.True(once.HasNothingLeftToWalk);
+        Assert.Equal(0, once.SkipWaypoints(1));
+
+        NavigationController follow = Controller(automation, RouteMode.Target, points);
+        Assert.Equal(0, follow.SkipWaypoints(1));
+    }
+
     [Fact]
     public void CircularRouteWrapsAndOnceRouteStops()
     {
@@ -2569,6 +2604,9 @@ public sealed class NavigationTests
         Assert.Equal(goal, where);
         Assert.Equal(2f, arrival);
         Assert.Contains("walked by the client", controller.Status, StringComparison.Ordinal);
+        // The walk is the route's own, so the route does not hold it.
+        Assert.True(controller.IsClientWalking);
+        Assert.False(MossTankPanel.RouteHoldsClientWalks(routeEnabled: true, controller.IsClientWalking));
         int intentsAtHandOff = automation.Intents.Count;
         StepFrames(controller, 1d);
         Assert.Equal(intentsAtHandOff, automation.Intents.Count);

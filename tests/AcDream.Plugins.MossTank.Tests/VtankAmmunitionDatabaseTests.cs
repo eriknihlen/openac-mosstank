@@ -4,55 +4,21 @@ namespace AcDream.Plugins.MossTank.Tests;
 
 public sealed class VtankAmmunitionDatabaseTests
 {
+    /// <summary>
+    /// The fixture game database's AmmunitionOptions rows, all written for the
+    /// tests; none is anyone's real data.
+    /// </summary>
+    private static readonly IReadOnlyList<VtankAmmunitionOption> FixtureOptions =
+        VtankGameInfoDatabase.Parse(File.ReadAllText(Path.Combine(
+            AppContext.BaseDirectory, "Fixtures", "vtank", "gameinfodb-excerpt.ugd")))
+            .AmmunitionOptions;
+
     [Fact]
-    public void LoadsCompleteOfficialGameInfoTable()
+    public void LauncherTypeFollowsTheAmmoType()
     {
-        Assert.Equal(120, VtankAmmunitionDatabase.Options.Count);
         Assert.Equal(5, VtankAmmunitionDatabase.LauncherType(Launcher(1u)));
         Assert.Equal(6, VtankAmmunitionDatabase.LauncherType(Launcher(2u)));
         Assert.Equal(7, VtankAmmunitionDatabase.LauncherType(Launcher(4u)));
-    }
-
-    [Fact]
-    public void AnExplicitTableIsSelectedFromInsteadOfTheBundledOne()
-    {
-        var character = new Character(
-        [
-            new PluginSkillInfo(
-                47u,
-                "Missile Weapons",
-                PluginSkillTraining.Trained,
-                300u)
-            {
-                Base = 300u,
-            },
-        ]);
-        VtankAmmunitionOption[] table =
-        [
-            new("Owner's Own Quarrel", 6, 0, 0, 4, 0, 0u, 0),
-        ];
-
-        VtankAmmunitionOption selected = Assert.IsType<VtankAmmunitionOption>(
-            VtankAmmunitionDatabase.Select(
-                table,
-                6,
-                MonsterDamageType.Pierce,
-                VtankPrismaticAmmoPolicy.NoPrismatic,
-                enabledSpecialMask: 0,
-                character,
-                static _ => true));
-
-        Assert.Equal("Owner's Own Quarrel", selected.Name);
-        Assert.NotEqual(
-            selected.Name,
-            Assert.IsType<VtankAmmunitionOption>(
-                VtankAmmunitionDatabase.Select(
-                    6,
-                    MonsterDamageType.Pierce,
-                    VtankPrismaticAmmoPolicy.NoPrismatic,
-                    enabledSpecialMask: 0,
-                    character,
-                    static _ => true)).Name);
     }
 
     [Fact]
@@ -72,6 +38,7 @@ public sealed class VtankAmmunitionDatabaseTests
 
         VtankAmmunitionOption regular = Assert.IsType<VtankAmmunitionOption>(
             VtankAmmunitionDatabase.Select(
+                FixtureOptions,
                 5,
                 MonsterDamageType.Electric,
                 VtankPrismaticAmmoPolicy.NoPrismatic,
@@ -80,6 +47,7 @@ public sealed class VtankAmmunitionDatabaseTests
                 static _ => true));
         VtankAmmunitionOption raider = Assert.IsType<VtankAmmunitionOption>(
             VtankAmmunitionDatabase.Select(
+                FixtureOptions,
                 5,
                 MonsterDamageType.Electric,
                 VtankPrismaticAmmoPolicy.NoPrismatic,
@@ -87,8 +55,8 @@ public sealed class VtankAmmunitionDatabaseTests
                 character,
                 static _ => true));
 
-        Assert.Equal("Deadly Lightning Arrow", regular.Name);
-        Assert.Equal("Raider Lightning Arrow", raider.Name);
+        Assert.Equal("Fixture Lightning Arrow", regular.Name);
+        Assert.Equal("Fixture Raider Lightning Arrow", raider.Name);
     }
 
     [Fact]
@@ -125,6 +93,7 @@ public sealed class VtankAmmunitionDatabaseTests
         VtankAmmunitionOption withoutFletching =
             Assert.IsType<VtankAmmunitionOption>(
                 VtankAmmunitionDatabase.Select(
+                    FixtureOptions,
                     5,
                     MonsterDamageType.Fire,
                     VtankPrismaticAmmoPolicy.ForcePrismatic,
@@ -134,6 +103,7 @@ public sealed class VtankAmmunitionDatabaseTests
         VtankAmmunitionOption withFletching =
             Assert.IsType<VtankAmmunitionOption>(
                 VtankAmmunitionDatabase.Select(
+                    FixtureOptions,
                     5,
                     MonsterDamageType.Fire,
                     VtankPrismaticAmmoPolicy.ForcePrismatic,
@@ -141,8 +111,8 @@ public sealed class VtankAmmunitionDatabaseTests
                     both,
                     static _ => true));
 
-        Assert.Equal("Deadly Fire Arrow", withoutFletching.Name);
-        Assert.Equal("Deadly Prismatic Arrow", withFletching.Name);
+        Assert.Equal("Fixture Fire Arrow", withoutFletching.Name);
+        Assert.Equal("Fixture Prismatic Arrow", withFletching.Name);
     }
 
     /// <summary>

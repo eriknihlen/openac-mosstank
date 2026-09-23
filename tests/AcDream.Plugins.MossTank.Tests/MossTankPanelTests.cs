@@ -744,7 +744,7 @@ public sealed partial class MossTankPanelTests
         var storage = new MemoryStorage();
         string usdKey = SettingsKey(
             VtankProfileDirectory.AutoCharacterFileName("Barris", string.Empty, "usd"));
-        storage.Text[usdKey] = VtankDefaultSettingsDatabase.Parse().Render();
+        storage.Text[usdKey] = VtankDefaultSettingsDatabase.Create().Render();
         storage.Text["profiles/macro/sidecar/--Barris_.usd.json"] = """
             {
               "CombatRules": [
@@ -769,6 +769,19 @@ public sealed partial class MossTankPanelTests
                 System.Text.Encoding.UTF8.GetBytes(identity)));
         return $"profiles/macro/{hash}.json";
     }
+
+    /// <summary>
+    /// Following the route holds a walk the client plans, except the
+    /// route's own hand-off: holding that one left the character standing
+    /// until the meta's watchdog restarted the route. Mutation: ignore the
+    /// route's own walk and the route holds it again.
+    /// </summary>
+    [Theory]
+    [InlineData(true, false, true)]
+    [InlineData(true, true, false)]
+    [InlineData(false, false, false)]
+    public void TheRouteNeverHoldsItsOwnClientWalk(bool routeEnabled, bool routeOwnsWalk, bool holds) =>
+        Assert.Equal(holds, MossTankPanel.RouteHoldsClientWalks(routeEnabled, routeOwnsWalk));
 
     [Theory]
     [InlineData(false, "Attack", false, false, false, 99d, null)]
@@ -899,7 +912,7 @@ public sealed partial class MossTankPanelTests
         string usdKey = SettingsKey(
             VtankProfileDirectory.AutoCharacterFileName("Barris", string.Empty, "usd"));
 
-        VtankDatabase database = VtankDefaultSettingsDatabase.Parse();
+        VtankDatabase database = VtankDefaultSettingsDatabase.Create();
         VtankTable settingsTable = database.Find("Settings")!;
         int nameColumn = settingsTable.ColumnIndex("Setting");
         int valueColumn = settingsTable.ColumnIndex("Value");
@@ -1070,7 +1083,7 @@ public sealed partial class MossTankPanelTests
         storage.Text["mosstank/navs/Hunt.af"] =
             MetafSerializer.SaveNav(new NavigationSettings());
         storage.Text[SettingsKey("Shared.usd")] =
-            VtankDefaultSettingsDatabase.Parse().Render();
+            VtankDefaultSettingsDatabase.Create().Render();
         var automation = new FakeAutomation { Name = "Barris", WorldName = "Coldeve" };
         var panel = new MossTankPanel(new FakeHost(automation, storage));
         panel.OnTick(0.1d);
@@ -1147,6 +1160,7 @@ public sealed partial class MossTankPanelTests
             new FakeAutomation { Name = "Barris", WorldName = "Coldeve" }, storage));
         Command(panel, "nav load Circuit");
         int circuitPoints = panel.RouteRows.Count;
+        string circuitName = panel.SelectedRouteProfile;
         Assert.True(circuitPoints > 1);
 
         Command(panel, "meta load Stipend");
@@ -1167,9 +1181,111 @@ public sealed partial class MossTankPanelTests
 
         Command(panel, "nav load Circuit");
 
-        Assert.Equal("Circuit", panel.SelectedRouteProfile);
+        Assert.Equal(circuitName, panel.SelectedRouteProfile);
         Assert.DoesNotContain("stipend.nav (embedded)", panel.RouteProfileNames);
         Assert.Equal(circuitPoints, panel.RouteRows.Count);
+    }
+
+    /// <summary>
+    /// Setting an option writes the settings profile and nothing else: a meta
+    /// and a route edited on disk while they are loaded keep the edit. The
+    /// meta here sets an option itself, as metas do all the time. Nor is a
+    /// meta written by any other settings change, or on switching to another.
+    /// Mutation: save the whole profile set on an option change, save the
+    /// meta with the other settings, or save it before a switch, and the
+    /// edit is written over.
+    /// </summary>
+    [Fact]
+    public void SettingAnOptionLeavesTheLoadedMetaAndRouteFilesAlone()
+    {
+        var storage = new MemoryStorage();
+        storage.Text["mosstank/navs/Circuit.nav"] = File.ReadAllText(Path.Combine(
+            AppContext.BaseDirectory, "Fixtures", "vtank", "nav", "nav_ab.nav"));
+        storage.Text["mosstank/metas/Edited.af"] =
+            "STATE: {Default} ~~ {\r\n"
+            + "\tIF:\tAlways\r\n"
+            + "\t\tDO:\tChat {/vt opt set enablebuffing true}\r\n";
+        var panel = new MossTankPanel(new FakeHost(
+            new FakeAutomation { Name = "Barris", WorldName = "Coldeve" }, storage));
+        Command(panel, "nav load Circuit");
+        Command(panel, "meta load Edited");
+        const string editedMeta =
+            "STATE: {Default} ~~ {\r\n"
+            + "\tIF:\tAlways\r\n"
+            + "\t\tDO:\tChat {/vt opt set enablelooting true}\r\n";
+        const string editedRoute = "edited on disk";
+        storage.Text["mosstank/metas/Edited.af"] = editedMeta;
+        storage.Text["mosstank/navs/Circuit.nav"] = editedRoute;
+
+        Command(panel, "opt set enablebuffing false");
+        Command(panel, "opt toggle enablelooting");
+
+        Assert.Equal(editedMeta, storage.Text["mosstank/metas/Edited.af"]);
+        Assert.Equal(editedRoute, storage.Text["mosstank/navs/Circuit.nav"]);
+
+        Command(panel, "setattackbar 0.5");
+        storage.Text["mosstank/metas/Other.af"] =
+            "STATE: {Default} ~~ {\r\n"
+            + "\tIF:\tNever\r\n"
+            + "\t\tDO:\tNone\r\n";
+        Command(panel, "meta load Other");
+
+        Assert.Equal(editedMeta, storage.Text["mosstank/metas/Edited.af"]);
+    }
+
+    /// <summary>
+    /// The meta interval is MossTank's own preference: the command sets it,
+    /// the engine uses it at once, and a new session reads it back. It is not
+    /// a VTank option, so it never lands in a settings profile.
+    /// Mutation: skip saving the preference and the second panel is back at
+    /// the reference pace.
+    /// </summary>
+    [Fact]
+    public void TheMetaIntervalIsSavedAndReadBackAsMossTanksOwnPreference()
+    {
+        var storage = new MemoryStorage();
+        var automation = new FakeAutomation { Name = "Barris", WorldName = "Coldeve" };
+        var panel = new MossTankPanel(new FakeHost(automation, storage));
+        Assert.Equal(293, panel.MetaIntervalMillisecondsForTest);
+
+        Command(panel, "metainterval 100");
+
+        Assert.Equal(100, panel.MetaIntervalMillisecondsForTest);
+        var again = new MossTankPanel(new FakeHost(automation, storage));
+        Assert.Equal(100, again.MetaIntervalMillisecondsForTest);
+        Assert.DoesNotContain(
+            storage.Text,
+            pair => pair.Key.EndsWith(".usd", StringComparison.OrdinalIgnoreCase)
+                && pair.Value.Contains("MetaInterval", StringComparison.OrdinalIgnoreCase));
+    }
+
+    /// <summary>
+    /// /vt nextwp skips one waypoint, /vt nextwp 2 skips two, and anything
+    /// else is refused with the syntax; the Route tab's button skips one.
+    /// Mutation: ignore the count and the second command moves one point.
+    /// </summary>
+    [Fact]
+    public void NextWaypointSkipsOneByDefaultOrTheCountGiven()
+    {
+        var storage = new MemoryStorage();
+        storage.Text["mosstank/navs/Circuit.nav"] = File.ReadAllText(Path.Combine(
+            AppContext.BaseDirectory, "Fixtures", "vtank", "nav", "nav_ab.nav"));
+        var automation = new FakeAutomation { Name = "Barris", WorldName = "Coldeve" };
+        var panel = new MossTankPanel(new FakeHost(automation, storage));
+        Command(panel, "nav load Circuit");
+        int count = panel.RouteRows.Count;
+        Assert.True(count > 3);
+        int start = panel.CurrentRouteWaypointIndexForTest;
+
+        Command(panel, "nextwp");
+        Assert.Equal((start + 1) % count, panel.CurrentRouteWaypointIndexForTest);
+        Command(panel, "nextwp 2");
+        Assert.Equal((start + 3) % count, panel.CurrentRouteWaypointIndexForTest);
+        Command(panel, "nextwp zero");
+        Assert.Equal((start + 3) % count, panel.CurrentRouteWaypointIndexForTest);
+        Assert.Contains(automation.Messages, message => message.Contains("Syntax: /vt nextwp", StringComparison.Ordinal));
+        panel.SkipRouteWaypoint();
+        Assert.Equal((start + 4) % count, panel.CurrentRouteWaypointIndexForTest);
     }
 
     [Theory]
@@ -2358,7 +2474,7 @@ public sealed partial class MossTankPanelTests
     public void ImportedBuffedItemSpellTargetsItsExactSameNameObject()
     {
         var storage = new MemoryStorage();
-        VtankDatabase database = VtankDefaultSettingsDatabase.Parse();
+        VtankDatabase database = VtankDefaultSettingsDatabase.Create();
         database.Find("BuffedItems")!.Rows.Add(new VtankRow
         {
             Cells =
@@ -2392,7 +2508,7 @@ public sealed partial class MossTankPanelTests
     public void ImportedBuffedItemWeaponSentinelUsesTheEquippedWeapon()
     {
         var storage = new MemoryStorage();
-        VtankDatabase database = VtankDefaultSettingsDatabase.Parse();
+        VtankDatabase database = VtankDefaultSettingsDatabase.Create();
         database.Find("BuffedItems")!.Rows.Add(new VtankRow
         {
             Cells = { VtankCell.Int(-1), VtankCell.Int(101) },
@@ -2421,7 +2537,7 @@ public sealed partial class MossTankPanelTests
     public void ImportedUntargetedBuffedItemSpellJoinsTheNormalBuffPlan()
     {
         var storage = new MemoryStorage();
-        VtankDatabase database = VtankDefaultSettingsDatabase.Parse();
+        VtankDatabase database = VtankDefaultSettingsDatabase.Create();
         database.Find("BuffedItems")!.Rows.Add(new VtankRow
         {
             Cells = { VtankCell.Int(10), VtankCell.Int(101) },
@@ -2451,7 +2567,7 @@ public sealed partial class MossTankPanelTests
     public void UnknownAndEmptyImportedBuffedItemSpellsStayInert()
     {
         var storage = new MemoryStorage();
-        VtankDatabase database = VtankDefaultSettingsDatabase.Parse();
+        VtankDatabase database = VtankDefaultSettingsDatabase.Create();
         VtankTable table = database.Find("BuffedItems")!;
         table.Rows.Add(new VtankRow { Cells = { VtankCell.Int(10), VtankCell.Int(999) } });
         table.Rows.Add(new VtankRow { Cells = { VtankCell.Int(10), VtankCell.Int(-1) } });
@@ -2604,7 +2720,7 @@ public sealed partial class MossTankPanelTests
     public void ImportedBuffedItemUiDeletesOneSpellPairAndKeepsItsSiblings()
     {
         var storage = new MemoryStorage();
-        VtankDatabase database = VtankDefaultSettingsDatabase.Parse();
+        VtankDatabase database = VtankDefaultSettingsDatabase.Create();
         VtankTable table = database.Find("BuffedItems")!;
         table.Rows.Add(new VtankRow { Cells = { VtankCell.Int(10), VtankCell.Int(-1) } });
         table.Rows.Add(new VtankRow { Cells = { VtankCell.Int(10), VtankCell.Int(101) } });
@@ -2649,7 +2765,7 @@ public sealed partial class MossTankPanelTests
     public void ImportedBuffedItemNumericExemplarResolvesKnownTierByFamily()
     {
         var storage = new MemoryStorage();
-        VtankDatabase database = VtankDefaultSettingsDatabase.Parse();
+        VtankDatabase database = VtankDefaultSettingsDatabase.Create();
         database.Find("BuffedItems")!.Rows.Add(new VtankRow
         {
             Cells = { VtankCell.Int(10), VtankCell.Int(100) },
@@ -3244,7 +3360,7 @@ public sealed partial class MossTankPanelTests
 
     private static string SettingsWithGemFood(params (string Name, uint SpellId)[] entries)
     {
-        VtankDatabase database = VtankDefaultSettingsDatabase.Parse();
+        VtankDatabase database = VtankDefaultSettingsDatabase.Create();
         VtankTable table = database.Find("GemFoodItems")!;
         int name = table.ColumnIndex("Name");
         int spell = table.ColumnIndex("Spell");
@@ -3263,7 +3379,7 @@ public sealed partial class MossTankPanelTests
 
     private static string SettingsWithoutGemFood()
     {
-        VtankDatabase database = VtankDefaultSettingsDatabase.Parse();
+        VtankDatabase database = VtankDefaultSettingsDatabase.Create();
         database.Tables.RemoveAll(static entry => entry.Name == "GemFoodItems");
         return database.Render();
     }
@@ -4519,6 +4635,36 @@ public sealed partial class MossTankPanelTests
     }
 
     /// <summary>Two points, at east-west 0 and 50, with the character back at 0.</summary>
+    /// <summary>
+    /// A circular route loaded while the macro runs (a meta swapping from its
+    /// travel route to its hunting circuit) starts at the point nearest the
+    /// character, as a macro start does. Seen live: the circuit started at
+    /// its first point 190 m away, out of the client's reach, and the
+    /// character stood still until the meta's watchdog restarted everything.
+    /// Mutation: go to the head on a load and the index is 0.
+    /// </summary>
+    [Fact]
+    public void ACircuitLoadedWhileRunningStartsAtItsNearestPoint()
+    {
+        var storage = new MemoryStorage();
+        storage.Text["mosstank/navs/Circle.af"] =
+            "NAV: nav0 circular ~~ {\r\n"
+            + "\tpnt 0 0 0\r\n"
+            + "\tpnt 0.2 0 0\r\n"
+            + "\tpnt 0.4 0 0\r\n";
+        var automation = new FakeAutomation { NavigationSnapshot = NavigationAt(0f) };
+        var panel = new MossTankPanel(new FakeHost(automation, storage));
+        automation.CurrentHealth = 100;
+        automation.MaxHealth = 100;
+        panel.ToggleCombat();
+        Assert.True(panel.CombatEnabled);
+
+        StandAt(automation, 0.4d);
+        Command(panel, "nav load Circle");
+
+        Assert.Equal(2, panel.RouteWaypointIndexForTest);
+    }
+
     private static void TwoPointRoute(MossTankPanel panel, FakeAutomation automation)
     {
         panel.AddRoutePoint();
@@ -5420,7 +5566,7 @@ public sealed partial class MossTankPanelTests
     public void ImportedExtraBuffExemplarIsVisibleAndRemovableFromTheBuffUi()
     {
         var storage = new MemoryStorage();
-        VtankDatabase profile = VtankDefaultSettingsDatabase.Parse();
+        VtankDatabase profile = VtankDefaultSettingsDatabase.Create();
         profile.Find("ExtraBuffSpells")!.Rows.Add(ExemplarRow(1));
         storage.Text[SettingsKey(VtankProfileDirectory.AutoCharacterFileName(
             "Imported Extra", string.Empty, "usd"))] = profile.Render();
@@ -5635,7 +5781,7 @@ public sealed partial class MossTankPanelTests
     [Fact]
     public void ImportedAssistItemsMapKindsAndPreserveUnknownCustomRowsOnSave()
     {
-        VtankDatabase database = VtankDefaultSettingsDatabase.Parse();
+        VtankDatabase database = VtankDefaultSettingsDatabase.Create();
         VtankTable table = database.Find("AssistItems")!;
         table.ColumnNames.Add("Extension");
         table.IndexFlags.Add(false);
@@ -5740,7 +5886,7 @@ public sealed partial class MossTankPanelTests
         Command(panel, "opt set AttackDistance 0.02");
         string safe = panel.SelectedMacroProfile;
 
-        VtankDatabase candidate = VtankDefaultSettingsDatabase.Parse();
+        VtankDatabase candidate = VtankDefaultSettingsDatabase.Create();
         VtankTable settings = candidate.Find("Settings")!;
         settings.Rows.Add(SettingRow(settings, "AttackDistance", VtankCell.Double(0.1d)));
         settings.Rows.Add(SettingRow(settings, "SpellDiffExcessThreshold-Hunt", new VtankCell
@@ -5798,7 +5944,7 @@ public sealed partial class MossTankPanelTests
     public void RemovingAnImportedConsumableDeletesOnlyItsExactAssistRow()
     {
         var storage = new MemoryStorage();
-        VtankDatabase imported = VtankDefaultSettingsDatabase.Parse();
+        VtankDatabase imported = VtankDefaultSettingsDatabase.Create();
         VtankTable table = imported.Find("AssistItems")!;
         table.ColumnNames.Add("Extension");
         table.IndexFlags.Add(false);
@@ -5828,13 +5974,13 @@ public sealed partial class MossTankPanelTests
     public void SwitchingToAnEmptyAssistItemsTableClearsImportedConsumables()
     {
         var storage = new MemoryStorage();
-        VtankDatabase imported = VtankDefaultSettingsDatabase.Parse();
+        VtankDatabase imported = VtankDefaultSettingsDatabase.Create();
         imported.Find("AssistItems")!.Rows.Add(new VtankRow
         {
             Cells = { VtankCell.String("Bread"), VtankCell.Int(1) },
         });
         storage.Text["mosstank/profiles/Assist.usd"] = imported.Render();
-        storage.Text["mosstank/profiles/NoAssist.usd"] = VtankDefaultSettingsDatabase.Parse().Render();
+        storage.Text["mosstank/profiles/NoAssist.usd"] = VtankDefaultSettingsDatabase.Create().Render();
         var panel = new MossTankPanel(new FakeHost(new FakeAutomation(), storage));
 
         Command(panel, "settings load Assist");
@@ -5860,7 +6006,7 @@ public sealed partial class MossTankPanelTests
     public void AddingAllPeasOverAnImportedSinglePeaRowActsAndPersists()
     {
         var storage = new MemoryStorage();
-        VtankDatabase imported = VtankDefaultSettingsDatabase.Parse();
+        VtankDatabase imported = VtankDefaultSettingsDatabase.Create();
         VtankTable table = imported.Find("AssistItems")!;
         table.ColumnNames.Add("Extension");
         table.IndexFlags.Add(false);
@@ -5905,7 +6051,7 @@ public sealed partial class MossTankPanelTests
     public void MismatchedPeaNameAndKindPairsAuthorizeNothing()
     {
         var storage = new MemoryStorage();
-        VtankDatabase imported = VtankDefaultSettingsDatabase.Parse();
+        VtankDatabase imported = VtankDefaultSettingsDatabase.Create();
         VtankTable table = imported.Find("AssistItems")!;
         // The wildcard name carrying the single-pea kind, and a single pea
         // carrying the wildcard kind.
@@ -5940,7 +6086,7 @@ public sealed partial class MossTankPanelTests
     public void DuplicateImportedRowsAndCustomCellsSurviveAnUnrelatedSave()
     {
         var storage = new MemoryStorage();
-        VtankDatabase imported = VtankDefaultSettingsDatabase.Parse();
+        VtankDatabase imported = VtankDefaultSettingsDatabase.Create();
         VtankTable table = imported.Find("AssistItems")!;
         table.ColumnNames.Add("Extension");
         table.IndexFlags.Add(false);
@@ -5994,7 +6140,7 @@ public sealed partial class MossTankPanelTests
     public void AnExplicitKindReKindsEveryRowForTheNameAndKeepsThem()
     {
         var storage = new MemoryStorage();
-        VtankDatabase imported = VtankDefaultSettingsDatabase.Parse();
+        VtankDatabase imported = VtankDefaultSettingsDatabase.Create();
         VtankTable table = imported.Find("AssistItems")!;
         table.ColumnNames.Add("Extension");
         table.IndexFlags.Add(false);
@@ -6049,7 +6195,7 @@ public sealed partial class MossTankPanelTests
     public void ThePeriodicSweepDoesNotOverruleAnImportedConsumableKind()
     {
         var storage = new MemoryStorage();
-        VtankDatabase imported = VtankDefaultSettingsDatabase.Parse();
+        VtankDatabase imported = VtankDefaultSettingsDatabase.Create();
         imported.Find("AssistItems")!.Rows.Add(new VtankRow
         {
             Cells = { VtankCell.String("Bread"), VtankCell.Int(5) },
@@ -7071,7 +7217,7 @@ public sealed partial class MossTankPanelTests
 
         string secondSettings = SettingsKey(
             VtankProfileDirectory.AutoCharacterFileName("Second", "Coldeve", "usd"));
-        storage.Text[secondSettings] = VtankDefaultSettingsDatabase.Parse().Render();
+        storage.Text[secondSettings] = VtankDefaultSettingsDatabase.Create().Render();
         const string malformed = "UTL\r\n1\r\n1\r\nunfinished";
         storage.Text["mosstank/loot/SecondLoot.utl"] = malformed;
         VtankProfileDirectory.WriteCharacterBinding(
@@ -9000,7 +9146,7 @@ public sealed partial class MossTankPanelTests
 
     private static string ProfileTextWithEnableMeta(bool value)
     {
-        VtankDatabase database = VtankDefaultSettingsDatabase.Parse();
+        VtankDatabase database = VtankDefaultSettingsDatabase.Create();
         VtankTable settings = database.Find("Settings")!;
         int nameColumn = settings.ColumnIndex("Setting");
         int valueColumn = settings.ColumnIndex("Value");
@@ -9630,7 +9776,7 @@ public sealed partial class MossTankPanelTests
     {
         var storage = new MemoryStorage();
         storage.Text[SettingsKey("Tight.usd")] =
-            VtankDefaultSettingsDatabase.Parse().Render();
+            VtankDefaultSettingsDatabase.Create().Render();
         storage.Text["profiles/macro/sidecar/Tight.usd.json"] =
             """{ "InventoryGiveRangeMeters": 2 }""";
         var automation = new FakeAutomation

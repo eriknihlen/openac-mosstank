@@ -64,12 +64,14 @@ internal static class CraftingPlanner
     public const string AllPeas = "[All Peas]";
 
     public static CraftingPlan? Plan(
+        VtankCraftDatabase crafts,
         IReadOnlyList<PluginInventoryItem> inventory,
         IEnumerable<string> desiredResults,
         ICharacterInfo character,
         int desiredCount = 1,
         int arrowheadFletchDifficultyExcess = 10)
     {
+        ArgumentNullException.ThrowIfNull(crafts);
         ArgumentNullException.ThrowIfNull(inventory);
         ArgumentNullException.ThrowIfNull(desiredResults);
         ArgumentNullException.ThrowIfNull(character);
@@ -87,6 +89,7 @@ internal static class CraftingPlanner
             if (counts.GetValueOrDefault(desired) >= Math.Max(1, desiredCount))
                 continue;
             CraftingPlan? plan = FindStep(
+                crafts,
                 desired,
                 desired,
                 inventory,
@@ -101,10 +104,12 @@ internal static class CraftingPlanner
     }
 
     public static CraftingPlan? PlanPeaSplit(
+        VtankCraftDatabase crafts,
         IReadOnlyList<PluginInventoryItem> inventory,
         ISet<string> consumableProfile,
         int minimumComponentCount)
     {
+        ArgumentNullException.ThrowIfNull(crafts);
         ArgumentNullException.ThrowIfNull(inventory);
         ArgumentNullException.ThrowIfNull(consumableProfile);
         int minimum = Math.Max(0, minimumComponentCount);
@@ -120,7 +125,7 @@ internal static class CraftingPlanner
                 static group => group.Key,
                 static group => group.Sum(item => Math.Max(1, item.StackSize)),
                 StringComparer.OrdinalIgnoreCase);
-        foreach (VtankCraftRecipe recipe in VtankCraftDatabase.Recipes)
+        foreach (VtankCraftRecipe recipe in crafts.Recipes)
         {
             if (!recipe.FirstItem.Equals("Splitting Tool", StringComparison.Ordinal)
                 || !recipe.SecondItem.EndsWith(" Pea", StringComparison.Ordinal)
@@ -142,6 +147,7 @@ internal static class CraftingPlanner
     }
 
     private static CraftingPlan? FindStep(
+        VtankCraftDatabase crafts,
         string result,
         string desiredResult,
         IReadOnlyList<PluginInventoryItem> inventory,
@@ -154,7 +160,7 @@ internal static class CraftingPlanner
             return null;
         try
         {
-            foreach (VtankCraftRecipe recipe in VtankCraftDatabase.ForResult(result))
+            foreach (VtankCraftRecipe recipe in crafts.ForResult(result))
             {
                 if (!HasRequiredSkill(
                         character,
@@ -167,6 +173,7 @@ internal static class CraftingPlanner
                 if (first.ObjectId == 0u)
                 {
                     CraftingPlan? prerequisite = FindStep(
+                        crafts,
                         recipe.FirstItem,
                         desiredResult,
                         inventory,
@@ -205,6 +212,7 @@ internal static class CraftingPlanner
                         };
                     }
                     CraftingPlan? prerequisite = FindStep(
+                        crafts,
                         recipe.SecondItem,
                         desiredResult,
                         inventory,
@@ -295,11 +303,54 @@ internal sealed class CraftingController
     public CraftingController(
         IPluginHost host,
         InventorySettings settings,
-        CombatSettings profiles)
+        CombatSettings profiles,
+        VtankGameInfoDatabase? gameInfo = null)
     {
         _host = host ?? throw new ArgumentNullException(nameof(host));
         _settings = settings ?? throw new ArgumentNullException(nameof(settings));
         _profiles = profiles ?? throw new ArgumentNullException(nameof(profiles));
+        _gameInfo = gameInfo ?? VtankGameInfoDatabase.Empty;
+    }
+
+    internal const string NoRecipesWarning =
+        "AutoCraft has no recipes until the game database is downloaded; "
+        + "/vt gamedb update checks now.";
+
+    private VtankGameInfoDatabase _gameInfo;
+    private bool _noRecipesSaid;
+
+    /// <summary>Where the one line about having no recipes goes.</summary>
+    internal Action<string>? Warning { get; set; }
+
+    /// <summary>The game database whose craft table every plan reads.</summary>
+    internal VtankGameInfoDatabase GameInfo => _gameInfo;
+
+    /// <summary>
+    /// Takes a newer game database. Plans read its craft table from the next
+    /// one on, and a database that still has none may say so again.
+    /// </summary>
+    internal void ReplaceGameInfo(VtankGameInfoDatabase gameInfo)
+    {
+        _gameInfo = gameInfo ?? throw new ArgumentNullException(nameof(gameInfo));
+        _noRecipesSaid = false;
+    }
+
+    /// <summary>
+    /// Whether there is anything to plan with. A database without a craft
+    /// table leaves crafting nothing to do, which is said once rather than
+    /// passed over in silence every scan.
+    /// </summary>
+    private bool HasRecipes()
+    {
+        if (_gameInfo.Crafts.Recipes.Count != 0)
+            return true;
+        Status = "AutoCraft has no recipes";
+        if (!_noRecipesSaid)
+        {
+            _noRecipesSaid = true;
+            Warning?.Invoke(NoRecipesWarning);
+        }
+        return false;
     }
 
     private Func<bool>? _readyToCraftInPeace;
@@ -332,9 +383,10 @@ internal sealed class CraftingController
             return false;
         }
         IItemAutomation items = _host.Automation.Items;
-        if (!items.IsAvailable || items.IsBusy)
+        if (!items.IsAvailable || items.IsBusy || !HasRecipes())
             return false;
         CraftingPlan? plan = CraftingPlanner.Plan(
+            _gameInfo.Crafts,
             items.CaptureOwnedItems(),
             [resultName],
             _host.Automation.Character,
@@ -351,11 +403,13 @@ internal sealed class CraftingController
     {
         if (string.IsNullOrWhiteSpace(resultName)
             || !_host.Automation.IsAvailable
-            || !_host.Automation.Items.IsAvailable)
+            || !_host.Automation.Items.IsAvailable
+            || !HasRecipes())
         {
             return null;
         }
         return CraftingPlanner.Plan(
+            _gameInfo.Crafts,
             _host.Automation.Items.CaptureOwnedItems(),
             [resultName],
             _host.Automation.Character,
@@ -437,9 +491,12 @@ internal sealed class CraftingController
         if (_untilCriticalScan > 0d)
             return false;
         _untilCriticalScan = Math.Max(0.1d, _settings.ScanIntervalSeconds);
+        if (!HasRecipes())
+            return false;
         IReadOnlyList<PluginInventoryItem> inventory = items.CaptureOwnedItems();
         CraftingPlan? plan = _settings.SplitPeas
             ? CraftingPlanner.PlanPeaSplit(
+                _gameInfo.Crafts,
                 inventory,
                 PeaConsumableNames(),
                 _settings.CriticalComponentMinimum)
@@ -475,14 +532,18 @@ internal sealed class CraftingController
         if (_untilScan > 0d)
             return false;
         _untilScan = Math.Max(0.1d, _settings.ScanIntervalSeconds);
+        if (!HasRecipes())
+            return false;
         IReadOnlyList<PluginInventoryItem> inventory = items.CaptureOwnedItems();
         CraftingPlan? plan = _settings.SplitPeas
             ? CraftingPlanner.PlanPeaSplit(
+                _gameInfo.Crafts,
                 inventory,
                 PeaConsumableNames(),
                 _settings.NormalComponentMinimum)
             : null;
         plan ??= CraftingPlanner.Plan(
+            _gameInfo.Crafts,
             inventory,
             _profiles.ConsumableNames
                 .Concat(_profiles.CombatItemNames)
@@ -525,9 +586,12 @@ internal sealed class CraftingController
         if (_untilIdleScan > 0d)
             return false;
         _untilIdleScan = Math.Max(0.1d, _settings.ScanIntervalSeconds);
+        if (!HasRecipes())
+            return false;
         IReadOnlyList<PluginInventoryItem> inventory = items.CaptureOwnedItems();
         CraftingPlan? plan = _settings.SplitPeas
             ? CraftingPlanner.PlanPeaSplit(
+                _gameInfo.Crafts,
                 inventory,
                 PeaConsumableNames(),
                 _settings.IdleComponentMinimum)
@@ -579,6 +643,7 @@ internal sealed class CraftingController
             if (desired <= 0)
                 continue;
             CraftingPlan? plan = CraftingPlanner.Plan(
+                _gameInfo.Crafts,
                 inventory,
                 [name],
                 _host.Automation.Character,

@@ -376,7 +376,18 @@ internal sealed class CombatController
 
     private readonly SpellCastTracker _castTracker;
 
-    private readonly VtankGameInfoDatabase _gameInfo;
+    private VtankGameInfoDatabase _gameInfo;
+
+    /// <summary>The game-information database every combat decision reads.</summary>
+    internal VtankGameInfoDatabase GameInfo => _gameInfo;
+
+    /// <summary>
+    /// Takes a newer game-information database. Nothing here keeps a copy of
+    /// a table: every reader goes through the field, so the next decision
+    /// already reads the new one.
+    /// </summary>
+    internal void ReplaceGameInfo(VtankGameInfoDatabase gameInfo) =>
+        _gameInfo = gameInfo ?? throw new ArgumentNullException(nameof(gameInfo));
 
     public bool Enabled { get; private set; }
     private IDisposable? _combatControl;
@@ -465,6 +476,15 @@ internal sealed class CombatController
                 return false;
             AmmunitionPlan plan = ResolveAmmunitionPlan(
                 PassEquipment(), weapon, element);
+            if (plan.Kind == AmmunitionPlanKind.Unavailable)
+            {
+                // Said, not swallowed: the server answers a launcher with an
+                // empty quiver by dropping the character out of combat, and
+                // without a word here the fight just re-enters its mode.
+                Status = plan.Notice;
+                PostAttackWarning("Warning: " + plan.Notice + ".");
+                return false;
+            }
             if (plan.Kind is not (AmmunitionPlanKind.Wield
                 or AmmunitionPlanKind.Craft))
                 return false;
@@ -2273,8 +2293,8 @@ internal sealed class CombatController
             return cached is not null;
         }
 
-        // The owner's own gameinfodb.ugd wins over the bundled table when it
-        // is there — one AmmunitionOptions table, read the way VTank reads it.
+        // The one AmmunitionOptions table is the game database's, read the
+        // way VTank reads it; there is no other to fall back on.
         VtankAmmunitionOption? selected = VtankAmmunitionDatabase.Select(
             _gameInfo.AmmunitionOptions,
             launcherType,
@@ -4642,6 +4662,7 @@ internal sealed class CombatController
             _host.Automation.Character,
             _host.Automation.Spells,
             inventory,
+            _gameInfo.GrenadeOptions,
             target.Distance,
             log);
         _passDebuffSources[key] = sources;

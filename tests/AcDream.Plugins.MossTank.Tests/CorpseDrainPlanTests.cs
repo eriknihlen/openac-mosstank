@@ -42,7 +42,7 @@ public sealed class CorpseDrainPlanTests
     {
         // 900 of 1000 health, 400 left on the monster, floor at 749. Every
         // martyr would drop the caster under the floor, so the three drains
-        // compete on rate: 30/1300, 50/1900 and 75/2350. The last wins.
+        // compete on rate: 25/1200, 45/1800 and 70/2300. The last wins.
         Assert.Equal(1239u, Select(900, 1000, 749, 400));
 
         // Take the winner away and the next-best rate takes it.
@@ -52,7 +52,7 @@ public sealed class CorpseDrainPlanTests
 
         // Drop the floor to 600 and the three martyrs join the race. Now the
         // two orderings disagree: the slowest martyr takes the most health off
-        // (236 points against 169), but the fastest one takes off far more per
+        // (189 points against 135), but the fastest one takes off more per
         // millisecond, and it is the fastest one the planner picks.
         Assert.Equal(2760u, Select(900, 1000, 600, 400));
     }

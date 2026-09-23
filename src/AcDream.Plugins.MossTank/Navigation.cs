@@ -531,6 +531,9 @@ internal sealed class NavigationController
     /// client could not walk has paused the route.
     /// </summary>
     private RouteWaypoint? _clientWalkGoal;
+
+    /// <summary>Whether a leg of the route is being walked by the client's own pathing.</summary>
+    internal bool IsClientWalking => _clientWalkGoal is not null;
     private long _clientWalkSequence;
     private int _clientHandOffIndex = -1;
     private bool _clientStallPosted;
@@ -631,6 +634,27 @@ internal sealed class NavigationController
     public int CurrentWaypointIndex => _index;
 
     /// <summary>
+    /// Moves the route on past the waypoint it is heading for, as if that one
+    /// had been reached, <paramref name="count"/> times; a walk the client is
+    /// making toward it ends. A once route that runs out is complete. Returns
+    /// how many were skipped: fewer when a once route ran out, none for a
+    /// follow route or a route with nothing left to walk.
+    /// </summary>
+    public int SkipWaypoints(int count)
+    {
+        if (count <= 0 || _settings.Mode == RouteMode.Target || HasNothingLeftToWalk)
+            return 0;
+        StopClientWalk();
+        int skipped = 0;
+        while (skipped < count && !_onceComplete)
+        {
+            AdvanceWaypoint();
+            skipped++;
+        }
+        return skipped;
+    }
+
+    /// <summary>
     /// Whether a once route has already run this waypoint. A once route
     /// consumes by moving its cursor, never by removing the point, so the
     /// waypoints behind the cursor are the spent ones; every other mode
@@ -684,10 +708,8 @@ internal sealed class NavigationController
     /// session. Stopping the macro is NOT one of those; it uses
     /// <see cref="StopForMacroStop"/>, which keeps the round's position, and
     /// the next start re-anchors it.
-    ///
-    /// The reference re-anchors on a route change too rather than going to
-    /// the head; that difference is a deliberate deviation and is recorded
-    /// with the project's other known deviations.
+    /// A route loaded while the macro runs is re-anchored straight after,
+    /// as the reference does (see the panel's route restart).
     /// </summary>
     public void Reset()
     {

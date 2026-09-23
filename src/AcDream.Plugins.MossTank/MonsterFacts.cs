@@ -21,7 +21,14 @@ internal sealed class MonsterFactTable
     {
     }
 
-    public VtankGameInfoDatabase Database { get; }
+    public VtankGameInfoDatabase Database { get; private set; }
+
+    /// <summary>
+    /// Reads a newer database from now on. The species words this client has
+    /// learned stay: they are the client's own, not the database's.
+    /// </summary>
+    public void Replace(VtankGameInfoDatabase database) =>
+        Database = database ?? throw new ArgumentNullException(nameof(database));
 
     /// <summary>
     /// Records the word this client uses for a species it has met. The

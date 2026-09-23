@@ -13,7 +13,7 @@
     <!-- The plugin's own version line, independent of any client release. It is
          the release tag minus the leading `v`, and `plugin.json` has to name the
          same number: MossTankManifestTests fails when the two drift. -->
-    <Version>0.2.8</Version>
+    <Version>0.3.0</Version>
 
     <!-- The plugin reaches the plugin contract as a compile-only package, never
          as a project reference into a client checkout: the host supplies the
@@ -25,7 +25,7 @@
          ./packages-local, which comes from the OpenAC release named by
          OPENAC_API_RELEASE_TAG in .github/workflows/ci.yml. -->
     <UsePluginApiPackage>true</UsePluginApiPackage>
-    <PluginApiPackageVersion>0.1.15</PluginApiPackageVersion>
+    <PluginApiPackageVersion>0.1.17</PluginApiPackageVersion>
 
     <!-- No lock files. Restore resolves the contract from a folder feed whose
          contents change with the contract release, which a committed lock file

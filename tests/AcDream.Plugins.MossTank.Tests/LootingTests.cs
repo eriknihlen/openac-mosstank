@@ -1207,6 +1207,57 @@ public sealed partial class LootingTests
         Assert.Equal("Salvaged Iron Sword.", controller.Status);
     }
 
+    /// <summary>
+    /// Without a salvage tool the loot work goes on: the item stays marked,
+    /// the player is told once in chat, and the item is salvaged the moment a
+    /// tool is carried. Mutation: stop the loot pass while the tool is missing
+    /// and the next corpse is never opened; drop the once-only flag and the
+    /// warning repeats every pass.
+    /// </summary>
+    [Fact]
+    public void AMissingSalvageToolWarnsOnceAndLootingCarriesOn()
+    {
+        var settings = new LootSettings { Enabled = true };
+        settings.Rules.Add(new LootRule { Expression = "*", Action = LootAction.Salvage });
+        const uint source = 0x70000411u;
+        const uint tool = 0x50000412u;
+        const uint nextCorpse = 0x70000413u;
+        var automation = new Automation { Owned = [Item(source, "Iron Sword", 100u)] };
+        var controller = new LootController(new Host(automation), settings);
+        var warnings = new List<string>();
+        controller.Warning = warnings.Add;
+        controller.MarkOwnedForTest(source, LootAction.Salvage);
+
+        controller.Tick(0.1d, canAct: true);
+        controller.Tick(0.1d, canAct: true);
+        automation.Corpses =
+        [
+            new PluginLootContainer(nextCorpse, 1u, "Corpse", 3f, false, false, false)
+            {
+                IsIdentified = true,
+                LongDescription = "Killed by Tester.",
+            },
+        ];
+        controller.Tick(0.3d, canAct: true);
+
+        Assert.Empty(automation.Salvaged);
+        Assert.Contains("Ust", Assert.Single(warnings));
+        Assert.Contains(nextCorpse, automation.Opened);
+
+        automation.Corpses = [];
+        automation.Current = 0u;
+        automation.Owned =
+        [
+            automation.Owned[0],
+            Item(tool, "Ust", 99u) with { ItemType = 0x20000000u },
+        ];
+        for (int i = 0; i < 20 && automation.Salvaged.Count == 0; i++)
+            controller.Tick(0.3d, canAct: true);
+
+        Assert.Equal(new[] { (tool, source) }, automation.Salvaged);
+        Assert.Single(warnings);
+    }
+
     [Fact]
     public void SellRuleQueuesUntilVendorThenRunsAuthoritativeSale()
     {

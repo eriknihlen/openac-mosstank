@@ -4,16 +4,77 @@ namespace AcDream.Plugins.MossTank.Tests;
 
 public sealed class CraftingTests
 {
+    /// <summary>
+    /// The fixture game database, whose rows were all written for the tests.
+    /// </summary>
+    private static readonly VtankGameInfoDatabase GameInfo =
+        VtankGameInfoDatabase.Parse(File.ReadAllText(Path.Combine(
+            AppContext.BaseDirectory, "Fixtures", "vtank", "gameinfodb-excerpt.ugd")));
+
+    private static VtankCraftDatabase Crafts => GameInfo.Crafts;
+
+    /// <summary>
+    /// The craft table is read by column position, as the reference reads
+    /// it: the skill is column 6 and the difficulty column 7, past the two
+    /// message columns. Mutation: read the difficulty from the skill's
+    /// column, and the arrow's difficulty reads 37.
+    /// </summary>
     [Fact]
-    public void EmbeddedDatabaseContainsAllOfficialVtankCraftInteractions()
+    public void TheGameDatabaseCraftTableIsReadByColumn()
     {
-        Assert.Equal(757, VtankCraftDatabase.Recipes.Count);
-        VtankCraftRecipe recipe = Assert.Single(
-            VtankCraftDatabase.ForResult("Plentiful Healing Kit"));
-        Assert.Equal("Soft Bandages", recipe.FirstItem);
-        Assert.Equal("Combined Hyssop and Mandrake", recipe.SecondItem);
-        Assert.Equal(21u, recipe.RequiredSkill);
-        Assert.Equal(157, recipe.Id);
+        Assert.Equal(6, Crafts.Recipes.Count);
+        VtankCraftRecipe kit = Assert.Single(Crafts.ForResult("Plentiful Healing Kit"));
+        Assert.Equal("Soft Bandages", kit.FirstItem);
+        Assert.Equal("Combined Hyssop and Mandrake", kit.SecondItem);
+        Assert.Equal(21u, kit.RequiredSkill);
+        Assert.Equal(9002, kit.Id);
+        VtankCraftRecipe arrow = Assert.Single(Crafts.ForResult("deadly fire arrow"));
+        Assert.Equal(250, arrow.ResultCount);
+        Assert.Equal(37u, arrow.RequiredSkill);
+        Assert.Equal(200, arrow.Difficulty);
+    }
+
+    /// <summary>
+    /// With no craft table, crafting has nothing to do and says so once,
+    /// however often it is asked; a database that arrives later is crafted
+    /// from at once. Mutations: never latch the line (it is said on every
+    /// scan); ignore the new database (nothing is crafted after it).
+    /// </summary>
+    [Fact]
+    public void WithoutACraftTableCraftingSaysSoOnceAndTakesALaterTable()
+    {
+        var automation = new Automation
+        {
+            TrainedSkill = 21u,
+            Inventory =
+            [
+                Item(1u, "Soft Bandages"),
+                Item(2u, "Combined Hyssop and Mandrake"),
+            ],
+        };
+        var profiles = new CombatSettings();
+        profiles.ConsumableNames.Add("Plentiful Healing Kit");
+        profiles.ConsumableCategories["Plentiful Healing Kit"] = ConsumableCategory.HealthKit;
+        var controller = new CraftingController(
+            new Host(automation),
+            new InventorySettings { AutoCraftItems = true, SplitPeas = false },
+            profiles,
+            VtankGameInfoDatabase.LoadDefault());
+        var said = new List<string>();
+        controller.Warning = said.Add;
+
+        Assert.False(controller.Tick(1d, canAct: true));
+        Assert.False(controller.Tick(1d, canAct: true));
+        Assert.False(controller.Request("Plentiful Healing Kit"));
+
+        Assert.Equal([CraftingController.NoRecipesWarning], said);
+        Assert.Empty(automation.Applies);
+        Assert.Equal("AutoCraft has no recipes", controller.Status);
+
+        controller.ReplaceGameInfo(GameInfo);
+
+        Assert.True(controller.Tick(1d, canAct: true));
+        Assert.Equal([(1u, 2u)], automation.Applies);
     }
 
     [Fact]
@@ -28,6 +89,7 @@ public sealed class CraftingTests
         ];
 
         CraftingPlan first = Assert.IsType<CraftingPlan>(CraftingPlanner.Plan(
+            Crafts,
             inventory,
             ["Plentiful Healing Kit"],
             character));
@@ -37,6 +99,7 @@ public sealed class CraftingTests
         Assert.Equal(3u, first.SecondObjectId);
 
         CraftingPlan final = Assert.IsType<CraftingPlan>(CraftingPlanner.Plan(
+            Crafts,
             [inventory[0], Item(4, "Combined Hyssop and Mandrake")],
             ["Plentiful Healing Kit"],
             character));
@@ -49,6 +112,7 @@ public sealed class CraftingTests
     public void PlannerRejectsRecipesForUntrainedRequiredSkill()
     {
         CraftingPlan? plan = CraftingPlanner.Plan(
+            Crafts,
             [Item(1, "Soft Bandages"), Item(2, "Combined Hyssop and Mandrake")],
             ["Plentiful Healing Kit"],
             new Character(trainedSkill: 0u));
@@ -61,6 +125,7 @@ public sealed class CraftingTests
     {
         CraftingPlan plan = Assert.IsType<CraftingPlan>(
             CraftingPlanner.PlanPeaSplit(
+                Crafts,
                 [
                     Item(1, "Splitting Tool"),
                     Item(2, "Brimstone Pea"),
@@ -91,7 +156,7 @@ public sealed class CraftingTests
         profiles.ConsumableNames.Add("Silver Pea");
         profiles.ConsumableCategories["Silver Pea"] = ConsumableCategory.HealthKit;
         var controller = new CraftingController(new Host(new Automation()),
-            new InventorySettings(), profiles);
+            new InventorySettings(), profiles, GameInfo);
 
         ISet<string> peas = controller.PeaConsumableNames();
 
@@ -107,6 +172,7 @@ public sealed class CraftingTests
         };
 
         Assert.Null(CraftingPlanner.PlanPeaSplit(
+            Crafts,
             [Item(1, "Splitting Tool"), Item(2, "Brimstone Pea"), brimstone],
             new HashSet<string>(StringComparer.OrdinalIgnoreCase)
             {
@@ -124,6 +190,7 @@ public sealed class CraftingTests
         };
 
         CraftingPlan plan = Assert.IsType<CraftingPlan>(CraftingPlanner.Plan(
+            Crafts,
             [oil],
             ["Strong Chorizite Oil"],
             new Character(trainedSkill: 0u)));
@@ -155,7 +222,8 @@ public sealed class CraftingTests
         var controller = new CraftingController(
             new Host(automation),
             settings,
-            profiles);
+            profiles,
+            GameInfo);
 
         Assert.True(controller.Tick(0d, canAct: true));
         Assert.Equal([(20u, 1u, 1u)], automation.Moves);
@@ -210,7 +278,8 @@ public sealed class CraftingTests
         var controller = new CraftingController(
             new Host(automation),
             settings,
-            profiles);
+            profiles,
+            GameInfo);
 
         Assert.True(controller.Tick(0d, canAct: true));
         Assert.Equal([(20u, 1u, 1u)], automation.Moves);
@@ -264,7 +333,8 @@ public sealed class CraftingTests
         var controller = new CraftingController(
             new Host(automation),
             settings,
-            profiles);
+            profiles,
+            GameInfo);
 
         Assert.True(controller.Tick(0d, canAct: true));
         Assert.Equal([(20u, 1u, 1u)], automation.Moves);
@@ -301,7 +371,8 @@ public sealed class CraftingTests
         var controller = new CraftingController(
             new Host(automation),
             settings,
-            profiles);
+            profiles,
+            GameInfo);
         bool inPeace = false;
         controller.BindPeaceGate(() => inPeace);
 
@@ -341,7 +412,8 @@ public sealed class CraftingTests
         var controller = new CraftingController(
             new Host(automation),
             settings,
-            profiles);
+            profiles,
+            GameInfo);
         controller.BindPeaceGate(() => true);
         Assert.False(controller.UseInFlight);
 
@@ -366,7 +438,8 @@ public sealed class CraftingTests
         var controller = new CraftingController(
             new Host(automation),
             new InventorySettings { AutoCraftItems = false },
-            new CombatSettings());
+            new CombatSettings(),
+            GameInfo);
 
         Assert.True(controller.Request("Deadly Fire Arrow"));
 
@@ -397,7 +470,8 @@ public sealed class CraftingTests
         var controller = new CraftingController(
             new Host(automation),
             new InventorySettings { AutoCraftItems = false },
-            new CombatSettings());
+            new CombatSettings(),
+            GameInfo);
 
         Assert.True(controller.Request("Deadly Fire Arrow"));
         Assert.True(controller.UseInFlight);
@@ -427,7 +501,7 @@ public sealed class CraftingTests
             ],
         };
         var controller = new CraftingController(new Host(automation),
-            new InventorySettings(), new CombatSettings());
+            new InventorySettings(), new CombatSettings(), GameInfo);
         CraftingPlan chosen = Assert.IsType<CraftingPlan>(
             controller.ResolveRequestPlan("Deadly Fire Arrow"));
         Assert.Equal((10u, 20u),
@@ -491,7 +565,8 @@ public sealed class CraftingTests
         var controller = new CraftingController(
             new Host(automation),
             settings,
-            profiles);
+            profiles,
+            GameInfo);
 
         Assert.True(controller.TickIdle(0d, canAct: true));
         Assert.Equal([(1u, 2u)], automation.Applies);
@@ -579,7 +654,8 @@ public sealed class CraftingTests
         var controller = new CraftingController(
             new Host(automation),
             settings,
-            profiles);
+            profiles,
+            GameInfo);
 
         return controller.TickIdle(0d, canAct: true);
     }

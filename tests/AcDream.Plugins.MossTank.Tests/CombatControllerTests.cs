@@ -2384,6 +2384,53 @@ public sealed class CombatControllerTests
     /// Mutation: hard-code <c>PluginAttackHeight.Medium</c> in the debuff
     /// clearance check again and this fails.
     /// </summary>
+    /// <summary>
+    /// Grenades come from the game database in use: with the built-in one
+    /// (no GrenadeOptions rows) the phial is nothing, and once a downloaded
+    /// database replaces it the very next pass throws the phial. Mutation:
+    /// read the grenade table from the database the controller was built
+    /// with, and the phial is never thrown.
+    /// </summary>
+    [Fact]
+    public void GrenadesComeFromTheGameDatabaseInUse()
+    {
+        PluginSpellInfo imperil = Spell(1323, "Imperil Other I") with
+        {
+            School = 31,
+            IsDebuff = true,
+            IsOffensive = true,
+            DurationSeconds = 60,
+        };
+        PluginInventoryItem phial = InventoryItem(
+            200, "Iron Phial of Imperil", 0x100, 0, equipped: false)
+            with { CombatUse = 0 };
+        var surface = new FakeAutomation
+        {
+            CombatSnapshot = Physical() with { Mode = PluginCombatMode.Missile },
+            Targets = [Target(10, "Drudge", 5, 0)],
+            SpellLookup = [imperil],
+            ItemEntries = [phial],
+            EquipmentItems = [Equipment(200u, "Iron Phial of Imperil",
+                damageType: 0, itemType: 0x100u)],
+            CharacterSkills = [new(38u, "Alchemy", PluginSkillTraining.Trained, 400)],
+        };
+        var settings = DebuffOnly(MonsterActionFlags.Imperil);
+        settings.ConsumableNames.Add("Iron Phial of Imperil");
+        settings.UseProjectileAwareness = true;
+        var controller = new CombatController(
+            new FakeHost(surface), settings, gameInfo: VtankGameInfoDatabase.LoadDefault());
+
+        controller.Toggle();
+        controller.OnTick(0.25);
+        Assert.Equal(0u, surface.LastProjectileTarget);
+
+        controller.ReplaceGameInfo(GameInfo);
+        controller.OnTick(0.25);
+
+        Assert.Equal(10u, surface.LastProjectileTarget);
+        Assert.Equal(PluginProjectilePathKind.Missile, surface.LastProjectileKind);
+    }
+
     [Fact]
     public void ADebuffsClearanceUsesItsOwnFlightHeight()
     {
@@ -2412,7 +2459,7 @@ public sealed class CombatControllerTests
         settings.UseProjectileAwareness = true;
         // Deliberately neither of the two shape heights.
         settings.AttackHeight = PluginAttackHeight.Low;
-        var controller = new CombatController(new FakeHost(surface), settings);
+        var controller = new CombatController(new FakeHost(surface), settings, gameInfo: GameInfo);
 
         controller.Toggle();
         controller.OnTick(0.25);
@@ -2562,9 +2609,9 @@ public sealed class CombatControllerTests
             MagicSpell(102, "Flame Streak VII", difficulty: 350),
         ];
 
-        // "Olthoi Slasher" is listed in the fixture database at 3190 health,
+        // "Olthoi Slasher" is listed in the fixture database at 2000 health,
         // and the streak's difficulty of 350 sets the bar at 50 points until a
-        // real blow is seen: 2871 left bolts, 32 left finishes.
+        // real blow is seen: 1800 left bolts, 20 left finishes.
         Assert.Equal(100u, CastAgainstHealth(known, healthFraction: 0.9f).Item1);
         Assert.Equal(102u, CastAgainstHealth(known, healthFraction: 0.01f).Item1);
 
@@ -5196,6 +5243,36 @@ public sealed class CombatControllerTests
     }
 
     /// <summary>
+    /// A launcher with no ammunition it can load says so, once, instead of
+    /// leaving the fight to re-enter its mode against a server that drops an
+    /// empty quiver out of combat. Mutation: return quietly on an unavailable
+    /// selection and nothing is said.
+    /// </summary>
+    [Fact]
+    public void AnUnavailableAmmunitionSelectionIsSaidOnce()
+    {
+        var surface = new FakeAutomation
+        {
+            CombatSnapshot = Physical() with { Mode = PluginCombatMode.Peace },
+            CharacterSkills = [new PluginSkillInfo(47u, "Missile Weapons",
+                PluginSkillTraining.Trained, 300u) { Base = 300u }],
+            EquipmentItems =
+            [
+                Equipment(700, "Fire Bow", 0x10, itemType: 0x100u,
+                    equippedLocation: 0x00100000u, ammoType: 1u),
+            ],
+        };
+        CombatModeGate gate = BoundAmmunitionGate(surface, VtankGameInfoDatabase.LoadDefault());
+
+        Assert.False(gate.AmmunitionStale!(700u, MonsterDamageType.Fire));
+        Assert.False(gate.AmmunitionStale!(700u, MonsterDamageType.Fire));
+
+        Assert.Single(
+            surface.PostedSystemMessages,
+            message => message.Contains("ammunition", StringComparison.OrdinalIgnoreCase));
+    }
+
+    /// <summary>
     /// Mutation: treat an unavailable selection as stale;
     /// the gate enters an action branch despite having no pending action.
     /// </summary>
@@ -5215,6 +5292,47 @@ public sealed class CombatControllerTests
 
         Assert.False(gate.AmmunitionStale!(700u, MonsterDamageType.Fire));
         Assert.False(gate.WieldAmmunition!(MonsterDamageType.Fire));
+    }
+
+    /// <summary>
+    /// A database downloaded in the middle of a session is read by the very
+    /// next ammunition choice: the built-in one has no arrows to choose,
+    /// the new one does. Mutation: keep reading the database the controller
+    /// was built with, and the arrow is never chosen.
+    /// </summary>
+    [Fact]
+    public void AmmunitionSelectionReadsADatabaseReplacedMidSession()
+    {
+        var surface = new FakeAutomation
+        {
+            CombatSnapshot = Physical() with { Mode = PluginCombatMode.Peace },
+            CharacterSkills = [new PluginSkillInfo(47u, "Missile Weapons",
+                PluginSkillTraining.Trained, 300u) { Base = 300u }],
+            EquipmentItems =
+            [
+                Equipment(700, "Fire Bow", 0x10, itemType: 0x100u,
+                    equippedLocation: 0x00100000u, ammoType: 1u),
+                Equipment(801, "Deadly Fire Arrow", 0x10, combatUse: 3,
+                    stackSize: 20, validLocations: AmmunitionSlot),
+            ],
+            ItemEntries =
+            [
+                InventoryItem(801, "Deadly Fire Arrow", 0x100u, 0u, false),
+            ],
+        };
+        var settings = new CombatSettings();
+        var host = new FakeHost(surface);
+        var controller = new CombatController(host, settings,
+            gameInfo: VtankGameInfoDatabase.LoadDefault());
+        CombatModeGate gate = controller.BindCombatModeGate(new CombatModeGate(
+            host, settings, new VitalSettings(), _ => { }));
+        Assert.False(gate.AmmunitionStale!(700u, MonsterDamageType.Fire));
+
+        controller.ReplaceGameInfo(AmmoGameInfo);
+
+        Assert.True(gate.AmmunitionStale!(700u, MonsterDamageType.Fire));
+        Assert.True(gate.WieldAmmunition!(MonsterDamageType.Fire));
+        Assert.Equal(801u, surface.LastEquipObjectId);
     }
 
     private static CombatModeGate BoundAmmunitionGate(
@@ -6434,7 +6552,7 @@ public sealed class CombatControllerTests
     {
         const uint primaryId = 0x8001_AC87u;
         const uint secondaryId = 0x8001_B291u;
-        VtankDatabase profile = VtankDefaultSettingsDatabase.Parse();
+        VtankDatabase profile = VtankDefaultSettingsDatabase.Create();
         VtankTable monsters = profile.Find(VtankMonsterRuleTable.TableName)!;
         monsters.Rows[0].Cells[3] = VtankCell.Int(unchecked((int)primaryId));
         monsters.Rows[0].Cells[19] = VtankCell.Int(unchecked((int)secondaryId));
@@ -6792,12 +6910,12 @@ public sealed class CombatControllerTests
             CombatSnapshot = Peaceful(),
             EquipmentItems = [Equipment(sword, "Signed Fire Sword", 0x0010)],
         };
-        VtankDatabase restricted = VtankDefaultSettingsDatabase.Parse();
+        VtankDatabase restricted = VtankDefaultSettingsDatabase.Create();
         restricted.Find("ItemUseSpecifiers")!.Rows.Add(new VtankRow
         {
             Cells = { VtankCell.Int(unchecked((int)sword)), VtankCell.Int(0) },
         });
-        VtankDatabase unrestricted = VtankDefaultSettingsDatabase.Parse();
+        VtankDatabase unrestricted = VtankDefaultSettingsDatabase.Create();
         unrestricted.Tables.RemoveAll(
             static entry => entry.Name == "ItemUseSpecifiers");
 
@@ -8742,10 +8860,9 @@ public sealed class CombatControllerTests
             RepeatAttackInProgress: false);
 
     /// <summary>
-    /// A real excerpt of the owner's own <c>gameinfodb.ugd</c> — VTank's
-    /// official GameInfoDB, loaded from the profile directory.
-    /// Any pin whose subject is a monster's damage
-    /// preferences needs one, because acdream ships no embedded default.
+    /// A game database in the format of <c>gameinfodb.ugd</c>, every row of it
+    /// written for the tests. Any pin whose subject is a monster's damage
+    /// preferences needs one, because the built-in database is empty.
     /// </summary>
     private static readonly VtankGameInfoDatabase AmmoGameInfo =
         CreateAmmoGameInfo();

@@ -549,6 +549,41 @@ public class MacroSchedulerTests
     }
 
 
+    /// <summary>
+    /// A shorter meta interval looks at the meta between passes too, and the
+    /// time handed to it adds up to the time that passed: a meta that is
+    /// looked at more often does not also see its clocks run faster. At the
+    /// heartbeat the meta is looked at on passes only, as before.
+    /// Mutation: skip the between-pass look and the fast arm sees only the
+    /// passes; hand each pass its whole elapsed time and the sum overshoots.
+    /// </summary>
+    [Theory]
+    [InlineData(0.1d, 6)]
+    [InlineData(MacroScheduler.HeartbeatSeconds, 2)]
+    public void AShorterMetaIntervalLooksAtTheMetaBetweenPassesWithoutRushingItsClock(
+        double interval, int expectedLooks)
+    {
+        var seen = new List<double>();
+        var scheduler = new MacroScheduler([new Probe("main", valid: true)], [])
+        {
+            MetaPass = seen.Add,
+            MetaIntervalSeconds = interval,
+        };
+        scheduler.Start();
+
+        double total = 0d;
+        for (int step = 0; step < 12; step++)
+        {
+            scheduler.Advance(0.05d);
+            total += 0.05d;
+        }
+
+        Assert.Equal(expectedLooks, seen.Count);
+        double handed = seen.Sum();
+        Assert.True(handed <= total + 1e-9, $"handed {handed} of {total}");
+        Assert.True(handed >= total - interval - 1e-9, $"handed {handed} of {total}");
+    }
+
     [Fact]
     public void StartingTheMacroAgainOwesTheMetaNoSuspendedBacklog()
     {

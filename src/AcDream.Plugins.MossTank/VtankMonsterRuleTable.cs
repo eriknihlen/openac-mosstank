@@ -7,7 +7,7 @@ internal static class VtankMonsterRuleTable
 
     private const int ColumnCount = 21;
 
-    private static readonly string[] Columns =
+    internal static readonly string[] Columns =
     [
         "MonsterName",
         "AttackPriority",

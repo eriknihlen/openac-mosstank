@@ -32,7 +32,7 @@ public sealed class VtankSettingsProfileSerializerTests
     [Fact]
     public void BuffedItemsSupplyDistinctOrderedIdsAndKeepSpellRows()
     {
-        VtankDatabase document = VtankDefaultSettingsDatabase.Parse();
+        VtankDatabase document = VtankDefaultSettingsDatabase.Create();
         VtankTable table = document.Find("BuffedItems")!;
         table.Rows.Add(BuffedItem(802, 17));
         table.Rows.Add(BuffedItem(801, 18));
@@ -66,7 +66,7 @@ public sealed class VtankSettingsProfileSerializerTests
     [Fact]
     public void BuffedItemsKeepMalformedDuplicateAndCustomRowsOnRoundTrip()
     {
-        VtankDatabase document = VtankDefaultSettingsDatabase.Parse();
+        VtankDatabase document = VtankDefaultSettingsDatabase.Create();
         VtankTable table = document.Find("BuffedItems")!;
         table.ColumnNames.Add("Custom");
         table.IndexFlags.Add(false);
@@ -98,13 +98,13 @@ public sealed class VtankSettingsProfileSerializerTests
     public void ItemUseSpecifiersRetainSignedIdsAndClearOnProfileSwitch()
     {
         const uint signed = 0x8000_DF43u;
-        VtankDatabase first = VtankDefaultSettingsDatabase.Parse();
+        VtankDatabase first = VtankDefaultSettingsDatabase.Create();
         VtankTable table = first.Find("ItemUseSpecifiers")!;
         table.Rows.Add(new VtankRow { Cells = { VtankCell.Int(unchecked((int)signed)), VtankCell.Int(0) } });
         table.Rows.Add(new VtankRow { Cells = { VtankCell.Int(2), VtankCell.Int(1) } });
         table.Rows.Add(new VtankRow { Cells = { VtankCell.Int(3), VtankCell.Int(2) } });
         table.Rows.Add(new VtankRow { Cells = { VtankCell.Int(4), VtankCell.Int(3) } });
-        VtankDatabase second = VtankDefaultSettingsDatabase.Parse();
+        VtankDatabase second = VtankDefaultSettingsDatabase.Create();
         second.Tables.RemoveAll(static entry => entry.Name == "ItemUseSpecifiers");
         var settings = NewSettings();
 
@@ -121,9 +121,9 @@ public sealed class VtankSettingsProfileSerializerTests
     [Fact]
     public void LoadingAProfileWithoutBuffedItemsClearsEarlierProfiledRows()
     {
-        VtankDatabase first = VtankDefaultSettingsDatabase.Parse();
+        VtankDatabase first = VtankDefaultSettingsDatabase.Create();
         first.Find("BuffedItems")!.Rows.Add(BuffedItem(801, 17));
-        VtankDatabase second = VtankDefaultSettingsDatabase.Parse();
+        VtankDatabase second = VtankDefaultSettingsDatabase.Create();
         second.Tables.RemoveAll(static entry => entry.Name == "BuffedItems");
         var settings = NewSettings();
 
@@ -356,7 +356,7 @@ public sealed class VtankSettingsProfileSerializerTests
     [Fact]
     public void GemFoodWritesKeepCustomCellsInvalidRowsAndUnchangedRowsVerbatim()
     {
-        VtankDatabase seed = VtankDefaultSettingsDatabase.Parse();
+        VtankDatabase seed = VtankDefaultSettingsDatabase.Create();
         VtankTable table = seed.Find("GemFoodItems")!;
         table.ColumnNames.Add("Extension");
         table.IndexFlags.Add(false);
@@ -390,7 +390,7 @@ public sealed class VtankSettingsProfileSerializerTests
     [Fact]
     public void GemFoodInvalidNumericCellsStayInertAndRoundTripVerbatim()
     {
-        VtankDatabase seed = VtankDefaultSettingsDatabase.Parse();
+        VtankDatabase seed = VtankDefaultSettingsDatabase.Create();
         VtankTable table = seed.Find("GemFoodItems")!;
         table.ColumnNames.Add("Extension");
         table.IndexFlags.Add(false);
@@ -423,7 +423,7 @@ public sealed class VtankSettingsProfileSerializerTests
     [Fact]
     public void GemFoodRemovalKeepsTheExactSameNameSourceRow()
     {
-        VtankDatabase seed = VtankDefaultSettingsDatabase.Parse();
+        VtankDatabase seed = VtankDefaultSettingsDatabase.Create();
         VtankTable table = seed.Find("GemFoodItems")!;
         table.ColumnNames.Add("Extension");
         table.IndexFlags.Add(false);
@@ -460,7 +460,7 @@ public sealed class VtankSettingsProfileSerializerTests
     [Fact]
     public void ExtraBuffExemplarsLoadRoundTripAndPreserveUnknownCells()
     {
-        VtankDatabase seed = VtankDefaultSettingsDatabase.Parse();
+        VtankDatabase seed = VtankDefaultSettingsDatabase.Create();
         VtankTable extra = seed.Find("ExtraBuffSpells")!;
         extra.ColumnNames.Add("Extension");
         extra.IndexFlags.Add(false);
@@ -501,7 +501,7 @@ public sealed class VtankSettingsProfileSerializerTests
         settings.Buffs.ExtraBuffSpellIds.Add(100u);
         settings.Buffs.AntiExtraBuffSpellIds.Add(200u);
 
-        VtankDatabase withoutTables = VtankDefaultSettingsDatabase.Parse();
+        VtankDatabase withoutTables = VtankDefaultSettingsDatabase.Create();
         withoutTables.Tables.RemoveAll(static entry => entry.Name is "ExtraBuffSpells" or "AntiExtraBuffSpells");
         VtankSettingsProfileSerializer.Load(withoutTables.Render(), settings);
 

@@ -48,7 +48,13 @@ internal sealed partial class MossTankPanel : IBuffRuleHost, IDisposable
     private readonly NavigationSettings _navigationSettings = new();
     private readonly MetaSettings _metaSettings = new();
     private readonly VtankSettingsProfileSerializer.AllSettings _allSettings;
-    private readonly VtankGameInfoDatabase _gameInfo;
+    /// <summary>
+    /// The game-information database in use. It changes only through
+    /// <see cref="ApplyGameInfo"/>, which hands it to every reader.
+    /// </summary>
+    private VtankGameInfoDatabase _gameInfo;
+    private readonly VtankGameInfoUpdater _gameInfoUpdater;
+    private bool _gameInfoCheckedThisSession;
     private readonly MossTankProfileStore _profiles;
     private readonly MossTankLootProfileStore _lootProfiles;
     private readonly MossTankRouteProfileStore _routeProfiles;
@@ -272,8 +278,18 @@ internal sealed partial class MossTankPanel : IBuffRuleHost, IDisposable
     private uint? _selectionBeforePass;
 
     public MossTankPanel(IPluginHost host)
+        : this(host, gameInfoTransport: null)
+    {
+    }
+
+    /// <param name="gameInfoTransport">
+    /// How the game-database update fetches its file. Without one the
+    /// panel never downloads anything; the plugin gives it the real one.
+    /// </param>
+    internal MossTankPanel(IPluginHost host, IVtankGameInfoTransport? gameInfoTransport)
     {
         _host = host;
+        _gameInfoUpdater = new VtankGameInfoUpdater(host.VtankProfiles, host.Storage, gameInfoTransport);
         _advancedOptionCategoryEnabledView =
             new ReadOnlyCollection<bool>(_advancedOptionCategoryEnabled);
         _firstRunGuidancePending = NeedsFirstRunGuidance(host);
@@ -288,17 +304,15 @@ internal sealed partial class MossTankPanel : IBuffRuleHost, IDisposable
             PlayerObjectId = () => _host.Automation.Character.ObjectId,
         };
         // The official monster-info database, read from the profile directory
-        // beside the .usd files. Absent means EMPTY, not a guess: acdream
-        // ships no embedded copy of it.
+        // beside the .usd files. Absent means the reference client's own
+        // built-in one, whose tables are empty until the session's update
+        // check downloads the real content into the profile directory.
         _gameInfo = VtankGameInfoDatabase.Load(host.VtankProfiles);
         // A rule's `species` and `maxhp` are database facts. Without the
         // database every monster reads as unlisted, which is what the
         // reference client does with no database of its own.
         _combatSettings.MonsterFacts = new MonsterFactTable(_gameInfo);
-        var healKits = new Dictionary<string, VtankHealKit>(StringComparer.OrdinalIgnoreCase);
-        foreach (VtankHealKit kit in _gameInfo.HealKits)
-            healKits[kit.Name] = kit;
-        _combatSettings.HealKits = healKits;
+        _combatSettings.HealKits = HealKitTable(_gameInfo);
         // Before any store reads anything: every key they use is addressed
         // inside the plugin's own folder now.
         MigrateFileLayout();
@@ -401,7 +415,9 @@ internal sealed partial class MossTankPanel : IBuffRuleHost, IDisposable
         _crafting = new CraftingController(
             host,
             _inventorySettings,
-            _combatSettings);
+            _combatSettings,
+            _gameInfo);
+        _crafting.Warning = text => WriteVtank("[MossTank] " + text);
         _crafting.BindPeaceGate(ReadyToActInPeace);
         _combat.BindAmmunitionCraftRequest(
             _crafting.ResolveRequestPlan,
@@ -417,6 +433,7 @@ internal sealed partial class MossTankPanel : IBuffRuleHost, IDisposable
             _combatSettings.ConsumableNames,
             _combatSettings.ConsumableCategories);
         _loot.BindActionLocks(_actionLocks);
+        _loot.Warning = text => WriteVtank("[MossTank] " + text);
         _corpseApproach = new CorpseApproachController(
             host,
             _inventorySettings.Loot,
@@ -486,6 +503,7 @@ internal sealed partial class MossTankPanel : IBuffRuleHost, IDisposable
             if (_combat.Enabled)
                 _meta.OnTick(elapsed);
         };
+        ApplyMetaInterval();
         _combat.BindPassSuspension(_scheduler.Suspend, _scheduler.Resume);
         _scheduler.Log = EmitMacroLog;
         // The three columns are cooldown-slot states, not controller
@@ -725,9 +743,18 @@ internal sealed partial class MossTankPanel : IBuffRuleHost, IDisposable
         _scheduler.IsRunning,
         _scheduler.LastExecutedRule?.Name,
         _buffRule.IsBursting,
-        _navigationSettings.Enabled,
+        RouteHoldsClientWalks(_navigationSettings.Enabled, _navigation.IsClientWalking),
         _inventorySettings.Loot.Enabled,
         _walkClock - _lastAttackSeconds);
+
+    /// <summary>
+    /// Whether following the route holds a walk the client plans. It does,
+    /// except while the walk is the route's own: a leg the steering could not
+    /// cover is handed to the client's pathing, and holding that walk left
+    /// the character standing until the meta's watchdog restarted the route.
+    /// </summary>
+    internal static bool RouteHoldsClientWalks(bool routeEnabled, bool routeOwnsClientWalk) =>
+        routeEnabled && !routeOwnsClientWalk;
 
     /// <summary>
     /// The macro needs the character while it buffs, while it steers the character along
@@ -1094,6 +1121,23 @@ internal sealed partial class MossTankPanel : IBuffRuleHost, IDisposable
     public Action<int> RouteWaypointFillerClick => static _ => { };
     public Action<int> DeleteRouteWaypointAt => DeleteRouteWaypointAtCore;
     public Action SelectNearestRouteWaypoint => SelectNearestRouteWaypointCore;
+    public Action SkipRouteWaypoint => () => WriteVtank(SkipRouteWaypoints(1));
+
+    /// <summary>Skips waypoints on the loaded route and says where it is heading now.</summary>
+    internal string SkipRouteWaypoints(int count)
+    {
+        if (_navigationSettings.Mode == RouteMode.Target)
+            return "A follow route has no waypoints to skip.";
+        int skipped = _navigation.SkipWaypoints(count);
+        if (skipped == 0)
+            return "The route has no waypoint left to skip.";
+        RefreshRouteEditor();
+        string noun = skipped == 1 ? "waypoint" : "waypoints";
+        return _navigation.HasNothingLeftToWalk
+            ? $"Skipped {skipped} {noun}; the route is complete."
+            : $"Skipped {skipped} {noun}; now heading for waypoint "
+                + $"{_navigation.CurrentWaypointIndex + 1}/{_navigationSettings.Waypoints.Count}.";
+    }
     public IReadOnlyList<string> RouteModeNames =>
         ["Circular", "Linear", "Follow", "Once"];
     public string SelectedRouteMode => _navigationSettings.Mode == RouteMode.Target
@@ -2709,7 +2753,7 @@ internal sealed partial class MossTankPanel : IBuffRuleHost, IDisposable
         for (int i = 0; i < _navigationSettings.Waypoints.Count; i++)
         {
             RouteWaypoint waypoint = _navigationSettings.Waypoints[i];
-            if (waypoint.Position.CellId == 0u)
+            if (waypoint.Position == default)
                 continue;
             double distance = player.Position.HorizontalDistanceMeters(waypoint.Position);
             if (distance < bestDistance)
@@ -2852,7 +2896,7 @@ internal sealed partial class MossTankPanel : IBuffRuleHost, IDisposable
         _embeddedRouteLabel = null;
         if (_initialized)
             ApplyPersistedOptionOverrides();
-        _navigation.Reset();
+        RestartRouteRound();
         RefreshRouteEditor();
         return true;
     }
@@ -3617,7 +3661,6 @@ internal sealed partial class MossTankPanel : IBuffRuleHost, IDisposable
 
     private void SelectMetaProfileCore(string name)
     {
-        SaveMetaProfile();
         if (!_metaProfiles.Select(name))
         {
             _metaNotice = $"Meta profile '{name}' is unavailable.";
@@ -3662,6 +3705,18 @@ internal sealed partial class MossTankPanel : IBuffRuleHost, IDisposable
         }
         LoadMetaProfile();
         _metaNotice = notice;
+    }
+
+    internal int MetaIntervalMillisecondsForTest => _meta.IntervalMilliseconds;
+
+    internal int CurrentRouteWaypointIndexForTest => _navigation.CurrentWaypointIndex;
+
+    /// <summary>MossTank's own pace for looking at the meta, on the engine and the pass alike.</summary>
+    internal void ApplyMetaInterval()
+    {
+        int milliseconds = _profiles.MetaIntervalMilliseconds;
+        _meta.IntervalMilliseconds = milliseconds;
+        _scheduler.MetaIntervalSeconds = _meta.IntervalMilliseconds / 1000d;
     }
 
     private void LoadMetaProfile()
@@ -3747,21 +3802,32 @@ internal sealed partial class MossTankPanel : IBuffRuleHost, IDisposable
         PluginNavigationSnapshot player = _host.Automation.Navigation.Snapshot;
         if (!player.IsAvailable)
             return double.PositiveInfinity;
+        return NearestRouteDistanceMeters(player.Position, _navigationSettings.Waypoints);
+    }
+
+    /// <summary>
+    /// How far the nearest route point is. A point read from a route file
+    /// carries only coordinates (no cell), and that is a real position: the
+    /// distance is measured on the map coordinates. Only a point with no
+    /// position at all is left out.
+    /// </summary>
+    internal static double NearestRouteDistanceMeters(
+        in PluginNavigationPosition player,
+        IReadOnlyList<RouteWaypoint> waypoints)
+    {
         double nearest = double.PositiveInfinity;
-        foreach (RouteWaypoint waypoint in _navigationSettings.Waypoints)
+        foreach (RouteWaypoint waypoint in waypoints)
         {
-            if (waypoint.Position.CellId == 0u)
+            if (waypoint.Position == default)
                 continue;
-            nearest = Math.Min(
-                nearest,
-                player.Position.HorizontalDistanceMeters(waypoint.Position));
+            nearest = Math.Min(nearest, player.HorizontalDistanceMeters(waypoint.Position));
         }
         return nearest;
     }
 
     private void LoadEmbeddedNavigationRoute(NavigationSettings? route, string name)
     {
-        _navigation.Reset();
+        RestartRouteRound();
         if (route is null)
         {
             _routeNotice = "Embedded route rejected: unresolved Nav tag.";
@@ -3774,6 +3840,21 @@ internal sealed partial class MossTankPanel : IBuffRuleHost, IDisposable
         RefreshRouteEditor();
         _routeNotice =
             $"Loaded {_embeddedRouteLabel} ({_navigationSettings.Waypoints.Count} points).";
+    }
+
+    /// <summary>
+    /// A route loaded while the macro runs -- a meta swapping routes, say --
+    /// starts the way a macro start does: a circular or back-and-forth route
+    /// at the point nearest the character, a once-through route at its head.
+    /// Starting a newly loaded circuit at its first point sent the character
+    /// across the map to it, or left it standing when that point was out of
+    /// reach.
+    /// </summary>
+    private void RestartRouteRound()
+    {
+        _navigation.Reset();
+        if (_combat.Enabled)
+            _navigation.AnchorRoundToStart();
     }
 
     /// <summary>What the route selector shows for a route a meta carries.</summary>
@@ -4767,7 +4848,7 @@ internal sealed partial class MossTankPanel : IBuffRuleHost, IDisposable
         }
         _combatSettings.DynamicSettings[canonical] = ToMonsterValue(value);
         if (!_applyingProfileOptions)
-            SaveProfile();
+            SaveSettingsProfile();
         return true;
     }
 
@@ -4989,6 +5070,16 @@ internal sealed partial class MossTankPanel : IBuffRuleHost, IDisposable
     /// has just told the user it changed something has to know, because a
     /// change nobody wrote down is gone with the session.
     /// </summary>
+    /// <summary>
+    /// What an option change writes: the settings profile, where every option
+    /// value is kept and from which it is put back on load. The loot profile,
+    /// route and meta are their own files; writing the copies held in memory
+    /// over them on every option change undid any edit made to those files
+    /// while the macro ran, and a meta sets options all the time.
+    /// </summary>
+    private bool SaveSettingsProfile() =>
+        _profiles.SaveCurrent(_allSettings, _noBuffItemNames, _commandLogTypes);
+
     private bool SaveProfile()
     {
         bool saved = _profiles.SaveCurrent(
@@ -4997,7 +5088,8 @@ internal sealed partial class MossTankPanel : IBuffRuleHost, IDisposable
             _inventorySettings.Loot.Rules,
             _inventorySettings.Loot);
         SaveRouteProfile();
-        SaveMetaProfile();
+        // Not the meta: a meta file is the author's, written only by an
+        // edit made in the meta editor, which saves as it goes.
         return saved;
     }
 
@@ -5244,6 +5336,7 @@ internal sealed partial class MossTankPanel : IBuffRuleHost, IDisposable
         TickConfiguredItemAssessment(elapsedSeconds);
         TickProfileItemAddition(elapsedSeconds);
         FlushQueuedAnnouncements();
+        TickGameInfoUpdate();
         ShowFirstRunGuidance();
         ObserveCommandPortalState();
         TickDelayedCommands(elapsedSeconds);
@@ -5632,10 +5725,14 @@ internal sealed partial class MossTankPanel : IBuffRuleHost, IDisposable
         _expressions.HeldMotions.ReleaseIfHeld();
         _combatModeGate.Dispose();
         _meta.Dispose();
+        _gameInfoUpdater.Dispose();
     }
 
     private void HandleSessionEnded()
     {
+        // The next session checks the game database again, as a new login
+        // does in the reference client.
+        _gameInfoCheckedThisSession = false;
         _pendingProfileAddition = null;
         _assessmentRetries.Clear();
         _assessmentTime = 0d;

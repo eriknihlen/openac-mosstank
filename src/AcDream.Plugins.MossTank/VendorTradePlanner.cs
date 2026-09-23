@@ -65,6 +65,13 @@ internal sealed record VendorTradePlan(
     VendorSplitRequest? Split,
     string? Fatal)
 {
+    /// <summary>
+    /// How much more than <see cref="BuyCost"/> the server may charge: it
+    /// prices each stack as a whole and rounds once, where the listing rounds
+    /// the single item.
+    /// </summary>
+    public long BuySlack { get; init; }
+
     public static VendorTradePlan Empty { get; } = new([], 0L, [], 0L, null, null);
 
     public bool IsEmpty =>
@@ -96,6 +103,30 @@ internal static class VendorTradePlanner
     /// coin change and the odd extra stack always have somewhere to go.
     /// </summary>
     private const int SpareSlots = 2;
+
+    /// <summary>
+    /// The most <paramref name="count"/> items listed at <paramref name="unitPrice"/>
+    /// can cost. The listing rounds one item's price to the nearest pyreal
+    /// (up, from a tenth over); the server prices each stack it creates as a
+    /// whole and rounds once, so a stack can cost up to a tenth of a pyreal
+    /// more per item, plus one for the rounding of each stack.
+    /// </summary>
+    internal static long WorstCaseCost(long unitPrice, int count, int maxStack) =>
+        unitPrice * count + (count + 9) / 10 + StacksFor(count, Math.Max(1, maxStack));
+
+    /// <summary>The most items that can be bought with <paramref name="coin"/> in the worst case.</summary>
+    internal static int AffordableCount(long coin, long unitPrice, int maxStack)
+    {
+        if (coin <= 0L || unitPrice <= 0L)
+            return 0;
+        long guess = Math.Min(int.MaxValue, coin * 10L / (unitPrice * 10L + 1L));
+        int count = (int)guess;
+        while (count > 0 && WorstCaseCost(unitPrice, count, maxStack) > coin)
+            count--;
+        while (count < int.MaxValue && WorstCaseCost(unitPrice, count + 1, maxStack) <= coin)
+            count++;
+        return count;
+    }
 
     /// <summary>The value of one unit: the stack's value over its size.</summary>
     public static long UnitValue(in PluginInventoryItem item) =>
@@ -184,6 +215,7 @@ internal static class VendorTradePlanner
 
         var buyLines = new List<VendorBuyLine>();
         long buyCost = 0L;
+        long buySlack = 0L;
         int buySlots = 0;
         foreach (VendorBuyCandidate candidate in buys)
         {
@@ -197,10 +229,11 @@ internal static class VendorTradePlanner
             }
             int maxStack = Math.Max(1, item.MaxStackSize);
             bool note = item.ObjectClass == PluginObjectClass.TradeNote;
-            if (buyCost + price <= purse.CoinOnHand
+            if (WorstCaseCost(price, 1, maxStack) <= purse.CoinOnHand - buyCost - buySlack
                 && purse.FreeSlots - buySlots > (note ? 0 : 1))
             {
-                long affordable = (purse.CoinOnHand - buyCost) / price;
+                long affordable = AffordableCount(
+                    purse.CoinOnHand - buyCost - buySlack, price, maxStack);
                 int count = (int)Math.Min(affordable, candidate.Wanted);
                 count = Math.Min(count, MaximumBuyCount);
                 int stacks = StacksFor(count, maxStack);
@@ -213,6 +246,7 @@ internal static class VendorTradePlanner
                     item.TemplateObjectId, item.Name, count, price * count));
                 buySlots += StacksFor(count, maxStack);
                 buyCost += price * count;
+                buySlack += WorstCaseCost(price, count, maxStack) - price * count;
                 if (candidate.Wanted > count)
                     break;
             }
@@ -222,7 +256,7 @@ internal static class VendorTradePlanner
             }
         }
         if (buyLines.Count > 0)
-            return new VendorTradePlan(buyLines, buyCost, [], 0L, null, null);
+            return new VendorTradePlan(buyLines, buyCost, [], 0L, null, null) { BuySlack = buySlack };
 
         PluginVendorItem? nextBuy = buys.Count > 0 ? buys[0].Item : null;
         bool nextBuyIsNote = nextBuy?.ObjectClass == PluginObjectClass.TradeNote;

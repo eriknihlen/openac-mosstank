@@ -1,135 +1,136 @@
-using System.Reflection;
-
 namespace AcDream.Plugins.MossTank;
 
+/// <summary>
+/// The settings document a new profile starts from, built from MossTank's
+/// own option catalogue (<see cref="VtankOptionCatalog"/>) and option details
+/// (<see cref="VtankOptionDetails"/>) in the settings-profile format, so a
+/// profile made here is one any reader of that format can open. Nothing of
+/// it is shipped as a file.
+/// </summary>
 internal static class VtankDefaultSettingsDatabase
 {
-    private const string ResourceSuffix = ".VtankDefaultSettings.usd";
-    private static readonly Lazy<string> RawText = new(LoadText);
-    private static readonly Lazy<RechargeHandlerRow[]> DefaultRows = new(LoadDefaultRows);
-    private static readonly Lazy<IReadOnlyDictionary<string, int>> CategoryBitmasksByName =
-        new(LoadCategoryBitmasks);
-    private static readonly Lazy<IReadOnlyDictionary<string, string>> DescriptionsByName =
-        new(LoadDescriptions);
-    private static readonly Lazy<IReadOnlyDictionary<string, IReadOnlyList<VtankEnumValue>>>
-        EnumValuesByName = new(LoadEnumValues);
+    private const string MonsterTable = "MyMonsters";
 
-    public static VtankDatabase Parse() => VtankDatabase.Parse(RawText.Value);
+    private static readonly IReadOnlyDictionary<string, int> CategoryBitmasksByName =
+        VtankOptionDetails.Pages.ToDictionary(
+            static pair => pair.Key,
+            static pair => (int)pair.Value,
+            StringComparer.OrdinalIgnoreCase);
 
-    /// <summary>VTank's own shipped <c>RechargeHandlerSet</c> rows (26, in file order).</summary>
-    public static IReadOnlyList<RechargeHandlerRow> DefaultRechargeHandlerRows => DefaultRows.Value;
+    private static readonly IReadOnlyDictionary<string, IReadOnlyList<VtankEnumValue>> EnumValuesByName =
+        VtankOptionDetails.ChoiceLabels
+            .GroupBy(static entry => entry.Setting, StringComparer.OrdinalIgnoreCase)
+            .ToDictionary(
+                static group => group.Key,
+                static group => (IReadOnlyList<VtankEnumValue>)group
+                    .Select(static entry => new VtankEnumValue(entry.Value, entry.Label))
+                    .ToArray(),
+                StringComparer.OrdinalIgnoreCase);
 
-    public static IReadOnlyDictionary<string, int> SettingCategoryBitmasks => CategoryBitmasksByName.Value;
+    /// <summary>A fresh copy of the default document, for the caller to change.</summary>
+    public static VtankDatabase Create()
+    {
+        var database = new VtankDatabase();
+        AddTable(database, "AntiExtraBuffSpells", ["ExemplarId"], indexColumn: -1);
+        AddTable(database, "AssistItems", ["Object", "Type"], indexColumn: -1);
+        AddTable(database, "BuffedItems", ["Object", "Spell"], indexColumn: -1);
+        AddTable(database, "ExtraBuffSpells", ["ExemplarId"], indexColumn: -1);
+        VtankTable gems = AddTable(database, "GemFoodItems", ["Name", "Spell"], indexColumn: -1);
+        foreach (GemFoodItem gem in VtankOptionDetails.DefaultGemFoodItems)
+            AddRow(gems, VtankCell.String(gem.Name), VtankCell.Int(unchecked((int)gem.SpellId)));
+        AddTable(database, "ItemUseSpecifiers", ["Object", "Uses"], indexColumn: 0);
+        AddTable(database, MonsterTable, VtankMonsterRuleTable.Columns, indexColumn: 0);
+        VtankMonsterRuleTable.Write(database, [MonsterRule.AuthenticDefault()]);
 
-    public static IReadOnlyDictionary<string, string> SettingDescriptions => DescriptionsByName.Value;
+        VtankTable settings = AddTable(
+            database, "Settings", ["Setting", "Value", "Description", "SettingType"], indexColumn: 0);
+        VtankTable categories = AddTable(
+            database, "SettingsCategories", ["Setting", "Categories"], indexColumn: 0);
+        foreach (string name in VtankOptionCatalog.Names)
+        {
+            VtankSettingValueType type = VtankOptionCatalog.DeclaredType(name);
+            AddRow(
+                settings,
+                VtankCell.String(name),
+                DefaultValue(name, type),
+                VtankCell.String(VtankOptionDetails.Descriptions.GetValueOrDefault(name, string.Empty)),
+                VtankCell.Int((int)type));
+            if (VtankOptionDetails.Pages.TryGetValue(name, out VtankOptionPage pages))
+                AddRow(categories, VtankCell.String(name), VtankCell.Int((int)pages));
+        }
+
+        VtankTable choices = AddTable(
+            database, "SettingsEnumInfo", ["Setting", "Value", "EnumValue"], indexColumn: -1);
+        foreach ((string setting, int value, string label) in VtankOptionDetails.ChoiceLabels)
+            AddRow(choices, VtankCell.String(setting), VtankCell.Int(value), VtankCell.String(label));
+        return database;
+    }
+
+    /// <summary>The recharge plan a new profile starts with.</summary>
+    public static IReadOnlyList<RechargeHandlerRow> DefaultRechargeHandlerRows =>
+        VtankOptionDetails.DefaultRechargeHandlers;
+
+    public static IReadOnlyDictionary<string, int> SettingCategoryBitmasks => CategoryBitmasksByName;
+
+    public static IReadOnlyDictionary<string, string> SettingDescriptions =>
+        VtankOptionDetails.Descriptions;
 
     public static IReadOnlyDictionary<string, IReadOnlyList<VtankEnumValue>> SettingEnumValues =>
-        EnumValuesByName.Value;
+        EnumValuesByName;
 
-    private static IReadOnlyDictionary<string, IReadOnlyList<VtankEnumValue>> LoadEnumValues()
+    private static VtankCell DefaultValue(string name, VtankSettingValueType type)
     {
-        VtankDatabase database = VtankDatabase.Parse(RawText.Value);
-        VtankTable? enumInfo = database.Find("SettingsEnumInfo");
-        var map = new Dictionary<string, List<VtankEnumValue>>(StringComparer.OrdinalIgnoreCase);
-        if (enumInfo is null)
-            return map.ToDictionary(
-                static pair => pair.Key,
-                static pair => (IReadOnlyList<VtankEnumValue>)pair.Value,
-                StringComparer.OrdinalIgnoreCase);
-        int nameColumn = enumInfo.ColumnIndex("Setting");
-        int valueColumn = enumInfo.ColumnIndex("Value");
-        int labelColumn = enumInfo.ColumnIndex("EnumValue");
-        if (nameColumn < 0 || valueColumn < 0 || labelColumn < 0)
-            return map.ToDictionary(
-                static pair => pair.Key,
-                static pair => (IReadOnlyList<VtankEnumValue>)pair.Value,
-                StringComparer.OrdinalIgnoreCase);
-        foreach (VtankRow row in enumInfo.Rows)
+        MonsterValue value = VtankOptionCatalog.Default(name);
+        return type switch
         {
-            string name = row.Cells[nameColumn].AsString();
-            var entry = new VtankEnumValue(
-                row.Cells[valueColumn].AsInt(),
-                row.Cells[labelColumn].AsString());
-            if (!map.TryGetValue(name, out List<VtankEnumValue>? list))
-                map[name] = list = [];
-            list.Add(entry);
-        }
-        return map.ToDictionary(
-            static pair => pair.Key,
-            static pair => (IReadOnlyList<VtankEnumValue>)pair.Value,
-            StringComparer.OrdinalIgnoreCase);
+            VtankSettingValueType.Bool => VtankCell.Bool(value.Boolean),
+            VtankSettingValueType.Int or VtankSettingValueType.Enum =>
+                VtankCell.Int((int)Math.Round(value.Number, MidpointRounding.AwayFromZero)),
+            VtankSettingValueType.Single => VtankCell.Float((float)value.Number),
+            VtankSettingValueType.String => VtankCell.String(value.Text),
+            VtankSettingValueType.Custom => VtankCell.NestedTable(RechargeHandlerTable()),
+            _ => VtankCell.Double(value.Number),
+        };
     }
 
-    private static IReadOnlyDictionary<string, string> LoadDescriptions()
+    /// <summary>The one table-valued setting: the recharge plan, one row per step.</summary>
+    private static VtankTable RechargeHandlerTable()
     {
-        VtankDatabase database = VtankDatabase.Parse(RawText.Value);
-        VtankTable? settings = database.Find("Settings");
-        var map = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
-        if (settings is null)
-            return map;
-        int nameColumn = settings.ColumnIndex("Setting");
-        int descriptionColumn = settings.ColumnIndex("Description");
-        if (nameColumn < 0 || descriptionColumn < 0)
-            return map;
-        foreach (VtankRow row in settings.Rows)
+        var table = new VtankTable();
+        table.ColumnNames.AddRange(["Vital", "HandlerString", "MinPercent", "MaxPercent", "Stance"]);
+        table.IndexFlags.AddRange([false, false, false, false, false]);
+        foreach (RechargeHandlerRow row in VtankOptionDetails.DefaultRechargeHandlers)
         {
-            string description = row.Cells[descriptionColumn].AsString();
-            if (!string.IsNullOrWhiteSpace(description))
-                map[row.Cells[nameColumn].AsString()] = description;
+            AddRow(
+                table,
+                VtankCell.Int(row.Vital),
+                VtankCell.String(row.HandlerString),
+                VtankCell.Int(row.MinPercent),
+                VtankCell.Int(row.MaxPercent),
+                VtankCell.Int(row.Stance));
         }
-        return map;
+        return table;
     }
 
-    private static IReadOnlyDictionary<string, int> LoadCategoryBitmasks()
+    private static VtankTable AddTable(
+        VtankDatabase database,
+        string name,
+        IReadOnlyList<string> columns,
+        int indexColumn)
     {
-        VtankDatabase database = VtankDatabase.Parse(RawText.Value);
-        VtankTable? categories = database.Find("SettingsCategories");
-        var map = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
-        if (categories is null)
-            return map;
-        int nameColumn = categories.ColumnIndex("Setting");
-        int bitsColumn = categories.ColumnIndex("Categories");
-        if (nameColumn < 0 || bitsColumn < 0)
-            return map;
-        foreach (VtankRow row in categories.Rows)
-            map[row.Cells[nameColumn].AsString()] = row.Cells[bitsColumn].AsInt();
-        return map;
+        var table = new VtankTable();
+        table.ColumnNames.AddRange(columns);
+        for (int column = 0; column < columns.Count; column++)
+            table.IndexFlags.Add(column == indexColumn);
+        database.Tables.Add((name, table));
+        return table;
     }
 
-    private static string LoadText()
+    private static void AddRow(VtankTable table, params VtankCell[] cells)
     {
-        Assembly assembly = typeof(VtankDefaultSettingsDatabase).Assembly;
-        string resource = assembly.GetManifestResourceNames().Single(
-            static name => name.EndsWith(ResourceSuffix, StringComparison.Ordinal));
-        using Stream stream = assembly.GetManifestResourceStream(resource)
-            ?? throw new InvalidOperationException(
-                "The embedded VTank default settings (.usd) document is missing.");
-        using var reader = new StreamReader(stream);
-        return reader.ReadToEnd();
-    }
-
-    private static RechargeHandlerRow[] LoadDefaultRows()
-    {
-        VtankDatabase database = VtankDatabase.Parse(RawText.Value);
-        VtankTable? settings = database.Find("Settings");
-        if (settings is null)
-            return [];
-        int nameColumn = settings.ColumnIndex("Setting");
-        int valueColumn = settings.ColumnIndex("Value");
-        if (nameColumn < 0 || valueColumn < 0)
-            return [];
-        foreach (VtankRow row in settings.Rows)
-        {
-            if (!row.Cells[nameColumn].AsString().Equals(
-                    "RechargeHandlerSet", StringComparison.OrdinalIgnoreCase))
-            {
-                continue;
-            }
-            VtankCell cell = row.Cells[valueColumn];
-            if (cell.Tag == "TABLE" && cell.Table is { } table)
-                return VtankSettingsProfileSerializer.ParseRechargeHandlerSet(table);
-        }
-        return [];
+        var row = new VtankRow();
+        row.Cells.AddRange(cells);
+        table.Rows.Add(row);
     }
 }
 

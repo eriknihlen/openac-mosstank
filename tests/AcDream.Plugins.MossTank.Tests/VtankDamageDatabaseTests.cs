@@ -19,9 +19,8 @@ public sealed class VtankDamageDatabaseTests
         Assert.Equal(
             [
                 MonsterDamageType.Cold,
-                MonsterDamageType.Bludgeon,
-                MonsterDamageType.Pierce,
                 MonsterDamageType.Slash,
+                MonsterDamageType.Fire,
             ],
             Fixture().DamagePreferences("Magma Golem"));
     }
@@ -34,12 +33,12 @@ public sealed class VtankDamageDatabaseTests
         Assert.Equal(
             [
                 MonsterDamageType.Bludgeon,
-                MonsterDamageType.Pierce,
                 MonsterDamageType.Slash,
-                MonsterDamageType.Cold,
+                MonsterDamageType.Pierce,
                 MonsterDamageType.Fire,
-                MonsterDamageType.Electric,
+                MonsterDamageType.Cold,
                 MonsterDamageType.Acid,
+                MonsterDamageType.Electric,
             ],
             database.DamagePreferences("Olthoi Slasher"));
         Assert.Equal(
@@ -102,22 +101,22 @@ public sealed class VtankDamageDatabaseTests
         // AmmoName, LauncherType, WieldReq, Element, Quality, Special,
         // WieldReq2Skill, WieldReq2Value.
         VtankAmmunitionOption ammo = database.AmmunitionOptions[0];
-        Assert.Equal("Barbed Quarrel", ammo.Name);
+        Assert.Equal("Fixture Quarrel", ammo.Name);
         Assert.Equal(6, ammo.LauncherType);
         Assert.Equal(0, ammo.WieldRequirement);
         Assert.Equal(0, ammo.Element);
-        Assert.Equal(4, ammo.Quality);
+        Assert.Equal(5, ammo.Quality);
 
         // Monster, Species, MaximumHealth.
         Assert.Equal(
-            new VtankSpeciesMember(1, 3190),
+            new VtankSpeciesMember(1, 2000),
             database.SpeciesMembers["Olthoi Slasher"]);
 
         // KitName, RestoreBonus, SkillBonus, WhichVital.
         VtankHealKit kit = database.HealKits[0];
-        Assert.Equal("Handy Healing Kit", kit.Name);
-        Assert.Equal(1d, kit.RestoreBonus);
-        Assert.Equal(50, kit.SkillBonus);
+        Assert.Equal("Fixture Healing Kit", kit.Name);
+        Assert.Equal(1.25d, kit.RestoreBonus);
+        Assert.Equal(40, kit.SkillBonus);
         Assert.Equal(1, kit.Vital);
 
         // GrenName, WieldReqType, WieldReqAttribute, WieldReqValue, Spell,
@@ -126,15 +125,15 @@ public sealed class VtankDamageDatabaseTests
         Assert.Equal("Iron Phial of Imperil", grenade.Name);
         Assert.Equal(2, grenade.WieldRequirementType);
         Assert.Equal(38, grenade.WieldRequirementAttribute);
-        Assert.Equal(75, grenade.WieldRequirementValue);
+        Assert.Equal(60, grenade.WieldRequirementValue);
         Assert.Equal(1323u, grenade.SpellId);
-        Assert.Equal(100, grenade.Spellcraft);
+        Assert.Equal(110, grenade.Spellcraft);
 
         VtankDrainSpellOption drain = database.DrainSpellOptions[0];
         Assert.Equal(1237u, drain.SpellId);
-        Assert.Equal(500, drain.CastTimeMilliseconds);
-        Assert.Equal(0.25d, drain.EnemyDrainFactor);
-        Assert.Equal(30, drain.EnemyDrainMaximumPoints);
+        Assert.Equal(400, drain.CastTimeMilliseconds);
+        Assert.Equal(0.2d, drain.EnemyDrainFactor);
+        Assert.Equal(25, drain.EnemyDrainMaximumPoints);
         Assert.Equal(2d, drain.ResultMultiplier);
 
         VtankMartyrSpellOption martyr = database.MartyrSpellOptions[0];

@@ -214,7 +214,7 @@ public sealed class VitalRechargeTests
     [Fact]
     public void ImportedAssistKindsReachKitAndFoodRechargeSelection()
     {
-        VtankDatabase database = VtankDefaultSettingsDatabase.Parse();
+        VtankDatabase database = VtankDefaultSettingsDatabase.Create();
         VtankTable table = database.Find("AssistItems")!;
         table.Rows.Add(new VtankRow { Cells = { VtankCell.String("Plentiful Healing Kit"), VtankCell.Int(0) } });
         table.Rows.Add(new VtankRow { Cells = { VtankCell.String("Bread"), VtankCell.Int(1) } });
