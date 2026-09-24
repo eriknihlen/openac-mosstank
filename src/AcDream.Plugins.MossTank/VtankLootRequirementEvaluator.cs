@@ -522,10 +522,30 @@ internal static class VtankLootRequirementEvaluator
             case VtankIntBase + 33: value = item.DamageType; return true;
             case VtankIntBase + 34: value = item.Damage; return true;
             case VtankIntBase + 38: value = item.AppraisedSpellIds.Count; return true;
+            case VtankIntBase + 41: return TryIconLayer(item.IconOverlayId, out value);
+            case VtankIntBase + 42: return TryIconLayer(item.IconUnderlayId, out value);
             default:
                 value = 0;
                 return properties.Ints?.TryGetValue(key, out value) == true;
         }
+    }
+
+    /// <summary>
+    /// An icon layer as the reference macro stores it: the id as the server
+    /// sends it, without the <c>0x06000000</c> every icon id carries. A rare's
+    /// backdrop is <c>0x06005B0C</c>, and loot profiles test for 23308
+    /// (<c>0x5B0C</c>). An item without the layer has no value at all.
+    /// </summary>
+    private static bool TryIconLayer(uint iconId, out int value)
+    {
+        const uint IconIdPrefix = 0x0600_0000u;
+        if (iconId == 0u)
+        {
+            value = 0;
+            return false;
+        }
+        value = checked((int)(iconId >= IconIdPrefix ? iconId - IconIdPrefix : iconId));
+        return true;
     }
 
     private static int IntValue(

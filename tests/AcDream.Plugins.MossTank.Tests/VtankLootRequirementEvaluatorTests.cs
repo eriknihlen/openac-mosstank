@@ -11,6 +11,46 @@ public sealed class VtankLootRequirementEvaluatorTests
     private const uint BonusIntKey = 28u;
     private const uint BonusIntSpellId = 2604u;
 
+    // The "(T) Rare!" rule as Loot5.utl writes it: type 12 (an int key equals
+    // a value) on IntValueKey.IconUnderlay (218103850) with 23308, which is
+    // the rare backdrop 0x06005B0C without the icon-id prefix.
+    private static VtankLootRequirement RareUnderlayRule() => new()
+    {
+        Type = 12,
+        Payload = "23308\r\n218103850\r\n",
+    };
+
+    [Fact]
+    public void TheRareRuleMatchesAnItemWithTheRareBackdrop()
+    {
+        PluginInventoryItem rare = Item() with { IconUnderlayId = 0x06005B0Cu };
+
+        Assert.True(VtankLootRequirementEvaluator.IsMatch(
+            [RareUnderlayRule()], rare, EmptyProperties(), host: null, out string? error));
+        Assert.Null(error);
+    }
+
+    [Fact]
+    public void TheRareRuleDoesNotMatchAnItemWithoutTheBackdrop()
+    {
+        PluginInventoryItem ordinary = Item() with { IconUnderlayId = 0u };
+        PluginInventoryItem otherBackdrop = Item() with { IconUnderlayId = 0x06006C0Bu };
+
+        Assert.False(VtankLootRequirementEvaluator.IsMatch(
+            [RareUnderlayRule()], ordinary, EmptyProperties(), host: null, out _));
+        Assert.False(VtankLootRequirementEvaluator.IsMatch(
+            [RareUnderlayRule()], otherBackdrop, EmptyProperties(), host: null, out _));
+    }
+
+    private static PluginItemProperties EmptyProperties() => new(
+        Ints: new Dictionary<uint, int>(),
+        Int64s: new Dictionary<uint, long>(),
+        Bools: new Dictionary<uint, bool>(),
+        Floats: new Dictionary<uint, double>(),
+        Strings: new Dictionary<uint, string>(),
+        DataIds: new Dictionary<uint, uint>(),
+        InstanceIds: new Dictionary<uint, uint>());
+
     [Fact]
     public void BuffedIntRequirementDoesNotApplyBonusWhenBaseKeyIsAbsent()
     {
