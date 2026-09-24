@@ -717,9 +717,14 @@ internal sealed class MossTankLootProfileStore
         {
             // Preserve the imported requirement representation, including an
             // unconditional rule whose requirement list is empty.
+            // The file writer normalizes this block's line endings, and the
+            // reference counts a block's length in characters of the text as
+            // written; measure the expression in that same form, or a bare
+            // line break grows after its prefix and the reader loses this and
+            // every later rule's expression.
             string expression = rule.HasImportedRequirements || rule.VtankRequirements.Count > 0
                 ? string.Empty
-                : rule.Expression;
+                : VtankLootProfileSerializer.NormalizePayload(rule.Expression);
             payload.Append(expression.Length.ToString(CultureInfo.InvariantCulture)).Append("\r\n");
             payload.Append(expression);
         }

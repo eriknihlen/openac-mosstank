@@ -186,6 +186,35 @@ public sealed class VtankLootProfileSerializerTests
         Assert.Equal("3\r\n", rule.VtankRequirements[1].Payload);
     }
 
+    /// <summary>
+    /// Each rule's expression rides in a block whose length prefixes count
+    /// the characters as written. An expression written with bare LF or CR
+    /// line breaks must be measured after its line endings are normalized,
+    /// or the reader stops mid-text and loses every later rule's expression.
+    /// </summary>
+    [Fact]
+    public void RuleExpressionsWithCrlfLfAndCrLineBreaksRoundTripThroughTheFile()
+    {
+        LootRule[] rules =
+        [
+            new() { Name = "LF", Expression = "first\nsecond" },
+            new() { Name = "CRLF and CR", Expression = "one\r\ntwo\rthree" },
+            new() { Name = "Single line", Expression = "ObjectClass = 5" },
+        ];
+
+        string text = MossTankLootProfileStore.SerializeRules(rules);
+        Assert.True(VtankLootProfileSerializer.TryRead(text, out _, out string error), error);
+
+        var loaded = new List<LootRule>();
+        Assert.True(MossTankLootProfileStore.TryParseRules(text, loaded));
+        Assert.Equal(
+            ["first\r\nsecond", "one\r\ntwo\r\nthree", "ObjectClass = 5"],
+            loaded.Select(static rule => rule.Expression));
+
+        // The file read back writes out unchanged.
+        Assert.Equal(text, MossTankLootProfileStore.SerializeRules(loaded));
+    }
+
     private static string ValidPayload(int type)
     {
         int lines = type switch
