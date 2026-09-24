@@ -667,6 +667,11 @@ internal sealed partial class LootController
     private uint _abandonedCorpse;
     private uint _selectedCorpse;
     private ulong _chatSequence;
+    /// <summary>
+    /// When the server last announced that this character found a rare, on
+    /// the controller's own clock; minus infinity when it never has.
+    /// </summary>
+    private double _rareAnnouncedAt = double.NegativeInfinity;
     private double _stateAge;
     private uint _activeCorpse;
     private bool _activeCorpseSawContents;
@@ -1072,6 +1077,7 @@ internal sealed partial class LootController
             int index = (lastRequestIndex + offset) % known.Count;
             PluginLootContainer candidateCorpse = known[index];
             if (IsDescriptionAnswered(candidateCorpse)
+                || !WantsDescription(candidateCorpse)
                 || _completedCorpses.ContainsKey(candidateCorpse.ObjectId)
                 || IsCorpseDenied(candidateCorpse.ObjectId)
                 || IsCorpseBlacklisted(candidateCorpse.ObjectId))
@@ -1291,6 +1297,7 @@ internal sealed partial class LootController
         _pendingScrollReads.Clear();
         _selectedCorpse = 0u;
         _chatSequence = 0uL;
+        _rareAnnouncedAt = double.NegativeInfinity;
         _lifetime = 0d;
         _salvagePendingItem = 0u;
         _salvagePendingName = string.Empty;
