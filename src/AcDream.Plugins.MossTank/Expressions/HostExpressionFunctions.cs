@@ -555,7 +555,7 @@ internal static class HostExpressionFunctions
         ExpressionHostPolicy policy)
     {
         registry.Register("wobjectfindall", 0, 0, (_, _) =>
-            ObjectList(host.Automation.Objects.CaptureObjects()), "wobjectfindall[]");
+            ObjectList(ObjectCapture.For(host).Objects()), "wobjectfindall[]");
         RegisterFinder(registry, host, "wobjectfindallbyobjectclass", ObjectSet.All,
             (obj, arg) => (int)obj.ObjectClass == arg.AsInt32());
         RegisterFinder(registry, host, "wobjectfindallbytemplatetype", ObjectSet.All,
@@ -572,15 +572,15 @@ internal static class HostExpressionFunctions
             (obj, arg) => obj.WeenieClassId == ToUInt(arg, "template type"));
         RegisterRegexFinder(registry, host, "wobjectfindalllandscapebynamerx", ObjectSet.Landscape);
         registry.Register("wobjectfindallinventory", 0, 0, (_, _) => ObjectList(
-            FilterSet(host.Automation.Objects.CaptureObjects(), ObjectSet.Inventory)),
+            FilterSet(ObjectCapture.For(host).Objects(), ObjectSet.Inventory)),
             "wobjectfindallinventory[]");
         registry.Register("wobjectfindalllandscape", 0, 0, (_, _) => ObjectList(
-            FilterSet(host.Automation.Objects.CaptureObjects(), ObjectSet.Landscape)),
+            FilterSet(ObjectCapture.For(host).Objects(), ObjectSet.Landscape)),
             "wobjectfindalllandscape[]");
         registry.Register("wobjectfindallbycontainer", 1, 1, (_, args) =>
         {
             uint container = args[0].AsObjectId("wobjectfindallbycontainer");
-            return ObjectList(host.Automation.Objects.CaptureObjects().Where(
+            return ObjectList(ObjectCapture.For(host).Objects().Where(
                 obj => obj.ContainerObjectId == container));
         }, "wobjectfindallbycontainer[container]");
         // Exact match, case included: a profile naming "Health Elixir" must
@@ -635,7 +635,7 @@ internal static class HostExpressionFunctions
         registry.Register("getitemcountininventorybyname", 1, 1, (_, args) =>
         {
             string name = args[0].AsString("getitemcountininventorybyname");
-            return ExpressionValue.Number(host.Automation.Objects.CaptureObjects()
+            return ExpressionValue.Number(ObjectCapture.For(host).Objects()
                 .Where(obj => obj.IsOwned && obj.Name.Equals(
                     name,
                     StringComparison.OrdinalIgnoreCase))
@@ -644,14 +644,14 @@ internal static class HostExpressionFunctions
         registry.Register("getitemcountininventorybynamerx", 1, 1, (_, args) =>
         {
             Regex regex = CreateRegex(args[0].AsString("getitemcountininventorybynamerx"));
-            return ExpressionValue.Number(host.Automation.Objects.CaptureObjects()
+            return ExpressionValue.Number(ObjectCapture.For(host).Objects()
                 .Where(obj => obj.IsOwned && regex.IsMatch(obj.Name))
                 .Sum(static obj => Math.Max(1, obj.StackSize)));
         }, "getitemcountininventorybynamerx[pattern]");
         registry.Register("getinventorycountbytemplatetype", 1, 1, (_, args) =>
         {
             uint template = ToUInt(args[0], "getinventorycountbytemplatetype");
-            return ExpressionValue.Number(host.Automation.Objects.CaptureObjects()
+            return ExpressionValue.Number(ObjectCapture.For(host).Objects()
                 .Where(obj => obj.IsOwned && obj.WeenieClassId == template)
                 .Sum(static obj => Math.Max(1, obj.StackSize)));
         }, "getinventorycountbytemplatetype[templateType]");
@@ -665,7 +665,7 @@ internal static class HostExpressionFunctions
             {
                 return ExpressionValue.Number(-1d);
             }
-            return ExpressionValue.Number(host.Automation.Objects.CaptureObjects().Count(
+            return ExpressionValue.Number(ObjectCapture.For(host).Objects().Count(
                 item => item.ContainerObjectId == container));
         }, "getcontaineritemcount[container?]");
         registry.Register("getfreeitemslots", 0, 1, (_, args) =>
@@ -983,7 +983,7 @@ internal static class HostExpressionFunctions
         Func<PluginWorldObject, ExpressionValue, bool> predicate)
     {
         registry.Register(name, 1, 1, (_, args) => ObjectList(FilterSet(
-            host.Automation.Objects.CaptureObjects(),
+            ObjectCapture.For(host).Objects(),
             set).Where(obj => predicate(obj, args[0]))), $"{name}[value]");
     }
 
@@ -1003,7 +1003,7 @@ internal static class HostExpressionFunctions
         {
             IWorldObjectAutomation objects = host.Automation.Objects;
             Regex regex = CreateRegex(args[0].AsString(name));
-            return ObjectList(FilterSet(objects.CaptureObjects(), set)
+            return ObjectList(FilterSet(ObjectCapture.For(host).Objects(), set)
                 .Where(obj => regex.IsMatch(DisplayName(objects, obj))));
         }, $"{name}[pattern]");
     }
@@ -1040,7 +1040,7 @@ internal static class HostExpressionFunctions
         if (!player.IsAvailable)
             return ExpressionValue.Zero;
         uint self = host.Automation.Character.ObjectId;
-        PluginWorldObject? nearest = host.Automation.Objects.CaptureObjects()
+        PluginWorldObject? nearest = ObjectCapture.For(host).Objects()
             .Where(obj => obj.ObjectId != self && predicate(obj))
             .OrderBy(obj => obj.HasPosition
                 ? DistanceMeters(player.Position, obj.Position)
@@ -1069,7 +1069,7 @@ internal static class HostExpressionFunctions
         Func<PluginWorldObject, bool> predicate)
     {
         PluginWorldObject? found = FilterSet(
-                host.Automation.Objects.CaptureObjects(), set)
+                ObjectCapture.For(host).Objects(), set)
             .Where(predicate)
             .OrderBy(static obj => obj.ObjectId)
             .Cast<PluginWorldObject?>()
@@ -1237,7 +1237,7 @@ internal static class HostExpressionFunctions
         {
             return -1d;
         }
-        IReadOnlyList<PluginWorldObject> all = host.Automation.Objects.CaptureObjects();
+        IReadOnlyList<PluginWorldObject> all = ObjectCapture.For(host).Objects();
         int used = all.Count(item => item.ContainerObjectId == containerId
             && (item.ObjectClass == PluginObjectClass.Container) == containers);
         int capacity = containers

@@ -441,6 +441,10 @@ internal sealed class MetaEngine : IDisposable
 
     private void RunPass(MetaRule[] rules, bool handlersEnabled)
     {
+        // Every condition in the pass reads the same object capture; an
+        // action can change what the client holds, so it starts a new one.
+        ObjectCapture objects = ObjectCapture.For(_host);
+        using ObjectCapture.PassScope pass = objects.BeginPass();
         foreach (MetaRule rule in rules)
         {
             if (!handlersEnabled && GameEventHandlers.IsHandler(rule))
@@ -459,6 +463,10 @@ internal sealed class MetaEngine : IDisposable
                 _status = $"Meta action failed: {error.Message}";
                 _host.Log.Error(_status, error);
                 continuePass = false;
+            }
+            finally
+            {
+                objects.Invalidate();
             }
             if (!continuePass)
                 break;
