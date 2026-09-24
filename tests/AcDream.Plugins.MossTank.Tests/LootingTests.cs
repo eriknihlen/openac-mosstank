@@ -688,8 +688,10 @@ public sealed partial class LootingTests
     }
 
     [Fact]
-    public void RareOnlyLootingWithoutAnAnnouncementDoesNotEvenListTheCorpses()
+    public void RareOnlyLootingWithoutAnAnnouncementListsTheCorpsesOnlyEveryTwoSeconds()
     {
+        // Only to note when each corpse appeared; ten frames of half a
+        // second are five seconds, which is three sightings at most.
         (LootController controller, Automation automation) =
             RareOnlyLooter(0x70001001u, 0x70001002u);
         int before = automation.CorpseCaptureCount;
@@ -698,7 +700,78 @@ public sealed partial class LootingTests
             controller.TickIdentification(0.5d);
         Assert.False(controller.HasCorpseAwaitingDescriptionWithin(50d));
 
-        Assert.Equal(before, automation.CorpseCaptureCount);
+        Assert.InRange(automation.CorpseCaptureCount - before, 1, 3);
+    }
+
+    [Fact]
+    public void ARareAnnouncementDescribesOnlyTheNewCorpseWhileTheLootPassCannotAct()
+    {
+        // Live, rare-only looting never gets a turn to act, so the corpse
+        // pass never notes when a corpse appeared; the sightings alone must
+        // tell the old corpse from the one that has just fallen.
+        (LootController controller, Automation automation) =
+            RareOnlyLooter(0x70001001u);
+        for (int frame = 0; frame < 40; frame++)
+        {
+            controller.Tick(0.5d, canAct: false);
+            controller.TickIdentification(0.5d);
+        }
+
+        automation.Corpses =
+        [
+            .. automation.Corpses,
+            new PluginLootContainer(0x70001002u, 1u, "Corpse of Drudge", 3f, false, false, false),
+        ];
+        for (int frame = 0; frame < 4; frame++)
+        {
+            controller.Tick(0.5d, canAct: false);
+            controller.TickIdentification(0.5d);
+        }
+        Announce(automation, 1uL, "Tester has discovered the Pearl of Blood Drinking!");
+        controller.Tick(0.5d, canAct: false);
+        controller.TickIdentification(0.5d);
+
+        Assert.Equal([0x70001002u], automation.Identified);
+    }
+
+    [Fact]
+    public void RareOnlyLootingOpensTheCorpseTheServerSaysGeneratedARare()
+    {
+        // The server does not send the corpse's rare flag with its
+        // description; the description itself says so.
+        (LootController controller, Automation automation) =
+            RareOnlyLooter();
+        automation.Corpses =
+        [
+            new PluginLootContainer(0x70001003u, 1u, "Corpse of Assailer", 3f, false, false, false)
+            {
+                IsIdentified = true,
+                LongDescription = "Killed by Tester. This corpse generated a rare item!",
+            },
+        ];
+
+        Assert.True(controller.Tick(0.5d, canAct: true));
+
+        Assert.Equal([0x70001003u], automation.Opened);
+    }
+
+    [Fact]
+    public void RareOnlyLootingLeavesAnOrdinaryKillOfItsOwnAlone()
+    {
+        (LootController controller, Automation automation) =
+            RareOnlyLooter();
+        automation.Corpses =
+        [
+            new PluginLootContainer(0x70001004u, 1u, "Corpse of Assailer", 3f, false, false, false)
+            {
+                IsIdentified = true,
+                LongDescription = "Killed by Tester.",
+            },
+        ];
+
+        controller.Tick(0.5d, canAct: true);
+
+        Assert.Empty(automation.Opened);
     }
 
     [Fact]
@@ -1819,7 +1892,7 @@ public sealed partial class LootingTests
     /// description that is not a kill description.
     /// </summary>
     [Fact]
-    public void ACorpseWhoseDescriptionNamesNoKillerIsTreatedAsRare()
+    public void ACorpseWhoseDescriptionNamesNoKillerIsNeverLooted()
     {
         var settings = new LootSettings
         {
@@ -1843,7 +1916,7 @@ public sealed partial class LootingTests
         };
         var controller = new LootController(new Host(automation), settings);
 
-        // Rare, so it sorts first; nobody killed it, so it is never looted —
+        // Nobody is named as having killed it, so it is never looted —
         // not even once it is old enough for the loot-anything timer.
         Assert.False(controller.Tick(200d, canAct: true));
         Assert.False(controller.Tick(200d, canAct: true));
