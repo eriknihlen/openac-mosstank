@@ -580,6 +580,24 @@ internal static class VtankLootRequirementEvaluator
     {
         switch (key)
         {
+            // The seven protections come from the armor numbers an appraisal
+            // reports, as multipliers on incoming damage (1.2 = takes 20%
+            // more). The reference macro's order is slash, pierce,
+            // bludgeon, acid, lightning, fire, cold.
+            case VtankDoubleBase + 0:
+                return TryArmorNumber(properties, static armor => armor.SlashMod, out value);
+            case VtankDoubleBase + 1:
+                return TryArmorNumber(properties, static armor => armor.PierceMod, out value);
+            case VtankDoubleBase + 2:
+                return TryArmorNumber(properties, static armor => armor.BludgeonMod, out value);
+            case VtankDoubleBase + 3:
+                return TryArmorNumber(properties, static armor => armor.AcidMod, out value);
+            case VtankDoubleBase + 4:
+                return TryArmorNumber(properties, static armor => armor.ElectricMod, out value);
+            case VtankDoubleBase + 5:
+                return TryArmorNumber(properties, static armor => armor.FireMod, out value);
+            case VtankDoubleBase + 6:
+                return TryArmorNumber(properties, static armor => armor.ColdMod, out value);
             case VtankDoubleBase + 9: value = item.Workmanship; return true;
             case VtankDoubleBase + 11: value = item.DamageVariance; return true;
             // Attack bonus, range and damage bonus exist only as the weapon
@@ -595,6 +613,20 @@ internal static class VtankLootRequirementEvaluator
             default:
                 return TryRawFloat(properties, key, out value);
         }
+    }
+
+    private static bool TryArmorNumber(
+        in PluginItemProperties properties,
+        Func<PluginArmorProfile, float> number,
+        out double value)
+    {
+        if (properties.ArmorProfile is { } armor)
+        {
+            value = number(armor);
+            return true;
+        }
+        value = 0d;
+        return false;
     }
 
     private static bool TryWeaponNumber(

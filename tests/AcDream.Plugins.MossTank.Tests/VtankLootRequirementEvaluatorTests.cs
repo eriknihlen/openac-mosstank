@@ -216,6 +216,43 @@ public sealed class VtankLootRequirementEvaluatorTests
             [rule], sword with { CombatUse = 25 }, EmptyProperties(), host: null, out _));
     }
 
+    // Every protection distinct, so a key read from the wrong one fails.
+    private static PluginArmorProfile Armor() => new(
+        ArmorLevel: 500,
+        SlashMod: 0.1f,
+        PierceMod: 0.2f,
+        BludgeonMod: 0.3f,
+        ColdMod: 0.4f,
+        FireMod: 0.5f,
+        AcidMod: 0.6f,
+        NetherMod: 0.7f,
+        ElectricMod: 0.8f);
+
+    [Theory]
+    [InlineData(167772160u, "0.1")] // SlashProt
+    [InlineData(167772161u, "0.2")] // PierceProt
+    [InlineData(167772162u, "0.3")] // BludgeonProt
+    [InlineData(167772163u, "0.6")] // AcidProt
+    [InlineData(167772164u, "0.8")] // LightningProt
+    [InlineData(167772165u, "0.5")] // FireProt
+    [InlineData(167772166u, "0.4")] // ColdProt
+    public void EachProtectionKeyReadsItsOwnAppraisedArmorNumber(uint key, string expected)
+    {
+        // Types 5 and 4 together (at least and at most) pin the exact value.
+        VtankLootRequirement[] rules =
+        [
+            new() { Type = 5, Payload = $"{expected}\r\n{key}\r\n" },
+            new() { Type = 4, Payload = $"{expected}\r\n{key}\r\n" },
+        ];
+        PluginItemProperties armor = EmptyProperties() with { ArmorProfile = Armor() };
+
+        Assert.True(VtankLootRequirementEvaluator.IsMatch(
+            rules, Item(), armor, host: null, out string? error));
+        Assert.Null(error);
+        Assert.False(VtankLootRequirementEvaluator.IsMatch(
+            rules, Item(), EmptyProperties(), host: null, out _));
+    }
+
     private static PluginWeaponProfile Weapon() => new(
         DamageType: 1,
         WeaponTime: 40,
