@@ -76,6 +76,158 @@ public sealed class VtankLootRequirementEvaluatorTests
             [ShirtCoverageRule()], pants, EmptyProperties(), host: null, out _));
     }
 
+    // Loot5.utl's "(H) 430 Insane": a heavy melee weapon that can reach
+    // tinked damage 109 with a melee defense and an attack bonus of 1.17.
+    private static VtankLootRequirement InsaneMeleeRule() => new()
+    {
+        Type = 2008,
+        Payload = "109\r\n1.17\r\n1.17\r\n",
+    };
+
+    // An untinkerable weapon (no material), so no tinks are counted and the
+    // numbers stand as they are: 114 max after the rule's +24 with variance
+    // 0.3 gives 110 damage over time, and defense 1.18 clears 1.17.
+    private static PluginInventoryItem UntinkerableSword() => Item() with
+    {
+        ObjectClass = PluginObjectClass.MeleeWeapon,
+        Damage = 90,
+        DamageVariance = 0.3d,
+    };
+
+    private static PluginItemProperties MeleeProperties(double weaponOffense) =>
+        EmptyProperties() with
+        {
+            Floats = new Dictionary<uint, double> { [29u] = 1.18d },
+            WeaponProfile = Weapon() with { WeaponOffense = weaponOffense },
+        };
+
+    [Fact]
+    public void TheInsaneMeleeRuleReadsTheAttackBonusFromTheAppraisedWeapon()
+    {
+        Assert.True(VtankLootRequirementEvaluator.IsMatch(
+            [InsaneMeleeRule()], UntinkerableSword(), MeleeProperties(1.18d),
+            host: null, out string? error));
+        Assert.Null(error);
+    }
+
+    [Fact]
+    public void TheInsaneMeleeRuleRejectsAWeaponWhoseAttackBonusFallsShort()
+    {
+        Assert.False(VtankLootRequirementEvaluator.IsMatch(
+            [InsaneMeleeRule()], UntinkerableSword(), MeleeProperties(1.10d),
+            host: null, out _));
+    }
+
+    [Fact]
+    public void ABuffedAttackBonusRuleAddsTheWeaponsOwnAttackCantrip()
+    {
+        // Type 2005 on DoubleValueKey AttackBonus (167772172): the appraised
+        // offense 1.15 plus spell 2591's +0.05 reaches 1.20, over 1.19.
+        var rule = new VtankLootRequirement
+        {
+            Type = 2005,
+            Payload = "1.19\r\n167772172\r\n",
+        };
+        PluginInventoryItem sword = Item() with { AppraisedSpellIds = [2591u] };
+        PluginItemProperties properties = EmptyProperties() with
+        {
+            WeaponProfile = Weapon() with { WeaponOffense = 1.15d },
+        };
+
+        Assert.True(VtankLootRequirementEvaluator.IsMatch(
+            [rule], sword, properties, host: null, out string? error));
+        Assert.Null(error);
+    }
+
+    // Loot5.utl's "(M) Bow (OD +10)": buffed missile damage of 78.6, which is
+    // damage + (damage modifier - 1) * 100 / 3 + elemental damage bonus.
+    private static VtankLootRequirement BowDamageRule() => new()
+    {
+        Type = 2001,
+        Payload = "78.6\r\n",
+    };
+
+    private static PluginItemProperties BowProperties(double damageMod) =>
+        EmptyProperties() with
+        {
+            Ints = new Dictionary<uint, int> { [204u] = 22 },
+            WeaponProfile = Weapon() with { Damage = 0, DamageMod = damageMod },
+        };
+
+    [Fact]
+    public void TheBowDamageRuleReadsTheDamageModifierFromTheAppraisedWeapon()
+    {
+        // (2.70 - 1) * 100 / 3 = 56.7, plus 22 elemental: 78.7.
+        PluginInventoryItem bow = Item() with { ObjectClass = PluginObjectClass.MissileWeapon };
+
+        Assert.True(VtankLootRequirementEvaluator.IsMatch(
+            [BowDamageRule()], bow, BowProperties(2.70d), host: null, out string? error));
+        Assert.Null(error);
+    }
+
+    [Fact]
+    public void TheBowDamageRuleRejectsABowWithTooSmallAModifier()
+    {
+        // (2.60 - 1) * 100 / 3 = 53.3, plus 22: 75.3.
+        PluginInventoryItem bow = Item() with { ObjectClass = PluginObjectClass.MissileWeapon };
+
+        Assert.False(VtankLootRequirementEvaluator.IsMatch(
+            [BowDamageRule()], bow, BowProperties(2.60d), host: null, out _));
+    }
+
+    [Fact]
+    public void RangeIsTheLaunchSpeedTheAppraisedWeaponReports()
+    {
+        // Type 5 (a double at least) on DoubleValueKey Range (167772173).
+        var rule = new VtankLootRequirement { Type = 5, Payload = "25\r\n167772173\r\n" };
+        PluginItemProperties fast = EmptyProperties() with
+        {
+            WeaponProfile = Weapon() with { MaxVelocity = 27.3d },
+        };
+        PluginItemProperties slow = EmptyProperties() with
+        {
+            WeaponProfile = Weapon() with { MaxVelocity = 18d },
+        };
+
+        Assert.True(VtankLootRequirementEvaluator.IsMatch(
+            [rule], Item(), fast, host: null, out _));
+        Assert.False(VtankLootRequirementEvaluator.IsMatch(
+            [rule], Item(), slow, host: null, out _));
+        Assert.False(VtankLootRequirementEvaluator.IsMatch(
+            [rule], Item(), EmptyProperties(), host: null, out _));
+    }
+
+    [Fact]
+    public void WeaponSpeedIsTheAppraisedSpeedRatingNotTheCombatRole()
+    {
+        // Type 12 (an int equals) on IntValueKey WeapSpeed (218103839): a
+        // weapon of speed 25. An item with a combat role but no
+        // appraised weapon has no speed at all.
+        var rule = new VtankLootRequirement { Type = 12, Payload = "25\r\n218103839\r\n" };
+        PluginInventoryItem sword = Item() with { CombatUse = 1 };
+        PluginItemProperties appraised = EmptyProperties() with
+        {
+            WeaponProfile = Weapon() with { WeaponTime = 25 },
+        };
+
+        Assert.True(VtankLootRequirementEvaluator.IsMatch(
+            [rule], sword, appraised, host: null, out _));
+        Assert.False(VtankLootRequirementEvaluator.IsMatch(
+            [rule], sword with { CombatUse = 25 }, EmptyProperties(), host: null, out _));
+    }
+
+    private static PluginWeaponProfile Weapon() => new(
+        DamageType: 1,
+        WeaponTime: 40,
+        WeaponSkill: 44u,
+        Damage: 50,
+        DamageVariance: 0.5d,
+        DamageMod: 1d,
+        WeaponLength: 1d,
+        MaxVelocity: 1d,
+        WeaponOffense: 1d,
+        MaxVelocityEstimated: 0);
+
     private static PluginItemProperties EmptyProperties() => new(
         Ints: new Dictionary<uint, int>(),
         Int64s: new Dictionary<uint, long>(),

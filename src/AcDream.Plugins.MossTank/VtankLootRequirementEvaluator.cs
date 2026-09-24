@@ -520,7 +520,11 @@ internal static class VtankLootRequirementEvaluator
             case IconHighlightKey: value = checked((int)item.Effects); return true;
             case VtankIntBase + 18: value = checked((int)item.Useability); return true;
             case VtankIntBase + 23: value = checked((int)item.PublicFlags); return true;
-            case VtankIntBase + 31: value = item.CombatUse; return true;
+            // The weapon's speed rating from its appraisal; a weapon never
+            // appraised, or anything else, has none.
+            case VtankIntBase + 31:
+                value = properties.WeaponProfile?.WeaponTime ?? 0;
+                return properties.WeaponProfile is not null;
             case VtankIntBase + 32: value = item.WeaponSkill; return true;
             case VtankIntBase + 33: value = item.DamageType; return true;
             case VtankIntBase + 34: value = item.Damage; return true;
@@ -578,13 +582,33 @@ internal static class VtankLootRequirementEvaluator
         {
             case VtankDoubleBase + 9: value = item.Workmanship; return true;
             case VtankDoubleBase + 11: value = item.DamageVariance; return true;
+            // Attack bonus, range and damage bonus exist only as the weapon
+            // numbers an appraisal reports, and only for a weapon: the
+            // offense and damage multipliers (1.17 is "+17%") and the launch
+            // speed a missile weapon gives its ammunition.
             case VtankDoubleBase + 12:
-                return TryRawFloat(properties, 62, out value);
+                return TryWeaponNumber(properties, static weapon => weapon.WeaponOffense, out value);
+            case VtankDoubleBase + 13:
+                return TryWeaponNumber(properties, static weapon => weapon.MaxVelocity, out value);
             case VtankDoubleBase + 14:
-                return TryRawFloat(properties, 63, out value);
+                return TryWeaponNumber(properties, static weapon => weapon.DamageMod, out value);
             default:
                 return TryRawFloat(properties, key, out value);
         }
+    }
+
+    private static bool TryWeaponNumber(
+        in PluginItemProperties properties,
+        Func<PluginWeaponProfile, double> number,
+        out double value)
+    {
+        if (properties.WeaponProfile is { } weapon)
+        {
+            value = number(weapon);
+            return true;
+        }
+        value = 0d;
+        return false;
     }
 
     private static double DoubleValue(
