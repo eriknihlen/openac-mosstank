@@ -42,6 +42,40 @@ public sealed class VtankLootRequirementEvaluatorTests
             [RareUnderlayRule()], otherBackdrop, EmptyProperties(), host: null, out _));
     }
 
+    // The coverage requirement of Loot5.utl's "(C) Multi-Legendary (Shirt)"
+    // rules: IntValueKey.Coverage (218103821) equals 104, the chest and both
+    // arm sections a shirt covers. Coverage arrives with the object itself,
+    // so the rule decides before any appraisal.
+    private static VtankLootRequirement ShirtCoverageRule() => new()
+    {
+        Type = 12,
+        Payload = "104\r\n218103821\r\n",
+    };
+
+    [Fact]
+    public void TheShirtCoverageRuleMatchesAShirtBeforeAppraisal()
+    {
+        PluginInventoryItem shirt = Item() with { CoverageMask = 104u };
+
+        Assert.True(VtankLootRequirementEvaluator.IsMatch(
+            [ShirtCoverageRule()], shirt, EmptyProperties(), host: null, out string? error));
+        Assert.Null(error);
+        VtankLootRequirementEvaluator.EarlyMatch(
+            ShirtCoverageRule(), shirt, EmptyProperties(), host: null,
+            out bool hasDecision, out bool isMatch);
+        Assert.True(hasDecision);
+        Assert.True(isMatch);
+    }
+
+    [Fact]
+    public void TheShirtCoverageRuleDoesNotMatchPants()
+    {
+        PluginInventoryItem pants = Item() with { CoverageMask = 22u };
+
+        Assert.False(VtankLootRequirementEvaluator.IsMatch(
+            [ShirtCoverageRule()], pants, EmptyProperties(), host: null, out _));
+    }
+
     private static PluginItemProperties EmptyProperties() => new(
         Ints: new Dictionary<uint, int>(),
         Int64s: new Dictionary<uint, long>(),

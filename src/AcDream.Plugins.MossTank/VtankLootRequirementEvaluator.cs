@@ -513,6 +513,9 @@ internal static class VtankLootRequirementEvaluator
             case VtankIntBase + 9: value = item.ContainerSlot; return true;
             case VtankIntBase + 10: value = checked((int)item.WielderObjectId); return true;
             case VtankIntBase + 11: value = checked((int)item.EquippedLocation); return true;
+            // The body parts a worn item covers, as the object itself sends
+            // them: a shirt is 104 (chest and both arm sections), pants 22.
+            case VtankIntBase + 13: return Present(unchecked((int)item.CoverageMask), out value);
             case VtankIntBase + 14: value = checked((int)item.ValidLocations); return true;
             case IconHighlightKey: value = checked((int)item.Effects); return true;
             case VtankIntBase + 18: value = checked((int)item.Useability); return true;
@@ -546,6 +549,17 @@ internal static class VtankLootRequirementEvaluator
         }
         value = checked((int)(iconId >= IconIdPrefix ? iconId - IconIdPrefix : iconId));
         return true;
+    }
+
+    /// <summary>
+    /// A value the server sends with the object only when the object has
+    /// one. The item snapshot has no "absent" encoding, so zero stands for
+    /// "the server sent none", which is what the reference macro sees too.
+    /// </summary>
+    private static bool Present(int field, out int value)
+    {
+        value = field;
+        return field != 0;
     }
 
     private static int IntValue(
