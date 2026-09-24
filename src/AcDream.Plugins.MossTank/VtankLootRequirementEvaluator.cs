@@ -9,6 +9,7 @@ internal static class VtankLootRequirementEvaluator
 {
     private const uint VtankIntBase = 218_103_808u;
     private const uint VtankDoubleBase = 167_772_160u;
+    private const uint PluralNameKey = 184_549_376u;
 
     /// <summary>The item key whose bit 0 is the "magical" icon highlight.</summary>
     private const uint IconHighlightKey = VtankIntBase + 16;
@@ -67,7 +68,7 @@ internal static class VtankLootRequirementEvaluator
         !NonIdentifiedIntKeys.Contains(key);
 
     internal static bool IsIdentifiedStringKey(uint key) =>
-        key != 1u && key != 184_549_376u;
+        key != 1u && key != PluralNameKey;
 
     internal static bool IsIdentifiedDoubleKey(uint key) =>
         key != VtankDoubleBase + 8 && key != VtankDoubleBase + 9;
@@ -484,6 +485,8 @@ internal static class VtankLootRequirementEvaluator
         in PluginItemProperties properties) => key switch
     {
         1 => item.Name,
+        // The name for more than one, which the object itself carries.
+        PluralNameKey => item.PluralName ?? string.Empty,
         _ => properties.Strings?.TryGetValue(key, out string? value) == true
             ? value
             : string.Empty,
@@ -498,27 +501,53 @@ internal static class VtankLootRequirementEvaluator
         switch (key)
         {
             case 5: value = item.Burden; return true;
+            // The slot a worn item is in, as the object itself reports it.
+            case 10: return Present(unchecked((int)item.EquippedLocation), out value);
             case 19: value = item.Value; return true;
+            // Uses left and the most uses, which the object itself carries.
+            case 91: return TryObjectInt(91, item.MaximumStructure, properties, out value);
+            case 92: return TryObjectInt(92, item.Structure, properties, out value);
             case 105: value = checked((int)item.Workmanship); return true;
             case 107: value = item.ItemCurrentMana; return true;
             case 108: value = item.ItemMaximumMana; return true;
             case 131: value = checked((int)item.MaterialType); return true;
             case VtankIntBase + 0: value = checked((int)item.WeenieClassId); return true;
-            case VtankIntBase + 2: value = checked((int)item.ContainerObjectId); return true;
+            // The icon as the object itself sends it: without the
+            // 0x06000000 every icon id carries, like the icon layers.
+            case VtankIntBase + 1: return TryIconLayer(item.IconId, out value);
+            // The container holding the item or, for an item someone
+            // wields, the wielder.
+            case VtankIntBase + 2:
+                return item.ContainerObjectId != 0u
+                    ? Present(unchecked((int)item.ContainerObjectId), out value)
+                    : Present(unchecked((int)item.WielderObjectId), out value);
             case VtankIntBase + 4: value = item.ItemsCapacity; return true;
             case VtankIntBase + 5: value = item.ContainersCapacity; return true;
             case VtankIntBase + 6: value = item.StackSize; return true;
             case VtankIntBase + 7: value = item.MaximumStackSize; return true;
             case VtankIntBase + 8: value = checked((int)item.SpellId); return true;
-            case VtankIntBase + 9: value = item.ContainerSlot; return true;
+            // Only ever -1, the mark of an item someone wields.
+            case VtankIntBase + 9:
+                value = item.WielderObjectId != 0u ? -1 : 0;
+                return item.WielderObjectId != 0u;
             case VtankIntBase + 10: value = checked((int)item.WielderObjectId); return true;
             case VtankIntBase + 11: value = checked((int)item.EquippedLocation); return true;
             // The body parts a worn item covers, as the object itself sends
             // them: a shirt is 104 (chest and both arm sections), pants 22.
             case VtankIntBase + 13: return Present(unchecked((int)item.CoverageMask), out value);
             case VtankIntBase + 14: value = checked((int)item.ValidLocations); return true;
+            // Melee weapon, missile weapon, ammunition, shield.
+            case VtankIntBase + 15: return Present(item.CombatUse, out value);
             case IconHighlightKey: value = checked((int)item.Effects); return true;
-            case VtankIntBase + 18: value = checked((int)item.Useability); return true;
+            // The ammunition a launcher takes or an arrow or bolt is.
+            case VtankIntBase + 17: return Present(unchecked((int)item.AmmoType), out value);
+            // What kind of object a targeted-use item may be used on.
+            case VtankIntBase + 18: return Present(unchecked((int)item.TargetType), out value);
+            // The item-type bits (weapon, armor, food and so on) and the
+            // object-description bits (door, corpse, vendor, ...) that head
+            // every object the server creates.
+            case VtankIntBase + 26: return Present(unchecked((int)item.ItemType), out value);
+            case VtankIntBase + 27: return Present(unchecked((int)item.PublicFlags), out value);
             case VtankIntBase + 23: value = checked((int)item.PublicFlags); return true;
             // The weapon's speed rating from its appraisal; a weapon never
             // appraised, or anything else, has none.
@@ -528,6 +557,8 @@ internal static class VtankLootRequirementEvaluator
             case VtankIntBase + 32: value = item.WeaponSkill; return true;
             case VtankIntBase + 33: value = item.DamageType; return true;
             case VtankIntBase + 34: value = item.Damage; return true;
+            // How the item may be used, including whether it needs a target.
+            case VtankIntBase + 35: return Present(unchecked((int)item.Useability), out value);
             case VtankIntBase + 38: value = item.AppraisedSpellIds.Count; return true;
             case VtankIntBase + 41: return TryIconLayer(item.IconOverlayId, out value);
             case VtankIntBase + 42: return TryIconLayer(item.IconUnderlayId, out value);
@@ -566,6 +597,21 @@ internal static class VtankLootRequirementEvaluator
         return field != 0;
     }
 
+    /// <summary>
+    /// A number the object itself carries and an appraisal may repeat: the
+    /// appraised value when there is one, otherwise the object's own.
+    /// </summary>
+    private static bool TryObjectInt(
+        uint key,
+        int field,
+        in PluginItemProperties properties,
+        out int value)
+    {
+        if (properties.Ints?.TryGetValue(key, out value) == true)
+            return true;
+        return Present(field, out value);
+    }
+
     private static int IntValue(
         uint key,
         in PluginInventoryItem item,
@@ -598,6 +644,10 @@ internal static class VtankLootRequirementEvaluator
                 return TryArmorNumber(properties, static armor => armor.FireMod, out value);
             case VtankDoubleBase + 6:
                 return TryArmorNumber(properties, static armor => armor.ColdMod, out value);
+            // How close, in metres, the character must be to use the item.
+            case VtankDoubleBase + 8:
+                value = item.UseRadius;
+                return item.UseRadius != 0f;
             case VtankDoubleBase + 9: value = item.Workmanship; return true;
             case VtankDoubleBase + 11: value = item.DamageVariance; return true;
             // Attack bonus, range and damage bonus exist only as the weapon

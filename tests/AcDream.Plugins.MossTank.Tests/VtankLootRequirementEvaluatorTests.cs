@@ -216,6 +216,107 @@ public sealed class VtankLootRequirementEvaluatorTests
             [rule], sword with { CombatUse = 25 }, EmptyProperties(), host: null, out _));
     }
 
+    // Values the server sends with the object itself, so a rule on them
+    // decides before any appraisal. Every field of the item is set to a
+    // distinct number, so a key read from the wrong field fails.
+    private static PluginInventoryItem CreatedItem() => Item() with
+    {
+        IconId = 0x06001F2Au,
+        ItemType = 0x2u,
+        PublicFlags = 0x10u,
+        Useability = 0x8_0000u,
+        TargetType = 0x10u,
+        CombatUse = 2,
+        AmmoType = 1u,
+        EquippedLocation = 0x200u,
+        Structure = 7,
+        MaximumStructure = 50,
+        ContainerObjectId = 0u,
+        WielderObjectId = 0x5000000Au,
+        UseRadius = 2.5f,
+    };
+
+    [Theory]
+    [InlineData(218103809u, 7978)]           // Icon: 0x1F2A without the prefix
+    [InlineData(218103834u, 0x2)]            // Category: the item-type bits
+    [InlineData(218103835u, 0x10)]           // Behavior: the description bits
+    [InlineData(218103843u, 0x8_0000)]       // ItemUsabilityFlags: how it is used
+    [InlineData(218103826u, 0x10)]           // UsageMask: what it is used on
+    [InlineData(218103823u, 2)]              // EquipType: its combat role
+    [InlineData(218103825u, 1)]              // MissileType: its ammunition
+    [InlineData(10u, 0x200)]                 // EquippedSlots: the slot it is in
+    [InlineData(92u, 7)]                     // UsesRemaining
+    [InlineData(91u, 50)]                    // UsesTotal
+    [InlineData(218103810u, 0x5000000A)]     // Container: the wielder, when wielded
+    [InlineData(218103817u, -1)]             // Slot: -1 marks a wielded item
+    public void AValueTheObjectCarriesDecidesBeforeAppraisal(uint key, int expected)
+    {
+        var rule = new VtankLootRequirement { Type = 12, Payload = $"{expected}\r\n{key}\r\n" };
+        PluginInventoryItem item = CreatedItem();
+
+        Assert.True(VtankLootRequirementEvaluator.IsMatch(
+            [rule], item, EmptyProperties(), host: null, out string? error));
+        Assert.Null(error);
+        VtankLootRequirementEvaluator.EarlyMatch(
+            rule, item, EmptyProperties(), host: null,
+            out bool hasDecision, out bool isMatch);
+        Assert.True(hasDecision);
+        Assert.True(isMatch);
+    }
+
+    [Fact]
+    public void AnItemInAPackHasItsPackAsContainerAndNoSlotMark()
+    {
+        PluginInventoryItem packed = CreatedItem() with
+        {
+            ContainerObjectId = 0x80001234u,
+            WielderObjectId = 0u,
+        };
+        var container = new VtankLootRequirement
+        {
+            Type = 12,
+            Payload = $"{unchecked((int)0x80001234u)}\r\n218103810\r\n",
+        };
+        var wieldedMark = new VtankLootRequirement { Type = 12, Payload = "-1\r\n218103817\r\n" };
+
+        Assert.True(VtankLootRequirementEvaluator.IsMatch(
+            [container], packed, EmptyProperties(), host: null, out string? error));
+        Assert.Null(error);
+        Assert.False(VtankLootRequirementEvaluator.IsMatch(
+            [wieldedMark], packed, EmptyProperties(), host: null, out _));
+    }
+
+    [Fact]
+    public void ApproachDistanceIsTheUseRadiusTheObjectCarries()
+    {
+        // Type 4 (a double at most) on DoubleValueKey ApproachDistance
+        // (167772168), which is known before appraisal.
+        var rule = new VtankLootRequirement { Type = 4, Payload = "3\r\n167772168\r\n" };
+        var atLeast = new VtankLootRequirement { Type = 5, Payload = "2\r\n167772168\r\n" };
+
+        Assert.True(VtankLootRequirementEvaluator.IsMatch(
+            [rule, atLeast], CreatedItem(), EmptyProperties(), host: null, out string? error));
+        Assert.Null(error);
+        Assert.False(VtankLootRequirementEvaluator.IsMatch(
+            [rule, atLeast], CreatedItem() with { UseRadius = 0f },
+            EmptyProperties(), host: null, out _));
+    }
+
+    [Fact]
+    public void ThePluralNameIsTheNameTheObjectCarriesForMoreThanOne()
+    {
+        // Type 1 (a string matches) on StringValueKey SecondaryName.
+        var rule = new VtankLootRequirement { Type = 1, Payload = "^Pyreals$\r\n184549376\r\n" };
+        PluginInventoryItem coins = Item() with { PluralName = "Pyreals" };
+
+        Assert.True(VtankLootRequirementEvaluator.IsMatch(
+            [rule], coins, EmptyProperties(), host: null, out string? error));
+        Assert.Null(error);
+        Assert.False(VtankLootRequirementEvaluator.IsMatch(
+            [rule], Item() with { PluralName = "Pyreal Motes" },
+            EmptyProperties(), host: null, out _));
+    }
+
     // Every protection distinct, so a key read from the wrong one fails.
     private static PluginArmorProfile Armor() => new(
         ArmorLevel: 500,
