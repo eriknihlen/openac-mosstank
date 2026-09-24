@@ -507,7 +507,6 @@ internal static class VtankLootRequirementEvaluator
             // Uses left and the most uses, which the object itself carries.
             case 91: return TryObjectInt(91, item.MaximumStructure, properties, out value);
             case 92: return TryObjectInt(92, item.Structure, properties, out value);
-            case 105: value = checked((int)item.Workmanship); return true;
             case 107: value = item.ItemCurrentMana; return true;
             case 108: value = item.ItemMaximumMana; return true;
             case 131: value = checked((int)item.MaterialType); return true;
@@ -525,13 +524,10 @@ internal static class VtankLootRequirementEvaluator
             case VtankIntBase + 5: value = item.ContainersCapacity; return true;
             case VtankIntBase + 6: value = item.StackSize; return true;
             case VtankIntBase + 7: value = item.MaximumStackSize; return true;
-            case VtankIntBase + 8: value = checked((int)item.SpellId); return true;
             // Only ever -1, the mark of an item someone wields.
             case VtankIntBase + 9:
                 value = item.WielderObjectId != 0u ? -1 : 0;
                 return item.WielderObjectId != 0u;
-            case VtankIntBase + 10: value = checked((int)item.WielderObjectId); return true;
-            case VtankIntBase + 11: value = checked((int)item.EquippedLocation); return true;
             // The body parts a worn item covers, as the object itself sends
             // them: a shirt is 104 (chest and both arm sections), pants 22.
             case VtankIntBase + 13: return Present(unchecked((int)item.CoverageMask), out value);
@@ -548,7 +544,6 @@ internal static class VtankLootRequirementEvaluator
             // every object the server creates.
             case VtankIntBase + 26: return Present(unchecked((int)item.ItemType), out value);
             case VtankIntBase + 27: return Present(unchecked((int)item.PublicFlags), out value);
-            case VtankIntBase + 23: value = checked((int)item.PublicFlags); return true;
             // The weapon's speed rating from its appraisal; a weapon never
             // appraised, or anything else, has none.
             case VtankIntBase + 31:
@@ -559,9 +554,14 @@ internal static class VtankLootRequirementEvaluator
             case VtankIntBase + 34: value = item.Damage; return true;
             // How the item may be used, including whether it needs a target.
             case VtankIntBase + 35: return Present(unchecked((int)item.Useability), out value);
-            case VtankIntBase + 38: value = item.AppraisedSpellIds.Count; return true;
             case VtankIntBase + 41: return TryIconLayer(item.IconOverlayId, out value);
             case VtankIntBase + 42: return TryIconLayer(item.IconUnderlayId, out value);
+            // Everything else is an appraised property under its own id,
+            // workmanship (105) among them: the whole number an appraisal
+            // shows, not the fraction the object itself carries. The
+            // reference macro never fills AssociatedSpell, Wielder,
+            // WieldingSlot or Flags (218103816, -18, -19, -31), so those
+            // read nothing here either.
             default:
                 value = 0;
                 return properties.Ints?.TryGetValue(key, out value) == true;

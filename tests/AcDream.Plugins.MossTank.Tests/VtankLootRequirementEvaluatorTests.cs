@@ -317,6 +317,49 @@ public sealed class VtankLootRequirementEvaluatorTests
             EmptyProperties(), host: null, out _));
     }
 
+    [Theory]
+    [InlineData(218103816u)] // AssociatedSpell: never filled by VTank
+    [InlineData(218103818u)] // Wielder: never filled
+    [InlineData(218103819u)] // WieldingSlot: never filled
+    [InlineData(218103831u)] // Flags: never filled
+    [InlineData(218103846u)] // the object's effect script, not a spell count
+    public void AKeyVtankHasNoValueForReadsNothingWhateverTheItemIs(uint key)
+    {
+        // Type 13 (an int differs): true for any value but zero.
+        var rule = new VtankLootRequirement { Type = 13, Payload = $"0\r\n{key}\r\n" };
+        PluginInventoryItem item = Item() with
+        {
+            SpellId = 1234u,
+            WielderObjectId = 0x5000000Au,
+            EquippedLocation = 0x200u,
+            PublicFlags = 0x10u,
+            AppraisedSpellIds = [2591u, 2603u],
+        };
+
+        Assert.False(VtankLootRequirementEvaluator.IsMatch(
+            [rule], item, EmptyProperties(), host: null, out string? error));
+        Assert.Null(error);
+    }
+
+    [Fact]
+    public void WorkmanshipIsTheAppraisedWholeNumberNotTheObjectsFraction()
+    {
+        // Type 3 (an int at least) on IntValueKey Workmanship (105): the
+        // object carries 7.8, which the reference macro never reads as 105.
+        var rule = new VtankLootRequirement { Type = 3, Payload = "7\r\n105\r\n" };
+        PluginInventoryItem item = Item() with { Workmanship = 7.8f };
+        PluginItemProperties appraised = EmptyProperties() with
+        {
+            Ints = new Dictionary<uint, int> { [105u] = 8 },
+        };
+
+        Assert.False(VtankLootRequirementEvaluator.IsMatch(
+            [rule], item, EmptyProperties(), host: null, out _));
+        Assert.True(VtankLootRequirementEvaluator.IsMatch(
+            [rule], item, appraised, host: null, out string? error));
+        Assert.Null(error);
+    }
+
     // Every protection distinct, so a key read from the wrong one fails.
     private static PluginArmorProfile Armor() => new(
         ArmorLevel: 500,
