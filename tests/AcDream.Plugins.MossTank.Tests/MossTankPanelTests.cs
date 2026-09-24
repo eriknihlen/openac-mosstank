@@ -738,6 +738,46 @@ public sealed partial class MossTankPanelTests
         }
     }
 
+    /// <summary>
+    /// A loot profile whose enabled rule reads a value the client cannot
+    /// supply is decided on a zero; loading it says so once, by rule and
+    /// key, instead of letting the rule fail without a word.
+    /// </summary>
+    [Fact]
+    public void LoadingALootProfileWarnsOnceAboutAKeyTheClientCannotSupply()
+    {
+        var storage = new MemoryStorage();
+        var host = new FakeHost(
+            new FakeAutomation { Name = "Barris", WorldName = "Coldeve" }, storage);
+        var profiles = new MossTankLootProfileStore(host);
+        profiles.BindCharacter("Barris");
+        Assert.True(profiles.Create("Monarchy", false, [], out _));
+        profiles.SaveCurrent(
+        [
+            new LootRule
+            {
+                Name = "(A) My monarch's gear",
+                Action = LootAction.Keep,
+                VtankRequirements =
+                [
+                    new VtankLootRequirement
+                    {
+                        Type = 12,
+                        Payload = "1342177290\r\n218103820\r\n",
+                    },
+                ],
+            },
+        ]);
+        host.Logger.Warnings.Clear();
+
+        var rules = new List<LootRule>();
+        Assert.Equal(MossTankProfileLoad.Loaded, profiles.LoadCurrent(rules));
+
+        string warning = Assert.Single(host.Logger.Warnings);
+        Assert.Contains("\"(A) My monarch's gear\" reads Monarch (218103820)",
+            warning, StringComparison.Ordinal);
+    }
+
     [Fact]
     public void CorruptSideCarMonsterRuleIsLoggedNotSilentlySwallowed()
     {

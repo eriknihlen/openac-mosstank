@@ -650,6 +650,191 @@ public sealed partial class LootingTests
         Assert.Empty(automation.Picked);
     }
 
+    // Rare-only looting describes no ordinary kill: the server announces a
+    // rare find by name, and only corpses that appeared around this
+    // character's own announcement are described.
+
+    private static (LootController Controller, Automation Automation) RareOnlyLooter(
+        params uint[] corpses)
+    {
+        var settings = new LootSettings { Enabled = true, LootOnlyRareCorpses = true };
+        settings.Rules.Add(new LootRule { Expression = "*", Action = LootAction.NoLoot });
+        var automation = new Automation
+        {
+            Corpses = [.. corpses.Select(static id =>
+                new PluginLootContainer(id, 1u, "Corpse of Drudge", 3f, false, false, false))],
+        };
+        return (new LootController(new Host(automation), settings), automation);
+    }
+
+    private static void Announce(Automation automation, ulong sequence, string text) =>
+        automation.ChatMessages.Add(new PluginChatMessage(
+            sequence, 0u, 0, string.Empty, text, string.Empty));
+
+    [Fact]
+    public void RareOnlyLootingDescribesNoCorpseUntilTheServerAnnouncesARare()
+    {
+        (LootController controller, Automation automation) =
+            RareOnlyLooter(0x70001001u, 0x70001002u);
+
+        for (int pass = 0; pass < 10; pass++)
+        {
+            controller.Tick(0.5d, canAct: true);
+            controller.TickIdentification(0.5d);
+        }
+
+        Assert.Empty(automation.Identified);
+        Assert.False(controller.HasCorpseAwaitingDescriptionWithin(50d));
+    }
+
+    [Fact]
+    public void RareOnlyLootingWithoutAnAnnouncementListsTheCorpsesOnlyEveryTwoSeconds()
+    {
+        // Only to note when each corpse appeared; ten frames of half a
+        // second are five seconds, which is three sightings at most.
+        (LootController controller, Automation automation) =
+            RareOnlyLooter(0x70001001u, 0x70001002u);
+        int before = automation.CorpseCaptureCount;
+
+        for (int frame = 0; frame < 10; frame++)
+            controller.TickIdentification(0.5d);
+        Assert.False(controller.HasCorpseAwaitingDescriptionWithin(50d));
+
+        Assert.InRange(automation.CorpseCaptureCount - before, 1, 3);
+    }
+
+    [Fact]
+    public void ARareAnnouncementDescribesOnlyTheNewCorpseWhileTheLootPassCannotAct()
+    {
+        // Live, rare-only looting never gets a turn to act, so the corpse
+        // pass never notes when a corpse appeared; the sightings alone must
+        // tell the old corpse from the one that has just fallen.
+        (LootController controller, Automation automation) =
+            RareOnlyLooter(0x70001001u);
+        for (int frame = 0; frame < 40; frame++)
+        {
+            controller.Tick(0.5d, canAct: false);
+            controller.TickIdentification(0.5d);
+        }
+
+        automation.Corpses =
+        [
+            .. automation.Corpses,
+            new PluginLootContainer(0x70001002u, 1u, "Corpse of Drudge", 3f, false, false, false),
+        ];
+        for (int frame = 0; frame < 4; frame++)
+        {
+            controller.Tick(0.5d, canAct: false);
+            controller.TickIdentification(0.5d);
+        }
+        Announce(automation, 1uL, "Tester has discovered the Pearl of Blood Drinking!");
+        controller.Tick(0.5d, canAct: false);
+        controller.TickIdentification(0.5d);
+
+        Assert.Equal([0x70001002u], automation.Identified);
+    }
+
+    [Fact]
+    public void RareOnlyLootingOpensTheCorpseTheServerSaysGeneratedARare()
+    {
+        // The server does not send the corpse's rare flag with its
+        // description; the description itself says so.
+        (LootController controller, Automation automation) =
+            RareOnlyLooter();
+        automation.Corpses =
+        [
+            new PluginLootContainer(0x70001003u, 1u, "Corpse of Assailer", 3f, false, false, false)
+            {
+                IsIdentified = true,
+                LongDescription = "Killed by Tester. This corpse generated a rare item!",
+            },
+        ];
+
+        Assert.True(controller.Tick(0.5d, canAct: true));
+
+        Assert.Equal([0x70001003u], automation.Opened);
+    }
+
+    [Fact]
+    public void RareOnlyLootingLeavesAnOrdinaryKillOfItsOwnAlone()
+    {
+        (LootController controller, Automation automation) =
+            RareOnlyLooter();
+        automation.Corpses =
+        [
+            new PluginLootContainer(0x70001004u, 1u, "Corpse of Assailer", 3f, false, false, false)
+            {
+                IsIdentified = true,
+                LongDescription = "Killed by Tester.",
+            },
+        ];
+
+        controller.Tick(0.5d, canAct: true);
+
+        Assert.Empty(automation.Opened);
+    }
+
+    [Fact]
+    public void ThisCharactersRareAnnouncementDescribesTheCorpseThatJustAppeared()
+    {
+        (LootController controller, Automation automation) =
+            RareOnlyLooter(0x70001001u);
+        controller.Tick(0.5d, canAct: true);
+        controller.Tick(20d, canAct: true);
+        controller.TickIdentification(0.5d);
+
+        automation.Corpses =
+        [
+            .. automation.Corpses,
+            new PluginLootContainer(0x70001002u, 1u, "Corpse of Drudge", 3f, false, false, false),
+        ];
+        controller.Tick(0.5d, canAct: true);
+        Announce(automation, 1uL, "Tester has discovered the Pearl of Blood Drinking!");
+        controller.Tick(0.5d, canAct: true);
+        controller.TickIdentification(0.5d);
+
+        // The corpse from twenty seconds earlier is not the rare's.
+        Assert.Equal([0x70001002u], automation.Identified);
+        Assert.True(controller.HasCorpseAwaitingDescriptionWithin(50d));
+    }
+
+    [Fact]
+    public void AnotherPlayersRareAnnouncementDescribesNothing()
+    {
+        (LootController controller, Automation automation) =
+            RareOnlyLooter(0x70001001u);
+        Announce(automation, 1uL, "Someone Else has discovered the Pearl of Blood Drinking!");
+        Announce(automation, 2uL, "Tester says, \"Tester has discovered the Pearl of Blood Drinking!\"");
+
+        controller.Tick(0.5d, canAct: true);
+        controller.TickIdentification(0.5d);
+
+        Assert.Empty(automation.Identified);
+    }
+
+    [Fact]
+    public void ARareAnnouncementStopsDescribingNewCorpsesAfterItsWindow()
+    {
+        (LootController controller, Automation automation) =
+            RareOnlyLooter(0x70001001u);
+        Announce(automation, 1uL, "+Tester has discovered the Pearl of Blood Drinking!");
+        controller.Tick(0.5d, canAct: true);
+        controller.TickIdentification(0.5d);
+        Assert.Equal([0x70001001u], automation.Identified);
+
+        controller.Tick(LootController.RareAnnouncementWindowSeconds + 1d, canAct: true);
+        automation.Corpses =
+        [
+            .. automation.Corpses,
+            new PluginLootContainer(0x70001002u, 1u, "Corpse of Drudge", 3f, false, false, false),
+        ];
+        automation.AppraisalState = automation.AppraisalState with { AwaitingObjectId = 0u };
+        controller.Tick(0.5d, canAct: true);
+        controller.TickIdentification(5d);
+
+        Assert.DoesNotContain(0x70001002u, automation.Identified);
+    }
+
     [Fact]
     public void FellowshipAndRareCorpsePolicyMatchesVtankProtectionRules()
     {
@@ -1707,7 +1892,7 @@ public sealed partial class LootingTests
     /// description that is not a kill description.
     /// </summary>
     [Fact]
-    public void ACorpseWhoseDescriptionNamesNoKillerIsTreatedAsRare()
+    public void ACorpseWhoseDescriptionNamesNoKillerIsNeverLooted()
     {
         var settings = new LootSettings
         {
@@ -1731,7 +1916,7 @@ public sealed partial class LootingTests
         };
         var controller = new LootController(new Host(automation), settings);
 
-        // Rare, so it sorts first; nobody killed it, so it is never looted —
+        // Nobody is named as having killed it, so it is never looted —
         // not even once it is old enough for the loot-anything timer.
         Assert.False(controller.Tick(200d, canAct: true));
         Assert.False(controller.Tick(200d, canAct: true));
@@ -2682,10 +2867,15 @@ public sealed partial class LootingTests
             value = default;
             return false;
         }
+        public int CorpseCaptureCount { get; private set; }
         public IReadOnlyList<PluginLootContainer> CaptureCorpses(
-            float maximumDistance) => Corpses
+            float maximumDistance)
+        {
+            CorpseCaptureCount++;
+            return Corpses
                 .Where(corpse => corpse.Distance <= maximumDistance)
                 .ToArray();
+        }
         public IReadOnlyList<PluginInventoryItem> CaptureCurrentContents() =>
             Contents;
         /// <summary>

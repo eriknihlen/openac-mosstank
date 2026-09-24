@@ -43,6 +43,87 @@ public sealed class AuthenticMetaExecutionTests
     }
 
     [Fact]
+    public void AMetaPassListsTheObjectsOnceNotOncePerCondition()
+    {
+        // A hunting meta checks many inventory counts every pass; each one
+        // used to copy every object the client knows.
+        var automation = new Automation();
+        var host = new Host(automation, new MemoryStorage());
+        using var expressions = new MossTankExpressionRuntime(host);
+        static MetaRule Carrying(string name) => new()
+        {
+            Condition = new MetaCondition
+            {
+                Kind = MetaConditionKind.InventoryItemCountGreaterThanOrEqual,
+                Text = name,
+                Number = 5,
+            },
+        };
+        var engine = new MetaEngine(
+            host,
+            expressions,
+            new MetaProfile
+            {
+                Rules =
+                [
+                    Carrying("Mana Stone"),
+                    Carrying("Pyreal"),
+                    Carrying("Arrow"),
+                    Carrying("Healing Kit"),
+                ],
+            });
+        engine.SetEnabled(true);
+
+        int before = automation.WorldCaptureCount;
+        engine.EvaluatePass();
+        Assert.Equal(1, automation.WorldCaptureCount - before);
+
+        before = automation.WorldCaptureCount;
+        expressions.Evaluate("getitemcountininventorybyname[`Pyreal`]");
+        expressions.Evaluate("getitemcountininventorybyname[`Pyreal`]");
+        Assert.Equal(2, automation.WorldCaptureCount - before);
+    }
+
+    [Fact]
+    public void AnActionInAMetaPassStartsAFreshObjectList()
+    {
+        var automation = new Automation();
+        var host = new Host(automation, new MemoryStorage());
+        using var expressions = new MossTankExpressionRuntime(host);
+        static MetaCondition Carrying(string name) => new()
+        {
+            Kind = MetaConditionKind.InventoryItemCountLessThanOrEqual,
+            Text = name,
+            Number = 5,
+        };
+        var engine = new MetaEngine(
+            host,
+            expressions,
+            new MetaProfile
+            {
+                Rules =
+                [
+                    new MetaRule
+                    {
+                        Condition = Carrying("Pyreal"),
+                        Action = new MetaAction
+                        {
+                            Kind = MetaActionKind.ExpressionAction,
+                            Text = "setvar[x,1]",
+                        },
+                    },
+                    new MetaRule { Condition = Carrying("Arrow") },
+                ],
+            });
+        engine.SetEnabled(true);
+
+        int before = automation.WorldCaptureCount;
+        engine.EvaluatePass();
+
+        Assert.Equal(2, automation.WorldCaptureCount - before);
+    }
+
+    [Fact]
     public void ControlledNativeMetaIsReselectedAfterIdentitySettlesAndThenRuns()
     {
         string fixture = File.ReadAllText(Path.Combine(
@@ -344,8 +425,10 @@ public sealed class AuthenticMetaExecutionTests
             return true;
         }
 
+        public int WorldCaptureCount { get; private set; }
+
         IReadOnlyList<PluginWorldObject> IWorldObjectAutomation.CaptureObjects() =>
-            [_landscape];
+            ++WorldCaptureCount > 0 ? [_landscape] : [];
 
         IReadOnlyList<PluginNavigationObject> INavigationAutomation.CaptureObjects() =>
             [];

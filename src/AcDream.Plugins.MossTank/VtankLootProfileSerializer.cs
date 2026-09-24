@@ -369,7 +369,11 @@ internal static class VtankLootProfileSerializer
         output.Append(normalized);
     }
 
-    private static string NormalizePayload(string? payload) =>
+    /// <summary>
+    /// Text in the line endings a block is written with, so a length
+    /// measured on the result is the length a reader counts off the file.
+    /// </summary>
+    internal static string NormalizePayload(string? payload) =>
         (payload ?? string.Empty)
             .Replace("\r\n", "\n", StringComparison.Ordinal)
             .Replace('\r', '\n')

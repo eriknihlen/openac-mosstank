@@ -667,6 +667,11 @@ internal sealed partial class LootController
     private uint _abandonedCorpse;
     private uint _selectedCorpse;
     private ulong _chatSequence;
+    /// <summary>
+    /// When the server last announced that this character found a rare, on
+    /// the controller's own clock; minus infinity when it never has.
+    /// </summary>
+    private double _rareAnnouncedAt = double.NegativeInfinity;
     private double _stateAge;
     private uint _activeCorpse;
     private bool _activeCorpseSawContents;
@@ -1072,6 +1077,7 @@ internal sealed partial class LootController
             int index = (lastRequestIndex + offset) % known.Count;
             PluginLootContainer candidateCorpse = known[index];
             if (IsDescriptionAnswered(candidateCorpse)
+                || !WantsDescription(candidateCorpse)
                 || _completedCorpses.ContainsKey(candidateCorpse.ObjectId)
                 || IsCorpseDenied(candidateCorpse.ObjectId)
                 || IsCorpseBlacklisted(candidateCorpse.ObjectId))
@@ -1099,6 +1105,10 @@ internal sealed partial class LootController
     }
 
     private double _identifyAge;
+
+    /// <summary>How often rare-only looting notes which corpses are new.</summary>
+    internal const double CorpseSightingIntervalSeconds = 2d;
+    private double _sinceCorpseSighting = CorpseSightingIntervalSeconds;
 
     /// <summary>
     /// The reference's id queue sends one request every 499 ms, round robin
@@ -1163,6 +1173,23 @@ internal sealed partial class LootController
             _awaitingCorpseAppraisal = 0u;
             _identifyAge = 0d;
         }
+        // Rare-only looting has nothing to describe until the server
+        // announces this character's rare. It only notes, every couple of
+        // seconds, when each corpse first appeared, so the announcement can
+        // tell the corpse that has just fallen from the ones already lying
+        // about; the corpse pass that normally keeps that note does not run
+        // while nothing is to be looted.
+        if (_settings.LootOnlyRareCorpses)
+        {
+            _sinceCorpseSighting += elapsed;
+            if (_sinceCorpseSighting >= CorpseSightingIntervalSeconds)
+            {
+                _sinceCorpseSighting = 0d;
+                PruneCorpseCache(loot.CaptureCorpses(float.MaxValue));
+            }
+        }
+        if (!RareWindowOpenOrNotRareOnly())
+            return;
         // Every corpse the client reports, as the reference's identify queue
         // does: a corpse watched from across the field is described long
         // before the character walks up to it.
@@ -1291,6 +1318,7 @@ internal sealed partial class LootController
         _pendingScrollReads.Clear();
         _selectedCorpse = 0u;
         _chatSequence = 0uL;
+        _rareAnnouncedAt = double.NegativeInfinity;
         _lifetime = 0d;
         _salvagePendingItem = 0u;
         _salvagePendingName = string.Empty;

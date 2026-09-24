@@ -243,6 +243,7 @@ internal sealed class MossTankLootProfileStore
             ApplyMossTankExpressions(read.Profile);
             target.Clear();
             target.AddRange(read.Profile.Rules);
+            WarnUnsupportedKeys(fileName, read.Profile.Rules);
             if (settings is not null)
                 settings.SalvageCombine = read.Profile.SalvageCombine.Clone();
             Activate(fileName, settings, partial: true);
@@ -254,10 +255,24 @@ internal sealed class MossTankLootProfileStore
         ApplyMossTankExpressions(profile);
         target.Clear();
         target.AddRange(profile.Rules);
+        WarnUnsupportedKeys(fileName, profile.Rules);
         if (settings is not null)
             settings.SalvageCombine = profile.SalvageCombine.Clone();
         Activate(fileName, settings);
         return MossTankProfileLoad.Loaded;
+    }
+
+    /// <summary>
+    /// Says once per load which enabled rules read a value the client cannot
+    /// supply, since those rules are decided on a zero and would otherwise
+    /// stop looting without a word.
+    /// </summary>
+    private void WarnUnsupportedKeys(string fileName, IEnumerable<LootRule> rules)
+    {
+        string? warning = VtankLootRequirementEvaluator.UnsupportedKeyWarning(
+            StripUtl(fileName), rules);
+        if (warning is not null)
+            _host.Log.Warn(warning);
     }
 
     /// <summary>
@@ -702,9 +717,14 @@ internal sealed class MossTankLootProfileStore
         {
             // Preserve the imported requirement representation, including an
             // unconditional rule whose requirement list is empty.
+            // The file writer normalizes this block's line endings, and the
+            // reference counts a block's length in characters of the text as
+            // written; measure the expression in that same form, or a bare
+            // line break grows after its prefix and the reader loses this and
+            // every later rule's expression.
             string expression = rule.HasImportedRequirements || rule.VtankRequirements.Count > 0
                 ? string.Empty
-                : rule.Expression;
+                : VtankLootProfileSerializer.NormalizePayload(rule.Expression);
             payload.Append(expression.Length.ToString(CultureInfo.InvariantCulture)).Append("\r\n");
             payload.Append(expression);
         }

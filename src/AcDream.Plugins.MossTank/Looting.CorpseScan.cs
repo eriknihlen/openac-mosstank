@@ -164,7 +164,7 @@ internal sealed partial class LootController
     /// </summary>
     internal bool HasCorpseAwaitingDescriptionWithin(double rangeMeters)
     {
-        if (!_host.Automation.IsAvailable)
+        if (!_host.Automation.IsAvailable || !RareWindowOpenOrNotRareOnly())
             return false;
         ILootAutomation loot = _host.Automation.Loot;
         if (!loot.IsAvailable)
@@ -172,6 +172,7 @@ internal sealed partial class LootController
         foreach (PluginLootContainer corpse in loot.CaptureCorpses(float.MaxValue))
         {
             if (!IsDescriptionAnswered(corpse)
+                && WantsDescription(corpse)
                 && corpse.Distance <= rangeMeters
                 && !_completedCorpses.ContainsKey(corpse.ObjectId)
                 && !IsCorpseDenied(corpse.ObjectId)
@@ -284,6 +285,7 @@ internal sealed partial class LootController
         {
             if (message.Sequence > _chatSequence)
                 _chatSequence = message.Sequence;
+            ObserveRareAnnouncement(message.Text);
             if (denied == 0u
                 || (!CorpseAlreadyInUse().IsMatch(message.Text)
                     && !NoRightToLoot().IsMatch(message.Text)))
@@ -304,6 +306,70 @@ internal sealed partial class LootController
             }
         }
     }
+
+    /// <summary>
+    /// How long before the announcement a corpse may have appeared and still
+    /// be the one it is about. The server puts the rare's corpse in the world
+    /// half a second before it announces the find.
+    /// </summary>
+    internal const double RareAnnouncementLeadSeconds = 5d;
+
+    /// <summary>How long an announcement keeps new corpses worth describing.</summary>
+    internal const double RareAnnouncementWindowSeconds = 30d;
+
+    /// <summary>
+    /// The server tells everyone nearby when a kill generates a rare:
+    /// "Name has discovered the Item!". When the name is this character's,
+    /// the corpses that appeared around then are the ones worth describing.
+    /// </summary>
+    private void ObserveRareAnnouncement(string text)
+    {
+        if (!_settings.LootOnlyRareCorpses
+            || RareDiscovered().Match(text) is not { Success: true } match)
+        {
+            return;
+        }
+        string character = _host.Automation.Character.Name.TrimStart('+');
+        if (character.Length == 0
+            || !string.Equals(
+                match.Groups["finder"].Value.TrimStart('+'),
+                character,
+                StringComparison.OrdinalIgnoreCase))
+        {
+            return;
+        }
+        _rareAnnouncedAt = _lifetime;
+        Log?.Invoke(
+            MacroLogChannel.Loot,
+            $"LootCorpse: rare announced ({match.Groups["item"].Value}); describing new corpses");
+    }
+
+    /// <summary>
+    /// Whether this corpse is worth a description request. With rare-only
+    /// looting on, an ordinary kill is never described: only corpses that
+    /// appeared around this character's own rare announcement are, for a
+    /// short while after it. Everything else is described as before.
+    /// </summary>
+    private bool WantsDescription(in PluginLootContainer corpse)
+    {
+        if (!_settings.LootOnlyRareCorpses)
+            return true;
+        if (!RareWindowOpenOrNotRareOnly())
+            return false;
+        return !_corpseFirstSeen.TryGetValue(corpse.ObjectId, out double firstSeen)
+            || firstSeen >= _rareAnnouncedAt - RareAnnouncementLeadSeconds;
+    }
+
+    /// <summary>
+    /// False only while rare-only looting waits for an announcement: then no
+    /// corpse is worth looking at, and the corpse passes skip the whole list.
+    /// </summary>
+    private bool RareWindowOpenOrNotRareOnly() =>
+        !_settings.LootOnlyRareCorpses
+        || _lifetime - _rareAnnouncedAt <= RareAnnouncementWindowSeconds;
+
+    [GeneratedRegex(@"^(?<finder>[^\r\n]+?) has discovered the (?<item>[^\r\n]+)!$")]
+    private static partial Regex RareDiscovered();
 
     private bool IsCorpseDenied(uint corpseId) =>
         _corpseDeniedAt.TryGetValue(corpseId, out double at)
@@ -332,6 +398,11 @@ internal sealed partial class LootController
         {
             return true;
         }
+
+        // A corpse whose description names no killer is nobody's, and is
+        // never looted, however old it gets.
+        if (killer.Length == 0)
+            return false;
 
         if (IsRare(corpse))
             return false;
@@ -548,18 +619,28 @@ internal sealed partial class LootController
     }
 
     /// <summary>
-    /// A corpse counts as rare either because the treasure it holds was
-    /// flagged generated-rare, or because its description is not a kill
-    /// description at all. The second case is the one that keeps a corpse
-    /// nobody is recorded as having killed out of the ordinary ownership
-    /// rules — such a corpse always sorts first and is then never looted,
-    /// because the killer it names is nobody.
+    /// A corpse is rare when the host flags it so, or when its description
+    /// names its killer and then says it generated something, as the
+    /// reference macro reads it.
     /// </summary>
-    private static bool IsRare(in PluginLootContainer corpse) =>
-        corpse.IsGeneratedRare
-        || KilledByDescription().Match(corpse.LongDescription ?? string.Empty)
-            is not { Success: true, Index: 0 };
+    private static bool IsRare(in PluginLootContainer corpse)
+    {
+        if (corpse.IsGeneratedRare)
+            return true;
+        string description = corpse.LongDescription ?? string.Empty;
+        return KilledByDescription().Match(description) is { Success: true, Index: 0 }
+            && RareKillDescription().IsMatch(description);
+    }
 
     [GeneratedRegex(@"(?:Killed by )([a-zA-Z\ \-\']*)(?:\..*)")]
     private static partial Regex KilledByDescription();
+
+    /// <summary>
+    /// A kill description that goes on to say the corpse generated something:
+    /// "Killed by Name. This corpse generated a rare item!". The server does
+    /// not send the corpse's rare flag with its description, so this sentence
+    /// is how a rare corpse is known.
+    /// </summary>
+    [GeneratedRegex(@"(?:Killed by )([a-zA-Z\ \-\']*)(?:\..*)([gG]enerated)(?:.*)")]
+    private static partial Regex RareKillDescription();
 }

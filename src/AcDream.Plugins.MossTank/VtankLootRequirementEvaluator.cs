@@ -9,6 +9,7 @@ internal static class VtankLootRequirementEvaluator
 {
     private const uint VtankIntBase = 218_103_808u;
     private const uint VtankDoubleBase = 167_772_160u;
+    private const uint PluralNameKey = 184_549_376u;
 
     /// <summary>The item key whose bit 0 is the "magical" icon highlight.</summary>
     private const uint IconHighlightKey = VtankIntBase + 16;
@@ -63,11 +64,91 @@ internal static class VtankLootRequirementEvaluator
         VtankIntBase + 41, VtankIntBase + 42,
     ];
 
+    /// <summary>
+    /// Int keys the reference macro fills from the server that the host does
+    /// not hand a plugin, so a rule on one reads zero here where VTank would
+    /// read the object's value.
+    /// </summary>
+    private static readonly IReadOnlyDictionary<uint, string> UnsupportedIntKeys =
+        new Dictionary<uint, string>
+        {
+            [95u] = "RadarBlipColor",
+            [133u] = "RadarVisibility",
+            [VtankIntBase + 12] = "Monarch",
+            [VtankIntBase + 20] = "HookMask",
+            [VtankIntBase + 24] = "CreateFlags1",
+            [VtankIntBase + 25] = "CreateFlags2",
+            [VtankIntBase + 38] = "Unknown8000000",
+            [VtankIntBase + 39] = "PhysicsDataFlags",
+            [VtankIntBase + 43] = "EquippedBy",
+            [VtankIntBase + 44] = "LastAttacker",
+            [VtankIntBase + 45] = "AllegianceObject",
+            [VtankIntBase + 46] = "OwnedBy",
+        };
+
+    /// <summary>
+    /// The key a requirement reads when it is one MossTank cannot supply.
+    /// </summary>
+    internal static bool TryUnsupportedKey(
+        VtankLootRequirement requirement,
+        out uint key,
+        out string name)
+    {
+        key = 0u;
+        name = string.Empty;
+        if (requirement.Type is not (2 or 3 or 11 or 12 or 13 or 2003))
+            return false;
+        string[] values = Lines(requirement.Payload);
+        return values.Length > 1
+            && uint.TryParse(values[1], NumberStyles.Integer,
+                CultureInfo.InvariantCulture, out key)
+            && UnsupportedIntKeys.TryGetValue(key, out name!);
+    }
+
+    /// <summary>
+    /// One warning naming every enabled rule that reads a key MossTank
+    /// cannot supply, or null when there is none. Such a rule is decided on
+    /// a zero, so without the warning it would fail without a word.
+    /// </summary>
+    internal static string? UnsupportedKeyWarning(
+        string profileName,
+        IEnumerable<LootRule> rules)
+    {
+        const int Named = 5;
+        var uses = new List<string>();
+        foreach (LootRule rule in rules)
+        {
+            if (IsDisabled(rule))
+                continue;
+            foreach (VtankLootRequirement requirement in rule.VtankRequirements)
+            {
+                if (TryUnsupportedKey(requirement, out uint key, out string name))
+                    uses.Add($"\"{rule.Name.Trim()}\" reads {name} ({key})");
+            }
+        }
+        if (uses.Count == 0)
+            return null;
+        string named = string.Join("; ", uses.Take(Named));
+        if (uses.Count > Named)
+            named += $"; and {uses.Count - Named} more";
+        return $"Loot profile {profileName}: {uses.Count} enabled rule "
+            + "requirement(s) read a value MossTank cannot get from the "
+            + $"client yet, so they will not match as in VTank: {named}.";
+    }
+
+    // VTClassic's "disabled" requirement: a rule carrying it set to true
+    // never matches.
+    private static bool IsDisabled(LootRule rule) =>
+        rule.VtankRequirements.Any(static requirement =>
+            requirement.Type == 9999
+            && bool.TryParse(Lines(requirement.Payload)[0].Trim(), out bool disabled)
+            && disabled);
+
     internal static bool IsIdentifiedIntKey(uint key) =>
         !NonIdentifiedIntKeys.Contains(key);
 
     internal static bool IsIdentifiedStringKey(uint key) =>
-        key != 1u && key != 184_549_376u;
+        key != 1u && key != PluralNameKey;
 
     internal static bool IsIdentifiedDoubleKey(uint key) =>
         key != VtankDoubleBase + 8 && key != VtankDoubleBase + 9;
@@ -484,6 +565,8 @@ internal static class VtankLootRequirementEvaluator
         in PluginItemProperties properties) => key switch
     {
         1 => item.Name,
+        // The name for more than one, which the object itself carries.
+        PluralNameKey => item.PluralName ?? string.Empty,
         _ => properties.Strings?.TryGetValue(key, out string? value) == true
             ? value
             : string.Empty,
@@ -498,34 +581,115 @@ internal static class VtankLootRequirementEvaluator
         switch (key)
         {
             case 5: value = item.Burden; return true;
+            // The slot a worn item is in, as the object itself reports it.
+            case 10: return Present(unchecked((int)item.EquippedLocation), out value);
             case 19: value = item.Value; return true;
-            case 105: value = checked((int)item.Workmanship); return true;
+            // Uses left and the most uses, which the object itself carries.
+            case 91: return TryObjectInt(91, item.MaximumStructure, properties, out value);
+            case 92: return TryObjectInt(92, item.Structure, properties, out value);
             case 107: value = item.ItemCurrentMana; return true;
             case 108: value = item.ItemMaximumMana; return true;
             case 131: value = checked((int)item.MaterialType); return true;
             case VtankIntBase + 0: value = checked((int)item.WeenieClassId); return true;
-            case VtankIntBase + 2: value = checked((int)item.ContainerObjectId); return true;
+            // The icon as the object itself sends it: without the
+            // 0x06000000 every icon id carries, like the icon layers.
+            case VtankIntBase + 1: return TryIconLayer(item.IconId, out value);
+            // The container holding the item or, for an item someone
+            // wields, the wielder.
+            case VtankIntBase + 2:
+                return item.ContainerObjectId != 0u
+                    ? Present(unchecked((int)item.ContainerObjectId), out value)
+                    : Present(unchecked((int)item.WielderObjectId), out value);
             case VtankIntBase + 4: value = item.ItemsCapacity; return true;
             case VtankIntBase + 5: value = item.ContainersCapacity; return true;
             case VtankIntBase + 6: value = item.StackSize; return true;
             case VtankIntBase + 7: value = item.MaximumStackSize; return true;
-            case VtankIntBase + 8: value = checked((int)item.SpellId); return true;
-            case VtankIntBase + 9: value = item.ContainerSlot; return true;
-            case VtankIntBase + 10: value = checked((int)item.WielderObjectId); return true;
-            case VtankIntBase + 11: value = checked((int)item.EquippedLocation); return true;
+            // Only ever -1, the mark of an item someone wields.
+            case VtankIntBase + 9:
+                value = item.WielderObjectId != 0u ? -1 : 0;
+                return item.WielderObjectId != 0u;
+            // The body parts a worn item covers, as the object itself sends
+            // them: a shirt is 104 (chest and both arm sections), pants 22.
+            case VtankIntBase + 13: return Present(unchecked((int)item.CoverageMask), out value);
             case VtankIntBase + 14: value = checked((int)item.ValidLocations); return true;
+            // Melee weapon, missile weapon, ammunition, shield.
+            case VtankIntBase + 15: return Present(item.CombatUse, out value);
             case IconHighlightKey: value = checked((int)item.Effects); return true;
-            case VtankIntBase + 18: value = checked((int)item.Useability); return true;
-            case VtankIntBase + 23: value = checked((int)item.PublicFlags); return true;
-            case VtankIntBase + 31: value = item.CombatUse; return true;
+            // The ammunition a launcher takes or an arrow or bolt is.
+            case VtankIntBase + 17: return Present(unchecked((int)item.AmmoType), out value);
+            // What kind of object a targeted-use item may be used on.
+            case VtankIntBase + 18: return Present(unchecked((int)item.TargetType), out value);
+            // The item-type bits (weapon, armor, food and so on) and the
+            // object-description bits (door, corpse, vendor, ...) that head
+            // every object the server creates.
+            case VtankIntBase + 26: return Present(unchecked((int)item.ItemType), out value);
+            case VtankIntBase + 27: return Present(unchecked((int)item.PublicFlags), out value);
+            // The weapon's speed rating from its appraisal; a weapon never
+            // appraised, or anything else, has none.
+            case VtankIntBase + 31:
+                value = properties.WeaponProfile?.WeaponTime ?? 0;
+                return properties.WeaponProfile is not null;
             case VtankIntBase + 32: value = item.WeaponSkill; return true;
             case VtankIntBase + 33: value = item.DamageType; return true;
             case VtankIntBase + 34: value = item.Damage; return true;
-            case VtankIntBase + 38: value = item.AppraisedSpellIds.Count; return true;
+            // How the item may be used, including whether it needs a target.
+            case VtankIntBase + 35: return Present(unchecked((int)item.Useability), out value);
+            case VtankIntBase + 41: return TryIconLayer(item.IconOverlayId, out value);
+            case VtankIntBase + 42: return TryIconLayer(item.IconUnderlayId, out value);
+            // Everything else is an appraised property under its own id,
+            // workmanship (105) among them: the whole number an appraisal
+            // shows, not the fraction the object itself carries. The
+            // reference macro never fills AssociatedSpell, Wielder,
+            // WieldingSlot or Flags (218103816, -18, -19, -31), so those
+            // read nothing here either.
             default:
                 value = 0;
                 return properties.Ints?.TryGetValue(key, out value) == true;
         }
+    }
+
+    /// <summary>
+    /// An icon layer as the reference macro stores it: the id as the server
+    /// sends it, without the <c>0x06000000</c> every icon id carries. A rare's
+    /// backdrop is <c>0x06005B0C</c>, and loot profiles test for 23308
+    /// (<c>0x5B0C</c>). An item without the layer has no value at all.
+    /// </summary>
+    private static bool TryIconLayer(uint iconId, out int value)
+    {
+        const uint IconIdPrefix = 0x0600_0000u;
+        if (iconId == 0u)
+        {
+            value = 0;
+            return false;
+        }
+        value = checked((int)(iconId >= IconIdPrefix ? iconId - IconIdPrefix : iconId));
+        return true;
+    }
+
+    /// <summary>
+    /// A value the server sends with the object only when the object has
+    /// one. The item snapshot has no "absent" encoding, so zero stands for
+    /// "the server sent none", which is what the reference macro sees too.
+    /// </summary>
+    private static bool Present(int field, out int value)
+    {
+        value = field;
+        return field != 0;
+    }
+
+    /// <summary>
+    /// A number the object itself carries and an appraisal may repeat: the
+    /// appraised value when there is one, otherwise the object's own.
+    /// </summary>
+    private static bool TryObjectInt(
+        uint key,
+        int field,
+        in PluginItemProperties properties,
+        out int value)
+    {
+        if (properties.Ints?.TryGetValue(key, out value) == true)
+            return true;
+        return Present(field, out value);
     }
 
     private static int IntValue(
@@ -542,15 +706,71 @@ internal static class VtankLootRequirementEvaluator
     {
         switch (key)
         {
+            // The seven protections come from the armor numbers an appraisal
+            // reports, as multipliers on incoming damage (1.2 = takes 20%
+            // more). The reference macro's order is slash, pierce,
+            // bludgeon, acid, lightning, fire, cold.
+            case VtankDoubleBase + 0:
+                return TryArmorNumber(properties, static armor => armor.SlashMod, out value);
+            case VtankDoubleBase + 1:
+                return TryArmorNumber(properties, static armor => armor.PierceMod, out value);
+            case VtankDoubleBase + 2:
+                return TryArmorNumber(properties, static armor => armor.BludgeonMod, out value);
+            case VtankDoubleBase + 3:
+                return TryArmorNumber(properties, static armor => armor.AcidMod, out value);
+            case VtankDoubleBase + 4:
+                return TryArmorNumber(properties, static armor => armor.ElectricMod, out value);
+            case VtankDoubleBase + 5:
+                return TryArmorNumber(properties, static armor => armor.FireMod, out value);
+            case VtankDoubleBase + 6:
+                return TryArmorNumber(properties, static armor => armor.ColdMod, out value);
+            // How close, in metres, the character must be to use the item.
+            case VtankDoubleBase + 8:
+                value = item.UseRadius;
+                return item.UseRadius != 0f;
             case VtankDoubleBase + 9: value = item.Workmanship; return true;
             case VtankDoubleBase + 11: value = item.DamageVariance; return true;
+            // Attack bonus, range and damage bonus exist only as the weapon
+            // numbers an appraisal reports, and only for a weapon: the
+            // offense and damage multipliers (1.17 is "+17%") and the launch
+            // speed a missile weapon gives its ammunition.
             case VtankDoubleBase + 12:
-                return TryRawFloat(properties, 62, out value);
+                return TryWeaponNumber(properties, static weapon => weapon.WeaponOffense, out value);
+            case VtankDoubleBase + 13:
+                return TryWeaponNumber(properties, static weapon => weapon.MaxVelocity, out value);
             case VtankDoubleBase + 14:
-                return TryRawFloat(properties, 63, out value);
+                return TryWeaponNumber(properties, static weapon => weapon.DamageMod, out value);
             default:
                 return TryRawFloat(properties, key, out value);
         }
+    }
+
+    private static bool TryArmorNumber(
+        in PluginItemProperties properties,
+        Func<PluginArmorProfile, float> number,
+        out double value)
+    {
+        if (properties.ArmorProfile is { } armor)
+        {
+            value = number(armor);
+            return true;
+        }
+        value = 0d;
+        return false;
+    }
+
+    private static bool TryWeaponNumber(
+        in PluginItemProperties properties,
+        Func<PluginWeaponProfile, double> number,
+        out double value)
+    {
+        if (properties.WeaponProfile is { } weapon)
+        {
+            value = number(weapon);
+            return true;
+        }
+        value = 0d;
+        return false;
     }
 
     private static double DoubleValue(

@@ -11,6 +11,453 @@ public sealed class VtankLootRequirementEvaluatorTests
     private const uint BonusIntKey = 28u;
     private const uint BonusIntSpellId = 2604u;
 
+    // The "(T) Rare!" rule as Loot5.utl writes it: type 12 (an int key equals
+    // a value) on IntValueKey.IconUnderlay (218103850) with 23308, which is
+    // the rare backdrop 0x06005B0C without the icon-id prefix.
+    private static VtankLootRequirement RareUnderlayRule() => new()
+    {
+        Type = 12,
+        Payload = "23308\r\n218103850\r\n",
+    };
+
+    [Fact]
+    public void TheRareRuleMatchesAnItemWithTheRareBackdrop()
+    {
+        PluginInventoryItem rare = Item() with { IconUnderlayId = 0x06005B0Cu };
+
+        Assert.True(VtankLootRequirementEvaluator.IsMatch(
+            [RareUnderlayRule()], rare, EmptyProperties(), host: null, out string? error));
+        Assert.Null(error);
+    }
+
+    [Fact]
+    public void TheRareRuleDoesNotMatchAnItemWithoutTheBackdrop()
+    {
+        PluginInventoryItem ordinary = Item() with { IconUnderlayId = 0u };
+        PluginInventoryItem otherBackdrop = Item() with { IconUnderlayId = 0x06006C0Bu };
+
+        Assert.False(VtankLootRequirementEvaluator.IsMatch(
+            [RareUnderlayRule()], ordinary, EmptyProperties(), host: null, out _));
+        Assert.False(VtankLootRequirementEvaluator.IsMatch(
+            [RareUnderlayRule()], otherBackdrop, EmptyProperties(), host: null, out _));
+    }
+
+    // The coverage requirement of Loot5.utl's "(C) Multi-Legendary (Shirt)"
+    // rules: IntValueKey.Coverage (218103821) equals 104, the chest and both
+    // arm sections a shirt covers. Coverage arrives with the object itself,
+    // so the rule decides before any appraisal.
+    private static VtankLootRequirement ShirtCoverageRule() => new()
+    {
+        Type = 12,
+        Payload = "104\r\n218103821\r\n",
+    };
+
+    [Fact]
+    public void TheShirtCoverageRuleMatchesAShirtBeforeAppraisal()
+    {
+        PluginInventoryItem shirt = Item() with { CoverageMask = 104u };
+
+        Assert.True(VtankLootRequirementEvaluator.IsMatch(
+            [ShirtCoverageRule()], shirt, EmptyProperties(), host: null, out string? error));
+        Assert.Null(error);
+        VtankLootRequirementEvaluator.EarlyMatch(
+            ShirtCoverageRule(), shirt, EmptyProperties(), host: null,
+            out bool hasDecision, out bool isMatch);
+        Assert.True(hasDecision);
+        Assert.True(isMatch);
+    }
+
+    [Fact]
+    public void TheShirtCoverageRuleDoesNotMatchPants()
+    {
+        PluginInventoryItem pants = Item() with { CoverageMask = 22u };
+
+        Assert.False(VtankLootRequirementEvaluator.IsMatch(
+            [ShirtCoverageRule()], pants, EmptyProperties(), host: null, out _));
+    }
+
+    // Loot5.utl's "(H) 430 Insane": a heavy melee weapon that can reach
+    // tinked damage 109 with a melee defense and an attack bonus of 1.17.
+    private static VtankLootRequirement InsaneMeleeRule() => new()
+    {
+        Type = 2008,
+        Payload = "109\r\n1.17\r\n1.17\r\n",
+    };
+
+    // An untinkerable weapon (no material), so no tinks are counted and the
+    // numbers stand as they are: 114 max after the rule's +24 with variance
+    // 0.3 gives 110 damage over time, and defense 1.18 clears 1.17.
+    private static PluginInventoryItem UntinkerableSword() => Item() with
+    {
+        ObjectClass = PluginObjectClass.MeleeWeapon,
+        Damage = 90,
+        DamageVariance = 0.3d,
+    };
+
+    private static PluginItemProperties MeleeProperties(double weaponOffense) =>
+        EmptyProperties() with
+        {
+            Floats = new Dictionary<uint, double> { [29u] = 1.18d },
+            WeaponProfile = Weapon() with { WeaponOffense = weaponOffense },
+        };
+
+    [Fact]
+    public void TheInsaneMeleeRuleReadsTheAttackBonusFromTheAppraisedWeapon()
+    {
+        Assert.True(VtankLootRequirementEvaluator.IsMatch(
+            [InsaneMeleeRule()], UntinkerableSword(), MeleeProperties(1.18d),
+            host: null, out string? error));
+        Assert.Null(error);
+    }
+
+    [Fact]
+    public void TheInsaneMeleeRuleRejectsAWeaponWhoseAttackBonusFallsShort()
+    {
+        Assert.False(VtankLootRequirementEvaluator.IsMatch(
+            [InsaneMeleeRule()], UntinkerableSword(), MeleeProperties(1.10d),
+            host: null, out _));
+    }
+
+    [Fact]
+    public void ABuffedAttackBonusRuleAddsTheWeaponsOwnAttackCantrip()
+    {
+        // Type 2005 on DoubleValueKey AttackBonus (167772172): the appraised
+        // offense 1.15 plus spell 2591's +0.05 reaches 1.20, over 1.19.
+        var rule = new VtankLootRequirement
+        {
+            Type = 2005,
+            Payload = "1.19\r\n167772172\r\n",
+        };
+        PluginInventoryItem sword = Item() with { AppraisedSpellIds = [2591u] };
+        PluginItemProperties properties = EmptyProperties() with
+        {
+            WeaponProfile = Weapon() with { WeaponOffense = 1.15d },
+        };
+
+        Assert.True(VtankLootRequirementEvaluator.IsMatch(
+            [rule], sword, properties, host: null, out string? error));
+        Assert.Null(error);
+    }
+
+    // Loot5.utl's "(M) Bow (OD +10)": buffed missile damage of 78.6, which is
+    // damage + (damage modifier - 1) * 100 / 3 + elemental damage bonus.
+    private static VtankLootRequirement BowDamageRule() => new()
+    {
+        Type = 2001,
+        Payload = "78.6\r\n",
+    };
+
+    private static PluginItemProperties BowProperties(double damageMod) =>
+        EmptyProperties() with
+        {
+            Ints = new Dictionary<uint, int> { [204u] = 22 },
+            WeaponProfile = Weapon() with { Damage = 0, DamageMod = damageMod },
+        };
+
+    [Fact]
+    public void TheBowDamageRuleReadsTheDamageModifierFromTheAppraisedWeapon()
+    {
+        // (2.70 - 1) * 100 / 3 = 56.7, plus 22 elemental: 78.7.
+        PluginInventoryItem bow = Item() with { ObjectClass = PluginObjectClass.MissileWeapon };
+
+        Assert.True(VtankLootRequirementEvaluator.IsMatch(
+            [BowDamageRule()], bow, BowProperties(2.70d), host: null, out string? error));
+        Assert.Null(error);
+    }
+
+    [Fact]
+    public void TheBowDamageRuleRejectsABowWithTooSmallAModifier()
+    {
+        // (2.60 - 1) * 100 / 3 = 53.3, plus 22: 75.3.
+        PluginInventoryItem bow = Item() with { ObjectClass = PluginObjectClass.MissileWeapon };
+
+        Assert.False(VtankLootRequirementEvaluator.IsMatch(
+            [BowDamageRule()], bow, BowProperties(2.60d), host: null, out _));
+    }
+
+    [Fact]
+    public void RangeIsTheLaunchSpeedTheAppraisedWeaponReports()
+    {
+        // Type 5 (a double at least) on DoubleValueKey Range (167772173).
+        var rule = new VtankLootRequirement { Type = 5, Payload = "25\r\n167772173\r\n" };
+        PluginItemProperties fast = EmptyProperties() with
+        {
+            WeaponProfile = Weapon() with { MaxVelocity = 27.3d },
+        };
+        PluginItemProperties slow = EmptyProperties() with
+        {
+            WeaponProfile = Weapon() with { MaxVelocity = 18d },
+        };
+
+        Assert.True(VtankLootRequirementEvaluator.IsMatch(
+            [rule], Item(), fast, host: null, out _));
+        Assert.False(VtankLootRequirementEvaluator.IsMatch(
+            [rule], Item(), slow, host: null, out _));
+        Assert.False(VtankLootRequirementEvaluator.IsMatch(
+            [rule], Item(), EmptyProperties(), host: null, out _));
+    }
+
+    [Fact]
+    public void WeaponSpeedIsTheAppraisedSpeedRatingNotTheCombatRole()
+    {
+        // Type 12 (an int equals) on IntValueKey WeapSpeed (218103839): a
+        // weapon of speed 25. An item with a combat role but no
+        // appraised weapon has no speed at all.
+        var rule = new VtankLootRequirement { Type = 12, Payload = "25\r\n218103839\r\n" };
+        PluginInventoryItem sword = Item() with { CombatUse = 1 };
+        PluginItemProperties appraised = EmptyProperties() with
+        {
+            WeaponProfile = Weapon() with { WeaponTime = 25 },
+        };
+
+        Assert.True(VtankLootRequirementEvaluator.IsMatch(
+            [rule], sword, appraised, host: null, out _));
+        Assert.False(VtankLootRequirementEvaluator.IsMatch(
+            [rule], sword with { CombatUse = 25 }, EmptyProperties(), host: null, out _));
+    }
+
+    // Values the server sends with the object itself, so a rule on them
+    // decides before any appraisal. Every field of the item is set to a
+    // distinct number, so a key read from the wrong field fails.
+    private static PluginInventoryItem CreatedItem() => Item() with
+    {
+        IconId = 0x06001F2Au,
+        ItemType = 0x2u,
+        PublicFlags = 0x10u,
+        Useability = 0x8_0000u,
+        TargetType = 0x10u,
+        CombatUse = 2,
+        AmmoType = 1u,
+        EquippedLocation = 0x200u,
+        Structure = 7,
+        MaximumStructure = 50,
+        ContainerObjectId = 0u,
+        WielderObjectId = 0x5000000Au,
+        UseRadius = 2.5f,
+    };
+
+    [Theory]
+    [InlineData(218103809u, 7978)]           // Icon: 0x1F2A without the prefix
+    [InlineData(218103834u, 0x2)]            // Category: the item-type bits
+    [InlineData(218103835u, 0x10)]           // Behavior: the description bits
+    [InlineData(218103843u, 0x8_0000)]       // ItemUsabilityFlags: how it is used
+    [InlineData(218103826u, 0x10)]           // UsageMask: what it is used on
+    [InlineData(218103823u, 2)]              // EquipType: its combat role
+    [InlineData(218103825u, 1)]              // MissileType: its ammunition
+    [InlineData(10u, 0x200)]                 // EquippedSlots: the slot it is in
+    [InlineData(92u, 7)]                     // UsesRemaining
+    [InlineData(91u, 50)]                    // UsesTotal
+    [InlineData(218103810u, 0x5000000A)]     // Container: the wielder, when wielded
+    [InlineData(218103817u, -1)]             // Slot: -1 marks a wielded item
+    public void AValueTheObjectCarriesDecidesBeforeAppraisal(uint key, int expected)
+    {
+        var rule = new VtankLootRequirement { Type = 12, Payload = $"{expected}\r\n{key}\r\n" };
+        PluginInventoryItem item = CreatedItem();
+
+        Assert.True(VtankLootRequirementEvaluator.IsMatch(
+            [rule], item, EmptyProperties(), host: null, out string? error));
+        Assert.Null(error);
+        VtankLootRequirementEvaluator.EarlyMatch(
+            rule, item, EmptyProperties(), host: null,
+            out bool hasDecision, out bool isMatch);
+        Assert.True(hasDecision);
+        Assert.True(isMatch);
+    }
+
+    [Fact]
+    public void AnItemInAPackHasItsPackAsContainerAndNoSlotMark()
+    {
+        PluginInventoryItem packed = CreatedItem() with
+        {
+            ContainerObjectId = 0x80001234u,
+            WielderObjectId = 0u,
+        };
+        var container = new VtankLootRequirement
+        {
+            Type = 12,
+            Payload = $"{unchecked((int)0x80001234u)}\r\n218103810\r\n",
+        };
+        var wieldedMark = new VtankLootRequirement { Type = 12, Payload = "-1\r\n218103817\r\n" };
+
+        Assert.True(VtankLootRequirementEvaluator.IsMatch(
+            [container], packed, EmptyProperties(), host: null, out string? error));
+        Assert.Null(error);
+        Assert.False(VtankLootRequirementEvaluator.IsMatch(
+            [wieldedMark], packed, EmptyProperties(), host: null, out _));
+    }
+
+    [Fact]
+    public void ApproachDistanceIsTheUseRadiusTheObjectCarries()
+    {
+        // Type 4 (a double at most) on DoubleValueKey ApproachDistance
+        // (167772168), which is known before appraisal.
+        var rule = new VtankLootRequirement { Type = 4, Payload = "3\r\n167772168\r\n" };
+        var atLeast = new VtankLootRequirement { Type = 5, Payload = "2\r\n167772168\r\n" };
+
+        Assert.True(VtankLootRequirementEvaluator.IsMatch(
+            [rule, atLeast], CreatedItem(), EmptyProperties(), host: null, out string? error));
+        Assert.Null(error);
+        Assert.False(VtankLootRequirementEvaluator.IsMatch(
+            [rule, atLeast], CreatedItem() with { UseRadius = 0f },
+            EmptyProperties(), host: null, out _));
+    }
+
+    [Fact]
+    public void ThePluralNameIsTheNameTheObjectCarriesForMoreThanOne()
+    {
+        // Type 1 (a string matches) on StringValueKey SecondaryName.
+        var rule = new VtankLootRequirement { Type = 1, Payload = "^Pyreals$\r\n184549376\r\n" };
+        PluginInventoryItem coins = Item() with { PluralName = "Pyreals" };
+
+        Assert.True(VtankLootRequirementEvaluator.IsMatch(
+            [rule], coins, EmptyProperties(), host: null, out string? error));
+        Assert.Null(error);
+        Assert.False(VtankLootRequirementEvaluator.IsMatch(
+            [rule], Item() with { PluralName = "Pyreal Motes" },
+            EmptyProperties(), host: null, out _));
+    }
+
+    [Theory]
+    [InlineData(218103816u)] // AssociatedSpell: never filled by VTank
+    [InlineData(218103818u)] // Wielder: never filled
+    [InlineData(218103819u)] // WieldingSlot: never filled
+    [InlineData(218103831u)] // Flags: never filled
+    [InlineData(218103846u)] // the object's effect script, not a spell count
+    public void AKeyVtankHasNoValueForReadsNothingWhateverTheItemIs(uint key)
+    {
+        // Type 13 (an int differs): true for any value but zero.
+        var rule = new VtankLootRequirement { Type = 13, Payload = $"0\r\n{key}\r\n" };
+        PluginInventoryItem item = Item() with
+        {
+            SpellId = 1234u,
+            WielderObjectId = 0x5000000Au,
+            EquippedLocation = 0x200u,
+            PublicFlags = 0x10u,
+            AppraisedSpellIds = [2591u, 2603u],
+        };
+
+        Assert.False(VtankLootRequirementEvaluator.IsMatch(
+            [rule], item, EmptyProperties(), host: null, out string? error));
+        Assert.Null(error);
+    }
+
+    [Fact]
+    public void WorkmanshipIsTheAppraisedWholeNumberNotTheObjectsFraction()
+    {
+        // Type 3 (an int at least) on IntValueKey Workmanship (105): the
+        // object carries 7.8, which the reference macro never reads as 105.
+        var rule = new VtankLootRequirement { Type = 3, Payload = "7\r\n105\r\n" };
+        PluginInventoryItem item = Item() with { Workmanship = 7.8f };
+        PluginItemProperties appraised = EmptyProperties() with
+        {
+            Ints = new Dictionary<uint, int> { [105u] = 8 },
+        };
+
+        Assert.False(VtankLootRequirementEvaluator.IsMatch(
+            [rule], item, EmptyProperties(), host: null, out _));
+        Assert.True(VtankLootRequirementEvaluator.IsMatch(
+            [rule], item, appraised, host: null, out string? error));
+        Assert.Null(error);
+    }
+
+    [Fact]
+    public void AnEnabledRuleOnAKeyTheClientCannotSupplyIsNamedInOneWarning()
+    {
+        LootRule monarchRule = new()
+        {
+            Name = "(A) My monarch's gear",
+            VtankRequirements =
+            [
+                new() { Type = 7, Payload = "1\r\n" },
+                new() { Type = 12, Payload = "1342177290\r\n218103820\r\n" },
+            ],
+        };
+        LootRule disabledRule = new()
+        {
+            Name = "(A) Disabled allegiance rule",
+            VtankRequirements =
+            [
+                new() { Type = 12, Payload = "5\r\n218103853\r\n" },
+                new() { Type = 9999, Payload = "true\r\n" },
+            ],
+        };
+        LootRule coverageRule = new()
+        {
+            Name = "(C) Shirt",
+            VtankRequirements = [ShirtCoverageRule()],
+        };
+
+        string? warning = VtankLootRequirementEvaluator.UnsupportedKeyWarning(
+            "Loot5", [coverageRule, monarchRule, disabledRule]);
+
+        Assert.NotNull(warning);
+        Assert.Contains("Loot5", warning, StringComparison.Ordinal);
+        Assert.Contains("\"(A) My monarch's gear\" reads Monarch (218103820)",
+            warning, StringComparison.Ordinal);
+        Assert.DoesNotContain("Disabled", warning, StringComparison.Ordinal);
+        Assert.DoesNotContain("Shirt", warning, StringComparison.Ordinal);
+        Assert.Null(VtankLootRequirementEvaluator.UnsupportedKeyWarning(
+            "Loot5", [coverageRule, disabledRule]));
+    }
+
+    // Every protection distinct, so a key read from the wrong one fails.
+    private static PluginArmorProfile Armor() => new(
+        ArmorLevel: 500,
+        SlashMod: 0.1f,
+        PierceMod: 0.2f,
+        BludgeonMod: 0.3f,
+        ColdMod: 0.4f,
+        FireMod: 0.5f,
+        AcidMod: 0.6f,
+        NetherMod: 0.7f,
+        ElectricMod: 0.8f);
+
+    [Theory]
+    [InlineData(167772160u, "0.1")] // SlashProt
+    [InlineData(167772161u, "0.2")] // PierceProt
+    [InlineData(167772162u, "0.3")] // BludgeonProt
+    [InlineData(167772163u, "0.6")] // AcidProt
+    [InlineData(167772164u, "0.8")] // LightningProt
+    [InlineData(167772165u, "0.5")] // FireProt
+    [InlineData(167772166u, "0.4")] // ColdProt
+    public void EachProtectionKeyReadsItsOwnAppraisedArmorNumber(uint key, string expected)
+    {
+        // Types 5 and 4 together (at least and at most) pin the exact value.
+        VtankLootRequirement[] rules =
+        [
+            new() { Type = 5, Payload = $"{expected}\r\n{key}\r\n" },
+            new() { Type = 4, Payload = $"{expected}\r\n{key}\r\n" },
+        ];
+        PluginItemProperties armor = EmptyProperties() with { ArmorProfile = Armor() };
+
+        Assert.True(VtankLootRequirementEvaluator.IsMatch(
+            rules, Item(), armor, host: null, out string? error));
+        Assert.Null(error);
+        Assert.False(VtankLootRequirementEvaluator.IsMatch(
+            rules, Item(), EmptyProperties(), host: null, out _));
+    }
+
+    private static PluginWeaponProfile Weapon() => new(
+        DamageType: 1,
+        WeaponTime: 40,
+        WeaponSkill: 44u,
+        Damage: 50,
+        DamageVariance: 0.5d,
+        DamageMod: 1d,
+        WeaponLength: 1d,
+        MaxVelocity: 1d,
+        WeaponOffense: 1d,
+        MaxVelocityEstimated: 0);
+
+    private static PluginItemProperties EmptyProperties() => new(
+        Ints: new Dictionary<uint, int>(),
+        Int64s: new Dictionary<uint, long>(),
+        Bools: new Dictionary<uint, bool>(),
+        Floats: new Dictionary<uint, double>(),
+        Strings: new Dictionary<uint, string>(),
+        DataIds: new Dictionary<uint, uint>(),
+        InstanceIds: new Dictionary<uint, uint>());
+
     [Fact]
     public void BuffedIntRequirementDoesNotApplyBonusWhenBaseKeyIsAbsent()
     {

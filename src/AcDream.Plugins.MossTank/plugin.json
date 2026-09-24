@@ -1,12 +1,12 @@
 {
   "id": "acdream.mosstank",
   "displayName": "MossTank",
-  "version": "0.3.0",
+  "version": "0.4.0",
   "entryDll": "AcDream.Plugins.MossTank.dll",
   "apiVersion": 1,
   "kinds": ["Gameplay"],
   "hosts": ["Graphical", "Headless"],
-  "minHostVersion": "0.1.17",
+  "minHostVersion": "0.1.18",
   "capabilitiesVersion": 1,
   "capabilities": [
     { "name": "chat", "note": "Reads chat to follow combat and loot results, and posts its own status lines." }
