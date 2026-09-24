@@ -25,7 +25,7 @@
          ./packages-local, which comes from the OpenAC release named by
          OPENAC_API_RELEASE_TAG in .github/workflows/ci.yml. -->
     <UsePluginApiPackage>true</UsePluginApiPackage>
-    <PluginApiPackageVersion>0.1.18-iconlayers.2</PluginApiPackageVersion>
+    <PluginApiPackageVersion>0.1.18</PluginApiPackageVersion>
 
     <!-- No lock files. Restore resolves the contract from a folder feed whose
          contents change with the contract release, which a committed lock file
