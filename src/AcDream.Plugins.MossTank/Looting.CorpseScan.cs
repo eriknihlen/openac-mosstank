@@ -399,6 +399,11 @@ internal sealed partial class LootController
             return true;
         }
 
+        // A corpse whose description names no killer is nobody's, and is
+        // never looted, however old it gets.
+        if (killer.Length == 0)
+            return false;
+
         if (IsRare(corpse))
             return false;
 
@@ -614,18 +619,28 @@ internal sealed partial class LootController
     }
 
     /// <summary>
-    /// A corpse counts as rare either because the treasure it holds was
-    /// flagged generated-rare, or because its description is not a kill
-    /// description at all. The second case is the one that keeps a corpse
-    /// nobody is recorded as having killed out of the ordinary ownership
-    /// rules — such a corpse always sorts first and is then never looted,
-    /// because the killer it names is nobody.
+    /// A corpse is rare when the host flags it so, or when its description
+    /// names its killer and then says it generated something, as the
+    /// reference macro reads it.
     /// </summary>
-    private static bool IsRare(in PluginLootContainer corpse) =>
-        corpse.IsGeneratedRare
-        || KilledByDescription().Match(corpse.LongDescription ?? string.Empty)
-            is not { Success: true, Index: 0 };
+    private static bool IsRare(in PluginLootContainer corpse)
+    {
+        if (corpse.IsGeneratedRare)
+            return true;
+        string description = corpse.LongDescription ?? string.Empty;
+        return KilledByDescription().Match(description) is { Success: true, Index: 0 }
+            && RareKillDescription().IsMatch(description);
+    }
 
     [GeneratedRegex(@"(?:Killed by )([a-zA-Z\ \-\']*)(?:\..*)")]
     private static partial Regex KilledByDescription();
+
+    /// <summary>
+    /// A kill description that goes on to say the corpse generated something:
+    /// "Killed by Name. This corpse generated a rare item!". The server does
+    /// not send the corpse's rare flag with its description, so this sentence
+    /// is how a rare corpse is known.
+    /// </summary>
+    [GeneratedRegex(@"(?:Killed by )([a-zA-Z\ \-\']*)(?:\..*)([gG]enerated)(?:.*)")]
+    private static partial Regex RareKillDescription();
 }

@@ -1106,6 +1106,10 @@ internal sealed partial class LootController
 
     private double _identifyAge;
 
+    /// <summary>How often rare-only looting notes which corpses are new.</summary>
+    internal const double CorpseSightingIntervalSeconds = 2d;
+    private double _sinceCorpseSighting = CorpseSightingIntervalSeconds;
+
     /// <summary>
     /// The reference's id queue sends one request every 499 ms, round robin
     /// over everything waiting for an id.
@@ -1170,8 +1174,20 @@ internal sealed partial class LootController
             _identifyAge = 0d;
         }
         // Rare-only looting has nothing to describe until the server
-        // announces this character's rare, so the corpses are not even
-        // looked at.
+        // announces this character's rare. It only notes, every couple of
+        // seconds, when each corpse first appeared, so the announcement can
+        // tell the corpse that has just fallen from the ones already lying
+        // about; the corpse pass that normally keeps that note does not run
+        // while nothing is to be looted.
+        if (_settings.LootOnlyRareCorpses)
+        {
+            _sinceCorpseSighting += elapsed;
+            if (_sinceCorpseSighting >= CorpseSightingIntervalSeconds)
+            {
+                _sinceCorpseSighting = 0d;
+                PruneCorpseCache(loot.CaptureCorpses(float.MaxValue));
+            }
+        }
         if (!RareWindowOpenOrNotRareOnly())
             return;
         // Every corpse the client reports, as the reference's identify queue
