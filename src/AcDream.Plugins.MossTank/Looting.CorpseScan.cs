@@ -164,7 +164,7 @@ internal sealed partial class LootController
     /// </summary>
     internal bool HasCorpseAwaitingDescriptionWithin(double rangeMeters)
     {
-        if (!_host.Automation.IsAvailable)
+        if (!_host.Automation.IsAvailable || !RareWindowOpenOrNotRareOnly())
             return false;
         ILootAutomation loot = _host.Automation.Loot;
         if (!loot.IsAvailable)
@@ -354,11 +354,19 @@ internal sealed partial class LootController
     {
         if (!_settings.LootOnlyRareCorpses)
             return true;
-        if (_lifetime - _rareAnnouncedAt > RareAnnouncementWindowSeconds)
+        if (!RareWindowOpenOrNotRareOnly())
             return false;
         return !_corpseFirstSeen.TryGetValue(corpse.ObjectId, out double firstSeen)
             || firstSeen >= _rareAnnouncedAt - RareAnnouncementLeadSeconds;
     }
+
+    /// <summary>
+    /// False only while rare-only looting waits for an announcement: then no
+    /// corpse is worth looking at, and the corpse passes skip the whole list.
+    /// </summary>
+    private bool RareWindowOpenOrNotRareOnly() =>
+        !_settings.LootOnlyRareCorpses
+        || _lifetime - _rareAnnouncedAt <= RareAnnouncementWindowSeconds;
 
     [GeneratedRegex(@"^(?<finder>[^\r\n]+?) has discovered the (?<item>[^\r\n]+)!$")]
     private static partial Regex RareDiscovered();

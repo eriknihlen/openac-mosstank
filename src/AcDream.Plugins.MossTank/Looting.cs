@@ -1169,6 +1169,11 @@ internal sealed partial class LootController
             _awaitingCorpseAppraisal = 0u;
             _identifyAge = 0d;
         }
+        // Rare-only looting has nothing to describe until the server
+        // announces this character's rare, so the corpses are not even
+        // looked at.
+        if (!RareWindowOpenOrNotRareOnly())
+            return;
         // Every corpse the client reports, as the reference's identify queue
         // does: a corpse watched from across the field is described long
         // before the character walks up to it.

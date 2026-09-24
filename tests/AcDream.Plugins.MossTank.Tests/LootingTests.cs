@@ -688,6 +688,20 @@ public sealed partial class LootingTests
     }
 
     [Fact]
+    public void RareOnlyLootingWithoutAnAnnouncementDoesNotEvenListTheCorpses()
+    {
+        (LootController controller, Automation automation) =
+            RareOnlyLooter(0x70001001u, 0x70001002u);
+        int before = automation.CorpseCaptureCount;
+
+        for (int frame = 0; frame < 10; frame++)
+            controller.TickIdentification(0.5d);
+        Assert.False(controller.HasCorpseAwaitingDescriptionWithin(50d));
+
+        Assert.Equal(before, automation.CorpseCaptureCount);
+    }
+
+    [Fact]
     public void ThisCharactersRareAnnouncementDescribesTheCorpseThatJustAppeared()
     {
         (LootController controller, Automation automation) =
@@ -2780,10 +2794,15 @@ public sealed partial class LootingTests
             value = default;
             return false;
         }
+        public int CorpseCaptureCount { get; private set; }
         public IReadOnlyList<PluginLootContainer> CaptureCorpses(
-            float maximumDistance) => Corpses
+            float maximumDistance)
+        {
+            CorpseCaptureCount++;
+            return Corpses
                 .Where(corpse => corpse.Distance <= maximumDistance)
                 .ToArray();
+        }
         public IReadOnlyList<PluginInventoryItem> CaptureCurrentContents() =>
             Contents;
         /// <summary>
