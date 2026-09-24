@@ -243,6 +243,7 @@ internal sealed class MossTankLootProfileStore
             ApplyMossTankExpressions(read.Profile);
             target.Clear();
             target.AddRange(read.Profile.Rules);
+            WarnUnsupportedKeys(fileName, read.Profile.Rules);
             if (settings is not null)
                 settings.SalvageCombine = read.Profile.SalvageCombine.Clone();
             Activate(fileName, settings, partial: true);
@@ -254,10 +255,24 @@ internal sealed class MossTankLootProfileStore
         ApplyMossTankExpressions(profile);
         target.Clear();
         target.AddRange(profile.Rules);
+        WarnUnsupportedKeys(fileName, profile.Rules);
         if (settings is not null)
             settings.SalvageCombine = profile.SalvageCombine.Clone();
         Activate(fileName, settings);
         return MossTankProfileLoad.Loaded;
+    }
+
+    /// <summary>
+    /// Says once per load which enabled rules read a value the client cannot
+    /// supply, since those rules are decided on a zero and would otherwise
+    /// stop looting without a word.
+    /// </summary>
+    private void WarnUnsupportedKeys(string fileName, IEnumerable<LootRule> rules)
+    {
+        string? warning = VtankLootRequirementEvaluator.UnsupportedKeyWarning(
+            StripUtl(fileName), rules);
+        if (warning is not null)
+            _host.Log.Warn(warning);
     }
 
     /// <summary>

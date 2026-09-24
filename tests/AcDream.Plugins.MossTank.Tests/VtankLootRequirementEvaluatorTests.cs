@@ -360,6 +360,46 @@ public sealed class VtankLootRequirementEvaluatorTests
         Assert.Null(error);
     }
 
+    [Fact]
+    public void AnEnabledRuleOnAKeyTheClientCannotSupplyIsNamedInOneWarning()
+    {
+        LootRule monarchRule = new()
+        {
+            Name = "(A) My monarch's gear",
+            VtankRequirements =
+            [
+                new() { Type = 7, Payload = "1\r\n" },
+                new() { Type = 12, Payload = "1342177290\r\n218103820\r\n" },
+            ],
+        };
+        LootRule disabledRule = new()
+        {
+            Name = "(A) Disabled allegiance rule",
+            VtankRequirements =
+            [
+                new() { Type = 12, Payload = "5\r\n218103853\r\n" },
+                new() { Type = 9999, Payload = "true\r\n" },
+            ],
+        };
+        LootRule coverageRule = new()
+        {
+            Name = "(C) Shirt",
+            VtankRequirements = [ShirtCoverageRule()],
+        };
+
+        string? warning = VtankLootRequirementEvaluator.UnsupportedKeyWarning(
+            "Loot5", [coverageRule, monarchRule, disabledRule]);
+
+        Assert.NotNull(warning);
+        Assert.Contains("Loot5", warning, StringComparison.Ordinal);
+        Assert.Contains("\"(A) My monarch's gear\" reads Monarch (218103820)",
+            warning, StringComparison.Ordinal);
+        Assert.DoesNotContain("Disabled", warning, StringComparison.Ordinal);
+        Assert.DoesNotContain("Shirt", warning, StringComparison.Ordinal);
+        Assert.Null(VtankLootRequirementEvaluator.UnsupportedKeyWarning(
+            "Loot5", [coverageRule, disabledRule]));
+    }
+
     // Every protection distinct, so a key read from the wrong one fails.
     private static PluginArmorProfile Armor() => new(
         ArmorLevel: 500,

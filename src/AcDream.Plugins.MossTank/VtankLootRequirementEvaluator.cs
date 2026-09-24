@@ -64,6 +64,86 @@ internal static class VtankLootRequirementEvaluator
         VtankIntBase + 41, VtankIntBase + 42,
     ];
 
+    /// <summary>
+    /// Int keys the reference macro fills from the server that the host does
+    /// not hand a plugin, so a rule on one reads zero here where VTank would
+    /// read the object's value.
+    /// </summary>
+    private static readonly IReadOnlyDictionary<uint, string> UnsupportedIntKeys =
+        new Dictionary<uint, string>
+        {
+            [95u] = "RadarBlipColor",
+            [133u] = "RadarVisibility",
+            [VtankIntBase + 12] = "Monarch",
+            [VtankIntBase + 20] = "HookMask",
+            [VtankIntBase + 24] = "CreateFlags1",
+            [VtankIntBase + 25] = "CreateFlags2",
+            [VtankIntBase + 38] = "Unknown8000000",
+            [VtankIntBase + 39] = "PhysicsDataFlags",
+            [VtankIntBase + 43] = "EquippedBy",
+            [VtankIntBase + 44] = "LastAttacker",
+            [VtankIntBase + 45] = "AllegianceObject",
+            [VtankIntBase + 46] = "OwnedBy",
+        };
+
+    /// <summary>
+    /// The key a requirement reads when it is one MossTank cannot supply.
+    /// </summary>
+    internal static bool TryUnsupportedKey(
+        VtankLootRequirement requirement,
+        out uint key,
+        out string name)
+    {
+        key = 0u;
+        name = string.Empty;
+        if (requirement.Type is not (2 or 3 or 11 or 12 or 13 or 2003))
+            return false;
+        string[] values = Lines(requirement.Payload);
+        return values.Length > 1
+            && uint.TryParse(values[1], NumberStyles.Integer,
+                CultureInfo.InvariantCulture, out key)
+            && UnsupportedIntKeys.TryGetValue(key, out name!);
+    }
+
+    /// <summary>
+    /// One warning naming every enabled rule that reads a key MossTank
+    /// cannot supply, or null when there is none. Such a rule is decided on
+    /// a zero, so without the warning it would fail without a word.
+    /// </summary>
+    internal static string? UnsupportedKeyWarning(
+        string profileName,
+        IEnumerable<LootRule> rules)
+    {
+        const int Named = 5;
+        var uses = new List<string>();
+        foreach (LootRule rule in rules)
+        {
+            if (IsDisabled(rule))
+                continue;
+            foreach (VtankLootRequirement requirement in rule.VtankRequirements)
+            {
+                if (TryUnsupportedKey(requirement, out uint key, out string name))
+                    uses.Add($"\"{rule.Name.Trim()}\" reads {name} ({key})");
+            }
+        }
+        if (uses.Count == 0)
+            return null;
+        string named = string.Join("; ", uses.Take(Named));
+        if (uses.Count > Named)
+            named += $"; and {uses.Count - Named} more";
+        return $"Loot profile {profileName}: {uses.Count} enabled rule "
+            + "requirement(s) read a value MossTank cannot get from the "
+            + $"client yet, so they will not match as in VTank: {named}.";
+    }
+
+    // VTClassic's "disabled" requirement: a rule carrying it set to true
+    // never matches.
+    private static bool IsDisabled(LootRule rule) =>
+        rule.VtankRequirements.Any(static requirement =>
+            requirement.Type == 9999
+            && bool.TryParse(Lines(requirement.Payload)[0].Trim(), out bool disabled)
+            && disabled);
+
     internal static bool IsIdentifiedIntKey(uint key) =>
         !NonIdentifiedIntKeys.Contains(key);
 
