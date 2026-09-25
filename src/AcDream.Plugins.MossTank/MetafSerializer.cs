@@ -88,7 +88,9 @@ internal static class MetafSerializer
     private const string D = @"[+\-]?(([1-9][0-9]*\.|[0-9]?\.)([0-9]+([eE][+\-]?[0-9]+)|[0-9]+)|([1-9][0-9]*|0))";
     private const string I = @"[+\-]?([1-9][0-9]*|0)";
     private const string H = @"[A-F0-9]{8}";
-    private const string S = @"[{]([^{}]|\{\{|\})*[}]";
+    // A string is delimited by braces, and a brace inside it is written
+    // doubled; a single brace inside one is not a string.
+    private const string S = @"[{]([^{}]|\{\{|\}\})*[}]";
 
     private static readonly Regex TrailingComment = new(
         @"\s*(~~.*)?$", RegexOptions.Compiled);
@@ -299,7 +301,7 @@ internal static class MetafSerializer
             .Where(static rule => rule.Enabled)
             .GroupBy(static rule => rule.State, StringComparer.Ordinal))
         {
-            lines.Add($"STATE: {{{stateGroup.Key}}} ~~ {{");
+            lines.Add($"STATE: {Delimit(stateGroup.Key)} ~~ {{");
             foreach (MetaRule rule in stateGroup)
             {
                 WriteCondition(lines, rule.Condition, "IF:", 1, ConditionDepth);
@@ -789,8 +791,8 @@ internal static class MetafSerializer
                     IsOutdoor: true);
                 break;
             case "jmp":
-                waypoint.JumpHeadingDegrees = checked((float)ParseDouble(args.Groups["d4"].Value));
-                waypoint.JumpRun = StripDelimiters(args.Groups["s"].Value) == "True";
+                waypoint.JumpHeadingDegrees = ParseDouble(args.Groups["d4"].Value);
+                waypoint.JumpHoldShift = StripDelimiters(args.Groups["s"].Value) == "True";
                 ReadJumpCharge(args.Groups["d5"].Value, waypoint);
                 break;
         }
@@ -835,19 +837,32 @@ internal static class MetafSerializer
     {
         string tabs = new('\t', labelTabs);
         lines.Add($"{tabs}{label}\t{RenderConditionHead(value)}");
-        if (value.Kind is MetaConditionKind.All or MetaConditionKind.Any)
-        {
-            foreach (MetaCondition child in value.Children)
-                WriteConditionNested(lines, child, depth + 1);
-        }
+        WriteConditionOperands(lines, value, depth);
     }
 
     private static void WriteConditionNested(List<string> lines, MetaCondition value, int depth)
     {
         lines.Add(new string('\t', depth) + RenderConditionHead(value));
-        if (value.Kind is MetaConditionKind.All or MetaConditionKind.Any)
+        WriteConditionOperands(lines, value, depth);
+    }
+
+    /// <summary>
+    /// The operands of an All or Any, one tab deeper, each on its own line. A
+    /// 'Not' shares its line with the operation it negates and adds no depth
+    /// (metaf's CNot), so a negated All or Any writes its operands exactly
+    /// where the All or Any itself would.
+    /// </summary>
+    private static void WriteConditionOperands(
+        List<string> lines,
+        MetaCondition value,
+        int depth)
+    {
+        MetaCondition operation = value;
+        while (operation.Kind == MetaConditionKind.Not && operation.Children.Count != 0)
+            operation = operation.Children[0];
+        if (operation.Kind is MetaConditionKind.All or MetaConditionKind.Any)
         {
-            foreach (MetaCondition child in value.Children)
+            foreach (MetaCondition child in operation.Children)
                 WriteConditionNested(lines, child, depth + 1);
         }
     }
@@ -862,19 +877,19 @@ internal static class MetafSerializer
         }
         return keyword switch
         {
-            "ChatMatch" or "Expr" => $"{keyword} {{{value.Text}}}",
+            "ChatMatch" or "Expr" => $"{keyword} {Delimit(value.Text)}",
             "MainSlotsLE" or "SecsInStateGE" or "PSecsInStateGE" or "BuPercentGE" =>
                 $"{keyword} {FormatNumber(value.Number)}",
             "ItemCountLE" or "ItemCountGE" =>
-                $"{keyword} {FormatNumber(value.Number)} {{{value.Text}}}",
+                $"{keyword} {FormatNumber(value.Number)} {Delimit(value.Text)}",
             "MobsInDist_Name" =>
-                $"{keyword} {FormatNumber(value.Number)} {FormatNumber(value.SecondaryNumber)} {{{value.Text}}}",
+                $"{keyword} {FormatNumber(value.Number)} {FormatNumber(value.SecondaryNumber)} {Delimit(value.Text)}",
             "MobsInDist_Priority" =>
                 $"{keyword} {FormatNumber(value.Number)} {FormatNumber(value.SecondaryNumber)} {FormatNumber(value.TertiaryNumber)}",
             "NoMobsInDist" or "DistToRteGE" => $"{keyword} {FormatNumber(value.Number)}",
             "BlockE" or "CellE" => $"{keyword} {FormatHex(value.Number)}",
             "SecsOnSpellGE" => $"{keyword} {FormatNumber(value.SecondaryNumber)} {FormatNumber(value.Number)}",
-            "ChatCapture" => $"{keyword} {{{value.Text}}} {{{value.SecondaryText}}}",
+            "ChatCapture" => $"{keyword} {Delimit(value.Text)} {Delimit(value.SecondaryText)}",
             _ => keyword,
         };
     }
@@ -917,13 +932,13 @@ internal static class MetafSerializer
         MetaAction value,
         IReadOnlyDictionary<MetaAction, string> embedTags) => keyword switch
     {
-        "SetState" or "Chat" or "DoExpr" or "ChatExpr" => $"{keyword} {{{value.Text}}}",
-        "CallState" => $"{keyword} {{{value.Text}}} {{{value.SecondaryText}}}",
+        "SetState" or "Chat" or "DoExpr" or "ChatExpr" => $"{keyword} {Delimit(value.Text)}",
+        "CallState" => $"{keyword} {Delimit(value.Text)} {Delimit(value.SecondaryText)}",
         "SetWatchdog" =>
-            $"{keyword} {FormatNumber(value.Number)} {FormatNumber(value.SecondaryNumber)} {{{value.Text}}}",
-        "GetOpt" or "SetOpt" or "CreateView" => $"{keyword} {{{value.Text}}} {{{value.SecondaryText}}}",
-        "DestroyView" => $"{keyword}  {{{value.Text}}}",
-        "EmbedNav" => $"{keyword} {(embedTags.TryGetValue(value, out string? tag) ? tag : "unresolved")} {{{value.SecondaryText}}}",
+            $"{keyword} {FormatNumber(value.Number)} {FormatNumber(value.SecondaryNumber)} {Delimit(value.Text)}",
+        "GetOpt" or "SetOpt" or "CreateView" => $"{keyword} {Delimit(value.Text)} {Delimit(value.SecondaryText)}",
+        "DestroyView" => $"{keyword}  {Delimit(value.Text)}",
+        "EmbedNav" => $"{keyword} {(embedTags.TryGetValue(value, out string? tag) ? tag : "unresolved")} {Delimit(value.SecondaryText)}",
         _ => keyword,
     };
 
@@ -941,7 +956,7 @@ internal static class MetafSerializer
         if (source.Mode == RouteMode.Target)
         {
             lines.Add(
-                $"\tflw {FormatHex(source.FollowTargetObjectId)} {{{source.FollowTargetName}}}");
+                $"\tflw {FormatHex(source.FollowTargetObjectId)} {Delimit(source.FollowTargetName)}");
             lines.Add("~~ }");
             return;
         }
@@ -962,20 +977,20 @@ internal static class MetafSerializer
             RouteWaypointType.Portal =>
                 $"\tprt {FormatNumber(x)} {FormatNumber(y)} {FormatNumber(z)} {FormatHex(waypoint.ObjectId)}",
             RouteWaypointType.Recall =>
-                $"\trcl {FormatNumber(x)} {FormatNumber(y)} {FormatNumber(z)} {{{waypoint.RecallSpellName}}}",
+                $"\trcl {FormatNumber(x)} {FormatNumber(y)} {FormatNumber(z)} {Delimit(waypoint.RecallSpellName)}",
             RouteWaypointType.Pause =>
                 $"\tpau {FormatNumber(x)} {FormatNumber(y)} {FormatNumber(z)} {FormatNumber(waypoint.DurationMilliseconds)}",
             RouteWaypointType.ChatCommand =>
-                $"\tcht {FormatNumber(x)} {FormatNumber(y)} {FormatNumber(z)} {{{waypoint.Text}}}",
+                $"\tcht {FormatNumber(x)} {FormatNumber(y)} {FormatNumber(z)} {Delimit(waypoint.Text)}",
             RouteWaypointType.OpenVendor =>
-                $"\tvnd {FormatNumber(x)} {FormatNumber(y)} {FormatNumber(z)} {FormatHex(waypoint.ObjectId)} {{{waypoint.ObjectName}}}",
+                $"\tvnd {FormatNumber(x)} {FormatNumber(y)} {FormatNumber(z)} {FormatHex(waypoint.ObjectId)} {Delimit(waypoint.ObjectName)}",
             RouteWaypointType.PortalByName or RouteWaypointType.UseNpc =>
                 $"\t{NodeKeyword(waypoint.Type)} {FormatNumber(x)} {FormatNumber(y)} {FormatNumber(z)} "
                 + $"{FormatNumber(waypoint.ReferencePosition.EastWest)} {FormatNumber(waypoint.ReferencePosition.NorthSouth)} {FormatNumber(waypoint.ReferencePosition.Elevation)} "
-                + $"{waypoint.LegacyObjectClass} {{{waypoint.ObjectName}}}",
+                + $"{waypoint.LegacyObjectClass} {Delimit(waypoint.ObjectName)}",
             RouteWaypointType.Jump =>
                 $"\tjmp {FormatNumber(x)} {FormatNumber(y)} {FormatNumber(z)} {FormatNumber(waypoint.JumpHeadingDegrees)} "
-                + $"{{{(waypoint.JumpRun ? "True" : "False")}}} {FormatJumpCharge(waypoint)}",
+                + $"{Delimit(waypoint.JumpHoldShift ? "True" : "False")} {FormatJumpCharge(waypoint)}",
             _ => throw new InvalidOperationException($"unknown waypoint type {waypoint.Type}."),
         };
     }
@@ -1042,8 +1057,24 @@ internal static class MetafSerializer
         .Replace("\r\n", "\n", StringComparison.Ordinal)
         .Split('\n');
 
+    /// <summary>
+    /// A string's value: the delimiting braces taken off and every doubled
+    /// brace inside halved.
+    /// </summary>
     private static string StripDelimiters(string value) =>
-        value.Length >= 2 ? value[1..^1] : string.Empty;
+        value.Length >= 2
+            ? value[1..^1]
+                .Replace("{{", "{", StringComparison.Ordinal)
+                .Replace("}}", "}", StringComparison.Ordinal)
+            : string.Empty;
+
+    /// <summary>A value written as a string: every brace doubled, then delimited.</summary>
+    private static string Delimit(string? value) =>
+        "{"
+        + (value ?? string.Empty)
+            .Replace("{", "{{", StringComparison.Ordinal)
+            .Replace("}", "}}", StringComparison.Ordinal)
+        + "}";
 
     private static int ParseInt(string text) => int.Parse(
         text, NumberStyles.Integer, CultureInfo.InvariantCulture);

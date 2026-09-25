@@ -38,6 +38,15 @@ public sealed class VitalSettings
     public double HelperManaDistance { get; set; } = 32d;
 
     public bool HelpOthers { get; set; } = true;
+
+    /// <summary>
+    /// Also help the network's peers who are not in the fellowship: the
+    /// characters the host's peer network reports, on this computer or
+    /// relayed from another. VTank helps fellows only, so this is a MossTank
+    /// extension and is off unless turned on.
+    /// </summary>
+    public bool HelpNetworkPeers { get; set; }
+
     public bool UseHealersHeart { get; set; } = true;
     public double RechargeBoostTimeSeconds { get; set; } = 5d;
     public int RechargeBoostAmount { get; set; } = 40;

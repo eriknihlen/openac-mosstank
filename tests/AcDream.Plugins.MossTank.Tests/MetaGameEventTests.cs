@@ -142,6 +142,39 @@ public sealed class MetaGameEventTests
     }
 
     /// <summary>
+    /// Object ids an event carries come out in the same signed form as
+    /// <c>wobjectgetid</c>, so a chest or a corpse (ids at or above
+    /// 0x80000000) compares equal to the object a meta holds. Mutation:
+    /// handing them out unsigned gives 2147488308 and so on.
+    /// </summary>
+    [Fact]
+    public void EventObjectIdsAreSignedLikeObjectIds()
+    {
+        var host = new Host();
+        using var expressions = new MossTankExpressionRuntime(host);
+        var profile = new MetaProfile
+        {
+            Rules =
+            [
+                Rule(MetaConditionKind.ContainerOpened, MetaActionKind.ExpressionAction,
+                    "setvar[`opened`,getvar[`gevt_containerid`]]"),
+                Rule(MetaConditionKind.ItemUseCompleted, MetaActionKind.ExpressionAction,
+                    "setvar[`source`,getvar[`gevt_sourceid`]];setvar[`target`,getvar[`gevt_targetid`]]"),
+            ],
+        };
+        using var engine = new MetaEngine(host, expressions, profile);
+        engine.SetEnabled(true);
+
+        host.Events.RaiseContainerOpened(0x80001234u);
+        host.Events.RaiseItemUseCompleted(
+            new PluginItemUseCompletion(5L, 0x800008B5u, 0x80001234u, 0u));
+        engine.OnTick(MetaEngine.DecisionIntervalSeconds);
+        Assert.Equal(-2147478988d, expressions.Evaluate("getvar[`opened`]").AsNumber());
+        Assert.Equal(-2147481419d, expressions.Evaluate("getvar[`source`]").AsNumber());
+        Assert.Equal(-2147478988d, expressions.Evaluate("getvar[`target`]").AsNumber());
+    }
+
+    /// <summary>
     /// A portal transition is the arrival, not every notification along the
     /// way: only the completed report raises the edge, and it carries the
     /// destination cell.

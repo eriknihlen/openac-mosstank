@@ -303,6 +303,11 @@ internal static class VtankSettingsProfileSerializer
             case "buffwithuntrained-creature": b.BuffWithUntrainedCreatureSkill = cell.AsInt(); break;
             case "buffwithuntrained-life": b.BuffWithUntrainedLifeSkill = cell.AsInt(); break;
             case "allowdebufffallback": c.AllowDebuffFallback = cell.AsBool(); break;
+            // Kept, and read back, but drives nothing: the reference reads
+            // it nowhere either.
+            case "whoyougonnacall":
+                c.DynamicSettings[VtankOptionCatalog.UnusedSetting] = MonsterValue.FromBoolean(cell.AsBool());
+                break;
             case "rechargehandlerset":
                 if (cell.Tag == "TABLE" && cell.Table is { } table)
                     v.RechargeHandlerRows = ParseRechargeHandlerSet(table);
@@ -458,6 +463,9 @@ internal static class VtankSettingsProfileSerializer
             "buffwithuntrained-creature" => Num(name, b.BuffWithUntrainedCreatureSkill),
             "buffwithuntrained-life" => Num(name, b.BuffWithUntrainedLifeSkill),
             "allowdebufffallback" => VtankCell.Bool(c.AllowDebuffFallback),
+            "whoyougonnacall" => VtankCell.Bool(
+                !c.DynamicSettings.TryGetValue(VtankOptionCatalog.UnusedSetting, out MonsterValue kept)
+                    || kept.Boolean),
             "enablemeta" => VtankCell.Bool(s.Meta.Enabled),
             _ => null, // "rechargehandlerset" has no write path in the
                        // reference client either (section 2 row 137), so it

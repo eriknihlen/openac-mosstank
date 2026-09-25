@@ -35,15 +35,25 @@ internal readonly record struct PendingGive(uint ObjectId, uint Amount);
 /// </summary>
 internal sealed class ProfileGiveController
 {
-    private const double GiveTimeoutSeconds = 10d;
+    /// <summary>
+    /// How long a run may go without moving on to its next item before it
+    /// bails, as the reference's item giver does: the whole run, not one
+    /// give, is what the clock watches. It restarts when a new item is first
+    /// asked for.
+    /// </summary>
+    internal const double BailSeconds = 10d;
 
     /// <summary>The line printed when a give is missing its target.</summary>
     private const string GiveUsage =
-        "/vt give[p|P|r] [itemCount] <itemName> to <target>";
+        "/ub give[p|P|r] [itemCount] <itemName> to <target>";
 
     /// <summary>The line printed when a profile give is missing its target.</summary>
     private const string ProfileGiveUsage =
-        "/vt ig[p] <lootProfile> to <target>";
+        "/ub ig[p] <lootProfile> to <target>";
+
+    /// <summary>Who a hand-over may go to.</summary>
+    private static readonly PluginObjectClass[] TargetClasses =
+        [PluginObjectClass.Player, PluginObjectClass.Npc];
 
     private static readonly TimeSpan NamePatternTimeout =
         TimeSpan.FromMilliseconds(250d);
@@ -64,13 +74,16 @@ internal sealed class ProfileGiveController
     private uint _targetObjectId;
     private uint _waitingObjectId;
     private long _completionRevision;
-    private double _waitingSeconds;
     private double _sinceGive = double.MaxValue;
     private int _attempts;
     private int _given;
     private int _failed;
     private string _subject = string.Empty;
     private string _targetName = string.Empty;
+    private string _typedTarget = string.Empty;
+    private int _giveCalls;
+    private double _sinceProgress;
+    private uint _currentObjectId;
 
     public ProfileGiveController(
         IPluginHost host,
@@ -86,6 +99,29 @@ internal sealed class ProfileGiveController
     public string Status { get; private set; } = "Item giver idle.";
 
     /// <summary>
+    /// Why the last start was refused, in the reference's words where it
+    /// has them ("player Bob not found"), for the command to print as the
+    /// tool's error.
+    /// </summary>
+    public string Refusal { get; private set; } = string.Empty;
+
+    /// <summary>
+    /// The line the last run ended on, as the reference says it: "ItemGiver
+    /// finished: &lt;what&gt; to &lt;who&gt;. took &lt;time&gt; to give
+    /// &lt;n&gt; item(s). &lt;failures&gt;". Every end of a run says it.
+    /// </summary>
+    public string FinishedLine { get; private set; } = string.Empty;
+
+    /// <summary>
+    /// The error the last run ended on, printed before its finished line, or
+    /// empty when it ended without one: "ItemGiver bail, Timeout expired"
+    /// for a run that stopped moving.
+    /// </summary>
+    public string EndError { get; private set; } = string.Empty;
+
+    private double _runSeconds;
+
+    /// <summary>
     /// Queues every item a loot profile says to keep. The profile decides
     /// what goes; whole items go, because a profile counts items and not
     /// pieces of a stack.
@@ -99,13 +135,12 @@ internal sealed class ProfileGiveController
         string? targetName,
         bool partialTargetMatch = false)
     {
-        if (IsRunning || !_host.Automation.IsAvailable)
+        if (!CanStart())
             return false;
 
         string requestedProfile = profileName?.Trim() ?? string.Empty;
         if (!TryResolveTarget(
             targetName,
-            checkRange: false,
             out PluginWorldObject target,
             partialTargetMatch,
             ProfileGiveUsage))
@@ -121,6 +156,7 @@ internal sealed class ProfileGiveController
             && !_profiles.TryLoadNamed(requestedProfile, rules))
         {
             Status = $"Item giver profile not found: {requestedProfile}.";
+            Refusal = $"ItemGiver Profile does not exist: {requestedProfile}";
             return false;
         }
 
@@ -137,7 +173,12 @@ internal sealed class ProfileGiveController
                 _pending.Enqueue(new PendingGive(item.ObjectId, 0u));
         }
 
-        Begin(target, requestedProfile);
+        // The reference names a profile hand-over by the file it loaded, so
+        // the end line keeps the extension.
+        string file = requestedProfile.EndsWith(".utl", StringComparison.OrdinalIgnoreCase)
+            ? requestedProfile
+            : requestedProfile + ".utl";
+        Begin(target, file, targetName);
         return true;
     }
 
@@ -164,13 +205,14 @@ internal sealed class ProfileGiveController
         string? targetName,
         bool partialTargetMatch = false)
     {
-        if (IsRunning || !_host.Automation.IsAvailable)
+        if (!CanStart())
             return false;
 
         string text = pattern?.Trim() ?? string.Empty;
         if (text.Length == 0)
         {
             Status = "Item giver was given no item name.";
+            Refusal = Status;
             return false;
         }
 
@@ -187,6 +229,7 @@ internal sealed class ProfileGiveController
             catch (ArgumentException failure)
             {
                 Status = $"Item giver pattern refused: {failure.Message}";
+                Refusal = Status;
                 return false;
             }
         }
@@ -195,7 +238,6 @@ internal sealed class ProfileGiveController
         // mid-run is caught by the tick losing sight of it.
         if (!TryResolveTarget(
             targetName,
-            checkRange: true,
             out PluginWorldObject target,
             partialTargetMatch))
         {
@@ -223,7 +265,32 @@ internal sealed class ProfileGiveController
             remaining = 0;
         }
 
-        Begin(target, text);
+        // The reference matches a name in lower case and names the run by it;
+        // a pattern is kept as it was written.
+        Begin(target, match == GiveNameMatch.Pattern ? text : text.ToLowerInvariant(), targetName);
+        return true;
+    }
+
+    /// <summary>
+    /// Clears the last refusal, then says whether a start may go ahead at
+    /// all: not while a run is going, and not outside the world -- each with
+    /// its own refusal, so a start refused here never reports the reason an
+    /// earlier start was refused for.
+    /// </summary>
+    private bool CanStart()
+    {
+        Refusal = string.Empty;
+        if (IsRunning)
+        {
+            Refusal = "Already running.";
+            return false;
+        }
+        if (!_host.Automation.IsAvailable)
+        {
+            Status = "Item giver refused: not in the world.";
+            Refusal = Status;
+            return false;
+        }
         return true;
     }
 
@@ -245,6 +312,34 @@ internal sealed class ProfileGiveController
     {
         if (!IsRunning)
             return false;
+        double step = Math.Max(0d, elapsedSeconds);
+        _sinceProgress += step;
+        bool owns = TickRun(step, canAct, out bool checkBail);
+        // The reference looks at its clock only on a step that waited: not
+        // inside the pause between asks, and not on a step that asked. A run
+        // that has not moved on to a new item for ten seconds then bails,
+        // however many asks of the current one are still allowed.
+        if (!IsRunning || !checkBail || _sinceProgress <= BailSeconds)
+            return owns;
+        EndError = "ItemGiver bail, Timeout expired";
+        Stop($"Item giver bailed: no progress for {BailSeconds:0} seconds.");
+        return false;
+    }
+
+    /// <summary>
+    /// One step of a run, in the reference's order: the pause since the last
+    /// ask, then the wait on that ask's answer, then everything that has left
+    /// the packs counted as given, then the next ask.
+    /// </summary>
+    /// <param name="step">Seconds since the last step.</param>
+    /// <param name="canAct">False while something else holds the action.</param>
+    /// <param name="checkBail">
+    /// True when the step waited, which is when the run's clock is looked at.
+    /// </param>
+    private bool TickRun(double step, bool canAct, out bool checkBail)
+    {
+        checkBail = false;
+        _runSeconds += step;
         if (!_host.Automation.IsAvailable
             || !_host.Automation.Objects.TryGet(
                 _targetObjectId,
@@ -256,66 +351,90 @@ internal sealed class ProfileGiveController
             return false;
         }
 
-        double step = Math.Max(0d, elapsedSeconds);
         if (_sinceGive < 1e9d)
             _sinceGive += step;
+        // A pause between asks, for a server that dislikes being asked in a
+        // burst, counted from the last ask. Zero, the default, is no pause.
+        if (_sinceGive < Math.Max(0d, _settings.GiveDelaySeconds))
+            return true;
 
         if (_waitingObjectId != 0u)
         {
-            _waitingSeconds += step;
             PluginInventoryCompletion completion =
                 _host.Automation.Items.LastInventoryCompletion;
             bool itemStillOwned = _host.Automation.Items.CaptureOwnedItems()
                 .Any(item => item.ObjectId == _waitingObjectId);
-            if (!itemStillOwned
-                || (completion.Revision > _completionRevision
+            if (itemStillOwned
+                && !(completion.Revision > _completionRevision
                     && completion.Kind == PluginInventoryCommandKind.Give
                     && completion.SourceObjectId == _waitingObjectId))
             {
-                if (!itemStillOwned || completion.IsSuccess)
-                    _given++;
-                _pending.Dequeue();
-                _waitingObjectId = 0u;
-                _attempts = 0;
-                _waitingSeconds = 0d;
-                _sinceGive = 0d;
+                checkBail = true;
+                return true;
             }
-            else if (_waitingSeconds >= GiveTimeoutSeconds)
+            _waitingObjectId = 0u;
+            if (!itemStillOwned || completion.IsSuccess)
             {
-                if (_attempts >= BusyRetryLimit)
-                {
-                    _waitingObjectId = 0u;
-                    _waitingSeconds = 0d;
-                    Fail();
-                }
-                else
-                {
-                    _waitingObjectId = 0u;
-                    _waitingSeconds = 0d;
-                }
+                _pending.Dequeue();
+                _given++;
             }
-            return true;
+            // An error leaves the item in the packs and at the head of the
+            // queue, to be asked for again.
         }
 
+        CountItemsThatLeft();
         if (_pending.Count == 0)
         {
             Stop($"Item giver finished: {_given} item(s) given to {_targetName}.");
             return false;
         }
         if (!canAct || _host.Automation.Items.IsBusy)
-            return true;
-        // A pause between gives, for a server that dislikes being asked in a
-        // burst. Zero, the default, is no pause at all.
-        if (_sinceGive < Math.Max(0d, _settings.GiveDelaySeconds))
-            return true;
-
-        PendingGive next = _pending.Peek();
-        if (!_host.Automation.Items.CaptureOwnedItems()
-            .Any(item => item.ObjectId == next.ObjectId))
         {
-            _pending.Dequeue();
+            checkBail = true;
             return true;
         }
+
+        Ask(_pending.Peek());
+        return IsRunning;
+    }
+
+    /// <summary>
+    /// Counts every queued item that is no longer in the packs as given and
+    /// drops it, as the reference does before each ask: it counts an item
+    /// that has left as given, however it left.
+    /// </summary>
+    private void CountItemsThatLeft()
+    {
+        if (_pending.Count == 0)
+            return;
+        var owned = new HashSet<uint>(_host.Automation.Items.CaptureOwnedItems()
+            .Select(static item => item.ObjectId));
+        int before = _pending.Count;
+        PendingGive[] kept = [.. _pending.Where(give => owned.Contains(give.ObjectId))];
+        if (kept.Length == before)
+            return;
+        _given += before - kept.Length;
+        _pending.Clear();
+        foreach (PendingGive give in kept)
+            _pending.Enqueue(give);
+    }
+
+    /// <summary>
+    /// Asks for one item, as the reference does: the first ask of a new item
+    /// restarts the run's clock and its count of asks; every ask counts,
+    /// whether or not it went out; and the ask that takes an item past the
+    /// busy count writes it off at once, without waiting for its answer.
+    /// </summary>
+    private void Ask(in PendingGive next)
+    {
+        if (next.ObjectId != _currentObjectId)
+        {
+            _attempts = 0;
+            _sinceProgress = 0d;
+        }
+        _currentObjectId = next.ObjectId;
+        _attempts++;
+        _giveCalls++;
 
         long baselineRevision =
             _host.Automation.Items.LastInventoryCompletion.Revision;
@@ -323,22 +442,18 @@ internal sealed class ProfileGiveController
             next.ObjectId,
             _targetObjectId,
             next.Amount);
+        _sinceGive = 0d;
+        if (_attempts > BusyRetryLimit)
+        {
+            WriteOff();
+            return;
+        }
         if (result.Accepted)
         {
             _waitingObjectId = next.ObjectId;
             _completionRevision = baselineRevision;
-            _waitingSeconds = 0d;
-            _attempts++;
             Status = $"Giving item {_given + 1} to {_targetName}…";
         }
-        else if (result.Status is PluginItemCommandStatus.InvalidItem
-            or PluginItemCommandStatus.InvalidTarget
-            or PluginItemCommandStatus.Refused
-            or PluginItemCommandStatus.Unavailable)
-        {
-            Fail();
-        }
-        return true;
     }
 
     public void Reset()
@@ -346,8 +461,8 @@ internal sealed class ProfileGiveController
         _pending.Clear();
         _targetObjectId = 0u;
         _waitingObjectId = 0u;
+        _currentObjectId = 0u;
         _completionRevision = 0;
-        _waitingSeconds = 0d;
         _sinceGive = double.MaxValue;
         _attempts = 0;
         _given = 0;
@@ -357,22 +472,22 @@ internal sealed class ProfileGiveController
     }
 
     /// <summary>
-    /// How many times one item is asked for before it is written off. A give
-    /// that lands on a busy client is simply not answered, so the ladder is
-    /// the only thing that tells a slow answer from a lost one.
+    /// The busy count: an item is asked for once more than this, then
+    /// written off. A give that lands on a busy client is simply not
+    /// answered, so the count is the only thing that tells a slow answer from
+    /// a lost one.
     /// </summary>
     private int BusyRetryLimit => Math.Max(1, _settings.GiveBusyRetryLimit);
 
     /// <summary>
     /// Writes off the item at the head of the queue, and stops the whole run
-    /// once too many have been written off -- a run that cannot give anything
-    /// should say so rather than work through the packs failing.
+    /// once more have been written off than the failure count allows -- a run
+    /// that cannot give anything should say so rather than work through the
+    /// packs failing.
     /// </summary>
-    private void Fail()
+    private void WriteOff()
     {
         _pending.Dequeue();
-        _attempts = 0;
-        _sinceGive = 0d;
         _failed++;
         if (_failed > Math.Max(0, _settings.GiveFailureLimit))
         {
@@ -382,17 +497,22 @@ internal sealed class ProfileGiveController
         }
     }
 
-    private void Begin(in PluginWorldObject target, string subject)
+    private void Begin(in PluginWorldObject target, string subject, string? typedTarget)
     {
+        _typedTarget = typedTarget?.Trim() ?? string.Empty;
+        _giveCalls = 0;
         _targetObjectId = target.ObjectId;
         _subject = subject;
         _targetName = target.Name;
         _waitingObjectId = 0u;
+        _currentObjectId = 0u;
         _attempts = 0;
         _given = 0;
         _failed = 0;
-        _waitingSeconds = 0d;
         _sinceGive = double.MaxValue;
+        _runSeconds = 0d;
+        _sinceProgress = 0d;
+        EndError = string.Empty;
         IsRunning = true;
         Status = _pending.Count == 0
             ? $"No items match {_subject}."
@@ -422,12 +542,12 @@ internal sealed class ProfileGiveController
 
     /// <summary>
     /// Finds the player or non-player character of that name, nearest first,
-    /// and -- when asked -- refuses one standing further off than the give
-    /// range allows.
+    /// and refuses one standing further off than the give range allows --
+    /// for a profile hand-over as for a give by name, each refusal in the
+    /// reference's words for that command, naming the target as typed.
     /// </summary>
     private bool TryResolveTarget(
         string? targetName,
-        bool checkRange,
         out PluginWorldObject target,
         bool partialTargetMatch = false,
         string usage = GiveUsage)
@@ -441,27 +561,32 @@ internal sealed class ProfileGiveController
         if (requested.Length == 0)
         {
             Status = $"Syntax: {usage}";
+            Refusal = Status;
             return false;
         }
 
-        target = _host.Automation.Objects.CaptureObjects()
-            .Where(obj => obj.ObjectClass is PluginObjectClass.Player
-                or PluginObjectClass.Npc)
-            .Where(obj => partialTargetMatch
-                ? obj.Name.Contains(requested, StringComparison.OrdinalIgnoreCase)
-                : obj.Name.Equals(requested, StringComparison.OrdinalIgnoreCase))
-            .Where(obj => obj.ObjectId != _host.Automation.Character.ObjectId)
-            .OrderBy(obj => DistanceFromPlayer(obj))
-            .ThenBy(static obj => obj.ObjectId)
-            .FirstOrDefault();
-        if (target.ObjectId == 0u)
+        // The reference's object search: an id, a hex id or "selected"
+        // first, then the nearest player or non-player character the name
+        // answers to. The first three can name the character itself, which
+        // the reference refuses in words of its own.
+        if (!UbObjectSearch.TryFindNearest(
+            _host,
+            requested,
+            partialTargetMatch,
+            TargetClasses,
+            out target))
         {
             Status = $"Item giver target not found: {requested}.";
+            Refusal = $"player {requested} not found";
             return false;
         }
-        if (!checkRange)
-            return true;
-
+        if (target.ObjectId == _host.Automation.Character.ObjectId)
+        {
+            Status = "Item giver refused: the target is yourself.";
+            Refusal = "You can't give to yourself";
+            target = default;
+            return false;
+        }
         double range = Math.Max(0d, _settings.GiveRangeMeters);
         double distance = DistanceFromPlayer(target);
         if (distance > range)
@@ -469,6 +594,13 @@ internal sealed class ProfileGiveController
             Status = string.Create(
                 CultureInfo.InvariantCulture,
                 $"{target.Name} is {distance:0.##} m away; the give range is {range:0.##} m.");
+            Refusal = usage == ProfileGiveUsage
+                ? string.Create(
+                    CultureInfo.InvariantCulture,
+                    $"ItemGiver {requested} is {distance:n2} meters away. IGRange is set to {range}")
+                : string.Create(
+                    CultureInfo.InvariantCulture,
+                    $"{requested} is {distance:n2} meters away, IGRange is set to {range}. bailing.");
             target = default;
             return false;
         }
@@ -504,14 +636,35 @@ internal sealed class ProfileGiveController
 
     private void Stop(string status)
     {
+        FinishedLine = string.Create(
+            CultureInfo.InvariantCulture,
+            $"ItemGiver finished: {_subject} to {_typedTarget}. took {FriendlyTime(_runSeconds)} to give {_given} item(s). {_giveCalls - _given}");
         _pending.Clear();
         _targetObjectId = 0u;
         _waitingObjectId = 0u;
         _completionRevision = 0;
-        _waitingSeconds = 0d;
         _sinceGive = double.MaxValue;
         _attempts = 0;
         IsRunning = false;
         Status = status;
+    }
+
+    /// <summary>
+    /// A span as the reference writes one: days, hours, minutes and seconds
+    /// that are not zero ("1m 5s"), or "0s".
+    /// </summary>
+    internal static string FriendlyTime(double seconds)
+    {
+        var span = TimeSpan.FromSeconds(Math.Max(0d, Math.Floor(seconds)));
+        var parts = new List<string>(4);
+        if (span.Days > 0)
+            parts.Add(span.Days.ToString(CultureInfo.InvariantCulture) + "d");
+        if (span.Hours > 0)
+            parts.Add(span.Hours.ToString(CultureInfo.InvariantCulture) + "h");
+        if (span.Minutes > 0)
+            parts.Add(span.Minutes.ToString(CultureInfo.InvariantCulture) + "m");
+        if (span.Seconds > 0)
+            parts.Add(span.Seconds.ToString(CultureInfo.InvariantCulture) + "s");
+        return parts.Count == 0 ? "0s" : string.Join(' ', parts);
     }
 }

@@ -191,10 +191,10 @@ public sealed partial class MossTankPanelTests
         Assert.True(panel.UbSettingsSelected);
         Assert.True(panel.UbSettingsVisible);
 
-        Assert.Equal(158, panel.UbSettingNames.Count);
+        Assert.Equal(167, panel.UbSettingNames.Count);
         Assert.Equal(panel.UbSettingNames.Count, panel.UbSettingValues.Count);
         Assert.Equal("(all)", panel.UbCategoryNames[0]);
-        Assert.Equal(15, panel.UbCategoryNames.Count);
+        Assert.Equal(16, panel.UbCategoryNames.Count);
     }
 
     [Fact]
@@ -213,7 +213,7 @@ public sealed partial class MossTankPanelTests
             static name => Assert.StartsWith("Jumper.", name, StringComparison.Ordinal));
 
         panel.SelectUbCategory(0);
-        Assert.Equal(158, panel.UbSettingNames.Count);
+        Assert.Equal(167, panel.UbSettingNames.Count);
     }
 
     /// <summary>
@@ -234,7 +234,7 @@ public sealed partial class MossTankPanelTests
             panel.UbSettingNames.OrderByDescending(static name => name).ToArray());
 
         panel.SetUbFilterText(string.Empty);
-        Assert.Equal(158, panel.UbSettingNames.Count);
+        Assert.Equal(167, panel.UbSettingNames.Count);
     }
 
     [Fact]
@@ -831,7 +831,7 @@ public sealed partial class MossTankPanelTests
         var storage = new MemoryStorage();
         MossTankPanel panel = UbPanel(storage);
         string[] names = [.. panel.UbSettingNames];
-        Assert.Equal(158, names.Length);
+        Assert.Equal(167, names.Length);
 
         for (int row = 0; row < names.Length; row++)
         {
@@ -875,10 +875,12 @@ public sealed partial class MossTankPanelTests
     }
 
     /// <summary>
-    /// The vendor commands reach the vendor run through the router: with no
-    /// shop open a run says so, a staging command says so, and an open can
-    /// be called off. Mutation: dropping the two cases from the router turns
-    /// every one of these into the help text.
+    /// The vendor commands reach the vendor run through the router, each in
+    /// the reference's words: with no shop open a run cannot start, a
+    /// staging command names what it read and then says no vendor is open,
+    /// an open is called off without a word, and a stop says the run is
+    /// finished whether or not one was going. Mutation: dropping the two
+    /// cases from the router turns every one of these into the help text.
     /// </summary>
     [Fact]
     public void VendorCommandsAreRoutedToTheVendorRun()
@@ -888,17 +890,19 @@ public sealed partial class MossTankPanelTests
         var panel = new MossTankPanel(new FakeHost(automation, storage));
         automation.Messages.Clear();
 
-        panel.ExecuteVtankCommand(new PluginCommand("vt", "autovendor", "/vt autovendor"));
-        panel.ExecuteVtankCommand(new PluginCommand("vt", "vendor addbuy 5 Ration", "/vt vendor addbuy 5 Ration"));
-        panel.ExecuteVtankCommand(new PluginCommand("vt", "vendor opencancel", "/vt vendor opencancel"));
-        panel.ExecuteVtankCommand(new PluginCommand("vt", "autovendor stop", "/vt autovendor stop"));
+        panel.ExecuteUbCommand(new PluginCommand("ub", "autovendor", "/ub autovendor"));
+        panel.ExecuteUbCommand(new PluginCommand("ub", "vendor addbuy 5 Ration", "/ub vendor addbuy 5 Ration"));
+        panel.ExecuteUbCommand(new PluginCommand("ub", "vendor opencancel", "/ub vendor opencancel"));
+        panel.ExecuteUbCommand(new PluginCommand("ub", "autovendor stop", "/ub autovendor stop"));
 
-        Assert.Collection(
-            automation.Messages,
-            m => Assert.Contains("no vendor open", m, StringComparison.OrdinalIgnoreCase),
-            m => Assert.Contains("No vendor open", m, StringComparison.Ordinal),
-            m => Assert.Contains("cancelled", m, StringComparison.Ordinal),
-            m => Assert.Contains("not running", m, StringComparison.Ordinal));
+        Assert.Equal(
+            [
+                "[UB] AutoVendor Fatal - no vendor, cannot start",
+                "[UB] Name: Ration count: 5 param:5 Ration",
+                "[UB] Error: addbuy: No vendor open",
+                "[UB] AutoVendor finished: ",
+            ],
+            automation.Messages);
     }
 
     /// <summary>
@@ -915,13 +919,13 @@ public sealed partial class MossTankPanelTests
         var panel = new MossTankPanel(new FakeHost(automation, storage));
         automation.Messages.Clear();
 
-        panel.ExecuteVtankCommand(new PluginCommand("vt", "xp import Alchemy=7;Bogus=1", "/vt xp import Alchemy=7;Bogus=1"));
-        panel.ExecuteVtankCommand(new PluginCommand("vt", "xp export", "/vt xp export"));
+        panel.ExecuteUbCommand(new PluginCommand("ub", "xp import Alchemy=7;Bogus=1", "/ub xp import Alchemy=7;Bogus=1"));
+        panel.ExecuteUbCommand(new PluginCommand("ub", "xp export", "/ub xp export"));
 
         Assert.Contains(automation.Messages, m => m.Contains("Bogus", StringComparison.Ordinal));
-        string export = automation.Messages.Last(m => m.StartsWith("Strength=", StringComparison.Ordinal));
+        string export = automation.Messages.Last(m => m.StartsWith("[UB] Strength=", StringComparison.Ordinal));
         Assert.Contains("Alchemy=7", export, StringComparison.Ordinal);
-        Assert.StartsWith("Strength=1;Endurance=1;", export, StringComparison.Ordinal);
+        Assert.StartsWith("[UB] Strength=1;Endurance=1;", export, StringComparison.Ordinal);
     }
 
     /// <summary>
@@ -967,8 +971,11 @@ public sealed partial class MossTankPanelTests
 
     /// <summary>
     /// The equip verbs reach the profile controller through the command
-    /// router, and its refusal reaches chat. Mutation: dropping the router
-    /// case answers with the help text instead.
+    /// router. A missing profile is said only in the reference's debug
+    /// output: nothing with Plugin.Debug off, a debug line (Abuse, 14) with
+    /// it on. Mutation: dropping the router case answers with the help text
+    /// instead; printing the missing profile as an ordinary line shows it
+    /// with debug off.
     /// </summary>
     [Fact]
     public void EquipCommandsRouteThroughThePanelToChat()
@@ -978,12 +985,20 @@ public sealed partial class MossTankPanelTests
         var panel = new MossTankPanel(new FakeHost(automation, storage));
         automation.Messages.Clear();
 
-        panel.ExecuteVtankCommand(new PluginCommand("vt", "equip list", "/vt equip list"));
-        panel.ExecuteVtankCommand(new PluginCommand("vt", "equip load nothing", "/vt equip load nothing"));
+        panel.ExecuteUbCommand(new PluginCommand("ub", "equip list", "/ub equip list"));
+        panel.ExecuteUbCommand(new PluginCommand("ub", "equip load nothing", "/ub equip load nothing"));
 
-        Assert.Contains(automation.Messages, m => m.Contains("Equip profiles:", StringComparison.Ordinal));
-        Assert.Contains(automation.Messages, m => m.Contains("No equip profile exists", StringComparison.Ordinal)
-            && m.Contains("nothing.utl", StringComparison.Ordinal));
+        Assert.Contains(("[UB] Equip Profiles:", UbChat.GenericChatType), automation.Posted);
+        Assert.DoesNotContain(automation.Messages, m => m.Contains("No equip profile exists", StringComparison.Ordinal));
+
+        panel.ExecuteUbCommand(new PluginCommand("ub", "opt set Plugin.Debug true", "/ub opt set Plugin.Debug true"));
+        automation.Posted.Clear();
+        panel.ExecuteUbCommand(new PluginCommand("ub", "equip load nothing", "/ub equip load nothing"));
+
+        (string text, int kind) = Assert.Single(automation.Posted);
+        Assert.StartsWith("[UB] EquipmentManager: No equip profile exists: ", text, StringComparison.Ordinal);
+        Assert.Contains("nothing.utl", text, StringComparison.Ordinal);
+        Assert.Equal(UbChat.DebugChatType, kind);
     }
 }
 
@@ -1265,7 +1280,7 @@ public sealed partial class MossTankPanelTests
         panel.SetUbFilterText("Sharing.Vitals");
         panel.ClickUbSettingValue(0);
         panel.ShowUbMap();
-        Command(panel, "equip create pin");
+        UbCommand(panel, "equip create pin");
 
         Assert.DoesNotContain(
             plugin.Text.Keys,

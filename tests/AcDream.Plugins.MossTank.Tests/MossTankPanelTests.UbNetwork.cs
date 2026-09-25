@@ -85,7 +85,7 @@ public sealed partial class MossTankPanelTests
         panel.HideUbListEditor();
     }
 
-    // ── /vt bc ──────────────────────────────────────────────────────────
+    // ── /ub bc ──────────────────────────────────────────────────────────
 
     /// <summary>
     /// The delay is the leading digits and everything after them is the
@@ -104,7 +104,7 @@ public sealed partial class MossTankPanelTests
     {
         MossTankPanel panel = NetworkPanel(out _, out BroadcastProbe peers);
 
-        Command(panel, typed);
+        UbCommand(panel, typed);
 
         (string line, string[] tags, int sentDelay) = Assert.Single(peers.Sent);
         Assert.Equal(expected, line);
@@ -126,13 +126,13 @@ public sealed partial class MossTankPanelTests
         peers.Clients.Add(NetClient(2u, "Horan"));
         peers.Clients.Add(NetClient(3u, "Yonneh"));
 
-        Command(panel, "bc 250 /say hello");
+        UbCommand(panel, "bc 250 /say hello");
 
         Assert.Equal(
             [
-                "Broadcasting command to all clients: \"/say hello\" with delay inbetween of 250ms",
-                "Sending Horan: \"/say hello\" with delay inbetween of 250ms",
-                "Sending Yonneh: \"/say hello\" with delay inbetween of 250ms",
+                "[UB] Broadcasting command to all clients: \"/say hello\" with delay inbetween of 250ms",
+                "[UB] Sending Horan: \"/say hello\" with delay inbetween of 250ms",
+                "[UB] Sending Yonneh: \"/say hello\" with delay inbetween of 250ms",
             ],
             automation.Messages);
     }
@@ -150,7 +150,7 @@ public sealed partial class MossTankPanelTests
             out FakeAutomation automation,
             out _);
 
-        Command(panel, "bc 5000 /say hello");
+        UbCommand(panel, "bc 5000 /say hello");
         Assert.DoesNotContain("/say hello", automation.Submitted);
 
         panel.OnTick(0.05d);
@@ -170,10 +170,10 @@ public sealed partial class MossTankPanelTests
             out FakeAutomation automation,
             out BroadcastProbe peers);
 
-        Command(panel, "bc 99999999999 /say hello");
+        UbCommand(panel, "bc 99999999999 /say hello");
 
         Assert.Equal(
-            "Unable to broadcast command, invalid delay: 99999999999",
+            "[UB] Error: Unable to broadcast command, invalid delay: 99999999999",
             Assert.Single(automation.Messages));
         Assert.Empty(peers.Sent);
     }
@@ -185,11 +185,11 @@ public sealed partial class MossTankPanelTests
             out FakeAutomation automation,
             out BroadcastProbe peers);
 
-        Command(panel, "bc 500");
+        UbCommand(panel, "bc 500");
 
         Assert.Equal(
-            "Syntax: /vt bc [millisecondDelay] <command>",
-            Assert.Single(automation.Messages));
+            ["[UB] Error: Bad command syntax", "[UB] Usage: /ub bc [millisecondDelay] <command>"],
+            automation.Messages.Take(2));
         Assert.Empty(peers.Sent);
     }
 
@@ -208,17 +208,17 @@ public sealed partial class MossTankPanelTests
         peers.Accepts = false;
         peers.Clients.Add(NetClient(2u, "Horan"));
 
-        Command(panel, "bc /say hello");
+        UbCommand(panel, "bc /say hello");
 
         Assert.Equal(
-            "Unable to broadcast command to the other clients.",
+            "[UB] Error: Unable to broadcast command to the other clients.",
             automation.Messages[^1]);
         Assert.DoesNotContain(
             automation.Messages,
-            message => message.StartsWith("Sending ", StringComparison.Ordinal));
+            message => message.StartsWith("[UB] Sending ", StringComparison.Ordinal));
     }
 
-    // ── /vt bct ─────────────────────────────────────────────────────────
+    // ── /ub bct ─────────────────────────────────────────────────────────
 
     /// <summary>
     /// The tag list is comma separated, a tag holding a space is quoted, and
@@ -243,7 +243,7 @@ public sealed partial class MossTankPanelTests
     {
         MossTankPanel panel = NetworkPanel(out _, out BroadcastProbe peers);
 
-        Command(panel, typed);
+        UbCommand(panel, typed);
 
         (string line, string[] tags, int delay) = Assert.Single(peers.Sent);
         Assert.Equal(expectedLine, line);
@@ -258,10 +258,10 @@ public sealed partial class MossTankPanelTests
             out FakeAutomation automation,
             out _);
 
-        Command(panel, "bct one,two 250 /say hello");
+        UbCommand(panel, "bct one,two 250 /say hello");
 
         Assert.Equal(
-            "Broadcasting command to clients with tags (one,two): \"/say hello\" "
+            "[UB] Broadcasting command to clients with tags (one,two): \"/say hello\" "
             + "with delay inbetween of 250ms",
             Assert.Single(automation.Messages));
     }
@@ -279,11 +279,11 @@ public sealed partial class MossTankPanelTests
             out _);
         SetOwnTags(panel, "tank");
 
-        Command(panel, "bct healer /say hello");
+        UbCommand(panel, "bct healer /say hello");
         panel.OnTick(0.05d);
         Assert.DoesNotContain("/say hello", automation.Submitted);
 
-        Command(panel, "bct healer,TANK /say hello");
+        UbCommand(panel, "bct healer,TANK /say hello");
         panel.OnTick(0.05d);
 
         Assert.Contains("/say hello", automation.Submitted);
@@ -296,10 +296,10 @@ public sealed partial class MossTankPanelTests
             out FakeAutomation automation,
             out BroadcastProbe peers);
 
-        Command(panel, "bct , /say hello");
+        UbCommand(panel, "bct , /say hello");
 
         Assert.Equal(
-            "You must specify at least one tag to send the command to.",
+            "[UB] Error: You must specify at least one tag to send the command to.",
             Assert.Single(automation.Messages));
         Assert.Empty(peers.Sent);
     }
@@ -311,15 +311,15 @@ public sealed partial class MossTankPanelTests
             out FakeAutomation automation,
             out BroadcastProbe peers);
 
-        Command(panel, "bct one");
+        UbCommand(panel, "bct one");
 
         Assert.Equal(
-            "Syntax: /vt bct <tags> [millisecondDelay] <command>",
-            Assert.Single(automation.Messages));
+            ["[UB] Error: Bad command syntax", "[UB] Usage: /ub bct <tags> [millisecondDelay] <command>"],
+            automation.Messages.Take(2));
         Assert.Empty(peers.Sent);
     }
 
-    // ── /vt netclients ──────────────────────────────────────────────────
+    // ── /ub netclients ──────────────────────────────────────────────────
 
     /// <summary>
     /// The list carries this character too: the client reports the others
@@ -336,13 +336,13 @@ public sealed partial class MossTankPanelTests
         peers.Clients.Add(NetClient(3u, "Yonneh", "healer"));
         peers.Clients.Add(NetClient(2u, "Horan"));
 
-        Command(panel, "netclients");
+        UbCommand(panel, "netclients");
 
         Assert.Equal(
             [
-                "ClientData<0, Acdream>",
-                "ClientData<2, Horan>",
-                "ClientData<3, Yonneh> [healer]",
+                "[UB] ClientData<0, Acdream>",
+                "[UB] ClientData<2, Horan>",
+                "[UB] ClientData<3, Yonneh> [healer]",
             ],
             automation.Messages);
     }
@@ -361,12 +361,12 @@ public sealed partial class MossTankPanelTests
         peers.Clients.Add(NetClient(3u, "Yonneh", "healer"));
         SetOwnTags(panel, "healer");
 
-        Command(panel, "netclients healer");
+        UbCommand(panel, "netclients healer");
 
         Assert.Equal(
             [
-                "ClientData<0, Acdream> [healer]",
-                "ClientData<3, Yonneh> [healer]",
+                "[UB] ClientData<0, Acdream> [healer]",
+                "[UB] ClientData<3, Yonneh> [healer]",
             ],
             automation.Messages);
     }
@@ -378,9 +378,9 @@ public sealed partial class MossTankPanelTests
             out FakeAutomation automation,
             out _);
 
-        Command(panel, "netclients raid");
+        UbCommand(panel, "netclients raid");
 
-        Assert.Equal("No net clients to show", Assert.Single(automation.Messages));
+        Assert.Equal("[UB] No net clients to show", Assert.Single(automation.Messages));
     }
 
     // ── Networking.Tags ─────────────────────────────────────────────────

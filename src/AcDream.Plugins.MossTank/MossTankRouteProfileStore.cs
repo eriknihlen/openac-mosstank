@@ -22,7 +22,7 @@ internal sealed class MossTankRouteProfileStore
         _host = host ?? throw new ArgumentNullException(nameof(host));
     }
 
-    public string Selected => Strip(_selected);
+    public string Selected => NameOf(_selected);
     public string? RecoveryNotice { get; private set; }
 
     /// <summary>The file the last load read, or tried to read.</summary>
@@ -32,29 +32,54 @@ internal sealed class MossTankRouteProfileStore
     private IPluginStorage VtankStorage => _host.VtankProfiles;
     private bool CanBindFiles => _characterName.Length > 0 && Server.Length > 0;
 
-    private static string Strip(string fileName)
+    /// <summary>
+    /// The name a file goes by, which is also the name that loads it again.
+    /// A bare name loads the ".nav" first, so a ".nav" goes by its bare name;
+    /// so does the plugin's own ".af", except beside a ".nav" of the same
+    /// name, where it keeps its extension so picking it by that name reaches
+    /// it rather than the file beside it.
+    /// </summary>
+    private string NameOf(string fileName) => NameOf(fileName, DroppedRouteExists);
+
+    private static string NameOf(string fileName, Func<string, bool> droppedExists)
     {
         if (fileName.Equals(ByCharacter, StringComparison.OrdinalIgnoreCase))
             return fileName;
         string value = fileName.StartsWith(FolderPrefix, StringComparison.Ordinal)
             ? fileName[FolderPrefix.Length..]
             : fileName;
-        return value.EndsWith(".af", StringComparison.OrdinalIgnoreCase)
-            ? value[..^3]
-            : value;
+        if (value.EndsWith(".nav", StringComparison.OrdinalIgnoreCase))
+            return value[..^".nav".Length];
+        if (!value.EndsWith(".af", StringComparison.OrdinalIgnoreCase))
+            return value;
+        string bareName = value[..^3];
+        return droppedExists(bareName) ? value : bareName;
     }
+
+    private bool DroppedRouteExists(string bareName) =>
+        VtankStorage.IsAvailable && VtankStorage.ReadText(DroppedFileName(bareName)) is not null;
+
+    /// <summary>Where a route dropped in as the older ".nav" form sits.</summary>
+    private static string DroppedFileName(string bareName) =>
+        $"{VtankProfileDirectory.NavFolder}/{bareName}.nav";
 
     public IReadOnlyList<string> AvailableNames
     {
         get
         {
+            IReadOnlyList<VtankProfileDirectory.ProfileEntry> entries =
+                VtankProfileDirectory.ListNavigationProfiles(VtankStorage);
+            var listed = new HashSet<string>(
+                entries.Select(static entry => entry.FileName),
+                StringComparer.OrdinalIgnoreCase);
             var names = new List<string> { ByCharacter };
-            foreach (VtankProfileDirectory.ProfileEntry entry in
-                VtankProfileDirectory.ListNavigationProfiles(VtankStorage))
+            foreach (VtankProfileDirectory.ProfileEntry entry in entries)
             {
                 if (entry.FileName.Length == 0)
                     continue;
-                names.Add(Strip(entry.FileName));
+                names.Add(NameOf(
+                    entry.FileName,
+                    bareName => listed.Contains(DroppedFileName(bareName))));
             }
             return names;
         }
@@ -76,7 +101,7 @@ internal sealed class MossTankRouteProfileStore
         return true;
     }
 
-    public bool Select(string? name)
+    public bool Select(string? name, bool exactOnly = false)
     {
         string normalized = Normalize(name);
         if (normalized.Length == 0)
@@ -89,23 +114,50 @@ internal sealed class MossTankRouteProfileStore
             return true;
         }
 
-        string candidate = ToFileName(normalized);
-        if (ResolveExisting(normalized) is { } found)
+        if (ResolveExisting(normalized, exactOnly) is { } found)
         {
             _selected = found;
             _pendingLegacyBareName = null;
             WriteBinding();
             return true;
         }
+        string bareName = BareName(normalized);
         if (_host.Storage.IsAvailable
-            && _host.Storage.ReadText(LegacyProfileKey(normalized, byCharacter: false)) is not null)
+            && _host.Storage.ReadText(LegacyProfileKey(bareName, byCharacter: false)) is not null)
         {
-            _selected = candidate;
-            _pendingLegacyBareName = normalized;
+            _selected = ToFileName(bareName);
+            _pendingLegacyBareName = bareName;
             WriteBinding();
             return true;
         }
         return false;
+    }
+
+    /// <summary>
+    /// The route a follow walks. Following someone is not an edit of the
+    /// loaded route: a follow route carries no waypoints, so writing one
+    /// over a route file wipes that route. A follow switches to this route
+    /// instead and aims it, and the file that was loaded stays as it was.
+    /// </summary>
+    public const string FollowRouteName = "UBFollow";
+
+    /// <summary>Whether the follow route is the selected route.</summary>
+    public bool FollowRouteSelected => _selected.Equals(
+        ToFileName(FollowRouteName), StringComparison.OrdinalIgnoreCase);
+
+    /// <summary>
+    /// Selects the follow route, writing it empty first if it is not there
+    /// yet. Nothing else is written: the route that was selected keeps its
+    /// file exactly as it is.
+    /// </summary>
+    public void SelectFollowRoute()
+    {
+        string fileName = ToFileName(FollowRouteName);
+        if (VtankStorage.IsAvailable && VtankStorage.ReadText(fileName) is null)
+            WriteRoute(fileName, new NavigationSettings());
+        _selected = fileName;
+        _pendingLegacyBareName = null;
+        WriteBinding();
     }
 
     public bool Exists(string? name)
@@ -120,9 +172,15 @@ internal sealed class MossTankRouteProfileStore
             return true;
 
         return _host.Storage.IsAvailable
-            && _host.Storage.ReadText(LegacyProfileKey(normalized, byCharacter: false)) is not null;
+            && _host.Storage.ReadText(
+                LegacyProfileKey(BareName(normalized), byCharacter: false)) is not null;
     }
 
+    /// <summary>
+    /// Writes a route under a new name and selects it. A bare name is written
+    /// in the older ".nav" form, as the reference writes a route; a name that
+    /// carries ".nav" or ".af" is written exactly as it says.
+    /// </summary>
     public bool Create(
         string? name,
         bool copyCurrent,
@@ -140,15 +198,19 @@ internal sealed class MossTankRouteProfileStore
             notice = "'By char' is the built-in route profile.";
             return false;
         }
-        string fileName = ToFileName(normalized);
+        string fileName = NewFileName(normalized);
         NavigationSettings source = copyCurrent ? current : new NavigationSettings();
-        WriteAf(fileName, MetafSerializer.SaveNav(source));
+        if (!WriteRoute(fileName, source))
+        {
+            notice = SaveNotice ?? "Route storage is unavailable.";
+            return false;
+        }
         _selected = fileName;
         _pendingLegacyBareName = null;
         WriteBinding();
         notice = copyCurrent
-            ? $"Copied route to {Strip(fileName)}."
-            : $"Created route profile {Strip(fileName)}.";
+            ? $"Copied route to {NameOf(fileName)}."
+            : $"Created route profile {NameOf(fileName)}.";
         return true;
     }
 
@@ -194,18 +256,20 @@ internal sealed class MossTankRouteProfileStore
         _characterName.Length == 0
         && _selected.Equals(ByCharacter, StringComparison.OrdinalIgnoreCase);
 
-    public void SaveCurrent(NavigationSettings settings)
+    /// <summary>Why the last save wrote nothing, or null when it wrote.</summary>
+    public string? SaveNotice { get; private set; }
+
+    /// <summary>
+    /// Writes the route back to the file it was loaded from, in that file's
+    /// own form: a ".nav" stays a ".nav". False, with <see cref="SaveNotice"/>
+    /// saying why, when nothing was written.
+    /// </summary>
+    public bool SaveCurrent(NavigationSettings settings)
     {
+        SaveNotice = null;
         if (FilesUnderNobody)
-            return;
-        string target = SaveTargetFor(CurrentFileName());
-        WriteAf(target, MetafSerializer.SaveNav(settings));
-        if (!_selected.Equals(ByCharacter, StringComparison.OrdinalIgnoreCase)
-            && !target.Equals(_selected, StringComparison.Ordinal))
-        {
-            _selected = target;
-            WriteBinding();
-        }
+            return false;
+        return WriteRoute(CurrentFileName(), settings);
     }
 
     public bool TryImportLegacy(
@@ -239,11 +303,15 @@ internal sealed class MossTankRouteProfileStore
             return false;
         }
         string fileName = ToFileName(normalized);
-        WriteAf(fileName, MetafSerializer.SaveNav(target));
+        if (!WriteRoute(fileName, target))
+        {
+            notice = SaveNotice ?? "Route storage is unavailable.";
+            return false;
+        }
         _selected = fileName;
         _pendingLegacyBareName = null;
         WriteBinding();
-        notice = $"Imported VTank navigation profile {Strip(fileName)}.";
+        notice = $"Imported VTank navigation profile {NameOf(fileName)}.";
         return true;
     }
 
@@ -252,13 +320,17 @@ internal sealed class MossTankRouteProfileStore
     /// the given offsets. The selection is untouched: translating a route is
     /// a file operation, not a decision about which route to walk.
     /// </summary>
-    /// <param name="sourceName">The route to read, without its extension.</param>
-    /// <param name="targetName">The name to write it under.</param>
+    /// <param name="sourceName">The route to read: a bare name reads the .nav first, a name with its extension that file.</param>
+    /// <param name="targetName">The name to write it under: a bare name writes a .nav, a name with its extension that file.</param>
     /// <param name="eastWestOffset">Coordinates to add to every point's east/west.</param>
     /// <param name="northSouthOffset">Coordinates to add to every point's north/south.</param>
     /// <param name="force">True to overwrite a route that is already there.</param>
     /// <param name="spells">Used to name a recall waypoint's spell.</param>
-    /// <param name="notice">What to tell the player, either way.</param>
+    /// <param name="notice">
+    /// Why nothing was written, or, when the route was written, the name it
+    /// was saved under.
+    /// </param>
+    /// <param name="records">How many waypoints the written route holds.</param>
     /// <returns>True when the translated route was written.</returns>
     public bool TryTranslate(
         string? sourceName,
@@ -267,9 +339,11 @@ internal sealed class MossTankRouteProfileStore
         double northSouthOffset,
         bool force,
         ISpellCatalog spells,
-        out string notice)
+        out string notice,
+        out int records)
     {
         ArgumentNullException.ThrowIfNull(spells);
+        records = 0;
         string source = Normalize(sourceName);
         string target = Normalize(targetName);
         if (source.Length == 0 || target.Length == 0)
@@ -290,12 +364,12 @@ internal sealed class MossTankRouteProfileStore
             notice = $"Could not find route to load: {source}";
             return false;
         }
-        string targetKey = ToFileName(target);
-        if (!force && ResolveExisting(target) is not null)
+        string targetKey = NewFileName(target);
+        if (!force && VtankStorage.ReadText(targetKey) is not null)
         {
             notice =
                 "Output path already exists! Run with force flag to overwrite: "
-                + Strip(targetKey);
+                + NameOf(targetKey);
             return false;
         }
 
@@ -321,10 +395,13 @@ internal sealed class MossTankRouteProfileStore
             point.ReferencePosition = Shift(
                 point.ReferencePosition, eastWestOffset, northSouthOffset);
         }
-        WriteAf(targetKey, MetafSerializer.SaveNav(scratch));
-        notice =
-            $"Translated {scratch.Waypoints.Count} records and saved them to "
-            + Strip(targetKey);
+        if (!WriteRoute(targetKey, scratch))
+        {
+            notice = SaveNotice ?? "Route storage is unavailable.";
+            return false;
+        }
+        records = scratch.Waypoints.Count;
+        notice = NameOf(targetKey);
         return true;
     }
 
@@ -350,7 +427,7 @@ internal sealed class MossTankRouteProfileStore
         _selected = ByCharacter;
         _pendingLegacyBareName = null;
         WriteBinding();
-        notice = $"Deleted route profile {Strip(fileName)}.";
+        notice = $"Deleted route profile {NameOf(fileName)}.";
         return true;
     }
 
@@ -402,7 +479,7 @@ internal sealed class MossTankRouteProfileStore
             {
                 var scratch = new NavigationSettings();
                 legacy.ApplyRouteOnly(scratch);
-                WriteAf(fileName, MetafSerializer.SaveNav(scratch));
+                WriteRoute(fileName, scratch);
             }
             _host.Storage.Delete(legacyKey);
             migrated++;
@@ -460,7 +537,7 @@ internal sealed class MossTankRouteProfileStore
             return;
         }
         legacy.ApplyRouteOnly(target);
-        WriteAf(fileName, MetafSerializer.SaveNav(target));
+        WriteRoute(fileName, target);
         if (_host.Storage.IsAvailable)
             _host.Storage.Delete(legacyKey);
         _pendingLegacyBareName = null;
@@ -507,34 +584,66 @@ internal sealed class MossTankRouteProfileStore
             : $"{VtankProfileDirectory.NavFolder}/{bareName}.af";
 
     /// <summary>
-    /// The file a name stands for, if one is there. A bare name means the
-    /// plugin's own format first and a dropped route second, so both a
-    /// command typed without an extension and a name picked straight out of
-    /// the folder resolve to the file that exists.
+    /// The file a route written under a new name goes to: the older ".nav"
+    /// form for a bare name, or exactly the file a name with its extension
+    /// says.
     /// </summary>
-    private string? ResolveExisting(string name)
+    private static string NewFileName(string name) =>
+        BareName(name).Equals(name, StringComparison.Ordinal)
+            ? ToFileName(name + ".nav")
+            : ToFileName(name);
+
+    /// <summary>
+    /// The file a name stands for, if one is there. A name that carries its
+    /// extension asks for exactly that file and gets it whenever it is there,
+    /// even with a route of the other form under the same name beside it. A
+    /// bare name, or a full name whose file is not there, means the dropped
+    /// ".nav" first and the plugin's own ".af" second, the way the reference
+    /// reads a route name. A route saves back to the file it came from, in
+    /// that file's form, so an edit is what loads again by the same name.
+    /// Where both forms sit side by side the ".af" goes by its full name
+    /// (see <see cref="NameOf(string)"/>), so the selection and the pickers
+    /// still reach it. With <paramref name="exactOnly"/> a name that carries
+    /// its extension reaches that file or nothing.
+    /// </summary>
+    private string? ResolveExisting(string name, bool exactOnly = false)
     {
         if (!VtankStorage.IsAvailable)
             return null;
-        string candidate = ToFileName(name);
-        if (VtankStorage.ReadText(candidate) is not null)
-            return candidate;
-        string dropped = $"{VtankProfileDirectory.NavFolder}/{name}.nav";
-        return VtankStorage.ReadText(dropped) is not null ? dropped : null;
+        string bareName = BareName(name);
+        if (!bareName.Equals(name, StringComparison.Ordinal))
+        {
+            string exact = $"{VtankProfileDirectory.NavFolder}/{name}";
+            if (VtankStorage.ReadText(exact) is not null)
+                return exact;
+            if (exactOnly)
+                return null;
+        }
+        string dropped = DroppedFileName(bareName);
+        if (VtankStorage.ReadText(dropped) is not null)
+            return dropped;
+        string own = ToFileName(bareName);
+        return VtankStorage.ReadText(own) is not null ? own : null;
     }
+
+    /// <summary>A route's name without the extension it may carry.</summary>
+    internal static string BareName(string name)
+    {
+        foreach (string extension in NameExtensions)
+        {
+            if (name.Length > extension.Length
+                && name.EndsWith(extension, StringComparison.OrdinalIgnoreCase))
+            {
+                return name[..^extension.Length];
+            }
+        }
+        return name;
+    }
+
+    private static readonly string[] NameExtensions = [".nav", ".af"];
 
     private static bool IsDroppedForeignFormat(string key) =>
         key.EndsWith(".nav", StringComparison.OrdinalIgnoreCase);
-
-    /// <summary>
-    /// Where a save goes. A dropped file is never rewritten: the plugin's
-    /// own format is written beside it under the same name, and that is what
-    /// the selection follows from then on.
-    /// </summary>
-    private static string SaveTargetFor(string key) =>
-        IsDroppedForeignFormat(key)
-            ? string.Concat(key.AsSpan(0, key.Length - ".nav".Length), ".af")
-            : key;
 
     private void WriteBinding()
     {
@@ -551,18 +660,43 @@ internal sealed class MossTankRouteProfileStore
             existing with { NavFileName = CurrentFileName() });
     }
 
-    private void WriteAf(string fileName, string text)
+    /// <summary>
+    /// Writes a route to its file in that file's own form: the older ".nav"
+    /// form for a ".nav", the plugin's own for anything else. A route the
+    /// form cannot hold is not written at all, and <see cref="SaveNotice"/>
+    /// says why.
+    /// </summary>
+    private bool WriteRoute(string fileName, NavigationSettings settings)
     {
-        if (!VtankStorage.IsAvailable)
-            return;
+        string text;
         try
         {
-            VtankStorage.WriteText(fileName, text);
+            text = IsDroppedForeignFormat(fileName)
+                ? VtankNavRouteSerializer.Save(settings)
+                : MetafSerializer.SaveNav(settings);
+        }
+        catch (InvalidOperationException error)
+        {
+            SaveNotice = $"Route profile {NameOf(fileName)} was NOT saved: {error.Message}";
+            _host.Log.Warn(SaveNotice);
+            return false;
+        }
+        if (!VtankStorage.IsAvailable)
+            return false;
+        try
+        {
+            VtankStorage.WriteText(
+                fileName,
+                ProfileLineEndings.Match(text, VtankStorage.ReadText(fileName)));
         }
         catch (Exception error)
         {
-            _host.Log.Warn($"MossTank route profile could not be saved: {error.Message}");
+            SaveNotice = $"Route profile {NameOf(fileName)} could not be saved: {error.Message}";
+            _host.Log.Warn(SaveNotice);
+            return false;
         }
+        SaveNotice = null;
+        return true;
     }
 
     private static string Normalize(string? name) => name?.Trim() ?? string.Empty;
@@ -637,6 +771,10 @@ internal sealed class MossTankRouteProfileStore
         public uint RecallSpellId { get; set; }
         public string RecallSpellName { get; set; } = string.Empty;
         public float JumpHeadingDegrees { get; set; }
+        /// <summary>
+        /// The jump's shift flag, under the name these older documents
+        /// stored it by; carried over bit for bit, as the route files do.
+        /// </summary>
         public bool JumpRun { get; set; }
         public int JumpChargeMilliseconds { get; set; } = 1000;
         public RouteJumpDirection JumpDirection { get; set; }
@@ -666,7 +804,7 @@ internal sealed class MossTankRouteProfileStore
                 RecallSpellId = RouteWaypoint.SpellIdForRecall(recall),
                 RecallSpellName = RouteWaypoint.RecallDisplayName(recall),
                 JumpHeadingDegrees = float.IsFinite(JumpHeadingDegrees) ? JumpHeadingDegrees : 0f,
-                JumpRun = JumpRun,
+                JumpHoldShift = JumpRun,
                 JumpChargeMilliseconds = JumpChargeMilliseconds,
                 JumpDirection = Enum.IsDefined(JumpDirection) ? JumpDirection : RouteJumpDirection.Forward,
             };

@@ -16,6 +16,12 @@ namespace AcDream.Plugins.MossTank;
 /// which is what ends the walk: the rule stops being valid, loses the turn, and
 /// the mover drops the keys.
 /// </para>
+/// <para>
+/// MossTank's one exception to the outer radius, with the own-rare walk
+/// option on: a corpse holding this character's own rare is walked to out to
+/// the rare reach, and a walk to it that stops covering ground or runs out of
+/// time is given up (see <c>Looting.OwnRare.cs</c>).
+/// </para>
 /// </summary>
 internal sealed class CorpseApproachController
 {
@@ -28,6 +34,18 @@ internal sealed class CorpseApproachController
     private double _goalDistance;
     private PluginNavigationPosition _goalPosition;
     private string _status = "No corpse to walk to.";
+
+    /// <summary>
+    /// How long a walk to this character's own rare corpse may go on before
+    /// it is given up: long enough to cover the whole rare reach at a walk.
+    /// </summary>
+    internal const double OwnRareWalkGiveUpSeconds = 60d;
+
+    /// <summary>The own-rare corpse the give-up clock is timing, or zero.</summary>
+    private uint _ownRareWalkCorpse;
+
+    /// <summary>How long the mover has been armed walking to that corpse.</summary>
+    private double _ownRareWalkSeconds;
 
     internal CorpseApproachController(
         IPluginHost host,
@@ -84,6 +102,14 @@ internal sealed class CorpseApproachController
     /// </summary>
     internal void StepArmedMover(double elapsedSeconds)
     {
+        if (_mover.IsArmed
+            && _goalCorpse != 0u
+            && _goalCorpse == _ownRareWalkCorpse
+            && double.IsFinite(elapsedSeconds)
+            && elapsedSeconds > 0d)
+        {
+            _ownRareWalkSeconds += elapsedSeconds;
+        }
         if (_mover.TryTakeMoverFrame(elapsedSeconds, out _))
             _ = Tick(canAct: true);
     }
@@ -115,8 +141,12 @@ internal sealed class CorpseApproachController
         // the walk ends. Both are exclusions, not a band the mover clamps to:
         // outside the reach there is nothing to walk to, and inside the inner
         // stop the walk is over and the open takes it from here.
+        // The one exception to the outer radius is MossTank's own, behind its
+        // option: a corpse holding this character's rare is walked to out to
+        // the rare reach (see Looting.OwnRare.cs).
         double distance = corpse.Distance;
-        if (distance > _settings.CorpseApproachRange)
+        double reach = _loot.ApproachReachFor(corpse, _settings.CorpseApproachRange);
+        if (distance > reach)
         {
             return Decline(string.Create(
                 CultureInfo.InvariantCulture,
@@ -126,17 +156,44 @@ internal sealed class CorpseApproachController
         if (distance <= _settings.CorpseMinimumApproachRange)
             return Decline($"Standing at {corpse.Name}.");
 
+        bool ownRareWalk = _loot.IsOwnRareWalkGoal(corpse);
+        if (ownRareWalk && _ownRareWalkCorpse != corpse.ObjectId)
+        {
+            _ownRareWalkCorpse = corpse.ObjectId;
+            _ownRareWalkSeconds = 0d;
+        }
+
         _goalCorpse = corpse.ObjectId;
         _goalDistance = distance;
         _goalPosition = corpse.Position;
-        _status = string.Create(
-            CultureInfo.InvariantCulture,
-            $"Walking to {corpse.Name} ({distance:0.0}m).");
-        return _mover.Steer(
+        _status = distance > _settings.CorpseApproachRange
+            ? string.Create(
+                CultureInfo.InvariantCulture,
+                $"Walking to {corpse.Name} ({distance:0.0}m), this character's rare, past the corpse approach range.")
+            : string.Create(
+                CultureInfo.InvariantCulture,
+                $"Walking to {corpse.Name} ({distance:0.0}m).");
+        bool claimed = _mover.Steer(
             navigation,
             snapshot.Position,
             corpse.Position,
             distance);
+        if (ownRareWalk
+            && (_mover.IsStuck || _ownRareWalkSeconds >= OwnRareWalkGiveUpSeconds))
+        {
+            string reason = _mover.IsStuck
+                ? string.Create(
+                    CultureInfo.InvariantCulture,
+                    $"no ground covered for {NavigationMover.StuckSeconds:0} seconds")
+                : string.Create(
+                    CultureInfo.InvariantCulture,
+                    $"not reached in {OwnRareWalkGiveUpSeconds:0} seconds");
+            _loot.GiveUpOwnRareWalk(corpse.ObjectId, reason);
+            _ownRareWalkCorpse = 0u;
+            _ownRareWalkSeconds = 0d;
+            return Decline($"Gave up walking to {corpse.Name}: {reason}.");
+        }
+        return claimed;
     }
 
     /// <summary>

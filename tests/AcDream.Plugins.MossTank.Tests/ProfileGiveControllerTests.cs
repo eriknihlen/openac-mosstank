@@ -7,20 +7,12 @@ public sealed class ProfileGiveControllerTests
     [Fact]
     public void NamedProfileGivesOnlyKeepMatchesAndWaitsForCompletion()
     {
-        var automation = new FakeAutomation
-        {
-            ObjectsValue =
-            [
-                new PluginWorldObject(
-                    100u, 0u, "Mule", PluginObjectClass.Player,
-                    0u, 0u, 0u),
-            ],
-            ItemsValue =
-            [
-                Item(10u, "Trade Pyreal"),
-                Item(11u, "Personal Note"),
-            ],
-        };
+        FakeAutomation automation = Nearby("Mule", 1d);
+        automation.ItemsValue =
+        [
+            Item(10u, "Trade Pyreal"),
+            Item(11u, "Personal Note"),
+        ];
         var storage = new MemoryStorage();
         var host = new FakeHost(automation, storage);
         var profiles = new MossTankLootProfileStore(host);
@@ -55,7 +47,8 @@ public sealed class ProfileGiveControllerTests
             PluginInventoryCommandKind.Give,
             10u,
             0u);
-        Assert.True(controller.Tick(0.1d, canAct: true));
+        // The answer and the end of the run arrive on the same step: with the
+        // queue empty there is nothing left to ask for.
         Assert.False(controller.Tick(0.1d, canAct: true));
         Assert.False(controller.IsRunning);
         Assert.Contains("1 item(s)", controller.Status, StringComparison.Ordinal);
@@ -64,15 +57,9 @@ public sealed class ProfileGiveControllerTests
     [Fact]
     public void StartRejectsBusyMissingProfileAndMissingTarget()
     {
-        var automation = new FakeAutomation
-        {
-            ObjectsValue =
-            [
-                new PluginWorldObject(
-                    100u, 0u, "Mule", PluginObjectClass.Npc,
-                    0u, 0u, 0u),
-            ],
-        };
+        FakeAutomation automation = Nearby("Mule", 1d);
+        automation.ObjectsValue =
+            [Standing("Mule", 100u, 1d / 240d, 0d) with { ObjectClass = PluginObjectClass.Npc }];
         var storage = new MemoryStorage();
         var host = new FakeHost(automation, storage);
         var profiles = new MossTankLootProfileStore(host);
@@ -177,12 +164,109 @@ public sealed class ProfileGiveControllerTests
     }
 
     /// <summary>
-    /// Items the client will not hand over are written off one by one, and the
-    /// run stops once too many have been. Mutation: without the ceiling the
-    /// run works through the whole pack failing on every item.
+    /// A profile hand-over is range-checked as a give by name is, each
+    /// refusal in the reference's words for its command and naming the
+    /// target as it was typed. Mutation: skipping the check for the profile
+    /// hand-over starts it; naming the found object prints "Mule".
     /// </summary>
     [Fact]
-    public void AGiveThatKeepsBeingRefusedStopsAtTheFailureCeiling()
+    public void BothHandOversRefuseATargetOutOfRangeInTheReferencesWords()
+    {
+        FakeAutomation automation = Nearby("Mule", 20d);
+        automation.ItemsValue = [Item(10u, "Trade Pyreal")];
+        var host = new FakeHost(automation, new MemoryStorage());
+        var profiles = new MossTankLootProfileStore(host);
+        profiles.BindCharacter(automation.Name);
+        host.VtankProfiles.WriteText(
+            StorageLayout.ItemGiverProfileKey("rares"),
+            MossTankLootProfileStore.SerializeRules(
+                [new LootRule { Expression = "*", Action = LootAction.Keep }]));
+        var controller = new ProfileGiveController(host, profiles, new InventorySettings());
+
+        Assert.False(controller.TryStart("rares", "mul", partialTargetMatch: true));
+        Assert.Equal(
+            "ItemGiver mul is 20.00 meters away. IGRange is set to 15",
+            controller.Refusal);
+
+        Assert.False(controller.TryStartByName(
+            "Trade Pyreal", GiveNameMatch.Exact, 0, "mul", partialTargetMatch: true));
+        Assert.Equal(
+            "mul is 20.00 meters away, IGRange is set to 15. bailing.",
+            controller.Refusal);
+        Assert.Empty(automation.Gives);
+    }
+
+    /// <summary>
+    /// The end line is the reference's: a name give is named in lower case,
+    /// a profile hand-over by its file with the extension, the target as it
+    /// was typed. Mutation: the old line kept the typed case, dropped the
+    /// extension and named the found object.
+    /// </summary>
+    [Fact]
+    public void TheFinishedLineNamesTheRunAsTheReferenceDoes()
+    {
+        FakeAutomation automation = Nearby("Mule", 1d);
+        var host = new FakeHost(automation, new MemoryStorage());
+        var profiles = new MossTankLootProfileStore(host);
+        profiles.BindCharacter(automation.Name);
+        host.VtankProfiles.WriteText(
+            StorageLayout.ItemGiverProfileKey("rares"),
+            MossTankLootProfileStore.SerializeRules(
+                [new LootRule { Expression = "*", Action = LootAction.Keep }]));
+        var controller = new ProfileGiveController(host, profiles, new InventorySettings());
+
+        Assert.True(controller.TryStart("rares", "mul", partialTargetMatch: true));
+        controller.StopRequested();
+        Assert.Equal(
+            "ItemGiver finished: rares.utl to mul. took 0s to give 0 item(s). 0",
+            controller.FinishedLine);
+
+        Assert.True(controller.TryStartByName(
+            "Trade PYREAL", GiveNameMatch.Partial, 0, "Mule"));
+        controller.StopRequested();
+        Assert.Equal(
+            "ItemGiver finished: trade pyreal to Mule. took 0s to give 0 item(s). 0",
+            controller.FinishedLine);
+    }
+
+    /// <summary>
+    /// The last number of the end line is how many more times the client was
+    /// asked than items went, as the reference counts it: an item the client
+    /// was too busy for three times, then given, is one item and three.
+    /// Mutation: printing the items written off prints 0.
+    /// </summary>
+    [Fact]
+    public void TheFinishedLineCountsTheAsksThatGaveNothing()
+    {
+        FakeAutomation automation = Nearby("Mule", 1d);
+        automation.ItemsValue = [Item(10u, "Trade Pyreal")];
+        automation.GiveStatus = PluginItemCommandStatus.Busy;
+        ProfileGiveController controller = Controller(automation);
+
+        Assert.True(controller.TryStartByName(
+            "Trade Pyreal", GiveNameMatch.Exact, 0, "Mule"));
+        for (int tick = 0; tick < 3; tick++)
+            controller.Tick(0.1d, canAct: true);
+        automation.GiveStatus = PluginItemCommandStatus.Started;
+        controller.Tick(0.1d, canAct: true);
+        automation.ItemsValue = [];
+        for (int tick = 0; tick < 3 && controller.IsRunning; tick++)
+            controller.Tick(0.1d, canAct: true);
+
+        Assert.False(controller.IsRunning);
+        Assert.Equal(4, automation.Gives.Count);
+        Assert.EndsWith("to give 1 item(s). 3", controller.FinishedLine, StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// An item is asked for once more than the busy count allows, then
+    /// written off, and the run stops once more items are written off than
+    /// the failure count allows -- the reference's ladder, which counts every
+    /// ask, answered or not. Mutation: writing an item off on its first
+    /// refusal gives each item once and stops after two asks.
+    /// </summary>
+    [Fact]
+    public void AnItemIsAskedForOnceMoreThanTheBusyCountThenWrittenOff()
     {
         var automation = Nearby("Mule", 1d);
         automation.ItemsValue =
@@ -196,16 +280,75 @@ public sealed class ProfileGiveControllerTests
         automation.GiveStatus = PluginItemCommandStatus.Refused;
         ProfileGiveController controller = Controller(
             automation,
-            new InventorySettings { GiveFailureLimit = 2 });
+            new InventorySettings { GiveBusyRetryLimit = 2, GiveFailureLimit = 1 });
 
         Assert.True(controller.TryStartByName(
             "Trade Pyreal", GiveNameMatch.Exact, 0, "Mule"));
-        for (int tick = 0; tick < 10 && controller.IsRunning; tick++)
+        for (int tick = 0; tick < 20 && controller.IsRunning; tick++)
             controller.Tick(0.1d, canAct: true);
 
         Assert.False(controller.IsRunning);
-        Assert.Equal(3, automation.Gives.Count);
+        Assert.Equal(
+            [10u, 10u, 10u, 11u, 11u, 11u],
+            automation.Gives.Select(static give => give.Item));
         Assert.Contains("gave up", controller.Status, StringComparison.OrdinalIgnoreCase);
+        Assert.EndsWith("to give 0 item(s). 6", controller.FinishedLine, StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// A give the server answers with an error leaves the item in the packs,
+    /// and the reference asks for it again rather than moving on. Mutation:
+    /// dropping the item on the error ends the run with one ask and nothing
+    /// given.
+    /// </summary>
+    [Fact]
+    public void AGiveTheServerRefusesIsAskedForAgain()
+    {
+        var automation = Nearby("Mule", 1d);
+        automation.ItemsValue = [Item(10u, "Trade Pyreal")];
+        ProfileGiveController controller = Controller(automation);
+
+        Assert.True(controller.TryStartByName(
+            "Trade Pyreal", GiveNameMatch.Exact, 0, "Mule"));
+        controller.Tick(0.1d, canAct: true);
+        automation.Completion = new PluginInventoryCompletion(
+            1, PluginInventoryCommandKind.Give, 10u, 0x2Bu);
+        controller.Tick(0.1d, canAct: true);
+        controller.Tick(0.1d, canAct: true);
+
+        Assert.True(controller.IsRunning);
+        Assert.Equal([10u, 10u], automation.Gives.Select(static give => give.Item));
+    }
+
+    /// <summary>
+    /// The ten-second clock restarts when a new item is first asked for, and
+    /// the pause between gives does not run it down: a run with a longer
+    /// pause than the clock still reaches its second item. Mutation: a clock
+    /// that runs through the pause bails before the second give.
+    /// </summary>
+    [Fact]
+    public void AGiveDelayLongerThanTheBailClockDoesNotBail()
+    {
+        var automation = Nearby("Mule", 1d);
+        automation.ItemsValue =
+        [
+            Item(10u, "Trade Pyreal"),
+            Item(11u, "Trade Pyreal"),
+        ];
+        ProfileGiveController controller = Controller(
+            automation,
+            new InventorySettings { GiveDelaySeconds = 15d });
+
+        Assert.True(controller.TryStartByName(
+            "Trade Pyreal", GiveNameMatch.Exact, 0, "Mule"));
+        controller.Tick(0.1d, canAct: true);
+        automation.ItemsValue = [automation.ItemsValue[1]];
+        for (int second = 0; second < 20 && automation.Gives.Count < 2; second++)
+            controller.Tick(1d, canAct: true);
+
+        Assert.True(controller.IsRunning);
+        Assert.Equal(string.Empty, controller.EndError);
+        Assert.Equal([10u, 11u], automation.Gives.Select(static give => give.Item));
     }
 
     /// <summary>
@@ -281,18 +424,18 @@ public sealed class ProfileGiveControllerTests
 
         Assert.False(controller.TryStart("Mule Items.utl", string.Empty, true));
         Assert.Contains("Syntax:", controller.Status, StringComparison.Ordinal);
-        Assert.Contains("/vt ig", controller.Status, StringComparison.Ordinal);
+        Assert.Contains("/ub ig", controller.Status, StringComparison.Ordinal);
         Assert.False(controller.IsRunning);
 
         Assert.False(controller.TryStartByName(
             "Prismatic Taper", GiveNameMatch.Exact, 0, "   "));
         Assert.Contains("Syntax:", controller.Status, StringComparison.Ordinal);
-        Assert.Contains("/vt give", controller.Status, StringComparison.Ordinal);
+        Assert.Contains("/ub give", controller.Status, StringComparison.Ordinal);
         Assert.False(controller.IsRunning);
     }
 
     /// <summary>
-    /// A profile dropped into the shared itemgiver folder is what <c>/vt ig</c>
+    /// A profile dropped into the shared itemgiver folder is what <c>/ub ig</c>
     /// finds, with or without its extension, and it wins over a loot profile
     /// of the same name. Mutation: reading the itemgiver folder removed turns
     /// the first assert red with "Item giver profile not found".
@@ -318,6 +461,85 @@ public sealed class ProfileGiveControllerTests
         Assert.True(controller.TryStart("rares.utl", "Town Crier", false), controller.Status);
         Assert.Equal(
             "mosstank/ub/itemgiver/rares.utl", StorageLayout.ItemGiverProfileKey("rares.utl"));
+    }
+
+    /// <summary>
+    /// The target is found as the reference finds one: a decimal id, a hex
+    /// id or "selected" names that object outright; a name picks the nearest
+    /// object of that name; and a special name that lands on the character
+    /// itself is refused in the reference's words. Mutation: the old
+    /// name-only search finds nobody for an id, a hex id or "selected".
+    /// </summary>
+    [Theory]
+    [InlineData("100", 100u)]
+    [InlineData("0x64", 100u)]
+    [InlineData("64", 100u)]
+    [InlineData("selected", 100u)]
+    [InlineData("Mule", 90u)]
+    public void TheTargetIsFoundByIdHexIdSelectedOrNearestName(string typed, uint expected)
+    {
+        FakeAutomation automation = Nearby("Mule", 5d);
+        automation.ObjectsValue =
+        [
+            Standing("Mule", 100u, 5d / 240d, 0d),
+            Standing("Mule", 90u, 2d / 240d, 0d),
+            Standing("Tester", 1u, 0d, 0d),
+        ];
+        automation.ItemsValue = [Item(10u, "Prismatic Taper")];
+        automation.SelectedObjectId = 100u;
+        ProfileGiveController controller = Controller(automation);
+
+        Assert.True(
+            controller.TryStartByName("Prismatic Taper", GiveNameMatch.Exact, 0, typed),
+            controller.Refusal);
+        controller.Tick(0.1d, canAct: true);
+
+        Assert.Equal(expected, Assert.Single(automation.Gives).Target);
+    }
+
+    /// <summary>
+    /// "selected" with the character itself selected names the character,
+    /// which cannot be given to. Mutation: dropping the check hands the
+    /// packs to yourself.
+    /// </summary>
+    [Fact]
+    public void GivingToYourselfIsRefusedInTheReferencesWords()
+    {
+        FakeAutomation automation = Nearby("Mule", 5d);
+        automation.ObjectsValue = [.. automation.ObjectsValue, Standing("Tester", 1u, 0d, 0d)];
+        automation.ItemsValue = [Item(10u, "Prismatic Taper")];
+        automation.SelectedObjectId = 1u;
+        ProfileGiveController controller = Controller(automation);
+
+        Assert.False(controller.TryStartByName(
+            "Prismatic Taper", GiveNameMatch.Exact, 0, "selected"));
+        Assert.Equal("You can't give to yourself", controller.Refusal);
+        Assert.Empty(automation.Gives);
+    }
+
+    /// <summary>
+    /// Every refused start says its own reason: a start refused outside the
+    /// world does not repeat the reason the start before it was refused for.
+    /// Mutation: returning before the refusal is cleared reports the earlier
+    /// "player Nobody not found" for the second start.
+    /// </summary>
+    [Fact]
+    public void ARefusedStartNeverReportsTheReasonBeforeIt()
+    {
+        FakeAutomation automation = Nearby("Mule", 1d);
+        automation.ItemsValue = [Item(10u, "Prismatic Taper")];
+        ProfileGiveController controller = Controller(automation);
+
+        Assert.False(controller.TryStartByName(
+            "Prismatic Taper", GiveNameMatch.Exact, 0, "Nobody"));
+        Assert.Equal("player Nobody not found", controller.Refusal);
+
+        automation.IsAvailable = false;
+        Assert.False(controller.TryStartByName(
+            "Prismatic Taper", GiveNameMatch.Exact, 0, "Mule"));
+        Assert.Equal("Item giver refused: not in the world.", controller.Refusal);
+        Assert.False(controller.TryStart("rares", "Mule"));
+        Assert.Equal("Item giver refused: not in the world.", controller.Refusal);
     }
 
     private static ProfileGiveController Controller(
@@ -437,6 +659,9 @@ public sealed class ProfileGiveControllerTests
         public IReadOnlyList<PluginWorldObject> ObjectsValue { get; set; } = [];
         public PluginInventoryCompletion Completion { get; set; }
         public List<(uint Item, uint Target, uint Amount)> Gives { get; } = [];
+
+        /// <summary>What the client has selected, if anything.</summary>
+        public uint? SelectedObjectId { get; set; }
         bool IItemAutomation.IsAvailable => true;
         bool IItemAutomation.IsBusy => false;
         bool IWorldObjectAutomation.IsAvailable => true;
@@ -497,7 +722,7 @@ public sealed class ProfileGiveControllerTests
         public IPluginLogger Log { get; } = new FakeLogger();
         public IGameState State { get; } = new FakeState();
         public IEvents Events { get; } = new FakeEvents();
-        public ISelectionService Selection { get; } = new FakeSelection();
+        public ISelectionService Selection { get; } = new FakeSelection(automation);
         public IUiRegistry Ui => NoOpUiRegistry.Instance;
         public IPluginStorage Storage => storage;
         public IAutomationSurface Automation => automation;
@@ -541,9 +766,9 @@ public sealed class ProfileGiveControllerTests
         }
     }
 
-    private sealed class FakeSelection : ISelectionService
+    private sealed class FakeSelection(FakeAutomation automation) : ISelectionService
     {
-        public uint? SelectedObjectId => null;
+        public uint? SelectedObjectId => automation.SelectedObjectId;
         public uint? PreviousObjectId => null;
         public event Action<SelectionChangedEvent> Changed
         {

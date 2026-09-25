@@ -8,16 +8,17 @@ namespace AcDream.Plugins.MossTank.Tests;
 /// </summary>
 public sealed partial class MossTankPanelTests
 {
-    // ── /ub answers to the same commands as /vt ─────────────────────────
+    // ── /ub reaches the UtilityBelt commands; /vt does not ──────────────
 
     /// <summary>
     /// A meta written for UtilityBelt types /ub; the line has to reach the
-    /// same command the /vt form does, and do the same thing.
-    /// Mutation: dispatching a /ub line as an unknown command (or dropping
-    /// its arguments) leaves the turn, the jump and the use undone.
+    /// command and do the thing, while the same line on /vt is an unknown
+    /// command that does nothing, as it is to the macro itself.
+    /// Mutation: dispatching /ub lines as unknown leaves the turn undone;
+    /// letting /vt answer them turns the /vt panel too.
     /// </summary>
     [Fact]
-    public void UbFaceTurnsLikeVtFace()
+    public void UbFaceTurnsAndVtFaceIsUnknown()
     {
         (FakeAutomation vt, MossTankPanel vtPanel) = FacingPanel(0f);
         (FakeAutomation ub, MossTankPanel ubPanel) = FacingPanel(0f);
@@ -27,31 +28,28 @@ public sealed partial class MossTankPanelTests
         vtPanel.OnTick(0.05d);
         ubPanel.OnTick(0.05d);
 
-        Assert.True(ub.MovementIntents[^1].TurnRight);
-        Assert.Equal(vt.MovementIntents, ub.MovementIntents);
-        Assert.Equal(vt.Messages, ub.Messages);
+        Assert.Equal(90f, ub.FacedHeadings[^1]);
+        Assert.Empty(vt.FacedHeadings);
+        Assert.Empty(vt.MovementIntents);
+        Assert.Equal(MossTankPanel.UnknownVtankCommand, Assert.Single(vt.Messages));
     }
 
     [Fact]
-    public void UbJumpswJumpsLikeVtJumpsw()
+    public void UbJumpswJumps()
     {
-        (FakeAutomation vt, MossTankPanel vtPanel) = FacingPanel(180f);
         (FakeAutomation ub, MossTankPanel ubPanel) = FacingPanel(180f);
 
-        Command(vtPanel, "jumpsw 180 500");
         UbCommand(ubPanel, "jumpsw 180 500");
-        vtPanel.OnTick(0.1d);
         ubPanel.OnTick(0.1d);
 
-        PluginMovementIntent intent = ub.MovementIntents[^1];
-        Assert.True(intent.Forward);
-        Assert.True(intent.Run);
-        Assert.True(intent.Jump);
-        Assert.Equal(vt.MovementIntents, ub.MovementIntents);
+        Assert.Equal(
+            [HeldKey(PluginMoveDirection.Forward, PluginMovePace.Walk)],
+            ub.Moves);
+        Assert.Equal([0.5f], ub.Jumps);
     }
 
     [Fact]
-    public void UbUseUsesLikeVtUse()
+    public void UbUseUsesAndVtUseIsUnknown()
     {
         var vt = new FakeAutomation
         {
@@ -68,17 +66,18 @@ public sealed partial class MossTankPanelTests
         UbCommand(new MossTankPanel(new FakeHost(ub)), "use Prismatic Taper");
 
         Assert.Equal(100u, Assert.Single(ub.UsedItemIds));
-        Assert.Equal(vt.UsedItemIds, ub.UsedItemIds);
-        Assert.Equal(vt.Messages, ub.Messages);
+        Assert.Empty(vt.UsedItemIds);
+        Assert.Equal(MossTankPanel.UnknownVtankCommand, Assert.Single(vt.Messages));
     }
 
     /// <summary>
     /// Bare /ub is the compatibility line, as /vt ub is; bare /vt stays the
-    /// help. /ub help is the same help /vt help prints.
-    /// Mutation: letting a bare /ub fall through prints the help instead.
+    /// macro's help. /ub help is UtilityBelt's own list, not the macro's.
+    /// Mutation: letting a bare /ub fall through prints the help instead;
+    /// pointing /ub help at the /vt help prints the macro's verb lists.
     /// </summary>
     [Fact]
-    public void BareUbPrintsTheCompatibilityLineAndUbHelpPrintsTheHelp()
+    public void BareUbPrintsTheCompatibilityLineAndUbHelpIsItsOwn()
     {
         var automation = new FakeAutomation();
         var panel = new MossTankPanel(new FakeHost(automation));
@@ -86,8 +85,8 @@ public sealed partial class MossTankPanelTests
         UbCommand(panel, string.Empty);
         Assert.Equal(
             [
-                $"MossTank UB compatibility {MossTankPanel.PluginVersion}",
-                "Type /vt help or /vt help <command> for help.",
+                $"[UB] MossTank UB compatibility {MossTankPanel.PluginVersion}",
+                " Type `/ub help` or `/ub help <command>` for help.",
             ],
             automation.Messages);
 
@@ -96,8 +95,13 @@ public sealed partial class MossTankPanelTests
         List<string> ubHelp = [.. automation.Messages];
         automation.Messages.Clear();
         Command(panel, string.Empty);
-        Assert.Equal(automation.Messages, ubHelp);
-        Assert.Contains(ubHelp, line => line.Contains("setmotion", StringComparison.Ordinal));
+        List<string> vtHelp = [.. automation.Messages];
+
+        Assert.StartsWith("[UB] All available UB commands: /ub {", ubHelp[0], StringComparison.Ordinal);
+        Assert.Contains("setmotion", ubHelp[0], StringComparison.Ordinal);
+        Assert.DoesNotContain("setmetastate", ubHelp[0], StringComparison.Ordinal);
+        Assert.DoesNotContain(vtHelp, line => line.Contains("setmotion", StringComparison.Ordinal));
+        Assert.Contains(vtHelp, line => line.Contains("setmetastate", StringComparison.Ordinal));
     }
 
     // ── setmotion ───────────────────────────────────────────────────────
@@ -242,10 +246,10 @@ public sealed partial class MossTankPanelTests
         Assert.Empty(automation.MovementIntents);
         Assert.Equal(
             [
-                "Bad command syntax",
-                "Usage: /vt setmotion <Forward|Backward|TurnRight|TurnLeft|StrafeRight|StrafeLeft|Walk> <0|1>",
+                "[UB] Error: Bad command syntax",
+                "[UB] Usage: /ub setmotion <Forward|Backward|TurnRight|TurnLeft|StrafeRight|StrafeLeft|Walk> <0|1>",
             ],
-            automation.Messages);
+            automation.Messages.Take(2));
     }
 
     [Fact]
@@ -258,7 +262,7 @@ public sealed partial class MossTankPanelTests
 
         Assert.Empty(automation.MovementIntents);
         Assert.Equal(
-            "Invalid option (sideways). Valid values are: Forward, Backward, "
+            "[UB] Error: Invalid option (sideways). Valid values are: Forward, Backward, "
             + "TurnRight, TurnLeft, StrafeRight, StrafeLeft, Walk",
             Assert.Single(automation.Messages));
     }
@@ -267,11 +271,14 @@ public sealed partial class MossTankPanelTests
 
     /// <summary>
     /// Armed with yes or no, the next confirmation is answered that way.
-    /// Mutation: answering accept=true regardless fails the "no" row.
+    /// Every line the tool prints carries the reference's "[UB] PrepClick: "
+    /// tag, which profiles wait on (`^\[UB\] PrepClick\: Will click yes`).
+    /// Mutation: answering accept=true regardless fails the "no" row; the
+    /// bare line without the tag fails both rows.
     /// </summary>
     [Theory]
-    [InlineData("yes", true, "Click Yes on Swear allegiance?")]
-    [InlineData("no", false, "Click No on Swear allegiance?")]
+    [InlineData("yes", true, "[UB] PrepClick: Click Yes on Swear allegiance?")]
+    [InlineData("no", false, "[UB] PrepClick: Click No on Swear allegiance?")]
     public void PrepClickAnswersTheNextConfirmationWithTheChoice(
         string choice,
         bool accept,
@@ -281,7 +288,7 @@ public sealed partial class MossTankPanelTests
 
         UbCommand(panel, $"prepclick {choice} 10");
         Assert.Equal(
-            $"Will click {choice} on the next dialog to appear within 10 seconds",
+            $"[UB] PrepClick: Will click {choice} on the next dialog to appear within 10 seconds",
             automation.Messages[^1]);
         events.RaiseConfirmation(new PluginConfirmation(11u, 2, "Swear allegiance?"));
 
@@ -319,9 +326,9 @@ public sealed partial class MossTankPanelTests
 
         UbCommand(panel, "prepclick yes 2");
         panel.OnTick(1.5d);
-        Assert.DoesNotContain(automation.Messages, line => line.StartsWith("Time has expired", StringComparison.Ordinal));
+        Assert.DoesNotContain(automation.Messages, line => line.Contains("Time has expired", StringComparison.Ordinal));
         panel.OnTick(1d);
-        Assert.Equal("Time has expired: 2", automation.Messages[^1]);
+        Assert.Equal("[UB] PrepClick: Time has expired: 2", automation.Messages[^1]);
 
         events.RaiseConfirmation(new PluginConfirmation(11u, 2, "late"));
         Assert.Empty(automation.Answered);
@@ -339,14 +346,14 @@ public sealed partial class MossTankPanelTests
 
         UbCommand(panel, "prepclick stop");
         Assert.Equal(
-            "Message boxes are not currently being watched",
+            "[UB] PrepClick: Message boxes are not currently being watched",
             automation.Messages[^1]);
 
         UbCommand(panel, "prepclick no 10");
         panel.OnTick(2.5d);
         UbCommand(panel, "prepclick stop");
         Assert.Equal(
-            "Stopping... 2.5s passed out of expected 10s",
+            "[UB] PrepClick: Stopping... 2.5s passed out of expected 10s",
             automation.Messages[^1]);
 
         events.RaiseConfirmation(new PluginConfirmation(11u, 2, "after stop"));
@@ -386,7 +393,7 @@ public sealed partial class MossTankPanelTests
         Assert.Equal(
             [
                 "Bad command syntax",
-                "Usage: /vt prepclick {stop|yes <secondstowatch>|no <secondstowatch>}",
+                "Usage: /ub prepclick {stop|yes <secondstowatch>|no <secondstowatch>}",
             ],
             automation.Messages);
     }
@@ -401,14 +408,14 @@ public sealed partial class MossTankPanelTests
 
         Assert.Equal(baseline, events.ConfirmationListenerCount);
         Assert.Equal(
-            "3601 is not a valid number of seconds to wait",
+            "[UB] PrepClick: 3601 is not a valid number of seconds to wait",
             Assert.Single(automation.Messages));
     }
 
     [Theory]
-    [InlineData("setmotion", "Syntax: /vt setmotion <Forward|Backward|TurnRight|TurnLeft|StrafeRight|StrafeLeft|Walk> <0|1>")]
-    [InlineData("prepclick", "Syntax: /vt prepclick {stop|yes <secondstowatch>|no <secondstowatch>}")]
-    [InlineData("clearmotion", "Syntax: /vt clearmotion")]
+    [InlineData("setmotion", "[UB] Usage: /ub setmotion <Forward|Backward|TurnRight|TurnLeft|StrafeRight|StrafeLeft|Walk> <0|1>")]
+    [InlineData("prepclick", "[UB] Usage: /ub prepclick {stop|yes <secondstowatch>|no <secondstowatch>}")]
+    [InlineData("clearmotion", "[UB] Usage: /ub clearmotion")]
     public void TheNewCommandsHaveUsageLines(string command, string usage)
     {
         var automation = new FakeAutomation();
@@ -437,6 +444,6 @@ public sealed partial class MossTankPanelTests
     }
 
     private static void UbCommand(MossTankPanel panel, string arguments) =>
-        panel.ExecuteVtankCommand(new PluginCommand(
+        panel.ExecuteUbCommand(new PluginCommand(
             "ub", arguments, arguments.Length == 0 ? "/ub" : "/ub " + arguments));
 }

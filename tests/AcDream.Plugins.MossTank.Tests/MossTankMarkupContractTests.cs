@@ -437,13 +437,6 @@ public sealed class MossTankMarkupContractTests
     }
 
     /// <summary>
-    /// A settings profile is described as a set someone can hand on, and
-    /// all but eleven of the UB rows are written into one. A menu can only
-    /// ever offer a profile that already exists, so the page needs the two
-    /// buttons every other profile picker on this window has, or the tier
-    /// is stuck on its default for good.
-    /// </summary>
-    /// <summary>
     /// The colour page's swatch is a drawn element whose background is
     /// bound, and the binding names a property of one of the three shapes
     /// a colour attribute resolves from, so the modal shows what it edits.
@@ -468,6 +461,13 @@ public sealed class MossTankMarkupContractTests
         Assert.False(string.IsNullOrWhiteSpace((string?)swatch.Attribute("border")));
     }
 
+    /// <summary>
+    /// A settings profile is described as a set someone can hand on, and
+    /// all but eleven of the UB rows are written into one. A menu can only
+    /// ever offer a profile that already exists, so the page needs the two
+    /// buttons every other profile picker on this window has, or the tier
+    /// is stuck on its default for good.
+    /// </summary>
     [Fact]
     public void TheUbProfilePickerOffersANameAndBothWaysOfMakingOne()
     {

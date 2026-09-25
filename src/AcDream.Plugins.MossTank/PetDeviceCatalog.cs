@@ -1,9 +1,14 @@
+using AcDream.Plugin.Abstractions;
+
 namespace AcDream.Plugins.MossTank;
 
 internal static class PetDeviceCatalog
 {
-    public const uint EncapsulatedSpiritWeenieClassId = 49485u;
-
+    /// <summary>
+    /// The element each summoning essence's pet strikes with, by the
+    /// essence's weenie class. Whether an item is an essence at all is the
+    /// host's <see cref="PluginInventoryItem.IsPetDevice"/>.
+    /// </summary>
     public static MonsterDamageType DamageType(uint deviceWeenieClassId) =>
         deviceWeenieClassId switch
         {

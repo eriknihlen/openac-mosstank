@@ -54,7 +54,7 @@ internal sealed partial class MossTankPanel
     /// not on a timer of their own so that a session that ends takes them with
     /// it: a line scheduled before a logout must not arrive after it.
     /// </summary>
-    private readonly List<(double RemainingSeconds, string Command)> _delayedCommands = [];
+    private readonly List<(double RemainingSeconds, string Command, double DelayMilliseconds)> _delayedCommands = [];
 
     /// <summary>
     /// Runs a command whose verb carries single-letter flags, which a switch
@@ -95,12 +95,12 @@ internal sealed partial class MossTankPanel
         }
         if (TryFlags(verb, "swearallegiance", "p", out string swearFlags))
         {
-            HandleAllegianceCommand(arguments, swearFlags.Contains('p'), swear: true);
+            HandleAllegianceCommand(verb, arguments, swearFlags.Contains('p'), swear: true);
             return true;
         }
         if (TryFlags(verb, "breakallegiance", "p", out string breakFlags))
         {
-            HandleAllegianceCommand(arguments, breakFlags.Contains('p'), swear: false);
+            HandleAllegianceCommand(verb, arguments, breakFlags.Contains('p'), swear: false);
             return true;
         }
         return false;
@@ -131,30 +131,275 @@ internal sealed partial class MossTankPanel
         return true;
     }
 
-    // ── /vt ub, /vt help ────────────────────────────────────────────────
+    // ── /ub: the UtilityBelt command word ───────────────────────────────
 
     /// <summary>
-    /// <c>/vt ub</c>: which build of the compatibility surface is loaded. A
-    /// macro that behaves differently between two clients needs one line it
-    /// can be asked for.
+    /// Runs one line typed under <c>/ub</c>: the UtilityBelt commands, and
+    /// only those. The macro's own commands are not among them -- they answer
+    /// on <c>/vt</c> -- so a word this does not know gets the reference's
+    /// "command not found" answer, with its guesses at what was meant.
     /// </summary>
-    private void WriteUbVersion()
+    internal void ExecuteUbCommand(PluginCommand command)
     {
-        WriteVtank($"MossTank UB compatibility {PluginVersion}");
-        WriteVtank("Type /vt help or /vt help <command> for help.");
+        try
+        {
+            ExecuteUbCommandCore(command.Arguments);
+        }
+        catch (Exception error)
+        {
+            WriteUbError($"Command failed: {error.GetBaseException().Message}");
+            _host.Log.Error("MossTank /ub command failed.", error);
+        }
+    }
+
+    private void ExecuteUbCommandCore(string input)
+    {
+        (string typed, string arguments) = SplitHead(input);
+
+        // The give verb carries its flags in the letters after it, and their
+        // case is the whole meaning: little p matches part of the ITEM's
+        // name, big P part of the TARGET's. Read before the verb is folded to
+        // one case, because folding loses the difference.
+        if (TryReadGiveFlags(
+            typed,
+            out GiveNameMatch giveMatch,
+            out bool givePartialTarget))
+        {
+            HandleGiveCommand(arguments, giveMatch, givePartialTarget);
+            return;
+        }
+
+        string verb = typed.ToLowerInvariant();
+        switch (verb)
+        {
+            case "":
+                WriteUbVersion();
+                return;
+            case "help":
+                HandleUbHelpCommand(arguments);
+                return;
+            case "opt":
+                HandleUbOptionCommand(arguments);
+                return;
+            case "mexec":
+                ExecuteUbExpression(arguments);
+                return;
+            // The quiet form: the expression runs and only an error is said.
+            case "mexecm":
+                ExecuteUbExpression(arguments, silent: true);
+                return;
+            case "propertydump":
+                DumpSelectedPropertiesForUb();
+                return;
+            case "dumpskills":
+                DumpSkills(ub: true);
+                return;
+            case "count":
+                HandleCountCommand(arguments);
+                return;
+            case "login":
+                HandleLoginCommand(arguments);
+                return;
+            case "autovendor":
+                HandleAutoVendorCommand(arguments);
+                return;
+            case "vendor":
+                PostUbReply("vendor", _vendorTrade.VendorCommand(arguments));
+                return;
+            case "xp":
+                PostUbReply("xp", _experienceSpend.Command(arguments));
+                return;
+            case "equip":
+                PostUbReply("equip", _equipProfile.Command(arguments));
+                return;
+            case "simplejump":
+                HandleSimpleJumpCommand(arguments);
+                return;
+            case "calcdamage":
+                CalculateSelectedDamage();
+                return;
+            case "pos":
+                PrintSelectedPosition();
+                return;
+            case "id":
+                PrintSelectedId();
+                return;
+            case "vitae":
+                ThinkVitae();
+                return;
+            case "combatstate":
+                HandleCombatStateCommand(arguments);
+                return;
+            case "date":
+                PrintDate(utc: false, arguments);
+                return;
+            case "dateutc":
+                PrintDate(utc: true, arguments);
+                return;
+            case "delay":
+                HandleDelayCommand(arguments);
+                return;
+            case "bc":
+                HandleBroadcastCommand(arguments);
+                return;
+            case "bct":
+                HandleTaggedBroadcastCommand(arguments);
+                return;
+            case "netclients":
+                HandleNetClientsCommand(arguments);
+                return;
+            case "closestportal":
+                UsePortalByName(string.Empty, partial: true);
+                return;
+            case "close":
+                HandleCloseCommand(arguments);
+                return;
+            case "printcolors":
+                PrintChatColors();
+                return;
+            case "autotinker":
+                StartAutoTinker();
+                return;
+            case "getjob":
+                PrintTinkerJobs();
+                return;
+            case "tinkcalc":
+                PrintTinkerCalculation();
+                return;
+            case "listvars":
+                ListVariables(ExpressionVariableScope.Session);
+                return;
+            case "listpvars":
+                ListVariables(ExpressionVariableScope.Persistent);
+                return;
+            case "listgvars":
+                ListVariables(ExpressionVariableScope.Global);
+                return;
+            case "myquests":
+                PostUb(UbChat.Tool(UbChat.Tools.QuestTracker, "Refreshing quests"));
+                _expressions.RefreshQuests();
+                return;
+            case "quit":
+                QuitClient();
+                return;
+            case "autostack":
+                _ubStackCram.Start(stack: true);
+                return;
+            case "autocram":
+                _ubStackCram.Start(stack: false);
+                return;
+            case "clearbugged":
+                _ubClearBugged.Start();
+                return;
+            case "playeroption":
+                HandlePlayerOptionCommand(arguments);
+                return;
+            case "translateroute":
+                HandleTranslateRouteCommand(arguments);
+                return;
+            case "face":
+                HandleFaceCommand(arguments);
+                return;
+            case "setmotion":
+                HandleSetMotionCommand(arguments);
+                return;
+            case "clearmotion":
+                _expressions.HeldMotions.Clear();
+                return;
+            case "prepclick":
+                _prepClick.Command(arguments);
+                return;
+            case "fellow":
+                HandleFellowCommand(arguments);
+                return;
+            default:
+                // The flagged verbs (jumpsw, igp, usepi, ...) cannot be
+                // switch cases: their letters combine, so they are matched by
+                // name and flag set rather than spelled out.
+                if (!TryExecuteFlaggedCommand(verb, arguments))
+                    WriteUnknownUbCommand(verb);
+                return;
+        }
     }
 
     /// <summary>
-    /// <c>/vt help [command]</c>. Named, it prints that command's usage and
-    /// summary; bare, the macro's own verb lists plus the published usage
-    /// lines' names.
+    /// The reference's answer to a word it has no command for: where to look,
+    /// then every command within two edits of what was typed (a swap of two
+    /// neighbouring letters counting as one), so a typo names its fix. Both
+    /// are errors, in the error display's class and behind its switch.
     /// </summary>
-    private void HandleHelpCommand(string arguments)
+    private void WriteUnknownUbCommand(string verb)
+    {
+        PostUb(UnknownUbCommand);
+        string[] near = UbCommandHelp.Entries
+            .Select(static entry => entry.Name)
+            .Where(name => EditDistance(verb, name) <= 2)
+            .ToArray();
+        if (near.Length > 0)
+            WriteUbError("Did you mean one of these? " + string.Join(", ", near));
+    }
+
+    /// <summary>What <c>/ub</c> answers to a word it has no command for.</summary>
+    internal const string UnknownUbCommand =
+        UbChat.Tag + "Error: Command not found! Type \"ub help\" for a list of commands.";
+
+    /// <summary>
+    /// Edits between two words -- insertions, deletions, substitutions, and
+    /// a swap of two neighbouring letters -- the measure the reference uses
+    /// to guess at a mistyped command. The swap is priced as the reference
+    /// prices it, at the cost of the substitution in the same cell.
+    /// </summary>
+    internal static int EditDistance(string one, string two)
+    {
+        int[,] matrix = new int[one.Length + 1, two.Length + 1];
+        for (int row = 0; row <= one.Length; row++)
+            matrix[row, 0] = row;
+        for (int column = 0; column <= two.Length; column++)
+            matrix[0, column] = column;
+        for (int row = 1; row <= one.Length; row++)
+        {
+            for (int column = 1; column <= two.Length; column++)
+            {
+                int cost = one[row - 1] == two[column - 1] ? 0 : 1;
+                int distance = Math.Min(
+                    matrix[row, column - 1] + 1,
+                    Math.Min(matrix[row - 1, column] + 1, matrix[row - 1, column - 1] + cost));
+                if (row > 1 && column > 1
+                    && one[row - 1] == two[column - 2]
+                    && one[row - 2] == two[column - 1])
+                {
+                    distance = Math.Min(distance, matrix[row - 2, column - 2] + cost);
+                }
+                matrix[row, column] = distance;
+            }
+        }
+        return matrix[one.Length, two.Length];
+    }
+
+    /// <summary>
+    /// Bare <c>/ub</c> (and <c>/vt ub</c>): which build of the compatibility
+    /// surface is loaded. A macro that behaves differently between two
+    /// clients needs one line it can be asked for.
+    /// </summary>
+    private void WriteUbVersion()
+    {
+        // The reference prints the two as one message, so the second line
+        // carries no tag of its own.
+        WriteUbMessage(
+            $"MossTank UB compatibility {PluginVersion}",
+            [" Type `/ub help` or `/ub help <command>` for help."]);
+    }
+
+    /// <summary>
+    /// <c>/vt help [command]</c>. Bare, the macro's own verb lists; named, the
+    /// usage of one of MossTank's own additions to them.
+    /// </summary>
+    private void HandleVtankHelpCommand(string arguments)
     {
         string requested = arguments.Trim();
         if (requested.Length != 0)
         {
-            if (!UbCommandHelp.TryGet(requested, out UbCommandUsage usage))
+            if (!VtankCommandHelp.TryGet(requested, out UbCommandUsage usage))
             {
                 WriteVtank($"No help found for command: {requested}");
                 return;
@@ -165,12 +410,117 @@ internal sealed partial class MossTankPanel
         }
         foreach (string line in VtankHelp)
             WriteVtank(line);
-        WriteVtank("/vt commands (documented): "
-            + string.Join(", ", UbCommandHelp.Entries.Select(entry => entry.Name)));
+        WriteVtank("MossTank /vt — documented: "
+            + string.Join(", ", VtankCommandHelp.Entries.Select(entry => entry.Name)));
         WriteVtank("For help with a specific command, use /vt help [command].");
+        WriteVtank("UtilityBelt commands answer on /ub; type /ub help for them.");
     }
 
-    // ── /vt setmotion ───────────────────────────────────────────────────
+    /// <summary>
+    /// <c>/ub help [command]</c>, in the reference's words: a known command
+    /// prints its usage and description, anything else (or nothing) the whole
+    /// list of commands.
+    /// </summary>
+    private void HandleUbHelpCommand(string arguments)
+    {
+        string requested = arguments.Trim();
+        if (requested.Length != 0
+            && UbCommandHelp.TryGet(requested, out UbCommandUsage usage))
+        {
+            WriteUbCommandHelp(usage);
+            return;
+        }
+        WriteUbMessage(
+            "All available UB commands: /ub {"
+                + string.Join(", ", UbCommandHelp.Entries.Select(static entry => entry.Name))
+                + "}",
+            ["For help with a specific command, use `/ub help [command]`"]);
+    }
+
+    /// <summary>
+    /// <c>/ub mexec &lt;expression&gt;</c>, in the reference's words: the
+    /// expression, then its result with the result's type and how long it
+    /// took. A true or false is a number to it, as it is to the expression
+    /// language it mirrors. <c>/ub mexecm</c> is the silent form: the
+    /// expression runs and only an error is printed.
+    /// </summary>
+    private void ExecuteUbExpression(string source, bool silent = false)
+    {
+        if (!silent)
+            UbChat.PostExpression(_host.Automation.Chat, $"Evaluating expression: \"{source}\"");
+        var watch = System.Diagnostics.Stopwatch.StartNew();
+        ExpressionValue result;
+        try
+        {
+            result = _expressions.Evaluate(source);
+        }
+        catch (Exception error)
+        {
+            // One message in the reference: the error under the tag, then
+            // the reason indented on the line below it.
+            WriteUbErrorMessage($"Error in expression: {source}", ["  " + error.Message]);
+            return;
+        }
+        watch.Stop();
+        if (silent)
+            return;
+        double milliseconds = Math.Round(watch.Elapsed.TotalMilliseconds, 3);
+        string type = ReferenceArguments.FriendlyTypeName(result);
+        string text = UbValueText(result);
+        UbChat.PostExpression(
+            _host.Automation.Chat,
+            Invariant($"Result: [{type}] {text} ({milliseconds}ms)"));
+    }
+
+    /// <summary>
+    /// A value as the reference prints it beside its type name: a true or
+    /// false is the number 1 or 0 to it, everything else its display text.
+    /// </summary>
+    private static string UbValueText(in ExpressionValue value) =>
+        value.Kind == ExpressionValueKind.Boolean
+            ? (value.IsTruthy ? "1" : "0")
+            : value.ToDisplayString();
+
+    /// <summary>
+    /// <c>/ub opt {list | get &lt;option&gt; | set &lt;option&gt;
+    /// &lt;newValue&gt; | toggle &lt;option&gt;}</c>: the UB settings, and
+    /// only those -- the macro's own options are <c>/vt opt</c>'s.
+    /// </summary>
+    private void HandleUbOptionCommand(string arguments)
+    {
+        (string operation, string tail) = SplitHead(arguments.Trim());
+        (string name, string rawValue) = SplitHead(tail);
+        switch (operation.ToLowerInvariant())
+        {
+            case "list" when tail.Length == 0:
+                // The reference lists its profile settings before the
+                // character's own state.
+                WriteUbMessage(
+                    "All Settings:",
+                    _ubCatalog.Settings
+                        .OrderBy(static setting => setting.Scope == UbSettingScope.Character)
+                        .Select(static setting => setting.FullDisplayValue()));
+                return;
+            case "get" when name.Length != 0 && rawValue.Length == 0:
+                if (!TryWriteUbSetting(name))
+                    WriteUbInvalidOption(name);
+                return;
+            // A set with nothing after the name is not a set: the reference
+            // answers it with its usage.
+            case "set" when name.Length != 0 && rawValue.Length != 0:
+                if (!TrySetUbSetting(name, rawValue))
+                    WriteUbInvalidOption(name);
+                return;
+            case "toggle" when name.Length != 0 && rawValue.Length == 0:
+                ToggleUbSetting(name);
+                return;
+            default:
+                WriteUbBadSyntax("opt");
+                return;
+        }
+    }
+
+    // ── /ub setmotion ───────────────────────────────────────────────────
 
     [GeneratedRegex(
         @"^(?<motion>\w.+) (?<state>[01])$",
@@ -178,7 +528,7 @@ internal sealed partial class MossTankPanel
     private static partial Regex SetMotionPattern();
 
     /// <summary>
-    /// <c>/vt setmotion &lt;motion&gt; &lt;0|1&gt;</c>: presses or releases
+    /// <c>/ub setmotion &lt;motion&gt; &lt;0|1&gt;</c>: presses or releases
     /// one movement key and leaves it that way, through the same held keys
     /// the <c>setmotion[]</c> expression uses.
     /// </summary>
@@ -187,25 +537,72 @@ internal sealed partial class MossTankPanel
         Match match = SetMotionPattern().Match(arguments.Trim());
         if (!match.Success)
         {
-            WriteVtank("Bad command syntax");
-            WriteVtank("Usage: " + HeldMotions.Usage);
+            WriteUbBadSyntax("setmotion");
             return;
         }
         string name = match.Groups["motion"].Value;
         if (!HeldMotions.TryParse(name, out HeldMotion motion))
         {
-            WriteVtank(
+            WriteUbError(
                 $"Invalid option ({name}). Valid values are: {HeldMotions.ValidNames}");
             return;
         }
         _expressions.HeldMotions.Set(motion, match.Groups["state"].Value == "1");
     }
 
-    // ── /vt ig ──────────────────────────────────────────────────────────
+    // ── /ub ig ──────────────────────────────────────────────────────────
 
     /// <summary>
-    /// <c>/vt ig[p] &lt;lootProfile&gt; to &lt;target&gt;</c>, and
-    /// <c>/vt ig stop</c> to call a run off: the chat form of the profile
+    /// Says how a hand-over ended -- finished, stopped, given up or its target
+    /// gone -- as a think when ItemGiver.Think is on and as a plain line
+    /// otherwise, which is how the reference reports every end of a run.
+    /// </summary>
+    private void ReportGiveEnd()
+    {
+        // A run that bailed says so first, as the tool's error.
+        if (_profileGive.EndError.Length != 0)
+            PostUb(UbChat.ToolError(UbChat.Tools.InventoryManager, _profileGive.EndError));
+        if (_ubCatalog.Require("ItemGiver.Think").Get().Boolean)
+            Think(_profileGive.FinishedLine);
+        else
+            WriteUb(_profileGive.FinishedLine);
+    }
+
+    /// <summary>
+    /// Starts a hand-over, or says why not as the reference's inventory tool
+    /// does: a second run while one is going, then whatever the start
+    /// refused. A run that starts says nothing until it ends.
+    /// </summary>
+    private void StartGive(Func<bool> start, string stopVerb)
+    {
+        if (_profileGive.IsRunning)
+        {
+            PostUb(UbChat.ToolError(
+                UbChat.Tools.InventoryManager,
+                "Already running.  Please wait until it completes or use "
+                + $"/ub {stopVerb} stop to quit previous session"));
+            return;
+        }
+        if (start())
+            return;
+        PostUb(UbChat.ToolError(UbChat.Tools.InventoryManager, _profileGive.Refusal));
+    }
+
+    /// <summary>
+    /// A stop: the run's end line when one was going, the reference's error
+    /// when none was.
+    /// </summary>
+    private void StopGive()
+    {
+        if (_profileGive.StopRequested())
+            ReportGiveEnd();
+        else
+            WriteUbError("ItemGiver is not running.");
+    }
+
+    /// <summary>
+    /// <c>/ub ig[p] &lt;lootProfile&gt; to &lt;target&gt;</c>, and
+    /// <c>/ub ig stop</c> to call a run off: the chat form of the profile
     /// hand-over the expression engine already exposes.
     /// </summary>
     private void HandleItemGiverCommand(bool partialTarget, string arguments)
@@ -216,8 +613,7 @@ internal sealed partial class MossTankPanel
             || text.Equals("quit", StringComparison.OrdinalIgnoreCase)
             || text.Equals("abort", StringComparison.OrdinalIgnoreCase))
         {
-            _profileGive.StopRequested();
-            WriteVtank(_profileGive.Status);
+            StopGive();
             return;
         }
 
@@ -226,42 +622,34 @@ internal sealed partial class MossTankPanel
         int separator = text.IndexOf(" to ", StringComparison.OrdinalIgnoreCase);
         if (separator <= 0)
         {
-            WriteVtank("Syntax: /vt ig[p] <lootProfile> to <target>, or /vt ig stop");
+            WriteUbBadSyntax("ig");
             return;
         }
         string profile = StripExtension(text[..separator].Trim(), ".utl", ".json");
         string target = text[(separator + 4)..].Trim();
-        _profileGive.TryStart(profile, target, partialTarget);
-        WriteVtank(_profileGive.Status);
+        StartGive(() => _profileGive.TryStart(profile, target, partialTarget), "ig");
     }
 
-    // ── /vt jump, /vt simplejump ────────────────────────────────────────
+    // ── /ub jump, /ub simplejump ────────────────────────────────────────
 
     /// <summary>
-    /// <c>/vt jump[swzxc] [heading] [holdtime]</c>: the reference's grammar.
-    /// <c>s</c> holds shift so the jump is a running one, <c>w</c> presses
+    /// <c>/ub jump[swzxc] [heading] [holdtime]</c>: the reference's grammar.
+    /// <c>s</c> holds shift, the game's walk key, so the jump is a walking
+    /// one rather than the default run, <c>w</c> presses
     /// forward, <c>x</c> backward, <c>z</c> and <c>c</c> strafe left and
     /// right; with no letter at all the character jumps straight up.
     /// </summary>
     /// <remarks>
-    /// The older <c>/vt jump &lt;heading&gt; &lt;true|false&gt; &lt;ms&gt;
-    /// [direction]</c> form still works: a second word of true or false is
-    /// not a hold time in this grammar, so it can only be the older one, and
-    /// routes saved with it keep working.
+    /// The macro's own <c>/vt jump &lt;heading&gt; &lt;true|false&gt;
+    /// &lt;ms&gt; [direction]</c> is a different command on the other word;
+    /// this grammar does not read it.
     /// </remarks>
     private void HandleUbJumpCommand(string flags, string arguments)
     {
         string[] parts = arguments.Split(' ', StringSplitOptions.RemoveEmptyEntries);
-        if (flags.Length == 0
-            && parts.Length >= 2
-            && bool.TryParse(parts[1], out _))
-        {
-            HandleJumpCommand(arguments, addToRoute: false);
-            return;
-        }
         if (parts.Length > 2)
         {
-            WriteVtank("Syntax: /vt jump[swzxc] [heading] [holdtime]");
+            WriteUbBadSyntax("jump");
             return;
         }
 
@@ -280,18 +668,23 @@ internal sealed partial class MossTankPanel
         float heading = _host.Automation.Navigation.Snapshot.Position.HeadingDegrees;
         if (headingText is not null)
         {
-            if (!double.TryParse(
+            // The reference's grammar takes a heading of digits and points
+            // only, so "NaN", "Infinity", "1e3" and "-5" never read as one.
+            if (!IsPlainDecimal(headingText)
+                || !double.TryParse(
                     headingText,
-                    NumberStyles.Float,
+                    NumberStyles.AllowDecimalPoint,
                     CultureInfo.InvariantCulture,
                     out double requested))
             {
-                WriteVtank("Syntax: /vt jump[swzxc] [heading] [holdtime]");
+                WriteUbBadSyntax("jump");
                 return;
             }
             if (requested is < 0d or > 359d)
             {
-                WriteVtank("direction should be a number between 0 and 359");
+                PostUb(UbChat.ToolError(
+                    UbChat.Tools.Jumper,
+                    "direction should be a number between 0 and 359"));
                 return;
             }
             heading = (float)requested;
@@ -299,16 +692,23 @@ internal sealed partial class MossTankPanel
 
         if (!RefuseWhenAlreadyJumping())
             return;
+        // With no heading the reference does not turn at all; with one it
+        // has the client turn there first.
         StartCommandJump(
             heading,
             shift: flags.Contains('s'),
             milliseconds,
-            JumpDirectionFromFlags(flags, out bool omitDirection),
-            omitDirection: omitDirection);
+            direction: null,
+            turn: headingText is null ? CommandJumpTurn.None : CommandJumpTurn.Client,
+            keys: JumpKeysFromFlags(flags));
     }
 
+    /// <summary>True when the text is nothing but digits and decimal points.</summary>
+    private static bool IsPlainDecimal(string text) =>
+        text.Length != 0 && text.All(static letter => letter is '.' or (>= '0' and <= '9'));
+
     /// <summary>
-    /// <c>/vt simplejump [holdtime]</c>: a jump where the character already
+    /// <c>/ub simplejump [holdtime]</c>: a jump where the character already
     /// stands, with no turn first.
     /// </summary>
     private void HandleSimpleJumpCommand(string arguments)
@@ -316,7 +716,7 @@ internal sealed partial class MossTankPanel
         string[] parts = arguments.Split(' ', StringSplitOptions.RemoveEmptyEntries);
         if (parts.Length > 1)
         {
-            WriteVtank("Syntax: /vt simplejump [holdtime]");
+            WriteUbBadSyntax("simplejump");
             return;
         }
         if (!TryParseHoldTime(parts.Length == 1 ? parts[0] : null, out int milliseconds))
@@ -328,7 +728,8 @@ internal sealed partial class MossTankPanel
             shift: false,
             milliseconds,
             RouteJumpDirection.Forward,
-            omitDirection: true);
+            omitDirection: true,
+            turn: CommandJumpTurn.None);
     }
 
     /// <summary>
@@ -346,12 +747,16 @@ internal sealed partial class MossTankPanel
             CultureInfo.InvariantCulture,
             out milliseconds))
         {
-            WriteVtank("holdtime should be a number between 0 and 1000");
+            PostUb(UbChat.ToolError(
+                UbChat.Tools.Jumper,
+                "holdtime should be a number between 0 and 1000"));
             return false;
         }
         if (milliseconds is < 0 or > 1000)
         {
-            WriteVtank("holdtime should be a number between 0 and 1000");
+            PostUb(UbChat.ToolError(
+                UbChat.Tools.Jumper,
+                "holdtime should be a number between 0 and 1000"));
             milliseconds = 0;
             return false;
         }
@@ -366,31 +771,30 @@ internal sealed partial class MossTankPanel
     {
         if (!_commandJumpActive)
             return true;
-        WriteVtank("You are already jumping. try again later.");
+        PostUb(UbChat.ToolError(
+            UbChat.Tools.Jumper,
+            "You are already jumping. try again later."));
         return false;
     }
 
-    private static RouteJumpDirection JumpDirectionFromFlags(
-        string flags,
-        out bool omitDirection)
-    {
-        omitDirection = false;
-        if (flags.Contains('w'))
-            return RouteJumpDirection.Forward;
-        if (flags.Contains('x'))
-            return RouteJumpDirection.Backward;
-        if (flags.Contains('z'))
-            return RouteJumpDirection.StrafeLeft;
-        if (flags.Contains('c'))
-            return RouteJumpDirection.StrafeRight;
-        omitDirection = true;
-        return RouteJumpDirection.Forward;
-    }
+    /// <summary>
+    /// The movement keys a jump's flag letters hold, each letter its own key
+    /// as the reference sets them: w forward, x backward, z left, c right.
+    /// Two letters hold two keys, so <c>jumpwz</c> leaps forward and to the
+    /// left at once; no letter holds none, a jump straight up.
+    /// </summary>
+    private static PluginMovementIntent JumpKeysFromFlags(string flags) => new(
+        Forward: flags.Contains('w'),
+        Backward: flags.Contains('x'),
+        StrafeLeft: flags.Contains('z'),
+        StrafeRight: flags.Contains('c'),
+        Run: !flags.Contains('s'),
+        Jump: true);
 
-    // ── /vt calcdamage ──────────────────────────────────────────────────
+    // ── /ub calcdamage ──────────────────────────────────────────────────
 
     /// <summary>
-    /// <c>/vt calcdamage</c>: what the selected missile weapon would hit for
+    /// <c>/ub calcdamage</c>: what the selected missile weapon would hit for
     /// once every tinker it can still take has gone in. Only the cantrips on
     /// the weapon itself count; nothing the character is wearing does.
     /// </summary>
@@ -400,7 +804,7 @@ internal sealed partial class MossTankPanel
         if (selected == 0u
             || !_host.Automation.Objects.TryGet(selected, out PluginWorldObject item))
         {
-            WriteVtank("Nothing selected");
+            WriteUbError("Nothing selected");
             return;
         }
         if (!_host.Automation.Objects.TryCaptureProperties(
@@ -408,12 +812,12 @@ internal sealed partial class MossTankPanel
                 out PluginItemProperties properties)
             || properties.WeaponProfile is not { } profile)
         {
-            WriteVtank($"{item.Name} does not have id data, please examine it first.");
+            WriteUbError($"{item.Name} does not have id data, please examine it first.");
             return;
         }
         if (item.ObjectClass != PluginObjectClass.MissileWeapon)
         {
-            WriteVtank($"Calc Damage: {item.ObjectClass} is not currently supported");
+            WriteUbError($"Calc Damage: {item.ObjectClass} is not currently supported");
             return;
         }
 
@@ -430,7 +834,7 @@ internal sealed partial class MossTankPanel
             if (bonus == 0)
                 continue;
             cantripBonus += bonus;
-            WriteVtank(Invariant(
+            WriteUb(Invariant(
                 $"Spell {SpellName(spellId)} buffs MaxDamage by {bonus}"));
         }
         int timesTinkered = ReadInt(properties, NumberTimesTinkeredProperty);
@@ -442,13 +846,13 @@ internal sealed partial class MossTankPanel
 
         if (tinkersAvailable > 0)
         {
-            WriteVtank(Invariant(
+            WriteUb(Invariant(
                 $"{tinkersAvailable} mahogany salvage adds {perTinker} to DamageModifier"));
         }
-        WriteVtank("Formula: (DamageBonus + ElementalBonus) * DamageModifier");
-        WriteVtank(Invariant(
+        WriteUb("Formula: (DamageBonus + ElementalBonus) * DamageModifier");
+        WriteUb(Invariant(
             $"Calculated Formula: ({maxDamage}(+{cantripBonus} from cantrips) + {elementalBonus}) * {damageBonus - 1d}(+{perTinker} from {tinkersAvailable} tinkers)"));
-        WriteVtank(Invariant($"Calculated (after tinks): {damage}"));
+        WriteUb(Invariant($"Calculated (after tinks): {damage}"));
     }
 
     /// <summary>
@@ -478,10 +882,10 @@ internal sealed partial class MossTankPanel
     private static int ReadInt(in PluginItemProperties properties, uint key) =>
         properties.Ints.TryGetValue(key, out int value) ? value : 0;
 
-    // ── /vt pos, /vt id, /vt vitae, /vt combatstate, /vt date ───────────
+    // ── /ub pos, /ub id, /ub vitae, /ub combatstate, /ub date ───────────
 
     /// <summary>
-    /// <c>/vt pos</c>: where the selected object stands, in every form the
+    /// <c>/ub pos</c>: where the selected object stands, in every form the
     /// client can say it -- the id, the compass coordinates, the landcell and
     /// the raw position inside it.
     /// </summary>
@@ -491,8 +895,8 @@ internal sealed partial class MossTankPanel
             return;
         if (!item.HasPosition)
         {
-            WriteVtank($"Id: {item.ObjectId} ( 0x{item.ObjectId:X8} )");
-            WriteVtank("pos: the client knows no position for that object.");
+            WriteUb($"Id: {item.ObjectId} ( 0x{item.ObjectId:X8} )");
+            WriteUbError("pos: the client knows no position for that object.");
             return;
         }
         PluginNavigationPosition position = item.Position;
@@ -500,21 +904,21 @@ internal sealed partial class MossTankPanel
             position.EastWest,
             position.NorthSouth,
             position.Elevation);
-        WriteVtank($"Id: {item.ObjectId} ( 0x{item.ObjectId:X8} )");
-        WriteVtank($"Coords: {coordinates}");
-        WriteVtank($"Landcell: 0x{position.CellId:X8}");
-        WriteVtank(Invariant(
+        WriteUb($"Id: {item.ObjectId} ( 0x{item.ObjectId:X8} )");
+        WriteUb($"Coords: {coordinates.ToCompassText()}");
+        WriteUb($"Landcell: 0x{position.CellId:X8}");
+        WriteUb(Invariant(
             $"Position: ew:{position.EastWest} ns:{position.NorthSouth} z:{position.Elevation}"));
-        WriteVtank(Invariant(
+        WriteUb(Invariant(
             $"Distance: {UbObjectSearch.Distance(_host.Automation.Navigation.Snapshot, item):0.###} m"));
     }
 
-    /// <summary><c>/vt id</c>: the selected object's id, both ways round.</summary>
+    /// <summary><c>/ub id</c>: the selected object's id, both ways round.</summary>
     private void PrintSelectedId()
     {
         if (!TryGetSelectedObject("Id", out PluginWorldObject item))
             return;
-        WriteVtank($"Id: {item.ObjectId} ( 0x{item.ObjectId:X8} )");
+        WriteUb($"Id: {item.ObjectId} ( 0x{item.ObjectId:X8} )");
     }
 
     private bool TryGetSelectedObject(string verb, out PluginWorldObject item)
@@ -522,20 +926,20 @@ internal sealed partial class MossTankPanel
         uint selected = _host.Selection.SelectedObjectId ?? 0u;
         if (selected == 0u)
         {
-            WriteVtank($"{verb}: No object selected");
+            WriteUbError($"{verb}: No object selected");
             item = default;
             return false;
         }
         if (!_host.Automation.Objects.TryGet(selected, out item))
         {
-            WriteVtank($"{verb}: null object selected");
+            WriteUbError($"{verb}: null object selected");
             return false;
         }
         return true;
     }
 
     /// <summary>
-    /// <c>/vt vitae</c>: says the penalty out loud, as a think, so a macro
+    /// <c>/ub vitae</c>: says the penalty out loud, as a think, so a macro
     /// watching its own chat can read it back.
     /// </summary>
     private void ThinkVitae()
@@ -557,15 +961,10 @@ internal sealed partial class MossTankPanel
     /// Says something to yourself the way the client does, so it reaches the
     /// chat window through the same road a typed think takes.
     /// </summary>
-    private void Think(string text)
-    {
-        string name = _host.Automation.Character.Name;
-        if (name.Length == 0 || !_host.Automation.Chat.Submit($"/t {name}, {text}"))
-            WriteVtank($"You think, \"{text}\"");
-    }
+    private void Think(string text) => UbChat.Think(_host.Automation, text);
 
     /// <summary>
-    /// <c>/vt combatstate (peace|melee|missile|magic)</c>: asks the client to
+    /// <c>/ub combatstate (peace|melee|missile|magic)</c>: asks the client to
     /// change stance, without the macro having to be running.
     /// </summary>
     private void HandleCombatStateCommand(string arguments)
@@ -587,17 +986,18 @@ internal sealed partial class MossTankPanel
                 mode = PluginCombatMode.Magic;
                 break;
             default:
-                WriteVtank($"{requested} is not a valid option");
+                WriteUbError($"{requested} is not a valid option");
                 return;
         }
         PluginCombatCommandResult result = _host.Automation.Combat.EnterMode(mode);
-        WriteVtank(result.Accepted
-            ? $"Combat state set to {mode}."
-            : $"Could not set combat state to {mode}: {result.Status}");
+        if (result.Accepted)
+            WriteUb($"Combat state set to {mode}.");
+        else
+            WriteUbError($"Could not set combat state to {mode}: {result.Status}");
     }
 
     /// <summary>
-    /// <c>/vt date[utc] [format]</c>. The format is a .NET custom date
+    /// <c>/ub date[utc] [format]</c>. The format is a .NET custom date
     /// format, read and printed in the invariant culture so that a macro
     /// written on one machine reads the same on every other.
     /// </summary>
@@ -609,19 +1009,19 @@ internal sealed partial class MossTankPanel
         DateTime now = utc ? DateTime.UtcNow : DateTime.Now;
         try
         {
-            WriteVtank("Current Date: "
+            WriteUb("Current Date: "
                 + now.ToString(pattern, CultureInfo.InvariantCulture));
         }
         catch (FormatException error)
         {
-            WriteVtank(error.Message);
+            WriteUb(error.Message);
         }
     }
 
-    // ── /vt delay ───────────────────────────────────────────────────────
+    // ── /ub delay ───────────────────────────────────────────────────────
 
     /// <summary>
-    /// <c>/vt delay &lt;milliseconds&gt; &lt;command&gt;</c>: hands the line
+    /// <c>/ub delay &lt;milliseconds&gt; &lt;command&gt;</c>: hands the line
     /// back to the client's own command routing once the delay is up, so it
     /// reaches whichever plugin owns the verb.
     /// </summary>
@@ -637,14 +1037,23 @@ internal sealed partial class MossTankPanel
             || !double.IsFinite(milliseconds)
             || milliseconds <= 0d)
         {
-            WriteVtank("Syntax: /vt delay <milliseconds> <command>");
+            WriteUbBadSyntax("delay");
             return;
         }
-        _delayedCommands.Add((milliseconds / 1000d, rest));
+        ScheduleUbCommand(rest, milliseconds);
+    }
+
+    /// <summary>
+    /// Queues a line to run once its delay is up. The reference says so only
+    /// in its debug output, and again when the line runs.
+    /// </summary>
+    private void ScheduleUbCommand(string command, double milliseconds)
+    {
+        WriteUbDebug(Invariant(
+            $"Scheduling command `{command}` with delay of {milliseconds}ms"));
+        _delayedCommands.Add((milliseconds / 1000d, command, milliseconds));
         _delayedCommands.Sort(static (left, right) =>
             left.RemainingSeconds.CompareTo(right.RemainingSeconds));
-        WriteVtank(Invariant(
-            $"Scheduling command `{rest}` with delay of {milliseconds}ms"));
     }
 
     /// <summary>Runs the delayed commands whose wait is over.</summary>
@@ -653,37 +1062,47 @@ internal sealed partial class MossTankPanel
         if (_delayedCommands.Count == 0)
             return;
         double step = Math.Max(0d, elapsedSeconds);
-        var due = new List<string>();
+        var due = new List<(string Command, double DelayMilliseconds)>();
         for (int index = _delayedCommands.Count - 1; index >= 0; index--)
         {
-            (double remaining, string command) = _delayedCommands[index];
+            (double remaining, string command, double delay) = _delayedCommands[index];
             remaining -= step;
             if (remaining > 0d)
             {
-                _delayedCommands[index] = (remaining, command);
+                _delayedCommands[index] = (remaining, command, delay);
                 continue;
             }
-            due.Add(command);
+            due.Add((command, delay));
             _delayedCommands.RemoveAt(index);
         }
         // The loop above walks backwards, so the oldest entry comes out last;
         // a pair scheduled together must run in the order they were typed.
         for (int index = due.Count - 1; index >= 0; index--)
-            _host.Automation.Chat.Submit(due[index]);
+        {
+            (string command, double delay) = due[index];
+            WriteUbToolDebug(
+                UbChat.Tools.Plugin,
+                Invariant($"Executing command `{command}` (delay was {delay}ms)"));
+            _host.Automation.Chat.Submit(command);
+        }
     }
 
-    // ── /vt opt, over both settings groups ──────────────────────────────
+    // ── /ub opt ─────────────────────────────────────────────────────────
 
     /// <summary>
-    /// The second half of the option list: the UB settings, which are named
-    /// with a dot ("AutoVendor.Enabled") and so can never collide with the
-    /// macro's own option names.
+    /// A typed get, set or toggle of a name no setting has, as the reference
+    /// answers it: the name in lower case as its error, then one error line
+    /// per character setting -- its per-character state, not every setting
+    /// -- each "  - " and the setting's name.
     /// </summary>
-    private void ListUbSettings()
+    private void WriteUbInvalidOption(string name)
     {
-        WriteVtank($"UB settings: ({_ubCatalog.Settings.Count})");
+        WriteUbError("Invalid option: " + name.Trim().ToLowerInvariant());
         foreach (UbSetting setting in _ubCatalog.Settings)
-            WriteVtank($"   {setting.Name} ({setting.Kind}) = {setting.Display()}");
+        {
+            if (setting.Scope == UbSettingScope.Character)
+                WriteUbError("  - " + setting.Name);
+        }
     }
 
     /// <summary>Prints one UB setting. False when there is no such row.</summary>
@@ -691,7 +1110,7 @@ internal sealed partial class MossTankPanel
     {
         if (!_ubCatalog.TryGet(name.Trim(), out UbSetting setting))
             return false;
-        WriteVtank($"{setting.Name} ({setting.Kind}) = {setting.Display()}");
+        WriteUb(setting.FullDisplayValue());
         return true;
     }
 
@@ -704,9 +1123,9 @@ internal sealed partial class MossTankPanel
     {
         if (!_ubCatalog.TryGet(name.Trim(), out UbSetting setting))
             return false;
-        if (rawValue.Trim().Length == 0)
+        if (setting.Kind == UbSettingKind.Collection)
         {
-            WriteVtank($"{setting.Name} ({setting.Kind}) = {setting.Display()}");
+            EditUbList(setting, rawValue.Trim());
             return true;
         }
         if (!UbSettingValue.TryParse(
@@ -714,22 +1133,248 @@ internal sealed partial class MossTankPanel
             rawValue.Trim(),
             out UbSettingValue value))
         {
-            WriteVtank(
+            WriteUbError(
                 $"Option set: Invalid value specified. {setting.Name} is a "
                 + $"{setting.Kind}.");
             return true;
         }
         setting.Set(value);
-        WriteVtank($"{setting.Name} ({setting.Kind}) = {setting.Display()}");
+        EchoUbSettingChange(setting);
         return true;
     }
 
     /// <summary>
-    /// <c>/vt opt toggle &lt;option&gt;</c>: flips a switch, in whichever of
-    /// the two groups owns the name. Anything that is not a switch is left
-    /// alone, because there is no second value to flip to.
+    /// The line a set or a toggle leaves. The reference writes the new value
+    /// as an ordinary line only while debug is off; with it on, the same
+    /// line comes from its change log instead, as a debug line.
     /// </summary>
-    private void ToggleOption(string name)
+    private void EchoUbSettingChange(UbSetting setting)
+    {
+        string text = setting.FullDisplayValue();
+        if (UbDebug)
+            WriteUbDebug(text);
+        else
+            WriteUb(text);
+    }
+
+    /// <summary>
+    /// <c>/ub quit</c>: closes the client by the route its own close button
+    /// takes -- a graceful logout, then shutting down. A client with no
+    /// window ends this session the same way.
+    /// </summary>
+    private void QuitClient()
+    {
+        WriteUb("Quitting Client");
+        HostWindowResult result = _host.Window.RequestClose();
+        if (!result.Succeeded)
+            WriteUbError(result.Notice ?? "The client could not be closed from here.");
+    }
+
+    /// <summary>
+    /// <c>/ub playeroption (list|&lt;option&gt; &lt;on|true|off|false&gt;)</c>:
+    /// turns one of the character's own options on or off, by the name the
+    /// character options page gives it. Anything but on or true turns it
+    /// off, as the original reads it.
+    /// </summary>
+    private void HandlePlayerOptionCommand(string arguments)
+    {
+        ICharacterOptionsAutomation options = _host.Automation.CharacterOptions;
+        string text = arguments.Trim();
+        if (text.Equals("list", StringComparison.OrdinalIgnoreCase))
+        {
+            WriteUb($"Valid values are: {string.Join(", ", options.Names)}");
+            return;
+        }
+        string[] parts = text.Split(' ', StringSplitOptions.RemoveEmptyEntries);
+        if (parts.Length != 2)
+        {
+            WriteUbError("Usage: /ub playeroption <option> <on/true|off/false>");
+            return;
+        }
+        string value = parts[1].ToLowerInvariant();
+        bool on = value is "on" or "true";
+        PluginCharacterOptionResult result = options.Set(parts[0], on);
+        switch (result.Status)
+        {
+            case PluginCharacterOptionStatus.Accepted:
+                WriteUb($"Setting {CanonicalOptionName(options, parts[0])} = {on}");
+                return;
+            case PluginCharacterOptionStatus.UnknownOption:
+                WriteUbError($"Invalid option. Valid values are: {string.Join(", ", options.Names)}");
+                return;
+            default:
+                WriteUbError(
+                    $"Unable to set {parts[0]}: "
+                    + (result.Notice ?? result.Status.ToString()));
+                return;
+        }
+    }
+
+    private static string CanonicalOptionName(ICharacterOptionsAutomation options, string name) =>
+        options.Names.FirstOrDefault(candidate =>
+            candidate.Equals(name, StringComparison.OrdinalIgnoreCase)) ?? name;
+
+    /// <summary>
+    /// <c>uboptget[name]</c>: a UB setting's value, a list setting as a list
+    /// of its lines. A name that is not a UB setting reads the macro's own
+    /// option of that name, which the original would refuse; nothing a UB
+    /// name could be is one of those, since every UB name is dotted. A name
+    /// that is neither is the reference's invalid option: an error and 0.
+    /// </summary>
+    private ExpressionValue GetUbOption(string name)
+    {
+        if (!_ubCatalog.TryGet(name.Trim(), out UbSetting setting))
+        {
+            if (VtankOptionCatalog.IsKnown(name))
+                return GetMetaOption(name);
+            WriteUbError("Invalid option: " + name.ToLowerInvariant());
+            return ExpressionValue.Zero;
+        }
+        UbSettingValue value = setting.Get();
+        return value.Kind switch
+        {
+            UbSettingKind.Bool => ExpressionValue.Boolean(value.Boolean),
+            UbSettingKind.String => ExpressionValue.String(value.Text),
+            UbSettingKind.Collection => ExpressionValue.List(new ExpressionList(
+                value.Items.Select(static item => ExpressionValue.String(item)))),
+            _ => ExpressionValue.Number(value.Number),
+        };
+    }
+
+    /// <summary>
+    /// <c>uboptset[name,value]</c>: writes a UB setting, and says the new
+    /// value in chat as a typed <c>opt set</c> does. A list setting takes a
+    /// list and is replaced by it. A name that is not a UB setting writes
+    /// the macro's own option of that name; a name that is neither is the
+    /// reference's invalid option: an error and 0.
+    /// </summary>
+    private bool SetUbOption(string name, ExpressionValue value)
+    {
+        if (!_ubCatalog.TryGet(name.Trim(), out UbSetting setting))
+        {
+            if (VtankOptionCatalog.IsKnown(name))
+                return SetMetaOption(name, value);
+            WriteUbError("Invalid option: " + name.ToLowerInvariant());
+            return false;
+        }
+        if (setting.Kind == UbSettingKind.Collection)
+        {
+            if (value.Kind != ExpressionValueKind.List)
+            {
+                WriteUbError($"{setting.Name} expects a value of type list");
+                return false;
+            }
+            setting.Set(UbSettingValue.FromCollection(
+                value.AsList().Items.Select(static item => item.ToDisplayString())));
+            return true;
+        }
+        if (!TryConvertUbOption(setting.Kind, value, out UbSettingValue converted))
+        {
+            WriteUbError($"{setting.Name} is a {setting.Kind}; {value.ToDisplayString()} is not.");
+            return false;
+        }
+        setting.Set(converted);
+        EchoUbSettingChange(setting);
+        return true;
+    }
+
+    private static bool TryConvertUbOption(
+        UbSettingKind kind,
+        ExpressionValue value,
+        out UbSettingValue converted)
+    {
+        if (value.Kind == ExpressionValueKind.String)
+            return UbSettingValue.TryParse(kind, value.AsString(), out converted);
+        if (kind == UbSettingKind.String)
+        {
+            converted = UbSettingValue.FromText(value.ToDisplayString());
+            return true;
+        }
+        if (value.Kind is not (ExpressionValueKind.Number or ExpressionValueKind.Boolean))
+        {
+            converted = default;
+            return false;
+        }
+        double number = value.AsNumber();
+        converted = kind switch
+        {
+            UbSettingKind.Bool => UbSettingValue.FromBool(value.IsTruthy),
+            UbSettingKind.Int => UbSettingValue.FromInt(
+                (int)Math.Round(number, MidpointRounding.AwayFromZero)),
+            UbSettingKind.Enum => UbSettingValue.FromChoice(
+                (int)Math.Round(number, MidpointRounding.AwayFromZero)),
+            UbSettingKind.Single => UbSettingValue.FromSingle((float)number),
+            UbSettingKind.Double => UbSettingValue.FromDouble(number),
+            UbSettingKind.Color => UbSettingValue.FromColor(unchecked((uint)(long)number)),
+            _ => default,
+        };
+        return kind is not UbSettingKind.Collection;
+    }
+
+    /// <summary>
+    /// A list setting is edited, never replaced, from the command line:
+    /// <c>add a[,b]</c> appends each name it does not already hold,
+    /// <c>remove a[,b]</c> takes each out, and <c>clear</c> empties it. This
+    /// is how a macro puts its own broadcast tag on the list without
+    /// wiping the tags someone else put there. Names are compared exactly
+    /// and taken as written between the commas.
+    /// </summary>
+    private void EditUbList(UbSetting setting, string edit)
+    {
+        string[] parts = edit.Split(' ', 2, StringSplitOptions.RemoveEmptyEntries);
+        string verb = parts[0].ToLowerInvariant();
+        string names = parts.Length > 1 ? parts[1] : string.Empty;
+        var items = setting.Get().Items.ToList();
+        switch (verb)
+        {
+            case "add":
+                if (names.Trim().Length == 0)
+                {
+                    WriteUbDebug("Missing items to add");
+                    return;
+                }
+                foreach (string name in names.Split(','))
+                {
+                    if (!items.Contains(name, StringComparer.Ordinal))
+                        items.Add(name);
+                }
+                break;
+            case "remove":
+                if (names.Trim().Length == 0)
+                {
+                    WriteUbDebug("Missing items to remove");
+                    return;
+                }
+                foreach (string name in names.Split(','))
+                {
+                    int index = items.FindIndex(item =>
+                        item.Equals(name, StringComparison.Ordinal));
+                    if (index >= 0)
+                        items.RemoveAt(index);
+                }
+                break;
+            case "clear":
+                items.Clear();
+                break;
+            default:
+                // The reference names the word after the verb, not the verb:
+                // "replace a,b" answers "Unknown verb: a,b". A verb on its own
+                // has no such word and the reference prints nothing at all;
+                // naming the verb itself is the one departure, so the line is
+                // never silently ignored.
+                WriteUbError("Unknown verb: " + (parts.Length > 1 ? parts[1] : parts[0]));
+                return;
+        }
+        setting.Set(UbSettingValue.FromCollection(items));
+        WriteUb(setting.FullDisplayValue());
+    }
+
+    /// <summary>
+    /// <c>/vt opt toggle &lt;option&gt;</c>: flips one of the macro's own
+    /// switches. Anything that is not a switch is left alone, because there
+    /// is no second value to flip to.
+    /// </summary>
+    private void ToggleVtankOption(string name)
     {
         string requested = name.Trim();
         if (requested.Length == 0)
@@ -737,35 +1382,47 @@ internal sealed partial class MossTankPanel
             WriteVtank("Syntax: /vt opt toggle <option>");
             return;
         }
-        if (VtankOptionCatalog.IsKnown(requested))
-        {
-            string canonical = VtankOptionCatalog.Canonical(requested);
-            if (VtankOptionCatalog.DeclaredType(canonical) != VtankSettingValueType.Bool)
-            {
-                WriteVtank($"Unable to toggle setting {canonical}: it is not a switch.");
-                return;
-            }
-            SetMetaOption(
-                canonical,
-                ExpressionValue.Boolean(!GetMetaOption(canonical).IsTruthy));
-            WriteVtank($"Set option {canonical} = {GetMetaOption(canonical).ToDisplayString()}");
-            return;
-        }
-        if (!_ubCatalog.TryGet(requested, out UbSetting setting))
+        if (!VtankOptionCatalog.IsKnown(requested))
         {
             WriteVtank("Option toggle: Invalid option specified.");
             return;
         }
+        string canonical = VtankOptionCatalog.Canonical(requested);
+        if (VtankOptionCatalog.DeclaredType(canonical) != VtankSettingValueType.Bool)
+        {
+            WriteVtank($"Unable to toggle setting {canonical}: it is not a switch.");
+            return;
+        }
+        SetMetaOption(
+            canonical,
+            ExpressionValue.Boolean(!GetMetaOption(canonical).IsTruthy));
+        WriteVtank($"Set option {canonical} = {GetMetaOption(canonical).ToDisplayString()}");
+    }
+
+    /// <summary>
+    /// <c>/ub opt toggle &lt;option&gt;</c>: flips one of the UB switches,
+    /// refusing anything that is not one in the reference's words.
+    /// </summary>
+    private void ToggleUbSetting(string name)
+    {
+        string requested = name.Trim();
+        if (!_ubCatalog.TryGet(requested, out UbSetting setting))
+        {
+            WriteUbInvalidOption(requested);
+            return;
+        }
         if (setting.Kind != UbSettingKind.Bool)
         {
-            WriteVtank($"Unable to toggle setting {setting.Name}: it is not a switch.");
+            // The reference's toggle reads the value as a true/false and
+            // prints the runtime's own message for the failed read.
+            WriteUbError($"Unable to toggle setting {setting.Name}: Specified cast is not valid.");
             return;
         }
         setting.Set(UbSettingValue.FromBool(!setting.Get().Boolean));
-        WriteVtank($"{setting.Name} ({setting.Kind}) = {setting.Display()}");
+        EchoUbSettingChange(setting);
     }
 
-    // ── /vt closestportal, /vt portal ───────────────────────────────────
+    // ── /ub closestportal, /ub portal ───────────────────────────────────
 
     /// <summary>
     /// Uses a portal by name, or -- with a blank name -- the nearest one.
@@ -779,21 +1436,29 @@ internal sealed partial class MossTankPanel
             PortalClasses,
             out PluginWorldObject portal))
         {
-            WriteVtank("Could not find a portal");
+            if (_ubCatalog.Require("Plugin.PortalThink").Get().Boolean)
+                Think("Could not find a portal");
+            else
+                WriteUb("Could not find a portal");
             return;
         }
-        WriteVtank($"Attempting to use portal: {portal.Name}");
+        WriteUb($"Attempting to use portal: {portal.Name}");
+        WriteUbToolDebug(UbChat.Tools.Plugin, "Attempting to use portal " + portal.Name);
         PluginItemCommandResult result = _host.Automation.Items.Use(portal.ObjectId);
         if (!result.Accepted)
-            WriteVtank($"Unable to use portal {portal.Name}: {result.Status}");
+        {
+            PostUb(UbChat.Tool(
+                UbChat.Tools.Plugin,
+                $"Unable to use portal {portal.Name}: {result.Status}"));
+        }
     }
 
-    // ── /vt follow ──────────────────────────────────────────────────────
+    // ── /ub follow ──────────────────────────────────────────────────────
 
     /// <summary>
-    /// <c>/vt follow[p] &lt;name&gt;</c>: turns the loaded route into a follow
-    /// of that player. A follow route needs no waypoints of its own, so this
-    /// is the mode switch and the target, nothing more.
+    /// <c>/ub follow[p] &lt;name&gt;</c>: switches to the follow route and
+    /// aims it at that player. The route that was loaded is left as it is,
+    /// file and all.
     /// </summary>
     private void HandleFollowCommand(string name, bool partial)
     {
@@ -805,26 +1470,25 @@ internal sealed partial class MossTankPanel
             PlayerClasses,
             out PluginWorldObject player))
         {
-            WriteVtank(requested.Length == 0
+            WriteUbError(requested.Length == 0
                 ? "Could not find closest player"
                 : $"Could not find player {requested}");
             return;
         }
-        _navigationSettings.FollowTargetObjectId = player.ObjectId;
-        _navigationSettings.FollowTargetName = player.Name;
-        _navigationSettings.Mode = RouteMode.Target;
-        _navigation.Reset();
-        RefreshRouteEditor();
-        SaveRouteProfile();
-        WriteVtank($"Following {player.Name}[0x{player.ObjectId:X8}]");
+        if (!FollowOnFollowRoute(player.ObjectId, player.Name))
+        {
+            WriteUbError($"Failed to follow {player.Name}[0x{player.ObjectId:X8}]");
+            return;
+        }
+        WriteUb($"Following {player.Name}[0x{player.ObjectId:X8}]");
         if (!_navigationSettings.Enabled)
-            WriteVtank("Turn Enable Navigation on to start.");
+            WriteUb("Turn Enable Navigation on to start.");
     }
 
-    // ── /vt use, /vt select, /vt close ──────────────────────────────────
+    // ── /ub use, /ub select, /ub close ──────────────────────────────────
 
     /// <summary>
-    /// <c>/vt use[li][p] [itemOne] on [itemTwo]</c>. One name uses that
+    /// <c>/ub use[li][p] [itemOne] on [itemTwo]</c>. One name uses that
     /// object -- a portal by the portal road, a vendor by opening it, a
     /// container or corpse by opening it, anything else by a plain use. Two
     /// names apply the first to the second.
@@ -836,7 +1500,7 @@ internal sealed partial class MossTankPanel
         string text = arguments.Trim();
         if (text.Length == 0)
         {
-            WriteVtank("Syntax: /vt use[li][p] [itemOne] on [itemTwo]");
+            WriteUbBadSyntax("use");
             return;
         }
 
@@ -852,7 +1516,7 @@ internal sealed partial class MossTankPanel
         if (!UbObjectSearch.TryFind(
             _host, first, scope, partial, 0u, out PluginWorldObject one))
         {
-            WriteVtank($"Could not find object: {first}");
+            WriteUbError($"Could not find object: {first}");
             return;
         }
         if (string.IsNullOrEmpty(second))
@@ -868,24 +1532,23 @@ internal sealed partial class MossTankPanel
             one.ObjectId,
             out PluginWorldObject two))
         {
-            WriteVtank($"{second} is null");
+            WriteUb($"{second} is null");
             return;
         }
-        WriteVtank($"using {one.Name} on {two.Name}");
+        WriteUb($"using {one.Name} on {two.Name}");
         _host.Automation.Items.Apply(one.ObjectId, two.ObjectId);
     }
 
     private void UseSingleObject(in PluginWorldObject one, bool partial)
     {
-        WriteVtank("using " + one.Name);
+        WriteUb("using " + one.Name);
         switch (one.ObjectClass)
         {
             case PluginObjectClass.Portal:
                 UsePortalByName(one.Name, partial);
                 return;
             case PluginObjectClass.Vendor:
-                foreach (string line in _vendorTrade.VendorCommand("open " + one.Name))
-                    WriteVtank(line);
+                PostUbReply("vendor", _vendorTrade.VendorCommand("open " + one.Name));
                 return;
             case PluginObjectClass.Container:
             case PluginObjectClass.Corpse:
@@ -897,7 +1560,7 @@ internal sealed partial class MossTankPanel
         }
     }
 
-    /// <summary><c>/vt select[li][p] [item]</c>.</summary>
+    /// <summary><c>/ub select[li][p] [item]</c>.</summary>
     private void HandleSelectCommand(string flags, string arguments)
     {
         if (!TryReadScope(flags, out UbSearchScope scope, out bool partial))
@@ -905,13 +1568,13 @@ internal sealed partial class MossTankPanel
         string text = arguments.Trim();
         if (text.Length == 0)
         {
-            WriteVtank("Syntax: /vt select[li][p] [item]");
+            WriteUbBadSyntax("select");
             return;
         }
         if (!UbObjectSearch.TryFind(
             _host, text, scope, partial, 0u, out PluginWorldObject item))
         {
-            WriteVtank($"Could not find object: {text}");
+            WriteUbError($"Could not find object: {text}");
             return;
         }
         _host.Selection.Select(item.ObjectId);
@@ -926,7 +1589,7 @@ internal sealed partial class MossTankPanel
         partial = flags.Contains('p');
         if (flags.Contains('l') && flags.Contains('i'))
         {
-            WriteVtank("l and i cannot be used in the same command");
+            WriteUb("l and i cannot be used in the same command");
             scope = UbSearchScope.All;
             return false;
         }
@@ -938,24 +1601,24 @@ internal sealed partial class MossTankPanel
         return true;
     }
 
-    /// <summary><c>/vt close corpse</c> (or chest).</summary>
+    /// <summary><c>/ub close corpse</c> (or chest).</summary>
     private void HandleCloseCommand(string arguments)
     {
         string requested = arguments.Trim().ToLowerInvariant();
         if (requested is not ("corpse" or "chest"))
         {
-            WriteVtank("Syntax: /vt close corpse");
+            WriteUbBadSyntax("close");
             return;
         }
         uint open = _host.Automation.Objects.OpenContainerObjectId;
         if (open == 0u)
         {
-            WriteVtank("No container is currently open.");
+            WriteUb("No container is currently open.");
             return;
         }
         if (!_host.Automation.Objects.TryGet(open, out PluginWorldObject container))
         {
-            WriteVtank("No container is currently open.");
+            WriteUb("No container is currently open.");
             return;
         }
         bool matches = requested == "corpse"
@@ -963,21 +1626,22 @@ internal sealed partial class MossTankPanel
             : container.ObjectClass == PluginObjectClass.Container;
         if (!matches)
         {
-            WriteVtank($"The open container is a {container.ObjectClass}, not a {requested}.");
+            WriteUbError($"The open container is a {container.ObjectClass}, not a {requested}.");
             return;
         }
         _host.Automation.Loot.Close(open);
     }
 
-    // ── /vt swearallegiance, /vt breakallegiance ────────────────────────
+    // ── /ub swearallegiance, /ub breakallegiance ────────────────────────
 
     /// <summary>
     /// Resolves who the allegiance command means and asks the client to send
     /// it. Whether the server allows it is the server's own decision and
     /// arrives later as a restated allegiance, so a sent command reports
-    /// only that it went out.
+    /// only that it went out. A miss names the verb as typed, flags and all,
+    /// as the reference's error does.
     /// </summary>
-    private void HandleAllegianceCommand(string name, bool partial, bool swear)
+    private void HandleAllegianceCommand(string verb, string name, bool partial, bool swear)
     {
         string requested = name.Trim();
         if (!UbObjectSearch.TryFindNearest(
@@ -987,9 +1651,9 @@ internal sealed partial class MossTankPanel
             PlayerClasses,
             out PluginWorldObject player))
         {
-            WriteVtank(requested.Length == 0
+            WriteUbError((requested.Length == 0
                 ? "Could not find closest player"
-                : $"Could not find player {requested}");
+                : $"Could not find player {requested}") + $" Command:{verb}");
             return;
         }
         string who = $"{player.Name}[0x{player.ObjectId:X8}]";
@@ -1000,33 +1664,33 @@ internal sealed partial class MossTankPanel
         switch (result.Status)
         {
             case PluginAllegianceCommandStatus.Sent:
-                WriteVtank(swear
-                    ? $"Swearing allegiance to {who}."
-                    : $"Breaking allegiance from {who}.");
+                WriteUb(swear
+                    ? $"Swearing Allegiance to {who}"
+                    : $"Breaking Allegiance from {who}");
                 return;
             case PluginAllegianceCommandStatus.InvalidTarget:
-                WriteVtank(swear
+                WriteUbError(swear
                     ? $"Cannot swear allegiance to {who}."
                     : $"{who} is not in your allegiance.");
                 return;
             case PluginAllegianceCommandStatus.Refused:
                 // A refusal is about the session, not about the target, so the
                 // client's own reason is what is worth printing.
-                WriteVtank(string.IsNullOrWhiteSpace(result.Notice)
+                WriteUbError(string.IsNullOrWhiteSpace(result.Notice)
                     ? (swear
                         ? $"Refused to swear allegiance to {who}."
                         : $"Refused to break allegiance from {who}.")
                     : result.Notice);
                 return;
             default:
-                WriteVtank(swear
+                WriteUbError(swear
                     ? "Cannot swear allegiance right now."
                     : "Cannot break allegiance right now.");
                 return;
         }
     }
 
-    // ── /vt printcolors ─────────────────────────────────────────────────
+    // ── /ub printcolors ─────────────────────────────────────────────────
 
     /// <summary>
     /// Prints one line in each of the client's text classes, so the player can
@@ -1042,7 +1706,7 @@ internal sealed partial class MossTankPanel
         }
     }
 
-    // ── /vt listvars, listpvars, listgvars ──────────────────────────────
+    // ── /ub listvars, listpvars, listgvars ──────────────────────────────
 
     /// <summary>
     /// Prints one variable store. The three stores differ only in how long
@@ -1050,24 +1714,29 @@ internal sealed partial class MossTankPanel
     /// </summary>
     private void ListVariables(ExpressionVariableScope scope)
     {
-        WriteVtank(scope switch
-        {
-            ExpressionVariableScope.Persistent => "Defined persistent variables:",
-            ExpressionVariableScope.Global => "Defined global variables:",
-            _ => "Defined variables:",
-        });
-        foreach ((string name, ExpressionValue value) in _expressions.State
+        // Read the whole store first: a variable that cannot be read back
+        // fails the listing as one command, with nothing half printed, as
+        // the reference builds its listing before it prints any of it.
+        KeyValuePair<string, ExpressionValue>[] variables = _expressions.State
             .Capture(scope)
-            .OrderBy(static pair => pair.Key, StringComparer.OrdinalIgnoreCase))
-        {
-            WriteVtank($"{name} ({value.Kind}) = {value.ToDisplayString()}");
-        }
+            .OrderBy(static pair => pair.Key, StringComparer.OrdinalIgnoreCase)
+            .ToArray();
+        WriteUbMessage(
+            scope switch
+            {
+                ExpressionVariableScope.Persistent => "Defined persistent variables:",
+                ExpressionVariableScope.Global => "Defined global variables:",
+                _ => "Defined variables:",
+            },
+            variables.Select(static pair =>
+                $"{pair.Key} ({ReferenceArguments.FriendlyTypeName(pair.Value)}) = "
+                + UbValueText(pair.Value)));
     }
 
-    // ── /vt translateroute ──────────────────────────────────────────────
+    // ── /ub translateroute ──────────────────────────────────────────────
 
     /// <summary>
-    /// <c>/vt translateroute &lt;startLandblock&gt; &lt;route&gt;
+    /// <c>/ub translateroute &lt;startLandblock&gt; &lt;route&gt;
     /// &lt;endLandblock&gt; &lt;saveAs&gt; [force]</c>: copies a route onto
     /// another landblock by shifting every point by the distance between the
     /// two blocks. One landblock step is 192 meters, and a route's points are
@@ -1080,19 +1749,23 @@ internal sealed partial class MossTankPanel
             || (parts.Length == 5
                 && !parts[4].Equals("force", StringComparison.OrdinalIgnoreCase)))
         {
-            WriteVtank(
-                "Syntax: /vt translateroute <startLandblock> <routeToLoad> "
-                + "<endLandblock> <routeToSaveAs> [force]");
+            WriteUbBadSyntax("translateroute");
             return;
         }
+        WriteUbToolDebug(UbChat.Tools.VTank, Invariant(
+            $"Translating route: RouteToLoad:{parts[1]} StartLandblock:{parts[0]} EndLandblock:{parts[2]} RouteToSaveAs:{parts[3]} Force:{parts.Length == 5}"));
         if (!TryParseLandblock(parts[0], out uint start))
         {
-            WriteVtank($"Could not parse hex value from StartLandblock: {parts[0]}");
+            PostUb(UbChat.ToolError(
+                UbChat.Tools.VTank,
+                $"Could not parse hex value from StartLandblock: {parts[0]}"));
             return;
         }
         if (!TryParseLandblock(parts[2], out uint end))
         {
-            WriteVtank($"Could not parse hex value from EndLandblock: {parts[2]}");
+            PostUb(UbChat.ToolError(
+                UbChat.Tools.VTank,
+                $"Could not parse hex value from EndLandblock: {parts[2]}"));
             return;
         }
 
@@ -1100,20 +1773,26 @@ internal sealed partial class MossTankPanel
         double northSouth =
             LandblockDifference((start << 8) >> 24, (end << 8) >> 24) / 240d;
         bool force = parts.Length == 5;
+        // Both names keep their extensions: the route read is that file when
+        // both forms sit side by side, and the route written is that form. A
+        // bare name to write is a .nav, as a route saved by name is.
         bool translated = _routeProfiles.TryTranslate(
-            StripExtension(parts[1], ".nav", ".af"),
-            StripExtension(parts[3], ".nav", ".af"),
+            parts[1],
+            parts[3],
             eastWest,
             northSouth,
             force,
             _host.Automation.Spells,
-            out string notice);
-        WriteVtank(notice);
-        if (translated)
+            out string notice,
+            out int records);
+        if (!translated)
         {
-            WriteVtank(Invariant(
-                $"Translated from {start:X8} to {end:X8} by adding offsets NS:{northSouth} EW:{eastWest}"));
+            PostUb(UbChat.ToolError(UbChat.Tools.VTank, notice));
+            return;
         }
+        // A route that translated is reported only in the debug output.
+        WriteUbToolDebug(UbChat.Tools.VTank, Invariant(
+            $"Translated {records} records from {start:X8} to {end:X8} by adding offsets NS:{northSouth} EW:{eastWest}\nSaved to file: {notice}"));
     }
 
     /// <summary>
@@ -1136,7 +1815,7 @@ internal sealed partial class MossTankPanel
     }
 
     /// <summary>
-    /// A line whose numbers read the same on every machine. Retail text is
+    /// A line whose numbers read the same on every machine. The game's text is
     /// US-formatted for everyone, and a macro parsing its own chat must not
     /// see a comma where it expects a decimal point.
     /// </summary>

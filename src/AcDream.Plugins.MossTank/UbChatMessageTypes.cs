@@ -7,7 +7,7 @@ namespace AcDream.Plugins.MossTank;
 /// </summary>
 internal readonly record struct UbChatMessageType(string Name, int Value);
 
-/// <summary>The catalogue <c>/vt printcolors</c> walks.</summary>
+/// <summary>The catalogue <c>/ub printcolors</c> walks.</summary>
 internal static class UbChatMessageTypes
 {
     /// <summary>

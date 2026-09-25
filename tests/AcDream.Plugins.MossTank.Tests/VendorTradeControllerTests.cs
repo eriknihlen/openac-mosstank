@@ -104,6 +104,73 @@ public sealed class VendorTradeControllerTests
     }
 
     /// <summary>
+    /// Staging a buy says, in the reference's words, what it read from the
+    /// command and then what it added. A town-trip profile waits on both
+    /// (<c>^\[UB\] Name\: Powdered</c> to know the command landed,
+    /// <c>^\[UB\] Added item to buy list\: Powdered</c> before it buys).
+    /// Mutation: dropping the tag, or the "Name:" line, never fires them.
+    /// </summary>
+    [Fact]
+    public void AddBuyPrintsTheLinesAProfileWaitsOn()
+    {
+        FakeAutomation automation = ShopWithRations();
+        automation.Listings =
+        [
+            new PluginVendorItem(RationListing, 5001u, "Powdered Malachite", PluginObjectClass.Misc, 5, 1),
+        ];
+        (VendorTradeController controller, _) = Controller(automation);
+        automation.Open(Shopkeeper);
+
+        IReadOnlyList<string> lines = controller.VendorCommand("addbuy 1 Powdered Malachite")!;
+
+        Assert.Equal(
+            [
+                "[UB] Name: Powdered Malachite count: 1 param:1 Powdered Malachite",
+                "[UB] Added item to buy list: Powdered Malachite * 1",
+            ],
+            lines);
+        Assert.Matches(@"^\[UB\] Name\: Powdered", lines[0]);
+        // The token profile waits on any line under the tag after it asks.
+        Assert.Matches(@"^\[UB\]", lines[0]);
+        Assert.Matches(@"^\[UB\] Added item to buy list\: Powdered", lines[1]);
+        Assert.Equal([(RationListing, 1)], automation.Staged);
+    }
+
+    /// <summary>
+    /// Every end of a run says "AutoVendor finished: &lt;vendor&gt;", as a
+    /// think when AutoVendor.Think is on: the profiles that send a character
+    /// to a vendor wait on <c>You think, "AutoVendor finished</c> before
+    /// they walk on. A stop with no run going says it too, as the
+    /// reference's does. Mutation: the old "Vendor run finished" wording, or
+    /// a plain line where the think belongs, never fires it.
+    /// </summary>
+    [Fact]
+    public void EveryEndOfARunThinksTheFinishedLine()
+    {
+        FakeAutomation automation = ShopWithRations();
+        automation.Owned = [Coin(100)];
+        (VendorTradeController controller, MemoryStorage storage) = Controller(
+            automation,
+            new VendorTradeSettings { Think = static () => true });
+        WriteProfile(storage, "mosstank/ub/autovendor/Shopkeeper.utl");
+        automation.Open(Shopkeeper);
+        controller.Tick(0.1d, canAct: true);
+        Assert.True(controller.IsRunning);
+        automation.Messages.Clear();
+
+        Assert.True(controller.StopRequested());
+        Assert.False(controller.StopRequested());
+
+        Assert.Equal(
+            [
+                "/t Acdream, AutoVendor finished: Shopkeeper",
+                "/t Acdream, AutoVendor finished: Shopkeeper",
+            ],
+            automation.Messages);
+        Assert.DoesNotContain(automation.Messages, static line => line.StartsWith("You think", StringComparison.Ordinal));
+    }
+
+    /// <summary>
     /// Test mode says what a run would do and touches nothing.
     /// </summary>
     [Fact]
@@ -124,6 +191,52 @@ public sealed class VendorTradeControllerTests
         Assert.Empty(automation.Staged);
         Assert.Contains(automation.Messages, m => m.Contains("Ration", StringComparison.Ordinal));
         Assert.Contains(automation.Messages, m => m.Contains("Sword", StringComparison.Ordinal));
+    }
+
+    /// <summary>
+    /// The test-mode lists in the reference's words: a buy line with no
+    /// price, a sell line naming where the item is and the item as a link
+    /// that selects it, its id written as a signed number. Mutation: the old
+    /// lines added " at 5" to the buy and wrote the sell as "Sword x1 for 30".
+    /// </summary>
+    [Fact]
+    public void TestModeListsReadAsTheReferencesDo()
+    {
+        const uint Pack = 60u;
+        const uint HighSword = 0x80000020u;
+        FakeAutomation automation = ShopWithRations();
+        automation.Owned =
+        [
+            Owned(Sword, "Sword", 40, 1, itemType: 0x1u),
+            Owned(Pack, "Pack", 0, 1, itemType: 0x200u) with
+            {
+                ObjectClass = PluginObjectClass.Container,
+                ContainerSlot = 1,
+            },
+            Owned(HighSword, "Sword", 40, 1, itemType: 0x1u) with
+            {
+                ContainerObjectId = Pack,
+                ContainerSlot = 2,
+            },
+            Coin(100),
+        ];
+        (VendorTradeController controller, MemoryStorage storage) = Controller(
+            automation,
+            new VendorTradeSettings { TestMode = () => true });
+        WriteProfile(storage, "mosstank/ub/autovendor/Shopkeeper.utl");
+
+        automation.Open(Shopkeeper);
+        controller.Tick(0.1d, canAct: true);
+
+        Assert.Contains("[UB] AutoVendor TEST MODE", automation.Messages);
+        string buy = Assert.Single(automation.Messages, static line => line.StartsWith("[UB] Buy Items:", StringComparison.Ordinal));
+        Assert.Matches(@"^\[UB\] Buy Items:\n  .+ -> Ration \* 10 - rations$", buy);
+        string sell = Assert.Single(automation.Messages, static line => line.StartsWith("[UB] Sell Items:", StringComparison.Ordinal));
+        Assert.Equal(
+            "[UB] Sell Items:\n"
+            + "  Main Pack: <Tell:IIDString:438347936:select|20>Sword</Tell> - swords\n"
+            + "  Pack #2: <Tell:IIDString:438347936:select|-2147483616>Sword</Tell> - swords",
+            sell);
     }
 
     /// <summary>
@@ -194,6 +307,34 @@ public sealed class VendorTradeControllerTests
     }
 
     /// <summary>
+    /// A staging line with no item name, or with a count below one, does not
+    /// parse and stages nothing: a bare number after a partial add is not a
+    /// name (an empty name is part of every name), and a count below one
+    /// would ask the server to split off billions or stage nothing.
+    /// Mutation: taking the empty name stages the sword and the first
+    /// listing; accepting the negative count asks for a split.
+    /// </summary>
+    [Theory]
+    [InlineData("addsellp 5")]
+    [InlineData("addbuyp 5")]
+    [InlineData("addsell -5 Sword")]
+    [InlineData("addsell 0 Sword")]
+    [InlineData("addbuy 0 Ration")]
+    [InlineData("addbuy -2 Ration")]
+    public void AStagingLineWithoutANameOrWithACountBelowOneIsTheUsage(string command)
+    {
+        FakeAutomation automation = ShopWithRations();
+        automation.Owned = [Owned(Sword, "Sword", 40, 3, itemType: 0x1u), Coin(10)];
+        (VendorTradeController controller, _) = Controller(automation);
+        automation.Open(Shopkeeper);
+
+        Assert.Null(controller.VendorCommand(command));
+        Assert.Empty(automation.Staged);
+        Assert.Empty(automation.StagedSells);
+        Assert.Empty(automation.Moves);
+    }
+
+    /// <summary>
     /// The vendor commands: staging by name, whole or partial, with a count;
     /// the two commits; the two clears; and an open that stands down while
     /// the route owns vendor opening.
@@ -207,14 +348,18 @@ public sealed class VendorTradeControllerTests
         bool routeOwns = false;
         controller.BindRouteOwnsVendorOpen(() => routeOwns);
 
-        Assert.Contains("No vendor open", controller.VendorCommand("addbuy 5 Ration")[0], StringComparison.Ordinal);
+        Assert.Equal(
+            ["[UB] Name: Ration count: 5 param:5 Ration", "[UB] Error: addbuy: No vendor open"],
+            controller.VendorCommand("addbuy 5 Ration")!);
 
         automation.Open(Shopkeeper);
         controller.VendorCommand("addbuy 5 Ration");
         Assert.Equal([(RationListing, 5)], automation.Staged);
         controller.VendorCommand("addbuyp 2 rat");
         Assert.Equal([(RationListing, 7)], automation.Staged);
-        Assert.Contains("Unable to find", controller.VendorCommand("addbuy Rock")[0], StringComparison.Ordinal);
+        Assert.Equal(
+            "[UB] Error: addbuy: Unable to find item named 'Rock' in vendor sell list",
+            controller.VendorCommand("addbuy Rock")![1]);
 
         controller.VendorCommand("addsellp swo");
         Assert.Equal([Sword], automation.StagedSells);
@@ -236,7 +381,7 @@ public sealed class VendorTradeControllerTests
             new PluginWorldObject(Shopkeeper, 0u, "Shopkeeper", PluginObjectClass.Vendor, 0u, 0u, 0u),
         ];
         routeOwns = true;
-        Assert.Contains("route", controller.VendorCommand("open Shopkeeper")[0], StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("route", controller.VendorCommand("open Shopkeeper")![0], StringComparison.OrdinalIgnoreCase);
         Assert.Empty(automation.Uses);
 
         routeOwns = false;
@@ -251,6 +396,33 @@ public sealed class VendorTradeControllerTests
         controller.VendorCommand("opencancel");
         Assert.False(controller.Tick(5d, canAct: true));
         Assert.Equal(2, automation.Uses.Count);
+    }
+
+    /// <summary>
+    /// A vendor is found as the reference finds one: by decimal or hex id,
+    /// by name, and -- with no name at all -- the nearest vendor there is.
+    /// Mutation: the old name-only search finds nothing for an id or for a
+    /// bare open.
+    /// </summary>
+    [Theory]
+    [InlineData("open 600")]
+    [InlineData("open 0x258")]
+    [InlineData("open Armorer")]
+    [InlineData("open")]
+    public void VendorOpenFindsTheVendorByIdHexIdNameOrNearest(string command)
+    {
+        FakeAutomation automation = ShopWithRations();
+        (VendorTradeController controller, _) = Controller(automation);
+        automation.WorldObjects =
+        [
+            new PluginWorldObject(600u, 0u, "Armorer", PluginObjectClass.Vendor, 0u, 0u, 0u),
+            new PluginWorldObject(Shopkeeper, 0u, "Shopkeeper", PluginObjectClass.Vendor, 0u, 0u, 0u),
+        ];
+
+        Assert.Empty(controller.VendorCommand(command)!);
+        Assert.True(controller.Tick(0.1d, canAct: true));
+
+        Assert.Equal([600u], automation.Uses);
     }
 
     /// <summary>
@@ -443,6 +615,19 @@ public sealed class VendorTradeControllerTests
         public List<(uint Template, int Count)[]> BuyAllCalls { get; } = [];
         public List<uint[]> SellAllCalls { get; } = [];
         public List<uint> Uses { get; } = [];
+
+        /// <summary>Every move asked for, a split included.</summary>
+        public List<(uint Item, uint Container, uint Amount)> Moves { get; } = [];
+
+        public PluginItemCommandResult MoveToContainer(
+            uint objectId,
+            uint containerObjectId,
+            uint amount = 0u,
+            int placement = 0)
+        {
+            Moves.Add((objectId, containerObjectId, amount));
+            return new PluginItemCommandResult(PluginItemCommandStatus.Started);
+        }
 
         public PluginVendorProfile Profile
         {

@@ -87,8 +87,89 @@ internal static class UbSettingDefinitions
     /// <summary>Every setting, grouped by tool and in page order.</summary>
     internal static IReadOnlyList<UbSettingDefinition> All { get; } = Build();
 
+    /// <summary>
+    /// Names macros set or read that are not rows on the tab: settings of
+    /// tools this plugin does not have, or switches whose choice is already
+    /// made here. They are accepted so a macro that sets them at startup
+    /// carries on instead of stopping on "unknown option", and each reads
+    /// back what is actually in force.
+    /// </summary>
+    /// <remarks>
+    /// <list type="bullet">
+    /// <item><c>VTank.PatchExpressionEngine</c> always reads True: the one
+    /// expression engine here always has the extended functions, and a
+    /// write changes nothing.</item>
+    /// <item><c>InventoryManager.TreatStackAsSingleItem</c> always reads
+    /// False: a hand-over count here is always in units, and a write
+    /// changes nothing.</item>
+    /// <item><c>Plugin.SettingsProfile</c> is the named settings profile
+    /// this character has open; a write opens another.</item>
+    /// <item><c>Plugin.PortalThink</c> makes the portal command think its
+    /// "could not find a portal" line instead of writing it.</item>
+    /// <item><c>AutoSalvage.Think</c>, <c>AutoTrade.Think</c>,
+    /// <c>Looter.EnableChests</c>: there is no auto-salvage, auto-trade or
+    /// chest looter here. The value is kept and read back, and drives
+    /// nothing.</item>
+    /// <item><c>Plugin.VideoPatch</c>, <c>Plugin.VideoPatchFocus</c>: the
+    /// host gives a plugin no way to stop drawing the world. Kept and read
+    /// back, and drive nothing.</item>
+    /// </list>
+    /// </remarks>
+    internal static IReadOnlyList<UbSettingDefinition> AcceptedOnly { get; } =
+    [
+        Switch(
+            "VTank.PatchExpressionEngine",
+            "The extended expression functions; always on here.",
+            true),
+        Switch(
+            "InventoryManager.TreatStackAsSingleItem",
+            "Count a stack as one item when handing over; always off here.",
+            false),
+        Line(
+            "Plugin.SettingsProfile",
+            "The named settings profile this character has open.",
+            UbSettingStore.DefaultProfileName,
+            UbSettingScope.Character),
+        Switch("Plugin.PortalThink", "Think to yourself when a portal is not found.", false),
+        Switch("AutoSalvage.Think", "Kept for macros; there is no auto-salvage here.", false),
+        Switch("AutoTrade.Think", "Kept for macros; there is no auto-trade here.", false),
+        Switch("Looter.EnableChests", "Kept for macros; there is no chest looter here.", false),
+        Switch("Plugin.VideoPatch", "Kept for macros; the world is always drawn.", false),
+        Switch("Plugin.VideoPatchFocus", "Kept for macros; the world is always drawn.", false),
+    ];
+
+    /// <summary>
+    /// The names the original gives settings that are called something
+    /// else here, so a macro that uses the original's spelling reaches the
+    /// same row.
+    /// </summary>
+    internal static IReadOnlyDictionary<string, string> OriginalSpellings { get; } =
+        new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
+        {
+            ["VTank.VitalSharing"] = "Sharing.Vitals",
+            ["InventoryManager.IGThink"] = "ItemGiver.Think",
+            ["InventoryManager.IGFailure"] = "ItemGiver.FailureLimit",
+            ["InventoryManager.IGBusyCount"] = "ItemGiver.BusyRetryLimit",
+            ["InventoryManager.IGRange"] = "ItemGiver.Range",
+            ["GameEvents.GameEventHandlers"] = "GameEvents.Handlers",
+        };
+
+    /// <summary>
+    /// The name the original gives a row: the row's own name, unless the row
+    /// is one of those called something else here.
+    /// </summary>
+    internal static string OriginalNameOf(string name)
+    {
+        foreach ((string spelling, string row) in OriginalSpellings)
+        {
+            if (row.Equals(name, StringComparison.OrdinalIgnoreCase))
+                return spelling;
+        }
+        return name;
+    }
+
     private static readonly IReadOnlyDictionary<string, UbSettingKind> KindsByName =
-        All.ToDictionary(
+        All.Concat(AcceptedOnly).ToDictionary(
             static definition => definition.Name,
             static definition => definition.Kind,
             StringComparer.OrdinalIgnoreCase);
@@ -283,6 +364,35 @@ internal static class UbSettingDefinitions
 
     private static void AddBehaviourTools(List<UbSettingDefinition> rows)
     {
+        // The reference prints its debug lines only while this is on; with it
+        // off they go to its log file alone.
+        rows.Add(Switch(UbChat.DebugSetting, "Show debug messages.", false));
+        // Each kind of UB line has a display: whether it is shown in chat
+        // (the reference logs it either way) and the text class it is
+        // printed in, shipped as UbChat's defaults.
+        foreach ((UbChat.Kind kind, string what) in new[]
+        {
+            (UbChat.Kind.Generic, "generic"),
+            (UbChat.Kind.Debug, "debug"),
+            (UbChat.Kind.Expression, "expression"),
+            (UbChat.Kind.Error, "error"),
+        })
+        {
+            UbChat.Display shipped = UbChat.DefaultDisplay(kind);
+            string display = UbChat.DisplaySetting(kind);
+            rows.Add(Switch(display + ".Enabled", $"Show plugin {what} messages in chat.", shipped.Show));
+            rows.Add(new UbSettingDefinition(
+                display + ".Color",
+                $"The text class plugin {what} messages are printed in.",
+                UbSettingKind.Enum,
+                UbSettingValue.FromChoice(shipped.ChatType),
+                UbSettingScope.Profile)
+            {
+                Choices = UbChatMessageTypes.All
+                    .Select(static type => new VtankEnumValue(type.Value, type.Name))
+                    .ToArray(),
+            });
+        }
         rows.Add(Switch("Aliases.Enabled", "Rewrite what you type using your alias list.", true));
         rows.Add(Line(
             "Aliases.Profile",

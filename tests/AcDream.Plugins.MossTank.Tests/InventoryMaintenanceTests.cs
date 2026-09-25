@@ -148,6 +148,71 @@ public sealed class InventoryMaintenanceTests
         Assert.Equal(81, automation.Merges.Count);
     }
 
+    /// <summary>
+    /// A stack pass asked for by command runs whether or not the macro's own
+    /// stack switch is on, says it is running, stacks until nothing is left,
+    /// and then says it is complete. Mutation: dropping the completion line
+    /// turns it red.
+    /// </summary>
+    [Fact]
+    public void AStackPassByCommandRunsUntilNothingIsLeftAndSaysSo()
+    {
+        var automation = new Automation
+        {
+            Inventory =
+            [
+                Item(20, "Arrow", 77, Player, 3, 10),
+                Item(21, "Arrow", 77, Player, 8, 10),
+            ],
+        };
+        var lines = new List<string>();
+        var run = new StackCramCommandRun(new Host(automation), lines.Add);
+
+        run.Start(stack: true);
+        Assert.Equal(["AutoStack running"], lines);
+        Assert.True(run.Tick(1d, canAct: true));
+        Assert.Equal(new[] { (20u, 21u, 2u) }, automation.Merges);
+
+        automation.Busy = false;
+        automation.Completion = new PluginInventoryCompletion(
+            1,
+            PluginInventoryCommandKind.Merge,
+            20u,
+            0u);
+        automation.Inventory = [Item(21, "Arrow", 77, Player, 10, 10)];
+
+        Assert.False(run.Tick(1d, canAct: true));
+        Assert.False(run.IsRunning);
+        Assert.Equal(["AutoStack running", "AutoStack complete."], lines);
+    }
+
+    /// <summary>
+    /// With nothing to do, a pass says so and never starts; a cram pass does
+    /// not stack. Mutation: starting without first looking for work turns
+    /// it red.
+    /// </summary>
+    [Fact]
+    public void APassWithNothingToDoSaysSoAndDoesNotStart()
+    {
+        var automation = new Automation
+        {
+            Inventory =
+            [
+                Item(20, "Arrow", 77, Player, 3, 10),
+                Item(21, "Arrow", 77, Player, 8, 10),
+            ],
+        };
+        var lines = new List<string>();
+        var run = new StackCramCommandRun(new Host(automation), lines.Add);
+
+        run.Start(stack: false);
+
+        Assert.Equal(["AutoCram - nothing to do"], lines);
+        Assert.False(run.IsRunning);
+        Assert.False(run.Tick(1d, canAct: true));
+        Assert.Empty(automation.Merges);
+    }
+
     private static PluginInventoryItem Item(
         uint id,
         string name,

@@ -16,6 +16,15 @@ internal static class VtankMetaProfileSerializer
     private const int MaximumRules = 100_000;
     private const int MaximumNesting = 256;
 
+    /// <summary>
+    /// The most characters a serialized blob (an embedded route, a view's
+    /// markup) may state. It is a length, not a number of things: a long
+    /// route runs past the rule bound on its own (1,742 nodes is some
+    /// 111,000 characters), so it gets a bound of its own that no real
+    /// file comes near.
+    /// </summary>
+    private const int MaximumSerializedCharacters = 64 * 1024 * 1024;
+
     public static bool TryLoad(string source, out MetaProfile profile, out string error) =>
         TryLoad(source, MetafSerializer.NoOpSpells.Instance, out profile, out error);
 
@@ -64,6 +73,314 @@ internal static class VtankMetaProfileSerializer
             error = exception.Message;
             return false;
         }
+    }
+
+    /// <summary>
+    /// The meta in the older ".met" form, line for line as that form's own
+    /// writer lays it out, so a meta loaded from a ".met" saves back to the
+    /// same bytes and the tool that owns the form reads what is written.
+    /// </summary>
+    /// <exception cref="InvalidOperationException">
+    /// The meta holds something the form has no way to say: a rule switched
+    /// off, a condition only this plugin knows, a whole-number field holding
+    /// a fraction. Nothing is written in that case rather than a file that
+    /// quietly lost it.
+    /// </exception>
+    public static string Save(MetaProfile profile)
+    {
+        ArgumentNullException.ThrowIfNull(profile);
+        int disabled = profile.Rules.Count(static rule => !rule.Enabled);
+        if (disabled > 0)
+        {
+            throw new InvalidOperationException(
+                $"{disabled} rule(s) are switched off, and a .met file has no switched-off rule.");
+        }
+        var writer = new LineWriter();
+        foreach (string line in Header)
+            writer.Add(line);
+        writer.Add(FormatInt(profile.Rules.Count));
+        foreach (MetaRule rule in profile.Rules)
+        {
+            writer.Add("i");
+            writer.Add(FormatInt(ConditionType(rule.Condition.Kind)));
+            writer.Add("i");
+            writer.Add(FormatInt(ActionType(rule.Action.Kind)));
+            WriteCondition(writer, rule.Condition, 0);
+            WriteAction(writer, rule.Action, 0);
+            writer.Add("s");
+            writer.Add(SingleLine(rule.State, "state name"));
+        }
+        return writer.ToString();
+    }
+
+    private static void WriteCondition(LineWriter writer, MetaCondition value, int depth)
+    {
+        if (depth > MaximumNesting)
+            throw new InvalidOperationException("The meta's conditions nest too deep for a .met file.");
+        int type = ConditionType(value.Kind);
+        switch (type)
+        {
+            case 0 or 1 or 7 or 8 or 9 or 10 or 15 or 19 or 20:
+                writer.Add("i", "0");
+                break;
+            case 2 or 3:
+                writer.Add(RecursiveTablePrefix);
+                writer.Add(FormatInt(value.Children.Count));
+                foreach (MetaCondition child in value.Children)
+                {
+                    writer.Add("i", FormatInt(ConditionType(child.Kind)));
+                    WriteCondition(writer, child, depth + 1);
+                }
+                break;
+            case 4:
+                writer.Add("s", SingleLine(value.Text, "chat pattern"));
+                break;
+            case 5 or 6 or 17 or 18 or 22 or 24:
+                writer.Add("i", FormatWhole(value.Number));
+                break;
+            case 11 or 12:
+                writer.Add(TablePrefix);
+                writer.Add("2", "s", "n", "s", SingleLine(value.Text, "item name"));
+                writer.Add("s", "c", "i", FormatWhole(value.Number));
+                break;
+            case 13:
+                writer.Add(TablePrefix);
+                writer.Add("3", "s", "n", "s", SingleLine(value.Text, "monster name"));
+                writer.Add("s", "c", "i", FormatWhole(value.Number));
+                writer.Add("s", "r", "d", FormatDouble(value.SecondaryNumber));
+                break;
+            case 14:
+                writer.Add(TablePrefix);
+                writer.Add("3", "s", "p", "i", FormatWhole(value.TertiaryNumber));
+                writer.Add("s", "c", "i", FormatWhole(value.Number));
+                writer.Add("s", "r", "d", FormatDouble(value.SecondaryNumber));
+                break;
+            case 16:
+                writer.Add(TablePrefix);
+                writer.Add("1", "s", "r", "d", FormatDouble(value.Number));
+                break;
+            case 21:
+                if (value.Children.Count != 1)
+                    throw new InvalidOperationException("A .met Not holds exactly one condition.");
+                writer.Add(RecursiveTablePrefix);
+                writer.Add("1", "i", FormatInt(ConditionType(value.Children[0].Kind)));
+                WriteCondition(writer, value.Children[0], depth + 1);
+                break;
+            case 23:
+                writer.Add(TablePrefix);
+                writer.Add("2", "s", "sid", "i", FormatWhole(value.Number));
+                writer.Add("s", "sec", "i", FormatWhole(value.SecondaryNumber));
+                break;
+            case 25:
+                writer.Add(TablePrefix);
+                writer.Add("1", "s", "dist", "d", FormatDouble(value.Number));
+                break;
+            case 26:
+                writer.Add(TablePrefix);
+                writer.Add("1", "s", "e", "s", SingleLine(value.Text, "expression"));
+                break;
+            case 28:
+                writer.Add(TablePrefix);
+                writer.Add("2", "s", "p", "s", SingleLine(value.Text, "chat pattern"));
+                writer.Add("s", "c", "s", SingleLine(value.SecondaryText, "colour list"));
+                break;
+        }
+    }
+
+    private static void WriteAction(LineWriter writer, MetaAction value, int depth)
+    {
+        if (depth > MaximumNesting)
+            throw new InvalidOperationException("The meta's actions nest too deep for a .met file.");
+        int type = ActionType(value.Kind);
+        switch (type)
+        {
+            case 0 or 6:
+                writer.Add("i", "0");
+                break;
+            case 1:
+                writer.Add("s", SingleLine(value.Text, "state name"));
+                break;
+            case 2:
+                writer.Add("s", SingleLine(value.Text, "chat command"));
+                break;
+            case 3:
+                writer.Add(RecursiveTablePrefix);
+                writer.Add(FormatInt(value.Children.Count));
+                foreach (MetaAction child in value.Children)
+                {
+                    writer.Add("i", FormatInt(ActionType(child.Kind)));
+                    WriteAction(writer, child, depth + 1);
+                }
+                break;
+            case 4:
+                WriteEmbeddedNavigation(writer, value);
+                break;
+            case 5:
+                writer.Add(TablePrefix);
+                writer.Add("2", "s", "st", "s", SingleLine(value.Text, "state name"));
+                writer.Add("s", "ret", "s", SingleLine(value.SecondaryText, "state name"));
+                break;
+            case 7 or 8:
+                writer.Add(TablePrefix);
+                writer.Add("1", "s", "e", "s", SingleLine(value.Text, "expression"));
+                break;
+            case 9:
+                writer.Add(TablePrefix);
+                writer.Add("3", "s", "s", "s", SingleLine(value.Text, "state name"));
+                writer.Add("s", "r", "d", FormatDouble(value.Number));
+                writer.Add("s", "t", "d", FormatDouble(value.SecondaryNumber));
+                break;
+            case 10 or 15:
+                writer.Add(TablePrefix);
+                writer.Add("0");
+                break;
+            case 11 or 12:
+                writer.Add(TablePrefix);
+                writer.Add("2", "s", "o", "s", SingleLine(value.Text, "option name"));
+                writer.Add("s", "v", "s", SingleLine(value.SecondaryText, "option value"));
+                break;
+            case 13:
+                writer.Add(TablePrefix);
+                writer.Add("2", "s", "n", "s", SingleLine(value.Text, "view name"));
+                writer.Add("s", "x", "ba", FormatInt(value.SecondaryText.Length));
+                // The form writes a view's markup and runs straight on into
+                // whatever follows it, with no line break in between.
+                writer.AddUnterminated(value.SecondaryText);
+                break;
+            case 14:
+                writer.Add(TablePrefix);
+                writer.Add("1", "s", "n", "s", SingleLine(value.Text, "view name"));
+                break;
+        }
+    }
+
+    /// <summary>
+    /// A route carried in the meta: its name, its node count and the route
+    /// in the ".nav" form, led by the characters all of that takes, every
+    /// line break counted as two.
+    /// </summary>
+    private static void WriteEmbeddedNavigation(LineWriter writer, MetaAction value)
+    {
+        writer.Add("ba");
+        var lines = new List<string> { SingleLine(value.SecondaryText, "route name") };
+        if (value.EmbeddedRoute is { } route)
+        {
+            lines.Add(FormatInt(route.Mode == RouteMode.Target ? 1 : route.Waypoints.Count));
+            VtankNavRouteSerializer.WriteRoute(lines, route);
+        }
+        else
+        {
+            lines.Add("0");
+        }
+        writer.Add(FormatInt(lines.Sum(static line => line.Length + 2)));
+        foreach (string line in lines)
+            writer.Add(line);
+    }
+
+    private static int ConditionType(MetaConditionKind kind) => kind switch
+    {
+        MetaConditionKind.Never => 0,
+        MetaConditionKind.Always => 1,
+        MetaConditionKind.All => 2,
+        MetaConditionKind.Any => 3,
+        MetaConditionKind.ChatMessage => 4,
+        MetaConditionKind.PackSlotsLessThanOrEqual => 5,
+        MetaConditionKind.SecondsInStateGreaterThanOrEqual => 6,
+        MetaConditionKind.NavigationRouteEmpty => 7,
+        MetaConditionKind.CharacterDeath => 8,
+        MetaConditionKind.AnyVendorOpen => 9,
+        MetaConditionKind.VendorClosed => 10,
+        MetaConditionKind.InventoryItemCountLessThanOrEqual => 11,
+        MetaConditionKind.InventoryItemCountGreaterThanOrEqual => 12,
+        MetaConditionKind.MonsterNameCountWithinDistance => 13,
+        MetaConditionKind.MonsterPriorityCountWithinDistance => 14,
+        MetaConditionKind.NeedToBuff => 15,
+        MetaConditionKind.NoMonstersWithinDistance => 16,
+        MetaConditionKind.LandblockEquals => 17,
+        MetaConditionKind.LandcellEquals => 18,
+        MetaConditionKind.PortalspaceEntered => 19,
+        MetaConditionKind.PortalspaceExited => 20,
+        MetaConditionKind.Not => 21,
+        MetaConditionKind.PersistentSecondsInStateGreaterThanOrEqual => 22,
+        MetaConditionKind.TimeLeftOnSpellGreaterThanOrEqual => 23,
+        MetaConditionKind.BurdenPercentGreaterThanOrEqual => 24,
+        MetaConditionKind.DistanceFromAnyRoutePointGreaterThanOrEqual => 25,
+        MetaConditionKind.Expression => 26,
+        MetaConditionKind.ChatMessageCapture => 28,
+        _ => throw new InvalidOperationException(
+            $"A .met file has no condition {kind}; save this meta as .af instead."),
+    };
+
+    private static int ActionType(MetaActionKind kind) => kind switch
+    {
+        MetaActionKind.None => 0,
+        MetaActionKind.SetMetaState => 1,
+        MetaActionKind.ChatCommand => 2,
+        MetaActionKind.All => 3,
+        MetaActionKind.LoadEmbeddedNavigationRoute => 4,
+        MetaActionKind.CallMetaState => 5,
+        MetaActionKind.ReturnFromCall => 6,
+        MetaActionKind.ExpressionAction => 7,
+        MetaActionKind.ChatExpression => 8,
+        MetaActionKind.SetWatchdog => 9,
+        MetaActionKind.ClearWatchdog => 10,
+        MetaActionKind.GetVtankOption => 11,
+        MetaActionKind.SetVtankOption => 12,
+        MetaActionKind.CreateView => 13,
+        MetaActionKind.DestroyView => 14,
+        MetaActionKind.DestroyAllViews => 15,
+        _ => throw new InvalidOperationException(
+            $"A .met file has no action {kind}; save this meta as .af instead."),
+    };
+
+    private static string FormatInt(int value) =>
+        value.ToString(CultureInfo.InvariantCulture);
+
+    /// <summary>A whole-number field, refused when it holds a fraction.</summary>
+    private static string FormatWhole(double value)
+    {
+        if (!double.IsFinite(value)
+            || value != Math.Truncate(value)
+            || value is < int.MinValue or > int.MaxValue)
+        {
+            throw new InvalidOperationException(
+                $"A .met file holds only whole numbers in this field, not {value.ToString(CultureInfo.InvariantCulture)}.");
+        }
+        return FormatInt((int)value);
+    }
+
+    private static string FormatDouble(double value) =>
+        VtankNavRouteSerializer.FormatDouble(value);
+
+    private static string SingleLine(string value, string what)
+    {
+        string text = value ?? string.Empty;
+        if (text.Contains('\n', StringComparison.Ordinal)
+            || text.Contains('\r', StringComparison.Ordinal))
+        {
+            throw new InvalidOperationException(
+                $"A .met file cannot hold a {what} that runs over more than one line.");
+        }
+        return text;
+    }
+
+    /// <summary>
+    /// The form's lines, each ended by a line break except where a view's
+    /// markup runs on into the next line.
+    /// </summary>
+    private sealed class LineWriter
+    {
+        private readonly System.Text.StringBuilder _text = new();
+
+        public void Add(params string[] lines)
+        {
+            foreach (string line in lines)
+                _text.Append(line).Append("\r\n");
+        }
+
+        public void AddUnterminated(string text) => _text.Append(text);
+
+        public override string ToString() => _text.ToString();
     }
 
     private static MetaCondition ReadCondition(LineReader reader, int type, int depth)
@@ -221,7 +538,7 @@ internal static class VtankMetaProfileSerializer
                 reader.Expect(TablePrefix, "2", "s", "n", "s");
                 value.Text = reader.Read();
                 reader.Expect("s", "x", "ba");
-                int length = reader.ReadCount();
+                int length = reader.ReadLength();
                 value.SecondaryText = reader.ReadByteArray(length);
                 break;
             case 14:
@@ -237,7 +554,7 @@ internal static class VtankMetaProfileSerializer
     private static void ReadEmbeddedNavigation(LineReader reader, MetaAction target, ISpellCatalog spells)
     {
         reader.Expect("ba");
-        int serializedCharacters = reader.ReadCount();
+        int serializedCharacters = reader.ReadLength();
         target.SecondaryText = reader.Read();
         int statedNodeCount = reader.ReadCount();
         if (serializedCharacters <= 5)
@@ -414,6 +731,15 @@ internal static class VtankMetaProfileSerializer
             int value = ReadInt();
             if (value is < 0 or > MaximumRules)
                 throw Error("Invalid VTank Meta collection count.");
+            return value;
+        }
+
+        /// <summary>A serialized blob's stated character count.</summary>
+        public int ReadLength()
+        {
+            int value = ReadInt();
+            if (value is < 0 or > MaximumSerializedCharacters)
+                throw Error("Invalid VTank Meta serialized length.");
             return value;
         }
 

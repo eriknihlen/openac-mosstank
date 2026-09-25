@@ -221,12 +221,6 @@ public sealed class CombatControllerTests
     }
 
     /// <summary>
-    /// Mutation: put the approach back inside the attack (build the attack's
-    /// candidates out to the approach range and walk from there) and the
-    /// second half fails — the attack would claim the pass with the monster
-    /// still twelve metres away, so nothing below it would ever run.
-    /// </summary>
-    /// <summary>
     /// The winner acts before the losers are torn down here, which the
     /// reference does the other way round, so a teardown that reaches
     /// outside its own rule can undo the work the winner just did. The
@@ -351,6 +345,12 @@ public sealed class CombatControllerTests
         Assert.Equal(clearedBefore + 1, surface.ClearMovementCount);
     }
 
+    /// <summary>
+    /// Mutation: put the approach back inside the attack (build the attack's
+    /// candidates out to the approach range and walk from there) and the
+    /// second half fails — the attack would claim the pass with the monster
+    /// still twelve metres away, so nothing below it would ever run.
+    /// </summary>
     [Fact]
     public void WalkingToAMonsterIsItsOwnJobBelowTheAttack()
     {
@@ -975,8 +975,13 @@ public sealed class CombatControllerTests
         Assert.Equal(1, surface.ReleaseCount);
     }
 
+    /// <summary>
+    /// Summoning is a rule of its own that runs beside the pass, and refilling
+    /// has its own places in the pass: the attack itself neither uses an
+    /// essence nor waits on one.
+    /// </summary>
     [Fact]
-    public void CombatController_SummonsConfiguredPetBeforeStartingAttack()
+    public void TheAttackNeitherSummonsNorWaitsOnAPet()
     {
         var surface = new FakeAutomation
         {
@@ -991,9 +996,8 @@ public sealed class CombatControllerTests
         controller.Toggle();
         controller.OnTick(0.25);
 
-        Assert.Equal(88u, surface.LastUsedItem);
-        Assert.Equal(0, surface.BeginCount);
-        Assert.Contains("Summoning", controller.Status, StringComparison.Ordinal);
+        Assert.NotEqual(88u, surface.LastUsedItem);
+        Assert.DoesNotContain("Summoning", controller.Status, StringComparison.Ordinal);
     }
 
     [Fact]
@@ -2378,13 +2382,6 @@ public sealed class CombatControllerTests
     }
 
     /// <summary>
-    /// A debuff's way to the monster is tested at the height its own flight
-    /// takes, exactly as an attack's is: a thrown phial is tested at the
-    /// profile's swing height, not at a fixed level one.
-    /// Mutation: hard-code <c>PluginAttackHeight.Medium</c> in the debuff
-    /// clearance check again and this fails.
-    /// </summary>
-    /// <summary>
     /// Grenades come from the game database in use: with the built-in one
     /// (no GrenadeOptions rows) the phial is nothing, and once a downloaded
     /// database replaces it the very next pass throws the phial. Mutation:
@@ -2431,6 +2428,13 @@ public sealed class CombatControllerTests
         Assert.Equal(PluginProjectilePathKind.Missile, surface.LastProjectileKind);
     }
 
+    /// <summary>
+    /// A debuff's way to the monster is tested at the height its own flight
+    /// takes, exactly as an attack's is: a thrown phial is tested at the
+    /// profile's swing height, not at a fixed level one.
+    /// Mutation: hard-code <c>PluginAttackHeight.Medium</c> in the debuff
+    /// clearance check again and this fails.
+    /// </summary>
     [Fact]
     public void ADebuffsClearanceUsesItsOwnFlightHeight()
     {
@@ -8433,8 +8437,6 @@ public sealed class CombatControllerTests
     /// Mutation: classify from the numbers again (ammunition type, damage,
     /// weapon skill) and this fails — a thrown weapon takes no ammunition and
     /// an unarmed weapon lists no damage, so both would be mis-stanced.
-    /// </summary>
-    /// <summary>
     /// Mutation: derive caster and stance from ItemType; Unknown then
     /// masquerades as a caster instead of only receiving the default stance.
     /// </summary>
@@ -8783,6 +8785,50 @@ public sealed class CombatControllerTests
     }
 
     /// <summary>
+    /// Rare-only looting looks at no corpse until this character's rare is
+    /// announced, so a kill does not stand the bot still. Mutation: drop the
+    /// rare-only term from <c>LootSettings.HoldsRouteAfterKill</c> and this
+    /// fails.
+    /// </summary>
+    [Fact]
+    public void ASpellKillDoesNotHoldNavigationWhileLootingOnlyRares()
+    {
+        var loot = new LootSettings { Enabled = true, LootOnlyRareCorpses = true };
+        var tracker = new SpellCastTracker();
+        var locks = new ActionLockTable();
+        var controller = new CombatController(
+            new FakeHost(new FakeAutomation()),
+            new CombatSettings(),
+            castTracker: tracker);
+        controller.BindActionLocks(locks, () => loot.HoldsRouteAfterKill);
+
+        tracker.Begin(
+            1u,
+            "Flame Bolt VII",
+            30u,
+            "Drudge",
+            false,
+            0L,
+            school: SpellCastTracker.WarMagicSchool,
+            canKill: true);
+        tracker.ObserveChat(1uL, "You killed Drudge!");
+
+        Assert.False(locks.IsLocked(ActionLockKind.Navigation));
+    }
+
+    [Theory]
+    [InlineData(true, false, true)]
+    [InlineData(true, true, false)]
+    [InlineData(false, false, false)]
+    [InlineData(false, true, false)]
+    public void TheKillHoldFollowsLootingAndRareOnly(
+        bool enabled, bool rareOnly, bool holds)
+    {
+        var loot = new LootSettings { Enabled = enabled, LootOnlyRareCorpses = rareOnly };
+        Assert.Equal(holds, loot.HoldsRouteAfterKill);
+    }
+
+    /// <summary>
     /// Equipping is a several-pass errand: one request goes out per pass, and
     /// the character's hands only settle once the pass clock moves. Calling
     /// the step over and over without advancing that clock leaves the swap
@@ -9113,7 +9159,7 @@ public sealed class CombatControllerTests
 
     private static PluginInventoryItem PetDevice(uint id, uint wcid) => new(
         id, wcid, "Frost Pet", 0, 1, 0, 0, 0, 0, 0, 0, 1, 50, 50,
-        0, 49000, 3, 0, false, 0, 0, 0, 0, 0, 54, 100, 0);
+        0, 0, 3, 0, false, 0, 0, 0, 0, 0, 54, 100, 0);
 
     private static PluginInventoryItem InventoryItem(
         uint id,
@@ -9555,6 +9601,32 @@ public sealed class CombatControllerTests
         {
             CaptureOwnedItemsCount++;
             return ItemEntries;
+        }
+
+        // A summoning essence's assessment carries its shared cooldown; the
+        // pet class it summons is never sent.
+        bool IItemAutomation.TryCaptureProperties(
+            uint objectId, out PluginItemProperties properties)
+        {
+            properties = default;
+            foreach (PluginInventoryItem item in ItemEntries)
+            {
+                if (item.ObjectId != objectId)
+                    continue;
+                var ints = new Dictionary<uint, int>();
+                if (PetDeviceCatalog.DamageType(item.WeenieClassId) != MonsterDamageType.Auto)
+                    ints[280u] = 213;
+                properties = new PluginItemProperties(
+                    ints,
+                    new Dictionary<uint, long>(),
+                    new Dictionary<uint, bool>(),
+                    new Dictionary<uint, double>(),
+                    new Dictionary<uint, string>(),
+                    new Dictionary<uint, uint>(),
+                    new Dictionary<uint, uint>());
+                return true;
+            }
+            return false;
         }
         public PluginItemCommandResult Use(uint objectId)
         {

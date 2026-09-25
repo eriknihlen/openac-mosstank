@@ -2570,11 +2570,6 @@ public sealed partial class LootingTests
         new(1u, eastMeters / 240d, northMeters / 240d, 0d, headingDegrees, true);
 
     /// <summary>
-    /// A real scroll: a writable item carrying the spell it teaches, which is
-    /// what makes the client classify it as a scroll. The name deliberately
-    /// does NOT end in " Scroll" — many do not, and the shape is what decides.
-    /// </summary>
-    /// <summary>
     /// Reading scrolls the character cannot yet cast is a profile choice. With
     /// it off, a scroll that passes every other test -- an unknown spell, a
     /// school the character is skilled enough in -- is still not worth reading,
@@ -2615,6 +2610,11 @@ public sealed partial class LootingTests
                 commit: true));
     }
 
+    /// <summary>
+    /// A real scroll: a writable item carrying the spell it teaches, which is
+    /// what makes the client classify it as a scroll. The name deliberately
+    /// does NOT end in " Scroll" — many do not, and the shape is what decides.
+    /// </summary>
     private static PluginInventoryItem Scroll(
         uint id,
         string spellName,

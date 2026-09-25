@@ -135,6 +135,7 @@ internal static class VtankOptionDetails
             ["NavPriorityBoost"] = Navigation,
             ["DeleteGhostMonsters"] = Misc,
             ["GhostMonsterSpellAttemptCount"] = Misc,
+            ["WhoYouGonnaCall"] = Misc,
             ["BlacklistMonsterAttemptCount"] = Misc,
             ["BlacklistMonsterTimeoutSeconds"] = Misc,
             ["CombineSalvage"] = Looting,

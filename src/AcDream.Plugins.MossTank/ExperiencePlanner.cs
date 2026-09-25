@@ -272,7 +272,7 @@ internal static class ExperiencePolicy
         string name = halves[0].Trim();
         if (!ExperienceTargets.TryGet(name, out target))
         {
-            problem = $"Unable to parse experience target {name}";
+            problem = $"Unable to parse XpTarget {name}";
             return false;
         }
         if (!double.TryParse(halves[1].Trim(), NumberStyles.Float, CultureInfo.InvariantCulture, out weight))

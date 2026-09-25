@@ -26,13 +26,20 @@ separate, explicit choice you make on that tab. A hand install works too: unzip
 the release's `acdream.mosstank-<version>.zip` into its own subdirectory of your
 plugins folder (`%LOCALAPPDATA%\acdream\plugins` on Windows).
 
-Commands are registered under `/vt`, so VTank command lines work as they are.
+Commands are registered under `/vt` and `/ub`, as VTank and UtilityBelt register them:
+the macro's commands answer on `/vt`, the UtilityBelt ones on `/ub`, so command lines
+written for either work as they are. `/vt help` and `/ub help` list each word's commands.
 
 ## Your existing profiles
 
 MossTank parses the real formats byte-for-byte: `.usd` settings, `.utl` loot
 profiles, `.met` and `.af` metas, and `.nav` routes. Its round-trip tests assert
 the exact bytes, including line endings, against real profiles.
+
+A route or meta saves back into the file it was loaded from, in that file's
+form. `/vt nav save <name>` and `/vt meta save <name>` write a `.nav` or `.met`;
+`/vt navaf save <name>` and `/vt metaaf save <name>` write MossTank's `.af`. A
+bare name loads the `.nav` or `.met` first and the `.af` second.
 
 **It never touches a file outside the folders the host hands it.** Every read
 and write goes through a host storage surface, and there are two of them:
@@ -109,11 +116,10 @@ launcher offers only to players who opt this plugin into its Beta channel.
 
 ## Attribution
 
-The UB tab, the UB settings, the Tinker tab and the `/vt` commands that mirror
-UtilityBelt's are ports of **UtilityBelt** (MIT, by its contributors:
-Aquafir, Brycter, Cosmic Jester, delasteve, dpbarrett, FlaggAC, enknamel,
-Harli, Schneebly, trevis, Yonneh), rewritten against this client's plugin
-API. MossTank is also interoperable with **VTank** by Virindi: it reads and writes
+The UB tab, the UB settings, the Tinker tab and the `/ub` commands are ports of
+**UtilityBelt** (MIT, by its contributors: Aquafir, Brycter, Cosmic Jester,
+delasteve, dpbarrett, FlaggAC, enknamel, Harli, Schneebly, trevis, Yonneh),
+rewritten against this client's plugin API. MossTank is also interoperable with **VTank** by Virindi: it reads and writes
 VTank's file formats and answers its command and expression names, with no
 VTank code included; the information needed for that was obtained by
 decompilation for interoperability as permitted by Article 6 of the EU

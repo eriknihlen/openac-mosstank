@@ -8,7 +8,7 @@ carries.
 
 ## UtilityBelt
 
-MossTank's UB tab, UB settings, Tinker tab, and the `/vt` commands that mirror
+MossTank's UB tab, UB settings, Tinker tab, and the `/ub` commands that mirror
 UtilityBelt's are ports of features from **UtilityBelt**, the Decal plugin
 for Asheron's Call (https://gitlab.com/utilitybelt/utilitybelt.gitlab.io),
 MIT-licensed as stated in its README and confirmed by its author.

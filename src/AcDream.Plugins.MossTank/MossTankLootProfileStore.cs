@@ -277,7 +277,7 @@ internal sealed class MossTankLootProfileStore
 
     /// <summary>
     /// Loads an item giver profile from the shared <c>itemgiver</c> folder,
-    /// where <c>/vt ig</c> looks first; false when there is no such file.
+    /// where <c>/ub ig</c> looks first; false when there is no such file.
     /// </summary>
     public bool TryLoadItemGiver(string? name, List<LootRule> target)
     {

@@ -11,6 +11,22 @@ internal enum RouteMode
     Once,
 }
 
+/// <summary>Why a route cannot step back to an earlier waypoint.</summary>
+internal enum RouteStepBackBlock
+{
+    /// <summary>It can.</summary>
+    None,
+
+    /// <summary>A follow route has no waypoints.</summary>
+    FollowRoute,
+
+    /// <summary>A once-through route spends its points and never goes back.</summary>
+    OnceRoute,
+
+    /// <summary>The route has no waypoints.</summary>
+    EmptyRoute,
+}
+
 /// <summary>When the route hands a leg to the client's own pathing.</summary>
 internal enum ClientPathing
 {
@@ -112,8 +128,13 @@ internal sealed class RouteWaypoint
     public RouteRecallKind Recall { get; set; }
     public uint RecallSpellId { get; set; }
     public string RecallSpellName { get; set; } = string.Empty;
-    public float JumpHeadingDegrees { get; set; }
-    public bool JumpRun { get; set; }
+    public double JumpHeadingDegrees { get; set; }
+    /// <summary>
+    /// The jump's shift flag as the route files store it: true holds shift,
+    /// which in the game is the walk key, so the jump leaves at a walk;
+    /// false leaves at the default run.
+    /// </summary>
+    public bool JumpHoldShift { get; set; }
     public int JumpChargeMilliseconds { get; set; } = 1000;
     public RouteJumpDirection JumpDirection { get; set; }
 
@@ -132,7 +153,7 @@ internal sealed class RouteWaypoint
         RecallSpellId = RecallSpellId,
         RecallSpellName = RecallSpellName,
         JumpHeadingDegrees = JumpHeadingDegrees,
-        JumpRun = JumpRun,
+        JumpHoldShift = JumpHoldShift,
         JumpChargeMilliseconds = JumpChargeMilliseconds,
         JumpDirection = JumpDirection,
     };
@@ -155,7 +176,7 @@ internal sealed class RouteWaypoint
         RouteWaypointType.Jump =>
             $"Jump: {JumpHeadingDegrees.ToString("0.0", CultureInfo.InvariantCulture)}d, "
             + $"{JumpChargeMilliseconds.ToString(CultureInfo.InvariantCulture)}ms"
-            + (JumpRun ? ", Shift" : string.Empty)
+            + (JumpHoldShift ? ", Shift" : string.Empty)
             + $", {JumpDirectionDisplayName(JumpDirection)}",
         _ => Type.ToString(),
     };
@@ -484,7 +505,25 @@ internal sealed class NavigationController
     private bool _jumpSawAirborne;
     private double _jumpChargeElapsed;
     private double _jumpReleaseElapsed;
+
+    /// <summary>Whether the client has been asked for this waypoint's jump.</summary>
+    private bool _jumpAsked;
+
+    /// <summary>
+    /// The channel a route jump's direction key is held on by the client,
+    /// from the moment the jump is asked for until the route lets it go.
+    /// </summary>
+    private PluginMoveChannel? _jumpMoveChannel;
     private double _checkpointElapsed;
+
+    /// <summary>
+    /// When the last checkpoint nudge was pressed, on the mover's clock. The
+    /// reference holds its pass for the tenth of a second the key is down.
+    /// </summary>
+    private double _checkpointNudgeStamp = double.NegativeInfinity;
+
+    /// <summary>How long a checkpoint nudge holds the pass, in seconds.</summary>
+    private const double CheckpointNudgeSeconds = 0.1d;
     private readonly List<PluginNavigationPosition> _followPath = [];
     private uint _activeDoorObjectId;
     private ActionLockTable? _actionLocks;
@@ -634,6 +673,19 @@ internal sealed class NavigationController
     public int CurrentWaypointIndex => _index;
 
     /// <summary>
+    /// True while the route is doing something the reference raises its
+    /// global busy count for, which stops its whole pass: a jump waypoint,
+    /// from the turn to its heading until it has landed, and the tenth of a
+    /// second a checkpoint nudge holds the forward key. The armed mover
+    /// drives both on the host frame, so the held pass does not stop them;
+    /// a route that has lost its turn holds nothing.
+    /// </summary>
+    internal bool HoldsPass =>
+        _mover.IsArmed
+        && (_activeAction?.Type == RouteWaypointType.Jump
+            || _mover.Now - _checkpointNudgeStamp < CheckpointNudgeSeconds);
+
+    /// <summary>
     /// Moves the route on past the waypoint it is heading for, as if that one
     /// had been reached, <paramref name="count"/> times; a walk the client is
     /// making toward it ends. A once route that runs out is complete. Returns
@@ -652,6 +704,48 @@ internal sealed class NavigationController
             skipped++;
         }
         return skipped;
+    }
+
+    /// <summary>
+    /// Why the route cannot step back at all, or <see cref="RouteStepBackBlock.None"/>
+    /// when it can: a follow route and a once-through route never step back,
+    /// and an empty route has nowhere to step to.
+    /// </summary>
+    internal RouteStepBackBlock StepBackBlock => _settings.Mode switch
+    {
+        RouteMode.Target => RouteStepBackBlock.FollowRoute,
+        RouteMode.Once => RouteStepBackBlock.OnceRoute,
+        _ when _settings.Waypoints.Count == 0 => RouteStepBackBlock.EmptyRoute,
+        _ => RouteStepBackBlock.None,
+    };
+
+    /// <summary>
+    /// Moves the route's cursor back to the waypoint before the one it is
+    /// heading for, <paramref name="count"/> times, stopping at the first
+    /// waypoint; a walk the client is making ends. VTank's previous-waypoint
+    /// button does the same: step back, never below the first point, and not
+    /// for a follow or once-through route. "Before" is in the order the route
+    /// is being walked: a route walked backwards — reversed, or a linear route
+    /// on its way back — steps back toward its last point, and stops there.
+    /// Returns how many steps were taken.
+    /// </summary>
+    public int StepBackWaypoints(int count)
+    {
+        if (count <= 0 || StepBackBlock != RouteStepBackBlock.None)
+            return 0;
+        StopClientWalk();
+        int last = _settings.Waypoints.Count - 1;
+        int stepped = 0;
+        while (stepped < count && (_reverse ? _index < last : _index > 0))
+        {
+            ClearAction();
+            _clientHandOffIndex = -1;
+            _clientStallPosted = false;
+            _checkpointElapsed = 0d;
+            _index += _reverse ? 1 : -1;
+            stepped++;
+        }
+        return stepped;
     }
 
     /// <summary>
@@ -857,11 +951,6 @@ internal sealed class NavigationController
     }
 
     /// <summary>
-    /// The route rule's own turn. It answers whether the rule claims the pass
-    /// and, on the pass it claims, arms the mover; it does not carry the
-    /// mover's clock, because the pass is not the mover's clock.
-    /// </summary>
-    /// <summary>
     /// The reference's gate on the route rule's idle-peace fallback: normal
     /// movement is allowed while the goal is further than the creep distance
     /// and the waypoint is not a recall. Inside the creep band, or at a
@@ -885,6 +974,11 @@ internal sealed class NavigationController
             >= NavigationMover.CreepDistanceMeters;
     }
 
+    /// <summary>
+    /// The route rule's own turn. It answers whether the rule claims the pass
+    /// and, on the pass it claims, arms the mover; it does not carry the
+    /// mover's clock, because the pass is not the mover's clock.
+    /// </summary>
     internal bool ClaimFromRulePass(bool canAct)
     {
         bool claimed = Tick(_mover.TakePendingSeconds(), canAct);
@@ -1025,7 +1119,9 @@ internal sealed class NavigationController
         if (waypoint.Type == RouteWaypointType.Checkpoint)
             return TickCheckpoint(navigation, snapshot, waypoint, elapsedSeconds);
 
-        StopMovement();
+        // The walk stops for an action; a jump under way keeps its key until
+        // the action itself lets go of it.
+        StopWalking();
         return TickAction(waypoint, elapsedSeconds, snapshot);
     }
 
@@ -1381,6 +1477,7 @@ internal sealed class NavigationController
                     new PluginMovementIntent(Forward: true, Run: false))
                     == PluginNavigationCommandStatus.Accepted);
             _status = "Checkpoint: nudging for server confirmation.";
+            _checkpointNudgeStamp = _mover.Now;
         }
         return true;
     }
@@ -1909,9 +2006,10 @@ internal sealed class NavigationController
     /// </summary>
     /// <remarks>
     /// The test is over the line the chat window shows, which is what the
-    /// answer is written against. A tell reaches a plugin with the sender and
-    /// the message apart, so the shown line is rebuilt here; a server line
-    /// arrives whole and is used as it stands. The message's kind cannot
+    /// answer is written against. The host hands that line over whole; only
+    /// an older host gives a tell's sender and message apart, and for it the
+    /// shown line is rebuilt. A server line arrives whole and is used as it
+    /// stands. The message's kind cannot
     /// stand in for the log-text type — it only says where the line came
     /// from, and the two value spaces share small numbers without sharing
     /// meanings.
@@ -1925,7 +2023,7 @@ internal sealed class NavigationController
             _chatBaseline = Math.Max(_chatBaseline, message.Sequence);
             bool answered = (uint)message.LogTextType switch
             {
-                NpcTellLogTextType => ComposeTellLine(message).StartsWith(
+                NpcTellLogTextType => ShownTellLine(message).StartsWith(
                     npcName + " tells you, ",
                     StringComparison.Ordinal),
                 NpcGiveLogTextType => message.Text.StartsWith(
@@ -1940,13 +2038,16 @@ internal sealed class NavigationController
     }
 
     /// <summary>
-    /// The line the chat window shows for a tell, rebuilt from the sender and
-    /// message the plugin surface hands over separately.
+    /// The line the chat window shows for a tell: the host's own wording of it
+    /// when the host supplies one, otherwise rebuilt from the sender and
+    /// message an older host hands over separately.
     /// </summary>
-    private static string ComposeTellLine(in PluginChatMessage message) =>
-        message.SenderObjectId != 0u
-            ? $"{message.Sender} tells you, \"{message.Text}\""
-            : $"You tell {message.Sender}, \"{message.Text}\"";
+    private static string ShownTellLine(in PluginChatMessage message) =>
+        !string.IsNullOrEmpty(message.DisplayText)
+            ? message.DisplayText
+            : message.SenderObjectId != 0u
+                ? $"{message.Sender} tells you, \"{message.Text}\""
+                : $"You tell {message.Sender}, \"{message.Text}\"";
 
     private bool TickRecall(
         RouteWaypoint waypoint,
@@ -2150,7 +2251,7 @@ internal sealed class NavigationController
             {
                 float delta = SignedHeadingDelta(
                     navigation.Position.HeadingDegrees,
-                    waypoint.JumpHeadingDegrees);
+                    (float)waypoint.JumpHeadingDegrees);
                 // A jump is aimed far more tightly than a walk, and it waits
                 // longer between attempts: a few degrees of error is nothing
                 // when walking and is a missed ledge when jumping.
@@ -2165,7 +2266,7 @@ internal sealed class NavigationController
                         > JumpFaceHeadingReissueSeconds)
                     {
                         _jumpFaceHeadingStamp = _mover.Now;
-                        _ = nav.FaceHeading(waypoint.JumpHeadingDegrees);
+                        _ = nav.FaceHeading((float)waypoint.JumpHeadingDegrees);
                     }
                     _status = $"Aligning jump: {Math.Abs(delta):0.0}d.";
                     return true;
@@ -2175,21 +2276,20 @@ internal sealed class NavigationController
                 _jumpAligned = true;
             }
 
-            _jumpChargeElapsed += elapsedSeconds;
             int effectiveChargeMilliseconds = Math.Clamp(
                 waypoint.JumpChargeMilliseconds, 0, JumpChargeCeilingMilliseconds);
-            bool hold = _jumpChargeElapsed * 1000d < effectiveChargeMilliseconds;
-            if (hold)
+            // The client charges and lets go by itself, at exactly the power
+            // the charge time comes to; a full charge is a second, so
+            // anything from there up to the ceiling is a full charge.
+            float power = JumpPower.FromMilliseconds(effectiveChargeMilliseconds);
+            if (!_jumpAsked)
+                BeginRouteJump(waypoint, power);
+            _jumpChargeElapsed += elapsedSeconds;
+            if (_jumpChargeElapsed < JumpPower.ChargeSeconds(effectiveChargeMilliseconds))
             {
-                PluginMovementIntent intent = JumpIntent(waypoint, jump: true);
-                _mover.NoteMovementIntent(
-                    _host.Automation.Navigation.SetMovementIntent(intent)
-                        == PluginNavigationCommandStatus.Accepted);
                 _status = $"Charging jump: {effectiveChargeMilliseconds}ms.";
                 return true;
             }
-            PluginMovementIntent release = JumpIntent(waypoint, jump: false);
-            _ = _host.Automation.Navigation.SetMovementIntent(release);
             _jumpReleased = true;
             _jumpReleaseElapsed = 0d;
             _status = "Jump released.";
@@ -2207,19 +2307,41 @@ internal sealed class NavigationController
         return true;
     }
 
-    private static PluginMovementIntent JumpIntent(
-        RouteWaypoint waypoint,
-        bool jump) => waypoint.JumpDirection switch
+    /// <summary>
+    /// Asks the client for a route jump: the walk's held keys are let go,
+    /// the waypoint's direction is held as a client-driven move at its pace,
+    /// and the jump charges to <paramref name="power"/> and leaves. The key
+    /// stays held until the route lets go of the jump.
+    /// </summary>
+    private void BeginRouteJump(RouteWaypoint waypoint, float power)
+    {
+        INavigationAutomation nav = _host.Automation.Navigation;
+        _jumpAsked = true;
+        _ = nav.ClearMovementIntent();
+        _mover.NoteMovementIntent(false);
+        PluginMoveDirection direction = waypoint.JumpDirection switch
         {
-            RouteJumpDirection.StrafeLeft => new PluginMovementIntent(
-                StrafeLeft: true, Run: waypoint.JumpRun, Jump: jump),
-            RouteJumpDirection.StrafeRight => new PluginMovementIntent(
-                StrafeRight: true, Run: waypoint.JumpRun, Jump: jump),
-            RouteJumpDirection.Backward => new PluginMovementIntent(
-                Backward: true, Run: waypoint.JumpRun, Jump: jump),
-            _ => new PluginMovementIntent(
-                Forward: true, Run: waypoint.JumpRun, Jump: jump),
+            RouteJumpDirection.StrafeLeft => PluginMoveDirection.StrafeLeft,
+            RouteJumpDirection.StrafeRight => PluginMoveDirection.StrafeRight,
+            RouteJumpDirection.Backward => PluginMoveDirection.Backward,
+            _ => PluginMoveDirection.Forward,
         };
+        _jumpMoveChannel = PluginMoveReport.ChannelOf(direction);
+        _ = nav.Move(
+            direction,
+            waypoint.JumpHoldShift ? PluginMovePace.Walk : PluginMovePace.Run,
+            0f);
+        _ = nav.Jump(power);
+    }
+
+    /// <summary>Lets go of the key a route jump held, if one is held.</summary>
+    private void StopRouteJumpMove()
+    {
+        if (_jumpMoveChannel is not { } channel)
+            return;
+        _jumpMoveChannel = null;
+        _ = _host.Automation.Navigation.StopMoving(channel);
+    }
 
     private void CompleteAction()
     {
@@ -2277,6 +2399,8 @@ internal sealed class NavigationController
 
     private void ClearAction()
     {
+        StopRouteJumpMove();
+        _jumpAsked = false;
         _activeAction = null;
         _actionElapsed = 0d;
         _retryElapsed = 0d;
@@ -2308,10 +2432,18 @@ internal sealed class NavigationController
     internal void StopForLostTurn()
     {
         StopClientWalk();
+        StopRouteJumpMove();
         _mover.StopForLostTurn();
     }
 
     private void StopMovement()
+    {
+        StopRouteJumpMove();
+        StopWalking();
+    }
+
+    /// <summary>Stops the walk, the client's and the mover's, and nothing else.</summary>
+    private void StopWalking()
     {
         StopClientWalk();
         _mover.StopMovement();
@@ -2319,7 +2451,7 @@ internal sealed class NavigationController
 
     private double BoundedMinimumDistance() => Math.Clamp(
         _settings.MinimumDistanceMeters,
-        0.5d,
+        NavigationMover.MinimumArrivalRadiusMeters,
         50d);
 
     private double BoundedMaximumDistance() => Math.Max(

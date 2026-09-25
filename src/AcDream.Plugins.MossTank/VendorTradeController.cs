@@ -93,7 +93,7 @@ internal static class VendorSellGuard
 /// for the whole visit: a stack pass first, then rounds of buying and
 /// selling planned by <see cref="VendorTradePlanner"/>, each committed
 /// through the staged lists and waited on until the server answers, until a
-/// round has nothing left to do. It also answers the <c>/vt vendor</c>
+/// round has nothing left to do. It also answers the <c>/ub vendor</c>
 /// commands, which stage and commit by hand and open a vendor by name.
 /// </summary>
 internal sealed class VendorTradeController : IDisposable
@@ -258,16 +258,18 @@ internal sealed class VendorTradeController : IDisposable
         if (!_host.Automation.IsAvailable)
         {
             Status = "Vendor run needs a live session.";
+            SayError(Status);
             return false;
         }
         IVendorAutomation vendor = _host.Automation.Vendor;
         if (!vendor.IsOpen || vendor.VendorObjectId == 0u)
         {
             Status = "Vendor run cannot start: no vendor open.";
+            ThinkOrSay("AutoVendor Fatal - no vendor, cannot start");
             return false;
         }
         if (IsRunning)
-            Stop(null);
+            Stop(null, quiet: true);
 
         _vendorObjectId = vendor.VendorObjectId;
         _vendorName = vendor.VendorName;
@@ -277,14 +279,18 @@ internal sealed class VendorTradeController : IDisposable
         string fileName = (requested.Length > 0 ? requested : _vendorName) + ProfileExtension;
         string key = _store.ResolveProfileKey(ProfileFolder, fileName);
         string? text = _host.VtankProfiles.IsAvailable ? _host.VtankProfiles.ReadText(key) : null;
+        // A profile that cannot be had ends the run the way every other end
+        // does, with the finished line after the error.
         if (text is null)
         {
-            Status = $"No vendor profile exists: {key}";
+            SayError($"No vendor profile exists: {key}");
+            Stop($"No vendor profile exists: {key}");
             return false;
         }
         if (!MossTankLootProfileStore.TryParseRules(text, _rules))
         {
-            Status = $"Vendor profile could not be read: {key}";
+            SayError($"Vendor profile could not be read: {key}");
+            Stop($"Vendor profile could not be read: {key}");
             return false;
         }
 
@@ -306,12 +312,17 @@ internal sealed class VendorTradeController : IDisposable
         return true;
     }
 
-    /// <summary>Stops a run on the player's say-so. False when none was running.</summary>
+    /// <summary>
+    /// Stops a run on the player's say-so. False when none was running. The
+    /// finished line is said either way, as the reference's stop says it
+    /// whether or not a run was going.
+    /// </summary>
     public bool StopRequested()
     {
         if (!IsRunning)
         {
             Status = "Vendor run is not running.";
+            SayFinished();
             return false;
         }
         Stop("Vendor run cancelled: " + _vendorName);
@@ -348,6 +359,7 @@ internal sealed class VendorTradeController : IDisposable
         _sinceProgress += step;
         if (_sinceProgress > BailSeconds)
         {
+            Say(UbChat.Tool(UbChat.Tools.AutoVendor, "bail, Timeout expired"));
             Stop("Vendor run bailed: timeout expired.");
             return opening;
         }
@@ -424,16 +436,17 @@ internal sealed class VendorTradeController : IDisposable
     }
 
     /// <summary>
-    /// The <c>/vt vendor</c> family: <c>open[p] &lt;name&gt;</c>,
+    /// The <c>/ub vendor</c> family: <c>open[p] &lt;name&gt;</c>,
     /// <c>opencancel</c>, <c>buyall</c>, <c>sellall</c>, <c>clearbuy</c>,
     /// <c>clearsell</c>, <c>addbuy[p] [n] &lt;item&gt;</c> and
-    /// <c>addsell[p] [n] &lt;item&gt;</c>. Returns the lines to say back.
+    /// <c>addsell[p] [n] &lt;item&gt;</c>. Returns the lines to say back,
+    /// each already in the reference's shape; the verbs the reference runs
+    /// without a word say nothing unless the client refused them. Null when
+    /// the line does not parse: the caller answers that with the command's
+    /// full help, as <c>/ub</c> answers every line it cannot read.
     /// </summary>
-    public IReadOnlyList<string> VendorCommand(string arguments)
+    public IReadOnlyList<string>? VendorCommand(string arguments)
     {
-        const string usage =
-            "Syntax: /vt vendor open[p] <name> | opencancel | buyall | sellall | "
-            + "clearbuy | clearsell | addbuy[p] [count] <item> | addsell[p] [count] <item>";
         string text = (arguments ?? string.Empty).Trim();
         int space = text.IndexOf(' ');
         string verb = (space < 0 ? text : text[..space]).ToLowerInvariant();
@@ -445,29 +458,33 @@ internal sealed class VendorTradeController : IDisposable
         {
             case "buy":
             case "buyall":
-                return [Describe("Buy", vendor.BuyAll())];
+                return Refusal("Buy", vendor.BuyAll());
             case "sell":
             case "sellall":
-                return [Describe("Sell", vendor.SellAll())];
+                return Refusal("Sell", vendor.SellAll());
             case "clearbuy":
-                return [Describe("Clear buy list", vendor.ClearBuyList())];
+                return Refusal("Clear buy list", vendor.ClearBuyList());
             case "clearsell":
-                return [Describe("Clear sell list", vendor.ClearSellList())];
+                return Refusal("Clear sell list", vendor.ClearSellList());
             case "open":
             case "openp":
-                return [BeginOpen(rest, partial)];
+                return BeginOpen(rest, partial);
             case "opencancel":
                 _openTarget = 0u;
                 _openTries = 0;
-                return ["Vendor open cancelled."];
-            case "addbuy":
-            case "addbuyp":
-                return [AddBuyByName(rest, partial)];
-            case "addsell":
-            case "addsellp":
-                return [AddSellByName(rest, partial)];
+                return [];
+            // A line with no item name, or a count below one, is the usage:
+            // an empty name is part of every name, so a partial add would
+            // stage whatever came first, and a count below one would ask the
+            // server to split off billions or stage nothing at all.
+            case "addbuy" or "addbuyp"
+                when TrySplitCount(rest, out int buyCount, out string buyName):
+                return AddBuyByName(rest, buyCount, buyName, partial);
+            case "addsell" or "addsellp"
+                when TrySplitCount(rest, out int sellCount, out string sellName):
+                return AddSellByName(sellCount, sellName, partial) is { Length: > 0 } line ? [line] : [];
             default:
-                return [usage];
+                return null;
         }
     }
 
@@ -515,7 +532,7 @@ internal sealed class VendorTradeController : IDisposable
                 continue;
             if (!transaction.Success)
             {
-                Stop($"Vendor run stopped: {transaction.Kind} failed"
+                StopWithError($"Vendor run stopped: {transaction.Kind} failed"
                     + (string.IsNullOrWhiteSpace(transaction.Notice) ? "" : $": {transaction.Notice}")
                     + (_attempt.Length == 0 ? "" : $" ({_attempt})"));
                 continue;
@@ -541,7 +558,7 @@ internal sealed class VendorTradeController : IDisposable
             ? "no limit"
             : profile.MaximumValue.ToString("n0", CultureInfo.InvariantCulture);
         bool enabled = _settings.Enabled();
-        Write(string.Create(
+        Say(string.Create(
             CultureInfo.InvariantCulture,
             $"{vendor.VendorName}[0x{vendorObjectId:X8}]: pays {profile.BuyRate * 100f:0}% of value, "
             + $"deals in {(categories.Length > 0 ? categories : "nothing")}, max value {ceiling}, "
@@ -567,6 +584,7 @@ internal sealed class VendorTradeController : IDisposable
 
         if (plan.Fatal is not null)
         {
+            ThinkOrSay("AutoVendor Fatal - " + plan.Fatal);
             Stop("Vendor run stopped: " + plan.Fatal);
             return;
         }
@@ -584,7 +602,7 @@ internal sealed class VendorTradeController : IDisposable
             {
                 if (result.Status == PluginVendorCommandStatus.Busy)
                     return;
-                Stop($"Vendor run stopped: buy refused ({result.Status}{Notice(result.Notice)}).");
+                StopWithError($"Vendor run stopped: buy refused ({result.Status}{Notice(result.Notice)}).");
                 return;
             }
             _coinBefore = purse.CoinOnHand;
@@ -613,7 +631,7 @@ internal sealed class VendorTradeController : IDisposable
                 _pendingSell.Clear();
                 if (result.Status == PluginVendorCommandStatus.Busy)
                     return;
-                Stop($"Vendor run stopped: sell refused ({result.Status}{Notice(result.Notice)}).");
+                StopWithError($"Vendor run stopped: sell refused ({result.Status}{Notice(result.Notice)}).");
                 return;
             }
             _coinBefore = purse.CoinOnHand;
@@ -629,7 +647,7 @@ internal sealed class VendorTradeController : IDisposable
                 $"tried selling {plan.Sells.Count} item(s) for {plan.SellProceeds:n0}");
             return;
         }
-        Stop("Vendor run finished: " + _vendorName, think: true);
+        Stop("Vendor run finished: " + _vendorName);
     }
 
     private void TickSettle(double step)
@@ -661,7 +679,7 @@ internal sealed class VendorTradeController : IDisposable
         {
             if (result.Status == PluginItemCommandStatus.Busy)
                 return;
-            Stop($"Vendor run stopped: could not split {split.Name} ({result.Status}{Notice(result.Notice)}).");
+            StopWithError($"Vendor run stopped: could not split {split.Name} ({result.Status}{Notice(result.Notice)}).");
             return;
         }
         _splitObjectId = split.ObjectId;
@@ -678,7 +696,7 @@ internal sealed class VendorTradeController : IDisposable
         {
             if (!completion.IsSuccess)
             {
-                Stop($"Vendor run stopped: the split failed (0x{completion.WeenieError:X}).");
+                StopWithError($"Vendor run stopped: the split failed (0x{completion.WeenieError:X}).");
                 return;
             }
             _phase = Phase.Plan;
@@ -686,7 +704,7 @@ internal sealed class VendorTradeController : IDisposable
             return;
         }
         if (_splitWaited >= SplitTimeoutSeconds)
-            Stop("Vendor run stopped: the split was not answered.");
+            StopWithError("Vendor run stopped: the split was not answered.");
     }
 
     private IReadOnlyList<VendorBuyCandidate> BuyCandidates(
@@ -810,74 +828,121 @@ internal sealed class VendorTradeController : IDisposable
             .Sum(static item => (long)Math.Max(1, item.StackSize));
     }
 
+    /// <summary>
+    /// The number the reference's chat links carry to say which plugin they
+    /// belong to. A test-mode sell line writes it as the reference does, so
+    /// the line reads the same to anything matching on it.
+    /// </summary>
+    internal const int ReferenceChatLinkId = 438347936;
+
+    /// <summary>
+    /// Where a carried item is, in the reference's words: "Main Pack" for
+    /// the main pack, a side pack by its name and its place among the packs
+    /// counted from one.
+    /// </summary>
+    private string ItemLocation(in PluginInventoryItem item, IReadOnlyList<PluginInventoryItem> owned)
+    {
+        uint container = item.ContainerObjectId;
+        if (container == 0u || container == _host.Automation.Character.ObjectId)
+            return "Main Pack";
+        foreach (PluginInventoryItem pack in owned)
+        {
+            if (pack.ObjectId == container)
+                return string.Create(CultureInfo.InvariantCulture, $"{pack.Name} #{1 + pack.ContainerSlot}");
+        }
+        return "Does Not Exist";
+    }
+
     private void ReportTestMode()
     {
         IVendorAutomation vendor = _host.Automation.Vendor;
         IReadOnlyList<PluginInventoryItem> owned = _host.Automation.Items.CaptureOwnedItems();
         PluginVendorProfile profile = vendor.Profile;
-        var report = new StringBuilder("Vendor run TEST MODE\nBuy Items:\n");
+        // Three messages, as the reference prints them: the heading, then
+        // the buy list and the sell list each under a tag of its own.
+        Say("AutoVendor TEST MODE");
+        var report = new StringBuilder("Buy Items:\n");
         int lines = 0;
         foreach (VendorBuyCandidate buy in BuyCandidates(vendor, owned, profile))
         {
             string category = ShopCategories
                 .FirstOrDefault(c => (buy.Item.ItemType & c.Bit) != 0u).Name
                 ?? string.Create(CultureInfo.InvariantCulture, $"Unknown Category 0x{buy.Item.ItemType:X8}");
-            string count = buy.Wanted == int.MaxValue ? "all" : buy.Wanted.ToString(CultureInfo.InvariantCulture);
+            string count = buy.Wanted == int.MaxValue ? "∞" : buy.Wanted.ToString(CultureInfo.InvariantCulture);
             report.Append(string.Create(
                 CultureInfo.InvariantCulture,
-                $"  {category} -> {buy.Item.Name} * {count} at {buy.Item.UnitPrice:n0} - {buy.RuleName}\n"));
+                $"  {category} -> {buy.Item.Name} * {count} - {buy.RuleName}\n"));
             lines++;
         }
         if (lines == 0)
             report.Append("  (Nothing)\n");
-        report.Append("Sell Items:\n");
+        Say(report.ToString().TrimEnd());
+        report.Clear().Append("Sell Items:\n");
         lines = 0;
         foreach (VendorSellCandidate sell in SellCandidates(owned, profile)
             .OrderBy(static s => s.Item.ContainerSlot))
         {
-            long proceeds = VendorTradePlanner.PayoutPerUnit(sell.Item, profile)
-                * Math.Max(1, sell.Item.StackSize);
+            // Where the item is, then its name as a link that selects it,
+            // the id written as the reference writes it: a signed number.
             report.Append(string.Create(
                 CultureInfo.InvariantCulture,
-                $"  {sell.Item.Name} x{Math.Max(1, sell.Item.StackSize)} for {proceeds:n0} - {sell.RuleName}\n"));
+                $"  {ItemLocation(sell.Item, owned)}: <Tell:IIDString:{ReferenceChatLinkId}:select|{unchecked((int)sell.Item.ObjectId)}>{sell.Item.Name}</Tell> - {sell.RuleName}\n"));
             lines++;
         }
         if (lines == 0)
             report.Append("  (Nothing)\n");
-        Write(report.ToString().TrimEnd());
+        Say(report.ToString().TrimEnd());
     }
 
-    private string BeginOpen(string name, bool partial)
+    private static readonly PluginObjectClass[] VendorClasses = [PluginObjectClass.Vendor];
+
+    /// <summary>
+    /// Starts opening a vendor by name. Nothing is said when the open starts,
+    /// as the reference says nothing then; a vendor that cannot be found is
+    /// the reference's "failed to open" line, said as a think when
+    /// AutoVendor.Think is on.
+    /// </summary>
+    private IReadOnlyList<string> BeginOpen(string name, bool partial)
     {
         if (!_host.Automation.IsAvailable)
-            return "Vendor open needs a live session.";
+            return [UbChat.ToolError(UbChat.Tools.AutoVendor, "Vendor open needs a live session.")];
         if (_routeOwnsVendorOpen())
         {
-            return "The route owns vendor opening while the macro runs; "
-                + "use an open-vendor waypoint or stop the macro first.";
+            return
+            [
+                UbChat.ToolError(
+                    UbChat.Tools.AutoVendor,
+                    "The route owns vendor opening while the macro runs; "
+                    + "use an open-vendor waypoint or stop the macro first."),
+            ];
         }
         string wanted = name.Trim();
-        PluginWorldObject vendor = _host.Automation.Objects.CaptureObjects()
-            .Where(static obj => obj.ObjectClass == PluginObjectClass.Vendor)
-            .Where(obj => partial
-                ? obj.Name.Contains(wanted, StringComparison.OrdinalIgnoreCase)
-                : obj.Name.Equals(wanted, StringComparison.OrdinalIgnoreCase))
-            .OrderBy(static obj => obj.ObjectId)
-            .FirstOrDefault();
-        if (vendor.ObjectId == 0u)
+        // The reference's object search: an id, a hex id or "selected" first,
+        // then the nearest vendor the name answers to -- and with no name at
+        // all, the nearest vendor.
+        if (!UbObjectSearch.TryFindNearest(
+            _host,
+            wanted,
+            partial,
+            VendorClasses,
+            out PluginWorldObject vendor))
         {
-            Think("Vendor open failed: no vendor "
-                + (partial ? "partially " : string.Empty) + $"named '{wanted}' in sight.");
-            return Status = $"Vendor not found: {wanted}.";
+            Status = $"Vendor not found: {wanted}.";
+            ThinkOrSay("AutoVendor failed to open vendor");
+            return [];
         }
         if (_host.Automation.Items.ActiveVendorObjectId == vendor.ObjectId)
-            return $"Vendor is already open: {vendor.Name}.";
+        {
+            Status = $"Vendor is already open: {vendor.Name}.";
+            return [];
+        }
         _openTarget = vendor.ObjectId;
         _openName = vendor.Name;
         _openTries = 0;
         // The first try goes out on the next tick, not after a full wait.
         _sinceOpenTry = double.MaxValue;
-        return Status = $"Opening vendor: {vendor.Name}.";
+        Status = $"Opening vendor: {vendor.Name}.";
+        return [];
     }
 
     private bool TickOpen(double step, bool canAct)
@@ -901,7 +966,8 @@ internal sealed class VendorTradeController : IDisposable
             return true;
         if (_openTries >= Math.Max(1, _settings.Tries()))
         {
-            Think($"Vendor open failed: {_openName} did not open after {_openTries} tries.");
+            Status = $"Vendor open failed: {_openName} did not open after {_openTries} tries.";
+            ThinkOrSay("AutoVendor failed to open vendor");
             _openTarget = 0u;
             _openTries = 0;
             return false;
@@ -915,24 +981,43 @@ internal sealed class VendorTradeController : IDisposable
         return true;
     }
 
-    private string AddBuyByName(string arguments, bool partial)
+    /// <summary>
+    /// Adds a vendor's listing to the buy list, in the reference's words:
+    /// first the line naming what was read from the command ("Name: ...
+    /// count: ... param:..."), said before anything is checked, then the
+    /// item added or the error. Profiles wait on both lines
+    /// (<c>^\[UB\] Name\: Powdered</c>, <c>^\[UB\] Added item to buy
+    /// list\: Powdered</c>) before they buy.
+    /// </summary>
+    private IReadOnlyList<string> AddBuyByName(
+        string arguments,
+        int count,
+        string name,
+        bool partial)
     {
         IVendorAutomation vendor = _host.Automation.Vendor;
+        string heard = UbChat.Line(string.Create(
+            CultureInfo.InvariantCulture,
+            $"Name: {name} count: {count} param:{arguments}"));
         if (!vendor.IsOpen)
-            return "addbuy: No vendor open.";
-        (int count, string name) = SplitCount(arguments);
-        if (name.Length == 0)
-            return "Syntax: /vt vendor addbuy[p] [count] <item>";
+            return [heard, UbChat.Error("addbuy: No vendor open")];
         foreach (PluginVendorItem listing in vendor.Items)
         {
             if (!NameMatches(listing.Name, name, partial))
                 continue;
             PluginVendorCommandResult result = vendor.AddToBuyList(listing.TemplateObjectId, count);
             return result.Accepted
-                ? $"Added item to buy list: {listing.Name} * {count}"
-                : $"addbuy: {result.Status}{Notice(result.Notice)}";
+                ? [heard, UbChat.Line(string.Create(
+                    CultureInfo.InvariantCulture,
+                    $"Added item to buy list: {listing.Name} * {count}"))]
+                : [heard, UbChat.Error($"addbuy: {result.Status}{Notice(result.Notice)}")];
         }
-        return $"addbuy: Unable to find item {(partial ? "partially " : string.Empty)}named '{name}' in the vendor's list.";
+        return
+        [
+            heard,
+            UbChat.Error(
+                $"addbuy: Unable to find item {(partial ? "partially " : string.Empty)}named '{name}' in vendor sell list"),
+        ];
     }
 
     /// <summary>
@@ -940,13 +1025,10 @@ internal sealed class VendorTradeController : IDisposable
     /// part way through the only stack left, that stack is split first and
     /// the piece is staged once it exists.
     /// </summary>
-    private string AddSellByName(string arguments, bool partial)
+    private string AddSellByName(int count, string name, bool partial)
     {
         if (!_host.Automation.Vendor.IsOpen)
-            return "addsell: No vendor open.";
-        (int count, string name) = SplitCount(arguments);
-        if (name.Length == 0)
-            return "Syntax: /vt vendor addsell[p] [count] <item>";
+            return UbChat.Error("addsell: No vendor open");
         uint player = _host.Automation.Character.ObjectId;
         IReadOnlySet<uint> protectedItems = _protectedItems();
         var matches = new List<PluginInventoryItem>();
@@ -962,7 +1044,7 @@ internal sealed class VendorTradeController : IDisposable
                 matches.Add(item);
         }
         if (matches.Count == 0)
-            return $"addsell: Unable to find item {(partial ? "partially " : string.Empty)}named '{name}' in inventory.";
+            return UbChat.Error($"addsell: Unable to find item {(partial ? "partially " : string.Empty)}named '{name}' in inventory");
 
         int needed = count;
         PluginInventoryItem? oversized = null;
@@ -983,21 +1065,23 @@ internal sealed class VendorTradeController : IDisposable
         }
         string shown = matches[0].Name;
         if (needed == 0)
-            return $"Added item to sell list: {shown} * {count}";
+            return UbChat.Line($"Added item to sell list: {shown} * {count}");
+        // The reference's words, down to the stray "22" it ends this one on.
         if (oversized is not { } source)
-            return $"Added item to sell list: {shown} * {count - needed}, but was missing {needed} item(s).";
+            return UbChat.Line($"Added item to sell list: {shown} * {count}, but was missing {needed} items 22");
 
         long revision = _host.Automation.Items.LastInventoryCompletion.Revision;
         PluginItemCommandResult split = _host.Automation.Items.MoveToContainer(
             source.ObjectId, player, (uint)needed, 0);
         if (!split.Accepted)
-            return $"addsell: could not split {source.Name}: {split.Status}{Notice(split.Notice)}";
+            return UbChat.Error($"addsell: could not split {source.Name}: {split.Status}{Notice(split.Notice)}");
         _stageSplitObjectId = source.ObjectId;
         _stageSplitName = source.Name;
         _stageSplitNeeded = needed;
         _stageSplitAsked = count;
         _stageSplitRevision = revision;
-        return $"Splitting {needed} off {source.Name} to complete the sell list.";
+        // Nothing is said until the split lands and the piece is staged.
+        return string.Empty;
     }
 
     private void ObserveStageSplit()
@@ -1010,7 +1094,7 @@ internal sealed class VendorTradeController : IDisposable
         _stageSplitObjectId = 0u;
         if (!completion.IsSuccess)
         {
-            Write($"addsell: the split of {_stageSplitName} failed (0x{completion.WeenieError:X}).");
+            Say(UbChat.Error($"addsell: the split of {_stageSplitName} failed (0x{completion.WeenieError:X})."));
             return;
         }
         PluginInventoryItem piece = _host.Automation.Items.CaptureOwnedItems()
@@ -1018,38 +1102,55 @@ internal sealed class VendorTradeController : IDisposable
                 && string.Equals(item.Name, _stageSplitName, StringComparison.OrdinalIgnoreCase));
         if (piece.ObjectId == 0u)
         {
-            Write($"Added item to sell list: {_stageSplitName} * {_stageSplitAsked - _stageSplitNeeded}, "
-                + $"but was missing {_stageSplitNeeded} item(s).");
+            Say($"Added item to sell list: {_stageSplitName} * {_stageSplitAsked - _stageSplitNeeded}, "
+                + $"but was missing {_stageSplitNeeded} items");
             return;
         }
         _host.Automation.Vendor.AddToSellList(piece.ObjectId);
-        Write($"Added item to sell list: {_stageSplitName} * {_stageSplitAsked}");
+        Say($"Added item to sell list: {_stageSplitName} * {_stageSplitAsked}");
     }
 
-    private static (int Count, string Name) SplitCount(string arguments)
+    /// <summary>
+    /// The count and the name, read as the reference reads them: a leading
+    /// whole number is the count, anything else leaves the count at one and
+    /// the whole text the name. False when that leaves no name, or a count
+    /// below one.
+    /// </summary>
+    private static bool TrySplitCount(string arguments, out int count, out string name)
     {
         string text = arguments.Trim();
         int space = text.IndexOf(' ');
-        if (space > 0
-            && int.TryParse(text[..space], NumberStyles.Integer, CultureInfo.InvariantCulture, out int count)
-            && count > 0)
-        {
-            return (count, text[(space + 1)..].Trim());
-        }
-        return (1, text);
+        string head = space < 0 ? text : text[..space];
+        if (int.TryParse(head, NumberStyles.Integer, CultureInfo.InvariantCulture, out count))
+            name = space < 0 ? string.Empty : text[(space + 1)..].Trim();
+        else
+            (count, name) = (1, text);
+        return name.Length != 0 && count >= 1;
     }
 
     private static bool NameMatches(string name, string wanted, bool partial) => partial
         ? name.Contains(wanted, StringComparison.OrdinalIgnoreCase)
         : name.Equals(wanted, StringComparison.OrdinalIgnoreCase);
 
-    private static string Describe(string what, in PluginVendorCommandResult result) =>
-        result.Accepted ? $"{what}: sent." : $"{what}: {result.Status}{Notice(result.Notice)}";
+    /// <summary>
+    /// Nothing when the client took the command, which the reference sends
+    /// without a word; the client's refusal, as an error, when it did not.
+    /// </summary>
+    private static IReadOnlyList<string> Refusal(string what, in PluginVendorCommandResult result) =>
+        result.Accepted
+            ? []
+            : [UbChat.ToolError(UbChat.Tools.AutoVendor, $"{what}: {result.Status}{Notice(result.Notice)}")];
 
     private static string Notice(string? notice) =>
         string.IsNullOrWhiteSpace(notice) ? string.Empty : ", " + notice;
 
-    private void Stop(string? status, bool think = false)
+    /// <summary>
+    /// Ends the run. Every end the reference has -- finished, cancelled,
+    /// bailed, the vendor gone -- says "AutoVendor finished: &lt;vendor&gt;",
+    /// and profiles wait on that line (as a think) to walk on; only a
+    /// restart, which is quiet, does not.
+    /// </summary>
+    private void Stop(string? status, bool quiet = false)
     {
         IsRunning = false;
         _pendingSell.Clear();
@@ -1057,24 +1158,36 @@ internal sealed class VendorTradeController : IDisposable
         _phase = Phase.StackCram;
         _locks?.Release(ActionLockKind.Navigation);
         _locks?.Release(ActionLockKind.ItemUse);
-        if (status is null)
-            return;
-        Status = status;
-        if (think)
-            Think(status);
-        else
-            Write(status);
+        if (status is not null)
+            Status = status;
+        if (!quiet)
+            SayFinished();
     }
 
-    private void Think(string text)
+    /// <summary>
+    /// A stop this client has a reason for that the reference has no words
+    /// of its own for: the reason as the tool's error, then the end.
+    /// </summary>
+    private void StopWithError(string status)
     {
-        // The client's own "You think" line is what a meta's chat trigger
-        // reads, so a run that is asked to think says it that way.
-        Write(_settings.Think() ? $"You think, \"{text}\"" : text);
+        SayError(status);
+        Stop(status);
     }
 
-    private void Write(string text) =>
-        _host.Automation.Chat.PostSystemMessage(text.StartsWith("You think", StringComparison.Ordinal)
-            ? text
-            : "[MossTank] " + text);
+    private void SayFinished() => ThinkOrSay("AutoVendor finished: " + _vendorName);
+
+    /// <summary>
+    /// A line said as a think when AutoVendor.Think is on, which is what a
+    /// meta's chat trigger reads, and as a tagged line otherwise.
+    /// </summary>
+    private void ThinkOrSay(string text) =>
+        UbChat.ThinkOrWrite(_host.Automation, text, _settings.Think());
+
+    /// <summary>A plain line under the reference's tag.</summary>
+    private void Say(string text) =>
+        UbChat.Post(_host.Automation.Chat, UbChat.Line(text));
+
+    /// <summary>An error the tool reports for itself.</summary>
+    private void SayError(string text) =>
+        UbChat.Post(_host.Automation.Chat, UbChat.ToolError(UbChat.Tools.AutoVendor, text));
 }

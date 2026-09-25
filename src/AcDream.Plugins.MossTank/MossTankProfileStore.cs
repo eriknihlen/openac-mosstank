@@ -903,6 +903,9 @@ internal sealed class MossTankProfileStore
 
         public ItemEnchantRowDocument[] BuffItemEnchantRows { get; set; } = [];
         public bool VitalsEnabled { get; set; } = true;
+
+        /// <summary>Whether the helper also helps network peers outside the fellowship (a MossTank extension; off by default).</summary>
+        public bool VitalsHelpNetworkPeers { get; set; }
         public double InventoryScanIntervalSeconds { get; set; } = 0.25d;
 
         /// <summary>How far off a character may stand and still be given items.</summary>
@@ -911,13 +914,16 @@ internal sealed class MossTankProfileStore
         /// <summary>How long to wait between one hand-over and the next.</summary>
         public double InventoryGiveDelaySeconds { get; set; }
 
-        /// <summary>How many times one item is asked for before it is written off.</summary>
+        /// <summary>The busy count: an item is asked for once more than this, then written off.</summary>
         public int InventoryGiveBusyRetryLimit { get; set; } = 10;
 
         /// <summary>How many written-off items stop a run altogether.</summary>
         public int InventoryGiveFailureLimit { get; set; } = 3;
         public string InventoryLootClassifierId { get; set; } = string.Empty;
         public double InventoryLootScanIntervalSeconds { get; set; } = 0.25d;
+
+        /// <summary>Whether this character's own rare is walked to past the corpse range (a MossTank extension; off by default).</summary>
+        public bool InventoryLootWalkToOwnRareCorpses { get; set; }
         public LootRuleDocument[] InventoryLootRules { get; set; } = [];
 
         /// <summary>The Client pathing choice by name; absent in files written before it existed.</summary>
@@ -993,6 +999,7 @@ internal sealed class MossTankProfileStore
                 })
                 .ToArray(),
             VitalsEnabled = settings.Vitals.Enabled,
+            VitalsHelpNetworkPeers = settings.Vitals.HelpNetworkPeers,
             InventoryScanIntervalSeconds = settings.Inventory.ScanIntervalSeconds,
             InventoryGiveRangeMeters = settings.Inventory.GiveRangeMeters,
             InventoryGiveDelaySeconds = settings.Inventory.GiveDelaySeconds,
@@ -1000,6 +1007,7 @@ internal sealed class MossTankProfileStore
             InventoryGiveFailureLimit = settings.Inventory.GiveFailureLimit,
             InventoryLootClassifierId = settings.Inventory.Loot.ExternalClassifierId,
             InventoryLootScanIntervalSeconds = settings.Inventory.Loot.ScanIntervalSeconds,
+            InventoryLootWalkToOwnRareCorpses = settings.Inventory.Loot.WalkToOwnRareCorpses,
             InventoryLootRules = settings.Inventory.Loot.Rules
                 .Select(LootRuleDocument.From)
                 .ToArray(),
@@ -1105,6 +1113,7 @@ internal sealed class MossTankProfileStore
             }
 
             settings.Vitals.Enabled = VitalsEnabled;
+            settings.Vitals.HelpNetworkPeers = VitalsHelpNetworkPeers;
 
             settings.Inventory.ScanIntervalSeconds = Math.Clamp(
                 InventoryScanIntervalSeconds, 0.05d, 10d);
@@ -1120,6 +1129,7 @@ internal sealed class MossTankProfileStore
                 ?? string.Empty;
             settings.Inventory.Loot.ScanIntervalSeconds = Math.Clamp(
                 InventoryLootScanIntervalSeconds, 0.05d, 5d);
+            settings.Inventory.Loot.WalkToOwnRareCorpses = InventoryLootWalkToOwnRareCorpses;
             settings.Inventory.Loot.Rules.Clear();
             foreach (LootRuleDocument rule in InventoryLootRules ?? [])
                 settings.Inventory.Loot.Rules.Add(rule.ToRule());

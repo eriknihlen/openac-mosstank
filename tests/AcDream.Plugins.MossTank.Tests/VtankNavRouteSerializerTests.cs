@@ -114,7 +114,7 @@ public sealed class VtankNavRouteSerializerTests
         Assert.True(settings.Waypoints[6].LegacyReferenceValid);
         Assert.Equal(RouteWaypointType.Checkpoint, settings.Waypoints[8].Type);
         Assert.Equal(180.5f, settings.Waypoints[9].JumpHeadingDegrees);
-        Assert.True(settings.Waypoints[9].JumpRun);
+        Assert.True(settings.Waypoints[9].JumpHoldShift);
         Assert.Equal(1000, settings.Waypoints[9].JumpChargeMilliseconds);
         Assert.Equal(RouteJumpDirection.StrafeRight, settings.Waypoints[9].JumpDirection);
     }

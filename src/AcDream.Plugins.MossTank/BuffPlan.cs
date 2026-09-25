@@ -185,6 +185,9 @@ public static class BuffPlan
                 || (!wanted && !extraFamilies.Contains(line.Family))
                 || excludedFamilies.Contains(line.Family))
                 continue;
+            if (!extraFamilies.Contains(line.Family)
+                && !IsExemplarFamily(line, spellCatalog))
+                continue;
 
             bool resolved = TryPickTier(
                 line, skillLevels, settings, castability, out PluginSpellInfo pick);
@@ -258,6 +261,98 @@ public static class BuffPlan
         }
         return families;
     }
+
+    /// <summary>
+    /// The reference buffs one family per attribute, skill and vital rate:
+    /// the family of a named tier-one spell. Another family that raises the
+    /// same thing (a short-lived special version, say) is not one of its
+    /// buffs unless the profile lists it as an extra buff. A line whose
+    /// target has no named spell, or whose named spell the catalogue cannot
+    /// find, is kept.
+    /// </summary>
+    private static bool IsExemplarFamily(BuffLine line, ISpellCatalog? spellCatalog)
+    {
+        if (spellCatalog is null)
+            return true;
+        Dictionary<string, string>? names = line.Kind switch
+        {
+            BuffTargetKind.Attribute => AttributeExemplars,
+            BuffTargetKind.Skill => SkillExemplars,
+            BuffTargetKind.Regeneration => RegenerationExemplars,
+            _ => null,
+        };
+        if (names is null
+            || !names.TryGetValue(line.TargetName, out string? exemplarName)
+            || !spellCatalog.TryFindByName(
+                exemplarName, partialMatch: false, out PluginSpellInfo exemplar))
+        {
+            return true;
+        }
+        return exemplar.Family == line.Family;
+    }
+
+    private static readonly Dictionary<string, string> AttributeExemplars =
+        new(StringComparer.OrdinalIgnoreCase)
+        {
+            ["Strength"] = "Strength Self I",
+            ["Endurance"] = "Endurance Self I",
+            ["Coordination"] = "Coordination Self I",
+            ["Quickness"] = "Quickness Self I",
+            ["Focus"] = "Focus Self I",
+            ["Self"] = "Willpower Self I",
+        };
+
+    private static readonly Dictionary<string, string> RegenerationExemplars =
+        new(StringComparer.OrdinalIgnoreCase)
+        {
+            ["Health"] = "Regeneration Self I",
+            ["Stamina"] = "Rejuvenation Self I",
+            ["Mana"] = "Mana Renewal Self I",
+        };
+
+    private static readonly Dictionary<string, string> SkillExemplars =
+        new(StringComparer.OrdinalIgnoreCase)
+        {
+            ["Life Magic"] = "Life Magic Mastery Self I",
+            ["Melee Defense"] = "Invulnerability Self I",
+            ["Missile Defense"] = "Impregnability Self I",
+            ["Arcane Lore"] = "Arcane Enlightenment Self I",
+            ["Magic Defense"] = "Magic Resistance Self I",
+            ["Mana Conversion"] = "Mana Conversion Mastery Self I",
+            ["Item Tinkering"] = "Item Tinkering Expertise Self I",
+            ["Assess Person"] = "Person Attunement Self I",
+            ["Deception"] = "Deception Mastery Self I",
+            ["Healing"] = "Healing Mastery Self I",
+            ["Jump"] = "Jumping Mastery Self I",
+            ["Lockpick"] = "Lockpick Mastery Self I",
+            ["Run"] = "Sprint Self I",
+            ["Assess Creature"] = "Monster Attunement Self I",
+            ["Weapon Tinkering"] = "Weapon Tinkering Expertise Self I",
+            ["Armor Tinkering"] = "Armor Tinkering Expertise Self I",
+            ["Magic Item Tinkering"] = "Magic Item Tinkering Expertise Self I",
+            ["Creature Enchantment"] = "Creature Enchantment Mastery Self I",
+            ["Item Enchantment"] = "Item Enchantment Mastery Self I",
+            ["War Magic"] = "War Magic Mastery Self I",
+            ["Leadership"] = "Leadership Mastery Self I",
+            ["Loyalty"] = "Fealty Self I",
+            ["Fletching"] = "Fletching Mastery Self I",
+            ["Alchemy"] = "Alchemy Mastery Self I",
+            ["Cooking"] = "Cooking Mastery Self I",
+            ["Salvaging"] = "Arcanum Salvaging Self I",
+            ["Two Handed Combat"] = "Two Handed Combat Mastery Self I",
+            ["Gearcraft"] = "Gear Craft Mastery Self I",
+            ["Void Magic"] = "Void Magic Mastery Self I",
+            ["Heavy Weapons"] = "Heavy Weapon Mastery Self I",
+            ["Light Weapons"] = "Light Weapon Mastery Self I",
+            ["Finesse Weapons"] = "Finesse Weapon Mastery Self I",
+            ["Missile Weapons"] = "Missile Weapon Mastery Self I",
+            ["Shield"] = "Shield Mastery Self I",
+            ["Dual Wield"] = "Dual Wield Mastery Self I",
+            ["Recklessness"] = "Recklessness Mastery Self I",
+            ["Sneak Attack"] = "Sneak Attack Mastery Self I",
+            ["Dirty Fighting"] = "Dirty Fighting Mastery Self II",
+            ["Summoning"] = "Summoning Mastery Self I",
+        };
 
     private static bool IsCovered(
         List<(int Tier, double Seconds)> entries,

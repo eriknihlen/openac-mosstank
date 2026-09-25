@@ -162,16 +162,18 @@ internal sealed partial class MossTankPanel
             else
                 AnnounceProfileNotice($"{item.Name} is not a supported consumable.");
         }
-        else if (!ItemEnchantDefaults.IsProfileEligible(item)
+        else if (!ItemEnchantDefaults.IsProfileEligible(
+                item, item.IsPetDevice)
             || item.ValidLocations == ItemEnchantDefaults.MissileWeapon && item.AmmoType == 0u)
         {
             AnnounceProfileNotice($"{item.Name} is not supported in Items.");
         }
         else
         {
-            CommitProfileItem(item, pending.NoBuffs || item.IsPetDevice
+            bool isPetDevice = item.IsPetDevice;
+            CommitProfileItem(item, pending.NoBuffs || isPetDevice
                 || properties.Ints.ContainsKey(36u));
-            if (item.IsPetDevice && item.SummoningMastery != 0
+            if (isPetDevice && item.SummoningMastery != 0
                 && item.SummoningMastery != _host.Automation.Character.SummoningMastery)
                 _profileNotice = $"Added {item.Name} without buffs. Warning: different summoning mastery.";
         }

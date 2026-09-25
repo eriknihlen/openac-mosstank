@@ -9,14 +9,18 @@ namespace AcDream.Plugins.MossTank.Expressions;
 internal sealed class MossTankExpressionRuntime : IDisposable
 {
     private const int DefaultInstructionBudget = 10_000;
-    private static readonly JsonSerializerOptions JsonOptions = new()
-    {
-        WriteIndented = true,
-        PropertyNameCaseInsensitive = true,
-    };
+
+    /// <summary>
+    /// How many repaired texts are remembered as already reported. A meta
+    /// that builds its code strings as it runs makes a new text each time,
+    /// so the record is emptied when it is full, and a text met again after
+    /// that is reported again.
+    /// </summary>
+    internal const int ReportedRepairLimit = 256;
 
     private readonly IPluginHost _host;
     private readonly ExpressionState _state = new();
+    private readonly HashSet<string> _reportedRepairs = new(StringComparer.Ordinal);
     private readonly ExpressionFunctionRegistry _functions;
     private readonly ExpressionHostPolicy _policy = new();
     private readonly ExperienceMeter _experience;
@@ -27,7 +31,13 @@ internal sealed class MossTankExpressionRuntime : IDisposable
     private int _nextDelayId = 1;
     private string _identity = string.Empty;
     private string? _persistentJson;
-    private string? _globalJson;
+    // The persistent-variable writes and collection changes the last save saw.
+    private long _savedWrites = -1;
+    private long _savedCollectionChanges = -1;
+    // The persistent variables as last saved, one by one.
+    private Dictionary<string, ExpressionValueJson.StoredValue> _savedDocument =
+        new(StringComparer.Ordinal);
+    private StorageGlobalVariableStore? _globalStore;
     private bool _disposed;
 
     public MossTankExpressionRuntime(IPluginHost host, Random? random = null)
@@ -37,7 +47,10 @@ internal sealed class MossTankExpressionRuntime : IDisposable
         _quests = new QuestTracker(host);
         _salvage = new SalvageStagingManager(host);
         _statusHud = new StatusHudManager(host);
-        _functions = CoreExpressionFunctions.CreateDefault(random);
+        _functions = CoreExpressionFunctions.CreateDefault(
+            random,
+            id => host.Automation.Objects.TryGet(id, out _),
+            line => UbChat.Post(host.Automation.Chat, UbChat.Line(line)));
         HeldMotions = new HeldMotions(host);
         HostExpressionFunctions.Register(_functions, host, _policy, HeldMotions);
         RegisterExperienceFunctions();
@@ -74,14 +87,82 @@ internal sealed class MossTankExpressionRuntime : IDisposable
         ObjectDisposedException.ThrowIf(_disposed, this);
         BindIdentity(force: false);
         ExpressionProgram program = ExpressionProgram.Compile(source);
+        if (program.Repairs.Count != 0)
+            ReportRepairs(source, program.Repairs);
         var context = new ExpressionEvaluationContext(
             _state,
             _functions,
             instructionBudget,
-            cancellationToken);
-        ExpressionValue result = program.Evaluate(context);
-        FlushVariables();
+            cancellationToken)
+        {
+            RepairsObserved = ReportRepairs,
+            RunFailed = ReportFailedRun,
+            IsKnownObject = id => _host.Automation.Objects.TryGet(id, out _),
+        };
+        ExpressionValue result;
+        bool completed = false;
+        _state.BeginEvaluation();
+        try
+        {
+            result = program.Evaluate(context);
+            completed = true;
+        }
+        finally
+        {
+            _state.EndEvaluation(completed);
+            // What the expression set before an error stands, and the
+            // reference saves a persistent variable as it is set, so the
+            // save happens whether or not the expression completed.
+            FlushVariables();
+        }
         return result;
+    }
+
+    /// <summary>
+    /// Logs, once per distinct expression, what the reader dropped, skipped
+    /// or supplied to read it. The reference parser makes these repairs
+    /// without a word, and this reader makes the same ones, so a meta means
+    /// what it meant there; the log line is so that an author whose text
+    /// does not do what it says can see why.
+    /// </summary>
+    private void ReportRepairs(string source, IReadOnlyList<string> repairs)
+    {
+        if (_reportedRepairs.Contains(source))
+            return;
+        if (_reportedRepairs.Count >= ReportedRepairLimit)
+            _reportedRepairs.Clear();
+        _reportedRepairs.Add(source);
+        _host.Log.Warn(
+            $"Expression read the way UtilityBelt reads it: {string.Join("; ", repairs)}. Expression: {source}");
+    }
+
+    /// <summary>
+    /// A code string's run failed and answered 0 (see
+    /// <see cref="ExpressionEvaluationContext.RunSeparately"/>). The
+    /// reference reports it every time as two UtilityBelt error lines, which
+    /// its log always gets and chat gets through the error display:
+    /// the code as its parser gives it back, then the reason. With the debug
+    /// setting on the reason is the whole exception. With it off it is the
+    /// message, and an error raised inside a function reaches the reference
+    /// wrapped by the reflection call, so it is the wrapper's message.
+    /// </summary>
+    private void ReportFailedRun(string text, Exception error)
+    {
+        string reason = _policy.Debug?.Invoke() == true
+            ? error.ToString()
+            : error switch
+            {
+                ExpressionEvaluationException { RaisedInFunction: true } =>
+                    "Exception has been thrown by the target of an invocation.",
+                ExpressionEvaluationException evaluation => evaluation.Reason,
+                _ => "Exception has been thrown by the target of an invocation.",
+            };
+        foreach (string line in new[] { $"Error running string expression: {text}", reason })
+        {
+            string message = UbChat.Error(line);
+            UbChat.Post(_host.Automation.Chat, message);
+            _host.Log.Info(message);
+        }
     }
 
     public void OnTick(double elapsedSeconds)
@@ -132,6 +213,13 @@ internal sealed class MossTankExpressionRuntime : IDisposable
 
     public void DestroyAuxiliaryViews() => _statusHud.Destroy();
 
+    /// <summary>
+    /// Asks the server for the character's quest list again, so the quest
+    /// functions read what is true now rather than what was true at login.
+    /// A refresh already under way starts over.
+    /// </summary>
+    public void RefreshQuests() => _quests.Refresh(restart: true);
+
     public void Dispose()
     {
         if (_disposed)
@@ -139,14 +227,20 @@ internal sealed class MossTankExpressionRuntime : IDisposable
         FlushVariables();
         _delayed.Clear();
         _statusHud.Destroy();
+        _state.BindGlobalStore(null);
+        _globalStore?.Dispose();
+        _globalStore = null;
+        _quests.Dispose();
         _disposed = true;
     }
 
     private void RegisterExecutionFunctions()
     {
         _functions.Register("exec", 1, 1, (context, args) =>
-            ExpressionProgram.Compile(args[0].AsString("exec")).Evaluate(context),
-            "exec[expression]");
+        {
+            string source = args[0].AsString("exec");
+            return context.RunSeparately(context.Compile(source), out _);
+        }, "exec[expression]");
         _functions.Register("delayexec", 2, 2, (_, args) =>
         {
             double delay = Math.Max(0d, args[0].AsNumber("delayexec"));
@@ -207,8 +301,8 @@ internal sealed class MossTankExpressionRuntime : IDisposable
     private void RegisterSalvageFunctions()
     {
         _functions.Register("ustadd", 1, 1, (_, args) =>
-            ExpressionValue.Boolean(_salvage.Add(
-                args[0].AsObjectId("ustadd"))), "ustadd[object]");
+            ExpressionValue.Boolean(_salvage.Add(HostExpressionFunctions.ObjectArgument(
+                _host.Automation.Objects, args, 0, "ustadd[WorldObject]"))), "ustadd[object]");
         _functions.Register("ustopen", 0, 0, (_, _) =>
             ExpressionValue.Boolean(_salvage.Open()), "ustopen[]");
         _functions.Register("ustsalvage", 0, 0, (_, _) =>
@@ -267,12 +361,78 @@ internal sealed class MossTankExpressionRuntime : IDisposable
         _delayed.Clear();
         _experience.Reset();
         _persistentJson = LoadScope(ExpressionVariableScope.Persistent);
-        _globalJson = LoadScope(ExpressionVariableScope.Global);
+        MarkPersistentSaved();
+        BindGlobalStore(character);
+    }
+
+    /// <summary>
+    /// Global variables belong to the server, not to one account: every
+    /// client on the same server reads and writes one shared set, and each
+    /// read reaches the shared store so another client's write shows at once.
+    /// </summary>
+    private void BindGlobalStore(ICharacterInfo character)
+    {
+        _state.BindGlobalStore(null);
+        _state.Clear(ExpressionVariableScope.Global);
+        _globalStore?.Dispose();
+        _globalStore = null;
+        if (!_host.Storage.IsAvailable)
+            return;
+        try
+        {
+            _globalStore = new StorageGlobalVariableStore(
+                _host.Storage,
+                character.WorldName,
+                HostExpressionFunctions.ObjectNames(_host));
+        }
+        catch (Exception error)
+        {
+            _host.Log.Error($"Unable to open the global expression variables: {error.Message}");
+            return;
+        }
+        _state.BindGlobalStore(_globalStore);
+        ImportAccountGlobals();
+    }
+
+    /// <summary>
+    /// Earlier versions kept the global variables in one file per server and
+    /// account. Their values join the shared set without replacing a value it
+    /// already has, and the old file goes.
+    /// </summary>
+    private void ImportAccountGlobals()
+    {
+        string key = StorageKey(ExpressionVariableScope.Global);
+        try
+        {
+            string? json = _host.Storage.ReadText(key);
+            if (json is null)
+                return;
+            Dictionary<string, ExpressionValueJson.StoredValue>? document =
+                string.IsNullOrWhiteSpace(json)
+                    ? null
+                    : JsonSerializer.Deserialize<
+                        Dictionary<string, ExpressionValueJson.StoredValue>>(
+                        json,
+                        ExpressionValueJson.Options);
+            foreach ((string name, ExpressionValueJson.StoredValue value)
+                in document ?? [])
+            {
+                if (!_globalStore!.Contains(name))
+                    _globalStore.Set(name, ExpressionValueJson.Restore(value, HostExpressionFunctions.ObjectNames(_host)));
+            }
+            _host.Storage.Delete(key);
+        }
+        catch (Exception error)
+        {
+            _host.Log.Error($"Unable to move the old global expression variables: {error.Message}");
+        }
     }
 
     private string? LoadScope(ExpressionVariableScope scope)
     {
         _state.Clear(scope);
+        _savedDocument = new Dictionary<string, ExpressionValueJson.StoredValue>(
+            StringComparer.Ordinal);
         if (!_host.Storage.IsAvailable || _identity.Length == 0)
             return null;
         try
@@ -280,14 +440,19 @@ internal sealed class MossTankExpressionRuntime : IDisposable
             string? json = _host.Storage.ReadText(StorageKey(scope));
             if (string.IsNullOrWhiteSpace(json))
                 return null;
-            Dictionary<string, StoredValue>? document = JsonSerializer.Deserialize<
-                Dictionary<string, StoredValue>>(json, JsonOptions);
+            Dictionary<string, ExpressionValueJson.StoredValue>? document =
+                JsonSerializer.Deserialize<
+                    Dictionary<string, ExpressionValueJson.StoredValue>>(
+                    json,
+                    ExpressionValueJson.Options);
             if (document is not null)
             {
-                _state.Replace(scope, document.Select(static pair =>
+                _savedDocument = new Dictionary<string, ExpressionValueJson.StoredValue>(
+                    document, StringComparer.Ordinal);
+                _state.Replace(scope, document.Select(pair =>
                     new KeyValuePair<string, ExpressionValue>(
                         pair.Key,
-                        Restore(pair.Value))));
+                        ExpressionValueJson.Restore(pair.Value, HostExpressionFunctions.ObjectNames(_host)))));
             }
             return json;
         }
@@ -298,141 +463,91 @@ internal sealed class MossTankExpressionRuntime : IDisposable
         }
     }
 
+    /// <summary>
+    /// Saves the persistent variables when something may have changed since
+    /// the last save: a set or clear of one, or an in-place change of a list
+    /// or dictionary while one of them holds a list or dictionary. An
+    /// evaluation that changed nothing costs no save.
+    /// </summary>
     private void FlushVariables()
     {
         if (!_host.Storage.IsAvailable || _identity.Length == 0)
             return;
-        _persistentJson = FlushScope(
-            ExpressionVariableScope.Persistent,
-            _persistentJson);
-        _globalJson = FlushScope(ExpressionVariableScope.Global, _globalJson);
+        if (_state.PersistentWrites == _savedWrites
+            && (ExpressionCollectionChanges.Count == _savedCollectionChanges
+                || !_state.HoldsCollection(ExpressionVariableScope.Persistent)))
+        {
+            return;
+        }
+        long writes = _state.PersistentWrites;
+        long changes = ExpressionCollectionChanges.Count;
+        if (FlushScope(ExpressionVariableScope.Persistent, _persistentJson, out string json))
+        {
+            _persistentJson = json;
+            _savedWrites = writes;
+            _savedCollectionChanges = changes;
+        }
     }
 
-    private string? FlushScope(ExpressionVariableScope scope, string? previous)
+    private void MarkPersistentSaved()
+    {
+        _savedWrites = _state.PersistentWrites;
+        _savedCollectionChanges = ExpressionCollectionChanges.Count;
+    }
+
+    private bool FlushScope(ExpressionVariableScope scope, string? previous, out string json)
     {
         try
         {
-            Dictionary<string, StoredValue> document = _state.Capture(scope)
-                .ToDictionary(
-                    static pair => pair.Key,
-                    static pair => Store(pair.Value),
-                    StringComparer.OrdinalIgnoreCase);
-            string json = JsonSerializer.Serialize(document, JsonOptions);
+            var document = new Dictionary<string, ExpressionValueJson.StoredValue>(
+                StringComparer.Ordinal);
+            foreach ((string name, ExpressionValue value) in _state.Capture(scope))
+            {
+                try
+                {
+                    document[name] = ExpressionValueJson.Store(value);
+                }
+                catch (ExpressionEvaluationException error)
+                {
+                    // A set refuses what cannot be saved, but a list or
+                    // dictionary changed in place can come to hold it. That
+                    // one variable keeps the form it was last saved in; the
+                    // others are saved all the same.
+                    if (_savedDocument.TryGetValue(name, out ExpressionValueJson.StoredValue? saved))
+                        document[name] = saved;
+                    _host.Log.Error(
+                        $"Unable to save {scope} expression variable {name}: {error.Message}");
+                }
+            }
+            json = JsonSerializer.Serialize(document, ExpressionValueJson.Options);
             if (!json.Equals(previous, StringComparison.Ordinal))
                 _host.Storage.WriteText(StorageKey(scope), json);
-            return json;
+            _savedDocument = document;
+            return true;
         }
         catch (Exception error)
         {
             _host.Log.Error($"Unable to save {scope} expression variables: {error.Message}");
-            return previous;
+            json = previous ?? string.Empty;
+            return false;
         }
     }
 
+    /// <summary>
+    /// The file for the persistent variables of the character they were
+    /// loaded for, which is the one they are saved to even once the client
+    /// has moved on to another character; for the global scope, the
+    /// per-account file earlier versions kept.
+    /// </summary>
     private string StorageKey(ExpressionVariableScope scope)
     {
         ICharacterInfo character = _host.Automation.Character;
         string owner = scope == ExpressionVariableScope.Persistent
-            ? string.Join('\n', character.WorldName, character.AccountName, character.Name)
+            ? _identity
             : string.Join('\n', character.WorldName, character.AccountName);
         byte[] hash = SHA256.HashData(Encoding.UTF8.GetBytes(owner));
         return $"expressions/{scope.ToString().ToLowerInvariant()}/"
             + $"{Convert.ToHexString(hash.AsSpan(0, 12)).ToLowerInvariant()}.json";
-    }
-
-    private static StoredValue Store(in ExpressionValue value) => value.Kind switch
-    {
-        ExpressionValueKind.Number => new StoredValue
-        {
-            Kind = "number",
-            Number = value.AsNumber(),
-        },
-        ExpressionValueKind.Boolean => new StoredValue
-        {
-            Kind = "boolean",
-            Number = value.AsNumber(),
-        },
-        ExpressionValueKind.String => new StoredValue
-        {
-            Kind = "string",
-            Text = value.AsString(),
-        },
-        ExpressionValueKind.List => new StoredValue
-        {
-            Kind = "list",
-            List = value.AsList().Items.Select(static item => Store(item)).ToList(),
-        },
-        ExpressionValueKind.Dictionary => new StoredValue
-        {
-            Kind = "dictionary",
-            Dictionary = value.AsDictionary().Items.ToDictionary(
-                static pair => pair.Key,
-                static pair => Store(pair.Value),
-                StringComparer.Ordinal),
-        },
-        ExpressionValueKind.Coordinates => StoreCoordinates(value.AsCoordinates()),
-        ExpressionValueKind.WorldObject => new StoredValue
-        {
-            Kind = "worldobject",
-            Number = value.AsObjectId(),
-        },
-        _ => throw new ExpressionEvaluationException(
-            $"{value.Kind} values cannot be persisted"),
-    };
-
-    private static StoredValue StoreCoordinates(in ExpressionCoordinates value) => new()
-    {
-        Kind = "coordinates",
-        Coordinates =
-        [
-            value.EastWest,
-            value.NorthSouth,
-            value.Elevation,
-        ],
-    };
-
-    private static ExpressionValue Restore(StoredValue value) =>
-        value.Kind.ToLowerInvariant() switch
-        {
-            "number" => ExpressionValue.Number(value.Number),
-            "boolean" => ExpressionValue.Boolean(value.Number != 0d),
-            "string" => ExpressionValue.String(value.Text),
-            "list" => ExpressionValue.List(new ExpressionList(
-                (value.List ?? []).Select(Restore))),
-            "dictionary" => RestoreDictionary(value.Dictionary),
-            "coordinates" => RestoreCoordinates(value.Coordinates),
-            "worldobject" => ExpressionValue.WorldObject(checked((uint)value.Number)),
-            _ => ExpressionValue.Zero,
-        };
-
-    private static ExpressionValue RestoreDictionary(
-        Dictionary<string, StoredValue>? values)
-    {
-        var result = new ExpressionDictionary();
-        if (values is not null)
-        {
-            foreach ((string key, StoredValue value) in values)
-                result.Items[key] = Restore(value);
-        }
-        return ExpressionValue.Dictionary(result);
-    }
-
-    private static ExpressionValue RestoreCoordinates(double[]? values) =>
-        values is { Length: >= 2 }
-            ? ExpressionValue.Coordinates(new ExpressionCoordinates(
-                values[0],
-                values[1],
-                values.Length >= 3 ? values[2] : 0d))
-            : ExpressionValue.Zero;
-
-    private sealed class StoredValue
-    {
-        public string Kind { get; set; } = "number";
-        public double Number { get; set; }
-        public string Text { get; set; } = string.Empty;
-        public List<StoredValue>? List { get; set; }
-        public Dictionary<string, StoredValue>? Dictionary { get; set; }
-        public double[]? Coordinates { get; set; }
     }
 
     private readonly record struct DelayedExpression(

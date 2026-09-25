@@ -136,6 +136,25 @@ internal sealed class LootSettings
     public bool LootAllCorpses { get; set; }
     public bool LootFellowCorpses { get; set; }
     public bool LootOnlyRareCorpses { get; set; }
+
+    /// <summary>
+    /// Walk to this character's own rare corpse past the corpse approach
+    /// range, out to the rare reach, and hold the route while it waits (see
+    /// <c>Looting.OwnRare.cs</c>). VTank drops every corpse beyond the
+    /// approach range, rare or not, so this is a MossTank extension and is
+    /// off unless turned on.
+    /// </summary>
+    public bool WalkToOwnRareCorpses { get; set; }
+
+    /// <summary>
+    /// Whether a kill holds the route still for the looting window. The
+    /// reference holds it whenever looting is on; MossTank skips it when only
+    /// rare corpses are looted, because no corpse is looked at until this
+    /// character's rare is announced, so the hold only stands the bot still
+    /// after every kill. The own-rare walk (<see cref="WalkToOwnRareCorpses"/>)
+    /// covers the rare corpse the route has walked away from.
+    /// </summary>
+    public bool HoldsRouteAfterKill => Enabled && !LootOnlyRareCorpses;
     public bool ReadUnknownScrolls { get; set; } = true;
     public bool CombineSalvage { get; set; } = true;
     public int ManaStoneLootCount { get; set; } = 4;
@@ -614,6 +633,18 @@ internal sealed partial class LootController
     private readonly IDictionary<string, ConsumableCategory>
         _configuredConsumableKinds;
     private readonly Dictionary<uint, double> _completedCorpses = [];
+
+    /// <summary>
+    /// The completed corpses that held this character's own rare. With the
+    /// own-rare walk on they outlive <see cref="Reset"/>: an emptied rare
+    /// corpse still describes itself as one, and forgetting it had been
+    /// emptied would send the walk up to the rare reach to it again and hold
+    /// the route while it went.
+    /// </summary>
+    private readonly HashSet<uint> _completedOwnRareCorpses = [];
+
+    /// <summary>The corpse last opened, when it held this character's own rare; otherwise zero.</summary>
+    private uint _openedOwnRareCorpse;
     private readonly Dictionary<uint, int> _corpseOpenAttempts = [];
     private readonly Dictionary<uint, double> _corpseBlacklistedAt = [];
     private readonly Dictionary<uint, int> _itemAttempts = [];
@@ -1027,6 +1058,7 @@ internal sealed partial class LootController
             _activeCorpse = corpse.ObjectId;
             _activeCorpseSawContents = false;
             _activeCorpseIsOwnDeath = IsOwnDeathCorpse(corpse);
+            _openedOwnRareCorpse = IsOwnRareCorpse(corpse) ? corpse.ObjectId : 0u;
             _refusedItems.Clear();
             _stateAge = 0d;
             // Opening a corpse is not instant and it is not always local: a corpse
@@ -1140,6 +1172,12 @@ internal sealed partial class LootController
         ILootAutomation loot = _host.Automation.Loot;
         if (!loot.IsAvailable)
             return;
+        // The chat is read on the frame as well as on the rule's turn, so a
+        // rare announcement is known before the pass that follows it decides
+        // whether the walks wait: read only on the rule's turn, it arrived
+        // after the walks had been let go for that pass. The chat cursor is
+        // shared, so each line is still read once.
+        ObserveOwnershipDenials();
         double elapsed = Math.Max(0d, elapsedSeconds);
         _identifyAge += elapsed;
         _sinceIdentifyRequest += elapsed;
@@ -1298,6 +1336,15 @@ internal sealed partial class LootController
         }
         ResetTransient();
         _completedCorpses.Clear();
+        if (_settings.WalkToOwnRareCorpses)
+        {
+            foreach (uint ownRare in _completedOwnRareCorpses)
+                _completedCorpses[ownRare] = 0d;
+        }
+        else
+        {
+            _completedOwnRareCorpses.Clear();
+        }
         _corpseOpenAttempts.Clear();
         _corpseDescriptionAttempts.Clear();
         _corpseBlacklistedAt.Clear();
@@ -1317,7 +1364,9 @@ internal sealed partial class LootController
         _corpseDeniedAt.Clear();
         _pendingScrollReads.Clear();
         _selectedCorpse = 0u;
-        _chatSequence = 0uL;
+        // The chat already written is not read again: replaying it re-opened
+        // a rare announcement's window and re-applied old refusals.
+        _chatSequence = LatestChatSequence();
         _rareAnnouncedAt = double.NegativeInfinity;
         _lifetime = 0d;
         _salvagePendingItem = 0u;

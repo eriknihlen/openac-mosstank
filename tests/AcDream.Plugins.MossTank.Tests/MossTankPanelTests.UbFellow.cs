@@ -4,7 +4,7 @@ using AcDream.Plugin.Abstractions;
 namespace AcDream.Plugins.MossTank.Tests;
 
 /// <summary>
-/// /vt fellow (and /ub fellow): each sub-command's grammar and the one call
+/// /ub fellow: each sub-command's grammar and the one call
 /// it hands the client, the name forms, and the client's refusals.
 /// </summary>
 public sealed partial class MossTankPanelTests
@@ -34,10 +34,10 @@ public sealed partial class MossTankPanelTests
     {
         (FakeAutomation automation, FakeFellowship fellowship, MossTankPanel panel, FakeHost host) = FellowRig();
 
-        Command(panel, "fellow create Again");
+        UbCommand(panel, "fellow create Again");
 
         Assert.Empty(fellowship.Calls);
-        Assert.Equal("You are already in a fellowship.", Assert.Single(automation.Messages));
+        Assert.Equal("[UB] You are already in a fellowship.", Assert.Single(automation.Messages));
     }
 
     /// <summary>
@@ -52,11 +52,11 @@ public sealed partial class MossTankPanelTests
         (FakeAutomation automation, FakeFellowship fellowship, MossTankPanel panel, FakeHost host) =
             FellowRig(inFellowship: false);
 
-        Command(panel, line);
+        UbCommand(panel, line);
 
         Assert.Empty(fellowship.Calls);
         Assert.Equal(
-            "Your are not currently in a fellowship.",
+            "[UB] Your are not currently in a fellowship.",
             Assert.Single(automation.Messages));
     }
 
@@ -72,7 +72,7 @@ public sealed partial class MossTankPanelTests
     {
         (_, FakeFellowship fellowship, MossTankPanel panel, FakeHost host) = FellowRig();
 
-        Command(panel, line);
+        UbCommand(panel, line);
 
         Assert.Equal([call], fellowship.Calls);
     }
@@ -83,10 +83,10 @@ public sealed partial class MossTankPanelTests
         (FakeAutomation automation, FakeFellowship fellowship, MossTankPanel panel, FakeHost host) =
             FellowRig(leader: Sawato);
 
-        Command(panel, "fellow disband");
+        UbCommand(panel, "fellow disband");
 
         Assert.Empty(fellowship.Calls);
-        Assert.Equal("You are not the fellowship leader!", Assert.Single(automation.Messages));
+        Assert.Equal("[UB] You are not the fellowship leader!", Assert.Single(automation.Messages));
     }
 
     /// <summary>
@@ -108,25 +108,43 @@ public sealed partial class MossTankPanelTests
     {
         (_, FakeFellowship fellowship, MossTankPanel panel, FakeHost host) = FellowRig(leader: leader, isOpen: isOpen);
 
-        Command(panel, line);
+        UbCommand(panel, line);
 
         Assert.Equal(call is null ? [] : [call], fellowship.Calls);
     }
 
-    [Fact]
-    public void FellowStatusPrintsTheFellowshipAndEachMember()
+    /// <summary>
+    /// The reference's status: whether experience is shared and split
+    /// evenly in the heading, and each member's level beside its name.
+    /// Mutation: leaving out the sharing clause or the level fails every
+    /// row; testing the split only while sharing fails the last row.
+    /// </summary>
+    [Theory]
+    [InlineData(true, true, "Sharing XP")]
+    [InlineData(true, false, "Sharing XP, Uneven Split")]
+    [InlineData(false, true, "NOT Sharing XP")]
+    [InlineData(false, false, "NOT Sharing XP, Uneven Split")]
+    public void FellowStatusPrintsTheFellowshipAndEachMember(
+        bool shares,
+        bool even,
+        string clause)
     {
         (FakeAutomation automation, FakeFellowship fellowship, MossTankPanel panel, FakeHost host) = FellowRig();
+        fellowship.SharesExperience = shares;
+        fellowship.SplitsExperienceEvenly = even;
+        fellowship.Roster = [.. fellowship.Roster.Select(static (member, index) =>
+            member with { Level = (uint)(100 + index) })];
 
-        Command(panel, "fellow status");
+        UbCommand(panel, "fellow status");
 
         Assert.Empty(fellowship.Calls);
         Assert.Equal(
             [
-                "00000001 00000001 Your current fellowship, \"Mosswart Hunters\", has 3 members. Open, Not Locked.",
-                " Me H:100/120 (Leader) ",
-                " Yonneh H:100/120",
-                " Sawato Rockstyle H:100/120",
+                "[UB] 00000001 00000001 Your current fellowship, \"Mosswart Hunters\", has 3 members, "
+                    + clause + ". Open, Not Locked.",
+                "[UB]  Me[100] H:100/120 (Leader) ",
+                "[UB]  Yonneh[101] H:100/120",
+                "[UB]  Sawato Rockstyle[102] H:100/120",
             ],
             automation.Messages);
     }
@@ -155,15 +173,51 @@ public sealed partial class MossTankPanelTests
         automation.NavigationSnapshot = NavigationAt(0f);
         host.Selection.Select(Yonneh);
 
-        Command(panel, line);
+        UbCommand(panel, line);
 
         if (recruited == 0u)
         {
+            // Silent, as the reference is without its debug output: a
+            // "could not find player" error would be read by profiles that
+            // wait on that line from the follow command.
             Assert.Empty(fellowship.Calls);
-            Assert.Equal("Could not find player Yon", Assert.Single(automation.Messages));
+            Assert.Empty(automation.Messages);
             return;
         }
         Assert.Equal([Invariant($"recruit {recruited:X8}")], fellowship.Calls);
+    }
+
+    /// <summary>
+    /// With Plugin.Debug on the reference names whom it recruits, dismisses
+    /// or hands the lead to, and whom it could not find: its ordinary line
+    /// (System, 5) and its error (Help, 15), not debug lines. Mutation:
+    /// ignoring the setting prints nothing; printing them as debug lines
+    /// fails the classes.
+    /// </summary>
+    [Fact]
+    public void FellowTargetsAreNamedOnlyWithDebugOn()
+    {
+        (FakeAutomation automation, FakeFellowship fellowship, MossTankPanel panel, _) = FellowRig();
+        automation.WorldObjects = [PlayerAt(Yonneh, "Yonneh", 20d)];
+        automation.NavigationSnapshot = NavigationAt(0f);
+        UbCommand(panel, "opt set Plugin.Debug true");
+        automation.Posted.Clear();
+
+        UbCommand(panel, "fellow recruit Yonneh");
+        UbCommand(panel, "fellow recruit Nobody");
+        UbCommand(panel, "fellow dismiss Sawato Rockstyle");
+        UbCommand(panel, "fellow leader Yonneh");
+        UbCommand(panel, "fellow leader Nobody");
+
+        Assert.Equal(
+            [
+                ("[UB] Recruiting Yonneh[0x50000AAA]", UbChat.GenericChatType),
+                ("[UB] Error: Could not find player Nobody", UbChat.ErrorChatType),
+                ("[UB] Dismissing Sawato Rockstyle[0x50000BBB]", UbChat.GenericChatType),
+                ("[UB] Transferring leader to Yonneh[0x50000AAA]", UbChat.GenericChatType),
+                ("[UB] Error: Could not find player Nobody", UbChat.ErrorChatType),
+            ],
+            automation.Posted);
     }
 
     /// <summary>
@@ -187,7 +241,7 @@ public sealed partial class MossTankPanelTests
         automation.WorldObjects = [PlayerAt(Yonneh, "Yonneh", eastWestMeters)];
         automation.NavigationSnapshot = NavigationAt(0f);
 
-        Command(panel, "fellow recruit Yonneh");
+        UbCommand(panel, "fellow recruit Yonneh");
 
         Assert.Equal(sent ? 1 : 0, fellowship.Calls.Count);
     }
@@ -211,7 +265,7 @@ public sealed partial class MossTankPanelTests
         (_, FakeFellowship fellowship, MossTankPanel panel, FakeHost host) = FellowRig();
         host.Selection.Select(Yonneh);
 
-        Command(panel, line);
+        UbCommand(panel, line);
 
         Assert.Equal([call], fellowship.Calls);
     }
@@ -221,10 +275,10 @@ public sealed partial class MossTankPanelTests
     {
         (FakeAutomation automation, FakeFellowship fellowship, MossTankPanel panel, FakeHost host) = FellowRig();
 
-        Command(panel, "fellow dismiss rock");
+        UbCommand(panel, "fellow dismiss rock");
 
         Assert.Empty(fellowship.Calls);
-        Assert.Equal("Could not find player rock", Assert.Single(automation.Messages));
+        Assert.Empty(automation.Messages);
     }
 
     /// <summary>
@@ -236,7 +290,7 @@ public sealed partial class MossTankPanelTests
     {
         (_, FakeFellowship fellowship, MossTankPanel panel, FakeHost host) = FellowRig();
 
-        Command(panel, "fellow dismiss 1");
+        UbCommand(panel, "fellow dismiss 1");
 
         Assert.Equal(["quit disband=False"], fellowship.Calls);
     }
@@ -248,7 +302,7 @@ public sealed partial class MossTankPanelTests
     {
         (_, FakeFellowship fellowship, MossTankPanel panel, FakeHost host) = FellowRig(leader: Sawato);
 
-        Command(panel, line);
+        UbCommand(panel, line);
 
         Assert.Empty(fellowship.Calls);
     }
@@ -258,8 +312,8 @@ public sealed partial class MossTankPanelTests
     /// without looking at the result leaves the chat silent.
     /// </summary>
     [Theory]
-    [InlineData(PluginFellowshipCommandStatus.Rejected, "The client refused to dismiss Yonneh.")]
-    [InlineData(PluginFellowshipCommandStatus.Unavailable, "Cannot dismiss Yonneh right now.")]
+    [InlineData(PluginFellowshipCommandStatus.Rejected, "[UB] Error: The client refused to dismiss Yonneh.")]
+    [InlineData(PluginFellowshipCommandStatus.Unavailable, "[UB] Error: Cannot dismiss Yonneh right now.")]
     public void AFellowCommandTheClientDidNotSendIsReported(
         PluginFellowshipCommandStatus status,
         string said)
@@ -267,7 +321,7 @@ public sealed partial class MossTankPanelTests
         (FakeAutomation automation, FakeFellowship fellowship, MossTankPanel panel, FakeHost host) = FellowRig();
         fellowship.Result = new PluginFellowshipCommandResult(status);
 
-        Command(panel, "fellow dismiss Yonneh");
+        UbCommand(panel, "fellow dismiss Yonneh");
 
         Assert.Equal(["dismiss 50000AAA"], fellowship.Calls);
         Assert.Equal(said, automation.Messages[^1]);
@@ -282,13 +336,15 @@ public sealed partial class MossTankPanelTests
     {
         (FakeAutomation automation, FakeFellowship fellowship, MossTankPanel panel, FakeHost host) = FellowRig();
 
-        Command(panel, line);
+        UbCommand(panel, line);
 
         Assert.Empty(fellowship.Calls);
         Assert.Equal(
             [
-                "Bad command syntax",
-                "Usage: /vt fellow create <Name>|quit|disband|open|close|status|recruit[p][ Name]|dismiss[p][ Name]|leader[p][ Name]",
+                "[UB] Error: Bad command syntax",
+                "[UB] Usage: /ub fellow create <Name>|quit|disband|open|close|status|recruit[p][ Name]|dismiss[p][ Name]|leader[p][ Name]",
+                "Description: UB Fellowship Commands.",
+                "Examples:",
             ],
             automation.Messages);
     }
@@ -299,10 +355,10 @@ public sealed partial class MossTankPanelTests
         var automation = new FakeAutomation();
         var panel = new MossTankPanel(new FakeHost(automation));
 
-        Command(panel, "help fellow");
+        UbCommand(panel, "help fellow");
 
         Assert.Equal(
-            "Syntax: /vt fellow create <Name>|quit|disband|open|close|status|recruit[p][ Name]|dismiss[p][ Name]|leader[p][ Name]",
+            "[UB] Usage: /ub fellow create <Name>|quit|disband|open|close|status|recruit[p][ Name]|dismiss[p][ Name]|leader[p][ Name]",
             automation.Messages[0]);
     }
 
@@ -354,6 +410,8 @@ public sealed partial class MossTankPanelTests
         public uint LeaderObjectId { get; set; }
         public bool IsOpen { get; set; }
         public bool IsLocked { get; set; }
+        public bool SharesExperience { get; set; }
+        public bool SplitsExperienceEvenly { get; set; }
         public int MemberCount => Roster.Count;
         public List<PluginFellowMember> Roster { get; set; } = [];
         public List<string> Calls { get; } = [];

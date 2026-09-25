@@ -136,7 +136,7 @@ public sealed class UbSettingCatalogTests
             [
                 "Aliases", "AutoTinker", "AutoVendor", "AutoXp", "DungeonMaps",
                 "EquipmentManager", "GameEvents", "ItemGiver", "Jumper",
-                "LandscapeMaps", "Nametags", "NetworkUI", "Networking",
+                "LandscapeMaps", "Nametags", "NetworkUI", "Networking", "Plugin",
                 "Sharing",
             ],
             categories);
@@ -191,7 +191,7 @@ public sealed class UbSettingCatalogTests
         // All three targets are exercised by the sweep above, and each by
         // more than a handful of rows.
         Assert.Equal(7, catalog.Settings.Count(static row => row.Scope == UbSettingScope.Global));
-        Assert.Equal(145, catalog.Settings.Count(static row => row.Scope == UbSettingScope.Profile));
+        Assert.Equal(154, catalog.Settings.Count(static row => row.Scope == UbSettingScope.Profile));
         Assert.Equal(6, catalog.Settings.Count(static row => row.Scope == UbSettingScope.Character));
     }
 
@@ -277,9 +277,9 @@ public sealed class UbSettingCatalogTests
     public void CategoriesComeBackInOrderWithTheirRows()
     {
         var catalog = new UbSettingCatalog(new UbSettingValueBag());
-        Assert.Equal(14, catalog.Categories.Count);
+        Assert.Equal(15, catalog.Categories.Count);
         Assert.Equal("Aliases", catalog.Categories[0]);
-        Assert.Equal(158, catalog.Settings.Count);
+        Assert.Equal(167, catalog.Settings.Count);
         Assert.All(
             catalog.Settings,
             static row => Assert.NotNull(row.Definition));

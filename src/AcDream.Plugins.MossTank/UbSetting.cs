@@ -1,3 +1,5 @@
+using System.Globalization;
+
 namespace AcDream.Plugins.MossTank;
 
 /// <summary>
@@ -70,6 +72,27 @@ internal sealed record UbSettingDefinition(
             return value.Items.Count == 0 ? "(empty)" : string.Join(", ", value.Items);
         return value.ToStorageString();
     }
+
+    /// <summary>
+    /// The value as the reference's command line writes it: a switch as
+    /// True or False, a choice as its label, a colour as <c>0x</c> and eight
+    /// hex digits, a list as <c>[a,b]</c> with nothing between the items,
+    /// and everything else as its own text.
+    /// </summary>
+    public string CommandLineDisplay(UbSettingValue value) => value.Kind switch
+    {
+        UbSettingKind.Enum => Display(value),
+        UbSettingKind.Color => "0x" + value.AsColor().ToString("X8", CultureInfo.InvariantCulture),
+        UbSettingKind.Collection => "[" + string.Join(",", value.Items) + "]",
+        _ => value.ToStorageString(),
+    };
+
+    /// <summary>
+    /// Which of the reference's setting types this row is: a value kept for
+    /// the character alone is its per-character state, everything else a
+    /// profile setting.
+    /// </summary>
+    public string ReferenceSettingType => Scope == UbSettingScope.Character ? "State" : "Profile";
 }
 
 /// <summary>
@@ -135,6 +158,16 @@ internal sealed class UbSetting
 
     /// <summary>The short form for the value column.</summary>
     internal string Display() => Definition.Display(Get());
+
+    /// <summary>
+    /// The line <c>/ub opt</c> prints for this setting, in the reference's
+    /// shape: <c>Name (Type) = value</c>, under the name the reference gives
+    /// the row, its setting type, and the value as its command line writes
+    /// it. Macros match on this line, so its shape is the reference's.
+    /// </summary>
+    internal string FullDisplayValue() =>
+        $"{UbSettingDefinitions.OriginalNameOf(Name)} ({Definition.ReferenceSettingType}) = "
+        + Definition.CommandLineDisplay(Get());
 }
 
 /// <summary>
@@ -212,18 +245,16 @@ internal sealed class UbSettingCatalog
         _values = values;
         var rows = new List<UbSetting>(UbSettingDefinitions.All.Count);
         foreach (UbSettingDefinition definition in UbSettingDefinitions.All)
-        {
-            bool live = liveOwners is not null
-                && liveOwners.TryGetValue(definition.Name, out UbSettingBinding? owner);
-            UbSettingBinding binding = live
-                ? liveOwners![definition.Name]
-                : StoredBinding(values, definition);
-            rows.Add(new UbSetting(definition, binding, live));
-        }
+            rows.Add(Bind(definition, values, liveOwners));
         Settings = rows;
         _byName = rows.ToDictionary(
             static row => row.Name,
             StringComparer.OrdinalIgnoreCase);
+        // Reachable by name, but not rows on the tab.
+        foreach (UbSettingDefinition definition in UbSettingDefinitions.AcceptedOnly)
+            _byName[definition.Name] = Bind(definition, values, liveOwners);
+        foreach ((string spelling, string name) in UbSettingDefinitions.OriginalSpellings)
+            _byName[spelling] = _byName[name];
         Categories = rows
             .Select(static row => row.Definition.Category)
             .Distinct(StringComparer.Ordinal)
@@ -237,7 +268,11 @@ internal sealed class UbSettingCatalog
     /// <summary>The tools, in name order, for the category filter.</summary>
     internal IReadOnlyList<string> Categories { get; }
 
-    /// <summary>The row of one name, if the catalogue has it.</summary>
+    /// <summary>
+    /// The row of one name, if the catalogue has it: a row on the tab, a
+    /// name kept only so macros can set it, or the original's spelling of a
+    /// row that is called something else here.
+    /// </summary>
     internal bool TryGet(string name, out UbSetting setting) =>
         _byName.TryGetValue(name, out setting!);
 
@@ -261,6 +296,15 @@ internal sealed class UbSettingCatalog
         else
             _values.Clear(row.Scope, row.Name);
     }
+
+    private static UbSetting Bind(
+        UbSettingDefinition definition,
+        IUbSettingValues values,
+        IReadOnlyDictionary<string, UbSettingBinding>? liveOwners) =>
+        liveOwners is not null
+            && liveOwners.TryGetValue(definition.Name, out UbSettingBinding? owner)
+                ? new UbSetting(definition, owner, hasLiveOwner: true)
+                : new UbSetting(definition, StoredBinding(values, definition));
 
     /// <summary>
     /// The reading order: the character's own value, then the profile's,

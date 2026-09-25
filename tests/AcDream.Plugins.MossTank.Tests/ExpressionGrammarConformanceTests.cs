@@ -104,23 +104,21 @@ public sealed class ExpressionGrammarConformanceTests
         Assert.Equal(expected, Evaluate(source).AsNumber());
 
     /// <summary>
-    /// An assignment binds tighter than a comparison: the 1 is stored and the
+    /// An assignment binds tighter than a comparison: the 2 is stored and the
     /// stored value is then compared. Mutation: making assignment the loosest
-    /// operator stores the comparison result instead, so the variable ends up
-    /// holding a boolean and the whole expression is the assignment.
+    /// operator stores the comparison result (1) instead.
     /// </summary>
     [Fact]
     public void AssignmentBindsTighterThanComparison()
     {
         var state = new ExpressionState();
 
-        ExpressionValue result = Evaluate("$x = 1 == 1", state);
+        ExpressionValue result = Evaluate("$x = 2 == 2", state);
 
-        Assert.True(result.IsTruthy);
-        Assert.Equal(ExpressionValueKind.Boolean, result.Kind);
+        Assert.Equal(1d, result.AsNumber());
         ExpressionValue stored = state.Get(ExpressionVariableScope.Session, "x");
         Assert.Equal(ExpressionValueKind.Number, stored.Kind);
-        Assert.Equal(1d, stored.AsNumber());
+        Assert.Equal(2d, stored.AsNumber());
     }
 
     /// <summary>
@@ -346,6 +344,68 @@ public sealed class ExpressionGrammarConformanceTests
             () => Evaluate("0x100000000"));
         Assert.Contains("32 bits", error.Message, StringComparison.Ordinal);
     }
+
+    /// <summary>
+    /// The reference parser recovers from one missing or one extra token
+    /// without a word, and profiles rely on it. A ';' where a ')' is due
+    /// closes the group (the ';' may follow it), so a parenthesised sequence
+    /// runs as two statements and the stray ')' at the end is dropped.
+    /// Mutation: without the recovery the parser stops at the ';'.
+    /// </summary>
+    [Fact]
+    public void ASemicolonInsideParenthesesRunsAsASequence()
+    {
+        var state = new ExpressionState();
+        ExpressionValue result = Evaluate("(setvar[a,1];setvar[b,2])", state);
+        Assert.Equal(2d, result.AsNumber());
+        Assert.Equal(1d, Evaluate("getvar[a]", state).AsNumber());
+        Assert.Equal(2d, Evaluate("getvar[b]", state).AsNumber());
+    }
+
+    /// <summary>
+    /// One extra token before the end of the expression is dropped: the
+    /// stray ')' or ']' an author left at the end of a line. Mutation:
+    /// without the recovery both are "Unexpected token".
+    /// </summary>
+    [Fact]
+    public void AStrayClosingTokenAtTheEndIsDropped()
+    {
+        Assert.Equal(3d, Evaluate("1+(4-2))").AsNumber());
+        Assert.Equal(3d, Evaluate("strlen[abc]]").AsNumber());
+        Assert.Equal(2d, Evaluate("1;2)").AsNumber());
+    }
+
+    /// <summary>
+    /// A missing ')' is supplied when the token in its place is one that
+    /// could follow it: a ']' that closes the call, or the end. Mutation:
+    /// without the recovery both are "Closing ')' expected".
+    /// </summary>
+    [Fact]
+    public void AMissingParenthesisIsSuppliedBeforeWhatMayFollowIt()
+    {
+        Assert.Equal(6d, Evaluate("round[2*(1+2]").AsNumber());
+        Assert.Equal(9d, Evaluate("3*(1+2").AsNumber());
+    }
+
+    /// <summary>
+    /// The recovery happens only where the reference parser makes it: an
+    /// expression broken in any other way stays an error. A ')' is not
+    /// supplied before a token that cannot follow a group, two operators in a
+    /// row are not one missing operand, an operator with nothing after it is
+    /// incomplete, and after a first statement only one stray token is
+    /// dropped. (The full table, taken from the reference parser itself, is
+    /// in ExpressionReferenceParserParityTests.) Mutation: accepting any of
+    /// them.
+    /// </summary>
+    [Theory]
+    [InlineData("istrue[getvar[a]==0&&&&getvar[b]==0]")]
+    [InlineData("getvar[a]<")]
+    [InlineData("1 2 3")]
+    [InlineData("(1))+2")]
+    [InlineData("(1 2")]
+    [InlineData("(1 abc")]
+    public void ABrokenExpressionStaysBroken(string source) =>
+        Assert.Throws<ExpressionParseException>(() => Evaluate(source));
 
     private static ExpressionValue Evaluate(
         string source,

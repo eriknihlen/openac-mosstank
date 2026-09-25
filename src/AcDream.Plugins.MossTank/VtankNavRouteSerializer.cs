@@ -65,6 +65,160 @@ internal static class VtankNavRouteSerializer
         }
     }
 
+    /// <summary>
+    /// The route in the older ".nav" form, line for line as that form's own
+    /// writer lays it out, so a route loaded from a ".nav" saves back to the
+    /// same bytes and the tool that owns the form reads what is written.
+    /// </summary>
+    /// <exception cref="InvalidOperationException">
+    /// The route holds something the form has no way to say. Nothing is
+    /// written in that case rather than a file that quietly lost it.
+    /// </exception>
+    public static string Save(NavigationSettings source)
+    {
+        ArgumentNullException.ThrowIfNull(source);
+        var lines = new List<string>();
+        WriteRoute(lines, source);
+        return string.Join("\r\n", lines) + "\r\n";
+    }
+
+    /// <summary>
+    /// The route's lines in the ".nav" form, from the header on, for a file
+    /// of its own or for a route embedded in a meta.
+    /// </summary>
+    internal static void WriteRoute(List<string> lines, NavigationSettings source)
+    {
+        ArgumentNullException.ThrowIfNull(lines);
+        ArgumentNullException.ThrowIfNull(source);
+        lines.Add(Header);
+        lines.Add(source.Mode switch
+        {
+            RouteMode.Circular => "1",
+            RouteMode.Linear => "2",
+            RouteMode.Target => "3",
+            RouteMode.Once => "4",
+            _ => throw new InvalidOperationException(
+                $"A .nav file has no route mode {source.Mode}."),
+        });
+        if (source.Mode == RouteMode.Target)
+        {
+            // A follow route is its target and nothing else.
+            if (source.Waypoints.Count != 0)
+            {
+                throw new InvalidOperationException(
+                    "A .nav follow route cannot also hold waypoints.");
+            }
+            lines.Add(source.FollowTargetName);
+            lines.Add(FormatInt(unchecked((int)source.FollowTargetObjectId)));
+            return;
+        }
+        lines.Add(FormatInt(source.Waypoints.Count));
+        foreach (RouteWaypoint waypoint in source.Waypoints)
+            WriteWaypoint(lines, waypoint);
+    }
+
+    private static void WriteWaypoint(List<string> lines, RouteWaypoint waypoint)
+    {
+        lines.Add(waypoint.Type switch
+        {
+            RouteWaypointType.Point => "0",
+            RouteWaypointType.Portal => "1",
+            RouteWaypointType.Recall => "2",
+            RouteWaypointType.Pause => "3",
+            RouteWaypointType.ChatCommand => "4",
+            RouteWaypointType.OpenVendor => "5",
+            RouteWaypointType.PortalByName => "6",
+            RouteWaypointType.UseNpc => "7",
+            RouteWaypointType.Checkpoint => "8",
+            RouteWaypointType.Jump => "9",
+            _ => throw new InvalidOperationException(
+                $"A .nav file has no waypoint type {waypoint.Type}."),
+        });
+        lines.Add(FormatDouble(waypoint.Position.EastWest));
+        lines.Add(FormatDouble(waypoint.Position.NorthSouth));
+        lines.Add(FormatDouble(waypoint.Position.Elevation));
+        lines.Add("0");
+        switch (waypoint.Type)
+        {
+            case RouteWaypointType.Portal:
+                lines.Add(FormatInt(unchecked((int)waypoint.ObjectId)));
+                break;
+            case RouteWaypointType.Recall:
+                lines.Add(FormatInt(checked((int)RecallSpellId(waypoint))));
+                break;
+            case RouteWaypointType.Pause:
+                lines.Add(FormatInt(waypoint.DurationMilliseconds));
+                break;
+            case RouteWaypointType.ChatCommand:
+                lines.Add(SingleLine(waypoint.Text, "chat command"));
+                break;
+            case RouteWaypointType.OpenVendor:
+                lines.Add(FormatInt(unchecked((int)waypoint.ObjectId)));
+                lines.Add(SingleLine(waypoint.ObjectName, "vendor name"));
+                break;
+            case RouteWaypointType.PortalByName:
+            case RouteWaypointType.UseNpc:
+                lines.Add(SingleLine(waypoint.ObjectName, "object name"));
+                lines.Add(FormatInt(waypoint.LegacyObjectClass));
+                lines.Add(waypoint.LegacyReferenceValid ? "True" : "False");
+                lines.Add(FormatDouble(waypoint.ReferencePosition.EastWest));
+                lines.Add(FormatDouble(waypoint.ReferencePosition.NorthSouth));
+                lines.Add(FormatDouble(waypoint.ReferencePosition.Elevation));
+                break;
+            case RouteWaypointType.Jump:
+                if (waypoint.JumpDirection == RouteJumpDirection.Backward)
+                {
+                    throw new InvalidOperationException(
+                        "A .nav file has no backward jump.");
+                }
+                lines.Add(FormatDouble(waypoint.JumpHeadingDegrees));
+                lines.Add(waypoint.JumpHoldShift ? "True" : "False");
+                lines.Add(FormatJumpCharge(waypoint));
+                break;
+        }
+    }
+
+    /// <summary>
+    /// The recall's spell: the one it was read with, or the one its kind
+    /// stands for when it was made here.
+    /// </summary>
+    private static uint RecallSpellId(RouteWaypoint waypoint) =>
+        waypoint.RecallSpellId != 0u
+            ? waypoint.RecallSpellId
+            : RouteWaypoint.SpellIdForRecall(waypoint.Recall);
+
+    private static string SingleLine(string value, string what)
+    {
+        string text = value ?? string.Empty;
+        if (text.Contains('\n', StringComparison.Ordinal)
+            || text.Contains('\r', StringComparison.Ordinal))
+        {
+            throw new InvalidOperationException(
+                $"A .nav file cannot hold a {what} that runs over more than one line.");
+        }
+        return text;
+    }
+
+    private static string FormatInt(int value) =>
+        value.ToString(CultureInfo.InvariantCulture);
+
+    /// <summary>
+    /// A number as the shortest text that reads back as exactly it, and zero
+    /// without a sign. The form's own writer prints fifteen significant
+    /// digits, and for every number in its files the shortest such text is
+    /// those same digits, so a file it wrote saves back unchanged; a number
+    /// fifteen digits cannot hold, from another tool or measured here, keeps
+    /// every digit it needs, so a save never moves a point.
+    /// </summary>
+    internal static string FormatDouble(double value)
+    {
+        if (!double.IsFinite(value))
+            throw new InvalidOperationException("A .nav file cannot hold a number that is not finite.");
+        return value == 0d
+            ? "0"
+            : value.ToString("R", CultureInfo.InvariantCulture);
+    }
+
     private static RouteWaypoint ReadWaypoint(
         TextReader reader,
         ISpellCatalog spells)
@@ -138,17 +292,47 @@ internal static class VtankNavRouteSerializer
                     referenceElevation);
                 break;
             case 9:
-                waypoint.JumpHeadingDegrees = checked((float)ReadDouble(reader));
-                waypoint.JumpRun = ReadBoolean(reader);
+                waypoint.JumpHeadingDegrees = ReadDouble(reader);
+                waypoint.JumpHoldShift = ReadBoolean(reader);
                 ParseJump(ReadLine(reader), waypoint);
                 break;
         }
         return waypoint;
     }
 
+    /// <summary>
+    /// A jump's charge time with its direction riding in the fifth decimal,
+    /// 3 forward, 4 strafe left, 5 strafe right, printed as the form prints
+    /// any number: 50 milliseconds forward is "50.00003".
+    /// </summary>
+    private static string FormatJumpCharge(RouteWaypoint waypoint)
+    {
+        int direction = waypoint.JumpDirection switch
+        {
+            RouteJumpDirection.StrafeLeft => 4,
+            RouteJumpDirection.StrafeRight => 5,
+            _ => 3,
+        };
+        return FormatDouble(waypoint.JumpChargeMilliseconds + (direction / 100_000d));
+    }
+
     private static void ParseJump(string source, RouteWaypoint target)
     {
         string value = source.Trim();
+        // A charge of nothing is its direction code alone, which the form
+        // prints in exponent notation: "4E-05" is a strafe left on the spot.
+        double whole = double.Parse(value, NumberStyles.Float, CultureInfo.InvariantCulture);
+        if (whole is > 0d and < 0.0001d)
+        {
+            target.JumpChargeMilliseconds = 0;
+            target.JumpDirection = Math.Round(whole * 100_000d) switch
+            {
+                4d => RouteJumpDirection.StrafeLeft,
+                5d => RouteJumpDirection.StrafeRight,
+                _ => RouteJumpDirection.Forward,
+            };
+            return;
+        }
         char suffix = value.Length == 0 ? '\0' : value[^1];
         bool encoded = suffix is '3' or '4' or '5'
             && value.Length >= 6

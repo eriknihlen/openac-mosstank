@@ -86,10 +86,15 @@ internal sealed partial class MossTankPanel
     /// Nothing is said for a profile that does not exist yet -- there was no
     /// load to report.
     /// </summary>
+    /// <param name="reason">
+    /// Why a failed load could not read the file, when the store knows; it
+    /// follows the path, so the player can see what to fix.
+    /// </param>
     private void AnnounceLoadOutcome(
         string kind,
         string? storageKey,
-        MossTankProfileLoad outcome)
+        MossTankProfileLoad outcome,
+        string? reason = null)
     {
         if (storageKey is not { Length: > 0 } key)
             return;
@@ -107,7 +112,8 @@ internal sealed partial class MossTankPanel
             case MossTankProfileLoad.Failed:
                 QueueAnnouncement(
                     $"Could not load {kind} profile {FileNameOf(key)} from "
-                    + FullPathOf(key));
+                    + FullPathOf(key)
+                    + (string.IsNullOrWhiteSpace(reason) ? string.Empty : ": " + reason));
                 break;
             default:
                 break;

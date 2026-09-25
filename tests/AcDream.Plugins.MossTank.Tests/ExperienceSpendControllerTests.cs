@@ -25,7 +25,7 @@ public sealed class ExperienceSpendControllerTests
         var automation = new FakeAutomation { Unassigned = 300 };
         ExperienceSpendController controller = Controller(automation, macroEnabled: () => false);
 
-        Assert.Contains("1 step", controller.Command("level")[0], StringComparison.Ordinal);
+        Assert.Contains("1 step", controller.Command("level")![0], StringComparison.Ordinal);
         Assert.True(controller.IsRunning);
         controller.Tick(0d);
         Assert.Equal([(PluginAdvancementKind.Skill, 34u, 282UL)], automation.Requests);
@@ -34,7 +34,7 @@ public sealed class ExperienceSpendControllerTests
         Assert.Contains("1 target", controller.Status, StringComparison.Ordinal);
 
         automation.Requests.Clear();
-        Assert.Contains("6 step", controller.Command("slow")[0], StringComparison.Ordinal);
+        Assert.Contains("6 step", controller.Command("slow")![0], StringComparison.Ordinal);
         controller.Tick(0d);
         Assert.Equal([(PluginAdvancementKind.Skill, 34u, 23UL)], automation.Requests);
         controller.Tick(0.1d);
@@ -60,7 +60,7 @@ public sealed class ExperienceSpendControllerTests
     {
         var automation = new FakeAutomation { Unassigned = 300, Luminance = 0 };
         ExperienceSpendController controller = Controller(automation, macroEnabled: () => false);
-        Assert.Contains("1 step", controller.Command("level")[0], StringComparison.Ordinal);
+        Assert.Contains("1 step", controller.Command("level")![0], StringComparison.Ordinal);
         controller.Tick(0d);
         Assert.Equal([(PluginAdvancementKind.Skill, 34u, 282UL)], automation.Requests);
 
@@ -111,7 +111,7 @@ public sealed class ExperienceSpendControllerTests
         bool macro = true;
         ExperienceSpendController controller = Controller(automation, macroEnabled: () => macro);
 
-        Assert.Contains("macro", controller.Command("level")[0], StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("macro", controller.Command("level")![0], StringComparison.OrdinalIgnoreCase);
         Assert.False(controller.IsRunning);
         Assert.Empty(automation.Requests);
 
@@ -149,8 +149,13 @@ public sealed class ExperienceSpendControllerTests
         automation.Answer = new PluginAdvancementResult(PluginAdvancementStatus.Sent, null!);
         controller.Command("slow");
         Assert.True(controller.IsRunning);
-        Assert.Contains("Stopping", controller.Command("level")[0], StringComparison.Ordinal);
+        automation.Messages.Clear();
+        Assert.Empty(controller.Command("level")!);
         Assert.False(controller.IsRunning);
+        // The reference's stop says it is stopping, then how far it got.
+        Assert.Equal(
+            ["[UB] Stopping AutoXp.", "[UB] Finished leveling 0 targets."],
+            automation.Messages);
     }
 
     /// <summary>
@@ -169,15 +174,15 @@ public sealed class ExperienceSpendControllerTests
             macroEnabled: () => false,
             policy: lines);
 
-        IReadOnlyList<string> weights = controller.Command("");
+        IReadOnlyList<string> weights = controller.Command("")!;
         Assert.Contains(weights, l => l.Contains("WarMagic: 10", StringComparison.Ordinal));
-        Assert.Contains(controller.Command("test"), l => l.Contains("WarMagic: 6 levels for 282 xp", StringComparison.Ordinal));
-        Assert.Equal("Strength=1;Health=1.4;WarMagic=10", controller.Command("export")[0]);
+        Assert.Contains(controller.Command("test")!, l => l.Contains("WarMagic: 6 levels for 282 xp", StringComparison.Ordinal));
+        Assert.Equal("[UB] Strength=1;Health=1.4;WarMagic=10", controller.Command("export")![0]);
 
-        IReadOnlyList<string> imported = controller.Command("import Alchemy=2;Bogus=1;WarMagic=0");
+        IReadOnlyList<string> imported = controller.Command("import Alchemy=2;Bogus=1;WarMagic=0")!;
         Assert.Contains(imported, l => l.Contains("Bogus", StringComparison.Ordinal));
         Assert.Equal(["Strength = 1", "Health = 1.4", "WarMagic = 0", "Alchemy = 2"], lines);
-        Assert.Equal("Strength=1;Health=1.4;WarMagic=0;Alchemy=2", controller.Command("export")[0]);
+        Assert.Equal("[UB] Strength=1;Health=1.4;WarMagic=0;Alchemy=2", controller.Command("export")![0]);
     }
 
     private static ExperienceSpendController Controller(

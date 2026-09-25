@@ -254,7 +254,7 @@ public sealed class MossTankAutostartTests
         panel.SetMetaActionTextDraft("setvar[`x`,1]");
         panel.AddMetaRule();
         Assert.Single(panel.MetaRows);
-        string metaKey = $"{VtankProfileDirectory.MetaFolder}/myMeta.af";
+        string metaKey = $"{VtankProfileDirectory.MetaFolder}/myMeta.met";
         string savedMyMetaText = host.Storage.ReadText(metaKey)!;
         Assert.False(string.IsNullOrEmpty(savedMyMetaText));
 
@@ -287,7 +287,7 @@ public sealed class MossTankAutostartTests
         Command(panel, "nav save myNav");
         panel.SetRoutePauseSecondsText("7");
         panel.AddRoutePause();
-        string navKey = $"{VtankProfileDirectory.NavFolder}/myNav.af";
+        string navKey = $"{VtankProfileDirectory.NavFolder}/myNav.nav";
         string savedMyNavText = host.Storage.ReadText(navKey)!;
         Assert.False(string.IsNullOrEmpty(savedMyNavText));
 
