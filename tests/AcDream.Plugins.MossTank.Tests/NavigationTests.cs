@@ -1353,6 +1353,155 @@ public sealed class NavigationTests
         Assert.False(controller.Tick(0.05d, canAct: true));
     }
 
+    // ── Arriving through a portal ────────────────────────────────────────
+
+    /// <summary>
+    /// A route that uses a portal, with the portal still standing 1 m east of
+    /// the start and a point beyond the destination.
+    /// </summary>
+    private static (NavigationController Controller, FakeAutomation Automation)
+        PortalRoute(RouteWaypointType kind)
+    {
+        var automation = new FakeAutomation
+        {
+            NavigationSnapshot = Snapshot(Position(0d, 0d)),
+        };
+        automation.Objects[77u] = new PluginNavigationObject(
+            77u,
+            "Portal",
+            Position(1d / 240d, 0d));
+        RouteWaypoint portal = Waypoint(kind, Position(0d, 0d));
+        portal.ObjectId = 77u;
+        portal.ObjectName = "Portal";
+        portal.ReferencePosition = Position(1d / 240d, 0d);
+        NavigationController controller = Controller(
+            automation,
+            RouteMode.Once,
+            portal,
+            Waypoint(RouteWaypointType.Point, Position(5d, 0d)));
+        return (controller, automation);
+    }
+
+    private static void PassThroughPortalSpace(
+        NavigationController controller,
+        FakeAutomation automation,
+        PluginNavigationPosition landing)
+    {
+        automation.NavigationSnapshot = automation.NavigationSnapshot with
+        {
+            IsPortalSpace = true,
+        };
+        Assert.True(controller.Tick(0.05d, canAct: true));
+        automation.NavigationSnapshot = Snapshot(landing);
+    }
+
+    /// <summary>
+    /// Coming out of portal space far from the portal finishes the portal
+    /// waypoint on the first tick, even though the portal it used is still in
+    /// the object table: the route moves on to the next point and never walks
+    /// back towards where the portal stood.
+    ///
+    /// Mutation: put the portal-exit check back below the approach and the
+    /// first tick after arrival steers at the old portal (forward held, the
+    /// waypoint still current) until the object leaves the table.
+    /// </summary>
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void APortalWaypointIsDoneOnTheFirstTickAfterArrival(bool byName)
+    {
+        (NavigationController controller, FakeAutomation automation) = PortalRoute(
+            byName ? RouteWaypointType.PortalByName : RouteWaypointType.Portal);
+
+        Assert.True(controller.Tick(0.05d, canAct: true));
+        Assert.Equal([77u], automation.UsedObjects);
+
+        PassThroughPortalSpace(controller, automation, Position(4d, 0d));
+        automation.Intents.Clear();
+        Assert.True(controller.Tick(0.05d, canAct: true));
+
+        Assert.Equal(1, controller.CurrentWaypointIndex);
+        Assert.DoesNotContain(automation.Intents, static intent => intent.Forward);
+        Assert.Equal([77u], automation.UsedObjects);
+    }
+
+    /// <summary>
+    /// A portal-by-name waypoint whose portal object has gone from the table by
+    /// the time the character lands is done on arrival too, instead of
+    /// searching for the object until the use times out.
+    ///
+    /// Mutation: put the portal-exit check back below the object search and
+    /// the waypoint sits on "Finding Portal." for the rest of its thirty
+    /// seconds.
+    /// </summary>
+    [Fact]
+    public void APortalByNameWaypointIsDoneOnArrivalWhenItsPortalIsGone()
+    {
+        (NavigationController controller, FakeAutomation automation) =
+            PortalRoute(RouteWaypointType.PortalByName);
+
+        Assert.True(controller.Tick(0.05d, canAct: true));
+        PassThroughPortalSpace(controller, automation, Position(4d, 0d));
+        automation.Objects.Clear();
+
+        Assert.True(controller.Tick(0.05d, canAct: true));
+
+        Assert.Equal(1, controller.CurrentWaypointIndex);
+    }
+
+    /// <summary>
+    /// A portal-by-name exit within 15 m of where the use was sent is not an
+    /// arrival: the waypoint stays current, says so, and uses the portal again
+    /// once the character is back in reach of it.
+    ///
+    /// Mutation: put the portal-exit check back below the approach and the
+    /// first tick after the near exit only walks back to the portal, so the
+    /// second use waits a tick longer than it should.
+    /// </summary>
+    [Fact]
+    public void APortalByNameExitNearItsOriginRetriesTheUse()
+    {
+        (NavigationController controller, FakeAutomation automation) =
+            PortalRoute(RouteWaypointType.PortalByName);
+
+        Assert.True(controller.Tick(0.05d, canAct: true));
+        Assert.Equal([77u], automation.UsedObjects);
+
+        // Out 10 m west of the start: 11 m from the portal, inside 15 m of
+        // the origin.
+        PassThroughPortalSpace(controller, automation, Position(-10d / 240d, 0d));
+        Assert.True(controller.Tick(0.05d, canAct: true));
+        Assert.Equal(0, controller.CurrentWaypointIndex);
+
+        automation.NavigationSnapshot = Snapshot(Position(0d, 0d));
+        Assert.True(controller.Tick(0.05d, canAct: true));
+
+        Assert.Equal(0, controller.CurrentWaypointIndex);
+        Assert.Equal([77u, 77u], automation.UsedObjects);
+    }
+
+    /// <summary>
+    /// A recall is done on the first tick after the character comes out of
+    /// portal space somewhere else. The position jump is the teleport itself,
+    /// not the character failing to stand still.
+    ///
+    /// Mutation: put the portal-exit check back below the standing-still check
+    /// and the first tick after arrival reads the jump as movement and waits.
+    /// </summary>
+    [Fact]
+    public void ARecallWaypointIsDoneOnTheFirstTickAfterArrival()
+    {
+        (NavigationController controller, FakeAutomation automation,
+            FakeMagic magic) = RecallReadyToCast();
+        Assert.True(controller.Tick(0.05d, canAct: true));
+        Assert.Equal([1635u], magic.CastSpellIds);
+
+        PassThroughPortalSpace(controller, automation, Position(4d, 0d));
+        Assert.True(controller.Tick(0.05d, canAct: true));
+
+        Assert.Equal(1, controller.CurrentWaypointIndex);
+    }
+
     [Fact]
     public void UseNpcRepeatsUntilTheNpcRespondsInChat()
     {

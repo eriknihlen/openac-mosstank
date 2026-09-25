@@ -1871,6 +1871,32 @@ internal sealed class NavigationController
         RouteWaypoint waypoint,
         in PluginNavigationSnapshot navigation)
     {
+        // Coming out of portal space decides the waypoint before anything
+        // looks at the portal again. The portal the character used stays in
+        // the object table for a while after the teleport, so an approach
+        // check ahead of this one steered the character from where it landed
+        // back towards where the portal stood, and a by-name search ahead of
+        // it hunted for a portal that is no longer in view. The reference
+        // finishes the waypoint on the first tick after arrival.
+        if (navigation.IsPortalSpace)
+            _sawPortalSpace = true;
+        if (_sawPortalSpace && !navigation.IsPortalSpace)
+        {
+            if (waypoint.Type == RouteWaypointType.PortalByName
+                && _hasPortalOrigin
+                && navigation.Position.HorizontalDistanceMeters(_portalOrigin)
+                    <= PortalExitDistanceMeters)
+            {
+                _sawPortalSpace = false;
+                _actionSent = false;
+                _retryElapsed = UseRetrySeconds;
+                _status = "Portal exit stayed near its origin; retrying.";
+                return true;
+            }
+            CompleteAction();
+            return true;
+        }
+
         if (waypoint.Type is RouteWaypointType.PortalByName
             or RouteWaypointType.UseNpc)
         {
@@ -1956,24 +1982,6 @@ internal sealed class NavigationController
             }
         }
 
-        if (navigation.IsPortalSpace)
-            _sawPortalSpace = true;
-        if (_sawPortalSpace && !navigation.IsPortalSpace)
-        {
-            if (waypoint.Type == RouteWaypointType.PortalByName
-                && _hasPortalOrigin
-                && navigation.Position.HorizontalDistanceMeters(_portalOrigin)
-                    <= PortalExitDistanceMeters)
-            {
-                _sawPortalSpace = false;
-                _actionSent = false;
-                _retryElapsed = UseRetrySeconds;
-                _status = "Portal exit stayed near its origin; retrying.";
-                return true;
-            }
-            CompleteAction();
-            return true;
-        }
         if (_actionElapsed >= PortalTimeoutSeconds)
         {
             _status = $"Use timed out: {waypoint.ObjectName}.";
@@ -2072,12 +2080,9 @@ internal sealed class NavigationController
             return true;
         }
 
-        if (!IsStandingStillForRecall(navigation))
-        {
-            _status = "Recall: waiting to come to a stop.";
-            return true;
-        }
-
+        // Arrival is read before the standing-still check: the teleport is
+        // itself a position jump, and read the other way round it looked like
+        // the character still moving, which held a finished recall for a tick.
         if (navigation.IsPortalSpace)
             _sawPortalSpace = true;
         if (_sawPortalSpace && !navigation.IsPortalSpace)
@@ -2095,6 +2100,13 @@ internal sealed class NavigationController
             _recallCastLanded = false;
             _retryElapsed = UseRetrySeconds;
         }
+
+        if (!IsStandingStillForRecall(navigation))
+        {
+            _status = "Recall: waiting to come to a stop.";
+            return true;
+        }
+
         if (_actionElapsed >= PortalTimeoutSeconds)
         {
             _status = "Recall timed out; continuing route.";
