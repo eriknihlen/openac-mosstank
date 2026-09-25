@@ -66,6 +66,7 @@ internal sealed partial class MossTankPanel : IBuffRuleHost, IDisposable
     private readonly IdlePeaceRule _idlePeace;
     private readonly RandomHelperRule _randomHelper;
     private readonly SummonPetRule _summonPet;
+    private readonly PetRefillRule _normalPetRefill;
     private readonly PetRefillRule _idlePetRefill;
     private readonly MacroScheduler _scheduler;
 
@@ -81,6 +82,8 @@ internal sealed partial class MossTankPanel : IBuffRuleHost, IDisposable
     private readonly VitalRechargeController _vitalHelperRecharge;
     private readonly DispelController _dispel;
     private readonly InventoryMaintenanceController _inventoryMaintenance;
+    private readonly StackCramCommandRun _ubStackCram;
+    private readonly ClearBuggedRun _ubClearBugged;
     private readonly CraftingController _crafting;
     private readonly ItemManaRechargeController _itemManaRecharge;
     private readonly LootController _loot;
@@ -380,12 +383,22 @@ internal sealed partial class MossTankPanel : IBuffRuleHost, IDisposable
             _vitalSettings,
             StopMacroFromGate);
         _combat.BindCombatModeGate(_combatModeGate);
-        _combat.BindActionLocks(_actionLocks, () => _inventorySettings.Loot.Enabled);
+        _combat.BindActionLocks(_actionLocks, () => _inventorySettings.Loot.HoldsRouteAfterKill);
         _buffRule = new BuffSelfRule(host, _buffSettings, this);
         _buffRule.BindConsumables(_combatSettings, _actionLocks);
         _idlePeace = new IdlePeaceRule(host, _combatSettings);
         _randomHelper = new RandomHelperRule(host, _buffSettings, _actionLocks, _combatModeGate);
-        _summonPet = new SummonPetRule(host, _combatSettings);
+        _summonPet = new SummonPetRule(
+            host,
+            _combatSettings,
+            _combat.AttackElementFor,
+            name => _combat.GameInfo.DamagePreferences(name),
+            _combat.PostWarningOnce);
+        _normalPetRefill = new PetRefillRule(
+            host,
+            _combatSettings,
+            () => _combatSettings.PetRefillCountNormal,
+            () => _combat.ReadyToActInPeace());
         _idlePetRefill = new PetRefillRule(
             host,
             _combatSettings,
@@ -412,6 +425,8 @@ internal sealed partial class MossTankPanel : IBuffRuleHost, IDisposable
         _inventoryMaintenance = new InventoryMaintenanceController(
             host,
             _inventorySettings);
+        _ubStackCram = new StackCramCommandRun(host, WriteUb);
+        _ubClearBugged = new ClearBuggedRun(host, WriteTranscriptLine);
         _crafting = new CraftingController(
             host,
             _inventorySettings,
@@ -461,17 +476,26 @@ internal sealed partial class MossTankPanel : IBuffRuleHost, IDisposable
         _combat.BindLowStopDistanceWarning(_navigation.LowStopDistanceWarning);
         _fellowshipManager = new FellowshipManager(host);
         _metaProfiles = new MossTankMetaProfileStore(host);
-        _metaViews = new MetaViewManager(host);
+        // A meta view button runs its expression and changes the meta state
+        // when it is hit; both owners are built below and read per click.
+        _metaViews = new MetaViewManager(
+            host,
+            expression => _expressions!.Evaluate(expression),
+            state => _meta!.Transition(state));
         _metaProfiles.BindCharacter(host.Automation.Character.Name);
         _metaProfile = _metaProfiles.LoadCurrent();
         _expressions = new MossTankExpressionRuntime(host);
-        _prepClick = new PrepClickController(host, WriteVtank);
+        _expressions.Policy.MetaViews = _metaViews;
+        _prepClick = new PrepClickController(host, WriteTranscriptLine);
         // The castability built-ins ask the profile how much skill headroom
         // over a spell's difficulty it insists on; hunting and buffing each
         // have their own setting.
         _expressions.Policy.SkillMargin = hunting => hunting
             ? _combatSettings.HuntSkillExcessOverDifficulty
             : _buffSettings.SkillExcessOverDifficulty;
+        _expressions.Policy.BeginCast = BeginExpressionCast;
+        _expressions.Policy.Debug = () => _ubCatalog is not null && UbDebug;
+        UbChat.Bind(host.Automation.Chat, UbMessageDisplay);
         _meta = new MetaEngine(
             host,
             _expressions,
@@ -634,7 +658,8 @@ internal sealed partial class MossTankPanel : IBuffRuleHost, IDisposable
         // into this editor, and an edit made against one here would be
         // dropped without a word.
         return VtankOptionCatalog.Names.Where(name =>
-            IsPlainAdvancedOptionValue(VtankOptionCatalog.DeclaredType(name))
+            !name.Equals(VtankOptionCatalog.UnusedSetting, StringComparison.Ordinal)
+            && IsPlainAdvancedOptionValue(VtankOptionCatalog.DeclaredType(name))
             && (!VtankDefaultSettingsDatabase.SettingCategoryBitmasks.TryGetValue(name, out int mask)
                 || mask == 0
                 || (mask & enabledMask) != 0)).ToArray();
@@ -923,6 +948,10 @@ internal sealed partial class MossTankPanel : IBuffRuleHost, IDisposable
         _inventorySettings.Loot.LootFellowCorpses;
     public bool LootOnlyRareCorpsesEnabled =>
         _inventorySettings.Loot.LootOnlyRareCorpses;
+
+    /// <summary>Whether this character's own rare is walked to past the corpse range (a MossTank extension; off by default).</summary>
+    public bool WalkToOwnRareCorpsesEnabled =>
+        _inventorySettings.Loot.WalkToOwnRareCorpses;
     public bool ReadUnknownScrollsEnabled =>
         _inventorySettings.Loot.ReadUnknownScrolls;
     public IReadOnlyList<string> LootProfileNames =>
@@ -998,6 +1027,12 @@ internal sealed partial class MossTankPanel : IBuffRuleHost, IDisposable
     {
         _inventorySettings.Loot.LootOnlyRareCorpses =
             !_inventorySettings.Loot.LootOnlyRareCorpses;
+        SaveProfile();
+    };
+    public Action ToggleWalkToOwnRareCorpses => () =>
+    {
+        _inventorySettings.Loot.WalkToOwnRareCorpses =
+            !_inventorySettings.Loot.WalkToOwnRareCorpses;
         SaveProfile();
     };
     public Action ToggleReadUnknownScrolls => () =>
@@ -1138,6 +1173,30 @@ internal sealed partial class MossTankPanel : IBuffRuleHost, IDisposable
             : $"Skipped {skipped} {noun}; now heading for waypoint "
                 + $"{_navigation.CurrentWaypointIndex + 1}/{_navigationSettings.Waypoints.Count}.";
     }
+
+    internal string StepBackRouteWaypoints(int count)
+    {
+        switch (_navigation.StepBackBlock)
+        {
+            case RouteStepBackBlock.FollowRoute:
+                return "A follow route has no waypoints to step back to.";
+            case RouteStepBackBlock.OnceRoute:
+                return "A once-through route cannot step back.";
+            case RouteStepBackBlock.EmptyRoute:
+                return "The route has no waypoints to step back to.";
+        }
+        int stepped = _navigation.StepBackWaypoints(count);
+        if (stepped == 0)
+        {
+            return _navigation.Reversing
+                ? "The route is already at its last waypoint, where its walk back began."
+                : "The route is already at its first waypoint.";
+        }
+        RefreshRouteEditor();
+        string noun = stepped == 1 ? "waypoint" : "waypoints";
+        return $"Stepped back {stepped} {noun}; now heading for waypoint "
+            + $"{_navigation.CurrentWaypointIndex + 1}/{_navigationSettings.Waypoints.Count}.";
+    }
     public IReadOnlyList<string> RouteModeNames =>
         ["Circular", "Linear", "Follow", "Once"];
     public string SelectedRouteMode => _navigationSettings.Mode == RouteMode.Target
@@ -1249,9 +1308,15 @@ internal sealed partial class MossTankPanel : IBuffRuleHost, IDisposable
             : value;
         if (!Enum.TryParse(normalized, ignoreCase: true, out RouteMode mode))
             return;
-        _navigationSettings.Mode = mode;
+        // Follow is a follow, not a change to the loaded route: it moves to
+        // the follow route and aims that, or, with nothing to aim at,
+        // leaves everything as it is.
         if (mode == RouteMode.Target)
+        {
             CaptureFollowTarget();
+            return;
+        }
+        _navigationSettings.Mode = mode;
         _navigation.Reset();
         RefreshRouteEditor();
         SaveRouteProfile();
@@ -1312,6 +1377,13 @@ internal sealed partial class MossTankPanel : IBuffRuleHost, IDisposable
         CreateRouteProfileCore(copyCurrent: false);
     public Action CopyRouteProfile => () =>
         ComposeProfileCommand("/vt nav save ");
+
+    /// <summary>
+    /// Starts the command that saves the route as an .af, in the chat entry
+    /// for the player to name and send.
+    /// </summary>
+    public Action CopyRouteProfileToAf => () =>
+        ComposeProfileCommand("/vt navaf save ");
     public Action ClearRouteProfile => ClearRouteProfileCore;
     public Action DeleteRouteProfile => DeleteRouteProfileCore;
     public Action SetFollowTarget => CaptureFollowTarget;
@@ -1429,6 +1501,12 @@ internal sealed partial class MossTankPanel : IBuffRuleHost, IDisposable
     };
     public Action CreateMetaProfile => () => CreateMetaProfileCore(copyCurrent: false);
     public Action CopyMetaProfile => () => ComposeProfileCommand("/vt meta save ");
+
+    /// <summary>
+    /// Starts the command that saves the meta as an .af, in the chat entry
+    /// for the player to name and send.
+    /// </summary>
+    public Action CopyMetaProfileToAf => () => ComposeProfileCommand("/vt metaaf save ");
     public Action ClearMetaProfile => ClearMetaProfileCore;
     public Action DeleteMetaProfile => DeleteMetaProfileCore;
 
@@ -1605,6 +1683,7 @@ internal sealed partial class MossTankPanel : IBuffRuleHost, IDisposable
 
     public bool VitalUpkeepEnabled => _vitalSettings.Enabled;
     public bool HelpOthersEnabled => _vitalSettings.HelpOthers;
+    public bool HelpNetworkPeersEnabled => _vitalSettings.HelpNetworkPeers;
 
     public IReadOnlyList<string> ExtraBuffRows => BuffRows(
         _buffSettings.ExtraBuffSpellNames, _buffSettings.ExtraBuffSpellIds);
@@ -1777,6 +1856,8 @@ internal sealed partial class MossTankPanel : IBuffRuleHost, IDisposable
         ExpressionValue.Boolean(!_inventorySettings.ManaChargesWhenOff));
     public Action ToggleHelpOthers => () => UpdateVital(() =>
         _vitalSettings.HelpOthers = !_vitalSettings.HelpOthers);
+    public Action ToggleHelpNetworkPeers => () => UpdateVital(() =>
+        _vitalSettings.HelpNetworkPeers = !_vitalSettings.HelpNetworkPeers);
     public Action CycleTargetMethod => () => UpdateProfile(() =>
         _combatSettings.SelectionMethod = _combatSettings.SelectionMethod switch
         {
@@ -2681,7 +2762,7 @@ internal sealed partial class MossTankPanel : IBuffRuleHost, IDisposable
             Type = RouteWaypointType.Jump,
             Position = snapshot.Position,
             JumpHeadingDegrees = snapshot.Position.HeadingDegrees,
-            JumpRun = true,
+            JumpHoldShift = false,
             JumpChargeMilliseconds = 1000,
             JumpDirection = RouteJumpDirection.Forward,
         });
@@ -2796,20 +2877,43 @@ internal sealed partial class MossTankPanel : IBuffRuleHost, IDisposable
             _routeNotice = "Select a live object to follow first.";
             return;
         }
-        _navigationSettings.FollowTargetObjectId = target.ObjectId;
-        _navigationSettings.FollowTargetName = target.Name;
-        // A follow route needs no waypoints of its own: the target is the
-        // whole route. Switching the loaded route's mode is therefore all it
-        // takes to turn an empty or a freshly created route into one.
-        _navigationSettings.Mode = RouteMode.Target;
-        _navigation.Reset();
-        RefreshRouteEditor();
-        SaveRouteProfile();
+        if (!FollowOnFollowRoute(target.ObjectId, target.Name))
+        {
+            _routeNotice =
+                $"Route profile {_routeProfiles.Selected} could not be read.";
+            return;
+        }
         // Say when the route is set up but switched off, rather than leave a
         // button that looks as if it did nothing.
         _routeNotice = _navigationSettings.Enabled
             ? $"Following {target.Name}."
             : $"Following {target.Name}. Turn Enable Navigation on to start.";
+    }
+
+    /// <summary>
+    /// Aims a follow at one object, as the reference does it: switch to the
+    /// follow route (made empty the first time), set its target, and save
+    /// only that. A follow route has no waypoints, so aiming the loaded
+    /// route instead wrote the follow over the user's route file and wiped
+    /// its waypoints. The loaded route is not saved on the way out either:
+    /// every edit to it was saved when it was made. Answers false, with the
+    /// route in memory untouched, when the follow route cannot be read.
+    /// </summary>
+    private bool FollowOnFollowRoute(uint objectId, string name)
+    {
+        if (_embeddedRouteLabel is not null || !_routeProfiles.FollowRouteSelected)
+        {
+            _routeProfiles.SelectFollowRoute();
+            if (!LoadRouteProfile())
+                return false;
+        }
+        _navigationSettings.FollowTargetObjectId = objectId;
+        _navigationSettings.FollowTargetName = name;
+        _navigationSettings.Mode = RouteMode.Target;
+        _navigation.Reset();
+        RefreshRouteEditor();
+        SaveRouteProfile();
+        return true;
     }
 
     private void SelectRouteProfileCore(string name)
@@ -2907,10 +3011,19 @@ internal sealed partial class MossTankPanel : IBuffRuleHost, IDisposable
     /// meta, not to any file: saving it wrote the meta's route over the
     /// selected profile, which then loaded in place of the author's route.
     /// </summary>
-    private void SaveRouteProfile()
+    /// <remarks>
+    /// A route its file's form cannot hold is not written, and the route tab
+    /// says why; false then, and true otherwise.
+    /// </remarks>
+    private bool SaveRouteProfile()
     {
-        if (_embeddedRouteLabel is null)
-            _routeProfiles.SaveCurrent(_navigationSettings);
+        if (_embeddedRouteLabel is not null)
+            return true;
+        _routeProfiles.SaveCurrent(_navigationSettings);
+        if (_routeProfiles.SaveNotice is not { } notice)
+            return true;
+        _routeNotice = notice;
+        return false;
     }
 
     private void SelectTab(TankTab tab)
@@ -3348,9 +3461,11 @@ internal sealed partial class MossTankPanel : IBuffRuleHost, IDisposable
     private void PopulateItemEnchantRows(in PluginInventoryItem item, bool noBuffs)
     {
         ClearItemEnchantRows(item.Name);
-        if (!ItemEnchantDefaults.IsProfileEligible(in item))
+        bool isPetDevice = item.IsPetDevice;
+        if (!ItemEnchantDefaults.IsProfileEligible(in item, isPetDevice))
             return;
-        IReadOnlyList<string> defaults = ItemEnchantDefaults.Rows(in item, noBuffs);
+        IReadOnlyList<string> defaults = ItemEnchantDefaults.Rows(
+            in item, noBuffs, isPetDevice);
         if (defaults.Count == 0)
         {
             _buffSettings.ItemEnchantRows.Add(
@@ -3667,6 +3782,11 @@ internal sealed partial class MossTankPanel : IBuffRuleHost, IDisposable
             return;
         }
         LoadMetaProfile();
+        if (_metaProfiles.LastLoadError is { } error)
+        {
+            _metaNotice = $"Could not load Meta profile {_metaProfiles.Selected}: {error}";
+            return;
+        }
         _metaNotice = $"Loaded Meta profile {_metaProfiles.Selected}.";
         ReportProfileLoaded("Meta", _metaProfiles.Selected);
     }
@@ -3727,9 +3847,10 @@ internal sealed partial class MossTankPanel : IBuffRuleHost, IDisposable
             _metaProfiles.LastLoadKey,
             _metaProfiles.LastLoadSucceeded
                 ? MossTankProfileLoad.Loaded
-                : _metaProfiles.RecoveryNotice is null
+                : _metaProfiles.LastLoadError is null
                     ? MossTankProfileLoad.Missing
-                    : MossTankProfileLoad.Failed);
+                    : MossTankProfileLoad.Failed,
+            _metaProfiles.LastLoadError);
         _meta.ReplaceProfile(_metaProfile);
         if (_initialized)
             ApplyPersistedOptionOverrides();
@@ -3890,7 +4011,7 @@ internal sealed partial class MossTankPanel : IBuffRuleHost, IDisposable
         {
             "enablebuffing" => ExpressionValue.Boolean(_buffSettings.Enabled),
             "enablecombat" => ExpressionValue.Boolean(_combatSettings.Enabled),
-            "enablenav" or "enablenavigation" or "enableautonavigator" =>
+            "enablenav" =>
                 ExpressionValue.Boolean(_navigationSettings.Enabled),
             "enablelooting" => ExpressionValue.Boolean(_inventorySettings.Loot.Enabled),
             "enablemeta" => ExpressionValue.Boolean(_meta.Enabled),
@@ -3901,7 +4022,6 @@ internal sealed partial class MossTankPanel : IBuffRuleHost, IDisposable
             "arrowheadfletchdiffexcessthreshold" => ExpressionValue.Number(
                 _inventorySettings.ArrowheadFletchDifficultyExcess),
             "dohelp" => ExpressionValue.Boolean(_vitalSettings.HelpOthers),
-            "monsterrange" => ExpressionValue.Number(_combatSettings.MaximumRange),
             "attackdistance" => ExpressionValue.Number(
                 _combatSettings.MaximumRange / 240d),
             "attackminimumdistance" => ExpressionValue.Number(
@@ -3932,8 +4052,6 @@ internal sealed partial class MossTankPanel : IBuffRuleHost, IDisposable
                 _combatSettings.MinimumRingTargets),
             "defaultmeleeattackheight" => ExpressionValue.Number(
                 (int)_combatSettings.AttackHeight),
-            "defaultmeleeattackpower" or "attackpower" =>
-                ExpressionValue.Number(_combatSettings.AttackPower),
             "targetlock" => ExpressionValue.Boolean(_combatSettings.TargetLock),
             "idlepeacemode" => ExpressionValue.Boolean(
                 _combatSettings.IdlePeaceMode),
@@ -3995,7 +4113,7 @@ internal sealed partial class MossTankPanel : IBuffRuleHost, IDisposable
                 _combatSettings.PetRefillCountIdle),
             "petrefillcount-normal" => ExpressionValue.Number(
                 _combatSettings.PetRefillCountNormal),
-            "openapproachdoors" or "opendoors" =>
+            "opendoors" =>
                 ExpressionValue.Boolean(_navigationSettings.OpenDoors),
             "dooridrange" => ExpressionValue.Number(
                 _navigationSettings.DoorIdentifyRangeMeters / 240d),
@@ -4009,11 +4127,7 @@ internal sealed partial class MossTankPanel : IBuffRuleHost, IDisposable
                 _navigationSettings.FollowAroundCorners),
             "autofellowmanagement" => ExpressionValue.Boolean(
                 _combatSettings.AutoFellowManagement),
-            "enablestack" or "enableautostack" =>
-                ExpressionValue.Boolean(_inventorySettings.AutoStack),
             "autostack" => ExpressionValue.Boolean(_inventorySettings.AutoStack),
-            "enablecram" or "enableautocram" =>
-                ExpressionValue.Boolean(_inventorySettings.AutoCram),
             "autocram" => ExpressionValue.Boolean(_inventorySettings.AutoCram),
             "autocraftitems" => ExpressionValue.Boolean(_inventorySettings.AutoCraftItems),
             "splitpeas" => ExpressionValue.Boolean(_inventorySettings.SplitPeas),
@@ -4023,22 +4137,22 @@ internal sealed partial class MossTankPanel : IBuffRuleHost, IDisposable
                 _inventorySettings.NormalComponentMinimum),
             "spellcompmin-idle" => ExpressionValue.Number(
                 _inventorySettings.IdleComponentMinimum),
-            "idlecraftcount_healthkits" or "idlecraftcount-healthkits" =>
+            "idlecraftcount_healthkits" =>
                 ExpressionValue.Number(
                 _inventorySettings.IdleHealthKitCount),
-            "idlecraftcount_stamkits" or "idlecraftcount-stamkits" =>
+            "idlecraftcount_stamkits" =>
                 ExpressionValue.Number(
                 _inventorySettings.IdleStaminaKitCount),
-            "idlecraftcount_manakits" or "idlecraftcount-manakits" =>
+            "idlecraftcount_manakits" =>
                 ExpressionValue.Number(
                 _inventorySettings.IdleManaKitCount),
-            "idlecraftcount_healthfood" or "idlecraftcount-healthfood" =>
+            "idlecraftcount_healthfood" =>
                 ExpressionValue.Number(
                 _inventorySettings.IdleHealthFoodCount),
-            "idlecraftcount_stamfood" or "idlecraftcount-stamfood" =>
+            "idlecraftcount_stamfood" =>
                 ExpressionValue.Number(
                 _inventorySettings.IdleStaminaFoodCount),
-            "idlecraftcount_manafood" or "idlecraftcount-manafood" =>
+            "idlecraftcount_manafood" =>
                 ExpressionValue.Number(
                 _inventorySettings.IdleManaFoodCount),
             "refillwornmana" => ExpressionValue.Boolean(
@@ -4193,6 +4307,11 @@ internal sealed partial class MossTankPanel : IBuffRuleHost, IDisposable
         functions.Register("vtsetsetting", 2, 2, (_, args) =>
         {
             string name = args[0].AsString("vtsetsetting");
+            // The reference's lookup of an unknown name throws, and its
+            // write swallows that as "may have succeeded": 1, and nothing
+            // written.
+            if (!VtankOptionCatalog.IsKnown(name))
+                return ExpressionValue.One;
             ExpressionValue value = args[1];
             if (value.Kind == ExpressionValueKind.String
                 && double.TryParse(
@@ -4205,17 +4324,28 @@ internal sealed partial class MossTankPanel : IBuffRuleHost, IDisposable
             }
             return ExpressionValue.Boolean(SetMetaOption(name, value));
         }, "vtsetsetting[setting,value]");
+        // The reference hands back the setting's own value, and its
+        // expression engine turns true/false into 1/0 and every whole or
+        // fractional number into a number; only a text setting is text.
+        // An unknown name fails the expression: the reference's lookup throws
+        // and nothing catches it on the way out.
         functions.Register("vtgetsetting", 1, 1, (_, args) =>
-            ExpressionValue.String(GetMetaOption(
-                args[0].AsString("vtgetsetting")).ToDisplayString()),
-            "vtgetsetting[setting]");
+        {
+            string name = args[0].AsString("vtgetsetting");
+            if (!VtankOptionCatalog.IsKnown(name))
+                throw new ExpressionEvaluationException("Error getting setting from database");
+            ExpressionValue value = GetMetaOption(name);
+            return value.Kind == ExpressionValueKind.Boolean
+                ? ExpressionValue.Number(value.IsTruthy ? 1d : 0d)
+                : value;
+        }, "vtgetsetting[setting]");
         functions.Register("uboptset", 2, 2, (_, args) =>
-            ExpressionValue.Boolean(SetMetaOption(
+            ExpressionValue.Boolean(SetUbOption(
                 args[0].AsString("uboptset"),
                 args[1])),
             "uboptset[setting,value]");
         functions.Register("uboptget", 1, 1, (_, args) =>
-            GetMetaOption(args[0].AsString("uboptget")),
+            GetUbOption(args[0].AsString("uboptget")),
             "uboptget[setting]");
         functions.Register("actiontrygiveprofile", 2, 2, (_, args) =>
             ExpressionValue.Boolean(_profileGive.TryStart(
@@ -4259,9 +4389,12 @@ internal sealed partial class MossTankPanel : IBuffRuleHost, IDisposable
     /// </summary>
     internal bool SetMetaOption(string name, ExpressionValue value)
     {
-        string canonical = VtankOptionCatalog.IsKnown(name)
-            ? VtankOptionCatalog.Canonical(name)
-            : name.Trim();
+        // The options are the reference's settings table and nothing else:
+        // it refuses a name the table does not hold and keeps nothing for
+        // it, so a macro that sets one here behaves as it does there.
+        if (!VtankOptionCatalog.IsKnown(name))
+            return false;
+        string canonical = VtankOptionCatalog.Canonical(name);
         string key = canonical.ToLowerInvariant();
         switch (key)
         {
@@ -4272,8 +4405,6 @@ internal sealed partial class MossTankPanel : IBuffRuleHost, IDisposable
                 _combatSettings.Enabled = value.IsTruthy;
                 break;
             case "enablenav":
-            case "enablenavigation":
-            case "enableautonavigator":
                 _navigationSettings.Enabled = value.IsTruthy;
                 break;
             case "enablelooting":
@@ -4295,10 +4426,6 @@ internal sealed partial class MossTankPanel : IBuffRuleHost, IDisposable
                 break;
             case "dohelp":
                 _vitalSettings.HelpOthers = value.IsTruthy;
-                break;
-            case "monsterrange":
-                _combatSettings.MaximumRange = Math.Clamp(
-                    checked((float)value.AsNumber("MonsterRange")), 1f, 100f);
                 break;
             case "attackdistance":
                 _combatSettings.MaximumRange = Math.Clamp(
@@ -4352,10 +4479,10 @@ internal sealed partial class MossTankPanel : IBuffRuleHost, IDisposable
                     100f);
                 break;
             case "navclosestoprange":
-                _navigationSettings.MinimumDistanceMeters = Math.Clamp(
-                    value.AsNumber("NavCloseStopRange") * 240d,
-                    0.5d,
-                    50d);
+                // Kept as given, as the reference keeps it, so it reads back
+                // unchanged; the navigator bounds it where it is used.
+                _navigationSettings.MinimumDistanceMeters =
+                    value.AsNumber("NavCloseStopRange") * 240d;
                 break;
             case "navfarstoprange":
                 _navigationSettings.MaximumDistanceMeters = Math.Clamp(
@@ -4394,11 +4521,6 @@ internal sealed partial class MossTankPanel : IBuffRuleHost, IDisposable
             case "defaultmeleeattackheight":
                 _combatSettings.AttackHeight = (PluginAttackHeight)Math.Clamp(
                     value.AsInt32("DefaultMeleeAttackHeight"), 1, 3);
-                break;
-            case "defaultmeleeattackpower":
-            case "attackpower":
-                _combatSettings.AttackPower = Math.Clamp(
-                    checked((float)value.AsNumber("AttackPower")), 0f, 1f);
                 break;
             case "targetlock":
                 _combatSettings.TargetLock = value.IsTruthy;
@@ -4524,7 +4646,6 @@ internal sealed partial class MossTankPanel : IBuffRuleHost, IDisposable
                 _combatSettings.PetRefillCountNormal = Math.Clamp(
                     value.AsInt32("PetRefillCount-Normal"), 0, 3);
                 break;
-            case "openapproachdoors":
             case "opendoors":
                 _navigationSettings.OpenDoors = value.IsTruthy;
                 break;
@@ -4551,13 +4672,9 @@ internal sealed partial class MossTankPanel : IBuffRuleHost, IDisposable
             case "autofellowmanagement":
                 _combatSettings.AutoFellowManagement = value.IsTruthy;
                 break;
-            case "enablestack":
-            case "enableautostack":
             case "autostack":
                 _inventorySettings.AutoStack = value.IsTruthy;
                 break;
-            case "enablecram":
-            case "enableautocram":
             case "autocram":
                 _inventorySettings.AutoCram = value.IsTruthy;
                 break;
@@ -4580,32 +4697,26 @@ internal sealed partial class MossTankPanel : IBuffRuleHost, IDisposable
                     value.AsInt32("SpellCompMin-Idle"), 0, 1000);
                 break;
             case "idlecraftcount_healthkits":
-            case "idlecraftcount-healthkits":
                 _inventorySettings.IdleHealthKitCount = Math.Clamp(
                     value.AsInt32("IdleCraftCount_HealthKits"), 0, 1000);
                 break;
             case "idlecraftcount_stamkits":
-            case "idlecraftcount-stamkits":
                 _inventorySettings.IdleStaminaKitCount = Math.Clamp(
                     value.AsInt32("IdleCraftCount_StamKits"), 0, 1000);
                 break;
             case "idlecraftcount_manakits":
-            case "idlecraftcount-manakits":
                 _inventorySettings.IdleManaKitCount = Math.Clamp(
                     value.AsInt32("IdleCraftCount_ManaKits"), 0, 1000);
                 break;
             case "idlecraftcount_healthfood":
-            case "idlecraftcount-healthfood":
                 _inventorySettings.IdleHealthFoodCount = Math.Clamp(
                     value.AsInt32("IdleCraftCount_HealthFood"), 0, 1000);
                 break;
             case "idlecraftcount_stamfood":
-            case "idlecraftcount-stamfood":
                 _inventorySettings.IdleStaminaFoodCount = Math.Clamp(
                     value.AsInt32("IdleCraftCount_StamFood"), 0, 1000);
                 break;
             case "idlecraftcount_manafood":
-            case "idlecraftcount-manafood":
                 _inventorySettings.IdleManaFoodCount = Math.Clamp(
                     value.AsInt32("IdleCraftCount_ManaFood"), 0, 1000);
                 break;
@@ -5010,6 +5121,7 @@ internal sealed partial class MossTankPanel : IBuffRuleHost, IDisposable
         _itemManaRecharge.Reset();
         _loot.Reset();
         _profileGive.Reset();
+        _ubStackCram.Reset();
         _navigation.ClearActionLocks();
     }
 
@@ -5064,13 +5176,6 @@ internal sealed partial class MossTankPanel : IBuffRuleHost, IDisposable
     }
 
     /// <summary>
-    /// Writes the profile out. False when the settings profile did not
-    /// reach disk -- nobody has named the character yet, or the file on
-    /// disk cannot be read and so must not be overwritten. A caller that
-    /// has just told the user it changed something has to know, because a
-    /// change nobody wrote down is gone with the session.
-    /// </summary>
-    /// <summary>
     /// What an option change writes: the settings profile, where every option
     /// value is kept and from which it is put back on load. The loot profile,
     /// route and meta are their own files; writing the copies held in memory
@@ -5080,6 +5185,13 @@ internal sealed partial class MossTankPanel : IBuffRuleHost, IDisposable
     private bool SaveSettingsProfile() =>
         _profiles.SaveCurrent(_allSettings, _noBuffItemNames, _commandLogTypes);
 
+    /// <summary>
+    /// Writes the profile out. False when the settings profile did not
+    /// reach disk -- nobody has named the character yet, or the file on
+    /// disk cannot be read and so must not be overwritten. A caller that
+    /// has just told the user it changed something has to know, because a
+    /// change nobody wrote down is gone with the session.
+    /// </summary>
     private bool SaveProfile()
     {
         bool saved = _profiles.SaveCurrent(
@@ -5218,6 +5330,7 @@ internal sealed partial class MossTankPanel : IBuffRuleHost, IDisposable
         }
         _combatModeGate.Reset();
         _summonPet.Reset();
+        _normalPetRefill.Reset();
         _idlePetRefill.Reset();
         _vitalRecharge.Reset();
         _vitalHelperRecharge.Reset();
@@ -5226,6 +5339,7 @@ internal sealed partial class MossTankPanel : IBuffRuleHost, IDisposable
         _crafting.Reset();
         _loot.Reset();
         _profileGive.Reset();
+        _ubStackCram.Reset();
         // Not Reset: stopping puts down what the route had in flight and
         // keeps where the round had got to. The reference's stop clears every
         // rule's running flag, the cast tracker, the jump and the kit
@@ -5321,6 +5435,7 @@ internal sealed partial class MossTankPanel : IBuffRuleHost, IDisposable
         TickDisplayTools(elapsedSeconds);
         TickDungeonMap(elapsedSeconds);
         UpdateNavLines();
+        PublishStatus();
         _actionLocks.Advance(elapsedSeconds);
         // Beside the slot clock rather than inside a rule pass: the slots an
         // open takes include the one the loot rule is gated on, so only
@@ -5353,9 +5468,12 @@ internal sealed partial class MossTankPanel : IBuffRuleHost, IDisposable
         RefreshDisplayBindings(elapsedSeconds);
 
         bool commandJumpOwnsAction = TickCommandJump(elapsedSeconds);
+        bool giveWasRunning = _profileGive.IsRunning;
         bool giveOwnsAction = _profileGive.Tick(
             elapsedSeconds,
             canAct: !_buffRule.IsBursting && !commandJumpOwnsAction);
+        if (giveWasRunning && !_profileGive.IsRunning)
+            ReportGiveEnd();
         bool countOwnsAction = _inventoryCount.Tick(
             elapsedSeconds,
             canAct: !_buffRule.IsBursting
@@ -5374,12 +5492,24 @@ internal sealed partial class MossTankPanel : IBuffRuleHost, IDisposable
                 && !giveOwnsAction
                 && !countOwnsAction
                 && !vendorOwnsAction);
+        // A stack or cram pass asked for from the command line.
+        bool stackCramOwnsAction = _ubStackCram.Tick(
+            elapsedSeconds,
+            canAct: !_buffRule.IsBursting
+                && !commandJumpOwnsAction
+                && !giveOwnsAction
+                && !countOwnsAction
+                && !vendorOwnsAction
+                && !equipOwnsAction);
         _prologueOwnsAction =
             commandJumpOwnsAction || giveOwnsAction || countOwnsAction || vendorOwnsAction
-            || equipOwnsAction;
+            || equipOwnsAction || stackCramOwnsAction;
         // Not an owner: it sends a request a frame and never needs the
         // character, and it refuses to run at all while the macro is on.
         _experienceSpend.Tick(elapsedSeconds);
+        // Not an owner either: it only asks for descriptions, one at a time
+        // on the identify cadence, and never moves the character.
+        _ubClearBugged.Tick(elapsedSeconds);
 
         ObserveSchedulerPokes();
 
@@ -5548,7 +5678,10 @@ internal sealed partial class MossTankPanel : IBuffRuleHost, IDisposable
     private void ObserveCastSuspension(double elapsedSeconds)
     {
         // The reference's global busy count: a spell cast, a wand cast, a
-        // kit, food or craft use. NOT the host's inventory flag, which every
+        // kit or craft use, a jump waypoint and a checkpoint nudge. Not food
+        // or a potion, not a mana stone, an essence refill or an item a meta
+        // expression uses: the reference issues those as plain uses that
+        // raise nothing. NOT the host's inventory flag either, which every
         // open, pickup and identify raises: those arm named locks instead,
         // and the rules that would collide with them refuse on the lock.
         // The host's Magic.IsCasting IS that inventory flag under another
@@ -5558,11 +5691,10 @@ internal sealed partial class MossTankPanel : IBuffRuleHost, IDisposable
             || _combat.HeldItemCastInFlight
             || _combat.LearnedDebuffCastInFlight
             || _dispel.CastInFlight
-            || _vitalRecharge.ItemUseInFlight
-            || _vitalRecharge.CastInFlight
-            || _vitalHelperRecharge.ItemUseInFlight
-            || _vitalHelperRecharge.CastInFlight
-            || _crafting.UseInFlight;
+            || _vitalRecharge.HoldsPass
+            || _vitalHelperRecharge.HoldsPass
+            || _crafting.UseInFlight
+            || _navigation.HoldsPass;
 
         if (_transactionSuspensionHeld)
         {
@@ -5578,9 +5710,73 @@ internal sealed partial class MossTankPanel : IBuffRuleHost, IDisposable
 
         if (!inFlight)
             return;
+        HoldPass();
+    }
+
+    private void HoldPass()
+    {
         _transactionSuspensionHeld = true;
         _transactionSuspensionElapsed = 0d;
         _scheduler.Suspend();
+    }
+
+    /// <summary>
+    /// An expression's cast (<c>actiontrycastbyid</c> and its on-target
+    /// form), issued the way the reference issues it: through the cast
+    /// tracker the macro's own buffs and attacks use. With a cast already in
+    /// flight nothing is sent, as the reference's tracker sends nothing then.
+    /// The pass is held here, at once, not on the next frame: the meta is
+    /// looked at before the rules, and the reference raises its busy count
+    /// inside the cast call, so the rules of the very pass that issued the
+    /// cast are already skipped.
+    /// </summary>
+    private void BeginExpressionCast(uint spellId, uint? target)
+    {
+        if (_castTracker.IsBusy)
+            return;
+        IAutomationSurface automation = _host.Automation;
+        if (!automation.Spells.TryGet(spellId, out PluginSpellInfo spell)
+            || automation.Combat.Snapshot.Mode != PluginCombatMode.Magic
+            || _castTracker.IsSchoolLockedOut(spell.School))
+        {
+            return;
+        }
+
+        long issueRevision = automation.Magic.LastCompletion.Revision;
+        bool dispatched = target is uint objectId
+            ? automation.Magic.Cast(spellId, objectId)
+            : automation.Magic.Cast(spellId);
+        if (!dispatched)
+            return;
+
+        // The untargeted form is tracked with no target, as the combat
+        // controller tracks its own untargeted casts: a result line then
+        // names nobody the failure table would have to account for.
+        uint trackedTarget = target ?? 0u;
+        string targetName = trackedTarget == 0u
+            ? string.Empty
+            : trackedTarget == automation.Character.ObjectId
+                ? "yourself"
+                : automation.Objects.TryGet(trackedTarget, out PluginWorldObject found)
+                    ? found.Name
+                    : string.Empty;
+        EmitMacroLog(
+            MacroLogChannel.SpellCast,
+            $"Casting: {spell.Name} on {trackedTarget} ({targetName})");
+        _castTracker.Begin(
+            spell.SpellId,
+            spell.Name,
+            trackedTarget,
+            targetName,
+            SpellCastTracker.HitsMultipleTargetsFor(spell),
+            issueRevision,
+            spell.Saying,
+            spell.School,
+            SpellCastTracker.CanKillFor(spell),
+            checked((int)Math.Min(int.MaxValue, automation.Character.CurrentMana)));
+        EmitMacroLog(MacroLogChannel.CastInfo, "SpellCaster: Begin");
+        if (!_transactionSuspensionHeld)
+            HoldPass();
     }
 
     /// <summary>
@@ -5698,6 +5894,8 @@ internal sealed partial class MossTankPanel : IBuffRuleHost, IDisposable
         _itemManaRecharge.Reset();
         _loot.Reset();
         _profileGive.Reset();
+        _ubStackCram.Reset();
+        _ubClearBugged.Reset();
         _inventoryCount.Reset();
         _vendorTrade.Reset();
         _equipProfile.Reset();
@@ -5773,6 +5971,7 @@ internal sealed partial class MossTankPanel : IBuffRuleHost, IDisposable
     {
         _randomHelper.Reset();
         _summonPet.Reset();
+        _normalPetRefill.Reset();
         _idlePetRefill.Reset();
         _vitalRecharge.Reset();
         _vitalHelperRecharge.Reset();
@@ -5782,6 +5981,8 @@ internal sealed partial class MossTankPanel : IBuffRuleHost, IDisposable
         _itemManaRecharge.Reset();
         _loot.Reset();
         _profileGive.Reset();
+        _ubStackCram.Reset();
+        _ubClearBugged.Reset();
         _inventoryCount.Reset();
         _vendorTrade.Reset();
         _equipProfile.Reset();

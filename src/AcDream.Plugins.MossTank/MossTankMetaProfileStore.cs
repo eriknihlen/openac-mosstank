@@ -22,7 +22,7 @@ internal sealed class MossTankMetaProfileStore
         _host = host ?? throw new ArgumentNullException(nameof(host));
     }
 
-    public string Selected => StripAf(_selected);
+    public string Selected => NameOf(_selected);
     public string? RecoveryNotice { get; private set; }
 
     /// <summary>The file the last load read, or tried to read.</summary>
@@ -30,6 +30,12 @@ internal sealed class MossTankMetaProfileStore
 
     /// <summary>Whether the last load found and read that file.</summary>
     public bool LastLoadSucceeded { get; private set; }
+
+    /// <summary>
+    /// Why the last load could not read its file, or null when it read it or
+    /// found no file there.
+    /// </summary>
+    public string? LastLoadError { get; private set; }
     public string? SaveNotice { get; private set; }
 
     private string Server => _host.Automation.Character.WorldName;
@@ -56,57 +62,113 @@ internal sealed class MossTankMetaProfileStore
     }
 
     /// <summary>
-    /// The file a name stands for, if one is there. A bare name means the
-    /// plugin's own format first and a dropped meta second, so both a
-    /// command typed without an extension and a name picked straight out of
-    /// the folder resolve to the file that exists.
+    /// The file a meta written under a new name goes to: the older ".met"
+    /// form for a bare name, or exactly the file a name with its extension
+    /// says.
     /// </summary>
-    private string? ResolveExisting(string name)
+    private static string NewFileName(string name) =>
+        BareName(name).Equals(name, StringComparison.Ordinal)
+            ? ToFileName(name + ".met")
+            : ToFileName(name);
+
+    /// <summary>
+    /// The file a name stands for, if one is there. A name that carries its
+    /// extension asks for exactly that file and gets it whenever it is there,
+    /// even with a meta of the other form under the same name beside it. A
+    /// bare name, or a full name whose file is not there, means the dropped
+    /// ".met" first and the plugin's own ".af" second, the way the reference
+    /// reads a meta name. Where both sit side by side the ".af" goes by its
+    /// full name (see <see cref="NameOf(string)"/>), so the selection and
+    /// the pickers still reach it. With <paramref name="exactOnly"/> a name
+    /// that carries its extension reaches that file or nothing.
+    /// </summary>
+    private string? ResolveExisting(string name, bool exactOnly = false)
     {
         if (!VtankStorage.IsAvailable)
             return null;
-        string candidate = ToFileName(name);
-        if (VtankStorage.ReadText(candidate) is not null)
-            return candidate;
-        string dropped = $"{VtankProfileDirectory.MetaFolder}/{name}.met";
-        return VtankStorage.ReadText(dropped) is not null ? dropped : null;
+        string bareName = BareName(name);
+        if (!bareName.Equals(name, StringComparison.Ordinal))
+        {
+            string exact = ToFileName(name);
+            if (VtankStorage.ReadText(exact) is not null)
+                return exact;
+            if (exactOnly)
+                return null;
+        }
+        string dropped = DroppedFileName(bareName);
+        if (VtankStorage.ReadText(dropped) is not null)
+            return dropped;
+        string own = ToFileName(bareName);
+        return VtankStorage.ReadText(own) is not null ? own : null;
     }
+
+    /// <summary>A meta's name without the extension it may carry.</summary>
+    internal static string BareName(string name)
+    {
+        foreach (string extension in NameExtensions)
+        {
+            if (name.Length > extension.Length
+                && name.EndsWith(extension, StringComparison.OrdinalIgnoreCase))
+            {
+                return name[..^extension.Length];
+            }
+        }
+        return name;
+    }
+
+    private static readonly string[] NameExtensions = [".met", ".af"];
 
     private static bool IsDroppedForeignFormat(string key) =>
         key.EndsWith(".met", StringComparison.OrdinalIgnoreCase);
 
     /// <summary>
-    /// Where a save goes. A dropped file is never rewritten: the plugin's
-    /// own format is written beside it under the same name.
+    /// The name a file goes by, which is also the name that loads it again.
+    /// A bare name loads the ".met" first, so a ".met" goes by its bare name;
+    /// so does the plugin's own ".af", except beside a ".met" of the same
+    /// name, where it keeps its extension so picking it by that name reaches
+    /// it rather than the file beside it.
     /// </summary>
-    private static string SaveTargetFor(string key) =>
-        IsDroppedForeignFormat(key)
-            ? string.Concat(key.AsSpan(0, key.Length - ".met".Length), ".af")
-            : key;
+    private string NameOf(string fileName) => NameOf(fileName, DroppedMetaExists);
 
-    private static string StripAf(string name)
+    private static string NameOf(string fileName, Func<string, bool> droppedExists)
     {
-        if (name.Equals(ByCharacter, StringComparison.OrdinalIgnoreCase))
-            return name;
-        string value = name.StartsWith(FolderPrefix, StringComparison.Ordinal)
-            ? name[FolderPrefix.Length..]
-            : name;
-        return value.EndsWith(".af", StringComparison.OrdinalIgnoreCase)
-            ? value[..^3]
-            : value;
+        if (fileName.Equals(ByCharacter, StringComparison.OrdinalIgnoreCase))
+            return fileName;
+        string value = fileName.StartsWith(FolderPrefix, StringComparison.Ordinal)
+            ? fileName[FolderPrefix.Length..]
+            : fileName;
+        if (value.EndsWith(".met", StringComparison.OrdinalIgnoreCase))
+            return value[..^".met".Length];
+        if (!value.EndsWith(".af", StringComparison.OrdinalIgnoreCase))
+            return value;
+        string bareName = value[..^3];
+        return droppedExists(bareName) ? value : bareName;
     }
+
+    private bool DroppedMetaExists(string bareName) =>
+        VtankStorage.IsAvailable && VtankStorage.ReadText(DroppedFileName(bareName)) is not null;
+
+    /// <summary>Where a meta dropped in as the older ".met" form sits.</summary>
+    private static string DroppedFileName(string bareName) =>
+        $"{VtankProfileDirectory.MetaFolder}/{bareName}.met";
 
     public IReadOnlyList<string> AvailableNames
     {
         get
         {
+            IReadOnlyList<VtankProfileDirectory.ProfileEntry> entries =
+                VtankProfileDirectory.ListMetaProfiles(VtankStorage);
+            var listed = new HashSet<string>(
+                entries.Select(static entry => entry.FileName),
+                StringComparer.OrdinalIgnoreCase);
             var names = new List<string> { ByCharacter };
-            foreach (VtankProfileDirectory.ProfileEntry entry in
-                VtankProfileDirectory.ListMetaProfiles(VtankStorage))
+            foreach (VtankProfileDirectory.ProfileEntry entry in entries)
             {
                 if (entry.FileName.Length == 0)
                     continue;
-                names.Add(StripAf(entry.FileName));
+                names.Add(NameOf(
+                    entry.FileName,
+                    bareName => listed.Contains(DroppedFileName(bareName))));
             }
             return names;
         }
@@ -135,6 +197,7 @@ internal sealed class MossTankMetaProfileStore
         string fileName = CurrentFileName();
         LastLoadKey = fileName;
         LastLoadSucceeded = false;
+        LastLoadError = null;
         string? text = VtankStorage.IsAvailable ? VtankStorage.ReadText(fileName) : null;
         if (text is null)
             return new MetaProfile();
@@ -146,6 +209,7 @@ internal sealed class MossTankMetaProfileStore
                 LastLoadSucceeded = true;
                 return dropped;
             }
+            LastLoadError = metError;
             RecoveryNotice = MossTankProfileRecovery.Preserve(
                 _host, "meta", fileName, text, new FormatException(metError));
             _host.Log.Warn(RecoveryNotice);
@@ -153,6 +217,7 @@ internal sealed class MossTankMetaProfileStore
         }
         if (!MetafSerializer.TryLoadMeta(text, _host.Automation.Spells, out MetaProfile profile, out string error))
         {
+            LastLoadError = error;
             RecoveryNotice = MossTankProfileRecovery.Preserve(
                 _host, "meta", fileName, text, new FormatException(error));
             _host.Log.Warn(RecoveryNotice);
@@ -172,47 +237,19 @@ internal sealed class MossTankMetaProfileStore
         _character.Length == 0
         && _selected.Equals(ByCharacter, StringComparison.OrdinalIgnoreCase);
 
+    /// <summary>
+    /// Writes the meta back to the file it was loaded from, in that file's
+    /// own form: a ".met" stays a ".met". False, with <see cref="SaveNotice"/>
+    /// saying why, when nothing was written.
+    /// </summary>
     public bool SaveCurrent(MetaProfile profile)
     {
         if (FilesUnderNobody)
             return false;
-        string fileName = SaveTargetFor(CurrentFileName());
-        string text;
-        try
-        {
-            text = MetafSerializer.SaveMeta(profile);
-        }
-        catch (InvalidOperationException error)
-        {
-            SaveNotice = $"Meta profile '{fileName}' was NOT saved: {error.Message}";
-            _host.Log.Warn(SaveNotice);
-            return false;
-        }
-        if (!VtankStorage.IsAvailable)
-            return false;
-        try
-        {
-            VtankStorage.WriteText(fileName, text);
-        }
-        catch (Exception error)
-        {
-            SaveNotice = $"Meta profile '{fileName}' could not be saved: {error.Message}";
-            _host.Log.Warn(SaveNotice);
-            return false;
-        }
-        SaveNotice = null;
-        // A dropped file was left as it is and the plugin's own format was
-        // written beside it; the selection follows the file it now owns.
-        if (!_selected.Equals(ByCharacter, StringComparison.OrdinalIgnoreCase)
-            && !fileName.Equals(_selected, StringComparison.Ordinal))
-        {
-            _selected = fileName;
-            WriteBinding();
-        }
-        return true;
+        return SaveTo(CurrentFileName(), profile, out _);
     }
 
-    public bool Select(string? name)
+    public bool Select(string? name, bool exactOnly = false)
     {
         string normalized = Normalize(name);
         if (normalized.Length == 0)
@@ -225,8 +262,7 @@ internal sealed class MossTankMetaProfileStore
             return true;
         }
 
-        string plain = ToFileName(normalized);
-        if (ResolveExisting(normalized) is { } found)
+        if (ResolveExisting(normalized, exactOnly) is { } found)
         {
             _selected = found;
             _pendingLegacyBareName = null;
@@ -234,11 +270,12 @@ internal sealed class MossTankMetaProfileStore
             return true;
         }
 
+        string bareName = BareName(normalized);
         if (_host.Storage.IsAvailable
-            && _host.Storage.ReadText(LegacyNamedKey(normalized)) is not null)
+            && _host.Storage.ReadText(LegacyNamedKey(bareName)) is not null)
         {
-            _selected = plain;
-            _pendingLegacyBareName = normalized;
+            _selected = ToFileName(bareName);
+            _pendingLegacyBareName = bareName;
             WriteBinding();
             return true;
         }
@@ -257,9 +294,14 @@ internal sealed class MossTankMetaProfileStore
             return true;
 
         return _host.Storage.IsAvailable
-            && _host.Storage.ReadText(LegacyNamedKey(normalized)) is not null;
+            && _host.Storage.ReadText(LegacyNamedKey(BareName(normalized))) is not null;
     }
 
+    /// <summary>
+    /// Writes a meta under a new name and selects it. A bare name is written
+    /// in the older ".met" form, as the reference writes a meta; a name that
+    /// carries ".met" or ".af" is written exactly as it says.
+    /// </summary>
     public bool Create(
         string? name,
         bool copyCurrent,
@@ -273,7 +315,7 @@ internal sealed class MossTankMetaProfileStore
             notice = "Enter a unique Meta profile name (1-64 characters).";
             return false;
         }
-        string fileName = ToFileName(normalized);
+        string fileName = NewFileName(normalized);
         MetaProfile document = copyCurrent ? Clone(current) : new MetaProfile();
         if (!SaveTo(fileName, document, out notice))
             return false;
@@ -281,10 +323,28 @@ internal sealed class MossTankMetaProfileStore
         _pendingLegacyBareName = null;
         WriteBinding();
         notice = copyCurrent
-            ? $"Copied Meta profile to {StripAf(fileName)}."
-            : $"Created Meta profile {StripAf(fileName)}.";
+            ? $"Copied Meta profile to {NameOf(fileName)}."
+            : $"Created Meta profile {NameOf(fileName)}.";
         return true;
     }
+
+    /// <summary>Whether a VTank .met of this name waits in imports or exports.</summary>
+    public bool LegacyImportExists(string? name)
+    {
+        string normalized = Normalize(name);
+        return _host.Storage.IsAvailable
+            && normalized.Length != 0
+            && FindLegacyImport(normalized) is not null;
+    }
+
+    private string? FindLegacyImport(string normalized) =>
+        _host.Storage.List("imports")
+            .Concat(_host.Storage.List("exports"))
+            .FirstOrDefault(candidate =>
+                candidate.EndsWith(".met", StringComparison.OrdinalIgnoreCase)
+                && Path.GetFileNameWithoutExtension(candidate).Equals(
+                    normalized,
+                    StringComparison.OrdinalIgnoreCase));
 
     public bool TryImportLegacy(
         string? name,
@@ -298,13 +358,7 @@ internal sealed class MossTankMetaProfileStore
             notice = "Legacy Meta storage is unavailable.";
             return false;
         }
-        string? key = _host.Storage.List("imports")
-            .Concat(_host.Storage.List("exports"))
-            .FirstOrDefault(candidate =>
-                candidate.EndsWith(".met", StringComparison.OrdinalIgnoreCase)
-                && Path.GetFileNameWithoutExtension(candidate).Equals(
-                    normalized,
-                    StringComparison.OrdinalIgnoreCase));
+        string? key = FindLegacyImport(normalized);
         string? source = key is null ? null : _host.Storage.ReadText(key);
         if (string.IsNullOrWhiteSpace(source))
         {
@@ -327,7 +381,7 @@ internal sealed class MossTankMetaProfileStore
         _selected = fileName;
         _pendingLegacyBareName = null;
         WriteBinding();
-        notice = $"Imported VTank Meta profile {StripAf(fileName)}.";
+        notice = $"Imported VTank Meta profile {NameOf(fileName)}.";
         return true;
     }
 
@@ -344,7 +398,7 @@ internal sealed class MossTankMetaProfileStore
         _selected = ByCharacter;
         _pendingLegacyBareName = null;
         WriteBinding();
-        notice = $"Deleted Meta profile {StripAf(fileName)}.";
+        notice = $"Deleted Meta profile {NameOf(fileName)}.";
         return true;
     }
 
@@ -491,12 +545,20 @@ internal sealed class MossTankMetaProfileStore
         }
     }
 
+    /// <summary>
+    /// Writes a meta to a file in that file's own form: the older ".met"
+    /// form for a ".met", the plugin's own for anything else, with the line
+    /// breaks the file already has. A meta the form cannot hold is not
+    /// written at all, and the notice says why.
+    /// </summary>
     private bool SaveTo(string fileName, MetaProfile profile, out string notice)
     {
         string text;
         try
         {
-            text = MetafSerializer.SaveMeta(profile);
+            text = IsDroppedForeignFormat(fileName)
+                ? VtankMetaProfileSerializer.Save(profile)
+                : MetafSerializer.SaveMeta(profile);
         }
         catch (InvalidOperationException error)
         {
@@ -512,7 +574,9 @@ internal sealed class MossTankMetaProfileStore
         }
         try
         {
-            VtankStorage.WriteText(fileName, text);
+            VtankStorage.WriteText(
+                fileName,
+                ProfileLineEndings.Match(text, VtankStorage.ReadText(fileName)));
         }
         catch (Exception error)
         {

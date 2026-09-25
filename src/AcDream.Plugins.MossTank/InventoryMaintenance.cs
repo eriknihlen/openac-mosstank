@@ -38,8 +38,9 @@ internal sealed class InventorySettings
     public double GiveDelaySeconds { get; set; }
 
     /// <summary>
-    /// How many times one item is asked for before the run writes it off. A
-    /// give that lands while the client is busy is simply not answered.
+    /// The busy count: one item is asked for once more than this, then the
+    /// run writes it off. A give that lands while the client is busy is simply
+    /// not answered.
     /// </summary>
     public int GiveBusyRetryLimit { get; set; } = 10;
 
@@ -214,6 +215,12 @@ internal sealed class InventoryMaintenanceController
 
     public string Status { get; private set; } = "Stack/Cram idle";
 
+    /// <summary>
+    /// Whether the last look at the packs found nothing to stack or cram.
+    /// False until a look has been taken, and after every move it starts.
+    /// </summary>
+    public bool FoundNothingToDo { get; private set; }
+
     /// <summary>Returns true only when StackCram owns this scheduler tick.</summary>
     public bool Tick(double elapsedSeconds, bool canAct)
     {
@@ -250,8 +257,10 @@ internal sealed class InventoryMaintenanceController
         if (plan is not { } next)
         {
             Status = "Stack/Cram idle";
+            FoundNothingToDo = true;
             return false;
         }
+        FoundNothingToDo = false;
 
         PluginItemCommandResult result = next.Kind == InventoryMaintenanceKind.Merge
             ? commands.Merge(next.SourceObjectId, next.TargetObjectId, next.Amount)
@@ -278,6 +287,7 @@ internal sealed class InventoryMaintenanceController
         _attempts.Clear();
         _ignored.Clear();
         _untilScan = 0d;
+        FoundNothingToDo = false;
         Status = "Stack/Cram idle";
     }
 

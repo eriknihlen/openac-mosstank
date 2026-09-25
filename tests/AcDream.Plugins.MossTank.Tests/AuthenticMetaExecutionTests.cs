@@ -178,6 +178,8 @@ public sealed class AuthenticMetaExecutionTests
         var panel = new MossTankPanel(host);
         automation.RouteVtankCommand = arguments => panel.ExecuteVtankCommand(
             new PluginCommand("vt", arguments, "/vt " + arguments));
+        automation.RouteUbCommand = arguments => panel.ExecuteUbCommand(
+            new PluginCommand("ub", arguments, "/ub " + arguments));
         panel.SelectMetaProfile("neftet");
         Assert.True(MetafSerializer.TryLoadMeta(
             fixture,
@@ -195,7 +197,7 @@ public sealed class AuthenticMetaExecutionTests
         engine.SetEnabled(true);
         engine.Transition("Hunt");
 
-        automation.AddChat("[Fellowship] Horan says, \"#toggle_flowers\"");
+        automation.AddFellowshipSpeech("Horan", "#toggle_flowers");
         engine.OnTick(MetaEngine.DecisionIntervalSeconds + 0.01d);
 
         Assert.True(panel.CombatEnabled);
@@ -222,6 +224,8 @@ public sealed class AuthenticMetaExecutionTests
         var panel = new MossTankPanel(host);
         automation.RouteVtankCommand = arguments => panel.ExecuteVtankCommand(
             new PluginCommand("vt", arguments, "/vt " + arguments));
+        automation.RouteUbCommand = arguments => panel.ExecuteUbCommand(
+            new PluginCommand("ub", arguments, "/ub " + arguments));
 
         panel.SelectMetaProfile("neftet");
         Assert.Equal("neftet", panel.SelectedMetaProfile);
@@ -272,7 +276,7 @@ public sealed class AuthenticMetaExecutionTests
         engine.SetEnabled(true);
         engine.Transition("Hunt");
 
-        automation.AddChat("Horan has left your Fellowship");
+        automation.AddSystemLine("Horan has left your Fellowship");
         engine.OnTick(MetaEngine.DecisionIntervalSeconds + 0.01d);
 
         Assert.True(panel.CombatEnabled);
@@ -286,7 +290,7 @@ public sealed class AuthenticMetaExecutionTests
         Assert.Equal(1d, expressions.Evaluate("getvar[isLeader]").AsNumber());
         engine.Transition("Hunt");
         const string toggleMessage =
-            "[Fellowship] Horan says, \"#toggle_flowers\"";
+            "[Fellowship] <Tell:IIDString:0:Horan>Horan<\\Tell> says, \"#toggle_flowers\"";
         MetaRule callRule = Assert.Single(scenario.Rules, static rule =>
             rule.Action.Kind == MetaActionKind.CallMetaState
             && rule.Action.Text == "toggle_flowers");
@@ -295,7 +299,11 @@ public sealed class AuthenticMetaExecutionTests
             callRule.Condition.Children,
             static condition => condition.Kind == MetaConditionKind.ChatMessage);
         Assert.Matches(chatCondition.Text, toggleMessage);
-        automation.AddChat(toggleMessage);
+        Assert.Equal(toggleMessage, DecalChatLine.Compose(
+            Automation.FellowshipSpeech(0u, "Horan", "#toggle_flowers"),
+            automation.ObjectId,
+            automation.Name));
+        automation.AddFellowshipSpeech("Horan", "#toggle_flowers");
         engine.OnTick(MetaEngine.DecisionIntervalSeconds + 0.01d);
         Assert.True(
             engine.CurrentState == "toggle_flowers",
@@ -362,6 +370,7 @@ public sealed class AuthenticMetaExecutionTests
         };
 
         public Action<string>? RouteVtankCommand { get; set; }
+        public Action<string>? RouteUbCommand { get; set; }
         public bool IsAvailable => true;
         public ICharacterInfo Character => this;
         public ISpellCatalog Spells => NoOpAutomationSurface.Instance;
@@ -396,13 +405,37 @@ public sealed class AuthenticMetaExecutionTests
             false,
             false);
 
-        public void AddChat(string text) => _chat.Add(new PluginChatMessage(
+        /// <summary>
+        /// Someone speaking on the fellowship channel, in the shape the host
+        /// delivers it: the speaker and the words apart, no object id (the
+        /// numbered channel carries none), no channel name, the fellowship
+        /// channel number, the fellowship chat text type, and the whole
+        /// line as the chat window prints it.
+        /// </summary>
+        public static PluginChatMessage FellowshipSpeech(
+            ulong sequence,
+            string sender,
+            string words) => new(sequence, 0u, 2, sender, words, string.Empty)
+        {
+            LogTextType = 0x13,
+            ChannelId = 0x800u,
+            DisplayText = $"[Fellowship] <Tell:IIDString:0:{sender}>{sender}<\\Tell> says, \"{words}\"",
+        };
+
+        public void AddFellowshipSpeech(string sender, string words) =>
+            _chat.Add(FellowshipSpeech(++_sequence, sender, words));
+
+        /// <summary>A server line: whole, with no speaker.</summary>
+        public void AddSystemLine(string text) => _chat.Add(new PluginChatMessage(
             ++_sequence,
-            2u,
-            3,
-            "Horan",
+            0u,
+            4,
+            string.Empty,
             text,
-            "Fellowship"));
+            string.Empty)
+        {
+            DisplayText = text,
+        });
 
         public bool TryGetSkill(uint skillId, out PluginSkillInfo skill)
         {
@@ -420,8 +453,11 @@ public sealed class AuthenticMetaExecutionTests
         public bool Submit(string text)
         {
             const string prefix = "/vt ";
+            const string ubPrefix = "/ub ";
             if (text.StartsWith(prefix, StringComparison.OrdinalIgnoreCase))
                 RouteVtankCommand?.Invoke(text[prefix.Length..]);
+            else if (text.StartsWith(ubPrefix, StringComparison.OrdinalIgnoreCase))
+                RouteUbCommand?.Invoke(text[ubPrefix.Length..]);
             return true;
         }
 

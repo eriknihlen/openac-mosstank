@@ -94,6 +94,9 @@
     <toggle x="282" y="88" w="160" h="20" text="Show Nav Lines"
             checked="{ShowNavLinesEnabled}" onclick="{ToggleShowNavLines}"
             tooltip="Draw the loaded route and highlight its current waypoint in the world." />
+    <toggle x="282" y="108" w="160" h="20" text="Walk to Own Rares"
+            checked="{WalkToOwnRareCorpsesEnabled}" onclick="{ToggleWalkToOwnRareCorpses}"
+            tooltip="Walk to the corpse holding this character's own rare up to 100 m, past the corpse approach range, holding the route until it is looted; a walk that stops covering ground or takes over a minute is given up. VTank leaves every corpse beyond the approach range." />
     <toggle x="282" y="128" w="120" h="20" text="Auto Fellow Mgmt."
             checked="{AutoFellowManagementEnabled}" onclick="{ToggleAutoFellowManagement}" />
     <toggle x="282" y="148" w="160" h="20" text="M. Charges When Off"
@@ -230,6 +233,9 @@
             checked="{VitalUpkeepEnabled}" onclick="{ToggleVitalUpkeep}" />
     <toggle x="360" y="28" w="190" h="20" text="Help fellows"
             checked="{HelpOthersEnabled}" onclick="{ToggleHelpOthers}" />
+    <toggle x="360" y="112" w="190" h="20" text="Help network peers"
+            checked="{HelpNetworkPeersEnabled}" onclick="{ToggleHelpNetworkPeers}"
+            tooltip="Also heal peers outside the fellowship: characters on the peer network, on this computer or relayed from another. VTank helps fellows only." />
     <label x="360" y="60" w="290" h="16" text="{VitalStatus}" color="#FFC7B98F" />
     <label x="360" y="88" w="290" h="16" text="{Vitals}" color="#FFE8DEC3" />
   </group>
@@ -391,6 +397,9 @@
     <button x="268" y="171" w="64" h="16" text="Next WP" anchor="bottom"
             onclick="{SkipRouteWaypoint}"
             tooltip="Skip the waypoint the route is heading for (/vt nextwp [n] skips n)." />
+    <button x="338" y="171" w="80" h="16" text="Copy to .af" anchor="bottom"
+            onclick="{CopyRouteProfileToAf}"
+            tooltip="Start /vt navaf save in chat: name it and send to save this route as an .af." />
 
     <button x="380" y="16" w="88" h="16" text="Add" onclick="{AddRoutePoint}" />
     <button x="474" y="16" w="88" h="16" text="Open Vendor" onclick="{AddRouteOpenVendor}" />
@@ -416,7 +425,7 @@
              background="#00000000" color="#FFE8DEC3" tooltip="Chat command added by Add Chat." />
     </group>
     <button x="380" y="126" w="88" h="16" text="Follow" onclick="{SetFollowTarget}"
-            tooltip="Turn the loaded route into a follow route that trails the character selected in the world." />
+            tooltip="Follow the character selected in the world on the UBFollow route; the loaded route is left as it is." />
     <label x="474" y="126" w="200" h="16" text="{RouteFollowTargetText}" color="#FFC7B98F" />
     <toggle x="380" y="146" w="200" h="20" text="Follow Around Corners"
             checked="{FollowAroundCornersEnabled}" onclick="{ToggleFollowAroundCorners}"
@@ -449,6 +458,8 @@
           rows="8" openupward="true"
           tooltip="Force the live Meta engine into a state directly." />
     <button x="462" y="171" w="50" h="16" text="Create" onclick="{CreateMetaRule}" anchor="bottom" />
+    <button x="518" y="171" w="80" h="16" text="Copy to .af" onclick="{CopyMetaProfileToAf}" anchor="bottom"
+            tooltip="Start /vt metaaf save in chat: name it and send to save this meta as an .af." />
 
     <label x="4" y="213" w="500" h="16" text="{MetaStatus}" color="#FFC7B98F" anchor="bottom" />
   </group>

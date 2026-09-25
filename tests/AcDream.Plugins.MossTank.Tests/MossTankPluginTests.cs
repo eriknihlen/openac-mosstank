@@ -64,7 +64,7 @@ public sealed class MossTankPluginTests
     /// disposal in Disable) fails the second or last assertion.
     /// </summary>
     [Fact]
-    public void EnableRegistersVtAndUbOnOneHandlerAndDisableRevokesBoth()
+    public void EnableRegistersVtAndUbOnTheirOwnHandlersAndDisableRevokesBoth()
     {
         var commands = new RecordingCommandRegistry();
         var host = new FakeHost(new RecordingLootClassifierRegistry(), commands);
@@ -73,10 +73,15 @@ public sealed class MossTankPluginTests
 
         plugin.Enable();
 
+        // Mutation: registering /ub on the /vt dispatcher (one command set
+        // for both words) fails the method checks.
         Assert.Equal(["vt", "ub"], commands.Registered.Select(entry => entry.Verb));
         Assert.Equal(
-            commands.Registered[0].Handler.Method,
-            commands.Registered[1].Handler.Method);
+            nameof(MossTankPanel.ExecuteVtankCommand),
+            commands.Registered[0].Handler.Method.Name);
+        Assert.Equal(
+            nameof(MossTankPanel.ExecuteUbCommand),
+            commands.Registered[1].Handler.Method.Name);
         Assert.Same(
             commands.Registered[0].Handler.Target,
             commands.Registered[1].Handler.Target);

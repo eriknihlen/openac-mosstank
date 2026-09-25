@@ -25,7 +25,7 @@ env:
   # AcDream.Plugin.Abstractions from this release into ./packages-local, and
   # PluginApiPackageVersion in Directory.Build.props has to name the version
   # that package carries.
-  OPENAC_API_RELEASE_TAG: v0.1.18
+  OPENAC_API_RELEASE_TAG: v0.1.19
 
 jobs:
   build-and-test:

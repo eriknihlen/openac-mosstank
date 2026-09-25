@@ -8,6 +8,9 @@ namespace AcDream.Plugins.MossTank;
 internal sealed class EquipProfileSettings
 {
     public Func<bool> Think { get; init; } = static () => false;
+
+    /// <summary>Whether the UtilityBelt side prints its debug lines.</summary>
+    public Func<bool> Debug { get; init; } = static () => false;
 }
 
 /// <summary>
@@ -135,6 +138,8 @@ internal sealed class EquipProfileController : IDisposable
     private uint _dequipping;
     private uint _equipping;
     private int _equipAttempts;
+    private string _refusal = string.Empty;
+    private bool _refusalIsDebugOnly;
     private string _pendingOverwriteKey = string.Empty;
     private double _pendingOverwriteAt = double.NegativeInfinity;
     private bool _disposed;
@@ -160,10 +165,13 @@ internal sealed class EquipProfileController : IDisposable
 
     public void BindActionLocks(ActionLockTable locks) => _locks = locks;
 
-    /// <summary>The <c>/vt equip</c> verbs: list, load, test and create.</summary>
-    public IReadOnlyList<string> Command(string arguments)
+    /// <summary>
+    /// The <c>/ub equip</c> verbs: list, load, test and create. Null when
+    /// the line does not parse, which the caller answers with the command's
+    /// full help.
+    /// </summary>
+    public IReadOnlyList<string>? Command(string arguments)
     {
-        const string usage = "Syntax: /vt equip list | load <profile> | test <profile> | create <profile>";
         string text = (arguments ?? string.Empty).Trim();
         int space = text.IndexOf(' ');
         string verb = (space < 0 ? text : text[..space]).ToLowerInvariant();
@@ -172,17 +180,46 @@ internal sealed class EquipProfileController : IDisposable
         {
             case "list":
                 return List(rest);
+            // A run that starts says nothing until it has something to say,
+            // as the reference's does; a refusal is the tool's error.
             case "load":
-                TryStart(rest, Mode.Load);
-                return [Status];
+                return TryStart(rest, Mode.Load) ? [] : Refusal();
             case "test":
-                TryStart(rest, Mode.Test);
-                return [Status];
+                return TryStart(rest, Mode.Test) ? [] : Refusal();
             case "create":
                 return [Create(rest)];
             default:
-                return [usage];
+                return null;
         }
+    }
+
+    /// <summary>
+    /// Why the last start was refused, as the tool says it: a missing
+    /// profile only in the debug output, as the reference says it, anything
+    /// else as its error.
+    /// </summary>
+    private string[] Refusal()
+    {
+        if (!_refusalIsDebugOnly)
+            return [UbChat.ToolError(UbChat.Tools.EquipmentManager, _refusal)];
+        UbChat.PostToolDebug(
+            _host.Automation.Chat,
+            _settings.Debug(),
+            UbChat.Tools.EquipmentManager,
+            _refusal);
+        return [];
+    }
+
+    /// <summary>
+    /// Records why a start was refused and how the refusal is said, and
+    /// returns false for the start to hand back.
+    /// </summary>
+    private bool Refuse(string reason, bool debugOnly = false)
+    {
+        Status = reason;
+        _refusal = reason;
+        _refusalIsDebugOnly = debugOnly;
+        return false;
     }
 
     /// <summary>
@@ -197,34 +234,23 @@ internal sealed class EquipProfileController : IDisposable
     private bool TryStart(string? profileName, Mode mode)
     {
         if (!_host.Automation.IsAvailable || !_host.Automation.Character.IsInWorld)
-        {
-            Status = "Equip profile refused: not in the world.";
-            return false;
-        }
+            return Refuse("Equip profile refused: not in the world.");
         if (IsRunning)
-        {
-            Status = "Equip profile refused: a run is already in progress.";
-            return false;
-        }
+            return Refuse("Equip profile refused: a run is already in progress.");
         if (_combatHasTarget())
         {
-            Status = "Equip profile refused: the macro has a monster target and owns "
-                + "what is wielded; stop the macro or wait for the fight to end.";
-            return false;
+            return Refuse("Equip profile refused: the macro has a monster target and owns "
+                + "what is wielded; stop the macro or wait for the fight to end.");
         }
         string key = ResolveKey(profileName);
         string? text = _host.VtankProfiles.IsAvailable ? _host.VtankProfiles.ReadText(key) : null;
+        // A missing profile is said only in the debug output, as the
+        // reference says it.
         if (text is null)
-        {
-            Status = $"No equip profile exists: {key}";
-            return false;
-        }
+            return Refuse($"No equip profile exists: {key}", debugOnly: true);
         _rules.Clear();
         if (!MossTankLootProfileStore.TryParseRules(text, _rules))
-        {
-            Status = $"Equip profile could not be read: {key}";
-            return false;
-        }
+            return Refuse($"Equip profile could not be read: {key}");
 
         _mode = mode;
         _profileKey = key;
@@ -266,6 +292,7 @@ internal sealed class EquipProfileController : IDisposable
         }
         if (!_host.Automation.IsAvailable)
         {
+            SayError("Equip profile stopped: the session ended.");
             Stop("Equip profile stopped: the session ended.");
             return false;
         }
@@ -279,6 +306,7 @@ internal sealed class EquipProfileController : IDisposable
         DrainObservations();
         if (_sinceProgress > BailSeconds)
         {
+            Say(UbChat.Tool(UbChat.Tools.EquipmentManager, "bail, timeout expired"));
             Stop("Equip profile bailed: timeout expired.");
             return false;
         }
@@ -320,7 +348,10 @@ internal sealed class EquipProfileController : IDisposable
                 if (moved.Status == PluginItemCommandStatus.Started)
                     _dequipping = worn;
                 else
+                {
+                    SayError($"Equip profile stopped: could not take off {Name(worn)} ({moved.Status}).");
                     Stop($"Equip profile stopped: could not take off {Name(worn)} ({moved.Status}).");
+                }
                 return IsRunning;
             }
             _phase = Phase.Equipping;
@@ -380,7 +411,11 @@ internal sealed class EquipProfileController : IDisposable
             int remaining = _candidates.Count(item => !HasAppraisalData(item.ObjectId)
                 && Attempts(item.ObjectId) < MaximumIdentifyAttemptsPerItem
                 && LootRuleEngine.NeedsIdentify(item, PropertiesOf(item.ObjectId), _rules, _host));
-            Write($"Equip profile: waiting to identify {remaining} item(s), about {remaining} second(s).");
+            Say(UbChat.Tool(
+                UbChat.Tools.EquipmentManager,
+                string.Create(
+                    CultureInfo.InvariantCulture,
+                    $"waiting to id {remaining} items, this will take approximately {remaining} seconds.")));
         }
         PluginItemCommandResult asked = _host.Automation.Objects.Identify(next);
         if (asked.Status == PluginItemCommandStatus.Started)
@@ -450,9 +485,9 @@ internal sealed class EquipProfileController : IDisposable
 
     private void ReportTest()
     {
-        Write("Will attempt to equip the following items in order:");
+        Say("Will attempt to equip the following items in order:");
         foreach (uint objectId in _toEquip)
-            Write($" * {Name(objectId)} <{objectId}>");
+            Say($" * {Name(objectId)} <{objectId}>");
     }
 
     private uint? NextToDequip()
@@ -474,7 +509,7 @@ internal sealed class EquipProfileController : IDisposable
             uint head = _toEquip.Peek();
             if (!TryFindOwned(head, out PluginInventoryItem item))
             {
-                Write($"Equip profile: could not find item {head}; skipping.");
+                SayError($"Could not find item with id: {head} - SKIPPING");
                 _toEquip.Dequeue();
                 _sinceProgress = 0d;
                 continue;
@@ -499,7 +534,11 @@ internal sealed class EquipProfileController : IDisposable
             }
             if (++_equipAttempts > MaximumEquipAttemptsPerItem)
             {
-                Write($"Equip profile: too many attempts on {item.Name}; skipping.");
+                UbChat.PostToolDebug(
+                    _host.Automation.Chat,
+                    _settings.Debug(),
+                    UbChat.Tools.EquipmentManager,
+                    $"Too many equip attempts ({item.Name}) - SKIPPING");
                 _toEquip.Dequeue();
                 _equipping = 0u;
                 _sinceProgress = 0d;
@@ -527,7 +566,7 @@ internal sealed class EquipProfileController : IDisposable
                     // Refused, unknown to the client or unavailable: the
                     // piece is skipped rather than asked for again.
                     _equipping = 0u;
-                    Write($"Equip profile: {item.Name} was not accepted ({sent.Status}"
+                    SayError($"Equip profile: {item.Name} was not accepted ({sent.Status}"
                         + (sent.Notice is { Length: > 0 } notice ? $": {notice}" : string.Empty)
                         + "); skipping.");
                     _toEquip.Dequeue();
@@ -566,9 +605,14 @@ internal sealed class EquipProfileController : IDisposable
         }
     }
 
+    /// <summary>
+    /// Ends a run. Every end of a load says "Equipment Manager: Finished
+    /// equipping items in &lt;n&gt;s", as a think when EquipmentManager.Think
+    /// is on, as the reference's does; a dry run ends in silence.
+    /// </summary>
     private void Stop(string? notice)
     {
-        bool wasLoad = _mode == Mode.Load && _phase is Phase.Dequipping or Phase.Equipping;
+        bool wasLoad = _mode == Mode.Load && _phase != Phase.Idle;
         _phase = Phase.Idle;
         _toEquip.Clear();
         _profileItems.Clear();
@@ -584,10 +628,14 @@ internal sealed class EquipProfileController : IDisposable
             return;
         }
         Status = notice;
-        if (wasLoad && notice.StartsWith("Finished", StringComparison.Ordinal))
-            Think("Equipment Manager: " + notice);
-        else
-            Write(notice);
+        if (wasLoad)
+        {
+            // The seconds as the reference writes a double: every digit that
+            // counts, no fixed decimal places ("2s", "2.35s").
+            ThinkOrSay(string.Create(
+                CultureInfo.InvariantCulture,
+                $"Equipment Manager: Finished equipping items in {_runSeconds.ToString("G15", CultureInfo.InvariantCulture)}s"));
+        }
     }
 
     // ---- create and list ----------------------------------------------------
@@ -603,9 +651,9 @@ internal sealed class EquipProfileController : IDisposable
     private string Create(string? profileName)
     {
         if (!_host.Automation.IsAvailable || !_host.Automation.Character.IsInWorld)
-            return "Equip profile create refused: not in the world.";
+            return UbChat.ToolError(UbChat.Tools.EquipmentManager, "Equip profile create refused: not in the world.");
         if (!_host.VtankProfiles.IsAvailable)
-            return "Equip profile create refused: storage is unavailable.";
+            return UbChat.ToolError(UbChat.Tools.EquipmentManager, "Equip profile create refused: storage is unavailable.");
         string fileName = FileName(profileName);
         string key = _store.CharacterProfileKey(ProfileFolder, fileName);
         bool exists = _host.VtankProfiles.ReadText(key) is not null;
@@ -616,8 +664,10 @@ internal sealed class EquipProfileController : IDisposable
         {
             _pendingOverwriteKey = key;
             _pendingOverwriteAt = _now;
-            return $"Equip profile '{fileName}' already exists at {key}; give the same "
-                + $"command again within {OverwriteConfirmationSeconds:0} seconds to overwrite it.";
+            return UbChat.Tool(
+                UbChat.Tools.EquipmentManager,
+                $"Equip profile '{fileName}' already exists at {key}; give the same "
+                + $"command again within {OverwriteConfirmationSeconds:0} seconds to overwrite it.");
         }
         _pendingOverwriteKey = string.Empty;
         _pendingOverwriteAt = double.NegativeInfinity;
@@ -644,12 +694,14 @@ internal sealed class EquipProfileController : IDisposable
             });
         }
         _host.VtankProfiles.WriteText(key, MossTankLootProfileStore.SerializeRules(rules));
-        return $"Equip profile created at {key} with {rules.Count} item(s).";
+        return UbChat.Line($"Profile created at {key}");
     }
 
     private IReadOnlyList<string> List(string pattern)
     {
-        var lines = new List<string> { "Equip profiles:" };
+        // Each line a message of its own under the tag, as the reference
+        // prints them.
+        var lines = new List<string> { UbChat.Line("Equip Profiles:") };
         if (!_host.VtankProfiles.IsAvailable)
             return lines;
         string wanted = (pattern ?? string.Empty).Trim();
@@ -665,7 +717,7 @@ internal sealed class EquipProfileController : IDisposable
                 {
                     continue;
                 }
-                lines.Add($" * {file} ({key[..^(file.Length + 1)]})");
+                lines.Add(UbChat.Line($" * {file} ({key[..^(file.Length + 1)]})"));
             }
         }
         return lines;
@@ -745,8 +797,14 @@ internal sealed class EquipProfileController : IDisposable
     private static VtankLootRequirement Requirement(int type, long value, uint key) =>
         Requirement(type, value.ToString(CultureInfo.InvariantCulture), key);
 
-    private void Think(string text) =>
-        Write(_settings.Think() ? $"You think, \"{text}\"" : text);
+    /// <summary>A think when EquipmentManager.Think is on, a tagged line otherwise.</summary>
+    private void ThinkOrSay(string text) =>
+        UbChat.ThinkOrWrite(_host.Automation, text, _settings.Think());
 
-    private void Write(string text) => _host.Automation.Chat.PostSystemMessage(text);
+    /// <summary>A line under the reference's tag.</summary>
+    private void Say(string text) => UbChat.Post(_host.Automation.Chat, UbChat.Line(text));
+
+    /// <summary>An error the tool reports for itself.</summary>
+    private void SayError(string text) =>
+        UbChat.Post(_host.Automation.Chat, UbChat.ToolError(UbChat.Tools.EquipmentManager, text));
 }

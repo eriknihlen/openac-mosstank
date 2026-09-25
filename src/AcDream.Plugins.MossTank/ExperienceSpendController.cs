@@ -52,13 +52,26 @@ internal sealed class ExperienceSpendController
         _settings = settings ?? throw new ArgumentNullException(nameof(settings));
 
     /// <summary>
-    /// <c>/vt xp [level|slow|test|export|import &lt;Target=Weight;...&gt;]</c>:
+    /// <c>/ub xp [level|slow|test|export|import &lt;Target=Weight;...&gt;]</c>:
     /// no verb lists the weights in use; <c>level</c> spends in chunks and
     /// <c>slow</c> one rank at a time, either halting a run already going;
     /// <c>test</c> shows the plan; <c>export</c> writes the policy in the
-    /// form <c>import</c> reads. Returns the lines to say back.
+    /// form <c>import</c> reads. Returns the lines to say back; null when
+    /// the line does not parse, which the caller answers with the command's
+    /// full help.
     /// </summary>
-    public IReadOnlyList<string> Command(string arguments)
+    public IReadOnlyList<string>? Command(string arguments) =>
+        CommandLines(arguments) is { } lines
+            ? [.. lines
+                .Where(static line => line.Length != 0)
+                .Select(static line => UbChat.Line(line))]
+            : null;
+
+    /// <summary>
+    /// The lines of one command before they take the tag: the reference
+    /// prints each of them as a message of its own through its logger.
+    /// </summary>
+    private IReadOnlyList<string>? CommandLines(string arguments)
     {
         string text = (arguments ?? string.Empty).Trim();
         int space = text.IndexOf(' ');
@@ -83,7 +96,7 @@ internal sealed class ExperienceSpendController
             case "":
                 return PrintPolicy();
             default:
-                return ["Syntax: /vt xp [level|slow|test|export|import <Target=Weight;...>]"];
+                return null;
         }
     }
 
@@ -99,7 +112,7 @@ internal sealed class ExperienceSpendController
         }
         if (_index >= _plan.Count)
         {
-            Halt($"Finished leveling {_index} target(s).");
+            Halt(null);
             return false;
         }
         _sinceSpend += Math.Max(0d, elapsedSeconds);
@@ -143,18 +156,25 @@ internal sealed class ExperienceSpendController
     {
         if (IsRunning)
         {
-            Halt("Stopping experience spending.");
-            return Status;
+            // The reference says it is stopping, then the stop says how far
+            // it got.
+            UbChat.Post(_host.Automation.Chat, UbChat.Line("Stopping AutoXp."));
+            Halt(null);
+            return string.Empty;
         }
         if (!_host.Automation.IsAvailable)
-            return Status = "Experience spending needs a live session.";
+            return UbChat.Error(Status = "Experience spending needs a live session.");
         if (_macroEnabled())
-            return Status = "Experience spending refuses to run while the macro is enabled; stop it first.";
+            return UbChat.Error(Status = "Experience spending refuses to run while the macro is enabled; stop it first.");
 
         long unassigned = UnassignedExperience();
         ExperiencePlan plan = Plan(unassigned, batch);
+        // Nothing to level is not worth a word to the reference.
         if (plan.Steps.Count == 0)
-            return Status = "Nothing to level: no affordable rank under the policy.";
+        {
+            Status = "Nothing to level: no affordable rank under the policy.";
+            return string.Empty;
+        }
         _plan = plan.Steps;
         _index = 0;
         // The first request goes out on the next tick, not an interval later.
@@ -162,15 +182,23 @@ internal sealed class ExperienceSpendController
         IsRunning = true;
         return Status = string.Create(
             CultureInfo.InvariantCulture,
-            $"Spending on a plan consisting of {plan.Steps.Count} step(s) with {unassigned:n0} available exp.");
+            $"Spending on a plan consisting of {plan.Steps.Count} steps with {unassigned} available exp.");
     }
 
-    private void Halt(string status)
+    /// <summary>
+    /// Ends a run. The reference ends every run by saying how many targets
+    /// it levelled; a reason this client stopped for comes first, as an
+    /// error.
+    /// </summary>
+    private void Halt(string? reason)
     {
         IsRunning = false;
         _plan = [];
-        Status = status;
-        _host.Automation.Chat.PostSystemMessage("[MossTank] " + status);
+        if (reason is not null)
+            UbChat.Post(_host.Automation.Chat, UbChat.Error(reason));
+        string finished = string.Create(CultureInfo.InvariantCulture, $"Finished leveling {_index} targets.");
+        Status = reason ?? finished;
+        UbChat.Post(_host.Automation.Chat, UbChat.Line(finished));
     }
 
     private IReadOnlyList<string> PrintPlan()
@@ -179,7 +207,7 @@ internal sealed class ExperienceSpendController
         ExperiencePlan plan = Plan(unassigned, batch: false);
         var lines = new List<string>
         {
-            string.Create(CultureInfo.InvariantCulture, $"Experience plan for {unassigned:n0} exp:"),
+            string.Create(CultureInfo.InvariantCulture, $"Experience plan for {unassigned} exp:"),
         };
         foreach (ExperienceTargetPlan target in plan.ByTarget)
         {

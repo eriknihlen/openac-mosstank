@@ -116,7 +116,8 @@ internal sealed partial class LootController
         if (SelectCorpse(
                 loot.CaptureCorpses(float.MaxValue),
                 rangeMeters,
-                byHeading: false)
+                byHeading: false,
+                ownRareReach: true)
             is not { } picked)
         {
             return false;
@@ -173,7 +174,10 @@ internal sealed partial class LootController
         {
             if (!IsDescriptionAnswered(corpse)
                 && WantsDescription(corpse)
-                && corpse.Distance <= rangeMeters
+                && (corpse.Distance <= rangeMeters
+                    || (_settings.WalkToOwnRareCorpses
+                        && corpse.Distance <= RareCorpseReachMeters
+                        && AppearedWithOwnRareAnnouncement(corpse)))
                 && !_completedCorpses.ContainsKey(corpse.ObjectId)
                 && !IsCorpseDenied(corpse.ObjectId)
                 && !IsCorpseBlacklisted(corpse.ObjectId))
@@ -209,11 +213,18 @@ internal sealed partial class LootController
     /// would have to turn to face it, so among corpses already in reach the
     /// one being looked at wins. An unplaceable corpse ranks last.
     /// </para>
+    /// <para>
+    /// The walk's pick alone (<paramref name="ownRareReach"/>) lets a corpse
+    /// holding this character's own rare through out to the rare reach
+    /// rather than the profile's range — MossTank's own rule, see
+    /// <c>Looting.OwnRare.cs</c>. The open's pick is never widened.
+    /// </para>
     /// </summary>
     private PluginLootContainer? SelectCorpse(
         IEnumerable<PluginLootContainer> corpses,
         double rangeMeters,
-        bool byHeading)
+        bool byHeading,
+        bool ownRareReach = false)
     {
         PluginNavigationPosition self =
             _host.Automation.Navigation.Snapshot.Position;
@@ -222,7 +233,10 @@ internal sealed partial class LootController
         bool rarePicked = false;
         foreach (PluginLootContainer corpse in corpses)
         {
-            if (corpse.Distance > rangeMeters
+            double reach = ownRareReach
+                ? ApproachReachFor(corpse, rangeMeters)
+                : rangeMeters;
+            if (corpse.Distance > reach
                 || _completedCorpses.ContainsKey(corpse.ObjectId)
                 || IsCorpseDenied(corpse.ObjectId)
                 || IsCorpseBlacklisted(corpse.ObjectId)
@@ -265,6 +279,15 @@ internal sealed partial class LootController
         return Math.Abs(NavigationController.SignedHeadingDelta(
             self.HeadingDegrees,
             NavigationController.DesiredHeading(self, corpse.Position)));
+    }
+
+    /// <summary>The newest chat line's sequence the host still holds; zero when it holds none.</summary>
+    private ulong LatestChatSequence()
+    {
+        ulong latest = 0uL;
+        foreach (PluginChatMessage message in _host.Automation.Chat.CaptureMessages(0uL))
+            latest = Math.Max(latest, message.Sequence);
+        return latest;
     }
 
     /// <summary>
@@ -320,15 +343,16 @@ internal sealed partial class LootController
     /// <summary>
     /// The server tells everyone nearby when a kill generates a rare:
     /// "Name has discovered the Item!". When the name is this character's,
-    /// the corpses that appeared around then are the ones worth describing.
+    /// the corpses that appeared around then are the ones worth describing
+    /// with rare-only looting on, and the ones the walks wait on with the
+    /// own-rare walk on (<see cref="AppearedWithOwnRareAnnouncement"/>).
+    /// With neither on the announcement is not listened for.
     /// </summary>
     private void ObserveRareAnnouncement(string text)
     {
-        if (!_settings.LootOnlyRareCorpses
+        if ((!_settings.LootOnlyRareCorpses && !_settings.WalkToOwnRareCorpses)
             || RareDiscovered().Match(text) is not { Success: true } match)
-        {
             return;
-        }
         string character = _host.Automation.Character.Name.TrimStart('+');
         if (character.Length == 0
             || !string.Equals(
@@ -341,7 +365,9 @@ internal sealed partial class LootController
         _rareAnnouncedAt = _lifetime;
         Log?.Invoke(
             MacroLogChannel.Loot,
-            $"LootCorpse: rare announced ({match.Groups["item"].Value}); describing new corpses");
+            _settings.LootOnlyRareCorpses
+                ? $"LootCorpse: rare announced ({match.Groups["item"].Value}); describing new corpses"
+                : $"LootCorpse: rare announced ({match.Groups["item"].Value})");
     }
 
     /// <summary>
@@ -350,15 +376,20 @@ internal sealed partial class LootController
     /// appeared around this character's own rare announcement are, for a
     /// short while after it. Everything else is described as before.
     /// </summary>
-    private bool WantsDescription(in PluginLootContainer corpse)
-    {
-        if (!_settings.LootOnlyRareCorpses)
-            return true;
-        if (!RareWindowOpenOrNotRareOnly())
-            return false;
-        return !_corpseFirstSeen.TryGetValue(corpse.ObjectId, out double firstSeen)
-            || firstSeen >= _rareAnnouncedAt - RareAnnouncementLeadSeconds;
-    }
+    private bool WantsDescription(in PluginLootContainer corpse) =>
+        !_settings.LootOnlyRareCorpses
+        || AppearedWithOwnRareAnnouncement(corpse);
+
+    /// <summary>
+    /// Whether this corpse may be the one this character's latest rare
+    /// announcement is about: the announcement is still inside its window,
+    /// and the corpse appeared no earlier than the lead before it (a corpse
+    /// never sighted before counts, as it can only be new).
+    /// </summary>
+    private bool AppearedWithOwnRareAnnouncement(in PluginLootContainer corpse) =>
+        _lifetime - _rareAnnouncedAt <= RareAnnouncementWindowSeconds
+        && (!_corpseFirstSeen.TryGetValue(corpse.ObjectId, out double firstSeen)
+            || firstSeen >= _rareAnnouncedAt - RareAnnouncementLeadSeconds);
 
     /// <summary>
     /// False only while rare-only looting waits for an announcement: then no
@@ -387,20 +418,12 @@ internal sealed partial class LootController
     {
         if (_settings.LootOnlyRareCorpses && !IsRare(corpse))
             return false;
-        string killer = KillerName(corpse.LongDescription);
-        // The local server writes the killer's name without the plus sign an
-        // admin character carries, so the character's own plus is not part
-        // of the comparison. That is a deliberate deviation.
-        string character = _host.Automation.Character.Name.TrimStart('+');
-        if (killer.Length != 0
-            && character.Length != 0
-            && string.Equals(killer, character, StringComparison.OrdinalIgnoreCase))
-        {
+        if (IsOwnKill(corpse))
             return true;
-        }
 
         // A corpse whose description names no killer is nobody's, and is
         // never looted, however old it gets.
+        string killer = KillerName(corpse.LongDescription);
         if (killer.Length == 0)
             return false;
 
@@ -546,6 +569,8 @@ internal sealed partial class LootController
         if (corpseId == 0u)
             return;
         _completedCorpses[corpseId] = _lifetime;
+        if (corpseId == _openedOwnRareCorpse)
+            _completedOwnRareCorpses.Add(corpseId);
         _corpseOpenAttempts.Remove(corpseId);
         _corpseDescriptionAttempts.Remove(corpseId);
         _corpseBlacklistedAt.Remove(corpseId);
@@ -601,6 +626,7 @@ internal sealed partial class LootController
             _corpseLastSeen.Remove(id);
             _releasedCorpses.Remove(id);
             _completedCorpses.Remove(id);
+            _completedOwnRareCorpses.Remove(id);
             _corpseDeniedAt.Remove(id);
             _corpseBlacklistedAt.Remove(id);
             _corpseOpenAttempts.Remove(id);

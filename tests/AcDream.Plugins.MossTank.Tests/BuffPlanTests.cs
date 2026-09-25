@@ -872,4 +872,56 @@ public class BuffPlanTests
         Assert.Equal(BuffTargetKind.Attribute, line.Kind);
         Assert.Equal("Strength", line.TargetName);
     }
+
+    /// <summary>
+    /// The reference buffs one family per skill: the family of that skill's
+    /// named tier-one spell. A second family that raises the same skill -- a
+    /// fifteen-minute special version, here -- is not one of its buffs, so it
+    /// is never cast and never keeps the plan "due". With a rebuff window
+    /// longer than that spell lasts, planning it would recast it forever.
+    /// Mutation: admitting every family that names the skill puts the
+    /// special version in both plans.
+    /// </summary>
+    [Fact]
+    public void ASecondFamilyRaisingTheSameSkillIsNotABuffLine()
+    {
+        const string Raises = "Increases the caster's Creature Enchantment skill by ";
+        var exemplar = new PluginSpellInfo(
+            0x022Du, "Creature Enchantment Mastery Self I", 43u, 1, 1, 10, 1800f,
+            CreatureEnchantmentSkill, Raises + "10 points.",
+            IsSelfTargeted: true, IsBeneficial: true);
+        PluginSpellInfo mastery = exemplar with
+        {
+            SpellId = 0x0232u,
+            Name = "Creature Enchantment Mastery Self VI",
+            Tier = 6,
+            Difficulty = 250,
+            DurationSeconds = 2700f,
+        };
+        var special = new PluginSpellInfo(
+            0x0E6Fu, "Prodigal Creature Enchantment Mastery", 470u, 1, 300, 70, 900f,
+            CreatureEnchantmentSkill, Raises + "250 points.",
+            IsSelfTargeted: true, IsBeneficial: true);
+        PluginSkillInfo[] skills =
+        [
+            Skill(CreatureEnchantmentSkill, "Creature Enchantment",
+                PluginSkillTraining.Specialized, 400),
+        ];
+        var catalog = new ExtraCatalog(exemplar, mastery, special);
+
+        List<PluginSpellInfo> covered = BuffPlan.Build(
+            Lines(mastery, special), skills, Array.Empty<PluginAttributeInfo>(),
+            [
+                new PluginActiveEnchantment(mastery.SpellId, 43u, 6, 2600d),
+                new PluginActiveEnchantment(special.SpellId, 470u, 1, 890d),
+            ],
+            Default, rebuffWhenUnderSeconds: 1700d, spellCatalog: catalog);
+        Assert.Empty(covered);
+
+        List<PluginSpellInfo> due = BuffPlan.Build(
+            Lines(mastery, special), skills, Array.Empty<PluginAttributeInfo>(),
+            Array.Empty<PluginActiveEnchantment>(),
+            Default, rebuffWhenUnderSeconds: 1700d, spellCatalog: catalog);
+        Assert.Equal([mastery.SpellId], due.Select(static spell => spell.SpellId));
+    }
 }

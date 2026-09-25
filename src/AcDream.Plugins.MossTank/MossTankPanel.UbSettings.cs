@@ -134,6 +134,7 @@ internal sealed partial class MossTankPanel
         _equipProfile.BindSettings(new EquipProfileSettings
         {
             Think = () => _ubCatalog.Require("EquipmentManager.Think").Get().Boolean,
+            Debug = () => UbDebug,
         });
         InitializeDungeonMap(host);
         InitializeAliases(host);
@@ -755,6 +756,22 @@ internal sealed partial class MossTankPanel
                         : value.Text.Trim())),
             // The alias list is a file of its own, named by the profile row.
             ["Aliases.DefinedAliases"] = AliasListBinding(),
+            // Two choices already made here: they read what is in force,
+            // and a write leaves it.
+            ["VTank.PatchExpressionEngine"] = new(
+                static () => UbSettingValue.FromBool(true),
+                static _ => { }),
+            ["InventoryManager.TreatStackAsSingleItem"] = new(
+                static () => UbSettingValue.FromBool(false),
+                static _ => { }),
+            // The profile name is the store's choice for this character.
+            ["Plugin.SettingsProfile"] = new(
+                () => UbSettingValue.FromText(_ubStore.ProfileName),
+                value =>
+                {
+                    _ubStore.SelectProfile(value.Text.Trim());
+                    RefreshUbSettings();
+                }),
         };
 
     /// <summary>

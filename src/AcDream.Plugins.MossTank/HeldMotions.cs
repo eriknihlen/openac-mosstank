@@ -29,7 +29,7 @@ internal enum HeldMotion
 internal sealed class HeldMotions
 {
     internal const string Usage =
-        "/vt setmotion <Forward|Backward|TurnRight|TurnLeft|StrafeRight|StrafeLeft|Walk> <0|1>";
+        "/ub setmotion <Forward|Backward|TurnRight|TurnLeft|StrafeRight|StrafeLeft|Walk> <0|1>";
 
     private static readonly HeldMotion[] AllMotions = Enum.GetValues<HeldMotion>();
 

@@ -369,6 +369,80 @@ public sealed class VitalRechargeTests
     }
 
     /// <summary>
+    /// A network peer outside the fellowship is helped only when the option
+    /// is on (VTank helps fellows only, so the option defaults off): the
+    /// lowest in-range peer wins, the character itself and an out-of-range
+    /// peer are never picked. Mutation: drop the option gate and the first
+    /// assert fails; drop the self filter and the self row (lowest) wins.
+    /// </summary>
+    [Fact]
+    public void HelperHelpsNonFellowNetworkPeersOnlyWhenTurnedOn()
+    {
+        PluginSpellInfo basis = Spell((uint)SpellId.AdjaSGift, "Adja's Gift", 900u, 100);
+        var surface = new Surface
+        {
+            Mode = PluginCombatMode.Magic,
+            Lookup = [basis],
+            Spells = [basis],
+            InFellowship = false,
+            Peers =
+            [
+                Peer(1u, "Self", health: 1, eastWest: 0d),
+                Peer(80u, "Near", health: 15, eastWest: 0.05d),
+                Peer(81u, "Lowest", health: 5, eastWest: 0.1d),
+                Peer(82u, "Far", health: 1, eastWest: 1d),
+            ],
+        };
+
+        Assert.False(VitalRechargePlanner.TryPlanHelper(
+            surface, new VitalSettings(), out _));
+
+        Assert.True(VitalRechargePlanner.TryPlanHelper(
+            surface,
+            new VitalSettings { HelpNetworkPeers = true },
+            out VitalRechargeChoice choice));
+        Assert.Equal(VitalKind.Health, choice.Vital);
+        Assert.Equal(81u, choice.TargetObjectId);
+    }
+
+    /// <summary>
+    /// A peer who is also a fellow is one candidate, not two, and keeps the
+    /// fellowship's own numbers.
+    /// </summary>
+    [Fact]
+    public void AFellowWhoIsAlsoAPeerIsCountedOnce()
+    {
+        var surface = new Surface
+        {
+            InFellowship = true,
+            Fellows = [Fellow(80u, "Both", health: 50, distance: 10f)],
+            Peers = [Peer(80u, "Both", health: 5, eastWest: 0d)],
+        };
+
+        IReadOnlyList<PluginFellowMember> candidates = VitalRechargePlanner.HelperCandidates(
+            surface, new VitalSettings { HelpNetworkPeers = true }, inFellowship: true);
+
+        PluginFellowMember only = Assert.Single(candidates);
+        Assert.Equal(50u, only.CurrentHealth);
+    }
+
+    private static PluginNetworkClient Peer(uint playerId, string name, uint health, double eastWest) =>
+        new(
+            ClientId: playerId + 1000u,
+            PlayerId: playerId,
+            Name: name,
+            WorldName: string.Empty,
+            Position: new PluginNavigationPosition(0u, eastWest, 0d, 0d, 0f, true),
+            Tags: [],
+            CurrentHealth: health,
+            CurrentMana: 100u,
+            CurrentStamina: 100u,
+            MaxHealth: 100u,
+            MaxMana: 100u,
+            MaxStamina: 100u,
+            Heading: 0f);
+
+    /// <summary>
     /// One family holds both the Self and the Other line (Revitalize Self
     /// and Revitalize Other share family 81); the reference is the Other
     /// spell and only the component set keeps the pick on its line.
@@ -684,6 +758,60 @@ public sealed class VitalRechargeTests
         surface.LastItemCompletion = new PluginItemUseCompletion(1L, 10u, 0u, 0u);
         controller.Tick(0.3d, enabled: true, noTarget: false, helpers: false);
         Assert.False(controller.ItemUseInFlight);
+    }
+
+    /// <summary>
+    /// The reference raises its busy count, which stops its whole pass, for
+    /// a kit (its kit sequencer) and for a caster item (its wand cast
+    /// tracker), but eats food or drinks a potion as a plain use that holds
+    /// nothing. Mutation: holding the pass for every item use holds it for
+    /// the bread; holding it for none lets the kit through.
+    /// </summary>
+    [Fact]
+    public void AKitHoldsThePassAndFoodDoesNot()
+    {
+        var foodSurface = new Surface
+        {
+            CurrentHealth = 20,
+            MaxHealth = 100,
+            Items = [Food(10u, "Bread")],
+        };
+        var foodCombat = new CombatSettings();
+        foodCombat.ConsumableNames.Add("Bread");
+        var food = new VitalRechargeController(
+            new Host(foodSurface),
+            new VitalSettings(),
+            foodCombat);
+        food.BindActionLocks(new ActionLockTable());
+
+        food.Tick(0.3d, enabled: true, noTarget: false, helpers: false);
+        Assert.Equal([10u], foodSurface.UsedItemIds);
+        Assert.True(food.ItemUseInFlight);
+        Assert.False(food.HoldsPass);
+
+        var kitSurface = new Surface
+        {
+            CurrentHealth = 20,
+            MaxHealth = 100,
+            Skills = [Skill(21u, 400u)],
+            Items = [Kit(11u, "Plentiful Healing Kit", booster: 2)],
+        };
+        var kitCombat = new CombatSettings();
+        kitCombat.ConsumableNames.Add("Plentiful Healing Kit");
+        var kit = new VitalRechargeController(
+            new Host(kitSurface),
+            new VitalSettings(),
+            kitCombat);
+        kit.BindActionLocks(new ActionLockTable());
+        Assert.False(kit.HoldsPass);
+
+        kit.Tick(0.3d, enabled: true, noTarget: false, helpers: false);
+        Assert.Equal([11u], kitSurface.UsedItemIds);
+        Assert.True(kit.HoldsPass);
+
+        kitSurface.LastItemCompletion = new PluginItemUseCompletion(1L, 11u, 0u, 0u);
+        kit.ObservePendingReceipt(0.05d);
+        Assert.False(kit.HoldsPass);
     }
 
     /// <summary>
@@ -1440,8 +1568,13 @@ public sealed class VitalRechargeTests
         IPluginChat,
         ICombatAutomation,
         IItemAutomation,
-        IFellowshipAutomation
+        IFellowshipAutomation,
+        INetworkAutomation
     {
+        public INetworkAutomation Network => this;
+        bool INetworkAutomation.IsAvailable => true;
+        public IReadOnlyList<PluginNetworkClient> Peers { get; init; } = [];
+        IReadOnlyList<PluginNetworkClient> INetworkAutomation.CaptureClients() => Peers;
         public bool IsAvailable => true;
         public ICharacterInfo Character => this;
         public ISpellCatalog SpellsCatalog => this;

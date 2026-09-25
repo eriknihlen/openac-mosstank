@@ -25,9 +25,9 @@ public sealed class InventoryCountControllerTests
 
         Assert.Equal(
             [
-                "Item Count: Prismatic Taper - 75",
-                "Item Count: Prismatic Taper Pouch - 1",
-                "Total Item Count: 76",
+                "/t Tester, Counter: Item Count: Prismatic Taper - 75",
+                "/t Tester, Counter: Item Count: Prismatic Taper Pouch - 1",
+                "/t Tester, Counter: Total Item Count: 76",
             ],
             automation.Messages);
     }
@@ -44,7 +44,7 @@ public sealed class InventoryCountControllerTests
         controller.ReportNameCount("taper");
 
         Assert.Equal(
-            ["Item Count: taper - 0", "Total Item Count: 0"],
+            ["/t Tester, Counter: Item Count: taper - 0", "/t Tester, Counter: Total Item Count: 0"],
             automation.Messages);
     }
 
@@ -107,7 +107,7 @@ public sealed class InventoryCountControllerTests
 
         controller.ReportPlayerCount(100d);
 
-        Assert.Equal(["Player Count: 3"], automation.Messages);
+        Assert.Equal(["/t Tester, Counter: Player Count: 3"], automation.Messages);
     }
 
     [Fact]
@@ -135,10 +135,11 @@ public sealed class InventoryCountControllerTests
         Assert.False(controller.IsRunning);
         Assert.Equal(
             [
-                "Rule Count: Trade - 9",
-                "Item Count: Trade Note - 1",
-                "Item Count: Trade Pyreal - 8",
-                "Total Item Count: 9",
+                "[UB] Counter: Finished IDing Items",
+                "/t Tester, Counter: Rule Count: Trade - 9",
+                "/t Tester, Counter: Item Count: Trade Note - 1",
+                "/t Tester, Counter: Item Count: Trade Pyreal - 8",
+                "/t Tester, Counter: Total Item Count: 9",
             ],
             automation.Messages);
         Assert.Equal(9, controller.LastProfileTally?.Total);
@@ -157,7 +158,7 @@ public sealed class InventoryCountControllerTests
 
         Assert.True(controller.TryStartProfile("Counted", foreground: true));
         Assert.True(controller.IsRunning);
-        Assert.Equal(["Items remaining to identify: 1"], automation.Messages);
+        Assert.Equal(["[UB] Counter: Items remaining to ID: 1"], automation.Messages);
 
         // Waiting on an appraisal, the count owns the character.
         Assert.True(controller.Tick(0.1d, canAct: true));
@@ -168,10 +169,11 @@ public sealed class InventoryCountControllerTests
         Assert.False(controller.IsRunning);
         Assert.Equal(
             [
-                "Items remaining to identify: 1",
-                "Rule Count: Trade - 5",
-                "Item Count: Trade Pyreal - 5",
-                "Total Item Count: 5",
+                "[UB] Counter: Items remaining to ID: 1",
+                "[UB] Counter: Finished IDing Items",
+                "/t Tester, Counter: Rule Count: Trade - 5",
+                "/t Tester, Counter: Item Count: Trade Pyreal - 5",
+                "/t Tester, Counter: Total Item Count: 5",
             ],
             automation.Messages);
     }
@@ -259,7 +261,7 @@ public sealed class InventoryCountControllerTests
 
         Assert.True(controller.Tick(1d, canAct: false));
         Assert.Equal(
-            ["Items remaining to identify: 1", "Items remaining to identify: 1"],
+            ["[UB] Counter: Items remaining to ID: 1", "[UB] Counter: Items remaining to ID: 1"],
             automation.Messages);
     }
 
@@ -720,6 +722,13 @@ public sealed class InventoryCountControllerTests
         }
 
         public void PostSystemMessage(string text) => Messages.Add(text);
+
+        /// <summary>A line handed to the chat bar, kept beside the printed ones.</summary>
+        public bool Submit(string text)
+        {
+            Messages.Add(text);
+            return true;
+        }
     }
 
     private sealed class FakeHost(

@@ -64,7 +64,10 @@ internal sealed partial class MossTankPanel
             bool current = i == _navigation.CurrentWaypointIndex;
             uint color = current ? 0x80FF40u : 0xFF40FFu;
             // The ring is the arrival radius, in landblock units.
-            double radius = Math.Clamp(_navigationSettings.MinimumDistanceMeters, 0.5d, 50d) / 240d;
+            double radius = Math.Clamp(
+                _navigationSettings.MinimumDistanceMeters,
+                NavigationMover.MinimumArrivalRadiusMeters,
+                50d) / 240d;
             const int segments = 24;
             for (int j = 0; j < segments; j++)
             {

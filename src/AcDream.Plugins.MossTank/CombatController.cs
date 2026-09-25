@@ -13,7 +13,6 @@ internal sealed class CombatController
     private readonly DebuffTracker _debuffs = new();
     private readonly CombatFailureTracker _failures = new();
     private readonly MonsterHealthTracker _health;
-    private readonly PetAutomation _pets = new();
 
     /// <summary>
     /// The highest peer-cast sequence already dealt with. Reads never
@@ -266,7 +265,7 @@ internal sealed class CombatController
     /// seconds so the corpse can be found and looted before the bot moves on.
     /// </summary>
     private ActionLockTable _actionLocks = new();
-    private Func<bool> _lootingEnabled = static () => false;
+    private Func<bool> _holdsRouteAfterKill = static () => false;
 
     /// <summary>Seconds navigation is held after a kill.</summary>
     private const double PostKillNavigationLockSeconds = 3d;
@@ -352,22 +351,22 @@ internal sealed class CombatController
         _resumePass = resume ?? throw new ArgumentNullException(nameof(resume));
     }
 
-    internal void BindActionLocks(ActionLockTable locks, Func<bool> lootingEnabled)
+    internal void BindActionLocks(ActionLockTable locks, Func<bool> holdsRouteAfterKill)
     {
         _actionLocks = locks ?? throw new ArgumentNullException(nameof(locks));
-        _lootingEnabled = lootingEnabled
-            ?? throw new ArgumentNullException(nameof(lootingEnabled));
+        _holdsRouteAfterKill = holdsRouteAfterKill
+            ?? throw new ArgumentNullException(nameof(holdsRouteAfterKill));
         _castTracker.BindActionLocks(_actionLocks);
     }
 
     /// <summary>
     /// A killing blow lands: hold navigation off for the looting window. The
-    /// hold is conditional on looting being on, so a bot that never loots keeps
-    /// moving.
+    /// hold is conditional on the loot settings asking for it (looting on,
+    /// and not rare-only), so a bot that loots nothing here keeps moving.
     /// </summary>
     private void ArmPostKillNavigationLock()
     {
-        if (!_lootingEnabled())
+        if (!_holdsRouteAfterKill())
             return;
         _actionLocks.Arm(
             ActionLockKind.Navigation,
@@ -868,20 +867,6 @@ internal sealed class CombatController
         }
         StopApproachMovement();
         _decisionActions = ResolveRandomDamage(PassActions);
-
-        if (_pets.Tick(
-                _host.Automation.Items,
-                _host.Automation.Character,
-                _targets,
-                _settings,
-                _now,
-                out string petStatus,
-                readyToRefillInPeace: ReadyToActInPeace,
-                captured: PassInventory()))
-        {
-            Status = petStatus;
-            return AttackPassOutcome.Claimed;
-        }
 
         PluginCombatSnapshot combat = _host.Automation.Combat.Snapshot;
         switch (TickDebuffs(combat))
@@ -2411,6 +2396,16 @@ internal sealed class CombatController
             ? actions
             : actions with { DamageType = preferences[0] };
     }
+
+    /// <summary>
+    /// The element the attack would strike this monster with. The summon rule
+    /// ranks essences by it.
+    /// </summary>
+    internal MonsterDamageType AttackElementFor(PluginCombatTarget target) =>
+        ResolveAttackElement(_settings.ResolveRule(target).Actions, in target);
+
+    /// <summary>Posts a warning once, beside the attack's own.</summary>
+    internal void PostWarningOnce(string text) => PostAttackWarning(text);
 
     internal bool ReadyToActInPeace() => Gate.TryDropToPeace(
         _host.Automation.Equipment.IsAvailable
@@ -4821,13 +4816,6 @@ internal sealed class CombatController
     }
 
     /// <summary>
-    /// Walking to a monster the character cannot yet hit. This is its OWN job,
-    /// twenty positions below the attack, with its own candidate pick at the
-    /// approach range: the attack must not claim the pass for a monster it
-    /// would have to walk to, or nothing below the attack ever runs.
-    /// </summary>
-    /// <returns>True while there is a monster worth walking to.</returns>
-    /// <summary>
     /// The reference's gate on the monster approach's idle-peace fallback:
     /// true while the monster worth walking to is further than the creep
     /// distance, or while there is none.
@@ -4868,6 +4856,13 @@ internal sealed class CombatController
             _ = TickMonsterApproach(canAct: true);
     }
 
+    /// <summary>
+    /// Walking to a monster the character cannot yet hit. This is its OWN job,
+    /// twenty positions below the attack, with its own candidate pick at the
+    /// approach range: the attack must not claim the pass for a monster it
+    /// would have to walk to, or nothing below the attack ever runs.
+    /// </summary>
+    /// <returns>True while there is a monster worth walking to.</returns>
     internal bool TickMonsterApproach(bool canAct)
     {
         if (!Enabled

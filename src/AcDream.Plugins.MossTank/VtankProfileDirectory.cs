@@ -197,8 +197,8 @@ internal static class VtankProfileDirectory
             new(string.Empty, ByCharacterLabel),
         };
         // A route dropped in as the older ".nav" form is offered as it is:
-        // picking it loads it, and a later save writes this plugin's own
-        // ".af" beside it rather than over it.
+        // picking it loads it, and a later save writes it back in the same
+        // ".nav" form.
         foreach (string bareName in EnumerateFolderFileNames(
             storage, NavFolder, ".af", ".nav"))
         {
@@ -220,7 +220,7 @@ internal static class VtankProfileDirectory
             new(string.Empty, ByCharacterLabel),
         };
         // As with routes: a meta dropped in as the older ".met" form is
-        // offered as it is and loaded in place.
+        // offered as it is, loaded in place and saved back in place.
         foreach (string bareName in EnumerateFolderFileNames(
             storage, MetaFolder, ".af", ".met"))
         {

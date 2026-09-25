@@ -1,5 +1,6 @@
 using System.Globalization;
 using System.Text;
+using System.Text.RegularExpressions;
 using AcDream.Plugin.Abstractions;
 using AcDream.Plugins.MossTank.Expressions;
 
@@ -9,8 +10,8 @@ internal sealed partial class MossTankPanel
 {
     private static readonly string[] VtankHelp =
     [
-        "MossTank /vt — profiles: settings nav loot meta opt testitem propertydump addnavpt refresh getdb gamedb addnavjump addnavcheckpoint",
-        "MossTank /vt — actions: start stop forcebuff cancelforcebuff setmetastate fakedeath deathrestore deletemonster reverseroute reverseroutequery equipitemsfor equip mexec metainterval nextwp echo tapjump jump face setattackbar setmotion clearmotion prepclick fellow count login give autovendor vendor xp",
+        "MossTank /vt — profiles: settings nav navaf loot meta metaaf opt testitem propertydump addnavpt refresh getdb gamedb addnavjump addnavcheckpoint",
+        "MossTank /vt — actions: start stop forcebuff cancelforcebuff setmetastate fakedeath deathrestore deletemonster reverseroute reverseroutequery equipitemsfor mexec metainterval nextwp prevwp echo tapjump jump setattackbar",
         "MossTank /vt — game info: dumpspells dumpspecies dumpmats dumpskills",
         "MossTank /vt — debug: log testmonster lockdump dumptracker clearlocks clearbusy listmonstervariables dumpmetavars listmetafunctions metafunchelp fakeimp pscount testspell testpet",
     ];
@@ -18,7 +19,11 @@ internal sealed partial class MossTankPanel
     /// <summary>The macro's own command word.</summary>
     internal const string VtankVerb = "vt";
 
-    /// <summary>The second command word, the one UtilityBelt metas type.</summary>
+    /// <summary>
+    /// The UtilityBelt command word. Its commands are its own: none of them
+    /// answers on <see cref="VtankVerb"/>, and none of the macro's answers
+    /// here.
+    /// </summary>
     internal const string UbVerb = "ub";
 
     private readonly HashSet<string> _commandLogTypes =
@@ -56,7 +61,44 @@ internal sealed partial class MossTankPanel
     /// <summary>The same ceiling for a turn, which is the shorter job.</summary>
     private const double CommandTurnNavigationHoldSeconds = 15d;
 
+    /// <summary>
+    /// How often a client turn is looked at: done when close enough,
+    /// otherwise the client is asked again.
+    /// </summary>
+    private const double ClientTurnCheckSeconds = 0.1d;
+
+    /// <summary>How close a client turn has to get to count as done.</summary>
+    private const float ClientTurnToleranceDegrees = 1f;
+
+    /// <summary>How long a client turn is given before it counts as failed.</summary>
+    private const double ClientTurnGiveUpSeconds = 5d;
+
+    /// <summary>
+    /// How a command jump or turn gets the character pointing the right way.
+    /// </summary>
+    private enum CommandJumpTurn
+    {
+        /// <summary>
+        /// Hold the turn keys until within a few degrees: the macro's own
+        /// jump.
+        /// </summary>
+        HeldKeys,
+
+        /// <summary>
+        /// Ask the client to turn to the exact heading and look again every
+        /// tenth of a second: the reference's face and jump. The client's
+        /// turn lands on the heading exactly.
+        /// </summary>
+        Client,
+
+        /// <summary>No turn at all: the reference's jump with no heading.</summary>
+        None,
+    }
+
     private bool _commandJumpActive;
+    private CommandJumpTurn _commandJumpTurn;
+    private bool _commandJumpTurning;
+    private double _commandJumpTurnSinceCheck;
     private bool _commandJumpHeldNavigation;
     private bool _commandJumpReleased;
     private bool _commandJumpCharging;
@@ -69,25 +111,30 @@ internal sealed partial class MossTankPanel
     private double _commandJumpChargeSeconds;
     private float _commandJumpHeading;
     private PluginMovementIntent _commandJumpIntent;
+
+    /// <summary>
+    /// True when the jump is asked of the client by power, with its keys held
+    /// as client-driven moves; false for the one set of keys that cannot be
+    /// held that way, which charges on the held keys instead.
+    /// </summary>
+    private bool _commandJumpExact;
+    private float _commandJumpPower;
+
+    /// <summary>True while the client holds the keys an exact jump asked for.</summary>
+    private bool _commandJumpMoving;
     private bool _commandPortalState;
     private int _commandPortalCount;
 
     /// <summary>
-    /// Runs one line typed under either verb, <c>/vt</c> or <c>/ub</c>: the
-    /// two answer to the same commands, so a meta written for either runs
-    /// unchanged. Only a bare verb differs: <c>/vt</c> alone prints the help,
-    /// <c>/ub</c> alone the compatibility line, as <c>/vt ub</c> does.
+    /// Runs one line typed under <c>/vt</c>: the macro's own commands and
+    /// MossTank's additions to them. The UtilityBelt commands are not among
+    /// them -- they answer on <c>/ub</c> only, and here they are unknown, as
+    /// they are to the macro itself.
     /// </summary>
     internal void ExecuteVtankCommand(PluginCommand command)
     {
         try
         {
-            if (command.Verb.Equals(UbVerb, StringComparison.OrdinalIgnoreCase)
-                && string.IsNullOrWhiteSpace(command.Arguments))
-            {
-                WriteUbVersion();
-                return;
-            }
             ExecuteVtankCommandCore(command.Arguments);
         }
         catch (Exception error)
@@ -100,26 +147,12 @@ internal sealed partial class MossTankPanel
     private void ExecuteVtankCommandCore(string input)
     {
         (string typed, string arguments) = SplitHead(input);
-
-        // The give verb carries its flags in the letters after it, and their
-        // case is the whole meaning: little p matches part of the ITEM's
-        // name, big P part of the TARGET's. Read before the verb is folded to
-        // one case, because folding loses the difference.
-        if (TryReadGiveFlags(
-            typed,
-            out GiveNameMatch giveMatch,
-            out bool givePartialTarget))
-        {
-            HandleGiveCommand(arguments, giveMatch, givePartialTarget);
-            return;
-        }
-
         string verb = typed.ToLowerInvariant();
         switch (verb)
         {
             case "":
             case "help":
-                HandleHelpCommand(arguments);
+                HandleVtankHelpCommand(arguments);
                 return;
             case "ub":
                 WriteUbVersion();
@@ -145,11 +178,17 @@ internal sealed partial class MossTankPanel
             case "settings":
                 HandleSettingsCommand(arguments);
                 return;
+            case "navaf":
+                HandleRouteProfileCommand(arguments, af: true);
+                return;
             case "nav":
                 HandleRouteProfileCommand(arguments);
                 return;
             case "loot":
                 HandleLootProfileCommand(arguments);
+                return;
+            case "metaaf":
+                HandleMetaProfileCommand(arguments, af: true);
                 return;
             case "meta":
                 HandleMetaProfileCommand(arguments);
@@ -159,6 +198,9 @@ internal sealed partial class MossTankPanel
                 return;
             case "nextwp":
                 HandleNextWaypointCommand(arguments);
+                return;
+            case "prevwp":
+                HandlePreviousWaypointCommand(arguments);
                 return;
             case "metainterval":
                 HandleMetaIntervalCommand(arguments);
@@ -175,27 +217,6 @@ internal sealed partial class MossTankPanel
             case "setattackbar":
                 SetAttackBar(arguments);
                 return;
-            case "count":
-                HandleCountCommand(arguments);
-                return;
-            case "login":
-                HandleLoginCommand(arguments);
-                return;
-            case "autovendor":
-                HandleAutoVendorCommand(arguments);
-                return;
-            case "vendor":
-                foreach (string line in _vendorTrade.VendorCommand(arguments))
-                    WriteVtank(line);
-                return;
-            case "xp":
-                foreach (string line in _experienceSpend.Command(arguments))
-                    WriteVtank(line);
-                return;
-            case "equip":
-                foreach (string line in _equipProfile.Command(arguments))
-                    WriteVtank(line);
-                return;
             case "tapjump":
                 StartCommandJump(
                     _host.Automation.Navigation.Snapshot.Position.HeadingDegrees,
@@ -204,88 +225,7 @@ internal sealed partial class MossTankPanel
                     null);
                 return;
             case "jump":
-                HandleUbJumpCommand(string.Empty, arguments);
-                return;
-            case "simplejump":
-                HandleSimpleJumpCommand(arguments);
-                return;
-            case "calcdamage":
-                CalculateSelectedDamage();
-                return;
-            case "pos":
-                PrintSelectedPosition();
-                return;
-            case "id":
-                PrintSelectedId();
-                return;
-            case "vitae":
-                ThinkVitae();
-                return;
-            case "combatstate":
-                HandleCombatStateCommand(arguments);
-                return;
-            case "date":
-                PrintDate(utc: false, arguments);
-                return;
-            case "dateutc":
-                PrintDate(utc: true, arguments);
-                return;
-            case "delay":
-                HandleDelayCommand(arguments);
-                return;
-            case "bc":
-                HandleBroadcastCommand(arguments);
-                return;
-            case "bct":
-                HandleTaggedBroadcastCommand(arguments);
-                return;
-            case "netclients":
-                HandleNetClientsCommand(arguments);
-                return;
-            case "closestportal":
-                UsePortalByName(string.Empty, partial: true);
-                return;
-            case "close":
-                HandleCloseCommand(arguments);
-                return;
-            case "printcolors":
-                PrintChatColors();
-                return;
-            case "autotinker":
-                StartAutoTinker();
-                return;
-            case "getjob":
-                PrintTinkerJobs();
-                return;
-            case "tinkcalc":
-                PrintTinkerCalculation();
-                return;
-            case "listvars":
-                ListVariables(ExpressionVariableScope.Session);
-                return;
-            case "listpvars":
-                ListVariables(ExpressionVariableScope.Persistent);
-                return;
-            case "listgvars":
-                ListVariables(ExpressionVariableScope.Global);
-                return;
-            case "translateroute":
-                HandleTranslateRouteCommand(arguments);
-                return;
-            case "face":
-                HandleFaceCommand(arguments);
-                return;
-            case "setmotion":
-                HandleSetMotionCommand(arguments);
-                return;
-            case "clearmotion":
-                _expressions.HeldMotions.Clear();
-                return;
-            case "prepclick":
-                _prepClick.Command(arguments);
-                return;
-            case "fellow":
-                HandleFellowCommand(arguments);
+                HandleJumpCommand(arguments, addToRoute: false);
                 return;
             case "addnavjump":
                 HandleJumpCommand(arguments, addToRoute: true);
@@ -402,19 +342,21 @@ internal sealed partial class MossTankPanel
                 DumpSkills();
                 return;
             default:
-                // The flagged verbs (jumpsw, igp, usepi, ...) cannot be
-                // switch cases: their letters combine, so they are matched by
-                // name and flag set rather than spelled out.
-                if (!TryExecuteFlaggedCommand(verb, arguments))
-                    WriteVtank("Unknown /vt command. Use /vt help.");
+                WriteVtank(UnknownVtankCommand);
                 return;
         }
     }
 
     /// <summary>
-    /// <c>/vt count item &lt;namepattern&gt;</c>,
-    /// <c>/vt count profile &lt;lootprofile&gt;</c>,
-    /// <c>/vt count player &lt;range&gt;</c> and <c>/vt count stop</c>. The
+    /// What <c>/vt</c> answers to a word it does not know -- including every
+    /// UtilityBelt command, which answers on <c>/ub</c> only.
+    /// </summary>
+    internal const string UnknownVtankCommand = "Unknown /vt command. Use /vt help.";
+
+    /// <summary>
+    /// <c>/ub count item &lt;namepattern&gt;</c>,
+    /// <c>/ub count profile &lt;lootprofile&gt;</c>,
+    /// <c>/ub count player &lt;range&gt;</c> and <c>/ub count stop</c>. The
     /// first and the third answer here and now; the profile count may have to
     /// wait for appraisals and answers as they land, and <c>stop</c> cancels
     /// one that is still waiting.
@@ -428,11 +370,21 @@ internal sealed partial class MossTankPanel
                 _inventoryCount.ReportNameCount(subject);
                 return;
             case "profile":
+                // The reference says the profile's name first, then only its
+                // own refusal when the file cannot be had.
+                if (_inventoryCount.IsRunning)
+                {
+                    PostUb(UbChat.ToolError(UbChat.Tools.Counter, "Counter already running."));
+                    return;
+                }
+                WriteUb(subject.Trim());
                 if (!_inventoryCount.TryStartProfile(
                     StripExtension(subject, ".utl", ".json"),
                     foreground: true))
                 {
-                    WriteVtank(_inventoryCount.Status);
+                    PostUb(UbChat.Tool(
+                        UbChat.Tools.Counter,
+                        "Profile does not exist: " + subject.Trim()));
                 }
                 return;
             case "player":
@@ -444,7 +396,9 @@ internal sealed partial class MossTankPanel
                     || !double.IsFinite(range)
                     || range <= 0d)
                 {
-                    WriteVtank($"bad player count range: {subject}");
+                    PostUb(UbChat.ToolError(
+                        UbChat.Tools.Counter,
+                        $"bad player count range: {subject}"));
                     return;
                 }
                 _inventoryCount.ReportPlayerCount(range);
@@ -452,19 +406,17 @@ internal sealed partial class MossTankPanel
             case "stop":
                 // A profile count holds the character while it waits, so it
                 // needs a way back that is not a relog.
-                WriteVtank(_inventoryCount.Cancel());
+                PostUb(UbChat.Tool(UbChat.Tools.Counter, _inventoryCount.Cancel()));
                 return;
             default:
-                WriteVtank(
-                    "Syntax: /vt count [item <namepattern> | "
-                    + "profile <lootprofile> | player <range> | stop]");
+                WriteUbBadSyntax("count");
                 return;
         }
     }
 
     /// <summary>
-    /// <c>/vt login next[r][l] &lt;name-or-index&gt;</c>, <c>/vt login clear</c>
-    /// and <c>/vt login list</c>: which character the client logs in as after
+    /// <c>/ub login next[r][l] &lt;name-or-index&gt;</c>, <c>/ub login clear</c>
+    /// and <c>/ub login list</c>: which character the client logs in as after
     /// this one logs out. <c>r</c> counts the index on from the character the
     /// client is on rather than from the start of the list, and <c>l</c> wraps
     /// an index that runs off either end back around.
@@ -490,7 +442,7 @@ internal sealed partial class MossTankPanel
         }
         if (!verb.StartsWith("next", StringComparison.Ordinal))
         {
-            WriteVtank("Syntax: /vt login [next[r][l] <name|index> | clear | list]");
+            WriteUbBadSyntax("login");
             return;
         }
 
@@ -503,12 +455,12 @@ internal sealed partial class MossTankPanel
             flags = flags[1..];
         if (flags.Length != 0)
         {
-            WriteVtank("Syntax: /vt login [next[r][l] <name|index> | clear | list]");
+            WriteUbBadSyntax("login");
             return;
         }
         if (selector.Length == 0)
         {
-            WriteVtank("Specify part of a name or an index: /vt login next <name|index>");
+            WriteUb("Specify part of name or index: /ub login next <name|index>");
             return;
         }
 
@@ -523,18 +475,18 @@ internal sealed partial class MossTankPanel
             out int index,
             out LoginRosterFailure failure))
         {
-            WriteVtank(failure switch
+            WriteUb(failure switch
             {
                 LoginRosterFailure.Empty =>
                     "The account's character list has not arrived yet.",
                 LoginRosterFailure.NoCurrentCharacter =>
                     "Cannot log in relative to a character that is not on the list.",
                 LoginRosterFailure.OutOfRange =>
-                    "Login index is out of bounds. Add the [l]oop flag to wrap "
-                    + "around: /vt login nextl -100",
+                    "Login index is out of bounds.  Use the [l]oop option to wrap "
+                    + "around: /ub login nextl -100",
                 LoginRosterFailure.PendingDelete =>
                     "That character is scheduled for deletion and cannot be played.",
-                _ => $"No character found with name {selector}.",
+                _ => $"No character found with name {selector}.  Clearing next login.",
             });
             if (failure != LoginRosterFailure.Empty)
                 ClearNextLogin();
@@ -542,15 +494,16 @@ internal sealed partial class MossTankPanel
         }
 
         PluginLoginCharacter chosen = roster[index];
-        WriteVtank(login.SetNextLogin(chosen.ObjectId)
-            ? $"Logging in as {chosen.Name} next at index {index}."
-            : $"Could not set the next login to {chosen.Name}.");
+        if (login.SetNextLogin(chosen.ObjectId))
+            WriteUb($"Logging in as {chosen.Name} next at index {index}");
+        else
+            WriteUbError($"Could not set the next login to {chosen.Name}.");
     }
 
     /// <summary>
-    /// <c>/vt autovendor</c> runs the open vendor by its own profile,
-    /// <c>/vt autovendor &lt;profile&gt;</c> by a named one, and
-    /// <c>/vt autovendor stop</c> (or cancel, quit) calls a run off.
+    /// <c>/ub autovendor</c> runs the open vendor by its own profile,
+    /// <c>/ub autovendor &lt;profile&gt;</c> by a named one, and
+    /// <c>/ub autovendor stop</c> (or cancel, quit) calls a run off.
     /// </summary>
     private void HandleAutoVendorCommand(string arguments)
     {
@@ -560,11 +513,11 @@ internal sealed partial class MossTankPanel
             || text.Equals("quit", StringComparison.OrdinalIgnoreCase))
         {
             _vendorTrade.StopRequested();
-            WriteVtank(_vendorTrade.Status);
             return;
         }
+        // The run says what it has to say itself: nothing when it starts, as
+        // the reference says nothing then, and its errors when it cannot.
         _vendorTrade.TryStart(text.Length == 0 ? null : text);
-        WriteVtank(_vendorTrade.Status);
     }
 
     /// <summary>
@@ -612,8 +565,8 @@ internal sealed partial class MossTankPanel
     }
 
     /// <summary>
-    /// <c>/vt give[p{P|r}] [count] &lt;item&gt; to &lt;target&gt;</c>, and
-    /// <c>/vt give stop</c> (or cancel, quit, abort) to call a run off.
+    /// <c>/ub give[p{P|r}] [count] &lt;item&gt; to &lt;target&gt;</c>, and
+    /// <c>/ub give stop</c> (or cancel, quit, abort) to call a run off.
     /// The flags decide how the names are matched: <c>give</c> wants the
     /// whole item name, <c>givep</c> any part of it, <c>giver</c> a regular
     /// expression, and <c>giveP</c> takes any part of the target's name.
@@ -634,24 +587,21 @@ internal sealed partial class MossTankPanel
             || text.Equals("quit", StringComparison.OrdinalIgnoreCase)
             || text.Equals("abort", StringComparison.OrdinalIgnoreCase))
         {
-            _profileGive.StopRequested();
-            WriteVtank(_profileGive.Status);
+            StopGive();
             return;
         }
 
         int separator = text.IndexOf(" to ", StringComparison.OrdinalIgnoreCase);
         if (separator <= 0)
         {
-            WriteVtank(
-                "Syntax: /vt give[p{P|r}] [itemCount] <itemName> to <target>, "
-                + "or /vt give stop");
+            WriteUbBadSyntax("give");
             return;
         }
         string item = text[..separator].Trim();
         string target = text[(separator + 4)..].Trim();
 
         // A leading whole number is a count, but only when something is left
-        // to be the item name: "/vt give 10 to Bob" gives an item called 10.
+        // to be the item name: "/ub give 10 to Bob" gives an item called 10.
         int count = 0;
         (string head, string rest) = SplitHead(item);
         if (rest.Length > 0
@@ -666,44 +616,52 @@ internal sealed partial class MossTankPanel
             item = rest;
         }
 
-        if (!_profileGive.TryStartByName(item, match, count, target, partialTarget))
-            WriteVtank(_profileGive.Status);
+        StartGive(
+            () => _profileGive.TryStartByName(item, match, count, target, partialTarget),
+            "give");
     }
 
-    private void ClearNextLogin() => WriteVtank(
-        _host.Automation.Login.ClearNextLogin()
-            ? "Next login cleared."
-            : "There was no next login to clear.");
+    /// <summary>
+    /// Clears the next login and says so whether or not one was set, as the
+    /// reference does.
+    /// </summary>
+    private void ClearNextLogin()
+    {
+        _host.Automation.Login.ClearNextLogin();
+        WriteUb("Next login cleared.");
+    }
 
     /// <summary>
     /// The account's characters with both numbers that describe them: the
     /// alphabetical index every selector speaks in, and the slot the account's
     /// own list keeps each character in. They are rarely the same number, so
-    /// printing only one of them would mislead.
+    /// printing only one of them would mislead. The columns are the
+    /// reference's: its widths, its headings, the id in decimal, and the
+    /// character the client is on marked by an exact name match.
     /// </summary>
     private void PrintLoginRoster()
     {
         IReadOnlyList<PluginLoginCharacter> roster =
             LoginRoster.Capture(_host.Automation.Login);
-        WriteVtank($"Listing {roster.Count} logins.");
-        if (roster.Count == 0)
-            return;
-        WriteVtank($"{"Index",-8}{"Name",-32}{"Id",-12}Slot");
+        // One message in the reference: the heading under the tag, the rows
+        // below it without, all of it in one class. The column heading is
+        // printed even when there is nobody to list.
+        var rows = new List<string>(roster.Count + 1)
+        {
+            $"{"Index",-10}{"Name",-30}{"ID",-20}Filter Index",
+        };
         string current = _host.Automation.Character.Name;
         for (int index = 0; index < roster.Count; index++)
         {
             PluginLoginCharacter character = roster[index];
-            string name = character.Name.Equals(
-                current,
-                StringComparison.OrdinalIgnoreCase)
-                    ? $"**{character.Name}**"
-                    : character.Name;
-            if (character.IsPendingDelete)
-                name += " (deleting)";
-            WriteVtank(
-                $"{index,-8}{name,-32}0x{character.ObjectId:X8}  "
-                + character.ActiveIndex.ToString(CultureInfo.InvariantCulture));
+            string name = character.Name.Equals(current, StringComparison.Ordinal)
+                ? $"**{character.Name}**"
+                : character.Name;
+            rows.Add(string.Create(
+                CultureInfo.InvariantCulture,
+                $"{index,-10}{name,-30}{character.ObjectId,-20}{character.ActiveIndex}"));
         }
+        WriteUbMessage($"Listing {roster.Count} logins.", rows);
     }
 
     private void HandleSettingsCommand(string arguments)
@@ -747,20 +705,28 @@ internal sealed partial class MossTankPanel
         WriteVtank($"Loaded settings profile {_profiles.Selected}.");
     }
 
-    private void HandleRouteProfileCommand(string arguments)
+    /// <summary>
+    /// <c>/vt nav [save/load] name</c>, and <c>/vt navaf</c> for the plugin's
+    /// own ".af" form. A name that says ".nav" or ".af" means exactly that
+    /// file, even when the other one sits beside it. A bare name saves as a
+    /// ".nav", and loads the ".nav" first and the ".af" second; under
+    /// <c>navaf</c> it saves and loads the ".af" and nothing else.
+    /// </summary>
+    private void HandleRouteProfileCommand(string arguments, bool af = false)
     {
         (string operation, string name) = SplitHead(arguments);
         operation = operation.ToLowerInvariant();
         if (name.Length == 0 || operation is not ("save" or "load"))
         {
-            WriteVtank("Syntax: /vt nav [save/load] [filename]");
+            WriteVtank($"Syntax: /vt {(af ? "navaf" : "nav")} [save/load] [filename]");
             return;
         }
-        name = StripExtension(name, ".nav", ".af");
+        string bareName = StripExtension(name, ".nav", ".af");
+        string fileName = af ? bareName + ".af" : name;
         if (operation == "save")
         {
             _routeProfiles.Create(
-                name,
+                fileName,
                 copyCurrent: true,
                 _navigationSettings,
                 out string notice);
@@ -768,10 +734,15 @@ internal sealed partial class MossTankPanel
             WriteVtank(notice);
             return;
         }
-        if (!_routeProfiles.Select(name))
+        if (!_routeProfiles.Select(fileName, exactOnly: af))
         {
+            if (af)
+            {
+                WriteVtank($"Navigation profile {fileName} was not found.");
+                return;
+            }
             if (!_routeProfiles.TryImportLegacy(
-                    name,
+                    bareName,
                     _navigationSettings,
                     _host.Automation.Spells,
                     out string importNotice))
@@ -846,6 +817,20 @@ internal sealed partial class MossTankPanel
         WriteVtank(SkipRouteWaypoints(count));
     }
 
+    private void HandlePreviousWaypointCommand(string arguments)
+    {
+        string value = arguments.Trim();
+        int count = 1;
+        if (value.Length != 0
+            && (!int.TryParse(value, NumberStyles.Integer, CultureInfo.InvariantCulture, out count)
+                || count < 1))
+        {
+            WriteVtank("Syntax: /vt prevwp [number of waypoints, default 1]");
+            return;
+        }
+        WriteVtank(StepBackRouteWaypoints(count));
+    }
+
     private void HandleMetaIntervalCommand(string arguments)
     {
         string value = arguments.Trim();
@@ -865,20 +850,29 @@ internal sealed partial class MossTankPanel
             + $"(VTank: {(int)Math.Round(MetaEngine.DecisionIntervalSeconds * 1000d)} ms).");
     }
 
-    private void HandleMetaProfileCommand(string arguments)
+    /// <summary>
+    /// <c>/vt meta [save/load] name</c>, and <c>/vt metaaf</c> for the
+    /// plugin's own ".af" form. A name that says ".met" or ".af" means
+    /// exactly that file, even when the other one sits beside it. A bare name
+    /// saves as a ".met", and loads the ".met" first and the ".af" second;
+    /// under <c>metaaf</c> it saves and loads the ".af" and nothing else.
+    /// </summary>
+    private void HandleMetaProfileCommand(string arguments, bool af = false)
     {
         (string operation, string name) = SplitHead(arguments);
         operation = operation.ToLowerInvariant();
         if (name.Length == 0 || operation is not ("save" or "load"))
         {
-            WriteVtank("Syntax: /vt meta [save/load] [filename]");
+            WriteVtank($"Syntax: /vt {(af ? "metaaf" : "meta")} [save/load] [filename]");
             return;
         }
-        name = StripExtension(name, ".met", ".json", ".af");
+        name = StripExtension(name, ".json");
+        string bareName = StripExtension(name, ".met", ".af");
+        string fileName = af ? bareName + ".af" : name;
         if (operation == "save")
         {
             _metaProfiles.Create(
-                name,
+                fileName,
                 copyCurrent: true,
                 _metaProfile,
                 out string notice);
@@ -886,10 +880,29 @@ internal sealed partial class MossTankPanel
             WriteVtank(notice);
             return;
         }
-        if (!_metaProfiles.Select(name))
+        if (!_metaProfiles.Select(fileName, exactOnly: af))
         {
+            if (af)
+            {
+                WriteVtank($"Meta profile {fileName} was not found.");
+                return;
+            }
+            if (!_metaProfiles.LegacyImportExists(bareName))
+            {
+                // The reference loads a meta that does not exist by creating
+                // it, empty, and switching to it: the old meta stops, the new
+                // one starts in Default, and the pass that asked for it ends.
+                if (!_metaProfiles.Create(fileName, copyCurrent: false, _metaProfile, out string created))
+                {
+                    WriteVtank(created);
+                    return;
+                }
+                LoadMetaProfile();
+                WriteVtank($"Meta profile {_metaProfiles.Selected} did not exist; started it empty.");
+                return;
+            }
             if (!_metaProfiles.TryImportLegacy(
-                name,
+                bareName,
                 out MetaProfile imported,
                 out string importNotice))
             {
@@ -906,7 +919,9 @@ internal sealed partial class MossTankPanel
             return;
         }
         LoadMetaProfile();
-        WriteVtank($"Loaded Meta profile {_metaProfiles.Selected}.");
+        // A file that could not be read has already been announced with why.
+        if (_metaProfiles.LastLoadError is null)
+            WriteVtank($"Loaded Meta profile {_metaProfiles.Selected}.");
     }
 
     private void HandleOptionCommand(string arguments)
@@ -923,19 +938,14 @@ internal sealed partial class MossTankPanel
                 WriteVtank($"Available options: ({VtankOptionCatalog.Names.Length})");
                 for (int index = 0; index < VtankOptionCatalog.Names.Length; index += 4)
                     WriteVtank("   " + string.Join("   ", VtankOptionCatalog.Names.Skip(index).Take(4)));
-                ListUbSettings();
                 return;
             case "toggle":
-                ToggleOption(tail);
+                ToggleVtankOption(tail);
                 return;
             case "get":
                 if (!VtankOptionCatalog.IsKnown(tail))
                 {
-                    // A name the macro's own catalogue does not carry may
-                    // still be one of the UB settings, which are dotted.
-                    if (TryWriteUbSetting(tail))
-                        return;
-                    WriteVtank("Option get: unknown option name.");
+                    WriteVtank("Option get: Invalid option specified.");
                     return;
                 }
                 string canonical = VtankOptionCatalog.Canonical(tail);
@@ -946,9 +956,7 @@ internal sealed partial class MossTankPanel
                 (string name, string rawValue) = SplitHead(tail);
                 if (!VtankOptionCatalog.IsKnown(name))
                 {
-                    if (TrySetUbSetting(name, rawValue))
-                        return;
-                    WriteVtank("Option set: unknown option name.");
+                    WriteVtank("Option set: Invalid option specified.");
                     return;
                 }
                 canonical = VtankOptionCatalog.Canonical(name);
@@ -1043,14 +1051,20 @@ internal sealed partial class MossTankPanel
                 Type = RouteWaypointType.Jump,
                 Position = position,
                 JumpHeadingDegrees = NormalizeHeading(heading),
-                JumpRun = shift,
+                JumpHoldShift = shift,
                 JumpChargeMilliseconds = milliseconds,
                 JumpDirection = direction,
             });
-            SaveRouteProfile();
+            bool saved = SaveRouteProfile();
             RefreshRouteEditor();
             WriteVtank("Added jump to the current route.");
-            if (direction == RouteJumpDirection.Backward)
+            if (!saved)
+            {
+                // The route's file cannot hold what was just added; say so
+                // now rather than let the next save fail unexplained.
+                WriteVtank(_routeNotice);
+            }
+            else if (direction == RouteJumpDirection.Backward)
             {
                 // The interchange route format has codes for forward and the
                 // two strafes and none for backward, so a saved route reads
@@ -1066,9 +1080,9 @@ internal sealed partial class MossTankPanel
     }
 
     /// <summary>
-    /// <c>/vt face &lt;heading&gt;</c>: the jump command's turn on its own.
-    /// It runs the same alignment loop and stops the moment the character is
-    /// pointing the right way.
+    /// <c>/ub face &lt;heading&gt;</c>: the jump command's turn on its own.
+    /// The client turns to the exact heading; the command is done once the
+    /// character is within a degree of it, and failed after five seconds.
     /// </summary>
     private void HandleFaceCommand(string arguments)
     {
@@ -1079,7 +1093,7 @@ internal sealed partial class MossTankPanel
                 out float heading)
             || !float.IsFinite(heading))
         {
-            WriteVtank("Syntax: /vt face [heading]");
+            WriteUbBadSyntax("face");
             return;
         }
         StartCommandJump(
@@ -1087,17 +1101,27 @@ internal sealed partial class MossTankPanel
             shift: false,
             milliseconds: 0,
             RouteJumpDirection.Forward,
-            faceOnly: true);
+            faceOnly: true,
+            turn: CommandJumpTurn.Client);
     }
 
     /// <summary>
-    /// Begins a command jump: turn to the heading, then hold the jump key for
-    /// the charge time while pressing whichever movement key the jump leans
-    /// on.
+    /// Begins a command jump: turn to the heading, then ask the client for a
+    /// jump of exactly the power the charge time comes to, a full charge per
+    /// second, while it holds whichever movement keys the jump leans on.
     /// </summary>
     /// <param name="omitDirection">
     /// True for a jump that presses no movement key at all -- straight up on
     /// the spot, which is what a bare jump verb asks for.
+    /// </param>
+    /// <param name="turn">
+    /// How the character is pointed at the heading first. The reference's
+    /// commands also say nothing in chat while they work, and give up in the
+    /// reference's words.
+    /// </param>
+    /// <param name="keys">
+    /// The movement keys to hold, when the caller names them outright rather
+    /// than one direction; the shift and the jump are added to them.
     /// </param>
     private void StartCommandJump(
         float heading,
@@ -1105,26 +1129,49 @@ internal sealed partial class MossTankPanel
         int milliseconds,
         RouteJumpDirection? direction,
         bool faceOnly = false,
-        bool omitDirection = false)
+        bool omitDirection = false,
+        CommandJumpTurn turn = CommandJumpTurn.HeldKeys,
+        PluginMovementIntent? keys = null)
     {
         PluginNavigationSnapshot snapshot = _host.Automation.Navigation.Snapshot;
         if (!snapshot.IsAvailable || snapshot.IsPortalSpace)
         {
-            WriteVtank(faceOnly
+            string refusal = faceOnly
                 ? "Turning unavailable outside the world."
-                : "Jump unavailable outside the world.");
+                : "Jump unavailable outside the world.";
+            // The macro's own jump answers in its own words; the UtilityBelt
+            // commands answer as the jumper tool's error.
+            if (turn == CommandJumpTurn.HeldKeys)
+                WriteVtank(refusal);
+            else
+                PostUb(UbChat.ToolError(UbChat.Tools.Jumper, refusal));
             return;
         }
         RouteJumpDirection resolved = direction ?? RouteJumpDirection.Forward;
         _commandJumpHeading = NormalizeHeading(heading);
-        _commandJumpIntent = new PluginMovementIntent(
-            Forward: !omitDirection && resolved == RouteJumpDirection.Forward,
-            Backward: !omitDirection && resolved == RouteJumpDirection.Backward,
-            StrafeLeft: !omitDirection && resolved == RouteJumpDirection.StrafeLeft,
-            StrafeRight: !omitDirection && resolved == RouteJumpDirection.StrafeRight,
-            Run: shift,
-            Jump: true);
-        _commandJumpChargeSeconds = Math.Clamp(milliseconds / 1000d, 0.05d, 5d);
+        // A caller that names its keys outright (the flag letters, which
+        // combine) holds exactly those; otherwise the one direction. Shift
+        // is the game's walk key: held, the keys walk; otherwise they run.
+        _commandJumpIntent = keys is { } held
+            ? held with { Run = !shift, Jump = true }
+            : new PluginMovementIntent(
+                Forward: !omitDirection && resolved == RouteJumpDirection.Forward,
+                Backward: !omitDirection && resolved == RouteJumpDirection.Backward,
+                StrafeLeft: !omitDirection && resolved == RouteJumpDirection.StrafeLeft,
+                StrafeRight: !omitDirection && resolved == RouteJumpDirection.StrafeRight,
+                Run: !shift,
+                Jump: true);
+        // Forward with backward, or left with right, is two keys on one
+        // channel, which a client-driven move cannot hold; that jump charges
+        // on the held keys instead and leaves with what the frames add up to.
+        _commandJumpExact =
+            !(_commandJumpIntent.Forward && _commandJumpIntent.Backward)
+            && !(_commandJumpIntent.StrafeLeft && _commandJumpIntent.StrafeRight);
+        _commandJumpPower = JumpPower.FromMilliseconds(milliseconds);
+        _commandJumpMoving = false;
+        _commandJumpChargeSeconds = _commandJumpExact
+            ? JumpPower.ChargeSeconds(milliseconds)
+            : Math.Clamp(milliseconds / 1000d, 0.05d, 5d);
         _commandJumpElapsed = 0d;
         _commandJumpTurnElapsed = 0d;
         _commandJumpReleased = false;
@@ -1133,13 +1180,58 @@ internal sealed partial class MossTankPanel
         _commandJumpSawAirborne = false;
         _commandJumpAttempt = 0;
         _commandJumpSequence = 0L;
+        _commandJumpTurn = turn;
+        _commandJumpTurning = turn == CommandJumpTurn.Client;
+        // The first look comes on the very next tick.
+        _commandJumpTurnSinceCheck = ClientTurnCheckSeconds;
         _commandJumpActive = true;
         HoldNavigationForJump(faceOnly
             ? CommandTurnNavigationHoldSeconds
             : CommandJumpNavigationHoldSeconds);
-        WriteVtank(faceOnly
-            ? $"Turning to heading {_commandJumpHeading:0.#}."
-            : $"Turning to heading {_commandJumpHeading:0.#} for jump.");
+        if (turn == CommandJumpTurn.Client)
+        {
+            // Whatever it answers, the checks that follow ask again, and the
+            // time limit ends a turn that never comes.
+            _host.Automation.Navigation.FaceHeading(_commandJumpHeading);
+            return;
+        }
+        if (turn == CommandJumpTurn.HeldKeys)
+        {
+            WriteVtank(faceOnly
+                ? $"Turning to heading {_commandJumpHeading:0.#}."
+                : $"Turning to heading {_commandJumpHeading:0.#} for jump.");
+        }
+    }
+
+    /// <summary>
+    /// One tick of a client turn. Every tenth of a second it looks at the
+    /// heading: within a degree ends the turn, anything else asks the client
+    /// to turn again. Five seconds without getting there fails the command.
+    /// </summary>
+    private void TickClientTurn(
+        INavigationAutomation navigation,
+        in PluginNavigationSnapshot snapshot,
+        double elapsedSeconds)
+    {
+        double elapsed = Math.Max(0d, elapsedSeconds);
+        _commandJumpTurnElapsed += elapsed;
+        _commandJumpTurnSinceCheck += elapsed;
+        if (_commandJumpTurnSinceCheck >= ClientTurnCheckSeconds)
+        {
+            _commandJumpTurnSinceCheck = 0d;
+            float delta = NavigationController.SignedHeadingDelta(
+                snapshot.Position.HeadingDegrees,
+                _commandJumpHeading);
+            if (Math.Abs(delta) < ClientTurnToleranceDegrees)
+                _commandJumpTurning = false;
+            else
+                navigation.FaceHeading(_commandJumpHeading);
+        }
+        if (_commandJumpTurning && _commandJumpTurnElapsed >= ClientTurnGiveUpSeconds)
+        {
+            _commandJumpTurning = false;
+            FailCommandJump("Turning failed");
+        }
     }
 
     /// <summary>
@@ -1192,8 +1284,10 @@ internal sealed partial class MossTankPanel
         ReleaseNavigationAfterJump();
         if (JumperThinkFail)
             Think(reason);
-        else
+        else if (_commandJumpTurn == CommandJumpTurn.HeldKeys)
             WriteVtank(reason);
+        else
+            WriteUb(reason);
     }
 
     private bool TickCommandJump(double elapsedSeconds)
@@ -1205,7 +1299,7 @@ internal sealed partial class MossTankPanel
         PluginNavigationSnapshot snapshot = navigation.Snapshot;
         if (!snapshot.IsAvailable || snapshot.IsPortalSpace)
         {
-            navigation.ClearMovementIntent();
+            ReleaseCommandJumpKeys(navigation);
             FailCommandJump(_commandJumpFaceOnly
                 ? "Turn canceled because the character left the world."
                 : "Jump canceled because the character left the world.");
@@ -1214,66 +1308,98 @@ internal sealed partial class MossTankPanel
 
         if (!_commandJumpCharging)
         {
-            _commandJumpTurnElapsed += Math.Max(0d, elapsedSeconds);
-            float delta = NavigationController.SignedHeadingDelta(
-                snapshot.Position.HeadingDegrees,
-                _commandJumpHeading);
-            if (Math.Abs(delta) > 4f)
+            if (_commandJumpTurn == CommandJumpTurn.HeldKeys)
             {
-                if (_commandJumpTurnElapsed > 10d
-                    || navigation.SetMovementIntent(new PluginMovementIntent(
-                        TurnLeft: delta < 0f,
-                        TurnRight: delta > 0f,
-                        Run: _commandJumpIntent.Run))
-                        != PluginNavigationCommandStatus.Accepted)
+                _commandJumpTurnElapsed += Math.Max(0d, elapsedSeconds);
+                float delta = NavigationController.SignedHeadingDelta(
+                    snapshot.Position.HeadingDegrees,
+                    _commandJumpHeading);
+                if (Math.Abs(delta) > 4f)
+                {
+                    if (_commandJumpTurnElapsed > 10d
+                        || navigation.SetMovementIntent(new PluginMovementIntent(
+                            TurnLeft: delta < 0f,
+                            TurnRight: delta > 0f,
+                            Run: _commandJumpIntent.Run))
+                            != PluginNavigationCommandStatus.Accepted)
+                    {
+                        navigation.ClearMovementIntent();
+                        FailCommandJump(_commandJumpFaceOnly
+                            ? "Could not turn to the requested heading."
+                            : "Jump command could not align to the requested heading.");
+                        return false;
+                    }
+                    return true;
+                }
+
+                // Facing a heading is this loop and nothing after it.
+                if (_commandJumpFaceOnly)
                 {
                     navigation.ClearMovementIntent();
-                    FailCommandJump(_commandJumpFaceOnly
-                        ? "Could not turn to the requested heading."
-                        : "Jump command could not align to the requested heading.");
+                    _commandJumpActive = false;
+                    ReleaseNavigationAfterJump();
+                    WriteVtank($"Facing heading {_commandJumpHeading:0.#}.");
+                    if (JumperThinkComplete)
+                        Think("Turning Success");
                     return false;
                 }
-                return true;
             }
-
-            // Facing a heading is this loop and nothing after it.
-            if (_commandJumpFaceOnly)
+            else
             {
-                navigation.ClearMovementIntent();
-                _commandJumpActive = false;
-                ReleaseNavigationAfterJump();
-                WriteVtank($"Facing heading {_commandJumpHeading:0.#}.");
-                if (JumperThinkComplete)
-                    Think("Turning Success");
-                return false;
+                if (_commandJumpTurning)
+                {
+                    TickClientTurn(navigation, snapshot, elapsedSeconds);
+                    if (_commandJumpTurning || !_commandJumpActive)
+                        return _commandJumpActive;
+                }
+
+                // Facing a heading is the turn and nothing after it. The
+                // client may still be finishing the last fraction of a
+                // degree, so its turn is left to land rather than stopped.
+                if (_commandJumpFaceOnly)
+                {
+                    _commandJumpActive = false;
+                    ReleaseNavigationAfterJump();
+                    if (JumperThinkComplete)
+                        Think("Turning Success");
+                    return false;
+                }
             }
 
-            _commandJumpCharging = navigation.SetMovementIntent(_commandJumpIntent)
-                == PluginNavigationCommandStatus.Accepted;
+            // The client counts the jumps it has begun. Whatever that count
+            // stands at before this charge is what the attempt has to move
+            // past.
+            _commandJumpSequence = navigation.MoveReport.JumpSequence;
+            _commandJumpCharging = _commandJumpExact
+                ? BeginExactCommandJump(navigation)
+                : navigation.SetMovementIntent(_commandJumpIntent)
+                    == PluginNavigationCommandStatus.Accepted;
             if (!_commandJumpCharging)
             {
-                navigation.ClearMovementIntent();
+                ReleaseCommandJumpKeys(navigation);
                 FailCommandJump("Jump command was refused by the host.");
                 return false;
             }
             _commandJumpElapsed = 0d;
             _commandJumpReleased = false;
             _commandJumpSawAirborne = false;
-            // The client counts the jumps it has begun. Whatever that count
-            // stands at now is what this attempt has to move past.
-            _commandJumpSequence = navigation.MoveReport.JumpSequence;
             _commandJumpAttempt++;
-            WriteVtank(_commandJumpAttempt == 1
-                ? $"Jump charging at heading {_commandJumpHeading:0.#}."
-                : $"Jump charging at heading {_commandJumpHeading:0.#} "
-                    + $"(attempt {_commandJumpAttempt}).");
+            if (_commandJumpTurn == CommandJumpTurn.HeldKeys)
+            {
+                WriteVtank(_commandJumpAttempt == 1
+                    ? $"Jump charging at heading {_commandJumpHeading:0.#}."
+                    : $"Jump charging at heading {_commandJumpHeading:0.#} "
+                        + $"(attempt {_commandJumpAttempt}).");
+            }
         }
 
         _commandJumpElapsed += Math.Max(0d, elapsedSeconds);
         if (!_commandJumpReleased && _commandJumpElapsed >= _commandJumpChargeSeconds)
         {
             _commandJumpReleased = true;
-            navigation.SetMovementIntent(_commandJumpIntent with { Jump = false });
+            // An exact jump is let go by the client itself, at its power.
+            if (!_commandJumpExact)
+                navigation.SetMovementIntent(_commandJumpIntent with { Jump = false });
         }
         if (_commandJumpElapsed
             < _commandJumpChargeSeconds + CommandJumpSettleSeconds)
@@ -1288,7 +1414,7 @@ internal sealed partial class MossTankPanel
         if (_commandJumpSawAirborne
             || navigation.MoveReport.JumpSequence != _commandJumpSequence)
         {
-            navigation.ClearMovementIntent();
+            ReleaseCommandJumpKeys(navigation);
             _commandJumpActive = false;
             _commandJumpCharging = false;
             ReleaseNavigationAfterJump();
@@ -1307,18 +1433,69 @@ internal sealed partial class MossTankPanel
         // attempt ceiling, and then let the character go.
         if (_commandJumpAttempt >= Math.Max(1, _navigationSettings.JumpAttempts))
         {
-            navigation.ClearMovementIntent();
+            ReleaseCommandJumpKeys(navigation);
             _commandJumpCharging = false;
-            FailCommandJump(
-                $"Jump gave up after {_commandJumpAttempt} attempt(s) with no "
-                + "jump reported.");
+            // The reference's commands give up in the reference's words,
+            // which is the line a macro waiting on the jump listens for.
+            FailCommandJump(_commandJumpTurn == CommandJumpTurn.HeldKeys
+                ? $"Jump gave up after {_commandJumpAttempt} attempt(s) with no "
+                    + "jump reported."
+                : "You have failed to jump too many times.");
             return false;
         }
+        // The keys an exact charge held are let go before the next alignment,
+        // which a held turn could not make under them.
+        if (_commandJumpMoving)
+            ReleaseCommandJumpKeys(navigation);
         _commandJumpCharging = false;
         _commandJumpTurnElapsed = 0d;
         // The hold was taken against one charge; the next one takes its own.
         HoldNavigationForJump(CommandJumpNavigationHoldSeconds);
         return true;
+    }
+
+    /// <summary>
+    /// Asks the client for the jump at its exact power, holding the jump's
+    /// movement keys as client-driven moves at the jump's pace for the charge.
+    /// Any held keys the turn left down are let go first. False, with nothing
+    /// left held, when the client refuses any part of it.
+    /// </summary>
+    private bool BeginExactCommandJump(INavigationAutomation navigation)
+    {
+        if (_commandJumpTurn == CommandJumpTurn.HeldKeys)
+            navigation.ClearMovementIntent();
+        PluginMovePace pace = _commandJumpIntent.Run ? PluginMovePace.Run : PluginMovePace.Walk;
+        _commandJumpMoving = true;
+        bool accepted = true;
+        if (_commandJumpIntent.Forward)
+            accepted &= navigation.Move(PluginMoveDirection.Forward, pace, 0f) == PluginNavigationCommandStatus.Accepted;
+        if (_commandJumpIntent.Backward)
+            accepted &= navigation.Move(PluginMoveDirection.Backward, pace, 0f) == PluginNavigationCommandStatus.Accepted;
+        if (_commandJumpIntent.StrafeLeft)
+            accepted &= navigation.Move(PluginMoveDirection.StrafeLeft, pace, 0f) == PluginNavigationCommandStatus.Accepted;
+        if (_commandJumpIntent.StrafeRight)
+            accepted &= navigation.Move(PluginMoveDirection.StrafeRight, pace, 0f) == PluginNavigationCommandStatus.Accepted;
+        return accepted
+            && navigation.Jump(_commandJumpPower) == PluginNavigationCommandStatus.Accepted;
+    }
+
+    /// <summary>
+    /// Lets go of the keys a command jump holds: the channels an exact
+    /// jump's moves are on, and nothing else the client is moving; or the
+    /// held keys, for a jump or turn that charges on them.
+    /// </summary>
+    private void ReleaseCommandJumpKeys(INavigationAutomation navigation)
+    {
+        if (!_commandJumpMoving)
+        {
+            navigation.ClearMovementIntent();
+            return;
+        }
+        _commandJumpMoving = false;
+        if (_commandJumpIntent.Forward || _commandJumpIntent.Backward)
+            navigation.StopMoving(PluginMoveChannel.Travel);
+        if (_commandJumpIntent.StrafeLeft || _commandJumpIntent.StrafeRight)
+            navigation.StopMoving(PluginMoveChannel.Strafe);
     }
 
     private void AddCommandRoutePoint(string coordinates, bool checkpoint)
@@ -1399,6 +1576,28 @@ internal sealed partial class MossTankPanel
             : $"TestItem: {item.Name} => NoLoot.");
     }
 
+    /// <summary>
+    /// <c>/ub propertydump</c>: the reference's errors for a missing
+    /// selection, then the dump as one message under the tag -- its heading
+    /// tagged, the rows below it not.
+    /// </summary>
+    private void DumpSelectedPropertiesForUb()
+    {
+        if (!TryGetSelectedObject("propertydump", out PluginWorldObject item))
+            return;
+        WriteUb($"Property Dump for {item.Name}");
+        WriteVtank($"Object 0x{item.ObjectId:X8}: {item.Name}, class={(int)item.ObjectClass}, WCID={item.WeenieClassId}");
+        if (!_host.Automation.Objects.TryCaptureProperties(item.ObjectId, out PluginItemProperties properties))
+            return;
+        DumpPropertyTable("Int", properties.Ints);
+        DumpPropertyTable("Int64", properties.Int64s);
+        DumpPropertyTable("Bool", properties.Bools);
+        DumpPropertyTable("Float", properties.Floats);
+        DumpPropertyTable("String", properties.Strings);
+        DumpPropertyTable("DataId", properties.DataIds);
+        DumpPropertyTable("InstanceId", properties.InstanceIds);
+    }
+
     private void DumpSelectedProperties()
     {
         uint selected = _host.Selection.SelectedObjectId ?? 0u;
@@ -1455,23 +1654,34 @@ internal sealed partial class MossTankPanel
         WriteVtank("---------------------------------");
     }
 
+    /// <summary>
+    /// The reference's pet test: whether there is room ahead for a pet to
+    /// appear, the summon rule's last question, and how long asking took. A
+    /// client that cannot tell answers True, as the rule counts it. The
+    /// essence and monster the rule would choose follow on their own line.
+    /// </summary>
     private void TestPet()
     {
-        IReadOnlyList<PluginCombatTarget> targets = _host.Automation.Combat
-            .CaptureHostileTargets((float)(_combatSettings.PetRangeMode == PetRangeMode.Custom
-                ? _combatSettings.PetCustomRange
-                : _combatSettings.MaximumRange));
-        PetAutomationChoice choice = PetAutomation.Select(
-            _host.Automation.Items.CaptureOwnedItems(),
-            targets,
-            _host.Automation.Character,
+        IAutomationSurface automation = _host.Automation;
+        long started = System.Diagnostics.Stopwatch.GetTimestamp();
+        bool room = automation.Navigation.CheckRoomAhead(SummonPetRule.PetRoomAheadMeters).Status
+            != PluginRoomAheadStatus.Blocked;
+        double milliseconds =
+            System.Diagnostics.Stopwatch.GetElapsedTime(started).TotalMilliseconds;
+        WriteVtank(string.Create(
+            CultureInfo.InvariantCulture,
+            $"Pet can spawn: {room}, test time: {milliseconds}ms"));
+        PetSummonChoice choice = PetAutomation.SelectPet(
+            automation.Items,
+            automation.Items.CaptureOwnedItems(),
+            automation.Combat.CaptureHostileTargets(PetAutomation.PetRange(_combatSettings)),
+            automation.Character,
             _combatSettings,
-            _host.Automation.Items.ActiveOwnedPetCount,
-            allowRefill: true,
-            allowSummon: true);
-        WriteVtank(choice.Kind == PetAutomationActionKind.None
-            ? "Pet can spawn: False"
-            : $"Pet can spawn: True, action: {choice.Kind}, device: {choice.Device.Name}");
+            _combat.AttackElementFor,
+            name => _combat.GameInfo.DamagePreferences(name));
+        WriteVtank(choice.IsNone
+            ? "Pet choice: none"
+            : $"Pet choice: {choice.Device.Name}, for: {choice.Target.Name}");
     }
 
     private void DumpMetaVariables()
@@ -1641,11 +1851,16 @@ internal sealed partial class MossTankPanel
             WriteVtank($"{group.Key}\t{group.First().Name}");
     }
 
-    private void DumpSkills()
+    /// <summary>
+    /// The character's skills. On <c>/ub</c> every line is a message of its
+    /// own under the tag, as the reference prints them.
+    /// </summary>
+    private void DumpSkills(bool ub = false)
     {
-        WriteVtank($"Character skills ({_host.Automation.Character.Skills.Count}):");
+        Action<string> write = ub ? WriteUb : WriteVtank;
+        write($"Character skills ({_host.Automation.Character.Skills.Count}):");
         foreach (PluginSkillInfo skill in _host.Automation.Character.Skills.OrderBy(static value => value.SkillId))
-            WriteVtank($"{skill.SkillId}\t{skill.Name}\t{skill.Base}\t{skill.Current}\t{skill.Training}");
+            write($"{skill.SkillId}\t{skill.Name}\t{skill.Base}\t{skill.Current}\t{skill.Training}");
     }
 
     private void ObserveCommandPortalState()
@@ -1661,8 +1876,11 @@ internal sealed partial class MossTankPanel
     private void ResetCommandSession()
     {
         if (_commandJumpActive || _commandJumpCharging)
-            _host.Automation.Navigation.ClearMovementIntent();
+            ReleaseCommandJumpKeys(_host.Automation.Navigation);
         _commandJumpActive = false;
+        _commandJumpExact = false;
+        _commandJumpPower = 0f;
+        _commandJumpMoving = false;
         _commandJumpReleased = false;
         _commandJumpCharging = false;
         _commandJumpElapsed = 0d;
@@ -1674,6 +1892,9 @@ internal sealed partial class MossTankPanel
         _commandJumpSawAirborne = false;
         _commandJumpAttempt = 0;
         _commandJumpSequence = 0L;
+        _commandJumpTurn = CommandJumpTurn.HeldKeys;
+        _commandJumpTurning = false;
+        _commandJumpTurnSinceCheck = 0d;
         ReleaseNavigationAfterJump();
         _commandPortalState = _host.Automation.Navigation.Snapshot.IsPortalSpace;
         _commandPortalCount = 0;
@@ -1686,6 +1907,108 @@ internal sealed partial class MossTankPanel
 
     private void WriteVtank(string text) =>
         _host.Automation.Chat.PostSystemMessage(text);
+
+    /// <summary>A finished UtilityBelt line, in its kind's text class.</summary>
+    private void PostUb(string line) => UbChat.Post(_host.Automation.Chat, line);
+
+    /// <summary>
+    /// A line from a tool that writes both kinds: one under the UtilityBelt
+    /// tag goes out in its kind's text class, anything else as the macro's
+    /// own plain line.
+    /// </summary>
+    private void WriteTranscriptLine(string line)
+    {
+        if (line.StartsWith(UbChat.Tag, StringComparison.Ordinal))
+            PostUb(line);
+        else
+            WriteVtank(line);
+    }
+
+    /// <summary>Whether the UtilityBelt side prints its debug lines.</summary>
+    private bool UbDebug => _ubCatalog.Require(UbChat.DebugSetting).Get().Boolean;
+
+    /// <summary>
+    /// A kind of UB line's display, as its two settings say; the shipped one
+    /// until the settings are in place.
+    /// </summary>
+    private UbChat.Display UbMessageDisplay(UbChat.Kind kind)
+    {
+        if (_ubCatalog is null)
+            return UbChat.DefaultDisplay(kind);
+        string display = UbChat.DisplaySetting(kind);
+        return new UbChat.Display(
+            _ubCatalog.Require(display + ".Enabled").Get().Boolean,
+            _ubCatalog.Require(display + ".Color").Get().AsInt32());
+    }
+
+    /// <summary>A UtilityBelt debug line, printed only while debug is on.</summary>
+    private void WriteUbDebug(string text) =>
+        UbChat.PostDebug(_host.Automation.Chat, UbDebug, text);
+
+    /// <summary>A tool's UtilityBelt debug line, printed only while debug is on.</summary>
+    private void WriteUbToolDebug(string tool, string text) =>
+        UbChat.PostToolDebug(_host.Automation.Chat, UbDebug, tool, text);
+
+    /// <summary>A plain UtilityBelt line: "[UB] " and the text.</summary>
+    private void WriteUb(string text) => PostUb(UbChat.Line(text));
+
+    /// <summary>A UtilityBelt error: "[UB] Error: " and the text.</summary>
+    private void WriteUbError(string text) => PostUb(UbChat.Error(text));
+
+    /// <summary>
+    /// A plain UtilityBelt message of several lines: the tag on the heading
+    /// only, every line in the generic class and behind its switch.
+    /// </summary>
+    private void WriteUbMessage(string heading, IEnumerable<string> continuation) =>
+        UbChat.PostMessage(_host.Automation.Chat, UbChat.Kind.Generic, heading, continuation);
+
+    /// <summary>
+    /// A UtilityBelt error of several lines: the error lead on the heading
+    /// only, every line in the error class and behind its switch.
+    /// </summary>
+    private void WriteUbErrorMessage(string heading, IEnumerable<string> continuation) =>
+        UbChat.PostMessage(_host.Automation.Chat, UbChat.Kind.Error, heading, continuation);
+
+    /// <summary>
+    /// What <c>/ub</c> answers when a command's arguments do not parse: the
+    /// error, then the command's full help.
+    /// </summary>
+    private void WriteUbBadSyntax(string verb)
+    {
+        WriteUbError("Bad command syntax");
+        WriteUbCommandHelp(UbCommandHelp.Require(verb));
+    }
+
+    /// <summary>
+    /// Prints what a tool's command answered, line by line; a null answer is
+    /// a line the tool could not parse, which gets the bad-syntax answer.
+    /// </summary>
+    private void PostUbReply(string verb, IReadOnlyList<string>? reply)
+    {
+        if (reply is null)
+        {
+            WriteUbBadSyntax(verb);
+            return;
+        }
+        foreach (string line in reply)
+            PostUb(line);
+    }
+
+    /// <summary>
+    /// The reference's full help for one command, as one message: the usage,
+    /// the description, then "Examples:" and each example's command and what
+    /// it does, indented by one and two spaces.
+    /// </summary>
+    private void WriteUbCommandHelp(in UbCommandUsage usage)
+    {
+        var lines = new List<string> { "Description: " + usage.Summary, "Examples:" };
+        foreach (UbCommandExample example in usage.Examples ?? [])
+        {
+            lines.Add(" " + example.Command);
+            lines.Add("  " + example.Description);
+        }
+        WriteUbMessage("Usage: " + usage.Usage, lines);
+    }
 
     private void WriteChunks(IEnumerable<string> values)
     {
@@ -1806,45 +2129,45 @@ internal sealed partial class MossTankPanel
         _ => "System.Object",
     };
 
+    /// <summary>
+    /// The coordinate pair a route-point command takes: a north/south number
+    /// and letter, then an east/west number and letter, with spaces and at
+    /// most one comma between them. It is searched for, not matched whole, so
+    /// text around the pair -- the height a coordinate string ends with, a
+    /// trailing comma -- is ignored, as the reference ignores it.
+    /// </summary>
+    [GeneratedRegex(
+        @"(?<ns>[0-9]{1,3}(\.[0-9]*)?)(?<nschr>[nNsS])[ ]*,?[ ]*(?<ew>[0-9]{1,3}(\.[0-9]*)?)(?<ewchr>[eEwW])",
+        RegexOptions.CultureInvariant)]
+    private static partial Regex RoutePointCoordinates();
+
+    /// <summary>
+    /// Reads the point a route-point command names. The point is placed at
+    /// ground height whatever the text says about height; only the pair
+    /// counts.
+    /// </summary>
     private bool TryParseCoordinates(string source, out PluginNavigationPosition position)
     {
         position = default;
-        string[] parts = source.Split(',', StringSplitOptions.TrimEntries | StringSplitOptions.RemoveEmptyEntries);
-        if (parts.Length < 2
-            || !TryParseCompass(parts[0], northSouth: true, out double northSouth)
-            || !TryParseCompass(parts[1], northSouth: false, out double eastWest))
-        {
+        Match match = RoutePointCoordinates().Match(source);
+        if (!match.Success)
             return false;
-        }
-        double elevation = 0d;
-        if (parts.Length >= 3
-            && !double.TryParse(parts[2], NumberStyles.Float, CultureInfo.InvariantCulture, out elevation))
-        {
-            return false;
-        }
+        double northSouth = double.Parse(
+            match.Groups["ns"].Value, NumberStyles.Float, CultureInfo.InvariantCulture);
+        double eastWest = double.Parse(
+            match.Groups["ew"].Value, NumberStyles.Float, CultureInfo.InvariantCulture);
+        if (match.Groups["nschr"].Value is "s" or "S")
+            northSouth = -northSouth;
+        if (match.Groups["ewchr"].Value is "w" or "W")
+            eastWest = -eastWest;
         PluginNavigationPosition current = _host.Automation.Navigation.Snapshot.Position;
         position = new PluginNavigationPosition(
             current.CellId,
             eastWest,
             northSouth,
-            elevation,
+            0d,
             current.HeadingDegrees,
             IsOutdoor: true);
-        return true;
-    }
-
-    private static bool TryParseCompass(string source, bool northSouth, out double value)
-    {
-        value = 0d;
-        string trimmed = source.Trim();
-        if (trimmed.Length < 2)
-            return false;
-        char direction = char.ToUpperInvariant(trimmed[^1]);
-        if (northSouth ? direction is not ('N' or 'S') : direction is not ('E' or 'W'))
-            return false;
-        if (!double.TryParse(trimmed[..^1], NumberStyles.Float, CultureInfo.InvariantCulture, out double magnitude))
-            return false;
-        value = direction is 'S' or 'W' ? -Math.Abs(magnitude) : Math.Abs(magnitude);
         return true;
     }
 

@@ -1,11 +1,11 @@
 namespace AcDream.Plugins.MossTank.Expressions;
 
 /// <summary>
-/// The two profile-owned facts a handful of built-in expression functions need
-/// but the plugin host cannot supply: how much skill headroom over a spell's
-/// difficulty the profile insists on, and whether the combat controller still
-/// considers a monster worth looking at. Both are optional; an unset hook
-/// leaves the function at its neutral answer.
+/// The profile-owned facts and macro services a handful of built-in
+/// expression functions need but the plugin host cannot supply: how much
+/// skill headroom over a spell's difficulty the profile insists on, the views
+/// metas created, and the macro's own spell caster. All are optional; an
+/// unset hook leaves the function at its neutral answer.
 /// </summary>
 internal sealed class ExpressionHostPolicy
 {
@@ -16,21 +16,27 @@ internal sealed class ExpressionHostPolicy
     public Func<bool, int>? SkillMargin { get; set; }
 
     /// <summary>
-    /// True only when the combat pass is TRACKING this monster and has not
-    /// blacklisted it — both halves, not just the blacklist. A monster the
-    /// pass has never seen is not eligible, so a hook that answers the
-    /// blacklist alone reproduces half the rule and keeps untracked monsters
-    /// in the nearest-monster answer.
+    /// The views metas created. The ui* functions ask them first and fall
+    /// back to the host's own windows for any other name.
     /// </summary>
-    public Func<uint, bool>? MonsterEligibility { get; set; }
-
-    public int Margin(bool hunting) => SkillMargin?.Invoke(hunting) ?? 0;
+    public IMetaViewControls? MetaViews { get; set; }
 
     /// <summary>
-    /// With no hook set there is no combat pass to ask, so every monster
-    /// stays eligible. That default is a deliberate widening of the rule
-    /// above, not the rule itself.
+    /// The macro's own spell caster: the spell id and, for the on-target form,
+    /// the target. The reference sends an expression's cast through the same
+    /// cast tracker its buffs and attacks use, and that tracker raises the
+    /// macro's busy count, so no rule runs while the cast is in flight. A cast
+    /// sent past it leaves the peace-when-idle rule free to change stance in
+    /// the middle of the windup, which the server answers with a fizzle.
+    /// Unset, the cast goes straight to the host.
     /// </summary>
-    public bool IsEligibleMonster(uint objectId) =>
-        MonsterEligibility?.Invoke(objectId) ?? true;
+    public Action<uint, uint?>? BeginCast { get; set; }
+
+    /// <summary>
+    /// Whether the UtilityBelt debug setting is on; with it on an error is
+    /// reported as the whole exception rather than its message. Unset, off.
+    /// </summary>
+    public Func<bool>? Debug { get; set; }
+
+    public int Margin(bool hunting) => SkillMargin?.Invoke(hunting) ?? 0;
 }

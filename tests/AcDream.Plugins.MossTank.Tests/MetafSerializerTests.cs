@@ -397,6 +397,146 @@ public sealed class MetafSerializerTests
         Assert.Equal("Next", rule.Action.Children[1].Text);
     }
 
+    /// <summary>
+    /// A metaf string doubles every brace inside it, because a single brace
+    /// ends the string. Reading halves them, writing doubles them again, and
+    /// a lone brace inside a string is refused as metaf refuses it. Mutation:
+    /// reading without halving keeps "{{0}}" (an index expression that then
+    /// fails), writing without doubling produces a file this reader refuses.
+    /// </summary>
+    [Fact]
+    public void BracesInsideStringsAreDoubledInTheFileAndSingleInTheProfile()
+    {
+        string af = string.Join("\r\n",
+        [
+            "STATE: {Default}",
+            "\tIF:\tExpr {$list{{1}}==2}",
+            "\t\tDO:\tDoAll",
+            "\t\t\t\tDoExpr {$list=listcreate[1,2];$first=$list{{0}}}",
+            "\t\t\t\tEmbedNav nav0 {route}",
+            "\tIF:\tChatCapture {^(?<n>\\d{{2,3}}) left$} {0}",
+            "\t\tDO:\tChat {/t Horan, {{}}}",
+            "",
+            "NAV: nav0 once ~~ {",
+            "\tcht 1 2 3 {say {{hi}}}",
+            "~~ }",
+        ]) + "\r\n";
+
+        Assert.True(
+            MetafSerializer.TryLoadMeta(af, NoOpSpellCatalog.Instance, out MetaProfile profile, out string error),
+            error);
+        Assert.Equal("$list{1}==2", profile.Rules[0].Condition.Text);
+        Assert.Equal(
+            "$list=listcreate[1,2];$first=$list{0}",
+            profile.Rules[0].Action.Children[0].Text);
+        Assert.Equal("^(?<n>\\d{2,3}) left$", profile.Rules[1].Condition.Text);
+        Assert.Equal("/t Horan, {}", profile.Rules[1].Action.Text);
+        RouteWaypoint chat = Assert.Single(
+            profile.Rules[0].Action.Children[1].EmbeddedRoute!.Waypoints);
+        Assert.Equal("say {hi}", chat.Text);
+
+        string rewritten = MetafSerializer.SaveMeta(profile);
+        Assert.Contains("Expr {$list{{1}}==2}", rewritten, StringComparison.Ordinal);
+        Assert.Contains("Chat {/t Horan, {{}}}", rewritten, StringComparison.Ordinal);
+        Assert.Contains("cht 1 2 3 {say {{hi}}}", rewritten, StringComparison.Ordinal);
+        Assert.True(
+            MetafSerializer.TryLoadMeta(rewritten, NoOpSpellCatalog.Instance, out MetaProfile again, out error),
+            error);
+        Assert.Equal(profile.Rules[0].Condition.Text, again.Rules[0].Condition.Text);
+        Assert.Equal(
+            profile.Rules[0].Action.Children[0].Text,
+            again.Rules[0].Action.Children[0].Text);
+        Assert.Equal(profile.Rules[1].Condition.Text, again.Rules[1].Condition.Text);
+        Assert.Equal(
+            "say {hi}",
+            Assert.Single(again.Rules[0].Action.Children[1].EmbeddedRoute!.Waypoints).Text);
+    }
+
+    /// <summary>
+    /// A 'Not' shares its line with the operation it negates and adds no
+    /// depth, so the operands of a negated All or Any follow on the lines
+    /// below, one tab deeper than the All or Any, as metaf writes them.
+    /// Mutation: writing only the "Not All" line drops every operand, and
+    /// the file reads back as an empty All.
+    /// </summary>
+    [Fact]
+    public void ANegatedAllOrAnyKeepsItsOperandsThroughSaveAndLoad()
+    {
+        MetaCondition Expr(string text) => new() { Kind = MetaConditionKind.Expression, Text = text };
+        MetaCondition Not(MetaCondition operand) => new() { Kind = MetaConditionKind.Not, Children = [operand] };
+        var profile = new MetaProfile
+        {
+            Rules =
+            [
+                new MetaRule
+                {
+                    Condition = Not(new MetaCondition
+                    {
+                        Kind = MetaConditionKind.Any,
+                        Children = [Expr("a==1"), Expr("b==2"), Expr("c==3")],
+                    }),
+                    Action = new MetaAction { Kind = MetaActionKind.ChatCommand, Text = "top" },
+                },
+                new MetaRule
+                {
+                    Condition = new MetaCondition
+                    {
+                        Kind = MetaConditionKind.All,
+                        Children =
+                        [
+                            Expr("x==1"),
+                            Not(new MetaCondition
+                            {
+                                Kind = MetaConditionKind.All,
+                                Children = [Expr("a"), Not(new MetaCondition
+                                {
+                                    Kind = MetaConditionKind.Any,
+                                    Children = [Expr("b"), Expr("c")],
+                                })],
+                            }),
+                            Expr("y==2"),
+                        ],
+                    },
+                    Action = new MetaAction { Kind = MetaActionKind.ChatCommand, Text = "nested" },
+                },
+            ],
+        };
+
+        string af = MetafSerializer.SaveMeta(profile);
+        Assert.Contains("\tIF:\tNot Any\r\n\t\t\tExpr {a==1}\r\n", af, StringComparison.Ordinal);
+        Assert.True(
+            MetafSerializer.TryLoadMeta(af, NoOpSpellCatalog.Instance, out MetaProfile again, out string error),
+            error);
+
+        Assert.Equal(Shape(profile.Rules[0].Condition), Shape(again.Rules[0].Condition));
+        Assert.Equal(Shape(profile.Rules[1].Condition), Shape(again.Rules[1].Condition));
+        Assert.Equal(
+            "All(Expr x==1,Not(All(Expr a,Not(Any(Expr b,Expr c)))),Expr y==2)",
+            Shape(again.Rules[1].Condition));
+    }
+
+    private static string Shape(MetaCondition condition) => condition.Kind switch
+    {
+        MetaConditionKind.Expression => "Expr " + condition.Text,
+        _ => $"{condition.Kind}({string.Join(",", condition.Children.Select(Shape))})",
+    };
+
+    [Theory]
+    [InlineData("\t\tDO:\tChat {a}b}")]
+    [InlineData("\t\tDO:\tChat {a{b}")]
+    public void ALoneBraceInsideAStringIsRefused(string actionLine)
+    {
+        string af = string.Join("\r\n",
+        [
+            "STATE: {Default}",
+            "\tIF:\tAlways",
+            actionLine,
+        ]) + "\r\n";
+
+        Assert.False(MetafSerializer.TryLoadMeta(
+            af, NoOpSpellCatalog.Instance, out _, out _));
+    }
+
     [Fact]
     public void MobsInDistPriorityRoundTripsAllThreeNumbersDistinctly()
     {
@@ -486,7 +626,7 @@ public sealed class MetafSerializerTests
         RouteWaypoint waypoint = Assert.Single(target.Waypoints);
         Assert.Equal(RouteWaypointType.Jump, waypoint.Type);
         Assert.Equal(5000, waypoint.JumpChargeMilliseconds);
-        Assert.True(waypoint.JumpRun);
+        Assert.True(waypoint.JumpHoldShift);
         Assert.Equal(90f, waypoint.JumpHeadingDegrees);
     }
 
@@ -546,7 +686,7 @@ public sealed class MetafSerializerTests
         Assert.True(MetafSerializer.TryLoadNav(af, target, NoOpSpellCatalog.Instance, out string error), error);
         RouteWaypoint waypoint = Assert.Single(target.Waypoints);
         Assert.Equal(500, waypoint.JumpChargeMilliseconds);
-        Assert.False(waypoint.JumpRun);
+        Assert.False(waypoint.JumpHoldShift);
     }
 
     [Fact]
@@ -557,7 +697,7 @@ public sealed class MetafSerializerTests
         {
             Type = RouteWaypointType.Jump,
             JumpHeadingDegrees = 90f,
-            JumpRun = true,
+            JumpHoldShift = true,
             JumpChargeMilliseconds = 5000,
         });
 
@@ -685,7 +825,7 @@ public sealed class MetafSerializerTests
             Assert.Equal(a.Text, b.Text);
             Assert.Equal(a.DurationMilliseconds, b.DurationMilliseconds);
             Assert.Equal(a.JumpHeadingDegrees, b.JumpHeadingDegrees, 3);
-            Assert.Equal(a.JumpRun, b.JumpRun);
+            Assert.Equal(a.JumpHoldShift, b.JumpHoldShift);
             Assert.Equal(a.JumpChargeMilliseconds, b.JumpChargeMilliseconds);
         }
     }

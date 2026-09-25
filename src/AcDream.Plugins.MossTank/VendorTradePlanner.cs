@@ -1,3 +1,4 @@
+using System.Globalization;
 using AcDream.Plugin.Abstractions;
 
 namespace AcDream.Plugins.MossTank;
@@ -223,9 +224,13 @@ internal static class VendorTradePlanner
             long price = item.UnitPrice;
             if (price <= 0L)
             {
+                // The reference's words: the run prints them after its
+                // "AutoVendor Fatal - " heading.
                 return new VendorTradePlan(
                     [], 0L, [], 0L, null,
-                    $"No vendor price found for {item.Name}; nothing bought.");
+                    string.Create(
+                        CultureInfo.InvariantCulture,
+                        $"No vendor price found while adding {candidate.Wanted:n0}x {item.Name}[0x{item.TemplateObjectId:X8}] Value: {(double)price:n}"));
             }
             int maxStack = Math.Max(1, item.MaxStackSize);
             bool note = item.ObjectClass == PluginObjectClass.TradeNote;
@@ -281,7 +286,7 @@ internal static class VendorTradePlanner
                 {
                     return new VendorTradePlan(
                         [], 0L, [], 0L, null,
-                        $"No inventory room to sell {item.Name}.");
+                        $"No inventory room to sell {item.Name}");
                 }
                 PluginInventoryItem lone = owned.FirstOrDefault(other =>
                     other.ObjectClass == PluginObjectClass.TradeNote
@@ -315,7 +320,7 @@ internal static class VendorTradePlanner
                 }
                 return new VendorTradePlan(
                     [], 0L, [], 0L, null,
-                    $"No inventory room to sell {item.Name}.");
+                    $"No inventory room to sell {item.Name}");
             }
 
             sellLines.Add(new VendorSellLine(item.ObjectId, item.Name, stack, value * stack));

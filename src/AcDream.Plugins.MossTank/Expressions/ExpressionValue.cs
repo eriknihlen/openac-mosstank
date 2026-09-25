@@ -21,10 +21,24 @@ internal readonly record struct ExpressionCoordinates(
     double Elevation = 0d)
 {
     /// <summary>
-    /// The compass form a profile reads and writes: each half rounded to one
-    /// decimal, trailing ".0" dropped, north/south first.
+    /// The form an expression reads and writes: north/south then east/west,
+    /// each with two decimals, then the height reading with two decimals and
+    /// a Z ("36.50S, 28.90E, 0.24Z"), in the same digits for every culture.
     /// </summary>
     public override string ToString()
+    {
+        string ns = NorthSouth >= 0d ? "N" : "S";
+        string ew = EastWest >= 0d ? "E" : "W";
+        return Math.Abs(NorthSouth).ToString("F2", CultureInfo.InvariantCulture) + ns
+            + ", " + Math.Abs(EastWest).ToString("F2", CultureInfo.InvariantCulture) + ew
+            + ", " + Elevation.ToString("F2", CultureInfo.InvariantCulture) + "Z";
+    }
+
+    /// <summary>
+    /// The short compass form the position report prints: each half rounded
+    /// to one decimal, trailing ".0" dropped, no height.
+    /// </summary>
+    public string ToCompassText()
     {
         string ns = NorthSouth < 0d ? "S" : "N";
         string ew = EastWest < 0d ? "W" : "E";
@@ -33,6 +47,20 @@ internal readonly record struct ExpressionCoordinates(
 
     private static string Round(double value) =>
         Math.Round(Math.Abs(value), 1).ToString(CultureInfo.InvariantCulture);
+}
+
+/// <summary>
+/// Counts every in-place change of any list or dictionary, so a saver can
+/// tell cheaply whether anything it holds may have changed since it last
+/// saved without comparing the values themselves.
+/// </summary>
+internal static class ExpressionCollectionChanges
+{
+    private static long _count;
+
+    public static long Count => Interlocked.Read(ref _count);
+
+    public static void Record() => Interlocked.Increment(ref _count);
 }
 
 internal sealed class ExpressionList
@@ -46,6 +74,22 @@ internal sealed class ExpressionList
     public ExpressionList(IEnumerable<ExpressionValue> values) =>
         Items.AddRange(values);
 
+    /// <summary>
+    /// Set once an expression function adds, inserts, removes or clears an
+    /// item of this list itself (a change inside a nested list is that
+    /// list's own). A global variable's list that has it when the
+    /// expression ends is saved again, whatever its contents are then.
+    /// Clearing counts even when the list was already empty; removing an
+    /// item that is not there does not count.
+    /// </summary>
+    public bool HasChanges { get; private set; }
+
+    public void MarkChanged()
+    {
+        HasChanges = true;
+        ExpressionCollectionChanges.Record();
+    }
+
     public override string ToString() =>
         $"[{string.Join(",", Items.Select(static item => item.ToDisplayString()))}]";
 }
@@ -54,6 +98,19 @@ internal sealed class ExpressionDictionary
 {
     public Dictionary<string, ExpressionValue> Items { get; } =
         new(StringComparer.Ordinal);
+
+    /// <summary>
+    /// Set once an expression function adds, replaces or removes a key of
+    /// this dictionary itself; see <see cref="ExpressionList.HasChanges"/>.
+    /// Removing a key that is not there does not count.
+    /// </summary>
+    public bool HasChanges { get; private set; }
+
+    public void MarkChanged()
+    {
+        HasChanges = true;
+        ExpressionCollectionChanges.Record();
+    }
 
     public override string ToString() =>
         $"[{string.Join(",", Items.Select(static pair =>
@@ -113,8 +170,16 @@ internal readonly struct ExpressionValue : IEquatable<ExpressionValue>
         new(ExpressionValueKind.Dictionary, 0d, value);
     public static ExpressionValue Coordinates(ExpressionCoordinates value) =>
         new(ExpressionValueKind.Coordinates, 0d, value);
-    public static ExpressionValue WorldObject(uint objectId) =>
-        new(ExpressionValueKind.WorldObject, objectId, null);
+    /// <param name="objectId">The object's id.</param>
+    /// <param name="names">
+    /// The name the client knows the object by now, or null once it has
+    /// lost it; used when the object is printed (see
+    /// <see cref="ToDisplayString"/>). Null prints every object as lost.
+    /// </param>
+    public static ExpressionValue WorldObject(
+        uint objectId,
+        Func<uint, string?>? names = null) =>
+        new(ExpressionValueKind.WorldObject, objectId, names);
     public static ExpressionValue Stopwatch(ExpressionStopwatch value) =>
         new(ExpressionValueKind.Stopwatch, 0d, value);
     public static ExpressionValue UiControl(ExpressionUiControl value) =>
@@ -162,12 +227,44 @@ internal readonly struct ExpressionValue : IEquatable<ExpressionValue>
             ? (ExpressionUiControl)_reference!
             : throw TypeError(operation ?? "operation", "UI control");
 
+    /// <summary>
+    /// The object id a world object or a number names. A number is an id in
+    /// the signed 32-bit form expressions use (0x800008B5 is -2147481419),
+    /// rounded to the nearest whole number. The unsigned form earlier
+    /// versions saved (2147485877) is read too; anything outside both
+    /// throws.
+    /// </summary>
     public uint AsObjectId(string? operation = null) => Kind switch
     {
         ExpressionValueKind.WorldObject => checked((uint)_number),
-        ExpressionValueKind.Number => checked((uint)_number),
+        ExpressionValueKind.Number => SignedObjectId(_number),
         _ => throw TypeError(operation ?? "operation", "world object"),
     };
+
+    /// <summary>
+    /// Reads a number as an object id: rounded to the nearest whole number
+    /// (halves to even), then the same 32 bits. The signed form is the one
+    /// ids are handed out in. A whole number above the signed range but
+    /// within 32 unsigned bits is also taken as the id it names, because
+    /// MossTank 0.4.0 and earlier handed ids out unsigned and profiles saved them
+    /// that way in persistent and global variables; those saved values keep
+    /// naming their objects after an upgrade.
+    /// </summary>
+    public static uint SignedObjectId(double number)
+    {
+        double whole = Math.Round(number, MidpointRounding.ToEven);
+        if (whole > int.MaxValue && whole <= uint.MaxValue)
+            return (uint)whole;
+        return unchecked((uint)Convert.ToInt32(number));
+    }
+
+    /// <summary>
+    /// An object id as a number, in the signed 32-bit form
+    /// <c>wobjectgetid</c> hands out (0x800008B5 is -2147481419), so ids
+    /// from every source compare equal.
+    /// </summary>
+    public static ExpressionValue ObjectIdNumber(uint objectId) =>
+        Number(unchecked((int)objectId));
 
     public bool IsTruthy => Kind switch
     {
@@ -186,30 +283,50 @@ internal readonly struct ExpressionValue : IEquatable<ExpressionValue>
         ExpressionValueKind.List => _reference!.ToString()!,
         ExpressionValueKind.Dictionary => _reference!.ToString()!,
         ExpressionValueKind.Coordinates => _reference!.ToString()!,
-        ExpressionValueKind.WorldObject =>
-            checked((uint)_number).ToString(CultureInfo.InvariantCulture),
+        ExpressionValueKind.WorldObject => WorldObjectText(),
         ExpressionValueKind.Stopwatch => _reference!.ToString()!,
         ExpressionValueKind.UiControl => _reference!.ToString()!,
         _ => string.Empty,
     };
 
+    /// <summary>
+    /// A world object as the reference prints it: "0x", the id as eight
+    /// upper-case hex digits, then ": " and the name the client knows it by
+    /// at the moment of printing, or " (Invalid)" once the client has lost
+    /// it.
+    /// </summary>
+    private string WorldObjectText()
+    {
+        uint id = checked((uint)_number);
+        string hex = "0x" + id.ToString("X8", CultureInfo.InvariantCulture);
+        return _reference is Func<uint, string?> names && names(id) is { } name
+            ? hex + ": " + name
+            : hex + " (Invalid)";
+    }
+
+    /// <summary>
+    /// Whether two values are the same value, the way the reference's
+    /// list functions (listcontains, listindexof, listremove) find an item:
+    /// only a value of the same kind can be equal, a string exactly (case
+    /// counts), a number by value, a world object by id, and a list,
+    /// dictionary, stopwatch or coordinates only to itself. The '=='
+    /// operator has its own rule; see the expression engine.
+    /// </summary>
     public bool Equals(ExpressionValue other)
     {
-        if (Kind == ExpressionValueKind.String)
+        if (Kind != other.Kind)
+            return false;
+        return Kind switch
         {
-            return other.Kind == ExpressionValueKind.String
-                && string.Equals(
-                    (string)_reference!,
-                    (string)other._reference!,
-                    StringComparison.OrdinalIgnoreCase);
-        }
-        if (Kind is ExpressionValueKind.Number or ExpressionValueKind.Boolean
-            && other.Kind is ExpressionValueKind.Number
-                or ExpressionValueKind.Boolean)
-        {
-            return _number.Equals(other._number);
-        }
-        return Kind == other.Kind && ReferenceEquals(_reference, other._reference);
+            ExpressionValueKind.String => string.Equals(
+                (string)_reference!,
+                (string)other._reference!,
+                StringComparison.Ordinal),
+            ExpressionValueKind.Number
+                or ExpressionValueKind.Boolean
+                or ExpressionValueKind.WorldObject => _number.Equals(other._number),
+            _ => ReferenceEquals(_reference, other._reference),
+        };
     }
 
     public override bool Equals(object? obj) =>
@@ -217,10 +334,11 @@ internal readonly struct ExpressionValue : IEquatable<ExpressionValue>
 
     public override int GetHashCode() => Kind switch
     {
-        ExpressionValueKind.String => StringComparer.OrdinalIgnoreCase.GetHashCode(
+        ExpressionValueKind.String => StringComparer.Ordinal.GetHashCode(
             (string)_reference!),
         ExpressionValueKind.Number or ExpressionValueKind.Boolean =>
             _number.GetHashCode(),
+        ExpressionValueKind.WorldObject => HashCode.Combine(Kind, _number),
         _ => HashCode.Combine(Kind, _reference),
     };
 
@@ -229,7 +347,10 @@ internal readonly struct ExpressionValue : IEquatable<ExpressionValue>
     private ExpressionEvaluationException TypeError(
         string operation,
         string expected) => new(
-        $"{operation} expects {expected}, but received {Kind}.");
+        $"{operation} expects {expected}, but received {Kind}.")
+    {
+        IsArgumentError = true,
+    };
 }
 
 internal sealed class ExpressionParseException : Exception
@@ -243,8 +364,40 @@ internal sealed class ExpressionParseException : Exception
 internal sealed class ExpressionEvaluationException : Exception
 {
     public ExpressionEvaluationException(string message, int offset = -1)
-        : base(offset < 0 ? message : $"{message} at offset {offset}.") =>
+        : base(offset < 0 ? message : $"{message} at offset {offset}.")
+    {
         Offset = offset;
+        Reason = message;
+    }
+
+    /// <summary>
+    /// An error the runtime itself raised while the expression ran (a number
+    /// too large for a 32-bit operator, a pattern that does not parse), with
+    /// the runtime's own message, as the reference reports it.
+    /// </summary>
+    public ExpressionEvaluationException(Exception inner)
+        : base(inner.Message, inner)
+    {
+        Offset = -1;
+        Reason = inner.Message;
+    }
 
     public int Offset { get; }
+
+    /// <summary>The error as the reference words it, without the offset.</summary>
+    public string Reason { get; }
+
+    /// <summary>
+    /// The error was raised while a function ran, not while its arguments
+    /// were being checked. The reference calls a function through
+    /// reflection, so such an error reaches it wrapped, and with debugging
+    /// off it reports only the wrapper's message.
+    /// </summary>
+    public bool RaisedInFunction { get; init; }
+
+    /// <summary>
+    /// The error is an argument of the wrong kind, which the reference
+    /// finds before it calls the function.
+    /// </summary>
+    public bool IsArgumentError { get; init; }
 }

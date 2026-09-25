@@ -321,7 +321,7 @@ public sealed partial class MossTankPanelTests
     // ── the commands ────────────────────────────────────────────────────
 
     /// <summary>
-    /// <c>/vt getjob</c> prints the queue, and says so when there is none.
+    /// <c>/ub getjob</c> prints the queue, and says so when there is none.
     /// Mutation: print nothing when the queue is empty and a macro cannot tell.
     /// </summary>
     [Fact]
@@ -337,22 +337,22 @@ public sealed partial class MossTankPanelTests
         var host = new FakeHost(automation);
         var panel = new MossTankPanel(host);
 
-        Command(panel, "getjob");
-        Assert.Equal(["i'm out of jobs"], automation.Messages);
+        UbCommand(panel, "getjob");
+        Assert.Equal(["[UB] i'm out of jobs"], automation.Messages);
 
         automation.Messages.Clear();
         host.Selection.Select(0x100u);
         panel.AddSelectedTinkerItem();
         panel.SelectTinkerSalvage("Iron");
         panel.PopulateTinkerList();
-        Command(panel, "getjob");
+        UbCommand(panel, "getjob");
 
-        Assert.Equal("Target item: Iron Long Sword", automation.Messages[0]);
-        Assert.StartsWith("salvage: Iron Salvage (100)", automation.Messages[1]);
+        Assert.Equal("[UB] Target item: Iron Long Sword", automation.Messages[0]);
+        Assert.StartsWith("[UB] salvage: Iron Salvage (100)", automation.Messages[1]);
     }
 
     /// <summary>
-    /// <c>/vt autotinker</c> starts the run the page has planned; with no
+    /// <c>/ub autotinker</c> starts the run the page has planned; with no
     /// plan it says so rather than looking as though it started one.
     /// Mutation: start regardless and an empty run reports itself as running.
     /// </summary>
@@ -369,21 +369,21 @@ public sealed partial class MossTankPanelTests
         var host = new FakeHost(automation);
         var panel = new MossTankPanel(host);
 
-        Command(panel, "autotinker");
-        Assert.Equal(["i'm out of jobs"], automation.Messages);
+        UbCommand(panel, "autotinker");
+        Assert.Equal(["[UB] i'm out of jobs"], automation.Messages);
         Assert.Empty(automation.Applied);
 
         host.Selection.Select(0x100u);
         panel.AddSelectedTinkerItem();
         panel.SelectTinkerSalvage("Iron");
         panel.PopulateTinkerList();
-        Command(panel, "autotinker");
+        UbCommand(panel, "autotinker");
 
         Assert.Equal([(0x201u, 0x100u)], automation.Applied);
     }
 
     /// <summary>
-    /// <c>/vt tinkcalc</c> prints what the chosen salvage is worth on the
+    /// <c>/ub tinkcalc</c> prints what the chosen salvage is worth on the
     /// item, and for a melee weapon how the remaining attempts split between
     /// granite and iron.
     /// Mutation: print the odds without the attempt number and the line stops
@@ -406,9 +406,9 @@ public sealed partial class MossTankPanelTests
         panel.SelectTinkerSalvage("Iron");
         automation.Messages.Clear();
 
-        Command(panel, "tinkcalc");
+        UbCommand(panel, "tinkcalc");
 
-        Assert.StartsWith("1: Applying ws 2 Iron", automation.Messages[0]);
+        Assert.StartsWith("[UB] 1: Applying ws 2 Iron", automation.Messages[0]);
         Assert.Contains("with a successChance of", automation.Messages[0]);
         Assert.Contains(
             automation.Messages,
@@ -428,9 +428,9 @@ public sealed partial class MossTankPanelTests
         var automation = new FakeAutomation();
         var panel = new MossTankPanel(new FakeHost(automation));
 
-        Command(panel, "tinkcalc");
+        UbCommand(panel, "tinkcalc");
 
-        Assert.Equal(["Nothing selected"], automation.Messages);
+        Assert.Equal(["[UB] Nothing selected"], automation.Messages);
     }
 
     /// <summary>
@@ -444,16 +444,16 @@ public sealed partial class MossTankPanelTests
         var automation = new FakeAutomation();
         var panel = new MossTankPanel(new FakeHost(automation));
 
-        Command(panel, "help autotinker");
-        Assert.Equal("Syntax: /vt autotinker", automation.Messages[0]);
+        UbCommand(panel, "help autotinker");
+        Assert.Equal("[UB] Usage: /ub autotinker", automation.Messages[0]);
 
         automation.Messages.Clear();
-        Command(panel, "help getjob");
-        Assert.Equal("Syntax: /vt getjob", automation.Messages[0]);
+        UbCommand(panel, "help getjob");
+        Assert.Equal("[UB] Usage: /ub getjob", automation.Messages[0]);
 
         automation.Messages.Clear();
-        Command(panel, "help tinkcalc");
-        Assert.Equal("Syntax: /vt tinkcalc", automation.Messages[0]);
+        UbCommand(panel, "help tinkcalc");
+        Assert.Equal("[UB] Usage: /ub tinkcalc", automation.Messages[0]);
     }
 
     private static PluginSkillInfo Skill(uint skillId, uint current) =>

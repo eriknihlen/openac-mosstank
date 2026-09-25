@@ -26,14 +26,8 @@ namespace AcDream.Plugins.MossTank;
 /// </remarks>
 internal sealed partial class MossTankPanel
 {
-    private const string BroadcastUsage =
-        "Syntax: /vt bc [millisecondDelay] <command>";
-
-    private const string TaggedBroadcastUsage =
-        "Syntax: /vt bct <tags> [millisecondDelay] <command>";
-
     /// <summary>
-    /// <c>/vt bc [millisecondDelay] &lt;command&gt;</c>: runs a command line
+    /// <c>/ub bc [millisecondDelay] &lt;command&gt;</c>: runs a command line
     /// on every client on this computer, this one included.
     /// </summary>
     private void HandleBroadcastCommand(string arguments)
@@ -42,27 +36,27 @@ internal sealed partial class MossTankPanel
             return;
         if (command.Length == 0)
         {
-            WriteVtank(BroadcastUsage);
+            WriteUbBadSyntax("bc");
             return;
         }
 
-        WriteVtank(Invariant(
+        WriteUb(Invariant(
             $"Broadcasting command to all clients: \"{command}\" with delay inbetween of {delay}ms"));
         QueueLocalCommand(command);
         if (!_host.Automation.Network.BroadcastCommand(command, [], delay))
         {
-            WriteVtank("Unable to broadcast command to the other clients.");
+            WriteUbError("Unable to broadcast command to the other clients.");
             return;
         }
         foreach (PluginNetworkClient client in OtherClients())
         {
-            WriteVtank(Invariant(
+            WriteUb(Invariant(
                 $"Sending {client.Name}: \"{command}\" with delay inbetween of {delay}ms"));
         }
     }
 
     /// <summary>
-    /// <c>/vt bct &lt;tags&gt; [millisecondDelay] &lt;command&gt;</c>: the
+    /// <c>/ub bct &lt;tags&gt; [millisecondDelay] &lt;command&gt;</c>: the
     /// same, aimed at the clients answering to one of the named labels. This
     /// client runs the line itself only when one of those labels is its own,
     /// which is what the reference asked before it ran the line locally.
@@ -71,23 +65,23 @@ internal sealed partial class MossTankPanel
     {
         if (!TrySplitTagList(arguments, out List<string> tags, out string rest))
         {
-            WriteVtank(TaggedBroadcastUsage);
+            WriteUbBadSyntax("bct");
             return;
         }
         if (!TryReadDelayAndCommand(rest, out int delay, out string command))
             return;
         if (tags.Count == 0)
         {
-            WriteVtank("You must specify at least one tag to send the command to.");
+            WriteUbError("You must specify at least one tag to send the command to.");
             return;
         }
         if (command.Length == 0)
         {
-            WriteVtank(TaggedBroadcastUsage);
+            WriteUbBadSyntax("bct");
             return;
         }
 
-        WriteVtank(Invariant(
+        WriteUb(Invariant(
             $"Broadcasting command to clients with tags ({string.Join(",", tags)}): \"{command}\" with delay inbetween of {delay}ms"));
         // The labels are compared ignoring case, as the client's own delivery
         // does, so that the sender's decision to run the line and a peer's
@@ -96,11 +90,11 @@ internal sealed partial class MossTankPanel
         if (tags.Any(tag => own.Contains(tag, StringComparer.OrdinalIgnoreCase)))
             QueueLocalCommand(command);
         if (!_host.Automation.Network.BroadcastCommand(command, tags, delay))
-            WriteVtank("Unable to broadcast command to the other clients.");
+            WriteUbError("Unable to broadcast command to the other clients.");
     }
 
     /// <summary>
-    /// <c>/vt netclients [tag]</c>: who is on this computer, optionally only
+    /// <c>/ub netclients [tag]</c>: who is on this computer, optionally only
     /// those answering to one of the named labels. This character is listed
     /// too -- the host reports the others only.
     /// </summary>
@@ -114,7 +108,7 @@ internal sealed partial class MossTankPanel
             IReadOnlyList<string> own = OwnNetworkTags();
             if (Matches(tags, own))
             {
-                WriteVtank(NetClientLine(0u, me.Name, own));
+                WriteUb(NetClientLine(0u, me.Name, own));
                 showedClients = true;
             }
         }
@@ -122,11 +116,11 @@ internal sealed partial class MossTankPanel
         {
             if (!Matches(tags, client.Tags))
                 continue;
-            WriteVtank(NetClientLine(client.ClientId, client.Name, client.Tags));
+            WriteUb(NetClientLine(client.ClientId, client.Name, client.Tags));
             showedClients = true;
         }
         if (!showedClients)
-            WriteVtank("No net clients to show");
+            WriteUb("No net clients to show");
 
         static bool Matches(List<string> wanted, IReadOnlyList<string> held) =>
             wanted.Count == 0
@@ -159,14 +153,12 @@ internal sealed partial class MossTankPanel
 
     /// <summary>
     /// Runs a line on this client now, down the same path a scheduled line
-    /// takes, so that a broadcast and a <c>/vt delay 0</c> reach the command
+    /// takes, so that a broadcast and a <c>/ub delay 0</c> reach the command
     /// bus the same way.
     /// </summary>
     private void QueueLocalCommand(string command)
     {
-        _delayedCommands.Add((0d, command));
-        _delayedCommands.Sort(static (left, right) =>
-            left.RemainingSeconds.CompareTo(right.RemainingSeconds));
+        ScheduleUbCommand(command, 0d);
     }
 
     /// <summary>
@@ -194,7 +186,7 @@ internal sealed partial class MossTankPanel
                 CultureInfo.InvariantCulture,
                 out delay))
         {
-            WriteVtank($"Unable to broadcast command, invalid delay: {delayText}");
+            WriteUbError($"Unable to broadcast command, invalid delay: {delayText}");
             return false;
         }
         // The reference also refused a delay below zero. Only digits are read

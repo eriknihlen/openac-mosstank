@@ -5,33 +5,51 @@ namespace AcDream.Plugins.MossTank.Expressions;
 
 internal static class CoreExpressionFunctions
 {
+    // The reference's coordinate pattern, searched for anywhere in the text:
+    // up to three digits (and up to three decimals) with N or S, optional
+    // commas or spaces, the same with an optional E or W, then an optional
+    // height ending in Z. The height's "." is any character, as it is there.
     private static readonly Regex CoordinatePattern = new(
-        @"^\s*(?<ns>[-+]?\d+(?:\.\d+)?)\s*(?<nsdir>[NS])\s*,\s*"
-        + @"(?<ew>[-+]?\d+(?:\.\d+)?)\s*(?<ewdir>[EW])"
-        + @"(?:\s*,\s*(?<z>[-+]?\d+(?:\.\d+)?))?\s*$",
+        @"(?<NSval>[0-9]{1,3}(?:\.[0-9]{1,3})?)(?<NSchr>(?:[ns]))(?:[,\s]+)?"
+        + @"(?<EWval>[0-9]{1,3}(?:\.[0-9]{1,3})?)(?<EWchr>(?:[ew]))?"
+        + @"(,?\s*(?<Zval>\-?\d+.?\d+)z)?",
         RegexOptions.IgnoreCase | RegexOptions.CultureInvariant,
         TimeSpan.FromMilliseconds(100));
 
-    public static ExpressionFunctionRegistry CreateDefault(Random? random = null)
+    /// <param name="random">The random source; the shared one when null.</param>
+    /// <param name="isKnownObject">
+    /// Whether the client still knows an object, for the one core function
+    /// that tells a lost object apart; null takes every object as known.
+    /// </param>
+    /// <param name="writeToChat">
+    /// Prints a line the reference writes to chat itself (a date format it
+    /// cannot use, say); null prints nothing.
+    /// </param>
+    public static ExpressionFunctionRegistry CreateDefault(
+        Random? random = null,
+        Func<uint, bool>? isKnownObject = null,
+        Action<string>? writeToChat = null)
     {
         var registry = new ExpressionFunctionRegistry();
-        Register(registry, random);
+        Register(registry, random, isKnownObject, writeToChat);
         return registry;
     }
 
     public static void Register(
         ExpressionFunctionRegistry registry,
-        Random? random = null)
+        Random? random = null,
+        Func<uint, bool>? isKnownObject = null,
+        Action<string>? writeToChat = null)
     {
         ArgumentNullException.ThrowIfNull(registry);
         RegisterVariables(registry, ExpressionVariableScope.Session, string.Empty);
         RegisterVariables(registry, ExpressionVariableScope.Persistent, "p");
         RegisterVariables(registry, ExpressionVariableScope.Global, "g");
-        RegisterConversionsAndMath(registry, random ?? Random.Shared);
+        RegisterConversionsAndMath(registry, random ?? Random.Shared, isKnownObject);
         RegisterLists(registry);
         RegisterDictionaries(registry);
         RegisterCoordinates(registry);
-        RegisterTime(registry);
+        RegisterTime(registry, writeToChat);
     }
 
     private static void RegisterVariables(
@@ -76,7 +94,8 @@ internal static class CoreExpressionFunctions
 
     private static void RegisterConversionsAndMath(
         ExpressionFunctionRegistry registry,
-        Random random)
+        Random random,
+        Func<uint, bool>? isKnownObject)
     {
         RegisterUnaryMath(registry, "abs", Math.Abs);
         RegisterUnaryMath(registry, "acos", Math.Acos);
@@ -119,8 +138,13 @@ internal static class CoreExpressionFunctions
             "cnumber[text]");
         // Type introspection over ANY value: it answers with the expression
         // token's own type tag, not with a game item type.
+        // An object the client has lost answers 0, as nothing does.
         registry.Register("getobjectinternaltype", 1, 1, (_, args) =>
-            ExpressionValue.Number(InternalTypeTag(args[0].Kind)),
+            ExpressionValue.Number(
+                args[0].Kind == ExpressionValueKind.WorldObject
+                && isKnownObject?.Invoke(args[0].AsObjectId()) == false
+                    ? 0d
+                    : InternalTypeTag(args[0].Kind)),
             "getobjectinternaltype[value]");
         registry.Register("cstr", 1, 1, (_, args) => ExpressionValue.String(
             args[0].AsNumber("cstr").ToString("G15", CultureInfo.InvariantCulture)),
@@ -131,7 +155,7 @@ internal static class CoreExpressionFunctions
             string format = args[1].AsString("cstrf");
             return ExpressionValue.String(
                 IsStandardHexFormat(format)
-                    ? checked((uint)number).ToString(format, CultureInfo.InvariantCulture)
+                    ? WrapToUInt32(number).ToString(format, CultureInfo.InvariantCulture)
                     : number.ToString(format, CultureInfo.InvariantCulture));
         }, "cstrf[number,format]");
         registry.Register("hexstr", 1, 1, (_, args) => ExpressionValue.String(
@@ -156,7 +180,7 @@ internal static class CoreExpressionFunctions
                     : null;
             return source is null
                 ? ExpressionValue.Zero
-                : ExpressionProgram.Compile(source).Evaluate(context);
+                : context.RunSeparately(context.Compile(source), out _);
         }, "ifthen[test,trueExpression,falseExpression?]");
         registry.Register("randint", 2, 2, (_, args) =>
         {
@@ -204,6 +228,7 @@ internal static class CoreExpressionFunctions
             ExpressionList list = args[0].AsList("listadd");
             GuardNoCycle(list, args[1], "listadd");
             list.Items.Add(args[1]);
+            list.MarkChanged();
             return args[0];
         }, "listadd[list,item]");
         registry.Register("listinsert", 3, 3, (_, args) =>
@@ -214,11 +239,14 @@ internal static class CoreExpressionFunctions
             if ((uint)index > (uint)list.Items.Count)
                 throw BadIndex("insert", index, list.Items.Count, allowEnd: true);
             list.Items.Insert(index, args[1]);
+            list.MarkChanged();
             return args[0];
         }, "listinsert[list,item,index]");
         registry.Register("listremove", 2, 2, (_, args) =>
         {
-            args[0].AsList("listremove").Items.Remove(args[1]);
+            ExpressionList list = args[0].AsList("listremove");
+            if (list.Items.Remove(args[1]))
+                list.MarkChanged();
             return args[0];
         }, "listremove[list,item]");
         registry.Register("listremoveat", 2, 2, (_, args) =>
@@ -226,6 +254,7 @@ internal static class CoreExpressionFunctions
             ExpressionList list = args[0].AsList("listremoveat");
             int index = RequireListIndex(list, args[1], "listremoveat");
             list.Items.RemoveAt(index);
+            list.MarkChanged();
             return args[0];
         }, "listremoveat[list,index]");
         registry.Register("listgetitem", 2, 2, (_, args) =>
@@ -260,113 +289,119 @@ internal static class CoreExpressionFunctions
                 throw BadIndex("pop", index, list.Items.Count, allowEnd: false);
             ExpressionValue result = list.Items[index];
             list.Items.RemoveAt(index);
+            list.MarkChanged();
             return result;
         }, "listpop[list,index?]");
         registry.Register("listcount", 1, 1, (_, args) => ExpressionValue.Number(
             args[0].AsList("listcount").Items.Count), "listcount[list]");
         registry.Register("listclear", 1, 1, (_, args) =>
         {
-            args[0].AsList("listclear").Items.Clear();
+            ExpressionList list = args[0].AsList("listclear");
+            list.Items.Clear();
+            list.MarkChanged();
             return args[0];
         }, "listclear[list]");
+        // The list functions run their code string once per item (per
+        // comparison for listsort), each time as a run of its own; see
+        // ExpressionEvaluationContext.RunSeparately. $0 is the item's index
+        // and $1 the item; what they held before is saved first and put
+        // back as each function of the reference puts it back.
         registry.Register("listfilter", 2, 2, (context, args) =>
         {
             ExpressionList source = args[0].AsList("listfilter");
-            ExpressionProgram program = ExpressionProgram.Compile(
-                args[1].AsString("listfilter"));
+            string code = args[1].AsString("listfilter");
+            ExpressionProgram program = context.Compile(code);
             var result = new ExpressionList();
-            WithIterationVariables(context.State, () =>
+            ExpressionValue[] saved = SaveIterationVariables(context.State);
+            for (int index = 0; index < source.Items.Count; index++)
             {
-                for (int index = 0; index < source.Items.Count; index++)
+                ExpressionValue item = source.Items[index];
+                SetIteration(context.State, index, item);
+                ExpressionValue answer = context.RunSeparately(program, out bool failed);
+                // A failed run answers a whole-number 0, which the
+                // reference's truth test counts as true (only a decimal
+                // number or a string can be false), so the item is kept.
+                // The variables go back only after an item that is kept.
+                if (failed || answer.IsTruthy)
                 {
-                    SetIteration(context.State, index, source.Items[index]);
-                    if (program.Evaluate(context).IsTruthy)
-                        result.Items.Add(source.Items[index]);
+                    result.Items.Add(item);
+                    RestoreIterationVariables(context.State, saved);
                 }
-            });
+            }
             return ExpressionValue.List(result);
         }, "listfilter[list,expression]");
         registry.Register("listmap", 2, 2, (context, args) =>
         {
             ExpressionList source = args[0].AsList("listmap");
-            ExpressionProgram program = ExpressionProgram.Compile(
-                args[1].AsString("listmap"));
+            string code = args[1].AsString("listmap");
+            ExpressionProgram program = context.Compile(code);
             var result = new ExpressionList();
-            WithIterationVariables(context.State, () =>
+            ExpressionValue[] saved = SaveIterationVariables(context.State);
+            for (int index = 0; index < source.Items.Count; index++)
             {
-                for (int index = 0; index < source.Items.Count; index++)
-                {
-                    SetIteration(context.State, index, source.Items[index]);
-                    result.Items.Add(program.Evaluate(context));
-                }
-            });
+                SetIteration(context.State, index, source.Items[index]);
+                result.Items.Add(context.RunSeparately(program, out _));
+                RestoreIterationVariables(context.State, saved);
+            }
             return ExpressionValue.List(result);
         }, "listmap[list,expression]");
         registry.Register("listreduce", 2, 2, (context, args) =>
         {
             ExpressionList source = args[0].AsList("listreduce");
-            ExpressionProgram program = ExpressionProgram.Compile(
-                args[1].AsString("listreduce"));
+            string code = args[1].AsString("listreduce");
+            ExpressionProgram program = context.Compile(code);
             ExpressionValue result = ExpressionValue.Zero;
-            WithIterationVariables(context.State, () =>
+            ExpressionValue[] saved = SaveIterationVariables(context.State);
+            for (int index = 0; index < source.Items.Count; index++)
             {
-                for (int index = 0; index < source.Items.Count; index++)
-                {
-                    SetIteration(context.State, index, source.Items[index], result);
-                    result = program.Evaluate(context);
-                }
-            });
+                SetIteration(context.State, index, source.Items[index], result);
+                result = context.RunSeparately(program, out _);
+                RestoreIterationVariables(context.State, saved);
+            }
             return result;
         }, "listreduce[list,expression]");
+        // $1 and $2 are the two items being compared and stay set to the
+        // last pair afterwards. The answer is rounded to a whole number, so
+        // anything between -0.5 and 0.5 means "equal".
         registry.Register("listsort", 1, 2, (context, args) =>
         {
             var result = new ExpressionList(args[0].AsList("listsort").Items);
             if (args.Count == 1 || args[1].AsString("listsort").Length == 0)
             {
-                result.Items.Sort(DefaultValueComparer.Instance);
-                return ExpressionValue.List(result);
+                ExpressionValue[] sorted = result.Items.ToArray();
+                ReferenceSort.Sort(sorted, DefaultComparison);
+                return ExpressionValue.List(new ExpressionList(sorted));
             }
 
-            ExpressionProgram program = ExpressionProgram.Compile(
-                args[1].AsString("listsort"));
-            WithIterationVariables(context.State, () =>
+            string code = args[1].AsString("listsort");
+            ExpressionProgram program = context.Compile(code);
+            ExpressionValue[] items = result.Items.ToArray();
+            ReferenceSort.Sort(items, (left, right) =>
             {
-                for (int index = 1; index < result.Items.Count; index++)
-                {
-                    ExpressionValue value = result.Items[index];
-                    int cursor = index - 1;
-                    while (cursor >= 0)
-                    {
-                        context.State.Set(ExpressionVariableScope.Session, "1", result.Items[cursor]);
-                        context.State.Set(ExpressionVariableScope.Session, "2", value);
-                        if (program.Evaluate(context).AsNumber("listsort comparator") <= 0d)
-                            break;
-                        result.Items[cursor + 1] = result.Items[cursor];
-                        cursor--;
-                    }
-                    result.Items[cursor + 1] = value;
-                }
+                context.State.Set(ExpressionVariableScope.Session, "1", left);
+                context.State.Set(ExpressionVariableScope.Session, "2", right);
+                return ComparisonAnswer(context.RunSeparately(program, out _));
             });
+            result.Items.Clear();
+            result.Items.AddRange(items);
             return ExpressionValue.List(result);
         }, "listsort[list,expression?]");
+        // The reference counts up from the start to the end, both included;
+        // a start past the end gives an empty list, not a count down.
         registry.Register("listfromrange", 2, 2, (_, args) =>
         {
             int start = ToTruncatedInt(args[0], "listfromrange");
             int end = ToTruncatedInt(args[1], "listfromrange");
-            int count = checked(Math.Abs(end - start) + 1);
-            if (count > 100_000)
+            var result = new ExpressionList();
+            if (start > end)
+                return ExpressionValue.List(result);
+            if ((long)end - start + 1 > 100_000)
             {
                 throw new ExpressionEvaluationException(
                     "listfromrange is limited to 100000 entries");
             }
-            var result = new ExpressionList();
-            int step = start <= end ? 1 : -1;
-            for (int value = start;; value += step)
-            {
+            for (long value = start; value <= end; value++)
                 result.Items.Add(ExpressionValue.Number(value));
-                if (value == end)
-                    break;
-            }
             return ExpressionValue.List(result);
         }, "listfromrange[start,end]");
     }
@@ -405,14 +440,20 @@ internal static class CoreExpressionFunctions
             GuardNoCycle(dictionary, args[2], "dictadditem");
             bool replaced = dictionary.Items.ContainsKey(key);
             dictionary.Items[key] = args[2];
+            dictionary.MarkChanged();
             return ExpressionValue.Boolean(replaced);
         }, "dictadditem[dictionary,key,value]");
         registry.Register("dicthaskey", 2, 2, (_, args) => ExpressionValue.Boolean(
             args[0].AsDictionary("dicthaskey").Items.ContainsKey(
                 args[1].AsString("dicthaskey key"))), "dicthaskey[dictionary,key]");
-        registry.Register("dictremovekey", 2, 2, (_, args) => ExpressionValue.Boolean(
-            args[0].AsDictionary("dictremovekey").Items.Remove(
-                args[1].AsString("dictremovekey key"))), "dictremovekey[dictionary,key]");
+        registry.Register("dictremovekey", 2, 2, (_, args) =>
+        {
+            ExpressionDictionary dictionary = args[0].AsDictionary("dictremovekey");
+            bool removed = dictionary.Items.Remove(args[1].AsString("dictremovekey key"));
+            if (removed)
+                dictionary.MarkChanged();
+            return ExpressionValue.Boolean(removed);
+        }, "dictremovekey[dictionary,key]");
         registry.Register("dictkeys", 1, 1, (_, args) => ExpressionValue.List(
             new ExpressionList(args[0].AsDictionary("dictkeys").Items.Keys.Select(
                 ExpressionValue.String))), "dictkeys[dictionary]");
@@ -423,7 +464,14 @@ internal static class CoreExpressionFunctions
             args[0].AsDictionary("dictsize").Items.Count), "dictsize[dictionary]");
         registry.Register("dictclear", 1, 1, (_, args) =>
         {
-            args[0].AsDictionary("dictclear").Items.Clear();
+            // The reference removes the keys one by one, so an empty
+            // dictionary sees no removal and is not changed.
+            ExpressionDictionary dictionary = args[0].AsDictionary("dictclear");
+            if (dictionary.Items.Count != 0)
+            {
+                dictionary.Items.Clear();
+                dictionary.MarkChanged();
+            }
             return args[0];
         }, "dictclear[dictionary]");
         registry.Register("dictcopy", 1, 1, (_, args) =>
@@ -440,31 +488,29 @@ internal static class CoreExpressionFunctions
 
     private static void RegisterCoordinates(ExpressionFunctionRegistry registry)
     {
+        // Text with no coordinate in it reads as 0N, 0E rather than failing.
+        // The height is taken as a raw height, so its reading (a raw height
+        // over 240) is the written number over 240.
         registry.Register("coordinateparse", 1, 1, (_, args) =>
         {
             string source = args[0].AsString("coordinateparse");
             Match match = CoordinatePattern.Match(source);
             if (!match.Success)
+                return ExpressionValue.Coordinates(new ExpressionCoordinates(0d, 0d));
+            NumberFormatInfo format = CultureInfo.InvariantCulture.NumberFormat;
+            double northSouth = double.Parse(match.Groups["NSval"].Value, format);
+            if (!match.Groups["NSchr"].Value.Equals("n", StringComparison.OrdinalIgnoreCase))
+                northSouth = -northSouth;
+            double eastWest = double.Parse(match.Groups["EWval"].Value, format);
+            string eastWestLetter = match.Groups["EWchr"].Value;
+            if (eastWestLetter.Length != 0
+                && !eastWestLetter.Equals("e", StringComparison.OrdinalIgnoreCase))
             {
-                throw new ExpressionEvaluationException(
-                    $"Unable to parse coordinate '{source}'");
+                eastWest = -eastWest;
             }
-            double northSouth = double.Parse(
-                match.Groups["ns"].Value,
-                CultureInfo.InvariantCulture);
-            double eastWest = double.Parse(
-                match.Groups["ew"].Value,
-                CultureInfo.InvariantCulture);
-            if (match.Groups["nsdir"].Value.Equals("S", StringComparison.OrdinalIgnoreCase))
-                northSouth = -Math.Abs(northSouth);
-            else
-                northSouth = Math.Abs(northSouth);
-            if (match.Groups["ewdir"].Value.Equals("W", StringComparison.OrdinalIgnoreCase))
-                eastWest = -Math.Abs(eastWest);
-            else
-                eastWest = Math.Abs(eastWest);
-            double elevation = match.Groups["z"].Success
-                ? double.Parse(match.Groups["z"].Value, CultureInfo.InvariantCulture)
+            string height = match.Groups["Zval"].Value;
+            double elevation = height.Length != 0
+                ? double.Parse(height, format) / 240d
                 : 0d;
             return ExpressionValue.Coordinates(new ExpressionCoordinates(
                 eastWest,
@@ -491,16 +537,34 @@ internal static class CoreExpressionFunctions
             "coordinatedistancewithz[first,second]");
     }
 
-    private static void RegisterTime(ExpressionFunctionRegistry registry)
+    private static void RegisterTime(
+        ExpressionFunctionRegistry registry,
+        Action<string>? writeToChat)
     {
+        // A format the date cannot be written in is not an error: the
+        // reference prints why to chat and answers the empty string.
+        string DateText(DateTime time, string format)
+        {
+            try
+            {
+                return time.ToString(format, CultureInfo.InvariantCulture);
+            }
+            catch (FormatException error)
+            {
+                writeToChat?.Invoke(error.Message);
+                return string.Empty;
+            }
+        }
         registry.Register("getdatetimelocal", 0, 1, (_, args) => ExpressionValue.String(
-            DateTime.Now.ToString(
-                args.Count == 0 ? "hh:mm:ss tt" : args[0].AsString("getdatetimelocal"),
-                CultureInfo.InvariantCulture)), "getdatetimelocal[format?]");
+            DateText(
+                DateTime.Now,
+                args.Count == 0 ? "hh:mm:ss tt" : args[0].AsString("getdatetimelocal"))),
+            "getdatetimelocal[format?]");
         registry.Register("getdatetimeutc", 0, 1, (_, args) => ExpressionValue.String(
-            DateTime.UtcNow.ToString(
-                args.Count == 0 ? "hh:mm:ss tt" : args[0].AsString("getdatetimeutc"),
-                CultureInfo.InvariantCulture)), "getdatetimeutc[format?]");
+            DateText(
+                DateTime.UtcNow,
+                args.Count == 0 ? "hh:mm:ss tt" : args[0].AsString("getdatetimeutc"))),
+            "getdatetimeutc[format?]");
         registry.Register("getunixtime", 0, 0, (_, _) => ExpressionValue.Number(
             DateTimeOffset.UtcNow.ToUnixTimeMilliseconds() / 1000d), "getunixtime[]");
         registry.Register("stopwatchcreate", 0, 0, (_, _) =>
@@ -568,6 +632,18 @@ internal static class CoreExpressionFunctions
         return true;
     }
 
+    /// <summary>
+    /// The number as the 32 bits a hex format shows, the way the reference
+    /// converts it: truncated toward zero through a 64-bit integer and cut to
+    /// the low 32 bits, so a signed object id such as -2147481419 shows as
+    /// 800008B5 and -1 as FFFFFFFF. A value with no 64-bit integer form
+    /// (NaN, or 2^63 and beyond either way) comes out as 0.
+    /// </summary>
+    private static uint WrapToUInt32(double number) =>
+        number is >= -9223372036854775808d and < 9223372036854775808d
+            ? unchecked((uint)(long)number)
+            : 0u;
+
     private static int ToTruncatedInt(in ExpressionValue value, string operation) =>
         checked((int)value.AsNumber(operation));
 
@@ -591,32 +667,48 @@ internal static class CoreExpressionFunctions
             state.Set(ExpressionVariableScope.Session, "2", value);
     }
 
-    private static void WithIterationVariables(ExpressionState state, Action action)
+    private static readonly string[] IterationVariables = ["0", "1", "2"];
+
+    /// <summary>
+    /// $0, $1 and $2 as they are before a list function starts; an
+    /// undefined one reads 0.
+    /// </summary>
+    private static ExpressionValue[] SaveIterationVariables(ExpressionState state) =>
+        IterationVariables
+            .Select(name => state.Get(ExpressionVariableScope.Session, name))
+            .ToArray();
+
+    /// <summary>
+    /// Sets $0, $1 and $2 back to what <see cref="SaveIterationVariables"/>
+    /// read. One that was undefined is set to 0, not cleared, as the
+    /// reference sets it.
+    /// </summary>
+    private static void RestoreIterationVariables(
+        ExpressionState state,
+        ExpressionValue[] saved)
     {
-        var saved = new (string Name, bool Exists, ExpressionValue Value)[3];
-        for (int index = 0; index < saved.Length; index++)
-        {
-            string name = index.ToString(CultureInfo.InvariantCulture);
-            saved[index] = (
-                name,
-                state.Contains(ExpressionVariableScope.Session, name),
-                state.Get(ExpressionVariableScope.Session, name));
-        }
-        try
-        {
-            action();
-        }
-        finally
-        {
-            foreach ((string name, bool exists, ExpressionValue value) in saved)
-            {
-                if (exists)
-                    state.Set(ExpressionVariableScope.Session, name, value);
-                else
-                    state.Clear(ExpressionVariableScope.Session, name);
-            }
-        }
+        for (int index = 0; index < IterationVariables.Length; index++)
+            state.Set(ExpressionVariableScope.Session, IterationVariables[index], saved[index]);
     }
+
+    /// <summary>
+    /// A listsort comparison's answer as a whole number, converted the way
+    /// the reference converts it: a number rounds to the nearest whole
+    /// number (a half to the even one) and must fit in 32 bits, a string
+    /// must be a whole number written out, and anything else cannot be
+    /// converted.
+    /// </summary>
+    private static int ComparisonAnswer(in ExpressionValue answer) => answer.Kind switch
+    {
+        ExpressionValueKind.Number or ExpressionValueKind.Boolean =>
+            Convert.ToInt32(answer.AsNumber(), CultureInfo.InvariantCulture),
+        ExpressionValueKind.String => int.Parse(
+            answer.AsString(),
+            NumberStyles.Integer,
+            CultureInfo.InvariantCulture),
+        _ => throw new InvalidCastException(
+            $"A {answer.Kind} cannot be read as a comparison result."),
+    };
 
     private static void GuardNoCycle(object destination, in ExpressionValue value, string operation)
     {
@@ -653,30 +745,45 @@ internal static class CoreExpressionFunctions
         return false;
     }
 
-    private sealed class DefaultValueComparer : IComparer<ExpressionValue>
+    /// <summary>
+    /// listsort's order without an expression, as the reference's runtime
+    /// orders two values with its default comparer: numbers by value,
+    /// strings by the culture's word order (case counts, lower case first),
+    /// a value as equal to itself. Anything else (a number against a string,
+    /// or two lists) cannot be compared, and the sort fails.
+    /// </summary>
+    private static int DefaultComparison(ExpressionValue left, ExpressionValue right)
     {
-        public static DefaultValueComparer Instance { get; } = new();
-
-        public int Compare(ExpressionValue left, ExpressionValue right)
+        if (left.Kind == ExpressionValueKind.String && right.Kind == ExpressionValueKind.String)
+            return StringComparer.InvariantCulture.Compare(left.AsString(), right.AsString());
+        if (left.Kind == right.Kind
+            && left.Kind is ExpressionValueKind.Number or ExpressionValueKind.Boolean)
         {
-            if (left.Kind is ExpressionValueKind.Number or ExpressionValueKind.Boolean
-                && right.Kind is ExpressionValueKind.Number or ExpressionValueKind.Boolean)
-            {
-                return left.AsNumber().CompareTo(right.AsNumber());
-            }
-            if (left.Kind == ExpressionValueKind.String
-                && right.Kind == ExpressionValueKind.String)
-            {
-                return StringComparer.OrdinalIgnoreCase.Compare(
-                    left.AsString(),
-                    right.AsString());
-            }
-            int kind = left.Kind.CompareTo(right.Kind);
-            return kind != 0
-                ? kind
-                : StringComparer.Ordinal.Compare(
-                    left.ToDisplayString(),
-                    right.ToDisplayString());
+            return left.AsNumber().CompareTo(right.AsNumber());
         }
+        // A list, dictionary, stopwatch, control or coordinates is equal to
+        // itself only; a world object is made afresh each time it is read,
+        // so two are never the same one.
+        if (left.Kind is ExpressionValueKind.List or ExpressionValueKind.Dictionary
+                or ExpressionValueKind.Stopwatch or ExpressionValueKind.UiControl
+                or ExpressionValueKind.Coordinates
+            && left.Equals(right))
+        {
+            return 0;
+        }
+        throw new ArgumentException(ComparableKind(left) is { } kind
+            ? $"Object must be of type {kind}."
+            : ComparableKind(right) is { } other
+                ? $"Object must be of type {other}."
+                : "At least one object must implement IComparable.");
     }
+
+    /// <summary>The runtime type name of a value that can be compared at all.</summary>
+    private static string? ComparableKind(in ExpressionValue value) => value.Kind switch
+    {
+        ExpressionValueKind.Number => "Double",
+        ExpressionValueKind.Boolean => "Boolean",
+        ExpressionValueKind.String => "String",
+        _ => null,
+    };
 }

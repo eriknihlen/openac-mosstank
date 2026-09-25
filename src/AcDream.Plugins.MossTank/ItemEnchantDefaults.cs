@@ -61,15 +61,16 @@ internal static class ItemEnchantDefaults
         "Impenetrability I",    // Physical, appended after the loop
     ];
 
-    public static bool IsProfileEligible(in PluginInventoryItem item) =>
-        item.IsPetDevice || DefaultsFor(item.ValidLocations).Length > 0;
+    public static bool IsProfileEligible(in PluginInventoryItem item, bool isPetDevice) =>
+        isPetDevice || DefaultsFor(item.ValidLocations).Length > 0;
 
     public static IReadOnlyList<string> Rows(
         in PluginInventoryItem item,
-        bool noBuffs)
+        bool noBuffs,
+        bool isPetDevice)
     {
         // A pet device is always a single casts-nothing row.
-        if (item.IsPetDevice)
+        if (isPetDevice)
             return [];
         if (noBuffs)
             return [];

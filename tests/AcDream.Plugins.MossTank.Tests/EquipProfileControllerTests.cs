@@ -36,13 +36,86 @@ public sealed class EquipProfileControllerTests
             Controller(automation, combatHasTarget: () => true);
         WriteSetAProfile(storage, "mosstank/ub/equip/suit.utl");
 
-        IReadOnlyList<string> lines = controller.Command("load suit");
+        IReadOnlyList<string> lines = controller.Command("load suit")!;
 
         Assert.False(controller.IsRunning);
         Assert.Contains("monster", lines[0], StringComparison.OrdinalIgnoreCase);
         Assert.False(controller.Tick(0.1d, canAct: true));
         Assert.Empty(automation.EquipCalls);
         Assert.Empty(automation.MoveCalls);
+    }
+
+    /// <summary>
+    /// With EquipmentManager.Think on, the finished line is a real tell to
+    /// the character's own name, which the server answers with its own
+    /// "You think" line; nothing is printed locally in its place.
+    /// Mutation: printing a local "You think" system line sends no tell.
+    /// </summary>
+    [Fact]
+    public void TheFinishedLineIsThoughtAsARealTell()
+    {
+        var automation = new FakeAutomation();
+        (EquipProfileController controller, MemoryStorage storage, _) = Controller(automation);
+        controller.BindSettings(new EquipProfileSettings { Think = static () => true });
+        WriteSetAProfile(storage, "mosstank/ub/equip/suit.utl");
+
+        Assert.Empty(controller.Command("load suit")!);
+        for (int frame = 0; frame < 10 && controller.IsRunning; frame++)
+            controller.Tick(0.1d, canAct: true);
+
+        Assert.False(controller.IsRunning);
+        Assert.Contains(
+            automation.Messages,
+            static line => line.StartsWith(
+                "/t Acdream, Equipment Manager: Finished equipping items in ",
+                StringComparison.Ordinal));
+        Assert.DoesNotContain(
+            automation.Messages,
+            static line => line.StartsWith("You think", StringComparison.Ordinal));
+    }
+
+    /// <summary>
+    /// How a refused start is said is decided where it is refused, not read
+    /// back from the status wording: a missing profile only in the debug
+    /// output, an unreadable one as the tool's error. Mutation: saying the
+    /// missing profile as an error, or the unreadable one only in debug,
+    /// fails one of the two.
+    /// </summary>
+    [Fact]
+    public void EachRefusalIsSaidTheWayItsCauseIs()
+    {
+        var automation = new FakeAutomation();
+        (EquipProfileController controller, MemoryStorage storage, _) = Controller(automation);
+
+        Assert.Empty(controller.Command("load suit")!);
+
+        storage.WriteText("mosstank/ub/equip/broken.utl", "not a loot profile");
+        IReadOnlyList<string> lines = controller.Command("load broken")!;
+        Assert.Equal(
+            "[UB] Error: EquipmentManager: Equip profile could not be read: mosstank/ub/equip/broken.utl",
+            Assert.Single(lines));
+    }
+
+    /// <summary>
+    /// The finished line writes its seconds as the reference writes a
+    /// number, with no fixed decimal places: a two-second run is "2s".
+    /// Mutation: the old one-decimal format writes "2.0s".
+    /// </summary>
+    [Fact]
+    public void TheFinishedLineWritesItsSecondsAsTheReferenceDoes()
+    {
+        var automation = new FakeAutomation();
+        (EquipProfileController controller, MemoryStorage storage, _) = Controller(automation);
+        WriteSetAProfile(storage, "mosstank/ub/equip/suit.utl");
+
+        Assert.Empty(controller.Command("load suit")!);
+        for (int frame = 0; frame < 10 && controller.IsRunning; frame++)
+            controller.Tick(1d, canAct: true);
+
+        string line = Assert.Single(
+            automation.Messages,
+            static text => text.Contains("Finished equipping", StringComparison.Ordinal));
+        Assert.Matches(@"^\[UB\] Equipment Manager: Finished equipping items in [1-9]\d*s$", line);
     }
 
     /// <summary>
@@ -73,7 +146,7 @@ public sealed class EquipProfileControllerTests
             Controller(automation);
         WriteSetAProfile(storage, "mosstank/ub/equip/suit.utl");
 
-        Assert.Contains("started", controller.Command("load suit")[0], StringComparison.OrdinalIgnoreCase);
+        Assert.Empty(controller.Command("load suit")!);
         Assert.True(controller.IsRunning);
 
         Assert.True(controller.Tick(0.1d, canAct: true));
@@ -167,7 +240,7 @@ public sealed class EquipProfileControllerTests
         (EquipProfileController controller, MemoryStorage storage, _) = Controller(automation);
         WriteSetAProfile(storage, "mosstank/ub/equip/rings.utl");
 
-        Assert.Contains("started", controller.Command("load rings")[0], StringComparison.OrdinalIgnoreCase);
+        Assert.Empty(controller.Command("load rings")!);
         Assert.True(controller.Tick(0.1d, canAct: true));
         Assert.Single(automation.EquipCalls);
         Assert.Equal(0u, automation.EquipCalls[0].Location);
@@ -231,7 +304,7 @@ public sealed class EquipProfileControllerTests
         (EquipProfileController controller, MemoryStorage storage, _) = Controller(automation);
         const string key = "mosstank/ub/Coldeve/Acdream/equip/mine.utl";
 
-        Assert.Contains("created", controller.Command("create mine")[0], StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("created", controller.Command("create mine")![0], StringComparison.OrdinalIgnoreCase);
         string first = Assert.IsType<string>(storage.ReadText(key));
         var rules = new List<LootRule>();
         Assert.True(MossTankLootProfileStore.TryParseRules(first, rules));
@@ -245,12 +318,12 @@ public sealed class EquipProfileControllerTests
         [
             Wearable(Hauberk, "Set A Hauberk", HauberkSlot, equipped: HauberkSlot),
         ];
-        IReadOnlyList<string> second = controller.Command("create mine");
+        IReadOnlyList<string> second = controller.Command("create mine")!;
         Assert.Contains("already exists", second[0], StringComparison.OrdinalIgnoreCase);
         Assert.Equal(first, storage.ReadText(key));
 
         controller.Tick(1d, canAct: true);
-        Assert.Contains("created", controller.Command("create mine")[0], StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("created", controller.Command("create mine")![0], StringComparison.OrdinalIgnoreCase);
         Assert.NotEqual(first, storage.ReadText(key));
         rules.Clear();
         Assert.True(MossTankLootProfileStore.TryParseRules(storage.ReadText(key), rules));
@@ -273,7 +346,7 @@ public sealed class EquipProfileControllerTests
         string first = storage.ReadText(key)!;
         controller.Command("create mine");
         controller.Tick(31d, canAct: true);
-        Assert.Contains("already exists", controller.Command("create mine")[0], StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("already exists", controller.Command("create mine")![0], StringComparison.OrdinalIgnoreCase);
         Assert.Equal(first, storage.ReadText(key));
     }
 
@@ -290,16 +363,20 @@ public sealed class EquipProfileControllerTests
         automation.Appraised.Add(Bracelet);
         (EquipProfileController controller, MemoryStorage storage, _) = Controller(automation);
 
-        Assert.Contains("No equip profile", controller.Command("load suit")[0], StringComparison.Ordinal);
+        // A missing profile is said only in the debug output, as the
+        // reference says it; the refusal itself is the status.
+        Assert.Empty(controller.Command("load suit")!);
+        Assert.StartsWith("No equip profile", controller.Status, StringComparison.Ordinal);
         Assert.False(controller.IsRunning);
 
         WriteSetAProfile(storage, "mosstank/ub/Coldeve/equip/default.utl");
-        Assert.True(controller.Command("test suit")[0].Contains("started", StringComparison.OrdinalIgnoreCase));
+        Assert.Empty(controller.Command("test suit")!);
+        Assert.True(controller.IsRunning);
         controller.Reset();
 
         WriteSetAProfile(storage, "mosstank/ub/Coldeve/Acdream/equip/suit.utl");
         WriteSetAProfile(storage, "mosstank/ub/equip/other.utl");
-        IReadOnlyList<string> listing = controller.Command("list");
+        IReadOnlyList<string> listing = controller.Command("list")!;
         Assert.Contains(listing, line => line.Contains("suit.utl", StringComparison.Ordinal)
             && line.Contains("Coldeve/Acdream", StringComparison.Ordinal));
         Assert.Contains(listing, line => line.Contains("default.utl", StringComparison.Ordinal));

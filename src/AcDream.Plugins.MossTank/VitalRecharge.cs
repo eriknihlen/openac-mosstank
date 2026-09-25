@@ -168,14 +168,15 @@ internal static class VitalRechargePlanner
     {
         ArgumentNullException.ThrowIfNull(automation);
         ArgumentNullException.ThrowIfNull(settings);
-        if (!settings.HelpOthers || !automation.Fellowship.IsInFellowship)
+        bool inFellowship = automation.Fellowship.IsInFellowship;
+        if (!settings.HelpOthers || (!inFellowship && !settings.HelpNetworkPeers))
         {
             choice = default;
             return false;
         }
 
-        IReadOnlyList<PluginFellowMember> members =
-            automation.Fellowship.CaptureMembers();
+        IReadOnlyList<PluginFellowMember> members = HelperCandidates(
+            automation, settings, inFellowship);
         foreach ((VitalKind vital, double threshold, double distance, uint baseSpell)
             in new[]
             {
@@ -976,6 +977,63 @@ internal static class VitalRechargePlanner
     /// </summary>
     internal const double FellowVitalsTrustSeconds = 10d;
 
+    /// <summary>
+    /// Who the helper may cast on: the fellows, plus, when
+    /// <see cref="VitalSettings.HelpNetworkPeers"/> is on, the network's
+    /// peers who are not fellows. A peer is described as a fellow would be:
+    /// its last reported vitals (the host drops a peer that stops
+    /// reporting) and its distance from here in metres.
+    /// </summary>
+    internal static IReadOnlyList<PluginFellowMember> HelperCandidates(
+        IAutomationSurface automation,
+        VitalSettings settings,
+        bool inFellowship)
+    {
+        IReadOnlyList<PluginFellowMember> fellows = inFellowship
+            ? automation.Fellowship.CaptureMembers()
+            : [];
+        if (!settings.HelpNetworkPeers || !automation.Network.IsAvailable)
+            return fellows;
+
+        var candidates = new List<PluginFellowMember>(fellows);
+        var known = new HashSet<uint>(fellows.Select(static fellow => fellow.ObjectId));
+        uint self = automation.Character.ObjectId;
+        string world = automation.Character.WorldName;
+        PluginNavigationPosition here = automation.Navigation.Snapshot.Position;
+        foreach (PluginNetworkClient peer in automation.Network.CaptureClients())
+        {
+            if (peer.PlayerId == 0u || peer.PlayerId == self || !known.Add(peer.PlayerId))
+                continue;
+            if (world.Length != 0 && peer.WorldName.Length != 0
+                && !string.Equals(world, peer.WorldName, StringComparison.OrdinalIgnoreCase))
+            {
+                continue;
+            }
+            candidates.Add(new PluginFellowMember(
+                peer.PlayerId,
+                peer.Name,
+                peer.CurrentHealth,
+                peer.MaxHealth,
+                peer.CurrentStamina,
+                peer.MaxStamina,
+                peer.CurrentMana,
+                peer.MaxMana,
+                PeerDistance(here, peer.Position))
+            {
+                VitalsAgeSeconds = 0d,
+            });
+        }
+        return candidates;
+    }
+
+    private static float PeerDistance(in PluginNavigationPosition here, in PluginNavigationPosition there)
+    {
+        double flat = here.HorizontalDistanceMeters(there);
+        double rise = (here.Elevation - there.Elevation) * 240d;
+        double meters = Math.Sqrt((flat * flat) + (rise * rise));
+        return double.IsFinite(meters) ? (float)meters : float.MaxValue;
+    }
+
     private static PluginFellowMember? Lowest(
         IReadOnlyList<PluginFellowMember> members,
         VitalKind vital,
@@ -1155,10 +1213,18 @@ internal sealed class VitalRechargeController
 
     /// <summary>
     /// True while a kit, a food item or a caster item this controller used
-    /// is still unanswered. The reference's kit sequencer and wand cast
-    /// tracker both raise the global busy count for that whole wait.
+    /// is still unanswered.
     /// </summary>
     internal bool ItemUseInFlight => _pending is { Choice.UsesItem: true };
+
+    /// <summary>
+    /// True while an unanswered recharge is one the reference raises its
+    /// global busy count for, which stops its whole pass: a kit (its kit
+    /// sequencer), a caster item (its wand cast tracker) or a learned spell
+    /// (its cast tracker). Food and potions are not among them: the
+    /// reference eats or drinks as a plain use and the pass carries on.
+    /// </summary>
+    internal bool HoldsPass => _pending is { Choice.SourceKind: not VitalRechargeSourceKind.Food };
 
     /// <summary>
     /// True while a recharge cast from a LEARNED SPELL is still unanswered.

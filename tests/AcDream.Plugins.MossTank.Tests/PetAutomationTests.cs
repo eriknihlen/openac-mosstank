@@ -4,281 +4,292 @@ namespace AcDream.Plugins.MossTank.Tests;
 
 public sealed class PetAutomationTests
 {
+    // Essences as the catalog knows them.
+    private const uint Cold = 49387u;
+    private const uint Fire = 49380u;
+    private const uint Acid = 49366u;
+    private const uint Electric = 49373u;
+
+    /// <summary>The spirit a refill tops an essence up with; the refill knows it by name.</summary>
+    internal const uint EncapsulatedSpiritClass = 49485u;
+
     [Fact]
-    public void Select_UsesHighestPriorityTargetsElementAndDensityRange()
+    public void AMonsterTakesThePickOnlyByBeingNearerAndRankedHigher()
     {
-        var settings = Settings(MonsterDamageType.PlayerAuto, MonsterDamageType.Fire);
-        settings.PetRangeMode = PetRangeMode.Custom;
-        settings.PetCustomRange = 8f;
-        settings.PetMonsterDensity = 2;
+        // Equal rank: the nearer monster behind the first one does not take
+        // the pick, because it does not outrank it.
+        var settings = Settings(MonsterDamageType.Auto);
+        var items = Essences(Device(1, Cold));
+
+        PetSummonChoice choice = Select(
+            items,
+            [Target(10, "First", 6), Target(11, "Nearer", 2)],
+            settings);
+
+        Assert.Equal(10u, choice.Target.ObjectId);
+
         settings.Rules.Insert(0, new MonsterRule(
-            "name#Boss",
-            new MonsterRuleActions
-            {
-                Priority = 4,
-                DamageType = MonsterDamageType.Fire,
-                PetDamageType = MonsterDamageType.PlayerAuto,
-            }));
-        PluginInventoryItem cold = Device(1, 49387, mastery: 3, level: 100);
-        PluginInventoryItem fire = Device(2, 49380, mastery: 3, level: 100);
+            "name#Nearer",
+            new MonsterRuleActions { Priority = 5, PetDamageType = MonsterDamageType.Auto }));
+        choice = Select(
+            items,
+            [Target(10, "First", 6), Target(11, "Nearer", 2)],
+            settings);
 
-        PetAutomationChoice choice = PetAutomation.Select(
-            [cold, fire],
-            [Target(10, "Trash", 4), Target(11, "Boss", 7), Target(12, "Far", 9)],
-            new Character(mastery: 3, summoning: 300),
-            settings,
-            activeOwnedPetCount: 0,
-            allowRefill: true,
-            allowSummon: true);
-
-        Assert.Equal(PetAutomationActionKind.Summon, choice.Kind);
-        Assert.Equal(2u, choice.Device.ObjectId);
         Assert.Equal(11u, choice.Target.ObjectId);
-        Assert.Equal(MonsterDamageType.Fire, choice.DamageType);
     }
 
     [Fact]
-    public void Select_RejectsWrongMasteryAndInsufficientSummoningSkill()
+    public void TheDensityCountsOnlyMonstersInRangeThatWantAPet()
     {
         var settings = Settings(MonsterDamageType.Auto);
-        PluginInventoryItem wrongMastery = Device(1, 49380, mastery: 2, level: 50);
-        PluginInventoryItem tooDifficult = Device(2, 49387, mastery: 3, level: 400);
+        settings.PetMonsterDensity = 2;
+        settings.PetRangeMode = PetRangeMode.Custom;
+        settings.PetCustomRange = 10f;
+        settings.Rules.Insert(0, new MonsterRule(
+            "name#NoPet",
+            new MonsterRuleActions { PetDamageType = MonsterDamageType.None }));
+        var items = Essences(Device(1, Cold));
 
-        PetAutomationChoice choice = PetAutomation.Select(
-            [wrongMastery, tooDifficult],
-            [Target(10, "Target", 4)],
-            new Character(mastery: 3, summoning: 300),
-            settings,
-            0,
-            allowRefill: true,
-            allowSummon: true);
-
-        Assert.Equal(PetAutomationActionKind.None, choice.Kind);
-    }
-
-    [Fact]
-    public void Select_ExplicitElementNeverFallsBackButPlayerAutoDoes()
-    {
-        PluginInventoryItem cold = Device(1, 49387, mastery: 3, level: 100);
-        var explicitFire = Settings(MonsterDamageType.Fire);
-        var playerAuto = Settings(
-            MonsterDamageType.PlayerAuto,
-            MonsterDamageType.Fire);
-        var character = new Character(mastery: 3, summoning: 300);
-        PluginCombatTarget[] targets = [Target(10, "Target", 4)];
-
-        Assert.Equal(PetAutomationActionKind.None, PetAutomation.Select(
-            [cold], targets, character, explicitFire, 0, true, true).Kind);
-        Assert.Equal(PetAutomationActionKind.Summon, PetAutomation.Select(
-            [cold], targets, character, playerAuto, 0, true, true).Kind);
-    }
-
-    [Fact]
-    public void RefillWaitsForPeaceModeAndSummonDoesNot()
-    {
-        var settings = Settings(MonsterDamageType.Cold);
-        settings.PetRefillCountNormal = 5;
-        var items = new ItemAutomation
-        {
-            Items =
-            [
-                Device(1, 49387, mastery: 3, level: 100, structure: 5, maximum: 50),
-                Item(2, PetDeviceCatalog.EncapsulatedSpiritWeenieClassId),
-            ],
-        };
-        var character = new Character(3, 300);
-        PluginCombatTarget[] targets = [Target(10, "Target", 4)];
-        var automation = new PetAutomation();
-        bool inPeace = false;
-
-        Assert.True(automation.Tick(
+        Assert.True(Select(
             items,
-            character,
-            targets,
-            settings,
-            1d,
-            out string blocked,
-            readyToRefillInPeace: () => inPeace));
-        Assert.Empty(items.Applies);
-        Assert.Contains("peace mode", blocked, StringComparison.Ordinal);
-
-        inPeace = true;
-        Assert.True(automation.Tick(
+            [Target(10, "Target", 4), Target(11, "NoPet", 3), Target(12, "Far", 20)],
+            settings).IsNone);
+        Assert.False(Select(
             items,
-            character,
-            targets,
-            settings,
-            1.1d,
-            out _,
-            readyToRefillInPeace: () => inPeace));
-        Assert.Equal([(2u, 1u)], items.Applies);
+            [Target(10, "Target", 4), Target(12, "Other", 9)],
+            settings).IsNone);
     }
 
     [Fact]
-    public void Select_RefillsChosenDeviceWithEncapsulatedSpiritBeforeSummon()
+    public void AnEssenceOutOfReachIsPassedOverForOneThatIsNot()
     {
         var settings = Settings(MonsterDamageType.Cold);
-        settings.PetRefillCountNormal = 5;
-        PluginInventoryItem device = Device(
-            1, 49387, mastery: 3, level: 100, structure: 5, maximum: 50);
-        PluginInventoryItem spirit = Item(
-            2, PetDeviceCatalog.EncapsulatedSpiritWeenieClassId);
+        var items = Essences(
+            // Every one of these suits the monster better than the last.
+            Device(1, Cold, requiredLevel: 200),
+            Device(2, Cold, requiredSkill: 400),
+            Device(3, Cold, structure: 0),
+            Device(4, Cold, mastery: 2),
+            Device(5, Fire));
+        var warnings = new List<string>();
 
-        PetAutomationChoice choice = PetAutomation.Select(
-            [device, spirit],
+        PetSummonChoice choice = PetAutomation.SelectPet(
+            items,
+            items.Items,
             [Target(10, "Target", 4)],
-            new Character(mastery: 3, summoning: 300),
+            new Character(mastery: 3, summoning: 300, level: 150),
             settings,
-            0,
-            allowRefill: true,
-            allowSummon: true);
+            _ => MonsterDamageType.None,
+            _ => [],
+            warnings.Add);
 
-        Assert.Equal(PetAutomationActionKind.Refill, choice.Kind);
-        Assert.Equal(spirit.ObjectId, choice.Tool.ObjectId);
-        Assert.Equal(device.ObjectId, choice.Device.ObjectId);
+        Assert.Equal(5u, choice.Device.ObjectId);
+        Assert.Contains(warnings, text => text.Contains("wrong summoning mastery", StringComparison.Ordinal));
     }
 
     [Fact]
-    public void Select_DoesNothingWhileOwnedCombatPetIsActive()
+    public void ANamedElementIsFirstChoiceButNeverTheOnlyOne()
     {
-        var settings = Settings(MonsterDamageType.Cold);
+        var items = Essences(Device(1, Acid), Device(2, Fire), Device(3, Cold));
 
-        PetAutomationChoice choice = PetAutomation.Select(
-            [Device(1, 49387, 3, 100)],
-            [Target(10, "Target", 4)],
-            new Character(3, 300),
-            settings,
-            activeOwnedPetCount: 1,
-            allowRefill: true,
-            allowSummon: true);
-
-        Assert.Equal(PetAutomationActionKind.None, choice.Kind);
+        Assert.Equal(3u, Select(items, [Target(10, "Target", 4)],
+            Settings(MonsterDamageType.Cold), attack: MonsterDamageType.Fire).Device.ObjectId);
+        // No cold essence: the attack's own element comes next ...
+        items = Essences(Device(1, Acid), Device(2, Fire));
+        Assert.Equal(2u, Select(items, [Target(10, "Target", 4)],
+            Settings(MonsterDamageType.Cold), attack: MonsterDamageType.Fire).Device.ObjectId);
+        // ... then the monster's listed weaknesses, in their order ...
+        Assert.Equal(1u, Select(items, [Target(10, "Target", 4)],
+            Settings(MonsterDamageType.Cold),
+            attack: MonsterDamageType.Slash,
+            preferences: [MonsterDamageType.Electric, MonsterDamageType.Acid, MonsterDamageType.Fire]).Device.ObjectId);
+        // ... and with nothing to go by, the first usable one still summons.
+        Assert.Equal(1u, Select(items, [Target(10, "Target", 4)],
+            Settings(MonsterDamageType.Cold), attack: MonsterDamageType.Slash).Device.ObjectId);
     }
 
     [Fact]
-    public void Tick_WaitsForUseDoneAndHonorsAuthenticCooldown()
+    public void PlayerAutoFollowsTheAttackThenTheWeaknessList()
     {
-        var items = new ItemAutomation
-        {
-            Items = [Device(1, 49387, 3, 100)],
-        };
-        var automation = new PetAutomation();
-        var settings = Settings(MonsterDamageType.Cold);
-        var character = new Character(3, 300);
-        PluginCombatTarget[] targets = [Target(10, "Target", 4)];
+        var items = Essences(Device(1, Acid), Device(2, Electric), Device(3, Fire));
+        var settings = Settings(MonsterDamageType.PlayerAuto);
 
-        Assert.True(automation.Tick(
-            items, character, targets, settings, 1d, out _));
-        Assert.Equal(new[] { 1u }, items.Uses);
-
-        Assert.True(automation.Tick(
-            items, character, targets, settings, 1.1d, out string pending));
-        Assert.Contains("Summoning", pending, StringComparison.Ordinal);
-        Assert.Single(items.Uses);
-
-        items.Completion = new PluginItemUseCompletion(1, 1, 0, 0);
-        Assert.False(automation.Tick(
-            items, character, targets, settings, 1.2d, out _));
-        Assert.Single(items.Uses);
-
-        Assert.False(automation.Tick(
-            items, character, targets, settings, 46.1d, out _));
-        Assert.Single(items.Uses);
-        Assert.True(automation.Tick(
-            items, character, targets, settings, 46.2d, out _));
-        Assert.Equal(2, items.Uses.Count);
+        Assert.Equal(3u, Select(items, [Target(10, "Target", 4)], settings,
+            attack: MonsterDamageType.Fire,
+            preferences: [MonsterDamageType.Electric]).Device.ObjectId);
+        Assert.Equal(2u, Select(items, [Target(10, "Target", 4)], settings,
+            attack: MonsterDamageType.Cold,
+            preferences: [MonsterDamageType.Electric, MonsterDamageType.Acid]).Device.ObjectId);
     }
 
     [Fact]
-    public void TickRefill_TopsUpTheFirstLowDeviceAtTheThresholdItIsGiven()
+    public void AutoGoesByTheWeaknessListAlone()
+    {
+        var items = Essences(Device(1, Acid), Device(2, Fire));
+
+        Assert.Equal(2u, Select(items, [Target(10, "Target", 4)],
+            Settings(MonsterDamageType.Auto),
+            attack: MonsterDamageType.Acid,
+            preferences: [MonsterDamageType.Fire, MonsterDamageType.Acid]).Device.ObjectId);
+    }
+
+    [Fact]
+    public void AnEqualRankGoesToTheHigherLevelRequirementThenTheItemsPageOrder()
+    {
+        var settings = Settings(MonsterDamageType.Auto);
+        settings.CombatItemOrderIds.Clear();
+        foreach (uint id in new uint[] { 3, 1, 2 })
+            settings.CombatItemOrderIds.Add(id);
+        var items = Essences(
+            Device(1, Cold, requiredLevel: 50),
+            Device(2, Cold, requiredLevel: 80),
+            Device(3, Fire, requiredLevel: 50));
+
+        Assert.Equal(2u, Select(items, [Target(10, "Target", 4)], settings).Device.ObjectId);
+
+        items = Essences(Device(1, Cold, requiredLevel: 50), Device(3, Fire, requiredLevel: 50));
+        Assert.Equal(3u, Select(items, [Target(10, "Target", 4)], settings).Device.ObjectId);
+    }
+
+    [Fact]
+    public void AnEssenceTheTableDoesNotKnowStrikesAsABludgeon()
+    {
+        var items = Essences(Device(1, Cold), Device(2, 99999u));
+
+        Assert.Equal(2u, Select(items, [Target(10, "Target", 4)],
+            Settings(MonsterDamageType.Bludgeon)).Device.ObjectId);
+    }
+
+    [Fact]
+    public void OnlyItemsOnTheItemsPageAreConsidered()
+    {
+        var settings = Settings(MonsterDamageType.Auto);
+        settings.CombatItemObjectIds.Clear();
+        settings.CombatItemOrderIds.Clear();
+        var items = Essences(Device(1, Cold));
+
+        Assert.True(Select(items, [Target(10, "Target", 4)], settings).IsNone);
+    }
+
+    [Fact]
+    public void TheRefillTakesTheFirstLowEssenceAndTheSmallestSpiritStack()
     {
         var settings = Settings(MonsterDamageType.Cold);
-        // Nothing about the refill depends on summoning being wanted or on a
-        // monster being there: that is what lets it stand in the idle band.
+        // Nothing about the refill depends on summoning being wanted.
         settings.SummonPets = false;
-        var items = new ItemAutomation
-        {
-            Items =
-            [
-                // Under the threshold but already full: nothing to add.
-                Device(1, 49387, mastery: 3, level: 100, structure: 2, maximum: 2),
-                Device(2, 49380, mastery: 3, level: 100, structure: 3, maximum: 50),
-                Device(3, 49373, mastery: 3, level: 100, structure: 1, maximum: 50),
-                Item(4, PetDeviceCatalog.EncapsulatedSpiritWeenieClassId),
-            ],
-        };
-        var automation = new PetAutomation();
+        var items = Essences(
+            // Under the threshold but already full: nothing to add.
+            Device(1, Cold, structure: 2, maximum: 2),
+            Device(2, Fire, structure: 3),
+            Device(3, Electric, structure: 1),
+            Spirit(4, stack: 12),
+            Spirit(5, stack: 3));
 
-        Assert.True(automation.TickRefill(items, settings, 3, 1d, out _));
+        Assert.True(PetAutomation.TrySelectRefill(
+            items, items.Items, settings, 3, out PluginInventoryItem device, out PluginInventoryItem spirit));
+        Assert.Equal(2u, device.ObjectId);
+        Assert.Equal(5u, spirit.ObjectId);
 
-        Assert.Equal([(4u, 2u)], items.Applies);
+        Assert.True(PetAutomation.TrySelectRefill(
+            items, items.Items, settings, 1, out device, out _));
+        Assert.Equal(3u, device.ObjectId);
+    }
+
+    /// <summary>
+    /// An essence not yet appraised this session is known by the shared
+    /// cooldown the server sends with the item, for the refill as for the
+    /// summon; an unappraised item without it is not an essence. Mutation:
+    /// reading the cooldown only from the appraisal finds nothing to refill.
+    /// </summary>
+    [Fact]
+    public void TheRefillKnowsAnUnappraisedEssenceByTheCooldownSentWithIt()
+    {
+        var settings = Settings(MonsterDamageType.Cold);
+        var items = Essences(
+            Device(1, Cold, structure: 1) with { SharedCooldownId = 0u },
+            Device(2, Fire, structure: 1) with
+            {
+                SharedCooldownId = PluginInventoryItem.SummoningCooldownId,
+            },
+            Spirit(3));
+        items.Unappraised.Add(1u);
+        items.Unappraised.Add(2u);
+
+        Assert.True(PetAutomation.TrySelectRefill(
+            items, items.Items, settings, 3, out PluginInventoryItem device, out _));
+        Assert.Equal(2u, device.ObjectId);
     }
 
     [Fact]
-    public void TickRefill_LeavesADeviceAloneUntilItIsUnderTheThreshold()
+    public void TheRefillNeedsALowEssenceAndASpirit()
     {
         var settings = Settings(MonsterDamageType.Cold);
-        var items = new ItemAutomation
-        {
-            Items =
-            [
-                Device(1, 49387, mastery: 3, level: 100, structure: 3, maximum: 50),
-                Item(2, PetDeviceCatalog.EncapsulatedSpiritWeenieClassId),
-            ],
-        };
-        var automation = new PetAutomation();
+        var items = Essences(Device(1, Cold, structure: 4), Spirit(2));
+        Assert.False(PetAutomation.TrySelectRefill(items, items.Items, settings, 3, out _, out _));
 
-        Assert.False(automation.TickRefill(items, settings, 1, 1d, out _));
-        Assert.Empty(items.Applies);
-
-        Assert.True(automation.TickRefill(items, settings, 3, 2d, out _));
-        Assert.Equal([(2u, 1u)], items.Applies);
+        items = Essences(Device(1, Cold, structure: 1));
+        Assert.False(PetAutomation.TrySelectRefill(items, items.Items, settings, 3, out _, out _));
     }
 
+    /// <summary>
+    /// A refill the client refuses outright gives the turn up, so the rules
+    /// below it run, and is not asked for again until the retry clock has
+    /// run out.
+    /// Mutation: keep the turn on every refusal, or drop the retry clock, and
+    /// the refused refill either holds the pass or is re-sent on the next one.
+    /// </summary>
     [Fact]
-    public void TickRefill_NeedsASpiritAndWaitsForPeaceMode()
+    public void ARefusedRefillGivesUpTheTurnAndWaitsBeforeAskingAgain()
     {
-        var settings = Settings(MonsterDamageType.Cold);
-        var items = new ItemAutomation
-        {
-            Items = [Device(1, 49387, mastery: 3, level: 100, structure: 1, maximum: 50)],
-        };
-        var automation = new PetAutomation();
-        bool inPeace = false;
+        (PetRefillRule rule, SummonPetRuleTests.Automation automation) = RefillRule();
+        automation.ApplyStatus = PluginItemCommandStatus.Refused;
 
-        Assert.False(automation.TickRefill(items, settings, 3, 1d, out _));
+        Assert.False(rule.Tick(new MacroPassContext(0.3d, CanAct: true)));
+        Assert.Single(automation.Applies);
+        Assert.False(rule.Tick(new MacroPassContext(0.3d, CanAct: true)));
+        Assert.Single(automation.Applies);
 
-        items.Items = [.. items.Items, Item(2, PetDeviceCatalog.EncapsulatedSpiritWeenieClassId)];
-
-        Assert.True(automation.TickRefill(
-            items, settings, 3, 2d, out string blocked, () => inPeace));
-        Assert.Empty(items.Applies);
-        Assert.Contains("peace mode", blocked, StringComparison.Ordinal);
-
-        inPeace = true;
-        Assert.True(automation.TickRefill(
-            items, settings, 3, 3d, out _, () => inPeace));
-        Assert.Equal([(2u, 1u)], items.Applies);
+        automation.ApplyStatus = PluginItemCommandStatus.Started;
+        Assert.True(rule.Tick(new MacroPassContext(PetRefillRule.RefusalRetrySeconds, CanAct: true)));
+        Assert.Equal(2, automation.Applies.Count);
     }
 
+    /// <summary>
+    /// A refill refused because the character is busy is still the refill
+    /// that is wanted: it keeps the turn, but it too waits out the retry
+    /// clock rather than being re-sent on every pass.
+    /// Mutation: re-send a busy refusal on the next pass and the second pass
+    /// asks the client again.
+    /// </summary>
     [Fact]
-    public void TickRefill_StartsNothingWhileThePassIsBlocked()
+    public void ABusyRefillKeepsTheTurnButWaitsBeforeAskingAgain()
     {
-        var settings = Settings(MonsterDamageType.Cold);
-        var items = new ItemAutomation
+        (PetRefillRule rule, SummonPetRuleTests.Automation automation) = RefillRule();
+        automation.ApplyStatus = PluginItemCommandStatus.Busy;
+
+        Assert.True(rule.Tick(new MacroPassContext(0.3d, CanAct: true)));
+        Assert.Single(automation.Applies);
+        Assert.True(rule.Tick(new MacroPassContext(0.3d, CanAct: true)));
+        Assert.Single(automation.Applies);
+
+        automation.ApplyStatus = PluginItemCommandStatus.Started;
+        Assert.True(rule.Tick(new MacroPassContext(PetRefillRule.RefusalRetrySeconds, CanAct: true)));
+        Assert.Equal(2, automation.Applies.Count);
+    }
+
+    private static (PetRefillRule Rule, SummonPetRuleTests.Automation Automation) RefillRule()
+    {
+        var automation = new SummonPetRuleTests.Automation
         {
-            Items =
-            [
-                Device(1, 49387, mastery: 3, level: 100, structure: 1, maximum: 50),
-                Item(2, PetDeviceCatalog.EncapsulatedSpiritWeenieClassId),
-            ],
+            ItemEntries = [Device(1, Cold, structure: 1), Spirit(2)],
         };
-        var automation = new PetAutomation();
-
-        Assert.False(automation.TickRefill(
-            items, settings, 3, 1d, out _, canAct: false));
-
-        Assert.Empty(items.Applies);
+        var rule = new PetRefillRule(
+            new SummonPetRuleTests.FakeHost(automation),
+            Settings(MonsterDamageType.Cold),
+            threshold: () => 3,
+            readyToRefillInPeace: () => true);
+        return (rule, automation);
     }
 
     [Theory]
@@ -294,42 +305,78 @@ public sealed class PetAutomationTests
             (MonsterDamageType)expected,
             PetDeviceCatalog.DamageType(wcid));
 
-    private static CombatSettings Settings(
-        MonsterDamageType pet,
-        MonsterDamageType attack = MonsterDamageType.Auto)
+    private static PetSummonChoice Select(
+        ItemAutomation items,
+        IReadOnlyList<PluginCombatTarget> targets,
+        CombatSettings settings,
+        MonsterDamageType attack = MonsterDamageType.None,
+        IReadOnlyList<MonsterDamageType>? preferences = null) =>
+        PetAutomation.SelectPet(
+            items,
+            items.Items,
+            targets,
+            new Character(mastery: 3, summoning: 300, level: 275),
+            settings,
+            _ => attack,
+            _ => preferences ?? []);
+
+    private static CombatSettings Settings(MonsterDamageType pet)
     {
-        var settings = new CombatSettings { SummonPets = true };
+        var settings = new CombatSettings { SummonPets = true, MaximumRange = 10f };
         settings.Rules.Clear();
         settings.Rules.Add(new MonsterRule(
             "DEFAULT",
             new MonsterRuleActions
             {
-                DamageType = attack,
+                DamageType = MonsterDamageType.Auto,
                 PetDamageType = pet,
             }));
         for (uint id = 1; id <= 20; id++)
+        {
             settings.CombatItemObjectIds.Add(id);
+            settings.CombatItemOrderIds.Add(id);
+        }
         return settings;
     }
+
+    private static ItemAutomation Essences(params PluginInventoryItem[] items) =>
+        new() { Items = items };
 
     private static PluginCombatTarget Target(uint id, string name, float distance) =>
         new(id, name, 1, distance, 0, true, 1f);
 
+    private static PluginInventoryItem Spirit(uint id, int stack = 1) =>
+        Item(id, EncapsulatedSpiritClass) with
+        {
+            Name = "Encapsulated Spirit",
+            StackSize = stack,
+        };
+
+    /// <summary>
+    /// An essence as a client sees it: no pet class, the shared summoning
+    /// cooldown the host reports with the item, and (in the fake's property
+    /// table) the level it asks for.
+    /// </summary>
     private static PluginInventoryItem Device(
         uint id,
         uint wcid,
-        int mastery,
-        int level,
+        int mastery = 0,
+        int requiredSkill = 100,
+        int requiredLevel = 0,
         int structure = 50,
         int maximum = 50) =>
         Item(id, wcid) with
         {
-            PetClass = 49000,
+            Name = $"Essence {id}",
+            SharedCooldownId = PluginInventoryItem.SummoningCooldownId,
             SummoningMastery = mastery,
             UseRequiresSkill = 54,
-            UseRequiresSkillLevel = level,
+            UseRequiresSkillLevel = requiredSkill,
             Structure = structure,
             MaximumStructure = maximum,
+            // The level requirement rides in the spell id slot for the fake
+            // to pick up; nothing reads SpellId for an essence.
+            SpellId = (uint)requiredLevel,
         };
 
     private static PluginInventoryItem Item(uint id, uint wcid) => new(
@@ -345,8 +392,8 @@ public sealed class PetAutomationTests
         TargetType: 0,
         PublicFlags: 0,
         StackSize: 1,
-        Structure: 1,
-        MaximumStructure: 1,
+        Structure: 0,
+        MaximumStructure: 0,
         SpellId: 0,
         PetClass: 0,
         SummoningMastery: 0,
@@ -361,9 +408,10 @@ public sealed class PetAutomationTests
         UseRequiresSkillLevel: 0,
         UseRequiresSkillSpecialized: 0);
 
-    private sealed class Character(int mastery, uint summoning) : ICharacterInfo
+    private sealed class Character(int mastery, uint summoning, int level) : ICharacterInfo
     {
         public bool IsInWorld => true;
+        public int Level => level;
         public uint ObjectId => 1;
         public uint CurrentHealth => 100;
         public uint MaxHealth => 100;
@@ -393,24 +441,51 @@ public sealed class PetAutomationTests
     {
         public bool IsAvailable => true;
         public bool IsBusy { get; set; }
-        public int ActiveOwnedPetCount { get; set; }
-        public PluginItemUseCompletion Completion { get; set; }
-        public PluginItemUseCompletion LastCompletion => Completion;
+        public PluginItemUseCompletion LastCompletion => default;
         public IReadOnlyList<PluginInventoryItem> Items { get; set; } = [];
-        public List<uint> Uses { get; } = [];
-        public List<(uint Source, uint Target)> Applies { get; } = [];
         public IReadOnlyList<PluginInventoryItem> CaptureOwnedItems() => Items;
 
-        public PluginItemCommandResult Use(uint objectId)
-        {
-            Uses.Add(objectId);
-            return new(PluginItemCommandStatus.Started);
-        }
+        /// <summary>Items this session has not appraised: no properties yet.</summary>
+        public HashSet<uint> Unappraised { get; } = [];
 
-        public PluginItemCommandResult Apply(uint objectId, uint targetObjectId)
+        public PluginItemCommandResult Use(uint objectId) =>
+            new(PluginItemCommandStatus.Started);
+
+        public PluginItemCommandResult Apply(uint objectId, uint targetObjectId) =>
+            new(PluginItemCommandStatus.Started);
+
+        /// <summary>
+        /// An essence's assessment as the server sends it: the shared
+        /// summoning cooldown, its charges and the level it asks for, and no
+        /// pet class. Anything with a structure ceiling is an essence here.
+        /// </summary>
+        public bool TryCaptureProperties(uint objectId, out PluginItemProperties properties)
         {
-            Applies.Add((objectId, targetObjectId));
-            return new(PluginItemCommandStatus.Started);
+            properties = default;
+            foreach (PluginInventoryItem item in Items)
+            {
+                if (item.ObjectId != objectId)
+                    continue;
+                var ints = new Dictionary<uint, int>();
+                if (item.MaximumStructure > 0 && !Unappraised.Contains(objectId))
+                {
+                    ints[280u] = 213;
+                    ints[92u] = item.Structure;
+                    ints[91u] = item.MaximumStructure;
+                    if (item.SpellId != 0u)
+                        ints[369u] = (int)item.SpellId;
+                }
+                properties = new PluginItemProperties(
+                    ints,
+                    new Dictionary<uint, long>(),
+                    new Dictionary<uint, bool>(),
+                    new Dictionary<uint, double>(),
+                    new Dictionary<uint, string>(),
+                    new Dictionary<uint, uint>(),
+                    new Dictionary<uint, uint>());
+                return true;
+            }
+            return false;
         }
     }
 }

@@ -150,6 +150,40 @@ public sealed class NavigationTests
     }
 
     /// <summary>
+    /// An arrival radius below the old 0.5 m floor is honoured down to one
+    /// steering step at a walk (about 0.15 m): 0.3 m from a point with a
+    /// 0.15 m radius the mover still walks on, while a radius below one
+    /// step is raised to it. Mutation: the 0.5 m floor stops at 0.3 m.
+    /// </summary>
+    [Theory]
+    [InlineData(0.30d, 0.15d, true)]
+    [InlineData(0.20d, 0.15d, true)]
+    [InlineData(0.14d, 0.15d, false)]
+    [InlineData(0.14d, 0.01d, false)]
+    public void ANarrowArrivalRadiusIsHonouredDownToOneWalkingStep(
+        double distanceMeters,
+        double minimumDistanceMeters,
+        bool walksOn)
+    {
+        PluginNavigationPosition goal = Position(distanceMeters / 240d, 0d);
+        var automation = new FakeAutomation
+        {
+            NavigationSnapshot = Snapshot(Position(0d, 0d, heading: 90f)),
+        };
+        NavigationController controller = Controller(
+            automation,
+            RouteMode.Circular,
+            minimumDistanceMeters,
+            Waypoint(RouteWaypointType.Point, goal),
+            Waypoint(RouteWaypointType.Point, Position(0d, 5d / 240d)));
+
+        controller.Tick(0.05d, canAct: true);
+
+        Assert.Equal(walksOn, automation.Intents.Any(static intent =>
+            intent.Forward && !intent.Run));
+    }
+
+    /// <summary>
     /// Outside the creep band the mover runs.
     /// </summary>
     [Fact]
@@ -444,6 +478,88 @@ public sealed class NavigationTests
         NavigationController follow = Controller(automation, RouteMode.Target, points);
         Assert.Equal(0, follow.SkipWaypoints(1));
     }
+
+    /// <summary>
+    /// Stepping back on a route walked forward moves the cursor one point
+    /// down the list and stops at the first point; a circular route does not
+    /// wrap round to its last point.
+    /// Mutation: let the circular cursor wrap and the last step lands on the
+    /// last point instead of staying on the first.
+    /// </summary>
+    [Theory]
+    [InlineData("Circular")]
+    [InlineData("Linear")]
+    public void SteppingBackOnAForwardRouteGoesDownTheListAndStopsAtTheFirst(string modeName)
+    {
+        RouteMode mode = Enum.Parse<RouteMode>(modeName);
+        var automation = new FakeAutomation { NavigationSnapshot = Snapshot(Position(5d, 5d)) };
+        NavigationController route = Controller(automation, mode, StepBackPoints());
+        Assert.Equal(3, route.SkipWaypoints(3));
+        Assert.Equal(3, route.CurrentWaypointIndex);
+
+        Assert.Equal(1, route.StepBackWaypoints(1));
+        Assert.Equal(2, route.CurrentWaypointIndex);
+        Assert.Equal(2, route.StepBackWaypoints(9));
+        Assert.Equal(0, route.CurrentWaypointIndex);
+        Assert.Equal(0, route.StepBackWaypoints(1));
+        Assert.Equal(0, route.CurrentWaypointIndex);
+    }
+
+    /// <summary>
+    /// A linear route on its way back walks down the list, so the waypoint
+    /// before the one it is heading for is the next one up: stepping back
+    /// moves the cursor up the list, and stops at the last point.
+    /// Mutation: step down the list whatever the direction and the cursor
+    /// jumps ahead along the way back, to the first point.
+    /// </summary>
+    [Fact]
+    public void SteppingBackOnALinearRouteOnItsWayBackGoesUpTheList()
+    {
+        var automation = new FakeAutomation { NavigationSnapshot = Snapshot(Position(5d, 5d)) };
+        NavigationController route = Controller(automation, RouteMode.Linear, StepBackPoints());
+        // Out to the far end and two points back.
+        route.SkipWaypoints(6);
+        Assert.True(route.Reversing);
+        Assert.Equal(1, route.CurrentWaypointIndex);
+
+        Assert.Equal(1, route.StepBackWaypoints(1));
+        Assert.Equal(2, route.CurrentWaypointIndex);
+        Assert.Equal(1, route.StepBackWaypoints(9));
+        Assert.Equal(3, route.CurrentWaypointIndex);
+        Assert.Equal(0, route.StepBackWaypoints(1));
+        Assert.Equal(3, route.CurrentWaypointIndex);
+    }
+
+    /// <summary>
+    /// A reversed route is walked from the last point toward the first, so
+    /// stepping back moves the cursor up the list, and stops at the last
+    /// point rather than wrapping.
+    /// Mutation: step down the list whatever the direction and the cursor
+    /// moves on along the reversed walk instead of back.
+    /// </summary>
+    [Fact]
+    public void SteppingBackOnAReversedRouteGoesUpTheList()
+    {
+        var automation = new FakeAutomation { NavigationSnapshot = Snapshot(Position(5d, 5d)) };
+        NavigationController route = Controller(automation, RouteMode.Circular, StepBackPoints());
+        route.ToggleReverse();
+        // Reversed from the first point: the last, then the one before it.
+        route.SkipWaypoints(2);
+        Assert.Equal(2, route.CurrentWaypointIndex);
+
+        Assert.Equal(1, route.StepBackWaypoints(1));
+        Assert.Equal(3, route.CurrentWaypointIndex);
+        Assert.Equal(0, route.StepBackWaypoints(1));
+        Assert.Equal(3, route.CurrentWaypointIndex);
+    }
+
+    private static RouteWaypoint[] StepBackPoints() =>
+    [
+        Waypoint(RouteWaypointType.Point, Position(0d, 0d)),
+        Waypoint(RouteWaypointType.Point, Position(1d, 0d)),
+        Waypoint(RouteWaypointType.Point, Position(2d, 0d)),
+        Waypoint(RouteWaypointType.Point, Position(3d, 0d)),
+    ];
 
     [Fact]
     public void CircularRouteWrapsAndOnceRouteStops()
@@ -1237,6 +1353,155 @@ public sealed class NavigationTests
         Assert.False(controller.Tick(0.05d, canAct: true));
     }
 
+    // ── Arriving through a portal ────────────────────────────────────────
+
+    /// <summary>
+    /// A route that uses a portal, with the portal still standing 1 m east of
+    /// the start and a point beyond the destination.
+    /// </summary>
+    private static (NavigationController Controller, FakeAutomation Automation)
+        PortalRoute(RouteWaypointType kind)
+    {
+        var automation = new FakeAutomation
+        {
+            NavigationSnapshot = Snapshot(Position(0d, 0d)),
+        };
+        automation.Objects[77u] = new PluginNavigationObject(
+            77u,
+            "Portal",
+            Position(1d / 240d, 0d));
+        RouteWaypoint portal = Waypoint(kind, Position(0d, 0d));
+        portal.ObjectId = 77u;
+        portal.ObjectName = "Portal";
+        portal.ReferencePosition = Position(1d / 240d, 0d);
+        NavigationController controller = Controller(
+            automation,
+            RouteMode.Once,
+            portal,
+            Waypoint(RouteWaypointType.Point, Position(5d, 0d)));
+        return (controller, automation);
+    }
+
+    private static void PassThroughPortalSpace(
+        NavigationController controller,
+        FakeAutomation automation,
+        PluginNavigationPosition landing)
+    {
+        automation.NavigationSnapshot = automation.NavigationSnapshot with
+        {
+            IsPortalSpace = true,
+        };
+        Assert.True(controller.Tick(0.05d, canAct: true));
+        automation.NavigationSnapshot = Snapshot(landing);
+    }
+
+    /// <summary>
+    /// Coming out of portal space far from the portal finishes the portal
+    /// waypoint on the first tick, even though the portal it used is still in
+    /// the object table: the route moves on to the next point and never walks
+    /// back towards where the portal stood.
+    ///
+    /// Mutation: put the portal-exit check back below the approach and the
+    /// first tick after arrival steers at the old portal (forward held, the
+    /// waypoint still current) until the object leaves the table.
+    /// </summary>
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void APortalWaypointIsDoneOnTheFirstTickAfterArrival(bool byName)
+    {
+        (NavigationController controller, FakeAutomation automation) = PortalRoute(
+            byName ? RouteWaypointType.PortalByName : RouteWaypointType.Portal);
+
+        Assert.True(controller.Tick(0.05d, canAct: true));
+        Assert.Equal([77u], automation.UsedObjects);
+
+        PassThroughPortalSpace(controller, automation, Position(4d, 0d));
+        automation.Intents.Clear();
+        Assert.True(controller.Tick(0.05d, canAct: true));
+
+        Assert.Equal(1, controller.CurrentWaypointIndex);
+        Assert.DoesNotContain(automation.Intents, static intent => intent.Forward);
+        Assert.Equal([77u], automation.UsedObjects);
+    }
+
+    /// <summary>
+    /// A portal-by-name waypoint whose portal object has gone from the table by
+    /// the time the character lands is done on arrival too, instead of
+    /// searching for the object until the use times out.
+    ///
+    /// Mutation: put the portal-exit check back below the object search and
+    /// the waypoint sits on "Finding Portal." for the rest of its thirty
+    /// seconds.
+    /// </summary>
+    [Fact]
+    public void APortalByNameWaypointIsDoneOnArrivalWhenItsPortalIsGone()
+    {
+        (NavigationController controller, FakeAutomation automation) =
+            PortalRoute(RouteWaypointType.PortalByName);
+
+        Assert.True(controller.Tick(0.05d, canAct: true));
+        PassThroughPortalSpace(controller, automation, Position(4d, 0d));
+        automation.Objects.Clear();
+
+        Assert.True(controller.Tick(0.05d, canAct: true));
+
+        Assert.Equal(1, controller.CurrentWaypointIndex);
+    }
+
+    /// <summary>
+    /// A portal-by-name exit within 15 m of where the use was sent is not an
+    /// arrival: the waypoint stays current, says so, and uses the portal again
+    /// once the character is back in reach of it.
+    ///
+    /// Mutation: put the portal-exit check back below the approach and the
+    /// first tick after the near exit only walks back to the portal, so the
+    /// second use waits a tick longer than it should.
+    /// </summary>
+    [Fact]
+    public void APortalByNameExitNearItsOriginRetriesTheUse()
+    {
+        (NavigationController controller, FakeAutomation automation) =
+            PortalRoute(RouteWaypointType.PortalByName);
+
+        Assert.True(controller.Tick(0.05d, canAct: true));
+        Assert.Equal([77u], automation.UsedObjects);
+
+        // Out 10 m west of the start: 11 m from the portal, inside 15 m of
+        // the origin.
+        PassThroughPortalSpace(controller, automation, Position(-10d / 240d, 0d));
+        Assert.True(controller.Tick(0.05d, canAct: true));
+        Assert.Equal(0, controller.CurrentWaypointIndex);
+
+        automation.NavigationSnapshot = Snapshot(Position(0d, 0d));
+        Assert.True(controller.Tick(0.05d, canAct: true));
+
+        Assert.Equal(0, controller.CurrentWaypointIndex);
+        Assert.Equal([77u, 77u], automation.UsedObjects);
+    }
+
+    /// <summary>
+    /// A recall is done on the first tick after the character comes out of
+    /// portal space somewhere else. The position jump is the teleport itself,
+    /// not the character failing to stand still.
+    ///
+    /// Mutation: put the portal-exit check back below the standing-still check
+    /// and the first tick after arrival reads the jump as movement and waits.
+    /// </summary>
+    [Fact]
+    public void ARecallWaypointIsDoneOnTheFirstTickAfterArrival()
+    {
+        (NavigationController controller, FakeAutomation automation,
+            FakeMagic magic) = RecallReadyToCast();
+        Assert.True(controller.Tick(0.05d, canAct: true));
+        Assert.Equal([1635u], magic.CastSpellIds);
+
+        PassThroughPortalSpace(controller, automation, Position(4d, 0d));
+        Assert.True(controller.Tick(0.05d, canAct: true));
+
+        Assert.Equal(1, controller.CurrentWaypointIndex);
+    }
+
     [Fact]
     public void UseNpcRepeatsUntilTheNpcRespondsInChat()
     {
@@ -1260,7 +1525,7 @@ public sealed class NavigationTests
             "Town Crier",
             "Welcome.",
             string.Empty)
-            { LogTextType = 3 });
+            { LogTextType = 3, DisplayText = "Town Crier tells you, \"Welcome.\"" });
         Assert.True(controller.Tick(0.05d, canAct: true));
         Assert.False(controller.Tick(0.05d, canAct: true));
     }
@@ -1306,9 +1571,9 @@ public sealed class NavigationTests
 
         automation.NavigationSnapshot = Snapshot(Position(0d, 0d, heading: 90f));
         Assert.True(controller.Tick(0.05d, canAct: true));
-        Assert.True(automation.Intents[^1].Jump);
+        Assert.Equal([0.1f], automation.Jumps);
         Assert.True(controller.Tick(0.05d, canAct: true));
-        Assert.False(automation.Intents[^1].Jump);
+        Assert.Single(automation.Jumps);
 
         automation.NavigationSnapshot = Snapshot(
             Position(0d, 0d, heading: 90f),
@@ -1317,6 +1582,95 @@ public sealed class NavigationTests
         automation.NavigationSnapshot = Snapshot(Position(0d, 0d, heading: 90f));
         Assert.True(controller.Tick(0.25d, canAct: true));
         Assert.False(controller.Tick(0.01d, canAct: true));
+    }
+
+    /// <summary>
+    /// The reference raises its busy count for the whole of a route jump,
+    /// from the turn to its heading until it has landed, and so holds its
+    /// pass, meta included. The armed mover drives the jump on the frame
+    /// meanwhile. Mutation: not reporting the jump leaves the pass running
+    /// under it; reporting it after the landing holds the pass for good.
+    /// </summary>
+    [Fact]
+    public void AJumpWaypointHoldsThePassFromItsTurnUntilItLands()
+    {
+        var automation = new FakeAutomation
+        {
+            NavigationSnapshot = Snapshot(Position(0d, 0d, heading: 0f)),
+        };
+        RouteWaypoint jump = Waypoint(RouteWaypointType.Jump, Position(0d, 0d));
+        jump.JumpHeadingDegrees = 90f;
+        jump.JumpChargeMilliseconds = 100;
+        NavigationController controller = Controller(automation, RouteMode.Once, jump);
+        Assert.False(controller.HoldsPass);
+
+        Assert.True(controller.ClaimFromRulePass(canAct: true));
+        Assert.True(controller.HoldsPass);
+
+        // Only frames from here: the pass is held.
+        automation.NavigationSnapshot = Snapshot(Position(0d, 0d, heading: 90f));
+        controller.StepArmedMover(0.05d, navigationSlotsAreClear: true);
+        controller.StepArmedMover(0.1d, navigationSlotsAreClear: true);
+        Assert.Equal([0.1f], automation.Jumps);
+        Assert.True(controller.HoldsPass);
+
+        automation.NavigationSnapshot = Snapshot(
+            Position(0d, 0d, heading: 90f),
+            airborne: true);
+        controller.StepArmedMover(0.05d, navigationSlotsAreClear: true);
+        Assert.True(controller.HoldsPass);
+        automation.NavigationSnapshot = Snapshot(Position(0d, 0d, heading: 90f));
+        controller.StepArmedMover(0.3d, navigationSlotsAreClear: true);
+
+        Assert.False(controller.HoldsPass);
+    }
+
+    /// <summary>
+    /// A route that has lost its turn holds nothing, even mid-jump.
+    /// Mutation: dropping the armed check keeps holding the pass.
+    /// </summary>
+    [Fact]
+    public void AJumpThatLostItsTurnHoldsNothing()
+    {
+        var automation = new FakeAutomation
+        {
+            NavigationSnapshot = Snapshot(Position(0d, 0d, heading: 0f)),
+        };
+        RouteWaypoint jump = Waypoint(RouteWaypointType.Jump, Position(0d, 0d));
+        jump.JumpHeadingDegrees = 90f;
+        NavigationController controller = Controller(automation, RouteMode.Once, jump);
+
+        Assert.True(controller.ClaimFromRulePass(canAct: true));
+        controller.StepArmedMover(0.05d, navigationSlotsAreClear: false);
+
+        Assert.False(controller.HoldsPass);
+    }
+
+    /// <summary>
+    /// A route jump's shift flag holds the game's walk key: set, the jump
+    /// leaves at a walk; clear, at the default run. Mutation: reading the
+    /// flag as run inverts both.
+    /// </summary>
+    [Theory]
+    [InlineData(true, PluginMovePace.Walk)]
+    [InlineData(false, PluginMovePace.Run)]
+    public void ARouteJumpsShiftFlagWalksAndItsAbsenceRuns(bool holdShift, PluginMovePace pace)
+    {
+        var automation = new FakeAutomation
+        {
+            NavigationSnapshot = Snapshot(Position(0d, 0d, heading: 90f)),
+        };
+        RouteWaypoint jump = Waypoint(RouteWaypointType.Jump, Position(0d, 0d));
+        jump.JumpHeadingDegrees = 90f;
+        jump.JumpChargeMilliseconds = 300;
+        jump.JumpHoldShift = holdShift;
+        NavigationController controller = Controller(automation, RouteMode.Once, jump);
+
+        Assert.True(controller.Tick(0.05d, canAct: true));
+
+        Assert.Equal(
+            [(PluginMoveDirection.Forward, pace, 0f, PluginMoveUnit.MetersOrDegrees)],
+            automation.Moves);
     }
 
     /// <summary>
@@ -1339,11 +1693,58 @@ public sealed class NavigationTests
 
         Assert.True(controller.Tick(0.05d, canAct: true));
 
-        Assert.True(automation.Intents[^1].Jump);
-        Assert.True(automation.Intents[^1].Backward);
-        Assert.False(automation.Intents[^1].Forward);
+        Assert.Equal([0.1f], automation.Jumps);
+        Assert.Equal(
+            [(PluginMoveDirection.Backward, PluginMovePace.Run, 0f, PluginMoveUnit.MetersOrDegrees)],
+            automation.Moves);
     }
 
+    /// <summary>
+    /// A route jump leaves with exactly the power its charge time asks for,
+    /// with its direction and pace held by the client through the charge,
+    /// and lets go of that key once it has landed. Mutation: holding the
+    /// jump key and letting go on a later tick leaves with whatever the
+    /// frames added up to; leaving the key held walks on after the landing.
+    /// </summary>
+    [Fact]
+    public void ARouteJumpLeavesWithExactlyThePowerItsChargeTimeAsks()
+    {
+        var automation = new FakeAutomation
+        {
+            NavigationSnapshot = Snapshot(Position(0d, 0d, heading: 90f)),
+        };
+        RouteWaypoint jump = Waypoint(RouteWaypointType.Jump, Position(0d, 0d));
+        jump.JumpHeadingDegrees = 90f;
+        jump.JumpChargeMilliseconds = 450;
+        jump.JumpHoldShift = true;
+        NavigationController controller = Controller(automation, RouteMode.Once, jump);
+
+        Assert.True(controller.Tick(0.05d, canAct: true));
+        Assert.Equal([0.45f], automation.Jumps);
+        Assert.Equal(
+            [(PluginMoveDirection.Forward, PluginMovePace.Walk, 0f, PluginMoveUnit.MetersOrDegrees)],
+            automation.Moves);
+        Assert.DoesNotContain(automation.Intents, static intent => intent.Jump);
+
+        Assert.True(controller.Tick(0.45d, canAct: true));
+        automation.NavigationSnapshot = Snapshot(
+            Position(0d, 0d, heading: 90f),
+            airborne: true);
+        Assert.True(controller.Tick(0.05d, canAct: true));
+        Assert.Empty(automation.StoppedMoves);
+        automation.NavigationSnapshot = Snapshot(Position(0d, 0d, heading: 90f));
+        Assert.True(controller.Tick(0.25d, canAct: true));
+
+        Assert.Equal([0.45f], automation.Jumps);
+        Assert.Equal([PluginMoveChannel.Travel], automation.StoppedMoves);
+    }
+
+    /// <summary>
+    /// A charge time past the two-second ceiling is the ceiling, and a
+    /// full charge takes one second, so anything from a second up leaves
+    /// with the full power and the charge is over after that second.
+    /// Mutation: dropping the clamp asks the client for a power it refuses.
+    /// </summary>
     [Fact]
     public void JumpChargeExecutionClampsAtAuthenticTwoThousandMillisecondCeiling()
     {
@@ -1356,11 +1757,35 @@ public sealed class NavigationTests
         jump.JumpChargeMilliseconds = 5000;
         NavigationController controller = Controller(automation, RouteMode.Once, jump);
 
-        Assert.True(controller.Tick(1.9d, canAct: true));
-        Assert.True(automation.Intents[^1].Jump);
+        Assert.True(controller.Tick(0.9d, canAct: true));
+        Assert.Equal([1f], automation.Jumps);
+        Assert.Equal("Charging jump: 2000ms.", controller.Status);
 
         Assert.True(controller.Tick(0.2d, canAct: true));
-        Assert.False(automation.Intents[^1].Jump);
+        Assert.Equal("Jump released.", controller.Status);
+        Assert.Single(automation.Jumps);
+    }
+
+    /// <summary>
+    /// A charge time of nothing is a tap: the least power the client takes,
+    /// since it takes no jump of no power at all. Mutation: passing the zero
+    /// on asks for a jump the client refuses.
+    /// </summary>
+    [Fact]
+    public void AZeroChargeRouteJumpTapsWithTheLeastPowerTheClientTakes()
+    {
+        var automation = new FakeAutomation
+        {
+            NavigationSnapshot = Snapshot(Position(0d, 0d, heading: 90f)),
+        };
+        RouteWaypoint jump = Waypoint(RouteWaypointType.Jump, Position(0d, 0d));
+        jump.JumpHeadingDegrees = 90f;
+        jump.JumpChargeMilliseconds = 0;
+        NavigationController controller = Controller(automation, RouteMode.Once, jump);
+
+        Assert.True(controller.Tick(0.05d, canAct: true));
+
+        Assert.Equal([float.Epsilon], automation.Jumps);
     }
 
     [Fact]
@@ -1382,7 +1807,7 @@ public sealed class NavigationTests
             DurationMilliseconds = 1234,
             Recall = RouteRecallKind.SecondaryPortalRecall,
             JumpHeadingDegrees = 271.5f,
-            JumpRun = true,
+            JumpHoldShift = true,
             JumpChargeMilliseconds = 875,
             JumpDirection = RouteJumpDirection.StrafeRight,
         });
@@ -1413,7 +1838,7 @@ public sealed class NavigationTests
         RouteWaypoint waypoint = Assert.Single(target.Waypoints);
         Assert.Equal(RouteWaypointType.Jump, waypoint.Type);
         Assert.Equal(271.5f, waypoint.JumpHeadingDegrees);
-        Assert.True(waypoint.JumpRun);
+        Assert.True(waypoint.JumpHoldShift);
         Assert.Equal(875, waypoint.JumpChargeMilliseconds);
         // The direction survives the save: it rides the charge field.
         Assert.Equal(RouteJumpDirection.StrafeRight, waypoint.JumpDirection);
@@ -1604,7 +2029,7 @@ public sealed class NavigationTests
 
 
     [Fact]
-    public void ANavDroppedIntoTheNavsFolderLoadsAndSavesBesideItself()
+    public void ANavDroppedIntoTheNavsFolderLoadsAndSavesBackIntoItself()
     {
         var storage = new MemoryStorage();
         storage.Text["mosstank/navs/Dropped.nav"] = File.ReadAllText(Path.Combine(
@@ -1613,8 +2038,8 @@ public sealed class NavigationTests
             new FakeHost(new FakeAutomation(), storage));
         store.BindCharacter("Barris");
 
-        Assert.Contains("Dropped.nav", store.AvailableNames);
-        Assert.True(store.Select("Dropped.nav"));
+        Assert.Contains("Dropped", store.AvailableNames);
+        Assert.True(store.Select("Dropped"));
 
         var route = new NavigationSettings();
         Assert.Equal(
@@ -1623,12 +2048,13 @@ public sealed class NavigationTests
         Assert.NotEmpty(route.Waypoints);
 
         string dropped = storage.Text["mosstank/navs/Dropped.nav"];
-        store.SaveCurrent(route);
+        Assert.True(store.SaveCurrent(route));
 
-        // The dropped file belongs to whoever dropped it; the plugin's own
-        // format goes beside it under the same name.
+        // A route saves back to the file it came from, in that file's own
+        // form, and one saved unchanged is the same bytes; nothing is
+        // written beside it.
         Assert.Equal(dropped, storage.Text["mosstank/navs/Dropped.nav"]);
-        Assert.True(storage.Text.ContainsKey("mosstank/navs/Dropped.af"));
+        Assert.False(storage.Text.ContainsKey("mosstank/navs/Dropped.af"));
     }
 
     [Fact]
@@ -2263,7 +2689,7 @@ public sealed class NavigationTests
 
         Assert.Equal(
             charges,
-            automation.Intents.Exists(static intent => intent.Jump));
+            automation.Jumps.Count > 0);
         Assert.Equal(charges ? 0 : 1, automation.FacedHeadings.Count);
     }
 
@@ -2331,7 +2757,10 @@ public sealed class NavigationTests
     /// from a BARE message, a server line arrives whole with no sender. Rows
     /// three and four are the same two lines wearing each other's log-text
     /// type; rows five and six are an ordinary player tell and a chat-channel
-    /// line that reads like the answer.
+    /// line that reads like the answer. Row seven is a player who shares the
+    /// NPC's name: the host prints a player's name as a tell link, so the line
+    /// does not open with the bare name, and only reading the host's wording
+    /// (rather than rebuilding the line from its parts) keeps it out.
     /// </remarks>
     [Theory]
     // log-text type, sender object id, sender, text, completes
@@ -2341,6 +2770,7 @@ public sealed class NavigationTests
     [InlineData(3u, 0u, "", "Aun Tanua gives you a Token.", false)]
     [InlineData(3u, 700u, "Someone Else", "Greetings.", false)]
     [InlineData(8u, 0u, "", "Aun Tanua gives you a Token.", false)]
+    [InlineData(3u, 0x5000_0003u, "Aun Tanua", "Greetings.", false)]
     public void UseNpcCompletesOnlyOnItsOwnChannels(
         uint logTextType,
         uint senderObjectId,
@@ -2376,7 +2806,17 @@ public sealed class NavigationTests
             Sender: sender,
             Text: text,
             ChannelName: string.Empty)
-            { LogTextType = (int)logTextType });
+        {
+            LogTextType = (int)logTextType,
+            // The host words the whole line as the chat window prints it: a
+            // tell under its sender, a player's name as a tell link, a server
+            // line as it stands.
+            DisplayText = senderObjectId == 0u
+                ? text
+                : senderObjectId >= 0x5000_0001u && senderObjectId <= 0x6FFF_FFFFu
+                    ? $"<Tell:IIDString:{senderObjectId}:{sender}>{sender}<\\Tell> tells you, \"{text}\""
+                    : $"{sender} tells you, \"{text}\"",
+        });
 
         Assert.True(controller.Tick(0.05d, canAct: true));
 
@@ -3284,6 +3724,43 @@ public sealed class NavigationTests
         public PluginNavigationCommandStatus FaceHeading(float headingDegrees)
         {
             FacedHeadings.Add(headingDegrees);
+            return PluginNavigationCommandStatus.Accepted;
+        }
+
+        /// <summary>
+        /// The moves the client was asked to carry out, the jumps it was
+        /// asked for by power, and the channels it was asked to stop (null
+        /// for every channel at once), each in order.
+        /// </summary>
+        public List<(PluginMoveDirection Direction, PluginMovePace Pace, float Amount, PluginMoveUnit Unit)> Moves { get; } = [];
+        public List<float> Jumps { get; } = [];
+        public List<PluginMoveChannel?> StoppedMoves { get; } = [];
+
+        public PluginNavigationCommandStatus Move(
+            PluginMoveDirection direction,
+            PluginMovePace pace,
+            float amount,
+            PluginMoveUnit unit = PluginMoveUnit.MetersOrDegrees)
+        {
+            Moves.Add((direction, pace, amount, unit));
+            return PluginNavigationCommandStatus.Accepted;
+        }
+
+        public PluginNavigationCommandStatus StopMoving()
+        {
+            StoppedMoves.Add(null);
+            return PluginNavigationCommandStatus.Accepted;
+        }
+
+        public PluginNavigationCommandStatus StopMoving(PluginMoveChannel channel)
+        {
+            StoppedMoves.Add(channel);
+            return PluginNavigationCommandStatus.Accepted;
+        }
+
+        public PluginNavigationCommandStatus Jump(float power)
+        {
+            Jumps.Add(power);
             return PluginNavigationCommandStatus.Accepted;
         }
 

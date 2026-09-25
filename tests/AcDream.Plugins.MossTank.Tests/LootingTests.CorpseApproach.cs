@@ -329,13 +329,242 @@ public sealed partial class LootingTests
         Assert.Empty(automation.Intents);
     }
 
-    private static LootSettings ApproachSettings(double range)
+    /// <summary>
+    /// MossTank's own rule, with its option on: a corpse whose description
+    /// says this character's kill generated a rare is walked to past the
+    /// profile's approach range, out to the rare reach — and no further.
+    ///
+    /// Mutation: give the rare no reach of its own and the thirty-metre row
+    /// stays put; give it an unbounded one and the row past the reach walks.
+    /// </summary>
+    [Theory]
+    [InlineData(30f, true)]
+    [InlineData(99f, true)]
+    [InlineData(101f, false)]
+    public void ThisCharactersRareIsWalkedToOutToTheRareReach(float distance, bool walks)
+    {
+        var settings = ApproachSettings(range: 15d, walkToOwnRares: true);
+        var automation = ApproachAutomation(
+            Corpse(0x70002030u, distance) with
+            {
+                LongDescription = "Killed by Tester. This corpse generated a rare item!",
+            });
+        CorpseApproachController approach = Approach(automation, settings);
+
+        Assert.Equal(walks, approach.ClaimFromRulePass(canAct: true));
+        Assert.Equal(walks, automation.Intents.Count != 0);
+        if (walks)
+            Assert.Contains("past the corpse approach range", approach.Status, StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// The rare reach is for this character's own rare. Somebody else's rare
+    /// corpse is never looted, and an ordinary kill of this character's past
+    /// the range is left as the reference leaves it.
+    ///
+    /// Mutation: widen the reach for any rare, or for any corpse, and one of
+    /// the two rows walks.
+    /// </summary>
+    [Theory]
+    [InlineData("Killed by Stranger. This corpse generated a rare item!")]
+    [InlineData("Killed by Tester.")]
+    public void OnlyThisCharactersRareGetsTheRareReach(string description)
+    {
+        var settings = ApproachSettings(range: 15d, walkToOwnRares: true);
+        var automation = ApproachAutomation(
+            Corpse(0x70002031u, 30f) with { LongDescription = description });
+        CorpseApproachController approach = Approach(automation, settings);
+
+        Assert.False(approach.ClaimFromRulePass(canAct: true));
+        Assert.Empty(automation.Intents);
+    }
+
+    /// <summary>
+    /// With the own-rare walk option off — its default — this character's
+    /// rare past the approach range is left like any other corpse there: the
+    /// range is a hard cut, as the reference has it.
+    ///
+    /// Mutation: widen the reach whatever the option says and the rare
+    /// thirty metres off is walked to.
+    /// </summary>
+    [Fact]
+    public void WithTheOptionOffThisCharactersRarePastTheRangeIsLeft()
+    {
+        var settings = ApproachSettings(range: 15d);
+        Assert.False(settings.WalkToOwnRareCorpses);
+        var automation = ApproachAutomation(OwnRareCorpse(0x70002032u, 30f));
+        (CorpseApproachController approach, LootController loot) =
+            ApproachWithLoot(automation, settings);
+
+        Assert.False(approach.ClaimFromRulePass(canAct: true));
+        Assert.Empty(automation.Intents);
+        Assert.False(loot.HasOwnRareCorpseToFetch(settings.CorpseApproachRange));
+    }
+
+    /// <summary>
+    /// With the option off, a walk to this character's rare inside the range
+    /// is an ordinary corpse walk: it is never given up, however long the
+    /// character stands still.
+    ///
+    /// Mutation: give every rare walk the give-up, option or not, and the
+    /// walk ends after three seconds of standing still.
+    /// </summary>
+    [Fact]
+    public void WithTheOptionOffARareWalkIsNeverGivenUp()
+    {
+        var settings = ApproachSettings(range: 30d);
+        var automation = ApproachAutomation(OwnRareCorpse(0x70002033u, 20f));
+        CorpseApproachController approach = Approach(automation, settings);
+
+        Assert.True(approach.ClaimFromRulePass(canAct: true));
+        for (int frame = 0; frame < 200; frame++)
+        {
+            approach.StepArmedMover(0.05d);
+            if (frame % 5 == 4)
+                Assert.True(approach.ClaimFromRulePass(canAct: true));
+        }
+        Assert.DoesNotContain("Gave up", approach.Status, StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// With the option on, a walk to this character's rare that covers no
+    /// ground is given up: the corpse is set aside, the walk stops picking
+    /// it and it no longer holds the route.
+    ///
+    /// Mutation: drop the stuck test from the give-up and the walk pushes
+    /// into the wall for the whole minute, holding the route.
+    /// </summary>
+    [Fact]
+    public void AStuckWalkToThisCharactersRareIsGivenUp()
+    {
+        var settings = ApproachSettings(range: 15d, walkToOwnRares: true);
+        var automation = ApproachAutomation(OwnRareCorpse(0x70002034u, 30f));
+        (CorpseApproachController approach, LootController loot) =
+            ApproachWithLoot(automation, settings);
+        Assert.True(approach.ClaimFromRulePass(canAct: true));
+        Assert.True(loot.HasOwnRareCorpseToFetch(settings.CorpseApproachRange));
+
+        string givenUp = WalkUntilGivenUp(approach, automation, frames: 100, pace: false);
+
+        Assert.Contains("no ground covered", givenUp, StringComparison.Ordinal);
+        Assert.False(approach.ClaimFromRulePass(canAct: true));
+        Assert.False(loot.HasOwnRareCorpseToFetch(settings.CorpseApproachRange));
+    }
+
+    /// <summary>
+    /// With the option on, a walk to this character's rare that keeps moving
+    /// but never arrives is given up after its time cap, and the corpse no
+    /// longer holds the route.
+    ///
+    /// Mutation: drop the time cap and a walk that paces back and forth
+    /// short of the corpse holds the route for ever.
+    /// </summary>
+    [Fact]
+    public void AWalkToThisCharactersRareThatNeverArrivesIsGivenUpAfterItsTimeCap()
+    {
+        var settings = ApproachSettings(range: 15d, walkToOwnRares: true);
+        var automation = ApproachAutomation(OwnRareCorpse(0x70002035u, 30f));
+        (CorpseApproachController approach, LootController loot) =
+            ApproachWithLoot(automation, settings);
+        Assert.True(approach.ClaimFromRulePass(canAct: true));
+
+        // Pacing a metre east and back: always covering ground, never there.
+        int frames = (int)(CorpseApproachController.OwnRareWalkGiveUpSeconds / 0.05d);
+        Assert.Equal(
+            string.Empty,
+            WalkUntilGivenUp(approach, automation, frames: frames - 40, pace: true));
+        Assert.True(loot.HasOwnRareCorpseToFetch(settings.CorpseApproachRange));
+
+        string givenUp = WalkUntilGivenUp(approach, automation, frames: 80, pace: true);
+
+        Assert.Contains("not reached in 60 seconds", givenUp, StringComparison.Ordinal);
+        Assert.False(approach.ClaimFromRulePass(canAct: true));
+        Assert.False(loot.HasOwnRareCorpseToFetch(settings.CorpseApproachRange));
+    }
+
+    /// <summary>
+    /// Runs host frames of twenty per second, with a rule pass every fifth,
+    /// until the walk gives up (its status at that moment is returned) or the
+    /// frames run out (an empty string). Pacing moves the character a metre
+    /// east and back every half second.
+    /// </summary>
+    private static string WalkUntilGivenUp(
+        CorpseApproachController approach,
+        Automation automation,
+        int frames,
+        bool pace)
+    {
+        for (int frame = 0; frame < frames; frame++)
+        {
+            if (pace)
+            {
+                double east = (frame / 10) % 2 == 0 ? 0d : 1d / 240d;
+                automation.NavigationSnapshot = automation.NavigationSnapshot with
+                {
+                    Position = automation.NavigationSnapshot.Position with { EastWest = east },
+                };
+            }
+            approach.StepArmedMover(0.05d);
+            if (approach.Status.StartsWith("Gave up", StringComparison.Ordinal))
+                return approach.Status;
+            if (frame % 5 == 4)
+            {
+                bool claimed = approach.ClaimFromRulePass(canAct: true);
+                if (approach.Status.StartsWith("Gave up", StringComparison.Ordinal))
+                    return approach.Status;
+                Assert.True(claimed);
+            }
+        }
+        return string.Empty;
+    }
+
+    /// <summary>
+    /// With the option on, this character's rare holds the route while the
+    /// walk or the open will reach it. Inside a wide inner stop but outside
+    /// the open's arm's reach neither will — the walk declines and the open
+    /// cannot touch it — so the route is released there.
+    ///
+    /// Mutation: hold the route whenever the rare is the walk's pick and the
+    /// eight-metre inner stop leaves the six-metre row held for ever.
+    /// </summary>
+    [Theory]
+    [InlineData(12f, true)]
+    [InlineData(6f, false)]
+    [InlineData(3f, true)]
+    public void ThisCharactersRareHoldsTheRouteOnlyWhereTheWalkOrTheOpenReachesIt(
+        float distance, bool holds)
+    {
+        var settings = ApproachSettings(range: 15d, walkToOwnRares: true);
+        settings.CorpseMinimumApproachRange = 8d;
+        var automation = ApproachAutomation(OwnRareCorpse(0x70002036u, distance));
+        (_, LootController loot) = ApproachWithLoot(automation, settings);
+
+        Assert.Equal(holds, loot.HasOwnRareCorpseToFetch(settings.CorpseApproachRange));
+    }
+
+    private static PluginLootContainer OwnRareCorpse(uint objectId, float distance) =>
+        Corpse(objectId, distance) with
+        {
+            LongDescription = "Killed by Tester. This corpse generated a rare item!",
+        };
+
+    private static (CorpseApproachController Approach, LootController Loot) ApproachWithLoot(
+        Automation automation,
+        LootSettings settings)
+    {
+        var host = new Host(automation);
+        var loot = new LootController(host, settings);
+        return (new CorpseApproachController(host, settings, loot), loot);
+    }
+
+    private static LootSettings ApproachSettings(double range, bool walkToOwnRares = false)
     {
         var settings = new LootSettings
         {
             Enabled = true,
             CorpseApproachRange = range,
             ScanIntervalSeconds = 0.05d,
+            WalkToOwnRareCorpses = walkToOwnRares,
         };
         settings.Rules.Add(new LootRule { Expression = "*" });
         return settings;

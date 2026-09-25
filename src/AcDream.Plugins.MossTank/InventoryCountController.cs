@@ -190,7 +190,7 @@ internal sealed class InventoryCountController
             out InventoryCountTally tally,
             out string error))
         {
-            Write("Item Count: " + error);
+            SayError("Item Count: " + error);
             return;
         }
         ReportTally(tally, pattern?.Trim() ?? string.Empty);
@@ -239,7 +239,7 @@ internal sealed class InventoryCountController
 
     /// <summary>Counts players in range and writes the answer to chat.</summary>
     public void ReportPlayerCount(double rangeMeters) =>
-        Write($"Player Count: {CountPlayersWithin(rangeMeters)}");
+        Think($"Player Count: {CountPlayersWithin(rangeMeters)}");
 
     // ── a loot profile over the packs ─────────────────────────────────────
 
@@ -297,7 +297,7 @@ internal sealed class InventoryCountController
         Status =
             $"Counting {_profileName}: {_outstanding.Count} item(s) to identify.";
         if (_foreground)
-            Write($"Items remaining to identify: {_outstanding.Count}");
+            Say($"Items remaining to ID: {_outstanding.Count}");
         return true;
     }
 
@@ -593,10 +593,10 @@ internal sealed class InventoryCountController
         if (!_foreground || _sinceProgress < ProgressIntervalSeconds)
             return;
         _sinceProgress = 0d;
-        Write(_deferred
-            ? $"Items remaining to identify: {_outstanding.Count}"
+        Say(_deferred
+            ? $"Items remaining to ID: {_outstanding.Count}"
                 + " (waiting for the looter)"
-            : $"Items remaining to identify: {_outstanding.Count}");
+            : $"Items remaining to ID: {_outstanding.Count}");
     }
 
     private void Complete()
@@ -609,7 +609,10 @@ internal sealed class InventoryCountController
         _deferred = false;
         Status = $"Counted {_profileName}: {tally.Total}.";
         if (_foreground)
+        {
+            Say("Finished IDing Items");
             ReportTally(tally, _profileName);
+        }
         _foreground = false;
     }
 
@@ -627,7 +630,7 @@ internal sealed class InventoryCountController
         Stop($"Item counter gave up on {name}: "
             + $"{remaining} item(s) never identified.");
         if (foreground)
-            Write(Status);
+            SayError(Status);
     }
 
     private InventoryCountTally BuildTally()
@@ -645,19 +648,19 @@ internal sealed class InventoryCountController
     }
 
     /// <summary>
-    /// The answer as chat lines: what each rule accounted for, what each name
-    /// accounted for, and the sum. A count that found nothing still says so,
-    /// against whatever was asked for.
+    /// The answer, thought out loud as the reference thinks it: what each
+    /// rule accounted for, what each name accounted for, and the sum. A count
+    /// that found nothing still says so, against whatever was asked for.
     /// </summary>
     private void ReportTally(InventoryCountTally tally, string subject)
     {
         foreach (InventoryCountEntry entry in tally.ByRule)
-            Write($"Rule Count: {entry.Name} - {entry.Count}");
+            Think($"Rule Count: {entry.Name} - {entry.Count}");
         if (tally.ByName.Count == 0)
-            Write($"Item Count: {subject} - 0");
+            Think($"Item Count: {subject} - 0");
         foreach (InventoryCountEntry entry in tally.ByName)
-            Write($"Item Count: {entry.Name} - {entry.Count}");
-        Write($"Total Item Count: {tally.Total}");
+            Think($"Item Count: {entry.Name} - {entry.Count}");
+        Think($"Total Item Count: {tally.Total}");
     }
 
     /// <summary>
@@ -675,7 +678,7 @@ internal sealed class InventoryCountController
             return;
         }
         _reportedMissingProfile = profileName;
-        Write(Status);
+        SayError(Status);
     }
 
     private void Stop(string status)
@@ -698,8 +701,21 @@ internal sealed class InventoryCountController
         Status = status;
     }
 
-    private void Write(string text) =>
-        _host.Automation.Chat.PostSystemMessage(text);
+    /// <summary>A line the counter prints for itself: "[UB] Counter: ...".</summary>
+    private void Say(string text) =>
+        UbChat.Post(_host.Automation.Chat, UbChat.Tool(UbChat.Tools.Counter, text));
+
+    /// <summary>An error the counter reports for itself.</summary>
+    private void SayError(string text) =>
+        UbChat.Post(_host.Automation.Chat, UbChat.ToolError(UbChat.Tools.Counter, text));
+
+    /// <summary>
+    /// An answer, which the reference thinks to itself under the tool's name
+    /// (<c>You think, "Counter: Total Item Count: 9"</c>) so a macro's chat
+    /// trigger can read it.
+    /// </summary>
+    private void Think(string text) =>
+        UbChat.Think(_host.Automation, $"{UbChat.Tools.Counter}: {text}");
 
     private static void Add(Dictionary<string, int> target, string key, int count) =>
         target[key] = (target.TryGetValue(key, out int held) ? held : 0) + count;

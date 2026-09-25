@@ -14,12 +14,19 @@ namespace AcDream.Plugins.MossTank;
 /// The reference watched the screen for the dialog; this client says when a
 /// confirmation arrives and answers it through its own dialog automation, the
 /// same path the Yes and No buttons take. The wording of every line repeats
-/// the reference's, since a macro may be waiting on it.
+/// the reference's, tag included ("[UB] PrepClick: Will click yes ..."),
+/// since a macro may be waiting on it.
 /// </remarks>
 internal sealed partial class PrepClickController : IDisposable
 {
     internal const string Usage =
-        "/vt prepclick {stop|yes <secondstowatch>|no <secondstowatch>}";
+        "/ub prepclick {stop|yes <secondstowatch>|no <secondstowatch>}";
+
+    /// <summary>
+    /// The tag the reference puts before every line this tool prints: the
+    /// plugin's tag, then the tool's name.
+    /// </summary>
+    internal const string LinePrefix = UbChat.Tag + UbChat.Tools.PrepClick + ": ";
 
     /// <summary>The longest window the command will watch, in seconds.</summary>
     private const double MaximumSeconds = 3600d;
@@ -61,11 +68,11 @@ internal sealed partial class PrepClickController : IDisposable
         {
             if (!IsArmed)
             {
-                _write("Message boxes are not currently being watched");
+                Say("Message boxes are not currently being watched");
                 return;
             }
             double passed = Math.Round(_seconds - _remaining, 2);
-            _write(
+            Say(
                 "Stopping... "
                 + passed.ToString(CultureInfo.InvariantCulture)
                 + "s passed out of expected "
@@ -85,7 +92,7 @@ internal sealed partial class PrepClickController : IDisposable
             : 0d;
         if (seconds > MaximumSeconds)
         {
-            _write(match.Groups["seconds"].Value
+            Say(match.Groups["seconds"].Value
                 + " is not a valid number of seconds to wait");
             return;
         }
@@ -98,7 +105,7 @@ internal sealed partial class PrepClickController : IDisposable
             _confirmationHandler = OnConfirmationRequested;
             _host.Events.ConfirmationRequested += _confirmationHandler;
         }
-        _write(
+        Say(
             $"Will click {choice} on the next dialog to appear within "
             + $"{seconds.ToString(CultureInfo.InvariantCulture)} seconds");
     }
@@ -111,7 +118,7 @@ internal sealed partial class PrepClickController : IDisposable
         _remaining -= Math.Max(0d, elapsedSeconds);
         if (_remaining >= 0d)
             return;
-        _write(
+        Say(
             "Time has expired: "
             + _seconds.ToString(CultureInfo.InvariantCulture));
         Disarm();
@@ -133,9 +140,12 @@ internal sealed partial class PrepClickController : IDisposable
         Disarm();
         if (!answer)
             return;
-        _write((accept ? "Click Yes on " : "Click No on ") + confirmation.Text);
+        Say((accept ? "Click Yes on " : "Click No on ") + confirmation.Text);
         _host.Automation.Dialogs.Answer(confirmation.ContextId, accept);
     }
+
+    /// <summary>One of the tool's own lines, under the tool's tag.</summary>
+    private void Say(string text) => _write(LinePrefix + text);
 
     private void Disarm()
     {

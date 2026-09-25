@@ -29,6 +29,22 @@ internal sealed class NavigationMover
     /// </summary>
     internal const double MoverIntervalSeconds = 0.047d;
 
+    /// <summary>
+    /// The character's walking pace in metres per second; the mover walks
+    /// inside the creep band.
+    /// </summary>
+    internal const double WalkSpeedMetersPerSecond = 3.12d;
+
+    /// <summary>
+    /// The narrowest arrival radius the mover can honour: the ground one
+    /// steering step covers at a walk, about 0.15 m. The mover only sees
+    /// where the character is once a step, so a circle crossed in less than
+    /// a step can be walked straight through between two looks; a radius of
+    /// a whole step (a diameter of two) is caught even on a late frame.
+    /// </summary>
+    internal const double MinimumArrivalRadiusMeters =
+        WalkSpeedMetersPerSecond * MoverIntervalSeconds;
+
     internal const double FaceHeadingReissueSeconds = 0.7d;
 
     /// <summary>

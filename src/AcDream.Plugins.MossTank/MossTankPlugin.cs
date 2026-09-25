@@ -122,14 +122,15 @@ public sealed class MossTankPlugin : IAcDreamPlugin
             Path.Combine(directory, "mosstank-ub-dungeon.xml"),
             _panel);
 
-        // Two words, one dispatcher: metas written for UtilityBelt type /ub
-        // for the same commands a VTank meta types /vt for.
+        // Two words, two command sets, as the two plugins MossTank stands in
+        // for keep them: the macro's commands answer on /vt, the UtilityBelt
+        // ones on /ub, and neither word answers the other's.
         _commandRegistration = _host.Commands.Register(
             MossTankPanel.VtankVerb,
             _panel.ExecuteVtankCommand);
         _ubCommandRegistration = _host.Commands.Register(
             MossTankPanel.UbVerb,
-            _panel.ExecuteVtankCommand);
+            _panel.ExecuteUbCommand);
 
         _lootClassifierRegistration = _host.LootClassifiers.Register(
             "moss-tank",

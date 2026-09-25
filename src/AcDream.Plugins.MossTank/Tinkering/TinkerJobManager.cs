@@ -314,7 +314,8 @@ internal sealed class TinkerJobManager : IDisposable
         ScanInventory();
         if (!TryOwned(itemObjectId, out PluginInventoryItem item))
         {
-            _write("Select an item first");
+            // The tinker tool's own line in the reference.
+            _write(UbChat.Tool(UbChat.Tools.AutoTinker, "Select an item first"));
             return;
         }
         if (!CanBeTinkered(item))
@@ -722,7 +723,7 @@ internal sealed class TinkerJobManager : IDisposable
     {
         if (_running)
         {
-            _write("already running");
+            _write(UbChat.Tool(UbChat.Tools.AutoTinker, "already running"));
             return;
         }
         if (_jobs.Count == 0)

@@ -2,487 +2,345 @@ using AcDream.Plugin.Abstractions;
 
 namespace AcDream.Plugins.MossTank;
 
-internal enum PetAutomationActionKind
-{
-    None,
-    Refill,
-    Summon,
-}
-
-internal readonly record struct PetAutomationChoice(
-    PetAutomationActionKind Kind,
+/// <summary>The essence the summon rule will use and the monster it chose it for.</summary>
+internal readonly record struct PetSummonChoice(
     PluginInventoryItem Device,
-    PluginInventoryItem Tool,
-    PluginCombatTarget Target,
-    MonsterDamageType DamageType)
+    PluginCombatTarget Target)
 {
-    public static PetAutomationChoice None => default;
+    public static PetSummonChoice None => default;
+
+    public bool IsNone => Device.ObjectId == 0u;
 }
 
-internal sealed class PetAutomation
+/// <summary>
+/// The two questions the pet rules ask: which essence to summon with, for
+/// which monster, and which essence to top up with which spirit.
+/// </summary>
+internal static class PetAutomation
 {
-    private const double AuthenticPetCooldownSeconds = 45d;
-    private const double RefusalRetrySeconds = 1d;
+    /// <summary>The character level an item asks for before it can be used.</summary>
+    public const uint UseRequiresLevelProperty = 369u;
 
-    private long _observedCompletionRevision;
-    private uint _pendingSourceId;
-    private PetAutomationActionKind _pendingKind;
-    private double _nextSummonAt;
-    private double _nextRefillAt;
+    /// <summary>An item's remaining uses.</summary>
+    public const uint StructureProperty = 92u;
 
-    public bool Tick(
+    public const string EncapsulatedSpiritName = "Encapsulated Spirit";
+
+    private const uint SummoningSkillId = 54u;
+
+    /// <summary>
+    /// The summon rule's choice. The monster is the nearest one that also
+    /// outranks every nearer one; the count of monsters that want a pet has to
+    /// reach the density setting; then every usable essence on the Items page
+    /// is ranked by how well its element suits that monster, and the one with
+    /// the higher level requirement wins a tie. Any usable essence can win:
+    /// the ranking orders them, it never rules one out.
+    /// </summary>
+    /// <param name="attackElement">
+    /// The element the attack itself would strike this monster with.
+    /// </param>
+    /// <param name="damagePreferences">
+    /// The elements the game-info database lists for this monster, best first.
+    /// </param>
+    /// <param name="warn">Where a once-per-cause warning goes.</param>
+    public static PetSummonChoice SelectPet(
         IItemAutomation automation,
-        ICharacterInfo character,
+        IReadOnlyList<PluginInventoryItem> owned,
         IReadOnlyList<PluginCombatTarget> targets,
+        ICharacterInfo character,
         CombatSettings settings,
-        double now,
-        out string status,
-        bool allowRefill = true,
-        bool allowSummon = true,
-        Func<bool>? readyToRefillInPeace = null,
-        IReadOnlyList<PluginInventoryItem>? captured = null)
+        Func<PluginCombatTarget, MonsterDamageType> attackElement,
+        Func<string, IReadOnlyList<MonsterDamageType>> damagePreferences,
+        Action<string>? warn = null)
     {
         ArgumentNullException.ThrowIfNull(automation);
-        ArgumentNullException.ThrowIfNull(character);
+        ArgumentNullException.ThrowIfNull(owned);
         ArgumentNullException.ThrowIfNull(targets);
-        ArgumentNullException.ThrowIfNull(settings);
-
-        ObserveCompletion(automation.LastCompletion, now, out string? completion);
-        if (completion is not null)
-            status = completion;
-        else
-            status = string.Empty;
-
-        if (_pendingSourceId != 0u)
-        {
-            status = _pendingKind == PetAutomationActionKind.Refill
-                ? "Refilling combat pet"
-                : "Summoning combat pet";
-            return true;
-        }
-        if (!settings.SummonPets || !automation.IsAvailable)
-            return false;
-        if (automation.IsBusy)
-        {
-            status = "Waiting to use combat pet";
-            return true;
-        }
-
-        // The caller's own per-pass projection when it has one: building it
-        // walks every object the client knows.
-        IReadOnlyList<PluginInventoryItem> items =
-            captured ?? automation.CaptureOwnedItems();
-        PetAutomationChoice choice = Select(
-            items,
-            targets,
-            character,
-            settings,
-            automation.ActiveOwnedPetCount,
-            allowRefill && now >= _nextRefillAt,
-            allowSummon && now >= _nextSummonAt);
-        if (choice.Kind == PetAutomationActionKind.None)
-            return false;
-
-        if (choice.Kind == PetAutomationActionKind.Refill
-            && readyToRefillInPeace is not null
-            && !readyToRefillInPeace())
-        {
-            status = "Entering peace mode to refill the combat pet";
-            return true;
-        }
-
-        PluginItemCommandResult result = choice.Kind == PetAutomationActionKind.Refill
-            ? automation.Apply(choice.Tool.ObjectId, choice.Device.ObjectId)
-            : automation.Use(choice.Device.ObjectId);
-        if (result.Status == PluginItemCommandStatus.Started)
-        {
-            _pendingSourceId = choice.Kind == PetAutomationActionKind.Refill
-                ? choice.Tool.ObjectId
-                : choice.Device.ObjectId;
-            _pendingKind = choice.Kind;
-            status = choice.Kind == PetAutomationActionKind.Refill
-                ? $"Refilling {choice.Device.Name}"
-                : $"Summoning {choice.Device.Name} for {choice.Target.Name}";
-            return true;
-        }
-
-        if (choice.Kind == PetAutomationActionKind.Refill)
-            _nextRefillAt = now + RefusalRetrySeconds;
-        else
-            _nextSummonAt = now + RefusalRetrySeconds;
-        status = result.Notice
-            ?? $"Combat pet action refused: {result.Status}";
-        return true;
-    }
-
-    /// <summary>Folds the last item completion into the pending state without acting.</summary>
-    public void Observe(IItemAutomation automation, double now)
-    {
-        ArgumentNullException.ThrowIfNull(automation);
-        ObserveCompletion(automation.LastCompletion, now, out _);
-    }
-
-    /// <summary>
-    /// The summon rule's predicate: the device to use and the monster it is
-    /// for, chosen without issuing anything. False while a use of ours is
-    /// still unanswered, while the summon is on its retry clock, or when
-    /// nothing qualifies.
-    /// </summary>
-    public bool TrySelectSummon(
-        IItemAutomation automation,
-        ICharacterInfo character,
-        IReadOnlyList<PluginCombatTarget> targets,
-        CombatSettings settings,
-        double now,
-        out PetAutomationChoice choice)
-    {
-        ArgumentNullException.ThrowIfNull(automation);
         ArgumentNullException.ThrowIfNull(character);
-        ArgumentNullException.ThrowIfNull(targets);
         ArgumentNullException.ThrowIfNull(settings);
-        choice = PetAutomationChoice.None;
-        if (_pendingSourceId != 0u || !settings.SummonPets || !automation.IsAvailable)
-            return false;
-        if (now < _nextSummonAt)
-            return false;
-        choice = Select(
-            automation.CaptureOwnedItems(),
-            targets,
-            character,
-            settings,
-            automation.ActiveOwnedPetCount,
-            allowRefill: false,
-            allowSummon: true);
-        return choice.Kind == PetAutomationActionKind.Summon;
-    }
+        ArgumentNullException.ThrowIfNull(attackElement);
+        ArgumentNullException.ThrowIfNull(damagePreferences);
 
-    /// <summary>The summon rule's turn: uses the device the predicate chose.</summary>
-    public string IssueSummon(IItemAutomation automation, PetAutomationChoice choice, double now)
-    {
-        ArgumentNullException.ThrowIfNull(automation);
-        if (choice.Kind != PetAutomationActionKind.Summon || _pendingSourceId != 0u)
-            return string.Empty;
-        PluginItemCommandResult result = automation.Use(choice.Device.ObjectId);
-        if (result.Status == PluginItemCommandStatus.Started)
-        {
-            _pendingSourceId = choice.Device.ObjectId;
-            _pendingKind = PetAutomationActionKind.Summon;
-            return $"Summoning {choice.Device.Name} for {choice.Target.Name}";
-        }
-        _nextSummonAt = now + RefusalRetrySeconds;
-        return result.Notice ?? $"Combat pet action refused: {result.Status}";
-    }
-
-    /// <summary>
-    /// The refill on its own, with its own charge threshold and no interest
-    /// in monsters: a combat-item pet device of mine is below the threshold
-    /// and short of full, and I am carrying a spirit to top it up with. The
-    /// reference rule reads the combat-items list and those two structure
-    /// numbers and nothing else, which is why it can hold a position far
-    /// from the attack and still be the same rule.
-    /// </summary>
-    public bool TickRefill(
-        IItemAutomation automation,
-        CombatSettings settings,
-        int refillThreshold,
-        double now,
-        out string status,
-        Func<bool>? readyToRefillInPeace = null,
-        bool canAct = true)
-    {
-        ArgumentNullException.ThrowIfNull(automation);
-        ArgumentNullException.ThrowIfNull(settings);
-
-        ObserveCompletion(automation.LastCompletion, now, out string? completion);
-        status = completion ?? string.Empty;
-
-        if (_pendingSourceId != 0u)
-        {
-            status = "Refilling combat pet";
-            return true;
-        }
-        // A blocked pass still watches for the completion above; it must not
-        // start anything.
-        if (!canAct)
-            return false;
-        if (!automation.IsAvailable)
-            return false;
-        // The reference rule asks nothing about the host being busy: its
-        // predicate is a low device and a spirit to use on it. A pass is
-        // never held for a use that has not been issued.
-        if (automation.IsBusy)
-            return false;
-        if (now < _nextRefillAt)
-            return false;
-
-        IReadOnlyList<PluginInventoryItem> items = automation.CaptureOwnedItems();
-        if (SelectRefillDevice(items, settings, refillThreshold) is not { } device)
-            return false;
-        if (FindSpirit(items) is not { } spirit)
-            return false;
-        if (readyToRefillInPeace is not null && !readyToRefillInPeace())
-        {
-            status = "Entering peace mode to refill the combat pet";
-            return true;
-        }
-
-        PluginItemCommandResult result = automation.Apply(
-            spirit.ObjectId,
-            device.ObjectId);
-        if (result.Status == PluginItemCommandStatus.Started)
-        {
-            _pendingSourceId = spirit.ObjectId;
-            _pendingKind = PetAutomationActionKind.Refill;
-            status = $"Refilling {device.Name}";
-            return true;
-        }
-
-        _nextRefillAt = now + RefusalRetrySeconds;
-        status = result.Notice ?? $"Combat pet action refused: {result.Status}";
-        return false;
-    }
-
-    /// <summary>
-    /// First match in list order, not the best one: the reference rule stops
-    /// at the first low device it walks past.
-    /// </summary>
-    private static PluginInventoryItem? SelectRefillDevice(
-        IReadOnlyList<PluginInventoryItem> items,
-        CombatSettings settings,
-        int refillThreshold)
-    {
-        int threshold = Math.Max(0, refillThreshold);
-        foreach (PluginInventoryItem item in items)
-        {
-            if (!settings.CombatItemObjectIds.Contains(item.ObjectId)
-                && !settings.CombatItemNames.Contains(item.Name))
-            {
-                continue;
-            }
-            if (!item.IsPetDevice)
-                continue;
-            if (item.Structure <= threshold && item.Structure < item.MaximumStructure)
-                return item;
-        }
-        return null;
-    }
-
-    internal static PetAutomationChoice Select(
-        IReadOnlyList<PluginInventoryItem> items,
-        IReadOnlyList<PluginCombatTarget> targets,
-        ICharacterInfo character,
-        CombatSettings settings,
-        int activeOwnedPetCount,
-        bool allowRefill,
-        bool allowSummon)
-    {
-        if (!settings.SummonPets || activeOwnedPetCount > 0)
-            return PetAutomationChoice.None;
-
-        float range = (float)(settings.PetRangeMode == PetRangeMode.Custom
-            ? settings.PetCustomRange
-            : settings.MaximumRange);
-        int density = Math.Max(1, settings.PetMonsterDensity);
-        var eligible = new List<(PluginCombatTarget Target, ResolvedMonsterRule Rule)>();
+        float range = PetRange(settings);
+        PluginCombatTarget chosen = default;
+        bool found = false;
+        double nearest = double.MaxValue;
+        int highest = -1;
+        MonsterDamageType wanted = MonsterDamageType.None;
+        int wanting = 0;
         foreach (PluginCombatTarget target in targets)
         {
             if (target.Distance > range)
                 continue;
             ResolvedMonsterRule rule = settings.ResolveRule(target);
-            if (rule.Priority < 0
-                || rule.Actions.PetDamageType == MonsterDamageType.None)
+            if (rule.Priority < 0)
+                continue;
+            if (rule.Actions.PetDamageType == MonsterDamageType.None)
+                continue;
+            wanting++;
+            // Both at once, as the reference asks it: a monster takes the pick
+            // only by being nearer AND ranked higher than the one holding it.
+            if (target.Distance < nearest && rule.Priority > highest)
+            {
+                highest = rule.Priority;
+                chosen = target;
+                found = true;
+                nearest = target.Distance;
+                wanted = rule.Actions.PetDamageType;
+            }
+        }
+        if (!found)
+            return PetSummonChoice.None;
+        if (wanting < settings.PetMonsterDensity)
+            return PetSummonChoice.None;
+
+        MonsterDamageType attack = attackElement(chosen);
+        IReadOnlyList<MonsterDamageType> preferences = damagePreferences(chosen.Name);
+
+        PluginInventoryItem? best = null;
+        int bestRank = int.MaxValue;
+        int bestLevel = 0;
+        foreach (PluginInventoryItem item in InItemsPageOrder(owned, settings))
+        {
+            if (!automation.TryCaptureProperties(item.ObjectId, out PluginItemProperties properties)
+                || !item.IsPetDevice)
             {
                 continue;
             }
-            eligible.Add((target, rule));
+            if (!IsUsable(in item, in properties, character, warn))
+                continue;
+            MonsterDamageType element = DeviceElement(item.WeenieClassId);
+            int level = properties.Ints.GetValueOrDefault(UseRequiresLevelProperty);
+            int rank = Rank(wanted, element, attack, preferences);
+            if (best is null || rank < bestRank || (level > bestLevel && rank == bestRank))
+            {
+                bestLevel = level;
+                bestRank = rank;
+                best = item;
+            }
         }
-        if (eligible.Count < density)
-            return PetAutomationChoice.None;
-
-        eligible.Sort(static (left, right) =>
-        {
-            int priority = right.Rule.Priority.CompareTo(left.Rule.Priority);
-            return priority != 0
-                ? priority
-                : left.Target.Distance.CompareTo(right.Target.Distance);
-        });
-        (PluginCombatTarget selectedTarget, ResolvedMonsterRule targetRule) = eligible[0];
-        MonsterDamageType desired = ResolveDesiredDamage(targetRule.Actions);
-
-        PluginInventoryItem? device = SelectDevice(
-            items,
-            character,
-            desired,
-            settings,
-            allowFallback: targetRule.Actions.PetDamageType
-                == MonsterDamageType.PlayerAuto);
-        if (device is not { } selected)
-            return PetAutomationChoice.None;
-
-        int refillThreshold = Math.Max(0, settings.PetRefillCountNormal);
-        if (allowRefill
-            && selected.MaximumStructure > 0
-            && selected.Structure <= refillThreshold
-            && selected.Structure < selected.MaximumStructure
-            && FindSpirit(items) is { } spirit)
-        {
-            return new PetAutomationChoice(
-                PetAutomationActionKind.Refill,
-                selected,
-                spirit,
-                selectedTarget,
-                desired);
-        }
-        if (!allowSummon || selected.Structure <= 0)
-            return PetAutomationChoice.None;
-        return new PetAutomationChoice(
-            PetAutomationActionKind.Summon,
-            selected,
-            default,
-            selectedTarget,
-            desired);
+        return best is { } device
+            ? new PetSummonChoice(device, chosen)
+            : PetSummonChoice.None;
     }
 
-    private static MonsterDamageType ResolveDesiredDamage(
-        MonsterRuleActions actions)
-    {
-        if (actions.PetDamageType != MonsterDamageType.PlayerAuto)
-            return actions.PetDamageType;
-        return actions.DamageType is
-            MonsterDamageType.Bludgeon or MonsterDamageType.Acid
-            or MonsterDamageType.Fire or MonsterDamageType.Cold
-            or MonsterDamageType.Electric
-            ? actions.DamageType
-            : MonsterDamageType.Auto;
-    }
-
-    private static PluginInventoryItem? SelectDevice(
-        IReadOnlyList<PluginInventoryItem> items,
-        ICharacterInfo character,
-        MonsterDamageType desired,
+    /// <summary>
+    /// The refill rule's choice: the first essence on the Items page that is
+    /// down to the threshold and short of full, and the smallest stack of
+    /// spirits to top it up with. Monsters and the summon setting play no
+    /// part.
+    /// </summary>
+    public static bool TrySelectRefill(
+        IItemAutomation automation,
+        IReadOnlyList<PluginInventoryItem> owned,
         CombatSettings settings,
-        bool allowFallback)
+        int threshold,
+        out PluginInventoryItem device,
+        out PluginInventoryItem spirit)
     {
-        PluginInventoryItem? exact = null;
-        PluginInventoryItem? fallback = null;
-        foreach (PluginInventoryItem item in items)
+        ArgumentNullException.ThrowIfNull(automation);
+        ArgumentNullException.ThrowIfNull(owned);
+        ArgumentNullException.ThrowIfNull(settings);
+        device = default;
+        spirit = default;
+        bool found = false;
+        foreach (PluginInventoryItem item in InItemsPageOrder(owned, settings))
         {
-            if (!settings.CombatItemObjectIds.Contains(item.ObjectId)
-                && !settings.CombatItemNames.Contains(item.Name))
+            if (!automation.TryCaptureProperties(item.ObjectId, out PluginItemProperties properties)
+                || !item.IsPetDevice)
             {
                 continue;
             }
-            if (!item.IsPetDevice || !CanUse(item, character))
-                continue;
-            MonsterDamageType damage = PetDeviceCatalog.DamageType(
-                item.WeenieClassId);
-            if (fallback is null || Better(item, fallback.Value))
-                fallback = item;
-            if (desired != MonsterDamageType.Auto && damage != desired)
-                continue;
-            if (exact is null || Better(item, exact.Value))
-                exact = item;
+            int structure = Structure(in item, in properties, unknown: 99999);
+            if (structure <= threshold && structure < item.MaximumStructure)
+            {
+                device = item;
+                found = true;
+                break;
+            }
         }
-        if (exact is not null)
-            return exact;
-        return desired == MonsterDamageType.Auto || allowFallback
-            ? fallback
-            : null;
+        if (!found)
+            return false;
+        if (SmallestStack(owned, EncapsulatedSpiritName) is not { } smallest)
+        {
+            device = default;
+            return false;
+        }
+        spirit = smallest;
+        return true;
     }
 
-    private static bool CanUse(
-        in PluginInventoryItem item,
-        ICharacterInfo character)
+    public static float PetRange(CombatSettings settings) =>
+        (float)(settings.PetRangeMode == PetRangeMode.Custom
+            ? settings.PetCustomRange
+            : settings.MaximumRange);
+
+    /// <summary>
+    /// The owned items the Items page lists, in the page's order: the rows
+    /// named by object id first, as the page holds them, then anything the
+    /// page names only by name.
+    /// </summary>
+    internal static IReadOnlyList<PluginInventoryItem> InItemsPageOrder(
+        IReadOnlyList<PluginInventoryItem> owned,
+        CombatSettings settings)
     {
+        var ordered = new List<PluginInventoryItem>();
+        var placed = new HashSet<uint>();
+        foreach (uint id in settings.CombatItemOrderIds)
+        {
+            foreach (PluginInventoryItem item in owned)
+            {
+                if (item.ObjectId == id && placed.Add(id))
+                {
+                    ordered.Add(item);
+                    break;
+                }
+            }
+        }
+        foreach (PluginInventoryItem item in owned)
+        {
+            if (placed.Contains(item.ObjectId))
+                continue;
+            if (settings.CombatItemObjectIds.Contains(item.ObjectId)
+                || settings.CombatItemNames.Contains(item.Name))
+            {
+                placed.Add(item.ObjectId);
+                ordered.Add(item);
+            }
+        }
+        return ordered;
+    }
+
+    /// <summary>
+    /// How well an essence suits the monster; lower is better. An element the
+    /// monster rule names outright comes first, then the element the attack
+    /// strikes with, then the monster's listed weaknesses in their order.
+    /// Anything else ranks last but still counts.
+    /// </summary>
+    private static int Rank(
+        MonsterDamageType wanted,
+        MonsterDamageType element,
+        MonsterDamageType attack,
+        IReadOnlyList<MonsterDamageType> preferences)
+    {
+        switch (wanted)
+        {
+            case MonsterDamageType.Pierce:
+            case MonsterDamageType.Bludgeon:
+            case MonsterDamageType.Slash:
+            case MonsterDamageType.Acid:
+            case MonsterDamageType.Electric:
+            case MonsterDamageType.Cold:
+            case MonsterDamageType.Fire:
+                if (wanted == element)
+                    return 0;
+                if (attack == element)
+                    return 1;
+                return PreferenceRank(element, preferences);
+            case MonsterDamageType.PlayerAuto:
+                if (attack == element)
+                    return 0;
+                return PreferenceRank(element, preferences);
+            case MonsterDamageType.Auto:
+                return PreferenceRank(element, preferences);
+            default:
+                return int.MaxValue;
+        }
+    }
+
+    private static int PreferenceRank(
+        MonsterDamageType element,
+        IReadOnlyList<MonsterDamageType> preferences)
+    {
+        for (int index = 0; index < preferences.Count; index++)
+        {
+            if (preferences[index] == element)
+                return index + 10;
+        }
+        return int.MaxValue;
+    }
+
+    /// <summary>
+    /// An essence this character can use now: its level and summoning-skill
+    /// requirements met, charges left, and no other summoning mastery's.
+    /// </summary>
+    private static bool IsUsable(
+        in PluginInventoryItem item,
+        in PluginItemProperties properties,
+        ICharacterInfo character,
+        Action<string>? warn)
+    {
+        if (properties.Ints.GetValueOrDefault(UseRequiresLevelProperty) > character.Level)
+            return false;
+        uint summoning = character.TryGetSkill(SummoningSkillId, out PluginSkillInfo skill)
+            ? skill.Current
+            : 0u;
+        if (item.UseRequiresSkillLevel > summoning)
+            return false;
+        if (Structure(in item, in properties, unknown: 9999) == 0)
+            return false;
         if (item.SummoningMastery != 0
             && item.SummoningMastery != character.SummoningMastery)
         {
+            warn?.Invoke("Warning: ignoring pet " + item.Name
+                + " because you have the wrong summoning mastery!");
             return false;
         }
-        if (item.UseRequiresSkill == 0)
-            return true;
-        if (!character.TryGetSkill((uint)item.UseRequiresSkill, out PluginSkillInfo skill)
-            || skill.Current < item.UseRequiresSkillLevel)
-        {
-            return false;
-        }
-        return item.UseRequiresSkillSpecialized == 0
-            || skill.Training == PluginSkillTraining.Specialized;
+        return true;
     }
 
-    private static bool Better(
-        in PluginInventoryItem candidate,
-        in PluginInventoryItem incumbent)
+    /// <summary>
+    /// The essence's charges: the assessed number when there is one, else the
+    /// item's own, else the given stand-in for "not known".
+    /// </summary>
+    private static int Structure(
+        in PluginInventoryItem item,
+        in PluginItemProperties properties,
+        int unknown)
     {
-        int candidateRating = candidate.GearDamage
-            + candidate.GearCriticalChance
-            + candidate.GearCriticalDamage;
-        int incumbentRating = incumbent.GearDamage
-            + incumbent.GearCriticalChance
-            + incumbent.GearCriticalDamage;
-        if (candidate.UseRequiresSkillLevel != incumbent.UseRequiresSkillLevel)
-            return candidate.UseRequiresSkillLevel > incumbent.UseRequiresSkillLevel;
-        if (candidateRating != incumbentRating)
-            return candidateRating > incumbentRating;
-        if (candidate.Structure != incumbent.Structure)
-            return candidate.Structure > incumbent.Structure;
-        return candidate.ObjectId < incumbent.ObjectId;
+        if (properties.Ints.TryGetValue(StructureProperty, out int assessed))
+            return assessed;
+        return item.MaximumStructure > 0 ? item.Structure : unknown;
     }
 
-    private static PluginInventoryItem? FindSpirit(
-        IReadOnlyList<PluginInventoryItem> items)
+    /// <summary>
+    /// The element an essence's pet strikes with. An essence the table does
+    /// not know strikes as a bludgeon, as the golems do.
+    /// </summary>
+    private static MonsterDamageType DeviceElement(uint weenieClassId)
     {
-        foreach (PluginInventoryItem item in items)
+        MonsterDamageType element = PetDeviceCatalog.DamageType(weenieClassId);
+        return element == MonsterDamageType.Auto
+            ? MonsterDamageType.Bludgeon
+            : element;
+    }
+
+    private static PluginInventoryItem? SmallestStack(
+        IReadOnlyList<PluginInventoryItem> owned,
+        string name)
+    {
+        PluginInventoryItem? smallest = null;
+        int fewest = int.MaxValue;
+        foreach (PluginInventoryItem item in owned)
         {
-            if (item.WeenieClassId == PetDeviceCatalog.EncapsulatedSpiritWeenieClassId
-                && item.StackSize > 0)
+            if (!string.Equals(item.Name, name, StringComparison.OrdinalIgnoreCase))
+                continue;
+            int count = Math.Max(1, item.StackSize);
+            if (count < fewest)
             {
-                return item;
+                fewest = count;
+                smallest = item;
             }
         }
-        return null;
-    }
-
-    private void ObserveCompletion(
-        PluginItemUseCompletion completion,
-        double now,
-        out string? status)
-    {
-        status = null;
-        if (completion.Revision == 0
-            || completion.Revision == _observedCompletionRevision)
-        {
-            return;
-        }
-        _observedCompletionRevision = completion.Revision;
-        if (_pendingSourceId == 0u
-            || completion.SourceObjectId != _pendingSourceId)
-        {
-            return;
-        }
-
-        PetAutomationActionKind completed = _pendingKind;
-        _pendingSourceId = 0u;
-        _pendingKind = PetAutomationActionKind.None;
-        if (completed == PetAutomationActionKind.Summon)
-            _nextSummonAt = now + AuthenticPetCooldownSeconds;
-        else
-            _nextRefillAt = now + RefusalRetrySeconds;
-        status = completion.IsSuccess
-            ? completed == PetAutomationActionKind.Summon
-                ? "Combat pet summoned"
-                : "Combat pet refilled"
-            : $"Combat pet failed (0x{completion.WeenieError:X})";
+        return smallest;
     }
 }
 
 /// <summary>
-/// A pass position that does nothing but top a combat pet's charges back
-/// up. The rule exists twice in the reference pass — once high up, with the
-/// tight "normal" threshold, and once in the idle band with the looser one
-/// — because how empty a device has to be before it is worth stopping for
-/// depends on whether there is anything else to do. Only the second one
-/// stands here: the first is part of the attack.
+/// Tops a pet essence's charges back up. The rule stands twice in the pass:
+/// high up with the tight "normal" threshold, and in the idle band with the
+/// looser one, because how empty an essence has to be before it is worth
+/// stopping for depends on whether there is anything else to do.
 /// </summary>
 internal sealed class PetRefillRule
 {
@@ -490,8 +348,6 @@ internal sealed class PetRefillRule
     private readonly CombatSettings _settings;
     private readonly Func<int> _threshold;
     private readonly Func<bool> _readyToRefillInPeace;
-    private readonly PetAutomation _pets = new();
-    private double _now;
 
     public PetRefillRule(
         IPluginHost host,
@@ -508,27 +364,73 @@ internal sealed class PetRefillRule
 
     public string Status { get; private set; } = string.Empty;
 
+    /// <summary>
+    /// How long a refused refill waits before it is asked for again, so a
+    /// refusal is not re-sent on every pass.
+    /// </summary>
+    internal const double RefusalRetrySeconds = 1d;
+
+    private double _now;
+    private double _retryAt = double.NegativeInfinity;
+    private bool _retryHoldsTurn;
+
+    /// <summary>
+    /// Valid when an essence on the Items page is low and a spirit is at
+    /// hand; its turn drops to peace first, then uses the spirit on the
+    /// essence. A refused use is not asked for again until the retry clock
+    /// has run: while it runs, a refusal because the character was busy
+    /// keeps the turn (the refill is still what is wanted, the host is just
+    /// not ready), and any other refusal gives the turn up so the rules
+    /// below it get their go.
+    /// </summary>
     public bool Tick(MacroPassContext context)
     {
         _now += Math.Max(0d, context.ElapsedSeconds);
         IAutomationSurface automation = _host.Automation;
-        if (!automation.IsAvailable)
+        Status = string.Empty;
+        if (!automation.IsAvailable || !automation.Items.IsAvailable)
             return false;
-        bool claimed = _pets.TickRefill(
-            automation.Items,
-            _settings,
-            _threshold(),
-            _now,
-            out string status,
-            _readyToRefillInPeace,
-            context.CanAct);
-        Status = status;
-        return claimed;
+        if (!PetAutomation.TrySelectRefill(
+                automation.Items,
+                automation.Items.CaptureOwnedItems(),
+                _settings,
+                _threshold(),
+                out PluginInventoryItem device,
+                out PluginInventoryItem spirit))
+        {
+            return false;
+        }
+        if (_now < _retryAt)
+        {
+            Status = $"Waiting to refill {device.Name}";
+            return _retryHoldsTurn;
+        }
+        if (!context.CanAct)
+            return true;
+        if (!_readyToRefillInPeace())
+        {
+            Status = "Entering peace mode to refill the combat pet";
+            return true;
+        }
+        PluginItemCommandResult result = automation.Items.Apply(
+            spirit.ObjectId,
+            device.ObjectId);
+        if (result.Status == PluginItemCommandStatus.Started)
+        {
+            Status = $"Refilling {device.Name}";
+            return true;
+        }
+        _retryAt = _now + RefusalRetrySeconds;
+        _retryHoldsTurn = result.Status == PluginItemCommandStatus.Busy;
+        Status = result.Notice ?? $"Combat pet refill refused: {result.Status}";
+        return _retryHoldsTurn;
     }
 
     public void Reset()
     {
         _now = 0d;
+        _retryAt = double.NegativeInfinity;
+        _retryHoldsTurn = false;
         Status = string.Empty;
     }
 }

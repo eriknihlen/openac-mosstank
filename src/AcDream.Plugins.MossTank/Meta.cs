@@ -163,7 +163,9 @@ internal sealed class MetaEngine : IDisposable
     private readonly MetaServices _services;
     private readonly HashSet<Guid> _fired = [];
     private readonly Stack<string> _callStack = [];
-    private readonly List<PluginChatMessage> _chatBatch = [];
+    private readonly List<ChatBufferEntry> _chatBatch = [];
+    private readonly HashSet<string> _shownWarnings = new(StringComparer.Ordinal);
+    private bool _profileJustLoaded;
     private MetaProfile _profile;
     private double _decisionAccumulator;
     private double _intervalSeconds = DecisionIntervalSeconds;
@@ -241,19 +243,19 @@ internal sealed class MetaEngine : IDisposable
         };
         _onItemUseCompleted = completion =>
         {
-            SetEventVariable("sourceid", ExpressionValue.Number(completion.SourceObjectId));
-            SetEventVariable("targetid", ExpressionValue.Number(completion.TargetObjectId));
+            SetEventVariable("sourceid", ExpressionValue.ObjectIdNumber(completion.SourceObjectId));
+            SetEventVariable("targetid", ExpressionValue.ObjectIdNumber(completion.TargetObjectId));
             SetEventVariable("error", ExpressionValue.Number(completion.WeenieError));
             _itemUseEdge = true;
         };
         _onContainerOpened = containerId =>
         {
-            SetEventVariable("containerid", ExpressionValue.Number(containerId));
+            SetEventVariable("containerid", ExpressionValue.ObjectIdNumber(containerId));
             _containerOpenedEdge = true;
         };
         _onContainerClosed = containerId =>
         {
-            SetEventVariable("containerid", ExpressionValue.Number(containerId));
+            SetEventVariable("containerid", ExpressionValue.ObjectIdNumber(containerId));
             _containerClosedEdge = true;
         };
         _onConfirmationRequested = confirmation =>
@@ -325,6 +327,7 @@ internal sealed class MetaEngine : IDisposable
         {
             _stateSeconds = 0d;
             _decisionAccumulator = _intervalSeconds;
+            _shownWarnings.Clear();
             _status = $"Meta running: {CurrentState}.";
         }
         else
@@ -362,6 +365,8 @@ internal sealed class MetaEngine : IDisposable
     {
         _profile = profile ?? throw new ArgumentNullException(nameof(profile));
         Transition(DefaultState);
+        // A load from one of the old profile's own actions ends that pass.
+        _profileJustLoaded = true;
     }
 
     public void Transition(string state)
@@ -445,14 +450,24 @@ internal sealed class MetaEngine : IDisposable
         // action can change what the client holds, so it starts a new one.
         ObjectCapture objects = ObjectCapture.For(_host);
         using ObjectCapture.PassScope pass = objects.BeginPass();
+        // As in the reference's pass loop: only a rule of the state the pass
+        // began in may fire (a condition can change the state, through
+        // vtsetmetastate), and the pass ends after an action that changed the
+        // state, returned false, or loaded a profile. A load puts the new
+        // profile in Default, which may be the state the pass began in, so it
+        // is watched for separately.
+        string passState = CurrentState;
         foreach (MetaRule rule in rules)
         {
+            if (!string.Equals(CurrentState, passState, StringComparison.Ordinal))
+                break;
             if (!handlersEnabled && GameEventHandlers.IsHandler(rule))
                 continue;
             if (_fired.Contains(rule.Id) || !EvaluateCondition(rule.Condition))
                 continue;
             _fired.Add(rule.Id);
             _status = $"Meta executing {Describe(rule.Action)}.";
+            _profileJustLoaded = false;
             bool continuePass;
             try
             {
@@ -468,7 +483,12 @@ internal sealed class MetaEngine : IDisposable
             {
                 objects.Invalidate();
             }
-            if (!continuePass)
+            if (_profileJustLoaded)
+            {
+                _profileJustLoaded = false;
+                break;
+            }
+            if (!continuePass || !string.Equals(CurrentState, passState, StringComparison.Ordinal))
                 break;
         }
     }
@@ -489,7 +509,32 @@ internal sealed class MetaEngine : IDisposable
         MetaConditionKind.Any => condition.Children.Any(EvaluateCondition),
         MetaConditionKind.Not => condition.Children.Count != 0
             && !EvaluateCondition(condition.Children[0]),
-        MetaConditionKind.ChatMessage => ChatMatch(condition, capture: false),
+        _ => LeafConditionHolds(condition),
+    };
+
+    /// <summary>
+    /// One condition that is not a combination of others. A condition that
+    /// cannot be decided (a chat or monster pattern that takes too long, a
+    /// built-in reading that fails) is false and reported once, as a failed
+    /// expression condition is; it never stops the pass, so the rules after
+    /// it still run.
+    /// </summary>
+    private bool LeafConditionHolds(MetaCondition condition)
+    {
+        try
+        {
+            return EvaluateLeafCondition(condition);
+        }
+        catch (Exception error) when (error is not OperationCanceledException)
+        {
+            WarnOnce($"Error in meta condition {condition.Kind}: {error.Message}");
+            return false;
+        }
+    }
+
+    private bool EvaluateLeafCondition(MetaCondition condition) => condition.Kind switch
+    {
+        MetaConditionKind.ChatMessage =>ChatMatch(condition, capture: false),
         MetaConditionKind.ChatMessageCapture => ChatMatch(condition, capture: true),
         MetaConditionKind.PackSlotsLessThanOrEqual =>
             EvaluateNumber("getfreeitemslots[]") <= condition.Number,
@@ -529,8 +574,7 @@ internal sealed class MetaEngine : IDisposable
             EvaluateNumber("getcharburden[]") >= condition.Number,
         MetaConditionKind.DistanceFromAnyRoutePointGreaterThanOrEqual =>
             _services.DistanceFromAnyRoutePoint() >= condition.Number,
-        MetaConditionKind.Expression =>
-            _expressions.Evaluate(condition.Text).IsTruthy,
+        MetaConditionKind.Expression => ExpressionCondition(condition.Text),
         MetaConditionKind.LoginComplete => LoginCompleteEdge(),
         MetaConditionKind.Logoff => _logoffEdge,
         MetaConditionKind.PortalTransition => _portalTransitionEdge,
@@ -540,6 +584,140 @@ internal sealed class MetaEngine : IDisposable
         MetaConditionKind.ConfirmationRequested => _confirmationEdge,
         _ => false,
     };
+
+    /// <summary>
+    /// An expression condition. As in the reference macro, an expression that
+    /// cannot be read or run makes the condition false and is reported once;
+    /// it does not stop the pass, so the rules after it still run.
+    /// </summary>
+    private bool ExpressionCondition(string source)
+    {
+        if (string.IsNullOrEmpty(source))
+            return false;
+        try
+        {
+            return _expressions.Evaluate(source).IsTruthy;
+        }
+        catch (Exception error) when (IsExpressionError(error))
+        {
+            WarnOnce($"Error in meta expression: {source} ({error.Message})");
+            return false;
+        }
+    }
+
+    /// <summary>
+    /// An expression action or a chat expression action. As in the reference
+    /// macro, an empty one does nothing and ends the pass; one that cannot be
+    /// read or run is reported once and still counts as done, so the rest of
+    /// its rule (the state change after it in a DoAll, say) goes ahead.
+    /// </summary>
+    private bool RunExpressionAction(string source, bool chat)
+    {
+        if (string.IsNullOrEmpty(source))
+            return false;
+        ExpressionValue result;
+        try
+        {
+            result = _expressions.Evaluate(source);
+        }
+        catch (Exception error) when (IsExpressionError(error))
+        {
+            WarnOnce(chat
+                ? $"Error in meta expression chat action: {source} ({error.Message})"
+                : $"Error in meta expression action: {source} ({error.Message})");
+            return true;
+        }
+        if (chat && result.ToDisplayString().Length != 0)
+            _host.Automation.Chat.Submit(result.ToDisplayString());
+        return true;
+    }
+
+    /// <summary>
+    /// A SetOpt action. As in the reference it always counts as done: an
+    /// empty option or value, a value expression that fails, a value of the
+    /// wrong type for the option, or an option that does not exist is
+    /// reported once and the rule carries on.
+    /// </summary>
+    private bool RunSetOption(string option, string valueSource)
+    {
+        if (string.IsNullOrEmpty(option) || string.IsNullOrEmpty(valueSource))
+        {
+            WarnOnce("SetVTOption Action: Empty option or expression. Will not execute.");
+            return true;
+        }
+        // Whether the option exists is asked before the value is looked at,
+        // so an unknown name is reported as unknown whatever its value says.
+        if (!VtankOptionCatalog.IsKnown(option))
+        {
+            WarnOnce(UnknownSetOptionWarning);
+            return true;
+        }
+        ExpressionValue value;
+        try
+        {
+            value = _expressions.Evaluate(valueSource);
+        }
+        catch (Exception error) when (IsExpressionError(error))
+        {
+            WarnOnce($"Error in Set VT Option meta expression: {valueSource} ({error.Message})");
+            return true;
+        }
+        bool known;
+        try
+        {
+            known = _services.SetOption(option, value);
+        }
+        catch (ExpressionEvaluationException error)
+        {
+            WarnOnce($"SetVTOption Action: Attempted to set {option} with the wrong type of value ({error.Message})");
+            return true;
+        }
+        if (!known)
+            WarnOnce(UnknownSetOptionWarning);
+        return true;
+    }
+
+    private const string UnknownSetOptionWarning =
+        "SetVTOption Action: Specified setting doesn't exist. Will not execute.";
+
+    /// <summary>
+    /// A GetOpt action. As in the reference it always counts as done: an
+    /// empty option or variable name, or an option that does not exist, is
+    /// reported once and no variable is written.
+    /// </summary>
+    private bool RunGetOption(string option, string variable)
+    {
+        if (string.IsNullOrEmpty(option) || string.IsNullOrEmpty(variable))
+        {
+            WarnOnce("GetVTOption Action: Empty option or variable. Will not execute.");
+            return true;
+        }
+        if (!VtankOptionCatalog.IsKnown(option))
+        {
+            WarnOnce("GetVTOption Action: Specified setting doesn't exist. Will not execute.");
+            return true;
+        }
+        _expressions.State.Set(
+            ExpressionVariableScope.Session,
+            variable,
+            _services.GetOption(option));
+        return true;
+    }
+
+    private static bool IsExpressionError(Exception error) =>
+        error is ExpressionParseException or ExpressionEvaluationException;
+
+    /// <summary>
+    /// Reports a meta warning the first time it comes up. The list is cleared
+    /// when the meta is started again, as the reference macro clears its own.
+    /// </summary>
+    private void WarnOnce(string warning)
+    {
+        if (!_shownWarnings.Add(warning))
+            return;
+        _host.Log.Warn(warning);
+        _host.Automation.Chat.PostSystemMessage(warning);
+    }
 
     private bool LoginCompleteEdge()
     {
@@ -560,7 +738,7 @@ internal sealed class MetaEngine : IDisposable
     private void SetCharacterVariables()
     {
         ICharacterInfo character = _host.Automation.Character;
-        SetEventVariable("id", ExpressionValue.Number(character.ObjectId));
+        SetEventVariable("id", ExpressionValue.ObjectIdNumber(character.ObjectId));
         SetEventVariable("name", ExpressionValue.String(character.Name));
     }
 
@@ -589,11 +767,11 @@ internal sealed class MetaEngine : IDisposable
                 _host.Automation.Chat.Submit(action.Text);
                 return true;
             case MetaActionKind.All:
+                // The reference runs every action of a DoAll and counts the
+                // DoAll as done; a state change or a profile load among them
+                // ends the pass once the DoAll is over, not part-way through.
                 foreach (MetaAction child in action.Children)
-                {
-                    if (!ExecuteAction(child))
-                        return false;
-                }
+                    ExecuteAction(child);
                 return true;
             case MetaActionKind.LoadEmbeddedNavigationRoute:
                 _services.LoadEmbeddedNavigationRoute(action.EmbeddedRoute, action.SecondaryText);
@@ -618,13 +796,9 @@ internal sealed class MetaEngine : IDisposable
                 Transition(_callStack.Pop());
                 return false;
             case MetaActionKind.ExpressionAction:
-                _expressions.Evaluate(action.Text);
-                return true;
+                return RunExpressionAction(action.Text, chat: false);
             case MetaActionKind.ChatExpression:
-                ExpressionValue result = _expressions.Evaluate(action.Text);
-                if (result.ToDisplayString().Length != 0)
-                    _host.Automation.Chat.Submit(result.ToDisplayString());
-                return true;
+                return RunExpressionAction(action.Text, chat: true);
             case MetaActionKind.SetWatchdog:
                 SetWatchdog(
                     action.Text,
@@ -635,21 +809,18 @@ internal sealed class MetaEngine : IDisposable
                 _watchdog = null;
                 return true;
             case MetaActionKind.GetVtankOption:
-                _expressions.State.Set(
-                    ExpressionVariableScope.Session,
-                    string.IsNullOrWhiteSpace(action.SecondaryText)
-                        ? "option"
-                        : action.SecondaryText,
-                    _services.GetOption(action.Text));
-                return true;
+                return RunGetOption(action.Text, action.SecondaryText);
             case MetaActionKind.SetVtankOption:
-                return _services.SetOption(
-                    action.Text,
-                    _expressions.Evaluate(action.SecondaryText));
+                return RunSetOption(action.Text, action.SecondaryText);
+            // A view action succeeds whether or not a window was shown or
+            // found, so a refused or absent view never stops the rest of a
+            // DoAll; the reference meta engine answers true here as well.
             case MetaActionKind.CreateView:
-                return _services.CreateView(action.Text, action.SecondaryText);
+                _services.CreateView(action.Text, action.SecondaryText);
+                return true;
             case MetaActionKind.DestroyView:
-                return _services.DestroyView(action.Text);
+                _services.DestroyView(action.Text);
+                return true;
             case MetaActionKind.DestroyAllViews:
                 _services.DestroyAllViews();
                 return true;
@@ -670,9 +841,14 @@ internal sealed class MetaEngine : IDisposable
 
         IReadOnlyList<PluginChatMessage> messages =
             _host.Automation.Chat.CaptureMessages(_chatSequence);
+        ICharacterInfo character = _host.Automation.Character;
         foreach (PluginChatMessage message in messages)
         {
-            _chatBatch.Add(message);
+            // The chat conditions read the line the reference chat window
+            // prints and its chat text type, not the host's parts.
+            _chatBatch.Add(new ChatBufferEntry(
+                DecalChatLine.Compose(message, character.ObjectId, character.Name),
+                message.LogTextType));
             _chatSequence = Math.Max(_chatSequence, message.Sequence);
             CaptureDroppedItems(message.Text);
         }
@@ -709,10 +885,10 @@ internal sealed class MetaEngine : IDisposable
         {
             return false;
         }
-        HashSet<int>? acceptedKinds = ParseKinds(condition.SecondaryText);
-        foreach (PluginChatMessage message in _chatBatch)
+        HashSet<int>? acceptedColors = ParseColors(condition.SecondaryText);
+        foreach (ChatBufferEntry message in _chatBatch)
         {
-            if (acceptedKinds is not null && !acceptedKinds.Contains(message.Kind))
+            if (acceptedColors is not null && !acceptedColors.Contains(message.Color))
                 continue;
             Match match = regex.Match(message.Text);
             if (!match.Success)
@@ -740,21 +916,26 @@ internal sealed class MetaEngine : IDisposable
                 _expressions.State.Set(
                     ExpressionVariableScope.Session,
                     "capturecolor",
-                    ExpressionValue.Number(message.Kind));
+                    ExpressionValue.Number(message.Color));
             }
             return true;
         }
         return false;
     }
 
-    private static HashSet<int>? ParseKinds(string source)
+    private static HashSet<int>? ParseColors(string source)
     {
         if (string.IsNullOrWhiteSpace(source))
             return null;
         var result = new HashSet<int>();
         foreach (string part in source.Split(';', StringSplitOptions.RemoveEmptyEntries))
         {
-            if (!int.TryParse(part.Trim(), out int kind))
+            // The list reads the same on every machine, whatever its culture.
+            if (!int.TryParse(
+                    part.Trim(),
+                    System.Globalization.NumberStyles.Integer,
+                    System.Globalization.CultureInfo.InvariantCulture,
+                    out int kind))
                 return [];
             result.Add(kind);
         }
@@ -886,6 +1067,12 @@ internal sealed class MetaEngine : IDisposable
         MetaActionKind.ChatCommand => $"Chat {action.Text}",
         _ => action.Kind.ToString(),
     };
+
+    /// <summary>
+    /// One chat line as the chat conditions see it: the printed line and its
+    /// chat text type, which is what a condition's colour list names.
+    /// </summary>
+    private readonly record struct ChatBufferEntry(string Text, int Color);
 
     private readonly record struct Watchdog(
         string State,

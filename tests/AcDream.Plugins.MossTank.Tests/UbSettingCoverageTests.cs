@@ -108,6 +108,16 @@ public sealed class UbSettingCoverageTests
         ("Jumper", "ThinkFail"),
         ("Jumper", "Attempts"),
 
+        ("Plugin", "Debug"),
+        ("Plugin", "GenericMessageDisplay.Enabled"),
+        ("Plugin", "GenericMessageDisplay.Color"),
+        ("Plugin", "DebugMessageDisplay.Enabled"),
+        ("Plugin", "DebugMessageDisplay.Color"),
+        ("Plugin", "ExpressionMessageDisplay.Enabled"),
+        ("Plugin", "ExpressionMessageDisplay.Color"),
+        ("Plugin", "ErrorMessageDisplay.Enabled"),
+        ("Plugin", "ErrorMessageDisplay.Color"),
+
         ("InventoryManager", "AutoCram"),
         ("InventoryManager", "AutoStack"),
         ("InventoryManager", "IGThink"),
@@ -332,6 +342,16 @@ public sealed class UbSettingCoverageTests
         ("Jumper.ThinkFail", "False"),
         ("Jumper.Attempts", "3"),
 
+        ("Plugin.Debug", "False"),
+        ("Plugin.GenericMessageDisplay.Enabled", "True"),
+        ("Plugin.GenericMessageDisplay.Color", "5"),
+        ("Plugin.DebugMessageDisplay.Enabled", "True"),
+        ("Plugin.DebugMessageDisplay.Color", "14"),
+        ("Plugin.ExpressionMessageDisplay.Enabled", "True"),
+        ("Plugin.ExpressionMessageDisplay.Color", "5"),
+        ("Plugin.ErrorMessageDisplay.Enabled", "True"),
+        ("Plugin.ErrorMessageDisplay.Color", "15"),
+
         ("Sharing.Vitals", "True"),
         ("Sharing.CastTag", ""),
     ];
@@ -464,14 +484,14 @@ public sealed class UbSettingCoverageTests
     /// <summary>
     /// The inventory's own size, so an accidental edit to the tables above
     /// is noticed rather than quietly changing what coverage means. One
-    /// hundred and seventy-six leaf values across the in-scope tools.
+    /// hundred and eighty-five leaf values across the in-scope tools.
     /// </summary>
     [Fact]
-    public void TheInventoryIsTheOneHundredAndSeventySixLeafValuesTheToolsDeclare()
+    public void TheInventoryIsTheOneHundredAndEightyFiveLeafValuesTheToolsDeclare()
     {
         IReadOnlyList<string> keys = InventoryKeys();
 
-        Assert.Equal(176, keys.Count);
+        Assert.Equal(185, keys.Count);
         Assert.Equal(keys.Count, keys.Distinct(StringComparer.Ordinal).Count());
         Assert.All(keys, static key => Assert.Contains('.', key));
     }
@@ -520,10 +540,10 @@ public sealed class UbSettingCoverageTests
             + "tools declare. Add each to AddedHere with the reason it "
             + "exists:\n  " + string.Join("\n  ", unaccounted));
 
-        // 176 declared, 21 excluded, three of our own: the arithmetic is
+        // 185 declared, 21 excluded, three of our own: the arithmetic is
         // stated so a silent change to any of the three tables shows up.
         Assert.Equal(21, Excluded.Count);
-        Assert.Equal(155, shouldBeOnTheTab.Count);
+        Assert.Equal(164, shouldBeOnTheTab.Count);
         Assert.Equal(shouldBeOnTheTab.Count + AddedHere.Count, onTheTab.Count);
     }
 

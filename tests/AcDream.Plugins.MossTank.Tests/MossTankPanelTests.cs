@@ -239,7 +239,7 @@ public sealed partial class MossTankPanelTests
                 },
             ]));
         var panel = new MossTankPanel(new FakeHost(automation, storage));
-        Command(panel, "opt set AutoVendor.Enabled true");
+        UbCommand(panel, "opt set AutoVendor.Enabled true");
 
         vendor.Open(FrameVendorSurface.VendorId);
         panel.OnTick(0.05d);
@@ -326,7 +326,7 @@ public sealed partial class MossTankPanelTests
             ShopRoute(automation.NavigationSnapshot.Position));
 
         var panel = new MossTankPanel(new FakeHost(automation, storage));
-        Command(panel, "opt set AutoVendor.Enabled true");
+        UbCommand(panel, "opt set AutoVendor.Enabled true");
         Command(panel, "nav load Shop");
         panel.SetMetaOption("EnableNav", Truthy(true));
         panel.ToggleCombat();
@@ -1168,8 +1168,52 @@ public sealed partial class MossTankPanelTests
 
         Command(panel, arguments);
 
-        Assert.Equal("Dropped.nav", panel.SelectedRouteProfile);
+        Assert.Equal("Dropped", panel.SelectedRouteProfile);
         Assert.NotEmpty(panel.RouteRows);
+    }
+
+    /// <summary>
+    /// A meta that loads a meta which does not exist gets what the reference
+    /// gives it: a new, empty meta of that name, saved, current and in
+    /// Default, and the rest of the pass is over. Mutation: treating the
+    /// missing file as a failed load leaves the old meta current with its
+    /// command rule spent, so the SetState after it lands and nothing in
+    /// that state ever fires again.
+    /// </summary>
+    [Fact]
+    public void AMetaLoadingAMissingMetaSwitchesToANewEmptyOneAsTheReferenceDoes()
+    {
+        var storage = new MemoryStorage();
+        storage.Text["mosstank/metas/Leader.af"] =
+            "STATE: {Default} ~~ {\r\n"
+            + "\tIF:\tAlways\r\n"
+            + "\t\tDO:\tDoAll\r\n"
+            + "\t\t\t\tDoExpr {setvar[ran,1]}\r\n"
+            + "\t\t\t\tChat {/vt meta load DailyJohnsSetup}\r\n"
+            + "\tIF:\tAlways\r\n"
+            + "\t\tDO:\tSetState {Stuck}\r\n"
+            + "STATE: {Stuck} ~~ {\r\n"
+            + "\tIF:\tNever\r\n"
+            + "\t\tDO:\tNone\r\n";
+        var automation = new FakeAutomation { Name = "Barris", WorldName = "Coldeve" };
+        var panel = new MossTankPanel(new FakeHost(automation, storage));
+        automation.OnSubmit = text =>
+        {
+            if (text.StartsWith("/vt ", StringComparison.Ordinal))
+                Command(panel, text[4..]);
+        };
+        Command(panel, "meta load Leader");
+        panel.ToggleMeta();
+        panel.ToggleCombat();
+
+        panel.OnTick(0.3d);
+
+        Assert.Equal(1d, panel.EvaluateExpression("getvar[ran]").AsNumber());
+        Assert.Equal("DailyJohnsSetup", panel.SelectedMetaProfile);
+        Assert.Equal(MetaEngine.DefaultState, panel.MetaState);
+        Assert.Contains(storage.Text.Keys, key =>
+            key.StartsWith("mosstank/metas/DailyJohnsSetup", StringComparison.Ordinal));
+        Assert.Empty(panel.MetaRows);
     }
 
     /// <summary>
@@ -1328,6 +1372,96 @@ public sealed partial class MossTankPanelTests
         Assert.Equal((start + 4) % count, panel.CurrentRouteWaypointIndexForTest);
     }
 
+    /// <summary>
+    /// /vt prevwp steps the route cursor back one waypoint, or the count
+    /// given, and stops at the first waypoint, as VTank's previous-waypoint
+    /// button does. Mutation: drop the floor and the cursor goes negative.
+    /// </summary>
+    [Fact]
+    public void PreviousWaypointStepsBackAndStopsAtTheFirst()
+    {
+        var storage = new MemoryStorage();
+        storage.Text["mosstank/navs/Circuit.nav"] = File.ReadAllText(Path.Combine(
+            AppContext.BaseDirectory, "Fixtures", "vtank", "nav", "nav_ab.nav"));
+        var automation = new FakeAutomation { Name = "Barris", WorldName = "Coldeve" };
+        var panel = new MossTankPanel(new FakeHost(automation, storage));
+        Command(panel, "nav load Circuit");
+        // The fixture is a once-through route, which cannot step back.
+        automation.Messages.Clear();
+        Command(panel, "prevwp");
+        Assert.Contains(automation.Messages, message => message.Contains("once-through", StringComparison.Ordinal));
+        panel.SelectRouteMode("Circular");
+        int count = panel.RouteRows.Count;
+        Assert.True(count > 3);
+        int start = panel.CurrentRouteWaypointIndexForTest;
+        Command(panel, "nextwp 3");
+        int advanced = panel.CurrentRouteWaypointIndexForTest;
+        Assert.Equal((start + 3) % count, advanced);
+
+        Command(panel, "prevwp");
+        Assert.Equal(advanced - 1, panel.CurrentRouteWaypointIndexForTest);
+        Command(panel, "prevwp 99");
+        Assert.Equal(0, panel.CurrentRouteWaypointIndexForTest);
+        automation.Messages.Clear();
+        Command(panel, "prevwp");
+        Assert.Equal(0, panel.CurrentRouteWaypointIndexForTest);
+        Assert.Contains(automation.Messages, message => message.Contains("already at its first waypoint", StringComparison.Ordinal));
+        Command(panel, "prevwp zero");
+        Assert.Contains(automation.Messages, message => message.Contains("Syntax: /vt prevwp", StringComparison.Ordinal));
+    }
+
+    /// <summary>
+    /// /vt prevwp on a route with no waypoints says the route has none, not
+    /// that it is already at its first one.
+    /// Mutation: answer an empty route the way a route at its first point is
+    /// answered, and the reply claims a first waypoint that does not exist.
+    /// </summary>
+    [Fact]
+    public void PreviousWaypointOnAnEmptyRouteSaysItHasNoWaypoints()
+    {
+        var automation = new FakeAutomation { Name = "Barris", WorldName = "Coldeve" };
+        var panel = new MossTankPanel(new FakeHost(automation));
+        panel.SelectRouteMode("Circular");
+        Assert.Empty(panel.RouteRows);
+        automation.Messages.Clear();
+
+        Command(panel, "prevwp");
+
+        Assert.Contains(automation.Messages, message => message.Contains(
+            "The route has no waypoints to step back to.", StringComparison.Ordinal));
+        Assert.DoesNotContain(automation.Messages, message => message.Contains(
+            "already at its first waypoint", StringComparison.Ordinal));
+    }
+
+    /// <summary>
+    /// A reversed route steps back up the list, to its last waypoint, and
+    /// says it is there rather than at its first.
+    /// Mutation: answer every refused step as "already at its first
+    /// waypoint" and the reversed route's reply names the wrong end.
+    /// </summary>
+    [Fact]
+    public void PreviousWaypointOnAReversedRouteStopsAtTheLastWaypoint()
+    {
+        var storage = new MemoryStorage();
+        storage.Text["mosstank/navs/Circuit.nav"] = File.ReadAllText(Path.Combine(
+            AppContext.BaseDirectory, "Fixtures", "vtank", "nav", "nav_ab.nav"));
+        var automation = new FakeAutomation { Name = "Barris", WorldName = "Coldeve" };
+        var panel = new MossTankPanel(new FakeHost(automation, storage));
+        Command(panel, "nav load Circuit");
+        panel.SelectRouteMode("Circular");
+        int count = panel.RouteRows.Count;
+        Command(panel, "reverseroute");
+
+        Command(panel, "prevwp 99");
+        Assert.Equal(count - 1, panel.CurrentRouteWaypointIndexForTest);
+        automation.Messages.Clear();
+        Command(panel, "prevwp");
+
+        Assert.Equal(count - 1, panel.CurrentRouteWaypointIndexForTest);
+        Assert.Contains(automation.Messages, message => message.Contains(
+            "already at its last waypoint", StringComparison.Ordinal));
+    }
+
     [Theory]
     [InlineData("meta load Dropped")]
     [InlineData("meta load Dropped.met")]
@@ -1341,7 +1475,7 @@ public sealed partial class MossTankPanelTests
 
         Command(panel, arguments);
 
-        Assert.Equal("Dropped.met", panel.SelectedMetaProfile);
+        Assert.Equal("Dropped", panel.SelectedMetaProfile);
     }
 
     [Fact]
@@ -1365,8 +1499,41 @@ public sealed partial class MossTankPanelTests
                     StringComparison.Ordinal));
     }
 
+    /// <summary>
+    /// A meta that cannot be read is announced with why, not only where:
+    /// the reader's own error follows the path. Mutation: announcing the
+    /// failure without the reason.
+    /// </summary>
     [Fact]
-    public void AMetDroppedIntoTheMetasFolderLoadsAndSavesBesideItself()
+    public void AFailedMetaLoadSaysWhy()
+    {
+        var storage = new MemoryStorage { RootPath = Path.Combine("data", "vtank") };
+        storage.Text["mosstank/metas/Broken.met"] = "1\r\nCondAct\r\n5\r\nCType\r\nAType\r\n"
+            + "CData\r\nAData\r\nState\r\nn\r\nn\r\nn\r\nn\r\nn\r\n1\r\n"
+            + "i\r\n1\r\ni\r\n99\r\n";
+        var automation = new FakeAutomation { Name = "Barris", WorldName = "Coldeve" };
+        var panel = new MossTankPanel(new FakeHost(automation, storage));
+        panel.OnTick(0.1d);
+        automation.Messages.Clear();
+
+        Command(panel, "meta load Broken.met");
+        panel.OnTick(0.1d);
+
+        Assert.Contains(
+            automation.Messages,
+            message => message.Contains("Could not load Meta profile Broken.met from ", StringComparison.Ordinal)
+                && message.Contains(
+                    Path.Combine("data", "vtank", "mosstank", "metas", "Broken.met"),
+                    StringComparison.Ordinal)
+                && message.Contains(": VTank Meta line 19: Unexpected end of VTank Meta data.", StringComparison.Ordinal));
+        // Nothing claims the load that failed.
+        Assert.DoesNotContain(
+            automation.Messages,
+            message => message.Contains("Loaded Meta profile", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public void AMetDroppedIntoTheMetasFolderLoadsAndSavesBackIntoItself()
     {
         var storage = new MemoryStorage();
         storage.Text["mosstank/metas/Dropped.met"] = File.ReadAllText(Path.Combine(
@@ -1375,8 +1542,8 @@ public sealed partial class MossTankPanelTests
             new FakeHost(new FakeAutomation { Name = "Barris" }, storage));
         store.BindCharacter("Barris");
 
-        Assert.Contains("Dropped.met", store.AvailableNames);
-        Assert.True(store.Select("Dropped.met"));
+        Assert.Contains("Dropped", store.AvailableNames);
+        Assert.True(store.Select("Dropped"));
 
         MetaProfile loaded = store.LoadCurrent();
         Assert.NotEmpty(loaded.Rules);
@@ -1385,7 +1552,7 @@ public sealed partial class MossTankPanelTests
         Assert.True(store.SaveCurrent(loaded));
 
         Assert.Equal(dropped, storage.Text["mosstank/metas/Dropped.met"]);
-        Assert.True(storage.Text.ContainsKey("mosstank/metas/Dropped.af"));
+        Assert.False(storage.Text.ContainsKey("mosstank/metas/Dropped.af"));
     }
 
     [Fact]
@@ -2642,11 +2809,6 @@ public sealed partial class MossTankPanelTests
     }
 
     /// <summary>
-    /// Mutation <c>SkipExactBuffedItemRemoval</c>: omit the selected stored ID
-    /// from removal. The missing row remains while the same-name item and raw rows
-    /// must stay intact.
-    /// </summary>
-    /// <summary>
     /// An item is listed by its object id, and an id cannot be looked up
     /// while there is no inventory: logged out, or just logged in. The page
     /// then showed every item twice -- once as an INVALID id and once by its
@@ -2687,6 +2849,11 @@ public sealed partial class MossTankPanelTests
             withoutTheBlade.ItemRows);
     }
 
+    /// <summary>
+    /// Mutation <c>SkipExactBuffedItemRemoval</c>: omit the selected stored ID
+    /// from removal. The missing row remains while the same-name item and raw rows
+    /// must stay intact.
+    /// </summary>
     [Fact]
     public void ItemRowsDeleteTheSelectedIdentityEvenWhenMissingOrNamesMatch()
     {
@@ -3619,6 +3786,86 @@ public sealed partial class MossTankPanelTests
             panel.OnTick(0.3d);
 
         Assert.Contains("EnterMode:Peace", automation.CallLog);
+    }
+
+    /// <summary>
+    /// A meta's cast goes through the macro's own cast tracker, and the pass
+    /// is held from the moment it is issued. The meta is looked at before the
+    /// rules, so without the hold the peace-when-idle rule, asked later in the
+    /// SAME pass, drops the stance in the middle of the windup and the server
+    /// fizzles the spell — every pass, for as long as the meta keeps asking.
+    /// Mutation: hand the meta's cast straight to the host again and the pass
+    /// requests peace right after the cast.
+    /// </summary>
+    [Fact]
+    public void AMetaCastHoldsThePassSoPeaceWhenIdleCannotBreakTheWindup()
+    {
+        var storage = new MemoryStorage();
+        storage.Text["mosstank/metas/Recall.af"] =
+            "STATE: {Default} ~~ {\r\n"
+            + "\tIF:\tExpr {actiontrycastbyid[4213]}\r\n"
+            + "\t\tDO:\tNone\r\n";
+        var automation = new CombatCapableFakeAutomation
+        {
+            CurrentHealth = 100,
+            MaxHealth = 100,
+            CurrentStamina = 100,
+            MaxStamina = 100,
+            CurrentMana = 100,
+            MaxMana = 100,
+            Skills =
+            [
+                new PluginSkillInfo(
+                    32, "Item Enchantment", PluginSkillTraining.Specialized, 309),
+            ],
+            EquipmentItems =
+            [
+                EquipmentItem(10, "Wand", itemType: 0x00008000u) with
+                {
+                    ValidLocations = 0x01000000u,
+                    EquippedLocation = 0x01000000u,
+                },
+            ],
+        };
+        automation.SpellLookup.Add(new PluginSpellInfo(
+            4213,
+            "Colosseum Recall",
+            Family: 214,
+            Tier: 7,
+            Difficulty: 150,
+            ManaCost: 50,
+            DurationSeconds: 0f,
+            School: 32,
+            "Sends the caster to the Colosseum.",
+            IsSelfTargeted: true,
+            IsBeneficial: true)
+        {
+            Saying = "Shurov Thizael",
+        });
+        automation.KnownSpellIds.Add(4213u);
+        automation.CombatSnapshot = automation.CombatSnapshot with
+        {
+            Mode = PluginCombatMode.Magic,
+        };
+        var panel = new MossTankPanel(new FakeHost(automation, storage));
+        Command(panel, "meta load Recall");
+        Command(panel, "opt set EnableMeta true");
+        panel.ToggleIdlePeaceMode();
+        panel.ToggleCombat();
+
+        for (int tick = 0;
+             tick < 10 && !automation.CallLog.Contains("Cast:4213");
+             tick++)
+        {
+            panel.OnTick(0.3d);
+        }
+
+        int cast = automation.CallLog.IndexOf("Cast:4213");
+        Assert.True(
+            cast >= 0,
+            "The meta never cast. CallLog: " + string.Join(" | ", automation.CallLog));
+        Assert.DoesNotContain("EnterMode:Peace", automation.CallLog.Skip(cast));
+        Assert.True(((IBuffRuleHost)panel).CastTracker.IsBusy);
     }
 
     /// <summary>
@@ -4600,22 +4847,20 @@ public sealed partial class MossTankPanelTests
     public void AFollowRouteHasNoRoundToAnchor()
     {
         var automation = new FakeAutomation { NavigationSnapshot = NavigationAt(0f) };
-        var panel = new MossTankPanel(new FakeHost(automation));
+        var host = new FakeHost(automation);
+        var panel = new MossTankPanel(host);
         automation.CurrentHealth = 100;
         automation.MaxHealth = 100;
+        automation.NavigationObjects.Add(new PluginNavigationObject(
+            77u, "Horan", default));
+        host.Selection.Select(77u);
+
+        // Following moves to the follow route; points added to it after that
+        // give the start a round it could anchor to, and must not.
+        panel.SelectRouteMode("Target");
+        Assert.Equal("Follow", panel.SelectedRouteMode);
         TwoPointRoute(panel, automation);
         panel.SetMetaOption("EnableNav", Truthy(true));
-        panel.ToggleCombat();
-        for (int pass = 0; pass < 4; pass++)
-            panel.OnTick(0.3d);
-        Assert.Equal(1, panel.RouteWaypointIndexForTest);
-        panel.ExecuteVtankCommand(new PluginCommand("vt", "stop", "/vt stop"));
-
-        // Switching the mode is a route change and resets the round, so the
-        // index is put back deliberately to give the start something to leave
-        // alone.
-        panel.SelectRouteMode("Target");
-        panel.ExecuteVtankCommand(new PluginCommand("vt", "stop", "/vt stop"));
         StandAt(automation, 48d);
         int before = panel.RouteWaypointIndexForTest;
         panel.ExecuteVtankCommand(new PluginCommand("vt", "start", "/vt start"));
@@ -4674,7 +4919,6 @@ public sealed partial class MossTankPanelTests
         Assert.Equal(0, panel.RouteWaypointIndexForTest);
     }
 
-    /// <summary>Two points, at east-west 0 and 50, with the character back at 0.</summary>
     /// <summary>
     /// A circular route loaded while the macro runs (a meta swapping from its
     /// travel route to its hunting circuit) starts at the point nearest the
@@ -4705,6 +4949,7 @@ public sealed partial class MossTankPanelTests
         Assert.Equal(2, panel.RouteWaypointIndexForTest);
     }
 
+    /// <summary>Two points, at east-west 0 and 50, with the character back at 0.</summary>
     private static void TwoPointRoute(MossTankPanel panel, FakeAutomation automation)
     {
         panel.AddRoutePoint();
@@ -5674,6 +5919,93 @@ public sealed partial class MossTankPanelTests
         Assert.Contains("Spell 3811", panel.BuffStatus, StringComparison.Ordinal);
     }
 
+    public static TheoryData<string> EveryVtankOptionName()
+    {
+        var data = new TheoryData<string>();
+        foreach (string name in VtankOptionCatalog.Names)
+            data.Add(name);
+        return data;
+    }
+
+    /// <summary>
+    /// vtgetsetting answers with the setting's own type, the way the
+    /// reference's does (it returns the setting's value, and the expression
+    /// engine turns a true/false into 1/0 and every whole or fractional
+    /// number into a number): a meta compares a flag with 1 and a time with a
+    /// number. Every option the settings database declares reads, on a fresh
+    /// profile, the reference default in the reference type, and a value
+    /// written with vtsetsetting reads back the same. Mutation:
+    /// answering every setting as text fails every row but the text ones.
+    /// </summary>
+    [Theory]
+    [MemberData(nameof(EveryVtankOptionName))]
+    public void EveryVtankOptionReadsBackWithTheReferenceType(string name)
+    {
+        var panel = new MossTankPanel(new FakeHost(new FakeAutomation(), new MemoryStorage()));
+        VtankSettingValueType type = VtankOptionCatalog.DeclaredType(name);
+        string read = $"vtgetsetting[`{name}`]";
+
+        Expressions.ExpressionValue value = panel.EvaluateExpression(read);
+
+        switch (type)
+        {
+            case VtankSettingValueType.String or VtankSettingValueType.Custom:
+                Assert.Equal(Expressions.ExpressionValueKind.String, value.Kind);
+                return;
+            case VtankSettingValueType.Bool:
+                Assert.Equal(Expressions.ExpressionValueKind.Number, value.Kind);
+                Assert.Contains(value.AsNumber(), new[] { 0d, 1d });
+                Assert.Equal(VtankOptionCatalog.Default(name).Boolean ? 1d : 0d, value.AsNumber());
+                string flipped = value.AsNumber() == 1d ? "0" : "1";
+                panel.EvaluateExpression($"vtsetsetting[`{name}`,`{flipped}`]");
+                Assert.Equal(double.Parse(flipped, System.Globalization.CultureInfo.InvariantCulture),
+                    panel.EvaluateExpression(read).AsNumber());
+                return;
+            default:
+                Assert.Equal(Expressions.ExpressionValueKind.Number, value.Kind);
+                double written = VtankOptionCatalog.Default(name).Number;
+                Assert.Equal(written, value.AsNumber(), precision: 6);
+                panel.EvaluateExpression(
+                    $"vtsetsetting[`{name}`,`{written.ToString("R", System.Globalization.CultureInfo.InvariantCulture)}`]");
+                Expressions.ExpressionValue back = panel.EvaluateExpression(read);
+                Assert.Equal(Expressions.ExpressionValueKind.Number, back.Kind);
+                Assert.Equal(written, back.AsNumber(), precision: 6);
+                return;
+        }
+    }
+
+    /// <summary>
+    /// The live case: a buff's remaining time compared with the idle top-off
+    /// time. Mutation: answering the setting as text fails the comparison
+    /// with "comparison expects number, but received String".
+    /// </summary>
+    [Fact]
+    public void AnIntegerVtankSettingComparesWithANumber()
+    {
+        var panel = new MossTankPanel(new FakeHost(new FakeAutomation(), new MemoryStorage()));
+
+        Assert.True(panel.EvaluateExpression(
+            "600<vtgetsetting[IdleBuffTopoffTimeSeconds]").IsTruthy);
+        Assert.True(panel.EvaluateExpression("vtgetsetting[AutoStack]==1").IsTruthy);
+    }
+
+    /// <summary>
+    /// NavCloseStopRange keeps the value it is given, as the reference does,
+    /// and reads it back unchanged: a meta that sets 0.000625 (0.15 m) for a
+    /// precise jump take-off reads 0.000625, not the 0.5 m floor. Mutation:
+    /// clamping the stored value at 0.5 m reads back 0.00208.
+    /// </summary>
+    [Fact]
+    public void NavCloseStopRangeKeepsTheRawValueItIsGiven()
+    {
+        var panel = new MossTankPanel(new FakeHost(new FakeAutomation(), new MemoryStorage()));
+
+        Command(panel, "opt set NavCloseStopRange 0.000625");
+
+        Assert.Equal(0.000625d, panel.EvaluateExpression(
+            "vtgetsetting[`NavCloseStopRange`]").AsNumber(), precision: 9);
+    }
+
     /// <summary>
     /// A settings load is an activation transaction. Mutation
     /// <c>ApplyDefaultsAfterFailedSettingsLoad</c>: apply a fresh default
@@ -6549,20 +6881,25 @@ public sealed partial class MossTankPanelTests
     }
 
     /// <summary>
-    /// A setting nothing in the macro reads is not an option here at all: a
-    /// row the player can change that changes nothing is worse than no row.
-    /// A profile written elsewhere may still carry the name; it is ignored
-    /// on load like any other name the macro does not know.
+    /// A setting nothing in the macro reads has no row here: a row the
+    /// player can change that changes nothing is worse than no row. It is
+    /// still an option, because the reference's settings table holds it and
+    /// a macro may set or read it without being told it does not exist.
     ///
-    /// Mutation: put the name back in the option catalog and the row returns.
+    /// Mutation: drop the name from the option catalog and a SetOpt of it
+    /// warns; list it and the row returns.
     /// </summary>
     [Fact]
-    public void ASettingNothingReadsIsNotAnOption()
+    public void ASettingNothingReadsHasNoRowButIsAnOption()
     {
         var panel = new MossTankPanel(new FakeHost(new FakeAutomation()));
 
         Assert.DoesNotContain("WhoYouGonnaCall", panel.AdvancedOptionNames);
-        Assert.DoesNotContain("WhoYouGonnaCall", VtankOptionCatalog.Names);
+        Assert.Contains("WhoYouGonnaCall", VtankOptionCatalog.Names);
+        Assert.True(panel.SetMetaOption(
+            "WhoYouGonnaCall",
+            AcDream.Plugins.MossTank.Expressions.ExpressionValue.Boolean(false)));
+        Assert.False(panel.GetMetaOptionForTest("WhoYouGonnaCall"));
     }
 
     /// <summary>
@@ -7495,13 +7832,13 @@ public sealed partial class MossTankPanelTests
         Vt(panel, "nav save Fellowship");
         Assert.Equal("Fellowship", panel.SelectedRouteProfile);
         Assert.Contains("Fellowship", panel.RouteProfileNames);
-        Assert.True(storage.Text.ContainsKey("mosstank/navs/Fellowship.af"));
+        Assert.True(storage.Text.ContainsKey("mosstank/navs/Fellowship.nav"));
 
         panel.DeleteRouteProfile();
 
         Assert.Equal(MossTankRouteProfileStore.ByCharacter, panel.SelectedRouteProfile);
         Assert.DoesNotContain("Fellowship", panel.RouteProfileNames);
-        Assert.False(storage.Text.ContainsKey("mosstank/navs/Fellowship.af"));
+        Assert.False(storage.Text.ContainsKey("mosstank/navs/Fellowship.nav"));
         Assert.Contains("Deleted", panel.RouteNotice, StringComparison.Ordinal);
     }
 
@@ -7535,7 +7872,7 @@ public sealed partial class MossTankPanelTests
         panel.AddRoutePoint();
         panel.AddRoutePoint();
         panel.AddRoutePoint();
-        Vt(panel, "nav save OnceRun");
+        Vt(panel, "navaf save OnceRun");
         const string file = "mosstank/navs/OnceRun.af";
         Assert.Equal(3, PointLines(storage, file));
 
@@ -7669,13 +8006,13 @@ public sealed partial class MossTankPanelTests
         Vt(panel, "meta save Fellowship");
         Assert.Equal("Fellowship", panel.SelectedMetaProfile);
         Assert.Contains("Fellowship", panel.MetaProfileNames);
-        Assert.True(storage.Text.ContainsKey("mosstank/metas/Fellowship.af"));
+        Assert.True(storage.Text.ContainsKey("mosstank/metas/Fellowship.met"));
 
         panel.DeleteMetaProfile();
 
         Assert.Equal(MossTankMetaProfileStore.ByCharacter, panel.SelectedMetaProfile);
         Assert.DoesNotContain("Fellowship", panel.MetaProfileNames);
-        Assert.False(storage.Text.ContainsKey("mosstank/metas/Fellowship.af"));
+        Assert.False(storage.Text.ContainsKey("mosstank/metas/Fellowship.met"));
         Assert.Contains("Deleted", panel.MetaNotice, StringComparison.Ordinal);
     }
 
@@ -8062,6 +8399,12 @@ public sealed partial class MossTankPanelTests
         Assert.Contains("12.5", panel.RouteRows[0], StringComparison.Ordinal);
 
         Command(panel, "nav save Exported.nav");
+        Assert.StartsWith(
+            "uTank2 NAV 1.2\r\n",
+            storage.Text["mosstank/navs/Exported.nav"],
+            StringComparison.Ordinal);
+
+        Command(panel, "navaf save Exported");
         Assert.Contains(
             "NAV: ",
             storage.Text["mosstank/navs/Exported.af"],
@@ -8095,15 +8438,13 @@ public sealed partial class MossTankPanelTests
         Command(panel, "meta save Same.met");
         Command(panel, "nav save Same.nav");
 
-        Assert.True(storage.Text.ContainsKey("mosstank/metas/Same.af"));
-        Assert.True(storage.Text.ContainsKey("mosstank/navs/Same.af"));
-        Assert.Contains(
-            "STATE: ",
-            storage.Text["mosstank/metas/Same.af"],
+        Assert.StartsWith(
+            "1\r\nCondAct\r\n",
+            storage.Text["mosstank/metas/Same.met"],
             StringComparison.Ordinal);
-        Assert.Contains(
-            "NAV: ",
-            storage.Text["mosstank/navs/Same.af"],
+        Assert.StartsWith(
+            "uTank2 NAV 1.2\r\n",
+            storage.Text["mosstank/navs/Same.nav"],
             StringComparison.Ordinal);
     }
 
@@ -8130,6 +8471,13 @@ public sealed partial class MossTankPanelTests
         Assert.Contains("/say imported", panel.MetaRows[0], StringComparison.Ordinal);
 
         Command(panel, "meta save Exported.met");
+        Assert.True(VtankMetaProfileSerializer.TryLoad(
+            storage.Text["mosstank/metas/Exported.met"],
+            out MetaProfile exportedMet,
+            out string metError), metError);
+        Assert.Single(exportedMet.Rules);
+
+        Command(panel, "metaaf save Exported");
         Assert.Contains(
             "STATE: ",
             storage.Text["mosstank/metas/Exported.af"],
@@ -8847,7 +9195,7 @@ public sealed partial class MossTankPanelTests
     public void AFollowRouteIsSavedAndReloadedWithItsTarget()
     {
         var storage = new MemoryStorage();
-        var automation = new FakeAutomation { Name = "Follower" };
+        var automation = new FakeAutomation { Name = "Follower", WorldName = "Coldeve" };
         automation.NavigationObjects.Add(new PluginNavigationObject(
             77u, "Horan", default));
         var host = new FakeHost(automation, storage);
@@ -8857,7 +9205,7 @@ public sealed partial class MossTankPanelTests
         panel.SetFollowTarget();
 
         var reloaded = new MossTankPanel(new FakeHost(
-            new FakeAutomation { Name = "Follower" }, storage));
+            new FakeAutomation { Name = "Follower", WorldName = "Coldeve" }, storage));
 
         Assert.Equal("Follow", reloaded.SelectedRouteMode);
         Assert.Equal("Follow target: Horan", reloaded.RouteFollowTargetText);
@@ -9037,7 +9385,7 @@ public sealed partial class MossTankPanelTests
         panel.SetMetaConditionTextDraft("vtmacroenabled[] == 1");
         panel.SelectMetaAction(nameof(MetaActionKind.ExpressionAction));
         panel.SetMetaActionTextDraft(
-            "vtsetsetting[`MonsterRange`,42] + vtsetmetastate[`Expression State`]");
+            "vtsetsetting[`AttackDistance`,`0.175`] + vtsetmetastate[`Expression State`]");
         panel.AddMetaRule();
         panel.ToggleMeta();
         panel.ToggleCombat();
@@ -9046,9 +9394,10 @@ public sealed partial class MossTankPanelTests
 
         Assert.Equal("Expression State", panel.MetaState);
         Assert.Equal("Maximum target range: 42m", panel.AttackRangeText);
-        Assert.True(panel.EvaluateExpression("uboptset[`MonsterRange`,33]").IsTruthy);
-        Assert.Equal(33d, panel.EvaluateExpression(
-            "uboptget[`MonsterRange`]").AsNumber());
+        Assert.True(panel.EvaluateExpression("uboptset[`AttackDistance`,0.1375]").IsTruthy);
+        Assert.Equal(0.1375d, panel.EvaluateExpression(
+            "uboptget[`AttackDistance`]").AsNumber());
+        Assert.Equal("Maximum target range: 33m", panel.AttackRangeText);
     }
 
     [Fact]
@@ -9110,17 +9459,27 @@ public sealed partial class MossTankPanelTests
         {
             ItemEntries =
             [
-                Item(10, "Cold Rift", 0, petClass: 49387) with
+                Item(10, "Cold Rift", 0) with
                 {
                     Structure = 3,
                     MaximumStructure = 50,
                 },
                 Item(11, "Encapsulated Spirit", 0) with
                 {
-                    WeenieClassId = PetDeviceCatalog.EncapsulatedSpiritWeenieClassId,
+                    WeenieClassId = PetAutomationTests.EncapsulatedSpiritClass,
                 },
             ],
         };
+        // The essence's assessment: its shared summoning cooldown, and no pet
+        // class, which the server never sends.
+        automation.Properties[10u] = new PluginItemProperties(
+            new Dictionary<uint, int> { [280u] = 213 },
+            new Dictionary<uint, long>(),
+            new Dictionary<uint, bool>(),
+            new Dictionary<uint, double>(),
+            new Dictionary<uint, string>(),
+            new Dictionary<uint, uint>(),
+            new Dictionary<uint, uint>());
         var host = new FakeHost(automation);
         automation.CurrentSelection = () => host.Selection.SelectedObjectId ?? 0u;
         var panel = new MossTankPanel(host);
@@ -9140,6 +9499,144 @@ public sealed partial class MossTankPanelTests
         Command(panel, "opt set petrefillcount-idle 0");
 
         Assert.False(rule.ValidNow(new MacroPassContext(2d, true)));
+    }
+
+    /// <summary>
+    /// The refill stands in the helper band too, on the "normal" threshold,
+    /// as a rule of its own: it needs no monster and no summon setting, only
+    /// an essence on the Items page that is nearly out and a spirit.
+    /// </summary>
+    [Fact]
+    public void TheHelperBandRefillsACombatPetOnTheNormalThreshold()
+    {
+        var automation = new FakeAutomation
+        {
+            ItemEntries =
+            [
+                Item(10, "Cold Rift", 0) with
+                {
+                    Structure = 1,
+                    MaximumStructure = 50,
+                },
+                Item(11, "Encapsulated Spirit", 0) with
+                {
+                    WeenieClassId = PetAutomationTests.EncapsulatedSpiritClass,
+                },
+            ],
+        };
+        automation.Properties[10u] = new PluginItemProperties(
+            new Dictionary<uint, int> { [280u] = 213 },
+            new Dictionary<uint, long>(),
+            new Dictionary<uint, bool>(),
+            new Dictionary<uint, double>(),
+            new Dictionary<uint, string>(),
+            new Dictionary<uint, uint>(),
+            new Dictionary<uint, uint>());
+        var host = new FakeHost(automation);
+        automation.CurrentSelection = () => host.Selection.SelectedObjectId ?? 0u;
+        var panel = new MossTankPanel(host);
+        host.Selection.Select(10u);
+        panel.AddSelectedItem();
+        Command(panel, "opt set summonpets false");
+        Command(panel, "opt set petrefillcount-normal 1");
+        panel.ToggleCombat();
+
+        IMacroRule rule = ((IMacroRuleProvider)panel)
+            .Create(MacroRuleSlot.RefillPetChargesNormal);
+
+        Assert.True(rule.ValidNow(new MacroPassContext(0.3d, true)));
+
+        Command(panel, "opt set petrefillcount-normal 0");
+
+        Assert.False(rule.ValidNow(new MacroPassContext(2d, true)));
+    }
+
+    /// <summary>
+    /// A fresh session: the profile names an essence on the Items page, and
+    /// this client has not appraised it. The Items page gets it appraised,
+    /// and once the answer is in, the summon rule knows it for a pet device
+    /// and uses it. Mutation: leaving Items-page items out of the appraisal
+    /// sweep keeps the essence unknown, so the rule never becomes valid.
+    /// </summary>
+    [Fact]
+    public void AnItemsPageEssenceIsAppraisedInAFreshSessionAndThenSummonedWith()
+    {
+        var storage = new MemoryStorage();
+        var essence = new PluginItemProperties(
+            new Dictionary<uint, int> { [280u] = 213 },
+            new Dictionary<uint, long>(),
+            new Dictionary<uint, bool>(),
+            new Dictionary<uint, double>(),
+            new Dictionary<uint, string>(),
+            new Dictionary<uint, uint>(),
+            new Dictionary<uint, uint>());
+        var first = new FakeAutomation
+        {
+            Name = "Prover",
+            ItemEntries = [Item(10, "Cold Rift", 0)],
+        };
+        first.Properties[10u] = essence;
+        var firstHost = new FakeHost(first, storage);
+        first.CurrentSelection = () => firstHost.Selection.SelectedObjectId ?? 0u;
+        var firstPanel = new MossTankPanel(firstHost);
+        firstHost.Selection.Select(10u);
+        firstPanel.AddSelectedItem();
+        Assert.Contains(firstPanel.ItemRows, row => row.StartsWith("Cold Rift", StringComparison.Ordinal));
+
+        var automation = new FakeAutomation
+        {
+            Name = "Prover",
+            ItemEntries = [Item(10, "Cold Rift", 0)],
+            HostileTargets = [new PluginCombatTarget(30, "Drudge", 700, 2f, 0f, true, 1f)],
+            Skills = [new PluginSkillInfo(54, "Summoning", PluginSkillTraining.Trained, 300)],
+        };
+        automation.Unassessed.Add(10u);
+        automation.AppraisalReplies[10u] = essence;
+        var panel = new MossTankPanel(new FakeHost(automation, storage));
+        Assert.Contains(panel.ItemRows, row => row.StartsWith("Cold Rift", StringComparison.Ordinal));
+        IMacroRule summon = ((IMacroRuleProvider)panel)
+            .Create(MacroIndependentSlot.SummonPet);
+        panel.ToggleCombat();
+
+        Assert.False(summon.ValidNow(new MacroPassContext(0.3d, true)));
+
+        for (int tick = 0; tick < 20 && automation.Unassessed.Count != 0; tick++)
+            panel.OnTick(0.3d);
+
+        Assert.Contains(10u, automation.Identified);
+        // With the answer in, the macro's own pass summons with it.
+        for (int tick = 0; tick < 5 && !automation.UsedItemIds.Contains(10u); tick++)
+            panel.OnTick(0.3d);
+        Assert.Contains(10u, automation.UsedItemIds);
+    }
+
+    /// <summary>
+    /// <c>/vt testpet</c> answers the reference's question: is there room
+    /// three metres ahead for a pet to appear, and how long the check took.
+    /// A client that cannot tell answers True, as the summon rule counts it.
+    /// The essence and monster the rule would choose follow on a line of
+    /// their own. Mutation: printing the pet choice as "can spawn" says True
+    /// facing a wall.
+    /// </summary>
+    [Fact]
+    public void TestPetReportsTheRoomAheadThenThePetChoice()
+    {
+        var automation = new FakeAutomation { RoomAhead = PluginRoomAheadStatus.Blocked };
+        var panel = new MossTankPanel(new FakeHost(automation));
+
+        Command(panel, "testpet");
+
+        Assert.Equal([3f], automation.RoomAheadAsked);
+        Assert.Matches(@"^Pet can spawn: False, test time: [0-9.]+ms$", automation.Messages[^2]);
+        Assert.Equal("Pet choice: none", automation.Messages[^1]);
+
+        automation.RoomAhead = PluginRoomAheadStatus.Unknown;
+        Command(panel, "testpet");
+        Assert.StartsWith("Pet can spawn: True, test time: ", automation.Messages[^2]);
+
+        automation.RoomAhead = PluginRoomAheadStatus.Clear;
+        Command(panel, "testpet");
+        Assert.StartsWith("Pet can spawn: True, test time: ", automation.Messages[^2]);
     }
 
     [Fact]
@@ -9215,9 +9712,9 @@ public sealed partial class MossTankPanelTests
         var storage = new MemoryStorage();
         var first = new MossTankPanel(new FakeHost(new FakeAutomation(), storage));
 
-        // One fewer than the shipped settings file names: the one setting no
-        // rule reads is not an option here.
-        Assert.Equal(136, VtankOptionCatalog.Names.Length);
+        // Every name the shipped settings file holds, the one no rule reads
+        // included: a name missing here is one a macro cannot set.
+        Assert.Equal(137, VtankOptionCatalog.Names.Length);
         Assert.Equal(10d, first.EvaluateExpression(
             "uboptget[`ArrowheadFletchDiffExcessThreshold`]").AsNumber());
         Assert.Equal(0.0833333333333333d, first.EvaluateExpression(
@@ -9354,12 +9851,13 @@ public sealed partial class MossTankPanelTests
             "/vt mexec 1 + 2 * 3"));
 
         // Four macro verb lists, the documented-command list, the pointer at
-        // per-command help, then the two the expression wrote.
-        Assert.Equal(8, automation.Messages.Count);
+        // per-command help, the pointer at /ub, then the two the expression
+        // wrote.
+        Assert.Equal(9, automation.Messages.Count);
         Assert.StartsWith("MossTank /vt — profiles:", automation.Messages[0],
             StringComparison.Ordinal);
-        Assert.Equal("MExec evaluating expression: \"1 + 2 * 3\"", automation.Messages[6]);
-        Assert.Equal("Result: 7", automation.Messages[7]);
+        Assert.Equal("MExec evaluating expression: \"1 + 2 * 3\"", automation.Messages[7]);
+        Assert.Equal("Result: 7", automation.Messages[8]);
     }
 
     /// <summary>
@@ -9417,10 +9915,8 @@ public sealed partial class MossTankPanelTests
         Vt(panel, "loot save Counted");
         automation.Messages.Clear();
 
-        panel.ExecuteVtankCommand(new PluginCommand(
-            "vt", "count item taper", "/vt count item taper"));
-        panel.ExecuteVtankCommand(new PluginCommand(
-            "vt", "count player 100", "/vt count player 100"));
+        UbCommand(panel, "count item taper");
+        UbCommand(panel, "count player 100");
         panel.ExecuteVtankCommand(new PluginCommand(
             "vt",
             "mexec vtcountitem[taper] + vtcountplayer[100]",
@@ -9428,11 +9924,12 @@ public sealed partial class MossTankPanelTests
 
         Assert.Equal(
             [
-                "Item Count: Prismatic Taper - 2",
-                "Total Item Count: 2",
-                "Player Count: 1",
+                "/t Test Character, Counter: Item Count: Prismatic Taper - 2",
+                "/t Test Character, Counter: Total Item Count: 2",
+                "/t Test Character, Counter: Player Count: 1",
             ],
-            automation.Messages.Take(3));
+            automation.Submitted.Where(static line => line.StartsWith("/t ", StringComparison.Ordinal)).Take(3));
+        Assert.DoesNotContain(automation.Messages, static line => line.StartsWith("You think", StringComparison.Ordinal));
         Assert.Equal("Result: 3", automation.Messages[^1]);
 
         panel.ExecuteVtankCommand(new PluginCommand(
@@ -9464,14 +9961,14 @@ public sealed partial class MossTankPanelTests
         panel.ApplyLootRule();
         Vt(panel, "loot save Counted");
 
-        Vt(panel, "count profile Counted");
+        UbCommand(panel, "count profile Counted");
         Assert.Contains(
             automation.Messages,
             line => line.StartsWith(
-                "Items remaining to identify:",
+                "[UB] Counter: Items remaining to ID:",
                 StringComparison.Ordinal));
 
-        Vt(panel, "count stop");
+        UbCommand(panel, "count stop");
 
         Assert.Contains(
             automation.Messages,
@@ -9485,7 +9982,9 @@ public sealed partial class MossTankPanelTests
     /// prints beside a character is that alphabetical position — not the slot
     /// the account's list keeps the character in. Here the two disagree for
     /// every character, so a listing that printed the slot as the index, or
-    /// an unsorted roster, shows up at once.
+    /// an unsorted roster, shows up at once. The column widths, the heading
+    /// and the id written in decimal are the reference's, to the character.
+    /// Mutation: a hex id, another heading or other widths fail the lines.
     /// </summary>
     [Fact]
     public void VtankLoginListsTheRosterAlphabeticallyBesideItsAccountSlots()
@@ -9495,26 +9994,47 @@ public sealed partial class MossTankPanelTests
             Name = "Mule",
             LoginRoster =
             [
-                new PluginLoginCharacter(0x50u, "Zeke", 0, false),
+                new PluginLoginCharacter(0x50000050u, "Zeke", 0, false),
                 new PluginLoginCharacter(0x10u, "Mule", 1, false),
                 new PluginLoginCharacter(0x30u, "Aardvark", 2, false),
             ],
         };
         var panel = new MossTankPanel(new FakeHost(automation));
 
-        Command(panel, "login list");
+        UbCommand(panel, "login list");
 
-        Assert.Equal("Listing 3 logins.", automation.Messages[0]);
-        Assert.Contains("Slot", automation.Messages[1], StringComparison.Ordinal);
-        Assert.StartsWith("0 ", Squeeze(automation.Messages[2]), StringComparison.Ordinal);
-        Assert.Contains("Aardvark", automation.Messages[2], StringComparison.Ordinal);
-        Assert.EndsWith(" 2", Squeeze(automation.Messages[2]), StringComparison.Ordinal);
-        // The character the client is on is marked, and its own slot (1) is
-        // not its alphabetical index (1 here by coincidence of three names).
-        Assert.Contains("**Mule**", automation.Messages[3], StringComparison.Ordinal);
-        Assert.StartsWith("2 ", Squeeze(automation.Messages[4]), StringComparison.Ordinal);
-        Assert.Contains("Zeke", automation.Messages[4], StringComparison.Ordinal);
-        Assert.EndsWith(" 0", Squeeze(automation.Messages[4]), StringComparison.Ordinal);
+        // The character the client is on is marked, and each line ends on
+        // the account slot, which is not the alphabetical index.
+        Assert.Equal(
+            [
+                "[UB] Listing 3 logins.",
+                "Index     Name                          ID                  Filter Index",
+                "0         Aardvark                      48                  2",
+                "1         **Mule**                      16                  1",
+                "2         Zeke                          1342177360          0",
+            ],
+            automation.Messages);
+    }
+
+    /// <summary>
+    /// An empty roster still prints the column heading, as the reference's
+    /// listing always does. Mutation: printing the heading only for a
+    /// roster with someone on it drops the second line.
+    /// </summary>
+    [Fact]
+    public void VtankLoginListOfAnEmptyRosterStillPrintsItsHeading()
+    {
+        var automation = new FakeAutomation { Name = "Mule", LoginRoster = [] };
+        var panel = new MossTankPanel(new FakeHost(automation));
+
+        UbCommand(panel, "login list");
+
+        Assert.Equal(
+            [
+                "[UB] Listing 0 logins.",
+                "Index     Name                          ID                  Filter Index",
+            ],
+            automation.Messages);
     }
 
     /// <summary>
@@ -9539,41 +10059,36 @@ public sealed partial class MossTankPanelTests
         };
         var panel = new MossTankPanel(new FakeHost(automation));
 
-        Command(panel, "login next 0");
+        UbCommand(panel, "login next 0");
         Assert.Equal(0x30u, automation.NextLoginObjectId);
 
         // One before "Mule" alphabetically is "Aardvark".
-        Command(panel, "login nextr -1");
+        UbCommand(panel, "login nextr -1");
         Assert.Equal(0x30u, automation.NextLoginObjectId);
 
-        Command(panel, "login nextr 1");
+        UbCommand(panel, "login nextr 1");
         Assert.Equal(0x50u, automation.NextLoginObjectId);
 
-        Command(panel, "login next zek");
+        UbCommand(panel, "login next zek");
         Assert.Equal(0x50u, automation.NextLoginObjectId);
 
         // Off the end without the loop flag: refused, and the pick is dropped.
-        Command(panel, "login next 7");
+        UbCommand(panel, "login next 7");
         Assert.Equal(0u, automation.NextLoginObjectId);
 
         // Past the end with the loop flag wraps around instead: three steps
         // on from "Mule" in a list of three is "Mule" again.
-        Command(panel, "login nextrl 3");
+        UbCommand(panel, "login nextrl 3");
         Assert.Equal(0x10u, automation.NextLoginObjectId);
 
-        Command(panel, "login next nobody");
+        UbCommand(panel, "login next nobody");
         Assert.Equal(0u, automation.NextLoginObjectId);
 
-        Command(panel, "login next 2");
+        UbCommand(panel, "login next 2");
         Assert.Equal(0x50u, automation.NextLoginObjectId);
-        Command(panel, "login clear");
+        UbCommand(panel, "login clear");
         Assert.Equal(0u, automation.NextLoginObjectId);
     }
-
-    /// <summary>A padded line with its column gaps collapsed to one space.</summary>
-    private static string Squeeze(string value) => string.Join(
-        ' ',
-        value.Split(' ', StringSplitOptions.RemoveEmptyEntries));
 
     [Fact]
     public void VtankJumpTurnsToTheRequestedHeadingBeforeChargingAndReleasing()
@@ -9589,14 +10104,21 @@ public sealed partial class MossTankPanelTests
         panel.OnTick(0.05d);
 
         Assert.True(automation.MovementIntents[^1].TurnRight);
-        Assert.False(automation.MovementIntents[^1].Jump);
+        Assert.Empty(automation.Jumps);
 
+        // Aligned: the turn keys are let go and the client charges and lets
+        // go of the jump itself, at exactly the power asked.
         automation.NavigationSnapshot = NavigationAt(180f);
+        int clears = automation.ClearMovementCount;
         panel.OnTick(0.01d);
-        Assert.True(automation.MovementIntents[^1].Jump);
+        Assert.Equal(clears + 1, automation.ClearMovementCount);
+        Assert.Equal([0.1f], automation.Jumps);
+        Assert.Equal([HeldKey(PluginMoveDirection.Forward, PluginMovePace.Run)], automation.Moves);
 
+        int intents = automation.MovementIntents.Count;
         panel.OnTick(0.1d);
-        Assert.False(automation.MovementIntents[^1].Jump);
+        Assert.Equal(intents, automation.MovementIntents.Count);
+        Assert.Single(automation.Jumps);
     }
 
     /// <summary>
@@ -9616,9 +10138,8 @@ public sealed partial class MossTankPanelTests
         Command(panel, "jump 180 false 100 backward");
         panel.OnTick(0.05d);
 
-        Assert.True(automation.MovementIntents[^1].Backward);
-        Assert.False(automation.MovementIntents[^1].Forward);
-        Assert.True(automation.MovementIntents[^1].Jump);
+        Assert.Equal([HeldKey(PluginMoveDirection.Backward, PluginMovePace.Run)], automation.Moves);
+        Assert.Equal([0.1f], automation.Jumps);
 
         Command(panel, "addnavjump 180 false 100 backward");
         Assert.Contains("Backward", panel.RouteRows[^1], StringComparison.Ordinal);
@@ -9630,6 +10151,102 @@ public sealed partial class MossTankPanelTests
                 "backward",
                 StringComparison.OrdinalIgnoreCase)
                 && message.Contains("forward", StringComparison.OrdinalIgnoreCase));
+    }
+
+    /// <summary>
+    /// Shift is the game's walk key: a jump that holds shift leaves at a
+    /// walk, and every other jump at the default run. Mutation: reading
+    /// shift as the run key inverts every row.
+    /// </summary>
+    [Theory]
+    [InlineData("vt", "jump 180 true 300", PluginMovePace.Walk)]
+    [InlineData("vt", "jump 180 false 300", PluginMovePace.Run)]
+    [InlineData("vt", "tapjump", PluginMovePace.Run)]
+    [InlineData("ub", "jumpsw 300", PluginMovePace.Walk)]
+    [InlineData("ub", "jumpw 300", PluginMovePace.Run)]
+    public void ShiftWalksAndEveryOtherJumpRuns(string word, string command, PluginMovePace pace)
+    {
+        var automation = new FakeAutomation
+        {
+            NavigationSnapshot = NavigationAt(180f),
+        };
+        var panel = new MossTankPanel(new FakeHost(automation));
+
+        var typed = new PluginCommand(word, command, $"/{word} {command}");
+        if (word == "ub")
+            panel.ExecuteUbCommand(typed);
+        else
+            panel.ExecuteVtankCommand(typed);
+        panel.OnTick(0.05d);
+
+        Assert.Equal([HeldKey(PluginMoveDirection.Forward, pace)], automation.Moves);
+    }
+
+    /// <summary>
+    /// The route editor's jump button adds a running jump, one that holds no
+    /// shift. Mutation: setting the shift flag makes it a walking jump.
+    /// </summary>
+    [Fact]
+    public void TheRouteEditorsJumpButtonAddsARunningJump()
+    {
+        var automation = new FakeAutomation
+        {
+            NavigationSnapshot = NavigationAt(180f),
+        };
+        var panel = new MossTankPanel(new FakeHost(automation));
+
+        panel.AddRouteJump();
+
+        Assert.Contains("Jump:", panel.RouteRows[^1], StringComparison.Ordinal);
+        Assert.DoesNotContain("Shift", panel.RouteRows[^1], StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// The macro's own jumps leave with exactly the power their hold asks
+    /// for too: a tap is a tenth of a full charge, and a hold of a second or
+    /// more is the full charge. Mutation: passing a hold past a second on as
+    /// its thousandths asks for a power the client refuses.
+    /// </summary>
+    [Theory]
+    [InlineData("tapjump", 0.1f)]
+    [InlineData("jump 180 false 250", 0.25f)]
+    [InlineData("jump 180 true 5000", 1f)]
+    public void VtankJumpsLeaveWithExactlyThePowerAsked(string command, float power)
+    {
+        var automation = new FakeAutomation
+        {
+            NavigationSnapshot = NavigationAt(180f),
+        };
+        var panel = new MossTankPanel(new FakeHost(automation));
+
+        Command(panel, command);
+        panel.OnTick(0.05d);
+
+        Assert.Equal([power], automation.Jumps);
+        Assert.DoesNotContain(automation.MovementIntents, static intent => intent.Jump);
+    }
+
+    /// <summary>
+    /// A jump the client refuses fails in the command's own words and lets
+    /// go of the key it was about to hold. Mutation: ignoring the answer
+    /// waits out the grace for a jump that was never going to come, with the
+    /// key still held.
+    /// </summary>
+    [Fact]
+    public void AJumpTheClientRefusesFailsAndLetsGoOfItsKey()
+    {
+        var automation = new FakeAutomation
+        {
+            NavigationSnapshot = NavigationAt(180f),
+            JumpAnswer = PluginNavigationCommandStatus.Rejected,
+        };
+        var panel = new MossTankPanel(new FakeHost(automation));
+
+        Command(panel, "jump 180 true 300");
+        panel.OnTick(0.05d);
+
+        Assert.Equal("Jump command was refused by the host.", automation.Messages[^1]);
+        Assert.Equal([PluginMoveChannel.Travel], automation.StoppedMoves);
     }
 
     /// <summary>
@@ -9649,15 +10266,13 @@ public sealed partial class MossTankPanelTests
 
         Command(panel, "jump 180 false 100");
         panel.OnTick(0.05d);
-        Assert.Equal(1, automation.MovementIntents.Count(intent => intent.Jump));
+        Assert.Single(automation.Jumps);
 
         for (int attempt = 2; attempt <= 3; attempt++)
         {
             ExpireCommandJumpAttempt(panel);
             panel.OnTick(0.05d);
-            Assert.Equal(
-                attempt,
-                automation.MovementIntents.Count(intent => intent.Jump));
+            Assert.Equal(attempt, automation.Jumps.Count);
         }
 
         ExpireCommandJumpAttempt(panel);
@@ -9666,9 +10281,11 @@ public sealed partial class MossTankPanelTests
             automation.Messages[^1],
             StringComparison.OrdinalIgnoreCase);
 
-        int intents = automation.MovementIntents.Count;
+        int jumps = automation.Jumps.Count;
+        int moves = automation.Moves.Count;
         panel.OnTick(1d);
-        Assert.Equal(intents, automation.MovementIntents.Count);
+        Assert.Equal(jumps, automation.Jumps.Count);
+        Assert.Equal(moves, automation.Moves.Count);
 
         // The same clock run through with the client reporting a jump: the
         // charge stands, and nothing is tried a second time.
@@ -9683,16 +10300,16 @@ public sealed partial class MossTankPanelTests
         reporting.MoveReport = reporting.MoveReport with { JumpSequence = 1 };
         ExpireCommandJumpAttempt(second);
         second.OnTick(0.05d);
-        Assert.Equal(1, reporting.MovementIntents.Count(intent => intent.Jump));
+        Assert.Single(reporting.Jumps);
     }
 
     /// <summary>
-    /// Facing a heading is the jump's turn without the jump: it turns, says
-    /// so, and stops. Mutation: letting it fall through to the charge puts a
-    /// jump intent on the wire.
+    /// Facing a heading is the jump's turn without the jump: it turns and
+    /// stops. Mutation: letting it fall through to the charge puts a jump
+    /// intent on the wire.
     /// </summary>
     [Fact]
-    public void VtankFaceTurnsToTheHeadingAndStopsWithoutJumping()
+    public void UbFaceTurnsToTheHeadingAndStopsWithoutJumping()
     {
         var automation = new FakeAutomation
         {
@@ -9700,18 +10317,18 @@ public sealed partial class MossTankPanelTests
         };
         var panel = new MossTankPanel(new FakeHost(automation));
 
-        Command(panel, "face 180");
+        UbCommand(panel, "face 180");
         panel.OnTick(0.05d);
-        Assert.True(automation.MovementIntents[^1].TurnRight);
+        Assert.Equal(180f, automation.FacedHeadings[^1]);
 
         automation.NavigationSnapshot = NavigationAt(180f);
-        panel.OnTick(0.05d);
+        panel.OnTick(0.1d);
         Assert.DoesNotContain(automation.MovementIntents, intent => intent.Jump);
-        Assert.Contains("180", automation.Messages[^1], StringComparison.Ordinal);
 
-        int intents = automation.MovementIntents.Count;
+        int asked = automation.FacedHeadings.Count;
         panel.OnTick(1d);
-        Assert.Equal(intents, automation.MovementIntents.Count);
+        Assert.Equal(asked, automation.FacedHeadings.Count);
+        Assert.Empty(automation.MovementIntents);
     }
 
     /// <summary>
@@ -9744,30 +10361,127 @@ public sealed partial class MossTankPanelTests
         };
         var panel = new MossTankPanel(new FakeHost(automation));
 
-        Command(panel, "givep 4 prismatic to Taper Mule");
+        UbCommand(panel, "givep 4 prismatic to Taper Mule");
         panel.OnTick(0.1d);
         Assert.Equal([(10u, 100u, 4u)], automation.Gives);
 
-        Command(panel, "give stop");
+        UbCommand(panel, "give stop");
         automation.Gives.Clear();
 
-        Command(panel, "giver ^pyreal.*$ to Taper Mule");
+        UbCommand(panel, "giver ^pyreal.*$ to Taper Mule");
         panel.OnTick(0.1d);
         Assert.Equal([(11u, 100u, 0u)], automation.Gives);
 
-        Command(panel, "give cancel");
+        UbCommand(panel, "give cancel");
         automation.Gives.Clear();
 
         // An exact match: the partial name alone matches nothing now.
-        Command(panel, "give prismatic to Taper Mule");
+        UbCommand(panel, "give prismatic to Taper Mule");
         panel.OnTick(0.1d);
         Assert.Empty(automation.Gives);
     }
 
     /// <summary>
+    /// A hand-over says how it ended, as the reference does at every end of
+    /// a run: a think when ItemGiver.Think is on, a plain line when it is
+    /// off -- for a run that finishes by itself and for one stopped by hand.
+    /// Mutation: never reporting the tick's end leaves the finished run
+    /// silent; ignoring the setting prints where it should think.
+    /// </summary>
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void TheItemGiverReportsItsEndThroughItsThinkSetting(bool think)
+    {
+        var automation = new FakeAutomation
+        {
+            NavigationSnapshot = NavigationAt(0f),
+            ItemEntries = [Item(10u, "Prismatic Taper", 0x00001000u)],
+            WorldObjects =
+            [
+                new PluginWorldObject(
+                    100u, 0u, "Taper Mule", PluginObjectClass.Player, 0u, 0u, 0u)
+                {
+                    IsLandscape = true,
+                    HasPosition = true,
+                    Position = NavigationAt(0f).Position,
+                },
+            ],
+        };
+        var panel = new MossTankPanel(new FakeHost(automation, new MemoryStorage()));
+        UbCommand(panel, $"opt set ItemGiver.Think {think}");
+        automation.Messages.Clear();
+        automation.Submitted.Clear();
+
+        // Nothing matches, so the run ends on its first tick.
+        UbCommand(panel, "give Nothing Such to Taper Mule");
+        panel.OnTick(0.1d);
+        UbCommand(panel, "givep Prismatic to Taper Mule");
+        UbCommand(panel, "give stop");
+
+        // The reference's end line: what, to whom, how long, how many, and
+        // the failures.
+        string finished = "ItemGiver finished: nothing such to Taper Mule. took 0s to give 0 item(s). 0";
+        string stopped = "ItemGiver finished: prismatic to Taper Mule. took 0s to give 0 item(s). 0";
+        if (think)
+        {
+            Assert.Equal(
+                [$"/t {automation.Name}, {finished}", $"/t {automation.Name}, {stopped}"],
+                automation.Submitted.Where(static line => line.StartsWith("/t ", StringComparison.Ordinal)));
+            Assert.DoesNotContain(automation.Messages, static line => line.Contains("ItemGiver finished", StringComparison.Ordinal));
+        }
+        else
+        {
+            Assert.Contains("[UB] " + finished, automation.Messages);
+            Assert.Contains("[UB] " + stopped, automation.Messages);
+            Assert.DoesNotContain(automation.Submitted, static line => line.StartsWith("/t ", StringComparison.Ordinal));
+        }
+    }
+
+    /// <summary>
+    /// A hand-over that does not move on to a new item for ten seconds bails
+    /// as the reference's does: its error, then its finished line, and no
+    /// second give of the stuck item. Mutation: without the run-level clock
+    /// the run holds on, asking again after each ten-second wait.
+    /// </summary>
+    [Fact]
+    public void AStuckHandOverBailsAfterTenSecondsWithTheReferencesLines()
+    {
+        var automation = new FakeAutomation
+        {
+            NavigationSnapshot = NavigationAt(0f),
+            ItemEntries = [Item(10u, "Prismatic Taper", 0x00001000u)],
+            WorldObjects =
+            [
+                new PluginWorldObject(
+                    100u, 0u, "Taper Mule", PluginObjectClass.Player, 0u, 0u, 0u)
+                {
+                    IsLandscape = true,
+                    HasPosition = true,
+                    Position = NavigationAt(0f).Position,
+                },
+            ],
+        };
+        var panel = new MossTankPanel(new FakeHost(automation, new MemoryStorage()));
+        automation.Messages.Clear();
+
+        UbCommand(panel, "give Prismatic Taper to Taper Mule");
+        for (int second = 0; second < 25; second++)
+            panel.OnTick(0.5d);
+
+        Assert.Single(automation.Gives);
+        int bail = automation.Messages.IndexOf(
+            "[UB] Error: InventoryManager: ItemGiver bail, Timeout expired");
+        int finished = automation.Messages.FindIndex(static line =>
+            line.StartsWith("[UB] ItemGiver finished: ", StringComparison.Ordinal));
+        Assert.True(bail >= 0);
+        Assert.Equal(bail + 1, finished);
+    }
+
+    /// <summary>
     /// The give flags mean different things in the two letter cases: little
     /// p matches part of the ITEM's name, big P part of the TARGET's. A macro
-    /// written against the reference types "/vt giveP Prismatic Taper to Zero"
+    /// written against the reference types "/ub giveP Prismatic Taper to Zero"
     /// and means the whole item name and half the mule's.
     /// Mutation: fold the capital onto the small one and the item name is
     /// matched partially while the target has to be named in full, which is
@@ -9797,7 +10511,7 @@ public sealed partial class MossTankPanelTests
         };
         var panel = new MossTankPanel(new FakeHost(automation));
 
-        Command(panel, "giveP Prismatic Taper to Taper");
+        UbCommand(panel, "giveP Prismatic Taper to Taper");
         panel.OnTick(0.1d);
 
         // Part of the target's name found the mule; the whole item name left
@@ -9843,15 +10557,15 @@ public sealed partial class MossTankPanelTests
         panel.OnTick(0.1d);
         automation.Messages.Clear();
 
-        Command(panel, "give Prismatic Taper to Mule");
+        UbCommand(panel, "give Prismatic Taper to Mule");
         panel.OnTick(0.1d);
 
         Assert.Empty(automation.Gives);
         Assert.Contains(
             automation.Messages,
-            static message => message.Contains(
-                "give range",
-                StringComparison.OrdinalIgnoreCase));
+            static message => message.StartsWith(
+                "[UB] Error: InventoryManager: Mule is 5.00 meters away, IGRange is set to ",
+                StringComparison.Ordinal));
     }
 
     /// <summary>
@@ -9870,7 +10584,7 @@ public sealed partial class MossTankPanelTests
         };
         var panel = new MossTankPanel(new FakeHost(automation, new MemoryStorage()));
 
-        Command(panel, "face 180");
+        UbCommand(panel, "face 180");
         Assert.True(panel.ActionLocks.IsLocked(ActionLockKind.Navigation));
 
         // Already pointing the right way, so the turn is done on the first
@@ -9878,8 +10592,8 @@ public sealed partial class MossTankPanelTests
         panel.OnTick(0.05d);
         Assert.False(panel.ActionLocks.IsLocked(ActionLockKind.Navigation));
 
-        Command(panel, "opt set Jumper.PauseNav false");
-        Command(panel, "face 180");
+        UbCommand(panel, "opt set Jumper.PauseNav false");
+        UbCommand(panel, "face 180");
         Assert.False(panel.ActionLocks.IsLocked(ActionLockKind.Navigation));
     }
 
@@ -9897,9 +10611,9 @@ public sealed partial class MossTankPanelTests
             NavigationSnapshot = NavigationAt(180f),
         };
         var panel = new MossTankPanel(new FakeHost(automation, new MemoryStorage()));
-        Command(panel, "opt set Jumper.ThinkComplete true");
+        UbCommand(panel, "opt set Jumper.ThinkComplete true");
 
-        Command(panel, "face 180");
+        UbCommand(panel, "face 180");
         panel.OnTick(0.05d);
         Assert.Contains("/t Test Character, Turning Success", automation.Submitted);
 
@@ -9926,7 +10640,7 @@ public sealed partial class MossTankPanelTests
             NavigationSnapshot = NavigationAt(180f),
         };
         var panel = new MossTankPanel(new FakeHost(automation, new MemoryStorage()));
-        Command(panel, "opt set Jumper.ThinkFail true");
+        UbCommand(panel, "opt set Jumper.ThinkFail true");
 
         Command(panel, "jump 180 false 100");
         panel.OnTick(0.05d);
@@ -10520,6 +11234,12 @@ public sealed partial class MossTankPanelTests
         IsMoving: false,
         IsAirborne: false);
 
+    /// <summary>A key a jump holds as a client-driven move, for as long as the jump lasts.</summary>
+    private static (PluginMoveDirection, PluginMovePace, float, PluginMoveUnit) HeldKey(
+        PluginMoveDirection direction,
+        PluginMovePace pace) =>
+        (direction, pace, 0f, PluginMoveUnit.MetersOrDegrees);
+
     private static string SettingsKey(string bareFileName) =>
         $"{VtankProfileDirectory.SettingsFolder}/{bareFileName}";
 
@@ -10555,6 +11275,44 @@ public sealed partial class MossTankPanelTests
             lootClassifiers ?? NoOpPluginLootClassifierRegistry.Instance;
         public IPluginStorage VtankProfiles { get; } =
             vtankProfiles ?? storage ?? NoOpPluginStorage.Instance;
+        public IHostWindow Window { get; set; } = NoOpHostWindow.Instance;
+        public RecordingStatusBoard StatusBoard { get; } = new();
+        IPluginStatusBoard IPluginHost.StatusBoard => StatusBoard;
+    }
+
+    /// <summary>A client window that counts the times it was asked to close.</summary>
+    private sealed class RecordingWindow : IHostWindow
+    {
+        public int CloseRequests { get; private set; }
+        public HostWindowResult RequestClose()
+        {
+            CloseRequests++;
+            return new(HostWindowStatus.Done);
+        }
+    }
+
+    /// <summary>The character's options, kept in a table, each change recorded.</summary>
+    private sealed class RecordingCharacterOptions : ICharacterOptionsAutomation
+    {
+        public Dictionary<string, bool> Values { get; } =
+            new(StringComparer.OrdinalIgnoreCase)
+            {
+                ["AllowGive"] = true,
+                ["FellowshipAutoAcceptRequests"] = false,
+            };
+        public List<(string Name, bool Value)> Changes { get; } = [];
+        public bool IsAvailable => true;
+        public IReadOnlyList<string> Names => [.. Values.Keys];
+        public bool TryGet(string name, out bool value) =>
+            Values.TryGetValue(name, out value);
+        public PluginCharacterOptionResult Set(string name, bool value)
+        {
+            if (!Values.ContainsKey(name))
+                return new(PluginCharacterOptionStatus.UnknownOption);
+            Values[name] = value;
+            Changes.Add((name, value));
+            return new(PluginCharacterOptionStatus.Accepted);
+        }
     }
 
     private sealed class RecordingWorldLines : IPluginWorldLines
@@ -10594,6 +11352,9 @@ public sealed partial class MossTankPanelTests
         public ILoginAutomation Login => this;
 
         public IDialogAutomation Dialogs => this;
+
+        public ICharacterOptionsAutomation CharacterOptions { get; set; } =
+            NoOpAutomationSurface.Instance;
 
         /// <summary>The confirmations answered, in order, and how.</summary>
         public List<(uint ContextId, bool Accept)> Answered { get; } = [];
@@ -10722,7 +11483,12 @@ public sealed partial class MossTankPanelTests
             return new(PluginCombatCommandStatus.ModeChangeSent);
         }
         IReadOnlyList<PluginCombatTarget>
-            ICombatAutomation.CaptureHostileTargets(float maximumDistance) => [];
+            ICombatAutomation.CaptureHostileTargets(float maximumDistance) =>
+            HostileTargets.Where(target => target.Distance <= maximumDistance).ToArray();
+
+        /// <summary>The monsters around, when a test stages some; none otherwise.</summary>
+        public IReadOnlyList<PluginCombatTarget> HostileTargets { get; set; } = [];
+
         PluginCombatCommandResult ICombatAutomation.EnterDefaultMode() =>
             new(PluginCombatCommandStatus.Unavailable);
         PluginCombatCommandResult ICombatAutomation.BeginPhysicalAttack(
@@ -10817,8 +11583,20 @@ public sealed partial class MossTankPanelTests
         public IReadOnlyList<PluginInventoryItem> CaptureOwnedItems()
         {
             CaptureOwnedItemsCallCount++;
-            return ItemEntries;
+            return ItemEntries.Select(WithAppraisedSharedCooldown).ToArray();
         }
+
+        /// <summary>
+        /// The host folds the shared cooldown an appraisal carries into the
+        /// item it reports, as it does the one sent with the item itself.
+        /// </summary>
+        private PluginInventoryItem WithAppraisedSharedCooldown(PluginInventoryItem item) =>
+            item.SharedCooldownId == 0u
+            && Properties.TryGetValue(item.ObjectId, out PluginItemProperties properties)
+            && properties.Ints is { } ints
+            && ints.TryGetValue(280u, out int cooldown)
+                ? item with { SharedCooldownId = (uint)cooldown }
+                : item;
         public IReadOnlyList<PluginWorldObject> CaptureObjects() => WorldObjects;
 
         public bool ItemsBusy { get; set; }
@@ -10845,9 +11623,19 @@ public sealed partial class MossTankPanelTests
             if (IdentifyRefusals.Contains(objectId))
                 return new(PluginItemCommandStatus.Refused);
             if (IdentifyStatus == PluginItemCommandStatus.Started)
+            {
                 Unassessed.Remove(objectId);
+                if (AppraisalReplies.Remove(objectId, out PluginItemProperties reply))
+                    Properties[objectId] = reply;
+            }
             return new(IdentifyStatus);
         }
+
+        /// <summary>
+        /// What an item's appraisal adds to its properties, handed over only
+        /// once the item has been asked about.
+        /// </summary>
+        public Dictionary<uint, PluginItemProperties> AppraisalReplies { get; } = [];
 
         bool IItemAutomation.IsBusy => ItemsBusy;
 
@@ -11178,16 +11966,36 @@ public sealed partial class MossTankPanelTests
         /// </summary>
         public List<string> Submitted { get; } = [];
 
+        /// <summary>A command the host runs as the line is submitted.</summary>
+        public Action<string>? OnSubmit { get; set; }
+
+        /// <summary>Text put into the chat entry for the player to finish, in order.</summary>
+        public List<string> Composed { get; } = [];
+
+        /// <summary>Whether the chat entry takes composed text; off unless a test turns it on.</summary>
+        public bool AcceptsCompose { get; set; }
+
+        public bool Compose(string text)
+        {
+            Composed.Add(text);
+            return AcceptsCompose;
+        }
+
         public bool Submit(string text)
         {
             Submitted.Add(text);
+            OnSubmit?.Invoke(text);
             return true;
         }
 
         /// <summary>Lines written in one of the client's own text classes.</summary>
         public List<(string Text, int Kind)> Posted { get; } = [];
 
-        public void PostMessage(string text, int kind) => Posted.Add((text, kind));
+        public void PostMessage(string text, int kind)
+        {
+            Posted.Add((text, kind));
+            Messages.Add(text);
+        }
 
         /// <summary>The container the client currently has open, if any.</summary>
         public uint OpenContainerObjectId { get; set; }
@@ -11231,6 +12039,65 @@ public sealed partial class MossTankPanelTests
         {
             ClearMovementCount++;
             return PluginNavigationCommandStatus.Accepted;
+        }
+
+        /// <summary>The answer to a room-ahead check, and the distances asked.</summary>
+        public PluginRoomAheadStatus RoomAhead { get; set; } = PluginRoomAheadStatus.Unknown;
+        public List<float> RoomAheadAsked { get; } = [];
+
+        public PluginRoomAhead CheckRoomAhead(float distanceMeters)
+        {
+            RoomAheadAsked.Add(distanceMeters);
+            return new PluginRoomAhead(RoomAhead, default);
+        }
+
+        /// <summary>The headings the client was asked to turn to, in order.</summary>
+        public List<float> FacedHeadings { get; } = [];
+        public PluginNavigationCommandStatus FaceHeading(float headingDegrees)
+        {
+            FacedHeadings.Add(headingDegrees);
+            return PluginNavigationCommandStatus.Accepted;
+        }
+
+        /// <summary>
+        /// The moves the client was asked to carry out, the jumps it was
+        /// asked for by power, and the channels it was asked to stop (null
+        /// for every channel at once), each in order. A jump leaves the jump
+        /// counter alone, which is a client that took no jump.
+        /// </summary>
+        public List<(PluginMoveDirection Direction, PluginMovePace Pace, float Amount, PluginMoveUnit Unit)> Moves { get; } = [];
+        public List<float> Jumps { get; } = [];
+        public List<PluginMoveChannel?> StoppedMoves { get; } = [];
+
+        /// <summary>What a jump is answered with.</summary>
+        public PluginNavigationCommandStatus JumpAnswer { get; set; } = PluginNavigationCommandStatus.Accepted;
+
+        public PluginNavigationCommandStatus Move(
+            PluginMoveDirection direction,
+            PluginMovePace pace,
+            float amount,
+            PluginMoveUnit unit = PluginMoveUnit.MetersOrDegrees)
+        {
+            Moves.Add((direction, pace, amount, unit));
+            return PluginNavigationCommandStatus.Accepted;
+        }
+
+        public PluginNavigationCommandStatus StopMoving()
+        {
+            StoppedMoves.Add(null);
+            return PluginNavigationCommandStatus.Accepted;
+        }
+
+        public PluginNavigationCommandStatus StopMoving(PluginMoveChannel channel)
+        {
+            StoppedMoves.Add(channel);
+            return PluginNavigationCommandStatus.Accepted;
+        }
+
+        public PluginNavigationCommandStatus Jump(float power)
+        {
+            Jumps.Add(power);
+            return JumpAnswer;
         }
 
         /// <summary>The walks asked of the client's navigation, and the latest walk's report.</summary>
@@ -11416,6 +12283,11 @@ public sealed partial class MossTankPanelTests
         }
         /// <summary>Spells the catalog knows that are not self buffs.</summary>
         public List<PluginSpellInfo> SpellLookup { get; } = [];
+
+        /// <summary>The spells the character has learned.</summary>
+        public HashSet<uint> KnownSpellIds { get; } = [];
+
+        public bool IsKnown(uint spellId) => KnownSpellIds.Contains(spellId);
 
         public bool TryGet(uint spellId, out PluginSpellInfo info)
         {

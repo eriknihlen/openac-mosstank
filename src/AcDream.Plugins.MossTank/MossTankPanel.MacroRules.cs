@@ -64,7 +64,9 @@ internal sealed partial class MossTankPanel : IMacroRuleProvider
     /// first of the five rows whose earlier gates passed: with looting on,
     /// a corpse whose description has not arrived, within the approach
     /// range (five metres at least) plus ten, holds every walk off this
-    /// pass.
+    /// pass. With the own-rare walk option on the looter widens that reach
+    /// itself, MossTank's own rule, for a corpse that appeared with this
+    /// character's rare announcement (see <c>Looting.OwnRare.cs</c>).
     /// </summary>
     private bool WaitOnCorpseId()
     {
@@ -82,6 +84,32 @@ internal sealed partial class MossTankPanel : IMacroRuleProvider
         _navigationWaitsOnCorpseId = true;
         EmitMacroLog(MacroLogChannel.Loot, "Holding this tick until the corpse id arrives.");
         return true;
+    }
+
+    private bool _routeHeldForRare;
+
+    /// <summary>
+    /// MossTank's own rule, not the reference's, and only with the own-rare
+    /// walk option on (see <c>Looting.OwnRare.cs</c>): while a corpse holding
+    /// this character's rare waits, unopened, where the corpse walk or the
+    /// open will reach it, the route
+    /// stands down — even where the profile puts the route above looting —
+    /// so the walk and the open get their turn. Said once, when the hold
+    /// begins.
+    /// </summary>
+    private bool RareCorpseHoldsRoute()
+    {
+        bool holds = _inventorySettings.Loot.Enabled
+            && _loot.HasOwnRareCorpseToFetch(
+                _inventorySettings.Loot.CorpseApproachRange);
+        if (holds && !_routeHeldForRare)
+        {
+            EmitMacroLog(
+                MacroLogChannel.Loot,
+                "Holding the route until this character's rare corpse is looted.");
+        }
+        _routeHeldForRare = holds;
+        return holds;
     }
 
     private void StopMacroFromGate(string notice)
@@ -171,10 +199,15 @@ internal sealed partial class MossTankPanel : IMacroRuleProvider
             context => _crafting.Tick(context.ElapsedSeconds, context.CanAct),
             gate: () => ItemSlotIsFree() && _combat.Enabled
                ),
-        MacroRuleSlot.RefillPetChargesNormal => new AbsentMacroRule(
+        // The refill in the helper band, on the tight "normal" threshold: an
+        // essence nearly out is topped up before looting, the route and the
+        // attack get their turn.
+        MacroRuleSlot.RefillPetChargesNormal => new ControllerMacroRule(
             "RefillPetChargesNormal",
-            "fused into Attack — PetAutomation's refill branch runs inside "
-                + "CombatController.OnTick."),
+            _normalPetRefill.Tick,
+            gate: () => ItemSlotIsFree() && _combat.Enabled
+                && _combatSettings.Enabled,
+            runningDetail: () => _normalPetRefill.Status),
 
         MacroRuleSlot.FellowshipManager => new ControllerMacroRule(
             "FellowshipManager",
@@ -314,7 +347,8 @@ internal sealed partial class MossTankPanel : IMacroRuleProvider
             gate: () => _combat.Enabled
                 && _navigationSettings.Priority
                 && WaitOnCorpseId()
-                && NavigationLocksAreClear(),
+                && NavigationLocksAreClear()
+                && !RareCorpseHoldsRoute(),
             onLostTurn: _navigation.StopForLostTurn,
             runningDetail: () => _navigation.RunningDetail,
             declineReason: () => _navigation.Status),
@@ -324,7 +358,8 @@ internal sealed partial class MossTankPanel : IMacroRuleProvider
                 context => _navigation.ClaimFromRulePass(context.CanAct),
                 gate: () => !_navigationSettings.Priority
                     && _combat.Enabled
-                    && NavigationLocksAreClear(),
+                    && NavigationLocksAreClear()
+                    && !RareCorpseHoldsRoute(),
                 onLostTurn: _navigation.StopForLostTurn,
                 runningDetail: () => _navigation.RunningDetail,
                 declineReason: () => _navigation.Status),
@@ -364,10 +399,7 @@ internal sealed partial class MossTankPanel : IMacroRuleProvider
                ),
         // The idle band's own refill, with its own (higher, so more eager)
         // charge threshold: down here nothing is being fought, so a device
-        // gets topped up long before the attack band would bother. It asks
-        // nothing about monsters, which is why it can stand this far from
-        // the attack; the Normal threshold still governs the refill that
-        // runs inside the attack itself.
+        // gets topped up long before the helper band would bother.
         MacroRuleSlot.RefillPetChargesIdle => new ControllerMacroRule(
             "RefillPetChargesIdle",
             _idlePetRefill.Tick,

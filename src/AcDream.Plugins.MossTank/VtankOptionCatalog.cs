@@ -47,7 +47,7 @@ internal static class VtankOptionCatalog
         "AutoFellowManagement", "MinimumHealKitSuccessChance",
         "UseKitsInMagicMode", "StaminaToHealthMultiplier",
         "ManaToHealthMultiplier", "NavPriorityBoost", "DeleteGhostMonsters",
-        "GhostMonsterSpellAttemptCount",
+        "GhostMonsterSpellAttemptCount", "WhoYouGonnaCall",
         "BlacklistMonsterAttemptCount", "BlacklistMonsterTimeoutSeconds",
         "CombineSalvage", "LootOnlyRareCorpses",
         "DeleteGhostMonstersByHPTracker", "GhostDeleteHPTrackerSeconds",
@@ -163,6 +163,7 @@ internal static class VtankOptionCatalog
         ["NavPriorityBoost"] = MonsterValue.FromBoolean(false),
         ["DeleteGhostMonsters"] = MonsterValue.FromBoolean(true),
         ["GhostMonsterSpellAttemptCount"] = MonsterValue.FromNumber(200d),
+        ["WhoYouGonnaCall"] = MonsterValue.FromBoolean(true),
         ["BlacklistMonsterAttemptCount"] = MonsterValue.FromNumber(4d),
         ["BlacklistMonsterTimeoutSeconds"] = MonsterValue.FromNumber(120d),
         ["CombineSalvage"] = MonsterValue.FromBoolean(true),
@@ -304,6 +305,7 @@ internal static class VtankOptionCatalog
         ["NavPriorityBoost"] = VtankSettingValueType.Bool,
         ["DeleteGhostMonsters"] = VtankSettingValueType.Bool,
         ["GhostMonsterSpellAttemptCount"] = VtankSettingValueType.Int,
+        ["WhoYouGonnaCall"] = VtankSettingValueType.Bool,
         ["BlacklistMonsterAttemptCount"] = VtankSettingValueType.Int,
         ["BlacklistMonsterTimeoutSeconds"] = VtankSettingValueType.Int,
         ["CombineSalvage"] = VtankSettingValueType.Bool,
@@ -350,6 +352,13 @@ internal static class VtankOptionCatalog
         ["AllowDebuffFallback"] = VtankSettingValueType.Bool,
         ["RechargeHandlerSet"] = VtankSettingValueType.Custom,
         };
+
+    /// <summary>
+    /// The one name the reference's settings table holds that nothing reads.
+    /// A macro may set and read it, so it is an option; it has no row on the
+    /// options page, because a row that changes nothing is worse than none.
+    /// </summary>
+    internal const string UnusedSetting = "WhoYouGonnaCall";
 
     internal static bool IsKnown(string name) =>
         Names.Contains(name, StringComparer.OrdinalIgnoreCase);

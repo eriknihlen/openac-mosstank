@@ -45,7 +45,7 @@ internal sealed partial class MossTankPanel
     {
         _tinker = new TinkerJobManager(
             host,
-            WriteVtank,
+            WriteUb,
             () => _ubCatalog.Require("AutoTinker.CharmedSmith").Get().Boolean);
 
         var salvage = new List<string>();
@@ -212,7 +212,7 @@ internal sealed partial class MossTankPanel
         count = Math.Clamp(count, 1, TinkerCalc.MaximumAttempts);
         _ubCatalog.Require("AutoTinker.MaxTinks").Set(UbSettingValue.FromInt(count));
         RefreshUbSettings();
-        WriteVtank("Updated max tink value to " + count.ToString(CultureInfo.InvariantCulture));
+        WriteUb("Updated max tink value to " + count.ToString(CultureInfo.InvariantCulture));
         _tinker.Stop();
         _tinkerNotice = "Populate the list again for the new stop-at count.";
     };
@@ -401,23 +401,23 @@ internal sealed partial class MossTankPanel
     // ── the commands ────────────────────────────────────────────────────
 
     /// <summary>
-    /// <c>/vt autotinker</c>: work through whatever the page has planned.
+    /// <c>/ub autotinker</c>: work through whatever the page has planned.
     /// </summary>
     private void StartAutoTinker() => _tinker.Start();
 
     /// <summary>
-    /// <c>/vt getjob</c>: the queue as it stands, one line per item and one
+    /// <c>/ub getjob</c>: the queue as it stands, one line per item and one
     /// per bag still waiting on it.
     /// </summary>
     private void PrintTinkerJobs()
     {
         _tinker.ScanInventory();
         foreach (string line in _tinker.DescribeJobs())
-            WriteVtank(line);
+            WriteUb(line);
     }
 
     /// <summary>
-    /// <c>/vt tinkcalc</c>: what the chosen salvage is worth on the item in
+    /// <c>/ub tinkcalc</c>: what the chosen salvage is worth on the item in
     /// hand, and for a melee weapon how the ten attempts split between
     /// granite and iron.
     /// </summary>
@@ -426,14 +426,14 @@ internal sealed partial class MossTankPanel
         _tinker.ScanInventory();
         if (!TryTinkerCalcItem(out PluginInventoryItem item))
         {
-            WriteVtank("Nothing selected");
+            WriteUb("Nothing selected");
             return;
         }
 
         if (TryTinkerCalcSalvage(item, out PluginInventoryItem bag))
         {
             double chance = _tinker.ChanceFor(bag, item, item.NumTimesTinkered);
-            WriteVtank(string.Create(
+            WriteUb(string.Create(
                 CultureInfo.InvariantCulture,
                 $"{item.NumTimesTinkered + 1}: Applying ws {bag.SalvageWorkmanship} "
                 + $"{TinkerJobManager.SalvageName(bag)} {bag.ObjectId} to {item.Name} "
@@ -441,17 +441,17 @@ internal sealed partial class MossTankPanel
         }
         else
         {
-            WriteVtank("no salvage matches...  quitting");
+            WriteUb("no salvage matches...  quitting");
         }
 
         if (item.ObjectClass != PluginObjectClass.MeleeWeapon)
         {
-            WriteVtank("tinkcalc only currently works with melee weapons");
+            WriteUbError("tinkcalc only currently works with melee weapons");
             return;
         }
         (int granite, int iron, double finalDamage) =
             TinkerJobManager.BestGraniteIron(item);
-        WriteVtank(string.Create(
+        WriteUb(string.Create(
             CultureInfo.InvariantCulture,
             $"{item.Name}: Final max damage: {finalDamage:N2}, {granite} granite, {iron} iron"));
     }
