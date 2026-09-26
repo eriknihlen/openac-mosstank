@@ -1428,8 +1428,9 @@ internal sealed partial class LootController
             return true;
         }
 
-        // A receipt at its bounded retry ceiling is a definitive failed
-        // pickup. Reconcile it before choosing another item, otherwise the
+        // Once the host is no longer busy, the corpse contents decide whether
+        // a pull succeeded, even if no error completion was published. Retire
+        // a receipt at its retry ceiling before choosing another item, or the
         // next accepted pull would inherit the old receipt and lose its own
         // transfer classification.
         int maximumAttempts = Math.Clamp(
@@ -1437,11 +1438,11 @@ internal sealed partial class LootController
             1,
             100);
         if (_waitingItem != 0u
-            && !_waitingPickupAccepted
             && _itemAttempts.TryGetValue(_waitingItem, out int waitingAttempts)
             && waitingAttempts >= maximumAttempts
             && contents.Any(item => item.ObjectId == _waitingItem))
         {
+            _abandonedItems.Add(_waitingItem);
             AbandonWaitingItem($"{waitingAttempts} attempts spent");
         }
 
@@ -1789,7 +1790,8 @@ internal sealed partial class LootController
         PluginInventoryCompletion completion = loot.LastInventoryCompletion;
         if (_waitingPickupAccepted
             && completion.Revision > _waitingPickupCompletionRevision
-            && completion.Kind == PluginInventoryCommandKind.Pickup
+            && completion.Kind is PluginInventoryCommandKind.Pickup
+                or PluginInventoryCommandKind.Merge
             && completion.SourceObjectId == _waitingItem
             && completion.WeenieError != 0u)
         {
