@@ -580,7 +580,7 @@ public sealed class MossTankMarkupContractTests
     private static readonly Dictionary<string, (float Width, float Height)> ExpectedPopupBounds =
         new(StringComparer.OrdinalIgnoreCase)
         {
-            ["mosstank-advanced.xml"] = (650f, 500f),
+            ["mosstank-advanced.xml"] = (650f, 560f),
             ["mosstank-loot-editor.xml"] = (268f, 300f),
             ["mosstank-buffpicker.xml"] = (268f, 236f),
             ["mosstank-metaeditor.xml"] = (630f, 174f),

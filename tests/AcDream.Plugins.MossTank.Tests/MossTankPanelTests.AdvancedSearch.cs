@@ -2,6 +2,53 @@ namespace AcDream.Plugins.MossTank.Tests;
 
 public sealed partial class MossTankPanelTests
 {
+    private static string ReadCustomBuffValue(MossTankPanel panel, string name) =>
+        ((AcDream.Plugins.MossTank.Expressions.ExpressionValue)typeof(MossTankPanel)
+            .GetMethod("GetMetaOption", System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic)!
+            .Invoke(panel, [name])!).ToDisplayString();
+
+    [Theory]
+    [InlineData("BuffProfile_Banes", "BuffProfile-Banes", "BuffProfile-Prots")]
+    [InlineData("BuffProfile_Prots", "BuffProfile-Prots", "BuffProfile-Banes")]
+    public void AdvancedCustomBuffEditorAppliesTheRelatedOriginalStringSetting(
+        string modeName, string customName, string otherName)
+    {
+        var panel = new MossTankPanel(new FakeHost(new FakeAutomation()));
+        panel.SetAdvancedOptionSearchText(modeName);
+        panel.SelectAdvancedOption(0);
+        Assert.False(panel.AdvancedCustomBuffVisible);
+        panel.SelectAdvancedOptionChoiceText("Custom");
+        Assert.True(panel.AdvancedCustomBuffVisible);
+        Assert.Equal(customName, panel.AdvancedCustomBuffName);
+        Assert.Equal("ALFCBPS", panel.AdvancedCustomBuffDraft);
+
+        panel.SubmitAdvancedCustomBuff("bpa");
+        Assert.Equal("ABP", ReadCustomBuffValue(panel, customName));
+        Assert.Equal("ABP", panel.AdvancedCustomBuffDraft);
+        Assert.Equal("ALFCBPS", ReadCustomBuffValue(panel, otherName));
+        Assert.Equal("Custom", panel.AdvancedOptionChoiceText);
+
+        panel.SubmitAdvancedCustomBuff("123");
+        Assert.Equal("ABP", ReadCustomBuffValue(panel, customName));
+        Assert.Contains("Use only", panel.AdvancedOptionNotice);
+        panel.SubmitAdvancedCustomBuff("");
+        Assert.Equal("", ReadCustomBuffValue(panel, customName));
+
+        panel.SelectAdvancedOptionChoiceText("All");
+        Assert.False(panel.AdvancedCustomBuffVisible);
+        panel.SubmitAdvancedCustomBuff("L");
+        Assert.Equal("", ReadCustomBuffValue(panel, customName));
+        panel.SelectAdvancedOptionChoiceText("Custom");
+        panel.SubmitAdvancedCustomBuff("C");
+        panel.SetAdvancedOptionSearchText("no-such-option");
+        Assert.False(panel.AdvancedCustomBuffVisible);
+        panel.SubmitAdvancedCustomBuff("F");
+        Assert.Equal("C", ReadCustomBuffValue(panel, customName));
+        panel.ClearAdvancedOptionSearch();
+        Assert.Equal(modeName, panel.AdvancedOptionName);
+        Assert.Equal("C", panel.AdvancedCustomBuffDraft);
+    }
+
     [Theory]
     [InlineData("BuffProfile_Banes", "BPSAC", 7)]
     [InlineData("BuffProfile_Prots", "BPSAC", 8)]

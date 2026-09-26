@@ -145,3 +145,10 @@ matches every word against the name or description, together with the category
 checkboxes. Select a row to edit it below: switches and choices apply immediately,
 while numeric values apply with Enter or Apply. Filtering never changes a setting.
 A selected setting hidden by a filter cannot be edited until it is shown again.
+
+Selecting Custom for `BuffProfile_Prots` or `BuffProfile_Banes` also shows the
+corresponding `BuffProfile-Prots` or `BuffProfile-Banes` text field. Enter element
+letters (A acid, L lightning, F fire, C cold, B bludgeon, P pierce, S slash), then
+press Enter or Apply. An empty value selects no elements. These are element
+profiles, not spell levels or numeric masks; the existing setting keys remain
+unchanged.

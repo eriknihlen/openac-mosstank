@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
-<panel theme="plugin" x="253" y="325" w="650" h="500" title="MossTank Advanced Options"
-       visible="{AdvancedOptionsVisible}" resizable="true" minw="650" minh="500">
+<panel theme="plugin" x="253" y="325" w="650" h="560" title="MossTank Advanced Options"
+       visible="{AdvancedOptionsVisible}" resizable="true" minw="650" minh="560">
   <label x="12" y="25" w="420" h="18" text="Search names and descriptions" color="theme:muted|#FFC7B98F" />
   <group x="12" y="46" w="548" h="24" background="theme:field|#FF0C0906" border="theme:border|#FF8C7B4E" anchor="left top right">
     <field x="1" y="1" w="546" h="22" text="{AdvancedOptionSearchText}"
@@ -44,5 +44,14 @@
       <button x="362" y="0" w="84" h="24" text="Apply" onclick="{ApplyAdvancedOption}" />
     </group>
   </group>
-  <label x="12" y="462" w="626" h="22" text="{AdvancedOptionNotice}" color="theme:muted|#FFC7B98F" anchor="left right bottom" />
+  <group x="12" y="452" w="626" h="68" visible="{AdvancedCustomBuffVisible}" anchor="left right bottom">
+    <label x="0" y="0" w="350" h="18" text="{AdvancedCustomBuffName}" color="theme:text|#FFE8DEC3" />
+    <group x="0" y="20" w="350" h="24" background="theme:field|#FF0C0906" border="theme:border|#FF8C7B4E">
+      <field x="1" y="1" w="348" h="22" text="{AdvancedCustomBuffDraft}" onchange="{SetAdvancedCustomBuffDraft}"
+             onsubmit="{SubmitAdvancedCustomBuff}" maxlength="32" clearonsubmit="false" background="#00000000" />
+    </group>
+    <button x="362" y="20" w="84" h="24" text="Apply" onclick="{ApplyAdvancedCustomBuff}" />
+    <label x="0" y="48" w="626" h="18" text="A: Acid  L: Lightning  F: Fire  C: Cold  B: Bludgeon  P: Pierce  S: Slash" color="theme:muted|#FFC7B98F" />
+  </group>
+  <label x="12" y="532" w="626" h="22" text="{AdvancedOptionNotice}" color="theme:muted|#FFC7B98F" anchor="left right bottom" />
 </panel>

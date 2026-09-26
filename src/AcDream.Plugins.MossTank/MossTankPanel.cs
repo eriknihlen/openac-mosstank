@@ -3111,6 +3111,9 @@ internal sealed partial class MossTankPanel : IBuffRuleHost, IDisposable
 
     private void LoadAdvancedOptionDraft()
     {
+        _advancedCustomBuffDraft = AdvancedCustomBuffVisible
+            ? GetMetaOption(AdvancedCustomBuffName).ToDisplayString()
+            : string.Empty;
         if (!AdvancedOptionEditorVisible)
         {
             _advancedOptionValueDraft = string.Empty;
