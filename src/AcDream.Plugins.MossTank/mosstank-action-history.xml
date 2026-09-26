@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="utf-8"?>
+<panel theme="plugin" x="253" y="325" w="620" h="350" title="MossTank Action History"
+       visible="{ActionHistoryVisible}" resizable="true" minw="420" minh="220">
+  <button x="597" y="3" w="18" h="18" text="X" onclick="{HideActionHistory}"
+          tooltip="Close Action History" anchor="right top" />
+  <label x="12" y="32" w="62" h="18" text="Current:" color="theme:muted|#FFC7B98F" />
+  <field x="78" y="32" w="530" h="20" text="{CombatStatus}" color="theme:text|#FFE8DEC3"
+         editable="false" background="#00000000" tooltip="{CombatStatus}" anchor="left top right" />
+  <log x="12" y="58" w="596" h="244" items="{ActionHistoryLines}" firstindex="{ActionHistoryFirstIndex}"
+       anchor="left top right bottom" />
+  <label x="12" y="318" w="300" h="18" text="Scroll up to pause. Bottom resumes."
+         color="theme:muted|#FFC7B98F" anchor="left bottom" />
+  <button x="536" y="312" w="72" h="26" text="Clear" onclick="{ClearActionHistory}" anchor="right bottom" />
+</panel>

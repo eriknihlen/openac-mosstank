@@ -59,6 +59,15 @@ public sealed class MossTankPlugin : IAcDreamPlugin
             _panel);
 
         _host.Ui.AddPanel(
+            new PluginPanelDescriptor("action-history", "MossTank Action History")
+            {
+                StartVisible = true,
+                ShowInSidePanel = false,
+            },
+            Path.Combine(directory, "mosstank-action-history.xml"),
+            _panel);
+
+        _host.Ui.AddPanel(
             new PluginPanelDescriptor("advanced-options", "MossTank Advanced Options")
             {
                 StartVisible = true,

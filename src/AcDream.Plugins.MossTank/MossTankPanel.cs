@@ -380,6 +380,8 @@ internal sealed partial class MossTankPanel : IBuffRuleHost, IDisposable
             _vitalSettings,
             _gameInfo,
             _castTracker);
+        _combat.StatusChanged += RecordActionHistory;
+        RecordActionHistory(_combat.Status);
         _combatModeGate = new CombatModeGate(
             host,
             _combatSettings,
@@ -5994,6 +5996,7 @@ internal sealed partial class MossTankPanel : IBuffRuleHost, IDisposable
     public void Dispose()
     {
         Disable();
+        _combat.StatusChanged -= RecordActionHistory;
         _vendorTrade.Dispose();
         _nametags.Dispose();
         DisposeAliases();

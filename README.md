@@ -165,3 +165,12 @@ Cancel Force Buff (**CF**). It supports Classic and both modern plugin themes.
 used by `/ub follow`. It preserves the previously loaded navigation file and
 does not change any macro switches. Enable navigation and the macro to move.
 The host remembers the remote's position like other plugin windows.
+
+### Action history
+
+The **History** button beside the current action on Options opens the current
+status and timestamped action changes. It follows new lines while at the bottom;
+scrolling up keeps your reading position until you return to the bottom. Actions
+continue to be recorded while the window is closed. The latest 1,000 changes are
+kept for the session; consecutive repeats are omitted. **Clear** empties the
+history without affecting the macro or current status, and **X** closes the window.
