@@ -1,10 +1,10 @@
 <?xml version="1.0" encoding="utf-8"?>
-<panel x="660" y="405" w="268" h="300" title="MossTank Loot Editor"
+<panel theme="plugin" x="660" y="405" w="268" h="300" title="MossTank Loot Editor"
        visible="{LootEditorVisible}" resize="none">
-  <group x="4" y="22" w="260" h="18" background="#FF0C0906" border="#FF8C7B4E">
+  <group x="4" y="22" w="260" h="18" background="theme:field|#FF0C0906" border="theme:border|#FF8C7B4E">
     <field x="1" y="1" w="258" h="16" text="{LootProfileNameDraft}"
            onchange="{SetLootProfileNameDraft}" onsubmit="{CreateNamedLootProfile}"
-           maxlength="64" background="#00000000" color="#FFE8DEC3"
+           maxlength="64" background="#00000000" color="theme:text|#FFE8DEC3"
            tooltip="Name a new or copied loot profile." />
   </group>
   <button x="4" y="44" w="58" h="18" text="New"
@@ -23,21 +23,21 @@
   <menu x="4" y="138" w="260" h="18" items="{LootActionNames}"
         selected="{SelectedLootAction}" onchange="{SelectLootAction}"
         rows="9" scroll="true" tooltip="Choose the action for matching loot." />
-  <label x="4" y="160" w="140" h="16" text="{LootPriorityText}" color="#FFC7B98F" />
+  <label x="4" y="160" w="140" h="16" text="{LootPriorityText}" color="theme:muted|#FFC7B98F" />
   <button x="148" y="160" w="22" h="18" text="-"
           onclick="{LootPriorityDown}" tooltip="Decrease loot rule priority." />
   <button x="174" y="160" w="22" h="18" text="+"
           onclick="{LootPriorityUp}" tooltip="Increase loot rule priority." />
-  <label x="4" y="180" w="140" h="16" text="{LootKeepCountText}" color="#FFC7B98F" />
+  <label x="4" y="180" w="140" h="16" text="{LootKeepCountText}" color="theme:muted|#FFC7B98F" />
   <button x="148" y="180" w="22" h="18" text="-"
           onclick="{LootKeepCountDown}" tooltip="Decrease the KeepUpTo count." />
   <button x="174" y="180" w="22" h="18" text="+"
           onclick="{LootKeepCountUp}" tooltip="Increase the KeepUpTo count." />
 
-  <group x="4" y="200" w="190" h="18" background="#FF0C0906" border="#FF8C7B4E">
+  <group x="4" y="200" w="190" h="18" background="theme:field|#FF0C0906" border="theme:border|#FF8C7B4E">
     <field x="1" y="1" w="188" h="16" text="{LootExpressionDraft}"
            onchange="{SetLootExpressionDraft}" onsubmit="{ApplyLootExpression}" maxlength="256"
-           background="#00000000" color="#FFE8DEC3"
+           background="#00000000" color="theme:text|#FFE8DEC3"
            tooltip="VTClassic or UtilityBelt-compatible loot match expression." />
   </group>
   <button x="198" y="200" w="64" h="18" text="Apply"
@@ -62,7 +62,7 @@
   <toggle x="136" y="264" w="128" h="18" text="Read Unknown Scrolls"
           checked="{ReadUnknownScrollsEnabled}"
           onclick="{ToggleReadUnknownScrolls}" />
-  <label x="4" y="282" w="140" h="16" text="{LootRangeText}" color="#FFC7B98F" />
+  <label x="4" y="282" w="140" h="16" text="{LootRangeText}" color="theme:muted|#FFC7B98F" />
   <button x="148" y="282" w="22" h="16" text="-"
           onclick="{LootRangeDown}" tooltip="Decrease corpse-looting range." />
   <button x="174" y="282" w="22" h="16" text="+"

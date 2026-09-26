@@ -133,3 +133,15 @@ from **metaf** by Eskarina (https://github.com/JJEII/metaf). Details and license
 GNU General Public License v3 or later. See [LICENSE](LICENSE).
 MossTank 0.5.0 and earlier were released under MIT. Third-party notices,
 including metaf's: [NOTICE.md](NOTICE.md).
+
+## Plugin appearance and option search
+
+On hosts with plugin themes, MossTank follows the selected theme, including
+its secondary windows. The shared controls provide searchable choices for
+settings, navigation, loot and meta profiles; filtering does not load a profile.
+
+Advanced Options keeps the original setting names and descriptions. Search
+matches every word against the name or description, together with the category
+checkboxes. Select a row to edit it below: switches and choices apply immediately,
+while numeric values apply with Enter or Apply. Filtering never changes a setting.
+A selected setting hidden by a filter cannot be edited until it is shown again.

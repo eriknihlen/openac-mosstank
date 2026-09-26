@@ -8,15 +8,15 @@
   window, beside the editors, so it never opens over the page it was
   opened from.
 -->
-<panel x="660" y="405" w="268" h="200" title="MossTank Clients"
+<panel theme="plugin" x="660" y="405" w="268" h="200" title="MossTank Clients"
        visible="{UbClientsVisible}" resize="none">
-  <label x="4" y="22" w="260" h="16" text="{UbClientsTagText}" color="#FFE8DEC3"
+  <label x="4" y="22" w="260" h="16" text="{UbClientsTagText}" color="theme:text|#FFE8DEC3"
          tooltip="Which tag's characters are listed; the NetworkUI.SelectedTag setting." />
   <list x="4" y="40" w="260" h="120" rowheight="17"
         items="{UbClientNames}" selected="{SelectedUbClientIndex}"
         onchange="{SelectUbClient}"
         tooltip="Click a character to select it." />
-  <label x="4" y="162" w="200" h="16" text="{UbClientsNotice}" color="#FFC7B98F" />
+  <label x="4" y="162" w="200" h="16" text="{UbClientsNotice}" color="theme:muted|#FFC7B98F" />
   <button x="210" y="176" w="54" h="20" text="Close" onclick="{HideUbClients}"
           tooltip="Close this window. The readout stays if its setting says so." />
 </panel>

@@ -217,6 +217,9 @@ internal sealed partial class MossTankPanel : IBuffRuleHost, IDisposable
     private bool _lootEditorVisible;
     private bool _advancedOptionsVisible;
     private int _selectedAdvancedOption;
+    private IReadOnlyList<string> _advancedOptionChoices = Array.Empty<string>();
+    private string _advancedOptionSearchText = string.Empty;
+    private string _advancedOptionSelectionKey = string.Empty;
     private readonly bool[] _advancedOptionCategoryEnabled =
         Enumerable.Repeat(true, VtankOptionCatalog.CategoryBits.Length).ToArray();
     private readonly ReadOnlyCollection<bool> _advancedOptionCategoryEnabledView;
@@ -645,6 +648,55 @@ internal sealed partial class MossTankPanel : IBuffRuleHost, IDisposable
     public string AdvancedOptionDescription => _advancedOptionSelectedDescription;
     public string AdvancedOptionNotice => _advancedOptionNotice;
 
+    public string AdvancedOptionSearchText => _advancedOptionSearchText;
+    public string AdvancedOptionResultCount => $"{_advancedOptionNames.Count} options";
+    public bool AdvancedOptionEditorVisible => _advancedOptionSelectedName.Length != 0;
+    public Action<string> SetAdvancedOptionSearchText => value =>
+    {
+        _advancedOptionSearchText = value;
+        RefreshAdvancedOptions();
+        LoadAdvancedOptionDraft();
+    };
+    public Action ClearAdvancedOptionSearch => () => SetAdvancedOptionSearchText(string.Empty);
+    public Action ApplyAdvancedOption => ApplyAdvancedOptionCore;
+    public bool AdvancedOptionBooleanVisible => AdvancedOptionEditorVisible
+        && VtankOptionCatalog.DeclaredType(AdvancedOptionName) == VtankSettingValueType.Bool;
+    public bool AdvancedOptionChoiceVisible => AdvancedOptionEditorVisible
+        && VtankOptionCatalog.DeclaredType(AdvancedOptionName) == VtankSettingValueType.Enum;
+    public bool AdvancedOptionNumberVisible => AdvancedOptionEditorVisible
+        && !AdvancedOptionBooleanVisible && !AdvancedOptionChoiceVisible;
+    public bool AdvancedOptionBooleanValue => AdvancedOptionBooleanVisible
+        && GetMetaOption(AdvancedOptionName).IsTruthy;
+    public Action ToggleAdvancedOptionBoolean => () =>
+    {
+        if (AdvancedOptionBooleanVisible)
+            ClickAdvancedOptionValue(_selectedAdvancedOption);
+    };
+    public IReadOnlyList<string> AdvancedOptionChoices => _advancedOptionChoices;
+    public int SelectedAdvancedOptionChoice
+    {
+        get
+        {
+            if (AdvancedOptionChoiceVisible
+                && VtankDefaultSettingsDatabase.SettingEnumValues.TryGetValue(AdvancedOptionName, out var entries))
+            {
+                int current = GetMetaOption(AdvancedOptionName).AsInt32();
+                for (int i = 0; i < entries.Count; i++)
+                    if (entries[i].Value == current)
+                        return i;
+            }
+            return -1;
+        }
+    }
+    public Action<int> SelectAdvancedOptionChoice => index =>
+    {
+        if (!AdvancedOptionChoiceVisible
+            || !VtankDefaultSettingsDatabase.SettingEnumValues.TryGetValue(AdvancedOptionName, out var entries)
+            || (uint)index >= (uint)entries.Count)
+            return;
+        SubmitAdvancedOption(entries[index].Value.ToString(CultureInfo.InvariantCulture));
+    };
+
     private IReadOnlyList<string> FilteredAdvancedOptionNames()
     {
         int enabledMask = 0;
@@ -657,9 +709,14 @@ internal sealed partial class MossTankPanel : IBuffRuleHost, IDisposable
         // setting whose value is a whole table -- has no single value to type
         // into this editor, and an edit made against one here would be
         // dropped without a word.
+        string[] words = _advancedOptionSearchText.Split(
+            (char[]?)null, StringSplitOptions.RemoveEmptyEntries);
         return VtankOptionCatalog.Names.Where(name =>
             !name.Equals(VtankOptionCatalog.UnusedSetting, StringComparison.Ordinal)
             && IsPlainAdvancedOptionValue(VtankOptionCatalog.DeclaredType(name))
+            && words.All(word => name.Contains(word, StringComparison.OrdinalIgnoreCase)
+                || (VtankDefaultSettingsDatabase.SettingDescriptions.TryGetValue(name, out string? description)
+                    && description.Contains(word, StringComparison.OrdinalIgnoreCase)))
             && (!VtankDefaultSettingsDatabase.SettingCategoryBitmasks.TryGetValue(name, out int mask)
                 || mask == 0
                 || (mask & enabledMask) != 0)).ToArray();
@@ -674,14 +731,19 @@ internal sealed partial class MossTankPanel : IBuffRuleHost, IDisposable
     private void RefreshAdvancedOptions()
     {
         _advancedOptionNames = FilteredAdvancedOptionNames();
-        _selectedAdvancedOption = ClampRow(_selectedAdvancedOption, _advancedOptionNames.Count);
-        _advancedOptionSelectedName = _advancedOptionNames.Count == 0
+        if (_advancedOptionSelectionKey.Length == 0 && _advancedOptionNames.Count != 0)
+            _advancedOptionSelectionKey = _advancedOptionNames[0];
+        _selectedAdvancedOption = _advancedOptionNames.ToList().IndexOf(_advancedOptionSelectionKey);
+        _advancedOptionSelectedName = _selectedAdvancedOption < 0
             ? string.Empty
-            : _advancedOptionNames[
-                Math.Clamp(_selectedAdvancedOption, 0, _advancedOptionNames.Count - 1)];
+            : _advancedOptionNames[_selectedAdvancedOption];
         _advancedOptionValueColumn = _advancedOptionNames
             .Select(DisplayAdvancedOptionValue)
             .ToArray();
+        _advancedOptionChoices = AdvancedOptionChoiceVisible
+            && VtankDefaultSettingsDatabase.SettingEnumValues.TryGetValue(AdvancedOptionName, out var entries)
+                ? entries.Select(entry => entry.Label).ToArray()
+                : Array.Empty<string>();
         _advancedOptionSelectedDescription =
             VtankDefaultSettingsDatabase.SettingDescriptions.TryGetValue(
                 _advancedOptionSelectedName, out string? text)
@@ -720,7 +782,9 @@ internal sealed partial class MossTankPanel : IBuffRuleHost, IDisposable
     };
     public Action<int> SelectAdvancedOption => index =>
     {
-        _selectedAdvancedOption = ClampRow(index, _advancedOptionNames.Count);
+        if ((uint)index >= (uint)_advancedOptionNames.Count)
+            return;
+        _advancedOptionSelectionKey = _advancedOptionNames[index];
         RefreshAdvancedOptions();
         LoadAdvancedOptionDraft();
     };
@@ -3039,6 +3103,12 @@ internal sealed partial class MossTankPanel : IBuffRuleHost, IDisposable
 
     private void LoadAdvancedOptionDraft()
     {
+        if (!AdvancedOptionEditorVisible)
+        {
+            _advancedOptionValueDraft = string.Empty;
+            _advancedOptionNotice = "Select an option to edit.";
+            return;
+        }
         _advancedOptionValueDraft = GetMetaOption(AdvancedOptionName)
             .ToDisplayString();
         _advancedOptionNotice = $"Editing {AdvancedOptionName}.";
@@ -3046,6 +3116,8 @@ internal sealed partial class MossTankPanel : IBuffRuleHost, IDisposable
 
     private void ApplyAdvancedOptionCore()
     {
+        if (!AdvancedOptionEditorVisible)
+            return;
         if (!TryParseOptionValue(
                 _advancedOptionValueDraft.Trim(),
                 out ExpressionValue value))
@@ -3074,7 +3146,7 @@ internal sealed partial class MossTankPanel : IBuffRuleHost, IDisposable
 
     private void FlipAdvancedOptionBool(int index, string name)
     {
-        _selectedAdvancedOption = index;
+        _advancedOptionSelectionKey = name;
         ExpressionValue next = ExpressionValue.Boolean(!GetMetaOption(name).IsTruthy);
         _advancedOptionNotice = SetMetaOption(name, next)
             ? $"Set {name} = {next.ToDisplayString()}."
@@ -3085,7 +3157,7 @@ internal sealed partial class MossTankPanel : IBuffRuleHost, IDisposable
 
     private void CycleAdvancedOptionEnum(int index, string name)
     {
-        _selectedAdvancedOption = index;
+        _advancedOptionSelectionKey = name;
         if (!VtankDefaultSettingsDatabase.SettingEnumValues.TryGetValue(
                 name, out IReadOnlyList<VtankEnumValue>? entries)
             || entries.Count == 0)

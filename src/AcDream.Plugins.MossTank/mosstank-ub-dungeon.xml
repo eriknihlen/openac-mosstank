@@ -9,7 +9,7 @@
   slider picks the storey drawn, which also stops the map following you
   until Follow is pressed again.
 -->
-<panel x="253" y="405" w="320" h="96" title="MossTank Dungeon"
+<panel theme="plugin" x="253" y="405" w="320" h="96" title="MossTank Dungeon"
        visible="{UbDungeonVisible}" resize="none">
   <button x="4" y="22" w="76" h="20" text="{UbDungeonFollowText}" onclick="{ToggleUbDungeonFollow}"
           tooltip="Keep the map centred on you and turned the way you face." />
@@ -33,10 +33,10 @@
           tooltip="Turn the map anticlockwise a step." />
   <button x="110" y="46" w="24" h="20" text=")" onclick="{UbDungeonTurnRight}"
           tooltip="Turn the map clockwise a step." />
-  <label x="140" y="48" w="22" h="16" text="Z" color="#FFE8DEC3" />
+  <label x="140" y="48" w="22" h="16" text="Z" color="theme:text|#FFE8DEC3" />
   <slider x="166" y="46" w="150" h="20" min="0" max="100"
           value="{UbDungeonHeight}" onchange="{SetUbDungeonHeight}"
           tooltip="Which storey is drawn, from the lowest to the highest; stops following you." />
-  <label x="4" y="70" w="312" h="16" text="{UbDungeonStatusText}" color="#FFC7B98F"
+  <label x="4" y="70" w="312" h="16" text="{UbDungeonStatusText}" color="theme:muted|#FFC7B98F"
          tooltip="Which dungeon the map is of, and how much of it you have walked." />
 </panel>

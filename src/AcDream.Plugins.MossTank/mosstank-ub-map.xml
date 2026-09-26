@@ -8,7 +8,7 @@
   the buttons here make the same moves in fixed steps about the middle,
   and the readout is the coordinate under the cursor, or at the middle.
 -->
-<panel x="253" y="405" w="320" h="76" title="MossTank Map"
+<panel theme="plugin" x="253" y="405" w="320" h="76" title="MossTank Map"
        visible="{UbMapVisible}" resize="none">
   <button x="4" y="22" w="76" h="20" text="{UbMapFollowText}" onclick="{ToggleUbMapFollow}"
           tooltip="Keep the map centred on you as you move." />
@@ -26,8 +26,8 @@
           tooltip="Slide the map to show what lies south." />
   <button x="262" y="22" w="54" h="20" text="Close" onclick="{HideUbMap}"
           tooltip="Hide the map and this window." />
-  <label x="4" y="46" w="150" h="16" text="{UbMapReadout}" color="#FFE8DEC3"
+  <label x="4" y="46" w="150" h="16" text="{UbMapReadout}" color="theme:text|#FFE8DEC3"
          tooltip="The coordinate at the middle of the map." />
-  <label x="158" y="46" w="158" h="16" text="{UbMapMarkerCountText}" color="#FFC7B98F"
+  <label x="158" y="46" w="158" h="16" text="{UbMapMarkerCountText}" color="theme:muted|#FFC7B98F"
          tooltip="How many points of interest were read from the marker files." />
 </panel>
