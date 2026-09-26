@@ -688,6 +688,14 @@ internal sealed partial class MossTankPanel : IBuffRuleHost, IDisposable
             return -1;
         }
     }
+    public string AdvancedOptionChoiceText => AdvancedOptionChoiceVisible
+        ? DisplayAdvancedOptionValue(AdvancedOptionName) : string.Empty;
+    public Action<string> SelectAdvancedOptionChoiceText => text =>
+    {
+        int index = _advancedOptionChoices.ToList().FindIndex(
+            value => string.Equals(value, text, StringComparison.Ordinal));
+        SelectAdvancedOptionChoice(index);
+    };
     public Action<int> SelectAdvancedOptionChoice => index =>
     {
         if (!AdvancedOptionChoiceVisible

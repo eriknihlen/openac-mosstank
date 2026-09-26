@@ -22,15 +22,18 @@
     <column type="text" width="123" items="{AdvancedOptionValueColumn}" onclick="{SelectAdvancedOption}" />
   </list>
   <label x="172" y="316" w="466" h="18" text="{AdvancedOptionResultCount}" color="theme:muted|#FFC7B98F" anchor="left right bottom" />
-  <label x="12" y="342" w="626" h="64" text="{AdvancedOptionDescription}" color="theme:text|#FFE8DEC3" anchor="left right bottom" />
+  <group x="12" y="342" w="626" h="64" background="theme:field|#FF0C0906" border="theme:border|#FF8C7B4E" anchor="left right bottom">
+    <field x="1" y="1" w="624" h="62" text="{AdvancedOptionDescription}" color="theme:text|#FFE8DEC3"
+           oneline="false" editable="false" maxlength="8192" background="#00000000" anchor="left top right" />
+  </group>
   <group x="12" y="418" w="626" h="28" visible="{AdvancedOptionEditorVisible}" anchor="left right bottom">
     <group x="0" y="0" w="626" h="28" visible="{AdvancedOptionBooleanVisible}">
       <toggle x="0" y="0" w="350" h="24" text="{AdvancedOptionName}" checked="{AdvancedOptionBooleanValue}"
               onclick="{ToggleAdvancedOptionBoolean}" />
     </group>
     <group x="0" y="0" w="626" h="28" visible="{AdvancedOptionChoiceVisible}">
-      <menu x="0" y="0" w="350" h="24" items="{AdvancedOptionChoices}" selected="{SelectedAdvancedOptionChoice}"
-            onchange="{SelectAdvancedOptionChoice}" />
+      <menu x="0" y="0" w="350" h="24" items="{AdvancedOptionChoices}" selected="{AdvancedOptionChoiceText}"
+            onchange="{SelectAdvancedOptionChoiceText}" />
     </group>
     <group x="0" y="0" w="626" h="28" visible="{AdvancedOptionNumberVisible}">
       <group x="0" y="0" w="350" h="24" background="theme:field|#FF0C0906" border="theme:border|#FF8C7B4E">

@@ -63,9 +63,11 @@ public sealed partial class MossTankPanelTests
         panel.SelectAdvancedOption(panel.AdvancedOptionNames.ToList().IndexOf("UseArcs"));
         Assert.True(panel.AdvancedOptionChoiceVisible);
         Assert.Equal(["No", "At Range", "Yes"], panel.AdvancedOptionChoices);
-        panel.SelectAdvancedOptionChoice(2);
+        panel.SelectAdvancedOptionChoiceText("Yes");
         Assert.Equal("3", panel.AdvancedOptionValueDraft);
         Assert.Equal(2, panel.SelectedAdvancedOptionChoice);
+        Assert.Equal("Yes", panel.AdvancedOptionChoiceText);
+        panel.SelectAdvancedOptionChoiceText("not a choice");
         panel.SelectAdvancedOptionChoice(-1);
         Assert.Equal(2, panel.SelectedAdvancedOptionChoice);
         panel.ToggleAdvancedOptionBoolean();

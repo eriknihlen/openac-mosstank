@@ -54,5 +54,5 @@
           onclick="{MoveMetaRuleDown}" tooltip="Move the selected meta rule down." />
   <button x="250" y="104" w="80" h="22" text="Cancel" onclick="{HideMetaEditor}" />
 
-  <label x="4" y="134" w="600" h="16" text="{MetaNotice}" color="#FF9B9072" />
+  <label x="4" y="134" w="600" h="16" text="{MetaNotice}" color="theme:muted|#FF9B9072" />
 </panel>

@@ -17,7 +17,7 @@
 <panel theme="plugin" x="28" y="42" w="984" h="271"
        visible="{WindowAvailable}"
        resizable="true" minw="984" minh="271" resize="both">
-  <label x="8" y="4" w="300" h="16" text="{WindowTitle}" color="#FFFFFFFF" />
+  <label x="8" y="4" w="300" h="16" text="{WindowTitle}" color="theme:text|#FFFFFFFF" />
   <tab x="8"   y="22" w="58" h="18" text="Options"
        selected="{OptionsSelected}" enabled="{OptionsTabEnabled}" onclick="{ShowOptions}" />
   <tab x="66"  y="22" w="56" h="18" text="Profiles"
@@ -176,7 +176,7 @@
           rows="7" scroll="true" tooltip="Select the active meta profile." />
     <button x="306" y="80" w="50" h="20" text="CopyTo" onclick="{CopyMetaProfile}" />
 
-    <label x="8" y="108" w="400" h="16" text="{LootStatus}" color="#FF9B9072"
+    <label x="8" y="108" w="400" h="16" text="{LootStatus}" color="theme:muted|#FF9B9072"
            anchor="left top right" />
   </group>
 
@@ -349,7 +349,7 @@
             onclick="{RemoveSelectedConsumable}" anchor="bottom" />
     <button x="566" y="189" w="176" h="24" text="Add Selected"
             onclick="{AddSelectedComponent}" anchor="right bottom" />
-    <label x="566" y="213" w="176" h="16" text="{ProfileNotice}" color="#FF9B9072" anchor="right bottom" />
+    <label x="566" y="213" w="176" h="16" text="{ProfileNotice}" color="theme:muted|#FF9B9072" anchor="right bottom" />
   </group>
 
   <group x="8" y="42" w="976" h="229" visible="{BuffsVisible}" anchor="left top right bottom">
@@ -436,8 +436,8 @@
           rows="3" openupward="false"
           tooltip="When the client's own pathing walks a leg for the route: never (the straight walk at every point), when the straight walk is stuck (once per waypoint), or for every leg (a leg the client cannot walk pauses the route)." />
 
-    <label x="4" y="195" w="300" h="16" text="{NavigationStatus}" color="#FF9B9072" anchor="bottom" />
-    <label x="310" y="195" w="300" h="16" text="{RouteNotice}" color="#FF9B9072" anchor="bottom" />
+    <label x="4" y="195" w="300" h="16" text="{NavigationStatus}" color="theme:muted|#FF9B9072" anchor="bottom" />
+    <label x="310" y="195" w="300" h="16" text="{RouteNotice}" color="theme:muted|#FF9B9072" anchor="bottom" />
   </group>
 
   <group x="8" y="42" w="976" h="229" visible="{MetaVisible}" anchor="left top right bottom">

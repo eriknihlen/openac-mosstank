@@ -624,6 +624,8 @@ public sealed class MossTankMarkupContractTests
             Assert.Equal(expected.Width, Number(root, "w"));
             Assert.Equal(expected.Height, Number(root, "h"));
             AssertWithinParent(root);
+            foreach (XElement element in root.DescendantsAndSelf())
+                AssertElementBindingsMatchRetainedUiDelegateShape(element, byName);
 
             foreach (XAttribute attribute in root.DescendantsAndSelf().Attributes())
             {
