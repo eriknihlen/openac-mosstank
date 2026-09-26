@@ -580,6 +580,7 @@ public sealed class MossTankMarkupContractTests
     private static readonly Dictionary<string, (float Width, float Height)> ExpectedPopupBounds =
         new(StringComparer.OrdinalIgnoreCase)
         {
+            ["mosstank-remote.xml"] = (166f, 209f),
             ["mosstank-advanced.xml"] = (650f, 560f),
             ["mosstank-loot-editor.xml"] = (268f, 300f),
             ["mosstank-buffpicker.xml"] = (268f, 236f),
@@ -812,6 +813,17 @@ public sealed class MossTankMarkupContractTests
                     && (string?)child.Attribute("onclick") == "{HideAdvancedOptions}")
                 {
                     Assert.InRange(Number(child, "x"), Number(root, "w") - 24f, Number(root, "w"));
+                    Assert.True(Number(child, "x") + Number(child, "w") <= Number(root, "w"));
+                    Assert.Equal("right top", (string?)child.Attribute("anchor"));
+                    continue;
+                }
+                if (child.Name == "button"
+                    && ((Path.GetFileName(path) == "mosstank.xml"
+                            && (string?)child.Attribute("onclick") == "{ShowRemote}")
+                        || (Path.GetFileName(path) == "mosstank-remote.xml"
+                            && (string?)child.Attribute("onclick") == "{ShowMainWindow}")))
+                {
+                    Assert.InRange(Number(child, "x"), Number(root, "w") - 50f, Number(root, "w"));
                     Assert.True(Number(child, "x") + Number(child, "w") <= Number(root, "w"));
                     Assert.Equal("right top", (string?)child.Attribute("anchor"));
                     continue;

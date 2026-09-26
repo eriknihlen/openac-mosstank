@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="utf-8"?>
+<panel theme="plugin" x="28" y="325" w="166" h="209" title="MossTank"
+       visible="{WindowAvailable}" resize="none">
+  <button x="140" y="3" w="18" h="17" text="M" anchor="right top" onclick="{ShowMainWindow}"
+          tooltip="Restore the main MossTank window" />
+  <toggle x="8" y="27" w="148" h="20" text="On" checked="{CombatMacroRunning}" onclick="{ToggleCombat}"
+          tooltip="Start or pause the macro" />
+  <toggle x="8" y="50" w="72" h="20" text="Buff" checked="{BuffingEnabled}" onclick="{ToggleBuffing}" />
+  <toggle x="82" y="50" w="76" h="20" text="Combat" checked="{CombatEnabled}" onclick="{ToggleCombatEnabled}" />
+  <toggle x="8" y="73" w="82" h="20" text="Navigate" checked="{NavigationEnabled}" onclick="{ToggleNavigation}" />
+  <toggle x="96" y="73" w="62" h="20" text="Loot" checked="{LootEnabled}" onclick="{ToggleLooting}" />
+  <toggle x="8" y="96" w="148" h="20" text="Meta" checked="{MetaEnabled}" onclick="{ToggleMeta}" />
+  <toggle x="8" y="119" w="148" h="20" text="Follow corners" checked="{FollowAroundCornersEnabled}" onclick="{ToggleFollowAroundCorners}"
+          tooltip="FollowAroundCorners" />
+  <toggle x="8" y="142" w="148" h="20" text="Target lock" checked="{TargetLockEnabled}" onclick="{ToggleTargetLock}"
+          tooltip="TargetLock: prioritize the selected monster" />
+  <button x="8" y="174" w="46" h="25" text="F" onclick="{ForceBuff}" tooltip="Force Buff" />
+  <button x="60" y="174" w="46" h="25" text="CF" onclick="{CancelForceBuff}" tooltip="Cancel Force Buff" />
+  <button x="112" y="174" w="46" h="25" text="FC" onclick="{RemoteFollowSelected}"
+          tooltip="Follow the selected player using the separate follow route. Preserves your navigation file and all macro switches." />
+</panel>

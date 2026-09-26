@@ -18,6 +18,8 @@
        visible="{WindowAvailable}"
        resizable="true" minw="984" minh="271" resize="both">
   <label x="8" y="4" w="300" h="16" text="{WindowTitle}" color="theme:text|#FFFFFFFF" />
+  <button x="938" y="3" w="18" h="17" text="R" anchor="right top"
+          onclick="{ShowRemote}" tooltip="Switch to compact remote" />
   <tab x="8"   y="22" w="58" h="18" text="Options"
        selected="{OptionsSelected}" enabled="{OptionsTabEnabled}" onclick="{ShowOptions}" />
   <tab x="66"  y="22" w="56" h="18" text="Profiles"

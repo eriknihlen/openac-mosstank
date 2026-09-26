@@ -152,3 +152,16 @@ letters (A acid, L lightning, F fire, C cold, B bludgeon, P pierce, S slash), th
 press Enter or Apply. An empty value selects no elements. These are element
 profiles, not spell levels or numeric masks; the existing setting keys remain
 unchanged.
+
+### Compact macro controls
+
+The **R** button in MossTank's top-right corner switches to a compact remote;
+**M** restores the main window. Switching windows leaves the macro running.
+The remote shares the main window's On, Buff, Combat, Navigate, Loot, Meta,
+FollowAroundCorners and TargetLock settings, plus Force Buff (**F**) and
+Cancel Force Buff (**CF**). It supports Classic and both modern plugin themes.
+
+**FC** follows the selected player through the same separate `UBFollow` route
+used by `/ub follow`. It preserves the previously loaded navigation file and
+does not change any macro switches. Enable navigation and the macro to move.
+The host remembers the remote's position like other plugin windows.

@@ -50,6 +50,15 @@ public sealed class MossTankPlugin : IAcDreamPlugin
             _panel);
 
         _host.Ui.AddPanel(
+            new PluginPanelDescriptor("remote", "MossTank Remote")
+            {
+                StartVisible = false,
+                ShowInSidePanel = false,
+            },
+            Path.Combine(directory, "mosstank-remote.xml"),
+            _panel);
+
+        _host.Ui.AddPanel(
             new PluginPanelDescriptor("advanced-options", "MossTank Advanced Options")
             {
                 StartVisible = true,
