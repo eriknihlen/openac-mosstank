@@ -1,8 +1,20 @@
 # Third-Party Notices
 
-MossTank is MIT-licensed (see [LICENSE](LICENSE)). This file lists the
-third-party work it builds on, with the license terms and credits that work
-carries.
+MossTank is free software, licensed under the GNU General Public License,
+version 3 or (at your option) any later version (see [LICENSE](LICENSE)).
+
+    MossTank, an automation plugin for the OpenAC Asheron's Call client
+    Copyright (C) 2026 Erik Nihlén and OpenAC contributors
+
+    This program is distributed in the hope that it will be useful, but
+    WITHOUT ANY WARRANTY; without even the implied warranty of
+    MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the GNU General
+    Public License for more details.
+
+MossTank 0.5.0 and earlier were released under the MIT license. Those
+releases stay under MIT for anyone who has them, and the MIT notice for that
+code is kept below. This file also lists the third-party work MossTank builds
+on, with the license terms and credits that work carries.
 
 ---
 
@@ -105,6 +117,45 @@ its license terms are that project's.
 
 ## metaf
 
-The `.af` route and meta format is **metaf** by Eskarina of Morningthaw and
-Coldeve (https://github.com/JJEII/metaf). MossTank reads and writes that
-format; no metaf code is included.
+MossTank's `.af` meta and route files, and its readers and writers for
+VTank's `.met` and `.nav` files, are adapted from **metaf** by Eskarina of
+Morningthaw and Coldeve:
+
+**https://github.com/JJEII/metaf**
+
+metaf created the `.af` format and is the best documentation there is of
+VTank's file formats. If you want to understand those formats, or build
+something that reads or writes them, start there.
+
+The code was adapted by way of a Python port of metaf, and is licensed
+under the GNU General Public License v3, as metaf is. It is included with
+the knowledge and permission of metaf's author, whose one request is that
+anything built on metaf credits it and links back to it. Every `.af` file
+MossTank writes begins with metaf's own header, which names metaf and links
+to it.
+
+## MossTank under the MIT license (0.5.0 and earlier)
+
+```
+MIT License
+
+Copyright (c) 2026 Erik Nihlén and OpenAC contributors
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+```

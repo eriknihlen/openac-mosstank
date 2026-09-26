@@ -1,3 +1,6 @@
+// Adapted from metaf by Eskarina of Morningthaw and Coldeve,
+// https://github.com/JJEII/metaf (GPLv3). See NOTICE.md.
+
 using System.Globalization;
 using AcDream.Plugin.Abstractions;
 
