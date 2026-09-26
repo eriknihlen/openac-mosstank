@@ -124,9 +124,12 @@ VTank's file formats and answers its command and expression names, with no
 VTank code included; the information needed for that was obtained by
 decompilation for interoperability as permitted by Article 6 of the EU
 Software Directive (2009/24/EC). MossTank's own messages are written in its
-own words. It also reads the **metaf** `.af` format by Eskarina. Details and license texts:
+own words. Its `.af` files and its `.met`/`.nav` readers and writers are adapted
+from **metaf** by Eskarina (https://github.com/JJEII/metaf). Details and license texts:
 [NOTICE.md](NOTICE.md).
 
 ## Licence
 
-MIT. See [LICENSE](LICENSE). Third-party notices: [NOTICE.md](NOTICE.md).
+GNU General Public License v3 or later. See [LICENSE](LICENSE).
+MossTank 0.5.0 and earlier were released under MIT. Third-party notices,
+including metaf's: [NOTICE.md](NOTICE.md).
