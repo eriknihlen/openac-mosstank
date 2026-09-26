@@ -793,7 +793,7 @@ public sealed class MossTankMarkupContractTests
     /// Mutation: move any first row back up into the title's rows.
     /// </summary>
     [Fact]
-    public void NoControlSitsInTheTitleRowsOfAnyWindow()
+    public void OnlyWindowChromeSitsInTheTitleRowsOfAnyWindow()
     {
         const float TitleRowBottom = 20f;
         foreach (string path in Directory.GetFiles(
@@ -807,6 +807,15 @@ public sealed class MossTankMarkupContractTests
                 // carry the version the build was made as.
                 if ((string?)child.Attribute("text") == "{WindowTitle}")
                     continue;
+                if (Path.GetFileName(path) == "mosstank-advanced.xml"
+                    && child.Name == "button"
+                    && (string?)child.Attribute("onclick") == "{HideAdvancedOptions}")
+                {
+                    Assert.InRange(Number(child, "x"), Number(root, "w") - 24f, Number(root, "w"));
+                    Assert.True(Number(child, "x") + Number(child, "w") <= Number(root, "w"));
+                    Assert.Equal("right top", (string?)child.Attribute("anchor"));
+                    continue;
+                }
                 Assert.True(
                     Number(child, "y") >= TitleRowBottom,
                     $"<{child.Name}> at y={Number(child, "y")} in "

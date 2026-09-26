@@ -1,6 +1,8 @@
 <?xml version="1.0" encoding="utf-8"?>
 <panel theme="plugin" x="253" y="325" w="650" h="560" title="MossTank Advanced Options"
        visible="{AdvancedOptionsVisible}" resizable="true" minw="650" minh="560">
+  <button x="627" y="3" w="18" h="18" text="X" onclick="{HideAdvancedOptions}"
+          tooltip="Close Advanced Options" anchor="right top" />
   <label x="12" y="25" w="420" h="18" text="Search names and descriptions" color="theme:muted|#FFC7B98F" />
   <group x="12" y="46" w="548" h="24" background="theme:field|#FF0C0906" border="theme:border|#FF8C7B4E" anchor="left top right">
     <field x="1" y="1" w="546" h="22" text="{AdvancedOptionSearchText}"

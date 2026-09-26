@@ -6821,6 +6821,12 @@ public sealed partial class MossTankPanelTests
         Assert.False(panel.AdvancedOptionsVisible);
         panel.ToggleAdvancedOptionsVisible();
         Assert.True(panel.AdvancedOptionsVisible);
+        panel.HideAdvancedOptions();
+        Assert.False(panel.AdvancedOptionsVisible);
+        panel.HideAdvancedOptions();
+        Assert.False(panel.AdvancedOptionsVisible);
+        panel.ToggleAdvancedOptionsVisible();
+        Assert.True(panel.AdvancedOptionsVisible);
         panel.ToggleAdvancedOptionsVisible();
         Assert.False(panel.AdvancedOptionsVisible);
 
