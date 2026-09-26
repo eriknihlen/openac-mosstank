@@ -2,6 +2,38 @@ namespace AcDream.Plugins.MossTank.Tests;
 
 public sealed partial class MossTankPanelTests
 {
+    [Theory]
+    [InlineData("BuffProfile_Banes", "BPSAC", 7)]
+    [InlineData("BuffProfile_Prots", "BPSAC", 8)]
+    public void AdvancedBuffProfileChoicesKeepTheirOriginalLabelsAndValues(
+        string name, string label, int expectedValue)
+    {
+        var panel = new MossTankPanel(new FakeHost(new FakeAutomation()));
+        panel.SelectAdvancedOption(panel.AdvancedOptionNames.ToList().IndexOf("EnableCombat"));
+        Assert.Empty(panel.AdvancedOptionChoices);
+
+        panel.SetAdvancedOptionSearchText(name);
+        panel.SelectAdvancedOption(panel.AdvancedOptionNames.ToList().IndexOf(name));
+        Assert.Equal(name, panel.AdvancedOptionName);
+        Assert.True(panel.AdvancedOptionChoiceVisible);
+        Assert.Equal(8, panel.AdvancedOptionChoices.Count);
+        Assert.Contains("Custom", panel.AdvancedOptionChoices);
+        Assert.Contains("All", panel.AdvancedOptionChoices);
+        Assert.Contains("None", panel.AdvancedOptionChoices);
+
+        panel.SelectAdvancedOptionChoiceText(label);
+        Assert.Equal(label, panel.AdvancedOptionChoiceText);
+        Assert.Equal(expectedValue.ToString(), panel.AdvancedOptionValueDraft);
+        Assert.Equal(expectedValue - 1, panel.SelectedAdvancedOptionChoice);
+
+        panel.SelectAdvancedOptionChoiceText("None");
+        Assert.Equal("None", panel.AdvancedOptionChoiceText);
+        Assert.Equal("3", panel.AdvancedOptionValueDraft);
+        panel.ClearAdvancedOptionSearch();
+        Assert.Equal(name, panel.AdvancedOptionName);
+        Assert.Equal("None", panel.AdvancedOptionChoiceText);
+    }
+
     [Fact]
     public void AdvancedSearchMatchesAllWordsAcrossNamesAndDescriptions()
     {
