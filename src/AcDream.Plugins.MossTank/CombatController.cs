@@ -390,7 +390,20 @@ internal sealed class CombatController
 
     public bool Enabled { get; private set; }
     private IDisposable? _combatControl;
-    public string Status { get; private set; } = "Combat off";
+    private string _status = "Combat off";
+    public event Action<string>? StatusChanged;
+
+    public string Status
+    {
+        get => _status;
+        private set
+        {
+            if (string.Equals(_status, value, StringComparison.Ordinal))
+                return;
+            _status = value;
+            StatusChanged?.Invoke(value);
+        }
+    }
     public string TargetText => _targetText;
     public string ModeText => _modeText;
     public bool HasTarget => _targetId != 0u;

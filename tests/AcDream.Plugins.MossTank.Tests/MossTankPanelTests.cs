@@ -6821,6 +6821,12 @@ public sealed partial class MossTankPanelTests
         Assert.False(panel.AdvancedOptionsVisible);
         panel.ToggleAdvancedOptionsVisible();
         Assert.True(panel.AdvancedOptionsVisible);
+        panel.HideAdvancedOptions();
+        Assert.False(panel.AdvancedOptionsVisible);
+        panel.HideAdvancedOptions();
+        Assert.False(panel.AdvancedOptionsVisible);
+        panel.ToggleAdvancedOptionsVisible();
+        Assert.True(panel.AdvancedOptionsVisible);
         panel.ToggleAdvancedOptionsVisible();
         Assert.False(panel.AdvancedOptionsVisible);
 
@@ -11267,7 +11273,7 @@ public sealed partial class MossTankPanelTests
         public IGameState State { get; } = new FakeState();
         public IEvents Events { get; } = new FakeEvents();
         public ISelectionService Selection { get; } = new FakeSelection();
-        public IUiRegistry Ui => NoOpUiRegistry.Instance;
+        public IUiRegistry Ui { get; set; } = NoOpUiRegistry.Instance;
         public IPluginStorage Storage { get; } =
             storage ?? NoOpPluginStorage.Instance;
         public IAutomationSurface Automation { get; } = automation;

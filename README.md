@@ -133,3 +133,44 @@ from **metaf** by Eskarina (https://github.com/JJEII/metaf). Details and license
 GNU General Public License v3 or later. See [LICENSE](LICENSE).
 MossTank 0.5.0 and earlier were released under MIT. Third-party notices,
 including metaf's: [NOTICE.md](NOTICE.md).
+
+## Plugin appearance and option search
+
+On hosts with plugin themes, MossTank follows the selected theme, including
+its secondary windows. The shared controls provide searchable choices for
+settings, navigation, loot and meta profiles; filtering does not load a profile.
+
+Advanced Options keeps the original setting names and descriptions. Search
+matches every word against the name or description, together with the category
+checkboxes. Select a row to edit it below: switches and choices apply immediately,
+while numeric values apply with Enter or Apply. Filtering never changes a setting.
+A selected setting hidden by a filter cannot be edited until it is shown again.
+
+Selecting Custom for `BuffProfile_Prots` or `BuffProfile_Banes` also shows the
+corresponding `BuffProfile-Prots` or `BuffProfile-Banes` text field. Enter element
+letters (A acid, L lightning, F fire, C cold, B bludgeon, P pierce, S slash), then
+press Enter or Apply. An empty value selects no elements. These are element
+profiles, not spell levels or numeric masks; the existing setting keys remain
+unchanged.
+
+### Compact macro controls
+
+The **R** button in MossTank's top-right corner switches to a compact remote;
+**M** restores the main window. Switching windows leaves the macro running.
+The remote shares the main window's On, Buff, Combat, Navigate, Loot, Meta,
+FollowAroundCorners and TargetLock settings, plus Force Buff (**F**) and
+Cancel Force Buff (**CF**). It supports Classic and both modern plugin themes.
+
+**FC** follows the selected player through the same separate `UBFollow` route
+used by `/ub follow`. It preserves the previously loaded navigation file and
+does not change any macro switches. Enable navigation and the macro to move.
+The host remembers the remote's position like other plugin windows.
+
+### Action history
+
+The **History** button beside the current action on Options opens the current
+status and timestamped action changes. It follows new lines while at the bottom;
+scrolling up keeps your reading position until you return to the bottom. Actions
+continue to be recorded while the window is closed. The latest 1,000 changes are
+kept for the session; consecutive repeats are omitted. **Clear** empties the
+history without affecting the macro or current status, and **X** closes the window.

@@ -159,6 +159,8 @@ public sealed class MossTankMarkupContractTests
 
         XElement[] controls = root.Descendants()
             .Where(element => interactive.Contains(element.Name.LocalName))
+            .Where(element => element.Name.LocalName != "field"
+                || (string?)element.Attribute("editable") != "false")
             .ToArray();
         Assert.NotEmpty(controls);
 
@@ -580,7 +582,9 @@ public sealed class MossTankMarkupContractTests
     private static readonly Dictionary<string, (float Width, float Height)> ExpectedPopupBounds =
         new(StringComparer.OrdinalIgnoreCase)
         {
-            ["mosstank-advanced.xml"] = (392f, 318f),
+            ["mosstank-remote.xml"] = (154f, 174f),
+            ["mosstank-action-history.xml"] = (620f, 350f),
+            ["mosstank-advanced.xml"] = (650f, 560f),
             ["mosstank-loot-editor.xml"] = (268f, 300f),
             ["mosstank-buffpicker.xml"] = (268f, 236f),
             ["mosstank-metaeditor.xml"] = (630f, 174f),
@@ -624,6 +628,8 @@ public sealed class MossTankMarkupContractTests
             Assert.Equal(expected.Width, Number(root, "w"));
             Assert.Equal(expected.Height, Number(root, "h"));
             AssertWithinParent(root);
+            foreach (XElement element in root.DescendantsAndSelf())
+                AssertElementBindingsMatchRetainedUiDelegateShape(element, byName);
 
             foreach (XAttribute attribute in root.DescendantsAndSelf().Attributes())
             {
@@ -706,7 +712,9 @@ public sealed class MossTankMarkupContractTests
             string fileName = Path.GetFileName(path);
             XDocument document = XDocument.Load(path);
             XElement root = Assert.IsType<XElement>(document.Root);
-            XElement[] fields = root.Descendants("field").ToArray();
+            XElement[] fields = root.Descendants("field")
+                .Where(field => (string?)field.Attribute("editable") != "false")
+                .ToArray();
             // A popup of buttons and readouts alone, such as the map's
             // control strip, has no field to check; the rule is about how
             // a field is drawn, not that every file has one.
@@ -791,7 +799,7 @@ public sealed class MossTankMarkupContractTests
     /// Mutation: move any first row back up into the title's rows.
     /// </summary>
     [Fact]
-    public void NoControlSitsInTheTitleRowsOfAnyWindow()
+    public void OnlyWindowChromeSitsInTheTitleRowsOfAnyWindow()
     {
         const float TitleRowBottom = 20f;
         foreach (string path in Directory.GetFiles(
@@ -805,6 +813,28 @@ public sealed class MossTankMarkupContractTests
                 // carry the version the build was made as.
                 if ((string?)child.Attribute("text") == "{WindowTitle}")
                     continue;
+                if (child.Name == "button"
+                    && ((Path.GetFileName(path) == "mosstank-advanced.xml"
+                            && (string?)child.Attribute("onclick") == "{HideAdvancedOptions}")
+                        || (Path.GetFileName(path) == "mosstank-action-history.xml"
+                            && (string?)child.Attribute("onclick") == "{HideActionHistory}")))
+                {
+                    Assert.InRange(Number(child, "x"), Number(root, "w") - 24f, Number(root, "w"));
+                    Assert.True(Number(child, "x") + Number(child, "w") <= Number(root, "w"));
+                    Assert.Equal("right top", (string?)child.Attribute("anchor"));
+                    continue;
+                }
+                if (child.Name == "button"
+                    && ((Path.GetFileName(path) == "mosstank.xml"
+                            && (string?)child.Attribute("onclick") == "{ShowRemote}")
+                        || (Path.GetFileName(path) == "mosstank-remote.xml"
+                            && (string?)child.Attribute("onclick") == "{ShowMainWindow}")))
+                {
+                    Assert.InRange(Number(child, "x"), Number(root, "w") - 50f, Number(root, "w"));
+                    Assert.True(Number(child, "x") + Number(child, "w") <= Number(root, "w"));
+                    Assert.Equal("right top", (string?)child.Attribute("anchor"));
+                    continue;
+                }
                 Assert.True(
                     Number(child, "y") >= TitleRowBottom,
                     $"<{child.Name}> at y={Number(child, "y")} in "

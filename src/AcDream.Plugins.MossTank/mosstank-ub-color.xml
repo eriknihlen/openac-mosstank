@@ -8,43 +8,43 @@
   background is bound to the draft, so what is being edited is seen as well
   as read; its alpha is the draft's alpha, over the window's own ground.
 -->
-<panel x="253" y="405" w="268" h="182" title="MossTank Colour"
+<panel theme="plugin" x="253" y="405" w="268" h="182" title="MossTank Colour"
        visible="{UbColorVisible}" resize="none">
-  <label x="4" y="22" w="60" h="16" text="Alpha" color="#FFE8DEC3" />
+  <label x="4" y="22" w="60" h="16" text="Alpha" color="theme:text|#FFE8DEC3" />
   <slider x="68" y="22" w="152" h="16" min="0" max="255"
           value="{UbColorAlpha}" onchange="{SetUbColorAlpha}"
           tooltip="How solid the colour is, from 0 to 255." />
-  <label x="226" y="22" w="38" h="16" text="{UbColorAlphaText}" color="#FFC7B98F" />
+  <label x="226" y="22" w="38" h="16" text="{UbColorAlphaText}" color="theme:muted|#FFC7B98F" />
 
-  <label x="4" y="40" w="60" h="16" text="Red" color="#FFE8DEC3" />
+  <label x="4" y="40" w="60" h="16" text="Red" color="theme:text|#FFE8DEC3" />
   <slider x="68" y="40" w="152" h="16" min="0" max="255"
           value="{UbColorRed}" onchange="{SetUbColorRed}"
           tooltip="How much red, from 0 to 255." />
-  <label x="226" y="40" w="38" h="16" text="{UbColorRedText}" color="#FFC7B98F" />
+  <label x="226" y="40" w="38" h="16" text="{UbColorRedText}" color="theme:muted|#FFC7B98F" />
 
-  <label x="4" y="58" w="60" h="16" text="Green" color="#FFE8DEC3" />
+  <label x="4" y="58" w="60" h="16" text="Green" color="theme:text|#FFE8DEC3" />
   <slider x="68" y="58" w="152" h="16" min="0" max="255"
           value="{UbColorGreen}" onchange="{SetUbColorGreen}"
           tooltip="How much green, from 0 to 255." />
-  <label x="226" y="58" w="38" h="16" text="{UbColorGreenText}" color="#FFC7B98F" />
+  <label x="226" y="58" w="38" h="16" text="{UbColorGreenText}" color="theme:muted|#FFC7B98F" />
 
-  <label x="4" y="76" w="60" h="16" text="Blue" color="#FFE8DEC3" />
+  <label x="4" y="76" w="60" h="16" text="Blue" color="theme:text|#FFE8DEC3" />
   <slider x="68" y="76" w="152" h="16" min="0" max="255"
           value="{UbColorBlue}" onchange="{SetUbColorBlue}"
           tooltip="How much blue, from 0 to 255." />
-  <label x="226" y="76" w="38" h="16" text="{UbColorBlueText}" color="#FFC7B98F" />
+  <label x="226" y="76" w="38" h="16" text="{UbColorBlueText}" color="theme:muted|#FFC7B98F" />
 
-  <label x="4" y="100" w="40" h="16" text="Hex:" color="#FFE8DEC3" />
-  <group x="48" y="98" w="216" h="18" background="#FF0C0906" border="#FF8C7B4E">
+  <label x="4" y="100" w="40" h="16" text="Hex:" color="theme:text|#FFE8DEC3" />
+  <group x="48" y="98" w="216" h="18" background="theme:field|#FF0C0906" border="theme:border|#FF8C7B4E">
     <field x="1" y="1" w="214" h="16" text="{UbColorHex}"
            onchange="{SetUbColorHex}" onsubmit="{SubmitUbColorHex}"
            maxlength="9" clearonsubmit="false" background="#00000000"
-           color="#FFE8DEC3"
+           color="theme:text|#FFE8DEC3"
            tooltip="The colour as #AARRGGBB; the sliders follow it." />
   </group>
 
-  <label x="4" y="122" w="200" h="16" text="{UbColorTarget}" color="#FFC7B98F" />
-  <group x="208" y="120" w="56" h="20" background="{UbColorSwatch}" border="#FF8C7B4E"
+  <label x="4" y="122" w="200" h="16" text="{UbColorTarget}" color="theme:muted|#FFC7B98F" />
+  <group x="208" y="120" w="56" h="20" background="{UbColorSwatch}" border="theme:border|#FF8C7B4E"
          tooltip="The colour being edited, as it will draw." />
 
   <button x="4" y="146" w="80" h="20" text="Save" onclick="{ApplyUbColor}"
