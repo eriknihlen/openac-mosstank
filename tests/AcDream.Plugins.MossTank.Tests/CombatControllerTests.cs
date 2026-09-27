@@ -3486,6 +3486,100 @@ public sealed class CombatControllerTests
 
     // ---- Casts other clients on this computer reported ----
 
+    [Fact]
+    public void RejectedOnlyPeerBatchAdvancesCursorWithoutReadingTrustSnapshot()
+    {
+        var surface = new FakeAutomation();
+        surface.Peers.Casts.Add(PeerCast(1, spellId: 70, caster: surface.ObjectId));
+        surface.Peers.Casts.Add(PeerCast(2, spellId: 70) with { Landed = false });
+        surface.Peers.Casts.Add(PeerCast(3, spellId: 70, secondsRemaining: 0));
+        surface.Peers.Casts.Add(PeerCast(4, spellId: 70, secondsRemaining: -1));
+        surface.Peers.Casts.Add(PeerCast(5, spellId: 70, secondsRemaining: double.NaN));
+        var controller = new CombatController(new FakeHost(surface), FireVulnerabilityRule());
+        int tagReads = 0;
+        controller.BindCastSharing(static () => true, () => { tagReads++; return "debuffs"; });
+
+        controller.ObserveRemoteCasts();
+        controller.ObserveRemoteCasts();
+
+        Assert.Equal([0L, 5L], surface.Peers.CaptureRequests);
+        Assert.Equal(0, surface.Peers.ClientCaptureCount);
+        Assert.Equal(0, tagReads);
+        Assert.Empty(surface.Ledger.Reported);
+    }
+
+    [Fact]
+    public void MixedPeerBatchTakesOneTrustSnapshotAndNextBatchRechecksTags()
+    {
+        var surface = new FakeAutomation
+        {
+            SpellLookup = [Debuff(70, "Fire Vulnerability Other VII")],
+        };
+        surface.Peers.Clients.Add(NetworkClient(7u, "Healer", "heals"));
+        surface.Peers.Clients.Add(NetworkClient(8u, "Debuffer", "Debuffs"));
+        surface.Peers.Casts.Add(PeerCast(1, spellId: 70) with { Landed = false });
+        surface.Peers.Casts.Add(PeerCast(2, spellId: 70, clientId: 7u));
+        surface.Peers.Casts.Add(PeerCast(3, spellId: 70, clientId: 8u));
+        surface.Peers.Casts.Add(PeerCast(4, spellId: 70, clientId: 8u));
+        var controller = new CombatController(new FakeHost(surface), FireVulnerabilityRule());
+        controller.BindCastSharing(static () => true, static () => "debuffs");
+
+        controller.ObserveRemoteCasts();
+        Assert.Equal(1, surface.Peers.ClientCaptureCount);
+        Assert.Equal(2, surface.Ledger.Reported.Count);
+        surface.Peers.Clients.Clear();
+        surface.Peers.Casts.Add(PeerCast(5, spellId: 70, clientId: 8u));
+        controller.ObserveRemoteCasts();
+        controller.ObserveRemoteCasts();
+        Assert.Equal(2, surface.Peers.ClientCaptureCount);
+        Assert.Equal(2, surface.Ledger.Reported.Count);
+        Assert.Equal([0L, 4L, 5L], surface.Peers.CaptureRequests);
+    }
+
+    [Fact]
+    public void UntaggedPeerBatchReadsTagOnceAndDoesNotCaptureClients()
+    {
+        var surface = new FakeAutomation
+        {
+            SpellLookup = [Debuff(70, "Fire Vulnerability Other VII")],
+        };
+        surface.Peers.Casts.Add(PeerCast(1, spellId: 70));
+        surface.Peers.Casts.Add(PeerCast(2, spellId: 70));
+        var controller = new CombatController(new FakeHost(surface), FireVulnerabilityRule());
+        int tagReads = 0;
+        controller.BindCastSharing(static () => true, () => { tagReads++; return null; });
+
+        controller.ObserveRemoteCasts();
+
+        Assert.Equal(1, tagReads);
+        Assert.Equal(0, surface.Peers.ClientCaptureCount);
+        Assert.Equal(2, surface.Ledger.Reported.Count);
+    }
+
+    [Fact]
+    public void FailedTrustReadDoesNotConsumeAnEligiblePeerCast()
+    {
+        var surface = new FakeAutomation
+        {
+            SpellLookup = [Debuff(70, "Fire Vulnerability Other VII")],
+        };
+        surface.Peers.Clients.Add(NetworkClient(8u, "Debuffer", "debuffs"));
+        surface.Peers.Casts.Add(PeerCast(1, spellId: 70) with { Landed = false });
+        surface.Peers.Casts.Add(PeerCast(2, spellId: 70, clientId: 8u));
+        surface.Peers.ClientCaptureFailuresRemaining = 1;
+        var controller = new CombatController(new FakeHost(surface), FireVulnerabilityRule());
+        controller.BindCastSharing(static () => true, static () => "debuffs");
+
+        Assert.Throws<IOException>(controller.ObserveRemoteCasts);
+        Assert.Empty(surface.Ledger.Reported);
+        controller.ObserveRemoteCasts();
+        controller.ObserveRemoteCasts();
+
+        Assert.Single(surface.Ledger.Reported);
+        Assert.Equal([0L, 1L, 2L], surface.Peers.CaptureRequests);
+        Assert.Equal(2, surface.Peers.ClientCaptureCount);
+    }
+
     /// <summary>
     /// A vulnerability another client landed on the monster is one this
     /// character does not cast again: the debuff chain reads the same table
@@ -9227,7 +9321,18 @@ public sealed class CombatControllerTests
         public List<(uint Target, uint Spell, int Skill)> Attempts { get; } = [];
         public List<(uint Target, uint Spell, int Skill, double Duration)> Successes { get; } = [];
 
-        public IReadOnlyList<PluginNetworkClient> CaptureClients() => Clients;
+        public int ClientCaptureCount { get; private set; }
+        public int ClientCaptureFailuresRemaining { get; set; }
+        public IReadOnlyList<PluginNetworkClient> CaptureClients()
+        {
+            ClientCaptureCount++;
+            if (ClientCaptureFailuresRemaining > 0)
+            {
+                ClientCaptureFailuresRemaining--;
+                throw new IOException("Fixture peer read failed.");
+            }
+            return Clients;
+        }
 
         public bool AnnounceCastAttempt(uint targetObjectId, uint spellId, int effectiveSkill)
         {

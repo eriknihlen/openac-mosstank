@@ -20,6 +20,7 @@ public sealed partial class MossTankPanelTests
         { "ToggleUbLandscapeMaps", "LandscapeMaps.Enabled" },
         { "ToggleUbNametags", "Nametags.Enabled" },
         { "ToggleUbVitalSharing", "Sharing.Vitals" },
+        { "ToggleUbReceiveCommands", "Networking.ReceiveCommands" },
         { "ToggleUbNetworkUi", "NetworkUI.Enabled" },
         { "ToggleUbAliases", "Aliases.Enabled" },
         { "ToggleUbGameEvents", "GameEvents.Enabled" },
@@ -207,12 +208,12 @@ public sealed partial class MossTankPanelTests
         XElement group = UbMainGroup();
         XElement[] buttons = group.Elements("button").ToArray();
 
-        Assert.Equal(11, buttons.Length);
+        Assert.Equal(12, buttons.Length);
 
         XElement[] tools = buttons
             .Where(static button => ((string?)button.Attribute("text"))?.StartsWith('{') == true)
             .ToArray();
-        Assert.Equal(9, tools.Length);
+        Assert.Equal(10, tools.Length);
         foreach (XElement button in tools)
         {
             Assert.StartsWith("{", (string?)button.Attribute("color"), StringComparison.Ordinal);

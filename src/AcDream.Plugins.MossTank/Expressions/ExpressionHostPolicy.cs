@@ -9,6 +9,7 @@ namespace AcDream.Plugins.MossTank.Expressions;
 /// </summary>
 internal sealed class ExpressionHostPolicy
 {
+    public Action<AcDream.Plugin.Abstractions.PluginPeerCapabilities>? RequirePeers { get; set; }
     /// <summary>
     /// Skill required above a spell's difficulty before it counts as castable.
     /// The argument is true for the hunting margin, false for the buff margin.

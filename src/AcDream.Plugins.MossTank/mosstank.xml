@@ -517,6 +517,9 @@
 
     <button x="404" y="20" w="136" h="24" text="Settings" onclick="{ShowUbSettings}"
             tooltip="Open the whole settings catalogue." />
+    <button x="404" y="84" w="168" h="24" text="{UbReceiveCommandsButtonText}"
+            color="{UbReceiveCommandsButtonColor}" onclick="{ToggleUbReceiveCommands}"
+            tooltip="Allow trusted local clients to send commands to this character. Off by default." />
     <button x="404" y="52" w="136" h="24" text="Tinker" onclick="{ShowTinker}"
             tooltip="Open the tinkering page." />
 

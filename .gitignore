@@ -2,6 +2,8 @@
 bin/
 obj/
 out/
+__pycache__/
+*.pyc
 **/TestResults/
 
 # The local folder feed the plugin contract package is dropped into

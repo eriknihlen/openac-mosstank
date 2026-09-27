@@ -41,6 +41,7 @@ internal sealed partial class BuffSelfRule
     private readonly IBuffRuleHost _owner;
 
     private readonly BuffDueTracker _buffDue = new();
+    private readonly BuffProfileCache _buffProfile = new();
 
     private readonly ItemEnchantLedger _itemLedger = new();
 
@@ -281,7 +282,7 @@ internal sealed partial class BuffSelfRule
                 && spell.IsUntargeted)
             .ToArray();
         return BuffPlan.Build(
-            BuffProfile.Build(automation.Spells.KnownSelfBuffs),
+            _buffProfile.Capture(automation.Spells.KnownSelfBuffs),
             automation.Character.Skills,
             automation.Character.Attributes,
             automation.Character.TimedEnchantments,

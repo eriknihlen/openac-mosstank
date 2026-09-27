@@ -88,6 +88,10 @@ internal sealed partial class MossTankPanel
 
     public Action ToggleUbVitalSharing => () => FlipUbSwitch("Sharing.Vitals");
 
+    public string UbReceiveCommandsButtonText => UbSwitchCaption("Receive broadcasts", "Networking.ReceiveCommands");
+    public uint UbReceiveCommandsButtonColor => UbSwitchColor("Networking.ReceiveCommands");
+    public Action ToggleUbReceiveCommands => () => FlipUbSwitch("Networking.ReceiveCommands");
+
     public string UbNetworkUiButtonText => UbSwitchCaption("Network UI", "NetworkUI.Enabled");
 
     public uint UbNetworkUiButtonColor => UbSwitchColor("NetworkUI.Enabled");

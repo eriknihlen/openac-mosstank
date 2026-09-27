@@ -30,6 +30,9 @@ Commands are registered under `/vt` and `/ub`, as VTank and UtilityBelt register
 the macro's commands answer on `/vt`, the UtilityBelt ones on `/ub`, so command lines
 written for either work as they are. `/vt help` and `/ub help` list each word's commands.
 
+Optional [personal kill statistics](KILL-STATISTICS.md) record durable per-character
+counters for kills/hour reporting without relying on retained chat logs.
+
 ## Your existing profiles
 
 MossTank parses the real formats byte-for-byte: `.usd` settings, `.utl` loot
@@ -174,3 +177,9 @@ scrolling up keeps your reading position until you return to the bottom. Actions
 continue to be recorded while the window is closed. The latest 1,000 changes are
 kept for the session; consecutive repeats are omitted. **Clear** empties the
 history without affecting the macro or current status, and **X** closes the window.
+
+## Peer features
+
+Requires OpenAC 0.1.22. Vital Sharing and Receive broadcasts default off and are stored per character. Vital Sharing exchanges character state and cast information; Receive broadcasts allows this client to execute incoming tagged broadcast commands. Sending a broadcast does not enable reception. Network HUD, active peer healing and metas containing netclients[] or netcasts[] request their own capabilities. Requests end when the feature stops or the plugin unloads. A meta needing peers waits for the initial connection before evaluating peer-dependent rules.
+
+For a local source build before the contract is published, pack AcDream.Plugin.Abstractions 0.1.22 from the matching OpenAC checkout and copy the nupkg into packages-local before restoring. CI requires the corresponding OpenAC release to exist.
