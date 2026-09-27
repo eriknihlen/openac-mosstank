@@ -509,8 +509,13 @@ internal static class UbSettingDefinitions
             "Sharing.Vitals",
             "Tell your other characters on this machine how you are doing and "
             + "what you have cast, and take in what they cast.",
-            true,
-            UbSettingScope.Global));
+            false,
+            UbSettingScope.Character));
+        rows.Add(Switch(
+            "Networking.ReceiveCommands",
+            "Receive broadcast commands from trusted local clients in the same world.",
+            false,
+            UbSettingScope.Character));
         rows.Add(Line(
             "Sharing.CastTag",
             "Only take in casts from characters whose client carries this tag; "

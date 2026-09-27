@@ -493,6 +493,7 @@ internal sealed partial class MossTankPanel : IBuffRuleHost, IDisposable
         _metaProfile = _metaProfiles.LoadCurrent();
         _expressions = new MossTankExpressionRuntime(host);
         _expressions.Policy.MetaViews = _metaViews;
+        _expressions.Policy.RequirePeers = RequireExpressionPeers;
         _prepClick = new PrepClickController(host, WriteTranscriptLine);
         // The castability built-ins ask the profile how much skill headroom
         // over a spell's difficulty it insists on; hunting and buffing each
@@ -531,7 +532,7 @@ internal sealed partial class MossTankPanel : IBuffRuleHost, IDisposable
         _scheduler.PassStarting = ClearPassLatches;
         _scheduler.MetaPass = elapsed =>
         {
-            if (_combat.Enabled)
+            if (_combat.Enabled && MetaPeersReady)
                 _meta.OnTick(elapsed);
         };
         ApplyMetaInterval();
@@ -3693,6 +3694,7 @@ internal sealed partial class MossTankPanel : IBuffRuleHost, IDisposable
 
     private void RefreshMetaEditor()
     {
+        _peerRequirementsProfile = null;
         // The settings page shows the handler rules as lines, so it is
         // refreshed with the meta grid; it does not exist yet during
         // construction.
@@ -5519,6 +5521,7 @@ internal sealed partial class MossTankPanel : IBuffRuleHost, IDisposable
             HandleSessionStarted();
         }
 
+        UpdatePeerSubscriptions();
         _nametags.OnTick(elapsedSeconds);
         TickDisplayTools(elapsedSeconds);
         TickDungeonMap(elapsedSeconds);
@@ -5998,6 +6001,7 @@ internal sealed partial class MossTankPanel : IBuffRuleHost, IDisposable
 
     public void Dispose()
     {
+        _peerSubscriptions?.Dispose();
         _killStatistics.Dispose();
         Disable();
         _combat.StatusChanged -= RecordActionHistory;
@@ -6018,6 +6022,8 @@ internal sealed partial class MossTankPanel : IBuffRuleHost, IDisposable
 
     private void HandleSessionEnded()
     {
+        _peerSubscriptions?.Dispose();
+        _dynamicPeerRequirements = PluginPeerCapabilities.None;
         // The next session checks the game database again, as a new login
         // does in the reference client.
         _gameInfoCheckedThisSession = false;

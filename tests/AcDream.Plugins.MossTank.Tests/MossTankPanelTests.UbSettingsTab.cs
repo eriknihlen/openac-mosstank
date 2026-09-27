@@ -64,6 +64,9 @@ public sealed partial class MossTankPanelTests
         var panel = new MossTankPanel(new FakeHost(automation, new MemoryStorage()));
 
         panel.OnTick(0.1d);
+        Assert.Equal(0, peers.CastCaptures);
+        panel.ToggleUbVitalSharing();
+        panel.OnTick(0.1d);
         Assert.Equal(1, peers.CastCaptures);
 
         panel.SetUbFilterText("Sharing.Vitals");
@@ -99,6 +102,7 @@ public sealed partial class MossTankPanelTests
         };
         var panel = new MossTankPanel(new FakeHost(automation, new MemoryStorage()));
 
+        panel.ToggleUbVitalSharing();
         panel.OnTick(0.1d);
         Assert.Equal(1, peers.CastCaptures);
         Assert.Equal(0, peers.ClientCaptures);
@@ -191,7 +195,7 @@ public sealed partial class MossTankPanelTests
         Assert.True(panel.UbSettingsSelected);
         Assert.True(panel.UbSettingsVisible);
 
-        Assert.Equal(167, panel.UbSettingNames.Count);
+        Assert.Equal(168, panel.UbSettingNames.Count);
         Assert.Equal(panel.UbSettingNames.Count, panel.UbSettingValues.Count);
         Assert.Equal("(all)", panel.UbCategoryNames[0]);
         Assert.Equal(16, panel.UbCategoryNames.Count);
@@ -213,7 +217,7 @@ public sealed partial class MossTankPanelTests
             static name => Assert.StartsWith("Jumper.", name, StringComparison.Ordinal));
 
         panel.SelectUbCategory(0);
-        Assert.Equal(167, panel.UbSettingNames.Count);
+        Assert.Equal(168, panel.UbSettingNames.Count);
     }
 
     /// <summary>
@@ -234,7 +238,7 @@ public sealed partial class MossTankPanelTests
             panel.UbSettingNames.OrderByDescending(static name => name).ToArray());
 
         panel.SetUbFilterText(string.Empty);
-        Assert.Equal(167, panel.UbSettingNames.Count);
+        Assert.Equal(168, panel.UbSettingNames.Count);
     }
 
     [Fact]
@@ -831,7 +835,7 @@ public sealed partial class MossTankPanelTests
         var storage = new MemoryStorage();
         MossTankPanel panel = UbPanel(storage);
         string[] names = [.. panel.UbSettingNames];
-        Assert.Equal(167, names.Length);
+        Assert.Equal(168, names.Length);
 
         for (int row = 0; row < names.Length; row++)
         {

@@ -41,7 +41,7 @@ internal static class HostExpressionFunctions
         RegisterActions(registry, host, policy);
         RegisterCombatAndMovement(registry, host, heldMotions);
         RegisterLogin(registry, host);
-        RegisterNetwork(registry, host);
+        RegisterNetwork(registry, host, policy);
     }
 
     // A view a meta built from view XML answers for itself, drawn or not;
@@ -288,10 +288,12 @@ internal static class HostExpressionFunctions
 
     private static void RegisterNetwork(
         ExpressionFunctionRegistry registry,
-        IPluginHost host)
+        IPluginHost host,
+        ExpressionHostPolicy policy)
     {
         registry.Register("netclients", 0, 1, (_, args) =>
         {
+            policy.RequirePeers?.Invoke(PluginPeerCapabilities.ClientState);
             string? tag = args.Count == 0
                 ? null
                 : args[0].AsString("netclients");
@@ -339,6 +341,7 @@ internal static class HostExpressionFunctions
         // tag narrows it to peers whose record carries the tag, as above.
         registry.Register("netcasts", 0, 1, (_, args) =>
         {
+            policy.RequirePeers?.Invoke(PluginPeerCapabilities.Casts);
             string? tag = args.Count == 0
                 ? null
                 : args[0].AsString("netcasts");
