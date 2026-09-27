@@ -5285,15 +5285,27 @@ internal sealed class CombatController
         if (casts.Count == 0)
             return;
         uint self = _host.Automation.Character.ObjectId;
-        HashSet<uint>? trusted = TrustedPeerClients(network);
+        HashSet<uint>? trusted = null;
+        bool trustedCaptured = false;
         bool tableLive = Enabled && !_combatPolicySuspended;
         foreach (PluginPeerCast cast in casts)
         {
-            _remoteCastCursor = Math.Max(_remoteCastCursor, cast.Sequence);
             if (cast.CasterObjectId == self
                 || !cast.Landed
-                || !(cast.SecondsRemaining > 0d)
-                || (trusted is not null && !trusted.Contains(cast.ClientId))
+                || !(cast.SecondsRemaining > 0d))
+            {
+                _remoteCastCursor = Math.Max(_remoteCastCursor, cast.Sequence);
+                continue;
+            }
+            // Attempts and expired/self casts need no second peer-directory
+            // read. Take one current trust snapshot only when it can be used.
+            if (!trustedCaptured)
+            {
+                trusted = TrustedPeerClients(network);
+                trustedCaptured = true;
+            }
+            _remoteCastCursor = Math.Max(_remoteCastCursor, cast.Sequence);
+            if ((trusted is not null && !trusted.Contains(cast.ClientId))
                 || !_host.Automation.Spells.TryGet(cast.SpellId, out PluginSpellInfo spell))
             {
                 continue;
