@@ -27,6 +27,7 @@ internal sealed partial class MossTankPanel : IBuffRuleHost, IDisposable
     private const double CoverageRefreshIntervalSeconds = 1.0;
 
     private readonly IPluginHost _host;
+    private readonly KillStatistics _killStatistics;
     private readonly BuffSettings _buffSettings = new();
     private readonly VitalSettings _vitalSettings = new();
     private readonly CombatSettings _combatSettings = new();
@@ -295,6 +296,7 @@ internal sealed partial class MossTankPanel : IBuffRuleHost, IDisposable
     internal MossTankPanel(IPluginHost host, IVtankGameInfoTransport? gameInfoTransport)
     {
         _host = host;
+        _killStatistics = new KillStatistics(host);
         _gameInfoUpdater = new VtankGameInfoUpdater(host.VtankProfiles, host.Storage, gameInfoTransport);
         _advancedOptionCategoryEnabledView =
             new ReadOnlyCollection<bool>(_advancedOptionCategoryEnabled);
@@ -5501,6 +5503,7 @@ internal sealed partial class MossTankPanel : IBuffRuleHost, IDisposable
 
     public void OnTick(double elapsedSeconds)
     {
+        _killStatistics.Tick();
         bool automationAvailable = _host.Automation.IsAvailable;
         if (!automationAvailable)
         {
@@ -5995,6 +5998,7 @@ internal sealed partial class MossTankPanel : IBuffRuleHost, IDisposable
 
     public void Dispose()
     {
+        _killStatistics.Dispose();
         Disable();
         _combat.StatusChanged -= RecordActionHistory;
         _vendorTrade.Dispose();

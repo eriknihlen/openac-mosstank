@@ -30,6 +30,9 @@ Commands are registered under `/vt` and `/ub`, as VTank and UtilityBelt register
 the macro's commands answer on `/vt`, the UtilityBelt ones on `/ub`, so command lines
 written for either work as they are. `/vt help` and `/ub help` list each word's commands.
 
+Optional [personal kill statistics](KILL-STATISTICS.md) record durable per-character
+counters for kills/hour reporting without relying on retained chat logs.
+
 ## Your existing profiles
 
 MossTank parses the real formats byte-for-byte: `.usd` settings, `.utl` loot

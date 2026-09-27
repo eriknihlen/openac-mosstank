@@ -64,10 +64,7 @@ public sealed class CombatResultTextTests
         Assert.Equal("Drudge Slinker", target);
     }
 
-    [Fact]
-    public void EveryAuthenticKillVerbIsCovered()
-    {
-        string[] lines =
+    internal static readonly string[] AuthenticKillLines =
         [
             "You knock X into next Morningthaw!",
             "You obliterate X!",
@@ -107,8 +104,11 @@ public sealed class CombatResultTextTests
             "X's last strength withers before you!",
         ];
 
-        Assert.Equal(36, lines.Length);
-        foreach (string line in lines)
+    [Fact]
+    public void EveryAuthenticKillVerbIsCovered()
+    {
+        Assert.Equal(36, AuthenticKillLines.Length);
+        foreach (string line in AuthenticKillLines)
         {
             Assert.Equal(
                 CombatResultTextClass.Kill,
