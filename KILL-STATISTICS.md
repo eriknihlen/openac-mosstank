@@ -20,8 +20,12 @@ Each observed in-world character session writes a unique
 `kill-statistics/sessions/<SessionId>.json` through atomic plugin storage.
 A plugin restart always starts a new GUID segment; it never overwrites another
 process's counters. A character/world/object ID change or observed logout closes
-the current segment. The recorder checks identity on ticks and delivered chat.
-An unobserved disconnect/reconnect between those callbacks cannot be distinguished.
+the current segment. The recorder also listens to login/logoff lifecycle events,
+so reconnects of the same character create separate segments even between ticks.
+After logoff it stays closed while teardown still exposes the old character;
+login completion or an observed out-of-world/in-world transition permits reopening.
+Identity is checked on ticks and delivered chat as a fallback for hosts with inert
+lifecycle events. Such hosts cannot distinguish a reconnect between callbacks.
 
 | Field | Meaning |
 |---|---|

@@ -12,6 +12,7 @@ internal sealed class KillStatistics : IDisposable
     private bool _enabled;
     private bool _disposed;
     private bool _subscribed;
+    private bool _awaitingLogin;
     private Snapshot? _session;
     private long _started;
     private long _flushed;
@@ -38,6 +39,8 @@ internal sealed class KillStatistics : IDisposable
         if (_enabled)
         {
             host.Automation.Chat.Received += OnReceived;
+            host.Events.Logoff += OnLogoff;
+            host.Events.LoginComplete += OnLoginComplete;
             _subscribed = true;
             Tick();
         }
@@ -55,7 +58,11 @@ internal sealed class KillStatistics : IDisposable
     private void SynchronizeSession()
     {
         var character = _host.Automation.Character;
-        bool inWorld = _host.Automation.IsAvailable && character.IsInWorld &&
+        bool worldAvailable = _host.Automation.IsAvailable && character.IsInWorld;
+        // Logoff precedes teardown. Do not reopen from the still-live character
+        // until login is announced or an out-of-world transition was observed.
+        if (!worldAvailable) _awaitingLogin = false;
+        bool inWorld = !_awaitingLogin && worldAvailable &&
             character.ObjectId != 0 && character.Name.Length > 0;
         if (_session is not null && (!inWorld || _session.Character != character.Name ||
             _session.World != character.WorldName || _session.ObjectId != character.ObjectId))
@@ -80,6 +87,23 @@ internal sealed class KillStatistics : IDisposable
         if (_session is not null && message.LogTextType == CombatLogTextType.Default &&
             CombatResultText.IsKillingBlow(message.Text, out _))
             _session = _session with { TotalKills = _session.TotalKills + 1 };
+    }
+
+    private void OnLogoff()
+    {
+        if (!_enabled || _disposed) return;
+        _awaitingLogin = true;
+        Flush(true);
+        _session = null;
+    }
+
+    private void OnLoginComplete()
+    {
+        if (!_enabled || _disposed) return;
+        Flush(true);
+        _session = null;
+        _awaitingLogin = false;
+        SynchronizeSession();
     }
 
     private void Flush(bool closed)
@@ -123,6 +147,8 @@ internal sealed class KillStatistics : IDisposable
     {
         if (!_subscribed) return;
         _host.Automation.Chat.Received -= OnReceived;
+        _host.Events.Logoff -= OnLogoff;
+        _host.Events.LoginComplete -= OnLoginComplete;
         _subscribed = false;
     }
 }

@@ -26,6 +26,45 @@ public sealed class KillStatisticsTests
         Assert.Equal(0, host.Surface.Subscriptions);
         Assert.Equal(0, host.Store.Writes);
         Assert.Equal(0, host.Surface.CharacterReads);
+        Assert.Equal(0, host.Notifications.Subscriptions);
+    }
+
+    [Fact]
+    public void LogoffClosesBeforeTeardownAndSameIdentityReconnectNeedsNoTick()
+    {
+        var host = Enabled(); var clock = new Clock();
+        using var recorder = new KillStatistics(host, clock);
+        host.Surface.Send(1, "You killed Drudge!"); clock.Advance(10);
+        host.Notifications.RaiseLogoff();
+        Assert.True(Assert.Single(host.Store.Snapshots()).Closed);
+        clock.Advance(100);
+        // Teardown still exposes the old character and may deliver chat/ticks.
+        host.Surface.Send(2, "You killed Drudge!");
+        Assert.Single(host.Store.Snapshots());
+        host.Notifications.RaiseLoginComplete();
+        host.Surface.Send(3, "You killed Drudge!"); clock.Advance(20);
+        recorder.Dispose();
+        Assert.Equal(2, host.Store.Snapshots().Length);
+        Assert.Equal(30, host.Store.Snapshots().Sum(x => x.CoveredSeconds));
+        Assert.Equal(2, host.Store.Snapshots().Sum(x => x.TotalKills));
+        Assert.Equal(0, host.Notifications.Subscriptions);
+        host.Notifications.RaiseLoginComplete(); host.Notifications.RaiseLogoff();
+        Assert.Equal(2, host.Store.Snapshots().Length);
+    }
+
+    [Fact]
+    public void ObservedWorldTransitionCanReopenAfterLogoffWithoutLoginEvent()
+    {
+        var host = Enabled(); var clock = new Clock();
+        using var recorder = new KillStatistics(host, clock);
+        clock.Advance(10); host.Notifications.RaiseLogoff();
+        recorder.Tick();
+        Assert.Single(host.Store.Snapshots());
+        host.Surface.IsInWorld = false; recorder.Tick(); clock.Advance(100);
+        host.Surface.IsInWorld = true; recorder.Tick(); clock.Advance(20);
+        recorder.Dispose();
+        Assert.Equal(2, host.Store.Snapshots().Length);
+        Assert.Equal(30, host.Store.Snapshots().Sum(x => x.CoveredSeconds));
     }
 
     [Fact]
@@ -155,6 +194,7 @@ public sealed class KillStatisticsTests
         Assert.Single(host.Errors);
         Assert.Equal(0, host.Surface.Subscriptions);
         Assert.Equal(2, host.Store.Writes);
+        Assert.Equal(0, host.Notifications.Subscriptions);
         var saved = Assert.Single(host.Store.Snapshots());
         Assert.False(saved.Closed);
         Assert.Equal(0, saved.CoveredSeconds);
@@ -192,18 +232,32 @@ public sealed class KillStatisticsTests
     private sealed class Host : IPluginHost, IPluginLogger
     {
         public Store Store { get; } = new(); public Surface Surface { get; } = new();
+        public Notifications Notifications { get; } = new();
         public List<string> Errors { get; } = [];
         public IPluginStorage Storage => Store;
         public IAutomationSurface Automation => Surface;
         public bool HasUi => false;
         public IPluginLogger Log => this;
         public IGameState State => throw new InvalidOperationException("Unexpected world polling");
-        public IEvents Events => throw new InvalidOperationException("Unexpected event polling");
+        public IEvents Events => Notifications;
         public ISelectionService Selection => throw new InvalidOperationException("Unexpected selection polling");
         public IUiRegistry Ui => NoOpUiRegistry.Instance;
         public void Info(string text) { }
         public void Warn(string text) { }
         public void Error(string text, Exception? error = null) => Errors.Add(text);
+    }
+    private sealed class Notifications : IEvents
+    {
+        private Action? _logoff;
+        private Action? _login;
+        public int Subscriptions => (_logoff?.GetInvocationList().Length ?? 0) +
+            (_login?.GetInvocationList().Length ?? 0);
+        public event Action Logoff { add => _logoff += value; remove => _logoff -= value; }
+        public event Action LoginComplete { add => _login += value; remove => _login -= value; }
+        public event Action<WorldEntitySnapshot> EntitySpawned { add { } remove { } }
+        public event Action<double> Tick { add { } remove { } }
+        public void RaiseLogoff() => _logoff?.Invoke();
+        public void RaiseLoginComplete() => _login?.Invoke();
     }
     private sealed class Surface : IAutomationSurface, ICharacterInfo, IPluginChat
     {
