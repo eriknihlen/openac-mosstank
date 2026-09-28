@@ -4040,6 +4040,47 @@ public sealed partial class MossTankPanelTests
     }
 
     [Fact]
+    public void AHostCastStillPendingAfterTheAttemptBudgetDoesNotStarveTheRoute()
+    {
+        FakeAutomation automation = BuffPassAutomation();
+        automation.SuppressCastCompletion = true;
+        automation.NavigationSnapshot = NavigationAt(0f) with
+        {
+            Position = new PluginNavigationPosition(
+                0x00010001u, 0d, 1d, 0d, 0f, IsOutdoor: true),
+        };
+        var panel = new MossTankPanel(new FakeHost(automation));
+        panel.AddRoutePoint();
+        automation.NavigationSnapshot = automation.NavigationSnapshot with
+        {
+            Position = new PluginNavigationPosition(
+                0x00010001u, 0d, 0d, 0d, 0f, IsOutdoor: true),
+        };
+        panel.ToggleNavigation();
+        panel.ToggleCombat();
+        panel.OnTick(0d);
+        Assert.Single(automation.CastSpellIds);
+        Assert.Empty(automation.MovementIntents);
+
+        // No server receipt reaches the host. The tracker gives up after its
+        // attempt budget, but the host still reports the cast as pending.
+        automation.IsCasting = true;
+        automation.CastGate = PluginCastGate.Busy;
+        SpellCastTracker tracker = ((IBuffRuleHost)panel).CastTracker;
+        for (int tick = 0; tick < 10; tick++)
+            panel.OnTick(0.3d);
+        Assert.True(tracker.IsBusy);
+        Assert.Empty(automation.MovementIntents);
+
+        for (int tick = 0; tick < 10; tick++)
+            panel.OnTick(0.3d);
+
+        Assert.False(tracker.IsBusy);
+        Assert.Single(automation.CastSpellIds);
+        Assert.NotEmpty(automation.MovementIntents);
+    }
+
+    [Fact]
     public void VtLogActiveRuleOnPostsAllRulesInactiveWhenNothingIsValid()
     {
         var automation = new CombatCapableFakeAutomation
@@ -11855,10 +11896,12 @@ public sealed partial class MossTankPanelTests
                 : PluginCastRequestResult.Unavailable;
         }
 
-        public PluginCastGate EvaluateGate(uint spellId) => PluginCastGate.Ready;
+        public PluginCastGate CastGate { get; set; } = PluginCastGate.Ready;
+        public PluginCastGate EvaluateGate(uint spellId) => CastGate;
         public bool Cast(uint spellId)
         {
-            if (RefusedCastSpellIds.Contains(spellId))
+            if (CastGate == PluginCastGate.Busy
+                || RefusedCastSpellIds.Contains(spellId))
                 return false;
             CastSpellIds.Add(spellId);
             CastSelectionIds.Add(CurrentSelection?.Invoke() ?? 0u);

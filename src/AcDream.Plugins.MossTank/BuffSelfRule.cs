@@ -466,6 +466,16 @@ internal sealed partial class BuffSelfRule
 
         DeclineReason = string.Empty;
 
+        // A host cast can still await its receipt after the tracker gives up.
+        // Buffing cannot act then, so let the route and other rules run.
+        if (!_owner.CastTracker.IsBusy
+            && automation.Magic.EvaluateGate(pick.Spell.SpellId)
+                == PluginCastGate.Busy)
+        {
+            DeclineReason = "the client is waiting for a cast reply";
+            return PauseBurst();
+        }
+
         if (!_bursting)
         {
             _bursting = true;
@@ -475,11 +485,9 @@ internal sealed partial class BuffSelfRule
         if (!context.CanAct)
             return true;
 
-        // Only this macro's own cast holds the rule here. The host's casting
-        // flag is its inventory transaction count under another name, and a
-        // request that never completes leaves that count raised for good --
-        // which stalled the rule on every pass, claiming and casting
-        // nothing, with every rule below it starved.
+        // Only this macro's own cast holds the rule here. A host cast left
+        // pending after the tracker's attempt budget was handled above by
+        // declining, so it cannot starve the route.
         if (_owner.CastTracker.IsBusy)
             return true;
 
