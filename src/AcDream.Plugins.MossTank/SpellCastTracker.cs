@@ -101,8 +101,6 @@ internal sealed class SpellCastTracker
 
     private bool _hitsMultipleTargets;
     private string _saying = string.Empty;
-    private long _issueRevision;
-    private long _observedCompletionRevision;
     private ulong _observedChatSequence;
     private double _launchElapsed;
     private double _resultElapsed;
@@ -198,7 +196,6 @@ internal sealed class SpellCastTracker
         uint targetObjectId,
         string targetName,
         bool hitsMultipleTargets,
-        long issueRevision,
         string saying = "",
         uint school = 0u,
         bool canKill = false,
@@ -217,8 +214,6 @@ internal sealed class SpellCastTracker
             ? string.Empty
             : targetName ?? string.Empty;
         _hitsMultipleTargets = hitsMultipleTargets;
-        _issueRevision = issueRevision;
-        _observedCompletionRevision = issueRevision;
         _launchElapsed = 0d;
         _resultElapsed = 0d;
         _hasOutcome = false;
@@ -243,8 +238,6 @@ internal sealed class SpellCastTracker
         _targetName = string.Empty;
         _hitsMultipleTargets = false;
         _saying = string.Empty;
-        _issueRevision = 0;
-        _observedCompletionRevision = 0;
         _observedChatSequence = 0uL;
         _launchElapsed = 0d;
         _resultElapsed = 0d;
@@ -291,30 +284,6 @@ internal sealed class SpellCastTracker
             Reset();
     }
 
-    public void ObserveCompletion(in PluginCastCompletion completion)
-    {
-        if (!IsBusy)
-            return;
-        if (completion.Revision == _observedCompletionRevision)
-            return;
-        if (completion.Revision == _issueRevision || completion.SpellId != _spellId)
-            return;
-        _observedCompletionRevision = completion.Revision;
-        if (completion.WeenieError != 0u)
-        {
-            Complete(SpellCastOutcome.Rejected, completion.WeenieError, string.Empty);
-            return;
-        }
-        if (_state != SpellCastTrackerState.AwaitingLaunch)
-            return;
-
-        // The launch-to-result edge restarts the result timer. The busy latch
-        // is NOT re-raised; it is already up.
-        _state = SpellCastTrackerState.AwaitingResult;
-        _resultElapsed = 0d;
-        SpellAnswered?.Invoke(_targetObjectId);
-    }
-
     /// <param name="logTextType">
     /// Which of the client's logs the line came from. The kill sentence is a
     /// plain line and every spell result is a magic one, so this is what
@@ -357,6 +326,10 @@ internal sealed class SpellCastTracker
             }
             return;
         }
+
+        // Result text belongs to this attempt only after its spell words.
+        if (_state != SpellCastTrackerState.AwaitingResult)
+            return;
 
         CombatResultTextClass result = CombatResultText.Classify(
             text,

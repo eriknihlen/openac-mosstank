@@ -23,17 +23,15 @@ public sealed class SpellCastTrackerTests
             10u,
             targetName,
             hitsMultipleTargets,
-            5L,
+            saying: "testwords",
             school: SpellCastTracker.WarMagicSchool,
             canKill: true);
         return tracker;
     }
 
-    private static PluginCastCompletion Receipt(
-        long revision = 6L,
-        uint spellId = 100u,
-        uint weenieError = 0u) =>
-        new(revision, spellId, 10u, weenieError);
+    private static void Speak(SpellCastTracker tracker) =>
+        tracker.ObserveChat(0uL, "testwords", ownSpeech: true,
+            logTextType: CombatLogTextType.Spellcasting);
 
     [Fact]
     public void ArmingLeavesIdle()
@@ -47,11 +45,11 @@ public sealed class SpellCastTrackerTests
     }
 
     [Fact]
-    public void ACleanReceiptStartsTheResultWaitAndDoesNotReleaseTheLatch()
+    public void SpellSpeechStartsTheResultWaitAndDoesNotReleaseTheLatch()
     {
         SpellCastTracker tracker = Armed(out List<SpellCastOutcomeInfo> outcomes);
 
-        tracker.ObserveCompletion(Receipt());
+        Speak(tracker);
 
         Assert.True(tracker.IsBusy);
         Assert.Equal(SpellCastTrackerState.AwaitingResult, tracker.State);
@@ -67,7 +65,7 @@ public sealed class SpellCastTrackerTests
     public void ASuccessLineReleasesTheLatch()
     {
         SpellCastTracker tracker = Armed(out List<SpellCastOutcomeInfo> outcomes);
-        tracker.ObserveCompletion(Receipt());
+        Speak(tracker);
 
         tracker.ObserveChat(
             1uL,
@@ -82,7 +80,7 @@ public sealed class SpellCastTrackerTests
     public void AKillLineReleasesTheLatchAndNamesTheTarget()
     {
         SpellCastTracker tracker = Armed(out List<SpellCastOutcomeInfo> outcomes);
-        tracker.ObserveCompletion(Receipt());
+        Speak(tracker);
 
         tracker.ObserveChat(1uL, "You killed Drudge!");
 
@@ -96,7 +94,7 @@ public sealed class SpellCastTrackerTests
     public void AResultNamingAnotherSpellIsNotThisCastsResult()
     {
         SpellCastTracker tracker = Armed(out List<SpellCastOutcomeInfo> outcomes);
-        tracker.ObserveCompletion(Receipt());
+        Speak(tracker);
 
         tracker.ObserveChat(
             1uL,
@@ -111,7 +109,7 @@ public sealed class SpellCastTrackerTests
     public void OnlyTheKillSentenceInThePlainLogEndsTheWait()
     {
         SpellCastTracker tracker = Armed(out List<SpellCastOutcomeInfo> outcomes);
-        tracker.ObserveCompletion(Receipt());
+        Speak(tracker);
 
         // Those words in the magic log are not a kill notice at all.
         tracker.ObserveChat(
@@ -136,7 +134,7 @@ public sealed class SpellCastTrackerTests
         SpellCastTracker tracker = Armed(
             out List<SpellCastOutcomeInfo> outcomes,
             hitsMultipleTargets: true);
-        tracker.ObserveCompletion(Receipt());
+        Speak(tracker);
 
         tracker.ObserveChat(
             1uL,
@@ -156,7 +154,7 @@ public sealed class SpellCastTrackerTests
     public void APermanentFailEndsTheWaitForASingleTargetSpell()
     {
         SpellCastTracker tracker = Armed(out List<SpellCastOutcomeInfo> outcomes);
-        tracker.ObserveCompletion(Receipt());
+        Speak(tracker);
 
         tracker.ObserveChat(
             1uL,
@@ -173,7 +171,7 @@ public sealed class SpellCastTrackerTests
     public void TheResultWaitExpiresAtFourTicksOfNineHundredAndSevenMilliseconds()
     {
         SpellCastTracker tracker = Armed(out List<SpellCastOutcomeInfo> outcomes);
-        tracker.ObserveCompletion(Receipt());
+        Speak(tracker);
 
         tracker.Advance(3.6d);
         Assert.True(tracker.IsBusy);
@@ -204,33 +202,10 @@ public sealed class SpellCastTrackerTests
     }
 
     [Fact]
-    public void ARefusedReceiptReleasesImmediatelyAndCarriesTheError()
-    {
-        SpellCastTracker tracker = Armed(out List<SpellCastOutcomeInfo> outcomes);
-
-        tracker.ObserveCompletion(Receipt(weenieError: 0x1Du));
-
-        Assert.False(tracker.IsBusy);
-        SpellCastOutcomeInfo info = Assert.Single(outcomes);
-        Assert.Equal(SpellCastOutcome.Rejected, info.Outcome);
-        Assert.Equal(0x1Du, info.WeenieError);
-    }
-
-    [Fact]
-    public void TheReceiptTheCastWasIssuedAgainstIsNotItsAnswer()
-    {
-        SpellCastTracker tracker = Armed(out _);
-
-        tracker.ObserveCompletion(Receipt(revision: 5L));
-
-        Assert.Equal(SpellCastTrackerState.AwaitingLaunch, tracker.State);
-    }
-
-    [Fact]
     public void TheSameChatLineIsFoldedOnce()
     {
         SpellCastTracker tracker = Armed(out List<SpellCastOutcomeInfo> outcomes);
-        tracker.ObserveCompletion(Receipt());
+        Speak(tracker);
 
         tracker.ObserveChat(7uL, "You killed Drudge!");
         tracker.Begin(
@@ -239,10 +214,10 @@ public sealed class SpellCastTrackerTests
             10u,
             "Drudge",
             false,
-            8L,
+            saying: "testwords",
             school: SpellCastTracker.WarMagicSchool,
             canKill: true);
-        tracker.ObserveCompletion(Receipt(revision: 9L));
+        Speak(tracker);
         tracker.ObserveChat(7uL, "You killed Drudge!");
 
         Assert.Single(outcomes);
@@ -250,13 +225,13 @@ public sealed class SpellCastTrackerTests
     }
 
     [Fact]
-    public void TheSameReceiptIsFoldedOnce()
+    public void RepeatedSpeechDoesNotRestartTheResultTimer()
     {
         SpellCastTracker tracker = Armed(out List<SpellCastOutcomeInfo> outcomes);
-        tracker.ObserveCompletion(Receipt());
+        Speak(tracker);
         tracker.Advance(3.0d);
 
-        tracker.ObserveCompletion(Receipt());
+        Speak(tracker);
         tracker.Advance(0.7d);
 
         Assert.Equal(
@@ -279,14 +254,19 @@ public sealed class SpellCastTrackerTests
     }
 
     [Fact]
-    public void AResultArrivingBeforeTheReceiptStillEndsTheWait()
+    public void AResultBeforeSpellSpeechDoesNotEndTheLaunchWait()
     {
         SpellCastTracker tracker = Armed(out List<SpellCastOutcomeInfo> outcomes);
 
         tracker.ObserveChat(1uL, "You killed Drudge!");
+        tracker.ObserveChat(2uL,
+            "You blast Drudge for 42 points with Flame Bolt VII.",
+            logTextType: MagicLog);
 
-        Assert.False(tracker.IsBusy);
-        Assert.Equal(SpellCastOutcome.Kill, Assert.Single(outcomes).Outcome);
+        Assert.Equal(SpellCastTrackerState.AwaitingLaunch, tracker.State);
+        Assert.Empty(outcomes);
+        tracker.Advance(SpellCastTracker.LaunchTimeoutSeconds);
+        Assert.Equal(SpellCastOutcome.LaunchTimeout, Assert.Single(outcomes).Outcome);
     }
 
     [Theory]
@@ -321,7 +301,7 @@ public sealed class SpellCastTrackerTests
     public void TheSpokenEchoMovesTheTrackerFromLaunchToTheResultWait()
     {
         var tracker = new SpellCastTracker();
-        tracker.Begin(1u, "Strength Self VI", 5u, "yourself", false, 0L, "casfaen");
+        tracker.Begin(1u, "Strength Self VI", 5u, "yourself", false, "casfaen");
         Assert.Equal(SpellCastTrackerState.AwaitingLaunch, tracker.State);
 
         // The echo is matched after ToLowerInvariant().Replace(" ", "").
@@ -338,7 +318,7 @@ public sealed class SpellCastTrackerTests
     public void ASpokenEchoNamingAnotherSpellEndsTheWait()
     {
         var tracker = new SpellCastTracker();
-        tracker.Begin(1u, "Strength Self VI", 5u, "yourself", false, 0L, "casfaen");
+        tracker.Begin(1u, "Strength Self VI", 5u, "yourself", false, "casfaen");
 
         tracker.ObserveChat(
             1uL,
@@ -354,7 +334,7 @@ public sealed class SpellCastTrackerTests
     public void AnotherPlayerSpeakingTheSameWordsIsNotOurEcho()
     {
         var tracker = new SpellCastTracker();
-        tracker.Begin(1u, "Strength Self VI", 5u, "yourself", false, 0L, "casfaen");
+        tracker.Begin(1u, "Strength Self VI", 5u, "yourself", false, "casfaen");
 
         tracker.ObserveChat(
             1uL,
@@ -376,7 +356,7 @@ public sealed class SpellCastTrackerTests
     public void OurOwnTypedWordsAreNotTheGestureEcho()
     {
         var tracker = new SpellCastTracker();
-        tracker.Begin(1u, "Strength Self VI", 5u, "yourself", false, 0L, "casfaen");
+        tracker.Begin(1u, "Strength Self VI", 5u, "yourself", false, "casfaen");
 
         tracker.ObserveChat(1uL, "Cas Faen", ownSpeech: true);
 
@@ -423,10 +403,10 @@ public sealed class SpellCastTrackerTests
             10u,
             "Drudge",
             false,
-            5L,
+            saying: "testwords",
             school: 31u,
             canKill: false);
-        tracker.ObserveCompletion(new PluginCastCompletion(6L, 200u, 10u, 0u));
+        Speak(tracker);
 
         tracker.ObserveChat(1uL, "You killed Drudge!");
 
@@ -443,7 +423,7 @@ public sealed class SpellCastTrackerTests
     public void AResistEndsTheWaitWhateverNameItCarries()
     {
         SpellCastTracker tracker = Armed(out List<SpellCastOutcomeInfo> outcomes);
-        tracker.ObserveCompletion(Receipt());
+        Speak(tracker);
 
         tracker.ObserveChat(
             1uL,
@@ -470,10 +450,10 @@ public sealed class SpellCastTrackerTests
             10u,
             "Drudge",
             false,
-            5L,
+            saying: "testwords",
             school: SpellCastTracker.VoidMagicSchool,
             canKill: false);
-        tracker.ObserveCompletion(new PluginCastCompletion(6L, 300u, 10u, 0u));
+        Speak(tracker);
 
         Assert.False(tracker.IsSchoolLockedOut(SpellCastTracker.WarMagicSchool));
 
@@ -507,7 +487,7 @@ public sealed class SpellCastTrackerTests
             10u,
             "Drudge",
             false,
-            5L,
+            saying: "testwords",
             school: SpellCastTracker.VoidMagicSchool);
 
         tracker.Advance(SpellCastTracker.LaunchTimeoutSeconds + 0.1d);
@@ -531,7 +511,7 @@ public sealed class SpellCastTrackerTests
             reissues.Add((spell, target));
             return true;
         };
-        tracker.Begin(100u, "Flame Bolt VII", 10u, "Drudge", false, 5L);
+        tracker.Begin(100u, "Flame Bolt VII", 10u, "Drudge", false);
 
         for (int tick = 0; tick < 60; tick++)
             tracker.Advance(0.1d);
@@ -561,7 +541,7 @@ public sealed class SpellCastTrackerTests
             10u,
             "Drudge",
             false,
-            5L,
+            saying: "testwords",
             currentMana: 9);
 
         for (int tick = 0; tick < 60; tick++)
@@ -580,7 +560,7 @@ public sealed class SpellCastTrackerTests
         SpellCastTracker tracker = Armed(out _);
         Assert.False(tracker.JiggleWindowOpen);
 
-        tracker.ObserveCompletion(Receipt());
+        Speak(tracker);
         Assert.True(tracker.JiggleWindowOpen);
 
         tracker.Advance(SpellCastTracker.ResultTickSeconds - 0.01d);

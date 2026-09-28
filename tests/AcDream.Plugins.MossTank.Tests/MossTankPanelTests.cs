@@ -2037,20 +2037,20 @@ public sealed partial class MossTankPanelTests
 
         panel.ToggleCombat();
         panel.OnTick(0d);
-        Assert.Single(automation.CastSpellIds);
+        Assert.Equal(1, automation.CastRequestCount);
 
         for (int i = 0; i < 10; i++)
             panel.OnTick(0.3d);
 
         Assert.False(automation.IsCasting);
-        Assert.Single(automation.CastSpellIds);
+        Assert.Equal(1, automation.CastRequestCount);
 
         // Past the 5000 ms attempt watchdog the tracker drops
         // to idle and re-issues the SAME spell; it never walks the queue.
         for (int i = 0; i < 12; i++)
             panel.OnTick(0.3d);
 
-        Assert.True(automation.CastSpellIds.Count > 1);
+        Assert.True(automation.CastRequestCount > 1);
         Assert.All(automation.CastSpellIds, id => Assert.Equal(1u, id));
     }
 
@@ -3739,7 +3739,7 @@ public sealed partial class MossTankPanelTests
         panel.ToggleCombat();
         // A cast this macro issued and is still waiting on.
         SpellCastTracker tracker = ((IBuffRuleHost)panel).CastTracker;
-        tracker.Begin(1u, "Strength Self", 0u, string.Empty, false, issueRevision: 0L);
+        tracker.Begin(1u, "Strength Self", 0u, string.Empty, false);
 
         for (int tick = 0; tick < 5; tick++)
             panel.OnTick(0.3d);
@@ -4039,8 +4039,87 @@ public sealed partial class MossTankPanelTests
         Assert.NotEmpty(automation.CastSpellIds);
     }
 
+    [Theory]
+    [InlineData(0u)]
+    [InlineData(0x1Du)]
+    public void AGenericCastReceiptCannotAdvanceOrRejectTheCurrentAttempt(uint error)
+    {
+        FakeAutomation automation = BuffPassAutomation();
+        automation.SuppressCastCompletion = true;
+        var panel = new MossTankPanel(new FakeHost(automation));
+        panel.ToggleCombat();
+        panel.OnTick(0d);
+        SpellCastTracker tracker = ((IBuffRuleHost)panel).CastTracker;
+        List<SpellCastOutcomeInfo> outcomes = [];
+        tracker.Completed += outcomes.Add;
+
+        automation.PostCastReceipt(1u, error);
+        panel.OnTick(0.2d);
+        Assert.Equal(SpellCastTrackerState.AwaitingLaunch, tracker.State);
+        Assert.Empty(outcomes);
+        Assert.True(automation.CastSpellIds.Count > 1);
+
+        for (int tick = 0; tick < 17; tick++)
+            panel.OnTick(0.3d);
+        Assert.Equal(SpellCastOutcome.LaunchTimeout, Assert.Single(outcomes).Outcome);
+        Assert.Equal(2, automation.CastRequestCount);
+
+        // A delayed reply from the first attempt cannot acknowledge or
+        // cancel its successor, even when both use the same spell and target.
+        automation.PostCastReceipt(1u, error);
+        panel.OnTick(0.2d);
+        Assert.Equal(SpellCastTrackerState.AwaitingLaunch, tracker.State);
+        Assert.Single(outcomes);
+
+        automation.PostChatFrom(automation.ObjectId, 0,
+            automation.KnownSelfBuffs[0].Saying, CombatLogTextType.Spellcasting);
+        panel.OnTick(0d);
+        Assert.Equal(SpellCastTrackerState.AwaitingResult, tracker.State);
+        automation.PostCastReceipt(1u, error);
+        panel.OnTick(0d);
+        Assert.Equal(SpellCastTrackerState.AwaitingResult, tracker.State);
+        Assert.Single(outcomes);
+    }
+
     [Fact]
-    public void AHostCastStillPendingAfterTheAttemptBudgetDoesNotStarveTheRoute()
+    public void BuffSpeechAndResultResumeNavigationWithoutAnyCastReceipt()
+    {
+        FakeAutomation automation = BuffPassAutomation();
+        automation.SuppressCastReceipt = true;
+        automation.NavigationSnapshot = NavigationAt(0f) with
+        {
+            Position = new PluginNavigationPosition(
+                0x00010001u, 0d, 1d, 0d, 0f, IsOutdoor: true),
+        };
+        var panel = new MossTankPanel(new FakeHost(automation));
+        panel.AddRoutePoint();
+        automation.NavigationSnapshot = automation.NavigationSnapshot with
+        {
+            Position = new PluginNavigationPosition(
+                0x00010001u, 0d, 0d, 0d, 0f, IsOutdoor: true),
+        };
+        panel.ToggleNavigation();
+        panel.ToggleCombat();
+        panel.OnTick(0d);
+        SpellCastTracker tracker = ((IBuffRuleHost)panel).CastTracker;
+        List<SpellCastOutcomeInfo> outcomes = [];
+        tracker.Completed += outcomes.Add;
+        for (int tick = 0; tick < 5; tick++)
+            panel.OnTick(0.3d);
+
+        Assert.Equal(0, automation.LastCompletion.Revision);
+        Assert.Equal([1u, 2u, 3u], outcomes.Select(outcome => outcome.SpellId));
+        Assert.All(outcomes, outcome => Assert.Equal(SpellCastOutcome.Success, outcome.Outcome));
+        Assert.Equal([1u, 2u, 3u], automation.CastSpellIds);
+        Assert.False(tracker.IsBusy);
+        Assert.NotEmpty(automation.MovementIntents);
+    }
+
+    [Theory]
+    [InlineData(PluginCastGate.Ready)]
+    [InlineData(PluginCastGate.Busy)]
+    public void AnUnansweredBuffReturnsToNormalRulePriorityAfterTheAttemptBudget(
+        PluginCastGate gateAfterIssue)
     {
         FakeAutomation automation = BuffPassAutomation();
         automation.SuppressCastCompletion = true;
@@ -4060,24 +4139,29 @@ public sealed partial class MossTankPanelTests
         panel.ToggleCombat();
         panel.OnTick(0d);
         Assert.Single(automation.CastSpellIds);
-        Assert.Empty(automation.MovementIntents);
 
-        // No server receipt reaches the host. The tracker gives up after its
-        // attempt budget, but the host still reports the cast as pending.
         automation.IsCasting = true;
-        automation.CastGate = PluginCastGate.Busy;
+        automation.CastGate = gateAfterIssue;
         SpellCastTracker tracker = ((IBuffRuleHost)panel).CastTracker;
-        for (int tick = 0; tick < 10; tick++)
+        List<SpellCastOutcomeInfo> outcomes = [];
+        tracker.Completed += outcomes.Add;
+        for (int tick = 0; tick < 20; tick++)
             panel.OnTick(0.3d);
-        Assert.True(tracker.IsBusy);
+
+        Assert.Contains(outcomes, outcome => outcome.Outcome == SpellCastOutcome.LaunchTimeout);
+        // Buffing still has priority while the buff is due. Timeout does not
+        // fabricate success or force a turn for the lower-priority route.
         Assert.Empty(automation.MovementIntents);
-
-        for (int tick = 0; tick < 10; tick++)
-            panel.OnTick(0.3d);
-
-        Assert.False(tracker.IsBusy);
-        Assert.Single(automation.CastSpellIds);
-        Assert.NotEmpty(automation.MovementIntents);
+        if (gateAfterIssue == PluginCastGate.Ready)
+        {
+            Assert.True(automation.CastSpellIds.Count > 25);
+            Assert.Equal(SpellCastTrackerState.AwaitingLaunch, tracker.State);
+        }
+        else
+        {
+            Assert.Single(automation.CastSpellIds);
+            Assert.False(tracker.IsBusy);
+        }
     }
 
     [Fact]
@@ -4649,7 +4733,7 @@ public sealed partial class MossTankPanelTests
         panel.ToggleCombat();
         // A cast the server never answers: the tracker's own budget ends it.
         ((IBuffRuleHost)panel).CastTracker.Begin(
-            1u, "Strength Self", 0u, string.Empty, false, issueRevision: 0L);
+            1u, "Strength Self", 0u, string.Empty, false);
 
         for (int tick = 0; tick < 34; tick++)
             panel.OnTick(0.3d);
@@ -11126,13 +11210,13 @@ public sealed partial class MossTankPanelTests
         panel.ToggleCombat();
         for (int tick = 0; tick < 3; tick++)
             panel.OnTick(0.3d);
-        Assert.Equal([1u], automation.CastSpellIds);
+        Assert.Equal(1, automation.CastRequestCount);
 
         automation.PostChatFrom(0x50000001u, 3, "meet me at the portal");
         for (int tick = 0; tick < 3; tick++)
             panel.OnTick(0.3d);
 
-        Assert.Equal([1u], automation.CastSpellIds);
+        Assert.Equal(1, automation.CastRequestCount);
     }
 
     /// <summary>
@@ -11171,14 +11255,14 @@ public sealed partial class MossTankPanelTests
         panel.ToggleCombat();
         for (int tick = 0; tick < 3; tick++)
             panel.OnTick(0.3d);
-        Assert.Equal([1u], automation.CastSpellIds);
+        Assert.Equal(1, automation.CastRequestCount);
 
         // The same words typed into local chat are not a gesture: they carry
         // the plain log type, and the wait goes on.
         automation.PostChatFrom(0x50000001u, 0, "hocus pocus");
         for (int tick = 0; tick < 3; tick++)
             panel.OnTick(0.3d);
-        Assert.Equal([1u], automation.CastSpellIds);
+        Assert.Equal(1, automation.CastRequestCount);
 
         // A DIFFERENT spell's words, gestured by us: this wait is over, the
         // latch drops, and the pass re-derives the same pick.
@@ -11186,7 +11270,7 @@ public sealed partial class MossTankPanelTests
         for (int tick = 0; tick < 3; tick++)
             panel.OnTick(0.3d);
 
-        Assert.Equal([1u, 1u], automation.CastSpellIds);
+        Assert.Equal(2, automation.CastRequestCount);
     }
 
 
@@ -11778,7 +11862,10 @@ public sealed partial class MossTankPanelTests
                 KnownSelfBuffReads++;
                 return _knownSelfBuffs;
             }
-            set => _knownSelfBuffs = value;
+            set => _knownSelfBuffs = value.Select(spell =>
+                string.IsNullOrEmpty(spell.Saying)
+                    ? spell with { Saying = $"testwords{spell.SpellId}" }
+                    : spell).ToArray();
         }
 
         public bool TryGetSkill(uint skillId, out PluginSkillInfo skill)
@@ -11821,6 +11908,7 @@ public sealed partial class MossTankPanelTests
 
         public uint NextCastWeenieError { get; set; }
         public bool SuppressCastCompletion { get; set; }
+        public bool SuppressCastReceipt { get; set; }
 
         public bool SuppressCastResultText { get; set; }
 
@@ -11865,6 +11953,8 @@ public sealed partial class MossTankPanelTests
 
         private PluginCastCompletion _lastCompletion;
         public PluginCastCompletion LastCompletion => _lastCompletion;
+        public void PostCastReceipt(uint spellId, uint error) =>
+            _lastCompletion = new(_lastCompletion.Revision + 1, spellId, ObjectId, error);
 
         public Dictionary<uint, PluginSpellComponentInfo> Components { get; } = [];
 
@@ -11886,8 +11976,10 @@ public sealed partial class MossTankPanelTests
         public bool HasComponents(uint spellId) =>
             !MissingComponentSpellIds.Contains(spellId);
 
+        public int CastRequestCount { get; private set; }
         public PluginCastRequestResult RequestCast(uint spellId)
         {
+            CastRequestCount++;
             if (CastRefusals.TryGetValue(
                     spellId, out PluginCastRequestResult refusal))
                 return refusal;
@@ -11898,6 +11990,7 @@ public sealed partial class MossTankPanelTests
 
         public PluginCastGate CastGate { get; set; } = PluginCastGate.Ready;
         public PluginCastGate EvaluateGate(uint spellId) => CastGate;
+        public bool Cast(uint spellId, uint targetObjectId) => Cast(spellId);
         public bool Cast(uint spellId)
         {
             if (CastGate == PluginCastGate.Busy
@@ -11905,13 +11998,19 @@ public sealed partial class MossTankPanelTests
                 return false;
             CastSpellIds.Add(spellId);
             CastSelectionIds.Add(CurrentSelection?.Invoke() ?? 0u);
-            if (!SuppressCastCompletion)
+            if (!SuppressCastCompletion && !SuppressCastReceipt)
             {
                 _lastCompletion = new PluginCastCompletion(
                     _lastCompletion.Revision + 1,
                     spellId,
                     0u,
                     NextCastWeenieError);
+            }
+            if (NextCastWeenieError == 0u && !SuppressCastCompletion
+                && TryGet(spellId, out PluginSpellInfo spokenSpell))
+            {
+                PostChatFrom(ObjectId, SpellCastTracker.LocalSpeechChatKind,
+                    spokenSpell.Saying, CombatLogTextType.Spellcasting);
             }
             if (NextCastWeenieError == 0u
                 && !SuppressCastCompletion

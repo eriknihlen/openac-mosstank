@@ -680,11 +680,6 @@ internal sealed class CombatController
         _frameAdvancedSinceTick = 0d;
         PluginCastCompletion castCompletion =
             _host.Automation.Magic.LastCompletion;
-        // The receipt moves the tracker from "did the request land" to "what
-        // did it do" (the AwaitingLaunch -> AwaitingResult edge). Idempotent
-        // by revision: the panel
-        // hands it the same snapshot every host frame.
-        _castTracker.ObserveCompletion(castCompletion);
         ObserveSelectionJiggle(castCompletion);
         TickSelectionJiggle();
         OnLearnedDebuffCompleted(_debuffs.Observe(castCompletion, _now));
@@ -2075,7 +2070,6 @@ internal sealed class CombatController
             DisarmPhysicalResultText();
             _pendingPhysicalTarget = 0u;
         }
-        long issueRevision = magic.LastCompletion.Revision;
         bool dispatched = choice.CastWithoutTarget
             ? magic.Cast(choice.Spell.SpellId)
             : magic.Cast(choice.Spell.SpellId, _targetId);
@@ -2103,7 +2097,6 @@ internal sealed class CombatController
                 ? string.Empty
                 : selfCast ? "yourself" : _targetName,
             HitsMultipleTargets(choice.Spell),
-            issueRevision,
             choice.Spell.Saying,
             choice.Spell.School,
             SpellCastTracker.CanKillFor(choice.Spell),

@@ -5722,7 +5722,6 @@ internal sealed partial class MossTankPanel : IBuffRuleHost, IDisposable
     {
         double elapsed = Math.Max(0d, elapsedSeconds);
 
-        _castTracker.ObserveCompletion(_host.Automation.Magic.LastCompletion);
         bool armed = _castTracker.IsBusy;
         foreach (PluginChatMessage message in
             _host.Automation.Chat.CaptureMessages(_castTrackerChatSequence))
@@ -5833,7 +5832,6 @@ internal sealed partial class MossTankPanel : IBuffRuleHost, IDisposable
             return;
         }
 
-        long issueRevision = automation.Magic.LastCompletion.Revision;
         bool dispatched = target is uint objectId
             ? automation.Magic.Cast(spellId, objectId)
             : automation.Magic.Cast(spellId);
@@ -5860,7 +5858,6 @@ internal sealed partial class MossTankPanel : IBuffRuleHost, IDisposable
             trackedTarget,
             targetName,
             SpellCastTracker.HitsMultipleTargetsFor(spell),
-            issueRevision,
             spell.Saying,
             spell.School,
             SpellCastTracker.CanKillFor(spell),

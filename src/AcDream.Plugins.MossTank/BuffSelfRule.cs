@@ -466,16 +466,6 @@ internal sealed partial class BuffSelfRule
 
         DeclineReason = string.Empty;
 
-        // A host cast can still await its receipt after the tracker gives up.
-        // Buffing cannot act then, so let the route and other rules run.
-        if (!_owner.CastTracker.IsBusy
-            && automation.Magic.EvaluateGate(pick.Spell.SpellId)
-                == PluginCastGate.Busy)
-        {
-            DeclineReason = "the client is waiting for a cast reply";
-            return PauseBurst();
-        }
-
         if (!_bursting)
         {
             _bursting = true;
@@ -485,9 +475,8 @@ internal sealed partial class BuffSelfRule
         if (!context.CanAct)
             return true;
 
-        // Only this macro's own cast holds the rule here. A host cast left
-        // pending after the tracker's attempt budget was handled above by
-        // declining, so it cannot starve the route.
+        // The macro's cast tracker owns this wait. An unanswered host
+        // receipt must not prevent another attempt after that wait ends.
         if (_owner.CastTracker.IsBusy)
             return true;
 
@@ -974,7 +963,6 @@ internal sealed partial class BuffSelfRule
             return false;
         }
 
-        long issueRevision = automation.Magic.LastCompletion.Revision;
         PluginCastRequestResult request =
             automation.Magic.RequestCast(spell.SpellId);
         if (request != PluginCastRequestResult.Sent)
@@ -996,8 +984,10 @@ internal sealed partial class BuffSelfRule
             pick.TargetObjectId,
             spell.School == ItemEnchantmentSchool ? string.Empty : pick.TargetName,
             SpellCastTracker.HitsMultipleTargetsFor(spell),
-            issueRevision,
-            spell.Saying);
+            spell.Saying,
+            spell.School,
+            SpellCastTracker.CanKillFor(spell),
+            checked((int)Math.Min(int.MaxValue, automation.Character.CurrentMana)));
         _owner.Log(MacroLogChannel.CastInfo, "SpellCaster: Begin");
         _castAwaitingSpellId = spell.SpellId;
         _castAwaitingItemId = pick.IsItemEnchant ? pick.TargetObjectId : 0u;
