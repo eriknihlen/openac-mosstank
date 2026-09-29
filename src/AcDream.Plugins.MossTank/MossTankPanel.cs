@@ -724,15 +724,17 @@ internal sealed partial class MossTankPanel : IBuffRuleHost, IDisposable
         // dropped without a word.
         string[] words = _advancedOptionSearchText.Split(
             (char[]?)null, StringSplitOptions.RemoveEmptyEntries);
-        return VtankOptionCatalog.Names.Where(name =>
+        return VtankOptionCatalog.AdvancedNames.Where(name =>
             !name.Equals(VtankOptionCatalog.UnusedSetting, StringComparison.Ordinal)
             && IsPlainAdvancedOptionValue(VtankOptionCatalog.DeclaredType(name))
             && words.All(word => name.Contains(word, StringComparison.OrdinalIgnoreCase)
                 || (VtankDefaultSettingsDatabase.SettingDescriptions.TryGetValue(name, out string? description)
                     && description.Contains(word, StringComparison.OrdinalIgnoreCase)))
-            && (!VtankDefaultSettingsDatabase.SettingCategoryBitmasks.TryGetValue(name, out int mask)
-                || mask == 0
-                || (mask & enabledMask) != 0)).ToArray();
+            && (name == VtankOptionCatalog.WalkToRareCorpse
+                ? (enabledMask & (int)VtankOptionPage.Looting) != 0
+                : !VtankDefaultSettingsDatabase.SettingCategoryBitmasks.TryGetValue(name, out int mask)
+                    || mask == 0
+                    || (mask & enabledMask) != 0)).ToArray();
     }
 
     private static bool IsPlainAdvancedOptionValue(VtankSettingValueType type) =>
@@ -1108,7 +1110,7 @@ internal sealed partial class MossTankPanel : IBuffRuleHost, IDisposable
     };
     public Action ToggleWalkToOwnRareCorpses => () =>
         SetMetaOption(
-            "WalkToOwnRareCorpses",
+            VtankOptionCatalog.WalkToRareCorpse,
             ExpressionValue.Boolean(!_inventorySettings.Loot.WalkToOwnRareCorpses));
     public Action ToggleReadUnknownScrolls => () =>
     {
@@ -4101,7 +4103,7 @@ internal sealed partial class MossTankPanel : IBuffRuleHost, IDisposable
             "enablenav" =>
                 ExpressionValue.Boolean(_navigationSettings.Enabled),
             "enablelooting" => ExpressionValue.Boolean(_inventorySettings.Loot.Enabled),
-            "walktoownrarecorpses" => ExpressionValue.Boolean(
+            "walktorarecorpse" or "walktoownrarecorpses" or "walktoowncorpses" => ExpressionValue.Boolean(
                 _inventorySettings.Loot.WalkToOwnRareCorpses),
             "shownavlines" => ExpressionValue.Boolean(_navigationSettings.ShowNavLines),
             "enablemeta" => ExpressionValue.Boolean(_meta.Enabled),
@@ -4499,7 +4501,7 @@ internal sealed partial class MossTankPanel : IBuffRuleHost, IDisposable
             case "enablelooting":
                 _inventorySettings.Loot.Enabled = value.IsTruthy;
                 break;
-            case "walktoownrarecorpses":
+            case "walktorarecorpse":
                 _inventorySettings.Loot.WalkToOwnRareCorpses = value.IsTruthy;
                 break;
             case "shownavlines":
@@ -5052,6 +5054,13 @@ internal sealed partial class MossTankPanel : IBuffRuleHost, IDisposable
                 break;
             default:
                 break;
+        }
+        if (canonical == VtankOptionCatalog.WalkToRareCorpse)
+        {
+            // Older sidecars may hold either previous command name. Keep one
+            // value so a later profile load cannot replay a stale alias.
+            _combatSettings.DynamicSettings.Remove("WalkToOwnRareCorpses");
+            _combatSettings.DynamicSettings.Remove("WalkToOwnCorpses");
         }
         _combatSettings.DynamicSettings[canonical] = ToMonsterValue(value);
         if (!_applyingProfileOptions)

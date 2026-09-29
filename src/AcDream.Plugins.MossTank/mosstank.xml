@@ -96,7 +96,7 @@
     <toggle x="282" y="88" w="160" h="20" text="Show Nav Lines"
             checked="{ShowNavLinesEnabled}" onclick="{ToggleShowNavLines}"
             tooltip="Draw the loaded route and highlight its current waypoint in the world." />
-    <toggle x="282" y="108" w="160" h="20" text="Walk to Own Rares"
+    <toggle x="282" y="108" w="160" h="20" text="Walk to Rare Corpse"
             checked="{WalkToOwnRareCorpsesEnabled}" onclick="{ToggleWalkToOwnRareCorpses}"
             tooltip="Walk to the corpse holding this character's own rare up to 100 m, past the corpse approach range, holding the route until it is looted; a walk that stops covering ground or takes over a minute is given up. VTank leaves every corpse beyond the approach range." />
     <toggle x="282" y="128" w="120" h="20" text="Auto Fellow Mgmt."
