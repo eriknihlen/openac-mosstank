@@ -188,6 +188,6 @@ history without affecting the macro or current status, and **X** closes the wind
 
 ## Peer features
 
-Requires OpenAC 0.1.22. Vital Sharing and Receive broadcasts default off and are stored per character. Vital Sharing exchanges character state and cast information; Receive broadcasts allows this client to execute incoming tagged broadcast commands. Sending a broadcast does not enable reception. Network HUD, active peer healing and metas containing netclients[] or netcasts[] request their own capabilities. Requests end when the feature stops or the plugin unloads. A meta needing peers waits for the initial connection before evaluating peer-dependent rules.
+Requires OpenAC 0.1.23. Vital Sharing and Receive broadcasts default off and are stored per character. Vital Sharing exchanges character state and cast information; Receive broadcasts allows this client to execute incoming tagged broadcast commands. Sending a broadcast does not enable reception. Network HUD, active peer healing and metas containing netclients[] or netcasts[] request their own capabilities. Requests end when the feature stops or the plugin unloads. A meta needing peers waits for the initial connection before evaluating peer-dependent rules.
 
-For a local source build before the contract is published, pack AcDream.Plugin.Abstractions 0.1.22 from the matching OpenAC checkout and copy the nupkg into packages-local before restoring. CI requires the corresponding OpenAC release to exist.
+For a local source build before the contract is published, pack AcDream.Plugin.Abstractions 0.1.23 from the matching OpenAC checkout and copy the nupkg into packages-local before restoring. CI requires the corresponding OpenAC release to exist.
