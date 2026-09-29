@@ -1,4 +1,5 @@
 using AcDream.Plugin.Abstractions;
+using AcDream.Plugins.MossTank.Expressions;
 
 namespace AcDream.Plugins.MossTank;
 
@@ -10,12 +11,9 @@ internal sealed partial class MossTankPanel
     /// <summary>The reference client's "Show Nav Lines" toggle.</summary>
     public bool ShowNavLinesEnabled => _navigationSettings.ShowNavLines;
 
-    public Action ToggleShowNavLines => () =>
-    {
-        _navigationSettings.ShowNavLines = !_navigationSettings.ShowNavLines;
-        UpdateNavLines();
-        SaveProfile();
-    };
+    public Action ToggleShowNavLines => () => SetMetaOption(
+        "ShowNavLines",
+        ExpressionValue.Boolean(!_navigationSettings.ShowNavLines));
 
     private void ClearNavLines()
     {

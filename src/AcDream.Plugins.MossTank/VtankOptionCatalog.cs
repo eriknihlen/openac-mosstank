@@ -13,6 +13,8 @@ internal enum VtankSettingValueType
 
 internal static class VtankOptionCatalog
 {
+    private const string WalkToOwnCorpsesAlias = "WalkToOwnCorpses";
+
     internal static readonly string[] Names =
     [
         "EnableLooting", "EnableNav", "EnableBuffing", "EnableCombat",
@@ -69,10 +71,21 @@ internal static class VtankOptionCatalog
         "BuffWithUntrained-Life", "AllowDebuffFallback", "RechargeHandlerSet",
     ];
 
+    // These settings belong to MossTank's Options tab and its sidecar. Keep
+    // the VTank settings table unchanged so existing profiles retain its rows.
+    internal static readonly string[] CommandNames =
+    [
+        ..Names,
+        "WalkToOwnRareCorpses",
+        "ShowNavLines",
+    ];
+
     private static readonly IReadOnlyDictionary<string, MonsterValue> Defaults =
         new Dictionary<string, MonsterValue>(StringComparer.OrdinalIgnoreCase)
         {
         ["EnableLooting"] = MonsterValue.FromBoolean(false),
+        ["WalkToOwnRareCorpses"] = MonsterValue.FromBoolean(false),
+        ["ShowNavLines"] = MonsterValue.FromBoolean(false),
         ["EnableNav"] = MonsterValue.FromBoolean(false),
         ["EnableBuffing"] = MonsterValue.FromBoolean(true),
         ["EnableCombat"] = MonsterValue.FromBoolean(true),
@@ -215,6 +228,8 @@ internal static class VtankOptionCatalog
         new Dictionary<string, VtankSettingValueType>(StringComparer.OrdinalIgnoreCase)
         {
         ["EnableLooting"] = VtankSettingValueType.Bool,
+        ["WalkToOwnRareCorpses"] = VtankSettingValueType.Bool,
+        ["ShowNavLines"] = VtankSettingValueType.Bool,
         ["EnableNav"] = VtankSettingValueType.Bool,
         ["EnableBuffing"] = VtankSettingValueType.Bool,
         ["EnableCombat"] = VtankSettingValueType.Bool,
@@ -361,10 +376,13 @@ internal static class VtankOptionCatalog
     internal const string UnusedSetting = "WhoYouGonnaCall";
 
     internal static bool IsKnown(string name) =>
-        Names.Contains(name, StringComparer.OrdinalIgnoreCase);
+        name.Equals(WalkToOwnCorpsesAlias, StringComparison.OrdinalIgnoreCase)
+        || CommandNames.Contains(name, StringComparer.OrdinalIgnoreCase);
 
     internal static string Canonical(string name) =>
-        Names.First(value => value.Equals(name, StringComparison.OrdinalIgnoreCase));
+        name.Equals(WalkToOwnCorpsesAlias, StringComparison.OrdinalIgnoreCase)
+            ? "WalkToOwnRareCorpses"
+            : CommandNames.First(value => value.Equals(name, StringComparison.OrdinalIgnoreCase));
 
     internal static MonsterValue Default(string name) =>
         Defaults.TryGetValue(name, out MonsterValue value)

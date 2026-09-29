@@ -1107,11 +1107,9 @@ internal sealed partial class MossTankPanel : IBuffRuleHost, IDisposable
         SaveProfile();
     };
     public Action ToggleWalkToOwnRareCorpses => () =>
-    {
-        _inventorySettings.Loot.WalkToOwnRareCorpses =
-            !_inventorySettings.Loot.WalkToOwnRareCorpses;
-        SaveProfile();
-    };
+        SetMetaOption(
+            "WalkToOwnRareCorpses",
+            ExpressionValue.Boolean(!_inventorySettings.Loot.WalkToOwnRareCorpses));
     public Action ToggleReadUnknownScrolls => () =>
     {
         _inventorySettings.Loot.ReadUnknownScrolls =
@@ -4103,6 +4101,9 @@ internal sealed partial class MossTankPanel : IBuffRuleHost, IDisposable
             "enablenav" =>
                 ExpressionValue.Boolean(_navigationSettings.Enabled),
             "enablelooting" => ExpressionValue.Boolean(_inventorySettings.Loot.Enabled),
+            "walktoownrarecorpses" => ExpressionValue.Boolean(
+                _inventorySettings.Loot.WalkToOwnRareCorpses),
+            "shownavlines" => ExpressionValue.Boolean(_navigationSettings.ShowNavLines),
             "enablemeta" => ExpressionValue.Boolean(_meta.Enabled),
             "spelldiffexcessthreshold-hunt" => ExpressionValue.Number(
                 _combatSettings.HuntSkillExcessOverDifficulty),
@@ -4478,9 +4479,8 @@ internal sealed partial class MossTankPanel : IBuffRuleHost, IDisposable
     /// </summary>
     internal bool SetMetaOption(string name, ExpressionValue value)
     {
-        // The options are the reference's settings table and nothing else:
-        // it refuses a name the table does not hold and keeps nothing for
-        // it, so a macro that sets one here behaves as it does there.
+        // The command catalogue includes the profile's own Options-tab
+        // switches beside the settings-table names. Unknown names stay inert.
         if (!VtankOptionCatalog.IsKnown(name))
             return false;
         string canonical = VtankOptionCatalog.Canonical(name);
@@ -4498,6 +4498,13 @@ internal sealed partial class MossTankPanel : IBuffRuleHost, IDisposable
                 break;
             case "enablelooting":
                 _inventorySettings.Loot.Enabled = value.IsTruthy;
+                break;
+            case "walktoownrarecorpses":
+                _inventorySettings.Loot.WalkToOwnRareCorpses = value.IsTruthy;
+                break;
+            case "shownavlines":
+                _navigationSettings.ShowNavLines = value.IsTruthy;
+                UpdateNavLines();
                 break;
             case "enablemeta":
                 _metaSettings.Enabled = value.IsTruthy;

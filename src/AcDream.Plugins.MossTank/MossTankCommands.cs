@@ -935,9 +935,9 @@ internal sealed partial class MossTankPanel
                     WriteVtank("Syntax: /vt opt list");
                     return;
                 }
-                WriteVtank($"Available options: ({VtankOptionCatalog.Names.Length})");
-                for (int index = 0; index < VtankOptionCatalog.Names.Length; index += 4)
-                    WriteVtank("   " + string.Join("   ", VtankOptionCatalog.Names.Skip(index).Take(4)));
+                WriteVtank($"Available options: ({VtankOptionCatalog.CommandNames.Length})");
+                for (int index = 0; index < VtankOptionCatalog.CommandNames.Length; index += 4)
+                    WriteVtank("   " + string.Join("   ", VtankOptionCatalog.CommandNames.Skip(index).Take(4)));
                 return;
             case "toggle":
                 ToggleVtankOption(tail);

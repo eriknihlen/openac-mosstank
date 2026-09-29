@@ -149,6 +149,11 @@ checkboxes. Select a row to edit it below: switches and choices apply immediatel
 while numeric values apply with Enter or Apply. Filtering never changes a setting.
 A selected setting hidden by a filter cannot be edited until it is shown again.
 
+The Options-tab switches **Walk to Own Rares** and **Show Nav Lines** also
+accept `/vt opt get`, `set` and `toggle` using `WalkToOwnRareCorpses` and
+`ShowNavLines`. `WalkToOwnCorpses` is an alias for the first name. They appear
+in `/vt opt list` and save with the selected settings profile.
+
 Selecting Custom for `BuffProfile_Prots` or `BuffProfile_Banes` also shows the
 corresponding `BuffProfile-Prots` or `BuffProfile-Banes` text field. Enter element
 letters (A acid, L lightning, F fire, C cold, B bludgeon, P pierce, S slash), then
