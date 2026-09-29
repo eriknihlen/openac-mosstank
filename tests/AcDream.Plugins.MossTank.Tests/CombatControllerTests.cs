@@ -2681,6 +2681,7 @@ public sealed class CombatControllerTests
             IsBeneficial: false)
         {
             IsOffensive = true,
+            Saying = "testwords",
             TargetMask = 0x10,
         };
 
@@ -4203,6 +4204,7 @@ public sealed class CombatControllerTests
         // Real spells carry a reach; a fixture with none would be refused by
         // the debuff range gate before anything else could be observed.
         BaseRangeConstant = 80f,
+        Saying = "testwords",
     };
 
     [Fact]
@@ -4355,7 +4357,6 @@ public sealed class CombatControllerTests
             targetObjectId,
             string.Empty,
             hitsMultipleTargets: false,
-            issueRevision: 0,
             saying);
         controller.CastTracker.ObserveChat(
             0uL,
@@ -4387,6 +4388,9 @@ public sealed class CombatControllerTests
         controller.OnTick(0.25);
         Assert.Equal((100u, 10u), surface.LastTargetedCast);
 
+        controller.CastTracker.ObserveChat(0uL,
+            surface.KnownCombatSpells[0].Saying,
+            ownSpeech: true, logTextType: 0x11u);
         surface.ChatMessages =
         [
             new PluginChatMessage(
@@ -4469,6 +4473,9 @@ public sealed class CombatControllerTests
         Assert.Equal((100u, 10u), surface.LastTargetedCast);
         int castsBeforeTheKill = surface.CastSpellIds.Count;
 
+        controller.CastTracker.ObserveChat(0uL,
+            surface.KnownCombatSpells[0].Saying,
+            ownSpeech: true, logTextType: 0x11u);
         surface.ChatMessages =
         [
             new PluginChatMessage(
@@ -4509,8 +4516,9 @@ public sealed class CombatControllerTests
         controller.OnTick(0.25);
         Assert.Equal((100u, 10u), surface.LastTargetedCast);
 
-        controller.CastTracker.ObserveCompletion(
-            new PluginCastCompletion(1, 100u, 10u, 0u));
+        controller.CastTracker.ObserveChat(0uL,
+            surface.KnownCombatSpells[0].Saying,
+            ownSpeech: true, logTextType: 0x11u);
         Assert.True(controller.HasTarget);
 
         // 4 x 907 ms of the result timer.
@@ -8835,9 +8843,10 @@ public sealed class CombatControllerTests
             30u,
             "Drudge",
             false,
-            0L,
+            saying: "testwords",
             school: SpellCastTracker.WarMagicSchool,
             canKill: true);
+        tracker.ObserveChat(0uL, "testwords", ownSpeech: true, logTextType: 0x11u);
         tracker.ObserveChat(1uL, "You killed Drudge!");
 
         Assert.True(locks.IsLocked(ActionLockKind.Navigation));
@@ -8870,9 +8879,10 @@ public sealed class CombatControllerTests
             30u,
             "Drudge",
             false,
-            0L,
+            saying: "testwords",
             school: SpellCastTracker.WarMagicSchool,
             canKill: true);
+        tracker.ObserveChat(0uL, "testwords", ownSpeech: true, logTextType: 0x11u);
         tracker.ObserveChat(1uL, "You killed Drudge!");
 
         Assert.False(locks.IsLocked(ActionLockKind.Navigation));
@@ -8902,9 +8912,10 @@ public sealed class CombatControllerTests
             30u,
             "Drudge",
             false,
-            0L,
+            saying: "testwords",
             school: SpellCastTracker.WarMagicSchool,
             canKill: true);
+        tracker.ObserveChat(0uL, "testwords", ownSpeech: true, logTextType: 0x11u);
         tracker.ObserveChat(1uL, "You killed Drudge!");
 
         Assert.False(locks.IsLocked(ActionLockKind.Navigation));
@@ -9192,6 +9203,7 @@ public sealed class CombatControllerTests
         IsSelfTargeted: false, IsBeneficial: false)
     {
         BaseRangeConstant = 80f,
+        Saying = "testwords",
     };
 
     /// <summary>The slot a quiver of ammunition goes in, not a weapon slot.</summary>

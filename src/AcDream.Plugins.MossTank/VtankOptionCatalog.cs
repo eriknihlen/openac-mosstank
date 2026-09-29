@@ -13,6 +13,10 @@ internal enum VtankSettingValueType
 
 internal static class VtankOptionCatalog
 {
+    internal const string WalkToRareCorpse = "WalkToRareCorpse";
+    private const string WalkToOwnCorpsesAlias = "WalkToOwnCorpses";
+    private const string WalkToOwnRareCorpsesAlias = "WalkToOwnRareCorpses";
+
     internal static readonly string[] Names =
     [
         "EnableLooting", "EnableNav", "EnableBuffing", "EnableCombat",
@@ -69,10 +73,25 @@ internal static class VtankOptionCatalog
         "BuffWithUntrained-Life", "AllowDebuffFallback", "RechargeHandlerSet",
     ];
 
+    // These settings belong to MossTank's Options tab and its sidecar. Keep
+    // the VTank settings table unchanged so existing profiles retain its rows.
+    internal static readonly string[] CommandNames =
+    [
+        ..Names,
+        WalkToRareCorpse,
+        "ShowNavLines",
+    ];
+
+    // The Options-tab switch is stored in the sidecar, not VTank's Settings
+    // table. Advanced Options can edit it without adding a new USD row.
+    internal static readonly string[] AdvancedNames = [..Names, WalkToRareCorpse];
+
     private static readonly IReadOnlyDictionary<string, MonsterValue> Defaults =
         new Dictionary<string, MonsterValue>(StringComparer.OrdinalIgnoreCase)
         {
         ["EnableLooting"] = MonsterValue.FromBoolean(false),
+        [WalkToRareCorpse] = MonsterValue.FromBoolean(false),
+        ["ShowNavLines"] = MonsterValue.FromBoolean(false),
         ["EnableNav"] = MonsterValue.FromBoolean(false),
         ["EnableBuffing"] = MonsterValue.FromBoolean(true),
         ["EnableCombat"] = MonsterValue.FromBoolean(true),
@@ -215,6 +234,8 @@ internal static class VtankOptionCatalog
         new Dictionary<string, VtankSettingValueType>(StringComparer.OrdinalIgnoreCase)
         {
         ["EnableLooting"] = VtankSettingValueType.Bool,
+        [WalkToRareCorpse] = VtankSettingValueType.Bool,
+        ["ShowNavLines"] = VtankSettingValueType.Bool,
         ["EnableNav"] = VtankSettingValueType.Bool,
         ["EnableBuffing"] = VtankSettingValueType.Bool,
         ["EnableCombat"] = VtankSettingValueType.Bool,
@@ -361,10 +382,17 @@ internal static class VtankOptionCatalog
     internal const string UnusedSetting = "WhoYouGonnaCall";
 
     internal static bool IsKnown(string name) =>
-        Names.Contains(name, StringComparer.OrdinalIgnoreCase);
+        IsLegacyRareWalkName(name)
+        || CommandNames.Contains(name, StringComparer.OrdinalIgnoreCase);
 
     internal static string Canonical(string name) =>
-        Names.First(value => value.Equals(name, StringComparison.OrdinalIgnoreCase));
+        IsLegacyRareWalkName(name)
+            ? WalkToRareCorpse
+            : CommandNames.First(value => value.Equals(name, StringComparison.OrdinalIgnoreCase));
+
+    private static bool IsLegacyRareWalkName(string name) =>
+        name.Equals(WalkToOwnCorpsesAlias, StringComparison.OrdinalIgnoreCase)
+        || name.Equals(WalkToOwnRareCorpsesAlias, StringComparison.OrdinalIgnoreCase);
 
     internal static MonsterValue Default(string name) =>
         Defaults.TryGetValue(name, out MonsterValue value)

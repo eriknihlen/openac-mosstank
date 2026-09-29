@@ -724,15 +724,17 @@ internal sealed partial class MossTankPanel : IBuffRuleHost, IDisposable
         // dropped without a word.
         string[] words = _advancedOptionSearchText.Split(
             (char[]?)null, StringSplitOptions.RemoveEmptyEntries);
-        return VtankOptionCatalog.Names.Where(name =>
+        return VtankOptionCatalog.AdvancedNames.Where(name =>
             !name.Equals(VtankOptionCatalog.UnusedSetting, StringComparison.Ordinal)
             && IsPlainAdvancedOptionValue(VtankOptionCatalog.DeclaredType(name))
             && words.All(word => name.Contains(word, StringComparison.OrdinalIgnoreCase)
                 || (VtankDefaultSettingsDatabase.SettingDescriptions.TryGetValue(name, out string? description)
                     && description.Contains(word, StringComparison.OrdinalIgnoreCase)))
-            && (!VtankDefaultSettingsDatabase.SettingCategoryBitmasks.TryGetValue(name, out int mask)
-                || mask == 0
-                || (mask & enabledMask) != 0)).ToArray();
+            && (name == VtankOptionCatalog.WalkToRareCorpse
+                ? (enabledMask & (int)VtankOptionPage.Looting) != 0
+                : !VtankDefaultSettingsDatabase.SettingCategoryBitmasks.TryGetValue(name, out int mask)
+                    || mask == 0
+                    || (mask & enabledMask) != 0)).ToArray();
     }
 
     private static bool IsPlainAdvancedOptionValue(VtankSettingValueType type) =>
@@ -1107,11 +1109,9 @@ internal sealed partial class MossTankPanel : IBuffRuleHost, IDisposable
         SaveProfile();
     };
     public Action ToggleWalkToOwnRareCorpses => () =>
-    {
-        _inventorySettings.Loot.WalkToOwnRareCorpses =
-            !_inventorySettings.Loot.WalkToOwnRareCorpses;
-        SaveProfile();
-    };
+        SetMetaOption(
+            VtankOptionCatalog.WalkToRareCorpse,
+            ExpressionValue.Boolean(!_inventorySettings.Loot.WalkToOwnRareCorpses));
     public Action ToggleReadUnknownScrolls => () =>
     {
         _inventorySettings.Loot.ReadUnknownScrolls =
@@ -4103,6 +4103,9 @@ internal sealed partial class MossTankPanel : IBuffRuleHost, IDisposable
             "enablenav" =>
                 ExpressionValue.Boolean(_navigationSettings.Enabled),
             "enablelooting" => ExpressionValue.Boolean(_inventorySettings.Loot.Enabled),
+            "walktorarecorpse" or "walktoownrarecorpses" or "walktoowncorpses" => ExpressionValue.Boolean(
+                _inventorySettings.Loot.WalkToOwnRareCorpses),
+            "shownavlines" => ExpressionValue.Boolean(_navigationSettings.ShowNavLines),
             "enablemeta" => ExpressionValue.Boolean(_meta.Enabled),
             "spelldiffexcessthreshold-hunt" => ExpressionValue.Number(
                 _combatSettings.HuntSkillExcessOverDifficulty),
@@ -4478,9 +4481,8 @@ internal sealed partial class MossTankPanel : IBuffRuleHost, IDisposable
     /// </summary>
     internal bool SetMetaOption(string name, ExpressionValue value)
     {
-        // The options are the reference's settings table and nothing else:
-        // it refuses a name the table does not hold and keeps nothing for
-        // it, so a macro that sets one here behaves as it does there.
+        // The command catalogue includes the profile's own Options-tab
+        // switches beside the settings-table names. Unknown names stay inert.
         if (!VtankOptionCatalog.IsKnown(name))
             return false;
         string canonical = VtankOptionCatalog.Canonical(name);
@@ -4498,6 +4500,13 @@ internal sealed partial class MossTankPanel : IBuffRuleHost, IDisposable
                 break;
             case "enablelooting":
                 _inventorySettings.Loot.Enabled = value.IsTruthy;
+                break;
+            case "walktorarecorpse":
+                _inventorySettings.Loot.WalkToOwnRareCorpses = value.IsTruthy;
+                break;
+            case "shownavlines":
+                _navigationSettings.ShowNavLines = value.IsTruthy;
+                UpdateNavLines();
                 break;
             case "enablemeta":
                 _metaSettings.Enabled = value.IsTruthy;
@@ -5045,6 +5054,13 @@ internal sealed partial class MossTankPanel : IBuffRuleHost, IDisposable
                 break;
             default:
                 break;
+        }
+        if (canonical == VtankOptionCatalog.WalkToRareCorpse)
+        {
+            // Older sidecars may hold either previous command name. Keep one
+            // value so a later profile load cannot replay a stale alias.
+            _combatSettings.DynamicSettings.Remove("WalkToOwnRareCorpses");
+            _combatSettings.DynamicSettings.Remove("WalkToOwnCorpses");
         }
         _combatSettings.DynamicSettings[canonical] = ToMonsterValue(value);
         if (!_applyingProfileOptions)
@@ -5722,7 +5738,6 @@ internal sealed partial class MossTankPanel : IBuffRuleHost, IDisposable
     {
         double elapsed = Math.Max(0d, elapsedSeconds);
 
-        _castTracker.ObserveCompletion(_host.Automation.Magic.LastCompletion);
         bool armed = _castTracker.IsBusy;
         foreach (PluginChatMessage message in
             _host.Automation.Chat.CaptureMessages(_castTrackerChatSequence))
@@ -5833,7 +5848,6 @@ internal sealed partial class MossTankPanel : IBuffRuleHost, IDisposable
             return;
         }
 
-        long issueRevision = automation.Magic.LastCompletion.Revision;
         bool dispatched = target is uint objectId
             ? automation.Magic.Cast(spellId, objectId)
             : automation.Magic.Cast(spellId);
@@ -5860,7 +5874,6 @@ internal sealed partial class MossTankPanel : IBuffRuleHost, IDisposable
             trackedTarget,
             targetName,
             SpellCastTracker.HitsMultipleTargetsFor(spell),
-            issueRevision,
             spell.Saying,
             spell.School,
             SpellCastTracker.CanKillFor(spell),

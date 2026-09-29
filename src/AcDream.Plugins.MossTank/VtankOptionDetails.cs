@@ -281,6 +281,7 @@ internal static class VtankOptionDetails
             ["BlacklistMonsterTimeoutSeconds"] = "Seconds a monster that cannot be hit is left alone.",
             ["CombineSalvage"] = "Combines salvage bags as the loot profile's ranges say (looting must be on).",
             ["LootOnlyRareCorpses"] = "Loots only corpses that can hold a rare.",
+            [VtankOptionCatalog.WalkToRareCorpse] = "Walks up to 100 metres to this character's own rare corpse and holds the route until it is looted.",
             ["DeleteGhostMonstersByHPTracker"] = "Also removes a monster whose health stops being reported, for every kind of attack.",
             ["GhostDeleteHPTrackerSeconds"] = "Seconds without a health report before a monster counts as not there.",
             ["GoToPeaceModeToUseKits"] = "Changes to peace mode before using a healing kit.",

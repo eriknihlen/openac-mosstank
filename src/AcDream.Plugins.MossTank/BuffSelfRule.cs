@@ -475,11 +475,8 @@ internal sealed partial class BuffSelfRule
         if (!context.CanAct)
             return true;
 
-        // Only this macro's own cast holds the rule here. The host's casting
-        // flag is its inventory transaction count under another name, and a
-        // request that never completes leaves that count raised for good --
-        // which stalled the rule on every pass, claiming and casting
-        // nothing, with every rule below it starved.
+        // The macro's cast tracker owns this wait. An unanswered host
+        // receipt must not prevent another attempt after that wait ends.
         if (_owner.CastTracker.IsBusy)
             return true;
 
@@ -966,7 +963,6 @@ internal sealed partial class BuffSelfRule
             return false;
         }
 
-        long issueRevision = automation.Magic.LastCompletion.Revision;
         PluginCastRequestResult request =
             automation.Magic.RequestCast(spell.SpellId);
         if (request != PluginCastRequestResult.Sent)
@@ -988,8 +984,10 @@ internal sealed partial class BuffSelfRule
             pick.TargetObjectId,
             spell.School == ItemEnchantmentSchool ? string.Empty : pick.TargetName,
             SpellCastTracker.HitsMultipleTargetsFor(spell),
-            issueRevision,
-            spell.Saying);
+            spell.Saying,
+            spell.School,
+            SpellCastTracker.CanKillFor(spell),
+            checked((int)Math.Min(int.MaxValue, automation.Character.CurrentMana)));
         _owner.Log(MacroLogChannel.CastInfo, "SpellCaster: Begin");
         _castAwaitingSpellId = spell.SpellId;
         _castAwaitingItemId = pick.IsItemEnchant ? pick.TargetObjectId : 0u;

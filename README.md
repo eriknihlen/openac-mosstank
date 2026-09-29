@@ -149,6 +149,14 @@ checkboxes. Select a row to edit it below: switches and choices apply immediatel
 while numeric values apply with Enter or Apply. Filtering never changes a setting.
 A selected setting hidden by a filter cannot be edited until it is shown again.
 
+The Options-tab switches **Walk to Rare Corpse** and **Show Nav Lines** also
+accept `/vt opt get`, `set` and `toggle` using `WalkToRareCorpse` and
+`ShowNavLines`. `WalkToRareCorpse` also appears under Looting in Advanced
+Options. The old `WalkToOwnRareCorpses` and `WalkToOwnCorpses` command names
+remain accepted for existing macros; replies use the new name. The rare walk
+still applies only to this character's own rare corpse. These switches save
+with the selected settings profile.
+
 Selecting Custom for `BuffProfile_Prots` or `BuffProfile_Banes` also shows the
 corresponding `BuffProfile-Prots` or `BuffProfile-Banes` text field. Enter element
 letters (A acid, L lightning, F fire, C cold, B bludgeon, P pierce, S slash), then
@@ -180,6 +188,6 @@ history without affecting the macro or current status, and **X** closes the wind
 
 ## Peer features
 
-Requires OpenAC 0.1.22. Vital Sharing and Receive broadcasts default off and are stored per character. Vital Sharing exchanges character state and cast information; Receive broadcasts allows this client to execute incoming tagged broadcast commands. Sending a broadcast does not enable reception. Network HUD, active peer healing and metas containing netclients[] or netcasts[] request their own capabilities. Requests end when the feature stops or the plugin unloads. A meta needing peers waits for the initial connection before evaluating peer-dependent rules.
+Requires OpenAC 0.1.23. Vital Sharing and Receive broadcasts default off and are stored per character. Vital Sharing exchanges character state and cast information; Receive broadcasts allows this client to execute incoming tagged broadcast commands. Sending a broadcast does not enable reception. Network HUD, active peer healing and metas containing netclients[] or netcasts[] request their own capabilities. Requests end when the feature stops or the plugin unloads. A meta needing peers waits for the initial connection before evaluating peer-dependent rules.
 
-For a local source build before the contract is published, pack AcDream.Plugin.Abstractions 0.1.22 from the matching OpenAC checkout and copy the nupkg into packages-local before restoring. CI requires the corresponding OpenAC release to exist.
+For a local source build before the contract is published, pack AcDream.Plugin.Abstractions 0.1.23 from the matching OpenAC checkout and copy the nupkg into packages-local before restoring. CI requires the corresponding OpenAC release to exist.
