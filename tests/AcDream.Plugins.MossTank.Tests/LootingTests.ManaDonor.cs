@@ -10,6 +10,93 @@ namespace AcDream.Plugins.MossTank.Tests;
 /// </summary>
 public sealed partial class LootingTests
 {
+    [Fact]
+    public void ResetDoesNotForgetAnOwnedDonorWaitingForItsStone()
+    {
+        var world = DrainWorld([EmptyStone(), Donor()], []);
+        var controller = DrainController(world, new ActionLockTable());
+        controller.MarkOwnedForTest(DrainDonor, LootAction.ManaTank);
+        controller.Reset();
+        controller.Tick(0.2d, true);
+        Assert.Equal([(DrainStone, DrainDonor)], world.Applied);
+    }
+
+    [Fact]
+    public void AnUnavailableCommandKeepsTheDonorForWhenTheHostIsReady()
+    {
+        var world = DrainWorld([EmptyStone(), Donor()], []);
+        world.ApplyResults.Enqueue(new(PluginItemCommandStatus.Unavailable));
+        var controller = DrainController(world, new ActionLockTable());
+        controller.MarkOwnedForTest(DrainDonor, LootAction.ManaTank);
+        controller.Tick(0.2d, true);
+        controller.Tick(0.2d, true);
+        Assert.Equal(2, world.Applied.Count);
+        Assert.Contains(DrainDonor, controller.ClassifiedOwnedItems.Keys);
+    }
+
+    [Fact]
+    public void LateDrainConfirmationReleasesThePairAfterTimeout()
+    {
+        var world = DrainWorld([EmptyStone(), Donor()], []);
+        world.ManaDrainConsumesDonor = false;
+        var controller = DrainController(world, new ActionLockTable());
+        controller.MarkOwnedForTest(DrainDonor, LootAction.ManaTank);
+        controller.Tick(0.2d, true);
+        controller.Tick(5d, true);
+        world.Owned = [EmptyStone() with { Effects = 1u }];
+        world.UseCompletion = new(1, DrainStone, DrainDonor, 0);
+        controller.Tick(0.2d, true);
+        Assert.DoesNotContain(DrainDonor, controller.ClassifiedOwnedItems.Keys);
+        Assert.Single(world.Applied);
+    }
+
+    [Fact]
+    public void DiscardedDonorIsNotDrainedIfPickedUpAgain()
+    {
+        var world = DrainWorld([EmptyStone(), Donor()], []);
+        var controller = DrainController(world, new ActionLockTable());
+        controller.MarkOwnedForTest(DrainDonor, LootAction.ManaTank);
+        world.Owned = [EmptyStone()];
+        controller.ObserveManaDonors();
+        world.Owned = [EmptyStone(), Donor()];
+        controller.Tick(0.2d, true);
+        Assert.Empty(world.Applied);
+        Assert.DoesNotContain(DrainDonor, controller.ClassifiedOwnedItems.Keys);
+    }
+
+    [Fact]
+    public void IncompleteInventoryDoesNotForgetADonorAndMovingItBetweenPacksKeepsIt()
+    {
+        var world = DrainWorld([EmptyStone(), Donor()], []);
+        var controller = DrainController(world, new ActionLockTable());
+        controller.MarkOwnedForTest(DrainDonor, LootAction.ManaTank);
+        world.IsOwnedInventoryComplete = false;
+        world.Owned = [];
+        controller.ObserveManaDonors();
+        world.Owned = [EmptyStone(), Donor() with { ContainerObjectId = 0x70009999u }];
+        world.IsOwnedInventoryComplete = true;
+        controller.Tick(0.2d, true);
+        Assert.Equal([(DrainStone, DrainDonor)], world.Applied);
+    }
+
+    [Fact]
+    public void AnUncertainStoneCannotAttractReplacementDonorLoot()
+    {
+        var world = DrainWorld([EmptyStone(), Donor()], [Donor(DrainDonor + 1)]);
+        world.ManaDrainConsumesDonor = false;
+        var locks = new ActionLockTable();
+        var controller = DrainController(world, locks);
+        controller.MarkOwnedForTest(DrainDonor, LootAction.ManaTank);
+        controller.Tick(0.2d, true);
+        locks.Advance(5d);
+        controller.Tick(5d, true);
+        world.Owned = [EmptyStone()];
+        controller.ObserveManaDonors();
+        WorkTheCorpse(world, controller, locks);
+        Assert.Empty(world.Picked);
+        Assert.Single(world.Applied);
+    }
+
     private const uint DrainCorpse = 0x7000A001u;
     private const uint DrainStone = 0x7000A010u;
     private const uint DrainDonor = 0x7000A011u;
@@ -262,10 +349,8 @@ public sealed partial class LootingTests
 
     /// <summary>
     /// A use the client will not start is answered once. A refusal says this
-    /// item cannot be drained -- it stops being one this run means to empty,
-    /// which both ends the retry and gives the stone it was holding back to
-    /// the next donor. Repeating it every pass is how a single bad item
-    /// spent a whole run's passes.
+    /// item cannot be drained. Keep it recorded for review without sending
+    /// the same request every pass or collecting replacement junk.
     ///
     /// Mutation: leave the classification in place on a refusal and the same
     /// use goes out on every pass for ever.
@@ -285,7 +370,7 @@ public sealed partial class LootingTests
             DrainPass(automation, controller, locks);
 
         Assert.Single(automation.Applied);
-        Assert.DoesNotContain(DrainDonor, controller.ClassifiedOwnedItems.Keys);
+        Assert.Contains(DrainDonor, controller.ClassifiedOwnedItems.Keys);
         Assert.Contains(logged, line => line.StartsWith(
             "ManaDrain: could not empty Sturdy Wand", StringComparison.Ordinal));
     }

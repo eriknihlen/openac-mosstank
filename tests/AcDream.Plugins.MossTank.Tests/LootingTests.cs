@@ -2667,6 +2667,7 @@ public sealed partial class LootingTests
             FacedHeadings.Add(headingDegrees);
             return PluginNavigationCommandStatus.Accepted;
         }
+        public bool IsOwnedInventoryComplete { get; set; } = true;
         public bool ItemsBusy { get; set; }
         bool IItemAutomation.IsBusy => ItemsBusy;
         public ICharacterInfo Character => this;

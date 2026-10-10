@@ -188,9 +188,9 @@ history without affecting the macro or current status, and **X** closes the wind
 
 ## Peer features
 
-Requires OpenAC 0.1.24. Receive broadcasts defaults on so `/ub bc` works between logged-in characters on this computer in the same world. Vital Sharing still defaults off. Both choices are stored per character; an explicitly saved choice is preserved. Vital Sharing exchanges character state and cast information; Receive broadcasts allows this client to execute incoming tagged broadcast commands. Sending a broadcast does not enable reception. Network HUD, active peer healing and metas containing netclients[] or netcasts[] request their own capabilities. Requests end when the feature stops or the plugin unloads. A meta needing peers waits for the initial connection before evaluating peer-dependent rules.
+Requires OpenAC 0.1.25. Receive broadcasts defaults on so `/ub bc` works between logged-in characters on this computer in the same world. Vital Sharing still defaults off. Both choices are stored per character; an explicitly saved choice is preserved. Vital Sharing exchanges character state and cast information; Receive broadcasts allows this client to execute incoming tagged broadcast commands. Sending a broadcast does not enable reception. Network HUD, active peer healing and metas containing netclients[] or netcasts[] request their own capabilities. Requests end when the feature stops or the plugin unloads. A meta needing peers waits for the initial connection before evaluating peer-dependent rules.
 
-For a local source build before the contract is published, pack AcDream.Plugin.Abstractions 0.1.24 from the matching OpenAC checkout and copy the nupkg into packages-local before restoring. CI requires the corresponding OpenAC release to exist.
+For a local source build before the contract is published, pack AcDream.Plugin.Abstractions 0.1.25 from the matching OpenAC checkout and copy the nupkg into packages-local before restoring. CI requires the corresponding OpenAC release to exist.
 
 ### Action history and debug files
 
@@ -204,3 +204,26 @@ under `debug/` in MossTank plugin storage, are unique to the recording (safe wit
 multiple clients), and retain at most 2 MiB of the newest complete UTF-8 entries.
 The file is flushed every five seconds and when logging stops or the plugin unloads;
 an abrupt crash can lose the last five seconds. Logging starts off each session.
+
+### Mana donor recovery
+
+Items collected specifically for mana stones are remembered per character and
+server in plugin storage (`mana-donors/`). Updates preserve these files.
+Dropped, sold, traded, or consumed donors lose their drain permission when the
+client confirms inventory ownership; moving a donor between packs retains it.
+Incomplete login inventories do not erase saved entries. Existing untracked
+items are never automatically adopted as donors.
+
+Unanswered drain requests remain reserved across relogs. Late inventory changes
+release the reservation; they do not trigger a blind repeat of a destructive use.
+Busy/unavailable commands remain queued, while permanent refusals stay recorded
+for review and are reported in loot history/debug logging. Queued donors and
+held stones count against further donor pickups. Protected or equipped items
+remain subject to the normal safety checks. A storage error disables draining
+rather than risking a repeat after restart.
+
+For a local paired preview, pack the updated OpenAC contract with
+`dotnet pack src/AcDream.Plugin.Abstractions -c Release -p:PackageVersion=0.1.25`
+and place its package in `packages-local`. Build the matching client with
+`-p:Version=0.1.25`. Publish OpenAC v0.1.25 before the dependent MossTank release;
+CI obtains its contract from that release.

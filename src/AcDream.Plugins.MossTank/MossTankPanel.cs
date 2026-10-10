@@ -5559,6 +5559,7 @@ internal sealed partial class MossTankPanel : IBuffRuleHost, IDisposable
         // Beside the slot clock rather than inside a rule pass: the slots an
         // open takes include the one the loot rule is gated on, so only
         // something running every frame can give them back.
+        _loot.ObserveManaDonors();
         if (_loot.ObserveCorpseOpened())
             _scheduler.Poke();
         if (_combat.Enabled)
