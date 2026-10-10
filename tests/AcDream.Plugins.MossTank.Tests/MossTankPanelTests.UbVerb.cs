@@ -31,7 +31,7 @@ public sealed partial class MossTankPanelTests
         Assert.Equal(90f, ub.FacedHeadings[^1]);
         Assert.Empty(vt.FacedHeadings);
         Assert.Empty(vt.MovementIntents);
-        Assert.Equal(MossTankPanel.UnknownVtankCommand, Assert.Single(vt.Messages));
+        Assert.Equal("[MossTank] " + MossTankPanel.UnknownVtankCommand, Assert.Single(vt.Messages));
     }
 
     [Fact]
@@ -67,7 +67,7 @@ public sealed partial class MossTankPanelTests
 
         Assert.Equal(100u, Assert.Single(ub.UsedItemIds));
         Assert.Empty(vt.UsedItemIds);
-        Assert.Equal(MossTankPanel.UnknownVtankCommand, Assert.Single(vt.Messages));
+        Assert.Equal("[MossTank] " + MossTankPanel.UnknownVtankCommand, Assert.Single(vt.Messages));
     }
 
     /// <summary>
@@ -392,8 +392,8 @@ public sealed partial class MossTankPanelTests
         Assert.Equal(baseline, events.ConfirmationListenerCount);
         Assert.Equal(
             [
-                "Bad command syntax",
-                "Usage: /ub prepclick {stop|yes <secondstowatch>|no <secondstowatch>}",
+                "[MossTank] Bad command syntax",
+                "[MossTank] Usage: /ub prepclick {stop|yes <secondstowatch>|no <secondstowatch>}",
             ],
             automation.Messages);
     }

@@ -239,7 +239,7 @@ internal sealed class RandomHelperRule : IMacroRule
     {
         if (!_postedWarnings.Add(text))
             return;
-        _host.Automation.Chat.PostSystemMessage("[MossTank] " + text);
+        MossTankChat.Post(_host.Automation.Chat, "[MossTank] " + text);
         _host.Log.Warn("MossTank: " + text);
     }
 

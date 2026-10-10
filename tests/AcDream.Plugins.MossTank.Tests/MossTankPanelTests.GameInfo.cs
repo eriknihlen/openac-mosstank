@@ -31,8 +31,8 @@ public sealed partial class MossTankPanelTests
         Assert.Null(panel.GameInfoUpdatePendingForTest);
         Assert.Single(transport.Requests);
         Assert.Equal(
-            "Game database updated to 2022-11-06 from openac-gamedata.",
-            Assert.Single(automation.Messages, static line => line.StartsWith("Game database", StringComparison.Ordinal)));
+            "[MossTank] Game database updated to 2022-11-06 from openac-gamedata.",
+            Assert.Single(automation.Messages, static line => line.StartsWith("[MossTank] Game database", StringComparison.Ordinal)));
         IReadOnlyList<VtankGameInfoDatabase> readers = panel.GameInfoReadersForTest;
         Assert.NotSame(before, readers[0]);
         Assert.All(readers, reader => Assert.Same(readers[0], reader));
@@ -92,7 +92,7 @@ public sealed partial class MossTankPanelTests
         panel.OnTick(0.1d);
 
         Assert.Contains(
-            "Game database update failed: No such host is known. The game database you had is kept.",
+            "[MossTank] Game database update failed: No such host is known. The game database you had is kept.",
             automation.Messages);
         Assert.All(panel.GameInfoReadersForTest, reader => Assert.Same(before, reader));
         Assert.Equal(
@@ -118,13 +118,13 @@ public sealed partial class MossTankPanelTests
 
         Command(panel, "gamedb");
         Assert.Contains(
-            "Game database: no gameinfodb.ugd in the VTank profile folder; /vt gamedb update "
+            "[MossTank] Game database: no gameinfodb.ugd in the VTank profile folder; /vt gamedb update "
             + "downloads it. Loaded: version 9, world data of none. Ammunition 0, "
             + "monster damage 0, species damage 0, species members 0, immunities 0, "
             + "heal kits 0, grenades 0, drain spells 0, martyr spells 0, craft recipes 0.",
             automation.Messages);
         Assert.Contains(
-            "Game database: checked every 6 hours; the next login checks.",
+            "[MossTank] Game database: checked every 6 hours; the next login checks.",
             automation.Messages);
 
         // The login's own check, then the two asked for.
@@ -133,7 +133,7 @@ public sealed partial class MossTankPanelTests
         panel.OnTick(0.1d);
         Command(panel, "gamedb update");
         await panel.GameInfoUpdatePendingForTest!.WaitAsync(TimeSpan.FromSeconds(5));
-        Assert.Contains("Checking the game database for updates.", automation.Messages);
+        Assert.Contains("[MossTank] Checking the game database for updates.", automation.Messages);
         panel.OnTick(0.1d);
         Command(panel, "getdb");
         await panel.GameInfoUpdatePendingForTest!.WaitAsync(TimeSpan.FromSeconds(5));
@@ -144,13 +144,13 @@ public sealed partial class MossTankPanelTests
         Assert.Equal(3, transport.Requests.Count);
         Assert.Equal(2, automation.Messages.Count);
         Assert.StartsWith(
-            "Game database: gameinfodb.ugd in the VTank profile folder. Loaded: version 9, "
+            "[MossTank] Game database: gameinfodb.ugd in the VTank profile folder. Loaded: version 9, "
             + "world data of 2022-11-06.",
             automation.Messages[0],
             StringComparison.Ordinal);
         Assert.Contains("heal kits 1,", automation.Messages[0], StringComparison.Ordinal);
         Assert.StartsWith(
-            "Game database: checked every 6 hours; the next check is after ",
+            "[MossTank] Game database: checked every 6 hours; the next check is after ",
             automation.Messages[1],
             StringComparison.Ordinal);
     }
@@ -170,7 +170,7 @@ public sealed partial class MossTankPanelTests
         Command(panel, "gamedb update");
 
         Assert.Null(panel.GameInfoUpdatePendingForTest);
-        Assert.Contains("Game database updates are not available in this session.", automation.Messages);
+        Assert.Contains("[MossTank] Game database updates are not available in this session.", automation.Messages);
     }
 
     /// <summary>
@@ -207,7 +207,7 @@ public sealed partial class MossTankPanelTests
         panel.OnTick(0.1d);
 
         Assert.True(panel.HealKitsForTest.ContainsKey("Tested Healing Kit"));
-        Assert.Contains("Game database updated to 2022-11-06 from openac-gamedata.", automation.Messages);
+        Assert.Contains("[MossTank] Game database updated to 2022-11-06 from openac-gamedata.", automation.Messages);
         Assert.NotNull(panel.GameInfoUpdatePendingForTest);
         await panel.GameInfoUpdatePendingForTest!.WaitAsync(TimeSpan.FromSeconds(5));
         Assert.Equal(2, transport.Requests);
@@ -255,12 +255,12 @@ public sealed partial class MossTankPanelTests
         Assert.Single(
             automation.Messages,
             static line => line.StartsWith(
-                "Game database checked recently; the next check is after ",
+                "[MossTank] Game database checked recently; the next check is after ",
                 StringComparison.Ordinal));
 
         Command(panel, "gamedb interval 0");
         Assert.Contains(
-            "Game database: checked at every login (/vt gamedb interval sets how often).",
+            "[MossTank] Game database: checked at every login (/vt gamedb interval sets how often).",
             automation.Messages);
         Assert.Contains(
             "\"GameDbCheckIntervalHours\": 0",

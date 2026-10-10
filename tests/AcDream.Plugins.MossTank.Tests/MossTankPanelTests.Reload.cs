@@ -75,4 +75,27 @@ public sealed partial class MossTankPanelTests
         Assert.Equal("Walk", panel.MetaState);
         Assert.Contains("Could not reload", panel.RouteNotice);
     }
+    [Fact]
+    public void EmbeddedOnceRouteStartsAtItsHeadInsteadOfTheOldCircularAnchor()
+    {
+        var storage = new MemoryStorage();
+        storage.Text["mosstank/metas/Reload.af"] = ReloadMeta;
+        storage.Text["mosstank/navs/Old.af"] = "NAV: nav0 circular ~~ {\r\n\tpnt 20 20 0\r\n\tpnt 10 10 0\r\n\tpnt 0 0 0\r\n";
+        var automation = new FakeAutomation { Name = "Barris", WorldName = "Coldeve", NavigationSnapshot = NavigationAt(0f) };
+        var panel = new MossTankPanel(new FakeHost(automation, storage));
+        Command(panel, "nav load Old.af");
+        Command(panel, "meta load Reload");
+        panel.ToggleMeta();
+        panel.ToggleCombat();
+        Assert.Equal(2, panel.CurrentRouteWaypointIndexForTest);
+        panel.OnTick(0.3d);
+        Assert.Equal("Walk", panel.MetaState);
+        Assert.Equal(0, panel.CurrentRouteWaypointIndexForTest);
+        Assert.DoesNotContain(0xC03838u, panel.RouteWaypointColors);
+        Assert.Contains("[MossTank] Loaded stipend.nav (embedded) (1 points).", automation.Messages);
+        Assert.Contains("[MossTank] Meta state: Default -> Walk.", automation.Messages);
+        Assert.Contains(automation.Messages, line => line.StartsWith("[MossTank] Loaded route Old (", StringComparison.Ordinal));
+        Assert.All(automation.Messages, line => Assert.StartsWith("[MossTank]", line));
+        Assert.DoesNotContain(automation.Messages, line => line.StartsWith("[MossTank] [MossTank]", StringComparison.Ordinal));
+    }
 }

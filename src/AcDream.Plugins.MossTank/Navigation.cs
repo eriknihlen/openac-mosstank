@@ -617,7 +617,7 @@ internal sealed class NavigationController
         if (_lowWaypointWarningPosted)
             return;
         _lowWaypointWarningPosted = true;
-        _host.Automation.Chat.PostSystemMessage(
+        MossTankChat.Post(_host.Automation.Chat,
             "[MossTank] " + LowWaypointDistanceWarning);
     }
 
@@ -1593,7 +1593,7 @@ internal sealed class NavigationController
         if (!_clientStallPosted)
         {
             _clientStallPosted = true;
-            _host.Automation.Chat.PostSystemMessage(string.Create(
+            MossTankChat.Post(_host.Automation.Chat, string.Create(
                 CultureInfo.InvariantCulture,
                 $"[MossTank] The route has not covered ground for {NavigationMover.StuckSeconds:0} seconds on the way to waypoint {_index + 1}."));
         }
@@ -1688,7 +1688,7 @@ internal sealed class NavigationController
     {
         _clientLegPaused = true;
         _status = why + "; the route is paused. Reset the route or change Client pathing.";
-        _host.Automation.Chat.PostSystemMessage("[MossTank] " + _status);
+        MossTankChat.Post(_host.Automation.Chat, "[MossTank] " + _status);
     }
 
     /// <summary>Ends the walk the route asked the client for, if it is still under way.</summary>
@@ -1864,7 +1864,7 @@ internal sealed class NavigationController
     {
         if (!_postedWarnings.Add(text))
             return;
-        _host.Automation.Chat.PostSystemMessage("[MossTank] " + text);
+        MossTankChat.Post(_host.Automation.Chat, "[MossTank] " + text);
     }
 
     private bool TickUse(

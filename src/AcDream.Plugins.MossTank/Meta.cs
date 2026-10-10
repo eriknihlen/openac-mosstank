@@ -369,14 +369,18 @@ internal sealed class MetaEngine : IDisposable
         _profileJustLoaded = true;
     }
 
+    public Action<string>? StateChanged { get; set; }
+
     public void Transition(string state)
     {
+        string previous = CurrentState;
         CurrentState = NormalizeState(state);
         _fired.Clear();
         _stateSeconds = 0d;
         _persistentStateSeconds = 0d;
         _watchdog = null;
         _status = $"Meta transitioned to {CurrentState}.";
+        StateChanged?.Invoke($"Meta state: {previous} -> {CurrentState}.");
     }
 
     public void OnTick(double elapsedSeconds)
@@ -716,7 +720,7 @@ internal sealed class MetaEngine : IDisposable
         if (!_shownWarnings.Add(warning))
             return;
         _host.Log.Warn(warning);
-        _host.Automation.Chat.PostSystemMessage(warning);
+        MossTankChat.Post(_host.Automation.Chat, warning);
     }
 
     private bool LoginCompleteEdge()
@@ -1053,7 +1057,7 @@ internal sealed class MetaEngine : IDisposable
         // it does not merely stop the current pass.
         _services.SetOption("EnableMeta", ExpressionValue.Boolean(false));
         _status = message + " Meta disabled.";
-        _host.Automation.Chat.PostSystemMessage(_status);
+        MossTankChat.Post(_host.Automation.Chat, _status);
         _host.Log.Error(_status);
     }
 

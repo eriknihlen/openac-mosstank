@@ -107,7 +107,7 @@ public sealed partial class MossTankPanelTests
         Command(panel, "help notacommand");
 
         Assert.Equal(
-            "No help found for command: notacommand",
+            "[MossTank] No help found for command: notacommand",
             Assert.Single(automation.Messages));
     }
 
@@ -1312,7 +1312,7 @@ public sealed partial class MossTankPanelTests
         Assert.Equal(!before, panel.GetMetaOptionForTest("EnableCombat"));
         Assert.Contains(
             automation.Messages,
-            static line => line.StartsWith("Set option EnableCombat", StringComparison.Ordinal));
+            static line => line.StartsWith("[MossTank] Set option EnableCombat", StringComparison.Ordinal));
     }
 
     /// <summary>
@@ -1379,7 +1379,7 @@ public sealed partial class MossTankPanelTests
 
         Assert.Contains(
             automation.Messages,
-            static line => line.StartsWith("Available options:", StringComparison.Ordinal));
+            static line => line.StartsWith("[MossTank] Available options:", StringComparison.Ordinal));
         Assert.DoesNotContain(
             automation.Messages,
             static line => line.Contains("DungeonMaps.Enabled", StringComparison.Ordinal));
@@ -2221,7 +2221,7 @@ public sealed partial class MossTankPanelTests
             automation, new MemoryStorage(), vtankProfiles: vtank));
 
         Command(panel, line);
-        Assert.Equal("Added navigation point.", automation.Messages[^1]);
+        Assert.Equal("[MossTank] Added navigation point.", automation.Messages[^1]);
         Command(panel, "navaf save pair-only");
 
         string saved = Assert.Single(

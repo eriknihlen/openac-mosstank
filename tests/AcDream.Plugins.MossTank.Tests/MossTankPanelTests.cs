@@ -6761,23 +6761,23 @@ public sealed partial class MossTankPanelTests
         panel.TickAutostart();
         Assert.Empty(host.Logger.Errors);
         Command(panel, "log");
-        Assert.Equal("Log state:  ActiveRule RuleInfo SpellCast", LastLogState(automation));
+        Assert.Equal("[MossTank] Log state:  ActiveRule RuleInfo SpellCast", LastLogState(automation));
 
         // The run reloads the same profile from outside, as the proof does.
         Command(panel, "settings load vt-proof-settings.usd");
         Command(panel, "log");
-        Assert.Equal("Log state:  ActiveRule RuleInfo SpellCast", LastLogState(automation));
+        Assert.Equal("[MossTank] Log state:  ActiveRule RuleInfo SpellCast", LastLogState(automation));
 
         // Turning a session channel off is honoured too.
         Command(panel, "log SpellCast off");
         Command(panel, "log");
-        Assert.Equal("Log state:  ActiveRule RuleInfo", LastLogState(automation));
+        Assert.Equal("[MossTank] Log state:  ActiveRule RuleInfo", LastLogState(automation));
     }
 
     private static string LastLogState(FakeAutomation automation) =>
         automation.Messages.Last(message =>
-            message.StartsWith("Log state:", StringComparison.Ordinal)
-            || message == "Not currently logging.");
+            message.StartsWith("[MossTank] Log state:", StringComparison.Ordinal)
+            || message == "[MossTank] Not currently logging.");
 
     [Fact]
     public void TheVtLogChannelSelectionSurvivesAReload()
@@ -6797,8 +6797,8 @@ public sealed partial class MossTankPanelTests
 
         string state = Assert.Single(
             reloaded.Messages,
-            message => message.StartsWith("Log state:", StringComparison.Ordinal));
-        Assert.Equal("Log state:  Misc SpellCast", state);
+            message => message.StartsWith("[MossTank] Log state:", StringComparison.Ordinal));
+        Assert.Equal("[MossTank] Log state:  Misc SpellCast", state);
     }
 
     [Fact]
@@ -9758,16 +9758,16 @@ public sealed partial class MossTankPanelTests
         Command(panel, "testpet");
 
         Assert.Equal([3f], automation.RoomAheadAsked);
-        Assert.Matches(@"^Pet can spawn: False, test time: [0-9.]+ms$", automation.Messages[^2]);
-        Assert.Equal("Pet choice: none", automation.Messages[^1]);
+        Assert.Matches(@"^\[MossTank\] Pet can spawn: False, test time: [0-9.]+ms$", automation.Messages[^2]);
+        Assert.Equal("[MossTank] Pet choice: none", automation.Messages[^1]);
 
         automation.RoomAhead = PluginRoomAheadStatus.Unknown;
         Command(panel, "testpet");
-        Assert.StartsWith("Pet can spawn: True, test time: ", automation.Messages[^2]);
+        Assert.StartsWith("[MossTank] Pet can spawn: True, test time: ", automation.Messages[^2]);
 
         automation.RoomAhead = PluginRoomAheadStatus.Clear;
         Command(panel, "testpet");
-        Assert.StartsWith("Pet can spawn: True, test time: ", automation.Messages[^2]);
+        Assert.StartsWith("[MossTank] Pet can spawn: True, test time: ", automation.Messages[^2]);
     }
 
     [Fact]
@@ -9909,9 +9909,9 @@ public sealed partial class MossTankPanelTests
         Command(panel, "opt setinall AttackDistance 0.03");
 
         string message = Assert.Single(automation.Messages, static text =>
-            text.StartsWith("Done saving setting", StringComparison.Ordinal));
+            text.StartsWith("[MossTank] Done saving setting", StringComparison.Ordinal));
         Assert.StartsWith(
-            "Done saving setting AttackDistance to all profiles. (Changed ",
+            "[MossTank] Done saving setting AttackDistance to all profiles. (Changed ",
             message,
             StringComparison.Ordinal);
         Assert.EndsWith(" profiles)", message, StringComparison.Ordinal);
@@ -9929,7 +9929,7 @@ public sealed partial class MossTankPanelTests
         Command(panel, $"opt {operation} EnableLooting notaboolean");
 
         Assert.Equal(
-            "Option set: bad value. EnableLooting takes a System.Boolean.",
+            "[MossTank] Option set: bad value. EnableLooting takes a System.Boolean.",
             Assert.Single(automation.Messages));
     }
 
@@ -9985,10 +9985,10 @@ public sealed partial class MossTankPanelTests
         // per-command help, the pointer at /ub, then the two the expression
         // wrote.
         Assert.Equal(9, automation.Messages.Count);
-        Assert.StartsWith("MossTank /vt — profiles:", automation.Messages[0],
+        Assert.StartsWith("[MossTank] MossTank /vt — profiles:", automation.Messages[0],
             StringComparison.Ordinal);
-        Assert.Equal("MExec evaluating expression: \"1 + 2 * 3\"", automation.Messages[7]);
-        Assert.Equal("Result: 7", automation.Messages[8]);
+        Assert.Equal("[MossTank] MExec evaluating expression: \"1 + 2 * 3\"", automation.Messages[7]);
+        Assert.Equal("[MossTank] Result: 7", automation.Messages[8]);
     }
 
     /// <summary>
@@ -10061,7 +10061,7 @@ public sealed partial class MossTankPanelTests
             ],
             automation.Submitted.Where(static line => line.StartsWith("/t ", StringComparison.Ordinal)).Take(3));
         Assert.DoesNotContain(automation.Messages, static line => line.StartsWith("You think", StringComparison.Ordinal));
-        Assert.Equal("Result: 3", automation.Messages[^1]);
+        Assert.Equal("[MossTank] Result: 3", automation.Messages[^1]);
 
         panel.ExecuteVtankCommand(new PluginCommand(
             "vt",
@@ -10069,7 +10069,7 @@ public sealed partial class MossTankPanelTests
             "/vt mexec vtcountprofile[Counted]"));
 
         // Two tapers kept by the rule, and the mote left out by it.
-        Assert.Equal("Result: 2", automation.Messages[^1]);
+        Assert.Equal("[MossTank] Result: 2", automation.Messages[^1]);
     }
 
     /// <summary>
@@ -10376,7 +10376,7 @@ public sealed partial class MossTankPanelTests
         Command(panel, "jump 180 true 300");
         panel.OnTick(0.05d);
 
-        Assert.Equal("Jump command was refused by the host.", automation.Messages[^1]);
+        Assert.Equal("[MossTank] Jump command was refused by the host.", automation.Messages[^1]);
         Assert.Equal([PluginMoveChannel.Travel], automation.StoppedMoves);
     }
 

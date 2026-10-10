@@ -186,7 +186,7 @@ public sealed partial class MossTankPanelTests
         Issue(vtPanel, VtWord, "autostak");
         Issue(ubPanel, UbWord, "autostak");
 
-        Assert.Equal(MossTankPanel.UnknownVtankCommand, Assert.Single(vt.Messages));
+        Assert.Equal("[MossTank] " + MossTankPanel.UnknownVtankCommand, Assert.Single(vt.Messages));
         Assert.Equal(
             [
                 "[UB] Error: Command not found! Type \"ub help\" for a list of commands.",
@@ -267,7 +267,7 @@ public sealed partial class MossTankPanelTests
 
         vt.Messages.Clear();
         Issue(vtPanel, VtWord, "help face");
-        Assert.Equal("No help found for command: face", Assert.Single(vt.Messages));
+        Assert.Equal("[MossTank] No help found for command: face", Assert.Single(vt.Messages));
     }
 
     /// <summary>
@@ -282,16 +282,16 @@ public sealed partial class MossTankPanelTests
         bool combat = panel.GetMetaOptionForTest("EnableCombat");
 
         Issue(panel, VtWord, "opt set DungeonMaps.Enabled false");
-        Assert.Equal("Option set: Invalid option specified.", Assert.Single(automation.Messages));
+        Assert.Equal("[MossTank] Option set: Invalid option specified.", Assert.Single(automation.Messages));
         Assert.True(panel.EvaluateExpression("uboptget[`DungeonMaps.Enabled`]").IsTruthy);
 
         automation.Messages.Clear();
         Issue(panel, VtWord, "opt get DungeonMaps.Enabled");
-        Assert.Equal("Option get: Invalid option specified.", Assert.Single(automation.Messages));
+        Assert.Equal("[MossTank] Option get: Invalid option specified.", Assert.Single(automation.Messages));
 
         automation.Messages.Clear();
         Issue(panel, VtWord, "opt toggle DungeonMaps.Enabled");
-        Assert.Equal("Option toggle: Invalid option specified.", Assert.Single(automation.Messages));
+        Assert.Equal("[MossTank] Option toggle: Invalid option specified.", Assert.Single(automation.Messages));
 
         automation.Messages.Clear();
         Issue(panel, UbWord, $"opt set EnableCombat {!combat}");
@@ -333,7 +333,7 @@ public sealed partial class MossTankPanelTests
         Issue(ubPanel, UbWord, "mexec 1==1");
         Issue(ubPanel, UbWord, "mexec `a`");
 
-        Assert.Equal(["MExec evaluating expression: \"1+2\"", "Result: 3"], vt.Messages);
+        Assert.Equal(["[MossTank] MExec evaluating expression: \"1+2\"", "[MossTank] Result: 3"], vt.Messages);
         Assert.Equal("[UB] Evaluating expression: \"1+2\"", ub.Messages[0]);
         Assert.Matches(@"^\[UB\] Result: \[number\] 3 \(\d+(\.\d+)?ms\)$", ub.Messages[1]);
         Assert.Matches(@"^\[UB\] Result: \[number\] 1 \(\d+(\.\d+)?ms\)$", ub.Messages[3]);
@@ -364,9 +364,9 @@ public sealed partial class MossTankPanelTests
 
         Assert.Equal(90f, automation.FacedHeadings[^1]);
         Assert.Equal(
-            [MossTankPanel.UnknownVtankCommand, "Nav backwards is: False"],
+            ["[MossTank] " + MossTankPanel.UnknownVtankCommand, "[MossTank] Nav backwards is: False"],
             automation.Messages.Where(static line =>
-                line == MossTankPanel.UnknownVtankCommand || line.StartsWith("Nav ", StringComparison.Ordinal)));
+                line == "[MossTank] " + MossTankPanel.UnknownVtankCommand || line.StartsWith("[MossTank] Nav ", StringComparison.Ordinal)));
     }
 
     private static (FakeAutomation, MossTankPanel) NamespacePanel()
@@ -388,7 +388,7 @@ public sealed partial class MossTankPanelTests
     }
 
     private static string UnknownReply(string word) =>
-        word == VtWord ? MossTankPanel.UnknownVtankCommand : MossTankPanel.UnknownUbCommand;
+        word == VtWord ? "[MossTank] " + MossTankPanel.UnknownVtankCommand : MossTankPanel.UnknownUbCommand;
 
     private static bool IsUnknownReply(string message) =>
         message == MossTankPanel.UnknownVtankCommand

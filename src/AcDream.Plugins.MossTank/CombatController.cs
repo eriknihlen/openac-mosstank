@@ -567,7 +567,7 @@ internal sealed class CombatController
         if (Enabled)
         {
             Disable("Macro stopped");
-            _host.Automation.Chat.PostSystemMessage("[MossTank] Macro stopped.");
+            MossTankChat.Post(_host.Automation.Chat, "[MossTank] Macro stopped.");
             return;
         }
 
@@ -584,7 +584,7 @@ internal sealed class CombatController
         _remoteCastCursor = 0;
         _untilScan = 0d;
         Status = _settings.Enabled ? "Scanning for targets" : "Combat disabled";
-        _host.Automation.Chat.PostSystemMessage("[MossTank] Macro started.");
+        MossTankChat.Post(_host.Automation.Chat, "[MossTank] Macro started.");
     }
 
     public void SetPaused(bool paused)
@@ -1979,7 +1979,7 @@ internal sealed class CombatController
         if (_reportedGiveUps.Count >= 256)
             _reportedGiveUps.Clear();
         _reportedGiveUps[targetId] = reason;
-        _host.Automation.Chat.PostSystemMessage(
+        MossTankChat.Post(_host.Automation.Chat,
             $"[MossTank] Not attacking {name}: {reason}");
     }
 
@@ -2017,7 +2017,7 @@ internal sealed class CombatController
     {
         if (!_postedAttackWarnings.Add(text))
             return;
-        _host.Automation.Chat.PostSystemMessage("[MossTank] " + text);
+        MossTankChat.Post(_host.Automation.Chat, "[MossTank] " + text);
     }
 
     private readonly HashSet<string> _postedAttackWarnings =
@@ -5472,7 +5472,7 @@ internal sealed class CombatController
             : name;
         if (string.IsNullOrWhiteSpace(shown))
             shown = "???";
-        _host.Automation.Chat.PostSystemMessage(
+        MossTankChat.Post(_host.Automation.Chat,
             "Cannot hit "
             + shown
             + " ("
@@ -5548,7 +5548,7 @@ internal sealed class CombatController
             _host.Automation.Combat.DismissGhostTarget(objectId);
         if (!result.Accepted)
             return;
-        _host.Automation.Chat.PostSystemMessage(
+        MossTankChat.Post(_host.Automation.Chat,
             string.IsNullOrEmpty(reason)
                 ? $"Deleting ghost monster {name} ({objectId})"
                 : $"Deleting ghost monster {name} ({objectId}) {reason}.");

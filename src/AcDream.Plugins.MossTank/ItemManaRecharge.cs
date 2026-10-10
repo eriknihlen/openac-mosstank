@@ -583,7 +583,7 @@ internal sealed class ItemManaRechargeController
         if (!_postedWarnings.Add(text))
             return;
         _host.Log.Info(text);
-        _host.Automation.Chat.PostSystemMessage("[MossTank] " + text);
+        MossTankChat.Post(_host.Automation.Chat, "[MossTank] " + text);
     }
 
     public void ResetOncePerRunWarnings() => _postedWarnings.Clear();

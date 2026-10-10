@@ -527,6 +527,7 @@ internal sealed partial class MossTankPanel : IBuffRuleHost, IDisposable
                 GameEventHandlersEnabled = () => _ubCatalog is null
                     || _ubCatalog.Require("GameEvents.Enabled").Get().Boolean,
             });
+        _meta.StateChanged = Announce;
         _meta.SetEnabled(_metaSettings.Enabled);
         RegisterVtankExpressionFunctions();
         _scheduler = MacroRuleTable.Build(this);
@@ -1616,7 +1617,7 @@ internal sealed partial class MossTankPanel : IBuffRuleHost, IDisposable
     private void ComposeProfileCommand(string command)
     {
         if (!_host.Automation.Chat.Compose(command))
-            _host.Automation.Chat.PostSystemMessage(
+            MossTankChat.Post(_host.Automation.Chat,
                 $"Finish typing in chat, then try again. Command: {command}");
     }
     public Action ClearProfile => ClearProfileCore;
@@ -3083,6 +3084,8 @@ internal sealed partial class MossTankPanel : IBuffRuleHost, IDisposable
             ApplyPersistedOptionOverrides();
         RestartRouteRound();
         RefreshRouteEditor();
+        if (_initialized)
+            Announce($"Loaded route {_routeProfiles.Selected} ({_navigationSettings.Waypoints.Count} points).");
         return true;
     }
 
@@ -4042,7 +4045,6 @@ internal sealed partial class MossTankPanel : IBuffRuleHost, IDisposable
 
     private void LoadEmbeddedNavigationRoute(NavigationSettings? route, string name)
     {
-        RestartRouteRound();
         if (route is null)
         {
             _routeNotice = "Embedded route rejected: unresolved Nav tag.";
@@ -4050,11 +4052,13 @@ internal sealed partial class MossTankPanel : IBuffRuleHost, IDisposable
             return;
         }
         VtankNavRouteSerializer.Apply(route, _navigationSettings);
+        RestartRouteRound();
         _embeddedRouteLabel = EmbeddedRouteLabel(name);
         _selectedRouteWaypoint = 0;
         RefreshRouteEditor();
         _routeNotice =
             $"Loaded {_embeddedRouteLabel} ({_navigationSettings.Waypoints.Count} points).";
+        Announce(_routeNotice);
     }
 
     /// <summary>
@@ -5349,7 +5353,7 @@ internal sealed partial class MossTankPanel : IBuffRuleHost, IDisposable
 
     // ── the loop ──────────────────────────────────────────────────────────
     private void Announce(string text) =>
-        _host.Automation.Chat.PostSystemMessage($"[MossTank] {text}");
+        MossTankChat.Post(_host.Automation.Chat, $"[MossTank] {text}");
 
     private void Stop(string status)
     {

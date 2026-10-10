@@ -737,7 +737,7 @@ internal sealed partial class MossTankPanel
                 value =>
                 {
                     foreach (string rejected in GameEventHandlers.Apply(_metaProfile, value.Items))
-                        _host.Automation.Chat.PostSystemMessage(rejected);
+                        MossTankChat.Post(_host.Automation.Chat, rejected);
                     SaveMetaProfile();
                     _selectedMetaRule = ClampRow(_selectedMetaRule, _metaProfile.Rules.Count);
                     RefreshMetaEditor();

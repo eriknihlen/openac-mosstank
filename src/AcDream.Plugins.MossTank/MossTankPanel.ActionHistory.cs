@@ -33,7 +33,7 @@ internal sealed partial class MossTankPanel
         }
         if (!_host.Storage.IsAvailable)
         {
-            _host.Automation.Chat.PostSystemMessage("MossTank debug log: plugin storage is unavailable.");
+            MossTankChat.Post(_host.Automation.Chat, "MossTank debug log: plugin storage is unavailable.");
             return;
         }
         _debugLog = new MacroDebugLog(_host.Storage,
@@ -43,7 +43,7 @@ internal sealed partial class MossTankPanel
         foreach (string line in _actionHistory.Lines) WriteDebugLog(line);
         FlushDebugLog();
         if (_debugLog is not null)
-            _host.Automation.Chat.PostSystemMessage("MossTank debug log: " + DebugLogLocation);
+            MossTankChat.Post(_host.Automation.Chat, "MossTank debug log: " + DebugLogLocation);
     }
 
     private void WriteDebugLog(string message) => _debugLog?.Record(message);
@@ -55,7 +55,7 @@ internal sealed partial class MossTankPanel
         {
             _debugLog = null;
             _host.Log.Error("MossTank debug logging stopped: " + error.Message);
-            _host.Automation.Chat.PostSystemMessage("MossTank debug logging stopped: " + error.Message);
+            MossTankChat.Post(_host.Automation.Chat, "MossTank debug logging stopped: " + error.Message);
         }
     }
 

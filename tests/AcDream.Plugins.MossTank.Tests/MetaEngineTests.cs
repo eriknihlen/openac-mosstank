@@ -425,7 +425,7 @@ public sealed class MetaEngineTests
         Assert.Equal(0d, expressions.Evaluate("getvar[`broken`]").AsNumber());
         Assert.Equal(2d, expressions.Evaluate("getvar[`after`]").AsNumber());
         string warning = Assert.Single(host.Automation.Posted);
-        Assert.StartsWith("Error in meta expression: getvar[a]+ (", warning);
+        Assert.StartsWith("[MossTank] Error in meta expression: getvar[a]+ (", warning);
     }
 
     /// <summary>
@@ -456,7 +456,7 @@ public sealed class MetaEngineTests
         Assert.Equal(0d, expressions.Evaluate("getvar[`broken`]").AsNumber());
         Assert.Equal(1d, expressions.Evaluate("getvar[`after`]").AsNumber());
         string warning = Assert.Single(host.Automation.Posted);
-        Assert.StartsWith($"Error in meta expression: {source} (", warning);
+        Assert.StartsWith($"[MossTank] Error in meta expression: {source} (", warning);
     }
 
     /// <summary>
@@ -487,7 +487,7 @@ public sealed class MetaEngineTests
         Assert.Equal(0d, expressions.Evaluate("getvar[`slow`]").AsNumber());
         Assert.Equal(1d, expressions.Evaluate("getvar[`after`]").AsNumber());
         string warning = Assert.Single(host.Automation.Posted);
-        Assert.StartsWith("Error in meta condition ChatMessage: ", warning);
+        Assert.StartsWith("[MossTank] Error in meta condition ChatMessage: ", warning);
     }
 
     [Fact]
@@ -515,9 +515,9 @@ public sealed class MetaEngineTests
         Assert.Collection(
             host.Automation.Posted,
             warning => Assert.StartsWith(
-                "Error in meta expression action: nosuchfunction[] (", warning),
+                "[MossTank] Error in meta expression action: nosuchfunction[] (", warning),
             warning => Assert.StartsWith(
-                "Error in meta expression chat action: nosuchfunction[] (", warning));
+                "[MossTank] Error in meta expression chat action: nosuchfunction[] (", warning));
 
         engine.Transition(MetaEngine.DefaultState);
         engine.EvaluatePass();
@@ -712,7 +712,7 @@ public sealed class MetaEngineTests
 
         Assert.Equal("Next", engine.CurrentState);
         string posted = Assert.Single(host.Automation.Posted);
-        Assert.StartsWith(warning, posted);
+        Assert.StartsWith("[MossTank] " + warning, posted);
     }
 
     /// <summary>
@@ -763,7 +763,7 @@ public sealed class MetaEngineTests
 
         Assert.Empty(written);
         Assert.Equal(
-            "SetVTOption Action: Specified setting doesn't exist. Will not execute.",
+            "[MossTank] SetVTOption Action: Specified setting doesn't exist. Will not execute.",
             Assert.Single(host.Automation.Posted));
     }
 
@@ -819,7 +819,7 @@ public sealed class MetaEngineTests
         engine.EvaluatePass();
 
         Assert.Empty(read);
-        Assert.Equal(warning, Assert.Single(host.Automation.Posted));
+        Assert.Equal("[MossTank] " + warning, Assert.Single(host.Automation.Posted));
         Assert.False(expressions.Evaluate("testvar[`into`]").IsTruthy);
         Assert.False(expressions.Evaluate("testvar[`option`]").IsTruthy);
     }

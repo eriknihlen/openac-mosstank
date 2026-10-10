@@ -480,8 +480,8 @@ public sealed partial class MossTankPanelTests
         storage.Text["mosstank/metas/elsewhere.met"] = DroppedMeta();
         Command(panel, "navaf load elsewhere");
         Command(panel, "metaaf load elsewhere");
-        Assert.Contains("Navigation profile elsewhere.af was not found.", automation.Messages);
-        Assert.Contains("Meta profile elsewhere.af was not found.", automation.Messages);
+        Assert.Contains("[MossTank] Navigation profile elsewhere.af was not found.", automation.Messages);
+        Assert.Contains("[MossTank] Meta profile elsewhere.af was not found.", automation.Messages);
         Assert.Equal("foo.af", panel.SelectedRouteProfile);
         Assert.False(storage.Text.ContainsKey("mosstank/metas/elsewhere.af"));
     }
@@ -517,8 +517,8 @@ public sealed partial class MossTankPanelTests
         Command(panel, "help navaf");
         Command(panel, "help metaaf");
 
-        Assert.Contains("Syntax: /vt navaf [save/load] [filename]", automation.Messages);
-        Assert.Contains("Syntax: /vt metaaf [save/load] [filename]", automation.Messages);
+        Assert.Contains("[MossTank] Syntax: /vt navaf [save/load] [filename]", automation.Messages);
+        Assert.Contains("[MossTank] Syntax: /vt metaaf [save/load] [filename]", automation.Messages);
     }
 
     // ── follow never writes the loaded route ────────────────────────────

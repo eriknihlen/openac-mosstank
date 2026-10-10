@@ -99,7 +99,7 @@ internal sealed class CombatModeGate : IDisposable
     {
         if (!_postedWarnings.Add(text))
             return;
-        _host.Automation.Chat.PostSystemMessage("[MossTank] " + text);
+        MossTankChat.Post(_host.Automation.Chat, "[MossTank] " + text);
     }
 
     public void Reset()
@@ -437,7 +437,7 @@ internal sealed class CombatModeGate : IDisposable
                 ? BuggedCombatStateWarning
                 : $"Combat-state recovery with {recovery.Name}: {use.Status}";
             if (use.Status == PluginItemCommandStatus.Started)
-                _host.Automation.Chat.PostSystemMessage("[MossTank] " + BuggedCombatStateWarning);
+                MossTankChat.Post(_host.Automation.Chat, "[MossTank] " + BuggedCombatStateWarning);
             _dropToPeaceRetries = 0;
             return false;
         }
@@ -579,7 +579,7 @@ internal sealed class CombatModeGate : IDisposable
         Status = NoWandNotice;
         if (!_noWandNoticePosted)
         {
-            _host.Automation.Chat.PostSystemMessage("[MossTank] " + NoWandNotice);
+            MossTankChat.Post(_host.Automation.Chat, "[MossTank] " + NoWandNotice);
             _noWandNoticePosted = true;
         }
         _stopMacro(NoWandNotice);

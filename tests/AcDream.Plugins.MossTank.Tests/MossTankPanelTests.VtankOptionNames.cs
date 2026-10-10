@@ -56,15 +56,15 @@ public sealed partial class MossTankPanelTests
         (FakeAutomation automation, MossTankPanel panel) = NamespacePanel();
 
         Issue(panel, VtWord, "opt set MyOwnFlag true");
-        Assert.Equal("Option set: Invalid option specified.", Assert.Single(automation.Messages));
+        Assert.Equal("[MossTank] Option set: Invalid option specified.", Assert.Single(automation.Messages));
 
         automation.Messages.Clear();
         Issue(panel, VtWord, "opt get MyOwnFlag");
-        Assert.Equal("Option get: Invalid option specified.", Assert.Single(automation.Messages));
+        Assert.Equal("[MossTank] Option get: Invalid option specified.", Assert.Single(automation.Messages));
 
         automation.Messages.Clear();
         Issue(panel, VtWord, "opt get WhoYouGonnaCall");
-        Assert.Equal("Option WhoYouGonnaCall = True", Assert.Single(automation.Messages));
+        Assert.Equal("[MossTank] Option WhoYouGonnaCall = True", Assert.Single(automation.Messages));
     }
 
     /// <summary>

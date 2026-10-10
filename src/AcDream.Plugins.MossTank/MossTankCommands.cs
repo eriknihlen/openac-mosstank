@@ -1802,7 +1802,7 @@ internal sealed partial class MossTankPanel
         if (!IsLogging(channel))
             return;
         if (chat)
-            _host.Automation.Chat.PostSystemMessage("[MossTank] " + message);
+            MossTankChat.Post(_host.Automation.Chat, "[MossTank] " + message);
         _host.Log.Info("[vt log " + channel + "] " + message);
     }
 
@@ -1908,7 +1908,7 @@ internal sealed partial class MossTankPanel
     }
 
     private void WriteVtank(string text) =>
-        _host.Automation.Chat.PostSystemMessage(text);
+        MossTankChat.Post(_host.Automation.Chat, text);
 
     /// <summary>A finished UtilityBelt line, in its kind's text class.</summary>
     private void PostUb(string line) => UbChat.Post(_host.Automation.Chat, line);
