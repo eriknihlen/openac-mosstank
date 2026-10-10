@@ -1266,7 +1266,8 @@ internal sealed class NavigationController
         double nearest = _settings.DoorIdentifyRangeMeters;
         foreach (PluginNavigationObject candidate in objects)
         {
-            if (!candidate.IsDoor || candidate.IsOpen)
+            if (!candidate.IsDoor || candidate.IsOpen
+                || !IsDoorOnRoute(navigation, snapshot.Position, candidate.Position))
                 continue;
             double distance = snapshot.Position.HorizontalDistanceMeters(
                 candidate.Position);
@@ -1387,6 +1388,53 @@ internal sealed class NavigationController
                 : $"waiting for door: {door.Name}";
         }
         return true;
+    }
+
+    private bool IsDoorOnRoute(
+        INavigationAutomation navigation,
+        in PluginNavigationPosition current,
+        in PluginNavigationPosition door)
+    {
+        PluginNavigationPosition goal;
+        if (_settings.Mode == RouteMode.Target)
+        {
+            if (!navigation.TryGetObject(_settings.FollowTargetObjectId, out var target)
+                || current.HorizontalDistanceMeters(target.Position) <= BoundedMinimumDistance())
+                return false;
+            goal = _followPath.Count > 0 ? _followPath[0] : target.Position;
+        }
+        else
+        {
+            if (_onceComplete || _index < 0 || _index >= _settings.Waypoints.Count)
+                return false;
+            RouteWaypoint waypoint = _settings.Waypoints[_index];
+            if (waypoint.Type is not (RouteWaypointType.Point or RouteWaypointType.Checkpoint
+                or RouteWaypointType.Portal or RouteWaypointType.PortalByName))
+                return false;
+            goal = waypoint.Position;
+            if (waypoint.Type is RouteWaypointType.Portal or RouteWaypointType.PortalByName
+                && navigation.TryGetObject(waypoint.ObjectId, out var portal))
+                goal = portal.Position;
+        }
+
+        // Door bounds are not exposed by the host. Use a narrow, finite route
+        // corridor instead of treating every door in interaction range as a blocker.
+        double dx = (goal.EastWest - current.EastWest) * 240d;
+        double dy = (goal.NorthSouth - current.NorthSouth) * 240d;
+        double px = (door.EastWest - current.EastWest) * 240d;
+        double py = (door.NorthSouth - current.NorthSouth) * 240d;
+        double lengthSquared = dx * dx + dy * dy;
+        if (lengthSquared <= 0d)
+            return false;
+        double fraction = (px * dx + py * dy) / lengthSquared;
+        if (fraction <= 0d || fraction > 1d)
+            return false;
+        double offsetX = px - fraction * dx;
+        double offsetY = py - fraction * dy;
+        double height = current.Elevation + fraction * (goal.Elevation - current.Elevation);
+        const double corridorMeters = 1d;
+        return offsetX * offsetX + offsetY * offsetY <= corridorMeters * corridorMeters
+            && Math.Abs(door.Elevation - height) * 240d <= corridorMeters;
     }
 
     private uint SelectLockpick(int difficulty)

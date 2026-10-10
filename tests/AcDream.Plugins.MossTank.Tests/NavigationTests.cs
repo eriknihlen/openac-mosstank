@@ -1007,6 +1007,7 @@ public sealed class NavigationTests
             Mode = RouteMode.Circular,
         };
         var controller = new NavigationController(new FakeHost(automation), settings);
+        settings.Waypoints.Add(Waypoint(RouteWaypointType.Point, Position(1d, 0d)));
         bool locked = true;
         int armed = 0;
         var rule = new OpenDoorRule(
@@ -1116,6 +1117,73 @@ public sealed class NavigationTests
         Assert.Contains(55u, automation.UsedObjects);
         automation.WorldObjects[0] = automation.WorldObjects[0] with { IsOpen = true };
         Assert.False(controller.TickDoorRule(0.6d, canAct: true));
+    }
+
+    [Theory]
+    [InlineData(0.01d, 0.01d, 0d)]
+    [InlineData(-0.01d, 0d, 0d)]
+    [InlineData(1.01d, 0d, 0d)]
+    [InlineData(0.01d, 0d, 0.02d)]
+    public void DoorsOutsideTheCurrentRouteAreNotUsedOrIdentified(double x, double y, double z)
+    {
+        var (controller, automation, locks) = DoorFixture(hasLockState: false);
+        var door = automation.WorldObjects[0];
+        automation.WorldObjects[0] = door with
+        {
+            Position = door.Position with { EastWest = x, NorthSouth = y, Elevation = z },
+        };
+
+        Assert.False(controller.TickDoorRule(0.05d, canAct: true));
+        Assert.Empty(automation.UsedObjects);
+        Assert.Empty(automation.IdentifiedWorldObjects);
+        Assert.False(locks.IsLocked(ActionLockKind.Navigation));
+        Assert.Equal("no door in reach", controller.DoorStatus);
+    }
+
+    [Fact]
+    public void NearbyOffRouteDoorDoesNotHideDoorOnRoute()
+    {
+        var (controller, automation, _) = DoorFixture();
+        automation.WorldObjects.Add(automation.WorldObjects[0] with
+        {
+            ObjectId = 56u,
+            Position = Position(0d, 0.005d),
+        });
+        Assert.True(controller.TickDoorRule(0.05d, canAct: true));
+        Assert.Equal([55u], automation.UsedObjects);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void IdleOrPausedRouteDoesNotOpenNearbyDoors(bool pause)
+    {
+        var automation = new FakeAutomation
+        {
+            NavigationSnapshot = Snapshot(Position(0d, 0d)),
+        };
+        automation.WorldObjects.Add(new PluginNavigationObject(55u, "Door", Position(0.01d, 0d))
+        {
+            IsDoor = true,
+            HasLockState = true,
+        });
+        var settings = new NavigationSettings { Enabled = true, OpenDoors = true };
+        if (pause)
+            settings.Waypoints.Add(Waypoint(RouteWaypointType.Pause, Position(1d, 0d)));
+        var controller = new NavigationController(new FakeHost(automation), settings);
+        Assert.False(controller.TickDoorRule(0.05d, canAct: true));
+        Assert.Empty(automation.UsedObjects);
+    }
+
+    [Fact]
+    public void ActiveDoorIsDiscardedWhenPlayerPassesIt()
+    {
+        var (controller, automation, locks) = DoorFixture();
+        Assert.True(controller.TickDoorRule(0.05d, canAct: true));
+        locks.Advance(6d);
+        automation.NavigationSnapshot = Snapshot(Position(0.02d, 0d));
+        Assert.False(controller.TickDoorRule(0.05d, canAct: true));
+        Assert.Equal([55u], automation.UsedObjects);
     }
 
     private static (NavigationController controller, FakeAutomation automation, ActionLockTable locks) DoorFixture(
