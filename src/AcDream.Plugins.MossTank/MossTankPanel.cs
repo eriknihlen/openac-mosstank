@@ -5521,6 +5521,7 @@ internal sealed partial class MossTankPanel : IBuffRuleHost, IDisposable
 
     public void OnTick(double elapsedSeconds)
     {
+        ObserveMacroActivity(elapsedSeconds);
         _killStatistics.Tick();
         bool automationAvailable = _host.Automation.IsAvailable;
         if (!automationAvailable)
@@ -5938,6 +5939,7 @@ internal sealed partial class MossTankPanel : IBuffRuleHost, IDisposable
         if (string.Equals(cause, _reportedSuspension, StringComparison.Ordinal))
             return;
         _reportedSuspension = cause;
+        ObserveActivity("Pause", cause is null ? "Resumed." : cause);
         EmitMacroLog(
             MacroLogChannel.RuleInfo,
             cause is null ? "(scheduler) resumed" : "(scheduler) suspended: " + cause);
@@ -6015,6 +6017,8 @@ internal sealed partial class MossTankPanel : IBuffRuleHost, IDisposable
     public void Dispose()
     {
         _peerSubscriptions?.Dispose();
+        FlushDebugLog();
+        _debugLog = null;
         _killStatistics.Dispose();
         Disable();
         _combat.StatusChanged -= RecordActionHistory;

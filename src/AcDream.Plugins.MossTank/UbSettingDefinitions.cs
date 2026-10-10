@@ -514,7 +514,7 @@ internal static class UbSettingDefinitions
         rows.Add(Switch(
             "Networking.ReceiveCommands",
             "Receive broadcast commands from trusted local clients in the same world.",
-            false,
+            true,
             UbSettingScope.Character));
         rows.Add(Line(
             "Sharing.CastTag",

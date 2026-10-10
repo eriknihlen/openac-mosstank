@@ -259,7 +259,7 @@ public sealed class UbSettingCoverageTests
     private static readonly IReadOnlyDictionary<string, string> AddedHere =
         new Dictionary<string, string>(StringComparer.Ordinal)
         {
-            ["Networking.ReceiveCommands"] = "Explicit per-character opt-in to local command reception.",
+            ["Networking.ReceiveCommands"] = "Per-character local command reception, enabled by default.",
             ["ItemGiver.Delay"] =
                 "A pause between one hand-over and the next, which the "
                 + "original has no setting for; it was added here so a run "
@@ -354,7 +354,7 @@ public sealed class UbSettingCoverageTests
         ("Plugin.ErrorMessageDisplay.Color", "15"),
 
         ("Sharing.Vitals", "False"),
-        ("Networking.ReceiveCommands", "False"),
+        ("Networking.ReceiveCommands", "True"),
         ("Sharing.CastTag", ""),
     ];
 

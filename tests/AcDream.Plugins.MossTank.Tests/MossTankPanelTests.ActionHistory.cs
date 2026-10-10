@@ -3,6 +3,36 @@ namespace AcDream.Plugins.MossTank.Tests;
 public sealed partial class MossTankPanelTests
 {
     [Fact]
+    public void DebugButtonSavesHistoryAndStopsWritingWhenDisabled()
+    {
+        var storage = new MemoryStorage();
+        using var panel = new MossTankPanel(new FakeHost(new FakeAutomation(), storage));
+        panel.ToggleDebugLog();
+        string key = Assert.Single(storage.Text.Keys, key => key.StartsWith("debug/"));
+        Assert.Contains("Combat off", storage.Text[key]);
+        Assert.Equal("Debug log: ON", panel.DebugLogButtonText);
+        panel.ToggleCombat();
+        panel.ToggleDebugLog();
+        string saved = storage.Text[key];
+        Assert.Contains("Logging stopped.", saved);
+        panel.ToggleCombat();
+        Assert.Equal(saved, storage.Text[key]);
+        Assert.Equal("Debug log: off", panel.DebugLogButtonText);
+    }
+
+    [Fact]
+    public void ActivityIncludesNavigationAndDoesNotRepeatUnchangedState()
+    {
+        using var panel = new MossTankPanel(new FakeHost(new FakeAutomation()));
+        panel.ToggleCombat();
+        panel.OnTick(0.5);
+        Assert.Contains(panel.ActionHistoryLines, line => line.Contains("Navigation:"));
+        int count = panel.ActionHistoryLines.Count(line => line.Contains("Navigation:"));
+        panel.OnTick(0.5);
+        Assert.Equal(count, panel.ActionHistoryLines.Count(line => line.Contains("Navigation:")));
+    }
+
+    [Fact]
     public void RecordsEveryTransitionWhileClosedWithoutDependingOnTicksOrReads()
     {
         using var panel = new MossTankPanel(new FakeHost(new FakeAutomation()));

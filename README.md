@@ -188,6 +188,19 @@ history without affecting the macro or current status, and **X** closes the wind
 
 ## Peer features
 
-Requires OpenAC 0.1.24. Vital Sharing and Receive broadcasts default off and are stored per character. Vital Sharing exchanges character state and cast information; Receive broadcasts allows this client to execute incoming tagged broadcast commands. Sending a broadcast does not enable reception. Network HUD, active peer healing and metas containing netclients[] or netcasts[] request their own capabilities. Requests end when the feature stops or the plugin unloads. A meta needing peers waits for the initial connection before evaluating peer-dependent rules.
+Requires OpenAC 0.1.24. Receive broadcasts defaults on so `/ub bc` works between logged-in characters on this computer in the same world. Vital Sharing still defaults off. Both choices are stored per character; an explicitly saved choice is preserved. Vital Sharing exchanges character state and cast information; Receive broadcasts allows this client to execute incoming tagged broadcast commands. Sending a broadcast does not enable reception. Network HUD, active peer healing and metas containing netclients[] or netcasts[] request their own capabilities. Requests end when the feature stops or the plugin unloads. A meta needing peers waits for the initial connection before evaluating peer-dependent rules.
 
 For a local source build before the contract is published, pack AcDream.Plugin.Abstractions 0.1.24 from the matching OpenAC checkout and copy the nupkg into packages-local before restoring. CI requires the corresponding OpenAC release to exist.
+
+### Action history and debug files
+
+Action History includes navigation, active rule, meta state, pause reasons, loot,
+buffs and recharge status. Changes are recorded without repeating unchanged
+states or every distance/countdown update. Reading older entries keeps your scroll position.
+
+The main window's **Debug log** button captures detailed macro channels without
+turning on chat spam. The path appears in chat and the button tooltip. Files live
+under `debug/` in MossTank plugin storage, are unique to the recording (safe with
+multiple clients), and retain at most 2 MiB of the newest complete UTF-8 entries.
+The file is flushed every five seconds and when logging stops or the plugin unloads;
+an abrupt crash can lose the last five seconds. Logging starts off each session.

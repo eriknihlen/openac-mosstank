@@ -1797,6 +1797,7 @@ internal sealed partial class MossTankPanel
     private void EmitMacroLog(
         MacroLogChannel channel, string message, bool chat)
     {
+        WriteDebugLog("[" + channel + "] " + message);
         if (!IsLogging(channel))
             return;
         if (chat)
