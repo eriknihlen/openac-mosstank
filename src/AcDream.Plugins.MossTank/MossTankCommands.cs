@@ -910,6 +910,7 @@ internal sealed partial class MossTankPanel
                 return;
             }
             _metaProfile = imported;
+            DiscardEmbeddedRoute();
             _meta.ReplaceProfile(_metaProfile);
             if (_initialized)
                 ApplyPersistedOptionOverrides();

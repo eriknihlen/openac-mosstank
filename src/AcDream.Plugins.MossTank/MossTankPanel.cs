@@ -2998,8 +2998,10 @@ internal sealed partial class MossTankPanel : IBuffRuleHost, IDisposable
     private void SelectRouteProfileCore(string name)
     {
         if (string.Equals(name, _embeddedRouteLabel, StringComparison.Ordinal))
+        {
+            ReloadEmbeddedRoute(name);
             return;
-        SaveRouteProfile();
+        }
         if (!_routeProfiles.Select(name))
         {
             _routeNotice = $"Route profile '{name}' is unavailable.";
@@ -3942,6 +3944,7 @@ internal sealed partial class MossTankPanel : IBuffRuleHost, IDisposable
                     ? MossTankProfileLoad.Missing
                     : MossTankProfileLoad.Failed,
             _metaProfiles.LastLoadError);
+        DiscardEmbeddedRoute();
         _meta.ReplaceProfile(_metaProfile);
         if (_initialized)
             ApplyPersistedOptionOverrides();
