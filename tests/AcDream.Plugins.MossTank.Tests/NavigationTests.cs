@@ -1102,6 +1102,22 @@ public sealed class NavigationTests
         Assert.NotEqual(controller.Status, rule.DeclineReason);
     }
 
+    [Fact]
+    public void DoorAppraisalUsesWorldObjectsAndTheReplyAllowsOpening()
+    {
+        var (controller, automation, locks) = DoorFixture(hasLockState: false);
+        automation.WorldAppraisalAvailable = true;
+        // The loot surface is unavailable for world doors, as on the live host.
+        Assert.False(((IAutomationSurface)automation).Loot.IsAvailable);
+        Assert.False(controller.TickDoorRule(0.05d, canAct: true));
+        Assert.Equal(new uint[] { 55u }, automation.IdentifiedWorldObjects);
+        automation.WorldObjects[0] = automation.WorldObjects[0] with { HasLockState = true, IsLocked = false };
+        Assert.True(controller.TickDoorRule(0.6d, canAct: true));
+        Assert.Contains(55u, automation.UsedObjects);
+        automation.WorldObjects[0] = automation.WorldObjects[0] with { IsOpen = true };
+        Assert.False(controller.TickDoorRule(0.6d, canAct: true));
+    }
+
     private static (NavigationController controller, FakeAutomation automation, ActionLockTable locks) DoorFixture(
         bool hasLockState = true)
     {
@@ -3592,9 +3608,17 @@ public sealed class NavigationTests
 
     private sealed class FakeAutomation
         : IAutomationSurface, INavigationAutomation, IPluginChat, IItemAutomation,
-          ICombatAutomation, IEquipmentAutomation
+          ICombatAutomation, IEquipmentAutomation, IWorldObjectAutomation
     {
         public bool IsAvailable => true;
+        public bool WorldAppraisalAvailable { get; set; }
+        IWorldObjectAutomation IAutomationSurface.Objects => WorldAppraisalAvailable ? this : NoOpAutomationSurface.Instance;
+        public List<uint> IdentifiedWorldObjects { get; } = [];
+        PluginItemCommandResult IWorldObjectAutomation.Identify(uint objectId)
+        {
+            IdentifiedWorldObjects.Add(objectId);
+            return new(PluginItemCommandStatus.Started);
+        }
         public ICombatAutomation Combat => this;
         public IEquipmentAutomation Equipment => this;
         public PluginCombatSnapshot CombatSnapshot { get; set; }

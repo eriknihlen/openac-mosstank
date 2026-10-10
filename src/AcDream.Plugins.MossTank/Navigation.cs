@@ -1297,7 +1297,8 @@ internal sealed class NavigationController
             if (nearest <= _settings.DoorIdentifyRangeMeters
                 && _host.Automation.Loot.Appraisal.AwaitingObjectId == 0u)
             {
-                _ = _host.Automation.Loot.Identify(door.ObjectId);
+                // Doors belong to the world, not the owned/container loot set.
+                _ = _host.Automation.Objects.Identify(door.ObjectId);
             }
             if (nearest <= _settings.DoorOpenRangeMeters)
             {
