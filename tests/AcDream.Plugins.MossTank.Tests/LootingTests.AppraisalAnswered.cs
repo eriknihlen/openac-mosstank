@@ -10,6 +10,35 @@ namespace AcDream.Plugins.MossTank.Tests;
 /// </summary>
 public sealed partial class LootingTests
 {
+    [Theory]
+    [InlineData(false, true, true, false)]
+    [InlineData(true, false, true, false)]
+    [InlineData(true, true, false, false)]
+    [InlineData(true, true, false, true)]
+    [InlineData(true, true, true, false)]
+    public void NavigationOnlyWaitsForDescriptionsWhenLootingCanProcessThem(
+        bool active, bool enabled, bool rules, bool external)
+    {
+        var settings = DescriptionGiveUpSettings();
+        settings.ProfileActive = active;
+        settings.Enabled = enabled;
+        if (!rules)
+            settings.Rules.Clear();
+        settings.ExternalClassifierId = external ? "utility/loot" : string.Empty;
+        var automation = ApproachAutomation(
+            Corpse(0x7000F199u, 3f) with { IsIdentified = false });
+        var looter = new LootController(new Host(automation), settings);
+        bool eligible = active && enabled && (rules || external);
+
+        for (int frame = 0; frame < 4; frame++)
+        {
+            looter.Tick(0.25d, canAct: true);
+            looter.TickIdentification(0.25d);
+            Assert.Equal(eligible, looter.HasCorpseAwaitingDescriptionWithin(15d));
+        }
+        Assert.Equal(eligible, automation.Identified.Count > 0);
+    }
+
     /// <summary>
     /// Mutations: wait on a corpse until it is described (the answered one
     /// holds the walks off for good); ask again about a corpse until it is

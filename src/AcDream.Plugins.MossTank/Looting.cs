@@ -1149,6 +1149,10 @@ internal sealed partial class LootController
     private const double IdentifyRequestIntervalSeconds = 0.499d;
     private double _sinceIdentifyRequest = IdentifyRequestIntervalSeconds;
 
+    private bool CanProcessLoot =>
+        _settings.ProfileActive && _settings.Enabled && _host.Automation.IsAvailable
+        && (_settings.Rules.Count > 0 || !string.IsNullOrWhiteSpace(_settings.ExternalClassifierId));
+
     /// <summary>
     /// Asks for descriptions and item ids on the host's frame rather than on
     /// the loot rule's turn: the reference queues every corpse on its radar
@@ -1163,9 +1167,7 @@ internal sealed partial class LootController
     /// </summary>
     internal void TickIdentification(double elapsedSeconds)
     {
-        if (!_settings.ProfileActive
-            || !_settings.Enabled
-            || !_host.Automation.IsAvailable)
+        if (!CanProcessLoot)
         {
             return;
         }

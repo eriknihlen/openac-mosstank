@@ -426,8 +426,10 @@ internal sealed partial class MossTankPanel : IBuffRuleHost, IDisposable
         _combatModeGate.BindActionLocks(_actionLocks);
         _vitalRecharge.BindActionLocks(_actionLocks);
         _vitalRecharge.BindCombatModeGate(_combatModeGate);
+        _vitalRecharge.BindCastTracker(_castTracker);
         _vitalHelperRecharge.BindActionLocks(_actionLocks);
         _vitalHelperRecharge.BindCombatModeGate(_combatModeGate);
+        _vitalHelperRecharge.BindCastTracker(_castTracker);
         _dispel.BindActionLocks(_actionLocks);
         _inventoryMaintenance = new InventoryMaintenanceController(
             host,

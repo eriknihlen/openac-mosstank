@@ -1201,6 +1201,11 @@ internal static class VitalRechargePlanner
 /// <summary>One server-receipt-driven self-recharge state machine.</summary>
 internal sealed class VitalRechargeController
 {
+    private SpellCastTracker? _castTracker;
+
+    internal void BindCastTracker(SpellCastTracker tracker) =>
+        _castTracker = tracker ?? throw new ArgumentNullException(nameof(tracker));
+
     private CombatModeGate? _combatModeGate;
 
     internal void BindCombatModeGate(CombatModeGate gate) =>
@@ -1572,23 +1577,42 @@ internal sealed class VitalRechargeController
             _ => false,
         };
 
-    private static bool Start(
+    private bool Start(
         IAutomationSurface automation,
         VitalRechargeChoice choice)
     {
         if (choice.SourceKind == VitalRechargeSourceKind.LearnedSpell)
         {
+            if (_castTracker is { } tracker
+                && (tracker.IsBusy
+                    || !automation.Spells.TryGet(choice.SpellId, out PluginSpellInfo candidate)
+                    || tracker.IsSchoolLockedOut(candidate.School)))
+                return false;
             PluginCastGate gate = choice.TargetObjectId == 0u
                 ? automation.Magic.EvaluateGate(choice.SpellId)
                 : automation.Magic.EvaluateGate(
                     choice.SpellId,
                     choice.TargetObjectId);
-            return gate == PluginCastGate.Ready
+            bool started = gate == PluginCastGate.Ready
                 && (choice.TargetObjectId == 0u
                     ? automation.Magic.Cast(choice.SpellId)
                     : automation.Magic.Cast(
                         choice.SpellId,
                         choice.TargetObjectId));
+            if (started && _castTracker is not null
+                && automation.Spells.TryGet(choice.SpellId, out PluginSpellInfo spell))
+            {
+                string targetName = choice.TargetObjectId == 0u
+                    || choice.TargetObjectId == automation.Character.ObjectId
+                    ? "yourself"
+                    : automation.Objects.TryGet(choice.TargetObjectId, out PluginWorldObject target)
+                        ? target.Name : string.Empty;
+                _castTracker.Begin(spell.SpellId, spell.Name, choice.TargetObjectId,
+                    targetName, SpellCastTracker.HitsMultipleTargetsFor(spell),
+                    spell.Saying, spell.School, SpellCastTracker.CanKillFor(spell),
+                    checked((int)Math.Min(int.MaxValue, automation.Character.CurrentMana)));
+            }
+            return started;
         }
 
         PluginItemCommandResult result = choice.SourceKind switch
@@ -1674,10 +1698,15 @@ internal sealed class VitalRechargeController
     /// one is stepped over -- its stamp is taken as the new floor, so it can
     /// never be read twice -- and the wait goes on.
     /// </summary>
-    private static bool TryComplete(IAutomationSurface automation, Pending pending)
+    private bool TryComplete(IAutomationSurface automation, Pending pending)
     {
         if (pending.Choice.SourceKind == VitalRechargeSourceKind.LearnedSpell)
         {
+            // The shared cast owner observes the spell's speech and result on
+            // every frame. A generic use receipt may have no spell identity
+            // when an older cast is unanswered, so it cannot own this wait.
+            if (_castTracker is not null)
+                return !_castTracker.IsBusy;
             PluginCastCompletion cast = automation.Magic.LastCompletion;
             if (cast.Revision <= pending.Revision)
                 return false;

@@ -165,7 +165,7 @@ internal sealed partial class LootController
     /// </summary>
     internal bool HasCorpseAwaitingDescriptionWithin(double rangeMeters)
     {
-        if (!_host.Automation.IsAvailable || !RareWindowOpenOrNotRareOnly())
+        if (!CanProcessLoot || !RareWindowOpenOrNotRareOnly())
             return false;
         ILootAutomation loot = _host.Automation.Loot;
         if (!loot.IsAvailable)

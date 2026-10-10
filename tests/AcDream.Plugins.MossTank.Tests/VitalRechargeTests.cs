@@ -5,6 +5,73 @@ namespace AcDream.Plugins.MossTank.Tests;
 public sealed class VitalRechargeTests
 {
     [Fact]
+    public void RechargeCannotReplaceAnotherOwnersTrackedCast()
+    {
+        var surface = new Surface
+        {
+            CurrentHealth = 50, Mode = PluginCombatMode.Magic,
+            Skills = [Skill(33u, 400u)],
+            Spells = [Spell(100u, "Heal Self VII", 1u, 300)],
+        };
+        var tracker = new SpellCastTracker();
+        tracker.Begin(200u, "Other spell", 99u, "Other target", false);
+        var controller = new VitalRechargeController(
+            new Host(surface), new VitalSettings(), new CombatSettings());
+        controller.BindCastTracker(tracker);
+        controller.Tick(0.3d, enabled: true, noTarget: false, helpers: false);
+        Assert.Empty(surface.CastSpellIds);
+        Assert.Equal(200u, tracker.SpellId);
+        Assert.False(controller.CastInFlight);
+    }
+
+    [Theory]
+    [InlineData(80u, true)]
+    [InlineData(10u, false)]
+    public void StaminaKitStillHonorsConfiguredMinimumSuccessChance(uint stamina, bool expected)
+    {
+        var surface = new Surface
+        {
+            CurrentStamina = stamina, MaxStamina = 100,
+            Skills = [Skill(21u, 200u)],
+            Items = [Kit(10u, "Greater Stamina Kit", (int)VitalKind.Stamina)],
+        };
+        var combat = new CombatSettings();
+        combat.ConsumableNames.Add("Greater Stamina Kit");
+        combat.ConsumableCategories["Greater Stamina Kit"] = ConsumableCategory.StaminaKit;
+        Assert.Equal(expected, VitalRechargePlanner.TryPlan(
+            VitalKind.Stamina, surface, new VitalSettings(), combat, out _));
+    }
+
+    [Fact]
+    public void RechargeUsesSpellResultEvenWhenUseReceiptCannotIdentifyTheCast()
+    {
+        var surface = new Surface
+        {
+            CurrentHealth = 50,
+            Mode = PluginCombatMode.Magic,
+            Skills = [Skill(33u, 400u)],
+            Spells = [Spell(100u, "Heal Self VII", 1u, 300) with { Saying = "test words" }],
+        };
+        var tracker = new SpellCastTracker();
+        var controller = new VitalRechargeController(
+            new Host(surface), new VitalSettings(), new CombatSettings());
+        controller.BindCastTracker(tracker);
+        controller.Tick(0.3d, enabled: true, noTarget: false, helpers: false);
+        Assert.True(controller.HoldsPass);
+        tracker.ObserveChat(1, "test words", ownSpeech: true,
+            logTextType: CombatLogTextType.Spellcasting);
+        tracker.ObserveChat(2, "You cast Heal Other VII on Stranger",
+            logTextType: CombatLogTextType.Magic);
+        controller.ObservePendingReceipt(0.1d);
+        Assert.True(controller.HoldsPass);
+        tracker.ObserveChat(3, "You cast Heal Self VII on yourself",
+            logTextType: CombatLogTextType.Magic);
+        controller.ObservePendingReceipt(0.1d);
+        Assert.False(controller.HoldsPass);
+        Assert.Equal(default, surface.LastCastCompletion);
+    }
+
+    [Fact]
     public void AuthenticDefaultsAreExactNineThresholds()
     {
         var settings = new VitalSettings();
@@ -1745,7 +1812,12 @@ public sealed class VitalRechargeTests
         public PluginCombatCommandResult ReleasePhysicalAttack() => new(PluginCombatCommandStatus.Released);
         public PluginCombatCommandResult AbortPhysicalAttack() => new(PluginCombatCommandStatus.Stopped);
         public PluginCastGate EvaluateGate(uint spellId) => PluginCastGate.Ready;
-        public bool Cast(uint spellId) => true;
+        public List<uint> CastSpellIds { get; } = [];
+        public bool Cast(uint spellId)
+        {
+            CastSpellIds.Add(spellId);
+            return true;
+        }
         public void PostSystemMessage(string text) { }
     }
 }
