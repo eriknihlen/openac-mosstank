@@ -1,4 +1,4 @@
-﻿using System.Reflection;
+using System.Reflection;
 using AcDream.Plugin.Abstractions;
 
 namespace AcDream.Plugins.MossTank.Tests;
@@ -2627,7 +2627,7 @@ public sealed partial class MossTankPanelTests
             message => Assert.Contains(
                 "The Items profile is empty.", message, StringComparison.Ordinal),
             message => Assert.Contains(
-                "Added War Wand.", message, StringComparison.Ordinal),
+                "Added War Wand, but the changes could not be fully saved:", message, StringComparison.Ordinal),
             message => Assert.Contains(
                 "already in this list", message, StringComparison.Ordinal));
     }
@@ -12684,7 +12684,13 @@ public sealed partial class MossTankPanelTests
             Directories.Add(prefix);
             return true;
         }
-        public void WriteText(string key, string content) => Text[key] = content;
+        public string? FailWritesWithSuffix { get; set; }
+        public void WriteText(string key, string content)
+        {
+            if (FailWritesWithSuffix is not null && key.EndsWith(FailWritesWithSuffix, StringComparison.Ordinal))
+                throw new IOException("Simulated disk write failure");
+            Text[key] = content;
+        }
         public bool Delete(string key) => Text.Remove(key);
     }
 

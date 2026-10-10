@@ -5315,7 +5315,9 @@ internal sealed partial class MossTankPanel : IBuffRuleHost, IDisposable
     /// reads instead of a success they did not get.
     /// </summary>
     private string UnsavedProfileNotice(string change) =>
-        _profiles.LoadFailureNotice is { Length: > 0 } failure
+        _profiles.SaveFailureNotice is { Length: > 0 } saveFailure
+            ? $"{change}, but the changes could not be fully saved: {saveFailure}"
+            : _profiles.LoadFailureNotice is { Length: > 0 } failure
             ? $"{change}, but nothing was saved: {failure}"
             : $"{change}, but nothing was saved: no character profile is "
                 + "active yet. Try again once you are in the world.";

@@ -8,6 +8,82 @@ namespace AcDream.Plugins.MossTank.Tests;
 /// </summary>
 public sealed partial class MossTankPanelTests
 {
+    [Theory]
+    [InlineData(".usd")]
+    [InlineData(".json")]
+    public void ItemsAddReportsFailureWhenEitherProfileFileCannotBeWritten(string suffix)
+    {
+        var storage = new MemoryStorage();
+        var automation = ItemEnchantAutomation();
+        var host = new FakeHost(automation, storage);
+        automation.CurrentSelection = () => host.Selection.SelectedObjectId ?? 0u;
+        var panel = new MossTankPanel(host);
+        storage.FailWritesWithSuffix = suffix;
+        host.Selection.Select(10);
+        panel.AddSelectedItem();
+        Assert.Contains("Simulated disk write failure", panel.ProfileNotice, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void DelayedServerIdentityRestoresSavedProfileInsteadOfOverwritingBinding()
+    {
+        var storage = new MemoryStorage();
+        var originalCharacter = ItemEnchantAutomation();
+        originalCharacter.Name = "Barris";
+        originalCharacter.WorldName = "Coldeve";
+        var originalHost = new FakeHost(originalCharacter, storage);
+        originalCharacter.CurrentSelection = () => originalHost.Selection.SelectedObjectId ?? 0u;
+        var first = new MossTankPanel(originalHost);
+        Command(first, "settings save Personal");
+        originalHost.Selection.Select(10);
+        first.AddSelectedItem();
+        Command(first, "opt set AttackDistance 0.02");
+        string selected = first.SelectedMacroProfile;
+        string key = VtankProfileDirectory.CdfFileName("Barris", "Coldeve");
+        string binding = storage.Text[key];
+        var automation = new FakeAutomation { Name = "Barris" };
+        var reopened = new MossTankPanel(new FakeHost(automation, storage));
+        Assert.Equal(binding, storage.Text[key]);
+
+        automation.WorldName = "Coldeve";
+        reopened.OnTick(0.3d);
+        Command(reopened, "opt get AttackDistance");
+
+        Assert.Equal(selected, reopened.SelectedMacroProfile);
+        Assert.Contains("War Wand", reopened.ItemNameColumn);
+        Assert.Equal(0.02d, reopened.EvaluateExpression(
+            "uboptget[`AttackDistance`]").AsNumber(), precision: 7);
+        Assert.Equal(binding, storage.Text[key]);
+    }
+
+    [Fact]
+    public void EveryProfileStoreRebindsWhenServerArrivesOrChanges()
+    {
+        var storage = new MemoryStorage();
+        var automation = new FakeAutomation { Name = "Barris" };
+        var host = new FakeHost(automation, storage);
+        var macro = new MossTankProfileStore(host);
+        var loot = new MossTankLootProfileStore(host);
+        var route = new MossTankRouteProfileStore(host);
+        var meta = new MossTankMetaProfileStore(host);
+        Func<string?, bool>[] binders =
+            [macro.BindCharacter, loot.BindCharacter, route.BindCharacter, meta.BindCharacter];
+        foreach (var bind in binders)
+            Assert.True(bind("Barris"));
+        foreach (string server in new[] { "Coldeve", "Other" })
+        {
+            automation.WorldName = server;
+            foreach (var bind in binders)
+            {
+                Assert.True(bind("Barris"));
+                Assert.False(bind("Barris"));
+            }
+        }
+        automation.WorldName = string.Empty;
+        foreach (var bind in binders)
+            Assert.False(bind("Barris"));
+    }
+
     private const string OnePointRoute =
         "NAV: nav0 circular ~~ {\r\n\tpnt 47.1 26.1 0.2\r\n~~ }\r\n";
 

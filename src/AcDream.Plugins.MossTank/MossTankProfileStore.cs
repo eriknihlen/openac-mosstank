@@ -78,7 +78,8 @@ internal sealed class MossTankProfileStore
     /// <summary>The file the last load read, or tried to read.</summary>
     public string? LastLoadKey { get; private set; }
 
-    private string Server => _host.Automation.Character.WorldName;
+    private string _server = string.Empty;
+    private string Server => _server;
     private IPluginStorage VtankStorage => _host.VtankProfiles;
 
     public IReadOnlyList<string> AvailableNames
@@ -113,10 +114,16 @@ internal sealed class MossTankProfileStore
     public bool BindCharacter(string? characterName)
     {
         string normalized = VtankProfileDirectory.CanonicalCharacterKey(characterName);
-        if (string.Equals(normalized, _characterName, StringComparison.OrdinalIgnoreCase))
+        string server = _host.Automation.Character.WorldName;
+        // A partial login/logout identity must not replace an established binding.
+        if (normalized.Length == 0 || (server.Length == 0 && _server.Length > 0))
+            return false;
+        if (string.Equals(normalized, _characterName, StringComparison.OrdinalIgnoreCase)
+            && string.Equals(server, _server, StringComparison.OrdinalIgnoreCase))
             return false;
 
         _characterName = normalized;
+        _server = server;
         _pendingLegacyBareName = null;
         _currentDatabase = null;
         _currentDatabaseFileName = null;
@@ -432,6 +439,7 @@ internal sealed class MossTankProfileStore
         // under a blank name that the character, once known, never reads --
         // and whatever was being saved is gone with it. Refusing says so;
         // writing it quietly loses the work.
+        SaveFailureNotice = null;
         if (!HasCharacterName)
             return false;
         string fileName = CurrentFileName();
@@ -444,10 +452,10 @@ internal sealed class MossTankProfileStore
                 ? _currentDatabase
                 : VtankSettingsProfileSerializer.CreateNew(settings);
         string text = VtankSettingsProfileSerializer.Save(database, settings);
-        WriteUsdText(fileName, text);
-        WriteJson(
-            SideCarKey(fileName),
-            SideCarDocument.Capture(settings, noBuffItemNames, logChannels));
+        if (!WriteUsdText(fileName, text)
+            || !WriteJson(SideCarKey(fileName),
+                SideCarDocument.Capture(settings, noBuffItemNames, logChannels)))
+            return false;
         _currentDatabase = database;
         _currentDatabaseFileName = fileName;
         Activate(fileName);
@@ -793,17 +801,25 @@ internal sealed class MossTankProfileStore
     private string? ReadUsdText(string fileName) =>
         VtankStorage.IsAvailable ? VtankStorage.ReadText(fileName) : null;
 
-    private void WriteUsdText(string fileName, string text)
+    public string? SaveFailureNotice { get; private set; }
+
+    private bool WriteUsdText(string fileName, string text)
     {
         if (!VtankStorage.IsAvailable)
-            return;
+        {
+            SaveFailureNotice = "Profile storage is unavailable.";
+            return false;
+        }
         try
         {
             VtankStorage.WriteText(fileName, text);
+            return true;
         }
         catch (Exception error)
         {
+            SaveFailureNotice = error.Message;
             _host.Log.Warn($"MossTank could not save settings profile '{fileName}': {error.Message}");
+            return false;
         }
     }
 
@@ -828,17 +844,23 @@ internal sealed class MossTankProfileStore
         }
     }
 
-    private void WriteJson<T>(string key, T document)
+    private bool WriteJson<T>(string key, T document)
     {
         if (!_host.Storage.IsAvailable)
-            return;
+        {
+            SaveFailureNotice = "Profile storage is unavailable.";
+            return false;
+        }
         try
         {
             _host.Storage.WriteText(key, JsonSerializer.Serialize(document, Options));
+            return true;
         }
         catch (Exception error)
         {
+            SaveFailureNotice = error.Message;
             _host.Log.Warn($"MossTank profile could not be saved: {error.Message}");
+            return false;
         }
     }
 

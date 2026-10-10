@@ -58,7 +58,8 @@ internal sealed class MossTankLootProfileStore
             : bareName;
     }
 
-    private string Server => _host.Automation.Character.WorldName;
+    private string _server = string.Empty;
+    private string Server => _server;
     private IPluginStorage VtankStorage => _host.VtankProfiles;
     private bool CanBindFiles => _characterName.Length > 0 && Server.Length > 0;
 
@@ -84,9 +85,15 @@ internal sealed class MossTankLootProfileStore
     public bool BindCharacter(string? characterName)
     {
         string normalized = VtankProfileDirectory.CanonicalCharacterKey(characterName);
-        if (string.Equals(normalized, _characterName, StringComparison.OrdinalIgnoreCase))
+        string server = _host.Automation.Character.WorldName;
+        // A partial login/logout identity must not replace an established binding.
+        if (normalized.Length == 0 || (server.Length == 0 && _server.Length > 0))
+            return false;
+        if (string.Equals(normalized, _characterName, StringComparison.OrdinalIgnoreCase)
+            && string.Equals(server, _server, StringComparison.OrdinalIgnoreCase))
             return false;
         _characterName = normalized;
+        _server = server;
         VtankProfileDirectory.VtankCharacterBinding? binding = CanBindFiles
             ? VtankProfileDirectory.TryReadCharacterBinding(VtankStorage, _characterName, Server)
             : null;

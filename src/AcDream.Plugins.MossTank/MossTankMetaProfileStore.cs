@@ -38,7 +38,8 @@ internal sealed class MossTankMetaProfileStore
     public string? LastLoadError { get; private set; }
     public string? SaveNotice { get; private set; }
 
-    private string Server => _host.Automation.Character.WorldName;
+    private string _server = string.Empty;
+    private string Server => _server;
     private IPluginStorage VtankStorage => _host.VtankProfiles;
     private bool CanBindFiles => _character.Length > 0 && Server.Length > 0;
 
@@ -177,9 +178,15 @@ internal sealed class MossTankMetaProfileStore
     public bool BindCharacter(string? characterName)
     {
         string normalized = VtankProfileDirectory.CanonicalCharacterKey(characterName);
-        if (normalized.Equals(_character, StringComparison.OrdinalIgnoreCase))
+        string server = _host.Automation.Character.WorldName;
+        // A partial login/logout identity must not replace an established binding.
+        if (normalized.Length == 0 || (server.Length == 0 && _server.Length > 0))
+            return false;
+        if (string.Equals(normalized, _character, StringComparison.OrdinalIgnoreCase)
+            && string.Equals(server, _server, StringComparison.OrdinalIgnoreCase))
             return false;
         _character = normalized;
+        _server = server;
         _pendingLegacyBareName = null;
         VtankProfileDirectory.VtankCharacterBinding? binding = CanBindFiles
             ? VtankProfileDirectory.TryReadCharacterBinding(VtankStorage, _character, Server)
