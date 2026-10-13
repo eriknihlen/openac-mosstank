@@ -1,0 +1,19 @@
+[package]
+name = "mosstank-stores"
+description = "MossTank's stores and storage layout: the settings, loot, route and meta profile stores with their side-cars, the folder tree and its migrations, the UB settings files, the shared global variables. Pure: storage comes in through a trait."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[dependencies]
+mosstank-dotnet.workspace = true
+mosstank-expr.workspace = true
+mosstank-formats.workspace = true
+mosstank-settings.workspace = true
+openac-plugin-compat.workspace = true
+sha2.workspace = true
+
+[lints]
+workspace = true

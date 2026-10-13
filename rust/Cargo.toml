@@ -20,6 +20,7 @@ mosstank-expr = { path = "crates/mosstank-expr" }
 mosstank-data = { path = "crates/mosstank-data" }
 mosstank-dotnet = { path = "crates/mosstank-dotnet" }
 mosstank-settings = { path = "crates/mosstank-settings" }
+mosstank-stores = { path = "crates/mosstank-stores" }
 
 # The openAC plugin SDK (MIT), from the openAC-rust repository by git
 # (owner decision 2026-10-13). `openac-plugin-compat` is its .NET
@@ -31,6 +32,9 @@ openac-plugin-compat = { git = "ssh://git@github.com/eriknihlen/openac-rust.git"
 ac-plugin-abi = { git = "ssh://git@github.com/eriknihlen/openac-rust.git", branch = "main" }
 
 thiserror = "2.0"
+# SHA-256 for the recovery copies' and old profiles' names and the global
+# variables' keys (pure Rust).
+sha2 = "0.11"
 
 [workspace.lints.rust]
 unsafe_code = "deny"

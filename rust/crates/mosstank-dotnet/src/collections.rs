@@ -19,7 +19,7 @@ use std::fmt;
 use std::hash::Hash;
 use std::marker::PhantomData;
 
-use openac_plugin_compat::text::casing::to_upper_invariant;
+use openac_plugin_compat::text::casing::ordinal_ignore_case_key;
 
 /// How a collection compares its keys (.NET's `IEqualityComparer<T>`): by a
 /// normalised form of the borrowed key.
@@ -56,11 +56,19 @@ impl<T: Hash + Eq + Clone> Comparer for Ordinal<T> {
 #[derive(Debug)]
 pub struct OrdinalIgnoreCase;
 
+/// The form `StringComparer.OrdinalIgnoreCase` compares a string by: each
+/// character's invariant upper case (the long s stays itself), so two
+/// strings it calls equal fold to the same text.
+#[must_use]
+pub fn fold_ignore_case(text: &str) -> String {
+    text.chars().map(ordinal_ignore_case_key).collect()
+}
+
 impl Comparer for OrdinalIgnoreCase {
     type Item = str;
     type Key = String;
     fn key(item: &str) -> String {
-        to_upper_invariant(item)
+        fold_ignore_case(item)
     }
 }
 
@@ -350,6 +358,9 @@ pub type OrdinalStringMap<V> = DotNetDictionary<String, V, Ordinal<str>>;
 
 /// A `Dictionary<string, V>` with `StringComparer.OrdinalIgnoreCase`.
 pub type IgnoreCaseStringMap<V> = DotNetDictionary<String, V, OrdinalIgnoreCase>;
+
+/// `HashSet<string>(StringComparer.OrdinalIgnoreCase)`.
+pub type IgnoreCaseStringSet = DotNetSet<String, OrdinalIgnoreCase>;
 
 #[cfg(test)]
 mod tests {
