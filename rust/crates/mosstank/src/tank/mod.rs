@@ -1262,6 +1262,50 @@ impl Tank {
             .map(|rule| (rule.name(), rule.shape()))
             .collect()
     }
+
+    /// A new rule for one of VTank's slots, as the scheduler's list is
+    /// made (the panel's `IMacroRuleProvider.Create`).
+    #[must_use]
+    pub fn create_rule(
+        &self,
+        slot: mosstank_meta::scheduler::MacroRuleSlot,
+    ) -> Box<dyn mosstank_meta::scheduler::MacroRule<TankFamily>> {
+        use mosstank_meta::scheduler::MacroRuleProvider;
+        rules::Provider {
+            idle_peace: self.core.idle_peace.clone(),
+        }
+        .create(slot)
+    }
+
+    /// A new rule for a slot beside the list (`IMacroRuleProvider.Create`
+    /// for a `MacroIndependentSlot`).
+    #[must_use]
+    pub fn create_independent_rule(
+        &self,
+        slot: mosstank_meta::scheduler::MacroIndependentSlot,
+    ) -> Box<dyn mosstank_meta::scheduler::MacroRule<TankFamily>> {
+        use mosstank_meta::scheduler::MacroRuleProvider;
+        rules::Provider {
+            idle_peace: self.core.idle_peace.clone(),
+        }
+        .create_independent(slot)
+    }
+
+    /// Whether `rule` would run now (`IMacroRule.ValidNow`), asked as one
+    /// call into the shell.
+    pub fn rule_valid_now(
+        &mut self,
+        client: &mut dyn TankClient,
+        rule: &mut dyn mosstank_meta::scheduler::MacroRule<TankFamily>,
+        context: mosstank_meta::scheduler::MacroPassContext,
+    ) -> bool {
+        self.begin_call(client);
+        let (mut cx, _) = self.cx(client);
+        let valid = rule.valid_now(&mut cx, context);
+        cx.core.write_out(cx.client);
+        self.end_call(client);
+        valid
+    }
 }
 
 impl Tank {
