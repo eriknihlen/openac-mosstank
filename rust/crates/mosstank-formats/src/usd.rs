@@ -347,12 +347,11 @@ fn newline_at(bytes: &[u8], from: usize) -> usize {
     const HIGHS: u64 = 0x8080_8080_8080_8080;
     const NEWLINES: u64 = ONES * 0x0A;
     let mut at = from;
-    while let Some(chunk) = bytes.get(at..at + 8) {
-        let mut word = [0u8; 8];
-        word.copy_from_slice(chunk);
+    while at + 8 <= bytes.len() {
+        let c = &bytes[at..at + 8];
         // A line feed is a zero byte here; the lowest flagged byte is the
         // first zero.
-        let word = u64::from_le_bytes(word) ^ NEWLINES;
+        let word = u64::from_le_bytes([c[0], c[1], c[2], c[3], c[4], c[5], c[6], c[7]]) ^ NEWLINES;
         let found = word.wrapping_sub(ONES) & !word & HIGHS;
         if found != 0 {
             return at + (found.trailing_zeros() / 8) as usize;

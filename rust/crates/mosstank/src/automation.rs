@@ -185,6 +185,12 @@ impl KeptReads {
     pub fn end_call(&mut self) {
         self.call = CallReads::default();
     }
+
+    /// Whether the spell table has been read and kept.
+    #[must_use]
+    pub fn has_spell_table(&self) -> bool {
+        self.spell_table.is_some()
+    }
 }
 
 /// Where the reads of a call are kept: shared by the plugin's views of

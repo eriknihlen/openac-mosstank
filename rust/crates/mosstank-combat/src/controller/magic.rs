@@ -157,7 +157,7 @@ impl CombatController {
                     union.push(spell.clone());
                 }
             }
-            self.attack_catalog = AttackSpellCatalog::build(&union);
+            self.attack_catalog = AttackSpellCatalog::build_owned(union);
         }
         self.combat_spell_snapshot = Some(spells);
         self.attack_spell_snapshot = Some(attacks);

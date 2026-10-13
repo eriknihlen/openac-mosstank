@@ -163,8 +163,8 @@ pub struct SpellTable {
     spells: Vec<SpellInfo>,
     /// The first spell of each name, by the hash of its ordinal
     /// ignore-case form: the spells of one hash with different forms each
-    /// keep their first.
-    by_name: HashMap<u64, NameBucket, BuildFoldedHash>,
+    /// keep their first. Built at the first lookup by name.
+    by_name: std::cell::OnceCell<HashMap<u64, NameBucket, BuildFoldedHash>>,
 }
 
 /// The spells of one name hash: the first of each ignore-case form.
@@ -256,6 +256,14 @@ impl SpellTable {
     /// The table `spells`, in the client's order.
     #[must_use]
     pub fn new(spells: Vec<SpellInfo>) -> Self {
+        Self {
+            spells,
+            by_name: std::cell::OnceCell::new(),
+        }
+    }
+
+    /// The name index of `spells`.
+    fn index(spells: &[SpellInfo]) -> HashMap<u64, NameBucket, BuildFoldedHash> {
         let mut by_name: HashMap<u64, NameBucket, BuildFoldedHash> =
             HashMap::with_capacity_and_hasher(spells.len(), BuildFoldedHash);
         for (index, spell) in spells.iter().enumerate() {
@@ -278,12 +286,15 @@ impl SpellTable {
                 }
             }
         }
-        Self { spells, by_name }
+        by_name
     }
 
     /// The first spell named `name` ignoring case.
     fn by_folded_name(&self, name: &str) -> Option<&SpellInfo> {
-        let bucket = self.by_name.get(&folded_hash(name))?;
+        let bucket = self
+            .by_name
+            .get_or_init(|| Self::index(&self.spells))
+            .get(&folded_hash(name))?;
         bucket
             .indexes()
             .iter()

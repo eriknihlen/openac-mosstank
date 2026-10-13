@@ -299,11 +299,32 @@ pub fn canonical(name: &str) -> Option<&'static str> {
     if is_legacy_rare_walk_name(name) {
         return Some(WALK_TO_RARE_CORPSE);
     }
-    COMMAND_NAMES
-        .iter()
-        .copied()
-        .find(|known| ordinal::equals_ignore_case(known, name))
+    COMMAND_INDEX.get(name).map(|&index| COMMAND_NAMES[index])
 }
+
+/// The place of the first of `names` equal to each name ignoring case: the
+/// answer a walk of `names` with `equals_ignore_case` finds.
+fn first_by_name(
+    names: impl Iterator<Item = &'static str>,
+) -> mosstank_dotnet::collections::IgnoreCaseStringMap<usize> {
+    let mut index = mosstank_dotnet::collections::IgnoreCaseStringMap::new();
+    for (at, name) in names.enumerate() {
+        index.try_add(name.to_owned(), at);
+    }
+    index
+}
+
+/// [`COMMAND_NAMES`] by name, any case.
+static COMMAND_INDEX: LazyLock<mosstank_dotnet::collections::IgnoreCaseStringMap<usize>> =
+    LazyLock::new(|| first_by_name(COMMAND_NAMES.iter().copied()));
+
+/// [`PAGES`] by name, any case.
+static PAGE_INDEX: LazyLock<mosstank_dotnet::collections::IgnoreCaseStringMap<usize>> =
+    LazyLock::new(|| first_by_name(PAGES.iter().map(|(name, _)| *name)));
+
+/// [`DESCRIPTIONS`] by name, any case.
+static DESCRIPTION_INDEX: LazyLock<mosstank_dotnet::collections::IgnoreCaseStringMap<usize>> =
+    LazyLock::new(|| first_by_name(DESCRIPTIONS.iter().map(|(name, _)| *name)));
 
 /// The option's default, the number 0 for a name the catalogue lacks.
 #[must_use]
@@ -548,10 +569,7 @@ pub const PAGES: [(&str, VtankOptionPage); 136] = [
 /// The pages a setting is shown on, if any.
 #[must_use]
 pub fn page_of(name: &str) -> Option<VtankOptionPage> {
-    PAGES
-        .iter()
-        .find(|(setting, _)| ordinal::equals_ignore_case(setting, name))
-        .map(|(_, page)| *page)
+    PAGE_INDEX.get(name).map(|&index| PAGES[index].1)
 }
 
 /// What each setting does, in MossTank's words.
@@ -1078,10 +1096,9 @@ pub const DESCRIPTIONS: [(&str, &str); 136] = [
 /// The setting's description, empty when it has none.
 #[must_use]
 pub fn description_of(name: &str) -> &'static str {
-    DESCRIPTIONS
-        .iter()
-        .find(|(setting, _)| ordinal::equals_ignore_case(setting, name))
-        .map_or("", |(_, text)| text)
+    DESCRIPTION_INDEX
+        .get(name)
+        .map_or("", |&index| DESCRIPTIONS[index].1)
 }
 
 /// The label of each value a choice setting can take, in order.
@@ -1160,3 +1177,54 @@ pub fn default_recharge_handlers() -> Vec<RechargeHandlerRow> {
 /// carry.
 pub const DEFAULT_GEM_FOOD_ITEMS: [(&str, u32); 2] =
     [("Asheron's Benediction", 3810), ("Blackmoor's Favor", 3811)];
+
+#[cfg(test)]
+mod index_tests {
+    use super::*;
+
+    // The indexes answer every name, in any case, as a walk of the table.
+    #[test]
+    fn the_name_indexes_answer_as_a_walk_does() {
+        let mut names: Vec<String> = Vec::new();
+        for name in COMMAND_NAMES
+            .iter()
+            .chain(PAGES.iter().map(|(name, _)| name))
+            .chain(DESCRIPTIONS.iter().map(|(name, _)| name))
+        {
+            names.push((*name).to_owned());
+            names.push(name.to_ascii_uppercase());
+            names.push(name.to_ascii_lowercase());
+        }
+        names.extend(["", "nothing", "enableloot", "EnableLooting "].map(str::to_owned));
+        for name in &names {
+            assert_eq!(
+                canonical(name),
+                if is_legacy_rare_walk_name(name) {
+                    Some(WALK_TO_RARE_CORPSE)
+                } else {
+                    COMMAND_NAMES
+                        .iter()
+                        .copied()
+                        .find(|known| ordinal::equals_ignore_case(known, name))
+                },
+                "{name}"
+            );
+            assert_eq!(
+                page_of(name),
+                PAGES
+                    .iter()
+                    .find(|(setting, _)| ordinal::equals_ignore_case(setting, name))
+                    .map(|(_, page)| *page),
+                "{name}"
+            );
+            assert_eq!(
+                description_of(name),
+                DESCRIPTIONS
+                    .iter()
+                    .find(|(setting, _)| ordinal::equals_ignore_case(setting, name))
+                    .map_or("", |(_, text)| text),
+                "{name}"
+            );
+        }
+    }
+}

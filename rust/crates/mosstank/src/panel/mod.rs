@@ -3,6 +3,7 @@
 //! markup names, and the values pushed to it from the shell
 //! ([`crate::tank::Tank::ui_value`]).
 
+mod bindings_table;
 pub mod schema;
 
 use std::collections::HashMap;
@@ -133,7 +134,16 @@ pub const WINDOWS: [WindowSpec; 12] = [
 /// # Errors
 /// The markup does not read.
 pub fn spec(window: &WindowSpec) -> Result<(PanelSpec, Vec<(String, BindingKind)>), String> {
-    let bindings = schema::bindings(window.markup)?;
+    // Read from the table made of the markup (a test holds them equal);
+    // parsing every window's markup costs the start tens of millions of
+    // instructions.
+    let bindings = match bindings_table::of(window.id) {
+        Some(table) => table
+            .iter()
+            .map(|(name, kind)| ((*name).to_owned(), *kind))
+            .collect(),
+        None => schema::bindings(window.markup)?,
+    };
     let mut spec =
         PanelSpec::new(window.id, window.title, window.markup).binding_type("MossTankPanel");
     if window.id == "main" {
@@ -161,6 +171,11 @@ pub const PUSH_INTERVAL_SECONDS: f64 = 0.1;
 #[derive(Debug, Default)]
 pub struct Windows {
     panels: Vec<(Panel, Vec<(String, BindingKind)>)>,
+    /// Every value binding the windows name, once each ([`Self::value_names`]).
+    names: std::rc::Rc<[String]>,
+    /// For each window's bindings, whether no later window names it: the
+    /// value pushed is handed over there instead of copied.
+    last_use: Vec<Vec<bool>>,
     since_push: f64,
 }
 
@@ -181,8 +196,12 @@ impl Windows {
                 )),
             }
         }
+        let names = value_names(&panels).into();
+        let last_use = last_uses(&panels);
         Self {
             panels,
+            names,
+            last_use,
             since_push: 0.0,
         }
     }
@@ -208,31 +227,29 @@ impl Windows {
         self.since_push >= PUSH_INTERVAL_SECONDS
     }
 
-    /// Every value binding the windows name, once each.
+    /// Every value binding the windows name, once each, in first-use order
+    /// (worked out when the windows are registered).
     #[must_use]
-    pub fn value_names(&self) -> Vec<String> {
-        let mut names: Vec<String> = Vec::new();
-        for (_, bindings) in &self.panels {
-            for (name, kind) in bindings {
-                if !is_handler(*kind) && !names.contains(name) {
-                    names.push(name.clone());
-                }
-            }
-        }
-        names
+    pub fn value_names(&self) -> std::rc::Rc<[String]> {
+        std::rc::Rc::clone(&self.names)
     }
 
     /// Pushes the values worked out for [`Self::value_names`]; the SDK
     /// sends only what changed.
-    pub fn push(&mut self, host: &mut Host<'_>, values: &HashMap<String, UiValue>) {
+    pub fn push(&mut self, host: &mut Host<'_>, mut values: HashMap<&str, UiValue>) {
         self.since_push = 0.0;
-        for (panel, bindings) in &mut self.panels {
-            for (name, kind) in bindings.iter() {
+        for ((panel, bindings), last_use) in self.panels.iter_mut().zip(&self.last_use) {
+            for ((name, kind), &last) in bindings.iter().zip(last_use) {
                 if is_handler(*kind) {
                     continue;
                 }
-                if let Some(value) = values.get(name) {
-                    panel.set(name, value.clone());
+                let value = if last {
+                    values.remove(name.as_str())
+                } else {
+                    values.get(name.as_str()).cloned()
+                };
+                if let Some(value) = value {
+                    panel.set(name, value);
                 }
             }
             if let Err(error) = panel.flush(host) {
@@ -262,4 +279,33 @@ pub fn is_handler(kind: BindingKind) -> bool {
             | BindingKind::FloatAction
             | BindingKind::TextAction
     )
+}
+
+/// Every value binding `panels` name, once each, in first-use order.
+fn value_names(panels: &[(Panel, Vec<(String, BindingKind)>)]) -> Vec<String> {
+    let mut names: Vec<String> = Vec::new();
+    for (_, bindings) in panels {
+        for (name, kind) in bindings {
+            if !is_handler(*kind) && !names.contains(name) {
+                names.push(name.clone());
+            }
+        }
+    }
+    names
+}
+
+/// For each of `panels`' bindings, whether no later panel names it.
+fn last_uses(panels: &[(Panel, Vec<(String, BindingKind)>)]) -> Vec<Vec<bool>> {
+    let mut seen: std::collections::HashSet<&str> = std::collections::HashSet::new();
+    let mut last_use: Vec<Vec<bool>> = vec![Vec::new(); panels.len()];
+    for (index, (_, bindings)) in panels.iter().enumerate().rev() {
+        let mut flags: Vec<bool> = bindings
+            .iter()
+            .rev()
+            .map(|(name, _)| seen.insert(name.as_str()))
+            .collect();
+        flags.reverse();
+        last_use[index] = flags;
+    }
+    last_use
 }

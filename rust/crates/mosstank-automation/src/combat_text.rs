@@ -49,21 +49,108 @@ pub struct CombatResult {
     pub target_name: String,
 }
 
-/// A fixed pattern, built on its first use or before it by
+/// A fixed pattern, read by hand when it has the plain shape
+/// [`PlainShape`] describes, else built on its first use or before it by
 /// [`warm_one`] (building one costs the plugin some ten million
 /// instructions, so they are built one a tick before they are needed).
 #[derive(Debug)]
 struct Pattern {
     text: &'static str,
+    plain: OnceLock<Option<PlainShape>>,
     built: OnceLock<DotNetRegex>,
+}
+
+/// A pattern of the shape `^PREFIX(?<targetname>.*)SUFFIX$` or `^TEXT$`
+/// whose literal parts have no metacharacter but `.` (any character but a
+/// line feed). It matches a line that, less one final line feed, is the
+/// prefix, a target with no line feed, and the suffix: the regex's greedy
+/// `.*` takes all between them, and `$` matches at the end or before a
+/// final line feed (the suffix never ends in a line feed).
+#[derive(Debug, Clone, Copy)]
+struct PlainShape {
+    prefix: &'static str,
+    /// The suffix, when the pattern captures a target.
+    suffix: Option<&'static str>,
+}
+
+const TARGET_GROUP: &str = "(?<targetname>.*)";
+
+impl PlainShape {
+    /// The shape of `pattern`, if it is plain.
+    fn of(pattern: &'static str) -> Option<Self> {
+        let inner = pattern.strip_prefix('^')?.strip_suffix('$')?;
+        const META: [char; 13] = [
+            '\\', '^', '$', '|', '?', '*', '+', '(', ')', '[', ']', '{', '}',
+        ];
+        let literal = |part: &str| !part.contains(META);
+        match inner.split_once(TARGET_GROUP) {
+            Some((prefix, suffix)) => (literal(prefix) && literal(suffix)).then_some(Self {
+                prefix,
+                suffix: Some(suffix),
+            }),
+            None => literal(inner).then_some(Self {
+                prefix: inner,
+                suffix: None,
+            }),
+        }
+    }
+
+    /// The target the line carries ("" for none) when the line matches.
+    fn read(self, line: &str) -> Option<&str> {
+        let line = line.strip_suffix('\n').unwrap_or(line);
+        let rest = take_literal(line, self.prefix)?;
+        let Some(suffix) = self.suffix else {
+            return rest.is_empty().then_some("");
+        };
+        let target = take_literal_from_end(rest, suffix)?;
+        (!target.contains('\n')).then_some(target)
+    }
+}
+
+/// Whether a literal character (`.` any but a line feed) matches `c`.
+fn literal_matches(literal: char, c: char) -> bool {
+    if literal == '.' {
+        c != '\n'
+    } else {
+        literal == c
+    }
+}
+
+/// `text` past `literal` when it starts with it.
+fn take_literal<'t>(text: &'t str, literal: &str) -> Option<&'t str> {
+    let mut chars = text.char_indices();
+    for expected in literal.chars() {
+        let (_, c) = chars.next()?;
+        if !literal_matches(expected, c) {
+            return None;
+        }
+    }
+    Some(chars.as_str())
+}
+
+/// `text` short of `literal` when it ends with it.
+fn take_literal_from_end<'t>(text: &'t str, literal: &str) -> Option<&'t str> {
+    let mut chars = text.chars();
+    for expected in literal.chars().rev() {
+        let c = chars.next_back()?;
+        if !literal_matches(expected, c) {
+            return None;
+        }
+    }
+    Some(chars.as_str())
 }
 
 impl Pattern {
     const fn new(text: &'static str) -> Self {
         Self {
             text,
+            plain: OnceLock::new(),
             built: OnceLock::new(),
         }
+    }
+
+    fn plain(&self) -> Option<PlainShape> {
+        *self.plain.get_or_init(|| PlainShape::of(self.text))
     }
 
     fn get(&self) -> &DotNetRegex {
@@ -74,6 +161,22 @@ impl Pattern {
             )
             .expect("a fixed pattern")
         })
+    }
+
+    /// The spell and target names the line carries when it matches.
+    fn matches(&self, text: &str) -> Option<(String, String)> {
+        if let Some(shape) = self.plain() {
+            return shape
+                .read(text)
+                .map(|target| (String::new(), target.to_owned()));
+        }
+        let Ok(Some(found)) = self.get().find(text) else {
+            return None;
+        };
+        Some((
+            found.group("spellname").value.to_owned(),
+            found.group("targetname").value.to_owned(),
+        ))
     }
 }
 
@@ -173,15 +276,7 @@ static SPELL_DAMAGE: [Pattern; 1] = [Pattern::new(
 /// The fixed patterns run on one chat line, so the step limit is not
 /// reached; a stopped match would count as no match.
 fn try_match(patterns: &[Pattern], text: &str) -> Option<(String, String)> {
-    patterns.iter().find_map(|pattern| {
-        let Ok(Some(found)) = pattern.get().find(text) else {
-            return None;
-        };
-        Some((
-            found.group("spellname").value.to_owned(),
-            found.group("targetname").value.to_owned(),
-        ))
-    })
+    patterns.iter().find_map(|pattern| pattern.matches(text))
 }
 
 /// Whether a line reports damage done: the swing reached the monster.
@@ -235,8 +330,9 @@ pub fn classify(text: &str) -> CombatResult {
     CombatResult::default()
 }
 
-/// Builds the next of these patterns not yet built; false when all are.
-/// What a pattern answers does not depend on when it was built.
+/// Builds the next of these patterns not yet built (a plain one is read by
+/// hand and never built); false when all are. What a pattern answers does
+/// not depend on when it was built.
 pub fn warm_one() -> bool {
     let groups: [&[Pattern]; 6] = [
         &SUCCESS,
@@ -249,6 +345,98 @@ pub fn warm_one() -> bool {
     let next = groups
         .into_iter()
         .flatten()
-        .find(|pattern| pattern.built.get().is_none());
+        .find(|pattern| pattern.plain().is_none() && pattern.built.get().is_none());
     next.map(Pattern::get).is_some()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn all_patterns() -> impl Iterator<Item = &'static Pattern> {
+        let groups: [&'static [Pattern]; 6] = [
+            &SUCCESS,
+            &KILL,
+            &FAIL,
+            &PERMANENT_FAIL,
+            &DAMAGE_REPORT,
+            &SPELL_DAMAGE,
+        ];
+        groups.into_iter().flatten()
+    }
+
+    /// Lines shaped after every pattern, and near misses.
+    fn lines() -> Vec<String> {
+        let targets = [
+            "Mosswart Kin",
+            "",
+            " ",
+            "a\nb",
+            "Drudge's Ravener",
+            "\u{1F600} \u{e9}",
+            "x!",
+            "into next Morningthaw",
+        ];
+        let mut lines = vec![
+            String::new(),
+            "\n".to_owned(),
+            "You killed !".to_owned(),
+            "You killed!".to_owned(),
+            "Your spell fizzled".to_owned(),
+            "Your spell fizzled\n\n".to_owned(),
+            "Your spell fizzled\u{1F600}".to_owned(),
+            "Your spell fizzled\n".to_owned(),
+            "Your spell fizzledX\n".to_owned(),
+        ];
+        for pattern in all_patterns() {
+            let inner = pattern.text.trim_start_matches('^').trim_end_matches('$');
+            for target in targets {
+                for wildcard in [".", "x", "\u{e9}", "\n"] {
+                    let line = inner
+                        .replace("(?<targetname>.*)", target)
+                        .replace("(?<spellname>.*)", "Flame Bolt VII")
+                        .replace(".*", "some")
+                        .replace('.', wildcard);
+                    for variant in [
+                        line.clone(),
+                        format!("{line}\n"),
+                        format!("{line}\n\n"),
+                        format!(" {line}"),
+                        format!("{line} "),
+                        line.to_uppercase(),
+                        line.chars().skip(1).collect(),
+                        line.chars()
+                            .take(line.chars().count().saturating_sub(1))
+                            .collect(),
+                    ] {
+                        lines.push(variant);
+                    }
+                }
+            }
+        }
+        lines
+    }
+
+    // A pattern read by hand answers every line as the regex does.
+    #[test]
+    fn a_plain_pattern_is_read_as_the_regex_reads_it() {
+        let lines = lines();
+        let mut plain = 0;
+        for pattern in all_patterns() {
+            let Some(shape) = pattern.plain() else {
+                continue;
+            };
+            plain += 1;
+            for line in &lines {
+                let by_hand = shape.read(line).map(str::to_owned);
+                let by_regex = match pattern.get().find(line) {
+                    Ok(Some(found)) => Some(found.group("targetname").value.to_owned()),
+                    _ => None,
+                };
+                assert_eq!(by_hand, by_regex, "{:?} on {line:?}", pattern.text);
+            }
+        }
+        // Every kill sentence, both failures, three refusals and the teleport.
+        assert_eq!(plain, 36 + 2 + 3 + 1);
+    }
 }

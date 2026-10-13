@@ -2,11 +2,10 @@
 //! spell line (family name) for each, and the best member of that line the
 //! character knows.
 
-use std::collections::HashMap;
-
 use ac_plugin_abi::character::{Skill, Training};
 use ac_plugin_abi::magic::SpellInfo;
 use ac_plugin_abi::world::ProjectilePathKind;
+use mosstank_dotnet::collections::LookupMap;
 use mosstank_dotnet::text::{casing, ordinal};
 
 use crate::damage::MonsterDamageType;
@@ -62,46 +61,59 @@ pub fn find_skill(skills: &[Skill], skill_id: u32) -> Option<&Skill> {
 /// The spells the character knows, by line.
 #[derive(Debug, Clone, Default)]
 pub struct AttackSpellCatalog {
+    /// Every spell handed in, in order (the lists below hold places in it).
+    spells: Vec<SpellInfo>,
     /// Lines by upper-cased name (any case matches), members in input order.
-    families: HashMap<String, Vec<SpellInfo>>,
+    families: LookupMap<String, Vec<usize>>,
     /// Every spell, in the order its id was first seen; a later spell with
     /// the same id replaces it where it stands.
-    by_id: Vec<SpellInfo>,
-    id_slots: HashMap<u32, usize>,
+    by_id: Vec<usize>,
+    id_slots: LookupMap<u32, usize>,
 }
 
 impl AttackSpellCatalog {
     /// The catalog of `spells`.
     #[must_use]
     pub fn build(spells: &[SpellInfo]) -> Self {
+        Self::build_owned(spells.to_vec())
+    }
+
+    /// The catalog of `spells`, kept as handed in.
+    #[must_use]
+    pub fn build_owned(spells: Vec<SpellInfo>) -> Self {
         let mut catalog = Self::default();
-        for spell in spells {
+        for (index, spell) in spells.iter().enumerate() {
             match catalog.id_slots.get(&spell.spell_id) {
-                Some(&slot) => catalog.by_id[slot] = spell.clone(),
+                Some(&slot) => catalog.by_id[slot] = index,
                 None => {
                     catalog.id_slots.insert(spell.spell_id, catalog.by_id.len());
-                    catalog.by_id.push(spell.clone());
+                    catalog.by_id.push(index);
                 }
             }
-            let family = base_name(&spell.name);
+            let family = base_name_span(&spell.name);
             if family.is_empty() {
                 continue;
             }
             catalog
                 .families
-                .entry(casing::to_upper_invariant(&family))
+                .entry(casing::to_upper_invariant(family))
                 .or_default()
-                .push(spell.clone());
+                .push(index);
         }
+        catalog.spells = spells;
         catalog
     }
 
     fn by_id(&self, spell_id: u32) -> Option<&SpellInfo> {
-        self.id_slots.get(&spell_id).map(|&slot| &self.by_id[slot])
+        self.id_slots
+            .get(&spell_id)
+            .map(|&slot| &self.spells[self.by_id[slot]])
     }
 
-    fn members(&self, family: &str) -> Option<&Vec<SpellInfo>> {
-        self.families.get(&casing::to_upper_invariant(family))
+    fn members(&self, family: &str) -> Option<impl Iterator<Item = &SpellInfo>> {
+        self.families
+            .get(&casing::to_upper_invariant(family))
+            .map(|members| members.iter().map(|&index| &self.spells[index]))
     }
 
     /// The best usable member of the line for this element and kind.
@@ -155,7 +167,7 @@ impl AttackSpellCatalog {
         usable: Option<&dyn Fn(&SpellInfo) -> bool>,
     ) -> Option<SpellInfo> {
         let mut best: Option<&SpellInfo> = None;
-        for spell in &self.by_id {
+        for spell in self.by_id.iter().map(|&index| &self.spells[index]) {
             if spell.family != base.family
                 || spell.school != base.school
                 || spell.is_fellowship != base.is_fellowship
@@ -334,12 +346,27 @@ fn is_trained(skills: &[Skill], skill_id: u32) -> bool {
 /// numeral tier.
 #[must_use]
 pub fn base_name(name: &str) -> String {
+    base_name_span(name).to_owned()
+}
+
+/// [`base_name`], borrowed from the name.
+fn base_name_span(name: &str) -> &str {
     const INCANTATION: &str = "Incantation of ";
     let mut span = name.trim();
-    let lead: String = span.chars().take(INCANTATION.len()).collect();
-    if lead.chars().count() == INCANTATION.len() && ordinal::equals_ignore_case(&lead, INCANTATION)
-    {
-        span = span[lead.len()..].trim_start();
+    if span.is_ascii() {
+        // An ASCII lead is its bytes: the same test without building it.
+        if span.len() >= INCANTATION.len()
+            && span.as_bytes()[..INCANTATION.len()].eq_ignore_ascii_case(INCANTATION.as_bytes())
+        {
+            span = span[INCANTATION.len()..].trim_start();
+        }
+    } else {
+        let lead: String = span.chars().take(INCANTATION.len()).collect();
+        if lead.chars().count() == INCANTATION.len()
+            && ordinal::equals_ignore_case(&lead, INCANTATION)
+        {
+            span = span[lead.len()..].trim_start();
+        }
     }
     if let Some(space) = span.rfind(' ')
         && space > 0
@@ -347,7 +374,7 @@ pub fn base_name(name: &str) -> String {
     {
         span = span[..space].trim_end();
     }
-    span.to_owned()
+    span
 }
 
 fn is_roman_numeral(text: &str) -> bool {

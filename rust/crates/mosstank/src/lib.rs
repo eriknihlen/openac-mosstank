@@ -91,7 +91,7 @@ impl MossTank {
         let Some(tank) = self.tank.as_mut() else {
             return;
         };
-        let values: std::collections::HashMap<String, ac_plugin_abi::ui::UiValue> = {
+        let values: std::collections::HashMap<&str, ac_plugin_abi::ui::UiValue> = {
             let mut client = HostAutomation::for_call(
                 host,
                 &mut self.observations,
@@ -99,14 +99,14 @@ impl MossTank {
                 &mut self.kept,
             );
             names
-                .into_iter()
+                .iter()
                 .filter_map(|name| {
-                    let value = tank.ui_value(&mut client, &name)?;
-                    Some((name, value))
+                    let value = tank.ui_value(&mut client, name)?;
+                    Some((name.as_str(), value))
                 })
                 .collect()
         };
-        windows.push(host, &values);
+        windows.push(host, values);
         // The meta's windows read the views and the status list as they
         // stand.
         self.meta_windows.push(host, &mut |window_id, name| {
@@ -244,6 +244,7 @@ impl MossTank {
         let Some(tank) = self.tank.as_mut() else {
             return;
         };
+        let had_spell_table = self.kept.has_spell_table();
         {
             let mut client = HostAutomation::for_call(
                 host,
@@ -256,8 +257,12 @@ impl MossTank {
         }
         // The chat-line patterns are built one a tick ahead of their first
         // use: built all at once, on the first cast's result line, they
-        // cost more than one call may run.
-        mosstank_automation::combat_text::warm_one();
+        // cost more than one call may run. A tick that read the spell table
+        // (the character's first in the world) has work enough: the next
+        // one builds.
+        if had_spell_table == self.kept.has_spell_table() {
+            mosstank_automation::combat_text::warm_one();
+        }
         let reason = tank.walk_pause_reason();
         if self.go_to_pause.need(host, reason.as_deref()) {
             // The walk's hold changed through the host, past the view.

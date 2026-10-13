@@ -6,7 +6,7 @@ use std::collections::HashMap;
 use std::rc::Rc;
 
 use mosstank_data::damage::{MonsterDamageType, parse_damage_elements};
-use mosstank_dotnet::collections::{FnvBuildHasher, LookupMap};
+use mosstank_dotnet::collections::LookupMap;
 use mosstank_dotnet::compat::number::{NumberStyles, parse_f32, parse_f64, parse_i32};
 use mosstank_dotnet::text::casing;
 use mosstank_dotnet::{try_parse_int, try_parse_uint};
@@ -444,26 +444,58 @@ pub struct VtankCraftDatabase {
 #[derive(Debug, Default, PartialEq, Eq)]
 struct CraftBook {
     recipes: Vec<VtankCraftRecipe>,
-    /// The recipes by result (upper-cased), as indexes into `recipes`.
-    by_result: LookupMap<String, Vec<usize>>,
+    /// Each recipe's place in `recipes` with the hash of its result's upper
+    /// case, ordered by hash, then id, then place: a result's recipes are a
+    /// run of one hash, by id (the table's order among equal ids).
+    by_result: Vec<(u64, usize)>,
+}
+
+/// The hash of `text`'s invariant upper case, built without the text.
+fn upper_hash(text: &str) -> u64 {
+    let mut hash: u64 = 0xcbf2_9ce4_8422_2325;
+    let mut add = |unit: u32| {
+        hash = (hash ^ u64::from(unit)).wrapping_mul(0x0000_0100_0000_01b3);
+    };
+    if text.is_ascii() {
+        for byte in text.bytes() {
+            add(u32::from(byte.to_ascii_uppercase()));
+        }
+    } else {
+        for c in text.chars() {
+            add(u32::from(upper_char(c)));
+        }
+    }
+    hash
+}
+
+/// A character's invariant upper case (`to_upper_invariant` of it).
+fn upper_char(c: char) -> char {
+    mosstank_dotnet::compat::text::casing::to_upper_char(c)
+}
+
+/// Whether two texts have the same invariant upper case.
+fn same_upper(a: &str, b: &str) -> bool {
+    if a.is_ascii() && b.is_ascii() {
+        return a.eq_ignore_ascii_case(b);
+    }
+    a.chars().map(upper_char).eq(b.chars().map(upper_char))
 }
 
 impl VtankCraftDatabase {
     /// A recipe book.
     #[must_use]
     pub fn new(recipes: Vec<VtankCraftRecipe>) -> Self {
-        let mut by_result: LookupMap<String, Vec<usize>> =
-            LookupMap::with_capacity_and_hasher(recipes.len(), FnvBuildHasher);
-        for (index, recipe) in recipes.iter().enumerate() {
-            by_result
-                .entry(casing::to_upper_invariant(&recipe.result_item))
-                .or_default()
-                .push(index);
-        }
-        for list in by_result.values_mut() {
-            // OrderBy is stable: equal ids keep the table's order.
-            list.sort_by_key(|&index| recipes[index].id);
-        }
+        let mut by_result: Vec<(u64, usize)> = recipes
+            .iter()
+            .enumerate()
+            .map(|(index, recipe)| (upper_hash(&recipe.result_item), index))
+            .collect();
+        // OrderBy is stable: equal ids keep the table's order.
+        by_result.sort_unstable_by(|a, b| {
+            a.0.cmp(&b.0)
+                .then(recipes[a.1].id.cmp(&recipes[b.1].id))
+                .then(a.1.cmp(&b.1))
+        });
         Self {
             book: Rc::new(CraftBook { recipes, by_result }),
         }
@@ -481,15 +513,16 @@ impl VtankCraftDatabase {
         if casing::is_white_space_only(result_name) {
             return Vec::new();
         }
-        self.book
-            .by_result
-            .get(&casing::to_upper_invariant(result_name.trim()))
-            .map_or_else(Vec::new, |indexes| {
-                indexes
-                    .iter()
-                    .map(|&index| &self.book.recipes[index])
-                    .collect()
-            })
+        let name = result_name.trim();
+        let hash = upper_hash(name);
+        let by_result = &self.book.by_result;
+        let start = by_result.partition_point(|(at, _)| *at < hash);
+        by_result[start..]
+            .iter()
+            .take_while(|(at, _)| *at == hash)
+            .map(|&(_, index)| &self.book.recipes[index])
+            .filter(|recipe| same_upper(&recipe.result_item, name))
+            .collect()
     }
 }
 
@@ -788,6 +821,60 @@ fn read_rows<D: TableSet, T>(
 mod tests {
     use super::*;
 
+    // The recipe index finds what upper-casing every result and sorting
+    // by id finds.
+    #[test]
+    fn recipes_by_result_are_found_as_upper_cased_keys_find_them() {
+        let recipe = |result: &str, id: i32, first: &str| VtankCraftRecipe {
+            first_item: first.to_owned(),
+            second_item: String::new(),
+            result_item: result.to_owned(),
+            result_count: 1,
+            required_skill: 0,
+            difficulty: 0,
+            id,
+        };
+        let recipes = vec![
+            recipe("Iron Ingot", 5, "a"),
+            recipe("IRON INGOT", 2, "b"),
+            recipe("iron ingot", 5, "c"),
+            recipe(" Iron Ingot", 1, "d"),
+            recipe("{131}ron Ingot", 3, "e"),
+            recipe("Stra{df}e", 4, "f"),
+            recipe("STRA{df}E", 1, "g"),
+            recipe("", 9, "h"),
+        ];
+        let book = VtankCraftDatabase::new(recipes.clone());
+        for name in [
+            "iron ingot",
+            "  IRON INGOT  ",
+            " Iron Ingot",
+            "stra{df}e",
+            "STRASSE",
+            "",
+            "   ",
+            "nothing",
+        ] {
+            let expected: Vec<&str> = if casing::is_white_space_only(name) {
+                Vec::new()
+            } else {
+                let key = casing::to_upper_invariant(name.trim());
+                let mut found: Vec<&VtankCraftRecipe> = recipes
+                    .iter()
+                    .filter(|r| casing::to_upper_invariant(&r.result_item) == key)
+                    .collect();
+                found.sort_by_key(|r| r.id);
+                found.iter().map(|r| r.first_item.as_str()).collect()
+            };
+            let actual: Vec<&str> = book
+                .for_result(name)
+                .iter()
+                .map(|r| r.first_item.as_str())
+                .collect();
+            assert_eq!(actual, expected, "{name:?}");
+        }
+    }
+
     struct Storage(String);
 
     impl ProfileText for Storage {
@@ -870,6 +957,18 @@ mod tests {
             assert!(!same_text(Some(a), None));
         }
         assert!(same_text(None, None));
+        // Past one block of thirty-two bytes, a difference anywhere.
+        let long = "0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ+-";
+        for length in [31, 32, 33, 40, 64] {
+            let text = &long[..length];
+            assert!(same_text(Some(text), Some(text)));
+            for at in 0..length {
+                let mut other = text.as_bytes().to_vec();
+                other[at] = b'!';
+                let other = String::from_utf8(other).unwrap();
+                assert!(!same_text(Some(text), Some(&other)), "{length} {at}");
+            }
+        }
     }
 
     // The memo reads a text once and answers the same for it again.
