@@ -618,6 +618,17 @@ impl ExpressionValue {
     /// The value as it prints.
     #[must_use]
     pub fn to_display_string(&self) -> String {
+        self.to_display_string_with(&mut |_| None)
+    }
+
+    /// The value as it prints, a world object with the name `names` gives:
+    /// `Some(None)` for an object the client has lost, `None` to use the
+    /// object's own name source.
+    #[must_use]
+    pub fn to_display_string_with(
+        &self,
+        names: &mut dyn FnMut(u32) -> Option<Option<String>>,
+    ) -> String {
         match self {
             Self::Number(value) => mosstank_dotnet::format_g15(*value),
             Self::Boolean(value) => if *value { "True" } else { "False" }.to_owned(),
@@ -626,7 +637,7 @@ impl ExpressionValue {
                 let items: Vec<String> = list
                     .items()
                     .iter()
-                    .map(ExpressionValue::to_display_string)
+                    .map(|item| item.to_display_string_with(names))
                     .collect();
                 format!("[{}]", items.join(","))
             }
@@ -634,14 +645,16 @@ impl ExpressionValue {
                 let items: Vec<String> = dictionary
                     .entries()
                     .iter()
-                    .map(|(key, value)| format!("{key}=>{}", value.to_display_string()))
+                    .map(|(key, value)| format!("{key}=>{}", value.to_display_string_with(names)))
                     .collect();
                 format!("[{}]", items.join(","))
             }
             Self::Coordinates(value) => value.to_string(),
             Self::WorldObject(object) => {
                 let hex = format!("0x{:08X}", object.id);
-                match object.names.as_ref().and_then(|names| names(object.id)) {
+                let name = names(object.id)
+                    .unwrap_or_else(|| object.names.as_ref().and_then(|names| names(object.id)));
+                match name {
                     Some(name) => format!("{hex}: {name}"),
                     None => format!("{hex} (Invalid)"),
                 }

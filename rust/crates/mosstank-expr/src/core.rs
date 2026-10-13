@@ -339,9 +339,11 @@ fn register_conversions_and_math(registry: &mut FunctionRegistry, options: &Core
         "getobjectinternaltype",
         1,
         1,
-        move |_, args| {
+        move |context, args| {
             if let ExpressionValue::WorldObject(object) = &args[0]
-                && known.as_ref().is_some_and(|known| !known(object.id))
+                && !known
+                    .as_ref()
+                    .map_or_else(|| context.knows_object(object.id), |known| known(object.id))
             {
                 return Ok(ExpressionValue::zero());
             }
@@ -410,7 +412,7 @@ fn register_conversions_and_math(registry: &mut FunctionRegistry, options: &Core
         "tostring",
         1,
         1,
-        |_, args| Ok(ExpressionValue::string(&args[0].to_display_string())),
+        |context, args| Ok(ExpressionValue::string(&context.display(&args[0]))),
         Some("tostring[value]"),
         "",
     );
@@ -1357,15 +1359,21 @@ fn register_coordinates(registry: &mut FunctionRegistry) {
     );
 }
 
-fn date_text(time: &DateTime, format: &str, write_to_chat: Option<&ChatWriter>) -> Result<String> {
+fn date_text(
+    context: &mut EvaluationContext<'_>,
+    time: &DateTime,
+    format: &str,
+    write_to_chat: Option<&ChatWriter>,
+) -> Result<String> {
     match time.format(format) {
         Ok(text) => Ok(text),
         // A format the date cannot be written in is not an error: the
         // reference prints why to chat and answers the empty string.
         Err(DateFormatError::Invalid(_)) => {
-            if let Some(chat) = write_to_chat {
-                chat("Input string was not in a correct format.");
-            }
+            context.write_to_chat(
+                "Input string was not in a correct format.",
+                write_to_chat.map(|chat| &**chat as &dyn Fn(&str)),
+            );
             Ok(String::new())
         }
         Err(other) => Err(Fault::runtime(other.to_string())),
@@ -1379,7 +1387,7 @@ fn register_time(registry: &mut FunctionRegistry, options: &CoreOptions) {
         "getdatetimelocal",
         0,
         1,
-        move |_, args| {
+        move |context, args| {
             let format = if args.is_empty() {
                 "hh:mm:ss tt"
             } else {
@@ -1388,6 +1396,7 @@ fn register_time(registry: &mut FunctionRegistry, options: &CoreOptions) {
             let time =
                 DateTime::local_from_unix_millis(clock.utc_now_ms(), clock.local_offset_minutes());
             Ok(ExpressionValue::string(&date_text(
+                context,
                 &time,
                 format,
                 chat.as_ref(),
@@ -1402,7 +1411,7 @@ fn register_time(registry: &mut FunctionRegistry, options: &CoreOptions) {
         "getdatetimeutc",
         0,
         1,
-        move |_, args| {
+        move |context, args| {
             let format = if args.is_empty() {
                 "hh:mm:ss tt"
             } else {
@@ -1410,6 +1419,7 @@ fn register_time(registry: &mut FunctionRegistry, options: &CoreOptions) {
             };
             let time = DateTime::utc_from_unix_millis(clock.utc_now_ms());
             Ok(ExpressionValue::string(&date_text(
+                context,
                 &time,
                 format,
                 chat.as_ref(),
