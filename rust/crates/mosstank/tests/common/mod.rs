@@ -4,6 +4,8 @@
 //! next.
 #![allow(dead_code)]
 
+pub mod automation;
+
 use ac_plugin_abi::storage::{StorageKey, StoragePlace, StorageRoot, StorageWrite};
 use ac_plugin_abi::{
     Call, CharacterInfo, CommandCall, Event, Import, LogLevel, StartInfo, Wire, calls,
@@ -30,6 +32,9 @@ pub struct World {
     pub chat_log: Option<Vec<ac_plugin_abi::types::ChatLine>>,
     /// The client refuses to open any window (`ShowPanel` answers false).
     pub refuse_window_show: bool,
+    /// The C# panel tests' `FakeAutomation`, when a test uses it: it
+    /// answers the character, spell, cast, item and selection calls.
+    pub automation: Option<automation::FakeAutomation>,
 }
 
 impl Default for World {
@@ -62,6 +67,7 @@ impl World {
             profiles: MemoryStorage::new(),
             chat_log: None,
             refuse_window_show: false,
+            automation: None,
         }
     }
 
@@ -204,6 +210,9 @@ fn unavailable<T>() -> Result<T, String> {
 
 impl Transport for World {
     fn call(&mut self, import: Import, bytes: &[u8]) -> Vec<u8> {
+        if let Some(reply) = self.automation_call(import, bytes) {
+            return reply;
+        }
         match import {
             Import::StorageReadText => {
                 self.answer::<calls::StorageReadText>(bytes, |world, key: StorageKey| {
@@ -535,6 +544,11 @@ impl World {
 
     /// The client has `object_id` selected (0: nothing).
     pub fn select_object(&mut self, object_id: u32) {
+        if let Some(automation) = self.automation.as_mut() {
+            automation.previous_selected = automation.selected;
+            automation.selected = (object_id != 0).then_some(object_id);
+            return;
+        }
         self.set_reply::<calls::SelectionState>(&ac_plugin_abi::social::SelectionState {
             selected: (object_id != 0).then_some(object_id),
             previous: None,
