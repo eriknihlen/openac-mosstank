@@ -891,3 +891,48 @@ fn the_three_tinkering_commands_carry_their_usage_lines() {
         assert_eq!(line(&format!("Usage: /ub {verb}")), rig.messages()[0]);
     }
 }
+
+// ---- Not a port of a C# test: a new plan in the middle of a run -----------
+//
+// The C# run holds the job it is working on, and a Populate clears the
+// queue without stopping the run: the run finishes that job, then moves on
+// to the new plan. Reading the head of the queue instead moved the run to
+// the new plan's item in the middle of a job.
+
+const SUCCESS_3: &str = "Acdream successfully applies the Iron Salvage (100) (workmanship 3.00) to the Iron Long Sword.";
+
+#[test]
+fn a_new_plan_mid_run_lets_the_job_in_hand_finish_first() {
+    let mut rig = tinker_rig(500);
+    items(
+        &mut rig,
+        vec![
+            weapon(0x100, 4.0, 0),
+            weapon(0x101, 4.0, 0),
+            bag(0x201, Material::Iron, 2.0),
+            bag(0x202, Material::Iron, 3.0),
+        ],
+    );
+    populate(&mut rig, 0x100, "Iron", 2, 0.0);
+    start(&mut rig);
+    assert_eq!(vec![(0x201, 0x100)], rig.host.applied);
+
+    // A new plan for the other sword while the first bag is in flight.
+    populate(&mut rig, 0x101, "Iron", 1, 0.0);
+    let planned = manager(&mut rig).jobs()[0].clone();
+    assert_eq!(0x101, planned.item_object_id);
+
+    post(&mut rig, SUCCESS_2);
+    tick(&mut rig, 0.1);
+    assert_eq!(vec![(0x201, 0x100), (0x202, 0x100)], rig.host.applied);
+    // The job in hand is not in the new queue.
+    assert_eq!(vec![planned.clone()], manager(&mut rig).jobs());
+
+    post(&mut rig, SUCCESS_3);
+    tick(&mut rig, 0.1);
+    assert_eq!(
+        (planned.salvage_to_apply[0], 0x101),
+        *rig.host.applied.last().unwrap()
+    );
+    assert!(manager(&mut rig).is_running());
+}
