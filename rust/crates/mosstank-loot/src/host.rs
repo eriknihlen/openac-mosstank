@@ -58,9 +58,10 @@ impl LootCorpse {
 }
 
 impl From<LootContainer> for LootCorpse {
-    /// The SDK's container. The SDK does not report whether a description
-    /// request was answered without a description, so that reads as not
-    /// answered (see the divergence register, LOOT-3).
+    /// The SDK's container. Whether a description request was answered
+    /// without a description is not on the container: the plugin's client
+    /// view fills it in from the appraisal answers (register LOOT-3), so
+    /// here it reads as not answered.
     fn from(container: LootContainer) -> Self {
         Self {
             object_id: container.object_id,
