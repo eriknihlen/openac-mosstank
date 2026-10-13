@@ -4,6 +4,8 @@
 
 #![allow(dead_code)]
 
+pub mod page;
+
 use std::cell::{Cell, RefCell};
 use std::collections::HashMap;
 use std::rc::Rc;

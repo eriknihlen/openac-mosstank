@@ -201,6 +201,12 @@ impl UbCommands {
         &mut self.jump
     }
 
+    /// The dialog watch.
+    #[must_use]
+    pub fn prep_click(&self) -> &PrepClickController {
+        &self.prep_click
+    }
+
     /// How many lines wait on their delay.
     #[must_use]
     pub fn delayed_count(&self) -> usize {

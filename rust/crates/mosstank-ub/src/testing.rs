@@ -87,6 +87,8 @@ pub struct FakeUbHost {
     pub broadcast_result: bool,
     /// The labels this client answers to, as last set.
     pub peer_tags: Vec<String>,
+    /// Every push of the labels, in order.
+    pub peer_tag_pushes: Vec<Vec<String>>,
     /// The leases taken: handle and capabilities.
     pub peer_leases: Vec<(u32, u32)>,
     /// Every lease ended.
@@ -151,6 +153,7 @@ impl FakeUbHost {
             broadcasts: Vec::new(),
             broadcast_result: true,
             peer_tags: Vec::new(),
+            peer_tag_pushes: Vec::new(),
             peer_leases: Vec::new(),
             peer_unsubscribed: Vec::new(),
             next_lease: 1,
@@ -564,6 +567,7 @@ impl UbHost for FakeUbHost {
 
     fn set_peer_tags(&mut self, tags: &[String]) -> bool {
         self.peer_tags = tags.to_vec();
+        self.peer_tag_pushes.push(tags.to_vec());
         true
     }
 

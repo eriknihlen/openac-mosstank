@@ -218,3 +218,37 @@ pub fn net_client_line(client_id: u32, name: &str, tags: &[String]) -> String {
         format!("ClientData<{client_id}, {name}> [{}]", tags.join(", "))
     }
 }
+
+/// Hands the client the labels this character answers to
+/// (`PublishNetworkTags`), so the other clients see it under them and a
+/// tagged broadcast reaches it; pushed when the row changes, not every
+/// frame.
+#[derive(Debug, Default)]
+pub struct TagPublisher {
+    published: Option<Vec<String>>,
+}
+
+impl TagPublisher {
+    /// Nothing pushed yet.
+    #[must_use]
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// Pushes the `Networking.Tags` row when it differs from what was last
+    /// pushed. `on_load` is the push made while the tab is being built: an
+    /// empty row is not pushed then, since the client may have been started
+    /// with labels of its own; every later push is a change, so an emptied
+    /// row does reach the client.
+    pub fn publish(&mut self, host: &mut dyn UbHost, tags: Vec<String>, on_load: bool) {
+        if self.published.as_ref() == Some(&tags) {
+            return;
+        }
+        let pushed = tags;
+        self.published = Some(pushed.clone());
+        if on_load && pushed.is_empty() {
+            return;
+        }
+        host.set_peer_tags(&pushed);
+    }
+}

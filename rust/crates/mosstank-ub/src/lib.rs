@@ -21,11 +21,15 @@ pub mod chat;
 pub mod commands;
 pub mod dungeon;
 pub mod expressions;
+pub mod font;
 pub mod help;
 pub mod host;
 pub mod hud;
+pub mod live;
+pub mod main_page;
 pub mod network;
 pub mod prepclick;
 pub mod search;
+pub mod settings_page;
 #[cfg(not(target_arch = "wasm32"))]
 pub mod testing;
