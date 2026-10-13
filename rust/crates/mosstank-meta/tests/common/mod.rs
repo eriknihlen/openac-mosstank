@@ -16,10 +16,11 @@ use mosstank_meta::runtime::ExpressionRuntime;
 use mosstank_meta::services::{MetaServices, PeerNeed};
 use mosstank_meta::testing::FakeHost;
 
-/// The clock the tests run on: 2023-11-14 22:13:20 UTC, standing still.
+/// The clock the tests run on: 2026-10-13 00:00 UTC, standing still (the
+/// C# tests read the machine's clock; their quest times are years before).
 pub fn clock() -> Rc<FixedClock> {
     let clock = FixedClock::default();
-    clock.utc_ms.set(1_700_000_000_000);
+    clock.utc_ms.set(1_791_849_600_000);
     Rc::new(clock)
 }
 
@@ -252,5 +253,168 @@ pub fn worded(
         received_unix_ms: 0,
         channel_id,
         display_text: display_text.to_owned(),
+    }
+}
+
+use ac_plugin_abi::character::{Attribute, Skill, Training};
+use ac_plugin_abi::magic::SpellInfo;
+use ac_plugin_abi::world::{ItemProperties, ObjectClass, Position, WorldObject};
+
+/// The C#'s `new PluginWorldObject(id, weenieClassId, name, objectClass,
+/// itemType, containerId, wielderId)`.
+pub fn object(
+    id: u32,
+    weenie_class_id: u32,
+    name: &str,
+    object_class: ObjectClass,
+    item_type: u32,
+    container_id: u32,
+    wielder_id: u32,
+) -> WorldObject {
+    WorldObject {
+        object_id: id,
+        weenie_class_id,
+        name: name.to_owned(),
+        object_class,
+        item_type,
+        container_id,
+        wielder_id,
+        stack_size: 1,
+        ..WorldObject::default()
+    }
+}
+
+/// The C#'s `Properties(ints, int64s, strings)`.
+pub fn properties(
+    ints: &[(u32, i32)],
+    int64s: &[(u32, i64)],
+    strings: &[(u32, &str)],
+) -> ItemProperties {
+    ItemProperties {
+        ints: ints.to_vec(),
+        int64s: int64s.to_vec(),
+        strings: strings
+            .iter()
+            .map(|(key, text)| (*key, (*text).to_owned()))
+            .collect(),
+        ..ItemProperties::default()
+    }
+}
+
+/// The C#'s `Spell(id, school, difficulty)`.
+pub fn spell(id: u32, school: u32, difficulty: i32) -> SpellInfo {
+    SpellInfo {
+        spell_id: id,
+        name: format!("Spell {id}"),
+        family: 1,
+        tier: 1,
+        difficulty,
+        mana_cost: 10,
+        duration_seconds: 30.0,
+        school,
+        is_beneficial: true,
+        ..SpellInfo::default()
+    }
+}
+
+/// The position the C#'s `CreateAutomation` stands at.
+pub fn automation_position() -> Position {
+    Position {
+        cell_id: 0x7F7F_0001,
+        east_west: 10.0,
+        north_south: 20.0,
+        elevation: 3.0,
+        heading_degrees: 90.0,
+        is_outdoor: true,
+    }
+}
+
+/// The C#'s `CreateAutomation()`: "Expression Tester" (id 1) with a
+/// health elixir, a small pack and a drudge nearby.
+pub fn create_automation() -> FakeHost {
+    let mut host = FakeHost::new();
+    {
+        let character = host.character_mut();
+        "Expression Tester".clone_into(&mut character.name);
+        character.character_index = 2;
+        character.health = (90, 100, 80);
+        character.stamina = (80, 100, 70);
+        character.mana = (70, 100, 60);
+    }
+    let position = automation_position();
+    host.navigation.position = position.clone();
+    host.attributes = vec![Attribute {
+        kind: 0,
+        name: "Strength".to_owned(),
+        current: 110,
+        base: 100,
+        stat_id: 1,
+        ..Attribute::default()
+    }];
+    host.skills = vec![Skill {
+        skill_id: 34,
+        name: "War Magic".to_owned(),
+        training: Training::Trained,
+        current: 300,
+        base: 275,
+        ..Skill::default()
+    }];
+    host.known_spell_ids.insert(1001);
+    host.login.is_available = true;
+    let mut player = object(1, 1, "Expression Tester", ObjectClass::Player, 0x10, 0, 0);
+    player.is_landscape = true;
+    player.position = Some(position.clone());
+    player.items_capacity = 10;
+    player.containers_capacity = 2;
+    host.objects.push(player);
+    let mut elixir = object(10, 100, "Health Elixir", ObjectClass::Food, 0x20, 1, 0);
+    elixir.is_owned = true;
+    elixir.stack_size = 10;
+    host.objects.push(elixir);
+    let mut pack = object(11, 101, "Small Pack", ObjectClass::Container, 0x200, 1, 0);
+    pack.is_owned = true;
+    pack.items_capacity = 8;
+    host.objects.push(pack);
+    let mut drudge = object(20, 200, "Drudge", ObjectClass::Monster, 0x10, 0, 0);
+    drudge.is_landscape = true;
+    drudge.position = Some(Position {
+        east_west: 10.1,
+        ..position
+    });
+    drudge.has_appraisal_data = true;
+    drudge.last_id_time = 54321;
+    host.objects.push(drudge);
+    host.properties.insert(
+        1,
+        properties(&[(5, 50), (96, 100)], &[], &[(1, "Expression Tester")]),
+    );
+    host.properties
+        .insert(20, properties(&[(25, 77)], &[], &[]));
+    host
+}
+
+/// Marks the client busy the way the C#'s fake is: items and equipment.
+pub fn set_busy(host: &mut FakeHost, busy: bool) {
+    host.item_state.is_busy = busy;
+    host.equipment_busy = busy;
+}
+
+/// An object, to change.
+pub fn object_mut(host: &mut FakeHost, id: u32) -> &mut WorldObject {
+    host.objects
+        .iter_mut()
+        .find(|object| object.object_id == id)
+        .expect("the object is there")
+}
+
+/// The reason an expression's failure gives.
+pub fn eval_error(
+    runtime: &mut ExpressionRuntime,
+    host: &mut FakeHost,
+    source: &str,
+) -> ExpressionError {
+    match eval(runtime, host, source) {
+        Ok(value) => panic!("{source} answered {value:?}"),
+        Err(error) => error,
     }
 }
