@@ -551,6 +551,7 @@ impl TankServices<'_, '_> {
             }
         };
         if let Some(enabled) = services.meta_written {
+            self.meta_enabled = enabled;
             self.requests
                 .push(super::services::EngineRequest::MetaEnabled(enabled));
         }

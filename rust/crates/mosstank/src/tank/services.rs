@@ -736,11 +736,17 @@ impl MetaServices for TankServices<'_, '_> {
         name: &str,
         value: &ExpressionValue,
     ) -> Result<bool, Fault> {
-        let mut client = self.client.0.borrow_mut();
-        self.core
-            .0
-            .borrow_mut()
-            .set_option(&mut **client, name, value)
+        let written = {
+            let mut client = self.client.0.borrow_mut();
+            self.core
+                .0
+                .borrow_mut()
+                .set_option(&mut **client, name, value)?
+        };
+        if written && is_enable_meta(name) {
+            self.meta_enabled = value.is_truthy();
+        }
+        Ok(written)
     }
 
     /// The UB settings page's switch for the event handlers.
@@ -828,12 +834,19 @@ impl TankServices<'_, '_> {
         {
             value = ExpressionValue::Number(number);
         }
-        let mut client = self.client.0.borrow_mut();
-        let written = self
-            .core
-            .0
-            .borrow_mut()
-            .set_option(&mut **client, &name, &value)?;
+        let written = {
+            let mut client = self.client.0.borrow_mut();
+            self.core
+                .0
+                .borrow_mut()
+                .set_option(&mut **client, &name, &value)?
+        };
+        // The panel's one write path starts or stops the meta itself.
+        if written && is_enable_meta(&name) {
+            self.meta_enabled = value.is_truthy();
+            self.requests
+                .push(EngineRequest::MetaEnabled(self.meta_enabled));
+        }
         Ok(ExpressionValue::Boolean(written))
     }
 
@@ -911,4 +924,11 @@ impl TankCx<'_> {
             EngineRequest::MetaEnabled(enabled) => self.meta.set_enabled(enabled),
         }
     }
+}
+
+/// Whether an option name is `EnableMeta`.
+pub(crate) fn is_enable_meta(name: &str) -> bool {
+    options::canonical(name).is_some_and(|canonical| {
+        openac_plugin_compat::text::ordinal::equals_ignore_case(canonical, "EnableMeta")
+    })
 }

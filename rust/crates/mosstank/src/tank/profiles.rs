@@ -15,7 +15,6 @@ use mosstank_stores::profile_store::{ProfileLoad, StoreError};
 use mosstank_stores::startup;
 use mosstank_stores::storage::{PluginStorage, Root};
 use openac_plugin_compat::datetime::DateTime;
-use openac_plugin_compat::text::ordinal;
 
 use super::rules::{lent_loot, route_turn};
 
@@ -758,10 +757,4 @@ pub(crate) fn embedded_route_label(name: &str) -> String {
     } else {
         format!("{trimmed} (embedded)")
     }
-}
-
-/// Whether two profile names are the same file (ordinal, any case).
-#[allow(dead_code)]
-pub(crate) fn same_name(a: &str, b: &str) -> bool {
-    ordinal::equals_ignore_case(a, b)
 }

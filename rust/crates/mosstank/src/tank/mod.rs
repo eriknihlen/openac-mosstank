@@ -221,10 +221,6 @@ pub struct Core {
     pub(crate) command_portal_state: bool,
     pub(crate) command_portal_count: i32,
     pub(crate) first_run_guidance_pending: bool,
-    /// Whether the macro was running when the shell last looked: the fight
-    /// stops itself on its own gate only, so a stop the shell did not make
-    /// is one the fight made (none, with the shared gate bound).
-    pub(crate) macro_running_seen: bool,
     /// A meta interval set during a call, for the scheduler once the call
     /// returns.
     pub(crate) meta_interval_pending: Option<f64>,
@@ -678,7 +674,6 @@ impl Tank {
             command_portal_state: false,
             command_portal_count: 0,
             first_run_guidance_pending,
-            macro_running_seen: false,
             meta_interval_pending: None,
             route_after_kill: Rc::new(Cell::new(false)),
         };
@@ -1100,5 +1095,26 @@ impl Tank {
     pub(crate) fn end_call(&mut self, client: &mut dyn TankClient) {
         self.ub.flush(client);
         self.apply_pending_meta_interval();
+    }
+}
+
+impl Tank {
+    /// Runs an expression with the meta's functions and the plugin's
+    /// services (`EvaluateExpression`).
+    ///
+    /// # Errors
+    /// The text is not an expression, or the run failed: the message.
+    pub fn evaluate_expression(
+        &mut self,
+        client: &mut dyn TankClient,
+        source: &str,
+    ) -> Result<mosstank_expr::ExpressionValue, String> {
+        self.begin_call(client);
+        let (mut cx, _) = self.cx(client);
+        let result =
+            cx.with_engine(|engine, host, services| engine.evaluate(host, services, source));
+        cx.core.write_out(cx.client);
+        self.end_call(client);
+        result.map_err(|error| error.message())
     }
 }
