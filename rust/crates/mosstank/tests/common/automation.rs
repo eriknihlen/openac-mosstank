@@ -158,6 +158,10 @@ pub struct FakeAutomation {
     pub appraisal_replies: BTreeMap<u32, ItemProperties>,
     /// `UsedItemIds`.
     pub used_item_ids: Vec<u32>,
+    /// `RoomAhead`: what the room check answers.
+    pub room_ahead: ac_plugin_abi::navigation::RoomAheadStatus,
+    /// `RoomAheadAsked`: every distance the room check was asked about.
+    pub room_ahead_asked: Vec<f32>,
     /// `Applied`: (tool, target).
     pub applied: Vec<(u32, u32)>,
     /// `Gives`: (item, target, amount).
@@ -261,6 +265,8 @@ impl Default for FakeAutomation {
             identify_status: ItemStatus::Started,
             appraisal_replies: BTreeMap::new(),
             used_item_ids: Vec::new(),
+            room_ahead: ac_plugin_abi::navigation::RoomAheadStatus::Unknown,
+            room_ahead_asked: Vec::new(),
             applied: Vec::new(),
             gives: Vec::new(),
             item_completion: ItemUseCompletion::default(),
@@ -469,9 +475,23 @@ impl FakeAutomation {
     }
 
     /// `CaptureOwnedItems`.
+    /// The host folds the shared cooldown an appraisal carries into the
+    /// item it reports, as it does the one sent with the item itself
+    /// (`WithAppraisedSharedCooldown`).
     fn capture_owned_items(&mut self) -> Vec<InventoryItem> {
         self.capture_owned_items_call_count += 1;
-        self.item_entries.clone()
+        let mut items = self.item_entries.clone();
+        for item in &mut items {
+            if item.shared_cooldown_id == 0
+                && let Some(cooldown) = self
+                    .properties
+                    .get(&item.object_id)
+                    .and_then(|properties| properties.int(280))
+            {
+                item.shared_cooldown_id = u32::try_from(cooldown).unwrap();
+            }
+        }
+        items
     }
 
     /// `TryCaptureProperties`.
@@ -945,6 +965,16 @@ impl World {
                 self.answer::<calls::NavigationClearIntent>(bytes, |world, ()| {
                     world.automation().clear_movement_count += 1;
                     NavigationStatus::Accepted
+                })
+            }
+            Import::NavigationRoomAhead => {
+                self.answer::<calls::NavigationRoomAhead>(bytes, |world, distance: f32| {
+                    let automation = world.automation();
+                    automation.room_ahead_asked.push(distance);
+                    ac_plugin_abi::navigation::RoomAhead {
+                        status: automation.room_ahead,
+                        ..ac_plugin_abi::navigation::RoomAhead::default()
+                    }
                 })
             }
             _ => return None,

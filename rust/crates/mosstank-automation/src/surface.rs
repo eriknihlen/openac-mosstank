@@ -29,9 +29,6 @@ use ac_plugin_abi::world::{ItemProperties, Position, WorldObject};
 
 use crate::spells::SpellCatalog;
 
-/// The item property naming the shared cooldown an item belongs to.
-pub const SHARED_COOLDOWN_PROPERTY: u32 = 280;
-
 /// The shared cooldown every summoning essence belongs to
 /// (`PluginInventoryItem.SummoningCooldownId`).
 pub const SUMMONING_COOLDOWN_ID: u32 = 213;
@@ -128,14 +125,6 @@ pub trait Automation {
 
     /// An appraised item's properties.
     fn item_properties(&mut self, object_id: u32) -> Option<ItemProperties>;
-
-    /// The shared cooldown an item belongs to (`SharedCooldownId`), 0 for
-    /// none: by default as its appraisal reports it (property 280).
-    fn shared_cooldown_id(&mut self, object_id: u32) -> u32 {
-        self.item_properties(object_id)
-            .and_then(|properties| properties.int(SHARED_COOLDOWN_PROPERTY))
-            .map_or(0, |id| u32::try_from(id).unwrap_or(0))
-    }
 
     /// The newest inventory request the server answered
     /// (`LastInventoryCompletion`).

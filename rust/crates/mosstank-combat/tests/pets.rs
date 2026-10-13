@@ -62,7 +62,7 @@ impl SpellCatalog for Cooldowns {
 struct Client {
     appraisals: Appraisals,
     items: Vec<InventoryItem>,
-    /// The shared cooldown sent with each item itself.
+    /// The shared cooldown sent with each item itself, over the item's own.
     sent_cooldowns: HashMap<u32, u32>,
     /// Items this session has not appraised.
     unappraised: Vec<u32>,
@@ -144,8 +144,23 @@ impl Automation for Client {
     fn items_available(&mut self) -> bool {
         true
     }
+    /// The host folds the shared cooldown an appraisal carries into the
+    /// item it reports, as it does the one sent with the item itself.
     fn owned_items(&mut self) -> Vec<InventoryItem> {
-        self.items.clone()
+        let mut items = self.items.clone();
+        for item in &mut items {
+            if let Some(&sent) = self.sent_cooldowns.get(&item.object_id) {
+                item.shared_cooldown_id = sent;
+            }
+            if item.shared_cooldown_id == 0
+                && let Some(cooldown) = self
+                    .item_properties(item.object_id)
+                    .and_then(|properties| properties.int(280))
+            {
+                item.shared_cooldown_id = u32::try_from(cooldown).unwrap();
+            }
+        }
+        items
     }
     fn last_item_completion(&mut self) -> ItemUseCompletion {
         self.completion.clone()
@@ -184,17 +199,6 @@ impl Automation for Client {
             ints,
             ..ItemProperties::default()
         })
-    }
-    /// The cooldown sent with the item, else the one its appraisal carries.
-    fn shared_cooldown_id(&mut self, object_id: u32) -> u32 {
-        if let Some(&sent) = self.sent_cooldowns.get(&object_id)
-            && sent != 0
-        {
-            return sent;
-        }
-        self.item_properties(object_id)
-            .and_then(|properties| properties.int(280))
-            .map_or(0, |id| u32::try_from(id).unwrap())
     }
     fn hostile_targets(&mut self, maximum_metres: f32) -> Vec<CombatTarget> {
         self.capture_calls.push(maximum_metres);
@@ -330,7 +334,7 @@ fn select(
     attack: MonsterDamageType,
     preferences: &[MonsterDamageType],
 ) -> PetSummonChoice {
-    let owned = client.items.clone();
+    let owned = client.owned_items();
     let preferences = preferences.to_vec();
     select_pet(
         client,
@@ -431,7 +435,7 @@ fn an_essence_out_of_reach_is_passed_over_for_one_that_is_not() {
         device_with(4, COLD, 2, 100, 0, 50, 50),
         device(5, FIRE),
     ]);
-    let owned = client.items.clone();
+    let owned = client.owned_items();
     let mut warnings: Vec<String> = Vec::new();
 
     let choice = select_pet(
@@ -591,7 +595,7 @@ fn only_items_on_the_items_page_are_considered() {
 }
 
 fn refill(client: &mut Client, settings: &CombatSettings, threshold: i32) -> Option<(u32, u32)> {
-    let owned = client.items.clone();
+    let owned = client.owned_items();
     try_select_refill(client, &owned, settings, threshold)
         .map(|(device, spirit)| (device.object_id, spirit.object_id))
 }

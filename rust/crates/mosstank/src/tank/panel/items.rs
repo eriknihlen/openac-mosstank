@@ -899,7 +899,7 @@ impl TankCx<'_> {
     /// `PopulateItemEnchantRows`.
     fn populate_item_enchant_rows(&mut self, item: &InventoryItem, no_buffs: bool) {
         self.clear_item_enchant_rows(&item.name);
-        let pet_device = is_pet_device(self.client.rules(), item);
+        let pet_device = is_pet_device(item);
         if !is_profile_eligible(item, pet_device) {
             return;
         }
@@ -1140,7 +1140,7 @@ impl TankCx<'_> {
             }
             return;
         }
-        let pet_device = is_pet_device(self.client.rules(), &item);
+        let pet_device = is_pet_device(&item);
         if !is_profile_eligible(&item, pet_device)
             || (item.valid_locations == MISSILE_WEAPON && item.ammo_type == 0)
         {

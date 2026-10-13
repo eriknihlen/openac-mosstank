@@ -76,29 +76,6 @@ fn a_refused_clear_busy_says_the_clients_reason() {
     assert_eq!(world.chat(), ["[MossTank] Nothing is busy."]);
 }
 
-/// `/vt testpet` with a client that cannot tell whether there is room: the
-/// summon rule counts that as room, so the pet can spawn. (The C#'s
-/// `TestPetReportsTheRoomAheadThenThePetChoice` also faces a wall; the SDK
-/// has no room check yet, register PET-2.)
-#[test]
-fn test_pet_counts_a_client_that_cannot_tell_as_room() {
-    let (mut world, mut plugin) = world_with("Summoner");
-
-    world.vt(&mut plugin, "testpet");
-
-    let chat = world.chat();
-    assert_eq!(chat.len(), 2, "{chat:?}");
-    let timing = chat[0]
-        .strip_prefix("[MossTank] Pet can spawn: True, test time: ")
-        .and_then(|rest| rest.strip_suffix("ms"))
-        .unwrap_or_else(|| panic!("{}", chat[0]));
-    assert!(
-        !timing.is_empty() && timing.chars().all(|c| c.is_ascii_digit() || c == '.'),
-        "{timing}"
-    );
-    assert_eq!(chat[1], "[MossTank] Pet choice: none");
-}
-
 #[test]
 fn test_spell_reads_the_number_then_the_spell_then_says_whether_it_can_be_cast() {
     let (mut world, mut plugin) = world_with("Caster");
@@ -268,4 +245,44 @@ fn the_dumps_head_their_tables_with_a_count() {
             "[MossTank] Assigned meta variables:",
         ]
     );
+}
+
+/// `^\[MossTank\] Pet can spawn: <answer>, test time: [0-9.]+ms$`.
+fn is_room_line(line: &str, answer: &str) -> bool {
+    line.strip_prefix(&format!("[MossTank] Pet can spawn: {answer}, test time: "))
+        .and_then(|rest| rest.strip_suffix("ms"))
+        .is_some_and(|time| {
+            !time.is_empty() && time.chars().all(|c| c.is_ascii_digit() || c == '.')
+        })
+}
+
+// Source: tests/AcDream.Plugins.MossTank.Tests/MossTankPanelTests.cs :: TestPetReportsTheRoomAheadThenThePetChoice
+/// `/vt testpet` asks whether there is room three metres ahead for a pet to
+/// appear, and how long the check took; a client that cannot tell answers
+/// True, as the summon rule counts it. The pet choice follows on a line of
+/// its own.
+#[test]
+fn test_pet_reports_the_room_ahead_then_the_pet_choice() {
+    use ac_plugin_abi::navigation::RoomAheadStatus;
+    let mut automation = common::automation::FakeAutomation::default();
+    automation.room_ahead = RoomAheadStatus::Blocked;
+    let mut world = World::with_automation(automation);
+    let mut plugin = world.enable();
+
+    world.vt(&mut plugin, "testpet");
+
+    assert_eq!(world.automation().room_ahead_asked, [3.0]);
+    let chat = world.chat();
+    assert!(is_room_line(&chat[chat.len() - 2], "False"), "{chat:?}");
+    assert_eq!(chat[chat.len() - 1], "[MossTank] Pet choice: none");
+
+    world.automation().room_ahead = RoomAheadStatus::Unknown;
+    world.vt(&mut plugin, "testpet");
+    let chat = world.chat();
+    assert!(is_room_line(&chat[chat.len() - 2], "True"), "{chat:?}");
+
+    world.automation().room_ahead = RoomAheadStatus::Clear;
+    world.vt(&mut plugin, "testpet");
+    let chat = world.chat();
+    assert!(is_room_line(&chat[chat.len() - 2], "True"), "{chat:?}");
 }

@@ -104,8 +104,9 @@ impl PetSummonChoice {
 
 /// Whether an item summons a pet (`IsPetDevice`): it belongs to the
 /// essences' shared cooldown, or the server named its pet.
-pub fn is_pet_device(automation: &mut dyn Automation, item: &InventoryItem) -> bool {
-    item.pet_class != 0 || automation.shared_cooldown_id(item.object_id) == SUMMONING_COOLDOWN_ID
+#[must_use]
+pub fn is_pet_device(item: &InventoryItem) -> bool {
+    item.is_pet_device()
 }
 
 /// The distance monsters are counted within (`PetRange`).
@@ -208,7 +209,7 @@ pub fn select_pet(
         let Some(properties) = automation.item_properties(item.object_id) else {
             continue;
         };
-        if !is_pet_device(automation, &item) {
+        if !is_pet_device(&item) {
             continue;
         }
         match usability(&item, &properties, character, summoning) {
@@ -251,7 +252,7 @@ pub fn try_select_refill(
         let Some(properties) = automation.item_properties(item.object_id) else {
             continue;
         };
-        if !is_pet_device(automation, &item) {
+        if !is_pet_device(&item) {
             continue;
         }
         let structure = structure(&item, &properties, 99999);

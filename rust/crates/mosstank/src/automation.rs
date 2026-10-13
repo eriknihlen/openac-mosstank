@@ -335,6 +335,15 @@ impl Automation for HostAutomation<'_, '_> {
         self.host.hostile_targets(maximum_metres)
     }
 
+    fn check_room_ahead(&mut self, distance_meters: f32) -> mosstank_automation::RoomAhead {
+        use ac_plugin_abi::navigation::RoomAheadStatus;
+        match self.host.check_room_ahead(distance_meters).status {
+            RoomAheadStatus::Clear => mosstank_automation::RoomAhead::Clear,
+            RoomAheadStatus::Blocked => mosstank_automation::RoomAhead::Blocked,
+            _ => mosstank_automation::RoomAhead::Unknown,
+        }
+    }
+
     fn begin_attack(&mut self, target_id: u32, height: AttackHeight, power: f32) -> CombatResult {
         self.host.begin_attack(target_id, height, power)
     }
