@@ -848,6 +848,10 @@ impl MapPainter for Painter {
 
     fn clear(&mut self, _color: &Color) {}
 
+    fn fill_rect(&mut self, _rect: (f64, f64, f64, f64), _color: &Color) {}
+
+    fn stroke_rect(&mut self, _rect: (f64, f64, f64, f64), _color: &Color, _thickness: f32) {}
+
     fn draw_line(&mut self, from: (f64, f64), to: (f64, f64), color: &Color, thickness: f32) {
         self.lines.push((from, to, color.clone(), thickness));
     }

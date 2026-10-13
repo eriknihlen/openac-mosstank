@@ -86,6 +86,8 @@ pub trait UbHost: MetaHost {
     fn peer_subscribe(&mut self, capabilities: u32) -> Option<u32>;
     /// Ends a lease.
     fn peer_unsubscribe(&mut self, handle: u32) -> bool;
+    /// Whether the other clients are read and written now.
+    fn peers_connected(&mut self) -> bool;
 
     // ---- dungeons ----
 

@@ -22,6 +22,12 @@ use std::collections::HashMap;
 
 use ac_plugin_abi::navigation::NavigationSnapshot;
 use ac_plugin_abi::ui::{Color, PointerEvent};
+
+use crate::canvas::{
+    BUTTON_LEFT, MODIFIER_SHIFT, POINTER_CANCELLED, POINTER_DOWN, POINTER_MOVE, POINTER_UP,
+    POINTER_WHEEL,
+};
+pub use crate::canvas::{MapCanvasSpec, MapImage, MapPainter, MapUi};
 use ac_plugin_abi::world::Floorplan;
 use mosstank_meta::host::LogLevel;
 
@@ -223,90 +229,6 @@ pub fn read_settings(catalog: &dyn UbCatalog) -> DungeonMapSettings {
         markers: DungeonMarkerStyles(super::markers::KINDS.map(marker)),
     }
 }
-
-/// An image the client holds for the plugin (handle 0: none).
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
-pub struct MapImage {
-    /// The client's number for it.
-    pub handle: u32,
-    /// Width, pixels.
-    pub width: u32,
-    /// Height, pixels.
-    pub height: u32,
-}
-
-impl MapImage {
-    /// The client issued it.
-    #[must_use]
-    pub fn is_valid(self) -> bool {
-        self.handle != 0
-    }
-}
-
-/// What the map's canvas is registered with (`PluginCanvasDescriptor`).
-#[derive(Debug, Clone, PartialEq)]
-pub struct MapCanvasSpec {
-    /// Its id.
-    pub canvas_id: String,
-    /// Width, pixels.
-    pub width: i32,
-    /// Height, pixels.
-    pub height: i32,
-    /// Pixels from the screen's top-left.
-    pub offset: (f64, f64),
-    /// Shown at once.
-    pub start_visible: bool,
-    /// Takes pointer input.
-    pub accepts_pointer_input: bool,
-}
-
-/// The canvas and the images, as the client keeps them.
-pub trait MapUi {
-    /// Registers a canvas; its handle, `None` when refused.
-    fn register_canvas(&mut self, spec: &MapCanvasSpec) -> Option<u32>;
-    /// Shows or hides it.
-    fn set_canvas_visible(&mut self, canvas: u32, visible: bool);
-    /// Asks for a repaint: [`DungeonMapController::paint`] on the next
-    /// frame.
-    fn invalidate_canvas(&mut self, canvas: u32);
-    /// Removes it.
-    fn remove_canvas(&mut self, canvas: u32);
-    /// An object's icon, or no image.
-    fn object_icon(&mut self, object_id: u32) -> MapImage;
-    /// Lets go of an image.
-    fn release_image(&mut self, image: MapImage);
-}
-
-/// What the paint draws with (`IPluginPainter`): pixels from the canvas's
-/// top-left, y down.
-pub trait MapPainter {
-    /// The canvas's width.
-    fn width(&self) -> i32;
-    /// The canvas's height.
-    fn height(&self) -> i32;
-    /// Fills the canvas.
-    fn clear(&mut self, color: &Color);
-    /// A straight line.
-    fn draw_line(&mut self, from: (f64, f64), to: (f64, f64), color: &Color, thickness: f32);
-    /// One line of text with its top-left at `at`.
-    fn draw_text(&mut self, text: &str, at: (f64, f64), color: &Color, outline: bool);
-    /// How big a line of text is: width and height.
-    fn measure_text(&mut self, text: &str) -> (f64, f64);
-    /// An image stretched over a rectangle (x, y, width, height), tinted.
-    fn draw_image(&mut self, image: MapImage, rect: (f64, f64, f64, f64), tint: &Color);
-    /// Clips what follows to a rectangle.
-    fn push_clip(&mut self, rect: (f64, f64, f64, f64));
-    /// Undoes the last clip.
-    fn pop_clip(&mut self);
-}
-
-const POINTER_DOWN: u8 = 0;
-const POINTER_UP: u8 = 1;
-const POINTER_MOVE: u8 = 2;
-const POINTER_WHEEL: u8 = 3;
-const POINTER_CANCELLED: u8 = 4;
-const BUTTON_LEFT: u8 = 1;
-const MODIFIER_SHIFT: u8 = 1;
 
 /// One storey's shade, compared for a change.
 type ShadeSignature = (Vec<(bool, u32, u32)>, i64);

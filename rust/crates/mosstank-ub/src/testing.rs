@@ -86,6 +86,12 @@ pub struct FakeUbHost {
     /// Every lease ended.
     pub peer_unsubscribed: Vec<u32>,
     next_lease: u32,
+    /// The other clients are read and written.
+    pub peers_connected: bool,
+    /// How many times the other clients were listed.
+    pub peer_capture_count: usize,
+    /// Every object selected, in order.
+    pub selections: Vec<u32>,
     /// Cells that are sealed dungeon cells.
     pub sealed_cells: Vec<u32>,
     /// Every cell is a sealed dungeon cell.
@@ -139,6 +145,9 @@ impl FakeUbHost {
             peer_leases: Vec::new(),
             peer_unsubscribed: Vec::new(),
             next_lease: 1,
+            peers_connected: true,
+            peer_capture_count: 0,
+            selections: Vec::new(),
             sealed_cells: Vec::new(),
             all_sealed: false,
             floorplans: HashMap::new(),
@@ -250,6 +259,7 @@ impl MetaHost for FakeUbHost {
     }
 
     fn select(&mut self, object_id: u32) -> bool {
+        self.selections.push(object_id);
         self.meta.select(object_id)
     }
 
@@ -378,6 +388,7 @@ impl MetaHost for FakeUbHost {
     }
 
     fn peer_clients(&mut self) -> Vec<NetworkClient> {
+        self.peer_capture_count += 1;
         self.meta.peer_clients()
     }
 
@@ -550,6 +561,10 @@ impl UbHost for FakeUbHost {
     fn peer_unsubscribe(&mut self, handle: u32) -> bool {
         self.peer_unsubscribed.push(handle);
         true
+    }
+
+    fn peers_connected(&mut self) -> bool {
+        self.peers_connected
     }
 
     fn is_sealed_dungeon(&mut self, cell_id: u32) -> bool {

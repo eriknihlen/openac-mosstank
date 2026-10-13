@@ -15,12 +15,15 @@
 //! make); the expression runtime through [`expressions::UbExpressions`].
 
 pub mod alias;
+pub mod canvas;
 pub mod catalog;
 pub mod chat;
 pub mod dungeon;
 pub mod expressions;
 pub mod help;
 pub mod host;
+pub mod hud;
+pub mod network;
 pub mod search;
 #[cfg(not(target_arch = "wasm32"))]
 pub mod testing;
