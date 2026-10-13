@@ -770,8 +770,16 @@ impl MetaServices for TankServices<'_, '_> {
         Core::announce(&mut **client, message);
     }
 
-    /// The other clients' subscriptions come with the UB network slice.
-    fn require_peers(&mut self, _host: &mut dyn MetaHost, _need: PeerNeed) {}
+    /// `RequireExpressionPeers`.
+    fn require_peers(&mut self, _host: &mut dyn MetaHost, need: PeerNeed) {
+        let mut client = self.client.0.borrow_mut();
+        self.core.0.borrow_mut().require_expression_peers(
+            &mut **client,
+            &*self.ub,
+            self.meta_enabled,
+            need,
+        );
+    }
 
     fn skill_margin(&mut self, hunting: bool) -> i32 {
         if hunting {

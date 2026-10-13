@@ -74,6 +74,7 @@ impl Tank {
             cx.core.automation_was_available = true;
             cx.handle_session_started();
         }
+        cx.update_peer_subscriptions();
         // The name tags, first in the frame as the panel runs them.
         cx.with_ub(|commands, call| {
             commands.tools_mut().tick_nametags(call, elapsed_seconds);
@@ -256,6 +257,8 @@ impl Tank {
 impl TankCx<'_> {
     /// `HandleSessionEnded`.
     fn handle_session_ended(&mut self) {
+        self.core.release_peer_subscriptions(self.client);
+        self.core.peers.forget_expression_requirements();
         self.with_ub(|commands, call| commands.tools_mut().nametags.reset(call.host));
         if self.core.combat.enabled() {
             let core = &mut *self.core;

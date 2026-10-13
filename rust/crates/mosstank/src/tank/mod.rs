@@ -18,6 +18,7 @@ mod autostart;
 mod commands;
 mod frame;
 mod options;
+mod peers;
 mod profiles;
 mod rules;
 mod services;
@@ -230,6 +231,8 @@ pub struct Core {
     pub(crate) meta_interval_pending: Option<f64>,
     /// The looting switch the fight's kill hold reads.
     pub(crate) route_after_kill: Rc<Cell<bool>>,
+    /// The peer features asked of the other clients.
+    pub(crate) peers: peers::PeerState,
 }
 
 /// The macro shell.
@@ -682,6 +685,7 @@ impl Tank {
             first_run_guidance_pending,
             meta_interval_pending: None,
             route_after_kill: Rc::new(Cell::new(false)),
+            peers: peers::PeerState::default(),
         };
         core.bind_controller_hooks();
 
@@ -953,6 +957,7 @@ impl Tank {
     pub fn disable(&mut self, client: &mut dyn TankClient) {
         self.begin_call(client);
         let (mut cx, _) = self.cx(client);
+        cx.core.release_peer_subscriptions(cx.client);
         // The UB tools' runs end with the plugin, and the name tags give
         // their labels back.
         cx.with_ub(|commands, call| {

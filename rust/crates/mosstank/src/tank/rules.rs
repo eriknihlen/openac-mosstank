@@ -385,12 +385,10 @@ impl MacroContext for TankCx<'_> {
         true
     }
 
-    /// The meta is looked at only while the macro runs. The other clients
-    /// the meta's functions need are not asked for yet (the peer
-    /// subscriptions come with the UB network slice), so the meta never
-    /// waits on them.
+    /// The meta is looked at only while the macro runs, and waits for the
+    /// other clients its functions need (`MetaPeersReady`).
     fn meta_pass(&mut self, elapsed_seconds: f64) {
-        if !self.core.combat.enabled() {
+        if !self.core.combat.enabled() || !self.core.meta_peers_ready(self.client) {
             return;
         }
         self.with_engine(|engine, host, services| engine.on_tick(host, services, elapsed_seconds));
