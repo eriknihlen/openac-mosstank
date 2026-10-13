@@ -61,6 +61,9 @@ pub trait UbHost: MetaHost {
     /// Breaks allegiance with a player.
     fn allegiance_break(&mut self, target_id: u32) -> AllegianceResult;
 
+    /// Answers the server's open question.
+    fn answer_dialog(&mut self, context_id: u32, accept: bool) -> bool;
+
     // ---- containers ----
 
     /// Opens a container or corpse.

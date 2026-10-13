@@ -15,6 +15,7 @@ mosstank-dotnet.workspace = true
 mosstank-expr.workspace = true
 mosstank-formats.workspace = true
 mosstank-meta.workspace = true
+mosstank-nav.workspace = true
 mosstank-settings.workspace = true
 mosstank-stores.workspace = true
 mosstank-vendor.workspace = true

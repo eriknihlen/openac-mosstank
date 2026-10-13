@@ -59,7 +59,7 @@ pub struct FakeUbHost {
     pub character_options: Vec<(String, bool)>,
     /// What a change of an option the client has answers.
     pub option_status: OptionStatus,
-    /// Every option change asked for.
+    /// Every option change the client took.
     pub option_changes: Vec<(String, bool)>,
     /// What an allegiance command answers.
     pub allegiance_result: AllegianceResult,
@@ -67,6 +67,12 @@ pub struct FakeUbHost {
     pub swears: Vec<u32>,
     /// Every break, by target.
     pub breaks: Vec<u32>,
+    /// Every question answered: context and choice.
+    pub answered: Vec<(u32, bool)>,
+    /// Every object used, in order.
+    pub used: Vec<u32>,
+    /// Every item applied to a target: item and target.
+    pub applied: Vec<(u32, u32)>,
     /// Every container opened.
     pub opened_loot: Vec<u32>,
     /// Every container closed.
@@ -135,6 +141,9 @@ impl FakeUbHost {
             },
             swears: Vec::new(),
             breaks: Vec::new(),
+            answered: Vec::new(),
+            used: Vec::new(),
+            applied: Vec::new(),
             opened_loot: Vec::new(),
             closed_loot: Vec::new(),
             close_requests: 0,
@@ -272,10 +281,12 @@ impl MetaHost for FakeUbHost {
     }
 
     fn use_item(&mut self, object_id: u32) -> ItemResult {
+        self.used.push(object_id);
         self.meta.use_item(object_id)
     }
 
     fn apply_item(&mut self, object_id: u32, target_id: u32) -> ItemResult {
+        self.applied.push((object_id, target_id));
         self.meta.apply_item(object_id, target_id)
     }
 
@@ -494,7 +505,6 @@ impl UbHost for FakeUbHost {
     }
 
     fn set_character_option(&mut self, name: &str, value: bool) -> OptionResult {
-        self.option_changes.push((name.to_owned(), value));
         let status = self.option_status;
         let Some((_, held)) = self
             .character_options
@@ -508,6 +518,7 @@ impl UbHost for FakeUbHost {
         };
         if status == OptionStatus::Accepted {
             *held = value;
+            self.option_changes.push((name.to_owned(), value));
         }
         OptionResult {
             status,
@@ -523,6 +534,11 @@ impl UbHost for FakeUbHost {
     fn allegiance_break(&mut self, target_id: u32) -> AllegianceResult {
         self.breaks.push(target_id);
         self.allegiance_result.clone()
+    }
+
+    fn answer_dialog(&mut self, context_id: u32, accept: bool) -> bool {
+        self.answered.push((context_id, accept));
+        true
     }
 
     fn open_loot(&mut self, container_id: u32) -> ItemResult {

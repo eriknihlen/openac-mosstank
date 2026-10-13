@@ -295,6 +295,7 @@ dependencies = [
  "mosstank-expr",
  "mosstank-formats",
  "mosstank-meta",
+ "mosstank-nav",
  "mosstank-settings",
  "mosstank-stores",
  "mosstank-vendor",
