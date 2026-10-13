@@ -8,6 +8,8 @@ use mosstank_stores::storage::{PluginStorage, Root, StorageError, StoreHost, Sto
 use openac_plugin::Host;
 use openac_plugin::StorageLock;
 
+use crate::automation::{HostAutomation, StorageView};
+
 /// The client's storage at one place.
 #[derive(Debug)]
 pub struct HostStorage<'h, 'a> {
@@ -87,41 +89,101 @@ impl StoreLog for HostStorage<'_, '_> {
 }
 
 /// What a profile store reaches during one plugin call: both storages, the
-/// log and the world's name, all through the one host.
-#[derive(Debug)]
-pub struct HostStores<'h, 'a> {
-    storage: HostStorage<'h, 'a>,
-}
+/// log and the world's name, all through the one client of the call.
+pub type HostStores<'h, 'a> = HostAutomation<'h, 'a>;
 
-impl<'h, 'a> HostStores<'h, 'a> {
-    /// The stores' view of `host`.
-    pub fn new(host: &'h mut Host<'a>) -> Self {
-        Self {
-            storage: HostStorage::plugin_data(host),
-        }
-    }
-}
-
-impl StoreHost for HostStores<'_, '_> {
+impl StoreHost for HostAutomation<'_, '_> {
     fn storage(&mut self, root: Root) -> &mut dyn PluginStorage {
-        self.storage.place = StoragePlace::global(match root {
+        self.storage_view = StorageView::Store(StoragePlace::global(match root {
             Root::Plugin => StorageRoot::PluginData,
             Root::Profiles => StorageRoot::Profiles,
-        });
-        &mut self.storage
+        }));
+        self
     }
 
     fn log(&mut self) -> &mut dyn StoreLog {
-        &mut self.storage
+        self
     }
 
     /// The character's world, empty before one is known.
     fn world_name(&mut self) -> String {
-        self.storage
-            .host
+        self.host
             .character()
             .map(|character| character.world)
             .unwrap_or_default()
+    }
+}
+
+impl StoreLog for HostAutomation<'_, '_> {
+    fn info(&mut self, message: &str) {
+        self.host.info(message);
+    }
+
+    fn warn(&mut self, message: &str) {
+        self.host.warn(message);
+    }
+
+    fn error(&mut self, message: &str) {
+        self.host.error(message);
+    }
+}
+
+impl HostAutomation<'_, '_> {
+    /// The place the storage view reads, and whether it is always there.
+    fn storage_place(&self) -> (StoragePlace, bool) {
+        match &self.storage_view {
+            StorageView::Meta => (StoragePlace::global(StorageRoot::PluginData), true),
+            StorageView::Store(place) => (place.clone(), false),
+        }
+    }
+}
+
+/// The storage the last accessor handed out: the meta's (the plugin's own
+/// data, always there) or a profile store's place (there when the client
+/// describes it).
+impl PluginStorage for HostAutomation<'_, '_> {
+    fn is_available(&mut self) -> bool {
+        let (place, always) = self.storage_place();
+        always || self.host.storage_describe(&place).is_some()
+    }
+
+    fn root_path(&mut self) -> Option<String> {
+        let (place, _) = self.storage_place();
+        self.host.storage_describe(&place)
+    }
+
+    fn read_text(&mut self, key: &str) -> Result<Option<String>, StorageError> {
+        let (place, _) = self.storage_place();
+        self.host.storage_read_text(&place, key)
+    }
+
+    fn list(&mut self, prefix: &str) -> Result<Vec<String>, StorageError> {
+        let (place, _) = self.storage_place();
+        self.host.storage_list(&place, prefix)
+    }
+
+    fn write_text(&mut self, key: &str, content: &str) -> Result<(), StorageError> {
+        let (place, _) = self.storage_place();
+        self.host.storage_write_text(&place, key, content)
+    }
+
+    fn ensure_directory(&mut self, prefix: &str) -> Result<bool, StorageError> {
+        let (place, _) = self.storage_place();
+        self.host.storage_ensure_folder(&place, prefix)
+    }
+
+    fn delete(&mut self, key: &str) -> Result<bool, StorageError> {
+        let (place, _) = self.storage_place();
+        self.host.storage_delete(&place, key)
+    }
+
+    fn lock(&mut self, key: &str) -> Result<u32, StorageError> {
+        let (place, _) = self.storage_place();
+        self.host.storage_lock(&place, key).map(|lock| lock.0)
+    }
+
+    fn unlock(&mut self, handle: u32) -> bool {
+        self.host.storage_unlock(StorageLock(handle))
     }
 }
 

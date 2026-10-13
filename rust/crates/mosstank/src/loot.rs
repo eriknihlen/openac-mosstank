@@ -3,20 +3,12 @@
 //! client's other plugins ask it (registered as `moss-tank`, answered
 //! through the plugin's callback export).
 
-use ac_plugin_abi::CharacterInfo;
 use ac_plugin_abi::callback::{Callback, CallbackAnswer, LootQuestion};
-use ac_plugin_abi::character::Skill;
-use ac_plugin_abi::combat::{CombatMode, CombatResult};
 use ac_plugin_abi::items::{
-    AppraisalState, InventoryCompletion, InventoryItem, ItemResult, ItemUseCompletion,
-    LootClassification, LootContext, LootedItem,
+    AppraisalState, InventoryCompletion, InventoryItem, ItemResult, LootClassification,
+    LootContext, LootedItem,
 };
-use ac_plugin_abi::magic::{CastCompletion, CastGate, ComponentInfo, SpellInfo};
-use ac_plugin_abi::peers::NetworkClient;
-use ac_plugin_abi::social::{FellowMember, FellowshipStatus};
-use ac_plugin_abi::types::ChatLine;
-use ac_plugin_abi::world::{ItemProperties, Position, WorldObject};
-use mosstank_automation::{Automation, SpellCatalog};
+use ac_plugin_abi::world::{ItemProperties, WorldObject};
 use mosstank_formats::utl::LootRule;
 use mosstank_loot::classifier::{CLASSIFIER_DISPLAY_NAME, CLASSIFIER_ID, MossTankLootClassifier};
 use mosstank_loot::host::{LootCorpse, LootHost};
@@ -26,169 +18,10 @@ use openac_plugin::Host;
 use crate::automation::HostAutomation;
 use crate::storage::HostStorage;
 
-/// The client, as the looter sees it.
-#[derive(Debug)]
-pub struct HostLoot<'h, 'a> {
-    host: &'h mut Host<'a>,
-}
+/// The looter's view of the client: the one client of the call.
+pub type HostLoot<'h, 'a> = HostAutomation<'h, 'a>;
 
-impl<'h, 'a> HostLoot<'h, 'a> {
-    /// The looter's view of `host`.
-    pub fn new(host: &'h mut Host<'a>) -> Self {
-        Self { host }
-    }
-
-    /// The rules' shared view, for one call.
-    fn rules(&mut self) -> HostAutomation<'_, 'a> {
-        HostAutomation::new(self.host)
-    }
-}
-
-impl SpellCatalog for HostLoot<'_, '_> {
-    fn known_self_buffs(&mut self) -> Vec<SpellInfo> {
-        self.rules().known_self_buffs()
-    }
-
-    fn try_get(&mut self, spell_id: u32) -> Option<SpellInfo> {
-        SpellCatalog::try_get(&mut self.rules(), spell_id)
-    }
-
-    fn all(&mut self) -> Vec<SpellInfo> {
-        self.rules().all()
-    }
-
-    fn try_get_component(&mut self, component_id: u32) -> Option<ComponentInfo> {
-        self.rules().try_get_component(component_id)
-    }
-}
-
-impl Automation for HostLoot<'_, '_> {
-    fn is_available(&mut self) -> bool {
-        self.rules().is_available()
-    }
-
-    fn character(&mut self) -> CharacterInfo {
-        self.rules().character()
-    }
-
-    fn skills(&mut self) -> Vec<Skill> {
-        self.rules().skills()
-    }
-
-    fn try_get_skill(&mut self, skill_id: u32) -> Option<Skill> {
-        self.rules().try_get_skill(skill_id)
-    }
-
-    fn spells(&mut self) -> &mut dyn SpellCatalog {
-        self
-    }
-
-    fn evaluate_gate(&mut self, spell_id: u32, target: Option<u32>) -> CastGate {
-        self.rules().evaluate_gate(spell_id, target)
-    }
-
-    fn cast(&mut self, spell_id: u32, target: Option<u32>) -> bool {
-        self.rules().cast(spell_id, target)
-    }
-
-    fn has_components(&mut self, spell_id: u32) -> bool {
-        self.rules().has_components(spell_id)
-    }
-
-    fn last_cast_completion(&mut self) -> CastCompletion {
-        self.rules().last_cast_completion()
-    }
-
-    fn combat_mode(&mut self) -> CombatMode {
-        self.rules().combat_mode()
-    }
-
-    fn enter_combat_mode(&mut self, mode: CombatMode) -> CombatResult {
-        self.rules().enter_combat_mode(mode)
-    }
-
-    fn items_available(&mut self) -> bool {
-        self.rules().items_available()
-    }
-
-    fn items_busy(&mut self) -> bool {
-        self.rules().items_busy()
-    }
-
-    fn owned_items(&mut self) -> Vec<InventoryItem> {
-        self.rules().owned_items()
-    }
-
-    fn last_item_completion(&mut self) -> ItemUseCompletion {
-        self.rules().last_item_completion()
-    }
-
-    fn use_item(&mut self, object_id: u32) -> ItemResult {
-        self.rules().use_item(object_id)
-    }
-
-    fn apply_item(&mut self, object_id: u32, target_id: u32) -> ItemResult {
-        self.rules().apply_item(object_id, target_id)
-    }
-
-    fn item_properties(&mut self, object_id: u32) -> Option<ItemProperties> {
-        self.rules().item_properties(object_id)
-    }
-
-    fn objects_available(&mut self) -> bool {
-        self.rules().objects_available()
-    }
-
-    fn object(&mut self, object_id: u32) -> Option<WorldObject> {
-        self.rules().object(object_id)
-    }
-
-    fn identify(&mut self, object_id: u32) -> ItemResult {
-        self.rules().identify(object_id)
-    }
-
-    fn in_fellowship(&mut self) -> bool {
-        self.rules().in_fellowship()
-    }
-
-    fn fellowship_members(&mut self) -> Vec<FellowMember> {
-        self.rules().fellowship_members()
-    }
-
-    fn request_fellow_vitals(&mut self, requested: bool) -> FellowshipStatus {
-        self.rules().request_fellow_vitals(requested)
-    }
-
-    fn network_available(&mut self) -> bool {
-        self.rules().network_available()
-    }
-
-    fn network_clients(&mut self) -> Vec<NetworkClient> {
-        self.rules().network_clients()
-    }
-
-    fn position(&mut self) -> Position {
-        self.rules().position()
-    }
-
-    fn chat_messages(&mut self, after_sequence: u64) -> Vec<ChatLine> {
-        self.rules().chat_messages(after_sequence)
-    }
-
-    fn post_system_message(&mut self, text: &str) {
-        self.rules().post_system_message(text);
-    }
-
-    fn log_info(&mut self, text: &str) {
-        self.host.info(text);
-    }
-
-    fn log_warn(&mut self, text: &str) {
-        self.host.warn(text);
-    }
-}
-
-impl LootHost for HostLoot<'_, '_> {
+impl LootHost for HostAutomation<'_, '_> {
     fn loot_available(&mut self) -> bool {
         self.host.loot_state().is_available
     }

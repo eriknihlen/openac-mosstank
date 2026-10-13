@@ -15,71 +15,14 @@ use mosstank_meta::host::{
     LootContainer, MetaHost, MovementIntent, NavigationSnapshot, NavigationStatus, NetworkClient,
     PanelDescriptor, PeerCast, SelectionState, Skill, SpellInfo, SpellList, WorldObject, WorldTime,
 };
-use mosstank_stores::storage::{PluginStorage, StorageError};
-use openac_plugin::Host;
-use openac_plugin::storage::{StoragePlace, StorageRoot};
+use mosstank_stores::storage::PluginStorage;
 
-/// The client for one call.
-pub struct ClientHost<'h, 'a> {
-    host: &'h mut Host<'a>,
-    place: StoragePlace,
-}
+use crate::automation::{HostAutomation, StorageView};
 
-impl std::fmt::Debug for ClientHost<'_, '_> {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.write_str("ClientHost")
-    }
-}
+/// The meta's view of the client: the one client of the call.
+pub type ClientHost<'h, 'a> = HostAutomation<'h, 'a>;
 
-impl<'h, 'a> ClientHost<'h, 'a> {
-    /// The client behind `host`.
-    pub fn new(host: &'h mut Host<'a>) -> Self {
-        Self {
-            host,
-            place: StoragePlace::global(StorageRoot::PluginData),
-        }
-    }
-}
-
-impl PluginStorage for ClientHost<'_, '_> {
-    fn is_available(&mut self) -> bool {
-        true
-    }
-
-    fn root_path(&mut self) -> Option<String> {
-        self.host.storage_describe(&self.place)
-    }
-
-    fn read_text(&mut self, key: &str) -> Result<Option<String>, StorageError> {
-        self.host.storage_read_text(&self.place, key)
-    }
-
-    fn list(&mut self, prefix: &str) -> Result<Vec<String>, StorageError> {
-        self.host.storage_list(&self.place, prefix)
-    }
-
-    fn write_text(&mut self, key: &str, content: &str) -> Result<(), StorageError> {
-        self.host.storage_write_text(&self.place, key, content)
-    }
-
-    fn ensure_directory(&mut self, prefix: &str) -> Result<bool, StorageError> {
-        self.host.storage_ensure_folder(&self.place, prefix)
-    }
-
-    fn delete(&mut self, key: &str) -> Result<bool, StorageError> {
-        self.host.storage_delete(&self.place, key)
-    }
-
-    fn lock(&mut self, key: &str) -> Result<u32, StorageError> {
-        self.host.storage_lock(&self.place, key).map(|lock| lock.0)
-    }
-
-    fn unlock(&mut self, handle: u32) -> bool {
-        self.host.storage_unlock(openac_plugin::StorageLock(handle))
-    }
-}
-
-impl MetaHost for ClientHost<'_, '_> {
+impl MetaHost for HostAutomation<'_, '_> {
     fn log(&mut self, level: LogLevel, message: &str) {
         self.host.log(level, message);
     }
@@ -332,6 +275,7 @@ impl MetaHost for ClientHost<'_, '_> {
     }
 
     fn storage(&mut self) -> &mut dyn PluginStorage {
+        self.storage_view = StorageView::Meta;
         self
     }
 
