@@ -12,7 +12,7 @@ use std::rc::Rc;
 
 use ac_plugin_abi::navigation::NavigationSnapshot;
 use ac_plugin_abi::world::{ObjectClass, Position, WorldObject};
-use mosstank_automation::locks::ActionLockTable;
+use mosstank_automation::locks::{ActionLockTable, SharedActionLocks};
 use mosstank_expr::{ExpressionValue, FixedClock};
 use mosstank_meta::runtime::ExpressionRuntime;
 use mosstank_meta::services::NoServices;
@@ -108,8 +108,9 @@ impl UbServices for Services {
         self.auto_vendor_stops += 1;
     }
 
-    fn fellow_command(&mut self, _host: &mut dyn UbHost, arguments: &str) {
+    fn fellow_command(&mut self, _host: &mut dyn UbHost, arguments: &str) -> bool {
         self.fellow_lines.push(arguments.to_owned());
+        true
     }
 
     fn xp_command(&mut self, _host: &mut dyn UbHost, _arguments: &str) -> Option<Vec<String>> {
@@ -249,7 +250,7 @@ pub struct Rig {
     pub catalog: UbSettingCatalog<UbSettingValueBag>,
     pub runtime: ExpressionRuntime,
     pub services: Services,
-    pub locks: ActionLockTable,
+    pub locks: SharedActionLocks,
     pub commands: UbCommands,
     pub live: LiveRows,
 }
@@ -279,7 +280,7 @@ impl Rig {
             catalog,
             runtime,
             services,
-            locks: ActionLockTable::new(),
+            locks: ActionLockTable::shared(),
             commands: UbCommands::new(),
             live,
         }
@@ -303,7 +304,7 @@ impl Rig {
             settings: &mut self.catalog,
             expressions: &mut expressions,
             services: &mut self.services,
-            locks: &mut self.locks,
+            locks: &self.locks,
         };
         f(&mut call, &mut self.commands)
     }
@@ -315,7 +316,7 @@ impl Rig {
 
     /// One frame of the panel: the locks' clock, then the commands.
     pub fn tick(&mut self, seconds: f64) -> bool {
-        self.locks.advance(seconds);
+        self.locks.borrow_mut().advance(seconds);
         self.with_call(|call, commands| commands.on_tick(call, seconds))
     }
 

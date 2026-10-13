@@ -46,6 +46,14 @@ impl Tank {
     /// One frame (`OnTick`).
     #[allow(clippy::too_many_lines)]
     pub fn on_tick(&mut self, client: &mut dyn TankClient, elapsed_seconds: f64) {
+        self.begin_call(client);
+        self.frame(client, elapsed_seconds);
+        self.end_call(client);
+    }
+
+    /// The frame itself.
+    #[allow(clippy::too_many_lines)]
+    fn frame(&mut self, client: &mut dyn TankClient, elapsed_seconds: f64) {
         let clock = client.clock();
         self.core.clock.set(&clock);
         self.core
@@ -96,6 +104,11 @@ impl Tank {
         cx.core.flush_queued_announcements(cx.client);
         cx.show_first_run_guidance();
         cx.observe_command_portal_state();
+        // The UB commands' frame: the delayed lines, the dialog watch and the
+        // command jump, which owns the character while it lasts.
+        let command_jump_owns_action =
+            cx.with_ub(|commands, call| commands.on_tick(call, elapsed_seconds));
+        cx.core.prologue_owns_action = command_jump_owns_action;
         let macro_running = cx.core.combat.enabled();
         let character = cx.client.rules().character();
         let dead = character.health.1 > 0 && character.health.0 == 0;
@@ -210,9 +223,11 @@ impl Tank {
 
     /// Starts or stops the macro (`SetMacroRunning`).
     pub fn set_macro_running(&mut self, client: &mut dyn TankClient, running: bool) {
+        self.begin_call(client);
         let (cx, _) = self.cx(client);
         cx.core.set_macro_running_with(cx.client, running);
         cx.core.write_out(cx.client);
+        self.end_call(client);
     }
 }
 
@@ -276,8 +291,10 @@ impl TankCx<'_> {
             .clone_into(&mut self.core.settings.combat.meta_state);
     }
 
-    /// The parts of `ResetCommandSession` the shell has: the portal count.
+    /// `ResetCommandSession`: the UB commands' jump, delayed lines, dialog
+    /// watch and held keys, and the portal count.
     fn reset_command_session(&mut self) {
+        self.with_ub(|commands, call| commands.reset_session(call));
         self.core.command_portal_state = self.client.rules().navigation_snapshot().is_portal_space;
         self.core.command_portal_count = 0;
     }
@@ -532,6 +549,8 @@ impl TankCx<'_> {
     ) {
         let cause = if !scheduler.is_running() {
             None
+        } else if self.core.prologue_owns_action {
+            Some("a command jump owns the character")
         } else if self.core.transaction_suspension_held {
             Some("a cast, a wand cast or a kit is in flight")
         } else if self.core.combat.turn_holds_pass() {

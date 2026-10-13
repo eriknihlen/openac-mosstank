@@ -38,6 +38,8 @@ pub struct HostAutomation<'h, 'a> {
     /// Which storage the last storage accessor handed out: the meta's own
     /// (always there) or a profile store's place.
     pub(crate) storage_view: StorageView,
+    /// How each kind of UB line is shown, once the UB settings said so.
+    pub(crate) ub_displays: Option<[mosstank_meta::host::UbDisplay; 4]>,
 }
 
 /// Which storage a [`HostAutomation`] answers as.
@@ -57,6 +59,7 @@ impl<'h, 'a> HostAutomation<'h, 'a> {
             host,
             observations: None,
             storage_view: StorageView::Meta,
+            ub_displays: None,
         }
     }
 
@@ -70,6 +73,7 @@ impl<'h, 'a> HostAutomation<'h, 'a> {
             host,
             observations: Some(observations),
             storage_view: StorageView::Meta,
+            ub_displays: None,
         }
     }
 

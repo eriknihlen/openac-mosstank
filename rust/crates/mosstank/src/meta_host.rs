@@ -13,7 +13,8 @@ use mosstank_meta::host::{
     CombatSnapshot, CombatTarget, ComponentInfo, EquipmentItem, EquipmentResult, FellowMember,
     FellowshipState, InventoryItem, ItemProperties, ItemResult, ItemState, LogLevel, LoginState,
     LootContainer, MetaHost, MovementIntent, NavigationSnapshot, NavigationStatus, NetworkClient,
-    PanelDescriptor, PeerCast, SelectionState, Skill, SpellInfo, SpellList, WorldObject, WorldTime,
+    PanelDescriptor, PeerCast, SelectionState, Skill, SpellInfo, SpellList, UbDisplay, UbLineKind,
+    WorldObject, WorldTime,
 };
 use mosstank_stores::storage::PluginStorage;
 
@@ -50,6 +51,21 @@ impl MetaHost for HostAutomation<'_, '_> {
 
     fn chat_remove_filter(&mut self, handle: u32) -> bool {
         self.host.chat_remove_filter(handle)
+    }
+
+    /// The UB settings' display for the kind, once the shell said; the
+    /// reference's defaults before.
+    fn ub_display(&mut self, kind: UbLineKind) -> UbDisplay {
+        let index = match kind {
+            UbLineKind::Generic => 0,
+            UbLineKind::Debug => 1,
+            UbLineKind::Expression => 2,
+            UbLineKind::Error => 3,
+        };
+        self.ub_displays.map_or_else(
+            || mosstank_meta::chat::ub_default_display(kind),
+            |displays| displays[index],
+        )
     }
 
     fn character(&mut self) -> Option<CharacterInfo> {

@@ -20,7 +20,7 @@ mod options;
 mod profiles;
 mod rules;
 mod services;
-mod ub;
+pub mod ub;
 
 use std::cell::{Cell, RefCell};
 use std::rc::Rc;
@@ -238,6 +238,7 @@ pub struct Tank {
     pub(crate) scheduler: MacroScheduler<TankFamily>,
     pub(crate) meta: MetaEngine,
     pub(crate) core: Core,
+    pub(crate) ub: ub::UbParts,
 }
 
 /// Where the first-run guidance is remembered.
@@ -688,6 +689,21 @@ impl Tank {
         core.migrate_file_layout(client);
         core.folders.prepare_start_on(client.stores());
 
+        let mut ub = ub::UbParts::new(client);
+        {
+            // The sharing switch and the peer tag are read from the UB settings
+            // on every look, so an edit applies at once.
+            let enabled = ub.reader.clone();
+            let tag = ub.reader.clone();
+            core.combat.bind_cast_sharing(
+                Box::new(move || {
+                    mosstank_ub::catalog::UbCatalog::flag(&*enabled, "Sharing.Vitals")
+                }),
+                Box::new(move || {
+                    Some(mosstank_ub::catalog::UbCatalog::value(&*tag, "Sharing.CastTag").text)
+                }),
+            );
+        }
         let mut scheduler = rules::build_scheduler(&core.idle_peace);
         core.hold = scheduler.pass_hold();
         {
@@ -704,6 +720,7 @@ impl Tank {
                 client: &mut *client,
                 core: &mut core,
                 meta: &mut meta,
+                ub: &mut ub,
             };
             cx.load_initial_profiles();
         }
@@ -717,6 +734,7 @@ impl Tank {
                 client: &mut *client,
                 core: &mut core,
                 meta: &mut meta,
+                ub: &mut ub,
             };
             cx.apply_persisted_option_overrides();
         }
@@ -726,6 +744,7 @@ impl Tank {
             scheduler,
             meta,
             core,
+            ub,
         }
     }
 
@@ -739,6 +758,7 @@ impl Tank {
                 client,
                 core: &mut self.core,
                 meta: &mut self.meta,
+                ub: &mut self.ub,
             },
             &mut self.scheduler,
         )
@@ -841,18 +861,20 @@ impl Tank {
 
     /// One line typed under `/vt` (`ExecuteVtankCommand`).
     pub fn execute_vtank_command(&mut self, client: &mut dyn TankClient, arguments: &str) {
+        self.begin_call(client);
         let (mut cx, _) = self.cx(client);
         commands::execute_vtank(&mut cx, arguments);
         cx.core.write_out(cx.client);
-        self.apply_pending_meta_interval();
+        self.end_call(client);
     }
 
     /// One line typed under `/ub` (`ExecuteUbCommand`).
     pub fn execute_ub_command(&mut self, client: &mut dyn TankClient, arguments: &str) {
+        self.begin_call(client);
         let (mut cx, _) = self.cx(client);
         commands::execute_ub(&mut cx, arguments);
         cx.core.write_out(cx.client);
-        self.apply_pending_meta_interval();
+        self.end_call(client);
     }
 
     /// What the macro needs the character for, so a walk the client plans
@@ -880,6 +902,7 @@ impl Tank {
     /// META-3).
     pub fn on_event(&mut self, client: &mut dyn TankClient, event: &ac_plugin_abi::Event) {
         use ac_plugin_abi::Event;
+        self.begin_call(client);
         let (mut cx, _) = self.cx(client);
         match event {
             Event::LoginComplete => cx.meta.on_login_complete(),
@@ -893,15 +916,19 @@ impl Tank {
             Event::ContainerClosed(container) => cx.meta.on_container_closed(*container),
             Event::ConfirmationRequested(confirmation) => {
                 cx.meta.on_confirmation_requested(confirmation);
+                // The dialog watch answers the question it was told to.
+                cx.with_ub(|commands, call| commands.on_confirmation(call, confirmation));
             }
             _ => {}
         }
         cx.core.write_out(cx.client);
+        self.end_call(client);
     }
 
     /// The plugin is stopping (`MossTankPanel.Disable` and `Dispose`, the
     /// parts the shell has).
     pub fn disable(&mut self, client: &mut dyn TankClient) {
+        self.begin_call(client);
         let (cx, _) = self.cx(client);
         if cx.core.combat.enabled() {
             cx.core.set_macro_running(cx.client, false);
@@ -1058,5 +1085,20 @@ impl Tank {
     #[must_use]
     pub fn profile_notice(&self) -> &str {
         &self.core.profile_lifecycle_notice
+    }
+}
+
+impl Tank {
+    /// The start of every call: the client shows UB lines as the UB
+    /// settings say.
+    pub(crate) fn begin_call(&mut self, client: &mut dyn TankClient) {
+        client.set_ub_displays(self.ub.displays());
+    }
+
+    /// The end of every call: the UB settings changed in it are written
+    /// (register STORE-1), and a new meta interval reaches the scheduler.
+    pub(crate) fn end_call(&mut self, client: &mut dyn TankClient) {
+        self.ub.flush(client);
+        self.apply_pending_meta_interval();
     }
 }

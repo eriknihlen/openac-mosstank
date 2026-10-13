@@ -7,11 +7,14 @@ use mosstank_meta::host::MetaHost;
 use mosstank_stores::storage::StoreHost;
 use mosstank_ub::host::UbHost;
 use mosstank_vendor::FellowshipAutomation;
+use mosstank_vendor::fellow_command::FellowCommandAutomation;
 
 /// The client for one call: the rules' view ([`mosstank_automation::Automation`],
 /// through the looter's and the route's), the looter's, the route's and the
 /// fellowship's, the meta's and the UB tab's, and the profile stores'.
-pub trait TankClient: LootHost + FellowshipAutomation + UbHost + StoreHost + SessionClient {
+pub trait TankClient:
+    LootHost + FellowshipAutomation + FellowCommandAutomation + UbHost + StoreHost + SessionClient
+{
     /// The client as the rules see it.
     fn rules(&mut self) -> &mut dyn mosstank_automation::Automation;
     /// The client as the looter sees it.
@@ -20,6 +23,8 @@ pub trait TankClient: LootHost + FellowshipAutomation + UbHost + StoreHost + Ses
     fn route(&mut self) -> &mut dyn mosstank_nav::NavigationAutomation;
     /// The client as the fellowship manager sees it.
     fn fellows(&mut self) -> &mut dyn FellowshipAutomation;
+    /// The client as `/ub fellow` sees it.
+    fn fellow_commands(&mut self) -> &mut dyn FellowCommandAutomation;
     /// The client as the meta sees it.
     fn meta(&mut self) -> &mut dyn MetaHost;
     /// The client as the UB tab sees it.
@@ -30,7 +35,12 @@ pub trait TankClient: LootHost + FellowshipAutomation + UbHost + StoreHost + Ses
 
 impl<T> TankClient for T
 where
-    T: LootHost + FellowshipAutomation + UbHost + StoreHost + SessionClient,
+    T: LootHost
+        + FellowshipAutomation
+        + FellowCommandAutomation
+        + UbHost
+        + StoreHost
+        + SessionClient,
 {
     fn rules(&mut self) -> &mut dyn mosstank_automation::Automation {
         self
@@ -45,6 +55,10 @@ where
     }
 
     fn fellows(&mut self) -> &mut dyn FellowshipAutomation {
+        self
+    }
+
+    fn fellow_commands(&mut self) -> &mut dyn FellowCommandAutomation {
         self
     }
 
@@ -68,6 +82,9 @@ pub trait SessionClient {
     fn clock(&mut self) -> ac_plugin_abi::host::Clock;
     /// The plugin's session settings (autostart reads them).
     fn session_settings(&mut self) -> Vec<(String, String)>;
+    /// How each kind of UB line is shown, from the UB settings (the four
+    /// kinds in `UbLineKind` order).
+    fn set_ub_displays(&mut self, displays: [mosstank_meta::host::UbDisplay; 4]);
 }
 
 impl SessionClient for crate::automation::HostAutomation<'_, '_> {
@@ -77,5 +94,9 @@ impl SessionClient for crate::automation::HostAutomation<'_, '_> {
 
     fn session_settings(&mut self) -> Vec<(String, String)> {
         self.host.settings()
+    }
+
+    fn set_ub_displays(&mut self, displays: [mosstank_meta::host::UbDisplay; 4]) {
+        self.ub_displays = Some(displays);
     }
 }

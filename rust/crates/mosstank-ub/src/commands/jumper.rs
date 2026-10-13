@@ -250,8 +250,12 @@ impl CommandJump {
             return;
         }
         self.held_navigation = true;
-        call.locks.arm(ActionLockKind::Navigation, seconds);
-        call.locks.arm(ActionLockKind::CorpseOpenAttempt, seconds);
+        call.locks
+            .borrow_mut()
+            .arm(ActionLockKind::Navigation, seconds);
+        call.locks
+            .borrow_mut()
+            .arm(ActionLockKind::CorpseOpenAttempt, seconds);
     }
 
     /// Lets the route go again; only a hold this command took is dropped.
@@ -260,8 +264,10 @@ impl CommandJump {
             return;
         }
         self.held_navigation = false;
-        call.locks.release(ActionLockKind::Navigation);
-        call.locks.release(ActionLockKind::CorpseOpenAttempt);
+        call.locks.borrow_mut().release(ActionLockKind::Navigation);
+        call.locks
+            .borrow_mut()
+            .release(ActionLockKind::CorpseOpenAttempt);
     }
 
     /// Ends a jump or turn that did not come off: the route is let go, and

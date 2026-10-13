@@ -4,7 +4,7 @@
 //! UtilityBelt line writers every command prints through (`WriteUb`,
 //! `WriteUbError`, `WriteUbMessage`, `WriteUbBadSyntax`, ...).
 
-use mosstank_automation::locks::ActionLockTable;
+use mosstank_automation::locks::SharedActionLocks;
 use mosstank_expr::ExpressionValue;
 use mosstank_meta::host::UbLineKind;
 
@@ -46,8 +46,9 @@ pub trait UbServices {
     fn auto_vendor_start(&mut self, host: &mut dyn UbHost, profile: Option<&str>);
     /// `/ub autovendor stop`.
     fn auto_vendor_stop(&mut self, host: &mut dyn UbHost);
-    /// `/ub fellow <arguments>`.
-    fn fellow_command(&mut self, host: &mut dyn UbHost, arguments: &str);
+    /// `/ub fellow <arguments>`: false for a line that does not parse (the
+    /// dispatcher then says "Bad command syntax" and the help).
+    fn fellow_command(&mut self, host: &mut dyn UbHost, arguments: &str) -> bool;
     /// `/ub xp <arguments>`: the lines it answers, `None` for a line it does
     /// not parse.
     fn xp_command(&mut self, host: &mut dyn UbHost, arguments: &str) -> Option<Vec<String>>;
@@ -95,8 +96,9 @@ pub struct UbCall<'a> {
     pub expressions: &'a mut dyn UbExpressions,
     /// The rest of the plugin.
     pub services: &'a mut dyn UbServices,
-    /// The action locks the macro's rules share.
-    pub locks: &'a mut ActionLockTable,
+    /// The action locks the macro's rules share, borrowed for each use: a
+    /// command's expression or service may reach them too.
+    pub locks: &'a SharedActionLocks,
 }
 
 impl std::fmt::Debug for UbCall<'_> {

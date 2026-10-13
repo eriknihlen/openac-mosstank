@@ -46,6 +46,8 @@ pub struct TankCx<'a> {
     pub core: &'a mut Core,
     /// The meta engine.
     pub meta: &'a mut MetaEngine,
+    /// The UB tab.
+    pub ub: &'a mut super::ub::UbParts,
 }
 
 /// The family of [`TankCx`] states.

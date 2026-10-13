@@ -12,10 +12,11 @@ use crate::client::TankClient;
 impl Tank {
     /// One frame of the autostart (`TickAutostart`).
     pub fn tick_autostart(&mut self, client: &mut dyn TankClient) {
+        self.begin_call(client);
         let (mut cx, _) = self.cx(client);
         cx.tick_autostart();
         cx.core.write_out(cx.client);
-        self.apply_pending_meta_interval();
+        self.end_call(client);
     }
 }
 

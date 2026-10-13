@@ -370,6 +370,7 @@ impl TankCx<'_> {
         }
         {
             let core = &mut *self.core;
+            self.ub.bind(self.client, &character.world, &name);
             core.folders.prepare_character(
                 self.client.stores().storage(Root::Profiles),
                 Some(&character.world),

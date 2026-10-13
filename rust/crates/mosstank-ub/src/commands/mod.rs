@@ -312,7 +312,11 @@ impl UbCommands {
                     call.write_transcript_line(&line);
                 }
             }
-            "fellow" => call.services.fellow_command(call.host, &arguments),
+            "fellow" => {
+                if !call.services.fellow_command(call.host, &arguments) {
+                    call.write_ub_bad_syntax("fellow");
+                }
+            }
             "count" | "autostack" | "autocram" | "clearbugged" | "autotinker" | "getjob"
             | "tinkcalc" => call.services.run_tool_verb(call.host, &verb, &arguments),
             _ => {

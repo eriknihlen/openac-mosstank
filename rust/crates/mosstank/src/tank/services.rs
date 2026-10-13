@@ -40,6 +40,10 @@ use crate::client::TankClient;
 /// The client of the call, shared by the engine's host and the services.
 pub(crate) struct ClientCell<'c>(pub(crate) RefCell<&'c mut dyn TankClient>);
 
+/// The shell's parts for the call, shared by the meta's services and the
+/// UB tab's, each borrowing them for one of its calls.
+pub(crate) struct CoreCell<'c>(pub(crate) RefCell<&'c mut Core>);
+
 /// What the services ask of the engine once its call has returned: a
 /// meta's own `/vt` line that needs the engine, or its `/ub` line.
 #[derive(Debug, Clone, PartialEq)]
@@ -48,6 +52,8 @@ pub(crate) enum EngineRequest {
     VtLine(String),
     /// A `/ub` line (register META-9).
     UbLine(String),
+    /// `EnableMeta` written by a UB option function.
+    MetaEnabled(bool),
     /// What follows a meta load the engine took (register META-2): the
     /// route a meta carried goes, the options come back.
     AfterMetaLoad,
@@ -421,8 +427,12 @@ impl UbHost for ClientProxy<'_, '_> {
 /// The plugin as the meta sees it (the panel's `MetaServices` and
 /// `ExpressionHostPolicy`).
 pub(crate) struct TankServices<'s, 'c> {
-    pub(crate) core: &'s mut Core,
+    pub(crate) core: &'s CoreCell<'c>,
     pub(crate) client: &'s ClientCell<'c>,
+    /// The UB settings, for the meta's event switch and debug setting.
+    pub(crate) ub: std::rc::Rc<mosstank_settings::ub::UbSettingCatalog<super::ub::StoreValues>>,
+    /// The UB settings store, for `uboptget` and `uboptset`.
+    pub(crate) ub_values: super::ub::StoreValues,
     /// Whether the meta runs, read before the engine's call.
     pub(crate) meta_enabled: bool,
     /// What a meta's own lines ask of the engine, done after its call.
@@ -434,7 +444,7 @@ impl TankServices<'_, '_> {
     /// cast tracker; with a cast in flight nothing is sent. The pass is held
     /// at once, as the reference raises its busy count inside the cast.
     fn begin_expression_cast(&mut self, spell_id: u32, target: Option<u32>) {
-        if self.core.tracker.borrow().is_busy() {
+        if self.core.0.borrow_mut().tracker.borrow().is_busy() {
             return;
         }
         let mut client = self.client.0.borrow_mut();
@@ -445,6 +455,8 @@ impl TankServices<'_, '_> {
         if automation.combat_mode() != CombatMode::Magic
             || self
                 .core
+                .0
+                .borrow()
                 .tracker
                 .borrow()
                 .is_school_locked_out(spell.school)
@@ -466,7 +478,7 @@ impl TankServices<'_, '_> {
                 .map(|found| found.name)
                 .unwrap_or_default()
         };
-        self.core.queue_log(
+        self.core.0.borrow_mut().queue_log(
             mosstank_meta::scheduler::MacroLogChannel::SpellCast,
             &format!(
                 "Casting: {} on {tracked_target} ({target_name})",
@@ -485,13 +497,18 @@ impl TankServices<'_, '_> {
         request.can_kill =
             mosstank_automation::cast_tracker::SpellCastTracker::can_kill_for(&spell);
         request.current_mana = i32::try_from(automation.character().mana.0).unwrap_or(i32::MAX);
-        self.core.tracker.borrow_mut().begin(&request);
-        self.core.queue_log(
+        self.core
+            .0
+            .borrow_mut()
+            .tracker
+            .borrow_mut()
+            .begin(&request);
+        self.core.0.borrow_mut().queue_log(
             mosstank_meta::scheduler::MacroLogChannel::CastInfo,
             "SpellCaster: Begin",
         );
-        if !self.core.transaction_suspension_held {
-            self.core.hold_pass();
+        if !self.core.0.borrow_mut().transaction_suspension_held {
+            self.core.0.borrow_mut().hold_pass();
         }
     }
 }
@@ -505,9 +522,11 @@ impl MetaServices for TankServices<'_, '_> {
             if verb.eq_ignore_ascii_case(commands::VTANK_VERB) {
                 if let Some((name, af)) = commands::meta_load_request(arguments) {
                     let mut client = self.client.0.borrow_mut();
-                    let profile = self
-                        .core
-                        .load_meta_profile_command(&mut **client, &name, af);
+                    let profile = self.core.0.borrow_mut().load_meta_profile_command(
+                        &mut **client,
+                        &name,
+                        af,
+                    );
                     if profile.is_some() {
                         self.requests.push(EngineRequest::AfterMetaLoad);
                     }
@@ -528,16 +547,17 @@ impl MetaServices for TankServices<'_, '_> {
     }
 
     fn is_navigation_route_empty(&mut self, _host: &mut dyn MetaHost) -> bool {
-        self.core
-            .navigation
-            .has_nothing_left_to_walk(&self.core.settings.navigation)
+        let core = self.core.0.borrow();
+        core.navigation
+            .has_nothing_left_to_walk(&core.settings.navigation)
     }
 
     fn needs_buff(&mut self, _host: &mut dyn MetaHost) -> bool {
         let mut client = self.client.0.borrow_mut();
-        self.core
-            .buff_rule
-            .has_anything_due(client.rules(), &self.core.settings.buffs)
+        let mut core = self.core.0.borrow_mut();
+        let core = &mut **core;
+        core.buff_rule
+            .has_anything_due(client.rules(), &core.settings.buffs)
     }
 
     /// `DistanceFromAnyRoutePoint`.
@@ -548,7 +568,7 @@ impl MetaServices for TankServices<'_, '_> {
         }
         mosstank_nav::route_view::nearest_route_distance_meters(
             &snapshot.position,
-            &self.core.settings.navigation.waypoints,
+            &self.core.0.borrow_mut().settings.navigation.waypoints,
         )
     }
 
@@ -568,7 +588,16 @@ impl MetaServices for TankServices<'_, '_> {
             .hostile_targets(distance as f32);
         let count = targets
             .iter()
-            .filter(|target| self.core.settings.combat.resolve_rule(target).priority() == priority)
+            .filter(|target| {
+                self.core
+                    .0
+                    .borrow_mut()
+                    .settings
+                    .combat
+                    .resolve_rule(target)
+                    .priority()
+                    == priority
+            })
             .count();
         i32::try_from(count).unwrap_or(i32::MAX)
     }
@@ -580,11 +609,19 @@ impl MetaServices for TankServices<'_, '_> {
         name: &str,
     ) {
         let mut client = self.client.0.borrow_mut();
-        TankCx::load_embedded_navigation_route(self.core, &mut **client, route, name);
+        TankCx::load_embedded_navigation_route(
+            &mut self.core.0.borrow_mut(),
+            &mut **client,
+            route,
+            name,
+        );
     }
 
     fn get_option(&mut self, _host: &mut dyn MetaHost, name: &str) -> ExpressionValue {
-        self.core.get_meta_option(self.meta_enabled, name)
+        self.core
+            .0
+            .borrow_mut()
+            .get_meta_option(self.meta_enabled, name)
     }
 
     /// Writes an option; `EnableMeta` is taken by the engine itself
@@ -596,13 +633,20 @@ impl MetaServices for TankServices<'_, '_> {
         value: &ExpressionValue,
     ) -> Result<bool, Fault> {
         let mut client = self.client.0.borrow_mut();
-        self.core.set_option(&mut **client, name, value)
+        self.core
+            .0
+            .borrow_mut()
+            .set_option(&mut **client, name, value)
     }
 
-    /// The settings page's switch for the event handlers; the UB settings
-    /// are not bound yet, so the C#'s answer without a catalogue.
+    /// The UB settings page's switch for the event handlers.
     fn game_event_handlers_enabled(&mut self) -> bool {
-        true
+        mosstank_ub::catalog::UbCatalog::flag(&*self.ub, "GameEvents.Enabled")
+    }
+
+    /// Whether the UtilityBelt debug setting is on.
+    fn debug(&mut self) -> bool {
+        mosstank_ub::catalog::UbCatalog::ub_debug(&*self.ub)
     }
 
     /// `_meta.StateChanged = Announce`.
@@ -616,9 +660,19 @@ impl MetaServices for TankServices<'_, '_> {
 
     fn skill_margin(&mut self, hunting: bool) -> i32 {
         if hunting {
-            self.core.settings.combat.hunt_skill_excess_over_difficulty
+            self.core
+                .0
+                .borrow_mut()
+                .settings
+                .combat
+                .hunt_skill_excess_over_difficulty
         } else {
-            self.core.settings.buffs.skill_excess_over_difficulty
+            self.core
+                .0
+                .borrow_mut()
+                .settings
+                .buffs
+                .skill_excess_over_difficulty
         }
     }
 
@@ -638,6 +692,8 @@ impl MetaServices for TankServices<'_, '_> {
             "vtgetmeta" => {
                 let mut client = self.client.0.borrow_mut();
                 self.core
+                    .0
+                    .borrow_mut()
                     .meta_profiles
                     .selected(client.stores())
                     .map(|name| ExpressionValue::string(&name))
@@ -645,7 +701,10 @@ impl MetaServices for TankServices<'_, '_> {
             }
             "vtsetsetting" => self.vt_set_setting(arguments),
             "vtgetsetting" => self.vt_get_setting(arguments),
-            "vtmacroenabled" => Ok(ExpressionValue::Boolean(self.core.combat.enabled())),
+            "uboptget" | "uboptset" => self.ub_option(function, arguments),
+            "vtmacroenabled" => Ok(ExpressionValue::Boolean(
+                self.core.0.borrow_mut().combat.enabled(),
+            )),
             _ => return None,
         })
     }
@@ -666,7 +725,11 @@ impl TankServices<'_, '_> {
             value = ExpressionValue::Number(number);
         }
         let mut client = self.client.0.borrow_mut();
-        let written = self.core.set_option(&mut **client, &name, &value)?;
+        let written = self
+            .core
+            .0
+            .borrow_mut()
+            .set_option(&mut **client, &name, &value)?;
         Ok(ExpressionValue::Boolean(written))
     }
 
@@ -677,10 +740,19 @@ impl TankServices<'_, '_> {
         if !options::is_known(name) {
             return Err(ExpressionError::evaluation("Error getting setting from database").into());
         }
-        Ok(match self.core.get_meta_option(self.meta_enabled, name) {
-            ExpressionValue::Boolean(flag) => ExpressionValue::Number(if flag { 1.0 } else { 0.0 }),
-            other => other,
-        })
+        Ok(
+            match self
+                .core
+                .0
+                .borrow_mut()
+                .get_meta_option(self.meta_enabled, name)
+            {
+                ExpressionValue::Boolean(flag) => {
+                    ExpressionValue::Number(if flag { 1.0 } else { 0.0 })
+                }
+                other => other,
+            },
+        )
     }
 }
 
@@ -693,6 +765,8 @@ pub(crate) fn register_service_functions(meta: &mut MetaEngine) {
     runtime.register_service_function("vtsetsetting", 2, 2, "vtsetsetting[setting,value]");
     runtime.register_service_function("vtgetsetting", 1, 1, "vtgetsetting[setting]");
     runtime.register_service_function("vtmacroenabled", 0, 0, "vtmacroenabled[]");
+    runtime.register_service_function("uboptset", 2, 2, "uboptset[setting,value]");
+    runtime.register_service_function("uboptget", 1, 1, "uboptget[setting]");
 }
 
 impl TankCx<'_> {
@@ -705,10 +779,13 @@ impl TankCx<'_> {
         let meta_enabled = self.meta.enabled();
         let (result, requests) = {
             let cell = ClientCell(RefCell::new(&mut *self.client));
+            let core = CoreCell(RefCell::new(&mut *self.core));
             let mut proxy = ClientProxy::new(&cell);
             let mut services = TankServices {
-                core: &mut *self.core,
+                core: &core,
                 client: &cell,
+                ub: self.ub.reader.clone(),
+                ub_values: self.ub.values(),
                 meta_enabled,
                 requests: Vec::new(),
             };
@@ -722,11 +799,12 @@ impl TankCx<'_> {
     }
 
     /// One thing a meta's own line asked of the engine.
-    fn run_engine_request(&mut self, request: EngineRequest) {
+    pub(crate) fn run_engine_request(&mut self, request: EngineRequest) {
         match request {
             EngineRequest::VtLine(arguments) => commands::execute_vtank(self, &arguments),
             EngineRequest::UbLine(arguments) => commands::execute_ub(self, &arguments),
             EngineRequest::AfterMetaLoad => self.after_meta_load(),
+            EngineRequest::MetaEnabled(enabled) => self.meta.set_enabled(enabled),
         }
     }
 }
