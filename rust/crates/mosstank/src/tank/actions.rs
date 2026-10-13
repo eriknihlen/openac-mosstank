@@ -75,3 +75,58 @@ impl Core {
         self.save_route_profile(client);
     }
 }
+
+impl Tank {
+    /// The one option write path (`SetMetaOption`): false for a name that is
+    /// no option of the reference's.
+    ///
+    /// # Errors
+    /// A value of the wrong type for the option: the message.
+    pub fn set_meta_option(
+        &mut self,
+        client: &mut dyn TankClient,
+        name: &str,
+        value: &mosstank_expr::ExpressionValue,
+    ) -> Result<bool, String> {
+        self.begin_call(client);
+        let (mut cx, _) = self.cx(client);
+        let written = cx
+            .set_meta_option(name, value)
+            .map_err(|fault| fault.message());
+        cx.core.write_out(cx.client);
+        self.end_call(client);
+        written
+    }
+}
+
+impl Tank {
+    /// The Remote window's Follow Selected (`RemoteFollowSelected`).
+    pub fn remote_follow_selected(&mut self, client: &mut dyn TankClient) {
+        self.begin_call(client);
+        let (mut cx, _) = self.cx(client);
+        cx.with_ub(|_, call| mosstank_ub::commands::follow_selected(call));
+        cx.core.write_out(cx.client);
+        self.end_call(client);
+    }
+
+    /// The route picker's names (`RouteProfileNames`): the meta's own route
+    /// first while one is loaded.
+    pub fn route_profile_names(&self, client: &mut dyn TankClient) -> Vec<String> {
+        let mut names: Vec<String> = self.core.embedded_route_label.iter().cloned().collect();
+        names.extend(
+            self.core
+                .route_profiles
+                .available_names(client.stores())
+                .unwrap_or_default(),
+        );
+        names
+    }
+
+    /// The meta picker's names (`MetaProfileNames`).
+    pub fn meta_profile_names(&self, client: &mut dyn TankClient) -> Vec<String> {
+        self.core
+            .meta_profiles
+            .available_names(client.stores())
+            .unwrap_or_default()
+    }
+}

@@ -51,6 +51,13 @@ pub struct MossTank {
 }
 
 impl MossTank {
+    /// The equipment placements kept for the rules and the classifier to
+    /// read.
+    #[must_use]
+    pub fn observed_placements(&self) -> usize {
+        self.observations.len()
+    }
+
     /// The macro shell, once enabled.
     #[must_use]
     pub fn tank(&self) -> Option<&Tank> {
@@ -116,6 +123,7 @@ impl Plugin for MossTank {
         host.unregister_command(tank::UB_VERB);
         self.go_to_pause.release(host);
         self.loot_classifier.unregister(host);
+        self.observations.clear();
         host.info("MossTank disabled");
     }
 
@@ -135,10 +143,12 @@ impl Plugin for MossTank {
 
     fn on_event(&mut self, host: &mut Host<'_>, event: Event) {
         if let Event::EquipmentPlacement(observation) = event {
+            // Placements are observed from enable to disable only, as the
+            // C# observers are attached.
             if let Some(tank) = self.tank.as_mut() {
                 tank.on_equipment_placement(&observation);
+                self.observations.push(observation);
             }
-            self.observations.push(observation);
             return;
         }
         let Some(tank) = self.tank.as_mut() else {

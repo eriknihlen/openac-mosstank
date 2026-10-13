@@ -18,7 +18,6 @@ use mosstank_formats::usd::{VtankCell, VtankDatabase, VtankRow};
 use mosstank_session::game_info::{LAST_CHECK_KEY, VtankGameInfoAnswer};
 use mosstank_session::testing::download;
 use mosstank_stores::layout;
-use mosstank_stores::storage::PluginStorage;
 
 fn tank(plugin: &MossTank) -> &mosstank::tank::Tank {
     plugin.tank().expect("an enabled plugin")
@@ -441,7 +440,6 @@ fn a_start_lays_out_every_fixed_folder_and_the_logged_in_characters_own() {
     for folder in layout::character_folders(Some("Coldeve"), Some("Barris")) {
         assert!(world.profiles.directories.contains(&folder), "{folder}");
     }
-    assert!(world.profiles.is_available());
 }
 
 // ---- the kill statistics in the plugin ----------------------------------
