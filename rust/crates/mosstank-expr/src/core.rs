@@ -128,7 +128,7 @@ fn register_variables(
         &get,
         1,
         1,
-        move |context, args| Ok(context.state.get(scope, args[0].as_str(&name)?)?),
+        move |context, args| Ok(context.variable(scope, args[0].as_str(&name)?)?),
         Some(&format!("{get}[name]")),
         "",
     );
@@ -138,9 +138,7 @@ fn register_variables(
         2,
         2,
         move |context, args| {
-            Ok(context
-                .state
-                .set(scope, args[0].as_str(&name)?, args[1].clone())?)
+            Ok(context.set_variable(scope, args[0].as_str(&name)?, args[1].clone())?)
         },
         Some(&format!("{set}[name,value]")),
         "",
@@ -152,7 +150,7 @@ fn register_variables(
         1,
         move |context, args| {
             Ok(ExpressionValue::Boolean(
-                context.state.contains(scope, args[0].as_str(&name)?)?,
+                context.has_variable(scope, args[0].as_str(&name)?)?,
             ))
         },
         Some(&format!("{test}[name]")),
@@ -165,11 +163,9 @@ fn register_variables(
         1,
         move |context, args| {
             let variable = args[0].as_str(&name)?;
-            let existed = context.state.contains(scope, variable)?;
+            let existed = context.has_variable(scope, variable)?;
             if !existed {
-                context
-                    .state
-                    .set(scope, variable, ExpressionValue::zero())?;
+                context.set_variable(scope, variable, ExpressionValue::zero())?;
             }
             Ok(ExpressionValue::Boolean(existed))
         },
@@ -183,7 +179,7 @@ fn register_variables(
         1,
         move |context, args| {
             Ok(ExpressionValue::Boolean(
-                context.state.clear(scope, args[0].as_str(&name)?)?,
+                context.clear_variable(scope, args[0].as_str(&name)?)?,
             ))
         },
         Some(&format!("{clear}[name]")),
@@ -194,7 +190,7 @@ fn register_variables(
         0,
         0,
         move |context, _| {
-            context.state.clear_all(scope)?;
+            context.clear_variables(scope)?;
             Ok(ExpressionValue::one())
         },
         Some(&format!("{clear_all}[]")),

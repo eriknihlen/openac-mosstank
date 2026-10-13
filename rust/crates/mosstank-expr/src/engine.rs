@@ -146,7 +146,7 @@ fn evaluate_core(
         } => {
             context.step(*offset)?;
             let name = variable_name(name, context)?;
-            Ok(context.state.get(*scope, &name)?)
+            Ok(context.variable(*scope, &name)?)
         }
         Node::Assignment {
             scope,
@@ -157,7 +157,7 @@ fn evaluate_core(
             context.step(*offset)?;
             let result = evaluate(value, context)?;
             let name = variable_name(name, context)?;
-            Ok(context.state.set(*scope, &name, result)?)
+            Ok(context.set_variable(*scope, &name, result)?)
         }
         Node::Function {
             name,

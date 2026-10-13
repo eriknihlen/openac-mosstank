@@ -770,8 +770,4 @@ impl MetaHost for FakeHost {
     fn storage(&mut self) -> &mut dyn PluginStorage {
         &mut self.storage
     }
-
-    fn shared_storage(&mut self) -> Option<Box<dyn PluginStorage>> {
-        Some(Box::new(self.storage.clone()))
-    }
 }

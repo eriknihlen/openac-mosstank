@@ -5,8 +5,8 @@
 //! The meta's views and its status list are drawn through the SDK's plugin
 //! UI ([`crate::meta_windows`]) when the plugin's call carries its windows.
 //! What the SDK does not offer yet answers the way a client without it
-//! does: stacks not joined on a move, and no storage handle that outlives
-//! the call (the global variables then stay the session's own).
+//! does: stacks not joined on a move. The global variables are read and
+//! written through the plugin-data storage of the call that reaches them.
 
 use mosstank_meta::host::{
     ActiveEnchantment, Attribute, CastResult, CharacterInfo, ChatLine, CombatMode, CombatResult,
@@ -313,10 +313,6 @@ impl MetaHost for HostAutomation<'_, '_> {
     fn storage(&mut self) -> &mut dyn PluginStorage {
         self.storage_view = StorageView::Meta;
         self
-    }
-
-    fn shared_storage(&mut self) -> Option<Box<dyn PluginStorage>> {
-        None
     }
 }
 

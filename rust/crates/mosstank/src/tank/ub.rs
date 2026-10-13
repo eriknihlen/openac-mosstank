@@ -362,6 +362,14 @@ impl UbExpressions for EngineExpressions<'_, '_> {
         self.engine.expressions().state()
     }
 
+    fn capture_variables(
+        &mut self,
+        host: &mut dyn MetaHost,
+        scope: mosstank_expr::ExpressionVariableScope,
+    ) -> Result<Vec<(String, ExpressionValue)>, ExpressionError> {
+        self.engine.expressions().capture_variables(host, scope)
+    }
+
     fn held_motions(&mut self) -> &mut HeldMotions {
         self.engine.expressions().held_motions()
     }

@@ -527,10 +527,6 @@ impl MetaHost for FakeUbHost {
     fn storage(&mut self) -> &mut dyn PluginStorage {
         self.meta.storage()
     }
-
-    fn shared_storage(&mut self) -> Option<Box<dyn PluginStorage>> {
-        self.meta.shared_storage()
-    }
 }
 
 impl UbHost for FakeUbHost {

@@ -198,3 +198,39 @@ fn translate_route_refuses_to_overwrite_without_the_force_flag() {
         "{chat:?}"
     );
 }
+
+// Source: tests/AcDream.Plugins.MossTank.Tests/MossTankPanelTests.UbCommands.cs :: ListGvarsWithADamagedVariableFileFailsAsOneCommand
+/// The global variables live in the plugin's storage, one file each; one
+/// damaged file fails the whole listing with its reason, and nothing of the
+/// list is printed.
+#[test]
+fn list_gvars_with_a_damaged_variable_file_fails_as_one_command() {
+    let mut world = World::panel_character("Test Character");
+    let mut plugin = world.enable();
+    world.vt(&mut plugin, "mexec setgvar[damaged,1]");
+    let keys: Vec<String> = world
+        .plugin_data
+        .keys()
+        .filter(|key| key.starts_with("expressions/global/"))
+        .map(str::to_owned)
+        .collect();
+    assert_eq!(keys.len(), 1, "{keys:?}");
+    world.vt(&mut plugin, "mexec setgvar[fine,2]");
+    world.plugin_data.insert(&keys[0], "{ not json");
+    world.clear_chat();
+
+    ub(&mut world, &mut plugin, "listgvars");
+
+    let chat = world.chat();
+    assert!(
+        !chat
+            .iter()
+            .any(|line| line == "[UB] Defined global variables:"),
+        "{chat:?}"
+    );
+    assert!(
+        chat.iter()
+            .any(|line| line.starts_with("[UB] Error: Command failed: A global variable file")),
+        "{chat:?}"
+    );
+}

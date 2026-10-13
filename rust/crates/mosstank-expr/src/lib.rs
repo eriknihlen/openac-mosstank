@@ -18,6 +18,6 @@ pub use engine::ExpressionProgram;
 pub use error::{EvaluationError, ExpressionError, Fault};
 pub use runtime::{
     DEFAULT_INSTRUCTION_BUDGET, EvaluationContext, ExpressionHost, ExpressionState,
-    ExpressionVariableScope, FunctionRegistry, GlobalVariableStore,
+    ExpressionVariableScope, FunctionRegistry, GlobalVariableStore, Globals,
 };
 pub use value::{ChangeCounter, ExpressionCoordinates, ExpressionValue, ExpressionValueKind};

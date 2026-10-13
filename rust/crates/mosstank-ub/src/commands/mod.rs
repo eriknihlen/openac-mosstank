@@ -1331,7 +1331,7 @@ fn allegiance(call: &mut UbCall<'_>, verb: &str, name: &str, partial: bool, swea
 /// `/ub listvars`, `listpvars`, `listgvars`: one variable store, read whole
 /// before anything is printed.
 fn list_variables(call: &mut UbCall<'_>, scope: ExpressionVariableScope) {
-    let captured = call.expressions.state().capture(scope);
+    let captured = call.expressions.capture_variables(call.host, scope);
     let mut variables = match captured {
         Ok(variables) => variables,
         Err(error) => {

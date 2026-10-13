@@ -4,7 +4,7 @@
 //! engine's runtime; [`RuntimeExpressions`] answers it with a runtime and
 //! the plugin's services.
 
-use mosstank_expr::{ExpressionError, ExpressionState, ExpressionValue};
+use mosstank_expr::{ExpressionError, ExpressionState, ExpressionValue, ExpressionVariableScope};
 use mosstank_meta::held_motions::HeldMotions;
 use mosstank_meta::host::MetaHost;
 use mosstank_meta::runtime::ExpressionRuntime;
@@ -25,6 +25,19 @@ pub trait UbExpressions {
     fn display(&mut self, host: &mut dyn MetaHost, value: &ExpressionValue) -> String;
     /// The variables.
     fn state(&mut self) -> &mut ExpressionState;
+    /// Every variable of a scope, the shared global variables read
+    /// through the plugin's storage.
+    ///
+    /// # Errors
+    /// A shared global variable cannot be read.
+    fn capture_variables(
+        &mut self,
+        host: &mut dyn MetaHost,
+        scope: ExpressionVariableScope,
+    ) -> Result<Vec<(String, ExpressionValue)>, ExpressionError> {
+        let _ = host;
+        self.state().capture(scope)
+    }
     /// The movement keys `setmotion` holds.
     fn held_motions(&mut self) -> &mut HeldMotions;
     /// Asks the server for the quest list again.
@@ -62,6 +75,14 @@ impl UbExpressions for RuntimeExpressions<'_> {
 
     fn state(&mut self) -> &mut ExpressionState {
         self.runtime.state()
+    }
+
+    fn capture_variables(
+        &mut self,
+        host: &mut dyn MetaHost,
+        scope: ExpressionVariableScope,
+    ) -> Result<Vec<(String, ExpressionValue)>, ExpressionError> {
+        self.runtime.capture_variables(host, scope)
     }
 
     fn held_motions(&mut self) -> &mut HeldMotions {

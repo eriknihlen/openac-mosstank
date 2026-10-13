@@ -4,8 +4,6 @@
 //! variables never touch the same file, and every read and write holds a
 //! lock other clients honour.
 
-use std::cell::RefCell;
-
 use mosstank_expr::json::{self as value_json, OPTIONS};
 use mosstank_expr::value::ObjectNames;
 use mosstank_expr::{ChangeCounter, ExpressionError, ExpressionValue, GlobalVariableStore};
@@ -348,11 +346,64 @@ fn parse(
     Ok((name, value))
 }
 
-/// The store with its storage, as the expression state takes it
-/// ([`GlobalVariableStore`]): every call reaches the shared files.
+/// The store over a storage lent for one use of the variables, as the
+/// expression state takes it ([`GlobalVariableStore`]): the plugin's
+/// storage is reached only during its call, so the store is made for each
+/// use from the storage that call holds.
+pub struct GlobalVariables<'s> {
+    /// The store.
+    pub store: &'s StorageGlobalVariableStore,
+    /// The storage, for this use.
+    pub storage: &'s mut dyn PluginStorage,
+    /// The counter values coming back count their changes on (the
+    /// expression state's).
+    pub counter: &'s ChangeCounter,
+    /// How saved world objects print.
+    pub names: Option<&'s ObjectNames>,
+}
+
+impl std::fmt::Debug for GlobalVariables<'_> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("GlobalVariables")
+            .field("store", &self.store)
+            .finish_non_exhaustive()
+    }
+}
+
+impl GlobalVariableStore for GlobalVariables<'_> {
+    fn try_get(&mut self, name: &str) -> Result<Option<ExpressionValue>, ExpressionError> {
+        self.store
+            .try_get(&mut *self.storage, self.names, self.counter, name)
+    }
+
+    fn contains(&mut self, name: &str) -> Result<bool, ExpressionError> {
+        self.store.contains(&mut *self.storage, self.counter, name)
+    }
+
+    fn set(&mut self, name: &str, value: &ExpressionValue) -> Result<(), ExpressionError> {
+        self.store
+            .set(&mut *self.storage, self.counter, name, value)
+    }
+
+    fn remove(&mut self, name: &str) -> Result<bool, ExpressionError> {
+        self.store.remove(&mut *self.storage, self.counter, name)
+    }
+
+    fn clear(&mut self) -> Result<(), ExpressionError> {
+        self.store.clear(&mut *self.storage)
+    }
+
+    fn capture(&mut self) -> Result<Vec<(String, ExpressionValue)>, ExpressionError> {
+        self.store
+            .capture(&mut *self.storage, self.names, self.counter)
+    }
+}
+
+/// The store with a storage of its own ([`GlobalVariableStore`]): every
+/// call reaches the shared files.
 pub struct SharedGlobalVariables<S: PluginStorage> {
     store: StorageGlobalVariableStore,
-    storage: RefCell<S>,
+    storage: S,
     counter: ChangeCounter,
     names: Option<ObjectNames>,
 }
@@ -377,7 +428,7 @@ impl<S: PluginStorage> SharedGlobalVariables<S> {
     ) -> Self {
         Self {
             store: StorageGlobalVariableStore::new(server),
-            storage: RefCell::new(storage),
+            storage,
             counter,
             names,
         }
@@ -390,45 +441,42 @@ impl<S: PluginStorage> SharedGlobalVariables<S> {
     }
 
     /// The storage, to look at.
-    pub fn storage(&self) -> std::cell::RefMut<'_, S> {
-        self.storage.borrow_mut()
+    pub fn storage(&mut self) -> &mut S {
+        &mut self.storage
+    }
+
+    fn lent(&mut self) -> GlobalVariables<'_> {
+        GlobalVariables {
+            store: &self.store,
+            storage: &mut self.storage,
+            counter: &self.counter,
+            names: self.names.as_ref(),
+        }
     }
 }
 
 impl<S: PluginStorage> GlobalVariableStore for SharedGlobalVariables<S> {
-    fn try_get(&self, name: &str) -> Result<Option<ExpressionValue>, ExpressionError> {
-        self.store.try_get(
-            &mut *self.storage.borrow_mut(),
-            self.names.as_ref(),
-            &self.counter,
-            name,
-        )
+    fn try_get(&mut self, name: &str) -> Result<Option<ExpressionValue>, ExpressionError> {
+        self.lent().try_get(name)
     }
 
-    fn contains(&self, name: &str) -> Result<bool, ExpressionError> {
-        self.store
-            .contains(&mut *self.storage.borrow_mut(), &self.counter, name)
+    fn contains(&mut self, name: &str) -> Result<bool, ExpressionError> {
+        self.lent().contains(name)
     }
 
-    fn set(&self, name: &str, value: &ExpressionValue) -> Result<(), ExpressionError> {
-        self.store
-            .set(&mut *self.storage.borrow_mut(), &self.counter, name, value)
+    fn set(&mut self, name: &str, value: &ExpressionValue) -> Result<(), ExpressionError> {
+        self.lent().set(name, value)
     }
 
-    fn remove(&self, name: &str) -> Result<bool, ExpressionError> {
-        self.store
-            .remove(&mut *self.storage.borrow_mut(), &self.counter, name)
+    fn remove(&mut self, name: &str) -> Result<bool, ExpressionError> {
+        self.lent().remove(name)
     }
 
-    fn clear(&self) -> Result<(), ExpressionError> {
-        self.store.clear(&mut *self.storage.borrow_mut())
+    fn clear(&mut self) -> Result<(), ExpressionError> {
+        self.lent().clear()
     }
 
-    fn capture(&self) -> Result<Vec<(String, ExpressionValue)>, ExpressionError> {
-        self.store.capture(
-            &mut *self.storage.borrow_mut(),
-            self.names.as_ref(),
-            &self.counter,
-        )
+    fn capture(&mut self) -> Result<Vec<(String, ExpressionValue)>, ExpressionError> {
+        self.lent().capture()
     }
 }

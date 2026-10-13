@@ -19,7 +19,7 @@ use mosstank_settings::ub::{
 use mosstank_stores::storage::{PluginStorage, StoreLog};
 use mosstank_stores::ub_store::UbSettingStore;
 
-/// Storage that outlives a plugin call (the client's `shared_storage`).
+/// Storage that outlives a plugin call (a test keeps one in memory).
 pub type SharedStorageHandle = Rc<RefCell<Box<dyn PluginStorage>>>;
 /// A log that outlives a plugin call.
 pub type SharedLogHandle = Rc<RefCell<Box<dyn StoreLog>>>;

@@ -281,7 +281,7 @@ pub(super) fn dump_meta_variables(cx: &mut TankCx<'_>) {
         ExpressionVariableScope::Persistent,
         ExpressionVariableScope::Global,
     ] {
-        let captured = cx.meta.expressions().state().capture(scope);
+        let captured = cx.meta.expressions().capture_variables(cx.client, scope);
         let variables = match captured {
             Ok(variables) => variables,
             Err(error) => {

@@ -55,7 +55,7 @@ fn a_server_and_a_name_hash_as_the_csharp_keys_them() {
 /// variables.
 #[test]
 fn names_are_case_sensitive() {
-    let globals = shared(MemoryStorage::ordinal());
+    let mut globals = shared(MemoryStorage::ordinal());
     globals.set("Rare", &number(1.0)).unwrap();
 
     assert!(!globals.contains("rare").unwrap());
@@ -79,7 +79,7 @@ fn a_variable_saved_under_the_old_key_is_found_by_its_exact_name_and_moves_on_se
         &old_key,
         "{\"Name\":\"Carried\",\"Value\":{\"Kind\":\"number\",\"Number\":7}}",
     );
-    let globals = shared(storage);
+    let mut globals = shared(storage);
 
     assert_eq!(as_number(globals.try_get("Carried").unwrap()), Some(7.0));
     assert!(globals.contains("Carried").unwrap());
@@ -107,7 +107,7 @@ fn a_damaged_variable_is_an_error_of_its_read_and_still_exists() {
         "{\"Name\":\"r\",\"Value\":{\"Kind\":\"list\",\"List\":[null]}}",
         "{\"Name\":\"r\",\"Value\":{\"Kind\":\"worldobject\",\"Number\":-1}}",
     ] {
-        let globals = shared(MemoryStorage::ordinal());
+        let mut globals = shared(MemoryStorage::ordinal());
         globals.set("r", &number(1.0)).unwrap();
         let key = globals.store().key_for("r");
         globals.set("ok", &number(2.0)).unwrap();
@@ -136,7 +136,7 @@ fn a_damaged_variable_is_an_error_of_its_read_and_still_exists() {
 /// in the error.
 #[test]
 fn a_storage_failure_is_an_error_naming_the_failure() {
-    let globals = shared(MemoryStorage::ordinal());
+    let mut globals = shared(MemoryStorage::ordinal());
     globals.set("r", &number(1.0)).unwrap();
     let key = globals.store().key_for("r");
 
@@ -162,7 +162,7 @@ fn a_storage_failure_is_an_error_naming_the_failure() {
 /// go; storage not backed by a folder is not locked.
 #[test]
 fn every_call_takes_and_releases_the_folder_lock() {
-    let globals = shared(MemoryStorage::ordinal());
+    let mut globals = shared(MemoryStorage::ordinal());
     globals.set("r", &number(1.0)).unwrap();
     globals.try_get("r").unwrap();
     assert!(globals.storage().locks.is_empty());

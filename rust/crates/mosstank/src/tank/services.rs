@@ -397,9 +397,6 @@ impl MetaHost for ClientProxy<'_, '_> {
     fn storage(&mut self) -> &mut dyn PluginStorage {
         &mut self.storage
     }
-    fn shared_storage(&mut self) -> Option<Box<dyn PluginStorage>> {
-        meta!(self.shared_storage())
-    }
 }
 
 impl UbHost for ClientProxy<'_, '_> {

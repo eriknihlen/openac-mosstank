@@ -22,39 +22,44 @@ pub enum ExpressionVariableScope {
 }
 
 /// Where the global variables live when they are shared (the plugin's
-/// storage). Every call reaches the shared store.
+/// storage). Every call reaches the shared store. The client is reached
+/// only during a plugin call, so a store is handed in with each use rather
+/// than kept by the variables ([`Globals`]).
 pub trait GlobalVariableStore {
     /// One variable.
     ///
     /// # Errors
     /// The variable's file cannot be read back.
-    fn try_get(&self, name: &str) -> Result<Option<ExpressionValue>, ExpressionError>;
+    fn try_get(&mut self, name: &str) -> Result<Option<ExpressionValue>, ExpressionError>;
     /// Whether it exists (a damaged one still does).
     ///
     /// # Errors
     /// The store cannot be read.
-    fn contains(&self, name: &str) -> Result<bool, ExpressionError>;
+    fn contains(&mut self, name: &str) -> Result<bool, ExpressionError>;
     /// Writes one.
     ///
     /// # Errors
     /// The value cannot be saved, or the store cannot be written.
-    fn set(&self, name: &str, value: &ExpressionValue) -> Result<(), ExpressionError>;
+    fn set(&mut self, name: &str, value: &ExpressionValue) -> Result<(), ExpressionError>;
     /// Removes one; whether it existed.
     ///
     /// # Errors
     /// The store cannot be written.
-    fn remove(&self, name: &str) -> Result<bool, ExpressionError>;
+    fn remove(&mut self, name: &str) -> Result<bool, ExpressionError>;
     /// Removes all.
     ///
     /// # Errors
     /// The store cannot be written.
-    fn clear(&self) -> Result<(), ExpressionError>;
+    fn clear(&mut self) -> Result<(), ExpressionError>;
     /// Every variable.
     ///
     /// # Errors
     /// A file cannot be read back.
-    fn capture(&self) -> Result<Vec<(String, ExpressionValue)>, ExpressionError>;
+    fn capture(&mut self) -> Result<Vec<(String, ExpressionValue)>, ExpressionError>;
 }
+
+/// The shared store for one use of the variables, when the caller has one.
+pub type Globals<'g> = Option<&'g mut dyn GlobalVariableStore>;
 
 /// The variables of one session.
 pub struct ExpressionState {
@@ -64,7 +69,7 @@ pub struct ExpressionState {
     persistent: DotNetDictionary<ExpressionValue>,
     global: DotNetDictionary<ExpressionValue>,
     global_reads: Vec<DotNetDictionary<ExpressionValue>>,
-    global_store: Option<Rc<dyn GlobalVariableStore>>,
+    shares_globals: bool,
     persistent_writes: u64,
     changes: ChangeCounter,
 }
@@ -75,6 +80,7 @@ impl std::fmt::Debug for ExpressionState {
             .field("session", &self.session.len())
             .field("persistent", &self.persistent.len())
             .field("global", &self.global.len())
+            .field("shares_globals", &self.shares_globals)
             .finish_non_exhaustive()
     }
 }
@@ -83,6 +89,13 @@ impl Default for ExpressionState {
     fn default() -> Self {
         Self::new()
     }
+}
+
+/// A use of the shared global scope that was handed no store.
+fn no_store() -> ExpressionError {
+    ExpressionError::evaluation(
+        "The global variables could not be read or written: no storage was handed in",
+    )
 }
 
 impl ExpressionState {
@@ -94,7 +107,7 @@ impl ExpressionState {
             persistent: DotNetDictionary::new(),
             global: DotNetDictionary::new(),
             global_reads: Vec::new(),
-            global_store: None,
+            shares_globals: false,
             persistent_writes: 0,
             changes: ChangeCounter::new(),
         }
@@ -107,13 +120,19 @@ impl ExpressionState {
         &self.changes
     }
 
-    /// Sends the global scope to a shared store instead of this state's own
-    /// table; `None` goes back to the table.
-    pub fn bind_global_store(&mut self, store: Option<Rc<dyn GlobalVariableStore>>) {
-        self.global_store = store;
+    /// Sends the global scope to a shared store, handed in with each use,
+    /// instead of this state's own table; false goes back to the table.
+    pub fn share_globals(&mut self, shared: bool) {
+        self.shares_globals = shared;
         for reads in &mut self.global_reads {
             reads.clear();
         }
+    }
+
+    /// Whether the global scope lives in a shared store.
+    #[must_use]
+    pub fn shares_globals(&self) -> bool {
+        self.shares_globals
     }
 
     /// Opens one top-level evaluation: within it a global variable is read
@@ -128,11 +147,16 @@ impl ExpressionState {
     ///
     /// # Errors
     /// The store cannot be written.
-    pub fn end_evaluation(&mut self, completed: bool) -> Result<(), ExpressionError> {
+    pub fn end_evaluation(
+        &mut self,
+        completed: bool,
+        globals: Globals<'_>,
+    ) -> Result<(), ExpressionError> {
         let reads = self.global_reads.pop().unwrap_or_default();
-        let Some(store) = self.global_store.clone().filter(|_| completed) else {
+        if !self.shares_globals || !completed {
             return Ok(());
-        };
+        }
+        let mut store = globals;
         for (name, value) in reads.iter() {
             let changed = match &value {
                 ExpressionValue::List(list) => list.has_changes(),
@@ -140,7 +164,10 @@ impl ExpressionState {
                 _ => false,
             };
             if changed {
-                store.set(name, value)?;
+                store
+                    .as_deref_mut()
+                    .ok_or_else(no_store)?
+                    .set(name, value)?;
             }
         }
         Ok(())
@@ -165,11 +192,17 @@ impl ExpressionState {
         }
     }
 
-    fn store_for(&self, scope: ExpressionVariableScope) -> Option<Rc<dyn GlobalVariableStore>> {
-        if scope == ExpressionVariableScope::Global {
-            self.global_store.clone()
+    /// The store a use of `scope` goes to: none for this state's own
+    /// tables, the one handed in for shared globals (an error without one).
+    fn store_for<'g>(
+        &self,
+        scope: ExpressionVariableScope,
+        globals: Globals<'g>,
+    ) -> Result<Globals<'g>, ExpressionError> {
+        if scope == ExpressionVariableScope::Global && self.shares_globals {
+            globals.map(Some).ok_or_else(no_store)
         } else {
-            None
+            Ok(None)
         }
     }
 
@@ -182,7 +215,20 @@ impl ExpressionState {
         scope: ExpressionVariableScope,
         name: &str,
     ) -> Result<ExpressionValue, ExpressionError> {
-        if let Some(store) = self.store_for(scope) {
+        self.get_with(scope, name, None)
+    }
+
+    /// [`Self::get`] with the shared store.
+    ///
+    /// # Errors
+    /// A shared global variable cannot be read.
+    pub fn get_with(
+        &mut self,
+        scope: ExpressionVariableScope,
+        name: &str,
+        globals: Globals<'_>,
+    ) -> Result<ExpressionValue, ExpressionError> {
+        if let Some(store) = self.store_for(scope, globals)? {
             if let Some(cached) = self.global_reads.last().and_then(|reads| reads.get(name)) {
                 return Ok(cached.clone());
             }
@@ -204,7 +250,20 @@ impl ExpressionState {
         scope: ExpressionVariableScope,
         name: &str,
     ) -> Result<bool, ExpressionError> {
-        match self.store_for(scope) {
+        self.contains_with(scope, name, None)
+    }
+
+    /// [`Self::contains`] with the shared store.
+    ///
+    /// # Errors
+    /// The shared store cannot be read.
+    pub fn contains_with(
+        &self,
+        scope: ExpressionVariableScope,
+        name: &str,
+        globals: Globals<'_>,
+    ) -> Result<bool, ExpressionError> {
+        match self.store_for(scope, globals)? {
             Some(store) => store.contains(name),
             None => Ok(self.table(scope).contains_key(name)),
         }
@@ -221,7 +280,22 @@ impl ExpressionState {
         name: &str,
         value: ExpressionValue,
     ) -> Result<ExpressionValue, ExpressionError> {
-        if let Some(store) = self.store_for(scope) {
+        self.set_with(scope, name, value, None)
+    }
+
+    /// [`Self::set`] with the shared store.
+    ///
+    /// # Errors
+    /// A persistent value that cannot be saved (a stopwatch, a control);
+    /// the shared store cannot be written.
+    pub fn set_with(
+        &mut self,
+        scope: ExpressionVariableScope,
+        name: &str,
+        value: ExpressionValue,
+        globals: Globals<'_>,
+    ) -> Result<ExpressionValue, ExpressionError> {
+        if let Some(store) = self.store_for(scope, globals)? {
             store.set(name, &value)?;
             return Ok(value);
         }
@@ -244,7 +318,20 @@ impl ExpressionState {
         scope: ExpressionVariableScope,
         name: &str,
     ) -> Result<bool, ExpressionError> {
-        if let Some(store) = self.store_for(scope) {
+        self.clear_with(scope, name, None)
+    }
+
+    /// [`Self::clear`] with the shared store.
+    ///
+    /// # Errors
+    /// The shared store cannot be written.
+    pub fn clear_with(
+        &mut self,
+        scope: ExpressionVariableScope,
+        name: &str,
+        globals: Globals<'_>,
+    ) -> Result<bool, ExpressionError> {
+        if let Some(store) = self.store_for(scope, globals)? {
             return store.remove(name);
         }
         self.written(scope);
@@ -256,7 +343,19 @@ impl ExpressionState {
     /// # Errors
     /// The shared store cannot be written.
     pub fn clear_all(&mut self, scope: ExpressionVariableScope) -> Result<(), ExpressionError> {
-        if let Some(store) = self.store_for(scope) {
+        self.clear_all_with(scope, None)
+    }
+
+    /// [`Self::clear_all`] with the shared store.
+    ///
+    /// # Errors
+    /// The shared store cannot be written.
+    pub fn clear_all_with(
+        &mut self,
+        scope: ExpressionVariableScope,
+        globals: Globals<'_>,
+    ) -> Result<(), ExpressionError> {
+        if let Some(store) = self.store_for(scope, globals)? {
             return store.clear();
         }
         self.table_mut(scope).clear();
@@ -272,7 +371,19 @@ impl ExpressionState {
         &self,
         scope: ExpressionVariableScope,
     ) -> Result<Vec<(String, ExpressionValue)>, ExpressionError> {
-        match self.store_for(scope) {
+        self.capture_with(scope, None)
+    }
+
+    /// [`Self::capture`] with the shared store.
+    ///
+    /// # Errors
+    /// The shared store cannot be read.
+    pub fn capture_with(
+        &self,
+        scope: ExpressionVariableScope,
+        globals: Globals<'_>,
+    ) -> Result<Vec<(String, ExpressionValue)>, ExpressionError> {
+        match self.store_for(scope, globals)? {
             Some(store) => store.capture(),
             None => Ok(self
                 .table(scope)
@@ -282,22 +393,16 @@ impl ExpressionState {
         }
     }
 
-    /// Replaces every variable of a scope.
+    /// Replaces every variable of one of this state's own scopes.
     ///
     /// # Errors
-    /// The shared store cannot be written.
+    /// The scope is the shared global scope, which this cannot reach.
     pub fn replace(
         &mut self,
         scope: ExpressionVariableScope,
         values: impl IntoIterator<Item = (String, ExpressionValue)>,
     ) -> Result<(), ExpressionError> {
-        if let Some(store) = self.store_for(scope) {
-            store.clear()?;
-            for (name, value) in values {
-                store.set(&name, &value)?;
-            }
-            return Ok(());
-        }
+        self.store_for(scope, None)?;
         let table = self.table_mut(scope);
         table.clear();
         for (name, value) in values {
@@ -527,6 +632,12 @@ pub trait ExpressionHost {
     fn run_failed(&mut self, text: &str, error: &ExpressionError) {
         let _ = (text, error);
     }
+
+    /// The shared store of the global variables for this run, when they
+    /// are shared ([`ExpressionState::share_globals`]).
+    fn global_variables(&mut self) -> Option<&mut dyn GlobalVariableStore> {
+        None
+    }
 }
 
 /// One evaluation: the variables, the functions, the instruction budget.
@@ -627,6 +738,87 @@ impl<'a> EvaluationContext<'a> {
         result
     }
 
+    /// A variable's value; 0 when it does not exist. A shared global
+    /// variable is read through the host's store.
+    ///
+    /// # Errors
+    /// A shared global variable cannot be read.
+    pub fn variable(
+        &mut self,
+        scope: ExpressionVariableScope,
+        name: &str,
+    ) -> Result<ExpressionValue, ExpressionError> {
+        let globals = self
+            .host
+            .as_deref_mut()
+            .and_then(|host| host.global_variables());
+        self.state.get_with(scope, name, globals)
+    }
+
+    /// Whether a variable exists.
+    ///
+    /// # Errors
+    /// The shared store cannot be read.
+    pub fn has_variable(
+        &mut self,
+        scope: ExpressionVariableScope,
+        name: &str,
+    ) -> Result<bool, ExpressionError> {
+        let globals = self
+            .host
+            .as_deref_mut()
+            .and_then(|host| host.global_variables());
+        self.state.contains_with(scope, name, globals)
+    }
+
+    /// Sets a variable; the value set.
+    ///
+    /// # Errors
+    /// The value cannot be stored.
+    pub fn set_variable(
+        &mut self,
+        scope: ExpressionVariableScope,
+        name: &str,
+        value: ExpressionValue,
+    ) -> Result<ExpressionValue, ExpressionError> {
+        let globals = self
+            .host
+            .as_deref_mut()
+            .and_then(|host| host.global_variables());
+        self.state.set_with(scope, name, value, globals)
+    }
+
+    /// Removes a variable; whether it existed.
+    ///
+    /// # Errors
+    /// The shared store cannot be written.
+    pub fn clear_variable(
+        &mut self,
+        scope: ExpressionVariableScope,
+        name: &str,
+    ) -> Result<bool, ExpressionError> {
+        let globals = self
+            .host
+            .as_deref_mut()
+            .and_then(|host| host.global_variables());
+        self.state.clear_with(scope, name, globals)
+    }
+
+    /// Removes every variable of a scope.
+    ///
+    /// # Errors
+    /// The shared store cannot be written.
+    pub fn clear_variables(
+        &mut self,
+        scope: ExpressionVariableScope,
+    ) -> Result<(), ExpressionError> {
+        let globals = self
+            .host
+            .as_deref_mut()
+            .and_then(|host| host.global_variables());
+        self.state.clear_all_with(scope, globals)
+    }
+
     /// Whether the client knows an object id: the context's own answer, else
     /// the host's, else yes.
     pub fn knows_object(&mut self, object_id: u32) -> bool {
@@ -713,12 +905,17 @@ impl<'a> EvaluationContext<'a> {
         program: &ExpressionProgram,
     ) -> Result<(ExpressionValue, bool), Fault> {
         self.state.begin_evaluation();
-        let outcome = match program.evaluate(self) {
+        let evaluated = program.evaluate(self);
+        let globals = self
+            .host
+            .as_deref_mut()
+            .and_then(|host| host.global_variables());
+        let outcome = match evaluated {
             // The write-back belongs to the run: its failure fails the run.
-            Ok(value) => self.state.end_evaluation(true).map(|()| value),
+            Ok(value) => self.state.end_evaluation(true, globals).map(|()| value),
             Err(error) => {
                 // Nothing is written back from a run that did not complete.
-                let _ = self.state.end_evaluation(false);
+                let _ = self.state.end_evaluation(false, globals);
                 Err(error)
             }
         };

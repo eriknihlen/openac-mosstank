@@ -15,21 +15,22 @@ use ac_plugin_abi::LogLevel;
 use ac_plugin_abi::world::WorldObject;
 use mosstank_dotnet::compat::DotNetRandom;
 use mosstank_dotnet::compat::json::{self, JsonValue, system_text_json};
+use mosstank_expr::ChangeCounter;
 use mosstank_expr::json as value_json;
 use mosstank_expr::value::ObjectNames;
 use mosstank_expr::{
     CoreOptions, DEFAULT_INSTRUCTION_BUDGET, EvaluationContext, ExpressionClock, ExpressionError,
     ExpressionHost, ExpressionProgram, ExpressionState, ExpressionValue, ExpressionVariableScope,
-    Fault, FunctionRegistry, GlobalVariableStore,
+    Fault, FunctionRegistry, GlobalVariableStore, Globals,
 };
 use mosstank_formats::meta::MetaProfile;
-use mosstank_stores::global_variables::{SharedGlobalVariables, hash};
+use mosstank_stores::global_variables::{GlobalVariables, StorageGlobalVariableStore, hash};
 
 use crate::chat;
 use crate::experience::ExperienceMeter;
 use crate::functions;
 use crate::held_motions::HeldMotions;
-use crate::host::{BoxedStorage, Character, MetaHost};
+use crate::host::{Character, MetaHost};
 use crate::quests::QuestTracker;
 use crate::salvage::SalvageStaging;
 use crate::services::MetaServices;
@@ -150,6 +151,30 @@ pub(crate) struct Parts {
     next_delay_id: i32,
     reported_repairs: HashSet<String>,
     service_functions: HashSet<String>,
+    /// The global variables' store, while they are shared.
+    globals: Option<BoundGlobals>,
+}
+
+/// The shared global variables of the server the character is on: the
+/// store, and the counter the values read back count their changes on.
+#[derive(Debug)]
+struct BoundGlobals {
+    store: StorageGlobalVariableStore,
+    counter: ChangeCounter,
+}
+
+/// The shared store lent the plugin's storage for one use.
+fn lend_globals<'s>(
+    globals: &'s Option<BoundGlobals>,
+    storage: &'s mut dyn mosstank_stores::storage::PluginStorage,
+    names: &'s ObjectNames,
+) -> Option<GlobalVariables<'s>> {
+    globals.as_ref().map(|bound| GlobalVariables {
+        store: &bound.store,
+        storage,
+        counter: &bound.counter,
+        names: Some(names),
+    })
 }
 
 /// The expression runtime.
@@ -237,6 +262,22 @@ pub(crate) struct Call<'c> {
 }
 
 impl Call<'_> {
+    /// Runs `action` on the shared global variables, over the storage of
+    /// this call.
+    fn with_globals<T>(
+        &mut self,
+        action: impl FnOnce(&mut GlobalVariables<'_>) -> Result<T, ExpressionError>,
+    ) -> Result<T, ExpressionError> {
+        let names = self.parts.names.names();
+        let storage = self.host.storage();
+        let mut lent = lend_globals(&self.parts.globals, storage, &names).ok_or_else(|| {
+            ExpressionError::evaluation(
+                "The global variables could not be read or written: they are not shared",
+            )
+        })?;
+        action(&mut lent)
+    }
+
     /// One object, its name learned.
     pub(crate) fn object(&mut self, id: u32) -> Option<WorldObject> {
         let object = self.host.object(id);
@@ -321,6 +362,14 @@ impl ExpressionHost for Call<'_> {
         chat::ub_post(self.host, &chat::ub_line(line));
     }
 
+    fn global_variables(&mut self) -> Option<&mut dyn GlobalVariableStore> {
+        if self.parts.globals.is_some() {
+            Some(self)
+        } else {
+            None
+        }
+    }
+
     fn repairs_observed(&mut self, source: &str, repairs: &[String]) {
         self.report_repairs(source, repairs);
     }
@@ -350,6 +399,34 @@ impl ExpressionHost for Call<'_> {
             chat::ub_post(self.host, &message);
             self.host.log(LogLevel::Info, &message);
         }
+    }
+}
+
+/// The shared global variables as a run reaches them: through the storage
+/// of the call the run is part of.
+impl GlobalVariableStore for Call<'_> {
+    fn try_get(&mut self, name: &str) -> Result<Option<ExpressionValue>, ExpressionError> {
+        self.with_globals(|globals| globals.try_get(name))
+    }
+
+    fn contains(&mut self, name: &str) -> Result<bool, ExpressionError> {
+        self.with_globals(|globals| globals.contains(name))
+    }
+
+    fn set(&mut self, name: &str, value: &ExpressionValue) -> Result<(), ExpressionError> {
+        self.with_globals(|globals| globals.set(name, value))
+    }
+
+    fn remove(&mut self, name: &str) -> Result<bool, ExpressionError> {
+        self.with_globals(|globals| globals.remove(name))
+    }
+
+    fn clear(&mut self) -> Result<(), ExpressionError> {
+        self.with_globals(|globals| globals.clear())
+    }
+
+    fn capture(&mut self) -> Result<Vec<(String, ExpressionValue)>, ExpressionError> {
+        self.with_globals(|globals| globals.capture())
     }
 }
 
@@ -384,6 +461,7 @@ impl ExpressionRuntime {
             next_delay_id: 1,
             reported_repairs: HashSet::new(),
             service_functions: HashSet::new(),
+            globals: None,
         };
         let mut runtime = Self {
             state: ExpressionState::new(),
@@ -540,7 +618,14 @@ impl ExpressionRuntime {
         };
         // The write-back of the shared lists the expression changed belongs
         // to it: its failure fails the expression, before anything is saved.
-        self.state.end_evaluation(result.is_ok())?;
+        let names = self.parts.names.names();
+        let mut globals = lend_globals(&self.parts.globals, host.storage(), &names);
+        self.state.end_evaluation(
+            result.is_ok(),
+            globals
+                .as_mut()
+                .map(|globals| -> &mut dyn GlobalVariableStore { globals }),
+        )?;
         // What the expression set before an error stands, and the
         // reference saves a persistent variable as it is set, so the save
         // happens whether or not the expression completed.
@@ -557,6 +642,24 @@ impl ExpressionRuntime {
             names.learn(id, object.as_ref());
             Some(object.map(|object| object.name))
         })
+    }
+
+    /// Every variable of a scope, the shared global variables read through
+    /// the plugin's storage.
+    ///
+    /// # Errors
+    /// A shared global variable cannot be read.
+    pub fn capture_variables(
+        &mut self,
+        host: &mut dyn MetaHost,
+        scope: ExpressionVariableScope,
+    ) -> Result<Vec<(String, ExpressionValue)>, ExpressionError> {
+        let names = self.parts.names.names();
+        let mut globals = lend_globals(&self.parts.globals, host.storage(), &names);
+        let globals: Globals<'_> = globals
+            .as_mut()
+            .map(|globals| -> &mut dyn GlobalVariableStore { globals });
+        self.state.capture_with(scope, globals)
     }
 
     /// The client asks the runtime's chat filter about a line it is about
@@ -665,7 +768,7 @@ impl ExpressionRuntime {
         self.flush_variables(host);
         self.parts.delayed.clear();
         self.parts.status_hud.destroy(host);
-        self.state.bind_global_store(None);
+        self.unbind_global_store();
         self.parts.quests.dispose(host);
         self.disposed = true;
     }
@@ -697,33 +800,29 @@ impl ExpressionRuntime {
     /// Global variables belong to the server, not to one account: every
     /// client on the same server reads and writes one shared set.
     fn bind_global_store(&mut self, host: &mut dyn MetaHost, character: &Character) {
-        self.state.bind_global_store(None);
+        self.unbind_global_store();
         let _ = self.state.clear_all(ExpressionVariableScope::Global);
         if !host.storage().is_available() {
             return;
         }
-        let Some(storage) = host.shared_storage() else {
-            return;
-        };
-        let store: Rc<dyn GlobalVariableStore> = Rc::new(SharedGlobalVariables::new(
-            &character.world,
-            BoxedStorage(storage),
-            self.state.changes().clone(),
-            Some(self.parts.names.names()),
-        ));
-        self.state.bind_global_store(Some(store.clone()));
-        self.import_account_globals(host, character, store.as_ref());
+        self.parts.globals = Some(BoundGlobals {
+            store: StorageGlobalVariableStore::new(&character.world),
+            counter: self.state.changes().clone(),
+        });
+        self.state.share_globals(true);
+        self.import_account_globals(host, character);
+    }
+
+    /// The global scope back in the state's own table.
+    fn unbind_global_store(&mut self) {
+        self.state.share_globals(false);
+        self.parts.globals = None;
     }
 
     /// Earlier versions kept the global variables in one file per server
     /// and account. Their values join the shared set without replacing a
     /// value it already has, and the old file goes.
-    fn import_account_globals(
-        &mut self,
-        host: &mut dyn MetaHost,
-        character: &Character,
-        store: &dyn GlobalVariableStore,
-    ) {
+    fn import_account_globals(&mut self, host: &mut dyn MetaHost, character: &Character) {
         let key = storage_key(
             "global",
             &format!("{}\n{}", character.world, character.account),
@@ -735,13 +834,13 @@ impl ExpressionRuntime {
             if !text.trim().is_empty() {
                 let document = json::parse(&text).map_err(|error| error.to_string())?;
                 if let JsonValue::Object(members) = document {
+                    let names = self.parts.names.names();
                     for (name, value) in members {
+                        let mut store = lend_globals(&self.parts.globals, host.storage(), &names)
+                            .ok_or("the global variables are not shared")?;
                         if !store.contains(&name).map_err(|error| error.message())? {
-                            let value = value_json::restore(
-                                &value,
-                                Some(&self.parts.names.names()),
-                                self.state.changes(),
-                            )?;
+                            let value =
+                                value_json::restore(&value, Some(&names), self.state.changes())?;
                             store.set(&name, &value).map_err(|error| error.message())?;
                         }
                     }

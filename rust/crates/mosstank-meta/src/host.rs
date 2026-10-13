@@ -22,7 +22,7 @@ pub use ac_plugin_abi::world::{
     Confirmation, ItemProperties, ObjectClass, PortalTransition, Position, WorldObject, WorldTime,
 };
 pub use ac_plugin_abi::{CharacterInfo, ChatLine, LogLevel};
-use mosstank_stores::storage::{PluginStorage, StorageError};
+use mosstank_stores::storage::PluginStorage;
 
 /// A window the plugin asks the client to show: the C#'s
 /// `PluginPanelDescriptor` with the markup it is drawn from.
@@ -263,49 +263,6 @@ pub trait MetaHost {
 
     /// The plugin's own storage.
     fn storage(&mut self) -> &mut dyn PluginStorage;
-    /// A handle on the same storage that outlives the call, for the global
-    /// variables every client on the server shares (they are read and
-    /// written as expressions run); `None` when there is none.
-    fn shared_storage(&mut self) -> Option<Box<dyn PluginStorage>>;
-}
-
-/// A boxed storage as a [`PluginStorage`].
-pub struct BoxedStorage(pub Box<dyn PluginStorage>);
-
-impl std::fmt::Debug for BoxedStorage {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.write_str("BoxedStorage")
-    }
-}
-
-impl PluginStorage for BoxedStorage {
-    fn is_available(&mut self) -> bool {
-        self.0.is_available()
-    }
-    fn root_path(&mut self) -> Option<String> {
-        self.0.root_path()
-    }
-    fn read_text(&mut self, key: &str) -> Result<Option<String>, StorageError> {
-        self.0.read_text(key)
-    }
-    fn list(&mut self, prefix: &str) -> Result<Vec<String>, StorageError> {
-        self.0.list(prefix)
-    }
-    fn write_text(&mut self, key: &str, content: &str) -> Result<(), StorageError> {
-        self.0.write_text(key, content)
-    }
-    fn ensure_directory(&mut self, prefix: &str) -> Result<bool, StorageError> {
-        self.0.ensure_directory(prefix)
-    }
-    fn delete(&mut self, key: &str) -> Result<bool, StorageError> {
-        self.0.delete(key)
-    }
-    fn lock(&mut self, key: &str) -> Result<u32, StorageError> {
-        self.0.lock(key)
-    }
-    fn unlock(&mut self, handle: u32) -> bool {
-        self.0.unlock(handle)
-    }
 }
 
 /// The character's facts the engine reads, with the C#'s answers when the
