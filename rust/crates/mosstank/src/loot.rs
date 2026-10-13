@@ -47,11 +47,26 @@ impl LootHost for HostAutomation<'_, '_> {
         self.host.loot_state().last_inventory_completion
     }
 
+    /// The corpses in reach. A corpse counts as answered once it is
+    /// described, once the server refused to describe it (a corpse that
+    /// decayed meanwhile is answered with nothing), or while its answer is
+    /// the appraisal slot's last one (register LOOT-3).
     fn loot_corpses(&mut self, maximum_distance: f32) -> Vec<LootCorpse> {
-        self.host
-            .corpses(maximum_distance)
+        let containers = self.host.corpses(maximum_distance);
+        let last_answered = self.host.loot_state().appraisal.current_id;
+        containers
             .into_iter()
-            .map(LootCorpse::from)
+            .map(|container| {
+                let id = container.object_id;
+                let mut corpse = LootCorpse::from(container);
+                corpse.is_appraisal_answered = corpse.is_identified
+                    || (id != 0 && id == last_answered)
+                    || self
+                        .host
+                        .object(id)
+                        .is_some_and(|object| object.last_appraisal_unsuccessful);
+                corpse
+            })
             .collect()
     }
 
