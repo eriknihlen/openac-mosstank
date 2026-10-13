@@ -8,4 +8,6 @@ if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 cargo test --workspace
 if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 cargo build --workspace --target wasm32-unknown-unknown --release
+if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+cargo run -q -p xtask -- wasm-imports
 exit $LASTEXITCODE

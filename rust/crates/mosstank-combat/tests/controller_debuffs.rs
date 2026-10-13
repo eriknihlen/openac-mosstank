@@ -1203,3 +1203,5 @@ fn with_sharing_off_nothing_is_announced() {
     assert!(fight.surface.peers.attempts.is_empty());
     assert!(fight.surface.peers.successes.is_empty());
 }
+
+// Not applicable: tests/AcDream.Plugins.MossTank.Tests/CombatControllerTests.cs :: FailedTrustReadDoesNotConsumeAnEligiblePeerCast: the client list read cannot fail through the SDK, so there is no failed read to retry (register COMBAT-4)

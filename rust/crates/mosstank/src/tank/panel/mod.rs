@@ -11,7 +11,7 @@ mod advanced;
 mod chrome;
 mod items;
 mod meta_tab;
-mod monsters;
+pub(crate) mod monsters;
 mod profiles_tab;
 mod route;
 mod tinker;

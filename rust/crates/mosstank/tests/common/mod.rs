@@ -35,6 +35,8 @@ pub struct World {
     /// The C# panel tests' `FakeAutomation`, when a test uses it: it
     /// answers the character, spell, cast, item and selection calls.
     pub automation: Option<automation::FakeAutomation>,
+    /// The C# panel tests' `FrameLootSurface`, when a test uses it.
+    pub loot: Option<FrameLootSurface>,
 }
 
 impl Default for World {
@@ -68,6 +70,7 @@ impl World {
             chat_log: None,
             refuse_window_show: false,
             automation: None,
+            loot: None,
         }
     }
 
@@ -282,6 +285,29 @@ impl Transport for World {
             }
             Import::StorageUnlock => {
                 self.answer::<calls::StorageUnlock>(bytes, |_, _handle: u32| true)
+            }
+            Import::LootState if self.loot.is_some() => {
+                self.answer::<calls::LootState>(bytes, |world, ()| {
+                    let loot = world.loot.as_ref().unwrap();
+                    ac_plugin_abi::items::LootState {
+                        is_available: true,
+                        is_busy: false,
+                        requested_container_id: loot.opened,
+                        current_container_id: loot.current,
+                        current_contents_ready: loot.contents_ready,
+                        ..ac_plugin_abi::items::LootState::default()
+                    }
+                })
+            }
+            Import::LootCorpses if self.loot.is_some() => self
+                .answer::<calls::LootCorpses>(bytes, |world, _maximum: f32| {
+                    world.loot.as_ref().unwrap().corpses.clone()
+                }),
+            Import::LootOpen if self.loot.is_some() => {
+                self.answer::<calls::LootOpen>(bytes, |world, container: u32| {
+                    world.loot.as_mut().unwrap().opened = container;
+                    ac_plugin_abi::items::ItemResult::of(ac_plugin_abi::items::ItemStatus::Started)
+                })
             }
             Import::UiPanelShow if self.refuse_window_show => {
                 self.answer::<calls::UiPanelShow>(bytes, |_, _view| false)
@@ -608,5 +634,45 @@ pub fn spell(spell_id: u32, family: u32, description: &str) -> ac_plugin_abi::ma
         is_self_targeted: true,
         is_beneficial: true,
         ..ac_plugin_abi::magic::SpellInfo::default()
+    }
+}
+
+/// The C# panel tests' `FrameLootSurface`: a loot surface whose open
+/// request, open container and contents a test moves by hand.
+#[derive(Debug, Clone)]
+pub struct FrameLootSurface {
+    /// The container last asked open (`Opened`, `RequestedContainerId`).
+    pub opened: u32,
+    /// The container open now (`Current`).
+    pub current: u32,
+    /// Whether its contents have arrived (`ContentsReady`).
+    pub contents_ready: bool,
+    /// The corpses about (`Corpses`).
+    pub corpses: Vec<ac_plugin_abi::items::LootContainer>,
+}
+
+impl FrameLootSurface {
+    /// `FrameLootSurface.CorpseId`.
+    pub const CORPSE_ID: u32 = 0x7000_0D01;
+}
+
+impl Default for FrameLootSurface {
+    fn default() -> Self {
+        Self {
+            opened: 0,
+            current: 0,
+            contents_ready: true,
+            corpses: Vec::new(),
+        }
+    }
+}
+
+impl World {
+    /// The frame loot surface.
+    ///
+    /// # Panics
+    /// The world has none.
+    pub fn loot(&mut self) -> &mut FrameLootSurface {
+        self.loot.as_mut().expect("a world with a FrameLootSurface")
     }
 }

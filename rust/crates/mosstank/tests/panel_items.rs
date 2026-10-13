@@ -306,3 +306,173 @@ fn fast_cast_wall_awareness_and_debuff_fallback_toggle_and_persist() {
     assert!(!world.ui_bool(p, "DontShootAtWallsEnabled"));
     assert!(world.ui_bool(p, "DebuffFallbackEnabled"));
 }
+
+/// The vitals and coverage panel's character (`UpdateTick_...`,
+/// `RetainedLabelReads_...`): hurt a little, two attributes or one, the
+/// skills given, and one self buff.
+fn vitals_character(
+    skills: Vec<ac_plugin_abi::character::Skill>,
+    attributes: Vec<ac_plugin_abi::character::Attribute>,
+) -> common::automation::FakeAutomation {
+    let mut automation = common::automation::FakeAutomation::default();
+    automation.health = (90, 100);
+    automation.stamina = (80, 110);
+    automation.mana = (70, 120);
+    automation.skills = skills;
+    automation.attributes = attributes;
+    automation.set_known_self_buffs(vec![spell(
+        1,
+        10,
+        "Increases the caster's Life Magic skill by 10 points.",
+    )]);
+    automation
+}
+
+fn trained(
+    skill_id: u32,
+    name: &str,
+    current: u32,
+    training: ac_plugin_abi::character::Training,
+) -> ac_plugin_abi::character::Skill {
+    ac_plugin_abi::character::Skill {
+        training,
+        ..common::automation::skill(skill_id, name, current)
+    }
+}
+
+fn tick(world: &mut World, plugin: &mut MossTank, seconds: f64) {
+    world.with_tank(plugin, |tank, client| tank.on_tick(client, seconds));
+}
+
+// Source: tests/AcDream.Plugins.MossTank.Tests/MossTankPanelTests.cs :: UpdateTick_RefreshesRareCoverageAndChangedVitals
+/// The vitals line follows a change on the next tick; the coverage line
+/// (attributes, trained skills, buff lines) is refreshed more rarely, and
+/// a change to the known self buffs refreshes it at once.
+#[test]
+fn the_tick_refreshes_rare_coverage_and_changed_vitals() {
+    use ac_plugin_abi::character::Training;
+    let automation = vitals_character(
+        vec![trained(1, "Life Magic", 300, Training::Trained)],
+        vec![common::automation::attribute(0, "Strength", 100)],
+    );
+    let mut world = World::with_automation(automation);
+    let mut plugin = world.enable();
+    tick(&mut world, &mut plugin, 0.0);
+
+    world.automation().health = (75, 100);
+    world.automation().skills = vec![
+        trained(1, "Life Magic", 300, Training::Trained),
+        trained(2, "War Magic", 350, Training::Specialized),
+    ];
+    tick(&mut world, &mut plugin, 0.5);
+
+    assert!(
+        world
+            .ui_text(&mut plugin, "Vitals")
+            .starts_with("Health 75/100")
+    );
+    assert_eq!(
+        world.ui_text(&mut plugin, "Coverage"),
+        "1 attributes, 1 trained skills, 1 buff lines"
+    );
+
+    tick(&mut world, &mut plugin, 0.5);
+    assert_eq!(
+        world.ui_text(&mut plugin, "Coverage"),
+        "1 attributes, 2 trained skills, 1 buff lines"
+    );
+
+    world.automation().set_known_self_buffs(vec![
+        spell(
+            1,
+            10,
+            "Increases the caster's Life Magic skill by 10 points.",
+        ),
+        spell(
+            2,
+            11,
+            "Increases the caster's War Magic skill by 10 points.",
+        ),
+    ]);
+    tick(&mut world, &mut plugin, 0.0);
+
+    assert_eq!(
+        world.ui_text(&mut plugin, "Coverage"),
+        "1 attributes, 2 trained skills, 2 buff lines"
+    );
+}
+
+// Source: tests/AcDream.Plugins.MossTank.Tests/MossTankPanelTests.cs :: RetainedLabelReads_UseUpdateSideSnapshotsWithoutAllocating
+/// The vitals and coverage lines are worked out on the tick, not on each
+/// read: reading them again and again gives the same text and never asks
+/// the client. (The C#'s zero-allocation and same-reference checks are
+/// .NET mechanics; a window binding here is a value worked out by the
+/// shell, so what carries over is that a read does not reach the client.
+/// The C#'s count of one self-buff read in all is not kept: the plugin
+/// pushes its windows after it starts, and the buff picker's rows read the
+/// self buffs as the C#'s retained UI does on every frame, UI-1.)
+#[test]
+fn the_vitals_and_coverage_lines_are_read_from_the_tick_snapshot() {
+    use ac_plugin_abi::character::Training;
+    let automation = vitals_character(
+        vec![
+            trained(1, "Life Magic", 300, Training::Trained),
+            trained(2, "War Magic", 350, Training::Specialized),
+            trained(3, "Run", 100, Training::Untrained),
+        ],
+        vec![
+            common::automation::attribute(0, "Strength", 100),
+            common::automation::attribute(1, "Endurance", 100),
+        ],
+    );
+    let mut world = World::with_automation(automation);
+    let mut plugin = world.enable();
+
+    tick(&mut world, &mut plugin, 0.0);
+
+    let vitals = world.ui_text(&mut plugin, "Vitals");
+    let coverage = world.ui_text(&mut plugin, "Coverage");
+    assert_eq!(vitals, "Health 90/100   Stam 80/110   Mana 70/120");
+    assert_eq!(coverage, "2 attributes, 2 trained skills, 1 buff lines");
+    let calls = world.fake.calls.len();
+    let buff_reads = world.automation().known_self_buff_reads;
+    for _ in 0..100 {
+        assert_eq!(world.ui_text(&mut plugin, "Vitals"), vitals);
+        assert_eq!(world.ui_text(&mut plugin, "Coverage"), coverage);
+    }
+    assert_eq!(world.automation().known_self_buff_reads, buff_reads);
+    assert!(
+        world.fake.calls[calls..].iter().all(|import| !matches!(
+            import,
+            ac_plugin_abi::Import::CharacterInfo
+                | ac_plugin_abi::Import::CharacterSkills
+                | ac_plugin_abi::Import::CharacterAttributes
+                | ac_plugin_abi::Import::SpellsKnown
+        )),
+        "a read asked the client"
+    );
+}
+
+// Source: tests/AcDream.Plugins.MossTank.Tests/MossTankPanelTests.cs :: ExcludedComponentIconsDoesNotScanLiveInventoryOnEveryRead
+/// The excluded components' icons are kept with the rows: reading them
+/// does not read the inventory again.
+#[test]
+fn the_excluded_component_icons_do_not_scan_the_inventory_on_every_read() {
+    let (mut world, mut plugin) = fresh();
+    let p = &mut plugin;
+    let mut scarab = item(20, "Charged Yellow Scarab", 0x20);
+    scarab.icon_id = 0x0600_1234;
+    world.own_items(vec![scarab]);
+    add(&mut world, p, "AddSelectedComponent", 20);
+    assert_eq!(world.ui_uints(p, "ExcludedComponentIcons")[0], 0x0600_1234);
+
+    let reads_after_add = world.requests::<ac_plugin_abi::calls::ItemsOwned>().len();
+    for _ in 0..5 {
+        let _ = world.ui_uints(p, "ExcludedComponentIcons");
+    }
+
+    assert_eq!(
+        world.requests::<ac_plugin_abi::calls::ItemsOwned>().len(),
+        reads_after_add
+    );
+}

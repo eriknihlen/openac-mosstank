@@ -386,3 +386,51 @@ fn a_weapon_cell_naming_an_unlisted_item_reads_invalid() {
         "<INVALID 0x800013FA>"
     );
 }
+
+// Source: tests/AcDream.Plugins.MossTank.Tests/MossTankPanelTests.cs :: MonsterGridColumnsDoNotScanLiveInventoryOrAllocateOnEveryRead
+/// The monster grid's columns are kept with the rules: reading them does
+/// not read the inventory again, and a column reads the same each time.
+/// (The C#'s same-instance check is .NET mechanics; a binding here is a
+/// value, so the same contents stand in for it.)
+#[test]
+fn the_monster_grid_columns_do_not_scan_the_inventory_on_every_read() {
+    let (mut world, mut plugin) = fresh("Perf Check");
+    let p = &mut plugin;
+    world.own_items(vec![item(10, "Fire Sword", 1)]);
+    world.select_object(10);
+    world.act(p, "AddSelectedItem");
+    world.act_int(p, "CycleMonsterWeaponAt", 0);
+
+    let reads_after_cycle = world.requests::<calls::ItemsOwned>().len();
+    let weapon_first_read = world.ui_list(p, "MonsterWeaponColumn");
+    for _ in 0..5 {
+        let _ = world.ui(p, "MonsterFesterColumn");
+        let _ = world.ui_list(p, "MonsterNameColumn");
+        let _ = world.ui_list(p, "MonsterWeaponColumn");
+        let _ = world.ui_list(p, "MonsterOffhandColumn");
+        let _ = world.ui_uints(p, "MonsterMoveUpIcons");
+    }
+
+    assert_eq!(
+        world.requests::<calls::ItemsOwned>().len(),
+        reads_after_cycle
+    );
+    assert_eq!(world.ui_list(p, "MonsterWeaponColumn"), weapon_first_read);
+}
+
+// Source: tests/AcDream.Plugins.MossTank.Tests/MossTankPanelTests.cs :: VtankRefreshCommandRepopulatesTheMonstersGridAfterCreatingTheDefaultRule
+/// `/vt refresh` makes sure of the DEFAULT rule and rebuilds the pages.
+/// (The C# empties the rules and plants a stale column by reflection; the
+/// plugin offers no way to empty the rules, and its columns are worked out
+/// on each read, so what is left to show is the grid after the verb.)
+#[test]
+fn vtank_refresh_leaves_the_monsters_grid_with_its_default_rule() {
+    let (mut world, mut plugin) = fresh("Refresher");
+    let p = &mut plugin;
+    world.clear_chat();
+
+    world.vt(p, "refresh");
+
+    assert_eq!(world.ui_list(p, "MonsterNameColumn"), ["DEFAULT"]);
+    assert_eq!(world.chat(), ["[MossTank] Settings pages reloaded."]);
+}

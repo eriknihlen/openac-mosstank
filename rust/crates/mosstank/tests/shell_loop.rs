@@ -542,3 +542,63 @@ fn previous_waypoint_on_a_reversed_route_stops_at_the_last_waypoint() {
             .any(|line| line.contains("already at its last waypoint"))
     );
 }
+
+/// `TwoPointRoute`: a point where the character stands, one at east-west
+/// 50, and the character back at 0, added with the route editor.
+fn two_points_added(world: &mut World, plugin: &mut MossTank) {
+    world.act(plugin, "AddRoutePoint");
+    stand_at(world, 50.0, 0.0);
+    world.act(plugin, "AddRoutePoint");
+    stand_at(world, 0.0, 0.0);
+}
+
+// Source: tests/AcDream.Plugins.MossTank.Tests/MossTankPanelTests.cs :: AFollowRouteHasNoRoundToAnchor
+/// A follow route has no round to anchor: there is one target and the
+/// index means nothing, so the start leaves it alone.
+#[test]
+fn a_follow_route_has_no_round_to_anchor() {
+    let (mut world, mut plugin) = standing_world();
+    world.set_reply::<calls::NavigationObject>(&Some(
+        ac_plugin_abi::navigation::NavigationObject {
+            object_id: 77,
+            name: "Horan".to_owned(),
+            ..ac_plugin_abi::navigation::NavigationObject::default()
+        },
+    ));
+    world.select_object(77);
+
+    // Following moves to the follow route; points added to it after that
+    // give the start a round it could anchor to, and must not.
+    world.act_text(&mut plugin, "SelectRouteMode", "Target");
+    assert_eq!(world.ui_text(&mut plugin, "SelectedRouteMode"), "Follow");
+    two_points_added(&mut world, &mut plugin);
+    set_option(&mut world, &mut plugin, "EnableNav", true);
+    stand_at(&mut world, 48.0, 0.0);
+    let before = index(&plugin);
+    world.vt(&mut plugin, "start");
+
+    assert_eq!(index(&plugin), before);
+}
+
+// Source: tests/AcDream.Plugins.MossTank.Tests/MossTankPanelTests.cs :: TurningNavigationOffAndOnAgainKeepsTheRound
+/// Flipping a setting is not a route change: turning navigation off and
+/// on again leaves the round where it was, as setting it by name does.
+#[test]
+fn turning_navigation_off_and_on_again_keeps_the_round() {
+    let (mut world, mut plugin) = standing_world();
+    two_points_added(&mut world, &mut plugin);
+    set_option(&mut world, &mut plugin, "EnableNav", true);
+    world.act(&mut plugin, "ToggleCombat");
+    for _ in 0..4 {
+        world.with_tank(&mut plugin, |tank, client| tank.on_tick(client, 0.3));
+    }
+    stand_at(&mut world, 25.0, 0.0);
+    assert_eq!(index(&plugin), 1);
+
+    world.act(&mut plugin, "ToggleNavigation");
+    world.act(&mut plugin, "ToggleNavigation");
+    world.act(&mut plugin, "ToggleFollowAroundCorners");
+    world.act(&mut plugin, "ToggleOpenDoors");
+
+    assert_eq!(index(&plugin), 1);
+}

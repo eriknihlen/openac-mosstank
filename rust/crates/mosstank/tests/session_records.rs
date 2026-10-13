@@ -502,3 +502,70 @@ fn a_kept_time_past_the_last_date_fails_the_gamedb_command() {
         world.chat()
     );
 }
+
+fn evaluate(world: &mut World, plugin: &mut MossTank, source: &str) -> f64 {
+    let value = world
+        .with_tank(plugin, |tank, client| {
+            tank.evaluate_expression(client, source)
+        })
+        .unwrap();
+    match value {
+        mosstank_expr::ExpressionValue::Number(number) => number,
+        other => panic!("{source} is {other:?}"),
+    }
+}
+
+// Source: tests/AcDream.Plugins.MossTank.Tests/MossTankPanelTests.cs :: SameCharacterReconnectClearsOnlySessionStateAndCanRestartCleanly
+/// Losing the session stops the macro and the meta and forgets the
+/// session's variables and delayed runs; the persistent and global
+/// variables stay. Back in the world, the macro starts cleanly.
+#[test]
+fn same_character_reconnect_clears_only_session_state_and_can_restart_cleanly() {
+    let mut automation = common::automation::FakeAutomation::default();
+    "Relogger".clone_into(&mut automation.name);
+    let mut world = World::with_automation(automation);
+    let mut plugin = world.enable();
+    world.act(&mut plugin, "ToggleMeta");
+    world.act(&mut plugin, "ToggleCombat");
+    evaluate(
+        &mut world,
+        &mut plugin,
+        "$session=11;@persistent=22;&global=33;delayexec[60000,`$late=1`]",
+    );
+    evaluate(&mut world, &mut plugin, "vtsetmetastate[`Hunt`]");
+
+    world.automation().is_available = false;
+    tick(&mut world, &mut plugin, 0.1);
+
+    assert_eq!(world.ui_text(&mut plugin, "CombatButtonText"), "Run Macro");
+    assert!(!world.ui_bool(&mut plugin, "MetaEnabled"));
+    assert_eq!(
+        world.ui_text(&mut plugin, "MetaState"),
+        mosstank_meta::engine::DEFAULT_STATE_NAME
+    );
+    assert_eq!(evaluate(&mut world, &mut plugin, "$session"), 0.0);
+    assert_eq!(
+        world.ui_text(&mut plugin, "BuffStatus"),
+        "Lost the session."
+    );
+
+    world.automation().is_available = true;
+    tick(&mut world, &mut plugin, 0.1);
+    // The C#'s fake keeps its character while the session is away and reads
+    // these then; the client hands out no character outside the world
+    // (TEST-2), so they are read back with the character.
+    assert_eq!(evaluate(&mut world, &mut plugin, "@persistent"), 22.0);
+    assert_eq!(evaluate(&mut world, &mut plugin, "&global"), 33.0);
+    tick(&mut world, &mut plugin, 61.0);
+
+    assert_eq!(evaluate(&mut world, &mut plugin, "$late"), 0.0);
+    assert_eq!(world.ui_text(&mut plugin, "BuffStatus"), "Idle.");
+    world.act(&mut plugin, "ToggleCombat");
+    assert_eq!(world.ui_text(&mut plugin, "CombatButtonText"), "Stop Macro");
+}
+
+fn tick(world: &mut World, plugin: &mut MossTank, seconds: f64) {
+    world.with_tank(plugin, |tank, client| tank.on_tick(client, seconds));
+}
+
+// Not applicable: tests/AcDream.Plugins.MossTank.Tests/MossTankPanelTests.GameInfo.cs :: WithoutASourceTheUpdateSaysItIsNotAvailable: the plugin always reaches the release host through the client, so there is no session without a source; a client that refuses the request ends the check with its reason (register GAMEDB-1)

@@ -370,3 +370,5 @@ fn meta_profiles_are_independent_durable_documents() {
     assert_eq!(rows.len(), 1);
     assert!(rows[0].contains("/mt status"));
 }
+
+// Not applicable: tests/AcDream.Plugins.MossTank.Tests/MossTankPanelTests.cs :: MetaAndRouteGridColumnsDoNotReallocateOnEveryRead: .NET reference identity of the columns a property returns; a window binding here is a value, worked out for each push

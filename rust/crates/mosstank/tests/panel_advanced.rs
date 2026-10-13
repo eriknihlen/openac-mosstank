@@ -271,3 +271,6 @@ fn the_rare_corpse_walk_appears_in_the_looting_options_and_edits_the_saved_switc
             .any(|name| name == WALK_TO_RARE_CORPSE)
     );
 }
+
+// Not applicable: tests/AcDream.Plugins.MossTank.Tests/MossTankPanelTests.cs :: AdvancedOptionCategoryEnabledIsNotTheMutableBackingArray: a .NET cast of the read-only list back to the panel's own array; a window binding here is a value the shell hands out, which no reader can write back through
+// Not applicable: tests/AcDream.Plugins.MossTank.Tests/MossTankPanelTests.cs :: AdvancedOptionsPopupBindingsDoNotReallocateOnEveryRead: .NET reference identity of the list a property returns; a window binding here is a value, worked out for each push

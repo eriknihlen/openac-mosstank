@@ -121,7 +121,14 @@ pub(crate) fn execute_vtank(cx: &mut TankCx<'_>, input: &str) {
             let count = cx.core.command_portal_count;
             Core::write_vtank(cx.client, &format!("Portal space toggle count: {count}"));
         }
-        "refresh" => Core::write_vtank(cx.client, "Settings pages reloaded."),
+        "refresh" => {
+            super::panel::monsters::ensure_default_monster_rule(cx);
+            cx.refresh_item_editors();
+            cx.refresh_loot_editor(false);
+            cx.refresh_route_editor();
+            cx.refresh_meta_editor();
+            Core::write_vtank(cx.client, "Settings pages reloaded.");
+        }
         "getdb" => cx.core.start_game_info_update_command(cx.client),
         "gamedb" => cx.core.game_db_command(cx.client, &arguments),
         "log" => log_command(cx, &arguments),
