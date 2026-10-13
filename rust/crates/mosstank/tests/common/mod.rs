@@ -562,3 +562,37 @@ impl World {
         world
     }
 }
+
+impl World {
+    /// A slider's value.
+    pub fn ui_float(&mut self, plugin: &mut MossTank, name: &str) -> f32 {
+        match self.ui(plugin, name) {
+            ac_plugin_abi::ui::UiValue::Float(value) => value,
+            other => panic!("{name} is {other:?}"),
+        }
+    }
+
+    /// The character knows `spells` (every spell list answers them).
+    pub fn know_spells(&mut self, spells: Vec<ac_plugin_abi::magic::SpellInfo>) {
+        self.set_reply::<calls::SpellsKnown>(&spells);
+    }
+}
+
+/// A self buff as the panel tests make one (`MossTankPanelTests.Spell`).
+#[must_use]
+pub fn spell(spell_id: u32, family: u32, description: &str) -> ac_plugin_abi::magic::SpellInfo {
+    ac_plugin_abi::magic::SpellInfo {
+        spell_id,
+        name: format!("Spell {spell_id}"),
+        family,
+        tier: 1,
+        difficulty: 10,
+        mana_cost: 5,
+        duration_seconds: 60.0,
+        school: 1,
+        description: description.to_owned(),
+        is_self_targeted: true,
+        is_beneficial: true,
+        ..ac_plugin_abi::magic::SpellInfo::default()
+    }
+}

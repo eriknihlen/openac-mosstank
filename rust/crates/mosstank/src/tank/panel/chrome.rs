@@ -126,6 +126,17 @@ pub(super) fn value(cx: &mut TankCx<'_>, name: &str) -> Option<UiValue> {
         "NavigationStatus" => t(cx.core.navigation.status()),
 
         // The Vitals page.
+        // The fractions the percentages are (`NormalHealthValue` and the
+        // rest), which no markup binds.
+        "NormalHealthValue" => f(s.vitals.normal_health as f32),
+        "NormalStaminaValue" => f(s.vitals.normal_stamina as f32),
+        "NormalManaValue" => f(s.vitals.normal_mana as f32),
+        "NoTargetHealthValue" => f(s.vitals.no_target_health as f32),
+        "NoTargetStaminaValue" => f(s.vitals.no_target_stamina as f32),
+        "NoTargetManaValue" => f(s.vitals.no_target_mana as f32),
+        "HelperHealthValue" => f(s.vitals.helper_health as f32),
+        "HelperStaminaValue" => f(s.vitals.helper_stamina as f32),
+        "HelperManaValue" => f(s.vitals.helper_mana as f32),
         "NormalHealthPercent" => f(s.vitals.normal_health as f32 * 100.0),
         "NormalStaminaPercent" => f(s.vitals.normal_stamina as f32 * 100.0),
         "NormalManaPercent" => f(s.vitals.normal_mana as f32 * 100.0),
@@ -412,6 +423,16 @@ pub(super) fn act(cx: &mut TankCx<'_>, name: &str, arg: &Arg) -> bool {
         "ToggleAdvancedOptionsVisible" => cx.toggle_advanced_options_visible(),
 
         // The Vitals page.
+        // The same, given as fractions (`SetNormalHealth` and the rest).
+        "SetNormalHealth" => set_vital_fraction(cx, arg, |v, x| v.normal_health = x),
+        "SetNormalStamina" => set_vital_fraction(cx, arg, |v, x| v.normal_stamina = x),
+        "SetNormalMana" => set_vital_fraction(cx, arg, |v, x| v.normal_mana = x),
+        "SetNoTargetHealth" => set_vital_fraction(cx, arg, |v, x| v.no_target_health = x),
+        "SetNoTargetStamina" => set_vital_fraction(cx, arg, |v, x| v.no_target_stamina = x),
+        "SetNoTargetMana" => set_vital_fraction(cx, arg, |v, x| v.no_target_mana = x),
+        "SetHelperHealth" => set_vital_fraction(cx, arg, |v, x| v.helper_health = x),
+        "SetHelperStamina" => set_vital_fraction(cx, arg, |v, x| v.helper_stamina = x),
+        "SetHelperMana" => set_vital_fraction(cx, arg, |v, x| v.helper_mana = x),
         "SetNormalHealthPercent" => set_vital(cx, arg, |v, x| v.normal_health = x),
         "SetNormalStaminaPercent" => set_vital(cx, arg, |v, x| v.normal_stamina = x),
         "SetNormalManaPercent" => set_vital(cx, arg, |v, x| v.normal_mana = x),
@@ -456,6 +477,16 @@ fn set_vital(
         &mut cx.core.settings.vitals,
         clamp_fraction(arg.float() / 100.0),
     );
+    cx.core.save_profile(cx.client);
+}
+
+/// A vital threshold given as a fraction (`SetNormalHealth`).
+fn set_vital_fraction(
+    cx: &mut TankCx<'_>,
+    arg: &Arg,
+    apply: impl FnOnce(&mut mosstank_settings::model::VitalSettings, f64),
+) {
+    apply(&mut cx.core.settings.vitals, clamp_fraction(arg.float()));
     cx.core.save_profile(cx.client);
 }
 
