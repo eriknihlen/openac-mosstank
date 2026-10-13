@@ -186,3 +186,33 @@ fn the_shell_pushes_a_labels_row_saved_earlier_as_it_starts() {
 
     assert_eq!(vec![vec!["tank".to_owned()]], tag_pushes(&world));
 }
+
+// ---- The network readout's window -----------------------------------------
+//
+// Not a port: the C# has no panel test of it. `ShouldShow` asks for the
+// clients' state while the readout is on and its window is open, or while
+// it may stay on screen with the window shut.
+
+#[test]
+fn the_open_clients_window_asks_for_the_clients_state() {
+    let (mut world, mut plugin) = hub_world();
+    world.set_reply::<calls::HostWindowAttached>(&true);
+    world.command(
+        &mut plugin,
+        "ub",
+        "opt set NetworkUI.ShowHudWhenClosed false",
+    );
+    world.command(&mut plugin, "ub", "opt set NetworkUI.Enabled true");
+    // The readout re-reads its switches on its own frame every quarter
+    // second, after the peers have asked.
+    world.ticks(&mut plugin, 20);
+    assert_eq!(requested(&plugin), 0);
+
+    world.act(&mut plugin, "ShowUbClients");
+    world.tick(&mut plugin);
+    assert_eq!(requested(&plugin), CLIENT_STATE);
+
+    world.act(&mut plugin, "HideUbClients");
+    world.tick(&mut plugin);
+    assert_eq!(requested(&plugin), 0);
+}

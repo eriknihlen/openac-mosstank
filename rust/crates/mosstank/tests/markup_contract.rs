@@ -1021,3 +1021,32 @@ fn the_tinker_tab_exists_with_a_page_of_its_own() {
     );
     page(root, "TinkerVisible");
 }
+
+// Source: tests/AcDream.Plugins.MossTank.Tests/MossTankPanelTests.UbMainTab.cs :: EveryToolButtonOnTheUbPageBindsBothItsCaptionAndItsColour
+#[test]
+fn every_tool_button_on_the_ub_page_binds_its_caption_and_its_colour() {
+    let document = document("mosstank.xml");
+    let group = page(document.root_element(), "UbVisible");
+    let buttons: Vec<_> = named(group, "button").collect();
+    assert_eq!(buttons.len(), 12);
+    let tools: Vec<_> = buttons
+        .iter()
+        .filter(|button| text(**button).starts_with('{'))
+        .collect();
+    assert_eq!(tools.len(), 10);
+    for button in tools {
+        assert!(attr(*button, "color").is_some_and(|c| c.starts_with('{')));
+        assert!(attr(*button, "onclick").is_some_and(|c| c.starts_with("{Toggle")));
+        assert!(attr(*button, "tooltip").is_some_and(|t| !t.trim().is_empty()));
+    }
+    for exit in ["{ShowUbSettings}", "{ShowTinker}"] {
+        assert_eq!(
+            buttons
+                .iter()
+                .filter(|button| attr(**button, "onclick") == Some(exit))
+                .count(),
+            1,
+            "{exit}"
+        );
+    }
+}

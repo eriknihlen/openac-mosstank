@@ -670,3 +670,200 @@ fn delayed_server_identity_restores_saved_profile_instead_of_overwriting_binding
     assert!((distance - 0.02).abs() < 1e-7, "{distance}");
     assert_eq!(file(&world, &key), binding);
 }
+
+// ---- the window's own buttons ----------------------------------------------
+
+/// A War Wand owned and selected, appraised (`ItemEnchantAutomation`, the
+/// part the item list reads).
+fn own_selected_war_wand(world: &mut World) {
+    world.set_reply::<calls::ItemsOwned>(&vec![ac_plugin_abi::items::InventoryItem {
+        object_id: 10,
+        name: "War Wand".to_owned(),
+        item_type: 0x8000,
+        container_id: 0x5000_0001,
+        valid_locations: 0x0100_0000,
+        stack_size: 1,
+        ..ac_plugin_abi::items::InventoryItem::default()
+    }]);
+    world.set_reply::<calls::WorldObject>(&Some(WorldObject {
+        object_id: 10,
+        name: "War Wand".to_owned(),
+        item_type: 0x8000,
+        container_id: 0x5000_0001,
+        is_owned: true,
+        has_appraisal_data: true,
+        last_id_time: 1,
+        ..WorldObject::default()
+    }));
+    world.set_reply::<calls::ItemsProperties>(&Some(
+        ac_plugin_abi::world::ItemProperties::default(),
+    ));
+    select(world, 10);
+}
+
+fn item_names(world: &mut World, plugin: &mut MossTank) -> Vec<String> {
+    world.ui_list(plugin, "ItemNameColumn")
+}
+
+// Source: tests/AcDream.Plugins.MossTank.Tests/MossTankPanelTests.ProfileFiles.cs :: ItemsAddReportsFailureWhenEitherProfileFileCannotBeWritten
+/// The fake storage refuses the file by name rather than by suffix, with
+/// the client's own refusal text.
+#[test]
+fn adding_an_item_reports_a_profile_file_that_cannot_be_written() {
+    for suffix in [".usd", ".json"] {
+        let (mut world, mut plugin) = barris(&[]);
+        own_selected_war_wand(&mut world);
+        // The files an addition writes, found by making one.
+        let (mut probe, mut probed) = barris(&[]);
+        own_selected_war_wand(&mut probe);
+        probe.act(&mut probed, "AddSelectedItem");
+        let written = |storage: &mosstank_stores::storage::MemoryStorage| -> Vec<String> {
+            storage
+                .keys()
+                .filter(|key| key.ends_with(suffix))
+                .map(str::to_owned)
+                .collect()
+        };
+        world.profiles.unwritable = written(&probe.profiles);
+        world.plugin_data.unwritable = written(&probe.plugin_data);
+        assert!(
+            !(world.profiles.unwritable.is_empty() && world.plugin_data.unwritable.is_empty()),
+            "{suffix}"
+        );
+        world.act(&mut plugin, "AddSelectedItem");
+        let notice = world.ui_text(&mut plugin, "ProfileNotice");
+        assert!(notice.contains("is denied"), "{suffix}: {notice}");
+    }
+}
+
+// Source: tests/AcDream.Plugins.MossTank.Tests/MossTankPanelTests.ProfileFiles.cs :: DelayedServerIdentityRestoresSavedProfileInsteadOfOverwritingBinding
+/// The item list's part: the War Wand added before the restart is listed
+/// again once the world arrives.
+#[test]
+fn delayed_server_identity_restores_the_saved_item_list() {
+    let (mut world, mut first) = barris(&[]);
+    own_selected_war_wand(&mut world);
+    world.vt(&mut first, "settings save Personal");
+    world.act(&mut first, "AddSelectedItem");
+    assert!(item_names(&mut world, &mut first).contains(&"War Wand".to_owned()));
+    world.disable(&mut first);
+
+    let mut nameless_world = common::character("Barris");
+    nameless_world.world = String::new();
+    world.fake.character = Some(nameless_world);
+    let mut reopened = world.enable();
+    world.fake.character = Some(common::character("Barris"));
+    world.with_tank(&mut reopened, |tank, client| tank.on_tick(client, 0.3));
+
+    assert!(item_names(&mut world, &mut reopened).contains(&"War Wand".to_owned()));
+}
+
+// Source: tests/AcDream.Plugins.MossTank.Tests/MossTankPanelTests.ProfileFiles.cs :: ABackwardJumpAddedToANavRouteIsRefusedAndSaidSo
+#[test]
+fn a_backward_jump_added_to_a_nav_route_is_refused_and_said_so() {
+    let original = dropped_route();
+    let (mut world, mut plugin) = world_with_route("mosstank/navs/foo.nav", &original);
+    world.vt(&mut plugin, "nav load foo");
+    world.clear_chat();
+
+    world.vt(&mut plugin, "addnavjump 90 false 100 backward");
+
+    assert_eq!(file(&world, "mosstank/navs/foo.nav"), original);
+    assert!(
+        world
+            .chat()
+            .iter()
+            .any(|line| line.contains("NOT saved") && line.contains("backward")),
+        "{:?}",
+        world.chat()
+    );
+    assert!(plugin.tank().unwrap().route_notice().contains("NOT saved"));
+}
+
+// Source: tests/AcDream.Plugins.MossTank.Tests/MossTankPanelTests.ProfileFiles.cs :: TheWindowsNewButtonsWriteTheNavAndMetFormUnlessTheNameSaysAf
+#[test]
+fn the_windows_new_buttons_write_the_nav_and_met_form_unless_the_name_says_af() {
+    let (mut world, mut plugin) = barris(&[]);
+    world.act_text(&mut plugin, "CreateNamedRouteProfile", "Bar");
+    world.act_text(&mut plugin, "CreateNamedMetaProfile", "Bar");
+    world.act_text(&mut plugin, "CreateNamedRouteProfile", "Baz.af");
+    world.act_text(&mut plugin, "CreateNamedMetaProfile", "Baz.af");
+    for key in [
+        "mosstank/navs/Bar.nav",
+        "mosstank/metas/Bar.met",
+        "mosstank/navs/Baz.af",
+        "mosstank/metas/Baz.af",
+    ] {
+        assert!(world.profiles.contains(key), "{key}");
+    }
+}
+
+// Source: tests/AcDream.Plugins.MossTank.Tests/MossTankPanelTests.ProfileFiles.cs :: TheCopyToAfButtonsStartTheAfSaveInChat
+#[test]
+fn the_copy_to_af_buttons_start_the_af_save_in_chat() {
+    let (mut world, mut plugin) = barris(&[]);
+    world.set_reply::<calls::ChatCompose>(&true);
+    world.act(&mut plugin, "CopyRouteProfileToAf");
+    world.act(&mut plugin, "CopyMetaProfileToAf");
+    let composed: Vec<String> = world.requests::<calls::ChatCompose>().into_iter().collect();
+    assert_eq!(composed, ["/vt navaf save ", "/vt metaaf save "]);
+    assert!(
+        !world
+            .fake
+            .submitted
+            .iter()
+            .any(|line| line.contains("save"))
+    );
+}
+
+fn the_windows_follow_leaves_the_loaded_route_file_alone(from_mode_menu: bool) {
+    let (mut world, mut plugin) = world_with_route("mosstank/navs/jaw_1.af", ONE_POINT_ROUTE);
+    world.vt(&mut plugin, "nav load jaw_1");
+    select(&mut world, 0x5000_0ABC);
+    world.set_reply::<calls::NavigationObject>(&Some(
+        ac_plugin_abi::navigation::NavigationObject {
+            object_id: 0x5000_0ABC,
+            name: "Zero Cool".to_owned(),
+            ..ac_plugin_abi::navigation::NavigationObject::default()
+        },
+    ));
+
+    if from_mode_menu {
+        world.act_text(&mut plugin, "SelectRouteMode", "Follow");
+    } else {
+        world.act(&mut plugin, "SetFollowTarget");
+    }
+
+    assert_eq!(file(&world, "mosstank/navs/jaw_1.af"), ONE_POINT_ROUTE);
+    assert_eq!(selected_route(&mut world, &mut plugin), "UBFollow");
+    assert_eq!(
+        world.ui_text(&mut plugin, "RouteFollowTargetText"),
+        "Follow target: Zero Cool"
+    );
+    assert!(file(&world, FOLLOW_ROUTE_KEY).contains("Zero Cool"));
+}
+
+// Source: tests/AcDream.Plugins.MossTank.Tests/MossTankPanelTests.ProfileFiles.cs :: TheWindowsFollowLeavesTheLoadedRouteFileAlone
+#[test]
+fn the_windows_follow_leaves_the_loaded_route_file_alone_both_ways() {
+    the_windows_follow_leaves_the_loaded_route_file_alone(false);
+    the_windows_follow_leaves_the_loaded_route_file_alone(true);
+}
+
+// Source: tests/AcDream.Plugins.MossTank.Tests/MossTankPanelTests.ProfileFiles.cs :: TheModeMenusFollowWithNothingSelectedChangesNothing
+#[test]
+fn the_mode_menus_follow_with_nothing_selected_changes_nothing() {
+    let (mut world, mut plugin) = world_with_route("mosstank/navs/jaw_1.af", ONE_POINT_ROUTE);
+    world.vt(&mut plugin, "nav load jaw_1");
+
+    world.act_text(&mut plugin, "SelectRouteMode", "Follow");
+
+    assert_eq!(
+        plugin.tank().unwrap().route_notice(),
+        "Select a live object to follow first."
+    );
+    assert_eq!(mode(&plugin), RouteMode::Circular);
+    assert_eq!(selected_route(&mut world, &mut plugin), "jaw_1");
+    assert_eq!(file(&world, "mosstank/navs/jaw_1.af"), ONE_POINT_ROUTE);
+    assert!(!world.profiles.contains(FOLLOW_ROUTE_KEY));
+}

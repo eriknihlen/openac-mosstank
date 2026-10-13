@@ -8,7 +8,6 @@
 use mosstank_formats::meta::MetaProfile;
 use mosstank_meta::services::PeerNeed;
 use mosstank_ub::catalog::UbCatalog;
-use mosstank_ub::hud;
 use mosstank_ub::network::{PeerFeatureSubscriptions, capabilities, meta_peer_requirements};
 
 use super::{Core, TankCx};
@@ -35,15 +34,15 @@ pub(crate) struct PeerState {
 impl Core {
     /// `UpdatePeerSubscriptions`. `profile` is the meta in force with its
     /// generation, or `None` inside the meta's own call, where it is the one
-    /// last read. `readout_shown` is whether the network readout's window
-    /// is open.
+    /// last read. `readout_should_show` is the network readout's
+    /// `ShouldShow`: on, and its window open or allowed to stay shut.
     pub(crate) fn update_peer_subscriptions(
         &mut self,
         client: &mut dyn TankClient,
         catalog: &dyn UbCatalog,
         meta_enabled: bool,
         profile: Option<(u64, &MetaProfile)>,
-        readout_shown: bool,
+        readout_should_show: bool,
     ) {
         if !client.rules().is_available() {
             self.peers.subscriptions.dispose(client.ub());
@@ -63,13 +62,8 @@ impl Core {
         if catalog.flag("Networking.ReceiveCommands") {
             requested |= capabilities::COMMANDS;
         }
-        // The network readout is on screen when it is on and either its
-        // window is open or it may stay with the window shut (`ShouldShow`,
-        // register PEER-2).
-        let readout = hud::read_settings(catalog);
-        let readout_shows = readout.enabled && (readout_shown || readout.show_hud_when_closed);
         let vitals = &self.settings.vitals;
-        if (client.meta().has_ui() && readout_shows)
+        if (client.meta().has_ui() && readout_should_show)
             || (self.combat.enabled()
                 && vitals.enabled
                 && vitals.help_others
@@ -95,7 +89,7 @@ impl Core {
         client: &mut dyn TankClient,
         catalog: &dyn UbCatalog,
         meta_enabled: bool,
-        readout_shown: bool,
+        readout_should_show: bool,
         need: PeerNeed,
     ) {
         self.peers.dynamic_requirements |= match need {
@@ -103,7 +97,7 @@ impl Core {
             PeerNeed::Casts => capabilities::CASTS,
         };
         self.peers.expression_peers_until_ms = client.clock().utc_unix_ms + EXPRESSION_PEERS_MS;
-        self.update_peer_subscriptions(client, catalog, meta_enabled, None, readout_shown);
+        self.update_peer_subscriptions(client, catalog, meta_enabled, None, readout_should_show);
     }
 
     /// `MetaPeersReady`: the meta waits for the other clients only when
@@ -132,7 +126,7 @@ impl TankCx<'_> {
             &self.ub.catalog,
             meta_enabled,
             Some((self.meta.profile_generation(), self.meta.profile())),
-            self.ub.hud.shown(),
+            self.ub.hud.should_show(),
         );
     }
 }

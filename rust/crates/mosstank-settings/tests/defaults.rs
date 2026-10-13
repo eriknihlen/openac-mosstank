@@ -130,7 +130,8 @@ fn rust_sources(folder: &Path, found: &mut Vec<PathBuf>) {
 fn the_plugin_embeds_no_other_programs_files() {
     // The C# embeds one resource, its own experience-cost table. The Rust
     // embeds that and the two `.af` header texts (string constants in the
-    // C#; metaf's credit block, see NOTICE.md); nothing else.
+    // C#; metaf's credit block, see NOTICE.md) and its own twelve window
+    // markups (`mosstank::panel`, files of the C# plugin); nothing else.
     let crates = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("..");
     let mut sources = Vec::new();
     rust_sources(&crates, &mut sources);
@@ -140,7 +141,7 @@ fn the_plugin_embeds_no_other_programs_files() {
             continue;
         }
         let text = std::fs::read_to_string(&source).unwrap();
-        for macro_name in ["include_str!(\"", "include_bytes!(\""] {
+        for macro_name in ["include_str!(\"", "include_bytes!(\"", "markup!(\""] {
             for (start, _) in text.match_indices(macro_name) {
                 let rest = &text[start + macro_name.len()..];
                 let path = &rest[..rest.find('"').unwrap()];
@@ -154,6 +155,22 @@ fn the_plugin_embeds_no_other_programs_files() {
     embedded.sort();
     assert_eq!(
         embedded,
-        ["ExperienceCosts.tsv", "meta_header.txt", "nav_header.txt"]
+        [
+            "ExperienceCosts.tsv",
+            "meta_header.txt",
+            "mosstank-action-history.xml",
+            "mosstank-advanced.xml",
+            "mosstank-buffpicker.xml",
+            "mosstank-loot-editor.xml",
+            "mosstank-metaeditor.xml",
+            "mosstank-remote.xml",
+            "mosstank-ub-clients.xml",
+            "mosstank-ub-color.xml",
+            "mosstank-ub-dungeon.xml",
+            "mosstank-ub-list.xml",
+            "mosstank-ub-map.xml",
+            "mosstank.xml",
+            "nav_header.txt",
+        ]
     );
 }

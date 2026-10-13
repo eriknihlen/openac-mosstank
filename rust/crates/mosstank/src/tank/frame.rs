@@ -80,10 +80,9 @@ impl Tank {
         cx.with_ub(|commands, call| {
             commands.tools_mut().tick_nametags(call, elapsed_seconds);
         });
-        // The display tools (`TickDisplayTools`): the labels row first,
-        // pushed to the client when it changed.
-        cx.ub.publish_network_tags(cx.client, false);
-        cx.follow_client_rows();
+        cx.tick_display_tools(elapsed_seconds);
+        cx.tick_dungeon_map(elapsed_seconds);
+        cx.paint_display_tools();
         let meta_state = cx.meta.current_state().to_owned();
         cx.core.publish_status(cx.client, &meta_state);
 
@@ -281,6 +280,7 @@ impl TankCx<'_> {
         self.core.peers.forget_expression_requirements();
         self.core.end_session_records();
         self.with_ub(|commands, call| commands.tools_mut().nametags.reset(call.host));
+        self.reset_display_tools();
         if self.core.combat.enabled() {
             let core = &mut *self.core;
             let mut turn = combat_turn!(self.client, core);

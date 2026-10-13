@@ -80,7 +80,6 @@ pub(crate) struct PanelState {
     pub(crate) meta: meta_tab::MetaColumns,
     pub(crate) meta_profile_name_draft: String,
     pub(crate) meta_editor_visible: bool,
-    pub(crate) action_history_visible: bool,
     pub(crate) vitals: chrome::VitalsLine,
     pub(crate) admission: ItemAdmission,
     /// The Items page's rows must be rebuilt at the end of the call.
@@ -124,7 +123,6 @@ impl Default for PanelState {
             meta: meta_tab::MetaColumns::default(),
             meta_profile_name_draft: String::new(),
             meta_editor_visible: false,
-            action_history_visible: false,
             vitals: chrome::VitalsLine::default(),
             admission: ItemAdmission::default(),
             items_dirty: true,

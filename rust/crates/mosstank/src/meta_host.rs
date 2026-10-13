@@ -260,8 +260,10 @@ impl MetaHost for HostAutomation<'_, '_> {
         self.host.peer_casts(after_sequence)
     }
 
+    /// A window is attached to the session (`IPluginHost.HasUi`): the
+    /// client shows windows only then.
     fn has_ui(&mut self) -> bool {
-        false
+        self.host.window_attached()
     }
 
     fn register_panel(&mut self, _descriptor: &PanelDescriptor, _markup: &str) -> Option<u32> {
