@@ -25,6 +25,9 @@ pub struct World {
     pub plugin_data: MemoryStorage,
     /// The shared profile folder.
     pub profiles: MemoryStorage,
+    /// The chat lines the client has captured, when a test keeps them:
+    /// each read answers the lines after the sequence it asks from.
+    pub chat_log: Option<Vec<ac_plugin_abi::types::ChatLine>>,
 }
 
 impl Default for World {
@@ -55,6 +58,7 @@ impl World {
             fake: FakeHost::new("acdream.mosstank"),
             plugin_data: MemoryStorage::new(),
             profiles: MemoryStorage::new(),
+            chat_log: None,
         }
     }
 
@@ -267,6 +271,17 @@ impl Transport for World {
             Import::StorageUnlock => {
                 self.answer::<calls::StorageUnlock>(bytes, |_, _handle: u32| true)
             }
+            Import::ChatCaptured if self.chat_log.is_some() => {
+                self.answer::<calls::ChatCaptured>(bytes, |world, after: u64| {
+                    world
+                        .chat_log
+                        .iter()
+                        .flatten()
+                        .filter(|line| line.sequence > after)
+                        .cloned()
+                        .collect()
+                })
+            }
             _ => self.fake.call(import, bytes),
         }
     }
@@ -340,4 +355,20 @@ pub fn csharp_fixture(relative: &str) -> String {
         .join("../../../tests/AcDream.Plugins.MossTank.Tests/Fixtures")
         .join(relative);
     std::fs::read_to_string(&path).unwrap_or_else(|error| panic!("{}: {error}", path.display()))
+}
+
+impl World {
+    /// A line arrives in the client's chat (`FakeAutomation.PostChat`): kept
+    /// for the captured-chat reads, and sent as the event.
+    pub fn post_chat(&mut self, plugin: &mut MossTank, text: &str) {
+        let log = self.chat_log.get_or_insert_with(Vec::new);
+        let sequence = log.last().map_or(1, |line| line.sequence + 1);
+        let line = ac_plugin_abi::types::ChatLine {
+            sequence,
+            text: text.to_owned(),
+            ..ac_plugin_abi::types::ChatLine::default()
+        };
+        log.push(line.clone());
+        self.send(plugin, Event::ChatReceived(line));
+    }
 }
