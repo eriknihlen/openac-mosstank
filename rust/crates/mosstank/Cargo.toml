@@ -16,6 +16,8 @@ openac-plugin-compat.workspace = true
 mosstank-formats.workspace = true
 mosstank-expr.workspace = true
 mosstank-data.workspace = true
+mosstank-meta.workspace = true
+mosstank-stores.workspace = true
 
 [lints]
 workspace = true

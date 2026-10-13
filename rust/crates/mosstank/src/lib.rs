@@ -5,6 +5,8 @@
 //! `mosstank-expr` and `mosstank-data`; this crate is the plugin shell that
 //! will tie them to the client. For now it only starts and says so.
 
+pub mod meta_host;
+
 use openac_plugin::{Host, Plugin, StartInfo};
 
 /// The plugin's version, shown to the player.
