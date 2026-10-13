@@ -1,0 +1,19 @@
+[package]
+name = "mosstank-buffs"
+description = "MossTank's buffs, vitals and mana: the buff lines and the buff plan, the vital plan and recharge, and item mana recharge. Pure: the client comes in through mosstank-automation."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[dependencies]
+ac-plugin-abi.workspace = true
+mosstank-automation.workspace = true
+mosstank-data.workspace = true
+mosstank-dotnet.workspace = true
+mosstank-settings.workspace = true
+openac-plugin-compat.workspace = true
+
+[lints]
+workspace = true

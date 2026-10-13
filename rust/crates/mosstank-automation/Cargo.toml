@@ -1,0 +1,15 @@
+[package]
+name = "mosstank-automation"
+description = "What MossTank's game logic reads and asks of the client (the C#'s IAutomationSurface): traits over the plugin API's records, implemented over the SDK host by the plugin and by fakes in tests."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[dependencies]
+ac-plugin-abi.workspace = true
+openac-plugin-compat.workspace = true
+
+[lints]
+workspace = true

@@ -138,6 +138,26 @@ dependencies = [
 ]
 
 [[package]]
+name = "mosstank-automation"
+version = "0.6.0-dev"
+dependencies = [
+ "ac-plugin-abi",
+ "openac-plugin-compat",
+]
+
+[[package]]
+name = "mosstank-buffs"
+version = "0.6.0-dev"
+dependencies = [
+ "ac-plugin-abi",
+ "mosstank-automation",
+ "mosstank-data",
+ "mosstank-dotnet",
+ "mosstank-settings",
+ "openac-plugin-compat",
+]
+
+[[package]]
 name = "mosstank-data"
 version = "0.6.0-dev"
 dependencies = [
