@@ -123,6 +123,18 @@ pub struct TinkerListRow {
     pub succeeded: Option<bool>,
 }
 
+/// The job a run is working on. It starts as the head of the queue and is
+/// the same job there while it stays queued; a new plan (a Populate) drops
+/// it from the queue, and the run carries on with it all the same until it
+/// finishes.
+#[derive(Debug, Clone)]
+enum ActiveJob {
+    /// The head of the queue, `jobs[0]`.
+    Queued,
+    /// No longer in the queue.
+    Detached(TinkerJob),
+}
+
 /// The tinkering plan and run.
 #[derive(Debug, Clone)]
 pub struct TinkerJobManager {
@@ -136,7 +148,7 @@ pub struct TinkerJobManager {
     possible_materials: Vec<i32>,
     owned: Vec<InventoryItem>,
     running: bool,
-    active: bool,
+    active: Option<ActiveJob>,
     attempts_taken: i32,
     last_skill: i32,
     last_skill_id: u32,
@@ -170,7 +182,7 @@ impl TinkerJobManager {
             possible_materials: Vec::new(),
             owned: Vec::new(),
             running: false,
-            active: false,
+            active: None,
             attempts_taken: -1,
             last_skill: 0,
             last_skill_id: 0,
@@ -485,6 +497,10 @@ impl TinkerJobManager {
 
     /// Clears the plan, leaving the lists on the page alone.
     pub fn clear_plan(&mut self) {
+        // A run in progress keeps its job, which is no longer queued.
+        if matches!(self.active, Some(ActiveJob::Queued)) && !self.jobs.is_empty() {
+            self.active = Some(ActiveJob::Detached(self.jobs.remove(0)));
+        }
         self.jobs.clear();
         self.salvage_used.clear();
         self.wanted_materials.clear();
@@ -534,7 +550,7 @@ impl TinkerJobManager {
     /// Stops the run and drops the queue; the lists stay as they are.
     pub fn stop(&mut self) {
         self.running = false;
-        self.active = false;
+        self.active = None;
         self.awaiting_outcome = false;
         self.wait_elapsed = 0.0;
         self.attempts_taken = -1;
@@ -588,25 +604,43 @@ impl TinkerJobManager {
             self.stop();
             return;
         }
-        self.active = true;
+        self.active = Some(ActiveJob::Queued);
         self.attempts_taken = -1;
         self.do_next_tink(call);
+    }
+
+    /// The job the run is working on, queued or not.
+    fn active_job(&self) -> Option<&TinkerJob> {
+        match &self.active {
+            Some(ActiveJob::Queued) => self.jobs.first(),
+            Some(ActiveJob::Detached(job)) => Some(job),
+            None => None,
+        }
+    }
+
+    /// The job the run is working on, to hand a bag over from.
+    fn active_job_mut(&mut self) -> Option<&mut TinkerJob> {
+        match &mut self.active {
+            Some(ActiveJob::Queued) => self.jobs.first_mut(),
+            Some(ActiveJob::Detached(job)) => Some(job),
+            None => None,
+        }
     }
 
     /// Hands the next bag to the server: re-reads the item, checks the skill
     /// has not dropped, selects the bag as the client would and applies it.
     fn do_next_tink(&mut self, call: &mut UbCall<'_>) {
-        if !self.active || self.jobs.is_empty() {
+        let Some(job) = self.active_job() else {
             self.stop();
             return;
-        }
-        if self.jobs[0].salvage_to_apply.is_empty() {
+        };
+        let Some(&next_salvage) = job.salvage_to_apply.first() else {
             self.finish_job(call);
             return;
-        }
+        };
+        let item_object_id = job.item_object_id;
 
         self.owned = call.host.owned_items();
-        let item_object_id = self.jobs[0].item_object_id;
         let Some(item) = self.try_owned(item_object_id).cloned() else {
             call.write_ub("AutoTinker: the item is gone... stopping tinkering.");
             self.stop();
@@ -618,7 +652,6 @@ impl TinkerJobManager {
             self.attempts_taken + 1
         };
 
-        let next_salvage = self.jobs[0].salvage_to_apply[0];
         let Some(bag) = self.try_owned(next_salvage).cloned() else {
             call.write_ub("AutoTinker: the salvage is gone... stopping tinkering.");
             self.stop();
@@ -647,19 +680,20 @@ impl TinkerJobManager {
             return;
         }
 
-        let job = &mut self.jobs[0];
-        job.salvage_to_apply.remove(0);
-        job.salvage_applied.push(next_salvage);
+        if let Some(job) = self.active_job_mut() {
+            job.salvage_to_apply.remove(0);
+            job.salvage_applied.push(next_salvage);
+        }
         self.awaiting_outcome = true;
         self.wait_elapsed = 0.0;
         call.host.apply_item(next_salvage, item_object_id);
     }
 
     fn finish_job(&mut self, call: &mut UbCall<'_>) {
-        if self.active && !self.jobs.is_empty() {
+        // A job a new plan dropped from the queue is not in it to remove.
+        if matches!(self.active.take(), Some(ActiveJob::Queued)) && !self.jobs.is_empty() {
             self.jobs.remove(0);
         }
-        self.active = false;
         self.awaiting_outcome = false;
         if !self.jobs.is_empty() {
             self.start_next_job(call);
@@ -720,11 +754,9 @@ impl TinkerJobManager {
             self.finish_job(call);
             return;
         }
-        if self.active
-            && self
-                .jobs
-                .first()
-                .is_some_and(|job| !job.salvage_to_apply.is_empty())
+        if self
+            .active_job()
+            .is_some_and(|job| !job.salvage_to_apply.is_empty())
         {
             self.do_next_tink(call);
             return;

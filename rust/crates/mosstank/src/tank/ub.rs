@@ -494,6 +494,7 @@ impl TankCx<'_> {
                     ub_give: self.ub.commands.tools().give.clone(),
                     ub_count: self.ub.commands.tools().count.clone(),
                     meta_enabled,
+                    readout_should_show: self.ub.hud.should_show(),
                     requests: Vec::new(),
                 },
             };

@@ -1188,3 +1188,28 @@ fn a_recursive_call_overflow_also_clears_the_stored_enable_meta_setting() {
     assert!(!engine.enabled());
     assert_eq!(*written.borrow(), [("EnableMeta".to_owned(), false)]);
 }
+
+// ---- Not a port of a C# test: which profile is in force --------------------
+//
+// The panel reads the meta's peer requirements again when the profile is
+// another object (`ReferenceEquals`); the generation stands in for that
+// identity, so it moves when the profile is replaced and not when its rules
+// are edited in place.
+
+#[test]
+fn the_profile_generation_moves_on_a_replace_and_not_on_an_edit() {
+    let mut host = host();
+    let mut engine = engine(&mut host, profile(Vec::new()));
+    let first = engine.profile_generation();
+
+    engine.add_rule(rule(MetaConditionKind::Always, MetaActionKind::None, ""));
+    assert_eq!(first, engine.profile_generation());
+
+    let mut services = TestServices::default();
+    engine.replace_profile(&mut host, &mut services, profile(Vec::new()));
+    assert_ne!(first, engine.profile_generation());
+
+    let replaced = engine.profile_generation();
+    engine.set_initial_profile(profile(Vec::new()));
+    assert_ne!(replaced, engine.profile_generation());
+}

@@ -476,3 +476,29 @@ fn the_plugin_counts_kills_when_kill_statistics_are_on() {
     );
     assert!(snapshots[0].contains("\"Closed\":true"));
 }
+
+// ---- Not a port of a C# test: a kept time past DateTimeOffset's range ------
+//
+// `DescribeNextGameInfoCheck` reads the kept time with
+// `DateTimeOffset.FromUnixTimeSeconds` and adds the interval; past
+// 9999-12-31 either throws, and the /vt command's catch says so (the
+// message checked against .NET 10). Plain addition overflowed here instead.
+
+#[test]
+fn a_kept_time_past_the_last_date_fails_the_gamedb_command() {
+    let mut world = World::with_character("Barris");
+    world.plugin_data.insert(LAST_CHECK_KEY, "253402300799");
+    let mut plugin = world.enable();
+    world.clear_chat();
+
+    world.vt(&mut plugin, "gamedb interval 6");
+
+    assert_eq!(
+        vec![
+            "[MossTank] Command failed: The added or subtracted value results in an \
+             un-representable DateTime. (Parameter 't')"
+                .to_owned()
+        ],
+        world.chat()
+    );
+}

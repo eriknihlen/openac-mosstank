@@ -544,6 +544,9 @@ pub(crate) struct TankServices<'s, 'c> {
     pub(crate) ub_count: std::rc::Rc<RefCell<InventoryCountController>>,
     /// Whether the meta runs, read before the engine's call.
     pub(crate) meta_enabled: bool,
+    /// The network readout's `ShouldShow`, read before the call (nothing
+    /// in a call opens or shuts its window).
+    pub(crate) readout_should_show: bool,
     /// What a meta's own lines ask of the engine, done after its call.
     pub(crate) requests: Vec<EngineRequest>,
 }
@@ -781,6 +784,7 @@ impl MetaServices for TankServices<'_, '_> {
             &mut **client,
             &*self.ub,
             self.meta_enabled,
+            self.readout_should_show,
             need,
         );
     }
@@ -961,6 +965,7 @@ impl TankCx<'_> {
                 ub_give: self.ub.commands.tools().give.clone(),
                 ub_count: self.ub.commands.tools().count.clone(),
                 meta_enabled,
+                readout_should_show: self.ub.hud.should_show(),
                 requests: Vec::new(),
             };
             let result = f(self.meta, &mut proxy, &mut services);

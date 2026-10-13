@@ -164,7 +164,7 @@ impl GameInfoTransport for ClientTransport<'_, '_> {
 impl Core {
     /// `ObserveActivity`: a part's line, unless it says what it said last
     /// time but for its numbers.
-    fn observe_activity(&mut self, category: &str, status: &str) {
+    pub(crate) fn observe_activity(&mut self, category: &str, status: &str) {
         let key = ACTIVITY_MEASUREMENTS
             .replace(status, "#")
             .unwrap_or_else(|_| status.to_owned());
@@ -342,8 +342,7 @@ impl Core {
             "" => {
                 let described = self.describe_game_info(client);
                 Core::write_vtank(client, &described);
-                let next = self.describe_next_game_info_check(client);
-                Core::write_vtank(client, &next);
+                self.write_next_game_info_check(client);
             }
             "update" => self.start_game_info_update_command(client),
             "interval" => self.game_db_interval_command(client, rest.trim()),
@@ -378,35 +377,54 @@ impl Core {
                 }
             }
         }
-        let next = self.describe_next_game_info_check(client);
-        Core::write_vtank(client, &next);
+        self.write_next_game_info_check(client);
+    }
+
+    /// Writes [`Self::describe_next_game_info_check`]; a time out of .NET's
+    /// range ends the command as the C#'s throw does.
+    fn write_next_game_info_check(&mut self, client: &mut dyn TankClient) {
+        match self.describe_next_game_info_check(client) {
+            Ok(next) => Core::write_vtank(client, &next),
+            Err(error) => super::commands::command_failed(client, &error),
+        }
     }
 
     /// When the next login will check, and how that is decided
-    /// (`DescribeNextGameInfoCheck`).
-    fn describe_next_game_info_check(&mut self, client: &mut dyn TankClient) -> String {
+    /// (`DescribeNextGameInfoCheck`), or the message of what the C# throws
+    /// for a kept time out of `DateTimeOffset`'s range.
+    fn describe_next_game_info_check(
+        &mut self,
+        client: &mut dyn TankClient,
+    ) -> Result<String, String> {
         let hours = self.profiles.game_db_check_interval_hours();
         if hours == 0 {
-            return "Game database: checked at every login (/vt gamedb interval sets how often)."
-                .to_owned();
+            return Ok(
+                "Game database: checked at every login (/vt gamedb interval sets how often)."
+                    .to_owned(),
+            );
         }
         let every = format!(
             "every {hours}{}",
             if hours == 1 { " hour" } else { " hours" }
         );
-        match game_info::read_last_check(client.stores().storage(Root::Plugin)) {
-            Ok(Some(last_check)) => format!(
-                "Game database: checked {every}; the next check is after {}.",
-                game_info::format_utc(last_check + i64::from(hours) * 3600)
-            ),
-            Ok(None) => format!("Game database: checked {every}; the next login checks."),
-            Err(error) => {
-                client.looter().log_error(&format!(
-                    "MossTank could not read the game database's last check: {error}"
-                ));
-                format!("Game database: checked {every}; the next login checks.")
-            }
-        }
+        Ok(
+            match game_info::read_last_check(client.stores().storage(Root::Plugin)) {
+                Ok(Some(last_check)) => {
+                    let next = game_info::next_check_after(last_check, i64::from(hours) * 3600)?;
+                    format!(
+                        "Game database: checked {every}; the next check is after {}.",
+                        game_info::format_utc(next)
+                    )
+                }
+                Ok(None) => format!("Game database: checked {every}; the next login checks."),
+                Err(error) => {
+                    client.looter().log_error(&format!(
+                        "MossTank could not read the game database's last check: {error}"
+                    ));
+                    format!("Game database: checked {every}; the next login checks.")
+                }
+            },
+        )
     }
 
     /// `DescribeGameInfo`.

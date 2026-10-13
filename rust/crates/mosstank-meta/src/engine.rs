@@ -66,6 +66,9 @@ struct Watchdog {
 #[derive(Debug)]
 struct Core {
     profile: MetaProfile,
+    /// Bumped each time `profile` is replaced (not when its rules are
+    /// edited in place).
+    profile_generation: u64,
     rule_ids: Vec<u64>,
     next_rule_id: u64,
     fired: HashSet<u64>,
@@ -238,6 +241,7 @@ impl Core {
     fn new(profile: MetaProfile, portal: bool, dead: bool) -> Self {
         let mut core = Self {
             profile: MetaProfile::default(),
+            profile_generation: 0,
             rule_ids: Vec::new(),
             next_rule_id: 1,
             fired: HashSet::new(),
@@ -280,6 +284,7 @@ impl Core {
             })
             .collect();
         self.profile = profile;
+        self.profile_generation += 1;
     }
 
     fn transition(
@@ -433,6 +438,15 @@ impl MetaEngine {
     #[must_use]
     pub fn profile(&self) -> &MetaProfile {
         &self.core.profile
+    }
+
+    /// Which profile is in force: a number that changes each time the
+    /// profile is replaced (a load, an import, a clear) and not when its
+    /// rules are edited in place, as the C# tells profiles apart by
+    /// reference.
+    #[must_use]
+    pub fn profile_generation(&self) -> u64 {
+        self.core.profile_generation
     }
 
     /// Adds a rule at the end, as a new rule (`_metaProfile.Rules.Add`).
