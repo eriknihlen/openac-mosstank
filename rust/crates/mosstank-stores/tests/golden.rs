@@ -1419,6 +1419,7 @@ fn run(name: &str) -> String {
     out
 }
 
+// Source: tests/AcDream.Plugins.MossTank.Tests/RustPortGolden.cs :: WriteGoldenData (the cases.out it writes through RustPortStoresGolden is the expected one)
 #[test]
 fn every_scenario_leaves_what_the_csharp_store_leaves() {
     let cases = std::fs::read_to_string(golden_dir().join("cases.txt")).unwrap();

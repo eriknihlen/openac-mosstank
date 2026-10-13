@@ -267,6 +267,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "mosstank-session"
+version = "0.6.0-dev"
+dependencies = [
+ "ac-plugin-abi",
+ "mosstank-automation",
+ "mosstank-formats",
+ "mosstank-stores",
+ "openac-plugin-compat",
+]
+
+[[package]]
 name = "mosstank-settings"
 version = "0.6.0-dev"
 dependencies = [

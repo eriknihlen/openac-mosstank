@@ -1,0 +1,18 @@
+[package]
+name = "mosstank-session"
+description = "What MossTank keeps of a session beside its rules: the action history, the kill statistics, and the game database's update check (with its HTTP request and answer). Pure: the client comes in through traits and records."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[dependencies]
+ac-plugin-abi.workspace = true
+mosstank-automation.workspace = true
+mosstank-formats.workspace = true
+mosstank-stores.workspace = true
+openac-plugin-compat.workspace = true
+
+[lints]
+workspace = true

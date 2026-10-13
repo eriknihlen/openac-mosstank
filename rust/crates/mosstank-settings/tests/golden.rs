@@ -384,6 +384,7 @@ fn run(kind: &str, input: &str) -> String {
     result.unwrap_or_else(|error| format!("!! {error}\n"))
 }
 
+// Source: tests/AcDream.Plugins.MossTank.Tests/RustPortGolden.cs :: WriteGoldenData (the cases.out it writes is the expected one)
 #[test]
 fn every_case_matches_the_csharp_plugin() {
     let cases = std::fs::read_to_string(golden_dir().join("cases.txt")).unwrap();
