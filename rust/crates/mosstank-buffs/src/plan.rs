@@ -38,6 +38,12 @@ pub trait BuffCastability {
     /// Whether the tier can be cast, and why not.
     fn is_castable(&mut self, tier: &SpellInfo) -> (bool, Option<String>);
 
+    /// The spell table, when the walk reads the client (so a plan can take
+    /// its exemplars from it without a second borrow of the client).
+    fn spell_catalog(&mut self) -> Option<&mut dyn SpellCatalog> {
+        None
+    }
+
     /// The once-per-run "buff SKIPPED." line.
     fn note_no_castable_tier(&mut self, line: &BuffLine);
 
@@ -132,12 +138,8 @@ pub fn build(
         extra_ids.extend_from_slice(more);
     }
     let extra_names: Vec<String> = settings.extra_buff_spell_names.iter().cloned().collect();
-    let extra_families = resolve_families(
-        lines,
-        &extra_ids,
-        &extra_names,
-        options.spell_catalog.as_deref_mut(),
-    );
+    let extra_families =
+        resolve_families(lines, &extra_ids, &extra_names, catalog_of(&mut options));
     let blacklisted_names: Vec<String> = settings
         .blacklisted_buff_family_names
         .iter()
@@ -147,7 +149,7 @@ pub fn build(
         lines,
         &settings.anti_extra_buff_spell_ids,
         &blacklisted_names,
-        options.spell_catalog.as_deref_mut(),
+        catalog_of(&mut options),
     );
 
     let mut plan: Vec<(i32, SpellInfo)> = Vec::new();
@@ -174,7 +176,7 @@ pub fn build(
         if !school_available || (!wanted && !extra) || excluded_families.contains(&line.family) {
             continue;
         }
-        if !extra && !is_exemplar_family(line, options.spell_catalog.as_deref_mut()) {
+        if !extra && !is_exemplar_family(line, catalog_of(&mut options)) {
             continue;
         }
 
@@ -562,4 +564,18 @@ fn mismatch(tier: &SpellInfo, reference: &SpellInfo) -> Option<&'static str> {
         return Some("comp set");
     }
     None
+}
+
+/// The plan's spell table: the one handed in, else the castability's.
+fn catalog_of<'b>(options: &'b mut BuildOptions<'_>) -> Option<&'b mut dyn SpellCatalog> {
+    if options.spell_catalog.is_some() {
+        return options
+            .spell_catalog
+            .as_deref_mut()
+            .map(|catalog| catalog as _);
+    }
+    options
+        .castability
+        .as_deref_mut()
+        .and_then(BuffCastability::spell_catalog)
 }

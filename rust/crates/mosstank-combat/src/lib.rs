@@ -14,7 +14,7 @@ use std::rc::Rc;
 
 use ac_plugin_abi::combat::CombatMode;
 use mosstank_automation::Automation;
-use mosstank_meta::scheduler::MacroLogChannel;
+pub use mosstank_meta::scheduler::MacroLogChannel;
 
 pub mod debuff;
 pub mod dispel;

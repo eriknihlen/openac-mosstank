@@ -160,6 +160,7 @@ dependencies = [
  "mosstank-dotnet",
  "mosstank-formats",
  "mosstank-settings",
+ "mosstank-stores",
  "openac-plugin-compat",
 ]
 
