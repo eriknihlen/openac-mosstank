@@ -1,6 +1,10 @@
 //! MossTank's fight.
 //!
 //! - [`gate`]: readying a combat stance (`CombatModeGate`).
+//! - [`debuff`]: the debuff chain, the debuff spells and what has landed.
+//! - [`failure`]: the monsters given up on (`CombatFailureTracker`).
+//! - [`item_debuff`]: where a debuff can come from (`CombatItemDebuffPlanner`).
+//! - [`selection`]: which monster to fight (`CombatTargetSelector`).
 //!
 //! The client comes in through `mosstank-automation`; settings are handed
 //! in on each call, so a profile load is seen at once.
@@ -11,7 +15,11 @@ use ac_plugin_abi::combat::CombatMode;
 use mosstank_automation::Automation;
 use mosstank_meta::scheduler::MacroLogChannel;
 
+pub mod debuff;
+pub mod failure;
 pub mod gate;
+pub mod item_debuff;
+pub mod selection;
 
 pub use gate::CombatModeGate;
 
@@ -36,5 +44,20 @@ pub fn post(automation: &mut dyn Automation, text: &str) {
         automation.post_system_message(text);
     } else {
         automation.post_system_message(&format!("[MossTank] {text}"));
+    }
+}
+
+/// A flight shape as the path query names it (the data tables use the
+/// world module's twin of the same enum).
+#[must_use]
+pub fn query_path_kind(
+    kind: ac_plugin_abi::world::ProjectilePathKind,
+) -> ac_plugin_abi::projectile::ProjectilePathKind {
+    use ac_plugin_abi::projectile::ProjectilePathKind as Query;
+    use ac_plugin_abi::world::ProjectilePathKind as Shape;
+    match kind {
+        Shape::Straight => Query::Straight,
+        Shape::Arc => Query::Arc,
+        Shape::Missile => Query::Missile,
     }
 }
