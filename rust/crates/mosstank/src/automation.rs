@@ -315,10 +315,10 @@ impl Automation for HostAutomation<'_, '_> {
         self.is_available()
     }
 
-    /// The SDK reports no equip in flight, so this answers as the C#
-    /// surface does when the host wires no busy test (COMBAT-6).
+    /// An equip the client started is still in flight (OpenAC's
+    /// `IsAutoWieldBusy`).
     fn equipment_busy(&mut self) -> bool {
-        false
+        self.host.equipment_busy()
     }
 
     fn owned_equipment(&mut self) -> Vec<EquipmentItem> {

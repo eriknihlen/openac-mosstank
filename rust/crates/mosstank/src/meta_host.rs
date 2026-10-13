@@ -3,7 +3,7 @@
 //! plugin's own storage is the SDK's plugin-data root.
 //!
 //! What the SDK does not offer yet answers the way a client without it
-//! does: no equip in flight, none of the client's own windows, no window
+//! does: none of the client's own windows, no window
 //! for a meta view or the status list (they work headless), stacks not
 //! joined on a move, and no storage handle that outlives the call (the
 //! global variables then stay the session's own).
@@ -185,7 +185,7 @@ impl MetaHost for HostAutomation<'_, '_> {
     }
 
     fn equipment_busy(&mut self) -> bool {
-        false
+        self.host.equipment_busy()
     }
 
     fn spell(&mut self, spell_id: u32) -> Option<SpellInfo> {
