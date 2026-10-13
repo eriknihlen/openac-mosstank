@@ -435,6 +435,42 @@ impl MetaEngine {
         &self.core.profile
     }
 
+    /// Adds a rule at the end, as a new rule (`_metaProfile.Rules.Add`).
+    pub fn add_rule(&mut self, rule: MetaRule) {
+        let id = self.core.next_rule_id;
+        self.core.next_rule_id += 1;
+        self.core.profile.rules.push(rule);
+        self.core.rule_ids.push(id);
+    }
+
+    /// Puts `rule` in place of the rule at `index`, which keeps its
+    /// identity (`replacement.Id = current.Id`).
+    pub fn replace_rule(&mut self, index: usize, rule: MetaRule) {
+        if let Some(slot) = self.core.profile.rules.get_mut(index) {
+            *slot = rule;
+        }
+    }
+
+    /// Removes the rule at `index`.
+    pub fn remove_rule(&mut self, index: usize) {
+        if index < self.core.profile.rules.len() {
+            self.core.profile.rules.remove(index);
+            self.core.rule_ids.remove(index);
+        }
+    }
+
+    /// Moves the rule at `from` to `to`, with its identity.
+    pub fn move_rule(&mut self, from: usize, to: usize) {
+        let rules = &mut self.core.profile.rules;
+        if from >= rules.len() || to >= rules.len() {
+            return;
+        }
+        let rule = rules.remove(from);
+        rules.insert(to, rule);
+        let id = self.core.rule_ids.remove(from);
+        self.core.rule_ids.insert(to, id);
+    }
+
     /// Whether the meta runs.
     #[must_use]
     pub fn enabled(&self) -> bool {

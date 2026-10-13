@@ -145,6 +145,7 @@ dependencies = [
  "mosstank-vendor",
  "openac-plugin",
  "openac-plugin-compat",
+ "roxmltree",
 ]
 
 [[package]]

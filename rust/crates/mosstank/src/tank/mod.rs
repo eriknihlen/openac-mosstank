@@ -16,9 +16,10 @@
 mod autostart;
 mod commands;
 mod frame;
-mod options;
-mod profiles;
-mod rules;
+pub(crate) mod options;
+pub(crate) mod panel;
+pub(crate) mod profiles;
+pub(crate) mod rules;
 mod services;
 pub mod ub;
 
@@ -239,6 +240,8 @@ pub struct Core {
     pub(crate) meta_interval_pending: Option<f64>,
     /// The looting switch the fight's kill hold reads.
     pub(crate) route_after_kill: Rc<Cell<bool>>,
+    /// What only the windows keep.
+    pub(crate) panel: panel::PanelState,
 }
 
 /// The macro shell.
@@ -706,6 +709,7 @@ impl Tank {
             first_run_guidance_pending,
             meta_interval_pending: None,
             route_after_kill: Rc::new(Cell::new(false)),
+            panel: panel::PanelState::default(),
         };
         core.bind_controller_hooks();
 
@@ -762,6 +766,8 @@ impl Tank {
                 ub: &mut ub,
             };
             cx.apply_persisted_option_overrides();
+            cx.refresh_editors();
+            cx.refresh_meta_editor();
         }
         core.automation_was_available = client.rules().is_available();
         core.write_out(client);
@@ -1183,6 +1189,10 @@ impl Tank {
     /// The end of every call: the UB settings changed in it are written
     /// (register STORE-1), and a new meta interval reaches the scheduler.
     pub(crate) fn end_call(&mut self, client: &mut dyn TankClient) {
+        if self.core.panel.items_dirty {
+            let (mut cx, _) = self.cx(client);
+            cx.refresh_item_editors();
+        }
         self.ub.flush(client);
         // The item timers a call changed are written before it returns
         // (register STORE-6), whatever kind of call it was.

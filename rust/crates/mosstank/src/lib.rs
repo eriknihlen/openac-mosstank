@@ -9,11 +9,13 @@
 //! every tick, the hold on the walks the client plans, and MossTank's loot
 //! classifier for the other plugins ([`loot`]).
 //!
-//! The windows (the main panel and its eleven companions) come with MT-11.
+//! The windows (the main panel and its eleven companions, [`panel`]) show
+//! the shell's values and send their handlers to it.
 
 pub mod automation;
 pub mod client;
 pub mod loot;
+pub mod panel;
 pub mod storage;
 pub mod tank;
 pub mod ub_host;
@@ -24,6 +26,7 @@ pub mod vendor_host;
 
 use ac_plugin_abi::callback::{Callback, CallbackAnswer};
 use ac_plugin_abi::items::EquipmentObservation;
+use ac_plugin_abi::ui::UiEvent;
 use ac_plugin_abi::{Event, TICK_SECONDS};
 use openac_plugin::{Host, Plugin, StartInfo};
 
@@ -48,6 +51,8 @@ pub struct MossTank {
     tank: Option<Tank>,
     /// The hold on the walks the client plans.
     go_to_pause: GoToPause,
+    /// The windows, once registered.
+    windows: Option<panel::Windows>,
 }
 
 impl MossTank {
@@ -55,6 +60,29 @@ impl MossTank {
     #[must_use]
     pub fn tank(&self) -> Option<&Tank> {
         self.tank.as_ref()
+    }
+
+    /// Pushes every window's values as the shell has them now.
+    fn push_windows(&mut self, host: &mut Host<'_>) {
+        let Some(windows) = self.windows.as_mut() else {
+            return;
+        };
+        let names = windows.value_names();
+        let Some(tank) = self.tank.as_mut() else {
+            return;
+        };
+        let values: std::collections::HashMap<String, ac_plugin_abi::ui::UiValue> = {
+            let mut client =
+                HostAutomation::with_equipment_observations(host, &mut self.observations);
+            names
+                .into_iter()
+                .filter_map(|name| {
+                    let value = tank.ui_value(&mut client, &name)?;
+                    Some((name, value))
+                })
+                .collect()
+        };
+        windows.push(host, &values);
     }
 
     /// The macro shell, once enabled, with the client view a call
@@ -86,6 +114,7 @@ impl Plugin for MossTank {
             self.tank = Some(Tank::new(&mut client, seed));
         }
         host.info("MossTank initialized");
+        self.windows = Some(panel::Windows::register(host));
         // Two words, two command sets: the macro's commands answer on /vt,
         // the UtilityBelt ones on /ub, and neither answers the other's.
         host.register_command(tank::VTANK_VERB, "MossTank's macro commands")?;
@@ -96,6 +125,7 @@ impl Plugin for MossTank {
             ));
         }
         self.go_to_pause = GoToPause::take(host);
+        self.push_windows(host);
         let available = host.character().is_some();
         host.info(if available {
             "MossTank enabled"
@@ -114,6 +144,9 @@ impl Plugin for MossTank {
         // Both words are given up with the plugin.
         host.unregister_command(tank::VTANK_VERB);
         host.unregister_command(tank::UB_VERB);
+        if let Some(windows) = self.windows.take() {
+            windows.remove(host);
+        }
         self.go_to_pause.release(host);
         self.loot_classifier.unregister(host);
         host.info("MossTank disabled");
@@ -131,6 +164,13 @@ impl Plugin for MossTank {
         }
         let reason = tank.walk_pause_reason();
         self.go_to_pause.need(host, reason.as_deref());
+        if self
+            .windows
+            .as_mut()
+            .is_some_and(|windows| windows.push_due(TICK_SECONDS))
+        {
+            self.push_windows(host);
+        }
     }
 
     fn on_event(&mut self, host: &mut Host<'_>, event: Event) {
@@ -144,16 +184,29 @@ impl Plugin for MossTank {
         let Some(tank) = self.tank.as_mut() else {
             return;
         };
-        let mut client = HostAutomation::with_equipment_observations(host, &mut self.observations);
-        match &event {
-            Event::Command(call) if call.verb.eq_ignore_ascii_case(tank::VTANK_VERB) => {
-                tank.execute_vtank_command(&mut client, &call.arguments);
+        {
+            let mut client =
+                HostAutomation::with_equipment_observations(host, &mut self.observations);
+            match &event {
+                Event::Command(call) if call.verb.eq_ignore_ascii_case(tank::VTANK_VERB) => {
+                    tank.execute_vtank_command(&mut client, &call.arguments);
+                }
+                Event::Command(call) if call.verb.eq_ignore_ascii_case(tank::UB_VERB) => {
+                    tank.execute_ub_command(&mut client, &call.arguments);
+                }
+                Event::Ui(UiEvent::Action(action))
+                    if self
+                        .windows
+                        .as_ref()
+                        .is_some_and(|windows| windows.owns(action.panel)) =>
+                {
+                    tank.ui_act(&mut client, &action.handler, action.value.clone());
+                }
+                _ => tank.on_event(&mut client, &event),
             }
-            Event::Command(call) if call.verb.eq_ignore_ascii_case(tank::UB_VERB) => {
-                tank.execute_ub_command(&mut client, &call.arguments);
-            }
-            _ => tank.on_event(&mut client, &event),
         }
+        // Whatever the event changed is shown at once.
+        self.push_windows(host);
     }
 
     fn callback(&mut self, host: &mut Host<'_>, callback: Callback) -> CallbackAnswer {

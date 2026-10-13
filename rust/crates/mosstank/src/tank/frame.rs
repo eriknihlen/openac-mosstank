@@ -67,6 +67,7 @@ impl Tank {
                 cx.handle_session_ended();
             }
             cx.core.automation_was_available = false;
+            cx.refresh_display_bindings(elapsed_seconds);
             cx.core.write_out(cx.client);
             return;
         }
@@ -78,6 +79,7 @@ impl Tank {
         cx.with_ub(|commands, call| {
             commands.tools_mut().tick_nametags(call, elapsed_seconds);
         });
+        cx.follow_client_rows();
 
         cx.core.sync_route_after_kill();
         cx.core.locks.borrow_mut().advance(elapsed_seconds);
@@ -104,6 +106,8 @@ impl Tank {
         }
         cx.ensure_character_profile();
         cx.ensure_timer_persistence();
+        cx.tick_configured_item_assessment(elapsed_seconds);
+        cx.tick_profile_item_addition(elapsed_seconds);
         cx.core.flush_queued_announcements(cx.client);
         cx.show_first_run_guidance();
         cx.observe_command_portal_state();
@@ -123,6 +127,7 @@ impl Tank {
         cx.with_ub(|commands, call| {
             commands.tools_mut().tick_tinkering(call, elapsed_seconds);
         });
+        cx.refresh_display_bindings(elapsed_seconds);
         // The command jump, which owns the character while it lasts.
         let command_jump_owns_action =
             cx.with_ub(|commands, call| commands.tick_command_jump(call, elapsed_seconds));
@@ -244,6 +249,9 @@ impl Tank {
                 drop(idle);
                 cx.core.status = status;
             }
+        }
+        if cx.core.panel.active_tab == super::panel::TankTab::Route {
+            cx.refresh_route_editor();
         }
         cx.core.write_out(cx.client);
         cx.flush_timer_persistence();

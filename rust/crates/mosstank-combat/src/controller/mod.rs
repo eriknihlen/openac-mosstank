@@ -48,7 +48,7 @@ use crate::mover::{NO_FACE_HEADING_STAMP, NavigationMover};
 use crate::selection::CombatTargetCandidate;
 use crate::{MacroLog, MacroLogChannel, post};
 
-pub use equip::AmmunitionPlan;
+pub use equip::{AmmunitionPlan, is_profiled};
 
 /// The crafting the ammunition choice may fall back on (the C#'s
 /// `BindAmmunitionCraftRequest`): plans are opaque handles the crafting

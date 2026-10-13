@@ -76,11 +76,11 @@ fn double(value: &ExpressionValue, name: &str, minimum: f64, maximum: f64) -> Re
     Ok(value.as_number(name)?.clamp(minimum, maximum))
 }
 
-fn number(value: impl Into<f64>) -> ExpressionValue {
+pub(crate) fn number(value: impl Into<f64>) -> ExpressionValue {
     ExpressionValue::Number(value.into())
 }
 
-fn boolean(value: bool) -> ExpressionValue {
+pub(crate) fn boolean(value: bool) -> ExpressionValue {
     ExpressionValue::Boolean(value)
 }
 

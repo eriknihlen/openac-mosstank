@@ -82,7 +82,10 @@ pub(crate) fn load_game_info(client: &mut dyn TankClient) -> VtankGameInfoDataba
 }
 
 /// Logs a storage failure the C# would have thrown.
-fn report_failure<T>(client: &mut dyn TankClient, result: Result<T, StoreError>) -> Option<T> {
+pub(crate) fn report_failure<T>(
+    client: &mut dyn TankClient,
+    result: Result<T, StoreError>,
+) -> Option<T> {
     match result {
         Ok(value) => Some(value),
         Err(error) => {
@@ -99,9 +102,10 @@ fn report_failure<T>(client: &mut dyn TankClient, result: Result<T, StoreError>)
 macro_rules! report {
     ($client:expr, $result:expr $(,)?) => {{
         let result = $result;
-        report_failure($client, result)
+        $crate::tank::profiles::report_failure($client, result)
     }};
 }
+pub(crate) use report;
 
 impl Core {
     /// Hands a game database to every reader (`ApplyGameInfo`, the part the
@@ -548,8 +552,12 @@ impl TankCx<'_> {
             let lent = lent_loot!(core);
             lent.loot.reset(self.client.looter());
         }
-        let mut turn = route_turn!(self.client, core);
-        core.navigation.reset(&mut turn);
+        {
+            let mut turn = route_turn!(self.client, core);
+            core.navigation.reset(&mut turn);
+        }
+        self.core.panel.vitals.forget_coverage();
+        self.refresh_editors();
     }
 
     /// `ApplyPersistedOptionOverrides`: the options a settings profile

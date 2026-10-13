@@ -74,7 +74,7 @@ fn fixed_rows() -> Vec<(String, UbSettingBinding)> {
 /// The UB tab's parts.
 #[allow(missing_debug_implementations)]
 pub struct UbParts {
-    store: Rc<RefCell<UbSettingStore>>,
+    pub(crate) store: Rc<RefCell<UbSettingStore>>,
     /// The catalogue the `/ub` commands reach.
     pub(crate) catalog: UbSettingCatalog<StoreValues>,
     /// The same catalogue, for the readers outside a `/ub` call (the
@@ -82,6 +82,14 @@ pub struct UbParts {
     pub(crate) reader: Rc<UbSettingCatalog<StoreValues>>,
     /// What the `/ub` commands keep between calls.
     pub(crate) commands: UbCommands,
+    /// The UB settings page and its colour and list windows.
+    pub(crate) page: mosstank_ub::settings_page::UbSettingsPage,
+    /// The countryside map.
+    pub(crate) landscape: mosstank_ub::landscape::controller::LandscapeMapController,
+    /// The dungeon map.
+    pub(crate) dungeon: mosstank_ub::dungeon::controller::DungeonMapController,
+    /// The other clients' readout.
+    pub(crate) hud: mosstank_ub::hud::NetworkHudController,
 }
 
 /// The four kinds of UB line.
@@ -93,7 +101,7 @@ const KINDS: [UbLineKind; 4] = [
 ];
 
 /// Writes a store's log lines to the client's log.
-fn forward(client: &mut dyn TankClient, log: &RecordingLog) {
+pub(crate) fn forward_log(client: &mut dyn TankClient, log: &RecordingLog) {
     for line in &log.lines {
         if let Some(text) = line.strip_prefix("info ") {
             client.rules().log_info(text);
@@ -125,13 +133,33 @@ impl UbParts {
                 Some(&character.name),
             );
         }
-        forward(client, &log);
+        forward_log(client, &log);
         let values = StoreValues(store.clone());
+        let mut catalog = UbSettingCatalog::new(values.clone(), fixed_rows());
+        let page = mosstank_ub::settings_page::UbSettingsPage::new(&catalog);
+        let mut landscape = mosstank_ub::landscape::controller::LandscapeMapController::new(
+            &mosstank_ub::landscape::controller::CatalogLandscapeSettings(&catalog),
+        );
+        if let Err(error) = landscape.load_markers(client.stores().storage(Root::Profiles)) {
+            client
+                .rules()
+                .log_warn(&format!("MossTank could not read the map markers: {error}"));
+        }
+        let dungeon = mosstank_ub::dungeon::controller::DungeonMapController::new(
+            &mosstank_ub::dungeon::controller::CatalogMapSettings(&mut catalog),
+        );
+        let hud = mosstank_ub::hud::NetworkHudController::new(
+            &mosstank_ub::hud::CatalogHudSettings(&catalog),
+        );
         Self {
-            catalog: UbSettingCatalog::new(values.clone(), fixed_rows()),
+            catalog,
             reader: Rc::new(UbSettingCatalog::new(values, fixed_rows())),
             store,
             commands: UbCommands::new(),
+            page,
+            landscape,
+            dungeon,
+            hud,
         }
     }
 
@@ -145,7 +173,7 @@ impl UbParts {
                 .borrow_mut()
                 .bind(storage, &mut log, Some(world), Some(character));
         }
-        forward(client, &log);
+        forward_log(client, &log);
     }
 
     /// Writes every tier changed during the call (register STORE-1).
@@ -155,7 +183,7 @@ impl UbParts {
             let storage = client.stores().storage(Root::Profiles);
             self.store.borrow_mut().flush(storage, &mut log);
         }
-        forward(client, &log);
+        forward_log(client, &log);
     }
 
     /// The settings store, shared.
