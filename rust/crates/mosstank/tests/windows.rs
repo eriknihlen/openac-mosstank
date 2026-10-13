@@ -345,3 +345,36 @@ fn the_history_registers_with_bound_visibility_and_no_shelf_entry() {
         Some(UiValue::Bool(false))
     );
 }
+
+// Source: tests/AcDream.Plugins.MossTank.Tests/MossTankPanelTests.UbMainTab.cs :: TheUbTabOpensAheadOfTheSettingsCatalogue
+#[test]
+fn the_ub_tab_opens_ahead_of_the_settings_catalogue() {
+    let (mut world, mut plugin) = fresh();
+    let p = &mut plugin;
+    assert!(world.ui_bool(p, "UbTabEnabled"));
+    assert!(!world.ui_bool(p, "UbSelected"));
+    world.act(p, "ShowUb");
+    assert!(world.ui_bool(p, "UbSelected"));
+    assert!(world.ui_bool(p, "UbVisible"));
+    assert!(!world.ui_bool(p, "UbSettingsSelected"));
+    assert!(!world.ui_bool(p, "UbSettingsVisible"));
+}
+
+// Source: tests/AcDream.Plugins.MossTank.Tests/MossTankPanelTests.UbMainTab.cs :: TheSettingsAndTinkerButtonsLeaveForTheirOwnTabs
+#[test]
+fn the_settings_and_tinker_buttons_leave_for_their_own_tabs() {
+    let (mut world, mut plugin) = fresh();
+    let p = &mut plugin;
+    world.act(p, "ShowUb");
+    world.act(p, "ShowUbSettings");
+    assert!(world.ui_bool(p, "UbSettingsSelected"));
+    assert!(!world.ui_bool(p, "UbSelected"));
+    assert!(!world.ui_bool(p, "TinkerSelected"));
+    world.act(p, "ShowUb");
+    world.act(p, "ShowTinker");
+    assert!(world.ui_bool(p, "TinkerSelected"));
+    assert!(world.ui_bool(p, "TinkerVisible"));
+    assert!(world.ui_bool(p, "TinkerTabEnabled"));
+    assert!(!world.ui_bool(p, "UbSelected"));
+    assert!(!world.ui_bool(p, "UbSettingsSelected"));
+}

@@ -76,3 +76,35 @@ fn the_canvas_hides_with_its_window_and_goes_with_the_plugin() {
     world.disable(&mut plugin);
     assert!(world.requests::<calls::UiCanvasRemove>().contains(&id));
 }
+
+// Source: tests/AcDream.Plugins.MossTank.Tests/MossTankPanelTests.UbDungeon.cs :: TheDungeonWindowDrivesTheMapAndTheZoomReachesTheRow
+#[test]
+fn the_dungeon_window_drives_the_map_and_the_zoom_reaches_the_row() {
+    let mut world = World::with_character("Acdream");
+    let mut plugin = world.enable();
+    let p = &mut plugin;
+    world.with_tank(p, |tank, client| tank.on_tick(client, 0.1));
+
+    assert!(!world.ui_bool(p, "UbDungeonVisible"));
+    world.act(p, "ShowUbDungeon");
+    assert!(world.ui_bool(p, "UbDungeonVisible"));
+    assert_eq!(world.ui_text(p, "UbDungeonStatusText"), "Not in a dungeon.");
+    assert_eq!(world.ui_text(p, "UbDungeonFollowText"), "Follow: on");
+    assert_eq!(world.ui_text(p, "UbDungeonLayersText"), "Layers: near");
+    world.act(p, "ToggleUbDungeonLayers");
+    assert_eq!(world.ui_text(p, "UbDungeonLayersText"), "Layers: all");
+
+    world.act_text(p, "SetUbFilterText", "DungeonMaps.MapZoom");
+    assert_eq!(world.ui_list(p, "UbSettingValues")[0], "4.2");
+    world.act(p, "UbDungeonZoomIn");
+    world.act_text(p, "SetUbFilterText", "DungeonMaps.MapZoom");
+    assert_eq!(world.ui_list(p, "UbSettingValues")[0], "4");
+
+    world.act_float(p, "SetUbDungeonHeight", 50.0);
+    assert_eq!(world.ui_text(p, "UbDungeonFollowText"), "Follow: off");
+    world.act(p, "ToggleUbDungeonFollow");
+    assert_eq!(world.ui_text(p, "UbDungeonFollowText"), "Follow: on");
+    world.act(p, "HideUbDungeon");
+    assert!(!world.ui_bool(p, "UbDungeonVisible"));
+    world.disable(p);
+}
