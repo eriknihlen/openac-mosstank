@@ -5,7 +5,14 @@
 //! with the slices that need it.
 //!
 //! - [`SpellCatalog`]: the spell table and the character's spellbook.
+//! - [`cast_tracker`]: one spell cast in flight.
+//! - [`combat_text`]: reading the character's own combat log.
+//! - [`locks`]: the cooldown slots the rules share.
 
+pub mod cast_tracker;
+pub mod combat_text;
+pub mod locks;
 pub mod spells;
 
+pub use locks::{ActionLockKind, ActionLockTable, SharedActionLocks};
 pub use spells::{SpellCatalog, StaticSpellCatalog};
