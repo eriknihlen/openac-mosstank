@@ -330,7 +330,8 @@ impl UbCommands {
             "fellow" => call.services.fellow_command(call.host, &arguments),
             "autostack" => self.tools.stack_cram.start(call, true),
             "autocram" => self.tools.stack_cram.start(call, false),
-            "count" | "clearbugged" | "autotinker" | "getjob" | "tinkcalc" => {
+            "count" => self.tools.count.command(call, &arguments),
+            "clearbugged" | "autotinker" | "getjob" | "tinkcalc" => {
                 call.services.run_tool_verb(call.host, &verb, &arguments);
             }
             _ => {

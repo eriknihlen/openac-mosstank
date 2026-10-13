@@ -5,6 +5,7 @@
 //! - [`stack_cram`]: `/ub autostack`, `/ub autocram`
 //!   (`InventoryMaintenance`, `StackCramCommandRun`).
 //! - [`give`]: `/ub give`, `/ub ig` (`ProfileGiveController`).
+//! - [`count`]: `/ub count` (`InventoryCountController`).
 //! - [`equip`]: `/ub equip` (`EquipProfileController`).
 //! - [`xp`]: `/ub xp` (`ExperienceSpendController`).
 //!
@@ -12,11 +13,13 @@
 //! ([`crate::commands::UbCommands`]) own it, and the plugin drives each
 //! one's frame in the order the C# panel does (see [`UbTools`]).
 
+pub mod count;
 pub mod equip;
 pub mod give;
 pub mod stack_cram;
 pub mod xp;
 
+use count::InventoryCountController;
 use equip::EquipProfileController;
 use give::ProfileGiveController;
 use stack_cram::StackCramCommandRun;
@@ -32,6 +35,8 @@ use xp::ExperienceSpendController;
 pub struct UbTools {
     /// `/ub give` and `/ub ig`.
     pub give: ProfileGiveController,
+    /// `/ub count`.
+    pub count: InventoryCountController,
     /// `/ub autostack` and `/ub autocram`.
     pub stack_cram: StackCramCommandRun,
     /// `/ub xp`.
