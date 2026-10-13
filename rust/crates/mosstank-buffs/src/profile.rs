@@ -246,3 +246,40 @@ pub fn build(known_self_buffs: &[SpellInfo]) -> Vec<BuffLine> {
         })
         .collect()
 }
+
+/// The buff lines of the last spell list, rebuilt only when the list's
+/// contents change (`BuffProfileCache`); each pass still plans from live
+/// skills, enchantments and settings.
+#[derive(Debug, Clone)]
+pub struct BuffProfileCache {
+    spells: Vec<SpellInfo>,
+    lines: std::rc::Rc<[BuffLine]>,
+}
+
+impl Default for BuffProfileCache {
+    fn default() -> Self {
+        Self {
+            spells: Vec::new(),
+            lines: std::rc::Rc::from(Vec::new()),
+        }
+    }
+}
+
+impl BuffProfileCache {
+    /// An empty cache.
+    #[must_use]
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// The lines of `spells`: the cached ones while the contents are equal
+    /// (compared by value, so an entry replaced in place is seen), else
+    /// built afresh.
+    pub fn capture(&mut self, spells: &[SpellInfo]) -> std::rc::Rc<[BuffLine]> {
+        if spells != self.spells.as_slice() {
+            self.spells = spells.to_vec();
+            self.lines = std::rc::Rc::from(build(spells));
+        }
+        std::rc::Rc::clone(&self.lines)
+    }
+}
