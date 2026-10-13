@@ -142,6 +142,7 @@ name = "mosstank-automation"
 version = "0.6.0-dev"
 dependencies = [
  "ac-plugin-abi",
+ "mosstank-dotnet",
  "openac-plugin-compat",
 ]
 
@@ -153,6 +154,7 @@ dependencies = [
  "mosstank-automation",
  "mosstank-data",
  "mosstank-dotnet",
+ "mosstank-formats",
  "mosstank-settings",
  "openac-plugin-compat",
 ]

@@ -17,3 +17,6 @@ openac-plugin-compat.workspace = true
 
 [lints]
 workspace = true
+
+[dev-dependencies]
+mosstank-formats.workspace = true

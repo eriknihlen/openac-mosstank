@@ -8,11 +8,16 @@
 //! - [`cast_tracker`]: one spell cast in flight.
 //! - [`combat_text`]: reading the character's own combat log.
 //! - [`locks`]: the cooldown slots the rules share.
+//! - [`components`]: the profile's blacklist of spell components.
+//! - [`Automation`]: the client as a whole (`IAutomationSurface`).
 
 pub mod cast_tracker;
 pub mod combat_text;
+pub mod components;
 pub mod locks;
 pub mod spells;
+pub mod surface;
 
 pub use locks::{ActionLockKind, ActionLockTable, SharedActionLocks};
 pub use spells::{SpellCatalog, StaticSpellCatalog};
+pub use surface::{Automation, CombatModePreparation};
