@@ -4,6 +4,10 @@
 //! the cast receipt and the enchantments, the components, the inventory,
 //! the appraisals, the selection, the combat mode and the movement intents.
 //!
+//! The same struct plays the C#'s `CombatCapableFakeAutomation` too
+//! ([`FakeAutomation::combat_capable`]): equipment that equips, a stance,
+//! the monsters around and the swings at them.
+//!
 //! The golden values of the panel tests depend on how this fake answers, so
 //! it follows the C# one call for call. Put one in a [`World`] with
 //! [`World::with_automation`]; the calls it does not answer go on to the
@@ -14,8 +18,8 @@ use std::collections::{BTreeMap, BTreeSet};
 use ac_plugin_abi::character::{ActiveEnchantment, Attribute, Skill, Training};
 use ac_plugin_abi::combat::{CombatMode, CombatResult, CombatSnapshot, CombatStatus, CombatTarget};
 use ac_plugin_abi::items::{
-    EquipmentItem, EquipmentPlacement, InventoryItem, ItemResult, ItemState, ItemStatus,
-    ItemUseCompletion,
+    EquipmentItem, EquipmentObservation, EquipmentPlacement, EquipmentResult, EquipmentStatus,
+    InventoryItem, ItemResult, ItemState, ItemStatus, ItemUseCompletion,
 };
 use ac_plugin_abi::magic::{
     CastCompletion, CastGate, CastRequest, CastResult, ComponentInfo, SpellInfo, SpellList,
@@ -96,7 +100,10 @@ pub struct FakeAutomation {
     pub cast_spell_ids: Vec<u32>,
     /// `CastSelectionIds`: what was selected for each.
     pub cast_selection_ids: Vec<u32>,
-    /// `CastRequestCount`: every cast asked for, sent or not.
+    /// `CastRequestCount`: every cast asked for at the selection, sent or
+    /// not. The C# counts only `RequestCast`; here the cast tracker's
+    /// re-sends of an unanswered cast, which come through the same client
+    /// call, are counted too.
     pub cast_request_count: usize,
     /// `CastGate`.
     pub cast_gate: CastGate,
@@ -171,6 +178,31 @@ pub struct FakeAutomation {
     /// fake holds [`stand_in_caster`] instead, which readies magic the same
     /// way (see the divergence register, TEST-1).
     pub equipment: Vec<EquipmentItem>,
+
+    /// Which of the C# fakes this one plays.
+    pub kind: FakeKind,
+    /// `CallLog` (combat-capable): every cast, stance, swing, use and
+    /// equip, in order.
+    pub call_log: Vec<String>,
+    /// `CastTargets` (combat-capable): the target of each targeted cast.
+    pub cast_targets: Vec<u32>,
+    /// `KnownSpellIds` (combat-capable): what `IsKnown` answers true for.
+    pub known_spell_ids: BTreeSet<u32>,
+    /// `BeginCount`, `LastBeginTarget`, `ReleaseCount` (combat-capable).
+    pub begin_count: usize,
+    /// The target of the last swing begun.
+    pub last_begin_target: u32,
+    /// How many swings were released.
+    pub release_count: usize,
+    /// `ApplyCount`, `LastAppliedItem` (combat-capable).
+    pub apply_count: usize,
+    /// The last (item, target) used.
+    pub last_applied_item: (u32, u32),
+    /// `ModeChangeRequests` (combat-capable).
+    pub mode_change_requests: usize,
+    /// The placements an equip raised (`PlacementObserved`), handed to the
+    /// plugin as events before its next frame ([`World::frame`]).
+    pub pending_observations: Vec<EquipmentObservation>,
 }
 
 impl Default for FakeAutomation {
@@ -236,6 +268,17 @@ impl Default for FakeAutomation {
             movement_intents: Vec::new(),
             clear_movement_count: 0,
             equipment: vec![stand_in_caster()],
+            kind: FakeKind::Plain,
+            call_log: Vec::new(),
+            cast_targets: Vec::new(),
+            known_spell_ids: BTreeSet::new(),
+            begin_count: 0,
+            last_begin_target: 0,
+            release_count: 0,
+            apply_count: 0,
+            last_applied_item: (0, 0),
+            mode_change_requests: 0,
+            pending_observations: Vec::new(),
         }
     }
 }
@@ -678,7 +721,12 @@ impl World {
     /// Answers `import` from the fake automation, `None` for a call it
     /// leaves to the SDK's fake host.
     pub(crate) fn automation_call(&mut self, import: Import, bytes: &[u8]) -> Option<Vec<u8>> {
-        self.automation.as_ref()?;
+        let kind = self.automation.as_ref()?.kind;
+        if kind == FakeKind::CombatCapable
+            && let Some(reply) = self.combat_capable_call(import, bytes)
+        {
+            return Some(reply);
+        }
         let reply = match import {
             Import::CharacterInfo => self.answer::<calls::CharacterInfo>(bytes, |world, ()| {
                 let automation = world.automation();
@@ -902,5 +950,413 @@ impl World {
             _ => return None,
         };
         Some(reply)
+    }
+}
+
+/// Which of the C# panel tests' fakes a [`FakeAutomation`] plays.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum FakeKind {
+    /// `FakeAutomation`: no equipment (see [`stand_in_caster`]), casts
+    /// that speak, answer and land, appraisals and item uses.
+    #[default]
+    Plain,
+    /// `CombatCapableFakeAutomation`: equipment that equips, a stance, the
+    /// monsters around and the swings at them; casts answer without words
+    /// and land for ten minutes; nothing is appraised or used.
+    CombatCapable,
+}
+
+/// `NavigationAt(heading)`: in the world, outdoors at the origin of cell
+/// 0x00010001.
+#[must_use]
+pub fn navigation_at(heading_degrees: f32) -> NavigationSnapshot {
+    let position = ac_plugin_abi::world::Position {
+        cell_id: 0x0001_0001,
+        east_west: 0.0,
+        north_south: 0.0,
+        elevation: 0.0,
+        heading_degrees,
+        is_outdoor: true,
+    };
+    NavigationSnapshot {
+        is_available: true,
+        is_portal_space: false,
+        local_object_id: 1,
+        position: position.clone(),
+        confirmed_position: position,
+        ..NavigationSnapshot::default()
+    }
+}
+
+/// `EquipmentItem(id, name, itemType)`: something the character can wield
+/// in the main hand, not wielded yet.
+#[must_use]
+pub fn equipment_item(object_id: u32, name: &str, item_type: u32) -> EquipmentItem {
+    EquipmentItem {
+        object_id,
+        name: name.to_owned(),
+        item_type,
+        valid_locations: 0x0010_0000,
+        equipped_location: 0,
+        container_id: 1,
+        wielder_id: 0,
+        combat_use: 1,
+        damage_type: 0,
+        weapon_skill: 44,
+        damage: 20,
+        damage_variance: 0.25,
+        object_class: super::item(object_id, name, item_type).object_class,
+        ..EquipmentItem::default()
+    }
+}
+
+/// `new PluginCombatTarget(id, name, wcid, distance, 0, true, 1)`.
+#[must_use]
+pub fn combat_target(
+    object_id: u32,
+    name: &str,
+    weenie_class_id: u32,
+    distance: f32,
+) -> CombatTarget {
+    CombatTarget {
+        object_id,
+        name: name.to_owned(),
+        weenie_class_id,
+        distance,
+        relative_angle_degrees: 0.0,
+        is_health_known: true,
+        health_fraction: 1.0,
+        ..CombatTarget::default()
+    }
+}
+
+impl FakeAutomation {
+    /// `new CombatCapableFakeAutomation()`: nameless, in peace at the
+    /// origin, nothing owned or wielded.
+    #[must_use]
+    pub fn combat_capable() -> Self {
+        Self {
+            kind: FakeKind::CombatCapable,
+            name: String::new(),
+            equipment: Vec::new(),
+            combat: CombatSnapshot {
+                mode: CombatMode::Peace,
+                attack_height: ac_plugin_abi::combat::AttackHeight::Medium,
+                desired_power: 0.5,
+                ..CombatSnapshot::default()
+            },
+            navigation: navigation_at(0.0),
+            ..Self::default()
+        }
+    }
+
+    /// `IWorldObjectAutomation.TryGet` of the combat-capable fake: the
+    /// equipment, the owned items (all appraised), then the monsters.
+    fn combat_try_get_object(&self, object_id: u32) -> Option<WorldObject> {
+        if let Some(item) = self
+            .equipment
+            .iter()
+            .find(|item| item.object_id == object_id)
+        {
+            return Some(equipment_object(item));
+        }
+        if let Some(item) = self
+            .item_entries
+            .iter()
+            .find(|item| item.object_id == object_id)
+        {
+            return Some(WorldObject {
+                object_id: item.object_id,
+                weenie_class_id: item.weenie_class_id,
+                name: item.name.clone(),
+                object_class: ObjectClass::Unknown,
+                item_type: item.item_type,
+                container_id: item.container_id,
+                wielder_id: item.wielder_id,
+                last_id_time: 1,
+                ..WorldObject::default()
+            });
+        }
+        self.hostile_targets
+            .iter()
+            .find(|target| target.object_id == object_id)
+            .map(|target| WorldObject {
+                object_id: target.object_id,
+                weenie_class_id: target.weenie_class_id,
+                name: target.name.clone(),
+                object_class: ObjectClass::Unknown,
+                ..WorldObject::default()
+            })
+    }
+
+    /// `TryCaptureProperties` of the combat-capable fake.
+    fn combat_try_capture_properties(&self, object_id: u32) -> Option<ItemProperties> {
+        if let Some(properties) = self.properties.get(&object_id) {
+            return Some(properties.clone());
+        }
+        if let Some(item) = self
+            .item_entries
+            .iter()
+            .find(|item| item.object_id == object_id)
+        {
+            let mut ints = Vec::new();
+            if item.item_maximum_mana > 0 {
+                ints.push((107, item.item_current_mana));
+                ints.push((108, item.item_maximum_mana));
+            }
+            return Some(ItemProperties {
+                ints,
+                ..ItemProperties::default()
+            });
+        }
+        self.combat_try_get_object(object_id)
+            .map(|_| ItemProperties::default())
+    }
+
+    /// `CaptureObjects` of the combat-capable fake: the world objects and
+    /// then the equipment.
+    fn combat_capture_objects(&self) -> Vec<WorldObject> {
+        let mut objects = self.world_objects.clone();
+        objects.extend(self.equipment.iter().map(equipment_object));
+        objects
+    }
+
+    /// `Equip`: the item goes to the main hand and everything else comes
+    /// off, each change raised as a placement.
+    fn combat_equip(&mut self, object_id: u32) -> EquipmentResult {
+        self.call_log.push(format!("Equip:{object_id:08X}"));
+        let before = self.equipment.clone();
+        for item in &mut self.equipment {
+            item.equipped_location = if item.object_id == object_id {
+                0x0010_0000
+            } else {
+                0
+            };
+        }
+        for old in &before {
+            if old.object_id != object_id && old.equipped_location != 0 {
+                self.pending_observations.push(EquipmentObservation {
+                    object_id: old.object_id,
+                    equipped_location: 0,
+                    is_removal: true,
+                    is_initial_placement: false,
+                });
+            }
+        }
+        self.pending_observations.push(EquipmentObservation {
+            object_id,
+            equipped_location: 0x0010_0000,
+            is_removal: false,
+            is_initial_placement: false,
+        });
+        EquipmentResult {
+            status: EquipmentStatus::Started,
+            ..EquipmentResult::default()
+        }
+    }
+
+    /// `EnterDefaultMode`: the stance of the first wielded item.
+    fn combat_enter_default_mode(&mut self) -> CombatResult {
+        let mode = self
+            .equipment
+            .iter()
+            .find(|item| item.equipped_location != 0)
+            .map_or(CombatMode::Peace, |item| {
+                if item.item_type & 0x0000_8000 != 0 {
+                    CombatMode::Magic
+                } else {
+                    CombatMode::Melee
+                }
+            });
+        self.combat.mode = mode;
+        self.call_log.push(format!("EnterDefaultMode:{mode:?}"));
+        CombatResult::of(CombatStatus::ModeChangeSent)
+    }
+}
+
+/// An owned piece of equipment as the object table holds it.
+fn equipment_object(item: &EquipmentItem) -> WorldObject {
+    WorldObject {
+        object_id: item.object_id,
+        name: item.name.clone(),
+        object_class: item.object_class,
+        item_type: item.item_type,
+        container_id: item.container_id,
+        wielder_id: item.wielder_id,
+        last_id_time: 1,
+        is_owned: true,
+        ..WorldObject::default()
+    }
+}
+
+impl World {
+    /// The combat-capable fake's `Cast`: always sent, answered at once, the
+    /// result line without words, and a self buff lands for ten minutes.
+    fn combat_cast(&mut self, request: &CastRequest) -> CastResult {
+        let automation = self.automation();
+        let spell_id = request.spell_id;
+        if request.target_id != 0 {
+            automation.cast_targets.push(request.target_id);
+        }
+        automation.cast_spell_ids.push(spell_id);
+        automation.call_log.push(format!("Cast:{spell_id}"));
+        let error = automation.next_cast_weenie_error;
+        automation.last_completion = CastCompletion {
+            revision: automation.last_completion.revision + 1,
+            spell_id,
+            target_id: 0,
+            weenie_error: error,
+        };
+        let name = automation
+            .try_get(spell_id)
+            .map_or_else(|| format!("Spell {spell_id}"), |spell| spell.name);
+        if let Some(spell) = automation
+            .known_self_buffs
+            .iter()
+            .find(|spell| spell.spell_id == spell_id)
+            .cloned()
+        {
+            automation.active_enchantments.push(ActiveEnchantment {
+                spell_id,
+                family: spell.family,
+                tier: spell.tier,
+                seconds_remaining: 600.0,
+            });
+        }
+        if error == 0 {
+            self.post_captured(
+                &format!("You cast {name} on yourself"),
+                SPELL_RESULT_TEXT_TYPE,
+            );
+        }
+        CastResult::Sent
+    }
+
+    /// The calls the combat-capable fake answers its own way.
+    #[allow(clippy::too_many_lines)]
+    fn combat_capable_call(&mut self, import: Import, bytes: &[u8]) -> Option<Vec<u8>> {
+        let reply = match import {
+            Import::MagicGate => {
+                self.answer::<calls::MagicGate>(bytes, |_, _request: CastRequest| CastGate::Ready)
+            }
+            Import::MagicCast => self
+                .answer::<calls::MagicCast>(bytes, |world, request: CastRequest| {
+                    world.combat_cast(&request)
+                }),
+            Import::SpellsIsKnown => self
+                .answer::<calls::SpellsIsKnown>(bytes, |world, spell_id: u32| {
+                    world.automation().known_spell_ids.contains(&spell_id)
+                }),
+            Import::WorldObject => self
+                .answer::<calls::WorldObject>(bytes, |world, object_id: u32| {
+                    world.automation().combat_try_get_object(object_id)
+                }),
+            Import::WorldObjects => self.answer::<calls::WorldObjects>(bytes, |world, ()| {
+                world.automation().combat_capture_objects()
+            }),
+            Import::ItemsProperties => self
+                .answer::<calls::ItemsProperties>(bytes, |world, object_id: u32| {
+                    world.automation().combat_try_capture_properties(object_id)
+                }),
+            Import::WorldProperties => self
+                .answer::<calls::WorldProperties>(bytes, |world, object_id: u32| {
+                    world.automation().combat_try_capture_properties(object_id)
+                }),
+            Import::WorldIdentify => self.answer::<calls::WorldIdentify>(bytes, |_, _id: u32| {
+                ItemResult::of(ItemStatus::Unavailable)
+            }),
+            Import::ItemsOwned => self.answer::<calls::ItemsOwned>(bytes, |world, ()| {
+                world.automation().item_entries.clone()
+            }),
+            Import::ItemsUse => self.answer::<calls::ItemsUse>(bytes, |_, _id: u32| {
+                ItemResult::of(ItemStatus::Unavailable)
+            }),
+            Import::ItemsGive => self.answer::<calls::ItemsGive>(bytes, |_, _give| {
+                ItemResult::of(ItemStatus::Unavailable)
+            }),
+            Import::ItemsApply => {
+                self.answer::<calls::ItemsApply>(bytes, |world, (object_id, target): (u32, u32)| {
+                    let automation = world.automation();
+                    automation.apply_count += 1;
+                    automation.last_applied_item = (object_id, target);
+                    automation
+                        .call_log
+                        .push(format!("Apply:{object_id:08X}->{target:08X}"));
+                    ItemResult::of(ItemStatus::Started)
+                })
+            }
+            Import::CombatHostileTargets => self
+                .answer::<calls::CombatHostileTargets>(bytes, |world, _maximum: f32| {
+                    world.automation().hostile_targets.clone()
+                }),
+            Import::CombatEnterMode => {
+                self.answer::<calls::CombatEnterMode>(bytes, |world, mode: CombatMode| {
+                    let automation = world.automation();
+                    automation.mode_change_requests += 1;
+                    automation.combat.mode = mode;
+                    automation.call_log.push(format!("EnterMode:{mode:?}"));
+                    CombatResult::of(CombatStatus::ModeChangeSent)
+                })
+            }
+            Import::CombatEnterDefaultMode => self
+                .answer::<calls::CombatEnterDefaultMode>(bytes, |world, ()| {
+                    world.automation().combat_enter_default_mode()
+                }),
+            Import::CombatBeginAttack => {
+                self.answer::<calls::CombatBeginAttack>(bytes, |world, request| {
+                    let automation = world.automation();
+                    automation.last_begin_target = request.target_id;
+                    automation.begin_count += 1;
+                    automation
+                        .call_log
+                        .push(format!("Attack:{:08X}", request.target_id));
+                    CombatResult::of(CombatStatus::Started)
+                })
+            }
+            Import::CombatReleaseAttack => {
+                self.answer::<calls::CombatReleaseAttack>(bytes, |world, ()| {
+                    let automation = world.automation();
+                    automation.release_count += 1;
+                    automation.call_log.push("Release".to_owned());
+                    CombatResult::of(CombatStatus::Released)
+                })
+            }
+            Import::EquipmentPlacements => {
+                self.answer::<calls::EquipmentPlacements>(bytes, |world, ()| {
+                    world
+                        .automation()
+                        .equipment
+                        .iter()
+                        .map(|item| EquipmentPlacement {
+                            object_id: item.object_id,
+                            equipped_location: item.equipped_location,
+                        })
+                        .collect()
+                })
+            }
+            Import::EquipmentEquip => self
+                .answer::<calls::EquipmentEquip>(bytes, |world, request| {
+                    world.automation().combat_equip(request.object_id)
+                }),
+            _ => return None,
+        };
+        Some(reply)
+    }
+
+    /// One frame of the macro (`panel.OnTick`), after the placements the
+    /// fake's equips raised since the last one have reached the plugin.
+    pub fn frame(&mut self, plugin: &mut mosstank::MossTank, seconds: f64) {
+        let observations = self
+            .automation
+            .as_mut()
+            .map(|automation| std::mem::take(&mut automation.pending_observations))
+            .unwrap_or_default();
+        for observation in observations {
+            self.send(
+                plugin,
+                ac_plugin_abi::Event::EquipmentPlacement(observation),
+            );
+        }
+        self.with_tank(plugin, |tank, client| tank.on_tick(client, seconds));
     }
 }

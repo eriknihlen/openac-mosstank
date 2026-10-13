@@ -671,6 +671,14 @@ impl<F: MacroFamily> MacroScheduler<F> {
         &self.main
     }
 
+    /// A rule of the main list by name, to ask it directly.
+    pub fn main_rule_mut(&mut self, name: &str) -> Option<&mut dyn MacroRule<F>> {
+        self.main
+            .iter_mut()
+            .find(|rule| rule.name() == name)
+            .map(|rule| &mut **rule as &mut dyn MacroRule<F>)
+    }
+
     /// The independent list.
     #[must_use]
     pub fn independent_rules(&self) -> &[Box<dyn MacroRule<F>>] {
