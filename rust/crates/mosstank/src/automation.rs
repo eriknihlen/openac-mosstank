@@ -40,6 +40,9 @@ pub struct HostAutomation<'h, 'a> {
     pub(crate) storage_view: StorageView,
     /// How each kind of UB line is shown, once the UB settings said so.
     pub(crate) ub_displays: Option<[mosstank_meta::host::UbDisplay; 4]>,
+    /// The windows the meta draws, kept by the plugin between calls; with
+    /// none, the meta's windows are not drawn.
+    pub(crate) meta_windows: Option<&'h mut crate::meta_windows::MetaWindows>,
 }
 
 /// Which storage a [`HostAutomation`] answers as.
@@ -60,6 +63,7 @@ impl<'h, 'a> HostAutomation<'h, 'a> {
             observations: None,
             storage_view: StorageView::Meta,
             ub_displays: None,
+            meta_windows: None,
         }
     }
 
@@ -74,7 +78,20 @@ impl<'h, 'a> HostAutomation<'h, 'a> {
             observations: Some(observations),
             storage_view: StorageView::Meta,
             ub_displays: None,
+            meta_windows: None,
         }
+    }
+
+    /// The plugin's own call: the equipment placements and the meta's
+    /// windows it keeps between calls.
+    pub fn for_call(
+        host: &'h mut Host<'a>,
+        observations: &'h mut Vec<EquipmentObservation>,
+        meta_windows: &'h mut crate::meta_windows::MetaWindows,
+    ) -> Self {
+        let mut client = Self::with_equipment_observations(host, observations);
+        client.meta_windows = Some(meta_windows);
+        client
     }
 
     /// The host, for the other views of the client built on this one.

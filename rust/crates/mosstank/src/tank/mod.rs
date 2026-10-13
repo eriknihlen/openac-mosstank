@@ -19,6 +19,7 @@ mod commands;
 mod diagnostics;
 mod display;
 mod frame;
+mod meta_windows;
 pub(crate) mod options;
 pub(crate) mod panel;
 mod peers;

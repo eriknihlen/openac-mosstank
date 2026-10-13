@@ -2,11 +2,11 @@
 //! for the length of one plugin call: every method is one SDK call, and the
 //! plugin's own storage is the SDK's plugin-data root.
 //!
+//! The meta's views and its status list are drawn through the SDK's plugin
+//! UI ([`crate::meta_windows`]) when the plugin's call carries its windows.
 //! What the SDK does not offer yet answers the way a client without it
-//! does: none of the client's own windows, no window
-//! for a meta view or the status list (they work headless), stacks not
-//! joined on a move, and no storage handle that outlives the call (the
-//! global variables then stay the session's own).
+//! does: stacks not joined on a move, and no storage handle that outlives
+//! the call (the global variables then stay the session's own).
 
 use mosstank_meta::host::{
     ActiveEnchantment, Attribute, CastResult, CharacterInfo, ChatLine, CombatMode, CombatResult,
@@ -266,30 +266,48 @@ impl MetaHost for HostAutomation<'_, '_> {
         self.host.window_attached()
     }
 
-    fn register_panel(&mut self, _descriptor: &PanelDescriptor, _markup: &str) -> Option<u32> {
-        None
+    /// Registers one of the meta's windows (`RegisterPanelContent`) and
+    /// keeps it for the plugin; a window the client refuses is logged and
+    /// left undrawn, as a view the host cannot draw is.
+    fn register_panel(&mut self, descriptor: &PanelDescriptor, markup: &str) -> Option<u32> {
+        let windows = self.meta_windows.as_deref_mut()?;
+        match windows.register(self.host, descriptor, markup) {
+            Ok(panel) => Some(panel),
+            Err(error) => {
+                self.host.warn(&format!(
+                    "MossTank window '{}' was not registered: {error}",
+                    descriptor.window_id
+                ));
+                None
+            }
+        }
     }
 
-    fn unregister_panel(&mut self, _handle: u32) {}
-
-    fn ui_view_exists(&mut self, _view: &str) -> bool {
-        false
+    /// Takes one of the meta's windows down (the registration's `Dispose`).
+    fn unregister_panel(&mut self, handle: u32) {
+        if let Some(windows) = self.meta_windows.as_deref_mut() {
+            windows.unregister(self.host, handle);
+        }
     }
 
-    fn ui_view_visible(&mut self, _view: &str) -> bool {
-        false
+    fn ui_view_exists(&mut self, view: &str) -> bool {
+        self.host.view_exists(view)
     }
 
-    fn ui_control_exists(&mut self, _view: &str, _control: &str) -> bool {
-        false
+    fn ui_view_visible(&mut self, view: &str) -> bool {
+        self.host.view_visible(view)
     }
 
-    fn ui_set_control_label(&mut self, _view: &str, _control: &str, _label: &str) -> bool {
-        false
+    fn ui_control_exists(&mut self, view: &str, control: &str) -> bool {
+        self.host.control_exists(view, control)
     }
 
-    fn ui_set_control_visible(&mut self, _view: &str, _control: &str, _visible: bool) -> bool {
-        false
+    fn ui_set_control_label(&mut self, view: &str, control: &str, label: &str) -> bool {
+        self.host.set_control_label(view, control, label)
+    }
+
+    fn ui_set_control_visible(&mut self, view: &str, control: &str, visible: bool) -> bool {
+        self.host.set_control_visible(view, control, visible)
     }
 
     fn storage(&mut self) -> &mut dyn PluginStorage {
