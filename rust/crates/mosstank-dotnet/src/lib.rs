@@ -138,6 +138,43 @@ pub fn format_g15(value: f64) -> String {
     number::format_f64(value, "G15").expect("G15 is a supported format")
 }
 
+/// `value.ToString(format, CultureInfo.InvariantCulture)` for a double,
+/// adding to the compatibility kit the custom formats that only put literal
+/// text before or after their digits ("0.0 x", "~0.00 m"). A literal before
+/// the digits follows the minus sign, as in .NET. Anything else the kit does
+/// not print is still refused.
+///
+/// # Errors
+/// What the kit refuses, unless the format is digits with literal text
+/// around them.
+pub fn format_double(value: f64, format: &str) -> Result<String, number::FormatError> {
+    let refused = match number::format_f64(value, format) {
+        Err(error @ number::FormatError::Unsupported(_)) => error,
+        other => return other,
+    };
+    let placeholder = |c: char| matches!(c, '0' | '#' | '.' | ',');
+    let (Some(start), Some(end)) = (format.find(placeholder), format.rfind(placeholder)) else {
+        return Err(refused);
+    };
+    let (prefix, core, suffix) = (&format[..start], &format[start..=end], &format[end + 1..]);
+    // Characters with a meaning of their own in a custom format, and an
+    // exponent: not plain literal text.
+    let special = |c: char| matches!(c, '%' | '\u{2030}' | ';' | '\\' | '\'' | '"' | 'E' | 'e');
+    if !core.chars().all(placeholder) || prefix.chars().any(special) || suffix.chars().any(special)
+    {
+        return Err(refused);
+    }
+    let digits = number::format_f64(value, core)?;
+    if !value.is_finite() {
+        // NaN and the infinities print as their symbol alone.
+        return Ok(digits);
+    }
+    Ok(match digits.strip_prefix('-') {
+        Some(magnitude) => format!("-{prefix}{magnitude}{suffix}"),
+        None => format!("{prefix}{digits}{suffix}"),
+    })
+}
+
 /// `value.ToString(CultureInfo.InvariantCulture)` for a double.
 #[must_use]
 pub fn double_to_string(value: f64) -> String {
@@ -303,6 +340,17 @@ mod tests {
         assert_eq!(byte_offset_of_utf16(text, 3), Some(5));
         assert_eq!(byte_offset_of_utf16(text, 4), Some(6));
         assert_eq!(byte_offset_of_utf16(text, 5), None);
+    }
+
+    // Expected values: .NET 10 `double.ToString(format, InvariantCulture)`.
+    #[test]
+    fn a_custom_format_may_carry_literal_text_around_its_digits() {
+        assert_eq!(format_double(3.5, "0.0 x").unwrap(), "3.5 x");
+        assert_eq!(format_double(3.5, "0.0 X").unwrap(), "3.5 X");
+        assert_eq!(format_double(-3.5, "~0.00").unwrap(), "-~3.50");
+        assert_eq!(format_double(f64::NAN, "0.0 x").unwrap(), "NaN");
+        assert_eq!(format_double(3.5, "0.00").unwrap(), "3.50");
+        assert!(format_double(3.5, "0 x 0").is_err());
     }
 
     #[test]
