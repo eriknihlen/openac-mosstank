@@ -23,13 +23,33 @@ use ac_plugin_abi::world::{ItemProperties, Position, WorldObject};
 use mosstank_automation::{Automation, SpellCatalog};
 use openac_plugin::Host;
 
-/// The client, as the rules see it.
+/// The client for one call, as every part of the macro sees it: the rules
+/// ([`Automation`]), the looter ([`mosstank_loot::host::LootHost`]), the
+/// route ([`mosstank_nav::NavigationAutomation`]), the meta
+/// ([`mosstank_meta::host::MetaHost`]) and the profile stores
+/// ([`mosstank_stores::storage::StoreHost`]) all reach the one SDK host
+/// through it.
 #[derive(Debug)]
 pub struct HostAutomation<'h, 'a> {
-    host: &'h mut Host<'a>,
+    pub(crate) host: &'h mut Host<'a>,
     /// The placements the client announced since the last read
     /// (`Event::EquipmentPlacement`), kept by the plugin between calls.
     observations: Option<&'h mut Vec<EquipmentObservation>>,
+    /// Which storage the last storage accessor handed out: the meta's own
+    /// (always there) or a profile store's place.
+    pub(crate) storage_view: StorageView,
+    /// How each kind of UB line is shown, once the UB settings said so.
+    pub(crate) ub_displays: Option<[mosstank_meta::host::UbDisplay; 4]>,
+}
+
+/// Which storage a [`HostAutomation`] answers as.
+#[derive(Debug, Clone, PartialEq)]
+pub(crate) enum StorageView {
+    /// The meta's storage: the plugin's own data, always available.
+    Meta,
+    /// A profile store's storage at a place, available when the client
+    /// describes it.
+    Store(ac_plugin_abi::storage::StoragePlace),
 }
 
 impl<'h, 'a> HostAutomation<'h, 'a> {
@@ -38,6 +58,8 @@ impl<'h, 'a> HostAutomation<'h, 'a> {
         Self {
             host,
             observations: None,
+            storage_view: StorageView::Meta,
+            ub_displays: None,
         }
     }
 
@@ -50,6 +72,8 @@ impl<'h, 'a> HostAutomation<'h, 'a> {
         Self {
             host,
             observations: Some(observations),
+            storage_view: StorageView::Meta,
+            ub_displays: None,
         }
     }
 
@@ -291,10 +315,10 @@ impl Automation for HostAutomation<'_, '_> {
         self.is_available()
     }
 
-    /// The SDK reports no equip in flight, so this answers as the C#
-    /// surface does when the host wires no busy test (COMBAT-6).
+    /// An equip the client started is still in flight (OpenAC's
+    /// `IsAutoWieldBusy`).
     fn equipment_busy(&mut self) -> bool {
-        false
+        self.host.equipment_busy()
     }
 
     fn owned_equipment(&mut self) -> Vec<EquipmentItem> {
@@ -339,6 +363,10 @@ impl Automation for HostAutomation<'_, '_> {
 
     fn select(&mut self, object_id: u32) -> bool {
         self.host.select(object_id)
+    }
+
+    fn clear_selection(&mut self) -> bool {
+        self.host.clear_selection()
     }
 
     fn selection_step(&mut self, action: SelectionAction) -> bool {

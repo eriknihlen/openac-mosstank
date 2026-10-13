@@ -61,6 +61,10 @@ where
         "OpenDoor".to_owned()
     }
 
+    fn shape(&self) -> mosstank_meta::scheduler::RuleShape {
+        mosstank_meta::scheduler::RuleShape::Other("OpenDoorRule")
+    }
+
     fn valid_now(&mut self, cx: &mut F::Cx<'_>, context: MacroPassContext) -> bool {
         let gate_open = cx.door_rule_enabled();
         self.gate_closed = !gate_open;

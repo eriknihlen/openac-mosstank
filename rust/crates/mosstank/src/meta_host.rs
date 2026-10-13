@@ -3,7 +3,7 @@
 //! plugin's own storage is the SDK's plugin-data root.
 //!
 //! What the SDK does not offer yet answers the way a client without it
-//! does: no equip in flight, none of the client's own windows, no window
+//! does: none of the client's own windows, no window
 //! for a meta view or the status list (they work headless), stacks not
 //! joined on a move, and no storage handle that outlives the call (the
 //! global variables then stay the session's own).
@@ -13,73 +13,17 @@ use mosstank_meta::host::{
     CombatSnapshot, CombatTarget, ComponentInfo, EquipmentItem, EquipmentResult, FellowMember,
     FellowshipState, InventoryItem, ItemProperties, ItemResult, ItemState, LogLevel, LoginState,
     LootContainer, MetaHost, MovementIntent, NavigationSnapshot, NavigationStatus, NetworkClient,
-    PanelDescriptor, PeerCast, SelectionState, Skill, SpellInfo, SpellList, WorldObject, WorldTime,
+    PanelDescriptor, PeerCast, SelectionState, Skill, SpellInfo, SpellList, UbDisplay, UbLineKind,
+    WorldObject, WorldTime,
 };
-use mosstank_stores::storage::{PluginStorage, StorageError};
-use openac_plugin::Host;
-use openac_plugin::storage::{StoragePlace, StorageRoot};
+use mosstank_stores::storage::PluginStorage;
 
-/// The client for one call.
-pub struct ClientHost<'h, 'a> {
-    host: &'h mut Host<'a>,
-    place: StoragePlace,
-}
+use crate::automation::{HostAutomation, StorageView};
 
-impl std::fmt::Debug for ClientHost<'_, '_> {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.write_str("ClientHost")
-    }
-}
+/// The meta's view of the client: the one client of the call.
+pub type ClientHost<'h, 'a> = HostAutomation<'h, 'a>;
 
-impl<'h, 'a> ClientHost<'h, 'a> {
-    /// The client behind `host`.
-    pub fn new(host: &'h mut Host<'a>) -> Self {
-        Self {
-            host,
-            place: StoragePlace::global(StorageRoot::PluginData),
-        }
-    }
-}
-
-impl PluginStorage for ClientHost<'_, '_> {
-    fn is_available(&mut self) -> bool {
-        true
-    }
-
-    fn root_path(&mut self) -> Option<String> {
-        self.host.storage_describe(&self.place)
-    }
-
-    fn read_text(&mut self, key: &str) -> Result<Option<String>, StorageError> {
-        self.host.storage_read_text(&self.place, key)
-    }
-
-    fn list(&mut self, prefix: &str) -> Result<Vec<String>, StorageError> {
-        self.host.storage_list(&self.place, prefix)
-    }
-
-    fn write_text(&mut self, key: &str, content: &str) -> Result<(), StorageError> {
-        self.host.storage_write_text(&self.place, key, content)
-    }
-
-    fn ensure_directory(&mut self, prefix: &str) -> Result<bool, StorageError> {
-        self.host.storage_ensure_folder(&self.place, prefix)
-    }
-
-    fn delete(&mut self, key: &str) -> Result<bool, StorageError> {
-        self.host.storage_delete(&self.place, key)
-    }
-
-    fn lock(&mut self, key: &str) -> Result<u32, StorageError> {
-        self.host.storage_lock(&self.place, key).map(|lock| lock.0)
-    }
-
-    fn unlock(&mut self, handle: u32) -> bool {
-        self.host.storage_unlock(openac_plugin::StorageLock(handle))
-    }
-}
-
-impl MetaHost for ClientHost<'_, '_> {
+impl MetaHost for HostAutomation<'_, '_> {
     fn log(&mut self, level: LogLevel, message: &str) {
         self.host.log(level, message);
     }
@@ -107,6 +51,21 @@ impl MetaHost for ClientHost<'_, '_> {
 
     fn chat_remove_filter(&mut self, handle: u32) -> bool {
         self.host.chat_remove_filter(handle)
+    }
+
+    /// The UB settings' display for the kind, once the shell said; the
+    /// reference's defaults before.
+    fn ub_display(&mut self, kind: UbLineKind) -> UbDisplay {
+        let index = match kind {
+            UbLineKind::Generic => 0,
+            UbLineKind::Debug => 1,
+            UbLineKind::Expression => 2,
+            UbLineKind::Error => 3,
+        };
+        self.ub_displays.map_or_else(
+            || mosstank_meta::chat::ub_default_display(kind),
+            |displays| displays[index],
+        )
     }
 
     fn character(&mut self) -> Option<CharacterInfo> {
@@ -226,7 +185,7 @@ impl MetaHost for ClientHost<'_, '_> {
     }
 
     fn equipment_busy(&mut self) -> bool {
-        false
+        self.host.equipment_busy()
     }
 
     fn spell(&mut self, spell_id: u32) -> Option<SpellInfo> {
@@ -332,6 +291,7 @@ impl MetaHost for ClientHost<'_, '_> {
     }
 
     fn storage(&mut self) -> &mut dyn PluginStorage {
+        self.storage_view = StorageView::Meta;
         self
     }
 

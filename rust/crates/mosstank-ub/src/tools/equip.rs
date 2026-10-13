@@ -18,7 +18,6 @@ use ac_plugin_abi::items::{EquipmentObservation, EquipmentStatus, InventoryItem,
 use ac_plugin_abi::world::{ItemProperties, ObjectClass};
 use mosstank_automation::locks::{ActionLockKind, ActionLockTable};
 use mosstank_formats::utl::{self, LootAction, LootRule, VtankLootRequirement};
-use mosstank_loot::rules;
 use mosstank_stores::storage::StorageError;
 use openac_plugin_compat::number;
 use openac_plugin_compat::regex;
@@ -331,8 +330,12 @@ impl EquipProfileController {
         self.run_seconds += step;
         self.since_progress += step;
         if self.mode == Mode::Load {
-            call.locks.arm(ActionLockKind::ItemUse, LOCK_SECONDS);
-            call.locks.arm(ActionLockKind::Navigation, LOCK_SECONDS);
+            call.locks
+                .borrow_mut()
+                .arm(ActionLockKind::ItemUse, LOCK_SECONDS);
+            call.locks
+                .borrow_mut()
+                .arm(ActionLockKind::Navigation, LOCK_SECONDS);
         }
         self.drain_observations();
         if self.since_progress > BAIL_SECONDS {
@@ -486,7 +489,8 @@ impl EquipProfileController {
 
     fn needs_identify(&self, call: &mut UbCall<'_>, item: &InventoryItem) -> bool {
         let properties = properties_of(call, item.object_id);
-        rules::needs_identify(item, &properties, &self.rules, Some(call.host.automation()))
+        call.host
+            .loot_needs_identify(item, &properties, &self.rules)
     }
 
     /// The pieces the profile keeps, in the order they go on: by the lore
@@ -497,14 +501,9 @@ impl EquipProfileController {
         let mut chosen: Vec<(u32, i32)> = Vec::new();
         for item in &self.candidates {
             let properties = properties_of(call, item.object_id);
-            let (decision, _) = rules::decide(
-                item,
-                &properties,
-                &self.rules,
-                &owned,
-                None,
-                Some(call.host.automation()),
-            );
+            let decision = call
+                .host
+                .loot_decide(item, &properties, &self.rules, &owned);
             if !decision.is_some_and(|decision| {
                 matches!(decision.action, LootAction::Keep | LootAction::KeepUpTo)
             }) {
@@ -656,7 +655,7 @@ impl EquipProfileController {
     /// equipping items in <n>s", as a think when EquipmentManager.Think is
     /// on, as the reference's does; a dry run ends in silence.
     fn stop(&mut self, call: &mut UbCall<'_>, notice: Option<String>) {
-        let was_load = self.clear_run(call.locks);
+        let was_load = self.clear_run(&mut call.locks.borrow_mut());
         let Some(notice) = notice else {
             "Equip profile idle.".clone_into(&mut self.status);
             return;

@@ -15,6 +15,23 @@ use std::rc::Rc;
 
 use crate::host::MetaHost;
 
+/// What kind of rule fills a slot.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum RuleShape {
+    /// A marker (`MacroRuleSentinel`).
+    Sentinel,
+    /// A slot with no rule (`AbsentMacroRule`), and why.
+    Absent(String),
+    /// A controller's tick (`ControllerMacroRule`).
+    Controller,
+    /// A rule behind gates and fallbacks (`MacroRulePreChain`).
+    PreChain,
+    /// Peace when idle (`IdlePeaceRule`).
+    IdlePeace,
+    /// Any other rule, by its type's name.
+    Other(&'static str),
+}
+
 /// The plugin's state for one call, for every length of call: `Cx<'a>`
 /// borrows what it needs for `'a`. The family itself is a marker that
 /// outlives every call, so the rules built over it can be kept.
@@ -135,6 +152,12 @@ pub trait MacroRule<F: MacroFamily> {
         let _ = cx;
         None
     }
+
+    /// What kind of rule this is (the C#'s rule types, for the tests that
+    /// check which rule fills a slot).
+    fn shape(&self) -> RuleShape {
+        RuleShape::Other("rule")
+    }
 }
 
 /// The scheduler's hooks into the plugin.
@@ -187,6 +210,10 @@ impl MacroRuleSentinel {
 }
 
 impl<F: MacroFamily> MacroRule<F> for MacroRuleSentinel {
+    fn shape(&self) -> RuleShape {
+        RuleShape::Sentinel
+    }
+
     fn name(&self) -> String {
         format!("Sentinel {}", self.marker)
     }
@@ -255,6 +282,10 @@ impl<F: MacroFamily> MacroRulePreChain<F> {
 }
 
 impl<F: MacroFamily> MacroRule<F> for MacroRulePreChain<F> {
+    fn shape(&self) -> RuleShape {
+        RuleShape::PreChain
+    }
+
     fn name(&self) -> String {
         self.primary.name()
     }
@@ -422,6 +453,10 @@ impl<F: MacroFamily> ControllerMacroRule<F> {
 }
 
 impl<F: MacroFamily> MacroRule<F> for ControllerMacroRule<F> {
+    fn shape(&self) -> RuleShape {
+        RuleShape::Controller
+    }
+
     fn name(&self) -> String {
         self.name.clone()
     }
@@ -487,6 +522,10 @@ impl AbsentMacroRule {
 }
 
 impl<F: MacroFamily> MacroRule<F> for AbsentMacroRule {
+    fn shape(&self) -> RuleShape {
+        RuleShape::Absent(self.reason.clone())
+    }
+
     fn name(&self) -> String {
         self.name.clone()
     }
@@ -522,6 +561,10 @@ impl<F: MacroFamily> MacroRule<F> for IdlePeaceRule
 where
     for<'a> F::Cx<'a>: IdlePeaceContext,
 {
+    fn shape(&self) -> RuleShape {
+        RuleShape::IdlePeace
+    }
+
     fn name(&self) -> String {
         "IdlePeace".to_owned()
     }

@@ -10,7 +10,6 @@ use std::collections::{HashSet, VecDeque};
 use ac_plugin_abi::items::{InventoryCommandKind, InventoryItem};
 use ac_plugin_abi::world::{ItemProperties, ObjectClass, WorldObject};
 use mosstank_formats::utl::{LootAction, LootRule};
-use mosstank_loot::rules;
 use mosstank_settings::model::InventorySettings;
 use openac_plugin_compat::number::{self, NumberStyles};
 use openac_plugin_compat::regex::{DotNetRegex, RegexOptions};
@@ -757,7 +756,7 @@ fn matches_give_profile(
     rules: &[LootRule],
 ) -> bool {
     for rule in rules {
-        if !rules::rule_matches(rule, item, properties, Some(call.host.automation())).0 {
+        if !call.host.loot_rule_matches(rule, item, properties) {
             continue;
         }
         return matches!(rule.action, LootAction::Keep | LootAction::KeepUpTo);

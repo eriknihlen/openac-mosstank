@@ -386,6 +386,11 @@ pub trait Automation {
         false
     }
 
+    /// Clears the selection.
+    fn clear_selection(&mut self) -> bool {
+        false
+    }
+
     /// Steps the selection (previous selection, previous or next player).
     fn selection_step(&mut self, action: SelectionAction) -> bool {
         let _ = action;

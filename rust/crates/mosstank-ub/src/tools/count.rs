@@ -11,7 +11,6 @@ use std::collections::{HashMap, HashSet};
 use ac_plugin_abi::items::{InventoryItem, ItemStatus};
 use ac_plugin_abi::world::{ItemProperties, ObjectClass};
 use mosstank_formats::utl::{LootAction, LootRule};
-use mosstank_loot::rules;
 use mosstank_meta::host::MetaHost;
 use openac_plugin_compat::number::{self, NumberStyles};
 use openac_plugin_compat::regex::{DotNetRegex, RegexOptions};
@@ -438,7 +437,7 @@ impl InventoryCountController {
         properties: &ItemProperties,
         has_appraisal_data: bool,
     ) -> bool {
-        if !rules::needs_identify(item, properties, &self.rules, Some(call.host.automation())) {
+        if !call.host.loot_needs_identify(item, properties, &self.rules) {
             return false;
         }
         if self.attempts_spent(item.object_id) >= MAXIMUM_IDENTIFY_ATTEMPTS_PER_ITEM {
@@ -457,7 +456,7 @@ impl InventoryCountController {
         properties: &ItemProperties,
     ) -> Option<String> {
         for (index, rule) in self.rules.iter().enumerate() {
-            if !rules::rule_matches(rule, item, properties, Some(call.host.automation())).0 {
+            if !call.host.loot_rule_matches(rule, item, properties) {
                 continue;
             }
             let name = if casing::is_white_space_only(&rule.name) {

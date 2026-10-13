@@ -92,6 +92,7 @@ pub fn status_name(status: ItemStatus) -> &'static str {
         ItemStatus::Busy => "Busy",
         ItemStatus::Started => "Started",
         ItemStatus::Refused => "Refused",
+        ItemStatus::Completed => "Completed",
     }
 }
 

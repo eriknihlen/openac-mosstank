@@ -4,13 +4,14 @@
 //! closing a container, the chat input interceptor, the other clients'
 //! broadcasts, the dungeon data, and what the UB tools add: merging stacks,
 //! the appraisal slot, the vitals and spending experience, the allegiance,
-//! labels over objects, the shared profile folder, and the rules' view of
-//! the client ([`UbHost::automation`]). Every method maps onto one SDK call
-//! or, for the last, onto the same client object.
+//! labels over objects, the shared profile folder, and loot rules read
+//! against the client. Every method maps onto one SDK call, or (the
+//! rules) onto the macro's own rule engine over the same client.
 
 pub use ac_plugin_abi::character::{
     AdvancementKind, AdvancementResult, AdvancementStatus, OptionResult, OptionStatus, Skill, Vital,
 };
+use ac_plugin_abi::items::InventoryItem;
 pub use ac_plugin_abi::items::{AppraisalState, ItemResult};
 pub use ac_plugin_abi::navigation::{
     MoveChannel, MoveDirection, MovePace, MoveReport, MoveUnit, NavigationStatus,
@@ -18,7 +19,9 @@ pub use ac_plugin_abi::navigation::{
 pub use ac_plugin_abi::social::{AllegianceResult, AllegianceState, AllegianceStatus};
 pub use ac_plugin_abi::ui::WorldLabel;
 pub use ac_plugin_abi::world::Floorplan;
-use mosstank_automation::Automation;
+use ac_plugin_abi::world::ItemProperties;
+use mosstank_formats::utl::LootRule;
+pub use mosstank_loot::rules::LootDecision;
 use mosstank_meta::host::MetaHost;
 use mosstank_stores::storage::PluginStorage;
 
@@ -110,17 +113,43 @@ pub trait UbHost: MetaHost {
 
     // ---- the UB tools ----
 
-    /// The same client as the macro's rules see it: what a loot profile's
-    /// rules are evaluated against when a tool reads one.
-    fn automation(&mut self) -> &mut dyn Automation;
+    /// Whether a loot rule matches an item, its requirements read against
+    /// this client (`LootRule.IsMatch`).
+    fn loot_rule_matches(
+        &mut self,
+        rule: &LootRule,
+        item: &InventoryItem,
+        properties: &ItemProperties,
+    ) -> bool;
+    /// Whether appraising an item could change which rule decides it
+    /// (`LootRuleEngine.NeedsIdentify`).
+    fn loot_needs_identify(
+        &mut self,
+        item: &InventoryItem,
+        properties: &ItemProperties,
+        rules: &[LootRule],
+    ) -> bool;
+    /// The rules' decision on an item, `owned` counted for keep-up-to
+    /// (`LootRuleEngine.Decide`).
+    fn loot_decide(
+        &mut self,
+        item: &InventoryItem,
+        properties: &ItemProperties,
+        rules: &[LootRule],
+        owned: &[InventoryItem],
+    ) -> Option<LootDecision>;
     /// The shared profile folder (`IPluginHost.VtankProfiles`): the UB
     /// tree's equipment profiles and map markers.
     fn profile_storage(&mut self) -> &mut dyn PluginStorage;
     /// Moves `amount` of one stack onto another of the same thing (0: all
     /// that fit).
     fn merge_items(&mut self, source_id: u32, target_id: u32, amount: u32) -> ItemResult;
-    /// The appraisal slot: what it waits on and what it last gave up on.
+    /// The appraisal slot: what it waits on, what it last gave up on, and
+    /// whether the object shown came back as an unsuccessful appraisal.
     fn appraisal(&mut self) -> AppraisalState;
+    /// Drops an item the client still lists but the server no longer has
+    /// (`IItemAutomation.ForgetStaleItem`).
+    fn forget_stale_item(&mut self, object_id: u32) -> ItemResult;
     /// The three vitals, with their ranks.
     fn vitals(&mut self) -> Vec<Vital>;
     /// Spends experience on one stat.

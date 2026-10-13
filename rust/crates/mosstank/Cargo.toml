@@ -23,6 +23,11 @@ mosstank-meta.workspace = true
 mosstank-nav.workspace = true
 mosstank-vendor.workspace = true
 mosstank-loot.workspace = true
+mosstank-ub.workspace = true
+mosstank-buffs.workspace = true
+mosstank-combat.workspace = true
+mosstank-settings.workspace = true
+mosstank-dotnet.workspace = true
 
 [lints]
 workspace = true

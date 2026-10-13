@@ -416,6 +416,7 @@ impl World {
             awaiting_id: awaiting,
             current_id: current,
             last_abandoned_id: 0,
+            current_object_unsuccessful: false,
         };
     }
 

@@ -724,7 +724,7 @@ impl EquipRig {
 
     fn tick(&mut self, seconds: f64) -> bool {
         self.sync();
-        self.rig.locks.advance(seconds);
+        self.rig.locks.borrow_mut().advance(seconds);
         self.rig
             .with_call(|call, commands| commands.tools_mut().equip.tick(call, seconds, true))
     }
@@ -898,7 +898,13 @@ fn load_dequips_then_equips_in_lore_order_under_the_item_lock() {
     assert!(equip.running());
 
     assert!(equip.tick(0.1));
-    assert!(equip.rig.locks.is_locked(ActionLockKind::ItemUse));
+    assert!(
+        equip
+            .rig
+            .locks
+            .borrow_mut()
+            .is_locked(ActionLockKind::ItemUse)
+    );
     assert_eq!(vec![(SWORD, PLAYER)], equip.move_calls());
     assert!(equip.equip_calls().is_empty());
 
@@ -919,7 +925,13 @@ fn load_dequips_then_equips_in_lore_order_under_the_item_lock() {
 
     assert!(!equip.tick(0.1));
     assert!(!equip.running());
-    assert!(!equip.rig.locks.is_locked(ActionLockKind::ItemUse));
+    assert!(
+        !equip
+            .rig
+            .locks
+            .borrow_mut()
+            .is_locked(ActionLockKind::ItemUse)
+    );
     assert!(
         equip
             .messages()
@@ -1022,7 +1034,13 @@ fn test_reports_the_order_and_touches_nothing() {
     assert!(!equip.running());
     assert!(equip.equip_calls().is_empty());
     assert!(equip.move_calls().is_empty());
-    assert!(!equip.rig.locks.is_locked(ActionLockKind::ItemUse));
+    assert!(
+        !equip
+            .rig
+            .locks
+            .borrow_mut()
+            .is_locked(ActionLockKind::ItemUse)
+    );
     let messages = equip.messages();
     let bracelet = messages
         .iter()
@@ -1142,8 +1160,13 @@ fn profiles_resolve_by_tier_and_list_shows_every_depth() {
     write_set_a_profile(&equip.rig, "mosstank/ub/Coldeve/equip/default.utl");
     assert!(equip.command("test suit").unwrap().is_empty());
     assert!(equip.running());
-    let mut locks = std::mem::take(&mut equip.rig.locks);
-    equip.rig.commands.tools_mut().equip.reset(&mut locks);
+    let locks = equip.rig.locks.clone();
+    equip
+        .rig
+        .commands
+        .tools_mut()
+        .equip
+        .reset(&mut locks.borrow_mut());
 
     write_set_a_profile(&equip.rig, "mosstank/ub/Coldeve/Acdream/equip/suit.utl");
     write_set_a_profile(&equip.rig, "mosstank/ub/equip/other.utl");
@@ -1168,12 +1191,24 @@ fn a_run_with_no_progress_bails_and_releases_the_lock() {
     equip.command("load suit");
     assert!(equip.tick(0.1));
     assert_eq!(1, equip.equip_calls().len());
-    assert!(equip.rig.locks.is_locked(ActionLockKind::ItemUse));
+    assert!(
+        equip
+            .rig
+            .locks
+            .borrow_mut()
+            .is_locked(ActionLockKind::ItemUse)
+    );
 
     assert!(equip.tick(5.0));
     assert!(!equip.tick(6.0));
     assert!(!equip.running());
-    assert!(!equip.rig.locks.is_locked(ActionLockKind::ItemUse));
+    assert!(
+        !equip
+            .rig
+            .locks
+            .borrow_mut()
+            .is_locked(ActionLockKind::ItemUse)
+    );
     assert!(
         equip
             .messages()

@@ -174,7 +174,7 @@ fn ub_face_asks_the_client_for_the_exact_heading_until_within_one_degree() {
     assert!(rig.submitted().contains(&success));
     assert_eq!(3, rig.host.faced_headings.len());
     assert!(rig.host.meta.intents.is_empty());
-    assert!(!rig.locks.is_locked(ActionLockKind::Navigation));
+    assert!(!rig.locks.borrow_mut().is_locked(ActionLockKind::Navigation));
     // The reference says nothing in chat about a turn that worked.
     assert!(
         !rig.messages()
@@ -195,12 +195,12 @@ fn ub_face_gives_up_after_five_seconds() {
     for _ in 0..49 {
         rig.tick(0.1);
     }
-    assert!(rig.locks.is_locked(ActionLockKind::Navigation));
+    assert!(rig.locks.borrow_mut().is_locked(ActionLockKind::Navigation));
     assert!(!rig.messages().contains(&"[UB] Turning failed".to_owned()));
 
     rig.tick(0.2);
     assert_eq!("[UB] Turning failed", rig.messages().last().unwrap());
-    assert!(!rig.locks.is_locked(ActionLockKind::Navigation));
+    assert!(!rig.locks.borrow_mut().is_locked(ActionLockKind::Navigation));
     let asked = rig.host.faced_headings.len();
     rig.tick(1.0);
     assert_eq!(asked, rig.host.faced_headings.len());
@@ -340,7 +340,7 @@ fn a_jump_lets_go_of_its_keys_once_it_is_over() {
         vec![MoveChannel::Travel, MoveChannel::Strafe],
         rig.host.stopped_moves
     );
-    assert!(!rig.locks.is_locked(ActionLockKind::Navigation));
+    assert!(!rig.locks.borrow_mut().is_locked(ActionLockKind::Navigation));
 }
 
 // Source: tests/AcDream.Plugins.MossTank.Tests/MossTankPanelTests.UbCommands.cs :: ForwardAndBackwardTogetherStayOnTheHeldKeys

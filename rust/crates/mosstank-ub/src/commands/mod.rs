@@ -327,7 +327,11 @@ impl UbCommands {
                     call.write_transcript_line(&line);
                 }
             }
-            "fellow" => call.services.fellow_command(call.host, &arguments),
+            "fellow" => {
+                if !call.services.fellow_command(call.host, &arguments) {
+                    call.write_ub_bad_syntax("fellow");
+                }
+            }
             "autostack" => self.tools.stack_cram.start(call, true),
             "autocram" => self.tools.stack_cram.start(call, false),
             "count" => self.tools.count.command(call, &arguments),

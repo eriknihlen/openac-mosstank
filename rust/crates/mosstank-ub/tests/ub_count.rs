@@ -329,6 +329,7 @@ fn profile_count_stands_down_while_the_looter_holds_the_appraisal_slot() {
         awaiting_id: 99,
         current_id: 0,
         last_abandoned_id: 0,
+        ..AppraisalState::default()
     };
     assert!(tick(&mut rig, 0.1, true));
     assert!(rig.host.identified.is_empty());
@@ -481,6 +482,7 @@ fn an_abandoned_request_spends_its_attempt_without_waiting_out_the_timeout() {
         awaiting_id: 0,
         current_id: 0,
         last_abandoned_id: 10,
+        ..AppraisalState::default()
     };
     assert!(tick(&mut rig, 0.6, true));
     assert!(tick(&mut rig, 0.6, true));

@@ -181,6 +181,29 @@ impl StorageFolderPreparer {
         self.prepare("storage", plugin_storage, &plugin_folders);
     }
 
+    /// [`Self::prepare_start`] with both storages reached through one
+    /// store host, one after the other.
+    pub fn prepare_start_on(&mut self, host: &mut dyn crate::storage::StoreHost) {
+        if self.start_done {
+            return;
+        }
+        self.start_done = true;
+        self.prepare(
+            "vtank",
+            host.storage(crate::storage::Root::Profiles),
+            &vtank_profile_folders(),
+        );
+        let plugin_folders: Vec<String> = PLUGIN_STORAGE_FOLDERS
+            .iter()
+            .map(|folder| (*folder).to_owned())
+            .collect();
+        self.prepare(
+            "storage",
+            host.storage(crate::storage::Root::Plugin),
+            &plugin_folders,
+        );
+    }
+
     /// The server and character tiers of the UB tree. Called on every
     /// login; only a new world or character does any work.
     pub fn prepare_character(

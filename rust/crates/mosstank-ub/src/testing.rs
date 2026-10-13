@@ -27,6 +27,8 @@ use ac_plugin_abi::ui::WorldLabel;
 use ac_plugin_abi::world::{Floorplan, ItemProperties, WorldObject, WorldTime};
 use ac_plugin_abi::{CharacterInfo, ChatLine, LogLevel};
 use mosstank_automation::{Automation, SpellCatalog};
+use mosstank_formats::utl::LootRule;
+use mosstank_loot::rules::{self, LootDecision};
 use mosstank_meta::host::{MetaHost, PanelDescriptor, SpellExtras, UbDisplay, UbLineKind};
 pub use mosstank_meta::testing::{FakeHost, SharedStorage};
 use mosstank_stores::storage::PluginStorage;
@@ -151,6 +153,10 @@ pub struct FakeUbHost {
     pub allegiance: AllegianceState,
     /// Every label set shown, in order.
     pub label_sets: Vec<Vec<WorldLabel>>,
+    /// Every stale item forgotten, in order.
+    pub forgotten: Vec<u32>,
+    /// What forgetting one answers.
+    pub forget_result: ItemResult,
 }
 
 impl Default for FakeUbHost {
@@ -227,6 +233,8 @@ impl FakeUbHost {
             },
             allegiance: AllegianceState::default(),
             label_sets: Vec::new(),
+            forgotten: Vec::new(),
+            forget_result: ItemResult::of(ItemStatus::Completed),
         }
     }
 
@@ -670,8 +678,32 @@ impl UbHost for FakeUbHost {
         self.floorplans.get(&(landblock_id & 0xFFFF_0000)).cloned()
     }
 
-    fn automation(&mut self) -> &mut dyn Automation {
-        self
+    fn loot_rule_matches(
+        &mut self,
+        rule: &LootRule,
+        item: &InventoryItem,
+        properties: &ItemProperties,
+    ) -> bool {
+        rules::rule_matches(rule, item, properties, Some(self)).0
+    }
+
+    fn loot_needs_identify(
+        &mut self,
+        item: &InventoryItem,
+        properties: &ItemProperties,
+        rules: &[LootRule],
+    ) -> bool {
+        rules::needs_identify(item, properties, rules, Some(self))
+    }
+
+    fn loot_decide(
+        &mut self,
+        item: &InventoryItem,
+        properties: &ItemProperties,
+        rules: &[LootRule],
+        owned: &[InventoryItem],
+    ) -> Option<LootDecision> {
+        rules::decide(item, properties, rules, owned, None, Some(self)).0
     }
 
     fn profile_storage(&mut self) -> &mut dyn PluginStorage {
@@ -688,6 +720,11 @@ impl UbHost for FakeUbHost {
 
     fn appraisal(&mut self) -> AppraisalState {
         self.appraisal.clone()
+    }
+
+    fn forget_stale_item(&mut self, object_id: u32) -> ItemResult {
+        self.forgotten.push(object_id);
+        self.forget_result.clone()
     }
 
     fn vitals(&mut self) -> Vec<Vital> {
