@@ -22,6 +22,7 @@ use mosstank_automation::locks::ActionLockKind;
 use mosstank_buffs::due::BuffDueTracker;
 use mosstank_combat::gate::NO_WAND_NOTICE;
 use mosstank_expr::ExpressionValue;
+use mosstank_formats::usd::{VtankCell, VtankDatabase, VtankRow};
 
 /// `BuffPassAutomation`: three self buffs, each for a trained skill.
 fn buff_pass_automation() -> FakeAutomation {
@@ -1371,4 +1372,61 @@ fn only_a_gesture_ends_the_launch_wait_not_typed_local_speech() {
     ticks(&mut world, &mut plugin, 3, 0.3);
 
     assert_eq!(buff_cast_requests(&world), 2);
+}
+
+// Source: tests/AcDream.Plugins.MossTank.Tests/MossTankPanelTests.cs :: ManagingTheFellowshipIsAProfileChoice
+#[test]
+fn managing_the_fellowship_is_a_profile_choice() {
+    for (manages, status) in [
+        (true, "Not in a fellowship"),
+        (false, "Fellow manager disabled"),
+    ] {
+        let (mut world, mut plugin) = open(FakeAutomation::default());
+        set_option(
+            &mut world,
+            &mut plugin,
+            "AutoFellowManagement",
+            ExpressionValue::Boolean(manages),
+        );
+
+        world.act(&mut plugin, "ToggleCombat");
+        ticks(&mut world, &mut plugin, 4, 0.3);
+
+        assert_eq!(
+            world.ui_text(&mut plugin, "FellowshipManagerStatus"),
+            status,
+            "{manages}"
+        );
+    }
+}
+
+// Source: tests/AcDream.Plugins.MossTank.Tests/MossTankPanelTests.cs :: ImportedExtraBuffExemplarIsVisibleAndRemovableFromTheBuffUi
+#[test]
+fn imported_extra_buff_exemplar_is_visible_and_removable_from_the_buff_ui() {
+    let key = format!(
+        "{}/{}",
+        mosstank_stores::directory::SETTINGS_FOLDER,
+        mosstank_stores::directory::auto_character_file_name("Imported Extra", "", "usd")
+    );
+    let mut profile = mosstank_settings::defaults::create();
+    profile
+        .find_mut("ExtraBuffSpells")
+        .unwrap()
+        .rows
+        .push(VtankRow {
+            cells: vec![VtankCell::int(1)],
+        });
+    let mut automation = FakeAutomation::default();
+    automation.name = "Imported Extra".to_owned();
+    automation.set_known_self_buffs(vec![common::spell(1, 10, STRENGTH)]);
+    let mut world = World::with_automation(automation);
+    world.profiles.insert(&key, &profile.render());
+    let mut plugin = world.enable();
+
+    assert_eq!(world.ui_list(&mut plugin, "ExtraBuffRows"), ["Spell 1"]);
+    world.act_int(&mut plugin, "DeleteExtraBuffAt", 0);
+
+    assert!(world.ui_list(&mut plugin, "ExtraBuffRows").is_empty());
+    let usd = VtankDatabase::parse(world.profiles.get(&key).unwrap()).unwrap();
+    assert!(usd.find("ExtraBuffSpells").unwrap().rows.is_empty());
 }
