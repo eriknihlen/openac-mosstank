@@ -76,6 +76,28 @@ public sealed class RustPortGolden
         Directory.CreateDirectory(fullDirectory);
         File.WriteAllText(Path.Combine(fullDirectory, "cases.full.out"), full.ToString(), new UTF8Encoding(false));
         WriteSettingsGoldenData(root, fixtures, fullDirectory);
+        WriteStoresGoldenData(root);
+    }
+
+    /// <summary>
+    /// The same for the stores crate: the scenarios named in
+    /// rust/crates/mosstank-stores/tests/golden/cases.txt, run by
+    /// <see cref="RustPortStoresGolden"/>.
+    /// </summary>
+    private static void WriteStoresGoldenData(string root)
+    {
+        string golden = Path.Combine(root, "rust", "crates", "mosstank-stores", "tests", "golden");
+        var output = new StringBuilder();
+        foreach (string raw in File.ReadAllLines(Path.Combine(golden, "cases.txt")))
+        {
+            string name = raw.Trim();
+            if (name.Length == 0 || name.StartsWith('#'))
+                continue;
+            output.Append("##### ").Append(name).Append('\n');
+            output.Append(RustPortStoresGolden.Run(name));
+            output.Append('\n');
+        }
+        File.WriteAllText(Path.Combine(golden, "cases.out"), output.ToString(), new UTF8Encoding(false));
     }
 
     /// <summary>

@@ -8,6 +8,7 @@ license.workspace = true
 publish.workspace = true
 
 [dependencies]
+mosstank-data.workspace = true
 mosstank-dotnet.workspace = true
 mosstank-expr.workspace = true
 mosstank-formats.workspace = true

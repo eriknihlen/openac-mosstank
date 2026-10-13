@@ -1,0 +1,527 @@
+##### first-run
+bind True
+load Missing
+save True
+selected By char
+--- plugin profiles/macro/sidecar/--Acdream_Coldeve.usd.json
+{\r\n
+  "ShowNavLines": false,\r\n
+  "Version": 1,\r\n
+  "ItemNames": [],\r\n
+  "ItemNamesById": {},\r\n
+  "ConsumableNames": [],\r\n
+  "ConsumableCategories": {},\r\n
+  "NoBuffItemNames": [],\r\n
+  "LogChannels": [],\r\n
+  "CombatAttackPower": 0.5,\r\n
+  "CombatScanIntervalSeconds": 0.25,\r\n
+  "CombatMetaState": "Default",\r\n
+  "CombatDynamicSettings": {},\r\n
+  "CombatRules": null,\r\n
+  "CombatRuleItemNames": [],\r\n
+  "BuffAttributes": true,\r\n
+  "BuffProtections": true,\r\n
+  "BuffAuras": true,\r\n
+  "BuffBanes": true,\r\n
+  "BuffRegeneration": true,\r\n
+  "BuffOther": false,\r\n
+  "BuffTrainedSkillsOnly": true,\r\n
+  "BuffExtraSpellNames": [],\r\n
+  "BuffBlacklistedFamilyNames": [],\r\n
+  "BuffItemEnchantRows": [],\r\n
+  "VitalsEnabled": true,\r\n
+  "VitalsHelpNetworkPeers": false,\r\n
+  "InventoryScanIntervalSeconds": 0.25,\r\n
+  "InventoryGiveRangeMeters": 15,\r\n
+  "InventoryGiveDelaySeconds": 0,\r\n
+  "InventoryGiveBusyRetryLimit": 10,\r\n
+  "InventoryGiveFailureLimit": 3,\r\n
+  "InventoryLootClassifierId": "",\r\n
+  "InventoryLootScanIntervalSeconds": 0.25,\r\n
+  "InventoryLootWalkToOwnRareCorpses": false,\r\n
+  "InventoryLootRules": [],\r\n
+  "NavigationClientPathing": "WhenStuck",\r\n
+  "NavigationJumpAttempts": 3\r\n
+}
+--- profiles mosstank/profiles/--Acdream_Coldeve.usd
+fnv64=3289fbbef89498c5 bytes=22175
+--- profiles mosstank/profiles/Coldeve_Acdream.cdf
+uTank2 CDF 1.0\r\n
+mosstank/profiles/--Acdream_Coldeve.usd\r\n
+\r\n
+\r\n
+
+--- log
+
+##### side-car-values
+save True
+--- plugin profiles/macro/sidecar/--Acdream_Coldeve.usd.json
+{\r\n
+  "ShowNavLines": false,\r\n
+  "Version": 1,\r\n
+  "ItemNames": [\r\n
+    "Bow",\r\n
+    "Sword"\r\n
+  ],\r\n
+  "ItemNamesById": {\r\n
+    "00005001": "Bow"\r\n
+  },\r\n
+  "ConsumableNames": [\r\n
+    "Healing Kit",\r\n
+    "Mana Potion"\r\n
+  ],\r\n
+  "ConsumableCategories": {\r\n
+    "Healing Kit": 1,\r\n
+    "Mana Potion": 5\r\n
+  },\r\n
+  "NoBuffItemNames": [\r\n
+    "Wand"\r\n
+  ],\r\n
+  "LogChannels": [\r\n
+    "Fellow",\r\n
+    "Tells"\r\n
+  ],\r\n
+  "CombatAttackPower": 0.75,\r\n
+  "CombatScanIntervalSeconds": 0.25,\r\n
+  "CombatMetaState": "Hunting",\r\n
+  "CombatDynamicSettings": {\r\n
+    "MaximumRange": {\r\n
+      "Kind": 0,\r\n
+      "Number": 25.5,\r\n
+      "Text": "",\r\n
+      "Boolean": false\r\n
+    },\r\n
+    "UseRecklessness": {\r\n
+      "Kind": 2,\r\n
+      "Number": 0,\r\n
+      "Text": "",\r\n
+      "Boolean": true\r\n
+    }\r\n
+  },\r\n
+  "CombatRules": null,\r\n
+  "CombatRuleItemNames": [\r\n
+    {\r\n
+      "Expression": "Drudge",\r\n
+      "WeaponName": "Bow",\r\n
+      "OffhandName": ""\r\n
+    }\r\n
+  ],\r\n
+  "BuffAttributes": true,\r\n
+  "BuffProtections": true,\r\n
+  "BuffAuras": true,\r\n
+  "BuffBanes": true,\r\n
+  "BuffRegeneration": true,\r\n
+  "BuffOther": false,\r\n
+  "BuffTrainedSkillsOnly": true,\r\n
+  "BuffExtraSpellNames": [\r\n
+    "Strength Self VII"\r\n
+  ],\r\n
+  "BuffBlacklistedFamilyNames": [],\r\n
+  "BuffItemEnchantRows": [\r\n
+    {\r\n
+      "ItemName": "Bow",\r\n
+      "SpellName": "Blood Drinker Self VII"\r\n
+    }\r\n
+  ],\r\n
+  "VitalsEnabled": true,\r\n
+  "VitalsHelpNetworkPeers": true,\r\n
+  "InventoryScanIntervalSeconds": 0.25,\r\n
+  "InventoryGiveRangeMeters": 20.5,\r\n
+  "InventoryGiveDelaySeconds": 0,\r\n
+  "InventoryGiveBusyRetryLimit": 10,\r\n
+  "InventoryGiveFailureLimit": 3,\r\n
+  "InventoryLootClassifierId": "  vtc  ",\r\n
+  "InventoryLootScanIntervalSeconds": 0.25,\r\n
+  "InventoryLootWalkToOwnRareCorpses": false,\r\n
+  "InventoryLootRules": [\r\n
+    {\r\n
+      "Name": "Keep peas",\r\n
+      "Expression": "Pea",\r\n
+      "Action": 2,\r\n
+      "KeepCount": 3,\r\n
+      "Priority": 0,\r\n
+      "CustomExpression": "",\r\n
+      "Requirements": [],\r\n
+      "HasImportedRequirements": false\r\n
+    }\r\n
+  ],\r\n
+  "NavigationClientPathing": "Always",\r\n
+  "NavigationJumpAttempts": 5\r\n
+}
+--- profiles mosstank/profiles/--Acdream_Coldeve.usd
+fnv64=2cee3d8d511f9648 bytes=22409
+--- profiles mosstank/profiles/Coldeve_Acdream.cdf
+uTank2 CDF 1.0\r\n
+mosstank/profiles/--Acdream_Coldeve.usd\r\n
+\r\n
+\r\n
+
+--- log
+--- reload
+load Loaded
+items Bow|Sword
+order Bow|Sword
+byid 20481=Bow
+consumables Healing Kit|Mana Potion
+categories Healing Kit=1;Mana Potion=5
+nobuff Wand
+logs Fellow|Tells
+power 0.75
+meta Hunting
+dynamic MaximumRange=0:25.5::False;UseRecklessness=2:0::True
+rules <DEFAULT>[//1/320];Drudge[Bow//0/64]
+extra Strength Self VII
+enchant Bow=Blood Drinker Self VII
+peers True
+give 20.5
+classifier vtc
+loot Keep peas|Pea|2|3
+pathing Always
+jumps 5
+range 4.999999999999992
+
+##### create-and-delete
+create True Created profile --Acdream_Coldeve_raid.usd.
+selected --Acdream_Coldeve_raid.usd
+exists raid True nope False
+select bychar True
+select raid True
+selected --Acdream_Coldeve_raid.usd
+names By char|--Acdream_Coldeve_raid.usd
+delete True Deleted profile --Acdream_Coldeve_raid.usd.
+selected By char
+--- plugin profiles/macro/sidecar/--Acdream_Coldeve.usd.json
+{\r\n
+  "ShowNavLines": false,\r\n
+  "Version": 1,\r\n
+  "ItemNames": [],\r\n
+  "ItemNamesById": {},\r\n
+  "ConsumableNames": [],\r\n
+  "ConsumableCategories": {},\r\n
+  "NoBuffItemNames": [],\r\n
+  "LogChannels": [],\r\n
+  "CombatAttackPower": 0.5,\r\n
+  "CombatScanIntervalSeconds": 0.25,\r\n
+  "CombatMetaState": "Default",\r\n
+  "CombatDynamicSettings": {},\r\n
+  "CombatRules": null,\r\n
+  "CombatRuleItemNames": [],\r\n
+  "BuffAttributes": true,\r\n
+  "BuffProtections": true,\r\n
+  "BuffAuras": true,\r\n
+  "BuffBanes": true,\r\n
+  "BuffRegeneration": true,\r\n
+  "BuffOther": false,\r\n
+  "BuffTrainedSkillsOnly": true,\r\n
+  "BuffExtraSpellNames": [],\r\n
+  "BuffBlacklistedFamilyNames": [],\r\n
+  "BuffItemEnchantRows": [],\r\n
+  "VitalsEnabled": true,\r\n
+  "VitalsHelpNetworkPeers": false,\r\n
+  "InventoryScanIntervalSeconds": 0.25,\r\n
+  "InventoryGiveRangeMeters": 15,\r\n
+  "InventoryGiveDelaySeconds": 0,\r\n
+  "InventoryGiveBusyRetryLimit": 10,\r\n
+  "InventoryGiveFailureLimit": 3,\r\n
+  "InventoryLootClassifierId": "",\r\n
+  "InventoryLootScanIntervalSeconds": 0.25,\r\n
+  "InventoryLootWalkToOwnRareCorpses": false,\r\n
+  "InventoryLootRules": [],\r\n
+  "NavigationClientPathing": "WhenStuck",\r\n
+  "NavigationJumpAttempts": 3\r\n
+}
+--- profiles mosstank/profiles/--Acdream_Coldeve.usd
+fnv64=3289fbbef89498c5 bytes=22175
+--- profiles mosstank/profiles/Coldeve_Acdream.cdf
+uTank2 CDF 1.0\r\n
+mosstank/profiles/--Acdream_Coldeve.usd\r\n
+\r\n
+\r\n
+
+--- log
+
+##### corrupt
+load Failed
+failure Settings profile 'mosstank/profiles/--Acdream_Coldeve.usd' could not be read; source was preserved.
+recovery macro profile 'mosstank/profiles/--Acdream_Coldeve.usd' could not be loaded: line 1: expected an integer, got 'not a usd'. Raw data was preserved as recovery/macro/F4B065C49260D8C6.txt.
+save False
+--- plugin recovery/macro/F4B065C49260D8C6.txt
+Original key: mosstank/profiles/--Acdream_Coldeve.usd\n
+Load error: line 1: expected an integer, got 'not a usd'.\n
+\n
+not a usd\r\n
+
+--- profiles mosstank/profiles/--Acdream_Coldeve.usd
+fnv64=94858f5414b0669a bytes=11
+--- log
+warn macro profile 'mosstank/profiles/--Acdream_Coldeve.usd' could not be loaded: line 1: expected an integer, got 'not a usd'. Raw data was preserved as recovery/macro/F4B065C49260D8C6.txt.
+error MossTank Settings profile 'mosstank/profiles/--Acdream_Coldeve.usd' could not be read; source was preserved.
+
+##### set-in-all
+setinall 2
+--- plugin profiles/macro/sidecar/--Acdream_Coldeve.usd.json
+{\r\n
+  "ShowNavLines": false,\r\n
+  "Version": 1,\r\n
+  "ItemNames": [],\r\n
+  "ItemNamesById": {},\r\n
+  "ConsumableNames": [],\r\n
+  "ConsumableCategories": {},\r\n
+  "NoBuffItemNames": [],\r\n
+  "LogChannels": [],\r\n
+  "CombatAttackPower": 0.5,\r\n
+  "CombatScanIntervalSeconds": 0.25,\r\n
+  "CombatMetaState": "Default",\r\n
+  "CombatDynamicSettings": {\r\n
+    "AttackDistance": {\r\n
+      "Kind": 0,\r\n
+      "Number": 42,\r\n
+      "Text": "",\r\n
+      "Boolean": false\r\n
+    }\r\n
+  },\r\n
+  "CombatRules": null,\r\n
+  "CombatRuleItemNames": [],\r\n
+  "BuffAttributes": true,\r\n
+  "BuffProtections": true,\r\n
+  "BuffAuras": true,\r\n
+  "BuffBanes": true,\r\n
+  "BuffRegeneration": true,\r\n
+  "BuffOther": false,\r\n
+  "BuffTrainedSkillsOnly": true,\r\n
+  "BuffExtraSpellNames": [],\r\n
+  "BuffBlacklistedFamilyNames": [],\r\n
+  "BuffItemEnchantRows": [],\r\n
+  "VitalsEnabled": true,\r\n
+  "VitalsHelpNetworkPeers": false,\r\n
+  "InventoryScanIntervalSeconds": 0.25,\r\n
+  "InventoryGiveRangeMeters": 15,\r\n
+  "InventoryGiveDelaySeconds": 0,\r\n
+  "InventoryGiveBusyRetryLimit": 10,\r\n
+  "InventoryGiveFailureLimit": 3,\r\n
+  "InventoryLootClassifierId": "",\r\n
+  "InventoryLootScanIntervalSeconds": 0.25,\r\n
+  "InventoryLootWalkToOwnRareCorpses": false,\r\n
+  "InventoryLootRules": [],\r\n
+  "NavigationClientPathing": "WhenStuck",\r\n
+  "NavigationJumpAttempts": 3\r\n
+}
+--- plugin profiles/macro/sidecar/--Acdream_Coldeve_raid.usd.json
+{\r\n
+  "ShowNavLines": false,\r\n
+  "Version": 1,\r\n
+  "ItemNames": [],\r\n
+  "ItemNamesById": {},\r\n
+  "ConsumableNames": [],\r\n
+  "ConsumableCategories": {},\r\n
+  "NoBuffItemNames": [],\r\n
+  "LogChannels": [],\r\n
+  "CombatAttackPower": 0.5,\r\n
+  "CombatScanIntervalSeconds": 0.25,\r\n
+  "CombatMetaState": "Default",\r\n
+  "CombatDynamicSettings": {\r\n
+    "AttackDistance": {\r\n
+      "Kind": 0,\r\n
+      "Number": 42,\r\n
+      "Text": "",\r\n
+      "Boolean": false\r\n
+    }\r\n
+  },\r\n
+  "CombatRules": null,\r\n
+  "CombatRuleItemNames": [],\r\n
+  "BuffAttributes": true,\r\n
+  "BuffProtections": true,\r\n
+  "BuffAuras": true,\r\n
+  "BuffBanes": true,\r\n
+  "BuffRegeneration": true,\r\n
+  "BuffOther": false,\r\n
+  "BuffTrainedSkillsOnly": true,\r\n
+  "BuffExtraSpellNames": [],\r\n
+  "BuffBlacklistedFamilyNames": [],\r\n
+  "BuffItemEnchantRows": [],\r\n
+  "VitalsEnabled": true,\r\n
+  "VitalsHelpNetworkPeers": false,\r\n
+  "InventoryScanIntervalSeconds": 0.25,\r\n
+  "InventoryGiveRangeMeters": 15,\r\n
+  "InventoryGiveDelaySeconds": 0,\r\n
+  "InventoryGiveBusyRetryLimit": 10,\r\n
+  "InventoryGiveFailureLimit": 3,\r\n
+  "InventoryLootClassifierId": "",\r\n
+  "InventoryLootScanIntervalSeconds": 0.25,\r\n
+  "InventoryLootWalkToOwnRareCorpses": false,\r\n
+  "InventoryLootRules": [],\r\n
+  "NavigationClientPathing": "WhenStuck",\r\n
+  "NavigationJumpAttempts": 3\r\n
+}
+--- profiles mosstank/profiles/--Acdream_Coldeve.usd
+fnv64=43d2fa66f5dd6618 bytes=22162
+--- profiles mosstank/profiles/--Acdream_Coldeve_raid.usd
+fnv64=43d2fa66f5dd6618 bytes=22162
+--- profiles mosstank/profiles/Coldeve_Acdream.cdf
+uTank2 CDF 1.0\r\n
+mosstank/profiles/--Acdream_Coldeve_raid.usd\r\n
+\r\n
+\r\n
+
+--- log
+
+##### legacy
+load Loaded
+items Axe
+order Axe
+byid 
+consumables Pea
+categories Pea=7
+nobuff 
+logs 
+power 0.5
+meta Default
+dynamic 
+rules Drudge[//4/64];<DEFAULT>[//1/320]
+extra 
+enchant 
+peers False
+give 15
+classifier 
+loot 
+pathing WhenStuck
+jumps 3
+range 30
+--- plugin profiles/macro/sidecar/--Acdream_Coldeve.usd.json
+{\r\n
+  "ShowNavLines": false,\r\n
+  "Version": 1,\r\n
+  "ItemNames": [\r\n
+    "Axe"\r\n
+  ],\r\n
+  "ItemNamesById": {},\r\n
+  "ConsumableNames": [\r\n
+    "Pea"\r\n
+  ],\r\n
+  "ConsumableCategories": {\r\n
+    "Pea": 7\r\n
+  },\r\n
+  "NoBuffItemNames": [],\r\n
+  "LogChannels": [],\r\n
+  "CombatAttackPower": 0.5,\r\n
+  "CombatScanIntervalSeconds": 0.25,\r\n
+  "CombatMetaState": "Default",\r\n
+  "CombatDynamicSettings": {},\r\n
+  "CombatRules": null,\r\n
+  "CombatRuleItemNames": [],\r\n
+  "BuffAttributes": true,\r\n
+  "BuffProtections": true,\r\n
+  "BuffAuras": true,\r\n
+  "BuffBanes": true,\r\n
+  "BuffRegeneration": true,\r\n
+  "BuffOther": false,\r\n
+  "BuffTrainedSkillsOnly": true,\r\n
+  "BuffExtraSpellNames": [],\r\n
+  "BuffBlacklistedFamilyNames": [],\r\n
+  "BuffItemEnchantRows": [],\r\n
+  "VitalsEnabled": true,\r\n
+  "VitalsHelpNetworkPeers": false,\r\n
+  "InventoryScanIntervalSeconds": 0.25,\r\n
+  "InventoryGiveRangeMeters": 15,\r\n
+  "InventoryGiveDelaySeconds": 0,\r\n
+  "InventoryGiveBusyRetryLimit": 10,\r\n
+  "InventoryGiveFailureLimit": 3,\r\n
+  "InventoryLootClassifierId": "",\r\n
+  "InventoryLootScanIntervalSeconds": 0.25,\r\n
+  "InventoryLootWalkToOwnRareCorpses": false,\r\n
+  "InventoryLootRules": [],\r\n
+  "NavigationClientPathing": "WhenStuck",\r\n
+  "NavigationJumpAttempts": 3\r\n
+}
+--- profiles mosstank/profiles/--Acdream_Coldeve.usd
+fnv64=b1285d51f8fdefb2 bytes=22316
+--- profiles mosstank/profiles/Coldeve_Acdream.cdf
+uTank2 CDF 1.0\r\n
+mosstank/profiles/--Acdream_Coldeve.usd\r\n
+\r\n
+\r\n
+
+--- log
+warn Migrated legacy MossTank settings profile 'profiles/macro/94C46DED1F020D81CCC2B41286E4D2C44AFD23A4D351CAA4B68A7513881F0F5C.json' to 'mosstank/profiles/--Acdream_Coldeve.usd'.
+
+##### roster
+load Missing
+names By char|--Acdream_Coldeve_Hunt.usd
+--- plugin profiles/index.json
+{\r\n
+  "Profiles": [\r\n
+    {\r\n
+      "Name": "Other",\r\n
+      "Owner": "Someone"\r\n
+    }\r\n
+  ]\r\n
+}
+--- plugin profiles/macro/preferences.json
+{\r\n
+  "MineOnly": true,\r\n
+  "MetaIntervalMilliseconds": 293,\r\n
+  "GameDbCheckIntervalHours": 6\r\n
+}
+--- plugin profiles/macro/sidecar/--Acdream_Coldeve_Hunt.usd.json
+{\r\n
+  "ShowNavLines": false,\r\n
+  "Version": 1,\r\n
+  "ItemNames": [\r\n
+    "Bow"\r\n
+  ],\r\n
+  "ItemNamesById": {},\r\n
+  "ConsumableNames": [],\r\n
+  "ConsumableCategories": {},\r\n
+  "NoBuffItemNames": [],\r\n
+  "LogChannels": [],\r\n
+  "CombatAttackPower": 0.5,\r\n
+  "CombatScanIntervalSeconds": 0.25,\r\n
+  "CombatMetaState": "Default",\r\n
+  "CombatDynamicSettings": {},\r\n
+  "CombatRules": null,\r\n
+  "CombatRuleItemNames": [],\r\n
+  "BuffAttributes": true,\r\n
+  "BuffProtections": true,\r\n
+  "BuffAuras": true,\r\n
+  "BuffBanes": true,\r\n
+  "BuffRegeneration": true,\r\n
+  "BuffOther": false,\r\n
+  "BuffTrainedSkillsOnly": true,\r\n
+  "BuffExtraSpellNames": [],\r\n
+  "BuffBlacklistedFamilyNames": [],\r\n
+  "BuffItemEnchantRows": [],\r\n
+  "VitalsEnabled": true,\r\n
+  "VitalsHelpNetworkPeers": false,\r\n
+  "InventoryScanIntervalSeconds": 0.25,\r\n
+  "InventoryGiveRangeMeters": 15,\r\n
+  "InventoryGiveDelaySeconds": 0,\r\n
+  "InventoryGiveBusyRetryLimit": 10,\r\n
+  "InventoryGiveFailureLimit": 3,\r\n
+  "InventoryLootClassifierId": "",\r\n
+  "InventoryLootScanIntervalSeconds": 0.25,\r\n
+  "InventoryLootWalkToOwnRareCorpses": false,\r\n
+  "InventoryLootRules": [],\r\n
+  "NavigationClientPathing": "WhenStuck",\r\n
+  "NavigationJumpAttempts": 3\r\n
+}
+--- profiles mosstank/profiles/--Acdream_Coldeve_Hunt.usd
+fnv64=d12697166d862a77 bytes=22125
+--- profiles mosstank/profiles/Coldeve_Acdream.cdf
+uTank2 CDF 1.0\r\n
+mosstank/profiles/--Acdream_Coldeve.usd\r\n
+\r\n
+\r\n
+
+--- log
+warn Migrated 1 legacy MossTank named settings profile(s) from the old roster.
+
+##### preferences
+meta 50 db 168 mine False
+--- plugin profiles/macro/preferences.json
+{\r\n
+  "MineOnly": false,\r\n
+  "MetaIntervalMilliseconds": 50,\r\n
+  "GameDbCheckIntervalHours": 168\r\n
+}
+--- log
+

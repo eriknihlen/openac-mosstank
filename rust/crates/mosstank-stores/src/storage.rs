@@ -122,6 +122,8 @@ pub trait StoreLog {
 /// them later.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct RecordingLog {
+    /// Every line in order, with its level (`info `, `warn `, `error `).
+    pub lines: Vec<String>,
     /// Information lines.
     pub infos: Vec<String>,
     /// Warnings.
@@ -132,14 +134,17 @@ pub struct RecordingLog {
 
 impl StoreLog for RecordingLog {
     fn info(&mut self, message: &str) {
+        self.lines.push(format!("info {message}"));
         self.infos.push(message.to_owned());
     }
 
     fn warn(&mut self, message: &str) {
+        self.lines.push(format!("warn {message}"));
         self.warnings.push(message.to_owned());
     }
 
     fn error(&mut self, message: &str) {
+        self.lines.push(format!("error {message}"));
         self.errors.push(message.to_owned());
     }
 }
@@ -152,6 +157,69 @@ impl StoreLog for NullLog {
     fn info(&mut self, _message: &str) {}
     fn warn(&mut self, _message: &str) {}
     fn error(&mut self, _message: &str) {}
+}
+
+/// Which of the two storages a profile store reaches.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Root {
+    /// The plugin's own data (side-cars, recovery copies, old documents):
+    /// the C#'s `IPluginHost.Storage`.
+    Plugin,
+    /// The shared VTank profile folder: `IPluginHost.VtankProfiles`.
+    Profiles,
+}
+
+/// What a profile store reaches in the client during a call: the two
+/// storages, the log, and the world's name. The plugin implements it over
+/// its host for the length of one call.
+pub trait StoreHost {
+    /// One of the two storages.
+    fn storage(&mut self, root: Root) -> &mut dyn PluginStorage;
+    /// The session's log.
+    fn log(&mut self) -> &mut dyn StoreLog;
+    /// The world the character is on (empty while unknown).
+    fn world_name(&mut self) -> String;
+}
+
+/// A host kept in memory, for tests.
+#[derive(Debug, Clone, Default)]
+pub struct MemoryHost {
+    /// The plugin's own storage.
+    pub plugin: MemoryStorage,
+    /// The shared profile folder.
+    pub profiles: MemoryStorage,
+    /// Every line logged.
+    pub log: RecordingLog,
+    /// The world's name.
+    pub world: String,
+}
+
+impl MemoryHost {
+    /// Both storages empty, on `world`.
+    #[must_use]
+    pub fn on(world: &str) -> Self {
+        Self {
+            world: world.to_owned(),
+            ..Self::default()
+        }
+    }
+}
+
+impl StoreHost for MemoryHost {
+    fn storage(&mut self, root: Root) -> &mut dyn PluginStorage {
+        match root {
+            Root::Plugin => &mut self.plugin,
+            Root::Profiles => &mut self.profiles,
+        }
+    }
+
+    fn log(&mut self) -> &mut dyn StoreLog {
+        &mut self.log
+    }
+
+    fn world_name(&mut self) -> String {
+        self.world.clone()
+    }
 }
 
 /// `Path.Combine(root, relative)` for a path shown to the player: the

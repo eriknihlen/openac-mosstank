@@ -1,0 +1,10 @@
+# Scenarios run by tests/golden.rs and by the C# RustPortStoresGolden.cs;
+# cases.out is written by the C# (MOSSTANK_RUST_GOLDEN=1 dotnet test --filter RustPortGolden).
+first-run
+side-car-values
+create-and-delete
+corrupt
+set-in-all
+legacy
+roster
+preferences

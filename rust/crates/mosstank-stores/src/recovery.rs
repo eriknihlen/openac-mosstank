@@ -5,7 +5,7 @@
 use openac_plugin_compat::text::casing;
 use sha2::{Digest, Sha256};
 
-use crate::storage::{PluginStorage, StoreLog};
+use crate::storage::{Root, StoreHost};
 
 /// `Convert.ToHexString(SHA256.HashData(UTF8(text)))`: upper-case hex.
 #[must_use]
@@ -39,8 +39,7 @@ pub fn recovery_key(family: &str, key: &str, content: &str) -> String {
 /// where the text went when it could be kept. Nothing is kept without
 /// storage or without text.
 pub fn preserve(
-    storage: &mut dyn PluginStorage,
-    log: &mut dyn StoreLog,
+    host: &mut dyn StoreHost,
     family: &str,
     key: &str,
     content: Option<&str>,
@@ -50,6 +49,7 @@ pub fn preserve(
     let Some(content) = content.filter(|text| !text.is_empty()) else {
         return summary;
     };
+    let storage = host.storage(Root::Plugin);
     if !storage.is_available() {
         return summary;
     }
@@ -58,7 +58,7 @@ pub fn preserve(
     match storage.write_text(&recovery, &payload) {
         Ok(()) => format!("{summary} Raw data was preserved as {recovery}."),
         Err(backup_error) => {
-            log.warn(&format!(
+            host.log().warn(&format!(
                 "MossTank could not preserve corrupt {family} profile: {backup_error}"
             ));
             summary
