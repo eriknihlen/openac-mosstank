@@ -5,11 +5,12 @@
 //!
 //! The settings store is read when the shell starts and bound to whoever
 //! is in the world; a changed tier is written at the end of every call
-//! (register STORE-1). The catalogue's live rows the shell binds are the
-//! two whose choice is fixed; the rows other owners keep (the open UB
-//! profile, the alias list, the item giver's numbers, the jump attempts,
-//! the event handlers) read from the settings files until those owners are
-//! converted, and the UB tools the UB tab does not carry yet answer that.
+//! (register STORE-1). The catalogue's live rows (`UbLiveOwners`) reach
+//! their owners: the item giver's numbers and the jump attempts in the
+//! macro's settings, the event handlers and their profile in the meta
+//! profile, the alias list in its own file, the open UB profile in the
+//! store (register UB-5). The UB tools the UB tab does not carry yet answer
+//! that.
 
 use std::cell::RefCell;
 use std::rc::Rc;
@@ -35,9 +36,13 @@ use super::services::{ClientCell, ClientProxy, CoreCell, TankServices};
 use super::{Core, TankCx};
 use crate::client::TankClient;
 
-/// The UB settings store, shared by the catalogues that read it.
+/// The UB settings store and the live rows' values, shared by the
+/// catalogues that read them.
 #[derive(Clone)]
-pub(crate) struct StoreValues(Rc<RefCell<UbSettingStore>>);
+pub(crate) struct StoreValues(
+    pub(crate) Rc<RefCell<UbSettingStore>>,
+    pub(crate) Rc<RefCell<LiveRows>>,
+);
 
 impl UbSettingValues for StoreValues {
     fn read(&self, scope: UbSettingScope, name: &str) -> Option<UbSettingValue> {
@@ -57,18 +62,135 @@ impl UbSettingValues for StoreValues {
     }
 }
 
-/// The rows whose choice is already made here (`UbLiveOwners`, that part).
-fn fixed_rows() -> Vec<(String, UbSettingBinding)> {
-    vec![
-        (
-            "VTank.PatchExpressionEngine".to_owned(),
-            UbSettingBinding::new(|| UbSettingValue::from_bool(true), |_| {}),
+/// A running number a UB row edits (`LiveUbDecimal`, `LiveUbWhole`), held
+/// to the bound the macro itself is held to.
+#[derive(Debug, Clone, Copy)]
+enum LiveNumber {
+    Decimal(f64, f64),
+    Whole(i32, i32),
+}
+
+impl LiveNumber {
+    /// The value as the owner takes it: inside the bound.
+    fn held(self, value: &UbSettingValue) -> UbSettingValue {
+        match self {
+            Self::Decimal(lowest, highest) => {
+                UbSettingValue::from_double(value.as_double().clamp(lowest, highest))
+            }
+            Self::Whole(lowest, highest) => {
+                UbSettingValue::from_int(value.as_int32().clamp(lowest, highest))
+            }
+        }
+    }
+}
+
+/// The four numbers that pace handing items over, and how many times a
+/// jump is tried: the macro's own settings, saved with its profile.
+const LIVE_NUMBERS: [(&str, LiveNumber); 5] = [
+    ("ItemGiver.Range", LiveNumber::Decimal(0.0, 1000.0)),
+    ("ItemGiver.Delay", LiveNumber::Decimal(0.0, 60.0)),
+    ("ItemGiver.BusyRetryLimit", LiveNumber::Whole(1, 100)),
+    ("ItemGiver.FailureLimit", LiveNumber::Whole(0, 100)),
+    ("Jumper.Attempts", LiveNumber::Whole(1, 20)),
+];
+
+/// The event handlers: rules in the meta profile, shown as lines.
+const HANDLERS: &str = "GameEvents.Handlers";
+/// The handlers' profile row: the meta profile picker.
+const HANDLER_PROFILE: &str = "GameEvents.Profile";
+/// The per-character meta profile, as the handlers' profile row names it.
+const CHARACTER_META: &str = "[character]";
+/// The alias list: a file of its own, named by the `Aliases.Profile` row.
+const ALIASES: &str = "Aliases.DefinedAliases";
+/// The UB settings profile this character has open.
+const SETTINGS_PROFILE: &str = "Plugin.SettingsProfile";
+
+/// The rows whose value belongs to something running (`UbLiveOwners`): the
+/// values the shell last read from their owners, and the writes made to
+/// them during a call, which reach the owners before the call returns
+/// (register UB-5).
+#[derive(Debug, Default)]
+pub(crate) struct LiveRows {
+    values: std::collections::HashMap<&'static str, UbSettingValue>,
+    /// Whether an alias list written now outlives the session.
+    alias_can_save: bool,
+    written: Vec<(&'static str, UbSettingValue)>,
+}
+
+impl LiveRows {
+    fn get(&self, name: &'static str) -> UbSettingValue {
+        self.values
+            .get(name)
+            .cloned()
+            .unwrap_or_else(|| UbSettingValue::from_text(""))
+    }
+
+    /// A write: the row reads it at once, and its owner takes it at the end
+    /// of the call.
+    fn write(&mut self, name: &'static str, value: UbSettingValue) {
+        self.values.insert(name, value.clone());
+        self.written.push((name, value));
+    }
+}
+
+/// A row over a value the shell keeps for its owner.
+fn live_binding(
+    live: &Rc<RefCell<LiveRows>>,
+    name: &'static str,
+    held: impl Fn(&UbSettingValue) -> UbSettingValue + 'static,
+) -> UbSettingBinding {
+    let read = live.clone();
+    let write = live.clone();
+    UbSettingBinding::new(
+        move || read.borrow().get(name),
+        move |value| write.borrow_mut().write(name, held(&value)),
+    )
+}
+
+/// The rows whose value is owned by something other than the UB settings
+/// files (`UbLiveOwners`): their reads and writes reach that owner, so the
+/// page and the macro never hold two different values.
+pub(crate) fn owned_rows(values: &StoreValues) -> Vec<(String, UbSettingBinding)> {
+    let mut rows = Vec::new();
+    for (name, number) in LIVE_NUMBERS {
+        rows.push((
+            name.to_owned(),
+            live_binding(&values.1, name, move |value| number.held(value)),
+        ));
+    }
+    rows.push((
+        HANDLERS.to_owned(),
+        live_binding(&values.1, HANDLERS, Clone::clone),
+    ));
+    rows.push((
+        HANDLER_PROFILE.to_owned(),
+        live_binding(&values.1, HANDLER_PROFILE, Clone::clone),
+    ));
+    let mut aliases = live_binding(&values.1, ALIASES, Clone::clone);
+    let can_save = values.1.clone();
+    aliases.can_save = Box::new(move || can_save.borrow().alias_can_save);
+    rows.push((ALIASES.to_owned(), aliases));
+    // The profile name is the store's choice for this character.
+    let store = values.0.clone();
+    let written = values.1.clone();
+    rows.push((
+        SETTINGS_PROFILE.to_owned(),
+        UbSettingBinding::new(
+            move || UbSettingValue::from_text(store.borrow().profile_name()),
+            move |value| written.borrow_mut().written.push((SETTINGS_PROFILE, value)),
         ),
-        (
-            "InventoryManager.TreatStackAsSingleItem".to_owned(),
-            UbSettingBinding::new(|| UbSettingValue::from_bool(false), |_| {}),
-        ),
-    ]
+    ));
+    // Two choices already made here: they read what is in force, and a
+    // write leaves it.
+    rows.push((
+        "VTank.PatchExpressionEngine".to_owned(),
+        UbSettingBinding::new(|| UbSettingValue::from_bool(true), |_| {}),
+    ));
+    rows.push((
+        "InventoryManager.TreatStackAsSingleItem".to_owned(),
+        UbSettingBinding::new(|| UbSettingValue::from_bool(false), |_| {}),
+    ));
+    rows
 }
 
 /// The UB tab's parts.
@@ -138,8 +260,8 @@ impl UbParts {
             );
         }
         forward_log(client, &log);
-        let values = StoreValues(store.clone());
-        let mut catalog = UbSettingCatalog::new(values.clone(), fixed_rows());
+        let values = StoreValues(store.clone(), Rc::new(RefCell::new(LiveRows::default())));
+        let mut catalog = UbSettingCatalog::new(values.clone(), owned_rows(&values));
         let page = mosstank_ub::settings_page::UbSettingsPage::new(&catalog);
         let mut landscape = mosstank_ub::landscape::controller::LandscapeMapController::new(
             &mosstank_ub::landscape::controller::CatalogLandscapeSettings(&catalog),
@@ -164,7 +286,7 @@ impl UbParts {
         );
         Self {
             catalog,
-            reader: Rc::new(UbSettingCatalog::new(values, fixed_rows())),
+            reader: Rc::new(UbSettingCatalog::new(values.clone(), owned_rows(&values))),
             store,
             commands: UbCommands::new(),
             page,
@@ -201,7 +323,7 @@ impl UbParts {
 
     /// The settings store, shared.
     pub(crate) fn values(&self) -> StoreValues {
-        StoreValues(self.store.clone())
+        self.catalog.values().clone()
     }
 
     /// How each kind of UB line is shown now (`UbMessageDisplay`).
@@ -528,6 +650,192 @@ impl TankCx<'_> {
     }
 }
 
+impl TankCx<'_> {
+    /// Reads the live rows' values from their owners: the running numbers
+    /// and the handler lines; with `files`, also the meta profile picked and
+    /// the alias list, which are read from storage.
+    pub(crate) fn refresh_live_ub_rows(&mut self, files: bool) {
+        let settings = &self.core.settings;
+        let mut values = vec![
+            (
+                LIVE_NUMBERS[0].0,
+                UbSettingValue::from_double(settings.inventory.give_range_meters),
+            ),
+            (
+                LIVE_NUMBERS[1].0,
+                UbSettingValue::from_double(settings.inventory.give_delay_seconds),
+            ),
+            (
+                LIVE_NUMBERS[2].0,
+                UbSettingValue::from_int(settings.inventory.give_busy_retry_limit),
+            ),
+            (
+                LIVE_NUMBERS[3].0,
+                UbSettingValue::from_int(settings.inventory.give_failure_limit),
+            ),
+            (
+                LIVE_NUMBERS[4].0,
+                UbSettingValue::from_int(settings.navigation.jump_attempts),
+            ),
+            (
+                HANDLERS,
+                UbSettingValue::from_collection(&mosstank_meta::events::lines(self.meta.profile())),
+            ),
+        ];
+        let mut alias_can_save = None;
+        if files {
+            let selected = self
+                .core
+                .meta_profiles
+                .selected(self.client.stores())
+                .unwrap_or_default();
+            let shown = if openac_plugin_compat::text::ordinal::equals_ignore_case(
+                &selected,
+                mosstank_stores::meta_store::BY_CHARACTER,
+            ) {
+                CHARACTER_META.to_owned()
+            } else {
+                selected
+            };
+            values.push((HANDLER_PROFILE, UbSettingValue::from_text(&shown)));
+            let key = self.alias_file_key();
+            let mut log = RecordingLog::default();
+            let lines = {
+                let storage = self.client.stores().storage(Root::Profiles);
+                self.ub
+                    .store
+                    .borrow_mut()
+                    .read_lines(storage, &mut log, key.as_deref())
+            };
+            forward_log(self.client, &log);
+            values.push((ALIASES, UbSettingValue::from_collection(&lines)));
+            alias_can_save =
+                Some(key.is_some() && self.client.stores().storage(Root::Profiles).is_available());
+        }
+        let live = self.ub.catalog.values().1.clone();
+        let mut live = live.borrow_mut();
+        for (name, value) in values {
+            live.values.insert(name, value);
+        }
+        if let Some(can_save) = alias_can_save {
+            live.alias_can_save = can_save;
+        }
+    }
+
+    /// The alias file the `Aliases.Profile` row names (`AliasFileKey`).
+    fn alias_file_key(&self) -> Option<String> {
+        let profile = mosstank_ub::catalog::UbCatalog::value(&self.ub.catalog, "Aliases.Profile");
+        self.ub.store.borrow().alias_file_key(Some(&profile.text))
+    }
+
+    /// Hands the writes made to the live rows during the call to their
+    /// owners, as the C# bindings' setters do at once (register UB-5).
+    pub(crate) fn apply_live_ub_writes(&mut self) {
+        let written = std::mem::take(&mut self.ub.catalog.values().1.borrow_mut().written);
+        if written.is_empty() {
+            return;
+        }
+        let mut refresh_page = false;
+        for (name, value) in written {
+            match name {
+                HANDLERS => {
+                    self.apply_handler_lines(&value.items);
+                    refresh_page = true;
+                }
+                HANDLER_PROFILE => {
+                    let text = value.text.trim();
+                    let name = if openac_plugin_compat::text::ordinal::equals_ignore_case(
+                        text,
+                        CHARACTER_META,
+                    ) {
+                        mosstank_stores::meta_store::BY_CHARACTER
+                    } else {
+                        text
+                    };
+                    self.select_meta_profile(name);
+                }
+                ALIASES => {
+                    let key = self.alias_file_key();
+                    let mut log = RecordingLog::default();
+                    {
+                        let storage = self.client.stores().storage(Root::Profiles);
+                        self.ub.store.borrow_mut().write_lines(
+                            storage,
+                            &mut log,
+                            key.as_deref(),
+                            &value.items,
+                        );
+                    }
+                    forward_log(self.client, &log);
+                }
+                SETTINGS_PROFILE => {
+                    let mut log = RecordingLog::default();
+                    {
+                        let storage = self.client.stores().storage(Root::Profiles);
+                        self.ub.store.borrow_mut().select_profile(
+                            storage,
+                            &mut log,
+                            value.text.trim(),
+                        );
+                    }
+                    forward_log(self.client, &log);
+                    refresh_page = true;
+                }
+                _ => {
+                    let settings = &mut self.core.settings;
+                    match name {
+                        "ItemGiver.Range" => {
+                            settings.inventory.give_range_meters = value.as_double();
+                        }
+                        "ItemGiver.Delay" => {
+                            settings.inventory.give_delay_seconds = value.as_double();
+                        }
+                        "ItemGiver.BusyRetryLimit" => {
+                            settings.inventory.give_busy_retry_limit = value.as_int32();
+                        }
+                        "ItemGiver.FailureLimit" => {
+                            settings.inventory.give_failure_limit = value.as_int32();
+                        }
+                        _ => settings.navigation.jump_attempts = value.as_int32(),
+                    }
+                    self.core.save_profile(self.client);
+                }
+            }
+        }
+        self.refresh_live_ub_rows(true);
+        if refresh_page {
+            self.ub.page.refresh(&self.ub.catalog);
+        }
+    }
+
+    /// The handlers row's write: the lines become the meta profile's
+    /// handler rules, a line that cannot be read is said in chat and
+    /// dropped, and the meta profile is saved.
+    fn apply_handler_lines(&mut self, lines: &[String]) {
+        let mut profile = self.meta.profile().clone();
+        let rejected = mosstank_meta::events::apply(&mut profile, lines);
+        // The engine's own rules, edited in place: the handler rules out,
+        // the lines' rules in at the end, every other rule where it was.
+        for index in (0..self.meta.profile().rules.len()).rev() {
+            if mosstank_meta::events::is_handler(&self.meta.profile().rules[index]) {
+                self.meta.remove_rule(index);
+            }
+        }
+        let kept = self.meta.profile().rules.len();
+        for rule in profile.rules.into_iter().skip(kept) {
+            self.meta.add_rule(rule);
+        }
+        for line in rejected {
+            super::post_chat(self.client.rules(), &line);
+        }
+        self.save_meta_profile();
+        let count = self.meta.profile().rules.len();
+        self.core.panel.meta.selected =
+            super::panel::clamp_row(self.core.panel.meta.selected, count);
+        self.refresh_meta_editor();
+    }
+}
+
 /// Runs one line typed under `/ub` (`ExecuteUbCommand`).
 pub(crate) fn execute(cx: &mut TankCx<'_>, input: &str) {
     cx.with_ub(|commands, call| commands.execute(call, input));
@@ -575,7 +883,8 @@ impl TankServices<'_, '_> {
     ) -> Result<ExpressionValue, mosstank_expr::Fault> {
         let name = arguments[0].as_str(function)?.to_owned();
         let locks = self.core.0.borrow().locks.clone();
-        let mut catalog = UbSettingCatalog::new(self.ub_values.clone(), fixed_rows());
+        let mut catalog =
+            UbSettingCatalog::new(self.ub_values.clone(), owned_rows(&self.ub_values));
         let mut proxy = ClientProxy::new(self.client);
         let mut expressions = NoExpressions::default();
         let mut services = ShellUbServices {
@@ -638,7 +947,8 @@ impl TankServices<'_, '_> {
     /// its own.
     pub(crate) fn with_ub_call<R>(&mut self, f: impl FnOnce(&mut UbCall<'_>) -> R) -> R {
         let locks = self.core.0.borrow().locks.clone();
-        let mut catalog = UbSettingCatalog::new(self.ub_values.clone(), fixed_rows());
+        let mut catalog =
+            UbSettingCatalog::new(self.ub_values.clone(), owned_rows(&self.ub_values));
         let mut proxy = ClientProxy::new(self.client);
         let mut expressions = NoExpressions::default();
         let mut services = ShellUbServices {

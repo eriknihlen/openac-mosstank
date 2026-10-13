@@ -276,6 +276,7 @@ impl Tank {
         self.begin_call(client);
         let arg = Arg::from(value);
         let (mut cx, _) = self.cx(client);
+        cx.refresh_live_ub_rows(true);
         let handled = cx.ui_act(name, &arg);
         cx.core.write_out(cx.client);
         self.end_call(client);

@@ -282,6 +282,10 @@ impl TankCx<'_> {
     /// `RefreshMetaEditor`: the selection kept inside the list and the
     /// drafts loaded from the selected rule (the grid is read fresh).
     pub(crate) fn refresh_meta_editor(&mut self) {
+        // The settings page shows the handler rules as lines, so it is
+        // refreshed with the meta grid.
+        self.refresh_live_ub_rows(false);
+        self.ub.page.refresh(&self.ub.catalog);
         let count = self.meta.profile().rules.len();
         self.core.panel.meta.selected = clamp_row(self.core.panel.meta.selected, count);
         let Some(index) = self.selected_meta_index() else {
@@ -426,7 +430,7 @@ impl TankCx<'_> {
     }
 
     /// `SaveMetaProfile`.
-    fn save_meta_profile(&mut self) -> bool {
+    pub(crate) fn save_meta_profile(&mut self) -> bool {
         let profile = self.meta.profile().clone();
         if self
             .core

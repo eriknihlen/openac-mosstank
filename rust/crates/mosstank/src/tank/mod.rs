@@ -833,6 +833,7 @@ impl Tank {
             };
             cx.apply_persisted_option_overrides();
             cx.refresh_editors();
+            cx.refresh_live_ub_rows(true);
             cx.refresh_meta_editor();
         }
         core.automation_was_available = client.rules().is_available();
@@ -960,6 +961,7 @@ impl Tank {
     pub fn execute_vtank_command(&mut self, client: &mut dyn TankClient, arguments: &str) {
         self.begin_call(client);
         let (mut cx, _) = self.cx(client);
+        cx.refresh_live_ub_rows(true);
         commands::execute_vtank(&mut cx, arguments);
         cx.core.write_out(cx.client);
         self.end_call(client);
@@ -969,6 +971,7 @@ impl Tank {
     pub fn execute_ub_command(&mut self, client: &mut dyn TankClient, arguments: &str) {
         self.begin_call(client);
         let (mut cx, _) = self.cx(client);
+        cx.refresh_live_ub_rows(true);
         commands::execute_ub(&mut cx, arguments);
         cx.core.write_out(cx.client);
         self.end_call(client);
@@ -1262,12 +1265,19 @@ impl Tank {
     /// settings say.
     pub(crate) fn begin_call(&mut self, client: &mut dyn TankClient) {
         self.core.clock.set(&client.clock());
+        // The live UB rows read what their owners hold now.
+        let (mut cx, _) = self.cx(client);
+        cx.refresh_live_ub_rows(false);
         client.set_ub_displays(self.ub.displays());
     }
 
     /// The end of every call: the UB settings changed in it are written
     /// (register STORE-1), and a new meta interval reaches the scheduler.
     pub(crate) fn end_call(&mut self, client: &mut dyn TankClient) {
+        {
+            let (mut cx, _) = self.cx(client);
+            cx.apply_live_ub_writes();
+        }
         if self.core.panel.items_dirty {
             let (mut cx, _) = self.cx(client);
             cx.refresh_item_editors();
