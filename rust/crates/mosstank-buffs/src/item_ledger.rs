@@ -85,6 +85,10 @@ impl ItemEnchantLedger {
         now_seconds: f64,
         log: &mut dyn FnMut(&str),
     ) -> ItemEnchantLoadResult {
+        // A change still waiting belongs to the scope being left: it is
+        // written there before the timers are bound elsewhere, as the C#'s
+        // write-through store has already written it.
+        self.flush(storage);
         self.entries.clear();
         self.write = None;
         let scope = ItemEnchantScope::new(server_name, character_name);
@@ -500,5 +504,49 @@ impl ItemEnchantLedger {
             }
         }
         true
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use ac_plugin_abi::items::InventoryItem;
+    use mosstank_stores::item_enchant_store::ItemEnchantScope;
+    use mosstank_stores::storage::{MemoryStorage, PluginStorage};
+
+    use super::*;
+
+    /// A timer noted for one character and not yet flushed is written to
+    /// that character's file when the timers are bound to another one: the
+    /// C#'s store writes through, so nothing noted is lost at a rebind.
+    #[test]
+    fn a_change_still_waiting_is_written_to_its_own_scope_before_a_rebind() {
+        let mut storage = MemoryStorage::new();
+        let mut ledger = ItemEnchantLedger::new();
+        ledger.set_utc_now(1_700_000_000_000);
+        ledger.bind_persistence(
+            &mut storage,
+            Some("Coldeve"),
+            Some("Alpha"),
+            0.0,
+            &mut |_| {},
+        );
+        let item = InventoryItem {
+            object_id: 0x5000_0001,
+            weenie_class_id: 1234,
+            name: "Wand".to_owned(),
+            ..InventoryItem::default()
+        };
+        ledger.note_item_cast(&item, 7, 1001, 1, 3600.0, 0.0, "Defender", &mut |_| {});
+
+        ledger.bind_persistence(
+            &mut storage,
+            Some("Coldeve"),
+            Some("Beta"),
+            0.0,
+            &mut |_| {},
+        );
+
+        let alpha = ItemEnchantScope::new(Some("Coldeve"), Some("Alpha")).key();
+        assert!(storage.read_text(&alpha).unwrap().is_some());
     }
 }

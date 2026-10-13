@@ -8,6 +8,7 @@
 //! [`BuffRuleHost`]; the gate, the cast tracker and the cooldown table are
 //! shared handles bound once.
 
+use ac_plugin_abi::CharacterInfo;
 use std::collections::{HashMap, HashSet};
 
 use ac_plugin_abi::character::Training;
@@ -144,7 +145,7 @@ pub struct BuffSelfRule {
     consumable_completion: i64,
     consumable_deadline: f64,
     consumables_bound: bool,
-    gate: Option<SharedCombatModeGate>,
+    gate: SharedCombatModeGate,
     cast_tracker: SharedCastTracker,
 }
 
@@ -185,14 +186,16 @@ impl BuffSelfRule {
             consumable_completion: 0,
             consumable_deadline: 0.0,
             consumables_bound: false,
-            gate: None,
+            gate: std::rc::Rc::new(std::cell::RefCell::new(
+                mosstank_combat::gate::CombatModeGate::new(),
+            )),
             cast_tracker: std::rc::Rc::new(std::cell::RefCell::new(SpellCastTracker::new())),
         }
     }
 
     /// Shares the stance gate.
     pub fn bind_combat_mode_gate(&mut self, gate: SharedCombatModeGate) {
-        self.gate = Some(gate);
+        self.gate = gate;
     }
 
     /// Shares the macro's cast tracker.
@@ -364,10 +367,27 @@ impl BuffSelfRule {
         storage: &mut dyn PluginStorage,
         host: &mut dyn BuffRuleHost,
     ) {
-        if !automation.is_available() {
+        let available = automation.is_available();
+        let character = if available {
+            automation.character()
+        } else {
+            CharacterInfo::default()
+        };
+        self.ensure_timer_persistence_with(available, &character, storage, host);
+    }
+
+    /// [`Self::ensure_timer_persistence`] with the client's answers read
+    /// already, for an owner whose storage and client are one borrow.
+    pub fn ensure_timer_persistence_with(
+        &mut self,
+        available: bool,
+        character: &CharacterInfo,
+        storage: &mut dyn PluginStorage,
+        host: &mut dyn BuffRuleHost,
+    ) {
+        if !available {
             return;
         }
-        let character = automation.character();
         let world = character.world.trim();
         let name = character.name.trim();
         if world.is_empty()
@@ -655,7 +675,10 @@ impl BuffSelfRule {
             return self.use_buff_consumable(turn, &pick);
         }
 
-        if let Some(gate) = self.gate.clone() {
+        // The owner's gate is always there (the C#'s `_owner.Gate`): a buff is
+        // cast only from magic mode.
+        {
+            let gate = self.gate.clone();
             let mut gate = gate.borrow_mut();
             let mut gate_turn = GateTurn {
                 automation: &mut *turn.automation,

@@ -334,6 +334,17 @@ impl LootController {
         }
     }
 
+    /// The profile's helper list again, after a load or an edit (the C#
+    /// shares the profile's live collections with the looter).
+    pub fn set_configured_consumables(
+        &mut self,
+        names: OrdinalStringSet,
+        kinds: OrdinalStringMap<ConsumableCategory>,
+    ) {
+        self.configured_consumable_names = names;
+        self.configured_consumable_kinds = kinds;
+    }
+
     /// The names on the profile's helper list.
     #[must_use]
     pub fn configured_consumable_names(&self) -> &OrdinalStringSet {

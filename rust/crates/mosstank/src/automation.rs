@@ -361,6 +361,10 @@ impl Automation for HostAutomation<'_, '_> {
         self.host.select(object_id)
     }
 
+    fn clear_selection(&mut self) -> bool {
+        self.host.clear_selection()
+    }
+
     fn selection_step(&mut self, action: SelectionAction) -> bool {
         self.host.selection_step(action)
     }

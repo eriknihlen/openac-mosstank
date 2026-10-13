@@ -1,0 +1,732 @@
+//! What the meta engine asks of the rest of the plugin (`MetaServices`,
+//! the panel's side of it), and how the engine and those services share the
+//! one client of the call.
+//!
+//! The engine is handed the client as a [`MetaHost`] and the services as a
+//! [`MetaServices`], and it calls them in turn, never both at once. The
+//! services need the whole client (to save a profile, to buff, to run a
+//! `/vt` line a meta submits), so the client sits in a [`ClientCell`]: the
+//! engine reaches it through a [`ClientProxy`] that borrows it for each of
+//! its calls, the services borrow it for each of theirs. Everything stays
+//! synchronous, as in the C#.
+
+use std::cell::RefCell;
+
+use mosstank_expr::{EvaluationContext, ExpressionError, ExpressionValue, Fault};
+use mosstank_formats::meta::MetaProfile;
+use mosstank_formats::route::NavigationSettings;
+use mosstank_meta::engine::MetaEngine;
+use mosstank_meta::host::{
+    ActiveEnchantment, Attribute, CastResult, CharacterInfo, ChatLine, CombatMode, CombatResult,
+    CombatSnapshot, CombatTarget, ComponentInfo, EquipmentItem, EquipmentResult, FellowMember,
+    FellowshipState, InventoryItem, ItemProperties, ItemResult, ItemState, LogLevel, LoginState,
+    LootContainer, MetaHost, MovementIntent, NavigationSnapshot, NavigationStatus, NetworkClient,
+    PanelDescriptor, PeerCast, SelectionState, Skill, SpellExtras, SpellInfo, SpellList, UbDisplay,
+    UbLineKind, WorldObject, WorldTime,
+};
+use mosstank_meta::services::{MetaServices, PeerNeed};
+use mosstank_settings::options;
+use mosstank_stores::storage::{PluginStorage, StorageError};
+use mosstank_ub::host::{
+    AllegianceResult, Floorplan, MoveChannel, MoveDirection, MovePace, MoveReport, MoveUnit,
+    OptionResult, UbHost,
+};
+use openac_plugin_compat::number::{self, NumberStyles};
+
+use super::commands;
+use super::{Core, TankCx};
+use crate::client::TankClient;
+
+/// The client of the call, shared by the engine's host and the services.
+pub(crate) struct ClientCell<'c>(pub(crate) RefCell<&'c mut dyn TankClient>);
+
+/// What the services ask of the engine once its call has returned: a
+/// meta's own `/vt` line that needs the engine, or its `/ub` line.
+#[derive(Debug, Clone, PartialEq)]
+pub(crate) enum EngineRequest {
+    /// A `/vt` line (register META-9).
+    VtLine(String),
+    /// A `/ub` line (register META-9).
+    UbLine(String),
+    /// What follows a meta load the engine took (register META-2): the
+    /// route a meta carried goes, the options come back.
+    AfterMetaLoad,
+}
+
+/// The engine's host over the shared client.
+pub(crate) struct ClientProxy<'s, 'c> {
+    cell: &'s ClientCell<'c>,
+    storage: StorageProxy<'s, 'c>,
+}
+
+impl<'s, 'c> ClientProxy<'s, 'c> {
+    pub(crate) fn new(cell: &'s ClientCell<'c>) -> Self {
+        Self {
+            cell,
+            storage: StorageProxy { cell },
+        }
+    }
+}
+
+/// The meta's storage over the shared client.
+struct StorageProxy<'s, 'c> {
+    cell: &'s ClientCell<'c>,
+}
+
+impl PluginStorage for StorageProxy<'_, '_> {
+    fn is_available(&mut self) -> bool {
+        self.cell.0.borrow_mut().meta().storage().is_available()
+    }
+
+    fn root_path(&mut self) -> Option<String> {
+        self.cell.0.borrow_mut().meta().storage().root_path()
+    }
+
+    fn read_text(&mut self, key: &str) -> Result<Option<String>, StorageError> {
+        self.cell.0.borrow_mut().meta().storage().read_text(key)
+    }
+
+    fn list(&mut self, prefix: &str) -> Result<Vec<String>, StorageError> {
+        self.cell.0.borrow_mut().meta().storage().list(prefix)
+    }
+
+    fn write_text(&mut self, key: &str, content: &str) -> Result<(), StorageError> {
+        self.cell
+            .0
+            .borrow_mut()
+            .meta()
+            .storage()
+            .write_text(key, content)
+    }
+
+    fn ensure_directory(&mut self, prefix: &str) -> Result<bool, StorageError> {
+        self.cell
+            .0
+            .borrow_mut()
+            .meta()
+            .storage()
+            .ensure_directory(prefix)
+    }
+
+    fn delete(&mut self, key: &str) -> Result<bool, StorageError> {
+        self.cell.0.borrow_mut().meta().storage().delete(key)
+    }
+
+    fn lock(&mut self, key: &str) -> Result<u32, StorageError> {
+        self.cell.0.borrow_mut().meta().storage().lock(key)
+    }
+
+    fn unlock(&mut self, handle: u32) -> bool {
+        self.cell.0.borrow_mut().meta().storage().unlock(handle)
+    }
+}
+
+/// One forwarded call to the client's meta view.
+macro_rules! meta {
+    ($self:ident.$method:ident($($argument:expr),*)) => {
+        $self.cell.0.borrow_mut().meta().$method($($argument),*)
+    };
+}
+
+/// One forwarded call to the client's UB view.
+macro_rules! ub {
+    ($self:ident.$method:ident($($argument:expr),*)) => {
+        $self.cell.0.borrow_mut().ub().$method($($argument),*)
+    };
+}
+
+impl MetaHost for ClientProxy<'_, '_> {
+    fn log(&mut self, level: LogLevel, message: &str) {
+        meta!(self.log(level, message));
+    }
+    fn chat_post(&mut self, text: &str, log_text_type: u32) {
+        meta!(self.chat_post(text, log_text_type));
+    }
+    fn chat_submit(&mut self, line: &str) -> bool {
+        meta!(self.chat_submit(line))
+    }
+    fn chat_compose(&mut self, text: &str) -> bool {
+        meta!(self.chat_compose(text))
+    }
+    fn chat_captured(&mut self, after_sequence: u64) -> Vec<ChatLine> {
+        meta!(self.chat_captured(after_sequence))
+    }
+    fn chat_add_filter(&mut self) -> u32 {
+        meta!(self.chat_add_filter())
+    }
+    fn chat_remove_filter(&mut self, handle: u32) -> bool {
+        meta!(self.chat_remove_filter(handle))
+    }
+    fn ub_display(&mut self, kind: UbLineKind) -> UbDisplay {
+        meta!(self.ub_display(kind))
+    }
+    fn character(&mut self) -> Option<CharacterInfo> {
+        meta!(self.character())
+    }
+    fn skill(&mut self, skill_id: u32) -> Option<Skill> {
+        meta!(self.skill(skill_id))
+    }
+    fn attributes(&mut self) -> Vec<Attribute> {
+        meta!(self.attributes())
+    }
+    fn enchantments(&mut self) -> Vec<ActiveEnchantment> {
+        meta!(self.enchantments())
+    }
+    fn objects(&mut self) -> Vec<WorldObject> {
+        meta!(self.objects())
+    }
+    fn object(&mut self, object_id: u32) -> Option<WorldObject> {
+        meta!(self.object(object_id))
+    }
+    fn properties(&mut self, object_id: u32) -> Option<ItemProperties> {
+        meta!(self.properties(object_id))
+    }
+    fn int_property(&mut self, object_id: u32, property: u32) -> Option<i32> {
+        meta!(self.int_property(object_id, property))
+    }
+    fn identify(&mut self, object_id: u32) -> ItemResult {
+        meta!(self.identify(object_id))
+    }
+    fn open_container(&mut self) -> u32 {
+        meta!(self.open_container())
+    }
+    fn world_time(&mut self) -> WorldTime {
+        meta!(self.world_time())
+    }
+    fn navigation(&mut self) -> NavigationSnapshot {
+        meta!(self.navigation())
+    }
+    fn set_movement_intent(&mut self, intent: MovementIntent) -> NavigationStatus {
+        meta!(self.set_movement_intent(intent))
+    }
+    fn clear_movement_intent(&mut self) -> NavigationStatus {
+        meta!(self.clear_movement_intent())
+    }
+    fn selection(&mut self) -> SelectionState {
+        meta!(self.selection())
+    }
+    fn select(&mut self, object_id: u32) -> bool {
+        meta!(self.select(object_id))
+    }
+    fn item_state(&mut self) -> ItemState {
+        meta!(self.item_state())
+    }
+    fn owned_items(&mut self) -> Vec<InventoryItem> {
+        meta!(self.owned_items())
+    }
+    fn use_item(&mut self, object_id: u32) -> ItemResult {
+        meta!(self.use_item(object_id))
+    }
+    fn apply_item(&mut self, object_id: u32, target_id: u32) -> ItemResult {
+        meta!(self.apply_item(object_id, target_id))
+    }
+    fn give_item(&mut self, object_id: u32, target_id: u32, amount: u32) -> ItemResult {
+        meta!(self.give_item(object_id, target_id, amount))
+    }
+    fn drop_item(&mut self, object_id: u32, amount: u32) -> ItemResult {
+        meta!(self.drop_item(object_id, amount))
+    }
+    fn move_item(
+        &mut self,
+        object_id: u32,
+        container_id: u32,
+        amount: u32,
+        placement: i32,
+        join_stack: bool,
+    ) -> ItemResult {
+        meta!(self.move_item(object_id, container_id, amount, placement, join_stack))
+    }
+    fn salvage(&mut self, tool_id: u32, item_ids: Vec<u32>) -> ItemResult {
+        meta!(self.salvage(tool_id, item_ids))
+    }
+    fn corpses(&mut self, maximum_metres: f32) -> Vec<LootContainer> {
+        meta!(self.corpses(maximum_metres))
+    }
+    fn owned_equipment(&mut self) -> Vec<EquipmentItem> {
+        meta!(self.owned_equipment())
+    }
+    fn equip(&mut self, object_id: u32, location: u32) -> EquipmentResult {
+        meta!(self.equip(object_id, location))
+    }
+    fn equipment_busy(&mut self) -> bool {
+        meta!(self.equipment_busy())
+    }
+    fn spell(&mut self, spell_id: u32) -> Option<SpellInfo> {
+        meta!(self.spell(spell_id))
+    }
+    fn known_spells(&mut self, list: SpellList) -> Vec<SpellInfo> {
+        meta!(self.known_spells(list))
+    }
+    fn is_spell_known(&mut self, spell_id: u32) -> bool {
+        meta!(self.is_spell_known(spell_id))
+    }
+    fn spell_component(&mut self, component_id: u32) -> Option<ComponentInfo> {
+        meta!(self.spell_component(component_id))
+    }
+    fn cooldown_remaining(&mut self, cooldown_id: u32) -> f64 {
+        meta!(self.cooldown_remaining(cooldown_id))
+    }
+    fn is_casting(&mut self) -> bool {
+        meta!(self.is_casting())
+    }
+    fn has_components(&mut self, spell_id: u32) -> bool {
+        meta!(self.has_components(spell_id))
+    }
+    fn cast(&mut self, spell_id: u32, target_id: u32) -> CastResult {
+        meta!(self.cast(spell_id, target_id))
+    }
+    fn spell_extras(&mut self, spell_id: u32) -> SpellExtras {
+        meta!(self.spell_extras(spell_id))
+    }
+    fn combat(&mut self) -> CombatSnapshot {
+        meta!(self.combat())
+    }
+    fn hostile_targets(&mut self, maximum_metres: f32) -> Vec<CombatTarget> {
+        meta!(self.hostile_targets(maximum_metres))
+    }
+    fn enter_combat_mode(&mut self, mode: CombatMode) -> CombatResult {
+        meta!(self.enter_combat_mode(mode))
+    }
+    fn fellowship(&mut self) -> FellowshipState {
+        meta!(self.fellowship())
+    }
+    fn fellowship_roster(&mut self) -> Vec<FellowMember> {
+        meta!(self.fellowship_roster())
+    }
+    fn login(&mut self) -> LoginState {
+        meta!(self.login())
+    }
+    fn login_set_next(&mut self, character_id: u32) -> bool {
+        meta!(self.login_set_next(character_id))
+    }
+    fn login_clear_next(&mut self) -> bool {
+        meta!(self.login_clear_next())
+    }
+    fn peer_clients(&mut self) -> Vec<NetworkClient> {
+        meta!(self.peer_clients())
+    }
+    fn peer_casts(&mut self, after_sequence: i64) -> Vec<PeerCast> {
+        meta!(self.peer_casts(after_sequence))
+    }
+    fn has_ui(&mut self) -> bool {
+        meta!(self.has_ui())
+    }
+    fn register_panel(&mut self, descriptor: &PanelDescriptor, markup: &str) -> Option<u32> {
+        meta!(self.register_panel(descriptor, markup))
+    }
+    fn unregister_panel(&mut self, handle: u32) {
+        meta!(self.unregister_panel(handle));
+    }
+    fn ui_view_exists(&mut self, view: &str) -> bool {
+        meta!(self.ui_view_exists(view))
+    }
+    fn ui_view_visible(&mut self, view: &str) -> bool {
+        meta!(self.ui_view_visible(view))
+    }
+    fn ui_control_exists(&mut self, view: &str, control: &str) -> bool {
+        meta!(self.ui_control_exists(view, control))
+    }
+    fn ui_set_control_label(&mut self, view: &str, control: &str, label: &str) -> bool {
+        meta!(self.ui_set_control_label(view, control, label))
+    }
+    fn ui_set_control_visible(&mut self, view: &str, control: &str, visible: bool) -> bool {
+        meta!(self.ui_set_control_visible(view, control, visible))
+    }
+    fn storage(&mut self) -> &mut dyn PluginStorage {
+        &mut self.storage
+    }
+    fn shared_storage(&mut self) -> Option<Box<dyn PluginStorage>> {
+        meta!(self.shared_storage())
+    }
+}
+
+impl UbHost for ClientProxy<'_, '_> {
+    fn chat_add_interceptor(&mut self) -> Result<u32, String> {
+        ub!(self.chat_add_interceptor())
+    }
+    fn chat_remove_interceptor(&mut self, handle: u32) -> bool {
+        ub!(self.chat_remove_interceptor(handle))
+    }
+    fn face_heading(&mut self, heading_degrees: f32) -> NavigationStatus {
+        ub!(self.face_heading(heading_degrees))
+    }
+    fn move_by(
+        &mut self,
+        direction: MoveDirection,
+        pace: MovePace,
+        amount: f32,
+        unit: MoveUnit,
+    ) -> NavigationStatus {
+        ub!(self.move_by(direction, pace, amount, unit))
+    }
+    fn stop_moving_channel(&mut self, channel: MoveChannel) -> NavigationStatus {
+        ub!(self.stop_moving_channel(channel))
+    }
+    fn jump(&mut self, power: f32) -> NavigationStatus {
+        ub!(self.jump(power))
+    }
+    fn move_report(&mut self) -> MoveReport {
+        ub!(self.move_report())
+    }
+    fn skills(&mut self) -> Vec<Skill> {
+        ub!(self.skills())
+    }
+    fn character_options(&mut self) -> Vec<(String, bool)> {
+        ub!(self.character_options())
+    }
+    fn set_character_option(&mut self, name: &str, value: bool) -> OptionResult {
+        ub!(self.set_character_option(name, value))
+    }
+    fn allegiance_swear(&mut self, patron_id: u32) -> AllegianceResult {
+        ub!(self.allegiance_swear(patron_id))
+    }
+    fn allegiance_break(&mut self, target_id: u32) -> AllegianceResult {
+        ub!(self.allegiance_break(target_id))
+    }
+    fn answer_dialog(&mut self, context_id: u32, accept: bool) -> bool {
+        ub!(self.answer_dialog(context_id, accept))
+    }
+    fn open_loot(&mut self, container_id: u32) -> ItemResult {
+        ub!(self.open_loot(container_id))
+    }
+    fn close_loot(&mut self, container_id: u32) -> ItemResult {
+        ub!(self.close_loot(container_id))
+    }
+    fn request_close(&mut self) -> bool {
+        ub!(self.request_close())
+    }
+    fn broadcast_command(&mut self, line: &str, tags: &[String], delay_ms: i32) -> bool {
+        ub!(self.broadcast_command(line, tags, delay_ms))
+    }
+    fn set_peer_tags(&mut self, tags: &[String]) -> bool {
+        ub!(self.set_peer_tags(tags))
+    }
+    fn peer_subscribe(&mut self, capabilities: u32) -> Option<u32> {
+        ub!(self.peer_subscribe(capabilities))
+    }
+    fn peer_unsubscribe(&mut self, handle: u32) -> bool {
+        ub!(self.peer_unsubscribe(handle))
+    }
+    fn peers_connected(&mut self) -> bool {
+        ub!(self.peers_connected())
+    }
+    fn is_sealed_dungeon(&mut self, cell_id: u32) -> bool {
+        ub!(self.is_sealed_dungeon(cell_id))
+    }
+    fn dungeon_floorplan(&mut self, landblock_id: u32) -> Option<Floorplan> {
+        ub!(self.dungeon_floorplan(landblock_id))
+    }
+}
+
+/// The plugin as the meta sees it (the panel's `MetaServices` and
+/// `ExpressionHostPolicy`).
+pub(crate) struct TankServices<'s, 'c> {
+    pub(crate) core: &'s mut Core,
+    pub(crate) client: &'s ClientCell<'c>,
+    /// Whether the meta runs, read before the engine's call.
+    pub(crate) meta_enabled: bool,
+    /// What a meta's own lines ask of the engine, done after its call.
+    pub(crate) requests: Vec<EngineRequest>,
+}
+
+impl TankServices<'_, '_> {
+    /// `BeginExpressionCast`: an expression's cast goes through the macro's
+    /// cast tracker; with a cast in flight nothing is sent. The pass is held
+    /// at once, as the reference raises its busy count inside the cast.
+    fn begin_expression_cast(&mut self, spell_id: u32, target: Option<u32>) {
+        if self.core.tracker.borrow().is_busy() {
+            return;
+        }
+        let mut client = self.client.0.borrow_mut();
+        let automation = client.rules();
+        let Some(spell) = automation.spells().try_get(spell_id) else {
+            return;
+        };
+        if automation.combat_mode() != CombatMode::Magic
+            || self
+                .core
+                .tracker
+                .borrow()
+                .is_school_locked_out(spell.school)
+        {
+            return;
+        }
+        if !automation.cast(spell_id, target) {
+            return;
+        }
+        // The untargeted form is tracked with no target.
+        let tracked_target = target.unwrap_or(0);
+        let target_name = if tracked_target == 0 {
+            String::new()
+        } else if tracked_target == automation.character().id {
+            "yourself".to_owned()
+        } else {
+            automation
+                .object(tracked_target)
+                .map(|found| found.name)
+                .unwrap_or_default()
+        };
+        self.core.queue_log(
+            mosstank_meta::scheduler::MacroLogChannel::SpellCast,
+            &format!(
+                "Casting: {} on {tracked_target} ({target_name})",
+                spell.name
+            ),
+        );
+        let mut request = mosstank_automation::cast_tracker::CastRequest::new(
+            spell.spell_id,
+            &spell.name,
+            tracked_target,
+            &target_name,
+            mosstank_automation::cast_tracker::SpellCastTracker::hits_multiple_targets_for(&spell),
+        );
+        request.saying = &spell.saying;
+        request.school = spell.school;
+        request.can_kill =
+            mosstank_automation::cast_tracker::SpellCastTracker::can_kill_for(&spell);
+        request.current_mana = i32::try_from(automation.character().mana.0).unwrap_or(i32::MAX);
+        self.core.tracker.borrow_mut().begin(&request);
+        self.core.queue_log(
+            mosstank_meta::scheduler::MacroLogChannel::CastInfo,
+            "SpellCaster: Begin",
+        );
+        if !self.core.transaction_suspension_held {
+            self.core.hold_pass();
+        }
+    }
+}
+
+impl MetaServices for TankServices<'_, '_> {
+    /// A meta's chat line: the plugin's own `/vt` verbs run there and then
+    /// (register META-2); its `/ub` line runs right after the engine's call
+    /// (register META-9); anything else goes to the client.
+    fn submit_chat(&mut self, _host: &mut dyn MetaHost, line: &str) -> Option<MetaProfile> {
+        if let Some((_, verb, arguments)) = ac_plugin_abi::verbs::split_command_line(line) {
+            if verb.eq_ignore_ascii_case(commands::VTANK_VERB) {
+                if let Some((name, af)) = commands::meta_load_request(arguments) {
+                    let mut client = self.client.0.borrow_mut();
+                    let profile = self
+                        .core
+                        .load_meta_profile_command(&mut **client, &name, af);
+                    if profile.is_some() {
+                        self.requests.push(EngineRequest::AfterMetaLoad);
+                    }
+                    return profile;
+                }
+                self.requests
+                    .push(EngineRequest::VtLine(arguments.to_owned()));
+                return None;
+            }
+            if verb.eq_ignore_ascii_case(commands::UB_VERB) {
+                self.requests
+                    .push(EngineRequest::UbLine(arguments.to_owned()));
+                return None;
+            }
+        }
+        self.client.0.borrow_mut().meta().chat_submit(line);
+        None
+    }
+
+    fn is_navigation_route_empty(&mut self, _host: &mut dyn MetaHost) -> bool {
+        self.core
+            .navigation
+            .has_nothing_left_to_walk(&self.core.settings.navigation)
+    }
+
+    fn needs_buff(&mut self, _host: &mut dyn MetaHost) -> bool {
+        let mut client = self.client.0.borrow_mut();
+        self.core
+            .buff_rule
+            .has_anything_due(client.rules(), &self.core.settings.buffs)
+    }
+
+    /// `DistanceFromAnyRoutePoint`.
+    fn distance_from_any_route_point(&mut self, _host: &mut dyn MetaHost) -> f64 {
+        let snapshot = self.client.0.borrow_mut().rules().navigation_snapshot();
+        if !snapshot.is_available {
+            return f64::INFINITY;
+        }
+        mosstank_nav::route_view::nearest_route_distance_meters(
+            &snapshot.position,
+            &self.core.settings.navigation.waypoints,
+        )
+    }
+
+    /// `CountMonstersByPriority`.
+    fn count_monsters_by_priority(
+        &mut self,
+        _host: &mut dyn MetaHost,
+        priority: i32,
+        distance: f64,
+    ) -> i32 {
+        #[allow(clippy::cast_possible_truncation)]
+        let targets = self
+            .client
+            .0
+            .borrow_mut()
+            .rules()
+            .hostile_targets(distance as f32);
+        let count = targets
+            .iter()
+            .filter(|target| self.core.settings.combat.resolve_rule(target).priority() == priority)
+            .count();
+        i32::try_from(count).unwrap_or(i32::MAX)
+    }
+
+    fn load_embedded_navigation_route(
+        &mut self,
+        _host: &mut dyn MetaHost,
+        route: Option<&NavigationSettings>,
+        name: &str,
+    ) {
+        let mut client = self.client.0.borrow_mut();
+        TankCx::load_embedded_navigation_route(self.core, &mut **client, route, name);
+    }
+
+    fn get_option(&mut self, _host: &mut dyn MetaHost, name: &str) -> ExpressionValue {
+        self.core.get_meta_option(self.meta_enabled, name)
+    }
+
+    /// Writes an option; `EnableMeta` is taken by the engine itself
+    /// (register META-5).
+    fn set_option(
+        &mut self,
+        _host: &mut dyn MetaHost,
+        name: &str,
+        value: &ExpressionValue,
+    ) -> Result<bool, Fault> {
+        let mut client = self.client.0.borrow_mut();
+        self.core.set_option(&mut **client, name, value)
+    }
+
+    /// The settings page's switch for the event handlers; the UB settings
+    /// are not bound yet, so the C#'s answer without a catalogue.
+    fn game_event_handlers_enabled(&mut self) -> bool {
+        true
+    }
+
+    /// `_meta.StateChanged = Announce`.
+    fn state_changed(&mut self, _host: &mut dyn MetaHost, message: &str, _state: &str) {
+        let mut client = self.client.0.borrow_mut();
+        Core::announce(&mut **client, message);
+    }
+
+    /// The other clients' subscriptions come with the UB network slice.
+    fn require_peers(&mut self, _host: &mut dyn MetaHost, _need: PeerNeed) {}
+
+    fn skill_margin(&mut self, hunting: bool) -> i32 {
+        if hunting {
+            self.core.settings.combat.hunt_skill_excess_over_difficulty
+        } else {
+            self.core.settings.buffs.skill_excess_over_difficulty
+        }
+    }
+
+    fn begin_cast(&mut self, _host: &mut dyn MetaHost, spell_id: u32, target: Option<u32>) -> bool {
+        self.begin_expression_cast(spell_id, target);
+        true
+    }
+
+    fn call_function(
+        &mut self,
+        _host: &mut dyn MetaHost,
+        function: &str,
+        _context: &mut EvaluationContext<'_>,
+        arguments: &[ExpressionValue],
+    ) -> Option<Result<ExpressionValue, Fault>> {
+        Some(match function {
+            "vtgetmeta" => {
+                let mut client = self.client.0.borrow_mut();
+                self.core
+                    .meta_profiles
+                    .selected(client.stores())
+                    .map(|name| ExpressionValue::string(&name))
+                    .map_err(|error| ExpressionError::evaluation(error).into())
+            }
+            "vtsetsetting" => self.vt_set_setting(arguments),
+            "vtgetsetting" => self.vt_get_setting(arguments),
+            "vtmacroenabled" => Ok(ExpressionValue::Boolean(self.core.combat.enabled())),
+            _ => return None,
+        })
+    }
+}
+
+impl TankServices<'_, '_> {
+    /// `vtsetsetting[setting,value]`: an unknown name is 1 and nothing
+    /// written; a text that reads as a number is that number.
+    fn vt_set_setting(&mut self, arguments: &[ExpressionValue]) -> Result<ExpressionValue, Fault> {
+        let name = arguments[0].as_str("vtsetsetting")?.to_owned();
+        if !options::is_known(&name) {
+            return Ok(ExpressionValue::one());
+        }
+        let mut value = arguments[1].clone();
+        if let ExpressionValue::String(text) = &value
+            && let Some(number) = number::parse_f64(text, NumberStyles::FLOAT)
+        {
+            value = ExpressionValue::Number(number);
+        }
+        let mut client = self.client.0.borrow_mut();
+        let written = self.core.set_option(&mut **client, &name, &value)?;
+        Ok(ExpressionValue::Boolean(written))
+    }
+
+    /// `vtgetsetting[setting]`: a true or false reads as 1 or 0; an unknown
+    /// name fails the expression.
+    fn vt_get_setting(&mut self, arguments: &[ExpressionValue]) -> Result<ExpressionValue, Fault> {
+        let name = arguments[0].as_str("vtgetsetting")?;
+        if !options::is_known(name) {
+            return Err(ExpressionError::evaluation("Error getting setting from database").into());
+        }
+        Ok(match self.core.get_meta_option(self.meta_enabled, name) {
+            ExpressionValue::Boolean(flag) => ExpressionValue::Number(if flag { 1.0 } else { 0.0 }),
+            other => other,
+        })
+    }
+}
+
+/// The plugin's functions the meta's expressions call, registered with the
+/// engine's runtime (`RegisterVtankExpressionFunctions`, the part the
+/// shell has; the engine registers `vtsetmetastate` and `vtgetmetastate`).
+pub(crate) fn register_service_functions(meta: &mut MetaEngine) {
+    let runtime = meta.expressions();
+    runtime.register_service_function("vtgetmeta", 0, 0, "vtgetmeta[]");
+    runtime.register_service_function("vtsetsetting", 2, 2, "vtsetsetting[setting,value]");
+    runtime.register_service_function("vtgetsetting", 1, 1, "vtgetsetting[setting]");
+    runtime.register_service_function("vtmacroenabled", 0, 0, "vtmacroenabled[]");
+}
+
+impl TankCx<'_> {
+    /// Runs `f` with the engine, its host and the services over the one
+    /// client, then does what the services asked of the engine.
+    pub(crate) fn with_engine<R>(
+        &mut self,
+        f: impl FnOnce(&mut MetaEngine, &mut dyn MetaHost, &mut dyn MetaServices) -> R,
+    ) -> R {
+        let meta_enabled = self.meta.enabled();
+        let (result, requests) = {
+            let cell = ClientCell(RefCell::new(&mut *self.client));
+            let mut proxy = ClientProxy::new(&cell);
+            let mut services = TankServices {
+                core: &mut *self.core,
+                client: &cell,
+                meta_enabled,
+                requests: Vec::new(),
+            };
+            let result = f(self.meta, &mut proxy, &mut services);
+            (result, services.requests)
+        };
+        for request in requests {
+            self.run_engine_request(request);
+        }
+        result
+    }
+
+    /// One thing a meta's own line asked of the engine.
+    fn run_engine_request(&mut self, request: EngineRequest) {
+        match request {
+            EngineRequest::VtLine(arguments) => commands::execute_vtank(self, &arguments),
+            EngineRequest::UbLine(arguments) => commands::execute_ub(self, &arguments),
+            EngineRequest::AfterMetaLoad => self.after_meta_load(),
+        }
+    }
+}
