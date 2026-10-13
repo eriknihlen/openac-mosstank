@@ -14,6 +14,7 @@ use ac_plugin_abi::items::{InventoryItem, ItemResult, ItemUseCompletion};
 use ac_plugin_abi::magic::{CastCompletion, CastGate};
 use ac_plugin_abi::peers::NetworkClient;
 use ac_plugin_abi::social::{FellowMember, FellowshipStatus};
+use ac_plugin_abi::types::ChatLine;
 use ac_plugin_abi::world::{ItemProperties, Position, WorldObject};
 
 use crate::spells::SpellCatalog;
@@ -112,6 +113,15 @@ pub trait Automation {
         None
     }
 
+    /// Asks the client to appraise an object.
+    fn identify(&mut self, object_id: u32) -> ItemResult {
+        let _ = object_id;
+        ItemResult {
+            status: ac_plugin_abi::items::ItemStatus::Unavailable,
+            notice: None,
+        }
+    }
+
     // --- The fellowship (`IFellowshipAutomation`).
 
     /// Whether the character is in a fellowship.
@@ -148,6 +158,17 @@ pub trait Automation {
     fn position(&mut self) -> Position {
         Position::default()
     }
+
+    // --- Chat (`IPluginChat`).
+
+    /// The chat lines captured after `after_sequence`, oldest first.
+    fn chat_messages(&mut self, after_sequence: u64) -> Vec<ChatLine> {
+        let _ = after_sequence;
+        Vec::new()
+    }
+
+    /// A system line in the character's chat window.
+    fn post_system_message(&mut self, text: &str);
 
     // --- The log (`IPluginLogger`).
 

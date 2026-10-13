@@ -8,12 +8,14 @@
 //! - [`vitals`]: the vital plan (which vital needs recharging, the mana
 //!   upkeep, the strongest spell by name stem).
 //! - [`recharge`]: the ways a vital is restored and the helper's pick.
+//! - [`mana`]: topping up worn gear's mana with charges and stones.
 //! - [`recharge_controller`]: the recharge and helper rules, one use at a
 //!   time, watched to the server's answer.
 //!
 //! The client comes in through `mosstank-automation`.
 
 pub mod castability;
+pub mod mana;
 pub mod plan;
 pub mod profile;
 pub mod recharge;

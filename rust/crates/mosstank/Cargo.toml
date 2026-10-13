@@ -12,6 +12,7 @@ crate-type = ["cdylib", "rlib"]
 
 [dependencies]
 ac-plugin-abi.workspace = true
+mosstank-automation.workspace = true
 mosstank-stores.workspace = true
 openac-plugin.workspace = true
 openac-plugin-compat.workspace = true

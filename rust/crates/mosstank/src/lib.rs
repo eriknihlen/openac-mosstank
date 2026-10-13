@@ -4,9 +4,10 @@
 //! goes slice by slice: the pure parts live in `mosstank-formats`,
 //! `mosstank-expr`, `mosstank-data`, `mosstank-settings` and `mosstank-stores`;
 //! this crate is the plugin shell that will tie them to the client. For now
-//! it starts and says so, and gives the stores the client's storage
-//! ([`storage`]).
+//! it starts and says so, gives the stores the client's storage
+//! ([`storage`]) and the rules their view of the client ([`automation`]).
 
+pub mod automation;
 pub mod storage;
 
 use openac_plugin::{Host, Plugin, StartInfo};

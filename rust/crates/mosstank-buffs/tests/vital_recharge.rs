@@ -238,6 +238,8 @@ impl Automation for Surface {
     }
 
     fn log_warn(&mut self, _text: &str) {}
+
+    fn post_system_message(&mut self, _text: &str) {}
 }
 
 fn skill(id: u32, current: u32) -> Skill {
