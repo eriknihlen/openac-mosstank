@@ -1,0 +1,23 @@
+[package]
+name = "mosstank-ub"
+description = "MossTank's UB tab: the /ub commands, the UtilityBelt line shapes, aliases, the network commands, tinkering, the dungeon map's data and the tab's pages. The client comes in through the UbHost trait."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[dependencies]
+ac-plugin-abi.workspace = true
+mosstank-automation.workspace = true
+mosstank-data.workspace = true
+mosstank-dotnet.workspace = true
+mosstank-expr.workspace = true
+mosstank-formats.workspace = true
+mosstank-meta.workspace = true
+mosstank-settings.workspace = true
+mosstank-stores.workspace = true
+openac-plugin-compat.workspace = true
+
+[lints]
+workspace = true
