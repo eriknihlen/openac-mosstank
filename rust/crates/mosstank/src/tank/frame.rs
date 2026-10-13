@@ -80,6 +80,9 @@ impl Tank {
         cx.with_ub(|commands, call| {
             commands.tools_mut().tick_nametags(call, elapsed_seconds);
         });
+        // The display tools (`TickDisplayTools`): the labels row first,
+        // pushed to the client when it changed.
+        cx.ub.publish_network_tags(cx.client, false);
         cx.follow_client_rows();
         let meta_state = cx.meta.current_state().to_owned();
         cx.core.publish_status(cx.client, &meta_state);

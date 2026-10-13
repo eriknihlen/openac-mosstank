@@ -90,6 +90,8 @@ pub struct UbParts {
     pub(crate) dungeon: mosstank_ub::dungeon::controller::DungeonMapController,
     /// The other clients' readout.
     pub(crate) hud: mosstank_ub::hud::NetworkHudController,
+    /// The labels this character answers to, as last handed to the client.
+    pub(crate) tags: mosstank_ub::network::TagPublisher,
 }
 
 /// The four kinds of UB line.
@@ -151,6 +153,10 @@ impl UbParts {
         let hud = mosstank_ub::hud::NetworkHudController::new(
             &mosstank_ub::hud::CatalogHudSettings(&catalog),
         );
+        // The labels row saved earlier reaches the client as the tab is
+        // built (`InitializeDisplayTools`).
+        let mut tags = mosstank_ub::network::TagPublisher::new();
+        tags.publish(client.ub(), catalog.value("Networking.Tags").items, true);
         Self {
             catalog,
             reader: Rc::new(UbSettingCatalog::new(values, fixed_rows())),
@@ -160,6 +166,7 @@ impl UbParts {
             landscape,
             dungeon,
             hud,
+            tags,
         }
     }
 
@@ -189,6 +196,13 @@ impl UbParts {
     /// The settings store, shared.
     pub(crate) fn values(&self) -> StoreValues {
         StoreValues(self.store.clone())
+    }
+
+    /// Hands the client the `Networking.Tags` row when it changed
+    /// (`PublishNetworkTags`).
+    pub(crate) fn publish_network_tags(&mut self, client: &mut dyn TankClient, on_load: bool) {
+        let tags = self.catalog.value("Networking.Tags").items;
+        self.tags.publish(client.ub(), tags, on_load);
     }
 
     /// How each kind of UB line is shown now (`UbMessageDisplay`).

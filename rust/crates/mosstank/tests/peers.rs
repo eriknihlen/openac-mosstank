@@ -146,3 +146,43 @@ fn the_lease_goes_back_when_the_session_ends_and_with_the_plugin() {
 
     assert_eq!(world.requests::<calls::PeersUnsubscribe>(), vec![7, 7]);
 }
+
+// ---- The labels row on the shell's frame ----------------------------------
+//
+// Not ports: the C# tests of the labels row (`TheLabelsRowIsPushedToThe
+// ClientWhenItChanges`, `ALabelsRowSavedEarlierIsPushedAsThePageIsBuilt`)
+// are ported against the publisher in mosstank-ub; these check that the
+// shell builds and ticks it where the panel does.
+
+fn tag_pushes(world: &World) -> Vec<Vec<String>> {
+    world.requests::<calls::PeersSetTags>()
+}
+
+#[test]
+fn the_shell_pushes_the_labels_row_when_it_changes() {
+    let mut world = World::with_character("Barris");
+    world.set_reply::<calls::PeersSetTags>(&true);
+    let mut plugin = world.enable();
+    world.tick(&mut plugin);
+    assert!(tag_pushes(&world).is_empty());
+
+    world.command(&mut plugin, "ub", "opt set Networking.Tags add tank");
+    world.tick(&mut plugin);
+    world.tick(&mut plugin);
+
+    assert_eq!(vec![vec!["tank".to_owned()]], tag_pushes(&world));
+}
+
+#[test]
+fn the_shell_pushes_a_labels_row_saved_earlier_as_it_starts() {
+    let mut world = World::with_character("Barris");
+    world.set_reply::<calls::PeersSetTags>(&true);
+    let mut first = world.enable();
+    world.command(&mut first, "ub", "opt set Networking.Tags add tank");
+    world.disable(&mut first);
+    world.fake.requests.clear();
+
+    let _next = world.enable();
+
+    assert_eq!(vec![vec!["tank".to_owned()]], tag_pushes(&world));
+}
