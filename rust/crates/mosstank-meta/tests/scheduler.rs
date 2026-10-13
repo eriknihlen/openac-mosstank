@@ -8,8 +8,8 @@ use std::rc::Rc;
 use mosstank_meta::debug_log::{MAXIMUM_BYTES, MacroDebugLog};
 use mosstank_meta::scheduler::{
     AbsentMacroRule, ControllerMacroRule, HEARTBEAT_SECONDS, MACRO_RULE_TABLE, MacroContext,
-    MacroIndependentSlot, MacroLogChannel, MacroPassContext, MacroRule, MacroRulePreChain,
-    MacroRuleProvider, MacroRuleSentinel, MacroRuleSlot, MacroScheduler, build,
+    MacroFamily, MacroIndependentSlot, MacroLogChannel, MacroPassContext, MacroRule,
+    MacroRulePreChain, MacroRuleProvider, MacroRuleSentinel, MacroRuleSlot, MacroScheduler, build,
 };
 use mosstank_meta::testing::SharedStorage;
 use mosstank_stores::storage::PluginStorage;
@@ -21,6 +21,10 @@ struct Cx {
     meta: Option<Vec<f64>>,
     started: i32,
     lock_suffix: Option<String>,
+}
+
+impl MacroFamily for Cx {
+    type Cx<'a> = Cx;
 }
 
 impl MacroContext for Cx {
@@ -969,12 +973,12 @@ fn gate_blocked_rule_does_not_tick_its_controller() {
     let counted = calls.clone();
     let mut rule = ControllerMacroRule::<Cx>::new(
         "rule",
-        Box::new(move |_, _| {
+        Box::new(move |_: &mut Cx, _| {
             *counted.borrow_mut() += 1;
             true
         }),
     )
-    .with_gate(Box::new(|_| false));
+    .with_gate(Box::new(|_: &mut Cx| false));
 
     assert!(!rule.valid_now(&mut cx, MacroPassContext::new(1.0, true)));
     assert_eq!(*calls.borrow(), 0);
@@ -992,7 +996,7 @@ fn a_rule_asked_without_the_turn_is_not_ticked_and_does_not_claim() {
     let counted = calls.clone();
     let mut rule = ControllerMacroRule::<Cx>::new(
         "rule",
-        Box::new(move |_, _| {
+        Box::new(move |_: &mut Cx, _| {
             *counted.borrow_mut() += 1;
             true
         }),
@@ -1010,8 +1014,8 @@ fn teardown_runs_once_on_the_true_to_false_edge() {
     let mut cx = Cx::default();
     let teardowns = Rc::new(RefCell::new(0));
     let counted = teardowns.clone();
-    let mut rule = ControllerMacroRule::<Cx>::new("rule", Box::new(|_, _| true))
-        .with_lost_turn(Box::new(move |_| *counted.borrow_mut() += 1));
+    let mut rule = ControllerMacroRule::<Cx>::new("rule", Box::new(|_: &mut Cx, _| true))
+        .with_lost_turn(Box::new(move |_: &mut Cx| *counted.borrow_mut() += 1));
 
     rule.set_running(&mut cx, false);
     assert_eq!(*teardowns.borrow(), 0);
@@ -1112,4 +1116,59 @@ fn a_record_is_stamped_in_the_round_trip_form_with_its_offset() {
         storage.get("debug/stamp.log").unwrap(),
         "[2023-11-14T22:13:20.1230000+00:00] line  break\n"
     );
+}
+
+/// A call's state that borrows what it works with for the length of the
+/// call, as the plugin's does: the scheduler and its rules outlive it.
+struct Borrowing<'a> {
+    seen: &'a mut Vec<String>,
+}
+
+impl MacroContext for Borrowing<'_> {}
+
+/// The family of [`Borrowing`] states.
+struct BorrowingFamily;
+
+impl MacroFamily for BorrowingFamily {
+    type Cx<'a> = Borrowing<'a>;
+}
+
+#[test]
+fn a_rule_runs_with_state_that_borrows_for_one_call_only() {
+    let rule = ControllerMacroRule::<BorrowingFamily>::new(
+        "rule",
+        Box::new(|cx: &mut Borrowing<'_>, _| {
+            cx.seen.push("asked".to_owned());
+            true
+        }),
+    );
+    let mut scheduler =
+        MacroScheduler::<BorrowingFamily>::new(vec![Box::new(rule)], Vec::new(), Vec::new());
+    for call in 0..2 {
+        // Each call's state is made, used and dropped inside the call.
+        let mut seen = Vec::new();
+        let mut cx = Borrowing { seen: &mut seen };
+        if call == 0 {
+            scheduler.start(&mut cx);
+        }
+        scheduler.run_pass(&mut cx, 0.0);
+        assert_eq!(seen, ["asked"]);
+    }
+}
+
+#[test]
+fn a_hold_taken_through_the_shared_handle_is_seen_at_once_and_its_release_pokes() {
+    let mut cx = Cx::default();
+    let main = Probe::new("main", true);
+    let mut scheduler = started(&mut cx, &[&main]);
+    let hold = scheduler.pass_hold();
+    assert!(scheduler.advance(&mut cx, 0.0));
+
+    hold.suspend();
+    assert!(scheduler.is_suspended());
+    assert_eq!(hold.count(), 1);
+    hold.resume();
+    assert!(!scheduler.is_suspended());
+    // The release poked: the next frame runs a pass at once.
+    assert!(scheduler.advance(&mut cx, 0.0));
 }

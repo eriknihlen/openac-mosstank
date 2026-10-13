@@ -3,10 +3,67 @@
 //! heartbeat; the first valid rule wins the pass and runs, every other rule
 //! is told it is not running. The meta is looked at inside the pass.
 //!
-//! The rules and the scheduler's hooks are generic over `C`, the plugin's
-//! state for the length of a call: a rule is asked, and runs, with it.
+//! The rules and the scheduler's hooks work with the plugin's state for the
+//! length of one call. That state borrows the client, so it lives no longer
+//! than the call; the scheduler and its rules outlive every call. They are
+//! therefore generic over a [`MacroFamily`], a marker naming the state type
+//! for any borrow (`F::Cx<'a>`), and each method is handed that call's
+//! state.
+
+use std::cell::Cell;
+use std::rc::Rc;
 
 use crate::host::MetaHost;
+
+/// The plugin's state for one call, for every length of call: `Cx<'a>`
+/// borrows what it needs for `'a`. The family itself is a marker that
+/// outlives every call, so the rules built over it can be kept.
+pub trait MacroFamily: 'static {
+    /// The state for a call that borrows for `'a`.
+    type Cx<'a>: MacroContext;
+}
+
+/// The scheduler's hold count and its poke, shared with the owners that
+/// hold the pass from inside a rule or a frame (the C#'s `Suspend`,
+/// `Resume` and `Poke` delegates): a hold taken during a pass is seen by
+/// the scheduler at once, as the C#'s is.
+#[derive(Debug, Clone, Default)]
+pub struct PassHold {
+    suspension: Rc<Cell<i32>>,
+    poked: Rc<Cell<bool>>,
+    running: Rc<Cell<bool>>,
+}
+
+impl PassHold {
+    /// Holds the pass while a blocking action is in flight.
+    pub fn suspend(&self) {
+        self.suspension.set(self.suspension.get() + 1);
+    }
+
+    /// Releases one hold; the last one pokes the pass.
+    pub fn resume(&self) {
+        let count = self.suspension.get() - 1;
+        self.suspension.set(count);
+        if count > 0 {
+            return;
+        }
+        self.suspension.set(0);
+        self.poke();
+    }
+
+    /// Asks for a pass now (ignored while the macro is stopped).
+    pub fn poke(&self) {
+        if self.running.get() {
+            self.poked.set(true);
+        }
+    }
+
+    /// How many holds are up.
+    #[must_use]
+    pub fn count(&self) -> i32 {
+        self.suspension.get()
+    }
+}
 
 /// What a rule is handed when it is asked whether it is valid: the time
 /// since this rule was last asked, and whether it may act (always, from the
@@ -54,27 +111,27 @@ pub enum MacroLogChannel {
 }
 
 /// One rule of the list.
-pub trait MacroRule<C: ?Sized> {
+pub trait MacroRule<F: MacroFamily> {
     /// VTank's friendly name; the scheduler's status and log name.
     fn name(&self) -> String;
 
     /// Whether the rule would run now.
-    fn valid_now(&mut self, cx: &mut C, context: MacroPassContext) -> bool;
+    fn valid_now(&mut self, cx: &mut F::Cx<'_>, context: MacroPassContext) -> bool;
 
     /// Whether the rule runs.
     fn running(&self) -> bool;
 
     /// Tells the rule it runs, or not.
-    fn set_running(&mut self, cx: &mut C, running: bool);
+    fn set_running(&mut self, cx: &mut F::Cx<'_>, running: bool);
 
     /// What the rule appends to its own "Running" line.
-    fn running_detail(&mut self, cx: &mut C) -> Option<String> {
+    fn running_detail(&mut self, cx: &mut F::Cx<'_>) -> Option<String> {
         let _ = cx;
         None
     }
 
     /// Why the rule last declined; `None` for a rule with nothing to say.
-    fn decline_reason(&mut self, cx: &mut C) -> Option<String> {
+    fn decline_reason(&mut self, cx: &mut F::Cx<'_>) -> Option<String> {
         let _ = cx;
         None
     }
@@ -129,12 +186,12 @@ impl MacroRuleSentinel {
     }
 }
 
-impl<C: ?Sized> MacroRule<C> for MacroRuleSentinel {
+impl<F: MacroFamily> MacroRule<F> for MacroRuleSentinel {
     fn name(&self) -> String {
         format!("Sentinel {}", self.marker)
     }
 
-    fn valid_now(&mut self, _cx: &mut C, _context: MacroPassContext) -> bool {
+    fn valid_now(&mut self, _cx: &mut F::Cx<'_>, _context: MacroPassContext) -> bool {
         false
     }
 
@@ -142,33 +199,52 @@ impl<C: ?Sized> MacroRule<C> for MacroRuleSentinel {
         false
     }
 
-    fn set_running(&mut self, _cx: &mut C, _running: bool) {}
+    fn set_running(&mut self, _cx: &mut F::Cx<'_>, _running: bool) {}
 }
 
-/// A gate a pre-chain asks first.
-pub type MacroGate<C> = Box<dyn FnMut(&mut C) -> bool>;
+/// A gate a pre-chain asks first: any `FnMut(&mut F::Cx<'_>) -> bool`.
+///
+/// The closures a rule is built from are kept behind these small traits
+/// rather than as `dyn FnMut` over the family's projection, which the
+/// compiler does not coerce to reliably.
+pub trait RuleGate<F: MacroFamily> {
+    /// Whether the gate is open.
+    fn open(&mut self, cx: &mut F::Cx<'_>) -> bool;
+}
+
+impl<F: MacroFamily, G> RuleGate<F> for G
+where
+    G: for<'a, 'b> FnMut(&'b mut F::Cx<'a>) -> bool,
+{
+    fn open(&mut self, cx: &mut F::Cx<'_>) -> bool {
+        self(cx)
+    }
+}
+
+/// A gate, kept.
+pub type MacroGate<F> = Box<dyn RuleGate<F>>;
 
 /// A rule behind gates, with fallbacks that run in its place when valid
 /// (`MacroRulePreChain`).
-pub struct MacroRulePreChain<C: ?Sized> {
-    primary: Box<dyn MacroRule<C>>,
-    gates: Vec<MacroGate<C>>,
-    fallbacks: Vec<Box<dyn MacroRule<C>>>,
+pub struct MacroRulePreChain<F: MacroFamily> {
+    primary: Box<dyn MacroRule<F>>,
+    gates: Vec<MacroGate<F>>,
+    fallbacks: Vec<Box<dyn MacroRule<F>>>,
 }
 
-impl<C: ?Sized> std::fmt::Debug for MacroRulePreChain<C> {
+impl<F: MacroFamily> std::fmt::Debug for MacroRulePreChain<F> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.write_str("MacroRulePreChain")
     }
 }
 
-impl<C: ?Sized> MacroRulePreChain<C> {
+impl<F: MacroFamily> MacroRulePreChain<F> {
     /// A chain.
     #[must_use]
     pub fn new(
-        primary: Box<dyn MacroRule<C>>,
-        gates: Vec<MacroGate<C>>,
-        fallbacks: Vec<Box<dyn MacroRule<C>>>,
+        primary: Box<dyn MacroRule<F>>,
+        gates: Vec<MacroGate<F>>,
+        fallbacks: Vec<Box<dyn MacroRule<F>>>,
     ) -> Self {
         Self {
             primary,
@@ -178,22 +254,22 @@ impl<C: ?Sized> MacroRulePreChain<C> {
     }
 }
 
-impl<C: ?Sized> MacroRule<C> for MacroRulePreChain<C> {
+impl<F: MacroFamily> MacroRule<F> for MacroRulePreChain<F> {
     fn name(&self) -> String {
         self.primary.name()
     }
 
-    fn running_detail(&mut self, cx: &mut C) -> Option<String> {
+    fn running_detail(&mut self, cx: &mut F::Cx<'_>) -> Option<String> {
         self.primary.running_detail(cx)
     }
 
-    fn decline_reason(&mut self, cx: &mut C) -> Option<String> {
+    fn decline_reason(&mut self, cx: &mut F::Cx<'_>) -> Option<String> {
         self.primary.decline_reason(cx)
     }
 
-    fn valid_now(&mut self, cx: &mut C, context: MacroPassContext) -> bool {
+    fn valid_now(&mut self, cx: &mut F::Cx<'_>, context: MacroPassContext) -> bool {
         for gate in &mut self.gates {
-            if !gate(cx) {
+            if !gate.open(cx) {
                 return false;
             }
         }
@@ -204,7 +280,7 @@ impl<C: ?Sized> MacroRule<C> for MacroRulePreChain<C> {
         self.primary.running() || self.fallbacks.iter().any(|fallback| fallback.running())
     }
 
-    fn set_running(&mut self, cx: &mut C, running: bool) {
+    fn set_running(&mut self, cx: &mut F::Cx<'_>, running: bool) {
         if !running {
             for fallback in &mut self.fallbacks {
                 fallback.set_running(cx, false);
@@ -224,39 +300,86 @@ impl<C: ?Sized> MacroRule<C> for MacroRulePreChain<C> {
     }
 }
 
-/// A call a rule makes on an edge.
-pub type MacroHook<C> = Box<dyn FnMut(&mut C)>;
+/// A call a rule makes on an edge: any `FnMut(&mut F::Cx<'_>)`.
+pub trait RuleHook<F: MacroFamily> {
+    /// Makes the call.
+    fn call(&mut self, cx: &mut F::Cx<'_>);
+}
 
-/// Text a rule reads off its controller.
-pub type MacroText<C> = Box<dyn FnMut(&mut C) -> Option<String>>;
+impl<F: MacroFamily, H> RuleHook<F> for H
+where
+    H: for<'a, 'b> FnMut(&'b mut F::Cx<'a>),
+{
+    fn call(&mut self, cx: &mut F::Cx<'_>) {
+        self(cx);
+    }
+}
 
-/// A controller's tick as a rule (`ControllerMacroRule`).
-pub type ControllerTick<C> = Box<dyn FnMut(&mut C, MacroPassContext) -> bool>;
+/// A call on an edge, kept.
+pub type MacroHook<F> = Box<dyn RuleHook<F>>;
+
+/// Text a rule reads off its controller: any
+/// `FnMut(&mut F::Cx<'_>) -> Option<String>`.
+pub trait RuleText<F: MacroFamily> {
+    /// Reads the text.
+    fn read(&mut self, cx: &mut F::Cx<'_>) -> Option<String>;
+}
+
+impl<F: MacroFamily, T> RuleText<F> for T
+where
+    T: for<'a, 'b> FnMut(&'b mut F::Cx<'a>) -> Option<String>,
+{
+    fn read(&mut self, cx: &mut F::Cx<'_>) -> Option<String> {
+        self(cx)
+    }
+}
+
+/// Text, kept.
+pub type MacroText<F> = Box<dyn RuleText<F>>;
+
+/// A controller's tick as a rule (`ControllerMacroRule`): any
+/// `FnMut(&mut F::Cx<'_>, MacroPassContext) -> bool`.
+pub trait RuleTick<F: MacroFamily> {
+    /// One tick; whether the controller claims the pass.
+    fn tick(&mut self, cx: &mut F::Cx<'_>, context: MacroPassContext) -> bool;
+}
+
+impl<F: MacroFamily, T> RuleTick<F> for T
+where
+    T: for<'a, 'b> FnMut(&'b mut F::Cx<'a>, MacroPassContext) -> bool,
+{
+    fn tick(&mut self, cx: &mut F::Cx<'_>, context: MacroPassContext) -> bool {
+        self(cx, context)
+    }
+}
+
+/// A tick, kept.
+pub type ControllerTick<F> = Box<dyn RuleTick<F>>;
 
 /// A rule whose body is a controller's tick. The gate is its first
 /// refusal: while it is closed the controller is not consulted; losing the
 /// turn is one call on the edge.
-pub struct ControllerMacroRule<C: ?Sized> {
+pub struct ControllerMacroRule<F: MacroFamily> {
     name: String,
-    tick: ControllerTick<C>,
-    gate: Option<MacroGate<C>>,
-    on_lost_turn: Option<MacroHook<C>>,
-    running_detail: Option<MacroText<C>>,
-    decline_reason: Option<MacroText<C>>,
+    tick: ControllerTick<F>,
+    gate: Option<MacroGate<F>>,
+    on_lost_turn: Option<MacroHook<F>>,
+    running_detail: Option<MacroText<F>>,
+    decline_reason: Option<MacroText<F>>,
     running: bool,
     gate_closed: bool,
 }
 
-impl<C: ?Sized> std::fmt::Debug for ControllerMacroRule<C> {
+impl<F: MacroFamily> std::fmt::Debug for ControllerMacroRule<F> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "ControllerMacroRule({})", self.name)
     }
 }
 
-impl<C: ?Sized> ControllerMacroRule<C> {
+impl<F: MacroFamily> ControllerMacroRule<F> {
     /// A rule named `name` ticking `tick`.
     #[must_use]
-    pub fn new(name: &str, tick: ControllerTick<C>) -> Self {
+    pub fn new(name: &str, tick: ControllerTick<F>) -> Self {
         Self {
             name: name.to_owned(),
             tick,
@@ -271,70 +394,75 @@ impl<C: ?Sized> ControllerMacroRule<C> {
 
     /// With a gate.
     #[must_use]
-    pub fn with_gate(mut self, gate: MacroGate<C>) -> Self {
+    pub fn with_gate(mut self, gate: MacroGate<F>) -> Self {
         self.gate = Some(gate);
         self
     }
 
     /// With a call on losing the turn.
     #[must_use]
-    pub fn with_lost_turn(mut self, on_lost_turn: MacroHook<C>) -> Self {
+    pub fn with_lost_turn(mut self, on_lost_turn: MacroHook<F>) -> Self {
         self.on_lost_turn = Some(on_lost_turn);
         self
     }
 
     /// With a running detail.
     #[must_use]
-    pub fn with_running_detail(mut self, detail: MacroText<C>) -> Self {
+    pub fn with_running_detail(mut self, detail: MacroText<F>) -> Self {
         self.running_detail = Some(detail);
         self
     }
 
     /// With a decline reason.
     #[must_use]
-    pub fn with_decline_reason(mut self, reason: MacroText<C>) -> Self {
+    pub fn with_decline_reason(mut self, reason: MacroText<F>) -> Self {
         self.decline_reason = Some(reason);
         self
     }
 }
 
-impl<C: ?Sized> MacroRule<C> for ControllerMacroRule<C> {
+impl<F: MacroFamily> MacroRule<F> for ControllerMacroRule<F> {
     fn name(&self) -> String {
         self.name.clone()
     }
 
-    fn running_detail(&mut self, cx: &mut C) -> Option<String> {
-        self.running_detail.as_mut().and_then(|detail| detail(cx))
+    fn running_detail(&mut self, cx: &mut F::Cx<'_>) -> Option<String> {
+        self.running_detail
+            .as_mut()
+            .and_then(|detail| detail.read(cx))
     }
 
     /// The controller's own reason, unless the rule's gate is what closed.
-    fn decline_reason(&mut self, cx: &mut C) -> Option<String> {
+    fn decline_reason(&mut self, cx: &mut F::Cx<'_>) -> Option<String> {
         if self.gate_closed {
             return Some("the rule's own gate is closed".to_owned());
         }
-        self.decline_reason.as_mut().and_then(|reason| reason(cx))
+        self.decline_reason
+            .as_mut()
+            .and_then(|reason| reason.read(cx))
     }
 
-    fn valid_now(&mut self, cx: &mut C, context: MacroPassContext) -> bool {
-        let gate_open = self.gate.as_mut().is_none_or(|gate| gate(cx));
+    fn valid_now(&mut self, cx: &mut F::Cx<'_>, context: MacroPassContext) -> bool {
+        let gate_open = self.gate.as_mut().is_none_or(|gate| gate.open(cx));
         self.gate_closed = !gate_open;
         if !gate_open || !context.can_act {
             return false;
         }
-        (self.tick)(cx, MacroPassContext::new(context.elapsed_seconds, true))
+        self.tick
+            .tick(cx, MacroPassContext::new(context.elapsed_seconds, true))
     }
 
     fn running(&self) -> bool {
         self.running
     }
 
-    fn set_running(&mut self, cx: &mut C, running: bool) {
+    fn set_running(&mut self, cx: &mut F::Cx<'_>, running: bool) {
         if self.running == running {
             return;
         }
         self.running = running;
         if !running && let Some(on_lost_turn) = self.on_lost_turn.as_mut() {
-            on_lost_turn(cx);
+            on_lost_turn.call(cx);
         }
     }
 }
@@ -358,12 +486,12 @@ impl AbsentMacroRule {
     }
 }
 
-impl<C: ?Sized> MacroRule<C> for AbsentMacroRule {
+impl<F: MacroFamily> MacroRule<F> for AbsentMacroRule {
     fn name(&self) -> String {
         self.name.clone()
     }
 
-    fn valid_now(&mut self, _cx: &mut C, _context: MacroPassContext) -> bool {
+    fn valid_now(&mut self, _cx: &mut F::Cx<'_>, _context: MacroPassContext) -> bool {
         false
     }
 
@@ -371,7 +499,7 @@ impl<C: ?Sized> MacroRule<C> for AbsentMacroRule {
         false
     }
 
-    fn set_running(&mut self, _cx: &mut C, _running: bool) {}
+    fn set_running(&mut self, _cx: &mut F::Cx<'_>, _running: bool) {}
 }
 
 /// What the peace-when-idle rule reads from the plugin.
@@ -390,12 +518,15 @@ pub struct IdlePeaceRule {
     pub status: Option<String>,
 }
 
-impl<C: IdlePeaceContext + ?Sized> MacroRule<C> for IdlePeaceRule {
+impl<F: MacroFamily> MacroRule<F> for IdlePeaceRule
+where
+    for<'a> F::Cx<'a>: IdlePeaceContext,
+{
     fn name(&self) -> String {
         "IdlePeace".to_owned()
     }
 
-    fn valid_now(&mut self, cx: &mut C, context: MacroPassContext) -> bool {
+    fn valid_now(&mut self, cx: &mut F::Cx<'_>, context: MacroPassContext) -> bool {
         use ac_plugin_abi::combat::CombatMode;
         if !context.can_act || !cx.idle_peace_mode() {
             return false;
@@ -408,7 +539,7 @@ impl<C: IdlePeaceContext + ?Sized> MacroRule<C> for IdlePeaceRule {
         self.running
     }
 
-    fn set_running(&mut self, cx: &mut C, running: bool) {
+    fn set_running(&mut self, cx: &mut F::Cx<'_>, running: bool) {
         use ac_plugin_abi::combat::{CombatMode, CombatStatus};
         self.running = running;
         if !running {
@@ -427,18 +558,18 @@ impl<C: IdlePeaceContext + ?Sized> MacroRule<C> for IdlePeaceRule {
 }
 
 /// The scheduler.
-pub struct MacroScheduler<C: ?Sized> {
-    main: Vec<Box<dyn MacroRule<C>>>,
-    independent: Vec<Box<dyn MacroRule<C>>>,
-    macro_disabled: Vec<Box<dyn MacroRule<C>>>,
+pub struct MacroScheduler<F: MacroFamily> {
+    main: Vec<Box<dyn MacroRule<F>>>,
+    independent: Vec<Box<dyn MacroRule<F>>>,
+    macro_disabled: Vec<Box<dyn MacroRule<F>>>,
     reported_declines: Vec<(String, String)>,
     until_pass: f64,
     since_pass: f64,
-    poked: bool,
-    suspension: i32,
+    /// The hold count, the poke and the running flag, shared with the
+    /// owners that hold the pass ([`Self::pass_hold`]).
+    hold: PassHold,
     /// Holds the pass from outside (the plugin's own suspension).
     pub external_suspension: bool,
-    is_running: bool,
     last_executed: Option<usize>,
     pass_count: i64,
     suspended_meta_seconds: f64,
@@ -450,10 +581,10 @@ pub struct MacroScheduler<C: ?Sized> {
     last_evaluated_at: Vec<f64>,
 }
 
-impl<C: ?Sized> std::fmt::Debug for MacroScheduler<C> {
+impl<F: MacroFamily> std::fmt::Debug for MacroScheduler<F> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("MacroScheduler")
-            .field("is_running", &self.is_running)
+            .field("is_running", &self.hold.running.get())
             .field("pass_count", &self.pass_count)
             .finish_non_exhaustive()
     }
@@ -462,14 +593,14 @@ impl<C: ?Sized> std::fmt::Debug for MacroScheduler<C> {
 /// The scheduler's heartbeat, seconds.
 pub const HEARTBEAT_SECONDS: f64 = 0.293;
 
-impl<C: MacroContext + ?Sized> MacroScheduler<C> {
+impl<F: MacroFamily> MacroScheduler<F> {
     /// A scheduler over the main list, the independent list and the list
     /// that runs while the macro is stopped.
     #[must_use]
     pub fn new(
-        main: Vec<Box<dyn MacroRule<C>>>,
-        independent: Vec<Box<dyn MacroRule<C>>>,
-        macro_disabled: Vec<Box<dyn MacroRule<C>>>,
+        main: Vec<Box<dyn MacroRule<F>>>,
+        independent: Vec<Box<dyn MacroRule<F>>>,
+        macro_disabled: Vec<Box<dyn MacroRule<F>>>,
     ) -> Self {
         let count = main.len();
         Self {
@@ -479,10 +610,8 @@ impl<C: MacroContext + ?Sized> MacroScheduler<C> {
             reported_declines: Vec::new(),
             until_pass: 0.0,
             since_pass: 0.0,
-            poked: false,
-            suspension: 0,
+            hold: PassHold::default(),
             external_suspension: false,
-            is_running: false,
             last_executed: None,
             pass_count: 0,
             suspended_meta_seconds: 0.0,
@@ -495,32 +624,32 @@ impl<C: MacroContext + ?Sized> MacroScheduler<C> {
 
     /// The main list.
     #[must_use]
-    pub fn main_rules(&self) -> &[Box<dyn MacroRule<C>>] {
+    pub fn main_rules(&self) -> &[Box<dyn MacroRule<F>>] {
         &self.main
     }
 
     /// The independent list.
     #[must_use]
-    pub fn independent_rules(&self) -> &[Box<dyn MacroRule<C>>] {
+    pub fn independent_rules(&self) -> &[Box<dyn MacroRule<F>>] {
         &self.independent
     }
 
     /// The stopped-macro list.
     #[must_use]
-    pub fn macro_disabled_rules(&self) -> &[Box<dyn MacroRule<C>>] {
+    pub fn macro_disabled_rules(&self) -> &[Box<dyn MacroRule<F>>] {
         &self.macro_disabled
     }
 
     /// VTank's single "the macro is running" flag.
     #[must_use]
     pub fn is_running(&self) -> bool {
-        self.is_running
+        self.hold.running.get()
     }
 
     /// Whether the pass is held.
     #[must_use]
     pub fn is_suspended(&self) -> bool {
-        self.suspension > 0 || self.external_suspension
+        self.hold.suspension.get() > 0 || self.external_suspension
     }
 
     /// The main rule that won the last pass.
@@ -537,35 +666,35 @@ impl<C: MacroContext + ?Sized> MacroScheduler<C> {
 
     /// Holds the pass while a blocking action is in flight.
     pub fn suspend(&mut self) {
-        self.suspension += 1;
+        self.hold.suspend();
     }
 
     /// Releases one hold; the last one pokes the pass.
     pub fn resume(&mut self) {
-        self.suspension -= 1;
-        if self.suspension > 0 {
-            return;
-        }
-        self.suspension = 0;
-        self.poke();
+        self.hold.resume();
     }
 
     /// Asks for a pass now.
     pub fn poke(&mut self) {
-        if self.is_running {
-            self.poked = true;
-        }
+        self.hold.poke();
+    }
+
+    /// The hold count and the poke, for an owner that holds the pass from
+    /// inside a rule or a frame.
+    #[must_use]
+    pub fn pass_hold(&self) -> PassHold {
+        self.hold.clone()
     }
 
     /// Starts the macro. The hold count belongs to whoever raised it and
     /// is not reset.
-    pub fn start(&mut self, cx: &mut C) {
+    pub fn start(&mut self, cx: &mut F::Cx<'_>) {
         for rule in &mut self.macro_disabled {
             rule.set_running(cx, false);
         }
-        self.is_running = true;
+        self.hold.running.set(true);
         self.until_pass = 0.0;
-        self.poked = true;
+        self.hold.poked.set(true);
         self.last_executed = None;
         self.suspended_meta_seconds = 0.0;
         self.meta_seconds_given_between_passes = 0.0;
@@ -574,21 +703,21 @@ impl<C: MacroContext + ?Sized> MacroScheduler<C> {
     }
 
     /// Stops the macro: every rule is told it is not running.
-    pub fn stop(&mut self, cx: &mut C) {
+    pub fn stop(&mut self, cx: &mut F::Cx<'_>) {
         for rule in self.main.iter_mut().chain(self.independent.iter_mut()) {
             rule.set_running(cx, false);
         }
-        self.is_running = false;
+        self.hold.running.set(false);
         self.last_executed = None;
-        self.poked = false;
+        self.hold.poked.set(false);
         self.until_pass = HEARTBEAT_SECONDS;
     }
 
     /// One frame's time; true when a pass ran.
-    pub fn advance(&mut self, cx: &mut C, elapsed_seconds: f64) -> bool {
+    pub fn advance(&mut self, cx: &mut F::Cx<'_>, elapsed_seconds: f64) -> bool {
         let elapsed = elapsed_seconds.max(0.0);
         self.since_pass += elapsed;
-        if !self.is_running {
+        if !self.hold.running.get() {
             if self.macro_disabled.is_empty() {
                 self.since_pass = 0.0;
                 return false;
@@ -605,8 +734,8 @@ impl<C: MacroContext + ?Sized> MacroScheduler<C> {
         }
 
         self.until_pass -= elapsed;
-        if self.poked {
-            self.poked = false;
+        if self.hold.poked.get() {
+            self.hold.poked.set(false);
             self.until_pass = 0.0;
         } else if self.until_pass > 0.0 {
             self.run_meta_between_passes(cx);
@@ -620,7 +749,7 @@ impl<C: MacroContext + ?Sized> MacroScheduler<C> {
         true
     }
 
-    fn run_meta_between_passes(&mut self, cx: &mut C) {
+    fn run_meta_between_passes(&mut self, cx: &mut F::Cx<'_>) {
         if self.meta_interval_seconds >= HEARTBEAT_SECONDS
             || self.is_suspended()
             || !cx.has_meta_pass()
@@ -637,7 +766,7 @@ impl<C: MacroContext + ?Sized> MacroScheduler<C> {
 
     /// One pass of the stopped-macro list: first valid rule wins, with no
     /// meta and no independent rules.
-    pub fn run_macro_disabled_pass(&mut self, cx: &mut C, elapsed_seconds: f64) {
+    pub fn run_macro_disabled_pass(&mut self, cx: &mut F::Cx<'_>, elapsed_seconds: f64) {
         let elapsed = elapsed_seconds.max(0.0);
         cx.pass_starting();
         if self.is_suspended() {
@@ -668,7 +797,7 @@ impl<C: MacroContext + ?Sized> MacroScheduler<C> {
 
     /// One pass: the meta, the independent rules, then the main list's
     /// first valid rule.
-    pub fn run_pass(&mut self, cx: &mut C, elapsed_seconds: f64) {
+    pub fn run_pass(&mut self, cx: &mut F::Cx<'_>, elapsed_seconds: f64) {
         let elapsed = elapsed_seconds.max(0.0);
         cx.pass_starting();
 
@@ -761,7 +890,7 @@ impl<C: MacroContext + ?Sized> MacroScheduler<C> {
 
     /// Says once, per rule, why a rule that could have run did not, and
     /// again only when the reason changes.
-    fn report_declines(&mut self, cx: &mut C, winner: Option<usize>, evaluated: usize) {
+    fn report_declines(&mut self, cx: &mut F::Cx<'_>, winner: Option<usize>, evaluated: usize) {
         if !cx.has_log() {
             return;
         }
@@ -941,11 +1070,11 @@ impl MacroRuleEntry {
 }
 
 /// Supplies the rule instance behind each slot.
-pub trait MacroRuleProvider<C: ?Sized> {
+pub trait MacroRuleProvider<F: MacroFamily> {
     /// A running-list slot's rule.
-    fn create(&mut self, slot: MacroRuleSlot) -> Box<dyn MacroRule<C>>;
+    fn create(&mut self, slot: MacroRuleSlot) -> Box<dyn MacroRule<F>>;
     /// An independent slot's rule.
-    fn create_independent(&mut self, slot: MacroIndependentSlot) -> Box<dyn MacroRule<C>>;
+    fn create_independent(&mut self, slot: MacroIndependentSlot) -> Box<dyn MacroRule<F>>;
 }
 
 /// VTank's sixty-six rows, in order.
@@ -1028,14 +1157,12 @@ pub const INDEPENDENT_TABLE: [MacroIndependentSlot; 1] = [MacroIndependentSlot::
 /// Builds the scheduler from the table: the running list, the independent
 /// list, and the stopped-macro list (keeping gear charged, the one job the
 /// macro still does with everything else switched off).
-pub fn build<C: MacroContext + ?Sized + 'static>(
-    provider: &mut dyn MacroRuleProvider<C>,
-) -> MacroScheduler<C> {
+pub fn build<F: MacroFamily>(provider: &mut dyn MacroRuleProvider<F>) -> MacroScheduler<F> {
     let main = MACRO_RULE_TABLE
         .iter()
         .map(|entry| match entry {
             MacroRuleEntry::Sentinel(marker) => {
-                Box::new(MacroRuleSentinel::new(marker)) as Box<dyn MacroRule<C>>
+                Box::new(MacroRuleSentinel::new(marker)) as Box<dyn MacroRule<F>>
             }
             MacroRuleEntry::Rule(slot) => provider.create(*slot),
         })

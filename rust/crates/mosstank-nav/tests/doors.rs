@@ -57,12 +57,12 @@ fn closed_door_pauses_route_and_uses_canonical_item_action() {
     // The door takes its own turn, ahead of the route.
     let mut rule = OpenDoorRule::new();
 
-    assert!(rule.valid_now(&mut rig, pass()));
+    assert!(MacroRule::<Rig>::valid_now(&mut rule, &mut rig, pass()));
     assert_eq!(rig.automation.used_objects, [55]);
     assert!(rig.automation.intents.is_empty());
 
     rig.automation.world_objects[0].is_open = true;
-    assert!(!rule.valid_now(&mut rig, pass()));
+    assert!(!MacroRule::<Rig>::valid_now(&mut rule, &mut rig, pass()));
     assert!(rig.tick(0.05, true));
     assert_eq!(rig.automation.intents.len(), 1);
     assert!(rig.automation.intents[0].forward);
@@ -166,9 +166,9 @@ fn the_door_rule_stands_down_while_a_lock_is_held() {
 
     // Held: the rule declines and does not so much as look at the door.
     assert!(rule.is_locked(&mut rig));
-    assert!(!rule.valid_now(&mut rig, pass()));
+    assert!(!MacroRule::<Rig>::valid_now(&mut rule, &mut rig, pass()));
     assert_eq!(
-        rule.decline_reason(&mut rig).as_deref(),
+        MacroRule::<Rig>::decline_reason(&mut rule, &mut rig).as_deref(),
         Some("another rule holds a lock this one waits on")
     );
     assert!(rig.automation.used_objects.is_empty());
@@ -177,7 +177,7 @@ fn the_door_rule_stands_down_while_a_lock_is_held() {
     // Released: it claims the pass, uses the door, and takes its own locks.
     rig.door_locked = false;
     assert!(!rule.is_locked(&mut rig));
-    assert!(rule.valid_now(&mut rig, pass()));
+    assert!(MacroRule::<Rig>::valid_now(&mut rule, &mut rig, pass()));
     assert_eq!(rig.automation.used_objects, [55]);
     assert_eq!(rig.door_armed, 1);
 }
@@ -193,15 +193,15 @@ fn the_door_rule_gives_its_own_stable_decline_reason() {
     rig.settings.open_doors = true;
     let mut rule = OpenDoorRule::new();
 
-    assert!(!rule.valid_now(&mut rig, pass()));
-    let first = rule.decline_reason(&mut rig).expect("a reason");
+    assert!(!MacroRule::<Rig>::valid_now(&mut rule, &mut rig, pass()));
+    let first = MacroRule::<Rig>::decline_reason(&mut rule, &mut rig).expect("a reason");
     assert_eq!(first, "no door in reach");
 
     // The character has walked on; the reason has not moved with it.
     rig.automation.navigation_snapshot = snapshot(position_facing(0.05, 0.0, 90.0));
-    assert!(!rule.valid_now(&mut rig, pass()));
+    assert!(!MacroRule::<Rig>::valid_now(&mut rule, &mut rig, pass()));
     assert_eq!(
-        rule.decline_reason(&mut rig).as_deref(),
+        MacroRule::<Rig>::decline_reason(&mut rule, &mut rig).as_deref(),
         Some(first.as_str())
     );
     assert!(!first.contains("Waypoint"));
@@ -213,9 +213,9 @@ fn the_door_rule_reports_its_own_work_on_the_pass_it_wins() {
     let (mut rig, _) = door_fixture(true);
     let mut rule = OpenDoorRule::new();
 
-    assert!(rule.valid_now(&mut rig, pass()));
+    assert!(MacroRule::<Rig>::valid_now(&mut rule, &mut rig, pass()));
     assert_eq!(
-        rule.running_detail(&mut rig).as_deref(),
+        MacroRule::<Rig>::running_detail(&mut rule, &mut rig).as_deref(),
         Some("opening door: Dungeon Door")
     );
     assert!(!rig.status().to_lowercase().contains("door"));
@@ -227,8 +227,8 @@ fn the_door_rule_names_the_door_it_is_waiting_on() {
     let (mut rig, _) = door_fixture(false);
     let mut rule = OpenDoorRule::new();
 
-    assert!(!rule.valid_now(&mut rig, pass()));
-    let reason = rule.decline_reason(&mut rig);
+    assert!(!MacroRule::<Rig>::valid_now(&mut rule, &mut rig, pass()));
+    let reason = MacroRule::<Rig>::decline_reason(&mut rule, &mut rig);
     assert_eq!(reason.as_deref(), Some("identifying door: Dungeon Door"));
     assert_ne!(Some(rig.status()), reason);
 }
@@ -376,13 +376,13 @@ fn the_door_rule_losing_its_turn_leaves_the_route_mover_armed() {
     );
     rig.settings.open_doors = true;
     let mut door = OpenDoorRule::new();
-    door.set_running(&mut rig, true);
+    MacroRule::<Rig>::set_running(&mut door, &mut rig, true);
 
     // Phase one of the pass: the route rule claims and arms the mover.
     assert!(rig.claim(true));
     assert!(rig.automation.intents.iter().any(|intent| intent.forward));
     // Phase two: the door rule, which did not win, is marked not running.
-    door.set_running(&mut rig, false);
+    MacroRule::<Rig>::set_running(&mut door, &mut rig, false);
 
     // The intent the route rule set still stands, and the next frame still
     // belongs to an armed mover.

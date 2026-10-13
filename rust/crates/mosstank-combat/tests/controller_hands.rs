@@ -18,7 +18,8 @@ use mosstank_data::damage::MonsterDamageType;
 use mosstank_formats::usd::{VtankCell, VtankRow};
 use mosstank_meta::host::MetaHost;
 use mosstank_meta::scheduler::{
-    IdlePeaceContext, IdlePeaceRule, MACRO_RULE_TABLE, MacroPassContext, MacroRule, MacroRuleSlot,
+    IdlePeaceContext, IdlePeaceRule, MACRO_RULE_TABLE, MacroContext, MacroFamily, MacroPassContext,
+    MacroRule, MacroRuleSlot,
 };
 use mosstank_meta::testing::FakeHost;
 use mosstank_settings::model::{AllSettings, CombatSettings, VitalSettings};
@@ -544,6 +545,12 @@ impl Idle {
     }
 }
 
+impl MacroContext for Idle {}
+
+impl MacroFamily for Idle {
+    type Cx<'a> = Idle;
+}
+
 impl IdlePeaceContext for Idle {
     fn meta_host(&mut self) -> &mut dyn MetaHost {
         &mut self.host
@@ -566,8 +573,12 @@ fn idle_peace_requests_on_every_pass_it_wins() {
     let mut cx = Idle::new(CombatMode::Melee, true);
     let mut rule = IdlePeaceRule::default();
 
-    assert!(rule.valid_now(&mut cx, idle_turn(true)));
-    rule.set_running(&mut cx, true);
+    assert!(MacroRule::<Idle>::valid_now(
+        &mut rule,
+        &mut cx,
+        idle_turn(true)
+    ));
+    MacroRule::<Idle>::set_running(&mut rule, &mut cx, true);
     assert_eq!(cx.count_requests(), 1);
     assert!(
         rule.status
@@ -577,8 +588,12 @@ fn idle_peace_requests_on_every_pass_it_wins() {
             .contains("peace")
     );
 
-    assert!(rule.valid_now(&mut cx, idle_turn(true)));
-    rule.set_running(&mut cx, true);
+    assert!(MacroRule::<Idle>::valid_now(
+        &mut rule,
+        &mut cx,
+        idle_turn(true)
+    ));
+    MacroRule::<Idle>::set_running(&mut rule, &mut cx, true);
     assert_eq!(cx.count_requests(), 2);
 }
 
@@ -599,9 +614,13 @@ fn idle_peace_is_last_in_the_list_and_is_inert_when_asked_with_can_act_false() {
             .any(|entry| entry.slot() == Some(MacroRuleSlot::IdlePeace))
     );
 
-    assert!(!rule.valid_now(&mut cx, idle_turn(false)));
+    assert!(!MacroRule::<Idle>::valid_now(
+        &mut rule,
+        &mut cx,
+        idle_turn(false)
+    ));
 
-    rule.set_running(&mut cx, false);
+    MacroRule::<Idle>::set_running(&mut rule, &mut cx, false);
     assert_eq!(cx.count_requests(), 0);
     assert!(rule.status.is_none());
     assert_eq!(cx.host.combat_mode, CombatMode::Melee);
@@ -613,7 +632,11 @@ fn idle_peace_mode_off_never_requests() {
     let mut cx = Idle::new(CombatMode::Melee, false);
     let mut rule = IdlePeaceRule::default();
 
-    assert!(!rule.valid_now(&mut cx, idle_turn(true)));
+    assert!(!MacroRule::<Idle>::valid_now(
+        &mut rule,
+        &mut cx,
+        idle_turn(true)
+    ));
     assert_eq!(cx.count_requests(), 0);
     assert!(rule.status.is_none());
 }
@@ -624,7 +647,11 @@ fn idle_peace_is_invalid_when_already_in_peace() {
     let mut cx = Idle::new(CombatMode::Peace, true);
     let mut rule = IdlePeaceRule::default();
 
-    assert!(!rule.valid_now(&mut cx, idle_turn(true)));
+    assert!(!MacroRule::<Idle>::valid_now(
+        &mut rule,
+        &mut cx,
+        idle_turn(true)
+    ));
 }
 
 // Source: tests/AcDream.Plugins.MossTank.Tests/CombatControllerTests.cs :: IdlePeaceStillFiresWhenCombatPolicyIsDisabled
@@ -650,8 +677,12 @@ fn idle_peace_still_fires_when_combat_policy_is_disabled() {
     // and the same profile.
     let mut cx = Idle::new(fight.surface.combat_snapshot.mode, settings.idle_peace_mode);
     let mut rule = IdlePeaceRule::default();
-    assert!(rule.valid_now(&mut cx, idle_turn(true)));
-    rule.set_running(&mut cx, true);
+    assert!(MacroRule::<Idle>::valid_now(
+        &mut rule,
+        &mut cx,
+        idle_turn(true)
+    ));
+    MacroRule::<Idle>::set_running(&mut rule, &mut cx, true);
 
     assert_eq!(cx.host.requested_mode, Some(CombatMode::Peace));
     assert_eq!(cx.count_requests(), 1);
