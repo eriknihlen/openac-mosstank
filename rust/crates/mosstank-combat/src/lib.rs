@@ -1,5 +1,8 @@
 //! MossTank's fight.
 //!
+//! - [`controller`]: the fight (`CombatController`).
+//! - [`health`]: the fought monster's health (`MonsterHealthTracker`).
+//! - [`mover`]: the close-in mover and the heading helpers (`NavigationMover`).
 //! - [`gate`]: readying a combat stance (`CombatModeGate`).
 //! - [`debuff`]: the debuff chain, the debuff spells and what has landed.
 //! - [`dispel`]: clearing vulnerabilities (`DispelController`).
@@ -18,12 +21,15 @@ use ac_plugin_abi::combat::CombatMode;
 use mosstank_automation::Automation;
 pub use mosstank_meta::scheduler::MacroLogChannel;
 
+pub mod controller;
 pub mod debuff;
 pub mod dispel;
 pub mod drain;
 pub mod failure;
 pub mod gate;
+pub mod health;
 pub mod item_debuff;
+pub mod mover;
 pub mod power;
 pub mod selection;
 

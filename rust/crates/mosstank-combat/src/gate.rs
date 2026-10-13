@@ -4,8 +4,9 @@
 //! anything is cast in it. A character stuck out of peace is unstuck by
 //! using the first profiled wand.
 //!
-//! The C#'s callbacks become calls and queues: the ammunition questions are
-//! [`AmmunitionHooks`] handed in by the fight, the macro stop the gate asks
+//! The C#'s callbacks become calls and queues: the ammunition question is
+//! an [`AmmunitionHooks`] handed in by the fight (and the wield it calls for
+//! is the fight's to do once the call returns), the macro stop the gate asks
 //! for is queued for its owner ([`CombatModeGate::take_stop_request`]), and
 //! settled gear is read with [`CombatModeGate::take_settled`].
 
@@ -44,15 +45,6 @@ pub trait AmmunitionHooks {
         automation: &mut dyn Automation,
         weapon: u32,
         element: MonsterDamageType,
-    ) -> bool;
-
-    /// Wields the ammunition [`Self::ammunition_stale`] chose. `arm_swap`
-    /// starts the gate's swap cooldown for an item.
-    fn wield_ammunition(
-        &mut self,
-        automation: &mut dyn Automation,
-        element: MonsterDamageType,
-        arm_swap: &mut dyn FnMut(u32) -> bool,
     ) -> bool;
 }
 
@@ -128,6 +120,7 @@ pub struct CombatModeGate {
     action_locks: SharedActionLocks,
     log: Option<MacroLog>,
     stop_requests: Vec<String>,
+    ammunition_wield: Option<MonsterDamageType>,
 }
 
 impl Default for CombatModeGate {
@@ -155,6 +148,7 @@ impl CombatModeGate {
             action_locks: ActionLockTable::shared(),
             log: None,
             stop_requests: Vec::new(),
+            ammunition_wield: None,
         }
     }
 
@@ -188,6 +182,11 @@ impl CombatModeGate {
         } else {
             Some(self.stop_requests.remove(0))
         }
+    }
+
+    /// The ammunition wield the last call asked the fight for, once.
+    pub fn take_ammunition_wield(&mut self) -> Option<MonsterDamageType> {
+        self.ammunition_wield.take()
     }
 
     /// Whether gear settled since the last ask (the C#'s
@@ -279,7 +278,7 @@ impl CombatModeGate {
         &mut self,
         turn: &mut GateTurn<'_>,
         request: Prepare<'_>,
-        mut hooks: Option<&mut dyn AmmunitionHooks>,
+        hooks: Option<&mut dyn AmmunitionHooks>,
     ) -> bool {
         let automation = &mut *turn.automation;
         // A dispatched inventory operation blocks the stance.
@@ -370,7 +369,7 @@ impl CombatModeGate {
             }
         }
 
-        let ammunition_stale = match hooks.as_deref_mut() {
+        let ammunition_stale = match hooks {
             Some(hooks) => hooks.ammunition_stale(automation, primary, request.element),
             None => false,
         };
@@ -431,12 +430,9 @@ impl CombatModeGate {
             }
 
             if ammunition_stale {
-                let mode = self.effective_mode(automation);
-                let tracker = self.tracker.get_or_insert_with(EquipmentTracker::default);
-                if let Some(hooks) = hooks {
-                    let mut arm = |object_id: u32| tracker.try_arm_swap(object_id, false, mode);
-                    hooks.wield_ammunition(automation, request.element, &mut arm);
-                }
+                // The fight wields what it chose right after this call
+                // returns (the C#'s `WieldAmmunition` callback).
+                self.ammunition_wield = Some(request.element);
                 return false;
             }
         }
