@@ -770,6 +770,10 @@ impl MetaServices for TankServices<'_, '_> {
         Core::announce(&mut **client, message);
     }
 
+    fn meta_state_set(&mut self, state: &str) {
+        state.clone_into(&mut self.core.0.borrow_mut().settings.combat.meta_state);
+    }
+
     /// `RequireExpressionPeers`.
     fn require_peers(&mut self, _host: &mut dyn MetaHost, need: PeerNeed) {
         let mut client = self.client.0.borrow_mut();

@@ -101,6 +101,13 @@ pub trait MetaServices {
         let _ = (host, message, state);
     }
 
+    /// `vtsetmetastate[]` moved the meta to `state`: the fight's copy of
+    /// the state is set at once (the C# function sets
+    /// `_combatSettings.MetaState` itself).
+    fn meta_state_set(&mut self, state: &str) {
+        let _ = state;
+    }
+
     /// A peer function needs the other clients to share something.
     fn require_peers(&mut self, host: &mut dyn MetaHost, need: PeerNeed) {
         let _ = (host, need);

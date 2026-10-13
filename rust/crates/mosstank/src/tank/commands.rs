@@ -825,8 +825,9 @@ pub(crate) fn execute_expression(cx: &mut TankCx<'_>, source: &str) {
 
 /// `/vt setattackbar <0..1>`.
 fn set_attack_bar(cx: &mut TankCx<'_>, value: &str) {
-    let power =
-        number::parse_f32(value, NumberStyles::FLOAT).filter(|power| (0.0..=1.0).contains(power));
+    let power = number::parse_f32(value, NumberStyles::FLOAT)
+        // As `power is < 0f or > 1f`: NaN is neither, so it is taken.
+        .filter(|power| !(*power < 0.0 || *power > 1.0));
     let Some(power) = power else {
         Core::write_vtank(cx.client, "Syntax: /vt setattackbar [0 to 1]");
         return;

@@ -325,7 +325,8 @@ impl CombatController {
         }
         let craftable: RefCell<HashMap<String, Option<u32>>> = RefCell::new(HashMap::new());
         let skills = cx.automation.skills();
-        let crafting = RefCell::new(cx.crafting.as_deref_mut());
+        let settings = cx.settings;
+        let crafting = RefCell::new((cx.crafting.as_deref_mut(), &mut *cx.automation));
         let is_available = |name: &str| -> bool {
             if counts.get(name).copied().unwrap_or(0) >= 1 {
                 return true;
@@ -334,10 +335,12 @@ impl CombatController {
             if let Some(cached) = cache.get(name) {
                 return cached.is_some();
             }
-            let resolved = crafting
-                .borrow_mut()
-                .as_deref_mut()
-                .and_then(|crafting| crafting.resolve(name, 1));
+            let resolved = {
+                let mut pair = crafting.borrow_mut();
+                let (hook, automation) = &mut *pair;
+                hook.as_deref_mut()
+                    .and_then(|hook| hook.resolve(&mut **automation, settings, name, 1))
+            };
             cache.insert(name.to_owned(), resolved);
             resolved.is_some()
         };
@@ -486,7 +489,7 @@ impl CombatController {
             && cx
                 .crafting
                 .as_deref_mut()
-                .is_some_and(|crafting| crafting.request(craft))
+                .is_some_and(|crafting| crafting.request(&mut *cx.automation, cx.settings, craft))
         {
             self.set_status(format!("Crafting {}", plan.name));
             return true;
@@ -823,16 +826,19 @@ impl CombatController {
         }
         let counts = self.pass_ammunition_counts.clone().unwrap_or_default();
         let answers = RefCell::new(std::mem::take(&mut self.pass_ammunition_answers));
-        let crafting = RefCell::new(cx.crafting.as_deref_mut());
+        let settings = cx.settings;
+        let crafting = RefCell::new((cx.crafting.as_deref_mut(), &mut *cx.automation));
         let is_available = |name: &str| -> bool {
             if let Some(&cached) = answers.borrow().get(name) {
                 return cached;
             }
-            let answer = counts.get(name).copied().unwrap_or(0) >= 1
-                || crafting
-                    .borrow_mut()
-                    .as_deref_mut()
-                    .is_some_and(|crafting| crafting.resolve(name, 1).is_some());
+            let answer = counts.get(name).copied().unwrap_or(0) >= 1 || {
+                let mut pair = crafting.borrow_mut();
+                let (hook, automation) = &mut *pair;
+                hook.as_deref_mut().is_some_and(|hook| {
+                    hook.resolve(&mut **automation, settings, name, 1).is_some()
+                })
+            };
             answers.borrow_mut().insert(name.to_owned(), answer);
             answer
         };

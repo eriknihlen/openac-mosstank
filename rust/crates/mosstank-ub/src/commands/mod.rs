@@ -649,6 +649,13 @@ impl UbCommands {
     /// One frame of the commands: the delayed lines, the dialog watch, and
     /// the jump; true while the jump owns the character.
     pub fn on_tick(&mut self, call: &mut UbCall<'_>, elapsed_seconds: f64) -> bool {
+        self.tick_early(call, elapsed_seconds);
+        self.tick_command_jump(call, elapsed_seconds)
+    }
+
+    /// The frame's early part: the delayed lines and the dialog watch
+    /// (`TickDelayedCommands`, `PrepClick.OnTick`).
+    pub fn tick_early(&mut self, call: &mut UbCall<'_>, elapsed_seconds: f64) {
         self.tick_delayed(call, elapsed_seconds);
         let mut lines = Vec::new();
         self.prep_click
@@ -656,6 +663,11 @@ impl UbCommands {
         for line in lines {
             call.write_transcript_line(&line);
         }
+    }
+
+    /// The command jump, which owns the character while it lasts
+    /// (`TickCommandJump`).
+    pub fn tick_command_jump(&mut self, call: &mut UbCall<'_>, elapsed_seconds: f64) -> bool {
         self.jump.tick(call, elapsed_seconds)
     }
 

@@ -1,11 +1,6 @@
 //! The macro's rules (`MossTankPanel.MacroRules`): the call's state the
 //! scheduler and its rules work with ([`TankCx`]), and the rule behind each
 //! slot of VTank's list, with the C#'s gates, fallbacks and edges.
-//!
-//! A slot whose controller is not converted yet holds an absent rule that
-//! never wins (crafting, the stack-and-cram pass, the pet refills, the
-//! random helper buffs and the pet summoner): the macro runs without that
-//! job until its slice lands.
 
 use std::cell::RefCell;
 use std::rc::Rc;
@@ -109,7 +104,11 @@ macro_rules! combat_turn {
             automation: $client.rules(),
             settings: &mut $core.settings.combat,
             vitals: &$core.settings.vitals,
-            crafting: None,
+            crafting: Some(&mut $crate::tank::rules::CraftingHook {
+                crafting: &mut $core.crafting,
+                inventory: &$core.settings.inventory,
+                vitals: &$core.settings.vitals,
+            }),
         }
     };
 }
@@ -122,7 +121,11 @@ macro_rules! combat_ctx {
             automation: $client.rules(),
             settings: &$core.settings.combat,
             vitals: &$core.settings.vitals,
-            crafting: None,
+            crafting: Some(&mut $crate::tank::rules::CraftingHook {
+                crafting: &mut $core.crafting,
+                inventory: &$core.settings.inventory,
+                vitals: &$core.settings.vitals,
+            }),
         }
     };
 }
@@ -362,6 +365,63 @@ impl TankCx<'_> {
         core.navigation
             .claim_from_rule_pass(&mut turn, context.can_act)
     }
+
+    /// A crafting band's turn: the critical, normal or idle one.
+    fn tick_crafting(&mut self, context: MacroPassContext, band: CraftBand) -> bool {
+        let core = &mut *self.core;
+        let mut turn = mosstank_loot::crafting::CraftTurn {
+            automation: self.client.rules(),
+            settings: &core.settings.inventory,
+            profiles: &core.settings.combat,
+            vitals: &core.settings.vitals,
+        };
+        let crafting = &mut core.crafting;
+        match band {
+            CraftBand::Critical => {
+                crafting.tick_critical(&mut turn, context.elapsed_seconds, context.can_act)
+            }
+            CraftBand::Normal => crafting.tick(&mut turn, context.elapsed_seconds, context.can_act),
+            CraftBand::Idle => {
+                crafting.tick_idle(&mut turn, context.elapsed_seconds, context.can_act)
+            }
+        }
+    }
+
+    /// A pet refill's turn, on the idle or the normal threshold; it drops to
+    /// peace for the pet first (`CombatController.ReadyToActInPeace`).
+    fn tick_pet_refill(&mut self, context: MacroPassContext, idle: bool) -> bool {
+        let core = &mut *self.core;
+        let combat = &mut core.combat;
+        let combat_settings = &core.settings.combat;
+        let vitals = &core.settings.vitals;
+        let mut ready = |automation: &mut dyn mosstank_automation::Automation| {
+            let mut ctx = Ctx {
+                automation,
+                settings: combat_settings,
+                vitals,
+                crafting: None,
+            };
+            combat.ready_to_act_in_peace(&mut ctx)
+        };
+        let (rule, threshold) = if idle {
+            (
+                &mut core.idle_pet_refill,
+                combat_settings.pet_refill_count_idle,
+            )
+        } else {
+            (
+                &mut core.normal_pet_refill,
+                combat_settings.pet_refill_count_normal,
+            )
+        };
+        rule.tick(
+            self.client.rules(),
+            combat_settings,
+            threshold,
+            &mut ready,
+            context,
+        )
+    }
 }
 
 impl Core {
@@ -555,9 +615,6 @@ fn absent(name: &str, reason: &str) -> Box<dyn MacroRule<TankFamily>> {
     Box::new(AbsentMacroRule::new(name, reason))
 }
 
-/// Not converted yet: the slot never wins until its controller lands.
-const NOT_CONVERTED: &str = "not converted to the Rust plugin yet";
-
 /// The rule behind each slot (`IMacroRuleProvider`).
 pub(crate) struct Provider {
     pub(crate) idle_peace: SharedIdlePeace,
@@ -572,7 +629,15 @@ impl Provider {
     fn rule(&self, slot: MacroRuleSlot) -> Box<dyn MacroRule<TankFamily>> {
         use MacroRuleSlot as S;
         match slot {
-            S::SplitPeasCritical => absent("SplitPeasCritical", NOT_CONVERTED),
+            S::SplitPeasCritical => Box::new(
+                ControllerMacroRule::new(
+                    "SplitPeasCritical",
+                    tick(|cx, context| cx.tick_crafting(context, CraftBand::Critical)),
+                )
+                .with_gate(gate(|cx| {
+                    cx.item_slot_is_free() && cx.core.combat.enabled()
+                })),
+            ),
             S::CraftFoodCritical => absent(
                 "CraftFoodCritical",
                 "fused into SplitPeasCritical \u{2014} CraftingController.TickCritical runs the pea split and the category craft in one call.",
@@ -649,8 +714,30 @@ impl Provider {
                 "RechargeOther",
                 "fused into UseHealersHeart - VitalRechargeController's helper half tries the heart first and then gu's Adja's Gift / Replenish / Gift of Essence chain, in that order.",
             ),
-            S::CraftFood => absent("CraftFood", NOT_CONVERTED),
-            S::RefillPetChargesNormal => absent("RefillPetChargesNormal", NOT_CONVERTED),
+            S::CraftFood => Box::new(
+                ControllerMacroRule::new(
+                    "CraftFood",
+                    tick(|cx, context| cx.tick_crafting(context, CraftBand::Normal)),
+                )
+                .with_gate(gate(|cx| {
+                    cx.item_slot_is_free() && cx.core.combat.enabled()
+                })),
+            ),
+            // The refill in the helper band, on the tight "normal" threshold.
+            S::RefillPetChargesNormal => Box::new(
+                ControllerMacroRule::new(
+                    "RefillPetChargesNormal",
+                    tick(|cx, context| cx.tick_pet_refill(context, false)),
+                )
+                .with_gate(gate(|cx| {
+                    cx.item_slot_is_free()
+                        && cx.core.combat.enabled()
+                        && cx.core.settings.combat.enabled
+                }))
+                .with_running_detail(text(|cx| {
+                    Some(cx.core.normal_pet_refill.status().to_owned())
+                })),
+            ),
             S::FellowshipManager => Box::new(ControllerMacroRule::new(
                 "FellowshipManager",
                 tick(|cx, context| {
@@ -830,8 +917,28 @@ impl Provider {
                 "SplitPeasIdle",
                 "fused into CraftFoodIdle \u{2014} CraftingController.TickIdle runs the pea split before the idle-count category craft.",
             ),
-            S::CraftFoodIdle => absent("CraftFoodIdle", NOT_CONVERTED),
-            S::RefillPetChargesIdle => absent("RefillPetChargesIdle", NOT_CONVERTED),
+            S::CraftFoodIdle => Box::new(
+                ControllerMacroRule::new(
+                    "CraftFoodIdle",
+                    tick(|cx, context| cx.tick_crafting(context, CraftBand::Idle)),
+                )
+                .with_gate(gate(|cx| {
+                    cx.item_slot_is_free() && cx.core.combat.enabled()
+                })),
+            ),
+            // The idle band's own refill, with its own (more eager) threshold.
+            S::RefillPetChargesIdle => Box::new(
+                ControllerMacroRule::new(
+                    "RefillPetChargesIdle",
+                    tick(|cx, context| cx.tick_pet_refill(context, true)),
+                )
+                .with_gate(gate(|cx| {
+                    cx.item_slot_is_free()
+                        && cx.core.combat.enabled()
+                        && cx.core.settings.combat.enabled
+                }))
+                .with_running_detail(text(|cx| Some(cx.core.idle_pet_refill.status().to_owned()))),
+            ),
             S::BuffSelfIdle => Box::new(
                 ControllerMacroRule::new(
                     "BuffSelfIdle",
@@ -888,7 +995,11 @@ impl Provider {
                 }))
                 .with_running_detail(text(|cx| Some(cx.core.vital_recharge.status().to_owned()))),
             ),
-            S::RandomHelper => absent("RandomHelper", NOT_CONVERTED),
+            S::RandomHelper => Box::new(MacroRulePreChain::new(
+                Box::new(RandomHelperSlot),
+                vec![gate(|cx| cx.core.combat.enabled())],
+                Vec::new(),
+            )),
             S::IdlePeace => Box::new(MacroRulePreChain::new(
                 self.idle_peace(),
                 vec![gate(|cx| cx.core.combat.enabled())],
@@ -942,7 +1053,9 @@ impl MacroRuleProvider<TankFamily> for Provider {
 
     fn create_independent(&mut self, slot: MacroIndependentSlot) -> Box<dyn MacroRule<TankFamily>> {
         match slot {
-            MacroIndependentSlot::SummonPet => absent("SummonPet", NOT_CONVERTED),
+            MacroIndependentSlot::SummonPet => {
+                Box::new(WritingOut(Box::new(SummonPetSlot { running: false })))
+            }
         }
     }
 }
@@ -952,4 +1065,159 @@ pub(crate) fn build_scheduler(idle_peace: &SharedIdlePeace) -> MacroScheduler<Ta
     build(&mut Provider {
         idle_peace: idle_peace.clone(),
     })
+}
+
+/// The crafting lent to the fight for one call, as its ammunition hook
+/// (register COMBAT-5).
+pub(crate) struct CraftingHook<'a> {
+    pub(crate) crafting: &'a mut mosstank_loot::crafting::CraftingController,
+    pub(crate) inventory: &'a mosstank_settings::model::InventorySettings,
+    pub(crate) vitals: &'a mosstank_settings::model::VitalSettings,
+}
+
+impl mosstank_combat::controller::AmmunitionCrafting for CraftingHook<'_> {
+    fn resolve(
+        &mut self,
+        automation: &mut dyn mosstank_automation::Automation,
+        combat: &mosstank_settings::model::CombatSettings,
+        name: &str,
+        count: i32,
+    ) -> Option<u32> {
+        let mut turn = mosstank_loot::crafting::CraftTurn {
+            automation,
+            settings: self.inventory,
+            profiles: combat,
+            vitals: self.vitals,
+        };
+        let plan = self.crafting.resolve_request_plan(&mut turn, name, count)?;
+        Some(self.crafting.hand_out(plan))
+    }
+
+    fn request(
+        &mut self,
+        automation: &mut dyn mosstank_automation::Automation,
+        combat: &mosstank_settings::model::CombatSettings,
+        plan: u32,
+    ) -> bool {
+        let Some(plan) = self.crafting.handed_out(plan) else {
+            return false;
+        };
+        let mut turn = mosstank_loot::crafting::CraftTurn {
+            automation,
+            settings: self.inventory,
+            profiles: combat,
+            vitals: self.vitals,
+        };
+        self.crafting.request_resolved(&mut turn, &plan)
+    }
+}
+
+/// Which crafting band a slot runs.
+#[derive(Debug, Clone, Copy)]
+enum CraftBand {
+    Critical,
+    Normal,
+    Idle,
+}
+
+/// The random helper's slot (`RandomHelperRule`).
+struct RandomHelperSlot;
+
+impl MacroRule<TankFamily> for RandomHelperSlot {
+    fn name(&self) -> String {
+        mosstank_buffs::random_helper::RANDOM_HELPER_NAME.to_owned()
+    }
+
+    fn shape(&self) -> mosstank_meta::scheduler::RuleShape {
+        mosstank_meta::scheduler::RuleShape::Other("RandomHelperRule")
+    }
+
+    fn valid_now(&mut self, cx: &mut TankCx<'_>, context: MacroPassContext) -> bool {
+        let core = &mut *cx.core;
+        let mut turn = mosstank_buffs::random_helper::HelperTurn {
+            automation: cx.client.rules(),
+            settings: &core.settings.buffs,
+            combat: &core.settings.combat,
+            vitals: &core.settings.vitals,
+        };
+        core.random_helper.valid_now(&mut turn, context.can_act)
+    }
+
+    fn running(&self) -> bool {
+        false
+    }
+
+    fn set_running(&mut self, cx: &mut TankCx<'_>, running: bool) {
+        let core = &mut *cx.core;
+        let mut turn = mosstank_buffs::random_helper::HelperTurn {
+            automation: cx.client.rules(),
+            settings: &core.settings.buffs,
+            combat: &core.settings.combat,
+            vitals: &core.settings.vitals,
+        };
+        core.random_helper.set_running(&mut turn, running);
+    }
+
+    fn decline_reason(&mut self, cx: &mut TankCx<'_>) -> Option<String> {
+        cx.core.random_helper.decline_reason().map(str::to_owned)
+    }
+}
+
+/// The pet summoner's slot beside the main list (`SummonPetRule`).
+struct SummonPetSlot {
+    running: bool,
+}
+
+impl MacroRule<TankFamily> for SummonPetSlot {
+    fn name(&self) -> String {
+        mosstank_combat::pets::SummonPetRule::NAME.to_owned()
+    }
+
+    fn shape(&self) -> mosstank_meta::scheduler::RuleShape {
+        mosstank_meta::scheduler::RuleShape::Other("SummonPetRule")
+    }
+
+    fn valid_now(&mut self, cx: &mut TankCx<'_>, context: MacroPassContext) -> bool {
+        let core = &mut *cx.core;
+        let combat = RefCell::new(&mut core.combat);
+        let combat_settings = &core.settings.combat;
+        let vitals = &core.settings.vitals;
+        let game_info = &core.game_info;
+        let mut attack_element =
+            |automation: &mut dyn mosstank_automation::Automation,
+             target: &ac_plugin_abi::combat::CombatTarget| {
+                let mut ctx = Ctx {
+                    automation,
+                    settings: combat_settings,
+                    vitals,
+                    crafting: None,
+                };
+                combat.borrow_mut().attack_element_for(&mut ctx, target)
+            };
+        let damage_preferences = |name: &str| game_info.damage_preferences(name).to_vec();
+        let mut warn = |automation: &mut dyn mosstank_automation::Automation, text: &str| {
+            combat.borrow_mut().post_warning_once(automation, text);
+        };
+        let mut turn = mosstank_combat::pets::SummonTurn {
+            automation: cx.client.rules(),
+            settings: combat_settings,
+            attack_element: &mut attack_element,
+            damage_preferences: &damage_preferences,
+            warn: &mut warn,
+        };
+        core.summon_pet.valid_now(&mut turn, context)
+    }
+
+    fn running(&self) -> bool {
+        self.running
+    }
+
+    fn set_running(&mut self, cx: &mut TankCx<'_>, running: bool) {
+        self.running = running;
+        cx.core.summon_pet.set_running(cx.client.rules(), running);
+    }
+
+    fn decline_reason(&mut self, cx: &mut TankCx<'_>) -> Option<String> {
+        cx.core.summon_pet.decline_reason().map(str::to_owned)
+    }
 }

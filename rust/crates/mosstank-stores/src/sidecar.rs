@@ -1132,9 +1132,12 @@ impl SideCarDocument {
     }
 
     /// The side-car's text, as the C# writes it.
-    #[must_use]
-    pub fn write(&self) -> String {
-        stj::write(&self.to_json())
+    ///
+    /// # Errors
+    /// A number JSON cannot hold (the attack bar set to NaN): .NET's
+    /// message.
+    pub fn write(&self) -> Result<String, String> {
+        stj::try_write(&self.to_json())
     }
 
     /// Reads a side-car; `None` for a document that is JSON `null`.

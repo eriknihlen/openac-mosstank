@@ -382,6 +382,7 @@ impl FunctionExtension for EngineFunctions<'_> {
             "vtsetmetastate" => Some((|| {
                 let state = arguments[0].as_str("vtsetmetastate")?.to_owned();
                 self.core.transition(host, services, &state);
+                services.meta_state_set(&self.core.current_state);
                 Ok(ExpressionValue::one())
             })()),
             "vtgetmetastate" => Some(Ok(ExpressionValue::string(&self.core.current_state))),
@@ -541,6 +542,13 @@ impl MetaEngine {
         profile: MetaProfile,
     ) {
         self.core.replace_profile(host, services, profile);
+    }
+
+    /// Takes the profile the engine is built with, before anything runs:
+    /// no transition, so nothing is announced (the C#'s constructor
+    /// argument).
+    pub fn set_initial_profile(&mut self, profile: MetaProfile) {
+        self.core.set_profile(profile);
     }
 
     /// Moves the meta to a state.

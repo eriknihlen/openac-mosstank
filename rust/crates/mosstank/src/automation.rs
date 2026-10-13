@@ -5,8 +5,8 @@ use ac_plugin_abi::CharacterInfo;
 use ac_plugin_abi::character::{ActiveEnchantment, Attribute, Skill};
 use ac_plugin_abi::combat::{AttackHeight, CombatMode, CombatResult, CombatSnapshot, CombatTarget};
 use ac_plugin_abi::items::{
-    EquipmentItem, EquipmentObservation, EquipmentPlacement, EquipmentResult, InventoryItem,
-    ItemResult, ItemUseCompletion,
+    EquipmentItem, EquipmentObservation, EquipmentPlacement, EquipmentResult, InventoryCompletion,
+    InventoryItem, ItemResult, ItemUseCompletion,
 };
 use ac_plugin_abi::magic::{
     CastCompletion, CastGate, CastResult, ComponentInfo, SpellInfo, SpellList, TrackedEnchantment,
@@ -90,6 +90,22 @@ impl SpellCatalog for HostAutomation<'_, '_> {
 
     fn try_get(&mut self, spell_id: u32) -> Option<SpellInfo> {
         self.host.spell(spell_id)
+    }
+
+    fn known_attack_spells(&mut self) -> Vec<SpellInfo> {
+        self.host.known_spells(SpellList::Attacks)
+    }
+
+    fn known_combat_spells(&mut self) -> Vec<SpellInfo> {
+        self.host.known_spells(SpellList::Combat)
+    }
+
+    fn is_known(&mut self, spell_id: u32) -> bool {
+        self.host.is_spell_known(spell_id)
+    }
+
+    fn cooldown_remaining(&mut self, cooldown_id: u32) -> f64 {
+        self.host.cooldown_remaining(cooldown_id)
     }
 
     fn all(&mut self) -> Vec<SpellInfo> {
@@ -248,6 +264,18 @@ impl Automation for HostAutomation<'_, '_> {
 
     fn move_item(&mut self, object_id: u32, container_id: u32) -> ItemResult {
         self.host.move_item(object_id, container_id, 0, 0)
+    }
+
+    fn split_stack(&mut self, object_id: u32, container_id: u32, amount: u32) -> ItemResult {
+        self.host.move_item(object_id, container_id, amount, 0)
+    }
+
+    fn inventory_completion(&mut self) -> InventoryCompletion {
+        self.host.item_state().last_inventory_completion
+    }
+
+    fn capture_objects(&mut self) -> Vec<WorldObject> {
+        self.host.objects()
     }
 
     fn navigation_snapshot(&mut self) -> NavigationSnapshot {

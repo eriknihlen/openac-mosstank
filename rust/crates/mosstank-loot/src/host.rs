@@ -86,15 +86,7 @@ pub fn status_result(status: ItemStatus) -> ItemResult {
 /// The status as .NET names the enum member.
 #[must_use]
 pub fn status_name(status: ItemStatus) -> &'static str {
-    match status {
-        ItemStatus::Unavailable => "Unavailable",
-        ItemStatus::InvalidItem => "InvalidItem",
-        ItemStatus::InvalidTarget => "InvalidTarget",
-        ItemStatus::Busy => "Busy",
-        ItemStatus::Started => "Started",
-        ItemStatus::Refused => "Refused",
-        ItemStatus::Completed => "Completed",
-    }
+    mosstank_automation::surface::item_status_name(status)
 }
 
 /// The client as the looter sees it.

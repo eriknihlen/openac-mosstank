@@ -1442,7 +1442,7 @@ fn stem_of(tier_one_name: &str) -> &str {
 
 /// The best known tier of the family a tier-I name names
 /// (`TryResolveBestKnown` by name).
-fn try_resolve_best_known_by_name(
+pub(crate) fn try_resolve_best_known_by_name(
     castability: &mut AutomationCastability<'_>,
     tier_one_name: &str,
     settings: &BuffSettings,

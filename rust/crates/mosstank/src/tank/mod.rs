@@ -228,6 +228,16 @@ pub struct Core {
     /// The macro's own stack-and-cram owner (`InventoryMaintenanceController`).
     pub(crate) inventory_maintenance:
         mosstank_ub::tools::stack_cram::InventoryMaintenanceController,
+    /// Pea splits, kit and food restocks, ammunition crafts (`CraftingController`).
+    pub(crate) crafting: mosstank_loot::crafting::CraftingController,
+    /// The helper band's pet refill, on the normal threshold.
+    pub(crate) normal_pet_refill: mosstank_combat::pets::PetRefillRule,
+    /// The idle band's pet refill, on the idle threshold.
+    pub(crate) idle_pet_refill: mosstank_combat::pets::PetRefillRule,
+    /// The pet summoner beside the main list.
+    pub(crate) summon_pet: mosstank_combat::pets::SummonPetRule,
+    /// The random helper buffs.
+    pub(crate) random_helper: mosstank_buffs::random_helper::RandomHelperRule,
     pub(crate) navigation: NavigationController,
     pub(crate) fellowship: FellowshipManager,
     pub(crate) idle_peace: rules::SharedIdlePeace,
@@ -411,6 +421,7 @@ impl Core {
 
     /// `ResetOncePerRunWarnings`.
     pub(crate) fn reset_once_per_run_warnings(&mut self) {
+        self.random_helper.reset_once_per_run_warnings();
         self.gate.borrow_mut().reset_once_per_run_warnings();
         self.navigation.reset_once_per_run_warnings();
         self.buff_rule.reset_once_per_run_warnings();
@@ -623,6 +634,10 @@ impl Tank {
         );
 
         let game_info = profiles::load_game_info(client);
+        let crafting = mosstank_loot::crafting::CraftingController::new(game_info.clone());
+        // The random helper's own draws, seeded apart from the worn-gear
+        // spread (register MANA-1).
+        let helper_seed = i32::try_from(client.clock().random_seed & 0x7FFF_FFFF).unwrap_or(0);
         let profiles = ProfileStore::new(client.stores());
 
         let mut combat = CombatController::with(game_info.clone(), tracker.clone());
@@ -648,6 +663,11 @@ impl Tank {
         loot.bind_action_locks(locks.clone());
         let mut corpse_approach = CorpseApproachController::new();
         corpse_approach.bind_combat_mode_gate(gate.clone());
+        let random_helper = mosstank_buffs::random_helper::RandomHelperRule::new(
+            locks.clone(),
+            gate.clone(),
+            helper_seed,
+        );
         let mut navigation = NavigationController::new();
         navigation.bind_action_locks(locks.clone());
         navigation.bind_combat_mode_gate(gate.clone());
@@ -690,6 +710,11 @@ impl Tank {
             read_scroll: ReadScrollController::new(),
             inventory_maintenance:
                 mosstank_ub::tools::stack_cram::InventoryMaintenanceController::new(),
+            crafting,
+            normal_pet_refill: mosstank_combat::pets::PetRefillRule::new(),
+            idle_pet_refill: mosstank_combat::pets::PetRefillRule::new(),
+            summon_pet: mosstank_combat::pets::SummonPetRule::new(),
+            random_helper,
             navigation,
             fellowship: FellowshipManager::new(),
             idle_peace: Rc::new(RefCell::new(IdlePeaceRule::default())),
@@ -1040,6 +1065,7 @@ impl Tank {
         core.vital_recharge.reset();
         core.vital_helper_recharge.reset();
         core.inventory_maintenance.reset();
+        core.crafting.reset();
         core.item_mana.reset();
         {
             let lent = rules::lent_loot!(core);
@@ -1100,6 +1126,36 @@ impl Core {
             lines
                 .borrow_mut()
                 .push(QueuedLine::Chat(format!("{CHAT_PREFIX} {text}")));
+        }));
+        let lines = self.lines.clone();
+        self.crafting.warning = Some(Box::new(move |text: &str| {
+            lines
+                .borrow_mut()
+                .push(QueuedLine::Chat(format!("{CHAT_PREFIX} {text}")));
+        }));
+        // The panel's peace gate: an item is crafted from peace mode.
+        let gate = self.gate.clone();
+        self.crafting.ready_to_craft_in_peace = Some(Box::new(move |turn| {
+            let equipment = if turn.automation.equipment_available() {
+                turn.automation.owned_equipment()
+            } else {
+                Vec::new()
+            };
+            gate.borrow_mut().try_drop_to_peace(
+                turn.automation,
+                turn.profiles,
+                turn.vitals,
+                &equipment,
+                "an item",
+            )
+        }));
+        let lines = self.lines.clone();
+        self.random_helper.log = Some(Box::new(move |channel, message: &str| {
+            lines.borrow_mut().push(QueuedLine::Macro {
+                channel,
+                message: message.to_owned(),
+                chat: true,
+            });
         }));
         let lines = self.lines.clone();
         self.read_scroll.log = Some(Box::new(move |message: &str| {
@@ -1201,6 +1257,12 @@ impl Tank {
     /// (register STORE-1), and a new meta interval reaches the scheduler.
     pub(crate) fn end_call(&mut self, client: &mut dyn TankClient) {
         self.ub.flush(client);
+        // The item timers a call changed are written before it returns
+        // (register STORE-6), whatever kind of call it was.
+        let storage = client
+            .stores()
+            .storage(mosstank_stores::storage::Root::Plugin);
+        self.core.buff_rule.item_ledger_mut().flush(storage);
         self.apply_pending_meta_interval();
     }
 }

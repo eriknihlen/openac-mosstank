@@ -20,6 +20,7 @@ pub mod classifier;
 pub mod controller;
 pub mod corpse_approach;
 pub mod corpse_scan;
+pub mod crafting;
 pub mod donors;
 pub mod expression;
 

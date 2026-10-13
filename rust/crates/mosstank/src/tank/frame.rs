@@ -110,14 +110,25 @@ impl Tank {
         cx.core.tick_game_info_update(cx.client);
         cx.show_first_run_guidance();
         cx.observe_command_portal_state();
+        // The UB commands' delayed lines and the dialog watch.
+        cx.with_ub(|commands, call| commands.tick_early(call, elapsed_seconds));
+        let macro_running = cx.core.combat.enabled();
+        let character = cx.client.rules().character();
+        let dead = character.health.1 > 0 && character.health.0 == 0;
+        if dead && !cx.core.was_dead_for_macro {
+            cx.handle_death(macro_running);
+        }
+        cx.core.was_dead_for_macro = dead;
+        cx.meta
+            .current_state()
+            .clone_into(&mut cx.core.settings.combat.meta_state);
         // The tinker run, just before the command jump (`TickTinkering`).
         cx.with_ub(|commands, call| {
             commands.tools_mut().tick_tinkering(call, elapsed_seconds);
         });
-        // The UB commands' frame: the delayed lines, the dialog watch and the
-        // command jump, which owns the character while it lasts.
+        // The command jump, which owns the character while it lasts.
         let command_jump_owns_action =
-            cx.with_ub(|commands, call| commands.on_tick(call, elapsed_seconds));
+            cx.with_ub(|commands, call| commands.tick_command_jump(call, elapsed_seconds));
         // The UB tools that own the character while they run, in the
         // panel's order; the vendor run is not in the shell yet, so its turn
         // never owns the character.
@@ -134,16 +145,6 @@ impl Tank {
                 .tools_mut()
                 .tick_after_prologue(call, elapsed_seconds);
         });
-        let macro_running = cx.core.combat.enabled();
-        let character = cx.client.rules().character();
-        let dead = character.health.1 > 0 && character.health.0 == 0;
-        if dead && !cx.core.was_dead_for_macro {
-            cx.handle_death(macro_running);
-        }
-        cx.core.was_dead_for_macro = dead;
-        cx.meta
-            .current_state()
-            .clone_into(&mut cx.core.settings.combat.meta_state);
         cx.core.write_out(cx.client);
 
         cx.observe_scheduler_pokes(scheduler);
@@ -168,12 +169,14 @@ impl Tank {
         cx.core
             .combat
             .advance_held_turn(cx.client.rules(), elapsed_seconds);
+        cx.core.write_out(cx.client);
         // What the other clients cast is read on the frame too.
         {
             let core = &mut *cx.core;
             let mut ctx = combat_ctx!(cx.client, core);
             core.combat.observe_remote_casts(&mut ctx);
         }
+        cx.core.write_out(cx.client);
         scheduler.external_suspension = cx.core.prologue_owns_action;
         cx.report_scheduler_suspension(scheduler);
         // The movers run on the host's frame, before the pass, so the pass
@@ -185,6 +188,7 @@ impl Tank {
             core.navigation
                 .step_armed_mover(&mut turn, elapsed_seconds, clear);
         }
+        cx.core.write_out(cx.client);
         {
             let core = &mut *cx.core;
             let lent = LentLoot::new(&mut core.loot, &mut core.settings.inventory.loot);
@@ -199,12 +203,14 @@ impl Tank {
             core.corpse_approach
                 .step_armed_mover(&mut turn, elapsed_seconds);
         }
+        cx.core.write_out(cx.client);
         {
             let core = &mut *cx.core;
             let mut ctx = combat_ctx!(cx.client, core);
             core.combat
                 .step_armed_approach_mover(&mut ctx, elapsed_seconds);
         }
+        cx.core.write_out(cx.client);
         // The swing runs on the host's frame, not on the pass that armed it.
         cx.core
             .combat
@@ -288,6 +294,7 @@ impl TankCx<'_> {
         self.meta
             .expressions()
             .destroy_auxiliary_views(self.client.meta());
+        self.meta.views().destroy_all(self.client.meta());
         self.reset_command_session();
         self.core.buff_rule.reset();
         "Idle.".clone_into(&mut self.core.status);
@@ -296,6 +303,11 @@ impl TankCx<'_> {
     /// `ResetSessionScopedControllers`.
     fn reset_session_scoped_controllers(&mut self) {
         let core = &mut *self.core;
+        core.random_helper.reset();
+        core.summon_pet.reset();
+        core.normal_pet_refill.reset();
+        core.idle_pet_refill.reset();
+        core.crafting.reset();
         core.inventory_maintenance.reset();
         core.vital_recharge.reset();
         core.vital_helper_recharge.reset();
@@ -311,6 +323,7 @@ impl TankCx<'_> {
         }
         core.fellowship.reset();
         self.meta.reset_session(self.client.meta());
+        self.meta.views().destroy_all(self.client.meta());
         self.meta
             .expressions()
             .destroy_auxiliary_views(self.client.meta());
@@ -512,6 +525,11 @@ impl TankCx<'_> {
         }
         core.dispel
             .observe_pending_receipt(self.client.rules(), elapsed_seconds);
+        core.crafting.observe_pending_receipt(
+            self.client.rules(),
+            &core.settings.inventory,
+            elapsed_seconds,
+        );
         {
             let mut turn = ManaTurn {
                 automation: self.client.rules(),
@@ -540,6 +558,7 @@ impl TankCx<'_> {
             || core.dispel.cast_in_flight()
             || core.vital_recharge.holds_pass()
             || core.vital_helper_recharge.holds_pass()
+            || core.crafting.use_in_flight()
             || core.navigation.holds_pass();
         if self.core.transaction_suspension_held {
             self.core.transaction_suspension_elapsed += elapsed_seconds.max(0.0);
@@ -664,9 +683,13 @@ impl Core {
             "Stopped.".clone_into(&mut self.status);
         }
         self.gate.borrow_mut().reset();
+        self.summon_pet.reset();
+        self.normal_pet_refill.reset();
+        self.idle_pet_refill.reset();
         self.vital_recharge.reset();
         self.vital_helper_recharge.reset();
         self.dispel.reset();
+        self.crafting.reset();
         {
             let lent = lent_loot!(self);
             lent.loot.reset(client.looter());
@@ -690,6 +713,7 @@ impl Core {
         self.vital_recharge.reset();
         self.vital_helper_recharge.reset();
         self.dispel.reset();
+        self.crafting.reset();
         self.item_mana.reset();
         {
             let lent = lent_loot!(self);

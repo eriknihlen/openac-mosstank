@@ -760,14 +760,14 @@ impl Tank {
     }
 
     /// The database each of its readers is using now: the shell's, the
-    /// fight's and the monster facts' (`GameInfoReadersForTest`; crafting's
-    /// comes with its controller).
+    /// fight's, the monster facts' and crafting's (`GameInfoReadersForTest`).
     #[must_use]
-    pub fn game_info_readers(&self) -> [&mosstank_formats::gameinfo::VtankGameInfoDatabase; 3] {
+    pub fn game_info_readers(&self) -> [&mosstank_formats::gameinfo::VtankGameInfoDatabase; 4] {
         [
             &self.core.game_info,
             self.core.combat.game_info(),
             self.core.settings.combat.monster_facts.database(),
+            self.core.crafting.game_info(),
         ]
     }
 

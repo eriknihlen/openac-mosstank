@@ -22,6 +22,7 @@ pub mod item_ledger;
 pub mod mana;
 pub mod plan;
 pub mod profile;
+pub mod random_helper;
 pub mod recharge;
 pub mod recharge_controller;
 pub mod vitals;

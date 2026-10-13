@@ -30,6 +30,7 @@ pub mod gate;
 pub mod health;
 pub mod item_debuff;
 pub mod mover;
+pub mod pets;
 pub mod power;
 pub mod selection;
 
