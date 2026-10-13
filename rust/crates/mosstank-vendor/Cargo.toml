@@ -1,0 +1,20 @@
+[package]
+name = "mosstank-vendor"
+description = "MossTank's vendor and fellowship automation: the vendor trade planner and run (buy and sell lists from the loot profiles), the /ub vendor commands, the fellowship manager and the /ub fellow command. The client comes in through traits over mosstank-automation."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[dependencies]
+ac-plugin-abi.workspace = true
+mosstank-automation.workspace = true
+mosstank-nav.workspace = true
+mosstank-formats.workspace = true
+mosstank-loot.workspace = true
+mosstank-stores.workspace = true
+openac-plugin-compat.workspace = true
+
+[lints]
+workspace = true

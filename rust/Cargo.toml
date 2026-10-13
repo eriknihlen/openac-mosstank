@@ -24,6 +24,8 @@ mosstank-stores = { path = "crates/mosstank-stores" }
 mosstank-automation = { path = "crates/mosstank-automation" }
 mosstank-buffs = { path = "crates/mosstank-buffs" }
 mosstank-meta = { path = "crates/mosstank-meta" }
+mosstank-nav = { path = "crates/mosstank-nav" }
+mosstank-vendor = { path = "crates/mosstank-vendor" }
 mosstank-combat = { path = "crates/mosstank-combat" }
 mosstank-loot = { path = "crates/mosstank-loot" }
 mosstank-ub = { path = "crates/mosstank-ub" }

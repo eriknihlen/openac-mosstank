@@ -123,6 +123,10 @@ impl<'a> AutomationCastability<'a> {
 }
 
 impl BuffCastability for AutomationCastability<'_> {
+    fn spell_catalog(&mut self) -> Option<&mut dyn mosstank_automation::SpellCatalog> {
+        Some(self.automation.spells())
+    }
+
     fn is_castable(&mut self, tier: &SpellInfo) -> (bool, Option<String>) {
         if uses_blacklisted_component(self.automation.spells(), tier, self.blacklisted_components) {
             return (false, Some("blacklisted".to_owned()));
@@ -153,5 +157,22 @@ impl BuffCastability for AutomationCastability<'_> {
         rejections: &[BuffTierRejection],
     ) {
         self.report.note_tier_pick(line, pick, rejections);
+    }
+}
+
+impl AutomationCastability<'_> {
+    /// One spell of the table, through the walk's client.
+    pub fn automation_spell(&mut self, spell_id: u32) -> Option<SpellInfo> {
+        self.automation.spells().try_get(spell_id)
+    }
+
+    /// The self buffs the character knows, through the walk's client.
+    pub fn known_self_buffs(&mut self) -> Vec<SpellInfo> {
+        self.automation.spells().known_self_buffs()
+    }
+
+    /// The character's skills, through the walk's client.
+    pub fn skills(&mut self) -> Vec<ac_plugin_abi::character::Skill> {
+        self.automation.skills()
     }
 }

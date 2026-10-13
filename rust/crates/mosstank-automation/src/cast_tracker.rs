@@ -504,3 +504,6 @@ impl SpellCastTracker {
 fn normalize(text: &str) -> String {
     casing::to_lower_invariant(&text.replace(' ', ""))
 }
+
+/// The tracker as the rules share it (one plugin, one thread).
+pub type SharedCastTracker = std::rc::Rc<std::cell::RefCell<SpellCastTracker>>;

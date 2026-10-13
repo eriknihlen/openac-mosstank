@@ -1,0 +1,513 @@
+# Route scenarios for the black-box golden run (RustPortNavGolden.cs writes
+# routes.out from the C# controller; tests/golden.rs replays them in Rust).
+#
+# Setup lines: route MODE MIN [max= portal= pathing= doors= identify= open=
+# follow= corners= enabled=]; wp TYPE [at=EW,NS[,EL] ref=EW,NS id= name=
+# text= dur= recall= spell= spellname= heading= shift= charge= dir=];
+# me EW NS HEADING [air] [portal] [gone] [confirmed=EW,NS,REV];
+# obj ID NAME EW,NS [door] [open] [locked] [lockstate] [diff=N]; unobj ID;
+# find ID NAME EW,NS; nofind; typing 0|1; vendor ID; appraisal 0|1;
+# magic [answer=] [casting=] [completion=REV,SPELL,ERR];
+# usecompletion REV SOURCE ERR; goanswer STATUS; goend STATE REASON;
+# chat SEQ LOGTYPE SENDERID KIND "sender" "text" "display"; locks;
+# lockadvance S. A number ending in m is metres (divided by 240). A
+# double-quoted word may hold spaces (no quotes inside it).
+#
+# Action lines (each prints the calls made and the state after): tick S
+# [noact]; frame S; claim [noact]; step S [blocked]; steps S; door S
+# [noact]; macrostop; lostturn; reset; anchor; skip N; back N; reverse;
+# clearlocks; pathing MODE; warnreset; query.
+
+case circular-points-turning-and-arriving
+route Circular 2
+wp Point at=10m,0
+wp Point at=10m,10m
+wp Point at=0,10m
+me 0 0 0
+tick 0.05
+query
+me 0 0 60
+tick 0.05
+me 0 0 85
+tick 0.05
+me 0 0 93
+tick 0.05
+me 9.5m 0 90
+tick 0.05
+me 10m 9m 0
+tick 0.05
+me 1m 10m 270
+tick 0.05
+query
+macrostop
+tick 0.05
+
+case linear-route-turns-back-and-steps
+route Linear 2
+wp Point at=0,0
+wp Point at=5m,0
+wp Point at=10m,0
+me 0 0 90
+tick 0.05
+me 5m 0 90
+tick 0.05
+me 10m 0 90
+tick 0.05
+query
+back 1
+query
+skip 1
+reverse
+tick 0.05
+reset
+query
+
+case once-route-runs-out-and-anchors
+route Once 2
+wp Point at=0,0
+wp Pause at=0,0 dur=200
+wp Point at=0,0
+me 0 0 0
+tick 0.05
+tick 0.1
+tick 0.15
+tick 0.05
+tick 0.05
+query
+anchor
+query
+tick 0.05
+
+case anchor-picks-the-nearest-place-in-three-dimensions
+route Circular 2
+wp Recall at=0,0 spellname="Lifestone Recall"
+wp Point at=0,10m,5m
+wp Portal at=0,12m id=9 name=Gate
+wp Checkpoint at=30m,0
+wp Pause at=0,9m
+me 0 9m 0
+anchor
+query
+me 29m 0 0
+anchor
+
+case typing-reface-throttle-and-creep
+route Circular 0.5
+wp Point at=10m,0
+wp Point at=1m,0
+typing 1
+me 0 0 0
+frame 0.3
+frame 0.3
+frame 0.2
+frame 0.05
+me 0 0 90
+frame 0.05
+me 9.4m 0 90
+frame 0.05
+me 9.4m 0 270
+frame 0.05
+
+case far-stop-range-and-unavailable-world
+route Circular 2 max=10
+wp Point at=20m,0
+me 0 0 90
+tick 0.05
+me 15m 0 90
+tick 0.05
+me 15m 0 90 gone
+tick 0.05
+me 15m 0 90 portal
+tick 0.05
+tick 0.05 noact
+route Circular 2 max=10 enabled=0
+tick 0.05
+
+case follow-breadcrumbs-around-a-corner
+route Target 2 follow=7 corners=1
+obj 7 Leader 10m,0
+me 0 0 90
+tick 0.05
+obj 7 Leader 10m,10m
+tick 0.05
+obj 7 Leader 0,10m
+tick 0.05
+me 9m 0 0
+tick 0.05
+me 10m 9m 270
+tick 0.05
+obj 7 Leader 10.5m,9m
+tick 0.05
+unobj 7
+tick 0.05
+
+case follow-straight-without-corners
+route Target 2 follow=7 corners=0
+obj 7 Leader 5m,5m
+me 0 0 45
+tick 0.05
+route Target 2 follow=0 corners=0
+tick 0.05
+
+case checkpoint-waits-and-nudges
+route Once 2
+wp Checkpoint at=0,0
+wp Point at=50m,0
+me 5m 0 270
+tick 0.05
+me 0 0 270 confirmed=3m,0,4
+tick 1
+tick 13.9
+query
+tick 0.2
+claim
+query
+step 0.05
+step 0.05
+query
+me 0 0 270 confirmed=0,0,5
+tick 0.05
+
+case pause-chat-and-default-actions
+route Once 2
+wp Pause at=0,0 dur=300
+wp ChatCommand at=0,0 text="/say hi there"
+wp OpenVendor at=0,0
+wp Point at=0,0
+me 0 0 0
+tick 0.1
+tick 0.1
+tick 0.15
+tick 0.1
+tick 0.15
+tick 0.05
+tick 0.05
+tick 0.05
+tick 30
+tick 0.05
+
+case portal-approach-use-retry-and-exit
+route Once 2 portal=4
+wp Portal at=0,0 id=77 name="Town Portal"
+wp Point at=40m,0
+obj 77 "Town Portal" 10m,0
+usecompletion 3 5 0
+me 0 0 0
+tick 0.05
+me 0 0 90
+tick 0.05
+me 7m 0 90
+tick 0.05
+tick 1
+usecompletion 4 77 1234
+tick 0.05
+tick 2
+usecompletion 5 77 0
+tick 0.05
+me 7m 0 90 portal
+tick 0.05
+me 30m 0 90
+tick 0.05
+query
+
+case portal-by-name-reacquires-and-retries-near-origin
+route Once 2
+wp PortalByName at=0,0 ref=1m,0 id=70 name=Gate
+wp Point at=40m,0
+find 71 Gate 1m,0
+obj 71 Gate 1m,0
+me 0 0 0
+tick 0.05
+me 0 0 0 portal
+tick 0.05
+me -3m 0 0
+tick 0.05
+me 0 0 0
+tick 0.05
+nofind
+unobj 71
+me 0 0 0 portal
+tick 0.05
+me 20m 0 0
+tick 0.05
+
+case npc-answers-on-its-own-channels
+route Circular 2
+wp UseNpc at=0,0 name="Aun Tanua"
+wp Point at=5m,0
+find 500 "Aun Tanua" 0.001,0
+obj 500 "Aun Tanua" 0.001,0
+me 0 0 0
+tick 0.05
+chat 1 0 500 3 "Aun Tanua" "Greetings." "Aun Tanua tells you, Greetings."
+tick 0.05
+tick 2
+chat 2 3 0 4 "" "Aun Tanua gives you a Token." "Aun Tanua gives you a Token."
+tick 0.05
+chat 3 3 500 3 "Aun Tanua" "Here." "Aun Tanua tells you, Here."
+tick 0.05
+tick 0.05
+
+case npc-that-never-answers-times-out
+route Once 2
+wp UseNpc at=0,0 id=500 name=Guard
+obj 500 Guard 0.001,0
+me 0 0 0
+tick 10
+tick 10
+tick 10
+tick 0.05
+
+case vendor-waypoint-holds-opens-and-gives-up
+route Circular 2
+wp OpenVendor at=0,0 id=404 name=Shopkeeper
+wp OpenVendor at=0,0 id=405 name=Missing
+wp Point at=5m,0
+obj 404 Shopkeeper 0.001,0
+me 0 0 0
+tick 0.05
+tick 1
+tick 1.5
+vendor 404
+tick 0.05
+tick 5
+tick 20
+tick 6
+tick 0.05
+
+case recall-from-standstill-with-casting-and-completions
+route Circular 2
+wp Recall at=0,0 recall=LifestoneRecall spell=1635 spellname="Lifestone Recall"
+wp Point at=5m,0
+magic answer=Sent
+me 0 0 0
+tick 0.05
+magic casting=1 answer=Unavailable
+tick 3
+magic casting=0 completion=1,1635,29
+tick 0.05
+magic answer=Sent
+tick 0.05
+magic casting=0 completion=2,1635,0
+tick 3
+tick 3
+me 0 0 0 portal
+tick 0.05
+me 0 1m 0
+tick 0.05
+me 0 0 0 portal
+tick 0.05
+me 40m 0 0
+tick 0.05
+
+case recall-names-refusals-and-marketplace
+route Once 2
+wp Recall at=0,0 spellname="Glenden Wood Recall"
+wp Recall at=0,0 spellname="Not A Recall"
+wp Recall at=0,0 recall=Marketplace spellname="Marketplace Recall"
+wp Recall at=0,0
+magic answer=MissingComponents
+me 0 0 0
+tick 0.05
+tick 2.5
+tick 2.5
+tick 26
+tick 0.05
+tick 0.05
+tick 0.05
+tick 0.05
+me 0 0 0 portal
+tick 0.05
+me 10m 0 0
+tick 0.05
+tick 0.05
+
+case recall-waits-for-the-character-to-stop
+route Circular 2
+wp Recall at=0,0 spell=48
+wp Point at=5m,0
+magic answer=Sent
+me 0 0 0
+tick 0.05
+me 0 3m 0
+tick 2.5
+tick 0.05
+me 0 5m 0
+tick 0.05
+me 0 5.1m 0
+tick 2.5
+
+case jump-aligns-charges-lands
+route Once 2
+wp Jump at=0,0 heading=90 charge=450 shift=1
+wp Jump at=0,0 heading=180 charge=5000 dir=StrafeLeft
+wp Jump at=0,0 heading=270 charge=0 dir=Backward
+wp Point at=50m,0
+me 0 0 0
+frame 0.05
+frame 1
+frame 1.2
+me 0 0 89.995
+frame 0.05
+query
+frame 0.45
+me 0 0 89.995 air
+frame 0.05
+me 0 0 89.995
+frame 0.1
+frame 0.2
+me 0 0 180
+frame 0.9
+frame 0.2
+frame 3.1
+me 0 0 270
+frame 0.05
+frame 0.05
+me 0 0 270 air
+frame 0.05
+me 0 0 270
+frame 0.3
+query
+
+case jump-held-by-the-armed-mover-and-lost
+route Once 2
+wp Jump at=0,0 heading=90 charge=100
+me 0 0 90
+claim
+query
+step 0.05
+step 0.1
+step 0.05 blocked
+query
+claim
+step 0.05
+lostturn
+query
+
+case mover-paces-and-blocked-slots
+route Circular 2
+wp Point at=12m,0
+me 0 0 90
+step 0.1
+claim
+step 0.01
+step 0.01
+step 0.01
+step 0.01
+step 0.01
+step 0.1 blocked
+step 0.1
+claim noact
+claim
+step 0.047
+macrostop
+step 0.1
+
+case stuck-hand-off-arrival-and-second-stall
+route Circular 2
+wp Point at=0,12m
+wp Point at=12m,0
+me 0 0 0
+claim
+steps 3.3
+query
+steps 0.5
+goend Arrived arrived
+steps 0.2
+steps 3.3
+goend NoRoute "no way"
+steps 0.2
+steps 3.5
+steps 3.5
+lostturn
+
+case refused-hand-off-and-never
+route Circular 2 pathing=WhenStuck
+wp Point at=0,12m
+goanswer Held
+me 0 0 0
+claim
+steps 3.3
+steps 0.2
+pathing Never
+claim
+steps 3.5
+steps 3.5
+goanswer Unavailable
+pathing Always
+claim
+
+case always-pauses-on-a-leg-the-client-cannot-walk
+route Circular 2 pathing=Always
+wp Point at=0,12m
+me 0 0 0
+claim
+steps 0.2
+goend Stopped stopped
+steps 0.2
+claim
+goend Blocked ""
+steps 0.2
+claim
+claim
+reset
+claim
+goend Walking walking
+query
+skip 1
+
+case doors-on-the-leg-are-identified-and-opened
+route Circular 2 doors=1
+wp Point at=1,0
+obj 55 "Dungeon Door" 0.01,0 door
+obj 56 "Side Door" 0,0.005 door lockstate
+obj 57 "Far Door" 0.5,0 door lockstate
+locks
+appraisal 1
+me 0 0 90
+door 0.05
+lockadvance 0.6
+obj 55 "Dungeon Door" 0.01,0 door lockstate
+door 0.05
+door 0.5
+lockadvance 0.6
+door 1.5
+door 2
+door 3
+lockadvance 5
+obj 55 "Dungeon Door" 0.01,0 door lockstate open
+door 0.05
+door 0.05 noact
+tick 0.05
+
+case doors-locked-far-timed-out-and-off-route
+route Once 2 doors=1 open=4
+wp Point at=1,0
+obj 55 "Locked Door" 0.01,0 door lockstate locked diff=100
+locks
+me 0 0 90
+door 0.05
+obj 55 "Locked Door" 0.01,0 door lockstate
+me -0.01 0 90
+door 0.05
+me 0 0 90
+door 0.05
+door 2
+door 2
+door 1.5
+door 0.05
+me 0.02 0 90
+door 0.05
+route Once 2 doors=0
+door 0.05
+
+case door-on-a-follow-route-and-a-portal-leg
+route Target 2 doors=1 follow=7 corners=0
+obj 7 Leader 10m,0
+obj 55 "Door" 5m,0 door lockstate
+me 0 0 90
+door 0.05
+route Once 2 doors=1
+wp Portal at=0,10m id=77 name=Gate
+obj 77 Gate 10m,0
+door 0.05

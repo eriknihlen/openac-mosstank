@@ -5,9 +5,7 @@
 //! it in flight. The recharge boost reads a vital as worse off than it is
 //! for a while after a recharge was asked for, so it is carried through.
 
-use std::cell::RefCell;
 use std::collections::HashSet;
-use std::rc::Rc;
 
 use ac_plugin_abi::combat::CombatMode;
 use ac_plugin_abi::magic::CastGate;
@@ -31,7 +29,7 @@ pub const IDLE_STATUS: &str = "Vitals idle";
 const PENDING_TIMEOUT_SECONDS: f64 = 15.0;
 
 /// The cast tracker as the rules share it.
-pub type SharedCastTracker = Rc<RefCell<SpellCastTracker>>;
+pub use mosstank_automation::cast_tracker::SharedCastTracker;
 
 /// What one call works with: the client and the live settings.
 #[allow(missing_debug_implementations)]

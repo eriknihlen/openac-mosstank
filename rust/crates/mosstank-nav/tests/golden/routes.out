@@ -1,0 +1,1099 @@
+##### circular-points-turning-and-arriving
+> tick 0.05
+  intent F=0 B=0 SL=0 SR=0 TL=0 TR=1 run=1 jump=0
+  = 1 | Waypoint 1/3: 10.0m | door: no door in reach | idx 0
+> query
+  = detail=[targ range 10, targ loc 0.041667, 0, 0 ] holds=0 normal=1 nothing=0 block=None rev=0 walking=0 action=0 consumed0=0 | Waypoint 1/3: 10.0m | door: no door in reach | idx 0
+> tick 0.05
+  intent F=1 B=0 SL=0 SR=0 TL=0 TR=1 run=1 jump=0
+  = 1 | Waypoint 1/3: 10.0m | door: no door in reach | idx 0
+> tick 0.05
+  intent F=1 B=0 SL=0 SR=0 TL=0 TR=1 run=1 jump=0
+  = 1 | Waypoint 1/3: 10.0m | door: no door in reach | idx 0
+> tick 0.05
+  intent F=1 B=0 SL=0 SR=0 TL=0 TR=0 run=1 jump=0
+  = 1 | Waypoint 1/3: 10.0m | door: no door in reach | idx 0
+> tick 0.05
+  intent F=0 B=0 SL=0 SR=0 TL=1 TR=0 run=1 jump=0
+  = 1 | Waypoint 2/3: 10.0m | door: no door in reach | idx 1
+> tick 0.05
+  intent F=0 B=0 SL=0 SR=0 TL=1 TR=0 run=1 jump=0
+  = 1 | Waypoint 3/3: 10.0m | door: no door in reach | idx 2
+> tick 0.05
+  intent F=0 B=0 SL=0 SR=0 TL=1 TR=0 run=1 jump=0
+  = 1 | Waypoint 1/3: 13.5m | door: no door in reach | idx 0
+> query
+  = detail=[targ range 13.454, targ loc 0.041667, 0, 0 ] holds=0 normal=1 nothing=0 block=None rev=0 walking=0 action=0 consumed0=0 | Waypoint 1/3: 13.5m | door: no door in reach | idx 0
+> macrostop
+  clear
+  = - | Route ready. | door: no door in reach | idx 0
+> tick 0.05
+  intent F=0 B=0 SL=0 SR=0 TL=1 TR=0 run=1 jump=0
+  = 1 | Waypoint 1/3: 13.5m | door: no door in reach | idx 0
+##### linear-route-turns-back-and-steps
+> tick 0.05
+  intent F=1 B=0 SL=0 SR=0 TL=0 TR=0 run=1 jump=0
+  = 1 | Waypoint 2/3: 5.0m | door: no door in reach | idx 1
+> tick 0.05
+  intent F=1 B=0 SL=0 SR=0 TL=0 TR=0 run=1 jump=0
+  = 1 | Waypoint 3/3: 5.0m | door: no door in reach | idx 2
+> tick 0.05
+  intent F=0 B=0 SL=0 SR=0 TL=1 TR=0 run=1 jump=0
+  = 1 | Waypoint 3/3: 0.0m | door: no door in reach | idx 2
+> query
+  = detail=[targ range 0, targ loc 0.041667, 0, 0 ] holds=0 normal=0 nothing=0 block=None rev=1 walking=0 action=0 consumed0=0 | Waypoint 3/3: 0.0m | door: no door in reach | idx 2
+> back 1
+  = 0 | Waypoint 3/3: 0.0m | door: no door in reach | idx 2
+> query
+  = detail=[targ range 0, targ loc 0.041667, 0, 0 ] holds=0 normal=0 nothing=0 block=None rev=1 walking=0 action=0 consumed0=0 | Waypoint 3/3: 0.0m | door: no door in reach | idx 2
+> skip 1
+  = 1 | Waypoint 3/3: 0.0m | door: no door in reach | idx 1
+> reverse
+  = - | Nav backwards is False. | door: no door in reach | idx 1
+> tick 0.05
+  intent F=0 B=0 SL=0 SR=0 TL=1 TR=0 run=1 jump=0
+  = 1 | Waypoint 2/3: 5.0m | door: no door in reach | idx 1
+> reset
+  clear
+  = - | Route ready. | door: no door in reach | idx 0
+> query
+  = detail=[targ range 10, targ loc 0, 0, 0 ] holds=0 normal=1 nothing=0 block=None rev=0 walking=0 action=0 consumed0=0 | Route ready. | door: no door in reach | idx 0
+##### once-route-runs-out-and-anchors
+> tick 0.05
+  = 1 | Navigation disabled. | door: no door in reach | idx 1
+> tick 0.1
+  = 1 | Pause: 0.1s | door: no door in reach | idx 1
+> tick 0.15
+  = 1 | Pause: 0.0s | door: no door in reach | idx 2
+> tick 0.05
+  = 1 | Once route complete. | door: no door in reach | idx 3
+> tick 0.05
+  = 0 | Once route complete. | door: no door in reach | idx 3
+> query
+  = detail= holds=0 normal=1 nothing=1 block=OnceRoute rev=0 walking=0 action=0 consumed0=1 | Once route complete. | door: no door in reach | idx 3
+> anchor
+  log Route starts at Waypoint 1/3 (a once-through route starts at its head)
+  = - | Once route complete. | door: no door in reach | idx 0
+> query
+  = detail=[targ range 0, targ loc 0, 0, 0 ] holds=0 normal=0 nothing=0 block=OnceRoute rev=0 walking=0 action=0 consumed0=0 | Once route complete. | door: no door in reach | idx 0
+> tick 0.05
+  = 1 | Once route complete. | door: no door in reach | idx 1
+##### anchor-picks-the-nearest-place-in-three-dimensions
+> anchor
+  log Route starts at Waypoint 3/5 (the nearest point to the character)
+  = - | Navigation disabled. | door: no door in reach | idx 2
+> query
+  = detail=[targ range 3, targ loc 0, 0.05, 0 ] holds=0 normal=1 nothing=0 block=None rev=0 walking=0 action=0 consumed0=0 | Navigation disabled. | door: no door in reach | idx 2
+> anchor
+  log Route starts at Waypoint 4/5 (the nearest point to the character)
+  = - | Navigation disabled. | door: no door in reach | idx 3
+##### typing-reface-throttle-and-creep
+> frame 0.3
+  face 90
+  = 1 | Waypoint 1/2: 10.0m | door: no door in reach | idx 0
+> frame 0.3
+  = 1 | Waypoint 1/2: 10.0m | door: no door in reach | idx 0
+> frame 0.2
+  = 1 | Waypoint 1/2: 10.0m | door: no door in reach | idx 0
+> frame 0.05
+  = 1 | Waypoint 1/2: 10.0m | door: no door in reach | idx 0
+> frame 0.05
+  intent F=1 B=0 SL=0 SR=0 TL=0 TR=0 run=1 jump=0
+  = 1 | Waypoint 1/2: 10.0m | door: no door in reach | idx 0
+> frame 0.05
+  intent F=1 B=0 SL=0 SR=0 TL=0 TR=0 run=0 jump=0
+  = 1 | Waypoint 1/2: 0.6m | door: no door in reach | idx 0
+> frame 0.05
+  clear
+  face 90
+  = 1 | Waypoint 1/2: 0.6m | door: no door in reach | idx 0
+##### far-stop-range-and-unavailable-world
+> tick 0.05
+  = 0 | Waypoint is outside NavFarStopRange (20.0m). | door: no door in reach | idx 0
+> tick 0.05
+  intent F=1 B=0 SL=0 SR=0 TL=0 TR=0 run=1 jump=0
+  = 1 | Waypoint 1/1: 5.0m | door: no door in reach | idx 0
+> tick 0.05
+  clear
+  = 0 | Waiting for the world. | door: no door in reach | idx 0
+> tick 0.05
+  = 0 | Waiting for portal space. | door: no door in reach | idx 0
+> tick 0.05 noact
+  = 0 | Waiting for portal space. | door: no door in reach | idx 0
+> tick 0.05
+  = 0 | Navigation disabled. | door: no door in reach | idx 0
+##### follow-breadcrumbs-around-a-corner
+> tick 0.05
+  intent F=1 B=0 SL=0 SR=0 TL=0 TR=0 run=1 jump=0
+  = 1 | Following Leader: 10.0m. | door: no door in reach | idx 0
+> tick 0.05
+  intent F=1 B=0 SL=0 SR=0 TL=0 TR=0 run=1 jump=0
+  = 1 | Following Leader: 14.1m. | door: no door in reach | idx 0
+> tick 0.05
+  intent F=1 B=0 SL=0 SR=0 TL=0 TR=0 run=1 jump=0
+  = 1 | Following Leader: 10.0m. | door: no door in reach | idx 0
+> tick 0.05
+  intent F=1 B=0 SL=0 SR=0 TL=0 TR=1 run=1 jump=0
+  = 1 | Following Leader: 13.5m. | door: no door in reach | idx 0
+> tick 0.05
+  intent F=1 B=0 SL=0 SR=0 TL=0 TR=1 run=1 jump=0
+  = 1 | Following Leader: 10.0m. | door: no door in reach | idx 0
+> tick 0.05
+  clear
+  = 0 | Following Leader: holding 0.5m. | door: no door in reach | idx 0
+> tick 0.05
+  = 0 | Follow target unavailable. | door: no door in reach | idx 0
+##### follow-straight-without-corners
+> tick 0.05
+  intent F=1 B=0 SL=0 SR=0 TL=0 TR=0 run=1 jump=0
+  = 1 | Following Leader: 7.1m. | door: no door in reach | idx 0
+> tick 0.05
+  clear
+  = 0 | Follow target unavailable. | door: no door in reach | idx 0
+##### checkpoint-waits-and-nudges
+> tick 0.05
+  intent F=1 B=0 SL=0 SR=0 TL=0 TR=0 run=1 jump=0
+  = 1 | Checkpoint 1/2: 5.0m | door: no door in reach | idx 0
+> tick 1
+  clear
+  = 1 | Checkpoint: waiting for server (3.0m). | door: no door in reach | idx 0
+> tick 13.9
+  = 1 | Checkpoint: waiting for server (3.0m). | door: no door in reach | idx 0
+> query
+  = detail=[targ range 0, targ loc 0, 0, 0 ] holds=0 normal=0 nothing=0 block=OnceRoute rev=0 walking=0 action=0 consumed0=0 | Checkpoint: waiting for server (3.0m). | door: no door in reach | idx 0
+> tick 0.2
+  intent F=1 B=0 SL=0 SR=0 TL=0 TR=0 run=0 jump=0
+  = 1 | Checkpoint: nudging for server confirmation. | door: no door in reach | idx 0
+> claim
+  clear
+  = 1 | Checkpoint: waiting for server (3.0m). | door: no door in reach | idx 0
+> query
+  = detail=[targ range 0, targ loc 0, 0, 0 ] holds=1 normal=0 nothing=0 block=OnceRoute rev=0 walking=0 action=0 consumed0=0 | Checkpoint: waiting for server (3.0m). | door: no door in reach | idx 0
+> step 0.05
+  = - | Checkpoint: waiting for server (3.0m). | door: no door in reach | idx 0
+> step 0.05
+  = - | Checkpoint: waiting for server (3.0m). | door: no door in reach | idx 0
+> query
+  = detail=[targ range 0, targ loc 0, 0, 0 ] holds=0 normal=0 nothing=0 block=OnceRoute rev=0 walking=0 action=0 consumed0=0 | Checkpoint: waiting for server (3.0m). | door: no door in reach | idx 0
+> tick 0.05
+  = 1 | Checkpoint: waiting for server (3.0m). | door: no door in reach | idx 1
+##### pause-chat-and-default-actions
+> tick 0.1
+  = 1 | Pause: 0.2s | door: no door in reach | idx 0
+> tick 0.1
+  = 1 | Pause: 0.1s | door: no door in reach | idx 0
+> tick 0.15
+  = 1 | Pause: 0.0s | door: no door in reach | idx 1
+> tick 0.1
+  = 1 | Chat command: /say hi there | door: no door in reach | idx 1
+> tick 0.15
+  submit /say hi there
+  = 1 | Chat command: /say hi there | door: no door in reach | idx 2
+> tick 0.05
+  post [MossTank] OpenVendor waypoint action ignored, vendor 0 () not found.
+  = 1 | Vendor not found: . | door: no door in reach | idx 2
+> tick 0.05
+  = 1 | Vendor not found: . | door: no door in reach | idx 2
+> tick 0.05
+  = 1 | Vendor not found: . | door: no door in reach | idx 2
+> tick 30
+  = 1 | Vendor not found: . | door: no door in reach | idx 3
+> tick 0.05
+  = 1 | Once route complete. | door: no door in reach | idx 4
+##### portal-approach-use-retry-and-exit
+> tick 0.05
+  intent F=0 B=0 SL=0 SR=0 TL=0 TR=1 run=1 jump=0
+  = 1 | Approaching Town Portal (10.0m). | door: no door in reach | idx 0
+> tick 0.05
+  clear
+  intent F=1 B=0 SL=0 SR=0 TL=0 TR=0 run=1 jump=0
+  = 1 | Approaching Town Portal (10.0m). | door: no door in reach | idx 0
+> tick 0.05
+  clear
+  use 77
+  = 1 | Using Town Portal. | door: no door in reach | idx 0
+> tick 1
+  = 1 | Using Town Portal. | door: no door in reach | idx 0
+> tick 0.05
+  use 77
+  = 1 | Using Town Portal. | door: no door in reach | idx 0
+> tick 2
+  use 77
+  = 1 | Using Town Portal. | door: no door in reach | idx 0
+> tick 0.05
+  = 1 | Using Town Portal. | door: no door in reach | idx 0
+> tick 0.05
+  = 1 | Waiting for portal space. | door: no door in reach | idx 0
+> tick 0.05
+  = 1 | Waiting for portal space. | door: no door in reach | idx 1
+> query
+  = detail=[targ range 10, targ loc 0.166667, 0, 0 ] holds=0 normal=1 nothing=0 block=OnceRoute rev=0 walking=0 action=0 consumed0=1 | Waiting for portal space. | door: no door in reach | idx 1
+##### portal-by-name-reacquires-and-retries-near-origin
+> tick 0.05
+  find Gate near 0.004166666666666667,0 within 2.5
+  use 71
+  = 1 | Using Gate. | door: no door in reach | idx 0
+> tick 0.05
+  = 1 | Waiting for portal space. | door: no door in reach | idx 0
+> tick 0.05
+  = 1 | Portal exit stayed near its origin; retrying. | door: no door in reach | idx 0
+> tick 0.05
+  use 71
+  = 1 | Using Gate. | door: no door in reach | idx 0
+> tick 0.05
+  = 1 | Waiting for portal space. | door: no door in reach | idx 0
+> tick 0.05
+  = 1 | Waiting for portal space. | door: no door in reach | idx 1
+##### npc-answers-on-its-own-channels
+> tick 0.05
+  find Aun Tanua near 0,0 within 2.5
+  use 500
+  = 1 | Using Aun Tanua. | door: no door in reach | idx 0
+> tick 0.05
+  = 1 | Using Aun Tanua. | door: no door in reach | idx 0
+> tick 2
+  use 500
+  = 1 | Using Aun Tanua. | door: no door in reach | idx 0
+> tick 0.05
+  = 1 | Using Aun Tanua. | door: no door in reach | idx 0
+> tick 0.05
+  = 1 | Using Aun Tanua. | door: no door in reach | idx 1
+> tick 0.05
+  intent F=0 B=0 SL=0 SR=0 TL=0 TR=1 run=1 jump=0
+  = 1 | Waypoint 2/2: 5.0m | door: no door in reach | idx 1
+##### npc-that-never-answers-times-out
+> tick 10
+  use 500
+  = 1 | Using Guard. | door: no door in reach | idx 0
+> tick 10
+  use 500
+  = 1 | Using Guard. | door: no door in reach | idx 0
+> tick 10
+  = 1 | Use timed out: Guard. | door: no door in reach | idx 1
+> tick 0.05
+  = 0 | Once route complete. | door: no door in reach | idx 1
+##### vendor-waypoint-holds-opens-and-gives-up
+> tick 0.05
+  use 404
+  = 1 | Opening vendor: Shopkeeper. | door: no door in reach | idx 0
+> tick 1
+  = 1 | Opening vendor: Shopkeeper. | door: no door in reach | idx 0
+> tick 1.5
+  use 404
+  = 1 | Opening vendor: Shopkeeper. | door: no door in reach | idx 0
+> tick 0.05
+  = 1 | Vendor window is open: Shopkeeper. | door: no door in reach | idx 1
+> tick 5
+  post [MossTank] OpenVendor waypoint action ignored, vendor 405 (Missing) not found.
+  = 1 | Vendor not found: Missing. | door: no door in reach | idx 1
+> tick 20
+  = 1 | Vendor not found: Missing. | door: no door in reach | idx 1
+> tick 6
+  = 1 | Vendor not found: Missing. | door: no door in reach | idx 2
+> tick 0.05
+  intent F=0 B=0 SL=0 SR=0 TL=0 TR=1 run=1 jump=0
+  = 1 | Waypoint 3/3: 5.0m | door: no door in reach | idx 2
+##### recall-from-standstill-with-casting-and-completions
+> tick 0.05
+  cast 1635 -> Sent
+  = 1 | Recall: Lifestone Recall. | door: no door in reach | idx 0
+> tick 3
+  = 1 | Recall: Lifestone Recall. | door: no door in reach | idx 0
+> tick 0.05
+  cast 1635 -> Unavailable
+  post [MossTank] Recall 'Lifestone Recall' refused: Unavailable.
+  = 1 | Recall: Lifestone Recall. | door: no door in reach | idx 0
+> tick 0.05
+  = 1 | Recall: Lifestone Recall. | door: no door in reach | idx 0
+> tick 3
+  cast 1635 -> Sent
+  = 1 | Recall: Lifestone Recall. | door: no door in reach | idx 0
+> tick 3
+  cast 1635 -> Sent
+  = 1 | Recall: Lifestone Recall. | door: no door in reach | idx 0
+> tick 0.05
+  = 1 | Waiting for portal space. | door: no door in reach | idx 0
+> tick 0.05
+  cast 1635 -> Sent
+  = 1 | Recall: Lifestone Recall. | door: no door in reach | idx 0
+> tick 0.05
+  = 1 | Waiting for portal space. | door: no door in reach | idx 0
+> tick 0.05
+  = 1 | Waiting for portal space. | door: no door in reach | idx 1
+##### recall-names-refusals-and-marketplace
+> tick 0.05
+  cast 3865 -> MissingComponents
+  post [MossTank] Recall 'Glenden Wood Recall' refused: MissingComponents.
+  = 1 | Recall: Glenden Wood Recall. | door: no door in reach | idx 0
+> tick 2.5
+  cast 3865 -> MissingComponents
+  = 1 | Recall: Glenden Wood Recall. | door: no door in reach | idx 0
+> tick 2.5
+  cast 3865 -> MissingComponents
+  = 1 | Recall: Glenden Wood Recall. | door: no door in reach | idx 0
+> tick 26
+  = 1 | Recall timed out; continuing route. | door: no door in reach | idx 1
+> tick 0.05
+  post [MossTank] Recall spell 'Not A Recall' not found; skipping waypoint.
+  = 1 | Recall spell 'Not A Recall' not found; skipping waypoint. | door: no door in reach | idx 2
+> tick 0.05
+  submit /marketplace
+  = 1 | Recall: Marketplace Recall. | door: no door in reach | idx 2
+> tick 0.05
+  = 1 | Recall: Marketplace Recall. | door: no door in reach | idx 2
+> tick 0.05
+  = 1 | Recall: Marketplace Recall. | door: no door in reach | idx 2
+> tick 0.05
+  = 1 | Waiting for portal space. | door: no door in reach | idx 2
+> tick 0.05
+  = 1 | Waiting for portal space. | door: no door in reach | idx 3
+> tick 0.05
+  post [MossTank] Recall waypoint has no spell; skipping.
+  = 1 | Recall waypoint has no spell; skipping. | door: no door in reach | idx 4
+##### recall-waits-for-the-character-to-stop
+> tick 0.05
+  cast 48 -> Sent
+  = 1 | Recall: 48. | door: no door in reach | idx 0
+> tick 2.5
+  = 1 | Recall: waiting to come to a stop. | door: no door in reach | idx 0
+> tick 0.05
+  cast 48 -> Sent
+  = 1 | Recall: 48. | door: no door in reach | idx 0
+> tick 0.05
+  = 1 | Recall: 48. | door: no door in reach | idx 0
+> tick 2.5
+  cast 48 -> Sent
+  = 1 | Recall: 48. | door: no door in reach | idx 0
+##### jump-aligns-charges-lands
+> frame 0.05
+  clear
+  face 90
+  = 1 | Aligning jump: 90.0d. | door: no door in reach | idx 0
+> frame 1
+  clear
+  = 1 | Aligning jump: 90.0d. | door: no door in reach | idx 0
+> frame 1.2
+  clear
+  face 90
+  = 1 | Aligning jump: 90.0d. | door: no door in reach | idx 0
+> frame 0.05
+  clear
+  move Forward Walk 0 MetersOrDegrees
+  jump 0.45
+  = 1 | Charging jump: 450ms. | door: no door in reach | idx 0
+> query
+  = detail=[targ range 0, targ loc 0, 0, 0 ] holds=0 normal=0 nothing=0 block=OnceRoute rev=0 walking=0 action=1 consumed0=0 | Charging jump: 450ms. | door: no door in reach | idx 0
+> frame 0.45
+  = 1 | Jump released. | door: no door in reach | idx 0
+> frame 0.05
+  = 1 | Jump released. | door: no door in reach | idx 0
+> frame 0.1
+  = 1 | Jump released. | door: no door in reach | idx 0
+> frame 0.2
+  stopmove Travel
+  = 1 | Jump released. | door: no door in reach | idx 1
+> frame 0.9
+  clear
+  move StrafeLeft Run 0 MetersOrDegrees
+  jump 1
+  = 1 | Charging jump: 2000ms. | door: no door in reach | idx 1
+> frame 0.2
+  = 1 | Jump released. | door: no door in reach | idx 1
+> frame 3.1
+  stopmove Strafe
+  = 1 | Jump released. | door: no door in reach | idx 2
+> frame 0.05
+  clear
+  move Backward Run 0 MetersOrDegrees
+  jump 1E-45
+  = 1 | Jump released. | door: no door in reach | idx 2
+> frame 0.05
+  = 1 | Jump released. | door: no door in reach | idx 2
+> frame 0.05
+  = 1 | Jump released. | door: no door in reach | idx 2
+> frame 0.3
+  stopmove Travel
+  = 1 | Jump released. | door: no door in reach | idx 3
+> query
+  = detail=[targ range 50, targ loc 0.208333, 0, 0 ] holds=0 normal=1 nothing=0 block=OnceRoute rev=0 walking=0 action=0 consumed0=1 | Jump released. | door: no door in reach | idx 3
+##### jump-held-by-the-armed-mover-and-lost
+> claim
+  clear
+  move Forward Run 0 MetersOrDegrees
+  jump 0.1
+  = 1 | Charging jump: 100ms. | door: no door in reach | idx 0
+> query
+  = detail=[targ range 0, targ loc 0, 0, 0 ] holds=1 normal=0 nothing=0 block=OnceRoute rev=0 walking=0 action=1 consumed0=0 | Charging jump: 100ms. | door: no door in reach | idx 0
+> step 0.05
+  = - | Charging jump: 100ms. | door: no door in reach | idx 0
+> step 0.1
+  = - | Jump released. | door: no door in reach | idx 0
+> step 0.05 blocked
+  stopmove Travel
+  = - | Jump released. | door: no door in reach | idx 0
+> query
+  = detail=[targ range 0, targ loc 0, 0, 0 ] holds=0 normal=0 nothing=0 block=OnceRoute rev=0 walking=0 action=1 consumed0=0 | Jump released. | door: no door in reach | idx 0
+> claim
+  = 1 | Jump released. | door: no door in reach | idx 0
+> step 0.05
+  = - | Jump released. | door: no door in reach | idx 0
+> lostturn
+  = - | Jump released. | door: no door in reach | idx 0
+> query
+  = detail=[targ range 0, targ loc 0, 0, 0 ] holds=0 normal=0 nothing=0 block=OnceRoute rev=0 walking=0 action=1 consumed0=0 | Jump released. | door: no door in reach | idx 0
+##### mover-paces-and-blocked-slots
+> step 0.1
+  = - | Navigation disabled. | door: no door in reach | idx 0
+> claim
+  intent F=1 B=0 SL=0 SR=0 TL=0 TR=0 run=1 jump=0
+  = 1 | Waypoint 1/1: 12.0m | door: no door in reach | idx 0
+> step 0.01
+  = - | Waypoint 1/1: 12.0m | door: no door in reach | idx 0
+> step 0.01
+  = - | Waypoint 1/1: 12.0m | door: no door in reach | idx 0
+> step 0.01
+  = - | Waypoint 1/1: 12.0m | door: no door in reach | idx 0
+> step 0.01
+  = - | Waypoint 1/1: 12.0m | door: no door in reach | idx 0
+> step 0.01
+  intent F=1 B=0 SL=0 SR=0 TL=0 TR=0 run=1 jump=0
+  = - | Waypoint 1/1: 12.0m | door: no door in reach | idx 0
+> step 0.1 blocked
+  clear
+  = - | Waypoint 1/1: 12.0m | door: no door in reach | idx 0
+> step 0.1
+  = - | Waypoint 1/1: 12.0m | door: no door in reach | idx 0
+> claim noact
+  = 0 | Navigation paused. | door: no door in reach | idx 0
+> claim
+  intent F=1 B=0 SL=0 SR=0 TL=0 TR=0 run=1 jump=0
+  = 1 | Waypoint 1/1: 12.0m | door: no door in reach | idx 0
+> step 0.047
+  intent F=1 B=0 SL=0 SR=0 TL=0 TR=0 run=1 jump=0
+  = - | Waypoint 1/1: 12.0m | door: no door in reach | idx 0
+> macrostop
+  clear
+  = - | Route ready. | door: no door in reach | idx 0
+> step 0.1
+  = - | Route ready. | door: no door in reach | idx 0
+##### stuck-hand-off-arrival-and-second-stall
+> claim
+  intent F=1 B=0 SL=0 SR=0 TL=0 TR=0 run=1 jump=0
+  = 1 | Waypoint 1/2: 12.0m | door: no door in reach | idx 0
+> steps 3.3
+  intent F=1 B=0 SL=0 SR=0 TL=0 TR=0 run=1 jump=0
+  intent F=1 B=0 SL=0 SR=0 TL=0 TR=0 run=1 jump=0
+  intent F=1 B=0 SL=0 SR=0 TL=0 TR=0 run=1 jump=0
+  intent F=1 B=0 SL=0 SR=0 TL=0 TR=0 run=1 jump=0
+  intent F=1 B=0 SL=0 SR=0 TL=0 TR=0 run=1 jump=0
+  intent F=1 B=0 SL=0 SR=0 TL=0 TR=0 run=1 jump=0
+  intent F=1 B=0 SL=0 SR=0 TL=0 TR=0 run=1 jump=0
+  intent F=1 B=0 SL=0 SR=0 TL=0 TR=0 run=1 jump=0
+  intent F=1 B=0 SL=0 SR=0 TL=0 TR=0 run=1 jump=0
+  intent F=1 B=0 SL=0 SR=0 TL=0 TR=0 run=1 jump=0
+  intent F=1 B=0 SL=0 SR=0 TL=0 TR=0 run=1 jump=0
+  intent F=1 B=0 SL=0 SR=0 TL=0 TR=0 run=1 jump=0
+  intent F=1 B=0 SL=0 SR=0 TL=0 TR=0 run=1 jump=0
+  intent F=1 B=0 SL=0 SR=0 TL=0 TR=0 run=1 jump=0
+  intent F=1 B=0 SL=0 SR=0 TL=0 TR=0 run=1 jump=0
+  intent F=1 B=0 SL=0 SR=0 TL=0 TR=0 run=1 jump=0
+  intent F=1 B=0 SL=0 SR=0 TL=0 TR=0 run=1 jump=0
+  intent F=1 B=0 SL=0 SR=0 TL=0 TR=0 run=1 jump=0
+  intent F=1 B=0 SL=0 SR=0 TL=0 TR=0 run=1 jump=0
+  intent F=1 B=0 SL=0 SR=0 TL=0 TR=0 run=1 jump=0
+  intent F=1 B=0 SL=0 SR=0 TL=0 TR=0 run=1 jump=0
+  intent F=1 B=0 SL=0 SR=0 TL=0 TR=0 run=1 jump=0
+  intent F=1 B=0 SL=0 SR=0 TL=0 TR=0 run=1 jump=0
+  intent F=1 B=0 SL=0 SR=0 TL=0 TR=0 run=1 jump=0
+  intent F=1 B=0 SL=0 SR=0 TL=0 TR=0 run=1 jump=0
+  intent F=1 B=0 SL=0 SR=0 TL=0 TR=0 run=1 jump=0
+  intent F=1 B=0 SL=0 SR=0 TL=0 TR=0 run=1 jump=0
+  intent F=1 B=0 SL=0 SR=0 TL=0 TR=0 run=1 jump=0
+  intent F=1 B=0 SL=0 SR=0 TL=0 TR=0 run=1 jump=0
+  intent F=1 B=0 SL=0 SR=0 TL=0 TR=0 run=1 jump=0
+  intent F=1 B=0 SL=0 SR=0 TL=0 TR=0 run=1 jump=0
+  intent F=1 B=0 SL=0 SR=0 TL=0 TR=0 run=1 jump=0
+  intent F=1 B=0 SL=0 SR=0 TL=0 TR=0 run=1 jump=0
+  intent F=1 B=0 SL=0 SR=0 TL=0 TR=0 run=1 jump=0
+  intent F=1 B=0 SL=0 SR=0 TL=0 TR=0 run=1 jump=0
+  intent F=1 B=0 SL=0 SR=0 TL=0 TR=0 run=1 jump=0
+  intent F=1 B=0 SL=0 SR=0 TL=0 TR=0 run=1 jump=0
+  intent F=1 B=0 SL=0 SR=0 TL=0 TR=0 run=1 jump=0
+  intent F=1 B=0 SL=0 SR=0 TL=0 TR=0 run=1 jump=0
+  intent F=1 B=0 SL=0 SR=0 TL=0 TR=0 run=1 jump=0
+  intent F=1 B=0 SL=0 SR=0 TL=0 TR=0 run=1 jump=0
+  intent F=1 B=0 SL=0 SR=0 TL=0 TR=0 run=1 jump=0
+  intent F=1 B=0 SL=0 SR=0 TL=0 TR=0 run=1 jump=0
+  intent F=1 B=0 SL=0 SR=0 TL=0 TR=0 run=1 jump=0
+  intent F=1 B=0 SL=0 SR=0 TL=0 TR=0 run=1 jump=0
+  intent F=1 B=0 SL=0 SR=0 TL=0 TR=0 run=1 jump=0
+  intent F=1 B=0 SL=0 SR=0 TL=0 TR=0 run=1 jump=0
+  intent F=1 B=0 SL=0 SR=0 TL=0 TR=0 run=1 jump=0
+  intent F=1 B=0 SL=0 SR=0 TL=0 TR=0 run=1 jump=0
+  intent F=1 B=0 SL=0 SR=0 TL=0 TR=0 run=1 jump=0
+  intent F=1 B=0 SL=0 SR=0 TL=0 TR=0 run=1 jump=0
+  intent F=1 B=0 SL=0 SR=0 TL=0 TR=0 run=1 jump=0
+  intent F=1 B=0 SL=0 SR=0 TL=0 TR=0 run=1 jump=0
+  intent F=1 B=0 SL=0 SR=0 TL=0 TR=0 run=1 jump=0
+  intent F=1 B=0 SL=0 SR=0 TL=0 TR=0 run=1 jump=0
+  intent F=1 B=0 SL=0 SR=0 TL=0 TR=0 run=1 jump=0
+  intent F=1 B=0 SL=0 SR=0 TL=0 TR=0 run=1 jump=0
+  intent F=1 B=0 SL=0 SR=0 TL=0 TR=0 run=1 jump=0
+  intent F=1 B=0 SL=0 SR=0 TL=0 TR=0 run=1 jump=0
+  intent F=1 B=0 SL=0 SR=0 TL=0 TR=0 run=1 jump=0
+  intent F=1 B=0 SL=0 SR=0 TL=0 TR=0 run=1 jump=0
+  clear
+  goto 0,0.05 within 2 -> Accepted
+  = - | Waypoint 1/2: 12.0m, walked by the client | door: no door in reach | idx 0
+> query
+  = detail=[targ range 12, targ loc 0, 0.05, 0 ] holds=0 normal=1 nothing=0 block=None rev=0 walking=1 action=0 consumed0=0 | Waypoint 1/2: 12.0m, walked by the client | door: no door in reach | idx 0
+> steps 0.5
+  = - | Waypoint 1/2: 12.0m, walked by the client | door: no door in reach | idx 0
+> steps 0.2
+  intent F=0 B=0 SL=0 SR=0 TL=0 TR=1 run=1 jump=0
+  intent F=0 B=0 SL=0 SR=0 TL=0 TR=1 run=1 jump=0
+  intent F=0 B=0 SL=0 SR=0 TL=0 TR=1 run=1 jump=0
+  = - | Waypoint 2/2: 12.0m | door: no door in reach | idx 1
+> steps 3.3
+  intent F=0 B=0 SL=0 SR=0 TL=0 TR=1 run=1 jump=0
+  intent F=0 B=0 SL=0 SR=0 TL=0 TR=1 run=1 jump=0
+  intent F=0 B=0 SL=0 SR=0 TL=0 TR=1 run=1 jump=0
+  intent F=0 B=0 SL=0 SR=0 TL=0 TR=1 run=1 jump=0
+  intent F=0 B=0 SL=0 SR=0 TL=0 TR=1 run=1 jump=0
+  intent F=0 B=0 SL=0 SR=0 TL=0 TR=1 run=1 jump=0
+  intent F=0 B=0 SL=0 SR=0 TL=0 TR=1 run=1 jump=0
+  intent F=0 B=0 SL=0 SR=0 TL=0 TR=1 run=1 jump=0
+  intent F=0 B=0 SL=0 SR=0 TL=0 TR=1 run=1 jump=0
+  intent F=0 B=0 SL=0 SR=0 TL=0 TR=1 run=1 jump=0
+  intent F=0 B=0 SL=0 SR=0 TL=0 TR=1 run=1 jump=0
+  intent F=0 B=0 SL=0 SR=0 TL=0 TR=1 run=1 jump=0
+  intent F=0 B=0 SL=0 SR=0 TL=0 TR=1 run=1 jump=0
+  intent F=0 B=0 SL=0 SR=0 TL=0 TR=1 run=1 jump=0
+  intent F=0 B=0 SL=0 SR=0 TL=0 TR=1 run=1 jump=0
+  intent F=0 B=0 SL=0 SR=0 TL=0 TR=1 run=1 jump=0
+  intent F=0 B=0 SL=0 SR=0 TL=0 TR=1 run=1 jump=0
+  intent F=0 B=0 SL=0 SR=0 TL=0 TR=1 run=1 jump=0
+  intent F=0 B=0 SL=0 SR=0 TL=0 TR=1 run=1 jump=0
+  intent F=0 B=0 SL=0 SR=0 TL=0 TR=1 run=1 jump=0
+  intent F=0 B=0 SL=0 SR=0 TL=0 TR=1 run=1 jump=0
+  intent F=0 B=0 SL=0 SR=0 TL=0 TR=1 run=1 jump=0
+  intent F=0 B=0 SL=0 SR=0 TL=0 TR=1 run=1 jump=0
+  intent F=0 B=0 SL=0 SR=0 TL=0 TR=1 run=1 jump=0
+  intent F=0 B=0 SL=0 SR=0 TL=0 TR=1 run=1 jump=0
+  intent F=0 B=0 SL=0 SR=0 TL=0 TR=1 run=1 jump=0
+  intent F=0 B=0 SL=0 SR=0 TL=0 TR=1 run=1 jump=0
+  intent F=0 B=0 SL=0 SR=0 TL=0 TR=1 run=1 jump=0
+  intent F=0 B=0 SL=0 SR=0 TL=0 TR=1 run=1 jump=0
+  intent F=0 B=0 SL=0 SR=0 TL=0 TR=1 run=1 jump=0
+  intent F=0 B=0 SL=0 SR=0 TL=0 TR=1 run=1 jump=0
+  intent F=0 B=0 SL=0 SR=0 TL=0 TR=1 run=1 jump=0
+  intent F=0 B=0 SL=0 SR=0 TL=0 TR=1 run=1 jump=0
+  intent F=0 B=0 SL=0 SR=0 TL=0 TR=1 run=1 jump=0
+  intent F=0 B=0 SL=0 SR=0 TL=0 TR=1 run=1 jump=0
+  intent F=0 B=0 SL=0 SR=0 TL=0 TR=1 run=1 jump=0
+  intent F=0 B=0 SL=0 SR=0 TL=0 TR=1 run=1 jump=0
+  intent F=0 B=0 SL=0 SR=0 TL=0 TR=1 run=1 jump=0
+  intent F=0 B=0 SL=0 SR=0 TL=0 TR=1 run=1 jump=0
+  intent F=0 B=0 SL=0 SR=0 TL=0 TR=1 run=1 jump=0
+  intent F=0 B=0 SL=0 SR=0 TL=0 TR=1 run=1 jump=0
+  intent F=0 B=0 SL=0 SR=0 TL=0 TR=1 run=1 jump=0
+  intent F=0 B=0 SL=0 SR=0 TL=0 TR=1 run=1 jump=0
+  intent F=0 B=0 SL=0 SR=0 TL=0 TR=1 run=1 jump=0
+  intent F=0 B=0 SL=0 SR=0 TL=0 TR=1 run=1 jump=0
+  intent F=0 B=0 SL=0 SR=0 TL=0 TR=1 run=1 jump=0
+  intent F=0 B=0 SL=0 SR=0 TL=0 TR=1 run=1 jump=0
+  intent F=0 B=0 SL=0 SR=0 TL=0 TR=1 run=1 jump=0
+  intent F=0 B=0 SL=0 SR=0 TL=0 TR=1 run=1 jump=0
+  intent F=0 B=0 SL=0 SR=0 TL=0 TR=1 run=1 jump=0
+  intent F=0 B=0 SL=0 SR=0 TL=0 TR=1 run=1 jump=0
+  intent F=0 B=0 SL=0 SR=0 TL=0 TR=1 run=1 jump=0
+  intent F=0 B=0 SL=0 SR=0 TL=0 TR=1 run=1 jump=0
+  intent F=0 B=0 SL=0 SR=0 TL=0 TR=1 run=1 jump=0
+  intent F=0 B=0 SL=0 SR=0 TL=0 TR=1 run=1 jump=0
+  intent F=0 B=0 SL=0 SR=0 TL=0 TR=1 run=1 jump=0
+  intent F=0 B=0 SL=0 SR=0 TL=0 TR=1 run=1 jump=0
+  intent F=0 B=0 SL=0 SR=0 TL=0 TR=1 run=1 jump=0
+  intent F=0 B=0 SL=0 SR=0 TL=0 TR=1 run=1 jump=0
+  intent F=0 B=0 SL=0 SR=0 TL=0 TR=1 run=1 jump=0
+  intent F=0 B=0 SL=0 SR=0 TL=0 TR=1 run=1 jump=0
+  intent F=0 B=0 SL=0 SR=0 TL=0 TR=1 run=1 jump=0
+  intent F=0 B=0 SL=0 SR=0 TL=0 TR=1 run=1 jump=0
+  intent F=0 B=0 SL=0 SR=0 TL=0 TR=1 run=1 jump=0
+  intent F=0 B=0 SL=0 SR=0 TL=0 TR=1 run=1 jump=0
+  intent F=0 B=0 SL=0 SR=0 TL=0 TR=1 run=1 jump=0
+  intent F=0 B=0 SL=0 SR=0 TL=0 TR=1 run=1 jump=0
+  = - | Waypoint 2/2: 12.0m | door: no door in reach | idx 1
+> steps 0.2
+  intent F=0 B=0 SL=0 SR=0 TL=0 TR=1 run=1 jump=0
+  intent F=0 B=0 SL=0 SR=0 TL=0 TR=1 run=1 jump=0
+  intent F=0 B=0 SL=0 SR=0 TL=0 TR=1 run=1 jump=0
+  intent F=0 B=0 SL=0 SR=0 TL=0 TR=1 run=1 jump=0
+  = - | Waypoint 2/2: 12.0m | door: no door in reach | idx 1
+> steps 3.5
+  intent F=0 B=0 SL=0 SR=0 TL=0 TR=1 run=1 jump=0
+  intent F=0 B=0 SL=0 SR=0 TL=0 TR=1 run=1 jump=0
+  intent F=0 B=0 SL=0 SR=0 TL=0 TR=1 run=1 jump=0
+  intent F=0 B=0 SL=0 SR=0 TL=0 TR=1 run=1 jump=0
+  intent F=0 B=0 SL=0 SR=0 TL=0 TR=1 run=1 jump=0
+  intent F=0 B=0 SL=0 SR=0 TL=0 TR=1 run=1 jump=0
+  intent F=0 B=0 SL=0 SR=0 TL=0 TR=1 run=1 jump=0
+  intent F=0 B=0 SL=0 SR=0 TL=0 TR=1 run=1 jump=0
+  intent F=0 B=0 SL=0 SR=0 TL=0 TR=1 run=1 jump=0
+  intent F=0 B=0 SL=0 SR=0 TL=0 TR=1 run=1 jump=0
+  intent F=0 B=0 SL=0 SR=0 TL=0 TR=1 run=1 jump=0
+  intent F=0 B=0 SL=0 SR=0 TL=0 TR=1 run=1 jump=0
+  intent F=0 B=0 SL=0 SR=0 TL=0 TR=1 run=1 jump=0
+  intent F=0 B=0 SL=0 SR=0 TL=0 TR=1 run=1 jump=0
+  intent F=0 B=0 SL=0 SR=0 TL=0 TR=1 run=1 jump=0
+  intent F=0 B=0 SL=0 SR=0 TL=0 TR=1 run=1 jump=0
+  intent F=0 B=0 SL=0 SR=0 TL=0 TR=1 run=1 jump=0
+  intent F=0 B=0 SL=0 SR=0 TL=0 TR=1 run=1 jump=0
+  intent F=0 B=0 SL=0 SR=0 TL=0 TR=1 run=1 jump=0
+  intent F=0 B=0 SL=0 SR=0 TL=0 TR=1 run=1 jump=0
+  intent F=0 B=0 SL=0 SR=0 TL=0 TR=1 run=1 jump=0
+  intent F=0 B=0 SL=0 SR=0 TL=0 TR=1 run=1 jump=0
+  intent F=0 B=0 SL=0 SR=0 TL=0 TR=1 run=1 jump=0
+  intent F=0 B=0 SL=0 SR=0 TL=0 TR=1 run=1 jump=0
+  intent F=0 B=0 SL=0 SR=0 TL=0 TR=1 run=1 jump=0
+  intent F=0 B=0 SL=0 SR=0 TL=0 TR=1 run=1 jump=0
+  intent F=0 B=0 SL=0 SR=0 TL=0 TR=1 run=1 jump=0
+  intent F=0 B=0 SL=0 SR=0 TL=0 TR=1 run=1 jump=0
+  intent F=0 B=0 SL=0 SR=0 TL=0 TR=1 run=1 jump=0
+  intent F=0 B=0 SL=0 SR=0 TL=0 TR=1 run=1 jump=0
+  intent F=0 B=0 SL=0 SR=0 TL=0 TR=1 run=1 jump=0
+  intent F=0 B=0 SL=0 SR=0 TL=0 TR=1 run=1 jump=0
+  intent F=0 B=0 SL=0 SR=0 TL=0 TR=1 run=1 jump=0
+  intent F=0 B=0 SL=0 SR=0 TL=0 TR=1 run=1 jump=0
+  intent F=0 B=0 SL=0 SR=0 TL=0 TR=1 run=1 jump=0
+  intent F=0 B=0 SL=0 SR=0 TL=0 TR=1 run=1 jump=0
+  intent F=0 B=0 SL=0 SR=0 TL=0 TR=1 run=1 jump=0
+  intent F=0 B=0 SL=0 SR=0 TL=0 TR=1 run=1 jump=0
+  intent F=0 B=0 SL=0 SR=0 TL=0 TR=1 run=1 jump=0
+  intent F=0 B=0 SL=0 SR=0 TL=0 TR=1 run=1 jump=0
+  intent F=0 B=0 SL=0 SR=0 TL=0 TR=1 run=1 jump=0
+  intent F=0 B=0 SL=0 SR=0 TL=0 TR=1 run=1 jump=0
+  intent F=0 B=0 SL=0 SR=0 TL=0 TR=1 run=1 jump=0
+  intent F=0 B=0 SL=0 SR=0 TL=0 TR=1 run=1 jump=0
+  intent F=0 B=0 SL=0 SR=0 TL=0 TR=1 run=1 jump=0
+  intent F=0 B=0 SL=0 SR=0 TL=0 TR=1 run=1 jump=0
+  intent F=0 B=0 SL=0 SR=0 TL=0 TR=1 run=1 jump=0
+  intent F=0 B=0 SL=0 SR=0 TL=0 TR=1 run=1 jump=0
+  intent F=0 B=0 SL=0 SR=0 TL=0 TR=1 run=1 jump=0
+  intent F=0 B=0 SL=0 SR=0 TL=0 TR=1 run=1 jump=0
+  intent F=0 B=0 SL=0 SR=0 TL=0 TR=1 run=1 jump=0
+  intent F=0 B=0 SL=0 SR=0 TL=0 TR=1 run=1 jump=0
+  intent F=0 B=0 SL=0 SR=0 TL=0 TR=1 run=1 jump=0
+  intent F=0 B=0 SL=0 SR=0 TL=0 TR=1 run=1 jump=0
+  intent F=0 B=0 SL=0 SR=0 TL=0 TR=1 run=1 jump=0
+  intent F=0 B=0 SL=0 SR=0 TL=0 TR=1 run=1 jump=0
+  intent F=0 B=0 SL=0 SR=0 TL=0 TR=1 run=1 jump=0
+  intent F=0 B=0 SL=0 SR=0 TL=0 TR=1 run=1 jump=0
+  intent F=0 B=0 SL=0 SR=0 TL=0 TR=1 run=1 jump=0
+  intent F=0 B=0 SL=0 SR=0 TL=0 TR=1 run=1 jump=0
+  intent F=0 B=0 SL=0 SR=0 TL=0 TR=1 run=1 jump=0
+  intent F=0 B=0 SL=0 SR=0 TL=0 TR=1 run=1 jump=0
+  intent F=0 B=0 SL=0 SR=0 TL=0 TR=1 run=1 jump=0
+  intent F=0 B=0 SL=0 SR=0 TL=0 TR=1 run=1 jump=0
+  intent F=0 B=0 SL=0 SR=0 TL=0 TR=1 run=1 jump=0
+  intent F=0 B=0 SL=0 SR=0 TL=0 TR=1 run=1 jump=0
+  intent F=0 B=0 SL=0 SR=0 TL=0 TR=1 run=1 jump=0
+  intent F=0 B=0 SL=0 SR=0 TL=0 TR=1 run=1 jump=0
+  intent F=0 B=0 SL=0 SR=0 TL=0 TR=1 run=1 jump=0
+  intent F=0 B=0 SL=0 SR=0 TL=0 TR=1 run=1 jump=0
+  intent F=0 B=0 SL=0 SR=0 TL=0 TR=1 run=1 jump=0
+  = - | Waypoint 2/2: 12.0m | door: no door in reach | idx 1
+> steps 3.5
+  intent F=0 B=0 SL=0 SR=0 TL=0 TR=1 run=1 jump=0
+  intent F=0 B=0 SL=0 SR=0 TL=0 TR=1 run=1 jump=0
+  intent F=0 B=0 SL=0 SR=0 TL=0 TR=1 run=1 jump=0
+  intent F=0 B=0 SL=0 SR=0 TL=0 TR=1 run=1 jump=0
+  intent F=0 B=0 SL=0 SR=0 TL=0 TR=1 run=1 jump=0
+  intent F=0 B=0 SL=0 SR=0 TL=0 TR=1 run=1 jump=0
+  intent F=0 B=0 SL=0 SR=0 TL=0 TR=1 run=1 jump=0
+  intent F=0 B=0 SL=0 SR=0 TL=0 TR=1 run=1 jump=0
+  intent F=0 B=0 SL=0 SR=0 TL=0 TR=1 run=1 jump=0
+  intent F=0 B=0 SL=0 SR=0 TL=0 TR=1 run=1 jump=0
+  intent F=0 B=0 SL=0 SR=0 TL=0 TR=1 run=1 jump=0
+  intent F=0 B=0 SL=0 SR=0 TL=0 TR=1 run=1 jump=0
+  intent F=0 B=0 SL=0 SR=0 TL=0 TR=1 run=1 jump=0
+  intent F=0 B=0 SL=0 SR=0 TL=0 TR=1 run=1 jump=0
+  intent F=0 B=0 SL=0 SR=0 TL=0 TR=1 run=1 jump=0
+  intent F=0 B=0 SL=0 SR=0 TL=0 TR=1 run=1 jump=0
+  intent F=0 B=0 SL=0 SR=0 TL=0 TR=1 run=1 jump=0
+  intent F=0 B=0 SL=0 SR=0 TL=0 TR=1 run=1 jump=0
+  intent F=0 B=0 SL=0 SR=0 TL=0 TR=1 run=1 jump=0
+  intent F=0 B=0 SL=0 SR=0 TL=0 TR=1 run=1 jump=0
+  intent F=0 B=0 SL=0 SR=0 TL=0 TR=1 run=1 jump=0
+  intent F=0 B=0 SL=0 SR=0 TL=0 TR=1 run=1 jump=0
+  intent F=0 B=0 SL=0 SR=0 TL=0 TR=1 run=1 jump=0
+  intent F=0 B=0 SL=0 SR=0 TL=0 TR=1 run=1 jump=0
+  intent F=0 B=0 SL=0 SR=0 TL=0 TR=1 run=1 jump=0
+  intent F=0 B=0 SL=0 SR=0 TL=0 TR=1 run=1 jump=0
+  intent F=0 B=0 SL=0 SR=0 TL=0 TR=1 run=1 jump=0
+  intent F=0 B=0 SL=0 SR=0 TL=0 TR=1 run=1 jump=0
+  intent F=0 B=0 SL=0 SR=0 TL=0 TR=1 run=1 jump=0
+  intent F=0 B=0 SL=0 SR=0 TL=0 TR=1 run=1 jump=0
+  intent F=0 B=0 SL=0 SR=0 TL=0 TR=1 run=1 jump=0
+  intent F=0 B=0 SL=0 SR=0 TL=0 TR=1 run=1 jump=0
+  intent F=0 B=0 SL=0 SR=0 TL=0 TR=1 run=1 jump=0
+  intent F=0 B=0 SL=0 SR=0 TL=0 TR=1 run=1 jump=0
+  intent F=0 B=0 SL=0 SR=0 TL=0 TR=1 run=1 jump=0
+  intent F=0 B=0 SL=0 SR=0 TL=0 TR=1 run=1 jump=0
+  intent F=0 B=0 SL=0 SR=0 TL=0 TR=1 run=1 jump=0
+  intent F=0 B=0 SL=0 SR=0 TL=0 TR=1 run=1 jump=0
+  intent F=0 B=0 SL=0 SR=0 TL=0 TR=1 run=1 jump=0
+  intent F=0 B=0 SL=0 SR=0 TL=0 TR=1 run=1 jump=0
+  intent F=0 B=0 SL=0 SR=0 TL=0 TR=1 run=1 jump=0
+  intent F=0 B=0 SL=0 SR=0 TL=0 TR=1 run=1 jump=0
+  intent F=0 B=0 SL=0 SR=0 TL=0 TR=1 run=1 jump=0
+  intent F=0 B=0 SL=0 SR=0 TL=0 TR=1 run=1 jump=0
+  intent F=0 B=0 SL=0 SR=0 TL=0 TR=1 run=1 jump=0
+  intent F=0 B=0 SL=0 SR=0 TL=0 TR=1 run=1 jump=0
+  intent F=0 B=0 SL=0 SR=0 TL=0 TR=1 run=1 jump=0
+  intent F=0 B=0 SL=0 SR=0 TL=0 TR=1 run=1 jump=0
+  intent F=0 B=0 SL=0 SR=0 TL=0 TR=1 run=1 jump=0
+  intent F=0 B=0 SL=0 SR=0 TL=0 TR=1 run=1 jump=0
+  intent F=0 B=0 SL=0 SR=0 TL=0 TR=1 run=1 jump=0
+  intent F=0 B=0 SL=0 SR=0 TL=0 TR=1 run=1 jump=0
+  intent F=0 B=0 SL=0 SR=0 TL=0 TR=1 run=1 jump=0
+  intent F=0 B=0 SL=0 SR=0 TL=0 TR=1 run=1 jump=0
+  intent F=0 B=0 SL=0 SR=0 TL=0 TR=1 run=1 jump=0
+  intent F=0 B=0 SL=0 SR=0 TL=0 TR=1 run=1 jump=0
+  intent F=0 B=0 SL=0 SR=0 TL=0 TR=1 run=1 jump=0
+  intent F=0 B=0 SL=0 SR=0 TL=0 TR=1 run=1 jump=0
+  intent F=0 B=0 SL=0 SR=0 TL=0 TR=1 run=1 jump=0
+  intent F=0 B=0 SL=0 SR=0 TL=0 TR=1 run=1 jump=0
+  intent F=0 B=0 SL=0 SR=0 TL=0 TR=1 run=1 jump=0
+  intent F=0 B=0 SL=0 SR=0 TL=0 TR=1 run=1 jump=0
+  intent F=0 B=0 SL=0 SR=0 TL=0 TR=1 run=1 jump=0
+  intent F=0 B=0 SL=0 SR=0 TL=0 TR=1 run=1 jump=0
+  intent F=0 B=0 SL=0 SR=0 TL=0 TR=1 run=1 jump=0
+  intent F=0 B=0 SL=0 SR=0 TL=0 TR=1 run=1 jump=0
+  intent F=0 B=0 SL=0 SR=0 TL=0 TR=1 run=1 jump=0
+  intent F=0 B=0 SL=0 SR=0 TL=0 TR=1 run=1 jump=0
+  intent F=0 B=0 SL=0 SR=0 TL=0 TR=1 run=1 jump=0
+  intent F=0 B=0 SL=0 SR=0 TL=0 TR=1 run=1 jump=0
+  intent F=0 B=0 SL=0 SR=0 TL=0 TR=1 run=1 jump=0
+  = - | Waypoint 2/2: 12.0m | door: no door in reach | idx 1
+> lostturn
+  clear
+  = - | Waypoint 2/2: 12.0m | door: no door in reach | idx 1
+##### refused-hand-off-and-never
+> claim
+  intent F=1 B=0 SL=0 SR=0 TL=0 TR=0 run=1 jump=0
+  = 1 | Waypoint 1/1: 12.0m | door: no door in reach | idx 0
+> steps 3.3
+  intent F=1 B=0 SL=0 SR=0 TL=0 TR=0 run=1 jump=0
+  intent F=1 B=0 SL=0 SR=0 TL=0 TR=0 run=1 jump=0
+  intent F=1 B=0 SL=0 SR=0 TL=0 TR=0 run=1 jump=0
+  intent F=1 B=0 SL=0 SR=0 TL=0 TR=0 run=1 jump=0
+  intent F=1 B=0 SL=0 SR=0 TL=0 TR=0 run=1 jump=0
+  intent F=1 B=0 SL=0 SR=0 TL=0 TR=0 run=1 jump=0
+  intent F=1 B=0 SL=0 SR=0 TL=0 TR=0 run=1 jump=0
+  intent F=1 B=0 SL=0 SR=0 TL=0 TR=0 run=1 jump=0
+  intent F=1 B=0 SL=0 SR=0 TL=0 TR=0 run=1 jump=0
+  intent F=1 B=0 SL=0 SR=0 TL=0 TR=0 run=1 jump=0
+  intent F=1 B=0 SL=0 SR=0 TL=0 TR=0 run=1 jump=0
+  intent F=1 B=0 SL=0 SR=0 TL=0 TR=0 run=1 jump=0
+  intent F=1 B=0 SL=0 SR=0 TL=0 TR=0 run=1 jump=0
+  intent F=1 B=0 SL=0 SR=0 TL=0 TR=0 run=1 jump=0
+  intent F=1 B=0 SL=0 SR=0 TL=0 TR=0 run=1 jump=0
+  intent F=1 B=0 SL=0 SR=0 TL=0 TR=0 run=1 jump=0
+  intent F=1 B=0 SL=0 SR=0 TL=0 TR=0 run=1 jump=0
+  intent F=1 B=0 SL=0 SR=0 TL=0 TR=0 run=1 jump=0
+  intent F=1 B=0 SL=0 SR=0 TL=0 TR=0 run=1 jump=0
+  intent F=1 B=0 SL=0 SR=0 TL=0 TR=0 run=1 jump=0
+  intent F=1 B=0 SL=0 SR=0 TL=0 TR=0 run=1 jump=0
+  intent F=1 B=0 SL=0 SR=0 TL=0 TR=0 run=1 jump=0
+  intent F=1 B=0 SL=0 SR=0 TL=0 TR=0 run=1 jump=0
+  intent F=1 B=0 SL=0 SR=0 TL=0 TR=0 run=1 jump=0
+  intent F=1 B=0 SL=0 SR=0 TL=0 TR=0 run=1 jump=0
+  intent F=1 B=0 SL=0 SR=0 TL=0 TR=0 run=1 jump=0
+  intent F=1 B=0 SL=0 SR=0 TL=0 TR=0 run=1 jump=0
+  intent F=1 B=0 SL=0 SR=0 TL=0 TR=0 run=1 jump=0
+  intent F=1 B=0 SL=0 SR=0 TL=0 TR=0 run=1 jump=0
+  intent F=1 B=0 SL=0 SR=0 TL=0 TR=0 run=1 jump=0
+  intent F=1 B=0 SL=0 SR=0 TL=0 TR=0 run=1 jump=0
+  intent F=1 B=0 SL=0 SR=0 TL=0 TR=0 run=1 jump=0
+  intent F=1 B=0 SL=0 SR=0 TL=0 TR=0 run=1 jump=0
+  intent F=1 B=0 SL=0 SR=0 TL=0 TR=0 run=1 jump=0
+  intent F=1 B=0 SL=0 SR=0 TL=0 TR=0 run=1 jump=0
+  intent F=1 B=0 SL=0 SR=0 TL=0 TR=0 run=1 jump=0
+  intent F=1 B=0 SL=0 SR=0 TL=0 TR=0 run=1 jump=0
+  intent F=1 B=0 SL=0 SR=0 TL=0 TR=0 run=1 jump=0
+  intent F=1 B=0 SL=0 SR=0 TL=0 TR=0 run=1 jump=0
+  intent F=1 B=0 SL=0 SR=0 TL=0 TR=0 run=1 jump=0
+  intent F=1 B=0 SL=0 SR=0 TL=0 TR=0 run=1 jump=0
+  intent F=1 B=0 SL=0 SR=0 TL=0 TR=0 run=1 jump=0
+  intent F=1 B=0 SL=0 SR=0 TL=0 TR=0 run=1 jump=0
+  intent F=1 B=0 SL=0 SR=0 TL=0 TR=0 run=1 jump=0
+  intent F=1 B=0 SL=0 SR=0 TL=0 TR=0 run=1 jump=0
+  intent F=1 B=0 SL=0 SR=0 TL=0 TR=0 run=1 jump=0
+  intent F=1 B=0 SL=0 SR=0 TL=0 TR=0 run=1 jump=0
+  intent F=1 B=0 SL=0 SR=0 TL=0 TR=0 run=1 jump=0
+  intent F=1 B=0 SL=0 SR=0 TL=0 TR=0 run=1 jump=0
+  intent F=1 B=0 SL=0 SR=0 TL=0 TR=0 run=1 jump=0
+  intent F=1 B=0 SL=0 SR=0 TL=0 TR=0 run=1 jump=0
+  intent F=1 B=0 SL=0 SR=0 TL=0 TR=0 run=1 jump=0
+  intent F=1 B=0 SL=0 SR=0 TL=0 TR=0 run=1 jump=0
+  intent F=1 B=0 SL=0 SR=0 TL=0 TR=0 run=1 jump=0
+  intent F=1 B=0 SL=0 SR=0 TL=0 TR=0 run=1 jump=0
+  intent F=1 B=0 SL=0 SR=0 TL=0 TR=0 run=1 jump=0
+  intent F=1 B=0 SL=0 SR=0 TL=0 TR=0 run=1 jump=0
+  intent F=1 B=0 SL=0 SR=0 TL=0 TR=0 run=1 jump=0
+  intent F=1 B=0 SL=0 SR=0 TL=0 TR=0 run=1 jump=0
+  intent F=1 B=0 SL=0 SR=0 TL=0 TR=0 run=1 jump=0
+  intent F=1 B=0 SL=0 SR=0 TL=0 TR=0 run=1 jump=0
+  clear
+  goto 0,0.05 within 2 -> Held
+  intent F=1 B=0 SL=0 SR=0 TL=0 TR=0 run=1 jump=0
+  intent F=1 B=0 SL=0 SR=0 TL=0 TR=0 run=1 jump=0
+  intent F=1 B=0 SL=0 SR=0 TL=0 TR=0 run=1 jump=0
+  intent F=1 B=0 SL=0 SR=0 TL=0 TR=0 run=1 jump=0
+  intent F=1 B=0 SL=0 SR=0 TL=0 TR=0 run=1 jump=0
+  intent F=1 B=0 SL=0 SR=0 TL=0 TR=0 run=1 jump=0
+  = - | Waypoint 1/1: 12.0m | door: no door in reach | idx 0
+> steps 0.2
+  intent F=1 B=0 SL=0 SR=0 TL=0 TR=0 run=1 jump=0
+  intent F=1 B=0 SL=0 SR=0 TL=0 TR=0 run=1 jump=0
+  intent F=1 B=0 SL=0 SR=0 TL=0 TR=0 run=1 jump=0
+  intent F=1 B=0 SL=0 SR=0 TL=0 TR=0 run=1 jump=0
+  = - | Waypoint 1/1: 12.0m | door: no door in reach | idx 0
+> pathing Never
+  = - | Waypoint 1/1: 12.0m | door: no door in reach | idx 0
+> claim
+  intent F=1 B=0 SL=0 SR=0 TL=0 TR=0 run=1 jump=0
+  = 1 | Waypoint 1/1: 12.0m | door: no door in reach | idx 0
+> steps 3.5
+  intent F=1 B=0 SL=0 SR=0 TL=0 TR=0 run=1 jump=0
+  intent F=1 B=0 SL=0 SR=0 TL=0 TR=0 run=1 jump=0
+  intent F=1 B=0 SL=0 SR=0 TL=0 TR=0 run=1 jump=0
+  intent F=1 B=0 SL=0 SR=0 TL=0 TR=0 run=1 jump=0
+  intent F=1 B=0 SL=0 SR=0 TL=0 TR=0 run=1 jump=0
+  intent F=1 B=0 SL=0 SR=0 TL=0 TR=0 run=1 jump=0
+  intent F=1 B=0 SL=0 SR=0 TL=0 TR=0 run=1 jump=0
+  intent F=1 B=0 SL=0 SR=0 TL=0 TR=0 run=1 jump=0
+  intent F=1 B=0 SL=0 SR=0 TL=0 TR=0 run=1 jump=0
+  intent F=1 B=0 SL=0 SR=0 TL=0 TR=0 run=1 jump=0
+  intent F=1 B=0 SL=0 SR=0 TL=0 TR=0 run=1 jump=0
+  intent F=1 B=0 SL=0 SR=0 TL=0 TR=0 run=1 jump=0
+  intent F=1 B=0 SL=0 SR=0 TL=0 TR=0 run=1 jump=0
+  intent F=1 B=0 SL=0 SR=0 TL=0 TR=0 run=1 jump=0
+  intent F=1 B=0 SL=0 SR=0 TL=0 TR=0 run=1 jump=0
+  intent F=1 B=0 SL=0 SR=0 TL=0 TR=0 run=1 jump=0
+  intent F=1 B=0 SL=0 SR=0 TL=0 TR=0 run=1 jump=0
+  intent F=1 B=0 SL=0 SR=0 TL=0 TR=0 run=1 jump=0
+  intent F=1 B=0 SL=0 SR=0 TL=0 TR=0 run=1 jump=0
+  intent F=1 B=0 SL=0 SR=0 TL=0 TR=0 run=1 jump=0
+  intent F=1 B=0 SL=0 SR=0 TL=0 TR=0 run=1 jump=0
+  intent F=1 B=0 SL=0 SR=0 TL=0 TR=0 run=1 jump=0
+  intent F=1 B=0 SL=0 SR=0 TL=0 TR=0 run=1 jump=0
+  intent F=1 B=0 SL=0 SR=0 TL=0 TR=0 run=1 jump=0
+  intent F=1 B=0 SL=0 SR=0 TL=0 TR=0 run=1 jump=0
+  intent F=1 B=0 SL=0 SR=0 TL=0 TR=0 run=1 jump=0
+  intent F=1 B=0 SL=0 SR=0 TL=0 TR=0 run=1 jump=0
+  intent F=1 B=0 SL=0 SR=0 TL=0 TR=0 run=1 jump=0
+  intent F=1 B=0 SL=0 SR=0 TL=0 TR=0 run=1 jump=0
+  intent F=1 B=0 SL=0 SR=0 TL=0 TR=0 run=1 jump=0
+  intent F=1 B=0 SL=0 SR=0 TL=0 TR=0 run=1 jump=0
+  intent F=1 B=0 SL=0 SR=0 TL=0 TR=0 run=1 jump=0
+  intent F=1 B=0 SL=0 SR=0 TL=0 TR=0 run=1 jump=0
+  intent F=1 B=0 SL=0 SR=0 TL=0 TR=0 run=1 jump=0
+  intent F=1 B=0 SL=0 SR=0 TL=0 TR=0 run=1 jump=0
+  intent F=1 B=0 SL=0 SR=0 TL=0 TR=0 run=1 jump=0
+  intent F=1 B=0 SL=0 SR=0 TL=0 TR=0 run=1 jump=0
+  intent F=1 B=0 SL=0 SR=0 TL=0 TR=0 run=1 jump=0
+  intent F=1 B=0 SL=0 SR=0 TL=0 TR=0 run=1 jump=0
+  intent F=1 B=0 SL=0 SR=0 TL=0 TR=0 run=1 jump=0
+  intent F=1 B=0 SL=0 SR=0 TL=0 TR=0 run=1 jump=0
+  intent F=1 B=0 SL=0 SR=0 TL=0 TR=0 run=1 jump=0
+  intent F=1 B=0 SL=0 SR=0 TL=0 TR=0 run=1 jump=0
+  intent F=1 B=0 SL=0 SR=0 TL=0 TR=0 run=1 jump=0
+  intent F=1 B=0 SL=0 SR=0 TL=0 TR=0 run=1 jump=0
+  intent F=1 B=0 SL=0 SR=0 TL=0 TR=0 run=1 jump=0
+  intent F=1 B=0 SL=0 SR=0 TL=0 TR=0 run=1 jump=0
+  intent F=1 B=0 SL=0 SR=0 TL=0 TR=0 run=1 jump=0
+  intent F=1 B=0 SL=0 SR=0 TL=0 TR=0 run=1 jump=0
+  intent F=1 B=0 SL=0 SR=0 TL=0 TR=0 run=1 jump=0
+  intent F=1 B=0 SL=0 SR=0 TL=0 TR=0 run=1 jump=0
+  intent F=1 B=0 SL=0 SR=0 TL=0 TR=0 run=1 jump=0
+  post [MossTank] The route has not covered ground for 3 seconds on the way to waypoint 1.
+  intent F=1 B=0 SL=0 SR=0 TL=0 TR=0 run=1 jump=0
+  intent F=1 B=0 SL=0 SR=0 TL=0 TR=0 run=1 jump=0
+  intent F=1 B=0 SL=0 SR=0 TL=0 TR=0 run=1 jump=0
+  intent F=1 B=0 SL=0 SR=0 TL=0 TR=0 run=1 jump=0
+  intent F=1 B=0 SL=0 SR=0 TL=0 TR=0 run=1 jump=0
+  intent F=1 B=0 SL=0 SR=0 TL=0 TR=0 run=1 jump=0
+  intent F=1 B=0 SL=0 SR=0 TL=0 TR=0 run=1 jump=0
+  intent F=1 B=0 SL=0 SR=0 TL=0 TR=0 run=1 jump=0
+  intent F=1 B=0 SL=0 SR=0 TL=0 TR=0 run=1 jump=0
+  intent F=1 B=0 SL=0 SR=0 TL=0 TR=0 run=1 jump=0
+  intent F=1 B=0 SL=0 SR=0 TL=0 TR=0 run=1 jump=0
+  intent F=1 B=0 SL=0 SR=0 TL=0 TR=0 run=1 jump=0
+  intent F=1 B=0 SL=0 SR=0 TL=0 TR=0 run=1 jump=0
+  intent F=1 B=0 SL=0 SR=0 TL=0 TR=0 run=1 jump=0
+  intent F=1 B=0 SL=0 SR=0 TL=0 TR=0 run=1 jump=0
+  intent F=1 B=0 SL=0 SR=0 TL=0 TR=0 run=1 jump=0
+  intent F=1 B=0 SL=0 SR=0 TL=0 TR=0 run=1 jump=0
+  intent F=1 B=0 SL=0 SR=0 TL=0 TR=0 run=1 jump=0
+  intent F=1 B=0 SL=0 SR=0 TL=0 TR=0 run=1 jump=0
+  = - | Waypoint 1/1: 12.0m | door: no door in reach | idx 0
+> steps 3.5
+  intent F=1 B=0 SL=0 SR=0 TL=0 TR=0 run=1 jump=0
+  intent F=1 B=0 SL=0 SR=0 TL=0 TR=0 run=1 jump=0
+  intent F=1 B=0 SL=0 SR=0 TL=0 TR=0 run=1 jump=0
+  intent F=1 B=0 SL=0 SR=0 TL=0 TR=0 run=1 jump=0
+  intent F=1 B=0 SL=0 SR=0 TL=0 TR=0 run=1 jump=0
+  intent F=1 B=0 SL=0 SR=0 TL=0 TR=0 run=1 jump=0
+  intent F=1 B=0 SL=0 SR=0 TL=0 TR=0 run=1 jump=0
+  intent F=1 B=0 SL=0 SR=0 TL=0 TR=0 run=1 jump=0
+  intent F=1 B=0 SL=0 SR=0 TL=0 TR=0 run=1 jump=0
+  intent F=1 B=0 SL=0 SR=0 TL=0 TR=0 run=1 jump=0
+  intent F=1 B=0 SL=0 SR=0 TL=0 TR=0 run=1 jump=0
+  intent F=1 B=0 SL=0 SR=0 TL=0 TR=0 run=1 jump=0
+  intent F=1 B=0 SL=0 SR=0 TL=0 TR=0 run=1 jump=0
+  intent F=1 B=0 SL=0 SR=0 TL=0 TR=0 run=1 jump=0
+  intent F=1 B=0 SL=0 SR=0 TL=0 TR=0 run=1 jump=0
+  intent F=1 B=0 SL=0 SR=0 TL=0 TR=0 run=1 jump=0
+  intent F=1 B=0 SL=0 SR=0 TL=0 TR=0 run=1 jump=0
+  intent F=1 B=0 SL=0 SR=0 TL=0 TR=0 run=1 jump=0
+  intent F=1 B=0 SL=0 SR=0 TL=0 TR=0 run=1 jump=0
+  intent F=1 B=0 SL=0 SR=0 TL=0 TR=0 run=1 jump=0
+  intent F=1 B=0 SL=0 SR=0 TL=0 TR=0 run=1 jump=0
+  intent F=1 B=0 SL=0 SR=0 TL=0 TR=0 run=1 jump=0
+  intent F=1 B=0 SL=0 SR=0 TL=0 TR=0 run=1 jump=0
+  intent F=1 B=0 SL=0 SR=0 TL=0 TR=0 run=1 jump=0
+  intent F=1 B=0 SL=0 SR=0 TL=0 TR=0 run=1 jump=0
+  intent F=1 B=0 SL=0 SR=0 TL=0 TR=0 run=1 jump=0
+  intent F=1 B=0 SL=0 SR=0 TL=0 TR=0 run=1 jump=0
+  intent F=1 B=0 SL=0 SR=0 TL=0 TR=0 run=1 jump=0
+  intent F=1 B=0 SL=0 SR=0 TL=0 TR=0 run=1 jump=0
+  intent F=1 B=0 SL=0 SR=0 TL=0 TR=0 run=1 jump=0
+  intent F=1 B=0 SL=0 SR=0 TL=0 TR=0 run=1 jump=0
+  intent F=1 B=0 SL=0 SR=0 TL=0 TR=0 run=1 jump=0
+  intent F=1 B=0 SL=0 SR=0 TL=0 TR=0 run=1 jump=0
+  intent F=1 B=0 SL=0 SR=0 TL=0 TR=0 run=1 jump=0
+  intent F=1 B=0 SL=0 SR=0 TL=0 TR=0 run=1 jump=0
+  intent F=1 B=0 SL=0 SR=0 TL=0 TR=0 run=1 jump=0
+  intent F=1 B=0 SL=0 SR=0 TL=0 TR=0 run=1 jump=0
+  intent F=1 B=0 SL=0 SR=0 TL=0 TR=0 run=1 jump=0
+  intent F=1 B=0 SL=0 SR=0 TL=0 TR=0 run=1 jump=0
+  intent F=1 B=0 SL=0 SR=0 TL=0 TR=0 run=1 jump=0
+  intent F=1 B=0 SL=0 SR=0 TL=0 TR=0 run=1 jump=0
+  intent F=1 B=0 SL=0 SR=0 TL=0 TR=0 run=1 jump=0
+  intent F=1 B=0 SL=0 SR=0 TL=0 TR=0 run=1 jump=0
+  intent F=1 B=0 SL=0 SR=0 TL=0 TR=0 run=1 jump=0
+  intent F=1 B=0 SL=0 SR=0 TL=0 TR=0 run=1 jump=0
+  intent F=1 B=0 SL=0 SR=0 TL=0 TR=0 run=1 jump=0
+  intent F=1 B=0 SL=0 SR=0 TL=0 TR=0 run=1 jump=0
+  intent F=1 B=0 SL=0 SR=0 TL=0 TR=0 run=1 jump=0
+  intent F=1 B=0 SL=0 SR=0 TL=0 TR=0 run=1 jump=0
+  intent F=1 B=0 SL=0 SR=0 TL=0 TR=0 run=1 jump=0
+  intent F=1 B=0 SL=0 SR=0 TL=0 TR=0 run=1 jump=0
+  intent F=1 B=0 SL=0 SR=0 TL=0 TR=0 run=1 jump=0
+  intent F=1 B=0 SL=0 SR=0 TL=0 TR=0 run=1 jump=0
+  intent F=1 B=0 SL=0 SR=0 TL=0 TR=0 run=1 jump=0
+  intent F=1 B=0 SL=0 SR=0 TL=0 TR=0 run=1 jump=0
+  intent F=1 B=0 SL=0 SR=0 TL=0 TR=0 run=1 jump=0
+  intent F=1 B=0 SL=0 SR=0 TL=0 TR=0 run=1 jump=0
+  intent F=1 B=0 SL=0 SR=0 TL=0 TR=0 run=1 jump=0
+  intent F=1 B=0 SL=0 SR=0 TL=0 TR=0 run=1 jump=0
+  intent F=1 B=0 SL=0 SR=0 TL=0 TR=0 run=1 jump=0
+  intent F=1 B=0 SL=0 SR=0 TL=0 TR=0 run=1 jump=0
+  intent F=1 B=0 SL=0 SR=0 TL=0 TR=0 run=1 jump=0
+  intent F=1 B=0 SL=0 SR=0 TL=0 TR=0 run=1 jump=0
+  intent F=1 B=0 SL=0 SR=0 TL=0 TR=0 run=1 jump=0
+  intent F=1 B=0 SL=0 SR=0 TL=0 TR=0 run=1 jump=0
+  intent F=1 B=0 SL=0 SR=0 TL=0 TR=0 run=1 jump=0
+  intent F=1 B=0 SL=0 SR=0 TL=0 TR=0 run=1 jump=0
+  intent F=1 B=0 SL=0 SR=0 TL=0 TR=0 run=1 jump=0
+  intent F=1 B=0 SL=0 SR=0 TL=0 TR=0 run=1 jump=0
+  intent F=1 B=0 SL=0 SR=0 TL=0 TR=0 run=1 jump=0
+  intent F=1 B=0 SL=0 SR=0 TL=0 TR=0 run=1 jump=0
+  = - | Waypoint 1/1: 12.0m | door: no door in reach | idx 0
+> pathing Always
+  = - | Waypoint 1/1: 12.0m | door: no door in reach | idx 0
+> claim
+  goto 0,0.05 within 2 -> Unavailable
+  post [MossTank] Waypoint 1 could not be walked (this client cannot path); the route is paused. Reset the route or change Client pathing.
+  = 0 | Waypoint 1 could not be walked (this client cannot path); the route is paused. Reset the route or change Client pathing. | door: no door in reach | idx 0
+##### always-pauses-on-a-leg-the-client-cannot-walk
+> claim
+  goto 0,0.05 within 2 -> Accepted
+  = 1 | Waypoint 1/1: 12.0m, walked by the client | door: no door in reach | idx 0
+> steps 0.2
+  = - | Waypoint 1/1: 12.0m, walked by the client | door: no door in reach | idx 0
+> steps 0.2
+  goto 0,0.05 within 2 -> Accepted
+  = - | Waypoint 1/1: 12.0m, walked by the client | door: no door in reach | idx 0
+> claim
+  = 1 | Waypoint 1/1: 12.0m, walked by the client | door: no door in reach | idx 0
+> steps 0.2
+  post [MossTank] Waypoint 1 could not be walked (Blocked); the route is paused. Reset the route or change Client pathing.
+  = - | Waypoint 1 could not be walked (Blocked); the route is paused. Reset the route or change Client pathing. | door: no door in reach | idx 0
+> claim
+  = 0 | Waypoint 1 could not be walked (Blocked); the route is paused. Reset the route or change Client pathing. | door: no door in reach | idx 0
+> claim
+  = 0 | Waypoint 1 could not be walked (Blocked); the route is paused. Reset the route or change Client pathing. | door: no door in reach | idx 0
+> reset
+  = - | Route ready. | door: no door in reach | idx 0
+> claim
+  goto 0,0.05 within 2 -> Accepted
+  = 1 | Waypoint 1/1: 12.0m, walked by the client | door: no door in reach | idx 0
+> query
+  = detail=[targ range 12, targ loc 0, 0.05, 0 ] holds=0 normal=1 nothing=0 block=None rev=0 walking=1 action=0 consumed0=0 | Waypoint 1/1: 12.0m, walked by the client | door: no door in reach | idx 0
+> skip 1
+  stopgoto
+  = 1 | Waypoint 1/1: 12.0m, walked by the client | door: no door in reach | idx 0
+##### doors-on-the-leg-are-identified-and-opened
+> door 0.05
+  identify 55
+  = 0 | Navigation disabled. | door: identifying door: Dungeon Door | idx 0 | locks 100
+> door 0.05
+  use 55
+  = 1 | Navigation disabled. | door: opening door: Dungeon Door | idx 0 | locks 111
+> door 0.5
+  = 1 | Navigation disabled. | door: opening door: Dungeon Door | idx 0 | locks 111
+> door 1.5
+  use 55
+  = 1 | Navigation disabled. | door: opening door: Dungeon Door | idx 0 | locks 111
+> door 2
+  use 55
+  = 1 | Navigation disabled. | door: opening door: Dungeon Door | idx 0 | locks 111
+> door 3
+  = 0 | Navigation disabled. | door: door timed out: Dungeon Door | idx 0 | locks 111
+> door 0.05
+  = 0 | Navigation disabled. | door: no door in reach | idx 0 | locks 101
+> door 0.05 noact
+  = 0 | Navigation disabled. | door: another rule has the turn | idx 0 | locks 101
+> tick 0.05
+  intent F=1 B=0 SL=0 SR=0 TL=0 TR=0 run=1 jump=0
+  = 1 | Waypoint 1/1: 240.0m | door: another rule has the turn | idx 0 | locks 101
+##### doors-locked-far-timed-out-and-off-route
+> door 0.05
+  = 0 | Navigation disabled. | door: locked door skipped: Locked Door | idx 0 | locks 000
+> door 0.05
+  = 0 | Navigation disabled. | door: Locked Door is not in open range | idx 0 | locks 000
+> door 0.05
+  use 55
+  = 1 | Navigation disabled. | door: opening door: Locked Door | idx 0 | locks 111
+> door 2
+  use 55
+  = 1 | Navigation disabled. | door: opening door: Locked Door | idx 0 | locks 111
+> door 2
+  use 55
+  = 1 | Navigation disabled. | door: opening door: Locked Door | idx 0 | locks 111
+> door 1.5
+  = 0 | Navigation disabled. | door: door timed out: Locked Door | idx 0 | locks 111
+> door 0.05
+  use 55
+  = 1 | Navigation disabled. | door: opening door: Locked Door | idx 0 | locks 111
+> door 0.05
+  = 0 | Navigation disabled. | door: no door in reach | idx 0 | locks 111
+> door 0.05
+  = 0 | Navigation disabled. | door: door opening is off | idx 0 | locks 111
+##### door-on-a-follow-route-and-a-portal-leg
+> door 0.05
+  = 0 | Navigation disabled. | door: Door is not in open range | idx 0
+> door 0.05
+  = 0 | Navigation disabled. | door: Door is not in open range | idx 0

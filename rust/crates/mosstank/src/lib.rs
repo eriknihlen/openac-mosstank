@@ -13,6 +13,8 @@ pub mod loot;
 pub mod storage;
 
 pub mod meta_host;
+pub mod nav_host;
+pub mod vendor_host;
 
 use ac_plugin_abi::callback::{Callback, CallbackAnswer};
 use openac_plugin::{Host, Plugin, StartInfo};

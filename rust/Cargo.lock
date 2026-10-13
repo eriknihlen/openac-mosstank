@@ -135,7 +135,9 @@ dependencies = [
  "mosstank-formats",
  "mosstank-loot",
  "mosstank-meta",
+ "mosstank-nav",
  "mosstank-stores",
+ "mosstank-vendor",
  "openac-plugin",
  "openac-plugin-compat",
 ]
@@ -160,6 +162,7 @@ dependencies = [
  "mosstank-dotnet",
  "mosstank-formats",
  "mosstank-settings",
+ "mosstank-stores",
  "openac-plugin-compat",
 ]
 
@@ -244,6 +247,19 @@ dependencies = [
 ]
 
 [[package]]
+name = "mosstank-nav"
+version = "0.6.0-dev"
+dependencies = [
+ "ac-plugin-abi",
+ "mosstank-automation",
+ "mosstank-combat",
+ "mosstank-formats",
+ "mosstank-meta",
+ "mosstank-settings",
+ "openac-plugin-compat",
+]
+
+[[package]]
 name = "mosstank-settings"
 version = "0.6.0-dev"
 dependencies = [
@@ -280,6 +296,20 @@ dependencies = [
  "mosstank-formats",
  "mosstank-meta",
  "mosstank-settings",
+ "mosstank-stores",
+ "mosstank-vendor",
+ "openac-plugin-compat",
+]
+
+[[package]]
+name = "mosstank-vendor"
+version = "0.6.0-dev"
+dependencies = [
+ "ac-plugin-abi",
+ "mosstank-automation",
+ "mosstank-formats",
+ "mosstank-loot",
+ "mosstank-nav",
  "mosstank-stores",
  "openac-plugin-compat",
 ]

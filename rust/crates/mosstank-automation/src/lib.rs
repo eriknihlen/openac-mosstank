@@ -16,6 +16,7 @@ pub mod cast_tracker;
 pub mod combat_text;
 pub mod components;
 pub mod equipment;
+pub mod heading;
 pub mod locks;
 pub mod spells;
 pub mod surface;

@@ -11,8 +11,8 @@ use openac_plugin_compat::regex::{DotNetRegex, RegexOptions};
 use openac_plugin_compat::text::{casing, ordinal};
 
 use crate::controller::{DENIAL_SKIP_SECONDS, LootController, clamp, whole};
-use crate::heading;
 use crate::host::{LootCorpse, LootHost};
+use mosstank_automation::heading;
 
 /// The radius the open step picks within -- arm's reach, a little over five
 /// metres. Outside it the corpse is the approach step's business.

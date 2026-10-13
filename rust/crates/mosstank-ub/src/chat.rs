@@ -15,7 +15,9 @@
 //! `ErrorMessageDisplay`. An ordinary line is System, an error Help, a debug
 //! line Abuse by default. The display comes in as a [`UbDisplays`]: the
 //! settings catalogue ([`crate::catalog::UbCatalog`]) or the shipped
-//! defaults ([`DefaultDisplays`]).
+//! defaults ([`DefaultDisplays`]). The shapes themselves are
+//! `mosstank-vendor`'s; this module adds the displays, the several-line
+//! messages, the debug lines and the thinks the UB commands print.
 
 use mosstank_meta::host::{MetaHost, UbDisplay, UbLineKind};
 
@@ -59,29 +61,9 @@ pub fn display_setting(kind: UbLineKind) -> String {
     format!("Plugin.{name}MessageDisplay")
 }
 
-/// A plain line: the tag, then the text.
-#[must_use]
-pub fn line(text: &str) -> String {
-    mosstank_meta::chat::ub_line(text)
-}
-
-/// An error line: the tag, `Error: `, then the text.
-#[must_use]
-pub fn error(text: &str) -> String {
-    mosstank_meta::chat::ub_error(text)
-}
-
-/// A line a tool prints for itself: the tag, the tool, the text.
-#[must_use]
-pub fn tool(tool: &str, text: &str) -> String {
-    line(&format!("{tool}: {text}"))
-}
-
-/// An error a tool reports for itself.
-#[must_use]
-pub fn tool_error(tool: &str, text: &str) -> String {
-    error(&format!("{tool}: {text}"))
-}
+// The line shapes are the vendor tools' own (`mosstank-vendor::ub_chat`),
+// so every UB line has one spelling.
+pub use mosstank_vendor::ub_chat::{error, line, tool, tool_error};
 
 /// Prints a finished line through its kind's display: an error line or a
 /// generic one, by its lead. Only the logger's error path starts a line
