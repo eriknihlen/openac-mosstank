@@ -1381,7 +1381,6 @@ fn enchant_timers(out: &mut String) {
     files(out, &host);
 }
 
-
 fn run(name: &str) -> String {
     let mut out = String::new();
     match name {

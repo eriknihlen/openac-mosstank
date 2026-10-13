@@ -316,7 +316,10 @@ fn try_load(
     })
 }
 
-fn reject_rollback(storage: &mut dyn PluginStorage, scope: &ItemEnchantScope) -> ItemEnchantLoadResult {
+fn reject_rollback(
+    storage: &mut dyn PluginStorage,
+    scope: &ItemEnchantScope,
+) -> ItemEnchantLoadResult {
     delete(storage, scope);
     ItemEnchantLoadResult::empty(ItemEnchantLoadStatus::ClockRollback, Some(ROLLBACK))
 }
