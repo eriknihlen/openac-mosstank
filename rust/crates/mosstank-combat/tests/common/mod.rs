@@ -1046,3 +1046,199 @@ pub fn recording_log() -> (MacroLog, LogLines) {
     });
     (log, lines)
 }
+
+/// The C# file's `new CombatController(new FakeHost(surface), settings)`
+/// rig: the client, the settings and the controller, with a log.
+pub struct Fight {
+    pub surface: FakeAutomation,
+    pub settings: mosstank_settings::model::CombatSettings,
+    pub vitals: mosstank_settings::model::VitalSettings,
+    pub controller: mosstank_combat::controller::CombatController,
+    pub lines: LogLines,
+}
+
+impl Fight {
+    /// A fight with no game database.
+    pub fn new(
+        surface: FakeAutomation,
+        settings: mosstank_settings::model::CombatSettings,
+    ) -> Self {
+        Self::with_game_info(
+            surface,
+            settings,
+            mosstank_formats::gameinfo::VtankGameInfoDatabase::empty(),
+        )
+    }
+
+    /// A fight over a game database.
+    pub fn with_game_info(
+        surface: FakeAutomation,
+        settings: mosstank_settings::model::CombatSettings,
+        game_info: mosstank_formats::gameinfo::VtankGameInfoDatabase,
+    ) -> Self {
+        let tracker = Rc::new(RefCell::new(
+            mosstank_automation::cast_tracker::SpellCastTracker::new(),
+        ));
+        let mut controller =
+            mosstank_combat::controller::CombatController::with(game_info, tracker);
+        let (log, lines) = recording_log();
+        controller.set_log(Some(log));
+        Self {
+            surface,
+            settings,
+            vitals: mosstank_settings::model::VitalSettings::default(),
+            controller,
+            lines,
+        }
+    }
+
+    /// Runs `body` with the controller and the call's view.
+    pub fn with<R>(
+        &mut self,
+        body: impl FnOnce(
+            &mut mosstank_combat::controller::CombatController,
+            &mut mosstank_combat::controller::Ctx<'_>,
+        ) -> R,
+    ) -> R {
+        let mut ctx = mosstank_combat::controller::Ctx {
+            automation: &mut self.surface,
+            settings: &self.settings,
+            vitals: &self.vitals,
+            crafting: None,
+        };
+        body(&mut self.controller, &mut ctx)
+    }
+
+    fn turn(&mut self) -> mosstank_combat::controller::CombatTurn<'_> {
+        mosstank_combat::controller::CombatTurn {
+            automation: &mut self.surface,
+            settings: &mut self.settings,
+            vitals: &self.vitals,
+            crafting: None,
+        }
+    }
+
+    /// `Toggle`.
+    pub fn toggle(&mut self) {
+        let mut controller = std::mem::take(&mut self.controller);
+        controller.toggle(&mut self.turn());
+        self.controller = controller;
+    }
+
+    /// `OnTick`.
+    pub fn tick(&mut self, elapsed: f64) {
+        let mut controller = std::mem::take(&mut self.controller);
+        controller.on_tick(&mut self.turn(), elapsed);
+        self.controller = controller;
+    }
+
+    /// `EquipOneStepForMonster`.
+    pub fn equip_one_step(&mut self, monster: &str) -> bool {
+        let mut controller = std::mem::take(&mut self.controller);
+        let ready = controller.equip_one_step_for_monster(&mut self.turn(), monster);
+        self.controller = controller;
+        ready
+    }
+
+    /// `TickMonsterApproach`.
+    pub fn approach(&mut self, can_act: bool) -> bool {
+        self.with(|controller, cx| controller.tick_monster_approach(cx, can_act))
+    }
+
+    /// `ClaimMonsterApproachFromRulePass`.
+    pub fn claim_approach(&mut self, can_act: bool) -> bool {
+        self.with(|controller, cx| controller.claim_monster_approach_from_rule_pass(cx, can_act))
+    }
+
+    /// `StepArmedApproachMover`.
+    pub fn step_mover(&mut self, elapsed: f64) {
+        self.with(|controller, cx| controller.step_armed_approach_mover(cx, elapsed));
+    }
+
+    /// `SetPaused`.
+    pub fn set_paused(&mut self, paused: bool) {
+        self.controller.set_paused(&mut self.surface, paused);
+    }
+
+    /// `ObserveRemoteCasts`.
+    pub fn observe_remote_casts(&mut self) {
+        self.with(|controller, cx| controller.observe_remote_casts(cx));
+    }
+
+    /// `HasTarget`.
+    pub fn has_target(&self) -> bool {
+        self.controller.has_target()
+    }
+
+    /// `Status`.
+    pub fn status(&self) -> String {
+        self.controller.status().to_owned()
+    }
+
+    /// The log's texts.
+    pub fn log_texts(&self) -> Vec<String> {
+        self.lines
+            .borrow()
+            .iter()
+            .map(|(_, text)| text.clone())
+            .collect()
+    }
+}
+
+/// The settings most cases start from: the given range, by range, a fast
+/// scan, and the fixture weapon profiled (`ProfileFixtureWeapon`).
+pub fn melee_settings(maximum_range: f64) -> mosstank_settings::model::CombatSettings {
+    let mut settings = mosstank_settings::model::CombatSettings {
+        maximum_range,
+        selection_method: mosstank_settings::model::TargetSelectionMethod::RANGE,
+        scan_interval_seconds: 0.05,
+        ..mosstank_settings::model::CombatSettings::default()
+    };
+    profile_fixture_weapon(&mut settings);
+    settings
+}
+
+/// `ProfileFixtureWeapon`.
+pub fn profile_fixture_weapon(settings: &mut mosstank_settings::model::CombatSettings) {
+    settings
+        .combat_item_names
+        .insert("Fixture Weapon".to_owned());
+}
+
+/// A rule by expression and priority.
+pub fn rule(expression: &str, priority: i32) -> mosstank_settings::monster::MonsterRule {
+    mosstank_settings::monster::MonsterRule::with_priority(expression, priority).unwrap()
+}
+
+/// A rule by expression and actions.
+pub fn rule_with(
+    expression: &str,
+    actions: mosstank_settings::monster::MonsterRuleActions,
+) -> mosstank_settings::monster::MonsterRule {
+    mosstank_settings::monster::MonsterRule::new(expression, actions).unwrap()
+}
+
+/// A navigation object at a place.
+pub fn nav_object(id: u32, name: &str, east_west: f64, north_south: f64) -> NavigationObject {
+    NavigationObject {
+        object_id: id,
+        name: name.to_owned(),
+        position: Position {
+            cell_id: 0x7F7F_0001,
+            east_west,
+            north_south,
+            elevation: 0.0,
+            heading_degrees: 0.0,
+            is_outdoor: true,
+        },
+        ..NavigationObject::default()
+    }
+}
+
+/// The game database excerpt fixture (`GameInfo`).
+pub fn game_info() -> mosstank_formats::gameinfo::VtankGameInfoDatabase {
+    mosstank_formats::gameinfo::VtankGameInfoDatabase::parse(
+        &mosstank_formats::fixtures::read_vtank("gameinfodb-excerpt.ugd"),
+    )
+    .unwrap()
+}
