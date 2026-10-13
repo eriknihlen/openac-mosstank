@@ -1,6 +1,6 @@
 [package]
 name = "mosstank-loot"
-description = "MossTank's looting: the loot rules against .utl profiles, the corpse scan and the pass over a corpse, appraisals and pickups, salvage, selling, bag combining, the mana donors, scroll reading, and the loot classifier other plugins can ask. Pure: the client comes in through mosstank-automation and the loot host trait."
+description = "MossTank's looting: the loot rules against .utl profiles, the corpse scan, the walk to a corpse and the pass over it, appraisals and pickups, salvage, selling, bag combining, the mana donors, scroll reading, and the loot classifier other plugins can ask. Pure: the client comes in through mosstank-automation and the loot host trait."
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
@@ -10,12 +10,16 @@ publish.workspace = true
 [dependencies]
 ac-plugin-abi.workspace = true
 mosstank-automation.workspace = true
+mosstank-combat.workspace = true
 mosstank-dotnet.workspace = true
 mosstank-formats.workspace = true
 mosstank-settings.workspace = true
 mosstank-stores.workspace = true
 openac-plugin-compat.workspace = true
 sha2.workspace = true
+
+[dev-dependencies]
+mosstank-meta.workspace = true
 
 [lints]
 workspace = true
