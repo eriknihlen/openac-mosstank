@@ -20,7 +20,7 @@ pub mod controller;
 pub mod corpse_scan;
 pub mod donors;
 pub mod expression;
-pub mod heading;
+
 pub mod host;
 pub mod mana;
 pub mod own_rare;
