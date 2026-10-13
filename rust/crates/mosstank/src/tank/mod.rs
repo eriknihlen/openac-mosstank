@@ -880,6 +880,13 @@ impl Tank {
         &self.core.status
     }
 
+    /// The macro's one cast tracker, shared by the buff rule, the fight
+    /// and the meta's casts (`IBuffRuleHost.CastTracker`).
+    #[must_use]
+    pub fn cast_tracker(&self) -> SharedCastTracker {
+        self.core.tracker.clone()
+    }
+
     /// Whether the macro runs (`CombatMacroRunning`).
     #[must_use]
     pub fn macro_running(&self) -> bool {
@@ -910,6 +917,25 @@ impl Tank {
             .iter()
             .map(|rule| rule.name())
             .collect()
+    }
+
+    /// The rules of the running list that hold the character now, by name
+    /// (`MacroRules` where `Running`).
+    #[must_use]
+    pub fn running_rule_names(&self) -> Vec<String> {
+        self.scheduler
+            .main_rules()
+            .iter()
+            .filter(|rule| rule.running())
+            .map(|rule| rule.name())
+            .collect()
+    }
+
+    /// The macro's item-use, navigation and other slots
+    /// (`MossTankPanel.ActionLocks`).
+    #[must_use]
+    pub fn action_locks(&self) -> SharedActionLocks {
+        self.core.locks.clone()
     }
 
     /// How many rule passes ran.
