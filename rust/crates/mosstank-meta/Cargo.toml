@@ -1,0 +1,22 @@
+[package]
+name = "mosstank-meta"
+description = "The meta engine (states, rules, conditions, actions), the expression runtime with the host's functions, the meta views and the macro scheduler. The client comes in through the MetaHost trait."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[dependencies]
+ac-plugin-abi.workspace = true
+mosstank-dotnet.workspace = true
+mosstank-expr.workspace = true
+mosstank-formats.workspace = true
+mosstank-settings.workspace = true
+mosstank-stores.workspace = true
+openac-plugin-compat.workspace = true
+roxmltree.workspace = true
+sha2.workspace = true
+
+[lints]
+workspace = true
