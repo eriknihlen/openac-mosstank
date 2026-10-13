@@ -1352,6 +1352,16 @@ impl Tank {
         self.meta.profile().rules.len()
     }
 
+    /// Every expression function a meta can call (`ExpressionFunctionNames`).
+    pub fn expression_function_names(&mut self) -> Vec<String> {
+        self.meta
+            .expressions()
+            .functions()
+            .functions()
+            .map(|function| function.name.clone())
+            .collect()
+    }
+
     /// The route's notice (`RouteNotice`).
     #[must_use]
     pub fn route_notice(&self) -> &str {

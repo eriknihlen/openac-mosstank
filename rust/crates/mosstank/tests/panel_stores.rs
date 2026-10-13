@@ -1753,3 +1753,152 @@ fn a_relog_keeps_the_characters_one_profile() {
     );
     assert!((world.ui_float(p, "NormalHealthValue") - 0.44).abs() < 0.0005);
 }
+
+/// `FrameLootSurface.CorpseId`.
+const FRAME_CORPSE_ID: u32 = 0x7000_0D01;
+
+/// The loot surface of `FrameLootSurface`: one identified corpse of the
+/// character's own, three meters off, nothing open.
+fn frame_loot_surface(world: &mut World) {
+    use ac_plugin_abi::calls;
+    use ac_plugin_abi::items::{LootContainer, LootState};
+    world.set_reply::<calls::LootState>(&LootState {
+        is_available: true,
+        current_contents_ready: true,
+        ..LootState::default()
+    });
+    world.set_reply::<calls::LootCorpses>(&vec![LootContainer {
+        object_id: FRAME_CORPSE_ID,
+        weenie_class_id: 1,
+        name: "Corpse".to_owned(),
+        distance: 3.0,
+        is_identified: true,
+        long_description: "Killed by Looter.".to_owned(),
+        ..LootContainer::default()
+    }]);
+    world.set_reply::<calls::LootOpen>(&ac_plugin_abi::items::ItemResult::of(
+        ac_plugin_abi::items::ItemStatus::Started,
+    ));
+}
+
+/// `FrameLootSurface.Opened`: the container last asked open, 0 for none.
+fn opened(world: &World) -> u32 {
+    world
+        .requests::<ac_plugin_abi::calls::LootOpen>()
+        .last()
+        .copied()
+        .unwrap_or(0)
+}
+
+/// The client's loot classifiers (`FakeLootClassifierRegistry`).
+fn utility_loot_classifier(world: &mut World) {
+    world.set_reply::<ac_plugin_abi::calls::LootClassifiers>(&vec![
+        ac_plugin_abi::items::ClassifierInfo {
+            id: "utility/loot".to_owned(),
+            display_name: "Utility Loot".to_owned(),
+        },
+    ]);
+}
+
+// Source: tests/AcDream.Plugins.MossTank.Tests/MossTankPanelTests.cs :: MalformedStartupLootBindingIsInactiveAndCannotBeOverwrittenByLaterSaves
+/// A malformed profile named by the startup binding inherits neither the
+/// side-car's old rules nor its external classifier's looting: it stays
+/// inactive, and ordinary saves overwrite neither file.
+#[test]
+fn a_malformed_startup_loot_binding_is_inactive_and_cannot_be_overwritten() {
+    use common::automation::FakeAutomation;
+
+    let mut looter = FakeAutomation::default();
+    "Looter".clone_into(&mut looter.name);
+    "Coldeve".clone_into(&mut looter.world_name);
+    let mut world = World::with_automation(looter);
+    utility_loot_classifier(&mut world);
+    let mut first = world.enable();
+    world.vt(&mut first, "loot new Loot5");
+    world.act(&mut first, "AddLootRule");
+    world.act_text(
+        &mut first,
+        "SelectLootClassifier",
+        "Utility Loot [utility/loot]",
+    );
+    if !world.ui_bool(&mut first, "LootEnabled") {
+        world.act(&mut first, "ToggleLooting");
+    }
+    world.disable(&mut first);
+
+    let malformed = "UTL\r\n1\r\n1\r\nunfinished";
+    world.profiles.insert("mosstank/loot/Loot5.utl", malformed);
+    let cdf_key = directory::cdf_file_name("Looter", "Coldeve");
+    let cdf_before = world.profiles.get(&cdf_key).unwrap().to_owned();
+    frame_loot_surface(&mut world);
+    world.fake.logs.clear();
+
+    let mut restarted = world.enable();
+    let p = &mut restarted;
+
+    assert_eq!(
+        world.ui_text(p, "LootProfileName"),
+        mosstank_stores::loot_store::NO_ACTIVE_PROFILE
+    );
+    assert!(world.ui_list(p, "LootRuleRows").is_empty());
+    assert_eq!(
+        world.ui_text(p, "SelectedLootClassifier"),
+        "Utility Loot [utility/loot]"
+    );
+    let notice = world.ui_text(p, "LootEditorNotice");
+    assert!(notice.contains("No loot profile is active"), "{notice}");
+    let errors = world.errors();
+    assert!(
+        errors
+            .iter()
+            .any(|message| message.contains("Loot5")
+                && message.contains("No loot profile is active")),
+        "{errors:?}"
+    );
+
+    world.act(p, "ToggleLootPriorityBoost");
+    world.act(p, "ToggleCombat");
+    for _ in 0..12 {
+        tick(&mut world, p, 0.3);
+    }
+
+    assert_eq!(opened(&world), 0);
+    assert_eq!(
+        world.profiles.get("mosstank/loot/Loot5.utl"),
+        Some(malformed)
+    );
+    assert_eq!(world.profiles.get(&cdf_key), Some(cdf_before.as_str()));
+
+    let mut keep_all = LootRule::default();
+    keep_all.action = mosstank_formats::utl::LootAction::Keep;
+    let recovered = mosstank_formats::utl::VtankLootProfile {
+        rules: vec![keep_all],
+        ..mosstank_formats::utl::VtankLootProfile::default()
+    };
+    world.profiles.insert(
+        "mosstank/loot/Recovered.utl",
+        &mosstank_formats::utl::write(&recovered),
+    );
+    world.act_text(p, "SelectLootProfile", "Recovered");
+
+    assert_eq!(world.ui_text(p, "LootProfileName"), "Recovered");
+    assert_eq!(world.ui_list(p, "LootRuleRows").len(), 1);
+    assert_eq!(
+        world.profiles.get("mosstank/loot/Loot5.utl"),
+        Some(malformed)
+    );
+    assert!(
+        world
+            .profiles
+            .get(&cdf_key)
+            .unwrap()
+            .contains("Recovered.utl")
+    );
+    for _ in 0..12 {
+        if opened(&world) != 0 {
+            break;
+        }
+        tick(&mut world, p, 0.3);
+    }
+    assert_eq!(opened(&world), FRAME_CORPSE_ID);
+}
