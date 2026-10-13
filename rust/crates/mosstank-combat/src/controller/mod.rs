@@ -236,6 +236,10 @@ pub struct CombatController {
     held_item_driven_by_turn: bool,
     log: Option<MacroLog>,
     gate: SharedCombatModeGate,
+    /// Whether the gate's stops are the fight's to run: true for the gate
+    /// the fight made itself, false once a gate is bound from outside, whose
+    /// stops belong to the binder.
+    owns_gate_stops: bool,
     gate_ammunition_plan: Option<AmmunitionPlan>,
     swing_armed: bool,
     swing_timer_running: bool,
@@ -366,6 +370,7 @@ impl CombatController {
             held_item_driven_by_turn: false,
             log: None,
             gate,
+            owns_gate_stops: true,
             gate_ammunition_plan: None,
             swing_armed: false,
             swing_timer_running: false,
@@ -404,8 +409,11 @@ impl CombatController {
     }
 
     /// Shares a gate (the panel's): the approach mover steers through it too.
+    /// The binder runs the gate's stops (the C#'s gate built with the panel's
+    /// `StopMacroFromGate`); the fight no longer does.
     pub fn bind_combat_mode_gate(&mut self, gate: SharedCombatModeGate) {
         self.gate = gate.clone();
+        self.owns_gate_stops = false;
         self.approach_mover.bind_combat_mode_gate(gate);
     }
 
@@ -707,8 +715,12 @@ impl CombatController {
     }
 
     /// Runs a stop the gate asked for (the C#'s `stopMacro` callback, which
-    /// the controller binds to its own disable).
+    /// the controller binds to its own disable on the gate it made itself).
+    /// A bound gate's stops are left for the binder.
     fn drain_gate_stops(&mut self, automation: &mut dyn Automation) {
+        if !self.owns_gate_stops {
+            return;
+        }
         loop {
             let stop = self.gate.borrow_mut().take_stop_request();
             let Some(notice) = stop else {
