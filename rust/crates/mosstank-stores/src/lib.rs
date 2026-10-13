@@ -15,6 +15,7 @@
 //! - [`profile_store`]: the settings profile store, with its side-car
 //!   ([`sidecar`]) and the older JSON documents it migrates ([`legacy`]).
 //! - [`loot_store`]: the loot profile store.
+//! - [`route_store`]: the route store (`.af` and dropped `.nav` routes).
 //! - [`stj`]: the JSON documents read and written as System.Text.Json does.
 //!
 //! Pure: storage comes in through [`storage::PluginStorage`] (a profile store
@@ -28,6 +29,7 @@ pub mod legacy;
 pub mod loot_store;
 pub mod profile_store;
 pub mod recovery;
+pub mod route_store;
 pub mod sidecar;
 pub mod stj;
 pub mod storage;

@@ -7,20 +7,24 @@
 //! mismatch the Rust output is written to `target/golden/stores.rust.out`.
 //!
 //! Source: the C# `MossTankProfileStore` (with its side-car, legacy and
-//! preferences documents) and `MossTankLootProfileStore` as black boxes
-//! over the scenarios.
+//! preferences documents), `MossTankLootProfileStore` and
+//! `MossTankRouteProfileStore` as black boxes over the scenarios.
 
 use std::fmt::Write as _;
 use std::path::PathBuf;
 
 use mosstank_dotnet::collections::{IgnoreCaseStringSet, OrdinalStringSet};
-use mosstank_formats::route::ClientPathing;
+use mosstank_formats::nav;
+use mosstank_formats::route::{
+    ClientPathing, NavigationSettings, Position, RouteMode, RouteWaypoint, RouteWaypointType,
+};
 use mosstank_formats::utl::{self, LootAction, LootRule, VtankLootRequirement};
 use mosstank_settings::model::{AllSettings, BuffItemEnchantRow, ConsumableCategory, LootSettings};
 use mosstank_settings::monster::{MonsterRule, MonsterRuleActions, MonsterValue, MonsterValueKind};
 use mosstank_stores::loot_store::LootProfileStore;
 use mosstank_stores::profile_store::{ProfileLoad, ProfileStore};
 use mosstank_stores::recovery::sha256_hex;
+use mosstank_stores::route_store::RouteProfileStore;
 use mosstank_stores::storage::{MemoryHost, MemoryStorage};
 use openac_plugin_compat::number::{to_string_f32, to_string_f64};
 use openac_plugin_compat::text::ordinal;
@@ -719,9 +723,297 @@ fn loot_unsupported(out: &mut String) {
     files(out, &host);
 }
 
+// ---- The route store ------------------------------------------------------------
+
+fn route_text(route: &NavigationSettings) -> String {
+    let points: Vec<String> = route
+        .waypoints
+        .iter()
+        .map(|point| {
+            format!(
+                "{}({},{})",
+                point.kind.name(),
+                to_string_f64(point.position.east_west),
+                to_string_f64(point.position.north_south)
+            )
+        })
+        .collect();
+    format!("route {} {}", route.mode.name(), points.join(";"))
+}
+
+fn two_points() -> NavigationSettings {
+    let point = |east_west, north_south| RouteWaypoint {
+        kind: RouteWaypointType::Point,
+        position: Position {
+            cell_id: 0,
+            east_west,
+            north_south,
+            elevation: 0.1,
+            heading_degrees: 0.0,
+            is_outdoor: true,
+        },
+        ..RouteWaypoint::default()
+    };
+    NavigationSettings {
+        mode: RouteMode::Linear,
+        waypoints: vec![point(1.5, -2.25), point(1.75, -2.5)],
+        ..NavigationSettings::default()
+    }
+}
+
+fn route_state(out: &mut String, store: &RouteProfileStore, host: &mut MemoryHost) {
+    writeln!(out, "selected {}", store.selected(host).unwrap()).unwrap();
+    writeln!(
+        out,
+        "names {}",
+        store.available_names(host).unwrap().join("|")
+    )
+    .unwrap();
+}
+
+fn route_first_run(out: &mut String) {
+    let mut host = host();
+    let mut store = RouteProfileStore::new();
+    let mut route = NavigationSettings::default();
+    let bound = store.bind_character(&mut host, Some("Acdream")).unwrap();
+    writeln!(out, "bind {}", bool_text(bound)).unwrap();
+    let load = store.load_current(&mut host, &mut route, None).unwrap();
+    writeln!(out, "load {}", load_text(load)).unwrap();
+    let two = two_points();
+    writeln!(
+        out,
+        "save {}",
+        bool_text(store.save_current(&mut host, &two))
+    )
+    .unwrap();
+    route_state(out, &store, &mut host);
+    files(out, &host);
+}
+
+fn route_named(out: &mut String) {
+    let mut host = host();
+    let mut store = RouteProfileStore::new();
+    let mut route = NavigationSettings::default();
+    store.bind_character(&mut host, Some("Acdream")).unwrap();
+    store.load_current(&mut host, &mut route, None).unwrap();
+    let two = two_points();
+    store.save_current(&mut host, &two);
+    let (created, notice) = store.create(&mut host, Some("Hunt"), true, &two).unwrap();
+    writeln!(out, "create {} {notice}", bool_text(created)).unwrap();
+    let (created, notice) = store
+        .create(&mut host, Some("Hunt.af"), true, &two)
+        .unwrap();
+    writeln!(out, "create {} {notice}", bool_text(created)).unwrap();
+    route_state(out, &store, &mut host);
+    let selected = store.select(&mut host, Some("By char"), false).unwrap();
+    writeln!(out, "select bychar {}", bool_text(selected)).unwrap();
+    let mut loaded = NavigationSettings::default();
+    let load = store.load_current(&mut host, &mut loaded, None).unwrap();
+    writeln!(out, "load {} {}", load_text(load), route_text(&loaded)).unwrap();
+    let selected = store.select(&mut host, Some("hunt"), false).unwrap();
+    writeln!(out, "select hunt {}", bool_text(selected)).unwrap();
+    route_state(out, &store, &mut host);
+    let mut loaded = NavigationSettings::default();
+    let load = store.load_current(&mut host, &mut loaded, None).unwrap();
+    writeln!(out, "load {} {}", load_text(load), route_text(&loaded)).unwrap();
+    let exact = store.select(&mut host, Some("Hunt.af"), true).unwrap();
+    let nope = store.select(&mut host, Some("Nope.af"), true).unwrap();
+    writeln!(out, "select exact {} {}", bool_text(exact), bool_text(nope)).unwrap();
+    route_state(out, &store, &mut host);
+    writeln!(
+        out,
+        "exists {} {}",
+        bool_text(store.exists(&mut host, Some("hunt")).unwrap()),
+        bool_text(store.exists(&mut host, Some("nope")).unwrap())
+    )
+    .unwrap();
+    let (deleted, notice) = store.delete(&mut host).unwrap();
+    writeln!(out, "delete {} {notice}", bool_text(deleted)).unwrap();
+    route_state(out, &store, &mut host);
+    files(out, &host);
+}
+
+fn route_follow(out: &mut String) {
+    let mut host = host();
+    let mut store = RouteProfileStore::new();
+    store.bind_character(&mut host, Some("Acdream")).unwrap();
+    store.select_follow_route(&mut host).unwrap();
+    writeln!(out, "follow {}", bool_text(store.follow_route_selected())).unwrap();
+    route_state(out, &store, &mut host);
+    let mut route = NavigationSettings::default();
+    let load = store.load_current(&mut host, &mut route, None).unwrap();
+    writeln!(out, "load {} {}", load_text(load), route_text(&route)).unwrap();
+    route.mode = RouteMode::Target;
+    route.follow_target_name = "Leader".to_owned();
+    route.follow_target_object_id = 0x5001;
+    writeln!(
+        out,
+        "save {}",
+        bool_text(store.save_current(&mut host, &route))
+    )
+    .unwrap();
+    files(out, &host);
+}
+
+fn translate(
+    out: &mut String,
+    store: &mut RouteProfileStore,
+    host: &mut MemoryHost,
+    source: &str,
+    target: &str,
+    force: bool,
+) {
+    let (done, notice, records) = store
+        .try_translate(host, Some(source), Some(target), 0.5, -0.25, force, None)
+        .unwrap();
+    writeln!(out, "translate {} {notice} {records}", bool_text(done)).unwrap();
+}
+
+fn route_translate(out: &mut String) {
+    let mut host = host();
+    let mut store = RouteProfileStore::new();
+    store.bind_character(&mut host, Some("Acdream")).unwrap();
+    store
+        .load_current(&mut host, &mut NavigationSettings::default(), None)
+        .unwrap();
+    store
+        .create(&mut host, Some("Hunt"), true, &two_points())
+        .unwrap();
+    translate(out, &mut store, &mut host, "Hunt", "Moved", false);
+    translate(out, &mut store, &mut host, "Hunt", "Moved", false);
+    translate(out, &mut store, &mut host, "Hunt", "Moved.af", false);
+    translate(out, &mut store, &mut host, "Hunt", "Moved", true);
+    translate(out, &mut store, &mut host, "Nope", "Other", false);
+    translate(out, &mut store, &mut host, "", "Other", false);
+    store
+        .create(
+            &mut host,
+            Some("Empty"),
+            false,
+            &NavigationSettings::default(),
+        )
+        .unwrap();
+    translate(out, &mut store, &mut host, "Empty", "Other", false);
+    route_state(out, &store, &mut host);
+    files(out, &host);
+}
+
+fn route_import(out: &mut String) {
+    let mut host = host();
+    host.plugin
+        .insert("imports/Old.nav", &nav::save(&two_points()).unwrap());
+    host.plugin.insert("exports/Bad.nav", "nonsense");
+    let mut store = RouteProfileStore::new();
+    store.bind_character(&mut host, Some("Acdream")).unwrap();
+    let mut route = NavigationSettings::default();
+    store.load_current(&mut host, &mut route, None).unwrap();
+    let (imported, notice) = store
+        .try_import_legacy(&mut host, Some("old"), &mut route, None)
+        .unwrap();
+    writeln!(
+        out,
+        "import {} {notice} {}",
+        bool_text(imported),
+        route_text(&route)
+    )
+    .unwrap();
+    let (bad, notice) = store
+        .try_import_legacy(
+            &mut host,
+            Some("Bad"),
+            &mut NavigationSettings::default(),
+            None,
+        )
+        .unwrap();
+    writeln!(out, "import {} {notice}", bool_text(bad)).unwrap();
+    let (missing, notice) = store
+        .try_import_legacy(
+            &mut host,
+            Some("Nope"),
+            &mut NavigationSettings::default(),
+            None,
+        )
+        .unwrap();
+    writeln!(out, "import {} {notice}", bool_text(missing)).unwrap();
+    route_state(out, &store, &mut host);
+    files(out, &host);
+}
+
+fn route_corrupt(out: &mut String) {
+    let mut host = host();
+    host.profiles
+        .insert("mosstank/navs/--Acdream_Coldeve.af", "garbage\r\n");
+    let mut store = RouteProfileStore::new();
+    store.bind_character(&mut host, Some("Acdream")).unwrap();
+    let mut route = NavigationSettings::default();
+    let load = store.load_current(&mut host, &mut route, None).unwrap();
+    writeln!(out, "load {}", load_text(load)).unwrap();
+    writeln!(
+        out,
+        "recovery {}",
+        store.recovery_notice().unwrap_or_default()
+    )
+    .unwrap();
+    files(out, &host);
+}
+
+fn route_legacy(out: &mut String) {
+    let mut host = host();
+    host.plugin.insert(
+        &format!("profiles/route/{}.json", sha256_hex("char:ACDREAM")),
+        "{\"Mode\":1,\"Waypoints\":[{\"Type\":0,\"EastWest\":1.5,\"NorthSouth\":-2.25,\"IsOutdoor\":true},{\"Type\":2,\"Recall\":1}]}",
+    );
+    host.plugin
+        .insert("profiles/route/index.json", "{\"Names\":[\"Old\"]}");
+    host.plugin.insert(
+        &format!("profiles/route/{}.json", sha256_hex("named:OLD")),
+        "{\"Mode\":7,\"Waypoints\":[{\"Type\":99,\"EastWest\":3}]}",
+    );
+    let mut store = RouteProfileStore::new();
+    store.bind_character(&mut host, Some("Acdream")).unwrap();
+    let mut route = NavigationSettings::default();
+    let load = store.load_current(&mut host, &mut route, None).unwrap();
+    writeln!(out, "load {} {}", load_text(load), route_text(&route)).unwrap();
+    route_state(out, &store, &mut host);
+    files(out, &host);
+}
+
+fn route_bare_lf(out: &mut String) {
+    let mut host = host();
+    host.profiles.insert(
+        "mosstank/navs/Lf.nav",
+        &nav::save(&two_points()).unwrap().replace("\r\n", "\n"),
+    );
+    let mut store = RouteProfileStore::new();
+    store.bind_character(&mut host, Some("Acdream")).unwrap();
+    let selected = store.select(&mut host, Some("Lf"), false).unwrap();
+    writeln!(out, "select {}", bool_text(selected)).unwrap();
+    let mut route = NavigationSettings::default();
+    let load = store.load_current(&mut host, &mut route, None).unwrap();
+    writeln!(out, "load {} {}", load_text(load), route_text(&route)).unwrap();
+    route.waypoints.remove(1);
+    writeln!(
+        out,
+        "save {}",
+        bool_text(store.save_current(&mut host, &route))
+    )
+    .unwrap();
+    store.clear_current(&mut host, &mut route);
+    route_state(out, &store, &mut host);
+    files(out, &host);
+}
+
 fn run(name: &str) -> String {
     let mut out = String::new();
     match name {
+        "route-first-run" => route_first_run(&mut out),
+        "route-named" => route_named(&mut out),
+        "route-follow" => route_follow(&mut out),
+        "route-translate" => route_translate(&mut out),
+        "route-import" => route_import(&mut out),
+        "route-corrupt" => route_corrupt(&mut out),
+        "route-legacy" => route_legacy(&mut out),
+        "route-bare-lf" => route_bare_lf(&mut out),
         "loot-first-run" => loot_first_run(&mut out),
         "loot-named" => loot_named(&mut out),
         "loot-partial" => loot_partial(&mut out),

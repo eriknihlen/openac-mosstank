@@ -14,3 +14,11 @@ loot-partial
 loot-import
 loot-legacy
 loot-unsupported
+route-first-run
+route-named
+route-follow
+route-translate
+route-import
+route-corrupt
+route-legacy
+route-bare-lf

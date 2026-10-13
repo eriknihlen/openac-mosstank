@@ -145,6 +145,14 @@ internal static class RustPortStoresGolden
                 case "loot-import": LootImport(sb); break;
                 case "loot-legacy": LootLegacy(sb); break;
                 case "loot-unsupported": LootUnsupported(sb); break;
+                case "route-first-run": RouteFirstRun(sb); break;
+                case "route-named": RouteNamed(sb); break;
+                case "route-follow": RouteFollow(sb); break;
+                case "route-translate": RouteTranslate(sb); break;
+                case "route-import": RouteImport(sb); break;
+                case "route-corrupt": RouteCorrupt(sb); break;
+                case "route-legacy": RouteLegacy(sb); break;
+                case "route-bare-lf": RouteBareLf(sb); break;
                 default: throw new InvalidOperationException("unknown scenario " + name);
             }
         }
@@ -546,6 +554,178 @@ internal static class RustPortStoresGolden
         var rules = new List<LootRule>();
         store.BindCharacter("Acdream");
         sb.Append("load ").Append(store.LoadCurrent(rules)).Append(' ').Append(Rules(rules)).Append('\n');
+        Files(sb, host);
+    }
+
+    private static ISpellCatalog Spells => NoOpAutomationSurface.Instance;
+
+    private static string Route(NavigationSettings route) =>
+        "route " + route.Mode + " " + string.Join(";", route.Waypoints.Select(static point =>
+            point.Type + "(" + D(point.Position.EastWest) + "," + D(point.Position.NorthSouth) + ")"));
+
+    private static NavigationSettings TwoPoints() => new()
+    {
+        Mode = RouteMode.Linear,
+        Waypoints =
+        {
+            new RouteWaypoint { Type = RouteWaypointType.Point, Position = new PluginNavigationPosition(0, 1.5, -2.25, 0.1, 0f, true) },
+            new RouteWaypoint { Type = RouteWaypointType.Point, Position = new PluginNavigationPosition(0, 1.75, -2.5, 0.1, 0f, true) },
+        },
+    };
+
+    private static void RouteState(StringBuilder sb, MossTankRouteProfileStore store)
+    {
+        sb.Append("selected ").Append(store.Selected).Append('\n');
+        sb.Append("names ").Append(string.Join("|", store.AvailableNames)).Append('\n');
+    }
+
+    private static void RouteFirstRun(StringBuilder sb)
+    {
+        Host host = NewHost();
+        var store = new MossTankRouteProfileStore(host);
+        var route = new NavigationSettings();
+        sb.Append("bind ").Append(B(store.BindCharacter("Acdream"))).Append('\n');
+        sb.Append("load ").Append(store.LoadCurrent(route, Spells)).Append('\n');
+        NavigationSettings two = TwoPoints();
+        sb.Append("save ").Append(B(store.SaveCurrent(two))).Append('\n');
+        RouteState(sb, store);
+        Files(sb, host);
+    }
+
+    private static void RouteNamed(StringBuilder sb)
+    {
+        Host host = NewHost();
+        var store = new MossTankRouteProfileStore(host);
+        var route = new NavigationSettings();
+        store.BindCharacter("Acdream");
+        store.LoadCurrent(route, Spells);
+        NavigationSettings two = TwoPoints();
+        store.SaveCurrent(two);
+        bool created = store.Create("Hunt", copyCurrent: true, two, out string notice);
+        sb.Append("create ").Append(B(created)).Append(' ').Append(notice).Append('\n');
+        bool createdAf = store.Create("Hunt.af", copyCurrent: true, two, out string afNotice);
+        sb.Append("create ").Append(B(createdAf)).Append(' ').Append(afNotice).Append('\n');
+        RouteState(sb, store);
+        sb.Append("select bychar ").Append(B(store.Select("By char"))).Append('\n');
+        var loaded = new NavigationSettings();
+        sb.Append("load ").Append(store.LoadCurrent(loaded, Spells)).Append(' ').Append(Route(loaded)).Append('\n');
+        sb.Append("select hunt ").Append(B(store.Select("hunt"))).Append('\n');
+        RouteState(sb, store);
+        loaded = new NavigationSettings();
+        sb.Append("load ").Append(store.LoadCurrent(loaded, Spells)).Append(' ').Append(Route(loaded)).Append('\n');
+        sb.Append("select exact ").Append(B(store.Select("Hunt.af", exactOnly: true)))
+            .Append(' ').Append(B(store.Select("Nope.af", exactOnly: true))).Append('\n');
+        RouteState(sb, store);
+        sb.Append("exists ").Append(B(store.Exists("hunt"))).Append(' ').Append(B(store.Exists("nope"))).Append('\n');
+        bool deleted = store.Delete(out string deleteNotice);
+        sb.Append("delete ").Append(B(deleted)).Append(' ').Append(deleteNotice).Append('\n');
+        RouteState(sb, store);
+        Files(sb, host);
+    }
+
+    private static void RouteFollow(StringBuilder sb)
+    {
+        Host host = NewHost();
+        var store = new MossTankRouteProfileStore(host);
+        store.BindCharacter("Acdream");
+        store.SelectFollowRoute();
+        sb.Append("follow ").Append(B(store.FollowRouteSelected)).Append('\n');
+        RouteState(sb, store);
+        var route = new NavigationSettings();
+        sb.Append("load ").Append(store.LoadCurrent(route, Spells)).Append(' ').Append(Route(route)).Append('\n');
+        route.Mode = RouteMode.Target;
+        route.FollowTargetName = "Leader";
+        route.FollowTargetObjectId = 0x5001;
+        sb.Append("save ").Append(B(store.SaveCurrent(route))).Append('\n');
+        Files(sb, host);
+    }
+
+    private static void RouteTranslate(StringBuilder sb)
+    {
+        Host host = NewHost();
+        var store = new MossTankRouteProfileStore(host);
+        store.BindCharacter("Acdream");
+        store.LoadCurrent(new NavigationSettings(), Spells);
+        store.Create("Hunt", copyCurrent: true, TwoPoints(), out _);
+        void Translate(string source, string target, bool force)
+        {
+            bool done = store.TryTranslate(source, target, 0.5, -0.25, force, Spells, out string notice, out int records);
+            sb.Append("translate ").Append(B(done)).Append(' ').Append(notice).Append(' ')
+                .Append(records.ToString(CultureInfo.InvariantCulture)).Append('\n');
+        }
+        Translate("Hunt", "Moved", false);
+        Translate("Hunt", "Moved", false);
+        Translate("Hunt", "Moved.af", false);
+        Translate("Hunt", "Moved", true);
+        Translate("Nope", "Other", false);
+        Translate("", "Other", false);
+        store.Create("Empty", copyCurrent: false, new NavigationSettings(), out _);
+        Translate("Empty", "Other", false);
+        RouteState(sb, store);
+        Files(sb, host);
+    }
+
+    private static void RouteImport(StringBuilder sb)
+    {
+        Host host = NewHost();
+        host.Plugin.Text["imports/Old.nav"] = VtankNavRouteSerializer.Save(TwoPoints());
+        host.Plugin.Text["exports/Bad.nav"] = "nonsense";
+        var store = new MossTankRouteProfileStore(host);
+        store.BindCharacter("Acdream");
+        var route = new NavigationSettings();
+        store.LoadCurrent(route, Spells);
+        bool imported = store.TryImportLegacy("old", route, Spells, out string notice);
+        sb.Append("import ").Append(B(imported)).Append(' ').Append(notice).Append(' ').Append(Route(route)).Append('\n');
+        bool bad = store.TryImportLegacy("Bad", new NavigationSettings(), Spells, out string badNotice);
+        sb.Append("import ").Append(B(bad)).Append(' ').Append(badNotice).Append('\n');
+        bool missing = store.TryImportLegacy("Nope", new NavigationSettings(), Spells, out string missingNotice);
+        sb.Append("import ").Append(B(missing)).Append(' ').Append(missingNotice).Append('\n');
+        RouteState(sb, store);
+        Files(sb, host);
+    }
+
+    private static void RouteCorrupt(StringBuilder sb)
+    {
+        Host host = NewHost();
+        host.Profiles.Text["mosstank/navs/--Acdream_Coldeve.af"] = "garbage\r\n";
+        var store = new MossTankRouteProfileStore(host);
+        store.BindCharacter("Acdream");
+        var route = new NavigationSettings();
+        sb.Append("load ").Append(store.LoadCurrent(route, Spells)).Append('\n');
+        sb.Append("recovery ").Append(store.RecoveryNotice).Append('\n');
+        Files(sb, host);
+    }
+
+    private static void RouteLegacy(StringBuilder sb)
+    {
+        Host host = NewHost();
+        host.Plugin.Text["profiles/route/" + Sha("char:ACDREAM") + ".json"] =
+            "{\"Mode\":1,\"Waypoints\":[{\"Type\":0,\"EastWest\":1.5,\"NorthSouth\":-2.25,\"IsOutdoor\":true},{\"Type\":2,\"Recall\":1}]}";
+        host.Plugin.Text["profiles/route/index.json"] = "{\"Names\":[\"Old\"]}";
+        host.Plugin.Text["profiles/route/" + Sha("named:OLD") + ".json"] =
+            "{\"Mode\":7,\"Waypoints\":[{\"Type\":99,\"EastWest\":3}]}";
+        var store = new MossTankRouteProfileStore(host);
+        store.BindCharacter("Acdream");
+        var route = new NavigationSettings();
+        sb.Append("load ").Append(store.LoadCurrent(route, Spells)).Append(' ').Append(Route(route)).Append('\n');
+        RouteState(sb, store);
+        Files(sb, host);
+    }
+
+    private static void RouteBareLf(StringBuilder sb)
+    {
+        Host host = NewHost();
+        host.Profiles.Text["mosstank/navs/Lf.nav"] =
+            VtankNavRouteSerializer.Save(TwoPoints()).Replace("\r\n", "\n", StringComparison.Ordinal);
+        var store = new MossTankRouteProfileStore(host);
+        store.BindCharacter("Acdream");
+        sb.Append("select ").Append(B(store.Select("Lf"))).Append('\n');
+        var route = new NavigationSettings();
+        sb.Append("load ").Append(store.LoadCurrent(route, Spells)).Append(' ').Append(Route(route)).Append('\n');
+        route.Waypoints.RemoveAt(1);
+        sb.Append("save ").Append(B(store.SaveCurrent(route))).Append('\n');
+        store.ClearCurrent(route);
+        RouteState(sb, store);
         Files(sb, host);
     }
 }
