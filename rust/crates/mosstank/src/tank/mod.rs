@@ -190,6 +190,9 @@ pub struct Core {
     pub(crate) loot: LootController,
     pub(crate) corpse_approach: CorpseApproachController,
     pub(crate) read_scroll: ReadScrollController,
+    /// The macro's own stack-and-cram owner (`InventoryMaintenanceController`).
+    pub(crate) inventory_maintenance:
+        mosstank_ub::tools::stack_cram::InventoryMaintenanceController,
     pub(crate) navigation: NavigationController,
     pub(crate) fellowship: FellowshipManager,
     pub(crate) idle_peace: rules::SharedIdlePeace,
@@ -644,6 +647,8 @@ impl Tank {
             loot,
             corpse_approach,
             read_scroll: ReadScrollController::new(),
+            inventory_maintenance:
+                mosstank_ub::tools::stack_cram::InventoryMaintenanceController::new(),
             navigation,
             fellowship: FellowshipManager::new(),
             idle_peace: Rc::new(RefCell::new(IdlePeaceRule::default())),
@@ -893,6 +898,19 @@ impl Tank {
         )
     }
 
+    /// A placement the client announced: the equipment profile's run reads
+    /// its receipts (`PlacementObserved`).
+    pub fn on_equipment_placement(
+        &mut self,
+        observation: &ac_plugin_abi::items::EquipmentObservation,
+    ) {
+        self.ub
+            .commands
+            .tools_mut()
+            .equip
+            .on_equipment_placement(observation.clone());
+    }
+
     /// The client's notifications the meta engine follows (register
     /// META-3).
     pub fn on_event(&mut self, client: &mut dyn TankClient, event: &ac_plugin_abi::Event) {
@@ -909,6 +927,15 @@ impl Tank {
             Event::ItemUseCompleted(completion) => cx.meta.on_item_use_completed(completion),
             Event::ContainerOpened(container) => cx.meta.on_container_opened(*container),
             Event::ContainerClosed(container) => cx.meta.on_container_closed(*container),
+            // The name tags follow objects arriving, appraised and leaving.
+            Event::ObjectChanged(change) => {
+                cx.with_ub(|commands, call| {
+                    commands
+                        .tools_mut()
+                        .nametags
+                        .on_object_changed(call.host, change);
+                });
+            }
             Event::ConfirmationRequested(confirmation) => {
                 cx.meta.on_confirmation_requested(confirmation);
                 // The dialog watch answers the question it was told to.
@@ -924,7 +951,13 @@ impl Tank {
     /// parts the shell has).
     pub fn disable(&mut self, client: &mut dyn TankClient) {
         self.begin_call(client);
-        let (cx, _) = self.cx(client);
+        let (mut cx, _) = self.cx(client);
+        // The UB tools' runs end with the plugin, and the name tags give
+        // their labels back.
+        cx.with_ub(|commands, call| {
+            commands.tools_mut().reset_session(call);
+            commands.tools_mut().nametags.dispose(call.host);
+        });
         if cx.core.combat.enabled() {
             cx.core.set_macro_running(cx.client, false);
         }
@@ -934,6 +967,7 @@ impl Tank {
         let core = &mut *cx.core;
         core.vital_recharge.reset();
         core.vital_helper_recharge.reset();
+        core.inventory_maintenance.reset();
         core.item_mana.reset();
         {
             let lent = rules::lent_loot!(core);

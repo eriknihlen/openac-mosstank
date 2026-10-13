@@ -74,6 +74,10 @@ impl Tank {
             cx.core.automation_was_available = true;
             cx.handle_session_started();
         }
+        // The name tags, first in the frame as the panel runs them.
+        cx.with_ub(|commands, call| {
+            commands.tools_mut().tick_nametags(call, elapsed_seconds);
+        });
 
         cx.core.sync_route_after_kill();
         cx.core.locks.borrow_mut().advance(elapsed_seconds);
@@ -103,11 +107,30 @@ impl Tank {
         cx.core.flush_queued_announcements(cx.client);
         cx.show_first_run_guidance();
         cx.observe_command_portal_state();
+        // The tinker run, just before the command jump (`TickTinkering`).
+        cx.with_ub(|commands, call| {
+            commands.tools_mut().tick_tinkering(call, elapsed_seconds);
+        });
         // The UB commands' frame: the delayed lines, the dialog watch and the
         // command jump, which owns the character while it lasts.
         let command_jump_owns_action =
             cx.with_ub(|commands, call| commands.on_tick(call, elapsed_seconds));
-        cx.core.prologue_owns_action = command_jump_owns_action;
+        // The UB tools that own the character while they run, in the
+        // panel's order; the vendor run is not in the shell yet, so its turn
+        // never owns the character.
+        let can_act = !cx.core.buff_rule.is_bursting() && !command_jump_owns_action;
+        let tools_own_action = cx.with_ub(|commands, call| {
+            commands
+                .tools_mut()
+                .tick_prologue(call, elapsed_seconds, can_act, &mut |_, _| false)
+        });
+        cx.core.prologue_owns_action = command_jump_owns_action || tools_own_action;
+        // Not owners: the experience spender and /ub clearbugged.
+        cx.with_ub(|commands, call| {
+            commands
+                .tools_mut()
+                .tick_after_prologue(call, elapsed_seconds);
+        });
         let macro_running = cx.core.combat.enabled();
         let character = cx.client.rules().character();
         let dead = character.health.1 > 0 && character.health.0 == 0;
@@ -233,6 +256,7 @@ impl Tank {
 impl TankCx<'_> {
     /// `HandleSessionEnded`.
     fn handle_session_ended(&mut self) {
+        self.with_ub(|commands, call| commands.tools_mut().nametags.reset(call.host));
         if self.core.combat.enabled() {
             let core = &mut *self.core;
             let mut turn = combat_turn!(self.client, core);
@@ -266,6 +290,7 @@ impl TankCx<'_> {
     /// `ResetSessionScopedControllers`.
     fn reset_session_scoped_controllers(&mut self) {
         let core = &mut *self.core;
+        core.inventory_maintenance.reset();
         core.vital_recharge.reset();
         core.vital_helper_recharge.reset();
         core.dispel.reset();
@@ -284,6 +309,7 @@ impl TankCx<'_> {
             .expressions()
             .destroy_auxiliary_views(self.client.meta());
         self.meta.expressions().clear_session();
+        self.with_ub(|commands, call| commands.tools_mut().reset_session(call));
         self.reset_command_session();
         self.core.buff_rule.reset();
         mosstank_meta::engine::DEFAULT_STATE_NAME

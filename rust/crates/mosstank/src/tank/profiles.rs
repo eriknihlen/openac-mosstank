@@ -537,6 +537,7 @@ impl TankCx<'_> {
         let core = &mut *self.core;
         core.vital_recharge.reset();
         core.vital_helper_recharge.reset();
+        core.inventory_maintenance.reset();
         core.dispel.reset();
         core.item_mana.reset();
         {

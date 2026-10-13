@@ -667,6 +667,11 @@ impl UbCommands {
         for line in lines {
             call.write_transcript_line(&line);
         }
+        // The tinker run says yes to the craft prompt it is waiting on.
+        self.tools
+            .tinker
+            .manager_mut()
+            .on_confirmation(call, confirmation);
     }
 
     /// The session ended: a line scheduled before it must not arrive after

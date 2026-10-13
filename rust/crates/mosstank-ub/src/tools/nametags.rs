@@ -272,6 +272,13 @@ pub struct NametagController {
     push_count: usize,
 }
 
+impl Default for NametagController {
+    /// Tags over the catalogue's defaults until the first frame reads the page.
+    fn default() -> Self {
+        Self::new(&NametagSettings::default())
+    }
+}
+
 impl NametagController {
     /// Tags reading their rows from `settings` now; the world is scanned on
     /// the first frame.

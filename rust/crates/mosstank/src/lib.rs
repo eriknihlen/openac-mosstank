@@ -135,6 +135,9 @@ impl Plugin for MossTank {
 
     fn on_event(&mut self, host: &mut Host<'_>, event: Event) {
         if let Event::EquipmentPlacement(observation) = event {
+            if let Some(tank) = self.tank.as_mut() {
+                tank.on_equipment_placement(&observation);
+            }
             self.observations.push(observation);
             return;
         }

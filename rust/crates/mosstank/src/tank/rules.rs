@@ -301,6 +301,17 @@ impl TankCx<'_> {
             .tick(&mut turn, context.elapsed_seconds, context.can_act)
     }
 
+    /// The macro's stack-and-cram turn.
+    fn tick_stack_cram(&mut self, context: MacroPassContext) -> bool {
+        let core = &mut *self.core;
+        core.inventory_maintenance.tick(
+            self.client.ub(),
+            &core.settings.inventory,
+            context.elapsed_seconds,
+            context.can_act,
+        )
+    }
+
     /// The scroll reader's turn.
     fn tick_read_scroll(&mut self, context: MacroPassContext) -> bool {
         let core = &mut *self.core;
@@ -666,7 +677,17 @@ impl Provider {
                         && cx.core.settings.inventory.loot.priority_boost
                 })),
             ),
-            S::StackCramPriority => absent("StackCramPriority", NOT_CONVERTED),
+            S::StackCramPriority => Box::new(
+                ControllerMacroRule::new(
+                    "StackCramPriority",
+                    tick(|cx, context| cx.tick_stack_cram(context)),
+                )
+                .with_gate(gate(|cx| {
+                    cx.item_slot_is_free()
+                        && cx.core.combat.enabled()
+                        && cx.core.settings.inventory.loot.priority_boost
+                })),
+            ),
             S::SalvageItemsPriority => absent(
                 "SalvageItemsPriority",
                 "fused into LootCorpsePriority \u{2014} the loot controller runs the salvage and salvage-combine steps itself whenever no corpse is open, which is the same gate the separate rule uses.",
@@ -686,7 +707,21 @@ impl Provider {
                 Vec::new(),
                 vec![self.idle_peace()],
             )),
-            S::StackCramIdle => absent("StackCramIdle", NOT_CONVERTED),
+            S::StackCramIdle => Box::new(MacroRulePreChain::new(
+                Box::new(
+                    ControllerMacroRule::new(
+                        "StackCramIdle",
+                        tick(|cx, context| cx.tick_stack_cram(context)),
+                    )
+                    .with_gate(gate(|cx| {
+                        cx.item_slot_is_free()
+                            && !cx.core.settings.inventory.loot.priority_boost
+                            && cx.core.combat.enabled()
+                    })),
+                ),
+                Vec::new(),
+                vec![self.idle_peace()],
+            )),
             S::SalvageItemsIdle => absent(
                 "SalvageItemsIdle",
                 "fused into LootCorpseIdle \u{2014} see SalvageItemsPriority.",
