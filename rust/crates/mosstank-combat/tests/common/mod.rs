@@ -1242,3 +1242,135 @@ pub fn game_info() -> mosstank_formats::gameinfo::VtankGameInfoDatabase {
     )
     .unwrap()
 }
+
+/// A war spell by family and difficulty (`MagicSpell`).
+pub fn magic_spell(id: u32, name: &str, difficulty: i32) -> SpellInfo {
+    SpellInfo {
+        spell_id: id,
+        name: name.to_owned(),
+        family: id,
+        tier: 7,
+        difficulty,
+        mana_cost: 30,
+        duration_seconds: 0.0,
+        school: 34,
+        is_offensive: true,
+        saying: "testwords".to_owned(),
+        target_mask: 0x10,
+        ..SpellInfo::default()
+    }
+}
+
+/// A debuff spell, offensive and lasting a minute.
+pub fn learned_debuff(id: u32, name: &str) -> SpellInfo {
+    SpellInfo {
+        is_debuff: true,
+        is_offensive: true,
+        duration_seconds: 60.0,
+        ..spell(id, name)
+    }
+}
+
+/// An item in the pack (`InventoryItem`).
+pub fn inventory_item(
+    id: u32,
+    name: &str,
+    item_type: u32,
+    spell_id: u32,
+    equipped: bool,
+) -> InventoryItem {
+    InventoryItem {
+        object_id: id,
+        name: name.to_owned(),
+        item_type,
+        container_id: 1,
+        equipped_location: if equipped { 0x0010_0000 } else { 0 },
+        stack_size: 1,
+        spell_id,
+        ..InventoryItem::default()
+    }
+}
+
+/// One default row with these actions and element.
+pub fn single_rule(
+    flags: mosstank_settings::monster::MonsterActionFlags,
+    damage_type: mosstank_data::damage::MonsterDamageType,
+) -> mosstank_settings::monster::MonsterRule {
+    rule_with(
+        "DEFAULT",
+        mosstank_settings::monster::MonsterRuleActions {
+            flags,
+            damage_type,
+            ..mosstank_settings::monster::MonsterRuleActions::default()
+        },
+    )
+}
+
+/// Settings whose only row is `rule`.
+pub fn only_rule(
+    mut settings: mosstank_settings::model::CombatSettings,
+    rule: mosstank_settings::monster::MonsterRule,
+) -> mosstank_settings::model::CombatSettings {
+    settings.rules.clear();
+    settings.rules.push(rule);
+    settings
+}
+
+/// `FireAttackRule`: one default row that attacks with fire.
+pub fn fire_attack_rule(
+    settings: mosstank_settings::model::CombatSettings,
+) -> mosstank_settings::model::CombatSettings {
+    only_rule(
+        settings,
+        single_rule(
+            mosstank_settings::monster::MonsterActionFlags::ATTACK,
+            mosstank_data::damage::MonsterDamageType::Fire,
+        ),
+    )
+}
+
+/// `DebuffOnly`: one default row with just this flag.
+pub fn debuff_only(
+    flags: mosstank_settings::monster::MonsterActionFlags,
+) -> mosstank_settings::model::CombatSettings {
+    only_rule(
+        mosstank_settings::model::CombatSettings::default(),
+        rule_with(
+            "DEFAULT",
+            mosstank_settings::monster::MonsterRuleActions {
+                flags,
+                ..mosstank_settings::monster::MonsterRuleActions::default()
+            },
+        ),
+    )
+}
+
+/// The fixture database's monster facts.
+pub fn fixture_facts() -> mosstank_settings::monster::MonsterFactTable {
+    mosstank_settings::monster::MonsterFactTable::new(game_info())
+}
+
+/// A learned debuff of the creature school (`Debuff`).
+pub fn debuff(id: u32, name: &str) -> SpellInfo {
+    SpellInfo {
+        spell_id: id,
+        name: name.to_owned(),
+        family: id,
+        tier: 7,
+        difficulty: 250,
+        mana_cost: 30,
+        duration_seconds: 60.0,
+        school: 31,
+        is_debuff: true,
+        is_offensive: true,
+        target_mask: 0x10,
+        base_range_constant: 80.0,
+        saying: "testwords".to_owned(),
+        ..SpellInfo::default()
+    }
+}
+
+/// The C# `Equipment` helper with its defaults.
+pub fn equipment(id: u32, name: &'static str, damage_type: i32) -> Gear {
+    Gear::new(id, name, damage_type)
+}

@@ -10,12 +10,11 @@ use ac_plugin_abi::projectile::{ProjectilePathResult, ProjectilePathStatus};
 use ac_plugin_abi::social::SelectionAction;
 use ac_plugin_abi::ui::{MapPoint, ProjectileSample};
 use common::{
-    FakeAutomation, Fight, in_mode, nav_object, navigation_at, physical, physical_with,
-    profile_fixture_weapon, rule, rule_with, spell, target, wielded_caster, wielded_planned_weapon,
+    FakeAutomation, Fight, fire_attack_rule, in_mode, nav_object, navigation_at, physical,
+    physical_with, profile_fixture_weapon, rule, spell, target, wielded_caster,
+    wielded_planned_weapon,
 };
-use mosstank_data::damage::MonsterDamageType;
 use mosstank_settings::model::{CombatSettings, TargetSelectionMethod};
-use mosstank_settings::monster::{MonsterActionFlags, MonsterRuleActions};
 
 fn swinging(targets: Vec<ac_plugin_abi::combat::CombatTarget>) -> FakeAutomation {
     FakeAutomation {
@@ -34,20 +33,6 @@ fn settings_with(method: TargetSelectionMethod, maximum_range: f64, scan: f64) -
         ..CombatSettings::default()
     };
     profile_fixture_weapon(&mut settings);
-    settings
-}
-
-/// `FireAttackRule`: one default row that attacks with fire.
-pub fn fire_attack_rule(mut settings: CombatSettings) -> CombatSettings {
-    settings.rules.clear();
-    settings.rules.push(rule_with(
-        "DEFAULT",
-        MonsterRuleActions {
-            flags: MonsterActionFlags::ATTACK,
-            damage_type: MonsterDamageType::Fire,
-            ..MonsterRuleActions::default()
-        },
-    ));
     settings
 }
 
