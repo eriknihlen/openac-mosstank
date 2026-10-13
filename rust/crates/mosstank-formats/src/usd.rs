@@ -14,7 +14,8 @@
 //! UTF-16 code units, then that many characters, line breaks included). An
 //! unknown tag is a cell with no value line.
 
-use mosstank_dotnet::{compare_ordinal, format_g15, split_at_utf16, try_parse_int};
+use mosstank_dotnet::{format_g15, try_parse_int};
+use openac_plugin_compat::text::{ordinal, utf16};
 
 use crate::FormatError;
 
@@ -158,7 +159,7 @@ impl VtankCell {
             }
         } else if self.tag == "ba" {
             let blob = self.blob_text.as_deref().unwrap_or("");
-            append_line(out, &mosstank_dotnet::utf16_len(blob).to_string());
+            append_line(out, &utf16::len(blob).to_string());
             out.push_str(blob);
         } else if KNOWN_SCALAR_TAGS.contains(&self.tag.as_str()) {
             append_line(out, self.as_string());
@@ -303,7 +304,7 @@ impl VtankDatabase {
     #[must_use]
     pub fn render(&self) -> String {
         let mut ordered: Vec<&(String, VtankTable)> = self.tables.iter().collect();
-        ordered.sort_by(|a, b| compare_ordinal(&a.0, &b.0));
+        ordered.sort_by(|a, b| ordinal::compare(&a.0, &b.0));
         let mut out = String::new();
         append_line(&mut out, &ordered.len().to_string());
         for (name, table) in ordered {
@@ -425,7 +426,7 @@ impl<'a> VtankLineCursor<'a> {
             return Ok("");
         }
         let rest = &self.text[self.position..];
-        let Some((blob, _)) = split_at_utf16(rest, length) else {
+        let Some((blob, _)) = utf16::split_at(rest, length) else {
             return Err(FormatError(format!(
                 "line {}: blob of {length} characters exceeds remaining input.",
                 self.line_number
@@ -452,7 +453,7 @@ mod tests {
             "n",
             "1",
             "ba",
-            &mosstank_dotnet::utf16_len(blob).to_string(),
+            &utf16::len(blob).to_string(),
         ]
         .join("\r\n");
         format!("{header}\r\n{blob}")

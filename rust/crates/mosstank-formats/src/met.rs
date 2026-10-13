@@ -11,7 +11,8 @@
 //! embedded route, a view's XML). The reader expects every line exactly
 //! where the writer puts it and names the line when it does not find it.
 
-use mosstank_dotnet::{compat::number::to_string_f64, parse_double, parse_int, utf16_len};
+use mosstank_dotnet::{compat::number::to_string_f64, parse_double, parse_int};
+use openac_plugin_compat::text::utf16;
 
 use crate::meta::{
     MetaAction, MetaActionKind, MetaCondition, MetaConditionKind, MetaProfile, MetaRule,
@@ -291,7 +292,7 @@ impl<'a> Reader<'a, '_> {
                 let count = self.int()?;
                 // The route follows only when the blob holds more than its
                 // name and node count.
-                let consumed = utf16_len(self.cursor.read_since(start));
+                let consumed = utf16::len(self.cursor.read_since(start));
                 let route = if usize::try_from(length).unwrap_or(0) <= consumed {
                     NavigationSettings::default()
                 } else {
@@ -672,7 +673,7 @@ fn double_cell(out: &mut String, value: f64) -> Result<(), String> {
 
 fn blob_cell(out: &mut String, blob: &str) {
     line(out, "ba");
-    line(out, &utf16_len(blob).to_string());
+    line(out, &utf16::len(blob).to_string());
     out.push_str(blob);
 }
 

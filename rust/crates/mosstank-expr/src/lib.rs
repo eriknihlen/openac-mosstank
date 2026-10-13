@@ -2,7 +2,6 @@
 //! variable state, the function registry and the core functions every
 //! expression has. Pure: the host's functions are registered by the caller.
 
-pub mod collation;
 pub mod core;
 pub mod dictionary;
 pub mod engine;

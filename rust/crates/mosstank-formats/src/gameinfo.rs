@@ -6,7 +6,8 @@ use std::collections::HashMap;
 
 use mosstank_data::damage::{MonsterDamageType, parse_damage_elements};
 use mosstank_dotnet::compat::number::{NumberStyles, parse_f32, parse_f64};
-use mosstank_dotnet::{is_white_space, to_upper_invariant, try_parse_int, try_parse_uint};
+use mosstank_dotnet::{try_parse_int, try_parse_uint};
+use openac_plugin_compat::text::casing;
 
 use crate::usd::{VtankCell, VtankDatabase, VtankRow, VtankTable};
 
@@ -159,7 +160,10 @@ fn add_row(database: &mut VtankDatabase, table: &str, cells: Vec<VtankCell>) {
 #[must_use]
 pub fn load_base(profiles: &dyn ProfileText) -> VtankDatabase {
     let built_in = built_in();
-    let Some(text) = profiles.read_text(FILE_NAME).filter(|t| !is_white_space(t)) else {
+    let Some(text) = profiles
+        .read_text(FILE_NAME)
+        .filter(|t| !casing::is_white_space_only(t))
+    else {
         return built_in;
     };
     match read(&text) {
@@ -328,7 +332,7 @@ impl VtankCraftDatabase {
         let mut by_result: HashMap<String, Vec<VtankCraftRecipe>> = HashMap::new();
         for recipe in &recipes {
             by_result
-                .entry(to_upper_invariant(&recipe.result_item))
+                .entry(casing::to_upper_invariant(&recipe.result_item))
                 .or_default()
                 .push(recipe.clone());
         }
@@ -348,11 +352,11 @@ impl VtankCraftDatabase {
     /// The recipes that make `result_name` (any case), by id.
     #[must_use]
     pub fn for_result(&self, result_name: &str) -> &[VtankCraftRecipe] {
-        if is_white_space(result_name) {
+        if casing::is_white_space_only(result_name) {
             return &[];
         }
         self.by_result
-            .get(&to_upper_invariant(result_name.trim()))
+            .get(&casing::to_upper_invariant(result_name.trim()))
             .map_or(&[], Vec::as_slice)
     }
 }
@@ -387,7 +391,7 @@ pub struct VtankGameInfoDatabase {
 }
 
 fn key(name: &str) -> String {
-    to_upper_invariant(name)
+    casing::to_upper_invariant(name)
 }
 
 impl VtankGameInfoDatabase {
@@ -541,7 +545,7 @@ impl VtankGameInfoDatabase {
     }
 
     fn member(&self, monster_name: &str) -> Option<VtankSpeciesMember> {
-        if !self.is_loaded || is_white_space(monster_name) {
+        if !self.is_loaded || casing::is_white_space_only(monster_name) {
             return None;
         }
         self.species_members.get(&key(monster_name)).copied()
@@ -572,7 +576,7 @@ impl VtankGameInfoDatabase {
     #[must_use]
     pub fn is_immune_to_magic(&self, monster_name: &str) -> bool {
         self.is_loaded
-            && !is_white_space(monster_name)
+            && !casing::is_white_space_only(monster_name)
             && self
                 .monster_immunities
                 .get(&key(monster_name))
@@ -583,7 +587,7 @@ impl VtankGameInfoDatabase {
     /// none.
     #[must_use]
     pub fn damage_preferences(&self, monster_name: &str) -> &[MonsterDamageType] {
-        if !self.is_loaded || is_white_space(monster_name) {
+        if !self.is_loaded || casing::is_white_space_only(monster_name) {
             return &[];
         }
         if let Some(exact) = self.monster_damage_overrides.get(&key(monster_name)) {

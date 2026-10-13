@@ -9,10 +9,8 @@ use std::cmp::Ordering;
 use std::sync::Arc;
 
 use mosstank_dotnet::compat::regex::{DotNetRegex, RegexOptions};
-use mosstank_dotnet::{
-    compare_ordinal_ignore_case, double_to_string, eq_ignore_case, is_decimal_digit,
-    try_parse_double,
-};
+use mosstank_dotnet::{double_to_string, is_decimal_digit, try_parse_double};
+use openac_plugin_compat::text::ordinal;
 
 /// What a [`MonsterValue`] holds.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -135,7 +133,7 @@ impl MonsterExpressionContext<'_> {
     /// The value a word names, if it names one.
     #[must_use]
     pub fn try_resolve(&self, token: &str) -> Option<MonsterValue> {
-        let word = |name: &str| eq_ignore_case(token, name);
+        let word = |name: &str| ordinal::equals_ignore_case(token, name);
         if word("true") {
             return Some(MonsterValue::from_boolean(true));
         }
@@ -212,9 +210,9 @@ impl Node {
         match self {
             Self::Number(_) => false,
             Self::Atom(token) => {
-                eq_ignore_case(token, "range")
-                    || eq_ignore_case(token, "hasshield")
-                    || eq_ignore_case(token, "metastate")
+                ordinal::equals_ignore_case(token, "range")
+                    || ordinal::equals_ignore_case(token, "hasshield")
+                    || ordinal::equals_ignore_case(token, "metastate")
                     || token.starts_with("setting_")
             }
             Self::Binary(_, left, right) => left.is_dynamic() || right.is_dynamic(),
@@ -339,7 +337,7 @@ fn compare(
     require_same_type(left, right, "comparison")?;
     let comparison = match left.kind {
         MonsterValueKind::Number => compare_double(left.number, right.number),
-        MonsterValueKind::Text => compare_ordinal_ignore_case(&left.text, &right.text),
+        MonsterValueKind::Text => ordinal::compare_ignore_case(&left.text, &right.text),
         MonsterValueKind::Boolean => left.boolean.cmp(&right.boolean),
     };
     Ok(MonsterValue::from_boolean(predicate(comparison)))
@@ -690,7 +688,9 @@ impl MonsterExpression {
         let result = self.try_evaluate(context)?;
         Ok(match result.kind {
             MonsterValueKind::Boolean => result.boolean,
-            MonsterValueKind::Text => eq_ignore_case(result.text.trim(), context.name.trim()),
+            MonsterValueKind::Text => {
+                ordinal::equals_ignore_case(result.text.trim(), context.name.trim())
+            }
             MonsterValueKind::Number => false,
         })
     }

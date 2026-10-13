@@ -8,7 +8,7 @@
 use std::collections::HashMap;
 use std::sync::LazyLock;
 
-use mosstank_dotnet::{eq_ignore_case, to_upper_invariant};
+use openac_plugin_compat::text::{casing, ordinal};
 
 use crate::model::RechargeHandlerRow;
 use crate::monster::MonsterValue;
@@ -277,13 +277,13 @@ static BY_NAME: LazyLock<HashMap<String, usize>> = LazyLock::new(|| {
     OPTIONS
         .iter()
         .enumerate()
-        .map(|(index, (name, _, _))| (to_upper_invariant(name), index))
+        .map(|(index, (name, _, _))| (casing::to_upper_invariant(name), index))
         .collect()
 });
 
 fn is_legacy_rare_walk_name(name: &str) -> bool {
-    eq_ignore_case(name, WALK_TO_OWN_CORPSES_ALIAS)
-        || eq_ignore_case(name, WALK_TO_OWN_RARE_CORPSES_ALIAS)
+    ordinal::equals_ignore_case(name, WALK_TO_OWN_CORPSES_ALIAS)
+        || ordinal::equals_ignore_case(name, WALK_TO_OWN_RARE_CORPSES_ALIAS)
 }
 
 /// Whether `/vt opt` knows the name (in any case, old rare-walk spellings
@@ -302,13 +302,13 @@ pub fn canonical(name: &str) -> Option<&'static str> {
     COMMAND_NAMES
         .iter()
         .copied()
-        .find(|known| eq_ignore_case(known, name))
+        .find(|known| ordinal::equals_ignore_case(known, name))
 }
 
 /// The option's default, the number 0 for a name the catalogue lacks.
 #[must_use]
 pub fn default(name: &str) -> MonsterValue {
-    BY_NAME.get(&to_upper_invariant(name)).map_or_else(
+    BY_NAME.get(&casing::to_upper_invariant(name)).map_or_else(
         || MonsterValue::from_number(0.0),
         |&index| OPTIONS[index].1.value(),
     )
@@ -319,7 +319,7 @@ pub fn default(name: &str) -> MonsterValue {
 #[must_use]
 pub fn declared_type(name: &str) -> VtankSettingValueType {
     BY_NAME
-        .get(&to_upper_invariant(name))
+        .get(&casing::to_upper_invariant(name))
         .map_or(VtankSettingValueType::Double, |&index| OPTIONS[index].2)
 }
 
@@ -550,7 +550,7 @@ pub const PAGES: [(&str, VtankOptionPage); 136] = [
 pub fn page_of(name: &str) -> Option<VtankOptionPage> {
     PAGES
         .iter()
-        .find(|(setting, _)| eq_ignore_case(setting, name))
+        .find(|(setting, _)| ordinal::equals_ignore_case(setting, name))
         .map(|(_, page)| *page)
 }
 
@@ -1080,7 +1080,7 @@ pub const DESCRIPTIONS: [(&str, &str); 136] = [
 pub fn description_of(name: &str) -> &'static str {
     DESCRIPTIONS
         .iter()
-        .find(|(setting, _)| eq_ignore_case(setting, name))
+        .find(|(setting, _)| ordinal::equals_ignore_case(setting, name))
         .map_or("", |(_, text)| text)
 }
 

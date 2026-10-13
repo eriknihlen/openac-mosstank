@@ -7,7 +7,7 @@
 use std::collections::HashMap;
 use std::sync::LazyLock;
 
-use mosstank_dotnet::{eq_ignore_case, to_upper_invariant};
+use openac_plugin_compat::text::{casing, ordinal};
 
 use super::{UbSettingDefinition, UbSettingKind, UbSettingScope, UbSettingValue};
 use crate::defaults::VtankEnumValue;
@@ -173,7 +173,7 @@ pub const ORIGINAL_SPELLINGS: [(&str, &str); 6] = [
 pub fn original_name_of(name: &str) -> &str {
     ORIGINAL_SPELLINGS
         .iter()
-        .find(|(_, row)| eq_ignore_case(row, name))
+        .find(|(_, row)| ordinal::equals_ignore_case(row, name))
         .map_or(name, |(spelling, _)| spelling)
 }
 
@@ -183,7 +183,12 @@ static KINDS_BY_NAME: LazyLock<HashMap<String, UbSettingKind>> = LazyLock::new(|
     all()
         .iter()
         .chain(accepted_only())
-        .map(|definition| (to_upper_invariant(&definition.name), definition.kind))
+        .map(|definition| {
+            (
+                casing::to_upper_invariant(&definition.name),
+                definition.kind,
+            )
+        })
         .collect()
 });
 
@@ -206,7 +211,7 @@ pub fn accepted_only() -> &'static [UbSettingDefinition] {
 #[must_use]
 pub fn kind_of(name: &str) -> UbSettingKind {
     KINDS_BY_NAME
-        .get(&to_upper_invariant(name))
+        .get(&casing::to_upper_invariant(name))
         .copied()
         .unwrap_or(UbSettingKind::String)
 }

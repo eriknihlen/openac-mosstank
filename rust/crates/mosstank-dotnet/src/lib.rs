@@ -1,109 +1,20 @@
-//! The .NET string behaviour MossTank's C# relies on, beyond the SDK's
+//! The .NET behaviour MossTank's C# relies on beyond the SDK's
 //! compatibility kit (`openac-plugin-compat`, re-exported as [`compat`]):
 //!
-//! - lengths and offsets in UTF-16 code units, as `string.Length` and
-//!   `Substring` count them (profile files carry such lengths);
-//! - ordinal and ordinal-ignore-case comparison;
-//! - invariant casing, one character to one character as .NET maps them;
-//! - `int.TryParse(text, NumberStyles.Integer, InvariantCulture)` and friends;
+//! - `int.TryParse(text, NumberStyles.Integer, InvariantCulture)` and friends,
+//!   and the `Parse` forms with .NET's exception messages;
+//! - `char.IsDigit` (the kit has no character categories yet);
+//! - `StringReader.ReadLine` ([`LineReader`]);
 //! - `Dictionary` and `HashSet` with .NET's enumeration order ([`collections`]).
+//!
+//! UTF-16 positions, ordinal comparison, invariant casing and the
+//! invariant-culture order are the kit's (`compat::text`).
 
 pub mod collections;
 
-use std::cmp::Ordering;
-
 pub use openac_plugin_compat as compat;
 use openac_plugin_compat::number::{self, NumberStyles};
-
-/// `string.Length`: the length in UTF-16 code units.
-#[must_use]
-pub fn utf16_len(text: &str) -> usize {
-    text.chars().map(char::len_utf16).sum()
-}
-
-/// The byte offset in `text` of UTF-16 offset `units`, or `None` when
-/// `units` is past the end or falls between the two halves of a surrogate
-/// pair (a split C# would make and Rust strings cannot hold).
-#[must_use]
-pub fn byte_offset_of_utf16(text: &str, units: usize) -> Option<usize> {
-    let mut counted = 0usize;
-    for (offset, c) in text.char_indices() {
-        if counted == units {
-            return Some(offset);
-        }
-        counted += c.len_utf16();
-        if counted > units {
-            return None;
-        }
-    }
-    (counted == units).then_some(text.len())
-}
-
-/// Splits `text` after `units` UTF-16 code units (`Substring(0, units)` and
-/// the rest), or `None` as [`byte_offset_of_utf16`].
-#[must_use]
-pub fn split_at_utf16(text: &str, units: usize) -> Option<(&str, &str)> {
-    byte_offset_of_utf16(text, units).map(|offset| text.split_at(offset))
-}
-
-/// `string.CompareOrdinal`: by UTF-16 code unit.
-#[must_use]
-pub fn compare_ordinal(a: &str, b: &str) -> Ordering {
-    a.encode_utf16().cmp(b.encode_utf16())
-}
-
-/// `StringComparer.OrdinalIgnoreCase.Compare`: by UTF-16 code unit after
-/// the invariant upper-case mapping of each character.
-#[must_use]
-pub fn compare_ordinal_ignore_case(a: &str, b: &str) -> Ordering {
-    let upper = |text: &str| -> Vec<u16> { to_upper_invariant(text).encode_utf16().collect() };
-    upper(a).cmp(&upper(b))
-}
-
-/// `string.Equals(a, b, StringComparison.OrdinalIgnoreCase)`.
-#[must_use]
-pub fn eq_ignore_case(a: &str, b: &str) -> bool {
-    a.chars().map(upper_char).eq(b.chars().map(upper_char))
-}
-
-/// `char.ToUpperInvariant`: one character to one character; a character
-/// whose full upper case is longer (`ß`) stays as it is, as in .NET.
-#[must_use]
-pub fn upper_char(c: char) -> char {
-    let mut mapped = c.to_uppercase();
-    match (mapped.next(), mapped.next()) {
-        (Some(upper), None) => upper,
-        _ => c,
-    }
-}
-
-/// `char.ToLowerInvariant`, one character to one character.
-#[must_use]
-pub fn lower_char(c: char) -> char {
-    let mut mapped = c.to_lowercase();
-    match (mapped.next(), mapped.next()) {
-        (Some(lower), None) => lower,
-        _ => c,
-    }
-}
-
-/// `string.ToUpperInvariant`.
-#[must_use]
-pub fn to_upper_invariant(text: &str) -> String {
-    text.chars().map(upper_char).collect()
-}
-
-/// `string.ToLowerInvariant`.
-#[must_use]
-pub fn to_lower_invariant(text: &str) -> String {
-    text.chars().map(lower_char).collect()
-}
-
-/// `string.IsNullOrWhiteSpace` for a present string.
-#[must_use]
-pub fn is_white_space(text: &str) -> bool {
-    text.chars().all(char::is_whitespace)
-}
+use openac_plugin_compat::text::{ordinal, utf16};
 
 /// The first code point of each run of ten decimal digits (Unicode
 /// category Nd) in the Basic Multilingual Plane.
@@ -160,43 +71,6 @@ pub fn try_parse_float(text: &str) -> Option<f32> {
 #[must_use]
 pub fn format_g15(value: f64) -> String {
     number::format_f64(value, "G15").expect("G15 is a supported format")
-}
-
-/// `value.ToString(format, CultureInfo.InvariantCulture)` for a double,
-/// adding to the compatibility kit the custom formats that only put literal
-/// text before or after their digits ("0.0 x", "~0.00 m"). A literal before
-/// the digits follows the minus sign, as in .NET. Anything else the kit does
-/// not print is still refused.
-///
-/// # Errors
-/// What the kit refuses, unless the format is digits with literal text
-/// around them.
-pub fn format_double(value: f64, format: &str) -> Result<String, number::FormatError> {
-    let refused = match number::format_f64(value, format) {
-        Err(error @ number::FormatError::Unsupported(_)) => error,
-        other => return other,
-    };
-    let placeholder = |c: char| matches!(c, '0' | '#' | '.' | ',');
-    let (Some(start), Some(end)) = (format.find(placeholder), format.rfind(placeholder)) else {
-        return Err(refused);
-    };
-    let (prefix, core, suffix) = (&format[..start], &format[start..=end], &format[end + 1..]);
-    // Characters with a meaning of their own in a custom format, and an
-    // exponent: not plain literal text.
-    let special = |c: char| matches!(c, '%' | '\u{2030}' | ';' | '\\' | '\'' | '"' | 'E' | 'e');
-    if !core.chars().all(placeholder) || prefix.chars().any(special) || suffix.chars().any(special)
-    {
-        return Err(refused);
-    }
-    let digits = number::format_f64(value, core)?;
-    if !value.is_finite() {
-        // NaN and the infinities print as their symbol alone.
-        return Ok(digits);
-    }
-    Ok(match digits.strip_prefix('-') {
-        Some(magnitude) => format!("-{prefix}{magnitude}{suffix}"),
-        None => format!("{prefix}{digits}{suffix}"),
-    })
 }
 
 /// `value.ToString(CultureInfo.InvariantCulture)` for a double.
@@ -275,9 +149,9 @@ pub fn parse_double(text: &str) -> Result<f64, String> {
 /// Anything else, with .NET's message.
 pub fn parse_bool(text: &str) -> Result<bool, String> {
     let trimmed = text.trim_matches(|c: char| c.is_whitespace() || c == '\0');
-    if eq_ignore_case(trimmed, "True") {
+    if ordinal::equals_ignore_case(trimmed, "True") {
         Ok(true)
-    } else if eq_ignore_case(trimmed, "False") {
+    } else if ordinal::equals_ignore_case(trimmed, "False") {
         Ok(false)
     } else {
         Err(format!(
@@ -354,7 +228,7 @@ impl<'a> LineReader<'a> {
     /// remain.
     pub fn read_utf16(&mut self, units: usize) -> Option<&'a str> {
         let rest = &self.text[self.position..];
-        let (taken, _) = split_at_utf16(rest, units)?;
+        let (taken, _) = utf16::split_at(rest, units)?;
         self.position += taken.len();
         Some(taken)
     }
@@ -370,26 +244,17 @@ impl<'a> LineReader<'a> {
 mod tests {
     use super::*;
 
-    #[test]
-    fn utf16_offsets_count_surrogate_pairs_as_two() {
-        let text = "a\u{1F600}b";
-        assert_eq!(utf16_len(text), 4);
-        assert_eq!(byte_offset_of_utf16(text, 1), Some(1));
-        assert_eq!(byte_offset_of_utf16(text, 2), None);
-        assert_eq!(byte_offset_of_utf16(text, 3), Some(5));
-        assert_eq!(byte_offset_of_utf16(text, 4), Some(6));
-        assert_eq!(byte_offset_of_utf16(text, 5), None);
-    }
-
     // Expected values: .NET 10 `double.ToString(format, InvariantCulture)`.
+    // `cstrf` and the settings texts print such formats; the kit has covered
+    // custom formats with literal text since API 1.0.
     #[test]
-    fn a_custom_format_may_carry_literal_text_around_its_digits() {
-        assert_eq!(format_double(3.5, "0.0 x").unwrap(), "3.5 x");
-        assert_eq!(format_double(3.5, "0.0 X").unwrap(), "3.5 X");
-        assert_eq!(format_double(-3.5, "~0.00").unwrap(), "-~3.50");
-        assert_eq!(format_double(f64::NAN, "0.0 x").unwrap(), "NaN");
-        assert_eq!(format_double(3.5, "0.00").unwrap(), "3.50");
-        assert!(format_double(3.5, "0 x 0").is_err());
+    fn the_kit_prints_custom_formats_with_literal_text() {
+        let format = |value, format| number::format_f64(value, format).unwrap();
+        assert_eq!(format(3.5, "0.0 x"), "3.5 x");
+        assert_eq!(format(3.5, "0.0 X"), "3.5 X");
+        assert_eq!(format(-3.5, "~0.00"), "-~3.50");
+        assert_eq!(format(f64::NAN, "0.0 x"), "NaN");
+        assert_eq!(format(3.5, "0.00"), "3.50");
     }
 
     #[test]
@@ -411,16 +276,5 @@ mod tests {
         assert_eq!(reader.read_line(), Some("c"));
         assert_eq!(reader.read_line(), Some("d"));
         assert_eq!(reader.read_line(), None);
-    }
-
-    #[test]
-    fn invariant_casing_keeps_one_character_per_character() {
-        assert_eq!(to_upper_invariant("straße"), "STRAßE");
-        assert!(eq_ignore_case("Adja's Gift", "ADJA'S GIFT"));
-        assert_eq!(
-            compare_ordinal_ignore_case("apple", "Banana"),
-            Ordering::Less
-        );
-        assert_eq!(compare_ordinal("Zebra", "apple"), Ordering::Less);
     }
 }

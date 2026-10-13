@@ -3,6 +3,7 @@
 //! `StoredValue` (indented, named NaN/Infinity, every property present).
 
 use mosstank_dotnet::compat::json::{JsonNumber, JsonValue, system_text_json};
+use openac_plugin_compat::text::casing;
 
 use crate::error::{ExpressionError, Fault};
 use crate::value::{
@@ -160,7 +161,7 @@ pub fn restore(
         Some(_) => return Err("a saved value has no kind".to_owned()),
     };
     let number = number_of(value.get_ignore_case("Number"))?;
-    Ok(match mosstank_dotnet::to_lower_invariant(&kind).as_str() {
+    Ok(match casing::to_lower_invariant(&kind).as_str() {
         "number" => ExpressionValue::Number(number),
         "boolean" => ExpressionValue::Boolean(number != 0.0),
         "string" => match value.get_ignore_case("Text") {

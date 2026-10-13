@@ -7,6 +7,7 @@ use mosstank_settings::model::{AllSettings, GemFoodItem, VitalSettings};
 use mosstank_settings::monster::MonsterRuleActions;
 use mosstank_settings::options::{self, VtankSettingValueType};
 use mosstank_settings::{defaults, monster_table, profile};
+use openac_plugin_compat::text::casing;
 
 // Source: tests/AcDream.Plugins.MossTank.Tests/VtankDefaultSettingsDatabaseTests.cs :: EverySettingHasARowWithItsCatalogueDefault
 #[test]
@@ -101,7 +102,7 @@ fn the_page_table_is_the_one_the_options_filter_uses() {
         .iter()
         .map(|row| {
             (
-                mosstank_dotnet::to_upper_invariant(row.cells[0].as_string()),
+                casing::to_upper_invariant(row.cells[0].as_string()),
                 row.cells[1].as_int().unwrap(),
             )
         })

@@ -5,8 +5,9 @@
 
 use std::collections::HashMap;
 
-use mosstank_dotnet::{double_to_int, round_away_from_zero, to_upper_invariant};
+use mosstank_dotnet::{double_to_int, round_away_from_zero};
 use mosstank_formats::usd::{VtankCell, VtankDatabase, VtankRow, VtankTable};
+use openac_plugin_compat::text::{casing, ordinal};
 
 use crate::model::RechargeHandlerRow;
 use crate::monster::MonsterRule;
@@ -115,7 +116,7 @@ pub fn default_recharge_handler_rows() -> Vec<RechargeHandlerRow> {
 pub fn setting_category_bitmasks() -> HashMap<String, i32> {
     options::PAGES
         .iter()
-        .map(|(name, page)| (to_upper_invariant(name), page.0))
+        .map(|(name, page)| (casing::to_upper_invariant(name), page.0))
         .collect()
 }
 
@@ -124,7 +125,7 @@ pub fn setting_category_bitmasks() -> HashMap<String, i32> {
 pub fn setting_enum_values(name: &str) -> Vec<VtankEnumValue> {
     options::CHOICE_LABELS
         .iter()
-        .filter(|(setting, _, _)| mosstank_dotnet::eq_ignore_case(setting, name))
+        .filter(|(setting, _, _)| ordinal::equals_ignore_case(setting, name))
         .map(|&(_, value, label)| VtankEnumValue {
             value,
             label: label.to_owned(),

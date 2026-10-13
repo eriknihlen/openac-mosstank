@@ -3,9 +3,10 @@
 //! item tables beside it. A save changes only the cells whose value
 //! changed, so an untouched profile renders byte for byte as it was read.
 
-use mosstank_dotnet::{double_to_int, double_to_string, round_away_from_zero, to_lower_invariant};
+use mosstank_dotnet::{double_to_int, double_to_string, round_away_from_zero};
 use mosstank_formats::FormatError;
 use mosstank_formats::usd::{VtankCell, VtankDatabase, VtankRow, VtankTable};
+use openac_plugin_compat::text::casing;
 
 use crate::items::{
     assist_items, buff_exemplars, gem_food_items, item_use_specifiers, profiled_item_ids,
@@ -187,7 +188,7 @@ pub fn apply(raw_name: &str, cell: &VtankCell, s: &mut AllSettings) -> Result<()
     let Some(canonical) = options::canonical(raw_name) else {
         return Ok(());
     };
-    let name = to_lower_invariant(canonical);
+    let name = casing::to_lower_invariant(canonical);
     let c = &mut s.combat;
     let b = &mut s.buffs;
     let v = &mut s.vitals;
@@ -385,7 +386,7 @@ pub fn apply(raw_name: &str, cell: &VtankCell, s: &mut AllSettings) -> Result<()
 #[allow(clippy::too_many_lines)]
 pub fn capture(raw_name: &str, s: &AllSettings) -> Option<VtankCell> {
     let canonical = options::canonical(raw_name)?;
-    let name = to_lower_invariant(canonical);
+    let name = casing::to_lower_invariant(canonical);
     let n_ = |value: f64| num(&name, value);
     let per_unit = |meters: f64| num(&name, meters / METERS_PER_UNIT);
     let percent = |fraction: f64| num(&name, fraction * 100.0);

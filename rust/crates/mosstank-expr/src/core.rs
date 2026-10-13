@@ -8,6 +8,7 @@ use mosstank_dotnet::compat::DotNetRandom;
 use mosstank_dotnet::compat::datetime::{DateFormatError, DateTime};
 use mosstank_dotnet::compat::number::{self, NumberStyles, convert_to_int32, format_u32};
 use mosstank_dotnet::compat::regex::{DotNetRegex, RegexOptions};
+use openac_plugin_compat::text::{collation, ordinal, utf16};
 
 use crate::engine::compare_doubles;
 use crate::error::{ExpressionError, Fault};
@@ -371,7 +372,7 @@ fn register_conversions_and_math(registry: &mut FunctionRegistry, options: &Core
             let text = if is_standard_hex_format(format) {
                 format_u32(wrap_to_u32(value), format)
             } else {
-                mosstank_dotnet::format_double(value, format)
+                number::format_f64(value, format)
             }
             .map_err(|error| format_error(&error))?;
             Ok(ExpressionValue::string(&text))
@@ -399,7 +400,7 @@ fn register_conversions_and_math(registry: &mut FunctionRegistry, options: &Core
         |_, args| {
             #[allow(clippy::cast_precision_loss)]
             Ok(ExpressionValue::Number(
-                mosstank_dotnet::utf16_len(args[0].as_str("strlen")?) as f64,
+                utf16::len(args[0].as_str("strlen")?) as f64,
             ))
         },
         Some("strlen[text]"),
@@ -647,7 +648,7 @@ fn comparison_answer(answer: &ExpressionValue) -> Result<i32> {
 fn default_comparison(left: &ExpressionValue, right: &ExpressionValue) -> Result<i32> {
     use ExpressionValue as V;
     match (left, right) {
-        (V::String(a), V::String(b)) => Ok(match crate::collation::compare_invariant(a, b) {
+        (V::String(a), V::String(b)) => Ok(match collation::compare(a, b) {
             std::cmp::Ordering::Less => -1,
             std::cmp::Ordering::Equal => 0,
             std::cmp::Ordering::Greater => 1,
@@ -1259,12 +1260,12 @@ fn register_coordinates(registry: &mut FunctionRegistry) {
                 )));
             };
             let mut north_south = parse_coordinate_number(found.group("NSval").value)?;
-            if !mosstank_dotnet::eq_ignore_case(found.group("NSchr").value, "n") {
+            if !ordinal::equals_ignore_case(found.group("NSchr").value, "n") {
                 north_south = -north_south;
             }
             let mut east_west = parse_coordinate_number(found.group("EWval").value)?;
             let letter = found.group("EWchr").value;
-            if !letter.is_empty() && !mosstank_dotnet::eq_ignore_case(letter, "e") {
+            if !letter.is_empty() && !ordinal::equals_ignore_case(letter, "e") {
                 east_west = -east_west;
             }
             let height = found.group("Zval").value;

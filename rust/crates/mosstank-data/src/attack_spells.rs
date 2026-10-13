@@ -7,7 +7,7 @@ use std::collections::HashMap;
 use ac_plugin_abi::character::{Skill, Training};
 use ac_plugin_abi::magic::SpellInfo;
 use ac_plugin_abi::world::ProjectilePathKind;
-use mosstank_dotnet::{eq_ignore_case, to_upper_invariant};
+use openac_plugin_compat::text::{casing, ordinal};
 
 use crate::damage::MonsterDamageType;
 
@@ -89,7 +89,7 @@ impl AttackSpellCatalog {
             }
             catalog
                 .families
-                .entry(to_upper_invariant(&family))
+                .entry(casing::to_upper_invariant(&family))
                 .or_default()
                 .push(spell.clone());
         }
@@ -101,7 +101,7 @@ impl AttackSpellCatalog {
     }
 
     fn members(&self, family: &str) -> Option<&Vec<SpellInfo>> {
-        self.families.get(&to_upper_invariant(family))
+        self.families.get(&casing::to_upper_invariant(family))
     }
 
     /// The best usable member of the line for this element and kind.
@@ -136,7 +136,7 @@ impl AttackSpellCatalog {
         let first_rung = format!("{family} I");
         let mut lowest: Option<&SpellInfo> = None;
         for spell in members {
-            if eq_ignore_case(&spell.name, &first_rung) {
+            if ordinal::equals_ignore_case(&spell.name, &first_rung) {
                 return Some(spell.clone());
             }
             if lowest.is_none_or(|current| spell.quality() < current.quality()) {
@@ -337,7 +337,8 @@ pub fn base_name(name: &str) -> String {
     const INCANTATION: &str = "Incantation of ";
     let mut span = name.trim();
     let lead: String = span.chars().take(INCANTATION.len()).collect();
-    if lead.chars().count() == INCANTATION.len() && eq_ignore_case(&lead, INCANTATION) {
+    if lead.chars().count() == INCANTATION.len() && ordinal::equals_ignore_case(&lead, INCANTATION)
+    {
         span = span[lead.len()..].trim_start();
     }
     if let Some(space) = span.rfind(' ')

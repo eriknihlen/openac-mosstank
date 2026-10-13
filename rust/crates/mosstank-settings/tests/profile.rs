@@ -7,6 +7,7 @@ use mosstank_settings::items::item_use_specifiers;
 use mosstank_settings::model::{AllSettings, GemFoodItem, TargetSelectionMethod};
 use mosstank_settings::options::{self, VtankSettingValueType};
 use mosstank_settings::{defaults, profile};
+use openac_plugin_compat::text::ordinal;
 
 const USD_FIXTURES: [&str; 4] = ["defaultsettings", "owner-a", "owner-b", "owner-c"];
 
@@ -360,7 +361,7 @@ fn create_new_has_the_same_table_set_as_the_default_fixture() {
 
     let names = |database: &VtankDatabase| {
         let mut names: Vec<String> = database.tables.iter().map(|(n, _)| n.clone()).collect();
-        names.sort_by(|a, b| mosstank_dotnet::compare_ordinal(a, b));
+        names.sort_by(|a, b| ordinal::compare(a, b));
         names
     };
     let expected = names(&fixture);

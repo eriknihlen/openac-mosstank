@@ -11,6 +11,7 @@ use mosstank_settings::ub::{
     UbSettingBinding, UbSettingCatalog, UbSettingDefinition, UbSettingKind, UbSettingScope,
     UbSettingValue, UbSettingValueBag, UbSettingValues, definitions,
 };
+use openac_plugin_compat::text::casing;
 
 fn catalog() -> UbSettingCatalog<UbSettingValueBag> {
     UbSettingCatalog::new(UbSettingValueBag::default(), Vec::new())
@@ -27,7 +28,7 @@ fn every_definition_has_a_dotted_name_a_summary_and_a_category() {
     for definition in definitions::all() {
         assert!(definition.name.contains('.'), "{}", definition.name);
         assert!(
-            !mosstank_dotnet::is_white_space(&definition.summary),
+            !casing::is_white_space_only(&definition.summary),
             "{} has no summary",
             definition.name
         );
@@ -957,12 +958,12 @@ fn every_exclusion_names_a_setting_that_exists_and_gives_a_reason() {
             declared.contains(key),
             "{key} is excluded but no tool declares it"
         );
-        assert!(!mosstank_dotnet::is_white_space(reason));
+        assert!(!casing::is_white_space_only(reason));
         assert!(reason.trim().ends_with('.'), "{key}");
     }
     for (key, reason) in ADDED_HERE {
         assert!(!declared.contains(key), "{key} is declared by a tool");
-        assert!(!mosstank_dotnet::is_white_space(reason));
+        assert!(!casing::is_white_space_only(reason));
     }
 }
 
@@ -1106,6 +1107,6 @@ fn the_shape_of_the_catalogue_is_what_the_display_tools_imply() {
     );
     assert!(
         !all.iter()
-            .any(|d| mosstank_dotnet::to_upper_invariant(&d.name).contains("WINDOW"))
+            .any(|d| casing::to_upper_invariant(&d.name).contains("WINDOW"))
     );
 }

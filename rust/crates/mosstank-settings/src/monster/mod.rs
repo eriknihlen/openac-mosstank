@@ -8,8 +8,8 @@ use std::collections::HashMap;
 use std::sync::Arc;
 
 use mosstank_data::damage::MonsterDamageType;
-use mosstank_dotnet::{eq_ignore_case, is_white_space};
 use mosstank_formats::gameinfo::VtankGameInfoDatabase;
+use openac_plugin_compat::text::{casing, ordinal};
 
 pub use expression::{MonsterExpression, MonsterExpressionContext, MonsterValue, MonsterValueKind};
 
@@ -197,7 +197,7 @@ pub struct MonsterRule {
 }
 
 fn normalize_expression(expression: &str) -> String {
-    if is_white_space(expression) {
+    if casing::is_white_space_only(expression) {
         "DEFAULT".to_owned()
     } else {
         expression.trim().to_owned()
@@ -339,7 +339,8 @@ impl MonsterRule {
 /// Either spelling of the fallback row's name.
 #[must_use]
 pub fn is_default_name(expression: &str) -> bool {
-    eq_ignore_case(expression, "DEFAULT") || eq_ignore_case(expression, AUTHENTIC_DEFAULT_NAME)
+    ordinal::equals_ignore_case(expression, "DEFAULT")
+        || ordinal::equals_ignore_case(expression, AUTHENTIC_DEFAULT_NAME)
 }
 
 /// The rule a monster resolved to.
@@ -445,7 +446,7 @@ impl MonsterFactTable {
         let Some(word) = word else {
             return;
         };
-        if species_id <= 0 || is_white_space(word) {
+        if species_id <= 0 || casing::is_white_space_only(word) {
             return;
         }
         self.species_words.insert(species_id, word.to_owned());

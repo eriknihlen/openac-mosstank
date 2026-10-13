@@ -14,9 +14,10 @@ use std::sync::Arc;
 
 use mosstank_dotnet::compat::number::{self, NumberStyles};
 use mosstank_dotnet::{
-    double_to_int, format_g15, parse_bool, round_away_from_zero, to_upper_invariant,
-    try_parse_double, try_parse_float, try_parse_int, try_parse_uint, utf16_len,
+    double_to_int, format_g15, parse_bool, round_away_from_zero, try_parse_double, try_parse_float,
+    try_parse_int, try_parse_uint,
 };
+use openac_plugin_compat::text::{casing, ordinal, utf16};
 
 use crate::defaults::VtankEnumValue;
 
@@ -210,7 +211,7 @@ fn try_parse_color(text: &str) -> Option<u32> {
         }
     }
     let hex = |digits: &str| number::parse_u32(digits, NumberStyles::HEX_NUMBER);
-    match utf16_len(body) {
+    match utf16::len(body) {
         6 => hex(body).map(|rgb| 0xFF00_0000 | rgb),
         8 => hex(body),
         _ => None,
@@ -381,17 +382,17 @@ impl UbSettingValueBag {
 impl UbSettingValues for UbSettingValueBag {
     fn read(&self, scope: UbSettingScope, name: &str) -> Option<UbSettingValue> {
         self.tiers[Self::tier(scope)]
-            .get(&to_upper_invariant(name))
+            .get(&casing::to_upper_invariant(name))
             .cloned()
     }
 
     fn write(&mut self, scope: UbSettingScope, name: &str, value: UbSettingValue) {
-        self.tiers[Self::tier(scope)].insert(to_upper_invariant(name), value);
+        self.tiers[Self::tier(scope)].insert(casing::to_upper_invariant(name), value);
     }
 
     fn clear(&mut self, scope: UbSettingScope, name: &str) -> bool {
         self.tiers[Self::tier(scope)]
-            .remove(&to_upper_invariant(name))
+            .remove(&casing::to_upper_invariant(name))
             .is_some()
     }
 
@@ -454,24 +455,27 @@ impl<V: UbSettingValues> UbSettingCatalog<V> {
     pub fn new(values: V, live_owners: Vec<(String, UbSettingBinding)>) -> Self {
         let live: HashMap<String, UbSettingBinding> = live_owners
             .into_iter()
-            .map(|(name, binding)| (to_upper_invariant(&name), binding))
+            .map(|(name, binding)| (casing::to_upper_invariant(&name), binding))
             .collect();
         let bind = |definition: &UbSettingDefinition| UbSetting {
             definition: Arc::new(definition.clone()),
-            has_live_owner: live.contains_key(&to_upper_invariant(&definition.name)),
+            has_live_owner: live.contains_key(&casing::to_upper_invariant(&definition.name)),
         };
         let settings: Vec<UbSetting> = definitions::all().iter().map(bind).collect();
         let mut by_name: HashMap<String, UbSetting> = settings
             .iter()
-            .map(|row| (to_upper_invariant(row.name()), row.clone()))
+            .map(|row| (casing::to_upper_invariant(row.name()), row.clone()))
             .collect();
         // Reachable by name, but not rows on the tab.
         for definition in definitions::accepted_only() {
-            by_name.insert(to_upper_invariant(&definition.name), bind(definition));
+            by_name.insert(
+                casing::to_upper_invariant(&definition.name),
+                bind(definition),
+            );
         }
         for (spelling, name) in definitions::ORIGINAL_SPELLINGS {
-            let row = by_name[&to_upper_invariant(name)].clone();
-            by_name.insert(to_upper_invariant(spelling), row);
+            let row = by_name[&casing::to_upper_invariant(name)].clone();
+            by_name.insert(casing::to_upper_invariant(spelling), row);
         }
         let mut categories: Vec<String> = Vec::new();
         for row in &settings {
@@ -480,7 +484,7 @@ impl<V: UbSettingValues> UbSettingCatalog<V> {
                 categories.push(category.to_owned());
             }
         }
-        categories.sort_by(|a, b| mosstank_dotnet::compare_ordinal(a, b));
+        categories.sort_by(|a, b| ordinal::compare(a, b));
         Self {
             values,
             settings,
@@ -516,7 +520,7 @@ impl<V: UbSettingValues> UbSettingCatalog<V> {
     /// can set it, or the original's spelling of a row named otherwise here.
     #[must_use]
     pub fn try_get(&self, name: &str) -> Option<UbSetting> {
-        self.by_name.get(&to_upper_invariant(name)).cloned()
+        self.by_name.get(&casing::to_upper_invariant(name)).cloned()
     }
 
     /// The row of one name.
@@ -532,7 +536,7 @@ impl<V: UbSettingValues> UbSettingCatalog<V> {
         if !row.has_live_owner {
             return None;
         }
-        self.live.get(&to_upper_invariant(row.name()))
+        self.live.get(&casing::to_upper_invariant(row.name()))
     }
 
     /// The value in force: the live owner's, else the character's, the
@@ -553,7 +557,7 @@ impl<V: UbSettingValues> UbSettingCatalog<V> {
     /// Writes a value: to the live owner, or to the tier the row declares.
     pub fn set(&mut self, row: &UbSetting, value: UbSettingValue) {
         if row.has_live_owner
-            && let Some(binding) = self.live.get_mut(&to_upper_invariant(row.name()))
+            && let Some(binding) = self.live.get_mut(&casing::to_upper_invariant(row.name()))
         {
             (binding.set)(value);
             return;

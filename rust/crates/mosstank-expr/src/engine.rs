@@ -2,6 +2,7 @@
 //! silent recovery, which profiles are written against) and the evaluator.
 
 use mosstank_dotnet::compat::regex::{DotNetRegex, RegexOptions};
+use openac_plugin_compat::text::{casing, utf16};
 
 use crate::error::{ExpressionError, Fault};
 use crate::runtime::{EvaluationContext, ExpressionVariableScope};
@@ -21,7 +22,7 @@ impl ExpressionProgram {
     /// # Errors
     /// The text is empty or not an expression.
     pub fn compile(source: &str) -> Result<Self, ExpressionError> {
-        if mosstank_dotnet::is_white_space(source) {
+        if casing::is_white_space_only(source) {
             return Err(ExpressionError::parse("Expression is empty", 0));
         }
         let mut parser = Parser::new(source);
@@ -344,8 +345,8 @@ fn subtract(
 fn are_equal(left: &ExpressionValue, right: &ExpressionValue) -> bool {
     match left {
         ExpressionValue::String(text) => {
-            mosstank_dotnet::to_lower_invariant(text)
-                == mosstank_dotnet::to_lower_invariant(&right.to_display_string())
+            casing::to_lower_invariant(text)
+                == casing::to_lower_invariant(&right.to_display_string())
         }
         _ => left.same_value(right),
     }
@@ -441,7 +442,7 @@ fn evaluate_index(
     }
     let length = match &value {
         ExpressionValue::List(list) => list.len(),
-        ExpressionValue::String(text) => mosstank_dotnet::utf16_len(text),
+        ExpressionValue::String(text) => utf16::len(text),
         other => {
             return Err(ExpressionError::evaluation_at(
                 format!("{} does not support index access", other.kind().name()),
@@ -773,7 +774,7 @@ impl Lexer {
                 break;
             };
             let actual = if ignore_case {
-                mosstank_dotnet::lower_char(*actual)
+                casing::to_lower_char(*actual)
             } else {
                 *actual
             };

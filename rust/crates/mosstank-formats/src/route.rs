@@ -3,8 +3,8 @@
 //! files hold them.
 
 pub use ac_plugin_abi::world::Position;
-use mosstank_dotnet::{eq_ignore_case, is_white_space};
 use openac_plugin_compat::number::format_f64;
+use openac_plugin_compat::text::{casing, ordinal};
 
 /// How a route runs.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
@@ -339,8 +339,8 @@ impl RouteRecallKind {
             return None;
         }
         Self::ALL.into_iter().find(|candidate| {
-            eq_ignore_case(candidate.display_name(), trimmed)
-                || eq_ignore_case(candidate.name(), trimmed)
+            ordinal::equals_ignore_case(candidate.display_name(), trimmed)
+                || ordinal::equals_ignore_case(candidate.name(), trimmed)
         })
     }
 
@@ -557,7 +557,7 @@ impl RouteWaypoint {
     }
 
     fn object_label(&self) -> String {
-        if is_white_space(&self.object_name) {
+        if casing::is_white_space_only(&self.object_name) {
             format!("0x{:08X}", self.object_id)
         } else {
             self.object_name.clone()
@@ -568,7 +568,7 @@ impl RouteWaypoint {
     /// display name.
     #[must_use]
     pub fn recall_label(&self) -> String {
-        if !is_white_space(&self.recall_spell_name) {
+        if !casing::is_white_space_only(&self.recall_spell_name) {
             self.recall_spell_name.clone()
         } else if self.recall_spell_id != 0 {
             self.recall_spell_id.to_string()
@@ -612,7 +612,7 @@ fn resolve_catalog_spell_id_by_name(spells: Option<&dyn SpellLookup>, name: &str
     spells
         .known_spells()
         .into_iter()
-        .find(|(_, spell)| eq_ignore_case(spell, name))
+        .find(|(_, spell)| ordinal::equals_ignore_case(spell, name))
         .map_or(0, |(id, _)| id)
 }
 

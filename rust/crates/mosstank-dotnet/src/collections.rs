@@ -19,7 +19,7 @@ use std::fmt;
 use std::hash::Hash;
 use std::marker::PhantomData;
 
-use crate::to_upper_invariant;
+use openac_plugin_compat::text::casing::to_upper_invariant;
 
 /// How a collection compares its keys (.NET's `IEqualityComparer<T>`): by a
 /// normalised form of the borrowed key.

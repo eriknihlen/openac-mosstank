@@ -8,7 +8,8 @@
 
 use std::collections::BTreeMap;
 
-use mosstank_dotnet::{is_white_space, split_at_utf16, try_parse_int, utf16_len};
+use mosstank_dotnet::try_parse_int;
+use openac_plugin_compat::text::{casing, utf16};
 
 use crate::FormatError;
 
@@ -130,7 +131,7 @@ impl LootRule {
 
     /// Sets the expression: blank becomes `*`, anything else is trimmed.
     pub fn set_expression(&mut self, value: &str) {
-        self.expression = if is_white_space(value) {
+        self.expression = if casing::is_white_space_only(value) {
             "*".to_owned()
         } else {
             value.trim().to_owned()
@@ -358,7 +359,7 @@ fn read_rule(
         .ok_or_else(|| FormatError(format!("Loot rule {number} has action {action_value}.")))?;
 
     let mut rule = LootRule {
-        name: if is_white_space(name) {
+        name: if casing::is_white_space_only(name) {
             format!("Rule {number}")
         } else {
             name.to_owned()
@@ -425,7 +426,7 @@ fn write_rule(output: &mut String, rule: &LootRule) {
     }
     for requirement in requirements.iter() {
         let payload = normalize_payload(&requirement.payload);
-        append_line(output, &utf16_len(&payload).to_string());
+        append_line(output, &utf16::len(&payload).to_string());
         output.push_str(&payload);
     }
 }
@@ -505,7 +506,7 @@ fn write_salvage(settings: &VtankSalvageCombineSettings) -> String {
 fn write_block(output: &mut String, kind: &str, payload: &str) {
     let normalized = normalize_payload(payload);
     append_line(output, single_line(kind));
-    append_line(output, &utf16_len(&normalized).to_string());
+    append_line(output, &utf16::len(&normalized).to_string());
     output.push_str(&normalized);
 }
 
@@ -586,7 +587,7 @@ impl<'a> CharacterReader<'a> {
 
     fn read_characters(&mut self, count: usize) -> Result<&'a str, FormatError> {
         let rest = &self.source[self.position..];
-        let Some((value, _)) = split_at_utf16(rest, count) else {
+        let Some((value, _)) = utf16::split_at(rest, count) else {
             return Err(FormatError(
                 "A VTClassic length-delimited block is truncated.".to_owned(),
             ));
@@ -639,7 +640,7 @@ pub fn attach_mosstank_expressions(profile: &mut VtankLootProfile) {
         } else {
             normalize_payload(rule.expression())
         };
-        payload.push_str(&utf16_len(&expression).to_string());
+        payload.push_str(&utf16::len(&expression).to_string());
         payload.push_str("\r\n");
         payload.push_str(&expression);
     }

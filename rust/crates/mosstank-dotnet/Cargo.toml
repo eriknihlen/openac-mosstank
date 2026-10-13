@@ -1,6 +1,6 @@
 [package]
 name = "mosstank-dotnet"
-description = "The .NET string behaviour MossTank's C# relied on that the SDK's compat kit does not cover: UTF-16 lengths, ordinal comparison, invariant casing, line reading."
+description = "The .NET behaviour MossTank's C# relied on that the SDK's compat kit does not cover: integer and number parsing with .NET's messages, char.IsDigit, line reading, .NET-ordered collections."
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
