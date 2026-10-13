@@ -141,6 +141,9 @@ pub trait SessionClient {
     fn image_object_icon(&mut self, object_id: u32) -> mosstank_ub::canvas::MapImage;
     /// A piece of the client's own art, or no image.
     fn image_client_art(&mut self, surface_id: u32) -> mosstank_ub::canvas::MapImage;
+    /// Lets go of one busy reference the client holds
+    /// (`Recovery.ClearOneBusyReference`).
+    fn clear_one_busy_reference(&mut self) -> ac_plugin_abi::social::RecoveryResult;
     /// Lets go of an image.
     fn image_release(&mut self, image: mosstank_ub::canvas::MapImage);
 }
@@ -222,6 +225,10 @@ impl SessionClient for crate::automation::HostAutomation<'_, '_> {
 
     fn image_client_art(&mut self, surface_id: u32) -> mosstank_ub::canvas::MapImage {
         map_image(self.host.image_client_art(surface_id))
+    }
+
+    fn clear_one_busy_reference(&mut self) -> ac_plugin_abi::social::RecoveryResult {
+        self.host.clear_one_busy_reference()
     }
 
     fn image_release(&mut self, image: mosstank_ub::canvas::MapImage) {

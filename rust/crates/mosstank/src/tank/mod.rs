@@ -16,6 +16,7 @@
 mod actions;
 mod autostart;
 mod commands;
+mod diagnostics;
 mod display;
 mod frame;
 pub(crate) mod options;
