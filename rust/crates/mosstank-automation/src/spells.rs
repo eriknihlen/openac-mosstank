@@ -11,6 +11,30 @@ pub trait SpellCatalog {
     /// One spell of the whole table.
     fn try_get(&mut self, spell_id: u32) -> Option<SpellInfo>;
 
+    /// The war and void attack spells the character knows
+    /// (`KnownAttackSpells`).
+    fn known_attack_spells(&mut self) -> Vec<SpellInfo> {
+        Vec::new()
+    }
+
+    /// Every hostile spell the character knows, debuffs included
+    /// (`KnownCombatSpells`).
+    fn known_combat_spells(&mut self) -> Vec<SpellInfo> {
+        Vec::new()
+    }
+
+    /// Whether the character knows the spell.
+    fn is_known(&mut self, spell_id: u32) -> bool {
+        let _ = spell_id;
+        false
+    }
+
+    /// Seconds left on a shared cooldown (an item's property 280).
+    fn cooldown_remaining(&mut self, cooldown_id: u32) -> f64 {
+        let _ = cooldown_id;
+        0.0
+    }
+
     /// The whole table, for a lookup by name; empty when the client does
     /// not hand it out.
     fn all(&mut self) -> Vec<SpellInfo> {
