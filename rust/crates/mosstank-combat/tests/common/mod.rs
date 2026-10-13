@@ -1046,3 +1046,363 @@ pub fn recording_log() -> (MacroLog, LogLines) {
     });
     (log, lines)
 }
+
+/// The C# file's `new CombatController(new FakeHost(surface), settings)`
+/// rig: the client, the settings and the controller, with a log.
+pub struct Fight {
+    pub surface: FakeAutomation,
+    pub settings: mosstank_settings::model::CombatSettings,
+    pub vitals: mosstank_settings::model::VitalSettings,
+    pub controller: mosstank_combat::controller::CombatController,
+    pub lines: LogLines,
+}
+
+impl Fight {
+    /// A fight with no game database.
+    pub fn new(
+        surface: FakeAutomation,
+        settings: mosstank_settings::model::CombatSettings,
+    ) -> Self {
+        Self::with_game_info(
+            surface,
+            settings,
+            mosstank_formats::gameinfo::VtankGameInfoDatabase::empty(),
+        )
+    }
+
+    /// A fight over a game database.
+    pub fn with_game_info(
+        surface: FakeAutomation,
+        settings: mosstank_settings::model::CombatSettings,
+        game_info: mosstank_formats::gameinfo::VtankGameInfoDatabase,
+    ) -> Self {
+        let tracker = Rc::new(RefCell::new(
+            mosstank_automation::cast_tracker::SpellCastTracker::new(),
+        ));
+        let mut controller =
+            mosstank_combat::controller::CombatController::with(game_info, tracker);
+        let (log, lines) = recording_log();
+        controller.set_log(Some(log));
+        Self {
+            surface,
+            settings,
+            vitals: mosstank_settings::model::VitalSettings::default(),
+            controller,
+            lines,
+        }
+    }
+
+    /// Runs `body` with the controller and the call's view.
+    pub fn with<R>(
+        &mut self,
+        body: impl FnOnce(
+            &mut mosstank_combat::controller::CombatController,
+            &mut mosstank_combat::controller::Ctx<'_>,
+        ) -> R,
+    ) -> R {
+        let mut ctx = mosstank_combat::controller::Ctx {
+            automation: &mut self.surface,
+            settings: &self.settings,
+            vitals: &self.vitals,
+            crafting: None,
+        };
+        body(&mut self.controller, &mut ctx)
+    }
+
+    fn turn(&mut self) -> mosstank_combat::controller::CombatTurn<'_> {
+        mosstank_combat::controller::CombatTurn {
+            automation: &mut self.surface,
+            settings: &mut self.settings,
+            vitals: &self.vitals,
+            crafting: None,
+        }
+    }
+
+    /// `Toggle`.
+    pub fn toggle(&mut self) {
+        let mut controller = std::mem::take(&mut self.controller);
+        controller.toggle(&mut self.turn());
+        self.controller = controller;
+    }
+
+    /// `OnTick`.
+    pub fn tick(&mut self, elapsed: f64) {
+        let mut controller = std::mem::take(&mut self.controller);
+        controller.on_tick(&mut self.turn(), elapsed);
+        self.controller = controller;
+    }
+
+    /// `EquipOneStepForMonster`.
+    pub fn equip_one_step(&mut self, monster: &str) -> bool {
+        let mut controller = std::mem::take(&mut self.controller);
+        let ready = controller.equip_one_step_for_monster(&mut self.turn(), monster);
+        self.controller = controller;
+        ready
+    }
+
+    /// `TickMonsterApproach`.
+    pub fn approach(&mut self, can_act: bool) -> bool {
+        self.with(|controller, cx| controller.tick_monster_approach(cx, can_act))
+    }
+
+    /// `ClaimMonsterApproachFromRulePass`.
+    pub fn claim_approach(&mut self, can_act: bool) -> bool {
+        self.with(|controller, cx| controller.claim_monster_approach_from_rule_pass(cx, can_act))
+    }
+
+    /// `StepArmedApproachMover`.
+    pub fn step_mover(&mut self, elapsed: f64) {
+        self.with(|controller, cx| controller.step_armed_approach_mover(cx, elapsed));
+    }
+
+    /// `SetPaused`.
+    pub fn set_paused(&mut self, paused: bool) {
+        self.controller.set_paused(&mut self.surface, paused);
+    }
+
+    /// `ObserveRemoteCasts`.
+    pub fn observe_remote_casts(&mut self) {
+        self.with(|controller, cx| controller.observe_remote_casts(cx));
+    }
+
+    /// `HasTarget`.
+    pub fn has_target(&self) -> bool {
+        self.controller.has_target()
+    }
+
+    /// `Status`.
+    pub fn status(&self) -> String {
+        self.controller.status().to_owned()
+    }
+
+    /// The log's texts.
+    pub fn log_texts(&self) -> Vec<String> {
+        self.lines
+            .borrow()
+            .iter()
+            .map(|(_, text)| text.clone())
+            .collect()
+    }
+}
+
+/// The settings most cases start from: the given range, by range, a fast
+/// scan, and the fixture weapon profiled (`ProfileFixtureWeapon`).
+pub fn melee_settings(maximum_range: f64) -> mosstank_settings::model::CombatSettings {
+    let mut settings = mosstank_settings::model::CombatSettings {
+        maximum_range,
+        selection_method: mosstank_settings::model::TargetSelectionMethod::RANGE,
+        scan_interval_seconds: 0.05,
+        ..mosstank_settings::model::CombatSettings::default()
+    };
+    profile_fixture_weapon(&mut settings);
+    settings
+}
+
+/// `ProfileFixtureWeapon`.
+pub fn profile_fixture_weapon(settings: &mut mosstank_settings::model::CombatSettings) {
+    settings
+        .combat_item_names
+        .insert("Fixture Weapon".to_owned());
+}
+
+/// A rule by expression and priority.
+pub fn rule(expression: &str, priority: i32) -> mosstank_settings::monster::MonsterRule {
+    mosstank_settings::monster::MonsterRule::with_priority(expression, priority).unwrap()
+}
+
+/// A rule by expression and actions.
+pub fn rule_with(
+    expression: &str,
+    actions: mosstank_settings::monster::MonsterRuleActions,
+) -> mosstank_settings::monster::MonsterRule {
+    mosstank_settings::monster::MonsterRule::new(expression, actions).unwrap()
+}
+
+/// A navigation object at a place.
+pub fn nav_object(id: u32, name: &str, east_west: f64, north_south: f64) -> NavigationObject {
+    NavigationObject {
+        object_id: id,
+        name: name.to_owned(),
+        position: Position {
+            cell_id: 0x7F7F_0001,
+            east_west,
+            north_south,
+            elevation: 0.0,
+            heading_degrees: 0.0,
+            is_outdoor: true,
+        },
+        ..NavigationObject::default()
+    }
+}
+
+/// The game database excerpt fixture (`GameInfo`).
+pub fn game_info() -> mosstank_formats::gameinfo::VtankGameInfoDatabase {
+    mosstank_formats::gameinfo::VtankGameInfoDatabase::parse(
+        &mosstank_formats::fixtures::read_vtank("gameinfodb-excerpt.ugd"),
+    )
+    .unwrap()
+}
+
+/// A war spell by family and difficulty (`MagicSpell`).
+pub fn magic_spell(id: u32, name: &str, difficulty: i32) -> SpellInfo {
+    SpellInfo {
+        spell_id: id,
+        name: name.to_owned(),
+        family: id,
+        tier: 7,
+        difficulty,
+        mana_cost: 30,
+        duration_seconds: 0.0,
+        school: 34,
+        is_offensive: true,
+        saying: "testwords".to_owned(),
+        target_mask: 0x10,
+        ..SpellInfo::default()
+    }
+}
+
+/// A debuff spell, offensive and lasting a minute.
+pub fn learned_debuff(id: u32, name: &str) -> SpellInfo {
+    SpellInfo {
+        is_debuff: true,
+        is_offensive: true,
+        duration_seconds: 60.0,
+        ..spell(id, name)
+    }
+}
+
+/// An item in the pack (`InventoryItem`).
+pub fn inventory_item(
+    id: u32,
+    name: &str,
+    item_type: u32,
+    spell_id: u32,
+    equipped: bool,
+) -> InventoryItem {
+    InventoryItem {
+        object_id: id,
+        name: name.to_owned(),
+        item_type,
+        container_id: 1,
+        equipped_location: if equipped { 0x0010_0000 } else { 0 },
+        stack_size: 1,
+        spell_id,
+        ..InventoryItem::default()
+    }
+}
+
+/// One default row with these actions and element.
+pub fn single_rule(
+    flags: mosstank_settings::monster::MonsterActionFlags,
+    damage_type: mosstank_data::damage::MonsterDamageType,
+) -> mosstank_settings::monster::MonsterRule {
+    rule_with(
+        "DEFAULT",
+        mosstank_settings::monster::MonsterRuleActions {
+            flags,
+            damage_type,
+            ..mosstank_settings::monster::MonsterRuleActions::default()
+        },
+    )
+}
+
+/// Settings whose only row is `rule`.
+pub fn only_rule(
+    mut settings: mosstank_settings::model::CombatSettings,
+    rule: mosstank_settings::monster::MonsterRule,
+) -> mosstank_settings::model::CombatSettings {
+    settings.rules.clear();
+    settings.rules.push(rule);
+    settings
+}
+
+/// `FireAttackRule`: one default row that attacks with fire.
+pub fn fire_attack_rule(
+    settings: mosstank_settings::model::CombatSettings,
+) -> mosstank_settings::model::CombatSettings {
+    only_rule(
+        settings,
+        single_rule(
+            mosstank_settings::monster::MonsterActionFlags::ATTACK,
+            mosstank_data::damage::MonsterDamageType::Fire,
+        ),
+    )
+}
+
+/// `DebuffOnly`: one default row with just this flag.
+pub fn debuff_only(
+    flags: mosstank_settings::monster::MonsterActionFlags,
+) -> mosstank_settings::model::CombatSettings {
+    only_rule(
+        mosstank_settings::model::CombatSettings::default(),
+        rule_with(
+            "DEFAULT",
+            mosstank_settings::monster::MonsterRuleActions {
+                flags,
+                ..mosstank_settings::monster::MonsterRuleActions::default()
+            },
+        ),
+    )
+}
+
+/// The fixture database's monster facts.
+pub fn fixture_facts() -> mosstank_settings::monster::MonsterFactTable {
+    mosstank_settings::monster::MonsterFactTable::new(game_info())
+}
+
+/// A learned debuff of the creature school (`Debuff`).
+pub fn debuff(id: u32, name: &str) -> SpellInfo {
+    SpellInfo {
+        spell_id: id,
+        name: name.to_owned(),
+        family: id,
+        tier: 7,
+        difficulty: 250,
+        mana_cost: 30,
+        duration_seconds: 60.0,
+        school: 31,
+        is_debuff: true,
+        is_offensive: true,
+        target_mask: 0x10,
+        base_range_constant: 80.0,
+        saying: "testwords".to_owned(),
+        ..SpellInfo::default()
+    }
+}
+
+/// The C# `Equipment` helper with its defaults.
+pub fn equipment(id: u32, name: &'static str, damage_type: i32) -> Gear {
+    Gear::new(id, name, damage_type)
+}
+
+/// `CreateAmmoGameInfo`: the fixture database with one more ammunition
+/// row, a Deadly Fire Arrow.
+pub fn ammo_game_info() -> mosstank_formats::gameinfo::VtankGameInfoDatabase {
+    use mosstank_formats::usd::{VtankCell, VtankDatabase, VtankRow};
+    let mut document = VtankDatabase::parse(&mosstank_formats::fixtures::read_vtank(
+        "gameinfodb-excerpt.ugd",
+    ))
+    .unwrap();
+    let ammo = document.find_mut("AmmunitionOptions").unwrap();
+    ammo.rows.push(VtankRow {
+        cells: vec![
+            VtankCell::string("Deadly Fire Arrow"),
+            VtankCell::int(5),
+            VtankCell::int(230),
+            VtankCell::int(6),
+            VtankCell::int(20),
+            VtankCell::int(0),
+            VtankCell::int(0),
+            VtankCell::int(0),
+        ],
+    });
+    mosstank_formats::gameinfo::VtankGameInfoDatabase::parse(&document.render()).unwrap()
+}
+
+/// The missile skill the launcher cases train (`Missile Weapons`, 300).
+pub fn missile_skill() -> Skill {
+    Skill {
+        base: 300,
+        ..skill(47, "Missile Weapons", Training::Trained, 300)
+    }
+}

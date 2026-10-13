@@ -1,10 +1,12 @@
-//! The vendor run's and the fellowship manager's view of the client
-//! ([`VendorAutomation`], [`FellowshipAutomation`]) over the SDK's host.
+//! The vendor run's, the fellowship manager's and `/ub fellow`'s view of
+//! the client ([`VendorAutomation`], [`FellowshipAutomation`],
+//! [`FellowCommandAutomation`]) over the SDK's host.
 
 use ac_plugin_abi::items::{InventoryCompletion, ItemResult};
 use ac_plugin_abi::social::{FellowMember, FellowshipState, FellowshipStatus};
 use ac_plugin_abi::trade::{VendorResult, VendorState};
 use ac_plugin_abi::world::{ItemProperties, WorldObject};
+use mosstank_vendor::fellow_command::FellowCommandAutomation;
 use mosstank_vendor::ub_chat::UbChatSink;
 use mosstank_vendor::{FellowshipAutomation, VendorAutomation};
 
@@ -96,6 +98,32 @@ impl FellowshipAutomation for HostAutomation<'_, '_> {
 
     fn fellowship_set_open(&mut self, open: bool) -> FellowshipStatus {
         self.host().fellowship_set_open(open)
+    }
+}
+
+impl FellowCommandAutomation for HostAutomation<'_, '_> {
+    fn fellowship_create(&mut self, name: &str, share_experience: bool) -> FellowshipStatus {
+        self.host().fellowship_create(name, share_experience)
+    }
+
+    fn fellowship_quit(&mut self, disband: bool) -> FellowshipStatus {
+        self.host().fellowship_quit(disband)
+    }
+
+    fn fellowship_shares_experience(&mut self) -> bool {
+        self.host().fellowship().shares_experience
+    }
+
+    fn fellowship_splits_experience_evenly(&mut self) -> bool {
+        self.host().fellowship().splits_experience_evenly
+    }
+
+    fn fellow_level(&mut self, member: &FellowMember) -> u32 {
+        member.level
+    }
+
+    fn world_objects(&mut self) -> Vec<WorldObject> {
+        self.host().objects()
     }
 }
 

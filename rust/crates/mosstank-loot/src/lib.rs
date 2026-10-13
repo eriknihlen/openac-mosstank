@@ -12,11 +12,13 @@
 //!   journal that permits it.
 //! - [`host`]: what the looter asks of the client ([`LootHost`]).
 //! - [`controller`], [`corpse_scan`], [`own_rare`]: the looter itself.
+//! - [`corpse_approach`]: the walk to a corpse the looter cannot reach.
 //! - [`scroll`]: reading the scrolls it picked up.
 //! - [`classifier`]: the loot classifier other plugins can ask.
 
 pub mod classifier;
 pub mod controller;
+pub mod corpse_approach;
 pub mod corpse_scan;
 pub mod donors;
 pub mod expression;

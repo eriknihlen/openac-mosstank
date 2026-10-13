@@ -847,6 +847,9 @@ impl CombatController {
 
     /// One turn of the attack.
     pub fn on_tick(&mut self, cx: &mut CombatTurn<'_>, elapsed_seconds: f64) {
+        // What the shared cast tracker said since the last call (a re-send,
+        // a timeout) is heard first, on the clock it happened on.
+        self.drain_cast_events(&mut cx.ctx());
         if !self.enabled {
             return;
         }

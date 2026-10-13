@@ -177,6 +177,7 @@ impl FellowshipAutomation for Fellows {
             is_open: self.is_open,
             is_locked: self.is_locked,
             member_count: self.roster.len() as i32,
+            ..FellowshipState::default()
         }
     }
 

@@ -995,6 +995,8 @@ pub fn helper_candidates(
             distance: peer_distance(&here, &peer.position),
             share_loot: false,
             vitals_age_seconds: Some(0.0),
+            // The other clients do not publish a level.
+            ..FellowMember::default()
         });
     }
     candidates

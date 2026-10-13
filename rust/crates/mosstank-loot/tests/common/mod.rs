@@ -16,6 +16,7 @@ use ac_plugin_abi::items::{
     LootAction as PublicLootAction, LootClassification, LootContext, LootedItem, Palette,
 };
 use ac_plugin_abi::magic::{CastGate, SpellInfo};
+use ac_plugin_abi::navigation::{MovementIntent, NavigationSnapshot, NavigationStatus};
 use ac_plugin_abi::social::FellowMember;
 use ac_plugin_abi::types::ChatLine;
 use ac_plugin_abi::world::{ItemProperties, ObjectClass, Position, WorldObject};
@@ -238,6 +239,13 @@ pub fn classification(
 #[derive(Debug)]
 pub struct World {
     pub navigation_position: Position,
+    /// Whether the navigation snapshot says the world is there (the
+    /// corpse walk's `ApproachAutomation`).
+    pub navigation_available: bool,
+    /// Every movement intent the client was asked to hold.
+    pub intents: Vec<MovementIntent>,
+    /// How often the held movement was let go.
+    pub movement_clears: usize,
     pub is_owned_inventory_complete: bool,
     pub items_busy: bool,
     pub name: String,
@@ -288,6 +296,9 @@ impl Default for World {
     fn default() -> Self {
         Self {
             navigation_position: Position::default(),
+            navigation_available: false,
+            intents: Vec::new(),
+            movement_clears: 0,
             is_owned_inventory_complete: true,
             items_busy: false,
             name: "Tester".to_owned(),
@@ -577,6 +588,24 @@ impl Automation for World {
 
     fn position(&mut self) -> Position {
         self.navigation_position.clone()
+    }
+
+    fn navigation_snapshot(&mut self) -> NavigationSnapshot {
+        NavigationSnapshot {
+            is_available: self.navigation_available,
+            position: self.navigation_position.clone(),
+            ..NavigationSnapshot::default()
+        }
+    }
+
+    fn set_movement_intent(&mut self, intent: MovementIntent) -> NavigationStatus {
+        self.intents.push(intent);
+        NavigationStatus::Accepted
+    }
+
+    fn clear_movement_intent(&mut self) -> NavigationStatus {
+        self.movement_clears += 1;
+        NavigationStatus::Accepted
     }
 
     fn chat_messages(&mut self, after_sequence: u64) -> Vec<ChatLine> {

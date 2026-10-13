@@ -211,6 +211,7 @@ impl FellowshipAutomation for FakeFellows {
             is_open: self.is_open,
             is_locked: false,
             member_count: self.roster.len() as i32,
+            ..FellowshipState::default()
         }
     }
 

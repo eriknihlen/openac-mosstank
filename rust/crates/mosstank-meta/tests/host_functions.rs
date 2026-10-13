@@ -2482,6 +2482,7 @@ fn fellowship_functions_expose_the_authoritative_complete_roster() {
         is_open: true,
         is_locked: false,
         member_count: 2,
+        ..FellowshipState::default()
     };
     let mut rt = new(&mut host);
 
