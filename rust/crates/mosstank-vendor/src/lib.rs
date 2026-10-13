@@ -7,12 +7,14 @@
 //! - [`sell_guard`]: what is never sold.
 //! - [`controller`]: the vendor run and the `/ub vendor` commands.
 //! - [`fellowship`]: VTank's fellowship manager.
+//! - [`fellow_command`]: the `/ub fellow` command.
 //! - [`object_search`]: finding the object a typed name stands for.
 //! - [`ub_chat`]: the shape of the lines the UtilityBelt side prints.
 //! - [`client`]: what these read from and ask of the client.
 
 pub mod client;
 pub mod controller;
+pub mod fellow_command;
 pub mod fellowship;
 pub mod object_search;
 pub mod planner;
