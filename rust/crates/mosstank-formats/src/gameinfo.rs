@@ -548,6 +548,14 @@ impl VtankGameInfoDatabase {
         self.member(monster_name).map_or(-1, |m| m.maximum_health)
     }
 
+    /// Whether the species table has a row for this monster at all (its
+    /// maximum-health column may itself hold -1, "known monster, unknown
+    /// ceiling").
+    #[must_use]
+    pub fn lists_monster(&self, monster_name: &str) -> bool {
+        self.member(monster_name).is_some()
+    }
+
     /// Whether the monster is listed as unaffectable by magic.
     #[must_use]
     pub fn is_immune_to_magic(&self, monster_name: &str) -> bool {

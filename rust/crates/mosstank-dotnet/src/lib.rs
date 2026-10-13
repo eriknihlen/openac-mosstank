@@ -5,7 +5,10 @@
 //!   `Substring` count them (profile files carry such lengths);
 //! - ordinal and ordinal-ignore-case comparison;
 //! - invariant casing, one character to one character as .NET maps them;
-//! - `int.TryParse(text, NumberStyles.Integer, InvariantCulture)` and friends.
+//! - `int.TryParse(text, NumberStyles.Integer, InvariantCulture)` and friends;
+//! - `Dictionary` and `HashSet` with .NET's enumeration order ([`collections`]).
+
+pub mod collections;
 
 use std::cmp::Ordering;
 
@@ -100,6 +103,27 @@ pub fn to_lower_invariant(text: &str) -> String {
 #[must_use]
 pub fn is_white_space(text: &str) -> bool {
     text.chars().all(char::is_whitespace)
+}
+
+/// The first code point of each run of ten decimal digits (Unicode
+/// category Nd) in the Basic Multilingual Plane.
+const DECIMAL_DIGIT_ZEROS: [u32; 37] = [
+    0x0030, 0x0660, 0x06F0, 0x07C0, 0x0966, 0x09E6, 0x0A66, 0x0AE6, 0x0B66, 0x0BE6, 0x0C66, 0x0CE6,
+    0x0D66, 0x0DE6, 0x0E50, 0x0ED0, 0x0F20, 0x1040, 0x1090, 0x17E0, 0x1810, 0x1946, 0x19D0, 0x1A80,
+    0x1A90, 0x1B50, 0x1BB0, 0x1C40, 0x1C50, 0xA620, 0xA8D0, 0xA900, 0xA9D0, 0xA9F0, 0xAA50, 0xABF0,
+    0xFF10,
+];
+
+/// `char.IsDigit` on one UTF-16 code unit: a decimal digit of any script
+/// (category Nd). A character outside the Basic Multilingual Plane is two
+/// code units to .NET, neither of them a digit, so it never is one here.
+// TODO(compat): the kit's character categories will replace this table.
+#[must_use]
+pub fn is_decimal_digit(c: char) -> bool {
+    let code = u32::from(c);
+    DECIMAL_DIGIT_ZEROS
+        .iter()
+        .any(|&zero| (zero..zero + 10).contains(&code))
 }
 
 /// `int.TryParse(text, NumberStyles.Integer, CultureInfo.InvariantCulture)`.
@@ -215,6 +239,21 @@ pub fn parse_int(text: &str) -> Result<i32, String> {
     }
     if number::parse_f64(text, NumberStyles::INTEGER).is_some() {
         Err("Value was either too large or too small for an Int32.".to_owned())
+    } else {
+        Err(format_exception_message(text))
+    }
+}
+
+/// `uint.Parse(text, CultureInfo.InvariantCulture)`, with .NET's messages.
+///
+/// # Errors
+/// The text is not an unsigned integer, or does not fit.
+pub fn parse_uint(text: &str) -> Result<u32, String> {
+    if let Some(value) = try_parse_uint(text) {
+        return Ok(value);
+    }
+    if number::parse_f64(text, NumberStyles::INTEGER).is_some() {
+        Err("Value was either too large or too small for a UInt32.".to_owned())
     } else {
         Err(format_exception_message(text))
     }
@@ -351,6 +390,17 @@ mod tests {
         assert_eq!(format_double(f64::NAN, "0.0 x").unwrap(), "NaN");
         assert_eq!(format_double(3.5, "0.00").unwrap(), "3.50");
         assert!(format_double(3.5, "0 x 0").is_err());
+    }
+
+    #[test]
+    fn decimal_digits_of_every_script_in_the_basic_plane() {
+        assert!(is_decimal_digit('7'));
+        assert!(is_decimal_digit('\u{0663}'));
+        assert!(is_decimal_digit('\u{FF19}'));
+        assert!(!is_decimal_digit('\u{00B2}'));
+        assert!(!is_decimal_digit('\u{2167}'));
+        assert!(!is_decimal_digit('\u{1D7CE}'));
+        assert!(!is_decimal_digit('a'));
     }
 
     #[test]

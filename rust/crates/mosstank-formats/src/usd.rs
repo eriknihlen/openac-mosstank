@@ -111,13 +111,13 @@ impl VtankCell {
         mosstank_dotnet::try_parse_double(text).ok_or_else(|| not_a_number(text))
     }
 
-    /// The value as an int (`int.Parse`, `Integer` style).
+    /// The value as an int (`int.Parse`, `Integer` style), with .NET's
+    /// messages.
     ///
     /// # Errors
-    /// The text is not an integer in range.
+    /// The text is not an integer, or is out of range.
     pub fn as_int(&self) -> Result<i32, FormatError> {
-        let text = self.text_or_zero();
-        try_parse_int(text).ok_or_else(|| not_a_number(text))
+        mosstank_dotnet::parse_int(self.text_or_zero()).map_err(FormatError)
     }
 
     /// The value as a uint.
@@ -125,8 +125,7 @@ impl VtankCell {
     /// # Errors
     /// The text is not an unsigned integer in range.
     pub fn as_uint(&self) -> Result<u32, FormatError> {
-        let text = self.text_or_zero();
-        mosstank_dotnet::try_parse_uint(text).ok_or_else(|| not_a_number(text))
+        mosstank_dotnet::parse_uint(self.text_or_zero()).map_err(FormatError)
     }
 
     /// The value as a float.
