@@ -7,16 +7,18 @@
 //! mismatch the Rust output is written to `target/golden/stores.rust.out`.
 //!
 //! Source: the C# `MossTankProfileStore` (with its side-car, legacy and
-//! preferences documents) as a black box over the scenarios.
+//! preferences documents) and `MossTankLootProfileStore` as black boxes
+//! over the scenarios.
 
 use std::fmt::Write as _;
 use std::path::PathBuf;
 
 use mosstank_dotnet::collections::{IgnoreCaseStringSet, OrdinalStringSet};
 use mosstank_formats::route::ClientPathing;
-use mosstank_formats::utl::{LootAction, LootRule};
-use mosstank_settings::model::{AllSettings, BuffItemEnchantRow, ConsumableCategory};
+use mosstank_formats::utl::{self, LootAction, LootRule, VtankLootRequirement};
+use mosstank_settings::model::{AllSettings, BuffItemEnchantRow, ConsumableCategory, LootSettings};
 use mosstank_settings::monster::{MonsterRule, MonsterRuleActions, MonsterValue, MonsterValueKind};
+use mosstank_stores::loot_store::LootProfileStore;
 use mosstank_stores::profile_store::{ProfileLoad, ProfileStore};
 use mosstank_stores::recovery::sha256_hex;
 use mosstank_stores::storage::{MemoryHost, MemoryStorage};
@@ -480,9 +482,252 @@ fn preferences(out: &mut String) {
     files(out, &host);
 }
 
+// ---- The loot profile store ----------------------------------------------------
+
+fn rules_text(rules: &[LootRule]) -> String {
+    rules
+        .iter()
+        .map(|rule| {
+            format!(
+                "{}|{}|{}|{}|{}",
+                rule.name,
+                rule.expression(),
+                rule.action as i32,
+                rule.keep_count,
+                rule.vtank_requirements.len()
+            )
+        })
+        .collect::<Vec<_>>()
+        .join(";")
+}
+
+fn loot_state(out: &mut String, store: &LootProfileStore, host: &mut MemoryHost) {
+    writeln!(
+        out,
+        "selected {} active {} partial {}",
+        store.selected(),
+        bool_text(store.has_active_profile()),
+        bool_text(store.active_profile_is_partial())
+    )
+    .unwrap();
+    writeln!(
+        out,
+        "names {}",
+        store.available_names(host).unwrap().join("|")
+    )
+    .unwrap();
+}
+
+fn peas() -> LootRule {
+    let mut rule = LootRule::named("Keep peas", "Pea");
+    rule.action = LootAction::KeepUpTo;
+    rule.keep_count = 25;
+    rule
+}
+
+fn loot_first_run(out: &mut String) {
+    let mut host = host();
+    let mut store = LootProfileStore::new();
+    let mut rules = Vec::new();
+    let mut settings = LootSettings::default();
+    let bound = store.bind_character(&mut host, Some("Acdream")).unwrap();
+    writeln!(out, "bind {}", bool_text(bound)).unwrap();
+    let load = store
+        .load_current(&mut host, &mut rules, Some(&mut settings))
+        .unwrap();
+    writeln!(out, "load {}", load_text(load)).unwrap();
+    rules.push(peas());
+    store
+        .save_current(&mut host, &rules, Some(&settings))
+        .unwrap();
+    loot_state(out, &store, &mut host);
+    files(out, &host);
+}
+
+fn loot_named(out: &mut String) {
+    let mut host = host();
+    let mut store = LootProfileStore::new();
+    let mut rules = Vec::new();
+    let mut settings = LootSettings::default();
+    store.bind_character(&mut host, Some("Acdream")).unwrap();
+    store
+        .load_current(&mut host, &mut rules, Some(&mut settings))
+        .unwrap();
+    rules.push(peas());
+    store
+        .save_current(&mut host, &rules, Some(&settings))
+        .unwrap();
+    let (created, notice) = store
+        .create(&mut host, Some("Shared"), true, &rules, Some(&mut settings))
+        .unwrap();
+    writeln!(out, "create {} {notice}", bool_text(created)).unwrap();
+    loot_state(out, &store, &mut host);
+    let selected = store.select(&mut host, Some("By char")).unwrap();
+    writeln!(out, "select bychar {}", bool_text(selected)).unwrap();
+    rules.clear();
+    let load = store
+        .load_current(&mut host, &mut rules, Some(&mut settings))
+        .unwrap();
+    writeln!(out, "load {} {}", load_text(load), rules_text(&rules)).unwrap();
+    writeln!(
+        out,
+        "exists {} {}",
+        bool_text(store.exists(&mut host, Some("shared")).unwrap()),
+        bool_text(store.exists(&mut host, Some("nope")).unwrap())
+    )
+    .unwrap();
+    let selected = store.select(&mut host, Some("Shared")).unwrap();
+    writeln!(out, "select shared {}", bool_text(selected)).unwrap();
+    rules.clear();
+    let load = store
+        .load_current(&mut host, &mut rules, Some(&mut settings))
+        .unwrap();
+    writeln!(out, "load {} {}", load_text(load), rules_text(&rules)).unwrap();
+    let mut named = Vec::new();
+    let found = store
+        .try_load_named(&mut host, Some("By char"), &mut named)
+        .unwrap();
+    writeln!(out, "named {} {}", bool_text(found), rules_text(&named)).unwrap();
+    let (deleted, notice) = store.delete(&mut host).unwrap();
+    writeln!(out, "delete {} {notice}", bool_text(deleted)).unwrap();
+    loot_state(out, &store, &mut host);
+    rules.clear();
+    let load = store
+        .load_current(&mut host, &mut rules, Some(&mut settings))
+        .unwrap();
+    writeln!(out, "load {} {}", load_text(load), rules_text(&rules)).unwrap();
+    loot_state(out, &store, &mut host);
+    files(out, &host);
+}
+
+fn loot_partial(out: &mut String) {
+    let mut host = host();
+    let text = utl::serialize_rules(&[peas(), LootRule::named("Second rule", "Gem")]);
+    let cut = text.find("Second").unwrap() + 3;
+    host.profiles
+        .insert("mosstank/loot/--Acdream_Coldeve.utl", &text[..cut]);
+    let mut store = LootProfileStore::new();
+    let mut rules = Vec::new();
+    let mut settings = LootSettings::default();
+    store.bind_character(&mut host, Some("Acdream")).unwrap();
+    let load = store
+        .load_current(&mut host, &mut rules, Some(&mut settings))
+        .unwrap();
+    writeln!(out, "load {} {}", load_text(load), rules_text(&rules)).unwrap();
+    writeln!(out, "notice {}", store.load_notice().unwrap_or_default()).unwrap();
+    rules.push(LootRule::named("Added", ""));
+    store
+        .save_current(&mut host, &rules, Some(&settings))
+        .unwrap();
+    let (created, notice) = store
+        .create(&mut host, Some("Copy"), true, &rules, Some(&mut settings))
+        .unwrap();
+    writeln!(out, "create {} {notice}", bool_text(created)).unwrap();
+    loot_state(out, &store, &mut host);
+    files(out, &host);
+}
+
+fn loot_import(out: &mut String) {
+    let mut host = host();
+    host.plugin
+        .insert("imports/VtcOld.utl", &utl::serialize_rules(&[peas()]));
+    host.plugin
+        .insert("imports/Broken.utl", "not a loot profile");
+    let mut store = LootProfileStore::new();
+    let mut rules = Vec::new();
+    let mut settings = LootSettings::default();
+    store.bind_character(&mut host, Some("Acdream")).unwrap();
+    store
+        .load_current(&mut host, &mut rules, Some(&mut settings))
+        .unwrap();
+    let (imported, notice) = store
+        .try_import_legacy(
+            &mut host,
+            Some("vtcold.utl"),
+            &mut rules,
+            Some(&mut settings),
+        )
+        .unwrap();
+    writeln!(
+        out,
+        "import {} {notice} {}",
+        bool_text(imported),
+        rules_text(&rules)
+    )
+    .unwrap();
+    let (broken, notice) = store
+        .try_import_legacy(&mut host, Some("Broken"), &mut rules, Some(&mut settings))
+        .unwrap();
+    writeln!(out, "import {} {notice}", bool_text(broken)).unwrap();
+    let (missing, notice) = store
+        .try_import_legacy(&mut host, Some("Nope"), &mut rules, Some(&mut settings))
+        .unwrap();
+    writeln!(out, "import {} {notice}", bool_text(missing)).unwrap();
+    loot_state(out, &store, &mut host);
+    files(out, &host);
+}
+
+fn loot_legacy(out: &mut String) {
+    let mut host = host();
+    host.plugin.insert(
+        &format!("profiles/loot/{}.json", sha256_hex("char:ACDREAM")),
+        "{\"Rules\":[{\"Name\":\"Old\",\"Expression\":\"Salvage\",\"Action\":2}],\"SalvageCombine\":{\"DefaultCombineString\":\"1-10\",\"MaterialValueModeValues\":{\"5\":3}}}",
+    );
+    host.plugin.insert(
+        "profiles/loot/index.json",
+        "{\"Names\":[\"Hunt\",\"By char\",\"Gone\"]}",
+    );
+    host.plugin.insert(
+        &format!("profiles/loot/{}.json", sha256_hex("named:HUNT")),
+        "{\"Rules\":[{\"Name\":\"Hunt rule\",\"Requirements\":[{\"Type\":1,\"Payload\":\"x\\r\\n\"}],\"HasImportedRequirements\":true}]}",
+    );
+    let mut store = LootProfileStore::new();
+    let mut rules = Vec::new();
+    let mut settings = LootSettings::default();
+    store.bind_character(&mut host, Some("Acdream")).unwrap();
+    let load = store
+        .load_current(&mut host, &mut rules, Some(&mut settings))
+        .unwrap();
+    writeln!(out, "load {} {}", load_text(load), rules_text(&rules)).unwrap();
+    writeln!(
+        out,
+        "salvage {}",
+        settings.salvage_combine.default_combine_string
+    )
+    .unwrap();
+    loot_state(out, &store, &mut host);
+    files(out, &host);
+}
+
+fn loot_unsupported(out: &mut String) {
+    let mut host = host();
+    let mut radar = LootRule::named("Radar", "");
+    radar.vtank_requirements = vec![VtankLootRequirement {
+        kind: 2,
+        payload: "0\r\n95\r\n1\r\n".to_owned(),
+    }];
+    radar.has_imported_requirements = true;
+    host.profiles.insert(
+        "mosstank/loot/--Acdream_Coldeve.utl",
+        &utl::serialize_rules(&[radar]),
+    );
+    let mut store = LootProfileStore::new();
+    let mut rules = Vec::new();
+    store.bind_character(&mut host, Some("Acdream")).unwrap();
+    let load = store.load_current(&mut host, &mut rules, None).unwrap();
+    writeln!(out, "load {} {}", load_text(load), rules_text(&rules)).unwrap();
+    files(out, &host);
+}
+
 fn run(name: &str) -> String {
     let mut out = String::new();
     match name {
+        "loot-first-run" => loot_first_run(&mut out),
+        "loot-named" => loot_named(&mut out),
+        "loot-partial" => loot_partial(&mut out),
+        "loot-import" => loot_import(&mut out),
+        "loot-legacy" => loot_legacy(&mut out),
+        "loot-unsupported" => loot_unsupported(&mut out),
         "first-run" => first_run(&mut out),
         "side-car-values" => side_car_values(&mut out),
         "create-and-delete" => create_and_delete(&mut out),

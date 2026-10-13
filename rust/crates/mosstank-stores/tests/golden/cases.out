@@ -525,3 +525,671 @@ meta 50 db 168 mine False
 }
 --- log
 
+##### loot-first-run
+bind True
+load Missing
+selected By char active True partial False
+names By char
+--- profiles mosstank/loot/--Acdream_Coldeve.utl
+UTL\r\n
+1\r\n
+1\r\n
+Keep peas\r\n
+\r\n
+0;10;9999\r\n
+25\r\n
+6\r\n
+true\r\n
+SalvageCombine\r\n
+277\r\n
+1\r\n
+1-6, 7-8, 9, 10\r\n
+25\r\n
+10\r\n
+1-10\r\n
+13\r\n
+1-10\r\n
+14\r\n
+1-10\r\n
+15\r\n
+1-10\r\n
+16\r\n
+1-10\r\n
+17\r\n
+1-10\r\n
+18\r\n
+1-10\r\n
+19\r\n
+1-10\r\n
+21\r\n
+1-10\r\n
+22\r\n
+1-10\r\n
+25\r\n
+1-10\r\n
+26\r\n
+1-10\r\n
+27\r\n
+1-10\r\n
+29\r\n
+1-10\r\n
+30\r\n
+1-10\r\n
+34\r\n
+1-10\r\n
+35\r\n
+1-10\r\n
+36\r\n
+1-10\r\n
+37\r\n
+1-10\r\n
+41\r\n
+1-10\r\n
+47\r\n
+1-10\r\n
+49\r\n
+1-10\r\n
+50\r\n
+1-10\r\n
+51\r\n
+1-10\r\n
+52\r\n
+1-10\r\n
+0\r\n
+MossTankRuleExpressions\r\n
+9\r\n
+1\r\n
+3\r\n
+Pea
+--- log
+
+##### loot-named
+create True Copied loot rules to Shared.
+selected Shared active True partial False
+names By char|Shared
+select bychar True
+load Loaded Keep peas|Pea|10|25|0
+exists False False
+select shared True
+load Loaded Keep peas|Pea|10|25|0
+named True Keep peas|Pea|10|25|0
+delete True Deleted loot profile Shared.
+selected No active loot profile active False partial False
+names No active loot profile|By char
+load Loaded Keep peas|Pea|10|25|0
+selected By char active True partial False
+names By char
+--- profiles mosstank/loot/--Acdream_Coldeve.utl
+UTL\r\n
+1\r\n
+1\r\n
+Keep peas\r\n
+\r\n
+0;10;9999\r\n
+25\r\n
+6\r\n
+true\r\n
+SalvageCombine\r\n
+277\r\n
+1\r\n
+1-6, 7-8, 9, 10\r\n
+25\r\n
+10\r\n
+1-10\r\n
+13\r\n
+1-10\r\n
+14\r\n
+1-10\r\n
+15\r\n
+1-10\r\n
+16\r\n
+1-10\r\n
+17\r\n
+1-10\r\n
+18\r\n
+1-10\r\n
+19\r\n
+1-10\r\n
+21\r\n
+1-10\r\n
+22\r\n
+1-10\r\n
+25\r\n
+1-10\r\n
+26\r\n
+1-10\r\n
+27\r\n
+1-10\r\n
+29\r\n
+1-10\r\n
+30\r\n
+1-10\r\n
+34\r\n
+1-10\r\n
+35\r\n
+1-10\r\n
+36\r\n
+1-10\r\n
+37\r\n
+1-10\r\n
+41\r\n
+1-10\r\n
+47\r\n
+1-10\r\n
+49\r\n
+1-10\r\n
+50\r\n
+1-10\r\n
+51\r\n
+1-10\r\n
+52\r\n
+1-10\r\n
+0\r\n
+MossTankRuleExpressions\r\n
+9\r\n
+1\r\n
+3\r\n
+Pea
+--- profiles mosstank/profiles/Coldeve_Acdream.cdf
+uTank2 CDF 1.0\r\n
+\r\n
+mosstank/loot/--Acdream_Coldeve.utl\r\n
+\r\n
+
+--- log
+
+##### loot-partial
+load Partial Keep peas|*|10|25|1
+notice Loaded 1 rules; incomplete profile tail was not loaded and source was preserved.
+create False Cannot copy an incomplete loot profile; source was preserved.
+selected By char active True partial True
+names By char
+--- plugin recovery/loot/353CE3D6BD5E9E1E.txt
+Original key: mosstank/loot/--Acdream_Coldeve.utl\n
+Load error: The VTClassic loot profile ended unexpectedly.\n
+\n
+UTL\r\n
+1\r\n
+2\r\n
+Keep peas\r\n
+\r\n
+0;10;9999\r\n
+25\r\n
+6\r\n
+true\r\n
+Sec
+--- profiles mosstank/loot/--Acdream_Coldeve.utl
+UTL\r\n
+1\r\n
+2\r\n
+Keep peas\r\n
+\r\n
+0;10;9999\r\n
+25\r\n
+6\r\n
+true\r\n
+Sec
+--- log
+warn loot profile 'mosstank/loot/--Acdream_Coldeve.utl' could not be loaded: The VTClassic loot profile ended unexpectedly. Raw data was preserved as recovery/loot/353CE3D6BD5E9E1E.txt.
+
+##### loot-import
+import True Imported VTClassic loot profile mosstank/loot/vtcold.utl. Keep peas|*|10|25|1
+import False Could not import Broken.utl: Invalid rule count: not a loot profile.
+import False VTClassic loot file 'Nope.utl' was not found in imports.
+selected vtcold active True partial False
+names By char|vtcold
+--- plugin imports/Broken.utl
+not a loot profile
+--- plugin imports/VtcOld.utl
+UTL\r\n
+1\r\n
+1\r\n
+Keep peas\r\n
+\r\n
+0;10;9999\r\n
+25\r\n
+6\r\n
+true\r\n
+SalvageCombine\r\n
+277\r\n
+1\r\n
+1-6, 7-8, 9, 10\r\n
+25\r\n
+10\r\n
+1-10\r\n
+13\r\n
+1-10\r\n
+14\r\n
+1-10\r\n
+15\r\n
+1-10\r\n
+16\r\n
+1-10\r\n
+17\r\n
+1-10\r\n
+18\r\n
+1-10\r\n
+19\r\n
+1-10\r\n
+21\r\n
+1-10\r\n
+22\r\n
+1-10\r\n
+25\r\n
+1-10\r\n
+26\r\n
+1-10\r\n
+27\r\n
+1-10\r\n
+29\r\n
+1-10\r\n
+30\r\n
+1-10\r\n
+34\r\n
+1-10\r\n
+35\r\n
+1-10\r\n
+36\r\n
+1-10\r\n
+37\r\n
+1-10\r\n
+41\r\n
+1-10\r\n
+47\r\n
+1-10\r\n
+49\r\n
+1-10\r\n
+50\r\n
+1-10\r\n
+51\r\n
+1-10\r\n
+52\r\n
+1-10\r\n
+0\r\n
+MossTankRuleExpressions\r\n
+9\r\n
+1\r\n
+3\r\n
+Pea
+--- profiles mosstank/loot/vtcold.utl
+UTL\r\n
+1\r\n
+1\r\n
+Keep peas\r\n
+\r\n
+0;10;9999\r\n
+25\r\n
+6\r\n
+true\r\n
+SalvageCombine\r\n
+277\r\n
+1\r\n
+1-6, 7-8, 9, 10\r\n
+25\r\n
+10\r\n
+1-10\r\n
+13\r\n
+1-10\r\n
+14\r\n
+1-10\r\n
+15\r\n
+1-10\r\n
+16\r\n
+1-10\r\n
+17\r\n
+1-10\r\n
+18\r\n
+1-10\r\n
+19\r\n
+1-10\r\n
+21\r\n
+1-10\r\n
+22\r\n
+1-10\r\n
+25\r\n
+1-10\r\n
+26\r\n
+1-10\r\n
+27\r\n
+1-10\r\n
+29\r\n
+1-10\r\n
+30\r\n
+1-10\r\n
+34\r\n
+1-10\r\n
+35\r\n
+1-10\r\n
+36\r\n
+1-10\r\n
+37\r\n
+1-10\r\n
+41\r\n
+1-10\r\n
+47\r\n
+1-10\r\n
+49\r\n
+1-10\r\n
+50\r\n
+1-10\r\n
+51\r\n
+1-10\r\n
+52\r\n
+1-10\r\n
+0\r\n
+MossTankRuleExpressions\r\n
+6\r\n
+1\r\n
+0\r\n
+
+--- profiles mosstank/profiles/Coldeve_Acdream.cdf
+uTank2 CDF 1.0\r\n
+\r\n
+mosstank/loot/vtcold.utl\r\n
+\r\n
+
+--- log
+
+##### loot-legacy
+load Loaded Old|Salvage|2|1|0
+salvage 1-10
+selected By char active True partial False
+names By char|Hunt
+--- profiles mosstank/loot/--Acdream_Coldeve.utl
+UTL\r\n
+1\r\n
+1\r\n
+Old\r\n
+\r\n
+0;2;9999\r\n
+6\r\n
+true\r\n
+SalvageCombine\r\n
+272\r\n
+1\r\n
+1-10\r\n
+25\r\n
+10\r\n
+1-10\r\n
+13\r\n
+1-10\r\n
+14\r\n
+1-10\r\n
+15\r\n
+1-10\r\n
+16\r\n
+1-10\r\n
+17\r\n
+1-10\r\n
+18\r\n
+1-10\r\n
+19\r\n
+1-10\r\n
+21\r\n
+1-10\r\n
+22\r\n
+1-10\r\n
+25\r\n
+1-10\r\n
+26\r\n
+1-10\r\n
+27\r\n
+1-10\r\n
+29\r\n
+1-10\r\n
+30\r\n
+1-10\r\n
+34\r\n
+1-10\r\n
+35\r\n
+1-10\r\n
+36\r\n
+1-10\r\n
+37\r\n
+1-10\r\n
+41\r\n
+1-10\r\n
+47\r\n
+1-10\r\n
+49\r\n
+1-10\r\n
+50\r\n
+1-10\r\n
+51\r\n
+1-10\r\n
+52\r\n
+1-10\r\n
+1\r\n
+5\r\n
+3\r\n
+MossTankRuleExpressions\r\n
+13\r\n
+1\r\n
+7\r\n
+Salvage
+--- profiles mosstank/loot/Hunt.utl
+UTL\r\n
+1\r\n
+1\r\n
+Hunt rule\r\n
+\r\n
+0;1;1\r\n
+3\r\n
+x\r\n
+SalvageCombine\r\n
+277\r\n
+1\r\n
+1-6, 7-8, 9, 10\r\n
+25\r\n
+10\r\n
+1-10\r\n
+13\r\n
+1-10\r\n
+14\r\n
+1-10\r\n
+15\r\n
+1-10\r\n
+16\r\n
+1-10\r\n
+17\r\n
+1-10\r\n
+18\r\n
+1-10\r\n
+19\r\n
+1-10\r\n
+21\r\n
+1-10\r\n
+22\r\n
+1-10\r\n
+25\r\n
+1-10\r\n
+26\r\n
+1-10\r\n
+27\r\n
+1-10\r\n
+29\r\n
+1-10\r\n
+30\r\n
+1-10\r\n
+34\r\n
+1-10\r\n
+35\r\n
+1-10\r\n
+36\r\n
+1-10\r\n
+37\r\n
+1-10\r\n
+41\r\n
+1-10\r\n
+47\r\n
+1-10\r\n
+49\r\n
+1-10\r\n
+50\r\n
+1-10\r\n
+51\r\n
+1-10\r\n
+52\r\n
+1-10\r\n
+0\r\n
+MossTankRuleExpressions\r\n
+6\r\n
+1\r\n
+0\r\n
+
+--- log
+warn Migrated 1 legacy MossTank named loot profile(s) from the old roster.
+
+##### loot-unsupported
+load Partial Radar|*|1|1|1
+--- plugin recovery/loot/222C28685B99DDB9.txt
+Original key: mosstank/loot/--Acdream_Coldeve.utl\n
+Load error: Invalid 1 block length: SalvageCombine.\n
+\n
+UTL\r\n
+1\r\n
+1\r\n
+Radar\r\n
+\r\n
+0;1;2\r\n
+10\r\n
+0\r\n
+95\r\n
+1\r\n
+SalvageCombine\r\n
+277\r\n
+1\r\n
+1-6, 7-8, 9, 10\r\n
+25\r\n
+10\r\n
+1-10\r\n
+13\r\n
+1-10\r\n
+14\r\n
+1-10\r\n
+15\r\n
+1-10\r\n
+16\r\n
+1-10\r\n
+17\r\n
+1-10\r\n
+18\r\n
+1-10\r\n
+19\r\n
+1-10\r\n
+21\r\n
+1-10\r\n
+22\r\n
+1-10\r\n
+25\r\n
+1-10\r\n
+26\r\n
+1-10\r\n
+27\r\n
+1-10\r\n
+29\r\n
+1-10\r\n
+30\r\n
+1-10\r\n
+34\r\n
+1-10\r\n
+35\r\n
+1-10\r\n
+36\r\n
+1-10\r\n
+37\r\n
+1-10\r\n
+41\r\n
+1-10\r\n
+47\r\n
+1-10\r\n
+49\r\n
+1-10\r\n
+50\r\n
+1-10\r\n
+51\r\n
+1-10\r\n
+52\r\n
+1-10\r\n
+0\r\n
+MossTankRuleExpressions\r\n
+6\r\n
+1\r\n
+0\r\n
+
+--- profiles mosstank/loot/--Acdream_Coldeve.utl
+UTL\r\n
+1\r\n
+1\r\n
+Radar\r\n
+\r\n
+0;1;2\r\n
+10\r\n
+0\r\n
+95\r\n
+1\r\n
+SalvageCombine\r\n
+277\r\n
+1\r\n
+1-6, 7-8, 9, 10\r\n
+25\r\n
+10\r\n
+1-10\r\n
+13\r\n
+1-10\r\n
+14\r\n
+1-10\r\n
+15\r\n
+1-10\r\n
+16\r\n
+1-10\r\n
+17\r\n
+1-10\r\n
+18\r\n
+1-10\r\n
+19\r\n
+1-10\r\n
+21\r\n
+1-10\r\n
+22\r\n
+1-10\r\n
+25\r\n
+1-10\r\n
+26\r\n
+1-10\r\n
+27\r\n
+1-10\r\n
+29\r\n
+1-10\r\n
+30\r\n
+1-10\r\n
+34\r\n
+1-10\r\n
+35\r\n
+1-10\r\n
+36\r\n
+1-10\r\n
+37\r\n
+1-10\r\n
+41\r\n
+1-10\r\n
+47\r\n
+1-10\r\n
+49\r\n
+1-10\r\n
+50\r\n
+1-10\r\n
+51\r\n
+1-10\r\n
+52\r\n
+1-10\r\n
+0\r\n
+MossTankRuleExpressions\r\n
+6\r\n
+1\r\n
+0\r\n
+
+--- log
+warn loot profile 'mosstank/loot/--Acdream_Coldeve.utl' could not be loaded: Invalid 1 block length: SalvageCombine. Raw data was preserved as recovery/loot/222C28685B99DDB9.txt.
+warn Loot profile --Acdream_Coldeve: 1 enabled rule requirement(s) read a value MossTank cannot get from the client yet, so they will not match as in VTank: "Radar" reads RadarBlipColor (95).
+

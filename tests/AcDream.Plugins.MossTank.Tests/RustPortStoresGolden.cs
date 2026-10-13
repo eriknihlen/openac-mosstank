@@ -139,6 +139,12 @@ internal static class RustPortStoresGolden
                 case "legacy": Legacy(sb); break;
                 case "roster": Roster(sb); break;
                 case "preferences": Preferences(sb); break;
+                case "loot-first-run": LootFirstRun(sb); break;
+                case "loot-named": LootNamed(sb); break;
+                case "loot-partial": LootPartial(sb); break;
+                case "loot-import": LootImport(sb); break;
+                case "loot-legacy": LootLegacy(sb); break;
+                case "loot-unsupported": LootUnsupported(sb); break;
                 default: throw new InvalidOperationException("unknown scenario " + name);
             }
         }
@@ -397,6 +403,149 @@ internal static class RustPortStoresGolden
         sb.Append("meta ").Append(store.MetaIntervalMilliseconds.ToString(CultureInfo.InvariantCulture))
             .Append(" db ").Append(store.GameDbCheckIntervalHours.ToString(CultureInfo.InvariantCulture))
             .Append(" mine ").Append(B(store.MineOnly)).Append('\n');
+        Files(sb, host);
+    }
+
+    private static string Rules(IEnumerable<LootRule> rules) => string.Join(";", rules.Select(static rule =>
+        rule.Name + "|" + rule.Expression + "|" + ((int)rule.Action).ToString(CultureInfo.InvariantCulture)
+        + "|" + rule.KeepCount.ToString(CultureInfo.InvariantCulture)
+        + "|" + rule.VtankRequirements.Count.ToString(CultureInfo.InvariantCulture)));
+
+    private static void LootState(StringBuilder sb, MossTankLootProfileStore store)
+    {
+        sb.Append("selected ").Append(store.Selected)
+            .Append(" active ").Append(B(store.HasActiveProfile))
+            .Append(" partial ").Append(B(store.ActiveProfileIsPartial)).Append('\n');
+        sb.Append("names ").Append(string.Join("|", store.AvailableNames)).Append('\n');
+    }
+
+    private static LootRule Peas() => new()
+    {
+        Name = "Keep peas",
+        Expression = "Pea",
+        Action = LootAction.KeepUpTo,
+        KeepCount = 25,
+    };
+
+    private static void LootFirstRun(StringBuilder sb)
+    {
+        Host host = NewHost();
+        var store = new MossTankLootProfileStore(host);
+        var rules = new List<LootRule>();
+        var settings = new LootSettings();
+        sb.Append("bind ").Append(B(store.BindCharacter("Acdream"))).Append('\n');
+        sb.Append("load ").Append(store.LoadCurrent(rules, settings)).Append('\n');
+        rules.Add(Peas());
+        store.SaveCurrent(rules, settings);
+        LootState(sb, store);
+        Files(sb, host);
+    }
+
+    private static void LootNamed(StringBuilder sb)
+    {
+        Host host = NewHost();
+        var store = new MossTankLootProfileStore(host);
+        var rules = new List<LootRule>();
+        var settings = new LootSettings();
+        store.BindCharacter("Acdream");
+        store.LoadCurrent(rules, settings);
+        rules.Add(Peas());
+        store.SaveCurrent(rules, settings);
+        bool created = store.Create("Shared", copyCurrent: true, rules, out string notice, settings);
+        sb.Append("create ").Append(B(created)).Append(' ').Append(notice).Append('\n');
+        LootState(sb, store);
+        sb.Append("select bychar ").Append(B(store.Select("By char"))).Append('\n');
+        rules.Clear();
+        sb.Append("load ").Append(store.LoadCurrent(rules, settings)).Append(' ').Append(Rules(rules)).Append('\n');
+        sb.Append("exists ").Append(B(store.Exists("shared"))).Append(' ').Append(B(store.Exists("nope"))).Append('\n');
+        sb.Append("select shared ").Append(B(store.Select("Shared"))).Append('\n');
+        rules.Clear();
+        sb.Append("load ").Append(store.LoadCurrent(rules, settings)).Append(' ').Append(Rules(rules)).Append('\n');
+        var named = new List<LootRule>();
+        sb.Append("named ").Append(B(store.TryLoadNamed("By char", named))).Append(' ').Append(Rules(named)).Append('\n');
+        bool deleted = store.Delete(out string deleteNotice);
+        sb.Append("delete ").Append(B(deleted)).Append(' ').Append(deleteNotice).Append('\n');
+        LootState(sb, store);
+        rules.Clear();
+        sb.Append("load ").Append(store.LoadCurrent(rules, settings)).Append(' ').Append(Rules(rules)).Append('\n');
+        LootState(sb, store);
+        Files(sb, host);
+    }
+
+    private static void LootPartial(StringBuilder sb)
+    {
+        Host host = NewHost();
+        string text = MossTankLootProfileStore.SerializeRules(
+            [Peas(), new LootRule { Name = "Second rule", Expression = "Gem" }]);
+        host.Profiles.Text["mosstank/loot/--Acdream_Coldeve.utl"] =
+            text[..(text.IndexOf("Second", StringComparison.Ordinal) + 3)];
+        var store = new MossTankLootProfileStore(host);
+        var rules = new List<LootRule>();
+        var settings = new LootSettings();
+        store.BindCharacter("Acdream");
+        sb.Append("load ").Append(store.LoadCurrent(rules, settings)).Append(' ').Append(Rules(rules)).Append('\n');
+        sb.Append("notice ").Append(store.LoadNotice).Append('\n');
+        rules.Add(new LootRule { Name = "Added" });
+        store.SaveCurrent(rules, settings);
+        bool created = store.Create("Copy", copyCurrent: true, rules, out string notice, settings);
+        sb.Append("create ").Append(B(created)).Append(' ').Append(notice).Append('\n');
+        LootState(sb, store);
+        Files(sb, host);
+    }
+
+    private static void LootImport(StringBuilder sb)
+    {
+        Host host = NewHost();
+        host.Plugin.Text["imports/VtcOld.utl"] = MossTankLootProfileStore.SerializeRules([Peas()]);
+        host.Plugin.Text["imports/Broken.utl"] = "not a loot profile";
+        var store = new MossTankLootProfileStore(host);
+        var rules = new List<LootRule>();
+        var settings = new LootSettings();
+        store.BindCharacter("Acdream");
+        store.LoadCurrent(rules, settings);
+        bool imported = store.TryImportLegacy("vtcold.utl", rules, settings, out string notice);
+        sb.Append("import ").Append(B(imported)).Append(' ').Append(notice).Append(' ').Append(Rules(rules)).Append('\n');
+        bool broken = store.TryImportLegacy("Broken", rules, settings, out string brokenNotice);
+        sb.Append("import ").Append(B(broken)).Append(' ').Append(brokenNotice).Append('\n');
+        bool missing = store.TryImportLegacy("Nope", rules, settings, out string missingNotice);
+        sb.Append("import ").Append(B(missing)).Append(' ').Append(missingNotice).Append('\n');
+        LootState(sb, store);
+        Files(sb, host);
+    }
+
+    private static void LootLegacy(StringBuilder sb)
+    {
+        Host host = NewHost();
+        host.Plugin.Text["profiles/loot/" + Sha("char:ACDREAM") + ".json"] =
+            "{\"Rules\":[{\"Name\":\"Old\",\"Expression\":\"Salvage\",\"Action\":2}],\"SalvageCombine\":{\"DefaultCombineString\":\"1-10\",\"MaterialValueModeValues\":{\"5\":3}}}";
+        host.Plugin.Text["profiles/loot/index.json"] = "{\"Names\":[\"Hunt\",\"By char\",\"Gone\"]}";
+        host.Plugin.Text["profiles/loot/" + Sha("named:HUNT") + ".json"] =
+            "{\"Rules\":[{\"Name\":\"Hunt rule\",\"Requirements\":[{\"Type\":1,\"Payload\":\"x\\r\\n\"}],\"HasImportedRequirements\":true}]}";
+        var store = new MossTankLootProfileStore(host);
+        var rules = new List<LootRule>();
+        var settings = new LootSettings();
+        store.BindCharacter("Acdream");
+        sb.Append("load ").Append(store.LoadCurrent(rules, settings)).Append(' ').Append(Rules(rules)).Append('\n');
+        sb.Append("salvage ").Append(settings.SalvageCombine.DefaultCombineString).Append('\n');
+        LootState(sb, store);
+        Files(sb, host);
+    }
+
+    private static void LootUnsupported(StringBuilder sb)
+    {
+        Host host = NewHost();
+        var radar = new LootRule
+        {
+            Name = "Radar",
+            VtankRequirements = [new VtankLootRequirement { Type = 2, Payload = "0\r\n95\r\n1\r\n" }],
+            HasImportedRequirements = true,
+        };
+        host.Profiles.Text["mosstank/loot/--Acdream_Coldeve.utl"] =
+            MossTankLootProfileStore.SerializeRules([radar]);
+        var store = new MossTankLootProfileStore(host);
+        var rules = new List<LootRule>();
+        store.BindCharacter("Acdream");
+        sb.Append("load ").Append(store.LoadCurrent(rules)).Append(' ').Append(Rules(rules)).Append('\n');
         Files(sb, host);
     }
 }

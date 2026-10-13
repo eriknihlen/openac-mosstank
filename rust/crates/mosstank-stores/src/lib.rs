@@ -12,15 +12,20 @@
 //! - [`recovery`]: a profile that would not load is kept.
 //! - [`global_variables`]: the global variables every client on a server
 //!   shares, one file each, under a lock.
+//! - [`profile_store`]: the settings profile store, with its side-car
+//!   ([`sidecar`]) and the older JSON documents it migrates ([`legacy`]).
+//! - [`loot_store`]: the loot profile store.
+//! - [`stj`]: the JSON documents read and written as System.Text.Json does.
 //!
-//! Pure: storage comes in through [`storage::PluginStorage`], handed to each
-//! call that needs it.
+//! Pure: storage comes in through [`storage::PluginStorage`] (a profile store
+//! takes a [`storage::StoreHost`]), handed to each call that needs it.
 
 pub mod directory;
 pub mod global_variables;
 pub mod layout;
 pub mod layout_migration;
 pub mod legacy;
+pub mod loot_store;
 pub mod profile_store;
 pub mod recovery;
 pub mod sidecar;

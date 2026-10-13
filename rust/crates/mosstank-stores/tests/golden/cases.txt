@@ -8,3 +8,9 @@ set-in-all
 legacy
 roster
 preferences
+loot-first-run
+loot-named
+loot-partial
+loot-import
+loot-legacy
+loot-unsupported
