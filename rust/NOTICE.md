@@ -35,14 +35,22 @@ How the Rust readers and writers for these formats were made:
 - Written from the file formats themselves: the fixture files in
   `../tests/AcDream.Plugins.MossTank.Tests/Fixtures/vtank` (`af/`, `met/`,
   `nav/`) and the C# tests' inputs and expected outputs, used as golden data.
-  The three files above were not read for the conversion.
+  The three files above were not read for the conversion, and no metaf code
+  was read.
+- metaf's format documentation (its reference of data types, keywords and
+  node shapes, `metafReference.af`) was read for the facts it states about
+  the format.
+- The C# plugin was run as a black box: `RustPortGolden.cs` in the C# tests
+  feeds it the cases in `crates/mosstank-formats/tests/golden/cases.txt` and
+  records what its readers and writers return (`cases.out`); the Rust test
+  `tests/golden.rs` must give the same. Outputs, not code, were compared.
 - Test data is used as it is: the fixtures (including `.af` files metaf
   wrote) are read in place from the C# test folder, never copied in.
 - The header every `.af` file starts with is metaf's own credit block; metaf's
   author asks that anything built on metaf credits it and links to it, and
   MossTank's `.af` files must stay readable by metaf. The Rust writer emits
   that header unchanged, kept as data in
-  `crates/mosstank-formats/src/af/header.txt`. **For the owner to confirm:**
+  `crates/mosstank-formats/src/af/meta_header.txt` and `nav_header.txt`. **For the owner to confirm:**
   the header is metaf's text (a credit line, a link, and the format's keyword
   list), carried for attribution and compatibility, not code.
 

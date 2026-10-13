@@ -158,6 +158,81 @@ pub fn double_to_int(value: f64) -> i32 {
     value as i32
 }
 
+/// The message of .NET's `FormatException` for a number that does not
+/// parse.
+#[must_use]
+pub fn format_exception_message(text: &str) -> String {
+    format!("The input string '{text}' was not in a correct format.")
+}
+
+/// The message of .NET's `OverflowException` from a checked conversion.
+pub const ARITHMETIC_OVERFLOW: &str = "Arithmetic operation resulted in an overflow.";
+
+/// `int.Parse(text, CultureInfo.InvariantCulture)`, with .NET's messages.
+///
+/// # Errors
+/// The text is not an integer, or does not fit.
+pub fn parse_int(text: &str) -> Result<i32, String> {
+    if let Some(value) = try_parse_int(text) {
+        return Ok(value);
+    }
+    if number::parse_f64(text, NumberStyles::INTEGER).is_some() {
+        Err("Value was either too large or too small for an Int32.".to_owned())
+    } else {
+        Err(format_exception_message(text))
+    }
+}
+
+/// `double.Parse(text, NumberStyles.Float, CultureInfo.InvariantCulture)`,
+/// with .NET's message.
+///
+/// # Errors
+/// The text is not a number.
+pub fn parse_double(text: &str) -> Result<f64, String> {
+    number::parse_f64(text, NumberStyles::FLOAT).ok_or_else(|| format_exception_message(text))
+}
+
+/// `bool.Parse(text)`: `True` or `False` in any case, surrounding white
+/// space and NULs ignored.
+///
+/// # Errors
+/// Anything else, with .NET's message.
+pub fn parse_bool(text: &str) -> Result<bool, String> {
+    let trimmed = text.trim_matches(|c: char| c.is_whitespace() || c == '\0');
+    if eq_ignore_case(trimmed, "True") {
+        Ok(true)
+    } else if eq_ignore_case(trimmed, "False") {
+        Ok(false)
+    } else {
+        Err(format!(
+            "String '{text}' was not recognized as a valid Boolean."
+        ))
+    }
+}
+
+/// `checked((int)value)`: truncation toward zero, an error outside the
+/// range or for NaN.
+///
+/// # Errors
+/// .NET's overflow message.
+#[allow(clippy::cast_possible_truncation)]
+pub fn checked_double_to_int(value: f64) -> Result<i32, String> {
+    let truncated = value.trunc();
+    if truncated.is_nan() || truncated < f64::from(i32::MIN) || truncated > f64::from(i32::MAX) {
+        Err(ARITHMETIC_OVERFLOW.to_owned())
+    } else {
+        Ok(truncated as i32)
+    }
+}
+
+/// `checked((int)Math.Round(value, MidpointRounding.AwayFromZero))`.
+///
+/// # Errors
+/// .NET's overflow message.
+pub fn round_to_int_checked(value: f64) -> Result<i32, String> {
+    checked_double_to_int(round_away_from_zero(value))
+}
+
 /// Reads lines as `StringReader.ReadLine` does: a line ends at `\r\n`, `\r`
 /// or `\n`, and the break is not part of the line.
 #[derive(Debug, Clone)]

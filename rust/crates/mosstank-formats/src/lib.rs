@@ -8,7 +8,12 @@
 //! Pure: no host calls. Text comes in and goes out as `&str`/`String`;
 //! reading and writing files is the caller's (the plugin's storage).
 
+pub mod af;
 pub mod line_endings;
+pub mod met;
+pub mod meta;
+pub mod nav;
+pub mod route;
 pub mod usd;
 pub mod utl;
 

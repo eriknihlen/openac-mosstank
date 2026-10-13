@@ -358,6 +358,18 @@ impl<'a> VtankLineCursor<'a> {
         }
     }
 
+    /// The byte offset of what has not been read yet.
+    #[must_use]
+    pub fn position(&self) -> usize {
+        self.position
+    }
+
+    /// The text read between byte offset `start` and now.
+    #[must_use]
+    pub fn read_since(&self, start: usize) -> &'a str {
+        &self.text[start..self.position]
+    }
+
     /// The number of the next line (from 1).
     #[must_use]
     pub fn line_number(&self) -> usize {

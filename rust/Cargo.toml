@@ -26,6 +26,8 @@ mosstank-dotnet = { path = "crates/mosstank-dotnet" }
 # writers, regex.
 openac-plugin = { git = "ssh://git@github.com/eriknihlen/openac-rust.git", branch = "main" }
 openac-plugin-compat = { git = "ssh://git@github.com/eriknihlen/openac-rust.git", branch = "main" }
+# The plugin ABI types (world positions and the like) without the SDK's host side.
+ac-plugin-abi = { git = "ssh://git@github.com/eriknihlen/openac-rust.git", branch = "main" }
 
 thiserror = "2.0"
 

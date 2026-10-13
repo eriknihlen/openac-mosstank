@@ -1,0 +1,265 @@
+# Golden cases for the route and meta formats. Each line:
+#   kind ::: name ::: input
+# kind is met, nav, af-meta or af-nav; input is the text with \r \n \t \\
+# and \u{XXXX} escapes, or @path for a fixture under
+# tests/AcDream.Plugins.MossTank.Tests/Fixtures. The C# plugin's output for
+# every case is cases.out, written by RustPortGolden.cs in the C# tests
+# (MOSSTANK_RUST_GOLDEN=1 dotnet test --filter RustPortGolden); the Rust
+# test tests/golden.rs compares against it. Add a case here, rerun both.
+
+# --- The fixtures.
+met ::: aphus ::: @vtank/met/aphus.met
+met ::: army_linear ::: @vtank/met/army_linear.met
+met ::: augments ::: @vtank/met/augments.met
+met ::: bella ::: @vtank/met/bella.met
+met ::: bobo ::: @vtank/met/bobo.met
+met ::: bore_enhanced ::: @vtank/met/bore_enhanced.met
+met ::: createview ::: @vtank/met/createview.met
+met ::: empyrean_facility ::: @vtank/met/empyrean_facility.met
+met ::: example_sort_meta ::: @vtank/met/example_sort_meta.met
+met ::: gauntlet_leader ::: @vtank/met/gauntlet_leader.met
+met ::: legendary_chests ::: @vtank/met/legendary_chests.met
+met ::: lockandkey ::: @vtank/met/lockandkey.met
+met ::: neftet ::: @vtank/met/neftet.met
+met ::: spell_time ::: @vtank/met/spell_time.met
+met ::: owner-a ::: @vtank/owner-a.met
+met ::: rynthify ::: @vt-proof/rynthify-controlled-meta.met
+nav ::: barristunnels ::: @vtank/nav/barristunnels.nav
+nav ::: emp_lower_north ::: @vtank/nav/emp_lower_north.nav
+nav ::: follow_barris ::: @vtank/nav/follow_barris.nav
+nav ::: jaw_1 ::: @vtank/nav/jaw_1.nav
+nav ::: nav_ab ::: @vtank/nav/nav_ab.nav
+nav ::: nav_briennecarlus ::: @vtank/nav/nav_briennecarlus.nav
+nav ::: nav_empyrean ::: @vtank/nav/nav_empyrean.nav
+nav ::: nav_jondortorgren ::: @vtank/nav/nav_jondortorgren.nav
+nav ::: nav_lockandkeyjaw ::: @vtank/nav/nav_lockandkeyjaw.nav
+nav ::: recomp_sawato ::: @vtank/nav/recomp_sawato.nav
+nav ::: owner-a ::: @vtank/owner-a.nav
+af-meta ::: aphus ::: @vtank/af/aphus.af
+af-meta ::: augments ::: @vtank/af/augments.af
+af-meta ::: bella ::: @vtank/af/bella.af
+af-meta ::: bore_enhanced ::: @vtank/af/bore_enhanced.af
+af-meta ::: bore_quest ::: @vtank/af/bore_quest.af
+af-meta ::: empyrean_facility ::: @vtank/af/empyrean_facility.af
+af-meta ::: example_sort_meta ::: @vtank/af/example_sort_meta.af
+af-meta ::: follower ::: @vtank/af/follower.af
+af-meta ::: gauntlet_leader ::: @vtank/af/gauntlet_leader.af
+af-meta ::: hunting ::: @vtank/af/hunting.af
+af-meta ::: lockandkey ::: @vtank/af/lockandkey.af
+af-meta ::: neftet ::: @vtank/af/neftet.af
+af-meta ::: nav-only refused ::: @vtank/af/nav_ab.af
+af-nav ::: nav_ab ::: @vtank/af/nav_ab.af
+af-nav ::: nav_briennecarlus ::: @vtank/af/nav_briennecarlus.af
+af-nav ::: nav_empyrean ::: @vtank/af/nav_empyrean.af
+af-nav ::: nav_jondortorgren ::: @vtank/af/nav_jondortorgren.af
+af-nav ::: nav_lockandkeyjaw ::: @vtank/af/nav_lockandkeyjaw.af
+af-nav ::: vt-proof-route ::: @vt-proof/navs/vt-proof-route.af
+af-nav ::: meta refused ::: @vtank/af/bella.af
+
+# --- .nav: shapes and refusals.
+nav ::: linear empty ::: uTank2 NAV 1.2\r\n2\r\n0\r\n
+nav ::: unknown type ::: uTank2 NAV 1.2\r\n5\r\n0\r\n
+nav ::: old version ::: uTank2 NAV 1.1\r\n1\r\n0\r\n
+nav ::: leading spaces ::: \u{20}\u{20}uTank2 NAV 1.2\r\n1\r\n0\r\n
+nav ::: unknown waypoint ::: uTank2 NAV 1.2\r\n1\r\n1\r\n10\r\n1\r\n2\r\n3\r\n0\r\n
+nav ::: jump false lower ::: uTank2 NAV 1.2\r\n1\r\n1\r\n9\r\n1\r\n2\r\n3\r\n0\r\n45\r\nfalse\r\n300\r\n
+nav ::: jump code 2 ::: uTank2 NAV 1.2\r\n1\r\n1\r\n9\r\n1\r\n2\r\n3\r\n0\r\n45\r\nTrue\r\n300.00002\r\n
+nav ::: jump code 9 ::: uTank2 NAV 1.2\r\n1\r\n1\r\n9\r\n1\r\n2\r\n3\r\n0\r\n45\r\nTrue\r\n300.00009\r\n
+nav ::: jump half ::: uTank2 NAV 1.2\r\n1\r\n1\r\n9\r\n1\r\n2\r\n3\r\n0\r\n45\r\nTrue\r\n300.5\r\n
+nav ::: jump 300.123456 ::: uTank2 NAV 1.2\r\n1\r\n1\r\n9\r\n1\r\n2\r\n3\r\n0\r\n45\r\nTrue\r\n300.123456\r\n
+nav ::: jump 300.000035 ::: uTank2 NAV 1.2\r\n1\r\n1\r\n9\r\n1\r\n2\r\n3\r\n0\r\n45\r\nTrue\r\n300.000035\r\n
+nav ::: jump 300.000045 ::: uTank2 NAV 1.2\r\n1\r\n1\r\n9\r\n1\r\n2\r\n3\r\n0\r\n45\r\nTrue\r\n300.000045\r\n
+nav ::: jump 299.99999 ::: uTank2 NAV 1.2\r\n1\r\n1\r\n9\r\n1\r\n2\r\n3\r\n0\r\n45\r\nTrue\r\n299.99999\r\n
+nav ::: jump 4E-05 ::: uTank2 NAV 1.2\r\n1\r\n1\r\n9\r\n1\r\n2\r\n3\r\n0\r\n45\r\nTrue\r\n4E-05\r\n
+nav ::: jump 1E-06 ::: uTank2 NAV 1.2\r\n1\r\n1\r\n9\r\n1\r\n2\r\n3\r\n0\r\n45\r\nTrue\r\n1E-06\r\n
+nav ::: jump -5 ::: uTank2 NAV 1.2\r\n1\r\n1\r\n9\r\n1\r\n2\r\n3\r\n0\r\n45\r\nTrue\r\n-5\r\n
+nav ::: jump -300.00004 ::: uTank2 NAV 1.2\r\n1\r\n1\r\n9\r\n1\r\n2\r\n3\r\n0\r\n45\r\nTrue\r\n-300.00004\r\n
+nav ::: jump 2500.5 ::: uTank2 NAV 1.2\r\n1\r\n1\r\n9\r\n1\r\n2\r\n3\r\n0\r\n45\r\nTrue\r\n2500.5\r\n
+nav ::: jump 1E+10 ::: uTank2 NAV 1.2\r\n1\r\n1\r\n9\r\n1\r\n2\r\n3\r\n0\r\n45\r\nTrue\r\n1E+10\r\n
+nav ::: jump abc ::: uTank2 NAV 1.2\r\n1\r\n1\r\n9\r\n1\r\n2\r\n3\r\n0\r\n45\r\nTrue\r\nabc\r\n
+nav ::: jump maybe ::: uTank2 NAV 1.2\r\n1\r\n1\r\n9\r\n1\r\n2\r\n3\r\n0\r\n45\r\nmaybe\r\n300\r\n
+nav ::: pause fraction ::: uTank2 NAV 1.2\r\n1\r\n1\r\n3\r\n1\r\n2\r\n3\r\n0\r\n2500.7\r\n
+nav ::: point odd zero line ::: uTank2 NAV 1.2\r\n1\r\n1\r\n0\r\n1\r\n2\r\n3\r\n1\r\n
+nav ::: portal by name false ::: uTank2 NAV 1.2\r\n1\r\n1\r\n6\r\n1\r\n2\r\n3\r\n0\r\nP\r\n14\r\nFalse\r\n4\r\n5\r\n6\r\n
+nav ::: follow minus one ::: uTank2 NAV 1.2\r\n3\r\nBarris\r\n-1\r\n
+nav ::: follow empty name ::: uTank2 NAV 1.2\r\n3\r\n\r\n0\r\n
+nav ::: truncated ::: uTank2 NAV 1.2\r\n1\r\n2\r\n0\r\n1\r\n2\r\n3\r\n0\r\n
+nav ::: portal id overflow ::: uTank2 NAV 1.2\r\n1\r\n1\r\n1\r\n1\r\n2\r\n3\r\n0\r\n2147483648\r\n
+nav ::: portal high bit ::: uTank2 NAV 1.2\r\n1\r\n1\r\n1\r\n1\r\n2\r\n3\r\n0\r\n-2147483647\r\n
+nav ::: vendor empty ::: uTank2 NAV 1.2\r\n1\r\n1\r\n5\r\n1\r\n2\r\n3\r\n0\r\n0\r\n\r\n
+nav ::: vendor uint ::: uTank2 NAV 1.2\r\n1\r\n1\r\n5\r\n1\r\n2\r\n3\r\n0\r\n4294967295\r\nv\r\n
+nav ::: recall negative ::: uTank2 NAV 1.2\r\n1\r\n1\r\n2\r\n1\r\n2\r\n3\r\n0\r\n-5\r\n
+nav ::: recall 48 and unknown ::: uTank2 NAV 1.2\r\n4\r\n2\r\n2\r\n1\r\n2\r\n3\r\n0\r\n48\r\n2\r\n1\r\n2\r\n3\r\n0\r\n99999\r\n
+nav ::: wrapped ::: Route Name\n1\nuTank2 NAV 1.2\n4\n1\n0\n1\n2\n3\n0
+nav ::: wrapped count mismatch ::: Route Name\r\n3\r\nuTank2 NAV 1.2\r\n4\r\n1\r\n0\r\n1\r\n2\r\n3\r\n0\r\n
+nav ::: broken ::: broken
+nav ::: empty :::
+nav ::: thousands ::: uTank2 NAV 1.2\r\n1\r\n1\r\n0\r\n1,5\r\n2\r\n3\r\n0\r\n
+nav ::: lone CR lines ::: uTank2 NAV 1.2\r1\r0\r
+nav ::: trailing data ::: uTank2 NAV 1.2\r\n1\r\n0\r\nextra\r\n
+nav ::: numbers ::: uTank2 NAV 1.2\r\n4\r\n3\r\n0\r\n0.30000000000000004\r\n1E+20\r\n-0\r\n0\r\n0\r\n12.300000190734863\r\n1E-05\r\n10000000000000000\r\n0\r\n0\r\n-12.5\r\n2.08333134651184E-05\r\n-1275133952\r\n0\r\n
+nav ::: chat with tab ::: uTank2 NAV 1.2\r\n4\r\n1\r\n4\r\n1\r\n2\r\n3\r\n0\r\n/say\ta\r\n
+
+# --- .met: shapes and refusals.
+met ::: follow embedded ::: 1\r\nCondAct\r\n5\r\nCType\r\nAType\r\nCData\r\nAData\r\nState\r\nn\r\nn\r\nn\r\nn\r\nn\r\n1\r\ni\r\n1\r\ni\r\n4\r\ni\r\n0\r\nba\r\n41\r\nf\r\n1\r\nuTank2 NAV 1.2\r\n3\r\nBarris\r\n1342431769\r\ns\r\nDefault\r\n
+met ::: empty blob ::: 1\r\nCondAct\r\n5\r\nCType\r\nAType\r\nCData\r\nAData\r\nState\r\nn\r\nn\r\nn\r\nn\r\nn\r\n1\r\ni\r\n1\r\ni\r\n4\r\ni\r\n0\r\nba\r\n0\r\ns\r\nDefault\r\n
+met ::: nested doall ::: 1\r\nCondAct\r\n5\r\nCType\r\nAType\r\nCData\r\nAData\r\nState\r\nn\r\nn\r\nn\r\nn\r\nn\r\n1\r\ni\r\n1\r\ni\r\n3\r\ni\r\n0\r\nTABLE\r\n2\r\nK\r\nV\r\nn\r\nn\r\n1\r\ni\r\n3\r\nTABLE\r\n2\r\nK\r\nV\r\nn\r\nn\r\n1\r\ni\r\n2\r\ns\r\nx\r\ns\r\nDefault\r\n
+met ::: unknown condition ::: 1\r\nCondAct\r\n5\r\nCType\r\nAType\r\nCData\r\nAData\r\nState\r\nn\r\nn\r\nn\r\nn\r\nn\r\n1\r\ni\r\n99\r\ni\r\n2\r\ni\r\n0\r\ns\r\nx\r\ns\r\nDefault\r\n
+met ::: unknown action ::: 1\r\nCondAct\r\n5\r\nCType\r\nAType\r\nCData\r\nAData\r\nState\r\nn\r\nn\r\nn\r\nn\r\nn\r\n1\r\ni\r\n1\r\ni\r\n99\r\ni\r\n0\r\ns\r\nx\r\ns\r\nDefault\r\n
+met ::: condition 27 ::: 1\r\nCondAct\r\n5\r\nCType\r\nAType\r\nCData\r\nAData\r\nState\r\nn\r\nn\r\nn\r\nn\r\nn\r\n1\r\ni\r\n27\r\ni\r\n2\r\ni\r\n0\r\ns\r\nx\r\ns\r\nDefault\r\n
+met ::: wrong cell for no mobs ::: 1\r\nCondAct\r\n5\r\nCType\r\nAType\r\nCData\r\nAData\r\nState\r\nn\r\nn\r\nn\r\nn\r\nn\r\n1\r\ni\r\n16\r\ni\r\n0\r\ni\r\n5\r\ni\r\n0\r\ns\r\nDefault\r\n
+met ::: d for seconds ::: 1\r\nCondAct\r\n5\r\nCType\r\nAType\r\nCData\r\nAData\r\nState\r\nn\r\nn\r\nn\r\nn\r\nn\r\n1\r\ni\r\n6\r\ni\r\n2\r\nd\r\n5.5\r\ns\r\nx\r\ns\r\nDefault\r\n
+met ::: empty state ::: 1\r\nCondAct\r\n5\r\nCType\r\nAType\r\nCData\r\nAData\r\nState\r\nn\r\nn\r\nn\r\nn\r\nn\r\n1\r\ni\r\n1\r\ni\r\n2\r\ni\r\n0\r\ns\r\nx\r\ns\r\n\r\n
+met ::: two tables ::: 2\r\nCondAct\r\n5\r\nCType\r\nAType\r\nCData\r\nAData\r\nState\r\nn\r\nn\r\nn\r\nn\r\nn\r\n0\r\nOther\r\n1\r\nc\r\nn\r\n0\r\n
+met ::: other table ::: 1\r\nOther\r\n1\r\nc\r\nn\r\n0\r\n
+met ::: too few named values ::: 1\r\nCondAct\r\n5\r\nCType\r\nAType\r\nCData\r\nAData\r\nState\r\nn\r\nn\r\nn\r\nn\r\nn\r\n1\r\ni\r\n13\r\ni\r\n2\r\nTABLE\r\n2\r\nk\r\nv\r\nn\r\nn\r\n2\r\ns\r\nn\r\ns\r\nDrudge\r\ns\r\nc\r\ni\r\n3\r\ns\r\nx\r\ns\r\nDefault\r\n
+met ::: wrong key ::: 1\r\nCondAct\r\n5\r\nCType\r\nAType\r\nCData\r\nAData\r\nState\r\nn\r\nn\r\nn\r\nn\r\nn\r\n1\r\ni\r\n1\r\ni\r\n9\r\ni\r\n0\r\nTABLE\r\n2\r\nk\r\nv\r\nn\r\nn\r\n3\r\ns\r\nr\r\nd\r\n5\r\ns\r\nt\r\nd\r\n10\r\ns\r\ns\r\ns\r\nStuck\r\ns\r\nDefault\r\n
+met ::: nav count too high ::: 1\r\nCondAct\r\n5\r\nCType\r\nAType\r\nCData\r\nAData\r\nState\r\nn\r\nn\r\nn\r\nn\r\nn\r\n1\r\ni\r\n1\r\ni\r\n4\r\ni\r\n0\r\nba\r\n41\r\nn\r\n5\r\nuTank2 NAV 1.2\r\n4\r\n1\r\n0\r\n1\r\n2\r\n3\r\n0\r\ns\r\nDefault\r\n
+met ::: nav wrong length ::: 1\r\nCondAct\r\n5\r\nCType\r\nAType\r\nCData\r\nAData\r\nState\r\nn\r\nn\r\nn\r\nn\r\nn\r\n1\r\ni\r\n1\r\ni\r\n4\r\ni\r\n0\r\nba\r\n999\r\nn\r\n1\r\nuTank2 NAV 1.2\r\n4\r\n1\r\n0\r\n1\r\n2\r\n3\r\n0\r\ns\r\nDefault\r\n
+met ::: nav negative length ::: 1\r\nCondAct\r\n5\r\nCType\r\nAType\r\nCData\r\nAData\r\nState\r\nn\r\nn\r\nn\r\nn\r\nn\r\n1\r\ni\r\n1\r\ni\r\n4\r\ni\r\n0\r\nba\r\n-1\r\nn\r\n1\r\nuTank2 NAV 1.2\r\n4\r\n1\r\n0\r\n1\r\n2\r\n3\r\n0\r\ns\r\nDefault\r\n
+met ::: nav count zero ::: 1\r\nCondAct\r\n5\r\nCType\r\nAType\r\nCData\r\nAData\r\nState\r\nn\r\nn\r\nn\r\nn\r\nn\r\n1\r\ni\r\n1\r\ni\r\n4\r\ni\r\n0\r\nba\r\n5\r\nn\r\n0\r\ns\r\nDefault\r\n
+met ::: view blob over a line ::: 1\r\nCondAct\r\n5\r\nCType\r\nAType\r\nCData\r\nAData\r\nState\r\nn\r\nn\r\nn\r\nn\r\nn\r\n1\r\ni\r\n1\r\ni\r\n13\r\ni\r\n0\r\nTABLE\r\n2\r\nk\r\nv\r\nn\r\nn\r\n2\r\ns\r\nn\r\ns\r\nv\r\ns\r\nx\r\nba\r\n7\r\n<a>\r\nb>s\r\nDefault\r\n
+met ::: keys swapped ::: 1\r\nCondAct\r\n5\r\nCType\r\nAType\r\nCData\r\nAData\r\nState\r\nn\r\nn\r\nn\r\nn\r\nn\r\n1\r\ni\r\n1\r\ni\r\n12\r\ni\r\n0\r\nTABLE\r\n2\r\nk\r\nv\r\nn\r\nn\r\n2\r\ns\r\nv\r\ns\r\n1\r\ns\r\no\r\ns\r\nx\r\ns\r\nDefault\r\n
+met ::: bare LF ::: 1\nCondAct\n5\nCType\nAType\nCData\nAData\nState\nn\nn\nn\nn\nn\n1\ni\n1\ni\n2\ni\n0\ns\nx\ns\nDefault\n
+met ::: trailing data ::: 1\r\nCondAct\r\n5\r\nCType\r\nAType\r\nCData\r\nAData\r\nState\r\nn\r\nn\r\nn\r\nn\r\nn\r\n1\r\ni\r\n1\r\ni\r\n2\r\ni\r\n0\r\ns\r\nx\r\ns\r\nDefault\r\nextra\r\n
+met ::: trailing blank lines ::: 1\r\nCondAct\r\n5\r\nCType\r\nAType\r\nCData\r\nAData\r\nState\r\nn\r\nn\r\nn\r\nn\r\nn\r\n1\r\ni\r\n1\r\ni\r\n2\r\ni\r\n0\r\ns\r\nx\r\ns\r\nDefault\r\n\r\n\r\n
+met ::: no final newline ::: 1\r\nCondAct\r\n5\r\nCType\r\nAType\r\nCData\r\nAData\r\nState\r\nn\r\nn\r\nn\r\nn\r\nn\r\n1\r\ni\r\n1\r\ni\r\n2\r\ni\r\n0\r\ns\r\nx\r\ns\r\nDefault
+met ::: bom ::: \u{FEFF}1\r\nCondAct\r\n5\r\nCType\r\nAType\r\nCData\r\nAData\r\nState\r\nn\r\nn\r\nn\r\nn\r\nn\r\n0\r\n
+met ::: empty :::
+met ::: zero rules ::: 1\r\nCondAct\r\n5\r\nCType\r\nAType\r\nCData\r\nAData\r\nState\r\nn\r\nn\r\nn\r\nn\r\nn\r\n0\r\n
+met ::: rule count 100000 ::: 1\r\nCondAct\r\n5\r\nCType\r\nAType\r\nCData\r\nAData\r\nState\r\nn\r\nn\r\nn\r\nn\r\nn\r\n100000\r\n
+met ::: rule count 100001 ::: 1\r\nCondAct\r\n5\r\nCType\r\nAType\r\nCData\r\nAData\r\nState\r\nn\r\nn\r\nn\r\nn\r\nn\r\n100001\r\n
+met ::: rule count 10001 ::: 1\r\nCondAct\r\n5\r\nCType\r\nAType\r\nCData\r\nAData\r\nState\r\nn\r\nn\r\nn\r\nn\r\nn\r\n10001\r\n
+met ::: rule count 1000001 ::: 1\r\nCondAct\r\n5\r\nCType\r\nAType\r\nCData\r\nAData\r\nState\r\nn\r\nn\r\nn\r\nn\r\nn\r\n1000001\r\n
+met ::: rule count minus ::: 1\r\nCondAct\r\n5\r\nCType\r\nAType\r\nCData\r\nAData\r\nState\r\nn\r\nn\r\nn\r\nn\r\nn\r\n-1\r\n
+met ::: rule count text ::: 1\r\nCondAct\r\n5\r\nCType\r\nAType\r\nCData\r\nAData\r\nState\r\nn\r\nn\r\nn\r\nn\r\nn\r\nx\r\n
+met ::: list count 100001 ::: 1\r\nCondAct\r\n5\r\nCType\r\nAType\r\nCData\r\nAData\r\nState\r\nn\r\nn\r\nn\r\nn\r\nn\r\n1\r\ni\r\n1\r\ni\r\n3\r\ni\r\n0\r\nTABLE\r\n2\r\nK\r\nV\r\nn\r\nn\r\n100001\r\n
+met ::: list count 10001 ::: 1\r\nCondAct\r\n5\r\nCType\r\nAType\r\nCData\r\nAData\r\nState\r\nn\r\nn\r\nn\r\nn\r\nn\r\n1\r\ni\r\n1\r\ni\r\n3\r\ni\r\n0\r\nTABLE\r\n2\r\nK\r\nV\r\nn\r\nn\r\n10001\r\n
+met ::: blob length 16777217 ::: 1\r\nCondAct\r\n5\r\nCType\r\nAType\r\nCData\r\nAData\r\nState\r\nn\r\nn\r\nn\r\nn\r\nn\r\n1\r\ni\r\n1\r\ni\r\n4\r\ni\r\n0\r\nba\r\n16777217\r\nn\r\n0\r\ns\r\nDefault\r\n
+met ::: blob length 16777216 ::: 1\r\nCondAct\r\n5\r\nCType\r\nAType\r\nCData\r\nAData\r\nState\r\nn\r\nn\r\nn\r\nn\r\nn\r\n1\r\ni\r\n1\r\ni\r\n4\r\ni\r\n0\r\nba\r\n16777216\r\nn\r\n0\r\ns\r\nDefault\r\n
+met ::: type text ::: 1\r\nCondAct\r\n5\r\nCType\r\nAType\r\nCData\r\nAData\r\nState\r\nn\r\nn\r\nn\r\nn\r\nn\r\n1\r\ni\r\nx\r\ni\r\n2\r\ni\r\n0\r\ns\r\nx\r\ns\r\nDefault\r\n
+met ::: not with two ::: 1\r\nCondAct\r\n5\r\nCType\r\nAType\r\nCData\r\nAData\r\nState\r\nn\r\nn\r\nn\r\nn\r\nn\r\n1\r\ni\r\n21\r\ni\r\n0\r\nTABLE\r\n2\r\nK\r\nV\r\nn\r\nn\r\n2\r\ni\r\n1\r\ni\r\n0\r\ni\r\n0\r\ni\r\n0\r\ni\r\n0\r\ns\r\nDefault\r\n
+met ::: not empty ::: 1\r\nCondAct\r\n5\r\nCType\r\nAType\r\nCData\r\nAData\r\nState\r\nn\r\nn\r\nn\r\nn\r\nn\r\n1\r\ni\r\n21\r\ni\r\n0\r\nTABLE\r\n2\r\nK\r\nV\r\nn\r\nn\r\n0\r\ni\r\n0\r\ns\r\nDefault\r\n
+met ::: thousands in d ::: 1\r\nCondAct\r\n5\r\nCType\r\nAType\r\nCData\r\nAData\r\nState\r\nn\r\nn\r\nn\r\nn\r\nn\r\n1\r\ni\r\n16\r\ni\r\n0\r\nTABLE\r\n2\r\nk\r\nv\r\nn\r\nn\r\n1\r\ns\r\nr\r\nd\r\n1,5\r\ni\r\n0\r\ns\r\nDefault\r\n
+met ::: d numbers ::: 1\r\nCondAct\r\n5\r\nCType\r\nAType\r\nCData\r\nAData\r\nState\r\nn\r\nn\r\nn\r\nn\r\nn\r\n2\r\ni\r\n16\r\ni\r\n9\r\nTABLE\r\n2\r\nk\r\nv\r\nn\r\nn\r\n1\r\ns\r\nr\r\nd\r\n0.30000000000000004\r\nTABLE\r\n2\r\nk\r\nv\r\nn\r\nn\r\n3\r\ns\r\ns\r\ns\r\nw\r\ns\r\nr\r\nd\r\n-0\r\ns\r\nt\r\nd\r\n1E-07\r\ns\r\nDefault\r\ni\r\n25\r\ni\r\n0\r\nTABLE\r\n2\r\nk\r\nv\r\nn\r\nn\r\n1\r\ns\r\ndist\r\nd\r\n10000000000000000\r\ni\r\n0\r\ns\r\nDefault\r\n
+met ::: high bit landblock ::: 1\r\nCondAct\r\n5\r\nCType\r\nAType\r\nCData\r\nAData\r\nState\r\nn\r\nn\r\nn\r\nn\r\nn\r\n1\r\ni\r\n17\r\ni\r\n0\r\ni\r\n-1959329792\r\ni\r\n0\r\ns\r\nDefault\r\n
+
+# --- .af metas: grammar and refusals.
+af-meta ::: transform ignored ::: STATE: {Default}\r\n\tIF:\tAlways\r\n\t\tDO:\tEmbedNav n1 {named} {1 0 0 1 10 20 30}\r\nNAV: n1 once\r\n\tpnt 1 2 3\r\n
+af-meta ::: one nav twice ::: STATE: {Default}\r\n\tIF:\tAlways\r\n\t\tDO:\tEmbedNav n1 {named}\r\n\tIF:\tNever\r\n\t\tDO:\tEmbedNav n1 {again}\r\nNAV: n1 circular ~~ {\r\n\tpnt 1 2 3\r\n\tpau 1 2 3 1500.5\r\n~~ }\r\n
+af-meta ::: spaces before IF ::: ~~ comment\r\nSTATE: {A} ~~ c\r\n\r\n    IF: Always\r\n        DO: Chat {x}\r\n
+af-meta ::: bare LF ::: STATE: {A}\n\tIF:\tAlways\n\t\tDO:\tChat {x}\n
+af-meta ::: not not ::: STATE: {A}\r\n\tIF:\tNot Not Always\r\n\t\tDO:\tChat {x}\r\n
+af-meta ::: empty all doall ::: STATE: {A}\r\n\tIF:\tAll\r\n\t\tDO:\tDoAll\r\n
+af-meta ::: hex with 0x ::: STATE: {A}\r\n\tIF:\tBlockE 8B370000\r\n\t\tDO:\tNone\r\n\tIF:\tCellE 0x8B37E3A1\r\n\t\tDO:\tNone\r\n
+af-meta ::: mobs and watchdog ::: STATE: {A}\r\n\tIF:\tMobsInDist_Name 5 13.7 {Drudge Lurker}\r\n\t\tDO:\tSetWatchdog 12.3 4.6 {Oh, no!}\r\n
+af-meta ::: fraction seconds ::: STATE: {A}\r\n\tIF:\tSecsInStateGE 2.5\r\n\t\tDO:\tNone\r\n
+af-meta ::: view file ::: STATE: {A}\r\n\tIF:\tAlways\r\n\t\tDO:\tCreateView {v} {:myview.xml}\r\n
+af-meta ::: destroy view spaces ::: STATE: {A}\r\n\tIF:\tAlways\r\n\t\tDO:\tDestroyView {v}\r\n\tIF:\tAlways\r\n\t\tDO:\tDestroyView  {v}\r\n
+af-meta ::: state twice ::: STATE: {A}\r\n\tIF:\tAlways\r\n\t\tDO:\tChat {x}\r\nSTATE: {A}\r\n\tIF:\tNever\r\n\t\tDO:\tChat {y}\r\n
+af-meta ::: missing nav ::: STATE: {A}\r\n\tIF:\tAlways\r\n\t\tDO:\tEmbedNav missing {x}\r\n
+af-meta ::: two DO ::: STATE: {A}\r\n\tIF:\tAlways\r\n\t\tDO:\tChat {x}\r\n\t\tDO:\tChat {y}\r\n
+af-meta ::: call and spell ::: STATE: {A}\r\n\tIF:\tAlways\r\n\t\tDO:\tCallState {x} {y}\r\n\tIF:\tSecsOnSpellGE 120 4291\r\n\t\tDO:\tReturn\r\n
+af-meta ::: capture and chat expr ::: STATE: {A}\r\n\tIF:\tChatCapture {^.*(?<who>Eskarina).* (says|tells you), \\".+\\"$} {2;4}\r\n\t\tDO:\tChatExpr {\\/t +getcharstringprop[1]+\\, Hi\\!}\r\n
+af-meta ::: edges ::: STATE: {A}\r\n\tIF:\tLoginComplete\r\n\t\tDO:\tNone\r\n\tIF:\tLogoff\r\n\t\tDO:\tNone\r\n\tIF:\tPortalDone\r\n\t\tDO:\tNone\r\n\tIF:\tItemUsed\r\n\t\tDO:\tNone\r\n\tIF:\tContainerOpened\r\n\t\tDO:\tNone\r\n\tIF:\tContainerClosed\r\n\t\tDO:\tNone\r\n\tIF:\tConfirmAsked\r\n\t\tDO:\tNone\r\n
+af-meta ::: follow nav ::: STATE: {A}\r\n\tIF:\tAlways\r\n\t\tDO:\tEmbedNav f {fol}\r\nNAV: f follow\r\n\tflw 50000ABC {Barris}\r\n
+af-meta ::: every node ::: STATE: {A}\r\n\tIF:\tAlways\r\n\t\tDO:\tEmbedNav f {nodes}\r\nNAV: f once\r\n\tprt 1 2 3 7000001F\r\n\tvnd 1 2 3 7000001F {V}\r\n\tptl 1 2 3 4 5 6 14 {P}\r\n\ttlk 1 2 3 4 5 6 37 {T}\r\n\tchk 1 2 3\r\n\tjmp 1 2 3 90 {True} 300.00004\r\n\tjmp 1 2 3 90 {false} 300\r\n\tjmp 1 2 3 90 {False} 300.00003\r\n\tjmp 1 2 3 90 {False} 300.00005\r\n\tcht 1 2 3 {say}\r\n\tpau 1 2 3 2500\r\n\trcl 1 2 3 {Lifestone Recall}\r\n\trcl 1 2 3 {lifestone recall}\r\n\trcl 1 2 3 {LifestoneRecall}\r\n\trcl 1 2 3 {Unknown Spell}\r\n\trcl 1 2 3 {Marketplace Recall}\r\n\tpnt 1 2 3\r\n
+af-meta ::: too deep under all ::: STATE: {A}\r\n\tIF:\tAll\r\n\t\t\tAlways\r\n\t\t\t\tNever\r\n\t\tDO:\tNone\r\n
+af-meta ::: nested doall ::: STATE: {A}\r\n\tIF:\tAlways\r\n\t\tDO:\tDoAll\r\n\t\t\t\tDoAll\r\n\t\t\t\t\tChat {x}\r\n\t\t\t\tChat {y}\r\n
+af-meta ::: doubled close brace ::: STATE: {A}\r\n\tIF:\tExpr {a}} b}\r\n\t\tDO:\tNone\r\n
+af-meta ::: no tabs ::: STATE: {A}\r\nIF: Always\r\nDO: None\r\n
+af-meta ::: options and numbers ::: STATE: {A}\r\n\tIF:\tAlways\r\n\t\tDO:\tSetOpt {x} {1}\r\n\tIF:\tAlways\r\n\t\tDO:\tGetOpt {x} {v}\r\n\tIF:\tNoMobsInDist 20.6\r\n\t\tDO:\tClearWatchdog\r\n\tIF:\tDistToRteGE 3\r\n\t\tDO:\tDestroyAllViews\r\n\tIF:\tBuPercentGE 110\r\n\t\tDO:\tNone\r\n\tIF:\tPSecsInStateGE 15\r\n\t\tDO:\tNone\r\n\tIF:\tMainSlotsLE 7\r\n\t\tDO:\tNone\r\n
+af-meta ::: navs only ::: NAV: a once\r\n\tpnt 1 2 3\r\nNAV: b once\r\n\tpnt 1 2 3\r\n
+af-meta ::: not deep enough under all ::: STATE: {A}\r\n\tIF:\tAll\r\n\t\tAlways\r\n\t\tDO:\tNone\r\n
+af-meta ::: comment in string ::: STATE: {A}\r\n\tIF:\tAlways\r\n\t\tDO:\tChat {a ~~ b}\r\n
+af-meta ::: two tabs after IF ::: STATE: {A}\r\n\tIF:\t\tAlways\r\n\t\tDO:\t\tNone\r\n
+af-meta ::: spaces between args ::: STATE: {A}\r\n\tIF:\tMobsInDist_Name  5   13.7\t{x}\r\n\t\tDO:\tNone\r\n
+af-meta ::: exponent distance ::: STATE: {A}\r\n\tIF:\tNoMobsInDist 1e5\r\n\t\tDO:\tNone\r\n
+af-meta ::: plus distance ::: STATE: {A}\r\n\tIF:\tNoMobsInDist +5\r\n\t\tDO:\tNone\r\n
+af-meta ::: minus distance ::: STATE: {A}\r\n\tIF:\tNoMobsInDist -5.25\r\n\t\tDO:\tNone\r\n
+af-meta ::: point five distance ::: STATE: {A}\r\n\tIF:\tNoMobsInDist .5\r\n\t\tDO:\tNone\r\n
+af-meta ::: five point distance ::: STATE: {A}\r\n\tIF:\tNoMobsInDist 5.\r\n\t\tDO:\tNone\r\n
+af-meta ::: comma distance ::: STATE: {A}\r\n\tIF:\tNoMobsInDist 1,5\r\n\t\tDO:\tNone\r\n
+af-meta ::: signed seconds ::: STATE: {A}\r\n\tIF:\tSecsInStateGE +5\r\n\t\tDO:\tNone\r\n\tIF:\tSecsInStateGE -5\r\n\t\tDO:\tNone\r\n
+af-meta ::: lowercase hex ::: STATE: {A}\r\n\tIF:\tBlockE 8b370000\r\n\t\tDO:\tNone\r\n
+af-meta ::: short hex ::: STATE: {A}\r\n\tIF:\tBlockE 1234\r\n\t\tDO:\tNone\r\n
+af-meta ::: all ones hex ::: STATE: {A}\r\n\tIF:\tCellE FFFFFFFF\r\n\t\tDO:\tNone\r\n
+af-meta ::: long hex ::: STATE: {A}\r\n\tIF:\tBlockE 123456789\r\n\t\tDO:\tNone\r\n
+af-meta ::: lowercase keyword ::: STATE: {A}\r\n\tIF:\talways\r\n\t\tDO:\tNone\r\n
+af-meta ::: lowercase IF ::: STATE: {A}\r\n\tif:\tAlways\r\n\t\tdo:\tNone\r\n
+af-meta ::: lone CR ::: STATE: {A}\r\tIF:\tAlways\r\t\tDO:\tNone\r
+af-meta ::: state without rules ::: STATE: {A}\r\nSTATE: {B}\r\n\tIF:\tAlways\r\n\t\tDO:\tNone\r\n
+af-meta ::: text after string ::: STATE: {A}\r\n\tIF:\tAlways\r\n\t\tDO:\tChat {x} y\r\n
+af-meta ::: extra string ::: STATE: {A}\r\n\tIF:\tChatMatch {x} {y}\r\n\t\tDO:\tNone\r\n
+af-meta ::: empty :::
+af-meta ::: only a comment ::: ~~ only a comment\r\n
+af-meta ::: empty nav only ::: NAV: j once\r\n
+af-meta ::: bad tag ::: STATE: {A}\r\n\tIF:\tAlways\r\n\t\tDO:\tEmbedNav 9bad {x}\r\nNAV: 9bad once\r\n
+af-meta ::: short point ::: STATE: {A}\r\n\tIF:\tAlways\r\n\t\tDO:\tEmbedNav n {x}\r\nNAV: n once\r\n\tpnt 1 2\r\n
+af-meta ::: nav tag twice ::: STATE: {A}\r\n\tIF:\tAlways\r\n\t\tDO:\tEmbedNav n {x}\r\nNAV: n once\r\n\tpnt 1 2 3\r\nNAV: n once\r\n\tpnt 4 5 6\r\n
+af-meta ::: state after nav ::: STATE: {A}\r\n\tIF:\tAlways\r\n\t\tDO:\tEmbedNav n {x}\r\nNAV: n once\r\n\tpnt 1 2 3\r\nSTATE: {B}\r\n\tIF:\tAlways\r\n\t\tDO:\tNone\r\n
+af-meta ::: unused nav ::: STATE: {A}\r\n\tIF:\tAlways\r\n\t\tDO:\tNone\r\nNAV: unused once\r\n\tpnt 1 2 3\r\n
+af-meta ::: not alone ::: STATE: {A}\r\n\tIF:\tAll\r\n\t\t\tNot\r\n\t\t\t\tAlways\r\n\t\tDO:\tNone\r\n
+af-meta ::: not all ::: STATE: {A}\r\n\tIF:\tNot All\r\n\t\t\tAlways\r\n\t\t\tNever\r\n\t\tDO:\tNone\r\n
+af-meta ::: any with not any ::: STATE: {A}\r\n\tIF:\tAny\r\n\t\t\tNot Any\r\n\t\t\t\tAlways\r\n\t\t\tNever\r\n\t\tDO:\tNone\r\n
+af-meta ::: doall not deep enough ::: STATE: {A}\r\n\tIF:\tAlways\r\n\t\tDO:\tDoAll\r\n\t\t\tChat {x}\r\n
+af-meta ::: doall too deep ::: STATE: {A}\r\n\tIF:\tAlways\r\n\t\tDO:\tDoAll\r\n\t\t\t\t\tChat {x}\r\n
+af-meta ::: state no space ::: STATE:{A}\r\n\tIF:\tAlways\r\n\t\tDO:\tNone\r\n
+af-meta ::: state no braces ::: STATE: A\r\n\tIF:\tAlways\r\n\t\tDO:\tNone\r\n
+af-meta ::: trailing white ::: STATE: {A} \r\n\tIF:\tAlways   \r\n\t\tDO:\tNone\t\r\n
+af-meta ::: bom ::: \u{FEFF}STATE: {A}\r\n\tIF:\tAlways\r\n\t\tDO:\tNone\r\n
+af-meta ::: short follow id ::: STATE: {A}\r\n\tIF:\tAlways\r\n\t\tDO:\tEmbedNav n {x}\r\nNAV: n once\r\n\tflw 1 {y}\r\n
+af-meta ::: point in follow ::: STATE: {A}\r\n\tIF:\tAlways\r\n\t\tDO:\tEmbedNav n {x}\r\nNAV: n follow\r\n\tpnt 1 2 3\r\n
+af-meta ::: empty follow ::: STATE: {A}\r\n\tIF:\tAlways\r\n\t\tDO:\tEmbedNav n {x}\r\nNAV: n follow\r\n
+af-meta ::: two follows ::: STATE: {A}\r\n\tIF:\tAlways\r\n\t\tDO:\tEmbedNav n {x}\r\nNAV: n follow\r\n\tflw 00000001 {y}\r\n\tflw 00000002 {z}\r\n
+af-meta ::: follow in once ::: STATE: {A}\r\n\tIF:\tAlways\r\n\t\tDO:\tEmbedNav n {x}\r\nNAV: n once\r\n\tpnt 1 2 3\r\n\tflw 00000001 {y}\r\n
+af-meta ::: fraction class ::: STATE: {A}\r\n\tIF:\tAlways\r\n\t\tDO:\tEmbedNav n {x}\r\nNAV: n once\r\n\tptl 1 2 3 4 5 6 14.5 {P}\r\n
+af-meta ::: zero vendor ::: STATE: {A}\r\n\tIF:\tAlways\r\n\t\tDO:\tEmbedNav n {x}\r\nNAV: n once\r\n\tvnd 1 2 3 00000000 {}\r\n
+af-meta ::: maybe shift ::: STATE: {A}\r\n\tIF:\tAlways\r\n\t\tDO:\tEmbedNav n {x}\r\nNAV: n once\r\n\tjmp 1 2 3 45 {maybe} 300\r\n
+af-meta ::: fraction spell seconds ::: STATE: {A}\r\n\tIF:\tSecsOnSpellGE 1.5 2\r\n\t\tDO:\tNone\r\n
+af-meta ::: fraction count ::: STATE: {A}\r\n\tIF:\tItemCountGE 2.5 {x}\r\n\t\tDO:\tNone\r\n
+af-meta ::: fraction priority ::: STATE: {A}\r\n\tIF:\tMobsInDist_Priority 1 2 3.5\r\n\t\tDO:\tNone\r\n
+af-meta ::: empty state name ::: STATE: {}\r\n\tIF:\tAlways\r\n\t\tDO:\tNone\r\n
+af-meta ::: lone open brace ::: STATE: {A}\r\n\tIF:\tAlways\r\n\t\tDO:\tChat {a{b}\r\n
+af-meta ::: lone close brace ::: STATE: {A}\r\n\tIF:\tAlways\r\n\t\tDO:\tChat {a}b}\r\n
+af-meta ::: doubled braces ::: STATE: {Default}\r\n\tIF:\tExpr {$list{{1}}==2}\r\n\t\tDO:\tDoAll\r\n\t\t\t\tDoExpr {$list=listcreate[1,2];$first=$list{{0}}}\r\n\t\t\t\tEmbedNav nav0 {route}\r\n\tIF:\tChatCapture {^(?<n>\\d{{2,3}}) left$} {0}\r\n\t\tDO:\tChat {/t Horan, {{}}}\r\n\r\nNAV: nav0 once ~~ {\r\n\tcht 1 2 3 {say {{hi}}}\r\n~~ }\r\n
+af-meta ::: interleaved states ::: STATE: {B}\r\n\tIF:\tAlways\r\n\t\tDO:\tEmbedNav n {b1}\r\nSTATE: {A}\r\n\tIF:\tAlways\r\n\t\tDO:\tEmbedNav n {a1}\r\nSTATE: {B}\r\n\tIF:\tAlways\r\n\t\tDO:\tEmbedNav n {b2}\r\nNAV: n once\r\n\tpnt 1 2 3\r\n
+af-meta ::: state case ::: STATE: {a}\r\n\tIF:\tAlways\r\n\t\tDO:\tNone\r\nSTATE: {A}\r\n\tIF:\tAlways\r\n\t\tDO:\tNone\r\nSTATE: {a}\r\n\tIF:\tNever\r\n\t\tDO:\tNone\r\n
+af-meta ::: IF then IF ::: STATE: {A}\r\n\tIF:\tAlways\r\n\tIF:\tNever\r\n\t\tDO:\tNone\r\n
+af-meta ::: unknown action ::: STATE: {A}\r\n\tIF:\tAlways\r\n\t\tDO:\tJump\r\n
+af-meta ::: nav node two tabs ::: STATE: {A}\r\n\tIF:\tAlways\r\n\t\tDO:\tEmbedNav n {x}\r\nNAV: n once\r\n\t\tpnt 1 2 3\r\n
+af-meta ::: nav node no tab ::: STATE: {A}\r\n\tIF:\tAlways\r\n\t\tDO:\tEmbedNav n {x}\r\nNAV: n once\r\npnt 1 2 3\r\n
+af-meta ::: nav type upper ::: STATE: {A}\r\n\tIF:\tAlways\r\n\t\tDO:\tEmbedNav n {x}\r\nNAV: n Once\r\n\tpnt 1 2 3\r\n
+af-meta ::: nav comment marker ::: STATE: {A}\r\n\tIF:\tAlways\r\n\t\tDO:\tEmbedNav n {x}\r\nNAV: n once ~~ {\r\n\tpnt 1 2 3 ~~ a point\r\n~~ }\r\n
+af-meta ::: strings touching ::: STATE: {A}\r\n\tIF:\tChatCapture {x}{y}\r\n\t\tDO:\tNone\r\n
+af-meta ::: IF no space ::: STATE: {A}\r\n\tIF:Always\r\n\t\tDO:None\r\n
+af-meta ::: not then args ::: STATE: {A}\r\n\tIF:\tNot SecsInStateGE 5\r\n\t\tDO:\tNone\r\n
+af-meta ::: every condition ::: STATE: {A}\r\n\tIF:\tAll\r\n\t\t\tNever\r\n\t\t\tAlways\r\n\t\t\tChatMatch {x}\r\n\t\t\tMainSlotsLE 3\r\n\t\t\tSecsInStateGE 4\r\n\t\t\tNavEmpty\r\n\t\t\tDeath\r\n\t\t\tVendorOpen\r\n\t\t\tVendorClosed\r\n\t\t\tItemCountLE 2 {Pea}\r\n\t\t\tItemCountGE 2 {Pea}\r\n\t\t\tMobsInDist_Name 1 2.5 {Drudge}\r\n\t\t\tMobsInDist_Priority 1 2.5 3\r\n\t\t\tNeedToBuff\r\n\t\t\tNoMobsInDist 7.5\r\n\t\t\tBlockE 8B370000\r\n\t\t\tCellE 8B37E3A1\r\n\t\t\tIntoPortal\r\n\t\t\tExitPortal\r\n\t\t\tNot Death\r\n\t\t\tPSecsInStateGE 9\r\n\t\t\tSecsOnSpellGE 120 4291\r\n\t\t\tBuPercentGE 110\r\n\t\t\tDistToRteGE 2.25\r\n\t\t\tExpr {1==1}\r\n\t\t\tChatCapture {(?<a>x)} {2;4}\r\n\t\tDO:\tDoAll\r\n\t\t\t\tNone\r\n\t\t\t\tSetState {S}\r\n\t\t\t\tChat {/a}\r\n\t\t\t\tCallState {T} {R}\r\n\t\t\t\tReturn\r\n\t\t\t\tDoExpr {1}\r\n\t\t\t\tChatExpr {`a`}\r\n\t\t\t\tSetWatchdog 5 10 {W}\r\n\t\t\t\tClearWatchdog\r\n\t\t\t\tGetOpt {o} {v}\r\n\t\t\t\tSetOpt {o} {1}\r\n\t\t\t\tCreateView {v} {<view/>}\r\n\t\t\t\tDestroyView {v}\r\n\t\t\t\tDestroyAllViews\r\n
+
+# --- .af routes.
+af-nav ::: two navs ::: NAV: a once\r\n\tpnt 1 2 3\r\nNAV: b once\r\n\tpnt 4 5 6\r\n
+af-nav ::: type upper ::: NAV: j Once\r\n\tpnt 1 2 3\r\n
+af-nav ::: node upper ::: NAV: j once\r\n\tPNT 1 2 3\r\n
+af-nav ::: empty once ::: NAV: j once\r\n
+af-nav ::: empty :::
+af-nav ::: only a comment ::: ~~ only a comment\r\n
+af-nav ::: bom ::: \u{FEFF}NAV: j once\r\n\tpnt 1 2 3\r\n
+af-nav ::: state first ::: ~~ c\r\nSTATE: {A}\r\n\tIF:\tAlways\r\n\t\tDO:\tNone\r\n
+af-nav ::: follow ::: NAV: myfollow follow\r\n\tflw 00001234 {Some Monster}\r\n
+af-nav ::: jump 5000 ::: NAV: j once\r\n\tjmp 1 2 3 90 {True} 5000\r\n
+af-nav ::: jump 500 ::: NAV: j once\r\n\tjmp 1 2 3 90 {False} 500\r\n
+af-nav ::: jump 300.123456 ::: NAV: j once\r\n\tjmp 1 2 3 45 {True} 300.123456\r\n
+af-nav ::: jump 300.000045 ::: NAV: j once\r\n\tjmp 1 2 3 45 {True} 300.000045\r\n
+af-nav ::: jump 0.00004 ::: NAV: j once\r\n\tjmp 1 2 3 45 {True} 0.00004\r\n
+af-nav ::: jump 4E-05 ::: NAV: j once\r\n\tjmp 1 2 3 45 {True} 4E-05\r\n
+af-nav ::: jump -5 ::: NAV: j once\r\n\tjmp 1 2 3 45 {True} -5\r\n
+af-nav ::: jump -300.00004 ::: NAV: j once\r\n\tjmp 1 2 3 45 {True} -300.00004\r\n
+af-nav ::: jump 2500.5 ::: NAV: j once\r\n\tjmp 1 2 3 45 {True} 2500.5\r\n
+af-nav ::: jump 300.000040 ::: NAV: j once\r\n\tjmp 1 2 3 45 {True} 300.000040\r\n
+af-nav ::: jump +300.00004 ::: NAV: j once\r\n\tjmp 1 2 3 45 {True} +300.00004\r\n
+af-nav ::: pause 1500.5 ::: NAV: j once\r\n\tpau 1 2 3 1500.5\r\n
+af-nav ::: pause -300.00004 ::: NAV: j once\r\n\tpau 1 2 3 -300.00004\r\n
+af-nav ::: recalls ::: NAV: r once\r\n\trcl 59.5 -28.4 0.05 {Lifestone Recall}\r\n\trcl 1 2 3 {Unknown Spell}\r\n\trcl 1 2 3 {}\r\n\trcl 1 2 3 {Marketplace Recall}\r\n
+af-nav ::: numbers ::: NAV: j once\r\n\tpnt 0.30000000000000004 -0 1\r\n\tpnt 12.300000190734863 -12.5 2.08333134651184E-05\r\n\tpnt 10000000000000000 1 2\r\n
+af-nav ::: portal ids ::: NAV: j once\r\n\tprt 1 2 3 80000001\r\n\tvnd 1 2 3 FFFFFFFF {v}\r\n
+af-nav ::: chat newline escape ::: NAV: j once\r\n\tcht 1 2 3 {a\\nb}\r\n

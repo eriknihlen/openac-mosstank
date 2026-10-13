@@ -1,0 +1,6441 @@
+##### met aphus
+fnv64=ce169c1448b1d073 bytes=71142
+--- met:
+fnv64=ca8069c1d7ee756d bytes=84676
+--- af:
+fnv64=337eef275312ad1f bytes=45113
+
+##### met army_linear
+fnv64=b11c70c11b2d01d1 bytes=6726
+--- met:
+fnv64=3fc40cdd08965c35 bytes=3922
+--- af:
+fnv64=79a7d1531967a092 bytes=3141
+
+##### met augments
+fnv64=c438b3db2c351dca bytes=40377
+--- met:
+fnv64=489b4f776568035f bytes=33823
+--- af:
+fnv64=01c26c7010a19b63 bytes=27906
+
+##### met bella
+fnv64=c15f84928592efb2 bytes=2633
+--- met:
+fnv64=febb06ea0433586b bytes=2481
+--- af:
+fnv64=0b5fb161c2643f4b bytes=1884
+
+##### met bobo
+fnv64=86ca1dc5eb0434cf bytes=140505
+--- met:
+fnv64=291f55574e34e019 bytes=49086
+--- af:
+fnv64=a5b555448a3e2a9d bytes=40762
+
+##### met bore_enhanced
+fnv64=43db046f03329e1f bytes=66923
+--- met:
+fnv64=139be11cc23b1034 bytes=80977
+--- af:
+fnv64=a0d617f4e54117f9 bytes=42518
+
+##### met createview
+fnv64=d852d4c34545b850 bytes=634
+--- met:
+fnv64=42178b6c3e00c32c bytes=721
+--- af:
+fnv64=f63a2b0aa5a99dc7 bytes=531
+
+##### met empyrean_facility
+fnv64=08761601b6afce4b bytes=9055
+--- met:
+fnv64=f43fde9b52817f3d bytes=10268
+--- af:
+fnv64=f062cab535df312b bytes=5736
+
+##### met example_sort_meta
+fnv64=ffdca513316e5ed8 bytes=8892
+--- met:
+fnv64=1badd22172dabecc bytes=8254
+--- af:
+fnv64=3d52f8c9d04df9f2 bytes=6232
+
+##### met gauntlet_leader
+fnv64=9a9af5fcfda926d5 bytes=6314
+--- met:
+fnv64=f28668bacb1333ff bytes=4962
+--- af:
+fnv64=d6886d54a9a4d779 bytes=4057
+
+##### met legendary_chests
+fnv64=bc9e480e368345f4 bytes=2704
+--- met:
+fnv64=92ad1f3e53d9de68 bytes=2694
+--- af:
+fnv64=5ab6cb444e9d2bdd bytes=1657
+
+##### met lockandkey
+fnv64=05e31e17060d4a7e bytes=24770
+--- met:
+fnv64=8daaa14ad0e31844 bytes=24507
+--- af:
+fnv64=ca68a36f894ccc61 bytes=14677
+
+##### met neftet
+fnv64=30ec09a88f1340de bytes=104615
+--- met:
+fnv64=992c13044db63c37 bytes=125096
+--- af:
+fnv64=a51094d2277dc1e0 bytes=66750
+
+##### met spell_time
+fnv64=efb8f61f21058ad3 bytes=122
+--- met:
+fnv64=c9353f2e181174cd bytes=264
+--- af:
+fnv64=a96352583655935b bytes=102
+
+##### met owner-a
+fnv64=cbf29ce484222325 bytes=0
+--- met:
+fnv64=25e2bb50652aa306 bytes=111
+--- af:
+fnv64=91e92f44abf6bc9c bytes=20
+
+##### met rynthify
+fnv64=52a4400e7a89cd51 bytes=239
+--- met:
+fnv64=d6a466a810075916 bytes=354
+--- af:
+fnv64=b5db884004350ef5 bytes=208
+
+##### nav barristunnels
+fnv64=f8baf48f0b4c8a6d bytes=10275
+--- nav:
+fnv64=6cb1ea1a8aaa8496 bytes=3374
+--- af:
+fnv64=53ca4020dead23b1 bytes=3756
+
+##### nav emp_lower_north
+fnv64=628fbae1e38227d3 bytes=790
+--- nav:
+fnv64=6918aaddbbc9c862 bytes=272
+--- af:
+fnv64=702def9f1e94a160 bytes=1199
+
+##### nav follow_barris
+fnv64=96221fede3e2f9f5 bytes=51
+--- nav:
+fnv64=f0ccbb78eb6b7a06 bytes=52
+--- af:
+fnv64=1c98a3df269b6d26 bytes=1031
+
+##### nav jaw_1
+fnv64=1d29051ad55690c2 bytes=12925
+--- nav:
+fnv64=0e6e75f69ea28a34 bytes=4219
+--- af:
+fnv64=c3beec8e3ce49c22 bytes=4439
+
+##### nav nav_ab
+fnv64=0335b061f5762c68 bytes=3260
+--- nav:
+fnv64=1353fa2b41e9e89c bytes=1132
+--- af:
+fnv64=ad2c9a2e37f7017a bytes=1904
+
+##### nav nav_briennecarlus
+fnv64=8fa60df9dbc265a3 bytes=2023
+--- nav:
+fnv64=037f78137f08954b bytes=694
+--- af:
+fnv64=17e112e793c64ec9 bytes=1549
+
+##### nav nav_empyrean
+fnv64=d3e41edcd9f14463 bytes=7300
+--- nav:
+fnv64=3659401b2cabc3a4 bytes=2565
+--- af:
+fnv64=f0ca921b22e124a4 bytes=3097
+
+##### nav nav_jondortorgren
+fnv64=f7cf3272d2a3d44e bytes=5597
+--- nav:
+fnv64=b20b5465f0944316 bytes=2088
+--- af:
+fnv64=4afd060d0593e907 bytes=2661
+
+##### nav nav_lockandkeyjaw
+fnv64=1d9c9c793f1f8cf2 bytes=14461
+--- nav:
+fnv64=8227c5d0abdd468e bytes=4780
+--- af:
+fnv64=e08a40b800505547 bytes=4917
+
+##### nav recomp_sawato
+fnv64=d6693682e7ef6d0f bytes=1524
+--- nav:
+fnv64=031cda32234c3598 bytes=570
+--- af:
+fnv64=7a6a582f273e6686 bytes=1433
+
+##### nav owner-a
+fnv64=a846da2db67db4a5 bytes=47
+--- nav:
+fnv64=da28d40514eee483 bytes=32
+--- af:
+fnv64=4186c9933f078577 bytes=1005
+
+##### af-meta aphus
+fnv64=ce169c1448b1d073 bytes=71142
+--- met:
+fnv64=ca8069c1d7ee756d bytes=84676
+--- af:
+fnv64=337eef275312ad1f bytes=45113
+
+##### af-meta augments
+fnv64=c438b3db2c351dca bytes=40377
+--- met:
+fnv64=489b4f776568035f bytes=33823
+--- af:
+fnv64=01c26c7010a19b63 bytes=27906
+
+##### af-meta bella
+fnv64=c15f84928592efb2 bytes=2633
+--- met:
+fnv64=febb06ea0433586b bytes=2481
+--- af:
+fnv64=0b5fb161c2643f4b bytes=1884
+
+##### af-meta bore_enhanced
+fnv64=43db046f03329e1f bytes=66923
+--- met:
+fnv64=139be11cc23b1034 bytes=80977
+--- af:
+fnv64=a0d617f4e54117f9 bytes=42518
+
+##### af-meta bore_quest
+fnv64=b0748e55baae4b72 bytes=10226
+--- met:
+fnv64=28d20b6c49bf0351 bytes=7474
+--- af:
+fnv64=059023d225896916 bytes=4896
+
+##### af-meta empyrean_facility
+fnv64=08761601b6afce4b bytes=9055
+--- met:
+fnv64=f43fde9b52817f3d bytes=10268
+--- af:
+fnv64=f062cab535df312b bytes=5736
+
+##### af-meta example_sort_meta
+fnv64=ffdca513316e5ed8 bytes=8892
+--- met:
+fnv64=1badd22172dabecc bytes=8254
+--- af:
+fnv64=3d52f8c9d04df9f2 bytes=6232
+
+##### af-meta follower
+fnv64=bd092646791bee46 bytes=8863
+--- met:
+fnv64=8c0c34336b3916ed bytes=8943
+--- af:
+fnv64=b9677df1648b905d bytes=5638
+
+##### af-meta gauntlet_leader
+fnv64=9a9af5fcfda926d5 bytes=6314
+--- met:
+fnv64=f28668bacb1333ff bytes=4962
+--- af:
+fnv64=d6886d54a9a4d779 bytes=4057
+
+##### af-meta hunting
+fnv64=da53bc35126d5891 bytes=9225
+--- met:
+fnv64=e58cbb5a92fbf496 bytes=8962
+--- af:
+fnv64=2a151dcc7876fd3f bytes=5744
+
+##### af-meta lockandkey
+fnv64=05e31e17060d4a7e bytes=24770
+--- met:
+fnv64=8daaa14ad0e31844 bytes=24507
+--- af:
+fnv64=ca68a36f894ccc61 bytes=14677
+
+##### af-meta neftet
+fnv64=30ec09a88f1340de bytes=104615
+--- met:
+fnv64=992c13044db63c37 bytes=125096
+--- af:
+fnv64=a51094d2277dc1e0 bytes=66750
+
+##### af-meta nav-only refused
+fnv64=c6c829c2988f2eb5 bytes=173
+
+##### af-nav nav_ab
+fnv64=0335b061f5762c68 bytes=3260
+--- nav:
+fnv64=1353fa2b41e9e89c bytes=1132
+--- af:
+fnv64=ad2c9a2e37f7017a bytes=1904
+
+##### af-nav nav_briennecarlus
+fnv64=8fa60df9dbc265a3 bytes=2023
+--- nav:
+fnv64=037f78137f08954b bytes=694
+--- af:
+fnv64=17e112e793c64ec9 bytes=1549
+
+##### af-nav nav_empyrean
+fnv64=d3e41edcd9f14463 bytes=7300
+--- nav:
+fnv64=3659401b2cabc3a4 bytes=2565
+--- af:
+fnv64=f0ca921b22e124a4 bytes=3097
+
+##### af-nav nav_jondortorgren
+fnv64=f7cf3272d2a3d44e bytes=5597
+--- nav:
+fnv64=b20b5465f0944316 bytes=2088
+--- af:
+fnv64=4afd060d0593e907 bytes=2661
+
+##### af-nav nav_lockandkeyjaw
+fnv64=1d9c9c793f1f8cf2 bytes=14461
+--- nav:
+fnv64=8227c5d0abdd468e bytes=4780
+--- af:
+fnv64=e08a40b800505547 bytes=4917
+
+##### af-nav vt-proof-route
+fnv64=1c5218d25b37be0d bytes=926
+--- nav:
+fnv64=7c2cf27d3dac283b bytes=255
+--- af:
+fnv64=6c5c3d82f38f4ec5 bytes=1172
+
+##### af-nav meta refused
+fnv64=e301a380ea1048a0 bytes=176
+
+##### nav linear empty
+route mode=Linear follow=00000000 "" count=0
+--- nav:
+uTank2 NAV 1.2\r\n
+2\r\n
+0\r\n
+
+--- af:
+<nav-header>NAV:\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\n
+~~\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\n
+~~ All recognized NAV types:\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\n
+~~\t\tcircular\t\t\tfollow\t\t\t\t\t\t\t\t\t\t\t\t\t\t\n
+~~\t\tlinear\t\t\t\tonce\t\t\t\t\t\t\t\t\t\t\t\t\t\t\n
+~~\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\n
+~~ All recognized NAV NODE types:\t\t\t\t\t\t\t\t\t\t\t\t\t\t\n
+~~\t\tflw\t\t\t\t\tvnd\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\n
+~~\t\tpnt\t\t\t\t\tptl\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\n
+~~\t\trcl\t\t\t\t\ttlk\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\n
+~~\t\tpau\t\t\t\t\tchk\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\n
+~~\t\tcht\t\t\t\t\tjmp\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\n
+~~\t\tprt (deprecated in VTank)\t\t\t\t\t\t\t\t\t\t\t\t\t\t\n
+~~ \t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\n
+\n
+~~ \t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\n
+~~ \t\t\t\tREMEMBER THAT NAV-ONLY FILES MUST CONTAIN EXACTLY ONE NAV!\t\t\t\t\n
+~~ }\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\n
+\r\n
+NAV: nav0 linear ~~ {\r\n
+~~ }\r\n
+
+
+##### nav unknown type
+ERR Unknown VTank navigation type.
+
+##### nav old version
+ERR Nav file version does not match uTank2 NAV 1.2.
+
+##### nav leading spaces
+ERR Nav file version does not match uTank2 NAV 1.2.
+
+##### nav unknown waypoint
+ERR Unknown VTank waypoint type 10.
+
+##### nav jump false lower
+route mode=Circular follow=00000000 "" count=1
+ wp Jump pos=00000000,1,2,3,0,True ref=00000000,0,0,0,0,False id=00000000 name="" class=0 valid=True text="" dur=5000 recall=PrimaryPortalRecall rid=0 rname="" jh=45 js=False jc=300 jd=Forward
+--- nav:
+uTank2 NAV 1.2\r\n
+1\r\n
+1\r\n
+9\r\n
+1\r\n
+2\r\n
+3\r\n
+0\r\n
+45\r\n
+False\r\n
+300.00003\r\n
+
+--- af:
+<nav-header>NAV:\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\n
+~~\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\n
+~~ All recognized NAV types:\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\n
+~~\t\tcircular\t\t\tfollow\t\t\t\t\t\t\t\t\t\t\t\t\t\t\n
+~~\t\tlinear\t\t\t\tonce\t\t\t\t\t\t\t\t\t\t\t\t\t\t\n
+~~\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\n
+~~ All recognized NAV NODE types:\t\t\t\t\t\t\t\t\t\t\t\t\t\t\n
+~~\t\tflw\t\t\t\t\tvnd\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\n
+~~\t\tpnt\t\t\t\t\tptl\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\n
+~~\t\trcl\t\t\t\t\ttlk\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\n
+~~\t\tpau\t\t\t\t\tchk\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\n
+~~\t\tcht\t\t\t\t\tjmp\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\n
+~~\t\tprt (deprecated in VTank)\t\t\t\t\t\t\t\t\t\t\t\t\t\t\n
+~~ \t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\n
+\n
+~~ \t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\n
+~~ \t\t\t\tREMEMBER THAT NAV-ONLY FILES MUST CONTAIN EXACTLY ONE NAV!\t\t\t\t\n
+~~ }\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\n
+\r\n
+NAV: nav0 circular ~~ {\r\n
+\tjmp 1 2 3 45 {False} 300.00003\r\n
+~~ }\r\n
+
+
+##### nav jump code 2
+route mode=Circular follow=00000000 "" count=1
+ wp Jump pos=00000000,1,2,3,0,True ref=00000000,0,0,0,0,False id=00000000 name="" class=0 valid=True text="" dur=5000 recall=PrimaryPortalRecall rid=0 rname="" jh=45 js=True jc=300 jd=Forward
+--- nav:
+uTank2 NAV 1.2\r\n
+1\r\n
+1\r\n
+9\r\n
+1\r\n
+2\r\n
+3\r\n
+0\r\n
+45\r\n
+True\r\n
+300.00003\r\n
+
+--- af:
+<nav-header>NAV:\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\n
+~~\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\n
+~~ All recognized NAV types:\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\n
+~~\t\tcircular\t\t\tfollow\t\t\t\t\t\t\t\t\t\t\t\t\t\t\n
+~~\t\tlinear\t\t\t\tonce\t\t\t\t\t\t\t\t\t\t\t\t\t\t\n
+~~\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\n
+~~ All recognized NAV NODE types:\t\t\t\t\t\t\t\t\t\t\t\t\t\t\n
+~~\t\tflw\t\t\t\t\tvnd\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\n
+~~\t\tpnt\t\t\t\t\tptl\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\n
+~~\t\trcl\t\t\t\t\ttlk\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\n
+~~\t\tpau\t\t\t\t\tchk\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\n
+~~\t\tcht\t\t\t\t\tjmp\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\n
+~~\t\tprt (deprecated in VTank)\t\t\t\t\t\t\t\t\t\t\t\t\t\t\n
+~~ \t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\n
+\n
+~~ \t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\n
+~~ \t\t\t\tREMEMBER THAT NAV-ONLY FILES MUST CONTAIN EXACTLY ONE NAV!\t\t\t\t\n
+~~ }\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\n
+\r\n
+NAV: nav0 circular ~~ {\r\n
+\tjmp 1 2 3 45 {True} 300.00003\r\n
+~~ }\r\n
+
+
+##### nav jump code 9
+route mode=Circular follow=00000000 "" count=1
+ wp Jump pos=00000000,1,2,3,0,True ref=00000000,0,0,0,0,False id=00000000 name="" class=0 valid=True text="" dur=5000 recall=PrimaryPortalRecall rid=0 rname="" jh=45 js=True jc=300 jd=Forward
+--- nav:
+uTank2 NAV 1.2\r\n
+1\r\n
+1\r\n
+9\r\n
+1\r\n
+2\r\n
+3\r\n
+0\r\n
+45\r\n
+True\r\n
+300.00003\r\n
+
+--- af:
+<nav-header>NAV:\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\n
+~~\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\n
+~~ All recognized NAV types:\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\n
+~~\t\tcircular\t\t\tfollow\t\t\t\t\t\t\t\t\t\t\t\t\t\t\n
+~~\t\tlinear\t\t\t\tonce\t\t\t\t\t\t\t\t\t\t\t\t\t\t\n
+~~\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\n
+~~ All recognized NAV NODE types:\t\t\t\t\t\t\t\t\t\t\t\t\t\t\n
+~~\t\tflw\t\t\t\t\tvnd\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\n
+~~\t\tpnt\t\t\t\t\tptl\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\n
+~~\t\trcl\t\t\t\t\ttlk\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\n
+~~\t\tpau\t\t\t\t\tchk\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\n
+~~\t\tcht\t\t\t\t\tjmp\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\n
+~~\t\tprt (deprecated in VTank)\t\t\t\t\t\t\t\t\t\t\t\t\t\t\n
+~~ \t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\n
+\n
+~~ \t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\n
+~~ \t\t\t\tREMEMBER THAT NAV-ONLY FILES MUST CONTAIN EXACTLY ONE NAV!\t\t\t\t\n
+~~ }\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\n
+\r\n
+NAV: nav0 circular ~~ {\r\n
+\tjmp 1 2 3 45 {True} 300.00003\r\n
+~~ }\r\n
+
+
+##### nav jump half
+route mode=Circular follow=00000000 "" count=1
+ wp Jump pos=00000000,1,2,3,0,True ref=00000000,0,0,0,0,False id=00000000 name="" class=0 valid=True text="" dur=5000 recall=PrimaryPortalRecall rid=0 rname="" jh=45 js=True jc=301 jd=Forward
+--- nav:
+uTank2 NAV 1.2\r\n
+1\r\n
+1\r\n
+9\r\n
+1\r\n
+2\r\n
+3\r\n
+0\r\n
+45\r\n
+True\r\n
+301.00003\r\n
+
+--- af:
+<nav-header>NAV:\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\n
+~~\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\n
+~~ All recognized NAV types:\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\n
+~~\t\tcircular\t\t\tfollow\t\t\t\t\t\t\t\t\t\t\t\t\t\t\n
+~~\t\tlinear\t\t\t\tonce\t\t\t\t\t\t\t\t\t\t\t\t\t\t\n
+~~\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\n
+~~ All recognized NAV NODE types:\t\t\t\t\t\t\t\t\t\t\t\t\t\t\n
+~~\t\tflw\t\t\t\t\tvnd\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\n
+~~\t\tpnt\t\t\t\t\tptl\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\n
+~~\t\trcl\t\t\t\t\ttlk\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\n
+~~\t\tpau\t\t\t\t\tchk\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\n
+~~\t\tcht\t\t\t\t\tjmp\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\n
+~~\t\tprt (deprecated in VTank)\t\t\t\t\t\t\t\t\t\t\t\t\t\t\n
+~~ \t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\n
+\n
+~~ \t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\n
+~~ \t\t\t\tREMEMBER THAT NAV-ONLY FILES MUST CONTAIN EXACTLY ONE NAV!\t\t\t\t\n
+~~ }\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\n
+\r\n
+NAV: nav0 circular ~~ {\r\n
+\tjmp 1 2 3 45 {True} 301.00003\r\n
+~~ }\r\n
+
+
+##### nav jump 300.123456
+route mode=Circular follow=00000000 "" count=1
+ wp Jump pos=00000000,1,2,3,0,True ref=00000000,0,0,0,0,False id=00000000 name="" class=0 valid=True text="" dur=5000 recall=PrimaryPortalRecall rid=0 rname="" jh=45 js=True jc=300 jd=Forward
+--- nav:
+uTank2 NAV 1.2\r\n
+1\r\n
+1\r\n
+9\r\n
+1\r\n
+2\r\n
+3\r\n
+0\r\n
+45\r\n
+True\r\n
+300.00003\r\n
+
+--- af:
+<nav-header>NAV:\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\n
+~~\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\n
+~~ All recognized NAV types:\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\n
+~~\t\tcircular\t\t\tfollow\t\t\t\t\t\t\t\t\t\t\t\t\t\t\n
+~~\t\tlinear\t\t\t\tonce\t\t\t\t\t\t\t\t\t\t\t\t\t\t\n
+~~\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\n
+~~ All recognized NAV NODE types:\t\t\t\t\t\t\t\t\t\t\t\t\t\t\n
+~~\t\tflw\t\t\t\t\tvnd\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\n
+~~\t\tpnt\t\t\t\t\tptl\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\n
+~~\t\trcl\t\t\t\t\ttlk\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\n
+~~\t\tpau\t\t\t\t\tchk\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\n
+~~\t\tcht\t\t\t\t\tjmp\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\n
+~~\t\tprt (deprecated in VTank)\t\t\t\t\t\t\t\t\t\t\t\t\t\t\n
+~~ \t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\n
+\n
+~~ \t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\n
+~~ \t\t\t\tREMEMBER THAT NAV-ONLY FILES MUST CONTAIN EXACTLY ONE NAV!\t\t\t\t\n
+~~ }\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\n
+\r\n
+NAV: nav0 circular ~~ {\r\n
+\tjmp 1 2 3 45 {True} 300.00003\r\n
+~~ }\r\n
+
+
+##### nav jump 300.000035
+route mode=Circular follow=00000000 "" count=1
+ wp Jump pos=00000000,1,2,3,0,True ref=00000000,0,0,0,0,False id=00000000 name="" class=0 valid=True text="" dur=5000 recall=PrimaryPortalRecall rid=0 rname="" jh=45 js=True jc=300 jd=Forward
+--- nav:
+uTank2 NAV 1.2\r\n
+1\r\n
+1\r\n
+9\r\n
+1\r\n
+2\r\n
+3\r\n
+0\r\n
+45\r\n
+True\r\n
+300.00003\r\n
+
+--- af:
+<nav-header>NAV:\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\n
+~~\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\n
+~~ All recognized NAV types:\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\n
+~~\t\tcircular\t\t\tfollow\t\t\t\t\t\t\t\t\t\t\t\t\t\t\n
+~~\t\tlinear\t\t\t\tonce\t\t\t\t\t\t\t\t\t\t\t\t\t\t\n
+~~\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\n
+~~ All recognized NAV NODE types:\t\t\t\t\t\t\t\t\t\t\t\t\t\t\n
+~~\t\tflw\t\t\t\t\tvnd\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\n
+~~\t\tpnt\t\t\t\t\tptl\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\n
+~~\t\trcl\t\t\t\t\ttlk\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\n
+~~\t\tpau\t\t\t\t\tchk\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\n
+~~\t\tcht\t\t\t\t\tjmp\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\n
+~~\t\tprt (deprecated in VTank)\t\t\t\t\t\t\t\t\t\t\t\t\t\t\n
+~~ \t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\n
+\n
+~~ \t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\n
+~~ \t\t\t\tREMEMBER THAT NAV-ONLY FILES MUST CONTAIN EXACTLY ONE NAV!\t\t\t\t\n
+~~ }\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\n
+\r\n
+NAV: nav0 circular ~~ {\r\n
+\tjmp 1 2 3 45 {True} 300.00003\r\n
+~~ }\r\n
+
+
+##### nav jump 300.000045
+route mode=Circular follow=00000000 "" count=1
+ wp Jump pos=00000000,1,2,3,0,True ref=00000000,0,0,0,0,False id=00000000 name="" class=0 valid=True text="" dur=5000 recall=PrimaryPortalRecall rid=0 rname="" jh=45 js=True jc=300 jd=Forward
+--- nav:
+uTank2 NAV 1.2\r\n
+1\r\n
+1\r\n
+9\r\n
+1\r\n
+2\r\n
+3\r\n
+0\r\n
+45\r\n
+True\r\n
+300.00003\r\n
+
+--- af:
+<nav-header>NAV:\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\n
+~~\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\n
+~~ All recognized NAV types:\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\n
+~~\t\tcircular\t\t\tfollow\t\t\t\t\t\t\t\t\t\t\t\t\t\t\n
+~~\t\tlinear\t\t\t\tonce\t\t\t\t\t\t\t\t\t\t\t\t\t\t\n
+~~\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\n
+~~ All recognized NAV NODE types:\t\t\t\t\t\t\t\t\t\t\t\t\t\t\n
+~~\t\tflw\t\t\t\t\tvnd\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\n
+~~\t\tpnt\t\t\t\t\tptl\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\n
+~~\t\trcl\t\t\t\t\ttlk\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\n
+~~\t\tpau\t\t\t\t\tchk\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\n
+~~\t\tcht\t\t\t\t\tjmp\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\n
+~~\t\tprt (deprecated in VTank)\t\t\t\t\t\t\t\t\t\t\t\t\t\t\n
+~~ \t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\n
+\n
+~~ \t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\n
+~~ \t\t\t\tREMEMBER THAT NAV-ONLY FILES MUST CONTAIN EXACTLY ONE NAV!\t\t\t\t\n
+~~ }\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\n
+\r\n
+NAV: nav0 circular ~~ {\r\n
+\tjmp 1 2 3 45 {True} 300.00003\r\n
+~~ }\r\n
+
+
+##### nav jump 299.99999
+route mode=Circular follow=00000000 "" count=1
+ wp Jump pos=00000000,1,2,3,0,True ref=00000000,0,0,0,0,False id=00000000 name="" class=0 valid=True text="" dur=5000 recall=PrimaryPortalRecall rid=0 rname="" jh=45 js=True jc=300 jd=Forward
+--- nav:
+uTank2 NAV 1.2\r\n
+1\r\n
+1\r\n
+9\r\n
+1\r\n
+2\r\n
+3\r\n
+0\r\n
+45\r\n
+True\r\n
+300.00003\r\n
+
+--- af:
+<nav-header>NAV:\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\n
+~~\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\n
+~~ All recognized NAV types:\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\n
+~~\t\tcircular\t\t\tfollow\t\t\t\t\t\t\t\t\t\t\t\t\t\t\n
+~~\t\tlinear\t\t\t\tonce\t\t\t\t\t\t\t\t\t\t\t\t\t\t\n
+~~\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\n
+~~ All recognized NAV NODE types:\t\t\t\t\t\t\t\t\t\t\t\t\t\t\n
+~~\t\tflw\t\t\t\t\tvnd\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\n
+~~\t\tpnt\t\t\t\t\tptl\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\n
+~~\t\trcl\t\t\t\t\ttlk\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\n
+~~\t\tpau\t\t\t\t\tchk\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\n
+~~\t\tcht\t\t\t\t\tjmp\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\n
+~~\t\tprt (deprecated in VTank)\t\t\t\t\t\t\t\t\t\t\t\t\t\t\n
+~~ \t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\n
+\n
+~~ \t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\n
+~~ \t\t\t\tREMEMBER THAT NAV-ONLY FILES MUST CONTAIN EXACTLY ONE NAV!\t\t\t\t\n
+~~ }\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\n
+\r\n
+NAV: nav0 circular ~~ {\r\n
+\tjmp 1 2 3 45 {True} 300.00003\r\n
+~~ }\r\n
+
+
+##### nav jump 4E-05
+route mode=Circular follow=00000000 "" count=1
+ wp Jump pos=00000000,1,2,3,0,True ref=00000000,0,0,0,0,False id=00000000 name="" class=0 valid=True text="" dur=5000 recall=PrimaryPortalRecall rid=0 rname="" jh=45 js=True jc=0 jd=StrafeLeft
+--- nav:
+uTank2 NAV 1.2\r\n
+1\r\n
+1\r\n
+9\r\n
+1\r\n
+2\r\n
+3\r\n
+0\r\n
+45\r\n
+True\r\n
+4E-05\r\n
+
+--- af:
+<nav-header>NAV:\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\n
+~~\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\n
+~~ All recognized NAV types:\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\n
+~~\t\tcircular\t\t\tfollow\t\t\t\t\t\t\t\t\t\t\t\t\t\t\n
+~~\t\tlinear\t\t\t\tonce\t\t\t\t\t\t\t\t\t\t\t\t\t\t\n
+~~\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\n
+~~ All recognized NAV NODE types:\t\t\t\t\t\t\t\t\t\t\t\t\t\t\n
+~~\t\tflw\t\t\t\t\tvnd\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\n
+~~\t\tpnt\t\t\t\t\tptl\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\n
+~~\t\trcl\t\t\t\t\ttlk\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\n
+~~\t\tpau\t\t\t\t\tchk\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\n
+~~\t\tcht\t\t\t\t\tjmp\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\n
+~~\t\tprt (deprecated in VTank)\t\t\t\t\t\t\t\t\t\t\t\t\t\t\n
+~~ \t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\n
+\n
+~~ \t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\n
+~~ \t\t\t\tREMEMBER THAT NAV-ONLY FILES MUST CONTAIN EXACTLY ONE NAV!\t\t\t\t\n
+~~ }\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\n
+\r\n
+NAV: nav0 circular ~~ {\r\n
+\tjmp 1 2 3 45 {True} 0.00004\r\n
+~~ }\r\n
+
+
+##### nav jump 1E-06
+route mode=Circular follow=00000000 "" count=1
+ wp Jump pos=00000000,1,2,3,0,True ref=00000000,0,0,0,0,False id=00000000 name="" class=0 valid=True text="" dur=5000 recall=PrimaryPortalRecall rid=0 rname="" jh=45 js=True jc=0 jd=Forward
+--- nav:
+uTank2 NAV 1.2\r\n
+1\r\n
+1\r\n
+9\r\n
+1\r\n
+2\r\n
+3\r\n
+0\r\n
+45\r\n
+True\r\n
+3E-05\r\n
+
+--- af:
+<nav-header>NAV:\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\n
+~~\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\n
+~~ All recognized NAV types:\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\n
+~~\t\tcircular\t\t\tfollow\t\t\t\t\t\t\t\t\t\t\t\t\t\t\n
+~~\t\tlinear\t\t\t\tonce\t\t\t\t\t\t\t\t\t\t\t\t\t\t\n
+~~\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\n
+~~ All recognized NAV NODE types:\t\t\t\t\t\t\t\t\t\t\t\t\t\t\n
+~~\t\tflw\t\t\t\t\tvnd\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\n
+~~\t\tpnt\t\t\t\t\tptl\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\n
+~~\t\trcl\t\t\t\t\ttlk\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\n
+~~\t\tpau\t\t\t\t\tchk\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\n
+~~\t\tcht\t\t\t\t\tjmp\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\n
+~~\t\tprt (deprecated in VTank)\t\t\t\t\t\t\t\t\t\t\t\t\t\t\n
+~~ \t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\n
+\n
+~~ \t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\n
+~~ \t\t\t\tREMEMBER THAT NAV-ONLY FILES MUST CONTAIN EXACTLY ONE NAV!\t\t\t\t\n
+~~ }\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\n
+\r\n
+NAV: nav0 circular ~~ {\r\n
+\tjmp 1 2 3 45 {True} 0.00003\r\n
+~~ }\r\n
+
+
+##### nav jump -5
+route mode=Circular follow=00000000 "" count=1
+ wp Jump pos=00000000,1,2,3,0,True ref=00000000,0,0,0,0,False id=00000000 name="" class=0 valid=True text="" dur=5000 recall=PrimaryPortalRecall rid=0 rname="" jh=45 js=True jc=-5 jd=Forward
+--- nav:
+uTank2 NAV 1.2\r\n
+1\r\n
+1\r\n
+9\r\n
+1\r\n
+2\r\n
+3\r\n
+0\r\n
+45\r\n
+True\r\n
+-4.99997\r\n
+
+--- af:
+<nav-header>NAV:\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\n
+~~\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\n
+~~ All recognized NAV types:\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\n
+~~\t\tcircular\t\t\tfollow\t\t\t\t\t\t\t\t\t\t\t\t\t\t\n
+~~\t\tlinear\t\t\t\tonce\t\t\t\t\t\t\t\t\t\t\t\t\t\t\n
+~~\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\n
+~~ All recognized NAV NODE types:\t\t\t\t\t\t\t\t\t\t\t\t\t\t\n
+~~\t\tflw\t\t\t\t\tvnd\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\n
+~~\t\tpnt\t\t\t\t\tptl\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\n
+~~\t\trcl\t\t\t\t\ttlk\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\n
+~~\t\tpau\t\t\t\t\tchk\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\n
+~~\t\tcht\t\t\t\t\tjmp\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\n
+~~\t\tprt (deprecated in VTank)\t\t\t\t\t\t\t\t\t\t\t\t\t\t\n
+~~ \t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\n
+\n
+~~ \t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\n
+~~ \t\t\t\tREMEMBER THAT NAV-ONLY FILES MUST CONTAIN EXACTLY ONE NAV!\t\t\t\t\n
+~~ }\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\n
+\r\n
+NAV: nav0 circular ~~ {\r\n
+\tjmp 1 2 3 45 {True} -5.00003\r\n
+~~ }\r\n
+
+
+##### nav jump -300.00004
+route mode=Circular follow=00000000 "" count=1
+ wp Jump pos=00000000,1,2,3,0,True ref=00000000,0,0,0,0,False id=00000000 name="" class=0 valid=True text="" dur=5000 recall=PrimaryPortalRecall rid=0 rname="" jh=45 js=True jc=-300 jd=StrafeLeft
+--- nav:
+uTank2 NAV 1.2\r\n
+1\r\n
+1\r\n
+9\r\n
+1\r\n
+2\r\n
+3\r\n
+0\r\n
+45\r\n
+True\r\n
+-299.99996\r\n
+
+--- af:
+<nav-header>NAV:\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\n
+~~\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\n
+~~ All recognized NAV types:\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\n
+~~\t\tcircular\t\t\tfollow\t\t\t\t\t\t\t\t\t\t\t\t\t\t\n
+~~\t\tlinear\t\t\t\tonce\t\t\t\t\t\t\t\t\t\t\t\t\t\t\n
+~~\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\n
+~~ All recognized NAV NODE types:\t\t\t\t\t\t\t\t\t\t\t\t\t\t\n
+~~\t\tflw\t\t\t\t\tvnd\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\n
+~~\t\tpnt\t\t\t\t\tptl\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\n
+~~\t\trcl\t\t\t\t\ttlk\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\n
+~~\t\tpau\t\t\t\t\tchk\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\n
+~~\t\tcht\t\t\t\t\tjmp\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\n
+~~\t\tprt (deprecated in VTank)\t\t\t\t\t\t\t\t\t\t\t\t\t\t\n
+~~ \t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\n
+\n
+~~ \t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\n
+~~ \t\t\t\tREMEMBER THAT NAV-ONLY FILES MUST CONTAIN EXACTLY ONE NAV!\t\t\t\t\n
+~~ }\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\n
+\r\n
+NAV: nav0 circular ~~ {\r\n
+\tjmp 1 2 3 45 {True} -300.00004\r\n
+~~ }\r\n
+
+
+##### nav jump 2500.5
+route mode=Circular follow=00000000 "" count=1
+ wp Jump pos=00000000,1,2,3,0,True ref=00000000,0,0,0,0,False id=00000000 name="" class=0 valid=True text="" dur=5000 recall=PrimaryPortalRecall rid=0 rname="" jh=45 js=True jc=2501 jd=Forward
+--- nav:
+uTank2 NAV 1.2\r\n
+1\r\n
+1\r\n
+9\r\n
+1\r\n
+2\r\n
+3\r\n
+0\r\n
+45\r\n
+True\r\n
+2501.00003\r\n
+
+--- af:
+<nav-header>NAV:\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\n
+~~\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\n
+~~ All recognized NAV types:\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\n
+~~\t\tcircular\t\t\tfollow\t\t\t\t\t\t\t\t\t\t\t\t\t\t\n
+~~\t\tlinear\t\t\t\tonce\t\t\t\t\t\t\t\t\t\t\t\t\t\t\n
+~~\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\n
+~~ All recognized NAV NODE types:\t\t\t\t\t\t\t\t\t\t\t\t\t\t\n
+~~\t\tflw\t\t\t\t\tvnd\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\n
+~~\t\tpnt\t\t\t\t\tptl\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\n
+~~\t\trcl\t\t\t\t\ttlk\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\n
+~~\t\tpau\t\t\t\t\tchk\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\n
+~~\t\tcht\t\t\t\t\tjmp\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\n
+~~\t\tprt (deprecated in VTank)\t\t\t\t\t\t\t\t\t\t\t\t\t\t\n
+~~ \t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\n
+\n
+~~ \t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\n
+~~ \t\t\t\tREMEMBER THAT NAV-ONLY FILES MUST CONTAIN EXACTLY ONE NAV!\t\t\t\t\n
+~~ }\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\n
+\r\n
+NAV: nav0 circular ~~ {\r\n
+\tjmp 1 2 3 45 {True} 2501.00003\r\n
+~~ }\r\n
+
+
+##### nav jump 1E+10
+ERR Arithmetic operation resulted in an overflow.
+
+##### nav jump abc
+ERR The input string 'abc' was not in a correct format.
+
+##### nav jump maybe
+ERR String 'maybe' was not recognized as a valid Boolean.
+
+##### nav pause fraction
+ERR The input string '2500.7' was not in a correct format.
+
+##### nav point odd zero line
+route mode=Circular follow=00000000 "" count=1
+ wp Point pos=00000000,1,2,3,0,True ref=00000000,0,0,0,0,False id=00000000 name="" class=0 valid=True text="" dur=5000 recall=PrimaryPortalRecall rid=0 rname="" jh=0 js=False jc=1000 jd=Forward
+--- nav:
+uTank2 NAV 1.2\r\n
+1\r\n
+1\r\n
+0\r\n
+1\r\n
+2\r\n
+3\r\n
+0\r\n
+
+--- af:
+<nav-header>NAV:\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\n
+~~\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\n
+~~ All recognized NAV types:\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\n
+~~\t\tcircular\t\t\tfollow\t\t\t\t\t\t\t\t\t\t\t\t\t\t\n
+~~\t\tlinear\t\t\t\tonce\t\t\t\t\t\t\t\t\t\t\t\t\t\t\n
+~~\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\n
+~~ All recognized NAV NODE types:\t\t\t\t\t\t\t\t\t\t\t\t\t\t\n
+~~\t\tflw\t\t\t\t\tvnd\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\n
+~~\t\tpnt\t\t\t\t\tptl\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\n
+~~\t\trcl\t\t\t\t\ttlk\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\n
+~~\t\tpau\t\t\t\t\tchk\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\n
+~~\t\tcht\t\t\t\t\tjmp\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\n
+~~\t\tprt (deprecated in VTank)\t\t\t\t\t\t\t\t\t\t\t\t\t\t\n
+~~ \t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\n
+\n
+~~ \t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\n
+~~ \t\t\t\tREMEMBER THAT NAV-ONLY FILES MUST CONTAIN EXACTLY ONE NAV!\t\t\t\t\n
+~~ }\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\n
+\r\n
+NAV: nav0 circular ~~ {\r\n
+\tpnt 1 2 3\r\n
+~~ }\r\n
+
+
+##### nav portal by name false
+route mode=Circular follow=00000000 "" count=1
+ wp PortalByName pos=00000000,1,2,3,0,True ref=00000000,4,5,6,0,True id=00000000 name="P" class=14 valid=False text="" dur=5000 recall=PrimaryPortalRecall rid=0 rname="" jh=0 js=False jc=1000 jd=Forward
+--- nav:
+uTank2 NAV 1.2\r\n
+1\r\n
+1\r\n
+6\r\n
+1\r\n
+2\r\n
+3\r\n
+0\r\n
+P\r\n
+14\r\n
+False\r\n
+4\r\n
+5\r\n
+6\r\n
+
+--- af:
+<nav-header>NAV:\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\n
+~~\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\n
+~~ All recognized NAV types:\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\n
+~~\t\tcircular\t\t\tfollow\t\t\t\t\t\t\t\t\t\t\t\t\t\t\n
+~~\t\tlinear\t\t\t\tonce\t\t\t\t\t\t\t\t\t\t\t\t\t\t\n
+~~\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\n
+~~ All recognized NAV NODE types:\t\t\t\t\t\t\t\t\t\t\t\t\t\t\n
+~~\t\tflw\t\t\t\t\tvnd\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\n
+~~\t\tpnt\t\t\t\t\tptl\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\n
+~~\t\trcl\t\t\t\t\ttlk\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\n
+~~\t\tpau\t\t\t\t\tchk\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\n
+~~\t\tcht\t\t\t\t\tjmp\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\n
+~~\t\tprt (deprecated in VTank)\t\t\t\t\t\t\t\t\t\t\t\t\t\t\n
+~~ \t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\n
+\n
+~~ \t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\n
+~~ \t\t\t\tREMEMBER THAT NAV-ONLY FILES MUST CONTAIN EXACTLY ONE NAV!\t\t\t\t\n
+~~ }\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\n
+\r\n
+NAV: nav0 circular ~~ {\r\n
+\tptl 1 2 3 4 5 6 14 {P}\r\n
+~~ }\r\n
+
+
+##### nav follow minus one
+route mode=Target follow=FFFFFFFF "Barris" count=0
+--- nav:
+uTank2 NAV 1.2\r\n
+3\r\n
+Barris\r\n
+-1\r\n
+
+--- af:
+<nav-header>NAV:\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\n
+~~\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\n
+~~ All recognized NAV types:\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\n
+~~\t\tcircular\t\t\tfollow\t\t\t\t\t\t\t\t\t\t\t\t\t\t\n
+~~\t\tlinear\t\t\t\tonce\t\t\t\t\t\t\t\t\t\t\t\t\t\t\n
+~~\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\n
+~~ All recognized NAV NODE types:\t\t\t\t\t\t\t\t\t\t\t\t\t\t\n
+~~\t\tflw\t\t\t\t\tvnd\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\n
+~~\t\tpnt\t\t\t\t\tptl\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\n
+~~\t\trcl\t\t\t\t\ttlk\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\n
+~~\t\tpau\t\t\t\t\tchk\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\n
+~~\t\tcht\t\t\t\t\tjmp\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\n
+~~\t\tprt (deprecated in VTank)\t\t\t\t\t\t\t\t\t\t\t\t\t\t\n
+~~ \t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\n
+\n
+~~ \t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\n
+~~ \t\t\t\tREMEMBER THAT NAV-ONLY FILES MUST CONTAIN EXACTLY ONE NAV!\t\t\t\t\n
+~~ }\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\n
+\r\n
+NAV: nav0 follow ~~ {\r\n
+\tflw FFFFFFFF {Barris}\r\n
+~~ }\r\n
+
+
+##### nav follow empty name
+route mode=Target follow=00000000 "" count=0
+--- nav:
+uTank2 NAV 1.2\r\n
+3\r\n
+\r\n
+0\r\n
+
+--- af:
+<nav-header>NAV:\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\n
+~~\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\n
+~~ All recognized NAV types:\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\n
+~~\t\tcircular\t\t\tfollow\t\t\t\t\t\t\t\t\t\t\t\t\t\t\n
+~~\t\tlinear\t\t\t\tonce\t\t\t\t\t\t\t\t\t\t\t\t\t\t\n
+~~\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\n
+~~ All recognized NAV NODE types:\t\t\t\t\t\t\t\t\t\t\t\t\t\t\n
+~~\t\tflw\t\t\t\t\tvnd\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\n
+~~\t\tpnt\t\t\t\t\tptl\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\n
+~~\t\trcl\t\t\t\t\ttlk\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\n
+~~\t\tpau\t\t\t\t\tchk\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\n
+~~\t\tcht\t\t\t\t\tjmp\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\n
+~~\t\tprt (deprecated in VTank)\t\t\t\t\t\t\t\t\t\t\t\t\t\t\n
+~~ \t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\n
+\n
+~~ \t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\n
+~~ \t\t\t\tREMEMBER THAT NAV-ONLY FILES MUST CONTAIN EXACTLY ONE NAV!\t\t\t\t\n
+~~ }\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\n
+\r\n
+NAV: nav0 follow ~~ {\r\n
+\tflw 00000000 {}\r\n
+~~ }\r\n
+
+
+##### nav truncated
+ERR Unexpected end of VTank nav data.
+
+##### nav portal id overflow
+ERR Value was either too large or too small for an Int32.
+
+##### nav portal high bit
+route mode=Circular follow=00000000 "" count=1
+ wp Portal pos=00000000,1,2,3,0,True ref=00000000,0,0,0,0,False id=80000001 name="" class=0 valid=True text="" dur=5000 recall=PrimaryPortalRecall rid=0 rname="" jh=0 js=False jc=1000 jd=Forward
+--- nav:
+uTank2 NAV 1.2\r\n
+1\r\n
+1\r\n
+1\r\n
+1\r\n
+2\r\n
+3\r\n
+0\r\n
+-2147483647\r\n
+
+--- af:
+<nav-header>NAV:\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\n
+~~\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\n
+~~ All recognized NAV types:\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\n
+~~\t\tcircular\t\t\tfollow\t\t\t\t\t\t\t\t\t\t\t\t\t\t\n
+~~\t\tlinear\t\t\t\tonce\t\t\t\t\t\t\t\t\t\t\t\t\t\t\n
+~~\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\n
+~~ All recognized NAV NODE types:\t\t\t\t\t\t\t\t\t\t\t\t\t\t\n
+~~\t\tflw\t\t\t\t\tvnd\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\n
+~~\t\tpnt\t\t\t\t\tptl\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\n
+~~\t\trcl\t\t\t\t\ttlk\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\n
+~~\t\tpau\t\t\t\t\tchk\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\n
+~~\t\tcht\t\t\t\t\tjmp\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\n
+~~\t\tprt (deprecated in VTank)\t\t\t\t\t\t\t\t\t\t\t\t\t\t\n
+~~ \t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\n
+\n
+~~ \t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\n
+~~ \t\t\t\tREMEMBER THAT NAV-ONLY FILES MUST CONTAIN EXACTLY ONE NAV!\t\t\t\t\n
+~~ }\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\n
+\r\n
+NAV: nav0 circular ~~ {\r\n
+\tprt 1 2 3 80000001\r\n
+~~ }\r\n
+
+
+##### nav vendor empty
+route mode=Circular follow=00000000 "" count=1
+ wp OpenVendor pos=00000000,1,2,3,0,True ref=00000000,0,0,0,0,False id=00000000 name="" class=0 valid=True text="" dur=5000 recall=PrimaryPortalRecall rid=0 rname="" jh=0 js=False jc=1000 jd=Forward
+--- nav:
+uTank2 NAV 1.2\r\n
+1\r\n
+1\r\n
+5\r\n
+1\r\n
+2\r\n
+3\r\n
+0\r\n
+0\r\n
+\r\n
+
+--- af:
+<nav-header>NAV:\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\n
+~~\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\n
+~~ All recognized NAV types:\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\n
+~~\t\tcircular\t\t\tfollow\t\t\t\t\t\t\t\t\t\t\t\t\t\t\n
+~~\t\tlinear\t\t\t\tonce\t\t\t\t\t\t\t\t\t\t\t\t\t\t\n
+~~\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\n
+~~ All recognized NAV NODE types:\t\t\t\t\t\t\t\t\t\t\t\t\t\t\n
+~~\t\tflw\t\t\t\t\tvnd\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\n
+~~\t\tpnt\t\t\t\t\tptl\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\n
+~~\t\trcl\t\t\t\t\ttlk\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\n
+~~\t\tpau\t\t\t\t\tchk\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\n
+~~\t\tcht\t\t\t\t\tjmp\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\n
+~~\t\tprt (deprecated in VTank)\t\t\t\t\t\t\t\t\t\t\t\t\t\t\n
+~~ \t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\n
+\n
+~~ \t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\n
+~~ \t\t\t\tREMEMBER THAT NAV-ONLY FILES MUST CONTAIN EXACTLY ONE NAV!\t\t\t\t\n
+~~ }\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\n
+\r\n
+NAV: nav0 circular ~~ {\r\n
+\tvnd 1 2 3 00000000 {}\r\n
+~~ }\r\n
+
+
+##### nav vendor uint
+ERR Value was either too large or too small for an Int32.
+
+##### nav recall negative
+ERR Arithmetic operation resulted in an overflow.
+
+##### nav recall 48 and unknown
+route mode=Once follow=00000000 "" count=2
+ wp Recall pos=00000000,1,2,3,0,True ref=00000000,0,0,0,0,False id=00000000 name="" class=0 valid=True text="" dur=5000 recall=PrimaryPortalRecall rid=48 rname="Primary Portal Recall" jh=0 js=False jc=1000 jd=Forward
+ wp Recall pos=00000000,1,2,3,0,True ref=00000000,0,0,0,0,False id=00000000 name="" class=0 valid=True text="" dur=5000 recall=PrimaryPortalRecall rid=99999 rname="" jh=0 js=False jc=1000 jd=Forward
+--- nav:
+uTank2 NAV 1.2\r\n
+4\r\n
+2\r\n
+2\r\n
+1\r\n
+2\r\n
+3\r\n
+0\r\n
+48\r\n
+2\r\n
+1\r\n
+2\r\n
+3\r\n
+0\r\n
+99999\r\n
+
+--- af:
+<nav-header>NAV:\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\n
+~~\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\n
+~~ All recognized NAV types:\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\n
+~~\t\tcircular\t\t\tfollow\t\t\t\t\t\t\t\t\t\t\t\t\t\t\n
+~~\t\tlinear\t\t\t\tonce\t\t\t\t\t\t\t\t\t\t\t\t\t\t\n
+~~\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\n
+~~ All recognized NAV NODE types:\t\t\t\t\t\t\t\t\t\t\t\t\t\t\n
+~~\t\tflw\t\t\t\t\tvnd\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\n
+~~\t\tpnt\t\t\t\t\tptl\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\n
+~~\t\trcl\t\t\t\t\ttlk\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\n
+~~\t\tpau\t\t\t\t\tchk\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\n
+~~\t\tcht\t\t\t\t\tjmp\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\n
+~~\t\tprt (deprecated in VTank)\t\t\t\t\t\t\t\t\t\t\t\t\t\t\n
+~~ \t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\n
+\n
+~~ \t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\n
+~~ \t\t\t\tREMEMBER THAT NAV-ONLY FILES MUST CONTAIN EXACTLY ONE NAV!\t\t\t\t\n
+~~ }\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\n
+\r\n
+NAV: nav0 once ~~ {\r\n
+\trcl 1 2 3 {Primary Portal Recall}\r\n
+\trcl 1 2 3 {}\r\n
+~~ }\r\n
+
+
+##### nav wrapped
+route mode=Once follow=00000000 "" count=1
+ wp Point pos=00000000,1,2,3,0,True ref=00000000,0,0,0,0,False id=00000000 name="" class=0 valid=True text="" dur=5000 recall=PrimaryPortalRecall rid=0 rname="" jh=0 js=False jc=1000 jd=Forward
+--- nav:
+uTank2 NAV 1.2\r\n
+4\r\n
+1\r\n
+0\r\n
+1\r\n
+2\r\n
+3\r\n
+0\r\n
+
+--- af:
+<nav-header>NAV:\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\n
+~~\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\n
+~~ All recognized NAV types:\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\n
+~~\t\tcircular\t\t\tfollow\t\t\t\t\t\t\t\t\t\t\t\t\t\t\n
+~~\t\tlinear\t\t\t\tonce\t\t\t\t\t\t\t\t\t\t\t\t\t\t\n
+~~\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\n
+~~ All recognized NAV NODE types:\t\t\t\t\t\t\t\t\t\t\t\t\t\t\n
+~~\t\tflw\t\t\t\t\tvnd\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\n
+~~\t\tpnt\t\t\t\t\tptl\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\n
+~~\t\trcl\t\t\t\t\ttlk\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\n
+~~\t\tpau\t\t\t\t\tchk\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\n
+~~\t\tcht\t\t\t\t\tjmp\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\n
+~~\t\tprt (deprecated in VTank)\t\t\t\t\t\t\t\t\t\t\t\t\t\t\n
+~~ \t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\n
+\n
+~~ \t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\n
+~~ \t\t\t\tREMEMBER THAT NAV-ONLY FILES MUST CONTAIN EXACTLY ONE NAV!\t\t\t\t\n
+~~ }\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\n
+\r\n
+NAV: nav0 once ~~ {\r\n
+\tpnt 1 2 3\r\n
+~~ }\r\n
+
+
+##### nav wrapped count mismatch
+route mode=Once follow=00000000 "" count=1
+ wp Point pos=00000000,1,2,3,0,True ref=00000000,0,0,0,0,False id=00000000 name="" class=0 valid=True text="" dur=5000 recall=PrimaryPortalRecall rid=0 rname="" jh=0 js=False jc=1000 jd=Forward
+--- nav:
+uTank2 NAV 1.2\r\n
+4\r\n
+1\r\n
+0\r\n
+1\r\n
+2\r\n
+3\r\n
+0\r\n
+
+--- af:
+<nav-header>NAV:\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\n
+~~\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\n
+~~ All recognized NAV types:\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\n
+~~\t\tcircular\t\t\tfollow\t\t\t\t\t\t\t\t\t\t\t\t\t\t\n
+~~\t\tlinear\t\t\t\tonce\t\t\t\t\t\t\t\t\t\t\t\t\t\t\n
+~~\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\n
+~~ All recognized NAV NODE types:\t\t\t\t\t\t\t\t\t\t\t\t\t\t\n
+~~\t\tflw\t\t\t\t\tvnd\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\n
+~~\t\tpnt\t\t\t\t\tptl\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\n
+~~\t\trcl\t\t\t\t\ttlk\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\n
+~~\t\tpau\t\t\t\t\tchk\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\n
+~~\t\tcht\t\t\t\t\tjmp\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\n
+~~\t\tprt (deprecated in VTank)\t\t\t\t\t\t\t\t\t\t\t\t\t\t\n
+~~ \t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\n
+\n
+~~ \t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\n
+~~ \t\t\t\tREMEMBER THAT NAV-ONLY FILES MUST CONTAIN EXACTLY ONE NAV!\t\t\t\t\n
+~~ }\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\n
+\r\n
+NAV: nav0 once ~~ {\r\n
+\tpnt 1 2 3\r\n
+~~ }\r\n
+
+
+##### nav broken
+ERR Unexpected end of VTank nav data.
+
+##### nav empty :::
+ERR Unexpected end of VTank nav data.
+
+##### nav thousands
+ERR The input string '1,5' was not in a correct format.
+
+##### nav lone CR lines
+route mode=Circular follow=00000000 "" count=0
+--- nav:
+uTank2 NAV 1.2\r\n
+1\r\n
+0\r\n
+
+--- af:
+<nav-header>NAV:\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\n
+~~\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\n
+~~ All recognized NAV types:\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\n
+~~\t\tcircular\t\t\tfollow\t\t\t\t\t\t\t\t\t\t\t\t\t\t\n
+~~\t\tlinear\t\t\t\tonce\t\t\t\t\t\t\t\t\t\t\t\t\t\t\n
+~~\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\n
+~~ All recognized NAV NODE types:\t\t\t\t\t\t\t\t\t\t\t\t\t\t\n
+~~\t\tflw\t\t\t\t\tvnd\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\n
+~~\t\tpnt\t\t\t\t\tptl\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\n
+~~\t\trcl\t\t\t\t\ttlk\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\n
+~~\t\tpau\t\t\t\t\tchk\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\n
+~~\t\tcht\t\t\t\t\tjmp\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\n
+~~\t\tprt (deprecated in VTank)\t\t\t\t\t\t\t\t\t\t\t\t\t\t\n
+~~ \t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\n
+\n
+~~ \t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\n
+~~ \t\t\t\tREMEMBER THAT NAV-ONLY FILES MUST CONTAIN EXACTLY ONE NAV!\t\t\t\t\n
+~~ }\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\n
+\r\n
+NAV: nav0 circular ~~ {\r\n
+~~ }\r\n
+
+
+##### nav trailing data
+route mode=Circular follow=00000000 "" count=0
+--- nav:
+uTank2 NAV 1.2\r\n
+1\r\n
+0\r\n
+
+--- af:
+<nav-header>NAV:\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\n
+~~\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\n
+~~ All recognized NAV types:\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\n
+~~\t\tcircular\t\t\tfollow\t\t\t\t\t\t\t\t\t\t\t\t\t\t\n
+~~\t\tlinear\t\t\t\tonce\t\t\t\t\t\t\t\t\t\t\t\t\t\t\n
+~~\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\n
+~~ All recognized NAV NODE types:\t\t\t\t\t\t\t\t\t\t\t\t\t\t\n
+~~\t\tflw\t\t\t\t\tvnd\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\n
+~~\t\tpnt\t\t\t\t\tptl\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\n
+~~\t\trcl\t\t\t\t\ttlk\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\n
+~~\t\tpau\t\t\t\t\tchk\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\n
+~~\t\tcht\t\t\t\t\tjmp\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\n
+~~\t\tprt (deprecated in VTank)\t\t\t\t\t\t\t\t\t\t\t\t\t\t\n
+~~ \t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\n
+\n
+~~ \t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\n
+~~ \t\t\t\tREMEMBER THAT NAV-ONLY FILES MUST CONTAIN EXACTLY ONE NAV!\t\t\t\t\n
+~~ }\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\n
+\r\n
+NAV: nav0 circular ~~ {\r\n
+~~ }\r\n
+
+
+##### nav numbers
+route mode=Once follow=00000000 "" count=3
+ wp Point pos=00000000,0.30000000000000004,1E+20,-0,0,True ref=00000000,0,0,0,0,False id=00000000 name="" class=0 valid=True text="" dur=5000 recall=PrimaryPortalRecall rid=0 rname="" jh=0 js=False jc=1000 jd=Forward
+ wp Point pos=00000000,12.300000190734863,1E-05,10000000000000000,0,True ref=00000000,0,0,0,0,False id=00000000 name="" class=0 valid=True text="" dur=5000 recall=PrimaryPortalRecall rid=0 rname="" jh=0 js=False jc=1000 jd=Forward
+ wp Point pos=00000000,-12.5,2.08333134651184E-05,-1275133952,0,True ref=00000000,0,0,0,0,False id=00000000 name="" class=0 valid=True text="" dur=5000 recall=PrimaryPortalRecall rid=0 rname="" jh=0 js=False jc=1000 jd=Forward
+--- nav:
+uTank2 NAV 1.2\r\n
+4\r\n
+3\r\n
+0\r\n
+0.30000000000000004\r\n
+1E+20\r\n
+0\r\n
+0\r\n
+0\r\n
+12.300000190734863\r\n
+1E-05\r\n
+10000000000000000\r\n
+0\r\n
+0\r\n
+-12.5\r\n
+2.08333134651184E-05\r\n
+-1275133952\r\n
+0\r\n
+
+--- af:
+<nav-header>NAV:\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\n
+~~\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\n
+~~ All recognized NAV types:\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\n
+~~\t\tcircular\t\t\tfollow\t\t\t\t\t\t\t\t\t\t\t\t\t\t\n
+~~\t\tlinear\t\t\t\tonce\t\t\t\t\t\t\t\t\t\t\t\t\t\t\n
+~~\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\n
+~~ All recognized NAV NODE types:\t\t\t\t\t\t\t\t\t\t\t\t\t\t\n
+~~\t\tflw\t\t\t\t\tvnd\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\n
+~~\t\tpnt\t\t\t\t\tptl\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\n
+~~\t\trcl\t\t\t\t\ttlk\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\n
+~~\t\tpau\t\t\t\t\tchk\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\n
+~~\t\tcht\t\t\t\t\tjmp\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\n
+~~\t\tprt (deprecated in VTank)\t\t\t\t\t\t\t\t\t\t\t\t\t\t\n
+~~ \t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\n
+\n
+~~ \t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\n
+~~ \t\t\t\tREMEMBER THAT NAV-ONLY FILES MUST CONTAIN EXACTLY ONE NAV!\t\t\t\t\n
+~~ }\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\n
+\r\n
+NAV: nav0 once ~~ {\r\n
+\tpnt 0.30000000000000004 1E+20 -0\r\n
+\tpnt 12.300000190734863 1E-05 10000000000000000\r\n
+\tpnt -12.5 2.08333134651184E-05 -1275133952\r\n
+~~ }\r\n
+
+
+##### nav chat with tab
+route mode=Once follow=00000000 "" count=1
+ wp ChatCommand pos=00000000,1,2,3,0,True ref=00000000,0,0,0,0,False id=00000000 name="" class=0 valid=True text="/say\ta" dur=5000 recall=PrimaryPortalRecall rid=0 rname="" jh=0 js=False jc=1000 jd=Forward
+--- nav:
+uTank2 NAV 1.2\r\n
+4\r\n
+1\r\n
+4\r\n
+1\r\n
+2\r\n
+3\r\n
+0\r\n
+/say\ta\r\n
+
+--- af:
+<nav-header>NAV:\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\n
+~~\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\n
+~~ All recognized NAV types:\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\n
+~~\t\tcircular\t\t\tfollow\t\t\t\t\t\t\t\t\t\t\t\t\t\t\n
+~~\t\tlinear\t\t\t\tonce\t\t\t\t\t\t\t\t\t\t\t\t\t\t\n
+~~\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\n
+~~ All recognized NAV NODE types:\t\t\t\t\t\t\t\t\t\t\t\t\t\t\n
+~~\t\tflw\t\t\t\t\tvnd\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\n
+~~\t\tpnt\t\t\t\t\tptl\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\n
+~~\t\trcl\t\t\t\t\ttlk\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\n
+~~\t\tpau\t\t\t\t\tchk\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\n
+~~\t\tcht\t\t\t\t\tjmp\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\n
+~~\t\tprt (deprecated in VTank)\t\t\t\t\t\t\t\t\t\t\t\t\t\t\n
+~~ \t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\n
+\n
+~~ \t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\n
+~~ \t\t\t\tREMEMBER THAT NAV-ONLY FILES MUST CONTAIN EXACTLY ONE NAV!\t\t\t\t\n
+~~ }\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\n
+\r\n
+NAV: nav0 once ~~ {\r\n
+\tcht 1 2 3 {/say\ta}\r\n
+~~ }\r\n
+
+
+##### met follow embedded
+rule state="Default" enabled=True
+ C Always t="" s="" n=0 n2=0 n3=0
+ A LoadEmbeddedNavigationRoute t="" s="f" n=0 n2=0
+  route mode=Target follow=5003E219 "Barris" count=0
+--- met:
+1\r\n
+CondAct\r\n
+5\r\n
+CType\r\n
+AType\r\n
+CData\r\n
+AData\r\n
+State\r\n
+n\r\n
+n\r\n
+n\r\n
+n\r\n
+n\r\n
+1\r\n
+i\r\n
+1\r\n
+i\r\n
+4\r\n
+i\r\n
+0\r\n
+ba\r\n
+45\r\n
+f\r\n
+1\r\n
+uTank2 NAV 1.2\r\n
+3\r\n
+Barris\r\n
+1342431769\r\n
+s\r\n
+Default\r\n
+
+--- af:
+<meta-header>\r\n
+STATE: {Default} ~~ {\r\n
+\tIF:\tAlways\r\n
+\t\tDO:\tEmbedNav nav0__f {f}\r\n
+~~ }\r\n
+\r\n
+~~========================= ONLY NAVS APPEAR BELOW THIS LINE =========================~~\r\n
+\r\n
+NAV: nav0__f follow ~~ {\r\n
+\tflw 5003E219 {Barris}\r\n
+~~ }\r\n
+
+
+##### met empty blob
+ERR The input string 'Default' was not in a correct format.
+
+##### met nested doall
+rule state="Default" enabled=True
+ C Always t="" s="" n=0 n2=0 n3=0
+ A All t="" s="" n=0 n2=0
+  A All t="" s="" n=0 n2=0
+   A ChatCommand t="x" s="" n=0 n2=0
+--- met:
+1\r\n
+CondAct\r\n
+5\r\n
+CType\r\n
+AType\r\n
+CData\r\n
+AData\r\n
+State\r\n
+n\r\n
+n\r\n
+n\r\n
+n\r\n
+n\r\n
+1\r\n
+i\r\n
+1\r\n
+i\r\n
+3\r\n
+i\r\n
+0\r\n
+TABLE\r\n
+2\r\n
+K\r\n
+V\r\n
+n\r\n
+n\r\n
+1\r\n
+i\r\n
+3\r\n
+TABLE\r\n
+2\r\n
+K\r\n
+V\r\n
+n\r\n
+n\r\n
+1\r\n
+i\r\n
+2\r\n
+s\r\n
+x\r\n
+s\r\n
+Default\r\n
+
+--- af:
+<meta-header>\r\n
+STATE: {Default} ~~ {\r\n
+\tIF:\tAlways\r\n
+\t\tDO:\tDoAll\r\n
+\t\t\t\tDoAll\r\n
+\t\t\t\t\tChat {x}\r\n
+~~ }\r\n
+
+
+##### met unknown condition
+ERR Unknown VTank Meta condition type 99.
+
+##### met unknown action
+ERR Unknown VTank Meta action type 99.
+
+##### met condition 27
+ERR Unknown VTank Meta condition type 27.
+
+##### met wrong cell for no mobs
+ERR VTank Meta line 20: Expected 'TABLE', found 'i'.
+
+##### met d for seconds
+ERR VTank Meta line 20: Expected 'i', found 'd'.
+
+##### met empty state
+rule state="" enabled=True
+ C Always t="" s="" n=0 n2=0 n3=0
+ A ChatCommand t="x" s="" n=0 n2=0
+--- met:
+1\r\n
+CondAct\r\n
+5\r\n
+CType\r\n
+AType\r\n
+CData\r\n
+AData\r\n
+State\r\n
+n\r\n
+n\r\n
+n\r\n
+n\r\n
+n\r\n
+1\r\n
+i\r\n
+1\r\n
+i\r\n
+2\r\n
+i\r\n
+0\r\n
+s\r\n
+x\r\n
+s\r\n
+\r\n
+
+--- af:
+<meta-header>\r\n
+STATE: {} ~~ {\r\n
+\tIF:\tAlways\r\n
+\t\tDO:\tChat {x}\r\n
+~~ }\r\n
+
+
+##### met two tables
+ERR VTank Meta line 2: Expected '1', found '2'.
+
+##### met other table
+ERR VTank Meta line 3: Expected 'CondAct', found 'Other'.
+
+##### met too few named values
+ERR VTank Meta line 26: Expected '3', found '2'.
+
+##### met wrong key
+ERR VTank Meta line 30: Expected 's', found 'r'.
+
+##### met nav count too high
+ERR VTank Meta line 33: Embedded VTank navigation node counts do not match.
+
+##### met nav wrong length
+rule state="Default" enabled=True
+ C Always t="" s="" n=0 n2=0 n3=0
+ A LoadEmbeddedNavigationRoute t="" s="n" n=0 n2=0
+  route mode=Once follow=00000000 "" count=1
+   wp Point pos=00000000,1,2,3,0,True ref=00000000,0,0,0,0,False id=00000000 name="" class=0 valid=True text="" dur=5000 recall=PrimaryPortalRecall rid=0 rname="" jh=0 js=False jc=1000 jd=Forward
+--- met:
+1\r\n
+CondAct\r\n
+5\r\n
+CType\r\n
+AType\r\n
+CData\r\n
+AData\r\n
+State\r\n
+n\r\n
+n\r\n
+n\r\n
+n\r\n
+n\r\n
+1\r\n
+i\r\n
+1\r\n
+i\r\n
+4\r\n
+i\r\n
+0\r\n
+ba\r\n
+43\r\n
+n\r\n
+1\r\n
+uTank2 NAV 1.2\r\n
+4\r\n
+1\r\n
+0\r\n
+1\r\n
+2\r\n
+3\r\n
+0\r\n
+s\r\n
+Default\r\n
+
+--- af:
+<meta-header>\r\n
+STATE: {Default} ~~ {\r\n
+\tIF:\tAlways\r\n
+\t\tDO:\tEmbedNav nav0__n {n}\r\n
+~~ }\r\n
+\r\n
+~~========================= ONLY NAVS APPEAR BELOW THIS LINE =========================~~\r\n
+\r\n
+NAV: nav0__n once ~~ {\r\n
+\tpnt 1 2 3\r\n
+~~ }\r\n
+
+
+##### met nav negative length
+ERR VTank Meta line 23: Invalid VTank Meta serialized length.
+
+##### met nav count zero
+rule state="Default" enabled=True
+ C Always t="" s="" n=0 n2=0 n3=0
+ A LoadEmbeddedNavigationRoute t="" s="n" n=0 n2=0
+  route mode=Circular follow=00000000 "" count=0
+--- met:
+1\r\n
+CondAct\r\n
+5\r\n
+CType\r\n
+AType\r\n
+CData\r\n
+AData\r\n
+State\r\n
+n\r\n
+n\r\n
+n\r\n
+n\r\n
+n\r\n
+1\r\n
+i\r\n
+1\r\n
+i\r\n
+4\r\n
+i\r\n
+0\r\n
+ba\r\n
+28\r\n
+n\r\n
+0\r\n
+uTank2 NAV 1.2\r\n
+1\r\n
+0\r\n
+s\r\n
+Default\r\n
+
+--- af:
+<meta-header>\r\n
+STATE: {Default} ~~ {\r\n
+\tIF:\tAlways\r\n
+\t\tDO:\tEmbedNav nav0__n {n}\r\n
+~~ }\r\n
+\r\n
+~~========================= ONLY NAVS APPEAR BELOW THIS LINE =========================~~\r\n
+\r\n
+NAV: nav0__n circular ~~ {\r\n
+~~ }\r\n
+
+
+##### met view blob over a line
+rule state="Default" enabled=True
+ C Always t="" s="" n=0 n2=0 n3=0
+ A CreateView t="v" s="<a>\r\nb>" n=0 n2=0
+--- met:
+1\r\n
+CondAct\r\n
+5\r\n
+CType\r\n
+AType\r\n
+CData\r\n
+AData\r\n
+State\r\n
+n\r\n
+n\r\n
+n\r\n
+n\r\n
+n\r\n
+1\r\n
+i\r\n
+1\r\n
+i\r\n
+13\r\n
+i\r\n
+0\r\n
+TABLE\r\n
+2\r\n
+k\r\n
+v\r\n
+n\r\n
+n\r\n
+2\r\n
+s\r\n
+n\r\n
+s\r\n
+v\r\n
+s\r\n
+x\r\n
+ba\r\n
+7\r\n
+<a>\r\n
+b>s\r\n
+Default\r\n
+
+--- af:
+<meta-header>\r\n
+STATE: {Default} ~~ {\r\n
+\tIF:\tAlways\r\n
+\t\tDO:\tCreateView {v} {<a>\r\n
+b>}\r\n
+~~ }\r\n
+
+
+##### met keys swapped
+ERR VTank Meta line 30: Expected 'o', found 'v'.
+
+##### met bare LF
+rule state="Default" enabled=True
+ C Always t="" s="" n=0 n2=0 n3=0
+ A ChatCommand t="x" s="" n=0 n2=0
+--- met:
+1\r\n
+CondAct\r\n
+5\r\n
+CType\r\n
+AType\r\n
+CData\r\n
+AData\r\n
+State\r\n
+n\r\n
+n\r\n
+n\r\n
+n\r\n
+n\r\n
+1\r\n
+i\r\n
+1\r\n
+i\r\n
+2\r\n
+i\r\n
+0\r\n
+s\r\n
+x\r\n
+s\r\n
+Default\r\n
+
+--- af:
+<meta-header>\r\n
+STATE: {Default} ~~ {\r\n
+\tIF:\tAlways\r\n
+\t\tDO:\tChat {x}\r\n
+~~ }\r\n
+
+
+##### met trailing data
+ERR VTank Meta line 25: Unexpected trailing VTank Meta data 'extra'.
+
+##### met trailing blank lines
+rule state="Default" enabled=True
+ C Always t="" s="" n=0 n2=0 n3=0
+ A ChatCommand t="x" s="" n=0 n2=0
+--- met:
+1\r\n
+CondAct\r\n
+5\r\n
+CType\r\n
+AType\r\n
+CData\r\n
+AData\r\n
+State\r\n
+n\r\n
+n\r\n
+n\r\n
+n\r\n
+n\r\n
+1\r\n
+i\r\n
+1\r\n
+i\r\n
+2\r\n
+i\r\n
+0\r\n
+s\r\n
+x\r\n
+s\r\n
+Default\r\n
+
+--- af:
+<meta-header>\r\n
+STATE: {Default} ~~ {\r\n
+\tIF:\tAlways\r\n
+\t\tDO:\tChat {x}\r\n
+~~ }\r\n
+
+
+##### met no final newline
+rule state="Default" enabled=True
+ C Always t="" s="" n=0 n2=0 n3=0
+ A ChatCommand t="x" s="" n=0 n2=0
+--- met:
+1\r\n
+CondAct\r\n
+5\r\n
+CType\r\n
+AType\r\n
+CData\r\n
+AData\r\n
+State\r\n
+n\r\n
+n\r\n
+n\r\n
+n\r\n
+n\r\n
+1\r\n
+i\r\n
+1\r\n
+i\r\n
+2\r\n
+i\r\n
+0\r\n
+s\r\n
+x\r\n
+s\r\n
+Default\r\n
+
+--- af:
+<meta-header>\r\n
+STATE: {Default} ~~ {\r\n
+\tIF:\tAlways\r\n
+\t\tDO:\tChat {x}\r\n
+~~ }\r\n
+
+
+##### met bom
+ERR VTank Meta line 2: Expected '1', found '﻿1'.
+
+##### met empty :::
+ERR VTank Meta line 1: Unexpected end of VTank Meta data.
+
+##### met zero rules
+--- met:
+1\r\n
+CondAct\r\n
+5\r\n
+CType\r\n
+AType\r\n
+CData\r\n
+AData\r\n
+State\r\n
+n\r\n
+n\r\n
+n\r\n
+n\r\n
+n\r\n
+0\r\n
+
+--- af:
+<meta-header>\r\n
+
+
+##### met rule count 100000
+ERR VTank Meta line 15: Unexpected end of VTank Meta data.
+
+##### met rule count 100001
+ERR VTank Meta line 15: Invalid VTank Meta rule count.
+
+##### met rule count 10001
+ERR VTank Meta line 15: Unexpected end of VTank Meta data.
+
+##### met rule count 1000001
+ERR VTank Meta line 15: Invalid VTank Meta rule count.
+
+##### met rule count minus
+ERR VTank Meta line 15: Invalid VTank Meta rule count.
+
+##### met rule count text
+ERR The input string 'x' was not in a correct format.
+
+##### met list count 100001
+ERR VTank Meta line 28: Invalid VTank Meta collection count.
+
+##### met list count 10001
+ERR VTank Meta line 28: Unexpected end of VTank Meta data.
+
+##### met blob length 16777217
+ERR VTank Meta line 26: Expected 'uTank2 NAV 1.2', found 's'.
+
+##### met blob length 16777216
+ERR VTank Meta line 26: Expected 'uTank2 NAV 1.2', found 's'.
+
+##### met type text
+ERR The input string 'x' was not in a correct format.
+
+##### met not with two
+ERR VTank Meta line 26: VTank Meta Not requires exactly one condition.
+
+##### met not empty
+ERR VTank Meta line 26: VTank Meta Not requires exactly one condition.
+
+##### met thousands in d
+ERR The input string '1,5' was not in a correct format.
+
+##### met d numbers
+rule state="Default" enabled=True
+ C NoMonstersWithinDistance t="" s="" n=0.30000000000000004 n2=0 n3=0
+ A SetWatchdog t="w" s="" n=-0 n2=1E-07
+rule state="Default" enabled=True
+ C DistanceFromAnyRoutePointGreaterThanOrEqual t="" s="" n=10000000000000000 n2=0 n3=0
+ A None t="" s="" n=0 n2=0
+--- met:
+1\r\n
+CondAct\r\n
+5\r\n
+CType\r\n
+AType\r\n
+CData\r\n
+AData\r\n
+State\r\n
+n\r\n
+n\r\n
+n\r\n
+n\r\n
+n\r\n
+2\r\n
+i\r\n
+16\r\n
+i\r\n
+9\r\n
+TABLE\r\n
+2\r\n
+k\r\n
+v\r\n
+n\r\n
+n\r\n
+1\r\n
+s\r\n
+r\r\n
+d\r\n
+0.30000000000000004\r\n
+TABLE\r\n
+2\r\n
+k\r\n
+v\r\n
+n\r\n
+n\r\n
+3\r\n
+s\r\n
+s\r\n
+s\r\n
+w\r\n
+s\r\n
+r\r\n
+d\r\n
+0\r\n
+s\r\n
+t\r\n
+d\r\n
+1E-07\r\n
+s\r\n
+Default\r\n
+i\r\n
+25\r\n
+i\r\n
+0\r\n
+TABLE\r\n
+2\r\n
+k\r\n
+v\r\n
+n\r\n
+n\r\n
+1\r\n
+s\r\n
+dist\r\n
+d\r\n
+10000000000000000\r\n
+i\r\n
+0\r\n
+s\r\n
+Default\r\n
+
+--- af:
+<meta-header>\r\n
+STATE: {Default} ~~ {\r\n
+\tIF:\tNoMobsInDist 0.30000000000000004\r\n
+\t\tDO:\tSetWatchdog -0 1E-07 {w}\r\n
+\tIF:\tDistToRteGE 10000000000000000\r\n
+\t\tDO:\tNone\r\n
+~~ }\r\n
+
+
+##### met high bit landblock
+rule state="Default" enabled=True
+ C LandblockEquals t="" s="" n=-1959329792 n2=0 n3=0
+ A None t="" s="" n=0 n2=0
+--- met:
+1\r\n
+CondAct\r\n
+5\r\n
+CType\r\n
+AType\r\n
+CData\r\n
+AData\r\n
+State\r\n
+n\r\n
+n\r\n
+n\r\n
+n\r\n
+n\r\n
+1\r\n
+i\r\n
+17\r\n
+i\r\n
+0\r\n
+i\r\n
+-1959329792\r\n
+i\r\n
+0\r\n
+s\r\n
+Default\r\n
+
+--- af:
+<meta-header>\r\n
+STATE: {Default} ~~ {\r\n
+\tIF:\tBlockE 8B370000\r\n
+\t\tDO:\tNone\r\n
+~~ }\r\n
+
+
+##### af-meta transform ignored
+rule state="Default" enabled=True
+ C Always t="" s="" n=0 n2=0 n3=0
+ A LoadEmbeddedNavigationRoute t="" s="named" n=0 n2=0
+  route mode=Once follow=00000000 "" count=1
+   wp Point pos=00000000,1,2,3,0,True ref=00000000,0,0,0,0,False id=00000000 name="" class=0 valid=True text="" dur=5000 recall=PrimaryPortalRecall rid=0 rname="" jh=0 js=False jc=1000 jd=Forward
+--- met:
+1\r\n
+CondAct\r\n
+5\r\n
+CType\r\n
+AType\r\n
+CData\r\n
+AData\r\n
+State\r\n
+n\r\n
+n\r\n
+n\r\n
+n\r\n
+n\r\n
+1\r\n
+i\r\n
+1\r\n
+i\r\n
+4\r\n
+i\r\n
+0\r\n
+ba\r\n
+47\r\n
+named\r\n
+1\r\n
+uTank2 NAV 1.2\r\n
+4\r\n
+1\r\n
+0\r\n
+1\r\n
+2\r\n
+3\r\n
+0\r\n
+s\r\n
+Default\r\n
+
+--- af:
+<meta-header>\r\n
+STATE: {Default} ~~ {\r\n
+\tIF:\tAlways\r\n
+\t\tDO:\tEmbedNav nav0__named {named}\r\n
+~~ }\r\n
+\r\n
+~~========================= ONLY NAVS APPEAR BELOW THIS LINE =========================~~\r\n
+\r\n
+NAV: nav0__named once ~~ {\r\n
+\tpnt 1 2 3\r\n
+~~ }\r\n
+
+
+##### af-meta one nav twice
+rule state="Default" enabled=True
+ C Always t="" s="" n=0 n2=0 n3=0
+ A LoadEmbeddedNavigationRoute t="" s="named" n=0 n2=0
+  route mode=Circular follow=00000000 "" count=2
+   wp Point pos=00000000,1,2,3,0,True ref=00000000,0,0,0,0,False id=00000000 name="" class=0 valid=True text="" dur=5000 recall=PrimaryPortalRecall rid=0 rname="" jh=0 js=False jc=1000 jd=Forward
+   wp Pause pos=00000000,1,2,3,0,True ref=00000000,0,0,0,0,False id=00000000 name="" class=0 valid=True text="" dur=1501 recall=PrimaryPortalRecall rid=0 rname="" jh=0 js=False jc=1000 jd=Forward
+rule state="Default" enabled=True
+ C Never t="" s="" n=0 n2=0 n3=0
+ A LoadEmbeddedNavigationRoute t="" s="again" n=0 n2=0
+  route mode=Circular follow=00000000 "" count=2
+   wp Point pos=00000000,1,2,3,0,True ref=00000000,0,0,0,0,False id=00000000 name="" class=0 valid=True text="" dur=5000 recall=PrimaryPortalRecall rid=0 rname="" jh=0 js=False jc=1000 jd=Forward
+   wp Pause pos=00000000,1,2,3,0,True ref=00000000,0,0,0,0,False id=00000000 name="" class=0 valid=True text="" dur=1501 recall=PrimaryPortalRecall rid=0 rname="" jh=0 js=False jc=1000 jd=Forward
+--- met:
+1\r\n
+CondAct\r\n
+5\r\n
+CType\r\n
+AType\r\n
+CData\r\n
+AData\r\n
+State\r\n
+n\r\n
+n\r\n
+n\r\n
+n\r\n
+n\r\n
+2\r\n
+i\r\n
+1\r\n
+i\r\n
+4\r\n
+i\r\n
+0\r\n
+ba\r\n
+68\r\n
+named\r\n
+2\r\n
+uTank2 NAV 1.2\r\n
+1\r\n
+2\r\n
+0\r\n
+1\r\n
+2\r\n
+3\r\n
+0\r\n
+3\r\n
+1\r\n
+2\r\n
+3\r\n
+0\r\n
+1501\r\n
+s\r\n
+Default\r\n
+i\r\n
+0\r\n
+i\r\n
+4\r\n
+i\r\n
+0\r\n
+ba\r\n
+68\r\n
+again\r\n
+2\r\n
+uTank2 NAV 1.2\r\n
+1\r\n
+2\r\n
+0\r\n
+1\r\n
+2\r\n
+3\r\n
+0\r\n
+3\r\n
+1\r\n
+2\r\n
+3\r\n
+0\r\n
+1501\r\n
+s\r\n
+Default\r\n
+
+--- af:
+<meta-header>\r\n
+STATE: {Default} ~~ {\r\n
+\tIF:\tAlways\r\n
+\t\tDO:\tEmbedNav nav0__named {named}\r\n
+\tIF:\tNever\r\n
+\t\tDO:\tEmbedNav nav1__again {again}\r\n
+~~ }\r\n
+\r\n
+~~========================= ONLY NAVS APPEAR BELOW THIS LINE =========================~~\r\n
+\r\n
+NAV: nav0__named circular ~~ {\r\n
+\tpnt 1 2 3\r\n
+\tpau 1 2 3 1501\r\n
+~~ }\r\n
+NAV: nav1__again circular ~~ {\r\n
+\tpnt 1 2 3\r\n
+\tpau 1 2 3 1501\r\n
+~~ }\r\n
+
+
+##### af-meta spaces before IF
+ERR line 4: expected 'STATE:', 'IF:', or 'NAV:'.
+
+##### af-meta bare LF
+rule state="A" enabled=True
+ C Always t="" s="" n=0 n2=0 n3=0
+ A ChatCommand t="x" s="" n=0 n2=0
+--- met:
+1\r\n
+CondAct\r\n
+5\r\n
+CType\r\n
+AType\r\n
+CData\r\n
+AData\r\n
+State\r\n
+n\r\n
+n\r\n
+n\r\n
+n\r\n
+n\r\n
+1\r\n
+i\r\n
+1\r\n
+i\r\n
+2\r\n
+i\r\n
+0\r\n
+s\r\n
+x\r\n
+s\r\n
+A\r\n
+
+--- af:
+<meta-header>\r\n
+STATE: {A} ~~ {\r\n
+\tIF:\tAlways\r\n
+\t\tDO:\tChat {x}\r\n
+~~ }\r\n
+
+
+##### af-meta not not
+rule state="A" enabled=True
+ C Not t="" s="" n=0 n2=0 n3=0
+  C Not t="" s="" n=0 n2=0 n3=0
+   C Always t="" s="" n=0 n2=0 n3=0
+ A ChatCommand t="x" s="" n=0 n2=0
+--- met:
+1\r\n
+CondAct\r\n
+5\r\n
+CType\r\n
+AType\r\n
+CData\r\n
+AData\r\n
+State\r\n
+n\r\n
+n\r\n
+n\r\n
+n\r\n
+n\r\n
+1\r\n
+i\r\n
+21\r\n
+i\r\n
+2\r\n
+TABLE\r\n
+2\r\n
+K\r\n
+V\r\n
+n\r\n
+n\r\n
+1\r\n
+i\r\n
+21\r\n
+TABLE\r\n
+2\r\n
+K\r\n
+V\r\n
+n\r\n
+n\r\n
+1\r\n
+i\r\n
+1\r\n
+i\r\n
+0\r\n
+s\r\n
+x\r\n
+s\r\n
+A\r\n
+
+--- af:
+<meta-header>\r\n
+STATE: {A} ~~ {\r\n
+\tIF:\tNot Not Always\r\n
+\t\tDO:\tChat {x}\r\n
+~~ }\r\n
+
+
+##### af-meta empty all doall
+rule state="A" enabled=True
+ C All t="" s="" n=0 n2=0 n3=0
+ A All t="" s="" n=0 n2=0
+--- met:
+1\r\n
+CondAct\r\n
+5\r\n
+CType\r\n
+AType\r\n
+CData\r\n
+AData\r\n
+State\r\n
+n\r\n
+n\r\n
+n\r\n
+n\r\n
+n\r\n
+1\r\n
+i\r\n
+2\r\n
+i\r\n
+3\r\n
+TABLE\r\n
+2\r\n
+K\r\n
+V\r\n
+n\r\n
+n\r\n
+0\r\n
+TABLE\r\n
+2\r\n
+K\r\n
+V\r\n
+n\r\n
+n\r\n
+0\r\n
+s\r\n
+A\r\n
+
+--- af:
+<meta-header>\r\n
+STATE: {A} ~~ {\r\n
+\tIF:\tAll\r\n
+\t\tDO:\tDoAll\r\n
+~~ }\r\n
+
+
+##### af-meta hex with 0x
+ERR line 5: 'CellE' arguments do not match the expected shape.
+
+##### af-meta mobs and watchdog
+rule state="A" enabled=True
+ C MonsterNameCountWithinDistance t="Drudge Lurker" s="" n=5 n2=13.7 n3=0
+ A SetWatchdog t="Oh, no!" s="" n=12.3 n2=4.6
+--- met:
+1\r\n
+CondAct\r\n
+5\r\n
+CType\r\n
+AType\r\n
+CData\r\n
+AData\r\n
+State\r\n
+n\r\n
+n\r\n
+n\r\n
+n\r\n
+n\r\n
+1\r\n
+i\r\n
+13\r\n
+i\r\n
+9\r\n
+TABLE\r\n
+2\r\n
+k\r\n
+v\r\n
+n\r\n
+n\r\n
+3\r\n
+s\r\n
+n\r\n
+s\r\n
+Drudge Lurker\r\n
+s\r\n
+c\r\n
+i\r\n
+5\r\n
+s\r\n
+r\r\n
+d\r\n
+13.7\r\n
+TABLE\r\n
+2\r\n
+k\r\n
+v\r\n
+n\r\n
+n\r\n
+3\r\n
+s\r\n
+s\r\n
+s\r\n
+Oh, no!\r\n
+s\r\n
+r\r\n
+d\r\n
+12.3\r\n
+s\r\n
+t\r\n
+d\r\n
+4.6\r\n
+s\r\n
+A\r\n
+
+--- af:
+<meta-header>\r\n
+STATE: {A} ~~ {\r\n
+\tIF:\tMobsInDist_Name 5 13.7 {Drudge Lurker}\r\n
+\t\tDO:\tSetWatchdog 12.3 4.6 {Oh, no!}\r\n
+~~ }\r\n
+
+
+##### af-meta fraction seconds
+ERR line 3: 'SecsInStateGE' arguments do not match the expected shape.
+
+##### af-meta view file
+rule state="A" enabled=True
+ C Always t="" s="" n=0 n2=0 n3=0
+ A CreateView t="v" s=":myview.xml" n=0 n2=0
+--- met:
+1\r\n
+CondAct\r\n
+5\r\n
+CType\r\n
+AType\r\n
+CData\r\n
+AData\r\n
+State\r\n
+n\r\n
+n\r\n
+n\r\n
+n\r\n
+n\r\n
+1\r\n
+i\r\n
+1\r\n
+i\r\n
+13\r\n
+i\r\n
+0\r\n
+TABLE\r\n
+2\r\n
+k\r\n
+v\r\n
+n\r\n
+n\r\n
+2\r\n
+s\r\n
+n\r\n
+s\r\n
+v\r\n
+s\r\n
+x\r\n
+ba\r\n
+11\r\n
+:myview.xmls\r\n
+A\r\n
+
+--- af:
+<meta-header>\r\n
+STATE: {A} ~~ {\r\n
+\tIF:\tAlways\r\n
+\t\tDO:\tCreateView {v} {:myview.xml}\r\n
+~~ }\r\n
+
+
+##### af-meta destroy view spaces
+rule state="A" enabled=True
+ C Always t="" s="" n=0 n2=0 n3=0
+ A DestroyView t="v" s="" n=0 n2=0
+rule state="A" enabled=True
+ C Always t="" s="" n=0 n2=0 n3=0
+ A DestroyView t="v" s="" n=0 n2=0
+--- met:
+1\r\n
+CondAct\r\n
+5\r\n
+CType\r\n
+AType\r\n
+CData\r\n
+AData\r\n
+State\r\n
+n\r\n
+n\r\n
+n\r\n
+n\r\n
+n\r\n
+2\r\n
+i\r\n
+1\r\n
+i\r\n
+14\r\n
+i\r\n
+0\r\n
+TABLE\r\n
+2\r\n
+k\r\n
+v\r\n
+n\r\n
+n\r\n
+1\r\n
+s\r\n
+n\r\n
+s\r\n
+v\r\n
+s\r\n
+A\r\n
+i\r\n
+1\r\n
+i\r\n
+14\r\n
+i\r\n
+0\r\n
+TABLE\r\n
+2\r\n
+k\r\n
+v\r\n
+n\r\n
+n\r\n
+1\r\n
+s\r\n
+n\r\n
+s\r\n
+v\r\n
+s\r\n
+A\r\n
+
+--- af:
+<meta-header>\r\n
+STATE: {A} ~~ {\r\n
+\tIF:\tAlways\r\n
+\t\tDO:\tDestroyView  {v}\r\n
+\tIF:\tAlways\r\n
+\t\tDO:\tDestroyView  {v}\r\n
+~~ }\r\n
+
+
+##### af-meta state twice
+rule state="A" enabled=True
+ C Always t="" s="" n=0 n2=0 n3=0
+ A ChatCommand t="x" s="" n=0 n2=0
+rule state="A" enabled=True
+ C Never t="" s="" n=0 n2=0 n3=0
+ A ChatCommand t="y" s="" n=0 n2=0
+--- met:
+1\r\n
+CondAct\r\n
+5\r\n
+CType\r\n
+AType\r\n
+CData\r\n
+AData\r\n
+State\r\n
+n\r\n
+n\r\n
+n\r\n
+n\r\n
+n\r\n
+2\r\n
+i\r\n
+1\r\n
+i\r\n
+2\r\n
+i\r\n
+0\r\n
+s\r\n
+x\r\n
+s\r\n
+A\r\n
+i\r\n
+0\r\n
+i\r\n
+2\r\n
+i\r\n
+0\r\n
+s\r\n
+y\r\n
+s\r\n
+A\r\n
+
+--- af:
+<meta-header>\r\n
+STATE: {A} ~~ {\r\n
+\tIF:\tAlways\r\n
+\t\tDO:\tChat {x}\r\n
+\tIF:\tNever\r\n
+\t\tDO:\tChat {y}\r\n
+~~ }\r\n
+
+
+##### af-meta missing nav
+rule state="A" enabled=True
+ C Always t="" s="" n=0 n2=0 n3=0
+ A LoadEmbeddedNavigationRoute t="" s="x" n=0 n2=0
+  route mode=Circular follow=00000000 "" count=0
+--- met:
+1\r\n
+CondAct\r\n
+5\r\n
+CType\r\n
+AType\r\n
+CData\r\n
+AData\r\n
+State\r\n
+n\r\n
+n\r\n
+n\r\n
+n\r\n
+n\r\n
+1\r\n
+i\r\n
+1\r\n
+i\r\n
+4\r\n
+i\r\n
+0\r\n
+ba\r\n
+28\r\n
+x\r\n
+0\r\n
+uTank2 NAV 1.2\r\n
+1\r\n
+0\r\n
+s\r\n
+A\r\n
+
+--- af:
+<meta-header>\r\n
+STATE: {A} ~~ {\r\n
+\tIF:\tAlways\r\n
+\t\tDO:\tEmbedNav nav0__x {x}\r\n
+~~ }\r\n
+\r\n
+~~========================= ONLY NAVS APPEAR BELOW THIS LINE =========================~~\r\n
+\r\n
+NAV: nav0__x circular ~~ {\r\n
+~~ }\r\n
+
+
+##### af-meta two DO
+ERR line 4: expected an 'IF:' line to start a new Rule.
+
+##### af-meta call and spell
+rule state="A" enabled=True
+ C Always t="" s="" n=0 n2=0 n3=0
+ A CallMetaState t="x" s="y" n=0 n2=0
+rule state="A" enabled=True
+ C TimeLeftOnSpellGreaterThanOrEqual t="" s="" n=4291 n2=120 n3=0
+ A ReturnFromCall t="" s="" n=0 n2=0
+--- met:
+1\r\n
+CondAct\r\n
+5\r\n
+CType\r\n
+AType\r\n
+CData\r\n
+AData\r\n
+State\r\n
+n\r\n
+n\r\n
+n\r\n
+n\r\n
+n\r\n
+2\r\n
+i\r\n
+1\r\n
+i\r\n
+5\r\n
+i\r\n
+0\r\n
+TABLE\r\n
+2\r\n
+k\r\n
+v\r\n
+n\r\n
+n\r\n
+2\r\n
+s\r\n
+st\r\n
+s\r\n
+x\r\n
+s\r\n
+ret\r\n
+s\r\n
+y\r\n
+s\r\n
+A\r\n
+i\r\n
+23\r\n
+i\r\n
+6\r\n
+TABLE\r\n
+2\r\n
+k\r\n
+v\r\n
+n\r\n
+n\r\n
+2\r\n
+s\r\n
+sid\r\n
+i\r\n
+4291\r\n
+s\r\n
+sec\r\n
+i\r\n
+120\r\n
+i\r\n
+0\r\n
+s\r\n
+A\r\n
+
+--- af:
+<meta-header>\r\n
+STATE: {A} ~~ {\r\n
+\tIF:\tAlways\r\n
+\t\tDO:\tCallState {x} {y}\r\n
+\tIF:\tSecsOnSpellGE 120 4291\r\n
+\t\tDO:\tReturn\r\n
+~~ }\r\n
+
+
+##### af-meta capture and chat expr
+rule state="A" enabled=True
+ C ChatMessageCapture t="^.*(?<who>Eskarina).* (says|tells you), \\\".+\\\"$" s="2;4" n=0 n2=0 n3=0
+ A ChatExpression t="\\/t +getcharstringprop[1]+\\, Hi\\!" s="" n=0 n2=0
+--- met:
+1\r\n
+CondAct\r\n
+5\r\n
+CType\r\n
+AType\r\n
+CData\r\n
+AData\r\n
+State\r\n
+n\r\n
+n\r\n
+n\r\n
+n\r\n
+n\r\n
+1\r\n
+i\r\n
+28\r\n
+i\r\n
+8\r\n
+TABLE\r\n
+2\r\n
+k\r\n
+v\r\n
+n\r\n
+n\r\n
+2\r\n
+s\r\n
+p\r\n
+s\r\n
+^.*(?<who>Eskarina).* (says|tells you), \".+\"$\r\n
+s\r\n
+c\r\n
+s\r\n
+2;4\r\n
+TABLE\r\n
+2\r\n
+k\r\n
+v\r\n
+n\r\n
+n\r\n
+1\r\n
+s\r\n
+e\r\n
+s\r\n
+\/t +getcharstringprop[1]+\, Hi\!\r\n
+s\r\n
+A\r\n
+
+--- af:
+<meta-header>\r\n
+STATE: {A} ~~ {\r\n
+\tIF:\tChatCapture {^.*(?<who>Eskarina).* (says|tells you), \".+\"$} {2;4}\r\n
+\t\tDO:\tChatExpr {\/t +getcharstringprop[1]+\, Hi\!}\r\n
+~~ }\r\n
+
+
+##### af-meta edges
+rule state="A" enabled=True
+ C LoginComplete t="" s="" n=0 n2=0 n3=0
+ A None t="" s="" n=0 n2=0
+rule state="A" enabled=True
+ C Logoff t="" s="" n=0 n2=0 n3=0
+ A None t="" s="" n=0 n2=0
+rule state="A" enabled=True
+ C PortalTransition t="" s="" n=0 n2=0 n3=0
+ A None t="" s="" n=0 n2=0
+rule state="A" enabled=True
+ C ItemUseCompleted t="" s="" n=0 n2=0 n3=0
+ A None t="" s="" n=0 n2=0
+rule state="A" enabled=True
+ C ContainerOpened t="" s="" n=0 n2=0 n3=0
+ A None t="" s="" n=0 n2=0
+rule state="A" enabled=True
+ C ContainerClosed t="" s="" n=0 n2=0 n3=0
+ A None t="" s="" n=0 n2=0
+rule state="A" enabled=True
+ C ConfirmationRequested t="" s="" n=0 n2=0 n3=0
+ A None t="" s="" n=0 n2=0
+--- met:
+!! A .met file has no condition LoginComplete; save this meta as .af instead.
+--- af:
+<meta-header>\r\n
+STATE: {A} ~~ {\r\n
+\tIF:\tLoginComplete\r\n
+\t\tDO:\tNone\r\n
+\tIF:\tLogoff\r\n
+\t\tDO:\tNone\r\n
+\tIF:\tPortalDone\r\n
+\t\tDO:\tNone\r\n
+\tIF:\tItemUsed\r\n
+\t\tDO:\tNone\r\n
+\tIF:\tContainerOpened\r\n
+\t\tDO:\tNone\r\n
+\tIF:\tContainerClosed\r\n
+\t\tDO:\tNone\r\n
+\tIF:\tConfirmAsked\r\n
+\t\tDO:\tNone\r\n
+~~ }\r\n
+
+
+##### af-meta follow nav
+rule state="A" enabled=True
+ C Always t="" s="" n=0 n2=0 n3=0
+ A LoadEmbeddedNavigationRoute t="" s="fol" n=0 n2=0
+  route mode=Target follow=50000ABC "Barris" count=0
+--- met:
+1\r\n
+CondAct\r\n
+5\r\n
+CType\r\n
+AType\r\n
+CData\r\n
+AData\r\n
+State\r\n
+n\r\n
+n\r\n
+n\r\n
+n\r\n
+n\r\n
+1\r\n
+i\r\n
+1\r\n
+i\r\n
+4\r\n
+i\r\n
+0\r\n
+ba\r\n
+47\r\n
+fol\r\n
+1\r\n
+uTank2 NAV 1.2\r\n
+3\r\n
+Barris\r\n
+1342180028\r\n
+s\r\n
+A\r\n
+
+--- af:
+<meta-header>\r\n
+STATE: {A} ~~ {\r\n
+\tIF:\tAlways\r\n
+\t\tDO:\tEmbedNav nav0__fol {fol}\r\n
+~~ }\r\n
+\r\n
+~~========================= ONLY NAVS APPEAR BELOW THIS LINE =========================~~\r\n
+\r\n
+NAV: nav0__fol follow ~~ {\r\n
+\tflw 50000ABC {Barris}\r\n
+~~ }\r\n
+
+
+##### af-meta every node
+rule state="A" enabled=True
+ C Always t="" s="" n=0 n2=0 n3=0
+ A LoadEmbeddedNavigationRoute t="" s="nodes" n=0 n2=0
+  route mode=Once follow=00000000 "" count=17
+   wp Portal pos=00000000,1,2,3,0,True ref=00000000,0,0,0,0,False id=7000001F name="" class=0 valid=True text="" dur=5000 recall=PrimaryPortalRecall rid=0 rname="" jh=0 js=False jc=1000 jd=Forward
+   wp OpenVendor pos=00000000,1,2,3,0,True ref=00000000,0,0,0,0,False id=7000001F name="V" class=0 valid=True text="" dur=5000 recall=PrimaryPortalRecall rid=0 rname="" jh=0 js=False jc=1000 jd=Forward
+   wp PortalByName pos=00000000,1,2,3,0,True ref=00000000,4,5,6,0,True id=00000000 name="P" class=14 valid=True text="" dur=5000 recall=PrimaryPortalRecall rid=0 rname="" jh=0 js=False jc=1000 jd=Forward
+   wp UseNpc pos=00000000,1,2,3,0,True ref=00000000,4,5,6,0,True id=00000000 name="T" class=37 valid=True text="" dur=5000 recall=PrimaryPortalRecall rid=0 rname="" jh=0 js=False jc=1000 jd=Forward
+   wp Checkpoint pos=00000000,1,2,3,0,True ref=00000000,0,0,0,0,False id=00000000 name="" class=0 valid=True text="" dur=5000 recall=PrimaryPortalRecall rid=0 rname="" jh=0 js=False jc=1000 jd=Forward
+   wp Jump pos=00000000,1,2,3,0,True ref=00000000,0,0,0,0,False id=00000000 name="" class=0 valid=True text="" dur=5000 recall=PrimaryPortalRecall rid=0 rname="" jh=90 js=True jc=300 jd=StrafeLeft
+   wp Jump pos=00000000,1,2,3,0,True ref=00000000,0,0,0,0,False id=00000000 name="" class=0 valid=True text="" dur=5000 recall=PrimaryPortalRecall rid=0 rname="" jh=90 js=False jc=300 jd=Forward
+   wp Jump pos=00000000,1,2,3,0,True ref=00000000,0,0,0,0,False id=00000000 name="" class=0 valid=True text="" dur=5000 recall=PrimaryPortalRecall rid=0 rname="" jh=90 js=False jc=300 jd=Forward
+   wp Jump pos=00000000,1,2,3,0,True ref=00000000,0,0,0,0,False id=00000000 name="" class=0 valid=True text="" dur=5000 recall=PrimaryPortalRecall rid=0 rname="" jh=90 js=False jc=300 jd=StrafeRight
+   wp ChatCommand pos=00000000,1,2,3,0,True ref=00000000,0,0,0,0,False id=00000000 name="" class=0 valid=True text="say" dur=5000 recall=PrimaryPortalRecall rid=0 rname="" jh=0 js=False jc=1000 jd=Forward
+   wp Pause pos=00000000,1,2,3,0,True ref=00000000,0,0,0,0,False id=00000000 name="" class=0 valid=True text="" dur=2500 recall=PrimaryPortalRecall rid=0 rname="" jh=0 js=False jc=1000 jd=Forward
+   wp Recall pos=00000000,1,2,3,0,True ref=00000000,0,0,0,0,False id=00000000 name="" class=0 valid=True text="" dur=5000 recall=LifestoneRecall rid=1635 rname="Lifestone Recall" jh=0 js=False jc=1000 jd=Forward
+   wp Recall pos=00000000,1,2,3,0,True ref=00000000,0,0,0,0,False id=00000000 name="" class=0 valid=True text="" dur=5000 recall=LifestoneRecall rid=1635 rname="lifestone recall" jh=0 js=False jc=1000 jd=Forward
+   wp Recall pos=00000000,1,2,3,0,True ref=00000000,0,0,0,0,False id=00000000 name="" class=0 valid=True text="" dur=5000 recall=LifestoneRecall rid=1635 rname="LifestoneRecall" jh=0 js=False jc=1000 jd=Forward
+   wp Recall pos=00000000,1,2,3,0,True ref=00000000,0,0,0,0,False id=00000000 name="" class=0 valid=True text="" dur=5000 recall=PrimaryPortalRecall rid=0 rname="Unknown Spell" jh=0 js=False jc=1000 jd=Forward
+   wp Recall pos=00000000,1,2,3,0,True ref=00000000,0,0,0,0,False id=00000000 name="" class=0 valid=True text="" dur=5000 recall=Marketplace rid=0 rname="Marketplace Recall" jh=0 js=False jc=1000 jd=Forward
+   wp Point pos=00000000,1,2,3,0,True ref=00000000,0,0,0,0,False id=00000000 name="" class=0 valid=True text="" dur=5000 recall=PrimaryPortalRecall rid=0 rname="" jh=0 js=False jc=1000 jd=Forward
+--- met:
+1\r\n
+CondAct\r\n
+5\r\n
+CType\r\n
+AType\r\n
+CData\r\n
+AData\r\n
+State\r\n
+n\r\n
+n\r\n
+n\r\n
+n\r\n
+n\r\n
+1\r\n
+i\r\n
+1\r\n
+i\r\n
+4\r\n
+i\r\n
+0\r\n
+ba\r\n
+483\r\n
+nodes\r\n
+17\r\n
+uTank2 NAV 1.2\r\n
+4\r\n
+17\r\n
+1\r\n
+1\r\n
+2\r\n
+3\r\n
+0\r\n
+1879048223\r\n
+5\r\n
+1\r\n
+2\r\n
+3\r\n
+0\r\n
+1879048223\r\n
+V\r\n
+6\r\n
+1\r\n
+2\r\n
+3\r\n
+0\r\n
+P\r\n
+14\r\n
+True\r\n
+4\r\n
+5\r\n
+6\r\n
+7\r\n
+1\r\n
+2\r\n
+3\r\n
+0\r\n
+T\r\n
+37\r\n
+True\r\n
+4\r\n
+5\r\n
+6\r\n
+8\r\n
+1\r\n
+2\r\n
+3\r\n
+0\r\n
+9\r\n
+1\r\n
+2\r\n
+3\r\n
+0\r\n
+90\r\n
+True\r\n
+300.00004\r\n
+9\r\n
+1\r\n
+2\r\n
+3\r\n
+0\r\n
+90\r\n
+False\r\n
+300.00003\r\n
+9\r\n
+1\r\n
+2\r\n
+3\r\n
+0\r\n
+90\r\n
+False\r\n
+300.00003\r\n
+9\r\n
+1\r\n
+2\r\n
+3\r\n
+0\r\n
+90\r\n
+False\r\n
+300.00005\r\n
+4\r\n
+1\r\n
+2\r\n
+3\r\n
+0\r\n
+say\r\n
+3\r\n
+1\r\n
+2\r\n
+3\r\n
+0\r\n
+2500\r\n
+2\r\n
+1\r\n
+2\r\n
+3\r\n
+0\r\n
+1635\r\n
+2\r\n
+1\r\n
+2\r\n
+3\r\n
+0\r\n
+1635\r\n
+2\r\n
+1\r\n
+2\r\n
+3\r\n
+0\r\n
+1635\r\n
+2\r\n
+1\r\n
+2\r\n
+3\r\n
+0\r\n
+48\r\n
+2\r\n
+1\r\n
+2\r\n
+3\r\n
+0\r\n
+0\r\n
+0\r\n
+1\r\n
+2\r\n
+3\r\n
+0\r\n
+s\r\n
+A\r\n
+
+--- af:
+<meta-header>\r\n
+STATE: {A} ~~ {\r\n
+\tIF:\tAlways\r\n
+\t\tDO:\tEmbedNav nav0__nodes {nodes}\r\n
+~~ }\r\n
+\r\n
+~~========================= ONLY NAVS APPEAR BELOW THIS LINE =========================~~\r\n
+\r\n
+NAV: nav0__nodes once ~~ {\r\n
+\tprt 1 2 3 7000001F\r\n
+\tvnd 1 2 3 7000001F {V}\r\n
+\tptl 1 2 3 4 5 6 14 {P}\r\n
+\ttlk 1 2 3 4 5 6 37 {T}\r\n
+\tchk 1 2 3\r\n
+\tjmp 1 2 3 90 {True} 300.00004\r\n
+\tjmp 1 2 3 90 {False} 300.00003\r\n
+\tjmp 1 2 3 90 {False} 300.00003\r\n
+\tjmp 1 2 3 90 {False} 300.00005\r\n
+\tcht 1 2 3 {say}\r\n
+\tpau 1 2 3 2500\r\n
+\trcl 1 2 3 {Lifestone Recall}\r\n
+\trcl 1 2 3 {lifestone recall}\r\n
+\trcl 1 2 3 {LifestoneRecall}\r\n
+\trcl 1 2 3 {Unknown Spell}\r\n
+\trcl 1 2 3 {Marketplace Recall}\r\n
+\tpnt 1 2 3\r\n
+~~ }\r\n
+
+
+##### af-meta too deep under all
+ERR line 4: tabbed in too far inside an All/Any condition.
+
+##### af-meta nested doall
+rule state="A" enabled=True
+ C Always t="" s="" n=0 n2=0 n3=0
+ A All t="" s="" n=0 n2=0
+  A All t="" s="" n=0 n2=0
+   A ChatCommand t="x" s="" n=0 n2=0
+  A ChatCommand t="y" s="" n=0 n2=0
+--- met:
+1\r\n
+CondAct\r\n
+5\r\n
+CType\r\n
+AType\r\n
+CData\r\n
+AData\r\n
+State\r\n
+n\r\n
+n\r\n
+n\r\n
+n\r\n
+n\r\n
+1\r\n
+i\r\n
+1\r\n
+i\r\n
+3\r\n
+i\r\n
+0\r\n
+TABLE\r\n
+2\r\n
+K\r\n
+V\r\n
+n\r\n
+n\r\n
+2\r\n
+i\r\n
+3\r\n
+TABLE\r\n
+2\r\n
+K\r\n
+V\r\n
+n\r\n
+n\r\n
+1\r\n
+i\r\n
+2\r\n
+s\r\n
+x\r\n
+i\r\n
+2\r\n
+s\r\n
+y\r\n
+s\r\n
+A\r\n
+
+--- af:
+<meta-header>\r\n
+STATE: {A} ~~ {\r\n
+\tIF:\tAlways\r\n
+\t\tDO:\tDoAll\r\n
+\t\t\t\tDoAll\r\n
+\t\t\t\t\tChat {x}\r\n
+\t\t\t\tChat {y}\r\n
+~~ }\r\n
+
+
+##### af-meta doubled close brace
+rule state="A" enabled=True
+ C Expression t="a} b" s="" n=0 n2=0 n3=0
+ A None t="" s="" n=0 n2=0
+--- met:
+1\r\n
+CondAct\r\n
+5\r\n
+CType\r\n
+AType\r\n
+CData\r\n
+AData\r\n
+State\r\n
+n\r\n
+n\r\n
+n\r\n
+n\r\n
+n\r\n
+1\r\n
+i\r\n
+26\r\n
+i\r\n
+0\r\n
+TABLE\r\n
+2\r\n
+k\r\n
+v\r\n
+n\r\n
+n\r\n
+1\r\n
+s\r\n
+e\r\n
+s\r\n
+a} b\r\n
+i\r\n
+0\r\n
+s\r\n
+A\r\n
+
+--- af:
+<meta-header>\r\n
+STATE: {A} ~~ {\r\n
+\tIF:\tExpr {a}} b}\r\n
+\t\tDO:\tNone\r\n
+~~ }\r\n
+
+
+##### af-meta no tabs
+rule state="A" enabled=True
+ C Always t="" s="" n=0 n2=0 n3=0
+ A None t="" s="" n=0 n2=0
+--- met:
+1\r\n
+CondAct\r\n
+5\r\n
+CType\r\n
+AType\r\n
+CData\r\n
+AData\r\n
+State\r\n
+n\r\n
+n\r\n
+n\r\n
+n\r\n
+n\r\n
+1\r\n
+i\r\n
+1\r\n
+i\r\n
+0\r\n
+i\r\n
+0\r\n
+i\r\n
+0\r\n
+s\r\n
+A\r\n
+
+--- af:
+<meta-header>\r\n
+STATE: {A} ~~ {\r\n
+\tIF:\tAlways\r\n
+\t\tDO:\tNone\r\n
+~~ }\r\n
+
+
+##### af-meta options and numbers
+rule state="A" enabled=True
+ C Always t="" s="" n=0 n2=0 n3=0
+ A SetVtankOption t="x" s="1" n=0 n2=0
+rule state="A" enabled=True
+ C Always t="" s="" n=0 n2=0 n3=0
+ A GetVtankOption t="x" s="v" n=0 n2=0
+rule state="A" enabled=True
+ C NoMonstersWithinDistance t="" s="" n=20.6 n2=0 n3=0
+ A ClearWatchdog t="" s="" n=0 n2=0
+rule state="A" enabled=True
+ C DistanceFromAnyRoutePointGreaterThanOrEqual t="" s="" n=3 n2=0 n3=0
+ A DestroyAllViews t="" s="" n=0 n2=0
+rule state="A" enabled=True
+ C BurdenPercentGreaterThanOrEqual t="" s="" n=110 n2=0 n3=0
+ A None t="" s="" n=0 n2=0
+rule state="A" enabled=True
+ C PersistentSecondsInStateGreaterThanOrEqual t="" s="" n=15 n2=0 n3=0
+ A None t="" s="" n=0 n2=0
+rule state="A" enabled=True
+ C PackSlotsLessThanOrEqual t="" s="" n=7 n2=0 n3=0
+ A None t="" s="" n=0 n2=0
+--- met:
+1\r\n
+CondAct\r\n
+5\r\n
+CType\r\n
+AType\r\n
+CData\r\n
+AData\r\n
+State\r\n
+n\r\n
+n\r\n
+n\r\n
+n\r\n
+n\r\n
+7\r\n
+i\r\n
+1\r\n
+i\r\n
+12\r\n
+i\r\n
+0\r\n
+TABLE\r\n
+2\r\n
+k\r\n
+v\r\n
+n\r\n
+n\r\n
+2\r\n
+s\r\n
+o\r\n
+s\r\n
+x\r\n
+s\r\n
+v\r\n
+s\r\n
+1\r\n
+s\r\n
+A\r\n
+i\r\n
+1\r\n
+i\r\n
+11\r\n
+i\r\n
+0\r\n
+TABLE\r\n
+2\r\n
+k\r\n
+v\r\n
+n\r\n
+n\r\n
+2\r\n
+s\r\n
+o\r\n
+s\r\n
+x\r\n
+s\r\n
+v\r\n
+s\r\n
+v\r\n
+s\r\n
+A\r\n
+i\r\n
+16\r\n
+i\r\n
+10\r\n
+TABLE\r\n
+2\r\n
+k\r\n
+v\r\n
+n\r\n
+n\r\n
+1\r\n
+s\r\n
+r\r\n
+d\r\n
+20.6\r\n
+TABLE\r\n
+2\r\n
+k\r\n
+v\r\n
+n\r\n
+n\r\n
+0\r\n
+s\r\n
+A\r\n
+i\r\n
+25\r\n
+i\r\n
+15\r\n
+TABLE\r\n
+2\r\n
+k\r\n
+v\r\n
+n\r\n
+n\r\n
+1\r\n
+s\r\n
+dist\r\n
+d\r\n
+3\r\n
+TABLE\r\n
+2\r\n
+k\r\n
+v\r\n
+n\r\n
+n\r\n
+0\r\n
+s\r\n
+A\r\n
+i\r\n
+24\r\n
+i\r\n
+0\r\n
+i\r\n
+110\r\n
+i\r\n
+0\r\n
+s\r\n
+A\r\n
+i\r\n
+22\r\n
+i\r\n
+0\r\n
+i\r\n
+15\r\n
+i\r\n
+0\r\n
+s\r\n
+A\r\n
+i\r\n
+5\r\n
+i\r\n
+0\r\n
+i\r\n
+7\r\n
+i\r\n
+0\r\n
+s\r\n
+A\r\n
+
+--- af:
+<meta-header>\r\n
+STATE: {A} ~~ {\r\n
+\tIF:\tAlways\r\n
+\t\tDO:\tSetOpt {x} {1}\r\n
+\tIF:\tAlways\r\n
+\t\tDO:\tGetOpt {x} {v}\r\n
+\tIF:\tNoMobsInDist 20.6\r\n
+\t\tDO:\tClearWatchdog\r\n
+\tIF:\tDistToRteGE 3\r\n
+\t\tDO:\tDestroyAllViews\r\n
+\tIF:\tBuPercentGE 110\r\n
+\t\tDO:\tNone\r\n
+\tIF:\tPSecsInStateGE 15\r\n
+\t\tDO:\tNone\r\n
+\tIF:\tMainSlotsLE 7\r\n
+\t\tDO:\tNone\r\n
+~~ }\r\n
+
+
+##### af-meta navs only
+ERR line 5: contains only NAV: block(s) and no STATE: block — this looks like a stand-alone route profile that belongs in the mosstank/navs/ folder, not a Meta profile.
+
+##### af-meta not deep enough under all
+ERR line 3: not tabbed in enough to be inside an All/Any condition.
+
+##### af-meta comment in string
+ERR line 4: 'Chat' arguments do not match the expected shape.
+
+##### af-meta two tabs after IF
+rule state="A" enabled=True
+ C Always t="" s="" n=0 n2=0 n3=0
+ A None t="" s="" n=0 n2=0
+--- met:
+1\r\n
+CondAct\r\n
+5\r\n
+CType\r\n
+AType\r\n
+CData\r\n
+AData\r\n
+State\r\n
+n\r\n
+n\r\n
+n\r\n
+n\r\n
+n\r\n
+1\r\n
+i\r\n
+1\r\n
+i\r\n
+0\r\n
+i\r\n
+0\r\n
+i\r\n
+0\r\n
+s\r\n
+A\r\n
+
+--- af:
+<meta-header>\r\n
+STATE: {A} ~~ {\r\n
+\tIF:\tAlways\r\n
+\t\tDO:\tNone\r\n
+~~ }\r\n
+
+
+##### af-meta spaces between args
+rule state="A" enabled=True
+ C MonsterNameCountWithinDistance t="x" s="" n=5 n2=13.7 n3=0
+ A None t="" s="" n=0 n2=0
+--- met:
+1\r\n
+CondAct\r\n
+5\r\n
+CType\r\n
+AType\r\n
+CData\r\n
+AData\r\n
+State\r\n
+n\r\n
+n\r\n
+n\r\n
+n\r\n
+n\r\n
+1\r\n
+i\r\n
+13\r\n
+i\r\n
+0\r\n
+TABLE\r\n
+2\r\n
+k\r\n
+v\r\n
+n\r\n
+n\r\n
+3\r\n
+s\r\n
+n\r\n
+s\r\n
+x\r\n
+s\r\n
+c\r\n
+i\r\n
+5\r\n
+s\r\n
+r\r\n
+d\r\n
+13.7\r\n
+i\r\n
+0\r\n
+s\r\n
+A\r\n
+
+--- af:
+<meta-header>\r\n
+STATE: {A} ~~ {\r\n
+\tIF:\tMobsInDist_Name 5 13.7 {x}\r\n
+\t\tDO:\tNone\r\n
+~~ }\r\n
+
+
+##### af-meta exponent distance
+ERR line 3: 'NoMobsInDist' arguments do not match the expected shape.
+
+##### af-meta plus distance
+rule state="A" enabled=True
+ C NoMonstersWithinDistance t="" s="" n=5 n2=0 n3=0
+ A None t="" s="" n=0 n2=0
+--- met:
+1\r\n
+CondAct\r\n
+5\r\n
+CType\r\n
+AType\r\n
+CData\r\n
+AData\r\n
+State\r\n
+n\r\n
+n\r\n
+n\r\n
+n\r\n
+n\r\n
+1\r\n
+i\r\n
+16\r\n
+i\r\n
+0\r\n
+TABLE\r\n
+2\r\n
+k\r\n
+v\r\n
+n\r\n
+n\r\n
+1\r\n
+s\r\n
+r\r\n
+d\r\n
+5\r\n
+i\r\n
+0\r\n
+s\r\n
+A\r\n
+
+--- af:
+<meta-header>\r\n
+STATE: {A} ~~ {\r\n
+\tIF:\tNoMobsInDist 5\r\n
+\t\tDO:\tNone\r\n
+~~ }\r\n
+
+
+##### af-meta minus distance
+rule state="A" enabled=True
+ C NoMonstersWithinDistance t="" s="" n=-5.25 n2=0 n3=0
+ A None t="" s="" n=0 n2=0
+--- met:
+1\r\n
+CondAct\r\n
+5\r\n
+CType\r\n
+AType\r\n
+CData\r\n
+AData\r\n
+State\r\n
+n\r\n
+n\r\n
+n\r\n
+n\r\n
+n\r\n
+1\r\n
+i\r\n
+16\r\n
+i\r\n
+0\r\n
+TABLE\r\n
+2\r\n
+k\r\n
+v\r\n
+n\r\n
+n\r\n
+1\r\n
+s\r\n
+r\r\n
+d\r\n
+-5.25\r\n
+i\r\n
+0\r\n
+s\r\n
+A\r\n
+
+--- af:
+<meta-header>\r\n
+STATE: {A} ~~ {\r\n
+\tIF:\tNoMobsInDist -5.25\r\n
+\t\tDO:\tNone\r\n
+~~ }\r\n
+
+
+##### af-meta point five distance
+rule state="A" enabled=True
+ C NoMonstersWithinDistance t="" s="" n=0.5 n2=0 n3=0
+ A None t="" s="" n=0 n2=0
+--- met:
+1\r\n
+CondAct\r\n
+5\r\n
+CType\r\n
+AType\r\n
+CData\r\n
+AData\r\n
+State\r\n
+n\r\n
+n\r\n
+n\r\n
+n\r\n
+n\r\n
+1\r\n
+i\r\n
+16\r\n
+i\r\n
+0\r\n
+TABLE\r\n
+2\r\n
+k\r\n
+v\r\n
+n\r\n
+n\r\n
+1\r\n
+s\r\n
+r\r\n
+d\r\n
+0.5\r\n
+i\r\n
+0\r\n
+s\r\n
+A\r\n
+
+--- af:
+<meta-header>\r\n
+STATE: {A} ~~ {\r\n
+\tIF:\tNoMobsInDist 0.5\r\n
+\t\tDO:\tNone\r\n
+~~ }\r\n
+
+
+##### af-meta five point distance
+ERR line 3: 'NoMobsInDist' arguments do not match the expected shape.
+
+##### af-meta comma distance
+ERR line 3: 'NoMobsInDist' arguments do not match the expected shape.
+
+##### af-meta signed seconds
+rule state="A" enabled=True
+ C SecondsInStateGreaterThanOrEqual t="" s="" n=5 n2=0 n3=0
+ A None t="" s="" n=0 n2=0
+rule state="A" enabled=True
+ C SecondsInStateGreaterThanOrEqual t="" s="" n=-5 n2=0 n3=0
+ A None t="" s="" n=0 n2=0
+--- met:
+1\r\n
+CondAct\r\n
+5\r\n
+CType\r\n
+AType\r\n
+CData\r\n
+AData\r\n
+State\r\n
+n\r\n
+n\r\n
+n\r\n
+n\r\n
+n\r\n
+2\r\n
+i\r\n
+6\r\n
+i\r\n
+0\r\n
+i\r\n
+5\r\n
+i\r\n
+0\r\n
+s\r\n
+A\r\n
+i\r\n
+6\r\n
+i\r\n
+0\r\n
+i\r\n
+-5\r\n
+i\r\n
+0\r\n
+s\r\n
+A\r\n
+
+--- af:
+<meta-header>\r\n
+STATE: {A} ~~ {\r\n
+\tIF:\tSecsInStateGE 5\r\n
+\t\tDO:\tNone\r\n
+\tIF:\tSecsInStateGE -5\r\n
+\t\tDO:\tNone\r\n
+~~ }\r\n
+
+
+##### af-meta lowercase hex
+ERR line 3: 'BlockE' arguments do not match the expected shape.
+
+##### af-meta short hex
+ERR line 3: 'BlockE' arguments do not match the expected shape.
+
+##### af-meta all ones hex
+rule state="A" enabled=True
+ C LandcellEquals t="" s="" n=-1 n2=0 n3=0
+ A None t="" s="" n=0 n2=0
+--- met:
+1\r\n
+CondAct\r\n
+5\r\n
+CType\r\n
+AType\r\n
+CData\r\n
+AData\r\n
+State\r\n
+n\r\n
+n\r\n
+n\r\n
+n\r\n
+n\r\n
+1\r\n
+i\r\n
+18\r\n
+i\r\n
+0\r\n
+i\r\n
+-1\r\n
+i\r\n
+0\r\n
+s\r\n
+A\r\n
+
+--- af:
+<meta-header>\r\n
+STATE: {A} ~~ {\r\n
+\tIF:\tCellE FFFFFFFF\r\n
+\t\tDO:\tNone\r\n
+~~ }\r\n
+
+
+##### af-meta long hex
+ERR line 3: 'BlockE' arguments do not match the expected shape.
+
+##### af-meta lowercase keyword
+ERR line 2: expected a Condition operation after 'IF:'.
+
+##### af-meta lowercase IF
+ERR line 2: expected 'STATE:', 'IF:', or 'NAV:'.
+
+##### af-meta lone CR
+ERR line 1: 'STATE:' must be followed by a delimited string name.
+
+##### af-meta state without rules
+ERR line 2: state 'A' has no rules (every state needs at least one).
+
+##### af-meta text after string
+ERR line 4: 'Chat' arguments do not match the expected shape.
+
+##### af-meta extra string
+ERR line 3: 'ChatMatch' arguments do not match the expected shape.
+
+##### af-meta empty :::
+--- met:
+1\r\n
+CondAct\r\n
+5\r\n
+CType\r\n
+AType\r\n
+CData\r\n
+AData\r\n
+State\r\n
+n\r\n
+n\r\n
+n\r\n
+n\r\n
+n\r\n
+0\r\n
+
+--- af:
+<meta-header>\r\n
+
+
+##### af-meta only a comment
+--- met:
+1\r\n
+CondAct\r\n
+5\r\n
+CType\r\n
+AType\r\n
+CData\r\n
+AData\r\n
+State\r\n
+n\r\n
+n\r\n
+n\r\n
+n\r\n
+n\r\n
+0\r\n
+
+--- af:
+<meta-header>\r\n
+
+
+##### af-meta empty nav only
+ERR line 2: contains only NAV: block(s) and no STATE: block — this looks like a stand-alone route profile that belongs in the mosstank/navs/ folder, not a Meta profile.
+
+##### af-meta bad tag
+ERR line 4: 'EmbedNav' arguments do not match the expected shape.
+
+##### af-meta short point
+ERR line 6: 'pnt' arguments do not match the expected shape.
+
+##### af-meta nav tag twice
+rule state="A" enabled=True
+ C Always t="" s="" n=0 n2=0 n3=0
+ A LoadEmbeddedNavigationRoute t="" s="x" n=0 n2=0
+  route mode=Once follow=00000000 "" count=1
+   wp Point pos=00000000,4,5,6,0,True ref=00000000,0,0,0,0,False id=00000000 name="" class=0 valid=True text="" dur=5000 recall=PrimaryPortalRecall rid=0 rname="" jh=0 js=False jc=1000 jd=Forward
+--- met:
+1\r\n
+CondAct\r\n
+5\r\n
+CType\r\n
+AType\r\n
+CData\r\n
+AData\r\n
+State\r\n
+n\r\n
+n\r\n
+n\r\n
+n\r\n
+n\r\n
+1\r\n
+i\r\n
+1\r\n
+i\r\n
+4\r\n
+i\r\n
+0\r\n
+ba\r\n
+43\r\n
+x\r\n
+1\r\n
+uTank2 NAV 1.2\r\n
+4\r\n
+1\r\n
+0\r\n
+4\r\n
+5\r\n
+6\r\n
+0\r\n
+s\r\n
+A\r\n
+
+--- af:
+<meta-header>\r\n
+STATE: {A} ~~ {\r\n
+\tIF:\tAlways\r\n
+\t\tDO:\tEmbedNav nav0__x {x}\r\n
+~~ }\r\n
+\r\n
+~~========================= ONLY NAVS APPEAR BELOW THIS LINE =========================~~\r\n
+\r\n
+NAV: nav0__x once ~~ {\r\n
+\tpnt 4 5 6\r\n
+~~ }\r\n
+
+
+##### af-meta state after nav
+rule state="A" enabled=True
+ C Always t="" s="" n=0 n2=0 n3=0
+ A LoadEmbeddedNavigationRoute t="" s="x" n=0 n2=0
+  route mode=Once follow=00000000 "" count=1
+   wp Point pos=00000000,1,2,3,0,True ref=00000000,0,0,0,0,False id=00000000 name="" class=0 valid=True text="" dur=5000 recall=PrimaryPortalRecall rid=0 rname="" jh=0 js=False jc=1000 jd=Forward
+rule state="B" enabled=True
+ C Always t="" s="" n=0 n2=0 n3=0
+ A None t="" s="" n=0 n2=0
+--- met:
+1\r\n
+CondAct\r\n
+5\r\n
+CType\r\n
+AType\r\n
+CData\r\n
+AData\r\n
+State\r\n
+n\r\n
+n\r\n
+n\r\n
+n\r\n
+n\r\n
+2\r\n
+i\r\n
+1\r\n
+i\r\n
+4\r\n
+i\r\n
+0\r\n
+ba\r\n
+43\r\n
+x\r\n
+1\r\n
+uTank2 NAV 1.2\r\n
+4\r\n
+1\r\n
+0\r\n
+1\r\n
+2\r\n
+3\r\n
+0\r\n
+s\r\n
+A\r\n
+i\r\n
+1\r\n
+i\r\n
+0\r\n
+i\r\n
+0\r\n
+i\r\n
+0\r\n
+s\r\n
+B\r\n
+
+--- af:
+<meta-header>\r\n
+STATE: {A} ~~ {\r\n
+\tIF:\tAlways\r\n
+\t\tDO:\tEmbedNav nav0__x {x}\r\n
+~~ }\r\n
+STATE: {B} ~~ {\r\n
+\tIF:\tAlways\r\n
+\t\tDO:\tNone\r\n
+~~ }\r\n
+\r\n
+~~========================= ONLY NAVS APPEAR BELOW THIS LINE =========================~~\r\n
+\r\n
+NAV: nav0__x once ~~ {\r\n
+\tpnt 1 2 3\r\n
+~~ }\r\n
+
+
+##### af-meta unused nav
+rule state="A" enabled=True
+ C Always t="" s="" n=0 n2=0 n3=0
+ A None t="" s="" n=0 n2=0
+--- met:
+1\r\n
+CondAct\r\n
+5\r\n
+CType\r\n
+AType\r\n
+CData\r\n
+AData\r\n
+State\r\n
+n\r\n
+n\r\n
+n\r\n
+n\r\n
+n\r\n
+1\r\n
+i\r\n
+1\r\n
+i\r\n
+0\r\n
+i\r\n
+0\r\n
+i\r\n
+0\r\n
+s\r\n
+A\r\n
+
+--- af:
+<meta-header>\r\n
+STATE: {A} ~~ {\r\n
+\tIF:\tAlways\r\n
+\t\tDO:\tNone\r\n
+~~ }\r\n
+
+
+##### af-meta not alone
+ERR line 3: 'Not' must be followed by a Condition operation on the same line.
+
+##### af-meta not all
+rule state="A" enabled=True
+ C Not t="" s="" n=0 n2=0 n3=0
+  C All t="" s="" n=0 n2=0 n3=0
+   C Always t="" s="" n=0 n2=0 n3=0
+   C Never t="" s="" n=0 n2=0 n3=0
+ A None t="" s="" n=0 n2=0
+--- met:
+1\r\n
+CondAct\r\n
+5\r\n
+CType\r\n
+AType\r\n
+CData\r\n
+AData\r\n
+State\r\n
+n\r\n
+n\r\n
+n\r\n
+n\r\n
+n\r\n
+1\r\n
+i\r\n
+21\r\n
+i\r\n
+0\r\n
+TABLE\r\n
+2\r\n
+K\r\n
+V\r\n
+n\r\n
+n\r\n
+1\r\n
+i\r\n
+2\r\n
+TABLE\r\n
+2\r\n
+K\r\n
+V\r\n
+n\r\n
+n\r\n
+2\r\n
+i\r\n
+1\r\n
+i\r\n
+0\r\n
+i\r\n
+0\r\n
+i\r\n
+0\r\n
+i\r\n
+0\r\n
+s\r\n
+A\r\n
+
+--- af:
+<meta-header>\r\n
+STATE: {A} ~~ {\r\n
+\tIF:\tNot All\r\n
+\t\t\tAlways\r\n
+\t\t\tNever\r\n
+\t\tDO:\tNone\r\n
+~~ }\r\n
+
+
+##### af-meta any with not any
+rule state="A" enabled=True
+ C Any t="" s="" n=0 n2=0 n3=0
+  C Not t="" s="" n=0 n2=0 n3=0
+   C Any t="" s="" n=0 n2=0 n3=0
+    C Always t="" s="" n=0 n2=0 n3=0
+  C Never t="" s="" n=0 n2=0 n3=0
+ A None t="" s="" n=0 n2=0
+--- met:
+1\r\n
+CondAct\r\n
+5\r\n
+CType\r\n
+AType\r\n
+CData\r\n
+AData\r\n
+State\r\n
+n\r\n
+n\r\n
+n\r\n
+n\r\n
+n\r\n
+1\r\n
+i\r\n
+3\r\n
+i\r\n
+0\r\n
+TABLE\r\n
+2\r\n
+K\r\n
+V\r\n
+n\r\n
+n\r\n
+2\r\n
+i\r\n
+21\r\n
+TABLE\r\n
+2\r\n
+K\r\n
+V\r\n
+n\r\n
+n\r\n
+1\r\n
+i\r\n
+3\r\n
+TABLE\r\n
+2\r\n
+K\r\n
+V\r\n
+n\r\n
+n\r\n
+1\r\n
+i\r\n
+1\r\n
+i\r\n
+0\r\n
+i\r\n
+0\r\n
+i\r\n
+0\r\n
+i\r\n
+0\r\n
+s\r\n
+A\r\n
+
+--- af:
+<meta-header>\r\n
+STATE: {A} ~~ {\r\n
+\tIF:\tAny\r\n
+\t\t\tNot Any\r\n
+\t\t\t\tAlways\r\n
+\t\t\tNever\r\n
+\t\tDO:\tNone\r\n
+~~ }\r\n
+
+
+##### af-meta doall not deep enough
+ERR line 4: not tabbed in enough to be inside a DoAll action.
+
+##### af-meta doall too deep
+ERR line 4: tabbed in too far inside a DoAll action.
+
+##### af-meta state no space
+ERR line 1: 'STATE:' must be followed by a delimited string name.
+
+##### af-meta state no braces
+ERR line 1: 'STATE:' must be followed by a delimited string name.
+
+##### af-meta trailing white
+rule state="A" enabled=True
+ C Always t="" s="" n=0 n2=0 n3=0
+ A None t="" s="" n=0 n2=0
+--- met:
+1\r\n
+CondAct\r\n
+5\r\n
+CType\r\n
+AType\r\n
+CData\r\n
+AData\r\n
+State\r\n
+n\r\n
+n\r\n
+n\r\n
+n\r\n
+n\r\n
+1\r\n
+i\r\n
+1\r\n
+i\r\n
+0\r\n
+i\r\n
+0\r\n
+i\r\n
+0\r\n
+s\r\n
+A\r\n
+
+--- af:
+<meta-header>\r\n
+STATE: {A} ~~ {\r\n
+\tIF:\tAlways\r\n
+\t\tDO:\tNone\r\n
+~~ }\r\n
+
+
+##### af-meta bom
+ERR line 1: expected 'STATE:' or 'NAV:'.
+
+##### af-meta short follow id
+ERR line 6: 'flw' arguments do not match the expected shape.
+
+##### af-meta point in follow
+rule state="A" enabled=True
+ C Always t="" s="" n=0 n2=0 n3=0
+ A LoadEmbeddedNavigationRoute t="" s="x" n=0 n2=0
+  route mode=Target follow=00000000 "" count=0
+--- met:
+1\r\n
+CondAct\r\n
+5\r\n
+CType\r\n
+AType\r\n
+CData\r\n
+AData\r\n
+State\r\n
+n\r\n
+n\r\n
+n\r\n
+n\r\n
+n\r\n
+1\r\n
+i\r\n
+1\r\n
+i\r\n
+4\r\n
+i\r\n
+0\r\n
+ba\r\n
+30\r\n
+x\r\n
+1\r\n
+uTank2 NAV 1.2\r\n
+3\r\n
+\r\n
+0\r\n
+s\r\n
+A\r\n
+
+--- af:
+<meta-header>\r\n
+STATE: {A} ~~ {\r\n
+\tIF:\tAlways\r\n
+\t\tDO:\tEmbedNav nav0__x {x}\r\n
+~~ }\r\n
+\r\n
+~~========================= ONLY NAVS APPEAR BELOW THIS LINE =========================~~\r\n
+\r\n
+NAV: nav0__x follow ~~ {\r\n
+\tflw 00000000 {}\r\n
+~~ }\r\n
+
+
+##### af-meta empty follow
+rule state="A" enabled=True
+ C Always t="" s="" n=0 n2=0 n3=0
+ A LoadEmbeddedNavigationRoute t="" s="x" n=0 n2=0
+  route mode=Target follow=00000000 "" count=0
+--- met:
+1\r\n
+CondAct\r\n
+5\r\n
+CType\r\n
+AType\r\n
+CData\r\n
+AData\r\n
+State\r\n
+n\r\n
+n\r\n
+n\r\n
+n\r\n
+n\r\n
+1\r\n
+i\r\n
+1\r\n
+i\r\n
+4\r\n
+i\r\n
+0\r\n
+ba\r\n
+30\r\n
+x\r\n
+1\r\n
+uTank2 NAV 1.2\r\n
+3\r\n
+\r\n
+0\r\n
+s\r\n
+A\r\n
+
+--- af:
+<meta-header>\r\n
+STATE: {A} ~~ {\r\n
+\tIF:\tAlways\r\n
+\t\tDO:\tEmbedNav nav0__x {x}\r\n
+~~ }\r\n
+\r\n
+~~========================= ONLY NAVS APPEAR BELOW THIS LINE =========================~~\r\n
+\r\n
+NAV: nav0__x follow ~~ {\r\n
+\tflw 00000000 {}\r\n
+~~ }\r\n
+
+
+##### af-meta two follows
+rule state="A" enabled=True
+ C Always t="" s="" n=0 n2=0 n3=0
+ A LoadEmbeddedNavigationRoute t="" s="x" n=0 n2=0
+  route mode=Target follow=00000002 "z" count=0
+--- met:
+1\r\n
+CondAct\r\n
+5\r\n
+CType\r\n
+AType\r\n
+CData\r\n
+AData\r\n
+State\r\n
+n\r\n
+n\r\n
+n\r\n
+n\r\n
+n\r\n
+1\r\n
+i\r\n
+1\r\n
+i\r\n
+4\r\n
+i\r\n
+0\r\n
+ba\r\n
+31\r\n
+x\r\n
+1\r\n
+uTank2 NAV 1.2\r\n
+3\r\n
+z\r\n
+2\r\n
+s\r\n
+A\r\n
+
+--- af:
+<meta-header>\r\n
+STATE: {A} ~~ {\r\n
+\tIF:\tAlways\r\n
+\t\tDO:\tEmbedNav nav0__x {x}\r\n
+~~ }\r\n
+\r\n
+~~========================= ONLY NAVS APPEAR BELOW THIS LINE =========================~~\r\n
+\r\n
+NAV: nav0__x follow ~~ {\r\n
+\tflw 00000002 {z}\r\n
+~~ }\r\n
+
+
+##### af-meta follow in once
+rule state="A" enabled=True
+ C Always t="" s="" n=0 n2=0 n3=0
+ A LoadEmbeddedNavigationRoute t="" s="x" n=0 n2=0
+  route mode=Once follow=00000000 "" count=1
+   wp Point pos=00000000,1,2,3,0,True ref=00000000,0,0,0,0,False id=00000000 name="" class=0 valid=True text="" dur=5000 recall=PrimaryPortalRecall rid=0 rname="" jh=0 js=False jc=1000 jd=Forward
+--- met:
+1\r\n
+CondAct\r\n
+5\r\n
+CType\r\n
+AType\r\n
+CData\r\n
+AData\r\n
+State\r\n
+n\r\n
+n\r\n
+n\r\n
+n\r\n
+n\r\n
+1\r\n
+i\r\n
+1\r\n
+i\r\n
+4\r\n
+i\r\n
+0\r\n
+ba\r\n
+43\r\n
+x\r\n
+1\r\n
+uTank2 NAV 1.2\r\n
+4\r\n
+1\r\n
+0\r\n
+1\r\n
+2\r\n
+3\r\n
+0\r\n
+s\r\n
+A\r\n
+
+--- af:
+<meta-header>\r\n
+STATE: {A} ~~ {\r\n
+\tIF:\tAlways\r\n
+\t\tDO:\tEmbedNav nav0__x {x}\r\n
+~~ }\r\n
+\r\n
+~~========================= ONLY NAVS APPEAR BELOW THIS LINE =========================~~\r\n
+\r\n
+NAV: nav0__x once ~~ {\r\n
+\tpnt 1 2 3\r\n
+~~ }\r\n
+
+
+##### af-meta fraction class
+ERR line 6: 'ptl' arguments do not match the expected shape.
+
+##### af-meta zero vendor
+rule state="A" enabled=True
+ C Always t="" s="" n=0 n2=0 n3=0
+ A LoadEmbeddedNavigationRoute t="" s="x" n=0 n2=0
+  route mode=Once follow=00000000 "" count=1
+   wp OpenVendor pos=00000000,1,2,3,0,True ref=00000000,0,0,0,0,False id=00000000 name="" class=0 valid=True text="" dur=5000 recall=PrimaryPortalRecall rid=0 rname="" jh=0 js=False jc=1000 jd=Forward
+--- met:
+1\r\n
+CondAct\r\n
+5\r\n
+CType\r\n
+AType\r\n
+CData\r\n
+AData\r\n
+State\r\n
+n\r\n
+n\r\n
+n\r\n
+n\r\n
+n\r\n
+1\r\n
+i\r\n
+1\r\n
+i\r\n
+4\r\n
+i\r\n
+0\r\n
+ba\r\n
+48\r\n
+x\r\n
+1\r\n
+uTank2 NAV 1.2\r\n
+4\r\n
+1\r\n
+5\r\n
+1\r\n
+2\r\n
+3\r\n
+0\r\n
+0\r\n
+\r\n
+s\r\n
+A\r\n
+
+--- af:
+<meta-header>\r\n
+STATE: {A} ~~ {\r\n
+\tIF:\tAlways\r\n
+\t\tDO:\tEmbedNav nav0__x {x}\r\n
+~~ }\r\n
+\r\n
+~~========================= ONLY NAVS APPEAR BELOW THIS LINE =========================~~\r\n
+\r\n
+NAV: nav0__x once ~~ {\r\n
+\tvnd 1 2 3 00000000 {}\r\n
+~~ }\r\n
+
+
+##### af-meta maybe shift
+rule state="A" enabled=True
+ C Always t="" s="" n=0 n2=0 n3=0
+ A LoadEmbeddedNavigationRoute t="" s="x" n=0 n2=0
+  route mode=Once follow=00000000 "" count=1
+   wp Jump pos=00000000,1,2,3,0,True ref=00000000,0,0,0,0,False id=00000000 name="" class=0 valid=True text="" dur=5000 recall=PrimaryPortalRecall rid=0 rname="" jh=45 js=False jc=300 jd=Forward
+--- met:
+1\r\n
+CondAct\r\n
+5\r\n
+CType\r\n
+AType\r\n
+CData\r\n
+AData\r\n
+State\r\n
+n\r\n
+n\r\n
+n\r\n
+n\r\n
+n\r\n
+1\r\n
+i\r\n
+1\r\n
+i\r\n
+4\r\n
+i\r\n
+0\r\n
+ba\r\n
+65\r\n
+x\r\n
+1\r\n
+uTank2 NAV 1.2\r\n
+4\r\n
+1\r\n
+9\r\n
+1\r\n
+2\r\n
+3\r\n
+0\r\n
+45\r\n
+False\r\n
+300.00003\r\n
+s\r\n
+A\r\n
+
+--- af:
+<meta-header>\r\n
+STATE: {A} ~~ {\r\n
+\tIF:\tAlways\r\n
+\t\tDO:\tEmbedNav nav0__x {x}\r\n
+~~ }\r\n
+\r\n
+~~========================= ONLY NAVS APPEAR BELOW THIS LINE =========================~~\r\n
+\r\n
+NAV: nav0__x once ~~ {\r\n
+\tjmp 1 2 3 45 {False} 300.00003\r\n
+~~ }\r\n
+
+
+##### af-meta fraction spell seconds
+ERR line 3: 'SecsOnSpellGE' arguments do not match the expected shape.
+
+##### af-meta fraction count
+ERR line 3: 'ItemCountGE' arguments do not match the expected shape.
+
+##### af-meta fraction priority
+ERR line 3: 'MobsInDist_Priority' arguments do not match the expected shape.
+
+##### af-meta empty state name
+rule state="" enabled=True
+ C Always t="" s="" n=0 n2=0 n3=0
+ A None t="" s="" n=0 n2=0
+--- met:
+1\r\n
+CondAct\r\n
+5\r\n
+CType\r\n
+AType\r\n
+CData\r\n
+AData\r\n
+State\r\n
+n\r\n
+n\r\n
+n\r\n
+n\r\n
+n\r\n
+1\r\n
+i\r\n
+1\r\n
+i\r\n
+0\r\n
+i\r\n
+0\r\n
+i\r\n
+0\r\n
+s\r\n
+\r\n
+
+--- af:
+<meta-header>\r\n
+STATE: {} ~~ {\r\n
+\tIF:\tAlways\r\n
+\t\tDO:\tNone\r\n
+~~ }\r\n
+
+
+##### af-meta lone open brace
+ERR line 4: 'Chat' arguments do not match the expected shape.
+
+##### af-meta lone close brace
+ERR line 4: 'Chat' arguments do not match the expected shape.
+
+##### af-meta doubled braces
+rule state="Default" enabled=True
+ C Expression t="$list{1}==2" s="" n=0 n2=0 n3=0
+ A All t="" s="" n=0 n2=0
+  A ExpressionAction t="$list=listcreate[1,2];$first=$list{0}" s="" n=0 n2=0
+  A LoadEmbeddedNavigationRoute t="" s="route" n=0 n2=0
+   route mode=Once follow=00000000 "" count=1
+    wp ChatCommand pos=00000000,1,2,3,0,True ref=00000000,0,0,0,0,False id=00000000 name="" class=0 valid=True text="say {hi}" dur=5000 recall=PrimaryPortalRecall rid=0 rname="" jh=0 js=False jc=1000 jd=Forward
+rule state="Default" enabled=True
+ C ChatMessageCapture t="^(?<n>\\d{2,3}) left$" s="0" n=0 n2=0 n3=0
+ A ChatCommand t="/t Horan, {}" s="" n=0 n2=0
+--- met:
+1\r\n
+CondAct\r\n
+5\r\n
+CType\r\n
+AType\r\n
+CData\r\n
+AData\r\n
+State\r\n
+n\r\n
+n\r\n
+n\r\n
+n\r\n
+n\r\n
+2\r\n
+i\r\n
+26\r\n
+i\r\n
+3\r\n
+TABLE\r\n
+2\r\n
+k\r\n
+v\r\n
+n\r\n
+n\r\n
+1\r\n
+s\r\n
+e\r\n
+s\r\n
+$list{1}==2\r\n
+TABLE\r\n
+2\r\n
+K\r\n
+V\r\n
+n\r\n
+n\r\n
+2\r\n
+i\r\n
+7\r\n
+TABLE\r\n
+2\r\n
+k\r\n
+v\r\n
+n\r\n
+n\r\n
+1\r\n
+s\r\n
+e\r\n
+s\r\n
+$list=listcreate[1,2];$first=$list{0}\r\n
+i\r\n
+4\r\n
+ba\r\n
+57\r\n
+route\r\n
+1\r\n
+uTank2 NAV 1.2\r\n
+4\r\n
+1\r\n
+4\r\n
+1\r\n
+2\r\n
+3\r\n
+0\r\n
+say {hi}\r\n
+s\r\n
+Default\r\n
+i\r\n
+28\r\n
+i\r\n
+2\r\n
+TABLE\r\n
+2\r\n
+k\r\n
+v\r\n
+n\r\n
+n\r\n
+2\r\n
+s\r\n
+p\r\n
+s\r\n
+^(?<n>\d{2,3}) left$\r\n
+s\r\n
+c\r\n
+s\r\n
+0\r\n
+s\r\n
+/t Horan, {}\r\n
+s\r\n
+Default\r\n
+
+--- af:
+<meta-header>\r\n
+STATE: {Default} ~~ {\r\n
+\tIF:\tExpr {$list{{1}}==2}\r\n
+\t\tDO:\tDoAll\r\n
+\t\t\t\tDoExpr {$list=listcreate[1,2];$first=$list{{0}}}\r\n
+\t\t\t\tEmbedNav nav0__route {route}\r\n
+\tIF:\tChatCapture {^(?<n>\d{{2,3}}) left$} {0}\r\n
+\t\tDO:\tChat {/t Horan, {{}}}\r\n
+~~ }\r\n
+\r\n
+~~========================= ONLY NAVS APPEAR BELOW THIS LINE =========================~~\r\n
+\r\n
+NAV: nav0__route once ~~ {\r\n
+\tcht 1 2 3 {say {{hi}}}\r\n
+~~ }\r\n
+
+
+##### af-meta interleaved states
+rule state="B" enabled=True
+ C Always t="" s="" n=0 n2=0 n3=0
+ A LoadEmbeddedNavigationRoute t="" s="b1" n=0 n2=0
+  route mode=Once follow=00000000 "" count=1
+   wp Point pos=00000000,1,2,3,0,True ref=00000000,0,0,0,0,False id=00000000 name="" class=0 valid=True text="" dur=5000 recall=PrimaryPortalRecall rid=0 rname="" jh=0 js=False jc=1000 jd=Forward
+rule state="A" enabled=True
+ C Always t="" s="" n=0 n2=0 n3=0
+ A LoadEmbeddedNavigationRoute t="" s="a1" n=0 n2=0
+  route mode=Once follow=00000000 "" count=1
+   wp Point pos=00000000,1,2,3,0,True ref=00000000,0,0,0,0,False id=00000000 name="" class=0 valid=True text="" dur=5000 recall=PrimaryPortalRecall rid=0 rname="" jh=0 js=False jc=1000 jd=Forward
+rule state="B" enabled=True
+ C Always t="" s="" n=0 n2=0 n3=0
+ A LoadEmbeddedNavigationRoute t="" s="b2" n=0 n2=0
+  route mode=Once follow=00000000 "" count=1
+   wp Point pos=00000000,1,2,3,0,True ref=00000000,0,0,0,0,False id=00000000 name="" class=0 valid=True text="" dur=5000 recall=PrimaryPortalRecall rid=0 rname="" jh=0 js=False jc=1000 jd=Forward
+--- met:
+1\r\n
+CondAct\r\n
+5\r\n
+CType\r\n
+AType\r\n
+CData\r\n
+AData\r\n
+State\r\n
+n\r\n
+n\r\n
+n\r\n
+n\r\n
+n\r\n
+3\r\n
+i\r\n
+1\r\n
+i\r\n
+4\r\n
+i\r\n
+0\r\n
+ba\r\n
+44\r\n
+b1\r\n
+1\r\n
+uTank2 NAV 1.2\r\n
+4\r\n
+1\r\n
+0\r\n
+1\r\n
+2\r\n
+3\r\n
+0\r\n
+s\r\n
+B\r\n
+i\r\n
+1\r\n
+i\r\n
+4\r\n
+i\r\n
+0\r\n
+ba\r\n
+44\r\n
+a1\r\n
+1\r\n
+uTank2 NAV 1.2\r\n
+4\r\n
+1\r\n
+0\r\n
+1\r\n
+2\r\n
+3\r\n
+0\r\n
+s\r\n
+A\r\n
+i\r\n
+1\r\n
+i\r\n
+4\r\n
+i\r\n
+0\r\n
+ba\r\n
+44\r\n
+b2\r\n
+1\r\n
+uTank2 NAV 1.2\r\n
+4\r\n
+1\r\n
+0\r\n
+1\r\n
+2\r\n
+3\r\n
+0\r\n
+s\r\n
+B\r\n
+
+--- af:
+<meta-header>\r\n
+STATE: {B} ~~ {\r\n
+\tIF:\tAlways\r\n
+\t\tDO:\tEmbedNav nav0__b1 {b1}\r\n
+\tIF:\tAlways\r\n
+\t\tDO:\tEmbedNav nav2__b2 {b2}\r\n
+~~ }\r\n
+STATE: {A} ~~ {\r\n
+\tIF:\tAlways\r\n
+\t\tDO:\tEmbedNav nav1__a1 {a1}\r\n
+~~ }\r\n
+\r\n
+~~========================= ONLY NAVS APPEAR BELOW THIS LINE =========================~~\r\n
+\r\n
+NAV: nav0__b1 once ~~ {\r\n
+\tpnt 1 2 3\r\n
+~~ }\r\n
+NAV: nav1__a1 once ~~ {\r\n
+\tpnt 1 2 3\r\n
+~~ }\r\n
+NAV: nav2__b2 once ~~ {\r\n
+\tpnt 1 2 3\r\n
+~~ }\r\n
+
+
+##### af-meta state case
+rule state="a" enabled=True
+ C Always t="" s="" n=0 n2=0 n3=0
+ A None t="" s="" n=0 n2=0
+rule state="A" enabled=True
+ C Always t="" s="" n=0 n2=0 n3=0
+ A None t="" s="" n=0 n2=0
+rule state="a" enabled=True
+ C Never t="" s="" n=0 n2=0 n3=0
+ A None t="" s="" n=0 n2=0
+--- met:
+1\r\n
+CondAct\r\n
+5\r\n
+CType\r\n
+AType\r\n
+CData\r\n
+AData\r\n
+State\r\n
+n\r\n
+n\r\n
+n\r\n
+n\r\n
+n\r\n
+3\r\n
+i\r\n
+1\r\n
+i\r\n
+0\r\n
+i\r\n
+0\r\n
+i\r\n
+0\r\n
+s\r\n
+a\r\n
+i\r\n
+1\r\n
+i\r\n
+0\r\n
+i\r\n
+0\r\n
+i\r\n
+0\r\n
+s\r\n
+A\r\n
+i\r\n
+0\r\n
+i\r\n
+0\r\n
+i\r\n
+0\r\n
+i\r\n
+0\r\n
+s\r\n
+a\r\n
+
+--- af:
+<meta-header>\r\n
+STATE: {a} ~~ {\r\n
+\tIF:\tAlways\r\n
+\t\tDO:\tNone\r\n
+\tIF:\tNever\r\n
+\t\tDO:\tNone\r\n
+~~ }\r\n
+STATE: {A} ~~ {\r\n
+\tIF:\tAlways\r\n
+\t\tDO:\tNone\r\n
+~~ }\r\n
+
+
+##### af-meta IF then IF
+ERR line 3: expected a 'DO:' line.
+
+##### af-meta unknown action
+ERR line 3: expected an Action operation after 'DO:'.
+
+##### af-meta nav node two tabs
+ERR line 5: expected a nav node line (one tab, then a node keyword).
+
+##### af-meta nav node no tab
+ERR line 5: expected a nav node line (one tab, then a node keyword).
+
+##### af-meta nav type upper
+ERR line 4: 'NAV:' must be followed by a tag literal and a nav type (circular/linear/once/follow).
+
+##### af-meta nav comment marker
+rule state="A" enabled=True
+ C Always t="" s="" n=0 n2=0 n3=0
+ A LoadEmbeddedNavigationRoute t="" s="x" n=0 n2=0
+  route mode=Once follow=00000000 "" count=1
+   wp Point pos=00000000,1,2,3,0,True ref=00000000,0,0,0,0,False id=00000000 name="" class=0 valid=True text="" dur=5000 recall=PrimaryPortalRecall rid=0 rname="" jh=0 js=False jc=1000 jd=Forward
+--- met:
+1\r\n
+CondAct\r\n
+5\r\n
+CType\r\n
+AType\r\n
+CData\r\n
+AData\r\n
+State\r\n
+n\r\n
+n\r\n
+n\r\n
+n\r\n
+n\r\n
+1\r\n
+i\r\n
+1\r\n
+i\r\n
+4\r\n
+i\r\n
+0\r\n
+ba\r\n
+43\r\n
+x\r\n
+1\r\n
+uTank2 NAV 1.2\r\n
+4\r\n
+1\r\n
+0\r\n
+1\r\n
+2\r\n
+3\r\n
+0\r\n
+s\r\n
+A\r\n
+
+--- af:
+<meta-header>\r\n
+STATE: {A} ~~ {\r\n
+\tIF:\tAlways\r\n
+\t\tDO:\tEmbedNav nav0__x {x}\r\n
+~~ }\r\n
+\r\n
+~~========================= ONLY NAVS APPEAR BELOW THIS LINE =========================~~\r\n
+\r\n
+NAV: nav0__x once ~~ {\r\n
+\tpnt 1 2 3\r\n
+~~ }\r\n
+
+
+##### af-meta strings touching
+ERR line 3: 'ChatCapture' arguments do not match the expected shape.
+
+##### af-meta IF no space
+rule state="A" enabled=True
+ C Always t="" s="" n=0 n2=0 n3=0
+ A None t="" s="" n=0 n2=0
+--- met:
+1\r\n
+CondAct\r\n
+5\r\n
+CType\r\n
+AType\r\n
+CData\r\n
+AData\r\n
+State\r\n
+n\r\n
+n\r\n
+n\r\n
+n\r\n
+n\r\n
+1\r\n
+i\r\n
+1\r\n
+i\r\n
+0\r\n
+i\r\n
+0\r\n
+i\r\n
+0\r\n
+s\r\n
+A\r\n
+
+--- af:
+<meta-header>\r\n
+STATE: {A} ~~ {\r\n
+\tIF:\tAlways\r\n
+\t\tDO:\tNone\r\n
+~~ }\r\n
+
+
+##### af-meta not then args
+rule state="A" enabled=True
+ C Not t="" s="" n=0 n2=0 n3=0
+  C SecondsInStateGreaterThanOrEqual t="" s="" n=5 n2=0 n3=0
+ A None t="" s="" n=0 n2=0
+--- met:
+1\r\n
+CondAct\r\n
+5\r\n
+CType\r\n
+AType\r\n
+CData\r\n
+AData\r\n
+State\r\n
+n\r\n
+n\r\n
+n\r\n
+n\r\n
+n\r\n
+1\r\n
+i\r\n
+21\r\n
+i\r\n
+0\r\n
+TABLE\r\n
+2\r\n
+K\r\n
+V\r\n
+n\r\n
+n\r\n
+1\r\n
+i\r\n
+6\r\n
+i\r\n
+5\r\n
+i\r\n
+0\r\n
+s\r\n
+A\r\n
+
+--- af:
+<meta-header>\r\n
+STATE: {A} ~~ {\r\n
+\tIF:\tNot SecsInStateGE 5\r\n
+\t\tDO:\tNone\r\n
+~~ }\r\n
+
+
+##### af-meta every condition
+rule state="A" enabled=True
+ C All t="" s="" n=0 n2=0 n3=0
+  C Never t="" s="" n=0 n2=0 n3=0
+  C Always t="" s="" n=0 n2=0 n3=0
+  C ChatMessage t="x" s="" n=0 n2=0 n3=0
+  C PackSlotsLessThanOrEqual t="" s="" n=3 n2=0 n3=0
+  C SecondsInStateGreaterThanOrEqual t="" s="" n=4 n2=0 n3=0
+  C NavigationRouteEmpty t="" s="" n=0 n2=0 n3=0
+  C CharacterDeath t="" s="" n=0 n2=0 n3=0
+  C AnyVendorOpen t="" s="" n=0 n2=0 n3=0
+  C VendorClosed t="" s="" n=0 n2=0 n3=0
+  C InventoryItemCountLessThanOrEqual t="Pea" s="" n=2 n2=0 n3=0
+  C InventoryItemCountGreaterThanOrEqual t="Pea" s="" n=2 n2=0 n3=0
+  C MonsterNameCountWithinDistance t="Drudge" s="" n=1 n2=2.5 n3=0
+  C MonsterPriorityCountWithinDistance t="" s="" n=1 n2=2.5 n3=3
+  C NeedToBuff t="" s="" n=0 n2=0 n3=0
+  C NoMonstersWithinDistance t="" s="" n=7.5 n2=0 n3=0
+  C LandblockEquals t="" s="" n=-1959329792 n2=0 n3=0
+  C LandcellEquals t="" s="" n=-1959271519 n2=0 n3=0
+  C PortalspaceEntered t="" s="" n=0 n2=0 n3=0
+  C PortalspaceExited t="" s="" n=0 n2=0 n3=0
+  C Not t="" s="" n=0 n2=0 n3=0
+   C CharacterDeath t="" s="" n=0 n2=0 n3=0
+  C PersistentSecondsInStateGreaterThanOrEqual t="" s="" n=9 n2=0 n3=0
+  C TimeLeftOnSpellGreaterThanOrEqual t="" s="" n=4291 n2=120 n3=0
+  C BurdenPercentGreaterThanOrEqual t="" s="" n=110 n2=0 n3=0
+  C DistanceFromAnyRoutePointGreaterThanOrEqual t="" s="" n=2.25 n2=0 n3=0
+  C Expression t="1==1" s="" n=0 n2=0 n3=0
+  C ChatMessageCapture t="(?<a>x)" s="2;4" n=0 n2=0 n3=0
+ A All t="" s="" n=0 n2=0
+  A None t="" s="" n=0 n2=0
+  A SetMetaState t="S" s="" n=0 n2=0
+  A ChatCommand t="/a" s="" n=0 n2=0
+  A CallMetaState t="T" s="R" n=0 n2=0
+  A ReturnFromCall t="" s="" n=0 n2=0
+  A ExpressionAction t="1" s="" n=0 n2=0
+  A ChatExpression t="`a`" s="" n=0 n2=0
+  A SetWatchdog t="W" s="" n=5 n2=10
+  A ClearWatchdog t="" s="" n=0 n2=0
+  A GetVtankOption t="o" s="v" n=0 n2=0
+  A SetVtankOption t="o" s="1" n=0 n2=0
+  A CreateView t="v" s="<view/>" n=0 n2=0
+  A DestroyView t="v" s="" n=0 n2=0
+  A DestroyAllViews t="" s="" n=0 n2=0
+--- met:
+1\r\n
+CondAct\r\n
+5\r\n
+CType\r\n
+AType\r\n
+CData\r\n
+AData\r\n
+State\r\n
+n\r\n
+n\r\n
+n\r\n
+n\r\n
+n\r\n
+1\r\n
+i\r\n
+2\r\n
+i\r\n
+3\r\n
+TABLE\r\n
+2\r\n
+K\r\n
+V\r\n
+n\r\n
+n\r\n
+26\r\n
+i\r\n
+0\r\n
+i\r\n
+0\r\n
+i\r\n
+1\r\n
+i\r\n
+0\r\n
+i\r\n
+4\r\n
+s\r\n
+x\r\n
+i\r\n
+5\r\n
+i\r\n
+3\r\n
+i\r\n
+6\r\n
+i\r\n
+4\r\n
+i\r\n
+7\r\n
+i\r\n
+0\r\n
+i\r\n
+8\r\n
+i\r\n
+0\r\n
+i\r\n
+9\r\n
+i\r\n
+0\r\n
+i\r\n
+10\r\n
+i\r\n
+0\r\n
+i\r\n
+11\r\n
+TABLE\r\n
+2\r\n
+k\r\n
+v\r\n
+n\r\n
+n\r\n
+2\r\n
+s\r\n
+n\r\n
+s\r\n
+Pea\r\n
+s\r\n
+c\r\n
+i\r\n
+2\r\n
+i\r\n
+12\r\n
+TABLE\r\n
+2\r\n
+k\r\n
+v\r\n
+n\r\n
+n\r\n
+2\r\n
+s\r\n
+n\r\n
+s\r\n
+Pea\r\n
+s\r\n
+c\r\n
+i\r\n
+2\r\n
+i\r\n
+13\r\n
+TABLE\r\n
+2\r\n
+k\r\n
+v\r\n
+n\r\n
+n\r\n
+3\r\n
+s\r\n
+n\r\n
+s\r\n
+Drudge\r\n
+s\r\n
+c\r\n
+i\r\n
+1\r\n
+s\r\n
+r\r\n
+d\r\n
+2.5\r\n
+i\r\n
+14\r\n
+TABLE\r\n
+2\r\n
+k\r\n
+v\r\n
+n\r\n
+n\r\n
+3\r\n
+s\r\n
+p\r\n
+i\r\n
+3\r\n
+s\r\n
+c\r\n
+i\r\n
+1\r\n
+s\r\n
+r\r\n
+d\r\n
+2.5\r\n
+i\r\n
+15\r\n
+i\r\n
+0\r\n
+i\r\n
+16\r\n
+TABLE\r\n
+2\r\n
+k\r\n
+v\r\n
+n\r\n
+n\r\n
+1\r\n
+s\r\n
+r\r\n
+d\r\n
+7.5\r\n
+i\r\n
+17\r\n
+i\r\n
+-1959329792\r\n
+i\r\n
+18\r\n
+i\r\n
+-1959271519\r\n
+i\r\n
+19\r\n
+i\r\n
+0\r\n
+i\r\n
+20\r\n
+i\r\n
+0\r\n
+i\r\n
+21\r\n
+TABLE\r\n
+2\r\n
+K\r\n
+V\r\n
+n\r\n
+n\r\n
+1\r\n
+i\r\n
+8\r\n
+i\r\n
+0\r\n
+i\r\n
+22\r\n
+i\r\n
+9\r\n
+i\r\n
+23\r\n
+TABLE\r\n
+2\r\n
+k\r\n
+v\r\n
+n\r\n
+n\r\n
+2\r\n
+s\r\n
+sid\r\n
+i\r\n
+4291\r\n
+s\r\n
+sec\r\n
+i\r\n
+120\r\n
+i\r\n
+24\r\n
+i\r\n
+110\r\n
+i\r\n
+25\r\n
+TABLE\r\n
+2\r\n
+k\r\n
+v\r\n
+n\r\n
+n\r\n
+1\r\n
+s\r\n
+dist\r\n
+d\r\n
+2.25\r\n
+i\r\n
+26\r\n
+TABLE\r\n
+2\r\n
+k\r\n
+v\r\n
+n\r\n
+n\r\n
+1\r\n
+s\r\n
+e\r\n
+s\r\n
+1==1\r\n
+i\r\n
+28\r\n
+TABLE\r\n
+2\r\n
+k\r\n
+v\r\n
+n\r\n
+n\r\n
+2\r\n
+s\r\n
+p\r\n
+s\r\n
+(?<a>x)\r\n
+s\r\n
+c\r\n
+s\r\n
+2;4\r\n
+TABLE\r\n
+2\r\n
+K\r\n
+V\r\n
+n\r\n
+n\r\n
+14\r\n
+i\r\n
+0\r\n
+i\r\n
+0\r\n
+i\r\n
+1\r\n
+s\r\n
+S\r\n
+i\r\n
+2\r\n
+s\r\n
+/a\r\n
+i\r\n
+5\r\n
+TABLE\r\n
+2\r\n
+k\r\n
+v\r\n
+n\r\n
+n\r\n
+2\r\n
+s\r\n
+st\r\n
+s\r\n
+T\r\n
+s\r\n
+ret\r\n
+s\r\n
+R\r\n
+i\r\n
+6\r\n
+i\r\n
+0\r\n
+i\r\n
+7\r\n
+TABLE\r\n
+2\r\n
+k\r\n
+v\r\n
+n\r\n
+n\r\n
+1\r\n
+s\r\n
+e\r\n
+s\r\n
+1\r\n
+i\r\n
+8\r\n
+TABLE\r\n
+2\r\n
+k\r\n
+v\r\n
+n\r\n
+n\r\n
+1\r\n
+s\r\n
+e\r\n
+s\r\n
+`a`\r\n
+i\r\n
+9\r\n
+TABLE\r\n
+2\r\n
+k\r\n
+v\r\n
+n\r\n
+n\r\n
+3\r\n
+s\r\n
+s\r\n
+s\r\n
+W\r\n
+s\r\n
+r\r\n
+d\r\n
+5\r\n
+s\r\n
+t\r\n
+d\r\n
+10\r\n
+i\r\n
+10\r\n
+TABLE\r\n
+2\r\n
+k\r\n
+v\r\n
+n\r\n
+n\r\n
+0\r\n
+i\r\n
+11\r\n
+TABLE\r\n
+2\r\n
+k\r\n
+v\r\n
+n\r\n
+n\r\n
+2\r\n
+s\r\n
+o\r\n
+s\r\n
+o\r\n
+s\r\n
+v\r\n
+s\r\n
+v\r\n
+i\r\n
+12\r\n
+TABLE\r\n
+2\r\n
+k\r\n
+v\r\n
+n\r\n
+n\r\n
+2\r\n
+s\r\n
+o\r\n
+s\r\n
+o\r\n
+s\r\n
+v\r\n
+s\r\n
+1\r\n
+i\r\n
+13\r\n
+TABLE\r\n
+2\r\n
+k\r\n
+v\r\n
+n\r\n
+n\r\n
+2\r\n
+s\r\n
+n\r\n
+s\r\n
+v\r\n
+s\r\n
+x\r\n
+ba\r\n
+7\r\n
+<view/>i\r\n
+14\r\n
+TABLE\r\n
+2\r\n
+k\r\n
+v\r\n
+n\r\n
+n\r\n
+1\r\n
+s\r\n
+n\r\n
+s\r\n
+v\r\n
+i\r\n
+15\r\n
+TABLE\r\n
+2\r\n
+k\r\n
+v\r\n
+n\r\n
+n\r\n
+0\r\n
+s\r\n
+A\r\n
+
+--- af:
+<meta-header>\r\n
+STATE: {A} ~~ {\r\n
+\tIF:\tAll\r\n
+\t\t\tNever\r\n
+\t\t\tAlways\r\n
+\t\t\tChatMatch {x}\r\n
+\t\t\tMainSlotsLE 3\r\n
+\t\t\tSecsInStateGE 4\r\n
+\t\t\tNavEmpty\r\n
+\t\t\tDeath\r\n
+\t\t\tVendorOpen\r\n
+\t\t\tVendorClosed\r\n
+\t\t\tItemCountLE 2 {Pea}\r\n
+\t\t\tItemCountGE 2 {Pea}\r\n
+\t\t\tMobsInDist_Name 1 2.5 {Drudge}\r\n
+\t\t\tMobsInDist_Priority 1 2.5 3\r\n
+\t\t\tNeedToBuff\r\n
+\t\t\tNoMobsInDist 7.5\r\n
+\t\t\tBlockE 8B370000\r\n
+\t\t\tCellE 8B37E3A1\r\n
+\t\t\tIntoPortal\r\n
+\t\t\tExitPortal\r\n
+\t\t\tNot Death\r\n
+\t\t\tPSecsInStateGE 9\r\n
+\t\t\tSecsOnSpellGE 120 4291\r\n
+\t\t\tBuPercentGE 110\r\n
+\t\t\tDistToRteGE 2.25\r\n
+\t\t\tExpr {1==1}\r\n
+\t\t\tChatCapture {(?<a>x)} {2;4}\r\n
+\t\tDO:\tDoAll\r\n
+\t\t\t\tNone\r\n
+\t\t\t\tSetState {S}\r\n
+\t\t\t\tChat {/a}\r\n
+\t\t\t\tCallState {T} {R}\r\n
+\t\t\t\tReturn\r\n
+\t\t\t\tDoExpr {1}\r\n
+\t\t\t\tChatExpr {`a`}\r\n
+\t\t\t\tSetWatchdog 5 10 {W}\r\n
+\t\t\t\tClearWatchdog\r\n
+\t\t\t\tGetOpt {o} {v}\r\n
+\t\t\t\tSetOpt {o} {1}\r\n
+\t\t\t\tCreateView {v} {<view/>}\r\n
+\t\t\t\tDestroyView  {v}\r\n
+\t\t\t\tDestroyAllViews\r\n
+~~ }\r\n
+
+
+##### af-nav two navs
+route mode=Once follow=00000000 "" count=1
+ wp Point pos=00000000,1,2,3,0,True ref=00000000,0,0,0,0,False id=00000000 name="" class=0 valid=True text="" dur=5000 recall=PrimaryPortalRecall rid=0 rname="" jh=0 js=False jc=1000 jd=Forward
+--- nav:
+uTank2 NAV 1.2\r\n
+4\r\n
+1\r\n
+0\r\n
+1\r\n
+2\r\n
+3\r\n
+0\r\n
+
+--- af:
+<nav-header>NAV:\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\n
+~~\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\n
+~~ All recognized NAV types:\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\n
+~~\t\tcircular\t\t\tfollow\t\t\t\t\t\t\t\t\t\t\t\t\t\t\n
+~~\t\tlinear\t\t\t\tonce\t\t\t\t\t\t\t\t\t\t\t\t\t\t\n
+~~\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\n
+~~ All recognized NAV NODE types:\t\t\t\t\t\t\t\t\t\t\t\t\t\t\n
+~~\t\tflw\t\t\t\t\tvnd\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\n
+~~\t\tpnt\t\t\t\t\tptl\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\n
+~~\t\trcl\t\t\t\t\ttlk\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\n
+~~\t\tpau\t\t\t\t\tchk\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\n
+~~\t\tcht\t\t\t\t\tjmp\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\n
+~~\t\tprt (deprecated in VTank)\t\t\t\t\t\t\t\t\t\t\t\t\t\t\n
+~~ \t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\n
+\n
+~~ \t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\n
+~~ \t\t\t\tREMEMBER THAT NAV-ONLY FILES MUST CONTAIN EXACTLY ONE NAV!\t\t\t\t\n
+~~ }\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\n
+\r\n
+NAV: nav0 once ~~ {\r\n
+\tpnt 1 2 3\r\n
+~~ }\r\n
+
+
+##### af-nav type upper
+ERR line 1: 'NAV:' must be followed by a tag literal and a nav type (circular/linear/once/follow).
+
+##### af-nav node upper
+ERR line 2: expected a nav node line (one tab, then a node keyword).
+
+##### af-nav empty once
+route mode=Once follow=00000000 "" count=0
+--- nav:
+uTank2 NAV 1.2\r\n
+4\r\n
+0\r\n
+
+--- af:
+<nav-header>NAV:\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\n
+~~\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\n
+~~ All recognized NAV types:\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\n
+~~\t\tcircular\t\t\tfollow\t\t\t\t\t\t\t\t\t\t\t\t\t\t\n
+~~\t\tlinear\t\t\t\tonce\t\t\t\t\t\t\t\t\t\t\t\t\t\t\n
+~~\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\n
+~~ All recognized NAV NODE types:\t\t\t\t\t\t\t\t\t\t\t\t\t\t\n
+~~\t\tflw\t\t\t\t\tvnd\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\n
+~~\t\tpnt\t\t\t\t\tptl\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\n
+~~\t\trcl\t\t\t\t\ttlk\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\n
+~~\t\tpau\t\t\t\t\tchk\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\n
+~~\t\tcht\t\t\t\t\tjmp\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\n
+~~\t\tprt (deprecated in VTank)\t\t\t\t\t\t\t\t\t\t\t\t\t\t\n
+~~ \t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\n
+\n
+~~ \t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\n
+~~ \t\t\t\tREMEMBER THAT NAV-ONLY FILES MUST CONTAIN EXACTLY ONE NAV!\t\t\t\t\n
+~~ }\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\n
+\r\n
+NAV: nav0 once ~~ {\r\n
+~~ }\r\n
+
+
+##### af-nav empty :::
+ERR line 1: no NAV: block found — this looks like a Meta profile that belongs in the mosstank/metas/ folder, not a route.
+
+##### af-nav only a comment
+ERR line 2: no NAV: block found — this looks like a Meta profile that belongs in the mosstank/metas/ folder, not a route.
+
+##### af-nav bom
+ERR line 1: expected 'NAV:' (or a STATE: rule section, refused for a route load).
+
+##### af-nav state first
+ERR line 2: found a STATE: rule section — this is a Meta profile (possibly with an embedded nav), not a stand-alone route; load it from the mosstank/metas/ folder instead.
+
+##### af-nav follow
+route mode=Target follow=00001234 "Some Monster" count=0
+--- nav:
+uTank2 NAV 1.2\r\n
+3\r\n
+Some Monster\r\n
+4660\r\n
+
+--- af:
+<nav-header>NAV:\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\n
+~~\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\n
+~~ All recognized NAV types:\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\n
+~~\t\tcircular\t\t\tfollow\t\t\t\t\t\t\t\t\t\t\t\t\t\t\n
+~~\t\tlinear\t\t\t\tonce\t\t\t\t\t\t\t\t\t\t\t\t\t\t\n
+~~\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\n
+~~ All recognized NAV NODE types:\t\t\t\t\t\t\t\t\t\t\t\t\t\t\n
+~~\t\tflw\t\t\t\t\tvnd\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\n
+~~\t\tpnt\t\t\t\t\tptl\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\n
+~~\t\trcl\t\t\t\t\ttlk\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\n
+~~\t\tpau\t\t\t\t\tchk\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\n
+~~\t\tcht\t\t\t\t\tjmp\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\n
+~~\t\tprt (deprecated in VTank)\t\t\t\t\t\t\t\t\t\t\t\t\t\t\n
+~~ \t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\n
+\n
+~~ \t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\n
+~~ \t\t\t\tREMEMBER THAT NAV-ONLY FILES MUST CONTAIN EXACTLY ONE NAV!\t\t\t\t\n
+~~ }\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\n
+\r\n
+NAV: nav0 follow ~~ {\r\n
+\tflw 00001234 {Some Monster}\r\n
+~~ }\r\n
+
+
+##### af-nav jump 5000
+route mode=Once follow=00000000 "" count=1
+ wp Jump pos=00000000,1,2,3,0,True ref=00000000,0,0,0,0,False id=00000000 name="" class=0 valid=True text="" dur=5000 recall=PrimaryPortalRecall rid=0 rname="" jh=90 js=True jc=5000 jd=Forward
+--- nav:
+uTank2 NAV 1.2\r\n
+4\r\n
+1\r\n
+9\r\n
+1\r\n
+2\r\n
+3\r\n
+0\r\n
+90\r\n
+True\r\n
+5000.00003\r\n
+
+--- af:
+<nav-header>NAV:\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\n
+~~\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\n
+~~ All recognized NAV types:\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\n
+~~\t\tcircular\t\t\tfollow\t\t\t\t\t\t\t\t\t\t\t\t\t\t\n
+~~\t\tlinear\t\t\t\tonce\t\t\t\t\t\t\t\t\t\t\t\t\t\t\n
+~~\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\n
+~~ All recognized NAV NODE types:\t\t\t\t\t\t\t\t\t\t\t\t\t\t\n
+~~\t\tflw\t\t\t\t\tvnd\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\n
+~~\t\tpnt\t\t\t\t\tptl\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\n
+~~\t\trcl\t\t\t\t\ttlk\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\n
+~~\t\tpau\t\t\t\t\tchk\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\n
+~~\t\tcht\t\t\t\t\tjmp\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\n
+~~\t\tprt (deprecated in VTank)\t\t\t\t\t\t\t\t\t\t\t\t\t\t\n
+~~ \t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\n
+\n
+~~ \t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\n
+~~ \t\t\t\tREMEMBER THAT NAV-ONLY FILES MUST CONTAIN EXACTLY ONE NAV!\t\t\t\t\n
+~~ }\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\n
+\r\n
+NAV: nav0 once ~~ {\r\n
+\tjmp 1 2 3 90 {True} 5000.00003\r\n
+~~ }\r\n
+
+
+##### af-nav jump 500
+route mode=Once follow=00000000 "" count=1
+ wp Jump pos=00000000,1,2,3,0,True ref=00000000,0,0,0,0,False id=00000000 name="" class=0 valid=True text="" dur=5000 recall=PrimaryPortalRecall rid=0 rname="" jh=90 js=False jc=500 jd=Forward
+--- nav:
+uTank2 NAV 1.2\r\n
+4\r\n
+1\r\n
+9\r\n
+1\r\n
+2\r\n
+3\r\n
+0\r\n
+90\r\n
+False\r\n
+500.00003\r\n
+
+--- af:
+<nav-header>NAV:\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\n
+~~\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\n
+~~ All recognized NAV types:\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\n
+~~\t\tcircular\t\t\tfollow\t\t\t\t\t\t\t\t\t\t\t\t\t\t\n
+~~\t\tlinear\t\t\t\tonce\t\t\t\t\t\t\t\t\t\t\t\t\t\t\n
+~~\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\n
+~~ All recognized NAV NODE types:\t\t\t\t\t\t\t\t\t\t\t\t\t\t\n
+~~\t\tflw\t\t\t\t\tvnd\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\n
+~~\t\tpnt\t\t\t\t\tptl\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\n
+~~\t\trcl\t\t\t\t\ttlk\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\n
+~~\t\tpau\t\t\t\t\tchk\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\n
+~~\t\tcht\t\t\t\t\tjmp\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\n
+~~\t\tprt (deprecated in VTank)\t\t\t\t\t\t\t\t\t\t\t\t\t\t\n
+~~ \t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\n
+\n
+~~ \t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\n
+~~ \t\t\t\tREMEMBER THAT NAV-ONLY FILES MUST CONTAIN EXACTLY ONE NAV!\t\t\t\t\n
+~~ }\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\n
+\r\n
+NAV: nav0 once ~~ {\r\n
+\tjmp 1 2 3 90 {False} 500.00003\r\n
+~~ }\r\n
+
+
+##### af-nav jump 300.123456
+route mode=Once follow=00000000 "" count=1
+ wp Jump pos=00000000,1,2,3,0,True ref=00000000,0,0,0,0,False id=00000000 name="" class=0 valid=True text="" dur=5000 recall=PrimaryPortalRecall rid=0 rname="" jh=45 js=True jc=300 jd=Forward
+--- nav:
+uTank2 NAV 1.2\r\n
+4\r\n
+1\r\n
+9\r\n
+1\r\n
+2\r\n
+3\r\n
+0\r\n
+45\r\n
+True\r\n
+300.00003\r\n
+
+--- af:
+<nav-header>NAV:\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\n
+~~\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\n
+~~ All recognized NAV types:\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\n
+~~\t\tcircular\t\t\tfollow\t\t\t\t\t\t\t\t\t\t\t\t\t\t\n
+~~\t\tlinear\t\t\t\tonce\t\t\t\t\t\t\t\t\t\t\t\t\t\t\n
+~~\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\n
+~~ All recognized NAV NODE types:\t\t\t\t\t\t\t\t\t\t\t\t\t\t\n
+~~\t\tflw\t\t\t\t\tvnd\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\n
+~~\t\tpnt\t\t\t\t\tptl\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\n
+~~\t\trcl\t\t\t\t\ttlk\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\n
+~~\t\tpau\t\t\t\t\tchk\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\n
+~~\t\tcht\t\t\t\t\tjmp\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\n
+~~\t\tprt (deprecated in VTank)\t\t\t\t\t\t\t\t\t\t\t\t\t\t\n
+~~ \t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\n
+\n
+~~ \t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\n
+~~ \t\t\t\tREMEMBER THAT NAV-ONLY FILES MUST CONTAIN EXACTLY ONE NAV!\t\t\t\t\n
+~~ }\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\n
+\r\n
+NAV: nav0 once ~~ {\r\n
+\tjmp 1 2 3 45 {True} 300.00003\r\n
+~~ }\r\n
+
+
+##### af-nav jump 300.000045
+route mode=Once follow=00000000 "" count=1
+ wp Jump pos=00000000,1,2,3,0,True ref=00000000,0,0,0,0,False id=00000000 name="" class=0 valid=True text="" dur=5000 recall=PrimaryPortalRecall rid=0 rname="" jh=45 js=True jc=300 jd=Forward
+--- nav:
+uTank2 NAV 1.2\r\n
+4\r\n
+1\r\n
+9\r\n
+1\r\n
+2\r\n
+3\r\n
+0\r\n
+45\r\n
+True\r\n
+300.00003\r\n
+
+--- af:
+<nav-header>NAV:\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\n
+~~\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\n
+~~ All recognized NAV types:\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\n
+~~\t\tcircular\t\t\tfollow\t\t\t\t\t\t\t\t\t\t\t\t\t\t\n
+~~\t\tlinear\t\t\t\tonce\t\t\t\t\t\t\t\t\t\t\t\t\t\t\n
+~~\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\n
+~~ All recognized NAV NODE types:\t\t\t\t\t\t\t\t\t\t\t\t\t\t\n
+~~\t\tflw\t\t\t\t\tvnd\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\n
+~~\t\tpnt\t\t\t\t\tptl\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\n
+~~\t\trcl\t\t\t\t\ttlk\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\n
+~~\t\tpau\t\t\t\t\tchk\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\n
+~~\t\tcht\t\t\t\t\tjmp\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\n
+~~\t\tprt (deprecated in VTank)\t\t\t\t\t\t\t\t\t\t\t\t\t\t\n
+~~ \t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\n
+\n
+~~ \t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\n
+~~ \t\t\t\tREMEMBER THAT NAV-ONLY FILES MUST CONTAIN EXACTLY ONE NAV!\t\t\t\t\n
+~~ }\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\n
+\r\n
+NAV: nav0 once ~~ {\r\n
+\tjmp 1 2 3 45 {True} 300.00003\r\n
+~~ }\r\n
+
+
+##### af-nav jump 0.00004
+route mode=Once follow=00000000 "" count=1
+ wp Jump pos=00000000,1,2,3,0,True ref=00000000,0,0,0,0,False id=00000000 name="" class=0 valid=True text="" dur=5000 recall=PrimaryPortalRecall rid=0 rname="" jh=45 js=True jc=0 jd=StrafeLeft
+--- nav:
+uTank2 NAV 1.2\r\n
+4\r\n
+1\r\n
+9\r\n
+1\r\n
+2\r\n
+3\r\n
+0\r\n
+45\r\n
+True\r\n
+4E-05\r\n
+
+--- af:
+<nav-header>NAV:\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\n
+~~\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\n
+~~ All recognized NAV types:\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\n
+~~\t\tcircular\t\t\tfollow\t\t\t\t\t\t\t\t\t\t\t\t\t\t\n
+~~\t\tlinear\t\t\t\tonce\t\t\t\t\t\t\t\t\t\t\t\t\t\t\n
+~~\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\n
+~~ All recognized NAV NODE types:\t\t\t\t\t\t\t\t\t\t\t\t\t\t\n
+~~\t\tflw\t\t\t\t\tvnd\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\n
+~~\t\tpnt\t\t\t\t\tptl\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\n
+~~\t\trcl\t\t\t\t\ttlk\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\n
+~~\t\tpau\t\t\t\t\tchk\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\n
+~~\t\tcht\t\t\t\t\tjmp\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\n
+~~\t\tprt (deprecated in VTank)\t\t\t\t\t\t\t\t\t\t\t\t\t\t\n
+~~ \t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\n
+\n
+~~ \t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\n
+~~ \t\t\t\tREMEMBER THAT NAV-ONLY FILES MUST CONTAIN EXACTLY ONE NAV!\t\t\t\t\n
+~~ }\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\n
+\r\n
+NAV: nav0 once ~~ {\r\n
+\tjmp 1 2 3 45 {True} 0.00004\r\n
+~~ }\r\n
+
+
+##### af-nav jump 4E-05
+ERR line 3: 'jmp' arguments do not match the expected shape.
+
+##### af-nav jump -5
+route mode=Once follow=00000000 "" count=1
+ wp Jump pos=00000000,1,2,3,0,True ref=00000000,0,0,0,0,False id=00000000 name="" class=0 valid=True text="" dur=5000 recall=PrimaryPortalRecall rid=0 rname="" jh=45 js=True jc=-5 jd=Forward
+--- nav:
+uTank2 NAV 1.2\r\n
+4\r\n
+1\r\n
+9\r\n
+1\r\n
+2\r\n
+3\r\n
+0\r\n
+45\r\n
+True\r\n
+-4.99997\r\n
+
+--- af:
+<nav-header>NAV:\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\n
+~~\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\n
+~~ All recognized NAV types:\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\n
+~~\t\tcircular\t\t\tfollow\t\t\t\t\t\t\t\t\t\t\t\t\t\t\n
+~~\t\tlinear\t\t\t\tonce\t\t\t\t\t\t\t\t\t\t\t\t\t\t\n
+~~\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\n
+~~ All recognized NAV NODE types:\t\t\t\t\t\t\t\t\t\t\t\t\t\t\n
+~~\t\tflw\t\t\t\t\tvnd\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\n
+~~\t\tpnt\t\t\t\t\tptl\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\n
+~~\t\trcl\t\t\t\t\ttlk\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\n
+~~\t\tpau\t\t\t\t\tchk\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\n
+~~\t\tcht\t\t\t\t\tjmp\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\n
+~~\t\tprt (deprecated in VTank)\t\t\t\t\t\t\t\t\t\t\t\t\t\t\n
+~~ \t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\n
+\n
+~~ \t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\n
+~~ \t\t\t\tREMEMBER THAT NAV-ONLY FILES MUST CONTAIN EXACTLY ONE NAV!\t\t\t\t\n
+~~ }\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\n
+\r\n
+NAV: nav0 once ~~ {\r\n
+\tjmp 1 2 3 45 {True} -5.00003\r\n
+~~ }\r\n
+
+
+##### af-nav jump -300.00004
+route mode=Once follow=00000000 "" count=1
+ wp Jump pos=00000000,1,2,3,0,True ref=00000000,0,0,0,0,False id=00000000 name="" class=0 valid=True text="" dur=5000 recall=PrimaryPortalRecall rid=0 rname="" jh=45 js=True jc=-300 jd=Forward
+--- nav:
+uTank2 NAV 1.2\r\n
+4\r\n
+1\r\n
+9\r\n
+1\r\n
+2\r\n
+3\r\n
+0\r\n
+45\r\n
+True\r\n
+-299.99997\r\n
+
+--- af:
+<nav-header>NAV:\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\n
+~~\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\n
+~~ All recognized NAV types:\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\n
+~~\t\tcircular\t\t\tfollow\t\t\t\t\t\t\t\t\t\t\t\t\t\t\n
+~~\t\tlinear\t\t\t\tonce\t\t\t\t\t\t\t\t\t\t\t\t\t\t\n
+~~\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\n
+~~ All recognized NAV NODE types:\t\t\t\t\t\t\t\t\t\t\t\t\t\t\n
+~~\t\tflw\t\t\t\t\tvnd\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\n
+~~\t\tpnt\t\t\t\t\tptl\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\n
+~~\t\trcl\t\t\t\t\ttlk\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\n
+~~\t\tpau\t\t\t\t\tchk\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\n
+~~\t\tcht\t\t\t\t\tjmp\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\n
+~~\t\tprt (deprecated in VTank)\t\t\t\t\t\t\t\t\t\t\t\t\t\t\n
+~~ \t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\n
+\n
+~~ \t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\n
+~~ \t\t\t\tREMEMBER THAT NAV-ONLY FILES MUST CONTAIN EXACTLY ONE NAV!\t\t\t\t\n
+~~ }\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\n
+\r\n
+NAV: nav0 once ~~ {\r\n
+\tjmp 1 2 3 45 {True} -300.00003\r\n
+~~ }\r\n
+
+
+##### af-nav jump 2500.5
+route mode=Once follow=00000000 "" count=1
+ wp Jump pos=00000000,1,2,3,0,True ref=00000000,0,0,0,0,False id=00000000 name="" class=0 valid=True text="" dur=5000 recall=PrimaryPortalRecall rid=0 rname="" jh=45 js=True jc=2501 jd=Forward
+--- nav:
+uTank2 NAV 1.2\r\n
+4\r\n
+1\r\n
+9\r\n
+1\r\n
+2\r\n
+3\r\n
+0\r\n
+45\r\n
+True\r\n
+2501.00003\r\n
+
+--- af:
+<nav-header>NAV:\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\n
+~~\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\n
+~~ All recognized NAV types:\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\n
+~~\t\tcircular\t\t\tfollow\t\t\t\t\t\t\t\t\t\t\t\t\t\t\n
+~~\t\tlinear\t\t\t\tonce\t\t\t\t\t\t\t\t\t\t\t\t\t\t\n
+~~\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\n
+~~ All recognized NAV NODE types:\t\t\t\t\t\t\t\t\t\t\t\t\t\t\n
+~~\t\tflw\t\t\t\t\tvnd\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\n
+~~\t\tpnt\t\t\t\t\tptl\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\n
+~~\t\trcl\t\t\t\t\ttlk\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\n
+~~\t\tpau\t\t\t\t\tchk\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\n
+~~\t\tcht\t\t\t\t\tjmp\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\n
+~~\t\tprt (deprecated in VTank)\t\t\t\t\t\t\t\t\t\t\t\t\t\t\n
+~~ \t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\n
+\n
+~~ \t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\n
+~~ \t\t\t\tREMEMBER THAT NAV-ONLY FILES MUST CONTAIN EXACTLY ONE NAV!\t\t\t\t\n
+~~ }\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\n
+\r\n
+NAV: nav0 once ~~ {\r\n
+\tjmp 1 2 3 45 {True} 2501.00003\r\n
+~~ }\r\n
+
+
+##### af-nav jump 300.000040
+route mode=Once follow=00000000 "" count=1
+ wp Jump pos=00000000,1,2,3,0,True ref=00000000,0,0,0,0,False id=00000000 name="" class=0 valid=True text="" dur=5000 recall=PrimaryPortalRecall rid=0 rname="" jh=45 js=True jc=300 jd=Forward
+--- nav:
+uTank2 NAV 1.2\r\n
+4\r\n
+1\r\n
+9\r\n
+1\r\n
+2\r\n
+3\r\n
+0\r\n
+45\r\n
+True\r\n
+300.00003\r\n
+
+--- af:
+<nav-header>NAV:\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\n
+~~\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\n
+~~ All recognized NAV types:\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\n
+~~\t\tcircular\t\t\tfollow\t\t\t\t\t\t\t\t\t\t\t\t\t\t\n
+~~\t\tlinear\t\t\t\tonce\t\t\t\t\t\t\t\t\t\t\t\t\t\t\n
+~~\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\n
+~~ All recognized NAV NODE types:\t\t\t\t\t\t\t\t\t\t\t\t\t\t\n
+~~\t\tflw\t\t\t\t\tvnd\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\n
+~~\t\tpnt\t\t\t\t\tptl\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\n
+~~\t\trcl\t\t\t\t\ttlk\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\n
+~~\t\tpau\t\t\t\t\tchk\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\n
+~~\t\tcht\t\t\t\t\tjmp\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\n
+~~\t\tprt (deprecated in VTank)\t\t\t\t\t\t\t\t\t\t\t\t\t\t\n
+~~ \t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\n
+\n
+~~ \t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\n
+~~ \t\t\t\tREMEMBER THAT NAV-ONLY FILES MUST CONTAIN EXACTLY ONE NAV!\t\t\t\t\n
+~~ }\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\n
+\r\n
+NAV: nav0 once ~~ {\r\n
+\tjmp 1 2 3 45 {True} 300.00003\r\n
+~~ }\r\n
+
+
+##### af-nav jump +300.00004
+route mode=Once follow=00000000 "" count=1
+ wp Jump pos=00000000,1,2,3,0,True ref=00000000,0,0,0,0,False id=00000000 name="" class=0 valid=True text="" dur=5000 recall=PrimaryPortalRecall rid=0 rname="" jh=45 js=True jc=300 jd=Forward
+--- nav:
+uTank2 NAV 1.2\r\n
+4\r\n
+1\r\n
+9\r\n
+1\r\n
+2\r\n
+3\r\n
+0\r\n
+45\r\n
+True\r\n
+300.00003\r\n
+
+--- af:
+<nav-header>NAV:\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\n
+~~\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\n
+~~ All recognized NAV types:\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\n
+~~\t\tcircular\t\t\tfollow\t\t\t\t\t\t\t\t\t\t\t\t\t\t\n
+~~\t\tlinear\t\t\t\tonce\t\t\t\t\t\t\t\t\t\t\t\t\t\t\n
+~~\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\n
+~~ All recognized NAV NODE types:\t\t\t\t\t\t\t\t\t\t\t\t\t\t\n
+~~\t\tflw\t\t\t\t\tvnd\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\n
+~~\t\tpnt\t\t\t\t\tptl\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\n
+~~\t\trcl\t\t\t\t\ttlk\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\n
+~~\t\tpau\t\t\t\t\tchk\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\n
+~~\t\tcht\t\t\t\t\tjmp\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\n
+~~\t\tprt (deprecated in VTank)\t\t\t\t\t\t\t\t\t\t\t\t\t\t\n
+~~ \t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\n
+\n
+~~ \t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\n
+~~ \t\t\t\tREMEMBER THAT NAV-ONLY FILES MUST CONTAIN EXACTLY ONE NAV!\t\t\t\t\n
+~~ }\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\n
+\r\n
+NAV: nav0 once ~~ {\r\n
+\tjmp 1 2 3 45 {True} 300.00003\r\n
+~~ }\r\n
+
+
+##### af-nav pause 1500.5
+route mode=Once follow=00000000 "" count=1
+ wp Pause pos=00000000,1,2,3,0,True ref=00000000,0,0,0,0,False id=00000000 name="" class=0 valid=True text="" dur=1501 recall=PrimaryPortalRecall rid=0 rname="" jh=0 js=False jc=1000 jd=Forward
+--- nav:
+uTank2 NAV 1.2\r\n
+4\r\n
+1\r\n
+3\r\n
+1\r\n
+2\r\n
+3\r\n
+0\r\n
+1501\r\n
+
+--- af:
+<nav-header>NAV:\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\n
+~~\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\n
+~~ All recognized NAV types:\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\n
+~~\t\tcircular\t\t\tfollow\t\t\t\t\t\t\t\t\t\t\t\t\t\t\n
+~~\t\tlinear\t\t\t\tonce\t\t\t\t\t\t\t\t\t\t\t\t\t\t\n
+~~\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\n
+~~ All recognized NAV NODE types:\t\t\t\t\t\t\t\t\t\t\t\t\t\t\n
+~~\t\tflw\t\t\t\t\tvnd\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\n
+~~\t\tpnt\t\t\t\t\tptl\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\n
+~~\t\trcl\t\t\t\t\ttlk\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\n
+~~\t\tpau\t\t\t\t\tchk\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\n
+~~\t\tcht\t\t\t\t\tjmp\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\n
+~~\t\tprt (deprecated in VTank)\t\t\t\t\t\t\t\t\t\t\t\t\t\t\n
+~~ \t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\n
+\n
+~~ \t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\n
+~~ \t\t\t\tREMEMBER THAT NAV-ONLY FILES MUST CONTAIN EXACTLY ONE NAV!\t\t\t\t\n
+~~ }\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\n
+\r\n
+NAV: nav0 once ~~ {\r\n
+\tpau 1 2 3 1501\r\n
+~~ }\r\n
+
+
+##### af-nav pause -300.00004
+route mode=Once follow=00000000 "" count=1
+ wp Pause pos=00000000,1,2,3,0,True ref=00000000,0,0,0,0,False id=00000000 name="" class=0 valid=True text="" dur=-300 recall=PrimaryPortalRecall rid=0 rname="" jh=0 js=False jc=1000 jd=Forward
+--- nav:
+uTank2 NAV 1.2\r\n
+4\r\n
+1\r\n
+3\r\n
+1\r\n
+2\r\n
+3\r\n
+0\r\n
+-300\r\n
+
+--- af:
+<nav-header>NAV:\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\n
+~~\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\n
+~~ All recognized NAV types:\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\n
+~~\t\tcircular\t\t\tfollow\t\t\t\t\t\t\t\t\t\t\t\t\t\t\n
+~~\t\tlinear\t\t\t\tonce\t\t\t\t\t\t\t\t\t\t\t\t\t\t\n
+~~\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\n
+~~ All recognized NAV NODE types:\t\t\t\t\t\t\t\t\t\t\t\t\t\t\n
+~~\t\tflw\t\t\t\t\tvnd\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\n
+~~\t\tpnt\t\t\t\t\tptl\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\n
+~~\t\trcl\t\t\t\t\ttlk\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\n
+~~\t\tpau\t\t\t\t\tchk\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\n
+~~\t\tcht\t\t\t\t\tjmp\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\n
+~~\t\tprt (deprecated in VTank)\t\t\t\t\t\t\t\t\t\t\t\t\t\t\n
+~~ \t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\n
+\n
+~~ \t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\n
+~~ \t\t\t\tREMEMBER THAT NAV-ONLY FILES MUST CONTAIN EXACTLY ONE NAV!\t\t\t\t\n
+~~ }\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\n
+\r\n
+NAV: nav0 once ~~ {\r\n
+\tpau 1 2 3 -300\r\n
+~~ }\r\n
+
+
+##### af-nav recalls
+route mode=Once follow=00000000 "" count=4
+ wp Recall pos=00000000,59.5,-28.4,0.05,0,True ref=00000000,0,0,0,0,False id=00000000 name="" class=0 valid=True text="" dur=5000 recall=LifestoneRecall rid=1635 rname="Lifestone Recall" jh=0 js=False jc=1000 jd=Forward
+ wp Recall pos=00000000,1,2,3,0,True ref=00000000,0,0,0,0,False id=00000000 name="" class=0 valid=True text="" dur=5000 recall=PrimaryPortalRecall rid=0 rname="Unknown Spell" jh=0 js=False jc=1000 jd=Forward
+ wp Recall pos=00000000,1,2,3,0,True ref=00000000,0,0,0,0,False id=00000000 name="" class=0 valid=True text="" dur=5000 recall=PrimaryPortalRecall rid=0 rname="" jh=0 js=False jc=1000 jd=Forward
+ wp Recall pos=00000000,1,2,3,0,True ref=00000000,0,0,0,0,False id=00000000 name="" class=0 valid=True text="" dur=5000 recall=Marketplace rid=0 rname="Marketplace Recall" jh=0 js=False jc=1000 jd=Forward
+--- nav:
+uTank2 NAV 1.2\r\n
+4\r\n
+4\r\n
+2\r\n
+59.5\r\n
+-28.4\r\n
+0.05\r\n
+0\r\n
+1635\r\n
+2\r\n
+1\r\n
+2\r\n
+3\r\n
+0\r\n
+48\r\n
+2\r\n
+1\r\n
+2\r\n
+3\r\n
+0\r\n
+48\r\n
+2\r\n
+1\r\n
+2\r\n
+3\r\n
+0\r\n
+0\r\n
+
+--- af:
+<nav-header>NAV:\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\n
+~~\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\n
+~~ All recognized NAV types:\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\n
+~~\t\tcircular\t\t\tfollow\t\t\t\t\t\t\t\t\t\t\t\t\t\t\n
+~~\t\tlinear\t\t\t\tonce\t\t\t\t\t\t\t\t\t\t\t\t\t\t\n
+~~\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\n
+~~ All recognized NAV NODE types:\t\t\t\t\t\t\t\t\t\t\t\t\t\t\n
+~~\t\tflw\t\t\t\t\tvnd\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\n
+~~\t\tpnt\t\t\t\t\tptl\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\n
+~~\t\trcl\t\t\t\t\ttlk\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\n
+~~\t\tpau\t\t\t\t\tchk\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\n
+~~\t\tcht\t\t\t\t\tjmp\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\n
+~~\t\tprt (deprecated in VTank)\t\t\t\t\t\t\t\t\t\t\t\t\t\t\n
+~~ \t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\n
+\n
+~~ \t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\n
+~~ \t\t\t\tREMEMBER THAT NAV-ONLY FILES MUST CONTAIN EXACTLY ONE NAV!\t\t\t\t\n
+~~ }\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\n
+\r\n
+NAV: nav0 once ~~ {\r\n
+\trcl 59.5 -28.4 0.05 {Lifestone Recall}\r\n
+\trcl 1 2 3 {Unknown Spell}\r\n
+\trcl 1 2 3 {}\r\n
+\trcl 1 2 3 {Marketplace Recall}\r\n
+~~ }\r\n
+
+
+##### af-nav numbers
+route mode=Once follow=00000000 "" count=3
+ wp Point pos=00000000,0.30000000000000004,-0,1,0,True ref=00000000,0,0,0,0,False id=00000000 name="" class=0 valid=True text="" dur=5000 recall=PrimaryPortalRecall rid=0 rname="" jh=0 js=False jc=1000 jd=Forward
+ wp Point pos=00000000,12.300000190734863,-12.5,2.08333134651184E-05,0,True ref=00000000,0,0,0,0,False id=00000000 name="" class=0 valid=True text="" dur=5000 recall=PrimaryPortalRecall rid=0 rname="" jh=0 js=False jc=1000 jd=Forward
+ wp Point pos=00000000,10000000000000000,1,2,0,True ref=00000000,0,0,0,0,False id=00000000 name="" class=0 valid=True text="" dur=5000 recall=PrimaryPortalRecall rid=0 rname="" jh=0 js=False jc=1000 jd=Forward
+--- nav:
+uTank2 NAV 1.2\r\n
+4\r\n
+3\r\n
+0\r\n
+0.30000000000000004\r\n
+0\r\n
+1\r\n
+0\r\n
+0\r\n
+12.300000190734863\r\n
+-12.5\r\n
+2.08333134651184E-05\r\n
+0\r\n
+0\r\n
+10000000000000000\r\n
+1\r\n
+2\r\n
+0\r\n
+
+--- af:
+<nav-header>NAV:\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\n
+~~\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\n
+~~ All recognized NAV types:\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\n
+~~\t\tcircular\t\t\tfollow\t\t\t\t\t\t\t\t\t\t\t\t\t\t\n
+~~\t\tlinear\t\t\t\tonce\t\t\t\t\t\t\t\t\t\t\t\t\t\t\n
+~~\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\n
+~~ All recognized NAV NODE types:\t\t\t\t\t\t\t\t\t\t\t\t\t\t\n
+~~\t\tflw\t\t\t\t\tvnd\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\n
+~~\t\tpnt\t\t\t\t\tptl\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\n
+~~\t\trcl\t\t\t\t\ttlk\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\n
+~~\t\tpau\t\t\t\t\tchk\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\n
+~~\t\tcht\t\t\t\t\tjmp\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\n
+~~\t\tprt (deprecated in VTank)\t\t\t\t\t\t\t\t\t\t\t\t\t\t\n
+~~ \t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\n
+\n
+~~ \t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\n
+~~ \t\t\t\tREMEMBER THAT NAV-ONLY FILES MUST CONTAIN EXACTLY ONE NAV!\t\t\t\t\n
+~~ }\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\n
+\r\n
+NAV: nav0 once ~~ {\r\n
+\tpnt 0.30000000000000004 -0 1\r\n
+\tpnt 12.300000190734863 -12.5 2.08333134651184E-05\r\n
+\tpnt 10000000000000000 1 2\r\n
+~~ }\r\n
+
+
+##### af-nav portal ids
+route mode=Once follow=00000000 "" count=2
+ wp Portal pos=00000000,1,2,3,0,True ref=00000000,0,0,0,0,False id=80000001 name="" class=0 valid=True text="" dur=5000 recall=PrimaryPortalRecall rid=0 rname="" jh=0 js=False jc=1000 jd=Forward
+ wp OpenVendor pos=00000000,1,2,3,0,True ref=00000000,0,0,0,0,False id=FFFFFFFF name="v" class=0 valid=True text="" dur=5000 recall=PrimaryPortalRecall rid=0 rname="" jh=0 js=False jc=1000 jd=Forward
+--- nav:
+uTank2 NAV 1.2\r\n
+4\r\n
+2\r\n
+1\r\n
+1\r\n
+2\r\n
+3\r\n
+0\r\n
+-2147483647\r\n
+5\r\n
+1\r\n
+2\r\n
+3\r\n
+0\r\n
+-1\r\n
+v\r\n
+
+--- af:
+<nav-header>NAV:\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\n
+~~\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\n
+~~ All recognized NAV types:\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\n
+~~\t\tcircular\t\t\tfollow\t\t\t\t\t\t\t\t\t\t\t\t\t\t\n
+~~\t\tlinear\t\t\t\tonce\t\t\t\t\t\t\t\t\t\t\t\t\t\t\n
+~~\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\n
+~~ All recognized NAV NODE types:\t\t\t\t\t\t\t\t\t\t\t\t\t\t\n
+~~\t\tflw\t\t\t\t\tvnd\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\n
+~~\t\tpnt\t\t\t\t\tptl\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\n
+~~\t\trcl\t\t\t\t\ttlk\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\n
+~~\t\tpau\t\t\t\t\tchk\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\n
+~~\t\tcht\t\t\t\t\tjmp\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\n
+~~\t\tprt (deprecated in VTank)\t\t\t\t\t\t\t\t\t\t\t\t\t\t\n
+~~ \t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\n
+\n
+~~ \t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\n
+~~ \t\t\t\tREMEMBER THAT NAV-ONLY FILES MUST CONTAIN EXACTLY ONE NAV!\t\t\t\t\n
+~~ }\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\n
+\r\n
+NAV: nav0 once ~~ {\r\n
+\tprt 1 2 3 80000001\r\n
+\tvnd 1 2 3 FFFFFFFF {v}\r\n
+~~ }\r\n
+
+
+##### af-nav chat newline escape
+route mode=Once follow=00000000 "" count=1
+ wp ChatCommand pos=00000000,1,2,3,0,True ref=00000000,0,0,0,0,False id=00000000 name="" class=0 valid=True text="a\\nb" dur=5000 recall=PrimaryPortalRecall rid=0 rname="" jh=0 js=False jc=1000 jd=Forward
+--- nav:
+uTank2 NAV 1.2\r\n
+4\r\n
+1\r\n
+4\r\n
+1\r\n
+2\r\n
+3\r\n
+0\r\n
+a\nb\r\n
+
+--- af:
+<nav-header>NAV:\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\n
+~~\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\n
+~~ All recognized NAV types:\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\n
+~~\t\tcircular\t\t\tfollow\t\t\t\t\t\t\t\t\t\t\t\t\t\t\n
+~~\t\tlinear\t\t\t\tonce\t\t\t\t\t\t\t\t\t\t\t\t\t\t\n
+~~\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\n
+~~ All recognized NAV NODE types:\t\t\t\t\t\t\t\t\t\t\t\t\t\t\n
+~~\t\tflw\t\t\t\t\tvnd\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\n
+~~\t\tpnt\t\t\t\t\tptl\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\n
+~~\t\trcl\t\t\t\t\ttlk\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\n
+~~\t\tpau\t\t\t\t\tchk\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\n
+~~\t\tcht\t\t\t\t\tjmp\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\n
+~~\t\tprt (deprecated in VTank)\t\t\t\t\t\t\t\t\t\t\t\t\t\t\n
+~~ \t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\n
+\n
+~~ \t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\n
+~~ \t\t\t\tREMEMBER THAT NAV-ONLY FILES MUST CONTAIN EXACTLY ONE NAV!\t\t\t\t\n
+~~ }\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\n
+\r\n
+NAV: nav0 once ~~ {\r\n
+\tcht 1 2 3 {a\nb}\r\n
+~~ }\r\n
+
+

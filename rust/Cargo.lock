@@ -98,6 +98,7 @@ dependencies = [
 name = "mosstank-formats"
 version = "0.6.0-dev"
 dependencies = [
+ "ac-plugin-abi",
  "mosstank-dotnet",
  "openac-plugin-compat",
  "thiserror",

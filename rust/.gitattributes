@@ -1,0 +1,4 @@
+# Byte-exact data: the .af header blocks keep their tabs and bare line feeds.
+crates/mosstank-formats/src/af/*.txt -text
+# Golden data written by the C# plugin.
+crates/mosstank-formats/tests/golden/* -text
