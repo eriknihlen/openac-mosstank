@@ -50,6 +50,9 @@ use crate::{MacroLog, MacroLogChannel, post};
 
 pub use equip::AmmunitionPlan;
 
+/// Who is told each new status line of the fight.
+pub type StatusHook = Box<dyn FnMut(&str)>;
+
 /// The crafting the ammunition choice may fall back on (the C#'s
 /// `BindAmmunitionCraftRequest`): plans are opaque handles the crafting
 /// owner understands.
@@ -235,6 +238,8 @@ pub struct CombatController {
     status: String,
     held_item_driven_by_turn: bool,
     log: Option<MacroLog>,
+    /// Told each new status line (`StatusChanged`).
+    status_changed: Option<StatusHook>,
     gate: SharedCombatModeGate,
     /// Whether the gate's stops are the fight's to run: true for the gate
     /// the fight made itself, false once a gate is bound from outside, whose
@@ -369,6 +374,7 @@ impl CombatController {
             status: "Combat off".to_owned(),
             held_item_driven_by_turn: false,
             log: None,
+            status_changed: None,
             gate,
             owns_gate_stops: true,
             gate_ammunition_plan: None,
@@ -448,6 +454,12 @@ impl CombatController {
     ) {
         self.cast_sharing_enabled = enabled;
         self.cast_sharing_peer_tag = peer_tag;
+    }
+
+    /// Who is told each new status line (`StatusChanged`): a line the
+    /// status already says is not told again.
+    pub fn set_status_changed(&mut self, hook: Option<StatusHook>) {
+        self.status_changed = hook;
     }
 
     /// Where the macro log lines go.
@@ -598,7 +610,14 @@ impl CombatController {
     // --- Helpers every part uses.
 
     fn set_status(&mut self, status: impl Into<String>) {
-        self.status = status.into();
+        let status = status.into();
+        if status == self.status {
+            return;
+        }
+        self.status = status;
+        if let Some(hook) = &mut self.status_changed {
+            hook(&self.status);
+        }
     }
 
     fn log_line(&self, channel: MacroLogChannel, text: &str) {

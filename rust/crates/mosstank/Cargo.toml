@@ -28,6 +28,7 @@ mosstank-buffs.workspace = true
 mosstank-combat.workspace = true
 mosstank-settings.workspace = true
 mosstank-dotnet.workspace = true
+mosstank-session.workspace = true
 
 [lints]
 workspace = true

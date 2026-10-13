@@ -139,6 +139,7 @@ dependencies = [
  "mosstank-loot",
  "mosstank-meta",
  "mosstank-nav",
+ "mosstank-session",
  "mosstank-settings",
  "mosstank-stores",
  "mosstank-ub",

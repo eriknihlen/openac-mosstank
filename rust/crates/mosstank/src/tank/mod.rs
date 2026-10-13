@@ -22,6 +22,7 @@ mod peers;
 mod profiles;
 mod rules;
 mod services;
+mod session;
 pub mod ub;
 
 use std::cell::{Cell, RefCell};
@@ -97,16 +98,48 @@ pub(crate) type LineQueue = Rc<RefCell<Vec<QueuedLine>>>;
 #[derive(Debug, Default)]
 pub(crate) struct HostClock {
     utc_ms: Cell<i64>,
+    utc_100ns: Cell<i64>,
     offset_minutes: Cell<i32>,
+    offset_seconds: Cell<i32>,
     monotonic: Cell<u64>,
 }
 
 impl HostClock {
-    /// Takes the client's reading.
+    /// Takes the client's reading. The finer readings are taken when they
+    /// agree with the millisecond ones (a host that leaves them unset has
+    /// only those).
     pub(crate) fn set(&self, clock: &ac_plugin_abi::host::Clock) {
         self.utc_ms.set(clock.utc_unix_ms);
+        self.utc_100ns.set(
+            if clock.utc_unix_100ns.div_euclid(10_000) == clock.utc_unix_ms {
+                clock.utc_unix_100ns
+            } else {
+                clock.utc_unix_ms.saturating_mul(10_000)
+            },
+        );
         self.offset_minutes.set(clock.utc_offset_minutes);
+        self.offset_seconds.set(
+            if clock.utc_offset_seconds.div_euclid(60) == clock.utc_offset_minutes {
+                clock.utc_offset_seconds
+            } else {
+                clock.utc_offset_minutes.saturating_mul(60)
+            },
+        );
         self.monotonic.set(clock.monotonic_ms);
+    }
+}
+
+impl mosstank_session::SessionClock for HostClock {
+    fn utc_now_100ns(&self) -> i64 {
+        self.utc_100ns.get()
+    }
+
+    fn local_offset_seconds(&self) -> i32 {
+        self.offset_seconds.get()
+    }
+
+    fn monotonic_ms(&self) -> u64 {
+        self.monotonic.get()
     }
 }
 
@@ -233,6 +266,9 @@ pub struct Core {
     pub(crate) route_after_kill: Rc<Cell<bool>>,
     /// The peer features asked of the other clients.
     pub(crate) peers: peers::PeerState,
+    /// The session's own records: the action history and debug log, the
+    /// kill statistics, the game database check, the published meta state.
+    pub(crate) session: session::SessionParts,
 }
 
 /// The macro shell.
@@ -569,6 +605,7 @@ impl Tank {
         let gate: SharedCombatModeGate = Rc::new(RefCell::new(CombatModeGate::new()));
         let tracker: SharedCastTracker = Rc::new(RefCell::new(SpellCastTracker::new()));
         let first_run_guidance_pending = needs_first_run_guidance(client);
+        let session = session::SessionParts::new(client, clock.clone());
 
         let folder_lines = lines.clone();
         let announce_lines = lines.clone();
@@ -686,8 +723,18 @@ impl Tank {
             meta_interval_pending: None,
             route_after_kill: Rc::new(Cell::new(false)),
             peers: peers::PeerState::default(),
+            session,
         };
         core.bind_controller_hooks();
+        // The history hears every new status line of the fight, and starts
+        // with the one it has (`RecordActionHistory`).
+        let history = core.session.history.clone();
+        core.combat
+            .set_status_changed(Some(Box::new(move |status: &str| {
+                history.borrow_mut().record_combat(status);
+            })));
+        let status = core.combat.status().to_owned();
+        core.session.history.borrow_mut().record_combat(&status);
 
         // Before any store reads anything: every key they use is addressed
         // inside the plugin's own folder.
@@ -695,6 +742,18 @@ impl Tank {
         core.folders.prepare_start_on(client.stores());
 
         let mut ub = ub::UbParts::new(client);
+        // The UB store's binding lays out the character's own folders
+        // (`InitializeUbSettings`).
+        {
+            let character = client.rules().character();
+            core.folders.prepare_character(
+                client
+                    .stores()
+                    .storage(mosstank_stores::storage::Root::Profiles),
+                Some(&character.world),
+                Some(&character.name),
+            );
+        }
         {
             // The sharing switch and the peer tag are read from the UB settings
             // on every look, so an edit applies at once.
@@ -922,7 +981,13 @@ impl Tank {
         use ac_plugin_abi::Event;
         self.begin_call(client);
         let (mut cx, _) = self.cx(client);
+        // The kill statistics hear the client before the meta does: the C#
+        // recorder subscribes first.
+        cx.core.kill_statistics_event(cx.client, event);
         match event {
+            Event::Net(ac_plugin_abi::net::NetEvent::HttpCompleted(reply)) => {
+                cx.core.on_http_reply(cx.client, reply);
+            }
             Event::LoginComplete => cx.meta.on_login_complete(),
             Event::Logoff => {
                 cx.with_engine(|engine, host, services| engine.on_logoff(host, services));
@@ -958,6 +1023,7 @@ impl Tank {
         self.begin_call(client);
         let (mut cx, _) = self.cx(client);
         cx.core.release_peer_subscriptions(cx.client);
+        cx.core.dispose_session_records(cx.client);
         // The UB tools' runs end with the plugin, and the name tags give
         // their labels back.
         cx.with_ub(|commands, call| {
@@ -1127,6 +1193,7 @@ impl Tank {
     /// The start of every call: the client shows UB lines as the UB
     /// settings say.
     pub(crate) fn begin_call(&mut self, client: &mut dyn TankClient) {
+        self.core.clock.set(&client.clock());
         client.set_ub_displays(self.ub.displays());
     }
 

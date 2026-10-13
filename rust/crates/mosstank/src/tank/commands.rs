@@ -46,7 +46,7 @@ const VTANK_HELP: [&str; 4] = [
 const LOG_TYPES: &str = "Log types: ActiveRule SalvageList SpellCast RuleInfo Timers CastInfo DebuffChoice Loot CharProps Misc BusyState";
 
 /// Verbs whose tools are not converted yet.
-const NOT_CONVERTED_VERBS: [&str; 20] = [
+const NOT_CONVERTED_VERBS: [&str; 18] = [
     "tapjump",
     "jump",
     "addnavjump",
@@ -61,8 +61,6 @@ const NOT_CONVERTED_VERBS: [&str; 20] = [
     "dumpmetavars",
     "listmetafunctions",
     "metafunchelp",
-    "getdb",
-    "gamedb",
     "clearbusy",
     "dumpspells",
     "dumpspecies",
@@ -146,6 +144,8 @@ pub(crate) fn execute_vtank(cx: &mut TankCx<'_>, input: &str) {
             Core::write_vtank(cx.client, &format!("Portal space toggle count: {count}"));
         }
         "refresh" => Core::write_vtank(cx.client, "Settings pages reloaded."),
+        "getdb" => cx.core.start_game_info_update_command(cx.client),
+        "gamedb" => cx.core.game_db_command(cx.client, &arguments),
         "log" => log_command(cx, &arguments),
         "lockdump" => {
             let automation = cx.client.rules();

@@ -85,6 +85,16 @@ pub trait SessionClient {
     /// How each kind of UB line is shown, from the UB settings (the four
     /// kinds in `UbLineKind` order).
     fn set_ub_displays(&mut self, displays: [mosstank_meta::host::UbDisplay; 4]);
+    /// Sends an HTTP request: its handle; the reply comes back as an event.
+    ///
+    /// # Errors
+    /// The request cannot be sent (the host is not allowed, say).
+    fn http_request(&mut self, request: ac_plugin_abi::net::HttpRequest) -> Result<u32, String>;
+    /// Forgets a request.
+    fn net_close(&mut self, handle: u32);
+    /// Publishes a line on the host's status board, for other plugins to
+    /// read; whether it was taken.
+    fn status_publish(&mut self, key: &str, value: Option<&str>) -> bool;
 }
 
 impl SessionClient for crate::automation::HostAutomation<'_, '_> {
@@ -98,5 +108,17 @@ impl SessionClient for crate::automation::HostAutomation<'_, '_> {
 
     fn set_ub_displays(&mut self, displays: [mosstank_meta::host::UbDisplay; 4]) {
         self.ub_displays = Some(displays);
+    }
+
+    fn http_request(&mut self, request: ac_plugin_abi::net::HttpRequest) -> Result<u32, String> {
+        self.host.http_request(request)
+    }
+
+    fn net_close(&mut self, handle: u32) {
+        self.host.net_close(handle);
+    }
+
+    fn status_publish(&mut self, key: &str, value: Option<&str>) -> bool {
+        self.host.status_publish(key, value)
     }
 }
