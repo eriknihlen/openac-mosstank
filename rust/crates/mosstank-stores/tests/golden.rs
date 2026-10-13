@@ -8,20 +8,25 @@
 //!
 //! Source: the C# `MossTankProfileStore` (with its side-car, legacy and
 //! preferences documents), `MossTankLootProfileStore` and
-//! `MossTankRouteProfileStore` as black boxes over the scenarios.
+//! `MossTankRouteProfileStore` and `MossTankMetaProfileStore` as black boxes
+//! over the scenarios.
 
 use std::fmt::Write as _;
 use std::path::PathBuf;
 
 use mosstank_dotnet::collections::{IgnoreCaseStringSet, OrdinalStringSet};
-use mosstank_formats::nav;
+use mosstank_formats::meta::{
+    MetaAction, MetaActionKind, MetaCondition, MetaConditionKind, MetaProfile, MetaRule,
+};
 use mosstank_formats::route::{
     ClientPathing, NavigationSettings, Position, RouteMode, RouteWaypoint, RouteWaypointType,
 };
 use mosstank_formats::utl::{self, LootAction, LootRule, VtankLootRequirement};
+use mosstank_formats::{met, nav};
 use mosstank_settings::model::{AllSettings, BuffItemEnchantRow, ConsumableCategory, LootSettings};
 use mosstank_settings::monster::{MonsterRule, MonsterRuleActions, MonsterValue, MonsterValueKind};
 use mosstank_stores::loot_store::LootProfileStore;
+use mosstank_stores::meta_store::MetaProfileStore;
 use mosstank_stores::profile_store::{ProfileLoad, ProfileStore};
 use mosstank_stores::recovery::sha256_hex;
 use mosstank_stores::route_store::RouteProfileStore;
@@ -1003,9 +1008,263 @@ fn route_bare_lf(out: &mut String) {
     files(out, &host);
 }
 
+// ---- The meta store -------------------------------------------------------------
+
+fn meta_text(profile: &MetaProfile) -> String {
+    let rules: Vec<String> = profile
+        .rules
+        .iter()
+        .map(|rule| {
+            let condition = MetaConditionKind::ALL
+                .iter()
+                .position(|kind| *kind == rule.condition.kind)
+                .unwrap();
+            let action = MetaActionKind::ALL
+                .iter()
+                .position(|kind| *kind == rule.action.kind)
+                .unwrap();
+            let route = rule
+                .action
+                .embedded_route
+                .as_ref()
+                .map_or_else(|| "-".to_owned(), |route| route.waypoints.len().to_string());
+            format!(
+                "{}|{condition}|{action}|{}|{}|{route}",
+                rule.state,
+                rule.action.text,
+                bool_text(rule.enabled)
+            )
+        })
+        .collect();
+    format!("meta {}", rules.join(";"))
+}
+
+fn two_rules() -> MetaProfile {
+    let mut say = MetaAction::of(MetaActionKind::ChatCommand);
+    say.text = "/say hi".to_owned();
+    let mut chat = MetaCondition::of(MetaConditionKind::ChatMessage);
+    chat.text = "x".to_owned();
+    let mut back = MetaAction::of(MetaActionKind::SetMetaState);
+    back.text = "Default".to_owned();
+    MetaProfile {
+        rules: vec![
+            MetaRule::new("Default", MetaCondition::always(), say),
+            MetaRule::new("Two", chat, back),
+        ],
+    }
+}
+
+fn with_route() -> MetaProfile {
+    let mut profile = two_rules();
+    let mut load = MetaAction::of(MetaActionKind::LoadEmbeddedNavigationRoute);
+    load.text = "Loop".to_owned();
+    load.embedded_route = Some(Box::new(two_points()));
+    profile.rules.push(MetaRule::new(
+        "Default",
+        MetaCondition::of(MetaConditionKind::NavigationRouteEmpty),
+        load,
+    ));
+    profile
+}
+
+fn meta_state(out: &mut String, store: &MetaProfileStore, host: &mut MemoryHost) {
+    writeln!(out, "selected {}", store.selected(host).unwrap()).unwrap();
+    writeln!(
+        out,
+        "names {}",
+        store.available_names(host).unwrap().join("|")
+    )
+    .unwrap();
+}
+
+fn meta_load(out: &mut String, store: &mut MetaProfileStore, host: &mut MemoryHost) -> MetaProfile {
+    let loaded = store.load_current(host, None).unwrap();
+    writeln!(
+        out,
+        "load {} {}",
+        bool_text(store.last_load_succeeded()),
+        meta_text(&loaded)
+    )
+    .unwrap();
+    loaded
+}
+
+fn meta_first_run(out: &mut String) {
+    let mut host = host();
+    let mut store = MetaProfileStore::new();
+    let bound = store.bind_character(&mut host, Some("Acdream")).unwrap();
+    writeln!(out, "bind {}", bool_text(bound)).unwrap();
+    meta_load(out, &mut store, &mut host);
+    let saved = store.save_current(&mut host, &two_rules());
+    writeln!(out, "save {}", bool_text(saved)).unwrap();
+    meta_load(out, &mut store, &mut host);
+    meta_state(out, &store, &mut host);
+    files(out, &host);
+}
+
+fn meta_named(out: &mut String) {
+    let mut host = host();
+    let mut store = MetaProfileStore::new();
+    store.bind_character(&mut host, Some("Acdream")).unwrap();
+    store.load_current(&mut host, None).unwrap();
+    store.save_current(&mut host, &two_rules());
+    let (created, notice) = store
+        .create(&mut host, Some("Hunt"), true, &two_rules())
+        .unwrap();
+    writeln!(out, "create {} {notice}", bool_text(created)).unwrap();
+    let (created, notice) = store
+        .create(&mut host, Some("Hunt.af"), false, &two_rules())
+        .unwrap();
+    writeln!(out, "create {} {notice}", bool_text(created)).unwrap();
+    let (created, notice) = store
+        .create(&mut host, Some("By char"), false, &two_rules())
+        .unwrap();
+    writeln!(out, "create {} {notice}", bool_text(created)).unwrap();
+    meta_state(out, &store, &mut host);
+    let selected = store.select(&mut host, Some("Hunt"), false).unwrap();
+    writeln!(out, "select {}", bool_text(selected)).unwrap();
+    meta_load(out, &mut store, &mut host);
+    let exact = store.select(&mut host, Some("Hunt.af"), true).unwrap();
+    writeln!(out, "select exact {}", bool_text(exact)).unwrap();
+    meta_load(out, &mut store, &mut host);
+    meta_state(out, &store, &mut host);
+    writeln!(
+        out,
+        "exists {} {}",
+        bool_text(store.exists(&mut host, Some("Hunt")).unwrap()),
+        bool_text(store.exists(&mut host, Some("Nope")).unwrap())
+    )
+    .unwrap();
+    let (deleted, notice) = store.delete(&mut host).unwrap();
+    writeln!(out, "delete {} {notice}", bool_text(deleted)).unwrap();
+    let cleared = store.clear_current(&mut host);
+    writeln!(out, "clear {}", meta_text(&cleared)).unwrap();
+    meta_state(out, &store, &mut host);
+    files(out, &host);
+}
+
+fn meta_embedded_copy(out: &mut String) {
+    let mut host = host();
+    let mut store = MetaProfileStore::new();
+    store.bind_character(&mut host, Some("Acdream")).unwrap();
+    store.load_current(&mut host, None).unwrap();
+    let saved = store.save_current(&mut host, &with_route());
+    writeln!(out, "save {}", bool_text(saved)).unwrap();
+    let loaded = store.load_current(&mut host, None).unwrap();
+    writeln!(out, "load {}", meta_text(&loaded)).unwrap();
+    let (created, notice) = store
+        .create(&mut host, Some("Copy.af"), true, &loaded)
+        .unwrap();
+    writeln!(out, "create {} {notice}", bool_text(created)).unwrap();
+    let loaded = store.load_current(&mut host, None).unwrap();
+    writeln!(out, "load {}", meta_text(&loaded)).unwrap();
+    files(out, &host);
+}
+
+fn meta_disabled(out: &mut String) {
+    let mut host = host();
+    let mut store = MetaProfileStore::new();
+    store.bind_character(&mut host, Some("Acdream")).unwrap();
+    store.load_current(&mut host, None).unwrap();
+    let mut profile = two_rules();
+    profile.rules[1].enabled = false;
+    let saved = store.save_current(&mut host, &profile);
+    writeln!(
+        out,
+        "save {} {}",
+        bool_text(saved),
+        store.save_notice().unwrap_or_default()
+    )
+    .unwrap();
+    let (created, notice) = store
+        .create(&mut host, Some("Off"), true, &profile)
+        .unwrap();
+    writeln!(out, "create {} {notice}", bool_text(created)).unwrap();
+    files(out, &host);
+}
+
+fn meta_import(out: &mut String) {
+    let mut host = host();
+    host.plugin
+        .insert("imports/Old.met", &met::save(&two_rules()).unwrap());
+    host.plugin.insert("exports/Bad.met", "nonsense");
+    let mut store = MetaProfileStore::new();
+    store.bind_character(&mut host, Some("Acdream")).unwrap();
+    store.load_current(&mut host, None).unwrap();
+    writeln!(
+        out,
+        "exists {} {}",
+        bool_text(store.legacy_import_exists(&mut host, Some("old")).unwrap()),
+        bool_text(store.legacy_import_exists(&mut host, Some("nope")).unwrap())
+    )
+    .unwrap();
+    let (imported, profile, notice) = store
+        .try_import_legacy(&mut host, Some("old"), None)
+        .unwrap();
+    writeln!(
+        out,
+        "import {} {notice} {}",
+        bool_text(imported),
+        meta_text(&profile)
+    )
+    .unwrap();
+    let (bad, _, notice) = store
+        .try_import_legacy(&mut host, Some("Bad"), None)
+        .unwrap();
+    writeln!(out, "import {} {notice}", bool_text(bad)).unwrap();
+    let (missing, _, notice) = store
+        .try_import_legacy(&mut host, Some("Nope"), None)
+        .unwrap();
+    writeln!(out, "import {} {notice}", bool_text(missing)).unwrap();
+    meta_state(out, &store, &mut host);
+    files(out, &host);
+}
+
+fn meta_corrupt(out: &mut String) {
+    let mut host = host();
+    host.profiles
+        .insert("mosstank/metas/--Acdream_Coldeve.af", "garbage\r\n");
+    let mut store = MetaProfileStore::new();
+    store.bind_character(&mut host, Some("Acdream")).unwrap();
+    meta_load(out, &mut store, &mut host);
+    writeln!(out, "error {}", store.last_load_error().unwrap_or_default()).unwrap();
+    files(out, &host);
+}
+
+fn meta_legacy(out: &mut String) {
+    let mut host = host();
+    let meta_hash = |value: &str| {
+        mosstank_stores::global_variables::hash(
+            &openac_plugin_compat::text::casing::to_lower_invariant(value),
+        )
+    };
+    host.plugin.insert(
+        &format!("profiles/meta/by-character/{}.json", meta_hash("Acdream")),
+        "{\"Rules\":[{\"Id\":\"8f0e3c3e-3bd4-4b7a-9d5e-2d4f3a1b6c7d\",\"State\":\"Default\",\"Condition\":{\"Kind\":1},\"Action\":{\"Kind\":2,\"Text\":\"/say hi\"}},{\"Condition\":{\"Kind\":7},\"Action\":{\"Kind\":4,\"Text\":\"Loop\",\"EmbeddedRoute\":{\"Mode\":1,\"Waypoints\":[{\"Type\":0,\"Position\":{\"CellId\":0,\"EastWest\":1.5,\"NorthSouth\":-2.25,\"Elevation\":0,\"HeadingDegrees\":0,\"IsOutdoor\":true}}]}}}]}",
+    );
+    host.plugin
+        .insert("profiles/meta/index.json", "{\"Names\":[\"Old\",\"Gone\"]}");
+    host.plugin.insert(
+        &format!("profiles/meta/named/{}.json", meta_hash("Old")),
+        "{\"Rules\":[{\"Enabled\":false,\"Condition\":{\"Kind\":1},\"Action\":{\"Kind\":2,\"Text\":\"/x\"}}]}",
+    );
+    let mut store = MetaProfileStore::new();
+    store.bind_character(&mut host, Some("Acdream")).unwrap();
+    meta_load(out, &mut store, &mut host);
+    meta_state(out, &store, &mut host);
+    files(out, &host);
+}
+
 fn run(name: &str) -> String {
     let mut out = String::new();
     match name {
+        "meta-first-run" => meta_first_run(&mut out),
+        "meta-named" => meta_named(&mut out),
+        "meta-embedded-copy" => meta_embedded_copy(&mut out),
+        "meta-disabled" => meta_disabled(&mut out),
+        "meta-import" => meta_import(&mut out),
+        "meta-corrupt" => meta_corrupt(&mut out),
+        "meta-legacy" => meta_legacy(&mut out),
         "route-first-run" => route_first_run(&mut out),
         "route-named" => route_named(&mut out),
         "route-follow" => route_follow(&mut out),

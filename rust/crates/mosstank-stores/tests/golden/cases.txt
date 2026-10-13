@@ -22,3 +22,10 @@ route-import
 route-corrupt
 route-legacy
 route-bare-lf
+meta-first-run
+meta-named
+meta-embedded-copy
+meta-disabled
+meta-import
+meta-corrupt
+meta-legacy

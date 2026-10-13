@@ -153,6 +153,13 @@ internal static class RustPortStoresGolden
                 case "route-corrupt": RouteCorrupt(sb); break;
                 case "route-legacy": RouteLegacy(sb); break;
                 case "route-bare-lf": RouteBareLf(sb); break;
+                case "meta-first-run": MetaFirstRun(sb); break;
+                case "meta-named": MetaNamed(sb); break;
+                case "meta-embedded-copy": MetaEmbeddedCopy(sb); break;
+                case "meta-disabled": MetaDisabled(sb); break;
+                case "meta-import": MetaImport(sb); break;
+                case "meta-corrupt": MetaCorrupt(sb); break;
+                case "meta-legacy": MetaLegacy(sb); break;
                 default: throw new InvalidOperationException("unknown scenario " + name);
             }
         }
@@ -726,6 +733,183 @@ internal static class RustPortStoresGolden
         sb.Append("save ").Append(B(store.SaveCurrent(route))).Append('\n');
         store.ClearCurrent(route);
         RouteState(sb, store);
+        Files(sb, host);
+    }
+
+    private static string Meta(MetaProfile profile) =>
+        "meta " + string.Join(";", profile.Rules.Select(static rule =>
+            rule.State + "|" + ((int)rule.Condition.Kind).ToString(CultureInfo.InvariantCulture)
+            + "|" + ((int)rule.Action.Kind).ToString(CultureInfo.InvariantCulture)
+            + "|" + rule.Action.Text + "|" + B(rule.Enabled)
+            + "|" + (rule.Action.EmbeddedRoute is { } route
+                ? route.Waypoints.Count.ToString(CultureInfo.InvariantCulture)
+                : "-")));
+
+    private static MetaProfile TwoRules() => new()
+    {
+        Rules =
+        {
+            new MetaRule
+            {
+                State = "Default",
+                Condition = MetaCondition.Always(),
+                Action = new MetaAction { Kind = MetaActionKind.ChatCommand, Text = "/say hi" },
+            },
+            new MetaRule
+            {
+                State = "Two",
+                Condition = new MetaCondition { Kind = MetaConditionKind.ChatMessage, Text = "x" },
+                Action = new MetaAction { Kind = MetaActionKind.SetMetaState, Text = "Default" },
+            },
+        },
+    };
+
+    private static void MetaState(StringBuilder sb, MossTankMetaProfileStore store)
+    {
+        sb.Append("selected ").Append(store.Selected).Append('\n');
+        sb.Append("names ").Append(string.Join("|", store.AvailableNames)).Append('\n');
+    }
+
+    private static void MetaFirstRun(StringBuilder sb)
+    {
+        Host host = NewHost();
+        var store = new MossTankMetaProfileStore(host);
+        sb.Append("bind ").Append(B(store.BindCharacter("Acdream"))).Append('\n');
+        MetaProfile loaded = store.LoadCurrent();
+        sb.Append("load ").Append(B(store.LastLoadSucceeded)).Append(' ').Append(Meta(loaded)).Append('\n');
+        sb.Append("save ").Append(B(store.SaveCurrent(TwoRules()))).Append('\n');
+        loaded = store.LoadCurrent();
+        sb.Append("load ").Append(B(store.LastLoadSucceeded)).Append(' ').Append(Meta(loaded)).Append('\n');
+        MetaState(sb, store);
+        Files(sb, host);
+    }
+
+    private static void MetaNamed(StringBuilder sb)
+    {
+        Host host = NewHost();
+        var store = new MossTankMetaProfileStore(host);
+        store.BindCharacter("Acdream");
+        store.LoadCurrent();
+        store.SaveCurrent(TwoRules());
+        bool created = store.Create("Hunt", copyCurrent: true, TwoRules(), out string notice);
+        sb.Append("create ").Append(B(created)).Append(' ').Append(notice).Append('\n');
+        bool createdAf = store.Create("Hunt.af", copyCurrent: false, TwoRules(), out string afNotice);
+        sb.Append("create ").Append(B(createdAf)).Append(' ').Append(afNotice).Append('\n');
+        bool unnamed = store.Create("By char", copyCurrent: false, TwoRules(), out string unnamedNotice);
+        sb.Append("create ").Append(B(unnamed)).Append(' ').Append(unnamedNotice).Append('\n');
+        MetaState(sb, store);
+        sb.Append("select ").Append(B(store.Select("Hunt"))).Append('\n');
+        MetaProfile loaded = store.LoadCurrent();
+        sb.Append("load ").Append(B(store.LastLoadSucceeded)).Append(' ').Append(Meta(loaded)).Append('\n');
+        sb.Append("select exact ").Append(B(store.Select("Hunt.af", exactOnly: true))).Append('\n');
+        loaded = store.LoadCurrent();
+        sb.Append("load ").Append(B(store.LastLoadSucceeded)).Append(' ').Append(Meta(loaded)).Append('\n');
+        MetaState(sb, store);
+        sb.Append("exists ").Append(B(store.Exists("Hunt"))).Append(' ').Append(B(store.Exists("Nope"))).Append('\n');
+        bool deleted = store.Delete(out string deleteNotice);
+        sb.Append("delete ").Append(B(deleted)).Append(' ').Append(deleteNotice).Append('\n');
+        MetaProfile cleared = store.ClearCurrent();
+        sb.Append("clear ").Append(Meta(cleared)).Append('\n');
+        MetaState(sb, store);
+        Files(sb, host);
+    }
+
+    private static MetaProfile WithRoute()
+    {
+        MetaProfile profile = TwoRules();
+        profile.Rules.Add(new MetaRule
+        {
+            State = "Default",
+            Condition = new MetaCondition { Kind = MetaConditionKind.NavigationRouteEmpty },
+            Action = new MetaAction
+            {
+                Kind = MetaActionKind.LoadEmbeddedNavigationRoute,
+                Text = "Loop",
+                EmbeddedRoute = TwoPoints(),
+            },
+        });
+        return profile;
+    }
+
+    private static void MetaEmbeddedCopy(StringBuilder sb)
+    {
+        Host host = NewHost();
+        var store = new MossTankMetaProfileStore(host);
+        store.BindCharacter("Acdream");
+        store.LoadCurrent();
+        sb.Append("save ").Append(B(store.SaveCurrent(WithRoute()))).Append('\n');
+        MetaProfile loaded = store.LoadCurrent();
+        sb.Append("load ").Append(Meta(loaded)).Append('\n');
+        bool created = store.Create("Copy.af", copyCurrent: true, loaded, out string notice);
+        sb.Append("create ").Append(B(created)).Append(' ').Append(notice).Append('\n');
+        loaded = store.LoadCurrent();
+        sb.Append("load ").Append(Meta(loaded)).Append('\n');
+        Files(sb, host);
+    }
+
+    private static void MetaDisabled(StringBuilder sb)
+    {
+        Host host = NewHost();
+        var store = new MossTankMetaProfileStore(host);
+        store.BindCharacter("Acdream");
+        store.LoadCurrent();
+        MetaProfile profile = TwoRules();
+        profile.Rules[1].Enabled = false;
+        sb.Append("save ").Append(B(store.SaveCurrent(profile))).Append(' ').Append(store.SaveNotice).Append('\n');
+        bool created = store.Create("Off", copyCurrent: true, profile, out string notice);
+        sb.Append("create ").Append(B(created)).Append(' ').Append(notice).Append('\n');
+        Files(sb, host);
+    }
+
+    private static void MetaImport(StringBuilder sb)
+    {
+        Host host = NewHost();
+        host.Plugin.Text["imports/Old.met"] = VtankMetaProfileSerializer.Save(TwoRules());
+        host.Plugin.Text["exports/Bad.met"] = "nonsense";
+        var store = new MossTankMetaProfileStore(host);
+        store.BindCharacter("Acdream");
+        store.LoadCurrent();
+        sb.Append("exists ").Append(B(store.LegacyImportExists("old"))).Append(' ')
+            .Append(B(store.LegacyImportExists("nope"))).Append('\n');
+        bool imported = store.TryImportLegacy("old", out MetaProfile profile, out string notice);
+        sb.Append("import ").Append(B(imported)).Append(' ').Append(notice).Append(' ').Append(Meta(profile)).Append('\n');
+        bool bad = store.TryImportLegacy("Bad", out _, out string badNotice);
+        sb.Append("import ").Append(B(bad)).Append(' ').Append(badNotice).Append('\n');
+        bool missing = store.TryImportLegacy("Nope", out _, out string missingNotice);
+        sb.Append("import ").Append(B(missing)).Append(' ').Append(missingNotice).Append('\n');
+        MetaState(sb, store);
+        Files(sb, host);
+    }
+
+    private static void MetaCorrupt(StringBuilder sb)
+    {
+        Host host = NewHost();
+        host.Profiles.Text["mosstank/metas/--Acdream_Coldeve.af"] = "garbage\r\n";
+        var store = new MossTankMetaProfileStore(host);
+        store.BindCharacter("Acdream");
+        MetaProfile loaded = store.LoadCurrent();
+        sb.Append("load ").Append(B(store.LastLoadSucceeded)).Append(' ').Append(Meta(loaded)).Append('\n');
+        sb.Append("error ").Append(store.LastLoadError).Append('\n');
+        Files(sb, host);
+    }
+
+    private static string MetaHash(string value) => Convert.ToHexString(
+        SHA256.HashData(Encoding.UTF8.GetBytes(value.ToLowerInvariant())).AsSpan(0, 12)).ToLowerInvariant();
+
+    private static void MetaLegacy(StringBuilder sb)
+    {
+        Host host = NewHost();
+        host.Plugin.Text["profiles/meta/by-character/" + MetaHash("Acdream") + ".json"] =
+            "{\"Rules\":[{\"Id\":\"8f0e3c3e-3bd4-4b7a-9d5e-2d4f3a1b6c7d\",\"State\":\"Default\",\"Condition\":{\"Kind\":1},\"Action\":{\"Kind\":2,\"Text\":\"/say hi\"}},"
+            + "{\"Condition\":{\"Kind\":7},\"Action\":{\"Kind\":4,\"Text\":\"Loop\",\"EmbeddedRoute\":{\"Mode\":1,\"Waypoints\":[{\"Type\":0,\"Position\":{\"CellId\":0,\"EastWest\":1.5,\"NorthSouth\":-2.25,\"Elevation\":0,\"HeadingDegrees\":0,\"IsOutdoor\":true}}]}}}]}";
+        host.Plugin.Text["profiles/meta/index.json"] = "{\"Names\":[\"Old\",\"Gone\"]}";
+        host.Plugin.Text["profiles/meta/named/" + MetaHash("Old") + ".json"] =
+            "{\"Rules\":[{\"Enabled\":false,\"Condition\":{\"Kind\":1},\"Action\":{\"Kind\":2,\"Text\":\"/x\"}}]}";
+        var store = new MossTankMetaProfileStore(host);
+        store.BindCharacter("Acdream");
+        MetaProfile loaded = store.LoadCurrent();
+        sb.Append("load ").Append(B(store.LastLoadSucceeded)).Append(' ').Append(Meta(loaded)).Append('\n');
+        MetaState(sb, store);
         Files(sb, host);
     }
 }
