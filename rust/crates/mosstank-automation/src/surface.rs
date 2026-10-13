@@ -461,22 +461,3 @@ pub fn try_capture_properties(
     }
     automation.item_properties(object_id)
 }
-
-/// Readies a combat stance before a rule uses it (`CombatModeGate`): the
-/// right caster or weapon wielded, the stance entered. The recharge asks it
-/// for the magic stance; the gate itself belongs to the combat slice.
-pub trait CombatModePreparation {
-    /// Whether the stance is ready; when not, the gate has done the next
-    /// step towards it. `override_item_id` names the caster to wield (0 for
-    /// the gate's own pick); `auto_select` lets it pick one.
-    fn try_prepare(
-        &mut self,
-        automation: &mut dyn Automation,
-        wanted: ac_plugin_abi::combat::CombatMode,
-        override_item_id: u32,
-        auto_select: bool,
-    ) -> bool;
-
-    /// What the gate is doing, for the panel.
-    fn status(&self) -> String;
-}

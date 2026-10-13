@@ -9,15 +9,17 @@
 //! - [`combat_text`]: reading the character's own combat log.
 //! - [`locks`]: the cooldown slots the rules share.
 //! - [`components`]: the profile's blacklist of spell components.
+//! - [`equipment`]: what the character wields, as the server confirmed it.
 //! - [`Automation`]: the client as a whole (`IAutomationSurface`).
 
 pub mod cast_tracker;
 pub mod combat_text;
 pub mod components;
+pub mod equipment;
 pub mod locks;
 pub mod spells;
 pub mod surface;
 
 pub use locks::{ActionLockKind, ActionLockTable, SharedActionLocks};
 pub use spells::{SpellCatalog, StaticSpellCatalog};
-pub use surface::{Automation, CombatModePreparation};
+pub use surface::Automation;

@@ -12,11 +12,12 @@ use std::rc::Rc;
 use ac_plugin_abi::combat::CombatMode;
 use ac_plugin_abi::magic::CastGate;
 use ac_plugin_abi::social::FellowshipStatus;
+use mosstank_automation::Automation;
 use mosstank_automation::cast_tracker::{CastRequest, SpellCastTracker};
 use mosstank_automation::locks::{
     ActionLockKind, ActionLockTable, SharedActionLocks, item_use_lock,
 };
-use mosstank_automation::{Automation, CombatModePreparation};
+use mosstank_combat::gate::{GateTurn, Prepare, SharedCombatModeGate};
 use mosstank_settings::model::{CombatSettings, VitalKind, VitalSettings};
 use openac_plugin_compat::text::ordinal;
 
@@ -54,7 +55,7 @@ struct Pending {
 #[allow(missing_debug_implementations)]
 pub struct VitalRechargeController {
     cast_tracker: Option<SharedCastTracker>,
-    combat_mode_gate: Option<Rc<RefCell<dyn CombatModePreparation>>>,
+    combat_mode_gate: Option<SharedCombatModeGate>,
     pending: Option<Pending>,
     retry_delay: f64,
     recharge_trace_delay: f64,
@@ -106,7 +107,7 @@ impl VitalRechargeController {
     }
 
     /// Shares the stance gate a magic recharge readies its stance through.
-    pub fn bind_combat_mode_gate(&mut self, gate: Rc<RefCell<dyn CombatModePreparation>>) {
+    pub fn bind_combat_mode_gate(&mut self, gate: SharedCombatModeGate) {
         self.combat_mode_gate = Some(gate);
     }
 
@@ -284,14 +285,19 @@ impl VitalRechargeController {
         {
             let item_spell = choice.source_kind == VitalRechargeSourceKind::CasterItem;
             let mut gate = gate.borrow_mut();
-            if !gate.try_prepare(
-                turn.automation,
-                CombatMode::Magic,
-                if item_spell { choice.item_object_id } else { 0 },
-                !item_spell,
-            ) {
+            let mut gate_turn = GateTurn {
+                automation: &mut *turn.automation,
+                combat: turn.combat,
+                vitals: turn.settings,
+            };
+            let request = Prepare {
+                override_item_id: if item_spell { choice.item_object_id } else { 0 },
+                auto_select: !item_spell,
+                ..Prepare::mode(CombatMode::Magic)
+            };
+            if !gate.try_prepare(&mut gate_turn, request, None) {
                 self.arm_boost(turn.settings, choice.vital);
-                self.status = gate.status();
+                gate.status().clone_into(&mut self.status);
                 return true;
             }
         }

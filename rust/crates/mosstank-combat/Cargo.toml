@@ -1,0 +1,21 @@
+[package]
+name = "mosstank-combat"
+description = "MossTank's fight: the combat-mode gate, target choice, debuffs and dispels, the swing and the attack spells. Pure: the client comes in through mosstank-automation."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[dependencies]
+ac-plugin-abi.workspace = true
+mosstank-automation.workspace = true
+mosstank-data.workspace = true
+mosstank-dotnet.workspace = true
+mosstank-formats.workspace = true
+mosstank-meta.workspace = true
+mosstank-settings.workspace = true
+openac-plugin-compat.workspace = true
+
+[lints]
+workspace = true
