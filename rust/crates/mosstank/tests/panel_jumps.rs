@@ -31,13 +31,12 @@ fn facing(world: &mut World, heading: f32) {
 fn jumper(heading: f32) -> (World, MossTank) {
     let mut world = World::panel_character("Jumper");
     facing(&mut world, heading);
-    for accepted in [NavigationStatus::Accepted] {
-        world.set_reply::<calls::NavigationJump>(&accepted);
-        world.set_reply::<calls::NavigationMove>(&accepted);
-        world.set_reply::<calls::NavigationSetIntent>(&accepted);
-        world.set_reply::<calls::NavigationClearIntent>(&accepted);
-        world.set_reply::<calls::NavigationFace>(&accepted);
-    }
+    let accepted = NavigationStatus::Accepted;
+    world.set_reply::<calls::NavigationJump>(&accepted);
+    world.set_reply::<calls::NavigationMove>(&accepted);
+    world.set_reply::<calls::NavigationSetIntent>(&accepted);
+    world.set_reply::<calls::NavigationClearIntent>(&accepted);
+    world.set_reply::<calls::NavigationFace>(&accepted);
     let plugin = world.enable();
     (world, plugin)
 }
