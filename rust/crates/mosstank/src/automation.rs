@@ -26,6 +26,11 @@ impl<'h, 'a> HostAutomation<'h, 'a> {
     pub fn new(host: &'h mut Host<'a>) -> Self {
         Self { host }
     }
+
+    /// The host, for the other views of the client built on this one.
+    pub(crate) fn host(&mut self) -> &mut Host<'a> {
+        self.host
+    }
 }
 
 impl SpellCatalog for HostAutomation<'_, '_> {

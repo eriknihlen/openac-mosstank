@@ -24,6 +24,7 @@ mosstank-stores = { path = "crates/mosstank-stores" }
 mosstank-automation = { path = "crates/mosstank-automation" }
 mosstank-buffs = { path = "crates/mosstank-buffs" }
 mosstank-meta = { path = "crates/mosstank-meta" }
+mosstank-nav = { path = "crates/mosstank-nav" }
 
 # The openAC plugin SDK (MIT), from the openAC-rust repository by git
 # (owner decision 2026-10-13). `openac-plugin-compat` is its .NET

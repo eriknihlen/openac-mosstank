@@ -134,6 +134,7 @@ dependencies = [
  "mosstank-expr",
  "mosstank-formats",
  "mosstank-meta",
+ "mosstank-nav",
  "mosstank-stores",
  "openac-plugin",
  "openac-plugin-compat",
@@ -211,6 +212,17 @@ dependencies = [
  "openac-plugin-compat",
  "roxmltree",
  "sha2",
+]
+
+[[package]]
+name = "mosstank-nav"
+version = "0.6.0-dev"
+dependencies = [
+ "ac-plugin-abi",
+ "mosstank-automation",
+ "mosstank-formats",
+ "mosstank-meta",
+ "openac-plugin-compat",
 ]
 
 [[package]]

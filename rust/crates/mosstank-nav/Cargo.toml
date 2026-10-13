@@ -1,0 +1,18 @@
+[package]
+name = "mosstank-nav"
+description = "MossTank's own navigation: the route follower and its close-in mover, waypoint actions (recall, portal, NPC, vendor, chat, pause, jump, checkpoint), stuck handling with the client's pathing as a fallback, route-aware door opening, and the route's lines. The client comes in through the NavigationAutomation trait."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[dependencies]
+ac-plugin-abi.workspace = true
+mosstank-automation.workspace = true
+mosstank-formats.workspace = true
+mosstank-meta.workspace = true
+openac-plugin-compat.workspace = true
+
+[lints]
+workspace = true
