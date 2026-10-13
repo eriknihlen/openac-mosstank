@@ -121,3 +121,43 @@ pub fn route_lines(
     }
     lines
 }
+
+/// How long after the macro last attacked it may still loot what it
+/// killed, so a walk the client plans waits that long for the corpse to
+/// appear, seconds.
+pub const CORPSE_WAIT_SECONDS: f64 = 2.5;
+
+/// What the macro is doing that needs the character, so a walk the client
+/// plans waits for it, or `None` while the macro is idle
+/// (`WalkPauseReasonFor`). The macro needs the character while it buffs,
+/// while it steers the character along its own route, while a rule that
+/// outranks navigation won its last pass, and, when it loots, for
+/// [`CORPSE_WAIT_SECONDS`] after it last attacked. It is idle while stopped,
+/// and when navigation or a rule below navigation won.
+#[must_use]
+pub fn walk_pause_reason_for(
+    running: bool,
+    last_rule: Option<&str>,
+    buffing: bool,
+    route_navigation: bool,
+    looting: bool,
+    seconds_since_attack: f64,
+) -> Option<String> {
+    if buffing {
+        return Some("MossTank is buffing".to_owned());
+    }
+    if !running {
+        return None;
+    }
+    match last_rule {
+        None | Some("RandomHelper" | "IdlePeace") => {}
+        Some("NavigateRoutePriority" | "NavigateRouteIdle") => {
+            if route_navigation {
+                return Some("MossTank is following its route".to_owned());
+            }
+        }
+        Some(rule) => return Some(format!("MossTank is running {rule}")),
+    }
+    (looting && seconds_since_attack < CORPSE_WAIT_SECONDS)
+        .then(|| "MossTank is waiting for a corpse to loot".to_owned())
+}

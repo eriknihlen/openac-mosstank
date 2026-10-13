@@ -5,7 +5,7 @@ use ac_plugin_abi::world::Position;
 use mosstank_formats::af;
 use mosstank_formats::route::{NavigationSettings, RouteMode, RouteWaypoint, RouteWaypointType};
 use mosstank_nav::route_view::{
-    nearest_route_distance_meters, route_holds_client_walks, route_lines,
+    nearest_route_distance_meters, route_holds_client_walks, route_lines, walk_pause_reason_for,
 };
 
 fn player(east_west: f64, north_south: f64) -> Position {
@@ -92,4 +92,101 @@ fn show_nav_lines_draws_the_loaded_route_as_rings_and_legs() {
     assert_eq!(route_lines(&two, 5, false).len(), 24 * 2 + 2);
     two.waypoints[1].kind = RouteWaypointType::Portal;
     assert_eq!(route_lines(&two, 5, false).len(), 24 * 2 + 1);
+}
+
+// Source: tests/AcDream.Plugins.MossTank.Tests/MossTankPanelTests.cs :: AWalkTheClientPlansWaitsWhileTheMacroHasSomethingToDo
+#[test]
+fn a_walk_the_client_plans_waits_while_the_macro_has_something_to_do() {
+    for (running, last_rule, buffing, route_navigation, looting, seconds_since_attack, expected) in [
+        (false, Some("Attack"), false, false, false, 99.0, None),
+        (true, None, false, false, false, 99.0, None),
+        (true, Some("IdlePeace"), false, false, false, 99.0, None),
+        (true, Some("RandomHelper"), false, false, false, 99.0, None),
+        (
+            true,
+            Some("NavigateRouteIdle"),
+            false,
+            false,
+            false,
+            99.0,
+            None,
+        ),
+        (
+            true,
+            Some("Attack"),
+            false,
+            false,
+            false,
+            99.0,
+            Some("MossTank is running Attack"),
+        ),
+        (
+            true,
+            Some("BuffSelf"),
+            false,
+            false,
+            false,
+            99.0,
+            Some("MossTank is running BuffSelf"),
+        ),
+        (
+            true,
+            Some("NavigateRouteIdle"),
+            false,
+            true,
+            false,
+            99.0,
+            Some("MossTank is following its route"),
+        ),
+        (
+            true,
+            Some("NavigateRouteIdle"),
+            false,
+            false,
+            true,
+            1.0,
+            Some("MossTank is waiting for a corpse to loot"),
+        ),
+        (
+            true,
+            Some("NavigateRouteIdle"),
+            false,
+            false,
+            false,
+            1.0,
+            None,
+        ),
+        (
+            true,
+            Some("NavigateRouteIdle"),
+            false,
+            false,
+            true,
+            3.0,
+            None,
+        ),
+        (
+            false,
+            None,
+            true,
+            false,
+            false,
+            99.0,
+            Some("MossTank is buffing"),
+        ),
+    ] {
+        assert_eq!(
+            walk_pause_reason_for(
+                running,
+                last_rule,
+                buffing,
+                route_navigation,
+                looting,
+                seconds_since_attack
+            )
+            .as_deref(),
+            expected,
+            "{running} {last_rule:?} {buffing} {route_navigation} {looting} {seconds_since_attack}"
+        );
+    }
 }
