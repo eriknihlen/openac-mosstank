@@ -4,6 +4,7 @@
 //!
 //! - [`stack_cram`]: `/ub autostack`, `/ub autocram`
 //!   (`InventoryMaintenance`, `StackCramCommandRun`).
+//! - [`give`]: `/ub give`, `/ub ig` (`ProfileGiveController`).
 //! - [`equip`]: `/ub equip` (`EquipProfileController`).
 //! - [`xp`]: `/ub xp` (`ExperienceSpendController`).
 //!
@@ -12,10 +13,12 @@
 //! one's frame in the order the C# panel does (see [`UbTools`]).
 
 pub mod equip;
+pub mod give;
 pub mod stack_cram;
 pub mod xp;
 
 use equip::EquipProfileController;
+use give::ProfileGiveController;
 use stack_cram::StackCramCommandRun;
 use xp::ExperienceSpendController;
 
@@ -27,6 +30,8 @@ use xp::ExperienceSpendController;
 /// run, the equipment profile, then the stack-or-cram pass.
 #[derive(Debug, Default)]
 pub struct UbTools {
+    /// `/ub give` and `/ub ig`.
+    pub give: ProfileGiveController,
     /// `/ub autostack` and `/ub autocram`.
     pub stack_cram: StackCramCommandRun,
     /// `/ub xp`.

@@ -232,8 +232,10 @@ impl UbCommands {
 
         // The give verb carries its flags in the letters after it, and their
         // case is the whole meaning; read before the verb is folded.
-        if read_give_flags(&typed).is_some() {
-            call.services.run_tool_verb(call.host, &typed, &arguments);
+        if let Some((matching, partial_target)) = read_give_flags(&typed) {
+            self.tools
+                .give
+                .give_command(call, &arguments, matching, partial_target);
             return;
         }
 
@@ -346,8 +348,10 @@ impl UbCommands {
     fn try_flagged(&mut self, call: &mut UbCall<'_>, verb: &str, arguments: &str) -> bool {
         if let Some(flags) = try_flags(verb, "jump", "swzxc") {
             self.jump_command(call, flags, arguments);
-        } else if try_flags(verb, "ig", "p").is_some() {
-            call.services.run_tool_verb(call.host, verb, arguments);
+        } else if let Some(flags) = try_flags(verb, "ig", "p") {
+            self.tools
+                .give
+                .item_giver_command(call, arguments, flags.contains('p'));
         } else if let Some(flags) = try_flags(verb, "portal", "p") {
             use_portal_by_name(call, arguments, flags.contains('p'));
         } else if let Some(flags) = try_flags(verb, "follow", "p") {
