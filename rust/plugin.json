@@ -1,0 +1,14 @@
+{
+  "id": "acdream.mosstank",
+  "displayName": "MossTank",
+  "version": "0.6.0-dev",
+  "entry": "mosstank.wasm",
+  "apiVersion": "1.0",
+  "minHostVersion": "0.1.0",
+  "permissionsVersion": 1,
+  "permissions": [
+    { "name": "chat", "note": "Reads chat to follow combat and loot results, and posts its own status lines." },
+    { "name": "network", "note": "Downloads the VTank game database from its GitHub release.", "hosts": ["github.com", "release-assets.githubusercontent.com"] },
+    { "name": "profiles", "note": "Reads and writes VTank settings, loot, route and meta profiles in the shared profile folder." }
+  ]
+}
