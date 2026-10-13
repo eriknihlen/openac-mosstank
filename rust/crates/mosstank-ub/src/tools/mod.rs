@@ -5,6 +5,7 @@
 //! - [`stack_cram`]: `/ub autostack`, `/ub autocram`
 //!   (`InventoryMaintenance`, `StackCramCommandRun`).
 //! - [`give`]: `/ub give`, `/ub ig` (`ProfileGiveController`).
+//! - [`clear_bugged`]: `/ub clearbugged` (`ClearBuggedRun`).
 //! - [`count`]: `/ub count` (`InventoryCountController`).
 //! - [`equip`]: `/ub equip` (`EquipProfileController`).
 //! - [`tinker`], [`tinker_page`]: the Tinker page and `/ub autotinker`,
@@ -15,6 +16,7 @@
 //! ([`crate::commands::UbCommands`]) own it, and the plugin drives each
 //! one's frame in the order the C# panel does (see [`UbTools`]).
 
+pub mod clear_bugged;
 pub mod count;
 pub mod equip;
 pub mod give;
@@ -24,6 +26,7 @@ pub mod tinker;
 pub mod tinker_page;
 pub mod xp;
 
+use clear_bugged::ClearBuggedRun;
 use count::InventoryCountController;
 use equip::EquipProfileController;
 use give::ProfileGiveController;
@@ -45,6 +48,8 @@ pub struct UbTools {
     pub count: InventoryCountController,
     /// `/ub autostack` and `/ub autocram`.
     pub stack_cram: StackCramCommandRun,
+    /// `/ub clearbugged`.
+    pub clear_bugged: ClearBuggedRun,
     /// The Tinker page, its run, and `/ub autotinker`, `getjob`, `tinkcalc`.
     pub tinker: TinkerPage,
     /// `/ub xp`.
@@ -58,5 +63,35 @@ impl UbTools {
     #[must_use]
     pub fn new() -> Self {
         Self::default()
+    }
+}
+
+impl UbTools {
+    /// `/ub clearbugged`: starts a run, its lines said as the panel's
+    /// transcript lines.
+    pub fn start_clear_bugged(&mut self, call: &mut crate::commands::UbCall<'_>) {
+        let mut lines = Vec::new();
+        self.clear_bugged
+            .start(&mut *call.host, &mut |line| lines.push(line));
+        for line in lines {
+            call.write_transcript_line(&line);
+        }
+    }
+
+    /// One frame of `/ub clearbugged` (not a prologue owner: it only asks for
+    /// descriptions, one at a time, and never moves the character).
+    pub fn tick_clear_bugged(
+        &mut self,
+        call: &mut crate::commands::UbCall<'_>,
+        elapsed_seconds: f64,
+    ) {
+        let mut lines = Vec::new();
+        self.clear_bugged
+            .tick(&mut *call.host, elapsed_seconds, &mut |line| {
+                lines.push(line)
+            });
+        for line in lines {
+            call.write_transcript_line(&line);
+        }
     }
 }

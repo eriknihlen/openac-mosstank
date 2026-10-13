@@ -43,7 +43,6 @@ pub struct Services {
     pub auto_vendor: Vec<Option<String>>,
     pub auto_vendor_stops: usize,
     pub fellow_lines: Vec<String>,
-    pub tool_verbs: Vec<(String, String)>,
     pub follows: Vec<(u32, String)>,
     pub follow_result: bool,
     pub navigation_enabled: bool,
@@ -135,11 +134,6 @@ impl UbServices for Services {
     fn fellow_command(&mut self, _host: &mut dyn UbHost, arguments: &str) -> bool {
         self.fellow_lines.push(arguments.to_owned());
         true
-    }
-
-    fn run_tool_verb(&mut self, _host: &mut dyn UbHost, verb: &str, arguments: &str) {
-        self.tool_verbs
-            .push((verb.to_owned(), arguments.to_owned()));
     }
 
     fn inventory_settings(&mut self) -> InventorySettings {

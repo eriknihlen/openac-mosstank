@@ -302,10 +302,6 @@ impl UbServices for ShellUbServices<'_, '_> {
             == mosstank_vendor::fellow_command::FellowCommandOutcome::Done
     }
 
-    fn run_tool_verb(&mut self, _host: &mut dyn UbHost, verb: &str, _arguments: &str) {
-        self.write_ub(&not_converted(&format!("/ub {verb}")));
-    }
-
     fn inventory_settings(&mut self) -> InventorySettings {
         self.core.0.borrow().settings.inventory.clone()
     }

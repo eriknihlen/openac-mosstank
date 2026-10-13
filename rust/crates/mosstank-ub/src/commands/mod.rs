@@ -6,8 +6,7 @@
 //! [`UbCommands`] holds what the commands keep between calls (the delayed
 //! lines, the jump in the air, the dialog watch); [`UbCall`] is what one
 //! call reaches. The tools other slices own are reached through
-//! [`UbServices`]; the UB tools this crate does not carry yet through
-//! [`UbServices::run_tool_verb`].
+//! [`UbServices`]; the UB tools ([`crate::tools`]) run here.
 
 pub mod call;
 pub mod jumper;
@@ -338,9 +337,7 @@ impl UbCommands {
             "autotinker" => self.tools.tinker.auto_tinker(call),
             "getjob" => self.tools.tinker.print_jobs(call),
             "tinkcalc" => self.tools.tinker.print_calculation(call),
-            "clearbugged" => {
-                call.services.run_tool_verb(call.host, &verb, &arguments);
-            }
+            "clearbugged" => self.tools.start_clear_bugged(call),
             _ => {
                 // The flagged verbs (jumpsw, igp, usepi, ...) are matched by
                 // name and flag set rather than spelled out.

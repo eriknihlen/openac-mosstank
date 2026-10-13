@@ -52,10 +52,6 @@ pub trait UbServices {
     /// `/ub fellow <arguments>`: false for a line that does not parse (the
     /// dispatcher then says "Bad command syntax" and the help).
     fn fellow_command(&mut self, host: &mut dyn UbHost, arguments: &str) -> bool;
-    /// A verb of a UB tool this crate does not carry yet (`clearbugged`),
-    /// with its arguments: the plugin runs it.
-    fn run_tool_verb(&mut self, host: &mut dyn UbHost, verb: &str, arguments: &str);
-
     // ---- what the UB tools ([`crate::tools`]) read from the rest of the plugin ----
 
     /// The inventory settings: the give range, pause and retry counts
