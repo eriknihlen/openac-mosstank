@@ -482,3 +482,83 @@ impl World {
         self.with_tank(plugin, |tank, _| tank.option(name).to_display_string())
     }
 }
+
+/// An owned item as the panel tests make one (`MossTankPanelTests.Item`):
+/// in the character's pack, its slot and class from its item type.
+#[must_use]
+pub fn item(object_id: u32, name: &str, item_type: u32) -> ac_plugin_abi::items::InventoryItem {
+    use ac_plugin_abi::world::ObjectClass;
+    let (valid_locations, object_class) = if item_type & 0x8000 != 0 {
+        (0x0100_0000, ObjectClass::WandStaffOrb)
+    } else if item_type & 0x100 != 0 {
+        (0x0040_0000, ObjectClass::MissileWeapon)
+    } else if item_type & 0x1 != 0 {
+        (0x0010_0000, ObjectClass::MeleeWeapon)
+    } else if item_type & 0x20 != 0 {
+        (0, ObjectClass::Food)
+    } else if item_type & 0x800 != 0 {
+        (0, ObjectClass::Gem)
+    } else if item_type & 0x1000 != 0 {
+        (0, ObjectClass::SpellComponent)
+    } else if item_type & 0x80 != 0 {
+        (0, ObjectClass::Misc)
+    } else {
+        (0, ObjectClass::Unknown)
+    };
+    ac_plugin_abi::items::InventoryItem {
+        object_id,
+        name: name.to_owned(),
+        item_type,
+        container_id: 1,
+        valid_locations,
+        stack_size: 1,
+        object_class,
+        ..ac_plugin_abi::items::InventoryItem::default()
+    }
+}
+
+impl World {
+    /// The character owns `items`, each appraised (the object table and the
+    /// properties answer for any of them).
+    pub fn own_items(&mut self, items: Vec<ac_plugin_abi::items::InventoryItem>) {
+        self.set_reply::<calls::ItemsOwned>(&items);
+        self.set_reply::<calls::WorldObject>(&Some(ac_plugin_abi::world::WorldObject {
+            is_owned: true,
+            has_appraisal_data: true,
+            last_id_time: 1,
+            ..ac_plugin_abi::world::WorldObject::default()
+        }));
+        self.set_reply::<calls::ItemsProperties>(&Some(
+            ac_plugin_abi::world::ItemProperties::default(),
+        ));
+    }
+
+    /// The client has `object_id` selected (0: nothing).
+    pub fn select_object(&mut self, object_id: u32) {
+        self.set_reply::<calls::SelectionState>(&ac_plugin_abi::social::SelectionState {
+            selected: (object_id != 0).then_some(object_id),
+            previous: None,
+        });
+    }
+
+    /// A list of numbers (icons, colours).
+    pub fn ui_uints(&mut self, plugin: &mut MossTank, name: &str) -> Vec<u32> {
+        match self.ui(plugin, name) {
+            ac_plugin_abi::ui::UiValue::UintList(values) => values,
+            other => panic!("{name} is {other:?}"),
+        }
+    }
+}
+
+impl World {
+    /// `name` in the world as the C# panel tests' fake has it: no world
+    /// name until a test gives one (`MossTankPanelTests.FakeAutomation`).
+    #[must_use]
+    pub fn panel_character(name: &str) -> Self {
+        let mut world = Self::with_character(name);
+        if let Some(character) = world.fake.character.as_mut() {
+            character.world = String::new();
+        }
+        world
+    }
+}
