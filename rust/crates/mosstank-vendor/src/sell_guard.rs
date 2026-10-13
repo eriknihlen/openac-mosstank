@@ -8,7 +8,7 @@ use std::collections::HashSet;
 
 use ac_plugin_abi::items::InventoryItem;
 use ac_plugin_abi::world::{ItemProperties, ObjectClass};
-use openac_plugin_compat::text::casing;
+use mosstank_dotnet::text::casing;
 
 const INSCRIPTION_PROPERTY: u32 = 7;
 const SCRIBE_PROPERTY: u32 = 8;

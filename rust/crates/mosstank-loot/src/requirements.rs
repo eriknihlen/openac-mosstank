@@ -904,7 +904,7 @@ fn lines(payload: &str) -> Vec<&str> {
 
 /// `string.Trim()`: .NET's white space at both ends.
 fn net_trim(text: &str) -> &str {
-    text.trim_matches(openac_plugin_compat::text::casing::is_white_space)
+    text.trim_matches(mosstank_dotnet::text::casing::is_white_space)
 }
 
 fn value<'a>(values: &[&'a str], index: usize) -> Outcome<&'a str> {

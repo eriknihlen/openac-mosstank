@@ -4,8 +4,8 @@
 //! that does not match, does not read, or was written after the clock's
 //! "now" (the clock went back) is deleted rather than trusted.
 
+use mosstank_dotnet::text::{casing, ordinal};
 use openac_plugin_compat::json::{self, JsonValue};
-use openac_plugin_compat::text::{casing, ordinal};
 
 use crate::recovery::sha256_hex;
 use crate::stj::{self, JsonError, Object};

@@ -7,7 +7,7 @@
 use std::collections::HashMap;
 
 use mosstank_dotnet::compat::regex::{DotNetRegex, RegexOptions};
-use openac_plugin_compat::text::casing;
+use mosstank_dotnet::text::casing;
 
 use crate::chat;
 use crate::host::MetaHost;

@@ -7,7 +7,7 @@
 use std::collections::HashMap;
 use std::sync::LazyLock;
 
-use openac_plugin_compat::text::{casing, ordinal};
+use mosstank_dotnet::text::{casing, ordinal};
 
 use super::{UbSettingDefinition, UbSettingKind, UbSettingScope, UbSettingValue};
 use crate::defaults::VtankEnumValue;

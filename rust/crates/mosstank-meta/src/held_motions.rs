@@ -4,7 +4,7 @@
 //! share it, so a key pressed by one and released by the other is the same.
 
 use ac_plugin_abi::navigation::{MovementIntent, NavigationStatus};
-use openac_plugin_compat::text::ordinal;
+use mosstank_dotnet::text::ordinal;
 
 use crate::host::MetaHost;
 

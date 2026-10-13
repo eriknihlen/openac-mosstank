@@ -2,7 +2,7 @@
 //! alphabetically by name (`LoginRoster`).
 
 use ac_plugin_abi::social::LoginCharacter;
-use openac_plugin_compat::text::ordinal;
+use mosstank_dotnet::text::ordinal;
 
 /// Why a selector named nobody on the account's character list.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

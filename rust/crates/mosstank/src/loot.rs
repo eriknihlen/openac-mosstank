@@ -24,27 +24,27 @@ pub type HostLoot<'h, 'a> = HostAutomation<'h, 'a>;
 
 impl LootHost for HostAutomation<'_, '_> {
     fn loot_available(&mut self) -> bool {
-        self.host.loot_state().is_available
+        self.reader().loot_state().is_available
     }
 
     fn requested_container_id(&mut self) -> u32 {
-        self.host.loot_state().requested_container_id
+        self.reader().loot_state().requested_container_id
     }
 
     fn current_container_id(&mut self) -> u32 {
-        self.host.loot_state().current_container_id
+        self.reader().loot_state().current_container_id
     }
 
     fn current_contents_ready(&mut self) -> bool {
-        self.host.loot_state().current_contents_ready
+        self.reader().loot_state().current_contents_ready
     }
 
     fn appraisal(&mut self) -> AppraisalState {
-        self.host.loot_state().appraisal
+        self.reader().loot_state().appraisal
     }
 
     fn last_inventory_completion(&mut self) -> InventoryCompletion {
-        self.host.loot_state().last_inventory_completion
+        self.reader().loot_state().last_inventory_completion
     }
 
     /// The corpses in reach. A corpse counts as answered once it is
@@ -52,8 +52,8 @@ impl LootHost for HostAutomation<'_, '_> {
     /// decayed meanwhile is answered with nothing), or while its answer is
     /// the appraisal slot's last one (register LOOT-3).
     fn loot_corpses(&mut self, maximum_distance: f32) -> Vec<LootCorpse> {
-        let containers = self.host.corpses(maximum_distance);
-        let last_answered = self.host.loot_state().appraisal.current_id;
+        let containers = self.reader().corpses(maximum_distance);
+        let last_answered = self.reader().loot_state().appraisal.current_id;
         containers
             .into_iter()
             .map(|container| {
@@ -71,11 +71,11 @@ impl LootHost for HostAutomation<'_, '_> {
     }
 
     fn loot_contents(&mut self) -> Vec<InventoryItem> {
-        self.host.loot_contents()
+        self.reader().loot_contents()
     }
 
     fn loot_properties(&mut self, object_id: u32) -> Option<ItemProperties> {
-        self.host.loot_properties(object_id)
+        self.reader().loot_properties(object_id)
     }
 
     fn loot_open(&mut self, container_id: u32) -> ItemResult {
@@ -103,15 +103,15 @@ impl LootHost for HostAutomation<'_, '_> {
     }
 
     fn active_vendor_id(&mut self) -> u32 {
-        self.host.item_state().active_vendor_id
+        self.reader().item_state().active_vendor_id
     }
 
     fn is_spell_known(&mut self, spell_id: u32) -> bool {
-        self.host.is_spell_known(spell_id)
+        self.reader().is_spell_known(spell_id)
     }
 
     fn objects(&mut self) -> Vec<WorldObject> {
-        self.host.objects()
+        self.reader().objects()
     }
 
     fn classify(
@@ -131,15 +131,15 @@ impl LootHost for HostAutomation<'_, '_> {
     }
 
     fn storage_available(&mut self) -> bool {
-        HostStorage::plugin_data(self.host).is_available()
+        HostStorage::plugin_data(self.service()).is_available()
     }
 
     fn storage_read_text(&mut self, key: &str) -> Result<Option<String>, String> {
-        HostStorage::plugin_data(self.host).read_text(key)
+        HostStorage::plugin_data(self.service()).read_text(key)
     }
 
     fn storage_write_text(&mut self, key: &str, content: &str) -> Result<(), String> {
-        HostStorage::plugin_data(self.host).write_text(key, content)
+        HostStorage::plugin_data(self.service()).write_text(key, content)
     }
 
     fn log_error(&mut self, text: &str) {

@@ -12,10 +12,10 @@ use mosstank_automation::locks::{ActionLockKind, SharedActionLocks, item_use_loc
 use mosstank_dotnet::collections::{
     DotNetDictionary, IgnoreCaseStringMap, Ordinal, OrdinalStringMap, OrdinalStringSet,
 };
+use mosstank_dotnet::text::{casing, ordinal};
 use mosstank_formats::utl::LootAction;
 use mosstank_settings::model::{ConsumableCategory, LootSettings};
 use openac_plugin_compat::number;
-use openac_plugin_compat::text::{casing, ordinal};
 
 use crate::donors::{DonorStore, ManaDonorJournal};
 use crate::host::{LootHost, status_name};

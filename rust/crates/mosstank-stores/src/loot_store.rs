@@ -4,13 +4,13 @@
 //! added kept, item giver profiles, importing a VTClassic file, and the
 //! one-time migration of older MossTank JSON loot profiles.
 
+use mosstank_dotnet::text::{casing, ordinal};
 use mosstank_dotnet::{parse_bool, try_parse_uint};
 use mosstank_formats::utl::{
     self, LootRule, VtankLootExtraBlock, VtankLootProfile, VtankSalvageCombineSettings,
 };
 use mosstank_settings::model::LootSettings;
 use openac_plugin_compat::json;
-use openac_plugin_compat::text::{casing, ordinal};
 
 use crate::directory::{self, LOOT_FOLDER, VtankCharacterBinding};
 use crate::layout;

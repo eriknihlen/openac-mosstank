@@ -8,9 +8,9 @@ use mosstank_data::experience::{
     self, DEFAULT_MAX_STEPS, ExperiencePlan, ExperienceStep, ExperienceTarget,
     ExperienceTargetKind, ExperienceTargetState, TARGETS, policy,
 };
+use mosstank_dotnet::text::{casing, ordinal};
 use mosstank_settings::ub::UbSettingValue;
 use openac_plugin_compat::number;
-use openac_plugin_compat::text::{casing, ordinal};
 
 use crate::chat;
 use crate::commands::UbCall;

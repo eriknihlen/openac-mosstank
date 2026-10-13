@@ -93,13 +93,12 @@ pub fn try_find_fellow(
 /// (`uint.TryParse(hex, NumberStyles.HexNumber)`).
 #[must_use]
 pub fn parse_hex(text: &str) -> Option<u32> {
-    let hex = if text.len() >= 2
-        && openac_plugin_compat::text::ordinal::starts_with_ignore_case(text, "0x")
-    {
-        &text[2..]
-    } else {
-        text
-    };
+    let hex =
+        if text.len() >= 2 && mosstank_dotnet::text::ordinal::starts_with_ignore_case(text, "0x") {
+            &text[2..]
+        } else {
+            text
+        };
     openac_plugin_compat::number::parse_u32(
         hex,
         openac_plugin_compat::number::NumberStyles::HEX_NUMBER,

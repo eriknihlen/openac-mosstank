@@ -8,8 +8,8 @@ use std::collections::HashMap;
 use std::sync::Arc;
 
 use mosstank_data::damage::MonsterDamageType;
+use mosstank_dotnet::text::{casing, ordinal};
 use mosstank_formats::gameinfo::VtankGameInfoDatabase;
-use openac_plugin_compat::text::{casing, ordinal};
 
 pub use expression::{MonsterExpression, MonsterExpressionContext, MonsterValue, MonsterValueKind};
 

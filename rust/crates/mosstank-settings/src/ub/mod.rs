@@ -13,11 +13,12 @@ use std::collections::HashMap;
 use std::sync::Arc;
 
 use mosstank_dotnet::compat::number::{self, NumberStyles};
+use mosstank_dotnet::text::{casing, ordinal};
 use mosstank_dotnet::{
     double_to_int, format_g15, parse_bool, round_away_from_zero, try_parse_double, try_parse_float,
     try_parse_int, try_parse_uint,
 };
-use openac_plugin_compat::text::{casing, ordinal, utf16};
+use openac_plugin_compat::text::utf16;
 
 use crate::defaults::VtankEnumValue;
 

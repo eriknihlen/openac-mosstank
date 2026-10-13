@@ -20,10 +20,10 @@ use std::collections::HashSet;
 
 use ac_plugin_abi::LogLevel;
 use ac_plugin_abi::callback::InterceptDecision;
+use mosstank_dotnet::text::ordinal;
 use mosstank_expr::{ExpressionValue, ExpressionVariableScope};
 use mosstank_meta::host::MetaHost;
 use openac_plugin_compat::regex::{DotNetRegex, RegexError, RegexOptions};
-use openac_plugin_compat::text::ordinal;
 
 use crate::expressions::UbExpressions;
 use crate::host::UbHost;

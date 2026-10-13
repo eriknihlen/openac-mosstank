@@ -7,7 +7,7 @@
 use std::collections::HashSet;
 
 use ac_plugin_abi::LogLevel;
-use openac_plugin_compat::text::casing;
+use mosstank_dotnet::text::casing;
 use sha2::{Digest, Sha256};
 
 use crate::host::{MetaHost, PanelDescriptor};

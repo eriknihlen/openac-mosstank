@@ -5,8 +5,8 @@ use std::collections::HashMap;
 
 use ac_plugin_abi::CharacterInfo;
 use ac_plugin_abi::magic::SpellInfo;
+use mosstank_dotnet::text::ordinal;
 use mosstank_settings::model::{VitalKind, VitalSettings};
-use openac_plugin_compat::text::ordinal;
 
 /// The heal spell's name stem.
 pub const HEAL_SELF_STEM: &str = "Heal Self";

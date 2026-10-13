@@ -3,6 +3,7 @@
 //! `SetOpt`, a death and the autostart alike. Distances are kept in metres
 //! and spoken in VTank's map units (240 metres to the unit).
 
+use mosstank_dotnet::text::casing;
 use mosstank_expr::{ExpressionValue, Fault};
 use mosstank_settings::model::{
     DebuffEachFirst, DebuffSelectionMethod, MeleeAttackHeight, PetRangeMode, TargetSelectionMethod,
@@ -11,7 +12,6 @@ use mosstank_settings::model::{
 use mosstank_settings::monster::expression::{MonsterValue, MonsterValueKind};
 use mosstank_settings::options::{self, VtankSettingValueType};
 use openac_plugin_compat::number::{self, NumberStyles};
-use openac_plugin_compat::text::casing;
 
 use super::{Core, TankCx};
 use crate::client::TankClient;
@@ -739,9 +739,9 @@ impl TankCx<'_> {
 /// `bool.TryParse`.
 pub(crate) fn parse_bool(text: &str) -> Option<bool> {
     let text = text.trim_matches(|c: char| casing::is_white_space(c) || c == '\0');
-    if openac_plugin_compat::text::ordinal::equals_ignore_case(text, "true") {
+    if mosstank_dotnet::text::ordinal::equals_ignore_case(text, "true") {
         Some(true)
-    } else if openac_plugin_compat::text::ordinal::equals_ignore_case(text, "false") {
+    } else if mosstank_dotnet::text::ordinal::equals_ignore_case(text, "false") {
         Some(false)
     } else {
         None

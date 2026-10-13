@@ -294,7 +294,7 @@ pub(super) fn act(cx: &mut TankCx<'_>, name: &str, arg: &Arg) -> bool {
         // is used, and with nothing selected either, nothing is added.
         "AddMonsterRule" => {
             let draft = cx.core.panel.monster_expression_draft.clone();
-            if openac_plugin_compat::text::casing::is_white_space_only(&draft) {
+            if mosstank_dotnet::text::casing::is_white_space_only(&draft) {
                 cx.add_selected_monster();
                 return true;
             }
@@ -347,7 +347,7 @@ impl TankCx<'_> {
         object_id: u32,
         durable_name: &str,
     ) -> String {
-        if object_id == 0 && openac_plugin_compat::text::casing::is_white_space_only(durable_name) {
+        if object_id == 0 && mosstank_dotnet::text::casing::is_white_space_only(durable_name) {
             return "<AUTO>".to_owned();
         }
         if is_profiled(&self.core.settings.combat, object_id, durable_name) {
@@ -362,7 +362,7 @@ impl TankCx<'_> {
 
     /// `ItemDisplayName`.
     pub(crate) fn item_display_name(&mut self, object_id: u32, durable_name: &str) -> String {
-        if !openac_plugin_compat::text::casing::is_white_space_only(durable_name) {
+        if !mosstank_dotnet::text::casing::is_white_space_only(durable_name) {
             return durable_name.to_owned();
         }
         if object_id == 0 {
@@ -412,7 +412,7 @@ impl TankCx<'_> {
             .into_iter()
             .find(|candidate| candidate.object_id == selected)
         {
-            return (!openac_plugin_compat::text::casing::is_white_space_only(&candidate.name))
+            return (!mosstank_dotnet::text::casing::is_white_space_only(&candidate.name))
                 .then_some(candidate.name);
         }
         self.client
@@ -420,7 +420,7 @@ impl TankCx<'_> {
             .object(selected)
             .filter(|world| {
                 world.object_class == ObjectClass::Monster
-                    && !openac_plugin_compat::text::casing::is_white_space_only(&world.name)
+                    && !mosstank_dotnet::text::casing::is_white_space_only(&world.name)
             })
             .map(|world| world.name)
     }
@@ -452,7 +452,7 @@ impl TankCx<'_> {
             .iter()
             .cloned()
             .collect();
-        names.sort_by(|a, b| openac_plugin_compat::text::ordinal::compare(a, b));
+        names.sort_by(|a, b| mosstank_dotnet::text::ordinal::compare(a, b));
         let owned = self.client.rules().owned_items();
         self.update_monster_actions_at(row, move |mut actions| {
             let current = if offhand {

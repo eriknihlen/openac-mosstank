@@ -3,13 +3,13 @@
 //! advanced options and `MossTankPanel.AdvancedCustomBuffs`).
 
 use ac_plugin_abi::ui::UiValue;
+use mosstank_dotnet::text::ordinal;
 use mosstank_expr::ExpressionValue;
 use mosstank_settings::defaults::setting_enum_values;
 use mosstank_settings::options::{
     self, ADVANCED_NAMES, CATEGORY_BITS, CATEGORY_NAMES_BY_BIT, UNUSED_SETTING, VtankOptionPage,
     VtankSettingValueType, WALK_TO_RARE_CORPSE,
 };
-use openac_plugin_compat::text::ordinal;
 
 use super::{Arg, b, i, t, tl};
 use crate::tank::TankCx;

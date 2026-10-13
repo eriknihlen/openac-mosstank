@@ -10,7 +10,7 @@
 
 use ac_plugin_abi::social::{FellowMember, FellowshipStatus};
 use ac_plugin_abi::world::{ObjectClass, WorldObject};
-use openac_plugin_compat::text::casing;
+use mosstank_dotnet::text::casing;
 
 use crate::client::FellowshipAutomation;
 use crate::object_search::{self, SearchView};

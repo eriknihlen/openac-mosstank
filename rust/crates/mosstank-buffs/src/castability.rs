@@ -3,6 +3,7 @@
 //! walk reports goes to a [`CastabilityReport`].
 
 use std::collections::HashMap;
+use std::rc::Rc;
 
 use ac_plugin_abi::items::InventoryItem;
 use ac_plugin_abi::magic::SpellInfo;
@@ -36,6 +37,9 @@ pub struct AutomationCastability<'a> {
     report: &'a mut dyn CastabilityReport,
     counts: HashMap<String, i32>,
     host_components: HashMap<u32, bool>,
+    /// The self buffs the character knows, once read (or handed over by
+    /// a caller that read them for the same call).
+    known: Option<Rc<[SpellInfo]>>,
 }
 
 impl<'a> AutomationCastability<'a> {
@@ -53,7 +57,21 @@ impl<'a> AutomationCastability<'a> {
             report,
             counts: HashMap::new(),
             host_components: HashMap::new(),
+            known: None,
         }
+    }
+
+    /// The self buffs, if this walk has read them.
+    #[must_use]
+    pub fn known_if_read(&self) -> Option<Rc<[SpellInfo]>> {
+        self.known.clone()
+    }
+
+    /// The same, with the self buffs the caller read for this call.
+    #[must_use]
+    pub fn with_known(mut self, known: Rc<[SpellInfo]>) -> Self {
+        self.known = Some(known);
+        self
     }
 
     fn has_host_components(&mut self, spell_id: u32) -> bool {
@@ -166,9 +184,15 @@ impl AutomationCastability<'_> {
         self.automation.spells().try_get(spell_id)
     }
 
-    /// The self buffs the character knows, through the walk's client.
-    pub fn known_self_buffs(&mut self) -> Vec<SpellInfo> {
-        self.automation.spells().known_self_buffs()
+    /// The self buffs the character knows, through the walk's client (read
+    /// once for the walk).
+    pub fn known_self_buffs(&mut self) -> Rc<[SpellInfo]> {
+        if let Some(known) = &self.known {
+            return Rc::clone(known);
+        }
+        let known: Rc<[SpellInfo]> = self.automation.spells().known_self_buffs().into();
+        self.known = Some(Rc::clone(&known));
+        known
     }
 
     /// The character's skills, through the walk's client.

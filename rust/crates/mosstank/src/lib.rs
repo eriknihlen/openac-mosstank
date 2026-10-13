@@ -58,6 +58,8 @@ pub struct MossTank {
     /// The windows the meta draws, from the call that makes one to the
     /// call that takes it down.
     meta_windows: meta_windows::MetaWindows,
+    /// What the client's views keep between calls (the spell table).
+    kept: automation::KeptReads,
 }
 
 impl MossTank {
@@ -90,8 +92,12 @@ impl MossTank {
             return;
         };
         let values: std::collections::HashMap<String, ac_plugin_abi::ui::UiValue> = {
-            let mut client =
-                HostAutomation::for_call(host, &mut self.observations, &mut self.meta_windows);
+            let mut client = HostAutomation::for_call(
+                host,
+                &mut self.observations,
+                &mut self.meta_windows,
+                &mut self.kept,
+            );
             names
                 .into_iter()
                 .filter_map(|name| {
@@ -116,9 +122,20 @@ impl MossTank {
         f: impl FnOnce(&mut Tank, &mut HostAutomation<'_, '_>) -> R,
     ) -> Option<R> {
         let tank = self.tank.as_mut()?;
-        let mut client =
-            HostAutomation::for_call(host, &mut self.observations, &mut self.meta_windows);
-        Some(f(tank, &mut client))
+        // What the client said before this call is not kept into it, nor
+        // what it says now past it.
+        self.kept.end_call();
+        let answer = {
+            let mut client = HostAutomation::for_call(
+                host,
+                &mut self.observations,
+                &mut self.meta_windows,
+                &mut self.kept,
+            );
+            f(tank, &mut client)
+        };
+        self.kept.end_call();
+        Some(answer)
     }
 }
 
@@ -130,11 +147,51 @@ fn seed(host: &mut Host<'_>) -> i32 {
 }
 
 impl Plugin for MossTank {
-    fn enable(&mut self, host: &mut Host<'_>, _info: &StartInfo) -> Result<(), String> {
+    // Each call begins and ends with nothing of the client kept
+    // (`KeptReads::end_call`): the client changes between calls.
+    fn enable(&mut self, host: &mut Host<'_>, info: &StartInfo) -> Result<(), String> {
+        self.kept.end_call();
+        let result = self.enable_call(host, info);
+        self.kept.end_call();
+        result
+    }
+
+    fn disable(&mut self, host: &mut Host<'_>) {
+        self.kept.end_call();
+        self.disable_call(host);
+        self.kept.end_call();
+    }
+
+    fn tick(&mut self, host: &mut Host<'_>) {
+        self.kept.end_call();
+        self.tick_call(host);
+        self.kept.end_call();
+    }
+
+    fn on_event(&mut self, host: &mut Host<'_>, event: Event) {
+        self.kept.end_call();
+        self.event_call(host, event);
+        self.kept.end_call();
+    }
+
+    fn callback(&mut self, host: &mut Host<'_>, callback: Callback) -> CallbackAnswer {
+        self.kept.end_call();
+        let answer = self.callback_call(host, callback);
+        self.kept.end_call();
+        answer
+    }
+}
+
+impl MossTank {
+    fn enable_call(&mut self, host: &mut Host<'_>, _info: &StartInfo) -> Result<(), String> {
         let seed = seed(host);
         {
-            let mut client =
-                HostAutomation::for_call(host, &mut self.observations, &mut self.meta_windows);
+            let mut client = HostAutomation::for_call(
+                host,
+                &mut self.observations,
+                &mut self.meta_windows,
+                &mut self.kept,
+            );
             self.tank = Some(Tank::new(&mut client, seed));
         }
         host.info("MossTank initialized");
@@ -149,6 +206,8 @@ impl Plugin for MossTank {
             ));
         }
         self.go_to_pause = GoToPause::take(host);
+        // The host was used here, past the shell's view.
+        self.kept.end_call();
         self.push_windows(host);
         let available = host.character().is_some();
         host.info(if available {
@@ -159,10 +218,14 @@ impl Plugin for MossTank {
         Ok(())
     }
 
-    fn disable(&mut self, host: &mut Host<'_>) {
+    fn disable_call(&mut self, host: &mut Host<'_>) {
         if let Some(mut tank) = self.tank.take() {
-            let mut client =
-                HostAutomation::for_call(host, &mut self.observations, &mut self.meta_windows);
+            let mut client = HostAutomation::for_call(
+                host,
+                &mut self.observations,
+                &mut self.meta_windows,
+                &mut self.kept,
+            );
             tank.disable(&mut client);
         }
         // Both words are given up with the plugin.
@@ -177,18 +240,29 @@ impl Plugin for MossTank {
         host.info("MossTank disabled");
     }
 
-    fn tick(&mut self, host: &mut Host<'_>) {
+    fn tick_call(&mut self, host: &mut Host<'_>) {
         let Some(tank) = self.tank.as_mut() else {
             return;
         };
         {
-            let mut client =
-                HostAutomation::for_call(host, &mut self.observations, &mut self.meta_windows);
+            let mut client = HostAutomation::for_call(
+                host,
+                &mut self.observations,
+                &mut self.meta_windows,
+                &mut self.kept,
+            );
             tank.on_tick(&mut client, TICK_SECONDS);
             tank.tick_autostart(&mut client);
         }
+        // The chat-line patterns are built one a tick ahead of their first
+        // use: built all at once, on the first cast's result line, they
+        // cost more than one call may run.
+        mosstank_automation::combat_text::warm_one();
         let reason = tank.walk_pause_reason();
-        self.go_to_pause.need(host, reason.as_deref());
+        if self.go_to_pause.need(host, reason.as_deref()) {
+            // The walk's hold changed through the host, past the view.
+            self.kept.end_call();
+        }
         if self
             .windows
             .as_mut()
@@ -198,7 +272,7 @@ impl Plugin for MossTank {
         }
     }
 
-    fn on_event(&mut self, host: &mut Host<'_>, event: Event) {
+    fn event_call(&mut self, host: &mut Host<'_>, event: Event) {
         if let Event::EquipmentPlacement(observation) = event {
             // Placements are observed from enable to disable only, as the
             // C# observers are attached.
@@ -219,8 +293,12 @@ impl Plugin for MossTank {
             _ => None,
         };
         {
-            let mut client =
-                HostAutomation::for_call(host, &mut self.observations, &mut self.meta_windows);
+            let mut client = HostAutomation::for_call(
+                host,
+                &mut self.observations,
+                &mut self.meta_windows,
+                &mut self.kept,
+            );
             match &event {
                 Event::Command(call) if call.verb.eq_ignore_ascii_case(tank::VTANK_VERB) => {
                     tank.execute_vtank_command(&mut client, &call.arguments);
@@ -247,7 +325,7 @@ impl Plugin for MossTank {
         self.push_windows(host);
     }
 
-    fn callback(&mut self, host: &mut Host<'_>, callback: Callback) -> CallbackAnswer {
+    fn callback_call(&mut self, host: &mut Host<'_>, callback: Callback) -> CallbackAnswer {
         if let Callback::ChatIntercept((handle, line)) = &callback
             && let Some(Some(decision)) = self.with_tank(host, |tank, client| {
                 tank.intercept_chat(client, *handle, line)

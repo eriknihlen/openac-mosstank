@@ -34,16 +34,21 @@ impl GoToPause {
     }
 
     /// Says what the macro needs the character for now (`None` for
-    /// nothing); the client is told only when that changes.
-    pub fn need(&mut self, host: &mut Host<'_>, reason: Option<&str>) {
+    /// nothing); the client is told only when that changes. Whether the
+    /// client was told.
+    pub fn need(&mut self, host: &mut Host<'_>, reason: Option<&str>) -> bool {
         let reason = reason.unwrap_or("");
         if reason == self.reason {
-            return;
+            return false;
         }
-        if let Some(pause) = self.pause {
+        let called = if let Some(pause) = self.pause {
             let _ = host.navigation_set_pause(pause, reason);
-        }
+            true
+        } else {
+            false
+        };
         reason.clone_into(&mut self.reason);
+        called
     }
 
     /// Lets the pause go.
@@ -67,7 +72,7 @@ impl NavigationAutomation for HostAutomation<'_, '_> {
     }
 
     fn navigation_objects(&mut self) -> Vec<NavigationObject> {
-        self.host().navigation_objects()
+        self.reader().navigation_objects()
     }
 
     fn move_by(
@@ -108,11 +113,11 @@ impl NavigationAutomation for HostAutomation<'_, '_> {
     }
 
     fn active_vendor_id(&mut self) -> u32 {
-        self.host().item_state().active_vendor_id
+        self.reader().item_state().active_vendor_id
     }
 
     fn open_vendor_id(&mut self) -> u32 {
-        let vendor = self.host().vendor();
+        let vendor = self.reader().vendor();
         if vendor.is_open { vendor.vendor_id } else { 0 }
     }
 
@@ -121,7 +126,7 @@ impl NavigationAutomation for HostAutomation<'_, '_> {
     }
 
     fn known_spell_list(&mut self, list: SpellList) -> Vec<SpellInfo> {
-        self.host().known_spells(list)
+        self.known_list(list)
     }
 }
 

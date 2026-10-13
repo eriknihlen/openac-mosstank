@@ -23,9 +23,9 @@
 use std::collections::HashMap;
 
 use mosstank_dotnet::collections::IgnoreCaseStringMap;
+use mosstank_dotnet::text::{casing, ordinal};
 use mosstank_settings::ub::{UbSettingScope, UbSettingValue, UbSettingValues, definitions};
 use openac_plugin_compat::json::{self, JsonValue, system_text_json};
-use openac_plugin_compat::text::{casing, ordinal};
 
 use crate::layout;
 use crate::storage::{PluginStorage, StorageError, StoreLog};

@@ -5,11 +5,11 @@
 use std::sync::LazyLock;
 
 use mosstank_automation::heading::normalize_heading;
+use mosstank_dotnet::text::ordinal;
 use mosstank_formats::route::{RouteJumpDirection, RouteWaypoint, RouteWaypointType};
 use mosstank_ub::commands::jumper::JumpRequest;
 use openac_plugin_compat::number::{self, NumberStyles};
 use openac_plugin_compat::regex::{DotNetRegex, RegexOptions};
-use openac_plugin_compat::text::ordinal;
 
 use super::options::parse_bool;
 use super::{Core, TankCx};

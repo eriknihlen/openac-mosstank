@@ -10,10 +10,10 @@ use ac_plugin_abi::magic::SpellInfo;
 use ac_plugin_abi::world::ProjectilePathKind;
 use mosstank_automation::SpellCatalog;
 use mosstank_data::attack_spells::{find_skill, projectile_shape_for, range_meters};
+use mosstank_dotnet::text::ordinal;
 use mosstank_formats::gameinfo::VtankGrenadeOption;
 use mosstank_settings::model::{CombatSettings, DebuffSelectionMethod};
 use mosstank_settings::monster::MonsterRuleActions;
-use openac_plugin_compat::text::ordinal;
 
 use crate::debuff::{self, DebuffIdentity};
 

@@ -6,7 +6,7 @@
 
 use std::collections::BTreeMap;
 
-use openac_plugin_compat::text::{casing, ordinal};
+use mosstank_dotnet::text::{casing, ordinal};
 
 /// Why a storage call failed: the message the C#'s exception carried.
 pub type StorageError = String;

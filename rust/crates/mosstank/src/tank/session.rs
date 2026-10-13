@@ -10,6 +10,7 @@ use std::rc::Rc;
 use std::sync::LazyLock;
 
 use ac_plugin_abi::net::{HttpReply, HttpRequest};
+use mosstank_dotnet::text::casing;
 use mosstank_meta::debug_log::MacroDebugLog;
 use mosstank_session::action_history::ActionHistory;
 use mosstank_session::game_info::{
@@ -19,7 +20,6 @@ use mosstank_session::kill_statistics::{KillCharacter, KillStatistics, KillStati
 use mosstank_stores::storage::{PluginStorage, Root};
 use openac_plugin_compat::number;
 use openac_plugin_compat::regex::{DotNetRegex, RegexOptions};
-use openac_plugin_compat::text::casing;
 
 use super::{Core, HostClock, Tank, TankCx, TankFamily};
 use crate::client::TankClient;
@@ -300,12 +300,13 @@ impl Core {
             client: &cell,
             transport: self.session.game_info_transport,
         };
-        self.session.game_info_updater.start(
+        self.session.game_info_updater.start_with_memo(
             &mut profiles,
             &mut state,
             Some(&mut transport),
             now,
             skip_if_checked_within_seconds,
+            &mut self.game_info_memo,
         )
     }
 

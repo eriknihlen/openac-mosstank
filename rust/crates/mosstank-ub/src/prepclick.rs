@@ -8,9 +8,9 @@
 use std::sync::LazyLock;
 
 use ac_plugin_abi::world::Confirmation;
+use mosstank_dotnet::text::casing;
 use openac_plugin_compat::number::{self, NumberStyles};
 use openac_plugin_compat::regex::{DotNetRegex, RegexOptions};
-use openac_plugin_compat::text::casing;
 
 use crate::chat::{TAG, tools};
 use crate::host::UbHost;

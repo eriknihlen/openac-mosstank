@@ -10,12 +10,12 @@
 //! names are accepted beside this client's: its `Login` lands on the
 //! completed login, its `Logout` is the logoff.
 
+use mosstank_dotnet::text::{casing, ordinal};
 use mosstank_expr::ExpressionProgram;
 use mosstank_formats::meta::{
     DEFAULT_STATE, MetaAction, MetaActionKind, MetaCondition, MetaConditionKind, MetaProfile,
     MetaRule,
 };
-use openac_plugin_compat::text::{casing, ordinal};
 
 const EXPRESSION_PREFIX: &str = "expr:";
 const CHAT_EXPRESSION_PREFIX: &str = "chatexpr:";

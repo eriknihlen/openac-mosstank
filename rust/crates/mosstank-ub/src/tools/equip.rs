@@ -17,11 +17,11 @@ use ac_plugin_abi::LogLevel;
 use ac_plugin_abi::items::{EquipmentObservation, EquipmentStatus, InventoryItem, ItemStatus};
 use ac_plugin_abi::world::{ItemProperties, ObjectClass};
 use mosstank_automation::locks::{ActionLockKind, ActionLockTable};
+use mosstank_dotnet::text::{casing, ordinal};
 use mosstank_formats::utl::{self, LootAction, LootRule, VtankLootRequirement};
 use mosstank_stores::storage::StorageError;
 use openac_plugin_compat::number;
 use openac_plugin_compat::regex;
-use openac_plugin_compat::text::{casing, ordinal};
 
 use crate::chat::{self, tools};
 use crate::commands::UbCall;

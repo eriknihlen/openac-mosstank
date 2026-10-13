@@ -2,11 +2,11 @@
 //! <option>}` and the `uboptget[]`/`uboptset[]` expression functions: the
 //! UB settings, and only those (the macro's own options are `/vt opt`'s).
 
+use mosstank_dotnet::text::casing;
 use mosstank_expr::value::ExpressionList;
 use mosstank_expr::{ExpressionValue, ExpressionValueKind};
 use mosstank_settings::ub::{UbSetting, UbSettingKind, UbSettingScope, UbSettingValue};
 use openac_plugin_compat::number::{MidpointRounding, round_mode};
-use openac_plugin_compat::text::casing;
 
 use super::call::UbCall;
 use super::split_head;

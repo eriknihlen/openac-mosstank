@@ -16,8 +16,8 @@ use std::collections::HashMap;
 
 use ac_plugin_abi::ui::{Color, PointerEvent};
 use ac_plugin_abi::world::Position;
+use mosstank_dotnet::text::ordinal;
 use openac_plugin_compat::number;
-use openac_plugin_compat::text::ordinal;
 
 use crate::canvas::{
     BUTTON_LEFT, MODIFIER_SHIFT, MapCanvasSpec, MapImage, MapPainter, MapUi, POINTER_DOWN,

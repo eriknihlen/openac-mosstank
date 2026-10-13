@@ -14,8 +14,9 @@
 //! UTF-16 code units, then that many characters, line breaks included). An
 //! unknown tag is a cell with no value line.
 
+use mosstank_dotnet::text::ordinal;
 use mosstank_dotnet::{format_g15, try_parse_int};
-use openac_plugin_compat::text::{ordinal, utf16};
+use openac_plugin_compat::text::utf16;
 
 use crate::FormatError;
 
@@ -388,7 +389,9 @@ impl<'a> VtankLineCursor<'a> {
             )));
         }
         let rest = &self.text[self.position..];
-        let (mut line, consumed) = match rest.find('\n') {
+        // A plain scan: lines are short, and the general search costs more
+        // to set up than it saves on them.
+        let (mut line, consumed) = match rest.bytes().position(|byte| byte == b'\n') {
             Some(newline) => (&rest[..newline], newline + 1),
             None => (rest, rest.len()),
         };
@@ -438,6 +441,309 @@ impl<'a> VtankLineCursor<'a> {
     }
 }
 
+/// What the readers of a database ask of a cell, whether it keeps its text
+/// ([`VtankCell`]) or reads it in place ([`VtankCellRef`]).
+pub trait CellValue {
+    /// The raw type tag.
+    fn tag(&self) -> &str;
+
+    /// The text of the single value line, for a scalar tag.
+    fn scalar_text(&self) -> Option<&str>;
+
+    /// As [`VtankCell::as_string`].
+    fn as_string(&self) -> &str {
+        self.scalar_text().unwrap_or("")
+    }
+
+    /// As [`VtankCell::as_int`].
+    ///
+    /// # Errors
+    /// The text is not an integer, or is out of range.
+    fn as_int(&self) -> Result<i32, FormatError> {
+        mosstank_dotnet::parse_int(self.scalar_text().unwrap_or("0")).map_err(FormatError)
+    }
+
+    /// As [`VtankCell::as_double`].
+    ///
+    /// # Errors
+    /// The text is not a number.
+    fn as_double(&self) -> Result<f64, FormatError> {
+        let text = self.scalar_text().unwrap_or("0");
+        mosstank_dotnet::try_parse_double(text).ok_or_else(|| not_a_number(text))
+    }
+}
+
+impl CellValue for VtankCell {
+    fn tag(&self) -> &str {
+        &self.tag
+    }
+
+    fn scalar_text(&self) -> Option<&str> {
+        self.scalar_text.as_deref()
+    }
+}
+
+/// What the readers of a database ask of its tables, whether it keeps its
+/// text ([`VtankDatabase`]) or reads it in place ([`VtankDatabaseRef`]).
+pub trait TableSet {
+    /// Its cells.
+    type Cell: CellValue;
+
+    /// How many tables it has.
+    fn table_count(&self) -> usize;
+
+    /// The rows of table `index`, in order, each its cells.
+    fn rows_of(&self, index: usize) -> Vec<&[Self::Cell]>;
+
+    /// The index of the first table named exactly `name`.
+    fn index_of(&self, name: &str) -> Option<usize>;
+
+    /// Keeps only the first `rows` rows of table `index` and no table after
+    /// it.
+    fn end_at(&mut self, index: usize, rows: usize);
+}
+
+impl TableSet for VtankDatabase {
+    type Cell = VtankCell;
+
+    fn table_count(&self) -> usize {
+        self.tables.len()
+    }
+
+    fn rows_of(&self, index: usize) -> Vec<&[VtankCell]> {
+        self.tables
+            .get(index)
+            .map(|(_, table)| table.rows.iter().map(|row| row.cells.as_slice()).collect())
+            .unwrap_or_default()
+    }
+
+    fn index_of(&self, name: &str) -> Option<usize> {
+        self.tables
+            .iter()
+            .position(|(table_name, _)| table_name == name)
+    }
+
+    fn end_at(&mut self, index: usize, rows: usize) {
+        if let Some((_, table)) = self.tables.get_mut(index) {
+            table.rows.truncate(rows);
+        }
+        self.tables.truncate(index + 1);
+    }
+}
+
+/// A cell read in place: [`VtankCell`] borrowing the text it was read from.
+#[derive(Debug, Clone, PartialEq)]
+pub struct VtankCellRef<'a> {
+    /// The raw type tag.
+    pub tag: &'a str,
+    /// The single value line, for every scalar tag except `ba`.
+    pub scalar_text: Option<&'a str>,
+    /// The nested table of a `TABLE` cell.
+    pub table: Option<Box<VtankTableRef<'a>>>,
+    /// The characters of a `ba` cell.
+    pub blob_text: Option<&'a str>,
+}
+
+impl<'a> VtankCellRef<'a> {
+    fn tagged(tag: &'a str) -> Self {
+        Self {
+            tag,
+            scalar_text: None,
+            table: None,
+            blob_text: None,
+        }
+    }
+
+    /// The cell keeping its own text.
+    #[must_use]
+    pub fn to_cell(&self) -> VtankCell {
+        VtankCell {
+            tag: self.tag.to_owned(),
+            scalar_text: self.scalar_text.map(str::to_owned),
+            table: self.table.as_ref().map(|table| Box::new(table.to_table())),
+            blob_text: self.blob_text.map(str::to_owned),
+        }
+    }
+}
+
+impl CellValue for VtankCellRef<'_> {
+    fn tag(&self) -> &str {
+        self.tag
+    }
+
+    fn scalar_text(&self) -> Option<&str> {
+        self.scalar_text
+    }
+}
+
+/// Reads one cell at the cursor in place, as [`read_cell`] reads it.
+///
+/// # Errors
+/// As [`read_cell`].
+pub fn read_cell_ref<'a>(
+    cursor: &mut VtankLineCursor<'a>,
+) -> Result<VtankCellRef<'a>, FormatError> {
+    let tag = cursor.read_line()?;
+    Ok(match tag {
+        "TABLE" => VtankCellRef {
+            table: Some(Box::new(VtankTableRef::read(cursor)?)),
+            ..VtankCellRef::tagged(tag)
+        },
+        "ba" => {
+            let length = cursor.read_int()?;
+            VtankCellRef {
+                blob_text: Some(cursor.read_blob(length)?),
+                ..VtankCellRef::tagged(tag)
+            }
+        }
+        "d" | "i" | "u" | "f" | "s" | "b" => VtankCellRef {
+            scalar_text: Some(cursor.read_line()?),
+            ..VtankCellRef::tagged(tag)
+        },
+        _ => VtankCellRef::tagged(tag),
+    })
+}
+
+/// A table read in place: [`VtankTable`] borrowing the text.
+#[derive(Debug, Clone, Default, PartialEq)]
+pub struct VtankTableRef<'a> {
+    /// Column names, in order.
+    pub column_names: Vec<&'a str>,
+    /// Whether each column is indexed (`y`).
+    pub index_flags: Vec<bool>,
+    /// How many cells a row has (the column count read).
+    width: usize,
+    /// How many rows it has.
+    row_count: usize,
+    /// The cells, row after row, each row in column order.
+    cells: Vec<VtankCellRef<'a>>,
+}
+
+impl<'a> VtankTableRef<'a> {
+    /// Reads a table at the cursor in place, as [`VtankTable::read`] reads
+    /// it.
+    ///
+    /// # Errors
+    /// As [`VtankTable::read`].
+    pub fn read(cursor: &mut VtankLineCursor<'a>) -> Result<Self, FormatError> {
+        let mut table = Self::default();
+        let column_count = cursor.read_int()?;
+        for _ in 0..column_count {
+            table.column_names.push(cursor.read_line()?);
+        }
+        for _ in 0..column_count {
+            table.index_flags.push(cursor.read_line()? == "y");
+        }
+        let row_count = cursor.read_int()?;
+        table.width = usize::try_from(column_count).unwrap_or(0);
+        for _ in 0..row_count {
+            for _ in 0..column_count {
+                table.cells.push(read_cell_ref(cursor)?);
+            }
+            table.row_count += 1;
+        }
+        Ok(table)
+    }
+
+    /// The table keeping its own text.
+    #[must_use]
+    pub fn to_table(&self) -> VtankTable {
+        VtankTable {
+            column_names: self.column_names.iter().map(|&n| n.to_owned()).collect(),
+            index_flags: self.index_flags.clone(),
+            rows: self
+                .rows()
+                .into_iter()
+                .map(|cells| VtankRow {
+                    cells: cells.iter().map(VtankCellRef::to_cell).collect(),
+                })
+                .collect(),
+        }
+    }
+
+    /// The rows, each its cells in column order.
+    #[must_use]
+    pub fn rows(&self) -> Vec<&[VtankCellRef<'a>]> {
+        if self.width == 0 {
+            return vec![&[]; self.row_count];
+        }
+        self.cells.chunks(self.width).collect()
+    }
+
+    /// Keeps the first `rows` rows.
+    fn truncate(&mut self, rows: usize) {
+        self.row_count = self.row_count.min(rows);
+        self.cells.truncate(self.row_count * self.width);
+    }
+}
+
+/// A database read in place: [`VtankDatabase`] borrowing the text, for a
+/// large text read only to be looked at (the game database is some two
+/// megabytes and a hundred thousand cells).
+#[derive(Debug, Clone, Default, PartialEq)]
+pub struct VtankDatabaseRef<'a> {
+    /// The tables with their names, in file order.
+    pub tables: Vec<(&'a str, VtankTableRef<'a>)>,
+}
+
+impl<'a> VtankDatabaseRef<'a> {
+    /// Parses a database in place, as [`VtankDatabase::parse`] parses it.
+    ///
+    /// # Errors
+    /// As [`VtankDatabase::parse`].
+    pub fn parse(text: &'a str) -> Result<Self, FormatError> {
+        let mut cursor = VtankLineCursor::new(text);
+        let mut database = Self::default();
+        let table_count = cursor.read_int()?;
+        for _ in 0..table_count {
+            let name = cursor.read_line()?;
+            let table = VtankTableRef::read(&mut cursor)?;
+            database.tables.push((name, table));
+        }
+        Ok(database)
+    }
+
+    /// The database keeping its own text.
+    #[must_use]
+    pub fn to_database(&self) -> VtankDatabase {
+        VtankDatabase {
+            tables: self
+                .tables
+                .iter()
+                .map(|(name, table)| ((*name).to_owned(), table.to_table()))
+                .collect(),
+        }
+    }
+}
+
+impl<'a> TableSet for VtankDatabaseRef<'a> {
+    type Cell = VtankCellRef<'a>;
+
+    fn table_count(&self) -> usize {
+        self.tables.len()
+    }
+
+    fn rows_of(&self, index: usize) -> Vec<&[VtankCellRef<'a>]> {
+        self.tables
+            .get(index)
+            .map(|(_, table)| table.rows())
+            .unwrap_or_default()
+    }
+
+    fn index_of(&self, name: &str) -> Option<usize> {
+        self.tables
+            .iter()
+            .position(|(table_name, _)| *table_name == name)
+    }
+
+    fn end_at(&mut self, index: usize, rows: usize) {
+        if let Some((_, table)) = self.tables.get_mut(index) {
+            table.truncate(rows);
+        }
+        self.tables.truncate(index + 1);
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -457,6 +763,59 @@ mod tests {
         ]
         .join("\r\n");
         format!("{header}\r\n{blob}")
+    }
+
+    // Read in place, every document reads as the owned parse reads it, and
+    // a broken one fails with the same message.
+    #[test]
+    fn a_database_read_in_place_is_the_database_parsed() {
+        let mut documents: Vec<String> = [
+            "gameinfodb-excerpt.ugd",
+            "defaultsettings.usd",
+            "owner-a.usd",
+            "owner-b.usd",
+            "owner-c.usd",
+            "owner-a.ast",
+        ]
+        .iter()
+        .map(|name| crate::fixtures::read_vtank(name))
+        .collect();
+        documents.push(single_ba_cell_document(EMBEDDED_BLOB));
+        let excerpt = documents[0].clone();
+        for cut in [0, 1, 3, 40, 200, excerpt.len() / 2, excerpt.len() - 3] {
+            documents.push(excerpt[..cut].to_owned());
+        }
+        documents.push(excerpt.replacen("14", "x", 1));
+        documents.push(single_ba_cell_document("short").replace(
+            "
+5
+", "
+50
+",
+        ));
+        documents.push(
+            "1
+T
+1
+C
+n
+2
+TABLE
+1
+D
+y
+1
+i
+5
+zz
+i
+"
+            .to_owned(),
+        );
+        for document in &documents {
+            let in_place = VtankDatabaseRef::parse(document).map(|database| database.to_database());
+            assert_eq!(in_place, VtankDatabase::parse(document), "{document:.60?}");
+        }
     }
 
     // Source: tests/AcDream.Plugins.MossTank.Tests/VtankUsdDocumentTests.cs :: BaBlobWithEmbeddedCrlfRoundTripsExactCharacterCount

@@ -7,11 +7,11 @@
 //! the C# would let escape as an exception comes back as `Err`.
 
 use mosstank_dotnet::collections::{IgnoreCaseStringSet, OrdinalStringSet};
+use mosstank_dotnet::text::{casing, ordinal};
 use mosstank_formats::usd::{VtankCell, VtankDatabase, VtankRow};
 use mosstank_settings::items::assist_items;
 use mosstank_settings::model::AllSettings;
 use mosstank_settings::{defaults, options, profile};
-use openac_plugin_compat::text::{casing, ordinal};
 
 use crate::directory::{self, SETTINGS_FOLDER, VtankCharacterBinding};
 use crate::layout;

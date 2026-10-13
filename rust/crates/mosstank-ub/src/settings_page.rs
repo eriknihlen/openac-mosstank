@@ -8,8 +8,8 @@
 //! each call ([`UbCatalog`], [`UbProfiles`]), so the page and every other
 //! reader of the catalogue can never hold two different values.
 
+use mosstank_dotnet::text::ordinal;
 use mosstank_settings::ub::{UbSetting, UbSettingKind, UbSettingScope, UbSettingValue};
-use openac_plugin_compat::text::ordinal;
 
 use crate::alias::AliasTable;
 use crate::catalog::UbCatalog;

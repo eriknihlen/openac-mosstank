@@ -8,7 +8,8 @@ use mosstank_dotnet::compat::DotNetRandom;
 use mosstank_dotnet::compat::datetime::{DateFormatError, DateTime};
 use mosstank_dotnet::compat::number::{self, NumberStyles, convert_to_int32, format_u32};
 use mosstank_dotnet::compat::regex::{DotNetRegex, RegexOptions};
-use openac_plugin_compat::text::{collation, ordinal, utf16};
+use mosstank_dotnet::text::ordinal;
+use openac_plugin_compat::text::{collation, utf16};
 
 use crate::engine::compare_doubles;
 use crate::error::{ExpressionError, Fault};

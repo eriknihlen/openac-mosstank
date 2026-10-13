@@ -10,6 +10,7 @@
 
 use ac_plugin_abi::CharacterInfo;
 use std::collections::{HashMap, HashSet};
+use std::rc::Rc;
 
 use ac_plugin_abi::character::Training;
 use ac_plugin_abi::combat::CombatMode;
@@ -25,12 +26,12 @@ use mosstank_automation::locks::{
 };
 use mosstank_combat::MacroLogChannel;
 use mosstank_combat::gate::{GateTurn, Prepare, SharedCombatModeGate};
+use mosstank_dotnet::text::ordinal;
 use mosstank_settings::model::{
     BuffItemEnchantRow, BuffSettings, CombatSettings, ConsumableCategory, VitalSettings,
 };
 use mosstank_stores::storage::PluginStorage;
 use openac_plugin_compat::number::format_f64;
-use openac_plugin_compat::text::ordinal;
 
 use crate::castability::{AutomationCastability, CastabilityReport};
 use crate::due::BuffDueTracker;
@@ -736,7 +737,10 @@ impl BuffSelfRule {
             Vec::new()
         };
 
-        if let Some(pick) = self.try_pick_character_enchant(turn, &owned, threshold) {
+        // The self buffs are read once for all the rows below: nothing a
+        // row does in between changes them.
+        let mut known: Option<Rc<[SpellInfo]>> = None;
+        if let Some(pick) = self.try_pick_character_enchant(turn, &owned, threshold, &mut known) {
             return Some(pick);
         }
 
@@ -768,7 +772,10 @@ impl BuffSelfRule {
                         &turn.settings.blacklisted_spell_components,
                         &mut report,
                     );
-                    match row.spell_id {
+                    if let Some(known) = &known {
+                        castability = castability.with_known(Rc::clone(known));
+                    }
+                    let resolved = match row.spell_id {
                         Some(spell_id) => {
                             castability.automation_spell(spell_id).and_then(|exemplar| {
                                 try_resolve_best_known(&mut castability, &exemplar, turn.settings)
@@ -779,7 +786,11 @@ impl BuffSelfRule {
                             &row.spell_name,
                             turn.settings,
                         ),
+                    };
+                    if known.is_none() {
+                        known = castability.known_if_read();
                     }
+                    resolved
                 };
                 report.finish(self, &mut *turn.automation);
                 resolved
@@ -824,6 +835,7 @@ impl BuffSelfRule {
         turn: &mut BuffTurn<'_>,
         owned: &[InventoryItem],
         threshold: f64,
+        known: &mut Option<Rc<[SpellInfo]>>,
     ) -> Option<BuffPick> {
         let character = turn.automation.character();
         if character.id == 0 || !turn.settings.buff_banes {
@@ -839,7 +851,18 @@ impl BuffSelfRule {
                         &turn.settings.blacklisted_spell_components,
                         &mut report,
                     );
-                    try_resolve_best_known_by_name(&mut castability, &tier_one_name, turn.settings)
+                    if let Some(known) = known.as_ref() {
+                        castability = castability.with_known(Rc::clone(known));
+                    }
+                    let resolved = try_resolve_best_known_by_name(
+                        &mut castability,
+                        &tier_one_name,
+                        turn.settings,
+                    );
+                    if known.is_none() {
+                        *known = castability.known_if_read();
+                    }
+                    resolved
                 };
                 report.finish(self, &mut *turn.automation);
                 resolved
@@ -1455,7 +1478,7 @@ pub(crate) fn try_resolve_best_known_by_name(
         .find(|candidate| ordinal::equals_ignore_case(&candidate.name, tier_one_name))
         .cloned();
     if reference.is_none() {
-        for candidate in &known {
+        for candidate in known.iter() {
             if !ordinal::starts_with_ignore_case(&candidate.name, stem) {
                 continue;
             }
@@ -1481,8 +1504,9 @@ fn try_resolve_best_known(
 ) -> Option<SpellInfo> {
     let known = castability.known_self_buffs();
     let mut tiers: Vec<SpellInfo> = known
-        .into_iter()
+        .iter()
         .filter(|candidate| candidate.family == reference.family)
+        .cloned()
         .collect();
     tiers.sort_by(|a, b| {
         b.tier

@@ -6,8 +6,8 @@ use std::collections::{HashMap, HashSet};
 
 use ac_plugin_abi::magic::{CastCompletion, SpellInfo};
 use mosstank_data::damage::MonsterDamageType;
+use mosstank_dotnet::text::ordinal;
 use mosstank_settings::monster::{MonsterActionFlags, MonsterRuleActions};
-use openac_plugin_compat::text::ordinal;
 
 /// One debuff: its column, and for a vulnerability its element.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]

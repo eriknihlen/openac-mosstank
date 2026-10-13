@@ -7,9 +7,9 @@ use std::collections::HashMap;
 use ac_plugin_abi::items::{LootAction as PublicLootAction, LootClassification, LootContext};
 use mosstank_automation::Automation;
 use mosstank_dotnet::collections::fold_ignore_case;
+use mosstank_dotnet::text::{casing, ordinal};
 use mosstank_formats::utl::{self, LootRule, VtankLootProfile};
 use mosstank_stores::storage::PluginStorage;
-use openac_plugin_compat::text::{casing, ordinal};
 
 use crate::rules;
 

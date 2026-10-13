@@ -33,11 +33,11 @@ impl UbChatSink for HostAutomation<'_, '_> {
 
 impl VendorAutomation for HostAutomation<'_, '_> {
     fn vendor_state(&mut self) -> VendorState {
-        self.host().vendor()
+        self.reader().vendor()
     }
 
     fn vendor_item_properties(&mut self, template_id: u32) -> Option<ItemProperties> {
-        self.host().vendor_item_properties(template_id)
+        self.reader().vendor_item_properties(template_id)
     }
 
     fn vendor_add_to_buy_list(&mut self, template_id: u32, count: i32) -> VendorResult {
@@ -65,7 +65,7 @@ impl VendorAutomation for HostAutomation<'_, '_> {
     }
 
     fn last_inventory_completion(&mut self) -> InventoryCompletion {
-        self.host().item_state().last_inventory_completion
+        self.reader().item_state().last_inventory_completion
     }
 
     fn split_item(
@@ -80,7 +80,7 @@ impl VendorAutomation for HostAutomation<'_, '_> {
     }
 
     fn world_objects(&mut self) -> Vec<WorldObject> {
-        self.host().objects()
+        self.reader().objects()
     }
 
     fn open_container_id(&mut self) -> u32 {
@@ -90,11 +90,11 @@ impl VendorAutomation for HostAutomation<'_, '_> {
 
 impl FellowshipAutomation for HostAutomation<'_, '_> {
     fn fellowship_state(&mut self) -> FellowshipState {
-        self.host().fellowship()
+        self.reader().fellowship()
     }
 
     fn fellowship_roster(&mut self) -> Vec<FellowMember> {
-        self.host().fellowship_roster()
+        self.reader().fellowship_roster()
     }
 
     fn fellowship_recruit(&mut self, player_id: u32) -> FellowshipStatus {
@@ -124,11 +124,11 @@ impl FellowCommandAutomation for HostAutomation<'_, '_> {
     }
 
     fn fellowship_shares_experience(&mut self) -> bool {
-        self.host().fellowship().shares_experience
+        self.reader().fellowship().shares_experience
     }
 
     fn fellowship_splits_experience_evenly(&mut self) -> bool {
-        self.host().fellowship().splits_experience_evenly
+        self.reader().fellowship().splits_experience_evenly
     }
 
     fn fellow_level(&mut self, member: &FellowMember) -> u32 {
@@ -136,7 +136,7 @@ impl FellowCommandAutomation for HostAutomation<'_, '_> {
     }
 
     fn world_objects(&mut self) -> Vec<WorldObject> {
-        self.host().objects()
+        self.reader().objects()
     }
 }
 

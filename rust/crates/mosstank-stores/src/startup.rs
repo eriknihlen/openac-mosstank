@@ -65,9 +65,7 @@ pub fn load_announcement(
         ProfileLoad::Failed => Some(format!(
             "Could not load {kind} profile {file} from {path}{}",
             match reason {
-                Some(reason)
-                    if !openac_plugin_compat::text::casing::is_white_space_only(reason) =>
-                {
+                Some(reason) if !mosstank_dotnet::text::casing::is_white_space_only(reason) => {
                     format!(": {reason}")
                 }
                 _ => String::new(),

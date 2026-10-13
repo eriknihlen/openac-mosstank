@@ -46,15 +46,15 @@ impl UbHost for HostAutomation<'_, '_> {
     }
 
     fn move_report(&mut self) -> MoveReport {
-        self.host.move_report()
+        self.reader().move_report()
     }
 
     fn skills(&mut self) -> Vec<Skill> {
-        self.host.skills()
+        self.reader().skills()
     }
 
     fn character_options(&mut self) -> Vec<(String, bool)> {
-        self.host.character_options()
+        self.reader().character_options()
     }
 
     fn set_character_option(&mut self, name: &str, value: bool) -> OptionResult {
@@ -102,11 +102,11 @@ impl UbHost for HostAutomation<'_, '_> {
     }
 
     fn peers_connected(&mut self) -> bool {
-        self.host.peers_connected()
+        self.reader().peers_connected()
     }
 
     fn is_sealed_dungeon(&mut self, cell_id: u32) -> bool {
-        self.host.is_sealed_dungeon(cell_id)
+        self.reader().is_sealed_dungeon(cell_id)
     }
 
     fn dungeon_floorplan(&mut self, landblock_id: u32) -> Option<Floorplan> {
@@ -158,7 +158,7 @@ impl UbHost for HostAutomation<'_, '_> {
     }
 
     fn vitals(&mut self) -> Vec<Vital> {
-        self.host.vitals()
+        self.reader().vitals()
     }
 
     fn advance(&mut self, kind: AdvancementKind, stat_id: u32, cost: u64) -> AdvancementResult {

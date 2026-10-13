@@ -10,11 +10,11 @@ use std::collections::{HashMap, HashSet};
 
 use ac_plugin_abi::items::{InventoryItem, ItemStatus};
 use ac_plugin_abi::world::{ItemProperties, ObjectClass};
+use mosstank_dotnet::text::{casing, ordinal};
 use mosstank_formats::utl::{LootAction, LootRule};
 use mosstank_meta::host::MetaHost;
 use openac_plugin_compat::number::{self, NumberStyles};
 use openac_plugin_compat::regex::{DotNetRegex, RegexOptions};
-use openac_plugin_compat::text::{casing, ordinal};
 
 use crate::chat::{self, tools};
 use crate::commands::{UbCall, split_head, strip_extension};

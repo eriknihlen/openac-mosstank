@@ -7,7 +7,7 @@
 use std::collections::HashSet;
 
 use mosstank_dotnet::collections::fold_ignore_case;
-use openac_plugin_compat::text::casing;
+use mosstank_dotnet::text::casing;
 
 use crate::directory;
 use crate::storage::{PluginStorage, display_path};

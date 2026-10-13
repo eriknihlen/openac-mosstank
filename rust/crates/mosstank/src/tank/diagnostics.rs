@@ -10,9 +10,9 @@ use ac_plugin_abi::combat::CombatTarget;
 use mosstank_automation::RoomAhead;
 use mosstank_combat::controller::Ctx;
 use mosstank_combat::pets::{self, PET_ROOM_AHEAD_METERS};
+use mosstank_dotnet::text::ordinal;
 use mosstank_expr::runtime::ExpressionVariableScope;
 use openac_plugin_compat::number::{self, NumberStyles};
-use openac_plugin_compat::text::ordinal;
 
 use super::rules::combat_turn;
 use super::{Core, TankCx};

@@ -150,11 +150,11 @@ pub trait SessionClient {
 
 impl SessionClient for crate::automation::HostAutomation<'_, '_> {
     fn clock(&mut self) -> ac_plugin_abi::host::Clock {
-        self.host.clock()
+        self.service().clock()
     }
 
     fn session_settings(&mut self) -> Vec<(String, String)> {
-        self.host.settings()
+        self.service().settings()
     }
 
     fn set_ub_displays(&mut self, displays: [mosstank_meta::host::UbDisplay; 4]) {
@@ -162,11 +162,11 @@ impl SessionClient for crate::automation::HostAutomation<'_, '_> {
     }
 
     fn show_window(&mut self, window_id: &str, visible: bool) -> bool {
-        self.host.show_panel(window_id, visible)
+        self.service().show_panel(window_id, visible)
     }
 
     fn loot_classifiers(&mut self) -> Vec<ac_plugin_abi::items::ClassifierInfo> {
-        self.host.loot_classifiers()
+        self.service().loot_classifiers()
     }
 
     fn http_request(&mut self, request: ac_plugin_abi::net::HttpRequest) -> Result<u32, String> {
@@ -178,7 +178,7 @@ impl SessionClient for crate::automation::HostAutomation<'_, '_> {
     }
 
     fn status_publish(&mut self, key: &str, value: Option<&str>) -> bool {
-        self.host.status_publish(key, value)
+        self.service().status_publish(key, value)
     }
 
     #[allow(clippy::cast_possible_truncation)]
@@ -190,19 +190,19 @@ impl SessionClient for crate::automation::HostAutomation<'_, '_> {
         sdk.offset = (spec.offset.0 as f32, spec.offset.1 as f32);
         sdk.start_visible = spec.start_visible;
         sdk.accepts_pointer_input = spec.accepts_pointer_input;
-        let canvas = self.host.register_canvas(&sdk)?;
+        let canvas = self.service().register_canvas(&sdk)?;
         if spec.accepts_pointer_input {
-            canvas.listen_pointer(self.host, true);
+            canvas.listen_pointer(self.service(), true);
         }
         Ok(canvas)
     }
 
     fn canvas_set_visible(&mut self, canvas: openac_plugin::ui::Canvas, visible: bool) {
-        canvas.set_visible(self.host, visible);
+        canvas.set_visible(self.service(), visible);
     }
 
     fn canvas_remove(&mut self, canvas: openac_plugin::ui::Canvas) {
-        canvas.remove(self.host);
+        canvas.remove(self.service());
     }
 
     fn canvas_paint(
@@ -210,21 +210,21 @@ impl SessionClient for crate::automation::HostAutomation<'_, '_> {
         canvas: openac_plugin::ui::Canvas,
         commands: &[crate::canvases::MapPaint],
     ) -> Result<(), String> {
-        canvas.paint(self.host, |painter| {
+        canvas.paint(self.service(), |painter| {
             crate::canvases::replay(commands, painter)
         })
     }
 
     fn measure_text(&mut self, text: &str) -> (f32, f32) {
-        self.host.measure_text(text)
+        self.service().measure_text(text)
     }
 
     fn image_object_icon(&mut self, object_id: u32) -> mosstank_ub::canvas::MapImage {
-        map_image(self.host.image_object_icon(object_id))
+        map_image(self.service().image_object_icon(object_id))
     }
 
     fn image_client_art(&mut self, surface_id: u32) -> mosstank_ub::canvas::MapImage {
-        map_image(self.host.image_client_art(surface_id))
+        map_image(self.service().image_client_art(surface_id))
     }
 
     fn clear_one_busy_reference(&mut self) -> ac_plugin_abi::social::RecoveryResult {
@@ -232,7 +232,7 @@ impl SessionClient for crate::automation::HostAutomation<'_, '_> {
     }
 
     fn image_release(&mut self, image: mosstank_ub::canvas::MapImage) {
-        self.host.image_release(openac_plugin::ui::Image {
+        self.service().image_release(openac_plugin::ui::Image {
             handle: image.handle,
             width: image.width,
             height: image.height,

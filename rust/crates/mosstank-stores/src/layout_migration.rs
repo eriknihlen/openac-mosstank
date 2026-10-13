@@ -7,8 +7,8 @@
 use std::collections::HashSet;
 
 use mosstank_dotnet::collections::fold_ignore_case;
+use mosstank_dotnet::text::ordinal;
 use openac_plugin_compat::datetime::DateTime;
-use openac_plugin_compat::text::ordinal;
 
 use crate::directory::{self, HIDDEN_PREFIX};
 use crate::storage::{PluginStorage, StorageError, display_path};

@@ -268,7 +268,7 @@ pub(super) fn act(cx: &mut TankCx<'_>, name: &str, arg: &Arg) -> bool {
 
 /// `Enum.TryParse(value, ignoreCase: true)` over member names.
 fn ignore_case(name: &str, value: &str) -> bool {
-    openac_plugin_compat::text::ordinal::equals_ignore_case(name, value.trim())
+    mosstank_dotnet::text::ordinal::equals_ignore_case(name, value.trim())
 }
 
 impl TankCx<'_> {
@@ -318,8 +318,7 @@ impl TankCx<'_> {
     /// `TryBuildMetaRule`.
     fn try_build_meta_rule(&self) -> Result<MetaRule, String> {
         let drafts = &self.core.panel.meta;
-        let state = if openac_plugin_compat::text::casing::is_white_space_only(&drafts.state_draft)
-        {
+        let state = if mosstank_dotnet::text::casing::is_white_space_only(&drafts.state_draft) {
             DEFAULT_STATE.to_owned()
         } else {
             drafts.state_draft.trim().to_owned()

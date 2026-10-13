@@ -20,11 +20,11 @@ use ac_plugin_abi::trade::{
 use ac_plugin_abi::world::{ItemProperties, ObjectClass};
 use mosstank_automation::Automation;
 use mosstank_automation::locks::{ActionLockKind, SharedActionLocks};
+use mosstank_dotnet::text::{casing, ordinal};
 use mosstank_formats::utl::{self, LootAction, LootRule};
 use mosstank_loot::rules::{self, LootDecision};
 use mosstank_stores::storage::StorageError;
 use openac_plugin_compat::number::{NumberStyles, format_f32, format_i64, format_u32, parse_i32};
-use openac_plugin_compat::text::{casing, ordinal};
 
 use crate::client::VendorAutomation;
 use crate::object_search::{SearchView, try_find_nearest};

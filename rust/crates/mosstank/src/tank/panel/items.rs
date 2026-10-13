@@ -133,7 +133,7 @@ impl ItemAdmission {
 /// `ProfileText`: a heading and up to eight names, alphabetically.
 fn profile_text(heading: &str, names: &mosstank_dotnet::collections::OrdinalStringSet) -> String {
     let mut entries: Vec<&String> = names.iter().collect();
-    entries.sort_by(|a, b| openac_plugin_compat::text::ordinal::compare(a, b));
+    entries.sort_by(|a, b| mosstank_dotnet::text::ordinal::compare(a, b));
     entries.truncate(8);
     if entries.is_empty() {
         format!("{heading}: [None]")
@@ -145,7 +145,7 @@ fn profile_text(heading: &str, names: &mosstank_dotnet::collections::OrdinalStri
 
 /// `ParseExcludedComponents`.
 fn parse_excluded_components(setting: &str) -> Vec<String> {
-    if openac_plugin_compat::text::casing::is_white_space_only(setting) {
+    if mosstank_dotnet::text::casing::is_white_space_only(setting) {
         return Vec::new();
     }
     setting
@@ -350,9 +350,10 @@ pub(super) fn act(cx: &mut TankCx<'_>, name: &str, arg: &Arg) -> bool {
                 return true;
             };
             let current = cx.core.panel.items.excluded_components.clone();
-            if current.iter().any(|entry| {
-                openac_plugin_compat::text::ordinal::equals_ignore_case(entry, &item.name)
-            }) {
+            if current
+                .iter()
+                .any(|entry| mosstank_dotnet::text::ordinal::equals_ignore_case(entry, &item.name))
+            {
                 "That blacklist entry is already in the list."
                     .clone_into(&mut cx.core.panel.profile_notice);
                 return true;
@@ -479,7 +480,7 @@ impl TankCx<'_> {
             .iter()
             .cloned()
             .collect();
-        names.sort_by(|a, b| openac_plugin_compat::text::ordinal::compare(a, b));
+        names.sort_by(|a, b| mosstank_dotnet::text::ordinal::compare(a, b));
         for name in names {
             if resolved_names.contains(&name) {
                 continue;
@@ -516,7 +517,7 @@ impl TankCx<'_> {
             .iter()
             .cloned()
             .collect();
-        consumables.sort_by(|a, b| openac_plugin_compat::text::ordinal::compare(a, b));
+        consumables.sort_by(|a, b| mosstank_dotnet::text::ordinal::compare(a, b));
         let excluded =
             parse_excluded_components(&self.core.settings.buffs.blacklisted_spell_components);
         let icons: Vec<u32> = excluded
@@ -525,7 +526,7 @@ impl TankCx<'_> {
                 owned
                     .iter()
                     .find(|item| {
-                        openac_plugin_compat::text::ordinal::equals_ignore_case(&item.name, name)
+                        mosstank_dotnet::text::ordinal::equals_ignore_case(&item.name, name)
                     })
                     .map_or(0, |item| item.icon_id)
             })
@@ -576,7 +577,7 @@ impl TankCx<'_> {
             .combat
             .combat_item_names_by_id
             .get(&object_id)
-            .filter(|name| !openac_plugin_compat::text::casing::is_white_space_only(name))
+            .filter(|name| !mosstank_dotnet::text::casing::is_white_space_only(name))
             .cloned();
         let Some(remembered) = remembered else {
             return format!("<INVALID 0x{object_id:08X}>");
@@ -798,7 +799,7 @@ impl TankCx<'_> {
             .iter()
             .cloned()
             .collect();
-        names.sort_by(|a, b| openac_plugin_compat::text::ordinal::compare(a, b));
+        names.sort_by(|a, b| mosstank_dotnet::text::ordinal::compare(a, b));
         if names.is_empty() {
             "The Consumables profile is empty.".clone_into(&mut self.core.panel.profile_notice);
             return;
@@ -1186,7 +1187,7 @@ impl TankCx<'_> {
                 rows.push(name);
             }
         }
-        rows.sort_by(|a, b| openac_plugin_compat::text::ordinal::compare(a, b));
+        rows.sort_by(|a, b| mosstank_dotnet::text::ordinal::compare(a, b));
         rows
     }
 
@@ -1252,8 +1253,8 @@ impl TankCx<'_> {
         let search = self.core.panel.buff_picker_search_text.clone();
         let mut rows: Vec<String> = Vec::new();
         for spell in self.client.rules().spells().known_self_buffs() {
-            if !openac_plugin_compat::text::casing::is_white_space_only(&search)
-                && !openac_plugin_compat::text::ordinal::contains_ignore_case(&spell.name, &search)
+            if !mosstank_dotnet::text::casing::is_white_space_only(&search)
+                && !mosstank_dotnet::text::ordinal::contains_ignore_case(&spell.name, &search)
             {
                 continue;
             }
@@ -1261,7 +1262,7 @@ impl TankCx<'_> {
                 rows.push(spell.name);
             }
         }
-        rows.sort_by(|a, b| openac_plugin_compat::text::ordinal::compare(a, b));
+        rows.sort_by(|a, b| mosstank_dotnet::text::ordinal::compare(a, b));
         rows
     }
 

@@ -786,7 +786,7 @@ impl TinkerJobManager {
     }
 
     fn matches_foolproof(&self, found: &RegexMatch<'_, '_>) -> bool {
-        openac_plugin_compat::text::ordinal::equals_ignore_case(
+        mosstank_dotnet::text::ordinal::equals_ignore_case(
             &strip_foolproof(found.group("salvage").value),
             &strip_foolproof(&self.pending_salvage_name),
         )

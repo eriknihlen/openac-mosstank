@@ -988,6 +988,6 @@ impl TankCx<'_> {
 /// Whether an option name is `EnableMeta`.
 pub(crate) fn is_enable_meta(name: &str) -> bool {
     options::canonical(name).is_some_and(|canonical| {
-        openac_plugin_compat::text::ordinal::equals_ignore_case(canonical, "EnableMeta")
+        mosstank_dotnet::text::ordinal::equals_ignore_case(canonical, "EnableMeta")
     })
 }

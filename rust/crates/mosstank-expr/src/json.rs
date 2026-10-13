@@ -3,7 +3,7 @@
 //! `StoredValue` (indented, named NaN/Infinity, every property present).
 
 use mosstank_dotnet::compat::json::{JsonNumber, JsonValue, system_text_json};
-use openac_plugin_compat::text::casing;
+use mosstank_dotnet::text::casing;
 
 use crate::error::{ExpressionError, Fault};
 use crate::value::{

@@ -12,9 +12,9 @@
 //! quotes. Blank lines, `#` lines and lines that do not parse are skipped,
 //! so one bad line never loses a file.
 
+use mosstank_dotnet::text::ordinal;
 use mosstank_stores::storage::{PluginStorage, StorageError};
 use openac_plugin_compat::number::{self, NumberStyles};
-use openac_plugin_compat::text::ordinal;
 
 use super::view::MAX_COORDINATE;
 

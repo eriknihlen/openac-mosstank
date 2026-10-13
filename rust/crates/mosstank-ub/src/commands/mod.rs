@@ -14,6 +14,7 @@ pub mod opt;
 
 use ac_plugin_abi::navigation::MovementIntent;
 use ac_plugin_abi::world::{Confirmation, ObjectClass, WorldObject};
+use mosstank_dotnet::text::{casing, ordinal};
 use mosstank_expr::reference_arguments::friendly_type_name;
 use mosstank_expr::{ExpressionCoordinates, ExpressionValue, ExpressionVariableScope};
 use mosstank_formats::route::RouteJumpDirection;
@@ -22,7 +23,7 @@ use mosstank_meta::host::CombatMode;
 use mosstank_meta::login_roster::{self, LoginRosterFailure};
 use openac_plugin_compat::datetime::DateTime;
 use openac_plugin_compat::number::{self, MidpointRounding, NumberStyles};
-use openac_plugin_compat::text::{casing, ordinal, utf16};
+use openac_plugin_compat::text::utf16;
 
 pub use call::{UbCall, UbServices};
 use jumper::{CommandJump, JumpRequest, JumpTurn};

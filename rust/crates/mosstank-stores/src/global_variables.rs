@@ -4,11 +4,11 @@
 //! variables never touch the same file, and every read and write holds a
 //! lock other clients honour.
 
+use mosstank_dotnet::text::{casing, ordinal};
 use mosstank_expr::json::{self as value_json, OPTIONS};
 use mosstank_expr::value::ObjectNames;
 use mosstank_expr::{ChangeCounter, ExpressionError, ExpressionValue, GlobalVariableStore};
 use openac_plugin_compat::json::{self, JsonValue, system_text_json};
-use openac_plugin_compat::text::{casing, ordinal};
 use sha2::{Digest, Sha256};
 
 use crate::recovery::hex_upper;

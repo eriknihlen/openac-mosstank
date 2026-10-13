@@ -2,7 +2,8 @@
 //! silent recovery, which profiles are written against) and the evaluator.
 
 use mosstank_dotnet::compat::regex::{DotNetRegex, RegexOptions};
-use openac_plugin_compat::text::{casing, utf16};
+use mosstank_dotnet::text::casing;
+use openac_plugin_compat::text::utf16;
 
 use crate::error::{ExpressionError, Fault};
 use crate::runtime::{EvaluationContext, ExpressionVariableScope};

@@ -9,8 +9,8 @@ use std::cmp::Ordering;
 use std::sync::Arc;
 
 use mosstank_dotnet::compat::regex::{DotNetRegex, RegexOptions};
+use mosstank_dotnet::text::ordinal;
 use mosstank_dotnet::{double_to_string, is_decimal_digit, try_parse_double};
-use openac_plugin_compat::text::ordinal;
 
 /// What a [`MonsterValue`] holds.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

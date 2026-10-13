@@ -8,13 +8,13 @@ use ac_plugin_abi::magic::SpellList;
 use ac_plugin_abi::navigation::NavigationStatus;
 use ac_plugin_abi::world::{ObjectClass, Position, WorldObject};
 use mosstank_dotnet::compat::regex::{DotNetRegex, RegexOptions};
+use mosstank_dotnet::text::ordinal;
 use mosstank_expr::value::signed_object_id;
 use mosstank_expr::value::{ExpressionDictionary, ExpressionList};
 use mosstank_expr::{
     EvaluationContext, EvaluationError, ExpressionCoordinates, ExpressionError, ExpressionValue,
     Fault, FunctionRegistry,
 };
-use openac_plugin_compat::text::ordinal;
 
 use crate::held_motions::{self, HeldMotion};
 use crate::host::{Character, SpellExtras};

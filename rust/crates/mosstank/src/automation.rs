@@ -1,5 +1,40 @@
 //! The rules' view of the client ([`Automation`]) over the SDK's host, for
 //! the length of one plugin call.
+//!
+//! # What a call reads once
+//!
+//! The C# rules read the character, its skills, spellbook and pack, and
+//! the objects about from objects in the plugin's own memory, so they read
+//! them again and again within one pass. Through the client every read is
+//! a call that copies and decodes the whole answer, so this view keeps what
+//! it read for the rest of its call ([`CallReads`]): the answer the client
+//! would give again, for as long as nothing could have changed it.
+//!
+//! - The client's state changes between plugin calls (the server's
+//!   messages are handled on the session's thread between them) and within
+//!   a call only through the plugin's own calls: a cast, a use, a move, a
+//!   selection and the like act on the client's state at once.
+//! - So any call this view does not know to be a pure read, and any use of
+//!   the host by another view built on this one ([`HostHandle`]), forgets
+//!   everything kept; the next read asks the client again.
+//! - The reads it keeps, and the reads it makes between them without
+//!   forgetting, are answered by the client's `&self` handlers
+//!   (`character_info`, `character_skills`, `items_owned`, `world_object`,
+//!   ...): they read the session's state and change nothing. So are the
+//!   plugin host's own services (storage, logs, windows, the clock:
+//!   [`HostAutomation::service`]) and the client's enchantment tracker and
+//!   peer board, which change only themselves, and no read kept here
+//!   comes from them.
+//!
+//! The plugin's actions, their order and what each one is told are
+//! unchanged; only a repeat of an identical read is answered from the copy.
+//!
+//! The spell table is the client's static data: it is read once, when the
+//! client first hands it out, and kept by the plugin ([`KeptReads`]).
+
+use std::collections::HashMap;
+use std::ops::{Deref, DerefMut};
+use std::rc::Rc;
 
 use ac_plugin_abi::CharacterInfo;
 use ac_plugin_abi::character::{ActiveEnchantment, Attribute, Skill};
@@ -20,8 +55,117 @@ use ac_plugin_abi::social::{BusyState, FellowMember, FellowshipStatus, Selection
 use ac_plugin_abi::types::ChatLine;
 use ac_plugin_abi::ui::ProjectileSample;
 use ac_plugin_abi::world::{ItemProperties, Position, WorldObject};
-use mosstank_automation::{Automation, SpellCatalog};
+use mosstank_automation::{Automation, SpellCatalog, SpellTable};
 use openac_plugin::Host;
+
+/// The SDK's host as the views of one call share it: any use of it through
+/// [`DerefMut`] (every client call takes the host mutably) is noted, so the
+/// view forgets its kept reads before its next read.
+#[derive(Debug)]
+pub struct HostHandle<'h, 'a> {
+    host: &'h mut Host<'a>,
+    used: bool,
+}
+
+impl<'a> Deref for HostHandle<'_, 'a> {
+    type Target = Host<'a>;
+
+    fn deref(&self) -> &Host<'a> {
+        self.host
+    }
+}
+
+impl<'a> DerefMut for HostHandle<'_, 'a> {
+    fn deref_mut(&mut self) -> &mut Host<'a> {
+        self.used = true;
+        self.host
+    }
+}
+
+/// What one view has read in its call (see the module documentation).
+#[derive(Debug, Default)]
+struct CallReads {
+    character: Option<Option<CharacterInfo>>,
+    skills: Option<Vec<Skill>>,
+    skill: HashMap<u32, Option<Skill>>,
+    known: HashMap<SpellListKey, Vec<SpellInfo>>,
+    owned_items: Option<Vec<InventoryItem>>,
+    objects: HashMap<u32, Option<WorldObject>>,
+    components: HashMap<u32, Option<ComponentInfo>>,
+    has_components: HashMap<u32, bool>,
+}
+
+/// A known-spell list as a map key.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+enum SpellListKey {
+    SelfBuffs,
+    Attacks,
+    Combat,
+}
+
+impl From<SpellList> for SpellListKey {
+    fn from(list: SpellList) -> Self {
+        match list {
+            SpellList::SelfBuffs => Self::SelfBuffs,
+            SpellList::Attacks => Self::Attacks,
+            SpellList::Combat => Self::Combat,
+        }
+    }
+}
+
+/// Where the spell table is kept: by the plugin between its calls, or by
+/// this view alone.
+#[derive(Debug)]
+enum SpellTableSlot<'h> {
+    Kept(&'h mut Option<Rc<SpellTable>>),
+    Own(Option<Rc<SpellTable>>),
+}
+
+impl SpellTableSlot<'_> {
+    fn get(&mut self) -> &mut Option<Rc<SpellTable>> {
+        match self {
+            Self::Kept(slot) => slot,
+            Self::Own(slot) => slot,
+        }
+    }
+}
+
+/// What the plugin keeps for the client's views: the spell table between
+/// its calls, and what the views of one call have read, shared by them
+/// until the call ends ([`Self::end_call`]).
+#[derive(Debug, Default)]
+pub struct KeptReads {
+    /// The spell table, once the client has handed it out.
+    spell_table: Option<Rc<SpellTable>>,
+    /// What the views of the call under way have read.
+    call: CallReads,
+}
+
+impl KeptReads {
+    /// A plugin call begins or ends, or the plugin used the host itself
+    /// between two views: what the views read is forgotten (the client
+    /// may change between calls, and an action may change it).
+    pub fn end_call(&mut self) {
+        self.call = CallReads::default();
+    }
+}
+
+/// Where the reads of a call are kept: shared by the plugin's views of
+/// one call, or by this view alone.
+#[derive(Debug)]
+enum ReadsSlot<'h> {
+    Kept(&'h mut CallReads),
+    Own(Box<CallReads>),
+}
+
+impl ReadsSlot<'_> {
+    fn get(&mut self) -> &mut CallReads {
+        match self {
+            Self::Kept(reads) => reads,
+            Self::Own(reads) => reads,
+        }
+    }
+}
 
 /// The client for one call, as every part of the macro sees it: the rules
 /// ([`Automation`]), the looter ([`mosstank_loot::host::LootHost`]), the
@@ -31,7 +175,11 @@ use openac_plugin::Host;
 /// through it.
 #[derive(Debug)]
 pub struct HostAutomation<'h, 'a> {
-    pub(crate) host: &'h mut Host<'a>,
+    pub(crate) host: HostHandle<'h, 'a>,
+    /// What the views of this call have read.
+    reads: ReadsSlot<'h>,
+    /// The spell table, once the client has handed it out.
+    spell_table: SpellTableSlot<'h>,
     /// The placements the client announced since the last read
     /// (`Event::EquipmentPlacement`), kept by the plugin between calls.
     observations: Option<&'h mut Vec<EquipmentObservation>>,
@@ -59,7 +207,9 @@ impl<'h, 'a> HostAutomation<'h, 'a> {
     /// The rules' view of `host`.
     pub fn new(host: &'h mut Host<'a>) -> Self {
         Self {
-            host,
+            host: HostHandle { host, used: false },
+            reads: ReadsSlot::Own(Box::default()),
+            spell_table: SpellTableSlot::Own(None),
             observations: None,
             storage_view: StorageView::Meta,
             ub_displays: None,
@@ -73,83 +223,180 @@ impl<'h, 'a> HostAutomation<'h, 'a> {
         host: &'h mut Host<'a>,
         observations: &'h mut Vec<EquipmentObservation>,
     ) -> Self {
-        Self {
-            host,
-            observations: Some(observations),
-            storage_view: StorageView::Meta,
-            ub_displays: None,
-            meta_windows: None,
-        }
+        let mut client = Self::new(host);
+        client.observations = Some(observations);
+        client
     }
 
-    /// The plugin's own call: the equipment placements and the meta's
-    /// windows it keeps between calls.
+    /// The plugin's own call: the equipment placements, the meta's windows
+    /// and the reads it keeps between calls.
     pub fn for_call(
         host: &'h mut Host<'a>,
         observations: &'h mut Vec<EquipmentObservation>,
         meta_windows: &'h mut crate::meta_windows::MetaWindows,
+        kept: &'h mut KeptReads,
     ) -> Self {
         let mut client = Self::with_equipment_observations(host, observations);
         client.meta_windows = Some(meta_windows);
+        let KeptReads { spell_table, call } = kept;
+        client.spell_table = SpellTableSlot::Kept(spell_table);
+        client.reads = ReadsSlot::Kept(call);
         client
     }
 
     /// The host, for the other views of the client built on this one.
     pub(crate) fn host(&mut self) -> &mut Host<'a> {
-        self.host
+        &mut self.host
+    }
+
+    /// The host for the plugin host's own services: storage, logs, the
+    /// clock and settings, the plugin's windows, canvases and images, its
+    /// status line and its loot classifiers. The plugin host answers them
+    /// itself and none reads or changes the game, so using them keeps the
+    /// call's reads.
+    pub(crate) fn service(&mut self) -> &mut Host<'a> {
+        self.host.host
+    }
+
+    /// The reads kept, forgotten first if the host was used for anything
+    /// else since they were made.
+    fn kept(&mut self) -> &mut CallReads {
+        if std::mem::take(&mut self.host.used) {
+            *self.reads.get() = CallReads::default();
+        }
+        self.reads.get()
+    }
+
+    /// The host for a read the client answers without changing anything:
+    /// using it does not forget the kept reads.
+    pub(crate) fn reader(&mut self) -> &mut Host<'a> {
+        if std::mem::take(&mut self.host.used) {
+            *self.reads.get() = CallReads::default();
+        }
+        self.host.host
+    }
+
+    /// A known-spell list, kept for the rest of the call.
+    pub(crate) fn known_list(&mut self, list: SpellList) -> Vec<SpellInfo> {
+        let key = SpellListKey::from(list);
+        if let Some(spells) = self.kept().known.get(&key) {
+            return spells.clone();
+        }
+        let spells = self.reader().known_spells(list);
+        self.reads.get().known.insert(key, spells.clone());
+        spells
+    }
+
+    /// The character, kept for the rest of the call.
+    pub(crate) fn character_info(&mut self) -> Option<CharacterInfo> {
+        if let Some(character) = &self.kept().character {
+            return character.clone();
+        }
+        let character = self.reader().character();
+        self.reads.get().character = Some(character.clone());
+        character
+    }
+}
+
+/// A view that used the host for anything but a read the call keeps leaves
+/// the call's reads forgotten for the views after it.
+impl Drop for HostAutomation<'_, '_> {
+    fn drop(&mut self) {
+        if self.host.used {
+            *self.reads.get() = CallReads::default();
+        }
     }
 }
 
 impl SpellCatalog for HostAutomation<'_, '_> {
     fn known_self_buffs(&mut self) -> Vec<SpellInfo> {
-        self.host.known_spells(SpellList::SelfBuffs)
+        self.known_list(SpellList::SelfBuffs)
     }
 
     fn try_get(&mut self, spell_id: u32) -> Option<SpellInfo> {
-        self.host.spell(spell_id)
+        self.reader().spell(spell_id)
     }
 
     fn known_attack_spells(&mut self) -> Vec<SpellInfo> {
-        self.host.known_spells(SpellList::Attacks)
+        self.known_list(SpellList::Attacks)
     }
 
     fn known_combat_spells(&mut self) -> Vec<SpellInfo> {
-        self.host.known_spells(SpellList::Combat)
+        self.known_list(SpellList::Combat)
     }
 
     fn is_known(&mut self, spell_id: u32) -> bool {
-        self.host.is_spell_known(spell_id)
+        self.reader().is_spell_known(spell_id)
     }
 
     fn cooldown_remaining(&mut self, cooldown_id: u32) -> f64 {
-        self.host.cooldown_remaining(cooldown_id)
+        // Reading it drops an expired cooldown from the spellbook's
+        // cooldown table, which no read kept here holds.
+        self.reader().cooldown_remaining(cooldown_id)
     }
 
     fn all(&mut self) -> Vec<SpellInfo> {
-        self.host.all_spells()
+        self.table().spells().to_vec()
+    }
+
+    /// The table as the client first handed it out: the client's static
+    /// data (read from its game files), the same on every read once the
+    /// character is in the world. An empty answer (no character yet) is not
+    /// kept, so the next lookup asks again, as every lookup did.
+    fn table(&mut self) -> Rc<SpellTable> {
+        if let Some(table) = self.spell_table.get() {
+            return Rc::clone(table);
+        }
+        let table = Rc::new(SpellTable::new(self.reader().all_spells()));
+        if !table.is_empty() {
+            *self.spell_table.get() = Some(Rc::clone(&table));
+        }
+        table
+    }
+
+    fn try_find_by_name(&mut self, name: &str, partial_match: bool) -> Option<SpellInfo> {
+        self.table().find_by_name(name, partial_match).cloned()
     }
 
     fn try_get_component(&mut self, component_id: u32) -> Option<ComponentInfo> {
-        self.host.spell_component(component_id)
+        if let Some(component) = self.kept().components.get(&component_id) {
+            return component.clone();
+        }
+        let component = self.reader().spell_component(component_id);
+        self.reads
+            .get()
+            .components
+            .insert(component_id, component.clone());
+        component
     }
 }
 
 impl Automation for HostAutomation<'_, '_> {
     /// In the world: the client has a character to describe.
     fn is_available(&mut self) -> bool {
-        self.host.character().is_some()
+        self.character_info().is_some()
     }
 
     fn character(&mut self) -> CharacterInfo {
-        self.host.character().unwrap_or_default()
+        self.character_info().unwrap_or_default()
     }
 
     fn skills(&mut self) -> Vec<Skill> {
-        self.host.skills()
+        if let Some(skills) = &self.kept().skills {
+            return skills.clone();
+        }
+        let skills = self.reader().skills();
+        self.reads.get().skills = Some(skills.clone());
+        skills
     }
 
     fn try_get_skill(&mut self, skill_id: u32) -> Option<Skill> {
-        self.host.skill(skill_id)
+        if let Some(skill) = self.kept().skill.get(&skill_id) {
+            return skill.clone();
+        }
+        let skill = self.reader().skill(skill_id);
+        self.reads.get().skill.insert(skill_id, skill.clone());
+        skill
     }
 
     fn spells(&mut self) -> &mut dyn SpellCatalog {
@@ -166,15 +413,22 @@ impl Automation for HostAutomation<'_, '_> {
     }
 
     fn has_components(&mut self, spell_id: u32) -> bool {
-        self.host.has_components(spell_id)
+        if let Some(has) = self.kept().has_components.get(&spell_id) {
+            return *has;
+        }
+        let has = self.reader().has_components(spell_id);
+        self.reads.get().has_components.insert(spell_id, has);
+        has
     }
 
     fn last_cast_completion(&mut self) -> CastCompletion {
-        self.host.last_cast()
+        // Reading it also files the cast with the client's enchantment
+        // tracker, which no kept read holds.
+        self.reader().last_cast()
     }
 
     fn combat_mode(&mut self) -> CombatMode {
-        self.host.combat().mode
+        self.reader().combat().mode
     }
 
     fn enter_combat_mode(&mut self, mode: CombatMode) -> CombatResult {
@@ -182,19 +436,24 @@ impl Automation for HostAutomation<'_, '_> {
     }
 
     fn items_available(&mut self) -> bool {
-        self.host.item_state().is_available
+        self.reader().item_state().is_available
     }
 
     fn items_busy(&mut self) -> bool {
-        self.host.item_state().is_busy
+        self.reader().item_state().is_busy
     }
 
     fn owned_items(&mut self) -> Vec<InventoryItem> {
-        self.host.owned_items()
+        if let Some(items) = &self.kept().owned_items {
+            return items.clone();
+        }
+        let items = self.reader().owned_items();
+        self.reads.get().owned_items = Some(items.clone());
+        items
     }
 
     fn last_item_completion(&mut self) -> ItemUseCompletion {
-        self.host.item_state().last_completion
+        self.reader().item_state().last_completion
     }
 
     fn use_item(&mut self, object_id: u32) -> ItemResult {
@@ -206,7 +465,7 @@ impl Automation for HostAutomation<'_, '_> {
     }
 
     fn item_properties(&mut self, object_id: u32) -> Option<ItemProperties> {
-        self.host.item_properties(object_id)
+        self.reader().item_properties(object_id)
     }
 
     /// The object table is there whenever the character is.
@@ -215,7 +474,12 @@ impl Automation for HostAutomation<'_, '_> {
     }
 
     fn object(&mut self, object_id: u32) -> Option<WorldObject> {
-        self.host.object(object_id)
+        if let Some(object) = self.kept().objects.get(&object_id) {
+            return object.clone();
+        }
+        let object = self.reader().object(object_id);
+        self.reads.get().objects.insert(object_id, object.clone());
+        object
     }
 
     fn identify(&mut self, object_id: u32) -> ItemResult {
@@ -223,7 +487,7 @@ impl Automation for HostAutomation<'_, '_> {
     }
 
     fn in_fellowship(&mut self) -> bool {
-        self.host.fellowship().is_in_fellowship
+        self.reader().fellowship().is_in_fellowship
     }
 
     fn fellowship_members(&mut self) -> Vec<FellowMember> {
@@ -243,31 +507,31 @@ impl Automation for HostAutomation<'_, '_> {
     }
 
     fn position(&mut self) -> Position {
-        self.host.navigation().position
+        self.reader().navigation().position
     }
 
     fn chat_messages(&mut self, after_sequence: u64) -> Vec<ChatLine> {
-        self.host.chat_captured(after_sequence)
+        self.reader().chat_captured(after_sequence)
     }
 
     fn post_system_message(&mut self, text: &str) {
-        self.host.chat_post(text);
+        self.reader().chat_post(text);
     }
 
     fn log_info(&mut self, text: &str) {
-        self.host.info(text);
+        self.reader().info(text);
     }
 
     fn log_warn(&mut self, text: &str) {
-        self.host.warn(text);
+        self.reader().warn(text);
     }
 
     fn chat_input_active(&mut self) -> bool {
-        self.host.chat_input_active()
+        self.reader().chat_input_active()
     }
 
     fn is_casting(&mut self) -> bool {
-        self.host.is_casting()
+        self.reader().is_casting()
     }
 
     /// The SDK's target 0 is the selection.
@@ -276,7 +540,7 @@ impl Automation for HostAutomation<'_, '_> {
     }
 
     fn combat_snapshot(&mut self) -> CombatSnapshot {
-        self.host.combat()
+        self.reader().combat()
     }
 
     fn move_item(&mut self, object_id: u32, container_id: u32) -> ItemResult {
@@ -288,19 +552,19 @@ impl Automation for HostAutomation<'_, '_> {
     }
 
     fn inventory_completion(&mut self) -> InventoryCompletion {
-        self.host.item_state().last_inventory_completion
+        self.reader().item_state().last_inventory_completion
     }
 
     fn capture_objects(&mut self) -> Vec<WorldObject> {
-        self.host.objects()
+        self.reader().objects()
     }
 
     fn navigation_snapshot(&mut self) -> NavigationSnapshot {
-        self.host.navigation()
+        self.reader().navigation()
     }
 
     fn navigation_object(&mut self, object_id: u32) -> Option<NavigationObject> {
-        self.host.navigation_object(object_id)
+        self.reader().navigation_object(object_id)
     }
 
     fn set_movement_intent(&mut self, intent: MovementIntent) -> NavigationStatus {
@@ -316,23 +580,23 @@ impl Automation for HostAutomation<'_, '_> {
     }
 
     fn selected_object(&mut self) -> Option<u32> {
-        self.host.selection().selected
+        self.reader().selection().selected
     }
 
     fn attributes(&mut self) -> Vec<Attribute> {
-        self.host.attributes()
+        self.reader().attributes()
     }
 
     fn active_enchantments(&mut self) -> Vec<ActiveEnchantment> {
-        self.host.enchantments()
+        self.reader().enchantments()
     }
 
     fn timed_enchantments(&mut self) -> Vec<ActiveEnchantment> {
-        self.host.timed_enchantments()
+        self.reader().timed_enchantments()
     }
 
     fn hostile_targets(&mut self, maximum_metres: f32) -> Vec<CombatTarget> {
-        self.host.hostile_targets(maximum_metres)
+        self.reader().hostile_targets(maximum_metres)
     }
 
     fn check_room_ahead(&mut self, distance_meters: f32) -> mosstank_automation::RoomAhead {
@@ -372,15 +636,15 @@ impl Automation for HostAutomation<'_, '_> {
     /// An equip the client started is still in flight (OpenAC's
     /// `IsAutoWieldBusy`).
     fn equipment_busy(&mut self) -> bool {
-        self.host.equipment_busy()
+        self.reader().equipment_busy()
     }
 
     fn owned_equipment(&mut self) -> Vec<EquipmentItem> {
-        self.host.owned_equipment()
+        self.reader().owned_equipment()
     }
 
     fn equipment_placements(&mut self) -> Vec<EquipmentPlacement> {
-        self.host.equipment_placements()
+        self.reader().equipment_placements()
     }
 
     fn take_equipment_observations(&mut self) -> Vec<EquipmentObservation> {
@@ -400,11 +664,11 @@ impl Automation for HostAutomation<'_, '_> {
     }
 
     fn busy_state(&mut self) -> BusyState {
-        self.host.busy_state()
+        self.reader().busy_state()
     }
 
     fn projectiles_available(&mut self) -> bool {
-        self.host.projectiles_available()
+        self.reader().projectiles_available()
     }
 
     fn evaluate_projectile_path(&mut self, query: &ProjectilePathQuery) -> ProjectilePathResult {
@@ -428,19 +692,21 @@ impl Automation for HostAutomation<'_, '_> {
     }
 
     fn tracked_enchantments(&mut self, target_id: u32) -> Vec<TrackedEnchantment> {
-        self.host.tracked_enchantments(target_id)
+        self.reader().tracked_enchantments(target_id)
     }
 
     fn report_cast(&mut self, target_id: u32, spell_id: u32, duration_seconds: f64) -> bool {
-        self.host.report_cast(target_id, spell_id, duration_seconds)
+        self.reader()
+            .report_cast(target_id, spell_id, duration_seconds)
     }
 
     fn forget_enchantments(&mut self, target_id: u32) {
-        self.host.forget_enchantments(target_id);
+        self.reader().forget_enchantments(target_id);
     }
 
     fn announce_cast_attempt(&mut self, target_id: u32, spell_id: u32, skill: i32) -> bool {
-        self.host.announce_cast_attempt(target_id, spell_id, skill)
+        self.reader()
+            .announce_cast_attempt(target_id, spell_id, skill)
     }
 
     fn announce_cast_success(
@@ -450,12 +716,12 @@ impl Automation for HostAutomation<'_, '_> {
         skill: i32,
         duration_seconds: f64,
     ) -> bool {
-        self.host
+        self.reader()
             .announce_cast_success(target_id, spell_id, skill, duration_seconds)
     }
 
     fn peer_casts(&mut self, after_sequence: i64) -> Vec<PeerCast> {
-        self.host.peer_casts(after_sequence)
+        self.reader().peer_casts(after_sequence)
     }
 }
 

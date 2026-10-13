@@ -4,6 +4,7 @@
 //! `.usd` and its side-car; and the store's preferences document.
 
 use mosstank_dotnet::collections::OrdinalStringSet;
+use mosstank_dotnet::text::casing;
 use mosstank_settings::model::{
     BuffSettings, CombatSettings, ConsumableCategory, DebuffEachFirst, DebuffSelectionMethod,
     InventorySettings, MeleeAttackHeight, PetRangeMode, TargetSelectionMethod, UseArcsMode,
@@ -11,7 +12,6 @@ use mosstank_settings::model::{
 };
 use mosstank_settings::monster::MonsterRule;
 use openac_plugin_compat::json::{self, JsonValue};
-use openac_plugin_compat::text::casing;
 
 use crate::sidecar::{
     DynamicSettingDocument, DynamicSettings, LootRuleDocument, MonsterRuleDocument,

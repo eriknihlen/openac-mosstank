@@ -15,9 +15,9 @@ use mosstank_automation::locks::{
 };
 use mosstank_automation::surface::{is_assessed, try_capture_properties};
 use mosstank_dotnet::collections::OrdinalStringMap;
+use mosstank_dotnet::text::ordinal;
 use mosstank_settings::model::{CombatSettings, ConsumableCategory, InventorySettings};
 use openac_plugin_compat::random::DotNetRandom;
-use openac_plugin_compat::text::ordinal;
 
 /// The charged-mana effect bit of a stone.
 const CHARGED_MANA_EFFECT: u32 = 0x0000_0001;

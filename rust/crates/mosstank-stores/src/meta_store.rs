@@ -3,6 +3,7 @@
 //! dropped into the folder, which stays a `.met`), named metas, importing a
 //! VTank `.met`, and the one-time migration of older JSON metas.
 
+use mosstank_dotnet::text::{casing, ordinal};
 use mosstank_formats::af;
 use mosstank_formats::line_endings;
 use mosstank_formats::met;
@@ -14,7 +15,6 @@ use mosstank_formats::route::{
     RouteWaypoint, RouteWaypointType, SpellLookup,
 };
 use openac_plugin_compat::json::{self, JsonValue};
-use openac_plugin_compat::text::{casing, ordinal};
 
 use crate::directory::{self, META_FOLDER, VtankCharacterBinding};
 use crate::global_variables::hash as short_hash;

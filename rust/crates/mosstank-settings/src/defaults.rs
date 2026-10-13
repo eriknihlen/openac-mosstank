@@ -5,9 +5,9 @@
 
 use std::collections::HashMap;
 
+use mosstank_dotnet::text::{casing, ordinal};
 use mosstank_dotnet::{double_to_int, round_away_from_zero};
 use mosstank_formats::usd::{VtankCell, VtankDatabase, VtankRow, VtankTable};
-use openac_plugin_compat::text::{casing, ordinal};
 
 use crate::model::RechargeHandlerRow;
 use crate::monster::MonsterRule;

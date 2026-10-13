@@ -269,8 +269,7 @@ impl CallCatalog<'_, '_> {
     /// `SelectMetaProfileCore`: the pick is made now and the row reads the
     /// store's choice; the engine loads the profile when the step ends.
     fn select_meta_profile(&mut self, text: &str) {
-        let name = if openac_plugin_compat::text::ordinal::equals_ignore_case(text, CHARACTER_META)
-        {
+        let name = if mosstank_dotnet::text::ordinal::equals_ignore_case(text, CHARACTER_META) {
             mosstank_stores::meta_store::BY_CHARACTER
         } else {
             text
@@ -320,7 +319,7 @@ impl CallCatalog<'_, '_> {
 /// The meta profile's name as its row shows it: `[character]` for the
 /// per-character profile.
 fn shown_meta_profile(selected: String) -> String {
-    if openac_plugin_compat::text::ordinal::equals_ignore_case(
+    if mosstank_dotnet::text::ordinal::equals_ignore_case(
         &selected,
         mosstank_stores::meta_store::BY_CHARACTER,
     ) {
@@ -349,9 +348,8 @@ impl UbCatalog for CallCatalog<'_, '_> {
 
     fn set(&mut self, row: &mosstank_settings::ub::UbSetting, value: UbSettingValue) {
         if row.has_live_owner {
-            let is = |name: &str| {
-                openac_plugin_compat::text::ordinal::equals_ignore_case(row.name(), name)
-            };
+            let is =
+                |name: &str| mosstank_dotnet::text::ordinal::equals_ignore_case(row.name(), name);
             if is(SETTINGS_PROFILE) {
                 return self.select_ub_profile(value.text.trim());
             }
@@ -641,7 +639,7 @@ impl UbServices for ShellUbServices<'_, '_> {
         let written = written.unwrap_or(false);
         if written
             && options::canonical(name).is_some_and(|canonical| {
-                openac_plugin_compat::text::ordinal::equals_ignore_case(canonical, "EnableMeta")
+                mosstank_dotnet::text::ordinal::equals_ignore_case(canonical, "EnableMeta")
             })
         {
             self.meta_written = Some(value.is_truthy());

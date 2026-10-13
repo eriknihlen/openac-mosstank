@@ -8,8 +8,8 @@ use std::collections::VecDeque;
 
 use ac_plugin_abi::social::{FellowMember, FellowshipStatus};
 use ac_plugin_abi::types::ChatLine;
+use mosstank_dotnet::text::{casing, ordinal};
 use openac_plugin_compat::number::{NumberStyles, parse_i32};
-use openac_plugin_compat::text::{casing, ordinal};
 
 use crate::client::FellowshipAutomation;
 

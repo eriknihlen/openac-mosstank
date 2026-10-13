@@ -10,11 +10,11 @@ use ac_plugin_abi::character::{Skill, Training};
 use ac_plugin_abi::items::{InventoryItem, ItemStatus};
 use mosstank_automation::Automation;
 use mosstank_dotnet::collections::{OrdinalStringSet, fold_ignore_case};
+use mosstank_dotnet::text::{casing, ordinal};
 use mosstank_formats::gameinfo::{VtankCraftDatabase, VtankCraftRecipe, VtankGameInfoDatabase};
 use mosstank_settings::model::{
     CombatSettings, ConsumableCategory, InventorySettings, VitalSettings,
 };
-use openac_plugin_compat::text::{casing, ordinal};
 
 use crate::host::status_name;
 

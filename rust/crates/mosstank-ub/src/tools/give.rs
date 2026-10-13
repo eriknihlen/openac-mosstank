@@ -9,11 +9,11 @@ use std::collections::{HashSet, VecDeque};
 
 use ac_plugin_abi::items::{InventoryCommandKind, InventoryItem};
 use ac_plugin_abi::world::{ItemProperties, ObjectClass, WorldObject};
+use mosstank_dotnet::text::{casing, ordinal};
 use mosstank_formats::utl::{LootAction, LootRule};
 use mosstank_settings::model::InventorySettings;
 use openac_plugin_compat::number::{self, NumberStyles};
 use openac_plugin_compat::regex::{DotNetRegex, RegexOptions};
-use openac_plugin_compat::text::{casing, ordinal};
 
 use crate::chat::{self, tools};
 use crate::commands::{GiveNameMatch, UbCall, split_at_first, split_head, strip_extension};

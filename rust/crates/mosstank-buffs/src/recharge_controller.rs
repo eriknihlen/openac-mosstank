@@ -16,8 +16,8 @@ use mosstank_automation::locks::{
     ActionLockKind, ActionLockTable, SharedActionLocks, item_use_lock,
 };
 use mosstank_combat::gate::{GateTurn, Prepare, SharedCombatModeGate};
+use mosstank_dotnet::text::ordinal;
 use mosstank_settings::model::{CombatSettings, VitalKind, VitalSettings};
-use openac_plugin_compat::text::ordinal;
 
 use crate::recharge::{self, VitalRechargeChoice, VitalRechargeSourceKind, vital_name};
 use crate::vitals::{self, Vitals};

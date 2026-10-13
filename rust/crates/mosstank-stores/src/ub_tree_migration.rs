@@ -3,7 +3,7 @@
 //! `mosstank/ub/`. It only copies; a destination already holding a file is
 //! left as it is, which makes a second run a no-op.
 
-use openac_plugin_compat::text::ordinal;
+use mosstank_dotnet::text::ordinal;
 
 use crate::storage::{Root, StorageError, StoreHost, display_path};
 use crate::ub_store::ROOT;

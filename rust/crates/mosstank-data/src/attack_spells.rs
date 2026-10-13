@@ -7,7 +7,7 @@ use std::collections::HashMap;
 use ac_plugin_abi::character::{Skill, Training};
 use ac_plugin_abi::magic::SpellInfo;
 use ac_plugin_abi::world::ProjectilePathKind;
-use openac_plugin_compat::text::{casing, ordinal};
+use mosstank_dotnet::text::{casing, ordinal};
 
 use crate::damage::MonsterDamageType;
 

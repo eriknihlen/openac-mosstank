@@ -6,10 +6,10 @@ use std::collections::HashSet;
 use std::sync::OnceLock;
 
 use ac_plugin_abi::items::InventoryItem;
+use mosstank_dotnet::text::casing;
 use mosstank_dotnet::try_parse_double;
 use mosstank_formats::utl::VtankSalvageCombineSettings;
 use openac_plugin_compat::regex::{DotNetRegex, RegexOptions};
-use openac_plugin_compat::text::casing;
 
 /// The bags to combine in one salvage use.
 #[derive(Debug, Clone, PartialEq, Eq)]

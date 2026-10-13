@@ -28,12 +28,12 @@ use mosstank_combat::mover::{
     CREEP_DISTANCE_METERS, CreepSettings, FACE_HEADING_REISSUE_SECONDS, HEADING_TOLERANCE_DEGREES,
     MINIMUM_ARRIVAL_RADIUS_METERS, NO_FACE_HEADING_STAMP, NavigationMover, STUCK_SECONDS,
 };
+use mosstank_dotnet::text::{casing, ordinal};
 use mosstank_formats::route::{
     ClientPathing, NavigationSettings, RouteJumpDirection, RouteMode, RouteRecallKind,
     RouteStepBackBlock, RouteWaypoint, RouteWaypointType, SpellLookup,
 };
 use openac_plugin_compat::number::{format_f32, format_f64};
-use openac_plugin_compat::text::{casing, ordinal};
 
 use crate::client::{self, NavigationAutomation};
 use crate::jump_power;

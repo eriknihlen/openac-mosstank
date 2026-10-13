@@ -131,7 +131,7 @@ fn in_profile_order(settings: &CombatSettings, items: &[EquipmentItem]) -> Vec<E
     ordered.sort_by(|left, right| {
         page_index(&left.name)
             .cmp(&page_index(&right.name))
-            .then_with(|| openac_plugin_compat::text::ordinal::compare(&left.name, &right.name))
+            .then_with(|| mosstank_dotnet::text::ordinal::compare(&left.name, &right.name))
             .then(left.object_id.cmp(&right.object_id))
     });
     ordered

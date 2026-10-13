@@ -19,11 +19,11 @@ use mosstank_automation::Automation;
 use mosstank_automation::components::uses_blacklisted_component;
 use mosstank_automation::surface::is_assessed;
 use mosstank_data::spell_id;
+use mosstank_dotnet::text::{casing, ordinal};
 use mosstank_settings::model::{
     CombatSettings, ConsumableCategory, RechargeHandlerRow, VitalKind, VitalSettings,
 };
 use openac_plugin_compat::number;
-use openac_plugin_compat::text::{casing, ordinal};
 
 use crate::castability::{AutomationCastability, CastabilityReport};
 use crate::plan::{BuffTierRejection, try_pick_tier};

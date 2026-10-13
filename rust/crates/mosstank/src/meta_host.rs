@@ -29,7 +29,7 @@ impl MetaHost for HostAutomation<'_, '_> {
     }
 
     fn chat_post(&mut self, text: &str, log_text_type: u32) {
-        self.host.chat_post_with(text, log_text_type);
+        self.reader().chat_post_with(text, log_text_type);
     }
 
     fn chat_submit(&mut self, line: &str) -> bool {
@@ -42,7 +42,7 @@ impl MetaHost for HostAutomation<'_, '_> {
     }
 
     fn chat_captured(&mut self, after_sequence: u64) -> Vec<ChatLine> {
-        self.host.chat_captured(after_sequence)
+        self.reader().chat_captured(after_sequence)
     }
 
     fn chat_add_filter(&mut self) -> u32 {
@@ -69,35 +69,35 @@ impl MetaHost for HostAutomation<'_, '_> {
     }
 
     fn character(&mut self) -> Option<CharacterInfo> {
-        self.host.character()
+        self.reader().character()
     }
 
     fn skill(&mut self, skill_id: u32) -> Option<Skill> {
-        self.host.skill(skill_id)
+        self.reader().skill(skill_id)
     }
 
     fn attributes(&mut self) -> Vec<Attribute> {
-        self.host.attributes()
+        self.reader().attributes()
     }
 
     fn enchantments(&mut self) -> Vec<ActiveEnchantment> {
-        self.host.enchantments()
+        self.reader().enchantments()
     }
 
     fn objects(&mut self) -> Vec<WorldObject> {
-        self.host.objects()
+        self.reader().objects()
     }
 
     fn object(&mut self, object_id: u32) -> Option<WorldObject> {
-        self.host.object(object_id)
+        self.reader().object(object_id)
     }
 
     fn properties(&mut self, object_id: u32) -> Option<ItemProperties> {
-        self.host.properties(object_id)
+        self.reader().properties(object_id)
     }
 
     fn int_property(&mut self, object_id: u32, property: u32) -> Option<i32> {
-        self.host.int_property(object_id, property)
+        self.reader().int_property(object_id, property)
     }
 
     fn identify(&mut self, object_id: u32) -> ItemResult {
@@ -109,11 +109,11 @@ impl MetaHost for HostAutomation<'_, '_> {
     }
 
     fn world_time(&mut self) -> WorldTime {
-        self.host.world_time()
+        self.reader().world_time()
     }
 
     fn navigation(&mut self) -> NavigationSnapshot {
-        self.host.navigation()
+        self.reader().navigation()
     }
 
     fn set_movement_intent(&mut self, intent: MovementIntent) -> NavigationStatus {
@@ -125,7 +125,7 @@ impl MetaHost for HostAutomation<'_, '_> {
     }
 
     fn selection(&mut self) -> SelectionState {
-        self.host.selection()
+        self.reader().selection()
     }
 
     fn select(&mut self, object_id: u32) -> bool {
@@ -133,11 +133,11 @@ impl MetaHost for HostAutomation<'_, '_> {
     }
 
     fn item_state(&mut self) -> ItemState {
-        self.host.item_state()
+        self.reader().item_state()
     }
 
     fn owned_items(&mut self) -> Vec<InventoryItem> {
-        self.host.owned_items()
+        self.reader().owned_items()
     }
 
     fn use_item(&mut self, object_id: u32) -> ItemResult {
@@ -173,11 +173,11 @@ impl MetaHost for HostAutomation<'_, '_> {
     }
 
     fn corpses(&mut self, maximum_metres: f32) -> Vec<LootContainer> {
-        self.host.corpses(maximum_metres)
+        self.reader().corpses(maximum_metres)
     }
 
     fn owned_equipment(&mut self) -> Vec<EquipmentItem> {
-        self.host.owned_equipment()
+        self.reader().owned_equipment()
     }
 
     fn equip(&mut self, object_id: u32, location: u32) -> EquipmentResult {
@@ -185,11 +185,11 @@ impl MetaHost for HostAutomation<'_, '_> {
     }
 
     fn equipment_busy(&mut self) -> bool {
-        self.host.equipment_busy()
+        self.reader().equipment_busy()
     }
 
     fn spell(&mut self, spell_id: u32) -> Option<SpellInfo> {
-        self.host.spell(spell_id)
+        self.reader().spell(spell_id)
     }
 
     fn known_spells(&mut self, list: SpellList) -> Vec<SpellInfo> {
@@ -197,11 +197,11 @@ impl MetaHost for HostAutomation<'_, '_> {
     }
 
     fn is_spell_known(&mut self, spell_id: u32) -> bool {
-        self.host.is_spell_known(spell_id)
+        self.reader().is_spell_known(spell_id)
     }
 
     fn spell_component(&mut self, component_id: u32) -> Option<ComponentInfo> {
-        self.host.spell_component(component_id)
+        self.reader().spell_component(component_id)
     }
 
     fn cooldown_remaining(&mut self, cooldown_id: u32) -> f64 {
@@ -209,7 +209,7 @@ impl MetaHost for HostAutomation<'_, '_> {
     }
 
     fn is_casting(&mut self) -> bool {
-        self.host.is_casting()
+        self.reader().is_casting()
     }
 
     fn has_components(&mut self, spell_id: u32) -> bool {
@@ -221,11 +221,11 @@ impl MetaHost for HostAutomation<'_, '_> {
     }
 
     fn combat(&mut self) -> CombatSnapshot {
-        self.host.combat()
+        self.reader().combat()
     }
 
     fn hostile_targets(&mut self, maximum_metres: f32) -> Vec<CombatTarget> {
-        self.host.hostile_targets(maximum_metres)
+        self.reader().hostile_targets(maximum_metres)
     }
 
     fn enter_combat_mode(&mut self, mode: CombatMode) -> CombatResult {
@@ -233,11 +233,11 @@ impl MetaHost for HostAutomation<'_, '_> {
     }
 
     fn fellowship(&mut self) -> FellowshipState {
-        self.host.fellowship()
+        self.reader().fellowship()
     }
 
     fn fellowship_roster(&mut self) -> Vec<FellowMember> {
-        self.host.fellowship_roster()
+        self.reader().fellowship_roster()
     }
 
     fn login(&mut self) -> LoginState {
@@ -263,7 +263,7 @@ impl MetaHost for HostAutomation<'_, '_> {
     /// A window is attached to the session (`IPluginHost.HasUi`): the
     /// client shows windows only then.
     fn has_ui(&mut self) -> bool {
-        self.host.window_attached()
+        self.service().window_attached()
     }
 
     /// Registers one of the meta's windows (`RegisterPanelContent`) and
@@ -271,7 +271,7 @@ impl MetaHost for HostAutomation<'_, '_> {
     /// left undrawn, as a view the host cannot draw is.
     fn register_panel(&mut self, descriptor: &PanelDescriptor, markup: &str) -> Option<u32> {
         let windows = self.meta_windows.as_deref_mut()?;
-        match windows.register(self.host, descriptor, markup) {
+        match windows.register(&mut self.host, descriptor, markup) {
             Ok(panel) => Some(panel),
             Err(error) => {
                 self.host.warn(&format!(
@@ -286,7 +286,7 @@ impl MetaHost for HostAutomation<'_, '_> {
     /// Takes one of the meta's windows down (the registration's `Dispose`).
     fn unregister_panel(&mut self, handle: u32) {
         if let Some(windows) = self.meta_windows.as_deref_mut() {
-            windows.unregister(self.host, handle);
+            windows.unregister(&mut self.host, handle);
         }
     }
 

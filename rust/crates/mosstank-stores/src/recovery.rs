@@ -2,7 +2,7 @@
 //! plugin's own storage under `recovery/<family>/`, named by a hash of its
 //! key and content, so a later save cannot destroy the only copy.
 
-use openac_plugin_compat::text::casing;
+use mosstank_dotnet::text::casing;
 use sha2::{Digest, Sha256};
 
 use crate::storage::{Root, StoreHost};

@@ -7,8 +7,8 @@
 //! error here and the call goes on, as the client does with an exception
 //! out of a tick.
 
-use ac_plugin_abi::magic::{SpellInfo, SpellList};
-use mosstank_formats::gameinfo::{ProfileText, VtankGameInfoDatabase};
+use ac_plugin_abi::magic::SpellList;
+use mosstank_formats::gameinfo::{GameInfoMemo, ProfileText, VtankGameInfoDatabase};
 use mosstank_formats::route::{NavigationSettings, SpellLookup};
 use mosstank_settings::monster::MonsterFactTable;
 use mosstank_stores::profile_store::{ProfileLoad, StoreError};
@@ -24,27 +24,28 @@ use crate::client::TankClient;
 /// The spells the client knows, read once for a profile load
 /// (`IPluginSpells` as a route or meta reads its recall names).
 pub(crate) struct SpellsSnapshot {
-    all: Vec<SpellInfo>,
+    table: std::rc::Rc<mosstank_automation::SpellTable>,
     known: Vec<(u32, String)>,
 }
 
 impl SpellsSnapshot {
     pub(crate) fn read(client: &mut dyn TankClient) -> Self {
         let rules = client.rules();
-        let all = rules.spells().all();
+        let table = rules.spells().table();
         let mut known = Vec::new();
         for list in [SpellList::SelfBuffs, SpellList::Attacks, SpellList::Combat] {
             for spell in client.route().known_spell_list(list) {
                 known.push((spell.spell_id, spell.name.clone()));
             }
         }
-        Self { all, known }
+        Self { table, known }
     }
 }
 
 impl SpellLookup for SpellsSnapshot {
     fn find_by_name(&self, name: &str) -> Option<u32> {
-        self.all
+        self.table
+            .spells()
             .iter()
             .find(|spell| spell.name == name)
             .map(|spell| spell.spell_id)
@@ -55,7 +56,8 @@ impl SpellLookup for SpellsSnapshot {
     }
 
     fn name_of(&self, spell_id: u32) -> Option<String> {
-        self.all
+        self.table
+            .spells()
             .iter()
             .find(|spell| spell.spell_id == spell_id)
             .map(|spell| spell.name.clone())
@@ -76,9 +78,12 @@ impl ProfileText for ProfileReader<'_> {
 }
 
 /// The game database in the profile folder.
-pub(crate) fn load_game_info(client: &mut dyn TankClient) -> VtankGameInfoDatabase {
+pub(crate) fn load_game_info(
+    client: &mut dyn TankClient,
+    memo: &mut GameInfoMemo,
+) -> VtankGameInfoDatabase {
     let storage = client.stores().storage(Root::Profiles);
-    VtankGameInfoDatabase::load(&ProfileReader(std::cell::RefCell::new(storage)))
+    memo.load(&ProfileReader(std::cell::RefCell::new(storage)))
 }
 
 /// Logs a storage failure the C# would have thrown.
@@ -304,7 +309,7 @@ impl TankCx<'_> {
     pub(crate) fn load_initial_profiles(&mut self) {
         let name = self.client.rules().character().name;
         let name = Some(name.as_str());
-        let game_info = load_game_info(self.client);
+        let game_info = load_game_info(self.client, &mut self.core.game_info_memo);
         self.core.apply_game_info(game_info);
         report!(
             self.client,

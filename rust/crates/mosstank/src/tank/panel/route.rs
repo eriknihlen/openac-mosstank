@@ -129,14 +129,13 @@ pub(super) fn act(cx: &mut TankCx<'_>, name: &str, arg: &Arg) -> bool {
         }
         "SelectRouteMode" => cx.select_route_mode(arg.text()),
         "SelectClientPathing" => {
-            let chosen =
-                match openac_plugin_compat::text::casing::to_lower_invariant(arg.text().trim())
-                    .as_str()
-                {
-                    "never" => ClientPathing::Never,
-                    "always" => ClientPathing::Always,
-                    _ => ClientPathing::WhenStuck,
-                };
+            let chosen = match mosstank_dotnet::text::casing::to_lower_invariant(arg.text().trim())
+                .as_str()
+            {
+                "never" => ClientPathing::Never,
+                "always" => ClientPathing::Always,
+                _ => ClientPathing::WhenStuck,
+            };
             if chosen == cx.core.settings.navigation.client_pathing {
                 return true;
             }
@@ -149,10 +148,7 @@ pub(super) fn act(cx: &mut TankCx<'_>, name: &str, arg: &Arg) -> bool {
         "SelectRouteRecall" => {
             let wanted = arg.text();
             if let Some(kind) = RouteRecallKind::ALL.iter().copied().find(|kind| {
-                openac_plugin_compat::text::ordinal::equals_ignore_case(
-                    kind.short_caption(),
-                    wanted,
-                )
+                mosstank_dotnet::text::ordinal::equals_ignore_case(kind.short_caption(), wanted)
             }) {
                 cx.core.panel.route_recall_kind = kind;
             }
@@ -469,8 +465,7 @@ impl TankCx<'_> {
     /// `SelectRouteMode`: Follow aims the follow route; any other mode is
     /// the loaded route's.
     fn select_route_mode(&mut self, value: &str) {
-        let normalized = if openac_plugin_compat::text::ordinal::equals_ignore_case(value, "Follow")
-        {
+        let normalized = if mosstank_dotnet::text::ordinal::equals_ignore_case(value, "Follow") {
             "Target"
         } else {
             value
@@ -483,7 +478,7 @@ impl TankCx<'_> {
         ]
         .into_iter()
         .find(|mode| {
-            openac_plugin_compat::text::ordinal::equals_ignore_case(mode.name(), normalized.trim())
+            mosstank_dotnet::text::ordinal::equals_ignore_case(mode.name(), normalized.trim())
         }) else {
             return;
         };

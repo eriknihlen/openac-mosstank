@@ -7,7 +7,7 @@
 //! short table ([`VTANK_ENTRIES`]) of MossTank's additions to the macro's
 //! commands.
 
-use openac_plugin_compat::text::ordinal;
+use mosstank_dotnet::text::ordinal;
 
 /// One worked example of a command: what to type, and what it does.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

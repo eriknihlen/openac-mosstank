@@ -3,10 +3,10 @@
 //! item tables beside it. A save changes only the cells whose value
 //! changed, so an untouched profile renders byte for byte as it was read.
 
+use mosstank_dotnet::text::casing;
 use mosstank_dotnet::{double_to_int, double_to_string, round_away_from_zero};
 use mosstank_formats::FormatError;
 use mosstank_formats::usd::{VtankCell, VtankDatabase, VtankRow, VtankTable};
-use openac_plugin_compat::text::casing;
 
 use crate::items::{
     assist_items, buff_exemplars, gem_food_items, item_use_specifiers, profiled_item_ids,

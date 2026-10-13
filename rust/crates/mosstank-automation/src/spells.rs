@@ -1,7 +1,10 @@
 //! The spell table and the character's spellbook (`ISpellCatalog`).
 
+use std::collections::HashMap;
+use std::rc::Rc;
+
 use ac_plugin_abi::magic::{ComponentInfo, SpellInfo};
-use openac_plugin_compat::text::{casing, ordinal};
+use mosstank_dotnet::text::{casing, ordinal};
 
 /// The spells the client knows (`ISpellCatalog`).
 pub trait SpellCatalog {
@@ -39,6 +42,13 @@ pub trait SpellCatalog {
     /// not hand it out.
     fn all(&mut self) -> Vec<SpellInfo> {
         Vec::new()
+    }
+
+    /// The whole table, shared, for lookups by name and id: [`Self::all`]
+    /// read into a [`SpellTable`]. A client that keeps the table hands out
+    /// the one it keeps.
+    fn table(&mut self) -> Rc<SpellTable> {
+        Rc::new(SpellTable::new(self.all()))
     }
 
     /// One spell component.
@@ -114,5 +124,139 @@ impl SpellCatalog for StaticSpellCatalog {
             .iter()
             .find(|component| component.component_id == component_id)
             .cloned()
+    }
+}
+
+/// The client's whole spell table, read once and looked up by name.
+///
+/// Through the client each read of the table decodes all of it (some six
+/// thousand spells, page by page), where the C# reads an object in its own
+/// memory; the table is the client's static data, so the plugin reads it
+/// once and keeps it ([`SpellCatalog::try_find_by_name`] answers from it
+/// exactly as from a fresh read).
+#[derive(Debug, Clone, Default)]
+pub struct SpellTable {
+    spells: Vec<SpellInfo>,
+    /// The first spell of each name, by its ordinal ignore-case key.
+    by_name: HashMap<String, usize>,
+}
+
+/// The text `StringComparison.OrdinalIgnoreCase` compares in place of
+/// `text`: two texts are equal ignoring case exactly when these are equal.
+fn ignore_case_key(text: &str) -> String {
+    if text.is_ascii() {
+        // An ASCII character's key is its ASCII upper case.
+        return text.to_ascii_uppercase();
+    }
+    text.chars().map(casing::ordinal_ignore_case_key).collect()
+}
+
+impl SpellTable {
+    /// The table `spells`, in the client's order.
+    #[must_use]
+    pub fn new(spells: Vec<SpellInfo>) -> Self {
+        let mut by_name = HashMap::with_capacity(spells.len());
+        for (index, spell) in spells.iter().enumerate() {
+            by_name.entry(ignore_case_key(&spell.name)).or_insert(index);
+        }
+        Self { spells, by_name }
+    }
+
+    /// Every spell, in the client's order.
+    #[must_use]
+    pub fn spells(&self) -> &[SpellInfo] {
+        &self.spells
+    }
+
+    /// Whether the table has no spells.
+    #[must_use]
+    pub fn is_empty(&self) -> bool {
+        self.spells.is_empty()
+    }
+
+    /// A spell by name as [`SpellCatalog::try_find_by_name`] finds it in
+    /// this table: the first whose name is the same ignoring case, else
+    /// with `partial_match` the first whose name contains it.
+    #[must_use]
+    pub fn find_by_name(&self, name: &str, partial_match: bool) -> Option<&SpellInfo> {
+        if casing::is_white_space_only(name) {
+            return None;
+        }
+        if let Some(&index) = self.by_name.get(&ignore_case_key(name)) {
+            return self.spells.get(index);
+        }
+        if !partial_match {
+            return None;
+        }
+        self.spells
+            .iter()
+            .find(|spell| ordinal::contains_ignore_case(&spell.name, name))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn spell(spell_id: u32, name: &str) -> SpellInfo {
+        SpellInfo {
+            spell_id,
+            name: name.to_owned(),
+            ..SpellInfo::default()
+        }
+    }
+
+    #[test]
+    fn an_ascii_character_is_its_own_ignore_case_key_upper_cased() {
+        for code in 0u8..128 {
+            let c = char::from(code);
+            assert_eq!(
+                casing::ordinal_ignore_case_key(c),
+                c.to_ascii_uppercase(),
+                "{code:#x}"
+            );
+        }
+    }
+
+    // The table answers every lookup as the scan of a fresh read does.
+    #[test]
+    fn the_table_finds_what_a_scan_of_the_whole_table_finds() {
+        let spells = vec![
+            spell(1, "Strength Self I"),
+            spell(2, "STRENGTH SELF I"),
+            spell(3, "Adja's Blessing"),
+            spell(4, "Straße Self"),
+            spell(5, "Ærfaldt's Gift"),
+            spell(6, "\u{17F}tar"),
+            spell(7, "Incantation of Strength Self"),
+            spell(8, ""),
+        ];
+        let table = SpellTable::new(spells.clone());
+        let mut scan = StaticSpellCatalog::of(spells);
+        let names = [
+            "strength self i",
+            "Strength Self I",
+            "adja's blessing",
+            "STRASSE SELF",
+            "straße self",
+            "ærfaldt's gift",
+            "ÆRFALDT'S GIFT",
+            "STAR",
+            "\u{17F}TAR",
+            "Strength",
+            "self",
+            "",
+            "   ",
+            "nothing like it",
+        ];
+        for name in names {
+            for partial in [false, true] {
+                assert_eq!(
+                    table.find_by_name(name, partial).map(|s| s.spell_id),
+                    scan.try_find_by_name(name, partial).map(|s| s.spell_id),
+                    "{name:?} partial {partial}"
+                );
+            }
+        }
     }
 }

@@ -22,5 +22,5 @@ pub mod spells;
 pub mod surface;
 
 pub use locks::{ActionLockKind, ActionLockTable, SharedActionLocks};
-pub use spells::{SpellCatalog, StaticSpellCatalog};
+pub use spells::{SpellCatalog, SpellTable, StaticSpellCatalog};
 pub use surface::{Automation, RoomAhead};

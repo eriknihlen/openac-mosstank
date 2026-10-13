@@ -8,7 +8,7 @@
 //! raised them, so re-issuing a cast can use the host the owner holds.
 
 use ac_plugin_abi::magic::SpellInfo;
-use openac_plugin_compat::text::{casing, ordinal};
+use mosstank_dotnet::text::{casing, ordinal};
 
 use crate::combat_text::{self, CombatResultTextClass, log_text_type};
 use crate::locks::{ActionLockKind, SharedActionLocks};

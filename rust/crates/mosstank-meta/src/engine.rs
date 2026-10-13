@@ -16,6 +16,7 @@ use ac_plugin_abi::items::ItemUseCompletion;
 use ac_plugin_abi::magic::SpellList;
 use ac_plugin_abi::world::{Confirmation, PortalTransition, Position};
 use mosstank_dotnet::compat::regex::{DotNetRegex, RegexError, RegexOptions};
+use mosstank_dotnet::text::{casing, ordinal};
 use mosstank_expr::{
     DEFAULT_INSTRUCTION_BUDGET, EvaluationContext, ExpressionError, ExpressionValue,
     ExpressionVariableScope, Fault,
@@ -25,7 +26,6 @@ use mosstank_formats::meta::{
     MetaRule,
 };
 use openac_plugin_compat::number;
-use openac_plugin_compat::text::{casing, ordinal};
 
 use crate::chat;
 use crate::events;

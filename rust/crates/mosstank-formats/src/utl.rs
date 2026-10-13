@@ -8,8 +8,9 @@
 
 use std::collections::BTreeMap;
 
+use mosstank_dotnet::text::casing;
 use mosstank_dotnet::try_parse_int;
-use openac_plugin_compat::text::{casing, utf16};
+use openac_plugin_compat::text::utf16;
 
 use crate::FormatError;
 

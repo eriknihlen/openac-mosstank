@@ -6,6 +6,7 @@
 
 use mosstank_data::damage::MonsterDamageType;
 use mosstank_dotnet::collections::{IgnoreCaseStringSet, OrdinalStringSet};
+use mosstank_dotnet::text::{casing, ordinal};
 use mosstank_formats::route::ClientPathing;
 use mosstank_formats::utl::{LootAction, LootRule, VtankLootRequirement};
 use mosstank_settings::model::{
@@ -17,7 +18,6 @@ use mosstank_settings::monster::{
 };
 use openac_plugin_compat::json::{self, JsonValue};
 use openac_plugin_compat::number::{self, NumberStyles};
-use openac_plugin_compat::text::{casing, ordinal};
 
 use crate::stj::{self, JsonError, Object};
 

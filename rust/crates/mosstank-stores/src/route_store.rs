@@ -4,6 +4,7 @@
 //! the follow route, translating a route onto another landblock, importing
 //! a VTank `.nav`, and the one-time migration of older JSON routes.
 
+use mosstank_dotnet::text::{casing, ordinal};
 use mosstank_formats::af;
 use mosstank_formats::line_endings;
 use mosstank_formats::nav;
@@ -12,7 +13,6 @@ use mosstank_formats::route::{
     RouteWaypointType, SpellLookup,
 };
 use openac_plugin_compat::json;
-use openac_plugin_compat::text::{casing, ordinal};
 
 use crate::directory::{self, NAV_FOLDER, VtankCharacterBinding};
 use crate::profile_store::{ProfileLoad, StoreError};

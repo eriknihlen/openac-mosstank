@@ -9,7 +9,7 @@
 //! blacklist's time. With the option off everything is as the reference
 //! has it.
 
-use openac_plugin_compat::text::ordinal;
+use mosstank_dotnet::text::ordinal;
 
 use crate::controller::LootController;
 use crate::corpse_scan::{CORPSE_OPEN_RANGE_METERS, is_rare, killer_name};

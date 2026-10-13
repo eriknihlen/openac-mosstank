@@ -3,8 +3,8 @@
 //! host draws it from. The view is its whole state, drawn or not: a host
 //! without a window keeps the same controls and answers the same queries.
 
-use mosstank_dotnet::compat::text::casing;
-use openac_plugin_compat::text::ordinal;
+use mosstank_dotnet::text::casing;
+use mosstank_dotnet::text::ordinal;
 
 /// What a control is.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

@@ -78,10 +78,7 @@ pub fn parse_damage_elements(text: &str) -> Vec<MonsterDamageType> {
     }
     for part in text.split(';') {
         // int.TryParse with the default styles: white space and a sign.
-        let Some(raw) = openac_plugin_compat::number::parse_i32(
-            part,
-            openac_plugin_compat::number::NumberStyles::INTEGER,
-        ) else {
+        let Some(raw) = mosstank_dotnet::try_parse_int(part) else {
             continue;
         };
         let mapped = match raw {

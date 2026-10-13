@@ -8,6 +8,7 @@
 //! property and table dumps, the game database) answer that they are not
 //! converted yet; they come with MT-10 and MT-11.
 
+use mosstank_dotnet::text::{casing, ordinal};
 use mosstank_expr::ExpressionValue;
 use mosstank_formats::meta::MetaProfile;
 use mosstank_formats::route::{RouteMode, RouteStepBackBlock};
@@ -18,7 +19,6 @@ use mosstank_meta::engine::{
 use mosstank_settings::options;
 use mosstank_ub::commands::{split_head, strip_extension};
 use openac_plugin_compat::number::{self, NumberStyles};
-use openac_plugin_compat::text::{casing, ordinal};
 
 use super::options::{declared_clr_type_name, try_parse_option_value};
 use super::rules::route_turn;

@@ -12,9 +12,9 @@ use ac_plugin_abi::world::ItemProperties;
 use mosstank_automation::surface::SUMMONING_COOLDOWN_ID;
 use mosstank_automation::{Automation, RoomAhead};
 use mosstank_data::damage::MonsterDamageType;
+use mosstank_dotnet::text::ordinal;
 use mosstank_meta::scheduler::MacroPassContext;
 use mosstank_settings::model::{CombatSettings, PetRangeMode};
-use openac_plugin_compat::text::ordinal;
 
 /// The character level an item asks for before it can be used.
 pub const USE_REQUIRES_LEVEL_PROPERTY: u32 = 369;

@@ -6,9 +6,9 @@
 
 use ac_plugin_abi::items::InventoryItem;
 use mosstank_dotnet::collections::{DotNetDictionary, Ordinal};
+use mosstank_dotnet::text::casing;
 use mosstank_stores::stj::{self, Object};
 use openac_plugin_compat::json::{self, JsonValue, system_text_json};
-use openac_plugin_compat::text::casing;
 use sha2::{Digest, Sha256};
 
 use crate::mana::ManaStoneTransferPlan;

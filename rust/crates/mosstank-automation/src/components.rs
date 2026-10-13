@@ -5,7 +5,7 @@
 
 use ac_plugin_abi::magic::SpellInfo;
 use mosstank_dotnet::is_decimal_digit;
-use openac_plugin_compat::text::{casing, ordinal};
+use mosstank_dotnet::text::{casing, ordinal};
 
 use crate::spells::SpellCatalog;
 

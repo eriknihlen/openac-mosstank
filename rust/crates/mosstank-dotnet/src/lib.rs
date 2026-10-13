@@ -11,6 +11,7 @@
 //! invariant-culture order are the kit's (`compat::text`).
 
 pub mod collections;
+pub mod text;
 
 pub use openac_plugin_compat as compat;
 use openac_plugin_compat::number::{self, NumberStyles};
@@ -40,7 +41,29 @@ pub fn is_decimal_digit(c: char) -> bool {
 /// `int.TryParse(text, NumberStyles.Integer, CultureInfo.InvariantCulture)`.
 #[must_use]
 pub fn try_parse_int(text: &str) -> Option<i32> {
+    if let Some(value) = plain_int(text) {
+        return Some(value);
+    }
     number::parse_i32(text, NumberStyles::INTEGER)
+}
+
+/// The value of an optional `-` and one to nine ASCII digits, the way nearly
+/// every number in MossTank's files is written; `None` for any other text.
+/// Such a text always parses, to this value, under `NumberStyles.Integer`
+/// (nine digits always fit an `int`), so this only skips the general
+/// parser's work. The game database alone has some 45 000 of them.
+fn plain_int(text: &str) -> Option<i32> {
+    let (negative, digits) = match text.as_bytes() {
+        [b'-', rest @ ..] => (true, rest),
+        bytes => (false, bytes),
+    };
+    if digits.is_empty() || digits.len() > 9 || !digits.iter().all(u8::is_ascii_digit) {
+        return None;
+    }
+    let value = digits
+        .iter()
+        .fold(0i32, |value, digit| value * 10 + i32::from(digit - b'0'));
+    Some(if negative { -value } else { value })
 }
 
 /// `uint.TryParse(text, NumberStyles.Integer, CultureInfo.InvariantCulture)`.
@@ -243,6 +266,47 @@ impl<'a> LineReader<'a> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    // The shortcut answers exactly what the general parser answers, for
+    // every text it takes and the near misses it leaves to the parser.
+    #[test]
+    fn plain_integers_parse_as_the_general_parser_parses_them() {
+        let mut texts: Vec<String> = [
+            "0",
+            "-0",
+            "7",
+            "007",
+            "-1",
+            "999999999",
+            "-999999999",
+            "1000000000",
+            "2147483647",
+            "-2147483648",
+            "2147483648",
+            "",
+            "-",
+            "+5",
+            " 5",
+            "5 ",
+            "1e3",
+            "1,000",
+            "0x10",
+            "--1",
+            "1-",
+            "{0661}",
+        ]
+        .iter()
+        .map(|text| (*text).to_owned())
+        .collect();
+        texts.extend((-2000..2000).map(|value: i32| (value * 7919).to_string()));
+        for text in &texts {
+            assert_eq!(
+                try_parse_int(text),
+                number::parse_i32(text, NumberStyles::INTEGER),
+                "{text:?}"
+            );
+        }
+    }
 
     // Expected values: .NET 10 `double.ToString(format, InvariantCulture)`.
     // `cstrf` and the settings texts print such formats; the kit has covered

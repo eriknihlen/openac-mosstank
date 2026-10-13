@@ -3,13 +3,16 @@
 //! crafting recipes. A settings-database text (see [`crate::usd`]).
 
 use std::collections::HashMap;
+use std::rc::Rc;
 
 use mosstank_data::damage::{MonsterDamageType, parse_damage_elements};
-use mosstank_dotnet::compat::number::{NumberStyles, parse_f32, parse_f64};
+use mosstank_dotnet::compat::number::{NumberStyles, parse_f32, parse_f64, parse_i32};
+use mosstank_dotnet::text::casing;
 use mosstank_dotnet::{try_parse_int, try_parse_uint};
-use openac_plugin_compat::text::casing;
 
-use crate::usd::{VtankCell, VtankDatabase, VtankRow, VtankTable};
+use crate::usd::{
+    CellValue, TableSet, VtankCell, VtankDatabase, VtankDatabaseRef, VtankRow, VtankTable,
+};
 
 /// The database's file name in the profile folder.
 pub const FILE_NAME: &str = "gameinfodb.ugd";
@@ -159,16 +162,94 @@ fn add_row(database: &mut VtankDatabase, table: &str, cells: Vec<VtankCell>) {
 /// database's version; the built-in one otherwise.
 #[must_use]
 pub fn load_base(profiles: &dyn ProfileText) -> VtankDatabase {
-    let built_in = built_in();
-    let Some(text) = profiles
+    match BaseDatabase::read(read_base_text(profiles).as_deref()) {
+        BaseDatabase::File(file) => file.to_database(),
+        BaseDatabase::BuiltIn(built_in) => built_in,
+    }
+}
+
+/// The profile folder's database text, when there is one that is not
+/// blank.
+#[must_use]
+pub fn read_base_text(profiles: &dyn ProfileText) -> Option<String> {
+    profiles
         .read_text(FILE_NAME)
         .filter(|t| !casing::is_white_space_only(t))
-    else {
-        return built_in;
-    };
-    match read(&text) {
-        Some(file) if version(&file) == version(&built_in) => file,
-        _ => built_in,
+}
+
+/// The database [`load_base`] reads, the file's read in place.
+#[derive(Debug, Clone, PartialEq)]
+pub enum BaseDatabase<'a> {
+    /// The profile folder's file.
+    File(VtankDatabaseRef<'a>),
+    /// The built-in database.
+    BuiltIn(VtankDatabase),
+}
+
+impl<'a> BaseDatabase<'a> {
+    /// The database [`load_base`] reads from the folder's text `text`
+    /// ([`read_base_text`]).
+    #[must_use]
+    pub fn read(text: Option<&'a str>) -> Self {
+        let built_in = built_in();
+        match text.and_then(read_in_place) {
+            Some(file) if version(&file) == version(&built_in) => Self::File(file),
+            _ => Self::BuiltIn(built_in),
+        }
+    }
+
+    /// The database as the plugin uses it.
+    #[must_use]
+    pub fn game_info(&self) -> VtankGameInfoDatabase {
+        match self {
+            Self::File(file) => VtankGameInfoDatabase::from_database(file),
+            Self::BuiltIn(built_in) => VtankGameInfoDatabase::from_database(built_in),
+        }
+    }
+
+    /// Its [`last_update_time`].
+    #[must_use]
+    pub fn last_update_time(&self) -> Option<i32> {
+        match self {
+            Self::File(file) => last_update_time(file),
+            Self::BuiltIn(built_in) => last_update_time(built_in),
+        }
+    }
+}
+
+/// The profile folder's database as the session last read it, by its text.
+///
+/// The session reads the file at start, again when the character's
+/// profiles load, and again for the update check at login; the database a
+/// text reads as depends on nothing else, so a text read before is not
+/// parsed again (the file is some two megabytes).
+#[derive(Debug, Default)]
+pub struct GameInfoMemo {
+    last: Option<(Option<String>, VtankGameInfoDatabase, Option<i32>)>,
+}
+
+impl GameInfoMemo {
+    /// What [`BaseDatabase::read`] makes of the folder's text `text`
+    /// ([`read_base_text`]): the database as the plugin uses it and its
+    /// [`last_update_time`].
+    pub fn read(&mut self, text: Option<String>) -> (VtankGameInfoDatabase, Option<i32>) {
+        if let Some((last, database, time)) = &self.last
+            && *last == text
+        {
+            return (database.clone(), *time);
+        }
+        let base = BaseDatabase::read(text.as_deref());
+        let (database, time) = (base.game_info(), base.last_update_time());
+        self.last = Some((text, database.clone(), time));
+        (database, time)
+    }
+
+    /// [`VtankGameInfoDatabase::load`], through this memo.
+    pub fn load(&mut self, storage: &dyn ProfileText) -> VtankGameInfoDatabase {
+        if !storage.is_available() {
+            return VtankGameInfoDatabase::empty();
+        }
+        self.read(read_base_text(storage)).0
     }
 }
 
@@ -182,50 +263,65 @@ pub fn read(text: &str) -> Option<VtankDatabase> {
     Some(database)
 }
 
+/// [`read`], the text read in place.
+#[must_use]
+pub fn read_in_place(text: &str) -> Option<VtankDatabaseRef<'_>> {
+    let mut database = VtankDatabaseRef::parse(text).ok()?;
+    end_at_first_unreadable_value(&mut database);
+    Some(database)
+}
+
 /// Whether every value in every table reads as the kind its tag says.
 #[must_use]
-pub fn every_value_reads(database: &VtankDatabase) -> bool {
-    database
-        .tables
-        .iter()
-        .all(|(_, table)| first_unreadable_row(table).is_none())
+pub fn every_value_reads<D: TableSet>(database: &D) -> bool {
+    (0..database.table_count())
+        .all(|index| first_unreadable_row(&database.rows_of(index)).is_none())
 }
 
 /// The `DBVersion` row's number; 1 when there is none to read.
 #[must_use]
-pub fn version(database: &VtankDatabase) -> i32 {
+pub fn version<D: TableSet>(database: &D) -> i32 {
     database
-        .find("DBVersion")
-        .and_then(|table| table.rows.first())
-        .and_then(|row| row.cells.first())
-        .and_then(|cell| cell.scalar_text.as_deref())
+        .index_of("DBVersion")
+        .and_then(|index| database.rows_of(index).first().copied())
+        .and_then(|row| row.first())
+        .and_then(CellValue::scalar_text)
         .and_then(try_parse_int)
         .unwrap_or(1)
 }
 
-fn end_at_first_unreadable_value(database: &mut VtankDatabase) {
-    for index in 0..database.tables.len() {
-        if let Some(row) = first_unreadable_row(&database.tables[index].1) {
-            database.tables[index].1.rows.truncate(row);
-            database.tables.truncate(index + 1);
+/// The `DBLastUpdateTime` row's time, in seconds since 1970, or `None` when
+/// it has none.
+#[must_use]
+pub fn last_update_time<D: TableSet>(database: &D) -> Option<i32> {
+    let index = database.index_of("DBLastUpdateTime")?;
+    let rows = database.rows_of(index);
+    let row = rows.first()?;
+    if row.len() < 2 {
+        return None;
+    }
+    parse_i32(row[1].scalar_text().unwrap_or(""), NumberStyles::INTEGER)
+}
+
+fn end_at_first_unreadable_value<D: TableSet>(database: &mut D) {
+    for index in 0..database.table_count() {
+        if let Some(row) = first_unreadable_row(&database.rows_of(index)) {
+            database.end_at(index, row);
             return;
         }
     }
 }
 
-fn first_unreadable_row(table: &VtankTable) -> Option<usize> {
-    table
-        .rows
-        .iter()
-        .position(|row| !row.cells.iter().all(reads))
+fn first_unreadable_row<C: CellValue>(rows: &[&[C]]) -> Option<usize> {
+    rows.iter().position(|row| !row.iter().all(reads))
 }
 
 /// A value reads when its text is what its tag promises, by the rules the
 /// reference client converts it with.
-fn reads(cell: &VtankCell) -> bool {
-    let text = cell.scalar_text.as_deref().unwrap_or("");
+fn reads<C: CellValue>(cell: &C) -> bool {
+    let text = cell.scalar_text().unwrap_or("");
     let float_styles = NumberStyles::FLOAT | NumberStyles::ALLOW_THOUSANDS;
-    match cell.tag.as_str() {
+    match cell.tag() {
         "d" => parse_f64(text, float_styles).is_some(),
         "f" => parse_f32(text, float_styles).is_some(),
         "i" => try_parse_int(text).is_some(),
@@ -321,55 +417,70 @@ pub struct VtankCraftRecipe {
 /// the other. A database without the table has no recipes.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct VtankCraftDatabase {
+    /// The book, shared by its copies: it never changes once read.
+    book: Rc<CraftBook>,
+}
+
+#[derive(Debug, Default, PartialEq, Eq)]
+struct CraftBook {
     recipes: Vec<VtankCraftRecipe>,
-    by_result: HashMap<String, Vec<VtankCraftRecipe>>,
+    /// The recipes by result (upper-cased), as indexes into `recipes`.
+    by_result: HashMap<String, Vec<usize>>,
 }
 
 impl VtankCraftDatabase {
     /// A recipe book.
     #[must_use]
     pub fn new(recipes: Vec<VtankCraftRecipe>) -> Self {
-        let mut by_result: HashMap<String, Vec<VtankCraftRecipe>> = HashMap::new();
-        for recipe in &recipes {
+        let mut by_result: HashMap<String, Vec<usize>> = HashMap::new();
+        for (index, recipe) in recipes.iter().enumerate() {
             by_result
                 .entry(casing::to_upper_invariant(&recipe.result_item))
                 .or_default()
-                .push(recipe.clone());
+                .push(index);
         }
         for list in by_result.values_mut() {
             // OrderBy is stable: equal ids keep the table's order.
-            list.sort_by_key(|recipe| recipe.id);
+            list.sort_by_key(|&index| recipes[index].id);
         }
-        Self { recipes, by_result }
+        Self {
+            book: Rc::new(CraftBook { recipes, by_result }),
+        }
     }
 
     /// Every recipe, in the table's own order.
     #[must_use]
     pub fn recipes(&self) -> &[VtankCraftRecipe] {
-        &self.recipes
+        &self.book.recipes
     }
 
     /// The recipes that make `result_name` (any case), by id.
     #[must_use]
-    pub fn for_result(&self, result_name: &str) -> &[VtankCraftRecipe] {
+    pub fn for_result(&self, result_name: &str) -> Vec<&VtankCraftRecipe> {
         if casing::is_white_space_only(result_name) {
-            return &[];
+            return Vec::new();
         }
-        self.by_result
+        self.book
+            .by_result
             .get(&casing::to_upper_invariant(result_name.trim()))
-            .map_or(&[], Vec::as_slice)
+            .map_or_else(Vec::new, |indexes| {
+                indexes
+                    .iter()
+                    .map(|&index| &self.book.recipes[index])
+                    .collect()
+            })
     }
 }
 
-/// The game database as the plugin uses it.
+/// The game database as the plugin uses it. Every part of the macro that
+/// reads it holds a copy; the large tables (the monsters and the recipes)
+/// never change once read, so the copies share them.
 #[derive(Debug, Clone, Default, PartialEq)]
 pub struct VtankGameInfoDatabase {
     /// Whether there is a database at all.
     pub is_loaded: bool,
-    /// Damage preferences by monster name (keys upper-cased: any case).
-    monster_damage_overrides: HashMap<String, Vec<MonsterDamageType>>,
-    species_members: HashMap<String, VtankSpeciesMember>,
-    monster_immunities: HashMap<String, i32>,
+    /// The monster tables, shared by the copies.
+    monsters: Rc<MonsterTables>,
     /// Damage preferences by species.
     pub species_damages: HashMap<i32, Vec<MonsterDamageType>>,
     /// The ammunition table.
@@ -390,6 +501,15 @@ pub struct VtankGameInfoDatabase {
     pub version: Option<i32>,
 }
 
+/// The monster tables, keys upper-cased (any case matches).
+#[derive(Debug, Default, PartialEq)]
+struct MonsterTables {
+    /// Damage preferences by monster name.
+    damage_overrides: HashMap<String, Vec<MonsterDamageType>>,
+    species_members: HashMap<String, VtankSpeciesMember>,
+    immunities: HashMap<String, i32>,
+}
+
 fn key(name: &str) -> String {
     casing::to_upper_invariant(name)
 }
@@ -407,7 +527,7 @@ impl VtankGameInfoDatabase {
         if !storage.is_available() {
             return Self::empty();
         }
-        Self::from_database(&load_base(storage))
+        BaseDatabase::read(read_base_text(storage).as_deref()).game_info()
     }
 
     /// The empty built-in database.
@@ -428,7 +548,8 @@ impl VtankGameInfoDatabase {
     /// columns, or a value that is not the number it should be, is passed
     /// over on its own.
     #[must_use]
-    pub fn from_database(database: &VtankDatabase) -> Self {
+    pub fn from_database<D: TableSet>(database: &D) -> Self {
+        let mut monsters = MonsterTables::default();
         let mut result = Self {
             is_loaded: true,
             last_update_time: read_cell_int(database, "DBLastUpdateTime", 1),
@@ -441,7 +562,7 @@ impl VtankGameInfoDatabase {
                 parse_damage_elements(c[1].as_string()),
             ))
         }) {
-            result.monster_damage_overrides.insert(key(&name), elements);
+            monsters.damage_overrides.insert(key(&name), elements);
         }
         for (name, member) in read_rows(database, "SpeciesMembers", 3, |c| {
             Some((
@@ -452,12 +573,12 @@ impl VtankGameInfoDatabase {
                 },
             ))
         }) {
-            result.species_members.insert(key(&name), member);
+            monsters.species_members.insert(key(&name), member);
         }
         for (name, mask) in read_rows(database, "MonsterImmunities", 2, |c| {
             Some((c[0].as_string().to_owned(), c[1].as_int().ok()?))
         }) {
-            result.monster_immunities.insert(key(&name), mask);
+            monsters.immunities.insert(key(&name), mask);
         }
         for (species, elements) in read_rows(database, "SpeciesDamages", 2, |c| {
             Some((c[0].as_int().ok()?, parse_damage_elements(c[1].as_string())))
@@ -523,38 +644,45 @@ impl VtankGameInfoDatabase {
             })
         });
         result.crafts = VtankCraftDatabase::new(recipes);
+        result.monsters = Rc::new(monsters);
         result
     }
 
     /// The species table's row for a monster (any case), if any.
     #[must_use]
     pub fn species_member(&self, monster_name: &str) -> Option<VtankSpeciesMember> {
-        self.species_members.get(&key(monster_name)).copied()
+        self.monsters
+            .species_members
+            .get(&key(monster_name))
+            .copied()
     }
 
     /// How many monsters have damage preferences of their own.
     #[must_use]
     pub fn monster_damage_override_count(&self) -> usize {
-        self.monster_damage_overrides.len()
+        self.monsters.damage_overrides.len()
     }
 
     /// How many monsters the immunity table lists.
     #[must_use]
     pub fn monster_immunity_count(&self) -> usize {
-        self.monster_immunities.len()
+        self.monsters.immunities.len()
     }
 
     /// How many monsters the species table lists.
     #[must_use]
     pub fn species_member_count(&self) -> usize {
-        self.species_members.len()
+        self.monsters.species_members.len()
     }
 
     fn member(&self, monster_name: &str) -> Option<VtankSpeciesMember> {
         if !self.is_loaded || casing::is_white_space_only(monster_name) {
             return None;
         }
-        self.species_members.get(&key(monster_name)).copied()
+        self.monsters
+            .species_members
+            .get(&key(monster_name))
+            .copied()
     }
 
     /// The monster's species, or -1 when there is no database or no row.
@@ -584,7 +712,8 @@ impl VtankGameInfoDatabase {
         self.is_loaded
             && !casing::is_white_space_only(monster_name)
             && self
-                .monster_immunities
+                .monsters
+                .immunities
                 .get(&key(monster_name))
                 .is_some_and(|mask| mask & IMMUNE_TO_MAGIC_MASK != 0)
     }
@@ -596,42 +725,41 @@ impl VtankGameInfoDatabase {
         if !self.is_loaded || casing::is_white_space_only(monster_name) {
             return &[];
         }
-        if let Some(exact) = self.monster_damage_overrides.get(&key(monster_name)) {
+        if let Some(exact) = self.monsters.damage_overrides.get(&key(monster_name)) {
             return exact;
         }
-        self.species_members
+        self.monsters
+            .species_members
             .get(&key(monster_name))
             .and_then(|member| self.species_damages.get(&member.species))
             .map_or(&[], Vec::as_slice)
     }
 }
 
-fn read_cell_int(database: &VtankDatabase, table: &str, column: usize) -> Option<i32> {
+fn read_cell_int<D: TableSet>(database: &D, table: &str, column: usize) -> Option<i32> {
+    let index = database.index_of(table)?;
     database
-        .find(table)?
-        .rows
+        .rows_of(index)
         .first()?
-        .cells
         .get(column)?
-        .scalar_text
-        .as_deref()
+        .scalar_text()
         .and_then(try_parse_int)
 }
 
-fn read_rows<T>(
-    database: &VtankDatabase,
+fn read_rows<D: TableSet, T>(
+    database: &D,
     table: &str,
     columns: usize,
-    read: impl Fn(&[VtankCell]) -> Option<T>,
+    read: impl Fn(&[D::Cell]) -> Option<T>,
 ) -> Vec<T> {
-    let Some(table) = database.find(table) else {
+    let Some(index) = database.index_of(table) else {
         return Vec::new();
     };
-    table
-        .rows
-        .iter()
-        .filter(|row| row.cells.len() >= columns)
-        .filter_map(|row| read(&row.cells))
+    database
+        .rows_of(index)
+        .into_iter()
+        .filter(|row| row.len() >= columns)
+        .filter_map(read)
         .collect()
 }
 
@@ -701,6 +829,64 @@ mod tests {
         assert_eq!(database.version, Some(9));
         assert_eq!(database.last_update_time, Some(0));
         assert!(database.ammunition_options.is_empty());
+    }
+
+    // The memo reads a text once and answers the same for it again.
+    #[test]
+    fn the_memo_answers_what_a_fresh_read_answers() {
+        let mut memo = GameInfoMemo::default();
+        let mut old = excerpt();
+        old.find_mut("DBVersion").unwrap().rows[0].cells[0] = VtankCell::int(4);
+        for text in [
+            Some(excerpt().render()),
+            Some(excerpt().render()),
+            Some(old.render()),
+            None,
+            Some(excerpt().render()),
+        ] {
+            let base = BaseDatabase::read(text.as_deref());
+            let expected = (base.game_info(), base.last_update_time());
+            assert_eq!(memo.read(text), expected);
+        }
+        assert_eq!(
+            memo.load(&Storage(excerpt().render())),
+            VtankGameInfoDatabase::load(&Storage(excerpt().render()))
+        );
+    }
+
+    // The database read in place is the database read whole, for a file
+    // that reads, one whose value does not, and one of another version.
+    #[test]
+    fn the_database_read_in_place_is_the_database_read_whole() {
+        let mut texts = vec![excerpt().render()];
+        let mut bad = excerpt();
+        bad.find_mut("HealKits").unwrap().rows[1].cells[2] = VtankCell {
+            scalar_text: Some("lots".to_owned()),
+            ..VtankCell::tagged("i")
+        };
+        texts.push(bad.render());
+        let mut old = excerpt();
+        old.find_mut("DBVersion").unwrap().rows[0].cells[0] = VtankCell::int(4);
+        texts.push(old.render());
+        texts.push(String::new());
+        texts.push(
+            "2
+broken"
+                .to_owned(),
+        );
+        for text in &texts {
+            let whole = read(text);
+            let in_place = read_in_place(text);
+            assert_eq!(in_place.as_ref().map(VtankDatabaseRef::to_database), whole);
+            if let (Some(whole), Some(in_place)) = (whole, in_place) {
+                assert_eq!(
+                    VtankGameInfoDatabase::from_database(&in_place),
+                    VtankGameInfoDatabase::from_database(&whole)
+                );
+                assert_eq!(last_update_time(&in_place), last_update_time(&whole));
+                assert_eq!(every_value_reads(&in_place), every_value_reads(&whole));
+            }
+        }
     }
 
     #[test]

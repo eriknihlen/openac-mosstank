@@ -107,8 +107,7 @@ impl StoreHost for HostAutomation<'_, '_> {
 
     /// The character's world, empty before one is known.
     fn world_name(&mut self) -> String {
-        self.host
-            .character()
+        self.character_info()
             .map(|character| character.world)
             .unwrap_or_default()
     }
@@ -116,15 +115,15 @@ impl StoreHost for HostAutomation<'_, '_> {
 
 impl StoreLog for HostAutomation<'_, '_> {
     fn info(&mut self, message: &str) {
-        self.host.info(message);
+        self.service().info(message);
     }
 
     fn warn(&mut self, message: &str) {
-        self.host.warn(message);
+        self.service().warn(message);
     }
 
     fn error(&mut self, message: &str) {
-        self.host.error(message);
+        self.service().error(message);
     }
 }
 
@@ -144,46 +143,46 @@ impl HostAutomation<'_, '_> {
 impl PluginStorage for HostAutomation<'_, '_> {
     fn is_available(&mut self) -> bool {
         let (place, always) = self.storage_place();
-        always || self.host.storage_describe(&place).is_some()
+        always || self.service().storage_describe(&place).is_some()
     }
 
     fn root_path(&mut self) -> Option<String> {
         let (place, _) = self.storage_place();
-        self.host.storage_describe(&place)
+        self.service().storage_describe(&place)
     }
 
     fn read_text(&mut self, key: &str) -> Result<Option<String>, StorageError> {
         let (place, _) = self.storage_place();
-        self.host.storage_read_text(&place, key)
+        self.service().storage_read_text(&place, key)
     }
 
     fn list(&mut self, prefix: &str) -> Result<Vec<String>, StorageError> {
         let (place, _) = self.storage_place();
-        self.host.storage_list(&place, prefix)
+        self.service().storage_list(&place, prefix)
     }
 
     fn write_text(&mut self, key: &str, content: &str) -> Result<(), StorageError> {
         let (place, _) = self.storage_place();
-        self.host.storage_write_text(&place, key, content)
+        self.service().storage_write_text(&place, key, content)
     }
 
     fn ensure_directory(&mut self, prefix: &str) -> Result<bool, StorageError> {
         let (place, _) = self.storage_place();
-        self.host.storage_ensure_folder(&place, prefix)
+        self.service().storage_ensure_folder(&place, prefix)
     }
 
     fn delete(&mut self, key: &str) -> Result<bool, StorageError> {
         let (place, _) = self.storage_place();
-        self.host.storage_delete(&place, key)
+        self.service().storage_delete(&place, key)
     }
 
     fn lock(&mut self, key: &str) -> Result<u32, StorageError> {
         let (place, _) = self.storage_place();
-        self.host.storage_lock(&place, key).map(|lock| lock.0)
+        self.service().storage_lock(&place, key).map(|lock| lock.0)
     }
 
     fn unlock(&mut self, handle: u32) -> bool {
-        self.host.storage_unlock(StorageLock(handle))
+        self.service().storage_unlock(StorageLock(handle))
     }
 }
 

@@ -13,9 +13,9 @@
 //! as an unsubscribed handler would never have been called.
 
 use mosstank_automation::combat_text;
+use mosstank_dotnet::text::{casing, ordinal};
 use mosstank_stores::storage::PluginStorage;
 use openac_plugin_compat::json::{JsonNumber, JsonValue, system_text_json};
-use openac_plugin_compat::text::{casing, ordinal};
 
 use crate::clock::{SessionClock, json_utc};
 

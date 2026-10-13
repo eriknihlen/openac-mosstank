@@ -10,8 +10,8 @@ use std::cmp::Ordering;
 
 use ac_plugin_abi::items::InventoryItem;
 use ac_plugin_abi::world::ItemProperties;
+use mosstank_dotnet::text::{casing, ordinal};
 use mosstank_dotnet::{parse_bool, try_parse_double, try_parse_uint};
-use openac_plugin_compat::text::{casing, ordinal};
 
 /// Why an expression or a clause did not read (the C#'s `FormatException`).
 pub type ExpressionError = String;

@@ -10,12 +10,12 @@
 
 use ac_plugin_abi::items::InventoryItem;
 use mosstank_dotnet::collections::{DotNetDictionary, Ordinal};
+use mosstank_dotnet::text::{casing, ordinal};
 use mosstank_stores::item_enchant_store::{
     self, ItemEnchantLoadResult, ItemEnchantLoadStatus, ItemEnchantRecord, ItemEnchantScope,
 };
 use mosstank_stores::storage::PluginStorage;
 use openac_plugin_compat::number::format_f64;
-use openac_plugin_compat::text::{casing, ordinal};
 
 type Key = (u32, u32, u32);
 

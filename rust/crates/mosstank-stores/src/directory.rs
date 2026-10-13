@@ -3,7 +3,7 @@
 //! files, the per-character binding file (`.cdf`), and what each picker
 //! lists.
 
-use openac_plugin_compat::text::ordinal;
+use mosstank_dotnet::text::ordinal;
 
 use crate::storage::{PluginStorage, StorageError};
 

@@ -7,8 +7,8 @@ use std::sync::OnceLock;
 
 use ac_plugin_abi::world::Position;
 use mosstank_automation::locks::ActionLockKind;
+use mosstank_dotnet::text::{casing, ordinal};
 use openac_plugin_compat::regex::{DotNetRegex, RegexOptions};
-use openac_plugin_compat::text::{casing, ordinal};
 
 use crate::controller::{DENIAL_SKIP_SECONDS, LootController, clamp, whole};
 use crate::host::{LootCorpse, LootHost};

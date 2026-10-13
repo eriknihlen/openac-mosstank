@@ -14,8 +14,8 @@ use mosstank_automation::cast_tracker::{
     CastEvent, SpellCastOutcome, SpellCastOutcomeInfo, SpellCastTracker,
 };
 use mosstank_automation::combat_text::{self, log_text_type};
+use mosstank_dotnet::text::ordinal;
 use openac_plugin_compat::number::format_f64;
-use openac_plugin_compat::text::ordinal;
 
 use super::magic::is_vtank_instant_cast;
 use super::{CombatController, Ctx, PHYSICAL_RESULT_TEXT_TAIL_SECONDS, is_known_dead};

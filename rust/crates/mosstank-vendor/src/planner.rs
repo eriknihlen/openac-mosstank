@@ -6,8 +6,8 @@
 use ac_plugin_abi::items::InventoryItem;
 use ac_plugin_abi::trade::{NO_VALUE_LIMIT, VendorItem, VendorProfile};
 use ac_plugin_abi::world::ObjectClass;
+use mosstank_dotnet::text::ordinal;
 use openac_plugin_compat::number::{format_f64, format_i32};
-use openac_plugin_compat::text::ordinal;
 
 /// One of the vendor's listings a rule wants, and how many.
 #[derive(Debug, Clone, PartialEq)]

@@ -11,8 +11,8 @@ use std::collections::{HashMap, HashSet};
 use ac_plugin_abi::character::{ActiveEnchantment, Attribute, Skill, Training};
 use ac_plugin_abi::magic::SpellInfo;
 use mosstank_automation::SpellCatalog;
+use mosstank_dotnet::text::ordinal;
 use mosstank_settings::model::BuffSettings;
-use openac_plugin_compat::text::ordinal;
 
 use crate::profile::{BuffLine, BuffTargetKind};
 

@@ -19,12 +19,13 @@
 use std::cell::RefCell;
 
 use ac_plugin_abi::net::{HttpReply, HttpRequest, NetError};
-use mosstank_formats::gameinfo::{self, ProfileText, VtankGameInfoDatabase};
-use mosstank_formats::usd::VtankDatabase;
+use mosstank_dotnet::text::casing;
+use mosstank_formats::gameinfo::{self, GameInfoMemo, ProfileText, VtankGameInfoDatabase};
+use mosstank_formats::usd::{VtankDatabase, VtankDatabaseRef};
 use mosstank_stores::storage::{PluginStorage, StorageError};
 use openac_plugin_compat::datetime::DateTime;
 use openac_plugin_compat::number::{self, NumberStyles};
-use openac_plugin_compat::text::{self, casing};
+use openac_plugin_compat::text;
 
 /// The newest published database; the link redirects to the file.
 pub const SOURCE_ADDRESS: &str =
@@ -271,6 +272,31 @@ impl VtankGameInfoUpdater {
         now_unix_seconds: i64,
         skip_if_checked_within_seconds: i64,
     ) -> Option<String> {
+        self.start_with_memo(
+            profiles,
+            state,
+            transport,
+            now_unix_seconds,
+            skip_if_checked_within_seconds,
+            &mut GameInfoMemo::default(),
+        )
+    }
+
+    /// [`Self::start`], reading the profile folder's database through
+    /// `memo` (the session's, so the file the session already read is not
+    /// parsed again).
+    ///
+    /// # Panics
+    /// The updater was disposed (`ObjectDisposedException`).
+    pub fn start_with_memo(
+        &mut self,
+        profiles: &mut dyn PluginStorage,
+        state: &mut dyn PluginStorage,
+        transport: Option<&mut dyn GameInfoTransport>,
+        now_unix_seconds: i64,
+        skip_if_checked_within_seconds: i64,
+        memo: &mut GameInfoMemo,
+    ) -> Option<String> {
         assert!(!self.disposed, "the game database updater was disposed");
         let Some(transport) = transport.filter(|_| self.has_transport) else {
             return Some("Game database updates are not available in this session.".to_owned());
@@ -290,6 +316,7 @@ impl VtankGameInfoUpdater {
             transport,
             now_unix_seconds,
             skip_if_checked_within_seconds,
+            memo,
         ));
         None
     }
@@ -300,12 +327,14 @@ impl VtankGameInfoUpdater {
         transport: &mut dyn GameInfoTransport,
         now_unix_seconds: i64,
         skip_if_checked_within_seconds: i64,
+        memo: &mut GameInfoMemo,
     ) -> Pending {
         let reader = Reader::new(profiles);
-        let local = gameinfo::load_base(&reader);
+        let text = gameinfo::read_base_text(&reader);
         if let Some(error) = reader.failure.into_inner() {
             return Pending::Finished(Box::new(Err(error)));
         }
+        let (local, local_time) = memo.read(text);
         if skip_if_checked_within_seconds > 0 {
             match read_last_check(state) {
                 Err(error) => return Pending::Finished(Box::new(Err(error))),
@@ -324,14 +353,14 @@ impl VtankGameInfoUpdater {
                                 "Game database checked recently; the next check is after {}.",
                                 format_utc(next_check)
                             ),
-                            database: Some(VtankGameInfoDatabase::from_database(&local)),
+                            database: Some(local),
                         })));
                     }
                 }
                 Ok(None) => {}
             }
         }
-        let local_time = try_last_update_time(&local).unwrap_or(0);
+        let local_time = local_time.unwrap_or(0);
         match transport.get(SOURCE_ADDRESS) {
             Ok(handle) => Pending::Waiting { handle, local_time },
             Err(error) => Pending::Finished(Box::new(Err(error))),
@@ -403,7 +432,7 @@ fn finish(
     if !answer.succeeded {
         return failed(&answer.text);
     }
-    let downloaded = match VtankDatabase::parse(&answer.text) {
+    let downloaded = match VtankDatabaseRef::parse(&answer.text) {
         Ok(database) => database,
         Err(error) => {
             return failed(&format!(
@@ -422,7 +451,7 @@ fn finish(
             gameinfo::BUILT_IN_VERSION
         ));
     }
-    let Some(downloaded_time) = try_last_update_time(&downloaded) else {
+    let Some(downloaded_time) = gameinfo::last_update_time(&downloaded) else {
         return failed("the download does not say which world data it was built from");
     };
     let built = format_date(downloaded_time);
@@ -535,15 +564,7 @@ fn failed(reason: &str) -> VtankGameInfoUpdateResult {
 /// it has none.
 #[must_use]
 pub fn try_last_update_time(database: &VtankDatabase) -> Option<i32> {
-    let table = database.find("DBLastUpdateTime")?;
-    let row = table.rows.first()?;
-    if row.cells.len() < 2 {
-        return None;
-    }
-    number::parse_i32(
-        row.cells[1].scalar_text.as_deref().unwrap_or(""),
-        NumberStyles::INTEGER,
-    )
+    gameinfo::last_update_time(database)
 }
 
 fn utc_seconds(seconds: i64) -> DateTime {

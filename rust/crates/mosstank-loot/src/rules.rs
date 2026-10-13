@@ -7,8 +7,8 @@ use ac_plugin_abi::items::InventoryItem;
 use ac_plugin_abi::world::ItemProperties;
 use mosstank_automation::Automation;
 use mosstank_dotnet::collections::IgnoreCaseStringMap;
+use mosstank_dotnet::text::{casing, ordinal};
 use mosstank_formats::utl::{LootAction, LootRule};
-use openac_plugin_compat::text::{casing, ordinal};
 
 use crate::expression::{LootRuleExpression, is_catch_all};
 use crate::requirements;

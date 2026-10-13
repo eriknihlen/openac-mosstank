@@ -7,8 +7,8 @@
 use ac_plugin_abi::navigation::NavigationSnapshot;
 use ac_plugin_abi::social::FellowMember;
 use ac_plugin_abi::world::{ObjectClass, WorldObject};
+use mosstank_dotnet::text::ordinal;
 use openac_plugin_compat::number::{NumberStyles, parse_u32};
-use openac_plugin_compat::text::ordinal;
 
 /// Where a command that names an object may look; the reference's command
 /// flags spell the same three.

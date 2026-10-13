@@ -214,6 +214,9 @@ pub struct Core {
     pub(crate) folders: StorageFolderPreparer,
     pub(crate) queued_announcements: Vec<String>,
     pub(crate) game_info: VtankGameInfoDatabase,
+    /// The game database file as last read, so the same text is not
+    /// parsed again.
+    pub(crate) game_info_memo: mosstank_formats::gameinfo::GameInfoMemo,
 
     pub(crate) locks: SharedActionLocks,
     pub(crate) gate: SharedCombatModeGate,
@@ -647,7 +650,8 @@ impl Tank {
             },
         );
 
-        let game_info = profiles::load_game_info(client);
+        let mut game_info_memo = mosstank_formats::gameinfo::GameInfoMemo::default();
+        let game_info = profiles::load_game_info(client, &mut game_info_memo);
         let crafting = mosstank_loot::crafting::CraftingController::new(game_info.clone());
         // The random helper's own draws, seeded apart from the worn-gear
         // spread (register MANA-1).
@@ -709,6 +713,7 @@ impl Tank {
             folders,
             queued_announcements: Vec::new(),
             game_info,
+            game_info_memo,
             locks,
             gate,
             tracker,

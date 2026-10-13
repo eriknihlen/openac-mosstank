@@ -33,7 +33,7 @@ fn parse_loot_action(value: &str) -> Option<LootAction> {
         return LootAction::from_i32(number);
     }
     loot_actions().into_iter().find(|action| {
-        openac_plugin_compat::text::ordinal::equals_ignore_case(&loot_action_name(*action), value)
+        mosstank_dotnet::text::ordinal::equals_ignore_case(&loot_action_name(*action), value)
     })
 }
 
@@ -196,7 +196,7 @@ pub(super) fn act(cx: &mut TankCx<'_>, name: &str, arg: &Arg) -> bool {
                     .profiles
                     .set_mine_only(cx.client.stores(), mine_only)
             );
-            if !openac_plugin_compat::text::ordinal::equals_ignore_case(
+            if !mosstank_dotnet::text::ordinal::equals_ignore_case(
                 &before,
                 &cx.core.profiles.selected(),
             ) {
@@ -592,11 +592,11 @@ impl TankCx<'_> {
             .loot
             .external_classifier_id
             .clone();
-        if openac_plugin_compat::text::casing::is_white_space_only(&id) {
+        if mosstank_dotnet::text::casing::is_white_space_only(&id) {
             return "VTClassic".to_owned();
         }
         for info in self.client.loot_classifiers() {
-            if openac_plugin_compat::text::ordinal::equals_ignore_case(&info.id, &id) {
+            if mosstank_dotnet::text::ordinal::equals_ignore_case(&info.id, &id) {
                 return format_classifier(&info.display_name, &info.id);
             }
         }
@@ -621,7 +621,7 @@ impl TankCx<'_> {
 
     fn resolve_classifier_id(&mut self, value: &str) -> Option<String> {
         let value = value.trim();
-        if openac_plugin_compat::text::ordinal::equals_ignore_case(value, "VTClassic") {
+        if mosstank_dotnet::text::ordinal::equals_ignore_case(value, "VTClassic") {
             return Some(String::new());
         }
         self.client
@@ -629,7 +629,7 @@ impl TankCx<'_> {
             .into_iter()
             .find(|info| {
                 value == format_classifier(&info.display_name, &info.id)
-                    || openac_plugin_compat::text::ordinal::equals_ignore_case(value, &info.id)
+                    || mosstank_dotnet::text::ordinal::equals_ignore_case(value, &info.id)
             })
             .map(|info| info.id)
     }
