@@ -34,6 +34,7 @@ use crate::host::AllegianceStatus;
 use crate::network;
 use crate::prepclick::PrepClickController;
 use crate::search::{self, UbSearchScope};
+use crate::tools::UbTools;
 
 /// What `/ub` answers to a word it has no command for.
 pub const UNKNOWN_UB_COMMAND: &str =
@@ -88,6 +89,7 @@ pub struct UbCommands {
     delayed: Vec<DelayedCommand>,
     jump: CommandJump,
     prep_click: PrepClickController,
+    tools: UbTools,
 }
 
 /// Splits off the first word: the trimmed text up to the first space or
@@ -207,6 +209,17 @@ impl UbCommands {
         &self.prep_click
     }
 
+    /// The UB tools the commands start.
+    #[must_use]
+    pub fn tools(&self) -> &UbTools {
+        &self.tools
+    }
+
+    /// The UB tools, for the plugin's frame to drive.
+    pub fn tools_mut(&mut self) -> &mut UbTools {
+        &mut self.tools
+    }
+
     /// How many lines wait on their delay.
     #[must_use]
     pub fn delayed_count(&self) -> usize {
@@ -251,11 +264,11 @@ impl UbCommands {
                 call.post_ub_reply("vendor", reply);
             }
             "xp" => {
-                let reply = call.services.xp_command(call.host, &arguments);
+                let reply = self.tools.xp.command(call, &arguments);
                 call.post_ub_reply("xp", reply);
             }
             "equip" => {
-                let reply = call.services.equip_command(call.host, &arguments);
+                let reply = self.tools.equip.command(call, &arguments);
                 call.post_ub_reply("equip", reply);
             }
             "simplejump" => self.simple_jump(call, &arguments),
@@ -313,8 +326,11 @@ impl UbCommands {
                 }
             }
             "fellow" => call.services.fellow_command(call.host, &arguments),
-            "count" | "autostack" | "autocram" | "clearbugged" | "autotinker" | "getjob"
-            | "tinkcalc" => call.services.run_tool_verb(call.host, &verb, &arguments),
+            "autostack" => self.tools.stack_cram.start(call, true),
+            "autocram" => self.tools.stack_cram.start(call, false),
+            "count" | "clearbugged" | "autotinker" | "getjob" | "tinkcalc" => {
+                call.services.run_tool_verb(call.host, &verb, &arguments);
+            }
             _ => {
                 // The flagged verbs (jumpsw, igp, usepi, ...) are matched by
                 // name and flag set rather than spelled out.

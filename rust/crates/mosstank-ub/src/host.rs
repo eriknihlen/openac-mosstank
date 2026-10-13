@@ -2,16 +2,25 @@
 //! ([`MetaHost`]) and the few calls only the UB commands make: the client's
 //! own turn and jump, the character options, allegiance, opening and
 //! closing a container, the chat input interceptor, the other clients'
-//! broadcasts and the dungeon data. Every method maps onto one SDK call.
+//! broadcasts, the dungeon data, and what the UB tools add: merging stacks,
+//! the appraisal slot, the vitals and spending experience, the allegiance,
+//! labels over objects, the shared profile folder, and the rules' view of
+//! the client ([`UbHost::automation`]). Every method maps onto one SDK call
+//! or, for the last, onto the same client object.
 
-pub use ac_plugin_abi::character::{OptionResult, OptionStatus, Skill};
-pub use ac_plugin_abi::items::ItemResult;
+pub use ac_plugin_abi::character::{
+    AdvancementKind, AdvancementResult, AdvancementStatus, OptionResult, OptionStatus, Skill, Vital,
+};
+pub use ac_plugin_abi::items::{AppraisalState, ItemResult};
 pub use ac_plugin_abi::navigation::{
     MoveChannel, MoveDirection, MovePace, MoveReport, MoveUnit, NavigationStatus,
 };
-pub use ac_plugin_abi::social::{AllegianceResult, AllegianceStatus};
+pub use ac_plugin_abi::social::{AllegianceResult, AllegianceState, AllegianceStatus};
+pub use ac_plugin_abi::ui::WorldLabel;
 pub use ac_plugin_abi::world::Floorplan;
+use mosstank_automation::Automation;
 use mosstank_meta::host::MetaHost;
+use mosstank_stores::storage::PluginStorage;
 
 /// The client during one plugin call, as the UB tab reaches it.
 pub trait UbHost: MetaHost {
@@ -98,4 +107,27 @@ pub trait UbHost: MetaHost {
     fn is_sealed_dungeon(&mut self, cell_id: u32) -> bool;
     /// A landblock's indoor floorplan (`None`: the plan of nothing).
     fn dungeon_floorplan(&mut self, landblock_id: u32) -> Option<Floorplan>;
+
+    // ---- the UB tools ----
+
+    /// The same client as the macro's rules see it: what a loot profile's
+    /// rules are evaluated against when a tool reads one.
+    fn automation(&mut self) -> &mut dyn Automation;
+    /// The shared profile folder (`IPluginHost.VtankProfiles`): the UB
+    /// tree's equipment profiles and map markers.
+    fn profile_storage(&mut self) -> &mut dyn PluginStorage;
+    /// Moves `amount` of one stack onto another of the same thing (0: all
+    /// that fit).
+    fn merge_items(&mut self, source_id: u32, target_id: u32, amount: u32) -> ItemResult;
+    /// The appraisal slot: what it waits on and what it last gave up on.
+    fn appraisal(&mut self) -> AppraisalState;
+    /// The three vitals, with their ranks.
+    fn vitals(&mut self) -> Vec<Vital>;
+    /// Spends experience on one stat.
+    fn advance(&mut self, kind: AdvancementKind, stat_id: u32, cost: u64) -> AdvancementResult;
+    /// The character's allegiance.
+    fn allegiance(&mut self) -> AllegianceState;
+    /// Replaces the plugin's labels over objects in the world; false when
+    /// the client refused the set.
+    fn show_labels(&mut self, labels: &[WorldLabel]) -> bool;
 }

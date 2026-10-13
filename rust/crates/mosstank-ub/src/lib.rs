@@ -34,3 +34,4 @@ pub mod search;
 pub mod settings_page;
 #[cfg(not(target_arch = "wasm32"))]
 pub mod testing;
+pub mod tools;

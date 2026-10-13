@@ -2,24 +2,31 @@
 //! meta engine's fake ([`FakeHost`], every record it answers a field to
 //! arrange) and the calls only the UB commands make, each recorded.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet, VecDeque};
 
-use ac_plugin_abi::character::{ActiveEnchantment, Attribute, OptionResult, OptionStatus, Skill};
+use ac_plugin_abi::character::{
+    ActiveEnchantment, AdvancementKind, AdvancementResult, AdvancementStatus, Attribute,
+    OptionResult, OptionStatus, Skill, Vital,
+};
 use ac_plugin_abi::combat::{CombatMode, CombatResult, CombatSnapshot, CombatTarget};
 use ac_plugin_abi::items::{
-    EquipmentItem, EquipmentResult, InventoryItem, ItemResult, ItemState, ItemStatus, LootContainer,
+    AppraisalState, EquipmentItem, EquipmentResult, EquipmentStatus, InventoryItem, ItemResult,
+    ItemState, ItemStatus, LootContainer,
 };
-use ac_plugin_abi::magic::{CastResult, ComponentInfo, SpellInfo, SpellList};
+use ac_plugin_abi::magic::{CastGate, CastResult, ComponentInfo, SpellInfo, SpellList};
 use ac_plugin_abi::navigation::{
     MoveChannel, MoveDirection, MovePace, MoveReport, MoveUnit, MovementIntent, NavigationSnapshot,
     NavigationStatus,
 };
 use ac_plugin_abi::peers::{NetworkClient, PeerCast};
 use ac_plugin_abi::social::{
-    AllegianceResult, AllegianceStatus, FellowMember, FellowshipState, LoginState, SelectionState,
+    AllegianceResult, AllegianceState, AllegianceStatus, FellowMember, FellowshipState, LoginState,
+    SelectionState,
 };
+use ac_plugin_abi::ui::WorldLabel;
 use ac_plugin_abi::world::{Floorplan, ItemProperties, WorldObject, WorldTime};
 use ac_plugin_abi::{CharacterInfo, ChatLine, LogLevel};
+use mosstank_automation::{Automation, SpellCatalog};
 use mosstank_meta::host::{MetaHost, PanelDescriptor, SpellExtras, UbDisplay, UbLineKind};
 pub use mosstank_meta::testing::{FakeHost, SharedStorage};
 use mosstank_stores::storage::PluginStorage;
@@ -108,6 +115,42 @@ pub struct FakeUbHost {
     pub floorplans: HashMap<u32, Floorplan>,
     /// How many floorplans were asked for.
     pub floorplan_requests: usize,
+
+    // ---- the UB tools ----
+    /// The shared profile folder.
+    pub profiles: SharedStorage,
+    /// Every give: item, target, amount.
+    pub gives: Vec<(u32, u32, u32)>,
+    /// What a give answers.
+    pub give_status: ItemStatus,
+    /// Every appraisal asked for, in order.
+    pub identified: Vec<u32>,
+    /// What an appraisal request answers, unless the object is refused.
+    pub identify_status: ItemStatus,
+    /// Objects whose appraisal the client refuses (`InvalidItem`).
+    pub identify_refused: HashSet<u32>,
+    /// Every merge: source, target, amount.
+    pub merges: Vec<(u32, u32, u32)>,
+    /// What a merge or a move answers.
+    pub item_command_status: ItemStatus,
+    /// A merge leaves the item commands busy until the test says otherwise.
+    pub merge_makes_busy: bool,
+    /// Every equip: item, location.
+    pub equips: Vec<(u32, u32)>,
+    /// What each equip answers, in turn; `Started` once these run out.
+    pub equip_results: VecDeque<EquipmentResult>,
+    /// The appraisal slot.
+    pub appraisal: AppraisalState,
+    /// The vitals.
+    pub vitals: Vec<Vital>,
+    /// Every advancement: kind, stat, cost.
+    pub advances: Vec<(AdvancementKind, u32, u64)>,
+    /// What an advancement answers.
+    pub advance_result: AdvancementResult,
+    /// The allegiance.
+    pub allegiance: AllegianceState,
+    /// Every label set shown, in order.
+    pub label_sets: Vec<Vec<WorldLabel>>,
 }
 
 impl Default for FakeUbHost {
@@ -164,6 +207,26 @@ impl FakeUbHost {
             all_sealed: false,
             floorplans: HashMap::new(),
             floorplan_requests: 0,
+            profiles: SharedStorage::new(),
+            gives: Vec::new(),
+            give_status: ItemStatus::Started,
+            identified: Vec::new(),
+            identify_status: ItemStatus::Started,
+            identify_refused: HashSet::new(),
+            merges: Vec::new(),
+            item_command_status: ItemStatus::Started,
+            merge_makes_busy: false,
+            equips: Vec::new(),
+            equip_results: VecDeque::new(),
+            appraisal: AppraisalState::default(),
+            vitals: Vec::new(),
+            advances: Vec::new(),
+            advance_result: AdvancementResult {
+                status: AdvancementStatus::Sent,
+                notice: None,
+            },
+            allegiance: AllegianceState::default(),
+            label_sets: Vec::new(),
         }
     }
 
@@ -243,7 +306,11 @@ impl MetaHost for FakeUbHost {
     }
 
     fn identify(&mut self, object_id: u32) -> ItemResult {
-        self.meta.identify(object_id)
+        self.identified.push(object_id);
+        if self.identify_refused.contains(&object_id) {
+            return ItemResult::of(ItemStatus::InvalidItem);
+        }
+        ItemResult::of(self.identify_status)
     }
 
     fn open_container(&mut self) -> u32 {
@@ -294,7 +361,8 @@ impl MetaHost for FakeUbHost {
     }
 
     fn give_item(&mut self, object_id: u32, target_id: u32, amount: u32) -> ItemResult {
-        self.meta.give_item(object_id, target_id, amount)
+        self.gives.push((object_id, target_id, amount));
+        ItemResult::of(self.give_status)
     }
 
     fn drop_item(&mut self, object_id: u32, amount: u32) -> ItemResult {
@@ -310,7 +378,8 @@ impl MetaHost for FakeUbHost {
         join_stack: bool,
     ) -> ItemResult {
         self.meta
-            .move_item(object_id, container_id, amount, placement, join_stack)
+            .move_item(object_id, container_id, amount, placement, join_stack);
+        ItemResult::of(self.item_command_status)
     }
 
     fn salvage(&mut self, tool_id: u32, item_ids: Vec<u32>) -> ItemResult {
@@ -326,7 +395,12 @@ impl MetaHost for FakeUbHost {
     }
 
     fn equip(&mut self, object_id: u32, location: u32) -> EquipmentResult {
-        self.meta.equip(object_id, location)
+        self.equips.push((object_id, location));
+        self.meta.equip(object_id, location);
+        self.equip_results.pop_front().unwrap_or(EquipmentResult {
+            status: EquipmentStatus::Started,
+            notice: None,
+        })
     }
 
     fn equipment_busy(&mut self) -> bool {
@@ -594,5 +668,136 @@ impl UbHost for FakeUbHost {
     fn dungeon_floorplan(&mut self, landblock_id: u32) -> Option<Floorplan> {
         self.floorplan_requests += 1;
         self.floorplans.get(&(landblock_id & 0xFFFF_0000)).cloned()
+    }
+
+    fn automation(&mut self) -> &mut dyn Automation {
+        self
+    }
+
+    fn profile_storage(&mut self) -> &mut dyn PluginStorage {
+        &mut self.profiles
+    }
+
+    fn merge_items(&mut self, source_id: u32, target_id: u32, amount: u32) -> ItemResult {
+        self.merges.push((source_id, target_id, amount));
+        if self.merge_makes_busy {
+            self.meta.item_state.is_busy = true;
+        }
+        ItemResult::of(self.item_command_status)
+    }
+
+    fn appraisal(&mut self) -> AppraisalState {
+        self.appraisal.clone()
+    }
+
+    fn vitals(&mut self) -> Vec<Vital> {
+        self.vitals.clone()
+    }
+
+    fn advance(&mut self, kind: AdvancementKind, stat_id: u32, cost: u64) -> AdvancementResult {
+        self.advances.push((kind, stat_id, cost));
+        self.advance_result.clone()
+    }
+
+    fn allegiance(&mut self) -> AllegianceState {
+        self.allegiance.clone()
+    }
+
+    fn show_labels(&mut self, labels: &[WorldLabel]) -> bool {
+        self.label_sets.push(labels.to_vec());
+        true
+    }
+}
+
+impl SpellCatalog for FakeUbHost {
+    fn known_self_buffs(&mut self) -> Vec<SpellInfo> {
+        self.meta.known_self_buffs.clone()
+    }
+
+    fn try_get(&mut self, spell_id: u32) -> Option<SpellInfo> {
+        self.meta.spells.get(&spell_id).cloned()
+    }
+
+    fn is_known(&mut self, spell_id: u32) -> bool {
+        MetaHost::is_spell_known(self, spell_id)
+    }
+}
+
+/// The rules' view of the same fake: every read is the meta fake's record.
+impl Automation for FakeUbHost {
+    fn is_available(&mut self) -> bool {
+        self.meta.character.is_some()
+    }
+
+    fn character(&mut self) -> CharacterInfo {
+        self.meta.character.clone().unwrap_or_default()
+    }
+
+    fn skills(&mut self) -> Vec<Skill> {
+        self.meta.skills.clone()
+    }
+
+    fn spells(&mut self) -> &mut dyn SpellCatalog {
+        self
+    }
+
+    fn evaluate_gate(&mut self, _spell_id: u32, _target: Option<u32>) -> CastGate {
+        CastGate::Unavailable
+    }
+
+    fn cast(&mut self, spell_id: u32, target: Option<u32>) -> bool {
+        MetaHost::cast(self, spell_id, target.unwrap_or(0)) == CastResult::Sent
+    }
+
+    fn combat_mode(&mut self) -> CombatMode {
+        self.meta.combat_mode
+    }
+
+    fn enter_combat_mode(&mut self, mode: CombatMode) -> CombatResult {
+        MetaHost::enter_combat_mode(self, mode)
+    }
+
+    fn items_available(&mut self) -> bool {
+        self.meta.item_state.is_available
+    }
+
+    fn items_busy(&mut self) -> bool {
+        self.meta.item_state.is_busy
+    }
+
+    fn owned_items(&mut self) -> Vec<InventoryItem> {
+        self.meta.owned_items.clone()
+    }
+
+    fn use_item(&mut self, object_id: u32) -> ItemResult {
+        MetaHost::use_item(self, object_id)
+    }
+
+    fn apply_item(&mut self, object_id: u32, target_id: u32) -> ItemResult {
+        MetaHost::apply_item(self, object_id, target_id)
+    }
+
+    fn item_properties(&mut self, object_id: u32) -> Option<ItemProperties> {
+        self.meta.properties.get(&object_id).cloned()
+    }
+
+    fn objects_available(&mut self) -> bool {
+        true
+    }
+
+    fn object(&mut self, object_id: u32) -> Option<WorldObject> {
+        MetaHost::object(self, object_id)
+    }
+
+    fn post_system_message(&mut self, text: &str) {
+        self.meta.chat_post(text, 0);
+    }
+
+    fn log_info(&mut self, text: &str) {
+        self.meta.log(LogLevel::Info, text);
+    }
+
+    fn log_warn(&mut self, text: &str) {
+        self.meta.log(LogLevel::Warn, text);
     }
 }

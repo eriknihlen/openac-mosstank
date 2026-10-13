@@ -6,7 +6,10 @@
 
 use mosstank_automation::locks::ActionLockTable;
 use mosstank_expr::ExpressionValue;
+use mosstank_formats::utl::LootRule;
 use mosstank_meta::host::UbLineKind;
+use mosstank_settings::model::InventorySettings;
+use mosstank_stores::ub_store::UbSettingStore;
 
 use crate::catalog::{CatalogDisplays, UbCatalog};
 use crate::chat;
@@ -48,17 +51,34 @@ pub trait UbServices {
     fn auto_vendor_stop(&mut self, host: &mut dyn UbHost);
     /// `/ub fellow <arguments>`.
     fn fellow_command(&mut self, host: &mut dyn UbHost, arguments: &str);
-    /// `/ub xp <arguments>`: the lines it answers, `None` for a line it does
-    /// not parse.
-    fn xp_command(&mut self, host: &mut dyn UbHost, arguments: &str) -> Option<Vec<String>>;
-    /// `/ub equip <arguments>`: the lines it answers, `None` for a line it
-    /// does not parse.
-    fn equip_command(&mut self, host: &mut dyn UbHost, arguments: &str) -> Option<Vec<String>>;
-
-    /// A verb of a UB tool this crate does not carry yet (`give*`, `ig*`,
-    /// `count`, `autostack`, `autocram`, `clearbugged`, `autotinker`,
-    /// `getjob`, `tinkcalc`), with its arguments: the plugin runs it.
+    /// A verb of a UB tool this crate does not carry yet (`clearbugged`),
+    /// with its arguments: the plugin runs it.
     fn run_tool_verb(&mut self, host: &mut dyn UbHost, verb: &str, arguments: &str);
+
+    // ---- what the UB tools ([`crate::tools`]) read from the rest of the plugin ----
+
+    /// The inventory settings: the give range, pause and retry counts
+    /// (`InventorySettings`).
+    fn inventory_settings(&mut self) -> InventorySettings;
+    /// An item giver profile's rules from the shared `itemgiver` folder
+    /// (`MossTankLootProfileStore.TryLoadItemGiver`); `None` when there is no
+    /// such file or it will not read.
+    fn item_giver_rules(&mut self, host: &mut dyn UbHost, name: &str) -> Option<Vec<LootRule>>;
+    /// A loot profile's rules by name, without selecting it
+    /// (`MossTankLootProfileStore.TryLoadNamed`); `None` when there is no such
+    /// file or it will not read.
+    fn loot_profile_rules(&mut self, host: &mut dyn UbHost, name: &str) -> Option<Vec<LootRule>>;
+    /// Whether the looter is waiting on the appraisal slot now
+    /// (`Looting.CorpseIdentifierBusy`).
+    fn corpse_identifier_busy(&mut self) -> bool;
+    /// Whether the macro is enabled (`CombatController.Enabled`).
+    fn macro_enabled(&mut self) -> bool;
+    /// Whether the combat controller has a monster target and so owns what
+    /// is wielded (`CombatController.HasTarget`).
+    fn combat_has_target(&mut self) -> bool;
+    /// The UB settings store: where a profile file of the UB tree is looked
+    /// for and written.
+    fn ub_store(&mut self) -> &UbSettingStore;
 
     /// Aims the follow route at a player; false when it could not.
     fn follow(&mut self, host: &mut dyn UbHost, player_id: u32, name: &str) -> bool;

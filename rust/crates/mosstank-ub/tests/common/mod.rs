@@ -14,11 +14,14 @@ use ac_plugin_abi::navigation::NavigationSnapshot;
 use ac_plugin_abi::world::{ObjectClass, Position, WorldObject};
 use mosstank_automation::locks::ActionLockTable;
 use mosstank_expr::{ExpressionValue, FixedClock};
+use mosstank_formats::utl::LootRule;
 use mosstank_meta::runtime::ExpressionRuntime;
 use mosstank_meta::services::NoServices;
+use mosstank_settings::model::InventorySettings;
 use mosstank_settings::ub::{
     UbSettingBinding, UbSettingCatalog, UbSettingValue, UbSettingValueBag,
 };
+use mosstank_stores::ub_store::UbSettingStore;
 use mosstank_ub::commands::{UbCall, UbCommands, UbServices};
 use mosstank_ub::expressions::RuntimeExpressions;
 use mosstank_ub::host::UbHost;
@@ -37,8 +40,6 @@ pub struct Services {
     pub vtank_options: HashMap<String, ExpressionValue>,
     pub vendor_lines: Vec<String>,
     pub vendor_reply: Option<Vec<String>>,
-    pub xp_reply: Option<Vec<String>>,
-    pub equip_reply: Option<Vec<String>>,
     pub auto_vendor: Vec<Option<String>>,
     pub auto_vendor_stops: usize,
     pub fellow_lines: Vec<String>,
@@ -51,6 +52,29 @@ pub struct Services {
     pub translate_result: Option<Result<(String, i32), String>>,
     pub monotonic: f64,
     pub offset_minutes: i32,
+    /// The rows the panel binds to its inventory settings (the give range,
+    /// pause and counts), shared with [`LiveRows`].
+    pub give_range: Rc<Cell<f64>>,
+    pub give_delay: Rc<Cell<f64>>,
+    pub give_busy_retry_limit: Rc<Cell<i32>>,
+    pub give_failure_limit: Rc<Cell<i32>>,
+    /// Item giver profiles, by name.
+    pub item_giver_profiles: Vec<(String, Vec<LootRule>)>,
+    /// Loot profiles, by name.
+    pub loot_profiles: Vec<(String, Vec<LootRule>)>,
+    pub corpse_identifier_busy: bool,
+    pub macro_enabled: bool,
+    pub combat_has_target: bool,
+    pub ub_store: UbSettingStore,
+}
+
+fn named(profiles: &[(String, Vec<LootRule>)], name: &str) -> Option<Vec<LootRule>> {
+    let name = name.trim();
+    let name = name.strip_suffix(".utl").unwrap_or(name);
+    profiles
+        .iter()
+        .find(|(known, _)| ordinal::equals_ignore_case(known, name))
+        .map(|(_, rules)| rules.clone())
 }
 
 impl UbServices for Services {
@@ -112,17 +136,43 @@ impl UbServices for Services {
         self.fellow_lines.push(arguments.to_owned());
     }
 
-    fn xp_command(&mut self, _host: &mut dyn UbHost, _arguments: &str) -> Option<Vec<String>> {
-        self.xp_reply.clone()
-    }
-
-    fn equip_command(&mut self, _host: &mut dyn UbHost, _arguments: &str) -> Option<Vec<String>> {
-        self.equip_reply.clone()
-    }
-
     fn run_tool_verb(&mut self, _host: &mut dyn UbHost, verb: &str, arguments: &str) {
         self.tool_verbs
             .push((verb.to_owned(), arguments.to_owned()));
+    }
+
+    fn inventory_settings(&mut self) -> InventorySettings {
+        InventorySettings {
+            give_range_meters: self.give_range.get(),
+            give_delay_seconds: self.give_delay.get(),
+            give_busy_retry_limit: self.give_busy_retry_limit.get(),
+            give_failure_limit: self.give_failure_limit.get(),
+            ..InventorySettings::default()
+        }
+    }
+
+    fn item_giver_rules(&mut self, _host: &mut dyn UbHost, name: &str) -> Option<Vec<LootRule>> {
+        named(&self.item_giver_profiles, name)
+    }
+
+    fn loot_profile_rules(&mut self, _host: &mut dyn UbHost, name: &str) -> Option<Vec<LootRule>> {
+        named(&self.loot_profiles, name)
+    }
+
+    fn corpse_identifier_busy(&mut self) -> bool {
+        self.corpse_identifier_busy
+    }
+
+    fn macro_enabled(&mut self) -> bool {
+        self.macro_enabled
+    }
+
+    fn combat_has_target(&mut self) -> bool {
+        self.combat_has_target
+    }
+
+    fn ub_store(&mut self) -> &UbSettingStore {
+        &self.ub_store
     }
 
     fn follow(&mut self, _host: &mut dyn UbHost, player_id: u32, name: &str) -> bool {
@@ -272,6 +322,10 @@ impl Rig {
         let services = Services {
             follow_result: true,
             jump_attempts: live.jump_attempts.clone(),
+            give_range: live.give_range.clone(),
+            give_delay: live.give_delay.clone(),
+            give_busy_retry_limit: live.give_busy_retry_limit.clone(),
+            give_failure_limit: live.give_failure_limit.clone(),
             ..Services::default()
         };
         Self {

@@ -296,6 +296,7 @@ dependencies = [
  "mosstank-dotnet",
  "mosstank-expr",
  "mosstank-formats",
+ "mosstank-loot",
  "mosstank-meta",
  "mosstank-nav",
  "mosstank-settings",
