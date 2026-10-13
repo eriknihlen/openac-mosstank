@@ -7,7 +7,7 @@
 //! other side. The door logic itself stays on the navigation controller,
 //! which owns the mover and the door ranges; this is the turn it takes.
 
-use mosstank_meta::scheduler::{MacroPassContext, MacroRule};
+use mosstank_meta::scheduler::{MacroFamily, MacroPassContext, MacroRule};
 
 /// What the door rule asks of the plugin's state for the call.
 pub trait DoorRuleHost {
@@ -53,12 +53,15 @@ impl OpenDoorRule {
     }
 }
 
-impl<C: DoorRuleHost + ?Sized> MacroRule<C> for OpenDoorRule {
+impl<F: MacroFamily> MacroRule<F> for OpenDoorRule
+where
+    for<'a> F::Cx<'a>: DoorRuleHost,
+{
     fn name(&self) -> String {
         "OpenDoor".to_owned()
     }
 
-    fn valid_now(&mut self, cx: &mut C, context: MacroPassContext) -> bool {
+    fn valid_now(&mut self, cx: &mut F::Cx<'_>, context: MacroPassContext) -> bool {
         let gate_open = cx.door_rule_enabled();
         self.gate_closed = !gate_open;
         self.lock_held = gate_open && cx.door_rule_locked();
@@ -80,19 +83,19 @@ impl<C: DoorRuleHost + ?Sized> MacroRule<C> for OpenDoorRule {
     /// Losing the turn changes nothing here: the door is not moving the
     /// character (the route rules are), so a door rule that stopped the
     /// mover on its way out would stop a turn it never owned.
-    fn set_running(&mut self, _cx: &mut C, running: bool) {
+    fn set_running(&mut self, _cx: &mut F::Cx<'_>, running: bool) {
         self.running = running;
     }
 
     /// What the door is doing on the pass it wins: the same sentences the
     /// decline says.
-    fn running_detail(&mut self, cx: &mut C) -> Option<String> {
+    fn running_detail(&mut self, cx: &mut F::Cx<'_>) -> Option<String> {
         Some(cx.door_status())
     }
 
     /// Why this rule declined, in its own words: stable while the
     /// situation is, so the scheduler can suppress a repeat.
-    fn decline_reason(&mut self, cx: &mut C) -> Option<String> {
+    fn decline_reason(&mut self, cx: &mut F::Cx<'_>) -> Option<String> {
         Some(if self.gate_closed {
             "the rule's own gate is closed".to_owned()
         } else if self.lock_held {

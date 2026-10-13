@@ -26,6 +26,7 @@ use mosstank_combat::mover::CreepSettings;
 use mosstank_formats::route::{
     ClientPathing, NavigationSettings, RouteMode, RouteWaypoint, RouteWaypointType,
 };
+use mosstank_meta::scheduler::{MacroContext, MacroFamily};
 use mosstank_nav::door_rule::DoorRuleHost;
 use mosstank_nav::{NavigationAutomation, NavigationController, RouteTurn};
 use mosstank_settings::model::{CombatSettings, VitalSettings};
@@ -554,6 +555,12 @@ impl Rig {
         self.controller.bind_combat_mode_gate(gate);
         self.creep = true;
     }
+}
+
+impl MacroContext for Rig {}
+
+impl MacroFamily for Rig {
+    type Cx<'a> = Rig;
 }
 
 impl DoorRuleHost for Rig {
