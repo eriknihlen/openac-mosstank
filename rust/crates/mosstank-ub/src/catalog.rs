@@ -113,9 +113,19 @@ pub fn message_display(catalog: &dyn UbCatalog, kind: UbLineKind) -> UbDisplay {
     }
 }
 
-impl UbDisplays for dyn UbCatalog + '_ {
+/// The displays the catalogue's rows say.
+#[derive(Clone, Copy)]
+pub struct CatalogDisplays<'a>(pub &'a dyn UbCatalog);
+
+impl std::fmt::Debug for CatalogDisplays<'_> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("CatalogDisplays")
+    }
+}
+
+impl UbDisplays for CatalogDisplays<'_> {
     fn display(&self, kind: UbLineKind) -> UbDisplay {
-        message_display(self, kind)
+        message_display(self.0, kind)
     }
 }
 

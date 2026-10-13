@@ -17,6 +17,7 @@
 pub mod alias;
 pub mod catalog;
 pub mod chat;
+pub mod dungeon;
 pub mod expressions;
 pub mod help;
 pub mod host;
