@@ -37,6 +37,13 @@ pub struct World {
     pub automation: Option<automation::FakeAutomation>,
     /// The C# panel tests' `FrameLootSurface`, when a test uses it.
     pub loot: Option<FrameLootSurface>,
+    /// The known-spell lists' revision and the lists it was given for: it
+    /// moves whenever the lists answer differently from when it was last
+    /// asked, as the client's moves when the spellbook changes.
+    known_revision: (u64, Option<Vec<u8>>),
+    /// What every known-spell list answers when no fake automation does
+    /// ([`Self::know_spells`]).
+    known_spells: Vec<ac_plugin_abi::magic::SpellInfo>,
 }
 
 impl Default for World {
@@ -71,6 +78,8 @@ impl World {
             refuse_window_show: false,
             automation: None,
             loot: None,
+            known_revision: (0, None),
+            known_spells: Vec::new(),
         }
     }
 
@@ -195,6 +204,52 @@ impl World {
         }
     }
 
+    /// A known-spell list as the client answers it now: the fake
+    /// automation's self buffs when there is one, else what
+    /// [`Self::know_spells`] set.
+    #[must_use]
+    pub fn known_list_now(
+        &self,
+        list: ac_plugin_abi::magic::SpellList,
+    ) -> Vec<ac_plugin_abi::magic::SpellInfo> {
+        match &self.automation {
+            Some(automation) => match list {
+                ac_plugin_abi::magic::SpellList::SelfBuffs => {
+                    automation.known_self_buffs().to_vec()
+                }
+                _ => Vec::new(),
+            },
+            None => self.known_spells.clone(),
+        }
+    }
+
+    /// The known-spell lists' revision: 0 while every list is empty and
+    /// none was asked otherwise, moved whenever the lists answer
+    /// differently from the last time it was asked.
+    fn known_spells_revision(&mut self) -> u64 {
+        use ac_plugin_abi::magic::SpellList;
+        let mut lists = Vec::new();
+        for list in [SpellList::SelfBuffs, SpellList::Attacks, SpellList::Combat] {
+            lists.extend(self.known_list_now(list).to_bytes());
+        }
+        let (revision, seen) = &mut self.known_revision;
+        let unchanged = match seen {
+            Some(seen) => *seen == lists,
+            None => {
+                let mut empty = Vec::new();
+                for _ in 0..3 {
+                    empty.extend(Vec::<ac_plugin_abi::magic::SpellInfo>::new().to_bytes());
+                }
+                lists == empty
+            }
+        };
+        if !unchanged {
+            *revision += 1;
+        }
+        *seen = Some(lists);
+        *revision
+    }
+
     fn answer<C: Call>(
         &mut self,
         bytes: &[u8],
@@ -213,6 +268,23 @@ fn unavailable<T>() -> Result<T, String> {
 
 impl Transport for World {
     fn call(&mut self, import: Import, bytes: &[u8]) -> Vec<u8> {
+        match import {
+            Import::SpellsKnownRevision => {
+                return self.answer::<calls::SpellsKnownRevision>(bytes, |world, ()| {
+                    world.known_spells_revision()
+                });
+            }
+            Import::SpellsKnownIds => {
+                return self.answer::<calls::SpellsKnownIds>(bytes, |world, list| {
+                    world
+                        .known_list_now(list)
+                        .iter()
+                        .map(|spell| spell.spell_id)
+                        .collect()
+                });
+            }
+            _ => {}
+        }
         if let Some(reply) = self.automation_call(import, bytes) {
             return reply;
         }
@@ -615,6 +687,7 @@ impl World {
     /// The character knows `spells` (every spell list answers them).
     pub fn know_spells(&mut self, spells: Vec<ac_plugin_abi::magic::SpellInfo>) {
         self.set_reply::<calls::SpellsKnown>(&spells);
+        self.known_spells = spells;
     }
 }
 

@@ -6,6 +6,7 @@ use std::collections::HashMap;
 use std::rc::Rc;
 
 use mosstank_data::damage::{MonsterDamageType, parse_damage_elements};
+use mosstank_dotnet::collections::{FnvBuildHasher, LookupMap};
 use mosstank_dotnet::compat::number::{NumberStyles, parse_f32, parse_f64, parse_i32};
 use mosstank_dotnet::text::casing;
 use mosstank_dotnet::{try_parse_int, try_parse_uint};
@@ -444,14 +445,15 @@ pub struct VtankCraftDatabase {
 struct CraftBook {
     recipes: Vec<VtankCraftRecipe>,
     /// The recipes by result (upper-cased), as indexes into `recipes`.
-    by_result: HashMap<String, Vec<usize>>,
+    by_result: LookupMap<String, Vec<usize>>,
 }
 
 impl VtankCraftDatabase {
     /// A recipe book.
     #[must_use]
     pub fn new(recipes: Vec<VtankCraftRecipe>) -> Self {
-        let mut by_result: HashMap<String, Vec<usize>> = HashMap::new();
+        let mut by_result: LookupMap<String, Vec<usize>> =
+            LookupMap::with_capacity_and_hasher(recipes.len(), FnvBuildHasher);
         for (index, recipe) in recipes.iter().enumerate() {
             by_result
                 .entry(casing::to_upper_invariant(&recipe.result_item))
@@ -524,9 +526,9 @@ pub struct VtankGameInfoDatabase {
 #[derive(Debug, Default, PartialEq)]
 struct MonsterTables {
     /// Damage preferences by monster name.
-    damage_overrides: HashMap<String, Vec<MonsterDamageType>>,
-    species_members: HashMap<String, VtankSpeciesMember>,
-    immunities: HashMap<String, i32>,
+    damage_overrides: LookupMap<String, Vec<MonsterDamageType>>,
+    species_members: LookupMap<String, VtankSpeciesMember>,
+    immunities: LookupMap<String, i32>,
 }
 
 fn key(name: &str) -> String {
@@ -575,30 +577,30 @@ impl VtankGameInfoDatabase {
             version: read_cell_int(database, "DBVersion", 0),
             ..Self::default()
         };
-        for (name, elements) in read_rows(database, "MonsterDamageOverrides", 2, |c| {
-            Some((
-                c[0].as_string().to_owned(),
-                parse_damage_elements(c[1].as_string()),
-            ))
-        }) {
-            monsters.damage_overrides.insert(key(&name), elements);
-        }
-        for (name, member) in read_rows(database, "SpeciesMembers", 3, |c| {
-            Some((
-                c[0].as_string().to_owned(),
-                VtankSpeciesMember {
-                    species: c[1].as_int().ok()?,
-                    maximum_health: c[2].as_int().ok()?,
-                },
-            ))
-        }) {
-            monsters.species_members.insert(key(&name), member);
-        }
-        for (name, mask) in read_rows(database, "MonsterImmunities", 2, |c| {
-            Some((c[0].as_string().to_owned(), c[1].as_int().ok()?))
-        }) {
-            monsters.immunities.insert(key(&name), mask);
-        }
+        monsters
+            .damage_overrides
+            .extend(read_rows(database, "MonsterDamageOverrides", 2, |c| {
+                Some((
+                    key(c[0].as_string()),
+                    parse_damage_elements(c[1].as_string()),
+                ))
+            }));
+        monsters
+            .species_members
+            .extend(read_rows(database, "SpeciesMembers", 3, |c| {
+                Some((
+                    key(c[0].as_string()),
+                    VtankSpeciesMember {
+                        species: c[1].as_int().ok()?,
+                        maximum_health: c[2].as_int().ok()?,
+                    },
+                ))
+            }));
+        monsters
+            .immunities
+            .extend(read_rows(database, "MonsterImmunities", 2, |c| {
+                Some((key(c[0].as_string()), c[1].as_int().ok()?))
+            }));
         for (species, elements) in read_rows(database, "SpeciesDamages", 2, |c| {
             Some((c[0].as_int().ok()?, parse_damage_elements(c[1].as_string())))
         }) {

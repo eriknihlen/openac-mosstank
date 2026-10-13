@@ -1249,20 +1249,31 @@ impl TankCx<'_> {
 
     /// `BuffPickerRows`: the known self buffs matching the search, once
     /// each, alphabetically.
+    /// Kept with the list and search they came from: the same shared list
+    /// and search give the same rows.
     fn buff_picker_rows(&mut self) -> Vec<String> {
-        let search = self.core.panel.buff_picker_search_text.clone();
+        let known = self.client.rules().spells().known_self_buffs_shared();
+        let search = &self.core.panel.buff_picker_search_text;
+        if let Some((kept_known, kept_search, rows)) = &self.core.memo.buff_picker_rows
+            && std::rc::Rc::ptr_eq(kept_known, &known)
+            && kept_search == search
+        {
+            return rows.clone();
+        }
+        let any = mosstank_dotnet::text::casing::is_white_space_only(search);
+        let mut seen: std::collections::HashSet<&str> = std::collections::HashSet::new();
         let mut rows: Vec<String> = Vec::new();
-        for spell in self.client.rules().spells().known_self_buffs() {
-            if !mosstank_dotnet::text::casing::is_white_space_only(&search)
-                && !mosstank_dotnet::text::ordinal::contains_ignore_case(&spell.name, &search)
-            {
+        for spell in known.iter() {
+            if !any && !mosstank_dotnet::text::ordinal::contains_ignore_case(&spell.name, search) {
                 continue;
             }
-            if !rows.contains(&spell.name) {
-                rows.push(spell.name);
+            if seen.insert(&spell.name) {
+                rows.push(spell.name.clone());
             }
         }
         rows.sort_by(|a, b| mosstank_dotnet::text::ordinal::compare(a, b));
+        self.core.memo.buff_picker_rows =
+            Some((std::rc::Rc::clone(&known), search.clone(), rows.clone()));
         rows
     }
 

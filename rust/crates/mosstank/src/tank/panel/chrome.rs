@@ -535,9 +535,9 @@ impl TankCx<'_> {
         }
         if changed {
             line.coverage_spells = Some(ids);
-            let spells = self.client.rules().spells().known_self_buffs();
+            let spells = self.client.rules().spells().known_self_buffs_shared();
             self.core.panel.vitals.coverage_buff_line_count =
-                mosstank_buffs::profile::build(&spells).len();
+                mosstank_buffs::profile::line_count(&spells);
         }
         let trained = self
             .client

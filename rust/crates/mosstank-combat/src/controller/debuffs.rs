@@ -553,15 +553,16 @@ impl CombatController {
             // first of the highest tier: what a walk per debuff finds.
             let mut best: std::collections::HashMap<DebuffIdentity, SpellInfo> =
                 std::collections::HashMap::new();
-            for spell in automation.spells().known_combat_spells() {
-                let Some((found, _)) = debuff::classify(&spell) else {
+            let known = automation.spells().known_combat_spells_shared();
+            for spell in known.iter() {
+                let Some((found, _)) = debuff::classify(spell) else {
                     continue;
                 };
                 if best
                     .get(&found)
                     .is_none_or(|current| spell.tier > current.tier)
                 {
-                    best.insert(found, spell);
+                    best.insert(found, spell.clone());
                 }
             }
             for (found, spell) in best {

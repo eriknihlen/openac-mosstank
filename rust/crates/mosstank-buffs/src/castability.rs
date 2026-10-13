@@ -190,7 +190,7 @@ impl AutomationCastability<'_> {
         if let Some(known) = &self.known {
             return Rc::clone(known);
         }
-        let known: Rc<[SpellInfo]> = self.automation.spells().known_self_buffs().into();
+        let known = self.automation.spells().known_self_buffs_shared();
         self.known = Some(Rc::clone(&known));
         known
     }

@@ -35,6 +35,12 @@
 //!
 //! The spell table is the client's static data: it is read once, when the
 //! client first hands it out, and kept by the plugin ([`KeptReads`]).
+//!
+//! The known-spell lists are kept across calls by the client's revision of
+//! them (`spells_known_revision`): the same revision is the same lists, so
+//! a list is read again only when the revision moved. The revision is asked
+//! once a call, and again after anything that forgets the call's reads. The
+//! lists are handed out shared (`Rc`), not copied.
 
 use std::collections::HashMap;
 use std::ops::{Deref, DerefMut};
@@ -92,27 +98,51 @@ struct CallReads {
     character: Option<Option<CharacterInfo>>,
     skills: Option<Vec<Skill>>,
     skill: HashMap<u32, Option<Skill>>,
-    known: HashMap<SpellListKey, Vec<SpellInfo>>,
+    /// The known-spell lists' revision, as the client said it in this call.
+    known_revision: Option<u64>,
     owned_items: Option<Vec<InventoryItem>>,
     objects: HashMap<u32, Option<WorldObject>>,
     components: HashMap<u32, Option<ComponentInfo>>,
     has_components: HashMap<u32, bool>,
 }
 
-/// A known-spell list as a map key.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-enum SpellListKey {
-    SelfBuffs,
-    Attacks,
-    Combat,
+/// The known-spell lists as the client last handed them out, kept for as
+/// long as the client's revision of them is the same: the same revision
+/// means the same lists, so a list kept at it is the answer a fresh read
+/// would give.
+#[derive(Debug, Default)]
+struct KnownLists {
+    /// The revision the kept lists belong to.
+    revision: Option<u64>,
+    /// Self buffs, attacks, combat spells, once read at `revision`.
+    spells: [Option<Rc<[SpellInfo]>>; 3],
+    /// Their ids, in the same order.
+    ids: [Option<Rc<[u32]>>; 3],
 }
 
-impl From<SpellList> for SpellListKey {
-    fn from(list: SpellList) -> Self {
+impl KnownLists {
+    fn slot(list: SpellList) -> usize {
         match list {
-            SpellList::SelfBuffs => Self::SelfBuffs,
-            SpellList::Attacks => Self::Attacks,
-            SpellList::Combat => Self::Combat,
+            SpellList::SelfBuffs => 0,
+            SpellList::Attacks => 1,
+            SpellList::Combat => 2,
+        }
+    }
+}
+
+/// Where the known-spell lists are kept: by the plugin between its calls,
+/// or by this view alone.
+#[derive(Debug)]
+enum KnownListsSlot<'h> {
+    Kept(&'h mut KnownLists),
+    Own(KnownLists),
+}
+
+impl KnownListsSlot<'_> {
+    fn get(&mut self) -> &mut KnownLists {
+        match self {
+            Self::Kept(lists) => lists,
+            Self::Own(lists) => lists,
         }
     }
 }
@@ -134,13 +164,16 @@ impl SpellTableSlot<'_> {
     }
 }
 
-/// What the plugin keeps for the client's views: the spell table between
-/// its calls, and what the views of one call have read, shared by them
-/// until the call ends ([`Self::end_call`]).
+/// What the plugin keeps for the client's views: the spell table and the
+/// known-spell lists (by the client's revision of them) between its calls,
+/// and what the views of one call have read, shared by them until the call
+/// ends ([`Self::end_call`]).
 #[derive(Debug, Default)]
 pub struct KeptReads {
     /// The spell table, once the client has handed it out.
     spell_table: Option<Rc<SpellTable>>,
+    /// The known-spell lists, by the client's revision of them.
+    known: KnownLists,
     /// What the views of the call under way have read.
     call: CallReads,
 }
@@ -184,6 +217,8 @@ pub struct HostAutomation<'h, 'a> {
     reads: ReadsSlot<'h>,
     /// The spell table, once the client has handed it out.
     spell_table: SpellTableSlot<'h>,
+    /// The known-spell lists, by the client's revision of them.
+    known: KnownListsSlot<'h>,
     /// The placements the client announced since the last read
     /// (`Event::EquipmentPlacement`), kept by the plugin between calls.
     observations: Option<&'h mut Vec<EquipmentObservation>>,
@@ -214,6 +249,7 @@ impl<'h, 'a> HostAutomation<'h, 'a> {
             host: HostHandle { host, used: false },
             reads: ReadsSlot::Own(Box::default()),
             spell_table: SpellTableSlot::Own(None),
+            known: KnownListsSlot::Own(KnownLists::default()),
             observations: None,
             storage_view: StorageView::Meta,
             ub_displays: None,
@@ -242,8 +278,13 @@ impl<'h, 'a> HostAutomation<'h, 'a> {
     ) -> Self {
         let mut client = Self::with_equipment_observations(host, observations);
         client.meta_windows = Some(meta_windows);
-        let KeptReads { spell_table, call } = kept;
+        let KeptReads {
+            spell_table,
+            known,
+            call,
+        } = kept;
         client.spell_table = SpellTableSlot::Kept(spell_table);
+        client.known = KnownListsSlot::Kept(known);
         client.reads = ReadsSlot::Kept(call);
         client
     }
@@ -280,23 +321,57 @@ impl<'h, 'a> HostAutomation<'h, 'a> {
         self.host.host
     }
 
-    /// A known-spell list, kept for the rest of the call.
-    pub(crate) fn known_list(&mut self, list: SpellList) -> Vec<SpellInfo> {
-        self.with_known_list(list, <[SpellInfo]>::to_vec)
+    /// The known-spell lists' revision, asked once a call (and again after
+    /// anything that forgets the call's reads); the kept lists are dropped
+    /// when it moved.
+    fn known_revision(&mut self) -> u64 {
+        if let Some(revision) = self.kept().known_revision {
+            return revision;
+        }
+        let revision = self.reader().known_spells_revision();
+        self.reads.get().known_revision = Some(revision);
+        let lists = self.known.get();
+        if lists.revision != Some(revision) {
+            *lists = KnownLists {
+                revision: Some(revision),
+                ..KnownLists::default()
+            };
+        }
+        revision
     }
 
-    /// `f` of a known-spell list, kept for the rest of the call.
-    pub(crate) fn with_known_list<R>(
-        &mut self,
-        list: SpellList,
-        f: impl FnOnce(&[SpellInfo]) -> R,
-    ) -> R {
-        let key = SpellListKey::from(list);
-        if !self.kept().known.contains_key(&key) {
-            let spells = self.reader().known_spells(list);
-            self.reads.get().known.insert(key, spells);
+    /// A known-spell list, shared: read once a revision of the lists.
+    pub(crate) fn known_shared(&mut self, list: SpellList) -> Rc<[SpellInfo]> {
+        self.known_revision();
+        let slot = KnownLists::slot(list);
+        if let Some(spells) = &self.known.get().spells[slot] {
+            return Rc::clone(spells);
         }
-        f(self.reads.get().known.get(&key).map_or(&[], Vec::as_slice))
+        let spells: Rc<[SpellInfo]> = self.reader().known_spells(list).into();
+        self.known.get().spells[slot] = Some(Rc::clone(&spells));
+        spells
+    }
+
+    /// A known-spell list's ids, in its order: from the kept list when
+    /// there is one, else read as ids alone; once a revision of the lists.
+    pub(crate) fn known_ids(&mut self, list: SpellList) -> Rc<[u32]> {
+        self.known_revision();
+        let slot = KnownLists::slot(list);
+        let lists = self.known.get();
+        if let Some(ids) = &lists.ids[slot] {
+            return Rc::clone(ids);
+        }
+        let ids: Rc<[u32]> = match &lists.spells[slot] {
+            Some(spells) => spells.iter().map(|spell| spell.spell_id).collect(),
+            None => self.reader().known_spell_ids(list).into(),
+        };
+        self.known.get().ids[slot] = Some(Rc::clone(&ids));
+        ids
+    }
+
+    /// A known-spell list, copied.
+    pub(crate) fn known_list(&mut self, list: SpellList) -> Vec<SpellInfo> {
+        self.known_shared(list).to_vec()
     }
 
     /// The character, kept for the rest of the call.
@@ -329,11 +404,9 @@ impl SpellCatalog for HostAutomation<'_, '_> {
         self.reader().spell(spell_id)
     }
 
-    /// From the call's kept list, without copying its spells.
+    /// From the kept list or its ids, without copying its spells.
     fn known_self_buff_ids(&mut self) -> Vec<u32> {
-        self.with_known_list(SpellList::SelfBuffs, |spells| {
-            spells.iter().map(|spell| spell.spell_id).collect()
-        })
+        self.known_ids(SpellList::SelfBuffs).to_vec()
     }
 
     fn known_attack_spells(&mut self) -> Vec<SpellInfo> {
@@ -342,6 +415,18 @@ impl SpellCatalog for HostAutomation<'_, '_> {
 
     fn known_combat_spells(&mut self) -> Vec<SpellInfo> {
         self.known_list(SpellList::Combat)
+    }
+
+    fn known_self_buffs_shared(&mut self) -> Rc<[SpellInfo]> {
+        self.known_shared(SpellList::SelfBuffs)
+    }
+
+    fn known_attack_spells_shared(&mut self) -> Rc<[SpellInfo]> {
+        self.known_shared(SpellList::Attacks)
+    }
+
+    fn known_combat_spells_shared(&mut self) -> Rc<[SpellInfo]> {
+        self.known_shared(SpellList::Combat)
     }
 
     fn is_known(&mut self, spell_id: u32) -> bool {

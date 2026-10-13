@@ -7,7 +7,6 @@
 //! error here and the call goes on, as the client does with an exception
 //! out of a tick.
 
-use ac_plugin_abi::magic::SpellList;
 use mosstank_formats::gameinfo::{GameInfoMemo, ProfileText, VtankGameInfoDatabase};
 use mosstank_formats::route::{NavigationSettings, SpellLookup};
 use mosstank_settings::monster::MonsterFactTable;
@@ -22,20 +21,22 @@ use super::{Core, TankCx};
 use crate::client::TankClient;
 
 /// The spells the client knows, read once for a profile load
-/// (`IPluginSpells` as a route or meta reads its recall names).
+/// (`IPluginSpells` as a route or meta reads its recall names): the shared
+/// lists, named only when a reader asks.
 pub(crate) struct SpellsSnapshot {
     table: std::rc::Rc<mosstank_automation::SpellTable>,
-    known: Vec<(u32, String)>,
+    known: [std::rc::Rc<[ac_plugin_abi::magic::SpellInfo]>; 3],
 }
 
 impl SpellsSnapshot {
     pub(crate) fn read(client: &mut dyn TankClient) -> Self {
-        let rules = client.rules();
-        let table = rules.spells().table();
-        let mut known = Vec::new();
-        for list in [SpellList::SelfBuffs, SpellList::Attacks, SpellList::Combat] {
-            known.extend(client.route().known_spell_names(list));
-        }
+        let spells = client.rules().spells();
+        let table = spells.table();
+        let known = [
+            spells.known_self_buffs_shared(),
+            spells.known_attack_spells_shared(),
+            spells.known_combat_spells_shared(),
+        ];
         Self { table, known }
     }
 }
@@ -50,7 +51,11 @@ impl SpellLookup for SpellsSnapshot {
     }
 
     fn known_spells(&self) -> Vec<(u32, String)> {
-        self.known.clone()
+        self.known
+            .iter()
+            .flat_map(|list| list.iter())
+            .map(|spell| (spell.spell_id, spell.name.clone()))
+            .collect()
     }
 
     fn name_of(&self, spell_id: u32) -> Option<String> {

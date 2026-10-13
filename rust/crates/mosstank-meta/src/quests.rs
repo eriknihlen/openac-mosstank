@@ -17,6 +17,8 @@ const RETRY_SECONDS: f64 = 15.0;
 const MAXIMUM_ATTEMPTS: i32 = 3;
 
 const MY_QUEST_LINE: &str = "(?<key>\\S+) \\- (?<solves>\\d+) solves \\((?<completedOn>\\d{0,11})\\)\"?((?<description>.*)\" (?<maxSolves>.*) (?<repeatTime>\\d{0,11}))?.*$";
+/// The kill-task keys, as the reference reads them ([`is_kill_task`]).
+#[cfg(test)]
 const KILL_TASK_KEY: &str = "(killtask|killcount|slayerquest|totalgolem.*dead|(kills$))";
 
 #[derive(Debug, Clone, Copy)]
@@ -40,7 +42,6 @@ pub struct QuestTracker {
     is_refreshing: bool,
     filter: Option<u32>,
     quest_line: DotNetRegex,
-    kill_task: DotNetRegex,
 }
 
 impl QuestTracker {
@@ -62,8 +63,6 @@ impl QuestTracker {
             filter: Some(filter),
             quest_line: DotNetRegex::new(MY_QUEST_LINE, RegexOptions::CULTURE_INVARIANT)
                 .expect("the quest line pattern compiles"),
-            kill_task: DotNetRegex::new(KILL_TASK_KEY, RegexOptions::CULTURE_INVARIANT)
-                .expect("the kill task pattern compiles"),
         }
     }
 
@@ -161,9 +160,7 @@ impl QuestTracker {
     /// A flag done once and never again: one solve of one allowed. A kill
     /// task's flag is never that, whatever its counts say.
     fn is_once(&self, key: &str, flag: &QuestFlag) -> bool {
-        !(self.kill_task.is_match(key).unwrap_or(false) && flag.max_solves >= 0)
-            && flag.max_solves == 1
-            && flag.solves <= 1
+        !(is_kill_task(key) && flag.max_solves >= 0) && flag.max_solves == 1 && flag.solves <= 1
     }
 
     /// The flag's solves.
@@ -249,4 +246,64 @@ impl QuestTracker {
 
 fn normalize(key: &str) -> String {
     casing::to_lower_invariant(key.trim())
+}
+
+/// Whether a flag's key names a kill task: [`KILL_TASK_KEY`] (case kept,
+/// `.` short of a line break, `$` at the end or before a final line break),
+/// read by hand. Building the pattern costs the plugin's start some tens of
+/// millions of instructions; this answers the same.
+fn is_kill_task(key: &str) -> bool {
+    if key.contains("killtask") || key.contains("killcount") || key.contains("slayerquest") {
+        return true;
+    }
+    const GOLEM: &str = "totalgolem";
+    let mut from = 0;
+    while let Some(at) = key[from..].find(GOLEM) {
+        let start = from + at + GOLEM.len();
+        let line_end = key[start..].find('\n').map_or(key.len(), |n| start + n);
+        if key[start..line_end].contains("dead") {
+            return true;
+        }
+        from += at + 1;
+    }
+    key.ends_with("kills") || key.ends_with("kills\n")
+}
+
+#[cfg(test)]
+mod kill_task_tests {
+    use super::*;
+
+    // The hand reading answers as the pattern does.
+    #[test]
+    fn a_kill_task_key_is_read_as_the_pattern_reads_it() {
+        let pattern = DotNetRegex::new(KILL_TASK_KEY, RegexOptions::CULTURE_INVARIANT).unwrap();
+        let keys = [
+            "",
+            "killtask",
+            "mykilltaskfoo",
+            "KillTask",
+            "killcount_x",
+            "slayerquest",
+            "totalgolemdead",
+            "totalgolem_sand_dead_count",
+            "totalgolem\ndead",
+            "totalgolem\ntotalgolemdead",
+            "deadtotalgolem",
+            "totalgole",
+            "kills",
+            "ratkills",
+            "ratkills\n",
+            "ratkills\n\n",
+            "ratkillsx",
+            "kill",
+            "Kills",
+            "a\nkills",
+            "kills\nx",
+            "pathwardenfound1111",
+            "ü-totalgolem-ü-dead",
+        ];
+        for key in keys {
+            assert_eq!(is_kill_task(key), pattern.is_match(key).unwrap(), "{key:?}");
+        }
+    }
 }

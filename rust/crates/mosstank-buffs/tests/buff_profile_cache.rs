@@ -203,3 +203,44 @@ fn reused_lines_still_observe_skills_enchantments_and_formula_edits() {
         1
     );
 }
+
+// The shared-list capture answers as the by-value capture: the same
+// allocation reuses the lines, an equal copy keeps them, a change rebuilds.
+#[test]
+fn a_shared_list_is_captured_as_its_contents_are() {
+    let mut by_value = BuffProfileCache::new();
+    let mut shared = BuffProfileCache::new();
+    let lists: Vec<Vec<SpellInfo>> = vec![
+        vec![spell(1, 10), spell(2, 10), spell(3, 11)],
+        vec![spell(1, 10), spell(2, 10), spell(3, 11)],
+        vec![spell(1, 10), spell(3, 11)],
+        Vec::new(),
+        vec![spell(4, 12)],
+    ];
+    for list in lists {
+        let list: Rc<[SpellInfo]> = Rc::from(list);
+        for same in [Rc::clone(&list), list] {
+            let expected = by_value.capture(&same);
+            let lines = shared.capture_shared(&same);
+            assert_eq!(*lines, *expected);
+        }
+    }
+}
+
+// The coverage line's count is the number of lines the profile makes.
+#[test]
+fn the_line_count_is_the_number_of_lines_built() {
+    let mut instant = spell(9, 30);
+    instant.duration_seconds = 0.0;
+    let mut odd = spell(8, 31);
+    odd.duration_seconds = f32::NAN;
+    let lists = [
+        Vec::new(),
+        vec![spell(1, 10)],
+        vec![spell(1, 10), spell(2, 10), spell(3, 11), instant.clone()],
+        vec![instant, odd, spell(5, 12), spell(6, 13), spell(7, 12)],
+    ];
+    for list in lists {
+        assert_eq!(profile::line_count(&list), profile::build(&list).len());
+    }
+}

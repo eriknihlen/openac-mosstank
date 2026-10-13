@@ -136,10 +136,14 @@ impl CombatController {
     }
 
     pub(super) fn refresh_spell_catalogs(&mut self, automation: &mut dyn Automation) {
-        let spells = automation.spells().known_combat_spells();
-        let attacks = automation.spells().known_attack_spells();
-        if self.combat_spell_snapshot.as_ref() == Some(&spells)
-            && self.attack_spell_snapshot.as_ref() == Some(&attacks)
+        let spells = automation.spells().known_combat_spells_shared();
+        let attacks = automation.spells().known_attack_spells_shared();
+        // The same shared list is the same list; another is compared.
+        let same = |kept: Option<&std::rc::Rc<[SpellInfo]>>, now: &std::rc::Rc<[SpellInfo]>| {
+            kept.is_some_and(|kept| std::rc::Rc::ptr_eq(kept, now) || **kept == **now)
+        };
+        if same(self.combat_spell_snapshot.as_ref(), &spells)
+            && same(self.attack_spell_snapshot.as_ref(), &attacks)
         {
             return;
         }
@@ -148,7 +152,7 @@ impl CombatController {
         } else {
             let mut union = Vec::with_capacity(spells.len() + attacks.len());
             let mut seen = std::collections::HashSet::new();
-            for spell in spells.iter().chain(&attacks) {
+            for spell in spells.iter().chain(attacks.iter()) {
                 if seen.insert(spell.spell_id) {
                     union.push(spell.clone());
                 }
@@ -535,15 +539,15 @@ impl CombatController {
             && target_health != i32::MAX;
         let drains = self.game_info.drain_spell_options.clone();
         let martyrs = self.game_info.martyr_spell_options.clone();
-        let combat_spells = cx.automation.spells().known_combat_spells();
-        let attack_spells = cx.automation.spells().known_attack_spells();
+        let combat_spells = cx.automation.spells().known_combat_spells_shared();
+        let attack_spells = cx.automation.spells().known_attack_spells_shared();
         let find_known = |spell_id: u32| -> Option<SpellInfo> {
             if spell_id == 0 {
                 return None;
             }
             combat_spells
                 .iter()
-                .chain(&attack_spells)
+                .chain(attack_spells.iter())
                 .find(|spell| spell.spell_id == spell_id)
                 .cloned()
         };

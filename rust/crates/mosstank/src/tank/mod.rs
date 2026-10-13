@@ -296,6 +296,21 @@ pub struct Core {
     /// The session's own records: the action history and debug log, the
     /// kill statistics, the game database check, the published meta state.
     pub(crate) session: session::SessionParts,
+    /// Answers worked out from the client's data, kept while that data is
+    /// the same.
+    pub(crate) memo: Memos,
+}
+
+/// Answers the windows and rules work out from the client's data, kept
+/// for as long as the data they came from is the same (the same shared
+/// list is the same list): each is exactly what working it out again
+/// gives.
+#[derive(Default)]
+pub(crate) struct Memos {
+    /// The buff picker's rows, for the known self buffs and the search
+    /// they were worked out for.
+    pub(crate) buff_picker_rows:
+        Option<(Rc<[ac_plugin_abi::magic::SpellInfo]>, String, Vec<String>)>,
 }
 
 /// The macro shell.
@@ -773,6 +788,7 @@ impl Tank {
             panel: panel::PanelState::default(),
             peers: peers::PeerState::default(),
             session,
+            memo: Memos::default(),
         };
         core.bind_controller_hooks();
         // The history hears every new status line of the fight, and starts

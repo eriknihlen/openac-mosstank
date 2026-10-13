@@ -69,6 +69,16 @@ impl Client for Session {
                     SpellList::SelfBuffs => self.world.call(import, request),
                 }
             }
+            Import::SpellsKnownIds if in_world => {
+                let ids = |spells: &[SpellInfo]| -> Vec<u32> {
+                    spells.iter().map(|spell| spell.spell_id).collect()
+                };
+                match SpellList::from_bytes(request).expect("a list") {
+                    SpellList::Attacks => ids(&self.attacks).to_bytes(),
+                    SpellList::Combat => ids(&self.combat).to_bytes(),
+                    SpellList::SelfBuffs => self.world.call(import, request),
+                }
+            }
             Import::SpellsIsKnown if in_world => {
                 let id = u32::from_bytes(request).expect("a spell id");
                 self.known.contains(&id).to_bytes()

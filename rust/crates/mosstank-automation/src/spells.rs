@@ -34,6 +34,22 @@ pub trait SpellCatalog {
         Vec::new()
     }
 
+    /// [`Self::known_self_buffs`], shared: a client that keeps the list
+    /// hands out the one it keeps instead of a copy.
+    fn known_self_buffs_shared(&mut self) -> Rc<[SpellInfo]> {
+        self.known_self_buffs().into()
+    }
+
+    /// [`Self::known_attack_spells`], shared.
+    fn known_attack_spells_shared(&mut self) -> Rc<[SpellInfo]> {
+        self.known_attack_spells().into()
+    }
+
+    /// [`Self::known_combat_spells`], shared.
+    fn known_combat_spells_shared(&mut self) -> Rc<[SpellInfo]> {
+        self.known_combat_spells().into()
+    }
+
     /// Whether the character knows the spell.
     fn is_known(&mut self, spell_id: u32) -> bool {
         let _ = spell_id;
@@ -145,29 +161,134 @@ impl SpellCatalog for StaticSpellCatalog {
 #[derive(Debug, Clone, Default)]
 pub struct SpellTable {
     spells: Vec<SpellInfo>,
-    /// The first spell of each name, by its ordinal ignore-case key.
-    by_name: HashMap<String, usize>,
+    /// The first spell of each name, by the hash of its ordinal
+    /// ignore-case form: the spells of one hash with different forms each
+    /// keep their first.
+    by_name: HashMap<u64, NameBucket, BuildFoldedHash>,
 }
 
-/// The text `StringComparison.OrdinalIgnoreCase` compares in place of
-/// `text`: two texts are equal ignoring case exactly when these are equal.
-fn ignore_case_key(text: &str) -> String {
-    if text.is_ascii() {
-        // An ASCII character's key is its ASCII upper case.
-        return text.to_ascii_uppercase();
+/// The spells of one name hash: the first of each ignore-case form.
+#[derive(Debug, Clone)]
+enum NameBucket {
+    One(usize),
+    Many(Vec<usize>),
+}
+
+impl NameBucket {
+    fn indexes(&self) -> &[usize] {
+        match self {
+            Self::One(index) => std::slice::from_ref(index),
+            Self::Many(indexes) => indexes,
+        }
     }
-    text.chars().map(casing::ordinal_ignore_case_key).collect()
+}
+
+/// The map's keys are hashes already: they are used as they are.
+#[derive(Debug, Clone, Copy, Default)]
+struct BuildFoldedHash;
+
+impl std::hash::BuildHasher for BuildFoldedHash {
+    type Hasher = FoldedHasher;
+    fn build_hasher(&self) -> FoldedHasher {
+        FoldedHasher(0)
+    }
+}
+
+/// Passes a `u64` key through (FNV-1a for anything else).
+#[derive(Debug, Clone, Copy)]
+struct FoldedHasher(u64);
+
+impl std::hash::Hasher for FoldedHasher {
+    fn finish(&self) -> u64 {
+        self.0
+    }
+    fn write(&mut self, bytes: &[u8]) {
+        for byte in bytes {
+            self.0 = (self.0 ^ u64::from(*byte)).wrapping_mul(FNV_PRIME);
+        }
+    }
+    fn write_u64(&mut self, value: u64) {
+        self.0 = value;
+    }
+}
+
+const FNV_OFFSET: u64 = 0xcbf2_9ce4_8422_2325;
+const FNV_PRIME: u64 = 0x0000_0100_0000_01b3;
+
+/// The characters `StringComparison.OrdinalIgnoreCase` compares in place
+/// of `text`'s: two texts are equal ignoring case exactly when these are.
+fn folded(text: &str) -> impl Iterator<Item = char> + '_ {
+    text.chars().map(|c| {
+        if c.is_ascii() {
+            // An ASCII character's form is its ASCII upper case.
+            c.to_ascii_uppercase()
+        } else {
+            casing::ordinal_ignore_case_key(c)
+        }
+    })
+}
+
+/// The hash of `text`'s ignore-case form.
+fn folded_hash(text: &str) -> u64 {
+    let mut hash = FNV_OFFSET;
+    if text.is_ascii() {
+        // An ASCII character is its byte: the same hash, byte by byte.
+        for byte in text.bytes() {
+            hash = (hash ^ u64::from(byte.to_ascii_uppercase())).wrapping_mul(FNV_PRIME);
+        }
+        return hash;
+    }
+    for c in folded(text) {
+        hash = (hash ^ u64::from(u32::from(c))).wrapping_mul(FNV_PRIME);
+    }
+    hash
+}
+
+/// Whether two texts have the same ignore-case form.
+fn same_folded(a: &str, b: &str) -> bool {
+    if a.is_ascii() && b.is_ascii() {
+        return a.eq_ignore_ascii_case(b);
+    }
+    folded(a).eq(folded(b))
 }
 
 impl SpellTable {
     /// The table `spells`, in the client's order.
     #[must_use]
     pub fn new(spells: Vec<SpellInfo>) -> Self {
-        let mut by_name = HashMap::with_capacity(spells.len());
+        let mut by_name: HashMap<u64, NameBucket, BuildFoldedHash> =
+            HashMap::with_capacity_and_hasher(spells.len(), BuildFoldedHash);
         for (index, spell) in spells.iter().enumerate() {
-            by_name.entry(ignore_case_key(&spell.name)).or_insert(index);
+            match by_name.entry(folded_hash(&spell.name)) {
+                std::collections::hash_map::Entry::Vacant(entry) => {
+                    entry.insert(NameBucket::One(index));
+                }
+                std::collections::hash_map::Entry::Occupied(mut entry) => {
+                    let bucket = entry.get_mut();
+                    if bucket
+                        .indexes()
+                        .iter()
+                        .any(|&kept| same_folded(&spells[kept].name, &spell.name))
+                    {
+                        continue;
+                    }
+                    let mut indexes = bucket.indexes().to_vec();
+                    indexes.push(index);
+                    *bucket = NameBucket::Many(indexes);
+                }
+            }
         }
         Self { spells, by_name }
+    }
+
+    /// The first spell named `name` ignoring case.
+    fn by_folded_name(&self, name: &str) -> Option<&SpellInfo> {
+        let bucket = self.by_name.get(&folded_hash(name))?;
+        bucket
+            .indexes()
+            .iter()
+            .map(|&index| &self.spells[index])
+            .find(|spell| same_folded(&spell.name, name))
     }
 
     /// Every spell, in the client's order.
@@ -190,8 +311,8 @@ impl SpellTable {
         if casing::is_white_space_only(name) {
             return None;
         }
-        if let Some(&index) = self.by_name.get(&ignore_case_key(name)) {
-            return self.spells.get(index);
+        if let Some(spell) = self.by_folded_name(name) {
+            return Some(spell);
         }
         if !partial_match {
             return None;

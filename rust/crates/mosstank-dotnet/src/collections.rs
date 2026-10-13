@@ -27,9 +27,15 @@ pub trait Comparer {
     /// The borrowed form lookups take (`str` for `String` keys).
     type Item: ?Sized;
     /// The normalised form keys are compared by.
-    type Key: Hash + Eq;
+    type Key: Hash + Eq + Borrow<Self::Lookup>;
+    /// The borrowed normalised form a lookup compares (`str` for a
+    /// `String` key).
+    type Lookup: ?Sized + Hash + Eq;
     /// The normalised form of `item`.
     fn key(item: &Self::Item) -> Self::Key;
+    /// `f` of the normalised form of `item`, borrowed: a lookup need not
+    /// own it.
+    fn with_lookup<R>(item: &Self::Item, f: impl FnOnce(&Self::Lookup) -> R) -> R;
 }
 
 /// `StringComparer.Ordinal` for strings, the default comparer otherwise.
@@ -39,16 +45,24 @@ pub struct Ordinal<T: ?Sized>(PhantomData<fn(&T)>);
 impl Comparer for Ordinal<str> {
     type Item = str;
     type Key = String;
+    type Lookup = str;
     fn key(item: &str) -> String {
         item.to_owned()
+    }
+    fn with_lookup<R>(item: &str, f: impl FnOnce(&str) -> R) -> R {
+        f(item)
     }
 }
 
 impl<T: Hash + Eq + Clone> Comparer for Ordinal<T> {
     type Item = T;
     type Key = T;
+    type Lookup = T;
     fn key(item: &T) -> T {
         item.clone()
+    }
+    fn with_lookup<R>(item: &T, f: impl FnOnce(&T) -> R) -> R {
+        f(item)
     }
 }
 
@@ -61,14 +75,36 @@ pub struct OrdinalIgnoreCase;
 /// strings it calls equal fold to the same text.
 #[must_use]
 pub fn fold_ignore_case(text: &str) -> String {
+    if text.is_ascii() {
+        // An ASCII character's form is its ASCII upper case.
+        return text.to_ascii_uppercase();
+    }
     text.chars().map(ordinal_ignore_case_key).collect()
 }
+
+/// The longest ASCII key a lookup folds on the stack.
+const STACK_FOLD: usize = 64;
 
 impl Comparer for OrdinalIgnoreCase {
     type Item = str;
     type Key = String;
+    type Lookup = str;
     fn key(item: &str) -> String {
         fold_ignore_case(item)
+    }
+    /// A short ASCII key is folded on the stack; any other is folded into
+    /// a string.
+    fn with_lookup<R>(item: &str, f: impl FnOnce(&str) -> R) -> R {
+        if item.len() <= STACK_FOLD && item.is_ascii() {
+            let mut buffer = [0u8; STACK_FOLD];
+            let folded = &mut buffer[..item.len()];
+            folded.copy_from_slice(item.as_bytes());
+            folded.make_ascii_uppercase();
+            if let Ok(folded) = std::str::from_utf8(folded) {
+                return f(folded);
+            }
+        }
+        f(&fold_ignore_case(item))
     }
 }
 
@@ -161,31 +197,31 @@ where
     /// The value under `key`.
     #[must_use]
     pub fn get(&self, key: &C::Item) -> Option<&V> {
-        let slot = *self.index.get(&C::key(key))?;
+        let slot = *C::with_lookup(key, |key| self.index.get(key))?;
         self.slots[slot].as_ref().map(|(_, value)| value)
     }
 
     /// The value under `key`, to change.
     pub fn get_mut(&mut self, key: &C::Item) -> Option<&mut V> {
-        let slot = *self.index.get(&C::key(key))?;
+        let slot = *C::with_lookup(key, |key| self.index.get(key))?;
         self.slots[slot].as_mut().map(|(_, value)| value)
     }
 
     /// `ContainsKey`.
     #[must_use]
     pub fn contains_key(&self, key: &C::Item) -> bool {
-        self.index.contains_key(&C::key(key))
+        C::with_lookup(key, |key| self.index.contains_key(key))
     }
 
     /// The indexer's set: replaces the value of an existing key where it
     /// stands (keeping the key as first added), or adds the entry. Returns
     /// the value replaced.
     pub fn insert(&mut self, key: K, value: V) -> Option<V> {
-        let normalised = C::key(key.borrow());
-        if let Some(&slot) = self.index.get(&normalised) {
+        if let Some(slot) = C::with_lookup(key.borrow(), |key| self.index.get(key).copied()) {
             let entry = self.slots[slot].as_mut().expect("an indexed slot is full");
             return Some(std::mem::replace(&mut entry.1, value));
         }
+        let normalised = C::key(key.borrow());
         let slot = match self.free.pop() {
             Some(slot) => {
                 self.slots[slot] = Some((key, value));
@@ -211,7 +247,7 @@ where
 
     /// `Remove`: the entry's slot is the next one an addition takes.
     pub fn remove(&mut self, key: &C::Item) -> Option<V> {
-        let slot = self.index.remove(&C::key(key))?;
+        let slot = C::with_lookup(key, |key| self.index.remove(key))?;
         self.free.push(slot);
         self.slots[slot].take().map(|(_, value)| value)
     }
@@ -233,7 +269,7 @@ where
             if keep(key, value) {
                 continue;
             }
-            self.index.remove(&C::key(key.borrow()));
+            C::with_lookup(key.borrow(), |key| self.index.remove(key));
             self.slots[slot] = None;
             self.free.push(slot);
         }
@@ -402,3 +438,35 @@ mod tests {
         assert!(set.is_empty());
     }
 }
+
+/// A cheap hash for maps that are only looked up, never walked: FNV-1a.
+/// The standard hash costs the plugin's interpreter several hundred
+/// instructions a key; this costs a few a byte. A map that is walked keeps
+/// the standard one (its order follows the hash).
+#[derive(Debug, Clone, Copy, Default)]
+pub struct FnvBuildHasher;
+
+impl std::hash::BuildHasher for FnvBuildHasher {
+    type Hasher = FnvHasher;
+    fn build_hasher(&self) -> FnvHasher {
+        FnvHasher(0xcbf2_9ce4_8422_2325)
+    }
+}
+
+/// FNV-1a, 64 bits.
+#[derive(Debug, Clone, Copy)]
+pub struct FnvHasher(u64);
+
+impl std::hash::Hasher for FnvHasher {
+    fn finish(&self) -> u64 {
+        self.0
+    }
+    fn write(&mut self, bytes: &[u8]) {
+        for byte in bytes {
+            self.0 = (self.0 ^ u64::from(*byte)).wrapping_mul(0x0000_0100_0000_01b3);
+        }
+    }
+}
+
+/// A [`HashMap`] that is only looked up (see [`FnvBuildHasher`]).
+pub type LookupMap<K, V> = HashMap<K, V, FnvBuildHasher>;

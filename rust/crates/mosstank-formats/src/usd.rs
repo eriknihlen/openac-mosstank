@@ -339,6 +339,32 @@ pub fn read_cell(cursor: &mut VtankLineCursor<'_>) -> Result<VtankCell, FormatEr
     })
 }
 
+/// Where the first line feed at or after `from` is, or the text's length:
+/// eight bytes at a time (a byte-by-byte scan costs the plugin several
+/// times as many instructions on a two-megabyte file).
+fn newline_at(bytes: &[u8], from: usize) -> usize {
+    const ONES: u64 = 0x0101_0101_0101_0101;
+    const HIGHS: u64 = 0x8080_8080_8080_8080;
+    const NEWLINES: u64 = ONES * 0x0A;
+    let mut at = from;
+    while let Some(chunk) = bytes.get(at..at + 8) {
+        let mut word = [0u8; 8];
+        word.copy_from_slice(chunk);
+        // A line feed is a zero byte here; the lowest flagged byte is the
+        // first zero.
+        let word = u64::from_le_bytes(word) ^ NEWLINES;
+        let found = word.wrapping_sub(ONES) & !word & HIGHS;
+        if found != 0 {
+            return at + (found.trailing_zeros() / 8) as usize;
+        }
+        at += 8;
+    }
+    bytes
+        .get(at..)
+        .and_then(|rest| rest.iter().position(|&byte| byte == b'\n'))
+        .map_or(bytes.len(), |offset| at + offset)
+}
+
 /// Reads the database text line by line, counting lines for messages. A
 /// line ends at `\n`; a `\r` before it is dropped.
 #[derive(Debug, Clone)]
@@ -383,24 +409,31 @@ impl<'a> VtankLineCursor<'a> {
     /// The text has ended.
     pub fn read_line(&mut self) -> Result<&'a str, FormatError> {
         if self.position >= self.text.len() {
-            return Err(FormatError(format!(
-                "line {}: unexpected end of file (expected another line).",
-                self.line_number
-            )));
+            return Err(self.end_of_file());
         }
-        let rest = &self.text[self.position..];
-        // A plain scan: lines are short, and the general search costs more
-        // to set up than it saves on them.
-        let (mut line, consumed) = match rest.bytes().position(|byte| byte == b'\n') {
-            Some(newline) => (&rest[..newline], newline + 1),
-            None => (rest, rest.len()),
+        let start = self.position;
+        let newline = newline_at(self.text.as_bytes(), start);
+        self.position = (newline + 1).min(self.text.len());
+        // A byte test: the general suffix match costs the plugin ten times
+        // as much, on every line of a two-megabyte file.
+        let end = if newline > start && self.text.as_bytes()[newline - 1] == b'\r' {
+            newline - 1
+        } else {
+            newline
         };
-        self.position += consumed;
-        if let Some(stripped) = line.strip_suffix('\r') {
-            line = stripped;
-        }
         self.line_number += 1;
-        Ok(line)
+        // Both ends are next to an ASCII byte or at an end of the text.
+        Ok(&self.text[start..end])
+    }
+
+    /// The text has ended where a line was expected.
+    #[cold]
+    #[inline(never)]
+    fn end_of_file(&self) -> FormatError {
+        FormatError(format!(
+            "line {}: unexpected end of file (expected another line).",
+            self.line_number
+        ))
     }
 
     /// The next line as an integer.
@@ -584,19 +617,21 @@ pub fn read_cell_ref<'a>(
     cursor: &mut VtankLineCursor<'a>,
 ) -> Result<VtankCellRef<'a>, FormatError> {
     let tag = cursor.read_line()?;
-    Ok(match tag {
-        "TABLE" => VtankCellRef {
+    // Matched as bytes: a one- or two-letter tag is told apart by its
+    // length and letters without a string comparison.
+    Ok(match tag.as_bytes() {
+        b"TABLE" => VtankCellRef {
             table: Some(Box::new(VtankTableRef::read(cursor)?)),
             ..VtankCellRef::tagged(tag)
         },
-        "ba" => {
+        b"ba" => {
             let length = cursor.read_int()?;
             VtankCellRef {
                 blob_text: Some(cursor.read_blob(length)?),
                 ..VtankCellRef::tagged(tag)
             }
         }
-        "d" | "i" | "u" | "f" | "s" | "b" => VtankCellRef {
+        [b'd' | b'i' | b'u' | b'f' | b's' | b'b'] => VtankCellRef {
             scalar_text: Some(cursor.read_line()?),
             ..VtankCellRef::tagged(tag)
         },
@@ -747,6 +782,52 @@ impl<'a> TableSet for VtankDatabaseRef<'a> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    // The word-at-a-time scan finds the line feed a byte scan finds, and a
+    // line reads as `str::lines` without its last-line rule would have it.
+    #[test]
+    fn lines_are_found_as_a_byte_scan_finds_them() {
+        let texts = [
+            "",
+            "\n",
+            "a",
+            "abc\r\ndef\r\n",
+            "a\rb\n\r\n\r",
+            "0123456789abcdef\n0123456\n",
+            "12345678\n",
+            "1234567\n",
+            "123456789\n",
+            "\u{e9}t\u{e9}\r\n\u{1F600}x\n\u{1F600}",
+            "only a long line with no line feed at all, past eight bytes",
+        ];
+        for text in texts {
+            for from in 0..=text.len() {
+                let byte_scan = text.as_bytes()[from..]
+                    .iter()
+                    .position(|&b| b == b'\n')
+                    .map_or(text.len(), |at| from + at);
+                assert_eq!(
+                    newline_at(text.as_bytes(), from),
+                    byte_scan,
+                    "{text:?} {from}"
+                );
+            }
+            let mut cursor = VtankLineCursor::new(text);
+            let mut lines = Vec::new();
+            while let Ok(line) = cursor.read_line() {
+                lines.push(line);
+            }
+            let expected: Vec<&str> = if text.is_empty() {
+                Vec::new()
+            } else {
+                let body = text.strip_suffix('\n').unwrap_or(text);
+                body.split('\n')
+                    .map(|line| line.strip_suffix('\r').unwrap_or(line))
+                    .collect()
+            };
+            assert_eq!(lines, expected, "{text:?}");
+        }
+    }
 
     const EMBEDDED_BLOB: &str = "line1\r\nline2";
 

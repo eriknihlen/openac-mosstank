@@ -116,12 +116,13 @@ fn collect(
     mut log: Option<&mut (dyn FnMut(&str) + '_)>,
 ) -> Vec<CombatDebuffSource> {
     let mut result = Vec::new();
-    for spell in input.spells.known_combat_spells() {
+    let known = input.spells.known_combat_spells_shared();
+    for spell in known.iter() {
         // A debuff the character cannot reach the monster with is not a
         // choice at all.
         if input.target_distance > 0.0
             && f64::from(range_meters(
-                &spell,
+                spell,
                 input.skills,
                 input.settings.spell_range_fudge,
             )) < input.target_distance
@@ -215,7 +216,7 @@ fn add_profile_item(
         add_if_required(
             result,
             required,
-            caster_spell,
+            &caster_spell,
             CombatDebuffSourceKind::CasterItem,
             item.object_id,
             item.item_spellcraft,
@@ -245,7 +246,7 @@ fn add_profile_item(
         add_if_required(
             result,
             required,
-            proc_spell,
+            &proc_spell,
             CombatDebuffSourceKind::ProcWeapon,
             item.object_id,
             item.item_spellcraft,
@@ -286,7 +287,7 @@ fn add_grenade(
     add_if_required(
         result,
         required,
-        spell,
+        &spell,
         CombatDebuffSourceKind::Grenade,
         item.object_id,
         grenade.spellcraft,
@@ -309,27 +310,27 @@ fn find_grenade<'g>(
 fn add_if_required(
     result: &mut Vec<CombatDebuffSource>,
     required: &HashSet<DebuffIdentity>,
-    spell: SpellInfo,
+    spell: &SpellInfo,
     kind: CombatDebuffSourceKind,
     item_object_id: u32,
     source_skill: i32,
     is_due: Option<&mut IsDue<'_>>,
     path_kind: Option<ProjectilePathKind>,
 ) {
-    let Some((identity, action_order)) = debuff::classify(&spell) else {
+    let Some((identity, action_order)) = debuff::classify(spell) else {
         return;
     };
     if !required.contains(&identity) {
         return;
     }
     if let Some(is_due) = is_due
-        && !is_due(identity, &spell)
+        && !is_due(identity, spell)
     {
         return;
     }
     result.push(CombatDebuffSource {
         identity,
-        spell,
+        spell: spell.clone(),
         kind,
         item_object_id,
         source_skill,

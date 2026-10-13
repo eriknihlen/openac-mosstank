@@ -641,25 +641,26 @@ fn try_spell(
 ) -> Option<VitalRechargeChoice> {
     let mut best: Option<(SpellInfo, u32)> = None;
 
-    for spell in automation.spells().known_self_buffs() {
+    let known = automation.spells().known_self_buffs_shared();
+    for spell in known.iter() {
         if !matches_stem(&spell.name, stem) {
             continue;
         }
         if uses_blacklisted_component(
             automation.spells(),
-            &spell,
+            spell,
             &combat.blacklisted_spell_components,
         ) {
             continue;
         }
-        if !can_cast(automation, &spell) {
+        if !can_cast(automation, spell) {
             continue;
         }
         if best
             .as_ref()
-            .is_none_or(|(current, item)| better(&spell, 0, current, *item))
+            .is_none_or(|(current, item)| better(spell, 0, current, *item))
         {
-            best = Some((spell, 0));
+            best = Some((spell.clone(), 0));
         }
     }
 
@@ -875,8 +876,9 @@ fn conversion_worthwhile(
     };
 
     let mut ordinary_heal = 0;
-    for spell in automation.spells().known_self_buffs() {
-        if !matches_stem(&spell.name, HEAL_SELF_STEM) || !can_cast(automation, &spell) {
+    let known = automation.spells().known_self_buffs_shared();
+    for spell in known.iter() {
+        if !matches_stem(&spell.name, HEAL_SELF_STEM) || !can_cast(automation, spell) {
             continue;
         }
         ordinary_heal = ordinary_heal.max(estimated_ordinary_heal(&spell.name));
@@ -1085,9 +1087,10 @@ fn try_resolve_helper_spell(
 ) -> Option<SpellInfo> {
     let mut tiers: Vec<SpellInfo> = automation
         .spells()
-        .known_self_buffs()
-        .into_iter()
+        .known_self_buffs_shared()
+        .iter()
         .filter(|candidate| candidate.family == reference.family)
+        .cloned()
         .collect();
     tiers.sort_by(|a, b| {
         b.tier

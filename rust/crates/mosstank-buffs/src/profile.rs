@@ -149,7 +149,9 @@ pub fn classify(description: Option<&str>) -> (BuffTargetKind, String) {
         return unknown;
     };
     let ascii = description.is_ascii();
-    let matches = |regex: &DotNetRegex, plain: fn(&str) -> bool| {
+    // The pattern is built only for a description the hand matcher does
+    // not read: building one costs far more than all the matching.
+    let matches = |regex: &LazyLock<DotNetRegex>, plain: fn(&str) -> bool| {
         if ascii {
             plain(description)
         } else {
@@ -276,14 +278,14 @@ pub fn build(known_self_buffs: &[SpellInfo]) -> Vec<BuffLine> {
 /// skills, enchantments and settings.
 #[derive(Debug, Clone)]
 pub struct BuffProfileCache {
-    spells: Vec<SpellInfo>,
+    spells: std::rc::Rc<[SpellInfo]>,
     lines: std::rc::Rc<[BuffLine]>,
 }
 
 impl Default for BuffProfileCache {
     fn default() -> Self {
         Self {
-            spells: Vec::new(),
+            spells: std::rc::Rc::from(Vec::new()),
             lines: std::rc::Rc::from(Vec::new()),
         }
     }
@@ -300,12 +302,42 @@ impl BuffProfileCache {
     /// (compared by value, so an entry replaced in place is seen), else
     /// built afresh.
     pub fn capture(&mut self, spells: &[SpellInfo]) -> std::rc::Rc<[BuffLine]> {
-        if spells != self.spells.as_slice() {
-            self.spells = spells.to_vec();
+        if spells != &*self.spells {
+            self.spells = std::rc::Rc::from(spells);
             self.lines = std::rc::Rc::from(build(spells));
         }
         std::rc::Rc::clone(&self.lines)
     }
+
+    /// [`Self::capture`] of a shared list: the list kept is the same list
+    /// when it is the same allocation (a shared list never changes), and is
+    /// compared by value otherwise.
+    pub fn capture_shared(&mut self, spells: &std::rc::Rc<[SpellInfo]>) -> std::rc::Rc<[BuffLine]> {
+        if !std::rc::Rc::ptr_eq(spells, &self.spells) {
+            if **spells != *self.spells {
+                self.lines = std::rc::Rc::from(build(spells));
+            }
+            self.spells = std::rc::Rc::clone(spells);
+        }
+        std::rc::Rc::clone(&self.lines)
+    }
+}
+
+/// How many lines [`build`] makes of `known_self_buffs`: one a family of
+/// the spells that last.
+#[must_use]
+pub fn line_count(known_self_buffs: &[SpellInfo]) -> usize {
+    let mut families: Vec<u32> = Vec::new();
+    for spell in known_self_buffs {
+        // What `build` skips.
+        if spell.duration_seconds <= 0.0 {
+            continue;
+        }
+        families.push(spell.family);
+    }
+    families.sort_unstable();
+    families.dedup();
+    families.len()
 }
 
 /// The fixed patterns of [`classify`] matched by hand on an ASCII

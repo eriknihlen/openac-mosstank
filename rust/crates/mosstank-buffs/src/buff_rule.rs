@@ -505,8 +505,8 @@ impl BuffSelfRule {
                 untargeted_profile_spells.push(spell_id);
             }
         }
-        let known = automation.spells().known_self_buffs();
-        let lines = self.buff_profile.capture(&known);
+        let known = automation.spells().known_self_buffs_shared();
+        let lines = self.buff_profile.capture_shared(&known);
         let skills = automation.skills();
         let attributes = automation.attributes();
         let timed = automation.timed_enchantments();
@@ -642,7 +642,7 @@ impl BuffSelfRule {
 
         let Some(pick) = self.try_pick_buff(turn, threshold) else {
             let within = format_f64(threshold, "0.#").unwrap_or_default();
-            let known = turn.automation.spells().known_self_buffs().len();
+            let known = turn.automation.spells().known_self_buffs_shared().len();
             let carried = if turn.automation.items_available() {
                 format!("{} items carried", turn.automation.owned_items().len())
             } else {
