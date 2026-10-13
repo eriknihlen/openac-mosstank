@@ -13,7 +13,6 @@
 //! the pass.
 
 use mosstank_automation::cast_tracker::SpellCastTracker;
-use mosstank_automation::locks::ActionLockKind;
 use mosstank_buffs::buff_rule::BuffTurn;
 use mosstank_buffs::mana::ManaTurn;
 use mosstank_buffs::recharge_controller::VitalTurn;
@@ -615,7 +614,6 @@ impl Core {
                 if let Some(line) = self.navigation.anchor_round_to_start(&mut turn) {
                     self.queue_log(MacroLogChannel::RuleInfo, &line);
                 }
-                self.macro_running_seen = true;
             }
             return;
         }
@@ -627,7 +625,6 @@ impl Core {
 
     /// The teardown of a stop (the second half of `SetMacroRunning`).
     pub(crate) fn after_macro_stopped(&mut self, client: &mut dyn TankClient) {
-        self.macro_running_seen = false;
         if self.buff_rule.is_bursting() {
             self.clear_fast_cast_movement(client);
             self.buff_rule.stop_burst_only();
@@ -670,24 +667,6 @@ impl Core {
         self.navigation.clear_action_locks(&mut turn);
     }
 
-    /// `ReadyToActInPeace`.
-    #[allow(dead_code)]
-    pub(crate) fn ready_to_act_in_peace(&mut self, client: &mut dyn TankClient) -> bool {
-        let automation = client.rules();
-        let equipment = if automation.equipment_available() {
-            automation.owned_equipment()
-        } else {
-            Vec::new()
-        };
-        self.gate.borrow_mut().try_drop_to_peace(
-            automation,
-            &self.settings.combat,
-            &self.settings.vitals,
-            &equipment,
-            "an item",
-        )
-    }
-
     /// The buff rule's Force Buff (`ForceBuff`).
     pub(crate) fn force_buff(&mut self, client: &mut dyn TankClient) {
         let mut owner = buff_owner!(self);
@@ -705,11 +684,5 @@ impl Core {
     pub(crate) fn cancel_force_buff(&mut self, client: &mut dyn TankClient) {
         let mut owner = buff_owner!(self);
         self.buff_rule.cancel_force(client.rules(), &mut owner);
-    }
-
-    /// The item slot is held (for `/vt lockdump` and the attack's gate).
-    #[allow(dead_code)]
-    pub(crate) fn item_slot_locked(&self) -> bool {
-        self.locks.borrow_mut().is_locked(ActionLockKind::ItemUse)
     }
 }

@@ -332,3 +332,12 @@ impl World {
         self.logs(LogLevel::Info)
     }
 }
+
+/// A fixture of the C# tests, read in place.
+#[must_use]
+pub fn csharp_fixture(relative: &str) -> String {
+    let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("../../../tests/AcDream.Plugins.MossTank.Tests/Fixtures")
+        .join(relative);
+    std::fs::read_to_string(&path).unwrap_or_else(|error| panic!("{}: {error}", path.display()))
+}
