@@ -3,8 +3,10 @@
 //! - [`gate`]: readying a combat stance (`CombatModeGate`).
 //! - [`debuff`]: the debuff chain, the debuff spells and what has landed.
 //! - [`dispel`]: clearing vulnerabilities (`DispelController`).
+//! - [`drain`]: the drain arm's planner (`CorpseDrainPlan`).
 //! - [`failure`]: the monsters given up on (`CombatFailureTracker`).
 //! - [`item_debuff`]: where a debuff can come from (`CombatItemDebuffPlanner`).
+//! - [`power`]: the automatic attack power (`AutoAttackPower`).
 //! - [`selection`]: which monster to fight (`CombatTargetSelector`).
 //!
 //! The client comes in through `mosstank-automation`; settings are handed
@@ -18,9 +20,11 @@ pub use mosstank_meta::scheduler::MacroLogChannel;
 
 pub mod debuff;
 pub mod dispel;
+pub mod drain;
 pub mod failure;
 pub mod gate;
 pub mod item_debuff;
+pub mod power;
 pub mod selection;
 
 pub use gate::CombatModeGate;
