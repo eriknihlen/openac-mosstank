@@ -6,14 +6,20 @@ use mosstank_loot::host::LootHost;
 use mosstank_meta::host::MetaHost;
 use mosstank_stores::storage::StoreHost;
 use mosstank_ub::host::UbHost;
-use mosstank_vendor::FellowshipAutomation;
 use mosstank_vendor::fellow_command::FellowCommandAutomation;
+use mosstank_vendor::{FellowshipAutomation, VendorAutomation};
 
 /// The client for one call: the rules' view ([`mosstank_automation::Automation`],
 /// through the looter's and the route's), the looter's, the route's and the
 /// fellowship's, the meta's and the UB tab's, and the profile stores'.
 pub trait TankClient:
-    LootHost + FellowshipAutomation + FellowCommandAutomation + UbHost + StoreHost + SessionClient
+    LootHost
+    + FellowshipAutomation
+    + FellowCommandAutomation
+    + VendorAutomation
+    + UbHost
+    + StoreHost
+    + SessionClient
 {
     /// The client as the rules see it.
     fn rules(&mut self) -> &mut dyn mosstank_automation::Automation;
@@ -25,6 +31,8 @@ pub trait TankClient:
     fn fellows(&mut self) -> &mut dyn FellowshipAutomation;
     /// The client as `/ub fellow` sees it.
     fn fellow_commands(&mut self) -> &mut dyn FellowCommandAutomation;
+    /// The client as the vendor run sees it.
+    fn vendor(&mut self) -> &mut dyn VendorAutomation;
     /// The client as the meta sees it.
     fn meta(&mut self) -> &mut dyn MetaHost;
     /// The client as the UB tab sees it.
@@ -38,6 +46,7 @@ where
     T: LootHost
         + FellowshipAutomation
         + FellowCommandAutomation
+        + VendorAutomation
         + UbHost
         + StoreHost
         + SessionClient,
@@ -59,6 +68,10 @@ where
     }
 
     fn fellow_commands(&mut self) -> &mut dyn FellowCommandAutomation {
+        self
+    }
+
+    fn vendor(&mut self) -> &mut dyn VendorAutomation {
         self
     }
 
@@ -128,6 +141,9 @@ pub trait SessionClient {
     fn image_object_icon(&mut self, object_id: u32) -> mosstank_ub::canvas::MapImage;
     /// A piece of the client's own art, or no image.
     fn image_client_art(&mut self, surface_id: u32) -> mosstank_ub::canvas::MapImage;
+    /// Lets go of one busy reference the client holds
+    /// (`Recovery.ClearOneBusyReference`).
+    fn clear_one_busy_reference(&mut self) -> ac_plugin_abi::social::RecoveryResult;
     /// Lets go of an image.
     fn image_release(&mut self, image: mosstank_ub::canvas::MapImage);
 }
@@ -209,6 +225,10 @@ impl SessionClient for crate::automation::HostAutomation<'_, '_> {
 
     fn image_client_art(&mut self, surface_id: u32) -> mosstank_ub::canvas::MapImage {
         map_image(self.host.image_client_art(surface_id))
+    }
+
+    fn clear_one_busy_reference(&mut self) -> ac_plugin_abi::social::RecoveryResult {
+        self.host.clear_one_busy_reference()
     }
 
     fn image_release(&mut self, image: mosstank_ub::canvas::MapImage) {
