@@ -281,7 +281,8 @@ fn a_running_vendor_run_holds_the_route_at_the_counter_until_it_stops() {
     world.set_reply::<calls::MagicCast>(&CastResult::Sent);
     // The C# panel tests' fake stands in magic mode and has no equipment
     // surface, so a recall needs no wand; the SDK always has one, so the
-    // character here wields a wand, which keeps the magic mode it is in.
+    // character here wields a wand, which keeps the magic mode it is in
+    // (divergence TEST-1).
     wield_wand(&mut world);
     world.set_reply::<calls::CombatSnapshot>(&CombatSnapshot {
         mode: CombatMode::Magic,
