@@ -139,6 +139,7 @@ dependencies = [
  "mosstank-loot",
  "mosstank-meta",
  "mosstank-nav",
+ "mosstank-session",
  "mosstank-settings",
  "mosstank-stores",
  "mosstank-ub",
@@ -264,6 +265,17 @@ dependencies = [
  "mosstank-formats",
  "mosstank-meta",
  "mosstank-settings",
+ "openac-plugin-compat",
+]
+
+[[package]]
+name = "mosstank-session"
+version = "0.6.0-dev"
+dependencies = [
+ "ac-plugin-abi",
+ "mosstank-automation",
+ "mosstank-formats",
+ "mosstank-stores",
  "openac-plugin-compat",
 ]
 

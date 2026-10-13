@@ -223,6 +223,7 @@ fn expression(out: &mut String, source: &str, items: &Items) {
     }
 }
 
+// Source: tests/AcDream.Plugins.MossTank.Tests/RustPortLootGolden.cs :: WriteLootGoldenData (the cases.out it writes is the expected one)
 #[test]
 fn the_rule_engine_answers_as_the_csharp_plugin_does() {
     let mut items: Items = Vec::new();

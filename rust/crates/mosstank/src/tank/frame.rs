@@ -3,14 +3,11 @@
 //! the pass while a transaction is in flight, the movers and the swing
 //! stepped on the host's frame, and the macro's start, stop and death.
 //!
-//! The parts of the C#'s frame that belong to the panel's windows, the UB
-//! tools and the action history are not here (they come with MT-10 and
-//! MT-11): the nav lines, the nametags, the maps, the kill statistics, the
-//! item admission, the game database update, the delayed `/ub` lines, the
-//! command jump, the item giver, the counter, the vendor run, the equip
-//! profile, the stack-and-cram pass, the XP spender and the clear-bugged
-//! run. None of them owns the character here, so the prologue never holds
-//! the pass.
+//! The session's own records (the action history, the kill statistics, the
+//! game database check, the published meta state) are in `session`, the
+//! peer features in `peers`. The parts of the C#'s frame that belong to the
+//! panel's windows are not here (MT-11): the nav lines, the maps and the
+//! item admission.
 
 use mosstank_automation::cast_tracker::SpellCastTracker;
 use mosstank_buffs::buff_rule::BuffTurn;
@@ -60,6 +57,8 @@ impl Tank {
             .item_ledger_mut()
             .set_utc_now(clock.utc_unix_ms);
         let (mut cx, scheduler) = self.cx(client);
+        cx.observe_macro_activity(scheduler, elapsed_seconds);
+        cx.core.tick_kill_statistics(cx.client);
 
         let available = cx.client.rules().is_available();
         if !available {
@@ -75,11 +74,14 @@ impl Tank {
             cx.core.automation_was_available = true;
             cx.handle_session_started();
         }
+        cx.update_peer_subscriptions();
         // The name tags, first in the frame as the panel runs them.
         cx.with_ub(|commands, call| {
             commands.tools_mut().tick_nametags(call, elapsed_seconds);
         });
         cx.follow_client_rows();
+        let meta_state = cx.meta.current_state().to_owned();
+        cx.core.publish_status(cx.client, &meta_state);
 
         cx.core.sync_route_after_kill();
         cx.core.locks.borrow_mut().advance(elapsed_seconds);
@@ -109,6 +111,7 @@ impl Tank {
         cx.tick_configured_item_assessment(elapsed_seconds);
         cx.tick_profile_item_addition(elapsed_seconds);
         cx.core.flush_queued_announcements(cx.client);
+        cx.core.tick_game_info_update(cx.client);
         cx.show_first_run_guidance();
         cx.observe_command_portal_state();
         // The UB commands' delayed lines and the dialog watch.
@@ -270,6 +273,9 @@ impl Tank {
 impl TankCx<'_> {
     /// `HandleSessionEnded`.
     fn handle_session_ended(&mut self) {
+        self.core.release_peer_subscriptions(self.client);
+        self.core.peers.forget_expression_requirements();
+        self.core.end_session_records();
         self.with_ub(|commands, call| commands.tools_mut().nametags.reset(call.host));
         if self.core.combat.enabled() {
             let core = &mut *self.core;

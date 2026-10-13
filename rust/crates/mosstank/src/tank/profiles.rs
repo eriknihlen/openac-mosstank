@@ -336,7 +336,52 @@ impl TankCx<'_> {
         )
         .unwrap_or(false);
         if bound {
-            core.load_loot_profile(self.client);
+            // The constructor's own read: no "active" line and no looter
+            // reset, as the full LoadLootProfile has.
+            let loot = &mut core.settings.inventory.loot;
+            let mut rules = std::mem::take(&mut loot.rules);
+            let loaded =
+                core.loot_profiles
+                    .load_current(self.client.stores(), &mut rules, Some(loot));
+            loot.rules = rules;
+            if let Some(outcome) = report!(self.client, loaded) {
+                let key = core.loot_profiles.last_load_key().map(str::to_owned);
+                core.announce_load_outcome(self.client, "loot", key.as_deref(), outcome, None);
+                match outcome {
+                    ProfileLoad::Missing => {
+                        let loot = &core.settings.inventory.loot;
+                        let written = core.loot_profiles.save_current(
+                            self.client.stores(),
+                            &loot.rules,
+                            Some(loot),
+                        );
+                        report!(self.client, written);
+                    }
+                    ProfileLoad::Failed => {
+                        core.loot_editor_notice = core
+                            .loot_profiles
+                            .load_failure_notice()
+                            .unwrap_or("No loot profile is active.")
+                            .to_owned();
+                        self.client
+                            .looter()
+                            .log_error(&core.loot_editor_notice.clone());
+                    }
+                    ProfileLoad::Partial => {
+                        core.loot_editor_notice = core
+                            .loot_profiles
+                            .load_notice()
+                            .unwrap_or(
+                                "Loaded the complete rules before an incomplete profile tail.",
+                            )
+                            .to_owned();
+                        self.client
+                            .rules()
+                            .log_warn(&core.loot_editor_notice.clone());
+                    }
+                    ProfileLoad::Loaded => {}
+                }
+            }
         } else {
             core.settings.inventory.loot.rules.clear();
             core.settings.inventory.loot.profile_active = false;
@@ -347,7 +392,22 @@ impl TankCx<'_> {
             core.route_profiles
                 .bind_character(self.client.stores(), name)
         );
-        core.load_route_profile(self.client);
+        // The constructor's own read: a route that will not parse is said
+        // only by its load line.
+        let spells = SpellsSnapshot::read(self.client);
+        let loaded = core.route_profiles.load_current(
+            self.client.stores(),
+            &mut core.settings.navigation,
+            Some(&spells),
+        );
+        if let Some(outcome) = report!(self.client, loaded) {
+            let key = core.route_profiles.last_load_key().map(str::to_owned);
+            core.announce_load_outcome(self.client, "navigation", key.as_deref(), outcome, None);
+            if outcome == ProfileLoad::Missing {
+                core.route_profiles
+                    .save_current(self.client.stores(), &core.settings.navigation);
+            }
+        }
 
         report!(
             self.client,
@@ -411,20 +471,20 @@ impl TankCx<'_> {
         if !macro_changed && !loot_changed && !route_changed && !meta_changed {
             return;
         }
-        if macro_changed {
-            if self.load_selected_profile() == Some(ProfileLoad::Failed) {
-                return;
-            }
-        } else {
-            if loot_changed {
-                self.core.load_loot_profile(self.client);
-            }
-            if route_changed {
-                self.load_route_profile();
-            }
-            if meta_changed {
-                self.load_meta_profile();
-            }
+        // As the C# has it: the loads below follow a good settings load too,
+        // so after one the loot profile and route are read twice and the
+        // meta, when it changed, twice as well.
+        if macro_changed && self.load_selected_profile() == Some(ProfileLoad::Failed) {
+            return;
+        }
+        if loot_changed {
+            self.core.load_loot_profile(self.client);
+        }
+        if route_changed {
+            self.load_route_profile();
+        }
+        if meta_changed {
+            self.load_meta_profile();
         }
         if macro_changed && meta_changed {
             self.load_meta_profile();
@@ -498,26 +558,11 @@ impl TankCx<'_> {
 
     /// `LoadRouteProfile` with what follows a good load.
     pub(crate) fn load_route_profile(&mut self) -> bool {
-        if !self.core.load_route_profile(self.client) {
-            return false;
+        let (loaded, meta_enabled) = self.core.load_route_profile_in_full(self.client);
+        if let Some(enabled) = meta_enabled {
+            self.meta.set_enabled(enabled);
         }
-        if self.core.initialized {
-            self.apply_persisted_option_overrides();
-        }
-        self.core.restart_route_round(self.client);
-        if self.core.initialized {
-            let selected = report!(
-                self.client,
-                self.core.route_profiles.selected(self.client.stores())
-            )
-            .unwrap_or_default();
-            let count = self.core.settings.navigation.waypoints.len();
-            Core::announce(
-                self.client,
-                &format!("Loaded route {selected} ({count} points)."),
-            );
-        }
-        true
+        loaded
     }
 
     /// `LoadMetaProfile`.
@@ -531,12 +576,9 @@ impl TankCx<'_> {
     }
 
     /// `DiscardEmbeddedRoute`: a route a meta carried goes with its meta,
-    /// and the selected route file comes back.
+    /// leaving no route (the meta that loads next may carry its own).
     pub(crate) fn discard_embedded_route(&mut self) {
-        if self.core.embedded_route_label.take().is_none() {
-            return;
-        }
-        self.load_route_profile();
+        self.core.discard_embedded_route(self.client);
     }
 
     /// `ResetProfileConsumers` (the part the shell has).
@@ -563,29 +605,9 @@ impl TankCx<'_> {
     /// `ApplyPersistedOptionOverrides`: the options a settings profile
     /// carries are put back through the one write path, without saving.
     pub(crate) fn apply_persisted_option_overrides(&mut self) {
-        let overrides: Vec<(String, mosstank_settings::monster::expression::MonsterValue)> = self
-            .core
-            .settings
-            .combat
-            .dynamic_settings
-            .iter()
-            .filter(|(name, _)| mosstank_settings::options::is_known(name))
-            .map(|(name, value)| (name.clone(), value.clone()))
-            .collect();
-        if overrides.is_empty() {
-            return;
+        if let Some(enabled) = self.core.apply_persisted_option_overrides(self.client) {
+            self.meta.set_enabled(enabled);
         }
-        self.core.applying_profile_options = true;
-        for (name, value) in overrides {
-            let value = super::options::to_expression_value(&value);
-            if let Err(error) = self.set_meta_option(&name, &value) {
-                self.client.rules().log_warn(&format!(
-                    "MossTank option {name} could not be applied: {}",
-                    error.message()
-                ));
-            }
-        }
-        self.core.applying_profile_options = false;
     }
 
     /// `SelectProfile`.
@@ -639,7 +661,9 @@ impl TankCx<'_> {
     /// `SelectRouteProfileCore`.
     pub(crate) fn select_route_profile(&mut self, name: &str) {
         if self.core.embedded_route_label.as_deref() == Some(name) {
-            // The meta's own route is what is shown: nothing to read.
+            // The meta's own route, picked again: read it from the meta's
+            // file again.
+            self.reload_embedded_route(name);
             return;
         }
         let selected = report!(
@@ -749,6 +773,148 @@ impl Core {
         let reason = self.meta_profiles.last_load_error().map(str::to_owned);
         self.announce_load_outcome(client, "Meta", key.as_deref(), outcome, reason.as_deref());
         profile
+    }
+}
+
+impl Core {
+    /// `LoadRouteProfile` in full, for a caller holding only the core (the
+    /// follow route): the read, the options the profile carries, the
+    /// route's new round and the line that says so. Whether the route in
+    /// memory is now the file's, and `EnableMeta` when the options wrote it
+    /// (the caller starts or stops the engine).
+    pub(crate) fn load_route_profile_in_full(
+        &mut self,
+        client: &mut dyn TankClient,
+    ) -> (bool, Option<bool>) {
+        if !self.load_route_profile(client) {
+            return (false, None);
+        }
+        let mut meta_enabled = None;
+        if self.initialized {
+            meta_enabled = self.apply_persisted_option_overrides(client);
+        }
+        self.restart_route_round(client);
+        if self.initialized {
+            let selected =
+                report!(client, self.route_profiles.selected(client.stores())).unwrap_or_default();
+            let count = self.settings.navigation.waypoints.len();
+            Core::announce(
+                client,
+                &format!("Loaded route {selected} ({count} points)."),
+            );
+        }
+        (true, meta_enabled)
+    }
+
+    /// `ApplyPersistedOptionOverrides` over the core: `EnableMeta`'s last
+    /// value when one of the options wrote it.
+    pub(crate) fn apply_persisted_option_overrides(
+        &mut self,
+        client: &mut dyn TankClient,
+    ) -> Option<bool> {
+        let overrides: Vec<(String, mosstank_settings::monster::expression::MonsterValue)> = self
+            .settings
+            .combat
+            .dynamic_settings
+            .iter()
+            .filter(|(name, _)| mosstank_settings::options::is_known(name))
+            .map(|(name, value)| (name.clone(), value.clone()))
+            .collect();
+        if overrides.is_empty() {
+            return None;
+        }
+        let mut meta_enabled = None;
+        self.applying_profile_options = true;
+        for (name, value) in overrides {
+            let value = super::options::to_expression_value(&value);
+            match self.set_option(client, &name, &value) {
+                Ok(true) if super::services::is_enable_meta(&name) => {
+                    meta_enabled = Some(value.is_truthy());
+                }
+                Ok(_) => {}
+                Err(error) => client.rules().log_warn(&format!(
+                    "MossTank option {name} could not be applied: {}",
+                    error.message()
+                )),
+            }
+        }
+        self.applying_profile_options = false;
+        meta_enabled
+    }
+
+    /// `DiscardEmbeddedRoute`: the route a meta carried goes with its meta.
+    /// Nothing comes in its place and nothing is said.
+    pub(crate) fn discard_embedded_route(&mut self, client: &mut dyn TankClient) {
+        if self.embedded_route_label.is_none() {
+            return;
+        }
+        {
+            let mut turn = route_turn!(client, self);
+            self.navigation.reset(&mut turn);
+        }
+        mosstank_formats::nav::apply(&mut self.settings.navigation, NavigationSettings::default());
+        self.embedded_route_label = None;
+    }
+}
+
+impl TankCx<'_> {
+    /// `ReloadEmbeddedRoute`: the meta's own route, read from the meta's
+    /// file again; a meta that does not read, or does not name the route
+    /// once, leaves the route as it is and says why.
+    pub(crate) fn reload_embedded_route(&mut self, label: &str) {
+        let spells = SpellsSnapshot::read(self.client);
+        let fresh = self
+            .core
+            .meta_profiles
+            .load_current(self.client.stores(), Some(&spells));
+        let fresh = match fresh {
+            Ok(fresh) if self.core.meta_profiles.last_load_succeeded() => fresh,
+            Ok(_) => {
+                let reason = self
+                    .core
+                    .meta_profiles
+                    .last_load_error()
+                    .unwrap_or("the meta file is missing.")
+                    .to_owned();
+                self.core.route_notice = format!("Could not reload the embedded route: {reason}");
+                return;
+            }
+            Err(error) => {
+                self.core.route_notice = format!("Could not reload the embedded route: {error}");
+                return;
+            }
+        };
+        let mut matches = Vec::new();
+        for rule in &fresh.rules {
+            embedded_actions(&rule.action, &mut matches);
+        }
+        matches.retain(|action| embedded_route_label(&action.secondary_text) == label);
+        if matches.len() != 1 || matches[0].embedded_route.is_none() {
+            "Could not reload the embedded route: its name is missing or ambiguous in the meta file."
+                .clone_into(&mut self.core.route_notice);
+            return;
+        }
+        let action = matches[0];
+        Self::load_embedded_navigation_route(
+            self.core,
+            self.client,
+            action.embedded_route.as_deref(),
+            &action.secondary_text,
+        );
+    }
+}
+
+/// Every action that loads an embedded route, in the order the C# visits
+/// them (`EmbeddedActions`).
+fn embedded_actions<'a>(
+    action: &'a mosstank_formats::meta::MetaAction,
+    found: &mut Vec<&'a mosstank_formats::meta::MetaAction>,
+) {
+    if action.kind == mosstank_formats::meta::MetaActionKind::LoadEmbeddedNavigationRoute {
+        found.push(action);
+    }
+    for child in &action.children {
+        embedded_actions(child, found);
     }
 }
 

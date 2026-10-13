@@ -30,6 +30,7 @@ mosstank-settings.workspace = true
 mosstank-dotnet.workspace = true
 # The windows' markup, read for the bindings it names (pure Rust).
 roxmltree.workspace = true
+mosstank-session.workspace = true
 
 [lints]
 workspace = true

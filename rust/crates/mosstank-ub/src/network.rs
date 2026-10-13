@@ -65,6 +65,13 @@ impl PeerFeatureSubscriptions {
         self.current = requested;
     }
 
+    /// Whether a lease is held: the host shares over a hub (one with none
+    /// hands out no lease).
+    #[must_use]
+    pub fn holds_lease(&self) -> bool {
+        self.lease.is_some()
+    }
+
     /// Gives the lease back.
     pub fn dispose(&mut self, host: &mut dyn UbHost) {
         if let Some(old) = self.lease.take() {

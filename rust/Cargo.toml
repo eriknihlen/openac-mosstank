@@ -29,6 +29,7 @@ mosstank-vendor = { path = "crates/mosstank-vendor" }
 mosstank-combat = { path = "crates/mosstank-combat" }
 mosstank-loot = { path = "crates/mosstank-loot" }
 mosstank-ub = { path = "crates/mosstank-ub" }
+mosstank-session = { path = "crates/mosstank-session" }
 
 # The openAC plugin SDK (MIT), from the openAC-rust repository by git
 # (owner decision 2026-10-13). `openac-plugin-compat` is its .NET

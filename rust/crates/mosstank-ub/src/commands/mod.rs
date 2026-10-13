@@ -1108,6 +1108,35 @@ fn follow(call: &mut UbCall<'_>, name: &str, partial: bool) {
     }
 }
 
+/// The Remote window's Follow Selected (`FollowSelectedPlayer`): the
+/// follow route aimed at the selected player, who must be a live player
+/// other than this character.
+pub fn follow_selected(call: &mut UbCall<'_>) {
+    let selected = call.host.selection().selected.unwrap_or(0);
+    let self_id = call.host.character().map_or(0, |info| info.id);
+    let player = call.host.objects().into_iter().find(|candidate| {
+        candidate.object_id == selected
+            && candidate.object_id != self_id
+            && PLAYER_CLASSES.contains(&candidate.object_class)
+    });
+    let Some(target) = player else {
+        call.write_ub_error("Select a live player to follow first.");
+        return;
+    };
+    let who = format!("{}[0x{:08X}]", target.name, target.object_id);
+    if !call
+        .services
+        .follow(call.host, target.object_id, &target.name)
+    {
+        call.write_ub_error(&format!("Failed to follow {who}"));
+        return;
+    }
+    call.write_ub(&format!("Following {who}"));
+    if !call.services.navigation_enabled() {
+        call.write_ub("Turn Enable Navigation on to start.");
+    }
+}
+
 /// The search scope the flag letters ask for; the two place flags are a
 /// choice, not a pair.
 fn read_scope(call: &mut UbCall<'_>, flags: &str) -> Option<(UbSearchScope, bool)> {

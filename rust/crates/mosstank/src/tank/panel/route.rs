@@ -530,70 +530,15 @@ impl TankCx<'_> {
 
     /// `FollowOnFollowRoute`, with the route editor rebuilt.
     pub(crate) fn follow_on_follow_route(&mut self, object_id: u32, name: &str) -> bool {
-        let followed = self
-            .core
-            .follow_on_follow_route(self.client, object_id, name);
+        let (followed, meta_enabled) =
+            self.core
+                .follow_on_follow_route(self.client, object_id, name);
+        if let Some(enabled) = meta_enabled {
+            self.meta.set_enabled(enabled);
+        }
         if followed {
             self.refresh_route_editor();
         }
         followed
-    }
-}
-
-impl TankCx<'_> {
-    /// `ReloadEmbeddedRoute`: the meta file read again, and the route it
-    /// carries under `label` loaded once more.
-    pub(crate) fn reload_embedded_route(&mut self, label: &str) {
-        let spells = crate::tank::profiles::SpellsSnapshot::read(self.client);
-        let fresh = self
-            .core
-            .meta_profiles
-            .load_current(self.client.stores(), Some(&spells));
-        let fresh = match fresh {
-            Ok(profile) if self.core.meta_profiles.last_load_succeeded() => profile,
-            _ => {
-                self.core.route_notice = format!(
-                    "Could not reload the embedded route: {}",
-                    self.core
-                        .meta_profiles
-                        .last_load_error()
-                        .unwrap_or("the meta file is missing.")
-                );
-                return;
-            }
-        };
-        let mut matches: Vec<mosstank_formats::meta::MetaAction> = Vec::new();
-        for rule in &fresh.rules {
-            embedded_actions(&rule.action, &mut matches);
-        }
-        matches.retain(|action| {
-            crate::tank::profiles::embedded_route_label(&action.secondary_text) == label
-        });
-        if matches.len() != 1 || matches[0].embedded_route.is_none() {
-            "Could not reload the embedded route: its name is missing or ambiguous in the meta file."
-                .clone_into(&mut self.core.route_notice);
-            return;
-        }
-        let action = matches.remove(0);
-        crate::tank::TankCx::load_embedded_navigation_route(
-            self.core,
-            self.client,
-            action.embedded_route.as_deref(),
-            &action.secondary_text,
-        );
-        self.core.panel.selected_route_waypoint = 0;
-    }
-}
-
-/// Every embedded-route action an action holds, itself first.
-fn embedded_actions(
-    action: &mosstank_formats::meta::MetaAction,
-    into: &mut Vec<mosstank_formats::meta::MetaAction>,
-) {
-    if action.kind == mosstank_formats::meta::MetaActionKind::LoadEmbeddedNavigationRoute {
-        into.push(action.clone());
-    }
-    for child in &action.children {
-        embedded_actions(child, into);
     }
 }

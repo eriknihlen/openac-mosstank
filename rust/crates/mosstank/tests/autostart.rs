@@ -3,7 +3,7 @@
 mod common;
 
 use common::{World, character, proof_fixture, write_session_proof_fixture};
-use mosstank_formats::meta::MetaProfile;
+use mosstank_formats::meta::{MetaAction, MetaActionKind, MetaProfile, MetaRule};
 use mosstank_settings::model::AllSettings;
 use mosstank_stores::loot_store::LootProfileStore;
 use mosstank_stores::meta_store::MetaProfileStore;
@@ -220,7 +220,7 @@ fn autostart_selecting_a_nav_profile_does_not_destroy_its_saved_content() {
     let selected = world.with_tank(&mut plugin, |tank, client| {
         tank.selected_route_profile(client)
     });
-    assert!(selected.starts_with("otherNav"), "{selected}");
+    assert_eq!(selected, "otherNav");
     world.set_session(&[("navProfile", "myNav")]);
 
     world.tick(&mut plugin);
@@ -232,7 +232,7 @@ fn autostart_selecting_a_nav_profile_does_not_destroy_its_saved_content() {
     let selected = world.with_tank(&mut plugin, |tank, client| {
         tank.selected_route_profile(client)
     });
-    assert!(selected.starts_with("myNav"), "{selected}");
+    assert_eq!(selected, "myNav");
     assert_eq!(
         plugin.tank().unwrap().settings().navigation.waypoints.len(),
         4
@@ -652,21 +652,32 @@ fn autostart_waits_for_the_characters_name_and_its_choice_then_survives_the_bind
 // Source: tests/AcDream.Plugins.MossTank.Tests/MossTankAutostartTests.cs :: AutostartSelectingAMetaProfileDoesNotDestroyItsSavedContentOrRuleCount
 #[test]
 fn autostart_selecting_a_meta_profile_does_not_destroy_its_saved_content_or_rule_count() {
-    // The meta with rules is an authored one (the C# builds it in the meta
-    // editor, which comes with the panel).
-    let meta = proof_fixture("rynthify-controlled-meta.met");
+    // The C# builds myMeta in the meta editor (the panel's): one rule that
+    // runs setvar[`x`,1]. Here it is written as the editor saves it.
+    let profile = MetaProfile {
+        rules: vec![MetaRule {
+            action: MetaAction {
+                kind: MetaActionKind::ExpressionAction,
+                text: "setvar[`x`,1]".to_owned(),
+                ..MetaAction::default()
+            },
+            ..MetaRule::default()
+        }],
+    };
+    let meta = mosstank_formats::met::save(&profile).unwrap();
     let mut world = in_world();
     world.profiles.insert("mosstank/metas/myMeta.met", &meta);
     let mut plugin = world.enable();
     world.vt(&mut plugin, "meta load myMeta");
-    let rules = plugin.tank().unwrap().meta_rule_count();
-    assert!(rules > 0);
-    world.vt(&mut plugin, "meta save otherMeta");
+    assert_eq!(plugin.tank().unwrap().meta_rule_count(), 1);
+    // A meta that does not exist is made, empty, and selected (the C#
+    // presses New in the meta tab).
     world.vt(&mut plugin, "meta load otherMeta");
+    assert_eq!(plugin.tank().unwrap().meta_rule_count(), 0);
     let selected = world.with_tank(&mut plugin, |tank, client| {
         tank.selected_meta_profile(client)
     });
-    assert!(selected.starts_with("otherMeta"), "{selected}");
+    assert_eq!(selected, "otherMeta");
     world.set_session(&[("metaProfile", "myMeta")]);
 
     world.tick(&mut plugin);
@@ -678,8 +689,8 @@ fn autostart_selecting_a_meta_profile_does_not_destroy_its_saved_content_or_rule
     let selected = world.with_tank(&mut plugin, |tank, client| {
         tank.selected_meta_profile(client)
     });
-    assert!(selected.starts_with("myMeta"), "{selected}");
-    assert_eq!(plugin.tank().unwrap().meta_rule_count(), rules);
+    assert_eq!(selected, "myMeta");
+    assert_eq!(plugin.tank().unwrap().meta_rule_count(), 1);
     assert!(world.errors().is_empty(), "{:?}", world.errors());
 }
 
@@ -692,9 +703,11 @@ fn autostart_selecting_a_loot_profile_does_not_destroy_its_saved_content() {
     let mut world = in_world();
     world.profiles.insert("mosstank/loot/myLoot.utl", &loot);
     let mut plugin = world.enable();
+    world.vt(&mut plugin, "loot load myLoot");
+    assert_eq!(plugin.tank().unwrap().live_loot_rules().len(), 1);
     world.vt(&mut plugin, "loot new otherLoot");
-    assert_eq!(plugin.tank().unwrap().selected_loot_profile(), "otherLoot");
     assert!(plugin.tank().unwrap().live_loot_rules().is_empty());
+    assert_eq!(plugin.tank().unwrap().selected_loot_profile(), "otherLoot");
     world.set_session(&[("lootProfile", "myLoot")]);
 
     world.tick(&mut plugin);
@@ -704,6 +717,6 @@ fn autostart_selecting_a_loot_profile_does_not_destroy_its_saved_content() {
         Some(loot.as_str())
     );
     assert_eq!(plugin.tank().unwrap().selected_loot_profile(), "myLoot");
-    assert!(!plugin.tank().unwrap().live_loot_rules().is_empty());
+    assert_eq!(plugin.tank().unwrap().live_loot_rules().len(), 1);
     assert!(world.errors().is_empty(), "{:?}", world.errors());
 }

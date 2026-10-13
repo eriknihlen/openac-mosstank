@@ -538,6 +538,12 @@ impl VtankGameInfoDatabase {
         self.monster_damage_overrides.len()
     }
 
+    /// How many monsters the immunity table lists.
+    #[must_use]
+    pub fn monster_immunity_count(&self) -> usize {
+        self.monster_immunities.len()
+    }
+
     /// How many monsters the species table lists.
     #[must_use]
     pub fn species_member_count(&self) -> usize {
