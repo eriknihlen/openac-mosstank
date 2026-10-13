@@ -331,7 +331,10 @@ impl UbCommands {
             "autostack" => self.tools.stack_cram.start(call, true),
             "autocram" => self.tools.stack_cram.start(call, false),
             "count" => self.tools.count.command(call, &arguments),
-            "clearbugged" | "autotinker" | "getjob" | "tinkcalc" => {
+            "autotinker" => self.tools.tinker.auto_tinker(call),
+            "getjob" => self.tools.tinker.print_jobs(call),
+            "tinkcalc" => self.tools.tinker.print_calculation(call),
+            "clearbugged" => {
                 call.services.run_tool_verb(call.host, &verb, &arguments);
             }
             _ => {

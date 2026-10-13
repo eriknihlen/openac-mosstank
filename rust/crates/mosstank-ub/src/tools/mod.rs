@@ -7,6 +7,8 @@
 //! - [`give`]: `/ub give`, `/ub ig` (`ProfileGiveController`).
 //! - [`count`]: `/ub count` (`InventoryCountController`).
 //! - [`equip`]: `/ub equip` (`EquipProfileController`).
+//! - [`tinker`], [`tinker_page`]: the Tinker page and `/ub autotinker`,
+//!   `getjob`, `tinkcalc` (`TinkerJobManager`, `MossTankPanel.Tinker`).
 //! - [`xp`]: `/ub xp` (`ExperienceSpendController`).
 //!
 //! [`UbTools`] holds the ones a command reaches; the commands
@@ -17,12 +19,15 @@ pub mod count;
 pub mod equip;
 pub mod give;
 pub mod stack_cram;
+pub mod tinker;
+pub mod tinker_page;
 pub mod xp;
 
 use count::InventoryCountController;
 use equip::EquipProfileController;
 use give::ProfileGiveController;
 use stack_cram::StackCramCommandRun;
+use tinker_page::TinkerPage;
 use xp::ExperienceSpendController;
 
 /// The tools the `/ub` commands start, each driven by the plugin's frame.
@@ -39,6 +44,8 @@ pub struct UbTools {
     pub count: InventoryCountController,
     /// `/ub autostack` and `/ub autocram`.
     pub stack_cram: StackCramCommandRun,
+    /// The Tinker page, its run, and `/ub autotinker`, `getjob`, `tinkcalc`.
+    pub tinker: TinkerPage,
     /// `/ub xp`.
     pub xp: ExperienceSpendController,
     /// `/ub equip`.
