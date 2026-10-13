@@ -1,0 +1,15 @@
+[package]
+description = "VTank and MossTank profile formats: .usd, .utl, .met, .nav, .af, gameinfodb.ugd. Pure: no host calls."
+name = "mosstank-formats"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[dependencies]
+openac-plugin-compat.workspace = true
+thiserror.workspace = true
+
+[lints]
+workspace = true

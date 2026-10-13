@@ -1,0 +1,15 @@
+[package]
+description = "Game data MossTank carries: the spell table and other generated tables. Pure: no host calls."
+name = "mosstank-data"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[dependencies]
+openac-plugin-compat.workspace = true
+thiserror.workspace = true
+
+[lints]
+workspace = true

@@ -1,0 +1,21 @@
+[package]
+name = "mosstank"
+description = "MossTank, the automation plugin, as an openAC WebAssembly plugin."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+openac-plugin.workspace = true
+openac-plugin-compat.workspace = true
+mosstank-formats.workspace = true
+mosstank-expr.workspace = true
+mosstank-data.workspace = true
+
+[lints]
+workspace = true

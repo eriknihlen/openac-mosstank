@@ -1,0 +1,4 @@
+# The SDK comes from a private GitHub repository over ssh; cargo's own git
+# client cannot use the ssh agent on every system, the git command line can.
+[net]
+git-fetch-with-cli = true

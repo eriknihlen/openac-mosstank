@@ -1,0 +1,41 @@
+# MossTank for openAC-rust: the plugin converted from the C# in ../src to
+# Rust, built for wasm32-unknown-unknown and tested natively.
+#
+# The pure crates (formats, expressions, game data) have no host calls and
+# are tested on their own; the plugin crate links the openAC SDK.
+[workspace]
+members = ["crates/*"]
+resolver = "3"
+
+[workspace.package]
+version = "0.6.0-dev"
+edition = "2024"
+rust-version = "1.95"
+license = "MIT"
+publish = false
+
+[workspace.dependencies]
+mosstank-formats = { path = "crates/mosstank-formats" }
+mosstank-expr = { path = "crates/mosstank-expr" }
+mosstank-data = { path = "crates/mosstank-data" }
+
+# The openAC plugin SDK (MIT), from the openAC-rust repository by git
+# (owner decision 2026-10-13). `openac-plugin-compat` is its .NET
+# compatibility kit: number formats, the seeded Random, text decoding, JSON
+# writers, regex.
+openac-plugin = { git = "ssh://git@github.com/eriknihlen/openac-rust.git", branch = "main" }
+openac-plugin-compat = { git = "ssh://git@github.com/eriknihlen/openac-rust.git", branch = "main" }
+
+thiserror = "2.0"
+
+[workspace.lints.rust]
+unsafe_code = "deny"
+missing_debug_implementations = "warn"
+
+[workspace.lints.clippy]
+all = { level = "warn", priority = -1 }
+
+[profile.release]
+panic = "abort"
+opt-level = "s"
+lto = true
