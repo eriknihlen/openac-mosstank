@@ -223,8 +223,10 @@ version = "0.6.0-dev"
 dependencies = [
  "ac-plugin-abi",
  "mosstank-automation",
+ "mosstank-combat",
  "mosstank-dotnet",
  "mosstank-formats",
+ "mosstank-meta",
  "mosstank-settings",
  "mosstank-stores",
  "openac-plugin-compat",
