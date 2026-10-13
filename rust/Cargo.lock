@@ -133,6 +133,7 @@ dependencies = [
  "mosstank-data",
  "mosstank-expr",
  "mosstank-formats",
+ "mosstank-loot",
  "mosstank-stores",
  "openac-plugin",
  "openac-plugin-compat",

@@ -8,6 +8,7 @@
 //! ([`storage`]) and the rules their view of the client ([`automation`]).
 
 pub mod automation;
+pub mod loot;
 pub mod storage;
 
 use openac_plugin::{Host, Plugin, StartInfo};
