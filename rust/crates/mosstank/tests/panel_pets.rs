@@ -53,7 +53,7 @@ fn valid_now(
     elapsed_seconds: f64,
 ) -> bool {
     world.with_tank(plugin, |tank, client| {
-        tank.rule_valid_now(client, rule, MacroPassContext::new(elapsed_seconds, true))
+        tank.created_rule_valid_now(client, rule, MacroPassContext::new(elapsed_seconds, true))
     })
 }
 

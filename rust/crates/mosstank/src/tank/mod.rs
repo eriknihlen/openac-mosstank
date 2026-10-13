@@ -19,6 +19,7 @@ mod commands;
 mod diagnostics;
 mod display;
 mod frame;
+mod meta_windows;
 pub(crate) mod options;
 pub(crate) mod panel;
 mod peers;
@@ -931,6 +932,24 @@ impl Tank {
             .collect()
     }
 
+    /// Asks one rule of the running list whether it would run now
+    /// (`MacroRules[..].ValidNow`); `None` for a name the list lacks.
+    pub fn rule_valid_now(
+        &mut self,
+        client: &mut dyn TankClient,
+        name: &str,
+        context: mosstank_meta::scheduler::MacroPassContext,
+    ) -> Option<bool> {
+        self.begin_call(client);
+        let (mut cx, scheduler) = self.cx(client);
+        let valid = scheduler
+            .main_rule_mut(name)
+            .map(|rule| rule.valid_now(&mut cx, context));
+        cx.core.write_out(cx.client);
+        self.end_call(client);
+        valid
+    }
+
     /// The macro's item-use, navigation and other slots
     /// (`MossTankPanel.ActionLocks`).
     #[must_use]
@@ -1291,9 +1310,9 @@ impl Tank {
         .create_independent(slot)
     }
 
-    /// Whether `rule` would run now (`IMacroRule.ValidNow`), asked as one
-    /// call into the shell.
-    pub fn rule_valid_now(
+    /// Whether a rule made by [`Self::create_rule`] would run now
+    /// (`IMacroRule.ValidNow`), asked as one call into the shell.
+    pub fn created_rule_valid_now(
         &mut self,
         client: &mut dyn TankClient,
         rule: &mut dyn mosstank_meta::scheduler::MacroRule<TankFamily>,
