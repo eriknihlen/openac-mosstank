@@ -1359,7 +1359,7 @@ mod tests {
     }
 
     // Source: tests/AcDream.Plugins.MossTank.Tests/MetafSerializerTests.cs :: BinaryImportMatchesMetafAfConversion
-    // (and ExampleSortMetaBinaryImportMatchesAf, one of its pairs)
+    // Source: tests/AcDream.Plugins.MossTank.Tests/MetafSerializerTests.cs :: ExampleSortMetaBinaryImportMatchesAf (one of its pairs)
     #[test]
     fn binary_import_matches_metaf_af_conversion() {
         let mut pairs = 0;
