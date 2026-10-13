@@ -18,6 +18,7 @@
 pub mod count;
 pub mod equip;
 pub mod give;
+pub mod nametags;
 pub mod stack_cram;
 pub mod tinker;
 pub mod tinker_page;

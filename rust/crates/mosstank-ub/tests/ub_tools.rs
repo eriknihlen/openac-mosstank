@@ -1217,3 +1217,52 @@ fn equip_commands_route_through_the_panel_to_chat() {
     assert!(posted[0].0.contains("nothing.utl"));
     assert_eq!(chat::DEBUG_CHAT_TYPE, posted[0].1);
 }
+
+// ---- the name tags over the page's rows -----------------------------------------
+
+// Source: tests/AcDream.Plugins.MossTank.Tests/MossTankPanelTests.UbSettingsTab.cs :: TheNametagSwitchOnThePageTakesTheLabelsBackFromTheHost
+#[test]
+fn the_nametag_switch_on_the_page_takes_the_labels_back_from_the_host() {
+    use ac_plugin_abi::world::Position;
+    use mosstank_ub::tools::nametags::{CatalogNametagSettings, NametagController};
+
+    let mut rig = Rig::new().at_heading(0.0);
+    rig.host.meta.character_mut().id = 0x5000_0001;
+    rig.host.meta.objects = vec![WorldObject {
+        object_id: 0x8000_0001,
+        weenie_class_id: 1,
+        name: "Drudge Slinker".to_owned(),
+        object_class: ObjectClass::Monster,
+        is_landscape: true,
+        position: Some(Position {
+            east_west: 0.01,
+            is_outdoor: true,
+            ..Position::default()
+        }),
+        ..WorldObject::default()
+    }];
+    let mut tags = NametagController::new(&CatalogNametagSettings(&rig.catalog));
+    let frame = |rig: &mut Rig, tags: &mut NametagController| {
+        tags.on_tick(&mut rig.host, &CatalogNametagSettings(&rig.catalog), 0.1);
+    };
+
+    frame(&mut rig, &mut tags);
+    assert_eq!(1, rig.host.label_sets.len());
+    assert_eq!("Drudge Slinker", rig.host.label_sets[0][0].text);
+
+    let row = UbCatalog::require(&rig.catalog, "Nametags.Enabled");
+    rig.catalog.set(&row, UbSettingValue::from_bool(false));
+    for _ in 0..3 {
+        frame(&mut rig, &mut tags);
+    }
+    assert_eq!(2, rig.host.label_sets.len());
+    assert!(rig.host.label_sets[1].is_empty());
+
+    rig.catalog.set(&row, UbSettingValue::from_bool(true));
+    for _ in 0..3 {
+        frame(&mut rig, &mut tags);
+    }
+    assert_eq!(3, rig.host.label_sets.len());
+    assert_eq!(1, rig.host.label_sets[2].len());
+    assert_eq!("Drudge Slinker", rig.host.label_sets[2][0].text);
+}
