@@ -310,7 +310,11 @@ impl VtankGameInfoUpdater {
             match read_last_check(state) {
                 Err(error) => return Pending::Finished(Box::new(Err(error))),
                 Ok(Some(last_check)) => {
-                    let next_check = last_check + skip_if_checked_within_seconds;
+                    let next_check =
+                        match next_check_after(last_check, skip_if_checked_within_seconds) {
+                            Ok(next_check) => next_check,
+                            Err(error) => return Pending::Finished(Box::new(Err(error))),
+                        };
                     if now_unix_seconds < next_check {
                         // Another session may have downloaded since this one
                         // loaded the file, so what the file holds now is
@@ -488,6 +492,33 @@ pub fn read_last_check(state: &mut dyn PluginStorage) -> Result<Option<i64>, Sto
         .map(|text| text.trim_matches(casing::is_white_space))
         .and_then(|text| number::parse_i64(text, NumberStyles::INTEGER))
         .filter(|seconds| *seconds > 0))
+}
+
+/// The last second .NET's `DateTimeOffset` holds, in Unix seconds
+/// (9999-12-31 23:59:59 UTC).
+const MAX_UNIX_SECONDS: i64 = 253_402_300_799;
+
+/// The last check moved on by `interval_seconds`, with the range checks the
+/// C#'s `DateTimeOffset` makes: a kept time past its last second throws out
+/// of `FromUnixTimeSeconds` (in `ReadLastCheck`), and a sum past it out of
+/// the addition.
+///
+/// # Errors
+/// The message of the `ArgumentOutOfRangeException` the C# throws there
+/// (checked against .NET 10).
+pub fn next_check_after(last_check: i64, interval_seconds: i64) -> Result<i64, String> {
+    if last_check > MAX_UNIX_SECONDS {
+        return Err(format!(
+            "Valid values are between -62135596800 and {MAX_UNIX_SECONDS}, inclusive. (Parameter 'seconds')\r\nActual value was {last_check}."
+        ));
+    }
+    match last_check.checked_add(interval_seconds) {
+        Some(next) if next <= MAX_UNIX_SECONDS => Ok(next),
+        _ => Err(
+            "The added or subtracted value results in an un-representable DateTime. (Parameter 't')"
+                .to_owned(),
+        ),
+    }
 }
 
 fn failed(reason: &str) -> VtankGameInfoUpdateResult {

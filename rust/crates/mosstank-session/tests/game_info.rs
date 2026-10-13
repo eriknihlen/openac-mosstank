@@ -641,3 +641,53 @@ fn the_default_request_waits_thirty_seconds_for_at_most_32_mib() {
     assert_eq!(30_000, request.timeout_ms);
     assert_eq!(32 * 1024 * 1024, request.max_bytes);
 }
+
+// ---- Not a port of a C# test: a kept time past DateTimeOffset's range ------
+//
+// The C# reads the kept time with `DateTimeOffset.FromUnixTimeSeconds` and
+// adds the window to it; past 9999-12-31 either throws, and the check ends
+// as a failed update with the exception's message (checked against .NET
+// 10). Plain addition overflowed here instead.
+
+fn kept(seconds: &str) -> Store {
+    let mut state = Store::default();
+    state
+        .values
+        .insert(LAST_CHECK_KEY.to_owned(), seconds.to_owned());
+    state
+}
+
+#[test]
+fn a_kept_time_past_the_last_date_fails_the_update() {
+    for (seconds, reason) in [
+        (
+            "253402300800",
+            "Valid values are between -62135596800 and 253402300799, inclusive. (Parameter 'seconds')\r\nActual value was 253402300800",
+        ),
+        (
+            "9223372036854775807",
+            "Valid values are between -62135596800 and 253402300799, inclusive. (Parameter 'seconds')\r\nActual value was 9223372036854775807",
+        ),
+        (
+            "253402300799",
+            "The added or subtracted value results in an un-representable DateTime. (Parameter 't')",
+        ),
+    ] {
+        let mut transport = FakeTransport::default();
+        let (said, applied) = run(
+            &mut profiles_with_excerpt(),
+            &mut kept(seconds),
+            &mut transport,
+            &download(EXCERPT_TIME + ONE_DAY, None, &[]),
+            now_default(),
+            i64::from(ONE_DAY),
+        );
+        assert_eq!(
+            format!("Game database update failed: {reason}. The game database you had is kept."),
+            last(&said),
+            "{seconds}"
+        );
+        assert!(applied.is_empty());
+        assert!(transport.requests.is_empty());
+    }
+}
