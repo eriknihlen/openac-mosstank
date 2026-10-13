@@ -1374,3 +1374,35 @@ pub fn debuff(id: u32, name: &str) -> SpellInfo {
 pub fn equipment(id: u32, name: &'static str, damage_type: i32) -> Gear {
     Gear::new(id, name, damage_type)
 }
+
+/// `CreateAmmoGameInfo`: the fixture database with one more ammunition
+/// row, a Deadly Fire Arrow.
+pub fn ammo_game_info() -> mosstank_formats::gameinfo::VtankGameInfoDatabase {
+    use mosstank_formats::usd::{VtankCell, VtankDatabase, VtankRow};
+    let mut document = VtankDatabase::parse(&mosstank_formats::fixtures::read_vtank(
+        "gameinfodb-excerpt.ugd",
+    ))
+    .unwrap();
+    let ammo = document.find_mut("AmmunitionOptions").unwrap();
+    ammo.rows.push(VtankRow {
+        cells: vec![
+            VtankCell::string("Deadly Fire Arrow"),
+            VtankCell::int(5),
+            VtankCell::int(230),
+            VtankCell::int(6),
+            VtankCell::int(20),
+            VtankCell::int(0),
+            VtankCell::int(0),
+            VtankCell::int(0),
+        ],
+    });
+    mosstank_formats::gameinfo::VtankGameInfoDatabase::parse(&document.render()).unwrap()
+}
+
+/// The missile skill the launcher cases train (`Missile Weapons`, 300).
+pub fn missile_skill() -> Skill {
+    Skill {
+        base: 300,
+        ..skill(47, "Missile Weapons", Training::Trained, 300)
+    }
+}
