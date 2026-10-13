@@ -198,6 +198,20 @@ dependencies = [
 ]
 
 [[package]]
+name = "mosstank-loot"
+version = "0.6.0-dev"
+dependencies = [
+ "ac-plugin-abi",
+ "mosstank-automation",
+ "mosstank-dotnet",
+ "mosstank-formats",
+ "mosstank-settings",
+ "mosstank-stores",
+ "openac-plugin-compat",
+ "sha2",
+]
+
+[[package]]
 name = "mosstank-settings"
 version = "0.6.0-dev"
 dependencies = [
