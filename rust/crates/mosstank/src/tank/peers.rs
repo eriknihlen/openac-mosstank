@@ -21,10 +21,11 @@ const EXPRESSION_PEERS_MS: i64 = 5_000;
 #[derive(Debug, Default)]
 pub(crate) struct PeerState {
     subscriptions: PeerFeatureSubscriptions,
-    /// What the meta's enabled rules call for, and the meta it was read
-    /// from (the C# reads it again when the profile is another object).
+    /// What the meta's enabled rules call for, and which profile it was
+    /// read from (the engine's profile generation: the C# reads it again
+    /// when the profile is another object).
     meta_requirements: u32,
-    requirements_profile: Option<MetaProfile>,
+    requirements_profile: Option<u64>,
     /// What expressions asked for, kept until `expression_peers_until_ms`
     /// while the meta is off.
     dynamic_requirements: u32,
@@ -32,25 +33,28 @@ pub(crate) struct PeerState {
 }
 
 impl Core {
-    /// `UpdatePeerSubscriptions`. `profile` is the meta in force, or `None`
-    /// inside the meta's own call, where it is the one last read.
+    /// `UpdatePeerSubscriptions`. `profile` is the meta in force with its
+    /// generation, or `None` inside the meta's own call, where it is the one
+    /// last read. `readout_shown` is whether the network readout's window
+    /// is open.
     pub(crate) fn update_peer_subscriptions(
         &mut self,
         client: &mut dyn TankClient,
         catalog: &dyn UbCatalog,
         meta_enabled: bool,
-        profile: Option<&MetaProfile>,
+        profile: Option<(u64, &MetaProfile)>,
+        readout_shown: bool,
     ) {
         if !client.rules().is_available() {
             self.peers.subscriptions.dispose(client.ub());
             self.peers.dynamic_requirements = capabilities::NONE;
             return;
         }
-        if let Some(profile) = profile
-            && self.peers.requirements_profile.as_ref() != Some(profile)
+        if let Some((generation, profile)) = profile
+            && self.peers.requirements_profile != Some(generation)
         {
+            self.peers.requirements_profile = Some(generation);
             self.peers.meta_requirements = meta_peer_requirements(profile);
-            self.peers.requirements_profile = Some(profile.clone());
         }
         let mut requested = capabilities::NONE;
         if catalog.flag("Sharing.Vitals") {
@@ -59,10 +63,11 @@ impl Core {
         if catalog.flag("Networking.ReceiveCommands") {
             requested |= capabilities::COMMANDS;
         }
-        // The network readout is the window's; until it is shown it is on
-        // screen only when allowed to stay with its window shut.
+        // The network readout is on screen when it is on and either its
+        // window is open or it may stay with the window shut (`ShouldShow`,
+        // register PEER-2).
         let readout = hud::read_settings(catalog);
-        let readout_shows = readout.enabled && readout.show_hud_when_closed;
+        let readout_shows = readout.enabled && (readout_shown || readout.show_hud_when_closed);
         let vitals = &self.settings.vitals;
         if (client.meta().has_ui() && readout_shows)
             || (self.combat.enabled()
@@ -90,6 +95,7 @@ impl Core {
         client: &mut dyn TankClient,
         catalog: &dyn UbCatalog,
         meta_enabled: bool,
+        readout_shown: bool,
         need: PeerNeed,
     ) {
         self.peers.dynamic_requirements |= match need {
@@ -97,7 +103,7 @@ impl Core {
             PeerNeed::Casts => capabilities::CASTS,
         };
         self.peers.expression_peers_until_ms = client.clock().utc_unix_ms + EXPRESSION_PEERS_MS;
-        self.update_peer_subscriptions(client, catalog, meta_enabled, None);
+        self.update_peer_subscriptions(client, catalog, meta_enabled, None, readout_shown);
     }
 
     /// `MetaPeersReady`: the meta waits for the other clients only when
@@ -125,7 +131,8 @@ impl TankCx<'_> {
             self.client,
             &self.ub.catalog,
             meta_enabled,
-            Some(self.meta.profile()),
+            Some((self.meta.profile_generation(), self.meta.profile())),
+            self.ub.hud.shown(),
         );
     }
 }
