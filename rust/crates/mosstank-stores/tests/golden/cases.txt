@@ -29,3 +29,4 @@ meta-disabled
 meta-import
 meta-corrupt
 meta-legacy
+enchant-timers

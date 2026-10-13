@@ -2090,3 +2090,76 @@ warn Meta profile 'mosstank/metas/Old.af' was NOT saved: SaveMeta: 1 disabled ru
 warn MossTank could not sweep legacy Meta profile 'Old': Meta profile 'mosstank/metas/Old.af' was NOT saved: SaveMeta: 1 disabled rule(s) have no metaf-compatible representation and would be silently dropped. Call SaveMeta(profile, dropDisabledRules: true) to accept that loss explicitly.
 warn Migrated legacy MossTank Meta profile 'profiles/meta/by-character/0feff71e11f72c313577186b.json' to 'mosstank/metas/--Acdream_Coldeve.af'.
 
+##### enchant-timers
+save True
+--- plugin item-enchant-timers/16F8516B222CA2CDC67F6694C7B10297A5D7B15EA7E53D30895369213812F177.json
+{\r\n
+  "version": 1,\r\n
+  "serverName": "Coldeve",\r\n
+  "characterName": "Acdream",\r\n
+  "savedAtUnixMilliseconds": 2000000,\r\n
+  "entries": [\r\n
+    {\r\n
+      "itemObjectId": 5001,\r\n
+      "weenieClassId": 300,\r\n
+      "itemName": "Sword",\r\n
+      "family": 4,\r\n
+      "spellId": 12,\r\n
+      "quality": 7,\r\n
+      "recordedAtUnixMilliseconds": 1000000,\r\n
+      "expiresAtUnixMilliseconds": 8000000\r\n
+    },\r\n
+    {\r\n
+      "itemObjectId": 5001,\r\n
+      "weenieClassId": 300,\r\n
+      "itemName": "Sword",\r\n
+      "family": 4,\r\n
+      "spellId": 12,\r\n
+      "quality": 7,\r\n
+      "recordedAtUnixMilliseconds": 1000000,\r\n
+      "expiresAtUnixMilliseconds": 7000000\r\n
+    },\r\n
+    {\r\n
+      "itemObjectId": 5002,\r\n
+      "weenieClassId": 300,\r\n
+      "itemName": "Bow",\r\n
+      "family": 9,\r\n
+      "spellId": 77,\r\n
+      "quality": 7,\r\n
+      "recordedAtUnixMilliseconds": 1000000,\r\n
+      "expiresAtUnixMilliseconds": 9000000\r\n
+    },\r\n
+    {\r\n
+      "itemObjectId": 5003,\r\n
+      "weenieClassId": 300,\r\n
+      "itemName": "Bow",\r\n
+      "family": 1,\r\n
+      "spellId": 2,\r\n
+      "quality": 7,\r\n
+      "recordedAtUnixMilliseconds": 1000000,\r\n
+      "expiresAtUnixMilliseconds": 1500000\r\n
+    },\r\n
+    {\r\n
+      "itemObjectId": 5004,\r\n
+      "weenieClassId": 300,\r\n
+      "itemName": "Bow",\r\n
+      "family": 0,\r\n
+      "spellId": 2,\r\n
+      "quality": 7,\r\n
+      "recordedAtUnixMilliseconds": 1000000,\r\n
+      "expiresAtUnixMilliseconds": 9000000\r\n
+    }\r\n
+  ]\r\n
+}
+--- log
+load Loaded True  5001/4/12/8000000;5002/9/77/9000000
+load Loaded True  5001/4/12/8000000;5002/9/77/9000000
+load Missing False  
+load Unavailable False  
+load ClockRollback False The system clock is earlier than the stored timer observations. 
+--- log
+load Invalid False The stored timer scope or schema did not match. 
+load Invalid False - 
+save empty True
+--- log
+

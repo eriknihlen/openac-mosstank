@@ -30,6 +30,7 @@ fn cannot_convert(path: &str, target: &str) -> JsonError {
 pub struct Object<'a> {
     members: &'a [(String, JsonValue)],
     path: &'a str,
+    case_sensitive: bool,
 }
 
 impl<'a> Object<'a> {
@@ -44,8 +45,36 @@ impl<'a> Object<'a> {
     ) -> Result<Option<Self>, JsonError> {
         match value {
             JsonValue::Null => Ok(None),
-            JsonValue::Object(members) => Ok(Some(Self { members, path })),
+            JsonValue::Object(members) => Ok(Some(Self {
+                members,
+                path,
+                case_sensitive: false,
+            })),
             _ => Err(cannot_convert(path, target)),
+        }
+    }
+
+    /// The same object with property names matched exactly (options
+    /// without `PropertyNameCaseInsensitive`).
+    #[must_use]
+    pub fn case_sensitive(self) -> Self {
+        Self {
+            case_sensitive: true,
+            ..self
+        }
+    }
+
+    /// A `long` property.
+    ///
+    /// # Errors
+    /// Not a whole number that fits.
+    pub fn long(&self, name: &str, default: i64) -> Result<i64, JsonError> {
+        match self.get(name) {
+            None => Ok(default),
+            Some(JsonValue::Number(number)) => integer_text(number)
+                .and_then(|text| number::parse_i64(&text, NumberStyles::INTEGER))
+                .ok_or_else(|| cannot_convert(&self.path_of(name), "System.Int64")),
+            Some(_) => Err(cannot_convert(&self.path_of(name), "System.Int64")),
         }
     }
 
@@ -56,7 +85,13 @@ impl<'a> Object<'a> {
         self.members
             .iter()
             .rev()
-            .find(|(key, _)| key.eq_ignore_ascii_case(name))
+            .find(|(key, _)| {
+                if self.case_sensitive {
+                    key == name
+                } else {
+                    key.eq_ignore_ascii_case(name)
+                }
+            })
             .map(|(_, value)| value)
     }
 

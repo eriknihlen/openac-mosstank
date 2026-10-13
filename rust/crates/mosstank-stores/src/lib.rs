@@ -24,6 +24,7 @@
 
 pub mod directory;
 pub mod global_variables;
+pub mod item_enchant_store;
 pub mod layout;
 pub mod layout_migration;
 pub mod legacy;

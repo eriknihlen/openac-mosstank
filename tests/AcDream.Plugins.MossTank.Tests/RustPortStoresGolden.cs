@@ -160,6 +160,7 @@ internal static class RustPortStoresGolden
                 case "meta-import": MetaImport(sb); break;
                 case "meta-corrupt": MetaCorrupt(sb); break;
                 case "meta-legacy": MetaLegacy(sb); break;
+                case "enchant-timers": EnchantTimers(sb); break;
                 default: throw new InvalidOperationException("unknown scenario " + name);
             }
         }
@@ -910,6 +911,58 @@ internal static class RustPortStoresGolden
         MetaProfile loaded = store.LoadCurrent();
         sb.Append("load ").Append(B(store.LastLoadSucceeded)).Append(' ').Append(Meta(loaded)).Append('\n');
         MetaState(sb, store);
+        Files(sb, host);
+    }
+
+    private static DateTimeOffset At(long unixMilliseconds) =>
+        DateTimeOffset.FromUnixTimeMilliseconds(unixMilliseconds);
+
+    private static void EnchantLoad(StringBuilder sb, ItemEnchantPersistenceStore store,
+        ItemEnchantPersistenceScope scope, long now, bool showError = true)
+    {
+        // A JSON error's text is System.Text.Json's own (register row STORE-2).
+        ItemEnchantPersistenceLoadResult result = store.Load(scope, At(now));
+        sb.Append("load ").Append(result.Status).Append(' ').Append(B(result.RequiresRewrite))
+            .Append(' ').Append(showError ? result.Error : "-").Append(' ')
+            .Append(string.Join(";", result.Records.Select(static record =>
+                record.ItemObjectId.ToString(CultureInfo.InvariantCulture) + "/"
+                + record.Family.ToString(CultureInfo.InvariantCulture) + "/"
+                + record.SpellId.ToString(CultureInfo.InvariantCulture) + "/"
+                + record.ExpiresAtUtc.ToUnixTimeMilliseconds().ToString(CultureInfo.InvariantCulture))))
+            .Append('\n');
+    }
+
+    private static void EnchantTimers(StringBuilder sb)
+    {
+        Host host = NewHost();
+        var store = new ItemEnchantPersistenceStore(host.Plugin);
+        ItemEnchantPersistenceScope scope = ItemEnchantPersistenceScope.Create(" Coldeve ", "Acdream");
+        ItemEnchantPersistenceRecord Record(uint item, uint family, uint spell, long expires, string name = "Bow") =>
+            new(item, 300u, name, family, spell, 7, At(1_000_000L), At(expires));
+        sb.Append("save ").Append(B(store.Save(scope,
+            [
+                Record(5002u, 9u, 77u, 9_000_000L),
+                Record(5001u, 4u, 12u, 8_000_000L, "Sword"),
+                Record(5001u, 4u, 12u, 7_000_000L, "Sword"),
+                Record(5003u, 1u, 2u, 1_500_000L),
+                Record(5004u, 0u, 2u, 9_000_000L),
+            ],
+            At(2_000_000L)))).Append('\n');
+        Files(sb, host);
+        EnchantLoad(sb, store, scope, 2_000_000L);
+        EnchantLoad(sb, store, ItemEnchantPersistenceScope.Create("coldeve", "ACDREAM"), 2_000_000L);
+        EnchantLoad(sb, store, ItemEnchantPersistenceScope.Create("Frostfell", "Acdream"), 2_000_000L);
+        EnchantLoad(sb, store, ItemEnchantPersistenceScope.Create("", "Acdream"), 2_000_000L);
+        EnchantLoad(sb, store, scope, 1_500_000L);
+        Files(sb, host);
+        store.Save(scope, [Record(5001u, 4u, 12u, 8_000_000L)], At(2_000_000L));
+        host.Plugin.Text[ItemEnchantPersistenceStore.Key(scope)] =
+            host.Plugin.Text[ItemEnchantPersistenceStore.Key(scope)].Replace("\"version\": 1", "\"version\": 2", StringComparison.Ordinal);
+        EnchantLoad(sb, store, scope, 2_000_000L);
+        store.Save(scope, [Record(5001u, 4u, 12u, 8_000_000L)], At(2_000_000L));
+        host.Plugin.Text[ItemEnchantPersistenceStore.Key(scope)] = "{\"version\":1,\"serverName\":\"Coldeve\",\"characterName\":\"Acdream\",\"entries\":[{\"itemObjectId\":\"x\"}]}";
+        EnchantLoad(sb, store, scope, 2_000_000L, showError: false);
+        sb.Append("save empty ").Append(B(store.Save(scope, [], At(2_000_000L)))).Append('\n');
         Files(sb, host);
     }
 }

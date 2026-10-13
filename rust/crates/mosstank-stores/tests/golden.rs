@@ -25,6 +25,9 @@ use mosstank_formats::utl::{self, LootAction, LootRule, VtankLootRequirement};
 use mosstank_formats::{met, nav};
 use mosstank_settings::model::{AllSettings, BuffItemEnchantRow, ConsumableCategory, LootSettings};
 use mosstank_settings::monster::{MonsterRule, MonsterRuleActions, MonsterValue, MonsterValueKind};
+use mosstank_stores::item_enchant_store::{
+    self, ItemEnchantLoadStatus, ItemEnchantRecord, ItemEnchantScope,
+};
 use mosstank_stores::loot_store::LootProfileStore;
 use mosstank_stores::meta_store::MetaProfileStore;
 use mosstank_stores::profile_store::{ProfileLoad, ProfileStore};
@@ -1255,9 +1258,134 @@ fn meta_legacy(out: &mut String) {
     files(out, &host);
 }
 
+// ---- The item-enchantment timers ------------------------------------------------
+
+fn enchant_load(
+    out: &mut String,
+    host: &mut MemoryHost,
+    scope: &ItemEnchantScope,
+    now: i64,
+    show_error: bool,
+) {
+    // A JSON error's text is System.Text.Json's own (register row STORE-2).
+    let result = item_enchant_store::load(&mut host.plugin, scope, now);
+    let status = match result.status {
+        ItemEnchantLoadStatus::Unavailable => "Unavailable",
+        ItemEnchantLoadStatus::Missing => "Missing",
+        ItemEnchantLoadStatus::Loaded => "Loaded",
+        ItemEnchantLoadStatus::ClockRollback => "ClockRollback",
+        ItemEnchantLoadStatus::Invalid => "Invalid",
+    };
+    let records: Vec<String> = result
+        .records
+        .iter()
+        .map(|record| {
+            format!(
+                "{}/{}/{}/{}",
+                record.item_object_id, record.family, record.spell_id, record.expires_at_unix_ms
+            )
+        })
+        .collect();
+    let error = if show_error {
+        result.error.unwrap_or_default()
+    } else {
+        "-".to_owned()
+    };
+    writeln!(
+        out,
+        "load {status} {} {error} {}",
+        bool_text(result.requires_rewrite),
+        records.join(";")
+    )
+    .unwrap();
+}
+
+fn enchant_timers(out: &mut String) {
+    let mut host = host();
+    let scope = ItemEnchantScope::new(Some(" Coldeve "), Some("Acdream"));
+    let record = |item: u32, family: u32, spell: u32, expires: i64, name: &str| ItemEnchantRecord {
+        item_object_id: item,
+        weenie_class_id: 300,
+        item_name: name.to_owned(),
+        family,
+        spell_id: spell,
+        quality: 7,
+        recorded_at_unix_ms: 1_000_000,
+        expires_at_unix_ms: expires,
+    };
+    let saved = item_enchant_store::save(
+        &mut host.plugin,
+        &scope,
+        &[
+            record(5002, 9, 77, 9_000_000, "Bow"),
+            record(5001, 4, 12, 8_000_000, "Sword"),
+            record(5001, 4, 12, 7_000_000, "Sword"),
+            record(5003, 1, 2, 1_500_000, "Bow"),
+            record(5004, 0, 2, 9_000_000, "Bow"),
+        ],
+        2_000_000,
+    );
+    writeln!(out, "save {}", bool_text(saved)).unwrap();
+    files(out, &host);
+    enchant_load(out, &mut host, &scope, 2_000_000, true);
+    enchant_load(
+        out,
+        &mut host,
+        &ItemEnchantScope::new(Some("coldeve"), Some("ACDREAM")),
+        2_000_000,
+        true,
+    );
+    enchant_load(
+        out,
+        &mut host,
+        &ItemEnchantScope::new(Some("Frostfell"), Some("Acdream")),
+        2_000_000,
+        true,
+    );
+    enchant_load(
+        out,
+        &mut host,
+        &ItemEnchantScope::new(Some(""), Some("Acdream")),
+        2_000_000,
+        true,
+    );
+    enchant_load(out, &mut host, &scope, 1_500_000, true);
+    files(out, &host);
+    item_enchant_store::save(
+        &mut host.plugin,
+        &scope,
+        &[record(5001, 4, 12, 8_000_000, "Bow")],
+        2_000_000,
+    );
+    let key = scope.key();
+    let text = host
+        .plugin
+        .get(&key)
+        .unwrap()
+        .replace("\"version\": 1", "\"version\": 2");
+    host.plugin.insert(&key, &text);
+    enchant_load(out, &mut host, &scope, 2_000_000, true);
+    item_enchant_store::save(
+        &mut host.plugin,
+        &scope,
+        &[record(5001, 4, 12, 8_000_000, "Bow")],
+        2_000_000,
+    );
+    host.plugin.insert(
+        &key,
+        "{\"version\":1,\"serverName\":\"Coldeve\",\"characterName\":\"Acdream\",\"entries\":[{\"itemObjectId\":\"x\"}]}",
+    );
+    enchant_load(out, &mut host, &scope, 2_000_000, false);
+    let emptied = item_enchant_store::save(&mut host.plugin, &scope, &[], 2_000_000);
+    writeln!(out, "save empty {}", bool_text(emptied)).unwrap();
+    files(out, &host);
+}
+
+
 fn run(name: &str) -> String {
     let mut out = String::new();
     match name {
+        "enchant-timers" => enchant_timers(&mut out),
         "meta-first-run" => meta_first_run(&mut out),
         "meta-named" => meta_named(&mut out),
         "meta-embedded-copy" => meta_embedded_copy(&mut out),
