@@ -55,9 +55,20 @@ pub use equip::AmmunitionPlan;
 /// owner understands.
 pub trait AmmunitionCrafting {
     /// A plan that makes `count` of `name`, if one can be made now.
-    fn resolve(&mut self, name: &str, count: i32) -> Option<u32>;
+    fn resolve(
+        &mut self,
+        automation: &mut dyn Automation,
+        combat: &CombatSettings,
+        name: &str,
+        count: i32,
+    ) -> Option<u32>;
     /// Starts a plan; true when it went out.
-    fn request(&mut self, plan: u32) -> bool;
+    fn request(
+        &mut self,
+        automation: &mut dyn Automation,
+        combat: &CombatSettings,
+        plan: u32,
+    ) -> bool;
 }
 
 /// What one call works with.

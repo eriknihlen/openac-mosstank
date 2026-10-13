@@ -571,7 +571,7 @@ impl ProfileStore {
             (database, sidecar)
         };
         self.write_usd_text(host, &file_name, &database.render());
-        self.write_json(host, &side_car_key(&file_name), &sidecar.write());
+        self.write_json(host, &side_car_key(&file_name), sidecar.write());
         self.current_database = Some(database);
         self.current_database_file_name = Some(file_name.clone());
         self.active_file_name = Some(file_name.clone());
@@ -784,7 +784,7 @@ impl ProfileStore {
             || !self.write_json(
                 host,
                 &side_car_key(&file_name),
-                &SideCarDocument::capture(settings, no_buff_item_names, log_channels).write(),
+                SideCarDocument::capture(settings, no_buff_item_names, log_channels).write(),
             )
         {
             return Ok(false);
@@ -822,7 +822,7 @@ impl ProfileStore {
         self.write_json(
             host,
             &side_car_key(&file_name),
-            &SideCarDocument::create_defaults().write(),
+            SideCarDocument::create_defaults().write(),
         );
         self.current_database = Some(database);
         self.current_database_file_name = Some(file_name.clone());
@@ -931,7 +931,7 @@ impl ProfileStore {
                     Some(entry) => entry.1 = Some(dynamic.clone()),
                     None => entries.push((canonical.to_owned(), Some(dynamic.clone()))),
                 }
-                self.write_json(host, &key, &sidecar.write());
+                self.write_json(host, &key, sidecar.write());
             }
         }
         Ok(file_names.len())
@@ -1011,7 +1011,7 @@ impl ProfileStore {
                     &no_buff_item_names,
                     &IgnoreCaseStringSet::new(),
                 );
-                self.write_json(host, &side_car_key(&file_name), &sidecar.write());
+                self.write_json(host, &side_car_key(&file_name), sidecar.write());
             }
             let plugin = host.storage(Root::Plugin);
             if plugin.is_available() {
@@ -1031,10 +1031,10 @@ impl ProfileStore {
             let roster = LegacyRosterDocument {
                 profiles: Some(remaining),
             };
-            self.write_json(host, LEGACY_ROSTER_KEY, &roster.write());
+            self.write_json(host, LEGACY_ROSTER_KEY, Ok(roster.write()));
         }
         let preferences = self.preferences.write();
-        self.write_json(host, PREFERENCES_KEY, &preferences);
+        self.write_json(host, PREFERENCES_KEY, Ok(preferences));
         host.log().warn(&format!(
             "Migrated {migrated} legacy MossTank named settings profile(s) from the old roster."
         ));
@@ -1103,7 +1103,7 @@ impl ProfileStore {
         self.write_usd_text(host, &file_name, &database.render());
         let sidecar =
             SideCarDocument::capture(settings, no_buff_item_names, &IgnoreCaseStringSet::new());
-        self.write_json(host, &side_car_key(&file_name), &sidecar.write());
+        self.write_json(host, &side_car_key(&file_name), sidecar.write());
         self.current_database = Some(database);
         self.current_database_file_name = Some(file_name.clone());
         let plugin = host.storage(Root::Plugin);
@@ -1219,13 +1219,22 @@ impl ProfileStore {
         }
     }
 
-    fn write_json(&mut self, host: &mut dyn StoreHost, key: &str, text: &str) -> bool {
+    fn write_json(
+        &mut self,
+        host: &mut dyn StoreHost,
+        key: &str,
+        text: Result<String, String>,
+    ) -> bool {
         let storage = host.storage(Root::Plugin);
         if !storage.is_available() {
             self.save_failure_notice = Some("Profile storage is unavailable.".to_owned());
             return false;
         }
-        match storage.write_text(key, text) {
+        match text.and_then(|text| {
+            storage
+                .write_text(key, &text)
+                .map_err(|error| error.to_string())
+        }) {
             Ok(()) => true,
             Err(error) => {
                 host.log()
@@ -1238,6 +1247,6 @@ impl ProfileStore {
 
     fn save_preferences(&mut self, host: &mut dyn StoreHost) {
         let text = self.preferences.write();
-        self.write_json(host, PREFERENCES_KEY, &text);
+        self.write_json(host, PREFERENCES_KEY, Ok(text));
     }
 }

@@ -114,6 +114,7 @@ impl Core {
         }
         self.settings.combat.heal_kits = heal_kits;
         self.combat.replace_game_info(game_info.clone());
+        self.crafting.replace_game_info(game_info.clone());
         self.game_info = game_info;
     }
 
@@ -356,7 +357,9 @@ impl TankCx<'_> {
                 .load_current(self.client.stores(), Some(&spells)),
         )
         .unwrap_or_default();
-        self.with_engine(|engine, host, services| engine.replace_profile(host, services, profile));
+        // The engine is built with this profile: no transition, nothing
+        // announced.
+        self.meta.set_initial_profile(profile);
     }
 
     /// `EnsureCharacterProfile`: the binding waits for a name; the same
@@ -539,6 +542,7 @@ impl TankCx<'_> {
         core.vital_helper_recharge.reset();
         core.inventory_maintenance.reset();
         core.dispel.reset();
+        core.crafting.reset();
         core.item_mana.reset();
         {
             let lent = lent_loot!(core);

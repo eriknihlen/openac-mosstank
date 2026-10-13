@@ -14,7 +14,7 @@ use ac_plugin_abi::combat::{
 };
 use ac_plugin_abi::items::{
     EquipmentItem, EquipmentObservation, EquipmentPlacement, EquipmentResult, EquipmentStatus,
-    InventoryItem, ItemResult, ItemUseCompletion,
+    InventoryCompletion, InventoryItem, ItemResult, ItemUseCompletion,
 };
 use ac_plugin_abi::magic::{CastCompletion, CastGate, CastResult, TrackedEnchantment};
 use ac_plugin_abi::navigation::{
@@ -28,6 +28,25 @@ use ac_plugin_abi::ui::ProjectileSample;
 use ac_plugin_abi::world::{ItemProperties, Position, WorldObject};
 
 use crate::spells::SpellCatalog;
+
+/// The item property naming the shared cooldown an item belongs to.
+pub const SHARED_COOLDOWN_PROPERTY: u32 = 280;
+
+/// The shared cooldown every summoning essence belongs to
+/// (`PluginInventoryItem.SummoningCooldownId`).
+pub const SUMMONING_COOLDOWN_ID: u32 = 213;
+
+/// Whether a body fits ahead of the character (`PluginRoomAheadStatus`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum RoomAhead {
+    /// The client cannot tell.
+    #[default]
+    Unknown,
+    /// There is room.
+    Clear,
+    /// Something is in the way.
+    Blocked,
+}
 
 /// What the rules read from and ask of the client.
 pub trait Automation {
@@ -110,7 +129,36 @@ pub trait Automation {
     /// An appraised item's properties.
     fn item_properties(&mut self, object_id: u32) -> Option<ItemProperties>;
 
+    /// The shared cooldown an item belongs to (`SharedCooldownId`), 0 for
+    /// none: by default as its appraisal reports it (property 280).
+    fn shared_cooldown_id(&mut self, object_id: u32) -> u32 {
+        self.item_properties(object_id)
+            .and_then(|properties| properties.int(SHARED_COOLDOWN_PROPERTY))
+            .map_or(0, |id| u32::try_from(id).unwrap_or(0))
+    }
+
+    /// The newest inventory request the server answered
+    /// (`LastInventoryCompletion`).
+    fn inventory_completion(&mut self) -> InventoryCompletion {
+        InventoryCompletion::default()
+    }
+
+    /// Moves `amount` of a stack into a container, splitting it
+    /// (`MoveToContainer` with an amount).
+    fn split_stack(&mut self, object_id: u32, container_id: u32, amount: u32) -> ItemResult {
+        let _ = (object_id, container_id, amount);
+        ItemResult {
+            status: ac_plugin_abi::items::ItemStatus::Unavailable,
+            notice: None,
+        }
+    }
+
     // --- The object table (`IWorldObjectAutomation`).
+
+    /// Every object the client knows (`CaptureObjects`).
+    fn capture_objects(&mut self) -> Vec<WorldObject> {
+        Vec::new()
+    }
 
     /// Whether the object table can be asked anything.
     fn objects_available(&mut self) -> bool {
@@ -373,6 +421,13 @@ pub trait Automation {
         NavigationStatus::Unavailable
     }
 
+    /// Whether a body fits `distance_meters` straight ahead
+    /// (`CheckRoomAhead`).
+    fn check_room_ahead(&mut self, distance_meters: f32) -> RoomAhead {
+        let _ = distance_meters;
+        RoomAhead::Unknown
+    }
+
     // --- The selection (`ISelectionAutomation`, `ISelectionService`).
 
     /// The selected object.
@@ -471,4 +526,19 @@ pub fn try_capture_properties(
         return None;
     }
     automation.item_properties(object_id)
+}
+
+/// An item command's status as .NET names the enum member.
+#[must_use]
+pub fn item_status_name(status: ac_plugin_abi::items::ItemStatus) -> &'static str {
+    use ac_plugin_abi::items::ItemStatus;
+    match status {
+        ItemStatus::Unavailable => "Unavailable",
+        ItemStatus::InvalidItem => "InvalidItem",
+        ItemStatus::InvalidTarget => "InvalidTarget",
+        ItemStatus::Busy => "Busy",
+        ItemStatus::Started => "Started",
+        ItemStatus::Refused => "Refused",
+        ItemStatus::Completed => "Completed",
+    }
 }

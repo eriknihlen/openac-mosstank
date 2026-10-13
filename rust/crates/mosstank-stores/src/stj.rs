@@ -21,6 +21,20 @@ pub fn write(document: &JsonValue) -> String {
         .expect("store documents hold only finite numbers")
 }
 
+/// What `JsonSerializer.Serialize` throws for a number JSON cannot hold
+/// (NaN or an infinity) under the default number handling.
+pub const NON_FINITE_NUMBER_MESSAGE: &str = ".NET number values such as positive and negative infinity cannot be written as valid JSON. To make it work when using 'JsonSerializer', consider specifying 'JsonNumberHandling.AllowNamedFloatingPointLiterals' (see https://docs.microsoft.com/dotnet/api/system.text.json.serialization.jsonnumberhandling).";
+
+/// A document as `JsonSerializer.Serialize` writes it, indented, or the
+/// message it throws for a number JSON cannot hold.
+///
+/// # Errors
+/// The document holds NaN or an infinity.
+pub fn try_write(document: &JsonValue) -> Result<String, String> {
+    system_text_json::to_string(document, &INDENTED)
+        .map_err(|_| NON_FINITE_NUMBER_MESSAGE.to_owned())
+}
+
 fn cannot_convert(path: &str, target: &str) -> JsonError {
     format!("The JSON value could not be converted to {target}. Path: {path}")
 }
