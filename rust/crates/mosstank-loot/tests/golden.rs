@@ -14,8 +14,12 @@ use mosstank_formats::utl;
 use mosstank_loot::expression::LootRuleExpression;
 use mosstank_loot::rules::{self, decide, needs_identify};
 
-const CASES: &str = include_str!("golden/cases.txt");
-const EXPECTED: &str = include_str!("golden/cases.out");
+fn golden(name: &str) -> String {
+    let path = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("tests/golden")
+        .join(name);
+    std::fs::read_to_string(&path).unwrap_or_else(|error| panic!("{}: {error}", path.display()))
+}
 
 fn uint(text: &str) -> u32 {
     match text.strip_prefix("0x") {
@@ -223,7 +227,8 @@ fn expression(out: &mut String, source: &str, items: &Items) {
 fn the_rule_engine_answers_as_the_csharp_plugin_does() {
     let mut items: Items = Vec::new();
     let mut out = String::new();
-    for line in CASES.lines() {
+    let cases = golden("cases.txt");
+    for line in cases.lines() {
         if line.is_empty() || line.starts_with('#') {
             continue;
         }
@@ -247,7 +252,7 @@ fn the_rule_engine_answers_as_the_csharp_plugin_does() {
             _ => panic!("unknown case kind {kind}"),
         }
     }
-    let expected = EXPECTED.replace("\r\n", "\n");
+    let expected = golden("cases.out").replace("\r\n", "\n");
     for (number, (actual, wanted)) in out.lines().zip(expected.lines()).enumerate() {
         assert_eq!(actual, wanted, "cases.out line {}", number + 1);
     }
