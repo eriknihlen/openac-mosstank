@@ -1,0 +1,842 @@
+== profile loot-a
+plain: refused=no rule matched; needs=false; rules=d-._
+pyreal: refused=no rule matched; needs=false; rules=d-._
+magic-ring: refused=no rule matched; needs=false; rules=d-._
+insane-axe: refused=no rule matched; needs=false; rules=d-._
+rare-gem: refused=no rule matched; needs=false; rules=d-._
+shirt: refused=no rule matched; needs=false; rules=d-._
+pants: refused=no rule matched; needs=false; rules=d-._
+wielded-sword: refused=no rule matched; needs=false; rules=d-._
+packed-bow: refused=no rule matched; needs=false; rules=d-._
+armor: refused=no rule matched; needs=false; rules=d-._
+scroll: refused=no rule matched; needs=false; rules=d-._
+salvage-bag: refused=no rule matched; needs=false; rules=d-._
+kit: refused=no rule matched; needs=false; rules=d-._
+buffed-staff: refused=no rule matched; needs=false; rules=d-._
+aetheria: refused=no rule matched; needs=false; rules=d-._
+rated-gear: refused=no rule matched; needs=false; rules=d-._
+tinkered-blade: refused=no rule matched; needs=false; rules=d-._
+wand: refused=no rule matched; needs=false; rules=d-._
+radius: refused=no rule matched; needs=false; rules=d-._
+comma-name: refused=no rule matched; needs=false; rules=d-._
+h-axe: refused=no rule matched; needs=false; rules=d-._
+f-knife: refused=no rule matched; needs=false; rules=d-._
+tinked-axe: refused=no rule matched; needs=false; rules=d-._
+overlay-axe: refused=no rule matched; needs=false; rules=d-._
+bow-od: refused=no rule matched; needs=false; rules=d-._
+orb: refused=no rule matched; needs=false; rules=d-._
+void-staff: refused=no rule matched; needs=false; rules=d-._
+void-mixed: refused=no rule matched; needs=false; rules=d-._
+cleaver: refused=no rule matched; needs=false; rules=d-._
+buffed-cleaver: refused=no rule matched; needs=false; rules=d-._
+war-baton: refused=no rule matched; needs=false; rules=d-._
+== profile loot-b
+plain: refused=no rule matched; needs=false; rules=
+pyreal: refused=no rule matched; needs=false; rules=
+magic-ring: refused=no rule matched; needs=false; rules=
+insane-axe: refused=no rule matched; needs=false; rules=
+rare-gem: refused=no rule matched; needs=false; rules=
+shirt: refused=no rule matched; needs=false; rules=
+pants: refused=no rule matched; needs=false; rules=
+wielded-sword: refused=no rule matched; needs=false; rules=
+packed-bow: refused=no rule matched; needs=false; rules=
+armor: refused=no rule matched; needs=false; rules=
+scroll: refused=no rule matched; needs=false; rules=
+salvage-bag: refused=no rule matched; needs=false; rules=
+kit: refused=no rule matched; needs=false; rules=
+buffed-staff: refused=no rule matched; needs=false; rules=
+aetheria: refused=no rule matched; needs=false; rules=
+rated-gear: refused=no rule matched; needs=false; rules=
+tinkered-blade: refused=no rule matched; needs=false; rules=
+wand: refused=no rule matched; needs=false; rules=
+radius: refused=no rule matched; needs=false; rules=
+comma-name: refused=no rule matched; needs=false; rules=
+h-axe: refused=no rule matched; needs=false; rules=
+f-knife: refused=no rule matched; needs=false; rules=
+tinked-axe: refused=no rule matched; needs=false; rules=
+overlay-axe: refused=no rule matched; needs=false; rules=
+bow-od: refused=no rule matched; needs=false; rules=
+orb: refused=no rule matched; needs=false; rules=
+void-staff: refused=no rule matched; needs=false; rules=
+void-mixed: refused=no rule matched; needs=false; rules=
+cleaver: refused=no rule matched; needs=false; rules=
+buffed-cleaver: refused=no rule matched; needs=false; rules=
+war-baton: refused=no rule matched; needs=false; rules=
+== profile loot-c
+plain: refused=no rule matched; needs=false; rules=d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._
+pyreal: refused=no rule matched; needs=false; rules=d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._
+magic-ring: refused=no rule matched; needs=false; rules=d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._
+insane-axe: decision=0|(H) 430 Insane|Keep; needs=true; rules=u-M_ u-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._
+rare-gem: refused=no rule matched; needs=false; rules=d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._
+shirt: refused=no rule matched; needs=false; rules=d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._
+pants: refused=no rule matched; needs=false; rules=d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._
+wielded-sword: refused=no rule matched; needs=true; rules=u-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._
+packed-bow: refused=no rule matched; needs=true; rules=d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ u-._ u-._ u-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._
+armor: refused=no rule matched; needs=false; rules=d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._
+scroll: refused=no rule matched; needs=false; rules=d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._
+salvage-bag: refused=no rule matched; needs=false; rules=d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._
+kit: refused=no rule matched; needs=false; rules=d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._
+buffed-staff: refused=no rule matched; needs=true; rules=u-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._
+aetheria: refused=no rule matched; needs=false; rules=d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._
+rated-gear: refused=no rule matched; needs=false; rules=d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._
+tinkered-blade: refused=no rule matched; needs=true; rules=u-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._
+wand: refused=no rule matched; needs=true; rules=u-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._
+radius: refused=no rule matched; needs=false; rules=d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._
+comma-name: refused=no rule matched; needs=false; rules=d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._
+h-axe: decision=1|(H) Axe (OD +10)|Keep; needs=true; rules=u-._ u-M_ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._
+f-knife: decision=9|(F) Dagger MS (OD +10)|Keep; needs=true; rules=u-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ u-M_ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._
+tinked-axe: refused=no rule matched; needs=true; rules=u-._ u-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._
+overlay-axe: refused=no rule matched; needs=false; rules=d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._
+bow-od: decision=32|(M) Bow (OD +10)|Keep; needs=true; rules=d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ u-M_ u-._ u-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._
+orb: decision=35|(W) No Wield (29MD)|Keep; needs=true; rules=d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ u-M_ u-M_ d-._ d-._ d-._ d-._ d-._
+void-staff: decision=37|(W) Void (OD +7)|Keep; needs=true; rules=d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ u-._ u-._ u-M_ u-M_ u-._ u-._ u-M_
+void-mixed: decision=39|     (W) Void (20md + 4Mgcd)|Keep; needs=true; rules=d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ u-._ u-._ u-M_ u-._ u-._
+cleaver: decision=28|(2H) Cleaving (OD +10)|Keep; needs=true; rules=u-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ u-M_ u-M_ u-M_ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._
+buffed-cleaver: decision=28|(2H) Cleaving (OD +10)|Keep; needs=true; rules=u-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ u-M_ u-M_ u-M_ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._
+war-baton: decision=41|(W) War (OD +7)|Keep; needs=true; rules=d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ d-._ u-M_
+== profile loot-d
+!! The VTClassic loot profile ended unexpectedly.
+== profile vt-proof
+plain: decision=0|Keep everything|Keep; needs=false; rules=dmM_
+pyreal: decision=0|Keep everything|Keep; needs=false; rules=dmM_
+magic-ring: decision=0|Keep everything|Keep; needs=false; rules=dmM_
+insane-axe: decision=0|Keep everything|Keep; needs=false; rules=dmM_
+rare-gem: decision=0|Keep everything|Keep; needs=false; rules=dmM_
+shirt: decision=0|Keep everything|Keep; needs=false; rules=dmM_
+pants: decision=0|Keep everything|Keep; needs=false; rules=dmM_
+wielded-sword: decision=0|Keep everything|Keep; needs=false; rules=dmM_
+packed-bow: decision=0|Keep everything|Keep; needs=false; rules=dmM_
+armor: decision=0|Keep everything|Keep; needs=false; rules=dmM_
+scroll: decision=0|Keep everything|Keep; needs=false; rules=dmM_
+salvage-bag: decision=0|Keep everything|Keep; needs=false; rules=dmM_
+kit: decision=0|Keep everything|Keep; needs=false; rules=dmM_
+buffed-staff: decision=0|Keep everything|Keep; needs=false; rules=dmM_
+aetheria: decision=0|Keep everything|Keep; needs=false; rules=dmM_
+rated-gear: decision=0|Keep everything|Keep; needs=false; rules=dmM_
+tinkered-blade: decision=0|Keep everything|Keep; needs=false; rules=dmM_
+wand: decision=0|Keep everything|Keep; needs=false; rules=dmM_
+radius: decision=0|Keep everything|Keep; needs=false; rules=dmM_
+comma-name: decision=0|Keep everything|Keep; needs=false; rules=dmM_
+h-axe: decision=0|Keep everything|Keep; needs=false; rules=dmM_
+f-knife: decision=0|Keep everything|Keep; needs=false; rules=dmM_
+tinked-axe: decision=0|Keep everything|Keep; needs=false; rules=dmM_
+overlay-axe: decision=0|Keep everything|Keep; needs=false; rules=dmM_
+bow-od: decision=0|Keep everything|Keep; needs=false; rules=dmM_
+orb: decision=0|Keep everything|Keep; needs=false; rules=dmM_
+void-staff: decision=0|Keep everything|Keep; needs=false; rules=dmM_
+void-mixed: decision=0|Keep everything|Keep; needs=false; rules=dmM_
+cleaver: decision=0|Keep everything|Keep; needs=false; rules=dmM_
+buffed-cleaver: decision=0|Keep everything|Keep; needs=false; rules=dmM_
+war-baton: decision=0|Keep everything|Keep; needs=false; rules=dmM_
+== expr catch-all
+plain: true
+pyreal: true
+magic-ring: true
+insane-axe: true
+rare-gem: true
+shirt: true
+pants: true
+wielded-sword: true
+packed-bow: true
+armor: true
+scroll: true
+salvage-bag: true
+kit: true
+buffed-staff: true
+aetheria: true
+rated-gear: true
+tinkered-blade: true
+wand: true
+radius: true
+comma-name: true
+h-axe: true
+f-knife: true
+tinked-axe: true
+overlay-axe: true
+bow-od: true
+orb: true
+void-staff: true
+void-mixed: true
+cleaver: true
+buffed-cleaver: true
+war-baton: true
+== expr default
+plain: true
+pyreal: true
+magic-ring: true
+insane-axe: true
+rare-gem: true
+shirt: true
+pants: true
+wielded-sword: true
+packed-bow: true
+armor: true
+scroll: true
+salvage-bag: true
+kit: true
+buffed-staff: true
+aetheria: true
+rated-gear: true
+tinkered-blade: true
+wand: true
+radius: true
+comma-name: true
+h-axe: true
+f-knife: true
+tinked-axe: true
+overlay-axe: true
+bow-od: true
+orb: true
+void-staff: true
+void-mixed: true
+cleaver: true
+buffed-cleaver: true
+war-baton: true
+== expr name-contains
+plain: false
+pyreal: false
+magic-ring: true
+insane-axe: false
+rare-gem: false
+shirt: false
+pants: false
+wielded-sword: false
+packed-bow: false
+armor: false
+scroll: false
+salvage-bag: false
+kit: false
+buffed-staff: false
+aetheria: false
+rated-gear: false
+tinkered-blade: false
+wand: false
+radius: false
+comma-name: false
+h-axe: false
+f-knife: false
+tinked-axe: false
+overlay-axe: false
+bow-od: false
+orb: false
+void-staff: false
+void-mixed: false
+cleaver: false
+buffed-cleaver: false
+war-baton: false
+== expr name-equals-quoted
+plain: false
+pyreal: false
+magic-ring: true
+insane-axe: false
+rare-gem: false
+shirt: false
+pants: false
+wielded-sword: false
+packed-bow: false
+armor: false
+scroll: false
+salvage-bag: false
+kit: false
+buffed-staff: false
+aetheria: false
+rated-gear: false
+tinkered-blade: false
+wand: false
+radius: false
+comma-name: false
+h-axe: false
+f-knife: false
+tinked-axe: false
+overlay-axe: false
+bow-od: false
+orb: false
+void-staff: false
+void-mixed: false
+cleaver: false
+buffed-cleaver: false
+war-baton: false
+== expr name-double-quoted
+plain: false
+pyreal: false
+magic-ring: false
+insane-axe: false
+rare-gem: false
+shirt: false
+pants: false
+wielded-sword: false
+packed-bow: false
+armor: false
+scroll: false
+salvage-bag: false
+kit: false
+buffed-staff: false
+aetheria: false
+rated-gear: false
+tinkered-blade: false
+wand: true
+radius: false
+comma-name: false
+h-axe: false
+f-knife: false
+tinked-axe: false
+overlay-axe: false
+bow-od: false
+orb: false
+void-staff: false
+void-mixed: false
+cleaver: false
+buffed-cleaver: false
+war-baton: false
+== expr or-groups
+plain: true
+pyreal: true
+magic-ring: error
+insane-axe: error
+rare-gem: error
+shirt: error
+pants: error
+wielded-sword: error
+packed-bow: error
+armor: error
+scroll: error
+salvage-bag: error
+kit: error
+buffed-staff: error
+aetheria: error
+rated-gear: error
+tinkered-blade: error
+wand: error
+radius: error
+comma-name: error
+h-axe: error
+f-knife: error
+tinked-axe: error
+overlay-axe: error
+bow-od: error
+orb: error
+void-staff: error
+void-mixed: error
+cleaver: error
+buffed-cleaver: error
+war-baton: error
+== expr and-clauses
+plain: false
+pyreal: false
+magic-ring: true
+insane-axe: false
+rare-gem: false
+shirt: false
+pants: false
+wielded-sword: false
+packed-bow: false
+armor: true
+scroll: false
+salvage-bag: true
+kit: false
+buffed-staff: false
+aetheria: false
+rated-gear: false
+tinkered-blade: false
+wand: false
+radius: false
+comma-name: false
+h-axe: false
+f-knife: false
+tinked-axe: false
+overlay-axe: false
+bow-od: false
+orb: false
+void-staff: false
+void-mixed: false
+cleaver: false
+buffed-cleaver: false
+war-baton: false
+== expr raw-int
+plain: false
+pyreal: false
+magic-ring: false
+insane-axe: false
+rare-gem: false
+shirt: false
+pants: false
+wielded-sword: false
+packed-bow: false
+armor: true
+scroll: false
+salvage-bag: false
+kit: false
+buffed-staff: false
+aetheria: false
+rated-gear: false
+tinkered-blade: false
+wand: false
+radius: false
+comma-name: false
+h-axe: false
+f-knife: false
+tinked-axe: false
+overlay-axe: false
+bow-od: false
+orb: false
+void-staff: false
+void-mixed: false
+cleaver: false
+buffed-cleaver: false
+war-baton: false
+== expr raw-float
+plain: false
+pyreal: false
+magic-ring: false
+insane-axe: true
+rare-gem: false
+shirt: false
+pants: false
+wielded-sword: false
+packed-bow: false
+armor: false
+scroll: false
+salvage-bag: false
+kit: false
+buffed-staff: false
+aetheria: false
+rated-gear: false
+tinkered-blade: false
+wand: false
+radius: false
+comma-name: false
+h-axe: false
+f-knife: false
+tinked-axe: false
+overlay-axe: false
+bow-od: false
+orb: true
+void-staff: false
+void-mixed: true
+cleaver: false
+buffed-cleaver: false
+war-baton: false
+== expr raw-string
+!! compile
+== expr raw-bool
+plain: true
+pyreal: true
+magic-ring: true
+insane-axe: true
+rare-gem: true
+shirt: true
+pants: true
+wielded-sword: true
+packed-bow: true
+armor: true
+scroll: true
+salvage-bag: true
+kit: true
+buffed-staff: true
+aetheria: true
+rated-gear: true
+tinkered-blade: true
+wand: true
+radius: true
+comma-name: true
+h-axe: true
+f-knife: true
+tinked-axe: true
+overlay-axe: true
+bow-od: true
+orb: true
+void-staff: true
+void-mixed: true
+cleaver: true
+buffed-cleaver: true
+war-baton: true
+== expr raw-did
+plain: true
+pyreal: true
+magic-ring: true
+insane-axe: true
+rare-gem: true
+shirt: true
+pants: true
+wielded-sword: true
+packed-bow: true
+armor: true
+scroll: true
+salvage-bag: true
+kit: true
+buffed-staff: true
+aetheria: true
+rated-gear: true
+tinkered-blade: true
+wand: true
+radius: true
+comma-name: true
+h-axe: true
+f-knife: true
+tinked-axe: true
+overlay-axe: true
+bow-od: true
+orb: true
+void-staff: true
+void-mixed: true
+cleaver: true
+buffed-cleaver: true
+war-baton: true
+== expr raw-iid
+plain: true
+pyreal: true
+magic-ring: true
+insane-axe: true
+rare-gem: true
+shirt: true
+pants: true
+wielded-sword: true
+packed-bow: true
+armor: true
+scroll: true
+salvage-bag: true
+kit: true
+buffed-staff: true
+aetheria: true
+rated-gear: true
+tinkered-blade: true
+wand: true
+radius: true
+comma-name: true
+h-axe: true
+f-knife: true
+tinked-axe: true
+overlay-axe: true
+bow-od: true
+orb: true
+void-staff: true
+void-mixed: true
+cleaver: true
+buffed-cleaver: true
+war-baton: true
+== expr raw-int64
+plain: true
+pyreal: true
+magic-ring: true
+insane-axe: true
+rare-gem: true
+shirt: true
+pants: true
+wielded-sword: true
+packed-bow: true
+armor: true
+scroll: true
+salvage-bag: true
+kit: true
+buffed-staff: true
+aetheria: true
+rated-gear: true
+tinkered-blade: true
+wand: true
+radius: true
+comma-name: true
+h-axe: true
+f-knife: true
+tinked-axe: true
+overlay-axe: true
+bow-od: true
+orb: true
+void-staff: true
+void-mixed: true
+cleaver: true
+buffed-cleaver: true
+war-baton: true
+== expr unknown-field
+plain: error
+pyreal: error
+magic-ring: error
+insane-axe: error
+rare-gem: error
+shirt: error
+pants: error
+wielded-sword: error
+packed-bow: error
+armor: error
+scroll: error
+salvage-bag: error
+kit: error
+buffed-staff: error
+aetheria: error
+rated-gear: error
+tinkered-blade: error
+wand: error
+radius: error
+comma-name: error
+h-axe: error
+f-knife: error
+tinked-axe: error
+overlay-axe: error
+bow-od: error
+orb: error
+void-staff: error
+void-mixed: error
+cleaver: error
+buffed-cleaver: error
+war-baton: error
+== expr unknown-table
+plain: error
+pyreal: error
+magic-ring: error
+insane-axe: error
+rare-gem: error
+shirt: error
+pants: error
+wielded-sword: error
+packed-bow: error
+armor: error
+scroll: error
+salvage-bag: error
+kit: error
+buffed-staff: error
+aetheria: error
+rated-gear: error
+tinkered-blade: error
+wand: error
+radius: error
+comma-name: error
+h-axe: error
+f-knife: error
+tinked-axe: error
+overlay-axe: error
+bow-od: error
+orb: error
+void-staff: error
+void-mixed: error
+cleaver: error
+buffed-cleaver: error
+war-baton: error
+== expr text-number
+plain: true
+pyreal: true
+magic-ring: true
+insane-axe: true
+rare-gem: true
+shirt: true
+pants: true
+wielded-sword: true
+packed-bow: true
+armor: true
+scroll: true
+salvage-bag: true
+kit: true
+buffed-staff: true
+aetheria: true
+rated-gear: true
+tinkered-blade: true
+wand: true
+radius: true
+comma-name: true
+h-axe: true
+f-knife: true
+tinked-axe: true
+overlay-axe: true
+bow-od: true
+orb: true
+void-staff: true
+void-mixed: true
+cleaver: true
+buffed-cleaver: true
+war-baton: true
+== expr number-text
+plain: error
+pyreal: error
+magic-ring: error
+insane-axe: error
+rare-gem: error
+shirt: error
+pants: error
+wielded-sword: error
+packed-bow: error
+armor: error
+scroll: error
+salvage-bag: error
+kit: error
+buffed-staff: error
+aetheria: error
+rated-gear: error
+tinkered-blade: error
+wand: error
+radius: error
+comma-name: error
+h-axe: error
+f-knife: error
+tinked-axe: error
+overlay-axe: error
+bow-od: error
+orb: error
+void-staff: error
+void-mixed: error
+cleaver: error
+buffed-cleaver: error
+war-baton: error
+== expr contains-on-number
+plain: error
+pyreal: error
+magic-ring: error
+insane-axe: error
+rare-gem: error
+shirt: error
+pants: error
+wielded-sword: error
+packed-bow: error
+armor: error
+scroll: error
+salvage-bag: error
+kit: error
+buffed-staff: error
+aetheria: error
+rated-gear: error
+tinkered-blade: error
+wand: error
+radius: error
+comma-name: error
+h-axe: error
+f-knife: error
+tinked-axe: error
+overlay-axe: error
+bow-od: error
+orb: error
+void-staff: error
+void-mixed: error
+cleaver: error
+buffed-cleaver: error
+war-baton: error
+== expr no-operator
+!! compile
+== expr empty-group
+!! compile
+== expr quoted-operator
+plain: false
+pyreal: false
+magic-ring: false
+insane-axe: false
+rare-gem: false
+shirt: false
+pants: false
+wielded-sword: false
+packed-bow: false
+armor: false
+scroll: false
+salvage-bag: false
+kit: false
+buffed-staff: false
+aetheria: false
+rated-gear: false
+tinkered-blade: false
+wand: false
+radius: false
+comma-name: false
+h-axe: false
+f-knife: false
+tinked-axe: false
+overlay-axe: false
+bow-od: false
+orb: false
+void-staff: false
+void-mixed: false
+cleaver: false
+buffed-cleaver: false
+war-baton: false
+== expr material-type
+plain: false
+pyreal: false
+magic-ring: false
+insane-axe: true
+rare-gem: false
+shirt: false
+pants: false
+wielded-sword: false
+packed-bow: false
+armor: false
+scroll: false
+salvage-bag: true
+kit: false
+buffed-staff: false
+aetheria: false
+rated-gear: false
+tinkered-blade: false
+wand: false
+radius: false
+comma-name: false
+h-axe: true
+f-knife: false
+tinked-axe: false
+overlay-axe: false
+bow-od: false
+orb: false
+void-staff: false
+void-mixed: false
+cleaver: false
+buffed-cleaver: false
+war-baton: false
+== expr stack
+plain: false
+pyreal: true
+magic-ring: false
+insane-axe: false
+rare-gem: false
+shirt: false
+pants: false
+wielded-sword: false
+packed-bow: false
+armor: false
+scroll: false
+salvage-bag: false
+kit: false
+buffed-staff: false
+aetheria: false
+rated-gear: false
+tinkered-blade: false
+wand: false
+radius: false
+comma-name: false
+h-axe: false
+f-knife: false
+tinked-axe: false
+overlay-axe: false
+bow-od: false
+orb: false
+void-staff: false
+void-mixed: false
+cleaver: false
+buffed-cleaver: false
+war-baton: false
+== expr burden
+plain: true
+pyreal: true
+magic-ring: true
+insane-axe: true
+rare-gem: true
+shirt: true
+pants: true
+wielded-sword: true
+packed-bow: true
+armor: true
+scroll: true
+salvage-bag: true
+kit: true
+buffed-staff: true
+aetheria: true
+rated-gear: true
+tinkered-blade: true
+wand: true
+radius: true
+comma-name: true
+h-axe: true
+f-knife: true
+tinked-axe: true
+overlay-axe: true
+bow-od: true
+orb: true
+void-staff: true
+void-mixed: true
+cleaver: true
+buffed-cleaver: true
+war-baton: true
+== expr whitespace
+!! compile

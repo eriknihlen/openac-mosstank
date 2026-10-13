@@ -20,6 +20,7 @@ mosstank-formats.workspace = true
 mosstank-expr.workspace = true
 mosstank-data.workspace = true
 mosstank-meta.workspace = true
+mosstank-loot.workspace = true
 
 [lints]
 workspace = true
