@@ -4,6 +4,8 @@
 
 mod common;
 
+use std::cell::RefMut;
+
 use ac_plugin_abi::items::{AppraisalState, InventoryItem, ItemStatus};
 use ac_plugin_abi::world::{ObjectClass, Position, WorldObject};
 use common::Rig;
@@ -114,8 +116,8 @@ fn save_trade_profile(rig: &mut Rig) {
     ));
 }
 
-fn counter(rig: &mut Rig) -> &mut InventoryCountController {
-    &mut rig.commands.tools_mut().count
+fn counter(rig: &mut Rig) -> RefMut<'_, InventoryCountController> {
+    rig.commands.tools_mut().count.borrow_mut()
 }
 
 fn start(rig: &mut Rig) -> bool {
@@ -123,16 +125,29 @@ fn start(rig: &mut Rig) -> bool {
         commands
             .tools_mut()
             .count
+            .borrow_mut()
             .try_start_profile(call, "Counted", true)
     })
 }
 
 fn tick(rig: &mut Rig, seconds: f64, can_act: bool) -> bool {
-    rig.with_call(|call, commands| commands.tools_mut().count.tick(call, seconds, can_act))
+    rig.with_call(|call, commands| {
+        commands
+            .tools_mut()
+            .count
+            .borrow_mut()
+            .tick(call, seconds, can_act)
+    })
 }
 
 fn profile_count(rig: &mut Rig, name: &str) -> f64 {
-    rig.with_call(|call, commands| commands.tools_mut().count.profile_count(call, name))
+    rig.with_call(|call, commands| {
+        commands
+            .tools_mut()
+            .count
+            .borrow_mut()
+            .profile_count(call, name)
+    })
 }
 
 fn total(rig: &mut Rig) -> Option<i32> {

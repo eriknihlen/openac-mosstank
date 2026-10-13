@@ -26,6 +26,9 @@ pub mod tinker;
 pub mod tinker_page;
 pub mod xp;
 
+use std::cell::RefCell;
+use std::rc::Rc;
+
 use crate::commands::UbCall;
 use clear_bugged::ClearBuggedRun;
 use count::InventoryCountController;
@@ -44,10 +47,12 @@ use xp::ExperienceSpendController;
 /// run, the equipment profile, then the stack-or-cram pass.
 #[derive(Debug, Default)]
 pub struct UbTools {
-    /// `/ub give` and `/ub ig`.
-    pub give: ProfileGiveController,
-    /// `/ub count`.
-    pub count: InventoryCountController,
+    /// `/ub give` and `/ub ig`; shared, because a meta's
+    /// `actiontrygiveprofile` starts the same run.
+    pub give: Rc<RefCell<ProfileGiveController>>,
+    /// `/ub count`; shared, because a meta's `vtcountprofile` reads the
+    /// same count.
+    pub count: Rc<RefCell<InventoryCountController>>,
     /// `/ub autostack` and `/ub autocram`.
     pub stack_cram: StackCramCommandRun,
     /// `/ub clearbugged`.
@@ -94,8 +99,11 @@ impl UbTools {
         can_act: bool,
         vendor: &mut dyn FnMut(&mut UbCall<'_>, bool) -> bool,
     ) -> bool {
-        let give = self.give.tick(call, elapsed_seconds, can_act);
-        let count = self.count.tick(call, elapsed_seconds, can_act && !give);
+        let give = self.give.borrow_mut().tick(call, elapsed_seconds, can_act);
+        let count = self
+            .count
+            .borrow_mut()
+            .tick(call, elapsed_seconds, can_act && !give);
         let vendor = vendor(call, can_act && !give && !count);
         let equip = self
             .equip
@@ -119,10 +127,10 @@ impl UbTools {
     /// A session ended or began (`ResetSessionScopedControllers`, the UB
     /// tools' part): every run is put down without a word.
     pub fn reset_session(&mut self, call: &mut UbCall<'_>) {
-        self.give.reset();
+        self.give.borrow_mut().reset();
         self.stack_cram.reset();
         self.clear_bugged.reset();
-        self.count.reset();
+        self.count.borrow_mut().reset();
         self.equip.reset(&mut call.locks.borrow_mut());
         self.xp.reset();
     }

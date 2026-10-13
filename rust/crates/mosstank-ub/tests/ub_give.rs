@@ -3,6 +3,8 @@
 
 mod common;
 
+use std::cell::RefMut;
+
 use ac_plugin_abi::items::{InventoryCommandKind, InventoryCompletion, InventoryItem, ItemStatus};
 use ac_plugin_abi::world::{ObjectClass, Position, WorldObject};
 use common::Rig;
@@ -71,8 +73,8 @@ fn owned(rig: &mut Rig, items: Vec<InventoryItem>) {
     rig.host.meta.owned_items = items;
 }
 
-fn give(rig: &mut Rig) -> &mut ProfileGiveController {
-    &mut rig.commands.tools_mut().give
+fn give(rig: &mut Rig) -> RefMut<'_, ProfileGiveController> {
+    rig.commands.tools_mut().give.borrow_mut()
 }
 
 fn by_name(
@@ -87,6 +89,7 @@ fn by_name(
         commands
             .tools_mut()
             .give
+            .borrow_mut()
             .try_start_by_name(call, pattern, matching, count, target, partial)
     })
 }
@@ -96,12 +99,19 @@ fn by_profile(rig: &mut Rig, profile: &str, target: &str, partial: bool) -> bool
         commands
             .tools_mut()
             .give
+            .borrow_mut()
             .try_start(call, profile, target, partial)
     })
 }
 
 fn tick(rig: &mut Rig, seconds: f64) -> bool {
-    rig.with_call(|call, commands| commands.tools_mut().give.tick(call, seconds, true))
+    rig.with_call(|call, commands| {
+        commands
+            .tools_mut()
+            .give
+            .borrow_mut()
+            .tick(call, seconds, true)
+    })
 }
 
 fn gives(rig: &Rig) -> Vec<u32> {

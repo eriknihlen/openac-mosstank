@@ -441,6 +441,8 @@ impl TankCx<'_> {
                     client: &cell,
                     ub: reader.clone(),
                     ub_values: self.ub.values(),
+                    ub_give: self.ub.commands.tools().give.clone(),
+                    ub_count: self.ub.commands.tools().count.clone(),
                     meta_enabled,
                     requests: Vec::new(),
                 },
@@ -576,5 +578,32 @@ fn loaded_rules(
             );
             None
         }
+    }
+}
+
+impl TankServices<'_, '_> {
+    /// Runs `f` with one call into the UB tab from inside an expression
+    /// (`vtcountprofile`, `actiontrygiveprofile`), which never runs one of
+    /// its own.
+    pub(crate) fn with_ub_call<R>(&mut self, f: impl FnOnce(&mut UbCall<'_>) -> R) -> R {
+        let locks = self.core.0.borrow().locks.clone();
+        let mut catalog = UbSettingCatalog::new(self.ub_values.clone(), fixed_rows());
+        let mut proxy = ClientProxy::new(self.client);
+        let mut expressions = NoExpressions::default();
+        let mut services = ShellUbServices {
+            core: self.core,
+            client: self.client,
+            reader: self.ub.clone(),
+            meta_enabled: self.meta_enabled,
+            meta_written: None,
+        };
+        let mut call = UbCall {
+            host: &mut proxy,
+            settings: &mut catalog,
+            expressions: &mut expressions,
+            services: &mut services,
+            locks: &locks,
+        };
+        f(&mut call)
     }
 }

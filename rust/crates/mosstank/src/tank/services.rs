@@ -33,6 +33,7 @@ use mosstank_ub::host::{
     Floorplan, LootDecision, MoveChannel, MoveDirection, MovePace, MoveReport, MoveUnit,
     OptionResult, UbHost, Vital, WorldLabel,
 };
+use mosstank_ub::tools::count::InventoryCountController;
 use openac_plugin_compat::number::{self, NumberStyles};
 
 use super::commands;
@@ -537,6 +538,10 @@ pub(crate) struct TankServices<'s, 'c> {
     pub(crate) ub: std::rc::Rc<mosstank_settings::ub::UbSettingCatalog<super::ub::StoreValues>>,
     /// The UB settings store, for `uboptget` and `uboptset`.
     pub(crate) ub_values: super::ub::StoreValues,
+    /// The item giver the `/ub` commands share, for `actiontrygiveprofile`.
+    pub(crate) ub_give: std::rc::Rc<RefCell<mosstank_ub::tools::give::ProfileGiveController>>,
+    /// The counter the `/ub` commands share, for `vtcountprofile`.
+    pub(crate) ub_count: std::rc::Rc<RefCell<InventoryCountController>>,
     /// Whether the meta runs, read before the engine's call.
     pub(crate) meta_enabled: bool,
     /// What a meta's own lines ask of the engine, done after its call.
@@ -793,7 +798,7 @@ impl MetaServices for TankServices<'_, '_> {
 
     fn call_function(
         &mut self,
-        _host: &mut dyn MetaHost,
+        host: &mut dyn MetaHost,
         function: &str,
         _context: &mut EvaluationContext<'_>,
         arguments: &[ExpressionValue],
@@ -815,6 +820,35 @@ impl MetaServices for TankServices<'_, '_> {
             "vtmacroenabled" => Ok(ExpressionValue::Boolean(
                 self.core.0.borrow_mut().combat.enabled(),
             )),
+            // The counts as numbers, so a meta can branch on the figure.
+            "vtcountitem" => (|| {
+                let pattern = arguments[0].as_str("vtcountitem")?;
+                InventoryCountController::try_count_by_name(host, pattern)
+                    .map(|tally| ExpressionValue::Number(f64::from(tally.total)))
+                    .map_err(|error| {
+                        ExpressionError::evaluation(format!("vtcountitem: {error}")).into()
+                    })
+            })(),
+            "vtcountprofile" => (|| {
+                let profile = arguments[0].as_str("vtcountprofile")?.to_owned();
+                let count = self.ub_count.clone();
+                Ok(ExpressionValue::Number(self.with_ub_call(|call| {
+                    count.borrow_mut().profile_count(call, &profile)
+                })))
+            })(),
+            "actiontrygiveprofile" => (|| {
+                let profile = arguments[0].as_str("actiontrygiveprofile")?.to_owned();
+                let target = arguments[1].as_str("actiontrygiveprofile")?.to_owned();
+                let give = self.ub_give.clone();
+                Ok(ExpressionValue::Boolean(self.with_ub_call(|call| {
+                    give.borrow_mut().try_start(call, &profile, &target, false)
+                })))
+            })(),
+            "vtcountplayer" => arguments[0].as_number("vtcountplayer").map(|range| {
+                ExpressionValue::Number(f64::from(InventoryCountController::count_players_within(
+                    host, range,
+                )))
+            }),
             _ => return None,
         })
     }
@@ -884,6 +918,15 @@ pub(crate) fn register_service_functions(meta: &mut MetaEngine) {
     runtime.register_service_function("vtmacroenabled", 0, 0, "vtmacroenabled[]");
     runtime.register_service_function("uboptset", 2, 2, "uboptset[setting,value]");
     runtime.register_service_function("uboptget", 1, 1, "uboptget[setting]");
+    runtime.register_service_function("vtcountitem", 1, 1, "vtcountitem[namepattern]");
+    runtime.register_service_function("vtcountplayer", 1, 1, "vtcountplayer[range]");
+    runtime.register_service_function("vtcountprofile", 1, 1, "vtcountprofile[lootprofile]");
+    runtime.register_service_function(
+        "actiontrygiveprofile",
+        2,
+        2,
+        "actiontrygiveprofile[lootprofile,target]",
+    );
 }
 
 impl TankCx<'_> {
@@ -903,6 +946,8 @@ impl TankCx<'_> {
                 client: &cell,
                 ub: self.ub.reader.clone(),
                 ub_values: self.ub.values(),
+                ub_give: self.ub.commands.tools().give.clone(),
+                ub_count: self.ub.commands.tools().count.clone(),
                 meta_enabled,
                 requests: Vec::new(),
             };

@@ -234,6 +234,7 @@ impl UbCommands {
         if let Some((matching, partial_target)) = read_give_flags(&typed) {
             self.tools
                 .give
+                .borrow_mut()
                 .give_command(call, &arguments, matching, partial_target);
             return;
         }
@@ -333,7 +334,7 @@ impl UbCommands {
             }
             "autostack" => self.tools.stack_cram.start(call, true),
             "autocram" => self.tools.stack_cram.start(call, false),
-            "count" => self.tools.count.command(call, &arguments),
+            "count" => self.tools.count.borrow_mut().command(call, &arguments),
             "autotinker" => self.tools.tinker.auto_tinker(call),
             "getjob" => self.tools.tinker.print_jobs(call),
             "tinkcalc" => self.tools.tinker.print_calculation(call),
@@ -356,6 +357,7 @@ impl UbCommands {
         } else if let Some(flags) = try_flags(verb, "ig", "p") {
             self.tools
                 .give
+                .borrow_mut()
                 .item_giver_command(call, arguments, flags.contains('p'));
         } else if let Some(flags) = try_flags(verb, "portal", "p") {
             use_portal_by_name(call, arguments, flags.contains('p'));
