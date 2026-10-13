@@ -2,18 +2,23 @@
 //! the length of one plugin call.
 
 use ac_plugin_abi::CharacterInfo;
-use ac_plugin_abi::character::Skill;
-use ac_plugin_abi::combat::{CombatMode, CombatResult, CombatSnapshot};
-use ac_plugin_abi::items::{InventoryItem, ItemResult, ItemUseCompletion};
+use ac_plugin_abi::character::{ActiveEnchantment, Attribute, Skill};
+use ac_plugin_abi::combat::{AttackHeight, CombatMode, CombatResult, CombatSnapshot, CombatTarget};
+use ac_plugin_abi::items::{
+    EquipmentItem, EquipmentObservation, EquipmentPlacement, EquipmentResult, InventoryItem,
+    ItemResult, ItemUseCompletion,
+};
 use ac_plugin_abi::magic::{
-    CastCompletion, CastGate, CastResult, ComponentInfo, SpellInfo, SpellList,
+    CastCompletion, CastGate, CastResult, ComponentInfo, SpellInfo, SpellList, TrackedEnchantment,
 };
 use ac_plugin_abi::navigation::{
     MovementIntent, NavigationObject, NavigationSnapshot, NavigationStatus,
 };
-use ac_plugin_abi::peers::NetworkClient;
-use ac_plugin_abi::social::{FellowMember, FellowshipStatus};
+use ac_plugin_abi::peers::{NetworkClient, PeerCast};
+use ac_plugin_abi::projectile::{ProjectilePathQuery, ProjectilePathResult};
+use ac_plugin_abi::social::{BusyState, FellowMember, FellowshipStatus, SelectionAction};
 use ac_plugin_abi::types::ChatLine;
+use ac_plugin_abi::ui::ProjectileSample;
 use ac_plugin_abi::world::{ItemProperties, Position, WorldObject};
 use mosstank_automation::{Automation, SpellCatalog};
 use openac_plugin::Host;
@@ -22,12 +27,30 @@ use openac_plugin::Host;
 #[derive(Debug)]
 pub struct HostAutomation<'h, 'a> {
     host: &'h mut Host<'a>,
+    /// The placements the client announced since the last read
+    /// (`Event::EquipmentPlacement`), kept by the plugin between calls.
+    observations: Option<&'h mut Vec<EquipmentObservation>>,
 }
 
 impl<'h, 'a> HostAutomation<'h, 'a> {
     /// The rules' view of `host`.
     pub fn new(host: &'h mut Host<'a>) -> Self {
-        Self { host }
+        Self {
+            host,
+            observations: None,
+        }
+    }
+
+    /// The same view, reading the equipment placements the plugin kept
+    /// from its events.
+    pub fn with_equipment_observations(
+        host: &'h mut Host<'a>,
+        observations: &'h mut Vec<EquipmentObservation>,
+    ) -> Self {
+        Self {
+            host,
+            observations: Some(observations),
+        }
     }
 
     /// The host, for the other views of the client built on this one.
@@ -226,6 +249,132 @@ impl Automation for HostAutomation<'_, '_> {
     fn selected_object(&mut self) -> Option<u32> {
         self.host.selection().selected
     }
+
+    fn attributes(&mut self) -> Vec<Attribute> {
+        self.host.attributes()
+    }
+
+    fn active_enchantments(&mut self) -> Vec<ActiveEnchantment> {
+        self.host.enchantments()
+    }
+
+    fn timed_enchantments(&mut self) -> Vec<ActiveEnchantment> {
+        self.host.timed_enchantments()
+    }
+
+    fn hostile_targets(&mut self, maximum_metres: f32) -> Vec<CombatTarget> {
+        self.host.hostile_targets(maximum_metres)
+    }
+
+    fn begin_attack(&mut self, target_id: u32, height: AttackHeight, power: f32) -> CombatResult {
+        self.host.begin_attack(target_id, height, power)
+    }
+
+    fn release_attack(&mut self) -> CombatResult {
+        self.host.release_attack()
+    }
+
+    fn abort_attack(&mut self) -> CombatResult {
+        self.host.abort_attack()
+    }
+
+    fn dismiss_ghost(&mut self, target_id: u32) -> CombatResult {
+        self.host.dismiss_ghost(target_id)
+    }
+
+    fn combat_control(&mut self, acquire: bool) -> bool {
+        self.host.combat_control(acquire)
+    }
+
+    /// Equipping is wired whenever the character is in the world.
+    fn equipment_available(&mut self) -> bool {
+        self.is_available()
+    }
+
+    /// The SDK reports no equip in flight, so this answers as the C#
+    /// surface does when the host wires no busy test (COMBAT-6).
+    fn equipment_busy(&mut self) -> bool {
+        false
+    }
+
+    fn owned_equipment(&mut self) -> Vec<EquipmentItem> {
+        self.host.owned_equipment()
+    }
+
+    fn equipment_placements(&mut self) -> Vec<EquipmentPlacement> {
+        self.host.equipment_placements()
+    }
+
+    fn take_equipment_observations(&mut self) -> Vec<EquipmentObservation> {
+        self.observations
+            .as_mut()
+            .map(|kept| std::mem::take(&mut **kept))
+            .unwrap_or_default()
+    }
+
+    /// Slot 0: the client chooses where it goes.
+    fn equip(&mut self, object_id: u32) -> EquipmentResult {
+        self.host.equip(object_id, 0)
+    }
+
+    fn equip_secondary(&mut self, object_id: u32) -> EquipmentResult {
+        self.host.equip_secondary(object_id)
+    }
+
+    fn busy_state(&mut self) -> BusyState {
+        self.host.busy_state()
+    }
+
+    fn projectiles_available(&mut self) -> bool {
+        self.host.projectiles_available()
+    }
+
+    fn evaluate_projectile_path(&mut self, query: &ProjectilePathQuery) -> ProjectilePathResult {
+        self.host.evaluate_projectile_path(query)
+    }
+
+    fn show_projectile_samples(&mut self, samples: &[ProjectileSample]) {
+        self.host.show_projectile_samples(samples);
+    }
+
+    fn select(&mut self, object_id: u32) -> bool {
+        self.host.select(object_id)
+    }
+
+    fn selection_step(&mut self, action: SelectionAction) -> bool {
+        self.host.selection_step(action)
+    }
+
+    fn tracked_enchantments(&mut self, target_id: u32) -> Vec<TrackedEnchantment> {
+        self.host.tracked_enchantments(target_id)
+    }
+
+    fn report_cast(&mut self, target_id: u32, spell_id: u32, duration_seconds: f64) -> bool {
+        self.host.report_cast(target_id, spell_id, duration_seconds)
+    }
+
+    fn forget_enchantments(&mut self, target_id: u32) {
+        self.host.forget_enchantments(target_id);
+    }
+
+    fn announce_cast_attempt(&mut self, target_id: u32, spell_id: u32, skill: i32) -> bool {
+        self.host.announce_cast_attempt(target_id, spell_id, skill)
+    }
+
+    fn announce_cast_success(
+        &mut self,
+        target_id: u32,
+        spell_id: u32,
+        skill: i32,
+        duration_seconds: f64,
+    ) -> bool {
+        self.host
+            .announce_cast_success(target_id, spell_id, skill, duration_seconds)
+    }
+
+    fn peer_casts(&mut self, after_sequence: i64) -> Vec<PeerCast> {
+        self.host.peer_casts(after_sequence)
+    }
 }
 
 #[cfg(test)]
@@ -263,5 +412,43 @@ mod tests {
         let requests: Vec<CastRequest> = fake.requests::<calls::MagicCast>();
         let targets: Vec<u32> = requests.iter().map(|r| r.target_id).collect();
         assert_eq!(targets, [0, 42]);
+    }
+
+    /// A plugin that equips once and reads the placements it kept twice.
+    #[derive(Debug, Default)]
+    struct Wielder {
+        kept: Vec<EquipmentObservation>,
+        read: Vec<usize>,
+    }
+
+    impl Plugin for Wielder {
+        fn enable(&mut self, host: &mut Host<'_>, _info: &StartInfo) -> Result<(), String> {
+            let mut automation = HostAutomation::with_equipment_observations(host, &mut self.kept);
+            automation.equip(9);
+            let first = automation.take_equipment_observations().len();
+            let second = automation.take_equipment_observations().len();
+            self.read = vec![first, second];
+            Ok(())
+        }
+    }
+
+    #[test]
+    fn an_equip_lets_the_client_choose_the_slot_and_kept_placements_are_read_once() {
+        let mut fake = FakeHost::new("acdream.mosstank");
+        let mut plugin = Wielder {
+            kept: vec![EquipmentObservation {
+                object_id: 9,
+                equipped_location: 0x0010_0000,
+                ..EquipmentObservation::default()
+            }],
+            read: Vec::new(),
+        };
+        fake.enable(&mut plugin).unwrap();
+
+        let requests = fake.requests::<calls::EquipmentEquip>();
+        assert_eq!(requests.len(), 1);
+        assert_eq!((requests[0].object_id, requests[0].location), (9, 0));
+        assert_eq!(plugin.read, [1, 0]);
+        assert!(plugin.kept.is_empty());
     }
 }
