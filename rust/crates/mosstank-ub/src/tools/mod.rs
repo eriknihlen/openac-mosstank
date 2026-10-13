@@ -39,6 +39,31 @@ use stack_cram::StackCramCommandRun;
 use tinker_page::TinkerPage;
 use xp::ExperienceSpendController;
 
+/// Which of the prologue owners after the command jump own the character
+/// this frame ([`UbTools::tick_prologue`]); the panel names the first three
+/// when it reports why the pass is held.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct PrologueOwners {
+    /// The item giver (`/ub give`, `/ub ig`).
+    pub give: bool,
+    /// The counter (`/ub count`).
+    pub count: bool,
+    /// The vendor run.
+    pub vendor: bool,
+    /// The equipment profile (`/ub equip`).
+    pub equip: bool,
+    /// The stack-or-cram pass.
+    pub stack_cram: bool,
+}
+
+impl PrologueOwners {
+    /// Whether any of them owns the character.
+    #[must_use]
+    pub fn any(self) -> bool {
+        self.give || self.count || self.vendor || self.equip || self.stack_cram
+    }
+}
+
 /// The tools the `/ub` commands start, each driven by the plugin's frame.
 ///
 /// The plugin's frame (`MossTankPanel.OnTick`) drives the prologue owners
@@ -91,14 +116,14 @@ impl UbTools {
     /// told whether it may act), the equipment profile, then the
     /// stack-or-cram pass; each may act only while none before it owns the
     /// character. `can_act` is false while a buff burst or the command
-    /// jump holds it. Whether any of them owns the character this frame.
+    /// jump holds it. Which of them own the character this frame.
     pub fn tick_prologue(
         &mut self,
         call: &mut UbCall<'_>,
         elapsed_seconds: f64,
         can_act: bool,
         vendor: &mut dyn FnMut(&mut UbCall<'_>, bool) -> bool,
-    ) -> bool {
+    ) -> PrologueOwners {
         let give = self.give.borrow_mut().tick(call, elapsed_seconds, can_act);
         let count = self
             .count
@@ -113,7 +138,13 @@ impl UbTools {
             elapsed_seconds,
             can_act && !give && !count && !vendor && !equip,
         );
-        give || count || vendor || equip || stack_cram
+        PrologueOwners {
+            give,
+            count,
+            vendor,
+            equip,
+            stack_cram,
+        }
     }
 
     /// The tools that never own the character, after the prologue: the

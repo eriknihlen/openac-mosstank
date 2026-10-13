@@ -164,7 +164,7 @@ impl GameInfoTransport for ClientTransport<'_, '_> {
 impl Core {
     /// `ObserveActivity`: a part's line, unless it says what it said last
     /// time but for its numbers.
-    fn observe_activity(&mut self, category: &str, status: &str) {
+    pub(crate) fn observe_activity(&mut self, category: &str, status: &str) {
         let key = ACTIVITY_MEASUREMENTS
             .replace(status, "#")
             .unwrap_or_else(|_| status.to_owned());

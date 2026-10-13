@@ -19,6 +19,7 @@ use mosstank_expr::ExpressionValue;
 use mosstank_loot::corpse_approach::ApproachTurn;
 use mosstank_meta::scheduler::MacroLogChannel;
 use mosstank_nav::RouteTurn;
+use mosstank_ub::tools::PrologueOwners;
 
 use super::rules::{LentLoot, buff_owner, combat_ctx, combat_turn, lent_loot, route_turn};
 use super::{Core, ONBOARDING_KEY, Tank, TankCx};
@@ -138,12 +139,12 @@ impl Tank {
         // panel's order; the vendor run is not in the shell yet, so its turn
         // never owns the character.
         let can_act = !cx.core.buff_rule.is_bursting() && !command_jump_owns_action;
-        let tools_own_action = cx.with_ub(|commands, call| {
+        let owners = cx.with_ub(|commands, call| {
             commands
                 .tools_mut()
                 .tick_prologue(call, elapsed_seconds, can_act, &mut |_, _| false)
         });
-        cx.core.prologue_owns_action = command_jump_owns_action || tools_own_action;
+        cx.core.prologue_owns_action = command_jump_owns_action || owners.any();
         // Not owners: the experience spender and /ub clearbugged.
         cx.with_ub(|commands, call| {
             commands
@@ -183,7 +184,7 @@ impl Tank {
         }
         cx.core.write_out(cx.client);
         scheduler.external_suspension = cx.core.prologue_owns_action;
-        cx.report_scheduler_suspension(scheduler);
+        cx.report_scheduler_suspension(scheduler, command_jump_owns_action, owners);
         // The movers run on the host's frame, before the pass, so the pass
         // sees the frame's work done. Only one of them is ever armed.
         {
@@ -604,11 +605,19 @@ impl TankCx<'_> {
     fn report_scheduler_suspension(
         &mut self,
         scheduler: &mosstank_meta::scheduler::MacroScheduler<super::TankFamily>,
+        command_jump_owns_action: bool,
+        owners: PrologueOwners,
     ) {
         let cause = if !scheduler.is_running() {
             None
-        } else if self.core.prologue_owns_action {
+        } else if command_jump_owns_action {
             Some("a command jump owns the character")
+        } else if owners.give {
+            Some("a profile give owns the character")
+        } else if owners.count {
+            Some("a profile count owns the character")
+        } else if owners.vendor {
+            Some("a vendor run owns the character")
         } else if self.core.transaction_suspension_held {
             Some("a cast, a wand cast or a kit is in flight")
         } else if self.core.combat.turn_holds_pass() {
@@ -622,6 +631,8 @@ impl TankCx<'_> {
             return;
         }
         self.core.reported_suspension = cause.map(str::to_owned);
+        self.core
+            .observe_activity("Pause", cause.unwrap_or("Resumed."));
         let line = match cause {
             None => "(scheduler) resumed".to_owned(),
             Some(cause) => format!("(scheduler) suspended: {cause}"),
