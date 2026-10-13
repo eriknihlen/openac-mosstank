@@ -16,7 +16,7 @@ use openac_plugin_compat::regex::{DotNetRegex, RegexOptions};
 use openac_plugin_compat::text::{casing, ordinal};
 
 use crate::chat::{self, tools};
-use crate::commands::{GiveNameMatch, UbCall, split_head, strip_extension};
+use crate::commands::{GiveNameMatch, UbCall, split_at_first, split_head, strip_extension};
 use crate::search;
 
 /// How long a run may go without moving on to its next item before it
@@ -157,13 +157,12 @@ impl ProfileGiveController {
             self.stop_command(call);
             return;
         }
-        let Some(separator) = ordinal::index_of_ignore_case(text, " to ").filter(|at| *at > 0)
-        else {
+        let Some((item, target)) = split_at_first(text, " to ") else {
             call.write_ub_bad_syntax("give");
             return;
         };
-        let mut item = text[..separator].trim().to_owned();
-        let target = text[separator + 4..].trim().to_owned();
+        let mut item = item.trim().to_owned();
+        let target = target.trim().to_owned();
 
         // A leading whole number is a count, but only when something is left
         // to be the item name: "/ub give 10 to Bob" gives an item called 10.
@@ -196,13 +195,12 @@ impl ProfileGiveController {
             return;
         }
         // Split at the first " to " for the same reason the name give does.
-        let Some(separator) = ordinal::index_of_ignore_case(text, " to ").filter(|at| *at > 0)
-        else {
+        let Some((profile, target)) = split_at_first(text, " to ") else {
             call.write_ub_bad_syntax("ig");
             return;
         };
-        let profile = strip_extension(text[..separator].trim(), &[".utl", ".json"]);
-        let target = text[separator + 4..].trim().to_owned();
+        let profile = strip_extension(profile.trim(), &[".utl", ".json"]);
+        let target = target.trim().to_owned();
         self.start_command(call, "ig", |controller, call| {
             controller.try_start(call, &profile, &target, partial_target)
         });

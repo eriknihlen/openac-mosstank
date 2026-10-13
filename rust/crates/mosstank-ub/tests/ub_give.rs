@@ -746,3 +746,39 @@ fn the_item_giver_without_a_target_prints_its_usage() {
         rig.messages()[..2].to_vec()
     );
 }
+
+// ---- Not a port of a C# test: names outside ASCII ------------------------------
+//
+// Regression tests for the line split. The ignore-case search answers in
+// UTF-16 units, as .NET does; cutting the line at that number as a byte
+// offset panicked on "Épée" (a cut inside "é") and cut "🍰 Cake" in the
+// wrong place (one emoji is two UTF-16 units and four bytes).
+
+#[test]
+fn give_splits_a_line_with_accented_names_at_the_first_to() {
+    let mut rig = nearby("Zéro", 1.0);
+    owned(&mut rig, vec![item(10, "Épée"), item(11, "Personal Note")]);
+    rig.ub("give Épée to Zéro");
+    assert!(give(&mut rig).is_running());
+    assert_eq!(vec![10], queued(&mut rig));
+}
+
+#[test]
+fn give_splits_a_line_with_an_emoji_name_at_the_first_to() {
+    let mut rig = nearby("Mule", 1.0);
+    owned(&mut rig, vec![item(10, "🍰 Cake"), item(11, "Cake")]);
+    rig.ub("give 🍰 Cake to Mule");
+    assert!(give(&mut rig).is_running());
+    assert_eq!(vec![10], queued(&mut rig));
+}
+
+#[test]
+fn the_item_giver_splits_a_line_with_an_accented_profile_name() {
+    let mut rig = nearby("Zéro", 1.0);
+    rig.ub("ig Épées to Zéro");
+    // The target is resolved before the profile is read: the missing
+    // profile, named whole, is proof both halves were cut right.
+    assert!(rig.messages().contains(
+        &"[UB] Error: InventoryManager: ItemGiver Profile does not exist: Épées".to_owned()
+    ));
+}

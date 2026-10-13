@@ -1650,3 +1650,21 @@ fn translate_route_refuses_a_landblock_that_is_not_hex() {
         rig.single_message()
     );
 }
+
+// ---- Not a port of a C# test: names outside ASCII ------------------------------
+//
+// A regression test for the line split: the ignore-case search answers in
+// UTF-16 units, and cutting "Épée on Pépite" at that number as a byte offset
+// panicked (a cut inside "é").
+
+#[test]
+fn use_splits_a_line_with_accented_names_at_on() {
+    let mut rig = Rig::new().at_heading(0.0);
+    rig.host.meta.objects = vec![carried(101, "Épée"), carried(102, "Pépite 🍰")];
+    rig.ub("use Épée on Pépite 🍰");
+    assert_eq!(vec![(101, 102)], rig.host.applied);
+    assert!(
+        rig.messages()
+            .contains(&"[UB] using Épée on Pépite 🍰".to_owned())
+    );
+}

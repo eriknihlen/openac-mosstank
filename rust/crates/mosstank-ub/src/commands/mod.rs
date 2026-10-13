@@ -22,7 +22,7 @@ use mosstank_meta::host::CombatMode;
 use mosstank_meta::login_roster::{self, LoginRosterFailure};
 use openac_plugin_compat::datetime::DateTime;
 use openac_plugin_compat::number::{self, MidpointRounding, NumberStyles};
-use openac_plugin_compat::text::{casing, ordinal};
+use openac_plugin_compat::text::{casing, ordinal, utf16};
 
 pub use call::{UbCall, UbServices};
 use jumper::{CommandJump, JumpRequest, JumpTurn};
@@ -103,6 +103,19 @@ pub fn split_head(value: &str) -> (String, String) {
             trimmed[at + 1..].trim().to_owned(),
         ),
     }
+}
+
+/// The text before and after the first `separator` (matched ignoring case),
+/// when it is found past the start of the line: `IndexOf(separator,
+/// OrdinalIgnoreCase)` > 0, then `text[..at]` and `text[(at + length)..]`.
+/// The search answers in UTF-16 units, as .NET does; both cuts become byte
+/// offsets first, so a name with accents or emoji is cut whole.
+#[must_use]
+pub(crate) fn split_at_first<'a>(text: &'a str, separator: &str) -> Option<(&'a str, &'a str)> {
+    let at = ordinal::index_of_ignore_case(text, separator).filter(|at| *at > 0)?;
+    let head = utf16::byte_offset(text, at)?;
+    let tail = utf16::byte_offset(text, at + utf16::len(separator))?;
+    Some((&text[..head], &text[tail..]))
 }
 
 /// The name with the first of `extensions` it ends with taken off
@@ -1165,9 +1178,9 @@ fn use_command(call: &mut UbCall<'_>, flags: &str, arguments: &str) {
         call.write_ub_bad_syntax("use");
         return;
     }
-    let (first, second) = match ordinal::index_of_ignore_case(text, " on ") {
-        Some(at) if at > 0 => (text[..at].trim(), Some(text[at + 4..].trim())),
-        _ => (text, None),
+    let (first, second) = match split_at_first(text, " on ") {
+        Some((first, second)) => (first.trim(), Some(second.trim())),
+        None => (text, None),
     };
     let Some(one) = search::try_find(call.host, first, scope, partial, 0) else {
         call.write_ub_error(&format!("Could not find object: {first}"));
