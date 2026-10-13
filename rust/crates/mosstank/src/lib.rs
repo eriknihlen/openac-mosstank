@@ -13,6 +13,7 @@
 //! the shell's values and send their handlers to it.
 
 pub mod automation;
+pub mod canvases;
 pub mod client;
 pub mod loot;
 pub mod panel;

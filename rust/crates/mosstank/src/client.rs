@@ -101,6 +101,35 @@ pub trait SessionClient {
     /// Publishes a line on the host's status board, for other plugins to
     /// read; whether it was taken.
     fn status_publish(&mut self, key: &str, value: Option<&str>) -> bool;
+    /// Registers a canvas, listening for its pointer when it takes one.
+    ///
+    /// # Errors
+    /// The client refused it.
+    fn canvas_register(
+        &mut self,
+        spec: &mosstank_ub::canvas::MapCanvasSpec,
+    ) -> Result<openac_plugin::ui::Canvas, String>;
+    /// Shows or hides a canvas.
+    fn canvas_set_visible(&mut self, canvas: openac_plugin::ui::Canvas, visible: bool);
+    /// Removes a canvas.
+    fn canvas_remove(&mut self, canvas: openac_plugin::ui::Canvas);
+    /// Replaces what a canvas shows.
+    ///
+    /// # Errors
+    /// Clips that do not balance, or the canvas is gone.
+    fn canvas_paint(
+        &mut self,
+        canvas: openac_plugin::ui::Canvas,
+        commands: &[crate::canvases::MapPaint],
+    ) -> Result<(), String>;
+    /// How big a line of text is in the interface font: width and height.
+    fn measure_text(&mut self, text: &str) -> (f32, f32);
+    /// An object's icon, or no image.
+    fn image_object_icon(&mut self, object_id: u32) -> mosstank_ub::canvas::MapImage;
+    /// A piece of the client's own art, or no image.
+    fn image_client_art(&mut self, surface_id: u32) -> mosstank_ub::canvas::MapImage;
+    /// Lets go of an image.
+    fn image_release(&mut self, image: mosstank_ub::canvas::MapImage);
 }
 
 impl SessionClient for crate::automation::HostAutomation<'_, '_> {
@@ -134,5 +163,67 @@ impl SessionClient for crate::automation::HostAutomation<'_, '_> {
 
     fn status_publish(&mut self, key: &str, value: Option<&str>) -> bool {
         self.host.status_publish(key, value)
+    }
+
+    #[allow(clippy::cast_possible_truncation)]
+    fn canvas_register(
+        &mut self,
+        spec: &mosstank_ub::canvas::MapCanvasSpec,
+    ) -> Result<openac_plugin::ui::Canvas, String> {
+        let mut sdk = openac_plugin::ui::CanvasSpec::new(&spec.canvas_id, spec.width, spec.height);
+        sdk.offset = (spec.offset.0 as f32, spec.offset.1 as f32);
+        sdk.start_visible = spec.start_visible;
+        sdk.accepts_pointer_input = spec.accepts_pointer_input;
+        let canvas = self.host.register_canvas(&sdk)?;
+        if spec.accepts_pointer_input {
+            canvas.listen_pointer(self.host, true);
+        }
+        Ok(canvas)
+    }
+
+    fn canvas_set_visible(&mut self, canvas: openac_plugin::ui::Canvas, visible: bool) {
+        canvas.set_visible(self.host, visible);
+    }
+
+    fn canvas_remove(&mut self, canvas: openac_plugin::ui::Canvas) {
+        canvas.remove(self.host);
+    }
+
+    fn canvas_paint(
+        &mut self,
+        canvas: openac_plugin::ui::Canvas,
+        commands: &[crate::canvases::MapPaint],
+    ) -> Result<(), String> {
+        canvas.paint(self.host, |painter| {
+            crate::canvases::replay(commands, painter)
+        })
+    }
+
+    fn measure_text(&mut self, text: &str) -> (f32, f32) {
+        self.host.measure_text(text)
+    }
+
+    fn image_object_icon(&mut self, object_id: u32) -> mosstank_ub::canvas::MapImage {
+        map_image(self.host.image_object_icon(object_id))
+    }
+
+    fn image_client_art(&mut self, surface_id: u32) -> mosstank_ub::canvas::MapImage {
+        map_image(self.host.image_client_art(surface_id))
+    }
+
+    fn image_release(&mut self, image: mosstank_ub::canvas::MapImage) {
+        self.host.image_release(openac_plugin::ui::Image {
+            handle: image.handle,
+            width: image.width,
+            height: image.height,
+        });
+    }
+}
+
+fn map_image(image: openac_plugin::ui::Image) -> mosstank_ub::canvas::MapImage {
+    mosstank_ub::canvas::MapImage {
+        handle: image.handle,
+        width: image.width,
+        height: image.height,
     }
 }

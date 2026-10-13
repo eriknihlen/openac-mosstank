@@ -90,6 +90,10 @@ pub struct UbParts {
     pub(crate) dungeon: mosstank_ub::dungeon::controller::DungeonMapController,
     /// The other clients' readout.
     pub(crate) hud: mosstank_ub::hud::NetworkHudController,
+    /// The three tools' canvases.
+    pub(crate) canvases: crate::canvases::Canvases,
+    /// The labels last handed to the client (`PublishNetworkTags`).
+    pub(crate) tags: mosstank_ub::network::TagPublisher,
 }
 
 /// The four kinds of UB line.
@@ -151,6 +155,13 @@ impl UbParts {
         let hud = mosstank_ub::hud::NetworkHudController::new(
             &mosstank_ub::hud::CatalogHudSettings(&catalog),
         );
+        // Handed over while the tab is built (`PublishNetworkTags(onLoad)`).
+        let mut tags = mosstank_ub::network::TagPublisher::new();
+        tags.publish(
+            client.ub(),
+            mosstank_ub::catalog::UbCatalog::value(&catalog, "Networking.Tags").items,
+            true,
+        );
         Self {
             catalog,
             reader: Rc::new(UbSettingCatalog::new(values, fixed_rows())),
@@ -160,6 +171,8 @@ impl UbParts {
             landscape,
             dungeon,
             hud,
+            canvases: crate::canvases::Canvases::default(),
+            tags,
         }
     }
 

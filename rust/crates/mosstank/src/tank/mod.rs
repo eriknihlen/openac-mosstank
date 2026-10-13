@@ -16,6 +16,7 @@
 mod actions;
 mod autostart;
 mod commands;
+mod display;
 mod frame;
 pub(crate) mod options;
 pub(crate) mod panel;
@@ -1020,6 +1021,9 @@ impl Tank {
             Event::Net(ac_plugin_abi::net::NetEvent::HttpCompleted(reply)) => {
                 cx.core.on_http_reply(cx.client, reply);
             }
+            Event::Ui(ac_plugin_abi::ui::UiEvent::Pointer(pointer)) => {
+                cx.on_canvas_pointer(pointer);
+            }
             Event::LoginComplete => cx.meta.on_login_complete(),
             Event::Logoff => {
                 cx.with_engine(|engine, host, services| engine.on_logoff(host, services));
@@ -1062,6 +1066,7 @@ impl Tank {
             commands.tools_mut().reset_session(call);
             commands.tools_mut().nametags.dispose(call.host);
         });
+        cx.dispose_display_tools();
         if cx.core.combat.enabled() {
             cx.core.set_macro_running(cx.client, false);
         }
