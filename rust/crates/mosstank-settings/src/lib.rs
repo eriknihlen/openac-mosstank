@@ -10,6 +10,7 @@
 //! - [`monster`]: monster rules, their spec language and the monster facts.
 //! - [`monster_table`]: the profile's `MyMonsters` table.
 //! - [`ammunition`]: the ammunition a launcher is fed, from the game database.
+//! - [`ub`]: the UB tab's settings catalogue and its value store.
 //!
 //! Pure: no host calls.
 
@@ -21,3 +22,4 @@ pub mod monster;
 pub mod monster_table;
 pub mod options;
 pub mod profile;
+pub mod ub;
