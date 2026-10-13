@@ -8,6 +8,8 @@ license.workspace = true
 publish.workspace = true
 
 [dependencies]
+# The kit's text comparisons, answered directly for ASCII (`text`).
+mosstank-dotnet.workspace = true
 ac-plugin-abi.workspace = true
 mosstank-automation.workspace = true
 mosstank-nav.workspace = true

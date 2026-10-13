@@ -1,0 +1,26 @@
+[package]
+name = "mosstank-fuel"
+description = "Measures the fuel (WebAssembly instructions) each call of the built mosstank.wasm uses, the way the openAC plugin host meters it, against a fake client."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[dependencies]
+ac-plugin-abi.workspace = true
+# The engine the openAC plugin host runs plugins on, with the host's own
+# features (openac-rust Cargo.toml: `std`, `validate`, `portable-dispatch`)
+# and version, so an instruction costs the same fuel here as there.
+wasmi = { version = "=2.0.0", default-features = false, features = ["std", "validate", "portable-dispatch"] }
+
+[dev-dependencies]
+# The plugin's own test client (crates/mosstank/tests/common), which the
+# measurement drives the built module against.
+mosstank.workspace = true
+mosstank-stores.workspace = true
+mosstank-data.workspace = true
+openac-plugin.workspace = true
+
+[lints]
+workspace = true

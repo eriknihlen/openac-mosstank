@@ -30,6 +30,7 @@ mosstank-combat = { path = "crates/mosstank-combat" }
 mosstank-loot = { path = "crates/mosstank-loot" }
 mosstank-ub = { path = "crates/mosstank-ub" }
 mosstank-session = { path = "crates/mosstank-session" }
+mosstank = { path = "crates/mosstank" }
 
 # The openAC plugin SDK (MIT), from the openAC-rust repository by git
 # (owner decision 2026-10-13). `openac-plugin-compat` is its .NET
@@ -53,6 +54,27 @@ missing_debug_implementations = "warn"
 
 [workspace.lints.clippy]
 all = { level = "warn", priority = -1 }
+
+# The fuel measurement (crates/mosstank-fuel) interprets the built plugin
+# with wasmi: optimised in dev builds, or a measured run takes minutes. The
+# measuring crate must be optimised too: at opt-level 0 LLVM's x86 fast
+# instruction selector miscompiles wasmi's generic memory access compiled
+# into it (openac-rust register PLUGIN-8, docs/research/wasmi_opt0_crash.md
+# there).
+[profile.dev.package.mosstank-fuel]
+opt-level = 2
+
+[profile.dev.package.wasmi]
+opt-level = 2
+
+[profile.dev.package.wasmi_core]
+opt-level = 2
+
+[profile.dev.package.wasmi_ir]
+opt-level = 2
+
+[profile.dev.package.wasmi_collections]
+opt-level = 2
 
 [profile.release]
 panic = "abort"
