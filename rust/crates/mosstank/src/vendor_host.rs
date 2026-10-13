@@ -12,9 +12,22 @@ use mosstank_vendor::{FellowshipAutomation, VendorAutomation};
 
 use crate::automation::HostAutomation;
 
+/// A vendor or fellowship line goes through the UB settings' display for
+/// its kind once the shell has said what they are (`UbChat.Post`): hidden
+/// when the kind is switched off, in the kind's text class otherwise. Before
+/// that, the kind's default class.
 impl UbChatSink for HostAutomation<'_, '_> {
     fn post_message(&mut self, text: &str, chat_type: u32) {
-        self.host().chat_post_with(text, chat_type);
+        let index = if chat_type == mosstank_vendor::ub_chat::ERROR_CHAT_TYPE {
+            3
+        } else {
+            0
+        };
+        match self.ub_displays.map(|displays| displays[index]) {
+            Some(display) if !display.show => {}
+            Some(display) => self.host().chat_post_with(text, display.chat_type),
+            None => self.host().chat_post_with(text, chat_type),
+        }
     }
 }
 

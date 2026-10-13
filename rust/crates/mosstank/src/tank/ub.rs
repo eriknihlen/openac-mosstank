@@ -9,8 +9,7 @@
 //! their owners: the item giver's numbers and the jump attempts in the
 //! macro's settings, the event handlers and their profile in the meta
 //! profile, the alias list in its own file, the open UB profile in the
-//! store (register UB-5). The UB tools the UB tab does not carry yet answer
-//! that.
+//! store (register UB-5).
 
 use std::cell::RefCell;
 use std::rc::Rc;
@@ -27,7 +26,7 @@ use mosstank_settings::ub::{
 };
 use mosstank_stores::storage::{RecordingLog, Root};
 use mosstank_stores::ub_store::UbSettingStore;
-use mosstank_ub::catalog::{CatalogDisplays, UbCatalog, message_display};
+use mosstank_ub::catalog::{UbCatalog, message_display};
 use mosstank_ub::commands::{UbCall, UbCommands, UbServices};
 use mosstank_ub::expressions::UbExpressions;
 use mosstank_ub::host::UbHost;
@@ -43,6 +42,13 @@ pub(crate) struct StoreValues(
     pub(crate) Rc<RefCell<UbSettingStore>>,
     pub(crate) Rc<RefCell<LiveRows>>,
 );
+
+impl StoreValues {
+    /// The store itself.
+    pub(crate) fn store(&self) -> Rc<RefCell<UbSettingStore>> {
+        self.0.clone()
+    }
+}
 
 impl UbSettingValues for StoreValues {
     fn read(&self, scope: UbSettingScope, name: &str) -> Option<UbSettingValue> {
@@ -375,20 +381,19 @@ struct ShellUbServices<'s, 'c> {
     meta_written: Option<bool>,
 }
 
-/// A UB tool the UB tab does not carry yet.
-fn not_converted(name: &str) -> String {
-    format!("{name} is not in the Rust conversion of MossTank yet.")
-}
-
 impl ShellUbServices<'_, '_> {
-    /// A plain UB line, in the generic line's display.
-    fn write_ub(&self, text: &str) {
+    /// Runs `f` with the vendor run and the whole client and parts of the
+    /// call.
+    fn with_vendor<R>(
+        &mut self,
+        f: impl FnOnce(
+            &mut mosstank_vendor::VendorTradeController,
+            &mut super::vendor::ShellVendor<'_>,
+        ) -> R,
+    ) -> R {
         let mut client = self.client.0.borrow_mut();
-        mosstank_ub::chat::post(
-            client.meta(),
-            &CatalogDisplays(&*self.reader),
-            &mosstank_ub::chat::line(text),
-        );
+        let mut core = self.core.0.borrow_mut();
+        super::vendor::with_vendor(&mut **client, &mut core, &self.reader, f)
     }
 }
 
@@ -445,16 +450,28 @@ impl UbServices for ShellUbServices<'_, '_> {
         written
     }
 
-    fn vendor_command(&mut self, _host: &mut dyn UbHost, _arguments: &str) -> Option<Vec<String>> {
-        Some(vec![not_converted("The vendor tool")])
+    /// `/ub vendor` (`VendorTradeController.VendorCommand`).
+    fn vendor_command(&mut self, _host: &mut dyn UbHost, arguments: &str) -> Option<Vec<String>> {
+        self.with_vendor(|controller, cx| controller.vendor_command(cx, arguments))
     }
 
-    fn auto_vendor_start(&mut self, _host: &mut dyn UbHost, _profile: Option<&str>) {
-        self.write_ub(&not_converted("AutoVendor"));
+    /// `/ub autovendor [profile]`: the run says what it has to say itself,
+    /// nothing when it starts and its errors when it cannot.
+    fn auto_vendor_start(&mut self, _host: &mut dyn UbHost, profile: Option<&str>) {
+        self.with_vendor(|controller, cx| {
+            controller.try_start(cx, profile);
+        });
     }
 
+    /// `/ub autovendor stop` (or cancel, quit).
     fn auto_vendor_stop(&mut self, _host: &mut dyn UbHost) {
-        self.write_ub(&not_converted("AutoVendor"));
+        self.with_vendor(|controller, cx| {
+            controller.stop_requested(cx);
+        });
+    }
+
+    fn vendor_tick(&mut self, _host: &mut dyn UbHost, elapsed_seconds: f64, can_act: bool) -> bool {
+        self.with_vendor(|controller, cx| controller.tick(cx, elapsed_seconds, can_act))
     }
 
     /// `HandleFellowCommand`.

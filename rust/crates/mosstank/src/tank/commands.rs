@@ -22,7 +22,7 @@ use openac_plugin_compat::text::{casing, ordinal};
 
 use super::options::{declared_clr_type_name, try_parse_option_value};
 use super::rules::route_turn;
-use super::{CHANNELS, Core, TankCx, channel_name};
+use super::{CHANNELS, Core, TankCx, channel_name, diagnostics};
 use crate::client::TankClient;
 
 /// The macro's own command word.
@@ -44,23 +44,6 @@ const VTANK_HELP: [&str; 4] = [
 
 /// The log channels the reference lists.
 const LOG_TYPES: &str = "Log types: ActiveRule SalvageList SpellCast RuleInfo Timers CastInfo DebuffChoice Loot CharProps Misc BusyState";
-
-/// Verbs whose tools are not converted yet.
-const NOT_CONVERTED_VERBS: [&str; 13] = [
-    "equipitemsfor",
-    "testitem",
-    "propertydump",
-    "testmonster",
-    "testspell",
-    "testpet",
-    "dumpmetavars",
-    "listmetafunctions",
-    "metafunchelp",
-    "clearbusy",
-    "dumpspells",
-    "dumpspecies",
-    "dumpskills",
-];
 
 /// `/vt meta load <name>` or `/vt metaaf load <name>`, read from a line: the
 /// name and whether it is the `.af` form.
@@ -164,10 +147,19 @@ pub(crate) fn execute_vtank(cx: &mut TankCx<'_>, input: &str) {
         "addnavjump" => cx.jump_command(&arguments, true),
         "addnavpt" => cx.add_command_route_point(&arguments, false),
         "addnavcheckpoint" => cx.add_command_route_point(&arguments, true),
-        other if NOT_CONVERTED_VERBS.contains(&other) => Core::write_vtank(
-            cx.client,
-            &format!("/vt {other} is not in the Rust conversion of MossTank yet."),
-        ),
+        "equipitemsfor" => diagnostics::equip_items_for(cx, &arguments),
+        "testitem" => diagnostics::test_selected_item(cx),
+        "propertydump" => diagnostics::dump_selected_properties(cx.client),
+        "testmonster" => diagnostics::test_selected_monster(cx),
+        "testspell" => diagnostics::test_spell(cx.client, &arguments),
+        "testpet" => diagnostics::test_pet(cx),
+        "dumpmetavars" => diagnostics::dump_meta_variables(cx),
+        "listmetafunctions" => diagnostics::list_meta_functions(cx),
+        "metafunchelp" => diagnostics::meta_function_help(cx, &arguments),
+        "clearbusy" => diagnostics::clear_busy(cx.client),
+        "dumpspells" => diagnostics::dump_spells(cx.client),
+        "dumpspecies" => diagnostics::dump_species(cx.client),
+        "dumpskills" => diagnostics::dump_skills(cx.client),
         _ => Core::write_vtank(cx.client, UNKNOWN_VTANK_COMMAND),
     }
     cx.core.write_out(cx.client);

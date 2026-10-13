@@ -49,6 +49,13 @@ pub trait UbServices {
     fn auto_vendor_start(&mut self, host: &mut dyn UbHost, profile: Option<&str>);
     /// `/ub autovendor stop`.
     fn auto_vendor_stop(&mut self, host: &mut dyn UbHost);
+    /// One frame of the vendor run, a prologue owner between the count and
+    /// the equipment profile (`VendorTradeController.Tick`): true while it
+    /// owns the character. A plugin without the vendor run never owns it.
+    fn vendor_tick(&mut self, host: &mut dyn UbHost, elapsed_seconds: f64, can_act: bool) -> bool {
+        let _ = (host, elapsed_seconds, can_act);
+        false
+    }
     /// `/ub fellow <arguments>`: false for a line that does not parse (the
     /// dispatcher then says "Bad command syntax" and the help).
     fn fellow_command(&mut self, host: &mut dyn UbHost, arguments: &str) -> bool;

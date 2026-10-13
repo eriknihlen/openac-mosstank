@@ -16,6 +16,7 @@
 mod actions;
 mod autostart;
 mod commands;
+mod diagnostics;
 mod display;
 mod frame;
 pub(crate) mod options;
@@ -27,6 +28,7 @@ pub(crate) mod rules;
 mod services;
 mod session;
 pub mod ub;
+mod vendor;
 
 use std::cell::{Cell, RefCell};
 use std::rc::Rc;
@@ -243,6 +245,12 @@ pub struct Core {
     pub(crate) random_helper: mosstank_buffs::random_helper::RandomHelperRule,
     pub(crate) navigation: NavigationController,
     pub(crate) fellowship: FellowshipManager,
+    /// The vendor run and the `/ub vendor` commands (`VendorTradeController`).
+    pub(crate) vendor_trade: mosstank_vendor::VendorTradeController,
+    /// Whether the scheduler runs, as of the start of the call and each
+    /// start or stop since (`_scheduler.IsRunning`, which the vendor run
+    /// reads to stand down from opening vendors while the route owns that).
+    pub(crate) scheduler_running: bool,
     pub(crate) idle_peace: rules::SharedIdlePeace,
 
     pub(crate) status: String,
@@ -676,6 +684,8 @@ impl Tank {
         let mut navigation = NavigationController::new();
         navigation.bind_action_locks(locks.clone());
         navigation.bind_combat_mode_gate(gate.clone());
+        let mut vendor_trade = mosstank_vendor::VendorTradeController::new();
+        vendor_trade.bind_action_locks(locks.clone());
 
         let meta_profiles = MetaProfileStore::new();
         let expressions = ExpressionRuntime::new(client.meta(), Some(seed), clock.clone());
@@ -722,6 +732,8 @@ impl Tank {
             random_helper,
             navigation,
             fellowship: FellowshipManager::new(),
+            vendor_trade,
+            scheduler_running: false,
             idle_peace: Rc::new(RefCell::new(IdlePeaceRule::default())),
             status: "Idle.".to_owned(),
             profile_lifecycle_notice: "Macro settings are stored by character.".to_owned(),
@@ -868,6 +880,13 @@ impl Tank {
         &self.core.status
     }
 
+    /// The macro's one cast tracker, shared by the buff rule, the fight
+    /// and the meta's casts (`IBuffRuleHost.CastTracker`).
+    #[must_use]
+    pub fn cast_tracker(&self) -> SharedCastTracker {
+        self.core.tracker.clone()
+    }
+
     /// Whether the macro runs (`CombatMacroRunning`).
     #[must_use]
     pub fn macro_running(&self) -> bool {
@@ -900,6 +919,25 @@ impl Tank {
             .collect()
     }
 
+    /// The rules of the running list that hold the character now, by name
+    /// (`MacroRules` where `Running`).
+    #[must_use]
+    pub fn running_rule_names(&self) -> Vec<String> {
+        self.scheduler
+            .main_rules()
+            .iter()
+            .filter(|rule| rule.running())
+            .map(|rule| rule.name())
+            .collect()
+    }
+
+    /// The macro's item-use, navigation and other slots
+    /// (`MossTankPanel.ActionLocks`).
+    #[must_use]
+    pub fn action_locks(&self) -> SharedActionLocks {
+        self.core.locks.clone()
+    }
+
     /// How many rule passes ran.
     #[must_use]
     pub fn pass_count(&self) -> i64 {
@@ -928,6 +966,13 @@ impl Tank {
     #[must_use]
     pub fn route_waypoint_index(&self) -> i32 {
         self.core.navigation.current_waypoint_index()
+    }
+
+    /// Whether one of the shared action slots is held now
+    /// (`ActionLocks.IsLocked`).
+    #[must_use]
+    pub fn is_action_locked(&self, kind: mosstank_automation::locks::ActionLockKind) -> bool {
+        self.core.locks.borrow_mut().is_locked(kind)
     }
 }
 
@@ -1036,6 +1081,21 @@ impl Tank {
             Event::ItemUseCompleted(completion) => cx.meta.on_item_use_completed(completion),
             Event::ContainerOpened(container) => cx.meta.on_container_opened(*container),
             Event::ContainerClosed(container) => cx.meta.on_container_closed(*container),
+            // The vendor run hears the counter open, close and answer
+            // (register VEND-2).
+            Event::Vendor(vendor) => match vendor {
+                ac_plugin_abi::trade::VendorEvent::Opened(id) => {
+                    cx.core.vendor_trade.on_vendor_opened(*id);
+                }
+                ac_plugin_abi::trade::VendorEvent::Closed => {
+                    cx.core.vendor_trade.on_vendor_closed();
+                }
+                ac_plugin_abi::trade::VendorEvent::TransactionCompleted(transaction) => {
+                    cx.core
+                        .vendor_trade
+                        .on_transaction_completed(transaction.clone());
+                }
+            },
             // The name tags follow objects arriving, appraised and leaving.
             Event::ObjectChanged(change) => {
                 cx.with_ub(|commands, call| {
@@ -1090,6 +1150,7 @@ impl Tank {
             let mut turn = rules::route_turn!(cx.client, core);
             core.navigation.reset(&mut turn);
         }
+        core.vendor_trade.reset();
         core.fellowship.reset();
         cx.meta.set_enabled(false);
         cx.meta.views().destroy_all(cx.client.meta());
@@ -1265,6 +1326,7 @@ impl Tank {
     /// settings say.
     pub(crate) fn begin_call(&mut self, client: &mut dyn TankClient) {
         self.core.clock.set(&client.clock());
+        self.core.scheduler_running = self.scheduler.is_running();
         // The live UB rows read what their owners hold now.
         let (mut cx, _) = self.cx(client);
         cx.refresh_live_ub_rows(false);

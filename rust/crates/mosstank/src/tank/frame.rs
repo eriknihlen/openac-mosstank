@@ -138,13 +138,18 @@ impl Tank {
         let command_jump_owns_action =
             cx.with_ub(|commands, call| commands.tick_command_jump(call, elapsed_seconds));
         // The UB tools that own the character while they run, in the
-        // panel's order; the vendor run is not in the shell yet, so its turn
-        // never owns the character.
+        // panel's order, the vendor run among them.
         let can_act = !cx.core.buff_rule.is_bursting() && !command_jump_owns_action;
         let owners = cx.with_ub(|commands, call| {
-            commands
-                .tools_mut()
-                .tick_prologue(call, elapsed_seconds, can_act, &mut |_, _| false)
+            commands.tools_mut().tick_prologue(
+                call,
+                elapsed_seconds,
+                can_act,
+                &mut |call, can_act| {
+                    call.services
+                        .vendor_tick(call.host, elapsed_seconds, can_act)
+                },
+            )
         });
         cx.core.prologue_owns_action = command_jump_owns_action || owners.any();
         // Not owners: the experience spender and /ub clearbugged.
@@ -163,11 +168,14 @@ impl Tank {
         if scheduler_active && !scheduler.is_running() {
             cx.release_transaction_suspension(scheduler);
             scheduler.start(&mut cx);
+            cx.core.scheduler_running = scheduler.is_running();
             cx.core.locks.borrow_mut().clear_all();
             cx.core.reset_once_per_run_warnings();
+            cx.core.vendor_trade.on_macro_started();
         } else if !scheduler_active && scheduler.is_running() {
             cx.release_transaction_suspension(scheduler);
             scheduler.stop(&mut cx);
+            cx.core.scheduler_running = scheduler.is_running();
         }
         cx.observe_cast_result(elapsed_seconds);
         cx.observe_pending_transactions(elapsed_seconds);
@@ -333,6 +341,7 @@ impl TankCx<'_> {
             let mut turn: RouteTurn<'_> = route_turn!(self.client, core);
             core.navigation.reset(&mut turn);
         }
+        core.vendor_trade.reset();
         core.fellowship.reset();
         self.meta.reset_session(self.client.meta());
         self.meta.views().destroy_all(self.client.meta());

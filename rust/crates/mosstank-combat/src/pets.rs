@@ -376,7 +376,8 @@ fn smallest_stack(owned: &[InventoryItem], name: &str) -> Option<InventoryItem> 
 }
 
 /// The Summoning skill's current level, 0 when the character has none.
-fn summoning_level(automation: &mut dyn Automation) -> u32 {
+#[must_use]
+pub fn summoning_level(automation: &mut dyn Automation) -> u32 {
     automation
         .try_get_skill(SUMMONING_SKILL_ID)
         .map_or(0, |skill| skill.current)
