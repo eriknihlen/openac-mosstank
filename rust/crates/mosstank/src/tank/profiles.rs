@@ -218,6 +218,7 @@ impl Core {
                 .unwrap_or("No loot profile is active.")
                 .to_owned();
             client.looter().log_error(&self.loot_editor_notice.clone());
+            self.refresh_loot_editor(false);
             return false;
         }
         if outcome == ProfileLoad::Partial {
@@ -238,8 +239,11 @@ impl Core {
             "No loot profile is active.".to_owned()
         };
         client.rules().log_info(&line);
-        let lent = lent_loot!(self);
-        lent.loot.reset(client.looter());
+        {
+            let lent = lent_loot!(self);
+            lent.loot.reset(client.looter());
+        }
+        self.refresh_loot_editor(false);
         true
     }
 

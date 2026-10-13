@@ -657,8 +657,15 @@ impl TankCx<'_> {
 
     /// `RefreshLootEditor`.
     pub(crate) fn refresh_loot_editor(&mut self, retain_draft: bool) {
-        let rules = &self.core.settings.inventory.loot.rules;
-        let panel = &mut self.core.panel;
+        self.core.refresh_loot_editor(retain_draft);
+    }
+}
+
+impl crate::tank::Core {
+    /// `RefreshLootEditor`: the rows and the draft from the live rules.
+    pub(crate) fn refresh_loot_editor(&mut self, retain_draft: bool) {
+        let rules = &self.settings.inventory.loot.rules;
+        let panel = &mut self.panel;
         panel.selected_loot_rule = super::clamp_row(panel.selected_loot_rule, rules.len());
         if !retain_draft {
             panel.loot_expression_draft = rules
@@ -686,7 +693,9 @@ impl TankCx<'_> {
             })
             .collect();
     }
+}
 
+impl TankCx<'_> {
     /// `SelectLootRuleCore`.
     fn select_loot_rule(&mut self, index: i32) {
         let rules = &self.core.settings.inventory.loot.rules;
