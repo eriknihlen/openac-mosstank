@@ -10,11 +10,14 @@
 //!   folder.
 //! - [`ub_store`]: the UB settings files, profile files and alias lists.
 //! - [`recovery`]: a profile that would not load is kept.
+//! - [`global_variables`]: the global variables every client on a server
+//!   shares, one file each, under a lock.
 //!
 //! Pure: storage comes in through [`storage::PluginStorage`], handed to each
 //! call that needs it.
 
 pub mod directory;
+pub mod global_variables;
 pub mod layout;
 pub mod layout_migration;
 pub mod recovery;

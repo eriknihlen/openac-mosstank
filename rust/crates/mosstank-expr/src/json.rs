@@ -155,6 +155,17 @@ pub fn restore(
     names: Option<&ObjectNames>,
     counter: &ChangeCounter,
 ) -> Result<ExpressionValue, String> {
+    match value {
+        JsonValue::Object(_) => {}
+        // A list item or dictionary entry saved as null has no value.
+        JsonValue::Null => return Err("a saved value has no kind".to_owned()),
+        _ => {
+            return Err(
+                "The JSON value could not be converted to ExpressionValueJson+StoredValue."
+                    .to_owned(),
+            );
+        }
+    }
     let kind = match value.get_ignore_case("Kind") {
         None => "number".to_owned(),
         Some(JsonValue::String(kind)) => kind.clone(),
