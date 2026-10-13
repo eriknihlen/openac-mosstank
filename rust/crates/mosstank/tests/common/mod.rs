@@ -271,3 +271,64 @@ impl Transport for World {
         }
     }
 }
+
+/// One of the session proof's fixture files, read in place from the C#
+/// test folder.
+#[must_use]
+pub fn proof_fixture(relative: &str) -> String {
+    let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("../../../tests/AcDream.Plugins.MossTank.Tests/Fixtures/vt-proof")
+        .join(relative);
+    std::fs::read_to_string(&path).unwrap_or_else(|error| panic!("{}: {error}", path.display()))
+}
+
+/// Writes the session proof's settings, loot and route into the profile
+/// folder (`WriteSessionProofFixture`).
+pub fn write_session_proof_fixture(world: &mut World) {
+    world.profiles.insert(
+        "mosstank/profiles/vt-proof-settings.usd",
+        &proof_fixture("vt-proof-settings.usd"),
+    );
+    world.profiles.insert(
+        "mosstank/loot/vt-proof-loot.utl",
+        &proof_fixture("vt-proof-loot.utl"),
+    );
+    world.profiles.insert(
+        "mosstank/navs/vt-proof-route.af",
+        &proof_fixture("navs/vt-proof-route.af"),
+    );
+}
+
+impl World {
+    /// Runs `f` with the plugin's macro shell and a client over this world.
+    pub fn with_tank<R>(
+        &mut self,
+        plugin: &mut MossTank,
+        f: impl FnOnce(
+            &mut mosstank::tank::Tank,
+            &mut mosstank::automation::HostAutomation<'_, '_>,
+        ) -> R,
+    ) -> R {
+        self.with_host(|host| plugin.with_tank(host, f).expect("an enabled plugin"))
+    }
+
+    /// The session's settings.
+    pub fn set_session(&mut self, settings: &[(&str, &str)]) {
+        self.fake.settings = settings
+            .iter()
+            .map(|(key, value)| ((*key).to_owned(), (*value).to_owned()))
+            .collect();
+    }
+
+    /// The error lines logged.
+    #[must_use]
+    pub fn errors(&self) -> Vec<String> {
+        self.logs(LogLevel::Error)
+    }
+
+    /// The information lines logged.
+    #[must_use]
+    pub fn infos(&self) -> Vec<String> {
+        self.logs(LogLevel::Info)
+    }
+}

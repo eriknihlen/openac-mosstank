@@ -4,6 +4,7 @@
 //! through the plugin's callback export).
 
 use ac_plugin_abi::callback::{Callback, CallbackAnswer, LootQuestion};
+use ac_plugin_abi::items::EquipmentObservation;
 use ac_plugin_abi::items::{
     AppraisalState, InventoryCompletion, InventoryItem, ItemResult, LootClassification,
     LootContext, LootedItem,
@@ -176,14 +177,20 @@ impl LootClassifierService {
     pub fn answer(
         &mut self,
         host: &mut Host<'_>,
+        observations: &mut Vec<EquipmentObservation>,
         live_rules: &[LootRule],
         callback: &Callback,
     ) -> Option<CallbackAnswer> {
         let handle = self.handle?;
         match callback {
-            Callback::LootClassify(question) if question.handle == handle => Some(
-                CallbackAnswer::Classification(self.classify(host, live_rules, question)),
-            ),
+            Callback::LootClassify(question) if question.handle == handle => {
+                Some(CallbackAnswer::Classification(self.classify(
+                    host,
+                    observations,
+                    live_rules,
+                    question,
+                )))
+            }
             Callback::LootNeedsIdentification(question) if question.handle == handle => {
                 Some(CallbackAnswer::Bool(
                     self.classifier
@@ -202,11 +209,12 @@ impl LootClassifierService {
     fn classify(
         &mut self,
         host: &mut Host<'_>,
+        observations: &mut Vec<EquipmentObservation>,
         live_rules: &[LootRule],
         question: &LootQuestion,
     ) -> Option<LootClassification> {
         if question.profile.is_empty() {
-            let mut automation = HostAutomation::new(host);
+            let mut automation = HostAutomation::with_equipment_observations(host, observations);
             return Some(self.classifier.classify(
                 live_rules,
                 &question.context,
@@ -219,7 +227,7 @@ impl LootClassifierService {
             self.classifier
                 .load_profile_rules(&mut profiles, &question.profile, now)?
         };
-        let mut automation = HostAutomation::new(host);
+        let mut automation = HostAutomation::with_equipment_observations(host, observations);
         Some(
             self.classifier
                 .classify(&rules, &question.context, Some(&mut automation)),
@@ -258,7 +266,7 @@ mod tests {
 
         fn callback(&mut self, host: &mut Host<'_>, callback: Callback) -> CallbackAnswer {
             self.service
-                .answer(host, &self.rules, &callback)
+                .answer(host, &mut Vec::new(), &self.rules, &callback)
                 .unwrap_or_default()
         }
     }

@@ -213,7 +213,7 @@ impl Core {
                 .load_failure_notice()
                 .unwrap_or("No loot profile is active.")
                 .to_owned();
-            client.rules().log_warn(&self.loot_editor_notice.clone());
+            client.looter().log_error(&self.loot_editor_notice.clone());
             return false;
         }
         if outcome == ProfileLoad::Partial {
@@ -260,7 +260,7 @@ impl Core {
         if outcome == ProfileLoad::Failed {
             let selected =
                 report!(client, self.route_profiles.selected(client.stores())).unwrap_or_default();
-            client.rules().log_warn(&format!(
+            client.looter().log_error(&format!(
                 "Route profile {selected} could not be read; the file was left as it is and the route in memory is unchanged."
             ));
             return false;

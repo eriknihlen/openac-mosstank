@@ -115,3 +115,29 @@ fn the_stopped_macro_list_is_the_worn_mana_rule() {
     let buff = index_of(&rules, "BuffSelf");
     assert!(recharge < refill && refill < buff);
 }
+
+// Source: tests/AcDream.Plugins.MossTank.Tests/MossTankPluginTests.cs :: EnableRegistersVtAndUbOnTheirOwnHandlersAndDisableRevokesBoth
+#[test]
+fn enable_registers_vt_and_ub_on_their_own_handlers_and_disable_revokes_both() {
+    let mut world = World::with_character("Shell Tester");
+    let mut plugin = world.enable();
+    let verbs: Vec<String> = world
+        .fake
+        .commands
+        .iter()
+        .map(|command| command.verb.clone())
+        .collect();
+    assert_eq!(verbs, ["vt", "ub"]);
+
+    // Each word reaches its own command set: an unknown word says which.
+    world.vt(&mut plugin, "nosuchword");
+    assert!(
+        world
+            .chat()
+            .iter()
+            .any(|line| line.contains("Unknown /vt command. Use /vt help."))
+    );
+
+    world.disable(&mut plugin);
+    assert!(world.fake.commands.is_empty());
+}

@@ -56,6 +56,18 @@ impl MossTank {
     pub fn tank(&self) -> Option<&Tank> {
         self.tank.as_ref()
     }
+
+    /// The macro shell, once enabled, with the client view a call
+    /// hands it.
+    pub fn with_tank<R>(
+        &mut self,
+        host: &mut Host<'_>,
+        f: impl FnOnce(&mut Tank, &mut HostAutomation<'_, '_>) -> R,
+    ) -> Option<R> {
+        let tank = self.tank.as_mut()?;
+        let mut client = HostAutomation::with_equipment_observations(host, &mut self.observations);
+        Some(f(tank, &mut client))
+    }
 }
 
 /// The seed of the plugin's own generator, from the client's (register
@@ -99,6 +111,9 @@ impl Plugin for MossTank {
                 HostAutomation::with_equipment_observations(host, &mut self.observations);
             tank.disable(&mut client);
         }
+        // Both words are given up with the plugin.
+        host.unregister_command(tank::VTANK_VERB);
+        host.unregister_command(tank::UB_VERB);
         self.go_to_pause.release(host);
         self.loot_classifier.unregister(host);
         host.info("MossTank disabled");
@@ -145,7 +160,7 @@ impl Plugin for MossTank {
             .map(|tank| tank.live_loot_rules().to_vec())
             .unwrap_or_default();
         self.loot_classifier
-            .answer(host, &rules, &callback)
+            .answer(host, &mut self.observations, &rules, &callback)
             .unwrap_or_default()
     }
 }

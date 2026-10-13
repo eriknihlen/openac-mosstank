@@ -1003,3 +1003,60 @@ impl Tank {
             .collect()
     }
 }
+
+impl Tank {
+    /// The selected settings profile (`SelectedMacroProfile`).
+    #[must_use]
+    pub fn selected_settings_profile(&self) -> String {
+        self.core.profiles.selected()
+    }
+
+    /// The selected loot profile (`LootProfileName`).
+    #[must_use]
+    pub fn selected_loot_profile(&self) -> String {
+        self.core.loot_profiles.selected()
+    }
+
+    /// The route shown as selected (`SelectedRouteProfile`): a meta's own
+    /// route by its label, else the selected file.
+    pub fn selected_route_profile(&self, client: &mut dyn TankClient) -> String {
+        self.core.embedded_route_label.clone().unwrap_or_else(|| {
+            self.core
+                .route_profiles
+                .selected(client.stores())
+                .unwrap_or_default()
+        })
+    }
+
+    /// The selected meta profile (`SelectedMetaProfile`).
+    pub fn selected_meta_profile(&self, client: &mut dyn TankClient) -> String {
+        self.core
+            .meta_profiles
+            .selected(client.stores())
+            .unwrap_or_default()
+    }
+
+    /// An option's value (`GetMetaOption`).
+    #[must_use]
+    pub fn option(&self, name: &str) -> mosstank_expr::ExpressionValue {
+        self.core.get_meta_option(self.meta.enabled(), name)
+    }
+
+    /// How many rules the meta has.
+    #[must_use]
+    pub fn meta_rule_count(&self) -> usize {
+        self.meta.profile().rules.len()
+    }
+
+    /// The route's notice (`RouteNotice`).
+    #[must_use]
+    pub fn route_notice(&self) -> &str {
+        &self.core.route_notice
+    }
+
+    /// The profile lifecycle notice (`ProfileLifecycleNotice`).
+    #[must_use]
+    pub fn profile_notice(&self) -> &str {
+        &self.core.profile_lifecycle_notice
+    }
+}
