@@ -14,6 +14,7 @@
 use std::cell::RefCell;
 use std::rc::Rc;
 
+use ac_plugin_abi::callback::InterceptDecision;
 use mosstank_expr::{ExpressionError, ExpressionState, ExpressionValue};
 use mosstank_formats::utl::LootRule;
 use mosstank_meta::engine::MetaEngine;
@@ -153,6 +154,13 @@ fn live_binding(
     )
 }
 
+/// A row over a value the shell keeps for its owner, written only through
+/// [`CallCatalog`].
+fn read_only_binding(live: &Rc<RefCell<LiveRows>>, name: &'static str) -> UbSettingBinding {
+    let read = live.clone();
+    UbSettingBinding::new(move || read.borrow().get(name), |_| {})
+}
+
 /// The rows whose value is owned by something other than the UB settings
 /// files (`UbLiveOwners`): their reads and writes reach that owner, so the
 /// page and the macro never hold two different values.
@@ -168,22 +176,24 @@ pub(crate) fn owned_rows(values: &StoreValues) -> Vec<(String, UbSettingBinding)
         HANDLERS.to_owned(),
         live_binding(&values.1, HANDLERS, Clone::clone),
     ));
+    // The meta profile picked, the alias list and the UB profile open live in
+    // storage: a call writes them through its own catalogue ([`CallCatalog`]),
+    // which reaches the client, so the rows here only read.
     rows.push((
         HANDLER_PROFILE.to_owned(),
-        live_binding(&values.1, HANDLER_PROFILE, Clone::clone),
+        read_only_binding(&values.1, HANDLER_PROFILE),
     ));
-    let mut aliases = live_binding(&values.1, ALIASES, Clone::clone);
+    let mut aliases = read_only_binding(&values.1, ALIASES);
     let can_save = values.1.clone();
     aliases.can_save = Box::new(move || can_save.borrow().alias_can_save);
     rows.push((ALIASES.to_owned(), aliases));
     // The profile name is the store's choice for this character.
     let store = values.0.clone();
-    let written = values.1.clone();
     rows.push((
         SETTINGS_PROFILE.to_owned(),
         UbSettingBinding::new(
             move || UbSettingValue::from_text(store.borrow().profile_name()),
-            move |value| written.borrow_mut().written.push((SETTINGS_PROFILE, value)),
+            |_| {},
         ),
     ));
     // Two choices already made here: they read what is in force, and a
@@ -197,6 +207,184 @@ pub(crate) fn owned_rows(values: &StoreValues) -> Vec<(String, UbSettingBinding)
         UbSettingBinding::new(|| UbSettingValue::from_bool(false), |_| {}),
     ));
     rows
+}
+
+/// What a catalogue write reaches during a call: the client and the
+/// shell's parts, held directly or through the cells the call shares.
+pub(crate) enum OwnerReach<'a, 'c> {
+    /// Held directly (a window action).
+    Direct(&'a mut dyn TankClient, &'a mut Core),
+    /// Shared with the call's other parts (a `/ub` command, an expression).
+    Shared(&'a ClientCell<'c>, &'a CoreCell<'c>),
+}
+
+impl OwnerReach<'_, '_> {
+    fn with<R>(&mut self, f: impl FnOnce(&mut dyn TankClient, &mut Core) -> R) -> R {
+        match self {
+            Self::Direct(client, core) => f(&mut **client, core),
+            Self::Shared(client, core) => {
+                let mut client = client.0.borrow_mut();
+                let mut core = core.0.borrow_mut();
+                f(&mut **client, &mut core)
+            }
+        }
+    }
+}
+
+/// The catalogue as one call writes it. The rows whose owner lives in
+/// storage take a write at once, through the call's client, as the C#
+/// setters do: the UB profile open (`SelectProfile`, then the page is
+/// refreshed), the meta profile picked (`SelectMetaProfileCore`; the
+/// engine loads it when the call's step ends, register UB-5) and the alias
+/// list (written to the file the profile row names now). Every other row is
+/// the catalogue's.
+pub(crate) struct CallCatalog<'a, 'c> {
+    /// The catalogue.
+    pub(crate) catalog: &'a mut UbSettingCatalog<StoreValues>,
+    /// The client and the shell's parts.
+    pub(crate) reach: OwnerReach<'a, 'c>,
+}
+
+impl CallCatalog<'_, '_> {
+    /// `_ubStore.SelectProfile(name)`; the page is refreshed when the
+    /// call's step ends.
+    fn select_ub_profile(&mut self, name: &str) {
+        let store = self.catalog.values().0.clone();
+        self.reach.with(|client, _| {
+            let mut log = RecordingLog::default();
+            {
+                let storage = client.stores().storage(Root::Profiles);
+                store.borrow_mut().select_profile(storage, &mut log, name);
+            }
+            forward_log(client, &log);
+        });
+        self.catalog
+            .values()
+            .1
+            .borrow_mut()
+            .written
+            .push((SETTINGS_PROFILE, UbSettingValue::from_text(name)));
+    }
+
+    /// `SelectMetaProfileCore`: the pick is made now and the row reads the
+    /// store's choice; the engine loads the profile when the step ends.
+    fn select_meta_profile(&mut self, text: &str) {
+        let name = if openac_plugin_compat::text::ordinal::equals_ignore_case(text, CHARACTER_META)
+        {
+            mosstank_stores::meta_store::BY_CHARACTER
+        } else {
+            text
+        };
+        let shown = self.reach.with(|client, core| {
+            if !super::profiles::pick_meta_profile(core, client, name) {
+                return None;
+            }
+            let selected =
+                super::profiles::report!(client, core.meta_profiles.selected(client.stores()))
+                    .unwrap_or_default();
+            Some(shown_meta_profile(selected))
+        });
+        if let Some(shown) = shown {
+            let mut live = self.catalog.values().1.borrow_mut();
+            live.values
+                .insert(HANDLER_PROFILE, UbSettingValue::from_text(&shown));
+            live.written
+                .push((HANDLER_PROFILE, UbSettingValue::from_text(&shown)));
+        }
+    }
+
+    /// The alias list's write, to the file the profile row names now.
+    fn write_aliases(&mut self, value: UbSettingValue) {
+        let store = self.catalog.values().0.clone();
+        let profile = UbCatalog::value(&*self.catalog, "Aliases.Profile");
+        let key = store.borrow().alias_file_key(Some(&profile.text));
+        self.reach.with(|client, _| {
+            let mut log = RecordingLog::default();
+            {
+                let storage = client.stores().storage(Root::Profiles);
+                store
+                    .borrow_mut()
+                    .write_lines(storage, &mut log, key.as_deref(), &value.items);
+            }
+            forward_log(client, &log);
+        });
+        self.catalog
+            .values()
+            .1
+            .borrow_mut()
+            .values
+            .insert(ALIASES, value);
+    }
+}
+
+/// The meta profile's name as its row shows it: `[character]` for the
+/// per-character profile.
+fn shown_meta_profile(selected: String) -> String {
+    if openac_plugin_compat::text::ordinal::equals_ignore_case(
+        &selected,
+        mosstank_stores::meta_store::BY_CHARACTER,
+    ) {
+        CHARACTER_META.to_owned()
+    } else {
+        selected
+    }
+}
+
+impl UbCatalog for CallCatalog<'_, '_> {
+    fn settings(&self) -> &[mosstank_settings::ub::UbSetting] {
+        UbCatalog::settings(&*self.catalog)
+    }
+
+    fn categories(&self) -> &[String] {
+        UbCatalog::categories(&*self.catalog)
+    }
+
+    fn try_get(&self, name: &str) -> Option<mosstank_settings::ub::UbSetting> {
+        UbCatalog::try_get(&*self.catalog, name)
+    }
+
+    fn get(&self, row: &mosstank_settings::ub::UbSetting) -> UbSettingValue {
+        UbCatalog::get(&*self.catalog, row)
+    }
+
+    fn set(&mut self, row: &mosstank_settings::ub::UbSetting, value: UbSettingValue) {
+        if row.has_live_owner {
+            let is = |name: &str| {
+                openac_plugin_compat::text::ordinal::equals_ignore_case(row.name(), name)
+            };
+            if is(SETTINGS_PROFILE) {
+                return self.select_ub_profile(value.text.trim());
+            }
+            if is(HANDLER_PROFILE) {
+                return self.select_meta_profile(value.text.trim());
+            }
+            if is(ALIASES) {
+                return self.write_aliases(value);
+            }
+        }
+        UbCatalog::set(&mut *self.catalog, row, value);
+    }
+
+    fn can_save(&self, row: &mosstank_settings::ub::UbSetting) -> bool {
+        UbCatalog::can_save(&*self.catalog, row)
+    }
+
+    fn display(&self, row: &mosstank_settings::ub::UbSetting) -> String {
+        UbCatalog::display(&*self.catalog, row)
+    }
+
+    fn full_display_value(&self, row: &mosstank_settings::ub::UbSetting) -> String {
+        UbCatalog::full_display_value(&*self.catalog, row)
+    }
+
+    fn reset_to_default(&mut self, row: &mosstank_settings::ub::UbSetting) {
+        if row.has_live_owner {
+            let default = row.definition.default.clone();
+            self.set(row, default);
+        } else {
+            UbCatalog::reset_to_default(&mut *self.catalog, row);
+        }
+    }
 }
 
 /// The UB tab's parts.
@@ -222,6 +410,8 @@ pub struct UbParts {
     pub(crate) canvases: crate::canvases::Canvases,
     /// The labels last handed to the client (`PublishNetworkTags`).
     pub(crate) tags: mosstank_ub::network::TagPublisher,
+    /// The aliases' one interceptor on typed chat (`InitializeAliases`).
+    pub(crate) aliases: mosstank_ub::alias::AliasController,
 }
 
 /// The four kinds of UB line.
@@ -301,6 +491,7 @@ impl UbParts {
             hud,
             canvases: crate::canvases::Canvases::default(),
             tags,
+            aliases: mosstank_ub::alias::AliasController::new(),
         }
     }
 
@@ -652,9 +843,13 @@ impl TankCx<'_> {
                 meta_enabled,
                 meta_written: None,
             };
+            let mut catalog = CallCatalog {
+                catalog: &mut self.ub.catalog,
+                reach: OwnerReach::Shared(&cell, &core),
+            };
             let mut call = UbCall {
                 host: &mut proxy,
-                settings: &mut self.ub.catalog,
+                settings: &mut catalog,
                 expressions: &mut expressions,
                 services: &mut services,
                 locks: &locks,
@@ -714,15 +909,10 @@ impl TankCx<'_> {
                 .meta_profiles
                 .selected(self.client.stores())
                 .unwrap_or_default();
-            let shown = if openac_plugin_compat::text::ordinal::equals_ignore_case(
-                &selected,
-                mosstank_stores::meta_store::BY_CHARACTER,
-            ) {
-                CHARACTER_META.to_owned()
-            } else {
-                selected
-            };
-            values.push((HANDLER_PROFILE, UbSettingValue::from_text(&shown)));
+            values.push((
+                HANDLER_PROFILE,
+                UbSettingValue::from_text(&shown_meta_profile(selected)),
+            ));
             let key = self.alias_file_key();
             let mut log = RecordingLog::default();
             let lines = {
@@ -767,45 +957,10 @@ impl TankCx<'_> {
                     self.apply_handler_lines(&value.items);
                     refresh_page = true;
                 }
-                HANDLER_PROFILE => {
-                    let text = value.text.trim();
-                    let name = if openac_plugin_compat::text::ordinal::equals_ignore_case(
-                        text,
-                        CHARACTER_META,
-                    ) {
-                        mosstank_stores::meta_store::BY_CHARACTER
-                    } else {
-                        text
-                    };
-                    self.select_meta_profile(name);
-                }
-                ALIASES => {
-                    let key = self.alias_file_key();
-                    let mut log = RecordingLog::default();
-                    {
-                        let storage = self.client.stores().storage(Root::Profiles);
-                        self.ub.store.borrow_mut().write_lines(
-                            storage,
-                            &mut log,
-                            key.as_deref(),
-                            &value.items,
-                        );
-                    }
-                    forward_log(self.client, &log);
-                }
-                SETTINGS_PROFILE => {
-                    let mut log = RecordingLog::default();
-                    {
-                        let storage = self.client.stores().storage(Root::Profiles);
-                        self.ub.store.borrow_mut().select_profile(
-                            storage,
-                            &mut log,
-                            value.text.trim(),
-                        );
-                    }
-                    forward_log(self.client, &log);
-                    refresh_page = true;
-                }
+                // Picked by the call's catalogue; the engine takes it now.
+                HANDLER_PROFILE => self.load_picked_meta_profile(),
+                // Opened by the call's catalogue; the page shows its values.
+                SETTINGS_PROFILE => refresh_page = true,
                 _ => {
                     let settings = &mut self.core.settings;
                     match name {
@@ -920,6 +1075,10 @@ impl TankServices<'_, '_> {
             meta_written: None,
         };
         let value = {
+            let mut catalog = CallCatalog {
+                catalog: &mut catalog,
+                reach: OwnerReach::Shared(self.client, self.core),
+            };
             let mut call = UbCall {
                 host: &mut proxy,
                 settings: &mut catalog,
@@ -983,6 +1142,10 @@ impl TankServices<'_, '_> {
             meta_enabled: self.meta_enabled,
             meta_written: None,
         };
+        let mut catalog = CallCatalog {
+            catalog: &mut catalog,
+            reach: OwnerReach::Shared(self.client, self.core),
+        };
         let mut call = UbCall {
             host: &mut proxy,
             settings: &mut catalog,
@@ -991,5 +1154,45 @@ impl TankServices<'_, '_> {
             locks: &locks,
         };
         f(&mut call)
+    }
+}
+
+impl TankCx<'_> {
+    /// Installs the aliases' interceptor (`InitializeAliases`); a client
+    /// that refuses it is said in the log, and typed lines then pass.
+    pub(crate) fn attach_aliases(&mut self) {
+        let mut aliases = std::mem::take(&mut self.ub.aliases);
+        let attached = self.with_ub(|_, call| aliases.attach(call.host));
+        self.ub.aliases = aliases;
+        if let Err(error) = attached {
+            self.client.rules().log_warn(&format!(
+                "MossTank alias interceptor was not registered: {error}"
+            ));
+        }
+    }
+
+    /// The interceptor's handle, once attached.
+    pub(crate) fn alias_registration(&self) -> Option<u32> {
+        self.ub.aliases.registration()
+    }
+
+    /// A typed line the client asks the aliases about, against the switch
+    /// and the list the settings hold now.
+    pub(crate) fn intercept_alias(&mut self, line: &str) -> InterceptDecision {
+        let mut aliases = std::mem::take(&mut self.ub.aliases);
+        let decision = self.with_ub(|_, call| {
+            let enabled = call.settings.flag("Aliases.Enabled");
+            let lines = call.settings.value("Aliases.DefinedAliases").items;
+            aliases.intercept(call.host, call.expressions, enabled, &lines, line)
+        });
+        self.ub.aliases = aliases;
+        decision
+    }
+
+    /// Removes the aliases' interceptor (`DisposeAliases`).
+    pub(crate) fn dispose_aliases(&mut self) {
+        let mut aliases = std::mem::take(&mut self.ub.aliases);
+        self.with_ub(|_, call| aliases.dispose(call.host));
+        self.ub.aliases = aliases;
     }
 }

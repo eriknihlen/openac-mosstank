@@ -386,3 +386,58 @@ fn the_ub_tree_left_in_the_plugins_own_storage_comes_across_once() {
         lines[0]
     );
 }
+
+/// The UB profile row takes a write at once, as the C# setter selects the
+/// profile before it returns: `/ub opt set` echoes the profile now open,
+/// and an expression that sets the row reads the new choice back.
+#[test]
+fn the_settings_profile_row_opens_the_profile_within_the_call() {
+    let mut world = ub_world();
+    let mut plugin = world.enable();
+    world.act_text(&mut plugin, "CreateNamedUbProfile", "Farm");
+    world.act_text(&mut plugin, "SelectUbProfile", "default");
+    world.clear_chat();
+
+    world.command(&mut plugin, "ub", "opt set Plugin.SettingsProfile Farm");
+
+    let chat = world.chat();
+    assert!(
+        chat.iter()
+            .any(|line| line.contains("Plugin.SettingsProfile") && line.ends_with("Farm")),
+        "{chat:?}"
+    );
+    let read = world.with_tank(&mut plugin, |tank, client| {
+        tank.evaluate_expression(
+            client,
+            "uboptset[`Plugin.SettingsProfile`,`default`];uboptget[`Plugin.SettingsProfile`]",
+        )
+    });
+    assert_eq!(read.unwrap().to_display_string(), "default");
+}
+
+/// The meta profile row reads the store's choice after a write: a name
+/// the store does not have leaves the choice as it was.
+#[test]
+fn the_handler_profile_row_reads_the_choice_the_store_made() {
+    let mut world = ub_world();
+    let mut plugin = world.enable();
+    world.clear_chat();
+
+    world.command(
+        &mut plugin,
+        "ub",
+        "opt set GameEvents.Profile NoSuchProfile",
+    );
+
+    let chat = world.chat();
+    assert!(
+        !chat
+            .iter()
+            .any(|line| line.contains("NoSuchProfile") && line.contains("GameEvents.Profile (")),
+        "{chat:?}"
+    );
+    let shown = world.with_tank(&mut plugin, |tank, client| {
+        tank.evaluate_expression(client, "uboptget[`GameEvents.Profile`]")
+    });
+    assert_eq!(shown.unwrap().to_display_string(), "[character]");
+}

@@ -16,6 +16,7 @@ use mosstank_ub::main_page;
 use super::{Arg, b, clamp_row, f, i, t, tl};
 use crate::client::TankClient;
 use crate::tank::TankCx;
+use crate::tank::ub::{CallCatalog, OwnerReach};
 
 /// The clients window's own state.
 #[derive(Debug, Clone, Default)]
@@ -170,9 +171,19 @@ pub(super) fn value(cx: &mut TankCx<'_>, name: &str) -> Option<UiValue> {
 
 #[allow(clippy::too_many_lines)]
 pub(super) fn act(cx: &mut TankCx<'_>, name: &str, arg: &Arg) -> bool {
+    // The catalogue as a window action writes it: the rows kept in storage
+    // are written at once, through the client.
+    macro_rules! writes {
+        ($parts:ident) => {
+            &mut CallCatalog {
+                catalog: &mut $parts.catalog,
+                reach: OwnerReach::Direct(&mut *cx.client, &mut *cx.core),
+            }
+        };
+    }
     if let Some(button) = main_page::find(name) {
         let parts = &mut *cx.ub;
-        main_page::press(&mut parts.catalog, &mut parts.page, button);
+        main_page::press(writes!(parts), &mut parts.page, button);
         return true;
     }
     let text = arg.text().to_owned();
@@ -181,12 +192,12 @@ pub(super) fn act(cx: &mut TankCx<'_>, name: &str, arg: &Arg) -> bool {
     match name {
         "SelectUbCategory" => parts.page.select_category(&parts.catalog, index),
         "SelectUbSetting" => parts.page.select_setting(&parts.catalog, index),
-        "ClickUbSettingValue" => parts.page.click_value(&mut parts.catalog, index),
+        "ClickUbSettingValue" => parts.page.click_value(writes!(parts), index),
         "SetUbFilterText" => parts.page.set_filter_text(&parts.catalog, &text),
         "SetUbSettingValueDraft" => parts.page.set_value_draft(&text),
-        "SubmitUbSetting" => parts.page.submit(&mut parts.catalog, &text),
-        "SubmitUbSettingDraft" => parts.page.submit_draft(&mut parts.catalog),
-        "ResetUbSettingToDefault" => parts.page.reset_to_default(&mut parts.catalog),
+        "SubmitUbSetting" => parts.page.submit(writes!(parts), &text),
+        "SubmitUbSettingDraft" => parts.page.submit_draft(writes!(parts)),
+        "ResetUbSettingToDefault" => parts.page.reset_to_default(writes!(parts)),
         "SelectUbProfile" | "CreateNamedUbProfile" | "CreateUbProfile" | "CopyUbProfile" => {
             let mut profiles = ShellUbProfiles {
                 store: &parts.store,
@@ -214,17 +225,17 @@ pub(super) fn act(cx: &mut TankCx<'_>, name: &str, arg: &Arg) -> bool {
         "SetUbColorGreen" => parts.page.set_color_channel(8, arg.float()),
         "SetUbColorBlue" => parts.page.set_color_channel(0, arg.float()),
         "SetUbColorHex" | "SubmitUbColorHex" => parts.page.set_color_hex(&text),
-        "ApplyUbColor" => parts.page.apply_color(&mut parts.catalog),
+        "ApplyUbColor" => parts.page.apply_color(writes!(parts)),
         "HideUbColorEditor" => parts.page.hide_color_editor(),
         "ShowUbColorEditor" => parts.page.show_color_editor(&parts.catalog),
         "ResetUbColorToDefault" => parts.page.reset_color_to_default(&parts.catalog),
 
         "SelectUbListRow" => parts.page.select_list_row(index),
         "SetUbListDraft" => parts.page.set_list_draft(&text),
-        "AddUbListEntry" => parts.page.add_list_entry(&mut parts.catalog, &text),
-        "AddUbListEntryFromDraft" => parts.page.add_list_entry_from_draft(&mut parts.catalog),
-        "ReplaceUbListEntry" => parts.page.replace_list_entry(&mut parts.catalog),
-        "RemoveUbListEntry" => parts.page.remove_list_entry(&mut parts.catalog),
+        "AddUbListEntry" => parts.page.add_list_entry(writes!(parts), &text),
+        "AddUbListEntryFromDraft" => parts.page.add_list_entry_from_draft(writes!(parts)),
+        "ReplaceUbListEntry" => parts.page.replace_list_entry(writes!(parts)),
+        "RemoveUbListEntry" => parts.page.remove_list_entry(writes!(parts)),
         "HideUbListEditor" => parts.page.hide_list_editor(),
         "ShowUbListEditor" => parts.page.show_list_editor(&parts.catalog),
 

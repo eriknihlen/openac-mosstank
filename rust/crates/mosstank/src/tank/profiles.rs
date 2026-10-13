@@ -698,17 +698,14 @@ impl TankCx<'_> {
 
     /// `SelectMetaProfileCore`.
     pub(crate) fn select_meta_profile(&mut self, name: &str) {
-        let selected = report!(
-            self.client,
-            self.core
-                .meta_profiles
-                .select(self.client.stores(), Some(name), false),
-        )
-        .unwrap_or(false);
-        if !selected {
-            self.core.meta_notice = format!("Meta profile '{name}' is unavailable.");
-            return;
+        if pick_meta_profile(self.core, self.client, name) {
+            self.load_picked_meta_profile();
         }
+    }
+
+    /// The rest of `SelectMetaProfileCore` once the profile is picked: the
+    /// engine loads it, and the notice says how that went.
+    pub(crate) fn load_picked_meta_profile(&mut self) {
         self.load_meta_profile();
         let selected = report!(
             self.client,
@@ -940,4 +937,19 @@ pub(crate) fn embedded_route_label(name: &str) -> String {
     } else {
         format!("{trimmed} (embedded)")
     }
+}
+
+/// The pick of `SelectMetaProfileCore`: whether the store took the name; a
+/// name it does not have is said in the meta notice.
+pub(crate) fn pick_meta_profile(core: &mut Core, client: &mut dyn TankClient, name: &str) -> bool {
+    let selected = report!(
+        client,
+        core.meta_profiles
+            .select(client.stores(), Some(name), false),
+    )
+    .unwrap_or(false);
+    if !selected {
+        core.meta_notice = format!("Meta profile '{name}' is unavailable.");
+    }
+    selected
 }

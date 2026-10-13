@@ -830,6 +830,8 @@ impl Tank {
                 meta: &mut meta,
                 ub: &mut ub,
             };
+            // The aliases hold what is typed from the start (`InitializeAliases`).
+            cx.attach_aliases();
             cx.load_initial_profiles();
         }
         scheduler.meta_interval_seconds =
@@ -1148,6 +1150,7 @@ impl Tank {
             commands.tools_mut().reset_session(call);
             commands.tools_mut().nametags.dispose(call.host);
         });
+        cx.dispose_aliases();
         cx.dispose_display_tools();
         if cx.core.combat.enabled() {
             cx.core.set_macro_running(cx.client, false);
@@ -1183,11 +1186,8 @@ impl Tank {
             .held_motions()
             .release_if_held(cx.client.meta());
         cx.core.write_out(cx.client);
-        let storage = cx
-            .client
-            .stores()
-            .storage(mosstank_stores::storage::Root::Plugin);
-        cx.core.buff_rule.item_ledger_mut().flush(storage);
+        // What the plugin's last call changed is written as any call's is.
+        self.end_call(client);
     }
 }
 
@@ -1446,5 +1446,27 @@ impl Tank {
         cx.core.write_out(cx.client);
         self.end_call(client);
         result.map_err(|error| error.message())
+    }
+}
+
+impl Tank {
+    /// The client asks the aliases' interceptor about a typed line; none
+    /// when `handle` is not that interceptor.
+    pub fn intercept_chat(
+        &mut self,
+        client: &mut dyn TankClient,
+        handle: u32,
+        line: &str,
+    ) -> Option<ac_plugin_abi::callback::InterceptDecision> {
+        self.begin_call(client);
+        let decision = {
+            let (mut cx, _) = self.cx(client);
+            let decision =
+                (cx.alias_registration() == Some(handle)).then(|| cx.intercept_alias(line));
+            cx.core.write_out(cx.client);
+            decision
+        };
+        self.end_call(client);
+        decision
     }
 }

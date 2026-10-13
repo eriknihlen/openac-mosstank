@@ -248,6 +248,14 @@ impl Plugin for MossTank {
     }
 
     fn callback(&mut self, host: &mut Host<'_>, callback: Callback) -> CallbackAnswer {
+        if let Callback::ChatIntercept((handle, line)) = &callback
+            && let Some(Some(decision)) = self.with_tank(host, |tank, client| {
+                tank.intercept_chat(client, *handle, line)
+            })
+        {
+            self.push_windows(host);
+            return CallbackAnswer::Intercept(decision);
+        }
         let rules = self
             .tank
             .as_ref()
