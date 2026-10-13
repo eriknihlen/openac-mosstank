@@ -171,6 +171,10 @@ impl MapUi for FakeUi {
 
     fn remove_canvas(&mut self, _canvas: u32) {}
 
+    fn client_art(&mut self, _surface_id: u32) -> MapImage {
+        MapImage::default()
+    }
+
     fn object_icon(&mut self, object_id: u32) -> MapImage {
         self.object_icons
             .get(&object_id)

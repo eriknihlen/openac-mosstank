@@ -70,6 +70,9 @@ pub trait MapUi {
     fn remove_canvas(&mut self, canvas: u32);
     /// An object's icon, or no image.
     fn object_icon(&mut self, object_id: u32) -> MapImage;
+    /// A piece of the client's own art (a surface id), or no image
+    /// (`IPluginImages.FromClientArt`).
+    fn client_art(&mut self, surface_id: u32) -> MapImage;
     /// Lets go of an image.
     fn release_image(&mut self, image: MapImage);
 }
