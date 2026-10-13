@@ -9,6 +9,7 @@
 //! reading and writing files is the caller's (the plugin's storage).
 
 pub mod af;
+pub mod gameinfo;
 pub mod line_endings;
 pub mod met;
 pub mod meta;

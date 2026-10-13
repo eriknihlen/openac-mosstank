@@ -11,6 +11,7 @@ publish.workspace = true
 openac-plugin-compat.workspace = true
 mosstank-dotnet.workspace = true
 ac-plugin-abi.workspace = true
+mosstank-data.workspace = true
 thiserror.workspace = true
 
 [lints]
