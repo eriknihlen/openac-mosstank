@@ -21,6 +21,7 @@ mosstank-expr.workspace = true
 mosstank-data.workspace = true
 mosstank-meta.workspace = true
 mosstank-nav.workspace = true
+mosstank-vendor.workspace = true
 
 [lints]
 workspace = true

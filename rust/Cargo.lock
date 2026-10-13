@@ -136,6 +136,7 @@ dependencies = [
  "mosstank-meta",
  "mosstank-nav",
  "mosstank-stores",
+ "mosstank-vendor",
  "openac-plugin",
  "openac-plugin-compat",
 ]
@@ -248,6 +249,18 @@ dependencies = [
  "mosstank-settings",
  "openac-plugin-compat",
  "sha2",
+]
+
+[[package]]
+name = "mosstank-vendor"
+version = "0.6.0-dev"
+dependencies = [
+ "ac-plugin-abi",
+ "mosstank-automation",
+ "mosstank-formats",
+ "mosstank-nav",
+ "mosstank-stores",
+ "openac-plugin-compat",
 ]
 
 [[package]]
