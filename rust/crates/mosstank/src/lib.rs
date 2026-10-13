@@ -22,6 +22,7 @@ pub mod tank;
 pub mod ub_host;
 
 pub mod meta_host;
+pub mod meta_windows;
 pub mod nav_host;
 pub mod vendor_host;
 
@@ -54,6 +55,9 @@ pub struct MossTank {
     go_to_pause: GoToPause,
     /// The windows, once registered.
     windows: Option<panel::Windows>,
+    /// The windows the meta draws, from the call that makes one to the
+    /// call that takes it down.
+    meta_windows: meta_windows::MetaWindows,
 }
 
 impl MossTank {
@@ -70,6 +74,12 @@ impl MossTank {
         self.tank.as_ref()
     }
 
+    /// The windows the meta draws.
+    #[must_use]
+    pub fn meta_windows(&self) -> &meta_windows::MetaWindows {
+        &self.meta_windows
+    }
+
     /// Pushes every window's values as the shell has them now.
     fn push_windows(&mut self, host: &mut Host<'_>) {
         let Some(windows) = self.windows.as_mut() else {
@@ -81,7 +91,7 @@ impl MossTank {
         };
         let values: std::collections::HashMap<String, ac_plugin_abi::ui::UiValue> = {
             let mut client =
-                HostAutomation::with_equipment_observations(host, &mut self.observations);
+                HostAutomation::for_call(host, &mut self.observations, &mut self.meta_windows);
             names
                 .into_iter()
                 .filter_map(|name| {
@@ -91,6 +101,11 @@ impl MossTank {
                 .collect()
         };
         windows.push(host, &values);
+        // The meta's windows read the views and the status list as they
+        // stand.
+        self.meta_windows.push(host, &mut |window_id, name| {
+            tank.meta_window_value(window_id, name)
+        });
     }
 
     /// The macro shell, once enabled, with the client view a call
@@ -101,7 +116,8 @@ impl MossTank {
         f: impl FnOnce(&mut Tank, &mut HostAutomation<'_, '_>) -> R,
     ) -> Option<R> {
         let tank = self.tank.as_mut()?;
-        let mut client = HostAutomation::with_equipment_observations(host, &mut self.observations);
+        let mut client =
+            HostAutomation::for_call(host, &mut self.observations, &mut self.meta_windows);
         Some(f(tank, &mut client))
     }
 }
@@ -118,7 +134,7 @@ impl Plugin for MossTank {
         let seed = seed(host);
         {
             let mut client =
-                HostAutomation::with_equipment_observations(host, &mut self.observations);
+                HostAutomation::for_call(host, &mut self.observations, &mut self.meta_windows);
             self.tank = Some(Tank::new(&mut client, seed));
         }
         host.info("MossTank initialized");
@@ -146,7 +162,7 @@ impl Plugin for MossTank {
     fn disable(&mut self, host: &mut Host<'_>) {
         if let Some(mut tank) = self.tank.take() {
             let mut client =
-                HostAutomation::with_equipment_observations(host, &mut self.observations);
+                HostAutomation::for_call(host, &mut self.observations, &mut self.meta_windows);
             tank.disable(&mut client);
         }
         // Both words are given up with the plugin.
@@ -167,7 +183,7 @@ impl Plugin for MossTank {
         };
         {
             let mut client =
-                HostAutomation::with_equipment_observations(host, &mut self.observations);
+                HostAutomation::for_call(host, &mut self.observations, &mut self.meta_windows);
             tank.on_tick(&mut client, TICK_SECONDS);
             tank.tick_autostart(&mut client);
         }
@@ -195,15 +211,26 @@ impl Plugin for MossTank {
         let Some(tank) = self.tank.as_mut() else {
             return;
         };
+        // A click on one of the meta's windows: which window it is.
+        let meta_window = match &event {
+            Event::Ui(UiEvent::Action(action)) => {
+                self.meta_windows.window_id(action.panel).map(str::to_owned)
+            }
+            _ => None,
+        };
         {
             let mut client =
-                HostAutomation::with_equipment_observations(host, &mut self.observations);
+                HostAutomation::for_call(host, &mut self.observations, &mut self.meta_windows);
             match &event {
                 Event::Command(call) if call.verb.eq_ignore_ascii_case(tank::VTANK_VERB) => {
                     tank.execute_vtank_command(&mut client, &call.arguments);
                 }
                 Event::Command(call) if call.verb.eq_ignore_ascii_case(tank::UB_VERB) => {
                     tank.execute_ub_command(&mut client, &call.arguments);
+                }
+                Event::Ui(UiEvent::Action(action)) if meta_window.is_some() => {
+                    let window_id = meta_window.as_deref().unwrap_or_default();
+                    tank.meta_window_act(&mut client, window_id, &action.handler);
                 }
                 Event::Ui(UiEvent::Action(action))
                     if self

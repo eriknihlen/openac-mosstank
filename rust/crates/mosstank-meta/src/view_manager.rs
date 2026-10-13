@@ -87,6 +87,11 @@ impl MetaViewManager {
         self.entry(name).and_then(|entry| entry.registration)
     }
 
+    /// Every view's name, in the order they were made.
+    pub fn names(&self) -> impl Iterator<Item = &str> {
+        self.views.iter().map(|entry| entry.name.as_str())
+    }
+
     fn entry(&self, name: &str) -> Option<&Entry> {
         self.views.iter().find(|entry| entry.name == name)
     }
