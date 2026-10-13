@@ -481,6 +481,54 @@ pub type RepairObserver = Rc<dyn Fn(&str, &[String])>;
 /// Told about a code string whose separate run failed.
 pub type RunFailedObserver = Rc<dyn Fn(&str, &ExpressionError)>;
 
+/// The client behind one evaluation, for the functions and checks that read
+/// or drive it. The plugin reaches the client only during one of its own
+/// calls, so the host is handed to each evaluation rather than kept by the
+/// functions; a function registered by the host's owner reaches it through
+/// [`EvaluationContext::call_host`]. Every method but [`Self::call`] has the
+/// answer a run without a client gets.
+pub trait ExpressionHost {
+    /// Runs the host's function `function` with `arguments`.
+    ///
+    /// # Errors
+    /// What the function fails with.
+    fn call(
+        &mut self,
+        function: &str,
+        context: &mut EvaluationContext<'_>,
+        arguments: &[ExpressionValue],
+    ) -> Result<ExpressionValue, Fault>;
+
+    /// Whether the client knows an object id now.
+    fn knows_object(&mut self, object_id: u32) -> bool {
+        let _ = object_id;
+        true
+    }
+
+    /// The name the client knows an object by now: `Some(None)` once it has
+    /// lost it; `None` for a host that cannot tell, and the value then
+    /// prints with its own name.
+    fn object_name(&mut self, object_id: u32) -> Option<Option<String>> {
+        let _ = object_id;
+        None
+    }
+
+    /// Prints a line the reference writes to chat itself.
+    fn write_to_chat(&mut self, line: &str) {
+        let _ = line;
+    }
+
+    /// Told about an expression the reader had to repair, with what it did.
+    fn repairs_observed(&mut self, source: &str, repairs: &[String]) {
+        let _ = (source, repairs);
+    }
+
+    /// Told about a code string whose separate run failed.
+    fn run_failed(&mut self, text: &str, error: &ExpressionError) {
+        let _ = (text, error);
+    }
+}
+
 /// One evaluation: the variables, the functions, the instruction budget.
 pub struct EvaluationContext<'a> {
     /// The variables.
@@ -496,8 +544,9 @@ pub struct EvaluationContext<'a> {
     /// reader gives it back, and the error.
     pub run_failed: Option<RunFailedObserver>,
     /// Whether the client knows an object id, for the reference's argument
-    /// check; `None` takes every id as known.
+    /// check; `None` asks the host, or takes every id as known without one.
     pub is_known_object: Option<KnownObject>,
+    host: Option<&'a mut dyn ExpressionHost>,
 }
 
 impl std::fmt::Debug for EvaluationContext<'_> {
@@ -541,6 +590,7 @@ impl<'a> EvaluationContext<'a> {
             repairs_observed: None,
             run_failed: None,
             is_known_object: None,
+            host: None,
         }
     }
 
@@ -549,6 +599,62 @@ impl<'a> EvaluationContext<'a> {
     pub fn with_cancellation(mut self, cancelled: Rc<std::cell::Cell<bool>>) -> Self {
         self.cancelled = Some(cancelled);
         self
+    }
+
+    /// Runs with the client behind it.
+    #[must_use]
+    pub fn with_host(mut self, host: &'a mut dyn ExpressionHost) -> Self {
+        self.host = Some(host);
+        self
+    }
+
+    /// Runs the host's function `function`.
+    ///
+    /// # Errors
+    /// What the function fails with; a run without a host fails.
+    pub fn call_host(
+        &mut self,
+        function: &str,
+        arguments: &[ExpressionValue],
+    ) -> Result<ExpressionValue, Fault> {
+        let Some(host) = self.host.take() else {
+            return Err(Fault::runtime(format!(
+                "{function} needs the client, and this run has none"
+            )));
+        };
+        let result = host.call(function, self, arguments);
+        self.host = Some(host);
+        result
+    }
+
+    /// Whether the client knows an object id: the context's own answer, else
+    /// the host's, else yes.
+    pub fn knows_object(&mut self, object_id: u32) -> bool {
+        if let Some(known) = &self.is_known_object {
+            return known(object_id);
+        }
+        self.host
+            .as_mut()
+            .is_none_or(|host| host.knows_object(object_id))
+    }
+
+    /// What a value prints as, a world object with the name the client
+    /// knows it by now.
+    pub fn display(&mut self, value: &ExpressionValue) -> String {
+        match self.host.as_mut() {
+            Some(host) => value.to_display_string_with(&mut |id| host.object_name(id)),
+            None => value.to_display_string(),
+        }
+    }
+
+    /// Prints a line the reference writes to chat itself: through `writer`
+    /// when there is one, else through the host.
+    pub fn write_to_chat(&mut self, line: &str, writer: Option<&dyn Fn(&str)>) {
+        if let Some(writer) = writer {
+            writer(line);
+        } else if let Some(host) = self.host.as_mut() {
+            host.write_to_chat(line);
+        }
     }
 
     /// The instructions left.
@@ -562,12 +668,14 @@ impl<'a> EvaluationContext<'a> {
     ///
     /// # Errors
     /// The text is not an expression.
-    pub fn compile(&self, source: &str) -> Result<ExpressionProgram, ExpressionError> {
+    pub fn compile(&mut self, source: &str) -> Result<ExpressionProgram, ExpressionError> {
         let program = ExpressionProgram::compile(source)?;
-        if !program.repairs().is_empty()
-            && let Some(observer) = &self.repairs_observed
-        {
-            observer(source, program.repairs());
+        if !program.repairs().is_empty() {
+            if let Some(observer) = &self.repairs_observed {
+                observer(source, program.repairs());
+            } else if let Some(host) = self.host.as_mut() {
+                host.repairs_observed(source, program.repairs());
+            }
         }
         Ok(program)
     }
@@ -622,6 +730,8 @@ impl<'a> EvaluationContext<'a> {
                 }
                 if let Some(observer) = &self.run_failed {
                     observer(program.text(), &error);
+                } else if let Some(host) = self.host.as_mut() {
+                    host.run_failed(program.text(), &error);
                 }
                 Ok((ExpressionValue::zero(), true))
             }
@@ -644,7 +754,7 @@ impl<'a> EvaluationContext<'a> {
         reference_arguments::check(
             name,
             arguments,
-            self.is_known_object.as_deref(),
+            &mut |object_id| self.knows_object(object_id),
             Some(offset),
         )?;
         if arguments.len() < function.minimum_arguments

@@ -126,7 +126,8 @@ fn evaluate(node: &Node, context: &mut EvaluationContext<'_>) -> Result<Expressi
 }
 
 fn variable_name(name: &Node, context: &mut EvaluationContext<'_>) -> Result<String, Fault> {
-    Ok(evaluate(name, context)?.to_display_string())
+    let value = evaluate(name, context)?;
+    Ok(context.display(&value))
 }
 
 fn evaluate_core(
@@ -253,7 +254,7 @@ fn evaluate_binary(
     let rhs = evaluate(right, context)?;
     use TokenKind as T;
     Ok(match operation {
-        T::Plus => add(&lhs, &rhs)?,
+        T::Plus => add(context, &lhs, &rhs)?,
         T::Minus => subtract(&lhs, &rhs, source)?,
         T::Star => {
             number_result(lhs.as_number("multiplication")? * rhs.as_number("multiplication")?)
@@ -274,8 +275,8 @@ fn evaluate_binary(
         T::Ampersand => int_result(lhs.as_int32("bitwise and")? & rhs.as_int32("bitwise and")?),
         T::Pipe => int_result(lhs.as_int32("bitwise or")? | rhs.as_int32("bitwise or")?),
         T::Hash => regex_match(context, &lhs, &rhs)?,
-        T::EqualEqual => ExpressionValue::Boolean(are_equal(&lhs, &rhs)),
-        T::BangEqual => ExpressionValue::Boolean(!are_equal(&lhs, &rhs)),
+        T::EqualEqual => ExpressionValue::Boolean(are_equal(context, &lhs, &rhs)),
+        T::BangEqual => ExpressionValue::Boolean(!are_equal(context, &lhs, &rhs)),
         T::Less => ExpressionValue::Boolean(compare(&lhs, &rhs)? < 0),
         T::LessEqual => ExpressionValue::Boolean(compare(&lhs, &rhs)? <= 0),
         T::Greater => ExpressionValue::Boolean(compare(&lhs, &rhs)? > 0),
@@ -290,14 +291,18 @@ fn evaluate_binary(
     })
 }
 
-fn add(left: &ExpressionValue, right: &ExpressionValue) -> Result<ExpressionValue, Fault> {
+fn add(
+    context: &mut EvaluationContext<'_>,
+    left: &ExpressionValue,
+    right: &ExpressionValue,
+) -> Result<ExpressionValue, Fault> {
     match left {
         ExpressionValue::Number(_) | ExpressionValue::Boolean(_) => Ok(number_result(
             left.as_number("addition")? + right.as_number("addition")?,
         )),
         ExpressionValue::String(text) => Ok(ExpressionValue::string(&format!(
             "{text}{}",
-            right.to_display_string()
+            context.display(right)
         ))),
         _ => Err(ExpressionError::evaluation(format!(
             "Unable to add {} to {}.",
@@ -342,11 +347,14 @@ fn subtract(
 /// `==` as the reference decides it: a string on the left is compared,
 /// ignoring case, with the right side as it prints; anything else equals
 /// only a value of its own kind equal to it.
-fn are_equal(left: &ExpressionValue, right: &ExpressionValue) -> bool {
+fn are_equal(
+    context: &mut EvaluationContext<'_>,
+    left: &ExpressionValue,
+    right: &ExpressionValue,
+) -> bool {
     match left {
         ExpressionValue::String(text) => {
-            casing::to_lower_invariant(text)
-                == casing::to_lower_invariant(&right.to_display_string())
+            casing::to_lower_invariant(text) == casing::to_lower_invariant(&context.display(right))
         }
         _ => left.same_value(right),
     }
@@ -379,12 +387,13 @@ fn regex_match(
     left: &ExpressionValue,
     right: &ExpressionValue,
 ) -> Result<ExpressionValue, Fault> {
+    let pattern = context.display(right);
     let regex = DotNetRegex::new(
-        &right.to_display_string(),
+        &pattern,
         RegexOptions::IGNORE_CASE | RegexOptions::CULTURE_INVARIANT,
     )
     .map_err(|error| Fault::argument(error.to_string()))?;
-    let input = left.to_display_string();
+    let input = context.display(left);
     let found = regex
         .find(&input)
         .map_err(|error| Fault::runtime(error.to_string()))?;

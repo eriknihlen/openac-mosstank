@@ -10,6 +10,8 @@
 pub mod automation;
 pub mod storage;
 
+pub mod meta_host;
+
 use openac_plugin::{Host, Plugin, StartInfo};
 
 /// The plugin's version, shown to the player.

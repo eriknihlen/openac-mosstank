@@ -23,6 +23,7 @@ mosstank-settings = { path = "crates/mosstank-settings" }
 mosstank-stores = { path = "crates/mosstank-stores" }
 mosstank-automation = { path = "crates/mosstank-automation" }
 mosstank-buffs = { path = "crates/mosstank-buffs" }
+mosstank-meta = { path = "crates/mosstank-meta" }
 
 # The openAC plugin SDK (MIT), from the openAC-rust repository by git
 # (owner decision 2026-10-13). `openac-plugin-compat` is its .NET
@@ -37,6 +38,8 @@ thiserror = "2.0"
 # SHA-256 for the recovery copies' and old profiles' names and the global
 # variables' keys (pure Rust).
 sha2 = "0.11"
+# The meta views' XML (pure Rust; the SDK's UI kit already uses it).
+roxmltree = { version = "0.21.1", default-features = false, features = ["std"] }
 
 [workspace.lints.rust]
 unsafe_code = "deny"

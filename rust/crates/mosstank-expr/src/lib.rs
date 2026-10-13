@@ -17,7 +17,7 @@ pub use crate::core::{CoreOptions, ExpressionClock, FixedClock, create_default};
 pub use engine::ExpressionProgram;
 pub use error::{EvaluationError, ExpressionError, Fault};
 pub use runtime::{
-    DEFAULT_INSTRUCTION_BUDGET, EvaluationContext, ExpressionState, ExpressionVariableScope,
-    FunctionRegistry, GlobalVariableStore,
+    DEFAULT_INSTRUCTION_BUDGET, EvaluationContext, ExpressionHost, ExpressionState,
+    ExpressionVariableScope, FunctionRegistry, GlobalVariableStore,
 };
 pub use value::{ChangeCounter, ExpressionCoordinates, ExpressionValue, ExpressionValueKind};

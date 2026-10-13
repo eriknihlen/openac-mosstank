@@ -93,14 +93,14 @@ fn error(offset: Option<usize>, message: String) -> Fault {
 
 /// Checks the arguments of a declared function; the reference's error when
 /// it would raise one. `is_known_object` tells whether the client knows an
-/// object id (`None`: every id is known).
+/// object id.
 ///
 /// # Errors
 /// The reference's argument error.
 pub fn check(
     name: &str,
     values: &[ExpressionValue],
-    is_known_object: Option<&dyn Fn(u32) -> bool>,
+    is_known_object: &mut dyn FnMut(u32) -> bool,
     offset: Option<usize>,
 ) -> Result<(), Fault> {
     let Some((types, parameters)) = declared(name) else {
@@ -155,7 +155,7 @@ pub fn check(
             }
             if let Some(id @ ExpressionValue::Number(number)) = arguments[index] {
                 let known = match signed_object_id(*number) {
-                    Ok(object_id) => is_known_object.is_none_or(|known| known(object_id)),
+                    Ok(object_id) => is_known_object(object_id),
                     Err(fault) => return Err(fault),
                 };
                 if known {
