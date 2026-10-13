@@ -350,7 +350,11 @@ impl UbServices for ShellUbServices<'_, '_> {
     fn follow(&mut self, _host: &mut dyn UbHost, player_id: u32, name: &str) -> bool {
         let mut client = self.client.0.borrow_mut();
         let mut core = self.core.0.borrow_mut();
-        core.follow_on_follow_route(&mut **client, player_id, name)
+        let (followed, meta_enabled) = core.follow_on_follow_route(&mut **client, player_id, name);
+        if let Some(enabled) = meta_enabled {
+            self.meta_written = Some(enabled);
+        }
+        followed
     }
 
     fn navigation_enabled(&mut self) -> bool {
@@ -391,22 +395,27 @@ impl UbServices for ShellUbServices<'_, '_> {
 }
 
 impl Core {
-    /// `FollowOnFollowRoute`: the follow route aimed at a player.
+    /// `FollowOnFollowRoute`: the follow route aimed at a player, read in
+    /// full when it is not the route in memory (`LoadRouteProfile`). Whether
+    /// it is aimed, and `EnableMeta` when the route's load wrote it.
     pub(crate) fn follow_on_follow_route(
         &mut self,
         client: &mut dyn TankClient,
         object_id: u32,
         name: &str,
-    ) -> bool {
+    ) -> (bool, Option<bool>) {
+        let mut meta_enabled = None;
         if self.embedded_route_label.is_some() || !self.route_profiles.follow_route_selected() {
             if let Err(error) = self.route_profiles.select_follow_route(client.stores()) {
                 client
                     .rules()
                     .log_warn(&format!("MossTank storage failure: {error}"));
             }
-            if !self.load_route_profile(client) {
-                return false;
+            let (loaded, written) = self.load_route_profile_in_full(client);
+            if !loaded {
+                return (false, written);
             }
+            meta_enabled = written;
         }
         self.settings.navigation.follow_target_object_id = object_id;
         name.clone_into(&mut self.settings.navigation.follow_target_name);
@@ -416,7 +425,7 @@ impl Core {
             self.navigation.reset(&mut turn);
         }
         self.save_route_profile(client);
-        true
+        (true, meta_enabled)
     }
 }
 

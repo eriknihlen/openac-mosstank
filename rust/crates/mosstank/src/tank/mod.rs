@@ -13,6 +13,7 @@
 //! ([`QueuedLine`]) and the shell writes them out right after each rule and
 //! frame step (register LOG-1, COMBAT-1).
 
+mod actions;
 mod autostart;
 mod commands;
 mod frame;

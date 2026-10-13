@@ -173,6 +173,15 @@ pub(crate) fn execute_vtank(cx: &mut TankCx<'_>, input: &str) {
     cx.core.write_out(cx.client);
 }
 
+/// A failure the C# throws out of a `/vt` command ends it there: its
+/// dispatcher's catch says why in chat and logs it (`ExecuteVtankCommand`).
+pub(crate) fn command_failed(client: &mut dyn TankClient, error: &str) {
+    Core::write_vtank(client, &format!("Command failed: {error}"));
+    client
+        .looter()
+        .log_error(&format!("MossTank /vt command failed. {error}"));
+}
+
 /// .NET's `bool.ToString()`.
 fn pascal(value: bool) -> &'static str {
     if value { "True" } else { "False" }
@@ -236,9 +245,8 @@ fn settings_command(cx: &mut TankCx<'_>, arguments: &str) {
         if operation == "savechar"
             && let Err(error) = core.profiles.set_mine_only(cx.client.stores(), true)
         {
-            cx.client
-                .rules()
-                .log_warn(&format!("MossTank storage failure: {error}"));
+            command_failed(cx.client, &error);
+            return;
         }
         let created = core.profiles.create(
             cx.client.stores(),
@@ -255,12 +263,15 @@ fn settings_command(cx: &mut TankCx<'_>, arguments: &str) {
                 }
                 Core::write_vtank(cx.client, &notice);
             }
-            Err(error) => Core::write_vtank(cx.client, &format!("Command failed: {error}")),
+            Err(error) => command_failed(cx.client, &error),
         }
         return;
     }
-    let selected = cx.core.profiles.select(cx.client.stores(), Some(&name));
-    if !selected.unwrap_or(false) {
+    let selected = match cx.core.profiles.select(cx.client.stores(), Some(&name)) {
+        Ok(selected) => selected,
+        Err(error) => return command_failed(cx.client, &error),
+    };
+    if !selected {
         Core::write_vtank(
             cx.client,
             &format!("Settings profile '{name}' was not found."),
@@ -297,18 +308,20 @@ fn route_profile_command(cx: &mut TankCx<'_>, arguments: &str, af: bool) {
             true,
             &cx.core.settings.navigation,
         );
-        let notice = match created {
-            Ok((_, notice)) => notice,
-            Err(error) => format!("Command failed: {error}"),
-        };
-        Core::write_vtank(cx.client, &notice);
+        match created {
+            Ok((_, notice)) => Core::write_vtank(cx.client, &notice),
+            Err(error) => command_failed(cx.client, &error),
+        }
         return;
     }
-    let selected = cx
+    let selected = match cx
         .core
         .route_profiles
         .select(cx.client.stores(), Some(&file_name), af)
-        .unwrap_or(false);
+    {
+        Ok(selected) => selected,
+        Err(error) => return command_failed(cx.client, &error),
+    };
     if !selected {
         if af {
             Core::write_vtank(
@@ -332,17 +345,17 @@ fn route_profile_command(cx: &mut TankCx<'_>, arguments: &str, af: bool) {
                 Core::write_vtank(cx.client, &notice);
             }
             Ok((false, notice)) => Core::write_vtank(cx.client, &notice),
-            Err(error) => Core::write_vtank(cx.client, &format!("Command failed: {error}")),
+            Err(error) => command_failed(cx.client, &error),
         }
         return;
     }
     cx.load_route_profile();
-    let selected = cx
-        .core
-        .route_profiles
-        .selected(cx.client.stores())
-        .unwrap_or_default();
-    Core::write_vtank(cx.client, &format!("Loaded navigation profile {selected}."));
+    match cx.core.route_profiles.selected(cx.client.stores()) {
+        Ok(selected) => {
+            Core::write_vtank(cx.client, &format!("Loaded navigation profile {selected}."));
+        }
+        Err(error) => command_failed(cx.client, &error),
+    }
 }
 
 /// `/vt loot [load/new] name`.
@@ -371,16 +384,19 @@ fn loot_profile_command(cx: &mut TankCx<'_>, arguments: &str) {
                 }
                 Core::write_vtank(cx.client, &notice);
             }
-            Err(error) => Core::write_vtank(cx.client, &format!("Command failed: {error}")),
+            Err(error) => command_failed(cx.client, &error),
         }
         return;
     }
-    if cx
+    let exists = match cx
         .core
         .loot_profiles
         .exists(cx.client.stores(), Some(&name))
-        .unwrap_or(false)
     {
+        Ok(exists) => exists,
+        Err(error) => return command_failed(cx.client, &error),
+    };
+    if exists {
         cx.select_loot_profile(&name);
         let notice = cx.core.loot_editor_notice.clone();
         Core::write_vtank(cx.client, &notice);
@@ -404,7 +420,7 @@ fn loot_profile_command(cx: &mut TankCx<'_>, arguments: &str) {
             Core::write_vtank(cx.client, &notice);
         }
         Ok((false, notice)) => Core::write_vtank(cx.client, &notice),
-        Err(error) => Core::write_vtank(cx.client, &format!("Command failed: {error}")),
+        Err(error) => command_failed(cx.client, &error),
     }
 }
 
@@ -421,19 +437,26 @@ impl Core {
         let name = strip_extension(name, &[".json"]);
         let bare_name = strip_extension(&name, &[".met", ".af"]);
         let file_name = if af { format!("{bare_name}.af") } else { name };
-        let selected = self
+        let selected = match self
             .meta_profiles
             .select(client.stores(), Some(&file_name), af)
-            .unwrap_or(false);
+        {
+            Ok(selected) => selected,
+            Err(error) => {
+                command_failed(client, &error);
+                return None;
+            }
+        };
         if selected {
             let profile = self.load_meta_profile_current(client);
             // A file that could not be read has already been announced.
             if self.meta_profiles.last_load_error().is_none() {
-                let selected = self
-                    .meta_profiles
-                    .selected(client.stores())
-                    .unwrap_or_default();
-                Core::write_vtank(client, &format!("Loaded Meta profile {selected}."));
+                match self.meta_profiles.selected(client.stores()) {
+                    Ok(selected) => {
+                        Core::write_vtank(client, &format!("Loaded Meta profile {selected}."));
+                    }
+                    Err(error) => command_failed(client, &error),
+                }
             }
             return Some(profile);
         }
@@ -441,11 +464,17 @@ impl Core {
             Core::write_vtank(client, &format!("Meta profile {file_name} was not found."));
             return None;
         }
-        if !self
+        let legacy = match self
             .meta_profiles
             .legacy_import_exists(client.stores(), Some(&bare_name))
-            .unwrap_or(false)
         {
+            Ok(legacy) => legacy,
+            Err(error) => {
+                command_failed(client, &error);
+                return None;
+            }
+        };
+        if !legacy {
             // The reference loads a meta that does not exist by creating it,
             // empty, and switching to it.
             let created = self.meta_profiles.create(
@@ -461,19 +490,18 @@ impl Core {
                     return None;
                 }
                 Err(error) => {
-                    Core::write_vtank(client, &format!("Command failed: {error}"));
+                    command_failed(client, &error);
                     return None;
                 }
             }
             let profile = self.load_meta_profile_current(client);
-            let selected = self
-                .meta_profiles
-                .selected(client.stores())
-                .unwrap_or_default();
-            Core::write_vtank(
-                client,
-                &format!("Meta profile {selected} did not exist; started it empty."),
-            );
+            match self.meta_profiles.selected(client.stores()) {
+                Ok(selected) => Core::write_vtank(
+                    client,
+                    &format!("Meta profile {selected} did not exist; started it empty."),
+                ),
+                Err(error) => command_failed(client, &error),
+            }
             return Some(profile);
         }
         let spells = super::profiles::SpellsSnapshot::read(client);
@@ -490,7 +518,7 @@ impl Core {
                 None
             }
             Err(error) => {
-                Core::write_vtank(client, &format!("Command failed: {error}"));
+                command_failed(client, &error);
                 None
             }
         }
@@ -528,7 +556,7 @@ fn meta_profile_command(cx: &mut TankCx<'_>, arguments: &str, af: bool) {
             .create(cx.client.stores(), Some(&file_name), true, &current);
     let notice = match created {
         Ok((_, notice)) => notice,
-        Err(error) => format!("Command failed: {error}"),
+        Err(error) => return command_failed(cx.client, &error),
     };
     cx.load_meta_profile();
     Core::write_vtank(cx.client, &notice);
@@ -576,7 +604,7 @@ fn option_command(cx: &mut TankCx<'_>, arguments: &str) {
                 return;
             };
             if let Err(error) = cx.set_meta_option(canonical, &value) {
-                Core::write_vtank(cx.client, &format!("Command failed: {}", error.message()));
+                command_failed(cx.client, &error.message());
                 return;
             }
             if ordinal::equals_ignore_case(&operation, "setinall") {
@@ -592,7 +620,7 @@ fn option_command(cx: &mut TankCx<'_>, arguments: &str) {
                             "Done saving setting {canonical} to all profiles. (Changed {count} profiles)"
                         ),
                     ),
-                    Err(error) => Core::write_vtank(cx.client, &format!("Command failed: {error}")),
+                    Err(error) => command_failed(cx.client, &error),
                 }
             } else {
                 let value = cx.get_meta_option(canonical).to_display_string();
@@ -623,7 +651,7 @@ fn toggle_option(cx: &mut TankCx<'_>, name: &str) {
     }
     let flipped = !cx.get_meta_option(canonical).is_truthy();
     if let Err(error) = cx.set_meta_option(canonical, &ExpressionValue::Boolean(flipped)) {
-        Core::write_vtank(cx.client, &format!("Command failed: {}", error.message()));
+        command_failed(cx.client, &error.message());
         return;
     }
     let value = cx.get_meta_option(canonical).to_display_string();

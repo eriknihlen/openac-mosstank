@@ -279,16 +279,21 @@ fn a_once_route_starts_at_its_head() {
 #[test]
 fn loading_a_route_still_puts_the_round_back_to_its_first_point() {
     let (mut world, mut plugin) = standing_world();
-    two_point_route(&mut world, &mut plugin, RouteMode::Circular);
+    // `TwoPointRoute`: the editor's Add Point at 0 and at 50.
+    world.with_tank(&mut plugin, |tank, client| tank.add_route_point(client));
+    stand_at(&mut world, 50.0, 0.0);
+    world.with_tank(&mut plugin, |tank, client| tank.add_route_point(client));
+    stand_at(&mut world, 0.0, 0.0);
     set_option(&mut world, &mut plugin, "EnableNav", true);
-    world.vt(&mut plugin, "stop");
-    assert_eq!(index(&plugin), 0);
-    world.vt(&mut plugin, "nextwp");
+    world.with_tank(&mut plugin, |tank, client| {
+        tank.set_macro_running(client, true)
+    });
+    for _ in 0..4 {
+        world.with_tank(&mut plugin, |tank, client| tank.on_tick(client, 0.3));
+    }
     assert_eq!(index(&plugin), 1);
 
-    // The route changes under the controller (the C# adds a point in the
-    // editor; here the route file is loaded again).
-    world.vt(&mut plugin, "nav load TwoPoints");
+    world.with_tank(&mut plugin, |tank, client| tank.add_route_point(client));
 
     assert_eq!(index(&plugin), 0);
 }
