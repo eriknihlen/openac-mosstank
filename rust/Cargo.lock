@@ -79,9 +79,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "mosstank-dotnet"
+version = "0.6.0-dev"
+dependencies = [
+ "openac-plugin-compat",
+]
+
+[[package]]
 name = "mosstank-expr"
 version = "0.6.0-dev"
 dependencies = [
+ "mosstank-dotnet",
  "openac-plugin-compat",
  "thiserror",
 ]
@@ -90,6 +98,7 @@ dependencies = [
 name = "mosstank-formats"
 version = "0.6.0-dev"
 dependencies = [
+ "mosstank-dotnet",
  "openac-plugin-compat",
  "thiserror",
 ]

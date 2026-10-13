@@ -9,6 +9,7 @@ publish.workspace = true
 
 [dependencies]
 openac-plugin-compat.workspace = true
+mosstank-dotnet.workspace = true
 thiserror.workspace = true
 
 [lints]

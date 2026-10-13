@@ -18,6 +18,7 @@ publish = false
 mosstank-formats = { path = "crates/mosstank-formats" }
 mosstank-expr = { path = "crates/mosstank-expr" }
 mosstank-data = { path = "crates/mosstank-data" }
+mosstank-dotnet = { path = "crates/mosstank-dotnet" }
 
 # The openAC plugin SDK (MIT), from the openAC-rust repository by git
 # (owner decision 2026-10-13). `openac-plugin-compat` is its .NET
