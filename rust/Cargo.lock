@@ -108,6 +108,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "mosstank-settings"
+version = "0.6.0-dev"
+dependencies = [
+ "ac-plugin-abi",
+ "mosstank-data",
+ "mosstank-dotnet",
+ "mosstank-formats",
+ "openac-plugin-compat",
+ "thiserror",
+]
+
+[[package]]
 name = "openac-plugin"
 version = "0.1.0"
 source = "git+ssh://git@github.com/eriknihlen/openac-rust.git?branch=main#2a87a3b35b3375f89591f14604d36b41dfd9b5aa"

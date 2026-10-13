@@ -522,6 +522,18 @@ impl VtankGameInfoDatabase {
         result
     }
 
+    /// The species table's row for a monster (any case), if any.
+    #[must_use]
+    pub fn species_member(&self, monster_name: &str) -> Option<VtankSpeciesMember> {
+        self.species_members.get(&key(monster_name)).copied()
+    }
+
+    /// How many monsters have damage preferences of their own.
+    #[must_use]
+    pub fn monster_damage_override_count(&self) -> usize {
+        self.monster_damage_overrides.len()
+    }
+
     /// How many monsters the species table lists.
     #[must_use]
     pub fn species_member_count(&self) -> usize {

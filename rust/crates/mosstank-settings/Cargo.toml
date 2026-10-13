@@ -1,0 +1,19 @@
+[package]
+name = "mosstank-settings"
+description = "MossTank's settings model: the VTank settings profile and its serializer, the option catalogue, monster rules and their expressions, the UB settings catalogue, and the tables read out of the game database. Pure: no host calls."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[dependencies]
+ac-plugin-abi.workspace = true
+mosstank-data.workspace = true
+mosstank-dotnet.workspace = true
+mosstank-formats.workspace = true
+openac-plugin-compat.workspace = true
+thiserror.workspace = true
+
+[lints]
+workspace = true
