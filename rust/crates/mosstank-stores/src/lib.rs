@@ -17,6 +17,8 @@
 //! - [`loot_store`]: the loot profile store.
 //! - [`route_store`]: the route store (`.af` and dropped `.nav` routes).
 //! - [`meta_store`]: the meta store (`.af` and dropped `.met` metas).
+//! - [`startup`]: the first start's copies and the line each load produces.
+//! - [`item_enchant_store`]: the item-enchantment timers.
 //! - [`stj`]: the JSON documents read and written as System.Text.Json does.
 //!
 //! Pure: storage comes in through [`storage::PluginStorage`] (a profile store
@@ -34,6 +36,7 @@ pub mod profile_store;
 pub mod recovery;
 pub mod route_store;
 pub mod sidecar;
+pub mod startup;
 pub mod stj;
 pub mod storage;
 pub mod ub_store;

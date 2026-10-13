@@ -8,7 +8,7 @@ use std::rc::Rc;
 use mosstank_stores::directory::{self, ProfileEntry};
 use mosstank_stores::layout::{self, StorageFolderPreparer};
 use mosstank_stores::layout_migration::{self, LayoutMigrationResult};
-use mosstank_stores::storage::{MemoryStorage, NoStorage, PluginStorage};
+use mosstank_stores::storage::{MemoryHost, MemoryStorage, NoStorage, PluginStorage};
 use mosstank_stores::ub_store;
 use mosstank_stores::ub_tree_migration::{self, UbTreeMigrationResult};
 use openac_plugin_compat::datetime::DateTime;
@@ -645,6 +645,19 @@ fn ub_storage(files: &[(&str, &str)]) -> MemoryStorage {
     flat_storage(files)
 }
 
+/// The copy over a host holding the two storages, which are put back after.
+fn migrate_ub(plugin: &mut MemoryStorage, vtank: &mut MemoryStorage) -> UbTreeMigrationResult {
+    let mut host = MemoryHost {
+        plugin: std::mem::take(plugin),
+        profiles: std::mem::take(vtank),
+        ..MemoryHost::default()
+    };
+    let result = ub_tree_migration::run(&mut host).unwrap();
+    *plugin = host.plugin;
+    *vtank = host.profiles;
+    result
+}
+
 // Source: tests/AcDream.Plugins.MossTank.Tests/UbTreeMigrationTests.cs :: EveryFileArrivesAtTheSameRelativePathUnderTheNewRoot
 #[test]
 fn every_file_arrives_at_the_same_relative_path_under_the_new_root() {
@@ -657,7 +670,7 @@ fn every_file_arrives_at_the_same_relative_path_under_the_new_root() {
     ]);
     let mut vtank = ub_storage(&[]);
 
-    let result = ub_tree_migration::run(&mut plugin, &mut vtank).unwrap();
+    let result = migrate_ub(&mut plugin, &mut vtank);
 
     assert_eq!(result.copied, 4);
     assert_eq!(result.already_present, 0);
@@ -683,7 +696,7 @@ fn every_file_arrives_at_the_same_relative_path_under_the_new_root() {
 fn the_originals_are_left_where_they_were() {
     let mut plugin = ub_storage(&[("ub/settings.json", "installation")]);
 
-    ub_tree_migration::run(&mut plugin, &mut ub_storage(&[])).unwrap();
+    migrate_ub(&mut plugin, &mut ub_storage(&[]));
 
     assert_eq!(plugin.get("ub/settings.json"), Some("installation"));
 }
@@ -697,13 +710,13 @@ fn a_file_already_at_its_new_name_is_left_alone() {
     ]);
     let mut vtank = ub_storage(&[("mosstank/ub/settings.json", "edited since")]);
 
-    let first = ub_tree_migration::run(&mut plugin, &mut vtank).unwrap();
+    let first = migrate_ub(&mut plugin, &mut vtank);
 
     assert_eq!(first.copied, 1);
     assert_eq!(first.already_present, 1);
     assert_eq!(vtank.get("mosstank/ub/settings.json"), Some("edited since"));
 
-    let second = ub_tree_migration::run(&mut plugin, &mut vtank).unwrap();
+    let second = migrate_ub(&mut plugin, &mut vtank);
 
     assert_eq!(second.copied, 0);
     assert_eq!(second.already_present, 2);
@@ -715,7 +728,7 @@ fn a_file_already_at_its_new_name_is_left_alone() {
 fn the_copy_is_announced_in_one_line_naming_the_folder() {
     let mut plugin = ub_storage(&[("ub/settings.json", "a"), ("ub/maps/markers.csv", "b")]);
 
-    let result = ub_tree_migration::run(&mut plugin, &mut ub_storage(&[])).unwrap();
+    let result = migrate_ub(&mut plugin, &mut ub_storage(&[]));
 
     // Path.Combine("C:\\memory", "mosstank", "ub") on Windows.
     assert_eq!(
@@ -729,19 +742,17 @@ fn the_copy_is_announced_in_one_line_naming_the_folder() {
 fn nothing_to_copy_says_nothing() {
     let mut empty = ub_storage(&[]);
     assert_eq!(
-        ub_tree_migration::run(&mut empty, &mut ub_storage(&[]))
-            .unwrap()
-            .describe(Some("C:\\memory")),
+        migrate_ub(&mut empty, &mut ub_storage(&[])).describe(Some("C:\\memory")),
         None
     );
 
     let mut plugin = ub_storage(&[("ub/settings.json", "a")]);
     assert_eq!(
-        ub_tree_migration::run(&mut plugin, &mut MemoryStorage::unavailable()).unwrap(),
+        migrate_ub(&mut plugin, &mut MemoryStorage::unavailable()),
         UbTreeMigrationResult::default()
     );
     assert_eq!(
-        ub_tree_migration::run(&mut MemoryStorage::unavailable(), &mut ub_storage(&[])).unwrap(),
+        migrate_ub(&mut MemoryStorage::unavailable(), &mut ub_storage(&[])),
         UbTreeMigrationResult::default()
     );
 }

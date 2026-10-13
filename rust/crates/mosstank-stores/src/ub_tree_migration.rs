@@ -5,7 +5,7 @@
 
 use openac_plugin_compat::text::ordinal;
 
-use crate::storage::{PluginStorage, StorageError, display_path};
+use crate::storage::{Root, StorageError, StoreHost, display_path};
 use crate::ub_store::ROOT;
 
 /// The prefix the tree used to sit under, inside the plugin's own storage.
@@ -52,15 +52,13 @@ impl UbTreeMigrationResult {
 ///
 /// # Errors
 /// Either storage cannot be listed, read or written.
-pub fn run(
-    plugin_storage: &mut dyn PluginStorage,
-    vtank_profiles: &mut dyn PluginStorage,
-) -> Result<UbTreeMigrationResult, StorageError> {
+pub fn run(host: &mut dyn StoreHost) -> Result<UbTreeMigrationResult, StorageError> {
     let mut result = UbTreeMigrationResult::default();
-    if !plugin_storage.is_available() || !vtank_profiles.is_available() {
+    if !host.storage(Root::Plugin).is_available() || !host.storage(Root::Profiles).is_available() {
         return Ok(result);
     }
-    let mut keys: Vec<String> = plugin_storage
+    let mut keys: Vec<String> = host
+        .storage(Root::Plugin)
         .list("")?
         .into_iter()
         .filter(|key| ordinal::starts_with_ignore_case(key, LEGACY_ROOT))
@@ -72,14 +70,19 @@ pub fn run(
             continue;
         }
         let destination = format!("{ROOT}{relative}");
-        if vtank_profiles.read_text(&destination)?.is_some() {
+        if host
+            .storage(Root::Profiles)
+            .read_text(&destination)?
+            .is_some()
+        {
             result.already_present += 1;
             continue;
         }
-        let Some(content) = plugin_storage.read_text(&key)? else {
+        let Some(content) = host.storage(Root::Plugin).read_text(&key)? else {
             continue;
         };
-        vtank_profiles.write_text(&destination, &content)?;
+        host.storage(Root::Profiles)
+            .write_text(&destination, &content)?;
         result.copied += 1;
     }
     Ok(result)
