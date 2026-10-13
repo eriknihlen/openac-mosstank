@@ -2,6 +2,7 @@
 //!
 //! - [`gate`]: readying a combat stance (`CombatModeGate`).
 //! - [`debuff`]: the debuff chain, the debuff spells and what has landed.
+//! - [`dispel`]: clearing vulnerabilities (`DispelController`).
 //! - [`failure`]: the monsters given up on (`CombatFailureTracker`).
 //! - [`item_debuff`]: where a debuff can come from (`CombatItemDebuffPlanner`).
 //! - [`selection`]: which monster to fight (`CombatTargetSelector`).
@@ -16,6 +17,7 @@ use mosstank_automation::Automation;
 use mosstank_meta::scheduler::MacroLogChannel;
 
 pub mod debuff;
+pub mod dispel;
 pub mod failure;
 pub mod gate;
 pub mod item_debuff;

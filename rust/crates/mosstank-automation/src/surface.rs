@@ -192,9 +192,15 @@ pub trait Automation {
         Vec::new()
     }
 
-    /// The timed enchantments on it (`TimedEnchantments`).
-    fn timed_enchantments(&mut self) -> Vec<ActiveEnchantment> {
+    /// Every enchantment on it (`ActiveEnchantments`).
+    fn active_enchantments(&mut self) -> Vec<ActiveEnchantment> {
         Vec::new()
+    }
+
+    /// The timed enchantments on it (`TimedEnchantments`); by default every
+    /// one, as the C# interface's default.
+    fn timed_enchantments(&mut self) -> Vec<ActiveEnchantment> {
+        self.active_enchantments()
     }
 
     // --- More of casting.
