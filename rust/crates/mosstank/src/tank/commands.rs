@@ -46,12 +46,7 @@ const VTANK_HELP: [&str; 4] = [
 const LOG_TYPES: &str = "Log types: ActiveRule SalvageList SpellCast RuleInfo Timers CastInfo DebuffChoice Loot CharProps Misc BusyState";
 
 /// Verbs whose tools are not converted yet.
-const NOT_CONVERTED_VERBS: [&str; 18] = [
-    "tapjump",
-    "jump",
-    "addnavjump",
-    "addnavpt",
-    "addnavcheckpoint",
+const NOT_CONVERTED_VERBS: [&str; 13] = [
     "equipitemsfor",
     "testitem",
     "propertydump",
@@ -164,6 +159,11 @@ pub(crate) fn execute_vtank(cx: &mut TankCx<'_>, input: &str) {
         }
         "fakeimp" => fake_imperil(cx),
         "dumpmats" => dump_materials(cx.client),
+        "tapjump" => cx.tap_jump(),
+        "jump" => cx.jump_command(&arguments, false),
+        "addnavjump" => cx.jump_command(&arguments, true),
+        "addnavpt" => cx.add_command_route_point(&arguments, false),
+        "addnavcheckpoint" => cx.add_command_route_point(&arguments, true),
         other if NOT_CONVERTED_VERBS.contains(&other) => Core::write_vtank(
             cx.client,
             &format!("/vt {other} is not in the Rust conversion of MossTank yet."),

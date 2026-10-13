@@ -259,3 +259,89 @@ fn the_loot_editor_closes_through_its_own_handler() {
         Some(UiValue::Bool(false))
     );
 }
+
+fn panel_id(world: &World, window: &str) -> u32 {
+    world
+        .fake
+        .ui
+        .panels()
+        .find(|panel| panel.descriptor.window_id == window)
+        .unwrap()
+        .id
+}
+
+fn window_switch(opens: bool) {
+    let (mut world, mut plugin) = fresh();
+    world.refuse_window_show = !opens;
+    let running = plugin.tank().unwrap().macro_running();
+    let main = panel_id(&world, "main");
+    let remote = panel_id(&world, "remote");
+    let before = world.requests::<ac_plugin_abi::calls::UiPanelShow>().len();
+    click(&mut world, &mut plugin, main, "ShowRemote");
+    click(&mut world, &mut plugin, remote, "ShowMainWindow");
+    let calls: Vec<String> = world
+        .requests::<ac_plugin_abi::calls::UiPanelShow>()
+        .into_iter()
+        .skip(before)
+        .map(|show| format!("{}:{}", if show.show { "show" } else { "hide" }, show.view))
+        .collect();
+    let expected: &[&str] = if opens {
+        &["show:remote", "hide:main", "show:main", "hide:remote"]
+    } else {
+        &["show:remote", "show:main"]
+    };
+    assert_eq!(calls, expected);
+    assert_eq!(plugin.tank().unwrap().macro_running(), running);
+}
+
+// Source: tests/AcDream.Plugins.MossTank.Tests/MossTankPanelTests.Remote.cs :: RemoteSwitchHidesSourceOnlyAfterDestinationOpens
+#[test]
+fn the_remote_switch_hides_the_source_only_after_the_destination_opens() {
+    window_switch(true);
+    window_switch(false);
+}
+
+// Source: tests/AcDream.Plugins.MossTank.Tests/MossTankPanelTests.Remote.cs :: RemoteRegistersHiddenWithoutAnotherShelfEntryAndSharesMainBindings
+#[test]
+fn the_remote_registers_hidden_off_the_shelf_and_shares_the_main_bindings() {
+    let (world, _plugin) = fresh();
+    let panels: Vec<_> = world.fake.ui.panels().collect();
+    let remote = panels
+        .iter()
+        .find(|panel| panel.descriptor.window_id == "remote")
+        .unwrap();
+    let main = panels
+        .iter()
+        .find(|panel| panel.descriptor.window_id == "main")
+        .unwrap();
+    assert!(!remote.descriptor.start_visible);
+    assert!(!remote.descriptor.show_in_side_panel);
+    // One shell answers both: every binding the two share holds the same
+    // value in each.
+    let mut shared = 0;
+    for (name, value) in &remote.values {
+        if let Some(other) = main.values.get(name) {
+            assert_eq!(value, other, "{name}");
+            shared += 1;
+        }
+    }
+    assert!(shared > 0);
+}
+
+// Source: tests/AcDream.Plugins.MossTank.Tests/MossTankPanelTests.ActionHistory.cs :: HistoryRegistersWithBoundVisibilityAndNoShelfEntry
+#[test]
+fn the_history_registers_with_bound_visibility_and_no_shelf_entry() {
+    let (mut world, mut plugin) = fresh();
+    let history = world
+        .fake
+        .ui
+        .panels()
+        .find(|panel| panel.descriptor.window_id == "action-history")
+        .unwrap();
+    assert!(history.descriptor.start_visible);
+    assert!(!history.descriptor.show_in_side_panel);
+    assert_eq!(
+        value(&mut world, &mut plugin, "ActionHistoryVisible"),
+        Some(UiValue::Bool(false))
+    );
+}

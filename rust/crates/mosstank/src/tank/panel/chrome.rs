@@ -52,8 +52,8 @@ pub(super) fn value(cx: &mut TankCx<'_>, name: &str) -> Option<UiValue> {
     match name {
         "WindowAvailable" => b(cx.client.rules().is_available()),
         "WindowTitle" => t(format!("MossTank  v{}", crate::VERSION)),
-        "DebugLogButtonText" => t("Debug log: off"),
-        "DebugLogLocation" => t("Save detailed macro activity (newest 2 MiB)."),
+        "DebugLogButtonText" => t(cx.core.debug_log_button_text()),
+        "DebugLogLocation" => t(cx.core.debug_log_location(cx.client)),
         "OptionsSelected" | "OptionsVisible" => b(tab == TankTab::Options),
         "ProfilesSelected" | "ProfilesVisible" => b(tab == TankTab::Profiles),
         "VitalsSelected" | "VitalsVisible" => b(tab == TankTab::Vitals),
@@ -152,9 +152,12 @@ pub(super) fn value(cx: &mut TankCx<'_>, name: &str) -> Option<UiValue> {
         "Coverage" => t(cx.core.panel.vitals.coverage.clone()),
 
         // The action history window.
-        "ActionHistoryVisible" => b(cx.core.panel.action_history_visible),
-        "ActionHistoryLines" => tl(Vec::new()),
-        "ActionHistoryFirstIndex" => i(0),
+        "ActionHistoryVisible" => b(cx.core.session.action_history_visible),
+        "ActionHistoryLines" => tl(cx.core.session.history.borrow().history.lines().to_vec()),
+        "ActionHistoryFirstIndex" => i(i32::try_from(
+            cx.core.session.history.borrow().history.first_index(),
+        )
+        .unwrap_or(i32::MAX)),
         _ => None,
     }
 }
@@ -219,14 +222,12 @@ pub(super) fn act(cx: &mut TankCx<'_>, name: &str, arg: &Arg) -> bool {
         "ShowUb" => cx.select_tab(TankTab::Ub),
         "ShowUbSettings" => cx.select_tab(TankTab::UbSettings),
         "ShowTinker" => cx.select_tab(TankTab::Tinker),
-        // The debug log is its own slice; the button reads "off" until it
-        // lands.
-        "ToggleDebugLog" => {}
+        "ToggleDebugLog" => cx.toggle_debug_logging(),
         "ShowRemote" => switch_panel(cx, "main", "remote"),
         "ShowMainWindow" => switch_panel(cx, "remote", "main"),
-        "ShowActionHistory" => cx.core.panel.action_history_visible = true,
-        "HideActionHistory" => cx.core.panel.action_history_visible = false,
-        "ClearActionHistory" => {}
+        "ShowActionHistory" => cx.core.session.action_history_visible = true,
+        "HideActionHistory" => cx.core.session.action_history_visible = false,
+        "ClearActionHistory" => cx.core.session.history.borrow_mut().history.clear(),
 
         "ForceBuff" => cx.core.force_buff(cx.client),
         "CancelForceBuff" => cx.core.cancel_force_buff(cx.client),

@@ -28,6 +28,8 @@ pub struct World {
     /// The chat lines the client has captured, when a test keeps them:
     /// each read answers the lines after the sequence it asks from.
     pub chat_log: Option<Vec<ac_plugin_abi::types::ChatLine>>,
+    /// The client refuses to open any window (`ShowPanel` answers false).
+    pub refuse_window_show: bool,
 }
 
 impl Default for World {
@@ -59,6 +61,7 @@ impl World {
             plugin_data: MemoryStorage::new(),
             profiles: MemoryStorage::new(),
             chat_log: None,
+            refuse_window_show: false,
         }
     }
 
@@ -271,6 +274,9 @@ impl Transport for World {
             Import::StorageUnlock => {
                 self.answer::<calls::StorageUnlock>(bytes, |_, _handle: u32| true)
             }
+            Import::UiPanelShow if self.refuse_window_show => {
+                self.answer::<calls::UiPanelShow>(bytes, |_, _view| false)
+            }
             Import::ChatCaptured if self.chat_log.is_some() => {
                 self.answer::<calls::ChatCaptured>(bytes, |world, after: u64| {
                     world
@@ -370,5 +376,109 @@ impl World {
         };
         log.push(line.clone());
         self.send(plugin, Event::ChatReceived(line));
+    }
+}
+
+/// The windows as the tests drive them: a binding's value as the shell
+/// works it out, and a handler fired with its argument.
+impl World {
+    /// The value of window binding `name`.
+    ///
+    /// # Panics
+    /// No window binds `name`.
+    pub fn ui(&mut self, plugin: &mut MossTank, name: &str) -> ac_plugin_abi::ui::UiValue {
+        self.with_tank(plugin, |tank, client| tank.ui_value(client, name))
+            .unwrap_or_else(|| panic!("no value for {name}"))
+    }
+
+    /// A text binding.
+    pub fn ui_text(&mut self, plugin: &mut MossTank, name: &str) -> String {
+        match self.ui(plugin, name) {
+            ac_plugin_abi::ui::UiValue::Text(text) => text,
+            other => panic!("{name} is {other:?}"),
+        }
+    }
+
+    /// A switch binding.
+    pub fn ui_bool(&mut self, plugin: &mut MossTank, name: &str) -> bool {
+        match self.ui(plugin, name) {
+            ac_plugin_abi::ui::UiValue::Bool(value) => value,
+            other => panic!("{name} is {other:?}"),
+        }
+    }
+
+    /// A number binding.
+    pub fn ui_int(&mut self, plugin: &mut MossTank, name: &str) -> i32 {
+        match self.ui(plugin, name) {
+            ac_plugin_abi::ui::UiValue::Int(value) => value,
+            other => panic!("{name} is {other:?}"),
+        }
+    }
+
+    /// A list of lines.
+    pub fn ui_list(&mut self, plugin: &mut MossTank, name: &str) -> Vec<String> {
+        match self.ui(plugin, name) {
+            ac_plugin_abi::ui::UiValue::TextList(lines) => lines,
+            other => panic!("{name} is {other:?}"),
+        }
+    }
+
+    /// A list of switches.
+    pub fn ui_bools(&mut self, plugin: &mut MossTank, name: &str) -> Vec<bool> {
+        match self.ui(plugin, name) {
+            ac_plugin_abi::ui::UiValue::BoolList(values) => values,
+            other => panic!("{name} is {other:?}"),
+        }
+    }
+
+    /// Fires handler `name` with `value`.
+    ///
+    /// # Panics
+    /// No window has the handler.
+    pub fn act_with(
+        &mut self,
+        plugin: &mut MossTank,
+        name: &str,
+        value: ac_plugin_abi::ui::ActionValue,
+    ) {
+        let answered = self.with_tank(plugin, |tank, client| tank.ui_act(client, name, value));
+        assert!(answered, "no handler {name}");
+    }
+
+    /// A click.
+    pub fn act(&mut self, plugin: &mut MossTank, name: &str) {
+        self.act_with(plugin, name, ac_plugin_abi::ui::ActionValue::None);
+    }
+
+    /// A handler given text.
+    pub fn act_text(&mut self, plugin: &mut MossTank, name: &str, text: &str) {
+        self.act_with(
+            plugin,
+            name,
+            ac_plugin_abi::ui::ActionValue::Text(text.to_owned()),
+        );
+    }
+
+    /// A handler given a row.
+    pub fn act_int(&mut self, plugin: &mut MossTank, name: &str, row: i32) {
+        self.act_with(plugin, name, ac_plugin_abi::ui::ActionValue::Int(row));
+    }
+
+    /// A handler given a slider value.
+    pub fn act_float(&mut self, plugin: &mut MossTank, name: &str, value: f32) {
+        self.act_with(plugin, name, ac_plugin_abi::ui::ActionValue::Float(value));
+    }
+
+    /// The row of `name` in list binding `list` (-1 when absent).
+    pub fn ui_index(&mut self, plugin: &mut MossTank, list: &str, name: &str) -> i32 {
+        self.ui_list(plugin, list)
+            .iter()
+            .position(|line| line == name)
+            .map_or(-1, |index| i32::try_from(index).unwrap())
+    }
+
+    /// Meta option `name` as text (`GetMetaOption(...).ToDisplayString()`).
+    pub fn option_text(&mut self, plugin: &mut MossTank, name: &str) -> String {
+        self.with_tank(plugin, |tank, _| tank.option(name).to_display_string())
     }
 }

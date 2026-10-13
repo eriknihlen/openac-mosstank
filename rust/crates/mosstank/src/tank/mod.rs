@@ -21,6 +21,7 @@ pub(crate) mod options;
 pub(crate) mod panel;
 mod peers;
 pub(crate) mod profiles;
+mod route_commands;
 pub(crate) mod rules;
 mod services;
 mod session;

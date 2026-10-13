@@ -591,7 +591,7 @@ impl TankCx<'_> {
     }
 
     /// `ToggleDebugLogging`.
-    fn toggle_debug_logging(&mut self) {
+    pub(crate) fn toggle_debug_logging(&mut self) {
         let running = self.core.session.history.borrow().debug_log.is_some();
         if running {
             self.core
