@@ -2,3 +2,5 @@
 crates/mosstank-formats/src/af/*.txt -text
 # Golden data written by the C# plugin.
 crates/mosstank-formats/tests/golden/* -text
+# Golden data written by the C# plugin.
+crates/mosstank-settings/tests/golden/* -text

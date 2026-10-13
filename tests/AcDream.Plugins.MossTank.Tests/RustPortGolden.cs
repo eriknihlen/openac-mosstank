@@ -15,6 +15,8 @@ namespace AcDream.Plugins.MossTank.Tests;
 ///     MOSSTANK_RUST_GOLDEN=1 dotnet test --filter RustPortGolden
 ///
 /// The text format (dumps, escapes) is the Rust test's; change both together.
+/// The settings crate's cases (rust/crates/mosstank-settings/tests/golden)
+/// are written by the same run, through <see cref="RustPortSettingsGolden"/>.
 /// </summary>
 public sealed class RustPortGolden
 {
@@ -73,6 +75,40 @@ public sealed class RustPortGolden
         string fullDirectory = Path.Combine(root, "rust", "target", "golden");
         Directory.CreateDirectory(fullDirectory);
         File.WriteAllText(Path.Combine(fullDirectory, "cases.full.out"), full.ToString(), new UTF8Encoding(false));
+        WriteSettingsGoldenData(root, fixtures, fullDirectory);
+    }
+
+    /// <summary>
+    /// The same for the settings crate: its cases in
+    /// rust/crates/mosstank-settings/tests/golden/cases.txt, run by
+    /// <see cref="RustPortSettingsGolden"/>; large results kept as hashes.
+    /// </summary>
+    private static void WriteSettingsGoldenData(string root, string fixtures, string fullDirectory)
+    {
+        string golden = Path.Combine(root, "rust", "crates", "mosstank-settings", "tests", "golden");
+        var output = new StringBuilder();
+        var full = new StringBuilder();
+        foreach (string raw in File.ReadAllLines(Path.Combine(golden, "cases.txt")))
+        {
+            if (raw.Length == 0 || raw.StartsWith('#'))
+                continue;
+            string[] parts = raw.Split(" ::: ", 3);
+            string kind = parts[0];
+            string name = parts[1];
+            string field = parts.Length > 2 ? parts[2] : string.Empty;
+            string input = field.StartsWith('@')
+                ? File.ReadAllText(Path.Combine(fixtures, field[1..]))
+                : Unescape(field);
+            string result = RustPortSettingsGolden.Run(kind, name, input);
+            output.Append("##### ").Append(kind).Append(' ').Append(name).Append('\n');
+            output.Append(RustPortSettingsGolden.IsLarge(kind, field) ? Hashed(result) : result);
+            output.Append('\n');
+            full.Append("##### ").Append(kind).Append(' ').Append(name).Append('\n');
+            full.Append(result);
+            full.Append('\n');
+        }
+        File.WriteAllText(Path.Combine(golden, "cases.out"), output.ToString(), new UTF8Encoding(false));
+        File.WriteAllText(Path.Combine(fullDirectory, "settings.full.out"), full.ToString(), new UTF8Encoding(false));
     }
 
     /// <summary>

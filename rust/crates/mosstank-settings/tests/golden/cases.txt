@@ -1,0 +1,95 @@
+# Cases for the settings golden test (tests/golden.rs). Each line:
+#   kind ::: name ::: input
+# An input starting with @ is a file under the C# tests' Fixtures folder;
+# otherwise it is text with \r \n \t \\ \u{...} escapes. The C# plugin's
+# results are in cases.out (RustPortGolden.cs writes it).
+#
+# defaults: the default settings document, rendered.
+# create-new: a new profile from default settings, rendered.
+# usd: a settings profile loaded (dump), saved untouched, then edited and saved.
+# monster: a monster spec compiled and evaluated in a fixed context.
+# ub: the UB settings catalogue dumped.
+# ubparse: Kind|text read back as a UB setting value.
+
+defaults ::: create
+create-new ::: default
+usd ::: defaultsettings ::: @vtank/defaultsettings.usd
+usd ::: owner-a ::: @vtank/owner-a.usd
+usd ::: owner-b ::: @vtank/owner-b.usd
+usd ::: owner-c ::: @vtank/owner-c.usd
+usd ::: owner-a-ast ::: @vtank/owner-a.ast
+usd ::: single-unknown ::: 1\r\nSettings\r\n4\r\nSetting\r\nValue\r\nDescription\r\nSettingType\r\ny\r\nn\r\nn\r\nn\r\n1\r\ns\r\nSomeFutureSetting\r\ns\r\nfuture\r\ns\r\n\r\ni\r\n1\r\n
+usd ::: single-legacy-walk ::: 1\r\nSettings\r\n2\r\nSetting\r\nValue\r\ny\r\nn\r\n2\r\ns\r\nwalktoownrarecorpses\r\nb\r\nTrue\r\ns\r\nattackdistance\r\nd\r\n0.1\r\n
+usd ::: bad-int ::: 1\r\nSettings\r\n2\r\nSetting\r\nValue\r\ny\r\nn\r\n1\r\ns\r\nMinimumRingTargets\r\ni\r\nlots\r\n
+usd ::: overflow-int ::: 1\r\nSettings\r\n2\r\nSetting\r\nValue\r\ny\r\nn\r\n1\r\ns\r\nMinimumRingTargets\r\ni\r\n99999999999\r\n
+usd ::: no-settings ::: 1\r\nOther\r\n1\r\nA\r\nn\r\n0\r\n
+usd ::: no-value-column ::: 1\r\nSettings\r\n1\r\nSetting\r\ny\r\n0\r\n
+usd ::: short-row ::: 1\r\nSettings\r\n2\r\nValue\r\nSetting\r\nn\r\ny\r\n1\r\ns\r\nx\r\nweird\r\n
+monster ::: range ::: range>5
+monster ::: and ::: range>5 && species==drudge && name!=drudge ravener
+monster ::: bare-name ::: Drudge Lurker
+monster ::: bare-other ::: Drudge Ravener
+monster ::: regex ::: name#^drudge .\\+er$
+monster ::: escaped ::: name==Prototype \\#\\2
+monster ::: unescaped-digit ::: name==Prototype 2
+monster ::: precedence-sub ::: 10-3+1==6
+monster ::: precedence-mod ::: 20/6%4==10
+monster ::: short-circuit ::: false && 1/0==0
+monster ::: divide-zero ::: 1/0==0
+monster ::: modulo-truncated-zero ::: 5%0.5==0
+monster ::: modulo ::: 7%3
+monster ::: number ::: 3.25*2
+monster ::: text-concat ::: species+metastate
+monster ::: text-number ::: name+1
+monster ::: bool-add ::: true+false
+monster ::: mismatch ::: name==5
+monster ::: setting ::: setting_DoJiggle
+monster ::: setting-case ::: setting_dojiggle
+monster ::: setting-number ::: setting_Count>2
+monster ::: setting-text ::: setting_Label==metastate
+monster ::: maxhp ::: maxhp>=450
+monster ::: typeid ::: typeid==1234
+monster ::: hasshield ::: hasshield && metastate==hunting
+monster ::: range-float ::: range==8.5
+monster ::: compare-text ::: species<name
+monster ::: compare-bool ::: true>false
+monster ::: parens ::: (range>5)&&(maxhp<1000)
+monster ::: empty ::: \u{20}\u{20}
+monster ::: open-parens ::: (((
+monster ::: unclosed ::: (range>5
+monster ::: trailing-escape ::: name==a\\
+monster ::: bad-number ::: 1.2.3
+monster ::: lone-equals ::: name = drudge
+monster ::: lone-bang ::: !name
+monster ::: unexpected-token ::: range>5)
+monster ::: surrogate-offset ::: \u{1F600}==a)
+monster ::: arabic-digit ::: \u{663}
+monster ::: whitespace-atom ::: \u{3000}Drudge Lurker\u{3000}
+monster ::: or ::: false || range<1
+monster ::: or-type ::: name || true
+monster ::: dot-number ::: .5<1
+monster ::: big-number ::: 99999999999999999999999999999999%7
+ub ::: catalog
+ubparse ::: bool-true ::: Bool| true
+ubparse ::: bool-bad ::: Bool|maybe
+ubparse ::: int ::: Int|-12
+ubparse ::: int-space ::: Int| 42
+ubparse ::: int-bad ::: Int|seven
+ubparse ::: enum ::: Enum|3
+ubparse ::: single ::: Single|0.15
+ubparse ::: single-exp ::: Single|1e3
+ubparse ::: double ::: Double|0.0208333333333333
+ubparse ::: double-comma ::: Double|1,5
+ubparse ::: string ::: String|  keep spaces
+ubparse ::: color-hash8 ::: Color|#FF00FFFF
+ubparse ::: color-bare8 ::: Color|FF00FFFF
+ubparse ::: color-hash6 ::: Color|#00FFFF
+ubparse ::: color-signed ::: Color|-16711681
+ubparse ::: color-unsigned ::: Color|4278255615
+ubparse ::: color-decimal6 ::: Color|123456
+ubparse ::: color-bad ::: Color|#GGGGGG
+ubparse ::: color-hash-space ::: Color|# 12345
+ubparse ::: color-short ::: Color|#FFF
+ubparse ::: list ::: Collection|one\ntwo\r\n\r\nthree
+ubparse ::: list-empty ::: Collection|
+ubparse ::: list-cr ::: Collection|\r\na

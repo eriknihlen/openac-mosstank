@@ -1,0 +1,1635 @@
+##### defaults create
+fnv64=2d00f40584ab1ccd bytes=28987
+
+##### create-new default
+fnv64=90d692d4d7c40609 bytes=28913
+
+##### usd defaultsettings
+fnv64=65a70b02967fa7d9 bytes=5521
+--- saved:
+fnv64=4473aef24cfd7622 bytes=29516
+--- edited:
+fnv64=3fa5c3ca55a413c2 bytes=29842
+
+##### usd owner-a
+fnv64=001178268678b0ec bytes=6015
+--- saved:
+fnv64=6b6de7690322a296 bytes=3879
+--- edited:
+fnv64=86620a33677335d2 bytes=4236
+
+##### usd owner-b
+fnv64=7d260178b4040a59 bytes=5601
+--- saved:
+fnv64=7657da9c7cc55316 bytes=3479
+--- edited:
+fnv64=953b79d647bb20f2 bytes=3836
+
+##### usd owner-c
+fnv64=af7233d7d36feb3d bytes=5993
+--- saved:
+fnv64=293566d6e8021cbc bytes=3884
+--- edited:
+fnv64=227077985373653f bytes=4166
+
+##### usd owner-a-ast
+fnv64=86287d2d45719355 bytes=39
+
+##### usd single-unknown
+EnableLooting = b "False"
+EnableNav = b "False"
+EnableBuffing = b "True"
+EnableCombat = b "True"
+SpellDiffExcessThreshold-Hunt = i "25"
+SpellDiffExcessThreshold-Buff = i "5"
+ArrowheadFletchDiffExcessThreshold = i "10"
+Recharge-Norm-HitP = i "75"
+Recharge-Norm-Stam = i "50"
+Recharge-Norm-Mana = i "50"
+Recharge-NoTarg-HitP = i "1"
+Recharge-NoTarg-Stam = i "1"
+Recharge-NoTarg-Mana = i "1"
+Recharge-Helper-HitP = i "20"
+Recharge-Helper-Stam = i "1"
+Recharge-Helper-Mana = i "1"
+DoHelp = b "True"
+AttackDistance = d "0.0208333333333333"
+AttackMinimumDistance = d "0"
+ApproachDistance = d "0"
+RingDistance = d "0.0208333333333333"
+CorpseApproachRange-Max = d "0.166666666666667"
+CorpseApproachRange-Min = d "0.014"
+NavCloseStopRange = d "0.00833333333333333"
+NavFarStopRange = d "999999"
+UsePortalDistance = d "0.0166666666666667"
+HelperDistanceHitP = d "0.248333333333333"
+HelperDistanceStam = d "0.248333333333333"
+HelperDistanceMana = d "0.133333333333333"
+MinimumRingTargets = i "4"
+DefaultMeleeAttackHeight = i "2"
+CastDispelSelf = b "False"
+UseDispelItems = b "False"
+AutoCram = b "False"
+AutoStack = b "True"
+ReadUnknownScrolls = b "True"
+UseDispelDrum = b "False"
+SwitchWandsToDebuff = b "False"
+AutoCraftItems = b "True"
+UseHealersHeart = b "True"
+JumpOutWandCasting = b "False"
+LootAllCorpses = b "False"
+LootFellowCorpses = b "False"
+DoJiggle = b "False"
+RandomHelperBuffs = b "False"
+RandomHelperIntervalSeconds = d "5"
+IdlePeaceMode = b "False"
+TargetLock = b "False"
+StopMacroOnDeath = b "True"
+UseArcs = i "1"
+ArcRange = d "0.0208333333333333"
+TargetSelectMethod = i "3"
+TargetSelectAngleRange = d "0.0208333333333333"
+IdleBuffTopoff = b "False"
+IdleBuffTopoffTimeSeconds = i "1200"
+RebuffTimeRemainingSeconds = i "300"
+RefillWornMana = b "True"
+RefillWornMana-Item-ManaPercent = i "33"
+BuffProfile-Prots = s "ALFCBPS"
+BuffProfile-Banes = s "ALFCBPS"
+BuffProfile_Prots = i "2"
+BuffProfile_Banes = i "2"
+DebuffEachFirst = i "1"
+AutoAttackPower = b "True"
+LootPriorityBoost = b "False"
+CorpseCacheTimeoutMinutes = d "60"
+CorpseItemAppearanceTimeoutSeconds = d "6"
+CorpseItemIDTimeoutSeconds = d "60"
+DebuffSelectionMethod = i "2"
+ManaStoneLootCount = i "4"
+ManaTankMinimumMana = i "1000"
+SplitPeas = b "True"
+SpellCompMin-Critical = i "4"
+SpellCompMin-Normal = i "20"
+SpellCompMin-Idle = i "20"
+RechargeBoostTimeSeconds = d "5"
+RechargeBoostAmount = i "40"
+UseSpecialAmmo = i "0"
+OpenDoors = b "False"
+DoorIDRange = d "0.0833333333333333"
+DoorOpenRange = d "0.0166666666666667"
+DoorLockpickDiffExcessThreshold = i "-50"
+ManaChargesWhenOff = b "True"
+AutoFellowManagement = b "True"
+MinimumHealKitSuccessChance = i "95"
+UseKitsInMagicMode = b "True"
+StaminaToHealthMultiplier = d "1.9"
+ManaToHealthMultiplier = d "2.8"
+NavPriorityBoost = b "False"
+DeleteGhostMonsters = b "True"
+GhostMonsterSpellAttemptCount = i "200"
+WhoYouGonnaCall = b "True"
+BlacklistMonsterAttemptCount = i "4"
+BlacklistMonsterTimeoutSeconds = i "120"
+CombineSalvage = b "True"
+LootOnlyRareCorpses = b "False"
+DeleteGhostMonstersByHPTracker = b "True"
+GhostDeleteHPTrackerSeconds = i "30"
+GoToPeaceModeToUseKits = b "False"
+UseRecklessness = b "True"
+DebuffPrecastSeconds = i "5"
+ClearLevelBoostFlagOnCast = b "True"
+IdleCraftCount_HealthKits = i "2"
+IdleCraftCount_StamKits = i "2"
+IdleCraftCount_ManaKits = i "2"
+IdleCraftCount_HealthFood = i "15"
+IdleCraftCount_StamFood = i "15"
+IdleCraftCount_ManaFood = i "15"
+BuffCastRecast_Seconds = i "30"
+BuffCastRecastReset_Seconds = i "30"
+EnableMeta = b "False"
+BlacklistedSpellComps = s ""
+DropToPeaceModeRetryCount = i "34"
+FollowAroundCorners = b "True"
+BlacklistCorpseOpenAttemptCount = i "30"
+BlacklistCorpseOpenTimeoutSeconds = i "200"
+SummonPets = b "True"
+PetRangeMode = i "0"
+PetCustomRange = d "0.0208333333333333"
+PetRefillCount-Idle = i "3"
+PetRefillCount-Normal = i "1"
+CorpseOpenTimeoutSeconds = d "1.5"
+PetMonsterDensity = i "1"
+CorpseLootItemMaxAttempts = i "20"
+FastCastBuffs = b "False"
+UseBreakableTurnTo = b "True"
+UseProjectileAwareness = b "True"
+CollisionProjectileRadius = d "0.4"
+CollisionStepDistance = d "0.7"
+ShowCollisionDebug = b "False"
+MaximumCollisionChecksPerTick = i "500"
+SpellRangeFudge = d "1"
+BuffWithUntrained-Item = i "80"
+BuffWithUntrained-Creature = i "80"
+BuffWithUntrained-Life = i "80"
+AllowDebuffFallback = b "False"
+RechargeHandlerSet = -
+WalkToRareCorpse = -
+ShowNavLines = -
+rule "DEFAULT" flags=320 p=1 dmg=Auto extra=None pet=PlayerAuto w=00000000 o=00000000 wr=-1 sr=0 ignored=False default=True dynamic=False
+items 
+extra 
+anti 
+recharge 1|"Stamina to Health"|0|15|1
+recharge 1|"Mana to Health"|0|15|1
+recharge 1|"Regular Spell"|0|15|1
+recharge 1|"Recharge With Food"|0|15|1
+recharge 1|"Kit Recharge"|0|100|1
+recharge 1|"Stamina to Health"|0|100|1
+recharge 1|"Mana to Health"|0|100|1
+recharge 1|"Regular Spell"|0|100|1
+recharge 1|"Recharge With Food"|0|100|1
+recharge 2|"Kit Recharge"|0|100|1
+recharge 2|"Regular Spell"|0|100|1
+recharge 2|"Recharge With Food"|0|100|1
+recharge 3|"Kit Recharge"|0|100|1
+recharge 3|"Recharge With Food"|0|100|1
+recharge 3|"Regular Spell"|0|100|1
+recharge 1|"Recharge With Food"|0|15|2
+recharge 1|"Kit Recharge"|0|100|2
+recharge 1|"Recharge With Food"|0|100|2
+recharge 1|"Stamina to Health"|0|10|2
+recharge 1|"Regular Spell"|0|100|2
+recharge 2|"Kit Recharge"|0|100|2
+recharge 2|"Recharge With Food"|0|100|2
+recharge 2|"Regular Spell"|0|100|2
+recharge 3|"Kit Recharge"|0|100|2
+recharge 3|"Recharge With Food"|0|100|2
+recharge 3|"Regular Spell"|0|100|2
+meta False
+--- saved:
+1\r\n
+Settings\r\n
+4\r\n
+Setting\r\n
+Value\r\n
+Description\r\n
+SettingType\r\n
+y\r\n
+n\r\n
+n\r\n
+n\r\n
+1\r\n
+s\r\n
+SomeFutureSetting\r\n
+s\r\n
+future\r\n
+s\r\n
+\r\n
+i\r\n
+1\r\n
+
+--- edited:
+6\r\n
+AssistItems\r\n
+2\r\n
+Object\r\n
+Type\r\n
+n\r\n
+n\r\n
+1\r\n
+s\r\n
+Golden Kit\r\n
+i\r\n
+0\r\n
+BuffedItems\r\n
+2\r\n
+Object\r\n
+Spell\r\n
+n\r\n
+n\r\n
+1\r\n
+i\r\n
+1342177281\r\n
+i\r\n
+-1\r\n
+ExtraBuffSpells\r\n
+1\r\n
+ExemplarId\r\n
+n\r\n
+1\r\n
+i\r\n
+777\r\n
+GemFoodItems\r\n
+2\r\n
+Name\r\n
+Spell\r\n
+n\r\n
+n\r\n
+1\r\n
+s\r\n
+Golden Gem\r\n
+i\r\n
+4321\r\n
+MyMonsters\r\n
+21\r\n
+MonsterName\r\n
+AttackPriority\r\n
+DamageType\r\n
+WeaponToUse\r\n
+Imperil\r\n
+Vuln\r\n
+Yield\r\n
+GravityW\r\n
+Attack\r\n
+Ring\r\n
+Broadside\r\n
+Fester\r\n
+WeakeningCurse\r\n
+FesteringCurse\r\n
+Corruption\r\n
+DestructiveCurse\r\n
+Corrosion\r\n
+Streak\r\n
+SecondaryVuln\r\n
+SecondaryEquip\r\n
+PetDamageType\r\n
+y\r\n
+n\r\n
+n\r\n
+n\r\n
+n\r\n
+n\r\n
+n\r\n
+n\r\n
+n\r\n
+n\r\n
+n\r\n
+n\r\n
+n\r\n
+n\r\n
+n\r\n
+n\r\n
+n\r\n
+n\r\n
+n\r\n
+n\r\n
+n\r\n
+2\r\n
+s\r\n
+<DEFAULT>\r\n
+i\r\n
+1\r\n
+i\r\n
+8\r\n
+i\r\n
+-1\r\n
+b\r\n
+False\r\n
+b\r\n
+False\r\n
+b\r\n
+False\r\n
+b\r\n
+False\r\n
+b\r\n
+True\r\n
+b\r\n
+False\r\n
+b\r\n
+False\r\n
+b\r\n
+False\r\n
+b\r\n
+False\r\n
+b\r\n
+False\r\n
+b\r\n
+False\r\n
+b\r\n
+False\r\n
+b\r\n
+False\r\n
+b\r\n
+True\r\n
+i\r\n
+98\r\n
+i\r\n
+0\r\n
+i\r\n
+101\r\n
+s\r\n
+name==Golden Drudge\r\n
+i\r\n
+3\r\n
+i\r\n
+6\r\n
+i\r\n
+-1\r\n
+b\r\n
+False\r\n
+b\r\n
+False\r\n
+b\r\n
+False\r\n
+b\r\n
+False\r\n
+b\r\n
+True\r\n
+b\r\n
+False\r\n
+b\r\n
+False\r\n
+b\r\n
+False\r\n
+b\r\n
+False\r\n
+b\r\n
+False\r\n
+b\r\n
+False\r\n
+b\r\n
+False\r\n
+b\r\n
+False\r\n
+b\r\n
+False\r\n
+i\r\n
+98\r\n
+i\r\n
+0\r\n
+i\r\n
+101\r\n
+Settings\r\n
+4\r\n
+Setting\r\n
+Value\r\n
+Description\r\n
+SettingType\r\n
+y\r\n
+n\r\n
+n\r\n
+n\r\n
+1\r\n
+s\r\n
+SomeFutureSetting\r\n
+s\r\n
+future\r\n
+s\r\n
+\r\n
+i\r\n
+1\r\n
+
+
+##### usd single-legacy-walk
+EnableLooting = b "False"
+EnableNav = b "False"
+EnableBuffing = b "True"
+EnableCombat = b "True"
+SpellDiffExcessThreshold-Hunt = i "25"
+SpellDiffExcessThreshold-Buff = i "5"
+ArrowheadFletchDiffExcessThreshold = i "10"
+Recharge-Norm-HitP = i "75"
+Recharge-Norm-Stam = i "50"
+Recharge-Norm-Mana = i "50"
+Recharge-NoTarg-HitP = i "1"
+Recharge-NoTarg-Stam = i "1"
+Recharge-NoTarg-Mana = i "1"
+Recharge-Helper-HitP = i "20"
+Recharge-Helper-Stam = i "1"
+Recharge-Helper-Mana = i "1"
+DoHelp = b "True"
+AttackDistance = d "0.1"
+AttackMinimumDistance = d "0"
+ApproachDistance = d "0"
+RingDistance = d "0.0208333333333333"
+CorpseApproachRange-Max = d "0.166666666666667"
+CorpseApproachRange-Min = d "0.014"
+NavCloseStopRange = d "0.00833333333333333"
+NavFarStopRange = d "999999"
+UsePortalDistance = d "0.0166666666666667"
+HelperDistanceHitP = d "0.248333333333333"
+HelperDistanceStam = d "0.248333333333333"
+HelperDistanceMana = d "0.133333333333333"
+MinimumRingTargets = i "4"
+DefaultMeleeAttackHeight = i "2"
+CastDispelSelf = b "False"
+UseDispelItems = b "False"
+AutoCram = b "False"
+AutoStack = b "True"
+ReadUnknownScrolls = b "True"
+UseDispelDrum = b "False"
+SwitchWandsToDebuff = b "False"
+AutoCraftItems = b "True"
+UseHealersHeart = b "True"
+JumpOutWandCasting = b "False"
+LootAllCorpses = b "False"
+LootFellowCorpses = b "False"
+DoJiggle = b "False"
+RandomHelperBuffs = b "False"
+RandomHelperIntervalSeconds = d "5"
+IdlePeaceMode = b "False"
+TargetLock = b "False"
+StopMacroOnDeath = b "True"
+UseArcs = i "1"
+ArcRange = d "0.0208333333333333"
+TargetSelectMethod = i "3"
+TargetSelectAngleRange = d "0.0208333333333333"
+IdleBuffTopoff = b "False"
+IdleBuffTopoffTimeSeconds = i "1200"
+RebuffTimeRemainingSeconds = i "300"
+RefillWornMana = b "True"
+RefillWornMana-Item-ManaPercent = i "33"
+BuffProfile-Prots = s "ALFCBPS"
+BuffProfile-Banes = s "ALFCBPS"
+BuffProfile_Prots = i "2"
+BuffProfile_Banes = i "2"
+DebuffEachFirst = i "1"
+AutoAttackPower = b "True"
+LootPriorityBoost = b "False"
+CorpseCacheTimeoutMinutes = d "60"
+CorpseItemAppearanceTimeoutSeconds = d "6"
+CorpseItemIDTimeoutSeconds = d "60"
+DebuffSelectionMethod = i "2"
+ManaStoneLootCount = i "4"
+ManaTankMinimumMana = i "1000"
+SplitPeas = b "True"
+SpellCompMin-Critical = i "4"
+SpellCompMin-Normal = i "20"
+SpellCompMin-Idle = i "20"
+RechargeBoostTimeSeconds = d "5"
+RechargeBoostAmount = i "40"
+UseSpecialAmmo = i "0"
+OpenDoors = b "False"
+DoorIDRange = d "0.0833333333333333"
+DoorOpenRange = d "0.0166666666666667"
+DoorLockpickDiffExcessThreshold = i "-50"
+ManaChargesWhenOff = b "True"
+AutoFellowManagement = b "True"
+MinimumHealKitSuccessChance = i "95"
+UseKitsInMagicMode = b "True"
+StaminaToHealthMultiplier = d "1.9"
+ManaToHealthMultiplier = d "2.8"
+NavPriorityBoost = b "False"
+DeleteGhostMonsters = b "True"
+GhostMonsterSpellAttemptCount = i "200"
+WhoYouGonnaCall = b "True"
+BlacklistMonsterAttemptCount = i "4"
+BlacklistMonsterTimeoutSeconds = i "120"
+CombineSalvage = b "True"
+LootOnlyRareCorpses = b "False"
+DeleteGhostMonstersByHPTracker = b "True"
+GhostDeleteHPTrackerSeconds = i "30"
+GoToPeaceModeToUseKits = b "False"
+UseRecklessness = b "True"
+DebuffPrecastSeconds = i "5"
+ClearLevelBoostFlagOnCast = b "True"
+IdleCraftCount_HealthKits = i "2"
+IdleCraftCount_StamKits = i "2"
+IdleCraftCount_ManaKits = i "2"
+IdleCraftCount_HealthFood = i "15"
+IdleCraftCount_StamFood = i "15"
+IdleCraftCount_ManaFood = i "15"
+BuffCastRecast_Seconds = i "30"
+BuffCastRecastReset_Seconds = i "30"
+EnableMeta = b "False"
+BlacklistedSpellComps = s ""
+DropToPeaceModeRetryCount = i "34"
+FollowAroundCorners = b "True"
+BlacklistCorpseOpenAttemptCount = i "30"
+BlacklistCorpseOpenTimeoutSeconds = i "200"
+SummonPets = b "True"
+PetRangeMode = i "0"
+PetCustomRange = d "0.0208333333333333"
+PetRefillCount-Idle = i "3"
+PetRefillCount-Normal = i "1"
+CorpseOpenTimeoutSeconds = d "1.5"
+PetMonsterDensity = i "1"
+CorpseLootItemMaxAttempts = i "20"
+FastCastBuffs = b "False"
+UseBreakableTurnTo = b "True"
+UseProjectileAwareness = b "True"
+CollisionProjectileRadius = d "0.4"
+CollisionStepDistance = d "0.7"
+ShowCollisionDebug = b "False"
+MaximumCollisionChecksPerTick = i "500"
+SpellRangeFudge = d "1"
+BuffWithUntrained-Item = i "80"
+BuffWithUntrained-Creature = i "80"
+BuffWithUntrained-Life = i "80"
+AllowDebuffFallback = b "False"
+RechargeHandlerSet = -
+WalkToRareCorpse = -
+ShowNavLines = -
+rule "DEFAULT" flags=320 p=1 dmg=Auto extra=None pet=PlayerAuto w=00000000 o=00000000 wr=-1 sr=0 ignored=False default=True dynamic=False
+items 
+extra 
+anti 
+recharge 1|"Stamina to Health"|0|15|1
+recharge 1|"Mana to Health"|0|15|1
+recharge 1|"Regular Spell"|0|15|1
+recharge 1|"Recharge With Food"|0|15|1
+recharge 1|"Kit Recharge"|0|100|1
+recharge 1|"Stamina to Health"|0|100|1
+recharge 1|"Mana to Health"|0|100|1
+recharge 1|"Regular Spell"|0|100|1
+recharge 1|"Recharge With Food"|0|100|1
+recharge 2|"Kit Recharge"|0|100|1
+recharge 2|"Regular Spell"|0|100|1
+recharge 2|"Recharge With Food"|0|100|1
+recharge 3|"Kit Recharge"|0|100|1
+recharge 3|"Recharge With Food"|0|100|1
+recharge 3|"Regular Spell"|0|100|1
+recharge 1|"Recharge With Food"|0|15|2
+recharge 1|"Kit Recharge"|0|100|2
+recharge 1|"Recharge With Food"|0|100|2
+recharge 1|"Stamina to Health"|0|10|2
+recharge 1|"Regular Spell"|0|100|2
+recharge 2|"Kit Recharge"|0|100|2
+recharge 2|"Recharge With Food"|0|100|2
+recharge 2|"Regular Spell"|0|100|2
+recharge 3|"Kit Recharge"|0|100|2
+recharge 3|"Recharge With Food"|0|100|2
+recharge 3|"Regular Spell"|0|100|2
+meta False
+--- saved:
+1\r\n
+Settings\r\n
+2\r\n
+Setting\r\n
+Value\r\n
+y\r\n
+n\r\n
+2\r\n
+s\r\n
+walktoownrarecorpses\r\n
+b\r\n
+True\r\n
+s\r\n
+attackdistance\r\n
+d\r\n
+0.1\r\n
+
+--- edited:
+6\r\n
+AssistItems\r\n
+2\r\n
+Object\r\n
+Type\r\n
+n\r\n
+n\r\n
+1\r\n
+s\r\n
+Golden Kit\r\n
+i\r\n
+0\r\n
+BuffedItems\r\n
+2\r\n
+Object\r\n
+Spell\r\n
+n\r\n
+n\r\n
+1\r\n
+i\r\n
+1342177281\r\n
+i\r\n
+-1\r\n
+ExtraBuffSpells\r\n
+1\r\n
+ExemplarId\r\n
+n\r\n
+1\r\n
+i\r\n
+777\r\n
+GemFoodItems\r\n
+2\r\n
+Name\r\n
+Spell\r\n
+n\r\n
+n\r\n
+1\r\n
+s\r\n
+Golden Gem\r\n
+i\r\n
+4321\r\n
+MyMonsters\r\n
+21\r\n
+MonsterName\r\n
+AttackPriority\r\n
+DamageType\r\n
+WeaponToUse\r\n
+Imperil\r\n
+Vuln\r\n
+Yield\r\n
+GravityW\r\n
+Attack\r\n
+Ring\r\n
+Broadside\r\n
+Fester\r\n
+WeakeningCurse\r\n
+FesteringCurse\r\n
+Corruption\r\n
+DestructiveCurse\r\n
+Corrosion\r\n
+Streak\r\n
+SecondaryVuln\r\n
+SecondaryEquip\r\n
+PetDamageType\r\n
+y\r\n
+n\r\n
+n\r\n
+n\r\n
+n\r\n
+n\r\n
+n\r\n
+n\r\n
+n\r\n
+n\r\n
+n\r\n
+n\r\n
+n\r\n
+n\r\n
+n\r\n
+n\r\n
+n\r\n
+n\r\n
+n\r\n
+n\r\n
+n\r\n
+2\r\n
+s\r\n
+<DEFAULT>\r\n
+i\r\n
+1\r\n
+i\r\n
+8\r\n
+i\r\n
+-1\r\n
+b\r\n
+False\r\n
+b\r\n
+False\r\n
+b\r\n
+False\r\n
+b\r\n
+False\r\n
+b\r\n
+True\r\n
+b\r\n
+False\r\n
+b\r\n
+False\r\n
+b\r\n
+False\r\n
+b\r\n
+False\r\n
+b\r\n
+False\r\n
+b\r\n
+False\r\n
+b\r\n
+False\r\n
+b\r\n
+False\r\n
+b\r\n
+True\r\n
+i\r\n
+98\r\n
+i\r\n
+0\r\n
+i\r\n
+101\r\n
+s\r\n
+name==Golden Drudge\r\n
+i\r\n
+3\r\n
+i\r\n
+6\r\n
+i\r\n
+-1\r\n
+b\r\n
+False\r\n
+b\r\n
+False\r\n
+b\r\n
+False\r\n
+b\r\n
+False\r\n
+b\r\n
+True\r\n
+b\r\n
+False\r\n
+b\r\n
+False\r\n
+b\r\n
+False\r\n
+b\r\n
+False\r\n
+b\r\n
+False\r\n
+b\r\n
+False\r\n
+b\r\n
+False\r\n
+b\r\n
+False\r\n
+b\r\n
+False\r\n
+i\r\n
+98\r\n
+i\r\n
+0\r\n
+i\r\n
+101\r\n
+Settings\r\n
+2\r\n
+Setting\r\n
+Value\r\n
+y\r\n
+n\r\n
+2\r\n
+s\r\n
+walktoownrarecorpses\r\n
+b\r\n
+True\r\n
+s\r\n
+attackdistance\r\n
+d\r\n
+0.125\r\n
+
+
+##### usd bad-int
+!! The input string 'lots' was not in a correct format.
+
+##### usd overflow-int
+!! Value was either too large or too small for an Int32.
+
+##### usd no-settings
+!! missing required 'Settings' table.
+
+##### usd no-value-column
+!! 'Settings' table is missing Setting/Value columns.
+
+##### usd short-row
+EnableLooting = b "False"
+EnableNav = b "False"
+EnableBuffing = b "True"
+EnableCombat = b "True"
+SpellDiffExcessThreshold-Hunt = i "25"
+SpellDiffExcessThreshold-Buff = i "5"
+ArrowheadFletchDiffExcessThreshold = i "10"
+Recharge-Norm-HitP = i "75"
+Recharge-Norm-Stam = i "50"
+Recharge-Norm-Mana = i "50"
+Recharge-NoTarg-HitP = i "1"
+Recharge-NoTarg-Stam = i "1"
+Recharge-NoTarg-Mana = i "1"
+Recharge-Helper-HitP = i "20"
+Recharge-Helper-Stam = i "1"
+Recharge-Helper-Mana = i "1"
+DoHelp = b "True"
+AttackDistance = d "0.0208333333333333"
+AttackMinimumDistance = d "0"
+ApproachDistance = d "0"
+RingDistance = d "0.0208333333333333"
+CorpseApproachRange-Max = d "0.166666666666667"
+CorpseApproachRange-Min = d "0.014"
+NavCloseStopRange = d "0.00833333333333333"
+NavFarStopRange = d "999999"
+UsePortalDistance = d "0.0166666666666667"
+HelperDistanceHitP = d "0.248333333333333"
+HelperDistanceStam = d "0.248333333333333"
+HelperDistanceMana = d "0.133333333333333"
+MinimumRingTargets = i "4"
+DefaultMeleeAttackHeight = i "2"
+CastDispelSelf = b "False"
+UseDispelItems = b "False"
+AutoCram = b "False"
+AutoStack = b "True"
+ReadUnknownScrolls = b "True"
+UseDispelDrum = b "False"
+SwitchWandsToDebuff = b "False"
+AutoCraftItems = b "True"
+UseHealersHeart = b "True"
+JumpOutWandCasting = b "False"
+LootAllCorpses = b "False"
+LootFellowCorpses = b "False"
+DoJiggle = b "False"
+RandomHelperBuffs = b "False"
+RandomHelperIntervalSeconds = d "5"
+IdlePeaceMode = b "False"
+TargetLock = b "False"
+StopMacroOnDeath = b "True"
+UseArcs = i "1"
+ArcRange = d "0.0208333333333333"
+TargetSelectMethod = i "3"
+TargetSelectAngleRange = d "0.0208333333333333"
+IdleBuffTopoff = b "False"
+IdleBuffTopoffTimeSeconds = i "1200"
+RebuffTimeRemainingSeconds = i "300"
+RefillWornMana = b "True"
+RefillWornMana-Item-ManaPercent = i "33"
+BuffProfile-Prots = s "ALFCBPS"
+BuffProfile-Banes = s "ALFCBPS"
+BuffProfile_Prots = i "2"
+BuffProfile_Banes = i "2"
+DebuffEachFirst = i "1"
+AutoAttackPower = b "True"
+LootPriorityBoost = b "False"
+CorpseCacheTimeoutMinutes = d "60"
+CorpseItemAppearanceTimeoutSeconds = d "6"
+CorpseItemIDTimeoutSeconds = d "60"
+DebuffSelectionMethod = i "2"
+ManaStoneLootCount = i "4"
+ManaTankMinimumMana = i "1000"
+SplitPeas = b "True"
+SpellCompMin-Critical = i "4"
+SpellCompMin-Normal = i "20"
+SpellCompMin-Idle = i "20"
+RechargeBoostTimeSeconds = d "5"
+RechargeBoostAmount = i "40"
+UseSpecialAmmo = i "0"
+OpenDoors = b "False"
+DoorIDRange = d "0.0833333333333333"
+DoorOpenRange = d "0.0166666666666667"
+DoorLockpickDiffExcessThreshold = i "-50"
+ManaChargesWhenOff = b "True"
+AutoFellowManagement = b "True"
+MinimumHealKitSuccessChance = i "95"
+UseKitsInMagicMode = b "True"
+StaminaToHealthMultiplier = d "1.9"
+ManaToHealthMultiplier = d "2.8"
+NavPriorityBoost = b "False"
+DeleteGhostMonsters = b "True"
+GhostMonsterSpellAttemptCount = i "200"
+WhoYouGonnaCall = b "True"
+BlacklistMonsterAttemptCount = i "4"
+BlacklistMonsterTimeoutSeconds = i "120"
+CombineSalvage = b "True"
+LootOnlyRareCorpses = b "False"
+DeleteGhostMonstersByHPTracker = b "True"
+GhostDeleteHPTrackerSeconds = i "30"
+GoToPeaceModeToUseKits = b "False"
+UseRecklessness = b "True"
+DebuffPrecastSeconds = i "5"
+ClearLevelBoostFlagOnCast = b "True"
+IdleCraftCount_HealthKits = i "2"
+IdleCraftCount_StamKits = i "2"
+IdleCraftCount_ManaKits = i "2"
+IdleCraftCount_HealthFood = i "15"
+IdleCraftCount_StamFood = i "15"
+IdleCraftCount_ManaFood = i "15"
+BuffCastRecast_Seconds = i "30"
+BuffCastRecastReset_Seconds = i "30"
+EnableMeta = b "False"
+BlacklistedSpellComps = s ""
+DropToPeaceModeRetryCount = i "34"
+FollowAroundCorners = b "True"
+BlacklistCorpseOpenAttemptCount = i "30"
+BlacklistCorpseOpenTimeoutSeconds = i "200"
+SummonPets = b "True"
+PetRangeMode = i "0"
+PetCustomRange = d "0.0208333333333333"
+PetRefillCount-Idle = i "3"
+PetRefillCount-Normal = i "1"
+CorpseOpenTimeoutSeconds = d "1.5"
+PetMonsterDensity = i "1"
+CorpseLootItemMaxAttempts = i "20"
+FastCastBuffs = b "False"
+UseBreakableTurnTo = b "True"
+UseProjectileAwareness = b "True"
+CollisionProjectileRadius = d "0.4"
+CollisionStepDistance = d "0.7"
+ShowCollisionDebug = b "False"
+MaximumCollisionChecksPerTick = i "500"
+SpellRangeFudge = d "1"
+BuffWithUntrained-Item = i "80"
+BuffWithUntrained-Creature = i "80"
+BuffWithUntrained-Life = i "80"
+AllowDebuffFallback = b "False"
+RechargeHandlerSet = -
+WalkToRareCorpse = -
+ShowNavLines = -
+rule "DEFAULT" flags=320 p=1 dmg=Auto extra=None pet=PlayerAuto w=00000000 o=00000000 wr=-1 sr=0 ignored=False default=True dynamic=False
+items 
+extra 
+anti 
+recharge 1|"Stamina to Health"|0|15|1
+recharge 1|"Mana to Health"|0|15|1
+recharge 1|"Regular Spell"|0|15|1
+recharge 1|"Recharge With Food"|0|15|1
+recharge 1|"Kit Recharge"|0|100|1
+recharge 1|"Stamina to Health"|0|100|1
+recharge 1|"Mana to Health"|0|100|1
+recharge 1|"Regular Spell"|0|100|1
+recharge 1|"Recharge With Food"|0|100|1
+recharge 2|"Kit Recharge"|0|100|1
+recharge 2|"Regular Spell"|0|100|1
+recharge 2|"Recharge With Food"|0|100|1
+recharge 3|"Kit Recharge"|0|100|1
+recharge 3|"Recharge With Food"|0|100|1
+recharge 3|"Regular Spell"|0|100|1
+recharge 1|"Recharge With Food"|0|15|2
+recharge 1|"Kit Recharge"|0|100|2
+recharge 1|"Recharge With Food"|0|100|2
+recharge 1|"Stamina to Health"|0|10|2
+recharge 1|"Regular Spell"|0|100|2
+recharge 2|"Kit Recharge"|0|100|2
+recharge 2|"Recharge With Food"|0|100|2
+recharge 2|"Regular Spell"|0|100|2
+recharge 3|"Kit Recharge"|0|100|2
+recharge 3|"Recharge With Food"|0|100|2
+recharge 3|"Regular Spell"|0|100|2
+meta False
+--- saved:
+1\r\n
+Settings\r\n
+2\r\n
+Value\r\n
+Setting\r\n
+n\r\n
+y\r\n
+1\r\n
+s\r\n
+x\r\n
+weird\r\n
+
+--- edited:
+6\r\n
+AssistItems\r\n
+2\r\n
+Object\r\n
+Type\r\n
+n\r\n
+n\r\n
+1\r\n
+s\r\n
+Golden Kit\r\n
+i\r\n
+0\r\n
+BuffedItems\r\n
+2\r\n
+Object\r\n
+Spell\r\n
+n\r\n
+n\r\n
+1\r\n
+i\r\n
+1342177281\r\n
+i\r\n
+-1\r\n
+ExtraBuffSpells\r\n
+1\r\n
+ExemplarId\r\n
+n\r\n
+1\r\n
+i\r\n
+777\r\n
+GemFoodItems\r\n
+2\r\n
+Name\r\n
+Spell\r\n
+n\r\n
+n\r\n
+1\r\n
+s\r\n
+Golden Gem\r\n
+i\r\n
+4321\r\n
+MyMonsters\r\n
+21\r\n
+MonsterName\r\n
+AttackPriority\r\n
+DamageType\r\n
+WeaponToUse\r\n
+Imperil\r\n
+Vuln\r\n
+Yield\r\n
+GravityW\r\n
+Attack\r\n
+Ring\r\n
+Broadside\r\n
+Fester\r\n
+WeakeningCurse\r\n
+FesteringCurse\r\n
+Corruption\r\n
+DestructiveCurse\r\n
+Corrosion\r\n
+Streak\r\n
+SecondaryVuln\r\n
+SecondaryEquip\r\n
+PetDamageType\r\n
+y\r\n
+n\r\n
+n\r\n
+n\r\n
+n\r\n
+n\r\n
+n\r\n
+n\r\n
+n\r\n
+n\r\n
+n\r\n
+n\r\n
+n\r\n
+n\r\n
+n\r\n
+n\r\n
+n\r\n
+n\r\n
+n\r\n
+n\r\n
+n\r\n
+2\r\n
+s\r\n
+<DEFAULT>\r\n
+i\r\n
+1\r\n
+i\r\n
+8\r\n
+i\r\n
+-1\r\n
+b\r\n
+False\r\n
+b\r\n
+False\r\n
+b\r\n
+False\r\n
+b\r\n
+False\r\n
+b\r\n
+True\r\n
+b\r\n
+False\r\n
+b\r\n
+False\r\n
+b\r\n
+False\r\n
+b\r\n
+False\r\n
+b\r\n
+False\r\n
+b\r\n
+False\r\n
+b\r\n
+False\r\n
+b\r\n
+False\r\n
+b\r\n
+True\r\n
+i\r\n
+98\r\n
+i\r\n
+0\r\n
+i\r\n
+101\r\n
+s\r\n
+name==Golden Drudge\r\n
+i\r\n
+3\r\n
+i\r\n
+6\r\n
+i\r\n
+-1\r\n
+b\r\n
+False\r\n
+b\r\n
+False\r\n
+b\r\n
+False\r\n
+b\r\n
+False\r\n
+b\r\n
+True\r\n
+b\r\n
+False\r\n
+b\r\n
+False\r\n
+b\r\n
+False\r\n
+b\r\n
+False\r\n
+b\r\n
+False\r\n
+b\r\n
+False\r\n
+b\r\n
+False\r\n
+b\r\n
+False\r\n
+b\r\n
+False\r\n
+i\r\n
+98\r\n
+i\r\n
+0\r\n
+i\r\n
+101\r\n
+Settings\r\n
+2\r\n
+Value\r\n
+Setting\r\n
+n\r\n
+y\r\n
+1\r\n
+s\r\n
+x\r\n
+weird\r\n
+
+
+##### monster range
+source "range>5" dynamic=True
+value Boolean "true"
+match=True
+
+##### monster and
+source "range>5 && species==drudge && name!=drudge ravener" dynamic=True
+value Boolean "true"
+match=True
+
+##### monster bare-name
+source "Drudge Lurker" dynamic=False
+value Text "Drudge Lurker"
+match=True
+
+##### monster bare-other
+source "Drudge Ravener" dynamic=False
+value Text "Drudge Ravener"
+match=False
+
+##### monster regex
+source "name#^drudge .\\+er$" dynamic=False
+value Boolean "true"
+match=True
+
+##### monster escaped
+source "name==Prototype \\#\\2" dynamic=False
+value Boolean "false"
+match=False
+
+##### monster unescaped-digit
+ERR Unexpected token '2' at offset 16.
+
+##### monster precedence-sub
+source "10-3+1==6" dynamic=False
+value Boolean "true"
+match=True
+
+##### monster precedence-mod
+source "20/6%4==10" dynamic=False
+value Boolean "true"
+match=True
+
+##### monster short-circuit
+source "false && 1/0==0" dynamic=False
+value Boolean "false"
+match=False
+
+##### monster divide-zero
+source "1/0==0" dynamic=False
+eval-error Operator / divided by zero.
+match=False error=Operator / divided by zero.
+
+##### monster modulo-truncated-zero
+source "5%0.5==0" dynamic=False
+eval-error Attempted to divide by zero.
+match=False error=Attempted to divide by zero.
+
+##### monster modulo
+source "7%3" dynamic=False
+value Number "1"
+match=False
+
+##### monster number
+source "3.25*2" dynamic=False
+value Number "6.5"
+match=False
+
+##### monster text-concat
+source "species+metastate" dynamic=True
+value Text "DrudgeHunting"
+match=False
+
+##### monster text-number
+source "name+1" dynamic=False
+eval-error Operator + requires matching operand types; received Text and Number.
+match=False error=Operator + requires matching operand types; received Text and Number.
+
+##### monster bool-add
+source "true+false" dynamic=False
+eval-error Operator + cannot be applied to Boolean.
+match=False error=Operator + cannot be applied to Boolean.
+
+##### monster mismatch
+source "name==5" dynamic=False
+eval-error Operator comparison requires matching operand types; received Text and Number.
+match=False error=Operator comparison requires matching operand types; received Text and Number.
+
+##### monster setting
+source "setting_DoJiggle" dynamic=True
+value Boolean "true"
+match=True
+
+##### monster setting-case
+source "setting_dojiggle" dynamic=True
+value Text "setting_dojiggle"
+match=False
+
+##### monster setting-number
+source "setting_Count>2" dynamic=True
+value Boolean "true"
+match=True
+
+##### monster setting-text
+source "setting_Label==metastate" dynamic=True
+value Boolean "true"
+match=True
+
+##### monster maxhp
+source "maxhp>=450" dynamic=False
+value Boolean "true"
+match=True
+
+##### monster typeid
+source "typeid==1234" dynamic=False
+value Boolean "true"
+match=True
+
+##### monster hasshield
+source "hasshield && metastate==hunting" dynamic=True
+value Boolean "true"
+match=True
+
+##### monster range-float
+source "range==8.5" dynamic=True
+value Boolean "true"
+match=True
+
+##### monster compare-text
+source "species<name" dynamic=False
+value Boolean "true"
+match=True
+
+##### monster compare-bool
+source "true>false" dynamic=False
+value Boolean "true"
+match=True
+
+##### monster parens
+source "(range>5)&&(maxhp<1000)" dynamic=True
+value Boolean "true"
+match=True
+
+##### monster empty
+ERR Monster expression is empty.
+
+##### monster open-parens
+ERR Operand expected at offset 3; found ''.
+
+##### monster unclosed
+ERR Closing ')' expected at offset 8.
+
+##### monster trailing-escape
+ERR Trailing escape at offset 7.
+
+##### monster bad-number
+ERR Invalid number '1.2.3' at offset 0.
+
+##### monster lone-equals
+ERR Unexpected character '=' at offset 5; digits and punctuation in VTank strings must be escaped.
+
+##### monster lone-bang
+ERR Unexpected character '!' at offset 0; digits and punctuation in VTank strings must be escaped.
+
+##### monster unexpected-token
+ERR Unexpected token ')' at offset 7.
+
+##### monster surrogate-offset
+ERR Unexpected token ')' at offset 5.
+
+##### monster arabic-digit
+ERR Invalid number '٣' at offset 0.
+
+##### monster whitespace-atom
+source "Drudge Lurker" dynamic=False
+value Text "Drudge Lurker"
+match=True
+
+##### monster or
+source "false || range<1" dynamic=True
+value Boolean "false"
+match=False
+
+##### monster or-type
+source "name || true" dynamic=False
+eval-error Operator || cannot be applied to Text.
+match=False error=Operator || cannot be applied to Text.
+
+##### monster dot-number
+source ".5<1" dynamic=False
+value Boolean "true"
+match=True
+
+##### monster big-number
+source "99999999999999999999999999999999%7" dynamic=False
+value Number "0"
+match=False
+
+##### ub catalog
+Nametags.Enabled|Bool|Global|Nametags|"True"|"True"|"Nametags.Enabled (Profile) = True"|"Draw a name above the creatures and objects around you."|
+Nametags.MaxRange|Single|Profile|Nametags|"35"|"35"|"Nametags.MaxRange (Profile) = 35"|"How far away, in meters, a name is still drawn."|
+Nametags.Player.Enabled|Bool|Profile|Nametags|"True"|"True"|"Nametags.Player.Enabled (Profile) = True"|"Draw a name over another player."|
+Nametags.Player.TagColor|Color|Profile|Nametags|"#FF00FFFF"|"#FF00FFFF"|"Nametags.Player.TagColor (Profile) = 0xFF00FFFF"|"The colour of the name over another player."|
+Nametags.Player.TagSize|Single|Profile|Nametags|"0.15"|"0.15"|"Nametags.Player.TagSize (Profile) = 0.15"|"The height of the name over another player, in meters."|
+Nametags.Player.TickerColor|Color|Profile|Nametags|"#FF00FFFF"|"#FF00FFFF"|"Nametags.Player.TickerColor (Profile) = 0xFF00FFFF"|"The colour of the second line under another player's name."|
+Nametags.Player.TickerSize|Single|Profile|Nametags|"0.1"|"0.1"|"Nametags.Player.TickerSize (Profile) = 0.1"|"The height of the second line under another player's name, in meters."|
+Nametags.Pet.Enabled|Bool|Profile|Nametags|"True"|"True"|"Nametags.Pet.Enabled (Profile) = True"|"Draw a name over a summoned pet."|
+Nametags.Pet.TagColor|Color|Profile|Nametags|"#FF00FFFF"|"#FF00FFFF"|"Nametags.Pet.TagColor (Profile) = 0xFF00FFFF"|"The colour of the name over a summoned pet."|
+Nametags.Pet.TagSize|Single|Profile|Nametags|"0.15"|"0.15"|"Nametags.Pet.TagSize (Profile) = 0.15"|"The height of the name over a summoned pet, in meters."|
+Nametags.Pet.TickerColor|Color|Profile|Nametags|"#FF00FFFF"|"#FF00FFFF"|"Nametags.Pet.TickerColor (Profile) = 0xFF00FFFF"|"The colour of the second line under a summoned pet's name."|
+Nametags.Pet.TickerSize|Single|Profile|Nametags|"0.1"|"0.1"|"Nametags.Pet.TickerSize (Profile) = 0.1"|"The height of the second line under a summoned pet's name, in meters."|
+Nametags.AllegiancePlayer.Enabled|Bool|Profile|Nametags|"True"|"True"|"Nametags.AllegiancePlayer.Enabled (Profile) = True"|"Draw a name over a player in your allegiance."|
+Nametags.AllegiancePlayer.TagColor|Color|Profile|Nametags|"#FF00FF00"|"#FF00FF00"|"Nametags.AllegiancePlayer.TagColor (Profile) = 0xFF00FF00"|"The colour of the name over a player in your allegiance."|
+Nametags.AllegiancePlayer.TagSize|Single|Profile|Nametags|"0.15"|"0.15"|"Nametags.AllegiancePlayer.TagSize (Profile) = 0.15"|"The height of the name over a player in your allegiance, in meters."|
+Nametags.AllegiancePlayer.TickerColor|Color|Profile|Nametags|"#FF00FF00"|"#FF00FF00"|"Nametags.AllegiancePlayer.TickerColor (Profile) = 0xFF00FF00"|"The colour of the second line under a player in your allegiance's name."|
+Nametags.AllegiancePlayer.TickerSize|Single|Profile|Nametags|"0.1"|"0.1"|"Nametags.AllegiancePlayer.TickerSize (Profile) = 0.1"|"The height of the second line under a player in your allegiance's name, in meters."|
+Nametags.Portal.Enabled|Bool|Profile|Nametags|"True"|"True"|"Nametags.Portal.Enabled (Profile) = True"|"Draw a name over a portal."|
+Nametags.Portal.TagColor|Color|Profile|Nametags|"#FF00FF00"|"#FF00FF00"|"Nametags.Portal.TagColor (Profile) = 0xFF00FF00"|"The colour of the name over a portal."|
+Nametags.Portal.TagSize|Single|Profile|Nametags|"0.15"|"0.15"|"Nametags.Portal.TagSize (Profile) = 0.15"|"The height of the name over a portal, in meters."|
+Nametags.Portal.TickerColor|Color|Profile|Nametags|"#FF00FF00"|"#FF00FF00"|"Nametags.Portal.TickerColor (Profile) = 0xFF00FF00"|"The colour of the second line under a portal's name."|
+Nametags.Portal.TickerSize|Single|Profile|Nametags|"0.1"|"0.1"|"Nametags.Portal.TickerSize (Profile) = 0.1"|"The height of the second line under a portal's name, in meters."|
+Nametags.Npc.Enabled|Bool|Profile|Nametags|"True"|"True"|"Nametags.Npc.Enabled (Profile) = True"|"Draw a name over a non-player character."|
+Nametags.Npc.TagColor|Color|Profile|Nametags|"#FFFFFF00"|"#FFFFFF00"|"Nametags.Npc.TagColor (Profile) = 0xFFFFFF00"|"The colour of the name over a non-player character."|
+Nametags.Npc.TagSize|Single|Profile|Nametags|"0.15"|"0.15"|"Nametags.Npc.TagSize (Profile) = 0.15"|"The height of the name over a non-player character, in meters."|
+Nametags.Npc.TickerColor|Color|Profile|Nametags|"#FFFFFF00"|"#FFFFFF00"|"Nametags.Npc.TickerColor (Profile) = 0xFFFFFF00"|"The colour of the second line under a non-player character's name."|
+Nametags.Npc.TickerSize|Single|Profile|Nametags|"0.1"|"0.1"|"Nametags.Npc.TickerSize (Profile) = 0.1"|"The height of the second line under a non-player character's name, in meters."|
+Nametags.Vendor.Enabled|Bool|Profile|Nametags|"True"|"True"|"Nametags.Vendor.Enabled (Profile) = True"|"Draw a name over a vendor."|
+Nametags.Vendor.TagColor|Color|Profile|Nametags|"#FFFF00FF"|"#FFFF00FF"|"Nametags.Vendor.TagColor (Profile) = 0xFFFF00FF"|"The colour of the name over a vendor."|
+Nametags.Vendor.TagSize|Single|Profile|Nametags|"0.15"|"0.15"|"Nametags.Vendor.TagSize (Profile) = 0.15"|"The height of the name over a vendor, in meters."|
+Nametags.Vendor.TickerColor|Color|Profile|Nametags|"#FFFF00FF"|"#FFFF00FF"|"Nametags.Vendor.TickerColor (Profile) = 0xFFFF00FF"|"The colour of the second line under a vendor's name."|
+Nametags.Vendor.TickerSize|Single|Profile|Nametags|"0.1"|"0.1"|"Nametags.Vendor.TickerSize (Profile) = 0.1"|"The height of the second line under a vendor's name, in meters."|
+Nametags.Monster.Enabled|Bool|Profile|Nametags|"True"|"True"|"Nametags.Monster.Enabled (Profile) = True"|"Draw a name over a monster."|
+Nametags.Monster.TagColor|Color|Profile|Nametags|"#FFFF0000"|"#FFFF0000"|"Nametags.Monster.TagColor (Profile) = 0xFFFF0000"|"The colour of the name over a monster."|
+Nametags.Monster.TagSize|Single|Profile|Nametags|"0.15"|"0.15"|"Nametags.Monster.TagSize (Profile) = 0.15"|"The height of the name over a monster, in meters."|
+Nametags.Monster.TickerColor|Color|Profile|Nametags|"#FFFF0000"|"#FFFF0000"|"Nametags.Monster.TickerColor (Profile) = 0xFFFF0000"|"The colour of the second line under a monster's name."|
+Nametags.Monster.TickerSize|Single|Profile|Nametags|"0.1"|"0.1"|"Nametags.Monster.TickerSize (Profile) = 0.1"|"The height of the second line under a monster's name, in meters."|
+DungeonMaps.Enabled|Bool|Global|DungeonMaps|"True"|"True"|"DungeonMaps.Enabled (Profile) = True"|"Draw a floor plan of the dungeon you are standing in."|
+DungeonMaps.Debug|Bool|Global|DungeonMaps|"False"|"False"|"DungeonMaps.Debug (Profile) = False"|"Report what the floor plan is drawing while it draws it."|
+DungeonMaps.DrawWhenClosed|Bool|Profile|DungeonMaps|"True"|"True"|"DungeonMaps.DrawWhenClosed (Profile) = True"|"Keep drawing the floor plan while its own window is shut."|
+DungeonMaps.ShowVisitedTiles|Bool|Profile|DungeonMaps|"True"|"True"|"DungeonMaps.ShowVisitedTiles (Profile) = True"|"Shade the parts of the floor you have already walked."|
+DungeonMaps.VisitedTilesColor|Color|Profile|DungeonMaps|"#FFFF96FF"|"#FFFF96FF"|"DungeonMaps.VisitedTilesColor (Profile) = 0xFFFF96FF"|"The tint laid over a part of the floor you have walked."|
+DungeonMaps.ShowCompass|Bool|Profile|DungeonMaps|"True"|"True"|"DungeonMaps.ShowCompass (Profile) = True"|"Draw a compass on the floor plan."|
+DungeonMaps.Opacity|Int|Profile|DungeonMaps|"16"|"16"|"DungeonMaps.Opacity (Profile) = 16"|"How solid the floor plan is drawn, from 0 to 255."|
+DungeonMaps.MapZoom|Single|Profile|DungeonMaps|"4.2"|"4.2"|"DungeonMaps.MapZoom (Profile) = 4.2"|"How far the floor plan is zoomed in."|
+DungeonMaps.LabelFontSize|Int|Profile|DungeonMaps|"10"|"10"|"DungeonMaps.LabelFontSize (Profile) = 10"|"The height of a floor-plan label."|
+DungeonMaps.Display.DungeonName.Enabled|Bool|Profile|DungeonMaps|"True"|"True"|"DungeonMaps.Display.DungeonName.Enabled (Profile) = True"|"Draw the dungeon's name across the top on the floor plan."|
+DungeonMaps.Display.DungeonName.Color|Color|Profile|DungeonMaps|"#FFFFFFFF"|"#FFFFFFFF"|"DungeonMaps.Display.DungeonName.Color (Profile) = 0xFFFFFFFF"|"The colour the dungeon's name across the top is drawn in."|
+DungeonMaps.Display.Walls.Enabled|Bool|Profile|DungeonMaps|"True"|"True"|"DungeonMaps.Display.Walls.Enabled (Profile) = True"|"Draw an outer wall on the floor plan."|
+DungeonMaps.Display.Walls.Color|Color|Profile|DungeonMaps|"#FF00007F"|"#FF00007F"|"DungeonMaps.Display.Walls.Color (Profile) = 0xFF00007F"|"The colour an outer wall is drawn in."|
+DungeonMaps.Display.InnerWalls.Enabled|Bool|Profile|DungeonMaps|"True"|"True"|"DungeonMaps.Display.InnerWalls.Enabled (Profile) = True"|"Draw a wall inside a room on the floor plan."|
+DungeonMaps.Display.InnerWalls.Color|Color|Profile|DungeonMaps|"#FF7FBFFF"|"#FF7FBFFF"|"DungeonMaps.Display.InnerWalls.Color (Profile) = 0xFF7FBFFF"|"The colour a wall inside a room is drawn in."|
+DungeonMaps.Display.RampedWalls.Enabled|Bool|Profile|DungeonMaps|"True"|"True"|"DungeonMaps.Display.RampedWalls.Enabled (Profile) = True"|"Draw a sloped wall on the floor plan."|
+DungeonMaps.Display.RampedWalls.Color|Color|Profile|DungeonMaps|"#FF4EA6FF"|"#FF4EA6FF"|"DungeonMaps.Display.RampedWalls.Color (Profile) = 0xFF4EA6FF"|"The colour a sloped wall is drawn in."|
+DungeonMaps.Display.Stairs.Enabled|Bool|Profile|DungeonMaps|"True"|"True"|"DungeonMaps.Display.Stairs.Enabled (Profile) = True"|"Draw a staircase on the floor plan."|
+DungeonMaps.Display.Stairs.Color|Color|Profile|DungeonMaps|"#FF003F7F"|"#FF003F7F"|"DungeonMaps.Display.Stairs.Color (Profile) = 0xFF003F7F"|"The colour a staircase is drawn in."|
+DungeonMaps.Display.Floors.Enabled|Bool|Profile|DungeonMaps|"True"|"True"|"DungeonMaps.Display.Floors.Enabled (Profile) = True"|"Draw the floor on the floor plan."|
+DungeonMaps.Display.Floors.Color|Color|Profile|DungeonMaps|"#FF007FBF"|"#FF007FBF"|"DungeonMaps.Display.Floors.Color (Profile) = 0xFF007FBF"|"The colour the floor is drawn in."|
+DungeonMaps.Display.VisualNavStickyPoint.Enabled|Bool|Profile|DungeonMaps|"True"|"True"|"DungeonMaps.Display.VisualNavStickyPoint.Enabled (Profile) = True"|"Draw a route's anchor point on the floor plan."|
+DungeonMaps.Display.VisualNavStickyPoint.Color|Color|Profile|DungeonMaps|"#FFADFF2F"|"#FFADFF2F"|"DungeonMaps.Display.VisualNavStickyPoint.Color (Profile) = 0xFFADFF2F"|"The colour a route's anchor point is drawn in."|
+DungeonMaps.Display.VisualNavLines.Enabled|Bool|Profile|DungeonMaps|"True"|"True"|"DungeonMaps.Display.VisualNavLines.Enabled (Profile) = True"|"Draw the line between two route points on the floor plan."|
+DungeonMaps.Display.VisualNavLines.Color|Color|Profile|DungeonMaps|"#FFFF00FF"|"#FFFF00FF"|"DungeonMaps.Display.VisualNavLines.Color (Profile) = 0xFFFF00FF"|"The colour the line between two route points is drawn in."|
+DungeonMaps.Display.Markers.You.Enabled|Bool|Profile|DungeonMaps|"True"|"True"|"DungeonMaps.Display.Markers.You.Enabled (Profile) = True"|"Mark you on the floor plan."|
+DungeonMaps.Display.Markers.You.ShowLabel|Bool|Profile|DungeonMaps|"False"|"False"|"DungeonMaps.Display.Markers.You.ShowLabel (Profile) = False"|"Write the name beside the mark for you."|
+DungeonMaps.Display.Markers.You.UseIcon|Bool|Profile|DungeonMaps|"False"|"False"|"DungeonMaps.Display.Markers.You.UseIcon (Profile) = False"|"Use the icon rather than a dot for you."|
+DungeonMaps.Display.Markers.You.Color|Color|Profile|DungeonMaps|"#FFFF0000"|"#FFFF0000"|"DungeonMaps.Display.Markers.You.Color (Profile) = 0xFFFF0000"|"The colour the mark for you is drawn in."|
+DungeonMaps.Display.Markers.You.Size|Int|Profile|DungeonMaps|"3"|"3"|"DungeonMaps.Display.Markers.You.Size (Profile) = 3"|"How many pixels across the mark for you is."|
+DungeonMaps.Display.Markers.Others.Enabled|Bool|Profile|DungeonMaps|"True"|"True"|"DungeonMaps.Display.Markers.Others.Enabled (Profile) = True"|"Mark another player on the floor plan."|
+DungeonMaps.Display.Markers.Others.ShowLabel|Bool|Profile|DungeonMaps|"True"|"True"|"DungeonMaps.Display.Markers.Others.ShowLabel (Profile) = True"|"Write the name beside the mark for another player."|
+DungeonMaps.Display.Markers.Others.UseIcon|Bool|Profile|DungeonMaps|"True"|"True"|"DungeonMaps.Display.Markers.Others.UseIcon (Profile) = True"|"Use the icon rather than a dot for another player."|
+DungeonMaps.Display.Markers.Others.Color|Color|Profile|DungeonMaps|"#FFFFFFFF"|"#FFFFFFFF"|"DungeonMaps.Display.Markers.Others.Color (Profile) = 0xFFFFFFFF"|"The colour the mark for another player is drawn in."|
+DungeonMaps.Display.Markers.Others.Size|Int|Profile|DungeonMaps|"3"|"3"|"DungeonMaps.Display.Markers.Others.Size (Profile) = 3"|"How many pixels across the mark for another player is."|
+DungeonMaps.Display.Markers.Items.Enabled|Bool|Profile|DungeonMaps|"True"|"True"|"DungeonMaps.Display.Markers.Items.Enabled (Profile) = True"|"Mark an item on the ground on the floor plan."|
+DungeonMaps.Display.Markers.Items.ShowLabel|Bool|Profile|DungeonMaps|"True"|"True"|"DungeonMaps.Display.Markers.Items.ShowLabel (Profile) = True"|"Write the name beside the mark for an item on the ground."|
+DungeonMaps.Display.Markers.Items.UseIcon|Bool|Profile|DungeonMaps|"True"|"True"|"DungeonMaps.Display.Markers.Items.UseIcon (Profile) = True"|"Use the icon rather than a dot for an item on the ground."|
+DungeonMaps.Display.Markers.Items.Color|Color|Profile|DungeonMaps|"#FFFFFFFF"|"#FFFFFFFF"|"DungeonMaps.Display.Markers.Items.Color (Profile) = 0xFFFFFFFF"|"The colour the mark for an item on the ground is drawn in."|
+DungeonMaps.Display.Markers.Items.Size|Int|Profile|DungeonMaps|"3"|"3"|"DungeonMaps.Display.Markers.Items.Size (Profile) = 3"|"How many pixels across the mark for an item on the ground is."|
+DungeonMaps.Display.Markers.Monsters.Enabled|Bool|Profile|DungeonMaps|"True"|"True"|"DungeonMaps.Display.Markers.Monsters.Enabled (Profile) = True"|"Mark a monster on the floor plan."|
+DungeonMaps.Display.Markers.Monsters.ShowLabel|Bool|Profile|DungeonMaps|"False"|"False"|"DungeonMaps.Display.Markers.Monsters.ShowLabel (Profile) = False"|"Write the name beside the mark for a monster."|
+DungeonMaps.Display.Markers.Monsters.UseIcon|Bool|Profile|DungeonMaps|"True"|"True"|"DungeonMaps.Display.Markers.Monsters.UseIcon (Profile) = True"|"Use the icon rather than a dot for a monster."|
+DungeonMaps.Display.Markers.Monsters.Color|Color|Profile|DungeonMaps|"#FFFFA500"|"#FFFFA500"|"DungeonMaps.Display.Markers.Monsters.Color (Profile) = 0xFFFFA500"|"The colour the mark for a monster is drawn in."|
+DungeonMaps.Display.Markers.Monsters.Size|Int|Profile|DungeonMaps|"3"|"3"|"DungeonMaps.Display.Markers.Monsters.Size (Profile) = 3"|"How many pixels across the mark for a monster is."|
+DungeonMaps.Display.Markers.NPCs.Enabled|Bool|Profile|DungeonMaps|"True"|"True"|"DungeonMaps.Display.Markers.NPCs.Enabled (Profile) = True"|"Mark a non-player character on the floor plan."|
+DungeonMaps.Display.Markers.NPCs.ShowLabel|Bool|Profile|DungeonMaps|"False"|"False"|"DungeonMaps.Display.Markers.NPCs.ShowLabel (Profile) = False"|"Write the name beside the mark for a non-player character."|
+DungeonMaps.Display.Markers.NPCs.UseIcon|Bool|Profile|DungeonMaps|"True"|"True"|"DungeonMaps.Display.Markers.NPCs.UseIcon (Profile) = True"|"Use the icon rather than a dot for a non-player character."|
+DungeonMaps.Display.Markers.NPCs.Color|Color|Profile|DungeonMaps|"#FFFFFF00"|"#FFFFFF00"|"DungeonMaps.Display.Markers.NPCs.Color (Profile) = 0xFFFFFF00"|"The colour the mark for a non-player character is drawn in."|
+DungeonMaps.Display.Markers.NPCs.Size|Int|Profile|DungeonMaps|"3"|"3"|"DungeonMaps.Display.Markers.NPCs.Size (Profile) = 3"|"How many pixels across the mark for a non-player character is."|
+DungeonMaps.Display.Markers.MyCorpse.Enabled|Bool|Profile|DungeonMaps|"True"|"True"|"DungeonMaps.Display.Markers.MyCorpse.Enabled (Profile) = True"|"Mark your own corpse on the floor plan."|
+DungeonMaps.Display.Markers.MyCorpse.ShowLabel|Bool|Profile|DungeonMaps|"True"|"True"|"DungeonMaps.Display.Markers.MyCorpse.ShowLabel (Profile) = True"|"Write the name beside the mark for your own corpse."|
+DungeonMaps.Display.Markers.MyCorpse.UseIcon|Bool|Profile|DungeonMaps|"True"|"True"|"DungeonMaps.Display.Markers.MyCorpse.UseIcon (Profile) = True"|"Use the icon rather than a dot for your own corpse."|
+DungeonMaps.Display.Markers.MyCorpse.Color|Color|Profile|DungeonMaps|"#FFFF0000"|"#FFFF0000"|"DungeonMaps.Display.Markers.MyCorpse.Color (Profile) = 0xFFFF0000"|"The colour the mark for your own corpse is drawn in."|
+DungeonMaps.Display.Markers.MyCorpse.Size|Int|Profile|DungeonMaps|"3"|"3"|"DungeonMaps.Display.Markers.MyCorpse.Size (Profile) = 3"|"How many pixels across the mark for your own corpse is."|
+DungeonMaps.Display.Markers.OtherCorpses.Enabled|Bool|Profile|DungeonMaps|"False"|"False"|"DungeonMaps.Display.Markers.OtherCorpses.Enabled (Profile) = False"|"Mark somebody else's corpse on the floor plan."|
+DungeonMaps.Display.Markers.OtherCorpses.ShowLabel|Bool|Profile|DungeonMaps|"False"|"False"|"DungeonMaps.Display.Markers.OtherCorpses.ShowLabel (Profile) = False"|"Write the name beside the mark for somebody else's corpse."|
+DungeonMaps.Display.Markers.OtherCorpses.UseIcon|Bool|Profile|DungeonMaps|"True"|"True"|"DungeonMaps.Display.Markers.OtherCorpses.UseIcon (Profile) = True"|"Use the icon rather than a dot for somebody else's corpse."|
+DungeonMaps.Display.Markers.OtherCorpses.Color|Color|Profile|DungeonMaps|"#FFF5F5F5"|"#FFF5F5F5"|"DungeonMaps.Display.Markers.OtherCorpses.Color (Profile) = 0xFFF5F5F5"|"The colour the mark for somebody else's corpse is drawn in."|
+DungeonMaps.Display.Markers.OtherCorpses.Size|Int|Profile|DungeonMaps|"3"|"3"|"DungeonMaps.Display.Markers.OtherCorpses.Size (Profile) = 3"|"How many pixels across the mark for somebody else's corpse is."|
+DungeonMaps.Display.Markers.Portals.Enabled|Bool|Profile|DungeonMaps|"True"|"True"|"DungeonMaps.Display.Markers.Portals.Enabled (Profile) = True"|"Mark a portal on the floor plan."|
+DungeonMaps.Display.Markers.Portals.ShowLabel|Bool|Profile|DungeonMaps|"True"|"True"|"DungeonMaps.Display.Markers.Portals.ShowLabel (Profile) = True"|"Write the name beside the mark for a portal."|
+DungeonMaps.Display.Markers.Portals.UseIcon|Bool|Profile|DungeonMaps|"True"|"True"|"DungeonMaps.Display.Markers.Portals.UseIcon (Profile) = True"|"Use the icon rather than a dot for a portal."|
+DungeonMaps.Display.Markers.Portals.Color|Color|Profile|DungeonMaps|"#FFFFF0FF"|"#FFFFF0FF"|"DungeonMaps.Display.Markers.Portals.Color (Profile) = 0xFFFFF0FF"|"The colour the mark for a portal is drawn in."|
+DungeonMaps.Display.Markers.Portals.Size|Int|Profile|DungeonMaps|"3"|"3"|"DungeonMaps.Display.Markers.Portals.Size (Profile) = 3"|"How many pixels across the mark for a portal is."|
+DungeonMaps.Display.Markers.Containers.Enabled|Bool|Profile|DungeonMaps|"True"|"True"|"DungeonMaps.Display.Markers.Containers.Enabled (Profile) = True"|"Mark a chest or other container on the floor plan."|
+DungeonMaps.Display.Markers.Containers.ShowLabel|Bool|Profile|DungeonMaps|"False"|"False"|"DungeonMaps.Display.Markers.Containers.ShowLabel (Profile) = False"|"Write the name beside the mark for a chest or other container."|
+DungeonMaps.Display.Markers.Containers.UseIcon|Bool|Profile|DungeonMaps|"True"|"True"|"DungeonMaps.Display.Markers.Containers.UseIcon (Profile) = True"|"Use the icon rather than a dot for a chest or other container."|
+DungeonMaps.Display.Markers.Containers.Color|Color|Profile|DungeonMaps|"#FFF4A460"|"#FFF4A460"|"DungeonMaps.Display.Markers.Containers.Color (Profile) = 0xFFF4A460"|"The colour the mark for a chest or other container is drawn in."|
+DungeonMaps.Display.Markers.Containers.Size|Int|Profile|DungeonMaps|"3"|"3"|"DungeonMaps.Display.Markers.Containers.Size (Profile) = 3"|"How many pixels across the mark for a chest or other container is."|
+DungeonMaps.Display.Markers.Doors.Enabled|Bool|Profile|DungeonMaps|"True"|"True"|"DungeonMaps.Display.Markers.Doors.Enabled (Profile) = True"|"Mark a door on the floor plan."|
+DungeonMaps.Display.Markers.Doors.ShowLabel|Bool|Profile|DungeonMaps|"False"|"False"|"DungeonMaps.Display.Markers.Doors.ShowLabel (Profile) = False"|"Write the name beside the mark for a door."|
+DungeonMaps.Display.Markers.Doors.UseIcon|Bool|Profile|DungeonMaps|"False"|"False"|"DungeonMaps.Display.Markers.Doors.UseIcon (Profile) = False"|"Use the icon rather than a dot for a door."|
+DungeonMaps.Display.Markers.Doors.Color|Color|Profile|DungeonMaps|"#FFA52A2A"|"#FFA52A2A"|"DungeonMaps.Display.Markers.Doors.Color (Profile) = 0xFFA52A2A"|"The colour the mark for a door is drawn in."|
+DungeonMaps.Display.Markers.Doors.Size|Int|Profile|DungeonMaps|"3"|"3"|"DungeonMaps.Display.Markers.Doors.Size (Profile) = 3"|"How many pixels across the mark for a door is."|
+DungeonMaps.Display.Markers.EverythingElse.Enabled|Bool|Profile|DungeonMaps|"False"|"False"|"DungeonMaps.Display.Markers.EverythingElse.Enabled (Profile) = False"|"Mark anything with no marker of its own on the floor plan."|
+DungeonMaps.Display.Markers.EverythingElse.ShowLabel|Bool|Profile|DungeonMaps|"False"|"False"|"DungeonMaps.Display.Markers.EverythingElse.ShowLabel (Profile) = False"|"Write the name beside the mark for anything with no marker of its own."|
+DungeonMaps.Display.Markers.EverythingElse.UseIcon|Bool|Profile|DungeonMaps|"True"|"True"|"DungeonMaps.Display.Markers.EverythingElse.UseIcon (Profile) = True"|"Use the icon rather than a dot for anything with no marker of its own."|
+DungeonMaps.Display.Markers.EverythingElse.Color|Color|Profile|DungeonMaps|"#FFF5F5F5"|"#FFF5F5F5"|"DungeonMaps.Display.Markers.EverythingElse.Color (Profile) = 0xFFF5F5F5"|"The colour the mark for anything with no marker of its own is drawn in."|
+DungeonMaps.Display.Markers.EverythingElse.Size|Int|Profile|DungeonMaps|"3"|"3"|"DungeonMaps.Display.Markers.EverythingElse.Size (Profile) = 3"|"How many pixels across the mark for anything with no marker of its own is."|
+LandscapeMaps.Enabled|Bool|Global|LandscapeMaps|"True"|"True"|"LandscapeMaps.Enabled (Profile) = True"|"Draw a map of the countryside you are standing in."|
+LandscapeMaps.Opacity|Int|Profile|LandscapeMaps|"16"|"16"|"LandscapeMaps.Opacity (Profile) = 16"|"How solid the countryside map is drawn, from 0 to 255."|
+NetworkUI.Enabled|Bool|Global|NetworkUI|"False"|"False"|"NetworkUI.Enabled (Profile) = False"|"Show the panel listing your other characters on this machine."|
+NetworkUI.ShowHudWhenClosed|Bool|Global|NetworkUI|"True"|"True"|"NetworkUI.ShowHudWhenClosed (Profile) = True"|"Keep the readout on screen while the main window is shut."|
+NetworkUI.TrackedItems|Collection|Profile|NetworkUI|""|"(empty)"|"NetworkUI.TrackedItems (Profile) = []"|"Items whose count is shown for every character, one name a line."|
+NetworkUI.SelectedTag|String|Character|NetworkUI|"All"|"All"|"NetworkUI.SelectedTag (State) = All"|"Which tag's characters the panel lists; All lists every one."|
+Networking.Tags|Collection|Character|Networking|""|"(empty)"|"Networking.Tags (State) = []"|"Names for this character that a broadcast can be aimed at, one a line."|
+Plugin.Debug|Bool|Profile|Plugin|"False"|"False"|"Plugin.Debug (Profile) = False"|"Show debug messages."|
+Plugin.GenericMessageDisplay.Enabled|Bool|Profile|Plugin|"True"|"True"|"Plugin.GenericMessageDisplay.Enabled (Profile) = True"|"Show plugin generic messages in chat."|
+Plugin.GenericMessageDisplay.Color|Enum|Profile|Plugin|"5"|"System"|"Plugin.GenericMessageDisplay.Color (Profile) = System"|"The text class plugin generic messages are printed in."|0:Broadcast,2:Speech,3:Tell,4:OutgoingTell,5:System,6:Combat,7:Magic,8:Channel,9:ChannelSend,10:Social,11:SocialSend,12:Emote,13:Advancement,14:Abuse,15:Help,16:Appraisal,17:Spellcasting,18:Allegiance,19:Fellowship,20:WorldBroadcast,21:CombatEnemy,22:CombatSelf,23:Recall,24:Craft,25:Salvaging,27:General,28:Trade,29:LFG,30:Roleplay,31:AdminTell,32:Olthoi
+Plugin.DebugMessageDisplay.Enabled|Bool|Profile|Plugin|"True"|"True"|"Plugin.DebugMessageDisplay.Enabled (Profile) = True"|"Show plugin debug messages in chat."|
+Plugin.DebugMessageDisplay.Color|Enum|Profile|Plugin|"14"|"Abuse"|"Plugin.DebugMessageDisplay.Color (Profile) = Abuse"|"The text class plugin debug messages are printed in."|0:Broadcast,2:Speech,3:Tell,4:OutgoingTell,5:System,6:Combat,7:Magic,8:Channel,9:ChannelSend,10:Social,11:SocialSend,12:Emote,13:Advancement,14:Abuse,15:Help,16:Appraisal,17:Spellcasting,18:Allegiance,19:Fellowship,20:WorldBroadcast,21:CombatEnemy,22:CombatSelf,23:Recall,24:Craft,25:Salvaging,27:General,28:Trade,29:LFG,30:Roleplay,31:AdminTell,32:Olthoi
+Plugin.ExpressionMessageDisplay.Enabled|Bool|Profile|Plugin|"True"|"True"|"Plugin.ExpressionMessageDisplay.Enabled (Profile) = True"|"Show plugin expression messages in chat."|
+Plugin.ExpressionMessageDisplay.Color|Enum|Profile|Plugin|"5"|"System"|"Plugin.ExpressionMessageDisplay.Color (Profile) = System"|"The text class plugin expression messages are printed in."|0:Broadcast,2:Speech,3:Tell,4:OutgoingTell,5:System,6:Combat,7:Magic,8:Channel,9:ChannelSend,10:Social,11:SocialSend,12:Emote,13:Advancement,14:Abuse,15:Help,16:Appraisal,17:Spellcasting,18:Allegiance,19:Fellowship,20:WorldBroadcast,21:CombatEnemy,22:CombatSelf,23:Recall,24:Craft,25:Salvaging,27:General,28:Trade,29:LFG,30:Roleplay,31:AdminTell,32:Olthoi
+Plugin.ErrorMessageDisplay.Enabled|Bool|Profile|Plugin|"True"|"True"|"Plugin.ErrorMessageDisplay.Enabled (Profile) = True"|"Show plugin error messages in chat."|
+Plugin.ErrorMessageDisplay.Color|Enum|Profile|Plugin|"15"|"Help"|"Plugin.ErrorMessageDisplay.Color (Profile) = Help"|"The text class plugin error messages are printed in."|0:Broadcast,2:Speech,3:Tell,4:OutgoingTell,5:System,6:Combat,7:Magic,8:Channel,9:ChannelSend,10:Social,11:SocialSend,12:Emote,13:Advancement,14:Abuse,15:Help,16:Appraisal,17:Spellcasting,18:Allegiance,19:Fellowship,20:WorldBroadcast,21:CombatEnemy,22:CombatSelf,23:Recall,24:Craft,25:Salvaging,27:General,28:Trade,29:LFG,30:Roleplay,31:AdminTell,32:Olthoi
+Aliases.Enabled|Bool|Profile|Aliases|"True"|"True"|"Aliases.Enabled (Profile) = True"|"Rewrite what you type using your alias list."|
+Aliases.Profile|String|Character|Aliases|"[character]"|"[character]"|"Aliases.Profile (State) = [character]"|"Which alias set this character uses; [character] keeps a private one."|
+Aliases.DefinedAliases|Collection|Profile|Aliases|""|"(empty)"|"Aliases.DefinedAliases (Profile) = []"|"The aliases themselves, as 'what you type = what is sent', one a line."|
+AutoVendor.Enabled|Bool|Profile|AutoVendor|"True"|"True"|"AutoVendor.Enabled (Profile) = True"|"Buy and sell at a vendor without being asked."|
+AutoVendor.EnableBuying|Bool|Profile|AutoVendor|"True"|"True"|"AutoVendor.EnableBuying (Profile) = True"|"Let a vendor run buy what the profile wants."|
+AutoVendor.EnableSelling|Bool|Profile|AutoVendor|"True"|"True"|"AutoVendor.EnableSelling (Profile) = True"|"Let a vendor run sell what the profile allows."|
+AutoVendor.TestMode|Bool|Profile|AutoVendor|"False"|"False"|"AutoVendor.TestMode (Profile) = False"|"Say what would be bought and sold instead of doing it."|
+AutoVendor.Think|Bool|Profile|AutoVendor|"False"|"False"|"AutoVendor.Think (Profile) = False"|"Think to yourself when a vendor run finishes."|
+AutoVendor.ShowMerchantInfo|Bool|Profile|AutoVendor|"True"|"True"|"AutoVendor.ShowMerchantInfo (Profile) = True"|"Report what a vendor deals in when you walk up to one."|
+AutoVendor.OnlyFromMainPack|Bool|Profile|AutoVendor|"False"|"False"|"AutoVendor.OnlyFromMainPack (Profile) = False"|"Sell only what is in the main pack, leaving side packs alone."|
+AutoVendor.Tries|Int|Profile|AutoVendor|"4"|"4"|"AutoVendor.Tries (Profile) = 4"|"How many times opening a vendor is attempted."|
+AutoVendor.TriesTime|Int|Profile|AutoVendor|"5000"|"5000"|"AutoVendor.TriesTime (Profile) = 5000"|"How long to wait between attempts to open a vendor, in milliseconds."|
+AutoXp.StopBeforeMax|Int|Profile|AutoXp|"10"|"10"|"AutoXp.StopBeforeMax (Profile) = 10"|"How many levels short of the maximum to stop raising something."|
+AutoXp.TriesTime|Int|Profile|AutoXp|"300"|"300"|"AutoXp.TriesTime (Profile) = 300"|"How long to wait between one spend and the next, in milliseconds."|
+AutoXp.MaxXpChunk|Int|Profile|AutoXp|"1000000000"|"1000000000"|"AutoXp.MaxXpChunk (Profile) = 1000000000"|"The most experience to spend in a single request."|
+AutoXp.Policy|Collection|Profile|AutoXp|"Strength = 1\nEndurance = 1\nCoordination = 1\nQuickness = 1\nFocus = 1\nSelf = 1\nHealth = 1.4\nStamina = 0.1\nMana = 0.1\nAlchemy = 0\nArcaneLore = 0.1\nArmorTinkering = 0\nAssessCreature = 0\nAssessPerson = 0\nCooking = 0\nCreatureEnchantment = 0.2\nDeception = 0.1\nDirtyFighting = 0.1\nDualWield = 0.1\nFinesseWeapons = 10\nFletching = 0.1\nHealing = 0.1\nHeavyWeapons = 10\nItemEnchantment = 0.2\nItemTinkering = 0\nJump = 0.02\nLeadership = 0.1\nLifeMagic = 1\nLightWeapons = 10\nLockpick = 0\nLoyalty = 0.1\nMagicDefense = 0.1\nMagicItemTinkering = 0\nManaConversion = 0.1\nMeleeDefense = 5\nMissileDefense = 5\nMissileWeapons = 10\nRecklessness = 0.1\nRun = 0.1\nSalvaging = 0.1\nShield = 0\nSneakAttack = 0.1\nSummoning = 1\nTwoHandedCombat = 10\nVoidMagic = 10\nWarMagic = 10\nWeaponTinkering = 0"|"Strength = 1, Endurance = 1, Coordination = 1, Quickness = 1, Focus = 1, Self = 1, Health = 1.4, Stamina = 0.1, Mana = 0.1, Alchemy = 0, ArcaneLore = 0.1, ArmorTinkering = 0, AssessCreature = 0, AssessPerson = 0, Cooking = 0, CreatureEnchantment = 0.2, Deception = 0.1, DirtyFighting = 0.1, DualWield = 0.1, FinesseWeapons = 10, Fletching = 0.1, Healing = 0.1, HeavyWeapons = 10, ItemEnchantment = 0.2, ItemTinkering = 0, Jump = 0.02, Leadership = 0.1, LifeMagic = 1, LightWeapons = 10, Lockpick = 0, Loyalty = 0.1, MagicDefense = 0.1, MagicItemTinkering = 0, ManaConversion = 0.1, MeleeDefense = 5, MissileDefense = 5, MissileWeapons = 10, Recklessness = 0.1, Run = 0.1, Salvaging = 0.1, Shield = 0, SneakAttack = 0.1, Summoning = 1, TwoHandedCombat = 10, VoidMagic = 10, WarMagic = 10, WeaponTinkering = 0"|"AutoXp.Policy (Profile) = [Strength = 1,Endurance = 1,Coordination = 1,Quickness = 1,Focus = 1,Self = 1,Health = 1.4,Stamina = 0.1,Mana = 0.1,Alchemy = 0,ArcaneLore = 0.1,ArmorTinkering = 0,AssessCreature = 0,AssessPerson = 0,Cooking = 0,CreatureEnchantment = 0.2,Deception = 0.1,DirtyFighting = 0.1,DualWield = 0.1,FinesseWeapons = 10,Fletching = 0.1,Healing = 0.1,HeavyWeapons = 10,ItemEnchantment = 0.2,ItemTinkering = 0,Jump = 0.02,Leadership = 0.1,LifeMagic = 1,LightWeapons = 10,Lockpick = 0,Loyalty = 0.1,MagicDefense = 0.1,MagicItemTinkering = 0,ManaConversion = 0.1,MeleeDefense = 5,MissileDefense = 5,MissileWeapons = 10,Recklessness = 0.1,Run = 0.1,Salvaging = 0.1,Shield = 0,SneakAttack = 0.1,Summoning = 1,TwoHandedCombat = 10,VoidMagic = 10,WarMagic = 10,WeaponTinkering = 0]"|"How experience is shared out, as 'target = weight', one a line."|
+EquipmentManager.Think|Bool|Profile|EquipmentManager|"False"|"False"|"EquipmentManager.Think (Profile) = False"|"Think to yourself when an equipment set has finished going on."|
+GameEvents.Enabled|Bool|Profile|GameEvents|"True"|"True"|"GameEvents.Enabled (Profile) = True"|"Run your own handlers when something happens."|
+GameEvents.Profile|String|Character|GameEvents|"[character]"|"[character]"|"GameEvents.Profile (State) = [character]"|"Which handler set this character uses; [character] keeps a private one."|
+GameEvents.Handlers|Collection|Profile|GameEvents|""|"(empty)"|"GameEvents.GameEventHandlers (Profile) = []"|"The handlers themselves, as 'event = what to run', one a line. They run only while the macro runs with meta enabled."|
+ItemGiver.Range|Double|Profile|ItemGiver|"15"|"15"|"InventoryManager.IGRange (Profile) = 15"|"How far off someone may stand and still be handed items, in meters."|
+ItemGiver.Delay|Double|Profile|ItemGiver|"0"|"0"|"ItemGiver.Delay (Profile) = 0"|"How long to wait between one hand-over and the next, in seconds."|
+ItemGiver.BusyRetryLimit|Int|Profile|ItemGiver|"10"|"10"|"InventoryManager.IGBusyCount (Profile) = 10"|"How many times one item is offered again before it is written off."|
+ItemGiver.FailureLimit|Int|Profile|ItemGiver|"3"|"3"|"InventoryManager.IGFailure (Profile) = 3"|"How many written-off items stop the whole hand-over."|
+ItemGiver.Think|Bool|Profile|ItemGiver|"False"|"False"|"InventoryManager.IGThink (Profile) = False"|"Think to yourself when a hand-over has finished."|
+AutoTinker.MinPercentage|Single|Profile|AutoTinker|"99.5"|"99.5"|"AutoTinker.MinPercentage (Profile) = 99.5"|"Minimum percentage required to perform tinker."|
+AutoTinker.MaxTinks|Int|Profile|AutoTinker|"10"|"10"|"AutoTinker.MaxTinks (Profile) = 10"|"Max number of tinker attempts."|
+AutoTinker.CharmedSmith|Bool|Character|AutoTinker|"False"|"False"|"AutoTinker.CharmedSmith (State) = False"|"You carry the Charmed Smith augmentation, which adds five points to every imbue's chance."|
+Jumper.PauseNav|Bool|Profile|Jumper|"True"|"True"|"Jumper.PauseNav (Profile) = True"|"Hold the route still while a jump is in the air."|
+Jumper.ThinkComplete|Bool|Profile|Jumper|"False"|"False"|"Jumper.ThinkComplete (Profile) = False"|"Think to yourself when a jump lands."|
+Jumper.ThinkFail|Bool|Profile|Jumper|"False"|"False"|"Jumper.ThinkFail (Profile) = False"|"Think to yourself when a jump does not happen."|
+Jumper.Attempts|Int|Profile|Jumper|"3"|"3"|"Jumper.Attempts (Profile) = 3"|"How many times a jump is tried before giving up."|
+Sharing.Vitals|Bool|Character|Sharing|"False"|"False"|"VTank.VitalSharing (State) = False"|"Tell your other characters on this machine how you are doing and what you have cast, and take in what they cast."|
+Networking.ReceiveCommands|Bool|Character|Networking|"True"|"True"|"Networking.ReceiveCommands (State) = True"|"Receive broadcast commands from trusted local clients in the same world."|
+Sharing.CastTag|String|Character|Sharing|""|""|"Sharing.CastTag (State) = "|"Only take in casts from characters whose client carries this tag; blank takes them all."|
+VTank.PatchExpressionEngine|Bool|Profile|VTank|"True"|"True"|"VTank.PatchExpressionEngine (Profile) = True"|"The extended expression functions; always on here."|
+InventoryManager.TreatStackAsSingleItem|Bool|Profile|InventoryManager|"False"|"False"|"InventoryManager.TreatStackAsSingleItem (Profile) = False"|"Count a stack as one item when handing over; always off here."|
+Plugin.SettingsProfile|String|Character|Plugin|"default"|"default"|"Plugin.SettingsProfile (State) = default"|"The named settings profile this character has open."|
+Plugin.PortalThink|Bool|Profile|Plugin|"False"|"False"|"Plugin.PortalThink (Profile) = False"|"Think to yourself when a portal is not found."|
+AutoSalvage.Think|Bool|Profile|AutoSalvage|"False"|"False"|"AutoSalvage.Think (Profile) = False"|"Kept for macros; there is no auto-salvage here."|
+AutoTrade.Think|Bool|Profile|AutoTrade|"False"|"False"|"AutoTrade.Think (Profile) = False"|"Kept for macros; there is no auto-trade here."|
+Looter.EnableChests|Bool|Profile|Looter|"False"|"False"|"Looter.EnableChests (Profile) = False"|"Kept for macros; there is no chest looter here."|
+Plugin.VideoPatch|Bool|Profile|Plugin|"False"|"False"|"Plugin.VideoPatch (Profile) = False"|"Kept for macros; the world is always drawn."|
+Plugin.VideoPatchFocus|Bool|Profile|Plugin|"False"|"False"|"Plugin.VideoPatchFocus (Profile) = False"|"Kept for macros; the world is always drawn."|
+categories Aliases,AutoTinker,AutoVendor,AutoXp,DungeonMaps,EquipmentManager,GameEvents,ItemGiver,Jumper,LandscapeMaps,Nametags,NetworkUI,Networking,Plugin,Sharing
+alias VTank.VitalSharing -> Sharing.Vitals
+alias InventoryManager.IGThink -> ItemGiver.Think
+alias InventoryManager.IGFailure -> ItemGiver.FailureLimit
+alias InventoryManager.IGBusyCount -> ItemGiver.BusyRetryLimit
+alias InventoryManager.IGRange -> ItemGiver.Range
+alias GameEvents.GameEventHandlers -> GameEvents.Handlers
+kind nametags.enabled Bool
+kind AutoXp.Policy Collection
+kind Plugin.SettingsProfile String
+kind No.Such String
+
+##### ubparse bool-true
+OK Bool "True" int=1 color=00000001 items=0
+
+##### ubparse bool-bad
+FAIL
+
+##### ubparse int
+OK Int "-12" int=-12 color=FFFFFFF4 items=0
+
+##### ubparse int-space
+OK Int "42" int=42 color=0000002A items=0
+
+##### ubparse int-bad
+FAIL
+
+##### ubparse enum
+OK Enum "3" int=3 color=00000003 items=0
+
+##### ubparse single
+OK Single "0.15" int=0 color=00000000 items=0
+
+##### ubparse single-exp
+OK Single "1000" int=1000 color=000003E8 items=0
+
+##### ubparse double
+OK Double "0.0208333333333333" int=0 color=00000000 items=0
+
+##### ubparse double-comma
+FAIL
+
+##### ubparse string
+OK String "  keep spaces" int=0 color=00000000 items=0
+
+##### ubparse color-hash8
+OK Color "#FF00FFFF" int=2147483647 color=FF00FFFF items=0
+
+##### ubparse color-bare8
+OK Color "#FF00FFFF" int=2147483647 color=FF00FFFF items=0
+
+##### ubparse color-hash6
+OK Color "#FF00FFFF" int=2147483647 color=FF00FFFF items=0
+
+##### ubparse color-signed
+OK Color "#FF00FFFF" int=2147483647 color=FF00FFFF items=0
+
+##### ubparse color-unsigned
+OK Color "#FF00FFFF" int=2147483647 color=FF00FFFF items=0
+
+##### ubparse color-decimal6
+OK Color "#0001E240" int=123456 color=0001E240 items=0
+
+##### ubparse color-bad
+FAIL
+
+##### ubparse color-hash-space
+OK Color "#FF012345" int=2147483647 color=FF012345 items=0
+
+##### ubparse color-short
+FAIL
+
+##### ubparse list
+OK Collection "one\ntwo\n\nthree" int=0 color=00000000 items=4
+
+##### ubparse list-empty
+OK Collection "" int=0 color=00000000 items=0
+
+##### ubparse list-cr
+OK Collection "\na" int=0 color=00000000 items=2
+
