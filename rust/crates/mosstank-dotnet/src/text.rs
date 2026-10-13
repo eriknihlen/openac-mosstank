@@ -61,8 +61,13 @@ pub mod ordinal {
         if needle.len() > haystack.len() {
             return None;
         }
-        let at =
-            |start: &usize| haystack[*start..*start + needle.len()].eq_ignore_ascii_case(needle);
+        // The first byte rules out nearly every start before the whole
+        // needle is compared.
+        let first = needle.first().map(u8::to_ascii_lowercase);
+        let at = |start: &usize| {
+            first.is_none_or(|first| haystack[*start].to_ascii_lowercase() == first)
+                && haystack[*start..*start + needle.len()].eq_ignore_ascii_case(needle)
+        };
         let starts = 0..=haystack.len() - needle.len();
         if last {
             starts.rev().find(at)

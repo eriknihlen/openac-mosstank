@@ -569,6 +569,10 @@ struct Case {
     name: &'static str,
     worst: CallFuel,
     calls: usize,
+    /// The median call's share of its budget, percent.
+    median: f64,
+    /// How many calls used more than [`MARGIN_PERCENT`] of their budget.
+    over: usize,
 }
 
 impl Case {
@@ -578,10 +582,17 @@ impl Case {
             .max_by(|a, b| a.percent().total_cmp(&b.percent()))
             .cloned()
             .unwrap_or_default();
+        let mut shares: Vec<f64> = calls.iter().map(CallFuel::percent).collect();
+        shares.sort_by(f64::total_cmp);
         Self {
             name,
             worst,
             calls: calls.len(),
+            median: shares.get(shares.len() / 2).copied().unwrap_or_default(),
+            over: shares
+                .iter()
+                .filter(|share| **share > MARGIN_PERCENT)
+                .count(),
         }
     }
 }
@@ -756,15 +767,17 @@ fn every_call_fits_the_hosts_budgets_with_room_to_spare() {
     let mut report = String::new();
     let _ = writeln!(
         report,
-        "{:<36} {:>6} {:>14} {:>14} {:>7}  imports of the worst call",
-        "case", "calls", "worst used", "allowed", "share"
+        "{:<36} {:>6} {:>7} {:>6} {:>14} {:>14} {:>7}  imports of the worst call",
+        "case", "calls", "median", ">half", "worst used", "allowed", "share"
     );
     for case in &cases {
         let _ = writeln!(
             report,
-            "{:<36} {:>6} {:>14} {:>14} {:>6.1}%  {}",
+            "{:<36} {:>6} {:>6.1}% {:>6} {:>14} {:>14} {:>6.1}%  {}",
             case.name,
             case.calls,
+            case.median,
+            case.over,
             case.worst.used,
             case.worst.allowed(),
             case.worst.percent(),

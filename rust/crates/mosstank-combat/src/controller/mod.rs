@@ -199,6 +199,9 @@ pub struct CombatController {
     pass_debuff_sources: HashMap<(DebuffIdentity, u32), Vec<CombatDebuffSource>>,
     pass_clearance: Vec<((u32, ProjectilePathKind), ProjectilePathResult)>,
     pass_debuff_spells: HashMap<DebuffIdentity, Option<SpellInfo>>,
+    /// Whether this pass has sorted every known combat spell into
+    /// `pass_debuff_spells` (each debuff's strongest).
+    pass_debuff_spells_complete: bool,
     pass_deliverable: HashMap<(MonsterDamageType, u32), bool>,
     pass_components: HashMap<u32, bool>,
     pass_invalid_targets: HashSet<u32>,
@@ -335,6 +338,7 @@ impl CombatController {
             pass_debuff_sources: HashMap::new(),
             pass_clearance: Vec::new(),
             pass_debuff_spells: HashMap::new(),
+            pass_debuff_spells_complete: false,
             pass_deliverable: HashMap::new(),
             pass_components: HashMap::new(),
             pass_invalid_targets: HashSet::new(),
@@ -786,6 +790,7 @@ impl CombatController {
         self.pass_elements.clear();
         self.pass_debuff_sources.clear();
         self.pass_debuff_spells.clear();
+        self.pass_debuff_spells_complete = false;
         self.pass_deliverable.clear();
         self.pass_components.clear();
         self.pass_spell_refusals.clear();

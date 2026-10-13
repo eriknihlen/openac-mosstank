@@ -34,9 +34,7 @@ impl SpellsSnapshot {
         let table = rules.spells().table();
         let mut known = Vec::new();
         for list in [SpellList::SelfBuffs, SpellList::Attacks, SpellList::Combat] {
-            for spell in client.route().known_spell_list(list) {
-                known.push((spell.spell_id, spell.name.clone()));
-            }
+            known.extend(client.route().known_spell_names(list));
         }
         Self { table, known }
     }

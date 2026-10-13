@@ -128,6 +128,16 @@ impl NavigationAutomation for HostAutomation<'_, '_> {
     fn known_spell_list(&mut self, list: SpellList) -> Vec<SpellInfo> {
         self.known_list(list)
     }
+
+    /// From the call's kept list, without copying its spells.
+    fn known_spell_names(&mut self, list: SpellList) -> Vec<(u32, String)> {
+        self.with_known_list(list, |spells| {
+            spells
+                .iter()
+                .map(|spell| (spell.spell_id, spell.name.clone()))
+                .collect()
+        })
+    }
 }
 
 #[cfg(test)]

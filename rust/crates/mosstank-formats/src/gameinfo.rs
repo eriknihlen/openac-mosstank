@@ -228,13 +228,32 @@ pub struct GameInfoMemo {
     last: Option<(Option<String>, VtankGameInfoDatabase, Option<i32>)>,
 }
 
+/// Whether two texts are the same, eight bytes at a time (the file is some
+/// two megabytes; the plugin's byte-by-byte comparison costs ten times
+/// as many instructions).
+fn same_text(a: Option<&str>, b: Option<&str>) -> bool {
+    let (Some(a), Some(b)) = (a, b) else {
+        return a.is_none() && b.is_none();
+    };
+    let (a, b) = (a.as_bytes(), b.as_bytes());
+    if a.len() != b.len() {
+        return false;
+    }
+    let (mut left, mut right) = (a.chunks_exact(8), b.chunks_exact(8));
+    let words = |chunk: &[u8]| u64::from_ne_bytes(chunk.try_into().expect("eight bytes"));
+    (&mut left)
+        .zip(&mut right)
+        .all(|(x, y)| words(x) == words(y))
+        && left.remainder() == right.remainder()
+}
+
 impl GameInfoMemo {
     /// What [`BaseDatabase::read`] makes of the folder's text `text`
     /// ([`read_base_text`]): the database as the plugin uses it and its
     /// [`last_update_time`].
     pub fn read(&mut self, text: Option<String>) -> (VtankGameInfoDatabase, Option<i32>) {
         if let Some((last, database, time)) = &self.last
-            && *last == text
+            && same_text(last.as_deref(), text.as_deref())
         {
             return (database.clone(), *time);
         }
@@ -829,6 +848,26 @@ mod tests {
         assert_eq!(database.version, Some(9));
         assert_eq!(database.last_update_time, Some(0));
         assert!(database.ammunition_options.is_empty());
+    }
+
+    #[test]
+    fn texts_are_the_same_exactly_when_their_bytes_are() {
+        let texts = [
+            "",
+            "a",
+            "abcdefgh",
+            "abcdefghi",
+            "abcdefgx",
+            "abcdefghx",
+            "xbcdefghi",
+        ];
+        for a in texts {
+            for b in texts {
+                assert_eq!(same_text(Some(a), Some(b)), a == b, "{a:?} {b:?}");
+            }
+            assert!(!same_text(Some(a), None));
+        }
+        assert!(same_text(None, None));
     }
 
     // The memo reads a text once and answers the same for it again.

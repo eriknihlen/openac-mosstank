@@ -11,6 +11,14 @@ pub trait SpellCatalog {
     /// The self buffs the character knows.
     fn known_self_buffs(&mut self) -> Vec<SpellInfo>;
 
+    /// The ids of [`Self::known_self_buffs`], in its order.
+    fn known_self_buff_ids(&mut self) -> Vec<u32> {
+        self.known_self_buffs()
+            .iter()
+            .map(|spell| spell.spell_id)
+            .collect()
+    }
+
     /// One spell of the whole table.
     fn try_get(&mut self, spell_id: u32) -> Option<SpellInfo>;
 

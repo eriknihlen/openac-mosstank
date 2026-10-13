@@ -324,8 +324,14 @@ mod ascii_patterns {
         if needle.len() > text.len() {
             return None;
         }
-        (from..=text.len() - needle.len())
-            .find(|&at| text[at..at + needle.len()].eq_ignore_ascii_case(needle))
+        let Some(&first) = needle.first() else {
+            return (from <= text.len()).then_some(from);
+        };
+        let first = first.to_ascii_lowercase();
+        (from..=text.len() - needle.len()).find(|&at| {
+            text[at].to_ascii_lowercase() == first
+                && text[at..at + needle.len()].eq_ignore_ascii_case(needle)
+        })
     }
 
     fn contains(text: &str, needle: &str) -> bool {

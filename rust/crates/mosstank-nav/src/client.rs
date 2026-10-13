@@ -104,6 +104,14 @@ pub trait NavigationAutomation: Automation {
         let _ = list;
         Vec::new()
     }
+
+    /// The ids and names of one of the known-spell lists.
+    fn known_spell_names(&mut self, list: SpellList) -> Vec<(u32, String)> {
+        self.known_spell_list(list)
+            .into_iter()
+            .map(|spell| (spell.spell_id, spell.name))
+            .collect()
+    }
 }
 
 /// MossTank's tag on the lines it posts in chat.

@@ -548,21 +548,32 @@ impl CombatController {
         if let Some(cached) = self.pass_debuff_spells.get(&identity) {
             return cached.clone();
         }
-        let mut best: Option<SpellInfo> = None;
-        for spell in automation.spells().known_combat_spells() {
-            let Some((found, _)) = debuff::classify(&spell) else {
-                continue;
-            };
-            if found != identity {
-                continue;
+        if !self.pass_debuff_spells_complete {
+            // One walk sorts every known spell to its debuff, keeping the
+            // first of the highest tier: what a walk per debuff finds.
+            let mut best: std::collections::HashMap<DebuffIdentity, SpellInfo> =
+                std::collections::HashMap::new();
+            for spell in automation.spells().known_combat_spells() {
+                let Some((found, _)) = debuff::classify(&spell) else {
+                    continue;
+                };
+                if best
+                    .get(&found)
+                    .is_none_or(|current| spell.tier > current.tier)
+                {
+                    best.insert(found, spell);
+                }
             }
-            if best
-                .as_ref()
-                .is_none_or(|current| spell.tier > current.tier)
-            {
-                best = Some(spell);
+            for (found, spell) in best {
+                self.pass_debuff_spells.entry(found).or_insert(Some(spell));
             }
+            self.pass_debuff_spells_complete = true;
         }
+        let best = self
+            .pass_debuff_spells
+            .get(&identity)
+            .cloned()
+            .unwrap_or_default();
         self.pass_debuff_spells.insert(identity, best.clone());
         best
     }

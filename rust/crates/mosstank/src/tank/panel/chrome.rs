@@ -526,8 +526,7 @@ impl TankCx<'_> {
             );
             line.initialized = true;
         }
-        let spells = self.client.rules().spells().known_self_buffs();
-        let ids: Vec<u32> = spells.iter().map(|spell| spell.spell_id).collect();
+        let ids = self.client.rules().spells().known_self_buff_ids();
         let line = &mut self.core.panel.vitals;
         let changed = line.coverage_spells.as_ref() != Some(&ids);
         line.coverage_refresh_remaining -= elapsed_seconds.max(0.0);
@@ -536,7 +535,9 @@ impl TankCx<'_> {
         }
         if changed {
             line.coverage_spells = Some(ids);
-            line.coverage_buff_line_count = mosstank_buffs::profile::build(&spells).len();
+            let spells = self.client.rules().spells().known_self_buffs();
+            self.core.panel.vitals.coverage_buff_line_count =
+                mosstank_buffs::profile::build(&spells).len();
         }
         let trained = self
             .client

@@ -22,9 +22,13 @@
 //!   (`character_info`, `character_skills`, `items_owned`, `world_object`,
 //!   ...): they read the session's state and change nothing. So are the
 //!   plugin host's own services (storage, logs, windows, the clock:
-//!   [`HostAutomation::service`]) and the client's enchantment tracker and
-//!   peer board, which change only themselves, and no read kept here
-//!   comes from them.
+//!   [`HostAutomation::service`]), the client's enchantment tracker, its
+//!   peer board and its spellbook's cooldown table, which change only
+//!   themselves, and a selection (a cast gate may make one too): no read
+//!   kept here comes from any of them.
+//! - The views of one call share what they read ([`KeptReads`]); the
+//!   plugin forgets it when each call begins and ends, and when it uses
+//!   the host itself between two views.
 //!
 //! The plugin's actions, their order and what each one is told are
 //! unchanged; only a repeat of an identical read is answered from the copy.
@@ -278,13 +282,21 @@ impl<'h, 'a> HostAutomation<'h, 'a> {
 
     /// A known-spell list, kept for the rest of the call.
     pub(crate) fn known_list(&mut self, list: SpellList) -> Vec<SpellInfo> {
+        self.with_known_list(list, <[SpellInfo]>::to_vec)
+    }
+
+    /// `f` of a known-spell list, kept for the rest of the call.
+    pub(crate) fn with_known_list<R>(
+        &mut self,
+        list: SpellList,
+        f: impl FnOnce(&[SpellInfo]) -> R,
+    ) -> R {
         let key = SpellListKey::from(list);
-        if let Some(spells) = self.kept().known.get(&key) {
-            return spells.clone();
+        if !self.kept().known.contains_key(&key) {
+            let spells = self.reader().known_spells(list);
+            self.reads.get().known.insert(key, spells);
         }
-        let spells = self.reader().known_spells(list);
-        self.reads.get().known.insert(key, spells.clone());
-        spells
+        f(self.reads.get().known.get(&key).map_or(&[], Vec::as_slice))
     }
 
     /// The character, kept for the rest of the call.
@@ -315,6 +327,13 @@ impl SpellCatalog for HostAutomation<'_, '_> {
 
     fn try_get(&mut self, spell_id: u32) -> Option<SpellInfo> {
         self.reader().spell(spell_id)
+    }
+
+    /// From the call's kept list, without copying its spells.
+    fn known_self_buff_ids(&mut self) -> Vec<u32> {
+        self.with_known_list(SpellList::SelfBuffs, |spells| {
+            spells.iter().map(|spell| spell.spell_id).collect()
+        })
     }
 
     fn known_attack_spells(&mut self) -> Vec<SpellInfo> {
@@ -403,9 +422,10 @@ impl Automation for HostAutomation<'_, '_> {
         self
     }
 
-    /// The SDK's target 0 is the selection.
+    /// The SDK's target 0 is the selection. Asking may select the target,
+    /// which none of the kept reads holds, so it keeps them.
     fn evaluate_gate(&mut self, spell_id: u32, target: Option<u32>) -> CastGate {
-        self.host.cast_gate(spell_id, target.unwrap_or(0))
+        self.reader().cast_gate(spell_id, target.unwrap_or(0))
     }
 
     fn cast(&mut self, spell_id: u32, target: Option<u32>) -> bool {
@@ -679,16 +699,17 @@ impl Automation for HostAutomation<'_, '_> {
         self.host.show_projectile_samples(samples);
     }
 
+    /// The selection is not among the kept reads, so selecting keeps them.
     fn select(&mut self, object_id: u32) -> bool {
-        self.host.select(object_id)
+        self.reader().select(object_id)
     }
 
     fn clear_selection(&mut self) -> bool {
-        self.host.clear_selection()
+        self.reader().clear_selection()
     }
 
     fn selection_step(&mut self, action: SelectionAction) -> bool {
-        self.host.selection_step(action)
+        self.reader().selection_step(action)
     }
 
     fn tracked_enchantments(&mut self, target_id: u32) -> Vec<TrackedEnchantment> {
