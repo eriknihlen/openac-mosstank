@@ -4,7 +4,9 @@
 mod common;
 
 use ac_plugin_abi::combat::CombatMode;
+use ac_plugin_abi::items::EquipmentItem;
 use ac_plugin_abi::magic::{CastCompletion, CastResult};
+use ac_plugin_abi::world::ObjectClass;
 use common::*;
 use mosstank_formats::route::{RouteMode, RouteRecallKind, RouteWaypoint, RouteWaypointType};
 use mosstank_nav::controller::LOW_WAYPOINT_DISTANCE_WARNING;
@@ -37,6 +39,7 @@ fn recall_ready_to_cast(answer: CastResult) -> Rig {
 fn recall_in_peace() -> Rig {
     let mut automation = FakeAutomation::at(snapshot(position(0.0, 0.0)));
     automation.combat_mode = CombatMode::Peace;
+    automation.server_mode = CombatMode::Peace;
     automation.magic();
     let mut rig = rig(
         automation,
@@ -262,6 +265,7 @@ fn a_recall_casts_once_the_character_is_standing_in_magic_mode() {
     assert!(rig.automation.magic().cast_spell_ids.is_empty());
 
     rig.automation.combat_mode = CombatMode::Magic;
+    rig.automation.server_mode = CombatMode::Magic;
 
     assert!(rig.tick(0.05, true));
 
@@ -449,6 +453,17 @@ fn unknown_recall_name_is_announced_in_chat_once() {
 fn arrival_override(minimum_distance_meters: f64, idle_peace_mode: bool) -> Rig {
     let mut automation = FakeAutomation::at(snapshot(position_facing(0.0, 0.0, 0.0)));
     automation.combat_mode = CombatMode::Peace;
+    automation.equipment_items = vec![EquipmentItem {
+        object_id: 800,
+        name: "Recovery Wand".to_owned(),
+        item_type: 0x0000_8000,
+        valid_locations: 0x0010_0000,
+        equipped_location: 0x0010_0000,
+        container_id: 0,
+        wielder_id: 1,
+        object_class: ObjectClass::WandStaffOrb,
+        ..EquipmentItem::default()
+    }];
     let mut rig = rig_min(
         automation,
         RouteMode::Circular,
@@ -458,7 +473,7 @@ fn arrival_override(minimum_distance_meters: f64, idle_peace_mode: bool) -> Rig 
             waypoint(RouteWaypointType::Point, position(1.0, 0.0)),
         ],
     );
-    rig.idle_peace_mode = idle_peace_mode;
+    rig.combat.idle_peace_mode = idle_peace_mode;
     rig.bind_gate();
     rig
 }

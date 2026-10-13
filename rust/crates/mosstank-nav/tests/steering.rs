@@ -5,9 +5,9 @@ mod common;
 
 use ac_plugin_abi::navigation::MovementIntent;
 use common::*;
+use mosstank_automation::heading::{desired_heading, prefers_left_turn, signed_heading_delta};
 use mosstank_formats::route::{RouteMode, RouteWaypointType};
 use mosstank_meta::scheduler::{ControllerMacroRule, MacroPassContext, MacroRule};
-use mosstank_nav::heading::{desired_heading, prefers_left_turn, signed_heading_delta};
 
 fn single(intents: &[MovementIntent]) -> MovementIntent {
     assert_eq!(intents.len(), 1, "{intents:?}");

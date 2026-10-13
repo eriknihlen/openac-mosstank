@@ -12,6 +12,7 @@ ac-plugin-abi.workspace = true
 mosstank-automation.workspace = true
 mosstank-nav.workspace = true
 mosstank-formats.workspace = true
+mosstank-loot.workspace = true
 mosstank-stores.workspace = true
 openac-plugin-compat.workspace = true
 

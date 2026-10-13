@@ -22,7 +22,5 @@ pub mod sell_guard;
 pub mod ub_chat;
 
 pub use client::{FellowshipAutomation, VendorAutomation};
-pub use controller::{
-    VendorContext, VendorLootDecision, VendorTradeController, VendorTradeSettings,
-};
+pub use controller::{VendorContext, VendorTradeController, VendorTradeSettings};
 pub use fellowship::FellowshipManager;

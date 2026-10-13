@@ -53,7 +53,7 @@ impl VendorAutomation for HostAutomation<'_, '_> {
         self.host().item_state().last_inventory_completion
     }
 
-    fn move_item(
+    fn split_item(
         &mut self,
         object_id: u32,
         container_id: u32,
@@ -70,10 +70,6 @@ impl VendorAutomation for HostAutomation<'_, '_> {
 
     fn open_container_id(&mut self) -> u32 {
         self.host().open_container()
-    }
-
-    fn selected_object_id(&mut self) -> Option<u32> {
-        self.host().selection().selected
     }
 }
 

@@ -18,8 +18,10 @@ use ac_plugin_abi::trade::{
     VendorTransaction,
 };
 use ac_plugin_abi::world::{ItemProperties, ObjectClass};
+use mosstank_automation::Automation;
 use mosstank_automation::locks::{ActionLockKind, SharedActionLocks};
 use mosstank_formats::utl::{self, LootAction, LootRule};
+use mosstank_loot::rules::{self, LootDecision};
 use mosstank_stores::storage::StorageError;
 use openac_plugin_compat::number::{NumberStyles, format_f32, format_i64, format_u32, parse_i32};
 use openac_plugin_compat::text::{casing, ordinal};
@@ -126,17 +128,6 @@ impl Default for VendorTradeSettings {
     }
 }
 
-/// What the loot rules decided about an item (`LootDecision`).
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct VendorLootDecision {
-    /// What the winning rule does.
-    pub action: LootAction,
-    /// The winning rule's place in the profile.
-    pub rule_index: usize,
-    /// The winning rule's name ("Rule n" for a blank one).
-    pub rule_name: String,
-}
-
 /// What the run asks of the plugin's state for the call.
 pub trait VendorContext {
     /// The client.
@@ -162,16 +153,6 @@ pub trait VendorContext {
     /// # Errors
     /// The file exists but cannot be read.
     fn read_profile(&mut self, key: &str) -> Result<Option<String>, StorageError>;
-
-    /// The loot rules' decision on an item (`LootRuleEngine.Decide`), which
-    /// decides both what to buy and what to sell.
-    fn decide(
-        &mut self,
-        item: &InventoryItem,
-        properties: &ItemProperties,
-        rules: &[LootRule],
-        owned: &[InventoryItem],
-    ) -> Option<VendorLootDecision>;
 
     /// The stack-and-cram pass a run asks for before it plans: called every
     /// tick with the elapsed time and whether this is the first call of the
@@ -948,7 +929,7 @@ impl VendorTradeController {
         let player = cx.automation().character().id;
         let result = cx
             .automation()
-            .move_item(split.object_id, player, split.amount as u32, 0);
+            .split_item(split.object_id, player, split.amount as u32, 0);
         if !result.accepted() {
             if result.status == ItemStatus::Busy {
                 return;
@@ -997,6 +978,19 @@ impl VendorTradeController {
         }
     }
 
+    /// The loot rules' decision on an item (`LootRuleEngine.Decide`), which
+    /// decides both what to buy and what to sell.
+    fn decide(
+        cx: &mut dyn VendorContext,
+        item: &InventoryItem,
+        properties: &ItemProperties,
+        rules: &[LootRule],
+        owned: &[InventoryItem],
+    ) -> Option<LootDecision> {
+        let host: &mut dyn Automation = cx.automation();
+        rules::decide(item, properties, rules, owned, None, Some(host)).0
+    }
+
     fn buy_candidates(
         &self,
         cx: &mut dyn VendorContext,
@@ -1010,12 +1004,14 @@ impl VendorTradeController {
         let mut buying_containers = false;
         for listing in &vendor.items {
             let (facade, properties) = facade(cx.automation(), listing);
-            let Some(decided) = cx.decide(&facade, &properties, &self.rules, owned) else {
+            let Some(decided) = Self::decide(cx, &facade, &properties, &self.rules, owned) else {
                 continue;
             };
             match decided.action {
                 LootAction::KeepUpTo => {
-                    let limit = self.rules[decided.rule_index].keep_count.max(0);
+                    let limit = self.rules[usize::try_from(decided.rule_index).unwrap_or_default()]
+                        .keep_count
+                        .max(0);
                     if listing.object_class == ObjectClass::Container {
                         #[allow(clippy::cast_possible_truncation, clippy::cast_possible_wrap)]
                         let packs = owned
@@ -1084,7 +1080,7 @@ impl VendorTradeController {
             ) {
                 continue;
             }
-            let decision = cx.decide(item, &properties, &self.rules, owned);
+            let decision = Self::decide(cx, item, &properties, &self.rules, owned);
             let Some(decided) = decision.filter(|decided| decided.action == LootAction::Sell)
             else {
                 continue;
@@ -1217,12 +1213,12 @@ impl VendorTradeController {
         // name at all, the nearest vendor.
         let automation = cx.automation();
         let objects = automation.world_objects();
-        let player = automation.navigation();
+        let player = automation.navigation_snapshot();
         let view = SearchView {
             objects: &objects,
             self_id: automation.character().id,
             player: &player,
-            selected: automation.selected_object_id(),
+            selected: automation.selected_object(),
             open_container: automation.open_container_id(),
         };
         let Some(vendor) = try_find_nearest(&view, Some(&wanted), partial, &[ObjectClass::Vendor])
@@ -1405,7 +1401,7 @@ impl VendorTradeController {
         let revision = cx.automation().last_inventory_completion().revision;
         let split = cx
             .automation()
-            .move_item(source.object_id, player, needed as u32, 0);
+            .split_item(source.object_id, player, needed as u32, 0);
         if !split.accepted() {
             return ub_chat::error(&format!(
                 "addsell: could not split {}: {:?}{}",

@@ -26,9 +26,8 @@ use mosstank_stores::storage::{MemoryStorage, NullLog, PluginStorage, StorageErr
 use mosstank_stores::ub_store::UbSettingStore;
 use mosstank_vendor::ub_chat::UbChatSink;
 use mosstank_vendor::{
-    VendorAutomation, VendorContext, VendorLootDecision, VendorTradeController, VendorTradeSettings,
+    VendorAutomation, VendorContext, VendorTradeController, VendorTradeSettings,
 };
-use openac_plugin_compat::text::ordinal;
 
 const PLAYER: u32 = 1;
 const SHOPKEEPER: u32 = 500;
@@ -89,6 +88,23 @@ impl SpellCatalog for FakeShop {
 }
 
 impl Automation for FakeShop {
+    /// No navigation: every object is as near as every other.
+    fn navigation_snapshot(&mut self) -> NavigationSnapshot {
+        NavigationSnapshot::default()
+    }
+
+    fn navigation_object(&mut self, _object_id: u32) -> Option<NavigationObject> {
+        None
+    }
+
+    fn set_movement_intent(&mut self, _intent: MovementIntent) -> NavigationStatus {
+        NavigationStatus::Unavailable
+    }
+
+    fn clear_movement_intent(&mut self) -> NavigationStatus {
+        NavigationStatus::Unavailable
+    }
+
     fn is_available(&mut self) -> bool {
         true
     }
@@ -162,23 +178,6 @@ impl Automation for FakeShop {
 }
 
 impl NavigationAutomation for FakeShop {
-    /// No navigation: every object is as near as every other.
-    fn navigation(&mut self) -> NavigationSnapshot {
-        NavigationSnapshot::default()
-    }
-
-    fn navigation_object(&mut self, _object_id: u32) -> Option<NavigationObject> {
-        None
-    }
-
-    fn set_movement_intent(&mut self, _intent: MovementIntent) -> NavigationStatus {
-        NavigationStatus::Unavailable
-    }
-
-    fn clear_movement_intent(&mut self) -> NavigationStatus {
-        NavigationStatus::Unavailable
-    }
-
     fn submit_chat(&mut self, text: &str) -> bool {
         self.messages.push(text.to_owned());
         true
@@ -277,7 +276,7 @@ impl VendorAutomation for FakeShop {
         self.last_inventory_completion.clone()
     }
 
-    fn move_item(
+    fn split_item(
         &mut self,
         object_id: u32,
         container_id: u32,
@@ -295,8 +294,7 @@ impl VendorAutomation for FakeShop {
 
 /// The plugin's side of a call: the client, the profile storage (one
 /// memory storage, as the C# test host gives for both), the UB settings
-/// store bound to Coldeve/Acdream, the switches, and the loot rules'
-/// engine.
+/// store bound to Coldeve/Acdream, the switches.
 struct ShopContext {
     automation: FakeShop,
     storage: MemoryStorage,
@@ -305,52 +303,6 @@ struct ShopContext {
     stack_cram: Box<dyn FnMut(f64, bool) -> bool>,
     route_owns_vendor_open: bool,
     protected: HashSet<u32>,
-}
-
-/// The loot rules as these tests write them: `name ~= text` (the name
-/// holds the text, any case) and `*`, decided the way `LootRuleEngine
-/// .Decide` decides (the first matching rule; a no-loot rule declines; a
-/// keep-up-to rule at its cap declines).
-fn decide(
-    item: &InventoryItem,
-    rules: &[LootRule],
-    owned: &[InventoryItem],
-) -> Option<VendorLootDecision> {
-    for (index, rule) in rules.iter().enumerate() {
-        let expression = rule.expression();
-        let is_match = expression == "*"
-            || expression
-                .strip_prefix("name ~= ")
-                .is_some_and(|text| ordinal::contains_ignore_case(&item.name, text));
-        if !is_match {
-            continue;
-        }
-        let rule_name = if rule.name.trim().is_empty() {
-            format!("Rule {}", index + 1)
-        } else {
-            rule.name.clone()
-        };
-        if rule.action == LootAction::NoLoot {
-            return None;
-        }
-        if rule.action == LootAction::KeepUpTo {
-            let limit = rule.keep_count.max(0);
-            let held: i32 = owned
-                .iter()
-                .filter(|other| ordinal::equals_ignore_case(&other.name, &item.name))
-                .map(|other| other.stack_size.max(1))
-                .sum();
-            if held >= limit {
-                return None;
-            }
-        }
-        return Some(VendorLootDecision {
-            action: rule.action,
-            rule_index: index,
-            rule_name,
-        });
-    }
-    None
 }
 
 impl VendorContext for ShopContext {
@@ -376,16 +328,6 @@ impl VendorContext for ShopContext {
             return Ok(None);
         }
         self.storage.read_text(key)
-    }
-
-    fn decide(
-        &mut self,
-        item: &InventoryItem,
-        _properties: &ItemProperties,
-        rules: &[LootRule],
-        owned: &[InventoryItem],
-    ) -> Option<VendorLootDecision> {
-        decide(item, rules, owned)
     }
 
     fn stack_cram_pass(&mut self, elapsed_seconds: f64, first: bool) -> bool {

@@ -10,9 +10,11 @@ publish.workspace = true
 [dependencies]
 ac-plugin-abi.workspace = true
 mosstank-automation.workspace = true
+mosstank-combat.workspace = true
 mosstank-data.workspace = true
 mosstank-dotnet.workspace = true
 mosstank-settings.workspace = true
+mosstank-stores.workspace = true
 openac-plugin-compat.workspace = true
 
 [lints]

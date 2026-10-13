@@ -6,23 +6,15 @@
 //! A method the C# interface gives a default body has the same default
 //! here.
 
-use ac_plugin_abi::magic::{CastResult, SpellInfo, SpellList};
+use ac_plugin_abi::magic::{SpellInfo, SpellList};
 use ac_plugin_abi::navigation::{
-    GoToReport, MoveChannel, MoveDirection, MovePace, MoveUnit, MovementIntent, NavigationObject,
-    NavigationSnapshot, NavigationStatus,
+    GoToReport, MoveChannel, MoveDirection, MovePace, MoveUnit, NavigationObject, NavigationStatus,
 };
 use ac_plugin_abi::world::Position;
 use mosstank_automation::Automation;
 
 /// The client as the route sees it.
 pub trait NavigationAutomation: Automation {
-    /// The character's movement now (`Snapshot`).
-    fn navigation(&mut self) -> NavigationSnapshot;
-
-    /// One object by id, with what is known of its door and lock
-    /// (`TryGetObject`).
-    fn navigation_object(&mut self, object_id: u32) -> Option<NavigationObject>;
-
     /// The object nearest `near` named exactly `name` (any case), within
     /// `maximum_distance_meters` across the ground (`TryFindObject`).
     fn find_object(
@@ -38,18 +30,6 @@ pub trait NavigationAutomation: Automation {
     /// Every object whose position is known (`CaptureObjects`).
     fn navigation_objects(&mut self) -> Vec<NavigationObject> {
         Vec::new()
-    }
-
-    /// Holds movement keys until replaced or cleared.
-    fn set_movement_intent(&mut self, intent: MovementIntent) -> NavigationStatus;
-
-    /// Releases the held movement keys.
-    fn clear_movement_intent(&mut self) -> NavigationStatus;
-
-    /// Turns on the spot to a compass heading.
-    fn face_heading(&mut self, heading_degrees: f32) -> NavigationStatus {
-        let _ = heading_degrees;
-        NavigationStatus::Unavailable
     }
 
     /// Begins a move the client carries out and ends by itself (`Move`).
@@ -93,11 +73,6 @@ pub trait NavigationAutomation: Automation {
         GoToReport::default()
     }
 
-    /// Whether the player is typing in the chat bar (`IsInputActive`).
-    fn chat_input_active(&mut self) -> bool {
-        false
-    }
-
     /// Submits a line as if typed into the chat bar (`Submit`); false when
     /// the client took no line.
     fn submit_chat(&mut self, text: &str) -> bool {
@@ -121,18 +96,6 @@ pub trait NavigationAutomation: Automation {
     /// (`Loot.Appraisal.AwaitingObjectId`), 0 for none.
     fn appraisal_awaiting_id(&mut self) -> u32 {
         0
-    }
-
-    /// Whether a cast is in the air (`Magic.IsCasting`).
-    fn is_casting(&mut self) -> bool {
-        false
-    }
-
-    /// Casts a spell at the selection and says why when it does not go out
-    /// (`Magic.RequestCast`).
-    fn request_cast(&mut self, spell_id: u32) -> CastResult {
-        let _ = spell_id;
-        CastResult::Unavailable
     }
 
     /// One of the character's known-spell lists (`KnownSelfBuffs`,

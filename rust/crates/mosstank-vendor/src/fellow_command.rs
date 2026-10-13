@@ -42,9 +42,6 @@ pub trait FellowCommandAutomation: FellowshipAutomation + UbChatSink {
 
     /// Every object the client knows.
     fn world_objects(&mut self) -> Vec<WorldObject>;
-
-    /// The selected object, if any.
-    fn selected_object_id(&mut self) -> Option<u32>;
 }
 
 /// What a `/ub fellow` line came to.
@@ -198,12 +195,12 @@ fn recruit(
     // is read by the profiles that wait on that line from the follow
     // command, so it must not appear with debug off.
     let objects = automation.world_objects();
-    let player = automation.navigation();
+    let player = automation.navigation_snapshot();
     let view = SearchView {
         objects: &objects,
         self_id: automation.character().id,
         player: &player,
-        selected: automation.selected_object_id(),
+        selected: automation.selected_object(),
         open_container: 0,
     };
     let Some(found) =
@@ -242,7 +239,7 @@ fn find_fellow(
     partial: bool,
 ) -> Option<FellowMember> {
     let roster = automation.fellowship_roster();
-    let selected = automation.selected_object_id();
+    let selected = automation.selected_object();
     object_search::try_find_fellow(&roster, Some(name), partial, own, selected).cloned()
 }
 

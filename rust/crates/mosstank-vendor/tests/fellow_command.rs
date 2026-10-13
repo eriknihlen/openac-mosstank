@@ -72,6 +72,26 @@ impl SpellCatalog for Fellows {
 }
 
 impl Automation for Fellows {
+    fn navigation_snapshot(&mut self) -> NavigationSnapshot {
+        self.navigation.clone()
+    }
+
+    fn navigation_object(&mut self, _object_id: u32) -> Option<NavigationObject> {
+        None
+    }
+
+    fn set_movement_intent(&mut self, _intent: MovementIntent) -> NavigationStatus {
+        NavigationStatus::Unavailable
+    }
+
+    fn clear_movement_intent(&mut self) -> NavigationStatus {
+        NavigationStatus::Unavailable
+    }
+
+    fn selected_object(&mut self) -> Option<u32> {
+        self.selected
+    }
+
     fn is_available(&mut self) -> bool {
         true
     }
@@ -139,23 +159,7 @@ impl Automation for Fellows {
     fn log_warn(&mut self, _text: &str) {}
 }
 
-impl NavigationAutomation for Fellows {
-    fn navigation(&mut self) -> NavigationSnapshot {
-        self.navigation.clone()
-    }
-
-    fn navigation_object(&mut self, _object_id: u32) -> Option<NavigationObject> {
-        None
-    }
-
-    fn set_movement_intent(&mut self, _intent: MovementIntent) -> NavigationStatus {
-        NavigationStatus::Unavailable
-    }
-
-    fn clear_movement_intent(&mut self) -> NavigationStatus {
-        NavigationStatus::Unavailable
-    }
-}
+impl NavigationAutomation for Fellows {}
 
 impl UbChatSink for Fellows {
     fn post_message(&mut self, text: &str, chat_type: u32) {
@@ -226,10 +230,6 @@ impl FellowCommandAutomation for Fellows {
 
     fn world_objects(&mut self) -> Vec<WorldObject> {
         self.world_objects.clone()
-    }
-
-    fn selected_object_id(&mut self) -> Option<u32> {
-        self.selected
     }
 }
 

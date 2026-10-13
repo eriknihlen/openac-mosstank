@@ -333,7 +333,7 @@ impl FellowshipManager {
             let text = if is_member {
                 format!(
                     "[VT Fellow Manager] I am currently located in landcell: {:08X}  -v-",
-                    automation.navigation().position.cell_id
+                    automation.navigation_snapshot().position.cell_id
                 )
             } else {
                 "[VT Fellow Manager] Sorry, I can only send my location to members of the fellowship.  -v-"
@@ -732,7 +732,7 @@ impl FellowshipManager {
     }
 
     fn is_near(automation: &mut dyn FellowshipAutomation, object_id: u32) -> bool {
-        let own = automation.navigation();
+        let own = automation.navigation_snapshot();
         own.is_available
             && automation
                 .navigation_object(object_id)

@@ -203,6 +203,58 @@ impl SpellCatalog for GoldenAutomation {
 }
 
 impl Automation for GoldenAutomation {
+    fn navigation_snapshot(&mut self) -> NavigationSnapshot {
+        self.snapshot.clone()
+    }
+
+    fn navigation_object(&mut self, object_id: u32) -> Option<NavigationObject> {
+        self.objects.get(&object_id).cloned()
+    }
+
+    fn set_movement_intent(&mut self, intent: MovementIntent) -> NavigationStatus {
+        self.transcript.push(format!(
+            "intent F={} B={} SL={} SR={} TL={} TR={} run={} jump={}",
+            b(intent.forward),
+            b(intent.backward),
+            b(intent.strafe_left),
+            b(intent.strafe_right),
+            b(intent.turn_left),
+            b(intent.turn_right),
+            b(intent.run),
+            b(intent.jump)
+        ));
+        NavigationStatus::Accepted
+    }
+
+    fn clear_movement_intent(&mut self) -> NavigationStatus {
+        self.transcript.push("clear".to_owned());
+        NavigationStatus::Accepted
+    }
+
+    fn face_heading(&mut self, heading_degrees: f32) -> NavigationStatus {
+        self.transcript
+            .push(format!("face {}", to_string_f32(heading_degrees)));
+        NavigationStatus::Accepted
+    }
+
+    fn chat_input_active(&mut self) -> bool {
+        self.chat_input_active
+    }
+
+    fn is_casting(&mut self) -> bool {
+        self.magic.as_ref().is_some_and(|magic| magic.is_casting)
+    }
+
+    fn request_cast(&mut self, spell_id: u32, _target: Option<u32>) -> CastResult {
+        let Some(magic) = self.magic.as_ref() else {
+            return CastResult::Unavailable;
+        };
+        let answer = magic.request_answer;
+        self.transcript
+            .push(format!("cast {spell_id} -> {answer:?}"));
+        answer
+    }
+
     fn is_available(&mut self) -> bool {
         true
     }
@@ -296,14 +348,6 @@ impl Automation for GoldenAutomation {
 }
 
 impl NavigationAutomation for GoldenAutomation {
-    fn navigation(&mut self) -> NavigationSnapshot {
-        self.snapshot.clone()
-    }
-
-    fn navigation_object(&mut self, object_id: u32) -> Option<NavigationObject> {
-        self.objects.get(&object_id).cloned()
-    }
-
     fn find_object(
         &mut self,
         name: &str,
@@ -321,32 +365,6 @@ impl NavigationAutomation for GoldenAutomation {
 
     fn navigation_objects(&mut self) -> Vec<NavigationObject> {
         self.world_objects.clone()
-    }
-
-    fn set_movement_intent(&mut self, intent: MovementIntent) -> NavigationStatus {
-        self.transcript.push(format!(
-            "intent F={} B={} SL={} SR={} TL={} TR={} run={} jump={}",
-            b(intent.forward),
-            b(intent.backward),
-            b(intent.strafe_left),
-            b(intent.strafe_right),
-            b(intent.turn_left),
-            b(intent.turn_right),
-            b(intent.run),
-            b(intent.jump)
-        ));
-        NavigationStatus::Accepted
-    }
-
-    fn clear_movement_intent(&mut self) -> NavigationStatus {
-        self.transcript.push("clear".to_owned());
-        NavigationStatus::Accepted
-    }
-
-    fn face_heading(&mut self, heading_degrees: f32) -> NavigationStatus {
-        self.transcript
-            .push(format!("face {}", to_string_f32(heading_degrees)));
-        NavigationStatus::Accepted
     }
 
     fn move_by(
@@ -405,10 +423,6 @@ impl NavigationAutomation for GoldenAutomation {
         self.go_to_report.clone()
     }
 
-    fn chat_input_active(&mut self) -> bool {
-        self.chat_input_active
-    }
-
     fn submit_chat(&mut self, text: &str) -> bool {
         self.transcript.push(format!("submit {text}"));
         true
@@ -416,20 +430,6 @@ impl NavigationAutomation for GoldenAutomation {
 
     fn active_vendor_id(&mut self) -> u32 {
         self.active_vendor_object_id
-    }
-
-    fn is_casting(&mut self) -> bool {
-        self.magic.as_ref().is_some_and(|magic| magic.is_casting)
-    }
-
-    fn request_cast(&mut self, spell_id: u32) -> CastResult {
-        let Some(magic) = self.magic.as_ref() else {
-            return CastResult::Unavailable;
-        };
-        let answer = magic.request_answer;
-        self.transcript
-            .push(format!("cast {spell_id} -> {answer:?}"));
-        answer
     }
 }
 

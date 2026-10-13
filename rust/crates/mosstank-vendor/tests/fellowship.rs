@@ -93,6 +93,33 @@ impl SpellCatalog for FakeFellows {
 }
 
 impl Automation for FakeFellows {
+    fn navigation_snapshot(&mut self) -> NavigationSnapshot {
+        NavigationSnapshot {
+            is_available: true,
+            is_portal_space: false,
+            local_object_id: 1,
+            position: position(0.0),
+            ..NavigationSnapshot::default()
+        }
+    }
+
+    fn navigation_object(&mut self, object_id: u32) -> Option<NavigationObject> {
+        (object_id == 2).then(|| NavigationObject {
+            object_id: 2,
+            name: "Alice".to_owned(),
+            position: position(0.02),
+            ..NavigationObject::default()
+        })
+    }
+
+    fn set_movement_intent(&mut self, _intent: MovementIntent) -> NavigationStatus {
+        NavigationStatus::Accepted
+    }
+
+    fn clear_movement_intent(&mut self) -> NavigationStatus {
+        NavigationStatus::Accepted
+    }
+
     fn is_available(&mut self) -> bool {
         true
     }
@@ -168,33 +195,6 @@ impl Automation for FakeFellows {
 }
 
 impl NavigationAutomation for FakeFellows {
-    fn navigation(&mut self) -> NavigationSnapshot {
-        NavigationSnapshot {
-            is_available: true,
-            is_portal_space: false,
-            local_object_id: 1,
-            position: position(0.0),
-            ..NavigationSnapshot::default()
-        }
-    }
-
-    fn navigation_object(&mut self, object_id: u32) -> Option<NavigationObject> {
-        (object_id == 2).then(|| NavigationObject {
-            object_id: 2,
-            name: "Alice".to_owned(),
-            position: position(0.02),
-            ..NavigationObject::default()
-        })
-    }
-
-    fn set_movement_intent(&mut self, _intent: MovementIntent) -> NavigationStatus {
-        NavigationStatus::Accepted
-    }
-
-    fn clear_movement_intent(&mut self) -> NavigationStatus {
-        NavigationStatus::Accepted
-    }
-
     fn submit_chat(&mut self, text: &str) -> bool {
         self.submitted.push(text.to_owned());
         true

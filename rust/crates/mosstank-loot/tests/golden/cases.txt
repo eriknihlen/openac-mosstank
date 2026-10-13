@@ -1,0 +1,84 @@
+# Golden cases for the looter's rule engine, run as a black box through the
+# C# plugin (tests/AcDream.Plugins.MossTank.Tests/RustPortLootGolden.cs,
+# MOSSTANK_RUST_GOLDEN=1) into cases.out, which tests/golden.rs compares.
+#
+# item ::: <name> ::: <field=value;...>   an item (and its appraisal) the
+#     profile and expression cases are run against; every item defined
+#     above a case is used.
+#   fields: id wcid name class itemtype value burden workmanship material
+#     damage variance effects spells(a,b) underlay overlay icon coverage
+#     stack maxstack equipped wielder container structure maxstructure
+#     mana maxmana tinkered combatuse weaponskill damagetype ammo target
+#     publicflags useability valid plural radius slot gear(d,dr,c,cr,cd,cdr)
+#     ints(k:v,...) floats(k:v,...) strings(k:v,...)
+#     weapon(time,skill,damage,variance,mod,length,velocity,offense)
+#     armor(level,slash,pierce,bludgeon,cold,fire,acid,nether,electric)
+# profile ::: <name> ::: @<fixture>       each item against the profile's
+#     rules: the decision, whether an appraisal is needed, and each rule's
+#     early verdict and full match.
+# expr ::: <name> ::: <expression>        each item against the expression.
+
+item ::: plain ::: id=1;wcid=273;name=Rock;class=8
+item ::: pyreal ::: id=2;wcid=273;name=Pyreal;class=7;stack=25;maxstack=25000;value=25;plural=Pyreals
+item ::: magic-ring ::: id=3;wcid=621;name=Gold Ring;class=4;effects=1;value=3000;workmanship=6.4;material=13;spells(2598,6089)
+item ::: insane-axe ::: id=4;wcid=301;name=Silifi;class=1;damage=90;variance=0.3;material=12;workmanship=8;ints(159:44,131:12,171:0,179:1);floats(29:1.18);weapon(25,44,90,0.3,1,1,1,1.18)
+item ::: rare-gem ::: id=5;wcid=30000;name=Pearl of Blood Drinking;class=11;underlay=0x06005B0C;value=0;effects=1
+item ::: shirt ::: id=6;wcid=128;name=Smock;class=3;coverage=104;valid=0x1A00;material=0;itemtype=4
+item ::: pants ::: id=7;wcid=129;name=Breeches;class=3;coverage=22;valid=0x6;itemtype=4
+item ::: wielded-sword ::: id=8;wcid=350;name=Sword;class=1;wielder=0x5000000A;equipped=0x100000;combatuse=1;damage=20;variance=0.5
+item ::: packed-bow ::: id=9;wcid=360;name=Yumi;class=9;container=0x80001234;ammo=1;combatuse=2;ints(204:22,159:2);weapon(30,47,0,0,2.7,1,27.3,1.1)
+item ::: armor ::: id=10;wcid=400;name=Amuli Coat;class=2;value=12000;workmanship=9.2;material=55;ints(28:520,105:9);armor(520,1.2,1.1,0.9,0.8,0.7,0.6,0.5,1.0)
+item ::: scroll ::: id=11;wcid=88;name=Incantation of Testing;class=42;itemtype=0x2000
+item ::: salvage-bag ::: id=12;wcid=20981;name=Salvaged Iron (100);class=8;material=12;workmanship=7.5;structure=100;value=1500
+item ::: kit ::: id=13;wcid=628;name=Treated Healing Kit;class=29;stack=1;structure=25;maxstructure=25;ints(91:25,92:10)
+item ::: buffed-staff ::: id=14;wcid=2547;name=Staff;class=1;damage=0;effects=1;spells(2591,3199,2600);floats(144:1.1,29:0.12);weapon(20,34,0,0,1,1,1,1.15)
+item ::: aetheria ::: id=15;wcid=42635;name=Coalesced Aetheria;class=4;overlay=0x06006C3B;underlay=0x06006C38;effects=1
+item ::: rated-gear ::: id=16;wcid=5000;name=Legendary Shield;class=2;gear(3,2,1,2,1,1);ints(376:2,379:1)
+item ::: tinkered-blade ::: id=17;wcid=3001;name=Katana;class=1;damage=60;variance=0.4;material=60;ints(171:3,179:0,131:60);floats(29:1.05);weapon(20,46,60,0.4,1,1,1,1.08)
+item ::: wand ::: id=18;wcid=2366;name=Sturdy Wand;class=1;effects=1;mana=1500;maxmana=3000;workmanship=5
+item ::: radius ::: id=19;wcid=9;name=Lever;class=8;radius=2.5;publicflags=0x10;useability=0x80000;target=0x10;icon=0x06001F2A
+item ::: comma-name ::: id=20;wcid=4;name=Major Mana Stone;class=16;itemtype=0x80000;value=100
+item ::: h-axe ::: id=21;wcid=301;name=Silifi of Battle;class=1;damage=84;variance=0.4;material=12;ints(353:3,159:44,171:0,179:1,131:12)
+item ::: f-knife ::: id=22;wcid=302;name=Knife;class=1;damage=38;ints(353:6,159:46,171:0)
+item ::: tinked-axe ::: id=23;wcid=301;name=Silifi of Battle;class=1;damage=84;ints(353:3,159:44,171:1)
+item ::: overlay-axe ::: id=24;wcid=301;name=Silifi of Battle;class=1;damage=84;overlay=0x06005B0C;ints(353:3,159:44,171:0)
+item ::: bow-od ::: id=25;wcid=363;name=Yumi;class=9;ints(353:8,159:47,171:0,204:22);weapon(30,47,0,0,2.7,1,27.3,1.1)
+item ::: orb ::: id=26;wcid=2366;name=Orb;class=31;floats(29:1.29);ints(160:0,171:0)
+item ::: void-staff ::: id=27;wcid=2367;name=Nether Staff;class=31;floats(152:1.25);ints(171:0)
+item ::: void-mixed ::: id=28;wcid=2368;name=Nether Baton;class=31;floats(150:1.04,29:1.2);ints(171:0)
+item ::: cleaver ::: id=29;wcid=304;name=Greataxe;class=1;damage=55;ints(159:41,171:0)
+item ::: buffed-cleaver ::: id=30;wcid=304;name=Greataxe;class=1;damage=50;spells(4661);ints(159:41,171:0)
+item ::: war-baton ::: id=31;wcid=2369;name=Baton;class=31;spells(4670);floats(152:1.2);ints(171:0)
+
+profile ::: loot-a ::: @vtank/loot-a.utl
+profile ::: loot-b ::: @vtank/loot-b.utl
+profile ::: loot-c ::: @vtank/loot-c.utl
+profile ::: loot-d ::: @vtank/loot-d.utl
+profile ::: vt-proof ::: @vt-proof/vt-proof-loot.utl
+
+expr ::: catch-all ::: *
+expr ::: default ::: default
+expr ::: name-contains ::: name ~= ring
+expr ::: name-equals-quoted ::: name == 'Gold Ring'
+expr ::: name-double-quoted ::: name == "Sturdy Wand"
+expr ::: or-groups ::: wcid == 273 || class == 1
+expr ::: and-clauses ::: value >= 1000 && workmanship > 6
+expr ::: raw-int ::: int[105] >= 9
+expr ::: raw-float ::: float[29] > 1.1
+expr ::: raw-string ::: string[16] == ""
+expr ::: raw-bool ::: bool[69] == false
+expr ::: raw-did ::: did[1] == 0
+expr ::: raw-iid ::: iid[2] != 1
+expr ::: raw-int64 ::: int64[1] <= 0
+expr ::: unknown-field ::: colour == red
+expr ::: unknown-table ::: nope[1] == 1
+expr ::: text-number ::: name > 5
+expr ::: number-text ::: value == lots
+expr ::: contains-on-number ::: value ~= 1
+expr ::: no-operator ::: name
+expr ::: empty-group ::: name ~= a ||
+expr ::: quoted-operator ::: name == 'a>=b'
+expr ::: material-type ::: material == 12 && type >= 0
+expr ::: stack ::: stack > 10 || maxstack >= 25000
+expr ::: burden ::: burden == 0
+expr ::: whitespace ::: "  value   >=   25  "

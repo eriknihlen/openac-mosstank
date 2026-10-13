@@ -9,7 +9,6 @@
 //! panel does so), which is why the waypoint being worked is known by its
 //! place in the list.
 
-use std::cell::RefCell;
 use std::collections::HashSet;
 use std::rc::Rc;
 
@@ -21,8 +20,14 @@ use ac_plugin_abi::navigation::{
 };
 use ac_plugin_abi::types::ChatLine;
 use ac_plugin_abi::world::{METRES_PER_MAP_UNIT, Position};
+use mosstank_automation::Automation;
+use mosstank_automation::heading::{distance_to_segment_meters, signed_heading_delta};
 use mosstank_automation::locks::{ActionLockKind, SharedActionLocks};
-use mosstank_automation::{Automation, CombatModePreparation};
+use mosstank_combat::gate::{GateTurn, Prepare, SharedCombatModeGate};
+use mosstank_combat::mover::{
+    CREEP_DISTANCE_METERS, CreepSettings, FACE_HEADING_REISSUE_SECONDS, HEADING_TOLERANCE_DEGREES,
+    MINIMUM_ARRIVAL_RADIUS_METERS, NO_FACE_HEADING_STAMP, NavigationMover, STUCK_SECONDS,
+};
 use mosstank_formats::route::{
     ClientPathing, NavigationSettings, RouteJumpDirection, RouteMode, RouteRecallKind,
     RouteStepBackBlock, RouteWaypoint, RouteWaypointType, SpellLookup,
@@ -31,12 +36,7 @@ use openac_plugin_compat::number::{format_f32, format_f64};
 use openac_plugin_compat::text::{casing, ordinal};
 
 use crate::client::{self, NavigationAutomation};
-use crate::heading::{distance_to_segment_meters, signed_heading_delta};
 use crate::jump_power;
-use crate::mover::{
-    CREEP_DISTANCE_METERS, MINIMUM_ARRIVAL_RADIUS_METERS, MoverNotes, NO_FACE_HEADING_STAMP,
-    NavigationMover, STUCK_SECONDS,
-};
 
 const CHAT_INITIAL_DELAY_SECONDS: f64 = 0.2;
 const USE_RETRY_SECONDS: f64 = 2.0;
@@ -80,20 +80,22 @@ const CHECKPOINT_NUDGE_SECONDS: f64 = 0.1;
 pub const LOW_WAYPOINT_DISTANCE_WARNING: &str =
     "Warning: Idle peace selected with low waypoint minimum distance. Will switch to magic mode.";
 
-/// What one call works with: the client, the route, and the combat
-/// profile's idle-peace setting (read live, as the C# reads it).
+/// What one call works with: the client, the route, and the combat and
+/// vital profiles the macro's combat-mode gate reads (the creep push and a
+/// recall ask it for magic mode); without them the gate is not asked, as
+/// with no gate bound.
 #[allow(missing_debug_implementations)]
 pub struct RouteTurn<'a> {
     /// The client.
     pub automation: &'a mut dyn NavigationAutomation,
     /// The route and how it is run.
     pub settings: &'a mut NavigationSettings,
-    /// The combat profile's "Idle Peace" switch.
-    pub idle_peace_mode: bool,
+    /// The combat and vital settings, read live as the C# reads them.
+    pub creep: Option<CreepSettings<'a>>,
 }
 
 impl<'a> RouteTurn<'a> {
-    /// A turn with idle peace off.
+    /// A turn without the combat profile.
     pub fn new(
         automation: &'a mut dyn NavigationAutomation,
         settings: &'a mut NavigationSettings,
@@ -101,13 +103,12 @@ impl<'a> RouteTurn<'a> {
         Self {
             automation,
             settings,
-            idle_peace_mode: false,
+            creep: None,
         }
     }
 }
 
-/// The route's status line and its once-per-run tight-goal warning: what
-/// the mover reports to.
+/// The route's status line and its once-per-run tight-goal warning.
 #[derive(Debug)]
 struct RouteVoice {
     status: String,
@@ -127,14 +128,39 @@ impl RouteVoice {
     }
 }
 
-impl MoverNotes for RouteVoice {
-    fn status(&mut self, text: &str) {
-        text.clone_into(&mut self.status);
+/// The steering of a caller that cannot hold a turn key while the player is
+/// typing (`NavigationController.SteerTowards`): outside the alignment band
+/// it stops and re-faces the goal at most once per re-face interval; inside
+/// it, it moves forward and forgets the stamp so the next departure
+/// re-faces at once.
+pub fn steer_towards(
+    navigation: &mut dyn Automation,
+    signed_heading_delta_degrees: f32,
+    desired_heading_degrees: f32,
+    now: f64,
+    face_heading_stamp: &mut f64,
+    run: bool,
+) -> NavigationStatus {
+    if signed_heading_delta_degrees.abs() > HEADING_TOLERANCE_DEGREES {
+        let stopped = navigation.clear_movement_intent();
+        if stopped != NavigationStatus::Accepted {
+            return stopped;
+        }
+        if now - *face_heading_stamp >= FACE_HEADING_REISSUE_SECONDS {
+            *face_heading_stamp = now;
+            let faced = navigation.face_heading(desired_heading_degrees);
+            if faced != NavigationStatus::Accepted {
+                return faced;
+            }
+        }
+        return NavigationStatus::Accepted;
     }
-
-    fn warn_low_stop_distance(&mut self, automation: &mut dyn NavigationAutomation) {
-        self.warn_low_waypoint_distance(automation);
-    }
+    *face_heading_stamp = NO_FACE_HEADING_STAMP;
+    navigation.set_movement_intent(MovementIntent {
+        forward: true,
+        run,
+        ..MovementIntent::default()
+    })
 }
 
 /// A recall name looked up in the live spell catalogue: what
@@ -223,7 +249,7 @@ pub struct NavigationController {
     /// Warnings this run has already said once.
     posted_warnings: HashSet<String>,
     /// The macro's one combat-mode gate (the mover holds the same one).
-    combat_mode_gate: Option<Rc<RefCell<dyn CombatModePreparation>>>,
+    combat_mode_gate: Option<SharedCombatModeGate>,
     door_status: String,
 }
 
@@ -358,7 +384,7 @@ impl NavigationController {
 
     /// Binds the macro's one combat-mode gate: the mover uses it for the
     /// creep push, a recall waypoint to stand the character in magic mode.
-    pub fn bind_combat_mode_gate(&mut self, gate: Rc<RefCell<dyn CombatModePreparation>>) {
+    pub fn bind_combat_mode_gate(&mut self, gate: SharedCombatModeGate) {
         self.mover.bind_combat_mode_gate(Rc::clone(&gate));
         self.combat_mode_gate = Some(gate);
     }
@@ -449,7 +475,7 @@ impl NavigationController {
         let goal = settings.waypoints[self.index as usize].position.clone();
         let distance = turn
             .automation
-            .navigation()
+            .navigation_snapshot()
             .position
             .horizontal_distance_metres(&goal);
         let six = |value: f64| format_f64(value, "0.######").expect("a supported format");
@@ -570,7 +596,7 @@ impl NavigationController {
             self.index = 0;
             self.once_complete = false;
         } else {
-            let here = automation.navigation().position;
+            let here = automation.navigation_snapshot().position;
             let mut nearest = 0usize;
             let mut best = f64::MAX;
             for (index, waypoint) in settings.waypoints.iter().enumerate() {
@@ -651,7 +677,7 @@ impl NavigationController {
     /// movement is allowed while the goal is further than the creep
     /// distance and the waypoint is not a recall.
     pub fn allows_normal_movement(&mut self, turn: &mut RouteTurn<'_>) -> bool {
-        let snapshot = turn.automation.navigation();
+        let snapshot = turn.automation.navigation_snapshot();
         let settings = &*turn.settings;
         if !snapshot.is_available
             || settings.mode == RouteMode::Target
@@ -734,10 +760,10 @@ impl NavigationController {
         } else {
             0.0
         };
-        let idle_peace = turn.idle_peace_mode;
+        let creep = turn.creep.as_ref();
         let automation = &mut *turn.automation;
         let settings = &mut *turn.settings;
-        let snapshot = automation.navigation();
+        let snapshot = automation.navigation_snapshot();
         if !settings.enabled || !snapshot.is_available {
             self.stop_movement(automation);
             self.voice.status = if settings.enabled {
@@ -770,7 +796,7 @@ impl NavigationController {
         }
 
         if settings.mode == RouteMode::Target {
-            return self.tick_follow(automation, settings, idle_peace, &snapshot);
+            return self.tick_follow(automation, settings, creep, &snapshot);
         }
         if self.once_complete || settings.waypoints.is_empty() {
             self.stop_movement(automation);
@@ -829,24 +855,23 @@ impl NavigationController {
                 settings.waypoints.len(),
                 f1(distance)
             );
-            return self.steer_leg(automation, settings, idle_peace, &snapshot, index, distance);
+            return self.steer_leg(automation, settings, creep, &snapshot, index, distance);
         }
         if kind == RouteWaypointType::Checkpoint {
-            return self
-                .tick_checkpoint(automation, settings, idle_peace, &snapshot, index, elapsed);
+            return self.tick_checkpoint(automation, settings, creep, &snapshot, index, elapsed);
         }
 
         // The walk stops for an action; a jump under way keeps its key
         // until the action itself lets go of it.
         self.stop_walking(automation);
-        self.tick_action(automation, settings, idle_peace, index, elapsed, &snapshot)
+        self.tick_action(automation, settings, creep, index, elapsed, &snapshot)
     }
 
     fn tick_follow(
         &mut self,
         automation: &mut dyn NavigationAutomation,
         settings: &NavigationSettings,
-        idle_peace: bool,
+        creep: Option<&CreepSettings<'_>>,
         snapshot: &NavigationSnapshot,
     ) -> bool {
         let target = if settings.follow_target_object_id == 0 {
@@ -879,13 +904,12 @@ impl NavigationController {
             self.capture_follow_destination(settings, &snapshot.position, &target.position);
         let destination_distance = snapshot.position.horizontal_distance_metres(&destination);
         self.voice.status = format!("Following {}: {}m.", target.name, f1(distance));
-        self.mover.steer(
+        self.steer(
             automation,
+            creep,
             &snapshot.position,
             &destination,
             destination_distance,
-            idle_peace,
-            &mut self.voice,
         )
     }
 
@@ -947,7 +971,7 @@ impl NavigationController {
         }
         let automation = &mut *turn.automation;
         let settings = &*turn.settings;
-        let snapshot = automation.navigation();
+        let snapshot = automation.navigation_snapshot();
         if !settings.enabled
             || !settings.open_doors
             || !snapshot.is_available
@@ -1230,7 +1254,7 @@ impl NavigationController {
         &mut self,
         automation: &mut dyn NavigationAutomation,
         settings: &mut NavigationSettings,
-        idle_peace: bool,
+        creep: Option<&CreepSettings<'_>>,
         snapshot: &NavigationSnapshot,
         index: usize,
         elapsed_seconds: f64,
@@ -1254,14 +1278,7 @@ impl NavigationController {
                 settings.waypoints.len(),
                 f1(live_distance)
             );
-            return self.steer_leg(
-                automation,
-                settings,
-                idle_peace,
-                snapshot,
-                index,
-                live_distance,
-            );
+            return self.steer_leg(automation, settings, creep, snapshot, index, live_distance);
         }
 
         self.stop_movement(automation);
@@ -1296,6 +1313,28 @@ impl NavigationController {
         true
     }
 
+    /// Steers the route's mover at a goal, and takes what the mover had to
+    /// say: the tight-goal warning (once a run) and its status line.
+    fn steer(
+        &mut self,
+        automation: &mut dyn NavigationAutomation,
+        creep: Option<&CreepSettings<'_>>,
+        current: &Position,
+        target: &Position,
+        distance: f64,
+    ) -> bool {
+        let claimed = self
+            .mover
+            .steer(automation, creep, current, target, distance);
+        if self.mover.take_low_stop_distance_warning() {
+            self.voice.warn_low_waypoint_distance(automation);
+        }
+        if let Some(status) = self.mover.take_status() {
+            self.voice.status = status;
+        }
+        claimed
+    }
+
     /// Steers one leg of the route: the reference way, straight at the
     /// point with held keys, unless the profile hands every leg to the
     /// client, or the straight walk is stuck and the profile allows one
@@ -1305,7 +1344,7 @@ impl NavigationController {
         &mut self,
         automation: &mut dyn NavigationAutomation,
         settings: &mut NavigationSettings,
-        idle_peace: bool,
+        creep: Option<&CreepSettings<'_>>,
         snapshot: &NavigationSnapshot,
         index: usize,
         distance: f64,
@@ -1318,14 +1357,7 @@ impl NavigationController {
         }
 
         let goal = settings.waypoints[index].position.clone();
-        let claimed = self.mover.steer(
-            automation,
-            &snapshot.position,
-            &goal,
-            distance,
-            idle_peace,
-            &mut self.voice,
-        );
+        let claimed = self.steer(automation, creep, &snapshot.position, &goal, distance);
         if !self.mover.is_stuck() {
             return claimed;
         }
@@ -1484,7 +1516,7 @@ impl NavigationController {
         &mut self,
         automation: &mut dyn NavigationAutomation,
         settings: &mut NavigationSettings,
-        idle_peace: bool,
+        creep: Option<&CreepSettings<'_>>,
         index: usize,
         elapsed_seconds: f64,
         snapshot: &NavigationSnapshot,
@@ -1532,12 +1564,14 @@ impl NavigationController {
                 self.complete_action(automation, settings);
                 true
             }
-            RouteWaypointType::Recall => self.tick_recall(automation, settings, index, snapshot),
+            RouteWaypointType::Recall => {
+                self.tick_recall(automation, settings, creep, index, snapshot)
+            }
             RouteWaypointType::OpenVendor => self.tick_open_vendor(automation, settings, index),
             RouteWaypointType::Portal
             | RouteWaypointType::PortalByName
             | RouteWaypointType::UseNpc => {
-                self.tick_use(automation, settings, idle_peace, index, snapshot)
+                self.tick_use(automation, settings, creep, index, snapshot)
             }
             RouteWaypointType::Jump => {
                 self.tick_jump(automation, settings, index, elapsed_seconds, snapshot)
@@ -1642,7 +1676,7 @@ impl NavigationController {
         &mut self,
         automation: &mut dyn NavigationAutomation,
         settings: &mut NavigationSettings,
-        idle_peace: bool,
+        creep: Option<&CreepSettings<'_>>,
         index: usize,
         snapshot: &NavigationSnapshot,
     ) -> bool {
@@ -1722,13 +1756,12 @@ impl NavigationController {
                 .horizontal_distance_metres(&portal.position);
             if distance > settings.portal_use_distance_meters.clamp(0.5, 50.0) {
                 self.voice.status = format!("Approaching {object_name} ({}m).", f1(distance));
-                return self.mover.steer(
+                return self.steer(
                     automation,
+                    creep,
                     &snapshot.position,
                     &portal.position,
                     distance,
-                    idle_peace,
-                    &mut self.voice,
                 );
             }
         }
@@ -1824,6 +1857,7 @@ impl NavigationController {
         &mut self,
         automation: &mut dyn NavigationAutomation,
         settings: &mut NavigationSettings,
+        creep: Option<&CreepSettings<'_>>,
         index: usize,
         snapshot: &NavigationSnapshot,
     ) -> bool {
@@ -1918,7 +1952,7 @@ impl NavigationController {
 
         // A recall is a spell, and the server drops any cast made outside
         // magic mode, so the character is stood in magic mode first.
-        if waypoint.recall_spell_id != 0 && !self.is_ready_to_cast_recall(automation) {
+        if waypoint.recall_spell_id != 0 && !self.is_ready_to_cast_recall(automation, creep) {
             "Recall: switching to magic mode.".clone_into(&mut self.voice.status);
             return true;
         }
@@ -1966,15 +2000,23 @@ impl NavigationController {
     /// Whether the character stands in magic mode, asking the macro's gate
     /// for it on every tick until it does. With no gate bound there is
     /// nothing to ask and the cast goes out.
-    fn is_ready_to_cast_recall(&mut self, automation: &mut dyn NavigationAutomation) -> bool {
-        let Some(gate) = self.combat_mode_gate.clone() else {
+    fn is_ready_to_cast_recall(
+        &mut self,
+        automation: &mut dyn NavigationAutomation,
+        creep: Option<&CreepSettings<'_>>,
+    ) -> bool {
+        let (Some(gate), Some(settings)) = (self.combat_mode_gate.clone(), creep) else {
             return true;
         };
-        let rules: &mut dyn Automation = automation;
-        let prepared = gate
-            .borrow_mut()
-            .try_prepare(rules, CombatMode::Magic, 0, true);
-        prepared && automation.combat_mode() == CombatMode::Magic
+        let mut turn = GateTurn {
+            automation,
+            combat: settings.combat,
+            vitals: settings.vitals,
+        };
+        let prepared =
+            gate.borrow_mut()
+                .try_prepare(&mut turn, Prepare::mode(CombatMode::Magic), None);
+        prepared && automation.combat_snapshot().mode == CombatMode::Magic
     }
 
     fn submit_recall(
@@ -1985,7 +2027,7 @@ impl NavigationController {
         if waypoint.recall_spell_id == 0 {
             return automation.submit_chat("/marketplace");
         }
-        let request = automation.request_cast(waypoint.recall_spell_id);
+        let request = automation.request_cast(waypoint.recall_spell_id, None);
         if request == CastResult::Sent {
             return true;
         }

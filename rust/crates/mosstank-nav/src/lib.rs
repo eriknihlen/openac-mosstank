@@ -11,12 +11,13 @@
 //! them through its host.
 //!
 //! - [`client`]: what the route reads from and asks of the client.
-//! - [`heading`]: the compass arithmetic the steering shares.
 //! - [`jump_power`]: a jump's charge time as the power it is asked with.
-//! - [`mover`]: the close-in mover (held keys, its clock, the stuck clock).
 //! - [`controller`]: the route follower (`NavigationController`).
 //! - [`door_rule`]: opening a door as its own turn of the macro.
 //! - [`route_view`]: the route as the panel draws and measures it.
+//!
+//! The close-in mover and the compass arithmetic are shared with the
+//! fight (`mosstank_combat::mover`, `mosstank_automation::heading`).
 //!
 //! Nothing here keeps the client between calls: every call that reaches it
 //! is handed a [`controller::RouteTurn`].
@@ -24,12 +25,10 @@
 pub mod client;
 pub mod controller;
 pub mod door_rule;
-pub mod heading;
 pub mod jump_power;
-pub mod mover;
 pub mod route_view;
 
 pub use client::NavigationAutomation;
 pub use controller::{NavigationController, RouteTurn};
 pub use door_rule::{DoorRuleHost, OpenDoorRule};
-pub use mover::NavigationMover;
+pub use mosstank_combat::mover::NavigationMover;

@@ -3,10 +3,13 @@
 
 use ac_plugin_abi::CharacterInfo;
 use ac_plugin_abi::character::Skill;
-use ac_plugin_abi::combat::{CombatMode, CombatResult};
+use ac_plugin_abi::combat::{CombatMode, CombatResult, CombatSnapshot};
 use ac_plugin_abi::items::{InventoryItem, ItemResult, ItemUseCompletion};
 use ac_plugin_abi::magic::{
     CastCompletion, CastGate, CastResult, ComponentInfo, SpellInfo, SpellList,
+};
+use ac_plugin_abi::navigation::{
+    MovementIntent, NavigationObject, NavigationSnapshot, NavigationStatus,
 };
 use ac_plugin_abi::peers::NetworkClient;
 use ac_plugin_abi::social::{FellowMember, FellowshipStatus};
@@ -177,6 +180,51 @@ impl Automation for HostAutomation<'_, '_> {
 
     fn log_warn(&mut self, text: &str) {
         self.host.warn(text);
+    }
+
+    fn chat_input_active(&mut self) -> bool {
+        self.host.chat_input_active()
+    }
+
+    fn is_casting(&mut self) -> bool {
+        self.host.is_casting()
+    }
+
+    /// The SDK's target 0 is the selection.
+    fn request_cast(&mut self, spell_id: u32, target: Option<u32>) -> CastResult {
+        self.host.cast(spell_id, target.unwrap_or(0))
+    }
+
+    fn combat_snapshot(&mut self) -> CombatSnapshot {
+        self.host.combat()
+    }
+
+    fn move_item(&mut self, object_id: u32, container_id: u32) -> ItemResult {
+        self.host.move_item(object_id, container_id, 0, 0)
+    }
+
+    fn navigation_snapshot(&mut self) -> NavigationSnapshot {
+        self.host.navigation()
+    }
+
+    fn navigation_object(&mut self, object_id: u32) -> Option<NavigationObject> {
+        self.host.navigation_object(object_id)
+    }
+
+    fn set_movement_intent(&mut self, intent: MovementIntent) -> NavigationStatus {
+        self.host.set_movement_intent(intent)
+    }
+
+    fn clear_movement_intent(&mut self) -> NavigationStatus {
+        self.host.clear_movement_intent()
+    }
+
+    fn face_heading(&mut self, heading_degrees: f32) -> NavigationStatus {
+        self.host.face_heading(heading_degrees)
+    }
+
+    fn selected_object(&mut self) -> Option<u32> {
+        self.host.selection().selected
     }
 }
 

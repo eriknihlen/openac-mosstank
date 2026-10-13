@@ -40,9 +40,9 @@ pub trait VendorAutomation: NavigationAutomation + UbChatSink {
     /// The newest inventory move the server answered.
     fn last_inventory_completion(&mut self) -> InventoryCompletion;
 
-    /// Moves (or splits, with an amount) an item into a container
-    /// (`MoveToContainer`).
-    fn move_item(
+    /// Moves `amount` of a stack (all of it for 0) into a container at a
+    /// slot (`MoveToContainer` with an amount): how a stack is split.
+    fn split_item(
         &mut self,
         object_id: u32,
         container_id: u32,
@@ -56,11 +56,6 @@ pub trait VendorAutomation: NavigationAutomation + UbChatSink {
     /// The container open on screen, 0 for none.
     fn open_container_id(&mut self) -> u32 {
         0
-    }
-
-    /// The selected object, if any.
-    fn selected_object_id(&mut self) -> Option<u32> {
-        None
     }
 }
 

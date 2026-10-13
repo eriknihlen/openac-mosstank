@@ -6,7 +6,7 @@ use ac_plugin_abi::ui::{MapPoint, WorldLine};
 use ac_plugin_abi::world::{METRES_PER_MAP_UNIT, Position};
 use mosstank_formats::route::{NavigationSettings, RouteMode, RouteWaypoint, RouteWaypointType};
 
-use crate::mover::MINIMUM_ARRIVAL_RADIUS_METERS;
+use mosstank_combat::mover::MINIMUM_ARRIVAL_RADIUS_METERS;
 
 /// How far the nearest route point is, metres. A point read from a route
 /// file carries only coordinates (no cell), and that is a real position:

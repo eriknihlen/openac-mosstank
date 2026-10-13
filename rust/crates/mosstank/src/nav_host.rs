@@ -2,10 +2,9 @@
 //! host: the same [`HostAutomation`] the other rules use, with the
 //! navigation, chat-bar, vendor-window and cast-request calls a route needs.
 
-use ac_plugin_abi::magic::{CastResult, SpellInfo, SpellList};
+use ac_plugin_abi::magic::{SpellInfo, SpellList};
 use ac_plugin_abi::navigation::{
-    GoToReport, MoveChannel, MoveDirection, MovePace, MoveUnit, MovementIntent, NavigationObject,
-    NavigationSnapshot, NavigationStatus,
+    GoToReport, MoveChannel, MoveDirection, MovePace, MoveUnit, NavigationObject, NavigationStatus,
 };
 use ac_plugin_abi::world::Position;
 use mosstank_nav::NavigationAutomation;
@@ -57,14 +56,6 @@ impl GoToPause {
 }
 
 impl NavigationAutomation for HostAutomation<'_, '_> {
-    fn navigation(&mut self) -> NavigationSnapshot {
-        self.host().navigation()
-    }
-
-    fn navigation_object(&mut self, object_id: u32) -> Option<NavigationObject> {
-        self.host().navigation_object(object_id)
-    }
-
     fn find_object(
         &mut self,
         name: &str,
@@ -77,18 +68,6 @@ impl NavigationAutomation for HostAutomation<'_, '_> {
 
     fn navigation_objects(&mut self) -> Vec<NavigationObject> {
         self.host().navigation_objects()
-    }
-
-    fn set_movement_intent(&mut self, intent: MovementIntent) -> NavigationStatus {
-        self.host().set_movement_intent(intent)
-    }
-
-    fn clear_movement_intent(&mut self) -> NavigationStatus {
-        self.host().clear_movement_intent()
-    }
-
-    fn face_heading(&mut self, heading_degrees: f32) -> NavigationStatus {
-        self.host().face_heading(heading_degrees)
     }
 
     fn move_by(
@@ -121,10 +100,6 @@ impl NavigationAutomation for HostAutomation<'_, '_> {
         self.host().go_to_report()
     }
 
-    fn chat_input_active(&mut self) -> bool {
-        self.host().chat_input_active()
-    }
-
     /// The SDK takes every line it is handed; it runs once the plugin's
     /// call returns.
     fn submit_chat(&mut self, text: &str) -> bool {
@@ -145,15 +120,6 @@ impl NavigationAutomation for HostAutomation<'_, '_> {
         self.host().loot_state().appraisal.awaiting_id
     }
 
-    fn is_casting(&mut self) -> bool {
-        self.host().is_casting()
-    }
-
-    /// At the selection: the SDK's target 0.
-    fn request_cast(&mut self, spell_id: u32) -> CastResult {
-        self.host().cast(spell_id, 0)
-    }
-
     fn known_spell_list(&mut self, list: SpellList) -> Vec<SpellInfo> {
         self.host().known_spells(list)
     }
@@ -162,8 +128,9 @@ impl NavigationAutomation for HostAutomation<'_, '_> {
 #[cfg(test)]
 mod tests {
     use ac_plugin_abi::calls;
-    use ac_plugin_abi::magic::CastRequest;
+    use ac_plugin_abi::magic::{CastRequest, CastResult};
     use ac_plugin_abi::trade::VendorState;
+    use mosstank_automation::Automation;
     use openac_plugin::testing::FakeHost;
     use openac_plugin::{Host, Plugin, StartInfo};
 
@@ -180,7 +147,7 @@ mod tests {
     impl Plugin for Route {
         fn enable(&mut self, host: &mut Host<'_>, _info: &StartInfo) -> Result<(), String> {
             let mut automation = HostAutomation::new(host);
-            self.cast = Some(automation.request_cast(1635));
+            self.cast = Some(automation.request_cast(1635, None));
             self.open_vendor = automation.open_vendor_id();
             self.submitted = automation.submit_chat("/marketplace");
             Ok(())

@@ -8,7 +8,9 @@ use std::rc::Rc;
 
 use ac_plugin_abi::CharacterInfo;
 use ac_plugin_abi::character::Skill;
+use ac_plugin_abi::combat::CombatSnapshot;
 use ac_plugin_abi::combat::{CombatMode, CombatResult, CombatStatus};
+use ac_plugin_abi::items::{EquipmentItem, EquipmentPlacement, EquipmentResult, EquipmentStatus};
 use ac_plugin_abi::items::{InventoryItem, ItemResult, ItemStatus, ItemUseCompletion};
 use ac_plugin_abi::magic::{CastCompletion, CastGate, CastResult, SpellInfo};
 use ac_plugin_abi::navigation::{
@@ -18,12 +20,15 @@ use ac_plugin_abi::navigation::{
 use ac_plugin_abi::types::ChatLine;
 use ac_plugin_abi::world::{ItemProperties, Position};
 use mosstank_automation::locks::SharedActionLocks;
-use mosstank_automation::{Automation, CombatModePreparation, SpellCatalog};
+use mosstank_automation::{Automation, SpellCatalog};
+use mosstank_combat::gate::{CombatModeGate, SharedCombatModeGate};
+use mosstank_combat::mover::CreepSettings;
 use mosstank_formats::route::{
     ClientPathing, NavigationSettings, RouteMode, RouteWaypoint, RouteWaypointType,
 };
 use mosstank_nav::door_rule::DoorRuleHost;
 use mosstank_nav::{NavigationAutomation, NavigationController, RouteTurn};
+use mosstank_settings::model::{CombatSettings, VitalSettings};
 
 /// `NavigationTests.FakeMagic`: what a recall waypoint asks of the magic
 /// side.
@@ -57,6 +62,9 @@ pub struct FakeAutomation {
     pub world_appraisal_available: bool,
     pub identified_world_objects: Vec<u32>,
     pub combat_mode: CombatMode,
+    pub server_mode: CombatMode,
+    /// What the character can wield (`EquipmentItems`).
+    pub equipment_items: Vec<EquipmentItem>,
     pub mode_requests: Vec<String>,
     pub posted_system_messages: Vec<String>,
     pub chat_input_active: bool,
@@ -92,6 +100,8 @@ impl Default for FakeAutomation {
             world_appraisal_available: false,
             identified_world_objects: Vec::new(),
             combat_mode: CombatMode::Unknown,
+            server_mode: CombatMode::Unknown,
+            equipment_items: Vec::new(),
             mode_requests: Vec::new(),
             posted_system_messages: Vec::new(),
             chat_input_active: false,
@@ -152,6 +162,49 @@ impl SpellCatalog for FakeAutomation {
 }
 
 impl Automation for FakeAutomation {
+    fn navigation_snapshot(&mut self) -> NavigationSnapshot {
+        self.navigation_snapshot.clone()
+    }
+
+    fn navigation_object(&mut self, object_id: u32) -> Option<NavigationObject> {
+        self.objects.get(&object_id).cloned()
+    }
+
+    fn set_movement_intent(&mut self, intent: MovementIntent) -> NavigationStatus {
+        self.intents.push(intent);
+        NavigationStatus::Accepted
+    }
+
+    fn clear_movement_intent(&mut self) -> NavigationStatus {
+        self.clear_count += 1;
+        NavigationStatus::Accepted
+    }
+
+    fn face_heading(&mut self, heading_degrees: f32) -> NavigationStatus {
+        self.faced_headings.push(heading_degrees);
+        NavigationStatus::Accepted
+    }
+
+    fn chat_input_active(&mut self) -> bool {
+        self.chat_input_active
+    }
+
+    fn is_casting(&mut self) -> bool {
+        self.magic.as_ref().is_some_and(|magic| magic.is_casting)
+    }
+
+    fn request_cast(&mut self, spell_id: u32, _target: Option<u32>) -> CastResult {
+        let Some(magic) = self.magic.as_mut() else {
+            return CastResult::Unavailable;
+        };
+        magic.requested_spell_ids.push(spell_id);
+        if magic.request_answer != CastResult::Sent {
+            return magic.request_answer;
+        }
+        magic.cast_spell_ids.push(spell_id);
+        CastResult::Sent
+    }
+
     fn is_available(&mut self) -> bool {
         true
     }
@@ -185,6 +238,40 @@ impl Automation for FakeAutomation {
 
     fn combat_mode(&mut self) -> CombatMode {
         self.combat_mode
+    }
+
+    fn combat_snapshot(&mut self) -> CombatSnapshot {
+        CombatSnapshot {
+            mode: self.combat_mode,
+            server_mode: self.server_mode,
+            ..CombatSnapshot::default()
+        }
+    }
+
+    fn equipment_available(&mut self) -> bool {
+        !self.equipment_items.is_empty()
+    }
+
+    fn owned_equipment(&mut self) -> Vec<EquipmentItem> {
+        self.equipment_items.clone()
+    }
+
+    fn equipment_placements(&mut self) -> Vec<EquipmentPlacement> {
+        self.equipment_items
+            .iter()
+            .map(|item| EquipmentPlacement {
+                object_id: item.object_id,
+                equipped_location: item.equipped_location,
+            })
+            .collect()
+    }
+
+    fn equip(&mut self, object_id: u32) -> EquipmentResult {
+        self.mode_requests.push(format!("Equip:{object_id}"));
+        EquipmentResult {
+            status: EquipmentStatus::Started,
+            notice: None,
+        }
     }
 
     fn enter_combat_mode(&mut self, mode: CombatMode) -> CombatResult {
@@ -248,14 +335,6 @@ impl Automation for FakeAutomation {
 }
 
 impl NavigationAutomation for FakeAutomation {
-    fn navigation(&mut self) -> NavigationSnapshot {
-        self.navigation_snapshot.clone()
-    }
-
-    fn navigation_object(&mut self, object_id: u32) -> Option<NavigationObject> {
-        self.objects.get(&object_id).cloned()
-    }
-
     fn find_object(
         &mut self,
         name: &str,
@@ -268,21 +347,6 @@ impl NavigationAutomation for FakeAutomation {
 
     fn navigation_objects(&mut self) -> Vec<NavigationObject> {
         self.world_objects.clone()
-    }
-
-    fn set_movement_intent(&mut self, intent: MovementIntent) -> NavigationStatus {
-        self.intents.push(intent);
-        NavigationStatus::Accepted
-    }
-
-    fn clear_movement_intent(&mut self) -> NavigationStatus {
-        self.clear_count += 1;
-        NavigationStatus::Accepted
-    }
-
-    fn face_heading(&mut self, heading_degrees: f32) -> NavigationStatus {
-        self.faced_headings.push(heading_degrees);
-        NavigationStatus::Accepted
     }
 
     fn move_by(
@@ -331,10 +395,6 @@ impl NavigationAutomation for FakeAutomation {
         self.go_to_report.clone()
     }
 
-    fn chat_input_active(&mut self) -> bool {
-        self.chat_input_active
-    }
-
     fn submit_chat(&mut self, text: &str) -> bool {
         self.submitted_chat.push(text.to_owned());
         true
@@ -342,49 +402,6 @@ impl NavigationAutomation for FakeAutomation {
 
     fn active_vendor_id(&mut self) -> u32 {
         self.active_vendor_object_id
-    }
-
-    fn is_casting(&mut self) -> bool {
-        self.magic.as_ref().is_some_and(|magic| magic.is_casting)
-    }
-
-    fn request_cast(&mut self, spell_id: u32) -> CastResult {
-        let Some(magic) = self.magic.as_mut() else {
-            return CastResult::Unavailable;
-        };
-        magic.requested_spell_ids.push(spell_id);
-        if magic.request_answer != CastResult::Sent {
-            return magic.request_answer;
-        }
-        magic.cast_spell_ids.push(spell_id);
-        CastResult::Sent
-    }
-}
-
-/// The macro's combat-mode gate as these tests need it: it asks for the
-/// wanted stance until the character stands in it. The gate itself (caster
-/// choice, wielding) belongs to the combat slice; the route only asks it
-/// and reads the answer.
-#[derive(Debug, Default)]
-pub struct StanceGate;
-
-impl CombatModePreparation for StanceGate {
-    fn try_prepare(
-        &mut self,
-        automation: &mut dyn Automation,
-        wanted: CombatMode,
-        _override_item_id: u32,
-        _auto_select: bool,
-    ) -> bool {
-        if automation.combat_mode() == wanted {
-            return true;
-        }
-        let _ = automation.enter_combat_mode(wanted);
-        false
-    }
-
-    fn status(&self) -> String {
-        String::new()
     }
 }
 
@@ -394,7 +411,12 @@ pub struct Rig {
     pub automation: FakeAutomation,
     pub settings: NavigationSettings,
     pub controller: NavigationController,
-    pub idle_peace_mode: bool,
+    /// The combat profile (its Idle Peace switch).
+    pub combat: CombatSettings,
+    /// The vital profile.
+    pub vitals: VitalSettings,
+    /// Whether the turn carries the profiles (a gate is bound).
+    pub creep: bool,
     /// The door rule's own gate.
     pub door_enabled: bool,
     /// Whether another rule holds a lock the door rule waits on.
@@ -410,7 +432,9 @@ impl Rig {
             automation,
             settings,
             controller: NavigationController::new(),
-            idle_peace_mode: false,
+            combat: CombatSettings::default(),
+            vitals: VitalSettings::default(),
+            creep: false,
             door_enabled: true,
             door_locked: false,
             door_armed: 0,
@@ -422,7 +446,10 @@ impl Rig {
         RouteTurn {
             automation: &mut self.automation,
             settings: &mut self.settings,
-            idle_peace_mode: self.idle_peace_mode,
+            creep: self.creep.then_some(CreepSettings {
+                combat: &self.combat,
+                vitals: &self.vitals,
+            }),
         }
     }
 
@@ -433,7 +460,10 @@ impl Rig {
             RouteTurn {
                 automation: &mut self.automation,
                 settings: &mut self.settings,
-                idle_peace_mode: self.idle_peace_mode,
+                creep: self.creep.then_some(CreepSettings {
+                    combat: &self.combat,
+                    vitals: &self.vitals,
+                }),
             },
         )
     }
@@ -517,9 +547,12 @@ impl Rig {
         self.controller.bind_action_locks(Rc::clone(locks));
     }
 
+    /// Binds the macro's combat-mode gate (the fight's own), and hands the
+    /// route the combat and vital settings it reads.
     pub fn bind_gate(&mut self) {
-        let gate: Rc<RefCell<dyn CombatModePreparation>> = Rc::new(RefCell::new(StanceGate));
+        let gate: SharedCombatModeGate = Rc::new(RefCell::new(CombatModeGate::new()));
         self.controller.bind_combat_mode_gate(gate);
+        self.creep = true;
     }
 }
 
