@@ -80,7 +80,7 @@ impl LootAction {
 }
 
 /// One VTank requirement record: its type and its payload text as read.
-#[derive(Debug, Clone, Default, PartialEq, Eq)]
+#[derive(Debug, Clone, Default, PartialEq, Eq, Hash)]
 pub struct VtankLootRequirement {
     /// The requirement type.
     pub kind: i32,
@@ -89,11 +89,12 @@ pub struct VtankLootRequirement {
 }
 
 /// A loot rule, as the profile files hold it.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct LootRule {
     /// The rule's name.
     pub name: String,
-    expression: String,
+    // The default `*` is not copied for every rule a file holds.
+    expression: std::borrow::Cow<'static, str>,
     /// What the rule does.
     pub action: LootAction,
     /// How many to keep for [`LootAction::KeepUpTo`].
@@ -112,7 +113,7 @@ impl Default for LootRule {
     fn default() -> Self {
         Self {
             name: "Rule".to_owned(),
-            expression: "*".to_owned(),
+            expression: std::borrow::Cow::Borrowed("*"),
             action: LootAction::Keep,
             keep_count: 1,
             priority: 0,
@@ -133,9 +134,9 @@ impl LootRule {
     /// Sets the expression: blank becomes `*`, anything else is trimmed.
     pub fn set_expression(&mut self, value: &str) {
         self.expression = if casing::is_white_space_only(value) {
-            "*".to_owned()
+            std::borrow::Cow::Borrowed("*")
         } else {
-            value.trim().to_owned()
+            std::borrow::Cow::Owned(value.trim().to_owned())
         };
     }
 
@@ -152,7 +153,7 @@ impl LootRule {
 }
 
 /// The salvage-combine block: how bags of each material combine.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct VtankSalvageCombineSettings {
     /// The default combine ranges.
     pub default_combine_string: String,
@@ -241,52 +242,140 @@ pub fn try_read(source: Option<&str>) -> Result<VtankLootProfile, String> {
 /// Reads as much of a profile as is well formed.
 #[must_use]
 pub fn read_allowing_partial(source: Option<&str>) -> VtankLootProfileReadResult {
-    let mut profile = VtankLootProfile::default();
-    let Some(source) = source.filter(|text| !text.is_empty()) else {
-        return VtankLootProfileReadResult {
-            profile,
-            error: "The VTClassic loot profile is empty.".to_owned(),
-            is_complete: false,
-        };
-    };
-    match read_into(source, &mut profile) {
-        Ok(()) => VtankLootProfileReadResult {
-            profile,
-            error: String::new(),
-            is_complete: true,
-        },
-        Err(FormatError(message)) => VtankLootProfileReadResult {
-            profile,
-            error: message,
-            is_complete: false,
-        },
+    let source = source.unwrap_or_default();
+    let mut read = ProfileRead::new();
+    loop {
+        if let Some(result) = read.step(source, usize::MAX) {
+            return result;
+        }
     }
 }
 
-fn read_into(source: &str, profile: &mut VtankLootProfile) -> Result<(), FormatError> {
-    let mut reader = CharacterReader::new(source);
+/// A read of a profile a run of its rules at a time (a large profile has
+/// thousands, more than one plugin call should parse): each
+/// [`Self::step`] reads on from where the last stopped, and the result is
+/// the one [`read_allowing_partial`] gives for the same text.
+#[derive(Debug, Clone, Default)]
+pub struct ProfileRead {
+    /// Where the next step reads from, in bytes.
+    position: usize,
+    /// The header, once read: the version and the rule count.
+    header: Option<(i32, usize)>,
+    /// What has been read so far.
+    profile: VtankLootProfile,
+    /// The read is over.
+    done: bool,
+}
+
+impl ProfileRead {
+    /// A read from the start.
+    #[must_use]
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// How far the read has got, in bytes of the text.
+    #[must_use]
+    pub fn position(&self) -> usize {
+        self.position
+    }
+
+    /// Reads on through `source` (the same text on every step) until at
+    /// least `bytes` more have been read and a rule ends, or the read is
+    /// over; the result once it is (`None` while rules remain). The blocks
+    /// after the rules are read in the step that reads the last rule.
+    pub fn step(&mut self, source: &str, bytes: usize) -> Option<VtankLootProfileReadResult> {
+        if self.done {
+            return None;
+        }
+        if source.is_empty() {
+            return Some(self.finish(Err(FormatError(
+                "The VTClassic loot profile is empty.".to_owned(),
+            ))));
+        }
+        let mut reader = CharacterReader {
+            source,
+            position: self.position,
+        };
+        let outcome = self.read_on(&mut reader, bytes);
+        self.position = reader.position;
+        match outcome {
+            Ok(false) => None,
+            Ok(true) => Some(self.finish(Ok(()))),
+            Err(error) => Some(self.finish(Err(error))),
+        }
+    }
+
+    fn finish(&mut self, outcome: Result<(), FormatError>) -> VtankLootProfileReadResult {
+        self.done = true;
+        let profile = std::mem::take(&mut self.profile);
+        match outcome {
+            Ok(()) => VtankLootProfileReadResult {
+                profile,
+                error: String::new(),
+                is_complete: true,
+            },
+            Err(FormatError(message)) => VtankLootProfileReadResult {
+                profile,
+                error: message,
+                is_complete: false,
+            },
+        }
+    }
+
+    /// Whether the whole profile has been read.
+    fn read_on(
+        &mut self,
+        reader: &mut CharacterReader<'_>,
+        bytes: usize,
+    ) -> Result<bool, FormatError> {
+        let (version, count) = match self.header {
+            Some(header) => header,
+            None => {
+                let header = read_header(reader)?;
+                self.profile.source_version = header.0;
+                self.header = Some(header);
+                header
+            }
+        };
+        let start = reader.position;
+        while self.profile.rules.len() < count {
+            let index = self.profile.rules.len();
+            let rule = read_rule(reader, version, index)?;
+            self.profile.rules.push(rule);
+            if self.profile.rules.len() < count && reader.position - start >= bytes {
+                return Ok(false);
+            }
+        }
+        read_blocks(reader, &mut self.profile)?;
+        Ok(true)
+    }
+}
+
+/// The version and the rule count.
+fn read_header(reader: &mut CharacterReader<'_>) -> Result<(i32, usize), FormatError> {
     let first = reader.read_line()?;
-    let (version, count) = if first == HEADER {
-        let version = parse_int(reader.read_line()?, "profile version")?;
+    if first == HEADER {
+        let version = parse_int(reader.read_line()?, Field::Named("profile version"))?;
         if !(0..=CURRENT_VERSION).contains(&version) {
             return Err(FormatError(format!(
                 "VTClassic loot profile version {version} is not supported."
             )));
         }
-        (
+        Ok((
             version,
-            parse_count(reader.read_line()?, "rule count", 100_000)?,
-        )
+            parse_count(reader.read_line()?, Field::Named("rule count"), 100_000)?,
+        ))
     } else {
-        (0, parse_count(first, "rule count", 100_000)?)
-    };
-
-    profile.source_version = version;
-    for index in 0..count {
-        let rule = read_rule(&mut reader, version, index)?;
-        profile.rules.push(rule);
+        Ok((0, parse_count(first, Field::Named("rule count"), 100_000)?))
     }
+}
 
+/// The blocks after the rules, to the end of the text.
+fn read_blocks(
+    reader: &mut CharacterReader<'_>,
+    profile: &mut VtankLootProfile,
+) -> Result<(), FormatError> {
     while !reader.at_end() {
         let block_type = reader.read_line()?;
         if block_type.is_empty() && reader.at_end() {
@@ -294,11 +383,11 @@ fn read_into(source: &str, profile: &mut VtankLootProfile) -> Result<(), FormatE
         }
         let length = parse_count(
             reader.read_line()?,
-            &format!("{block_type} block length"),
+            Field::Block(block_type),
             16 * 1024 * 1024,
         )?;
         if block_type == SALVAGE_BLOCK {
-            profile.salvage_combine = read_salvage(&mut reader)?;
+            profile.salvage_combine = read_salvage(reader)?;
         } else {
             let payload = reader.read_characters(length)?;
             profile.unknown_blocks.push(VtankLootExtraBlock {
@@ -313,20 +402,32 @@ fn read_into(source: &str, profile: &mut VtankLootProfile) -> Result<(), FormatE
 /// Writes a profile as version 1.
 #[must_use]
 pub fn write(profile: &VtankLootProfile) -> String {
-    let mut output = String::new();
+    write_parts(
+        &profile.rules,
+        &profile.salvage_combine,
+        &profile.unknown_blocks,
+    )
+}
+
+/// [`write`] of a profile with these rules, salvage settings and other
+/// blocks, the rules written where they are (a large profile has
+/// thousands).
+#[must_use]
+pub fn write_parts(
+    rules: &[LootRule],
+    salvage: &VtankSalvageCombineSettings,
+    unknown_blocks: &[VtankLootExtraBlock],
+) -> String {
+    let mut output = String::with_capacity(64 + rules.len() * 256);
     append_line(&mut output, HEADER);
-    append_line(&mut output, &CURRENT_VERSION.to_string());
-    append_line(&mut output, &profile.rules.len().to_string());
-    for rule in &profile.rules {
+    append_number_line(&mut output, i64::from(CURRENT_VERSION));
+    append_number_line(&mut output, count(rules.len()));
+    for rule in rules {
         write_rule(&mut output, rule);
     }
 
-    write_block(
-        &mut output,
-        SALVAGE_BLOCK,
-        &write_salvage(&profile.salvage_combine),
-    );
-    for block in &profile.unknown_blocks {
+    write_block(&mut output, SALVAGE_BLOCK, &write_salvage(salvage));
+    for block in unknown_blocks {
         if block.kind.is_empty() || block.kind == SALVAGE_BLOCK {
             continue;
         }
@@ -347,14 +448,14 @@ fn read_rule(
     } else {
         ""
     };
-    let fields: Vec<&str> = reader.read_line()?.split(';').collect();
-    if fields.len() < 2 {
+    let mut fields = reader.read_line()?.split(';');
+    let (Some(priority), Some(action_value)) = (fields.next(), fields.next()) else {
         return Err(FormatError(format!(
             "Loot rule {number} has an invalid header."
         )));
-    }
-    let priority = parse_int(fields[0], &format!("rule {number} priority"))?;
-    let action_value = parse_int(fields[1], &format!("rule {number} action"))?;
+    };
+    let priority = parse_int(priority, Field::Rule(number, "priority"))?;
+    let action_value = parse_int(action_value, Field::Rule(number, "action"))?;
     let action = LootAction::from_i32(action_value)
         .filter(|_| (0..=10).contains(&action_value))
         .ok_or_else(|| FormatError(format!("Loot rule {number} has action {action_value}.")))?;
@@ -365,23 +466,24 @@ fn read_rule(
         } else {
             name.to_owned()
         },
+        expression: std::borrow::Cow::Borrowed("*"),
         custom_expression: custom_expression.to_owned(),
         action,
+        keep_count: 1,
         priority,
+        vtank_requirements: Vec::with_capacity(fields.clone().count()),
         has_imported_requirements: true,
-        ..LootRule::default()
     };
     if rule.action == LootAction::KeepUpTo {
-        rule.keep_count =
-            parse_int(reader.read_line()?, &format!("rule {number} keep count"))?.max(0);
+        rule.keep_count = parse_int(reader.read_line()?, Field::Rule(number, "keep count"))?.max(0);
     }
 
-    for field in &fields[2..] {
-        let kind = parse_int(field, &format!("rule {number} requirement type"))?;
+    for field in fields {
+        let kind = parse_int(field, Field::Rule(number, "requirement type"))?;
         let payload = if version >= 1 {
             let length = parse_count(
                 reader.read_line()?,
-                &format!("rule {number} requirement length"),
+                Field::Rule(number, "requirement length"),
                 16 * 1024 * 1024,
             )?;
             match legacy_payload_line_count(kind) {
@@ -407,27 +509,27 @@ fn write_rule(output: &mut String, rule: &LootRule) {
     append_line(output, single_line(&rule.custom_expression));
 
     let requirements = export_requirements(rule);
-    let mut header = rule.priority.to_string();
-    header.push(';');
     let action = rule.action as i32;
     let action = if (0..=10).contains(&action) {
         action
     } else {
         LootAction::NoLoot as i32
     };
-    header.push_str(&action.to_string());
+    push_decimal(output, i64::from(rule.priority));
+    output.push(';');
+    push_decimal(output, i64::from(action));
     for requirement in requirements.iter() {
-        header.push(';');
-        header.push_str(&requirement.kind.to_string());
+        output.push(';');
+        push_decimal(output, i64::from(requirement.kind));
     }
-    append_line(output, &header);
+    output.push_str(NEW_LINE);
 
     if action == LootAction::KeepUpTo as i32 {
-        append_line(output, &rule.keep_count.max(0).to_string());
+        append_number_line(output, i64::from(rule.keep_count.max(0)));
     }
     for requirement in requirements.iter() {
-        let payload = normalize_payload(&requirement.payload);
-        append_line(output, &utf16::len(&payload).to_string());
+        let payload = normalized(&requirement.payload);
+        append_number_line(output, count(utf16_len(&payload)));
         output.push_str(&payload);
     }
 }
@@ -446,6 +548,19 @@ fn read_known_payload(
     reader: &mut CharacterReader<'_>,
     line_count: usize,
 ) -> Result<String, FormatError> {
+    // Lines already ended by `\r\n` in the file are the payload as it
+    // stands: one copy instead of one per line.
+    let start = reader.position;
+    let mut written_as_is = true;
+    for _ in 0..line_count {
+        let line_start = reader.position;
+        let end = line_start + reader.read_line()?.len();
+        written_as_is &= reader.source.get(end..reader.position) == Some(NEW_LINE);
+    }
+    if written_as_is {
+        return Ok(reader.source[start..reader.position].to_owned());
+    }
+    reader.position = start;
     let mut payload = String::new();
     for _ in 0..line_count {
         append_line(&mut payload, reader.read_line()?);
@@ -456,15 +571,19 @@ fn read_known_payload(
 fn read_salvage(
     reader: &mut CharacterReader<'_>,
 ) -> Result<VtankSalvageCombineSettings, FormatError> {
-    parse_int(reader.read_line()?, "salvage block version")?;
+    parse_int(reader.read_line()?, Field::Named("salvage block version"))?;
     let mut result = VtankSalvageCombineSettings {
         default_combine_string: reader.read_line()?.to_owned(),
         material_combine_strings: BTreeMap::new(),
         material_value_mode_values: BTreeMap::new(),
     };
-    let strings = parse_count(reader.read_line()?, "salvage material rule count", 10_000)?;
+    let strings = parse_count(
+        reader.read_line()?,
+        Field::Named("salvage material rule count"),
+        10_000,
+    )?;
     for _ in 0..strings {
-        let material = parse_int(reader.read_line()?, "salvage material id")?;
+        let material = parse_int(reader.read_line()?, Field::Named("salvage material id"))?;
         result
             .material_combine_strings
             .insert(material, reader.read_line()?.to_owned());
@@ -472,10 +591,20 @@ fn read_salvage(
     if reader.at_end() {
         return Ok(result);
     }
-    let values = parse_count(reader.read_line()?, "salvage value-mode count", 10_000)?;
+    let values = parse_count(
+        reader.read_line()?,
+        Field::Named("salvage value-mode count"),
+        10_000,
+    )?;
     for _ in 0..values {
-        let material = parse_int(reader.read_line()?, "salvage value material id")?;
-        let value = parse_int(reader.read_line()?, "salvage value-mode value")?;
+        let material = parse_int(
+            reader.read_line()?,
+            Field::Named("salvage value material id"),
+        )?;
+        let value = parse_int(
+            reader.read_line()?,
+            Field::Named("salvage value-mode value"),
+        )?;
         result.material_value_mode_values.insert(material, value);
     }
     Ok(result)
@@ -505,10 +634,65 @@ fn write_salvage(settings: &VtankSalvageCombineSettings) -> String {
 }
 
 fn write_block(output: &mut String, kind: &str, payload: &str) {
-    let normalized = normalize_payload(payload);
+    let payload = normalized(payload);
     append_line(output, single_line(kind));
-    append_line(output, &utf16::len(&normalized).to_string());
-    output.push_str(&normalized);
+    append_number_line(output, count(utf16_len(&payload)));
+    output.push_str(&payload);
+}
+
+/// [`normalize_payload`], the text itself when it is in those line endings
+/// already (every carriage return before a line feed, every line feed after
+/// a carriage return).
+fn normalized(payload: &str) -> std::borrow::Cow<'_, str> {
+    let bytes = payload.as_bytes();
+    let mut index = 0;
+    while index < bytes.len() {
+        match bytes[index] {
+            b'\r' if bytes.get(index + 1) == Some(&b'\n') => index += 2,
+            b'\r' | b'\n' => return std::borrow::Cow::Owned(normalize_payload(payload)),
+            _ => index += 1,
+        }
+    }
+    std::borrow::Cow::Borrowed(payload)
+}
+
+/// The UTF-16 length, the byte length of ASCII text.
+fn utf16_len(text: &str) -> usize {
+    if text.is_ascii() {
+        text.len()
+    } else {
+        utf16::len(text)
+    }
+}
+
+/// A count as the file writes it.
+fn count(value: usize) -> i64 {
+    i64::try_from(value).unwrap_or(i64::MAX)
+}
+
+/// `value` in decimal, as `{value}` writes it.
+fn push_decimal(output: &mut String, value: i64) {
+    if value < 0 {
+        output.push('-');
+    }
+    let mut digits = [0u8; 20];
+    let mut rest = value.unsigned_abs();
+    let mut start = digits.len();
+    loop {
+        start -= 1;
+        digits[start] = b'0' + u8::try_from(rest % 10).unwrap_or(0);
+        rest /= 10;
+        if rest == 0 {
+            break;
+        }
+    }
+    output.push_str(std::str::from_utf8(&digits[start..]).unwrap_or_default());
+}
+
+/// A number on a line of its own.
+fn append_number_line(output: &mut String, value: i64) {
+    push_decimal(output, value);
+    output.push_str(NEW_LINE);
 }
 
 /// Text in the line endings a block is written with, so a length measured
@@ -523,7 +707,11 @@ pub fn normalize_payload(payload: &str) -> String {
 
 /// The text up to its first line break.
 fn single_line(value: &str) -> &str {
-    value.find(['\r', '\n']).map_or(value, |end| &value[..end])
+    // Line breaks are ASCII: a byte search finds the first.
+    let end = value
+        .bytes()
+        .position(|byte| byte == b'\r' || byte == b'\n');
+    end.map_or(value, |end| &value[..end])
 }
 
 /// Lines a requirement type's payload has (version 0 has no lengths).
@@ -539,7 +727,29 @@ fn legacy_payload_line_count(kind: i32) -> Option<usize> {
     })
 }
 
-fn parse_count(value: &str, field: &str, maximum: i32) -> Result<usize, FormatError> {
+/// The field a number is read for, named in the refusal: worded only when
+/// the number does not read (a large profile reads some ten thousand).
+#[derive(Debug, Clone, Copy)]
+enum Field<'a> {
+    /// A field of the profile, by name.
+    Named(&'a str),
+    /// A block's length line, by the block's type line.
+    Block(&'a str),
+    /// A field of the rule with this number.
+    Rule(usize, &'static str),
+}
+
+impl std::fmt::Display for Field<'_> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Named(name) => f.write_str(name),
+            Self::Block(kind) => write!(f, "{kind} block length"),
+            Self::Rule(number, name) => write!(f, "rule {number} {name}"),
+        }
+    }
+}
+
+fn parse_count(value: &str, field: Field<'_>, maximum: i32) -> Result<usize, FormatError> {
     let parsed = parse_int(value, field)?;
     if parsed < 0 || parsed > maximum {
         return Err(FormatError(format!("Invalid {field}: {value}.")));
@@ -547,7 +757,7 @@ fn parse_count(value: &str, field: &str, maximum: i32) -> Result<usize, FormatEr
     Ok(usize::try_from(parsed).expect("a checked count"))
 }
 
-fn parse_int(value: &str, field: &str) -> Result<i32, FormatError> {
+fn parse_int(value: &str, field: Field<'_>) -> Result<i32, FormatError> {
     try_parse_int(value).ok_or_else(|| FormatError(format!("Invalid {field}: {value}.")))
 }
 
@@ -564,13 +774,6 @@ struct CharacterReader<'a> {
 }
 
 impl<'a> CharacterReader<'a> {
-    fn new(source: &'a str) -> Self {
-        Self {
-            source,
-            position: 0,
-        }
-    }
-
     fn at_end(&self) -> bool {
         self.position >= self.source.len()
     }
@@ -588,6 +791,11 @@ impl<'a> CharacterReader<'a> {
 
     fn read_characters(&mut self, count: usize) -> Result<&'a str, FormatError> {
         let rest = &self.source[self.position..];
+        // ASCII text counts one UTF-16 unit a byte.
+        if rest.as_bytes().get(..count).is_some_and(<[u8]>::is_ascii) {
+            self.position += count;
+            return Ok(&rest[..count]);
+        }
         let Some((value, _)) = utf16::split_at(rest, count) else {
             return Err(FormatError(
                 "A VTClassic length-delimited block is truncated.".to_owned(),
@@ -606,12 +814,11 @@ impl<'a> CharacterReader<'a> {
 /// The profile text for `rules`, with MossTank's expressions attached.
 #[must_use]
 pub fn serialize_rules(rules: &[LootRule]) -> String {
-    let mut profile = VtankLootProfile {
-        rules: rules.to_vec(),
-        ..VtankLootProfile::default()
-    };
-    attach_mosstank_expressions(&mut profile);
-    write(&profile)
+    write_parts(
+        rules,
+        &VtankSalvageCombineSettings::default(),
+        &[mosstank_expressions_block(rules)],
+    )
 }
 
 /// The rules in the text of a profile file, expressions and all; `None`
@@ -628,27 +835,51 @@ pub fn attach_mosstank_expressions(profile: &mut VtankLootProfile) {
     profile
         .unknown_blocks
         .retain(|block| block.kind != MOSSTANK_RULES_BLOCK_TYPE);
+    let block = mosstank_expressions_block(&profile.rules);
+    profile.unknown_blocks.push(block);
+}
 
-    let mut payload = String::new();
-    payload.push_str(&profile.rules.len().to_string());
-    payload.push_str("\r\n");
-    for rule in &profile.rules {
+/// The block holding each rule's MossTank expression
+/// ([`attach_mosstank_expressions`]).
+#[must_use]
+pub fn mosstank_expressions_block(rules: &[LootRule]) -> VtankLootExtraBlock {
+    let mut payload = String::with_capacity(8 + rules.len() * 4);
+    append_number_line(&mut payload, count(rules.len()));
+    for rule in rules {
         // An imported rule keeps its requirement records, even an empty
         // list; its expression is not stored. The length is measured on the
         // text as the block is written, line breaks normalized.
-        let expression = if rule.has_imported_requirements || !rule.vtank_requirements.is_empty() {
-            String::new()
-        } else {
-            normalize_payload(rule.expression())
-        };
-        payload.push_str(&utf16::len(&expression).to_string());
-        payload.push_str("\r\n");
+        if rule.has_imported_requirements || !rule.vtank_requirements.is_empty() {
+            append_number_line(&mut payload, 0);
+            continue;
+        }
+        let expression = normalized(rule.expression());
+        append_number_line(&mut payload, count(utf16_len(&expression)));
         payload.push_str(&expression);
     }
-    profile.unknown_blocks.push(VtankLootExtraBlock {
+    VtankLootExtraBlock {
         kind: MOSSTANK_RULES_BLOCK_TYPE.to_owned(),
         payload,
-    });
+    }
+}
+
+/// The other blocks a read gives of a profile written with `blocks` (the
+/// ones [`write_parts`] writes, as the reader takes them back); `None`
+/// when that is not plain from the blocks themselves (a kind the reader
+/// would take for the salvage block, or an empty one).
+#[must_use]
+pub fn blocks_as_read(blocks: &[VtankLootExtraBlock]) -> Option<Vec<VtankLootExtraBlock>> {
+    blocks
+        .iter()
+        .filter(|block| !block.kind.is_empty() && block.kind != SALVAGE_BLOCK)
+        .map(|block| {
+            let kind = single_line(&block.kind);
+            (!kind.is_empty() && kind != SALVAGE_BLOCK).then(|| VtankLootExtraBlock {
+                kind: kind.to_owned(),
+                payload: normalized(&block.payload).into_owned(),
+            })
+        })
+        .collect()
 }
 
 /// Takes MossTank's expression block out of `profile` and puts each
@@ -884,5 +1115,97 @@ mod tests {
         let partial = read_allowing_partial(Some(&crate::fixtures::read_vtank("loot-d.utl")));
         assert!(!partial.is_complete);
         assert!(!partial.profile.rules.is_empty());
+    }
+
+    // The C# tests' fixtures (Fixtures/vtank/loot-*.utl), one written with
+    // `\n` alone and one with mixed breaks too: read a run at a time, a
+    // profile is what reading it whole gives, a cut-short one included.
+    #[test]
+    fn a_read_a_run_at_a_time_is_the_whole_read() {
+        let mut texts: Vec<String> = ["loot-a.utl", "loot-b.utl", "loot-c.utl", "loot-d.utl"]
+            .iter()
+            .map(|name| crate::fixtures::read_vtank(name))
+            .collect();
+        texts.push(texts[2].replace("\r\n", "\n"));
+        texts.push(
+            texts[2]
+                .replacen("\r\n", "\n", 40)
+                .replacen("\r\n", "\r", 7),
+        );
+        texts.push(String::new());
+        for text in &texts {
+            let whole = read_allowing_partial(Some(text));
+            for bytes in [0, 1, 200, 5000] {
+                let mut read = ProfileRead::new();
+                let mut steps = 0;
+                let result = loop {
+                    steps += 1;
+                    if let Some(result) = read.step(text, bytes) {
+                        break result;
+                    }
+                };
+                assert_eq!(result, whole, "{bytes} bytes a step");
+                assert!(read.step(text, bytes).is_none(), "the read is over");
+                if bytes == 0 && whole.profile.rules.len() > 2 {
+                    assert!(steps > 2, "a rule a step");
+                }
+            }
+        }
+    }
+
+    // The writer's shortcuts give what the plain forms give: a payload in
+    // its line endings already is written as it is, a number as `{n}`.
+    #[test]
+    fn the_writers_shortcuts_write_what_the_plain_forms_write() {
+        for payload in [
+            "",
+            "a",
+            "a\r\nb\r\n",
+            "a\nb",
+            "a\rb",
+            "\r\r\n",
+            "\n\r",
+            "x\r",
+            "\r\n\r\n",
+            "é\r\nü",
+        ] {
+            assert_eq!(
+                normalized(payload),
+                normalize_payload(payload),
+                "{payload:?}"
+            );
+            assert_eq!(utf16_len(payload), utf16::len(payload), "{payload:?}");
+        }
+        for value in [i64::MIN, -10, -1, 0, 7, 10, 1684, i64::MAX] {
+            let mut text = String::new();
+            push_decimal(&mut text, value);
+            assert_eq!(text, value.to_string());
+        }
+        assert_eq!(single_line("first\r\nsecond"), "first");
+        assert_eq!(single_line("only"), "only");
+    }
+
+    // What a store remembers of a file it wrote is what reading the file
+    // gives: the other blocks, line breaks as written.
+    #[test]
+    fn the_blocks_a_written_profile_reads_back_are_the_blocks_written() {
+        let profile = try_read(Some(&crate::fixtures::read_vtank("loot-c.utl"))).unwrap();
+        let blocks = vec![
+            VtankLootExtraBlock {
+                kind: "Other".to_owned(),
+                payload: "one\ntwo\rthree\r\n".to_owned(),
+            },
+            mosstank_expressions_block(&profile.rules),
+        ];
+        let text = write_parts(&profile.rules, &profile.salvage_combine, &blocks);
+        assert_eq!(
+            blocks_as_read(&blocks),
+            Some(try_read(Some(&text)).unwrap().unknown_blocks)
+        );
+        let odd = [VtankLootExtraBlock {
+            kind: "SalvageCombine\r\nx".to_owned(),
+            payload: String::new(),
+        }];
+        assert_eq!(blocks_as_read(&odd), None);
     }
 }

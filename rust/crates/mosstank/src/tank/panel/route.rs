@@ -296,22 +296,29 @@ pub(super) fn act(cx: &mut TankCx<'_>, name: &str, arg: &Arg) -> bool {
 impl TankCx<'_> {
     /// The waypoint rows, the one being walked to marked
     /// (`RefreshRouteEditor`'s rows).
-    pub(crate) fn route_rows(&self) -> Vec<String> {
+    pub(crate) fn route_rows(&mut self) -> Vec<String> {
         let active = self.core.navigation.current_waypoint_index();
         let enabled = self.core.settings.navigation.enabled;
-        self.core
-            .settings
-            .navigation
-            .waypoints
+        let core = &mut *self.core;
+        let waypoints = &core.settings.navigation.waypoints;
+        // The waypoints' words are kept while the waypoints are the same:
+        // the grid is pushed often and wording a waypoint is costly.
+        let memo = &mut core.memo.route_texts;
+        if memo.as_ref().is_none_or(|(kept, _)| kept != waypoints) {
+            let texts = waypoints.iter().map(RouteWaypoint::display_text).collect();
+            *memo = Some((waypoints.clone(), texts));
+        }
+        let texts = memo.as_ref().map_or(&[][..], |(_, texts)| texts.as_slice());
+        texts
             .iter()
             .enumerate()
-            .map(|(index, waypoint)| {
+            .map(|(index, text)| {
                 let marker = if i32::try_from(index).ok() == Some(active) && enabled {
                     "<<"
                 } else {
                     "  "
                 };
-                format!("{marker} {}", waypoint.display_text())
+                format!("{marker} {text}")
             })
             .collect()
     }

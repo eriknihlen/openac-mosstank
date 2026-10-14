@@ -28,6 +28,7 @@ mod route_commands;
 pub(crate) mod rules;
 mod services;
 mod session;
+pub(crate) mod staged_load;
 pub mod ub;
 mod vendor;
 
@@ -217,6 +218,11 @@ pub struct Core {
     /// The game database file as last read, so the same text is not
     /// parsed again.
     pub(crate) game_info_memo: mosstank_formats::gameinfo::GameInfoMemo,
+    /// The character's profile set, while it loads a step a tick
+    /// (register PROF-1).
+    pub(crate) staged_load: Option<staged_load::StagedLoad>,
+    /// A load of several frames ended in the last frame (register PROF-1).
+    pub(crate) settling_after_load: bool,
 
     pub(crate) locks: SharedActionLocks,
     pub(crate) gate: SharedCombatModeGate,
@@ -314,6 +320,9 @@ pub(crate) struct Memos {
     /// they were worked out for.
     pub(crate) buff_picker_rows:
         Option<(Rc<[ac_plugin_abi::magic::SpellInfo]>, String, Vec<String>)>,
+    /// The route's waypoints as the route grid words them, for the
+    /// waypoints they were worked out for.
+    pub(crate) route_texts: Option<(Vec<mosstank_formats::route::RouteWaypoint>, Vec<String>)>,
 }
 
 /// The macro shell.
@@ -324,6 +333,10 @@ pub struct Tank {
     pub(crate) core: Core,
     pub(crate) ub: ub::UbParts,
 }
+
+/// How much profile text the start reads and parses before the rest of a
+/// large set goes on over the first ticks (register PROF-1).
+const START_LOAD_BYTES: usize = staged_load::LOAD_BYTES_PER_TICK;
 
 /// Where the first-run guidance is remembered.
 const ONBOARDING_KEY: &str = "onboarding/v1.txt";
@@ -732,6 +745,8 @@ impl Tank {
             queued_announcements: Vec::new(),
             game_info,
             game_info_memo,
+            staged_load: None,
+            settling_after_load: false,
             locks,
             gate,
             tracker,
@@ -837,7 +852,7 @@ impl Tank {
                 }),
             );
         }
-        let mut scheduler = rules::build_scheduler(&core.idle_peace);
+        let scheduler = rules::build_scheduler(&core.idle_peace);
         core.hold = scheduler.pass_hold();
         {
             let suspend = core.hold.clone();
@@ -857,33 +872,21 @@ impl Tank {
             };
             // The aliases hold what is typed from the start (`InitializeAliases`).
             cx.attach_aliases();
-            cx.load_initial_profiles();
-        }
-        scheduler.meta_interval_seconds =
-            f64::from(core.profiles.meta_interval_milliseconds()) / 1000.0;
-        meta.set_interval_milliseconds(core.profiles.meta_interval_milliseconds());
-        meta.set_enabled(core.settings.meta.enabled);
-        core.initialized = true;
-        {
-            let mut cx = TankCx {
-                client: &mut *client,
-                core: &mut core,
-                meta: &mut meta,
-                ub: &mut ub,
-            };
-            cx.apply_persisted_option_overrides();
-            cx.refresh_editors();
-            cx.refresh_live_ub_rows(true);
-            cx.refresh_meta_editor();
+            // The set of whoever is in the world, and what the constructor
+            // does with it; a large set goes on over the first ticks
+            // (register PROF-1).
+            cx.load_initial_profiles(START_LOAD_BYTES);
         }
         core.automation_was_available = client.rules().is_available();
         core.write_out(client);
-        Self {
+        let mut tank = Self {
             scheduler,
             meta,
             core,
             ub,
-        }
+        };
+        tank.apply_pending_meta_interval();
+        tank
     }
 
     /// The call's state over this shell.
@@ -1052,6 +1055,7 @@ impl Tank {
     pub fn execute_vtank_command(&mut self, client: &mut dyn TankClient, arguments: &str) {
         self.begin_call(client);
         let (mut cx, _) = self.cx(client);
+        cx.finish_staged_load();
         cx.refresh_live_ub_rows(true);
         commands::execute_vtank(&mut cx, arguments);
         cx.core.write_out(cx.client);
@@ -1062,6 +1066,7 @@ impl Tank {
     pub fn execute_ub_command(&mut self, client: &mut dyn TankClient, arguments: &str) {
         self.begin_call(client);
         let (mut cx, _) = self.cx(client);
+        cx.finish_staged_load();
         cx.refresh_live_ub_rows(true);
         commands::execute_ub(&mut cx, arguments);
         cx.core.write_out(cx.client);
@@ -1084,6 +1089,13 @@ impl Tank {
     #[must_use]
     pub fn frame_was_heavy(&self) -> bool {
         self.core.heavy_frame
+    }
+
+    /// The character's profile set is loading, a step a tick (register
+    /// PROF-1).
+    #[must_use]
+    pub fn is_loading_profiles(&self) -> bool {
+        self.core.staged_load.is_some()
     }
 
     /// What the macro needs the character for, so a walk the client plans
@@ -1129,6 +1141,10 @@ impl Tank {
         // The kill statistics hear the client before the meta does: the C#
         // recorder subscribes first.
         cx.core.kill_statistics_event(cx.client, event);
+        // A window attached builds its pickers afresh (register UI-4).
+        if matches!(event, Event::WindowAttached(true)) {
+            cx.core.panel.listings.relist_all();
+        }
         match event {
             Event::Net(ac_plugin_abi::net::NetEvent::HttpCompleted(reply)) => {
                 cx.core.on_http_reply(cx.client, reply);
@@ -1185,6 +1201,9 @@ impl Tank {
     pub fn disable(&mut self, client: &mut dyn TankClient) {
         self.begin_call(client);
         let (mut cx, _) = self.cx(client);
+        // A profile load under way is finished: the plugin stops on a whole
+        // set (register PROF-1).
+        cx.finish_staged_load();
         cx.core.release_peer_subscriptions(cx.client);
         cx.core.dispose_session_records(cx.client);
         // The UB tools' runs end with the plugin, and the name tags give
@@ -1461,6 +1480,11 @@ impl Tank {
             cx.refresh_item_editors();
         }
         self.ub.flush(client);
+        // A write to the profile folder (the plugin's own, the UB settings
+        // just flushed among them) is shown by the pickers (register UI-4).
+        for key in client.take_profile_writes() {
+            self.core.panel.listings.relist_key(&key);
+        }
         // The item timers a call changed are written before it returns
         // (register STORE-6), whatever kind of call it was.
         let storage = client

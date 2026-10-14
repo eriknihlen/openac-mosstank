@@ -82,13 +82,21 @@ const UNSUPPORTED_INT_KEYS: [(u32, &str); 12] = [
     (VTANK_INT_BASE + 46, "OwnedBy"),
 ];
 
-fn payload_lines(payload: &str) -> Vec<String> {
-    payload
-        .replace("\r\n", "\n")
-        .replace('\r', "\n")
-        .split('\n')
-        .map(str::to_owned)
-        .collect()
+/// Line `index` of a payload, its lines broken at `\r\n`, `\r` or `\n`
+/// (`None` past the last; a payload ending in a break has an empty last
+/// line).
+fn payload_line(payload: &str, index: usize) -> Option<&str> {
+    let mut rest = payload;
+    for _ in 0..index {
+        let end = rest.find(['\r', '\n'])?;
+        let skip = if rest[end..].starts_with("\r\n") {
+            2
+        } else {
+            1
+        };
+        rest = &rest[end + skip..];
+    }
+    Some(rest.find(['\r', '\n']).map_or(rest, |end| &rest[..end]))
 }
 
 /// The warning a load gives when enabled rules read a value the client
@@ -101,7 +109,8 @@ pub fn unsupported_key_warning(profile_name: &str, rules: &[LootRule]) -> Option
         // VTClassic's "disabled" requirement set to true: never matches.
         let disabled = rule.vtank_requirements.iter().any(|requirement| {
             requirement.kind == 9999
-                && parse_bool(payload_lines(&requirement.payload)[0].trim()) == Ok(true)
+                && payload_line(&requirement.payload, 0)
+                    .is_some_and(|line| parse_bool(line.trim()) == Ok(true))
         });
         if disabled {
             continue;
@@ -110,8 +119,7 @@ pub fn unsupported_key_warning(profile_name: &str, rules: &[LootRule]) -> Option
             if !matches!(requirement.kind, 2 | 3 | 11 | 12 | 13 | 2003) {
                 continue;
             }
-            let values = payload_lines(&requirement.payload);
-            let Some(key) = values.get(1).and_then(|text| try_parse_uint(text)) else {
+            let Some(key) = payload_line(&requirement.payload, 1).and_then(try_parse_uint) else {
                 continue;
             };
             if let Some((_, name)) = UNSUPPORTED_INT_KEYS.iter().find(|(known, _)| *known == key) {
@@ -137,6 +145,60 @@ pub fn unsupported_key_warning(profile_name: &str, rules: &[LootRule]) -> Option
     ))
 }
 
+/// A loot profile's load whose file has been read and whose rules are
+/// being parsed, a run at a time ([`LootProfileStore::begin_load`]).
+#[derive(Debug, Clone)]
+pub struct LootLoad {
+    file_name: String,
+    text: String,
+    read: utl::ProfileRead,
+    result: Option<utl::VtankLootProfileReadResult>,
+}
+
+impl LootLoad {
+    /// Parses on through at least `bytes` more of the file (a rule is
+    /// never cut); whether the whole file has been read.
+    pub fn step(&mut self, bytes: usize) -> bool {
+        if self.result.is_none() {
+            self.result = self.read.step(&self.text, bytes);
+        }
+        self.result.is_some()
+    }
+
+    /// The file being read.
+    #[must_use]
+    pub fn file_name(&self) -> &str {
+        &self.file_name
+    }
+
+    /// Whether the whole file has been parsed.
+    #[must_use]
+    pub fn is_parsed(&self) -> bool {
+        self.result.is_some()
+    }
+
+    /// The file's length, in bytes.
+    #[must_use]
+    pub fn byte_len(&self) -> usize {
+        self.text.len()
+    }
+
+    /// How far the parse has got, in bytes of the file.
+    #[must_use]
+    pub fn position(&self) -> usize {
+        self.read.position()
+    }
+}
+
+/// How a load begins: over already (no file to read), or reading one.
+#[derive(Debug, Clone)]
+pub enum LootLoadStart {
+    /// The load is over, with this outcome.
+    Done(ProfileLoad),
+    /// The file was read; its rules are parsed next.
+    Reading(Box<LootLoad>),
+}
+
 /// The loot profile store (`MossTankLootProfileStore`).
 #[derive(Debug, Clone)]
 #[allow(clippy::struct_excessive_bools)]
@@ -153,6 +215,29 @@ pub struct LootProfileStore {
     load_failure_notice: Option<String>,
     load_notice: Option<String>,
     last_load_key: Option<String>,
+    /// The active profile's file as this store last read or wrote it.
+    file_memo: Option<FileMemo>,
+}
+
+/// A profile file as the store last read or wrote it: its text, the blocks
+/// a read of it gives besides the rules (`None` when not known without
+/// reading it), and what it was written from (a hash of the rules and the
+/// salvage settings).
+#[derive(Debug, Clone)]
+struct FileMemo {
+    file_name: String,
+    text: String,
+    blocks: Option<Vec<VtankLootExtraBlock>>,
+    written: Option<u64>,
+}
+
+/// What a profile is written from, as one number.
+fn content_hash(rules: &[LootRule], salvage: &VtankSalvageCombineSettings) -> u64 {
+    use std::hash::{Hash, Hasher};
+    let mut hasher = std::hash::DefaultHasher::new();
+    rules.hash(&mut hasher);
+    salvage.hash(&mut hasher);
+    hasher.finish()
 }
 
 impl Default for LootProfileStore {
@@ -178,6 +263,7 @@ impl LootProfileStore {
             load_failure_notice: None,
             load_notice: None,
             last_load_key: None,
+            file_memo: None,
         }
     }
 
@@ -447,13 +533,35 @@ impl LootProfileStore {
         target: &mut Vec<LootRule>,
         mut settings: Option<&mut LootSettings>,
     ) -> Result<ProfileLoad, StoreError> {
+        match self.begin_load(host, target, settings.as_deref_mut())? {
+            LootLoadStart::Done(outcome) => Ok(outcome),
+            LootLoadStart::Reading(mut load) => {
+                while !load.step(usize::MAX) {}
+                self.finish_load(host, *load, target, settings)
+            }
+        }
+    }
+
+    /// The first part of [`Self::load_current`]: the file is found and
+    /// read, and its rules wait to be parsed ([`LootLoad::step`]) and
+    /// applied ([`Self::finish_load`]); a load with no file to read is over
+    /// here.
+    ///
+    /// # Errors
+    /// A storage failure.
+    pub fn begin_load(
+        &mut self,
+        host: &mut dyn StoreHost,
+        target: &mut Vec<LootRule>,
+        settings: Option<&mut LootSettings>,
+    ) -> Result<LootLoadStart, StoreError> {
         self.sweep_legacy_roster_if_needed(host)?;
         let file_name = self.pending_or_current_file_name();
         self.last_load_key = Some(file_name.clone());
         if file_name.is_empty() {
             self.load_failure_notice = Some("No loot profile is active.".to_owned());
             self.deactivate_if_needed(target, settings);
-            return Ok(ProfileLoad::Failed);
+            return Ok(LootLoadStart::Done(ProfileLoad::Failed));
         }
         let text = {
             let storage = host.storage(Root::Profiles);
@@ -466,16 +574,50 @@ impl LootProfileStore {
         let Some(text) = text else {
             if self.is_by_character(&file_name) {
                 self.activate(host, BY_CHARACTER, settings, false)?;
-                return Ok(ProfileLoad::Missing);
+                return Ok(LootLoadStart::Done(ProfileLoad::Missing));
             }
-            return Ok(self.reject_load(
+            return Ok(LootLoadStart::Done(self.reject_load(
                 &file_name,
                 "The selected loot profile was not found.",
                 target,
                 settings,
-            ));
+            )));
         };
-        let read = utl::read_allowing_partial(Some(&text));
+        Ok(LootLoadStart::Reading(Box::new(LootLoad {
+            file_name,
+            text,
+            read: utl::ProfileRead::new(),
+            result: None,
+        })))
+    }
+
+    /// The last part of [`Self::load_current`], once `load` has read its
+    /// whole text: the rules and salvage settings applied, or the load
+    /// refused.
+    ///
+    /// # Errors
+    /// A storage failure.
+    pub fn finish_load(
+        &mut self,
+        host: &mut dyn StoreHost,
+        load: LootLoad,
+        target: &mut Vec<LootRule>,
+        mut settings: Option<&mut LootSettings>,
+    ) -> Result<ProfileLoad, StoreError> {
+        let LootLoad {
+            file_name,
+            text,
+            mut read,
+            result,
+        } = load;
+        let read = match result {
+            Some(result) => result,
+            None => loop {
+                if let Some(result) = read.step(&text, usize::MAX) {
+                    break result;
+                }
+            },
+        };
         let mut profile = read.profile;
         if !read.is_complete {
             let notice = recovery::preserve(host, "loot", &file_name, Some(&text), &read.error);
@@ -485,25 +627,35 @@ impl LootProfileStore {
                 return Ok(self.reject_load(&file_name, &read.error, target, settings));
             }
             utl::apply_mosstank_expressions(&mut profile);
-            target.clone_from(&profile.rules);
             self.warn_unsupported_keys(host, &file_name, &profile.rules);
+            // The rules are handed over, not copied: a large profile has
+            // thousands.
+            *target = std::mem::take(&mut profile.rules);
             if let Some(loot) = settings.as_deref_mut() {
                 loot.salvage_combine = profile.salvage_combine.clone();
             }
             self.activate(host, &file_name, settings, true)?;
             self.load_notice = Some(format!(
                 "Loaded {} rules; incomplete profile tail was not loaded and source was preserved.",
-                profile.rules.len()
+                target.len()
             ));
             return Ok(ProfileLoad::Partial);
         }
+        // What a read of the file gives besides the rules, for the saves.
+        let blocks = profile.unknown_blocks.clone();
         utl::apply_mosstank_expressions(&mut profile);
-        target.clone_from(&profile.rules);
         self.warn_unsupported_keys(host, &file_name, &profile.rules);
+        *target = std::mem::take(&mut profile.rules);
         if let Some(loot) = settings.as_deref_mut() {
             loot.salvage_combine = profile.salvage_combine.clone();
         }
         self.activate(host, &file_name, settings, false)?;
+        self.file_memo = Some(FileMemo {
+            file_name,
+            text,
+            blocks: Some(blocks),
+            written: None,
+        });
         Ok(ProfileLoad::Loaded)
     }
 
@@ -605,13 +757,9 @@ impl LootProfileStore {
             return Ok(());
         }
         let file_name = self.current_file_name();
-        let mut profile = VtankLootProfile {
-            rules: rules.to_vec(),
-            salvage_combine: settings
-                .map(|loot| loot.salvage_combine.clone())
-                .unwrap_or_default(),
-            ..VtankLootProfile::default()
-        };
+        let salvage = settings
+            .map(|loot| loot.salvage_combine.clone())
+            .unwrap_or_default();
         let existing = {
             let storage = host.storage(Root::Profiles);
             if storage.is_available() {
@@ -620,9 +768,30 @@ impl LootProfileStore {
                 None
             }
         };
-        if let Some(existing_text) = existing {
-            match utl::try_read(Some(&existing_text)) {
-                Ok(existing) => profile.unknown_blocks = existing.unknown_blocks,
+        // The file as it was last read or written here: its other blocks
+        // are known without reading it again, and when this store wrote it
+        // from these very rules, writing again would give the same file.
+        let current = self.file_memo.as_ref().is_some_and(|memo| {
+            memo.file_name == file_name && existing.as_deref() == Some(memo.text.as_str())
+        });
+        let content = content_hash(rules, &salvage);
+        if current
+            && self
+                .file_memo
+                .as_ref()
+                .is_some_and(|memo| memo.written == Some(content))
+        {
+            return Ok(());
+        }
+        let known = self
+            .file_memo
+            .take()
+            .filter(|_| current)
+            .and_then(|memo| memo.blocks);
+        let mut blocks = match (known, existing) {
+            (Some(blocks), _) => blocks,
+            (None, Some(existing_text)) => match utl::try_read(Some(&existing_text)) {
+                Ok(existing) => existing.unknown_blocks,
                 Err(error) => {
                     let notice =
                         recovery::preserve(host, "loot", &file_name, Some(&existing_text), &error);
@@ -630,9 +799,28 @@ impl LootProfileStore {
                     self.recovery_notice = Some(notice);
                     return Ok(());
                 }
-            }
+            },
+            (None, None) => Vec::new(),
+        };
+        // `attach_mosstank_expressions`, over the rules where they are.
+        blocks.retain(|block| block.kind != utl::MOSSTANK_RULES_BLOCK_TYPE);
+        blocks.push(utl::mosstank_expressions_block(rules));
+        if !host.storage(Root::Profiles).is_available() {
+            return Ok(());
         }
-        Self::write_utl(host, &file_name, &mut profile);
+        let text = utl::write_parts(rules, &salvage, &blocks);
+        if let Err(error) = host.storage(Root::Profiles).write_text(&file_name, &text) {
+            host.log().warn(&format!(
+                "MossTank loot profile could not be saved: {error}"
+            ));
+            return Ok(());
+        }
+        self.file_memo = Some(FileMemo {
+            file_name,
+            text,
+            blocks: utl::blocks_as_read(&blocks),
+            written: Some(content),
+        });
         Ok(())
     }
 

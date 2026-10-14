@@ -87,3 +87,41 @@ pub fn bindings(markup: &str) -> Result<Vec<(String, BindingKind)>, String> {
     }
     Ok(found)
 }
+
+/// Every use of a value binding in the markup, with the `visible`
+/// bindings of the elements it sits in (its own element's too, unless the
+/// use is that `visible` itself): the use is drawn only while all of them
+/// are true.
+///
+/// # Errors
+/// The markup is not XML.
+pub fn uses_with_visibility(markup: &str) -> Result<Vec<(String, Vec<String>)>, String> {
+    let document = roxmltree::Document::parse(markup).map_err(|error| error.to_string())?;
+    let mut uses = Vec::new();
+    for node in document.descendants().filter(roxmltree::Node::is_element) {
+        let element = node.tag_name().name();
+        let column_type = node.attribute("type");
+        let shown_by = |node: roxmltree::Node<'_, '_>| {
+            node.attribute("visible")
+                .and_then(binding)
+                .map(str::to_owned)
+        };
+        let ancestors: Vec<String> = node.ancestors().skip(1).filter_map(shown_by).collect();
+        for attribute in node.attributes() {
+            let Some(name) = binding(attribute.value()) else {
+                continue;
+            };
+            if value_kind(element, attribute.name(), column_type).is_none() {
+                continue;
+            }
+            let mut conditions = ancestors.clone();
+            if attribute.name() != "visible"
+                && let Some(own) = shown_by(node)
+            {
+                conditions.push(own);
+            }
+            uses.push((name.to_owned(), conditions));
+        }
+    }
+    Ok(uses)
+}

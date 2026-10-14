@@ -10,6 +10,7 @@
 mod advanced;
 mod chrome;
 mod items;
+pub(crate) mod listings;
 mod meta_tab;
 pub(crate) mod monsters;
 mod profiles_tab;
@@ -68,6 +69,8 @@ pub(crate) struct PanelState {
     pub(crate) loot_editor_visible: bool,
     pub(crate) advanced: advanced::AdvancedState,
     pub(crate) loot_rule_rows: Vec<String>,
+    /// Bumped each time the loot rows are worked out again.
+    pub(crate) loot_rule_rows_revision: u64,
     pub(crate) selected_loot_rule: i32,
     pub(crate) loot_expression_draft: String,
     pub(crate) loot_profile_name_draft: String,
@@ -85,6 +88,8 @@ pub(crate) struct PanelState {
     /// The Items page's rows must be rebuilt at the end of the call.
     pub(crate) items_dirty: bool,
     pub(crate) ub: ub_pages::UbPageState,
+    /// When the profile pickers list their folders again (register UI-4).
+    pub(crate) listings: listings::Listings,
 }
 
 impl Default for PanelState {
@@ -111,6 +116,7 @@ impl Default for PanelState {
             loot_editor_visible: false,
             advanced: advanced::AdvancedState::default(),
             loot_rule_rows: Vec::new(),
+            loot_rule_rows_revision: 0,
             selected_loot_rule: 0,
             loot_expression_draft: "*".to_owned(),
             loot_profile_name_draft: String::new(),
@@ -127,6 +133,7 @@ impl Default for PanelState {
             admission: ItemAdmission::default(),
             items_dirty: true,
             ub: ub_pages::UbPageState::default(),
+            listings: listings::Listings::default(),
         }
     }
 }
@@ -270,12 +277,25 @@ impl Tank {
         cx.ui_value(name)
     }
 
+    /// For a binding worked out from a folder listing, a number that is the
+    /// same for as long as its value is (register UI-4); `None` for one
+    /// worked out at every push.
+    pub(crate) fn ui_value_key(
+        &mut self,
+        client: &mut dyn TankClient,
+        name: &str,
+    ) -> Option<listings::ValueKey> {
+        let (cx, _) = self.cx(client);
+        cx.value_key(name)
+    }
+
     /// A control's handler fired (the C# panel's action of that name);
     /// false for a name no window uses.
     pub fn ui_act(&mut self, client: &mut dyn TankClient, name: &str, value: ActionValue) -> bool {
         self.begin_call(client);
         let arg = Arg::from(value);
         let (mut cx, _) = self.cx(client);
+        cx.finish_staged_load();
         cx.refresh_live_ub_rows(true);
         let handled = cx.ui_act(name, &arg);
         cx.core.write_out(cx.client);

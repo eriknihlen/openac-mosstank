@@ -236,6 +236,12 @@ pub struct HostAutomation<'h, 'a> {
     /// The windows the meta draws, kept by the plugin between calls; with
     /// none, the meta's windows are not drawn.
     pub(crate) meta_windows: Option<&'h mut crate::meta_windows::MetaWindows>,
+    /// The bytes of text this view read from storage (a profile load
+    /// spends its tick by them, register PROF-1).
+    pub(crate) storage_bytes_read: usize,
+    /// The keys this view wrote, deleted or made a folder of in the profile
+    /// folder.
+    pub(crate) profiles_written: Vec<String>,
 }
 
 /// Which storage a [`HostAutomation`] answers as.
@@ -260,6 +266,8 @@ impl<'h, 'a> HostAutomation<'h, 'a> {
             storage_view: StorageView::Meta,
             ub_displays: None,
             meta_windows: None,
+            storage_bytes_read: 0,
+            profiles_written: Vec::new(),
         }
     }
 

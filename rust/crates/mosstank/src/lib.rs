@@ -60,11 +60,15 @@ pub struct MossTank {
     meta_windows: meta_windows::MetaWindows,
     /// What the client's views keep between calls (the spell table).
     kept: automation::KeptReads,
-    /// An event the client told changed what the windows may show: the next
-    /// tick pushes their values.
+    /// A push due was left for a later tick: the next tick that may, pushes.
     windows_stale: bool,
     /// The last push due was left to this tick (a push waits a tick at most).
     windows_deferred: bool,
+    /// What the costly values (the pickers, the meta grid, the loot rows)
+    /// were worked out from at the last push (register UI-4).
+    pushed_keys: std::collections::HashMap<String, u64>,
+    /// The values pushed at least once.
+    ever_pushed: std::collections::HashSet<String>,
 }
 
 impl MossTank {
@@ -103,15 +107,58 @@ impl MossTank {
                 &mut self.meta_windows,
                 &mut self.kept,
             );
+            let kinds = &*windows;
+            let pushed = &mut self.pushed_keys;
+            let ever_pushed = &mut self.ever_pushed;
+            let mut listed = false;
+            let mut shown: std::collections::HashMap<&str, bool> = std::collections::HashMap::new();
             names
                 .iter()
                 .filter_map(|name| {
+                    // A value drawn only in a part of a window that is not
+                    // shown keeps the value pushed before, or until it is
+                    // first shown an empty one of its kind (register UI-1).
+                    if let Some(part) = panel::shown_only_with(name) {
+                        let visible = *shown.entry(part).or_insert_with(|| {
+                            matches!(
+                                tank.ui_value(&mut client, part),
+                                Some(ac_plugin_abi::ui::UiValue::Bool(true))
+                            )
+                        });
+                        if !visible {
+                            if ever_pushed.contains(name.as_str()) {
+                                return None;
+                            }
+                            let empty = kinds.kind_of(name).and_then(panel::empty_value)?;
+                            ever_pushed.insert(name.clone());
+                            return Some((name.as_str(), empty));
+                        }
+                    }
+                    // A costly value whose sources are as they were at the
+                    // last push keeps the value pushed then, and a push
+                    // lists one folder again at most: another picker that
+                    // has a value waits for the next (register UI-4).
+                    if let Some(key) = tank.ui_value_key(&mut client, name) {
+                        let kept = pushed.get(name.as_str());
+                        if kept == Some(&key.key) || (key.listing && listed && kept.is_some()) {
+                            return None;
+                        }
+                        listed |= key.listing;
+                        pushed.insert(name.clone(), key.key);
+                    }
                     let value = tank.ui_value(&mut client, name)?;
+                    if !ever_pushed.contains(name.as_str()) {
+                        ever_pushed.insert(name.clone());
+                    }
                     Some((name.as_str(), value))
                 })
                 .collect()
         };
-        windows.push(host, values);
+        if !windows.push(host, values) {
+            // A window refused its values: every value goes again.
+            self.pushed_keys.clear();
+            self.ever_pushed.clear();
+        }
         // The meta's windows read the views and the status list as they
         // stand.
         self.meta_windows.push(host, &mut |window_id, name| {
@@ -259,6 +306,7 @@ impl MossTank {
             return;
         };
         let had_spell_table = self.kept.has_spell_table();
+        let was_loading = tank.is_loading_profiles();
         let passes = tank.pass_count();
         {
             let mut client = HostAutomation::for_call(
@@ -297,18 +345,21 @@ impl MossTank {
             // The walk's hold changed through the host, past the view.
             self.kept.end_call();
         }
-        // The values follow on their own every tenth of a second, and on the
-        // first tick after an event the client told; a tick that ran the
-        // macro's pass or did a tick's worth of once-only work (the spell
-        // table read, the name tags' first look at a crowded world) leaves
-        // them to the next, once (register UI-1).
+        // The values follow on their own every tenth of a second; a tick
+        // that ran the macro's pass or did a tick's worth of once-only work
+        // (the spell table read, the name tags' first look at a crowded
+        // world, a step of the profile load) leaves them to the next, once
+        // (register UI-1); while the character's profile set loads, the
+        // windows wait for it (register PROF-1).
         let due = self
             .windows
             .as_mut()
             .is_some_and(|windows| windows.push_due(TICK_SECONDS));
         let stale = std::mem::take(&mut self.windows_stale);
         if due || stale {
-            if heavy && !self.windows_deferred {
+            if was_loading || tank.is_loading_profiles() {
+                self.windows_stale = true;
+            } else if heavy && !self.windows_deferred {
                 self.windows_stale = true;
                 self.windows_deferred = true;
             } else {
@@ -368,13 +419,11 @@ impl MossTank {
             }
         }
         // What the player did is shown at once; what the client told is shown
-        // on the next tick, so a burst of the client's events (a login brings
-        // thousands) works the values out once a tick, not once an event
-        // (register UI-1).
+        // with the next push, a tenth of a second apart, so a busy server's
+        // stream of events (a login brings thousands) works the values out
+        // ten times a second, not once an event or a tick (register UI-1).
         if is_player_action(&event) {
             self.push_windows(host);
-        } else {
-            self.windows_stale = true;
         }
     }
 

@@ -171,6 +171,12 @@ impl MetaProfileStore {
         self.name_of_key(host, &self.selected)
     }
 
+    /// The selected file's key, as kept (what [`Self::selected`] names).
+    #[must_use]
+    pub fn selected_key(&self) -> &str {
+        &self.selected
+    }
+
     /// What was said when a meta had to be preserved.
     #[must_use]
     pub fn recovery_notice(&self) -> Option<&str> {

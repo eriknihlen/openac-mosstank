@@ -210,6 +210,7 @@ pub struct Plugin {
     disable: TypedFunc<(), ()>,
     tick: TypedFunc<(), ()>,
     event: TypedFunc<(i32, i32), ()>,
+    callback: Option<TypedFunc<(i32, i32), i64>>,
 }
 
 impl Plugin {
@@ -279,6 +280,7 @@ impl Plugin {
             event: instance
                 .get_typed_func(&store, exports::EVENT)
                 .map_err(|_| func(exports::EVENT))?,
+            callback: instance.get_typed_func(&store, exports::CALLBACK).ok(),
             store,
             memory,
         };
@@ -332,6 +334,25 @@ impl Plugin {
         let (_, mut fuel) = self.run(self.event, (ptr, len), "event", FUEL_PER_CALL, client)?;
         // The buffer is a call of its own on the host, with its own budget;
         // it is counted with the event it carries, the stricter reading.
+        fuel.absorb(&handed);
+        Ok(fuel)
+    }
+
+    /// One callback the plugin registered (a chat interceptor, a loot
+    /// classifier); the buffer it is handed in is counted with it.
+    ///
+    /// # Errors
+    /// A fault, or a plugin without the callback export.
+    pub fn callback(
+        &mut self,
+        callback: &ac_plugin_abi::callback::Callback,
+        client: &mut dyn Client,
+    ) -> Result<CallFuel, String> {
+        let func = self
+            .callback
+            .ok_or_else(|| format!("no {} export", exports::CALLBACK))?;
+        let (ptr, len, handed) = self.hand_over(&callback.to_bytes(), client)?;
+        let (_, mut fuel) = self.run(func, (ptr, len), "callback", FUEL_PER_CALL, client)?;
         fuel.absorb(&handed);
         Ok(fuel)
     }

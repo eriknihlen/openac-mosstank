@@ -109,6 +109,16 @@ pub fn meta_peer_requirements(profile: &MetaProfile) -> u32 {
 
 fn text_needs(text: &str) -> u32 {
     let mut flags = capabilities::NONE;
+    // Both calls begin `netc`, whose letters match only themselves in
+    // either case: a text without it needs neither pattern run (a large
+    // meta has thousands of expressions, and the patterns are costly).
+    if !text
+        .as_bytes()
+        .windows(4)
+        .any(|window| window.eq_ignore_ascii_case(b"netc"))
+    {
+        return flags;
+    }
     if NETCLIENTS.is_match(text).unwrap_or(false) {
         flags |= capabilities::CLIENT_STATE;
     }

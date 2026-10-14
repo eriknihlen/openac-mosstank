@@ -135,6 +135,16 @@ impl HostAutomation<'_, '_> {
             StorageView::Store(place) => (place.clone(), false),
         }
     }
+
+    /// [`Self::storage_place`], for a change to it: a change to the profile
+    /// folder is noted (its pickers list it again).
+    fn note_write(&mut self, key: &str) -> (StoragePlace, bool) {
+        let (place, always) = self.storage_place();
+        if place.root == StorageRoot::Profiles {
+            self.profiles_written.push(key.to_owned());
+        }
+        (place, always)
+    }
 }
 
 /// The storage the last accessor handed out: the meta's (the plugin's own
@@ -153,7 +163,11 @@ impl PluginStorage for HostAutomation<'_, '_> {
 
     fn read_text(&mut self, key: &str) -> Result<Option<String>, StorageError> {
         let (place, _) = self.storage_place();
-        self.service().storage_read_text(&place, key)
+        let text = self.service().storage_read_text(&place, key);
+        if let Ok(Some(text)) = &text {
+            self.storage_bytes_read += text.len();
+        }
+        text
     }
 
     fn list(&mut self, prefix: &str) -> Result<Vec<String>, StorageError> {
@@ -162,17 +176,17 @@ impl PluginStorage for HostAutomation<'_, '_> {
     }
 
     fn write_text(&mut self, key: &str, content: &str) -> Result<(), StorageError> {
-        let (place, _) = self.storage_place();
+        let (place, _) = self.note_write(key);
         self.service().storage_write_text(&place, key, content)
     }
 
     fn ensure_directory(&mut self, prefix: &str) -> Result<bool, StorageError> {
-        let (place, _) = self.storage_place();
+        let (place, _) = self.note_write(prefix);
         self.service().storage_ensure_folder(&place, prefix)
     }
 
     fn delete(&mut self, key: &str) -> Result<bool, StorageError> {
-        let (place, _) = self.storage_place();
+        let (place, _) = self.note_write(key);
         self.service().storage_delete(&place, key)
     }
 

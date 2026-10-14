@@ -255,8 +255,8 @@ impl Core {
 
     /// `TickGameInfoUpdate`: an answer that came in is handed over and
     /// said; a session in the world checks once, unless the last check is
-    /// younger than the preference's interval.
-    pub(crate) fn tick_game_info_update(&mut self, client: &mut dyn TankClient) {
+    /// younger than the preference's interval. Whether a check started.
+    pub(crate) fn tick_game_info_update(&mut self, client: &mut dyn TankClient) -> bool {
         if self.session.game_info_updater.is_running() {
             self.step_game_info_update(client);
         }
@@ -280,7 +280,9 @@ impl Core {
             let interval = i64::from(self.profiles.game_db_check_interval_hours()) * 3600;
             self.session.game_info_checked_this_session =
                 self.start_game_info_update(client, interval).is_none();
+            return self.session.game_info_checked_this_session;
         }
+        false
     }
 
     /// A download that came in, one stage on.

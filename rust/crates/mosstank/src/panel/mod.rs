@@ -167,6 +167,66 @@ pub fn spec(window: &WindowSpec) -> Result<(PanelSpec, Vec<(String, BindingKind)
 /// (register UI-1).
 pub const PUSH_INTERVAL_SECONDS: f64 = 0.1;
 
+/// Values drawn only inside one shown part of a window (a page of the main
+/// window, an editor window): the C# windows read a property only to draw
+/// it, so these are worked out and pushed only while that part is shown
+/// (and once at the start), the costly grids and pickers among them
+/// (register UI-1). A test holds each to the markup: every use of the
+/// value sits inside the part.
+pub const SHOWN_ONLY_WITH: [(&str, &str); 23] = [
+    ("MacroProfileNames", "ProfilesVisible"),
+    ("RouteProfileNames", "ProfilesVisible"),
+    ("SelectedRouteProfile", "ProfilesVisible"),
+    ("LootProfileNames", "ProfilesVisible"),
+    ("MetaProfileNames", "ProfilesVisible"),
+    ("SelectedMetaProfile", "ProfilesVisible"),
+    ("RouteWaypointTextColumn", "RouteVisible"),
+    ("RouteWaypointCountColumn", "RouteVisible"),
+    ("RouteWaypointColors", "RouteVisible"),
+    ("MetaDeleteColumn", "MetaVisible"),
+    ("MetaMoveUpIcons", "MetaVisible"),
+    ("MetaMoveDownIcons", "MetaVisible"),
+    ("MetaStateColumn", "MetaVisible"),
+    ("MetaConditionColumn", "MetaVisible"),
+    ("MetaActionColumn", "MetaVisible"),
+    ("MetaCurrentStateNames", "MetaVisible"),
+    ("UbProfileNames", "UbSettingsVisible"),
+    ("UbSettingNames", "UbSettingsVisible"),
+    ("UbSettingValues", "UbSettingsVisible"),
+    ("LootRuleRows", "LootEditorVisible"),
+    ("BuffPickerRows", "BuffPickerVisible"),
+    ("AdvancedOptionNames", "AdvancedOptionsVisible"),
+    ("AdvancedOptionValueColumn", "AdvancedOptionsVisible"),
+];
+
+/// The value a binding of `kind` has before anything is worked out for it:
+/// false, zero, empty. `None` for a handler.
+#[must_use]
+pub fn empty_value(kind: BindingKind) -> Option<UiValue> {
+    Some(match kind {
+        BindingKind::Bool => UiValue::Bool(false),
+        BindingKind::Int => UiValue::Int(0),
+        BindingKind::Uint => UiValue::Uint(0),
+        BindingKind::Float => UiValue::Float(0.0),
+        BindingKind::Text => UiValue::Text(String::new()),
+        BindingKind::TextList => UiValue::TextList(Vec::new()),
+        BindingKind::UintList => UiValue::UintList(Vec::new()),
+        BindingKind::IntList => UiValue::IntList(Vec::new()),
+        BindingKind::BoolList => UiValue::BoolList(Vec::new()),
+        _ => return None,
+    })
+}
+
+/// The shown part `name` is drawn in, when it is one of
+/// [`SHOWN_ONLY_WITH`].
+#[must_use]
+pub fn shown_only_with(name: &str) -> Option<&'static str> {
+    SHOWN_ONLY_WITH
+        .iter()
+        .find(|(value, _)| *value == name)
+        .map(|(_, shown)| *shown)
+}
+
 /// The registered windows.
 #[derive(Debug, Default)]
 pub struct Windows {
@@ -227,6 +287,16 @@ impl Windows {
         self.since_push >= PUSH_INTERVAL_SECONDS
     }
 
+    /// The kind a value binding is declared with.
+    #[must_use]
+    pub fn kind_of(&self, name: &str) -> Option<BindingKind> {
+        self.panels
+            .iter()
+            .flat_map(|(_, bindings)| bindings)
+            .find(|(binding, _)| binding == name)
+            .map(|(_, kind)| *kind)
+    }
+
     /// Every value binding the windows name, once each, in first-use order
     /// (worked out when the windows are registered).
     #[must_use]
@@ -235,9 +305,11 @@ impl Windows {
     }
 
     /// Pushes the values worked out for [`Self::value_names`]; the SDK
-    /// sends only what changed.
-    pub fn push(&mut self, host: &mut Host<'_>, mut values: HashMap<&str, UiValue>) {
+    /// sends only what changed. A binding with no value keeps the one pushed
+    /// before. Whether every window took its values.
+    pub fn push(&mut self, host: &mut Host<'_>, mut values: HashMap<&str, UiValue>) -> bool {
         self.since_push = 0.0;
+        let mut taken = true;
         for ((panel, bindings), last_use) in self.panels.iter_mut().zip(&self.last_use) {
             for ((name, kind), &last) in bindings.iter().zip(last_use) {
                 if is_handler(*kind) {
@@ -253,12 +325,14 @@ impl Windows {
                 }
             }
             if let Err(error) = panel.flush(host) {
+                taken = false;
                 host.warn(&format!(
                     "MossTank window '{}' refused its values: {error}",
                     panel.window_id()
                 ));
             }
         }
+        taken
     }
 
     /// Removes every window.

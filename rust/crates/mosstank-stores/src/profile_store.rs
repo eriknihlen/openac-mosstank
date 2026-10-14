@@ -218,6 +218,18 @@ impl ProfileStore {
         self.preferences.mine_only
     }
 
+    /// What the picker's names depend on besides the folder: the
+    /// character, the world, `mine_only` and the current file.
+    #[must_use]
+    pub fn picker_inputs(&self) -> (&str, &str, bool, String) {
+        (
+            &self.character_name,
+            &self.server,
+            self.preferences.mine_only,
+            self.current_file_name(),
+        )
+    }
+
     /// How often the meta is looked at, held in the engine's range.
     #[must_use]
     pub fn meta_interval_milliseconds(&self) -> i32 {

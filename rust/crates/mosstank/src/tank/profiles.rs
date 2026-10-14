@@ -10,6 +10,7 @@
 use mosstank_formats::gameinfo::{GameInfoMemo, ProfileText, VtankGameInfoDatabase};
 use mosstank_formats::route::{NavigationSettings, SpellLookup};
 use mosstank_settings::monster::MonsterFactTable;
+use mosstank_stores::loot_store::{LootLoad, LootLoadStart};
 use mosstank_stores::profile_store::{ProfileLoad, StoreError};
 use mosstank_stores::startup;
 use mosstank_stores::storage::{PluginStorage, Root};
@@ -17,6 +18,7 @@ use openac_plugin_compat::datetime::DateTime;
 
 use super::rules::{lent_loot, route_turn};
 
+use super::staged_load::{LOAD_BYTES_PER_TICK, StagedLoad};
 use super::{Core, TankCx};
 use crate::client::TankClient;
 
@@ -201,15 +203,62 @@ impl Core {
 
     /// `LoadLootProfile`.
     pub(crate) fn load_loot_profile(&mut self, client: &mut dyn TankClient) -> bool {
+        match self.begin_loot_profile_load(client) {
+            Ok(mut load) => {
+                while !load.step(usize::MAX) {}
+                self.finish_loot_profile_load(client, load)
+            }
+            Err(loaded) => loaded,
+        }
+    }
+
+    /// `LoadLootProfile` up to the parse of the file's rules: the load,
+    /// to be parsed ([`LootLoad::step`]) and finished
+    /// ([`Self::finish_loot_profile_load`]), or `LoadLootProfile`'s result
+    /// when there was no file to parse.
+    pub(crate) fn begin_loot_profile_load(
+        &mut self,
+        client: &mut dyn TankClient,
+    ) -> Result<LootLoad, bool> {
+        let loot = &mut self.settings.inventory.loot;
+        let mut rules = std::mem::take(&mut loot.rules);
+        let begun = self
+            .loot_profiles
+            .begin_load(client.stores(), &mut rules, Some(loot));
+        loot.rules = rules;
+        match report!(client, begun) {
+            None => Err(false),
+            Some(LootLoadStart::Done(outcome)) => {
+                Err(self.after_loot_profile_load(client, outcome))
+            }
+            Some(LootLoadStart::Reading(load)) => Ok(*load),
+        }
+    }
+
+    /// The rest of `LoadLootProfile` once `load` has parsed its file.
+    pub(crate) fn finish_loot_profile_load(
+        &mut self,
+        client: &mut dyn TankClient,
+        load: LootLoad,
+    ) -> bool {
         let loot = &mut self.settings.inventory.loot;
         let mut rules = std::mem::take(&mut loot.rules);
         let loaded = self
             .loot_profiles
-            .load_current(client.stores(), &mut rules, Some(loot));
+            .finish_load(client.stores(), load, &mut rules, Some(loot));
         loot.rules = rules;
         let Some(outcome) = report!(client, loaded) else {
             return false;
         };
+        self.after_loot_profile_load(client, outcome)
+    }
+
+    /// What `LoadLootProfile` does with the store's outcome.
+    fn after_loot_profile_load(
+        &mut self,
+        client: &mut dyn TankClient,
+        outcome: ProfileLoad,
+    ) -> bool {
         let key = self.loot_profiles.last_load_key().map(str::to_owned);
         self.announce_load_outcome(client, "loot", key.as_deref(), outcome, None);
         if outcome == ProfileLoad::Missing {
@@ -308,17 +357,26 @@ impl Core {
 }
 
 impl TankCx<'_> {
-    /// The constructor's loads, for whoever is in the world.
-    pub(crate) fn load_initial_profiles(&mut self) {
+    /// The constructor's loads, for whoever is in the world: the settings
+    /// (with the game database), the loot profile, the route and the meta,
+    /// then what the constructor does with them; a step a tick when the set
+    /// is large (register PROF-1).
+    pub(crate) fn load_initial_profiles(&mut self, bytes: usize) {
+        self.core.staged_load = Some(StagedLoad::initial());
+        self.step_staged_load(bytes);
+    }
+
+    /// The constructor's settings load, with the game database; the name
+    /// the set is bound to.
+    pub(crate) fn initial_settings(&mut self) -> String {
         let name = self.client.rules().character().name;
-        let name = Some(name.as_str());
         let game_info = load_game_info(self.client, &mut self.core.game_info_memo);
         self.core.apply_game_info(game_info);
         report!(
             self.client,
             self.core
                 .profiles
-                .bind_character(self.client.stores(), name)
+                .bind_character(self.client.stores(), Some(&name))
         );
         let core = &mut *self.core;
         let loaded = core.profiles.load_current(
@@ -340,72 +398,18 @@ impl TankCx<'_> {
         }
         core.reapply_game_info();
         core.refresh_loot_consumables();
+        name
+    }
 
-        let bound = report!(
-            self.client,
-            core.loot_profiles
-                .bind_character(self.client.stores(), name)
-        )
-        .unwrap_or(false);
-        if bound {
-            // The constructor's own read: no "active" line and no looter
-            // reset, as the full LoadLootProfile has.
-            let loot = &mut core.settings.inventory.loot;
-            let mut rules = std::mem::take(&mut loot.rules);
-            let loaded =
-                core.loot_profiles
-                    .load_current(self.client.stores(), &mut rules, Some(loot));
-            loot.rules = rules;
-            if let Some(outcome) = report!(self.client, loaded) {
-                let key = core.loot_profiles.last_load_key().map(str::to_owned);
-                core.announce_load_outcome(self.client, "loot", key.as_deref(), outcome, None);
-                match outcome {
-                    ProfileLoad::Missing => {
-                        let loot = &core.settings.inventory.loot;
-                        let written = core.loot_profiles.save_current(
-                            self.client.stores(),
-                            &loot.rules,
-                            Some(loot),
-                        );
-                        report!(self.client, written);
-                    }
-                    ProfileLoad::Failed => {
-                        core.loot_editor_notice = core
-                            .loot_profiles
-                            .load_failure_notice()
-                            .unwrap_or("No loot profile is active.")
-                            .to_owned();
-                        self.client
-                            .looter()
-                            .log_error(&core.loot_editor_notice.clone());
-                    }
-                    ProfileLoad::Partial => {
-                        core.loot_editor_notice = core
-                            .loot_profiles
-                            .load_notice()
-                            .unwrap_or(
-                                "Loaded the complete rules before an incomplete profile tail.",
-                            )
-                            .to_owned();
-                        self.client
-                            .rules()
-                            .log_warn(&core.loot_editor_notice.clone());
-                    }
-                    ProfileLoad::Loaded => {}
-                }
-            }
-        } else {
-            core.settings.inventory.loot.rules.clear();
-            core.settings.inventory.loot.profile_active = false;
-        }
-
+    /// The constructor's route read: a route that will not parse is said
+    /// only by its load line.
+    pub(crate) fn initial_route(&mut self, name: &str) {
+        let core = &mut *self.core;
         report!(
             self.client,
             core.route_profiles
-                .bind_character(self.client.stores(), name)
+                .bind_character(self.client.stores(), Some(name))
         );
-        // The constructor's own read: a route that will not parse is said
-        // only by its load line.
         let spells = SpellsSnapshot::read(self.client);
         let loaded = core.route_profiles.load_current(
             self.client.stores(),
@@ -420,11 +424,16 @@ impl TankCx<'_> {
                     .save_current(self.client.stores(), &core.settings.navigation);
             }
         }
+    }
 
+    /// The constructor's meta: the engine is built with it, no transition,
+    /// nothing announced.
+    pub(crate) fn initial_meta(&mut self, name: &str) {
+        let core = &mut *self.core;
         report!(
             self.client,
             core.meta_profiles
-                .bind_character(self.client.stores(), name)
+                .bind_character(self.client.stores(), Some(name))
         );
         let spells = SpellsSnapshot::read(self.client);
         let profile = report!(
@@ -433,14 +442,120 @@ impl TankCx<'_> {
                 .load_current(self.client.stores(), Some(&spells)),
         )
         .unwrap_or_default();
-        // The engine is built with this profile: no transition, nothing
-        // announced.
         self.meta.set_initial_profile(profile);
     }
 
+    /// What the constructor does once the set is read: the meta's interval
+    /// and switch from the profile, the profile's options, and the editors.
+    pub(crate) fn initial_finish(&mut self) {
+        let interval = self.core.profiles.meta_interval_milliseconds();
+        self.core.meta_interval_pending = Some(f64::from(interval) / 1000.0);
+        self.meta.set_interval_milliseconds(interval);
+        self.meta.set_enabled(self.core.settings.meta.enabled);
+        self.core.initialized = true;
+        self.apply_persisted_option_overrides();
+        self.refresh_editors();
+        self.refresh_live_ub_rows(true);
+        self.refresh_meta_editor();
+    }
+}
+
+impl Core {
+    /// The constructor's loot read, up to the parse of the file: the load
+    /// to parse, or `Err` when there was none (no binding, no file).
+    pub(crate) fn begin_initial_loot_load(
+        &mut self,
+        client: &mut dyn TankClient,
+        name: &str,
+    ) -> Result<LootLoad, bool> {
+        let bound = report!(
+            client,
+            self.loot_profiles
+                .bind_character(client.stores(), Some(name))
+        )
+        .unwrap_or(false);
+        if !bound {
+            self.settings.inventory.loot.rules.clear();
+            self.settings.inventory.loot.profile_active = false;
+            return Err(false);
+        }
+        // The constructor's own read: no "active" line and no looter
+        // reset, as the full LoadLootProfile has.
+        let loot = &mut self.settings.inventory.loot;
+        let mut rules = std::mem::take(&mut loot.rules);
+        let begun = self
+            .loot_profiles
+            .begin_load(client.stores(), &mut rules, Some(loot));
+        loot.rules = rules;
+        match report!(client, begun) {
+            None => Err(false),
+            Some(LootLoadStart::Done(outcome)) => {
+                self.after_initial_loot_load(client, outcome);
+                Err(false)
+            }
+            Some(LootLoadStart::Reading(load)) => Ok(*load),
+        }
+    }
+
+    /// The rest of the constructor's loot read once `load` has parsed its
+    /// file.
+    pub(crate) fn finish_initial_loot_load(&mut self, client: &mut dyn TankClient, load: LootLoad) {
+        let loot = &mut self.settings.inventory.loot;
+        let mut rules = std::mem::take(&mut loot.rules);
+        let loaded = self
+            .loot_profiles
+            .finish_load(client.stores(), load, &mut rules, Some(loot));
+        loot.rules = rules;
+        if let Some(outcome) = report!(client, loaded) {
+            self.after_initial_loot_load(client, outcome);
+        }
+    }
+
+    /// What the constructor does with its loot read's outcome.
+    fn after_initial_loot_load(&mut self, client: &mut dyn TankClient, outcome: ProfileLoad) {
+        let key = self.loot_profiles.last_load_key().map(str::to_owned);
+        self.announce_load_outcome(client, "loot", key.as_deref(), outcome, None);
+        match outcome {
+            ProfileLoad::Missing => {
+                let loot = &self.settings.inventory.loot;
+                let written =
+                    self.loot_profiles
+                        .save_current(client.stores(), &loot.rules, Some(loot));
+                report!(client, written);
+            }
+            ProfileLoad::Failed => {
+                self.loot_editor_notice = self
+                    .loot_profiles
+                    .load_failure_notice()
+                    .unwrap_or("No loot profile is active.")
+                    .to_owned();
+                client.looter().log_error(&self.loot_editor_notice.clone());
+            }
+            ProfileLoad::Partial => {
+                self.loot_editor_notice = self
+                    .loot_profiles
+                    .load_notice()
+                    .unwrap_or("Loaded the complete rules before an incomplete profile tail.")
+                    .to_owned();
+                client.rules().log_warn(&self.loot_editor_notice.clone());
+            }
+            ProfileLoad::Loaded => {}
+        }
+    }
+}
+
+impl TankCx<'_> {
     /// `EnsureCharacterProfile`: the binding waits for a name; the same
     /// character returning is no change, a different one rebinds.
     pub(crate) fn ensure_character_profile(&mut self) {
+        // A load under way goes on, on a frame that has room for it; the
+        // binding it was started for stands.
+        if self.core.staged_load.is_some() {
+            if !self.core.heavy_frame {
+                self.step_staged_load_in_frame(true);
+            }
+            return;
+        }
         let character = self.client.rules().character();
         let name = character.name;
         if mosstank_stores::directory::canonical_character_key(Some(&name)).is_empty() {
@@ -485,86 +600,42 @@ impl TankCx<'_> {
         }
         // As the C# has it: the loads below follow a good settings load too,
         // so after one the loot profile and route are read twice and the
-        // meta, when it changed, twice as well.
-        if macro_changed && self.load_selected_profile() == Some(ProfileLoad::Failed) {
+        // meta, when it changed, twice as well. They run a step a tick
+        // (register PROF-1).
+        self.core.staged_load = Some(StagedLoad::new(
+            macro_changed,
+            loot_changed,
+            route_changed,
+            meta_changed,
+        ));
+        // A frame that already did a frame's worth (the name tags' first
+        // look at a crowded world) leaves the first step to the next.
+        if self.core.heavy_frame {
             return;
         }
-        if loot_changed {
-            self.core.load_loot_profile(self.client);
+        self.step_staged_load_in_frame(false);
+    }
+
+    /// A frame's steps of the staged load (`under_way`: begun in an earlier
+    /// frame). A frame that loaded a tick's worth, leaves more for the
+    /// next or ends a load of several frames counts as a heavy one: its
+    /// other once-only work and the window push wait a frame.
+    fn step_staged_load_in_frame(&mut self, under_way: bool) {
+        let (more, spent) = self.step_staged_load(LOAD_BYTES_PER_TICK);
+        if more || under_way || spent >= LOAD_BYTES_PER_TICK {
+            self.core.heavy_frame = true;
         }
-        if route_changed {
-            self.load_route_profile();
-        }
-        if meta_changed {
-            self.load_meta_profile();
-        }
-        if macro_changed && meta_changed {
-            self.load_meta_profile();
-        }
-        let who = self.client.rules().character().name;
-        self.core.profile_lifecycle_notice = format!(
-            "Loaded {} for {}",
-            self.core.profiles.selected(),
-            if who.is_empty() {
-                "this character.".to_owned()
-            } else {
-                format!("{who}.")
-            }
-        );
     }
 
     /// `LoadSelectedProfile`.
     pub(crate) fn load_selected_profile(&mut self) -> Option<ProfileLoad> {
-        let core = &mut *self.core;
-        let retain_active_loot = core.loot_profiles.has_active_profile();
-        let active_rules = core.settings.inventory.loot.rules.clone();
-        let active_salvage = core.settings.inventory.loot.salvage_combine.clone();
-        let loaded = core.profiles.load_current(
-            self.client.stores(),
-            &mut core.settings,
-            &mut core.no_buff_item_names,
-            &mut core.command_log_types,
-        );
-        let outcome = report!(self.client, loaded)?;
-        let key = core.profiles.last_load_key().map(str::to_owned);
-        core.announce_load_outcome(self.client, "settings", key.as_deref(), outcome, None);
-        core.reapply_game_info();
-        core.refresh_loot_consumables();
+        let (outcome, retained) = self.load_selected_settings()?;
         if outcome == ProfileLoad::Failed {
-            core.profile_lifecycle_notice = core
-                .profiles
-                .load_failure_notice()
-                .unwrap_or("The settings profile could not be read.")
-                .to_owned();
             return Some(outcome);
         }
-        // The profile's own EnableMeta decides whether the meta runs; the
-        // pass is still gated on the macro running.
-        self.meta.set_enabled(self.core.settings.meta.enabled);
-        let core = &mut *self.core;
-        let loot_loaded = core.load_loot_profile(self.client);
-        if !loot_loaded {
-            if retain_active_loot {
-                let loot = &mut core.settings.inventory.loot;
-                loot.rules = active_rules;
-                loot.salvage_combine = active_salvage;
-                loot.profile_active = true;
-            }
-        } else if retain_active_loot && core.loot_profiles.active_profile_is_partial() {
-            let loot = &mut core.settings.inventory.loot;
-            loot.rules = active_rules;
-            loot.salvage_combine = active_salvage;
-            core.loot_editor_notice = format!(
-                "Loot profile {} has an incomplete tail; current rules were retained and source was preserved.",
-                core.loot_profiles.selected()
-            );
-            self.client
-                .rules()
-                .log_warn(&core.loot_editor_notice.clone());
-        }
-        self.load_route_profile();
-        self.apply_persisted_option_overrides();
-        self.reset_profile_consumers();
+        let loot_loaded = self.core.load_loot_profile(self.client);
+        self.keep_active_loot(loot_loaded, Some(retained));
+        self.load_selected_route();
         Some(outcome)
     }
 

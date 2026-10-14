@@ -431,3 +431,28 @@ fn the_bindings_table_is_what_the_markup_names() {
         );
     }
 }
+
+// The values pushed only while a part of a window is shown are drawn
+// nowhere else: every use of each sits inside that part (the markup's
+// `visible` bindings around it).
+#[test]
+fn a_value_pushed_only_while_shown_is_drawn_only_there() {
+    let mut uses: Vec<(String, Vec<String>)> = Vec::new();
+    for window in &WINDOWS {
+        uses.extend(schema::uses_with_visibility(window.markup).unwrap());
+    }
+    for (name, part) in mosstank::panel::SHOWN_ONLY_WITH {
+        let of_name: Vec<&Vec<String>> = uses
+            .iter()
+            .filter(|(used, _)| used == name)
+            .map(|(_, shown)| shown)
+            .collect();
+        assert!(!of_name.is_empty(), "{name} is drawn nowhere");
+        for shown in of_name {
+            assert!(
+                shown.iter().any(|condition| condition == part),
+                "{name} is drawn outside {part} (inside {shown:?})"
+            );
+        }
+    }
+}

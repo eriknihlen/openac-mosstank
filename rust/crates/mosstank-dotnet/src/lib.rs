@@ -69,6 +69,11 @@ fn plain_int(text: &str) -> Option<i32> {
 /// `uint.TryParse(text, NumberStyles.Integer, CultureInfo.InvariantCulture)`.
 #[must_use]
 pub fn try_parse_uint(text: &str) -> Option<u32> {
+    // One to nine digits read as the general parser reads them (the
+    // requirement keys of a loot profile are thousands of such texts).
+    if let Some(value) = plain_int(text).filter(|_| !text.starts_with('-')) {
+        return u32::try_from(value).ok();
+    }
     number::parse_u32(text, NumberStyles::INTEGER)
 }
 
@@ -233,7 +238,12 @@ impl<'a> LineReader<'a> {
             return None;
         }
         let rest = &self.text[self.position..];
-        let end = rest.find(['\r', '\n']).unwrap_or(rest.len());
+        // A byte search: a line break is ASCII and never part of a longer
+        // character, so the first such byte is the first break.
+        let end = rest
+            .bytes()
+            .position(|byte| byte == b'\r' || byte == b'\n')
+            .unwrap_or(rest.len());
         let line = &rest[..end];
         let mut consumed = end;
         let bytes = rest.as_bytes();
@@ -303,6 +313,11 @@ mod tests {
             assert_eq!(
                 try_parse_int(text),
                 number::parse_i32(text, NumberStyles::INTEGER),
+                "{text:?}"
+            );
+            assert_eq!(
+                try_parse_uint(text),
+                number::parse_u32(text, NumberStyles::INTEGER),
                 "{text:?}"
             );
         }

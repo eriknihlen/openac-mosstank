@@ -76,6 +76,7 @@ impl Tank {
         };
         self.begin_call(client);
         let (mut cx, _) = self.cx(client);
+        cx.finish_staged_load();
         cx.with_engine(|engine, host, services| {
             engine.click_view_slot(host, services, &view, index);
         });

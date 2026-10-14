@@ -14,9 +14,14 @@
 //! `MOSSTANK_FUEL_GAMEDB=<path to gameinfodb.ugd>` measures with that game
 //! database; otherwise the published one (openac-gamedata's, 2.1 MB) from a
 //! checkout beside this one, else a generated one with its tables, row
-//! counts and value kinds. Two cases: the heavy character's session (login
-//! burst, every event kind, idle, buffs, a fight, looting, a reload), and a
-//! fresh install's download of the game database.
+//! counts and value kinds. Three cases: the heavy character's session (login
+//! burst, every event kind, idle, buffs, a fight, looting, a reload); a
+//! fresh install's download of the game database; and a real player's VTank
+//! profile folder ([`profiles`]: the owner's, read in place, or
+//! `MOSSTANK_FUEL_PROFILES=<folder>`, else a stand-in with its counts and
+//! sizes) with the character whose profile set is the heaviest: start, the
+//! first tick in the world, the profile load, idle ticks on a busy server,
+//! the chat interceptor, the editors, the Profiles page left open, a reload.
 //! `MOSSTANK_FUEL_TRACE=1` profiles the worst call of every case (`full`:
 //! every import of it), `MOSSTANK_FUEL_TRACE_CASE=<text>` only the cases
 //! whose names hold the text. A log line the plugin writes that starts with
@@ -27,6 +32,7 @@
 #[path = "../../mosstank/tests/common/mod.rs"]
 mod common;
 mod heavy;
+mod profiles;
 
 use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::fmt::Write as _;
@@ -44,6 +50,10 @@ use openac_plugin::Transport;
 
 /// The share of a call's allowed fuel a measured call may use.
 const MARGIN_PERCENT: f64 = 50.0;
+
+/// The chat lines the client keeps for its plugins' reads (openac-rust
+/// `ac_runtime::plugins::chat::RETAINED_LINES`).
+const CHAT_RETAINED_LINES: usize = 512;
 
 /// The monster the fight is with.
 const MONSTER_ID: u32 = 0x8000_02A7;
@@ -93,6 +103,17 @@ impl Client for Session {
             Import::SpellsIsKnown if in_world => {
                 let id = u32::from_bytes(request).expect("a spell id");
                 self.known.contains(&id).to_bytes()
+            }
+            // The client keeps its last lines only.
+            Import::ChatCaptured if self.world.chat_log.is_some() => {
+                let after = u64::from_bytes(request).expect("a sequence");
+                let log = self.world.chat_log.as_deref().unwrap_or_default();
+                let kept = &log[log.len().saturating_sub(CHAT_RETAINED_LINES)..];
+                kept.iter()
+                    .filter(|line| line.sequence > after)
+                    .cloned()
+                    .collect::<Vec<_>>()
+                    .to_bytes()
             }
             Import::LootContents if self.world.loot.is_some() => {
                 let current = self.world.loot().current;
@@ -780,9 +801,15 @@ fn new_session() -> Session {
 /// The heavy character enters the world, its pack and surroundings all
 /// there at once (no burst).
 fn enter_world(session: &mut Session) {
+    enter_world_as(session, "Mossy Hunter");
+}
+
+/// [`enter_world`] as the character `name`.
+fn enter_world_as(session: &mut Session, name: &str) {
     let inventory = heavy::inventory();
     let surroundings = heavy::surroundings();
     let mut automation = character_automation(&session.table);
+    name.clone_into(&mut automation.name);
     automation.properties = heavy::player_properties(&surroundings);
     for created in inventory.iter().chain(&surroundings) {
         if let Some(item) = &created.item {
@@ -790,7 +817,7 @@ fn enter_world(session: &mut Session) {
         }
         automation.world_objects.push(created.object.clone());
     }
-    session.world.fake.character = Some(common::character("Mossy Hunter"));
+    session.world.fake.character = Some(common::character(name));
     session.world.automation = Some(automation);
     session.world.chat_log = Some(Vec::new());
     session.world.loot = Some(common::FrameLootSurface::default());
@@ -903,6 +930,161 @@ fn the_game_database_download_fits_on_a_fresh_install() {
             .any(|line| line.contains("Game database updated")),
         "the update was not announced: {:?}",
         session.world.chat()
+    );
+    assert_within_margin(&cases, &report);
+}
+
+/// The handle the client gives the aliases' chat interceptor.
+const INTERCEPTOR_HANDLE: u32 = 41;
+
+/// A click or a pick on one of the plugin's windows (any of them: a
+/// handler is found by its name).
+fn ui_action(session: &Session, handler: &str, value: ac_plugin_abi::ui::ActionValue) -> Event {
+    let panel = session
+        .world
+        .fake
+        .ui
+        .panels()
+        .next()
+        .map(|panel| panel.id)
+        .expect("a registered window");
+    Event::Ui(ac_plugin_abi::ui::UiEvent::Action(
+        ac_plugin_abi::ui::UiAction {
+            panel,
+            handler: handler.to_owned(),
+            value,
+        },
+    ))
+}
+
+#[test]
+#[ignore = "needs the release module: scripts/check.sh runs it after the WebAssembly build"]
+#[allow(clippy::too_many_lines)]
+fn a_real_profile_folder_fits() {
+    use ac_plugin_abi::ui::ActionValue;
+    let wasm = std::fs::read(wasm_path()).expect("the release mosstank.wasm (build it first)");
+    let folder = profiles::folder();
+    let mut session = new_session();
+    session
+        .world
+        .profiles
+        .insert("gameinfodb.ugd", &game_database());
+    session
+        .world
+        .plugin_data
+        .insert("gamedb/last-check.txt", "2026-10-13T19:00:00.0000000Z");
+    for (key, text) in &folder.files {
+        session.world.profiles.insert(key, text);
+    }
+    session
+        .world
+        .set_reply::<calls::ChatAddInterceptor>(&Ok(INTERCEPTOR_HANDLE));
+    let mut cases = Cases::default();
+
+    // Start before the world, the folder there.
+    let (mut plugin, _) = Plugin::load(&wasm, DEFAULT_MEMORY_MIB).expect("load");
+    let enabled = plugin.enable(&start_info(), &mut session).expect("enable");
+    cases.add("start (the profile folder)", enabled);
+
+    // The character whose profile set is the heaviest enters the world; on
+    // a busy server a line of chat arrives every tick.
+    enter_world_as(&mut session, &folder.character);
+    let login = send(&mut plugin, &mut session, &Event::LoginComplete);
+    cases.add("event: login complete", login);
+    let first = tick(&mut plugin, &mut session);
+    cases.add("first tick in the world", first);
+    for _ in 0..300 {
+        chat(&mut plugin, &mut session, &mut cases, "chat line");
+        let fuel = tick(&mut plugin, &mut session);
+        cases.add("ticks after login (the profile load)", fuel);
+    }
+    for _ in 0..400 {
+        chat(&mut plugin, &mut session, &mut cases, "chat line");
+        let fuel = tick(&mut plugin, &mut session);
+        cases.add("idle tick (a chat line each)", fuel);
+    }
+
+    // The player types: the aliases' interceptor sees every line.
+    for line in [
+        "hello there",
+        "/vt opt get enablelooting",
+        "/ub help",
+        "lfg",
+    ] {
+        let callback =
+            ac_plugin_abi::callback::Callback::ChatIntercept((INTERCEPTOR_HANDLE, line.to_owned()));
+        let fuel = plugin
+            .callback(&callback, &mut session)
+            .expect("a callback");
+        cases.add("callback: chat intercept", fuel);
+        let fuel = tick(&mut plugin, &mut session);
+        cases.add("ticks between the editors", fuel);
+    }
+
+    // The editors: the profiles page, the meta and loot editors, their
+    // rows picked, and the settings pages reloaded.
+    let actions = [
+        ("ShowProfiles", ActionValue::None),
+        ("ShowMeta", ActionValue::None),
+        ("SelectMetaRule", ActionValue::Int(0)),
+        ("SelectMetaRule", ActionValue::Int(40)),
+        ("ShowLootEditor", ActionValue::None),
+        ("SelectLootRule", ActionValue::Int(0)),
+        ("SelectLootRule", ActionValue::Int(1000)),
+        ("ToggleLootEditorVisible", ActionValue::None),
+        ("ToggleLootEditorVisible", ActionValue::None),
+    ];
+    for (handler, value) in actions {
+        let event = ui_action(&session, handler, value);
+        let fuel = send(&mut plugin, &mut session, &event);
+        cases.add("event: editor refresh", fuel);
+        let fuel = tick(&mut plugin, &mut session);
+        cases.add("ticks between the editors", fuel);
+    }
+    let refreshed = send(&mut plugin, &mut session, &command("vt", "refresh"));
+    cases.add("event: /vt refresh", refreshed);
+
+    // The Profiles page stays open: its pickers list their folders again
+    // every few seconds.
+    for _ in 0..400 {
+        chat(&mut plugin, &mut session, &mut cases, "chat line");
+        let fuel = tick(&mut plugin, &mut session);
+        cases.add("idle tick (Profiles page open)", fuel);
+    }
+
+    // Started again in the world (a reload): the constructor reads the
+    // whole set at once, within the start's budget.
+    let stopped = plugin.disable(&mut session).expect("disable");
+    cases.add("stop", stopped);
+    let (mut plugin, _) = Plugin::load(&wasm, DEFAULT_MEMORY_MIB).expect("reload");
+    let enabled = plugin
+        .enable(&start_info(), &mut session)
+        .expect("enable in the world");
+    cases.add("start in the world (reload)", enabled);
+    for _ in 0..100 {
+        chat(&mut plugin, &mut session, &mut cases, "chat line");
+        let fuel = tick(&mut plugin, &mut session);
+        cases.add("idle tick after the reload", fuel);
+    }
+
+    let cases = cases.all();
+    let mut report = report(&cases);
+    for folder_name in ["metas", "navs", "profiles", "loot", "ub"] {
+        let (count, bytes) = folder.count(folder_name);
+        let _ = writeln!(report, "{folder_name}: {count} files, {bytes} bytes");
+    }
+    let _ = writeln!(
+        report,
+        "profile folder: {}; character: {}",
+        folder.source, folder.character
+    );
+    println!("{report}");
+    let chat = session.world.chat();
+    assert!(
+        chat.iter()
+            .chain(session.world.all_logs().iter())
+            .any(|line| line.contains("rules)")),
+        "the loot profile was not loaded:\n{report}\n{chat:?}"
     );
     assert_within_margin(&cases, &report);
 }

@@ -69,6 +69,8 @@ struct Core {
     /// Bumped each time `profile` is replaced (not when its rules are
     /// edited in place).
     profile_generation: u64,
+    /// Bumped each time `profile` is replaced or one of its rules edited.
+    profile_revision: u64,
     rule_ids: Vec<u64>,
     next_rule_id: u64,
     fired: HashSet<u64>,
@@ -242,6 +244,7 @@ impl Core {
         let mut core = Self {
             profile: MetaProfile::default(),
             profile_generation: 0,
+            profile_revision: 0,
             rule_ids: Vec::new(),
             next_rule_id: 1,
             fired: HashSet::new(),
@@ -285,6 +288,7 @@ impl Core {
             .collect();
         self.profile = profile;
         self.profile_generation += 1;
+        self.profile_revision += 1;
     }
 
     fn transition(
@@ -449,12 +453,20 @@ impl MetaEngine {
         self.core.profile_generation
     }
 
+    /// A number that changes whenever the profile's rules may have: a
+    /// new profile, or a rule added, replaced, removed or moved.
+    #[must_use]
+    pub fn profile_revision(&self) -> u64 {
+        self.core.profile_revision
+    }
+
     /// Adds a rule at the end, as a new rule (`_metaProfile.Rules.Add`).
     pub fn add_rule(&mut self, rule: MetaRule) {
         let id = self.core.next_rule_id;
         self.core.next_rule_id += 1;
         self.core.profile.rules.push(rule);
         self.core.rule_ids.push(id);
+        self.core.profile_revision += 1;
     }
 
     /// Puts `rule` in place of the rule at `index`, which keeps its
@@ -462,6 +474,7 @@ impl MetaEngine {
     pub fn replace_rule(&mut self, index: usize, rule: MetaRule) {
         if let Some(slot) = self.core.profile.rules.get_mut(index) {
             *slot = rule;
+            self.core.profile_revision += 1;
         }
     }
 
@@ -470,6 +483,7 @@ impl MetaEngine {
         if index < self.core.profile.rules.len() {
             self.core.profile.rules.remove(index);
             self.core.rule_ids.remove(index);
+            self.core.profile_revision += 1;
         }
     }
 
@@ -483,6 +497,7 @@ impl MetaEngine {
         rules.insert(to, rule);
         let id = self.core.rule_ids.remove(from);
         self.core.rule_ids.insert(to, id);
+        self.core.profile_revision += 1;
     }
 
     /// Whether the meta runs.

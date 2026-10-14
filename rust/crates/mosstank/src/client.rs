@@ -146,6 +146,11 @@ pub trait SessionClient {
     fn clear_one_busy_reference(&mut self) -> ac_plugin_abi::social::RecoveryResult;
     /// Lets go of an image.
     fn image_release(&mut self, image: mosstank_ub::canvas::MapImage);
+    /// The bytes of text read from storage through this view so far.
+    fn storage_bytes_read(&mut self) -> usize;
+    /// The keys this view wrote, deleted or made a folder of in the profile
+    /// folder since the last time they were taken.
+    fn take_profile_writes(&mut self) -> Vec<String>;
 }
 
 impl SessionClient for crate::automation::HostAutomation<'_, '_> {
@@ -239,6 +244,14 @@ impl SessionClient for crate::automation::HostAutomation<'_, '_> {
             width: image.width,
             height: image.height,
         });
+    }
+
+    fn storage_bytes_read(&mut self) -> usize {
+        self.storage_bytes_read
+    }
+
+    fn take_profile_writes(&mut self) -> Vec<String> {
+        std::mem::take(&mut self.profiles_written)
     }
 }
 

@@ -30,6 +30,11 @@ impl TankCx<'_> {
         if self.core.autostart_applied_for_current_session {
             return;
         }
+        // The character's own profile set settles first: the autostart
+        // waits for a load under way (register PROF-1).
+        if self.core.staged_load.is_some() {
+            return;
+        }
         // The client can report itself available before the character
         // arrives, and a set applied before the name lands is thrown away
         // when the name binds the character's own choices. Wait for it.
@@ -43,6 +48,7 @@ impl TankCx<'_> {
         }
         // Settle the character's own binding first.
         self.ensure_character_profile();
+        self.finish_staged_load();
         self.apply_autostart(&settings);
     }
 

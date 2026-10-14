@@ -49,6 +49,7 @@ impl Tank {
     #[allow(clippy::too_many_lines)]
     pub fn on_tick(&mut self, client: &mut dyn TankClient, elapsed_seconds: f64) {
         self.begin_call(client);
+        self.core.panel.listings.advance(elapsed_seconds);
         self.frame(client, elapsed_seconds);
         self.end_call(client);
     }
@@ -116,15 +117,37 @@ impl Tank {
             core.buff_rule
                 .advance(cx.client.rules(), &mut owner, elapsed_seconds);
         }
+        let was_loading = cx.core.staged_load.is_some();
         cx.ensure_character_profile();
+        if was_loading || cx.core.staged_load.is_some() {
+            cx.core.settling_after_load = cx.core.staged_load.is_none();
+            // The profile set is loading, a step a tick: the rest of the
+            // frame waits until it is whole, and a frame that ends a load
+            // of several frames leaves the rest to the next (register
+            // PROF-1).
+            cx.core.write_out(cx.client);
+            return;
+        }
         cx.ensure_timer_persistence();
         cx.tick_configured_item_assessment(elapsed_seconds);
         cx.tick_profile_item_addition(elapsed_seconds);
         cx.core.flush_queued_announcements(cx.client);
         // A frame the name tags spent looking at a crowded world leaves the
         // game database's work to the next one: each is a frame's worth.
-        if !cx.core.heavy_frame {
-            cx.core.tick_game_info_update(cx.client);
+        // The frame after a load of several frames has the first-frame work
+        // the load held back: the game database waits one more.
+        let settling = std::mem::take(&mut cx.core.settling_after_load);
+        if settling {
+            // It does the first-frame work the load held back: the window
+            // push waits a frame too.
+            cx.core.heavy_frame = true;
+        }
+        if !cx.core.heavy_frame && !settling {
+            // Starting the check reads the game database: once-only work
+            // of its own (register UI-1).
+            if cx.core.tick_game_info_update(cx.client) {
+                cx.core.heavy_frame = true;
+            }
         }
         cx.show_first_run_guidance();
         cx.observe_command_portal_state();

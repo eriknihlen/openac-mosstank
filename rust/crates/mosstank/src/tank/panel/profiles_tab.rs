@@ -18,8 +18,24 @@ fn loot_actions() -> Vec<LootAction> {
 }
 
 /// A loot action's member name.
-fn loot_action_name(action: LootAction) -> String {
-    format!("{action:?}")
+fn loot_action_name(action: LootAction) -> &'static str {
+    // The member names, as `{action:?}` writes them, without a copy for
+    // each of a large profile's rows.
+    match action {
+        LootAction::NoLoot => "NoLoot",
+        LootAction::Keep => "Keep",
+        LootAction::Salvage => "Salvage",
+        LootAction::Sell => "Sell",
+        LootAction::Read => "Read",
+        LootAction::User1 => "User1",
+        LootAction::User2 => "User2",
+        LootAction::User3 => "User3",
+        LootAction::User4 => "User4",
+        LootAction::User5 => "User5",
+        LootAction::KeepUpTo => "KeepUpTo",
+        LootAction::ManaStone => "ManaStone",
+        LootAction::ManaTank => "ManaTank",
+    }
 }
 
 /// `Enum.TryParse<LootAction>(value, ignoreCase: true)`: a member name,
@@ -33,13 +49,60 @@ fn parse_loot_action(value: &str) -> Option<LootAction> {
         return LootAction::from_i32(number);
     }
     loot_actions().into_iter().find(|action| {
-        mosstank_dotnet::text::ordinal::equals_ignore_case(&loot_action_name(*action), value)
+        mosstank_dotnet::text::ordinal::equals_ignore_case(loot_action_name(*action), value)
     })
 }
 
 /// `Enum.GetNames<LootAction>()`.
 pub(crate) fn loot_action_names() -> Vec<String> {
-    loot_actions().into_iter().map(loot_action_name).collect()
+    loot_actions()
+        .into_iter()
+        .map(|action| loot_action_name(action).to_owned())
+        .collect()
+}
+
+/// A loot editor row: `"{number}. {action}   P{priority}   {expression}"`,
+/// the expression `[VTClassic: {n} requirements]` for an imported rule.
+/// Written straight into one string: a large profile has thousands of rows.
+fn loot_rule_row(number: usize, rule: &LootRule) -> String {
+    let action = loot_action_name(rule.action);
+    let mut row = String::with_capacity(32 + action.len() + rule.expression().len());
+    push_integer(&mut row, i64::try_from(number).unwrap_or(i64::MAX));
+    row.push_str(". ");
+    row.push_str(action);
+    row.push_str("   P");
+    push_integer(&mut row, i64::from(rule.priority));
+    row.push_str("   ");
+    if rule.vtank_requirements.is_empty() {
+        row.push_str(rule.expression());
+    } else {
+        row.push_str("[VTClassic: ");
+        push_integer(
+            &mut row,
+            i64::try_from(rule.vtank_requirements.len()).unwrap_or(i64::MAX),
+        );
+        row.push_str(" requirements]");
+    }
+    row
+}
+
+/// `value` in decimal, as `{value}` writes it.
+fn push_integer(out: &mut String, value: i64) {
+    if value < 0 {
+        out.push('-');
+    }
+    let mut digits = [0u8; 20];
+    let mut rest = value.unsigned_abs();
+    let mut start = digits.len();
+    loop {
+        start -= 1;
+        digits[start] = b'0' + u8::try_from(rest % 10).unwrap_or(0);
+        rest /= 10;
+        if rest == 0 {
+            break;
+        }
+    }
+    out.push_str(std::str::from_utf8(&digits[start..]).unwrap_or_default());
 }
 
 /// The name a classifier shows by (`FormatClassifier`).
@@ -667,6 +730,7 @@ impl crate::tank::Core {
         let rules = &self.settings.inventory.loot.rules;
         let panel = &mut self.panel;
         panel.selected_loot_rule = super::clamp_row(panel.selected_loot_rule, rules.len());
+        panel.loot_rule_rows_revision += 1;
         if !retain_draft {
             panel.loot_expression_draft = rules
                 .get(usize::try_from(panel.selected_loot_rule).unwrap_or(0))
@@ -675,22 +739,7 @@ impl crate::tank::Core {
         panel.loot_rule_rows = rules
             .iter()
             .enumerate()
-            .map(|(index, rule)| {
-                format!(
-                    "{}. {}   P{}   {}",
-                    index + 1,
-                    loot_action_name(rule.action),
-                    rule.priority,
-                    if rule.vtank_requirements.is_empty() {
-                        rule.expression().to_owned()
-                    } else {
-                        format!(
-                            "[VTClassic: {} requirements]",
-                            rule.vtank_requirements.len()
-                        )
-                    }
-                )
-            })
+            .map(|(index, rule)| loot_rule_row(index + 1, rule))
             .collect();
     }
 }
@@ -812,5 +861,41 @@ impl TankCx<'_> {
         self.core.reset_loot(self.client);
         self.refresh_loot_editor(false);
         self.core.save_profile(self.client);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // The row the format string `"{0}. {1}   P{2}   {3}"` gives.
+    #[test]
+    fn a_loot_row_reads_as_the_format_writes_it() {
+        let mut rule = LootRule::named("Peas", "Name == \"Pea\"");
+        rule.priority = -12;
+        assert_eq!(
+            loot_rule_row(1684, &rule),
+            "1684. Keep   P-12   Name == \"Pea\""
+        );
+        rule.vtank_requirements
+            .push(mosstank_formats::utl::VtankLootRequirement::default());
+        rule.priority = 0;
+        assert_eq!(
+            loot_rule_row(7, &rule),
+            "7. Keep   P0   [VTClassic: 1 requirements]"
+        );
+        for value in [i64::MIN, -1, 0, 9, 10, 99_999, i64::MAX] {
+            let mut text = String::new();
+            push_integer(&mut text, value);
+            assert_eq!(text, value.to_string());
+        }
+    }
+
+    // The names the enum's members print as (`Enum.GetNames<LootAction>`).
+    #[test]
+    fn loot_actions_are_named_as_their_members() {
+        for action in (0..=12).filter_map(LootAction::from_i32) {
+            assert_eq!(loot_action_name(action), format!("{action:?}"));
+        }
     }
 }
