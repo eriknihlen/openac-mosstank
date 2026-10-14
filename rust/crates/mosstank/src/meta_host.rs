@@ -4,9 +4,8 @@
 //!
 //! The meta's views and its status list are drawn through the SDK's plugin
 //! UI ([`crate::meta_windows`]) when the plugin's call carries its windows.
-//! What the SDK does not offer yet answers the way a client without it
-//! does: stacks not joined on a move. The global variables are read and
-//! written through the plugin-data storage of the call that reaches them.
+//! The global variables are read and written through the plugin-data
+//! storage of the call that reaches them.
 
 use mosstank_meta::host::{
     ActiveEnchantment, Attribute, CastResult, CharacterInfo, ChatLine, CombatMode, CombatResult,
@@ -168,10 +167,10 @@ impl MetaHost for HostAutomation<'_, '_> {
         container_id: u32,
         amount: u32,
         placement: i32,
-        _join_stack: bool,
+        join_stack: bool,
     ) -> ItemResult {
         self.host
-            .move_item(object_id, container_id, amount, placement)
+            .move_item_joining_stack(object_id, container_id, amount, placement, join_stack)
     }
 
     fn salvage(&mut self, tool_id: u32, item_ids: Vec<u32>) -> ItemResult {
