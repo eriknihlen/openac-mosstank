@@ -309,6 +309,12 @@ impl BuffProfileCache {
         std::rc::Rc::clone(&self.lines)
     }
 
+    /// Whether the lines kept are those of `spells` (the same allocation).
+    #[must_use]
+    pub fn is_current(&self, spells: &std::rc::Rc<[SpellInfo]>) -> bool {
+        std::rc::Rc::ptr_eq(spells, &self.spells)
+    }
+
     /// [`Self::capture`] of a shared list: the list kept is the same list
     /// when it is the same allocation (a shared list never changes), and is
     /// compared by value otherwise.

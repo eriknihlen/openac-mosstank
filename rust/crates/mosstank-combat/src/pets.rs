@@ -439,7 +439,7 @@ impl PetRefillRule {
         if !automation.is_available() || !automation.items_available() {
             return false;
         }
-        let owned = automation.owned_items();
+        let owned = automation.owned_items_shared();
         let Some((device, spirit)) = try_select_refill(automation, &owned, settings, threshold)
         else {
             return false;
@@ -591,7 +591,7 @@ impl SummonPetRule {
             self.decline_reason = Some("a refused summon is waiting to be tried again".to_owned());
             return false;
         }
-        let owned = automation.owned_items();
+        let owned = automation.owned_items_shared();
         let targets = automation.hostile_targets(pet_range(turn.settings));
         let character = automation.character();
         let summoning = summoning_level(automation);

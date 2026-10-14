@@ -912,7 +912,7 @@ fn dump_object_tracker(client: &mut dyn TankClient) {
 /// `DumpMaterials`.
 fn dump_materials(client: &mut dyn TankClient) {
     let mut materials: Vec<(u32, String)> = Vec::new();
-    for item in client.rules().owned_items() {
+    for item in client.rules().owned_items_shared().iter() {
         if item.material_type != 0 && !materials.iter().any(|(id, _)| *id == item.material_type) {
             materials.push((item.material_type, item.name.clone()));
         }

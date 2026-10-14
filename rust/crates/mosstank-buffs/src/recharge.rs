@@ -187,7 +187,7 @@ pub fn try_plan(
         Some(&settings.recharge_handler_set),
         rows,
     );
-    let items = automation.owned_items();
+    let items = automation.owned_items_shared();
 
     if let Some(trace) = trace.as_deref_mut() {
         trace_kits(
@@ -1104,10 +1104,10 @@ fn try_resolve_helper_spell(
         skill_levels.insert(skill.skill_id, skill.current);
     }
 
-    let owned = if automation.items_available() {
-        automation.owned_items()
+    let owned: std::rc::Rc<[InventoryItem]> = if automation.items_available() {
+        automation.owned_items_shared()
     } else {
-        Vec::new()
+        std::rc::Rc::from(Vec::new())
     };
     let mut castability = AutomationCastability::new(
         automation,

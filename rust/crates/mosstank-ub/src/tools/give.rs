@@ -287,7 +287,7 @@ impl ProfileGiveController {
             return false;
         };
 
-        let owned = call.host.owned_items();
+        let owned = call.host.owned_items_shared();
         self.pending.clear();
         for item in givable(&owned) {
             let properties = call.host.properties(item.object_id).unwrap_or_default();
@@ -357,7 +357,7 @@ impl ProfileGiveController {
         };
 
         let mut remaining = if count > 0 { count } else { i32::MAX };
-        let owned = call.host.owned_items();
+        let owned = call.host.owned_items_shared();
         let mut queued = VecDeque::new();
         for item in givable(&owned) {
             if remaining <= 0 {
@@ -497,7 +497,7 @@ impl ProfileGiveController {
             let completion = call.host.item_state().last_inventory_completion;
             let still_owned = call
                 .host
-                .owned_items()
+                .owned_items_shared()
                 .iter()
                 .any(|item| item.object_id == self.waiting_object_id);
             let answered = completion.revision > self.completion_revision
@@ -542,7 +542,7 @@ impl ProfileGiveController {
         }
         let owned: HashSet<u32> = call
             .host
-            .owned_items()
+            .owned_items_shared()
             .iter()
             .map(|item| item.object_id)
             .collect();

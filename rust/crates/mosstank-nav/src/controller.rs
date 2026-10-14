@@ -1220,7 +1220,7 @@ impl NavigationController {
         }
         let mut selected = 0;
         let mut best_modifier = f64::MIN;
-        for item in automation.owned_items() {
+        for item in automation.owned_items_shared().iter() {
             if item.public_flags & LOCKPICK_PUBLIC_FLAG == 0 {
                 continue;
             }

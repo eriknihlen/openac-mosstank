@@ -121,6 +121,8 @@ struct ItemCast {
 pub struct BuffSelfRule {
     buff_due: BuffDueTracker,
     buff_profile: BuffProfileCache,
+    /// The item rows' reference spells by name, for the known list.
+    reference_memo: ReferenceMemo,
     item_ledger: ItemEnchantLedger,
     tier_trace_signatures: HashMap<u32, String>,
     now_seconds: f64,
@@ -163,6 +165,7 @@ impl BuffSelfRule {
         Self {
             buff_due: BuffDueTracker::new(),
             buff_profile: BuffProfileCache::new(),
+            reference_memo: ReferenceMemo::default(),
             item_ledger: ItemEnchantLedger::new(),
             tier_trace_signatures: HashMap::new(),
             now_seconds: 0.0,
@@ -327,6 +330,20 @@ impl BuffSelfRule {
         self.item_missing_warnings.clear();
     }
 
+    /// Captures the self buffs' lines ahead of the pass that will want
+    /// them, when the character's list is not the one captured: a large
+    /// spellbook's lines are a call's worth of work on their own. Whether
+    /// it did that work. The pass then finds them captured, as it would
+    /// have captured them itself.
+    pub fn warm_profile(&mut self, automation: &mut dyn Automation) -> bool {
+        let known = automation.spells().known_self_buffs_shared();
+        if self.buff_profile.is_current(&known) {
+            return false;
+        }
+        self.buff_profile.capture_shared(&known);
+        true
+    }
+
     /// The Meta's `needsbuff`: whether anything is due now.
     pub fn has_anything_due(
         &mut self,
@@ -426,10 +443,10 @@ impl BuffSelfRule {
     fn capture_forced_item_rows(&mut self, turn: &mut BuffTurn<'_>) -> Vec<(u32, u32)> {
         let mut rows = Vec::new();
         let items_available = turn.automation.items_available();
-        let owned = if items_available {
-            turn.automation.owned_items()
+        let owned: std::rc::Rc<[InventoryItem]> = if items_available {
+            turn.automation.owned_items_shared()
         } else {
-            Vec::new()
+            std::rc::Rc::from(Vec::new())
         };
         let character_id = turn.automation.character().id;
         let names = self.character_enchant_names(turn.settings);
@@ -437,7 +454,7 @@ impl BuffSelfRule {
         {
             let mut castability = AutomationCastability::new(
                 &mut *turn.automation,
-                owned.clone(),
+                Rc::clone(&owned),
                 &turn.settings.blacklisted_spell_components,
                 &mut report,
             );
@@ -466,7 +483,8 @@ impl BuffSelfRule {
                                 try_resolve_best_known(&mut castability, &exemplar, turn.settings)
                             })
                         }
-                        None => try_resolve_best_known_by_name(
+                        None => try_resolve_best_known_by_name_memo(
+                            &mut self.reference_memo,
                             &mut castability,
                             &row.spell_name,
                             turn.settings,
@@ -511,10 +529,10 @@ impl BuffSelfRule {
         let attributes = automation.attributes();
         let timed = automation.timed_enchantments();
         let level = automation.character().level;
-        let owned = if automation.items_available() {
-            automation.owned_items()
+        let owned: std::rc::Rc<[InventoryItem]> = if automation.items_available() {
+            automation.owned_items_shared()
         } else {
-            Vec::new()
+            std::rc::Rc::from(Vec::new())
         };
         let forced = self.buff_due.forced_spell_ids().clone();
         let mut castability = AutomationCastability::new(
@@ -557,9 +575,10 @@ impl BuffSelfRule {
         let mut log = |text: &str| lines.push(text.to_owned());
         let owned = turn
             .automation
-            .owned_items()
-            .into_iter()
-            .find(|owned| owned.object_id == item.item_id);
+            .owned_items_shared()
+            .iter()
+            .find(|owned| owned.object_id == item.item_id)
+            .cloned();
         match owned {
             Some(owned) if owned.object_id != 0 => self.item_ledger.note_item_cast(
                 &owned,
@@ -644,7 +663,10 @@ impl BuffSelfRule {
             let within = format_f64(threshold, "0.#").unwrap_or_default();
             let known = turn.automation.spells().known_self_buffs_shared().len();
             let carried = if turn.automation.items_available() {
-                format!("{} items carried", turn.automation.owned_items().len())
+                format!(
+                    "{} items carried",
+                    turn.automation.owned_items_shared().len()
+                )
             } else {
                 "the item surface is unavailable, so no component or consumable can be counted"
                     .to_owned()
@@ -731,10 +753,10 @@ impl BuffSelfRule {
         if !plan::is_school_available(ITEM_ENCHANTMENT_SCHOOL, &skills, turn.settings, level) {
             return None;
         }
-        let owned = if turn.automation.items_available() {
-            turn.automation.owned_items()
+        let owned: std::rc::Rc<[InventoryItem]> = if turn.automation.items_available() {
+            turn.automation.owned_items_shared()
         } else {
-            Vec::new()
+            std::rc::Rc::from(Vec::new())
         };
 
         // The self buffs are read once for all the rows below: nothing a
@@ -768,7 +790,7 @@ impl BuffSelfRule {
                 let resolved = {
                     let mut castability = AutomationCastability::new(
                         &mut *turn.automation,
-                        owned.clone(),
+                        Rc::clone(&owned),
                         &turn.settings.blacklisted_spell_components,
                         &mut report,
                     );
@@ -833,7 +855,7 @@ impl BuffSelfRule {
     fn try_pick_character_enchant(
         &mut self,
         turn: &mut BuffTurn<'_>,
-        owned: &[InventoryItem],
+        owned: &Rc<[InventoryItem]>,
         threshold: f64,
         known: &mut Option<Rc<[SpellInfo]>>,
     ) -> Option<BuffPick> {
@@ -847,14 +869,15 @@ impl BuffSelfRule {
                 let resolved = {
                     let mut castability = AutomationCastability::new(
                         &mut *turn.automation,
-                        owned.to_vec(),
+                        Rc::clone(owned),
                         &turn.settings.blacklisted_spell_components,
                         &mut report,
                     );
                     if let Some(known) = known.as_ref() {
                         castability = castability.with_known(Rc::clone(known));
                     }
-                    let resolved = try_resolve_best_known_by_name(
+                    let resolved = try_resolve_best_known_by_name_memo(
+                        &mut self.reference_memo,
                         &mut castability,
                         &tier_one_name,
                         turn.settings,
@@ -949,9 +972,10 @@ impl BuffSelfRule {
             return longest;
         }
         let owned = automation
-            .owned_items()
-            .into_iter()
-            .find(|item| item.object_id == item_object_id);
+            .owned_items_shared()
+            .iter()
+            .find(|item| item.object_id == item_object_id)
+            .cloned();
         longest =
             match owned {
                 Some(item) if item.object_id != 0 => self.item_ledger.remaining_item_seconds(
@@ -1122,7 +1146,7 @@ impl BuffSelfRule {
         }
         let automation = &mut *turn.automation;
         let combat = turn.combat;
-        for item in automation.owned_items() {
+        for item in automation.owned_items_shared().iter() {
             let gem = turn
                 .settings
                 .gem_food_items
@@ -1470,8 +1494,54 @@ pub(crate) fn try_resolve_best_known_by_name(
     tier_one_name: &str,
     settings: &BuffSettings,
 ) -> Option<SpellInfo> {
-    let stem = stem_of(tier_one_name);
     let known = castability.known_self_buffs();
+    let reference = reference_by_name(&known, tier_one_name)?;
+    try_resolve_best_known(castability, &reference, settings)
+}
+
+/// [`try_resolve_best_known_by_name`] with the row's spell looked up
+/// through `memo`: the lookup depends on the known list and the name
+/// alone, and a large spellbook makes it costly for every row on every pass.
+fn try_resolve_best_known_by_name_memo(
+    memo: &mut ReferenceMemo,
+    castability: &mut AutomationCastability<'_>,
+    tier_one_name: &str,
+    settings: &BuffSettings,
+) -> Option<SpellInfo> {
+    let known = castability.known_self_buffs();
+    let reference = memo.reference(&known, tier_one_name)?;
+    try_resolve_best_known(castability, &reference, settings)
+}
+
+/// The rows' reference spells by name, for one known list (the same
+/// allocation: a shared list never changes).
+#[derive(Debug, Default)]
+struct ReferenceMemo {
+    known: Option<Rc<[SpellInfo]>>,
+    by_name: HashMap<String, Option<SpellInfo>>,
+}
+
+impl ReferenceMemo {
+    fn reference(&mut self, known: &Rc<[SpellInfo]>, tier_one_name: &str) -> Option<SpellInfo> {
+        if !self
+            .known
+            .as_ref()
+            .is_some_and(|kept| Rc::ptr_eq(kept, known))
+        {
+            self.known = Some(Rc::clone(known));
+            self.by_name.clear();
+        }
+        self.by_name
+            .entry(tier_one_name.to_owned())
+            .or_insert_with(|| reference_by_name(known, tier_one_name))
+            .clone()
+    }
+}
+
+/// A row's reference spell: its own tier-I spell by its exact name, else
+/// the lowest tier (then id) of the known spells its stem starts.
+fn reference_by_name(known: &[SpellInfo], tier_one_name: &str) -> Option<SpellInfo> {
+    let stem = stem_of(tier_one_name);
     // The row's own tier-I spell, by its exact name.
     let mut reference = known
         .iter()
@@ -1491,8 +1561,7 @@ pub(crate) fn try_resolve_best_known_by_name(
             }
         }
     }
-    let reference = reference?;
-    try_resolve_best_known(castability, &reference, settings)
+    reference
 }
 
 /// The best tier of the reference's family the character can cast now

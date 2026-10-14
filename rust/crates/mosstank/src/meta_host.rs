@@ -68,8 +68,10 @@ impl MetaHost for HostAutomation<'_, '_> {
         )
     }
 
+    // The character, an object and what the character owns are the reads
+    // every view of the call shares (`HostAutomation`'s kept reads).
     fn character(&mut self) -> Option<CharacterInfo> {
-        self.reader().character()
+        self.character_info()
     }
 
     fn skill(&mut self, skill_id: u32) -> Option<Skill> {
@@ -89,7 +91,7 @@ impl MetaHost for HostAutomation<'_, '_> {
     }
 
     fn object(&mut self, object_id: u32) -> Option<WorldObject> {
-        self.reader().object(object_id)
+        mosstank_automation::Automation::object(self, object_id)
     }
 
     fn properties(&mut self, object_id: u32) -> Option<ItemProperties> {
@@ -137,7 +139,11 @@ impl MetaHost for HostAutomation<'_, '_> {
     }
 
     fn owned_items(&mut self) -> Vec<InventoryItem> {
-        self.reader().owned_items()
+        self.owned_shared().to_vec()
+    }
+
+    fn owned_items_shared(&mut self) -> std::rc::Rc<[InventoryItem]> {
+        self.owned_shared()
     }
 
     fn use_item(&mut self, object_id: u32) -> ItemResult {

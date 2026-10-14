@@ -149,7 +149,7 @@ impl ReadScrollController {
         if loot.pending_scroll_reads().is_empty() {
             return None;
         }
-        let owned = host.owned_items();
+        let owned = host.owned_items_shared();
         loot.forget_unowned_scroll_reads(&owned);
         let queued: Vec<u32> = loot.pending_scroll_reads().values().copied().collect();
         for item_id in queued {

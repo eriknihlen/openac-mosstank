@@ -238,7 +238,7 @@ impl DispelController {
         if !automation.spells().is_known(ERADICATE_LIFE_MAGIC_SELF)
             || !has_vulnerability_at_or_below(automation, spell.difficulty)
             || !automation
-                .owned_items()
+                .owned_items_shared()
                 .iter()
                 .any(|item| item.stack_size > 0 && item.name == "Chorizite")
         {
@@ -405,7 +405,7 @@ impl DispelController {
 }
 
 fn select_dispel_item(automation: &mut dyn Automation) -> Option<InventoryItem> {
-    let inventory = automation.owned_items();
+    let inventory = automation.owned_items_shared();
     if has_vulnerability_at_or_below(automation, 400)
         && let Some(item) = find(&inventory, &HIGH_DIFFICULTY_ITEMS)
     {
@@ -436,11 +436,15 @@ fn select_awakener(
     let creature = automation.try_get_skill(CREATURE_ENCHANTMENT_SKILL)?;
     let arcane = automation.try_get_skill(ARCANE_LORE_SKILL)?;
     let character = automation.character().id;
-    let drum = automation.owned_items().into_iter().find(|item| {
-        matches!(item.name.as_str(), "Awakener" | "Attenuated Awakener")
-            && combat.combat_item_names.contains(&item.name)
-            && (item.container_id == character || item.wielder_id == character)
-    })?;
+    let drum = automation
+        .owned_items_shared()
+        .iter()
+        .find(|item| {
+            matches!(item.name.as_str(), "Awakener" | "Attenuated Awakener")
+                && combat.combat_item_names.contains(&item.name)
+                && (item.container_id == character || item.wielder_id == character)
+        })
+        .cloned()?;
     let valid = if drum.name == "Awakener" {
         creature.training == Training::Specialized && arcane.current >= 110
     } else {

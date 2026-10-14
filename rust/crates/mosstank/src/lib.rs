@@ -60,6 +60,11 @@ pub struct MossTank {
     meta_windows: meta_windows::MetaWindows,
     /// What the client's views keep between calls (the spell table).
     kept: automation::KeptReads,
+    /// An event the client told changed what the windows may show: the next
+    /// tick pushes their values.
+    windows_stale: bool,
+    /// The last push due was left to this tick (a push waits a tick at most).
+    windows_deferred: bool,
 }
 
 impl MossTank {
@@ -137,6 +142,15 @@ impl MossTank {
         self.kept.end_call();
         Some(answer)
     }
+}
+
+/// Whether the player did this (typed a verb, used a window, clicked a
+/// link, picked a theme): its effect is shown at once.
+fn is_player_action(event: &Event) -> bool {
+    matches!(
+        event,
+        Event::Command(_) | Event::Ui(_) | Event::ChatLinkClicked(_) | Event::ThemeChanged(_)
+    )
 }
 
 /// The seed of the plugin's own generator, from the client's (register
@@ -245,6 +259,7 @@ impl MossTank {
             return;
         };
         let had_spell_table = self.kept.has_spell_table();
+        let passes = tank.pass_count();
         {
             let mut client = HostAutomation::for_call(
                 host,
@@ -258,9 +273,23 @@ impl MossTank {
         // The chat-line patterns are built one a tick ahead of their first
         // use: built all at once, on the first cast's result line, they
         // cost more than one call may run. A tick that read the spell table
-        // (the character's first in the world) has work enough: the next
-        // one builds.
-        if had_spell_table == self.kept.has_spell_table() {
+        // (the character's first in the world), or whose name tags looked at
+        // a crowded world, has work enough: the next one builds.
+        let read_spell_table = had_spell_table != self.kept.has_spell_table();
+        let heavy = tank.frame_was_heavy() || tank.pass_count() != passes || read_spell_table;
+        // A light tick builds ahead what a large spellbook makes costly for
+        // the first pass that wants it (the self buffs' lines, the attack
+        // catalog), one a tick.
+        let warmed = !heavy && {
+            let mut client = HostAutomation::for_call(
+                host,
+                &mut self.observations,
+                &mut self.meta_windows,
+                &mut self.kept,
+            );
+            tank.warm_caches(&mut client)
+        };
+        if !read_spell_table && !tank.frame_was_heavy() && !warmed {
             mosstank_automation::combat_text::warm_one();
         }
         let reason = tank.walk_pause_reason();
@@ -268,12 +297,24 @@ impl MossTank {
             // The walk's hold changed through the host, past the view.
             self.kept.end_call();
         }
-        if self
+        // The values follow on their own every tenth of a second, and on the
+        // first tick after an event the client told; a tick that ran the
+        // macro's pass or did a tick's worth of once-only work (the spell
+        // table read, the name tags' first look at a crowded world) leaves
+        // them to the next, once (register UI-1).
+        let due = self
             .windows
             .as_mut()
-            .is_some_and(|windows| windows.push_due(TICK_SECONDS))
-        {
-            self.push_windows(host);
+            .is_some_and(|windows| windows.push_due(TICK_SECONDS));
+        let stale = std::mem::take(&mut self.windows_stale);
+        if due || stale {
+            if heavy && !self.windows_deferred {
+                self.windows_stale = true;
+                self.windows_deferred = true;
+            } else {
+                self.windows_deferred = false;
+                self.push_windows(host);
+            }
         }
     }
 
@@ -326,8 +367,15 @@ impl MossTank {
                 _ => tank.on_event(&mut client, &event),
             }
         }
-        // Whatever the event changed is shown at once.
-        self.push_windows(host);
+        // What the player did is shown at once; what the client told is shown
+        // on the next tick, so a burst of the client's events (a login brings
+        // thousands) works the values out once a tick, not once an event
+        // (register UI-1).
+        if is_player_action(&event) {
+            self.push_windows(host);
+        } else {
+            self.windows_stale = true;
+        }
     }
 
     fn callback_call(&mut self, host: &mut Host<'_>, callback: Callback) -> CallbackAnswer {

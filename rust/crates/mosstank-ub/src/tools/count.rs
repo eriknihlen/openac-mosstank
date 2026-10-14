@@ -203,7 +203,7 @@ impl InventoryCountController {
 
         let mut by_name = Vec::new();
         let mut total = 0;
-        for item in host.owned_items() {
+        for item in host.owned_items_shared().iter() {
             if !matcher
                 .is_match(&item.name)
                 .map_err(|failure| format!("bad name pattern: {failure}"))?
@@ -396,7 +396,7 @@ impl InventoryCountController {
     /// appraisal is left outstanding.
     fn scan(&mut self, call: &mut UbCall<'_>) {
         self.outstanding.clear();
-        for item in call.host.owned_items() {
+        for item in call.host.owned_items_shared().iter() {
             // Worn and wielded gear is in use, not carried.
             if item.equipped_location != 0 || item.wielder_id != 0 {
                 continue;
@@ -410,11 +410,11 @@ impl InventoryCountController {
                 continue;
             };
             let properties = call.host.properties(item.object_id).unwrap_or_default();
-            if self.needs_appraisal(call, &item, &properties, known.has_appraisal_data) {
+            if self.needs_appraisal(call, item, &properties, known.has_appraisal_data) {
                 self.outstanding.insert(item.object_id);
                 continue;
             }
-            let Some(rule_name) = self.try_decide_keep(call, &item, &properties) else {
+            let Some(rule_name) = self.try_decide_keep(call, item, &properties) else {
                 continue;
             };
             self.counted.push((

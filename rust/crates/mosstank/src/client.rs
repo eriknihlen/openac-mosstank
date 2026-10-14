@@ -169,12 +169,14 @@ impl SessionClient for crate::automation::HostAutomation<'_, '_> {
         self.service().loot_classifiers()
     }
 
+    // The network is the plugin host's own service: a request changes
+    // nothing of the game, so it keeps the call's reads.
     fn http_request(&mut self, request: ac_plugin_abi::net::HttpRequest) -> Result<u32, String> {
-        self.host.http_request(request)
+        self.service().http_request(request)
     }
 
     fn net_close(&mut self, handle: u32) {
-        self.host.net_close(handle);
+        self.service().net_close(handle);
     }
 
     fn status_publish(&mut self, key: &str, value: Option<&str>) -> bool {

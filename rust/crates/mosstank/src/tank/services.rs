@@ -276,6 +276,9 @@ impl MetaHost for ClientProxy<'_, '_> {
     fn owned_items(&mut self) -> Vec<InventoryItem> {
         meta!(self.owned_items())
     }
+    fn owned_items_shared(&mut self) -> std::rc::Rc<[InventoryItem]> {
+        meta!(self.owned_items_shared())
+    }
     fn use_item(&mut self, object_id: u32) -> ItemResult {
         meta!(self.use_item(object_id))
     }

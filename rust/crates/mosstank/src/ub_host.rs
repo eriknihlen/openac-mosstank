@@ -166,7 +166,7 @@ impl UbHost for HostAutomation<'_, '_> {
     }
 
     fn allegiance(&mut self) -> AllegianceState {
-        self.host.allegiance()
+        self.reader().allegiance()
     }
 
     fn show_labels(&mut self, labels: &[WorldLabel]) -> bool {

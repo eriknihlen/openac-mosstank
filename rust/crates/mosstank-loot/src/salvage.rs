@@ -48,6 +48,29 @@ impl SalvageBagCombinePlan {
     }
 }
 
+/// Whether an item is named as a salvage bag is (`^Salvage(?:d)?.* ([0-9]{1,2})$`,
+/// case ignored). Most carried items have a material, so every pass asks
+/// this of most of the pack: an ASCII name is read by hand, as the pattern
+/// reads it (the tests hold the two to the same answers); any other goes
+/// to the pattern.
+fn is_salvage_bag_name(name: &str) -> bool {
+    if !name.is_ascii() {
+        return salvage_bag_name().is_match(name).unwrap_or(false);
+    }
+    // `$` also matches before a final line feed; `.` matches no line feed.
+    let line = name.strip_suffix('\n').unwrap_or(name);
+    let bytes = line.as_bytes();
+    if line.contains('\n') || bytes.len() < 7 || !bytes[..7].eq_ignore_ascii_case(b"salvage") {
+        return false;
+    }
+    let Some(inner) = line.strip_suffix(')') else {
+        return false;
+    };
+    let digits = inner.bytes().rev().take_while(u8::is_ascii_digit).count();
+    let open = inner.len() - digits;
+    (1..=2).contains(&digits) && open >= 9 && inner[..open].ends_with(" (")
+}
+
 fn salvage_bag_name() -> &'static DotNetRegex {
     static PATTERN: OnceLock<DotNetRegex> = OnceLock::new();
     PATTERN.get_or_init(|| {
@@ -84,7 +107,7 @@ pub fn plan(
         .iter()
         .filter(|item| {
             item.material_type != 0
-                && salvage_bag_name().is_match(&item.name).unwrap_or(false)
+                && is_salvage_bag_name(&item.name)
                 && abandoned.is_none_or(|set| !set.contains(&item.object_id))
         })
         .collect();
@@ -228,4 +251,47 @@ fn range_index(ranges: &[(f64, f64)], value: f64) -> i32 {
         }
     }
     i32::try_from(ranges.len()).unwrap_or(i32::MAX)
+}
+
+#[cfg(test)]
+mod name_tests {
+    use super::*;
+
+    /// A salvage bag's name read by hand is what the pattern reads.
+    #[test]
+    fn a_salvage_bag_name_read_by_hand_is_what_the_pattern_reads() {
+        let names = [
+            "",
+            "Salvage",
+            "Salvage (5)",
+            "Salvage (55)",
+            "Salvage (100)",
+            "Salvaged Iron (12)",
+            "SALVAGED IRON (7)",
+            "salvage(7)",
+            "Salvage ()",
+            "Salvage (7) ",
+            "Salvage (7)\n",
+            "Salvage (7)\n\n",
+            "Salvage\n (7)",
+            "Salvaged Granite",
+            "Salvaged Granite (1a)",
+            "Bag of Salvage (5)",
+            "Salvage  (5)",
+            "Salvage (5)(6)",
+            "Salvage ((5)",
+            "Salvage (\u{0663})",
+            "Salvaged \u{e9}cume (5)",
+            "Salvage (05)",
+            "Salvaged (5)",
+            "Salvage(d) (5)",
+        ];
+        for name in names {
+            assert_eq!(
+                is_salvage_bag_name(name),
+                salvage_bag_name().is_match(name).unwrap_or(false),
+                "{name:?}"
+            );
+        }
+    }
 }

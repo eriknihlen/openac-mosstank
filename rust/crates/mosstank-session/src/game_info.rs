@@ -20,8 +20,10 @@ use std::cell::RefCell;
 
 use ac_plugin_abi::net::{HttpReply, HttpRequest, NetError};
 use mosstank_dotnet::text::casing;
-use mosstank_formats::gameinfo::{self, GameInfoMemo, ProfileText, VtankGameInfoDatabase};
-use mosstank_formats::usd::{VtankDatabase, VtankDatabaseRef};
+use mosstank_formats::gameinfo::{
+    self, DownloadRead, DownloadReading, GameInfoMemo, ProfileText, VtankGameInfoDatabase,
+};
+use mosstank_formats::usd::VtankDatabase;
 use mosstank_stores::storage::{PluginStorage, StorageError};
 use openac_plugin_compat::datetime::DateTime;
 use openac_plugin_compat::number::{self, NumberStyles};
@@ -109,25 +111,37 @@ impl HttpGameInfoTransport {
     /// What the client's answer to [`Self::request`] says.
     #[must_use]
     pub fn answer(&self, reply: &HttpReply) -> VtankGameInfoAnswer {
+        match self.answer_body(reply) {
+            Ok(body) => VtankGameInfoAnswer::new(true, text::read_all_text(body)),
+            Err(answer) => answer,
+        }
+    }
+
+    /// [`Self::answer`] before the text is decoded: the body of an answer
+    /// that has a database text, or the failed answer.
+    ///
+    /// # Errors
+    /// The download failed: the answer that says why.
+    pub fn answer_body<'r>(&self, reply: &'r HttpReply) -> Result<&'r [u8], VtankGameInfoAnswer> {
         match reply.error {
             NetError::None => {}
             NetError::Timeout => {
-                return VtankGameInfoAnswer::new(
+                return Err(VtankGameInfoAnswer::new(
                     false,
                     format!("no answer within {} seconds", seconds_text(self.timeout_ms)),
-                );
+                ));
             }
-            _ => return VtankGameInfoAnswer::new(false, reply.message.clone()),
+            _ => return Err(VtankGameInfoAnswer::new(false, reply.message.clone())),
         }
         if !(200..=299).contains(&reply.status) {
-            return VtankGameInfoAnswer::new(
+            return Err(VtankGameInfoAnswer::new(
                 false,
                 format!("HTTP {} {}", reply.status, reply.reason)
                     .trim_end_matches(casing::is_white_space)
                     .to_owned(),
-            );
+            ));
         }
-        VtankGameInfoAnswer::new(true, text::read_all_text(&reply.body))
+        Ok(&reply.body)
     }
 }
 
@@ -164,7 +178,7 @@ pub trait GameInfoTransport {
 }
 
 /// A check under way.
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug)]
 enum Pending {
     /// The request is out.
     Waiting {
@@ -173,12 +187,14 @@ enum Pending {
         /// The player's database's own time.
         local_time: i32,
     },
+    /// The answer is in, worked through on the ticks.
+    Received(Box<Received>),
     /// The outcome, waiting for the tick; an error is the check's fault.
     Finished(Box<Result<VtankGameInfoUpdateResult, String>>),
 }
 
 /// The update check (`VtankGameInfoUpdater`).
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Default)]
 pub struct VtankGameInfoUpdater {
     has_transport: bool,
     pending: Option<Pending>,
@@ -379,19 +395,72 @@ impl VtankGameInfoUpdater {
         state: &mut dyn PluginStorage,
         now_unix_seconds: i64,
     ) -> bool {
-        let Some(Pending::Waiting {
-            handle: waiting,
-            local_time,
-        }) = self.pending
-        else {
+        let Some(local_time) = self.waiting_for(handle) else {
             return false;
         };
-        if waiting != handle || self.disposed {
-            return false;
-        }
-        let result = finish(answer, local_time, profiles, state, now_unix_seconds);
+        let result = if answer.succeeded {
+            let mut received = Received {
+                local_time,
+                now_unix_seconds,
+                stage: Stage::Reading(Box::new(DownloadReading::new(answer.text.clone()))),
+            };
+            loop {
+                if let Some(result) = received.step(usize::MAX, profiles, state) {
+                    break result;
+                }
+            }
+        } else {
+            failed(&answer.text)
+        };
         self.pending = Some(Pending::Finished(Box::new(Ok(result))));
         true
+    }
+
+    /// [`Self::receive`] of the client's reply as `transport` reads it, the
+    /// work spread over the ticks: a failed download ends the check at
+    /// once; a database is kept, and decoded, read, checked, built and
+    /// saved a stage a tick ([`Self::step`]), so no one plugin call does it
+    /// all. Whether it was this check's.
+    pub fn receive_reply(
+        &mut self,
+        reply: &HttpReply,
+        transport: &HttpGameInfoTransport,
+        now_unix_seconds: i64,
+    ) -> bool {
+        let Some(local_time) = self.waiting_for(reply.handle) else {
+            return false;
+        };
+        self.pending = Some(match transport.answer_body(reply) {
+            Ok(body) => Pending::Received(Box::new(Received {
+                local_time,
+                now_unix_seconds,
+                stage: Stage::Bytes(body.to_vec()),
+            })),
+            Err(answer) => Pending::Finished(Box::new(Ok(failed(&answer.text)))),
+        });
+        true
+    }
+
+    /// On the tick, before [`Self::drain`]: a received download one stage
+    /// on.
+    pub fn step(&mut self, profiles: &mut dyn PluginStorage, state: &mut dyn PluginStorage) {
+        if let Some(Pending::Received(received)) = self.pending.as_mut()
+            && let Some(result) = received.step(WORK_PER_TICK, profiles, state)
+        {
+            self.pending = Some(Pending::Finished(Box::new(Ok(result))));
+        }
+    }
+
+    /// The player's database's time, when the check waits on `handle` and
+    /// was not disposed.
+    fn waiting_for(&self, handle: u32) -> Option<i32> {
+        match self.pending {
+            Some(Pending::Waiting {
+                handle: waiting,
+                local_time,
+            }) if waiting == handle && !self.disposed => Some(local_time),
+            _ => None,
+        }
     }
 
     /// On the tick: once the check has finished, the new database (if any)
@@ -420,73 +489,213 @@ impl VtankGameInfoUpdater {
     }
 }
 
-/// The checks and the save, once the answer is in (`RunAsync` after the
+/// How much of a download's work a tick does: bytes of its text read, or
+/// their weight in the other stages (a two-megabyte database takes a
+/// dozen ticks or so).
+pub const WORK_PER_TICK: usize = 200_000;
+
+/// Bytes decoded for one unit of work.
+const DECODE_BYTES_PER_UNIT: usize = 8;
+
+/// Bytes of text whose database is built for one unit of work.
+const BUILD_BYTES_PER_UNIT: usize = 4;
+
+/// Bytes saved for one unit of work.
+const SAVE_BYTES_PER_UNIT: usize = 1;
+
+/// A download that came in, worked through a stage at a time
+/// ([`VtankGameInfoUpdater::step`]): the text decoded, read a run of rows a
+/// step, the database built, saved. Every stage comes to what the checks
+/// and the save come to on the whole answer at once (`RunAsync` after the
 /// download).
-fn finish(
-    answer: &VtankGameInfoAnswer,
+#[derive(Debug)]
+struct Received {
     local_time: i32,
-    profiles: &mut dyn PluginStorage,
-    state: &mut dyn PluginStorage,
     now_unix_seconds: i64,
-) -> VtankGameInfoUpdateResult {
-    if !answer.succeeded {
-        return failed(&answer.text);
+    stage: Stage,
+}
+
+#[derive(Debug)]
+enum Stage {
+    /// The answer's bytes, not yet decoded.
+    Bytes(Vec<u8>),
+    /// The text, being read.
+    Reading(Box<DownloadReading>),
+    /// Read and checked: the database is built next.
+    Building {
+        read: Box<DownloadRead>,
+        downloaded_time: i32,
+    },
+    /// Built: saved next.
+    Saving {
+        text: String,
+        database: Box<VtankGameInfoDatabase>,
+        downloaded_time: i32,
+    },
+}
+
+impl Received {
+    /// Stages on, for about `work` units of work (bytes of text read, or
+    /// their weight in decoding, building and saving): the outcome once
+    /// there is one. A stage that weighs more than a whole tick has a tick
+    /// of its own.
+    fn step(
+        &mut self,
+        work: usize,
+        profiles: &mut dyn PluginStorage,
+        state: &mut dyn PluginStorage,
+    ) -> Option<VtankGameInfoUpdateResult> {
+        let mut left = work;
+        loop {
+            let cost = match &self.stage {
+                Stage::Bytes(bytes) => bytes.len() / DECODE_BYTES_PER_UNIT,
+                Stage::Reading(_) => 0,
+                Stage::Building { read, .. } => read.text.len() / BUILD_BYTES_PER_UNIT,
+                Stage::Saving { text, .. } => text.len() / SAVE_BYTES_PER_UNIT,
+            };
+            if left == 0 || (cost > left && left < work) {
+                return None;
+            }
+            left = left.saturating_sub(cost);
+            let stage = std::mem::replace(&mut self.stage, Stage::Bytes(Vec::new()));
+            match stage {
+                Stage::Bytes(bytes) => {
+                    let text = read_all_text(bytes);
+                    self.stage = Stage::Reading(Box::new(DownloadReading::new(text)));
+                }
+                Stage::Reading(mut reading) => {
+                    let before = reading.position();
+                    let done = reading.step(left);
+                    left = left.saturating_sub(reading.position() - before);
+                    if !done {
+                        self.stage = Stage::Reading(reading);
+                        return None;
+                    }
+                    let read = reading.finish()?;
+                    if let Some(outcome) = self.checked(read, state) {
+                        return Some(outcome);
+                    }
+                }
+                Stage::Building {
+                    read,
+                    downloaded_time,
+                } => {
+                    let (text, database) = read.database();
+                    self.stage = Stage::Saving {
+                        text,
+                        database: Box::new(database),
+                        downloaded_time,
+                    };
+                }
+                Stage::Saving {
+                    text,
+                    database,
+                    downloaded_time,
+                } => {
+                    return Some(self.saved(&text, *database, downloaded_time, profiles, state));
+                }
+            }
+        }
     }
-    let downloaded = match VtankDatabaseRef::parse(&answer.text) {
-        Ok(database) => database,
-        Err(error) => {
-            return failed(&format!(
+
+    /// The checks on what was read: an outcome when one ends the check,
+    /// else the database is built next.
+    fn checked(
+        &mut self,
+        read: DownloadRead,
+        state: &mut dyn PluginStorage,
+    ) -> Option<VtankGameInfoUpdateResult> {
+        if let Err(error) = &read.layout {
+            return Some(failed(&format!(
                 "the download is not a game database ({})",
                 error.0
+            )));
+        }
+        if !read.every_value_reads {
+            return Some(failed(
+                "the download is not a game database (a value in it does not read)",
             ));
         }
-    };
-    if !gameinfo::every_value_reads(&downloaded) {
-        return failed("the download is not a game database (a value in it does not read)");
-    }
-    let version = gameinfo::version(&downloaded);
-    if version != gameinfo::BUILT_IN_VERSION {
-        return failed(&format!(
-            "the download is database version {version}, not {}",
-            gameinfo::BUILT_IN_VERSION
-        ));
-    }
-    let Some(downloaded_time) = gameinfo::last_update_time(&downloaded) else {
-        return failed("the download does not say which world data it was built from");
-    };
-    let built = format_date(downloaded_time);
-    // Any other time means another database: an older release, or one that
-    // came from somewhere else (a VTank install, another service), whose
-    // time may even be later. Only openac-gamedata's own is kept.
-    if downloaded_time == local_time {
-        return VtankGameInfoUpdateResult {
-            message: format!(
-                "Game database is up to date ({built}, {SOURCE_NAME}).{}",
-                note_check(state, now_unix_seconds)
-            ),
-            database: None,
+        let version = read.version;
+        if version != gameinfo::BUILT_IN_VERSION {
+            return Some(failed(&format!(
+                "the download is database version {version}, not {}",
+                gameinfo::BUILT_IN_VERSION
+            )));
+        }
+        let Some(downloaded_time) = read.last_update_time else {
+            return Some(failed(
+                "the download does not say which world data it was built from",
+            ));
         };
+        // Any other time means another database: an older release, or one
+        // that came from somewhere else (a VTank install, another service),
+        // whose time may even be later. Only openac-gamedata's own is kept.
+        if downloaded_time == self.local_time {
+            let built = format_date(downloaded_time);
+            return Some(VtankGameInfoUpdateResult {
+                message: format!(
+                    "Game database is up to date ({built}, {SOURCE_NAME}).{}",
+                    note_check(state, self.now_unix_seconds)
+                ),
+                database: None,
+            });
+        }
+        self.stage = Stage::Building {
+            read: Box::new(read),
+            downloaded_time,
+        };
+        None
     }
-    let database = VtankGameInfoDatabase::from_database(&downloaded);
-    if let Err(error) = profiles.write_text(gameinfo::FILE_NAME, &answer.text) {
-        // The download is good; only keeping it failed, so it is used for as
-        // long as the plugin runs.
-        return VtankGameInfoUpdateResult {
-            message: format!(
-                "Game database updated to {built} from {SOURCE_NAME} but could not be saved: {}. It is used until MossTank stops.",
-                error.trim_end_matches('.')
-            ),
+
+    /// The save, and the line that says how it went.
+    fn saved(
+        &self,
+        text: &str,
+        database: VtankGameInfoDatabase,
+        downloaded_time: i32,
+        profiles: &mut dyn PluginStorage,
+        state: &mut dyn PluginStorage,
+    ) -> VtankGameInfoUpdateResult {
+        let built = format_date(downloaded_time);
+        if let Err(error) = profiles.write_text(gameinfo::FILE_NAME, text) {
+            // The download is good; only keeping it failed, so it is used
+            // for as long as the plugin runs.
+            return VtankGameInfoUpdateResult {
+                message: format!(
+                    "Game database updated to {built} from {SOURCE_NAME} but could not be saved: {}. It is used until MossTank stops.",
+                    error.trim_end_matches('.')
+                ),
+                database: Some(database),
+            };
+        }
+        let line = if downloaded_time < self.local_time {
+            format!("Game database replaced with {SOURCE_NAME}'s ({built}).")
+        } else {
+            format!("Game database updated to {built} from {SOURCE_NAME}.")
+        };
+        VtankGameInfoUpdateResult {
+            message: line + &note_check(state, self.now_unix_seconds),
             database: Some(database),
-        };
+        }
     }
-    let line = if downloaded_time < local_time {
-        format!("Game database replaced with {SOURCE_NAME}'s ({built}).")
-    } else {
-        format!("Game database updated to {built} from {SOURCE_NAME}.")
-    };
-    VtankGameInfoUpdateResult {
-        message: line + &note_check(state, now_unix_seconds),
-        database: Some(database),
+}
+
+/// `File.ReadAllText(path, Encoding.UTF8)` of an answer
+/// ([`text::read_all_text`]): a text that is valid UTF-8 after its mark (the
+/// whole answer, as a rule) is checked in one pass and taken as it is,
+/// which is what decoding it a character at a time gives.
+fn read_all_text(bytes: Vec<u8>) -> String {
+    match text::detect_encoding(&bytes) {
+        (text::DetectedEncoding::Utf8, 0) => match String::from_utf8(bytes) {
+            Ok(text) => text,
+            Err(error) => text::read_all_text(error.as_bytes()),
+        },
+        (text::DetectedEncoding::Utf8, mark) => match std::str::from_utf8(&bytes[mark..]) {
+            Ok(text) => text.to_owned(),
+            Err(_) => text::read_all_text(&bytes),
+        },
+        _ => text::read_all_text(&bytes),
     }
 }
 

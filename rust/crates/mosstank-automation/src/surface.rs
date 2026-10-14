@@ -112,6 +112,12 @@ pub trait Automation {
     /// Everything the character carries or wears.
     fn owned_items(&mut self) -> Vec<InventoryItem>;
 
+    /// [`Self::owned_items`], shared: a client that keeps the list for the
+    /// call hands out the one it keeps instead of a copy.
+    fn owned_items_shared(&mut self) -> std::rc::Rc<[InventoryItem]> {
+        self.owned_items().into()
+    }
+
     /// The newest use the server answered.
     fn last_item_completion(&mut self) -> ItemUseCompletion {
         ItemUseCompletion::default()

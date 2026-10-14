@@ -384,6 +384,18 @@ impl<'a> VtankLineCursor<'a> {
         }
     }
 
+    /// A cursor that goes on where another left off: at byte `position` of
+    /// `text`, which is line `line_number` (both as [`Self::position`] and
+    /// [`Self::line_number`] said them).
+    #[must_use]
+    pub fn resume(text: &'a str, position: usize, line_number: usize) -> Self {
+        Self {
+            text,
+            position,
+            line_number,
+        }
+    }
+
     /// The byte offset of what has not been read yet.
     #[must_use]
     pub fn position(&self) -> usize {

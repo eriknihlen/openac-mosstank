@@ -32,7 +32,7 @@ pub trait CastabilityReport {
 #[allow(missing_debug_implementations)]
 pub struct AutomationCastability<'a> {
     automation: &'a mut dyn Automation,
-    owned: Vec<InventoryItem>,
+    owned: Rc<[InventoryItem]>,
     blacklisted_components: &'a str,
     report: &'a mut dyn CastabilityReport,
     counts: HashMap<String, i32>,
@@ -46,7 +46,7 @@ impl<'a> AutomationCastability<'a> {
     /// A walk over `owned` (the items the scarabs are counted in).
     pub fn new(
         automation: &'a mut dyn Automation,
-        owned: Vec<InventoryItem>,
+        owned: Rc<[InventoryItem]>,
         blacklisted_components: &'a str,
         report: &'a mut dyn CastabilityReport,
     ) -> Self {

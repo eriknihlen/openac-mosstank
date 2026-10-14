@@ -5,7 +5,7 @@ version = 4
 [[package]]
 name = "ac-plugin-abi"
 version = "0.1.0"
-source = "git+ssh://git@github.com/eriknihlen/openac-rust.git?branch=main#3cde0a3ca1588e2e65351b769df587772df137d7"
+source = "git+ssh://git@github.com/eriknihlen/openac-rust.git?branch=main#fb82ded13e2fc507afbda62068fab4c71d542c8f"
 dependencies = [
  "ac-plugin-ui",
 ]
@@ -13,7 +13,7 @@ dependencies = [
 [[package]]
 name = "ac-plugin-ui"
 version = "0.1.0"
-source = "git+ssh://git@github.com/eriknihlen/openac-rust.git?branch=main#3cde0a3ca1588e2e65351b769df587772df137d7"
+source = "git+ssh://git@github.com/eriknihlen/openac-rust.git?branch=main#fb82ded13e2fc507afbda62068fab4c71d542c8f"
 dependencies = [
  "roxmltree",
 ]
@@ -403,7 +403,7 @@ dependencies = [
 [[package]]
 name = "openac-plugin"
 version = "0.1.0"
-source = "git+ssh://git@github.com/eriknihlen/openac-rust.git?branch=main#3cde0a3ca1588e2e65351b769df587772df137d7"
+source = "git+ssh://git@github.com/eriknihlen/openac-rust.git?branch=main#fb82ded13e2fc507afbda62068fab4c71d542c8f"
 dependencies = [
  "ac-plugin-abi",
  "ac-plugin-ui",
@@ -412,7 +412,7 @@ dependencies = [
 [[package]]
 name = "openac-plugin-compat"
 version = "0.1.0"
-source = "git+ssh://git@github.com/eriknihlen/openac-rust.git?branch=main#3cde0a3ca1588e2e65351b769df587772df137d7"
+source = "git+ssh://git@github.com/eriknihlen/openac-rust.git?branch=main#fb82ded13e2fc507afbda62068fab4c71d542c8f"
 dependencies = [
  "fancy-regex",
  "thiserror",

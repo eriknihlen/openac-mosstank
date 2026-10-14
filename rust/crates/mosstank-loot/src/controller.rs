@@ -483,7 +483,7 @@ impl LootController {
         if self.active_corpse != 0 && current != self.active_corpse && self.waiting_item != 0 {
             let waiting = self.waiting_item;
             if host
-                .owned_items()
+                .owned_items_shared()
                 .iter()
                 .any(|item| item.object_id == waiting)
             {
@@ -727,7 +727,7 @@ impl LootController {
             return;
         }
         let contents = host.loot_contents();
-        let owned = host.owned_items();
+        let owned = host.owned_items_shared();
         if self.awaiting_appraisal != 0 {
             let appraisal = host.appraisal();
             let awaiting = self.awaiting_appraisal;
@@ -1120,7 +1120,7 @@ impl LootController {
         if item.maximum_stack_size <= 1 {
             return false;
         }
-        host.owned_items().iter().any(|held| {
+        host.owned_items_shared().iter().any(|held| {
             held.weenie_class_id == item.weenie_class_id
                 && held.maximum_stack_size > 1
                 && held.stack_size.max(1) < held.maximum_stack_size
@@ -1309,7 +1309,7 @@ impl LootController {
     }
 
     fn continue_salvage(&mut self, host: &mut dyn LootHost, can_act: bool) -> bool {
-        let owned = host.owned_items();
+        let owned = host.owned_items_shared();
         if self.salvage_pending_item != 0 {
             let pending = self.salvage_pending_item;
             if !owned.iter().any(|item| item.object_id == pending) {
@@ -1383,7 +1383,7 @@ impl LootController {
     }
 
     fn continue_sell(&mut self, host: &mut dyn LootHost, can_act: bool) -> bool {
-        let owned = host.owned_items();
+        let owned = host.owned_items_shared();
         if self.sell_pending_item != 0 {
             let pending = self.sell_pending_item;
             if !owned.iter().any(|item| item.object_id == pending) {
@@ -1441,7 +1441,7 @@ impl LootController {
     }
 
     fn plan_mana_transfer(&self, host: &mut dyn LootHost) -> Option<ManaStoneTransferPlan> {
-        let owned = host.owned_items();
+        let owned = host.owned_items_shared();
         let classified = &self.classified_owned_items;
         let mut checks = ControllerChecks {
             host,
@@ -1468,7 +1468,7 @@ impl LootController {
             let completion = host.last_item_completion();
             let outcome = mana::observe_fill(
                 &pending,
-                &host.owned_items(),
+                &host.owned_items_shared(),
                 &completion,
                 self.mana_transfer_revision,
                 self.state_age >= PICKUP_TIMEOUT_SECONDS,
@@ -1604,7 +1604,7 @@ impl LootController {
 
     fn has_salvage_bag_combine(&self, host: &mut dyn LootHost) -> bool {
         salvage::plan(
-            &host.owned_items(),
+            &host.owned_items_shared(),
             Some(&self.abandoned_combine_bags),
             Some(&self.settings.salvage_combine),
         )
@@ -1612,7 +1612,7 @@ impl LootController {
     }
 
     fn continue_salvage_bag_combine(&mut self, host: &mut dyn LootHost, can_act: bool) -> bool {
-        let owned = host.owned_items();
+        let owned = host.owned_items_shared();
         if let Some(pending) = self.combine_pending.clone() {
             let all_exist = pending
                 .object_ids
@@ -1866,11 +1866,11 @@ impl LootController {
         self.classified_owned_items.insert(object_id, action);
         if action == LootAction::ManaTank
             && let Some(item) = host
-                .owned_items()
-                .into_iter()
+                .owned_items_shared()
+                .iter()
                 .find(|item| item.object_id == object_id)
         {
-            self.remember_mana_donor(host, &item);
+            self.remember_mana_donor(host, item);
         }
     }
 
@@ -1887,7 +1887,7 @@ impl LootController {
             return;
         }
         let owned: HashSet<u32> = host
-            .owned_items()
+            .owned_items_shared()
             .iter()
             .map(|item| item.object_id)
             .collect();
@@ -1999,7 +1999,7 @@ impl LootController {
         {
             return;
         }
-        let owned = host.owned_items();
+        let owned = host.owned_items_shared();
         let complete = host.owned_inventory_complete();
         self.mana_donors
             .reconcile(&mut HostDonorStore { host: &mut *host }, &owned, complete);

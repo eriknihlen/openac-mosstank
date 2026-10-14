@@ -135,6 +135,26 @@ impl CombatController {
         answer
     }
 
+    /// Builds the attack catalog ahead of the pass that will want it, when
+    /// the character's lists are not the ones it was built from: a large
+    /// spellbook's catalog is a call's worth of work on its own. Whether it
+    /// did that work. The pass then finds it built, as it would have built
+    /// it itself.
+    pub fn warm_spell_catalogs(&mut self, automation: &mut dyn Automation) -> bool {
+        let spells = automation.spells().known_combat_spells_shared();
+        let attacks = automation.spells().known_attack_spells_shared();
+        let current = |kept: Option<&std::rc::Rc<[SpellInfo]>>, now: &std::rc::Rc<[SpellInfo]>| {
+            kept.is_some_and(|kept| std::rc::Rc::ptr_eq(kept, now))
+        };
+        if current(self.combat_spell_snapshot.as_ref(), &spells)
+            && current(self.attack_spell_snapshot.as_ref(), &attacks)
+        {
+            return false;
+        }
+        self.refresh_spell_catalogs(automation);
+        true
+    }
+
     pub(super) fn refresh_spell_catalogs(&mut self, automation: &mut dyn Automation) {
         let spells = automation.spells().known_combat_spells_shared();
         let attacks = automation.spells().known_attack_spells_shared();
@@ -145,6 +165,10 @@ impl CombatController {
         if same(self.combat_spell_snapshot.as_ref(), &spells)
             && same(self.attack_spell_snapshot.as_ref(), &attacks)
         {
+            // Equal lists: the new allocations are kept, so the next look
+            // is a pointer test.
+            self.combat_spell_snapshot = Some(spells);
+            self.attack_spell_snapshot = Some(attacks);
             return;
         }
         if attacks.is_empty() {

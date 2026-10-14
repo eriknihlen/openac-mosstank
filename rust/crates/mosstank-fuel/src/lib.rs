@@ -63,8 +63,9 @@ pub struct CallFuel {
     /// How often it called each import.
     pub imports: BTreeMap<&'static str, u32>,
     /// Each import in order, with the instructions the plugin ran since
-    /// the one before (the call's profile).
-    pub trace: Vec<(&'static str, u64)>,
+    /// the one before (the call's profile). A log line the plugin writes
+    /// that starts with `@` is named by its text: a marker to profile by.
+    pub trace: Vec<(std::borrow::Cow<'static, str>, u64)>,
 }
 
 impl CallFuel {
@@ -390,7 +391,8 @@ impl Plugin {
                     *fuel.imports.entry(import.name()).or_default() += 1;
                     let left = self.store.get_fuel().map_err(|error| error.to_string())?;
                     let ran = MEASURING_FUEL + fuel.granted - left;
-                    fuel.trace.push((import.name(), ran - traced));
+                    fuel.trace
+                        .push((trace_name(import, &request), ran - traced));
                     traced = ran;
                     let reply = client.call(import, &request);
                     let len = i32::try_from(reply.len()).map_err(|_| "a reply over 2 GiB")?;
@@ -419,4 +421,16 @@ impl Plugin {
             }
         }
     }
+}
+
+/// An import's name in a call's profile: a marker's text for a log line
+/// that starts with `@`.
+fn trace_name(import: Import, request: &[u8]) -> std::borrow::Cow<'static, str> {
+    if import == Import::HostLog
+        && let Ok(log) = ac_plugin_abi::types::LogRequest::from_bytes(request)
+        && log.message.starts_with('@')
+    {
+        return log.message.into();
+    }
+    import.name().into()
 }

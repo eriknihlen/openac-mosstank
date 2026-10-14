@@ -497,7 +497,7 @@ impl EquipProfileController {
     /// they require, lowest first (a stable sort, so equal ones keep pack
     /// order).
     fn build_queue(&mut self, call: &mut UbCall<'_>) {
-        let owned = call.host.owned_items();
+        let owned = call.host.owned_items_shared();
         let mut chosen: Vec<(u32, i32)> = Vec::new();
         for item in &self.candidates {
             let properties = properties_of(call, item.object_id);
@@ -725,7 +725,7 @@ impl EquipProfileController {
         self.pending_overwrite_at = f64::NEG_INFINITY;
 
         let mut rules = Vec::new();
-        for item in call.host.owned_items() {
+        for item in call.host.owned_items_shared().iter() {
             if item.equipped_location == 0 || item.valid_locations == 0 {
                 continue;
             }
@@ -830,8 +830,8 @@ fn file_name(call: &mut UbCall<'_>, profile_name: &str) -> String {
 /// dresses with, and only an item that names a slot it fits.
 fn equippable_items(call: &mut UbCall<'_>) -> Vec<InventoryItem> {
     call.host
-        .owned_items()
-        .into_iter()
+        .owned_items_shared()
+        .iter()
         .filter(|item| {
             item.valid_locations != 0
                 && matches!(
@@ -845,6 +845,7 @@ fn equippable_items(call: &mut UbCall<'_>) -> Vec<InventoryItem> {
                         | ObjectClass::WandStaffOrb
                 )
         })
+        .cloned()
         .collect()
 }
 
@@ -854,9 +855,10 @@ fn is_busy(call: &mut UbCall<'_>) -> bool {
 
 fn find_owned(call: &mut UbCall<'_>, object_id: u32) -> Option<InventoryItem> {
     call.host
-        .owned_items()
-        .into_iter()
+        .owned_items_shared()
+        .iter()
         .find(|item| item.object_id == object_id)
+        .cloned()
 }
 
 fn is_equipped(call: &mut UbCall<'_>, object_id: u32) -> bool {

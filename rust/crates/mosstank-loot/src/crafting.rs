@@ -122,17 +122,15 @@ impl CraftingPlan {
 #[derive(Debug, Clone, Copy)]
 pub struct CraftingPlanner;
 
-/// Stack counts by name, any case (`GroupBy(Name, OrdinalIgnoreCase)`).
-fn counts(inventory: &[InventoryItem]) -> HashMap<String, i32> {
-    let mut counts: HashMap<String, i32> = HashMap::new();
-    for item in inventory {
-        *counts.entry(fold_ignore_case(&item.name)).or_default() += item.stack_size.max(1);
-    }
-    counts
-}
-
-fn count_of(counts: &HashMap<String, i32>, name: &str) -> i32 {
-    counts.get(&fold_ignore_case(name)).copied().unwrap_or(0)
+/// The stack count of one name, any case (`GroupBy(Name,
+/// OrdinalIgnoreCase)` of the pack, looked up): asked for a few names a scan,
+/// so the pack is walked for each rather than grouped whole (a heavy
+/// character carries some fifteen hundred things).
+fn count_of(inventory: &[InventoryItem], name: &str) -> i32 {
+    inventory
+        .iter()
+        .filter(|item| ordinal::equals_ignore_case(&item.name, name))
+        .fold(0i32, |count, item| count + item.stack_size.max(1))
 }
 
 /// The first held stack of `name` (any case), other than `excluded`.
@@ -180,7 +178,6 @@ impl CraftingPlanner {
         desired_count: i32,
         arrowhead_fletch_difficulty_excess: i32,
     ) -> Option<CraftingPlan> {
-        let counts = counts(inventory);
         let mut wanted: Vec<&String> = Vec::new();
         for name in desired_results {
             if casing::is_white_space_only(name)
@@ -194,7 +191,7 @@ impl CraftingPlanner {
         }
         wanted.sort_by(|a, b| ordinal::compare_ignore_case(a, b));
         for desired in wanted {
-            if count_of(&counts, desired) >= desired_count.max(1) {
+            if count_of(inventory, desired) >= desired_count.max(1) {
                 continue;
             }
             let mut visiting: Vec<String> = Vec::new();
@@ -229,12 +226,11 @@ impl CraftingPlanner {
         }
         let tool = find(inventory, "Splitting Tool", 0)?;
         let all_peas = consumable_profile(ALL_PEAS);
-        let counts = counts(inventory);
         for recipe in crafts.recipes() {
             if recipe.first_item != "Splitting Tool"
                 || !recipe.second_item.ends_with(" Pea")
                 || (!all_peas && !consumable_profile(&recipe.second_item))
-                || count_of(&counts, &recipe.result_item) >= minimum
+                || count_of(inventory, &recipe.result_item) >= minimum
             {
                 continue;
             }
@@ -461,7 +457,7 @@ impl CraftingController {
         {
             return false;
         }
-        let inventory = turn.automation.owned_items();
+        let inventory = turn.automation.owned_items_shared();
         let skills = turn.automation.skills();
         let plan = CraftingPlanner::plan(
             &self.game_info.crafts,
@@ -496,7 +492,7 @@ impl CraftingController {
         {
             return None;
         }
-        let inventory = turn.automation.owned_items();
+        let inventory = turn.automation.owned_items_shared();
         let skills = turn.automation.skills();
         CraftingPlanner::plan(
             &self.game_info.crafts,
@@ -591,7 +587,7 @@ impl CraftingController {
         if !self.has_recipes() {
             return false;
         }
-        let inventory = turn.automation.owned_items();
+        let inventory = turn.automation.owned_items_shared();
         let mut plan = self.pea_split(turn, &inventory, turn.settings.critical_component_minimum);
         if plan.is_none() {
             plan = self.plan_category_craft(turn, &inventory, false);
@@ -625,7 +621,7 @@ impl CraftingController {
         if !self.has_recipes() {
             return false;
         }
-        let inventory = turn.automation.owned_items();
+        let inventory = turn.automation.owned_items_shared();
         let mut plan = self.pea_split(turn, &inventory, turn.settings.normal_component_minimum);
         if plan.is_none() {
             let wanted: Vec<String> = turn
@@ -684,7 +680,7 @@ impl CraftingController {
         if !self.has_recipes() {
             return false;
         }
-        let inventory = turn.automation.owned_items();
+        let inventory = turn.automation.owned_items_shared();
         let mut plan = self.pea_split(turn, &inventory, turn.settings.idle_component_minimum);
         if plan.is_none() {
             plan = self.plan_category_craft(turn, &inventory, true);
@@ -911,9 +907,10 @@ impl CraftingController {
         scan_interval: f64,
     ) -> bool {
         let mut inputs: Vec<InventoryItem> = automation
-            .owned_items()
-            .into_iter()
+            .owned_items_shared()
+            .iter()
             .filter(|item| ordinal::equals_ignore_case(&item.name, &split_plan.recipe.first_item))
+            .cloned()
             .collect();
         inputs.sort_by_key(|item| item.object_id);
         if inputs.len() < 2 {

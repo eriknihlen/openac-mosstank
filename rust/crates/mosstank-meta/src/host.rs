@@ -158,6 +158,11 @@ pub trait MetaHost {
     fn item_state(&mut self) -> ItemState;
     /// Everything the character owns.
     fn owned_items(&mut self) -> Vec<InventoryItem>;
+    /// [`Self::owned_items`], shared: a client that keeps the list for the
+    /// call hands out the one it keeps instead of a copy.
+    fn owned_items_shared(&mut self) -> std::rc::Rc<[InventoryItem]> {
+        self.owned_items().into()
+    }
     /// Uses an item.
     fn use_item(&mut self, object_id: u32) -> ItemResult;
     /// Uses an item on a target.

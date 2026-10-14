@@ -370,9 +370,10 @@ impl TankCx<'_> {
         }
         self.client
             .rules()
-            .owned_items()
-            .into_iter()
+            .owned_items_shared()
+            .iter()
             .find(|item| item.object_id == object_id)
+            .cloned()
             .map_or_else(|| format!("0x{object_id:08X}"), |item| item.name)
     }
 
@@ -453,7 +454,7 @@ impl TankCx<'_> {
             .cloned()
             .collect();
         names.sort_by(|a, b| mosstank_dotnet::text::ordinal::compare(a, b));
-        let owned = self.client.rules().owned_items();
+        let owned = self.client.rules().owned_items_shared();
         self.update_monster_actions_at(row, move |mut actions| {
             let current = if offhand {
                 &actions.offhand_name

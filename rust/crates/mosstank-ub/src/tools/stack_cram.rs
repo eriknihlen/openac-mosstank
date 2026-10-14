@@ -267,7 +267,7 @@ impl InventoryMaintenanceController {
         }
         self.until_scan = settings.scan_interval_seconds.max(0.05);
 
-        let inventory = host.owned_items();
+        let inventory = host.owned_items_shared();
         self.ignored
             .retain(|id| inventory.iter().any(|item| item.object_id == *id));
         let player = host.character().map_or(0, |character| character.id);
@@ -384,7 +384,7 @@ impl StackCramCommandRun {
         let nothing = match character {
             None => true,
             Some(character) => {
-                let owned = call.host.owned_items();
+                let owned = call.host.owned_items_shared();
                 plan(&owned, character.id, &settings, &HashSet::new()).is_none()
             }
         };

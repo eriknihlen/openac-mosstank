@@ -1,6 +1,7 @@
 //! The fuel each call of the built `mosstank.wasm` uses, against the
-//! plugin's own test client with a character sized like a live one, and
-//! whether every call fits the openAC host's budgets with room to spare.
+//! plugin's own test client with a heavy character on a busy public server
+//! ([`heavy`]), and whether every call fits the openAC host's budgets with
+//! room to spare.
 //!
 //! Run by `scripts/check.sh` after the WebAssembly build (the test is
 //! ignored by a plain `cargo test`, which has no module to load):
@@ -10,24 +11,34 @@
 //! ```
 //!
 //! `MOSSTANK_FUEL_WASM=<path>` measures another build of the module.
-//! `MOSSTANK_FUEL_GAMEDB=<path to gameinfodb.ugd>` measures with a real
-//! game database; otherwise a generated one with the downloaded database's
-//! tables, row counts and value kinds (2026-09-17, about 2 MB) is used.
+//! `MOSSTANK_FUEL_GAMEDB=<path to gameinfodb.ugd>` measures with that game
+//! database; otherwise the published one (openac-gamedata's, 2.1 MB) from a
+//! checkout beside this one, else a generated one with its tables, row
+//! counts and value kinds. Two cases: the heavy character's session (login
+//! burst, every event kind, idle, buffs, a fight, looting, a reload), and a
+//! fresh install's download of the game database.
+//! `MOSSTANK_FUEL_TRACE=1` profiles the worst call of every case (`full`:
+//! every import of it), `MOSSTANK_FUEL_TRACE_CASE=<text>` only the cases
+//! whose names hold the text. A log line the plugin writes that starts with
+//! `@` names its place in a profile: a marker to profile by.
 
 // The plugin's own test client: the SDK's fake host, the two storages and
 // the C# tests' fake automation (casts, their chat lines, landed buffs).
 #[path = "../../mosstank/tests/common/mod.rs"]
 mod common;
+mod heavy;
 
-use std::collections::{BTreeSet, HashMap};
+use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::fmt::Write as _;
 
 use ac_plugin_abi::character::{Attribute, Training};
 use ac_plugin_abi::combat::CombatTarget;
 use ac_plugin_abi::magic::{SPELL_PAGE_MAX, SpellInfo, SpellList, SpellPage};
-use ac_plugin_abi::{CommandCall, Event, Import, StartInfo, Wire};
+use ac_plugin_abi::world::{ObjectChange, ObjectChangeKind};
+use ac_plugin_abi::{CommandCall, Event, Import, StartInfo, Wire, calls};
 use common::World;
 use common::automation::FakeAutomation;
+use heavy::Created;
 use mosstank_fuel::{CallFuel, Client, DEFAULT_MEMORY_MIB, Plugin};
 use openac_plugin::Transport;
 
@@ -38,8 +49,8 @@ const MARGIN_PERCENT: f64 = 50.0;
 const MONSTER_ID: u32 = 0x8000_02A7;
 
 /// The plugin's test client, with the whole spell table paged as the
-/// client pages it and the known attack spells (the fake answers only the
-/// self buffs).
+/// client pages it, the known attack spells (the fake answers only the
+/// self buffs) and an opened corpse's contents.
 struct Session {
     world: World,
     table: Vec<SpellInfo>,
@@ -82,6 +93,14 @@ impl Client for Session {
             Import::SpellsIsKnown if in_world => {
                 let id = u32::from_bytes(request).expect("a spell id");
                 self.known.contains(&id).to_bytes()
+            }
+            Import::LootContents if self.world.loot.is_some() => {
+                let current = self.world.loot().current;
+                if current == 0 {
+                    Vec::<ac_plugin_abi::items::InventoryItem>::new().to_bytes()
+                } else {
+                    heavy::corpse_contents(current).to_bytes()
+                }
             }
             _ => self.world.call(import, request),
         }
@@ -287,20 +306,21 @@ fn spell_table() -> Vec<SpellInfo> {
         .collect()
 }
 
-/// A character sized like the live check's: every self buff of the table
-/// known, every skill trained, a full pack, a wand, and a monster 3 m away
-/// once the fight starts.
+/// A heavy character: every self buff of the table known (all ranks),
+/// every skill trained, [`heavy::ENCHANTMENTS`] enchantments on it,
+/// standing in a town, its pack still empty (the login burst fills it).
 fn character_automation(table: &[SpellInfo]) -> FakeAutomation {
     let mut automation = FakeAutomation::default();
-    automation.name = "+Acdream".to_owned();
-    automation.world_name = "sawato".to_owned();
+    automation.name = "Mossy Hunter".to_owned();
+    automation.world_name = "Coldeve".to_owned();
     automation.level = 275;
-    automation.object_id = 0x5000_000A;
+    automation.object_id = heavy::CHARACTER_ID;
     automation.health = (400, 400);
     automation.stamina = (400, 400);
     automation.mana = (600, 600);
-    automation.main_pack_free_slots = 40;
+    automation.main_pack_free_slots = 0;
     automation.enchantment_duration_seconds = 3600.0;
+    automation.navigation = heavy::navigation();
     automation.skills = SKILLS
         .iter()
         .zip(1..)
@@ -328,58 +348,36 @@ fn character_automation(table: &[SpellInfo]) -> FakeAutomation {
         ..Attribute::default()
     })
     .collect();
-    // Ranks III to VIII and the incantations: some 730 self buffs, about
-    // what the live check's idle ticks read (one spellbook read and a
-    // few small ones in 19 million instructions).
-    let known_rank =
-        |spell: &&SpellInfo| !(spell.name.ends_with(" I") || spell.name.ends_with(" II"));
     let self_buffs: Vec<SpellInfo> = table
         .iter()
         .filter(|spell| spell.is_beneficial)
-        .filter(known_rank)
         .cloned()
         .collect();
     automation.catalog_spells = table
         .iter()
-        .filter(|spell| !spell.is_beneficial || !known_rank(spell))
+        .filter(|spell| !spell.is_beneficial)
         .cloned()
         .collect();
     automation.set_known_self_buffs(self_buffs);
-    let mut items = Vec::new();
-    let names = [
-        ("Greater Amuli Shadow Coat", 0x2),
-        ("Amuli Shadow Leggings", 0x2),
-        ("Shadow Gauntlets", 0x2),
-        ("Shadow Sollerets", 0x2),
-        ("Shadow Helm", 0x2),
-        ("Shadow Bracers", 0x2),
-        ("Shadow Girth", 0x2),
-        ("Crystal Wand", 0x8000),
-        ("Mana Scarab", 0x1000),
-        ("Platinum Scarab", 0x1000),
-        ("Quill of Infliction", 0x1000),
-        ("Ink of Formation", 0x1000),
-        ("Glyph of Strength", 0x1000),
-        ("Prismatic Taper", 0x1000),
-        ("Hyssop", 0x1000),
-        ("Powdered Agate", 0x1000),
-        ("Mana Stone", 0x800),
-        ("Stamina Elixir", 0x80),
-        ("Health Elixir", 0x80),
-        ("Mana Elixir", 0x80),
-        ("Roast Beef", 0x20),
-        ("Peerless Healing Kit", 0x80),
-        ("Pyreal Mote", 0x80),
-        ("Salvaged Iron", 0x80),
-    ];
-    for index in 0..120u32 {
-        let (name, item_type) = names[index as usize % names.len()];
-        let mut item = common::item(0x5100_0000 + index, name, item_type);
-        item.stack_size = if item_type == 0x1000 { 100 } else { 1 };
-        items.push(item);
-    }
-    automation.item_entries = items;
+    automation.active_enchantments = heavy::enchantments(table);
     automation
+}
+
+/// The spellbook: every attack and self buff, then other spells of the
+/// table up to [`heavy::KNOWN_SPELLS`].
+fn spellbook(table: &[SpellInfo]) -> BTreeSet<u32> {
+    let mut known: BTreeSet<u32> = table
+        .iter()
+        .filter(|spell| spell.is_offensive || spell.is_beneficial)
+        .map(|spell| spell.spell_id)
+        .collect();
+    for spell in table {
+        if known.len() >= heavy::KNOWN_SPELLS {
+            break;
+        }
+        known.insert(spell.spell_id);
+    }
+    known
 }
 
 fn monster() -> CombatTarget {
@@ -576,7 +574,7 @@ fn generated_game_database() -> String {
 
 /// One measured case: its worst call and how many calls it took.
 struct Case {
-    name: &'static str,
+    name: String,
     worst: CallFuel,
     calls: usize,
     /// The median call's share of its budget, percent.
@@ -586,7 +584,7 @@ struct Case {
 }
 
 impl Case {
-    fn of(name: &'static str, calls: &[CallFuel]) -> Self {
+    fn of(name: &str, calls: &[CallFuel]) -> Self {
         let worst = calls
             .iter()
             .max_by(|a, b| a.percent().total_cmp(&b.percent()))
@@ -595,7 +593,7 @@ impl Case {
         let mut shares: Vec<f64> = calls.iter().map(CallFuel::percent).collect();
         shares.sort_by(f64::total_cmp);
         Self {
-            name,
+            name: name.to_owned(),
             worst,
             calls: calls.len(),
             median: shares.get(shares.len() / 2).copied().unwrap_or_default(),
@@ -656,134 +654,160 @@ fn tick(plugin: &mut Plugin, session: &mut Session) -> CallFuel {
     plugin.tick(session).expect("a tick")
 }
 
-#[test]
-#[ignore = "needs the release module: scripts/check.sh runs it after the WebAssembly build"]
-fn every_call_fits_the_hosts_budgets_with_room_to_spare() {
-    let wasm = std::fs::read(wasm_path()).expect("the release mosstank.wasm (build it first)");
-    let game_database = match std::env::var("MOSSTANK_FUEL_GAMEDB") {
-        Ok(path) => std::fs::read_to_string(&path).expect("the game database"),
-        Err(_) => generated_game_database(),
-    };
+fn send(plugin: &mut Plugin, session: &mut Session, event: &Event) -> CallFuel {
+    plugin.event(event, session).expect("an event")
+}
+
+/// The cases measured, by name, in the order first measured.
+#[derive(Default)]
+struct Cases {
+    order: Vec<String>,
+    calls: BTreeMap<String, Vec<CallFuel>>,
+}
+
+impl Cases {
+    fn add(&mut self, name: &str, fuel: CallFuel) {
+        if !self.calls.contains_key(name) {
+            self.order.push(name.to_owned());
+        }
+        self.calls.entry(name.to_owned()).or_default().push(fuel);
+    }
+
+    fn all(&self) -> Vec<Case> {
+        self.order
+            .iter()
+            .map(|name| Case::of(name, &self.calls[name]))
+            .collect()
+    }
+}
+
+/// A chat line arrives: kept for the captured-chat reads and sent as the
+/// event.
+fn chat(plugin: &mut Plugin, session: &mut Session, cases: &mut Cases, case: &str) {
+    let log = session.world.chat_log.get_or_insert_with(Vec::new);
+    let sequence = log.last().map_or(1, |line| line.sequence + 1);
+    let line = heavy::chat_line(sequence, session.world.fake.clock.utc_unix_ms);
+    log.push(line.clone());
+    let fuel = send(plugin, session, &Event::ChatReceived(line));
+    cases.add(case, fuel);
+}
+
+/// The client creates `created` (and its owned item), as the login burst
+/// does: the object table and the inventory grow, the corpses list too.
+fn create(session: &mut Session, created: &Created) {
+    let automation = session.world.automation();
+    if let Some(item) = &created.item {
+        automation.item_entries.push(item.clone());
+    }
+    automation.world_objects.push(created.object.clone());
+    if created.object.object_class == ac_plugin_abi::world::ObjectClass::Corpse {
+        let corpse = heavy::corpses(std::slice::from_ref(created));
+        let index = session.world.loot().corpses.len();
+        let mut corpse = corpse.into_iter().next().expect("a corpse");
+        corpse.distance = 3.0 + (index % 25) as f32;
+        session.world.loot().corpses.push(corpse);
+    }
+}
+
+fn object_change(kind: ObjectChangeKind, revision: i64, created: &Created) -> Event {
+    Event::ObjectChanged(ObjectChange {
+        object_id: created.object.object_id,
+        kind,
+        revision,
+        changed_fields: kind.fields(),
+        current: (kind != ObjectChangeKind::Released).then(|| created.object.clone()),
+    })
+}
+
+fn spawned(created: &Created) -> Event {
+    Event::EntitySpawned(ac_plugin_abi::world::EntitySnapshot {
+        id: created.object.object_id,
+        source_id: created.object.object_id,
+        position: (96.0, 96.0, 0.0),
+        rotation: (0.0, 0.0, 0.0, 1.0),
+    })
+}
+
+/// The game database measured: `MOSSTANK_FUEL_GAMEDB`, else the published
+/// one (openac-gamedata's `gameinfodb.ugd`, 2.1 MB) from a checkout beside
+/// this one, else a generated one with its tables, row counts and value
+/// kinds. The published file is AGPL-3.0, so it is read in place, never
+/// copied into this repository.
+fn game_database() -> String {
+    if let Ok(path) = std::env::var("MOSSTANK_FUEL_GAMEDB") {
+        return std::fs::read_to_string(&path).expect("the game database");
+    }
+    let published = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("../../../../openac-gamedata/out/gameinfodb.ugd");
+    std::fs::read_to_string(published).unwrap_or_else(|_| generated_game_database())
+}
+
+/// The heavy character's client, out of the world: the spell table, the
+/// spellbook, the session proof's profiles (keep everything), an
+/// allegiance and a fellowship; storage otherwise empty.
+fn new_session() -> Session {
     let table = spell_table();
     let attacks: Vec<SpellInfo> = table
         .iter()
         .filter(|spell| spell.is_offensive)
         .cloned()
         .collect();
-    let known: BTreeSet<u32> = table
-        .iter()
-        .filter(|spell| {
-            spell.is_offensive
-                || (spell.is_beneficial
-                    && !(spell.name.ends_with(" I") || spell.name.ends_with(" II")))
-        })
-        .map(|spell| spell.spell_id)
-        .collect();
     let mut session = Session {
         world: World::new(),
         combat: attacks.clone(),
         attacks,
-        known,
+        known: spellbook(&table),
         table,
     };
     session.world.fake.clock.utc_unix_ms = 1_760_000_000_000;
     session.world.fake.clock.utc_unix_100ns = 17_600_000_000_000_000;
     session.world.fake.clock.random_seed = 12345;
+    common::write_session_proof_fixture(&mut session.world);
     session
         .world
-        .profiles
-        .insert("gameinfodb.ugd", &game_database);
-    // The update was checked a moment ago: no download at start.
+        .set_reply::<calls::AllegianceState>(&heavy::allegiance());
+    let (fellowship, fellows) = heavy::fellowship();
     session
         .world
-        .plugin_data
-        .insert("gamedb/last-check.txt", "2026-10-13T19:00:00.0000000Z");
+        .set_reply::<calls::FellowshipState>(&fellowship);
+    session
+        .world
+        .set_reply::<calls::FellowshipMembers>(&fellows.clone());
+    session.world.set_reply::<calls::FellowshipRoster>(&fellows);
+    session
+}
 
-    let mut cases = Vec::new();
-
-    // Start before the world, the game database cached.
-    let (mut plugin, instantiated) = Plugin::load(&wasm, DEFAULT_MEMORY_MIB).expect("load");
-    let enabled = plugin.enable(&start_info(), &mut session).expect("enable");
-    cases.push(Case::of("instantiate", &[instantiated]));
-    cases.push(Case::of("start (game database cached)", &[enabled]));
-
-    // The character enters the world.
-    let automation = character_automation(&session.table);
-    session.world.fake.character = Some(common::character("+Acdream"));
+/// The heavy character enters the world, its pack and surroundings all
+/// there at once (no burst).
+fn enter_world(session: &mut Session) {
+    let inventory = heavy::inventory();
+    let surroundings = heavy::surroundings();
+    let mut automation = character_automation(&session.table);
+    automation.properties = heavy::player_properties(&surroundings);
+    for created in inventory.iter().chain(&surroundings) {
+        if let Some(item) = &created.item {
+            automation.item_entries.push(item.clone());
+        }
+        automation.world_objects.push(created.object.clone());
+    }
+    session.world.fake.character = Some(common::character("Mossy Hunter"));
     session.world.automation = Some(automation);
     session.world.chat_log = Some(Vec::new());
-    let login = plugin
-        .event(&Event::LoginComplete, &mut session)
-        .expect("login");
-    cases.push(Case::of("event: login complete", &[login]));
-    let first = tick(&mut plugin, &mut session);
-    cases.push(Case::of("first tick in the world", &[first]));
-    let idle: Vec<CallFuel> = (0..100).map(|_| tick(&mut plugin, &mut session)).collect();
-    cases.push(Case::of("idle tick", &idle));
+    session.world.loot = Some(common::FrameLootSurface::default());
+}
 
-    // The macro starts: the buffs.
-    let started = plugin
-        .event(&command("vt", "start"), &mut session)
-        .expect("/vt start");
-    cases.push(Case::of("event: /vt start", &[started]));
-    let mut buff_ticks = Vec::new();
-    let mut other_ticks = Vec::new();
-    for _ in 0..1500 {
-        let casts_before = session.world.cast_spell_ids().len();
-        let fuel = tick(&mut plugin, &mut session);
-        if session.world.cast_spell_ids().len() > casts_before {
-            buff_ticks.push(fuel);
-        } else {
-            other_ticks.push(fuel);
-        }
-    }
-    cases.push(Case::of("buff decision tick (a cast)", &buff_ticks));
-    cases.push(Case::of("macro tick while buffing", &other_ticks));
-
-    // A monster comes into range: the fight.
-    if let Some(automation) = session.world.automation.as_mut() {
-        automation.hostile_targets = vec![monster()];
-    }
-    let mut combat_ticks = Vec::new();
-    let mut other_ticks = Vec::new();
-    for _ in 0..800 {
-        let casts_before = session.world.cast_spell_ids().len();
-        let fuel = tick(&mut plugin, &mut session);
-        let new_casts = &session.world.cast_spell_ids()[casts_before..];
-        let attacked = new_casts
-            .iter()
-            .any(|id| session.attacks.iter().any(|spell| spell.spell_id == *id));
-        if attacked {
-            combat_ticks.push(fuel);
-        } else {
-            other_ticks.push(fuel);
-        }
-    }
-    cases.push(Case::of("combat decision tick (an attack)", &combat_ticks));
-    cases.push(Case::of("macro tick while fighting", &other_ticks));
-
-    let stopped = plugin.disable(&mut session).expect("disable");
-    cases.push(Case::of("stop", &[stopped]));
-
-    // Started again in the world (a reload), the database cached.
-    let (mut plugin, _) = Plugin::load(&wasm, DEFAULT_MEMORY_MIB).expect("reload");
-    let enabled = plugin
-        .enable(&start_info(), &mut session)
-        .expect("enable in the world");
-    cases.push(Case::of("start in the world (reload)", &[enabled]));
-    let first = tick(&mut plugin, &mut session);
-    cases.push(Case::of("first tick after the reload", &[first]));
-
+/// The table of cases, worst call first in each.
+fn report(cases: &[Case]) -> String {
     let mut report = String::new();
     let _ = writeln!(
         report,
-        "{:<36} {:>6} {:>7} {:>6} {:>14} {:>14} {:>7}  imports of the worst call",
+        "{:<38} {:>6} {:>7} {:>6} {:>14} {:>14} {:>7}  imports of the worst call",
         "case", "calls", "median", ">half", "worst used", "allowed", "share"
     );
-    for case in &cases {
+    for case in cases {
         let _ = writeln!(
             report,
-            "{:<36} {:>6} {:>6.1}% {:>6} {:>14} {:>14} {:>6.1}%  {}",
+            "{:<38} {:>6} {:>6.1}% {:>6} {:>14} {:>14} {:>6.1}%  {}",
             case.name,
             case.calls,
             case.median,
@@ -794,19 +818,20 @@ fn every_call_fits_the_hosts_budgets_with_room_to_spare() {
             top_imports(&case.worst)
         );
     }
-    println!("{report}");
     if std::env::var_os("MOSSTANK_FUEL_TRACE").is_some() {
-        for case in &cases {
+        let only = std::env::var("MOSSTANK_FUEL_TRACE_CASE").unwrap_or_default();
+        for case in cases
+            .iter()
+            .filter(|case| case.name.contains(only.as_str()))
+        {
             print_profile(case);
         }
     }
-    assert!(
-        cases
-            .iter()
-            .filter(|case| case.name.starts_with("buff") || case.name.starts_with("combat"))
-            .all(|case| case.calls > 0),
-        "the macro made no buff or combat decision:\n{report}"
-    );
+    report
+}
+
+/// Every case under half its budget.
+fn assert_within_margin(cases: &[Case], report: &str) {
     let over: Vec<&Case> = cases
         .iter()
         .filter(|case| case.worst.percent() > MARGIN_PERCENT)
@@ -816,6 +841,366 @@ fn every_call_fits_the_hosts_budgets_with_room_to_spare() {
         "calls over {MARGIN_PERCENT}% of their budget:\n{report}"
     );
 }
+
+/// The handle the client gives the game database's download.
+const DOWNLOAD_HANDLE: u32 = 77;
+
+#[test]
+#[ignore = "needs the release module: scripts/check.sh runs it after the WebAssembly build"]
+fn the_game_database_download_fits_on_a_fresh_install() {
+    let wasm = std::fs::read(wasm_path()).expect("the release mosstank.wasm (build it first)");
+    let game_database = game_database();
+    // A fresh install: no database, no check kept; the download is sent.
+    let mut session = new_session();
+    session
+        .world
+        .set_reply::<calls::NetHttpRequest>(&Ok(DOWNLOAD_HANDLE));
+    let mut cases = Cases::default();
+    let (mut plugin, _) = Plugin::load(&wasm, DEFAULT_MEMORY_MIB).expect("load");
+    let enabled = plugin.enable(&start_info(), &mut session).expect("enable");
+    cases.add("start (fresh install)", enabled);
+    enter_world(&mut session);
+    let login = send(&mut plugin, &mut session, &Event::LoginComplete);
+    cases.add("event: login complete", login);
+    for _ in 0..200 {
+        let fuel = tick(&mut plugin, &mut session);
+        cases.add("tick before the download's reply", fuel);
+    }
+    assert!(
+        !session.world.requests::<calls::NetHttpRequest>().is_empty(),
+        "the download was not sent"
+    );
+    let reply = Event::Net(ac_plugin_abi::net::NetEvent::HttpCompleted(
+        ac_plugin_abi::net::HttpReply {
+            handle: DOWNLOAD_HANDLE,
+            status: 200,
+            reason: "OK".to_owned(),
+            body: game_database.clone().into_bytes(),
+            ..ac_plugin_abi::net::HttpReply::default()
+        },
+    ));
+    let fuel = send(&mut plugin, &mut session, &reply);
+    cases.add("event: the download's reply", fuel);
+    for _ in 0..1000 {
+        let fuel = tick(&mut plugin, &mut session);
+        cases.add("tick after the download's reply", fuel);
+    }
+    let saved = session.world.profiles.get("gameinfodb.ugd").map(str::len);
+    let cases = cases.all();
+    let report = report(&cases);
+    println!("{report}");
+    assert_eq!(
+        saved,
+        Some(game_database.len()),
+        "the download was not saved:\n{report}\n{:?}",
+        session.world.chat()
+    );
+    assert!(
+        session
+            .world
+            .chat()
+            .iter()
+            .any(|line| line.contains("Game database updated")),
+        "the update was not announced: {:?}",
+        session.world.chat()
+    );
+    assert_within_margin(&cases, &report);
+}
+
+#[test]
+#[ignore = "needs the release module: scripts/check.sh runs it after the WebAssembly build"]
+#[allow(clippy::too_many_lines)]
+fn every_call_fits_the_hosts_budgets_with_room_to_spare() {
+    let wasm = std::fs::read(wasm_path()).expect("the release mosstank.wasm (build it first)");
+    let game_database = game_database();
+    let mut session = new_session();
+    session
+        .world
+        .profiles
+        .insert("gameinfodb.ugd", &game_database);
+    // The update was checked a moment ago: no download at start.
+    session
+        .world
+        .plugin_data
+        .insert("gamedb/last-check.txt", "2026-10-13T19:00:00.0000000Z");
+    let mut cases = Cases::default();
+
+    // Start before the world, the game database cached.
+    let (mut plugin, instantiated) = Plugin::load(&wasm, DEFAULT_MEMORY_MIB).expect("load");
+    let enabled = plugin.enable(&start_info(), &mut session).expect("enable");
+    cases.add("instantiate", instantiated);
+    cases.add("start (game database cached)", enabled);
+
+    // The character enters the world: the login burst creates its pack and
+    // everything about it, with the town's chat, while the plugin ticks.
+    let inventory = heavy::inventory();
+    let surroundings = heavy::surroundings();
+    let mut automation = character_automation(&session.table);
+    automation.properties = heavy::player_properties(&surroundings);
+    session.world.fake.character = Some(common::character("Mossy Hunter"));
+    session.world.automation = Some(automation);
+    session.world.chat_log = Some(Vec::new());
+    session.world.loot = Some(common::FrameLootSurface::default());
+    let mut revision = 0i64;
+    let mut ticked = false;
+    for (index, created) in inventory.iter().chain(&surroundings).enumerate() {
+        create(&mut session, created);
+        revision += 1;
+        let fuel = send(
+            &mut plugin,
+            &mut session,
+            &object_change(ObjectChangeKind::Created, revision, created),
+        );
+        if created.item.is_some() {
+            cases.add("burst: object created (carried)", fuel);
+        } else {
+            cases.add("burst: object created (about)", fuel);
+            let fuel = send(&mut plugin, &mut session, &spawned(created));
+            cases.add("burst: entity spawned", fuel);
+        }
+        if index + 1 == heavy::INVENTORY_ITEMS {
+            let fuel = send(&mut plugin, &mut session, &Event::LoginComplete);
+            cases.add("event: login complete (in the burst)", fuel);
+        }
+        if index % (heavy::BURST_OBJECTS / heavy::BURST_CHAT_LINES) == 7 {
+            chat(&mut plugin, &mut session, &mut cases, "burst: chat line");
+        }
+        if index % 15 == 14 {
+            let fuel = tick(&mut plugin, &mut session);
+            if ticked {
+                cases.add("burst: tick", fuel);
+            } else {
+                cases.add("first tick in the world", fuel);
+                ticked = true;
+            }
+        }
+    }
+    let after_burst: Vec<CallFuel> = (0..200).map(|_| tick(&mut plugin, &mut session)).collect();
+    for fuel in after_burst {
+        cases.add("ticks after the burst", fuel);
+    }
+
+    // Every other kind of event, at this scale.
+    let carried = &inventory[heavy::SIDE_PACKS + 40];
+    let player = &surroundings[3];
+    let dropped = surroundings.last().expect("a dropped item");
+    let kinds: Vec<(&str, Event)> = vec![
+        (
+            "event: object updated",
+            object_change(ObjectChangeKind::Updated, revision + 1, carried),
+        ),
+        (
+            "event: object appraised",
+            object_change(ObjectChangeKind::IdentReceived, revision + 2, player),
+        ),
+        (
+            "event: object moved",
+            object_change(ObjectChangeKind::Moved, revision + 3, carried),
+        ),
+        (
+            "event: object released",
+            object_change(ObjectChangeKind::Released, revision + 4, dropped),
+        ),
+        ("event: window attached", Event::WindowAttached(true)),
+        (
+            "event: selection changed",
+            Event::SelectionChanged(ac_plugin_abi::world::SelectionChange {
+                previous: None,
+                selected: Some(player.object.object_id),
+            }),
+        ),
+        (
+            "event: navigation snapshot",
+            Event::NavigationSnapshotChanged(heavy::navigation()),
+        ),
+        (
+            "event: experience changed",
+            Event::ExperienceChanged(Some(
+                ac_plugin_abi::character::CharacterExperience::default(),
+            )),
+        ),
+        (
+            "event: item use completed",
+            Event::ItemUseCompleted(ac_plugin_abi::items::ItemUseCompletion::default()),
+        ),
+        (
+            "event: equipment placement",
+            Event::EquipmentPlacement(ac_plugin_abi::items::EquipmentObservation {
+                object_id: carried.object.object_id,
+                equipped_location: 0x0000_0E00,
+                ..ac_plugin_abi::items::EquipmentObservation::default()
+            }),
+        ),
+        (
+            "event: activation completed",
+            Event::ActivationCompleted(ac_plugin_abi::world::ActivationCompletion::default()),
+        ),
+        (
+            "event: confirmation requested",
+            Event::ConfirmationRequested(ac_plugin_abi::world::Confirmation {
+                context_id: 7,
+                kind: 5,
+                text: "Brightblade 1 would like to recruit you to a fellowship.".to_owned(),
+            }),
+        ),
+        (
+            "event: portal transition",
+            Event::PortalTransition(ac_plugin_abi::world::PortalTransition::default()),
+        ),
+        (
+            "event: navigation changed",
+            Event::NavigationChanged(ac_plugin_abi::navigation::GoToReport::default()),
+        ),
+        (
+            "event: vendor opened",
+            Event::Vendor(ac_plugin_abi::trade::VendorEvent::Opened(
+                surroundings[NEARBY_VENDOR].object.object_id,
+            )),
+        ),
+        (
+            "event: vendor closed",
+            Event::Vendor(ac_plugin_abi::trade::VendorEvent::Closed),
+        ),
+        (
+            "event: container opened",
+            Event::ContainerOpened(surroundings[NEARBY_VENDOR].object.object_id),
+        ),
+        (
+            "event: container closed",
+            Event::ContainerClosed(surroundings[NEARBY_VENDOR].object.object_id),
+        ),
+    ];
+    for (name, event) in &kinds {
+        for _ in 0..3 {
+            let fuel = send(&mut plugin, &mut session, event);
+            cases.add(name, fuel);
+            let fuel = tick(&mut plugin, &mut session);
+            cases.add("ticks between the events", fuel);
+        }
+    }
+    let idle: Vec<CallFuel> = (0..400).map(|_| tick(&mut plugin, &mut session)).collect();
+    for fuel in idle {
+        cases.add("idle tick", fuel);
+    }
+
+    // The macro starts: the buffs, with the town still talking.
+    let started = send(&mut plugin, &mut session, &command("vt", "start"));
+    cases.add("event: /vt start", started);
+    for index in 0..1500 {
+        let casts_before = session.world.cast_spell_ids().len();
+        let fuel = tick(&mut plugin, &mut session);
+        if session.world.cast_spell_ids().len() > casts_before {
+            cases.add("buff decision tick (a cast)", fuel);
+        } else {
+            cases.add("macro tick while buffing", fuel);
+        }
+        if index % 40 == 0 {
+            chat(
+                &mut plugin,
+                &mut session,
+                &mut cases,
+                "chat line while buffing",
+            );
+        }
+    }
+
+    // The monsters come into range: the fight, the nearest first.
+    let targets = heavy::hostile_targets(&surroundings, monster());
+    session.world.automation().hostile_targets = targets;
+    for index in 0..800 {
+        let casts_before = session.world.cast_spell_ids().len();
+        let fuel = tick(&mut plugin, &mut session);
+        let new_casts = &session.world.cast_spell_ids()[casts_before..];
+        let attacked = new_casts
+            .iter()
+            .any(|id| session.attacks.iter().any(|spell| spell.spell_id == *id));
+        if attacked {
+            cases.add("combat decision tick (an attack)", fuel);
+        } else {
+            cases.add("macro tick while fighting", fuel);
+        }
+        if index % 20 == 0 {
+            chat(
+                &mut plugin,
+                &mut session,
+                &mut cases,
+                "chat line while fighting",
+            );
+        }
+    }
+
+    // The fight is over: the corpses are looted.
+    session.world.automation().hostile_targets.clear();
+    for arguments in ["loot load vt-proof-loot", "opt set enablelooting true"] {
+        let fuel = send(&mut plugin, &mut session, &command("vt", arguments));
+        cases.add("event: /vt loot command", fuel);
+    }
+    let mut opened = BTreeSet::new();
+    for _ in 0..1200 {
+        let fuel = tick(&mut plugin, &mut session);
+        cases.add("loot tick", fuel);
+        let loot = session.world.loot();
+        if loot.opened != 0 && loot.current != loot.opened {
+            loot.current = loot.opened;
+            loot.contents_ready = true;
+            opened.insert(loot.opened);
+            let event = Event::ContainerOpened(loot.opened);
+            let fuel = send(&mut plugin, &mut session, &event);
+            cases.add("event: corpse opened", fuel);
+        }
+    }
+
+    let stopped = plugin.disable(&mut session).expect("disable");
+    cases.add("stop", stopped);
+
+    // Started again in the world (a reload): it hears every object there.
+    let (mut plugin, _) = Plugin::load(&wasm, DEFAULT_MEMORY_MIB).expect("reload");
+    let enabled = plugin
+        .enable(&start_info(), &mut session)
+        .expect("enable in the world");
+    cases.add("start in the world (reload)", enabled);
+    for created in &surroundings {
+        let fuel = send(&mut plugin, &mut session, &spawned(created));
+        cases.add("reload: entity spawned", fuel);
+    }
+    let first = tick(&mut plugin, &mut session);
+    cases.add("first tick after the reload", first);
+    for _ in 0..300 {
+        let fuel = tick(&mut plugin, &mut session);
+        cases.add("idle tick after the reload", fuel);
+    }
+    let died = send(
+        &mut plugin,
+        &mut session,
+        &Event::LocalPlayerDied("You have been slain by a Mosswart Kin!".to_owned()),
+    );
+    cases.add("event: died", died);
+    let logoff = send(&mut plugin, &mut session, &Event::Logoff);
+    cases.add("event: logoff", logoff);
+
+    let cases = cases.all();
+    let mut report = report(&cases);
+    let _ = writeln!(
+        report,
+        "corpses opened: {}; casts: {}",
+        opened.len(),
+        session.world.cast_spell_ids().len()
+    );
+    println!("{report}");
+    assert!(
+        cases
+            .iter()
+            .filter(|case| case.name.starts_with("buff") || case.name.starts_with("combat"))
+            .count()
+            == 2,
+        "the macro made no buff or combat decision:\n{report}"
+    );
+    assert!(!opened.is_empty(), "no corpse was opened:\n{report}");
+    assert_within_margin(&cases, &report);
+}
+
+/// A vendor among the objects about (after the players and monsters).
+const NEARBY_VENDOR: usize = heavy::NEARBY_PLAYERS + heavy::NEARBY_MONSTERS + 2;
 
 /// The stretches of a case's worst call that ran the most instructions,
 /// each between two imports (`MOSSTANK_FUEL_TRACE=1`).
@@ -842,8 +1227,8 @@ fn print_profile(case: &Case) {
         let after = index
             .checked_sub(1)
             .and_then(|before| trace.get(before))
-            .map_or("<start>", |(name, _)| name);
-        let next = trace.get(*index).map_or("<end>", |(name, _)| name);
+            .map_or("<start>", |(name, _)| name.as_ref());
+        let next = trace.get(*index).map_or("<end>", |(name, _)| name.as_ref());
         println!("    {used:>12} after #{index} {after} before {next}");
     }
 }

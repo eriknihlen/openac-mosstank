@@ -58,9 +58,10 @@ pub(super) fn test_selected_item(cx: &mut TankCx<'_>) {
         None
     } else {
         automation
-            .owned_items()
-            .into_iter()
+            .owned_items_shared()
+            .iter()
             .find(|item| item.object_id == selected)
+            .cloned()
     };
     let Some(item) = item else {
         Core::write_vtank(cx.client, "TestItem: pick an item first.");
@@ -71,7 +72,7 @@ pub(super) fn test_selected_item(cx: &mut TankCx<'_>) {
         Core::write_vtank(cx.client, "TestItem: Waiting for appraisal data.");
         return;
     };
-    let owned = automation.owned_items();
+    let owned = automation.owned_items_shared();
     let (decision, _) = mosstank_loot::rules::decide(
         &item,
         &properties,
@@ -247,7 +248,7 @@ pub(super) fn test_pet(cx: &mut TankCx<'_>) {
     };
     let damage_preferences = |name: &str| game_info.damage_preferences(name).to_vec();
     let automation = cx.client.rules();
-    let owned = automation.owned_items();
+    let owned = automation.owned_items_shared();
     let targets = automation.hostile_targets(pets::pet_range(combat_settings));
     let character = automation.character();
     let summoning = pets::summoning_level(automation);

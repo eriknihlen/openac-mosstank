@@ -12,7 +12,8 @@ use mosstank_dotnet::text::casing;
 use mosstank_dotnet::{try_parse_int, try_parse_uint};
 
 use crate::usd::{
-    CellValue, TableSet, VtankCell, VtankDatabase, VtankDatabaseRef, VtankRow, VtankTable,
+    CellValue, TableSet, VtankCell, VtankCellRef, VtankDatabase, VtankDatabaseRef, VtankLineCursor,
+    VtankRow, VtankTable, read_cell_ref,
 };
 
 /// The database's file name in the profile folder.
@@ -603,103 +604,13 @@ impl VtankGameInfoDatabase {
     /// over on its own.
     #[must_use]
     pub fn from_database<D: TableSet>(database: &D) -> Self {
-        let mut monsters = MonsterTables::default();
-        let mut result = Self {
-            is_loaded: true,
-            last_update_time: read_cell_int(database, "DBLastUpdateTime", 1),
-            version: read_cell_int(database, "DBVersion", 0),
-            ..Self::default()
-        };
-        monsters
-            .damage_overrides
-            .extend(read_rows(database, "MonsterDamageOverrides", 2, |c| {
-                Some((
-                    key(c[0].as_string()),
-                    parse_damage_elements(c[1].as_string()),
-                ))
-            }));
-        monsters
-            .species_members
-            .extend(read_rows(database, "SpeciesMembers", 3, |c| {
-                Some((
-                    key(c[0].as_string()),
-                    VtankSpeciesMember {
-                        species: c[1].as_int().ok()?,
-                        maximum_health: c[2].as_int().ok()?,
-                    },
-                ))
-            }));
-        monsters
-            .immunities
-            .extend(read_rows(database, "MonsterImmunities", 2, |c| {
-                Some((key(c[0].as_string()), c[1].as_int().ok()?))
-            }));
-        for (species, elements) in read_rows(database, "SpeciesDamages", 2, |c| {
-            Some((c[0].as_int().ok()?, parse_damage_elements(c[1].as_string())))
-        }) {
-            result.species_damages.insert(species, elements);
+        let mut builder = GameInfoBuilder::default();
+        for table in GameInfoBuilder::TABLES_READ {
+            if let Some(index) = database.index_of(table) {
+                builder.take_rows(table, &database.rows_of(index));
+            }
         }
-        result.ammunition_options = read_rows(database, "AmmunitionOptions", 8, |c| {
-            Some(VtankAmmunitionOption {
-                name: c[0].as_string().to_owned(),
-                launcher_type: c[1].as_int().ok()?,
-                wield_requirement: c[2].as_int().ok()?,
-                element: c[3].as_int().ok()?,
-                quality: c[4].as_int().ok()?,
-                special_mask: c[5].as_int().ok()?,
-                secondary_skill: c[6].as_int().ok()?.cast_unsigned(),
-                secondary_requirement: c[7].as_int().ok()?,
-            })
-        });
-        result.heal_kits = read_rows(database, "HealKits", 4, |c| {
-            Some(VtankHealKit {
-                name: c[0].as_string().to_owned(),
-                restore_bonus: c[1].as_double().ok()?,
-                skill_bonus: c[2].as_int().ok()?,
-                vital: c[3].as_int().ok()?,
-            })
-        });
-        result.grenade_options = read_rows(database, "GrenadeOptions", 6, |c| {
-            Some(VtankGrenadeOption {
-                name: c[0].as_string().to_owned(),
-                wield_requirement_type: c[1].as_int().ok()?,
-                wield_requirement_attribute: c[2].as_int().ok()?,
-                wield_requirement_value: c[3].as_int().ok()?,
-                spell_id: c[4].as_int().ok()?.cast_unsigned(),
-                spellcraft: c[5].as_int().ok()?,
-            })
-        });
-        result.drain_spell_options = read_rows(database, "DrainSpellOptions", 5, |c| {
-            Some(VtankDrainSpellOption {
-                spell_id: c[0].as_int().ok()?.cast_unsigned(),
-                cast_time_milliseconds: c[1].as_int().ok()?,
-                enemy_drain_factor: c[2].as_double().ok()?,
-                enemy_drain_maximum_points: c[3].as_int().ok()?,
-                result_multiplier: c[4].as_double().ok()?,
-            })
-        });
-        result.martyr_spell_options = read_rows(database, "MartyrSpellOptions", 4, |c| {
-            Some(VtankMartyrSpellOption {
-                spell_id: c[0].as_int().ok()?.cast_unsigned(),
-                cast_time_milliseconds: c[1].as_int().ok()?,
-                self_drain_factor: c[2].as_double().ok()?,
-                result_multiplier: c[3].as_double().ok()?,
-            })
-        });
-        let recipes = read_rows(database, "CraftInteractions", 9, |c| {
-            Some(VtankCraftRecipe {
-                first_item: c[0].as_string().to_owned(),
-                second_item: c[1].as_string().to_owned(),
-                result_item: c[2].as_string().to_owned(),
-                result_count: c[3].as_int().ok()?,
-                required_skill: c[6].as_int().ok()?.cast_unsigned(),
-                difficulty: c[7].as_int().ok()?,
-                id: c[8].as_int().ok()?,
-            })
-        });
-        result.crafts = VtankCraftDatabase::new(recipes);
-        result.monsters = Rc::new(monsters);
-        result
+        builder.finish(database)
     }
 
     /// The species table's row for a monster (any case), if any.
@@ -800,23 +711,412 @@ fn read_cell_int<D: TableSet>(database: &D, table: &str, column: usize) -> Optio
         .and_then(try_parse_int)
 }
 
-fn read_rows<D: TableSet, T>(
-    database: &D,
-    table: &str,
-    columns: usize,
-    read: impl Fn(&[D::Cell]) -> Option<T>,
-) -> Vec<T> {
-    let Some(index) = database.index_of(table) else {
-        return Vec::new();
-    };
-    database
-        .rows_of(index)
-        .into_iter()
-        .filter(|row| row.len() >= columns)
-        .filter_map(read)
-        .collect()
+/// [`VtankGameInfoDatabase::from_database`] a table at a time, or a run of
+/// a table's rows at a time: the rows of the first table of each name, in
+/// order, as [`Self::take_rows`] is handed them, come to what reading the
+/// whole database at once comes to.
+#[derive(Debug, Default)]
+pub struct GameInfoBuilder {
+    monsters: MonsterTables,
+    species_damages: HashMap<i32, Vec<MonsterDamageType>>,
+    ammunition_options: Vec<VtankAmmunitionOption>,
+    heal_kits: Vec<VtankHealKit>,
+    grenade_options: Vec<VtankGrenadeOption>,
+    drain_spell_options: Vec<VtankDrainSpellOption>,
+    martyr_spell_options: Vec<VtankMartyrSpellOption>,
+    recipes: Vec<VtankCraftRecipe>,
 }
 
+/// The rows wide enough for a reader, read, skipping the ones it refuses.
+fn read_rows_of<'r, C: CellValue + 'r, T>(
+    rows: &'r [&'r [C]],
+    columns: usize,
+    read: impl Fn(&[C]) -> Option<T> + 'r,
+) -> impl Iterator<Item = T> + 'r {
+    rows.iter()
+        .filter(move |row| row.len() >= columns)
+        .filter_map(move |row| read(row))
+}
+
+impl GameInfoBuilder {
+    /// The tables the plugin reads rows of, in the order it reads them (the
+    /// version and the time are read by [`Self::finish`]).
+    pub const TABLES_READ: [&'static str; 10] = [
+        "MonsterDamageOverrides",
+        "SpeciesMembers",
+        "MonsterImmunities",
+        "SpeciesDamages",
+        "AmmunitionOptions",
+        "HealKits",
+        "GrenadeOptions",
+        "DrainSpellOptions",
+        "MartyrSpellOptions",
+        "CraftInteractions",
+    ];
+
+    /// Rows of the first table named `table`, after the ones handed over
+    /// before; a row with too few columns, or a value that is not the
+    /// number it should be, is passed over on its own. A table the plugin
+    /// does not read is passed over.
+    #[allow(clippy::too_many_lines)]
+    pub fn take_rows<C: CellValue>(&mut self, table: &str, rows: &[&[C]]) {
+        match table {
+            "MonsterDamageOverrides" => {
+                self.monsters
+                    .damage_overrides
+                    .extend(read_rows_of(rows, 2, |c| {
+                        Some((
+                            key(c[0].as_string()),
+                            parse_damage_elements(c[1].as_string()),
+                        ))
+                    }));
+            }
+            "SpeciesMembers" => {
+                self.monsters
+                    .species_members
+                    .extend(read_rows_of(rows, 3, |c| {
+                        Some((
+                            key(c[0].as_string()),
+                            VtankSpeciesMember {
+                                species: c[1].as_int().ok()?,
+                                maximum_health: c[2].as_int().ok()?,
+                            },
+                        ))
+                    }));
+            }
+            "MonsterImmunities" => {
+                self.monsters.immunities.extend(read_rows_of(rows, 2, |c| {
+                    Some((key(c[0].as_string()), c[1].as_int().ok()?))
+                }));
+            }
+            "SpeciesDamages" => {
+                for (species, elements) in read_rows_of(rows, 2, |c| {
+                    Some((c[0].as_int().ok()?, parse_damage_elements(c[1].as_string())))
+                }) {
+                    self.species_damages.insert(species, elements);
+                }
+            }
+            "AmmunitionOptions" => {
+                self.ammunition_options.extend(read_rows_of(rows, 8, |c| {
+                    Some(VtankAmmunitionOption {
+                        name: c[0].as_string().to_owned(),
+                        launcher_type: c[1].as_int().ok()?,
+                        wield_requirement: c[2].as_int().ok()?,
+                        element: c[3].as_int().ok()?,
+                        quality: c[4].as_int().ok()?,
+                        special_mask: c[5].as_int().ok()?,
+                        secondary_skill: c[6].as_int().ok()?.cast_unsigned(),
+                        secondary_requirement: c[7].as_int().ok()?,
+                    })
+                }));
+            }
+            "HealKits" => {
+                self.heal_kits.extend(read_rows_of(rows, 4, |c| {
+                    Some(VtankHealKit {
+                        name: c[0].as_string().to_owned(),
+                        restore_bonus: c[1].as_double().ok()?,
+                        skill_bonus: c[2].as_int().ok()?,
+                        vital: c[3].as_int().ok()?,
+                    })
+                }));
+            }
+            "GrenadeOptions" => {
+                self.grenade_options.extend(read_rows_of(rows, 6, |c| {
+                    Some(VtankGrenadeOption {
+                        name: c[0].as_string().to_owned(),
+                        wield_requirement_type: c[1].as_int().ok()?,
+                        wield_requirement_attribute: c[2].as_int().ok()?,
+                        wield_requirement_value: c[3].as_int().ok()?,
+                        spell_id: c[4].as_int().ok()?.cast_unsigned(),
+                        spellcraft: c[5].as_int().ok()?,
+                    })
+                }));
+            }
+            "DrainSpellOptions" => {
+                self.drain_spell_options.extend(read_rows_of(rows, 5, |c| {
+                    Some(VtankDrainSpellOption {
+                        spell_id: c[0].as_int().ok()?.cast_unsigned(),
+                        cast_time_milliseconds: c[1].as_int().ok()?,
+                        enemy_drain_factor: c[2].as_double().ok()?,
+                        enemy_drain_maximum_points: c[3].as_int().ok()?,
+                        result_multiplier: c[4].as_double().ok()?,
+                    })
+                }));
+            }
+            "MartyrSpellOptions" => {
+                self.martyr_spell_options.extend(read_rows_of(rows, 4, |c| {
+                    Some(VtankMartyrSpellOption {
+                        spell_id: c[0].as_int().ok()?.cast_unsigned(),
+                        cast_time_milliseconds: c[1].as_int().ok()?,
+                        self_drain_factor: c[2].as_double().ok()?,
+                        result_multiplier: c[3].as_double().ok()?,
+                    })
+                }));
+            }
+            "CraftInteractions" => {
+                self.recipes.extend(read_rows_of(rows, 9, |c| {
+                    Some(VtankCraftRecipe {
+                        first_item: c[0].as_string().to_owned(),
+                        second_item: c[1].as_string().to_owned(),
+                        result_item: c[2].as_string().to_owned(),
+                        result_count: c[3].as_int().ok()?,
+                        required_skill: c[6].as_int().ok()?.cast_unsigned(),
+                        difficulty: c[7].as_int().ok()?,
+                        id: c[8].as_int().ok()?,
+                    })
+                }));
+            }
+            _ => {}
+        }
+    }
+
+    /// The database, its time and version read from `times` (any table set
+    /// whose first `DBLastUpdateTime` and `DBVersion` tables are the
+    /// database's).
+    #[must_use]
+    pub fn finish<D: TableSet>(self, times: &D) -> VtankGameInfoDatabase {
+        VtankGameInfoDatabase {
+            is_loaded: true,
+            last_update_time: read_cell_int(times, "DBLastUpdateTime", 1),
+            version: read_cell_int(times, "DBVersion", 0),
+            monsters: Rc::new(self.monsters),
+            species_damages: self.species_damages,
+            ammunition_options: self.ammunition_options,
+            heal_kits: self.heal_kits,
+            grenade_options: self.grenade_options,
+            drain_spell_options: self.drain_spell_options,
+            martyr_spell_options: self.martyr_spell_options,
+            crafts: VtankCraftDatabase::new(self.recipes),
+        }
+    }
+}
+
+/// A downloaded database read a run of rows at a time, so no one plugin
+/// call reads the whole file: what [`VtankDatabaseRef::parse`],
+/// [`every_value_reads`], [`version`], [`last_update_time`] and
+/// [`VtankGameInfoDatabase::from_database`] come to on the whole text, with
+/// the same first error.
+#[derive(Debug)]
+pub struct DownloadReading {
+    text: String,
+    progress: ReadProgress,
+}
+
+/// Where a [`DownloadReading`] is, and what it has gathered.
+#[derive(Debug, Default)]
+struct ReadProgress {
+    position: usize,
+    line_number: usize,
+    tables_left: Option<i32>,
+    table: Option<TableInProgress>,
+    seen: Vec<String>,
+    every_value_reads: bool,
+    builder: GameInfoBuilder,
+    times: VtankDatabase,
+    outcome: Option<Result<(), crate::FormatError>>,
+}
+
+/// The table being read.
+#[derive(Debug)]
+struct TableInProgress {
+    name: String,
+    column_count: i32,
+    width: usize,
+    rows_left: i32,
+    /// The first table of its name: the one the plugin reads.
+    first: bool,
+    /// Its rows, kept for the version and the time.
+    kept: Option<VtankTable>,
+}
+
+/// What reading a downloaded database came to.
+#[derive(Debug)]
+pub struct DownloadRead {
+    /// The text read.
+    pub text: String,
+    /// The layout reads ([`VtankDatabaseRef::parse`]), or why not.
+    pub layout: Result<(), crate::FormatError>,
+    /// [`every_value_reads`].
+    pub every_value_reads: bool,
+    /// [`version`].
+    pub version: i32,
+    /// [`last_update_time`].
+    pub last_update_time: Option<i32>,
+    builder: GameInfoBuilder,
+    times: VtankDatabase,
+}
+
+impl DownloadRead {
+    /// [`VtankGameInfoDatabase::from_database`] of the whole text.
+    #[must_use]
+    pub fn database(self) -> (String, VtankGameInfoDatabase) {
+        let database = self.builder.finish(&self.times);
+        (self.text, database)
+    }
+}
+
+impl DownloadReading {
+    /// A text to read, nothing read yet.
+    #[must_use]
+    pub fn new(text: String) -> Self {
+        Self {
+            text,
+            progress: ReadProgress {
+                line_number: 1,
+                every_value_reads: true,
+                ..ReadProgress::default()
+            },
+        }
+    }
+
+    /// How far into the text the reading is, bytes.
+    #[must_use]
+    pub fn position(&self) -> usize {
+        self.progress.position
+    }
+
+    /// Reads on, about `bytes` bytes of the text (whole rows, at least
+    /// one); whether the reading is over.
+    pub fn step(&mut self, bytes: usize) -> bool {
+        let progress = &mut self.progress;
+        if progress.outcome.is_some() {
+            return true;
+        }
+        match progress.advance(&self.text, bytes.max(1)) {
+            Ok(false) => false,
+            Ok(true) => {
+                progress.outcome = Some(Ok(()));
+                true
+            }
+            Err(error) => {
+                progress.outcome = Some(Err(error));
+                true
+            }
+        }
+    }
+
+    /// What the reading came to, once [`Self::step`] said it is over.
+    #[must_use]
+    pub fn finish(self) -> Option<DownloadRead> {
+        let progress = self.progress;
+        let layout = progress.outcome?;
+        Some(DownloadRead {
+            text: self.text,
+            layout,
+            every_value_reads: progress.every_value_reads,
+            version: version(&progress.times),
+            last_update_time: last_update_time(&progress.times),
+            builder: progress.builder,
+            times: progress.times,
+        })
+    }
+}
+
+impl ReadProgress {
+    /// Reads about `budget` bytes from where the last step stopped:
+    /// whether the database has ended, or the error the whole-text parse
+    /// stops at.
+    fn advance(&mut self, text: &str, budget: usize) -> Result<bool, crate::FormatError> {
+        let mut cursor = VtankLineCursor::resume(text, self.position, self.line_number);
+        let ended = self.read(&mut cursor, budget);
+        self.position = cursor.position();
+        self.line_number = cursor.line_number();
+        ended
+    }
+
+    fn read<'a>(
+        &mut self,
+        cursor: &mut VtankLineCursor<'a>,
+        budget: usize,
+    ) -> Result<bool, crate::FormatError> {
+        if self.tables_left.is_none() {
+            self.tables_left = Some(cursor.read_int()?);
+        }
+        let start = cursor.position();
+        loop {
+            if self.table.is_none() {
+                let left = self.tables_left.unwrap_or(0);
+                if left <= 0 {
+                    return Ok(true);
+                }
+                self.tables_left = Some(left - 1);
+                self.begin_table(cursor)?;
+            }
+            let Some(table) = self.table.as_mut() else {
+                continue;
+            };
+            let mut cells: Vec<VtankCellRef<'a>> = Vec::new();
+            let mut rows = 0;
+            while table.rows_left > 0 && cursor.position() - start < budget {
+                for _ in 0..table.column_count {
+                    cells.push(read_cell_ref(cursor)?);
+                }
+                table.rows_left -= 1;
+                rows += 1;
+            }
+            let chunk: Vec<&[VtankCellRef<'a>]> = if table.width == 0 {
+                vec![&[]; rows]
+            } else {
+                cells.chunks(table.width).collect()
+            };
+            if self.every_value_reads && first_unreadable_row(&chunk).is_some() {
+                self.every_value_reads = false;
+            }
+            if table.first {
+                self.builder.take_rows(&table.name, &chunk);
+            }
+            if let Some(kept) = table.kept.as_mut() {
+                kept.rows.extend(chunk.iter().map(|row| VtankRow {
+                    cells: row.iter().map(VtankCellRef::to_cell).collect(),
+                }));
+            }
+            // A finished table is put down (the version and time tables kept).
+            if table.rows_left <= 0
+                && let Some(table) = self.table.take()
+                && let Some(kept) = table.kept
+            {
+                self.times.tables.push((table.name, kept));
+            }
+            if cursor.position() - start >= budget {
+                return Ok(false);
+            }
+        }
+    }
+
+    /// A table's name and header, as [`VtankTableRef::read`] reads them.
+    fn begin_table(&mut self, cursor: &mut VtankLineCursor<'_>) -> Result<(), crate::FormatError> {
+        let name = cursor.read_line()?.to_owned();
+        let column_count = cursor.read_int()?;
+        let mut column_names = Vec::new();
+        for _ in 0..column_count {
+            column_names.push(cursor.read_line()?.to_owned());
+        }
+        let mut index_flags = Vec::new();
+        for _ in 0..column_count {
+            index_flags.push(cursor.read_line()? == "y");
+        }
+        let rows_left = cursor.read_int()?;
+        let first = !self.seen.contains(&name);
+        if first {
+            self.seen.push(name.clone());
+        }
+        let kept =
+            (first && (name == "DBVersion" || name == "DBLastUpdateTime")).then(|| VtankTable {
+                column_names,
+                index_flags,
+                rows: Vec::new(),
+            });
+        self.table = Some(TableInProgress {
+            name,
+            column_count,
+            width: usize::try_from(column_count).unwrap_or(0),
+            rows_left,
+            first,
+            kept,
+        });
+        Ok(())
+    }
+}
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1036,5 +1336,84 @@ broken"
         assert_eq!(database.version, Some(9));
         assert!(!database.ammunition_options.is_empty());
         assert!(!database.heal_kits.is_empty());
+    }
+}
+
+#[cfg(test)]
+mod download_tests {
+    use super::*;
+
+    /// The whole-text reading's checks and database.
+    type WholeRead = (bool, i32, Option<i32>, VtankGameInfoDatabase);
+
+    /// What the whole-text reading makes of `text`.
+    fn whole(text: &str) -> (Result<(), crate::FormatError>, Option<WholeRead>) {
+        match VtankDatabaseRef::parse(text) {
+            Err(error) => (Err(error), None),
+            Ok(database) => (
+                Ok(()),
+                Some((
+                    every_value_reads(&database),
+                    version(&database),
+                    last_update_time(&database),
+                    VtankGameInfoDatabase::from_database(&database),
+                )),
+            ),
+        }
+    }
+
+    /// The texts read: the excerpt fixture, cut short at many places, with
+    /// a value that does not read, with a table twice.
+    fn texts() -> Vec<String> {
+        let excerpt = crate::fixtures::read_vtank("gameinfodb-excerpt.ugd");
+        let mut texts = vec![
+            excerpt.clone(),
+            String::new(),
+            "x".to_owned(),
+            "0\r\n".to_owned(),
+        ];
+        let step = (excerpt.len() / 23).max(1);
+        let mut cut = 0;
+        while cut < excerpt.len() {
+            if excerpt.is_char_boundary(cut) {
+                texts.push(excerpt[..cut].to_owned());
+            }
+            cut += step;
+        }
+        texts.push(excerpt.replacen("\r\ni\r\n1", "\r\ni\r\nnot a number", 1));
+        let tables = excerpt
+            .split_once("\r\n")
+            .map(|(_, rest)| rest)
+            .unwrap_or("");
+        let count: i32 = excerpt
+            .split("\r\n")
+            .next()
+            .and_then(|line| line.parse().ok())
+            .unwrap_or(0);
+        texts.push(format!("{}\r\n{tables}{tables}", count * 2));
+        texts
+    }
+
+    /// A download read a run of rows at a time comes to what reading the
+    /// whole text at once comes to, whatever the run.
+    #[test]
+    fn a_download_read_in_runs_comes_to_what_the_whole_text_comes_to() {
+        for text in texts() {
+            let (layout, read) = whole(&text);
+            for budget in [1, 37, 4096, usize::MAX] {
+                let mut reading = DownloadReading::new(text.clone());
+                while !reading.step(budget) {}
+                let got = reading.finish().expect("a finished reading");
+                assert_eq!(got.layout, layout, "{budget}: {text:?}");
+                if let Some((reads, version, time, database)) = &read {
+                    assert_eq!(got.every_value_reads, *reads);
+                    assert_eq!(got.version, *version);
+                    assert_eq!(got.last_update_time, *time);
+                    let (kept, built) = got.database();
+                    assert_eq!(kept, text);
+                    assert_eq!(&built, database);
+                }
+            }
+        }
     }
 }

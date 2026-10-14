@@ -62,6 +62,7 @@ fn no_right_to_loot() -> &'static DotNetRegex {
     )
 }
 
+#[cfg(test)]
 fn killed_by_description() -> &'static DotNetRegex {
     static CELL: OnceLock<DotNetRegex> = OnceLock::new();
     pattern(&CELL, r"(?:Killed by )([a-zA-Z\ \-\']*)(?:\..*)")
@@ -69,6 +70,7 @@ fn killed_by_description() -> &'static DotNetRegex {
 
 /// A kill description that goes on to say the corpse generated something:
 /// "Killed by Name. This corpse generated a rare item!".
+#[cfg(test)]
 fn rare_kill_description() -> &'static DotNetRegex {
     static CELL: OnceLock<DotNetRegex> = OnceLock::new();
     pattern(
@@ -87,10 +89,9 @@ pub fn killer_name(description: &str) -> String {
     if casing::is_white_space_only(description) {
         return String::new();
     }
-    match killed_by_description().find(description) {
-        Ok(Some(found)) if found.index() == 0 => found.group_number(1).value.to_owned(),
-        _ => String::new(),
-    }
+    killed_by_at_start(description)
+        .map(str::to_owned)
+        .unwrap_or_default()
 }
 
 /// A corpse is rare when the host flags it so, or when its description
@@ -101,8 +102,47 @@ pub fn is_rare(corpse: &LootCorpse) -> bool {
         return true;
     }
     let description = corpse.long_description.as_str();
-    matches!(killed_by_description().find(description), Ok(Some(found)) if found.index() == 0)
-        && is_match(rare_kill_description(), description)
+    killed_by_at_start(description).is_some() && names_a_generated_kill(description)
+}
+
+// The two kill patterns, read by hand: run on every corpse about on every
+// pass, the regular expressions cost the plugin more than a busy town's
+// corpses leave room for. The tests hold them to the patterns.
+
+/// Where a description says who killed it.
+const KILLED_BY: &str = "Killed by ";
+
+/// How many bytes at the start of `text` a name may have
+/// (`[a-zA-Z\ \-\']*`).
+fn name_run(text: &str) -> usize {
+    text.bytes()
+        .take_while(|byte| byte.is_ascii_alphabetic() || matches!(byte, b' ' | b'-' | b'\''))
+        .count()
+}
+
+/// The killer, when the kill pattern (`(?:Killed by )([a-zA-Z\ \-\']*)(?:\..*)`)
+/// matches at the description's start: the name runs as far as name
+/// characters go, and a full stop follows it.
+fn killed_by_at_start(description: &str) -> Option<&str> {
+    let rest = description.strip_prefix(KILLED_BY)?;
+    let run = name_run(rest);
+    (rest.as_bytes().get(run) == Some(&b'.')).then(|| &rest[..run])
+}
+
+/// Whether the rare kill pattern
+/// (`(?:Killed by )([a-zA-Z\ \-\']*)(?:\..*)([gG]enerated)(?:.*)`) matches
+/// anywhere: a kill naming its killer, then on the same line `generated`.
+fn names_a_generated_kill(description: &str) -> bool {
+    description.match_indices(KILLED_BY).any(|(at, _)| {
+        let rest = &description[at + KILLED_BY.len()..];
+        let run = name_run(rest);
+        if rest.as_bytes().get(run) != Some(&b'.') {
+            return false;
+        }
+        let line = rest[run + 1..].split('\n').next().unwrap_or("");
+        line.match_indices("enerated")
+            .any(|(word, _)| word > 0 && matches!(line.as_bytes()[word - 1], b'g' | b'G'))
+    })
 }
 
 /// Has the server answered this corpse's description request, with the
@@ -650,5 +690,55 @@ impl LootController {
             }
         }
         false
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// The kill patterns read by hand find what the regular expressions
+    /// find.
+    #[test]
+    fn the_kill_patterns_read_by_hand_find_what_the_patterns_find() {
+        let descriptions = [
+            "",
+            "   ",
+            "Killed by Mossy Hunter.",
+            "Killed by Mossy Hunter",
+            "Killed by +Acdream.",
+            "Killed by O'Brien-Smith.",
+            "Killed by Brightblade 1.",
+            "Killed by .",
+            "Killed by Ayla. This corpse generated a rare item!",
+            "Killed by Ayla. This corpse Generated a rare item!",
+            "Killed by Ayla.\nThis corpse generated a rare item!",
+            "Killed by Ayla.generated",
+            "Killed by Ayla. enerated",
+            "killed by Ayla. generated",
+            "A corpse. Killed by Ayla. generated",
+            "Killed by Ayla! Killed by Bo. generated",
+            "Killed by \u{e9}mile.",
+            "Killed by Ayla.\r generated",
+            "xKilled by Ayla.",
+        ];
+        for description in descriptions {
+            let regex_killer = if casing::is_white_space_only(description) {
+                String::new()
+            } else {
+                match killed_by_description().find(description) {
+                    Ok(Some(found)) if found.index() == 0 => found.group_number(1).value.to_owned(),
+                    _ => String::new(),
+                }
+            };
+            assert_eq!(killer_name(description), regex_killer, "{description:?}");
+            let regex_rare = matches!(killed_by_description().find(description), Ok(Some(found)) if found.index() == 0)
+                && is_match(rare_kill_description(), description);
+            let corpse = LootCorpse {
+                long_description: description.to_owned(),
+                ..LootCorpse::default()
+            };
+            assert_eq!(is_rare(&corpse), regex_rare, "{description:?}");
+        }
     }
 }

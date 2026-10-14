@@ -784,7 +784,7 @@ impl VendorTradeController {
         if vendor.is_busy || cx.automation().items_busy() {
             return;
         }
-        let owned = cx.automation().owned_items();
+        let owned = cx.automation().owned_items_shared();
         let profile = vendor.profile.clone();
         let purse = Self::purse(cx, &owned, &profile);
         let buys = self.buy_candidates(cx, &vendor, &owned);
@@ -906,7 +906,7 @@ impl VendorTradeController {
 
     fn tick_settle(&mut self, cx: &mut dyn VendorContext, step: f64) {
         self.since_completion += step;
-        let owned = cx.automation().owned_items();
+        let owned = cx.automation().owned_items_shared();
         let profile = cx.automation().vendor_state().profile;
         let coin_now = coin_on_hand(&owned, &profile);
         let remaining = self.expected_coin - (coin_now - self.coin_before);
@@ -1136,7 +1136,7 @@ impl VendorTradeController {
     }
 
     fn report_test_mode(&mut self, cx: &mut dyn VendorContext) {
-        let owned = cx.automation().owned_items();
+        let owned = cx.automation().owned_items_shared();
         let vendor = cx.automation().vendor_state();
         let profile = vendor.profile.clone();
         // Three messages, as the reference prints them: the heading, then
@@ -1354,7 +1354,8 @@ impl VendorTradeController {
         let player = cx.automation().character().id;
         let protected = cx.protected_items();
         let mut matches = Vec::new();
-        for item in cx.automation().owned_items() {
+        let owned = cx.automation().owned_items_shared();
+        for item in owned.iter() {
             if !name_matches(&item.name, name, partial) {
                 continue;
             }
@@ -1362,8 +1363,8 @@ impl VendorTradeController {
                 .automation()
                 .item_properties(item.object_id)
                 .unwrap_or_else(empty_properties);
-            if is_safe_to_sell(&item, &properties, player, false, &protected) {
-                matches.push(item);
+            if is_safe_to_sell(item, &properties, player, false, &protected) {
+                matches.push(item.clone());
             }
         }
         if matches.is_empty() {
@@ -1438,10 +1439,15 @@ impl VendorTradeController {
             Self::say(cx, &line);
             return;
         }
-        let piece = cx.automation().owned_items().into_iter().find(|item| {
-            item.stack_size == self.stage_split_needed
-                && ordinal::equals_ignore_case(&item.name, &self.stage_split_name)
-        });
+        let piece = cx
+            .automation()
+            .owned_items_shared()
+            .iter()
+            .find(|item| {
+                item.stack_size == self.stage_split_needed
+                    && ordinal::equals_ignore_case(&item.name, &self.stage_split_name)
+            })
+            .cloned();
         match piece.filter(|piece| piece.object_id != 0) {
             None => {
                 let line = format!(

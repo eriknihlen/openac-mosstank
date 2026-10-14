@@ -257,6 +257,9 @@ impl Core {
     /// said; a session in the world checks once, unless the last check is
     /// younger than the preference's interval.
     pub(crate) fn tick_game_info_update(&mut self, client: &mut dyn TankClient) {
+        if self.session.game_info_updater.is_running() {
+            self.step_game_info_update(client);
+        }
         if let Some(result) = self.session.game_info_updater.drain() {
             if let Some(database) = result.database {
                 self.apply_game_info(database);
@@ -278,6 +281,22 @@ impl Core {
             self.session.game_info_checked_this_session =
                 self.start_game_info_update(client, interval).is_none();
         }
+    }
+
+    /// A download that came in, one stage on.
+    fn step_game_info_update(&mut self, client: &mut dyn TankClient) {
+        let cell = RefCell::new(client);
+        let mut profiles = OneStorage {
+            client: &cell,
+            root: Root::Profiles,
+        };
+        let mut state = OneStorage {
+            client: &cell,
+            root: Root::Plugin,
+        };
+        self.session
+            .game_info_updater
+            .step(&mut profiles, &mut state);
     }
 
     /// Starts a check: the reason it did not start, or `None`.
@@ -316,24 +335,13 @@ impl Core {
         if self.session.game_info_updater.waiting_handle() != Some(reply.handle) {
             return false;
         }
-        let answer = self.session.game_info_transport.answer(reply);
         let now = client.clock().utc_unix_ms.div_euclid(1000);
-        let cell = RefCell::new(client);
-        let mut profiles = OneStorage {
-            client: &cell,
-            root: Root::Profiles,
-        };
-        let mut state = OneStorage {
-            client: &cell,
-            root: Root::Plugin,
-        };
-        self.session.game_info_updater.receive(
-            reply.handle,
-            &answer,
-            &mut profiles,
-            &mut state,
-            now,
-        )
+        // The database is read, checked and saved on the ticks that follow,
+        // a stage a tick: two megabytes are more than one call may work.
+        let transport = self.session.game_info_transport;
+        self.session
+            .game_info_updater
+            .receive_reply(reply, &transport, now)
     }
 
     /// `/vt gamedb [update | interval [hours]]` (`HandleGameDbCommand`).

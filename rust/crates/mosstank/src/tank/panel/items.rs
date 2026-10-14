@@ -416,7 +416,7 @@ impl TankCx<'_> {
     #[allow(clippy::too_many_lines)]
     pub(crate) fn refresh_item_editors(&mut self) {
         self.refresh_consumable_categories();
-        let owned = self.client.rules().owned_items();
+        let owned = self.client.rules().owned_items_shared();
         let inventory_unknown = owned.is_empty();
         let mut base_names: Vec<String> = Vec::new();
         let mut display_names: Vec<String> = Vec::new();
@@ -609,8 +609,8 @@ impl TankCx<'_> {
                 combat.consumable_categories.insert(name, category);
             }
         }
-        let owned = self.client.rules().owned_items();
-        for item in owned {
+        let owned = self.client.rules().owned_items_shared();
+        for item in owned.iter() {
             let combat = &self.core.settings.combat;
             if !combat.consumable_names.contains(item.name.as_str())
                 || combat
@@ -623,7 +623,7 @@ impl TankCx<'_> {
             let Some(properties) = self.client.rules().item_properties(item.object_id) else {
                 continue;
             };
-            if let Some(category) = try_consumable(&item, &properties, self.client.rules()) {
+            if let Some(category) = try_consumable(item, &properties, self.client.rules()) {
                 self.core
                     .settings
                     .combat
@@ -641,9 +641,10 @@ impl TankCx<'_> {
         }
         self.client
             .rules()
-            .owned_items()
-            .into_iter()
+            .owned_items_shared()
+            .iter()
             .find(|item| item.object_id == selected)
+            .cloned()
     }
 
     /// `AnnounceProfileNotice`: the Items page has no notice line, so a
@@ -1030,9 +1031,10 @@ impl TankCx<'_> {
         let name = self
             .client
             .rules()
-            .owned_items()
-            .into_iter()
+            .owned_items_shared()
+            .iter()
             .find(|item| item.object_id == object_id)
+            .cloned()
             .map(|item| item.name)
             .unwrap_or_default();
         self.core.emit_macro_log(
@@ -1052,13 +1054,13 @@ impl TankCx<'_> {
             return;
         }
         admission.next_scan = admission.time + 0.5;
-        let owned = self.client.rules().owned_items();
+        let owned = self.client.rules().owned_items_shared();
         self.core
             .panel
             .admission
             .retries
             .retain(|(id, _)| owned.iter().any(|item| item.object_id == *id));
-        for item in owned {
+        for item in owned.iter() {
             let combat = &self.core.settings.combat;
             if !combat.consumable_names.contains(item.name.as_str())
                 && !combat.combat_item_names.contains(item.name.as_str())
@@ -1081,7 +1083,7 @@ impl TankCx<'_> {
             let Some(properties) = self.client.rules().item_properties(item.object_id) else {
                 continue;
             };
-            if let Some(category) = try_consumable(&item, &properties, self.client.rules()) {
+            if let Some(category) = try_consumable(item, &properties, self.client.rules()) {
                 self.core
                     .settings
                     .combat
@@ -1104,14 +1106,15 @@ impl TankCx<'_> {
         let item = self
             .client
             .rules()
-            .owned_items()
-            .into_iter()
-            .find(|value| value.object_id == pending.object_id);
+            .owned_items_shared()
+            .iter()
+            .find(|value| value.object_id == pending.object_id)
+            .cloned();
         let Some(item) = item.filter(|_| pending.elapsed < 30.0) else {
             let owned = self
                 .client
                 .rules()
-                .owned_items()
+                .owned_items_shared()
                 .iter()
                 .any(|value| value.object_id == pending.object_id);
             self.announce_profile_notice(if owned {

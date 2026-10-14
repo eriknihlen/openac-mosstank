@@ -30,7 +30,7 @@ impl SalvageStaging {
     /// Stages an owned item that is not worn; false otherwise.
     pub fn add(&mut self, host: &mut dyn MetaHost, object_id: u32) -> bool {
         if !host
-            .owned_items()
+            .owned_items_shared()
             .iter()
             .any(|item| item.object_id == object_id && item.equipped_location == 0)
         {
@@ -42,7 +42,7 @@ impl SalvageStaging {
 
     /// Opens the ust (uses it); false without one.
     pub fn open(&mut self, host: &mut dyn MetaHost) -> bool {
-        let inventory = host.owned_items();
+        let inventory = host.owned_items_shared();
         let Some(found) = ust(&inventory).map(|item| item.object_id) else {
             return false;
         };
@@ -52,7 +52,7 @@ impl SalvageStaging {
     /// Salvages the staged items still owned; false without a ust, with
     /// nothing staged, or when the client refuses.
     pub fn salvage(&mut self, host: &mut dyn MetaHost) -> bool {
-        let inventory = host.owned_items();
+        let inventory = host.owned_items_shared();
         let Some(tool) = ust(&inventory).map(|item| item.object_id) else {
             return false;
         };

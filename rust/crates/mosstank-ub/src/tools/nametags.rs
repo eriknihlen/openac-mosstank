@@ -258,6 +258,37 @@ impl Nametag {
     }
 }
 
+/// What one call of the tags reads once: the character's id, where it
+/// stands and its monarch. None of them changes within a call, and every
+/// tag asks for them.
+#[derive(Debug, Default)]
+struct Frame {
+    self_id: Option<u32>,
+    navigation: Option<ac_plugin_abi::navigation::NavigationSnapshot>,
+    monarch: Option<u32>,
+}
+
+impl Frame {
+    fn self_id(&mut self, host: &mut dyn UbHost) -> u32 {
+        *self
+            .self_id
+            .get_or_insert_with(|| host.character().map_or(0, |character| character.id))
+    }
+
+    fn navigation(
+        &mut self,
+        host: &mut dyn UbHost,
+    ) -> &ac_plugin_abi::navigation::NavigationSnapshot {
+        self.navigation.get_or_insert_with(|| host.navigation())
+    }
+
+    fn monarch(&mut self, host: &mut dyn UbHost) -> u32 {
+        *self
+            .monarch
+            .get_or_insert_with(|| host.allegiance().monarch_id)
+    }
+}
+
 /// The name tags.
 #[derive(Debug, Clone)]
 pub struct NametagController {
@@ -270,6 +301,9 @@ pub struct NametagController {
     needs_scan: bool,
     walking: bool,
     push_count: usize,
+    /// How many objects the last frame looked at for tags (the whole
+    /// world, on a scan; else none).
+    scanned: usize,
 }
 
 impl Default for NametagController {
@@ -294,7 +328,15 @@ impl NametagController {
             needs_scan: true,
             walking: false,
             push_count: 0,
+            scanned: 0,
         }
+    }
+
+    /// How many objects the last frame looked at for tags: the whole world
+    /// on its first look, else none.
+    #[must_use]
+    pub fn scanned_last_frame(&self) -> usize {
+        self.scanned
     }
 
     /// How many label sets have been handed to the client.
@@ -313,12 +355,13 @@ impl NametagController {
     /// change event): arrival adds a tag when its group is on, an appraisal
     /// refreshes its text at once, leaving drops it.
     pub fn on_object_changed(&mut self, host: &mut dyn UbHost, change: &ObjectChange) {
+        let frame = &mut Frame::default();
         match change.kind {
             ObjectChangeKind::Created if self.settings.enabled => {
-                self.add_tag(host, change.object_id);
+                self.add_tag(host, frame, change.object_id, None);
             }
             ObjectChangeKind::IdentReceived if self.tags.contains_key(&change.object_id) => {
-                self.update_data(host, change.object_id, true);
+                self.update_data(host, frame, change.object_id, true, None);
             }
             ObjectChangeKind::Released => self.remove_tag(change.object_id),
             _ => {}
@@ -335,6 +378,7 @@ impl NametagController {
         elapsed_seconds: f64,
     ) {
         let elapsed = elapsed_seconds.max(0.0);
+        self.scanned = 0;
         self.now += elapsed;
         self.settings_poll_remaining -= elapsed;
         if self.settings_poll_remaining <= 0.0 {
@@ -345,15 +389,16 @@ impl NametagController {
             self.push_if_changed(host);
             return;
         }
+        let frame = &mut Frame::default();
         if self.needs_scan {
             self.needs_scan = false;
-            self.scan_world(host);
+            self.scanned = self.scan_world(host, frame);
         }
         self.walking = true;
         let ids: Vec<u32> = self.tags.keys().copied().collect();
         for id in ids {
             if self.tags.contains_key(&id) {
-                self.update_data(host, id, false);
+                self.update_data(host, frame, id, false, None);
             }
         }
         self.walking = false;
@@ -400,20 +445,32 @@ impl NametagController {
         self.needs_scan = self.needs_scan || !was_enabled || next.any_group_on();
     }
 
-    fn scan_world(&mut self, host: &mut dyn UbHost) {
-        for world in host.objects() {
+    /// Every object in the world tagged; each is the object table's own
+    /// record, already in hand.
+    fn scan_world(&mut self, host: &mut dyn UbHost, frame: &mut Frame) -> usize {
+        let objects = host.objects();
+        let count = objects.len();
+        for world in objects {
             if world.is_landscape {
-                self.add_tag(host, world.object_id);
+                self.add_tag(host, frame, world.object_id, Some(world));
             }
         }
+        count
     }
 
-    fn add_tag(&mut self, host: &mut dyn UbHost, object_id: u32) {
-        let self_id = host.character().map_or(0, |character| character.id);
+    /// A tag for `object_id`, whose record the caller may have in hand.
+    fn add_tag(
+        &mut self,
+        host: &mut dyn UbHost,
+        frame: &mut Frame,
+        object_id: u32,
+        seen: Option<WorldObject>,
+    ) {
+        let self_id = frame.self_id(host);
         if object_id == 0 || object_id == self_id || self.tags.contains_key(&object_id) {
             return;
         }
-        let Some(world) = host.object(object_id) else {
+        let Some(world) = seen.or_else(|| host.object(object_id)) else {
             return;
         };
         let Some(group) = classify(&world) else {
@@ -424,7 +481,7 @@ impl NametagController {
         }
         self.tags
             .insert(object_id, Nametag::new(object_id, group, &world.name));
-        self.update_data(host, object_id, false);
+        self.update_data(host, frame, object_id, false, Some(&world));
     }
 
     fn remove_tag(&mut self, object_id: u32) {
@@ -444,7 +501,14 @@ impl NametagController {
     /// Refreshes one tag from the object table, at most once a second unless
     /// forced by an appraisal arriving; the text is worked out only while
     /// the object is in range and still has something to learn.
-    fn update_data(&mut self, host: &mut dyn UbHost, object_id: u32, force: bool) {
+    fn update_data(
+        &mut self,
+        host: &mut dyn UbHost,
+        frame: &mut Frame,
+        object_id: u32,
+        force: bool,
+        seen: Option<&WorldObject>,
+    ) {
         let now = self.now;
         let max_range = self.settings.max_range;
         let Some(mut tag) = self.tags.get(&object_id).cloned() else {
@@ -457,19 +521,19 @@ impl NametagController {
             return;
         }
         tag.last_text_update = now;
-        let Some(world) = host.object(object_id) else {
+        let Some(world) = seen.cloned().or_else(|| host.object(object_id)) else {
             self.tags.insert(object_id, tag);
             self.remove_tag(object_id);
             return;
         };
         tag.name.clone_from(&world.name);
-        let range = range_to(host, &world);
+        let range = range_to(frame.navigation(host), &world);
         tag.range = range;
         let out_of_range = range > max_range;
         if force || (tag.needs_process && !out_of_range) {
             match tag.group {
                 NametagGroup::Player | NametagGroup::AllegiancePlayer => {
-                    process_player(host, &mut tag, &world, range, now);
+                    process_player(host, frame, &mut tag, &world, range, now);
                 }
                 NametagGroup::Portal => process_portal(host, &mut tag, &world, range, now),
                 NametagGroup::Monster => process_monster(host, &mut tag, range, now),
@@ -547,6 +611,7 @@ fn classify(world: &WorldObject) -> Option<NametagGroup> {
 
 fn process_player(
     host: &mut dyn UbHost,
+    frame: &mut Frame,
     tag: &mut Nametag,
     world: &WorldObject,
     range: f32,
@@ -568,7 +633,7 @@ fn process_player(
         if monarch == 0 {
             tag.show_ticker = false;
         } else {
-            if shares_allegiance(host, tag.object_id, monarch) {
+            if shares_allegiance(frame.monarch(host), tag.object_id, monarch) {
                 tag.group = NametagGroup::AllegiancePlayer;
             }
             tag.show_ticker = true;
@@ -640,8 +705,7 @@ fn try_assess(host: &mut dyn UbHost, tag: &mut Nametag, range: f32, now: f64) {
     }
 }
 
-fn shares_allegiance(host: &mut dyn UbHost, object_id: u32, monarch: u32) -> bool {
-    let mine = host.allegiance().monarch_id;
+fn shares_allegiance(mine: u32, object_id: u32, monarch: u32) -> bool {
     mine != 0 && (monarch == mine || object_id == mine)
 }
 
@@ -668,8 +732,7 @@ fn string(properties: &ItemProperties, key: u32) -> Option<String> {
 }
 
 #[allow(clippy::cast_possible_truncation)]
-fn range_to(host: &mut dyn UbHost, world: &WorldObject) -> f32 {
-    let snapshot = host.navigation();
+fn range_to(snapshot: &ac_plugin_abi::navigation::NavigationSnapshot, world: &WorldObject) -> f32 {
     match (&world.position, snapshot.is_available) {
         (Some(position), true) => snapshot.position.horizontal_distance_metres(position) as f32,
         _ => f32::MAX,

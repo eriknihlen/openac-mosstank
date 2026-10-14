@@ -100,7 +100,7 @@ struct CallReads {
     skill: HashMap<u32, Option<Skill>>,
     /// The known-spell lists' revision, as the client said it in this call.
     known_revision: Option<u64>,
-    owned_items: Option<Vec<InventoryItem>>,
+    owned_items: Option<Rc<[InventoryItem]>>,
     objects: HashMap<u32, Option<WorldObject>>,
     components: HashMap<u32, Option<ComponentInfo>>,
     has_components: HashMap<u32, bool>,
@@ -380,6 +380,18 @@ impl<'h, 'a> HostAutomation<'h, 'a> {
         self.known_shared(list).to_vec()
     }
 
+    /// What the character owns, kept for the rest of the call and handed out
+    /// shared: every view of the call (the rules, the meta, the UB tools,
+    /// the looter) reads the one list.
+    pub(crate) fn owned_shared(&mut self) -> Rc<[InventoryItem]> {
+        if let Some(items) = &self.kept().owned_items {
+            return Rc::clone(items);
+        }
+        let items: Rc<[InventoryItem]> = self.reader().owned_items().into();
+        self.reads.get().owned_items = Some(Rc::clone(&items));
+        items
+    }
+
     /// The character, kept for the rest of the call.
     pub(crate) fn character_info(&mut self) -> Option<CharacterInfo> {
         if let Some(character) = &self.kept().character {
@@ -555,12 +567,11 @@ impl Automation for HostAutomation<'_, '_> {
     }
 
     fn owned_items(&mut self) -> Vec<InventoryItem> {
-        if let Some(items) = &self.kept().owned_items {
-            return items.clone();
-        }
-        let items = self.reader().owned_items();
-        self.reads.get().owned_items = Some(items.clone());
-        items
+        self.owned_shared().to_vec()
+    }
+
+    fn owned_items_shared(&mut self) -> Rc<[InventoryItem]> {
+        self.owned_shared()
     }
 
     fn last_item_completion(&mut self) -> ItemUseCompletion {
@@ -602,15 +613,17 @@ impl Automation for HostAutomation<'_, '_> {
     }
 
     fn fellowship_members(&mut self) -> Vec<FellowMember> {
-        self.host.fellowship_members()
+        self.reader().fellowship_members()
     }
 
+    /// Asking for the fellows' vitals changes only the fellowship's own
+    /// subscription, which no kept read holds, so it keeps them.
     fn request_fellow_vitals(&mut self, requested: bool) -> FellowshipStatus {
-        self.host.fellowship_request_vitals(requested)
+        self.reader().fellowship_request_vitals(requested)
     }
 
     fn network_available(&mut self) -> bool {
-        self.host.peers_connected()
+        self.reader().peers_connected()
     }
 
     fn network_clients(&mut self) -> Vec<NetworkClient> {

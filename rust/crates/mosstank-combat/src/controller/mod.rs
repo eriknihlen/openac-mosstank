@@ -211,7 +211,7 @@ pub struct CombatController {
     pass_candidate_range: f64,
     pass_target_reasons: HashMap<u32, String>,
     pass_equipment: Option<Vec<EquipmentItem>>,
-    pass_inventory: Option<Vec<InventoryItem>>,
+    pass_inventory: Option<std::rc::Rc<[InventoryItem]>>,
     pass_spell_refusals: HashMap<u32, (String, i32, String)>,
     pass_ammunition_counts: Option<HashMap<String, i32>>,
     pass_ammunition_answers: HashMap<String, bool>,
@@ -777,12 +777,12 @@ impl CombatController {
         equipment
     }
 
-    fn pass_inventory(&mut self, automation: &mut dyn Automation) -> Vec<InventoryItem> {
+    fn pass_inventory(&mut self, automation: &mut dyn Automation) -> std::rc::Rc<[InventoryItem]> {
         if let Some(inventory) = &self.pass_inventory {
-            return inventory.clone();
+            return std::rc::Rc::clone(inventory);
         }
-        let inventory = automation.owned_items();
-        self.pass_inventory = Some(inventory.clone());
+        let inventory = automation.owned_items_shared();
+        self.pass_inventory = Some(std::rc::Rc::clone(&inventory));
         inventory
     }
 

@@ -269,6 +269,9 @@ pub struct Core {
     pub(crate) was_dead_for_macro: bool,
     pub(crate) automation_was_available: bool,
     pub(crate) prologue_owns_action: bool,
+    /// The last frame did a frame's worth of once-only work (the name tags'
+    /// first look at the world): other once-only work waits a frame.
+    pub(crate) heavy_frame: bool,
     pub(crate) transaction_suspension_held: bool,
     pub(crate) transaction_suspension_elapsed: f64,
     pub(crate) poke: PokeSnapshot,
@@ -768,6 +771,7 @@ impl Tank {
             was_dead_for_macro: false,
             automation_was_available: false,
             prologue_owns_action: false,
+            heavy_frame: false,
             transaction_suspension_held: false,
             transaction_suspension_elapsed: 0.0,
             poke: PokeSnapshot::default(),
@@ -1062,6 +1066,24 @@ impl Tank {
         commands::execute_ub(&mut cx, arguments);
         cx.core.write_out(cx.client);
         self.end_call(client);
+    }
+
+    /// One of the caches a large spellbook makes costly built ahead of the
+    /// pass that wants it, on a tick with room for it: the self buffs' lines,
+    /// then the attack catalog, one a tick. Whether it built one.
+    pub fn warm_caches(&mut self, client: &mut dyn TankClient) -> bool {
+        let automation = client.rules();
+        if !automation.is_available() {
+            return false;
+        }
+        self.core.buff_rule.warm_profile(automation)
+            || self.core.combat.warm_spell_catalogs(automation)
+    }
+
+    /// Whether the last frame did a frame's worth of once-only work.
+    #[must_use]
+    pub fn frame_was_heavy(&self) -> bool {
+        self.core.heavy_frame
     }
 
     /// What the macro needs the character for, so a walk the client plans

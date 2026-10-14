@@ -343,7 +343,7 @@ impl ItemManaRechargeController {
     pub fn tick(&mut self, turn: &mut ManaTurn<'_>, can_act: bool, elapsed_seconds: f64) -> bool {
         self.worn_clock += elapsed_seconds.max(0.0);
         self.observe_refill_announcement(turn.automation);
-        for item in turn.automation.owned_items() {
+        for item in turn.automation.owned_items_shared().iter() {
             if item.effects & 1 == 0 && self.used_charges.contains_key(&item.object_id) {
                 let version = assessment_version(turn.automation, item.object_id);
                 if let Some(used) = self.used_charges.get_mut(&item.object_id) {
@@ -372,7 +372,7 @@ impl ItemManaRechargeController {
             return false;
         }
 
-        let owned = turn.automation.owned_items();
+        let owned = turn.automation.owned_items_shared();
         self.observe_wield_order(&owned);
         // Worn gear is looked at before anything is decided about it.
         self.observe_worn_appraisals(turn.automation, &owned);

@@ -320,7 +320,7 @@ impl CombatController {
         }
         let inventory = self.pass_inventory(cx.automation);
         let mut counts: HashMap<String, i32> = HashMap::new();
-        for item in &inventory {
+        for item in inventory.iter() {
             *counts.entry(item.name.clone()).or_default() += item.stack_size;
         }
         let craftable: RefCell<HashMap<String, Option<u32>>> = RefCell::new(HashMap::new());
@@ -819,7 +819,7 @@ impl CombatController {
         let options = self.game_info.ammunition_options.clone();
         if self.pass_ammunition_counts.is_none() {
             let mut counts: HashMap<String, i32> = HashMap::new();
-            for item in self.pass_inventory(cx.automation) {
+            for item in self.pass_inventory(cx.automation).iter() {
                 *counts.entry(item.name.clone()).or_default() += item.stack_size;
             }
             self.pass_ammunition_counts = Some(counts);

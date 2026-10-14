@@ -163,11 +163,12 @@ impl RandomHelperRule {
         let target = players
             [usize::try_from(self.random.next_max(count(players.len()))).unwrap_or(0)]
         .clone();
-        let owned = if automation.items_available() {
-            automation.owned_items()
-        } else {
-            Vec::new()
-        };
+        let owned: std::rc::Rc<[ac_plugin_abi::items::InventoryItem]> =
+            if automation.items_available() {
+                automation.owned_items_shared()
+            } else {
+                std::rc::Rc::from(Vec::new())
+            };
         let mut report = Collect(Vec::new());
         let mut picked: Option<SpellInfo> = None;
         {

@@ -39,6 +39,11 @@ const TRANSACTION_SUSPENSION_WATCHDOG_SECONDS: f64 = SpellCastTracker::WORST_CAS
 /// The chat kind of local speech (`SpellCastTracker.LocalSpeechChatKind`).
 const LOCAL_SPEECH_CHAT_KIND: u32 = 0;
 
+/// How many objects the name tags may look at in a frame before the frame
+/// counts as a heavy one, whose other once-only work waits a frame (a
+/// character's pack alone is some hundreds of objects).
+const HEAVY_SCAN_OBJECTS: usize = 200;
+
 impl Tank {
     /// One frame (`OnTick`).
     #[allow(clippy::too_many_lines)]
@@ -57,6 +62,7 @@ impl Tank {
             .buff_rule
             .item_ledger_mut()
             .set_utc_now(clock.utc_unix_ms);
+        self.core.heavy_frame = false;
         let (mut cx, scheduler) = self.cx(client);
         cx.observe_macro_activity(scheduler, elapsed_seconds);
         cx.core.tick_kill_statistics(cx.client);
@@ -77,8 +83,9 @@ impl Tank {
         }
         cx.update_peer_subscriptions();
         // The name tags, first in the frame as the panel runs them.
-        cx.with_ub(|commands, call| {
+        cx.core.heavy_frame = cx.with_ub(|commands, call| {
             commands.tools_mut().tick_nametags(call, elapsed_seconds);
+            commands.tools_mut().nametags.scanned_last_frame() > HEAVY_SCAN_OBJECTS
         });
         cx.tick_display_tools(elapsed_seconds);
         cx.tick_dungeon_map(elapsed_seconds);
@@ -114,7 +121,11 @@ impl Tank {
         cx.tick_configured_item_assessment(elapsed_seconds);
         cx.tick_profile_item_addition(elapsed_seconds);
         cx.core.flush_queued_announcements(cx.client);
-        cx.core.tick_game_info_update(cx.client);
+        // A frame the name tags spent looking at a crowded world leaves the
+        // game database's work to the next one: each is a frame's worth.
+        if !cx.core.heavy_frame {
+            cx.core.tick_game_info_update(cx.client);
+        }
         cx.show_first_run_guidance();
         cx.observe_command_portal_state();
         // The UB commands' delayed lines and the dialog watch.
