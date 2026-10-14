@@ -383,7 +383,7 @@ impl TankCx<'_> {
             Ok(rule) => {
                 self.core.settings.combat.rules.push(rule);
                 self.core.panel.monster_editor_notice = format!("Added {expression}.");
-                self.core.save_profile(self.client);
+                self.core.request_profile_save();
             }
             Err(error) => self.core.panel.monster_editor_notice = error,
         }
@@ -439,7 +439,7 @@ impl TankCx<'_> {
         let removed = rules.remove(at);
         self.core.panel.monster_editor_notice = format!("Removed {}.", removed.expression());
         ensure_default_monster_rule(self);
-        self.core.save_profile(self.client);
+        self.core.request_profile_save();
     }
 
     /// `CycleMonsterEquipmentAt`: the next of the Items page's names, then
@@ -509,7 +509,7 @@ impl TankCx<'_> {
         let expression = current.expression().to_owned();
         rules.insert(destination, current);
         self.core.panel.monster_editor_notice = format!("Moved {expression}.");
-        self.core.save_profile(self.client);
+        self.core.request_profile_save();
     }
 
     /// `UpdateMonsterActionsAt`: the row's spec kept, its actions replaced.
@@ -524,6 +524,6 @@ impl TankCx<'_> {
         };
         let actions = update(rules[at].actions().clone());
         rules[at] = rules[at].with_actions(actions);
-        self.core.save_profile(self.client);
+        self.core.request_profile_save();
     }
 }

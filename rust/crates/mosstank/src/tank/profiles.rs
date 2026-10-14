@@ -181,22 +181,33 @@ impl Core {
         report!(client, saved).unwrap_or(false)
     }
 
-    /// The save the option changes left due, made now: before the settings
-    /// profile is read, switched or written over by anything else, and
-    /// before the plugin stops (register STORE-7).
-    pub(crate) fn flush_settings_save(&mut self, client: &mut dyn TankClient) {
-        if self.settings_save_due {
+    /// The saves the changes left due, made now: before a settings, loot
+    /// or route profile is read, switched or written over by anything
+    /// else, and before the plugin stops (register STORE-7).
+    pub(crate) fn flush_saves(&mut self, client: &mut dyn TankClient) {
+        if self.profile_save_due {
+            self.save_profile(client);
+        } else if self.settings_save_due {
             self.save_settings_profile(client);
         }
     }
 
-    /// A call's end with a save due: the side-car's loot rules are written
-    /// ahead, [`SIDE_CAR_BYTES_PER_CALL`] a call, and the save is made in
-    /// the call they are ready in. A call that ran the macro's pass
-    /// (`pass_ran`) leaves it to the next, [`SETTINGS_SAVE_WAITS`] times at
-    /// most (register STORE-7).
+    /// A change the panel or a command made to the profile set: the
+    /// settings, the loot profile and the route are saved (`SaveProfile`)
+    /// once the call's changes are made and the large files are written
+    /// ahead (register STORE-7).
+    pub(crate) fn request_profile_save(&mut self) {
+        self.settings_save_due = true;
+        self.profile_save_due = true;
+    }
+
+    /// A call's end with a save due: the side-car's loot rules and the loot
+    /// profile are written ahead, [`SIDE_CAR_BYTES_PER_CALL`] of each a
+    /// call, and the save is made in the call they are ready in. A call
+    /// that ran the macro's pass (`pass_ran`) leaves it to the next,
+    /// [`SETTINGS_SAVE_WAITS`] times at most (register STORE-7).
     pub(crate) fn settle_settings_save(&mut self, client: &mut dyn TankClient, pass_ran: bool) {
-        if !self.settings_save_due {
+        if !self.settings_save_due && !self.profile_save_due {
             self.settings_save_waits = 0;
             return;
         }
@@ -204,26 +215,34 @@ impl Core {
             self.settings_save_waits += 1;
             return;
         }
-        if self.settings_save_ready() {
+        if self.saves_ready() {
             self.settings_save_waits = 0;
-            self.save_settings_profile(client);
+            self.flush_saves(client);
         }
     }
 
-    /// Whether a due save would only copy its side-car's loot rules (or none
-    /// is due); when not, [`SIDE_CAR_BYTES_PER_CALL`] more of them are
-    /// written ahead. A load or a binding that would switch the settings
-    /// profile waits for it in a frame (register STORE-7).
-    pub(crate) fn settings_save_ready(&mut self) -> bool {
-        !self.settings_save_due
+    /// Whether the due saves would only copy what was written ahead (or
+    /// none is due); when not, [`SIDE_CAR_BYTES_PER_CALL`] more of the
+    /// side-car's loot rules and of the loot profile are written ahead. A
+    /// load or a binding that would switch a profile waits for it in a
+    /// frame (register STORE-7).
+    pub(crate) fn saves_ready(&mut self) -> bool {
+        let settings = !self.settings_save_due
             || self
                 .profiles
-                .prepare_save(&self.settings, SIDE_CAR_BYTES_PER_CALL)
+                .prepare_save(&self.settings, SIDE_CAR_BYTES_PER_CALL);
+        let loot = &self.settings.inventory.loot;
+        let profile = !self.profile_save_due
+            || self
+                .loot_profiles
+                .prepare_save(&loot.rules, Some(loot), SIDE_CAR_BYTES_PER_CALL);
+        settings && profile
     }
 
     /// `SaveProfile`: the settings, the loot profile and the route (not
     /// the meta, which is the author's).
     pub(crate) fn save_profile(&mut self, client: &mut dyn TankClient) -> bool {
+        self.profile_save_due = false;
         let saved = self.save_settings_profile(client);
         let loot = &self.settings.inventory.loot;
         let written = self
@@ -270,6 +289,9 @@ impl Core {
         &mut self,
         client: &mut dyn TankClient,
     ) -> Result<LootLoad, bool> {
+        // A save still due goes to the profile it was made for (register
+        // STORE-7).
+        self.flush_saves(client);
         let loot = &mut self.settings.inventory.loot;
         let mut rules = std::mem::take(&mut loot.rules);
         let begun = self
@@ -357,6 +379,11 @@ impl Core {
     /// `LoadRouteProfile`: a route that will not parse keeps its file and
     /// the route in memory.
     pub(crate) fn load_route_profile(&mut self, client: &mut dyn TankClient) -> bool {
+        // A save of the profile set still due goes to the route it was made
+        // for (register STORE-7).
+        if self.profile_save_due {
+            self.flush_saves(client);
+        }
         let spells = SpellsSnapshot::read(client);
         let loaded = self.route_profiles.load_current(
             client.stores(),
@@ -613,10 +640,10 @@ impl TankCx<'_> {
         }
         // The binding may name another settings file: what is due goes to
         // the one it was changed in, once its side-car is ready.
-        if !self.core.settings_save_ready() {
+        if !self.core.saves_ready() {
             return;
         }
-        self.core.flush_settings_save(self.client);
+        self.core.flush_saves(self.client);
         {
             let core = &mut *self.core;
             self.ub.bind(self.client, &character.world, &name);
@@ -898,6 +925,12 @@ impl Core {
                 .load_current(client.stores(), Some(&spells)),
         )
         .unwrap_or_default();
+        self.announce_meta_load(client);
+        profile
+    }
+
+    /// The line a meta load produces, from what the store says of it.
+    pub(crate) fn announce_meta_load(&mut self, client: &mut dyn TankClient) {
         let outcome = if self.meta_profiles.last_load_succeeded() {
             ProfileLoad::Loaded
         } else if self.meta_profiles.last_load_error().is_none() {
@@ -908,7 +941,6 @@ impl Core {
         let key = self.meta_profiles.last_load_key().map(str::to_owned);
         let reason = self.meta_profiles.last_load_error().map(str::to_owned);
         self.announce_load_outcome(client, "Meta", key.as_deref(), outcome, reason.as_deref());
-        profile
     }
 }
 

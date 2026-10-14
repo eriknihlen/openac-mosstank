@@ -341,7 +341,7 @@ pub(super) fn act(cx: &mut TankCx<'_>, name: &str, arg: &Arg) -> bool {
             cx.set_excluded_components(&updated);
             cx.core.panel.profile_notice = format!("Removed {removed}.");
             cx.refresh_item_editors();
-            cx.core.save_profile(cx.client);
+            cx.core.request_profile_save();
         }
         "AddSelectedComponent" => {
             let Some(item) = cx.selected_inventory_item() else {
@@ -363,17 +363,17 @@ pub(super) fn act(cx: &mut TankCx<'_>, name: &str, arg: &Arg) -> bool {
             cx.set_excluded_components(&updated);
             cx.core.panel.profile_notice = format!("Added {}.", item.name);
             cx.refresh_item_editors();
-            cx.core.save_profile(cx.client);
+            cx.core.request_profile_save();
         }
         "DeleteExtraBuffAt" => {
             cx.core.panel.selected_extra_buff_row = arg.int();
             cx.delete_buff_row(false, arg.int());
-            cx.core.save_profile(cx.client);
+            cx.core.request_profile_save();
         }
         "DeleteBlacklistedBuffFamilyAt" => {
             cx.core.panel.selected_blacklisted_buff_row = arg.int();
             cx.delete_buff_row(true, arg.int());
-            cx.core.save_profile(cx.client);
+            cx.core.request_profile_save();
         }
         "ShowExtraBuffPicker" => cx.show_buff_picker(false),
         "ShowBlacklistedBuffPicker" => cx.show_buff_picker(true),
@@ -388,13 +388,13 @@ pub(super) fn act(cx: &mut TankCx<'_>, name: &str, arg: &Arg) -> bool {
             let inventory = &mut cx.core.settings.inventory;
             inventory.refill_worn_mana = !inventory.refill_worn_mana;
             cx.core.item_mana.reset();
-            cx.core.save_profile(cx.client);
+            cx.core.request_profile_save();
         }
         "SetRefillWornMana" => {
             #[allow(clippy::cast_possible_truncation)]
             let percent = (arg.float() * 100.0).round() as i32;
             cx.core.settings.inventory.refill_worn_mana_percent = percent.clamp(0, 99);
-            cx.core.save_profile(cx.client);
+            cx.core.request_profile_save();
         }
         _ => return false,
     }
@@ -819,7 +819,7 @@ impl TankCx<'_> {
             .retain(|item| item.name != removed);
         self.core.panel.profile_notice = format!("Removed {removed}.");
         self.refresh_item_editors();
-        self.core.save_profile(self.client);
+        self.core.request_profile_save();
     }
 
     /// `SetConsumableCategory`: the explicit choice is also the last word
@@ -859,7 +859,7 @@ impl TankCx<'_> {
         };
         if changed {
             self.refresh_item_editors();
-            self.core.save_profile(self.client);
+            self.core.request_profile_save();
         }
     }
 
@@ -1304,7 +1304,7 @@ impl TankCx<'_> {
             add_exemplar(&mut buffs.extra_buff_spell_ids, spell_id);
         }
         self.core.panel.buff_picker_visible = false;
-        self.core.save_profile(self.client);
+        self.core.request_profile_save();
     }
 }
 

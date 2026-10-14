@@ -64,11 +64,12 @@ pub(crate) fn meta_load_request(input: &str) -> Option<(String, bool)> {
 pub(crate) fn execute_vtank(cx: &mut TankCx<'_>, input: &str) {
     let (typed, arguments) = split_head(input);
     let verb = casing::to_lower_invariant(&typed);
-    // The settings profile is saved once for the option changes made
-    // before a line that switches it or reloads the loot rules its
-    // side-car carries (register STORE-7).
-    if matches!(verb.as_str(), "settings" | "loot") {
-        cx.core.flush_settings_save(cx.client);
+    // The due saves are made before a line that switches or reads a
+    // settings or loot profile, or a route one when the route is among
+    // them (register STORE-7).
+    let route = matches!(verb.as_str(), "nav" | "navaf");
+    if matches!(verb.as_str(), "settings" | "loot") || (route && cx.core.profile_save_due) {
+        cx.core.flush_saves(cx.client);
     }
     match verb.as_str() {
         "" | "help" => vtank_help(cx.client, &arguments),
@@ -283,13 +284,7 @@ fn settings_command(cx: &mut TankCx<'_>, arguments: &str) {
         );
         return;
     }
-    if cx.load_selected_profile() == Some(mosstank_stores::profile_store::ProfileLoad::Failed) {
-        let notice = cx.core.profile_lifecycle_notice.clone();
-        Core::write_vtank(cx.client, &notice);
-        return;
-    }
-    let selected = cx.core.profiles.selected();
-    Core::write_vtank(cx.client, &format!("Loaded settings profile {selected}."));
+    cx.load_picked_settings_for_command();
 }
 
 /// `/vt nav [save/load] name`, and `/vt navaf`.
@@ -402,9 +397,7 @@ fn loot_profile_command(cx: &mut TankCx<'_>, arguments: &str) {
         Err(error) => return command_failed(cx.client, &error),
     };
     if exists {
-        cx.select_loot_profile(&name);
-        let notice = cx.core.loot_editor_notice.clone();
-        Core::write_vtank(cx.client, &notice);
+        cx.pick_loot_profile(&name, true);
         return;
     }
     let loot = &mut cx.core.settings.inventory.loot;
@@ -427,6 +420,13 @@ fn loot_profile_command(cx: &mut TankCx<'_>, arguments: &str) {
         Ok((false, notice)) => Core::write_vtank(cx.client, &notice),
         Err(error) => command_failed(cx.client, &error),
     }
+}
+
+/// The file `/vt meta load <name>` (or `/vt metaaf`) names.
+pub(crate) fn meta_file_name(name: &str, af: bool) -> String {
+    let name = strip_extension(name, &[".json"]);
+    let bare_name = strip_extension(&name, &[".met", ".af"]);
+    if af { format!("{bare_name}.af") } else { name }
 }
 
 impl Core {
@@ -543,6 +543,10 @@ fn meta_profile_command(cx: &mut TankCx<'_>, arguments: &str, af: bool) {
         return;
     }
     if operation == "load" {
+        // A meta the name picks is read a step a tick (register PROF-1).
+        if cx.pick_meta_for_command(&name, af) {
+            return;
+        }
         if let Some(profile) = cx.core.load_meta_profile_command(cx.client, &name, af) {
             cx.with_engine(|engine, host, services| {
                 engine.replace_profile(host, services, profile)
@@ -613,7 +617,7 @@ fn option_command(cx: &mut TankCx<'_>, arguments: &str) {
                 return;
             }
             if ordinal::equals_ignore_case(&operation, "setinall") {
-                cx.core.flush_settings_save(cx.client);
+                cx.core.flush_saves(cx.client);
                 let count = cx.core.profiles.set_option_in_all(
                     cx.client.stores(),
                     canonical,
@@ -839,7 +843,7 @@ fn set_attack_bar(cx: &mut TankCx<'_>, value: &str) {
         return;
     };
     cx.core.settings.combat.attack_power = power;
-    cx.core.save_profile(cx.client);
+    cx.core.request_profile_save();
     let text = number::format_f32(power, "0.###").unwrap_or_default();
     Core::write_vtank(cx.client, &format!("Attack bar set to {text}."));
 }
@@ -986,7 +990,7 @@ fn log_command(cx: &mut TankCx<'_>, arguments: &str) {
     let verb = if on { "Set " } else { "Reset " };
     Core::write_vtank(cx.client, &format!("{verb}{channel}"));
     if changed {
-        cx.core.save_profile(cx.client);
+        cx.core.request_profile_save();
     }
 }
 

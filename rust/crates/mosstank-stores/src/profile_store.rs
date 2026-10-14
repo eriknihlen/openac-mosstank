@@ -222,6 +222,16 @@ impl SettingsLoad {
         }
     }
 
+    /// Whether the side-car's rules are all read (what is left is read at
+    /// [`ProfileStore::finish_load`]).
+    #[must_use]
+    pub fn is_read(&self) -> bool {
+        match &self.side_car {
+            SideCarSource::Text(read) => read.is_read(),
+            _ => true,
+        }
+    }
+
     /// The side-car's length, in bytes (0 without one).
     #[must_use]
     pub fn side_car_len(&self) -> usize {

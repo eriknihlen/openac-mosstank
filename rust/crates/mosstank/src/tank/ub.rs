@@ -970,7 +970,7 @@ impl TankCx<'_> {
                         }
                         _ => settings.navigation.jump_attempts = value.as_int32(),
                     }
-                    self.core.save_profile(self.client);
+                    self.core.request_profile_save();
                 }
             }
         }

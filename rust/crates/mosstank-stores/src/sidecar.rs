@@ -1476,6 +1476,12 @@ impl SideCarRead {
         self.text.len()
     }
 
+    /// Whether the rules are all read (or will be read at the end).
+    #[must_use]
+    pub fn is_read(&self) -> bool {
+        self.rules.is_none() || self.end.is_some()
+    }
+
     /// The read's outcome, the rules read to the end first.
     #[must_use]
     pub fn finish(mut self) -> SideCarOutcome {

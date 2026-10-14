@@ -301,6 +301,9 @@ pub struct Core {
     /// before anything else reads or switches it and at the end of the call
     /// (register STORE-7).
     pub(crate) settings_save_due: bool,
+    /// A change to the profile set left the whole save due (`SaveProfile`:
+    /// the settings, the loot profile and the route; register STORE-7).
+    pub(crate) profile_save_due: bool,
     /// The calls a due save has waited for one that ran no pass.
     pub(crate) settings_save_waits: u8,
     /// The scheduler's pass count when the call began.
@@ -820,6 +823,7 @@ impl Tank {
             fast_cast: FastCast::default(),
             applying_profile_options: false,
             settings_save_due: false,
+            profile_save_due: false,
             settings_save_waits: 0,
             passes_at_call_start: 0,
             last_frame_ran_pass: false,
@@ -1124,7 +1128,10 @@ impl Tank {
         if self.core.staged_load.is_some() || self.core.held_commands.is_empty() {
             return false;
         }
-        while let Some(command) = self.core.held_commands.pop_front() {
+        // A command that starts a load (a pick) leaves the rest for after it.
+        while self.core.staged_load.is_none()
+            && let Some(command) = self.core.held_commands.pop_front()
+        {
             self.begin_call(client);
             let (mut cx, _) = self.cx(client);
             cx.refresh_live_ub_rows(true);
@@ -1320,7 +1327,7 @@ impl Tank {
         cx.meta.expressions().clear_session();
         // A save still due is made before the plugin stops (register
         // STORE-7).
-        cx.core.flush_settings_save(cx.client);
+        cx.core.flush_saves(cx.client);
         // A key the macro held must not outlive the plugin that pressed it.
         cx.meta
             .expressions()

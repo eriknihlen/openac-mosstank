@@ -426,14 +426,74 @@ pub fn write_parts(
         write_rule(&mut output, rule);
     }
 
-    write_block(&mut output, SALVAGE_BLOCK, &write_salvage(salvage));
+    write_tail(&mut output, salvage, unknown_blocks);
+    output
+}
+
+/// What follows the rules: the salvage block and the other blocks.
+fn write_tail(
+    output: &mut String,
+    salvage: &VtankSalvageCombineSettings,
+    unknown_blocks: &[VtankLootExtraBlock],
+) {
+    write_block(output, SALVAGE_BLOCK, &write_salvage(salvage));
     for block in unknown_blocks {
         if block.kind.is_empty() || block.kind == SALVAGE_BLOCK {
             continue;
         }
-        write_block(&mut output, &block.kind, &block.payload);
+        write_block(output, &block.kind, &block.payload);
     }
-    output
+}
+
+/// [`write_parts`] a run at a time: the header and the rules, about the
+/// bytes each [`Self::step`] is given, then the rest at [`Self::finish`].
+/// Each rule written is hashed into the caller's hasher, the count first
+/// (as a slice of them hashes).
+#[derive(Debug, Clone, Default)]
+pub struct PartsWrite {
+    text: String,
+    next: usize,
+}
+
+impl PartsWrite {
+    /// Writes on from where the last step stopped until the text has grown
+    /// by `bytes` (a rule at least): true once every rule is written.
+    pub fn step<H: std::hash::Hasher>(
+        &mut self,
+        rules: &[LootRule],
+        bytes: usize,
+        hasher: &mut H,
+    ) -> bool {
+        use std::hash::Hash;
+        if self.next == 0 && self.text.is_empty() {
+            append_line(&mut self.text, HEADER);
+            append_number_line(&mut self.text, i64::from(CURRENT_VERSION));
+            append_number_line(&mut self.text, count(rules.len()));
+            hasher.write_usize(rules.len());
+        }
+        let stop = self.text.len().saturating_add(bytes);
+        while let Some(rule) = rules.get(self.next) {
+            write_rule(&mut self.text, rule);
+            rule.hash(hasher);
+            self.next += 1;
+            if self.text.len() >= stop {
+                break;
+            }
+        }
+        self.next >= rules.len()
+    }
+
+    /// The whole text, as [`write_parts`] writes it, once every rule is
+    /// written (and the rules did not change meanwhile).
+    #[must_use]
+    pub fn finish(
+        mut self,
+        salvage: &VtankSalvageCombineSettings,
+        unknown_blocks: &[VtankLootExtraBlock],
+    ) -> String {
+        write_tail(&mut self.text, salvage, unknown_blocks);
+        self.text
+    }
 }
 
 fn read_rule(
@@ -1207,5 +1267,30 @@ mod tests {
             payload: String::new(),
         }];
         assert_eq!(blocks_as_read(&odd), None);
+    }
+
+    #[test]
+    fn a_profile_written_a_run_at_a_time_is_written_whole() {
+        use std::hash::{BuildHasher, Hasher};
+        for name in ["loot-a.utl", "loot-b.utl", "loot-c.utl"] {
+            let profile = try_read(Some(&crate::fixtures::read_vtank(name))).unwrap();
+            let whole = write(&profile);
+            for bytes in [1, 300, usize::MAX] {
+                let state = std::collections::hash_map::RandomState::new();
+                let mut hasher = state.build_hasher();
+                let mut write = PartsWrite::default();
+                while !write.step(&profile.rules, bytes, &mut hasher) {}
+                assert_eq!(
+                    write.finish(&profile.salvage_combine, &profile.unknown_blocks),
+                    whole,
+                    "{name}"
+                );
+                assert_eq!(
+                    hasher.finish(),
+                    state.hash_one(&profile.rules[..]),
+                    "{name}"
+                );
+            }
+        }
     }
 }

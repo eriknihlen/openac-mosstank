@@ -203,14 +203,14 @@ fn set_distance_text(
     };
     apply(cx, f64::from(distance.clamp(minimum, maximum)));
     if save_profile {
-        cx.core.save_profile(cx.client);
+        cx.core.request_profile_save();
     }
 }
 
 /// `UpdateProfile`.
 fn update_profile(cx: &mut TankCx<'_>, update: impl FnOnce(&mut TankCx<'_>)) {
     update(cx);
-    cx.core.save_profile(cx.client);
+    cx.core.request_profile_save();
 }
 
 /// `Clamp`: a slider's fraction kept inside 0..=1.
@@ -248,7 +248,7 @@ pub(super) fn act(cx: &mut TankCx<'_>, name: &str, arg: &Arg) -> bool {
         }
         "ToggleCombatEnabled" => {
             cx.core.settings.combat.enabled = !cx.core.settings.combat.enabled;
-            cx.core.save_profile(cx.client);
+            cx.core.request_profile_save();
         }
         "ToggleAutoFellowManagement" => {
             let on = cx.core.settings.combat.auto_fellow_management;
@@ -301,33 +301,33 @@ pub(super) fn act(cx: &mut TankCx<'_>, name: &str, arg: &Arg) -> bool {
         "ToggleAutoStack" => {
             cx.core.settings.inventory.auto_stack = !cx.core.settings.inventory.auto_stack;
             cx.core.inventory_maintenance.reset();
-            cx.core.save_profile(cx.client);
+            cx.core.request_profile_save();
         }
         "ToggleAutoCram" => {
             cx.core.settings.inventory.auto_cram = !cx.core.settings.inventory.auto_cram;
             cx.core.inventory_maintenance.reset();
-            cx.core.save_profile(cx.client);
+            cx.core.request_profile_save();
         }
         "ToggleAutoCraftItems" => {
             cx.core.settings.inventory.auto_craft_items =
                 !cx.core.settings.inventory.auto_craft_items;
             cx.core.crafting.reset();
-            cx.core.save_profile(cx.client);
+            cx.core.request_profile_save();
         }
         "ToggleLooting" => {
             cx.core.settings.inventory.loot.enabled = !cx.core.settings.inventory.loot.enabled;
             cx.core.reset_loot(cx.client);
-            cx.core.save_profile(cx.client);
+            cx.core.request_profile_save();
         }
         "ToggleLootPriorityBoost" => {
             let loot = &mut cx.core.settings.inventory.loot;
             loot.priority_boost = !loot.priority_boost;
-            cx.core.save_profile(cx.client);
+            cx.core.request_profile_save();
         }
         "ToggleLootOnlyRareCorpses" => {
             let loot = &mut cx.core.settings.inventory.loot;
             loot.loot_only_rare_corpses = !loot.loot_only_rare_corpses;
-            cx.core.save_profile(cx.client);
+            cx.core.request_profile_save();
         }
         // Flipping a setting is not a route change: the round stays where
         // it was.
@@ -377,7 +377,7 @@ pub(super) fn act(cx: &mut TankCx<'_>, name: &str, arg: &Arg) -> bool {
         "SetPetDensityText" => {
             if let Some(density) = number::parse_i32(arg.text(), NumberStyles::INTEGER) {
                 cx.core.settings.combat.pet_monster_density = density.clamp(1, 25);
-                cx.core.save_profile(cx.client);
+                cx.core.request_profile_save();
             }
         }
         "SetMonsterRangeText" => set_distance_text(
@@ -451,7 +451,7 @@ pub(super) fn act(cx: &mut TankCx<'_>, name: &str, arg: &Arg) -> bool {
                 cx.core.vital_recharge.reset();
             }
             cx.core.vital_helper_recharge.reset();
-            cx.core.save_profile(cx.client);
+            cx.core.request_profile_save();
         }
         "ToggleHelpOthers" => update_profile(cx, |cx| {
             cx.core.settings.vitals.help_others = !cx.core.settings.vitals.help_others;
@@ -477,7 +477,7 @@ fn set_vital(
         &mut cx.core.settings.vitals,
         clamp_fraction(arg.float() / 100.0),
     );
-    cx.core.save_profile(cx.client);
+    cx.core.request_profile_save();
 }
 
 /// A vital threshold given as a fraction (`SetNormalHealth`).
@@ -487,7 +487,7 @@ fn set_vital_fraction(
     apply: impl FnOnce(&mut mosstank_settings::model::VitalSettings, f64),
 ) {
     apply(&mut cx.core.settings.vitals, clamp_fraction(arg.float()));
-    cx.core.save_profile(cx.client);
+    cx.core.request_profile_save();
 }
 
 /// `SwitchPanel`: the destination opens first, so the current controls

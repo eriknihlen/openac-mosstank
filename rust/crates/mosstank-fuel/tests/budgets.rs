@@ -1304,38 +1304,57 @@ fn a_real_profile_folder_fits() {
     let loot = largest("loot", ".utl");
     let meta = largest("metas", ".met");
     let picks = [
-        ui_action(
-            &session,
-            "SelectLootProfile",
-            ActionValue::Text(loot.clone()),
+        (
+            "event: a loot profile picked",
+            ui_action(
+                &session,
+                "SelectLootProfile",
+                ActionValue::Text(loot.clone()),
+            ),
         ),
-        ui_action(
-            &session,
-            "SelectMetaProfile",
-            ActionValue::Text(meta.clone()),
+        (
+            "event: a meta picked",
+            ui_action(
+                &session,
+                "SelectMetaProfile",
+                ActionValue::Text(meta.clone()),
+            ),
         ),
-        command("vt", "loot load By char"),
-        command("vt", &format!("meta load {meta}")),
-        ui_action(
-            &session,
-            "SelectMetaProfile",
-            ActionValue::Text("By char".to_owned()),
+        (
+            "event: a loot profile picked",
+            command("vt", "loot load By char"),
         ),
-        ui_action(
-            &session,
-            "SelectMacroProfile",
-            ActionValue::Text("By char".to_owned()),
+        (
+            "event: a meta picked",
+            command("vt", &format!("meta load {meta}")),
+        ),
+        (
+            "event: a meta picked",
+            ui_action(
+                &session,
+                "SelectMetaProfile",
+                ActionValue::Text("By char".to_owned()),
+            ),
+        ),
+        (
+            "event: a settings profile picked",
+            ui_action(
+                &session,
+                "SelectMacroProfile",
+                ActionValue::Text("By char".to_owned()),
+            ),
         ),
     ];
-    for event in &picks {
+    for (case, event) in &picks {
         let fuel = send(&mut plugin, &mut session, event);
-        cases.add("event: a profile picked", fuel);
+        cases.add(case, fuel);
         settle(&mut plugin, &mut session, &mut cases);
     }
     let said = session.world.chat().join("\n") + &session.world.all_logs().join("\n");
     for picked in [
         format!("Loaded loot profile {loot}."),
         format!("Loaded Meta profile {meta}."),
+        "Loaded settings profile ".to_owned(),
     ] {
         assert!(said.contains(&picked), "not said: {picked}");
     }
@@ -1404,18 +1423,7 @@ fn a_real_profile_folder_fits() {
         "the loot profile was not loaded:\n{report}\n{chat:?}"
     );
     assert_no_file_rewritten(&session, &report);
-    // Still over half their threshold, and being brought under it: a panel
-    // option that saves the whole profile set, and a large profile picked.
-    // Measured and reported; held to the margin once they fit.
-    const NOT_YET_HELD: [&str; 2] = [
-        "event: an option changed (a save)",
-        "event: a profile picked",
-    ];
-    let held: Vec<Case> = cases
-        .into_iter()
-        .filter(|case| !NOT_YET_HELD.contains(&case.name.as_str()))
-        .collect();
-    assert_within_margin(&held, &report);
+    assert_within_margin(&cases, &report);
 }
 
 #[test]

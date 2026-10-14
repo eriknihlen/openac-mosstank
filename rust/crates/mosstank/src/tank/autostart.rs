@@ -49,7 +49,7 @@ impl TankCx<'_> {
         // Settle the character's own binding first (a save still due is
         // made at once: the autostart is a call of its own, register
         // STORE-7).
-        self.core.flush_settings_save(self.client);
+        self.core.flush_saves(self.client);
         self.ensure_character_profile();
         self.finish_staged_load();
         self.apply_autostart(&settings);

@@ -206,11 +206,24 @@ pub(super) fn value(cx: &mut TankCx<'_>, name: &str) -> Option<UiValue> {
 
 #[allow(clippy::too_many_lines)]
 pub(super) fn act(cx: &mut TankCx<'_>, name: &str, arg: &Arg) -> bool {
+    // A pick, a new profile, a copy, a clear or a delete works on the
+    // profile files: the saves still due are made first (register STORE-7).
+    // The settings, loot and meta picks are loads of a step a tick, whose
+    // steps make them.
+    let staged = matches!(
+        name,
+        "SelectMacroProfile" | "SelectLootProfile" | "SelectMetaProfile"
+    );
+    let works_on_files = (!staged && name.starts_with("Select") && name.ends_with("Profile"))
+        || ["Create", "Copy", "Clear", "Delete"]
+            .iter()
+            .any(|verb| name.starts_with(verb))
+        || name == "ToggleMineOnly";
+    if works_on_files {
+        cx.core.flush_saves(cx.client);
+    }
     match name {
-        "SelectMacroProfile" => {
-            cx.select_profile(arg.text());
-            cx.after_profile_change();
-        }
+        "SelectMacroProfile" => cx.pick_settings_profile(arg.text()),
         "SetProfileNameDraft" => arg.text().clone_into(&mut cx.core.panel.profile_name_draft),
         "CreateNamedProfile" => {
             arg.text().clone_into(&mut cx.core.panel.profile_name_draft);
@@ -312,7 +325,7 @@ pub(super) fn act(cx: &mut TankCx<'_>, name: &str, arg: &Arg) -> bool {
             cx.core.route_notice = notice;
         }
 
-        "SelectLootProfile" => cx.select_loot_profile(arg.text()),
+        "SelectLootProfile" => cx.pick_loot_profile(arg.text(), false),
         "SelectLootClassifier" => cx.select_loot_classifier(arg.text()),
         "SetLootProfileNameDraft" => {
             arg.text()
@@ -404,33 +417,30 @@ pub(super) fn act(cx: &mut TankCx<'_>, name: &str, arg: &Arg) -> bool {
         "ToggleLootAllCorpses" => {
             let loot = &mut cx.core.settings.inventory.loot;
             loot.loot_all_corpses = !loot.loot_all_corpses;
-            cx.core.save_profile(cx.client);
+            cx.core.request_profile_save();
         }
         "ToggleLootFellowCorpses" => {
             let loot = &mut cx.core.settings.inventory.loot;
             loot.loot_fellow_corpses = !loot.loot_fellow_corpses;
-            cx.core.save_profile(cx.client);
+            cx.core.request_profile_save();
         }
         "ToggleReadUnknownScrolls" => {
             let loot = &mut cx.core.settings.inventory.loot;
             loot.read_unknown_scrolls = !loot.read_unknown_scrolls;
-            cx.core.save_profile(cx.client);
+            cx.core.request_profile_save();
         }
         "LootRangeDown" => {
             let loot = &mut cx.core.settings.inventory.loot;
             loot.corpse_approach_range = (loot.corpse_approach_range - 2.0).max(0.0);
-            cx.core.save_profile(cx.client);
+            cx.core.request_profile_save();
         }
         "LootRangeUp" => {
             let loot = &mut cx.core.settings.inventory.loot;
             loot.corpse_approach_range = (loot.corpse_approach_range + 2.0).min(100.0);
-            cx.core.save_profile(cx.client);
+            cx.core.request_profile_save();
         }
 
-        "SelectMetaProfile" => {
-            cx.select_meta_profile(arg.text());
-            cx.after_meta_profile_change();
-        }
+        "SelectMetaProfile" => cx.pick_meta_profile(arg.text()),
         "SetMetaProfileNameDraft" => {
             arg.text()
                 .clone_into(&mut cx.core.panel.meta_profile_name_draft);
@@ -674,7 +684,7 @@ impl TankCx<'_> {
         };
         self.core.settings.inventory.loot.external_classifier_id = id.clone();
         self.core.reset_loot(self.client);
-        self.core.save_profile(self.client);
+        self.core.request_profile_save();
         self.core.profile_lifecycle_notice = if id.is_empty() {
             "Loot engine set to VTClassic.".to_owned()
         } else {
@@ -777,7 +787,7 @@ impl TankCx<'_> {
         self.core.loot_editor_notice = format!("Updated {}.", rule.name);
         self.core.reset_loot(self.client);
         self.refresh_loot_editor(false);
-        self.core.save_profile(self.client);
+        self.core.request_profile_save();
     }
 
     /// `AddLootRuleCore`.
@@ -792,7 +802,7 @@ impl TankCx<'_> {
         self.core.loot_editor_notice = format!("Added {name}.");
         self.core.reset_loot(self.client);
         self.refresh_loot_editor(false);
-        self.core.save_profile(self.client);
+        self.core.request_profile_save();
     }
 
     /// `RemoveLootRuleCore`.
@@ -808,7 +818,7 @@ impl TankCx<'_> {
         self.core.loot_editor_notice = format!("Removed {}.", removed.name);
         self.core.reset_loot(self.client);
         self.refresh_loot_editor(false);
-        self.core.save_profile(self.client);
+        self.core.request_profile_save();
     }
 
     /// `MoveLootRule`.
@@ -831,7 +841,7 @@ impl TankCx<'_> {
         self.core.loot_editor_notice = format!("Moved {name}.");
         self.core.reset_loot(self.client);
         self.refresh_loot_editor(false);
-        self.core.save_profile(self.client);
+        self.core.request_profile_save();
     }
 
     /// `SelectLootActionCore`.
@@ -847,7 +857,7 @@ impl TankCx<'_> {
         self.core.loot_editor_notice = format!("{}: {}.", rule.name, loot_action_name(action));
         self.core.reset_loot(self.client);
         self.refresh_loot_editor(false);
-        self.core.save_profile(self.client);
+        self.core.request_profile_save();
     }
 
     /// `UpdateSelectedLootRule`.
@@ -860,7 +870,7 @@ impl TankCx<'_> {
         self.core.loot_editor_notice = format!("Updated {}.", rule.name);
         self.core.reset_loot(self.client);
         self.refresh_loot_editor(false);
-        self.core.save_profile(self.client);
+        self.core.request_profile_save();
     }
 }
 

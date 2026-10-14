@@ -217,6 +217,11 @@ pub struct LootProfileStore {
     last_load_key: Option<String>,
     /// The active profile's file as this store last read or wrote it.
     file_memo: Option<FileMemo>,
+    /// A save's text being written ahead ([`Self::prepare_save`]).
+    writing: Option<LootWrite>,
+    /// [`Self::prepare_save`] answered true just now, and no save has used
+    /// that answer yet.
+    save_checked: bool,
 }
 
 /// A profile file as the store last read or wrote it: its text, the blocks
@@ -229,9 +234,24 @@ struct FileMemo {
     text: String,
     blocks: Option<Vec<VtankLootExtraBlock>>,
     written: Option<u64>,
-    /// The text a save would write over it, worked out ahead, and what it
-    /// is written from.
-    prepared: Option<(u64, String)>,
+    /// The text a save would write over it, worked out ahead.
+    prepared: Option<Prepared>,
+}
+
+/// A save's text worked out ahead: what it is written from, and the
+/// blocks a read of it gives besides the rules.
+#[derive(Debug, Clone)]
+struct Prepared {
+    content: u64,
+    text: String,
+    blocks: Option<Vec<VtankLootExtraBlock>>,
+}
+
+/// A save's text being written ahead, its rules hashed as they are written.
+#[derive(Debug, Clone, Default)]
+struct LootWrite {
+    write: utl::PartsWrite,
+    hasher: crate::fast_hash::FastHasher,
 }
 
 /// What a profile is written from, as one number.
@@ -263,6 +283,8 @@ impl LootProfileStore {
             load_notice: None,
             last_load_key: None,
             file_memo: None,
+            writing: None,
+            save_checked: false,
         }
     }
 
@@ -753,6 +775,9 @@ impl LootProfileStore {
         rules: &[LootRule],
         settings: Option<&LootSettings>,
     ) -> Result<(), StoreError> {
+        // A text prepared just now for these rules is not looked at again;
+        // one prepared for a save that never came is.
+        let checked = std::mem::take(&mut self.save_checked);
         if self.files_under_nobody() || !self.has_active_profile || self.active_profile_is_partial {
             return Ok(());
         }
@@ -774,7 +799,17 @@ impl LootProfileStore {
         let current = self.file_memo.as_ref().is_some_and(|memo| {
             memo.file_name == file_name && existing.as_deref() == Some(memo.text.as_str())
         });
-        let content = content_hash(rules, &salvage);
+        let known = checked
+            .then(|| {
+                self.file_memo.as_ref().and_then(|memo| {
+                    memo.prepared
+                        .as_ref()
+                        .map(|prepared| prepared.content)
+                        .or(memo.written)
+                })
+            })
+            .flatten();
+        let content = known.unwrap_or_else(|| content_hash(rules, &salvage));
         if current
             && self
                 .file_memo
@@ -784,33 +819,49 @@ impl LootProfileStore {
             return Ok(());
         }
         let memo = self.file_memo.take().filter(|_| current);
-        let prepared = memo
-            .as_ref()
-            .and_then(|memo| memo.prepared.as_ref())
-            .filter(|(hash, _)| *hash == content)
-            .map(|(_, text)| text.clone());
-        let known = memo.and_then(|memo| memo.blocks);
-        let mut blocks = match (known, existing) {
-            (Some(blocks), _) => blocks,
-            (None, Some(existing_text)) => match utl::try_read(Some(&existing_text)) {
-                Ok(existing) => existing.unknown_blocks,
-                Err(error) => {
-                    let notice =
-                        recovery::preserve(host, "loot", &file_name, Some(&existing_text), &error);
-                    host.log().warn(&notice);
-                    self.recovery_notice = Some(notice);
+        let (memo, prepared) = match memo {
+            Some(mut memo) => {
+                let prepared = memo
+                    .prepared
+                    .take()
+                    .filter(|prepared| prepared.content == content);
+                (Some(memo), prepared)
+            }
+            None => (None, None),
+        };
+        let (text, blocks) = match prepared {
+            Some(prepared) => (prepared.text, prepared.blocks),
+            None => {
+                let known = memo.and_then(|memo| memo.blocks);
+                let mut blocks = match (known, existing) {
+                    (Some(blocks), _) => blocks,
+                    (None, Some(existing_text)) => match utl::try_read(Some(&existing_text)) {
+                        Ok(existing) => existing.unknown_blocks,
+                        Err(error) => {
+                            let notice = recovery::preserve(
+                                host,
+                                "loot",
+                                &file_name,
+                                Some(&existing_text),
+                                &error,
+                            );
+                            host.log().warn(&notice);
+                            self.recovery_notice = Some(notice);
+                            return Ok(());
+                        }
+                    },
+                    (None, None) => Vec::new(),
+                };
+                // `attach_mosstank_expressions`, over the rules where they are.
+                blocks.retain(|block| block.kind != utl::MOSSTANK_RULES_BLOCK_TYPE);
+                blocks.push(utl::mosstank_expressions_block(rules));
+                if !host.storage(Root::Profiles).is_available() {
                     return Ok(());
                 }
-            },
-            (None, None) => Vec::new(),
+                let text = utl::write_parts(rules, &salvage, &blocks);
+                (text, utl::blocks_as_read(&blocks))
+            }
         };
-        // `attach_mosstank_expressions`, over the rules where they are.
-        blocks.retain(|block| block.kind != utl::MOSSTANK_RULES_BLOCK_TYPE);
-        blocks.push(utl::mosstank_expressions_block(rules));
-        if !host.storage(Root::Profiles).is_available() {
-            return Ok(());
-        }
-        let text = prepared.unwrap_or_else(|| utl::write_parts(rules, &salvage, &blocks));
         if let Err(error) = host.storage(Root::Profiles).write_text(&file_name, &text) {
             host.log().warn(&format!(
                 "MossTank loot profile could not be saved: {error}"
@@ -820,40 +871,84 @@ impl LootProfileStore {
         self.file_memo = Some(FileMemo {
             file_name,
             text,
-            blocks: utl::blocks_as_read(&blocks),
+            blocks,
             written: Some(content),
             prepared: None,
         });
         Ok(())
     }
 
-    /// Works out ahead the text the next save of these rules and salvage
-    /// settings would write over the active profile's file as last read or
-    /// written here (a large profile takes a tick's worth to write); the
-    /// save then writes it as it is. Nothing without such a file.
-    pub fn prepare_save(&mut self, rules: &[LootRule], settings: Option<&LootSettings>) {
+    /// Writes ahead about `bytes` of the text the next save of these rules
+    /// and salvage settings would write over the active profile's file as
+    /// last read or written here (a large profile's is 400 KB, several
+    /// calls' work): true once the save would only write it (or has
+    /// nothing to work out ahead). Rules that change while it is written
+    /// start it again.
+    pub fn prepare_save(
+        &mut self,
+        rules: &[LootRule],
+        settings: Option<&LootSettings>,
+        bytes: usize,
+    ) -> bool {
+        use std::hash::{Hash, Hasher};
+        self.save_checked = false;
+        if self.files_under_nobody() || !self.has_active_profile || self.active_profile_is_partial {
+            return true;
+        }
+        let file_name = self.current_file_name();
+        let Some(memo) = self
+            .file_memo
+            .as_ref()
+            .filter(|memo| memo.file_name == file_name && memo.blocks.is_some())
+        else {
+            // Nothing known of the file: the save works it out.
+            return true;
+        };
         let salvage = settings
             .map(|loot| loot.salvage_combine.clone())
             .unwrap_or_default();
-        let content = content_hash(rules, &salvage);
-        let Some(memo) = self.file_memo.as_mut() else {
-            return;
-        };
-        if memo.written == Some(content)
-            || memo
-                .prepared
-                .as_ref()
-                .is_some_and(|(hash, _)| *hash == content)
-        {
-            return;
+        if self.writing.is_none() {
+            let content = content_hash(rules, &salvage);
+            if memo.written == Some(content)
+                || memo
+                    .prepared
+                    .as_ref()
+                    .is_some_and(|prepared| prepared.content == content)
+            {
+                self.save_checked = true;
+                return true;
+            }
+            self.writing = Some(LootWrite::default());
         }
-        let Some(blocks) = memo.blocks.as_ref() else {
-            return;
+        let Some(writing) = self.writing.as_mut() else {
+            return false;
         };
-        let mut blocks = blocks.clone();
+        if !writing.write.step(rules, bytes, &mut writing.hasher) {
+            return false;
+        }
+        let Some(mut writing) = self.writing.take() else {
+            return false;
+        };
+        salvage.hash(&mut writing.hasher);
+        let written = writing.hasher.finish();
+        if written != content_hash(rules, &salvage) {
+            // They changed while it was written: the next run starts again.
+            return false;
+        }
+        let Some(memo) = self.file_memo.as_mut() else {
+            return false;
+        };
+        let mut blocks = memo.blocks.clone().unwrap_or_default();
         blocks.retain(|block| block.kind != utl::MOSSTANK_RULES_BLOCK_TYPE);
         blocks.push(utl::mosstank_expressions_block(rules));
-        memo.prepared = Some((content, utl::write_parts(rules, &salvage, &blocks)));
+        let as_read = utl::blocks_as_read(&blocks);
+        memo.prepared = Some(Prepared {
+            content: written,
+            text: writing.write.finish(&salvage, &blocks),
+            blocks: as_read,
+        });
+        self.save_checked = true;
+        true
     }
 
     /// Deletes the selected named profile; `By char` comes next.

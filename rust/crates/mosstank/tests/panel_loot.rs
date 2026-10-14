@@ -285,3 +285,38 @@ fn a_settings_switch_keeps_the_active_rules_when_the_loot_file_went_bad() {
             .contains("could not be read")
     );
 }
+
+// The Rust conversion reads a large picked profile a step a tick, the frames
+// waiting for it (register PROF-1); at the end it is what a pick of a small
+// one gives at once.
+#[test]
+fn a_large_loot_profile_picked_loads_a_step_a_tick() {
+    use mosstank_formats::{fixtures, utl};
+    let (mut world, mut plugin) = looter();
+    let p = &mut plugin;
+    let mut profile = utl::try_read(Some(&fixtures::read_vtank("loot-c.utl"))).unwrap();
+    let rules = profile.rules.clone();
+    while profile.rules.len() < 3000 {
+        profile.rules.extend(rules.iter().cloned());
+    }
+    let text = utl::write(&profile);
+    assert!(text.len() > 4 * 64 * 1024, "{}", text.len());
+    world.profiles.insert("mosstank/loot/Big.utl", &text);
+    let loaded = |world: &World| {
+        world
+            .infos()
+            .iter()
+            .any(|line| line.contains("Loaded loot profile Big."))
+    };
+    world.act_text(p, "SelectLootProfile", "Big");
+    assert!(!loaded(&world));
+    let mut ticks = 0;
+    while !loaded(&world) {
+        assert!(ticks < 100, "the profile never finished loading");
+        world.tick(p);
+        ticks += 1;
+    }
+    assert!(ticks > 1, "{ticks}");
+    assert_eq!(world.ui_text(p, "LootProfileName"), "Big");
+    assert_eq!(rows(&mut world, p).len(), profile.rules.len());
+}

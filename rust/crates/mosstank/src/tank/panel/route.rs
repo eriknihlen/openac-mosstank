@@ -143,7 +143,7 @@ pub(super) fn act(cx: &mut TankCx<'_>, name: &str, arg: &Arg) -> bool {
             let core = &mut *cx.core;
             let mut turn = crate::tank::rules::route_turn!(cx.client, core);
             core.navigation.client_pathing_changed(&mut turn);
-            cx.core.save_profile(cx.client);
+            cx.core.request_profile_save();
         }
         "SelectRouteRecall" => {
             let wanted = arg.text();
