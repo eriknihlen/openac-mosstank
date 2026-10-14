@@ -58,10 +58,7 @@ impl LootCorpse {
 }
 
 impl From<LootContainer> for LootCorpse {
-    /// The SDK's container. Whether a description request was answered
-    /// without a description is not on the container: the plugin's client
-    /// view fills it in from the appraisal answers (register LOOT-3), so
-    /// here it reads as not answered.
+    /// The SDK's container, as the client describes it.
     fn from(container: LootContainer) -> Self {
         Self {
             object_id: container.object_id,
@@ -71,7 +68,7 @@ impl From<LootContainer> for LootCorpse {
             long_description: container.long_description,
             is_generated_rare: container.is_generated_rare,
             is_identified: container.is_identified,
-            is_appraisal_answered: false,
+            is_appraisal_answered: container.is_appraisal_answered,
             position: container.position,
         }
     }
@@ -135,10 +132,10 @@ pub trait LootHost: Automation {
 
     // --- The item commands the looter alone uses (`IItemAutomation`).
 
-    /// Whether every pack the character carries has been listed.
-    fn owned_inventory_complete(&mut self) -> bool {
-        false
-    }
+    /// Whether every pack the character carries has been listed and no
+    /// inventory move or request is pending: only then is an item missing
+    /// from the owned items gone.
+    fn owned_inventory_complete(&mut self) -> bool;
 
     /// Salvages items with a tool.
     fn salvage(&mut self, tool_id: u32, item_ids: &[u32]) -> ItemResult;
