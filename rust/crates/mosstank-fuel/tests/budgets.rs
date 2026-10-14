@@ -15,7 +15,8 @@
 //! `MOSSTANK_FUEL_GAMEDB=<path to gameinfodb.ugd>` measures with that game
 //! database (`generated`: the stand-in); otherwise the published one
 //! (openac-gamedata's, 2.1 MB) from a checkout beside this one, else a
-//! generated one with its tables, row counts, value kinds and size. Three cases: the heavy character's session (login
+//! generated one with its tables, row counts, value kinds and size. Three
+//! cases: the heavy character's session (login
 //! burst, every event kind, idle, buffs, a fight, looting, a reload); a
 //! fresh install's download of the game database; and a real player's VTank
 //! profile folder ([`profiles`]: the owner's, read in place, or
