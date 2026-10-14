@@ -13,9 +13,9 @@
 //!
 //! `MOSSTANK_FUEL_WASM=<path>` measures another build of the module.
 //! `MOSSTANK_FUEL_GAMEDB=<path to gameinfodb.ugd>` measures with that game
-//! database; otherwise the published one (openac-gamedata's, 2.1 MB) from a
-//! checkout beside this one, else a generated one with its tables, row
-//! counts and value kinds. Three cases: the heavy character's session (login
+//! database (`generated`: the stand-in); otherwise the published one
+//! (openac-gamedata's, 2.1 MB) from a checkout beside this one, else a
+//! generated one with its tables, row counts, value kinds and size. Three cases: the heavy character's session (login
 //! burst, every event kind, idle, buffs, a fight, looting, a reload); a
 //! fresh install's download of the game database; and a real player's VTank
 //! profile folder ([`profiles`]: the owner's, read in place, or
@@ -433,7 +433,8 @@ fn monster() -> CombatTarget {
 }
 
 /// A game database with the downloaded one's tables, row counts and value
-/// kinds, its names and messages as long, at the built-in version.
+/// kinds, its strings as long in all (the published file is 2,120,593
+/// bytes), at the built-in version.
 fn generated_game_database() -> String {
     struct Table {
         name: &'static str,
@@ -598,7 +599,12 @@ fn generated_game_database() -> String {
                     (_, "DamageString", _) => "2;6;0;1;4;3;5".to_owned(),
                     (_, "SuccessMsg", _) => format!("You make a crafted item number {row}."),
                     (_, "FailMsg", _) => format!("You fail to make a crafted item number {row}."),
-                    (_, _, 's') => format!("Generated {} {row:05}", table.name),
+                    // Short enough that the strings come to the published
+                    // database's (1,511,965 bytes over 54,029, 2026-09-23).
+                    (_, _, 's') => {
+                        let short = &table.name[..table.name.len().min(6)];
+                        format!("Generated {short} {row:05}")
+                    }
                     (_, _, 'd') => format!("{}.25", row + column),
                     _ => format!("{}", (row * 7 + column * 13) % 500),
                 };
@@ -805,6 +811,9 @@ fn spawned(created: &Created) -> Event {
 /// copied into this repository.
 fn game_database() -> String {
     if let Ok(path) = std::env::var("MOSSTANK_FUEL_GAMEDB") {
+        if path == "generated" {
+            return generated_game_database();
+        }
         return std::fs::read_to_string(&path).expect("the game database");
     }
     let published = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
