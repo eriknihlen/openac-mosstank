@@ -58,6 +58,8 @@ struct Pattern {
     text: &'static str,
     plain: OnceLock<Option<PlainShape>>,
     built: OnceLock<DotNetRegex>,
+    lead: OnceLock<&'static str>,
+    required: OnceLock<Vec<String>>,
 }
 
 /// A pattern of the shape `^PREFIX(?<targetname>.*)SUFFIX$` or `^TEXT$`
@@ -140,17 +142,146 @@ fn take_literal_from_end<'t>(text: &'t str, literal: &str) -> Option<&'t str> {
     Some(chars.as_str())
 }
 
+/// The literal text (`.` any character but a line feed) every line an
+/// anchored pattern matches starts with: what follows its `^` up to the
+/// first metacharacter, less a last character a quantifier applies to;
+/// empty for a pattern not anchored at the start or with an alternation.
+fn leading_literal(pattern: &'static str) -> &'static str {
+    const META: [char; 13] = [
+        '\\', '^', '$', '|', '?', '*', '+', '(', ')', '[', ']', '{', '}',
+    ];
+    let Some(inner) = pattern.strip_prefix('^') else {
+        return "";
+    };
+    if inner.contains('|') {
+        return "";
+    }
+    let end = inner.find(META).unwrap_or(inner.len());
+    let lead = &inner[..end];
+    // `x*`, `x?` and `x{n,}` make their `x` no part of every match.
+    match inner[end..].chars().next() {
+        Some('*' | '?' | '{') => {
+            let cut = lead.char_indices().last().map_or(0, |(index, _)| index);
+            &lead[..cut]
+        }
+        _ => lead,
+    }
+}
+
+/// The runs of literal text every line the pattern matches contains: the
+/// literal characters outside its groups and classes, split where a
+/// wildcard, group, class, anchor or optional character stands; none for a
+/// pattern with an alternation outside a group.
+fn required_literals(pattern: &str) -> Vec<String> {
+    let chars: Vec<char> = pattern.chars().collect();
+    let mut runs = Vec::new();
+    let mut run = String::new();
+    let mut index = 0;
+    let end_run = |run: &mut String, runs: &mut Vec<String>| {
+        if !run.is_empty() {
+            runs.push(std::mem::take(run));
+        }
+    };
+    while let Some(&c) = chars.get(index) {
+        // One atom: a literal character (escaped or not), or something
+        // that is not one (skipped whole).
+        let literal = match c {
+            '|' => return Vec::new(),
+            '(' | '[' => {
+                index = skip_bracketed(&chars, index);
+                None
+            }
+            '\\' => {
+                let escaped = chars.get(index + 1).copied();
+                index += 2;
+                escaped.filter(|e| !e.is_alphanumeric())
+            }
+            '{' => {
+                index = chars[index..]
+                    .iter()
+                    .position(|c| *c == '}')
+                    .map_or(chars.len(), |close| index + close + 1);
+                None
+            }
+            '.' | '^' | '$' | '*' | '+' | '?' | '}' | ')' | ']' => {
+                index += 1;
+                None
+            }
+            c => {
+                index += 1;
+                Some(c)
+            }
+        };
+        // A quantifier after the atom: `*`, `?` and `{` may leave it out,
+        // `+` keeps it but may repeat it.
+        let quantifier = chars.get(index).copied();
+        match (literal, quantifier) {
+            (Some(c), Some('+')) => {
+                run.push(c);
+                end_run(&mut run, &mut runs);
+            }
+            (Some(_), Some('*' | '?' | '{')) | (None, _) => end_run(&mut run, &mut runs),
+            (Some(c), _) => run.push(c),
+        }
+    }
+    end_run(&mut run, &mut runs);
+    runs
+}
+
+/// The index past the group or class that opens at `start`.
+fn skip_bracketed(chars: &[char], start: usize) -> usize {
+    let mut depth = 0usize;
+    let mut in_class = false;
+    let mut index = start;
+    while let Some(&c) = chars.get(index) {
+        match c {
+            '\\' => index += 1,
+            '[' if !in_class => in_class = true,
+            ']' if in_class => {
+                in_class = false;
+                if depth == 0 {
+                    return index + 1;
+                }
+            }
+            '(' if !in_class => depth += 1,
+            ')' if !in_class => {
+                depth = depth.saturating_sub(1);
+                if depth == 0 {
+                    return index + 1;
+                }
+            }
+            _ => {}
+        }
+        index += 1;
+    }
+    chars.len()
+}
+
 impl Pattern {
     const fn new(text: &'static str) -> Self {
         Self {
             text,
             plain: OnceLock::new(),
             built: OnceLock::new(),
+            lead: OnceLock::new(),
+            required: OnceLock::new(),
         }
+    }
+
+    /// The literal runs every line the pattern matches contains
+    /// ([`required_literals`]).
+    fn required(&self) -> &[String] {
+        self.required.get_or_init(|| required_literals(self.text))
     }
 
     fn plain(&self) -> Option<PlainShape> {
         *self.plain.get_or_init(|| PlainShape::of(self.text))
+    }
+
+    /// The literal start every line the pattern matches has
+    /// ([`leading_literal`]).
+    fn lead(&self) -> &'static str {
+        self.lead.get_or_init(|| leading_literal(self.text))
     }
 
     fn get(&self) -> &DotNetRegex {
@@ -169,6 +300,17 @@ impl Pattern {
             return shape
                 .read(text)
                 .map(|target| (String::new(), target.to_owned()));
+        }
+        // A line that does not start as every match does, or lacks a piece
+        // of text every match has, is no match: the regex is not built
+        // (some millions of instructions) for it.
+        take_literal(text, self.lead())?;
+        if !self
+            .required()
+            .iter()
+            .all(|run| text.contains(run.as_str()))
+        {
+            return None;
         }
         let Ok(Some(found)) = self.get().find(text) else {
             return None;
@@ -415,6 +557,56 @@ mod tests {
             }
         }
         lines
+    }
+
+    // A line the leading literal turns away is one the regex does not
+    // match: the check only spares building the regex.
+    #[test]
+    fn a_line_turned_away_by_its_text_is_no_match() {
+        let lines = lines();
+        let mut leads = 0;
+        for pattern in all_patterns().filter(|pattern| pattern.plain().is_none()) {
+            if !pattern.lead().is_empty() {
+                leads += 1;
+            }
+            for line in &lines {
+                let matched = matches!(pattern.get().find(line), Ok(Some(_)));
+                if matched {
+                    assert!(
+                        take_literal(line, pattern.lead()).is_some(),
+                        "{:?} turned away {line:?}",
+                        pattern.text
+                    );
+                    for run in pattern.required() {
+                        assert!(
+                            line.contains(run.as_str()),
+                            "{:?} turned away {line:?} for {run:?}",
+                            pattern.text
+                        );
+                    }
+                }
+            }
+        }
+        // Every built pattern but the critical hit's, the damage report and
+        // the unanchored spell damage.
+        assert_eq!(leads, 13);
+        assert_eq!(leading_literal("^You .* due to"), "You ");
+        assert_eq!(
+            leading_literal("^Your spell fizzled.$"),
+            "Your spell fizzled."
+        );
+        assert_eq!(leading_literal("^(Critical hit! )?You"), "");
+        assert_eq!(leading_literal("^ab?c"), "a");
+        assert_eq!(leading_literal("(?:You .* for )"), "");
+        assert_eq!(leading_literal("^a|b"), "");
+        assert_eq!(
+            required_literals(r"^(Critical hit\!)?[ ]*You .* for .* point(s)? of .*\!$"),
+            ["You ", " for ", " point", " of ", "!"]
+        );
+        assert_eq!(required_literals("^ab?c+d{2}e$"), ["a", "c", "e"]);
+        assert_eq!(required_literals(r"x\dy\.z"), ["x", "y.z"]);
+        assert!(required_literals("^a|b").is_empty());
+        assert!(required_literals("(?:You .* for )(?<points>[0-9]+)").is_empty());
     }
 
     // A pattern read by hand answers every line as the regex does.

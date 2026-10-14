@@ -197,6 +197,15 @@ pub(crate) struct PokeSnapshot {
     contents_ready: bool,
 }
 
+/// A command kept for after the profile load under way (register PROF-1).
+#[derive(Debug, Clone)]
+pub(crate) enum HeldCommand {
+    /// A line typed under `/vt`.
+    Vtank(String),
+    /// A line typed under `/ub`.
+    Ub(String),
+}
+
 /// Everything the shell owns but the scheduler and the meta engine.
 #[allow(missing_debug_implementations, clippy::struct_excessive_bools)]
 pub struct Core {
@@ -288,6 +297,19 @@ pub struct Core {
     pub(crate) selection_before_pass: Option<u32>,
     pub(crate) fast_cast: FastCast,
     pub(crate) applying_profile_options: bool,
+    /// An option changed in this call: the settings profile is saved once,
+    /// before anything else reads or switches it and at the end of the call
+    /// (register STORE-7).
+    pub(crate) settings_save_due: bool,
+    /// The calls a due save has waited for one that ran no pass.
+    pub(crate) settings_save_waits: u8,
+    /// The scheduler's pass count when the call began.
+    pub(crate) passes_at_call_start: i64,
+    /// The last frame ran the macro's pass.
+    pub(crate) last_frame_ran_pass: bool,
+    /// The commands that came while the character's profile set loaded,
+    /// in order (register PROF-1).
+    pub(crate) held_commands: std::collections::VecDeque<HeldCommand>,
     pub(crate) initialized: bool,
     pub(crate) autostart_applied_for_current_session: bool,
     pub(crate) command_portal_state: bool,
@@ -797,6 +819,11 @@ impl Tank {
             selection_before_pass: None,
             fast_cast: FastCast::default(),
             applying_profile_options: false,
+            settings_save_due: false,
+            settings_save_waits: 0,
+            passes_at_call_start: 0,
+            last_frame_ran_pass: false,
+            held_commands: std::collections::VecDeque::new(),
             initialized: false,
             autostart_applied_for_current_session: false,
             command_portal_state: false,
@@ -1051,26 +1078,64 @@ impl Tank {
         }
     }
 
-    /// One line typed under `/vt` (`ExecuteVtankCommand`).
+    /// One line typed under `/vt` (`ExecuteVtankCommand`). One that comes
+    /// while the character's profile set loads waits for the load
+    /// ([`Self::run_held_commands`], register PROF-1).
     pub fn execute_vtank_command(&mut self, client: &mut dyn TankClient, arguments: &str) {
+        if self.hold_command(HeldCommand::Vtank(arguments.to_owned())) {
+            return;
+        }
         self.begin_call(client);
         let (mut cx, _) = self.cx(client);
-        cx.finish_staged_load();
         cx.refresh_live_ub_rows(true);
         commands::execute_vtank(&mut cx, arguments);
         cx.core.write_out(cx.client);
         self.end_call(client);
     }
 
-    /// One line typed under `/ub` (`ExecuteUbCommand`).
+    /// One line typed under `/ub` (`ExecuteUbCommand`); as
+    /// [`Self::execute_vtank_command`], it waits for a load under way.
     pub fn execute_ub_command(&mut self, client: &mut dyn TankClient, arguments: &str) {
+        if self.hold_command(HeldCommand::Ub(arguments.to_owned())) {
+            return;
+        }
         self.begin_call(client);
         let (mut cx, _) = self.cx(client);
-        cx.finish_staged_load();
         cx.refresh_live_ub_rows(true);
         commands::execute_ub(&mut cx, arguments);
         cx.core.write_out(cx.client);
         self.end_call(client);
+    }
+
+    /// Keeps `command` for after the profile load under way (or behind the
+    /// commands already kept): whether it was kept.
+    fn hold_command(&mut self, command: HeldCommand) -> bool {
+        if self.core.staged_load.is_none() && self.core.held_commands.is_empty() {
+            return false;
+        }
+        self.core.held_commands.push_back(command);
+        true
+    }
+
+    /// The commands that came while the character's profile set loaded,
+    /// run in the order they came once it is whole (register PROF-1).
+    /// Whether any ran.
+    pub fn run_held_commands(&mut self, client: &mut dyn TankClient) -> bool {
+        if self.core.staged_load.is_some() || self.core.held_commands.is_empty() {
+            return false;
+        }
+        while let Some(command) = self.core.held_commands.pop_front() {
+            self.begin_call(client);
+            let (mut cx, _) = self.cx(client);
+            cx.refresh_live_ub_rows(true);
+            match &command {
+                HeldCommand::Vtank(arguments) => commands::execute_vtank(&mut cx, arguments),
+                HeldCommand::Ub(arguments) => commands::execute_ub(&mut cx, arguments),
+            }
+            cx.core.write_out(cx.client);
+            self.end_call(client);
+        }
+        true
     }
 
     /// One of the caches a large spellbook makes costly built ahead of the
@@ -1199,6 +1264,17 @@ impl Tank {
     /// The plugin is stopping (`MossTankPanel.Disable` and `Dispose`, the
     /// parts the shell has).
     pub fn disable(&mut self, client: &mut dyn TankClient) {
+        // Commands kept for a load under way run first, on the whole set
+        // (register PROF-1).
+        if !self.core.held_commands.is_empty() {
+            self.begin_call(client);
+            {
+                let (mut cx, _) = self.cx(client);
+                cx.finish_staged_load();
+            }
+            self.end_call(client);
+            self.run_held_commands(client);
+        }
         self.begin_call(client);
         let (mut cx, _) = self.cx(client);
         // A profile load under way is finished: the plugin stops on a whole
@@ -1242,6 +1318,9 @@ impl Tank {
             .expressions()
             .destroy_auxiliary_views(cx.client.meta());
         cx.meta.expressions().clear_session();
+        // A save still due is made before the plugin stops (register
+        // STORE-7).
+        cx.core.flush_settings_save(cx.client);
         // A key the macro held must not outlive the plugin that pressed it.
         cx.meta
             .expressions()
@@ -1461,6 +1540,7 @@ impl Tank {
     /// settings say.
     pub(crate) fn begin_call(&mut self, client: &mut dyn TankClient) {
         self.core.clock.set(&client.clock());
+        self.core.passes_at_call_start = self.scheduler.pass_count();
         self.core.scheduler_running = self.scheduler.is_running();
         // The live UB rows read what their owners hold now.
         let (mut cx, _) = self.cx(client);
@@ -1479,6 +1559,13 @@ impl Tank {
             let (mut cx, _) = self.cx(client);
             cx.refresh_item_editors();
         }
+        // The settings profile the call's option changes left due is
+        // written once, when its side-car's loot rules are ready (register
+        // STORE-7).
+        // The tick's other calls (the autostart) count the frame's pass.
+        let pass_ran = self.scheduler.pass_count() != self.core.passes_at_call_start
+            || self.core.last_frame_ran_pass;
+        self.core.settle_settings_save(client, pass_ran);
         self.ub.flush(client);
         // A write to the profile folder (the plugin's own, the UB settings
         // just flushed among them) is shown by the pickers (register UI-4).

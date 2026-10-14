@@ -19,6 +19,7 @@ use mosstank_settings::monster::{
 use openac_plugin_compat::json::{self, JsonValue};
 use openac_plugin_compat::number::{self, NumberStyles};
 
+use crate::sidecar_rules;
 use crate::stj::{self, JsonError, Object};
 
 /// The non-blank values, once each, in ordinal order (`Sorted`).
@@ -296,6 +297,33 @@ impl LootRuleDocument {
             ),
             has_imported_requirements: rule.has_imported_requirements,
         }
+    }
+
+    /// [`Self::to_rule`], the document's texts moved into the rule.
+    #[must_use]
+    pub fn into_rule(self) -> LootRule {
+        let name = self
+            .name
+            .as_deref()
+            .filter(|name| !casing::is_white_space_only(name))
+            .map_or_else(|| "Rule".to_owned(), |name| name.trim().to_owned());
+        let mut rule = LootRule::named(&name, self.expression.as_deref().unwrap_or_default());
+        rule.action = self.action;
+        rule.keep_count = self.keep_count.clamp(0, 100_000);
+        rule.priority = self.priority.clamp(-1000, 1000);
+        rule.custom_expression = self.custom_expression.unwrap_or_default();
+        rule.has_imported_requirements = self.has_imported_requirements;
+        rule.vtank_requirements = self
+            .requirements
+            .into_iter()
+            .flatten()
+            .flatten()
+            .map(|(kind, payload)| VtankLootRequirement {
+                kind,
+                payload: payload.unwrap_or_default(),
+            })
+            .collect();
+        rule
     }
 
     /// The rule again, its numbers held in range.
@@ -609,6 +637,10 @@ pub struct ItemEnchantRowDocument {
     pub spell_name: Option<String>,
 }
 
+/// What stands in the document for the loot rules until they are written
+/// into its place ([`SideCarDocument::write`]).
+const RULES_STAND_IN: &str = "MossTankInventoryLootRulesGoHere";
+
 /// The side-car (`SideCarDocument`), every property in the C#'s order.
 #[derive(Debug, Clone, PartialEq)]
 #[allow(missing_docs, clippy::struct_excessive_bools)]
@@ -697,6 +729,57 @@ impl SideCarDocument {
         no_buff_item_names: &OrdinalStringSet,
         log_channels: &IgnoreCaseStringSet,
     ) -> Self {
+        Self::capture_with(settings, no_buff_item_names, log_channels, true)
+    }
+
+    /// [`Self::capture`] and [`Self::write`] of it, the loot rules written
+    /// straight from the settings rather than copied into the document
+    /// first (a large profile has thousands).
+    ///
+    /// # Errors
+    /// As [`Self::write`].
+    pub fn capture_and_write(
+        settings: &AllSettings,
+        no_buff_item_names: &OrdinalStringSet,
+        log_channels: &IgnoreCaseStringSet,
+    ) -> Result<String, String> {
+        let document = Self::capture_with(settings, no_buff_item_names, log_channels, false);
+        match document
+            .write_with(|out| sidecar_rules::write_live(out, &settings.inventory.loot.rules))?
+        {
+            Some(text) => Ok(text),
+            None => Self::capture(settings, no_buff_item_names, log_channels).write(),
+        }
+    }
+
+    /// [`Self::capture_and_write`] with the loot rules' text kept in `kept`
+    /// with what it was written from: rules as they were at the last write
+    /// (or as [`KeptRules::prepare`] wrote them ahead) are not written
+    /// again; `checked`: [`KeptRules::take_check`]'s answer.
+    ///
+    /// # Errors
+    /// As [`Self::write`].
+    pub fn capture_and_write_kept(
+        settings: &AllSettings,
+        no_buff_item_names: &OrdinalStringSet,
+        log_channels: &IgnoreCaseStringSet,
+        kept: &mut KeptRules,
+        checked: bool,
+    ) -> Result<String, String> {
+        let rules = kept.text(&settings.inventory.loot.rules, checked);
+        let document = Self::capture_with(settings, no_buff_item_names, log_channels, false);
+        match document.write_with(|out| out.push_str(rules))? {
+            Some(text) => Ok(text),
+            None => Self::capture(settings, no_buff_item_names, log_channels).write(),
+        }
+    }
+
+    fn capture_with(
+        settings: &AllSettings,
+        no_buff_item_names: &OrdinalStringSet,
+        log_channels: &IgnoreCaseStringSet,
+        with_rules: bool,
+    ) -> Self {
         let combat = &settings.combat;
         let buffs = &settings.buffs;
         let inventory = &settings.inventory;
@@ -777,14 +860,14 @@ impl SideCarDocument {
             inventory_loot_classifier_id: Some(inventory.loot.external_classifier_id.clone()),
             inventory_loot_scan_interval_seconds: inventory.loot.scan_interval_seconds,
             inventory_loot_walk_to_own_rare_corpses: inventory.loot.walk_to_own_rare_corpses,
-            inventory_loot_rules: Some(
+            inventory_loot_rules: with_rules.then(|| {
                 inventory
                     .loot
                     .rules
                     .iter()
                     .map(|rule| Some(LootRuleDocument::from_rule(rule)))
-                    .collect(),
-            ),
+                    .collect()
+            }),
             navigation_client_pathing: Some(
                 client_pathing_name(settings.navigation.client_pathing).to_owned(),
             ),
@@ -970,6 +1053,14 @@ impl SideCarDocument {
     /// The document as the C# writes it.
     #[must_use]
     pub fn to_json(&self) -> JsonValue {
+        self.to_json_with(items_json(
+            self.inventory_loot_rules.as_ref(),
+            LootRuleDocument::to_json,
+        ))
+    }
+
+    /// [`Self::to_json`] with `loot_rules` as `InventoryLootRules`.
+    fn to_json_with(&self, loot_rules: JsonValue) -> JsonValue {
         let mut members: Vec<(String, JsonValue)> =
             vec![
                 ("ShowNavLines".into(), JsonValue::Bool(self.show_nav_lines)),
@@ -1109,13 +1200,7 @@ impl SideCarDocument {
                     "InventoryLootWalkToOwnRareCorpses".into(),
                     JsonValue::Bool(self.inventory_loot_walk_to_own_rare_corpses),
                 ),
-                (
-                    "InventoryLootRules".into(),
-                    items_json(
-                        self.inventory_loot_rules.as_ref(),
-                        LootRuleDocument::to_json,
-                    ),
-                ),
+                ("InventoryLootRules".into(), loot_rules),
                 (
                     "NavigationClientPathing".into(),
                     stj::string_or_null(self.navigation_client_pathing.as_deref()),
@@ -1137,7 +1222,30 @@ impl SideCarDocument {
     /// A number JSON cannot hold (the attack bar set to NaN): .NET's
     /// message.
     pub fn write(&self) -> Result<String, String> {
-        stj::try_write(&self.to_json())
+        let rules = self.inventory_loot_rules.as_ref();
+        match self.write_with(|out| sidecar_rules::write(out, rules))? {
+            Some(text) => Ok(text),
+            None => stj::try_write(&self.to_json()),
+        }
+    }
+
+    /// The document with its rules written by `write_rules`: the rest
+    /// through the value tree, a stand-in where the rules go, the rules
+    /// written straight into that place (`sidecar_rules`: thousands of them
+    /// with a large profile). `None` should the stand-in not be found.
+    fn write_with(&self, write_rules: impl FnOnce(&mut String)) -> Result<Option<String>, String> {
+        let text =
+            stj::try_write(&self.to_json_with(JsonValue::String(RULES_STAND_IN.to_owned())))?;
+        let stand_in = format!("{}\"{RULES_STAND_IN}\"", sidecar_rules::MEMBER);
+        let Some(at) = text.rfind(&stand_in) else {
+            return Ok(None);
+        };
+        let value = at + sidecar_rules::MEMBER.len();
+        let mut out = String::with_capacity(text.len() + 64 * 1024);
+        out.push_str(&text[..value]);
+        write_rules(&mut out);
+        out.push_str(&text[value + RULES_STAND_IN.len() + 2..]);
+        Ok(Some(out))
     }
 
     /// Reads a side-car; `None` for a document that is JSON `null`.
@@ -1145,11 +1253,51 @@ impl SideCarDocument {
     /// # Errors
     /// Not JSON, or a value of the wrong kind (`JsonException`).
     pub fn read(text: &str) -> Result<Option<Self>, JsonError> {
+        if let Some(document) = Self::read_quickly(text) {
+            return Ok(Some(document));
+        }
+        Self::read_through_values(text)
+    }
+
+    /// [`Self::read`] through the JSON value tree, whatever the layout.
+    fn read_through_values(text: &str) -> Result<Option<Self>, JsonError> {
         let document = json::parse(text).map_err(|error| error.to_string())?;
         let Some(object) = Object::of(&document, "$", "SideCarDocument")? else {
             return Ok(None);
         };
         Self::read_object(&object).map(Some)
+    }
+
+    /// [`Self::read`] of a document whose rules are as [`Self::write`]
+    /// writes them: the rules read by hand (`sidecar_rules`), the rest
+    /// through the value tree with `null` in their place. `None` for any
+    /// other document, which is read the usual way.
+    fn read_quickly(text: &str) -> Option<Self> {
+        let at = text.find(sidecar_rules::MEMBER)? + sidecar_rules::MEMBER.len();
+        let (rules, end) = sidecar_rules::read(text, at)?;
+        let mut rest = String::with_capacity(text.len() - (end - at) + 4);
+        rest.push_str(&text[..at]);
+        rest.push_str("null");
+        rest.push_str(&text[end..]);
+        let document = json::parse(&rest).ok()?;
+        let JsonValue::Object(members) = &document else {
+            return None;
+        };
+        // The rules' member, once (a name matched ignoring case, as the
+        // reader matches names), and the one just read.
+        let mut named = members
+            .iter()
+            .filter(|(name, _)| name.eq_ignore_ascii_case("InventoryLootRules"));
+        if !matches!(
+            (named.next(), named.next()),
+            (Some((_, JsonValue::Null)), None)
+        ) {
+            return None;
+        }
+        let object = Object::of(&document, "$", "SideCarDocument").ok()??;
+        let mut read = Self::read_object(&object).ok()?;
+        read.inventory_loot_rules = rules;
+        Some(read)
     }
 
     #[allow(clippy::too_many_lines)]
@@ -1256,5 +1404,507 @@ impl SideCarDocument {
             navigation_jump_attempts: o.int("NavigationJumpAttempts", 3)?,
             navigation_walk_legs_with_client: o.optional_bool("NavigationWalkLegsWithClient")?,
         })
+    }
+}
+
+/// A side-car read a run of its loot rules at a time (a large profile's
+/// side-car is a 1.4 MB document): the rules as [`SideCarDocument::write`]
+/// writes them are read by hand and made loot rules as they are read, the
+/// rest of the document at the end; a side-car laid out any other way is
+/// read the usual way at the end.
+#[derive(Debug, Clone)]
+pub struct SideCarRead {
+    text: String,
+    rules: Option<sidecar_rules::RulesRead>,
+    end: Option<usize>,
+}
+
+/// What a [`SideCarRead`] read.
+#[derive(Debug)]
+pub enum SideCarOutcome {
+    /// The document, and the loot rules to take in after applying it when
+    /// they were read by hand (the document then has none).
+    Read(Box<SideCarDocument>, Option<Vec<LootRule>>),
+    /// The document is JSON `null`.
+    Null,
+    /// The document will not read: why, and its text.
+    Failed(JsonError, String),
+}
+
+impl SideCarRead {
+    /// A read of `text`.
+    #[must_use]
+    pub fn new(text: String) -> Self {
+        let rules = text
+            .find(sidecar_rules::MEMBER)
+            .map(|at| sidecar_rules::RulesRead::new(at + sidecar_rules::MEMBER.len()));
+        Self {
+            text,
+            rules,
+            end: None,
+        }
+    }
+
+    /// Reads on through at least `bytes` more of the rules; whether they
+    /// are all read (or will be read at the end), and the bytes read.
+    pub fn step(&mut self, bytes: usize) -> (bool, usize) {
+        let Some(rules) = self.rules.as_mut() else {
+            return (true, 0);
+        };
+        if self.end.is_some() {
+            return (true, 0);
+        }
+        let before = rules.position();
+        let step = rules.step(&self.text, bytes);
+        let read = rules.position() - before;
+        match step {
+            sidecar_rules::RulesStep::More => (false, read),
+            sidecar_rules::RulesStep::Done(end) => {
+                self.end = Some(end);
+                (true, read)
+            }
+            sidecar_rules::RulesStep::GiveUp => {
+                self.rules = None;
+                (true, read)
+            }
+        }
+    }
+
+    /// The document's length, in bytes.
+    #[must_use]
+    pub fn byte_len(&self) -> usize {
+        self.text.len()
+    }
+
+    /// The read's outcome, the rules read to the end first.
+    #[must_use]
+    pub fn finish(mut self) -> SideCarOutcome {
+        while !self.step(usize::MAX).0 {}
+        if let (Some(mut rules), Some(end)) = (self.rules.take(), self.end) {
+            let at = rules.position();
+            let start = self
+                .text
+                .find(sidecar_rules::MEMBER)
+                .map(|at| at + sidecar_rules::MEMBER.len());
+            if let Some(start) = start
+                && at == end
+                && let Some(document) = Self::rest(&self.text, start, end)
+            {
+                return SideCarOutcome::Read(
+                    Box::new(document),
+                    Some(rules.take_rules().unwrap_or_default()),
+                );
+            }
+        }
+        match SideCarDocument::read_through_values(&self.text) {
+            Ok(Some(document)) => SideCarOutcome::Read(Box::new(document), None),
+            Ok(None) => SideCarOutcome::Null,
+            Err(error) => SideCarOutcome::Failed(error, self.text),
+        }
+    }
+
+    /// The document with `null` for the rules between `start` and `end`,
+    /// read through the value tree; `None` unless it reads and names the
+    /// rules once.
+    fn rest(text: &str, start: usize, end: usize) -> Option<SideCarDocument> {
+        let mut rest = String::with_capacity(text.len() - (end - start) + 4);
+        rest.push_str(&text[..start]);
+        rest.push_str("null");
+        rest.push_str(&text[end..]);
+        let document = json::parse(&rest).ok()?;
+        let JsonValue::Object(members) = &document else {
+            return None;
+        };
+        // The rules' member once (a name matched ignoring case, as the
+        // reader matches names), and the one read by hand.
+        let mut named = members
+            .iter()
+            .filter(|(name, _)| name.eq_ignore_ascii_case("InventoryLootRules"));
+        if !matches!(
+            (named.next(), named.next()),
+            (Some((_, JsonValue::Null)), None)
+        ) {
+            return None;
+        }
+        let object = Object::of(&document, "$", "SideCarDocument").ok()??;
+        SideCarDocument::read_object(&object).ok()
+    }
+}
+
+/// The loot rules' text in the side-car, kept with what it was written
+/// from: a large profile's is 1.4 MB, some 36 M instructions to write, so
+/// a save that finds it kept only copies it, and [`Self::prepare`] writes
+/// it ahead a run at a time.
+#[derive(Debug, Clone, Default)]
+pub struct KeptRules {
+    kept: Option<(u64, String)>,
+    writing: Option<sidecar_rules::LiveWrite>,
+    /// [`Self::prepare`] found the kept text written from the rules it was
+    /// given, and nothing has used that answer yet.
+    checked: bool,
+}
+
+impl KeptRules {
+    /// The text for `rules`: the kept one when written from them, else
+    /// written now and kept. `checked`: the caller has
+    /// [`Self::take_check`]'s word that the kept text is the rules' (the
+    /// rules unchanged since), so they are not looked at again.
+    pub fn text(&mut self, rules: &[LootRule], checked: bool) -> &str {
+        if !(checked && self.kept.is_some()) {
+            let hash = crate::fast_hash::hash(rules);
+            if self.kept.as_ref().is_none_or(|(kept, _)| *kept != hash) {
+                let mut text = String::new();
+                sidecar_rules::write_live(&mut text, rules);
+                self.kept = Some((hash, text));
+                self.writing = None;
+            }
+        }
+        self.kept.as_ref().map_or("", |(_, text)| text.as_str())
+    }
+
+    /// Whether the last [`Self::prepare`] answered true and no one has
+    /// taken that answer since; taking it clears it.
+    pub fn take_check(&mut self) -> bool {
+        std::mem::take(&mut self.checked)
+    }
+
+    /// Writes the text for `rules` ahead, about `bytes` of it: true once it
+    /// is kept, and the next save copies it. Rules that change while it is
+    /// written start it again.
+    pub fn prepare(&mut self, rules: &[LootRule], bytes: usize) -> bool {
+        self.checked = false;
+        // The whole set is hashed when a preparation starts (the text kept
+        // may be theirs already) and when it ends; the runs between hash
+        // only what they write.
+        if self.writing.is_none() {
+            let hash = crate::fast_hash::hash(rules);
+            if self.kept.as_ref().is_some_and(|(kept, _)| *kept == hash) {
+                self.checked = true;
+                return true;
+            }
+            self.writing = Some(sidecar_rules::LiveWrite::default());
+        }
+        let Some(write) = self.writing.as_mut() else {
+            return false;
+        };
+        if !write.step(rules, bytes) {
+            return false;
+        }
+        let Some(write) = self.writing.take() else {
+            return false;
+        };
+        let (written, text) = write.finish();
+        if written != crate::fast_hash::hash(rules) {
+            // They changed while it was written: the next run starts again.
+            return false;
+        }
+        self.kept = Some((written, text));
+        self.checked = true;
+        true
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use mosstank_formats::utl::{LootRule, VtankLootRequirement};
+    use mosstank_settings::model::AllSettings;
+
+    use super::*;
+
+    /// Loot rules with every shape the side-car writes: VTank requirement
+    /// records, expressions, names that need escaping (quotes, HTML
+    /// characters, line breaks, controls, accents, a character beyond the
+    /// basic plane), a missing payload and no requirements at all.
+    fn awkward_rules() -> Vec<LootRule> {
+        let mut rules = Vec::new();
+        let mut plain = LootRule::named("Peas", "ObjectClass = 5 && Value > 100");
+        plain.priority = -3;
+        rules.push(plain);
+        let mut odd = LootRule::named("\"Odd\" <name> & 'more' + `tick`\\", "x\ny");
+        odd.custom_expression = "tab\there\r\nbreak\u{1}\u{7f}é€😀".to_owned();
+        odd.action = LootAction::KeepUpTo;
+        odd.keep_count = 2_147_483_647;
+        rules.push(odd);
+        let mut imported = LootRule::named("Imported", "*");
+        imported.has_imported_requirements = true;
+        imported.vtank_requirements = vec![
+            VtankLootRequirement {
+                kind: 1,
+                payload: "Aetheria\r\n1\r\n".to_owned(),
+            },
+            VtankLootRequirement {
+                kind: -2,
+                payload: String::new(),
+            },
+        ];
+        rules.push(imported);
+        let mut empty = LootRule::named("Empty", "*");
+        empty.has_imported_requirements = true;
+        rules.push(empty);
+        rules
+    }
+
+    /// The owner's own 1,700-rule loot profile when it is on this machine,
+    /// read in place (the fuel gate measures with it).
+    fn owner_rules() -> Option<Vec<LootRule>> {
+        let local = std::env::var_os("LOCALAPPDATA")?;
+        let path = std::path::Path::new(&local).join("openac-rust/vtank/mosstank/loot/Loot.utl");
+        let text = String::from_utf8_lossy(&std::fs::read(path).ok()?).into_owned();
+        mosstank_formats::utl::try_read(Some(&text))
+            .ok()
+            .map(|profile| profile.rules)
+    }
+
+    fn documents() -> Vec<SideCarDocument> {
+        let mut sets = vec![
+            awkward_rules(),
+            Vec::new(),
+            mosstank_formats::utl::try_read(Some(&mosstank_formats::fixtures::read_vtank(
+                "loot-c.utl",
+            )))
+            .unwrap()
+            .rules,
+        ];
+        sets.extend(owner_rules());
+        let mut documents: Vec<SideCarDocument> = sets
+            .into_iter()
+            .map(|rules| {
+                let mut settings = AllSettings::default();
+                settings.inventory.loot.rules = rules;
+                SideCarDocument::capture(
+                    &settings,
+                    &OrdinalStringSet::new(),
+                    &IgnoreCaseStringSet::new(),
+                )
+            })
+            .collect();
+        let mut nulls = documents[0].clone();
+        if let Some(rules) = nulls.inventory_loot_rules.as_mut() {
+            rules.insert(1, None);
+            if let Some(Some(rule)) = rules.get_mut(0) {
+                rule.name = None;
+                rule.requirements = Some(vec![None, Some((5, None))]);
+            }
+            if let Some(Some(rule)) = rules.get_mut(2) {
+                rule.requirements = None;
+            }
+        }
+        documents.push(nulls);
+        let mut none = documents[0].clone();
+        none.inventory_loot_rules = None;
+        documents.push(none);
+        documents
+    }
+
+    // The side-car's text, rules written by hand, is the document writer's
+    // to the byte.
+    #[test]
+    fn the_side_car_is_written_as_the_document_writer_writes_it() {
+        for document in documents() {
+            assert_eq!(document.write(), stj::try_write(&document.to_json()));
+        }
+    }
+
+    // A side-car as the writer writes it reads by hand as it reads through
+    // the value tree; any other layout of the same document reads through
+    // the tree.
+    #[test]
+    fn the_side_car_reads_as_the_document_reader_reads_it() {
+        for document in documents() {
+            let text = document.write().unwrap();
+            let quick = SideCarDocument::read_quickly(&text);
+            assert!(quick.is_some(), "the writer's own text reads by hand");
+            assert_eq!(quick, SideCarDocument::read_through_values(&text).unwrap());
+            assert_eq!(
+                SideCarDocument::read(&text).unwrap(),
+                Some(document.clone())
+            );
+            let compact = json::system_text_json::to_string(
+                &document.to_json(),
+                &json::system_text_json::Options::COMPACT,
+            )
+            .unwrap();
+            assert_eq!(SideCarDocument::read_quickly(&compact), None);
+            assert_eq!(
+                SideCarDocument::read(&compact).unwrap(),
+                Some(document.clone())
+            );
+            // An escape the writer would not write, a number it would not
+            // write, a member twice: the value tree decides.
+            let escaped = format!("\"Name\": \"{}u0050eas\"", char::from(92u8));
+            for (from, to) in [
+                ("\"Name\": \"Peas\"", escaped.as_str()),
+                ("\"Priority\": -3", "\"Priority\": -3.0"),
+                (
+                    "\r\n  \"Version\":",
+                    "\r\n  \"inventorylootrules\": null,\r\n  \"Version\":",
+                ),
+            ] {
+                if !text.contains(from) {
+                    continue;
+                }
+                let changed = text.replacen(from, to, 1);
+                assert_eq!(SideCarDocument::read_quickly(&changed), None, "{to}");
+                assert_eq!(
+                    SideCarDocument::read(&changed),
+                    SideCarDocument::read_through_values(&changed),
+                    "{to}"
+                );
+            }
+        }
+    }
+
+    // Captured and written in one go, the rules straight from the
+    // settings, a side-car is what capturing it and writing it gives.
+    #[test]
+    fn capturing_and_writing_in_one_go_is_capturing_then_writing() {
+        let mut sets = vec![awkward_rules(), Vec::new()];
+        sets.extend(owner_rules());
+        for rules in sets {
+            let mut settings = AllSettings::default();
+            settings.inventory.loot.rules = rules;
+            let names = OrdinalStringSet::new();
+            let channels = IgnoreCaseStringSet::new();
+            assert_eq!(
+                SideCarDocument::capture_and_write(&settings, &names, &channels),
+                stj::try_write(&SideCarDocument::capture(&settings, &names, &channels).to_json())
+            );
+        }
+    }
+
+    // Read a run of rules at a time, a side-car gives the document and the
+    // loot rules its `Apply` takes in from reading it whole; laid out any
+    // other way it is read whole.
+    #[test]
+    fn a_side_car_read_a_run_at_a_time_is_the_whole_read() {
+        for document in documents() {
+            let text = document.write().unwrap();
+            let whole = SideCarDocument::read_through_values(&text)
+                .unwrap()
+                .unwrap();
+            let rules_of = |document: &SideCarDocument| -> Vec<LootRule> {
+                document
+                    .inventory_loot_rules
+                    .iter()
+                    .flatten()
+                    .flatten()
+                    .map(LootRuleDocument::to_rule)
+                    .collect()
+            };
+            for bytes in [0, 300, usize::MAX] {
+                let mut read = SideCarRead::new(text.clone());
+                while !read.step(bytes).0 {}
+                let SideCarOutcome::Read(read, Some(rules)) = read.finish() else {
+                    panic!("the writer's own text reads by hand");
+                };
+                assert_eq!(rules, rules_of(&whole));
+                assert_eq!(
+                    rules.iter().map(LootRule::clone).collect::<Vec<_>>(),
+                    whole
+                        .inventory_loot_rules
+                        .clone()
+                        .into_iter()
+                        .flatten()
+                        .flatten()
+                        .map(LootRuleDocument::into_rule)
+                        .collect::<Vec<_>>()
+                );
+                let mut expected = whole.clone();
+                expected.inventory_loot_rules = None;
+                assert_eq!(*read, expected);
+            }
+            let compact = json::system_text_json::to_string(
+                &document.to_json(),
+                &json::system_text_json::Options::COMPACT,
+            )
+            .unwrap();
+            let SideCarOutcome::Read(read, None) = SideCarRead::new(compact).finish() else {
+                panic!("another layout reads whole");
+            };
+            assert_eq!(*read, whole);
+        }
+        assert!(matches!(
+            SideCarRead::new("{".to_owned()).finish(),
+            SideCarOutcome::Failed(_, _)
+        ));
+        assert!(matches!(
+            SideCarRead::new("null".to_owned()).finish(),
+            SideCarOutcome::Null
+        ));
+    }
+
+    // The rules' text kept from the last write gives the same side-car, and
+    // rules that changed since are written again.
+    #[test]
+    fn a_side_car_written_with_kept_rules_is_the_same_side_car() {
+        let names = OrdinalStringSet::new();
+        let channels = IgnoreCaseStringSet::new();
+        let mut kept = KeptRules::default();
+        for rules in [
+            awkward_rules(),
+            awkward_rules(),
+            Vec::new(),
+            awkward_rules(),
+        ] {
+            let mut settings = AllSettings::default();
+            settings.inventory.loot.rules = rules;
+            assert_eq!(
+                SideCarDocument::capture_and_write_kept(
+                    &settings, &names, &channels, &mut kept, false
+                ),
+                SideCarDocument::capture_and_write(&settings, &names, &channels)
+            );
+        }
+    }
+
+    #[test]
+    fn rules_written_ahead_a_run_at_a_time_make_the_same_side_car() {
+        let names = OrdinalStringSet::new();
+        let channels = IgnoreCaseStringSet::new();
+        let mut sets = vec![awkward_rules(), Vec::new()];
+        sets.extend(owner_rules());
+        for rules in sets {
+            let mut settings = AllSettings::default();
+            settings.inventory.loot.rules = rules;
+            for bytes in [1, 700, 64 * 1024] {
+                let mut kept = KeptRules::default();
+                let mut runs = 1;
+                while !kept.prepare(&settings.inventory.loot.rules, bytes) {
+                    runs += 1;
+                }
+                assert!(kept.prepare(&settings.inventory.loot.rules, bytes));
+                if bytes == 1 {
+                    assert_eq!(runs, settings.inventory.loot.rules.len().max(1));
+                }
+                let checked = kept.take_check();
+                assert!(checked);
+                assert_eq!(
+                    SideCarDocument::capture_and_write_kept(
+                        &settings, &names, &channels, &mut kept, checked
+                    ),
+                    SideCarDocument::capture_and_write(&settings, &names, &channels)
+                );
+                assert!(!kept.take_check());
+            }
+        }
+    }
+
+    #[test]
+    fn rules_that_change_while_written_ahead_are_written_again() {
+        let names = OrdinalStringSet::new();
+        let channels = IgnoreCaseStringSet::new();
+        let mut settings = AllSettings::default();
+        settings.inventory.loot.rules = awkward_rules();
+        let mut kept = KeptRules::default();
+        assert!(!kept.prepare(&settings.inventory.loot.rules, 1));
+        assert!(!kept.take_check());
+        settings.inventory.loot.rules.pop();
+        while !kept.prepare(&settings.inventory.loot.rules, 1) {}
+        // A save that comes later, the rules changed again since, looks.
+        settings.inventory.loot.rules.pop();
+        assert_eq!(
+            SideCarDocument::capture_and_write_kept(&settings, &names, &channels, &mut kept, false),
+            SideCarDocument::capture_and_write(&settings, &names, &channels)
+        );
     }
 }

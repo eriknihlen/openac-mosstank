@@ -744,13 +744,7 @@ impl MetaServices for TankServices<'_, '_> {
         name: &str,
         value: &ExpressionValue,
     ) -> Result<bool, Fault> {
-        let written = {
-            let mut client = self.client.0.borrow_mut();
-            self.core
-                .0
-                .borrow_mut()
-                .set_option(&mut **client, name, value)?
-        };
+        let written = self.core.0.borrow_mut().set_option(name, value)?;
         if written && is_enable_meta(name) {
             self.meta_enabled = value.is_truthy();
         }
@@ -884,13 +878,7 @@ impl TankServices<'_, '_> {
         {
             value = ExpressionValue::Number(number);
         }
-        let written = {
-            let mut client = self.client.0.borrow_mut();
-            self.core
-                .0
-                .borrow_mut()
-                .set_option(&mut **client, &name, &value)?
-        };
+        let written = self.core.0.borrow_mut().set_option(&name, &value)?;
         // The panel's one write path starts or stops the meta itself.
         if written && is_enable_meta(&name) {
             self.meta_enabled = value.is_truthy();

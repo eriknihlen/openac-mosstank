@@ -253,10 +253,9 @@ impl Core {
             .tick(&mut KillHost(client), &*clock);
     }
 
-    /// `TickGameInfoUpdate`: an answer that came in is handed over and
-    /// said; a session in the world checks once, unless the last check is
-    /// younger than the preference's interval. Whether a check started.
-    pub(crate) fn tick_game_info_update(&mut self, client: &mut dyn TankClient) -> bool {
+    /// `TickGameInfoUpdate`, the frame's part: a check under way is
+    /// stepped, and an answer that came in is handed over and said.
+    pub(crate) fn tick_game_info_update(&mut self, client: &mut dyn TankClient) {
         if self.session.game_info_updater.is_running() {
             self.step_game_info_update(client);
         }
@@ -266,6 +265,13 @@ impl Core {
             }
             Core::write_vtank(client, &result.message);
         }
+    }
+
+    /// `TickGameInfoUpdate`, its start: a session in the world checks once,
+    /// unless the last check is younger than the preference's interval.
+    /// Starting reads the game database, so it waits for a tick with room
+    /// for it (register UI-1). Whether a check started.
+    pub(crate) fn start_game_info_check(&mut self, client: &mut dyn TankClient) -> bool {
         // The session counts as checked only once its own check has
         // started. One still running from the session before (a quick
         // relog) is let finish and handed over first, and this session asks

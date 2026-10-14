@@ -124,6 +124,54 @@ pub fn json_clone(profile: &MetaProfile) -> MetaProfile {
     copy
 }
 
+/// How a meta load begins: over already (no file), or reading one.
+#[derive(Debug, Clone)]
+pub enum MetaLoadStart {
+    /// The load is over: this meta.
+    Done(MetaProfile),
+    /// The file was read; it is parsed next.
+    Reading(Box<MetaLoad>),
+}
+
+/// A meta's load whose file has been read and is being parsed, a run of
+/// rules at a time ([`MetaProfileStore::begin_load`]).
+#[derive(Debug, Clone)]
+pub struct MetaLoad {
+    file_name: String,
+    text: String,
+    /// The `.met` read under way (an `.af` meta is parsed at the end).
+    read: Option<met::MetaRead>,
+    result: Option<Result<MetaProfile, String>>,
+}
+
+impl MetaLoad {
+    /// Parses on through at least `bytes` more of the file (a rule is
+    /// never cut); whether the file is read, and the bytes parsed.
+    pub fn step(&mut self, spells: Option<&dyn SpellLookup>, bytes: usize) -> (bool, usize) {
+        if self.result.is_some() {
+            return (true, 0);
+        }
+        let Some(read) = self.read.as_mut() else {
+            return (true, 0);
+        };
+        let before = read.position();
+        self.result = read.step(&self.text, spells, bytes);
+        (self.result.is_some(), read.position() - before)
+    }
+
+    /// Whether the file is read (an `.af` meta: at the end).
+    #[must_use]
+    pub fn is_parsed(&self) -> bool {
+        self.result.is_some() || self.read.is_none()
+    }
+
+    /// The file's length, in bytes.
+    #[must_use]
+    pub fn byte_len(&self) -> usize {
+        self.text.len()
+    }
+}
+
 /// The meta store (`MossTankMetaProfileStore`).
 #[derive(Debug, Clone)]
 pub struct MetaProfileStore {
@@ -307,6 +355,19 @@ impl MetaProfileStore {
         host: &mut dyn StoreHost,
         spells: Option<&dyn SpellLookup>,
     ) -> Result<MetaProfile, StoreError> {
+        match self.begin_load(host)? {
+            MetaLoadStart::Done(profile) => Ok(profile),
+            MetaLoadStart::Reading(load) => Ok(self.finish_load(host, *load, spells)),
+        }
+    }
+
+    /// The first part of [`Self::load_current`]: the file is found and
+    /// read, and waits to be parsed ([`MetaLoad::step`]) and taken
+    /// ([`Self::finish_load`]); a load with no file is over here.
+    ///
+    /// # Errors
+    /// A storage failure.
+    pub fn begin_load(&mut self, host: &mut dyn StoreHost) -> Result<MetaLoadStart, StoreError> {
         self.sweep_legacy_roster_if_needed(host)?;
         self.migrate_legacy_if_needed(host)?;
         let file_name = self.current_file_name();
@@ -322,24 +383,44 @@ impl MetaProfileStore {
             }
         };
         let Some(text) = text else {
-            return Ok(MetaProfile::default());
+            return Ok(MetaLoadStart::Done(MetaProfile::default()));
         };
-        let loaded = if is_dropped_foreign_format(&file_name) {
-            met::try_load(&text, spells)
-        } else {
-            af::try_load_meta(&text, spells)
-        };
+        let read = is_dropped_foreign_format(&file_name).then(met::MetaRead::new);
+        Ok(MetaLoadStart::Reading(Box::new(MetaLoad {
+            file_name,
+            text,
+            read,
+            result: None,
+        })))
+    }
+
+    /// The last part of [`Self::load_current`]: the meta, or an empty one
+    /// when the file would not read (preserved and said).
+    pub fn finish_load(
+        &mut self,
+        host: &mut dyn StoreHost,
+        mut load: MetaLoad,
+        spells: Option<&dyn SpellLookup>,
+    ) -> MetaProfile {
+        while !load.step(spells, usize::MAX).0 {}
+        let MetaLoad {
+            file_name,
+            text,
+            result,
+            ..
+        } = load;
+        let loaded = result.unwrap_or_else(|| af::try_load_meta(&text, spells));
         match loaded {
             Ok(profile) => {
                 self.last_load_succeeded = true;
-                Ok(profile)
+                profile
             }
             Err(error) => {
                 let notice = recovery::preserve(host, "meta", &file_name, Some(&text), &error);
                 host.log().warn(&notice);
                 self.recovery_notice = Some(notice);
                 self.last_load_error = Some(error);
-                Ok(MetaProfile::default())
+                MetaProfile::default()
             }
         }
     }

@@ -22,6 +22,14 @@ use super::staged_load::{LOAD_BYTES_PER_TICK, StagedLoad};
 use super::{Core, TankCx};
 use crate::client::TankClient;
 
+/// The side-car's loot rules written ahead in a call when a save is due:
+/// a 1.4 MB set takes eleven calls of some 4 M instructions each (register
+/// STORE-7).
+const SIDE_CAR_BYTES_PER_CALL: usize = 128 * 1024;
+
+/// The calls a due save waits for one that ran no macro pass, at most.
+const SETTINGS_SAVE_WAITS: u8 = 8;
+
 /// The spells the client knows, read once for a profile load
 /// (`IPluginSpells` as a route or meta reads its recall names): the shared
 /// lists, named only when a reader asks.
@@ -162,6 +170,8 @@ impl Core {
 
     /// `SaveSettingsProfile`.
     pub(crate) fn save_settings_profile(&mut self, client: &mut dyn TankClient) -> bool {
+        // This save writes whatever the call's option changes left due.
+        self.settings_save_due = false;
         let saved = self.profiles.save_current(
             client.stores(),
             &mut self.settings,
@@ -169,6 +179,46 @@ impl Core {
             &self.command_log_types,
         );
         report!(client, saved).unwrap_or(false)
+    }
+
+    /// The save the option changes left due, made now: before the settings
+    /// profile is read, switched or written over by anything else, and
+    /// before the plugin stops (register STORE-7).
+    pub(crate) fn flush_settings_save(&mut self, client: &mut dyn TankClient) {
+        if self.settings_save_due {
+            self.save_settings_profile(client);
+        }
+    }
+
+    /// A call's end with a save due: the side-car's loot rules are written
+    /// ahead, [`SIDE_CAR_BYTES_PER_CALL`] a call, and the save is made in
+    /// the call they are ready in. A call that ran the macro's pass
+    /// (`pass_ran`) leaves it to the next, [`SETTINGS_SAVE_WAITS`] times at
+    /// most (register STORE-7).
+    pub(crate) fn settle_settings_save(&mut self, client: &mut dyn TankClient, pass_ran: bool) {
+        if !self.settings_save_due {
+            self.settings_save_waits = 0;
+            return;
+        }
+        if pass_ran && self.settings_save_waits < SETTINGS_SAVE_WAITS {
+            self.settings_save_waits += 1;
+            return;
+        }
+        if self.settings_save_ready() {
+            self.settings_save_waits = 0;
+            self.save_settings_profile(client);
+        }
+    }
+
+    /// Whether a due save would only copy its side-car's loot rules (or none
+    /// is due); when not, [`SIDE_CAR_BYTES_PER_CALL`] more of them are
+    /// written ahead. A load or a binding that would switch the settings
+    /// profile waits for it in a frame (register STORE-7).
+    pub(crate) fn settings_save_ready(&mut self) -> bool {
+        !self.settings_save_due
+            || self
+                .profiles
+                .prepare_save(&self.settings, SIDE_CAR_BYTES_PER_CALL)
     }
 
     /// `SaveProfile`: the settings, the loot profile and the route (not
@@ -561,6 +611,12 @@ impl TankCx<'_> {
         if mosstank_stores::directory::canonical_character_key(Some(&name)).is_empty() {
             return;
         }
+        // The binding may name another settings file: what is due goes to
+        // the one it was changed in, once its side-car is ready.
+        if !self.core.settings_save_ready() {
+            return;
+        }
+        self.core.flush_settings_save(self.client);
         {
             let core = &mut *self.core;
             self.ub.bind(self.client, &character.world, &name);
@@ -907,7 +963,7 @@ impl Core {
         self.applying_profile_options = true;
         for (name, value) in overrides {
             let value = super::options::to_expression_value(&value);
-            match self.set_option(client, &name, &value) {
+            match self.set_option(&name, &value) {
                 Ok(true) if super::services::is_enable_meta(&name) => {
                     meta_enabled = Some(value.is_truthy());
                 }

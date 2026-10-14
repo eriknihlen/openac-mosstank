@@ -629,13 +629,7 @@ impl UbServices for ShellUbServices<'_, '_> {
         name: &str,
         value: &ExpressionValue,
     ) -> bool {
-        let written = {
-            let mut client = self.client.0.borrow_mut();
-            self.core
-                .0
-                .borrow_mut()
-                .set_option(&mut **client, name, value)
-        };
+        let written = self.core.0.borrow_mut().set_option(name, value);
         let written = written.unwrap_or(false);
         if written
             && options::canonical(name).is_some_and(|canonical| {

@@ -14,7 +14,6 @@ use mosstank_settings::options::{self, VtankSettingValueType};
 use openac_plugin_compat::number::{self, NumberStyles};
 
 use super::{Core, TankCx};
-use crate::client::TankClient;
 
 /// Metres per VTank map unit.
 const METERS_PER_UNIT: f64 = 240.0;
@@ -262,7 +261,6 @@ impl Core {
     #[allow(clippy::too_many_lines)]
     pub(crate) fn set_option(
         &mut self,
-        client: &mut dyn TankClient,
         name: &str,
         value: &ExpressionValue,
     ) -> Result<bool, Fault> {
@@ -704,7 +702,8 @@ impl Core {
             .dynamic_settings
             .insert(canonical, to_monster_value(value));
         if !self.applying_profile_options {
-            self.save_settings_profile(client);
+            // Saved once the call has made its changes (register STORE-7).
+            self.settings_save_due = true;
         }
         Ok(true)
     }
@@ -725,7 +724,7 @@ impl TankCx<'_> {
         name: &str,
         value: &ExpressionValue,
     ) -> Result<bool, Fault> {
-        let written = self.core.set_option(self.client, name, value)?;
+        let written = self.core.set_option(name, value)?;
         if written
             && options::canonical(name)
                 .is_some_and(|canonical| casing::to_lower_invariant(canonical) == "enablemeta")

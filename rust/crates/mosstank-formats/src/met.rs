@@ -37,11 +37,105 @@ const MAXIMUM_SERIALIZED_LENGTH: i32 = i32::MAX;
 /// # Errors
 /// Why the text is not a meta, naming the line.
 pub fn try_load(text: &str, spells: Option<&dyn SpellLookup>) -> Result<MetaProfile, String> {
-    let mut reader = Reader {
-        cursor: VtankLineCursor::new(text),
-        spells,
-    };
-    reader.read_profile()
+    let mut read = MetaRead::new();
+    loop {
+        if let Some(result) = read.step(text, spells, usize::MAX) {
+            return result;
+        }
+    }
+}
+
+/// A read of a meta a run of its rules at a time (a large meta is a
+/// megabyte, more than one plugin call should parse): each
+/// [`Self::step`] reads on from where the last stopped, and the result is
+/// the one [`try_load`] gives for the same text.
+#[derive(Debug, Clone)]
+pub struct MetaRead {
+    position: usize,
+    line_number: usize,
+    /// The rule count, once the header is read.
+    count: Option<i32>,
+    profile: MetaProfile,
+    done: bool,
+}
+
+impl Default for MetaRead {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl MetaRead {
+    /// A read from the start.
+    #[must_use]
+    pub fn new() -> Self {
+        Self {
+            position: 0,
+            line_number: 1,
+            count: None,
+            profile: MetaProfile::default(),
+            done: false,
+        }
+    }
+
+    /// How far the read has got, in bytes of the text.
+    #[must_use]
+    pub fn position(&self) -> usize {
+        self.position
+    }
+
+    /// Reads on through `text` (the same text every step) until at least
+    /// `bytes` more are read and a rule ends; the result once the read is
+    /// over (`None` while rules remain).
+    pub fn step(
+        &mut self,
+        text: &str,
+        spells: Option<&dyn SpellLookup>,
+        bytes: usize,
+    ) -> Option<Result<MetaProfile, String>> {
+        if self.done {
+            return None;
+        }
+        let mut reader = Reader {
+            cursor: VtankLineCursor::resume(text, self.position, self.line_number),
+            spells,
+        };
+        let outcome = self.read_on(&mut reader, bytes);
+        self.position = reader.cursor.position();
+        self.line_number = reader.cursor.line_number();
+        match outcome {
+            Ok(false) => None,
+            Ok(true) => {
+                self.done = true;
+                Some(Ok(std::mem::take(&mut self.profile)))
+            }
+            Err(error) => {
+                self.done = true;
+                Some(Err(error))
+            }
+        }
+    }
+
+    fn read_on(&mut self, reader: &mut Reader<'_, '_>, bytes: usize) -> Result<bool, String> {
+        let count = match self.count {
+            Some(count) => count,
+            None => {
+                let count = reader.read_header()?;
+                self.count = Some(count);
+                count
+            }
+        };
+        let start = reader.cursor.position();
+        while self.profile.rules.len() < usize::try_from(count).unwrap_or(0) {
+            let rule = reader.read_rule()?;
+            self.profile.rules.push(rule);
+            if reader.cursor.position() - start >= bytes {
+                return Ok(false);
+            }
+        }
+        reader.read_trailer()?;
+        Ok(true)
+    }
 }
 
 struct Reader<'a, 's> {
@@ -83,23 +177,29 @@ impl<'a> Reader<'a, '_> {
         }
     }
 
-    fn read_profile(&mut self) -> Result<MetaProfile, String> {
+    /// The header lines and the rule count.
+    fn read_header(&mut self) -> Result<i32, String> {
         for expected in HEADER_LINES {
             self.expect(expected)?;
         }
-        let count = self.count(MAXIMUM_RULES, "rule count")?;
-        let mut profile = MetaProfile::default();
-        for _ in 0..count {
-            self.expect("i")?;
-            let condition_type = self.int()?;
-            self.expect("i")?;
-            let action_type = self.int()?;
-            let condition = self.condition(condition_type)?;
-            let action = self.action(action_type)?;
-            self.expect("s")?;
-            let state = self.line()?.to_owned();
-            profile.rules.push(MetaRule::new(&state, condition, action));
-        }
+        self.count(MAXIMUM_RULES, "rule count")
+    }
+
+    /// One rule.
+    fn read_rule(&mut self) -> Result<MetaRule, String> {
+        self.expect("i")?;
+        let condition_type = self.int()?;
+        self.expect("i")?;
+        let action_type = self.int()?;
+        let condition = self.condition(condition_type)?;
+        let action = self.action(action_type)?;
+        self.expect("s")?;
+        let state = self.line()?.to_owned();
+        Ok(MetaRule::new(&state, condition, action))
+    }
+
+    /// What follows the rules: blank lines only.
+    fn read_trailer(&mut self) -> Result<(), String> {
         loop {
             let number = self.cursor.line_number();
             let Ok(rest) = self.cursor.read_line() else {
@@ -111,7 +211,7 @@ impl<'a> Reader<'a, '_> {
                 ));
             }
         }
-        Ok(profile)
+        Ok(())
     }
 
     /// An `i` cell's value.
@@ -946,5 +1046,41 @@ mod tests {
         let rule = &profile.rules[0];
         assert_eq!(rule.condition.kind, MetaConditionKind::LandblockEquals);
         assert_eq!(rule.condition.number, f64::from(high_bit_value));
+    }
+
+    // The C# tests' metas (Fixtures, every .met), whole, cut short and with
+    // junk after them: read a run of rules at a time, each reads as it
+    // reads whole, its errors and their line numbers included.
+    #[test]
+    fn a_meta_read_a_run_at_a_time_is_the_whole_read() {
+        let mut texts: Vec<String> = crate::fixtures::list("", "met")
+            .iter()
+            .map(|path| crate::fixtures::read(path))
+            .collect();
+        let extra: Vec<String> = texts
+            .iter()
+            .flat_map(|text| {
+                let cut = text
+                    .char_indices()
+                    .map(|(at, _)| at)
+                    .find(|at| *at >= text.len() * 2 / 3)
+                    .unwrap_or(0);
+                [text[..cut].to_owned(), format!("{text}\r\njunk\r\n")]
+            })
+            .collect();
+        texts.extend(extra);
+        assert!(texts.len() > 6);
+        for text in &texts {
+            let whole = try_load(text, None);
+            for bytes in [0, 500, usize::MAX] {
+                let mut read = MetaRead::new();
+                let result = loop {
+                    if let Some(result) = read.step(text, None, bytes) {
+                        break result;
+                    }
+                };
+                assert_eq!(result, whole, "{bytes} bytes a step");
+            }
+        }
     }
 }

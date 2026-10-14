@@ -179,6 +179,11 @@ impl TankCx<'_> {
         let mut cost = None;
         match step {
             Step::SelectedSettings => {
+                // A save still due goes to the profile it was made in, once
+                // its side-car is ready (register STORE-7).
+                if !self.core.settings_save_ready() {
+                    return (true, Some(budget));
+                }
                 load.steps.pop_front();
                 match self.load_selected_settings() {
                     // The storage failed: the rest of `LoadSelectedProfile`
@@ -301,6 +306,7 @@ impl TankCx<'_> {
     /// active loot to keep should the new loot not load; `None` when the
     /// storage failed (the rest does not run).
     pub(crate) fn load_selected_settings(&mut self) -> Option<(ProfileLoad, RetainedLoot)> {
+        self.core.flush_settings_save(self.client);
         let core = &mut *self.core;
         let retained = RetainedLoot {
             retain: core.loot_profiles.has_active_profile(),

@@ -324,7 +324,19 @@ impl MossTank {
         // (the character's first in the world), or whose name tags looked at
         // a crowded world, has work enough: the next one builds.
         let read_spell_table = had_spell_table != self.kept.has_spell_table();
-        let heavy = tank.frame_was_heavy() || tank.pass_count() != passes || read_spell_table;
+        let mut heavy = tank.frame_was_heavy() || tank.pass_count() != passes || read_spell_table;
+        // The commands that came while the profile set loaded run on the
+        // first light tick after it (register PROF-1).
+        let once_only = !heavy && !was_loading && {
+            let mut client = HostAutomation::for_call(
+                host,
+                &mut self.observations,
+                &mut self.meta_windows,
+                &mut self.kept,
+            );
+            tank.run_held_commands(&mut client)
+        };
+        heavy |= once_only;
         // A light tick builds ahead what a large spellbook makes costly for
         // the first pass that wants it (the self buffs' lines, the attack
         // catalog), one a tick.
@@ -337,7 +349,9 @@ impl MossTank {
             );
             tank.warm_caches(&mut client)
         };
-        if !read_spell_table && !tank.frame_was_heavy() && !warmed {
+        // A chat-line pattern, on a tick that ran no pass either (a pass and
+        // a pattern built are more than a call should run together).
+        if !heavy && !warmed {
             mosstank_automation::combat_text::warm_one();
         }
         let reason = tank.walk_pause_reason();

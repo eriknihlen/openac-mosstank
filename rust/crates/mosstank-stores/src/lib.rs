@@ -25,6 +25,7 @@
 //! takes a [`storage::StoreHost`]), handed to each call that needs it.
 
 pub mod directory;
+mod fast_hash;
 pub mod global_variables;
 pub mod item_enchant_store;
 pub mod layout;
@@ -36,6 +37,7 @@ pub mod profile_store;
 pub mod recovery;
 pub mod route_store;
 pub mod sidecar;
+mod sidecar_rules;
 pub mod startup;
 pub mod stj;
 pub mod storage;

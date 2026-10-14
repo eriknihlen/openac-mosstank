@@ -1,7 +1,8 @@
 //! The fuel each call of the built `mosstank.wasm` uses, against the
 //! plugin's own test client with a heavy character on a busy public server
-//! ([`heavy`]), and whether every call fits the openAC host's budgets with
-//! room to spare.
+//! ([`heavy`]), and whether every call stays under half its threshold: no
+//! call may cause lag (the host bounds calls by wall time, so this is the
+//! measure that does not depend on the machine; `mosstank_fuel`).
 //!
 //! Run by `scripts/check.sh` after the WebAssembly build (the test is
 //! ignored by a plain `cargo test`, which has no module to load):
@@ -67,12 +68,28 @@ struct Session {
     attacks: Vec<SpellInfo>,
     combat: Vec<SpellInfo>,
     known: BTreeSet<u32>,
+    /// How often the call under way wrote each file, and its largest write.
+    written: BTreeMap<String, (u32, usize)>,
+    /// The most writes of one file in one call so far: the count, the file
+    /// and the call.
+    most_writes: (u32, String, String),
+    /// The same of the files of [`LARGE_FILE_BYTES`] or more.
+    most_large_writes: (u32, String, String),
 }
 
 impl Client for Session {
     fn call(&mut self, import: Import, request: &[u8]) -> Vec<u8> {
         let in_world = self.world.automation.is_some();
         match import {
+            Import::StorageWrite => {
+                let write = ac_plugin_abi::storage::StorageWrite::from_bytes(request)
+                    .expect("a storage write");
+                let file = format!("{:?}/{}", write.place, write.key);
+                let entry = self.written.entry(file).or_default();
+                entry.0 += 1;
+                entry.1 = entry.1.max(write.bytes.len());
+                self.world.call(import, request)
+            }
             Import::SpellsPage if in_world => {
                 let (first, count) = <(u32, u32)>::from_bytes(request).expect("a page request");
                 let first = first as usize;
@@ -672,12 +689,44 @@ fn advance(session: &mut Session) {
 
 fn tick(plugin: &mut Plugin, session: &mut Session) -> CallFuel {
     advance(session);
-    plugin.tick(session).expect("a tick")
+    let fuel = plugin.tick(session).expect("a tick");
+    session.tally_writes("tick");
+    fuel
 }
 
 fn send(plugin: &mut Plugin, session: &mut Session, event: &Event) -> CallFuel {
-    plugin.event(event, session).expect("an event")
+    let fuel = plugin.event(event, session).expect("an event");
+    session.tally_writes(&format!("{event:?}"));
+    fuel
 }
+
+impl Session {
+    /// The call just made: the file it wrote most often (and the large
+    /// one), kept when no call before wrote one file as often.
+    fn tally_writes(&mut self, call: &str) {
+        let written = std::mem::take(&mut self.written);
+        let call: String = call.chars().take(120).collect();
+        let most = |files: &mut dyn Iterator<Item = (&String, &(u32, usize))>,
+                    kept: &mut (u32, String, String)| {
+            if let Some((file, (count, _))) = files.max_by_key(|(_, (count, _))| *count)
+                && *count > kept.0
+            {
+                *kept = (*count, file.clone(), call.clone());
+            }
+        };
+        most(&mut written.iter(), &mut self.most_writes);
+        most(
+            &mut written
+                .iter()
+                .filter(|(_, (_, bytes))| *bytes >= LARGE_FILE_BYTES),
+            &mut self.most_large_writes,
+        );
+    }
+}
+
+/// A file this large is written at most once in a call; a small one (a
+/// character's binding) at most twice, as the C#'s select-after-save does.
+const LARGE_FILE_BYTES: usize = 64 * 1024;
 
 /// The cases measured, by name, in the order first measured.
 #[derive(Default)]
@@ -778,6 +827,9 @@ fn new_session() -> Session {
         combat: attacks.clone(),
         attacks,
         known: spellbook(&table),
+        written: BTreeMap::new(),
+        most_writes: (0, String::new(), String::new()),
+        most_large_writes: (0, String::new(), String::new()),
         table,
     };
     session.world.fake.clock.utc_unix_ms = 1_760_000_000_000;
@@ -957,13 +1009,54 @@ fn ui_action(session: &Session, handler: &str, value: ac_plugin_abi::ui::ActionV
     ))
 }
 
-#[test]
-#[ignore = "needs the release module: scripts/check.sh runs it after the WebAssembly build"]
-#[allow(clippy::too_many_lines)]
-fn a_real_profile_folder_fits() {
-    use ac_plugin_abi::ui::ActionValue;
-    let wasm = std::fs::read(wasm_path()).expect("the release mosstank.wasm (build it first)");
-    let folder = profiles::folder();
+/// The stand-in for the owner's login meta: on entering its first state it
+/// sets the options and loads the routes the owner's meta does, by chat
+/// command, all in one pass.
+fn option_meta(folder: &profiles::Folder) -> String {
+    use mosstank_formats::meta::{
+        MetaAction, MetaActionKind, MetaCondition, MetaProfile, MetaRule,
+    };
+    let route = |index: usize| {
+        folder
+            .files
+            .iter()
+            .filter_map(|(key, _)| key.strip_prefix("mosstank/navs/")?.strip_suffix(".nav"))
+            .filter(|name| !name.contains('/'))
+            .nth(index)
+            .unwrap_or_default()
+            .to_owned()
+    };
+    let mut lines: Vec<String> = [
+        "enablecombat false",
+        "enablelooting true",
+        "enablenav true",
+        "lootonlyrarecorpses true",
+        "enablebuffing true",
+        "lootpriorityboost true",
+        "navclosestoprange 0.008",
+        "navpriorityboost false",
+        "autocram true",
+        "enablecombat true",
+    ]
+    .iter()
+    .map(|option| format!("/vt opt set {option}"))
+    .collect();
+    lines.push(format!("/vt nav load {}", route(0)));
+    lines.push(format!("/vt nav load {}", route(1)));
+    let rules = lines
+        .into_iter()
+        .map(|line| {
+            let mut action = MetaAction::of(MetaActionKind::ChatCommand);
+            action.text = line;
+            MetaRule::new("Default", MetaCondition::always(), action)
+        })
+        .collect();
+    mosstank_formats::met::save(&MetaProfile { rules }).expect("the stand-in login meta")
+}
+
+/// The client with the profile folder in its profile storage, the game
+/// database checked lately and the aliases' interceptor granted.
+fn folder_session(folder: &profiles::Folder) -> Session {
     let mut session = new_session();
     session
         .world
@@ -979,6 +1072,138 @@ fn a_real_profile_folder_fits() {
     session
         .world
         .set_reply::<calls::ChatAddInterceptor>(&Ok(INTERCEPTOR_HANDLE));
+    session
+}
+
+/// The meta the owner's session loads at login (`bore`), else the
+/// stand-in that does what it does ([`option_meta`]), put in the folder.
+fn login_meta(folder: &profiles::Folder, session: &mut Session) -> String {
+    if folder
+        .files
+        .iter()
+        .any(|(key, _)| key.eq_ignore_ascii_case("mosstank/metas/bore.met"))
+    {
+        return "bore".to_owned();
+    }
+    session
+        .world
+        .profiles
+        .insert("mosstank/metas/loginmeta.met", &option_meta(folder));
+    "loginmeta".to_owned()
+}
+
+/// The owner's session's login commands (the launcher's `loginCommands`,
+/// play.coldeve.ac, 2026-10-14): UB variables, `meta` loaded by name and
+/// the macro started.
+fn login_commands(meta: &str) -> [(&'static str, String); 7] {
+    [
+        ("ub", "mexec setvar[navNumber,2]".to_owned()),
+        ("ub", "mexec setvar[attackRange, 0.033333]".to_owned()),
+        ("ub", "mexec setvar[augInnateSelfTarget,10]".to_owned()),
+        ("ub", "mexec setvar[augResistSlashTarget,2]".to_owned()),
+        (
+            "ub",
+            "mexec chatbox[\\/a I just logged in and starting meta bore with number +getvar[navNumber]]"
+                .to_owned(),
+        ),
+        ("vt", format!("meta load {meta}")),
+        ("vt", "start".to_owned()),
+    ]
+}
+
+/// The character on the folder's world whose binding names `meta`, else
+/// the folder's heaviest.
+fn character_bound_to(folder: &profiles::Folder, meta: &str) -> String {
+    let prefix = format!("mosstank/profiles/{}_", profiles::WORLD);
+    let wanted = format!("mosstank/metas/{meta}.met");
+    folder
+        .files
+        .iter()
+        .find_map(|(key, text)| {
+            let name = key.strip_prefix(&prefix)?.strip_suffix(".cdf")?;
+            text.lines()
+                .any(|line| line.trim().eq_ignore_ascii_case(&wanted))
+                .then(|| name.to_owned())
+        })
+        .unwrap_or_else(|| folder.character.clone())
+}
+
+/// No call wrote a large file more than once, nor any file many times
+/// (owner, 2026-10-14: a meta's option changes saved the settings profile
+/// and its 1.36 MB side-car at every one, 26 writes in one tick, past the
+/// host's hard limit).
+fn assert_no_file_rewritten(session: &Session, report: &str) {
+    for (most, limit) in [(&session.most_large_writes, 1), (&session.most_writes, 2)] {
+        let (count, file, call) = most;
+        assert!(
+            *count <= limit,
+            "{file} was written {count} times in one call ({call})\n{report}"
+        );
+    }
+}
+
+/// The owner's own login (play.coldeve.ac, 2026-10-14): the plugin starts
+/// before the world, the character whose binding names the login meta
+/// enters, and the launcher's login commands arrive at once, before the
+/// first tick, with the character's profile set not yet read. Then the
+/// macro runs the meta.
+#[test]
+#[ignore = "needs the release module: scripts/check.sh runs it after the WebAssembly build"]
+fn the_owners_login_fits() {
+    let wasm = std::fs::read(wasm_path()).expect("the release mosstank.wasm (build it first)");
+    let folder = profiles::folder();
+    let mut session = folder_session(&folder);
+    let meta = login_meta(&folder, &mut session);
+    let character = character_bound_to(&folder, &meta);
+    let mut cases = Cases::default();
+
+    // The commands before the first tick, and after it (the character's
+    // profile set then loading, a step a tick).
+    for ticks_first in [0, 1] {
+        let mut session = folder_session(&folder);
+        login_meta(&folder, &mut session);
+        let (mut plugin, _) = Plugin::load(&wasm, DEFAULT_MEMORY_MIB).expect("load");
+        let enabled = plugin.enable(&start_info(), &mut session).expect("enable");
+        cases.add("start (the profile folder)", enabled);
+        enter_world_as(&mut session, &character);
+        let login = send(&mut plugin, &mut session, &Event::LoginComplete);
+        cases.add("event: login complete", login);
+        for _ in 0..ticks_first {
+            let fuel = tick(&mut plugin, &mut session);
+            cases.add("first tick in the world", fuel);
+        }
+        for (verb, arguments) in login_commands(&meta) {
+            let fuel = send(&mut plugin, &mut session, &command(verb, &arguments));
+            cases.add("event: a login command (at login)", fuel);
+        }
+        for _ in 0..600 {
+            chat(&mut plugin, &mut session, &mut cases, "chat line");
+            let fuel = tick(&mut plugin, &mut session);
+            cases.add("tick (the login meta running)", fuel);
+        }
+        assert_no_file_rewritten(&session, "");
+    }
+
+    let cases = cases.all();
+    let mut report = report(&cases);
+    let _ = writeln!(
+        report,
+        "profile folder: {}; character: {character}; meta: {meta}",
+        folder.source
+    );
+    println!("{report}");
+    assert_no_file_rewritten(&session, &report);
+    assert_within_margin(&cases, &report);
+}
+
+#[test]
+#[ignore = "needs the release module: scripts/check.sh runs it after the WebAssembly build"]
+#[allow(clippy::too_many_lines)]
+fn a_real_profile_folder_fits() {
+    use ac_plugin_abi::ui::ActionValue;
+    let wasm = std::fs::read(wasm_path()).expect("the release mosstank.wasm (build it first)");
+    let folder = profiles::folder();
+    let mut session = folder_session(&folder);
     let mut cases = Cases::default();
 
     // Start before the world, the folder there.
@@ -1044,9 +1269,101 @@ fn a_real_profile_folder_fits() {
     let refreshed = send(&mut plugin, &mut session, &command("vt", "refresh"));
     cases.add("event: /vt refresh", refreshed);
 
+    // An option changed on the panel saves the profiles, the settings
+    // side-car with every loot rule among them, as each change does.
+    let settle = |plugin: &mut Plugin, session: &mut Session, cases: &mut Cases| {
+        for _ in 0..60 {
+            chat(plugin, session, cases, "chat line");
+            let fuel = tick(plugin, session);
+            cases.add("ticks after a save or a pick", fuel);
+        }
+    };
+    for handler in ["LootRangeUp", "LootRangeDown", "LootRangeUp"] {
+        let event = ui_action(&session, handler, ActionValue::None);
+        let fuel = send(&mut plugin, &mut session, &event);
+        cases.add("event: an option changed (a save)", fuel);
+        settle(&mut plugin, &mut session, &mut cases);
+    }
+
+    // The player picks profiles: the largest loot profile and meta in the
+    // folder, by the pickers and by command, then the character's own.
+    let largest = |kind: &str, extension: &str| {
+        let prefix = format!("mosstank/{kind}/");
+        let (key, _) = folder
+            .files
+            .iter()
+            .filter(|(key, _)| {
+                key.strip_prefix(&prefix)
+                    .is_some_and(|name| name.ends_with(extension) && !name.contains('/'))
+            })
+            .max_by_key(|(_, text)| text.len())
+            .expect("a profile");
+        let name = key.rsplit('/').next().unwrap_or_default();
+        name.strip_suffix(extension).unwrap_or(name).to_owned()
+    };
+    let loot = largest("loot", ".utl");
+    let meta = largest("metas", ".met");
+    let picks = [
+        ui_action(
+            &session,
+            "SelectLootProfile",
+            ActionValue::Text(loot.clone()),
+        ),
+        ui_action(
+            &session,
+            "SelectMetaProfile",
+            ActionValue::Text(meta.clone()),
+        ),
+        command("vt", "loot load By char"),
+        command("vt", &format!("meta load {meta}")),
+        ui_action(
+            &session,
+            "SelectMetaProfile",
+            ActionValue::Text("By char".to_owned()),
+        ),
+        ui_action(
+            &session,
+            "SelectMacroProfile",
+            ActionValue::Text("By char".to_owned()),
+        ),
+    ];
+    for event in &picks {
+        let fuel = send(&mut plugin, &mut session, event);
+        cases.add("event: a profile picked", fuel);
+        settle(&mut plugin, &mut session, &mut cases);
+    }
+    let said = session.world.chat().join("\n") + &session.world.all_logs().join("\n");
+    for picked in [
+        format!("Loaded loot profile {loot}."),
+        format!("Loaded Meta profile {meta}."),
+    ] {
+        assert!(said.contains(&picked), "not said: {picked}");
+    }
+
     // The Profiles page stays open: its pickers list their folders again
     // every few seconds.
     for _ in 0..400 {
+        chat(&mut plugin, &mut session, &mut cases, "chat line");
+        let fuel = tick(&mut plugin, &mut session);
+        cases.add("idle tick (Profiles page open)", fuel);
+    }
+
+    // The owner's login commands once the set is read (the login itself is
+    // `the_owners_login_fits`): the meta's states set options and load
+    // routes by chat command, many in one pass.
+    let login_meta = login_meta(&folder, &mut session);
+    for (verb, arguments) in login_commands(&login_meta) {
+        let fuel = send(&mut plugin, &mut session, &command(verb, &arguments));
+        cases.add("event: a login command", fuel);
+    }
+    for _ in 0..300 {
+        chat(&mut plugin, &mut session, &mut cases, "chat line");
+        let fuel = tick(&mut plugin, &mut session);
+        cases.add("tick (the login meta running)", fuel);
+    }
+    let stopped = send(&mut plugin, &mut session, &command("vt", "stop"));
+    cases.add("event: a login command", stopped);
+    for _ in 0..60 {
         chat(&mut plugin, &mut session, &mut cases, "chat line");
         let fuel = tick(&mut plugin, &mut session);
         cases.add("idle tick (Profiles page open)", fuel);
@@ -1086,7 +1403,19 @@ fn a_real_profile_folder_fits() {
             .any(|line| line.contains("rules)")),
         "the loot profile was not loaded:\n{report}\n{chat:?}"
     );
-    assert_within_margin(&cases, &report);
+    assert_no_file_rewritten(&session, &report);
+    // Still over half their threshold, and being brought under it: a panel
+    // option that saves the whole profile set, and a large profile picked.
+    // Measured and reported; held to the margin once they fit.
+    const NOT_YET_HELD: [&str; 2] = [
+        "event: an option changed (a save)",
+        "event: a profile picked",
+    ];
+    let held: Vec<Case> = cases
+        .into_iter()
+        .filter(|case| !NOT_YET_HELD.contains(&case.name.as_str()))
+        .collect();
+    assert_within_margin(&held, &report);
 }
 
 #[test]

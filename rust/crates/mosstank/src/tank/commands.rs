@@ -64,6 +64,12 @@ pub(crate) fn meta_load_request(input: &str) -> Option<(String, bool)> {
 pub(crate) fn execute_vtank(cx: &mut TankCx<'_>, input: &str) {
     let (typed, arguments) = split_head(input);
     let verb = casing::to_lower_invariant(&typed);
+    // The settings profile is saved once for the option changes made
+    // before a line that switches it or reloads the loot rules its
+    // side-car carries (register STORE-7).
+    if matches!(verb.as_str(), "settings" | "loot") {
+        cx.core.flush_settings_save(cx.client);
+    }
     match verb.as_str() {
         "" | "help" => vtank_help(cx.client, &arguments),
         "ub" => execute_ub(cx, ""),
@@ -607,6 +613,7 @@ fn option_command(cx: &mut TankCx<'_>, arguments: &str) {
                 return;
             }
             if ordinal::equals_ignore_case(&operation, "setinall") {
+                cx.core.flush_settings_save(cx.client);
                 let count = cx.core.profiles.set_option_in_all(
                     cx.client.stores(),
                     canonical,

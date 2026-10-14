@@ -55,25 +55,10 @@ missing_debug_implementations = "warn"
 [workspace.lints.clippy]
 all = { level = "warn", priority = -1 }
 
-# The fuel measurement (crates/mosstank-fuel) interprets the built plugin
-# with wasmi: optimised in dev builds, or a measured run takes minutes. The
-# measuring crate must be optimised too: at opt-level 0 LLVM's x86 fast
-# instruction selector miscompiles wasmi's generic memory access compiled
-# into it (openac-rust register PLUGIN-8, docs/research/wasmi_opt0_crash.md
-# there).
-[profile.dev.package.mosstank-fuel]
-opt-level = 2
-
-[profile.dev.package.wasmi]
-opt-level = 2
-
-[profile.dev.package.wasmi_core]
-opt-level = 2
-
-[profile.dev.package.wasmi_ir]
-opt-level = 2
-
-[profile.dev.package.wasmi_collections]
+# The fuel measurement (crates/mosstank-fuel) compiles the built plugin with
+# the host's engine, wasmtime and its Cranelift compiler: the dependencies are
+# optimised in dev builds, or compiling the 6 MB module takes minutes.
+[profile.dev.package."*"]
 opt-level = 2
 
 [profile.release]

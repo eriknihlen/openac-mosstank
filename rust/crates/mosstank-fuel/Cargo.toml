@@ -9,16 +9,22 @@ publish.workspace = true
 
 [dependencies]
 ac-plugin-abi.workspace = true
-# The engine the openAC plugin host runs plugins on, with the host's own
-# features (openac-rust Cargo.toml: `std`, `validate`, `portable-dispatch`)
-# and version, so an instruction costs the same fuel here as there.
-wasmi = { version = "=2.0.0", default-features = false, features = ["std", "validate", "portable-dispatch"] }
+
+# Native only: the workspace's WebAssembly build has no use for the runner.
+[target.'cfg(not(target_arch = "wasm32"))'.dependencies]
+# The engine the openAC plugin host runs plugins on (openac-rust ef7b128a,
+# `ac_plugin::PluginEngine`): wasmtime with its Cranelift compiler, the
+# host's own version and features (openac-rust Cargo.toml), so an
+# instruction costs the same fuel here as there. The host's engine and
+# instance are private to `ac-plugin`; `src/lib.rs` mirrors their settings.
+wasmtime = { version = "=48.0.5", default-features = false, features = ["runtime", "cranelift", "std", "async", "parallel-compilation", "reexport-wasmparser"] }
 
 [dev-dependencies]
 # The plugin's own test client (crates/mosstank/tests/common), which the
 # measurement drives the built module against.
 mosstank.workspace = true
 mosstank-stores.workspace = true
+mosstank-formats.workspace = true
 mosstank-data.workspace = true
 openac-plugin.workspace = true
 

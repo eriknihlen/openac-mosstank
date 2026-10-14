@@ -64,6 +64,7 @@ impl Tank {
             .item_ledger_mut()
             .set_utc_now(clock.utc_unix_ms);
         self.core.heavy_frame = false;
+        self.core.last_frame_ran_pass = false;
         let (mut cx, scheduler) = self.cx(client);
         cx.observe_macro_activity(scheduler, elapsed_seconds);
         cx.core.tick_kill_statistics(cx.client);
@@ -142,13 +143,12 @@ impl Tank {
             // push waits a frame too.
             cx.core.heavy_frame = true;
         }
-        if !cx.core.heavy_frame && !settling {
-            // Starting the check reads the game database: once-only work
-            // of its own (register UI-1).
-            if cx.core.tick_game_info_update(cx.client) {
-                cx.core.heavy_frame = true;
-            }
+        let check_game_info = !cx.core.heavy_frame && !settling;
+        if check_game_info {
+            // A check under way goes on; one starts at the frame's end.
+            cx.core.tick_game_info_update(cx.client);
         }
+        let passes = scheduler.pass_count();
         cx.show_first_run_guidance();
         cx.observe_command_portal_state();
         // The UB commands' delayed lines and the dialog watch.
@@ -300,6 +300,15 @@ impl Tank {
         }
         if cx.core.panel.active_tab == super::panel::TankTab::Route {
             cx.refresh_route_editor();
+        }
+        // Starting the game database's check reads the database: once-only
+        // work of its own, on a frame that ran no pass (register UI-1).
+        cx.core.last_frame_ran_pass = scheduler.pass_count() != passes;
+        if check_game_info
+            && scheduler.pass_count() == passes
+            && cx.core.start_game_info_check(cx.client)
+        {
+            cx.core.heavy_frame = true;
         }
         cx.core.write_out(cx.client);
         cx.flush_timer_persistence();

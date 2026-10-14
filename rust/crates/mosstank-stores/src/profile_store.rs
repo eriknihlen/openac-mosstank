@@ -19,7 +19,9 @@ use crate::legacy::{
     LegacyProfileDocument, LegacyRosterDocument, PreferencesDocument, meta_interval,
 };
 use crate::recovery::{self, sha256_hex};
-use crate::sidecar::{DynamicSettingDocument, SideCarDocument};
+use crate::sidecar::{
+    DynamicSettingDocument, KeptRules, SideCarDocument, SideCarOutcome, SideCarRead,
+};
 use crate::storage::{Root, StoreHost};
 
 /// The built-in character profile's name in the picker.
@@ -70,6 +72,9 @@ pub struct ProfileStore {
     load_failure_notice: Option<String>,
     save_failure_notice: Option<String>,
     last_load_key: Option<String>,
+    /// The loot rules' text in the side-car last written, with what it
+    /// was written from (a large profile's is 1.4 MB).
+    side_car_rules: KeptRules,
 }
 
 fn to_key(bare_file_name: &str) -> String {
@@ -169,6 +174,64 @@ fn read_json<T>(
     }
 }
 
+/// How a settings load begins: over already (the file would not read), or
+/// with its side-car to read ([`ProfileStore::begin_load`]).
+#[derive(Debug)]
+pub enum SettingsLoadStart {
+    /// The load is over, with this outcome.
+    Done(ProfileLoad),
+    /// The settings file is applied; its side-car is read next.
+    Reading(Box<SettingsLoad>),
+}
+
+/// A settings load whose side-car is being read, a run of its loot rules
+/// at a time (a large profile's side-car is a 1.4 MB document).
+#[derive(Debug)]
+pub struct SettingsLoad {
+    file_name: String,
+    side_car: SideCarSource,
+}
+
+/// Where a settings load's side-car comes from.
+#[derive(Debug)]
+enum SideCarSource {
+    /// Nobody is named: the defaults, in memory only.
+    Nobody,
+    /// The settings file is missing: the defaults.
+    Missing,
+    /// No side-car to read: the defaults.
+    Absent,
+    /// The side-car's text, being read.
+    Text(Box<SideCarRead>),
+}
+
+impl SettingsLoad {
+    fn start(file_name: String, side_car: SideCarSource) -> Result<SettingsLoadStart, StoreError> {
+        Ok(SettingsLoadStart::Reading(Box::new(Self {
+            file_name,
+            side_car,
+        })))
+    }
+
+    /// Reads on through at least `bytes` more of the side-car's rules;
+    /// whether it is all read, and the bytes read.
+    pub fn step(&mut self, bytes: usize) -> (bool, usize) {
+        match &mut self.side_car {
+            SideCarSource::Text(read) => read.step(bytes),
+            _ => (true, 0),
+        }
+    }
+
+    /// The side-car's length, in bytes (0 without one).
+    #[must_use]
+    pub fn side_car_len(&self) -> usize {
+        match &self.side_car {
+            SideCarSource::Text(read) => read.byte_len(),
+            _ => 0,
+        }
+    }
+}
+
 impl ProfileStore {
     /// The store, its preferences read (or the old roster's, or defaults).
     pub fn new(host: &mut dyn StoreHost) -> Self {
@@ -203,6 +266,7 @@ impl ProfileStore {
             load_failure_notice: None,
             save_failure_notice: None,
             last_load_key: None,
+            side_car_rules: KeptRules::default(),
         }
     }
 
@@ -567,7 +631,8 @@ impl ProfileStore {
                     copy
                 }
             };
-            let sidecar = SideCarDocument::capture(settings, no_buff_item_names, log_channels);
+            let sidecar =
+                SideCarDocument::capture_and_write(settings, no_buff_item_names, log_channels);
             (database, sidecar)
         } else {
             let database = seed_from_defaults(settings);
@@ -580,10 +645,10 @@ impl ProfileStore {
                 host.log().warn(&warning);
             }
             assist_items::apply(&mut settings.combat);
-            (database, sidecar)
+            (database, sidecar.write())
         };
         self.write_usd_text(host, &file_name, &database.render());
-        self.write_json(host, &side_car_key(&file_name), sidecar.write());
+        self.write_json(host, &side_car_key(&file_name), sidecar);
         self.current_database = Some(database);
         self.current_database_file_name = Some(file_name.clone());
         self.active_file_name = Some(file_name.clone());
@@ -667,43 +732,43 @@ impl ProfileStore {
         no_buff_item_names: &mut OrdinalStringSet,
         log_channels: &mut IgnoreCaseStringSet,
     ) -> Result<ProfileLoad, StoreError> {
+        match self.begin_load(host, settings, no_buff_item_names)? {
+            SettingsLoadStart::Done(outcome) => Ok(outcome),
+            SettingsLoadStart::Reading(load) => {
+                self.finish_load(host, *load, settings, no_buff_item_names, log_channels)
+            }
+        }
+    }
+
+    /// The first part of [`Self::load_current`]: the settings file is read
+    /// and applied, and its side-car waits to be read
+    /// ([`SettingsLoad::step`]) and applied ([`Self::finish_load`]); a load
+    /// that fails is over here.
+    ///
+    /// # Errors
+    /// As [`Self::load_current`].
+    pub fn begin_load(
+        &mut self,
+        host: &mut dyn StoreHost,
+        settings: &mut AllSettings,
+        no_buff_item_names: &mut OrdinalStringSet,
+    ) -> Result<SettingsLoadStart, StoreError> {
         self.sweep_legacy_roster_if_needed(host)?;
         self.migrate_legacy_if_needed(host, settings, no_buff_item_names)?;
         if !self.has_character_name() && ordinal::equals_ignore_case(&self.selected, BY_CHARACTER) {
             // Nobody is named yet: the shipped defaults stand in, in memory
             // only, until a name arrives.
             seed_from_defaults(settings);
-            Self::apply_side_car(
-                host,
-                &SideCarDocument::create_defaults(),
-                settings,
-                no_buff_item_names,
-                log_channels,
-            );
-            self.last_load_key = Some(String::new());
-            self.current_database = None;
-            self.current_database_file_name = None;
-            self.active_file_name = None;
-            self.has_active_profile = true;
-            self.load_failure_notice = None;
-            return Ok(ProfileLoad::Missing);
+            return SettingsLoad::start(String::new(), SideCarSource::Nobody);
         }
         let file_name = self.current_file_name();
         self.last_load_key = Some(file_name.clone());
         let Some(text) = self.read_usd_text(host, &file_name)? else {
             // VTank seeds a missing file from the shipped defaults.
             let fresh = seed_from_defaults(settings);
-            Self::apply_side_car(
-                host,
-                &SideCarDocument::create_defaults(),
-                settings,
-                no_buff_item_names,
-                log_channels,
-            );
             self.current_database = Some(fresh);
             self.current_database_file_name = Some(file_name.clone());
-            self.activate(host, &file_name)?;
-            return Ok(ProfileLoad::Missing);
+            return SettingsLoad::start(file_name, SideCarSource::Missing);
         };
         let mut warnings = Vec::new();
         let loaded = profile::load(&text, &mut AllSettings::default(), None).and_then(|_| {
@@ -738,21 +803,110 @@ impl ProfileStore {
                 {
                     self.selected = active.clone();
                 }
-                return Ok(ProfileLoad::Failed);
+                return Ok(SettingsLoadStart::Done(ProfileLoad::Failed));
             }
         };
         self.current_database = Some(database);
         self.current_database_file_name = Some(file_name.clone());
-        let sidecar = read_json(
-            host,
-            &mut self.recovery_notice,
-            &side_car_key(&file_name),
-            SideCarDocument::read,
-        )
-        .unwrap_or_else(SideCarDocument::create_defaults);
+        let side_car = match self.read_side_car_text(host, &side_car_key(&file_name)) {
+            Some(text) => SideCarSource::Text(Box::new(SideCarRead::new(text))),
+            None => SideCarSource::Absent,
+        };
+        SettingsLoad::start(file_name, side_car)
+    }
+
+    /// A side-car's text as `read_json` reads it: none when the plugin's
+    /// storage is not there, the file is missing or blank, or it cannot be
+    /// read (preserved and said).
+    fn read_side_car_text(&mut self, host: &mut dyn StoreHost, key: &str) -> Option<String> {
+        let storage = host.storage(Root::Plugin);
+        if !storage.is_available() {
+            return None;
+        }
+        let text = match storage.read_text(key) {
+            Ok(text) => text,
+            Err(error) => {
+                let notice = recovery::preserve(host, "macro", key, None, &error);
+                host.log().warn(&notice);
+                self.recovery_notice = Some(notice);
+                return None;
+            }
+        };
+        text.filter(|text| !casing::is_white_space_only(text))
+    }
+
+    /// The last part of [`Self::load_current`]: the side-car read and
+    /// applied, and the profile made the active one.
+    ///
+    /// # Errors
+    /// As [`Self::load_current`].
+    pub fn finish_load(
+        &mut self,
+        host: &mut dyn StoreHost,
+        load: SettingsLoad,
+        settings: &mut AllSettings,
+        no_buff_item_names: &mut OrdinalStringSet,
+        log_channels: &mut IgnoreCaseStringSet,
+    ) -> Result<ProfileLoad, StoreError> {
+        let SettingsLoad {
+            file_name,
+            side_car,
+        } = load;
+        let nobody = matches!(side_car, SideCarSource::Nobody);
+        let (sidecar, rules, outcome) = match side_car {
+            SideCarSource::Nobody | SideCarSource::Missing => (
+                SideCarDocument::create_defaults(),
+                None,
+                ProfileLoad::Missing,
+            ),
+            SideCarSource::Absent => (
+                SideCarDocument::create_defaults(),
+                None,
+                ProfileLoad::Loaded,
+            ),
+            SideCarSource::Text(read) => match read.finish() {
+                SideCarOutcome::Read(document, rules) => (*document, rules, ProfileLoad::Loaded),
+                SideCarOutcome::Null => (
+                    SideCarDocument::create_defaults(),
+                    None,
+                    ProfileLoad::Loaded,
+                ),
+                SideCarOutcome::Failed(error, text) => {
+                    let key = side_car_key(&file_name);
+                    let notice = recovery::preserve(host, "macro", &key, Some(&text), &error);
+                    host.log().warn(&notice);
+                    self.recovery_notice = Some(notice);
+                    (
+                        SideCarDocument::create_defaults(),
+                        None,
+                        ProfileLoad::Loaded,
+                    )
+                }
+            },
+        };
         Self::apply_side_car(host, &sidecar, settings, no_buff_item_names, log_channels);
+        if let Some(rules) = rules {
+            settings.inventory.loot.rules = rules;
+        }
+        if nobody {
+            self.last_load_key = Some(String::new());
+            self.current_database = None;
+            self.current_database_file_name = None;
+            self.active_file_name = None;
+            self.has_active_profile = true;
+            self.load_failure_notice = None;
+            return Ok(ProfileLoad::Missing);
+        }
         self.activate(host, &file_name)?;
-        Ok(ProfileLoad::Loaded)
+        Ok(outcome)
+    }
+
+    /// Writes ahead about `bytes` of the loot rules' text the next save of
+    /// the side-car writes (a large profile's is 1.4 MB, several calls'
+    /// work): true once it is all written, and the save only copies it.
+    pub fn prepare_save(&mut self, settings: &AllSettings, bytes: usize) -> bool {
+        self.side_car_rules
+            .prepare(&settings.inventory.loot.rules, bytes)
     }
 
     /// Saves the live settings into the selected profile and its side-car.
@@ -771,6 +925,9 @@ impl ProfileStore {
     ) -> Result<bool, StoreError> {
         // Saving under a blank name writes a file the character, once known,
         // never reads: refusing says so.
+        // A side-car prepared just now for these rules is not looked at
+        // again; one prepared for a save that never came is.
+        let checked = self.side_car_rules.take_check();
         self.save_failure_notice = None;
         if !self.has_character_name() {
             return Ok(false);
@@ -792,13 +949,17 @@ impl ProfileStore {
             }
         };
         let text = profile::save(&mut database, settings).map_err(|error| error.0)?;
-        if !self.write_usd_text(host, &file_name, &text)
-            || !self.write_json(
-                host,
-                &side_car_key(&file_name),
-                SideCarDocument::capture(settings, no_buff_item_names, log_channels).write(),
-            )
-        {
+        if !self.write_usd_text(host, &file_name, &text) {
+            return Ok(false);
+        }
+        let side_car = SideCarDocument::capture_and_write_kept(
+            settings,
+            no_buff_item_names,
+            log_channels,
+            &mut self.side_car_rules,
+            checked,
+        );
+        if !self.write_json(host, &side_car_key(&file_name), side_car) {
             return Ok(false);
         }
         self.current_database = Some(database);
@@ -1018,12 +1179,12 @@ impl ProfileStore {
                 }
                 let database = profile::create_new(&mut settings).map_err(|error| error.0)?;
                 self.write_usd_text(host, &file_name, &database.render());
-                let sidecar = SideCarDocument::capture(
+                let text = SideCarDocument::capture_and_write(
                     &settings,
                     &no_buff_item_names,
                     &IgnoreCaseStringSet::new(),
                 );
-                self.write_json(host, &side_car_key(&file_name), sidecar.write());
+                self.write_json(host, &side_car_key(&file_name), text);
             }
             let plugin = host.storage(Root::Plugin);
             if plugin.is_available() {
@@ -1113,9 +1274,12 @@ impl ProfileStore {
         }
         let database = profile::create_new(settings).map_err(|error| error.0)?;
         self.write_usd_text(host, &file_name, &database.render());
-        let sidecar =
-            SideCarDocument::capture(settings, no_buff_item_names, &IgnoreCaseStringSet::new());
-        self.write_json(host, &side_car_key(&file_name), sidecar.write());
+        let text = SideCarDocument::capture_and_write(
+            settings,
+            no_buff_item_names,
+            &IgnoreCaseStringSet::new(),
+        );
+        self.write_json(host, &side_car_key(&file_name), text);
         self.current_database = Some(database);
         self.current_database_file_name = Some(file_name.clone());
         let plugin = host.storage(Root::Plugin);

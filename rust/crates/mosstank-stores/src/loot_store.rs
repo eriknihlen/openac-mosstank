@@ -229,15 +229,14 @@ struct FileMemo {
     text: String,
     blocks: Option<Vec<VtankLootExtraBlock>>,
     written: Option<u64>,
+    /// The text a save would write over it, worked out ahead, and what it
+    /// is written from.
+    prepared: Option<(u64, String)>,
 }
 
 /// What a profile is written from, as one number.
 fn content_hash(rules: &[LootRule], salvage: &VtankSalvageCombineSettings) -> u64 {
-    use std::hash::{Hash, Hasher};
-    let mut hasher = std::hash::DefaultHasher::new();
-    rules.hash(&mut hasher);
-    salvage.hash(&mut hasher);
-    hasher.finish()
+    crate::fast_hash::hash(&(rules, salvage))
 }
 
 impl Default for LootProfileStore {
@@ -655,6 +654,7 @@ impl LootProfileStore {
             text,
             blocks: Some(blocks),
             written: None,
+            prepared: None,
         });
         Ok(ProfileLoad::Loaded)
     }
@@ -783,11 +783,13 @@ impl LootProfileStore {
         {
             return Ok(());
         }
-        let known = self
-            .file_memo
-            .take()
-            .filter(|_| current)
-            .and_then(|memo| memo.blocks);
+        let memo = self.file_memo.take().filter(|_| current);
+        let prepared = memo
+            .as_ref()
+            .and_then(|memo| memo.prepared.as_ref())
+            .filter(|(hash, _)| *hash == content)
+            .map(|(_, text)| text.clone());
+        let known = memo.and_then(|memo| memo.blocks);
         let mut blocks = match (known, existing) {
             (Some(blocks), _) => blocks,
             (None, Some(existing_text)) => match utl::try_read(Some(&existing_text)) {
@@ -808,7 +810,7 @@ impl LootProfileStore {
         if !host.storage(Root::Profiles).is_available() {
             return Ok(());
         }
-        let text = utl::write_parts(rules, &salvage, &blocks);
+        let text = prepared.unwrap_or_else(|| utl::write_parts(rules, &salvage, &blocks));
         if let Err(error) = host.storage(Root::Profiles).write_text(&file_name, &text) {
             host.log().warn(&format!(
                 "MossTank loot profile could not be saved: {error}"
@@ -820,8 +822,38 @@ impl LootProfileStore {
             text,
             blocks: utl::blocks_as_read(&blocks),
             written: Some(content),
+            prepared: None,
         });
         Ok(())
+    }
+
+    /// Works out ahead the text the next save of these rules and salvage
+    /// settings would write over the active profile's file as last read or
+    /// written here (a large profile takes a tick's worth to write); the
+    /// save then writes it as it is. Nothing without such a file.
+    pub fn prepare_save(&mut self, rules: &[LootRule], settings: Option<&LootSettings>) {
+        let salvage = settings
+            .map(|loot| loot.salvage_combine.clone())
+            .unwrap_or_default();
+        let content = content_hash(rules, &salvage);
+        let Some(memo) = self.file_memo.as_mut() else {
+            return;
+        };
+        if memo.written == Some(content)
+            || memo
+                .prepared
+                .as_ref()
+                .is_some_and(|(hash, _)| *hash == content)
+        {
+            return;
+        }
+        let Some(blocks) = memo.blocks.as_ref() else {
+            return;
+        };
+        let mut blocks = blocks.clone();
+        blocks.retain(|block| block.kind != utl::MOSSTANK_RULES_BLOCK_TYPE);
+        blocks.push(utl::mosstank_expressions_block(rules));
+        memo.prepared = Some((content, utl::write_parts(rules, &salvage, &blocks)));
     }
 
     /// Deletes the selected named profile; `By char` comes next.
