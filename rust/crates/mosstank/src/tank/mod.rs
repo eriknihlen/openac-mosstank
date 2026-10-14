@@ -20,6 +20,7 @@ mod diagnostics;
 mod display;
 mod frame;
 mod meta_windows;
+mod nav_lines;
 pub(crate) mod options;
 pub(crate) mod panel;
 mod peers;
@@ -333,6 +334,8 @@ pub struct Core {
     /// Answers worked out from the client's data, kept while that data is
     /// the same.
     pub(crate) memo: Memos,
+    /// The route drawn in the world ("Show Nav Lines").
+    pub(crate) nav_lines: nav_lines::NavLines,
 }
 
 /// Answers the windows and rules work out from the client's data, kept
@@ -839,6 +842,7 @@ impl Tank {
             peers: peers::PeerState::default(),
             session,
             memo: Memos::default(),
+            nav_lines: nav_lines::NavLines::default(),
         };
         core.bind_controller_hooks();
         // The history hears every new status line of the fight, and starts
@@ -1287,6 +1291,7 @@ impl Tank {
         // A profile load under way is finished: the plugin stops on a whole
         // set (register PROF-1).
         cx.finish_staged_load();
+        cx.core.nav_lines.clear(cx.client);
         cx.core.release_peer_subscriptions(cx.client);
         cx.core.dispose_session_records(cx.client);
         // The UB tools' runs end with the plugin, and the name tags give

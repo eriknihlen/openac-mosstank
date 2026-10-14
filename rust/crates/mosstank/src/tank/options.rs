@@ -282,7 +282,7 @@ impl Core {
                 "enablenav" => navigation.enabled = truthy,
                 "enablelooting" => inventory.loot.enabled = truthy,
                 "walktorarecorpse" => inventory.loot.walk_to_own_rare_corpses = truthy,
-                // The route's lines on the map come with the panel (MT-11).
+                // Drawn by `TankCx::set_meta_option` and every frame.
                 "shownavlines" => navigation.show_nav_lines = truthy,
                 "enablemeta" => self.settings.meta.enabled = truthy,
                 "spelldiffexcessthreshold-hunt" => {
@@ -725,11 +725,14 @@ impl TankCx<'_> {
         value: &ExpressionValue,
     ) -> Result<bool, Fault> {
         let written = self.core.set_option(name, value)?;
-        if written
-            && options::canonical(name)
-                .is_some_and(|canonical| casing::to_lower_invariant(canonical) == "enablemeta")
-        {
-            self.meta.set_enabled(value.is_truthy());
+        if written {
+            let canonical = options::canonical(name).map(casing::to_lower_invariant);
+            match canonical.as_deref() {
+                Some("enablemeta") => self.meta.set_enabled(value.is_truthy()),
+                // The route's lines follow the switch at once.
+                Some("shownavlines") => self.update_nav_lines(),
+                _ => {}
+            }
         }
         Ok(written)
     }

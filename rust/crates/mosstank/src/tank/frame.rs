@@ -5,9 +5,7 @@
 //!
 //! The session's own records (the action history, the kill statistics, the
 //! game database check, the published meta state) are in `session`, the
-//! peer features in `peers`. The parts of the C#'s frame that belong to the
-//! panel's windows are not here (MT-11): the nav lines, the maps and the
-//! item admission.
+//! peer features in `peers`, the route drawn in the world in `nav_lines`.
 
 use mosstank_automation::cast_tracker::SpellCastTracker;
 use mosstank_buffs::buff_rule::BuffTurn;
@@ -91,6 +89,7 @@ impl Tank {
         });
         cx.tick_display_tools(elapsed_seconds);
         cx.tick_dungeon_map(elapsed_seconds);
+        cx.update_nav_lines();
         cx.paint_display_tools();
         let meta_state = cx.meta.current_state().to_owned();
         cx.core.publish_status(cx.client, &meta_state);
@@ -330,6 +329,7 @@ impl TankCx<'_> {
         self.core.release_peer_subscriptions(self.client);
         self.core.peers.forget_expression_requirements();
         self.core.end_session_records();
+        self.core.nav_lines.clear(self.client);
         self.with_ub(|commands, call| commands.tools_mut().nametags.reset(call.host));
         self.reset_display_tools();
         if self.core.combat.enabled() {

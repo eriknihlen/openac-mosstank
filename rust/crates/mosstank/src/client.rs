@@ -151,6 +151,16 @@ pub trait SessionClient {
     /// The keys this view wrote, deleted or made a folder of in the profile
     /// folder since the last time they were taken.
     fn take_profile_writes(&mut self) -> Vec<String>;
+    /// A new, empty layer of lines in the world
+    /// (`IPluginWorldLines.CreateLayer`).
+    fn create_line_layer(&mut self) -> openac_plugin::ui::LineLayer;
+    /// Replaces a layer's lines (`IPluginWorldLineLayer.SetLines`); whether
+    /// the client took them.
+    fn set_world_lines(
+        &mut self,
+        layer: openac_plugin::ui::LineLayer,
+        lines: &[ac_plugin_abi::ui::WorldLine],
+    ) -> bool;
 }
 
 impl SessionClient for crate::automation::HostAutomation<'_, '_> {
@@ -252,6 +262,20 @@ impl SessionClient for crate::automation::HostAutomation<'_, '_> {
 
     fn take_profile_writes(&mut self) -> Vec<String> {
         std::mem::take(&mut self.profiles_written)
+    }
+
+    // The lines are the plugin host's own drawing: they change nothing of
+    // the game, so the call keeps its reads.
+    fn create_line_layer(&mut self) -> openac_plugin::ui::LineLayer {
+        self.service().create_line_layer()
+    }
+
+    fn set_world_lines(
+        &mut self,
+        layer: openac_plugin::ui::LineLayer,
+        lines: &[ac_plugin_abi::ui::WorldLine],
+    ) -> bool {
+        layer.set_lines(self.service(), lines)
     }
 }
 

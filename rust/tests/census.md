@@ -2072,7 +2072,7 @@ Ported: **2302 of 2307** C# tests, from 137 of 137 files. Not applicable: **5**.
 - DeleteLootProfileRemovesTheRealFileAndFallsBackToByCharacter: `crates/mosstank/tests/panel_profiles.rs` :: `delete_loot_profile_removes_the_file_and_falls_back`
 - DeleteNamedLootProfileDoesNotActivateOrOverwriteMalformedByCharacterFallback: `crates/mosstank/tests/panel_profiles.rs` :: `deleting_a_named_loot_profile_does_not_activate_a_malformed_fallback`
 - DeleteLootProfileRefusesToRemoveByCharacter: `crates/mosstank/tests/panel_profiles.rs` :: `delete_loot_profile_refuses_the_by_character_profile`
-- ShowNavLinesDrawsTheLoadedRouteAndPersistsWithTheProfile: `crates/mosstank-nav/tests/route_view.rs` :: `show_nav_lines_draws_the_loaded_route_as_rings_and_legs`
+- ShowNavLinesDrawsTheLoadedRouteAndPersistsWithTheProfile: `crates/mosstank/tests/nav_lines.rs` :: `show_nav_lines_draws_the_loaded_route_and_clears_it_when_turned_off`, `crates/mosstank-nav/tests/route_view.rs` :: `show_nav_lines_draws_the_loaded_route_as_rings_and_legs`
 - AWieldedWeaponAddedToTheItemsListSurvivesARestart: `crates/mosstank/tests/panel_item_rows.rs` :: `a_wielded_weapon_added_to_the_list_survives_a_restart`
 - RemovingARowForAMissingObjectKeepsTheRestOfTheList: `crates/mosstank/tests/panel_item_rows.rs` :: `removing_a_row_for_a_missing_object_keeps_the_rest`
 - AnAddThatReachedNoProfileIsReportedAsUnsavedNotAsAdded: `crates/mosstank/tests/panel_item_rows.rs` :: `an_add_that_reached_no_profile_is_reported_as_unsaved`
