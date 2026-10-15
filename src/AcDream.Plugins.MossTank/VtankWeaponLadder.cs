@@ -176,7 +176,9 @@ internal static class VtankWeaponLadder
                     && canDeliver(item, element)
                     && rating > ratingOf.GetValueOrDefault(element))
                 {
-                    byRating[element] = item.ObjectId;
+                    // Record writes the map itself. Writing it here first
+                    // would hide the element from ratingOrder, and the
+                    // best-rated step below would never fire.
                     ratingOf[element] = rating;
                     Record(byRating, ratingOrder, element, item.ObjectId);
                 }
@@ -192,7 +194,6 @@ internal static class VtankWeaponLadder
                         {
                             continue;
                         }
-                        byRating[candidate] = item.ObjectId;
                         ratingOf[candidate] = rating;
                         Record(byRating, ratingOrder, candidate, item.ObjectId);
                     }
