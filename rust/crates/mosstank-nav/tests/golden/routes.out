@@ -309,7 +309,6 @@
   cast 1635 -> Sent
   = 1 | Recall: Lifestone Recall. | door: no door in reach | idx 0
 > tick 3
-  cast 1635 -> Sent
   = 1 | Recall: Lifestone Recall. | door: no door in reach | idx 0
 > tick 0.05
   = 1 | Waiting for portal space. | door: no door in reach | idx 0

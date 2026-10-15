@@ -1928,9 +1928,18 @@ impl NavigationController {
         }
 
         let label = waypoint.recall_label();
-        if automation.is_casting() {
-            // The cast is already doing the waypoint's job, and a second
-            // request on top of a pending one is turned away, so the retry
+        // A recall this waypoint sent that the server has not answered yet
+        // is still in the air. The client no longer says so through
+        // `is_casting` (it lets a cast be re-issued while an earlier one is
+        // unanswered), and a recall's windup, gesture and recoil take
+        // longer than the retry interval. A retry sent then was answered
+        // "too busy", that error sent it again at once, and so on every
+        // frame until the first cast's answer; the one still on its way
+        // when the server finished the first cast was cast as well.
+        let unanswered = self.recall_cast_pending
+            && automation.last_cast_completion().revision == self.recall_cast_revision;
+        if automation.is_casting() || unanswered {
+            // The cast is already doing the waypoint's job, so the retry
             // clock is wound back while the cast is in the air.
             self.retry_elapsed = 0.0;
             self.voice.status = format!("Recall: {label}.");

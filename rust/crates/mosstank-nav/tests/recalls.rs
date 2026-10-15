@@ -311,6 +311,71 @@ fn a_recall_still_in_the_air_is_not_resent_and_says_nothing() {
     assert!(rig.automation.posted_system_messages.is_empty());
 }
 
+/// The client answers `is_casting` false while a cast waits for the
+/// server, and the server answers a recall only after its windup, gesture
+/// and a second of recoil (2.4 to 4.3 s on the local server), past the
+/// two-second retry. The recall is not sent again in that time: the
+/// retries were refused as too busy, each refusal sent another, and the
+/// one on its way when the first cast ended was cast too (register NAV-5;
+/// the owner's report of 2026-10-15). No C# source: the C# relies on the
+/// old client's `IsCasting`.
+#[test]
+fn a_recall_the_server_has_not_answered_is_not_sent_again() {
+    let mut rig = recall_ready_to_cast(CastResult::Sent);
+
+    assert!(rig.tick(0.05, true));
+    assert_eq!(rig.automation.magic().requested_spell_ids, [1635]);
+
+    // Four seconds without an answer, and the client says nothing is
+    // casting.
+    for _ in 0..80 {
+        assert!(rig.tick(0.05, true));
+    }
+    assert_eq!(rig.automation.magic().requested_spell_ids, [1635]);
+    assert!(rig.automation.posted_system_messages.is_empty());
+
+    // The server's answer: the cast landed, the teleport is on its way.
+    rig.automation.magic().last_completion = CastCompletion {
+        revision: 1,
+        spell_id: 1635,
+        target_id: 0,
+        weenie_error: 0,
+    };
+    for _ in 0..40 {
+        assert!(rig.tick(0.05, true));
+    }
+    assert_eq!(rig.automation.magic().requested_spell_ids, [1635]);
+
+    // Portal space, then the arrival somewhere else, ends the waypoint.
+    rig.automation.navigation_snapshot.is_portal_space = true;
+    assert!(rig.tick(0.05, true));
+    rig.automation.navigation_snapshot = snapshot(position(4.0, 0.0));
+    assert!(rig.tick(0.05, true));
+    assert_eq!(rig.index(), 1);
+    assert_eq!(rig.automation.magic().requested_spell_ids, [1635]);
+}
+
+/// An answer that is an error (here the server's "too busy") sends the
+/// recall again at once, as one with the client's casting flag does.
+#[test]
+fn a_recall_answered_with_an_error_is_sent_again_at_once() {
+    let mut rig = recall_ready_to_cast(CastResult::Sent);
+
+    assert!(rig.tick(0.05, true));
+    assert!(rig.tick(0.5, true));
+    assert_eq!(rig.automation.magic().requested_spell_ids, [1635]);
+
+    rig.automation.magic().last_completion = CastCompletion {
+        revision: 1,
+        spell_id: 1635,
+        target_id: 0,
+        weenie_error: 0x1D,
+    };
+    assert!(rig.tick(0.05, true));
+
+    assert_eq!(rig.automation.magic().requested_spell_ids, [1635, 1635]);
+}
+
 // Source: tests/AcDream.Plugins.MossTank.Tests/NavigationTests.cs :: ARecallThatCompletedWithoutPortalSpaceRecastsAtOnce
 #[test]
 fn a_recall_that_completed_without_portal_space_recasts_at_once() {
@@ -398,6 +463,14 @@ fn recall_waits_until_the_character_has_stopped() {
     assert!(rig.tick(0.05, true));
     assert_eq!(rig.automation.magic().cast_spell_ids, [48]);
     rig.automation.magic().cast_spell_ids.clear();
+    // The cast fizzles, so the recall is to be sent again (one still
+    // unanswered is not, register NAV-5).
+    rig.automation.magic().last_completion = CastCompletion {
+        revision: 1,
+        spell_id: 48,
+        target_id: 0,
+        weenie_error: 0x402,
+    };
 
     // A retry is due, but the character has moved more than the tolerance
     // since the last tick, so the recall waits.

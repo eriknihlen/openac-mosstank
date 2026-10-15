@@ -290,6 +290,7 @@ magic answer=Sent
 tick 0.05
 magic casting=0 completion=2,1635,0
 tick 3
+magic completion=3,1635,0
 tick 3
 me 0 0 0 portal
 tick 0.05
@@ -329,12 +330,14 @@ wp Point at=5m,0
 magic answer=Sent
 me 0 0 0
 tick 0.05
+magic completion=1,48,1026
 me 0 3m 0
 tick 2.5
 tick 0.05
 me 0 5m 0
 tick 0.05
 me 0 5.1m 0
+magic completion=2,48,1026
 tick 2.5
 
 case jump-aligns-charges-lands
