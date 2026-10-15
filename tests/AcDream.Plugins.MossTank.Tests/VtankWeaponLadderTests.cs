@@ -255,6 +255,105 @@ public sealed class VtankWeaponLadderTests
                 excludeObjectId: 1u));
     }
 
+    /// <summary>
+    /// A rated weapon of the wanted element is taken ahead of a plain one of
+    /// the same element.
+    /// Mutation: write byRating before Record again and this fails — the
+    /// element never reaches ratingOrder, the best-rated rung never fires,
+    /// and the plain sword (listed last) wins the element rung.
+    /// </summary>
+    [Fact]
+    public void ARatedWeaponOfTheWantedElementBeatsAPlainOne()
+    {
+        PluginEquipmentItem rated = Weapon(2, "Critical Fire Sword", damageType: 0x0010)
+            with
+        { ImbuedEffect = 0x0001 };
+        PluginEquipmentItem plain = Weapon(1, "Fire Sword", damageType: 0x0010);
+
+        Assert.Equal(2u, Pick([rated, plain], MonsterDamageType.Fire));
+    }
+
+    /// <summary>
+    /// The rung keeps the best-rated weapon per element, whatever order the
+    /// weapons come in.
+    /// Mutation: drop the rating comparison and the first assertion fails —
+    /// the crippling axe, met later, overwrites the rending one.
+    /// </summary>
+    [Fact]
+    public void TheBestRatedWeaponOfTheWantedElementWins()
+    {
+        PluginEquipmentItem rending = Weapon(1, "Armor Rending Fire Axe", damageType: 0x0010)
+            with
+        { ImbuedEffect = 0x0004 };
+        PluginEquipmentItem crippling = Weapon(2, "Crippling Fire Axe", damageType: 0x0010)
+            with
+        { ImbuedEffect = 0x0002 };
+        PluginEquipmentItem plain = Weapon(3, "Fire Axe", damageType: 0x0010);
+
+        Assert.Equal(1u, Pick([rending, crippling, plain], MonsterDamageType.Fire));
+        Assert.Equal(1u, Pick([plain, crippling, rending], MonsterDamageType.Fire));
+    }
+
+    /// <summary>
+    /// The elements are tried in the order the fight wants them, and a rated
+    /// weapon of any wanted element comes before a plain one.
+    /// Mutation: search ratingOrder in pack order instead of the wanted order
+    /// and the first assertion fails.
+    /// </summary>
+    [Fact]
+    public void TheBestRatedRungFollowsTheWantedOrderAndBeatsPlainWeapons()
+    {
+        PluginEquipmentItem ratedFire = Weapon(1, "Armor Rending Fire Axe", damageType: 0x0010)
+            with
+        { ImbuedEffect = 0x0004 };
+        PluginEquipmentItem ratedCold = Weapon(2, "Crippling Frost Axe", damageType: 0x0008)
+            with
+        { ImbuedEffect = 0x0002 };
+        PluginEquipmentItem plainCold = Weapon(3, "Frost Axe", damageType: 0x0008);
+        MonsterDamageType[] coldThenFire = [MonsterDamageType.Cold, MonsterDamageType.Fire];
+
+        Assert.Equal(
+            2u,
+            VtankWeaponLadder.Select(
+                [ratedFire, ratedCold, plainCold],
+                static _ => true,
+                coldThenFire,
+                species: -1,
+                static (_, _) => true,
+                static _ => false));
+        Assert.Equal(
+            1u,
+            VtankWeaponLadder.Select(
+                [ratedFire, plainCold],
+                static _ => true,
+                coldThenFire,
+                species: -1,
+                static (_, _) => true,
+                static _ => false));
+    }
+
+    /// <summary>
+    /// A plain launcher with a good rating stands in for every wanted element
+    /// its ammunition can carry.
+    /// Mutation: drop the launcher arm of the rating rung and this fails —
+    /// the frost sword wins the element rung.
+    /// </summary>
+    [Fact]
+    public void ARatedPlainLauncherStandsInForAWantedElement()
+    {
+        PluginEquipmentItem bow = new(
+            1u, "Launcher", 0x100u, 0x00100000u, 0u, 1u, 0u, 2,
+            0, 47, 1, 0.1)
+        {
+            ObjectClass = PluginObjectClass.MissileWeapon,
+            AmmoType = 1u,
+            ImbuedEffect = 0x0001,
+        };
+        PluginEquipmentItem sword = Weapon(2, "Frost Sword", damageType: 0x0008);
+
+        Assert.Equal(1u, Pick([bow, sword], MonsterDamageType.Cold));
+    }
+
     private static uint PickWithSchools(
         IReadOnlyList<PluginEquipmentItem> items,
         bool warTrained,
