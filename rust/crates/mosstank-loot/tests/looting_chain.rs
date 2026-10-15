@@ -6,6 +6,7 @@ mod common;
 
 use ac_plugin_abi::items::{
     InventoryCommandKind, InventoryCompletion, InventoryItem, ItemResult, ItemStatus,
+    ItemUseCompletion,
 };
 use common::{
     Lines, PLAYER, World, bind_locks, capture_log, chain_corpse, contains_line, enabled_settings,
@@ -855,4 +856,109 @@ fn every_line_the_staged_looter_writes_is_a_loot_line() {
         chain_settings("*"),
     );
     assert!(contains_line(&stage.log, "LootCorpse: opening"));
+}
+
+/// An open of a corpse out of arm's reach that the client walks to first
+/// (`open_walks_first`), opened once and then waited past its window while
+/// the client is still busy with the walk.
+fn open_and_wait_out_the_window(corpse: u32) -> (World, LootController, SharedActionLocks, Lines) {
+    let settings = LootSettings {
+        corpse_open_timeout_seconds: 1.5,
+        ..chain_settings("*")
+    };
+    let mut world = World {
+        open_walks_first: true,
+        ..World::with_corpses(vec![chain_corpse(corpse, 3.0)])
+    };
+    let mut controller = LootController::new(settings);
+    let log = capture_log(&mut controller);
+    let locks = bind_locks(&mut controller);
+
+    assert!(controller.tick(&mut world, 0.3, true));
+    assert_eq!(world.opened, [corpse]);
+
+    // Past the open window the client is still walking: the open is early,
+    // not failed, and the pass is held.
+    locks.borrow_mut().advance(1.6);
+    assert!(controller.tick(&mut world, 1.6, true));
+    assert_eq!(controller.status, "Waiting to open corpse…");
+    assert_eq!(world.opened, [corpse]);
+    (world, controller, locks, log)
+}
+
+// Source: MossTank register LOOT-8 (no C# counterpart: the C# opens such a
+// corpse again for as long as it lasts). Seen live on a corpse behind a shop
+// wall in Holtburg (openac-rust
+// `docs/evidence/r10/2026-10-15-mosstank-loot-slow-ticks.md`).
+#[test]
+fn an_open_whose_walk_covered_no_ground_sets_the_corpse_aside() {
+    const UNREACHABLE: u32 = 0x7000_1301;
+    const NEXT: u32 = 0x7000_1302;
+    let (mut world, mut controller, locks, log) = open_and_wait_out_the_window(UNREACHABLE);
+
+    // The client gave the walk up where it started: the open never went out.
+    world.items_busy = false;
+    assert!(!controller.tick(&mut world, 0.3, true));
+    assert_eq!(world.opened, [UNREACHABLE]);
+    assert!(contains_line(
+        &log,
+        "LootCorpse: setting aside 0x70001301 for 200 seconds: the walk to it covered no ground"
+    ));
+
+    // The pass goes on to the next corpse, and the one set aside stays aside.
+    world.corpses.push(chain_corpse(NEXT, 3.0));
+    locks.borrow_mut().advance(0.3);
+    assert!(controller.tick(&mut world, 0.3, true));
+    assert_eq!(world.opened, [UNREACHABLE, NEXT]);
+}
+
+// Source: MossTank register LOOT-8.
+#[test]
+fn an_open_whose_walk_covered_ground_is_opened_again() {
+    const CORPSE: u32 = 0x7000_1303;
+    let (mut world, mut controller, _locks, log) = open_and_wait_out_the_window(CORPSE);
+
+    // The walk got two metres along before it was called off (the corpse
+    // walk taking over): the corpse is reachable and is opened again.
+    world.navigation_position.north_south += 2.0 / 240.0;
+    world.items_busy = false;
+    assert!(controller.tick(&mut world, 0.3, true));
+    assert_eq!(world.opened, [CORPSE, CORPSE]);
+    assert!(!contains_line(&log, "setting aside"));
+}
+
+// Source: MossTank register LOOT-8.
+#[test]
+fn an_open_the_server_answered_is_not_set_aside() {
+    const CORPSE: u32 = 0x7000_1304;
+    let (mut world, mut controller, _locks, log) = open_and_wait_out_the_window(CORPSE);
+
+    // The walk arrived and the use went out; the server answered it before
+    // the looter saw the container asked for.
+    world.use_completion = ItemUseCompletion {
+        revision: world.use_completion.revision + 1,
+        source_id: CORPSE,
+        target_id: 0,
+        weenie_error: 0x1D,
+    };
+    controller.tick_identification(&mut world, 0.0);
+    world.items_busy = false;
+    assert!(controller.tick(&mut world, 0.3, true));
+    assert_eq!(world.opened, [CORPSE, CORPSE]);
+    assert!(!contains_line(&log, "setting aside"));
+}
+
+// Source: MossTank register LOOT-8.
+#[test]
+fn an_open_whose_walk_the_corpse_walk_called_off_is_opened_again() {
+    const CORPSE: u32 = 0x7000_1305;
+    let (mut world, mut controller, _locks, log) = open_and_wait_out_the_window(CORPSE);
+
+    // The corpse walk took the keys before the client's walk got anywhere
+    // (it was still turning): called off, not given up.
+    controller.note_corpse_walk_steered();
+    world.items_busy = false;
+    assert!(controller.tick(&mut world, 0.3, true));
+    assert_eq!(world.opened, [CORPSE, CORPSE]);
+    assert!(!contains_line(&log, "setting aside"));
 }

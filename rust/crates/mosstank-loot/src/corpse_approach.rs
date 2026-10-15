@@ -12,8 +12,12 @@
 //!
 //! MossTank's one exception to the outer radius, with the own-rare walk
 //! option on: a corpse holding this character's own rare is walked to out
-//! to the rare reach, and a walk to it that stops covering ground or runs
-//! out of time is given up (see [`crate::own_rare`]).
+//! to the rare reach, and a walk to it that runs out of time is given up
+//! (see [`crate::own_rare`]).
+//!
+//! A walk that stops covering ground (a wall between the character and the
+//! corpse) is given up and the corpse set aside for the blacklist period,
+//! whichever corpse it is (MossTank register LOOT-8).
 
 use ac_plugin_abi::world::Position;
 use mosstank_automation::Automation;
@@ -223,11 +227,18 @@ impl CorpseApproachController {
         if let Some(status) = self.mover.take_status() {
             self.status = status;
         }
-        if own_rare_walk
-            && (self.mover.is_stuck()
-                || self.own_rare_walk_seconds >= OWN_RARE_WALK_GIVE_UP_SECONDS)
-        {
-            let reason = if self.mover.is_stuck() {
+        if claimed {
+            turn.loot.note_corpse_walk_steered();
+        }
+        // A walk that stops covering ground has something between the
+        // character and the corpse: the mover only walks straight at it, so
+        // holding the turn would hold the pass for as long as the corpse
+        // lasts. Every corpse walk is given up then (MossTank register
+        // LOOT-8); the own-rare walk is also given up when it runs out of
+        // time.
+        let stuck = self.mover.is_stuck();
+        if stuck || (own_rare_walk && self.own_rare_walk_seconds >= OWN_RARE_WALK_GIVE_UP_SECONDS) {
+            let reason = if stuck {
                 format!(
                     "no ground covered for {} seconds",
                     format(STUCK_SECONDS, "0")
@@ -238,9 +249,14 @@ impl CorpseApproachController {
                     format(OWN_RARE_WALK_GIVE_UP_SECONDS, "0")
                 )
             };
-            turn.loot.give_up_own_rare_walk(corpse.object_id, &reason);
-            self.own_rare_walk_corpse = 0;
-            self.own_rare_walk_seconds = 0.0;
+            if own_rare_walk {
+                turn.loot.give_up_own_rare_walk(corpse.object_id, &reason);
+                self.own_rare_walk_corpse = 0;
+                self.own_rare_walk_seconds = 0.0;
+            } else {
+                turn.loot
+                    .set_aside_unreachable_corpse(corpse.object_id, &reason);
+            }
             return self.decline(
                 turn.host,
                 format!("Gave up walking to {}: {reason}.", corpse.name),

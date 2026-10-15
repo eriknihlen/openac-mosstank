@@ -13,6 +13,7 @@ use openac_plugin_compat::regex::{DotNetRegex, RegexOptions};
 use crate::controller::{DENIAL_SKIP_SECONDS, LootController, clamp, whole};
 use crate::host::{LootCorpse, LootHost};
 use mosstank_automation::heading;
+use mosstank_combat::mover::STUCK_PROGRESS_METERS;
 
 /// The radius the open step picks within -- arm's reach, a little over five
 /// metres. Outside it the corpse is the approach step's business.
@@ -562,6 +563,84 @@ impl LootController {
         }
         self.corpse_blacklisted_at.remove(&corpse_id);
         false
+    }
+
+    /// Sets aside, for the profile's blacklist period, a corpse the
+    /// character cannot get to: a walk to it that stopped covering ground,
+    /// or an open whose walk there covered none. It is not recorded as
+    /// looted; after the period it is tried again (MossTank register
+    /// LOOT-8).
+    pub(crate) fn set_aside_unreachable_corpse(&mut self, corpse_id: u32, reason: &str) {
+        if corpse_id == 0 {
+            return;
+        }
+        self.corpse_open_attempts.remove(&corpse_id);
+        self.corpse_blacklisted_at.insert(corpse_id, self.lifetime);
+        let timeout = clamp(
+            self.settings.blacklist_corpse_open_timeout_seconds,
+            1.0,
+            3600.0,
+        );
+        self.status = format!(
+            "Set aside a corpse out of reach for {} seconds.",
+            whole(timeout)
+        );
+        self.write_log(&format!(
+            "LootCorpse: setting aside 0x{corpse_id:08X} for {} seconds: {reason}",
+            whole(timeout)
+        ));
+    }
+
+    /// Notes when the open of the active corpse has gone out: the client
+    /// asks for the container, or answers a use of the corpse.
+    pub(crate) fn observe_open_request(&mut self, host: &mut dyn LootHost) {
+        if self.active_corpse == 0 || self.active_corpse_requested {
+            return;
+        }
+        let answered = host.last_item_completion();
+        if host.requested_container_id() == self.active_corpse
+            || (answered.revision != self.open_completion_revision
+                && answered.source_id == self.active_corpse)
+        {
+            self.active_corpse_requested = true;
+        }
+    }
+
+    /// The corpse walk steered the character: a walk the client was making
+    /// for the open, if any, is called off by it, not given up.
+    pub fn note_corpse_walk_steered(&mut self) {
+        if self.active_corpse != 0 {
+            self.open_walk_called_off = true;
+        }
+    }
+
+    /// An open of a corpse out of arm's reach is the client's walk first;
+    /// the open goes out when the walk arrives. When the client is idle
+    /// again with the open never sent and the character standing where it
+    /// opened, the walk covered no ground (the client gives up a walk that
+    /// gets no closer): something stands between the character and the
+    /// corpse. Opening it again sends the same walk into the same obstacle,
+    /// so the corpse is set aside. A walk the corpse walk called off, or one
+    /// that covered ground, is left to open again.
+    pub(crate) fn set_aside_open_that_never_left(&mut self, host: &mut dyn LootHost, current: u32) {
+        if self.active_corpse == 0
+            || current == self.active_corpse
+            || self.active_corpse_requested
+            || self.state_age <= self.settings.corpse_open_timeout_seconds.max(0.25)
+            || host.items_busy()
+        {
+            return;
+        }
+        let unreached = self.active_corpse;
+        let covered = heading::horizontal_distance_meters(&host.position(), &self.open_position);
+        if self.open_walk_called_off || covered >= STUCK_PROGRESS_METERS {
+            return;
+        }
+        self.active_corpse = 0;
+        self.active_corpse_saw_contents = false;
+        self.active_corpse_is_own_death = false;
+        self.state_age = 0.0;
+        self.set_aside_unreachable_corpse(unreached, "the walk to it covered no ground");
     }
 
     /// A corpse this pass is done with, however it ended: emptied, or given

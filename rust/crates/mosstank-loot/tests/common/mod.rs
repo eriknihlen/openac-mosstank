@@ -285,6 +285,10 @@ pub struct World {
     pub item_properties: HashMap<u32, ItemProperties>,
     pub unreadable_properties: HashSet<u32>,
     pub open_result: ItemStatus,
+    /// An accepted open is the client's walk to the corpse first: nothing
+    /// is requested and the client is busy until the walk ends (the test
+    /// ends it).
+    pub open_walks_first: bool,
     pub one_description_at_a_time: bool,
     pub never_answers: HashSet<u32>,
     pub presented_object_id: u32,
@@ -336,6 +340,7 @@ impl Default for World {
             item_properties: HashMap::new(),
             unreadable_properties: HashSet::new(),
             open_result: ItemStatus::Started,
+            open_walks_first: false,
             one_description_at_a_time: false,
             never_answers: HashSet::new(),
             presented_object_id: 0,
@@ -669,9 +674,16 @@ impl LootHost for World {
     }
 
     fn loot_open(&mut self, container_id: u32) -> ItemResult {
+        if self.open_walks_first && self.items_busy {
+            return ItemResult::of(ItemStatus::Busy);
+        }
         self.opened.push(container_id);
         if self.open_result != ItemStatus::Started {
             return ItemResult::of(self.open_result);
+        }
+        if self.open_walks_first {
+            self.items_busy = true;
+            return ItemResult::of(ItemStatus::Started);
         }
         self.requested = container_id;
         ItemResult::of(ItemStatus::Started)

@@ -1033,7 +1033,7 @@ Ported: **2302 of 2307** C# tests, from 137 of 137 files. Not applicable: **5**.
 - ThisCharactersRareIsWalkedToOutToTheRareReach: `crates/mosstank-loot/tests/corpse_approach.rs` :: `this_characters_rare_is_walked_to_out_to_the_rare_reach`
 - OnlyThisCharactersRareGetsTheRareReach: `crates/mosstank-loot/tests/corpse_approach.rs` :: `only_this_characters_rare_gets_the_rare_reach`
 - WithTheOptionOffThisCharactersRarePastTheRangeIsLeft: `crates/mosstank-loot/tests/corpse_approach.rs` :: `with_the_option_off_this_characters_rare_past_the_range_is_left`
-- WithTheOptionOffARareWalkIsNeverGivenUp: `crates/mosstank-loot/tests/corpse_approach.rs` :: `with_the_option_off_a_rare_walk_is_never_given_up`
+- WithTheOptionOffARareWalkIsNeverGivenUp: `crates/mosstank-loot/tests/corpse_approach.rs` :: `with_the_option_off_a_rare_walk_is_never_given_up_for_time`
 - AStuckWalkToThisCharactersRareIsGivenUp: `crates/mosstank-loot/tests/corpse_approach.rs` :: `a_stuck_walk_to_this_characters_rare_is_given_up`
 - AWalkToThisCharactersRareThatNeverArrivesIsGivenUpAfterItsTimeCap: `crates/mosstank-loot/tests/corpse_approach.rs` :: `a_walk_to_this_characters_rare_that_never_arrives_is_given_up_after_its_time_cap`
 - ThisCharactersRareHoldsTheRouteOnlyWhereTheWalkOrTheOpenReachesIt: `crates/mosstank-loot/tests/looting_corpses.rs` :: `this_characters_rare_holds_the_route_only_where_the_walk_or_the_open_reaches_it`

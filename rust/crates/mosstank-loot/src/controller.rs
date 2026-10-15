@@ -7,7 +7,7 @@
 use std::collections::{HashMap, HashSet};
 
 use ac_plugin_abi::items::{InventoryItem, ItemStatus, LootContext, LootedItem};
-use ac_plugin_abi::world::{ItemProperties, ObjectClass};
+use ac_plugin_abi::world::{ItemProperties, ObjectClass, Position};
 use mosstank_automation::locks::{ActionLockKind, SharedActionLocks, item_use_lock};
 use mosstank_dotnet::collections::{
     DotNetDictionary, IgnoreCaseStringMap, Ordinal, OrdinalStringMap, OrdinalStringSet,
@@ -153,6 +153,17 @@ pub struct LootController {
     pub(crate) active_corpse: u32,
     pub(crate) active_corpse_saw_contents: bool,
     pub(crate) active_corpse_is_own_death: bool,
+    /// The open of the active corpse has gone out to the server: the client
+    /// asked for the container, or answered a use of it (MossTank register
+    /// LOOT-8).
+    pub(crate) active_corpse_requested: bool,
+    /// The item-use answer the client had given when the active corpse was
+    /// opened, so a later answer about it is known to be this open's.
+    pub(crate) open_completion_revision: i64,
+    /// Where the character stood when the active corpse was opened.
+    pub(crate) open_position: Position,
+    /// The corpse walk has steered since the active corpse was opened.
+    pub(crate) open_walk_called_off: bool,
     pub(crate) waiting_item: u32,
     pub(crate) waiting_name: String,
     pub(crate) waiting_action: LootAction,
@@ -310,6 +321,10 @@ impl LootController {
             active_corpse: 0,
             active_corpse_saw_contents: false,
             active_corpse_is_own_death: false,
+            active_corpse_requested: false,
+            open_completion_revision: 0,
+            open_position: Position::default(),
+            open_walk_called_off: false,
             waiting_item: 0,
             waiting_name: String::new(),
             waiting_action: LootAction::NoLoot,
@@ -594,6 +609,7 @@ impl LootController {
             return self.continue_current_corpse(host, can_act);
         }
 
+        self.observe_open_request(host);
         if self.active_corpse != 0 && host.requested_container_id() == self.active_corpse {
             if self.state_age <= self.settings.corpse_open_timeout_seconds.max(0.25) {
                 "Waiting for corpse contents…".clone_into(&mut self.status);
@@ -609,6 +625,8 @@ impl LootController {
                 return false;
             }
         }
+
+        self.set_aside_open_that_never_left(host, current);
 
         if !can_act {
             return false;
@@ -660,6 +678,10 @@ impl LootController {
             };
             self.refused_items.clear();
             self.state_age = 0.0;
+            self.active_corpse_requested = false;
+            self.open_completion_revision = host.last_item_completion().revision;
+            self.open_position = host.position();
+            self.open_walk_called_off = false;
             // The open holds the item slot, the corpse-open slot and
             // navigation until the container actually opens; the timeout is
             // the ceiling for an open that never lands.
@@ -701,6 +723,9 @@ impl LootController {
         // The chat is read on the frame as well as on the rule's turn, so a
         // rare announcement is known before the pass that follows it.
         self.observe_ownership_denials(host);
+        // Read on the frame as well: a refusal can answer an open within one
+        // pass, and the container request it answers is gone with it.
+        self.observe_open_request(host);
         let elapsed = elapsed_seconds.max(0.0);
         self.identify_age += elapsed;
         self.since_identify_request += elapsed;

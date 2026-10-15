@@ -3,7 +3,10 @@
 
 mod common;
 
-use common::{World, approach_corpse, enabled_settings, expression_rule, own_rare_corpse};
+use common::{
+    World, approach_corpse, capture_log, contains_line, enabled_settings, expression_rule,
+    own_rare_corpse,
+};
 use mosstank_combat::mover::MOVER_INTERVAL_SECONDS;
 use mosstank_loot::LootController;
 use mosstank_loot::corpse_approach::{
@@ -318,21 +321,56 @@ fn with_the_option_off_this_characters_rare_past_the_range_is_left() {
 }
 
 // Source: tests/AcDream.Plugins.MossTank.Tests/LootingTests.CorpseApproach.cs :: WithTheOptionOffARareWalkIsNeverGivenUp
+// Changed by MossTank register LOOT-8: a walk that covers no ground is given
+// up whatever the corpse, so this walk paces (covers ground) for longer than
+// the own-rare time cap, which with the option off never applies.
 #[test]
-fn with_the_option_off_a_rare_walk_is_never_given_up() {
+fn with_the_option_off_a_rare_walk_is_never_given_up_for_time() {
     let mut walk = Walk::new(
         own_rare_corpse(0x7000_2033, 20.0),
         approach_settings(30.0, false),
     );
 
     assert!(walk.claim(true));
-    for frame in 0..200 {
-        walk.step(0.05);
-        if frame % 5 == 4 {
-            assert!(walk.claim(true));
-        }
-    }
-    assert!(!walk.status().contains("Gave up"));
+    #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+    let frames = (OWN_RARE_WALK_GIVE_UP_SECONDS / 0.05) as usize + 40;
+    assert_eq!(walk.walk_until_given_up(frames, true), "");
+    assert!(walk.claim(true));
+}
+
+// Source: MossTank register LOOT-8 (the C# gives up only the own-rare walk).
+// Seen live: a corpse behind a shop wall in Holtburg held the pass until it
+// decayed (openac-rust `docs/evidence/r10/2026-10-15-mosstank-loot-slow-ticks.md`).
+#[test]
+fn a_walk_that_covers_no_ground_is_given_up_whatever_the_corpse() {
+    let mut walk = Walk::new(corpse(0x7000_2036, 10.0), approach_settings(15.0, false));
+    let log = capture_log(&mut walk.loot);
+    assert!(walk.claim(true));
+
+    let given_up = walk.walk_until_given_up(100, false);
+
+    assert!(
+        given_up.contains("no ground covered for 3 seconds"),
+        "{given_up}"
+    );
+    assert!(contains_line(
+        &log,
+        "LootCorpse: setting aside 0x70002036 for 200 seconds: no ground covered for 3 seconds"
+    ));
+    // Set aside: the walk has no goal and the keys are up.
+    assert!(!walk.claim(true));
+    assert_eq!(walk.status(), "No corpse to walk to.");
+    assert!(walk.world.movement_clears > 0);
+}
+
+// Source: MossTank register LOOT-8.
+#[test]
+fn a_walk_that_covers_ground_is_not_given_up() {
+    let mut walk = Walk::new(corpse(0x7000_2037, 10.0), approach_settings(15.0, false));
+    assert!(walk.claim(true));
+
+    assert_eq!(walk.walk_until_given_up(200, true), "");
+    assert!(walk.claim(true));
 }
 
 // Source: tests/AcDream.Plugins.MossTank.Tests/LootingTests.CorpseApproach.cs :: AStuckWalkToThisCharactersRareIsGivenUp
