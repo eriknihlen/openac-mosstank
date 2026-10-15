@@ -330,10 +330,9 @@ pub mod ladder {
                     && can_deliver(item, strikes)
                     && rating > rating_of_element.get(&strikes).copied().unwrap_or(0)
                 {
-                    // As in the C#: the map is set before the order is
-                    // recorded, so the order only ever learns of elements
-                    // the map already holds (it stays empty).
-                    by_rating.insert(strikes, item.object_id);
+                    // `record` writes the map itself: setting the map first
+                    // would hide the element from the order, and the
+                    // best-rated step would never fire (register COMBAT-6).
                     rating_of_element.insert(strikes, rating);
                     record(&mut by_rating, &mut rating_order, strikes, item.object_id);
                 }
@@ -347,7 +346,6 @@ pub mod ladder {
                         {
                             continue;
                         }
-                        by_rating.insert(candidate, item.object_id);
                         rating_of_element.insert(candidate, rating);
                         record(&mut by_rating, &mut rating_order, candidate, item.object_id);
                     }
@@ -686,6 +684,85 @@ mod tests {
             ),
             2
         );
+    }
+
+    // Owner decision 31 (2026-10-15): the C#'s best-rated step wrote its map
+    // before recording the order, so it never fired; fixed here and in the
+    // C# (register COMBAT-6). Before the fix the plain weapon (1) won.
+    #[test]
+    fn a_rated_weapon_of_the_wanted_element_beats_a_plain_one() {
+        let rated = EquipmentItem {
+            imbued_effect: 0x0001,
+            ..weapon(2, "Critical Fire Sword", 0x0010)
+        };
+        let plain = weapon(1, "Fire Sword", 0x0010);
+        assert_eq!(pick(&[rated, plain], MonsterDamageType::Fire), 2);
+    }
+
+    // Owner decision 31: the step keeps the best-rated weapon per element,
+    // whatever order the weapons come in.
+    #[test]
+    fn the_best_rated_weapon_of_the_wanted_element_wins() {
+        let rending = EquipmentItem {
+            imbued_effect: 0x0004,
+            ..weapon(1, "Armor Rending Fire Axe", 0x0010)
+        };
+        let crippling = EquipmentItem {
+            imbued_effect: 0x0002,
+            ..weapon(2, "Crippling Fire Axe", 0x0010)
+        };
+        let plain = weapon(3, "Fire Axe", 0x0010);
+        let fire = MonsterDamageType::Fire;
+        assert_eq!(
+            pick(&[rending.clone(), crippling.clone(), plain.clone()], fire),
+            1
+        );
+        assert_eq!(pick(&[plain, crippling, rending], fire), 1);
+    }
+
+    // Owner decision 31: the elements are tried in the order the fight wants
+    // them, and a rated weapon of any wanted element comes before a plain one.
+    #[test]
+    fn the_best_rated_step_follows_the_wanted_order_and_beats_plain_weapons() {
+        let rated_fire = EquipmentItem {
+            imbued_effect: 0x0004,
+            ..weapon(1, "Armor Rending Fire Axe", 0x0010)
+        };
+        let rated_cold = EquipmentItem {
+            imbued_effect: 0x0002,
+            ..weapon(2, "Crippling Frost Axe", 0x0008)
+        };
+        let plain_cold = weapon(3, "Frost Axe", 0x0008);
+        let cold_then_fire = [MonsterDamageType::Cold, MonsterDamageType::Fire];
+        let wants = |items: &[EquipmentItem]| {
+            run(
+                items,
+                &|_| true,
+                &cold_then_fire,
+                -1,
+                &|_| false,
+                true,
+                true,
+                0,
+            )
+        };
+        assert_eq!(
+            wants(&[rated_fire.clone(), rated_cold, plain_cold.clone()]),
+            2
+        );
+        assert_eq!(wants(&[rated_fire, plain_cold]), 1);
+    }
+
+    // Owner decision 31: a plain launcher with a good rating stands in for
+    // every wanted element its ammunition can carry.
+    #[test]
+    fn a_rated_plain_launcher_stands_in_for_a_wanted_element() {
+        let bow = EquipmentItem {
+            imbued_effect: 0x0001,
+            ..launcher(1)
+        };
+        let sword = weapon(2, "Frost Sword", 0x0008);
+        assert_eq!(pick(&[bow, sword], MonsterDamageType::Cold), 1);
     }
 
     // Source: tests/AcDream.Plugins.MossTank.Tests/VtankAmmunitionDatabaseTests.cs :: LauncherTypeFollowsTheAmmoType
