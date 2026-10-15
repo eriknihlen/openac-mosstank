@@ -12,10 +12,11 @@ use ac_plugin_abi::CharacterInfo;
 use std::collections::{HashMap, HashSet};
 use std::rc::Rc;
 
-use ac_plugin_abi::character::Training;
+use ac_plugin_abi::character::{Skill, Training};
 use ac_plugin_abi::combat::CombatMode;
 use ac_plugin_abi::items::{InventoryItem, ItemStatus};
 use ac_plugin_abi::magic::{CastGate, CastResult, SpellInfo};
+use ac_plugin_abi::world::ObjectClass;
 use mosstank_automation::Automation;
 use mosstank_automation::cast_tracker::{
     CastRequest, SpellCastOutcome, SpellCastOutcomeInfo, SpellCastTracker,
@@ -148,6 +149,10 @@ pub struct BuffSelfRule {
     consumable_completion: i64,
     consumable_deadline: f64,
     consumables_bound: bool,
+    /// Each skill's level the last time the rule read the skills with a
+    /// caster wielded: what a cast reaches once the caster is out
+    /// ([`Self::casting_skills`]).
+    caster_skills: Option<HashMap<u32, u32>>,
     gate: SharedCombatModeGate,
     cast_tracker: SharedCastTracker,
 }
@@ -190,6 +195,7 @@ impl BuffSelfRule {
             consumable_completion: 0,
             consumable_deadline: 0.0,
             consumables_bound: false,
+            caster_skills: None,
             gate: std::rc::Rc::new(std::cell::RefCell::new(
                 mosstank_combat::gate::CombatModeGate::new(),
             )),
@@ -323,6 +329,7 @@ impl BuffSelfRule {
         self.cast_outcome = CastAttemptOutcome::None;
         self.cast_outcome_spell_id = 0;
         self.cast_outcome_item = ItemCast::default();
+        self.caster_skills = None;
     }
 
     /// Lets the once-per-run warnings be said again.
@@ -502,6 +509,43 @@ impl BuffSelfRule {
         rows
     }
 
+    /// The skills a buff is weighed with: those of the gear it is cast in.
+    /// With a caster wielded they are the skills as they read, and are
+    /// remembered. With anything else no skill counts above what it read
+    /// the last time a caster was wielded: a weapon's own spells lift the
+    /// skill only while it is held, and the swap to the caster for the cast
+    /// takes them off. Weighed with them, a tier that only the weapon
+    /// reaches made a buff due that the caster then found covered, and the
+    /// fight took the weapon back: the two swapped for good (register
+    /// BUFF-1).
+    fn casting_skills(&mut self, automation: &mut dyn Automation) -> Vec<Skill> {
+        let mut skills = automation.skills();
+        if self.holds_caster(automation) {
+            self.caster_skills = Some(
+                skills
+                    .iter()
+                    .map(|skill| (skill.skill_id, skill.current))
+                    .collect(),
+            );
+        } else if let Some(seen) = &self.caster_skills {
+            for skill in &mut skills {
+                if let Some(&level) = seen.get(&skill.skill_id) {
+                    skill.current = skill.current.min(level);
+                }
+            }
+        }
+        skills
+    }
+
+    /// Whether the weapon the gate has the character holding is a caster.
+    fn holds_caster(&mut self, automation: &mut dyn Automation) -> bool {
+        let weapon = self.gate.borrow_mut().wielded_weapon_id(automation);
+        weapon != 0
+            && automation
+                .object(weapon)
+                .is_some_and(|object| object.object_class == ObjectClass::WandStaffOrb)
+    }
+
     fn build_plan(
         &mut self,
         automation: &mut dyn Automation,
@@ -525,7 +569,7 @@ impl BuffSelfRule {
         }
         let known = automation.spells().known_self_buffs_shared();
         let lines = self.buff_profile.capture_shared(&known);
-        let skills = automation.skills();
+        let skills = self.casting_skills(automation);
         let attributes = automation.attributes();
         let timed = automation.timed_enchantments();
         let level = automation.character().level;
@@ -540,7 +584,8 @@ impl BuffSelfRule {
             owned,
             &settings.blacklisted_spell_components,
             report,
-        );
+        )
+        .with_skills(skills.clone());
         plan::build(
             &lines,
             &skills,
@@ -748,7 +793,7 @@ impl BuffSelfRule {
         turn: &mut BuffTurn<'_>,
         threshold: f64,
     ) -> Option<BuffPick> {
-        let skills = turn.automation.skills();
+        let skills = self.casting_skills(&mut *turn.automation);
         let level = turn.automation.character().level;
         if !plan::is_school_available(ITEM_ENCHANTMENT_SCHOOL, &skills, turn.settings, level) {
             return None;
@@ -762,7 +807,9 @@ impl BuffSelfRule {
         // The self buffs are read once for all the rows below: nothing a
         // row does in between changes them.
         let mut known: Option<Rc<[SpellInfo]>> = None;
-        if let Some(pick) = self.try_pick_character_enchant(turn, &owned, threshold, &mut known) {
+        if let Some(pick) =
+            self.try_pick_character_enchant(turn, &owned, &skills, threshold, &mut known)
+        {
             return Some(pick);
         }
 
@@ -793,7 +840,8 @@ impl BuffSelfRule {
                         Rc::clone(&owned),
                         &turn.settings.blacklisted_spell_components,
                         &mut report,
-                    );
+                    )
+                    .with_skills(skills.clone());
                     if let Some(known) = &known {
                         castability = castability.with_known(Rc::clone(known));
                     }
@@ -856,6 +904,7 @@ impl BuffSelfRule {
         &mut self,
         turn: &mut BuffTurn<'_>,
         owned: &Rc<[InventoryItem]>,
+        skills: &[Skill],
         threshold: f64,
         known: &mut Option<Rc<[SpellInfo]>>,
     ) -> Option<BuffPick> {
@@ -872,7 +921,8 @@ impl BuffSelfRule {
                         Rc::clone(owned),
                         &turn.settings.blacklisted_spell_components,
                         &mut report,
-                    );
+                    )
+                    .with_skills(skills.to_vec());
                     if let Some(known) = known.as_ref() {
                         castability = castability.with_known(Rc::clone(known));
                     }

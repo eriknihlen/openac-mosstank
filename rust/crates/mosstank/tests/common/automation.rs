@@ -115,6 +115,9 @@ pub struct FakeAutomation {
     pub cast_refusals: BTreeMap<u32, CastResult>,
     /// `RaiseSkillOnCast`: (spell, skill, new level).
     pub raise_skill_on_cast: Option<(u32, u32, u32)>,
+    /// A skill bonus an item's own spells give while it is wielded
+    /// (item, skill, bonus), added to what the skill reads.
+    pub wield_skill_bonus: Option<(u32, u32, u32)>,
     /// `EnchantmentDurationSeconds`: how long a landed buff runs.
     pub enchantment_duration_seconds: f64,
     /// `Components`.
@@ -242,6 +245,7 @@ impl Default for FakeAutomation {
             missing_component_spell_ids: BTreeSet::new(),
             cast_refusals: BTreeMap::new(),
             raise_skill_on_cast: None,
+            wield_skill_bonus: None,
             enchantment_duration_seconds: 1800.0,
             components: BTreeMap::new(),
             last_completion: CastCompletion::default(),
@@ -384,6 +388,26 @@ pub fn named_spell(spell_id: u32, family: u32, name: &str, school: u32) -> Spell
 }
 
 impl FakeAutomation {
+    /// The skills as they read now: with the bonus of the wielded item's own
+    /// spells ([`Self::wield_skill_bonus`]).
+    #[must_use]
+    pub fn current_skills(&self) -> Vec<Skill> {
+        let mut skills = self.skills.clone();
+        if let Some((item, skill_id, bonus)) = self.wield_skill_bonus
+            && self
+                .equipment
+                .iter()
+                .any(|held| held.object_id == item && held.equipped_location != 0)
+        {
+            for skill in &mut skills {
+                if skill.skill_id == skill_id {
+                    skill.current += bonus;
+                }
+            }
+        }
+        skills
+    }
+
     /// Full vitals (the C# tests' `100` for every current and maximum).
     #[must_use]
     pub fn with_full_vitals() -> Self {
@@ -753,16 +777,15 @@ impl World {
                 automation.is_available.then(|| automation.character())
             }),
             Import::CharacterSkills => self.answer::<calls::CharacterSkills>(bytes, |world, ()| {
-                world.automation().skills.clone()
+                world.automation().current_skills()
             }),
             Import::CharacterSkill => {
                 self.answer::<calls::CharacterSkill>(bytes, |world, skill_id: u32| {
                     world
                         .automation()
-                        .skills
-                        .iter()
+                        .current_skills()
+                        .into_iter()
                         .find(|skill| skill.skill_id == skill_id)
-                        .cloned()
                 })
             }
             Import::CharacterAttributes => self

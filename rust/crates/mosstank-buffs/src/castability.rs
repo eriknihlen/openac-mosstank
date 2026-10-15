@@ -5,6 +5,7 @@
 use std::collections::HashMap;
 use std::rc::Rc;
 
+use ac_plugin_abi::character::Skill;
 use ac_plugin_abi::items::InventoryItem;
 use ac_plugin_abi::magic::SpellInfo;
 use mosstank_automation::Automation;
@@ -40,6 +41,9 @@ pub struct AutomationCastability<'a> {
     /// The self buffs the character knows, once read (or handed over by
     /// a caller that read them for the same call).
     known: Option<Rc<[SpellInfo]>>,
+    /// The skills the tiers are weighed with, when the caller chose them
+    /// (the buff rule's casting skills); else the client's.
+    skills: Option<Vec<Skill>>,
 }
 
 impl<'a> AutomationCastability<'a> {
@@ -58,7 +62,15 @@ impl<'a> AutomationCastability<'a> {
             counts: HashMap::new(),
             host_components: HashMap::new(),
             known: None,
+            skills: None,
         }
+    }
+
+    /// The same, weighing the tiers with these skills.
+    #[must_use]
+    pub fn with_skills(mut self, skills: Vec<Skill>) -> Self {
+        self.skills = Some(skills);
+        self
     }
 
     /// The self buffs, if this walk has read them.
@@ -195,8 +207,12 @@ impl AutomationCastability<'_> {
         known
     }
 
-    /// The character's skills, through the walk's client.
-    pub fn skills(&mut self) -> Vec<ac_plugin_abi::character::Skill> {
-        self.automation.skills()
+    /// The character's skills: the ones the walk was given, else the
+    /// client's.
+    pub fn skills(&mut self) -> Vec<Skill> {
+        match &self.skills {
+            Some(skills) => skills.clone(),
+            None => self.automation.skills(),
+        }
     }
 }
