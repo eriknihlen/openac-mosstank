@@ -8,11 +8,13 @@ use ac_plugin_abi::world::{ItemProperties, ObjectClass};
 use common::{World, item, requirement, rule, vtank_rule};
 use mosstank_dotnet::collections::IgnoreCaseStringMap;
 use mosstank_formats::utl::{LootAction, VtankSalvageCombineSettings};
+use mosstank_loot::controller::LootController;
 use mosstank_loot::corpse_scan::killer_name;
 use mosstank_loot::expression::LootRuleExpression;
 use mosstank_loot::mana::{self, TransferChecks};
 use mosstank_loot::rules::{decide, needs_identify};
 use mosstank_loot::salvage;
+use mosstank_settings::model::LootSettings;
 
 fn empty() -> ItemProperties {
     ItemProperties::default()
@@ -308,4 +310,64 @@ fn mana_stone_planner_uses_stone_on_qualified_highest_mana_tank() {
     let plan = mana::plan(&[stone, low, high], &classified, 1000, &mut checks).expect("a plan");
     assert_eq!(plan.stone_object_id, 1);
     assert_eq!(plan.tank_object_id, 3);
+}
+
+// No C# source: the Rust kit compiles a pattern far more slowly than .NET
+// builds a `Regex`, and a large profile compiled every pattern again for
+// each item decided (owner's report 2026-10-15: 53-77 ms ticks while
+// looting). The rule list's patterns are compiled ahead, a budget a tick,
+// once each; a list loaded afterwards is warmed afresh.
+#[test]
+fn the_rule_patterns_are_compiled_ahead_a_few_a_tick() {
+    let rules: Vec<_> = (0..5)
+        .map(|index| {
+            vtank_rule(
+                &format!("Rule {index}"),
+                LootAction::Keep,
+                vec![requirement(1, &[&format!("warm-ahead-name-{index}"), "1"])],
+            )
+        })
+        .collect();
+    let mut loot = LootController::new(LootSettings {
+        rules,
+        ..LootSettings::default()
+    });
+    let mut ticks = 0;
+    while loot.warm_rule_patterns(2) {
+        ticks += 1;
+        assert!(ticks < 10, "the warm-up never ends");
+    }
+    assert_eq!(ticks, 3, "two patterns a tick, five patterns");
+    assert!(!loot.warm_rule_patterns(2));
+
+    // A spell requirement matches with an include and an exclude pattern.
+    loot.settings.rules = vec![vtank_rule(
+        "Spells",
+        LootAction::Keep,
+        vec![requirement(
+            9,
+            &["warm-ahead-include", "warm-ahead-exclude", "1"],
+        )],
+    )];
+    assert!(loot.warm_rule_patterns(1));
+    assert!(!loot.warm_rule_patterns(1));
+
+    // Warming changes no decision: the warmed rule still matches by name.
+    let named = item(7, "warm-ahead-include", 44);
+    loot.settings.rules = vec![vtank_rule(
+        "Name",
+        LootAction::Keep,
+        vec![requirement(1, &["warm-ahead-name-3", "1"])],
+    )];
+    let (decision, _) = decide(
+        &item(8, "warm-ahead-name-3", 44),
+        &empty(),
+        &loot.settings.rules,
+        &[],
+        None,
+        None,
+    );
+    assert_eq!(decision.map(|d| d.action), Some(LootAction::Keep));
+    let (decision, _) = decide(&named, &empty(), &loot.settings.rules, &[], None, None);
+    assert_eq!(decision, None);
 }

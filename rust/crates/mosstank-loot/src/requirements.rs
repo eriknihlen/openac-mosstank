@@ -15,6 +15,9 @@ use mosstank_dotnet::{
 };
 use mosstank_formats::utl::{LootRule, VtankLootRequirement};
 use openac_plugin_compat::regex::{DotNetRegex, RegexError, RegexOptions};
+use std::cell::RefCell;
+use std::collections::HashMap;
+use std::rc::Rc;
 
 /// Why a requirement could not be read (the C#'s exception message).
 pub type RequirementError = String;
@@ -914,9 +917,67 @@ fn value<'a>(values: &[&'a str], index: usize) -> Outcome<&'a str> {
         .ok_or_else(|| "A VTClassic loot requirement is truncated.".to_owned())
 }
 
-fn rx(values: &[&str], index: usize) -> Outcome<DotNetRegex> {
-    DotNetRegex::new(value(values, index)?, RegexOptions::CULTURE_INVARIANT)
-        .map_err(|error| error.to_string())
+fn rx(values: &[&str], index: usize) -> Outcome<Rc<DotNetRegex>> {
+    compiled(value(values, index)?)
+}
+
+/// How many patterns stay compiled; past it the memo starts over. A large
+/// profile holds about two thousand.
+const COMPILED_PATTERNS_MAX: usize = 16_384;
+
+/// A compiled pattern or why it does not compile, by its text.
+type PatternMemo = HashMap<String, Outcome<Rc<DotNetRegex>>>;
+
+thread_local! {
+    /// Every requirement pattern, compiled the first time it is matched.
+    /// The C# builds a `Regex` for each match, which .NET does in
+    /// microseconds; the kit's compile is far dearer, and a profile of a
+    /// couple of thousand rules compiled every pattern again for each item
+    /// decided (tens of milliseconds a decision in the plugin). A pattern's
+    /// compile depends on its text alone, so remembering it changes no
+    /// answer, error text included.
+    static COMPILED: RefCell<PatternMemo> = RefCell::new(HashMap::new());
+}
+
+/// Compiles the patterns `requirement` matches with ahead of its first
+/// match (the name, property and spell patterns); how many it compiled.
+#[must_use]
+pub fn warm_patterns(requirement: &VtankLootRequirement) -> usize {
+    let indexes: &[usize] = match requirement.kind {
+        0 | 1 => &[0],
+        9 => &[0, 1],
+        _ => return 0,
+    };
+    let values = lines(&requirement.payload);
+    let mut made = 0;
+    for &index in indexes {
+        let Some(text) = values.get(index).copied() else {
+            continue;
+        };
+        if !COMPILED.with(|memo| memo.borrow().contains_key(text)) {
+            let _ = compiled(text);
+            made += 1;
+        }
+    }
+    made
+}
+
+/// The pattern compiled with the C#'s options, once per text.
+fn compiled(pattern: &str) -> Outcome<Rc<DotNetRegex>> {
+    COMPILED.with(|memo| {
+        if let Some(known) = memo.borrow().get(pattern) {
+            return known.clone();
+        }
+        let made = DotNetRegex::new(pattern, RegexOptions::CULTURE_INVARIANT)
+            .map(Rc::new)
+            .map_err(|error| error.to_string());
+        let mut memo = memo.borrow_mut();
+        if memo.len() >= COMPILED_PATTERNS_MAX {
+            memo.clear();
+        }
+        memo.insert(pattern.to_owned(), made.clone());
+        made
+    })
 }
 
 /// A match; a pattern that runs past the kit's step limit (where .NET's
@@ -942,4 +1003,47 @@ fn f64_at(values: &[&str], index: usize) -> Outcome<f64> {
 
 fn bool_at(values: &[&str], index: usize) -> Outcome<bool> {
     parse_bool(value(values, index)?).map_err(|_| "A VTClassic boolean is invalid.".to_owned())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // A requirement pattern is compiled once, however many rules and items
+    // match against it: deciding an item against a profile of thousands of
+    // rules compiled every pattern again (owner's report, 2026-10-15:
+    // 53-77 ms plugin ticks while looting).
+    #[test]
+    fn a_pattern_is_compiled_once_for_every_match_of_it() {
+        let first = compiled("Silifi|Lugian|War Axe|Battle").expect("compiles");
+        let again = compiled("Silifi|Lugian|War Axe|Battle").expect("compiles");
+        assert!(Rc::ptr_eq(&first, &again));
+        let other = compiled("Dolabra|Ono|Hand|War Hammer").expect("compiles");
+        assert!(!Rc::ptr_eq(&first, &other));
+        assert_eq!(regex_match(&again, "Lugian Axe"), Ok(true));
+        assert_eq!(regex_match(&other, "Lugian Axe"), Ok(false));
+    }
+
+    // A pattern that does not compile answers the same error every time,
+    // as the C#'s `new Regex` throws the same exception every time.
+    #[test]
+    fn a_pattern_that_does_not_compile_fails_the_same_way_every_time() {
+        let fresh = DotNetRegex::new("(unclosed", RegexOptions::CULTURE_INVARIANT)
+            .map(|_| ())
+            .map_err(|error| error.to_string());
+        let first = compiled("(unclosed").map(|_| ());
+        let again = compiled("(unclosed").map(|_| ());
+        assert!(fresh.is_err());
+        assert_eq!(first, fresh);
+        assert_eq!(again, fresh);
+    }
+
+    // The memo starts over when full rather than growing without end.
+    #[test]
+    fn the_memo_is_bounded() {
+        for index in 0..=COMPILED_PATTERNS_MAX {
+            let _ = compiled(&format!("bounded{index}"));
+        }
+        COMPILED.with(|memo| assert!(memo.borrow().len() <= COMPILED_PATTERNS_MAX));
+    }
 }

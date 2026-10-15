@@ -1679,6 +1679,65 @@ fn every_call_fits_the_hosts_budgets_with_room_to_spare() {
         }
     }
 
+    // A player's large loot profile is loaded, and the next kill is looted
+    // with it: each of the corpse's two dozen items is weighed against a few
+    // thousand rules (owner's report, 2026-10-15: 53-77 ms a tick while
+    // looting, when every decision compiled every rule's pattern again and
+    // a corpse was weighed in one frame). The last corpse closes first.
+    let closed = {
+        let loot = session.world.loot();
+        let closed = loot.current;
+        loot.current = 0;
+        loot.opened = 0;
+        loot.contents_ready = false;
+        closed
+    };
+    if closed != 0 {
+        let fuel = send(&mut plugin, &mut session, &Event::ContainerClosed(closed));
+        cases.add("event: corpse closed", fuel);
+    }
+    let (large_source, large_profile) = profiles::largest_loot_profile();
+    session
+        .world
+        .profiles
+        .insert("mosstank/loot/vt-large-loot.utl", &large_profile);
+    let fuel = send(
+        &mut plugin,
+        &mut session,
+        &command("vt", "loot load vt-large-loot"),
+    );
+    cases.add("event: /vt loot command (large profile)", fuel);
+    // About fifteen seconds before the next kill: the profile's patterns
+    // are compiled ahead meanwhile.
+    for _ in 0..900 {
+        let fuel = tick(&mut plugin, &mut session);
+        cases.add("tick after the large profile's load", fuel);
+    }
+    {
+        let loot = session.world.loot();
+        let mut fresh = loot.corpses.first().cloned().expect("a corpse");
+        fresh.object_id = 0x8FFF_0001;
+        fresh.distance = 3.0;
+        loot.corpses.push(fresh);
+        loot.current = 0;
+        loot.opened = 0;
+        loot.contents_ready = false;
+    }
+    let mut reopened = BTreeSet::new();
+    for _ in 0..1200 {
+        let fuel = tick(&mut plugin, &mut session);
+        cases.add("loot tick (large profile)", fuel);
+        let loot = session.world.loot();
+        if loot.opened != 0 && loot.current != loot.opened {
+            loot.current = loot.opened;
+            loot.contents_ready = true;
+            reopened.insert(loot.opened);
+            let event = Event::ContainerOpened(loot.opened);
+            let fuel = send(&mut plugin, &mut session, &event);
+            cases.add("event: corpse opened (large profile)", fuel);
+        }
+    }
+
     let stopped = plugin.disable(&mut session).expect("disable");
     cases.add("stop", stopped);
 
@@ -1711,9 +1770,10 @@ fn every_call_fits_the_hosts_budgets_with_room_to_spare() {
     let mut report = report(&cases);
     let _ = writeln!(
         report,
-        "corpses opened: {}; casts: {}",
+        "corpses opened: {}; casts: {}; large loot profile: {large_source} ({} KB)",
         opened.len(),
-        session.world.cast_spell_ids().len()
+        session.world.cast_spell_ids().len(),
+        large_profile.len() / 1024
     );
     println!("{report}");
     assert!(
@@ -1725,6 +1785,10 @@ fn every_call_fits_the_hosts_budgets_with_room_to_spare() {
         "the macro made no buff or combat decision:\n{report}"
     );
     assert!(!opened.is_empty(), "no corpse was opened:\n{report}");
+    assert!(
+        !reopened.is_empty(),
+        "no corpse was opened with the large profile:\n{report}"
+    );
     assert_within_margin(&cases, &report);
 }
 

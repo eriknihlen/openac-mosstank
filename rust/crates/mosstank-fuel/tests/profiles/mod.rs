@@ -102,6 +102,24 @@ fn heaviest_character(files: &[(String, String)]) -> Option<String> {
         .map(|(_, name)| name)
 }
 
+/// The largest loot profile a player has: the owner's largest, else a
+/// stand-in of [`LARGE_LOOT_BYTES`]; where it came from, and its text.
+pub fn largest_loot_profile() -> (String, String) {
+    if let Some(root) = owner_folder() {
+        let mut files = Vec::new();
+        walk(&root.join("loot"), &root.join("loot"), &mut files);
+        if let Some((key, text)) = files
+            .into_iter()
+            .filter(|(key, _)| key.to_ascii_lowercase().ends_with(".utl"))
+            .max_by_key(|(_, text)| text.len())
+        {
+            let file = key.trim_start_matches("mosstank/");
+            return (root.join("loot").join(file).display().to_string(), text);
+        }
+    }
+    ("generated".to_owned(), loot_profile(LARGE_LOOT_BYTES))
+}
+
 /// The folder measured: the owner's, else the stand-in.
 pub fn folder() -> Folder {
     if let Some(root) = owner_folder() {

@@ -449,7 +449,17 @@ fn three_reasons_for_leaving_an_item_behind_read_differently() {
         item(0x7000_9013, "Mystery Trinket", 46),
     ];
     assert!(controller.observe_corpse_opened(&mut world));
+    // One item a frame (register LOOT-7): the other two on the next frames.
     controller.tick_identification(&mut world, 0.5);
+    let decided = |lines: &[String]| {
+        lines
+            .iter()
+            .filter(|line| line.starts_with("LootDecision: "))
+            .count()
+    };
+    assert_eq!(decided(&logged.borrow()), 1);
+    controller.tick_identification(&mut world, 0.015);
+    controller.tick_identification(&mut world, 0.015);
 
     let lines = logged.borrow();
     assert!(
@@ -465,6 +475,39 @@ fn three_reasons_for_leaving_an_item_behind_read_differently() {
             .iter()
             .any(|line| line == "LootDecision: Mystery Trinket -> no rule matched")
     );
+}
+
+// No C# source (register LOOT-7): a full corpse is weighed against the rule
+// list one item a frame, not all in one plugin call (owner's report
+// 2026-10-15: 53-77 ms ticks while looting with a large profile).
+#[test]
+fn an_open_corpse_is_weighed_one_item_a_frame() {
+    const CORPSE: u32 = 0x7000_9101;
+    let mut world = World::with_corpses(vec![chain_corpse(CORPSE, 3.0)]);
+    let mut controller = LootController::new(enabled_settings(leave_junk()));
+    let logged = capture_log(&mut controller);
+    let _locks = bind_locks(&mut controller);
+
+    assert!(controller.tick(&mut world, 1.0, true));
+    world.requested = CORPSE;
+    world.current = CORPSE;
+    world.contents = (0..5)
+        .map(|index| item(0x7000_9110 + index, &format!("Rusty Junk {index}"), 45))
+        .collect();
+    assert!(controller.observe_corpse_opened(&mut world));
+    let decided = |lines: &[String]| {
+        lines
+            .iter()
+            .filter(|line| line.starts_with("LootDecision: "))
+            .count()
+    };
+    let mut after_each_frame = Vec::new();
+    for _ in 0..6 {
+        controller.tick_identification(&mut world, 0.015);
+        after_each_frame.push(decided(&logged.borrow()));
+    }
+    assert_eq!(after_each_frame, [1, 2, 3, 4, 5, 5]);
+    assert_eq!(mosstank_loot::controller::ITEMS_WEIGHED_PER_FRAME, 1);
 }
 
 // Source: tests/AcDream.Plugins.MossTank.Tests/LootingTests.ImplicitMana.cs :: OnlyAHelperRowOfTheStoneKindMakesTheLooterTakeAStone

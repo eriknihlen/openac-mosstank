@@ -46,8 +46,14 @@ fn stage_open_corpse(
     world.requested = corpse;
     world.current = corpse;
     assert!(controller.observe_corpse_opened(&mut world));
+    let frames = items.len().max(1);
     world.contents = items;
+    // The C#'s one frame weighs every item; here one item a frame does
+    // (register LOOT-7), so the stage gives each item its frame.
     controller.tick_identification(&mut world, 0.5);
+    for _ in 1..frames {
+        controller.tick_identification(&mut world, 0.0);
+    }
     PullStage {
         world,
         controller,

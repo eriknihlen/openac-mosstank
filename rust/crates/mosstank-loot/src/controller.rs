@@ -44,6 +44,10 @@ pub const CORPSE_SIGHTING_INTERVAL_SECONDS: f64 = 2.0;
 /// over everything waiting for an id.
 const IDENTIFY_REQUEST_INTERVAL_SECONDS: f64 = 0.499;
 
+/// How many of an open corpse's items one frame weighs against the rule
+/// list (register LOOT-7; the C# weighs them all in one frame).
+pub const ITEMS_WEIGHED_PER_FRAME: usize = 1;
+
 /// The item type bit of a salvaging tool.
 const TINKERING_TOOL: u32 = 0x2000_0000;
 
@@ -179,6 +183,10 @@ pub struct LootController {
     pub(crate) since_corpse_sighting: f64,
     pub(crate) since_identify_request: f64,
     pub(crate) mana_donors: ManaDonorJournal,
+    /// How far the pattern warm-up has got: the rule list it walks (its
+    /// address and length, which change when a profile is loaded or
+    /// edited) and the next rule in it.
+    pub(crate) pattern_warmup: (usize, usize, usize),
 }
 
 impl std::fmt::Debug for LootController {
@@ -331,7 +339,27 @@ impl LootController {
             since_corpse_sighting: CORPSE_SIGHTING_INTERVAL_SECONDS,
             since_identify_request: IDENTIFY_REQUEST_INTERVAL_SECONDS,
             mana_donors: ManaDonorJournal::new(),
+            pattern_warmup: (0, 0, 0),
         }
+    }
+
+    /// Compiles ahead, a few at a time, the patterns the rule list matches
+    /// items with, so the first item decided after a profile load does not
+    /// compile them all in one call. True when it compiled any.
+    pub fn warm_rule_patterns(&mut self, budget: usize) -> bool {
+        let rules = &self.settings.rules;
+        let list = (rules.as_ptr() as usize, rules.len());
+        if (self.pattern_warmup.0, self.pattern_warmup.1) != list {
+            self.pattern_warmup = (list.0, list.1, 0);
+        }
+        let mut compiled = 0;
+        while compiled < budget && self.pattern_warmup.2 < rules.len() {
+            for requirement in &rules[self.pattern_warmup.2].vtank_requirements {
+                compiled += crate::requirements::warm_patterns(requirement);
+            }
+            self.pattern_warmup.2 += 1;
+        }
+        compiled > 0
     }
 
     /// The profile's helper list again, after a load or an edit (the C#
@@ -761,10 +789,18 @@ impl LootController {
             }
         }
 
+        // One item a frame (register LOOT-7): each is weighed against
+        // the whole rule list, and a full corpse against a large profile is
+        // more than one plugin call should run.
+        let mut weighed = 0;
         for item in &contents {
             if self.decisions.contains_key(&item.object_id) {
                 continue;
             }
+            if weighed >= ITEMS_WEIGHED_PER_FRAME {
+                return;
+            }
+            weighed += 1;
             let properties = host.loot_properties(item.object_id).unwrap_or_default();
             if !self.needs_identify(host, item, &properties, &owned) {
                 let (decision, refusal) = self.decide_item(host, item, &properties, &owned);

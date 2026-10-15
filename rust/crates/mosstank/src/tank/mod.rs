@@ -369,6 +369,13 @@ const START_LOAD_BYTES: usize = staged_load::LOAD_BYTES_PER_TICK;
 /// Where the first-run guidance is remembered.
 const ONBOARDING_KEY: &str = "onboarding/v1.txt";
 
+/// How many loot rule patterns a light tick compiles ahead. A compile is
+/// dear in the plugin (about three million instructions), so a few a tick:
+/// a profile of a couple of thousand patterns is ready some seconds after
+/// it loads, long before the first corpse it decides, and no tick spends
+/// much on it.
+pub(crate) const LOOT_PATTERNS_PER_TICK: usize = 4;
+
 impl Core {
     /// A macro log line (`EmitMacroLog`).
     pub(crate) fn emit_macro_log(
@@ -1149,9 +1156,11 @@ impl Tank {
         true
     }
 
-    /// One of the caches a large spellbook makes costly built ahead of the
-    /// pass that wants it, on a tick with room for it: the self buffs' lines,
-    /// then the attack catalog, one a tick. Whether it built one.
+    /// One of the caches a large spellbook or loot profile makes costly
+    /// built ahead of the pass that wants it, on a tick with room for it:
+    /// the self buffs' lines, then the attack catalog, one a tick, then the
+    /// loot rules' patterns, [`LOOT_PATTERNS_PER_TICK`] a tick. Whether it
+    /// built any.
     pub fn warm_caches(&mut self, client: &mut dyn TankClient) -> bool {
         let automation = client.rules();
         if !automation.is_available() {
@@ -1159,6 +1168,9 @@ impl Tank {
         }
         self.core.buff_rule.warm_profile(automation)
             || self.core.combat.warm_spell_catalogs(automation)
+            || rules::lent_loot!(self.core)
+                .loot
+                .warm_rule_patterns(LOOT_PATTERNS_PER_TICK)
     }
 
     /// Whether the last frame did a frame's worth of once-only work.
