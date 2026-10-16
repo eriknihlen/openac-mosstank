@@ -354,18 +354,41 @@ case recall-waits-for-the-character-to-stop
 route Circular 2
 wp Recall at=0,0 spell=48
 wp Point at=5m,0
+magic answer=Sent casting=1
+me 0 0 0
+tick 0.05
+magic casting=0
+me 0 3m 0
+tick 0.05
+me 0 6m 0
+tick 0.05
+tick 0.05
+magic completion=1,48,1026
+me 0 8m 0
+tick 2.5
+me 0 9m 0
+tick 0.05
+me 0 60m 0
+tick 0.05
+
+case recall-jump-without-portal-space-is-done
+route Circular 2
+wp Recall at=0,0 recall=PrimaryPortalRecall spell=48 spellname="Primary Portal Recall"
+wp Point at=5m,0
 magic answer=Sent
 me 0 0 0
 tick 0.05
-magic completion=1,48,1026
-me 0 3m 0
-tick 2.5
+magic completion=1,48,0
 tick 0.05
-me 0 5m 0
+tick 0.05 noact
+me 0 30m 0
+tick 0.05 noact
 tick 0.05
-me 0 5.1m 0
-magic completion=2,48,1026
-tick 2.5
+tick 0.05
+me 0 0 0 gone
+tick 0.05
+me 0 0 0
+tick 0.05
 
 case jump-aligns-charges-lands
 route Once 2

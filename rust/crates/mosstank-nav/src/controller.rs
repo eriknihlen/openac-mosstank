@@ -19,7 +19,7 @@ use ac_plugin_abi::navigation::{
     NavigationObject, NavigationSnapshot, NavigationStatus,
 };
 use ac_plugin_abi::types::ChatLine;
-use ac_plugin_abi::world::{METRES_PER_MAP_UNIT, Position};
+use ac_plugin_abi::world::{METRES_PER_MAP_UNIT, PortalTransition, Position};
 use mosstank_automation::Automation;
 use mosstank_automation::heading::{distance_to_segment_meters, signed_heading_delta};
 use mosstank_automation::locks::{ActionLockKind, SharedActionLocks};
@@ -45,13 +45,17 @@ const OBJECT_REACQUIRE_RADIUS_METERS: f64 = 2.5;
 const PORTAL_EXIT_DISTANCE_METERS: f64 = 15.0;
 
 /// How far the character may have drifted between ticks and still count as
-/// standing still for a recall.
+/// standing still for a recall: VirindiTank's 0.01 map units (a map unit is
+/// 240 m). Once the recall has been sent, a move past it is the teleport.
 const RECALL_STATIONARY_TOLERANCE_METERS: f64 = 2.4;
 
 /// How long a recall that ended cleanly is waited on for its teleport
 /// before it is taken to have been refused and is cast again: VirindiTank's
 /// caster gives a spell this long (4500 ms) to show its result.
 const RECALL_RESULT_TIMEOUT_SECONDS: f64 = 4.5;
+
+/// A [`PortalTransition`]'s kind for a portal or recall (1 is a login).
+const PORTAL_TRANSITION_KIND_PORTAL: u8 = 2;
 
 /// How long a recall the server has not answered at all is waited on before
 /// it is sent again: VirindiTank's caster gives a cast 5 s to be spoken and
@@ -247,6 +251,11 @@ pub struct NavigationController {
     /// A recall cast has ended without the teleport, and the recall is
     /// being cast again.
     recall_retrying: bool,
+    /// The world went away (no position) after the recall was sent: a
+    /// jump, as VirindiTank counts its "nowhere".
+    recall_lost_position: bool,
+    /// The client reported a teleport completed after the recall was sent.
+    recall_teleported: bool,
     /// The route's own close-in mover.
     mover: NavigationMover,
     /// A leg of the route is being walked by the client's own pathing.
@@ -372,6 +381,8 @@ impl NavigationController {
             recall_cast_landed: false,
             recall_cast_revision: 0,
             recall_retrying: false,
+            recall_lost_position: false,
+            recall_teleported: false,
             mover: NavigationMover::new(),
             client_walking: false,
             client_walk_sequence: 0,
@@ -572,6 +583,20 @@ impl NavigationController {
             "Nav backwards is {}.",
             if self.reverse { "True" } else { "False" }
         );
+    }
+
+    /// A portal or recall transition the client reported. A teleport that
+    /// completes after the recall waypoint sent its recall is the recall
+    /// done, wherever it lands. The client reports it even when it carries
+    /// the whole teleport out between two ticks (headless), where the
+    /// snapshot never shows portal space.
+    pub fn on_portal_transition(&mut self, transition: &PortalTransition) {
+        if transition.is_completed
+            && transition.kind == PORTAL_TRANSITION_KIND_PORTAL
+            && self.is_recall_sent()
+        {
+            self.recall_teleported = true;
+        }
     }
 
     /// Forgets the warnings this run has said once.
@@ -779,6 +804,9 @@ impl NavigationController {
         let settings = &mut *turn.settings;
         let snapshot = automation.navigation_snapshot();
         if !settings.enabled || !snapshot.is_available {
+            if settings.enabled && self.is_recall_sent() {
+                self.recall_lost_position = true;
+            }
             self.stop_movement(automation);
             self.voice.status = if settings.enabled {
                 "Waiting for the world."
@@ -807,6 +835,9 @@ impl NavigationController {
         }
         if !can_act {
             self.stop_movement(automation);
+            // Another rule may walk the character while the route waits;
+            // that is not a teleport, so a recall compares afresh after it.
+            self.recall_needs_position_capture = true;
             "Navigation paused.".clone_into(&mut self.voice.status);
             return false;
         }
@@ -1910,22 +1941,38 @@ impl NavigationController {
             return true;
         }
 
-        // Arrival is read before the standing-still check: the teleport is
-        // itself a position jump. Portal space after the recall went out,
-        // then arrival, is the recall done wherever it lands: a portal tie
-        // at the end of the hunt puts the character back where it cast, and
-        // a distance test here recast that recall forever (the owner's live
-        // report of 2026-10-16). VirindiTank's waypoint likewise ends on
-        // any position change after its cast.
+        // The recall is done by either of two signs (the owner's ruling of
+        // 2026-10-16). First, portal space after the recall went out, then
+        // arrival, wherever it lands: a portal tie at the end of the hunt
+        // puts the character back where it cast, and a distance test alone
+        // recast that recall forever (the owner's live report of
+        // 2026-10-16). Arrival is read before the standing-still check, as
+        // the teleport is itself a position jump.
+        // The client's report of a completed teleport is the same sign, and
+        // the one a headless client gives: it carries the whole teleport
+        // out between two ticks, and the snapshot never shows portal space.
         if snapshot.is_portal_space && self.action_sent {
             self.saw_portal_space = true;
         }
-        if self.saw_portal_space && !snapshot.is_portal_space {
+        if self.recall_teleported || (self.saw_portal_space && !snapshot.is_portal_space) {
             self.complete_action(automation, settings);
             return true;
         }
-
+        // Second, VirindiTank's own sign: once the recall has been sent the
+        // character stands still for it, so a move past the tolerance
+        // between two ticks, or the position going away, can only be the
+        // teleport. It catches a teleport whose portal space the route never
+        // saw. Before the first send the character may still be coming to a
+        // stop, and that is only waited out.
+        if self.recall_lost_position {
+            self.complete_action(automation, settings);
+            return true;
+        }
         if !self.is_standing_still_for_recall(snapshot) {
+            if self.action_sent {
+                self.complete_action(automation, settings);
+                return true;
+            }
             "Recall: waiting to come to a stop.".clone_into(&mut self.voice.status);
             return true;
         }
@@ -2007,6 +2054,14 @@ impl NavigationController {
         }
         self.voice.status = self.recall_status(&label);
         true
+    }
+
+    /// A recall waypoint is under way and has sent its recall.
+    fn is_recall_sent(&self) -> bool {
+        self.action_sent
+            && self
+                .active_action
+                .is_some_and(|action| action.kind == RouteWaypointType::Recall)
     }
 
     /// The recall waypoint's status line, marked once a cast has ended
@@ -2278,6 +2333,8 @@ impl NavigationController {
         self.recall_cast_landed = false;
         self.recall_cast_revision = 0;
         self.recall_retrying = false;
+        self.recall_lost_position = false;
+        self.recall_teleported = false;
         self.jump_face_heading_stamp = NO_FACE_HEADING_STAMP;
     }
 

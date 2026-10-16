@@ -1245,7 +1245,12 @@ impl Tank {
                 cx.with_engine(|engine, host, services| engine.on_logoff(host, services));
             }
             Event::LocalPlayerDied(message) => cx.meta.on_local_player_died(message),
-            Event::PortalTransition(transition) => cx.meta.on_portal_transition(transition),
+            Event::PortalTransition(transition) => {
+                // The route hears the teleport too: a recall waypoint is done
+                // by it.
+                cx.core.navigation.on_portal_transition(transition);
+                cx.meta.on_portal_transition(transition);
+            }
             Event::ItemUseCompleted(completion) => cx.meta.on_item_use_completed(completion),
             Event::ContainerOpened(container) => cx.meta.on_container_opened(*container),
             Event::ContainerClosed(container) => cx.meta.on_container_closed(*container),

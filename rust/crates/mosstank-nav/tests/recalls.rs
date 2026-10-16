@@ -6,7 +6,7 @@ mod common;
 use ac_plugin_abi::combat::CombatMode;
 use ac_plugin_abi::items::EquipmentItem;
 use ac_plugin_abi::magic::{CastCompletion, CastResult};
-use ac_plugin_abi::world::ObjectClass;
+use ac_plugin_abi::world::{ObjectClass, PortalTransition};
 use common::*;
 use mosstank_formats::route::{RouteMode, RouteRecallKind, RouteWaypoint, RouteWaypointType};
 use mosstank_nav::controller::LOW_WAYPOINT_DISTANCE_WARNING;
@@ -619,28 +619,133 @@ fn recall_waits_until_the_character_has_stopped() {
         ],
     );
 
-    // Standing still from the first tick, so it casts.
+    // The client holds a cast up on the first tick, so nothing goes out.
+    rig.automation.magic().is_casting = true;
     assert!(rig.tick(0.05, true));
-    assert_eq!(rig.automation.magic().cast_spell_ids, [48]);
-    rig.automation.magic().cast_spell_ids.clear();
-    // The cast fizzles, so the recall is to be sent again (one still
-    // unanswered is not, register NAV-5).
-    rig.automation.magic().last_completion = CastCompletion {
-        revision: 1,
-        spell_id: 48,
-        target_id: 0,
-        weenie_error: 0x402,
-    };
-
-    // A retry is due, but the character has moved more than the tolerance
-    // since the last tick, so the recall waits.
-    rig.automation.navigation_snapshot = snapshot(position(0.0, 3.0 / 240.0));
-    assert!(rig.tick(2.5, true));
     assert!(rig.automation.magic().cast_spell_ids.is_empty());
 
-    // Stopped again: the retry goes out.
+    // The character is still walking, more than the tolerance a tick,
+    // before the recall has been sent: it is waited out, not taken for a
+    // teleport. (The C# test moved after the first cast; since the owner's
+    // ruling of 2026-10-16 a move then is the teleport.)
+    rig.automation.magic().is_casting = false;
+    rig.automation.navigation_snapshot = snapshot(position(0.0, 3.0 / 240.0));
+    assert!(rig.tick(0.05, true));
+    assert!(rig.automation.magic().cast_spell_ids.is_empty());
+    assert_eq!(rig.status(), "Recall: waiting to come to a stop.");
+    assert_eq!(rig.index(), 0);
+
+    // Stopped: the recall goes out, and standing on there is not a jump.
     assert!(rig.tick(0.05, true));
     assert_eq!(rig.automation.magic().cast_spell_ids, [48]);
+    assert!(rig.tick(0.05, true));
+    assert_eq!(rig.index(), 0);
+}
+
+/// The recall's teleport whose portal space the route never saw (a
+/// headless client can carry the whole teleport out between two plugin
+/// ticks): once the recall is sent the character stands still, so a jump
+/// past VirindiTank's 0.01 map units (2.4 m) is the teleport, and the
+/// waypoint is done (the owner's ruling of 2026-10-16).
+#[test]
+fn a_far_teleport_without_portal_space_is_done_by_the_jump() {
+    let mut rig = recall_ready_to_cast(CastResult::Sent);
+    assert!(rig.tick(0.05, true));
+    assert_eq!(rig.automation.magic().requested_spell_ids, [1635]);
+    rig.automation.magic().last_completion = CastCompletion {
+        revision: 1,
+        spell_id: 1635,
+        target_id: 0,
+        weenie_error: 0,
+    };
+    assert!(rig.tick(0.05, true));
+    assert_eq!(rig.index(), 0);
+
+    rig.automation.navigation_snapshot = snapshot(position(50.0 / 240.0, 0.0));
+    assert!(rig.tick(0.05, true));
+
+    assert_eq!(rig.index(), 1);
+    assert_eq!(rig.automation.magic().requested_spell_ids, [1635]);
+}
+
+/// The jump is measured against the tick before, not the cast spot, and
+/// only past the tolerance: drift under 2.4 m a tick is not a teleport, and
+/// the refused recall is still cast again.
+#[test]
+fn drift_under_the_tolerance_after_the_recall_is_not_a_teleport() {
+    let mut rig = recall_ready_to_cast(CastResult::Sent);
+    assert!(rig.tick(0.05, true));
+    rig.automation.magic().last_completion = CastCompletion {
+        revision: 1,
+        spell_id: 1635,
+        target_id: 0,
+        weenie_error: 0,
+    };
+    for step in 1..=5 {
+        rig.automation.navigation_snapshot = snapshot(position(f64::from(step) * 2.0 / 240.0, 0.0));
+        assert!(rig.tick(0.05, true));
+    }
+    assert_eq!(rig.index(), 0);
+    assert_eq!(rig.automation.magic().requested_spell_ids, [1635]);
+
+    // 4.5 s after the clean cast with no teleport, it is cast again.
+    assert!(rig.tick(4.5, true));
+    assert_eq!(rig.index(), 0);
+    assert_eq!(rig.automation.magic().requested_spell_ids, [1635, 1635]);
+}
+
+/// A refused recall (no portal space, no jump) is cast again after 4.5 s
+/// and the waypoint stays.
+#[test]
+fn a_refused_recall_with_no_jump_recasts_and_is_not_done() {
+    let mut rig = recall_ready_to_cast(CastResult::Sent);
+    assert!(rig.tick(0.05, true));
+    rig.automation.magic().last_completion = CastCompletion {
+        revision: 1,
+        spell_id: 1635,
+        target_id: 0,
+        weenie_error: 0,
+    };
+    assert!(rig.tick(0.05, true));
+    assert!(rig.tick(4.0, true));
+    assert_eq!(rig.automation.magic().requested_spell_ids, [1635]);
+    assert!(rig.tick(0.5, true));
+
+    assert_eq!(rig.index(), 0);
+    assert_eq!(rig.automation.magic().requested_spell_ids, [1635, 1635]);
+    assert_eq!(rig.status(), "Recall: Lifestone Recall (retrying).");
+}
+
+/// The world going away after the recall was sent (no position) is a jump,
+/// as VirindiTank counts its "nowhere": the waypoint is done when the world
+/// is back, wherever the character stands.
+#[test]
+fn losing_the_position_after_the_recall_was_sent_is_a_jump() {
+    let mut rig = recall_ready_to_cast(CastResult::Sent);
+    assert!(rig.tick(0.05, true));
+    rig.automation.navigation_snapshot.is_available = false;
+    assert!(!rig.tick(0.05, true));
+    rig.automation.navigation_snapshot = snapshot(position(0.0, 0.0));
+    assert!(rig.tick(0.05, true));
+
+    assert_eq!(rig.index(), 1);
+    assert_eq!(rig.automation.magic().requested_spell_ids, [1635]);
+}
+
+/// While another rule has the turn it may walk the character; that walk is
+/// not the teleport, so the recall compares afresh when the route is back.
+#[test]
+fn a_walk_while_the_route_is_paused_is_not_a_teleport() {
+    let mut rig = recall_ready_to_cast(CastResult::Sent);
+    assert!(rig.tick(0.05, true));
+    rig.automation.navigation_snapshot = snapshot(position(10.0 / 240.0, 0.0));
+    assert!(!rig.tick(0.05, false));
+    rig.automation.navigation_snapshot = snapshot(position(20.0 / 240.0, 0.0));
+    assert!(!rig.tick(0.05, false));
+    assert!(rig.tick(0.05, true));
+    assert!(rig.tick(0.05, true));
+
+    assert_eq!(rig.index(), 0);
 }
 
 // Source: tests/AcDream.Plugins.MossTank.Tests/NavigationTests.cs :: RecallWaypointResolvesItsNameWhenItRunsAndCastsTheRecall
@@ -759,4 +864,63 @@ fn ordinary_waypoint_distance_arrives_without_touching_combat_mode() {
     assert_eq!(rig.index(), 1);
     assert!(rig.automation.posted_system_messages.is_empty());
     assert!(rig.automation.mode_requests.is_empty());
+}
+
+fn teleport_completed(kind: u8) -> PortalTransition {
+    PortalTransition {
+        revision: 2,
+        generation: 1,
+        destination_cell: 0x7F7F_0001,
+        is_ready: true,
+        is_materialized: true,
+        is_completed: true,
+        is_cancelled: false,
+        recall_request_revision: 0,
+        kind,
+    }
+}
+
+/// A headless client carries the whole teleport out between two ticks, so
+/// the snapshot never shows portal space; with the recall landing where it
+/// was cast there is no jump either. The client's report of the completed
+/// teleport is the recall done (live on the local ACE, 2026-10-16: a
+/// headless Lifestone Sending onto its own spot recast every 4.5 s).
+#[test]
+fn a_reported_teleport_after_the_recall_is_done_with_no_portal_space_or_jump() {
+    let mut rig = recall_ready_to_cast(CastResult::Sent);
+    assert!(rig.tick(0.05, true));
+    assert_eq!(rig.automation.magic().requested_spell_ids, [1635]);
+    rig.automation.magic().last_completion = CastCompletion {
+        revision: 1,
+        spell_id: 1635,
+        target_id: 0,
+        weenie_error: 0,
+    };
+    assert!(rig.tick(0.05, true));
+
+    rig.controller.on_portal_transition(&teleport_completed(2));
+    rig.automation.navigation_snapshot = snapshot(position(0.5 / 240.0, 0.0));
+    assert!(rig.tick(0.05, true));
+
+    assert_eq!(rig.index(), 1);
+    assert_eq!(rig.automation.magic().requested_spell_ids, [1635]);
+}
+
+/// A teleport reported before the recall went out, or a login transition,
+/// is not the recall's.
+#[test]
+fn a_teleport_reported_before_the_recall_or_a_login_is_not_the_recalls() {
+    let mut rig = recall_in_peace();
+    rig.controller.on_portal_transition(&teleport_completed(2));
+    assert!(rig.tick(0.05, true));
+    assert!(rig.automation.magic().requested_spell_ids.is_empty());
+    rig.controller.on_portal_transition(&teleport_completed(2));
+    rig.automation.combat_mode = CombatMode::Magic;
+    rig.automation.server_mode = CombatMode::Magic;
+    assert!(rig.tick(0.05, true));
+    assert_eq!(rig.automation.magic().requested_spell_ids, [1635]);
+
+    rig.controller.on_portal_transition(&teleport_completed(1));
+    assert!(rig.tick(0.05, true));
+    assert_eq!(rig.index(), 0);
 }
