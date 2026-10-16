@@ -454,7 +454,6 @@ internal sealed class NavigationController
     private const double PortalTimeoutSeconds = 30d;
     private const double ObjectReacquireRadiusMeters = 2.5d;
     private const double PortalExitDistanceMeters = 15d;
-    private const double RecallExitDistanceMeters = 2.4d;
 
     /// <summary>
     /// How far the character may have drifted between ticks and still count as
@@ -1066,8 +1065,14 @@ internal sealed class NavigationController
         {
             StopMovement();
             if (_activeAction?.Type is RouteWaypointType.Portal
-                or RouteWaypointType.PortalByName
-                or RouteWaypointType.Recall)
+                or RouteWaypointType.PortalByName)
+            {
+                _sawPortalSpace = true;
+            }
+            // Only a teleport that comes after the waypoint sent its recall
+            // is the recall's: portal space already under way when the
+            // waypoint began belongs to something else.
+            else if (_activeAction?.Type is RouteWaypointType.Recall && _actionSent)
             {
                 _sawPortalSpace = true;
             }
@@ -2153,23 +2158,18 @@ internal sealed class NavigationController
         // Arrival is read before the standing-still check: the teleport is
         // itself a position jump, and read the other way round it looked like
         // the character still moving, which held a finished recall for a tick.
-        if (navigation.IsPortalSpace)
+        // Portal space after the recall went out, then arrival, is the recall
+        // done wherever it lands: a portal tie at the end of the hunt puts the
+        // character back where it cast, and a distance test here recast that
+        // recall forever (the owner's live report of 2026-10-16).
+        // VirindiTank's waypoint likewise ends on any position change after
+        // its cast.
+        if (navigation.IsPortalSpace && _actionSent)
             _sawPortalSpace = true;
         if (_sawPortalSpace && !navigation.IsPortalSpace)
         {
-            if (!_hasPortalOrigin
-                || navigation.Position.HorizontalDistanceMeters(_portalOrigin)
-                    > RecallExitDistanceMeters)
-            {
-                CompleteAction();
-                return true;
-            }
-            _sawPortalSpace = false;
-            _actionSent = false;
-            _recallCastPending = false;
-            _recallCastLanded = false;
-            _recallRetrying = true;
-            _retryElapsed = UseRetrySeconds;
+            CompleteAction();
+            return true;
         }
 
         if (!IsStandingStillForRecall(navigation))
@@ -2267,11 +2267,6 @@ internal sealed class NavigationController
                 _recallCastRevision = issueRevision;
             }
             _actionSent |= accepted;
-            if (accepted && !_hasPortalOrigin)
-            {
-                _portalOrigin = navigation.Position;
-                _hasPortalOrigin = true;
-            }
             _retryElapsed = 0d;
         }
         _status = RecallStatus(waypoint);

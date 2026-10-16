@@ -2690,6 +2690,58 @@ public sealed class NavigationTests
         Assert.Equal(21, magic.RequestedSpellIds.Count);
         Assert.Equal("Recall: Lifestone Recall (retrying).", controller.Status);
     }
+    /// <summary>
+    /// A portal tie beside the hunt's last portal: the recall lands the
+    /// character where it cast. Portal space, then arrival at the same spot,
+    /// is the recall done; it is not cast again (the owner's live report of
+    /// 2026-10-16, a character recasting Primary Portal Recall forever).
+    ///
+    /// Mutation: complete only when the arrival is more than 2.4 m from where
+    /// the recall was cast, and the recall goes out again.
+    /// </summary>
+    [Fact]
+    public void ARecallThatLandsWhereItWasCastIsDone()
+    {
+        (NavigationController controller, FakeAutomation automation,
+            FakeMagic magic) = RecallReadyToCast();
+        Assert.True(controller.Tick(0.05d, canAct: true));
+        Assert.Equal([1635u], magic.RequestedSpellIds);
+        magic.LastCompletion = new PluginCastCompletion(1L, 1635u, 0u, 0u);
+        Assert.True(controller.Tick(0.05d, canAct: true));
+
+        PassThroughPortalSpace(controller, automation, Position(0.5d, 0d));
+        Assert.True(controller.Tick(0.05d, canAct: true));
+
+        Assert.Equal(1, controller.CurrentWaypointIndex);
+        Assert.Equal([1635u], magic.RequestedSpellIds);
+    }
+
+    /// <summary>
+    /// Portal space that was under way before the recall went out is not the
+    /// recall's teleport: the waypoint is not done by its arrival and casts.
+    ///
+    /// Mutation: count portal space whether or not the recall was sent, and
+    /// the waypoint is done without a cast.
+    /// </summary>
+    [Fact]
+    public void PortalSpaceBeforeTheRecallWasSentDoesNotCompleteIt()
+    {
+        (NavigationController controller, FakeAutomation automation,
+            FakeMagic magic) = RecallInPeace();
+        Assert.True(controller.Tick(0.05d, canAct: true));
+        Assert.Empty(magic.RequestedSpellIds);
+
+        PassThroughPortalSpace(controller, automation, Position(0d, 0d));
+        automation.CombatSnapshot = new PluginCombatSnapshot
+        {
+            Mode = PluginCombatMode.Magic,
+            ServerMode = PluginCombatMode.Magic,
+        };
+        Assert.True(controller.Tick(0.05d, canAct: true));
+
+        Assert.Equal(0, controller.CurrentWaypointIndex);
+        Assert.Equal([1635u], magic.RequestedSpellIds);
+    }
 
     /// <summary>
     /// The host answers IsCasting false while a cast waits for the server,
