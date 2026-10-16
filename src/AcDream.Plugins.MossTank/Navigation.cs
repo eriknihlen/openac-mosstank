@@ -457,7 +457,9 @@ internal sealed class NavigationController
 
     /// <summary>
     /// How far the character may have drifted between ticks and still count as
-    /// standing still for a recall.
+    /// standing still for a recall: VirindiTank's 0.01 map units (a map unit
+    /// is 240 m). Once the recall has been sent, a move past it is the
+    /// teleport.
     /// </summary>
     private const double RecallStationaryToleranceMeters = 2.4d;
 
@@ -576,6 +578,14 @@ internal sealed class NavigationController
     /// <summary>A recall cast has ended without the teleport, and the recall
     /// is being cast again.</summary>
     private bool _recallRetrying;
+
+    /// <summary>The world went away (no position) after the recall was
+    /// sent: a jump, as VirindiTank counts its "nowhere".</summary>
+    private bool _recallLostPosition;
+
+    /// <summary>The host reported a teleport completed after the recall was
+    /// sent.</summary>
+    private bool _recallTeleported;
 
     /// <summary>
     /// The route's own close-in mover. One per rule, as the reference builds
@@ -779,6 +789,24 @@ internal sealed class NavigationController
     public bool Reversing => _reverse;
 
     public bool HasActiveAction => _activeAction is not null;
+
+    /// <summary>
+    /// A portal or recall transition the host reported. A teleport that
+    /// completes after the recall waypoint sent its recall is the recall
+    /// done, wherever it lands. The host reports it even when it carries the
+    /// whole teleport out between two ticks (headless), where the snapshot
+    /// never shows portal space.
+    /// </summary>
+    internal void OnPortalTransition(PluginPortalTransition transition)
+    {
+        if (transition.IsCompleted
+            && transition.Kind == PluginPortalTransitionKind.Portal
+            && _actionSent
+            && _activeAction?.Type is RouteWaypointType.Recall)
+        {
+            _recallTeleported = true;
+        }
+    }
 
 
     internal const string LowWaypointDistanceWarning =
@@ -1055,6 +1083,11 @@ internal sealed class NavigationController
         PluginNavigationSnapshot snapshot = navigation.Snapshot;
         if (!_settings.Enabled || !snapshot.IsAvailable)
         {
+            if (_settings.Enabled && _actionSent
+                && _activeAction?.Type is RouteWaypointType.Recall)
+            {
+                _recallLostPosition = true;
+            }
             StopMovement();
             _status = _settings.Enabled
                 ? "Waiting for the world."
@@ -1082,6 +1115,9 @@ internal sealed class NavigationController
         if (!canAct)
         {
             StopMovement();
+            // Another rule may walk the character while the route waits;
+            // that is not a teleport, so a recall compares afresh after it.
+            _recallNeedsPositionCapture = true;
             _status = "Navigation paused.";
             return false;
         }
@@ -2155,25 +2191,42 @@ internal sealed class NavigationController
             return true;
         }
 
-        // Arrival is read before the standing-still check: the teleport is
-        // itself a position jump, and read the other way round it looked like
-        // the character still moving, which held a finished recall for a tick.
-        // Portal space after the recall went out, then arrival, is the recall
-        // done wherever it lands: a portal tie at the end of the hunt puts the
-        // character back where it cast, and a distance test here recast that
-        // recall forever (the owner's live report of 2026-10-16).
-        // VirindiTank's waypoint likewise ends on any position change after
-        // its cast.
+        // The recall is done by either of two signs. First, portal space after
+        // the recall went out, then arrival, wherever it lands: a portal tie
+        // at the end of the hunt puts the character back where it cast, and a
+        // distance test alone recast that recall forever (the owner's live
+        // report of 2026-10-16). Arrival is read before the standing-still
+        // check, as the teleport is itself a position jump. The host's report
+        // of a completed teleport is the same sign, and the one a headless
+        // host gives: it carries the whole teleport out between two ticks,
+        // and the snapshot never shows portal space.
         if (navigation.IsPortalSpace && _actionSent)
             _sawPortalSpace = true;
-        if (_sawPortalSpace && !navigation.IsPortalSpace)
+        if (_recallTeleported || (_sawPortalSpace && !navigation.IsPortalSpace))
         {
             CompleteAction();
             return true;
         }
 
+        // Second, VirindiTank's own sign: once the recall has been sent the
+        // character stands still for it, so a move past the tolerance between
+        // two ticks, or the position going away, can only be the teleport. It
+        // catches a teleport whose portal space the route never saw (a
+        // headless client can finish the whole teleport between two ticks).
+        // Before the first send the character may still be coming to a stop,
+        // and that is only waited out.
+        if (_recallLostPosition)
+        {
+            CompleteAction();
+            return true;
+        }
         if (!IsStandingStillForRecall(navigation))
         {
+            if (_actionSent)
+            {
+                CompleteAction();
+                return true;
+            }
             _status = "Recall: waiting to come to a stop.";
             return true;
         }
@@ -2539,6 +2592,8 @@ internal sealed class NavigationController
         _recallCastLanded = false;
         _recallCastRevision = 0L;
         _recallRetrying = false;
+        _recallLostPosition = false;
+        _recallTeleported = false;
         _jumpFaceHeadingStamp = NoFaceHeadingStamp;
     }
 

@@ -3308,23 +3308,214 @@ public sealed class NavigationTests
             recall,
             Waypoint(RouteWaypointType.Point, Position(1d, 0d)));
 
-        // Standing still from the first tick, so it casts.
+        // The host holds a cast up on the first tick, so nothing goes out.
+        magic.IsCasting = true;
         Assert.True(controller.Tick(0.05d, canAct: true));
-        Assert.Equal([48u], magic.CastSpellIds);
-        magic.CastSpellIds.Clear();
-        // The cast fizzles, so the recall is to be sent again (one still
-        // unanswered is not).
-        magic.LastCompletion = new PluginCastCompletion(1L, 48u, 0u, 0x402u);
-
-        // A retry is due, but the character has moved more than the tolerance
-        // since the last tick, so the recall waits instead of casting.
-        automation.NavigationSnapshot = Snapshot(Position(0d, 3d / 240d));
-        Assert.True(controller.Tick(2.5d, canAct: true));
         Assert.Empty(magic.CastSpellIds);
 
-        // Stopped again: the retry goes out.
+        // The character is still walking, more than the tolerance a tick,
+        // before the recall has been sent: it is waited out, not taken for a
+        // teleport. (A move after the first cast is the teleport, the owner's
+        // ruling of 2026-10-16.)
+        magic.IsCasting = false;
+        automation.NavigationSnapshot = Snapshot(Position(0d, 3d / 240d));
+        Assert.True(controller.Tick(0.05d, canAct: true));
+        Assert.Empty(magic.CastSpellIds);
+        Assert.Equal("Recall: waiting to come to a stop.", controller.Status);
+        Assert.Equal(0, controller.CurrentWaypointIndex);
+
+        // Stopped: the recall goes out, and standing on there is not a jump.
         Assert.True(controller.Tick(0.05d, canAct: true));
         Assert.Equal([48u], magic.CastSpellIds);
+        Assert.True(controller.Tick(0.05d, canAct: true));
+        Assert.Equal(0, controller.CurrentWaypointIndex);
+    }
+
+    /// <summary>
+    /// The recall's teleport whose portal space the route never saw (a
+    /// headless client can carry the whole teleport out between two ticks):
+    /// once the recall is sent the character stands still, so a jump past
+    /// VirindiTank's 0.01 map units (2.4 m) is the teleport, and the waypoint
+    /// is done (the owner's ruling of 2026-10-16).
+    ///
+    /// Mutation: complete only on portal space, and the waypoint stays.
+    /// </summary>
+    [Fact]
+    public void AFarTeleportWithoutPortalSpaceIsDoneByTheJump()
+    {
+        (NavigationController controller, FakeAutomation automation,
+            FakeMagic magic) = RecallReadyToCast();
+        Assert.True(controller.Tick(0.05d, canAct: true));
+        Assert.Equal([1635u], magic.RequestedSpellIds);
+        magic.LastCompletion = new PluginCastCompletion(1L, 1635u, 0u, 0u);
+        Assert.True(controller.Tick(0.05d, canAct: true));
+        Assert.Equal(0, controller.CurrentWaypointIndex);
+
+        automation.NavigationSnapshot = Snapshot(Position(50d / 240d, 0d));
+        Assert.True(controller.Tick(0.05d, canAct: true));
+
+        Assert.Equal(1, controller.CurrentWaypointIndex);
+        Assert.Equal([1635u], magic.RequestedSpellIds);
+    }
+
+    /// <summary>
+    /// The jump is measured against the tick before, not the cast spot, and
+    /// only past the tolerance: drift under 2.4 m a tick is not a teleport,
+    /// and the refused recall is still cast again.
+    ///
+    /// Mutation: compare against the cast spot, and the drift completes it.
+    /// </summary>
+    [Fact]
+    public void DriftUnderTheToleranceAfterTheRecallIsNotATeleport()
+    {
+        (NavigationController controller, FakeAutomation automation,
+            FakeMagic magic) = RecallReadyToCast();
+        Assert.True(controller.Tick(0.05d, canAct: true));
+        magic.LastCompletion = new PluginCastCompletion(1L, 1635u, 0u, 0u);
+        for (int step = 1; step <= 5; step++)
+        {
+            automation.NavigationSnapshot = Snapshot(Position(step * 2d / 240d, 0d));
+            Assert.True(controller.Tick(0.05d, canAct: true));
+        }
+        Assert.Equal(0, controller.CurrentWaypointIndex);
+        Assert.Equal([1635u], magic.RequestedSpellIds);
+
+        // 4.5 s after the clean cast with no teleport, it is cast again.
+        Assert.True(controller.Tick(4.5d, canAct: true));
+        Assert.Equal(0, controller.CurrentWaypointIndex);
+        Assert.Equal([1635u, 1635u], magic.RequestedSpellIds);
+    }
+
+    /// <summary>
+    /// A refused recall (no portal space, no jump) is cast again after 4.5 s
+    /// and the waypoint stays.
+    /// </summary>
+    [Fact]
+    public void ARefusedRecallWithNoJumpRecastsAndIsNotDone()
+    {
+        (NavigationController controller, FakeAutomation _,
+            FakeMagic magic) = RecallReadyToCast();
+        Assert.True(controller.Tick(0.05d, canAct: true));
+        magic.LastCompletion = new PluginCastCompletion(1L, 1635u, 0u, 0u);
+        Assert.True(controller.Tick(0.05d, canAct: true));
+        Assert.True(controller.Tick(4d, canAct: true));
+        Assert.Equal([1635u], magic.RequestedSpellIds);
+        Assert.True(controller.Tick(0.5d, canAct: true));
+
+        Assert.Equal(0, controller.CurrentWaypointIndex);
+        Assert.Equal([1635u, 1635u], magic.RequestedSpellIds);
+        Assert.Equal("Recall: Lifestone Recall (retrying).", controller.Status);
+    }
+
+    /// <summary>
+    /// The world going away after the recall was sent (no position) is a
+    /// jump, as VirindiTank counts its "nowhere": the waypoint is done when
+    /// the world is back, wherever the character stands.
+    ///
+    /// Mutation: ignore the lost position, and the waypoint stays.
+    /// </summary>
+    [Fact]
+    public void LosingThePositionAfterTheRecallWasSentIsAJump()
+    {
+        (NavigationController controller, FakeAutomation automation,
+            FakeMagic magic) = RecallReadyToCast();
+        Assert.True(controller.Tick(0.05d, canAct: true));
+        automation.NavigationSnapshot = Snapshot(Position(0d, 0d)) with { IsAvailable = false };
+        Assert.False(controller.Tick(0.05d, canAct: true));
+        automation.NavigationSnapshot = Snapshot(Position(0d, 0d));
+        Assert.True(controller.Tick(0.05d, canAct: true));
+
+        Assert.Equal(1, controller.CurrentWaypointIndex);
+        Assert.Equal([1635u], magic.RequestedSpellIds);
+    }
+
+    /// <summary>
+    /// While another rule has the turn it may walk the character; that walk
+    /// is not the teleport, so the recall compares afresh when the route is
+    /// back.
+    ///
+    /// Mutation: keep the position from before the pause, and the walk
+    /// completes the waypoint.
+    /// </summary>
+    [Fact]
+    public void AWalkWhileTheRouteIsPausedIsNotATeleport()
+    {
+        (NavigationController controller, FakeAutomation automation,
+            FakeMagic _) = RecallReadyToCast();
+        Assert.True(controller.Tick(0.05d, canAct: true));
+        automation.NavigationSnapshot = Snapshot(Position(10d / 240d, 0d));
+        Assert.False(controller.Tick(0.05d, canAct: false));
+        automation.NavigationSnapshot = Snapshot(Position(20d / 240d, 0d));
+        Assert.False(controller.Tick(0.05d, canAct: false));
+        Assert.True(controller.Tick(0.05d, canAct: true));
+        Assert.True(controller.Tick(0.05d, canAct: true));
+
+        Assert.Equal(0, controller.CurrentWaypointIndex);
+    }
+
+    private static PluginPortalTransition TeleportCompleted(
+        PluginPortalTransitionKind kind) =>
+        new(2L, 1L, 0x7F7F0001u, IsReady: true, IsMaterialized: true,
+            IsCompleted: true, IsCancelled: false)
+        {
+            Kind = kind,
+        };
+
+    /// <summary>
+    /// A headless host carries the whole teleport out between two ticks, so
+    /// the snapshot never shows portal space; with the recall landing where
+    /// it was cast there is no jump either. The host's report of the
+    /// completed teleport is the recall done (live on the local ACE,
+    /// 2026-10-16: a headless Lifestone Sending onto its own spot recast
+    /// every 4.5 s).
+    ///
+    /// Mutation: ignore the report, and the waypoint stays.
+    /// </summary>
+    [Fact]
+    public void AReportedTeleportAfterTheRecallIsDoneWithNoPortalSpaceOrJump()
+    {
+        (NavigationController controller, FakeAutomation automation,
+            FakeMagic magic) = RecallReadyToCast();
+        Assert.True(controller.Tick(0.05d, canAct: true));
+        Assert.Equal([1635u], magic.RequestedSpellIds);
+        magic.LastCompletion = new PluginCastCompletion(1L, 1635u, 0u, 0u);
+        Assert.True(controller.Tick(0.05d, canAct: true));
+
+        controller.OnPortalTransition(TeleportCompleted(PluginPortalTransitionKind.Portal));
+        automation.NavigationSnapshot = Snapshot(Position(0.5d / 240d, 0d));
+        Assert.True(controller.Tick(0.05d, canAct: true));
+
+        Assert.Equal(1, controller.CurrentWaypointIndex);
+        Assert.Equal([1635u], magic.RequestedSpellIds);
+    }
+
+    /// <summary>
+    /// A teleport reported before the recall went out, or a login
+    /// transition, is not the recall's.
+    ///
+    /// Mutation: take any completed transition, and the waypoint is done
+    /// without a cast.
+    /// </summary>
+    [Fact]
+    public void ATeleportReportedBeforeTheRecallOrALoginIsNotTheRecalls()
+    {
+        (NavigationController controller, FakeAutomation automation,
+            FakeMagic magic) = RecallInPeace();
+        controller.OnPortalTransition(TeleportCompleted(PluginPortalTransitionKind.Portal));
+        Assert.True(controller.Tick(0.05d, canAct: true));
+        Assert.Empty(magic.RequestedSpellIds);
+        controller.OnPortalTransition(TeleportCompleted(PluginPortalTransitionKind.Portal));
+        automation.CombatSnapshot = new PluginCombatSnapshot
+        {
+            Mode = PluginCombatMode.Magic,
+            ServerMode = PluginCombatMode.Magic,
+        };
+        Assert.True(controller.Tick(0.05d, canAct: true));
+        Assert.Equal([1635u], magic.RequestedSpellIds);
+
+        controller.OnPortalTransition(TeleportCompleted(PluginPortalTransitionKind.Login));
+        Assert.True(controller.Tick(0.05d, canAct: true));
+        Assert.Equal(0, controller.CurrentWaypointIndex);
     }
 
 
