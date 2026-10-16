@@ -48,6 +48,16 @@ const RECALL_EXIT_DISTANCE_METERS: f64 = 2.4;
 /// How far the character may have drifted between ticks and still count as
 /// standing still for a recall.
 const RECALL_STATIONARY_TOLERANCE_METERS: f64 = 2.4;
+
+/// How long a recall that ended cleanly is waited on for its teleport
+/// before it is taken to have been refused and is cast again: VirindiTank's
+/// caster gives a spell this long (4500 ms) to show its result.
+const RECALL_RESULT_TIMEOUT_SECONDS: f64 = 4.5;
+
+/// How long a recall the server has not answered at all is waited on before
+/// it is sent again: VirindiTank's caster gives a cast 5 s to be spoken and
+/// then its 4.5 s for the result.
+const RECALL_UNANSWERED_TIMEOUT_SECONDS: f64 = 5.0 + RECALL_RESULT_TIMEOUT_SECONDS;
 const JUMP_LAUNCH_GRACE_SECONDS: f64 = 0.25;
 const JUMP_COMPLETION_TIMEOUT_SECONDS: f64 = 3.0;
 const JUMP_CHARGE_CEILING_MILLISECONDS: i32 = 2000;
@@ -230,10 +240,14 @@ pub struct NavigationController {
     /// yet; with the completion revision standing when it was sent, this is
     /// how the waypoint learns the cast is over without portal space.
     recall_cast_pending: bool,
-    /// The last recall cast completed without an error: the teleport is on
-    /// its way and the spell must not be sent again.
+    /// The last recall cast completed without an error: the teleport may be
+    /// on its way, and the spell is not sent again for
+    /// `RECALL_RESULT_TIMEOUT_SECONDS`.
     recall_cast_landed: bool,
     recall_cast_revision: i64,
+    /// A recall cast has ended without the teleport, and the recall is
+    /// being cast again.
+    recall_retrying: bool,
     /// The route's own close-in mover.
     mover: NavigationMover,
     /// A leg of the route is being walked by the client's own pathing.
@@ -358,6 +372,7 @@ impl NavigationController {
             recall_cast_pending: false,
             recall_cast_landed: false,
             recall_cast_revision: 0,
+            recall_retrying: false,
             mover: NavigationMover::new(),
             client_walking: false,
             client_walk_sequence: 0,
@@ -1913,6 +1928,7 @@ impl NavigationController {
             self.action_sent = false;
             self.recall_cast_pending = false;
             self.recall_cast_landed = false;
+            self.recall_retrying = true;
             self.retry_elapsed = USE_RETRY_SECONDS;
         }
 
@@ -1921,13 +1937,13 @@ impl NavigationController {
             return true;
         }
 
-        if self.action_elapsed >= PORTAL_TIMEOUT_SECONDS {
-            "Recall timed out; continuing route.".clone_into(&mut self.voice.status);
-            self.complete_action(automation, settings);
-            return true;
-        }
-
+        // There is no give-up: like VirindiTank's recall waypoint, this one
+        // holds the route until the character is teleported and casts the
+        // recall again for as long as it is not (the owner's ruling of
+        // 2026-10-16). A server that refuses the recall (a teleport within
+        // the last 3.5 s, say) still ends the cast with a plain "done".
         let label = waypoint.recall_label();
+        let completion = automation.last_cast_completion();
         // A recall this waypoint sent that the server has not answered yet
         // is still in the air. The client no longer says so through
         // `is_casting` (it lets a cast be re-issued while an earlier one is
@@ -1935,28 +1951,46 @@ impl NavigationController {
         // longer than the retry interval. A retry sent then was answered
         // "too busy", that error sent it again at once, and so on every
         // frame until the first cast's answer; the one still on its way
-        // when the server finished the first cast was cast as well.
-        let unanswered = self.recall_cast_pending
-            && automation.last_cast_completion().revision == self.recall_cast_revision;
+        // when the server finished the first cast was cast as well. A cast
+        // never answered at all is given up when VirindiTank's caster would
+        // give it up, and sent again.
+        let mut unanswered =
+            self.recall_cast_pending && completion.revision == self.recall_cast_revision;
+        if unanswered && self.retry_elapsed >= RECALL_UNANSWERED_TIMEOUT_SECONDS {
+            unanswered = false;
+            self.recall_cast_pending = false;
+            self.recall_retrying = true;
+            self.retry_elapsed = USE_RETRY_SECONDS;
+        }
         if automation.is_casting() || unanswered {
-            // The cast is already doing the waypoint's job, so the retry
-            // clock is wound back while the cast is in the air.
-            self.retry_elapsed = 0.0;
-            self.voice.status = format!("Recall: {label}.");
+            // The cast is already doing the waypoint's job. While the client
+            // holds a cast up the clock is wound back; while the server has
+            // yet to answer, it counts toward that give-up.
+            if !unanswered {
+                self.retry_elapsed = 0.0;
+            }
+            self.voice.status = self.recall_status(&label);
             return true;
         }
-        if self.recall_cast_pending
-            && automation.last_cast_completion().revision != self.recall_cast_revision
-        {
-            // The cast finished. Without an error the teleport is on its
-            // way; with one (a fizzle or a refusal) the next attempt goes out
-            // on this tick.
+        if self.recall_cast_pending && completion.revision != self.recall_cast_revision {
+            // The cast finished. Without an error the teleport may be on its
+            // way, and the clock starts on the wait for it; with one (a
+            // fizzle or a refusal) the next attempt goes out on this tick.
             self.recall_cast_pending = false;
-            if automation.last_cast_completion().is_success() {
+            if completion.is_success() {
                 self.recall_cast_landed = true;
+                self.retry_elapsed = 0.0;
             } else {
+                self.recall_retrying = true;
                 self.retry_elapsed = USE_RETRY_SECONDS;
             }
+        }
+        if self.recall_cast_landed && self.retry_elapsed >= RECALL_RESULT_TIMEOUT_SECONDS {
+            // A clean cast with no teleport after it was refused all the
+            // same (the refusal reaches the plugin only as a chat line): it
+            // is over, and the recall is cast again.
+            self.recall_cast_landed = false;
+            self.recall_retrying = true;
         }
 
         // A recall is a spell, and the server drops any cast made outside
@@ -1969,7 +2003,7 @@ impl NavigationController {
         if !self.recall_cast_landed
             && (!self.action_sent || self.retry_elapsed >= USE_RETRY_SECONDS)
         {
-            let issue_revision = automation.last_cast_completion().revision;
+            let issue_revision = completion.revision;
             let accepted = self.submit_recall(automation, &waypoint);
             if accepted && waypoint.recall_spell_id != 0 {
                 self.recall_cast_pending = true;
@@ -1982,8 +2016,18 @@ impl NavigationController {
             }
             self.retry_elapsed = 0.0;
         }
-        self.voice.status = format!("Recall: {label}.");
+        self.voice.status = self.recall_status(&label);
         true
+    }
+
+    /// The recall waypoint's status line, marked once a cast has ended
+    /// without the teleport and the recall is being cast again.
+    fn recall_status(&self, label: &str) -> String {
+        if self.recall_retrying {
+            format!("Recall: {label} (retrying).")
+        } else {
+            format!("Recall: {label}.")
+        }
     }
 
     /// A recall is only cast from a standstill: a position comparison
@@ -2244,6 +2288,7 @@ impl NavigationController {
         self.recall_cast_pending = false;
         self.recall_cast_landed = false;
         self.recall_cast_revision = 0;
+        self.recall_retrying = false;
         self.jump_face_heading_stamp = NO_FACE_HEADING_STAMP;
     }
 

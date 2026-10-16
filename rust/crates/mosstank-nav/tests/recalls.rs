@@ -317,8 +317,8 @@ fn a_recall_still_in_the_air_is_not_resent_and_says_nothing() {
 /// two-second retry. The recall is not sent again in that time: the
 /// retries were refused as too busy, each refusal sent another, and the
 /// one on its way when the first cast ended was cast too (register NAV-5;
-/// the owner's report of 2026-10-15). No C# source: the C# relies on the
-/// old client's `IsCasting`.
+/// the owner's report of 2026-10-15).
+/// C# test (pending eriknihlen/openac-mosstank#16): `NavigationTests.ARecallTheServerHasNotAnsweredIsNotSentAgain`.
 #[test]
 fn a_recall_the_server_has_not_answered_is_not_sent_again() {
     let mut rig = recall_ready_to_cast(CastResult::Sent);
@@ -357,6 +357,7 @@ fn a_recall_the_server_has_not_answered_is_not_sent_again() {
 
 /// An answer that is an error (here the server's "too busy") sends the
 /// recall again at once, as one with the client's casting flag does.
+/// C# test (pending eriknihlen/openac-mosstank#16): `NavigationTests.ARecallAnsweredWithAnErrorIsSentAgainAtOnce`.
 #[test]
 fn a_recall_answered_with_an_error_is_sent_again_at_once() {
     let mut rig = recall_ready_to_cast(CastResult::Sent);
@@ -421,11 +422,123 @@ fn a_recall_that_landed_is_not_cast_again_while_the_teleport_starts() {
         weenie_error: 0,
     };
 
-    for _ in 0..100 {
+    // Four seconds: inside the 4.5 s a clean cast is given to show its
+    // teleport (the C# test waited five, which now sees the recast; the
+    // owner's ruling of 2026-10-16, "Do as vtank").
+    for _ in 0..80 {
         assert!(rig.tick(0.05, true));
     }
 
     assert_eq!(rig.automation.magic().requested_spell_ids.len(), 1);
+}
+
+/// The server refuses a recall cast within 3.5 s of the last teleport, and
+/// the cast still ends with a clean "done": only a chat line says so. Like
+/// VirindiTank, the waypoint casts again once the cast's result is overdue
+/// (4.5 s) and is done when the teleport finally comes. The owner's ruling
+/// of 2026-10-16: "Do as vtank, both in Rust and C#."
+/// C# test (pending eriknihlen/openac-mosstank#16): `NavigationTests.ARecallTheServerRefusedIsCastAgainAndDoneWhenTheTeleportComes`.
+#[test]
+fn a_recall_the_server_refused_is_cast_again_and_done_when_the_teleport_comes() {
+    let mut rig = recall_ready_to_cast(CastResult::Sent);
+
+    assert!(rig.tick(0.05, true));
+    assert_eq!(rig.automation.magic().requested_spell_ids, [1635]);
+
+    // A clean answer, and no portal space after it.
+    rig.automation.magic().last_completion = CastCompletion {
+        revision: 1,
+        spell_id: 1635,
+        target_id: 0,
+        weenie_error: 0,
+    };
+    for _ in 0..80 {
+        assert!(rig.tick(0.05, true));
+    }
+    assert_eq!(rig.automation.magic().requested_spell_ids, [1635]);
+    assert_eq!(rig.status(), "Recall: Lifestone Recall.");
+
+    assert!(rig.tick(0.6, true));
+    assert_eq!(rig.automation.magic().requested_spell_ids, [1635, 1635]);
+    assert_eq!(rig.status(), "Recall: Lifestone Recall (retrying).");
+
+    // This one lands, and the teleport comes.
+    rig.automation.magic().last_completion = CastCompletion {
+        revision: 2,
+        spell_id: 1635,
+        target_id: 0,
+        weenie_error: 0,
+    };
+    assert!(rig.tick(0.05, true));
+    rig.automation.navigation_snapshot.is_portal_space = true;
+    assert!(rig.tick(0.05, true));
+    rig.automation.navigation_snapshot = snapshot(position(4.0, 0.0));
+    assert!(rig.tick(0.05, true));
+
+    assert_eq!(rig.index(), 1);
+    assert_eq!(rig.automation.magic().requested_spell_ids, [1635, 1635]);
+    assert!(rig.automation.posted_system_messages.is_empty());
+}
+
+/// VirindiTank's recall waypoint has no timeout, and neither has this one:
+/// a recall that never teleports is cast again and again, and the route
+/// stays on it (the old 30 s give-up walked off toward the next waypoint,
+/// 22 km away live; the owner's ruling of 2026-10-16).
+/// C# test (pending eriknihlen/openac-mosstank#16): `NavigationTests.ARecallThatNeverTeleportsIsNeverGivenUp`.
+#[test]
+fn a_recall_that_never_teleports_is_never_given_up() {
+    let mut rig = recall_ready_to_cast(CastResult::Sent);
+
+    assert!(rig.tick(0.05, true));
+    for revision in 1..=20 {
+        rig.automation.magic().last_completion = CastCompletion {
+            revision,
+            spell_id: 1635,
+            target_id: 0,
+            weenie_error: 0,
+        };
+        assert!(rig.tick(0.05, true));
+        assert!(rig.tick(5.0, true));
+    }
+
+    assert_eq!(rig.index(), 0);
+    assert_eq!(rig.automation.magic().requested_spell_ids.len(), 21);
+    assert_eq!(rig.status(), "Recall: Lifestone Recall (retrying).");
+}
+
+/// A recall the server never answers is held (register NAV-5) only as long
+/// as VirindiTank's caster would hold it, 5 s to be spoken and 4.5 s for its
+/// result; then it is sent again rather than parking the route for good.
+/// C# test (pending eriknihlen/openac-mosstank#16): `NavigationTests.ARecallNeverAnsweredIsSentAgainWhenVTanksCasterWouldGiveItUp`.
+#[test]
+fn a_recall_never_answered_is_sent_again_when_vtanks_caster_would_give_it_up() {
+    let mut rig = recall_ready_to_cast(CastResult::Sent);
+
+    assert!(rig.tick(0.05, true));
+    for _ in 0..180 {
+        assert!(rig.tick(0.05, true));
+    }
+    assert_eq!(rig.automation.magic().requested_spell_ids, [1635]);
+
+    assert!(rig.tick(0.6, true));
+    assert_eq!(rig.automation.magic().requested_spell_ids, [1635, 1635]);
+}
+
+/// While the client holds a cast up, nothing more is sent however long it
+/// takes.
+/// C# test (pending eriknihlen/openac-mosstank#16): `NavigationTests.ARecallIsNotSentAgainWhileTheHostHoldsACastUp`.
+#[test]
+fn a_recall_is_not_sent_again_while_the_client_holds_a_cast_up() {
+    let mut rig = recall_ready_to_cast(CastResult::Sent);
+
+    assert!(rig.tick(0.05, true));
+    rig.automation.magic().is_casting = true;
+    for _ in 0..40 {
+        assert!(rig.tick(0.5, true));
+    }
+
+    assert_eq!(rig.automation.magic().requested_spell_ids, [1635]);
+    assert_eq!(rig.index(), 0);
 }
 
 // Source: tests/AcDream.Plugins.MossTank.Tests/NavigationTests.cs :: AGenuineRecallRefusalOfMissingComponentsStillPostsItsOneLine

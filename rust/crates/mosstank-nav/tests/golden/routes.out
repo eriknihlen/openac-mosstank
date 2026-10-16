@@ -302,19 +302,50 @@
 > tick 0.05
   cast 1635 -> Unavailable
   post [MossTank] Recall 'Lifestone Recall' refused: Unavailable.
-  = 1 | Recall: Lifestone Recall. | door: no door in reach | idx 0
+  = 1 | Recall: Lifestone Recall (retrying). | door: no door in reach | idx 0
 > tick 0.05
-  = 1 | Recall: Lifestone Recall. | door: no door in reach | idx 0
+  = 1 | Recall: Lifestone Recall (retrying). | door: no door in reach | idx 0
 > tick 3
   cast 1635 -> Sent
-  = 1 | Recall: Lifestone Recall. | door: no door in reach | idx 0
+  = 1 | Recall: Lifestone Recall (retrying). | door: no door in reach | idx 0
 > tick 3
-  = 1 | Recall: Lifestone Recall. | door: no door in reach | idx 0
+  = 1 | Recall: Lifestone Recall (retrying). | door: no door in reach | idx 0
 > tick 0.05
   = 1 | Waiting for portal space. | door: no door in reach | idx 0
 > tick 0.05
   cast 1635 -> Sent
-  = 1 | Recall: Lifestone Recall. | door: no door in reach | idx 0
+  = 1 | Recall: Lifestone Recall (retrying). | door: no door in reach | idx 0
+> tick 0.05
+  = 1 | Waiting for portal space. | door: no door in reach | idx 0
+> tick 0.05
+  = 1 | Waiting for portal space. | door: no door in reach | idx 1
+##### recall-refused-by-the-server-recasts-until-teleported
+> tick 0.05
+  cast 48 -> Sent
+  = 1 | Recall: Primary Portal Recall. | door: no door in reach | idx 0
+> tick 3
+  = 1 | Recall: Primary Portal Recall. | door: no door in reach | idx 0
+> tick 0.05
+  = 1 | Recall: Primary Portal Recall. | door: no door in reach | idx 0
+> tick 4
+  = 1 | Recall: Primary Portal Recall. | door: no door in reach | idx 0
+> tick 0.6
+  cast 48 -> Sent
+  = 1 | Recall: Primary Portal Recall (retrying). | door: no door in reach | idx 0
+> tick 3
+  = 1 | Recall: Primary Portal Recall (retrying). | door: no door in reach | idx 0
+> tick 0.05
+  = 1 | Recall: Primary Portal Recall (retrying). | door: no door in reach | idx 0
+> tick 30
+  cast 48 -> Sent
+  = 1 | Recall: Primary Portal Recall (retrying). | door: no door in reach | idx 0
+> tick 0.05
+  cast 48 -> Sent
+  = 1 | Recall: Primary Portal Recall (retrying). | door: no door in reach | idx 0
+> tick 0.05
+  = 1 | Recall: Primary Portal Recall (retrying). | door: no door in reach | idx 0
+> tick 2
+  = 1 | Recall: Primary Portal Recall (retrying). | door: no door in reach | idx 0
 > tick 0.05
   = 1 | Waiting for portal space. | door: no door in reach | idx 0
 > tick 0.05
@@ -331,7 +362,10 @@
   cast 3865 -> MissingComponents
   = 1 | Recall: Glenden Wood Recall. | door: no door in reach | idx 0
 > tick 26
-  = 1 | Recall timed out; continuing route. | door: no door in reach | idx 1
+  cast 3865 -> MissingComponents
+  = 1 | Recall: Glenden Wood Recall. | door: no door in reach | idx 0
+> skip 1
+  = 1 | Recall: Glenden Wood Recall. | door: no door in reach | idx 1
 > tick 0.05
   post [MossTank] Recall spell 'Not A Recall' not found; skipping waypoint.
   = 1 | Recall spell 'Not A Recall' not found; skipping waypoint. | door: no door in reach | idx 2
@@ -357,12 +391,12 @@
   = 1 | Recall: waiting to come to a stop. | door: no door in reach | idx 0
 > tick 0.05
   cast 48 -> Sent
-  = 1 | Recall: 48. | door: no door in reach | idx 0
+  = 1 | Recall: 48 (retrying). | door: no door in reach | idx 0
 > tick 0.05
-  = 1 | Recall: 48. | door: no door in reach | idx 0
+  = 1 | Recall: 48 (retrying). | door: no door in reach | idx 0
 > tick 2.5
   cast 48 -> Sent
-  = 1 | Recall: 48. | door: no door in reach | idx 0
+  = 1 | Recall: 48 (retrying). | door: no door in reach | idx 0
 ##### jump-aligns-charges-lands
 > frame 0.05
   clear

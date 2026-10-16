@@ -301,6 +301,32 @@ tick 0.05
 me 40m 0 0
 tick 0.05
 
+case recall-refused-by-the-server-recasts-until-teleported
+route Circular 2
+wp Recall at=0,0 recall=PrimaryPortalRecall spell=48 spellname="Primary Portal Recall"
+wp Point at=5m,0
+magic answer=Sent
+me 0 0 0
+tick 0.05
+tick 3
+magic completion=1,48,0
+tick 0.05
+tick 4
+tick 0.6
+tick 3
+magic completion=2,48,0
+tick 0.05
+tick 30
+magic completion=3,48,1026
+tick 0.05
+magic completion=4,48,0
+tick 0.05
+tick 2
+me 0 0 0 portal
+tick 0.05
+me 40m 0 0
+tick 0.05
+
 case recall-names-refusals-and-marketplace
 route Once 2
 wp Recall at=0,0 spellname="Glenden Wood Recall"
@@ -313,6 +339,7 @@ tick 0.05
 tick 2.5
 tick 2.5
 tick 26
+skip 1
 tick 0.05
 tick 0.05
 tick 0.05
