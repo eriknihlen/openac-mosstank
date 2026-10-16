@@ -313,12 +313,12 @@
 > tick 0.05
   = 1 | Waiting for portal space. | door: no door in reach | idx 0
 > tick 0.05
-  cast 1635 -> Sent
-  = 1 | Recall: Lifestone Recall (retrying). | door: no door in reach | idx 0
-> tick 0.05
-  = 1 | Waiting for portal space. | door: no door in reach | idx 0
-> tick 0.05
   = 1 | Waiting for portal space. | door: no door in reach | idx 1
+> tick 0.05
+  = 0 | Waiting for portal space. | door: no door in reach | idx 1
+> tick 0.05
+  intent F=0 B=0 SL=0 SR=0 TL=1 TR=0 run=1 jump=0
+  = 1 | Waypoint 2/2: 35.0m | door: no door in reach | idx 1
 ##### recall-refused-by-the-server-recasts-until-teleported
 > tick 0.05
   cast 48 -> Sent

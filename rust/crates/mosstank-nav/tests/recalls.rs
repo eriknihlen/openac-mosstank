@@ -68,6 +68,53 @@ fn a_recall_waypoint_is_done_on_the_first_tick_after_arrival() {
     assert_eq!(rig.index(), 1);
 }
 
+/// A portal tie beside the hunt's last portal: the recall lands the
+/// character where it cast. Portal space, then arrival at the same spot, is
+/// the recall done; it is not cast again (the owner's live report of
+/// 2026-10-16, a character recasting Primary Portal Recall forever).
+/// C# test (pending eriknihlen/openac-mosstank#16): `NavigationTests.ARecallThatLandsWhereItWasCastIsDone`.
+#[test]
+fn a_recall_that_lands_where_it_was_cast_is_done() {
+    let mut rig = recall_ready_to_cast(CastResult::Sent);
+    assert!(rig.tick(0.05, true));
+    assert_eq!(rig.automation.magic().requested_spell_ids, [1635]);
+    rig.automation.magic().last_completion = CastCompletion {
+        revision: 1,
+        spell_id: 1635,
+        target_id: 0,
+        weenie_error: 0,
+    };
+    assert!(rig.tick(0.05, true));
+
+    rig.automation.navigation_snapshot.is_portal_space = true;
+    assert!(rig.tick(0.05, true));
+    rig.automation.navigation_snapshot = snapshot(position(0.5, 0.0));
+    assert!(rig.tick(0.05, true));
+
+    assert_eq!(rig.index(), 1);
+    assert_eq!(rig.automation.magic().requested_spell_ids, [1635]);
+}
+
+/// Portal space that was under way before the recall went out is not the
+/// recall's teleport: the waypoint is not done by its arrival and casts.
+/// C# test (pending eriknihlen/openac-mosstank#16): `NavigationTests.PortalSpaceBeforeTheRecallWasSentDoesNotCompleteIt`.
+#[test]
+fn portal_space_before_the_recall_was_sent_does_not_complete_it() {
+    let mut rig = recall_in_peace();
+    assert!(rig.tick(0.05, true));
+    assert!(rig.automation.magic().requested_spell_ids.is_empty());
+
+    rig.automation.navigation_snapshot.is_portal_space = true;
+    assert!(rig.tick(0.05, true));
+    rig.automation.navigation_snapshot = snapshot(position(0.0, 0.0));
+    rig.automation.combat_mode = CombatMode::Magic;
+    rig.automation.server_mode = CombatMode::Magic;
+    assert!(rig.tick(0.05, true));
+
+    assert_eq!(rig.index(), 0);
+    assert_eq!(rig.automation.magic().requested_spell_ids, [1635]);
+}
+
 // Source: tests/AcDream.Plugins.MossTank.Tests/NavigationTests.cs :: RouteRecallKindListsVTanksTwentySixRecallsInOrderPlusMarketplaceLast
 #[test]
 fn route_recall_kind_lists_vtanks_twenty_six_recalls_in_order_plus_marketplace_last() {

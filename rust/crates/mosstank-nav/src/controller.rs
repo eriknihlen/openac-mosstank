@@ -43,7 +43,6 @@ const USE_RETRY_SECONDS: f64 = 2.0;
 const PORTAL_TIMEOUT_SECONDS: f64 = 30.0;
 const OBJECT_REACQUIRE_RADIUS_METERS: f64 = 2.5;
 const PORTAL_EXIT_DISTANCE_METERS: f64 = 15.0;
-const RECALL_EXIT_DISTANCE_METERS: f64 = 2.4;
 
 /// How far the character may have drifted between ticks and still count as
 /// standing still for a recall.
@@ -791,15 +790,17 @@ impl NavigationController {
         }
         if snapshot.is_portal_space {
             self.stop_movement(automation);
-            if matches!(
-                self.active_action.map(|action| action.kind),
-                Some(
-                    RouteWaypointType::Portal
-                        | RouteWaypointType::PortalByName
-                        | RouteWaypointType::Recall
-                )
-            ) {
-                self.saw_portal_space = true;
+            match self.active_action.map(|action| action.kind) {
+                Some(RouteWaypointType::Portal | RouteWaypointType::PortalByName) => {
+                    self.saw_portal_space = true;
+                }
+                // Only a teleport that comes after the waypoint sent its
+                // recall is the recall's: portal space already under way
+                // when the waypoint began belongs to something else.
+                Some(RouteWaypointType::Recall) if self.action_sent => {
+                    self.saw_portal_space = true;
+                }
+                _ => {}
             }
             "Waiting for portal space.".clone_into(&mut self.voice.status);
             return self.active_action.is_some();
@@ -1910,26 +1911,18 @@ impl NavigationController {
         }
 
         // Arrival is read before the standing-still check: the teleport is
-        // itself a position jump.
-        if snapshot.is_portal_space {
+        // itself a position jump. Portal space after the recall went out,
+        // then arrival, is the recall done wherever it lands: a portal tie
+        // at the end of the hunt puts the character back where it cast, and
+        // a distance test here recast that recall forever (the owner's live
+        // report of 2026-10-16). VirindiTank's waypoint likewise ends on
+        // any position change after its cast.
+        if snapshot.is_portal_space && self.action_sent {
             self.saw_portal_space = true;
         }
         if self.saw_portal_space && !snapshot.is_portal_space {
-            if !self.has_portal_origin
-                || snapshot
-                    .position
-                    .horizontal_distance_metres(&self.portal_origin)
-                    > RECALL_EXIT_DISTANCE_METERS
-            {
-                self.complete_action(automation, settings);
-                return true;
-            }
-            self.saw_portal_space = false;
-            self.action_sent = false;
-            self.recall_cast_pending = false;
-            self.recall_cast_landed = false;
-            self.recall_retrying = true;
-            self.retry_elapsed = USE_RETRY_SECONDS;
+            self.complete_action(automation, settings);
+            return true;
         }
 
         if !self.is_standing_still_for_recall(snapshot) {
@@ -2010,10 +2003,6 @@ impl NavigationController {
                 self.recall_cast_revision = issue_revision;
             }
             self.action_sent |= accepted;
-            if accepted && !self.has_portal_origin {
-                self.portal_origin = snapshot.position.clone();
-                self.has_portal_origin = true;
-            }
             self.retry_elapsed = 0.0;
         }
         self.voice.status = self.recall_status(&label);
