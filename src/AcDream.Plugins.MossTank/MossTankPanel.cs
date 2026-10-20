@@ -478,6 +478,8 @@ internal sealed partial class MossTankPanel : IBuffRuleHost, IDisposable
             _lootProfiles,
             () => _loot.IsIdentifying);
         _navigation = new NavigationController(host, _navigationSettings);
+        // The route hears the teleport: a recall waypoint is done by it.
+        host.Events.PortalTransition += _navigation.OnPortalTransition;
         _navigation.BindActionLocks(_actionLocks);
         _navigation.BindCombatModeGate(_combatModeGate, _combatSettings);
         // One low-stop-distance warning for the whole run, whichever mover
@@ -6034,6 +6036,7 @@ internal sealed partial class MossTankPanel : IBuffRuleHost, IDisposable
         _killStatistics.Dispose();
         Disable();
         _combat.StatusChanged -= RecordActionHistory;
+        _host.Events.PortalTransition -= _navigation.OnPortalTransition;
         _vendorTrade.Dispose();
         _nametags.Dispose();
         DisposeAliases();
