@@ -454,13 +454,28 @@ internal sealed class NavigationController
     private const double PortalTimeoutSeconds = 30d;
     private const double ObjectReacquireRadiusMeters = 2.5d;
     private const double PortalExitDistanceMeters = 15d;
-    private const double RecallExitDistanceMeters = 2.4d;
 
     /// <summary>
     /// How far the character may have drifted between ticks and still count as
-    /// standing still for a recall.
+    /// standing still for a recall: 0.01 map units (a map unit is 240 m).
+    /// Once the recall has been sent, a move past it is the teleport.
     /// </summary>
     private const double RecallStationaryToleranceMeters = 2.4d;
+
+    /// <summary>
+    /// How long a recall that ended cleanly is waited on for its teleport
+    /// before it is taken to have been refused and is cast again: the time a
+    /// cast is given to show its result (4500 ms).
+    /// </summary>
+    private const double RecallResultTimeoutSeconds = 4.5d;
+
+    /// <summary>
+    /// How long a recall the server has not answered at all is waited on
+    /// before it is sent again: 5 s for the words to be spoken, then the
+    /// 4.5 s a cast is given for its result.
+    /// </summary>
+    private const double RecallUnansweredTimeoutSeconds =
+        5d + RecallResultTimeoutSeconds;
     private const double JumpLaunchGraceSeconds = 0.25d;
     private const double JumpCompletionTimeoutSeconds = 3d;
     private const int JumpChargeCeilingMilliseconds = 2000;
@@ -552,10 +567,23 @@ internal sealed class NavigationController
     /// </summary>
     private bool _recallCastPending;
     /// <summary>The last recall cast completed without an error: the
-    /// teleport is on its way and the spell must not be sent again while
-    /// the route waits for portal space.</summary>
+    /// teleport may be on its way and the spell must not be sent again while
+    /// the route waits for portal space, for up to
+    /// <see cref="RecallResultTimeoutSeconds"/>.</summary>
     private bool _recallCastLanded;
     private long _recallCastRevision;
+
+    /// <summary>A recall cast has ended without the teleport, and the recall
+    /// is being cast again.</summary>
+    private bool _recallRetrying;
+
+    /// <summary>The world went away (no position) after the recall was
+    /// sent: counted as a jump, so the teleport.</summary>
+    private bool _recallLostPosition;
+
+    /// <summary>The host reported a teleport completed after the recall was
+    /// sent.</summary>
+    private bool _recallTeleported;
 
     /// <summary>
     /// The route's own close-in mover. One per rule, as the reference builds
@@ -759,6 +787,24 @@ internal sealed class NavigationController
     public bool Reversing => _reverse;
 
     public bool HasActiveAction => _activeAction is not null;
+
+    /// <summary>
+    /// A portal or recall transition the host reported. A teleport that
+    /// completes after the recall waypoint sent its recall is the recall
+    /// done, wherever it lands. The host reports it even when it carries the
+    /// whole teleport out between two ticks (headless), where the snapshot
+    /// never shows portal space.
+    /// </summary>
+    internal void OnPortalTransition(PluginPortalTransition transition)
+    {
+        if (transition.IsCompleted
+            && transition.Kind == PluginPortalTransitionKind.Portal
+            && _actionSent
+            && _activeAction?.Type is RouteWaypointType.Recall)
+        {
+            _recallTeleported = true;
+        }
+    }
 
 
     internal const string LowWaypointDistanceWarning =
@@ -1035,6 +1081,11 @@ internal sealed class NavigationController
         PluginNavigationSnapshot snapshot = navigation.Snapshot;
         if (!_settings.Enabled || !snapshot.IsAvailable)
         {
+            if (_settings.Enabled && _actionSent
+                && _activeAction?.Type is RouteWaypointType.Recall)
+            {
+                _recallLostPosition = true;
+            }
             StopMovement();
             _status = _settings.Enabled
                 ? "Waiting for the world."
@@ -1045,8 +1096,14 @@ internal sealed class NavigationController
         {
             StopMovement();
             if (_activeAction?.Type is RouteWaypointType.Portal
-                or RouteWaypointType.PortalByName
-                or RouteWaypointType.Recall)
+                or RouteWaypointType.PortalByName)
+            {
+                _sawPortalSpace = true;
+            }
+            // Only a teleport that comes after the waypoint sent its recall
+            // is the recall's: portal space already under way when the
+            // waypoint began belongs to something else.
+            else if (_activeAction?.Type is RouteWaypointType.Recall && _actionSent)
             {
                 _sawPortalSpace = true;
             }
@@ -1056,6 +1113,9 @@ internal sealed class NavigationController
         if (!canAct)
         {
             StopMovement();
+            // Another rule may walk the character while the route waits;
+            // that is not a teleport, so a recall compares afresh after it.
+            _recallNeedsPositionCapture = true;
             _status = "Navigation paused.";
             return false;
         }
@@ -2129,75 +2189,118 @@ internal sealed class NavigationController
             return true;
         }
 
-        // Arrival is read before the standing-still check: the teleport is
-        // itself a position jump, and read the other way round it looked like
-        // the character still moving, which held a finished recall for a tick.
-        if (navigation.IsPortalSpace)
+        // The recall is done by either of two signs. First, portal space after
+        // the recall went out, then arrival, wherever it lands: a portal tie
+        // at the end of the hunt puts the character back where it cast, and a
+        // distance test alone recast that recall forever. Arrival is read
+        // before the standing-still check, as the teleport is itself a
+        // position jump. The host's report
+        // of a completed teleport is the same sign, and the one a headless
+        // host gives: it carries the whole teleport out between two ticks,
+        // and the snapshot never shows portal space.
+        if (navigation.IsPortalSpace && _actionSent)
             _sawPortalSpace = true;
-        if (_sawPortalSpace && !navigation.IsPortalSpace)
+        if (_recallTeleported || (_sawPortalSpace && !navigation.IsPortalSpace))
         {
-            if (!_hasPortalOrigin
-                || navigation.Position.HorizontalDistanceMeters(_portalOrigin)
-                    > RecallExitDistanceMeters)
-            {
-                CompleteAction();
-                return true;
-            }
-            _sawPortalSpace = false;
-            _actionSent = false;
-            _recallCastPending = false;
-            _recallCastLanded = false;
-            _retryElapsed = UseRetrySeconds;
-        }
-
-        if (!IsStandingStillForRecall(navigation))
-        {
-            _status = "Recall: waiting to come to a stop.";
-            return true;
-        }
-
-        if (_actionElapsed >= PortalTimeoutSeconds)
-        {
-            _status = "Recall timed out; continuing route.";
             CompleteAction();
             return true;
         }
 
-        IMagicCommands magic = _host.Automation.Magic;
-        if (magic.IsCasting)
+        // Second, the character's own position: once the recall has been sent the
+        // character stands still for it, so a move past the tolerance between
+        // two ticks, or the position going away, can only be the teleport. It
+        // catches a teleport whose portal space the route never saw (a
+        // headless client can finish the whole teleport between two ticks).
+        // Before the first send the character may still be coming to a stop,
+        // and that is only waited out.
+        if (_recallLostPosition)
         {
-            // The cast is already doing the waypoint's job, and a second
-            // request made on top of a pending one is simply turned away. So
-            // the retry clock is wound back for as long as the cast is in the
-            // air: it is meant to measure how long the waypoint has gone
-            // WITHOUT a cast working for it. The overall timeout above keeps
-            // running, so a cast that never resolves still gives up.
-            _retryElapsed = 0d;
-            _status = $"Recall: {waypoint.RecallLabel}.";
+            CompleteAction();
             return true;
         }
-        if (_recallCastPending
-            && magic.LastCompletion.Revision != _recallCastRevision)
+        if (!IsStandingStillForRecall(navigation))
         {
-            // The cast finished. Without an error the teleport is on its way
-            // and takes a moment to start, so the spell is not sent again
-            // while the route waits for portal space; with an error (a fizzle
-            // or a refusal) there is nothing to wait for and the next attempt
-            // goes out on this tick rather than two seconds from now.
+            if (_actionSent)
+            {
+                CompleteAction();
+                return true;
+            }
+            _status = "Recall: waiting to come to a stop.";
+            return true;
+        }
+
+        // There is no give-up: the recall waypoint holds the route until the character is teleported and casts the
+        // recall again for as long as it is not. A server that refuses the
+        // recall (a teleport within the last 3.5 s, say) still ends the cast
+        // with a plain "done", and the refusal reaches the plugin only as a
+        // chat line, so a give-up after a clean cast walked the route on
+        // from where the character still stood.
+        IMagicCommands magic = _host.Automation.Magic;
+        PluginCastCompletion completion = magic.LastCompletion;
+
+        // A recall this waypoint sent that the server has not answered yet is
+        // still in the air. The host no longer says so through IsCasting (it
+        // lets a cast be re-issued while an earlier one is unanswered), and a
+        // recall's windup, gesture and recoil take longer than the two-second
+        // retry: a retry sent then is answered "too busy", that error sends it
+        // again at once, and the one still on its way when the first cast
+        // ends is cast as well. A cast never answered at all is given up after
+        // the time to speak it plus the time for its result, and sent again.
+        bool unanswered = _recallCastPending
+            && completion.Revision == _recallCastRevision;
+        if (unanswered && _retryElapsed >= RecallUnansweredTimeoutSeconds)
+        {
+            unanswered = false;
             _recallCastPending = false;
-            if (magic.LastCompletion.IsSuccess)
+            _recallRetrying = true;
+            _retryElapsed = UseRetrySeconds;
+        }
+        if (magic.IsCasting || unanswered)
+        {
+            // The cast is already doing the waypoint's job, and a second
+            // request made on top of a pending one is simply turned away.
+            // While the host holds a cast up the retry clock is wound back:
+            // it is meant to measure how long the waypoint has gone WITHOUT a
+            // cast working for it. While the server has yet to answer, it
+            // counts toward the give-up above.
+            if (!unanswered)
+                _retryElapsed = 0d;
+            _status = RecallStatus(waypoint);
+            return true;
+        }
+        if (_recallCastPending && completion.Revision != _recallCastRevision)
+        {
+            // The cast finished. Without an error the teleport may be on its
+            // way and takes a moment to start, so the spell is not sent again
+            // while the route waits for portal space, and the clock starts on
+            // that wait; with an error (a fizzle or a refusal) there is
+            // nothing to wait for and the next attempt goes out on this tick
+            // rather than two seconds from now.
+            _recallCastPending = false;
+            if (completion.IsSuccess)
+            {
                 _recallCastLanded = true;
+                _retryElapsed = 0d;
+            }
             else
+            {
+                _recallRetrying = true;
                 _retryElapsed = UseRetrySeconds;
+            }
+        }
+        if (_recallCastLanded && _retryElapsed >= RecallResultTimeoutSeconds)
+        {
+            // A clean cast with no teleport after it was refused all the
+            // same: it is over, and the recall is cast again.
+            _recallCastLanded = false;
+            _recallRetrying = true;
         }
 
         // A recall is a spell, and the server drops any cast made outside
         // magic mode: it answers the request with nothing but a "done" and
         // the recall never happens. So the character is stood in magic mode
         // first, asked for on every tick until the mode is actually held,
-        // and only then is the spell sent. The timeout above still applies,
-        // so a mode that never arrives gives the waypoint up rather than
-        // parking the route here.
+        // and only then is the spell sent.
         if (waypoint.RecallSpellId != 0u && !IsReadyToCastRecall())
         {
             _status = "Recall: switching to magic mode.";
@@ -2206,7 +2309,7 @@ internal sealed class NavigationController
 
         if (!_recallCastLanded && (!_actionSent || _retryElapsed >= UseRetrySeconds))
         {
-            long issueRevision = magic.LastCompletion.Revision;
+            long issueRevision = completion.Revision;
             bool accepted = SubmitRecall(waypoint);
             if (accepted && waypoint.RecallSpellId != 0u)
             {
@@ -2214,16 +2317,20 @@ internal sealed class NavigationController
                 _recallCastRevision = issueRevision;
             }
             _actionSent |= accepted;
-            if (accepted && !_hasPortalOrigin)
-            {
-                _portalOrigin = navigation.Position;
-                _hasPortalOrigin = true;
-            }
             _retryElapsed = 0d;
         }
-        _status = $"Recall: {waypoint.RecallLabel}.";
+        _status = RecallStatus(waypoint);
         return true;
     }
+
+    /// <summary>
+    /// The recall waypoint's status line, marked once a cast has ended
+    /// without the teleport and the recall is being cast again.
+    /// </summary>
+    private string RecallStatus(RouteWaypoint waypoint) =>
+        _recallRetrying
+            ? $"Recall: {waypoint.RecallLabel} (retrying)."
+            : $"Recall: {waypoint.RecallLabel}.";
 
     /// <summary>
     /// A recall is only cast from a standstill. The check is a position
@@ -2481,6 +2588,9 @@ internal sealed class NavigationController
         _recallCastPending = false;
         _recallCastLanded = false;
         _recallCastRevision = 0L;
+        _recallRetrying = false;
+        _recallLostPosition = false;
+        _recallTeleported = false;
         _jumpFaceHeadingStamp = NoFaceHeadingStamp;
     }
 
