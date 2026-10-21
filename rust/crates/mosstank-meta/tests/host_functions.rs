@@ -2543,6 +2543,26 @@ fn dereth_time_functions_use_the_runtime_world_clock_projection() {
     );
 }
 
+/// `vitae[]` is the vitae penalty in whole percent, as UtilityBelt reads it
+/// (an integer from the character filter): 0 with no vitae, 5 at the 0.95
+/// multiplier. Metas test it as `vitae[]>12` for "too much vitae".
+#[test]
+fn vitae_is_the_penalty_in_whole_percent() {
+    let mut host = create_automation();
+    let mut rt = new(&mut host);
+    assert_eq!(eval_number(&mut rt, &mut host, "vitae[]"), 0.0);
+
+    let mut with_vitae = properties(&[], &[], &[]);
+    with_vitae.floats = vec![(129, 0.95)];
+    host.properties.insert(1, with_vitae);
+    assert_eq!(eval_number(&mut rt, &mut host, "vitae[]"), 5.0);
+
+    let mut full = properties(&[], &[], &[]);
+    full.floats = vec![(129, 1.0)];
+    host.properties.insert(1, full);
+    assert_eq!(eval_number(&mut rt, &mut host, "vitae[]"), 0.0);
+}
+
 // Source: tests/AcDream.Plugins.MossTank.Tests/HostExpressionFunctionsTests.cs :: ExperienceMeterAccumulatesCanonicalXpAndLuminanceDeltas
 #[test]
 fn experience_meter_accumulates_canonical_xp_and_luminance_deltas() {

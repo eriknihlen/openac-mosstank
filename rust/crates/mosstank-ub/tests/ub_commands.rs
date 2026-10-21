@@ -1042,7 +1042,7 @@ fn vitae_is_thought_as_a_percentage() {
     rig.ub("vitae");
     assert!(
         rig.submitted()
-            .contains(&"/t Test Character, My vitae is 95%".to_owned())
+            .contains(&"/t Test Character, My vitae is 5%".to_owned())
     );
 }
 

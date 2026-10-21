@@ -1021,9 +1021,10 @@ fn think_vitae(call: &mut UbCall<'_>) {
                 .map(|(_, value)| *value)
         })
         .unwrap_or(1.0);
+    // The multiplier 0.95 is a 5% penalty.
     call.think(&format!(
         "My vitae is {}%",
-        invariant(number::round(multiplier * 100.0))
+        invariant(number::round((1.0 - multiplier) * 100.0))
     ));
 }
 

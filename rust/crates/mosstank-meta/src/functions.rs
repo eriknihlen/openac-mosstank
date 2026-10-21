@@ -1322,11 +1322,15 @@ pub(crate) fn call(
         "getcharvital_current" => call.vital(&args[0], VitalRead::Current).map(number),
         "vitae" => {
             let id = call.character().id;
-            Ok(number(match call.host.properties(id) {
-                None => 100.0,
-                // PropertyFloat.Vitae (129) is the multiplier 0..1.
-                Some(properties) => get_float(&properties.floats, 129).unwrap_or(1.0) * 100.0,
-            }))
+            // PropertyFloat.Vitae (129) is the multiplier 0..1; the function
+            // answers the penalty in whole percent (0 with no vitae, 5 at
+            // 0.95), as metas test it with `vitae[]>12`.
+            let multiplier = call
+                .host
+                .properties(id)
+                .and_then(|properties| get_float(&properties.floats, 129))
+                .unwrap_or(1.0);
+            Ok(number(((1.0 - multiplier) * 100.0).round()))
         }
 
         // ---- spells ----
