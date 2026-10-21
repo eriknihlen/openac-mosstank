@@ -317,8 +317,9 @@
     <label x="331" y="8" w="103" text="Hands" color="theme:text|#FFE8DEC3" />
     <list x="4" y="28" w="430" h="147" rowheight="18" anchor="left top bottom"
           selected="{SelectedItemRowIndex}" onchange="{SelectItemRow}"
-          tooltip="Click a name to remove it, or Hands to cycle 1-Handed/2-Handed.">
-      <column type="text" width="327" items="{ItemNameColumn}" onclick="{DeleteItemRowAt}" />
+          tooltip="Click a name to remove the item, or Hands to choose the hand it is used in.">
+      <column type="text" width="327" items="{ItemNameColumn}" colors="{ItemNameColors}"
+              onclick="{DeleteItemRowAt}" />
       <column type="text" width="103" items="{ItemHandsColumn}" onclick="{CycleItemHandsAt}" />
     </list>
     <button x="4" y="189" w="126" h="25" text="Add" onclick="{AddSelectedItem}" anchor="bottom"

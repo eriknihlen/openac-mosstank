@@ -50,7 +50,8 @@ public sealed partial class MossTankPanelTests
         Command(reopened, "opt get AttackDistance");
 
         Assert.Equal(selected, reopened.SelectedMacroProfile);
-        Assert.Contains("War Wand", reopened.ItemNameColumn);
+        // The wand is listed; this client has not seen it yet, so by its id.
+        Assert.Equal(["<INVALID 10>"], reopened.ItemNameColumn);
         Assert.Equal(0.02d, reopened.EvaluateExpression(
             "uboptget[`AttackDistance`]").AsNumber(), precision: 7);
         Assert.Equal(binding, storage.Text[key]);

@@ -10,7 +10,6 @@ internal static class VtankProfiledItemIds
         settings.CombatItemOrderIds.Clear();
         settings.CombatItemObjectIds.Clear();
         settings.RemovedCombatItemObjectIds.Clear();
-        settings.RemovedBuffedItemRows.Clear();
         for (int index = buffs.ItemEnchantRows.Count - 1; index >= 0; index--)
         {
             if (buffs.ItemEnchantRows[index].IsProfiledItemRow)
@@ -75,7 +74,12 @@ internal static class VtankProfiledItemIds
         catch (OverflowException) { return false; }
     }
 
-    public static void Write(VtankDatabase database, CombatSettings settings)
+    /// <summary>
+    /// Save the listed items. An item added since the profile was read is
+    /// written with the spells it is buffed with, one row each, or as the
+    /// item with no spell when it carries none, as VTank writes an item.
+    /// </summary>
+    public static void Write(VtankDatabase database, CombatSettings settings, BuffSettings buffs)
     {
         VtankTable? table = database.Find(TableName);
         if (table is null)
@@ -91,17 +95,6 @@ internal static class VtankProfiledItemIds
         int spellColumn = table.ColumnIndex("Spell");
         if (objectColumn < 0 || spellColumn < 0)
             throw new FormatException("'BuffedItems' table is missing Object/Spell columns.");
-
-        foreach (BuffedItemKey removed in settings.RemovedBuffedItemRows)
-        {
-            int index = table.Rows.FindIndex(row => TryReadRow(
-                row, objectColumn, spellColumn, out int rawObject, out int rawSpell)
-                && unchecked((uint)rawObject) == removed.ObjectId
-                && unchecked((uint)rawSpell) == removed.SpellId);
-            if (index >= 0)
-                table.Rows.RemoveAt(index);
-        }
-        settings.RemovedBuffedItemRows.Clear();
 
         if (settings.RemovedCombatItemObjectIds.Count != 0)
         {
@@ -120,11 +113,27 @@ internal static class VtankProfiledItemIds
         {
             if (id is 0u or uint.MaxValue || !present.Add(id))
                 continue;
-            var row = new VtankRow();
-            for (int column = 0; column < table.ColumnNames.Count; column++)
-                row.Cells.Add(VtankCell.Int(-1));
-            row.Cells[objectColumn] = VtankCell.Int(unchecked((int)id));
-            table.Rows.Add(row);
+            bool wroteSpell = false;
+            foreach (BuffItemEnchantRow spellRow in buffs.ItemEnchantRows)
+            {
+                if (!spellRow.IsProfiledItemRow || spellRow.ObjectId != id)
+                    continue;
+                AddRow(table, objectColumn, spellColumn, id, unchecked((int)spellRow.SpellId!.Value));
+                wroteSpell = true;
+            }
+            if (!wroteSpell)
+                AddRow(table, objectColumn, spellColumn, id, -1);
         }
+    }
+
+    private static void AddRow(
+        VtankTable table, int objectColumn, int spellColumn, uint objectId, int spellId)
+    {
+        var row = new VtankRow();
+        for (int column = 0; column < table.ColumnNames.Count; column++)
+            row.Cells.Add(VtankCell.Int(-1));
+        row.Cells[objectColumn] = VtankCell.Int(unchecked((int)objectId));
+        row.Cells[spellColumn] = VtankCell.Int(spellId);
+        table.Rows.Add(row);
     }
 }

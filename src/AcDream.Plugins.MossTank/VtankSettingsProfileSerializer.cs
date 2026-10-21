@@ -110,7 +110,8 @@ internal static class VtankSettingsProfileSerializer
             row.Cells[valueColumn] = captured;
         }
         VtankMonsterRuleTable.Write(document, [.. source.Combat.Rules]);
-        VtankProfiledItemIds.Write(document, source.Combat);
+        VtankProfiledItemIds.Write(document, source.Combat, source.Buffs);
+        VtankItemUseSpecifiers.Write(document, source.Combat);
         VtankAssistItems.Write(document, source.Combat);
         VtankGemFoodItems.Write(document, source.Buffs);
         VtankBuffExemplars.Write(document, source.Buffs);

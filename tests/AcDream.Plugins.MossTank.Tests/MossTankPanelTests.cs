@@ -2651,6 +2651,8 @@ public sealed partial class MossTankPanelTests
     }
 
     /// <summary>
+    /// An added item is written as VTank writes one: a row per buff it is
+    /// kept up with, by spell id, so the profile reads the same in VTank.
     /// Mutation pin: omit the ordered-ID append when admitting an item;
     /// the saved BuffedItems table has no selected-object row.
     /// </summary>
@@ -2665,6 +2667,29 @@ public sealed partial class MossTankPanelTests
 
         panel.AddSelectedItem();
 
+        string usd = Assert.Single(storage.Text,
+            entry => entry.Key.EndsWith(".usd", StringComparison.Ordinal)).Value;
+        VtankTable table = VtankDatabase.Parse(usd).Find("BuffedItems")!;
+        Assert.Equal(
+            [(10, 101), (10, 102), (10, 103)],
+            table.Rows.Select(row => (
+                row.Cells[table.ColumnIndex("Object")].AsInt(),
+                row.Cells[table.ColumnIndex("Spell")].AsInt())));
+    }
+
+    /// <summary>An item added without buffs is written as the item with no spell.</summary>
+    [Fact]
+    public void AddingSelectedItemWithoutBuffsPersistsItAsCarryingNoSpell()
+    {
+        var storage = new MemoryStorage();
+        var automation = ItemEnchantAutomation();
+        var host = new FakeHost(automation, storage);
+        var panel = new MossTankPanel(host);
+        host.Selection.Select(10u);
+
+        panel.AddSelectedItemNoBuffs();
+
+        Assert.Equal(["War Wand (NO BUFFS)"], panel.ItemNameColumn);
         string usd = Assert.Single(storage.Text,
             entry => entry.Key.EndsWith(".usd", StringComparison.Ordinal)).Value;
         VtankTable table = VtankDatabase.Parse(usd).Find("BuffedItems")!;
@@ -2809,15 +2834,12 @@ public sealed partial class MossTankPanelTests
     }
 
     /// <summary>
-    /// An item is listed by its object id, and an id cannot be looked up
-    /// while there is no inventory: logged out, or just logged in. The page
-    /// then showed every item twice -- once as an INVALID id and once by its
-    /// name. Each item is one row, under the name it was last seen with, and
-    /// nothing is called invalid that is merely not looked up yet. With an
-    /// inventory that really does not hold the item, the row says so by name.
+    /// An item is listed by its object id. While the client does not know
+    /// the object -- logged out, or not arrived yet -- the row shows the id,
+    /// as VTank shows it; an item the client knows shows its name.
     /// </summary>
     [Fact]
-    public void AListedItemIsOneRowUnderItsNameWhileThereIsNoInventory()
+    public void AListedItemTheClientDoesNotKnowShowsItsId()
     {
         var storage = new MemoryStorage();
         var firstHost = new FakeHost(new FakeAutomation
@@ -2837,22 +2859,22 @@ public sealed partial class MossTankPanelTests
         var loggedOut = new MossTankPanel(
             new FakeHost(new FakeAutomation { ItemEntries = [] }, storage));
 
-        Assert.Equal(["Decapitator's Blade", "Wings of Rakhil"], loggedOut.ItemRows);
+        Assert.Equal(["<INVALID 10>", "<INVALID 11>"], loggedOut.ItemRows);
 
         var withoutTheBlade = new MossTankPanel(new FakeHost(new FakeAutomation
         {
             ItemEntries = [Item(11, "Wings of Rakhil", 1)],
         }, storage));
 
-        Assert.Equal(
-            ["<INVALID Decapitator's Blade>", "Wings of Rakhil"],
-            withoutTheBlade.ItemRows);
+        Assert.Equal(["<INVALID 10>", "Wings of Rakhil"], withoutTheBlade.ItemRows);
     }
 
     /// <summary>
+    /// Removing a row removes that object id, every spell row it has, and
+    /// nothing else: not another item of the same name, and not a row of the
+    /// table nobody can read.
     /// Mutation <c>SkipExactBuffedItemRemoval</c>: omit the selected stored ID
-    /// from removal. The missing row remains while the same-name item and raw rows
-    /// must stay intact.
+    /// from removal; the missing item's rows stay in the saved table.
     /// </summary>
     [Fact]
     public void ItemRowsDeleteTheSelectedIdentityEvenWhenMissingOrNamesMatch()
@@ -2890,21 +2912,18 @@ public sealed partial class MossTankPanelTests
         {
             ItemEntries = [Item(11, "Twin Sword", 1)],
         }, storage));
-        Assert.Equal(
-            ["<INVALID Twin Sword>", "Twin Sword", "<INVALID Twin Sword> — Spell 0x00000011"],
-            second.ItemRows);
+        Assert.Equal(["<INVALID 10>", "Twin Sword"], second.ItemRows);
 
         second.DeleteItemRowAt(0);
 
-        Assert.Equal(["Twin Sword", "<INVALID Twin Sword> — Spell 0x00000011"], second.ItemRows);
+        Assert.Equal(["Twin Sword"], second.ItemRows);
         table = VtankDatabase.Parse(storage.Text[usdKey]).Find("BuffedItems")!;
+        Assert.DoesNotContain(table.Rows, row => row.Cells[table.ColumnIndex("Object")]
+            .AsString() == "10");
         Assert.Contains(table.Rows, row => row.Cells[table.ColumnIndex("Object")]
-            .AsInt() == 11);
+            .AsString() == "11");
         Assert.Contains(table.Rows, row => row.Cells[table.ColumnIndex("Object")]
             .AsString() == "not-an-object-id");
-
-        second.DeleteItemRowAt(1);
-        Assert.Equal(["Twin Sword"], second.ItemRows);
 
         second.DeleteItemRowAt(0);
 
@@ -2916,15 +2935,13 @@ public sealed partial class MossTankPanelTests
     }
 
     /// <summary>
-    /// Imported rows identify a single Object/Spell pair. Their removal must
-    /// update the live plan as well as the saved table, leaving other spells
-    /// and the equipment row for the same object intact.
-    /// Mutation: omit the profiled-row branch in
-    /// <c>DeleteItemRowAtCore</c>; the imported spell stays in the UI and
-    /// the post-delete row assertion fails.
+    /// The first spell a profile lists for an item decides whether it reads
+    /// as carrying no buffs, as VTank reads it; the spells listed after it
+    /// are still kept up. A click on the name removes the whole item, so
+    /// none of its spells is cast any more.
     /// </summary>
     [Fact]
-    public void ImportedBuffedItemUiDeletesOneSpellPairAndKeepsItsSiblings()
+    public void ImportedItemListedFirstWithoutASpellReadsNoBuffsAndIsRemovedWhole()
     {
         var storage = new MemoryStorage();
         VtankDatabase database = VtankDefaultSettingsDatabase.Create();
@@ -2939,27 +2956,18 @@ public sealed partial class MossTankPanelTests
         var panel = new MossTankPanel(host);
 
         Command(panel, "settings load Imported");
-        Assert.Equal(
-            ["War Wand", "War Wand — Aura of Defender Self I", "War Wand — Aura of Hermetic Link Self I"],
-            panel.ItemRows);
+        Assert.Equal(["War Wand (NO BUFFS)"], panel.ItemRows);
 
-        panel.DeleteItemRowAt(1);
+        panel.DeleteItemRowAt(0);
 
-        Assert.Equal(
-            ["War Wand", "War Wand — Aura of Hermetic Link Self I"],
-            panel.ItemRows);
+        Assert.Empty(panel.ItemRows);
         panel.ToggleCombat();
         for (int tick = 0; tick < 8; tick++)
             panel.OnTick(0.3d);
 
-        Assert.Equal([102u], automation.CastSpellIds);
+        Assert.Empty(automation.CastSpellIds);
         table = VtankDatabase.Parse(storage.Text["mosstank/profiles/Imported.usd"]).Find("BuffedItems")!;
-        Assert.Contains(table.Rows, row => row.Cells[table.ColumnIndex("Object")].AsInt() == 10
-            && row.Cells[table.ColumnIndex("Spell")].AsInt() == -1);
-        Assert.DoesNotContain(table.Rows, row => row.Cells[table.ColumnIndex("Object")].AsInt() == 10
-            && row.Cells[table.ColumnIndex("Spell")].AsInt() == 101);
-        Assert.Contains(table.Rows, row => row.Cells[table.ColumnIndex("Object")].AsInt() == 10
-            && row.Cells[table.ColumnIndex("Spell")].AsInt() == 102);
+        Assert.DoesNotContain(table.Rows, row => row.Cells[table.ColumnIndex("Object")].AsInt() == 10);
     }
 
     /// <summary>
@@ -3002,7 +3010,7 @@ public sealed partial class MossTankPanelTests
         var panel = new MossTankPanel(host);
 
         Command(panel, "settings load Imported");
-        Assert.Equal(["War Wand — Old Exemplar I"], panel.ItemRows);
+        Assert.Equal(["War Wand"], panel.ItemRows);
         panel.ToggleCombat();
         for (int tick = 0; tick < 6; tick++)
             panel.OnTick(0.3d);
@@ -5805,9 +5813,14 @@ public sealed partial class MossTankPanelTests
         Assert.Contains("Imperil Lens", panel.ItemRows);
         panel.RemoveSelectedItem();
         Assert.DoesNotContain("Imperil Lens", panel.ItemRows);
-        Assert.Equal(2, panel.ConsumableRows.Count);
+        // The profile's gems and food are listed first, then what was added.
+        int gemsAndFood = VtankOptionDetails.DefaultGemFoodItems.Count;
+        Assert.Equal(gemsAndFood + 2, panel.ConsumableRows.Count);
+        Assert.Equal(
+            ["Iron Phial of Imperil", CraftingPlanner.AllPeas],
+            panel.ConsumableRows.Skip(gemsAndFood));
         panel.RemoveSelectedConsumable();
-        Assert.Single(panel.ConsumableRows);
+        Assert.Equal(gemsAndFood + 1, panel.ConsumableRows.Count);
     }
 
     [Fact]
@@ -5829,14 +5842,16 @@ public sealed partial class MossTankPanelTests
         panel.AddSelectedItem();
         Assert.Equal(["Fire Sword", "Ice Wand"], panel.ItemNameColumn);
 
-        Assert.Equal("Auto", panel.ItemHandsColumn[0]);
+        Assert.Equal("BothHands", panel.ItemHandsColumn[0]);
         panel.CycleItemHandsAt(0);
-        Assert.Equal("1-Handed", panel.ItemHandsColumn[0]);
+        Assert.Equal("DONOTUSE", panel.ItemHandsColumn[0]);
         panel.CycleItemHandsAt(0);
-        Assert.Equal("2-Handed", panel.ItemHandsColumn[0]);
+        Assert.Equal("RightHand", panel.ItemHandsColumn[0]);
         panel.CycleItemHandsAt(0);
-        Assert.Equal("Auto", panel.ItemHandsColumn[0]);
-        Assert.Equal("Auto", panel.ItemHandsColumn[1]);
+        Assert.Equal("LeftHand", panel.ItemHandsColumn[0]);
+        panel.CycleItemHandsAt(0);
+        Assert.Equal("BothHands", panel.ItemHandsColumn[0]);
+        Assert.Equal("BothHands", panel.ItemHandsColumn[1]);
 
         panel.DeleteItemRowAt(0); // "Fire Sword"
         Assert.Equal(["Ice Wand"], panel.ItemNameColumn);
@@ -5853,14 +5868,14 @@ public sealed partial class MossTankPanelTests
         var panel = new MossTankPanel(host);
         host.Selection.Select(10);
         panel.AddSelectedItemNoBuffs();
-        Assert.Equal(["Fire Sword   [no buffs]"], panel.ItemNameColumn);
+        Assert.Equal(["Fire Sword (NO BUFFS)"], panel.ItemNameColumn);
 
         Assert.Same(panel.ItemHandsColumn, panel.ItemHandsColumn);
-        Assert.Equal("Auto", panel.ItemHandsColumn[0]);
+        Assert.Equal("BothHands", panel.ItemHandsColumn[0]);
 
         panel.CycleItemHandsAt(0);
         IReadOnlyList<string> afterCycle = panel.ItemHandsColumn;
-        Assert.Equal("1-Handed", afterCycle[0]);
+        Assert.Equal("DONOTUSE", afterCycle[0]);
         Assert.Same(afterCycle, panel.ItemHandsColumn);
     }
 
@@ -5881,11 +5896,14 @@ public sealed partial class MossTankPanelTests
         panel.AddSelectedConsumable();
         host.Selection.Select(21);
         panel.AddSelectedConsumable();
-        Assert.Equal(2, panel.ConsumableRows.Count);
+        int gemsAndFood = VtankOptionDetails.DefaultGemFoodItems.Count;
+        Assert.Equal(gemsAndFood + 2, panel.ConsumableRows.Count);
 
-        panel.SelectConsumableRow(0);
+        panel.SelectConsumableRow(gemsAndFood);
 
-        Assert.Single(panel.ConsumableRows);
+        Assert.Equal(gemsAndFood + 1, panel.ConsumableRows.Count);
+        Assert.DoesNotContain("Iron Phial of Imperil", panel.ConsumableRows);
+        Assert.Contains("Iron Phial of Vulnerability", panel.ConsumableRows);
     }
 
     [Fact]
@@ -6259,13 +6277,14 @@ public sealed partial class MossTankPanelTests
             row.Cells[staleSettings.ColumnIndex("Setting")].AsString()
                 .Equals("AutoStack", StringComparison.OrdinalIgnoreCase));
         Assert.False(autoStack.Cells[staleSettings.ColumnIndex("Value")].AsBool());
+        // The removed row was the whole wand: every spell it had is gone, and
+        // the profile's "any equipped weapon" row stays.
         VtankTable staleBuffed = staleCopy.Find("BuffedItems")!;
         Assert.DoesNotContain(staleBuffed.Rows, row =>
-            row.Cells[staleBuffed.ColumnIndex("Object")].AsInt() == 10
-            && row.Cells[staleBuffed.ColumnIndex("Spell")].AsInt() == 101);
+            row.Cells[staleBuffed.ColumnIndex("Object")].AsInt() == 10);
         Assert.Contains(staleBuffed.Rows, row =>
-            row.Cells[staleBuffed.ColumnIndex("Object")].AsInt() == 10
-            && row.Cells[staleBuffed.ColumnIndex("Spell")].AsInt() == 102);
+            row.Cells[staleBuffed.ColumnIndex("Object")].AsInt() == -1
+            && row.Cells[staleBuffed.ColumnIndex("Spell")].AsInt() == 101);
         Assert.Equal("copy proof", staleCopy.Find("CopyProof")!.Rows[0].Cells[0].AsString());
     }
 
@@ -6447,6 +6466,7 @@ public sealed partial class MossTankPanelTests
         table.IndexFlags.Add(false);
         table.Rows.Add(new VtankRow { Cells = { VtankCell.String("Bread"), VtankCell.Int(1), VtankCell.String("bread-custom") } });
         table.Rows.Add(new VtankRow { Cells = { VtankCell.String("Mana Cake"), VtankCell.Int(5), VtankCell.String("cake-custom") } });
+        imported.Find("GemFoodItems")!.Rows.Clear();
         storage.Text["mosstank/profiles/AssistRemove.usd"] = imported.Render();
         var panel = new MossTankPanel(new FakeHost(new FakeAutomation(), storage));
 
@@ -11596,6 +11616,31 @@ public sealed partial class MossTankPanelTests
         private IReadOnlyList<PluginSpellInfo> _knownSelfBuffs = [];
         public IReadOnlyList<PluginSpellInfo> CatalogSpells { get; set; } = [];
 
+        /// <summary>
+        /// The client's whole spell table, which a spell is looked up in by
+        /// name: what the character knows, what a test put in the catalogue,
+        /// and the weapon auras an item added to the Items page is buffed
+        /// with, which every client's table has.
+        /// </summary>
+        IReadOnlyList<PluginSpellInfo> ISpellCatalog.All =>
+            [.. _knownSelfBuffs, .. CatalogSpells, .. ItemAuraTable];
+
+        private static readonly PluginSpellInfo[] ItemAuraTable =
+        [
+            NamedSpell((uint)SpellId.AuraOfDefenderSelfI, 0x63Fu,
+                "Aura of Defender Self I", ItemEnchantmentSchoolId),
+            NamedSpell((uint)SpellId.AuraOfBloodDrinkerSelfI, 0x23u,
+                "Aura of Blood Drinker Self I", ItemEnchantmentSchoolId),
+            NamedSpell((uint)SpellId.AuraOfSwiftKillerSelfI, 0x31u,
+                "Aura of Swift Killer Self I", ItemEnchantmentSchoolId),
+            NamedSpell((uint)SpellId.AuraOfHeartSeekerSelfI, 0x633u,
+                "Aura of Heart Seeker Self I", ItemEnchantmentSchoolId),
+            NamedSpell((uint)SpellId.AuraOfHermeticLinkSelfI, 0x5C3u,
+                "Aura of Hermetic Link Self I", ItemEnchantmentSchoolId),
+            NamedSpell((uint)SpellId.AuraOfSpiritDrinkerSelfI, 0xCB5u,
+                "Aura of Spirit Drinker Self I", ItemEnchantmentSchoolId),
+        ];
+
         public bool IsAvailable { get; set; } = true;
         public ICharacterInfo Character => this;
         public ISpellCatalog Spells => this;
@@ -12727,6 +12772,26 @@ public sealed partial class MossTankPanelTests
 
         public void RaiseConfirmation(PluginConfirmation confirmation) =>
             _confirmation?.Invoke(confirmation);
+
+        private Action<PluginObjectChange>? _objectChanged;
+        private Action? _loginComplete;
+
+        public event Action<PluginObjectChange> ObjectChanged
+        {
+            add => _objectChanged += value;
+            remove => _objectChanged -= value;
+        }
+
+        public event Action LoginComplete
+        {
+            add => _loginComplete += value;
+            remove => _loginComplete -= value;
+        }
+
+        public void RaiseObjectChanged(uint objectId, PluginObjectChangeKind kind) =>
+            _objectChanged?.Invoke(new PluginObjectChange(objectId, kind));
+
+        public void RaiseLoginComplete() => _loginComplete?.Invoke();
     }
 
     private sealed class FakeSelection : ISelectionService

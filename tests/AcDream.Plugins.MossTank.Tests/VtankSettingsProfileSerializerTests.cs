@@ -135,6 +135,69 @@ public sealed class VtankSettingsProfileSerializerTests
             static row => row.IsProfiledItemRow);
     }
 
+    /// <summary>
+    /// The hands choice per item is saved: a changed choice is rewritten in
+    /// place, a dropped one leaves the table, a new one is added, and a row
+    /// nobody can read stays as it was.
+    /// </summary>
+    [Fact]
+    public void ItemUseSpecifiersAreWrittenAndReadBack()
+    {
+        VtankDatabase document = VtankDefaultSettingsDatabase.Create();
+        VtankTable table = document.Find("ItemUseSpecifiers")!;
+        table.Rows.Add(BuffedItem(5, 1));
+        table.Rows.Add(new VtankRow
+        {
+            Cells = { VtankCell.String("not-an-object-id"), VtankCell.Int(3) },
+        });
+        table.Rows.Add(BuffedItem(6, 2));
+        VtankSettingsProfileSerializer.AllSettings settings = NewSettings();
+        VtankDatabase loaded = VtankSettingsProfileSerializer.Load(document.Render(), settings);
+        Assert.Equal(1, settings.Combat.ItemUseSpecifiers[5u]);
+        Assert.Equal(2, settings.Combat.ItemUseSpecifiers[6u]);
+
+        settings.Combat.ItemUseSpecifiers[5u] = 3;
+        settings.Combat.ItemUseSpecifiers.Remove(6u);
+        settings.Combat.ItemUseSpecifiers[0x80001234u] = 0;
+        string saved = VtankSettingsProfileSerializer.Save(loaded, settings);
+
+        VtankTable written = VtankDatabase.Parse(saved).Find("ItemUseSpecifiers")!;
+        Assert.Equal(["Object", "Uses"], written.ColumnNames);
+        Assert.Equal([true, false], written.IndexFlags);
+        Assert.Equal(3, written.Rows.Count);
+        Assert.Equal((5, 3), (written.Rows[0].Cells[0].AsInt(), written.Rows[0].Cells[1].AsInt()));
+        Assert.Equal("not-an-object-id", written.Rows[1].Cells[0].AsString());
+        Assert.Equal(
+            (unchecked((int)0x80001234u), 0),
+            (written.Rows[2].Cells[0].AsInt(), written.Rows[2].Cells[1].AsInt()));
+
+        VtankSettingsProfileSerializer.AllSettings reread = NewSettings();
+        VtankSettingsProfileSerializer.Load(saved, reread);
+        Assert.Equal(
+            [(5u, 3), (0x80001234u, 0)],
+            reread.Combat.ItemUseSpecifiers.OrderBy(pair => pair.Key)
+                .Select(pair => (pair.Key, pair.Value)));
+    }
+
+    /// <summary>A profile without the table gets one, laid out as VTank lays it out.</summary>
+    [Fact]
+    public void ItemUseSpecifiersTableIsCreatedWhenTheProfileHasNone()
+    {
+        VtankDatabase document = VtankDefaultSettingsDatabase.Create();
+        document.Tables.RemoveAll(entry => entry.Name == "ItemUseSpecifiers");
+        VtankSettingsProfileSerializer.AllSettings settings = NewSettings();
+        VtankDatabase loaded = VtankSettingsProfileSerializer.Load(document.Render(), settings);
+        settings.Combat.ItemUseSpecifiers[42u] = 1;
+
+        string saved = VtankSettingsProfileSerializer.Save(loaded, settings);
+
+        VtankTable written = VtankDatabase.Parse(saved).Find("ItemUseSpecifiers")!;
+        Assert.Equal(["Object", "Uses"], written.ColumnNames);
+        Assert.Equal([true, false], written.IndexFlags);
+        VtankRow row = Assert.Single(written.Rows);
+        Assert.Equal((42, 1), (row.Cells[0].AsInt(), row.Cells[1].AsInt()));
+    }
+
     private static VtankRow BuffedItem(int objectId, int spellId, string? custom = null)
     {
         var row = new VtankRow();
