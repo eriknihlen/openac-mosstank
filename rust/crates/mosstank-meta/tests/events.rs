@@ -262,6 +262,85 @@ fn portal_transition_fires_on_completion_only() {
     );
 }
 
+/// A short portal hop can begin and end between two ticks, so the client's
+/// portal-space flag is never seen on: the portal's own reports still give
+/// the entered and exited edges, as the game's portal-mode events do. A
+/// login's reports give neither.
+#[test]
+fn a_portal_reported_between_two_ticks_still_enters_and_exits_portal_space() {
+    let mut host = FakeHost::new();
+    let mut services = TestServices::default();
+    let mut engine = engine(
+        &mut host,
+        profile(vec![
+            rule(
+                MetaConditionKind::PortalspaceEntered,
+                MetaActionKind::ExpressionAction,
+                "setvar[`entered`,1]",
+            ),
+            rule(
+                MetaConditionKind::PortalspaceExited,
+                MetaActionKind::ExpressionAction,
+                "setvar[`exited`,1]",
+            ),
+        ]),
+    );
+    engine.set_enabled(true);
+
+    // A login: no edges.
+    engine.on_portal_transition(&PortalTransition {
+        revision: 1,
+        generation: 1,
+        kind: 1,
+        ..PortalTransition::default()
+    });
+    engine.on_portal_transition(&PortalTransition {
+        revision: 2,
+        generation: 1,
+        is_completed: true,
+        kind: 1,
+        ..PortalTransition::default()
+    });
+    tick(&mut engine, &mut host);
+    assert_eq!(
+        number(
+            &mut engine,
+            &mut host,
+            &mut services,
+            "getvar[`entered`]+getvar[`exited`]"
+        ),
+        0.0
+    );
+
+    // A portal, begun and arrived before the next tick.
+    engine.on_portal_transition(&PortalTransition {
+        revision: 3,
+        generation: 2,
+        destination_cell: 0xB349_0034,
+        kind: 2,
+        ..PortalTransition::default()
+    });
+    engine.on_portal_transition(&PortalTransition {
+        revision: 4,
+        generation: 2,
+        destination_cell: 0xB349_0034,
+        is_ready: true,
+        is_materialized: true,
+        is_completed: true,
+        kind: 2,
+        ..PortalTransition::default()
+    });
+    tick(&mut engine, &mut host);
+    assert_eq!(
+        number(&mut engine, &mut host, &mut services, "getvar[`entered`]"),
+        1.0
+    );
+    assert_eq!(
+        number(&mut engine, &mut host, &mut services, "getvar[`exited`]"),
+        1.0
+    );
+}
+
 // Source: tests/AcDream.Plugins.MossTank.Tests/MetaGameEventTests.cs :: ItemUseAndConfirmationEdgesExposeTheirFields
 #[test]
 fn item_use_and_confirmation_edges_expose_their_fields() {

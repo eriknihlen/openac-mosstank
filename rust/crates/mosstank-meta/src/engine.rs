@@ -49,6 +49,9 @@ pub const MAXIMUM_INTERVAL_MILLISECONDS: i32 = 2000;
 /// How deep calls may nest.
 pub const MAXIMUM_CALL_DEPTH: usize = 10_000;
 
+/// A portal transition's kind for a portal or recall (1 is a login).
+const PORTAL_TRANSITION_PORTAL: u8 = 2;
+
 const UNKNOWN_SET_OPTION_WARNING: &str =
     "SetVTOption Action: Specified setting doesn't exist. Will not execute.";
 
@@ -905,6 +908,17 @@ impl MetaEngine {
 
     /// A portal or login transition moved on; the edge is the arrival.
     pub fn on_portal_transition(&mut self, transition: &PortalTransition) {
+        // A portal's own reports are its portal-space edges, as the game's
+        // portal-mode events are: a short hop can begin and end between two
+        // ticks, and the portal-space flag is then never seen on. A login's
+        // reports are not a portal.
+        if transition.kind == PORTAL_TRANSITION_PORTAL {
+            if transition.is_completed {
+                self.core.portal_exited = true;
+            } else if !transition.is_cancelled {
+                self.core.portal_entered = true;
+            }
+        }
         if !transition.is_completed {
             return;
         }
