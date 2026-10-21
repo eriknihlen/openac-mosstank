@@ -39,14 +39,14 @@ fn the_items_and_consumables_tabs_add_the_selection_to_real_profiles() {
         world
             .ui_list(p, "ItemRows")
             .iter()
-            .any(|row| row == "Imperil Lens")
+            .any(|row| row == "Imperil Lens (NO BUFFS)")
     );
     world.act(p, "RemoveSelectedItem");
     assert!(
         !world
             .ui_list(p, "ItemRows")
             .iter()
-            .any(|row| row == "Imperil Lens")
+            .any(|row| row == "Imperil Lens (NO BUFFS)")
     );
     // The profile's gems and food come first.
     assert_eq!(
@@ -72,7 +72,7 @@ fn the_items_grid_deletes_on_the_name_and_cycles_hands() {
     add(&mut world, p, "AddSelectedItem", 11);
     assert_eq!(
         world.ui_list(p, "ItemNameColumn"),
-        ["Fire Sword", "Ice Wand"]
+        ["Fire Sword (NO BUFFS)", "Ice Wand (NO BUFFS)"]
     );
     assert_eq!(world.ui_list(p, "ItemHandsColumn")[0], "BothHands");
     for expected in ["DONOTUSE", "RightHand", "LeftHand", "BothHands"] {
@@ -81,7 +81,7 @@ fn the_items_grid_deletes_on_the_name_and_cycles_hands() {
     }
     assert_eq!(world.ui_list(p, "ItemHandsColumn")[1], "BothHands");
     world.act_int(p, "DeleteItemRowAt", 0);
-    assert_eq!(world.ui_list(p, "ItemNameColumn"), ["Ice Wand"]);
+    assert_eq!(world.ui_list(p, "ItemNameColumn"), ["Ice Wand (NO BUFFS)"]);
 }
 
 // Source: tests/AcDream.Plugins.MossTank.Tests/MossTankPanelTests.cs :: ItemHandsColumnDoesNotReallocateOnEveryReadAndNoBuffSuffixNeverLeaks

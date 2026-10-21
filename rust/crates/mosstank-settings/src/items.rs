@@ -301,10 +301,10 @@ pub mod item_use_specifiers {
                 None => {
                     table.rows.remove(index);
                 }
-                // The last row for an item is the one read; an earlier one
-                // for the same item is left as it is.
+                // Every row the item has takes its choice.
                 Some(&value) => {
-                    if present.insert(object) && value != uses {
+                    present.insert(object);
+                    if value != uses {
                         table.rows[index].cells[uses_column] = VtankCell::int(value);
                     }
                 }

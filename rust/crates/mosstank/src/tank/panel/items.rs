@@ -845,22 +845,24 @@ impl TankCx<'_> {
         }
         if no_buffs {
             self.core.no_buff_item_names.insert(item.name.clone());
-            // Kept without buffs as the profile writes it: the item with
-            // the "no spell" entry.
-            self.core
-                .settings
-                .buffs
-                .item_enchant_rows
-                .push(BuffItemEnchantRow {
-                    item_name: String::new(),
-                    spell_name: String::new(),
-                    object_id: Some(item.object_id),
-                    spell_id: Some(u32::MAX),
-                });
         } else {
             self.core.no_buff_item_names.remove(item.name.as_str());
         }
         self.populate_item_enchant_rows(item, no_buffs);
+        // An item no buff is kept on by spell id is kept as the profile
+        // writes it: the item with the "no spell" entry.
+        let rows = &mut self.core.settings.buffs.item_enchant_rows;
+        if !rows
+            .iter()
+            .any(|row| row.is_profiled_item_row() && row.object_id == Some(item.object_id))
+        {
+            rows.push(BuffItemEnchantRow {
+                item_name: String::new(),
+                spell_name: String::new(),
+                object_id: Some(item.object_id),
+                spell_id: Some(u32::MAX),
+            });
+        }
         self.refresh_item_editors();
         let added = if no_buffs {
             format!("Added {} (no buffs)", item.name)

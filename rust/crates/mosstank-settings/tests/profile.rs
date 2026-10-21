@@ -667,3 +667,33 @@ fn extra_buff_exemplars_clear_when_the_next_profile_omits_their_tables() {
     assert!(settings.buffs.extra_buff_spell_ids.is_empty());
     assert!(settings.buffs.anti_extra_buff_spell_ids.is_empty());
 }
+
+/// A Hands choice is written to every row the item has, so an earlier
+/// duplicate row does not keep the old choice.
+#[test]
+fn item_use_specifiers_rewrite_every_row_of_an_item() {
+    let mut document = defaults::create();
+    let rows = &mut table_mut(&mut document, "ItemUseSpecifiers").rows;
+    for (object, uses) in [(10, 1), (11, 2), (10, 2)] {
+        rows.push(VtankRow {
+            cells: vec![VtankCell::int(object), VtankCell::int(uses)],
+        });
+    }
+    let mut settings = AllSettings::default();
+    let mut document = profile::load(&document.render(), &mut settings, None).unwrap();
+    settings.combat.item_use_specifiers.insert(10, 0);
+    let text = profile::save(&mut document, &mut settings).unwrap();
+
+    let saved = VtankDatabase::parse(&text).unwrap();
+    let pairs: Vec<(i32, i32)> = find_table(&saved, "ItemUseSpecifiers")
+        .rows
+        .iter()
+        .map(|row| {
+            (
+                row.cells[0].as_int().unwrap(),
+                row.cells[1].as_int().unwrap(),
+            )
+        })
+        .collect();
+    assert_eq!(pairs, [(10, 0), (11, 2), (10, 0)]);
+}

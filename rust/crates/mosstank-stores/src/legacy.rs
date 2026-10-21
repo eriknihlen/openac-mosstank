@@ -884,6 +884,7 @@ impl LegacyProfileDocument {
         combat.combat_item_object_ids.clear();
         combat.combat_item_order_ids.clear();
         combat.removed_combat_item_object_ids.clear();
+        combat.item_use_specifiers.clear();
         crate::sidecar::replace_names(
             &mut combat.consumable_names,
             self.consumable_names.as_deref(),

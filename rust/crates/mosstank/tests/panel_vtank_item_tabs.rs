@@ -360,3 +360,26 @@ fn the_consumables_page_lists_gems_and_food_first_and_a_click_removes_from_the_r
     assert_eq!(saved_names(&world, "GemFoodItems"), ["Gem B", "Food A"]);
     assert_eq!(saved_names(&world, "AssistItems"), ["Dual", "Phial"]);
 }
+
+#[test]
+fn an_item_whose_buffs_the_client_cannot_name_reads_no_buffs_at_once_and_after_a_restart() {
+    let mut world = World::panel_character("Item Tester");
+    world.own_items(vec![sword(10, "Fire Sword")]);
+    world
+        .profiles
+        .insert(KEY, &Profile::default().database().render());
+    let mut plugin = world.enable();
+    world.vt(&mut plugin, &format!("settings load {NAME}"));
+    world.select_object(10);
+    world.act(&mut plugin, "AddSelectedItem");
+    // No default buff resolves to a spell id, so the item is kept, and
+    // saved, as the item with no spell.
+    assert_eq!(names(&mut world, &mut plugin), ["Fire Sword (NO BUFFS)"]);
+    assert_eq!(world.ui_uints(&mut plugin, "ItemNameColors"), [RED]);
+    assert_eq!(saved_ints(&world, "BuffedItems"), [(10, -1)]);
+
+    world.disable(&mut plugin);
+    let mut reloaded = world.enable();
+    world.vt(&mut reloaded, &format!("settings load {NAME}"));
+    assert_eq!(names(&mut world, &mut reloaded), ["Fire Sword (NO BUFFS)"]);
+}

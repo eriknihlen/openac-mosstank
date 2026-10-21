@@ -77,7 +77,7 @@ fn an_items_add_that_is_refused_says_why_in_chat() {
         world
             .ui_list(p, "ItemNameColumn")
             .iter()
-            .any(|n| n == "War Wand")
+            .any(|n| n == "War Wand (NO BUFFS)")
     );
     world.act(p, "AddSelectedItem");
     assert!(
@@ -250,12 +250,14 @@ fn a_wielded_weapon_added_to_the_list_survives_a_restart() {
     let mut first = world.enable();
     let p = &mut first;
     add(&mut world, p, 10);
+    // The client names none of its buffs here, so the item is kept as
+    // carrying no spell, the same before and after a restart.
     // The client answers the appraisal the add asked for.
     assessed(&mut world);
     for _ in 0..20 {
         if rows(&mut world, p)
             .iter()
-            .any(|r| r == "Decapitator's Blade")
+            .any(|r| r == "Decapitator's Blade (NO BUFFS)")
         {
             break;
         }
@@ -264,12 +266,10 @@ fn a_wielded_weapon_added_to_the_list_survives_a_restart() {
     assert!(
         rows(&mut world, p)
             .iter()
-            .any(|r| r == "Decapitator's Blade")
+            .any(|r| r == "Decapitator's Blade (NO BUFFS)")
     );
     world.disable(p);
     let mut second = world.enable();
-    // The client names none of its buffs here, so the item is written
-    // with no spell and read back as kept without buffs.
     assert!(
         rows(&mut world, &mut second)
             .iter()
@@ -289,8 +289,8 @@ fn removing_a_row_for_a_missing_object_keeps_the_rest() {
     add(&mut world, p, 10);
     add(&mut world, p, 11);
     let listed = rows(&mut world, p);
-    assert!(listed.iter().any(|r| r == "Decapitator's Blade"));
-    assert!(listed.iter().any(|r| r == "War Wand"));
+    assert!(listed.iter().any(|r| r == "Decapitator's Blade (NO BUFFS)"));
+    assert!(listed.iter().any(|r| r == "War Wand (NO BUFFS)"));
 
     world.own_items(vec![blade.clone()]);
     world.act_int(p, "CycleItemHandsAt", 0);
@@ -302,7 +302,7 @@ fn removing_a_row_for_a_missing_object_keeps_the_rest() {
         .expect("an unresolved row");
     world.act_int(p, "DeleteItemRowAt", i32::try_from(invalid).unwrap());
     let listed = rows(&mut world, p);
-    assert!(listed.iter().any(|r| r == "Decapitator's Blade"));
+    assert!(listed.iter().any(|r| r == "Decapitator's Blade (NO BUFFS)"));
     assert!(!listed.iter().any(|r| r.starts_with("<INVALID")));
     world.disable(p);
     let mut reloaded = world.enable();
@@ -352,7 +352,7 @@ fn an_add_that_reached_no_profile_is_reported_as_unsaved() {
     assert!(
         rows(&mut world, p)
             .iter()
-            .any(|r| r == "Decapitator's Blade")
+            .any(|r| r == "Decapitator's Blade (NO BUFFS)")
     );
     assert!(written(&world));
 }

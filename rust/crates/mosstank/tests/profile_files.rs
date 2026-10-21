@@ -745,7 +745,7 @@ fn delayed_server_identity_restores_the_saved_item_list() {
     own_selected_war_wand(&mut world);
     world.vt(&mut first, "settings save Personal");
     world.act(&mut first, "AddSelectedItem");
-    assert!(item_names(&mut world, &mut first).contains(&"War Wand".to_owned()));
+    assert!(item_names(&mut world, &mut first).contains(&"War Wand (NO BUFFS)".to_owned()));
     world.disable(&mut first);
 
     let mut nameless_world = common::character("Barris");

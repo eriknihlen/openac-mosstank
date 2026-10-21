@@ -175,3 +175,24 @@ fn profile_reload_keeps_usd_item_ids_across_sidecar_and_switches() {
         .unwrap();
     assert!(settings.combat.combat_item_order_ids.is_empty());
 }
+
+/// An old profile has no hand choices: migrating one leaves none of the
+/// previously loaded profile's behind, as it leaves none of its item ids.
+#[test]
+fn migrating_an_old_profile_drops_the_previous_hand_choices() {
+    let mut settings = AllSettings::default();
+    stale_imported_tables(&mut settings.combat);
+    let old = mosstank_stores::legacy::LegacyProfileDocument::read("{}")
+        .unwrap()
+        .unwrap();
+    old.apply(
+        &mut settings.combat,
+        &mut settings.buffs,
+        &mut settings.vitals,
+        &mut settings.inventory,
+        &mut OrdinalStringSet::new(),
+        &mut |_| {},
+    );
+    assert!(settings.combat.combat_item_object_ids.is_empty());
+    assert!(settings.combat.item_use_specifiers.is_empty());
+}
