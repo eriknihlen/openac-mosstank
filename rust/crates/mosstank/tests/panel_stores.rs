@@ -1271,8 +1271,10 @@ fn a_settings_copy_keeps_imported_buffed_items_and_unknown_tables() {
     assert_eq!(auto_stack.len(), 1);
     assert!(!auto_stack[0].cells[value_column].as_bool());
     let stale_buffed = find(&stale_copy, "BuffedItems");
+    // The row click took the whole item out; the any-item row stays.
     assert!(!has_buffed(stale_buffed, 10, 101));
-    assert!(has_buffed(stale_buffed, 10, 102));
+    assert!(!has_buffed(stale_buffed, 10, 102));
+    assert!(has_buffed(stale_buffed, -1, 101));
     assert_eq!(
         find(&stale_copy, "CopyProof").rows[0].cells[0].as_string(),
         "copy proof"

@@ -48,9 +48,18 @@ fn the_items_and_consumables_tabs_add_the_selection_to_real_profiles() {
             .iter()
             .any(|row| row == "Imperil Lens")
     );
-    assert_eq!(world.ui_list(p, "ConsumableRows").len(), 2);
+    // The profile's gems and food come first.
+    assert_eq!(
+        world.ui_list(p, "ConsumableRows"),
+        [
+            "Asheron's Benediction",
+            "Blackmoor's Favor",
+            "Iron Phial of Imperil",
+            mosstank_loot::crafting::ALL_PEAS,
+        ]
+    );
     world.act(p, "RemoveSelectedConsumable");
-    assert_eq!(world.ui_list(p, "ConsumableRows").len(), 1);
+    assert_eq!(world.ui_list(p, "ConsumableRows").len(), 3);
 }
 
 // Source: tests/AcDream.Plugins.MossTank.Tests/MossTankPanelTests.cs :: ItemsGridNameClickDeletesAndHandsClickCyclesHandedness
@@ -65,12 +74,12 @@ fn the_items_grid_deletes_on_the_name_and_cycles_hands() {
         world.ui_list(p, "ItemNameColumn"),
         ["Fire Sword", "Ice Wand"]
     );
-    assert_eq!(world.ui_list(p, "ItemHandsColumn")[0], "Auto");
-    for expected in ["1-Handed", "2-Handed", "Auto"] {
+    assert_eq!(world.ui_list(p, "ItemHandsColumn")[0], "BothHands");
+    for expected in ["DONOTUSE", "RightHand", "LeftHand", "BothHands"] {
         world.act_int(p, "CycleItemHandsAt", 0);
         assert_eq!(world.ui_list(p, "ItemHandsColumn")[0], expected);
     }
-    assert_eq!(world.ui_list(p, "ItemHandsColumn")[1], "Auto");
+    assert_eq!(world.ui_list(p, "ItemHandsColumn")[1], "BothHands");
     world.act_int(p, "DeleteItemRowAt", 0);
     assert_eq!(world.ui_list(p, "ItemNameColumn"), ["Ice Wand"]);
 }
@@ -86,11 +95,11 @@ fn the_no_buffs_suffix_stays_on_the_name_and_out_of_the_hands() {
     add(&mut world, p, "AddSelectedItemNoBuffs", 10);
     assert_eq!(
         world.ui_list(p, "ItemNameColumn"),
-        ["Fire Sword   [no buffs]"]
+        ["Fire Sword (NO BUFFS)"]
     );
-    assert_eq!(world.ui_list(p, "ItemHandsColumn")[0], "Auto");
+    assert_eq!(world.ui_list(p, "ItemHandsColumn")[0], "BothHands");
     world.act_int(p, "CycleItemHandsAt", 0);
-    assert_eq!(world.ui_list(p, "ItemHandsColumn")[0], "1-Handed");
+    assert_eq!(world.ui_list(p, "ItemHandsColumn")[0], "DONOTUSE");
 }
 
 // Source: tests/AcDream.Plugins.MossTank.Tests/MossTankPanelTests.cs :: ConsumablesLeftListRowClickRemovesTheRowDirectly
@@ -104,9 +113,13 @@ fn a_click_on_a_consumable_row_removes_it() {
     ]);
     add(&mut world, p, "AddSelectedConsumable", 20);
     add(&mut world, p, "AddSelectedConsumable", 21);
-    assert_eq!(world.ui_list(p, "ConsumableRows").len(), 2);
-    world.act_int(p, "SelectConsumableRow", 0);
-    assert_eq!(world.ui_list(p, "ConsumableRows").len(), 1);
+    // After the profile's two gems and food.
+    assert_eq!(world.ui_list(p, "ConsumableRows").len(), 4);
+    world.act_int(p, "SelectConsumableRow", 2);
+    assert_eq!(
+        world.ui_list(p, "ConsumableRows")[2..],
+        ["Iron Phial of Vulnerability"]
+    );
 }
 
 // Source: tests/AcDream.Plugins.MossTank.Tests/MossTankPanelTests.cs :: ExcludedComponentsGridAddsBySelectionAndDeletesByAnyCellClick

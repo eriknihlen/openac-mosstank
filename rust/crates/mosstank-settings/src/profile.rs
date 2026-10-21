@@ -131,7 +131,8 @@ pub fn save(document: &mut VtankDatabase, source: &mut AllSettings) -> Result<St
         row.cells[column] = captured;
     }
     monster_table::write(document, &source.combat.rules)?;
-    profiled_item_ids::write(document, &mut source.combat)?;
+    profiled_item_ids::write(document, &mut source.combat, &source.buffs)?;
+    item_use_specifiers::write(document, &source.combat)?;
     assist_items::write(document, &source.combat)?;
     gem_food_items::write(document, &source.buffs)?;
     buff_exemplars::write(document, &source.buffs)?;

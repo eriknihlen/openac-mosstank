@@ -266,11 +266,17 @@ fn removing_an_imported_consumable_deletes_only_its_exact_assist_row() {
             ("Mana Cake", 5, "cake-custom"),
         ]),
     );
+    // The profile's gems and food come first.
     assert_eq!(
         world.ui_list(&mut plugin, "ConsumableRows"),
-        ["Bread", "Mana Cake"]
+        [
+            "Asheron's Benediction",
+            "Blackmoor's Favor",
+            "Bread",
+            "Mana Cake"
+        ]
     );
-    world.act_int(&mut plugin, "SelectConsumableRow", 0);
+    world.act_int(&mut plugin, "SelectConsumableRow", 2);
 
     let saved = saved_assist_items(&mut world, &mut plugin);
     assert!(rows_named(&saved, "Bread").is_empty());

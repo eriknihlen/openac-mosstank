@@ -755,7 +755,9 @@ fn delayed_server_identity_restores_the_saved_item_list() {
     world.fake.character = Some(common::character("Barris"));
     world.with_tank(&mut reopened, |tank, client| tank.on_tick(client, 0.3));
 
-    assert!(item_names(&mut world, &mut reopened).contains(&"War Wand".to_owned()));
+    // The client names none of its buffs here, so the item is written
+    // with no spell and read back as kept without buffs.
+    assert!(item_names(&mut world, &mut reopened).contains(&"War Wand (NO BUFFS)".to_owned()));
 }
 
 // Source: tests/AcDream.Plugins.MossTank.Tests/MossTankPanelTests.ProfileFiles.cs :: ABackwardJumpAddedToANavRouteIsRefusedAndSaidSo

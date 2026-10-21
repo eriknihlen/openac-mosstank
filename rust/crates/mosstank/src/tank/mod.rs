@@ -1240,7 +1240,11 @@ impl Tank {
             Event::Ui(ac_plugin_abi::ui::UiEvent::Pointer(pointer)) => {
                 cx.on_canvas_pointer(pointer);
             }
-            Event::LoginComplete => cx.meta.on_login_complete(),
+            Event::LoginComplete => {
+                // The Items page names the items the world now knows.
+                cx.core.panel.items_stale = true;
+                cx.meta.on_login_complete();
+            }
             Event::Logoff => {
                 cx.with_engine(|engine, host, services| engine.on_logoff(host, services));
             }
@@ -1271,6 +1275,9 @@ impl Tank {
             },
             // The name tags follow objects arriving, appraised and leaving.
             Event::ObjectChanged(change) => {
+                if changes_item_rows(&cx.core.settings.combat, change) {
+                    cx.core.panel.items_stale = true;
+                }
                 cx.with_ub(|commands, call| {
                     commands
                         .tools_mut()
@@ -1359,6 +1366,18 @@ impl Tank {
         // What the plugin's last call changed is written as any call's is.
         self.end_call(client);
     }
+}
+
+/// Whether an object change can change the Items page: an item the profile
+/// lists appeared, changed, was appraised or left. Any listed item counts,
+/// whatever its kind, because a released object no longer says what it
+/// was; a plain move changes nothing the page shows.
+fn changes_item_rows(
+    combat: &mosstank_settings::model::CombatSettings,
+    change: &ac_plugin_abi::world::ObjectChange,
+) -> bool {
+    change.kind != ac_plugin_abi::world::ObjectChangeKind::Moved
+        && combat.combat_item_object_ids.contains(&change.object_id)
 }
 
 impl Core {

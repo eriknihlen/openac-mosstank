@@ -57,8 +57,6 @@ pub(crate) struct PanelState {
     pub(crate) items: items::ItemRows,
     pub(crate) selected_item_row: i32,
     pub(crate) selected_consumable_row: i32,
-    /// Handedness per item name (0 Auto, 1 1-Handed, 2 2-Handed).
-    pub(crate) item_handedness: Vec<(String, usize)>,
     pub(crate) selected_excluded_component_row: i32,
     pub(crate) buff_picker_visible: bool,
     pub(crate) buff_picker_for_blacklist: bool,
@@ -87,6 +85,9 @@ pub(crate) struct PanelState {
     pub(crate) admission: ItemAdmission,
     /// The Items page's rows must be rebuilt at the end of the call.
     pub(crate) items_dirty: bool,
+    /// A listed item changed in the world (or the character entered it):
+    /// the Items page is rebuilt on the next tick, once for a burst.
+    pub(crate) items_stale: bool,
     pub(crate) ub: ub_pages::UbPageState,
     /// When the profile pickers list their folders again (register UI-4).
     pub(crate) listings: listings::Listings,
@@ -105,7 +106,6 @@ impl Default for PanelState {
             items: items::ItemRows::default(),
             selected_item_row: 0,
             selected_consumable_row: 0,
-            item_handedness: Vec::new(),
             selected_excluded_component_row: 0,
             buff_picker_visible: false,
             buff_picker_for_blacklist: false,
@@ -132,6 +132,7 @@ impl Default for PanelState {
             vitals: chrome::VitalsLine::default(),
             admission: ItemAdmission::default(),
             items_dirty: true,
+            items_stale: false,
             ub: ub_pages::UbPageState::default(),
             listings: listings::Listings::default(),
         }

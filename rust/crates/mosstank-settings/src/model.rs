@@ -167,15 +167,6 @@ impl BuffItemEnchantRow {
     }
 }
 
-/// A `BuffedItems` row, by its two ids.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub struct BuffedItemKey {
-    /// The item.
-    pub object_id: u32,
-    /// The spell.
-    pub spell_id: u32,
-}
-
 /// The combat settings.
 #[derive(Debug, Clone)]
 #[allow(missing_docs, clippy::struct_excessive_bools)]
@@ -237,7 +228,6 @@ pub struct CombatSettings {
     pub combat_item_object_ids: DotNetSet<u32, Ordinal<u32>>,
     pub combat_item_order_ids: Vec<u32>,
     pub removed_combat_item_object_ids: DotNetSet<u32, Ordinal<u32>>,
-    pub removed_buffed_item_rows: Vec<BuffedItemKey>,
     pub combat_item_names: OrdinalStringSet,
     pub combat_item_order: Vec<String>,
     /// The name each listed item had when last seen in the inventory.
@@ -310,7 +300,6 @@ impl Default for CombatSettings {
             combat_item_object_ids: DotNetSet::new(),
             combat_item_order_ids: Vec::new(),
             removed_combat_item_object_ids: DotNetSet::new(),
-            removed_buffed_item_rows: Vec::new(),
             combat_item_names: OrdinalStringSet::new(),
             combat_item_order: Vec::new(),
             combat_item_names_by_id: DotNetDictionary::new(),

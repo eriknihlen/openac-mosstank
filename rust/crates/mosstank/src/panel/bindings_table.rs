@@ -235,6 +235,7 @@ pub(super) fn of(window_id: &str) -> Option<&'static [(&'static str, K)]> {
             ("SelectedItemRowIndex", K::Int),
             ("SelectItemRow", K::IntAction),
             ("ItemNameColumn", K::TextList),
+            ("ItemNameColors", K::UintList),
             ("DeleteItemRowAt", K::IntAction),
             ("ItemHandsColumn", K::TextList),
             ("CycleItemHandsAt", K::IntAction),

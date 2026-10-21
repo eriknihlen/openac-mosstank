@@ -1,6 +1,6 @@
 //! The item tables a settings profile carries beside its settings: the
-//! profiled weapons and their buffs (`BuffedItems`), how many uses an item
-//! is given (`ItemUseSpecifiers`), the consumables by kind (`AssistItems`),
+//! profiled weapons and their buffs (`BuffedItems`), which hands an item
+//! is used in (`ItemUseSpecifiers`), the consumables by kind (`AssistItems`),
 //! the gems and food used for their buff (`GemFoodItems`), and the extra
 //! and suppressed buffs (`ExtraBuffSpells`, `AntiExtraBuffSpells`).
 //!
@@ -63,7 +63,6 @@ pub mod profiled_item_ids {
         settings.combat_item_order_ids.clear();
         settings.combat_item_object_ids.clear();
         settings.removed_combat_item_object_ids.clear();
-        settings.removed_buffed_item_rows.clear();
         buffs
             .item_enchant_rows
             .retain(|row| !row.is_profiled_item_row());
@@ -112,14 +111,16 @@ pub mod profiled_item_ids {
         Some(row.cells.get(column)?.as_int().ok()?.cast_unsigned())
     }
 
-    /// Removes the rows the settings dropped and adds a spell-less row for
-    /// each newly profiled item.
+    /// Removes the rows of the items the settings dropped and adds the
+    /// newly profiled items: one row per spell the item is buffed with, or
+    /// the item with no spell when it carries none, as VTank writes an item.
     ///
     /// # Errors
     /// The table lacks its `Object` or `Spell` column.
     pub fn write(
         database: &mut VtankDatabase,
         settings: &mut CombatSettings,
+        buffs: &BuffSettings,
     ) -> Result<(), FormatError> {
         if database.find(TABLE_NAME).is_none() {
             if settings.combat_item_order_ids.is_empty() {
@@ -135,18 +136,6 @@ pub mod profiled_item_ids {
                 "'BuffedItems' table is missing Object/Spell columns.".to_owned(),
             ));
         };
-
-        for removed in &settings.removed_buffed_item_rows {
-            if let Some(index) = table.rows.iter().position(|row| {
-                read_two_ints(row, object_column, spell_column).is_some_and(|(object, spell)| {
-                    object.cast_unsigned() == removed.object_id
-                        && spell.cast_unsigned() == removed.spell_id
-                })
-            }) {
-                table.rows.remove(index);
-            }
-        }
-        settings.removed_buffed_item_rows.clear();
 
         if !settings.removed_combat_item_object_ids.is_empty() {
             let removed = &settings.removed_combat_item_object_ids;
@@ -165,15 +154,43 @@ pub mod profiled_item_ids {
             if id == 0 || id == u32::MAX || !present.insert(id) {
                 continue;
             }
-            let mut row = filled_row(table, -1);
-            row.cells[object_column] = VtankCell::int(id.cast_signed());
-            table.rows.push(row);
+            let mut wrote_spell = false;
+            for spell in &buffs.item_enchant_rows {
+                if !spell.is_profiled_item_row() || spell.object_id != Some(id) {
+                    continue;
+                }
+                let spell_id = spell.spell_id.expect("a profiled row has a spell");
+                add_row(
+                    table,
+                    object_column,
+                    spell_column,
+                    id,
+                    spell_id.cast_signed(),
+                );
+                wrote_spell = true;
+            }
+            if !wrote_spell {
+                add_row(table, object_column, spell_column, id, -1);
+            }
         }
         Ok(())
     }
+
+    fn add_row(
+        table: &mut VtankTable,
+        object_column: usize,
+        spell_column: usize,
+        object_id: u32,
+        spell_id: i32,
+    ) {
+        let mut row = filled_row(table, -1);
+        row.cells[object_column] = VtankCell::int(object_id.cast_signed());
+        row.cells[spell_column] = VtankCell::int(spell_id);
+        table.rows.push(row);
+    }
 }
 
-/// How many uses an item is given: `ItemUseSpecifiers`.
+/// Which hands an item is used in: `ItemUseSpecifiers`.
 pub mod item_use_specifiers {
     use super::*;
 
@@ -207,7 +224,102 @@ pub mod item_use_specifiers {
             .item_use_specifiers
             .get(&object_id)
             .copied()
-            .unwrap_or(3)
+            .unwrap_or(BOTH_HANDS)
+    }
+
+    /// Never used.
+    pub const DO_NOT_USE: i32 = 0;
+    /// Used in the right hand.
+    pub const RIGHT_HAND: i32 = 1;
+    /// Used in the left hand.
+    pub const LEFT_HAND: i32 = 2;
+    /// Used in either hand (what an item without a row gets).
+    pub const BOTH_HANDS: i32 = 3;
+
+    /// The Items page's label for a uses value; `None` for a value that
+    /// names no use.
+    #[must_use]
+    pub fn label(uses: i32) -> Option<&'static str> {
+        Some(match uses {
+            DO_NOT_USE => "DONOTUSE",
+            RIGHT_HAND => "RightHand",
+            LEFT_HAND => "LeftHand",
+            BOTH_HANDS => "BothHands",
+            _ => return None,
+        })
+    }
+
+    /// The use after `uses` in the Items page's cycle (in value order,
+    /// back to the first after the last; a value that names no use goes to
+    /// the first).
+    #[must_use]
+    pub fn cycle_next(uses: i32) -> i32 {
+        match uses {
+            DO_NOT_USE | RIGHT_HAND | LEFT_HAND => uses + 1,
+            _ => DO_NOT_USE,
+        }
+    }
+
+    /// Writes the table from the settings: a row whose item the settings
+    /// no longer give a value goes, a row whose value changed takes the new
+    /// one where it stands, and an item without a row gets one at the end.
+    /// Rows that do not read are left as they are.
+    ///
+    /// # Errors
+    /// The table lacks its `Object` or `Uses` column.
+    pub fn write(
+        database: &mut VtankDatabase,
+        settings: &CombatSettings,
+    ) -> Result<(), FormatError> {
+        let wanted = &settings.item_use_specifiers;
+        if database.find(TABLE_NAME).is_none() {
+            if wanted.is_empty() {
+                return Ok(());
+            }
+            new_table(database, TABLE_NAME, &["Object", "Uses"]);
+            let table = database.find_mut(TABLE_NAME).expect("just added");
+            // The item column is the table's index, as a fresh profile's.
+            table.index_flags[0] = true;
+        }
+        let table = database.find_mut(TABLE_NAME).expect("found or added");
+        let (Some(object_column), Some(uses_column)) =
+            (table.column_index("Object"), table.column_index("Uses"))
+        else {
+            return Err(FormatError(
+                "'ItemUseSpecifiers' table is missing Object/Uses columns.".to_owned(),
+            ));
+        };
+        let mut present: HashSet<u32> = HashSet::new();
+        for index in (0..table.rows.len()).rev() {
+            let Some((object, uses)) =
+                read_two_ints(&table.rows[index], object_column, uses_column)
+            else {
+                continue;
+            };
+            let object = object.cast_unsigned();
+            match wanted.get(&object) {
+                None => {
+                    table.rows.remove(index);
+                }
+                // The last row for an item is the one read; an earlier one
+                // for the same item is left as it is.
+                Some(&value) => {
+                    if present.insert(object) && value != uses {
+                        table.rows[index].cells[uses_column] = VtankCell::int(value);
+                    }
+                }
+            }
+        }
+        for (&object, &uses) in wanted.iter() {
+            if !present.insert(object) {
+                continue;
+            }
+            let mut row = filled_row(table, 0);
+            row.cells[object_column] = VtankCell::int(object.cast_signed());
+            row.cells[uses_column] = VtankCell::int(uses);
+            table.rows.push(row);
+        }
+        Ok(())
     }
 }
 

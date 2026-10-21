@@ -62,10 +62,12 @@ fn a_profile_item_loaded_with_the_character_is_assessed_without_being_re_added()
     next.unassessed.insert(10);
     let (mut world, mut plugin) =
         second_session(prover(vec![common::item(10, "Fire Sword", 1)]), &[10], next);
+    // The client names none of its buffs here, so the item is written
+    // with no spell and read back as kept without buffs.
     assert!(
         world
             .ui_list(&mut plugin, "ItemRows")
-            .contains(&"Fire Sword".to_owned())
+            .contains(&"Fire Sword (NO BUFFS)".to_owned())
     );
 
     ticks(&mut world, &mut plugin, 20);

@@ -212,6 +212,62 @@ fn item_use_specifiers_retain_signed_ids_and_clear_on_profile_switch() {
     assert!(settings.combat.item_use_specifiers.is_empty());
 }
 
+/// The Hands choices are written back: a changed value where its row
+/// stands, a dropped item's row removed, a new item's row added, a row
+/// that does not read kept; and what is written reads back the same.
+#[test]
+fn item_use_specifiers_are_saved_and_read_back() {
+    let mut document = defaults::create();
+    let rows = &mut table_mut(&mut document, "ItemUseSpecifiers").rows;
+    for (object, uses) in [(10, 1), (11, 2), (12, 3)] {
+        rows.push(VtankRow {
+            cells: vec![VtankCell::int(object), VtankCell::int(uses)],
+        });
+    }
+    rows.push(VtankRow {
+        cells: vec![VtankCell::string("not an id"), VtankCell::int(1)],
+    });
+    let mut settings = AllSettings::default();
+    let mut document = profile::load(&document.render(), &mut settings, None).unwrap();
+
+    let uses = &mut settings.combat.item_use_specifiers;
+    uses.insert(10, 0);
+    uses.remove(&11);
+    uses.insert(0x8000_0001, 2);
+    let text = profile::save(&mut document, &mut settings).unwrap();
+
+    let saved = VtankDatabase::parse(&text).unwrap();
+    let table = find_table(&saved, "ItemUseSpecifiers");
+    let cells: Vec<(String, String)> = table
+        .rows
+        .iter()
+        .map(|row| {
+            (
+                row.cells[0].as_string().to_owned(),
+                row.cells[1].as_string().to_owned(),
+            )
+        })
+        .collect();
+    assert_eq!(
+        cells,
+        [
+            ("10".to_owned(), "0".to_owned()),
+            ("12".to_owned(), "3".to_owned()),
+            ("not an id".to_owned(), "1".to_owned()),
+            ("-2147483647".to_owned(), "2".to_owned()),
+        ]
+    );
+    let mut reread = AllSettings::default();
+    load(&text, &mut reread);
+    assert_eq!(item_use_specifiers::uses_for(&reread.combat, 10), 0);
+    assert_eq!(item_use_specifiers::uses_for(&reread.combat, 11), 3);
+    assert_eq!(item_use_specifiers::uses_for(&reread.combat, 12), 3);
+    assert_eq!(
+        item_use_specifiers::uses_for(&reread.combat, 0x8000_0001),
+        2
+    );
+}
+
 // Source: tests/AcDream.Plugins.MossTank.Tests/VtankSettingsProfileSerializerTests.cs :: LoadingAProfileWithoutBuffedItemsClearsEarlierProfiledRows
 #[test]
 fn loading_a_profile_without_buffed_items_clears_earlier_profiled_rows() {

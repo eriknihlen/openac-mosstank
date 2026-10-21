@@ -209,35 +209,29 @@ fn unknown_and_empty_imported_buffed_item_spells_stay_inert() {
 }
 
 // Source: tests/AcDream.Plugins.MossTank.Tests/MossTankPanelTests.cs :: ImportedBuffedItemUiDeletesOneSpellPairAndKeepsItsSiblings
+// The Items page now has one row per item, and its click removes the item.
 #[test]
-fn imported_buffed_item_ui_deletes_one_spell_pair_and_keeps_its_siblings() {
+fn imported_buffed_item_ui_deletes_the_whole_item() {
     let mut world = World::with_automation(selection_wired(item_enchant_automation()));
     write_imported(&mut world, &[(10, -1), (10, 101), (10, 102)]);
     let mut plugin = world.enable();
 
     world.vt(&mut plugin, "settings load Imported");
+    // One row for the item; its first spell is none, so it reads as kept
+    // without buffs.
     assert_eq!(
         world.ui_list(&mut plugin, "ItemRows"),
-        [
-            "War Wand",
-            "War Wand \u{2014} Aura of Defender Self I",
-            "War Wand \u{2014} Aura of Hermetic Link Self I"
-        ]
+        ["War Wand (NO BUFFS)"]
     );
 
-    world.act_int(&mut plugin, "DeleteItemRowAt", 1);
+    world.act_int(&mut plugin, "DeleteItemRowAt", 0);
 
-    assert_eq!(
-        world.ui_list(&mut plugin, "ItemRows"),
-        ["War Wand", "War Wand \u{2014} Aura of Hermetic Link Self I"]
-    );
+    assert!(world.ui_list(&mut plugin, "ItemRows").is_empty());
     run(&mut world, &mut plugin, 8);
 
-    assert_eq!(world.cast_spell_ids(), [102]);
+    assert!(world.cast_spell_ids().is_empty());
     let pairs = imported_pairs(&world);
-    assert!(pairs.contains(&(10, -1)), "{pairs:?}");
-    assert!(!pairs.contains(&(10, 101)), "{pairs:?}");
-    assert!(pairs.contains(&(10, 102)), "{pairs:?}");
+    assert!(!pairs.iter().any(|(object, _)| *object == 10), "{pairs:?}");
 }
 
 // Source: tests/AcDream.Plugins.MossTank.Tests/MossTankPanelTests.cs :: ImportedBuffedItemNumericExemplarResolvesKnownTierByFamily
@@ -254,10 +248,7 @@ fn imported_buffed_item_numeric_exemplar_resolves_known_tier_by_family() {
     let mut plugin = world.enable();
 
     world.vt(&mut plugin, "settings load Imported");
-    assert_eq!(
-        world.ui_list(&mut plugin, "ItemRows"),
-        ["War Wand \u{2014} Old Exemplar I"]
-    );
+    assert_eq!(world.ui_list(&mut plugin, "ItemRows"), ["War Wand"]);
     run(&mut world, &mut plugin, 6);
 
     assert_eq!(world.cast_spell_ids(), [101]);

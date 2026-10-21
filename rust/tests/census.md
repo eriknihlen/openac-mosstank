@@ -1913,9 +1913,9 @@ Ported: **2302 of 2307** C# tests, from 137 of 137 files. Not applicable: **5**.
 - ImportedUntargetedBuffedItemSpellJoinsTheNormalBuffPlan: `crates/mosstank/tests/panel_item_enchant.rs` :: `imported_untargeted_buffed_item_spell_joins_the_normal_buff_plan`
 - UnknownAndEmptyImportedBuffedItemSpellsStayInert: `crates/mosstank/tests/panel_item_enchant.rs` :: `unknown_and_empty_imported_buffed_item_spells_stay_inert`
 - RemovingSelectedOwnedItemRemovesItsUsdIdentity: `crates/mosstank/tests/panel_item_rows.rs` :: `removing_the_selected_item_takes_its_identity_out`
-- AListedItemIsOneRowUnderItsNameWhileThereIsNoInventory: `crates/mosstank/tests/panel_item_rows.rs` :: `a_listed_item_is_one_row_under_its_name_while_there_is_no_inventory`
+- AListedItemIsOneRowUnderItsNameWhileThereIsNoInventory: `crates/mosstank/tests/panel_item_rows.rs` :: `a_listed_item_the_client_does_not_know_reads_invalid_by_its_id`
 - ItemRowsDeleteTheSelectedIdentityEvenWhenMissingOrNamesMatch: `crates/mosstank/tests/panel_item_rows.rs` :: `item_rows_delete_their_own_identity_even_when_missing_or_named_alike`
-- ImportedBuffedItemUiDeletesOneSpellPairAndKeepsItsSiblings: `crates/mosstank/tests/panel_item_enchant.rs` :: `imported_buffed_item_ui_deletes_one_spell_pair_and_keeps_its_siblings`
+- ImportedBuffedItemUiDeletesOneSpellPairAndKeepsItsSiblings: `crates/mosstank/tests/panel_item_enchant.rs` :: `imported_buffed_item_ui_deletes_the_whole_item`
 - ImportedBuffedItemNumericExemplarResolvesKnownTierByFamily: `crates/mosstank/tests/panel_item_enchant.rs` :: `imported_buffed_item_numeric_exemplar_resolves_known_tier_by_family`
 - AddingAShieldPopulatesTheSevenBanesAndImpenetrability: `crates/mosstank/tests/panel_item_enchant.rs` :: `adding_a_shield_populates_the_seven_banes_and_impenetrability`
 - ShieldBaneRowsFollowTheDamageElementEnumOrder: `crates/mosstank/tests/panel_item_enchant.rs` :: `shield_bane_rows_follow_the_damage_element_enum_order`

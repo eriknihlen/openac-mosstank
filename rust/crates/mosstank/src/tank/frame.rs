@@ -48,6 +48,11 @@ impl Tank {
     pub fn on_tick(&mut self, client: &mut dyn TankClient, elapsed_seconds: f64) {
         self.begin_call(client);
         self.core.panel.listings.advance(elapsed_seconds);
+        // The Items page a listed item's change left stale is rebuilt once,
+        // at the end of this call.
+        if std::mem::take(&mut self.core.panel.items_stale) {
+            self.core.panel.items_dirty = true;
+        }
         self.frame(client, elapsed_seconds);
         self.end_call(client);
     }

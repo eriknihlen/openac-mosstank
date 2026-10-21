@@ -134,8 +134,10 @@ fn removing_the_selected_item_takes_its_identity_out() {
 }
 
 // Source: tests/AcDream.Plugins.MossTank.Tests/MossTankPanelTests.cs :: AListedItemIsOneRowUnderItsNameWhileThereIsNoInventory
+// An item the client does not know now reads `<INVALID id>`, and an item
+// the profile lists with no spell reads as kept without buffs.
 #[test]
-fn a_listed_item_is_one_row_under_its_name_while_there_is_no_inventory() {
+fn a_listed_item_the_client_does_not_know_reads_invalid_by_its_id() {
     let mut world = World::panel_character("Lister");
     world.own_items(vec![
         item(10, "Decapitator's Blade", 1),
@@ -150,7 +152,7 @@ fn a_listed_item_is_one_row_under_its_name_while_there_is_no_inventory() {
     let mut logged_out = world.enable();
     assert_eq!(
         rows(&mut world, &mut logged_out),
-        ["Decapitator's Blade", "Wings of Rakhil"]
+        ["<INVALID 10> (NO BUFFS)", "<INVALID 11> (NO BUFFS)"]
     );
     world.disable(&mut logged_out);
 
@@ -158,7 +160,7 @@ fn a_listed_item_is_one_row_under_its_name_while_there_is_no_inventory() {
     let mut without_the_blade = world.enable();
     assert_eq!(
         rows(&mut world, &mut without_the_blade),
-        ["<INVALID Decapitator's Blade>", "Wings of Rakhil"]
+        ["<INVALID 10> (NO BUFFS)", "Wings of Rakhil (NO BUFFS)"]
     );
 }
 
@@ -189,22 +191,18 @@ fn item_rows_delete_their_own_identity_even_when_missing_or_named_alike() {
     let p = &mut second;
     assert_eq!(
         rows(&mut world, p),
-        [
-            "<INVALID Twin Sword>",
-            "Twin Sword",
-            "<INVALID Twin Sword> \u{2014} Spell 0x00000011",
-        ]
+        ["<INVALID 10> (NO BUFFS)", "Twin Sword (NO BUFFS)"]
     );
     world.act_int(p, "DeleteItemRowAt", 0);
-    assert_eq!(
-        rows(&mut world, p),
-        [
-            "Twin Sword",
-            "<INVALID Twin Sword> \u{2014} Spell 0x00000011"
-        ]
-    );
+    assert_eq!(rows(&mut world, p), ["Twin Sword (NO BUFFS)"]);
     let column = object_column(&world);
     let saved = buffed_items(&world);
+    // Every row of the removed item went, its spell row too.
+    assert!(
+        !saved
+            .iter()
+            .any(|row| row.cells[column].as_int().ok() == Some(10))
+    );
     assert!(
         saved
             .iter()
@@ -215,8 +213,6 @@ fn item_rows_delete_their_own_identity_even_when_missing_or_named_alike() {
             .iter()
             .any(|row| row.cells[column].as_string() == "not-an-object-id")
     );
-    world.act_int(p, "DeleteItemRowAt", 1);
-    assert_eq!(rows(&mut world, p), ["Twin Sword"]);
     world.act_int(p, "DeleteItemRowAt", 0);
     assert!(rows(&mut world, p).is_empty());
     let saved = buffed_items(&world);
@@ -272,10 +268,12 @@ fn a_wielded_weapon_added_to_the_list_survives_a_restart() {
     );
     world.disable(p);
     let mut second = world.enable();
+    // The client names none of its buffs here, so the item is written
+    // with no spell and read back as kept without buffs.
     assert!(
         rows(&mut world, &mut second)
             .iter()
-            .any(|r| r == "Decapitator's Blade")
+            .any(|r| r == "Decapitator's Blade (NO BUFFS)")
     );
 }
 
@@ -311,7 +309,7 @@ fn removing_a_row_for_a_missing_object_keeps_the_rest() {
     assert!(
         rows(&mut world, &mut reloaded)
             .iter()
-            .any(|r| r == "Decapitator's Blade")
+            .any(|r| r == "Decapitator's Blade (NO BUFFS)")
     );
 }
 

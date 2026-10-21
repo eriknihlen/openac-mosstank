@@ -8,15 +8,20 @@ use ac_plugin_abi::world::{ItemProperties, ObjectClass};
 use mosstank_automation::Automation;
 use mosstank_combat::pets::is_pet_device;
 use mosstank_loot::crafting::{ALL_PEAS, classify, classify_name};
-use mosstank_settings::model::{AssistItem, BuffItemEnchantRow, BuffedItemKey, ConsumableCategory};
+use mosstank_settings::items::item_use_specifiers;
+use mosstank_settings::model::{AssistItem, BuffItemEnchantRow, ConsumableCategory};
 
 use super::{Arg, b, clamp_row, f, i, row, t, tl};
 use mosstank_meta::scheduler::MacroLogChannel;
 
 use crate::tank::TankCx;
 
-/// The Hands column's cycle (`HandednessCycle`).
-const HANDEDNESS_CYCLE: [&str; 3] = ["Auto", "1-Handed", "2-Handed"];
+/// An Items row's name, as the page's text.
+const ITEM_NAME_COLOR: u32 = 0x00E8_DEC3;
+/// An Items row's name when the item is kept without buffs.
+const NO_BUFFS_ITEM_NAME_COLOR: u32 = 0x00FF_0000;
+/// The int property holding where an item may be wielded.
+const VALID_LOCATIONS_PROPERTY: u32 = 9;
 /// How the excluded scarab list is joined (`ExcludedComponentDelimiter`).
 const EXCLUDED_COMPONENT_DELIMITER: &str = "; ";
 
@@ -84,14 +89,31 @@ fn default_rows(item: &InventoryItem, no_buffs: bool, pet_device: bool) -> &'sta
 /// (`RefreshItemEditors`).
 #[derive(Debug, Clone, Default)]
 pub(crate) struct ItemRows {
+    /// One row per profiled item: its name, with " (NO BUFFS)" when the
+    /// item is kept without buffs.
     pub(crate) rows: Vec<String>,
-    pub(crate) base_names: Vec<String>,
+    /// Each row's name alone.
+    pub(crate) names: Vec<String>,
+    /// Each row's name colour.
+    pub(crate) name_colors: Vec<u32>,
+    /// Each row's item; none for an item the profile lists by name alone.
     pub(crate) object_ids: Vec<Option<u32>>,
-    pub(crate) enchant_rows: Vec<Option<BuffItemEnchantRow>>,
+    /// Each row's Hands cell (empty where the page shows none).
     pub(crate) hands: Vec<String>,
+    /// The gems and food first, then the other consumables.
     pub(crate) consumables: Vec<String>,
     pub(crate) excluded_components: Vec<String>,
     pub(crate) excluded_component_icons: Vec<u32>,
+}
+
+/// The Items page as one build makes it.
+#[derive(Debug, Default)]
+struct ItemPage {
+    rows: Vec<String>,
+    names: Vec<String>,
+    colors: Vec<u32>,
+    object_ids: Vec<Option<u32>>,
+    hands: Vec<String>,
 }
 
 /// An item add waiting for its appraisal (`PendingProfileAddition`).
@@ -239,6 +261,7 @@ pub(super) fn value(cx: &mut TankCx<'_>, name: &str) -> Option<UiValue> {
     let rows = &panel.items;
     match name {
         "ItemRows" | "ItemNameColumn" => tl(rows.rows.clone()),
+        "ItemNameColors" => Some(UiValue::UintList(rows.name_colors.clone())),
         "ItemHandsColumn" => tl(rows.hands.clone()),
         "SelectedItemRowIndex" => i(panel.selected_item_row),
         "ConsumableRows" => tl(rows.consumables.clone()),
@@ -307,7 +330,7 @@ pub(super) fn act(cx: &mut TankCx<'_>, name: &str, arg: &Arg) -> bool {
             cx.remove_selected_consumable();
         }
         "RemoveSelectedItem" => {
-            let count = cx.core.panel.items.base_names.len();
+            let count = cx.core.panel.items.object_ids.len();
             if count == 0 {
                 cx.announce_profile_notice("The Items profile is empty.");
                 return true;
@@ -317,17 +340,7 @@ pub(super) fn act(cx: &mut TankCx<'_>, name: &str, arg: &Arg) -> bool {
         }
         "RemoveSelectedConsumable" => cx.remove_selected_consumable(),
         "DeleteItemRowAt" => cx.delete_item_row_at(arg.int()),
-        "CycleItemHandsAt" => {
-            let Some(at) = row(arg.int(), cx.core.panel.items.base_names.len()) else {
-                return true;
-            };
-            let name = cx.core.panel.items.base_names[at].clone();
-            let next = (cx.handedness_index(&name) + 1) % HANDEDNESS_CYCLE.len();
-            let handedness = &mut cx.core.panel.item_handedness;
-            handedness.retain(|(item, _)| *item != name);
-            handedness.push((name, next));
-            cx.refresh_item_editors();
-        }
+        "CycleItemHandsAt" => cx.cycle_item_hands_at(arg.int()),
         "SelectExcludedComponentRow" => {
             let count = cx.core.panel.items.excluded_components.len();
             cx.core.panel.selected_excluded_component_row = clamp_row(arg.int(), count);
@@ -402,122 +415,13 @@ pub(super) fn act(cx: &mut TankCx<'_>, name: &str, arg: &Arg) -> bool {
 }
 
 impl TankCx<'_> {
-    fn handedness_index(&self, name: &str) -> usize {
-        self.core
-            .panel
-            .item_handedness
-            .iter()
-            .find(|(item, _)| item == name)
-            .map_or(0, |(_, index)| *index)
-    }
-
     /// `RefreshItemEditors`: the consumables' kinds, then every row of the
     /// Items and Consumables pages.
-    #[allow(clippy::too_many_lines)]
     pub(crate) fn refresh_item_editors(&mut self) {
         self.refresh_consumable_categories();
         let owned = self.client.rules().owned_items_shared();
-        let inventory_unknown = owned.is_empty();
-        let mut base_names: Vec<String> = Vec::new();
-        let mut display_names: Vec<String> = Vec::new();
-        let mut row_ids: Vec<Option<u32>> = Vec::new();
-        let mut enchant_rows: Vec<Option<BuffItemEnchantRow>> = Vec::new();
-        let mut resolved_names: Vec<String> = Vec::new();
-        let mut profiled_ids: Vec<u32> = Vec::new();
-        let enchant = self.core.settings.buffs.item_enchant_rows.clone();
-        for row in enchant {
-            if !row.is_profiled_item_row() {
-                continue;
-            }
-            let object_id = row.object_id.unwrap_or(0);
-            let name = if object_id == u32::MAX {
-                "Equipped weapon".to_owned()
-            } else if let Some(item) = owned.iter().find(|item| item.object_id == object_id) {
-                self.core
-                    .settings
-                    .combat
-                    .combat_item_names_by_id
-                    .insert(object_id, item.name.clone());
-                resolved_names.push(item.name.clone());
-                profiled_ids.push(object_id);
-                item.name.clone()
-            } else {
-                profiled_ids.push(object_id);
-                self.unheld_item_row_name(object_id, inventory_unknown, &mut resolved_names)
-            };
-            display_names.push(self.profiled_item_row_text(&name, &row));
-            base_names.push(name);
-            row_ids.push((object_id != u32::MAX).then_some(object_id));
-            enchant_rows.push(Some(row));
-        }
-        let order = self.core.settings.combat.combat_item_order_ids.clone();
-        for id in order {
-            if profiled_ids.contains(&id) {
-                continue;
-            }
-            if let Some(item) = owned.iter().find(|item| item.object_id == id) {
-                self.core
-                    .settings
-                    .combat
-                    .combat_item_names_by_id
-                    .insert(id, item.name.clone());
-                base_names.push(item.name.clone());
-                display_names.push(item.name.clone());
-                resolved_names.push(item.name.clone());
-            } else {
-                let unheld = self.unheld_item_row_name(id, inventory_unknown, &mut resolved_names);
-                base_names.push(unheld.clone());
-                display_names.push(unheld);
-            }
-            row_ids.push(Some(id));
-            enchant_rows.push(None);
-        }
-        let mut names: Vec<String> = self
-            .core
-            .settings
-            .combat
-            .combat_item_names
-            .iter()
-            .cloned()
-            .collect();
-        names.sort_by(|a, b| mosstank_dotnet::text::ordinal::compare(a, b));
-        for name in names {
-            if resolved_names.contains(&name) {
-                continue;
-            }
-            base_names.push(name.clone());
-            display_names.push(name);
-            row_ids.push(None);
-            enchant_rows.push(None);
-        }
-        let rows: Vec<String> = display_names
-            .iter()
-            .enumerate()
-            .map(|(index, name)| {
-                if self
-                    .core
-                    .no_buff_item_names
-                    .contains(base_names[index].as_str())
-                {
-                    format!("{name}   [no buffs]")
-                } else {
-                    name.clone()
-                }
-            })
-            .collect();
-        let hands: Vec<String> = base_names
-            .iter()
-            .map(|name| HANDEDNESS_CYCLE[self.handedness_index(name)].to_owned())
-            .collect();
-        let mut consumables: Vec<String> = self
-            .core
-            .settings
-            .combat
-            .consumable_names
-            .iter()
-            .cloned()
-            .collect();
-        consumables.sort_by(|a, b| mosstank_dotnet::text::ordinal::compare(a, b));
+        let page = self.item_rows(&owned);
+        let consumables = self.consumable_rows();
         let excluded =
             parse_excluded_components(&self.core.settings.buffs.blacklisted_spell_components);
         let icons: Vec<u32> = excluded
@@ -532,16 +436,16 @@ impl TankCx<'_> {
             })
             .collect();
         let panel = &mut self.core.panel;
-        panel.selected_item_row = clamp_row(panel.selected_item_row, rows.len());
+        panel.selected_item_row = clamp_row(panel.selected_item_row, page.rows.len());
         panel.selected_consumable_row = clamp_row(panel.selected_consumable_row, consumables.len());
         panel.selected_excluded_component_row =
             clamp_row(panel.selected_excluded_component_row, excluded.len());
         panel.items = ItemRows {
-            rows,
-            base_names,
-            object_ids: row_ids,
-            enchant_rows,
-            hands,
+            rows: page.rows,
+            names: page.names,
+            name_colors: page.colors,
+            object_ids: page.object_ids,
+            hands: page.hands,
             consumables,
             excluded_components: excluded,
             excluded_component_icons: icons,
@@ -549,45 +453,130 @@ impl TankCx<'_> {
         panel.items_dirty = false;
     }
 
-    /// `ProfiledItemRowText`.
-    fn profiled_item_row_text(&mut self, item_name: &str, row: &BuffItemEnchantRow) -> String {
-        if row.casts_nothing() {
-            return item_name.to_owned();
+    /// The Items page: one row per profiled item, in the order the profile
+    /// first names each, never the "any item" entry or the character
+    /// itself. The first spell the profile gives an item decides whether it
+    /// is kept without buffs. A profile that lists its items by name alone
+    /// has them used by name, so they stay listed where they can be removed.
+    fn item_rows(&mut self, owned: &[InventoryItem]) -> ItemPage {
+        let character_id = self.client.rules().character().id;
+        let order = self.core.settings.combat.combat_item_order_ids.clone();
+        let mut page = ItemPage::default();
+        let mut listed: Vec<u32> = Vec::new();
+        for object_id in order {
+            if object_id == u32::MAX
+                || (character_id != 0 && object_id == character_id)
+                || listed.contains(&object_id)
+            {
+                continue;
+            }
+            listed.push(object_id);
+            let (name, show_hands) = match self.known_item(owned, object_id) {
+                Some((name, valid_locations)) => {
+                    self.core
+                        .settings
+                        .combat
+                        .combat_item_names_by_id
+                        .insert(object_id, name.clone());
+                    (name, valid_locations & MELEE_WEAPON != 0)
+                }
+                None => (format!("<INVALID {}>", object_id.cast_signed()), true),
+            };
+            let hand = if show_hands {
+                let uses = item_use_specifiers::uses_for(&self.core.settings.combat, object_id);
+                item_use_specifiers::label(uses).unwrap_or_default()
+            } else {
+                ""
+            };
+            let no_buffs = self
+                .core
+                .settings
+                .buffs
+                .item_enchant_rows
+                .iter()
+                .find(|row| row.is_profiled_item_row() && row.object_id == Some(object_id))
+                .is_some_and(|row| row.spell_id == Some(u32::MAX));
+            page.rows.push(if no_buffs {
+                format!("{name} (NO BUFFS)")
+            } else {
+                name.clone()
+            });
+            page.names.push(name);
+            page.colors.push(if no_buffs {
+                NO_BUFFS_ITEM_NAME_COLOR
+            } else {
+                ITEM_NAME_COLOR
+            });
+            page.object_ids.push(Some(object_id));
+            page.hands.push(hand.to_owned());
         }
-        let spell_id = row.spell_id.unwrap_or(0);
-        let spell_name = self
-            .client
-            .rules()
-            .spells()
-            .try_get(spell_id)
-            .map_or_else(|| format!("Spell 0x{spell_id:08X}"), |spell| spell.name);
-        format!("{item_name} \u{2014} {spell_name}")
+        if self.core.settings.combat.combat_item_object_ids.is_empty() {
+            let mut names: Vec<String> = self
+                .core
+                .settings
+                .combat
+                .combat_item_names
+                .iter()
+                .cloned()
+                .collect();
+            names.sort_by(|a, b| mosstank_dotnet::text::ordinal::compare(a, b));
+            for name in names {
+                page.rows.push(name.clone());
+                page.names.push(name);
+                page.colors.push(ITEM_NAME_COLOR);
+                page.object_ids.push(None);
+                page.hands.push(String::new());
+            }
+        }
+        page
     }
 
-    /// `UnheldItemRowName`.
-    fn unheld_item_row_name(
-        &self,
-        object_id: u32,
-        inventory_unknown: bool,
-        resolved_names: &mut Vec<String>,
-    ) -> String {
-        let remembered = self
-            .core
-            .settings
-            .combat
-            .combat_item_names_by_id
-            .get(&object_id)
-            .filter(|name| !mosstank_dotnet::text::casing::is_white_space_only(name))
-            .cloned();
-        let Some(remembered) = remembered else {
-            return format!("<INVALID 0x{object_id:08X}>");
-        };
-        resolved_names.push(remembered.clone());
-        if inventory_unknown {
-            remembered
-        } else {
-            format!("<INVALID {remembered}>")
+    /// An object the client knows: its name and where it may be wielded,
+    /// from the inventory when the character holds it, else from the object
+    /// table; `None` for an object the client does not know.
+    fn known_item(&mut self, owned: &[InventoryItem], object_id: u32) -> Option<(String, u32)> {
+        if let Some(item) = owned.iter().find(|item| item.object_id == object_id) {
+            return Some((item.name.clone(), item.valid_locations));
         }
+        let object = self
+            .client
+            .rules()
+            .object(object_id)
+            .filter(|object| object.object_id == object_id)?;
+        let valid_locations = self
+            .client
+            .rules()
+            .item_properties(object_id)
+            .and_then(|properties| properties.int(VALID_LOCATIONS_PROPERTY))
+            .unwrap_or(0);
+        Some((object.name, valid_locations.cast_unsigned()))
+    }
+
+    /// The Consumables page: the gems and food, then the other consumables
+    /// (the profile's own rows in their order, then any added since), each
+    /// name once per part.
+    fn consumable_rows(&self) -> Vec<String> {
+        let mut gems: Vec<String> = Vec::new();
+        for entry in &self.core.settings.buffs.gem_food_items {
+            if !gems.contains(&entry.name) {
+                gems.push(entry.name.clone());
+            }
+        }
+        let combat = &self.core.settings.combat;
+        let mut others: Vec<String> = Vec::new();
+        for name in combat
+            .imported_assist_items
+            .iter()
+            .map(|item| &item.name)
+            .filter(|name| combat.consumable_names.contains(name.as_str()))
+            .chain(combat.consumable_names.iter())
+        {
+            if !others.contains(name) {
+                others.push(name.clone());
+            }
+        }
+        gems.extend(others);
+        gems
     }
 
     /// `RefreshConsumableCategories`.
@@ -677,47 +666,76 @@ impl TankCx<'_> {
         )
     }
 
-    /// `DeleteItemRowAtCore`.
+    /// A click on an Items row's name: the whole item leaves the profile,
+    /// every spell row it had and its Hands choice with it, and the profile
+    /// is saved.
     fn delete_item_row_at(&mut self, index: i32) {
         let items = &self.core.panel.items;
-        let Some(at) = row(index, items.base_names.len()) else {
+        let Some(at) = row(index, items.rows.len()) else {
             return;
         };
-        let removed = items.base_names[at].clone();
-        if let Some(imported) = items.enchant_rows[at].clone() {
-            self.remove_profiled_item_enchant_row(&imported, &removed);
-            self.refresh_item_editors();
-            self.finish_item_notice(&format!("Removed {removed}"));
-            return;
-        }
-        if let Some(object_id) = items.object_ids[at] {
-            let combat = &mut self.core.settings.combat;
-            combat.combat_item_object_ids.remove(&object_id);
-            combat.combat_item_order_ids.retain(|id| *id != object_id);
-            combat.combat_item_names_by_id.remove(&object_id);
-            combat.removed_combat_item_object_ids.insert(object_id);
-        }
-        let another_named_row = self
-            .core
-            .panel
-            .items
-            .base_names
-            .iter()
-            .enumerate()
-            .any(|(other, name)| other != at && *name == removed);
-        if !another_named_row {
-            let combat = &mut self.core.settings.combat;
-            combat.combat_item_names.remove(removed.as_str());
-            combat.combat_item_order.retain(|name| *name != removed);
-            self.core.no_buff_item_names.remove(removed.as_str());
-            self.core
-                .panel
-                .item_handedness
-                .retain(|(name, _)| *name != removed);
-            self.clear_item_enchant_rows(&removed);
+        let removed = items.names[at].clone();
+        match items.object_ids[at] {
+            Some(object_id) => self.remove_listed_item(object_id),
+            None => self.remove_named_item(&removed),
         }
         self.refresh_item_editors();
         self.finish_item_notice(&format!("Removed {removed}"));
+    }
+
+    /// One item out of the profile: every spell row it has, its Hands
+    /// choice, and what is kept about it by name beside the profile unless
+    /// another listed item carries the same name.
+    fn remove_listed_item(&mut self, object_id: u32) {
+        self.core
+            .settings
+            .buffs
+            .item_enchant_rows
+            .retain(|row| !(row.is_profiled_item_row() && row.object_id == Some(object_id)));
+        let combat = &mut self.core.settings.combat;
+        combat.combat_item_object_ids.remove(&object_id);
+        combat.combat_item_order_ids.retain(|id| *id != object_id);
+        combat.removed_combat_item_object_ids.insert(object_id);
+        combat.item_use_specifiers.remove(&object_id);
+        let Some(name) = combat.combat_item_names_by_id.remove(&object_id) else {
+            return;
+        };
+        if mosstank_dotnet::text::casing::is_white_space_only(&name)
+            || combat
+                .combat_item_names_by_id
+                .values()
+                .any(|other| *other == name)
+        {
+            return;
+        }
+        self.remove_named_item(&name);
+    }
+
+    /// What MossTank keeps about an item by its name.
+    fn remove_named_item(&mut self, name: &str) {
+        let combat = &mut self.core.settings.combat;
+        combat.combat_item_names.remove(name);
+        combat.combat_item_order.retain(|listed| listed != name);
+        self.core.no_buff_item_names.remove(name);
+        self.clear_item_enchant_rows(name);
+    }
+
+    /// A click on an Items row's Hands cell (only where it shows one): the
+    /// item's use moves to the next one, and the profile is saved.
+    fn cycle_item_hands_at(&mut self, index: i32) {
+        let items = &self.core.panel.items;
+        let Some(at) = row(index, items.rows.len()) else {
+            return;
+        };
+        let (false, Some(object_id)) = (items.hands[at].is_empty(), items.object_ids[at]) else {
+            return;
+        };
+        let combat = &mut self.core.settings.combat;
+        let next =
+            item_use_specifiers::cycle_next(item_use_specifiers::uses_for(combat, object_id));
+        combat.item_use_specifiers.insert(object_id, next);
+        self.refresh_item_editors();
+        self.core.save_profile(self.client);
     }
 
     /// Saves, then says what was done, or that it was not saved.
@@ -729,58 +747,6 @@ impl TankCx<'_> {
         };
     }
 
-    /// `RemoveProfiledItemEnchantRow`.
-    fn remove_profiled_item_enchant_row(
-        &mut self,
-        removed: &BuffItemEnchantRow,
-        display_name: &str,
-    ) {
-        let object_id = removed.object_id.unwrap_or(0);
-        let spell_id = removed.spell_id.unwrap_or(0);
-        let rows = &mut self.core.settings.buffs.item_enchant_rows;
-        if let Some(index) = rows.iter().position(|candidate| {
-            candidate.is_profiled_item_row()
-                && candidate.object_id == Some(object_id)
-                && candidate.spell_id == Some(spell_id)
-        }) {
-            rows.remove(index);
-        }
-        self.core
-            .settings
-            .combat
-            .removed_buffed_item_rows
-            .push(BuffedItemKey {
-                object_id,
-                spell_id,
-            });
-        if object_id == u32::MAX {
-            return;
-        }
-        if self
-            .core
-            .settings
-            .buffs
-            .item_enchant_rows
-            .iter()
-            .any(|candidate| {
-                candidate.is_profiled_item_row() && candidate.object_id == Some(object_id)
-            })
-        {
-            return;
-        }
-        let combat = &mut self.core.settings.combat;
-        combat.combat_item_object_ids.remove(&object_id);
-        combat.combat_item_order_ids.retain(|id| *id != object_id);
-        combat.combat_item_names_by_id.remove(&object_id);
-        combat.combat_item_names.remove(display_name);
-        combat.combat_item_order.retain(|name| name != display_name);
-        self.core.no_buff_item_names.remove(display_name);
-        self.core
-            .panel
-            .item_handedness
-            .retain(|(name, _)| name != display_name);
-    }
-
     /// `ClearItemEnchantRows`: every authored row for one item.
     fn clear_item_enchant_rows(&mut self, item_name: &str) {
         self.core
@@ -790,17 +756,11 @@ impl TankCx<'_> {
             .retain(|row| row.item_name != item_name);
     }
 
-    /// `RemoveSelectedConsumableCore`.
+    /// A click on a Consumables row (or Remove on the selected one): a gem
+    /// or food of that name leaves the gems and food; any other name leaves
+    /// the consumables. The profile is saved.
     fn remove_selected_consumable(&mut self) {
-        let mut names: Vec<String> = self
-            .core
-            .settings
-            .combat
-            .consumable_names
-            .iter()
-            .cloned()
-            .collect();
-        names.sort_by(|a, b| mosstank_dotnet::text::ordinal::compare(a, b));
+        let names = self.consumable_rows();
         if names.is_empty() {
             "The Consumables profile is empty.".clone_into(&mut self.core.panel.profile_notice);
             return;
@@ -811,15 +771,20 @@ impl TankCx<'_> {
         ))
         .unwrap_or(0);
         let removed = names[at].clone();
-        let combat = &mut self.core.settings.combat;
-        combat.consumable_names.remove(removed.as_str());
-        combat.consumable_categories.remove(removed.as_str());
-        combat
-            .imported_assist_items
-            .retain(|item| item.name != removed);
+        let gems = &mut self.core.settings.buffs.gem_food_items;
+        if gems.iter().any(|entry| entry.name == removed) {
+            gems.retain(|entry| entry.name != removed);
+        } else {
+            let combat = &mut self.core.settings.combat;
+            combat.consumable_names.remove(removed.as_str());
+            combat.consumable_categories.remove(removed.as_str());
+            combat
+                .imported_assist_items
+                .retain(|item| item.name != removed);
+        }
         self.core.panel.profile_notice = format!("Removed {removed}.");
         self.refresh_item_editors();
-        self.core.request_profile_save();
+        self.core.save_profile(self.client);
     }
 
     /// `SetConsumableCategory`: the explicit choice is also the last word
@@ -880,6 +845,18 @@ impl TankCx<'_> {
         }
         if no_buffs {
             self.core.no_buff_item_names.insert(item.name.clone());
+            // Kept without buffs as the profile writes it: the item with
+            // the "no spell" entry.
+            self.core
+                .settings
+                .buffs
+                .item_enchant_rows
+                .push(BuffItemEnchantRow {
+                    item_name: String::new(),
+                    spell_name: String::new(),
+                    object_id: Some(item.object_id),
+                    spell_id: Some(u32::MAX),
+                });
         } else {
             self.core.no_buff_item_names.remove(item.name.as_str());
         }
@@ -906,24 +883,53 @@ impl TankCx<'_> {
             return;
         }
         let defaults = default_rows(item, no_buffs, pet_device);
-        let rows = &mut self.core.settings.buffs.item_enchant_rows;
         if defaults.is_empty() {
-            rows.push(BuffItemEnchantRow {
-                item_name: item.name.clone(),
-                spell_name: String::new(),
-                object_id: None,
-                spell_id: None,
-            });
+            self.core
+                .settings
+                .buffs
+                .item_enchant_rows
+                .push(BuffItemEnchantRow {
+                    item_name: item.name.clone(),
+                    spell_name: String::new(),
+                    object_id: None,
+                    spell_id: None,
+                });
             return;
         }
+        // Each buff is kept by spell id, the way the profile itself lists an
+        // item's buffs, so the saved profile reads the same in VTank. A name
+        // the client's spell table cannot place is kept by name instead.
         for spell_name in defaults {
-            rows.push(BuffItemEnchantRow {
-                item_name: item.name.clone(),
-                spell_name: (*spell_name).to_owned(),
-                object_id: None,
-                spell_id: None,
-            });
+            let row = match self.find_spell_id_by_name(spell_name) {
+                Some(spell_id) => BuffItemEnchantRow {
+                    item_name: String::new(),
+                    spell_name: String::new(),
+                    object_id: Some(item.object_id),
+                    spell_id: Some(spell_id),
+                },
+                None => BuffItemEnchantRow {
+                    item_name: item.name.clone(),
+                    spell_name: (*spell_name).to_owned(),
+                    object_id: None,
+                    spell_id: None,
+                },
+            };
+            self.core.settings.buffs.item_enchant_rows.push(row);
         }
+    }
+
+    /// A spell's id by its exact name: from the client's spell table, else
+    /// from the character's known self buffs (any case).
+    fn find_spell_id_by_name(&mut self, name: &str) -> Option<u32> {
+        let spells = self.client.rules().spells();
+        if let Some(found) = spells.try_find_by_name(name, false) {
+            return Some(found.spell_id);
+        }
+        spells
+            .known_self_buffs_shared()
+            .iter()
+            .find(|known| mosstank_dotnet::text::ordinal::equals_ignore_case(&known.name, name))
+            .map(|known| known.spell_id)
     }
 
     /// `CommitConsumable`.
