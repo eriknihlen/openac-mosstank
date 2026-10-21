@@ -209,6 +209,51 @@ public sealed class MetaGameEventTests
     }
 
     /// <summary>
+    /// A short portal hop can begin and end between two ticks, so the host's
+    /// portal-space flag is never seen on: the portal's own reports still
+    /// give the entered and exited edges, as the game's portal-mode events
+    /// do. A login's reports give neither. Mutation: taking the edges only
+    /// from the polled flag leaves both variables at 0.
+    /// </summary>
+    [Fact]
+    public void APortalReportedBetweenTwoTicksStillEntersAndExitsPortalSpace()
+    {
+        var host = new Host();
+        using var expressions = new MossTankExpressionRuntime(host);
+        var profile = new MetaProfile
+        {
+            Rules =
+            [
+                Rule(MetaConditionKind.PortalspaceEntered, MetaActionKind.ExpressionAction,
+                    "setvar[`entered`,1]"),
+                Rule(MetaConditionKind.PortalspaceExited, MetaActionKind.ExpressionAction,
+                    "setvar[`exited`,1]"),
+            ],
+        };
+        using var engine = new MetaEngine(host, expressions, profile);
+        engine.SetEnabled(true);
+
+        host.Events.RaisePortalTransition(new PluginPortalTransition(
+            1L, 1L, 0u, IsReady: false, IsMaterialized: false,
+            IsCompleted: false, IsCancelled: false) { Kind = PluginPortalTransitionKind.Login });
+        host.Events.RaisePortalTransition(new PluginPortalTransition(
+            2L, 1L, 0u, IsReady: true, IsMaterialized: true,
+            IsCompleted: true, IsCancelled: false) { Kind = PluginPortalTransitionKind.Login });
+        engine.OnTick(MetaEngine.DecisionIntervalSeconds);
+        Assert.Equal(0d, expressions.Evaluate("getvar[`entered`]+getvar[`exited`]").AsNumber());
+
+        host.Events.RaisePortalTransition(new PluginPortalTransition(
+            3L, 2L, 0xB3490034u, IsReady: false, IsMaterialized: false,
+            IsCompleted: false, IsCancelled: false) { Kind = PluginPortalTransitionKind.Portal });
+        host.Events.RaisePortalTransition(new PluginPortalTransition(
+            4L, 2L, 0xB3490034u, IsReady: true, IsMaterialized: true,
+            IsCompleted: true, IsCancelled: false) { Kind = PluginPortalTransitionKind.Portal });
+        engine.OnTick(MetaEngine.DecisionIntervalSeconds);
+        Assert.Equal(1d, expressions.Evaluate("getvar[`entered`]").AsNumber());
+        Assert.Equal(1d, expressions.Evaluate("getvar[`exited`]").AsNumber());
+    }
+
+    /// <summary>
     /// An item use and a confirmation request each expose their fields.
     /// </summary>
     [Fact]
