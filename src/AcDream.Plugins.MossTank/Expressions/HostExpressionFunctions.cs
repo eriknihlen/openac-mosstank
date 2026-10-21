@@ -248,11 +248,13 @@ internal static class HostExpressionFunctions
             "getcharvital_current[vitalId]");
         registry.Register("vitae", 0, 0, (_, _) =>
         {
-            if (!TryPlayerProperties(host, out PluginItemProperties properties))
-                return ExpressionValue.Number(100d);
-            // PropertyFloat.Vitae (129) is the multiplier 0..1.
-            double value = Get(properties.Floats, 129u, 1d);
-            return ExpressionValue.Number(value * 100d);
+            // PropertyFloat.Vitae (129) is the multiplier 0..1; the function
+            // answers the penalty in whole percent (0 with no vitae, 5 at
+            // 0.95), as metas test it with `vitae[]>12`.
+            double multiplier = TryPlayerProperties(host, out PluginItemProperties properties)
+                ? Get(properties.Floats, 129u, 1d)
+                : 1d;
+            return ExpressionValue.Number(Math.Round((1d - multiplier) * 100d));
         }, "vitae[]");
     }
 

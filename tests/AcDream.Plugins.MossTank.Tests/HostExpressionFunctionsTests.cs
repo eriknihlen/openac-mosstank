@@ -25,6 +25,31 @@ public sealed partial class HostExpressionFunctionsTests
     }
 
     /// <summary>
+    /// `vitae[]` is the vitae penalty in whole percent, as UtilityBelt reads
+    /// it (an integer from the character filter): 0 with no vitae, 5 at the
+    /// 0.95 multiplier. Metas test it as `vitae[]&gt;12` for "too much vitae".
+    /// Mutation: answering the multiplier times 100 gives 100 with no vitae,
+    /// which reads as "too much" for every character.
+    /// </summary>
+    [Fact]
+    public void VitaeIsThePenaltyInWholePercent()
+    {
+        var automation = CreateAutomation();
+        using var runtime = new MossTankExpressionRuntime(new Host(automation));
+        Assert.Equal(0d, runtime.Evaluate("vitae[]").AsNumber());
+
+        automation.Properties[1] = new PluginItemProperties(
+            new Dictionary<uint, int>(),
+            new Dictionary<uint, long>(),
+            new Dictionary<uint, bool>(),
+            new Dictionary<uint, double> { [129u] = 0.95d },
+            new Dictionary<uint, string>(),
+            new Dictionary<uint, uint>(),
+            new Dictionary<uint, uint>());
+        Assert.Equal(5d, runtime.Evaluate("vitae[]").AsNumber());
+    }
+
+    /// <summary>
     /// The landblock is the cell id with the low sixteen bits cleared, not
     /// shifted down: profiles compare it with numbers such as 11468800
     /// (0x00AF0000) and with `cstrf[...,X8]` strings such as `B3450000`.
