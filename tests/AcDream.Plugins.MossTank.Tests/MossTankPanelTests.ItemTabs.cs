@@ -255,4 +255,80 @@ public sealed partial class MossTankPanelTests
         Assert.Equal(["Mana Gem"],
             SavedTable(storage, "AssistItems").Rows.Select(row => row.Cells[0].AsString()));
     }
+
+    /// <summary>
+    /// A listed item only moving -- carried about, nothing about it changed
+    /// -- does not rebuild the page.
+    /// </summary>
+    [Fact]
+    public void ItemsPageIsNotRebuiltWhenAListedItemOnlyMoves()
+    {
+        var storage = new MemoryStorage();
+        VtankDatabase database = VtankDefaultSettingsDatabase.Create();
+        database.Find("BuffedItems")!.Rows.Add(ObjectRow(10, 101));
+
+        (MossTankPanel panel, FakeHost host, FakeAutomation automation) =
+            LoadImportedProfile(storage, database);
+        Assert.Equal(["<INVALID 10>"], panel.ItemNameColumn);
+
+        automation.ItemEntries = [OwnedWand()];
+        ((FakeEvents)host.Events).RaiseObjectChanged(10u, PluginObjectChangeKind.Moved);
+        panel.OnTick(0.3d);
+
+        Assert.Equal(["<INVALID 10>"], panel.ItemNameColumn);
+    }
+
+    /// <summary>
+    /// An item added with no buff the profile can list by spell id reads as
+    /// carrying no buffs at once, as the saved profile will say it does.
+    /// </summary>
+    [Fact]
+    public void AnItemAddedWithoutASpellIdReadsNoBuffsAtOnce()
+    {
+        var storage = new MemoryStorage();
+        // A shield's default banes are not in this client's spell table.
+        var automation = new FakeAutomation
+        {
+            ItemEntries = [Item(20, "Kite Shield", 2u, validLocations: 0x00200000u)],
+        };
+        var host = new FakeHost(automation, storage);
+        automation.CurrentSelection = () => host.Selection.SelectedObjectId ?? 0u;
+        var panel = new MossTankPanel(host);
+        host.Selection.Select(20u);
+
+        panel.AddSelectedItem();
+
+        Assert.Equal(["Kite Shield (NO BUFFS)"], panel.ItemNameColumn);
+        Assert.Equal(NoBuffsRowColor, panel.ItemNameColors[0]);
+        var reloaded = new MossTankPanel(new FakeHost(new FakeAutomation
+        {
+            ItemEntries = [Item(20, "Kite Shield", 2u, validLocations: 0x00200000u)],
+        }, storage));
+        Assert.Equal(["Kite Shield (NO BUFFS)"], reloaded.ItemNameColumn);
+    }
+
+    /// <summary>
+    /// A profile made from an old MossTank file starts with no hand choices:
+    /// the ones of the profile loaded before it are not carried into it.
+    /// </summary>
+    [Fact]
+    public void AMigratedOldProfileDoesNotInheritThePreviousProfilesHandChoices()
+    {
+        var storage = new MemoryStorage();
+        VtankDatabase database = VtankDefaultSettingsDatabase.Create();
+        database.Find("BuffedItems")!.Rows.Add(ObjectRow(11, 101));
+        database.Find("ItemUseSpecifiers")!.Rows.Add(ObjectRow(11, 1));
+        (MossTankPanel panel, _, _) = LoadImportedProfile(
+            storage, database, OwnedWand(), OwnedSword());
+        Assert.Equal(["RightHand"], panel.ItemHandsColumn);
+        storage.Text[LegacyNamedProfileKey("Old")] =
+            """{ "Combat": { "MaximumRange": 42.0 } }""";
+
+        Command(panel, "settings load Old");
+
+        string migrated = Assert.Single(storage.Text.Keys,
+            key => key.EndsWith("Old.usd", StringComparison.Ordinal));
+        Assert.Empty(VtankDatabase.Parse(storage.Text[migrated])
+            .Find("ItemUseSpecifiers")!.Rows);
+    }
 }

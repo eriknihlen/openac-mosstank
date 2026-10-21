@@ -3308,9 +3308,12 @@ internal sealed partial class MossTankPanel : IBuffRuleHost, IDisposable
         else
             _noBuffItemNames.Remove(item.Name);
         PopulateItemEnchantRows(item, noBuffs);
-        // The profile carries an item added without buffs as the item with
-        // no spell, which is what the Items page reads its "no buffs" from.
-        if (noBuffs)
+        // An item with no buff listed by spell id -- added without buffs, a
+        // pet, or buffs the spell table cannot place -- is saved as the item
+        // with no spell, and the Items page reads "no buffs" from that, so
+        // it says so now rather than only after the next load.
+        if (!_buffSettings.ItemEnchantRows.Any(row =>
+                row.IsProfiledItemRow && row.ObjectId == item.ObjectId))
         {
             _buffSettings.ItemEnchantRows.Add(new BuffItemEnchantRow(
                 string.Empty, string.Empty, item.ObjectId, uint.MaxValue));

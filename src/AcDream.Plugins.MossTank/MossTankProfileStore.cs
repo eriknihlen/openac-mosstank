@@ -1396,6 +1396,9 @@ internal sealed class MossTankProfileStore
             combat.CombatItemObjectIds.Clear();
             combat.CombatItemOrderIds.Clear();
             combat.RemovedCombatItemObjectIds.Clear();
+            // Hand choices are kept per item id, and an old profile names
+            // no item by id, so it has none.
+            combat.ItemUseSpecifiers.Clear();
             Replace(combat.ConsumableNames, ConsumableNames);
             combat.ConsumableCategories.Clear();
             foreach ((string itemName, ConsumableCategory category) in
