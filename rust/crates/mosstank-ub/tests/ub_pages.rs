@@ -884,6 +884,36 @@ fn the_network_ui_button_turns_it_off_when_the_character_file_says_on() {
     assert_eq!("Network UI: Off", main_page::caption(&next.catalog, button));
 }
 
+// Not a port yet: its C# counterpart (MossTankPanelTests.UbSettingsTab.cs,
+// ResetToDefaultWorksWhenTheCharacterFileHoldsACopy) comes with the C#
+// line's fix.
+/// The settings page's reset, on the installation's switch with a copy in
+/// this character's file: the reset cleared the installation's file only
+/// and the character's copy kept answering, so the row stayed on. The
+/// reset is kept, and the next login reads it too.
+#[test]
+fn reset_to_default_works_when_the_character_file_holds_a_copy() {
+    let storage = SharedStorage::new();
+    storage.insert(
+        "mosstank/ub/settings.json",
+        "{\"NetworkUI.Enabled\": \"True\"}",
+    );
+    storage.insert(
+        "mosstank/ub/Coldeve/Acdream/settings.json",
+        "{\"NetworkUI.Enabled\": \"True\"}",
+    );
+    let mut rig = PageRig::new(&storage);
+    assert_eq!("True", rig.row_value("NetworkUI.Enabled"));
+
+    rig.filter("NetworkUI.Enabled");
+    rig.select(0);
+    rig.reset();
+    assert_eq!("False", rig.row_value("NetworkUI.Enabled"));
+
+    let mut next = PageRig::new(&storage);
+    assert_eq!("False", next.row_value("NetworkUI.Enabled"));
+}
+
 // Source: tests/AcDream.Plugins.MossTank.Tests/MossTankPanelTests.UbMainTab.cs :: ACaptionFollowsTheRowWhenTheSettingsPageChangesIt
 #[test]
 fn a_caption_follows_the_row_when_the_settings_page_changes_it() {

@@ -256,6 +256,48 @@ fn an_edit_is_not_hidden_by_a_copy_in_a_narrower_tier() {
     );
 }
 
+// Not a port yet: its C# counterpart (UbSettingCatalogTests.cs,
+// AResetIsNotHiddenByACopyInANarrowerTier) comes with the C# line's fix.
+/// A reset takes the row's own value out so a wider one shows through; a
+/// copy in a narrower tier kept answering and the reset looked dead, the
+/// same as an edit did. The copies below the row's tier go too.
+#[test]
+fn a_reset_is_not_hidden_by_a_copy_in_a_narrower_tier() {
+    let mut catalog = catalog();
+    for scope in UbSettingScope::ALL {
+        catalog
+            .values_mut()
+            .write(scope, "NetworkUI.Enabled", UbSettingValue::from_bool(true));
+    }
+    let row = catalog.require("NetworkUI.Enabled").unwrap();
+    assert!(!row.definition.default.boolean);
+
+    catalog.reset_to_default(&row);
+
+    assert!(!catalog.get(&row).boolean);
+    for scope in UbSettingScope::ALL {
+        assert!(
+            catalog.values().read(scope, "NetworkUI.Enabled").is_none(),
+            "{scope:?}"
+        );
+    }
+
+    // A wider copy is not touched: it is what the reset lets show through.
+    catalog.values_mut().write(
+        UbSettingScope::Global,
+        "NetworkUI.SelectedTag",
+        UbSettingValue::from_text("wide"),
+    );
+    catalog.values_mut().write(
+        UbSettingScope::Character,
+        "NetworkUI.SelectedTag",
+        UbSettingValue::from_text("raid"),
+    );
+    let tag = catalog.require("NetworkUI.SelectedTag").unwrap();
+    catalog.reset_to_default(&tag);
+    assert_eq!(catalog.get(&tag).text, "wide");
+}
+
 // Source: tests/AcDream.Plugins.MossTank.Tests/UbSettingCatalogTests.cs :: AnUnwrittenRowReadsItsDefault
 #[test]
 fn an_unwritten_row_reads_its_default() {

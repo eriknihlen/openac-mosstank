@@ -621,7 +621,13 @@ impl<V: UbSettingValues> UbSettingCatalog<V> {
             let default = row.definition.default.clone();
             self.set(row, default);
         } else {
-            self.values.clear(row.scope(), row.name());
+            // A copy in a narrower tier would be read ahead of whatever
+            // shows through, so it goes too (as in `set`).
+            let scope = row.scope();
+            self.values.clear(scope, row.name());
+            for narrower in scope.narrower() {
+                self.values.clear(*narrower, row.name());
+            }
         }
     }
 }
