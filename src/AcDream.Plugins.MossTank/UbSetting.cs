@@ -293,9 +293,15 @@ internal sealed class UbSettingCatalog
     internal void ResetToDefault(UbSetting row)
     {
         if (row.HasLiveOwner)
+        {
             row.Set(row.Definition.Default);
-        else
-            _values.Clear(row.Scope, row.Name);
+            return;
+        }
+        _values.Clear(row.Scope, row.Name);
+        // A copy in a narrower tier would be read ahead of whatever shows
+        // through, so it goes too (as in a write).
+        foreach (UbSettingScope narrower in NarrowerThan(row.Scope))
+            _values.Clear(narrower, row.Name);
     }
 
     private static UbSetting Bind(
