@@ -119,7 +119,12 @@ internal sealed partial class MossTankPanel
             }
             bool noBuffs = firstSpellById.TryGetValue(objectId, out uint firstSpell)
                 && firstSpell == uint.MaxValue;
-            rows.Add(noBuffs ? name + " (NO BUFFS)" : name);
+            // Shown with its material in front ("Silver Acid Mazule"), as
+            // VTank lists it; combat keeps the name.
+            string shown = name.StartsWith("<INVALID ", StringComparison.Ordinal)
+                ? name
+                : WithMaterial(objectId, name);
+            rows.Add(noBuffs ? shown + " (NO BUFFS)" : shown);
             names.Add(name);
             ids.Add(objectId);
             colors.Add(noBuffs ? ItemNoBuffsColor : ItemRowColor);
@@ -146,6 +151,20 @@ internal sealed partial class MossTankPanel
         _itemHandsColumn = hands;
         _itemNameColors = colors;
         _selectedItemRow = ClampRow(_selectedItemRow, _itemRows.Count);
+    }
+
+    /// <summary>
+    /// <paramref name="name"/> with the item's material in front when its
+    /// properties name one (property 131), else the name as it is.
+    /// </summary>
+    private string WithMaterial(uint objectId, string name)
+    {
+        const uint MaterialTypeProperty = 131u;
+        return _host.Automation.Items.TryCaptureProperties(objectId, out PluginItemProperties properties)
+            && properties.Ints.TryGetValue(MaterialTypeProperty, out int material)
+            && Expressions.MaterialNames.Name(material) is { } prefix
+                ? prefix + " " + name
+                : name;
     }
 
     /// <summary>

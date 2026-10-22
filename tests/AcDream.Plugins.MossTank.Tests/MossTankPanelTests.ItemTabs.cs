@@ -90,6 +90,42 @@ public sealed partial class MossTankPanelTests
     }
 
     /// <summary>
+    /// An item whose properties name its material reads with the material in
+    /// front, as VTank lists it ("Silver Acid Mazule"); one without reads its
+    /// name alone. Mutation: listing the plain name drops "Silver".
+    /// </summary>
+    [Fact]
+    public void ItemsPageNamesAnItemWithItsMaterialInFront()
+    {
+        var storage = new MemoryStorage();
+        VtankDatabase database = VtankDefaultSettingsDatabase.Create();
+        VtankTable buffed = database.Find("BuffedItems")!;
+        buffed.Rows.Add(ObjectRow(10, 101));
+        buffed.Rows.Add(ObjectRow(11, 101));
+        storage.Text[ImportedProfileKey] = database.Render();
+        FakeAutomation automation = ItemEnchantAutomation();
+        automation.ItemEntries =
+        [
+            Item(10, "Acid Mazule", 1u, validLocations: 0x00100000u),
+            OwnedSword(),
+        ];
+        automation.Properties[10u] = new PluginItemProperties(
+            new Dictionary<uint, int> { [131u] = 63 },
+            new Dictionary<uint, long>(),
+            new Dictionary<uint, bool>(),
+            new Dictionary<uint, double>(),
+            new Dictionary<uint, string>(),
+            new Dictionary<uint, uint>(),
+            new Dictionary<uint, uint>());
+        var host = new FakeHost(automation, storage);
+        automation.CurrentSelection = () => host.Selection.SelectedObjectId ?? 0u;
+        var panel = new MossTankPanel(host);
+        Command(panel, "settings load Imported");
+
+        Assert.Equal(["Silver Acid Mazule", "Fire Sword"], panel.ItemNameColumn);
+    }
+
+    /// <summary>
     /// Clicking an item's name takes the whole item off the page and out of
     /// the saved profile: every spell row it had and its hands choice.
     /// </summary>
