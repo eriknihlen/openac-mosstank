@@ -233,6 +233,18 @@ pub enum UbSettingScope {
 impl UbSettingScope {
     /// Every tier.
     pub const ALL: [Self; 3] = [Self::Global, Self::Profile, Self::Character];
+
+    /// The tiers read ahead of this one: the installation's value is read
+    /// after the profile's and the character's, the profile's after the
+    /// character's.
+    #[must_use]
+    pub fn narrower(self) -> &'static [Self] {
+        match self {
+            Self::Global => &[Self::Profile, Self::Character],
+            Self::Profile => &[Self::Character],
+            Self::Character => &[],
+        }
+    }
 }
 
 /// One row of the catalogue as authored.
@@ -556,6 +568,10 @@ impl<V: UbSettingValues> UbSettingCatalog<V> {
     }
 
     /// Writes a value: to the live owner, or to the tier the row declares.
+    /// Reading takes the narrowest tier first, so a copy of the row in a
+    /// narrower tier than the declared one (a file from an older layout)
+    /// would hide the edit; those copies are taken out, so what was written
+    /// is what reads back.
     pub fn set(&mut self, row: &UbSetting, value: UbSettingValue) {
         if row.has_live_owner
             && let Some(binding) = self.live.get_mut(&casing::to_upper_invariant(row.name()))
@@ -563,7 +579,11 @@ impl<V: UbSettingValues> UbSettingCatalog<V> {
             (binding.set)(value);
             return;
         }
-        self.values.write(row.scope(), row.name(), value);
+        let scope = row.scope();
+        self.values.write(scope, row.name(), value);
+        for narrower in scope.narrower() {
+            self.values.clear(*narrower, row.name());
+        }
     }
 
     /// Whether a write to this row survives the session.

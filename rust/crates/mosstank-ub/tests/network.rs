@@ -686,7 +686,7 @@ fn the_paint_draws_bars_text_arrows_and_tracked_counts() {
         3,
         both.ops.iter().filter(|op| op.starts_with("line")).count()
     );
-    for text in ["Acdream", "1 Sigrid", "100%", "50%", "25%", "2", "40"] {
+    for text in ["Acdream", "Sigrid", "100%", "50%", "25%", "2", "40"] {
         assert!(both.texts.iter().any(|t| t == text), "{text}");
     }
     assert_eq!(1, both.images.len());
@@ -711,6 +711,25 @@ fn the_paint_draws_bars_text_arrows_and_tracked_counts() {
     assert!(!peer_only.texts.iter().any(|t| t == "Acdream"));
     assert!(!peer_only.texts.iter().any(|t| t == "40"));
     assert!(peer_only.images.is_empty());
+}
+
+// Not a port yet: its C# counterpart (NetworkHudControllerTests.cs,
+// AnotherClientsRowIsLabelledWithTheNameAlone) comes with the C# line's fix.
+/// Another client's row is labelled with the character's name and nothing
+/// else: the client's number in front of it read as a list of ids before
+/// the names.
+#[test]
+fn another_clients_row_is_labelled_with_the_name_alone() {
+    let mut rig = Rig::new();
+    rig.host
+        .meta
+        .peers
+        .push(client(3, 0x5000_0002, "Sigrid", at(0.01, 0.0, 0.0)));
+    rig.ticks(1);
+
+    let painter = rig.paint();
+    assert!(painter.texts.iter().any(|t| t == "Sigrid"));
+    assert!(!painter.texts.iter().any(|t| t.ends_with(" Sigrid")));
 }
 
 // Source: tests/AcDream.Plugins.MossTank.Tests/NetworkHudControllerTests.cs :: AloneTheReadoutIsOneRowWithTheLocalName

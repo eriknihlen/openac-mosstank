@@ -857,6 +857,33 @@ fn pressing_a_tool_button_flips_the_row_the_settings_page_lists() {
     }
 }
 
+// Not a port yet: its C# counterpart (MossTankPanelTests.UbMainTab.cs,
+// TheNetworkUiButtonTurnsItOffWhenTheCharacterFileSaysOn) comes with the
+// C# line's fix.
+/// The installation's switch, with a copy of it in this character's own
+/// file (an older layout kept it per character): a press wrote the
+/// installation's file and the character's copy kept answering, so the
+/// button stayed on however often it was pressed. The press is kept, and
+/// the next login reads it too.
+#[test]
+fn the_network_ui_button_turns_it_off_when_the_character_file_says_on() {
+    let storage = SharedStorage::new();
+    storage.insert(
+        "mosstank/ub/Coldeve/Acdream/settings.json",
+        "{\"NetworkUI.Enabled\": \"True\"}",
+    );
+    let mut rig = PageRig::new(&storage);
+    let button = main_page::find("ToggleUbNetworkUi").unwrap();
+    assert_eq!("Network UI: On", main_page::caption(&rig.catalog, button));
+
+    main_page::press(&mut rig.catalog, &mut rig.page, button);
+    assert_eq!("Network UI: Off", main_page::caption(&rig.catalog, button));
+    rig.store.flush();
+
+    let next = PageRig::new(&storage);
+    assert_eq!("Network UI: Off", main_page::caption(&next.catalog, button));
+}
+
 // Source: tests/AcDream.Plugins.MossTank.Tests/MossTankPanelTests.UbMainTab.cs :: ACaptionFollowsTheRowWhenTheSettingsPageChangesIt
 #[test]
 fn a_caption_follows_the_row_when_the_settings_page_changes_it() {

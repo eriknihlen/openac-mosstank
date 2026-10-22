@@ -200,6 +200,62 @@ fn every_row_is_written_to_the_tier_its_scope_declares_and_to_no_other() {
     assert_eq!(count(UbSettingScope::Character), 8);
 }
 
+// Not a port yet: its C# counterpart (UbSettingCatalogTests.cs,
+// AnEditIsNotHiddenByACopyInANarrowerTier) comes with the C# line's fix.
+/// Reading takes the narrowest tier that holds a value, so a copy of a row
+/// in a narrower file than the one it declares (a character file carried
+/// over from an older layout) hid every later edit: the edit landed in the
+/// declared tier and the old copy kept answering. An edit has to be what
+/// reads back, so the copies below it go.
+#[test]
+fn an_edit_is_not_hidden_by_a_copy_in_a_narrower_tier() {
+    let mut catalog = catalog();
+    for scope in [UbSettingScope::Character, UbSettingScope::Profile] {
+        catalog
+            .values_mut()
+            .write(scope, "NetworkUI.Enabled", UbSettingValue::from_bool(true));
+    }
+    let row = catalog.require("NetworkUI.Enabled").unwrap();
+    assert_eq!(row.scope(), UbSettingScope::Global);
+    assert!(catalog.get(&row).boolean);
+
+    catalog.set(&row, UbSettingValue::from_bool(false));
+
+    assert!(!catalog.get(&row).boolean);
+    assert!(
+        !catalog
+            .values()
+            .read(UbSettingScope::Global, "NetworkUI.Enabled")
+            .unwrap()
+            .boolean
+    );
+    for scope in [UbSettingScope::Character, UbSettingScope::Profile] {
+        assert!(
+            catalog.values().read(scope, "NetworkUI.Enabled").is_none(),
+            "{scope:?}"
+        );
+    }
+
+    // A wider copy is not touched: it is not what reads back.
+    catalog.values_mut().write(
+        UbSettingScope::Global,
+        "NetworkUI.SelectedTag",
+        UbSettingValue::from_text("wide"),
+    );
+    let tag = catalog.require("NetworkUI.SelectedTag").unwrap();
+    assert_eq!(tag.scope(), UbSettingScope::Character);
+    catalog.set(&tag, UbSettingValue::from_text("raid"));
+    assert_eq!(catalog.get(&tag).text, "raid");
+    assert_eq!(
+        catalog
+            .values()
+            .read(UbSettingScope::Global, "NetworkUI.SelectedTag")
+            .unwrap()
+            .text,
+        "wide"
+    );
+}
+
 // Source: tests/AcDream.Plugins.MossTank.Tests/UbSettingCatalogTests.cs :: AnUnwrittenRowReadsItsDefault
 #[test]
 fn an_unwritten_row_reads_its_default() {

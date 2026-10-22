@@ -523,14 +523,9 @@ impl NetworkHudController {
                 );
             }
             paint_tracked(painter, offset, row);
-            // The own row has no client number: the network gives one to
-            // the other clients only.
-            let name = if row.is_self {
-                row.name.clone()
-            } else {
-                format!("{} {}", row.client_id, row.name)
-            };
-            painter.draw_text(&name, (2.0, f64::from(offset) + 1.0), &TEXT, false);
+            // Every row is labelled with the character's name alone; the
+            // client's number in front of it read as a list of ids.
+            painter.draw_text(&row.name, (2.0, f64::from(offset) + 1.0), &TEXT, false);
             let (health_width, _) = painter.measure_text(&row.health_text);
             painter.draw_text(
                 &row.health_text,
