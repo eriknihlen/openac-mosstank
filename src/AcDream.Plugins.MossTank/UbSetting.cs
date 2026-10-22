@@ -11,7 +11,8 @@ namespace AcDream.Plugins.MossTank;
 /// handed to someone else, and who the character is belongs to that
 /// character alone. Reading always walks character, then profile, then
 /// global, then the default, so a value placed in a wider file still
-/// applies; the scope only decides where an edit lands.
+/// applies; the scope decides where an edit lands, and an edit takes out
+/// any copy of the row in a narrower file so that it is what reads back.
 /// </remarks>
 internal enum UbSettingScope
 {
@@ -309,7 +310,10 @@ internal sealed class UbSettingCatalog
     /// <summary>
     /// The reading order: the character's own value, then the profile's,
     /// then the installation's, then what the catalogue says it should be.
-    /// A write goes to the one tier the setting declares.
+    /// A write goes to the one tier the setting declares. A copy of the row
+    /// in a narrower tier than that one (a file from an older layout) would
+    /// be read ahead of the edit and hide it, so those copies are taken out
+    /// and what was written is what reads back.
     /// </summary>
     private static UbSettingBinding StoredBinding(
         IUbSettingValues values,
@@ -319,8 +323,21 @@ internal sealed class UbSettingCatalog
                 ?? values.Read(UbSettingScope.Profile, definition.Name)
                 ?? values.Read(UbSettingScope.Global, definition.Name)
                 ?? definition.Default,
-            value => values.Write(definition.Scope, definition.Name, value))
+            value =>
+            {
+                values.Write(definition.Scope, definition.Name, value);
+                foreach (UbSettingScope narrower in NarrowerThan(definition.Scope))
+                    values.Clear(narrower, definition.Name);
+            })
         {
             CanSave = () => values.IsWritable(definition.Scope),
         };
+
+    /// <summary>The tiers read ahead of <paramref name="scope"/>.</summary>
+    private static UbSettingScope[] NarrowerThan(UbSettingScope scope) => scope switch
+    {
+        UbSettingScope.Global => [UbSettingScope.Profile, UbSettingScope.Character],
+        UbSettingScope.Profile => [UbSettingScope.Character],
+        _ => [],
+    };
 }

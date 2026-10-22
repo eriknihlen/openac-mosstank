@@ -97,6 +97,29 @@ public sealed partial class MossTankPanelTests
     }
 
     /// <summary>
+    /// The installation's switch, with a copy of it in this character's own
+    /// file (an older layout kept it per character): a press wrote the
+    /// installation's file and the character's copy kept answering, so the
+    /// button stayed on however often it was pressed. The press is kept,
+    /// and the next login reads it too.
+    /// Mutation: write only the declared file and the caption stays On.
+    /// </summary>
+    [Fact]
+    public void TheNetworkUiButtonTurnsItOffWhenTheCharacterFileSaysOn()
+    {
+        var storage = new MemoryStorage();
+        storage.Text["mosstank/ub/Coldeve/Acdream/settings.json"] = "{\"NetworkUI.Enabled\": \"True\"}";
+        MossTankPanel panel = UbPanel(storage);
+        panel.ShowUb();
+        Assert.Equal("Network UI: On", panel.UbNetworkUiButtonText);
+
+        panel.ToggleUbNetworkUi();
+
+        Assert.Equal("Network UI: Off", panel.UbNetworkUiButtonText);
+        Assert.Equal("Network UI: Off", UbPanel(storage).UbNetworkUiButtonText);
+    }
+
+    /// <summary>
     /// The other direction of the same seam: an edit made on the settings
     /// page shows on the button, because the button reads the row rather
     /// than remembering what it last wrote.
