@@ -22,6 +22,8 @@ const ITEM_NAME_COLOR: u32 = 0x00E8_DEC3;
 const NO_BUFFS_ITEM_NAME_COLOR: u32 = 0x00FF_0000;
 /// The int property holding where an item may be wielded.
 const VALID_LOCATIONS_PROPERTY: u32 = 9;
+/// The `MaterialType` int property.
+const MATERIAL_TYPE_PROPERTY: u32 = 131;
 /// How the excluded scarab list is joined (`ExcludedComponentDelimiter`).
 const EXCLUDED_COMPONENT_DELIMITER: &str = "; ";
 
@@ -471,16 +473,22 @@ impl TankCx<'_> {
                 continue;
             }
             listed.push(object_id);
-            let (name, show_hands) = match self.known_item(owned, object_id) {
+            let (name, shown, show_hands) = match self.known_item(owned, object_id) {
                 Some((name, valid_locations)) => {
                     self.core
                         .settings
                         .combat
                         .combat_item_names_by_id
                         .insert(object_id, name.clone());
-                    (name, valid_locations & MELEE_WEAPON != 0)
+                    // Shown with its material in front ("Silver Acid
+                    // Mazule"), as VTank lists it; combat keeps the name.
+                    let shown = self.with_material(object_id, &name);
+                    (name, shown, valid_locations & MELEE_WEAPON != 0)
                 }
-                None => (format!("<INVALID {}>", object_id.cast_signed()), true),
+                None => {
+                    let invalid = format!("<INVALID {}>", object_id.cast_signed());
+                    (invalid.clone(), invalid, true)
+                }
             };
             let hand = if show_hands {
                 let uses = item_use_specifiers::uses_for(&self.core.settings.combat, object_id);
@@ -497,9 +505,9 @@ impl TankCx<'_> {
                 .find(|row| row.is_profiled_item_row() && row.object_id == Some(object_id))
                 .is_some_and(|row| row.spell_id == Some(u32::MAX));
             page.rows.push(if no_buffs {
-                format!("{name} (NO BUFFS)")
+                format!("{shown} (NO BUFFS)")
             } else {
-                name.clone()
+                shown
             });
             page.names.push(name);
             page.colors.push(if no_buffs {
@@ -529,6 +537,17 @@ impl TankCx<'_> {
             }
         }
         page
+    }
+
+    /// `name` with the object's material in front when its properties name
+    /// one (property 131), else `name` as it is.
+    fn with_material(&mut self, object_id: u32, name: &str) -> String {
+        self.client
+            .rules()
+            .item_properties(object_id)
+            .and_then(|properties| properties.int(MATERIAL_TYPE_PROPERTY))
+            .and_then(mosstank_data::material::material_name)
+            .map_or_else(|| name.to_owned(), |material| format!("{material} {name}"))
     }
 
     /// An object the client knows: its name and where it may be wielded,

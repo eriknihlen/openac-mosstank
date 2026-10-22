@@ -138,6 +138,29 @@ fn the_items_page_is_one_row_per_item_without_the_any_item_entry_or_the_characte
     assert_eq!(world.ui_list(p, "ItemRows"), ["Fire Sword", "Ice Wand"]);
 }
 
+/// An item whose properties name its material reads with the material in
+/// front, as VTank lists it ("Silver Acid Mazule").
+#[test]
+fn an_item_reads_with_its_material_in_front() {
+    let (mut world, mut plugin) = load(
+        &Profile {
+            buffed: &[(10, 101)],
+            ..Profile::default()
+        },
+        vec![sword(10, "Acid Mazule")],
+    );
+    assert_eq!(names(&mut world, &mut plugin), ["Acid Mazule"]);
+
+    world.set_reply::<ac_plugin_abi::calls::ItemsProperties>(&Some(
+        ac_plugin_abi::world::ItemProperties {
+            ints: vec![(131, 63)],
+            ..ac_plugin_abi::world::ItemProperties::default()
+        },
+    ));
+    world.vt(&mut plugin, &format!("settings load {NAME}"));
+    assert_eq!(names(&mut world, &mut plugin), ["Silver Acid Mazule"]);
+}
+
 #[test]
 fn an_item_whose_first_spell_is_none_reads_no_buffs_in_red() {
     let (mut world, mut plugin) = load(
