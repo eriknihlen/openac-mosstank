@@ -4,6 +4,8 @@
 //! ([`try_select_refill`]), the refill rule ([`PetRefillRule`]) and the
 //! summon rule that runs beside the main list ([`SummonPetRule`]).
 
+use std::collections::HashSet;
+
 use ac_plugin_abi::CharacterInfo;
 use ac_plugin_abi::character::Training;
 use ac_plugin_abi::combat::CombatTarget;
@@ -155,7 +157,12 @@ pub fn in_items_page_order(
 /// The summon rule's choice (`SelectPet`): the nearest monster that also
 /// outranks every nearer one, once enough monsters want a pet; then the
 /// usable essence whose element suits it best, the higher level
-/// requirement winning a tie.
+/// requirement winning a tie. `wrong_mastery` is told of each essence
+/// passed over because the mastery it carries is not the character's, on
+/// every pass it is seen; the caller decides how often to say so.
+/// `refused_types` are the essence types (weenie classes) the server has
+/// refused this character for another summoning mastery; they count as
+/// unusable, as a mastery the item carries does.
 #[allow(clippy::too_many_arguments)]
 pub fn select_pet(
     automation: &mut dyn Automation,
@@ -166,7 +173,8 @@ pub fn select_pet(
     settings: &CombatSettings,
     attack_element: &mut dyn FnMut(&mut dyn Automation, &CombatTarget) -> MonsterDamageType,
     damage_preferences: &dyn Fn(&str) -> Vec<MonsterDamageType>,
-    warn: &mut dyn FnMut(&mut dyn Automation, &str),
+    wrong_mastery: &mut dyn FnMut(&mut dyn Automation, &InventoryItem),
+    refused_types: &HashSet<u32>,
 ) -> PetSummonChoice {
     let range = pet_range(settings);
     let mut chosen: Option<&CombatTarget> = None;
@@ -212,11 +220,11 @@ pub fn select_pet(
         if !is_pet_device(&item) {
             continue;
         }
-        match usability(&item, &properties, character, summoning) {
+        match usability(&item, &properties, character, summoning, refused_types) {
             Usability::Usable => {}
             Usability::Unusable => continue,
-            Usability::WrongMastery(text) => {
-                warn(automation, &text);
+            Usability::WrongMastery => {
+                wrong_mastery(automation, &item);
                 continue;
             }
         }
@@ -305,12 +313,14 @@ fn preference_rank(element: MonsterDamageType, preferences: &[MonsterDamageType]
         })
 }
 
-/// An essence the character can use now (`IsUsable`).
+/// An essence the character can use now (`IsUsable`): no other summoning
+/// mastery's, whether the item says so or the server already refused it.
 fn usability(
     item: &InventoryItem,
     properties: &ItemProperties,
     character: &CharacterInfo,
     summoning: u32,
+    refused_types: &HashSet<u32>,
 ) -> Usability {
     if properties.int(USE_REQUIRES_LEVEL_PROPERTY).unwrap_or(0) > character.level {
         return Usability::Unusable;
@@ -321,21 +331,66 @@ fn usability(
     if structure(item, properties, 9999) == 0 {
         return Usability::Unusable;
     }
+    if refused_types.contains(&item.weenie_class_id) {
+        return Usability::Unusable;
+    }
     if item.summoning_mastery != 0 && item.summoning_mastery != character.summoning_mastery {
-        return Usability::WrongMastery(format!(
-            "Warning: ignoring pet {} because you have the wrong summoning mastery!",
-            item.name
-        ));
+        return Usability::WrongMastery;
     }
     Usability::Usable
 }
 
-/// Whether an essence can be used now, and the warning when it is another
-/// mastery's.
+/// Whether an essence can be used now; one the item says is another
+/// mastery's is told to the caller.
 enum Usability {
     Usable,
     Unusable,
-    WrongMastery(String),
+    WrongMastery,
+}
+
+/// What MossTank says about an essence of another summoning mastery
+/// (`WrongMasteryWarning`).
+#[must_use]
+pub fn wrong_mastery_warning(name: &str) -> String {
+    format!("Warning: ignoring pet {name} because you have the wrong summoning mastery!")
+}
+
+/// The essence named by the server's refusal of an essence of another
+/// summoning mastery, "You must be a {mastery} to use the {name}",
+/// sometimes with a closing full stop (`TryReadMasteryRefusal`). The
+/// mastery is one word and the name the rest of the line. The server never
+/// sends an essence's own mastery, so this line is the only way to learn
+/// it. Other "You must be a ..." lines read the same way; only an owned
+/// essence by that name makes one count.
+fn read_mastery_refusal(text: &str) -> Option<&str> {
+    let rest = text.strip_prefix("You must be a ")?;
+    let (mastery, name) = rest.split_once(" to use the ")?;
+    if mastery.is_empty() || mastery.contains(char::is_whitespace) {
+        return None;
+    }
+    let name = name.strip_suffix('.').unwrap_or(name);
+    (!name.is_empty()).then_some(name)
+}
+
+/// The owned essence a refusal names, its name matched without regard to
+/// case: the one just tried when it is one of them, else the first
+/// (`FindRefusedEssence`). None when no owned essence has that name.
+fn find_refused_essence<'a>(
+    owned: &'a [InventoryItem],
+    name: &str,
+    just_tried: u32,
+) -> Option<&'a InventoryItem> {
+    let mut first = None;
+    for item in owned {
+        if !is_pet_device(item) || !ordinal::equals_ignore_case(&item.name, name) {
+            continue;
+        }
+        if item.object_id == just_tried {
+            return Some(item);
+        }
+        first = first.or(Some(item));
+    }
+    first
 }
 
 /// The essence's charges: the assessed number, else the item's own, else
@@ -500,6 +555,13 @@ pub struct SummonTurn<'a> {
 }
 
 /// Summons a combat pet beside the main list (`SummonPetRule`).
+///
+/// The server never sends an essence's summoning mastery, so an essence of
+/// another mastery looks usable until the server refuses it with a line in
+/// the log. The rule reads that line and remembers the essence's type as
+/// unusable for this character until the session ends; it is not saved,
+/// because a character's mastery can change. The refusal holds the rule no
+/// longer than any other failed use: the next pass simply chooses again.
 #[derive(Debug, Clone)]
 pub struct SummonPetRule {
     choice: PetSummonChoice,
@@ -511,6 +573,19 @@ pub struct SummonPetRule {
     awaiting_device: u32,
     issue_revision: i64,
     issued_at: f64,
+    mastery: MasteryMemory,
+}
+
+/// The session's memory of essences of another mastery. It outlives
+/// [`SummonPetRule::reset`], which a macro stop also calls, and goes with
+/// the character.
+#[derive(Debug, Clone, Default)]
+struct MasteryMemory {
+    refused_types: HashSet<u32>,
+    warned_types: HashSet<u32>,
+    session_character: u32,
+    chat_sequence: u64,
+    last_tried: u32,
 }
 
 impl Default for SummonPetRule {
@@ -525,6 +600,7 @@ impl Default for SummonPetRule {
             awaiting_device: 0,
             issue_revision: 0,
             issued_at: 0.0,
+            mastery: MasteryMemory::default(),
         }
     }
 }
@@ -569,6 +645,7 @@ impl SummonPetRule {
         }
         let completion = automation.last_item_completion();
         self.observe_answer(&completion);
+        self.observe_refusals(automation, turn.warn);
         if !turn.settings.enabled || !turn.settings.summon_pets {
             return false;
         }
@@ -595,6 +672,8 @@ impl SummonPetRule {
         let targets = automation.hostile_targets(pet_range(turn.settings));
         let character = automation.character();
         let summoning = summoning_level(automation);
+        let warned_types = &mut self.mastery.warned_types;
+        let warn = &mut *turn.warn;
         self.choice = select_pet(
             automation,
             &owned,
@@ -604,7 +683,8 @@ impl SummonPetRule {
             turn.settings,
             turn.attack_element,
             turn.damage_preferences,
-            turn.warn,
+            &mut |automation, item| warn_wrong_mastery(warned_types, warn, automation, item),
+            &self.mastery.refused_types,
         );
         if self.choice.is_none() {
             return false;
@@ -629,6 +709,7 @@ impl SummonPetRule {
             return;
         }
         let revision = automation.last_item_completion().revision;
+        self.mastery.last_tried = self.choice.device.object_id;
         let result = automation.use_item(self.choice.device.object_id);
         if result.status == ItemStatus::Started {
             self.awaiting_device = self.choice.device.object_id;
@@ -649,9 +730,70 @@ impl SummonPetRule {
         });
     }
 
-    /// Forgets everything (`Reset`).
+    /// Forgets the summon in hand (`Reset`); the session's memory of
+    /// essences of another mastery stays (see [`Self::forget_session`]).
     pub fn reset(&mut self) {
-        *self = Self::default();
+        let mastery = std::mem::take(&mut self.mastery);
+        *self = Self {
+            mastery,
+            ..Self::default()
+        };
+    }
+
+    /// The essence types the server has refused this character for another
+    /// summoning mastery this session (`RefusedTypes`).
+    #[must_use]
+    pub fn refused_types(&self) -> &HashSet<u32> {
+        &self.mastery.refused_types
+    }
+
+    /// The session ended, at logoff or a character switch
+    /// (`ForgetSession`): what the refusals taught is forgotten, and the
+    /// next pass skips the log lines not yet read, since they belong to the
+    /// character that has gone.
+    pub fn forget_session(&mut self) {
+        let memory = &mut self.mastery;
+        memory.refused_types.clear();
+        memory.warned_types.clear();
+        memory.session_character = 0;
+        memory.last_tried = 0;
+    }
+
+    /// Reads the log for the server's refusal of an essence of another
+    /// summoning mastery and remembers the essence's type
+    /// (`ObserveRefusals`). A line counts only when the server said it (no
+    /// speaker) and names an essence the character owns. A change of
+    /// character starts a fresh memory, and whatever the log held before
+    /// the change is skipped.
+    fn observe_refusals(
+        &mut self,
+        automation: &mut dyn Automation,
+        warn: &mut dyn FnMut(&mut dyn Automation, &str),
+    ) {
+        let character = automation.character().id;
+        let new_character = character != self.mastery.session_character;
+        if new_character {
+            self.forget_session();
+            self.mastery.session_character = character;
+        }
+        let mut owned: Option<std::rc::Rc<[InventoryItem]>> = None;
+        for message in automation.chat_messages(self.mastery.chat_sequence) {
+            let memory = &mut self.mastery;
+            memory.chat_sequence = memory.chat_sequence.max(message.sequence);
+            if new_character || message.sender_id != 0 {
+                continue;
+            }
+            let Some(name) = read_mastery_refusal(&message.text) else {
+                continue;
+            };
+            let owned = owned.get_or_insert_with(|| automation.owned_items_shared());
+            let Some(essence) = find_refused_essence(owned, name, memory.last_tried) else {
+                continue;
+            };
+            if memory.refused_types.insert(essence.weenie_class_id) {
+                warn_wrong_mastery(&mut memory.warned_types, warn, automation, essence);
+            }
+        }
     }
 
     /// Folds the server's answer to the summon that went out into the retry
@@ -671,6 +813,20 @@ impl SummonPetRule {
         if self.now - self.issued_at >= SUMMON_ANSWER_WAIT_SECONDS {
             self.awaiting_device = 0;
         }
+    }
+}
+
+/// The wrong-mastery warning, said once per essence type in a session,
+/// whether the item carried its mastery or the server refused it
+/// (`WarnWrongMastery`).
+fn warn_wrong_mastery(
+    warned_types: &mut HashSet<u32>,
+    warn: &mut dyn FnMut(&mut dyn Automation, &str),
+    automation: &mut dyn Automation,
+    essence: &InventoryItem,
+) {
+    if warned_types.insert(essence.weenie_class_id) {
+        warn(automation, &wrong_mastery_warning(&essence.name));
     }
 }
 

@@ -349,6 +349,9 @@ impl TankCx<'_> {
         "Lost the session.".clone_into(&mut self.core.status);
         self.core.gate.borrow_mut().reset();
         self.reset_session_scoped_controllers();
+        // Essences the server refused for another mastery are the gone
+        // character's; the next one learns its own.
+        self.core.summon_pet.forget_session();
     }
 
     /// `HandleSessionStarted`.
