@@ -262,6 +262,7 @@ pub(super) fn test_pet(cx: &mut TankCx<'_>) {
         &mut attack_element,
         &damage_preferences,
         &mut |_, _| {},
+        core.summon_pet.refused_types(),
     );
     let line = if choice.is_none() {
         "Pet choice: none".to_owned()

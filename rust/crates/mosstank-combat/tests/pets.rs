@@ -1,20 +1,21 @@
 //! Combat pets, ported from the C#'s `PetAutomationTests` and
 //! `SummonPetRuleTests`.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 use ac_plugin_abi::CharacterInfo;
 use ac_plugin_abi::character::{Skill, Training};
 use ac_plugin_abi::combat::{CombatMode, CombatResult, CombatStatus, CombatTarget};
 use ac_plugin_abi::items::{InventoryItem, ItemResult, ItemStatus, ItemUseCompletion};
 use ac_plugin_abi::magic::{CastGate, ComponentInfo, SpellInfo};
+use ac_plugin_abi::types::ChatLine;
 use ac_plugin_abi::world::ItemProperties;
 use mosstank_automation::surface::SUMMONING_COOLDOWN_ID;
 use mosstank_automation::{Automation, RoomAhead, SpellCatalog};
 use mosstank_combat::pets::{
     PET_ROOM_AHEAD_METERS, PetRefillRule, PetSummonChoice, REFILL_REFUSAL_RETRY_SECONDS,
     SUMMON_ANSWER_WAIT_SECONDS, SUMMON_REFUSAL_RETRY_SECONDS, SummonPetRule, SummonTurn,
-    device_damage_type, select_pet, try_select_refill,
+    device_damage_type, select_pet, try_select_refill, wrong_mastery_warning,
 };
 use mosstank_data::damage::MonsterDamageType;
 use mosstank_meta::scheduler::MacroPassContext;
@@ -79,6 +80,10 @@ struct Client {
     apply_status: ItemStatus,
     uses: Vec<u32>,
     applies: Vec<(u32, u32)>,
+    /// The chat the client captured.
+    chat: Vec<ChatLine>,
+    /// The character logged in.
+    character_id: u32,
 }
 
 impl Client {
@@ -100,6 +105,8 @@ impl Client {
             apply_status: ItemStatus::Started,
             uses: Vec::new(),
             applies: Vec::new(),
+            chat: Vec::new(),
+            character_id: 1,
         }
     }
 }
@@ -110,7 +117,7 @@ impl Automation for Client {
     }
     fn character(&mut self) -> CharacterInfo {
         CharacterInfo {
-            id: 1,
+            id: self.character_id,
             ..CharacterInfo::default()
         }
     }
@@ -207,6 +214,13 @@ impl Automation for Client {
     fn check_room_ahead(&mut self, distance_meters: f32) -> RoomAhead {
         self.asked_room.push(distance_meters);
         self.room
+    }
+    fn chat_messages(&mut self, after_sequence: u64) -> Vec<ChatLine> {
+        self.chat
+            .iter()
+            .filter(|line| line.sequence > after_sequence)
+            .cloned()
+            .collect()
     }
     fn post_system_message(&mut self, _text: &str) {}
     fn log_info(&mut self, _text: &str) {}
@@ -346,6 +360,7 @@ fn select(
         &mut |_, _| attack,
         &|_| preferences.clone(),
         &mut |_, _| {},
+        &HashSet::new(),
     )
 }
 
@@ -447,7 +462,8 @@ fn an_essence_out_of_reach_is_passed_over_for_one_that_is_not() {
         &settings,
         &mut |_, _| MonsterDamageType::None,
         &|_| Vec::new(),
-        &mut |_, text| warnings.push(text.to_owned()),
+        &mut |_, item| warnings.push(wrong_mastery_warning(&item.name)),
+        &HashSet::new(),
     );
 
     assert_eq!(choice.device.object_id, 5);
@@ -1077,4 +1093,292 @@ fn independent_track_never_refills() {
     assert!(!fresh_valid(&mut client, &summon_settings()));
     assert!(client.applies.is_empty());
     assert!(client.uses.is_empty());
+}
+
+// --- Essences of another summoning mastery ------------------------------
+//
+// Ported from the C# line's SummonPetRuleTests; those tests are not yet in
+// this branch's C# tree, so they are named in "C# source" lines the census
+// does not read. Make them Source lines when the C# tree catches up.
+
+const SPECTRE: &str = "Lightning Spectre Essence (180)";
+const HOUND: &str = "Fire Hound Essence (125)";
+
+impl Client {
+    /// A line of the log (`Automation.Say`); a system line has no speaker.
+    fn say(&mut self, text: &str) {
+        self.say_from(text, 0);
+    }
+
+    fn say_from(&mut self, text: &str, sender: u32) {
+        let sequence = self.chat.last().map_or(1, |line| line.sequence + 1);
+        self.chat.push(ChatLine {
+            sequence,
+            sender_id: sender,
+            kind: if sender == 0 { 4 } else { 0 },
+            sender: if sender == 0 {
+                String::new()
+            } else {
+                "Someone".to_owned()
+            },
+            text: text.to_owned(),
+            ..ChatLine::default()
+        });
+    }
+}
+
+/// `SummonPetRuleTests.TwoEssences`: the cold one the monster rule names,
+/// which wins every choice it is allowed into, and a fire one behind it.
+fn two_essences() -> Client {
+    let mut client = ready();
+    client.items = vec![
+        InventoryItem {
+            name: SPECTRE.to_owned(),
+            ..summon_device(1, COLD, 50)
+        },
+        InventoryItem {
+            name: HOUND.to_owned(),
+            ..summon_device(2, FIRE, 50)
+        },
+    ];
+    client
+}
+
+/// `SummonPetRuleTests.Rule` with a warning sink.
+fn valid_warned(
+    rule: &mut SummonPetRule,
+    client: &mut Client,
+    settings: &CombatSettings,
+    elapsed: f64,
+    warnings: &mut Vec<String>,
+) -> bool {
+    let mut attack = |_: &mut dyn Automation, _: &CombatTarget| MonsterDamageType::None;
+    let mut warn = |_: &mut dyn Automation, text: &str| warnings.push(text.to_owned());
+    let mut turn = SummonTurn {
+        automation: client,
+        settings,
+        attack_element: &mut attack,
+        damage_preferences: &|_| Vec::new(),
+        warn: &mut warn,
+    };
+    rule.valid_now(&mut turn, pass(elapsed))
+}
+
+/// One pass that is allowed to summon: the essence it used
+/// (`SummonPetRuleTests.NextSummon`). The client refuses the use, so no
+/// answer is awaited and the next call, a retry clock later, chooses afresh.
+fn next_summon(
+    rule: &mut SummonPetRule,
+    client: &mut Client,
+    settings: &CombatSettings,
+    warnings: &mut Vec<String>,
+) -> u32 {
+    client.use_status = ItemStatus::Refused;
+    assert!(valid_warned(
+        rule,
+        client,
+        settings,
+        SUMMON_REFUSAL_RETRY_SECONDS,
+        warnings
+    ));
+    rule.set_running(client, true);
+    rule.set_running(client, false);
+    *client.uses.last().unwrap()
+}
+
+/// [`next_summon`] where the warnings do not matter.
+fn next(rule: &mut SummonPetRule, client: &mut Client, settings: &CombatSettings) -> u32 {
+    next_summon(rule, client, settings, &mut Vec::new())
+}
+
+// C# source: SummonPetRuleTests.cs :: TheServersMasteryRefusalMarksTheEssenceAndTheNextChoiceTakesAnother
+#[test]
+fn the_servers_mastery_refusal_marks_the_essence_and_the_next_choice_takes_another() {
+    let mut client = two_essences();
+    let settings = summon_settings();
+    let mut rule = SummonPetRule::new();
+
+    assert!(valid(&mut rule, &mut client, &settings, 0.3));
+    rule.set_running(&mut client, true);
+    rule.set_running(&mut client, false);
+    assert_eq!(client.uses, [1]);
+
+    // The server refuses: the line, then its answer to the use, which
+    // starts no cooldown.
+    client.say(&format!("You must be a Necromancer to use the {SPECTRE}"));
+    client.completion = ItemUseCompletion {
+        revision: 1,
+        source_id: 1,
+        ..ItemUseCompletion::default()
+    };
+
+    assert!(valid(&mut rule, &mut client, &settings, 0.3));
+    rule.set_running(&mut client, true);
+    assert_eq!(client.uses, [1, 2]);
+    rule.set_running(&mut client, false);
+
+    // And on every choice after it.
+    client.completion = ItemUseCompletion {
+        revision: 2,
+        source_id: 2,
+        ..ItemUseCompletion::default()
+    };
+    assert_eq!(next(&mut rule, &mut client, &settings), 2);
+}
+
+// C# source: SummonPetRuleTests.cs :: ARefusedEssenceIsAnnouncedOnce
+#[test]
+fn a_refused_essence_is_announced_once() {
+    let mut client = two_essences();
+    let settings = summon_settings();
+    let mut rule = SummonPetRule::new();
+    let mut warnings = Vec::new();
+
+    assert_eq!(
+        next_summon(&mut rule, &mut client, &settings, &mut warnings),
+        1
+    );
+    client.say(&format!("You must be a Necromancer to use the {SPECTRE}"));
+    assert_eq!(
+        next_summon(&mut rule, &mut client, &settings, &mut warnings),
+        2
+    );
+    client.say(&format!("You must be a Necromancer to use the {SPECTRE}."));
+    assert_eq!(
+        next_summon(&mut rule, &mut client, &settings, &mut warnings),
+        2
+    );
+
+    assert_eq!(warnings, [wrong_mastery_warning(SPECTRE)]);
+}
+
+// C# source: SummonPetRuleTests.cs :: TheWrongMasteryAnEssenceCarriesIsAnnouncedOnce
+#[test]
+fn the_wrong_mastery_an_essence_carries_is_announced_once() {
+    let mut client = two_essences();
+    client.items[0].summoning_mastery = 2;
+    let settings = summon_settings();
+    let mut rule = SummonPetRule::new();
+    let mut warnings = Vec::new();
+
+    for _ in 0..3 {
+        assert_eq!(
+            next_summon(&mut rule, &mut client, &settings, &mut warnings),
+            2
+        );
+    }
+
+    assert_eq!(warnings, [wrong_mastery_warning(SPECTRE)]);
+}
+
+// C# source: SummonPetRuleTests.cs :: ARefusalThatNamesNoOwnedEssenceChangesNothing
+#[test]
+fn a_refusal_that_names_no_owned_essence_changes_nothing() {
+    let mut client = two_essences();
+    client.items.push(InventoryItem {
+        name: "Pyreal Mote".to_owned(),
+        ..item(3, 1)
+    });
+    let settings = summon_settings();
+    let mut rule = SummonPetRule::new();
+    let mut warnings = Vec::new();
+
+    assert_eq!(
+        next_summon(&mut rule, &mut client, &settings, &mut warnings),
+        1
+    );
+    client.say("You must be a Necromancer to use the Frost Spectre Essence (180)");
+    client.say("You must be a Necromancer to use the Pyreal Mote");
+    client.say("You must be a monarch to use this command.");
+    client.say(&format!("You must be a Primal ist to use the {SPECTRE}"));
+    client.say_from(
+        &format!("You must be a Necromancer to use the {SPECTRE}"),
+        77,
+    );
+
+    assert_eq!(
+        next_summon(&mut rule, &mut client, &settings, &mut warnings),
+        1
+    );
+    assert_eq!(
+        next_summon(&mut rule, &mut client, &settings, &mut warnings),
+        1
+    );
+    assert!(warnings.is_empty());
+}
+
+// C# source: SummonPetRuleTests.cs :: TheRefusedNameIsMatchedWithoutRegardToCase
+#[test]
+fn the_refused_name_is_matched_without_regard_to_case() {
+    let mut client = two_essences();
+    let settings = summon_settings();
+    let mut rule = SummonPetRule::new();
+
+    assert_eq!(next(&mut rule, &mut client, &settings), 1);
+    client.say("You must be a Necromancer to use the lightning spectre essence (180)");
+    assert_eq!(next(&mut rule, &mut client, &settings), 2);
+
+    client.say("You must be a Primalist to use the FIRE HOUND ESSENCE (125).");
+    assert!(!valid(
+        &mut rule,
+        &mut client,
+        &settings,
+        SUMMON_REFUSAL_RETRY_SECONDS
+    ));
+}
+
+// C# source: SummonPetRuleTests.cs :: TheEssenceJustTriedIsTheOneARefusalMarks
+#[test]
+fn the_essence_just_tried_is_the_one_a_refusal_marks() {
+    let mut client = two_essences();
+    client.items.reverse();
+    client.items[0].name = SPECTRE.to_owned();
+    let settings = summon_settings();
+    let mut rule = SummonPetRule::new();
+
+    assert_eq!(next(&mut rule, &mut client, &settings), 1);
+    client.say(&format!("You must be a Necromancer to use the {SPECTRE}"));
+    assert_eq!(next(&mut rule, &mut client, &settings), 2);
+}
+
+// C# source: SummonPetRuleTests.cs :: WhatARefusalTaughtIsForgottenWithTheCharacter
+#[test]
+fn what_a_refusal_taught_is_forgotten_with_the_character() {
+    let mut client = two_essences();
+    let settings = summon_settings();
+    let mut rule = SummonPetRule::new();
+
+    assert_eq!(next(&mut rule, &mut client, &settings), 1);
+    client.say(&format!("You must be a Necromancer to use the {SPECTRE}"));
+    assert_eq!(next(&mut rule, &mut client, &settings), 2);
+
+    // Another character: the essence is tried again.
+    client.character_id = 2;
+    assert_eq!(next(&mut rule, &mut client, &settings), 1);
+    client.say(&format!("You must be a Necromancer to use the {SPECTRE}"));
+    assert_eq!(next(&mut rule, &mut client, &settings), 2);
+
+    // The session ends and the same character comes back.
+    rule.forget_session();
+    assert_eq!(next(&mut rule, &mut client, &settings), 1);
+
+    // A refusal the next character never read is not taken as its own.
+    client.say(&format!("You must be a Necromancer to use the {SPECTRE}"));
+    client.character_id = 3;
+    assert_eq!(next(&mut rule, &mut client, &settings), 1);
+}
+
+// C# source: SummonPetRuleTests.cs :: WhatARefusalTaughtOutlivesAMacroRestart
+#[test]
+fn what_a_refusal_taught_outlives_a_macro_restart() {
+    let mut client = two_essences();
+    let settings = summon_settings();
+    let mut rule = SummonPetRule::new();
+
+    assert_eq!(next(&mut rule, &mut client, &settings), 1);
+    client.say(&format!("You must be a Necromancer to use the {SPECTRE}"));
+    assert_eq!(next(&mut rule, &mut client, &settings), 2);
+
+    rule.reset();
+    assert_eq!(next(&mut rule, &mut client, &settings), 2);
 }
