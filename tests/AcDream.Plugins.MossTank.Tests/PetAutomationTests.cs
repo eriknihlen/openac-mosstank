@@ -82,7 +82,7 @@ public sealed class PetAutomationTests
             settings,
             _ => MonsterDamageType.None,
             _ => [],
-            warnings.Add);
+            item => warnings.Add(PetAutomation.WrongMasteryWarning(item.Name)));
 
         Assert.Equal(5u, choice.Device.ObjectId);
         Assert.Contains(warnings, text => text.Contains("wrong summoning mastery", StringComparison.Ordinal));

@@ -5881,6 +5881,9 @@ internal sealed partial class MossTankPanel : IBuffRuleHost, IDisposable
         _status = "Lost the session.";
         _combatModeGate.Reset();
         ResetSessionScopedControllers();
+        // Essences the server refused for another mastery are the gone
+        // character's; the next one learns its own.
+        _summonPet.ForgetSession();
     }
 
     private void HandleSessionStarted()

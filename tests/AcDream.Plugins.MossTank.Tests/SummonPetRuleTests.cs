@@ -10,11 +10,13 @@ public sealed class SummonPetRuleTests
     private static SummonPetRule Rule(
         Automation automation,
         CombatSettings settings,
-        bool combatOwnsTarget = false) =>
+        bool combatOwnsTarget = false,
+        Action<string>? warn = null) =>
         new(new FakeHost(automation),
             settings,
             _ => MonsterDamageType.None,
-            _ => []);
+            _ => [],
+            warn);
 
     private static CombatSettings Settings()
     {
@@ -379,6 +381,249 @@ public sealed class SummonPetRuleTests
         Assert.Empty(automation.Uses);
     }
 
+    private const string Spectre = "Lightning Spectre Essence (180)";
+    private const string Hound = "Fire Hound Essence (125)";
+
+    private static string MasteryWarning(string name) =>
+        "Warning: ignoring pet " + name + " because you have the wrong summoning mastery!";
+
+    /// <summary>
+    /// Two essences: the cold one the monster rule names, which wins every
+    /// choice it is allowed into, and a fire one behind it.
+    /// </summary>
+    private static Automation TwoEssences() => new()
+    {
+        Targets = [new PluginCombatTarget(10, "Drudge", 1, 4f, 0f, true, 1f)],
+        ItemEntries =
+        [
+            Device(1u, 49387u) with { Name = Spectre },
+            Device(2u, 49380u) with { Name = Hound },
+        ],
+    };
+
+    /// <summary>
+    /// One pass that is allowed to summon: the essence it used. The client
+    /// refuses the use, so no answer is awaited and the next call, a retry
+    /// clock later, chooses afresh.
+    /// </summary>
+    private static uint NextSummon(SummonPetRule rule, Automation automation)
+    {
+        automation.UseStatus = PluginItemCommandStatus.Refused;
+        Assert.True(rule.ValidNow(Pass(SummonPetRule.RefusalRetrySeconds)));
+        rule.Running = true;
+        rule.Running = false;
+        return automation.Uses[^1];
+    }
+
+    /// <summary>
+    /// The server never sends an essence's summoning mastery, so an essence
+    /// of another mastery looks usable until the server refuses it with
+    /// "You must be a {mastery} to use the {name}". That line marks the
+    /// essence, and the next choice takes the next best one instead of
+    /// trying the refused one again.
+    /// Mutation: ignore the line and the rule summons with the refused
+    /// essence again.
+    /// </summary>
+    [Fact]
+    public void TheServersMasteryRefusalMarksTheEssenceAndTheNextChoiceTakesAnother()
+    {
+        Automation automation = TwoEssences();
+        SummonPetRule rule = Rule(automation, Settings());
+
+        Assert.True(rule.ValidNow(Pass()));
+        rule.Running = true;
+        rule.Running = false;
+        Assert.Equal([1u], automation.Uses);
+
+        // The server refuses: the line, then its answer to the use, which
+        // starts no cooldown.
+        automation.Say($"You must be a Necromancer to use the {Spectre}");
+        automation.Completion = new PluginItemUseCompletion(1L, 1u, 0u, 0u);
+
+        Assert.True(rule.ValidNow(Pass()));
+        rule.Running = true;
+        Assert.Equal([1u, 2u], automation.Uses);
+        rule.Running = false;
+
+        // And on every choice after it.
+        automation.Completion = new PluginItemUseCompletion(2L, 2u, 0u, 0u);
+        Assert.Equal(2u, NextSummon(rule, automation));
+    }
+
+    /// <summary>
+    /// The refusal is announced with the wrong-mastery warning, once per
+    /// essence however often the server says it.
+    /// Mutation: warn on every refusal line and the second line warns again.
+    /// </summary>
+    [Fact]
+    public void ARefusedEssenceIsAnnouncedOnce()
+    {
+        Automation automation = TwoEssences();
+        var warnings = new List<string>();
+        SummonPetRule rule = Rule(automation, Settings(), warn: warnings.Add);
+
+        Assert.Equal(1u, NextSummon(rule, automation));
+        automation.Say($"You must be a Necromancer to use the {Spectre}");
+        Assert.Equal(2u, NextSummon(rule, automation));
+        automation.Say($"You must be a Necromancer to use the {Spectre}.");
+        Assert.Equal(2u, NextSummon(rule, automation));
+
+        Assert.Equal([MasteryWarning(Spectre)], warnings);
+    }
+
+    /// <summary>
+    /// An essence that does carry its mastery (a server that sends it) is
+    /// passed over by the existing check, and that check's warning is said
+    /// once, not on every pass.
+    /// Mutation: hand the selection's warning straight on and every pass
+    /// warns again.
+    /// </summary>
+    [Fact]
+    public void TheWrongMasteryAnEssenceCarriesIsAnnouncedOnce()
+    {
+        Automation automation = TwoEssences();
+        automation.ItemEntries =
+        [
+            automation.ItemEntries[0] with { SummoningMastery = 2 },
+            automation.ItemEntries[1],
+        ];
+        var warnings = new List<string>();
+        SummonPetRule rule = Rule(automation, Settings(), warn: warnings.Add);
+
+        Assert.Equal(2u, NextSummon(rule, automation));
+        Assert.Equal(2u, NextSummon(rule, automation));
+        Assert.Equal(2u, NextSummon(rule, automation));
+
+        Assert.Equal([MasteryWarning(Spectre)], warnings);
+    }
+
+    /// <summary>
+    /// Other "You must be a ..." lines exist. A line that names no essence
+    /// the character owns, a line naming an owned item that is not an
+    /// essence, a line in another shape, and the exact refusal said by a
+    /// player all change nothing.
+    /// Mutation: take any refusal-shaped line as being about the essence
+    /// last tried and the rule stops summoning with it.
+    /// </summary>
+    [Fact]
+    public void ARefusalThatNamesNoOwnedEssenceChangesNothing()
+    {
+        Automation automation = TwoEssences();
+        automation.ItemEntries =
+        [
+            .. automation.ItemEntries,
+            Item(3u, 1u) with { Name = "Pyreal Mote" },
+        ];
+        var warnings = new List<string>();
+        SummonPetRule rule = Rule(automation, Settings(), warn: warnings.Add);
+
+        Assert.Equal(1u, NextSummon(rule, automation));
+        automation.Say("You must be a Necromancer to use the Frost Spectre Essence (180)");
+        automation.Say("You must be a Necromancer to use the Pyreal Mote");
+        automation.Say("You must be a monarch to use this command.");
+        automation.Say($"You must be a Primal ist to use the {Spectre}");
+        automation.Say($"You must be a Necromancer to use the {Spectre}", sender: 77u);
+
+        Assert.Equal(1u, NextSummon(rule, automation));
+        Assert.Equal(1u, NextSummon(rule, automation));
+        Assert.Empty(warnings);
+    }
+
+    /// <summary>
+    /// The server's name and the item's are matched without regard to case,
+    /// with or without the line's closing full stop.
+    /// Mutation: match the case exactly and the lower-case line marks
+    /// nothing.
+    /// </summary>
+    [Fact]
+    public void TheRefusedNameIsMatchedWithoutRegardToCase()
+    {
+        Automation automation = TwoEssences();
+        SummonPetRule rule = Rule(automation, Settings());
+
+        Assert.Equal(1u, NextSummon(rule, automation));
+        automation.Say("You must be a Necromancer to use the lightning spectre essence (180)");
+        Assert.Equal(2u, NextSummon(rule, automation));
+
+        automation.Say("You must be a Primalist to use the FIRE HOUND ESSENCE (125).");
+        Assert.False(rule.ValidNow(Pass(SummonPetRule.RefusalRetrySeconds)));
+    }
+
+    /// <summary>
+    /// When two owned essences share the refused name, the one the rule just
+    /// tried is the one marked.
+    /// Mutation: mark the first essence by that name in the inventory and
+    /// the other one is marked, so the refused one is tried again.
+    /// </summary>
+    [Fact]
+    public void TheEssenceJustTriedIsTheOneARefusalMarks()
+    {
+        Automation automation = TwoEssences();
+        automation.ItemEntries =
+        [
+            automation.ItemEntries[1] with { Name = Spectre },
+            automation.ItemEntries[0],
+        ];
+        SummonPetRule rule = Rule(automation, Settings());
+
+        Assert.Equal(1u, NextSummon(rule, automation));
+        automation.Say($"You must be a Necromancer to use the {Spectre}");
+        Assert.Equal(2u, NextSummon(rule, automation));
+    }
+
+    /// <summary>
+    /// What was learned is the character's, for this session: another
+    /// character, or the same one after logging off, tries the essence
+    /// again. A refusal still unread when the character changed belongs to
+    /// the one before and is dropped.
+    /// Mutation: keep the memory across a character switch, or across the
+    /// end of the session, and the essence stays skipped.
+    /// </summary>
+    [Fact]
+    public void WhatARefusalTaughtIsForgottenWithTheCharacter()
+    {
+        Automation automation = TwoEssences();
+        SummonPetRule rule = Rule(automation, Settings());
+
+        Assert.Equal(1u, NextSummon(rule, automation));
+        automation.Say($"You must be a Necromancer to use the {Spectre}");
+        Assert.Equal(2u, NextSummon(rule, automation));
+
+        // Another character: the essence is tried again.
+        automation.ObjectId = 2u;
+        Assert.Equal(1u, NextSummon(rule, automation));
+        automation.Say($"You must be a Necromancer to use the {Spectre}");
+        Assert.Equal(2u, NextSummon(rule, automation));
+
+        // The session ends and the same character comes back.
+        rule.ForgetSession();
+        Assert.Equal(1u, NextSummon(rule, automation));
+
+        // A refusal the next character never read is not taken as its own.
+        automation.Say($"You must be a Necromancer to use the {Spectre}");
+        automation.ObjectId = 3u;
+        Assert.Equal(1u, NextSummon(rule, automation));
+    }
+
+    /// <summary>
+    /// The macro stopping and starting again is not the end of the session:
+    /// the essence stays skipped.
+    /// Mutation: forget in Reset and the refused essence is tried again.
+    /// </summary>
+    [Fact]
+    public void WhatARefusalTaughtOutlivesAMacroRestart()
+    {
+        Automation automation = TwoEssences();
+        SummonPetRule rule = Rule(automation, Settings());
+
+        Assert.Equal(1u, NextSummon(rule, automation));
+        automation.Say($"You must be a Necromancer to use the {Spectre}");
+        Assert.Equal(2u, NextSummon(rule, automation));
+
+        rule.Reset();
+        Assert.Equal(2u, NextSummon(rule, automation));
+    }
+
     /// <summary>
     /// An essence as a client sees it: the server never sends the pet class,
     /// only the summoning cooldown the essence shares (see the fake's property
@@ -494,8 +739,12 @@ public sealed class SummonPetRuleTests
     }
 
     internal sealed class Automation
-        : IAutomationSurface, ICharacterInfo, IItemAutomation, ICombatAutomation
+        : IAutomationSurface, ICharacterInfo, IItemAutomation, ICombatAutomation,
+          IPluginChat
     {
+        private ulong _chatSequence;
+        private readonly List<PluginChatMessage> _chat = [];
+
         public bool IsAvailable => true;
         public RoomCheck Room { get; } = new();
         INavigationAutomation IAutomationSurface.Navigation => Room;
@@ -505,7 +754,22 @@ public sealed class SummonPetRuleTests
         public FakeSpells SpellCatalog { get; } = new();
         public ISpellCatalog Spells => SpellCatalog;
         public IMagicCommands Magic => NoOpAutomationSurface.Instance;
-        public IPluginChat Chat => NoOpAutomationSurface.Instance;
+        public IPluginChat Chat => this;
+
+        /// <summary>A line of the log; a system line has no speaker.</summary>
+        public void Say(string text, uint sender = 0u) =>
+            _chat.Add(new PluginChatMessage(
+                ++_chatSequence, sender, sender == 0u ? 4 : 0,
+                sender == 0u ? string.Empty : "Someone", text, string.Empty));
+
+        IReadOnlyList<PluginChatMessage> IPluginChat.CaptureMessages(ulong afterSequence) =>
+            _chat.Where(line => line.Sequence > afterSequence).ToArray();
+
+        void IPluginChat.PostSystemMessage(string text)
+        {
+        }
+
+        bool IPluginChat.Submit(string text) => false;
 
         public PluginSkillTraining SummoningTraining { get; set; } =
             PluginSkillTraining.Trained;
@@ -516,7 +780,7 @@ public sealed class SummonPetRuleTests
         public List<(uint Source, uint Target)> Applies { get; } = [];
 
         public bool IsInWorld => true;
-        public uint ObjectId => 1;
+        public uint ObjectId { get; set; } = 1;
         public uint CurrentHealth => 100;
         public uint MaxHealth => 100;
         public uint CurrentStamina => 100;

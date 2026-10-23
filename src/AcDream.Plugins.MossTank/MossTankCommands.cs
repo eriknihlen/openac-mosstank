@@ -1679,7 +1679,8 @@ internal sealed partial class MossTankPanel
             automation.Character,
             _combatSettings,
             _combat.AttackElementFor,
-            name => _combat.GameInfo.DamagePreferences(name));
+            name => _combat.GameInfo.DamagePreferences(name),
+            refusedTypes: _summonPet.RefusedTypes);
         WriteVtank(choice.IsNone
             ? "Pet choice: none"
             : $"Pet choice: {choice.Device.Name}, for: {choice.Target.Name}");
