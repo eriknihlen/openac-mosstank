@@ -467,10 +467,10 @@ internal sealed class NetworkHudController : IDisposable
                     false);
             }
             PaintTracked(painter, offset, row);
-            // The own row has no client number: the network gives one to the
-            // other clients only.
+            // Every row is labelled with the character's name alone; the
+            // client's number in front of it read as a list of ids.
             painter.DrawText(
-                row.IsSelf ? row.Name : $"{row.ClientId} {row.Name}",
+                row.Name,
                 new PluginPoint(2d, offset + 1d),
                 Text,
                 false);

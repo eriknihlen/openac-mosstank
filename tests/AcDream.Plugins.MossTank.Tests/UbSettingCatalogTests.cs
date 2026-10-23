@@ -195,6 +195,71 @@ public sealed class UbSettingCatalogTests
         Assert.Equal(8, catalog.Settings.Count(static row => row.Scope == UbSettingScope.Character));
     }
 
+    /// <summary>
+    /// Reading takes the narrowest tier that holds a value, so a copy of a
+    /// row in a narrower file than the one it declares (a character file
+    /// carried over from an older layout) hid every later edit: the edit
+    /// landed in the declared tier and the old copy kept answering. An edit
+    /// has to be what reads back, so the copies below it go; a wider copy is
+    /// left alone, since it is not what reads back.
+    /// Mutation: write only the declared tier and the switch never turns off.
+    /// </summary>
+    [Fact]
+    public void AnEditIsNotHiddenByACopyInANarrowerTier()
+    {
+        var values = new UbSettingValueBag();
+        var catalog = new UbSettingCatalog(values);
+        values.Write(UbSettingScope.Character, "NetworkUI.Enabled", UbSettingValue.FromBool(true));
+        values.Write(UbSettingScope.Profile, "NetworkUI.Enabled", UbSettingValue.FromBool(true));
+        UbSetting row = catalog.Require("NetworkUI.Enabled");
+        Assert.Equal(UbSettingScope.Global, row.Scope);
+        Assert.True(row.Get().Boolean);
+
+        row.Set(UbSettingValue.FromBool(false));
+
+        Assert.False(row.Get().Boolean);
+        Assert.False(values.Read(UbSettingScope.Global, "NetworkUI.Enabled")!.Value.Boolean);
+        Assert.Null(values.Read(UbSettingScope.Character, "NetworkUI.Enabled"));
+        Assert.Null(values.Read(UbSettingScope.Profile, "NetworkUI.Enabled"));
+
+        values.Write(UbSettingScope.Global, "NetworkUI.SelectedTag", UbSettingValue.FromText("wide"));
+        UbSetting tag = catalog.Require("NetworkUI.SelectedTag");
+        Assert.Equal(UbSettingScope.Character, tag.Scope);
+        tag.Set(UbSettingValue.FromText("raid"));
+        Assert.Equal("raid", tag.Get().Text);
+        Assert.Equal("wide", values.Read(UbSettingScope.Global, "NetworkUI.SelectedTag")!.Value.Text);
+    }
+
+    /// <summary>
+    /// A reset takes the row's own value out so a wider one shows through;
+    /// a copy in a narrower tier kept answering and the reset looked dead,
+    /// the same as an edit did. The copies below the row's tier go too, and
+    /// a wider copy is left to show through.
+    /// Mutation: clear only the row's own tier and the switch stays on.
+    /// </summary>
+    [Fact]
+    public void AResetIsNotHiddenByACopyInANarrowerTier()
+    {
+        var values = new UbSettingValueBag();
+        var catalog = new UbSettingCatalog(values);
+        foreach (UbSettingScope scope in Enum.GetValues<UbSettingScope>())
+            values.Write(scope, "NetworkUI.Enabled", UbSettingValue.FromBool(true));
+        UbSetting row = catalog.Require("NetworkUI.Enabled");
+        Assert.False(row.Definition.Default.Boolean);
+
+        catalog.ResetToDefault(row);
+
+        Assert.False(row.Get().Boolean);
+        foreach (UbSettingScope scope in Enum.GetValues<UbSettingScope>())
+            Assert.Null(values.Read(scope, "NetworkUI.Enabled"));
+
+        values.Write(UbSettingScope.Global, "NetworkUI.SelectedTag", UbSettingValue.FromText("wide"));
+        values.Write(UbSettingScope.Character, "NetworkUI.SelectedTag", UbSettingValue.FromText("raid"));
+        UbSetting tag = catalog.Require("NetworkUI.SelectedTag");
+        catalog.ResetToDefault(tag);
+        Assert.Equal("wide", tag.Get().Text);
+    }
+
     [Fact]
     public void AnUnwrittenRowReadsItsDefault()
     {

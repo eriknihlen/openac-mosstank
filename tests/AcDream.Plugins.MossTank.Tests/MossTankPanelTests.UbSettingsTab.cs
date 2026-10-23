@@ -288,6 +288,33 @@ public sealed partial class MossTankPanelTests
         Assert.Contains("unchanged", panel.UbSettingNotice, StringComparison.Ordinal);
     }
 
+    /// <summary>
+    /// The reset, on the installation's switch with a copy in this
+    /// character's file (an older layout kept it per character): the reset
+    /// cleared the installation's file only and the character's copy kept
+    /// answering, so the row stayed on. The reset is kept, and the next
+    /// login reads it too.
+    /// Mutation: clear only the row's own file and the row reads True.
+    /// </summary>
+    [Fact]
+    public void ResetToDefaultWorksWhenTheCharacterFileHoldsACopy()
+    {
+        var storage = new MemoryStorage();
+        storage.Text["mosstank/ub/settings.json"] = "{\"NetworkUI.Enabled\": \"True\"}";
+        storage.Text["mosstank/ub/Coldeve/Acdream/settings.json"] = "{\"NetworkUI.Enabled\": \"True\"}";
+        MossTankPanel panel = UbPanel(storage);
+        panel.SetUbFilterText("NetworkUI.Enabled");
+        panel.SelectUbSetting(0);
+        Assert.Equal("True", panel.UbSettingValues[0]);
+
+        panel.ResetUbSettingToDefault();
+
+        Assert.Equal("False", panel.UbSettingValues[0]);
+        MossTankPanel next = UbPanel(storage);
+        next.SetUbFilterText("NetworkUI.Enabled");
+        Assert.Equal("False", next.UbSettingValues[0]);
+    }
+
     [Fact]
     public void PuttingARowBackToItsDefaultTakesTheSavedValueOutOfItsFile()
     {

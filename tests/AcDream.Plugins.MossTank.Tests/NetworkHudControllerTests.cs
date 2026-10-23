@@ -367,8 +367,8 @@ public sealed class NetworkHudControllerTests
 
     /// <summary>
     /// Each row paints its bars, its name and percentages, and for another
-    /// character the arrow and distance; the own row has no arrow and no
-    /// client number, and it is the one row that carries the tracked
+    /// character the arrow and distance; the own row has no arrow, and it
+    /// is the one row that carries the tracked
     /// counts. A character not yet in the world has no row of its own.
     /// Mutation: paint the arrow on the own row too.
     /// </summary>
@@ -389,7 +389,7 @@ public sealed class NetworkHudControllerTests
         Assert.Equal(12, both.Ops.Count(static op => op == "fill"));
         Assert.Equal(3, both.Ops.Count(static op => op.StartsWith("line", StringComparison.Ordinal)));
         Assert.Contains("Acdream", both.Texts);
-        Assert.Contains("1 Sigrid", both.Texts);
+        Assert.Contains("Sigrid", both.Texts);
         Assert.Contains("100%", both.Texts);
         Assert.Contains("50%", both.Texts);
         Assert.Contains("25%", both.Texts);
@@ -405,6 +405,24 @@ public sealed class NetworkHudControllerTests
         Assert.DoesNotContain("Acdream", peerOnly.Texts);
         Assert.DoesNotContain("40", peerOnly.Texts);
         Assert.Empty(peerOnly.Images);
+    }
+
+    /// <summary>
+    /// Another client's row is labelled with the character's name and
+    /// nothing else: the client's number in front of it read as a list of
+    /// ids before the names.
+    /// Mutation: put the client number back in front of the name.
+    /// </summary>
+    [Fact]
+    public void AnotherClientsRowIsLabelledWithTheNameAlone()
+    {
+        var rig = new Rig();
+        rig.Network.Clients.Add(Client(3u, 0x50000002u, "Sigrid", At(0.01d, 0d)));
+        rig.Ticks(1);
+
+        LandscapeMapControllerTests.RecordingPainter painter = rig.Paint();
+        Assert.Contains("Sigrid", painter.Texts);
+        Assert.DoesNotContain(painter.Texts, static text => text.EndsWith(" Sigrid", StringComparison.Ordinal));
     }
 
     /// <summary>
