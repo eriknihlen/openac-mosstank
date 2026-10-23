@@ -954,7 +954,8 @@ internal sealed partial class MossTankPanel
         {
             multiplier = value;
         }
-        Think(Invariant($"My vitae is {Math.Round(multiplier * 100d)}%"));
+        // The multiplier 0.95 is a 5% penalty.
+        Think(Invariant($"My vitae is {Math.Round((1d - multiplier) * 100d)}%"));
     }
 
     /// <summary>

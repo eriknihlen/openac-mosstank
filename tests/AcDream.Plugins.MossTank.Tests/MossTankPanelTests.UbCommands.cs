@@ -1476,7 +1476,7 @@ public sealed partial class MossTankPanelTests
 
         UbCommand(panel, "vitae");
 
-        Assert.Contains("/t Test Character, My vitae is 95%", automation.Submitted);
+        Assert.Contains("/t Test Character, My vitae is 5%", automation.Submitted);
     }
 
     /// <summary>
