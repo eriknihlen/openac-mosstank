@@ -235,7 +235,18 @@ internal sealed class MetaEngine : IDisposable
         };
         _onPortalTransition = transition =>
         {
-            // The edge is the arrival, not every report along the way.
+            // A portal's own reports are its portal-space edges, as the
+            // game's portal-mode events are: a short hop can begin and end
+            // between two ticks, and the portal-space flag is then never seen
+            // on. A login's reports are not a portal.
+            if (transition.Kind == PluginPortalTransitionKind.Portal)
+            {
+                if (transition.IsCompleted)
+                    _portalExited = true;
+                else if (!transition.IsCancelled)
+                    _portalEntered = true;
+            }
+            // The transition edge is the arrival, not every report along the way.
             if (!transition.IsCompleted)
                 return;
             SetEventVariable("destinationcell", ExpressionValue.Number(transition.DestinationCell));
