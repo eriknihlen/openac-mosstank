@@ -18,6 +18,14 @@ namespace AcDream.Plugins.MossTank;
 /// for a second. Without it a summon that fails without starting the
 /// cooldown was re-sent on every pass.
 /// </para>
+/// <para>
+/// The server never sends an essence's summoning mastery, so an essence of
+/// another mastery looks usable until the server refuses it with a line in
+/// the log. The rule reads that line and remembers the essence's type as
+/// unusable for this character until the session ends; it is not saved,
+/// because a character's mastery can change. The refusal holds the rule no
+/// longer than any other failed use: the next pass simply chooses again.
+/// </para>
 /// </summary>
 internal sealed class SummonPetRule : IMacroRule
 {
@@ -50,6 +58,14 @@ internal sealed class SummonPetRule : IMacroRule
     private long _issueRevision;
     private double _issuedAt;
 
+    // The session's memory of essences of another mastery. It outlives
+    // Reset, which a macro stop also calls, and goes with the character.
+    private readonly HashSet<uint> _refusedTypes = [];
+    private readonly HashSet<uint> _warnedTypes = [];
+    private uint _sessionCharacter;
+    private ulong _chatSequence;
+    private uint _lastTried;
+
     public SummonPetRule(
         IPluginHost host,
         CombatSettings settings,
@@ -81,6 +97,7 @@ internal sealed class SummonPetRule : IMacroRule
         if (!automation.IsAvailable || !automation.Items.IsAvailable)
             return false;
         ObserveAnswer(automation.Items.LastCompletion);
+        ObserveRefusals(automation);
         if (!_settings.Enabled)          // EnableCombat
             return false;
         if (!_settings.SummonPets)       // SummonPets
@@ -109,7 +126,8 @@ internal sealed class SummonPetRule : IMacroRule
             _settings,
             _attackElement,
             _damagePreferences,
-            _warn);
+            WarnWrongMastery,
+            _refusedTypes);
         if (_choice.IsNone)
             return false;
         // Last, as in the reference: is there room for the pet to appear?
@@ -139,6 +157,7 @@ internal sealed class SummonPetRule : IMacroRule
                 return;
             IItemAutomation items = _host.Automation.Items;
             long revision = items.LastCompletion.Revision;
+            _lastTried = _choice.Device.ObjectId;
             PluginItemCommandResult result = items.Use(_choice.Device.ObjectId);
             if (result.Status == PluginItemCommandStatus.Started)
             {
@@ -164,6 +183,67 @@ internal sealed class SummonPetRule : IMacroRule
         DeclineReason = null;
         Status = string.Empty;
         _running = false;
+    }
+
+    /// <summary>
+    /// The essence types the server has refused this character for another
+    /// summoning mastery this session.
+    /// </summary>
+    internal IReadOnlySet<uint> RefusedTypes => _refusedTypes;
+
+    /// <summary>
+    /// The session ended (logoff or a character switch): what the refusals
+    /// taught is forgotten, and the next pass skips the log lines not yet
+    /// read, since they belong to the character that has gone.
+    /// </summary>
+    public void ForgetSession()
+    {
+        _refusedTypes.Clear();
+        _warnedTypes.Clear();
+        _sessionCharacter = 0u;
+        _lastTried = 0u;
+    }
+
+    /// <summary>
+    /// Reads the log for the server's refusal of an essence of another
+    /// summoning mastery and remembers the essence's type. A line counts
+    /// only when the server said it (no speaker) and names an essence the
+    /// character owns. A change of character starts a fresh memory, and
+    /// whatever the log held before the change is skipped.
+    /// </summary>
+    private void ObserveRefusals(IAutomationSurface automation)
+    {
+        uint character = automation.Character.ObjectId;
+        bool newCharacter = character != _sessionCharacter;
+        if (newCharacter)
+        {
+            ForgetSession();
+            _sessionCharacter = character;
+        }
+        IReadOnlyList<PluginInventoryItem>? owned = null;
+        foreach (PluginChatMessage message in automation.Chat.CaptureMessages(_chatSequence))
+        {
+            _chatSequence = Math.Max(_chatSequence, message.Sequence);
+            if (newCharacter || message.SenderObjectId != 0u)
+                continue;
+            if (!PetAutomation.TryReadMasteryRefusal(message.Text, out string name))
+                continue;
+            owned ??= automation.Items.CaptureOwnedItems();
+            if (PetAutomation.FindRefusedEssence(owned, name, _lastTried) is not { } essence)
+                continue;
+            if (_refusedTypes.Add(essence.WeenieClassId))
+                WarnWrongMastery(essence);
+        }
+    }
+
+    /// <summary>
+    /// The wrong-mastery warning, said once per essence type in a session,
+    /// whether the item carried its mastery or the server refused it.
+    /// </summary>
+    private void WarnWrongMastery(PluginInventoryItem essence)
+    {
+        if (_warnedTypes.Add(essence.WeenieClassId))
+            _warn?.Invoke(PetAutomation.WrongMasteryWarning(essence.Name));
     }
 
     /// <summary>

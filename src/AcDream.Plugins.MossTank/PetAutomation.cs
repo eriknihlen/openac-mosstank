@@ -42,7 +42,16 @@ internal static class PetAutomation
     /// <param name="damagePreferences">
     /// The elements the game-info database lists for this monster, best first.
     /// </param>
-    /// <param name="warn">Where a once-per-cause warning goes.</param>
+    /// <param name="wrongMastery">
+    /// Told of each essence passed over because the mastery it carries is
+    /// not the character's, on every pass it is seen; the caller decides how
+    /// often to say so.
+    /// </param>
+    /// <param name="refusedTypes">
+    /// The essence types (weenie class ids) the server has refused this
+    /// character for another summoning mastery. They count as unusable, as
+    /// a mastery the item carries does.
+    /// </param>
     public static PetSummonChoice SelectPet(
         IItemAutomation automation,
         IReadOnlyList<PluginInventoryItem> owned,
@@ -51,7 +60,8 @@ internal static class PetAutomation
         CombatSettings settings,
         Func<PluginCombatTarget, MonsterDamageType> attackElement,
         Func<string, IReadOnlyList<MonsterDamageType>> damagePreferences,
-        Action<string>? warn = null)
+        Action<PluginInventoryItem>? wrongMastery = null,
+        IReadOnlySet<uint>? refusedTypes = null)
     {
         ArgumentNullException.ThrowIfNull(automation);
         ArgumentNullException.ThrowIfNull(owned);
@@ -107,7 +117,7 @@ internal static class PetAutomation
             {
                 continue;
             }
-            if (!IsUsable(in item, in properties, character, warn))
+            if (!IsUsable(in item, in properties, character, wrongMastery, refusedTypes))
                 continue;
             MonsterDamageType element = DeviceElement(item.WeenieClassId);
             int level = properties.Ints.GetValueOrDefault(UseRequiresLevelProperty);
@@ -262,13 +272,15 @@ internal static class PetAutomation
 
     /// <summary>
     /// An essence this character can use now: its level and summoning-skill
-    /// requirements met, charges left, and no other summoning mastery's.
+    /// requirements met, charges left, and no other summoning mastery's,
+    /// whether the item says so or the server already refused it.
     /// </summary>
     private static bool IsUsable(
         in PluginInventoryItem item,
         in PluginItemProperties properties,
         ICharacterInfo character,
-        Action<string>? warn)
+        Action<PluginInventoryItem>? wrongMastery,
+        IReadOnlySet<uint>? refusedTypes)
     {
         if (properties.Ints.GetValueOrDefault(UseRequiresLevelProperty) > character.Level)
             return false;
@@ -279,14 +291,77 @@ internal static class PetAutomation
             return false;
         if (Structure(in item, in properties, unknown: 9999) == 0)
             return false;
+        if (refusedTypes is not null && refusedTypes.Contains(item.WeenieClassId))
+            return false;
         if (item.SummoningMastery != 0
             && item.SummoningMastery != character.SummoningMastery)
         {
-            warn?.Invoke("Warning: ignoring pet " + item.Name
-                + " because you have the wrong summoning mastery!");
+            wrongMastery?.Invoke(item);
             return false;
         }
         return true;
+    }
+
+    /// <summary>What MossTank says about an essence of another summoning mastery.</summary>
+    public static string WrongMasteryWarning(string name) =>
+        "Warning: ignoring pet " + name + " because you have the wrong summoning mastery!";
+
+    private const string RefusalPrefix = "You must be a ";
+    private const string RefusalMiddle = " to use the ";
+
+    /// <summary>
+    /// The server's refusal of an essence of another summoning mastery,
+    /// "You must be a {mastery} to use the {name}", sometimes with a closing
+    /// full stop. The mastery is one word and the name the rest of the line.
+    /// The server never sends an essence's own mastery, so this line is the
+    /// only way to learn it. Other "You must be a ..." lines read the same
+    /// way; only an owned essence by that name makes one count.
+    /// </summary>
+    internal static bool TryReadMasteryRefusal(string text, out string name)
+    {
+        name = string.Empty;
+        if (!text.StartsWith(RefusalPrefix, StringComparison.Ordinal))
+            return false;
+        int middle = text.IndexOf(RefusalMiddle, RefusalPrefix.Length, StringComparison.Ordinal);
+        if (middle <= RefusalPrefix.Length)
+            return false;
+        for (int index = RefusalPrefix.Length; index < middle; index++)
+        {
+            if (char.IsWhiteSpace(text[index]))
+                return false;
+        }
+        string rest = text[(middle + RefusalMiddle.Length)..];
+        if (rest.EndsWith('.'))
+            rest = rest[..^1];
+        if (rest.Length == 0)
+            return false;
+        name = rest;
+        return true;
+    }
+
+    /// <summary>
+    /// The owned essence a refusal names, its name matched without regard
+    /// to case: the one just tried when it is one of them, else the first.
+    /// None when no owned essence has that name.
+    /// </summary>
+    internal static PluginInventoryItem? FindRefusedEssence(
+        IReadOnlyList<PluginInventoryItem> owned,
+        string name,
+        uint justTried)
+    {
+        PluginInventoryItem? first = null;
+        foreach (PluginInventoryItem item in owned)
+        {
+            if (!item.IsPetDevice
+                || !string.Equals(item.Name, name, StringComparison.OrdinalIgnoreCase))
+            {
+                continue;
+            }
+            if (item.ObjectId == justTried)
+                return item;
+            first ??= item;
+        }
+        return first;
     }
 
     /// <summary>
