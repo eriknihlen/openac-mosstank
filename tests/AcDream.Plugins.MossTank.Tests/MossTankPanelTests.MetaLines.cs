@@ -71,6 +71,25 @@ public sealed partial class MossTankPanelTests
     }
 
     [Fact]
+    public void ARouteADelayedChatboxLineLoadsIsThereBeforeThePass()
+    {
+        var (panel, automation, _) = RunOneMetaLinesPass(
+            "\tIF:\tAlways\r\n\t\tDO:\tDoAll\r\n"
+            + "\t\t\t\tDoExpr {delayexec[0,`chatbox[\\`/vt nav load Quests\\`]`]}\r\n"
+            + "\t\t\t\tSetState {Waiting}\r\n"
+            + "~~ }\r\nSTATE: {Waiting} ~~ {\r\n"
+            + "\tIF:\tNavEmpty\r\n\t\tDO:\tSetState {Skipped}\r\n"
+            + "\tIF:\tAlways\r\n\t\tDO:\tSetState {Loaded}\r\n");
+        Assert.True(panel.MetaState == "Waiting", string.Join("\n", automation.Messages));
+
+        // The delayed expression runs at the start of the next tick, before
+        // that tick's pass.
+        panel.OnTick(0.3d);
+
+        Assert.True(panel.MetaState == "Loaded", string.Join("\n", automation.Messages));
+    }
+
+    [Fact]
     public void AStateAMetaLineSetsEndsThePass()
     {
         var (panel, automation, _) = RunOneMetaLinesPass(
