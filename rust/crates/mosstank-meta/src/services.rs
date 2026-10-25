@@ -8,6 +8,7 @@ use mosstank_expr::{EvaluationContext, ExpressionValue, Fault};
 use mosstank_formats::meta::MetaProfile;
 use mosstank_formats::route::NavigationSettings;
 
+use crate::engine::MetaEngine;
 use crate::host::MetaHost;
 
 /// What a peer function needs the other clients to share.
@@ -22,13 +23,23 @@ pub enum PeerNeed {
 /// The rest of the plugin, as the meta sees it.
 pub trait MetaServices {
     /// Submits a chat line for a meta (a chat command action, a chat
-    /// expression's result, `chatbox[]`): the plugin runs its own verbs
-    /// there and then, the way the client runs a command before the submit
-    /// returns, and hands the rest to the client. A line that loaded a meta
-    /// profile answers it, and the engine takes it at once.
+    /// expression's result, `chatbox[]`): the plugin takes its own verbs,
+    /// the way the client runs a command before the submit returns, and
+    /// hands the rest to the client. A line that loaded a meta profile
+    /// answers it, and the engine takes it at once; a verb that needs the
+    /// engine itself waits for [`MetaServices::run_pending_lines`].
     fn submit_chat(&mut self, host: &mut dyn MetaHost, line: &str) -> Option<MetaProfile> {
         host.chat_submit(line);
         None
+    }
+
+    /// Runs the meta's own verbs that waited for the engine (register
+    /// META-9): the engine lends itself as soon as the action or expression
+    /// that submitted them is over, so their work is done before the meta
+    /// looks at its next rule, as the reference's submit runs them before
+    /// it returns.
+    fn run_pending_lines(&mut self, engine: &mut MetaEngine, host: &mut dyn MetaHost) {
+        let _ = (engine, host);
     }
 
     /// Whether the loaded route has nothing left to walk.
