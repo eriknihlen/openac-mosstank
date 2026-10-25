@@ -643,7 +643,7 @@ impl MetaEngine {
         let mut functions = EngineFunctions {
             core: &mut self.core,
         };
-        self.expressions.evaluate_with(
+        let result = self.expressions.evaluate_with(
             host,
             Reach {
                 services,
@@ -652,7 +652,11 @@ impl MetaEngine {
             },
             source,
             DEFAULT_INSTRUCTION_BUDGET,
-        )
+        );
+        // The verbs its `chatbox[]` lines submitted run before the caller
+        // goes on.
+        services.run_pending_lines(self, host);
+        result
     }
 
     /// What a value prints as.
@@ -757,6 +761,8 @@ impl MetaEngine {
                 elapsed_seconds,
             );
         }
+        // A delayed expression's lines run before the pass looks at a rule.
+        services.run_pending_lines(self, host);
         self.capture_edges_and_chat(host, services);
         if !self.core.enabled {
             return;
@@ -1382,11 +1388,13 @@ impl MetaEngine {
     }
 
     /// Submits a chat line through the plugin, which runs its own verbs
-    /// there and then; a line that loaded a meta profile replaces this one.
+    /// before this returns; a line that loaded a meta profile replaces this
+    /// one.
     fn submit(&mut self, host: &mut dyn MetaHost, services: &mut dyn MetaServices, line: &str) {
         if let Some(profile) = services.submit_chat(host, line) {
             self.core.replace_profile(host, services, profile);
         }
+        services.run_pending_lines(self, host);
     }
 
     /// An expression action or a chat expression action: an empty one does

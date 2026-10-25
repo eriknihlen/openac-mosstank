@@ -47,8 +47,9 @@ pub(crate) struct ClientCell<'c>(pub(crate) RefCell<&'c mut dyn TankClient>);
 /// UB tab's, each borrowing them for one of its calls.
 pub(crate) struct CoreCell<'c>(pub(crate) RefCell<&'c mut Core>);
 
-/// What the services ask of the engine once its call has returned: a
-/// meta's own `/vt` line that needs the engine, or its `/ub` line.
+/// What the services ask of the engine once it lends itself (or its call
+/// has returned): a meta's own `/vt` line that needs the engine, or its
+/// `/ub` line.
 #[derive(Debug, Clone, PartialEq)]
 pub(crate) enum EngineRequest {
     /// A `/vt` line (register META-9).
@@ -547,8 +548,12 @@ pub(crate) struct TankServices<'s, 'c> {
     /// The network readout's `ShouldShow`, read before the call (nothing
     /// in a call opens or shuts its window).
     pub(crate) readout_should_show: bool,
-    /// What a meta's own lines ask of the engine, done after its call.
+    /// What a meta's own lines ask of the engine, done when the engine
+    /// lends itself (or, with no UB tab here, after its call).
     pub(crate) requests: Vec<EngineRequest>,
+    /// The UB tab, for running those lines with the engine lent; `None`
+    /// inside a call of the UB tab's own, which holds it.
+    pub(crate) ub_parts: Option<&'s mut super::ub::UbParts>,
 }
 
 impl TankServices<'_, '_> {
@@ -626,9 +631,9 @@ impl TankServices<'_, '_> {
 }
 
 impl MetaServices for TankServices<'_, '_> {
-    /// A meta's chat line: the plugin's own `/vt` verbs run there and then
-    /// (register META-2); its `/ub` line runs right after the engine's call
-    /// (register META-9); anything else goes to the client.
+    /// A meta's chat line: a meta load runs there and then (register
+    /// META-2); any other `/vt` line, and a `/ub` line, waits for the engine
+    /// to lend itself (register META-9); anything else goes to the client.
     fn submit_chat(&mut self, _host: &mut dyn MetaHost, line: &str) -> Option<MetaProfile> {
         if let Some((_, verb, arguments)) = ac_plugin_abi::verbs::split_command_line(line) {
             if verb.eq_ignore_ascii_case(commands::VTANK_VERB) {
@@ -656,6 +661,39 @@ impl MetaServices for TankServices<'_, '_> {
         }
         self.client.0.borrow_mut().meta().chat_submit(line);
         None
+    }
+
+    /// The meta's own lines, run with the lent engine as the player's own
+    /// typed lines are. Inside a call of the UB tab's own, which holds the
+    /// tab, they wait for that call to end instead.
+    fn run_pending_lines(&mut self, engine: &mut MetaEngine, _host: &mut dyn MetaHost) {
+        if self.requests.is_empty() {
+            return;
+        }
+        let Some(ub) = self.ub_parts.as_deref_mut() else {
+            return;
+        };
+        let requests = std::mem::take(&mut self.requests);
+        {
+            let mut client = self.client.0.borrow_mut();
+            let mut core = self.core.0.borrow_mut();
+            let mut cx = TankCx {
+                client: &mut **client,
+                core: &mut core,
+                meta: engine,
+                ub,
+            };
+            // The UB rows the call wrote reach their owners first, so the
+            // copies read again below lose none of them (register UB-5).
+            cx.apply_live_ub_writes();
+            for request in requests {
+                cx.run_engine_request(request);
+            }
+            cx.refresh_live_ub_rows(false);
+            self.readout_should_show = cx.ub.hud.should_show();
+        }
+        // A line may have switched the meta on or off.
+        self.meta_enabled = engine.enabled();
     }
 
     fn is_navigation_route_empty(&mut self, _host: &mut dyn MetaHost) -> bool {
@@ -955,6 +993,7 @@ impl TankCx<'_> {
                 meta_enabled,
                 readout_should_show: self.ub.hud.should_show(),
                 requests: Vec::new(),
+                ub_parts: Some(&mut *self.ub),
             };
             let result = f(self.meta, &mut proxy, &mut services);
             (result, services.requests)
