@@ -291,42 +291,50 @@ internal sealed partial class LootController
     }
 
     /// <summary>
-    /// The server refuses a corpse someone else owns or has open with a plain
-    /// text line. That line is listened for, and the corpse skipped outright for ten
-    /// seconds instead of grinding through thirty failed open attempts.
+    /// The chat since the last read: a rare announcement opens the window in
+    /// which new corpses are the rare's.
     /// </summary>
-    private void ObserveOwnershipDenials()
+    private void ObserveChat()
     {
         IReadOnlyList<PluginChatMessage> messages =
             _host.Automation.Chat.CaptureMessages(_chatSequence);
-        if (messages.Count == 0)
-            return;
-        // Always the corpse the last pick chose, never the one that happens to
-        // be open — that is what the refusal is an answer to.
-        uint denied = _selectedCorpse;
         foreach (PluginChatMessage message in messages)
         {
             if (message.Sequence > _chatSequence)
                 _chatSequence = message.Sequence;
             ObserveRareAnnouncement(message.Text);
-            if (denied == 0u
-                || (!CorpseAlreadyInUse().IsMatch(message.Text)
-                    && !NoRightToLoot().IsMatch(message.Text)))
-            {
-                continue;
-            }
-            _corpseDeniedAt[denied] = _lifetime;
-            Log?.Invoke(
-                MacroLogChannel.Loot,
-                $"LootCorpse: 0x{denied:X8} refused, skipping it for "
-                    + $"{DenialSkipSeconds:0} seconds");
-            if (_activeCorpse == denied)
-            {
-                _activeCorpse = 0u;
-                _activeCorpseSawContents = false;
-                _activeCorpseIsOwnDeath = false;
-                _stateAge = 0d;
-            }
+        }
+    }
+
+    /// <summary>
+    /// A status-line notice from the server. It refuses a corpse someone else
+    /// owns or has open with one (never a chat line); the corpse is then
+    /// skipped outright for ten seconds instead of grinding through thirty
+    /// failed open attempts.
+    /// </summary>
+    public void ObserveStatusText(string text)
+    {
+        ArgumentNullException.ThrowIfNull(text);
+        // Always the corpse the last pick chose, never the one that happens to
+        // be open — that is what the refusal is an answer to.
+        uint denied = _selectedCorpse;
+        if (denied == 0u
+            || (!CorpseAlreadyInUse().IsMatch(text)
+                && !NoRightToLoot().IsMatch(text)))
+        {
+            return;
+        }
+        _corpseDeniedAt[denied] = _lifetime;
+        Log?.Invoke(
+            MacroLogChannel.Loot,
+            $"LootCorpse: 0x{denied:X8} refused, skipping it for "
+                + $"{DenialSkipSeconds:0} seconds");
+        if (_activeCorpse == denied)
+        {
+            _activeCorpse = 0u;
+            _activeCorpseSawContents = false;
+            _activeCorpseIsOwnDeath = false;
+            _stateAge = 0d;
         }
     }
 

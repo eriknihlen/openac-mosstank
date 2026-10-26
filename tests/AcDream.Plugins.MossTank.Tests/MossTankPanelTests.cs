@@ -731,9 +731,13 @@ public sealed partial class MossTankPanelTests
         public IReadOnlyList<PluginLootContainer> CaptureCorpses(
             float maximumDistance) => Corpses;
 
+        /// <summary>How many times a corpse was asked to open.</summary>
+        public int OpenCount { get; private set; }
+
         public PluginItemCommandResult Open(uint containerObjectId)
         {
             Opened = containerObjectId;
+            OpenCount++;
             return new(PluginItemCommandStatus.Started);
         }
     }
@@ -12792,6 +12796,20 @@ public sealed partial class MossTankPanelTests
             _objectChanged?.Invoke(new PluginObjectChange(objectId, kind));
 
         public void RaiseLoginComplete() => _loginComplete?.Invoke();
+
+        private Action<string>? _statusText;
+
+        public event Action<string> StatusTextReceived
+        {
+            add => _statusText += value;
+            remove => _statusText -= value;
+        }
+
+        /// <summary>How many handlers are listening for status notices.</summary>
+        public int StatusTextListenerCount =>
+            _statusText?.GetInvocationList().Length ?? 0;
+
+        public void RaiseStatusText(string text) => _statusText?.Invoke(text);
     }
 
     private sealed class FakeSelection : ISelectionService

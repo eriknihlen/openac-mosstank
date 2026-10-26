@@ -188,9 +188,9 @@ history without affecting the macro or current status, and **X** closes the wind
 
 ## Peer features
 
-Requires OpenAC 0.1.25. Receive broadcasts defaults on so `/ub bc` works between logged-in characters on this computer in the same world. Vital Sharing still defaults off. Both choices are stored per character; an explicitly saved choice is preserved. Vital Sharing exchanges character state and cast information; Receive broadcasts allows this client to execute incoming tagged broadcast commands. Sending a broadcast does not enable reception. Network HUD, active peer healing and metas containing netclients[] or netcasts[] request their own capabilities. Requests end when the feature stops or the plugin unloads. A meta needing peers waits for the initial connection before evaluating peer-dependent rules.
+Requires OpenAC 0.1.28. Receive broadcasts defaults on so `/ub bc` works between logged-in characters on this computer in the same world. Vital Sharing still defaults off. Both choices are stored per character; an explicitly saved choice is preserved. Vital Sharing exchanges character state and cast information; Receive broadcasts allows this client to execute incoming tagged broadcast commands. Sending a broadcast does not enable reception. Network HUD, active peer healing and metas containing netclients[] or netcasts[] request their own capabilities. Requests end when the feature stops or the plugin unloads. A meta needing peers waits for the initial connection before evaluating peer-dependent rules.
 
-For a local source build before the contract is published, pack AcDream.Plugin.Abstractions 0.1.25 from the matching OpenAC checkout and copy the nupkg into packages-local before restoring. CI requires the corresponding OpenAC release to exist.
+For a local source build before the contract is published, pack AcDream.Plugin.Abstractions 0.1.28 from the matching OpenAC checkout and copy the nupkg into packages-local before restoring. CI requires the corresponding OpenAC release to exist.
 
 ### Action history and debug files
 

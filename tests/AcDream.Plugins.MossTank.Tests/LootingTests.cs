@@ -1950,6 +1950,84 @@ public sealed partial class LootingTests
 
         Assert.True(controller.Tick(0.1d, canAct: true));
         Assert.Single(automation.Opened);
+        // The server's refusal is a status-line notice, never a chat line;
+        // ACE names whoever has the corpse open.
+        controller.ObserveStatusText(
+            "The Corpse of a Drudge Slinker is already in use by Unkle Leo!");
+
+        Assert.False(controller.Tick(0.3d, canAct: true));
+        Assert.False(controller.Tick(9d, canAct: true));
+        Assert.Single(automation.Opened);
+
+        Assert.True(controller.Tick(1d, canAct: true));
+        Assert.Equal(2, automation.Opened.Count);
+    }
+
+    [Fact]
+    public void ACorpseWeHaveNoRightToLootIsSkippedForTenSeconds()
+    {
+        const uint corpse = 0x70000901u;
+        var settings = new LootSettings
+        {
+            Enabled = true,
+            CorpseOpenTimeoutSeconds = 0.25d,
+            ScanIntervalSeconds = 0.05d,
+        };
+        settings.Rules.Add(new LootRule { Expression = "*" });
+        var automation = new Automation
+        {
+            Corpses =
+            [
+                new PluginLootContainer(
+                    corpse, 1u, "Corpse", 3f, false, false, false)
+                {
+                    IsIdentified = true,
+                    LongDescription = "Killed by Tester.",
+                },
+            ],
+        };
+        var controller = new LootController(new Host(automation), settings);
+
+        Assert.True(controller.Tick(0.1d, canAct: true));
+        controller.ObserveStatusText(
+            "You do not yet have the right to loot the Corpse of a Drudge Slinker.");
+
+        Assert.False(controller.Tick(0.3d, canAct: true));
+        Assert.False(controller.Tick(9d, canAct: true));
+        Assert.Single(automation.Opened);
+    }
+
+    /// <summary>
+    /// Anyone can type the server's words in chat; only the server's own
+    /// status-line notice refuses a corpse.
+    /// </summary>
+    [Fact]
+    public void ARefusalSaidInChatDoesNotSkipTheCorpse()
+    {
+        const uint corpse = 0x70000902u;
+        var settings = new LootSettings
+        {
+            Enabled = true,
+            CorpseOpenTimeoutSeconds = 0.25d,
+            ScanIntervalSeconds = 0.05d,
+        };
+        settings.Rules.Add(new LootRule { Expression = "*" });
+        var automation = new Automation
+        {
+            Corpses =
+            [
+                new PluginLootContainer(
+                    corpse, 1u, "Corpse", 3f, false, false, false)
+                {
+                    IsIdentified = true,
+                    LongDescription = "Killed by Tester.",
+                },
+            ],
+        };
+        var controller = new LootController(new Host(automation), settings);
+
+        Assert.True(controller.Tick(0.1d, canAct: true));
+        Assert.Single(automation.Opened);
         automation.ChatMessages.Add(new PluginChatMessage(
             1uL,
             0u,
@@ -1958,12 +2036,10 @@ public sealed partial class LootingTests
             "The Corpse of a Drudge Slinker is already in use by someone else!",
             string.Empty));
 
-        Assert.False(controller.Tick(0.3d, canAct: true));
-        Assert.False(controller.Tick(9d, canAct: true));
-        Assert.Single(automation.Opened);
-
-        Assert.True(controller.Tick(1d, canAct: true));
-        Assert.Equal(2, automation.Opened.Count);
+        controller.Tick(0.3d, canAct: true);
+        controller.Tick(0.3d, canAct: true);
+        controller.Tick(0.3d, canAct: true);
+        Assert.True(automation.Opened.Count > 1, "the open was not tried again");
     }
 
     [Fact]
