@@ -1258,6 +1258,8 @@ impl Tank {
             Event::ItemUseCompleted(completion) => cx.meta.on_item_use_completed(completion),
             Event::ContainerOpened(container) => cx.meta.on_container_opened(*container),
             Event::ContainerClosed(container) => cx.meta.on_container_closed(*container),
+            // The server refuses a corpse with a status-line notice.
+            Event::StatusTextReceived(text) => cx.core.loot.observe_status_text(text),
             // The vendor run hears the counter open, close and answer
             // (register VEND-2).
             Event::Vendor(vendor) => match vendor {

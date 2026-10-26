@@ -351,38 +351,39 @@ impl LootController {
             .unwrap_or(0)
     }
 
-    /// The server refuses a corpse someone else owns or has open with a
-    /// plain text line; the corpse is then skipped for ten seconds.
-    pub(crate) fn observe_ownership_denials(&mut self, host: &mut dyn LootHost) {
-        let messages = host.chat_messages(self.chat_sequence);
-        if messages.is_empty() {
-            return;
-        }
-        // Always the corpse the last pick chose, never the one that happens
-        // to be open -- that is what the refusal is an answer to.
-        let denied = self.selected_corpse;
-        for message in messages {
+    /// The chat since the last read: a rare announcement opens the window
+    /// in which new corpses are the rare's.
+    pub(crate) fn observe_chat(&mut self, host: &mut dyn LootHost) {
+        for message in host.chat_messages(self.chat_sequence) {
             if message.sequence > self.chat_sequence {
                 self.chat_sequence = message.sequence;
             }
             self.observe_rare_announcement(host, &message.text);
-            if denied == 0
-                || (!is_match(corpse_already_in_use(), &message.text)
-                    && !is_match(no_right_to_loot(), &message.text))
-            {
-                continue;
-            }
-            self.corpse_denied_at.insert(denied, self.lifetime);
-            self.write_log(&format!(
-                "LootCorpse: 0x{denied:08X} refused, skipping it for {} seconds",
-                whole(DENIAL_SKIP_SECONDS)
-            ));
-            if self.active_corpse == denied {
-                self.active_corpse = 0;
-                self.active_corpse_saw_contents = false;
-                self.active_corpse_is_own_death = false;
-                self.state_age = 0.0;
-            }
+        }
+    }
+
+    /// A status-line notice from the server. It refuses a corpse someone
+    /// else owns or has open with one (never a chat line); the corpse is
+    /// then skipped for ten seconds.
+    pub fn observe_status_text(&mut self, text: &str) {
+        // Always the corpse the last pick chose, never the one that happens
+        // to be open -- that is what the refusal is an answer to.
+        let denied = self.selected_corpse;
+        if denied == 0
+            || (!is_match(corpse_already_in_use(), text) && !is_match(no_right_to_loot(), text))
+        {
+            return;
+        }
+        self.corpse_denied_at.insert(denied, self.lifetime);
+        self.write_log(&format!(
+            "LootCorpse: 0x{denied:08X} refused, skipping it for {} seconds",
+            whole(DENIAL_SKIP_SECONDS)
+        ));
+        if self.active_corpse == denied {
+            self.active_corpse = 0;
+            self.active_corpse_saw_contents = false;
+            self.active_corpse_is_own_death = false;
+            self.state_age = 0.0;
         }
     }
 
