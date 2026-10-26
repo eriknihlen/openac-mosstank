@@ -1176,10 +1176,10 @@ fn a_refused_corpse_is_skipped_for_ten_seconds_without_retrying() {
 
     assert!(controller.tick(&mut world, 0.1, true));
     assert_eq!(world.opened.len(), 1);
-    world.chat_messages.push(chat(
-        1,
-        "The Corpse of a Drudge Slinker is already in use by someone else!",
-    ));
+    // The server's refusal is a status-line notice, never a chat line; ACE
+    // names whoever has the corpse open.
+    controller
+        .observe_status_text("The Corpse of a Drudge Slinker is already in use by Unkle Leo!");
 
     assert!(!controller.tick(&mut world, 0.3, true));
     assert!(!controller.tick(&mut world, 9.0, true));
@@ -1187,6 +1187,52 @@ fn a_refused_corpse_is_skipped_for_ten_seconds_without_retrying() {
 
     assert!(controller.tick(&mut world, 1.0, true));
     assert_eq!(world.opened.len(), 2);
+}
+
+// C# source: LootingTests.cs :: ACorpseWeHaveNoRightToLootIsSkippedForTenSeconds
+#[test]
+fn a_corpse_we_have_no_right_to_loot_is_skipped_for_ten_seconds() {
+    let settings = LootSettings {
+        corpse_open_timeout_seconds: 0.25,
+        scan_interval_seconds: 0.05,
+        ..enabled_settings(vec![expression_rule("*")])
+    };
+    let mut world = World::with_corpses(vec![chain_corpse(0x7000_0901, 3.0)]);
+    let mut controller = LootController::new(settings);
+
+    assert!(controller.tick(&mut world, 0.1, true));
+    controller.observe_status_text(
+        "You do not yet have the right to loot the Corpse of a Drudge Slinker.",
+    );
+
+    assert!(!controller.tick(&mut world, 0.3, true));
+    assert!(!controller.tick(&mut world, 9.0, true));
+    assert_eq!(world.opened.len(), 1);
+}
+
+// C# source: LootingTests.cs :: ARefusalSaidInChatDoesNotSkipTheCorpse
+#[test]
+fn a_refusal_said_in_chat_does_not_skip_the_corpse() {
+    let settings = LootSettings {
+        corpse_open_timeout_seconds: 0.25,
+        scan_interval_seconds: 0.05,
+        ..enabled_settings(vec![expression_rule("*")])
+    };
+    let mut world = World::with_corpses(vec![chain_corpse(0x7000_0902, 3.0)]);
+    let mut controller = LootController::new(settings);
+
+    assert!(controller.tick(&mut world, 0.1, true));
+    assert_eq!(world.opened.len(), 1);
+    // Anyone can type the server's words; only the server's notice counts.
+    world.chat_messages.push(chat(
+        1,
+        "The Corpse of a Drudge Slinker is already in use by someone else!",
+    ));
+
+    controller.tick(&mut world, 0.3, true);
+    controller.tick(&mut world, 0.3, true);
+    controller.tick(&mut world, 0.3, true);
+    assert!(world.opened.len() > 1, "the open was not tried again");
 }
 
 // Source: tests/AcDream.Plugins.MossTank.Tests/LootingTests.cs :: ACorpseSeenOutOfRangeIsAlreadyOldEnoughWhenItComesIntoRange

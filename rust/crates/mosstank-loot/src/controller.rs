@@ -563,7 +563,7 @@ impl LootController {
             self.state_age += elapsed;
         }
         self.lifetime += elapsed;
-        self.observe_ownership_denials(host);
+        self.observe_chat(host);
 
         // The reference's open rule holds the pass doing nothing for as long
         // as the item slot is held. A drain this controller already issued
@@ -722,7 +722,7 @@ impl LootController {
         }
         // The chat is read on the frame as well as on the rule's turn, so a
         // rare announcement is known before the pass that follows it.
-        self.observe_ownership_denials(host);
+        self.observe_chat(host);
         // Read on the frame as well: a refusal can answer an open within one
         // pass, and the container request it answers is gone with it.
         self.observe_open_request(host);
