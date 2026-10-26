@@ -1,7 +1,7 @@
 {
   "id": "acdream.mosstank",
   "displayName": "MossTank",
-  "version": "0.5.8",
+  "version": "0.5.9",
   "entryDll": "AcDream.Plugins.MossTank.dll",
   "apiVersion": 1,
   "kinds": ["Gameplay"],
