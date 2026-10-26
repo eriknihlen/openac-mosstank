@@ -941,7 +941,7 @@ internal sealed partial class LootController
         if (!delayedByAnotherHolder)
             _stateAge += elapsed;
         _lifetime += elapsed;
-        ObserveOwnershipDenials();
+        ObserveChat();
 
         // The reference's open rule is valid — and holds the pass doing
         // nothing — for as long as the item slot is held: an open attempt,
@@ -1183,7 +1183,7 @@ internal sealed partial class LootController
         // whether the walks wait: read only on the rule's turn, it arrived
         // after the walks had been let go for that pass. The chat cursor is
         // shared, so each line is still read once.
-        ObserveOwnershipDenials();
+        ObserveChat();
         double elapsed = Math.Max(0d, elapsedSeconds);
         _identifyAge += elapsed;
         _sinceIdentifyRequest += elapsed;

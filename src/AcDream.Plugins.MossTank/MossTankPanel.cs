@@ -471,6 +471,8 @@ internal sealed partial class MossTankPanel : IBuffRuleHost, IDisposable
         _navigation = new NavigationController(host, _navigationSettings);
         // The route hears the teleport: a recall waypoint is done by it.
         host.Events.PortalTransition += _navigation.OnPortalTransition;
+        // The server refuses a corpse with a status-line notice.
+        host.Events.StatusTextReceived += _loot.ObserveStatusText;
         AttachItemListRefresh(host.Events);
         _navigation.BindActionLocks(_actionLocks);
         _navigation.BindCombatModeGate(_combatModeGate, _combatSettings);
@@ -5840,6 +5842,7 @@ internal sealed partial class MossTankPanel : IBuffRuleHost, IDisposable
         Disable();
         _combat.StatusChanged -= RecordActionHistory;
         _host.Events.PortalTransition -= _navigation.OnPortalTransition;
+        _host.Events.StatusTextReceived -= _loot.ObserveStatusText;
         DetachItemListRefresh(_host.Events);
         _vendorTrade.Dispose();
         _nametags.Dispose();
