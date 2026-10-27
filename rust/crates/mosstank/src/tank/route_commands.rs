@@ -93,6 +93,9 @@ impl TankCx<'_> {
                 jump_direction: direction,
                 ..RouteWaypoint::default()
             });
+            self.core
+                .navigation
+                .waypoint_appended(&self.core.settings.navigation);
             let saved = self.core.save_route_profile(self.client);
             self.refresh_route_editor();
             Core::write_vtank(self.client, "Added jump to the current route.");
@@ -144,6 +147,9 @@ impl TankCx<'_> {
             position,
             ..RouteWaypoint::default()
         });
+        self.core
+            .navigation
+            .waypoint_appended(&self.core.settings.navigation);
         self.core.save_route_profile(self.client);
         self.refresh_route_editor();
         Core::write_vtank(

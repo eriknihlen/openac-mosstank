@@ -312,6 +312,42 @@ fn stopping_and_starting_the_macro_keeps_a_once_route_where_it_was() {
     assert_eq!(index(&plugin), 0);
 }
 
+// C# source: MossTankPanelTests.cs :: APointAddedToAFinishedOnceRouteIsWalkedNext
+/// A point added by command to a finished once-through route is walked
+/// next, across a stop and start, as in VTank: its add commands append to
+/// the once list, which by then is empty, so the new point is the front.
+/// Mutation: leave the finished flag alone on an append and the route stays
+/// finished with a point it never walks.
+#[test]
+fn a_point_added_to_a_finished_once_route_is_walked_next() {
+    for add in ["addnavpt", "addnavcheckpoint", "addnavjump 90 false 100"] {
+        let (mut world, mut plugin) = standing_world();
+        let route = NavigationSettings {
+            mode: RouteMode::Once,
+            waypoints: vec![point(0.0, 0.0), point(10.0, 0.0)],
+            ..NavigationSettings::default()
+        };
+        load_route(&mut world, &mut plugin, "Line", &route);
+        set_option(&mut world, &mut plugin, "EnableNav", true);
+        world.vt(&mut plugin, "start");
+        world.vt(&mut plugin, "nextwp 2");
+        let nothing_left =
+            |plugin: &MossTank| plugin.tank().unwrap().route_has_nothing_left_to_walk();
+        assert!(nothing_left(&plugin), "{add}");
+
+        world.vt(&mut plugin, add);
+        let rows = plugin.tank().unwrap().settings().navigation.waypoints.len();
+        assert_eq!(rows, 3, "{add}");
+        assert!(!nothing_left(&plugin), "{add}");
+        assert_eq!(index(&plugin), 2, "{add}");
+
+        world.vt(&mut plugin, "stop");
+        world.vt(&mut plugin, "start");
+        assert!(!nothing_left(&plugin), "{add}");
+        assert_eq!(index(&plugin), 2, "{add}");
+    }
+}
+
 // Source: tests/AcDream.Plugins.MossTank.Tests/MossTankPanelTests.cs :: LoadingARouteStillPutsTheRoundBackToItsFirstPoint
 #[test]
 fn loading_a_route_still_puts_the_round_back_to_its_first_point() {

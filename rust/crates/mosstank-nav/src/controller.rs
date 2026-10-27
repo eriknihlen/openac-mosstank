@@ -467,6 +467,18 @@ impl NavigationController {
         settings.waypoints.is_empty() || self.once_complete
     }
 
+    /// A waypoint was added at the end of the route without starting it
+    /// over (the add-point commands). A once route keeps its cursor and is
+    /// finished only while the cursor is past the last point, so a finished
+    /// once route walks the new point next, as the reference's does: its add
+    /// commands append to the once list, which a finished route has emptied.
+    pub fn waypoint_appended(&mut self, settings: &NavigationSettings) {
+        if settings.mode == RouteMode::Once {
+            self.once_complete =
+                usize::try_from(self.index).is_ok_and(|index| index >= settings.waypoints.len());
+        }
+    }
+
     /// Whether a once route has already run this waypoint: it consumes by
     /// moving its cursor, so the waypoints behind the cursor are the spent
     /// ones.
