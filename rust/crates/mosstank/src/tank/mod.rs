@@ -1253,6 +1253,8 @@ impl Tank {
                 // The route hears the teleport too: a recall waypoint is done
                 // by it.
                 cx.core.navigation.on_portal_transition(transition);
+                // Entering portal space ends a portal command's use.
+                cx.with_ub(|commands, call| commands.on_portal_transition(call, transition));
                 cx.meta.on_portal_transition(transition);
             }
             Event::ItemUseCompleted(completion) => cx.meta.on_item_use_completed(completion),

@@ -65,7 +65,7 @@ fn a_word_wider_than_the_whole_width_is_broken_where_the_width_runs_out() {
 #[test]
 fn the_ub_settings_page_opens_with_every_setting_and_every_tool_listed() {
     let rig = PageRig::new(&SharedStorage::new());
-    assert_eq!(168, rig.names().len());
+    assert_eq!(171, rig.names().len());
     assert_eq!(rig.names().len(), rig.values().len());
     assert_eq!("(all)", rig.page.category_names()[0]);
     assert_eq!(16, rig.page.category_names().len());
@@ -86,7 +86,7 @@ fn the_category_list_narrows_the_setting_list() {
     assert_eq!(4, rig.names().len());
     assert!(rig.names().iter().all(|name| name.starts_with("Jumper.")));
     rig.page.select_category(&rig.catalog, 0);
-    assert_eq!(168, rig.names().len());
+    assert_eq!(171, rig.names().len());
 }
 
 // Source: tests/AcDream.Plugins.MossTank.Tests/MossTankPanelTests.UbSettingsTab.cs :: TheFilterFieldReachesBothTheNameAndTheDescription
@@ -108,7 +108,7 @@ fn the_filter_field_reaches_both_the_name_and_the_description() {
     );
 
     rig.filter("");
-    assert_eq!(168, rig.names().len());
+    assert_eq!(171, rig.names().len());
 }
 
 // Source: tests/AcDream.Plugins.MossTank.Tests/MossTankPanelTests.UbSettingsTab.cs :: ASwitchFlipsWhereItStandsAndASavedValueSurvivesTheSession

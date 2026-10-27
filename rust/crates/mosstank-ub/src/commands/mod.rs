@@ -11,6 +11,7 @@
 pub mod call;
 pub mod jumper;
 pub mod opt;
+pub mod portal;
 
 use ac_plugin_abi::navigation::MovementIntent;
 use ac_plugin_abi::world::{Confirmation, ObjectClass, WorldObject};
@@ -27,6 +28,7 @@ use openac_plugin_compat::text::utf16;
 
 pub use call::{UbCall, UbServices};
 use jumper::{CommandJump, JumpRequest, JumpTurn};
+use portal::PortalUse;
 
 use crate::chat::{self, tools};
 use crate::help;
@@ -88,6 +90,7 @@ pub enum GiveNameMatch {
 pub struct UbCommands {
     delayed: Vec<DelayedCommand>,
     jump: CommandJump,
+    portal: PortalUse,
     prep_click: PrepClickController,
     tools: UbTools,
 }
@@ -303,7 +306,7 @@ impl UbCommands {
             "bc" => self.broadcast(call, &arguments),
             "bct" => self.tagged_broadcast(call, &arguments),
             "netclients" => net_clients(call, &arguments),
-            "closestportal" => use_portal_by_name(call, "", true),
+            "closestportal" => use_portal_by_name(call, &mut self.portal, "", true),
             "close" => close_command(call, &arguments),
             "printcolors" => {
                 for (name, value) in chat::MESSAGE_TYPES {
@@ -374,11 +377,11 @@ impl UbCommands {
                 .borrow_mut()
                 .item_giver_command(call, arguments, flags.contains('p'));
         } else if let Some(flags) = try_flags(verb, "portal", "p") {
-            use_portal_by_name(call, arguments, flags.contains('p'));
+            use_portal_by_name(call, &mut self.portal, arguments, flags.contains('p'));
         } else if let Some(flags) = try_flags(verb, "follow", "p") {
             follow(call, arguments, flags.contains('p'));
         } else if let Some(flags) = try_flags(verb, "use", "lip") {
-            use_command(call, flags, arguments);
+            use_command(call, &mut self.portal, flags, arguments);
         } else if let Some(flags) = try_flags(verb, "select", "lip") {
             select_command(call, flags, arguments);
         } else if let Some(flags) = try_flags(verb, "swearallegiance", "p") {
@@ -667,9 +670,11 @@ impl UbCommands {
         self.tick_command_jump(call, elapsed_seconds)
     }
 
-    /// The frame's early part: the delayed lines and the dialog watch
-    /// (`TickDelayedCommands`, `PrepClick.OnTick`).
+    /// The frame's early part: the portal command's use, the delayed lines
+    /// and the dialog watch (`TickPortalUse`, `TickDelayedCommands`,
+    /// `PrepClick.OnTick`).
     pub fn tick_early(&mut self, call: &mut UbCall<'_>, elapsed_seconds: f64) {
+        self.portal.tick(call, elapsed_seconds);
         self.tick_delayed(call, elapsed_seconds);
         let mut lines = Vec::new();
         self.prep_click
@@ -683,6 +688,22 @@ impl UbCommands {
     /// (`TickCommandJump`).
     pub fn tick_command_jump(&mut self, call: &mut UbCall<'_>, elapsed_seconds: f64) -> bool {
         self.jump.tick(call, elapsed_seconds)
+    }
+
+    /// A portal transition the client reported: entering portal space ends
+    /// a portal command's use (`OnPortalUseTransition`).
+    pub fn on_portal_transition(
+        &mut self,
+        call: &mut UbCall<'_>,
+        transition: &ac_plugin_abi::world::PortalTransition,
+    ) {
+        self.portal.on_portal_transition(call, transition);
+    }
+
+    /// The portal command's use under way.
+    #[must_use]
+    pub fn portal(&self) -> &PortalUse {
+        &self.portal
     }
 
     /// The server asks a yes/no question.
@@ -706,6 +727,7 @@ impl UbCommands {
     /// it, and whatever was held is let go (`ResetCommandSession`).
     pub fn reset_session(&mut self, call: &mut UbCall<'_>) {
         self.jump.reset(call);
+        self.portal.reset(call);
         self.delayed.clear();
         self.prep_click.reset();
         call.expressions.held_motions().reset();
@@ -1074,7 +1096,12 @@ fn print_date(call: &mut UbCall<'_>, utc: bool, format: &str) {
 
 /// `/ub closestportal`, `/ub portal[p] <name>`: uses a portal by name, or
 /// with a blank name the nearest one.
-fn use_portal_by_name(call: &mut UbCall<'_>, name: &str, partial: bool) {
+fn use_portal_by_name(
+    call: &mut UbCall<'_>,
+    portal_use: &mut PortalUse,
+    name: &str,
+    partial: bool,
+) {
     let Some(portal) = search::try_find_nearest(call.host, name, partial, &PORTAL_CLASSES) else {
         if call.flag("Plugin.PortalThink") {
             call.think("Could not find a portal");
@@ -1084,17 +1111,7 @@ fn use_portal_by_name(call: &mut UbCall<'_>, name: &str, partial: bool) {
         return;
     };
     call.write_ub(&format!("Attempting to use portal: {}", portal.name));
-    call.write_ub_tool_debug(
-        tools::PLUGIN,
-        &format!("Attempting to use portal {}", portal.name),
-    );
-    let result = call.host.use_item(portal.object_id);
-    if !result.accepted() {
-        call.post_ub(&chat::tool(
-            tools::PLUGIN,
-            &format!("Unable to use portal {}: {:?}", portal.name, result.status),
-        ));
-    }
+    portal_use.start(call, &portal);
 }
 
 /// `/ub follow[p] <name>`: aims the follow route at a player.
@@ -1171,7 +1188,7 @@ fn read_scope(call: &mut UbCall<'_>, flags: &str) -> Option<(UbSearchScope, bool
 }
 
 /// `/ub use[li][p] [itemOne] on [itemTwo]`.
-fn use_command(call: &mut UbCall<'_>, flags: &str, arguments: &str) {
+fn use_command(call: &mut UbCall<'_>, portal_use: &mut PortalUse, flags: &str, arguments: &str) {
     let Some((scope, partial)) = read_scope(call, flags) else {
         return;
     };
@@ -1189,7 +1206,7 @@ fn use_command(call: &mut UbCall<'_>, flags: &str, arguments: &str) {
         return;
     };
     let Some(second) = second.filter(|second| !second.is_empty()) else {
-        use_single_object(call, &one, partial);
+        use_single_object(call, portal_use, &one, partial);
         return;
     };
     let Some(two) = search::try_find(
@@ -1206,10 +1223,15 @@ fn use_command(call: &mut UbCall<'_>, flags: &str, arguments: &str) {
     call.host.apply_item(one.object_id, two.object_id);
 }
 
-fn use_single_object(call: &mut UbCall<'_>, one: &WorldObject, partial: bool) {
+fn use_single_object(
+    call: &mut UbCall<'_>,
+    portal_use: &mut PortalUse,
+    one: &WorldObject,
+    partial: bool,
+) {
     call.write_ub(&format!("using {}", one.name));
     match one.object_class {
-        ObjectClass::Portal => use_portal_by_name(call, &one.name, partial),
+        ObjectClass::Portal => use_portal_by_name(call, portal_use, &one.name, partial),
         ObjectClass::Vendor => {
             let reply = call
                 .services

@@ -2518,7 +2518,7 @@ Ported: **2302 of 2307** C# tests, from 137 of 137 files. Not applicable: **5**.
 
 ## UbSettingCoverageTests.cs
 
-- TheInventoryIsTheOneHundredAndEightyFiveLeafValuesTheToolsDeclare: `crates/mosstank-settings/tests/ub.rs` :: `the_inventory_is_the_one_hundred_and_eighty_five_leaf_values_the_tools_declare`
+- TheInventoryIsTheOneHundredAndEightyFiveLeafValuesTheToolsDeclare: `crates/mosstank-settings/tests/ub.rs` :: `the_inventory_is_the_one_hundred_and_eighty_eight_leaf_values_the_tools_declare`
 - EverySettingTheInScopeToolsDeclareIsOnTheTabOrExcludedWithAReason: `crates/mosstank-settings/tests/ub.rs` :: `every_setting_the_in_scope_tools_declare_is_on_the_tab_or_excluded_with_a_reason`
 - EveryExclusionNamesASettingThatExistsAndGivesAReason: `crates/mosstank-settings/tests/ub.rs` :: `every_exclusion_names_a_setting_that_exists_and_gives_a_reason`
 - EveryRenameNamesASettingThatExistsAndARowThatExists: `crates/mosstank-settings/tests/ub.rs` :: `every_rename_names_a_setting_that_exists_and_a_row_that_exists`

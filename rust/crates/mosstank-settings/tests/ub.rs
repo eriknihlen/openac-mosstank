@@ -196,7 +196,7 @@ fn every_row_is_written_to_the_tier_its_scope_declares_and_to_no_other() {
             .count()
     };
     assert_eq!(count(UbSettingScope::Global), 6);
-    assert_eq!(count(UbSettingScope::Profile), 154);
+    assert_eq!(count(UbSettingScope::Profile), 157);
     assert_eq!(count(UbSettingScope::Character), 8);
 }
 
@@ -390,7 +390,7 @@ fn categories_come_back_in_order_with_their_rows() {
     let catalog = catalog();
     assert_eq!(catalog.categories().len(), 15);
     assert_eq!(catalog.categories()[0], "Aliases");
-    assert_eq!(catalog.settings().len(), 168);
+    assert_eq!(catalog.settings().len(), 171);
 }
 
 // Source: tests/AcDream.Plugins.MossTank.Tests/UbSettingValueTests.cs :: EachShapeKeepsItsOwnKindAndPayload
@@ -629,6 +629,9 @@ const FLAT_SETTINGS: &[(&str, &str)] = &[
     ("Plugin", "ExpressionMessageDisplay.Color"),
     ("Plugin", "ErrorMessageDisplay.Enabled"),
     ("Plugin", "ErrorMessageDisplay.Color"),
+    ("Plugin", "PortalThink"),
+    ("Plugin", "PortalTimeout"),
+    ("Plugin", "PortalAttempts"),
     ("InventoryManager", "AutoCram"),
     ("InventoryManager", "AutoStack"),
     ("InventoryManager", "IGThink"),
@@ -855,6 +858,9 @@ const FLAT_DEFAULTS: &[(&str, &str)] = &[
     ("Plugin.ExpressionMessageDisplay.Color", "5"),
     ("Plugin.ErrorMessageDisplay.Enabled", "True"),
     ("Plugin.ErrorMessageDisplay.Color", "15"),
+    ("Plugin.PortalThink", "False"),
+    ("Plugin.PortalTimeout", "5000"),
+    ("Plugin.PortalAttempts", "3"),
     ("Sharing.Vitals", "False"),
     ("Networking.ReceiveCommands", "True"),
     ("Sharing.CastTag", ""),
@@ -988,10 +994,11 @@ fn on_the_tab() -> HashSet<String> {
 }
 
 // Source: tests/AcDream.Plugins.MossTank.Tests/UbSettingCoverageTests.cs :: TheInventoryIsTheOneHundredAndEightyFiveLeafValuesTheToolsDeclare
+// (renamed TheInventoryIsTheOneHundredAndEightyEightLeafValuesTheToolsDeclare on main: the three portal rows)
 #[test]
-fn the_inventory_is_the_one_hundred_and_eighty_five_leaf_values_the_tools_declare() {
+fn the_inventory_is_the_one_hundred_and_eighty_eight_leaf_values_the_tools_declare() {
     let keys = inventory_keys();
-    assert_eq!(keys.len(), 185);
+    assert_eq!(keys.len(), 188);
     assert_eq!(keys.iter().collect::<HashSet<_>>().len(), keys.len());
     assert!(keys.iter().all(|key| key.contains('.')));
 }
@@ -1038,9 +1045,9 @@ fn every_setting_the_in_scope_tools_declare_is_on_the_tab_or_excluded_with_a_rea
         "on the tab but not declared: {unaccounted:?}"
     );
 
-    // 185 declared, 21 excluded, our own additions: the arithmetic is stated.
+    // 188 declared, 21 excluded, our own additions: the arithmetic is stated.
     assert_eq!(excluded.len(), 21);
-    assert_eq!(should_be_on_the_tab.len(), 164);
+    assert_eq!(should_be_on_the_tab.len(), 167);
     assert_eq!(
         should_be_on_the_tab.len() + added_here.len(),
         on_the_tab.len()
