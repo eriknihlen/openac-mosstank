@@ -706,6 +706,19 @@ impl UbCommands {
         &self.portal
     }
 
+    /// The portal command's use alone, for a frame that stops before
+    /// [`UbCommands::tick_early`] (a profile load under way, register
+    /// PROF-1): the lock clock runs on, so the use's tries and hold must too.
+    pub fn tick_portal_use(&mut self, call: &mut UbCall<'_>, elapsed_seconds: f64) {
+        self.portal.tick(call, elapsed_seconds);
+    }
+
+    /// Every lock was just cleared (the macro started): a portal use under
+    /// way takes back the rest of its route hold.
+    pub fn rearm_portal_hold(&self, call: &UbCall<'_>) {
+        self.portal.rearm_hold(call);
+    }
+
     /// The server asks a yes/no question.
     pub fn on_confirmation(&mut self, call: &mut UbCall<'_>, confirmation: &Confirmation) {
         let mut lines = Vec::new();

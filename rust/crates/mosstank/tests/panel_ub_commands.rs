@@ -349,6 +349,19 @@ fn a_portal_use_holds_the_route_until_portal_space_and_then_lets_it_go() {
     }
     assert_eq!(vec![92], world.requests::<calls::ItemsUse>());
 
+    // On through the retry five seconds after the first try: the route is
+    // still held while the second try goes out.
+    for frame in 0..50 {
+        tick(&mut world, &mut plugin, 0.05);
+        assert_eq!(
+            walks_before,
+            forward_walks(&world),
+            "the route walked during the retry at frame {frame}"
+        );
+        assert!(navigation_locked(&plugin));
+    }
+    assert_eq!(vec![92, 92], world.requests::<calls::ItemsUse>());
+
     // Portal space: the use is done and the route is let go.
     world.send(
         &mut plugin,
@@ -373,5 +386,92 @@ fn a_portal_use_holds_the_route_until_portal_space_and_then_lets_it_go() {
         forward_walks(&world) > walks_before,
         "the route walks on once the portal use is done"
     );
+    assert_eq!(vec![92, 92], world.requests::<calls::ItemsUse>());
+}
+
+/// The character standing at the origin facing north, with the Gateway five
+/// map units east, every movement taken.
+fn beside_the_gateway() -> (World, MossTank) {
+    use ac_plugin_abi::world::{ObjectClass, WorldObject};
+
+    let (mut world, plugin) = standing(0.0);
+    world.set_reply::<calls::WorldObjects>(&vec![WorldObject {
+        object_id: 92,
+        name: "Gateway".to_owned(),
+        object_class: ObjectClass::Portal,
+        is_landscape: true,
+        position: Some(Position {
+            east_west: 5.0,
+            ..navigation_at(0.0).position
+        }),
+        ..WorldObject::default()
+    }]);
+    (world, plugin)
+}
+
+// C# source: MossTankPanelTests.UbCommands.cs :: StartingTheMacroKeepsAPortalUseHoldingTheRoute (on main; not yet in this branch's C# tree)
+#[test]
+fn starting_the_macro_keeps_a_portal_use_holding_the_route() {
+    let (mut world, mut plugin) = beside_the_gateway();
+    ub(&mut world, &mut plugin, "portal Gateway");
+    tick(&mut world, &mut plugin, 0.3);
     assert_eq!(vec![92], world.requests::<calls::ItemsUse>());
+
+    world.with_tank(&mut plugin, |tank, client| {
+        tank.set_macro_running(client, true);
+    });
+    tick(&mut world, &mut plugin, 0.05);
+
+    assert!(navigation_locked(&plugin));
+}
+
+// The profile set loads a step a frame (register PROF-1), and a loading
+// frame returns before the UB commands' frame while the lock clock runs on;
+// a portal use under way still keeps its hold and its tries through it.
+#[test]
+fn a_portal_use_keeps_its_hold_through_a_profile_load() {
+    use mosstank_formats::route::{NavigationSettings, RouteWaypoint};
+
+    let (mut world, mut plugin) = beside_the_gateway();
+    // Another character's own route, large enough that loading it takes
+    // more than one frame.
+    let route = NavigationSettings {
+        enabled: true,
+        waypoints: (0..4000)
+            .map(|index| RouteWaypoint {
+                position: Position {
+                    east_west: f64::from(index) / 1000.0,
+                    ..navigation_at(0.0).position
+                },
+                ..RouteWaypoint::default()
+            })
+            .collect(),
+        ..NavigationSettings::default()
+    };
+    let key = format!(
+        "{}/{}",
+        mosstank_stores::directory::NAV_FOLDER,
+        mosstank_stores::directory::auto_character_file_name("Other", "", "af")
+    );
+    world
+        .profiles
+        .insert(&key, &mosstank_formats::af::save_nav(&route).unwrap());
+
+    ub(&mut world, &mut plugin, "portal Gateway");
+    tick(&mut world, &mut plugin, 0.3);
+    tick(&mut world, &mut plugin, 4.95);
+    assert_eq!(vec![92], world.requests::<calls::ItemsUse>());
+    assert!(navigation_locked(&plugin));
+
+    // The character changes, and its profile set loads over this frame,
+    // which runs past the first try's hold.
+    world.fake.character.as_mut().unwrap().name = "Other".to_owned();
+    tick(&mut world, &mut plugin, 0.6);
+    assert!(
+        plugin.tank().unwrap().is_loading_profiles(),
+        "the load runs over more than one frame"
+    );
+
+    assert!(navigation_locked(&plugin));
+    assert_eq!(vec![92, 92], world.requests::<calls::ItemsUse>());
 }

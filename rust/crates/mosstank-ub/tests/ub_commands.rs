@@ -1359,6 +1359,47 @@ fn navigation_locked(rig: &Rig) -> bool {
     rig.locks.borrow_mut().is_locked(ActionLockKind::Navigation)
 }
 
+/// A notice of hop `generation`, completed or still entering.
+fn portal_hop(rig: &mut Rig, generation: i64, completed: bool) {
+    let transition = PortalTransition {
+        revision: generation,
+        generation,
+        is_ready: completed,
+        is_materialized: completed,
+        is_completed: completed,
+        kind: 2,
+        ..PortalTransition::default()
+    };
+    rig.with_call(|call, commands| commands.on_portal_transition(call, &transition));
+}
+
+// C# source: MossTankPanelTests.UbCommands.cs :: AHopAlreadyUnderWayDoesNotEndThePortalUse (on main; not yet in this branch's C# tree)
+#[test]
+fn a_hop_already_under_way_does_not_end_the_portal_use() {
+    let mut rig = Rig::new().at_heading(0.0);
+    rig.host.meta.objects = vec![landscape(92, "Gateway", ObjectClass::Portal, 5.0)];
+    portal_hop(&mut rig, 7, false);
+
+    rig.ub("portal Gateway");
+    portal_hop(&mut rig, 7, true);
+
+    assert!(
+        !rig.messages()
+            .contains(&"[UB] portal used successfully".to_owned())
+    );
+    assert!(navigation_locked(&rig));
+    rig.tick(0.3);
+    assert_eq!(vec![92], rig.host.used);
+
+    portal_hop(&mut rig, 8, false);
+
+    assert!(
+        rig.messages()
+            .contains(&"[UB] portal used successfully".to_owned())
+    );
+    assert!(!navigation_locked(&rig));
+}
+
 // C# source: MossTankPanelTests.UbCommands.cs :: APortalNeverEnteredIsTriedPortalAttemptsTimesThenGivenUp (on main; not yet in this branch's C# tree)
 #[test]
 fn a_portal_never_entered_is_tried_portal_attempts_times_then_given_up() {
