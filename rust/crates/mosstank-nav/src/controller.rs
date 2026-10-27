@@ -467,6 +467,18 @@ impl NavigationController {
         settings.waypoints.is_empty() || self.once_complete
     }
 
+    /// A waypoint was added at the end of the route without starting it
+    /// over (the add-point commands). A once route keeps its cursor and is
+    /// finished only while the cursor is past the last point, so a finished
+    /// once route walks the new point next, as the reference's does: its add
+    /// commands append to the once list, which a finished route has emptied.
+    pub fn waypoint_appended(&mut self, settings: &NavigationSettings) {
+        if settings.mode == RouteMode::Once {
+            self.once_complete =
+                usize::try_from(self.index).is_ok_and(|index| index >= settings.waypoints.len());
+        }
+    }
+
     /// Whether a once route has already run this waypoint: it consumes by
     /// moving its cursor, so the waypoints behind the cursor are the spent
     /// ones.
@@ -613,7 +625,9 @@ impl NavigationController {
 
     /// Back to the top of the route: for a route that has changed under the
     /// controller (loaded, edited, cleared) and for the end of a session.
-    /// Stopping the macro is [`Self::stop_for_macro_stop`].
+    /// Stopping the macro is [`Self::stop_for_macro_stop`], which keeps the
+    /// round's position; the next start re-anchors a circular or
+    /// back-and-forth route and leaves a once-through route where it was.
     pub fn reset(&mut self, turn: &mut RouteTurn<'_>) {
         self.stop_for_macro_stop(turn);
         self.index = 0;
@@ -621,20 +635,26 @@ impl NavigationController {
         self.once_complete = false;
     }
 
-    /// Where the round begins when the macro starts: the nearest point the
-    /// character could walk to (a point, a portal or a checkpoint), or the
-    /// head of a once route. A follow route has no round. Returns the line
-    /// for the macro log's rule-info channel saying where it started.
+    /// Where the round begins when the macro starts: for a circular or
+    /// back-and-forth route, the nearest point the character could walk to
+    /// (a point, a portal or a checkpoint). A once-through route is not
+    /// re-anchored: it goes on from the next point it has not reached, and a
+    /// finished one stays finished. The reference walks a once route by
+    /// taking each point off the front of its list on arrival, and its start
+    /// only points at the front of what is left, so a stop and start never
+    /// gives back the points already walked; only loading the route again
+    /// ([`Self::reset`]) puts it back at its head. A follow route has no
+    /// round. Returns the line for the macro log's rule-info channel saying
+    /// where it started.
     pub fn anchor_round_to_start(&mut self, turn: &mut RouteTurn<'_>) -> Option<String> {
         let automation = &mut *turn.automation;
         let settings = &*turn.settings;
         if settings.mode == RouteMode::Target {
             return None;
         }
-        if settings.mode == RouteMode::Once {
-            self.index = 0;
-            self.once_complete = false;
-        } else {
+        // A once route keeps its cursor and its finished flag: they stand for
+        // the points it has already used up.
+        if settings.mode != RouteMode::Once {
             let here = automation.navigation_snapshot().position;
             let mut nearest = 0usize;
             let mut best = f64::MAX;
@@ -657,16 +677,21 @@ impl NavigationController {
             return None;
         }
         self.clear_action(automation);
-        Some(format!(
-            "Route starts at Waypoint {}/{}{}",
-            self.index + 1,
-            settings.waypoints.len(),
-            if settings.mode == RouteMode::Once {
-                " (a once-through route starts at its head)"
-            } else {
-                " (the nearest point to the character)"
-            }
-        ))
+        Some(if settings.mode != RouteMode::Once {
+            format!(
+                "Route starts at Waypoint {}/{} (the nearest point to the character)",
+                self.index + 1,
+                settings.waypoints.len(),
+            )
+        } else if self.once_complete {
+            "Route is a finished once-through route (loading it again starts it over)".to_owned()
+        } else {
+            format!(
+                "Route starts at Waypoint {}/{} (a once-through route goes on from the next point it has not reached)",
+                self.index + 1,
+                settings.waypoints.len(),
+            )
+        })
     }
 
     /// What stopping the macro does to the route: everything in flight is

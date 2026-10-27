@@ -1059,6 +1059,15 @@ impl Tank {
         self.core.navigation.current_waypoint_index()
     }
 
+    /// Whether the route has nothing left to walk (a meta's "navigation
+    /// route empty").
+    #[must_use]
+    pub fn route_has_nothing_left_to_walk(&self) -> bool {
+        self.core
+            .navigation
+            .has_nothing_left_to_walk(&self.core.settings.navigation)
+    }
+
     /// Whether one of the shared action slots is held now
     /// (`ActionLocks.IsLocked`).
     #[must_use]
