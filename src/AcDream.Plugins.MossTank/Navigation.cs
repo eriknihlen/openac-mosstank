@@ -846,8 +846,9 @@ internal sealed class NavigationController
     /// Back to the top of the route. This is for a route that has changed
     /// under the controller — loaded, edited, cleared — and for the end of a
     /// session. Stopping the macro is NOT one of those; it uses
-    /// <see cref="StopForMacroStop"/>, which keeps the round's position, and
-    /// the next start re-anchors it.
+    /// <see cref="StopForMacroStop"/>, which keeps the round's position; the
+    /// next start re-anchors a circular or back-and-forth route and leaves a
+    /// once-through route where it was.
     /// A route loaded while the macro runs is re-anchored straight after,
     /// as the reference does (see the panel's route restart).
     /// </summary>
@@ -860,11 +861,18 @@ internal sealed class NavigationController
     }
 
     /// <summary>
-    /// Where the round begins when the macro starts. Not where it left off,
-    /// and not the first point either: the character is wherever the last run
-    /// ended or wherever it died, so the round is re-anchored to the nearest
-    /// point it could actually walk to. A once-through route starts at its
-    /// head, and a follow route has no round to anchor.
+    /// Where the round begins when the macro starts. For a circular or
+    /// back-and-forth route, not where it left off and not the first point
+    /// either: the character is wherever the last run ended or wherever it
+    /// died, so the round is re-anchored to the nearest point it could
+    /// actually walk to. A once-through route is not
+    /// re-anchored: it goes on from the next point it has not reached, and a
+    /// finished one stays finished. The reference walks a once route by
+    /// taking each point off the front of its list on arrival, and its start
+    /// only points at the front of what is left, so a stop and start never
+    /// gives back the points already walked; only loading the route again
+    /// (<see cref="Reset"/>) puts it back at its head. A follow route has no
+    /// round to anchor.
     ///
     /// Only three waypoint kinds are candidates — the plain point, the portal
     /// and the checkpoint. The rest (pause, chat, jump, recall, vendor, NPC,
@@ -876,14 +884,9 @@ internal sealed class NavigationController
         if (_settings.Mode == RouteMode.Target)
             return;
 
-        if (_settings.Mode == RouteMode.Once)
-        {
-            // Starting the round is one of the moments that puts the route
-            // back at its head, so the once cursor is rewound with it.
-            _index = 0;
-            _onceComplete = false;
-        }
-        else
+        // A once route keeps its cursor and its finished flag: they stand for
+        // the points it has already used up.
+        if (_settings.Mode != RouteMode.Once)
         {
             PluginNavigationPosition here =
                 _host.Automation.Navigation.Snapshot.Position;
@@ -909,12 +912,12 @@ internal sealed class NavigationController
         if (_settings.Waypoints.Count > 0)
         {
             ClearAction();
-            Log?.Invoke(
-                MacroLogChannel.RuleInfo,
-                $"Route starts at Waypoint {_index + 1}/{_settings.Waypoints.Count}"
-                    + (_settings.Mode == RouteMode.Once
-                        ? " (a once-through route starts at its head)"
-                        : " (the nearest point to the character)"));
+            string where = _settings.Mode != RouteMode.Once
+                ? $"Route starts at Waypoint {_index + 1}/{_settings.Waypoints.Count} (the nearest point to the character)"
+                : _onceComplete
+                    ? "Route is a finished once-through route (loading it again starts it over)"
+                    : $"Route starts at Waypoint {_index + 1}/{_settings.Waypoints.Count} (a once-through route goes on from the next point it has not reached)";
+            Log?.Invoke(MacroLogChannel.RuleInfo, where);
         }
     }
 
@@ -947,8 +950,10 @@ internal sealed class NavigationController
     /// worked, the checkpoint clock — and the round's own position is kept.
     /// Which point of the loop the character had reached, and which way round
     /// it was going, are the player's, not the macro run's, and the
-    /// reference's stop leaves them alone. Starting again re-anchors the round
-    /// rather than resuming it blindly — see <see cref="AnchorRoundToStart"/>.
+    /// reference's stop leaves them alone. Starting again re-anchors a circular
+    /// or back-and-forth round rather than resuming it blindly, and a
+    /// once-through route goes on from where it was — see
+    /// <see cref="AnchorRoundToStart"/>.
     /// Loading or editing a route puts the round back to its first point; see
     /// <see cref="Reset"/>.
     /// </summary>
