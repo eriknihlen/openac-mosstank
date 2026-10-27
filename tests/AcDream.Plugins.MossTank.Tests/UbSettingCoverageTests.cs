@@ -117,6 +117,9 @@ public sealed class UbSettingCoverageTests
         ("Plugin", "ExpressionMessageDisplay.Color"),
         ("Plugin", "ErrorMessageDisplay.Enabled"),
         ("Plugin", "ErrorMessageDisplay.Color"),
+        ("Plugin", "PortalThink"),
+        ("Plugin", "PortalTimeout"),
+        ("Plugin", "PortalAttempts"),
 
         ("InventoryManager", "AutoCram"),
         ("InventoryManager", "AutoStack"),
@@ -202,8 +205,6 @@ public sealed class UbSettingCoverageTests
             ["LandscapeMaps.MapWindowY"] = "The host keeps where a window sits.",
             ["LandscapeMaps.MapWindowWidth"] = "The host keeps how big a window is.",
             ["LandscapeMaps.MapWindowHeight"] = "The host keeps how big a window is.",
-            ["NetworkUI.WindowPositionX"] = "The host keeps where a window sits.",
-            ["NetworkUI.WindowPositionY"] = "The host keeps where a window sits.",
             ["InventoryManager.IGWindowX"] = "The host keeps where a window sits.",
             ["InventoryManager.IGWindowY"] = "The host keeps where a window sits.",
 
@@ -305,6 +306,8 @@ public sealed class UbSettingCoverageTests
         ("NetworkUI.Enabled", "False"),
         ("NetworkUI.ShowHudWhenClosed", "True"),
         ("NetworkUI.SelectedTag", "All"),
+        ("NetworkUI.WindowPositionX", "22"),
+        ("NetworkUI.WindowPositionY", "105"),
 
         ("Aliases.Enabled", "True"),
         ("Aliases.Profile", "[character]"),
@@ -352,6 +355,9 @@ public sealed class UbSettingCoverageTests
         ("Plugin.ExpressionMessageDisplay.Color", "5"),
         ("Plugin.ErrorMessageDisplay.Enabled", "True"),
         ("Plugin.ErrorMessageDisplay.Color", "15"),
+        ("Plugin.PortalThink", "False"),
+        ("Plugin.PortalTimeout", "5000"),
+        ("Plugin.PortalAttempts", "3"),
 
         ("Sharing.Vitals", "False"),
         ("Networking.ReceiveCommands", "True"),
@@ -486,14 +492,14 @@ public sealed class UbSettingCoverageTests
     /// <summary>
     /// The inventory's own size, so an accidental edit to the tables above
     /// is noticed rather than quietly changing what coverage means. One
-    /// hundred and eighty-five leaf values across the in-scope tools.
+    /// hundred and eighty-eight leaf values across the in-scope tools.
     /// </summary>
     [Fact]
-    public void TheInventoryIsTheOneHundredAndEightyFiveLeafValuesTheToolsDeclare()
+    public void TheInventoryIsTheOneHundredAndEightyEightLeafValuesTheToolsDeclare()
     {
         IReadOnlyList<string> keys = InventoryKeys();
 
-        Assert.Equal(185, keys.Count);
+        Assert.Equal(188, keys.Count);
         Assert.Equal(keys.Count, keys.Distinct(StringComparer.Ordinal).Count());
         Assert.All(keys, static key => Assert.Contains('.', key));
     }
@@ -542,10 +548,10 @@ public sealed class UbSettingCoverageTests
             + "tools declare. Add each to AddedHere with the reason it "
             + "exists:\n  " + string.Join("\n  ", unaccounted));
 
-        // 185 declared, 21 excluded, three of our own: the arithmetic is
+        // 188 declared, 21 excluded, three of our own: the arithmetic is
         // stated so a silent change to any of the three tables shows up.
-        Assert.Equal(21, Excluded.Count);
-        Assert.Equal(164, shouldBeOnTheTab.Count);
+        Assert.Equal(19, Excluded.Count);
+        Assert.Equal(169, shouldBeOnTheTab.Count);
         Assert.Equal(shouldBeOnTheTab.Count + AddedHere.Count, onTheTab.Count);
     }
 
@@ -711,9 +717,14 @@ public sealed class UbSettingCoverageTests
             5,
             UbSettingDefinitions.All.Count(static definition =>
                 definition.Kind == UbSettingKind.Collection));
-        Assert.DoesNotContain(
-            UbSettingDefinitions.All,
-            static definition =>
-                definition.Name.Contains("Window", StringComparison.OrdinalIgnoreCase));
+        // The readout's window position is the one kept: the readout is a
+        // canvas the plugin places itself; every other window is the host's.
+        Assert.Equal(
+            ["NetworkUI.WindowPositionX", "NetworkUI.WindowPositionY"],
+            UbSettingDefinitions.All
+                .Where(static definition =>
+                    definition.Name.Contains("Window", StringComparison.OrdinalIgnoreCase))
+                .Select(static definition => definition.Name)
+                .Order(StringComparer.Ordinal));
     }
 }

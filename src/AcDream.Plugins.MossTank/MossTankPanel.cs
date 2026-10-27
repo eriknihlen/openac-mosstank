@@ -471,6 +471,8 @@ internal sealed partial class MossTankPanel : IBuffRuleHost, IDisposable
         _navigation = new NavigationController(host, _navigationSettings);
         // The route hears the teleport: a recall waypoint is done by it.
         host.Events.PortalTransition += _navigation.OnPortalTransition;
+        // Entering portal space ends a portal command's use.
+        host.Events.PortalTransition += OnPortalUseTransition;
         // The server refuses a corpse with a status-line notice.
         host.Events.StatusTextReceived += _loot.ObserveStatusText;
         AttachItemListRefresh(host.Events);
@@ -3870,7 +3872,9 @@ internal sealed partial class MossTankPanel : IBuffRuleHost, IDisposable
     /// <summary>
     /// A route loaded while the macro runs -- a meta swapping routes, say --
     /// starts the way a macro start does: a circular or back-and-forth route
-    /// at the point nearest the character, a once-through route at its head.
+    /// at the point nearest the character. A once-through route starts at its
+    /// head, because loading it is what rewinds it; a start alone keeps it
+    /// where it was.
     /// Starting a newly loaded circuit at its first point sent the character
     /// across the map to it, or left it standing when that point was out of
     /// reach.
@@ -3907,6 +3911,9 @@ internal sealed partial class MossTankPanel : IBuffRuleHost, IDisposable
     /// prints while it is winning passes.
     /// </summary>
     internal int RouteWaypointIndexForTest => _navigation.CurrentWaypointIndex;
+
+    /// <summary>Whether the route has nothing left to walk (a meta's "navigation route empty").</summary>
+    internal bool RouteHasNothingLeftToWalkForTest => _navigation.HasNothingLeftToWalk;
 
     private ExpressionValue GetMetaOption(string name)
     {
@@ -5231,9 +5238,11 @@ internal sealed partial class MossTankPanel : IBuffRuleHost, IDisposable
         {
             // Starting decides where the round begins, and it is not simply
             // where the last one stopped: the character has usually moved
-            // since — walked away, or died and woken at a lifestone — so the
-            // round is re-anchored to the nearest point of the route it could
-            // walk to. Only if the start actually took: the toggle refuses
+            // since — walked away, or died and woken at a lifestone — so a
+            // circular or back-and-forth round is re-anchored to the nearest
+            // point of the route it could walk to. A once-through route goes
+            // on from the next point it has not reached, as the reference's
+            // does. Only if the start actually took: the toggle refuses
             // when there is no world yet, and the reference's start has its
             // own guards ahead of the same step.
             if (_combat.Enabled)
@@ -5381,6 +5390,7 @@ internal sealed partial class MossTankPanel : IBuffRuleHost, IDisposable
         TickGameInfoUpdate();
         ShowFirstRunGuidance();
         ObserveCommandPortalState();
+        TickPortalUse(elapsedSeconds);
         TickDelayedCommands(elapsedSeconds);
         _prepClick.OnTick(elapsedSeconds);
         bool macroRunning = _combat.Enabled;
@@ -5449,6 +5459,7 @@ internal sealed partial class MossTankPanel : IBuffRuleHost, IDisposable
             ReleaseTransactionSuspension();
             _scheduler.Start();
             _actionLocks.ClearAll();
+            RearmPortalHold();
             ResetOncePerRunWarnings();
             _vendorTrade.OnMacroStarted();
         }
@@ -5842,6 +5853,7 @@ internal sealed partial class MossTankPanel : IBuffRuleHost, IDisposable
         Disable();
         _combat.StatusChanged -= RecordActionHistory;
         _host.Events.PortalTransition -= _navigation.OnPortalTransition;
+        _host.Events.PortalTransition -= OnPortalUseTransition;
         _host.Events.StatusTextReceived -= _loot.ObserveStatusText;
         DetachItemListRefresh(_host.Events);
         _vendorTrade.Dispose();

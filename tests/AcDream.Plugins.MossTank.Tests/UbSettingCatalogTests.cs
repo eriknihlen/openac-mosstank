@@ -87,6 +87,7 @@ public sealed class UbSettingCatalogTests
             [
                 "Aliases.Profile", "AutoTinker.CharmedSmith",
                 "GameEvents.Profile", "NetworkUI.SelectedTag",
+                "NetworkUI.WindowPositionX", "NetworkUI.WindowPositionY",
                 "Networking.ReceiveCommands", "Networking.Tags", "Sharing.CastTag", "Sharing.Vitals",
             ],
             characterScoped);
@@ -191,8 +192,8 @@ public sealed class UbSettingCatalogTests
         // All three targets are exercised by the sweep above, and each by
         // more than a handful of rows.
         Assert.Equal(6, catalog.Settings.Count(static row => row.Scope == UbSettingScope.Global));
-        Assert.Equal(154, catalog.Settings.Count(static row => row.Scope == UbSettingScope.Profile));
-        Assert.Equal(8, catalog.Settings.Count(static row => row.Scope == UbSettingScope.Character));
+        Assert.Equal(157, catalog.Settings.Count(static row => row.Scope == UbSettingScope.Profile));
+        Assert.Equal(10, catalog.Settings.Count(static row => row.Scope == UbSettingScope.Character));
     }
 
     /// <summary>
@@ -344,7 +345,7 @@ public sealed class UbSettingCatalogTests
         var catalog = new UbSettingCatalog(new UbSettingValueBag());
         Assert.Equal(15, catalog.Categories.Count);
         Assert.Equal("Aliases", catalog.Categories[0]);
-        Assert.Equal(168, catalog.Settings.Count);
+        Assert.Equal(173, catalog.Settings.Count);
         Assert.All(
             catalog.Settings,
             static row => Assert.NotNull(row.Definition));

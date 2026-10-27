@@ -1056,6 +1056,7 @@ internal sealed partial class MossTankPanel
                 JumpChargeMilliseconds = milliseconds,
                 JumpDirection = direction,
             });
+            _navigation.WaypointAppended();
             bool saved = SaveRouteProfile();
             RefreshRouteEditor();
             WriteVtank("Added jump to the current route.");
@@ -1518,6 +1519,7 @@ internal sealed partial class MossTankPanel
             Type = checkpoint ? RouteWaypointType.Checkpoint : RouteWaypointType.Point,
             Position = position,
         });
+        _navigation.WaypointAppended();
         SaveRouteProfile();
         RefreshRouteEditor();
         WriteVtank(checkpoint ? "Added navigation checkpoint." : "Added navigation point.");
@@ -1899,6 +1901,7 @@ internal sealed partial class MossTankPanel
         _commandJumpTurning = false;
         _commandJumpTurnSinceCheck = 0d;
         ReleaseNavigationAfterJump();
+        ResetPortalUse();
         _commandPortalState = _host.Automation.Navigation.Snapshot.IsPortalSpace;
         _commandPortalCount = 0;
         // A line scheduled before the session ended must not arrive after it:

@@ -645,15 +645,16 @@ public sealed class NavigationTests
     }
 
     /// <summary>
-    /// A finished once route does nothing until the route is loaded again.
-    /// Starting the round is one of those moments, and it puts the cursor
-    /// back on the first point.
+    /// A finished once route stays finished across a macro stop and start,
+    /// as VTank's does: its once route is a list it empties as it walks, and
+    /// a start does not fill it again. Only loading the route again puts it
+    /// back at its head.
     ///
-    /// Mutation: drop the once-complete reset from the round anchor and the
-    /// reloaded route stays finished.
+    /// Mutation: rewind the once cursor on a start and the stopped and
+    /// restarted route walks again.
     /// </summary>
     [Fact]
-    public void AFinishedOnceRouteWalksAgainOnceTheRoundIsStartedAfresh()
+    public void AFinishedOnceRouteStaysFinishedAcrossAMacroStopAndStart()
     {
         PluginNavigationPosition here = Position(0d, 0d);
         var automation = new FakeAutomation
@@ -674,11 +675,64 @@ public sealed class NavigationTests
         Assert.False(controller.Tick(0.05d, canAct: true));
         Assert.Equal("Once route complete.", controller.Status);
 
+        controller.StopForMacroStop();
+        controller.AnchorRoundToStart();
+
+        Assert.False(controller.Tick(0.05d, canAct: true));
+        Assert.Equal("Once route complete.", controller.Status);
+        Assert.True(controller.HasNothingLeftToWalk);
+
+        // Loading the route again is what starts it over.
+        controller.Reset();
         controller.AnchorRoundToStart();
 
         Assert.Equal(0, controller.CurrentWaypointIndex);
         Assert.True(controller.Tick(0.05d, canAct: true));
         Assert.Equal(1, controller.CurrentWaypointIndex);
+    }
+
+    /// <summary>
+    /// Stopping the macro part way along a once route and starting it again
+    /// goes on to the next point the route has not reached, not back to its
+    /// head: VTank walks a once route by taking each point off the front of
+    /// the list as it arrives, and its start only points at the front of
+    /// what is left.
+    ///
+    /// Mutation: rewind the once cursor on a start and the character is sent
+    /// back to the first point.
+    /// </summary>
+    [Fact]
+    public void AMacroStopAndStartLeavesAOnceRouteAtItsNextUnreachedPoint()
+    {
+        // Facing east, down the line of the points still to walk.
+        PluginNavigationPosition here = Position(0d, 0d, heading: 90f);
+        var automation = new FakeAutomation
+        {
+            NavigationSnapshot = Snapshot(here),
+        };
+        var settings = new NavigationSettings
+        {
+            Enabled = true,
+            Mode = RouteMode.Once,
+        };
+        settings.Waypoints.Add(Waypoint(RouteWaypointType.Point, here));
+        settings.Waypoints.Add(Waypoint(RouteWaypointType.Point, here));
+        settings.Waypoints.Add(Waypoint(RouteWaypointType.Point, Position(10d, 0d)));
+        settings.Waypoints.Add(Waypoint(RouteWaypointType.Point, Position(20d, 0d)));
+        var controller = new NavigationController(new FakeHost(automation), settings);
+
+        Assert.True(controller.Tick(0.05d, canAct: true));
+        Assert.True(controller.Tick(0.05d, canAct: true));
+        Assert.Equal(2, controller.CurrentWaypointIndex);
+
+        controller.StopForMacroStop();
+        controller.AnchorRoundToStart();
+
+        Assert.Equal(2, controller.CurrentWaypointIndex);
+        automation.Intents.Clear();
+        Assert.True(controller.Tick(0.05d, canAct: true));
+        Assert.Equal(2, controller.CurrentWaypointIndex);
+        Assert.Contains(automation.Intents, static intent => intent.Forward);
     }
 
     [Fact]

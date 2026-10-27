@@ -4977,6 +4977,88 @@ public sealed partial class MossTankPanelTests
     }
 
     /// <summary>
+    /// Stopping the macro and starting it again leaves a once-through route
+    /// where it was, as VTank's start does: it points at the front of the
+    /// once list, which by then holds only the points not yet reached.
+    /// Loading the route again is what starts it at its head.
+    /// Mutation: rewind the once cursor on a start and the second start sends
+    /// the character back to the first point.
+    /// </summary>
+    [Fact]
+    public void StoppingAndStartingTheMacroKeepsAOnceRouteWhereItWas()
+    {
+        var storage = new MemoryStorage();
+        storage.Text["mosstank/navs/Line.af"] =
+            "NAV: nav0 once ~~ {\r\n\tpnt 0 0 0\r\n\tpnt 10 10 0\r\n\tpnt 20 20 0\r\n\tpnt 30 30 0\r\n";
+        var automation = new FakeAutomation
+        {
+            Name = "Barris",
+            WorldName = "Coldeve",
+            NavigationSnapshot = NavigationAt(0f),
+        };
+        var panel = new MossTankPanel(new FakeHost(automation, storage));
+        automation.CurrentHealth = 100;
+        automation.MaxHealth = 100;
+        Command(panel, "nav load Line.af");
+        panel.SetMetaOption("EnableNav", Truthy(true));
+
+        panel.ExecuteVtankCommand(new PluginCommand("vt", "start", "/vt start"));
+        Assert.Equal(0, panel.RouteWaypointIndexForTest);
+        Command(panel, "nextwp 2");
+        Assert.Equal(2, panel.RouteWaypointIndexForTest);
+
+        panel.ExecuteVtankCommand(new PluginCommand("vt", "stop", "/vt stop"));
+        panel.ExecuteVtankCommand(new PluginCommand("vt", "start", "/vt start"));
+        Assert.True(panel.CombatMacroRunning);
+        Assert.Equal(2, panel.RouteWaypointIndexForTest);
+
+        Command(panel, "nav load Line.af");
+        Assert.Equal(0, panel.RouteWaypointIndexForTest);
+    }
+
+    /// <summary>
+    /// A point added by command to a finished once-through route is walked
+    /// next, across a stop and start, as in VTank: its add commands append to
+    /// the once list, which by then is empty, so the new point is the front.
+    /// Mutation: leave the finished flag alone on an append and the route
+    /// stays finished with a point it never walks.
+    /// </summary>
+    [Theory]
+    [InlineData("addnavpt")]
+    [InlineData("addnavcheckpoint")]
+    [InlineData("addnavjump 90 false 100")]
+    public void APointAddedToAFinishedOnceRouteIsWalkedNext(string add)
+    {
+        var storage = new MemoryStorage();
+        storage.Text["mosstank/navs/Line.af"] =
+            "NAV: nav0 once ~~ {\r\n\tpnt 0 0 0\r\n\tpnt 10 10 0\r\n";
+        var automation = new FakeAutomation
+        {
+            Name = "Barris",
+            WorldName = "Coldeve",
+            NavigationSnapshot = NavigationAt(0f),
+        };
+        var panel = new MossTankPanel(new FakeHost(automation, storage));
+        automation.CurrentHealth = 100;
+        automation.MaxHealth = 100;
+        Command(panel, "nav load Line.af");
+        panel.SetMetaOption("EnableNav", Truthy(true));
+        panel.ExecuteVtankCommand(new PluginCommand("vt", "start", "/vt start"));
+        Command(panel, "nextwp 2");
+        Assert.True(panel.RouteHasNothingLeftToWalkForTest);
+
+        Command(panel, add);
+        Assert.Equal(3, panel.RouteRows.Count);
+        Assert.False(panel.RouteHasNothingLeftToWalkForTest);
+        Assert.Equal(2, panel.RouteWaypointIndexForTest);
+
+        panel.ExecuteVtankCommand(new PluginCommand("vt", "stop", "/vt stop"));
+        panel.ExecuteVtankCommand(new PluginCommand("vt", "start", "/vt start"));
+        Assert.False(panel.RouteHasNothingLeftToWalkForTest);
+        Assert.Equal(2, panel.RouteWaypointIndexForTest);
+    }
+
+    /// <summary>
     /// A follow route has no round to anchor — there is one target and the
     /// index means nothing — so the start leaves it alone.
     /// </summary>
@@ -12810,6 +12892,17 @@ public sealed partial class MossTankPanelTests
             _statusText?.GetInvocationList().Length ?? 0;
 
         public void RaiseStatusText(string text) => _statusText?.Invoke(text);
+
+        private Action<PluginPortalTransition>? _portalTransition;
+
+        public event Action<PluginPortalTransition> PortalTransition
+        {
+            add => _portalTransition += value;
+            remove => _portalTransition -= value;
+        }
+
+        public void RaisePortalTransition(PluginPortalTransition transition) =>
+            _portalTransition?.Invoke(transition);
     }
 
     private sealed class FakeSelection : ISelectionService
