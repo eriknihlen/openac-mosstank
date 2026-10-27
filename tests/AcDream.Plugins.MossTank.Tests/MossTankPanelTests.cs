@@ -12810,6 +12810,17 @@ public sealed partial class MossTankPanelTests
             _statusText?.GetInvocationList().Length ?? 0;
 
         public void RaiseStatusText(string text) => _statusText?.Invoke(text);
+
+        private Action<PluginPortalTransition>? _portalTransition;
+
+        public event Action<PluginPortalTransition> PortalTransition
+        {
+            add => _portalTransition += value;
+            remove => _portalTransition -= value;
+        }
+
+        public void RaisePortalTransition(PluginPortalTransition transition) =>
+            _portalTransition?.Invoke(transition);
     }
 
     private sealed class FakeSelection : ISelectionService

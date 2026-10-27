@@ -1750,8 +1750,184 @@ public sealed partial class MossTankPanelTests
 
         UbCommand(panel, "closestportal");
 
+        // The first try goes out on the frame a quarter second later.
+        Assert.Empty(automation.UsedItemIds);
+        panel.OnTick(0.3d);
+
         Assert.Equal(91u, Assert.Single(automation.UsedItemIds));
         Assert.Contains("[UB] Attempting to use portal: Near Portal", automation.Messages);
+    }
+
+    /// <summary>
+    /// The live bug: a route's chat waypoint "/ub use Gateway" followed by a
+    /// point past the portal. The portal command said it was using the
+    /// portal, and on the next frame the route walked off toward the point,
+    /// cancelling the walk to the portal. The portal use holds the route
+    /// still from the command until portal space, then lets it go.
+    /// Mutation: drop the navigation lock from UsePortal (the fire-and-forget
+    /// use it replaced) and the route sets a forward walk while the use is
+    /// pending; drop the release in FinishPortal and the route stays held
+    /// after portal space.
+    /// </summary>
+    [Fact]
+    public void APortalUseHoldsTheRouteUntilPortalSpaceAndThenLetsItGo()
+    {
+        var automation = new FakeAutomation
+        {
+            NavigationSnapshot = NavigationAt(0f),
+            CurrentHealth = 100,
+            MaxHealth = 100,
+            WorldObjects = [Landscape(92u, "Gateway", PluginObjectClass.Portal, 5d)],
+        };
+        var storage = new MemoryStorage();
+        var route = new NavigationSettings { Enabled = true, Mode = RouteMode.Once };
+        route.Waypoints.Add(new RouteWaypoint
+        {
+            Type = RouteWaypointType.ChatCommand,
+            Position = automation.NavigationSnapshot.Position,
+            Text = "/ub use Gateway",
+        });
+        route.Waypoints.Add(new RouteWaypoint
+        {
+            Type = RouteWaypointType.Point,
+            Position = automation.NavigationSnapshot.Position with { NorthSouth = 60d },
+        });
+        storage.Text["mosstank/navs/Gateway.af"] = MetafSerializer.SaveNav(route);
+        var host = new FakeHost(automation, storage);
+        var panel = new MossTankPanel(host);
+        automation.OnSubmit = text =>
+        {
+            if (text.StartsWith("/ub ", StringComparison.Ordinal))
+                UbCommand(panel, text[4..]);
+        };
+        Command(panel, "nav load Gateway");
+        panel.SetMetaOption("EnableNav", Truthy(true));
+        panel.ToggleCombat();
+
+        for (int frame = 0; frame < 20 && !automation.Submitted.Contains("/ub use Gateway"); frame++)
+            panel.OnTick(0.05d);
+        Assert.Contains("/ub use Gateway", automation.Submitted);
+        Assert.Contains("[UB] using Gateway", automation.Messages);
+        Assert.Contains("[UB] Attempting to use portal: Gateway", automation.Messages);
+        int walksBefore = automation.MovementIntents.Count(static intent => intent.Forward);
+
+        // Three seconds of frames: the portal is used, and the route does not
+        // walk toward the point past it.
+        for (int frame = 0; frame < 60; frame++)
+        {
+            panel.OnTick(0.05d);
+            Assert.True(
+                walksBefore == automation.MovementIntents.Count(static intent => intent.Forward),
+                $"the route walked toward the point past the portal at frame {frame}");
+            Assert.True(panel.ActionLocks.IsLocked(ActionLockKind.Navigation));
+        }
+        Assert.Equal(92u, Assert.Single(automation.UsedItemIds));
+
+        // Portal space: the use is done and the route is let go.
+        ((FakeEvents)host.Events).RaisePortalTransition(new PluginPortalTransition(
+            1, 1, 0u, IsReady: false, IsMaterialized: false, IsCompleted: false, IsCancelled: false)
+        {
+            Kind = PluginPortalTransitionKind.Portal,
+        });
+        Assert.Contains("[UB] portal used successfully", automation.Messages);
+        Assert.False(panel.ActionLocks.IsLocked(ActionLockKind.Navigation));
+
+        for (int frame = 0; frame < 20; frame++)
+            panel.OnTick(0.05d);
+        Assert.True(
+            automation.MovementIntents.Count(static intent => intent.Forward) > walksBefore,
+            "the route walks on once the portal use is done");
+        Assert.Equal(92u, Assert.Single(automation.UsedItemIds));
+    }
+
+    /// <summary>
+    /// A portal that is never entered is tried Plugin.PortalAttempts times,
+    /// Plugin.PortalTimeout apart, the route held all the while; then the
+    /// use is given up, the last use cancelled with a one-degree turn, and
+    /// the route let go.
+    /// Mutation: the single fire-and-forget use tries once and never says it
+    /// gave up; drop the release in FinishPortal and the lock is still up.
+    /// </summary>
+    [Fact]
+    public void APortalNeverEnteredIsTriedPortalAttemptsTimesThenGivenUp()
+    {
+        var automation = new FakeAutomation
+        {
+            NavigationSnapshot = NavigationAt(90f),
+            WorldObjects = [Landscape(92u, "Gateway", PluginObjectClass.Portal, 5d)],
+        };
+        var panel = new MossTankPanel(new FakeHost(automation));
+
+        UbCommand(panel, "portal Gateway");
+        Assert.True(panel.ActionLocks.IsLocked(ActionLockKind.Navigation));
+
+        // Tries at a quarter second, then five seconds apart.
+        panel.OnTick(0.2d);
+        Assert.Empty(automation.UsedItemIds);
+        panel.OnTick(0.1d);
+        Assert.Single(automation.UsedItemIds);
+        panel.OnTick(4.9d);
+        Assert.Single(automation.UsedItemIds);
+        panel.OnTick(0.2d);
+        Assert.Equal(2, automation.UsedItemIds.Count);
+        panel.OnTick(5.1d);
+        Assert.Equal([92u, 92u, 92u], automation.UsedItemIds);
+        Assert.True(panel.ActionLocks.IsLocked(ActionLockKind.Navigation));
+        Assert.DoesNotContain(
+            automation.Messages,
+            static line => line.Contains("Unable to use portal", StringComparison.Ordinal));
+
+        panel.OnTick(5.1d);
+
+        Assert.Equal(3, automation.UsedItemIds.Count);
+        Assert.Equal(
+            ["[UB] Plugin: Unable to use portal Gateway", "[UB] failed to use portal"],
+            automation.Messages.TakeLast(2));
+        Assert.Equal(89f, Assert.Single(automation.FacedHeadings));
+        Assert.False(panel.ActionLocks.IsLocked(ActionLockKind.Navigation));
+
+        // Over: nothing more is tried.
+        panel.OnTick(10d);
+        Assert.Equal(3, automation.UsedItemIds.Count);
+    }
+
+    /// <summary>
+    /// With Plugin.PortalThink on, how the use went is a tell to yourself;
+    /// Plugin.PortalTimeout and Plugin.PortalAttempts set the tries.
+    /// </summary>
+    [Fact]
+    public void ThePortalSettingsShapeTheUseAndItsOutcome()
+    {
+        var automation = new FakeAutomation
+        {
+            NavigationSnapshot = NavigationAt(0f),
+            WorldObjects = [Landscape(92u, "Gateway", PluginObjectClass.Portal, 5d)],
+        };
+        var host = new FakeHost(automation, new MemoryStorage());
+        var panel = new MossTankPanel(host);
+        UbCommand(panel, "opt set Plugin.PortalThink True");
+        UbCommand(panel, "opt set Plugin.PortalTimeout 1000");
+        UbCommand(panel, "opt set Plugin.PortalAttempts 1");
+
+        UbCommand(panel, "portal Gateway");
+        panel.OnTick(0.3d);
+        Assert.Single(automation.UsedItemIds);
+        panel.OnTick(1.1d);
+
+        Assert.Single(automation.UsedItemIds);
+        Assert.Equal($"/t {automation.Name}, failed to use portal", automation.Submitted.Last());
+        Assert.False(panel.ActionLocks.IsLocked(ActionLockKind.Navigation));
+
+        UbCommand(panel, "portal Gateway");
+        panel.OnTick(0.3d);
+        ((FakeEvents)host.Events).RaisePortalTransition(new PluginPortalTransition(
+            2, 2, 0u, IsReady: false, IsMaterialized: false, IsCompleted: false, IsCancelled: false)
+        {
+            Kind = PluginPortalTransitionKind.Portal,
+        });
+
+        Assert.Equal($"/t {automation.Name}, portal used successfully", automation.Submitted.Last());
+        Assert.False(panel.ActionLocks.IsLocked(ActionLockKind.Navigation));
     }
 
     [Fact]
@@ -1769,6 +1945,7 @@ public sealed partial class MossTankPanelTests
         var panel = new MossTankPanel(new FakeHost(automation));
 
         UbCommand(panel, "portalp Holt");
+        panel.OnTick(0.3d);
 
         Assert.Equal(93u, Assert.Single(automation.UsedItemIds));
     }

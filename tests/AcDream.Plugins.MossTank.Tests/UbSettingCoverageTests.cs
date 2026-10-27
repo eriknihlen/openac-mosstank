@@ -117,6 +117,9 @@ public sealed class UbSettingCoverageTests
         ("Plugin", "ExpressionMessageDisplay.Color"),
         ("Plugin", "ErrorMessageDisplay.Enabled"),
         ("Plugin", "ErrorMessageDisplay.Color"),
+        ("Plugin", "PortalThink"),
+        ("Plugin", "PortalTimeout"),
+        ("Plugin", "PortalAttempts"),
 
         ("InventoryManager", "AutoCram"),
         ("InventoryManager", "AutoStack"),
@@ -352,6 +355,9 @@ public sealed class UbSettingCoverageTests
         ("Plugin.ExpressionMessageDisplay.Color", "5"),
         ("Plugin.ErrorMessageDisplay.Enabled", "True"),
         ("Plugin.ErrorMessageDisplay.Color", "15"),
+        ("Plugin.PortalThink", "False"),
+        ("Plugin.PortalTimeout", "5000"),
+        ("Plugin.PortalAttempts", "3"),
 
         ("Sharing.Vitals", "False"),
         ("Networking.ReceiveCommands", "True"),
@@ -486,14 +492,14 @@ public sealed class UbSettingCoverageTests
     /// <summary>
     /// The inventory's own size, so an accidental edit to the tables above
     /// is noticed rather than quietly changing what coverage means. One
-    /// hundred and eighty-five leaf values across the in-scope tools.
+    /// hundred and eighty-eight leaf values across the in-scope tools.
     /// </summary>
     [Fact]
-    public void TheInventoryIsTheOneHundredAndEightyFiveLeafValuesTheToolsDeclare()
+    public void TheInventoryIsTheOneHundredAndEightyEightLeafValuesTheToolsDeclare()
     {
         IReadOnlyList<string> keys = InventoryKeys();
 
-        Assert.Equal(185, keys.Count);
+        Assert.Equal(188, keys.Count);
         Assert.Equal(keys.Count, keys.Distinct(StringComparer.Ordinal).Count());
         Assert.All(keys, static key => Assert.Contains('.', key));
     }
@@ -542,10 +548,10 @@ public sealed class UbSettingCoverageTests
             + "tools declare. Add each to AddedHere with the reason it "
             + "exists:\n  " + string.Join("\n  ", unaccounted));
 
-        // 185 declared, 21 excluded, three of our own: the arithmetic is
+        // 188 declared, 21 excluded, three of our own: the arithmetic is
         // stated so a silent change to any of the three tables shows up.
         Assert.Equal(21, Excluded.Count);
-        Assert.Equal(164, shouldBeOnTheTab.Count);
+        Assert.Equal(167, shouldBeOnTheTab.Count);
         Assert.Equal(shouldBeOnTheTab.Count + AddedHere.Count, onTheTab.Count);
     }
 

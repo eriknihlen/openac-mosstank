@@ -104,8 +104,6 @@ internal static class UbSettingDefinitions
     /// changes nothing.</item>
     /// <item><c>Plugin.SettingsProfile</c> is the named settings profile
     /// this character has open; a write opens another.</item>
-    /// <item><c>Plugin.PortalThink</c> makes the portal command think its
-    /// "could not find a portal" line instead of writing it.</item>
     /// <item><c>AutoSalvage.Think</c>, <c>AutoTrade.Think</c>,
     /// <c>Looter.EnableChests</c>: there is no auto-salvage, auto-trade or
     /// chest looter here. The value is kept and read back, and drives
@@ -130,7 +128,6 @@ internal static class UbSettingDefinitions
             "The named settings profile this character has open.",
             UbSettingStore.DefaultProfileName,
             UbSettingScope.Character),
-        Switch("Plugin.PortalThink", "Think to yourself when a portal is not found.", false),
         Switch("AutoSalvage.Think", "Kept for macros; there is no auto-salvage here.", false),
         Switch("AutoTrade.Think", "Kept for macros; there is no auto-trade here.", false),
         Switch("Looter.EnableChests", "Kept for macros; there is no chest looter here.", false),
@@ -502,6 +499,12 @@ internal static class UbSettingDefinitions
         rows.Add(Switch("Jumper.ThinkComplete", "Think to yourself when a jump lands.", false));
         rows.Add(Switch("Jumper.ThinkFail", "Think to yourself when a jump does not happen.", false));
         rows.Add(Whole("Jumper.Attempts", "How many times a jump is tried before giving up.", 3));
+
+        // The portal command: whether it thinks or writes how a use went,
+        // how long one try is given, and how many tries it makes.
+        rows.Add(Switch("Plugin.PortalThink", "Think to yourself when portal use success/fail.", false));
+        rows.Add(Whole("Plugin.PortalTimeout", "Timeout to retry portal use, in milliseconds.", 5000));
+        rows.Add(Whole("Plugin.PortalAttempts", "Attempts to retry using a portal.", 3));
 
         // One switch for both directions of sharing, as the original has it:
         // what this character tells the others and what it takes in from them.

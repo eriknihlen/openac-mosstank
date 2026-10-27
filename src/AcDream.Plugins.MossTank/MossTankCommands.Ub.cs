@@ -1444,14 +1444,117 @@ internal sealed partial class MossTankPanel
             return;
         }
         WriteUb($"Attempting to use portal: {portal.Name}");
+        UsePortal(portal);
+    }
+
+    // The portal use under way: the portal, the number of the next try
+    // (zero when none is under way), and the milliseconds since the last
+    // try.
+    private PluginWorldObject _portalTarget;
+    private int _portalAttempts;
+    private double _portalSinceTryMilliseconds;
+
+    /// <summary>How long a try at the portal is given before the next, in milliseconds.</summary>
+    private int PortalTimeoutMilliseconds =>
+        _ubCatalog.Require("Plugin.PortalTimeout").Get().AsInt32();
+
+    /// <summary>How many times the portal is tried before giving up.</summary>
+    private int PortalAttemptLimit =>
+        _ubCatalog.Require("Plugin.PortalAttempts").Get().AsInt32();
+
+    /// <summary>
+    /// Starts using a portal. The route is held still for as long as the use
+    /// is under way -- otherwise a route whose next point lies past the
+    /// portal walks the character off the portal on the very next frame --
+    /// the character's own run is stopped, and the first try goes out a
+    /// quarter of a second from now. The frame does the tries
+    /// (<see cref="TickPortalUse"/>); entering portal space ends it
+    /// (<see cref="OnPortalUseTransition"/>).
+    /// </summary>
+    private void UsePortal(in PluginWorldObject portal)
+    {
+        _portalTarget = portal;
+        int timeout = PortalTimeoutMilliseconds;
+        _actionLocks.Arm(ActionLockKind.Navigation, (500 + timeout) / 1000d);
+        _portalAttempts = 1;
+        // As if the last try went out a quarter second short of the timeout,
+        // so the first one goes on the frame a quarter second from now.
+        _portalSinceTryMilliseconds = timeout - 250;
+        _host.Automation.Navigation.ClearMovementIntent();
         WriteUbToolDebug(UbChat.Tools.Plugin, "Attempting to use portal " + portal.Name);
-        PluginItemCommandResult result = _host.Automation.Items.Use(portal.ObjectId);
-        if (!result.Accepted)
+    }
+
+    /// <summary>
+    /// One frame of a portal use: once the timeout has passed since the last
+    /// try, the next try goes out with the route held for another timeout;
+    /// after the last one the use is given up.
+    /// </summary>
+    private void TickPortalUse(double elapsedSeconds)
+    {
+        if (_portalAttempts <= 0)
+            return;
+        if (double.IsFinite(elapsedSeconds) && elapsedSeconds > 0d)
+            _portalSinceTryMilliseconds += elapsedSeconds * 1000d;
+        int timeout = PortalTimeoutMilliseconds;
+        if (_portalSinceTryMilliseconds <= timeout)
+            return;
+
+        if (_portalAttempts <= PortalAttemptLimit)
         {
-            PostUb(UbChat.Tool(
-                UbChat.Tools.Plugin,
-                $"Unable to use portal {portal.Name}: {result.Status}"));
+            if (_portalAttempts > 1)
+                WriteUbToolDebug(UbChat.Tools.Plugin, "Use Portal Timed out, trying again");
+            _actionLocks.Arm(ActionLockKind.Navigation, (500 + timeout) / 1000d);
+            _portalAttempts++;
+            _portalSinceTryMilliseconds = 0d;
+            _host.Automation.Items.Use(_portalTarget.ObjectId);
+            return;
         }
+
+        PostUb(UbChat.Tool(UbChat.Tools.Plugin, "Unable to use portal " + _portalTarget.Name));
+        // A turn of one degree cancels the last use still walking to the portal.
+        INavigationAutomation navigation = _host.Automation.Navigation;
+        navigation.FaceHeading(navigation.Snapshot.Position.HeadingDegrees - 1f);
+        FinishPortal(success: false);
+    }
+
+    /// <summary>
+    /// A portal transition the host reported: entering portal space while a
+    /// portal use is under way is the use done. A completed hop counts too,
+    /// for a host that reports a short hop only by its end.
+    /// </summary>
+    private void OnPortalUseTransition(PluginPortalTransition transition)
+    {
+        if (_portalAttempts > 0
+            && transition.Kind == PluginPortalTransitionKind.Portal
+            && !transition.IsCancelled)
+        {
+            FinishPortal(success: true);
+        }
+    }
+
+    /// <summary>
+    /// Ends a portal use either way: says how it went (a think when
+    /// Plugin.PortalThink is on) and lets the route go.
+    /// </summary>
+    private void FinishPortal(bool success)
+    {
+        UbChat.ThinkOrWrite(
+            _host.Automation,
+            success ? "portal used successfully" : "failed to use portal",
+            _ubCatalog.Require("Plugin.PortalThink").Get().Boolean);
+        _portalTarget = default;
+        _portalAttempts = 0;
+        _actionLocks.Release(ActionLockKind.Navigation);
+    }
+
+    /// <summary>The session ended: a portal use under way ends with it, silently.</summary>
+    private void ResetPortalUse()
+    {
+        if (_portalAttempts > 0)
+            _actionLocks.Release(ActionLockKind.Navigation);
+        _portalTarget = default;
+        _portalAttempts = 0;
+        _portalSinceTryMilliseconds = 0d;
     }
 
     // ── /ub follow ──────────────────────────────────────────────────────
