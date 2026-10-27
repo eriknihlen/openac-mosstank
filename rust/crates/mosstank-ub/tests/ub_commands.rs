@@ -11,7 +11,9 @@ use ac_plugin_abi::items::LootContainer;
 use ac_plugin_abi::magic::SpellInfo;
 use ac_plugin_abi::navigation::{MoveChannel, MoveDirection, MovePace, MoveUnit};
 use ac_plugin_abi::social::{AllegianceResult, AllegianceStatus, LoginCharacter};
-use ac_plugin_abi::world::{ItemProperties, ObjectClass, Position, WeaponProfile, WorldObject};
+use ac_plugin_abi::world::{
+    ItemProperties, ObjectClass, PortalTransition, Position, WeaponProfile, WorldObject,
+};
 use common::{NOW_UTC_MS, PLUGIN_VERSION, Rig, carried, landscape, navigation_at, player};
 use mosstank_automation::locks::ActionLockKind;
 use mosstank_expr::ExpressionValue;
@@ -1319,6 +1321,9 @@ fn closest_portal_uses_the_nearest_portal() {
         landscape(91, "Near Portal", ObjectClass::Portal, 5.0),
     ];
     rig.ub("closestportal");
+    // The first try goes out on the frame a quarter second later.
+    assert!(rig.host.used.is_empty());
+    rig.tick(0.3);
     assert_eq!(vec![91], rig.host.used);
     assert!(
         rig.messages()
@@ -1335,7 +1340,172 @@ fn portal_by_partial_name_uses_the_matching_portal() {
         landscape(93, "Holtburg Portal", ObjectClass::Portal, 40.0),
     ];
     rig.ub("portalp Holt");
+    rig.tick(0.3);
     assert_eq!(vec![93], rig.host.used);
+}
+
+/// Entering portal space, as the client reports it.
+fn enter_portal_space(rig: &mut Rig, revision: i64) {
+    let transition = PortalTransition {
+        revision,
+        generation: revision,
+        kind: 2,
+        ..PortalTransition::default()
+    };
+    rig.with_call(|call, commands| commands.on_portal_transition(call, &transition));
+}
+
+fn navigation_locked(rig: &Rig) -> bool {
+    rig.locks.borrow_mut().is_locked(ActionLockKind::Navigation)
+}
+
+/// A notice of hop `generation`, completed or still entering.
+fn portal_hop(rig: &mut Rig, generation: i64, completed: bool) {
+    let transition = PortalTransition {
+        revision: generation,
+        generation,
+        is_ready: completed,
+        is_materialized: completed,
+        is_completed: completed,
+        kind: 2,
+        ..PortalTransition::default()
+    };
+    rig.with_call(|call, commands| commands.on_portal_transition(call, &transition));
+}
+
+// C# source: MossTankPanelTests.UbCommands.cs :: AHopAlreadyUnderWayDoesNotEndThePortalUse (on main; not yet in this branch's C# tree)
+#[test]
+fn a_hop_already_under_way_does_not_end_the_portal_use() {
+    let mut rig = Rig::new().at_heading(0.0);
+    rig.host.meta.objects = vec![landscape(92, "Gateway", ObjectClass::Portal, 5.0)];
+    portal_hop(&mut rig, 7, false);
+
+    rig.ub("portal Gateway");
+    portal_hop(&mut rig, 7, true);
+
+    assert!(
+        !rig.messages()
+            .contains(&"[UB] portal used successfully".to_owned())
+    );
+    assert!(navigation_locked(&rig));
+    rig.tick(0.3);
+    assert_eq!(vec![92], rig.host.used);
+
+    portal_hop(&mut rig, 8, false);
+
+    assert!(
+        rig.messages()
+            .contains(&"[UB] portal used successfully".to_owned())
+    );
+    assert!(!navigation_locked(&rig));
+}
+
+// C# source: MossTankPanelTests.UbCommands.cs :: APortalNeverEnteredIsTriedPortalAttemptsTimesThenGivenUp (on main; not yet in this branch's C# tree)
+#[test]
+fn a_portal_never_entered_is_tried_portal_attempts_times_then_given_up() {
+    let mut rig = Rig::new().at_heading(90.0);
+    rig.host.meta.objects = vec![landscape(92, "Gateway", ObjectClass::Portal, 5.0)];
+
+    rig.ub("portal Gateway");
+    assert!(navigation_locked(&rig));
+
+    // Tries at a quarter second, then five seconds apart.
+    rig.tick(0.2);
+    assert!(rig.host.used.is_empty());
+    rig.tick(0.1);
+    assert_eq!(1, rig.host.used.len());
+    rig.tick(4.9);
+    assert_eq!(1, rig.host.used.len());
+    rig.tick(0.2);
+    assert_eq!(2, rig.host.used.len());
+    rig.tick(5.1);
+    assert_eq!(vec![92, 92, 92], rig.host.used);
+    assert!(navigation_locked(&rig));
+    assert!(
+        !rig.messages()
+            .iter()
+            .any(|line| line.contains("Unable to use portal"))
+    );
+
+    rig.tick(5.1);
+
+    assert_eq!(3, rig.host.used.len());
+    let messages = rig.messages();
+    assert_eq!(
+        [
+            "[UB] Plugin: Unable to use portal Gateway",
+            "[UB] failed to use portal"
+        ],
+        messages[messages.len() - 2..]
+    );
+    assert_eq!(vec![89.0f32], rig.host.faced_headings);
+    assert!(!navigation_locked(&rig));
+
+    // Over: nothing more is tried.
+    rig.tick(10.0);
+    assert_eq!(3, rig.host.used.len());
+}
+
+// C# source: MossTankPanelTests.UbCommands.cs :: ThePortalSettingsShapeTheUseAndItsOutcome (on main; not yet in this branch's C# tree)
+#[test]
+fn the_portal_settings_shape_the_use_and_its_outcome() {
+    let mut rig = Rig::new().at_heading(0.0);
+    rig.host.meta.objects = vec![landscape(92, "Gateway", ObjectClass::Portal, 5.0)];
+    rig.ub("opt set Plugin.PortalThink True");
+    rig.ub("opt set Plugin.PortalTimeout 1000");
+    rig.ub("opt set Plugin.PortalAttempts 1");
+
+    rig.ub("portal Gateway");
+    rig.tick(0.3);
+    assert_eq!(1, rig.host.used.len());
+    rig.tick(1.1);
+
+    assert_eq!(1, rig.host.used.len());
+    assert_eq!(
+        Some(&"/t Test Character, failed to use portal".to_owned()),
+        rig.submitted().last()
+    );
+    assert!(!navigation_locked(&rig));
+
+    rig.ub("portal Gateway");
+    rig.tick(0.3);
+    enter_portal_space(&mut rig, 2);
+
+    assert_eq!(
+        Some(&"/t Test Character, portal used successfully".to_owned()),
+        rig.submitted().last()
+    );
+    assert!(!navigation_locked(&rig));
+}
+
+// C# source: MossTankPanelTests.UbCommands.cs :: APortalUseHoldsTheRouteUntilPortalSpaceAndThenLetsItGo (on main; not yet in this branch's C# tree)
+// (the lock and its release; the route standing still is pinned in the
+// plugin crate's panel_ub_commands).
+#[test]
+fn entering_portal_space_ends_the_portal_use_and_lets_the_route_go() {
+    let mut rig = Rig::new().at_heading(0.0);
+    rig.host.meta.objects = vec![landscape(92, "Gateway", ObjectClass::Portal, 5.0)];
+
+    rig.ub("use Gateway");
+    assert!(
+        rig.messages()
+            .contains(&"[UB] Attempting to use portal: Gateway".to_owned())
+    );
+    for _ in 0..60 {
+        rig.tick(0.05);
+        assert!(navigation_locked(&rig));
+    }
+    assert_eq!(vec![92], rig.host.used);
+
+    enter_portal_space(&mut rig, 1);
+
+    assert_eq!(
+        Some(&"[UB] portal used successfully".to_owned()),
+        rig.messages().last()
+    );
+    assert!(!navigation_locked(&rig));
+    rig.tick(10.0);
+    assert_eq!(vec![92], rig.host.used);
 }
 
 // Source: tests/AcDream.Plugins.MossTank.Tests/MossTankPanelTests.UbCommands.cs :: APortalNobodyCanSeeIsReported

@@ -129,7 +129,9 @@ impl Tank {
             // The profile set is loading, a step a tick: the rest of the
             // frame waits until it is whole, and a frame that ends a load
             // of several frames leaves the rest to the next (register
-            // PROF-1).
+            // PROF-1). A portal use under way is not held up by it: the lock
+            // clock has run on, so its tries and its route hold go on too.
+            cx.with_ub(|commands, call| commands.tick_portal_use(call, elapsed_seconds));
             cx.core.write_out(cx.client);
             return;
         }
@@ -208,6 +210,8 @@ impl Tank {
             scheduler.start(&mut cx);
             cx.core.scheduler_running = scheduler.is_running();
             cx.core.locks.borrow_mut().clear_all();
+            // A portal use under way keeps the route held through it.
+            cx.with_ub(|commands, call| commands.rearm_portal_hold(call));
             cx.core.reset_once_per_run_warnings();
             cx.core.vendor_trade.on_macro_started();
         } else if !scheduler_active && scheduler.is_running() {

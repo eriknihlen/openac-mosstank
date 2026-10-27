@@ -235,11 +235,6 @@ fn build_accepted_only() -> Vec<UbSettingDefinition> {
             UbSettingScope::Character,
         ),
         switch(
-            "Plugin.PortalThink",
-            "Think to yourself when a portal is not found.",
-            false,
-        ),
-        switch(
             "AutoSalvage.Think",
             "Kept for macros; there is no auto-salvage here.",
             false,
@@ -793,6 +788,24 @@ fn add_behaviour_tools(rows: &mut Vec<UbSettingDefinition>) {
     rows.push(whole(
         "Jumper.Attempts",
         "How many times a jump is tried before giving up.",
+        3,
+    ));
+
+    // The portal command: whether it thinks or writes how a use went, how
+    // long one try is given, and how many tries it makes.
+    rows.push(switch(
+        "Plugin.PortalThink",
+        "Think to yourself when portal use success/fail.",
+        false,
+    ));
+    rows.push(whole(
+        "Plugin.PortalTimeout",
+        "Timeout to retry portal use, in milliseconds.",
+        5000,
+    ));
+    rows.push(whole(
+        "Plugin.PortalAttempts",
+        "Attempts to retry using a portal.",
         3,
     ));
 
