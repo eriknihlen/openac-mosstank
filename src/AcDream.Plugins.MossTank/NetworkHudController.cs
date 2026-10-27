@@ -265,12 +265,12 @@ internal sealed class NetworkHudController : IDisposable
             if (next != _settings)
             {
                 // A place written elsewhere (the page, /ub opt set) moves the
-                // readout, unless a drag is under way.
-                bool moved = (next.WindowX, next.WindowY) != (_settings.WindowX, _settings.WindowY);
+                // readout, unless a press is under way; it is taken up when
+                // the press ends.
                 _settings = next;
                 _dirty = true;
-                if (moved && _grab is null && _canvas is not null)
-                    _canvas.Offset = _settings.CanvasOffset;
+                if (_grab is null)
+                    Place();
             }
         }
         bool visible = ShouldShow;
@@ -340,11 +340,23 @@ internal sealed class NetworkHudController : IDisposable
     /// changes, so nothing is repainted.
     /// </summary>
     /// <remarks>
+    /// <para>
     /// The readout stays put while the button is held. Moved under a held
     /// pointer, the next positions the host reports would be measured from
     /// a place the readout may not have reached yet, since the host takes a
     /// new place on its next frame; held still, every position is measured
-    /// from one place.
+    /// from one place. A place written elsewhere during the press is taken
+    /// up when the press ends, however it ends.
+    /// </para>
+    /// <para>
+    /// Two differences from the reference (the Rust line's divergence
+    /// register, UB-10): it drags its readout only with Ctrl held and only
+    /// while its window is shut, and moves it under the pointer as it goes.
+    /// Here a plain left drag moves it at any time, since the canvas takes
+    /// the pointer and no click over it reaches the world, and it moves when
+    /// the button comes up, for the reason above. Neither has a drag
+    /// threshold or keeps the readout on the screen.
+    /// </para>
     /// </remarks>
     private void OnPointer(PluginPointerEvent pointerEvent)
     {
@@ -365,22 +377,32 @@ internal sealed class NetworkHudController : IDisposable
                 _grab = null;
                 int dx = WholePixels(pointerEvent.Position.X - grab.X);
                 int dy = WholePixels(pointerEvent.Position.Y - grab.Y);
-                if (dx == 0 && dy == 0)
-                    return;
-                _settings = _settings with
+                if ((dx != 0 || dy != 0) && _canvas is not null)
                 {
-                    WindowX = SaturatingAdd(_settings.WindowX, dx),
-                    WindowY = SaturatingAdd(_settings.WindowY, dy),
-                };
-                _saveWindowPosition(_settings.WindowX, _settings.WindowY);
-                if (_canvas is not null)
-                    _canvas.Offset = _settings.CanvasOffset;
+                    // Measured from where the readout stood under the press.
+                    PluginPoint stood = _canvas.Offset;
+                    _settings = _settings with
+                    {
+                        WindowX = SaturatingAdd(WholePixels(stood.X - HudXOffset), dx),
+                        WindowY = SaturatingAdd(WholePixels(stood.Y - HudYOffset), dy),
+                    };
+                    _saveWindowPosition(_settings.WindowX, _settings.WindowY);
+                }
+                Place();
                 break;
             }
             case PluginPointerEventKind.Cancelled:
                 _grab = null;
+                Place();
                 break;
         }
+    }
+
+    /// <summary>Puts the canvas where the saved window position says, when it is not there already.</summary>
+    private void Place()
+    {
+        if (_canvas is not null && _canvas.Offset != _settings.CanvasOffset)
+            _canvas.Offset = _settings.CanvasOffset;
     }
 
     /// <summary>A drag's distance as whole pixels, the way a window position is kept.</summary>
@@ -450,7 +472,11 @@ internal sealed class NetworkHudController : IDisposable
             // A character the world shows is measured where it stands, as the
             // reference does: what its client said is only as fresh as its
             // last word, and a client that does not share its state keeps the
-            // place it entered the world at.
+            // place it entered the world at. The arrow aims at the same place;
+            // the reference aims it at the coordinates the client shared even
+            // while it measures from the world object, which with a stale
+            // record points away from a character standing beside you (the
+            // Rust line's divergence register, UB-9).
             PluginNavigationPosition theirs = client.Position;
             if (client.PlayerId != 0u
                 && _objects.TryGet(client.PlayerId, out PluginWorldObject seen)

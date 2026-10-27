@@ -350,6 +350,35 @@ public sealed class NetworkHudControllerTests
     }
 
     /// <summary>
+    /// A place written elsewhere while the button is held waits for the
+    /// press to end, and is taken up when it ends as a click that did not
+    /// move or as a press the host cancels. Mutation: re-place the canvas
+    /// only after a drag that moved and it stays at the old place.
+    /// </summary>
+    [Fact]
+    public void APlaceWrittenDuringAPressIsTakenUpWhenThePressEnds()
+    {
+        var rig = new Rig();
+        rig.Ticks(1);
+        LandscapeMapControllerTests.FakeCanvas canvas = rig.Canvas;
+
+        canvas.Down(100d, 10d);
+        rig.Settings = rig.Settings with { WindowX = 10, WindowY = 20 };
+        rig.Ticks(20);
+        Assert.Equal(new PluginPoint(26d, 165d), canvas.Offset);
+        canvas.Up(100d, 10d);
+        Assert.Equal(new PluginPoint(14d, 80d), canvas.Offset);
+
+        canvas.Down(100d, 10d);
+        rig.Settings = rig.Settings with { WindowX = 30, WindowY = 40 };
+        rig.Ticks(20);
+        Assert.Equal(new PluginPoint(14d, 80d), canvas.Offset);
+        canvas.Cancel(0d, 0d);
+        Assert.Equal(new PluginPoint(34d, 100d), canvas.Offset);
+        Assert.Empty(rig.Saved);
+    }
+
+    /// <summary>
     /// The readout opens where its character left it, and moves when the
     /// row is written elsewhere (the UB page, /ub opt set). Mutation: keep
     /// the fixed place and it opens at (26, 165).
