@@ -1823,6 +1823,18 @@ public sealed partial class MossTankPanelTests
         }
         Assert.Equal(92u, Assert.Single(automation.UsedItemIds));
 
+        // On through the retry five seconds after the first try: the route
+        // is still held while the second try goes out.
+        for (int frame = 0; frame < 50; frame++)
+        {
+            panel.OnTick(0.05d);
+            Assert.True(
+                walksBefore == automation.MovementIntents.Count(static intent => intent.Forward),
+                $"the route walked during the retry at frame {frame}");
+            Assert.True(panel.ActionLocks.IsLocked(ActionLockKind.Navigation));
+        }
+        Assert.Equal([92u, 92u], automation.UsedItemIds);
+
         // Portal space: the use is done and the route is let go.
         ((FakeEvents)host.Events).RaisePortalTransition(new PluginPortalTransition(
             1, 1, 0u, IsReady: false, IsMaterialized: false, IsCompleted: false, IsCancelled: false)
@@ -1837,7 +1849,78 @@ public sealed partial class MossTankPanelTests
         Assert.True(
             automation.MovementIntents.Count(static intent => intent.Forward) > walksBefore,
             "the route walks on once the portal use is done");
+        Assert.Equal([92u, 92u], automation.UsedItemIds);
+    }
+
+    private static PluginPortalTransition PortalHop(
+        long generation,
+        bool completed = false) =>
+        new(generation, generation, 0u, IsReady: completed, IsMaterialized: completed,
+            IsCompleted: completed, IsCancelled: false)
+        {
+            Kind = PluginPortalTransitionKind.Portal,
+        };
+
+    /// <summary>
+    /// A hop already under way when the portal command runs (a recall the
+    /// route counted done before it landed) is not this portal: its later
+    /// notices leave the use going, and only a new hop's entry ends it, as
+    /// the reference ends it only on the entering edge.
+    /// Mutation: finish on any portal notice, whatever its generation, and
+    /// the old hop's completion ends the use before a single try.
+    /// </summary>
+    [Fact]
+    public void AHopAlreadyUnderWayDoesNotEndThePortalUse()
+    {
+        var automation = new FakeAutomation
+        {
+            NavigationSnapshot = NavigationAt(0f),
+            WorldObjects = [Landscape(92u, "Gateway", PluginObjectClass.Portal, 5d)],
+        };
+        var host = new FakeHost(automation);
+        var events = (FakeEvents)host.Events;
+        var panel = new MossTankPanel(host);
+        events.RaisePortalTransition(PortalHop(7));
+
+        UbCommand(panel, "portal Gateway");
+        events.RaisePortalTransition(PortalHop(7, completed: true));
+
+        Assert.DoesNotContain("[UB] portal used successfully", automation.Messages);
+        Assert.True(panel.ActionLocks.IsLocked(ActionLockKind.Navigation));
+        panel.OnTick(0.3d);
         Assert.Equal(92u, Assert.Single(automation.UsedItemIds));
+
+        events.RaisePortalTransition(PortalHop(8));
+
+        Assert.Contains("[UB] portal used successfully", automation.Messages);
+        Assert.False(panel.ActionLocks.IsLocked(ActionLockKind.Navigation));
+    }
+
+    /// <summary>
+    /// Starting the macro clears every slot; a portal use under way keeps
+    /// the route held through it.
+    /// Mutation: leave the hold out of the macro start and the route is let
+    /// go on the frame the macro starts.
+    /// </summary>
+    [Fact]
+    public void StartingTheMacroKeepsAPortalUseHoldingTheRoute()
+    {
+        var automation = new FakeAutomation
+        {
+            NavigationSnapshot = NavigationAt(0f),
+            CurrentHealth = 100,
+            MaxHealth = 100,
+            WorldObjects = [Landscape(92u, "Gateway", PluginObjectClass.Portal, 5d)],
+        };
+        var panel = new MossTankPanel(new FakeHost(automation));
+        UbCommand(panel, "portal Gateway");
+        panel.OnTick(0.3d);
+        Assert.Single(automation.UsedItemIds);
+
+        panel.ToggleCombat();
+        panel.OnTick(0.05d);
+
+        Assert.True(panel.ActionLocks.IsLocked(ActionLockKind.Navigation));
     }
 
     /// <summary>

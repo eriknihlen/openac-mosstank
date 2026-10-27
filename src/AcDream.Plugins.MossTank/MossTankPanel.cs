@@ -5452,6 +5452,7 @@ internal sealed partial class MossTankPanel : IBuffRuleHost, IDisposable
             ReleaseTransactionSuspension();
             _scheduler.Start();
             _actionLocks.ClearAll();
+            RearmPortalHold();
             ResetOncePerRunWarnings();
             _vendorTrade.OnMacroStarted();
         }
