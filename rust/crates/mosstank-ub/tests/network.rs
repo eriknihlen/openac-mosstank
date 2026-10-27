@@ -10,9 +10,11 @@ use ac_plugin_abi::world::{ObjectClass, Position, WorldObject};
 use mosstank_formats::meta::{
     MetaAction, MetaActionKind, MetaCondition, MetaConditionKind, MetaProfile, MetaRule,
 };
+use mosstank_settings::ub::{UbSettingCatalog, UbSettingScope, UbSettingValueBag, UbSettingValues};
 use mosstank_ub::canvas::{MapCanvasSpec, MapImage, MapPainter, MapUi};
 use mosstank_ub::hud::{
-    self, HUD_WIDTH, NetworkHudController, NetworkHudSettings, NetworkHudSettingsSource, ROW_HEIGHT,
+    self, CatalogHudSettings, HUD_WIDTH, NetworkHudController, NetworkHudSettings,
+    NetworkHudSettingsSource, ROW_HEIGHT,
 };
 use mosstank_ub::network::{PeerFeatureSubscriptions, capabilities, meta_peer_requirements};
 use mosstank_ub::testing::FakeUbHost;
@@ -567,8 +569,7 @@ fn standing(id: u32, position: Option<Position>) -> WorldObject {
     }
 }
 
-// Not a port yet: its C# counterpart (NetworkHudControllerTests.cs,
-// AClientInSightIsMeasuredWhereItStandsNotWhereItsClientLastSaid) comes with the C# line's fix.
+// C# source: NetworkHudControllerTests.cs :: AClientInSightIsMeasuredWhereItStandsNotWhereItsClientLastSaid
 #[test]
 fn a_client_in_sight_is_measured_where_it_stands_not_where_its_client_last_said() {
     let mut rig = Rig::new();
@@ -600,8 +601,7 @@ fn a_client_in_sight_is_measured_where_it_stands_not_where_its_client_last_said(
     assert_eq!("240", rig.controller.rows()[1].distance_text);
 }
 
-// Not a port yet: its C# counterpart (NetworkHudControllerTests.cs,
-// TheDistanceCountsTheHeightBetweenThem) comes with the C# line's fix.
+// C# source: NetworkHudControllerTests.cs :: TheDistanceCountsTheHeightBetweenThem
 #[test]
 fn the_distance_counts_the_height_between_them() {
     let mut rig = Rig::new();
@@ -715,8 +715,7 @@ fn a_shift_click_on_a_row_selects_that_character() {
     assert_eq!(1, rig.canvas().invalidations);
 }
 
-// Not a port yet: its C# counterpart (NetworkHudControllerTests.cs,
-// ALeftDragMovesTheReadoutAndKeepsItsWindowPosition) comes with the C# line's fix.
+// C# source: NetworkHudControllerTests.cs :: ALeftDragMovesTheReadoutAndKeepsItsWindowPosition
 #[test]
 fn a_left_drag_moves_the_readout_and_keeps_its_window_position() {
     let mut rig = Rig::new();
@@ -756,8 +755,69 @@ fn a_left_drag_moves_the_readout_and_keeps_its_window_position() {
     assert_eq!(1, rig.settings.1.len());
 }
 
-// Not a port yet: its C# counterpart (NetworkHudControllerTests.cs,
-// TheReadoutOpensAtItsSavedWindowPositionAndFollowsTheRow) comes with the C# line's fix.
+// C# source: NetworkHudControllerTests.cs :: APlaceWrittenDuringAPressIsTakenUpWhenThePressEnds
+#[test]
+fn a_place_written_during_a_press_is_taken_up_when_the_press_ends() {
+    let mut rig = Rig::new();
+    rig.ticks(1);
+    // Written elsewhere while the button is held: the readout waits.
+    rig.pointer(0, 100.0, 10.0, false);
+    rig.settings.0.window_x = 10;
+    rig.settings.0.window_y = 20;
+    rig.ticks(20);
+    assert_eq!((26.0, 165.0), rig.canvas().offset);
+    // A click that did not move ends the press: the readout goes there.
+    rig.pointer(1, 100.0, 10.0, false);
+    assert_eq!((14.0, 80.0), rig.canvas().offset);
+
+    // The same for a press the host cancels.
+    rig.pointer(0, 100.0, 10.0, false);
+    rig.settings.0.window_x = 30;
+    rig.settings.0.window_y = 40;
+    rig.ticks(20);
+    assert_eq!((14.0, 80.0), rig.canvas().offset);
+    rig.pointer(4, 0.0, 0.0, false);
+    assert_eq!((34.0, 100.0), rig.canvas().offset);
+    assert!(rig.settings.1.is_empty());
+}
+
+// C# source: MossTankPanelTests.UbClients.cs :: TheWindowPositionIsKeptInTheCharactersRows
+#[test]
+fn the_window_position_is_kept_in_the_characters_rows() {
+    let mut catalog = UbSettingCatalog::new(UbSettingValueBag::default(), Vec::new());
+    let read = hud::read_settings(&catalog);
+    assert_eq!((22, 105), (read.window_x, read.window_y));
+
+    CatalogHudSettings(&mut catalog).save_window_position(300, 40);
+    let read = CatalogHudSettings(&mut catalog).read();
+    assert_eq!((300, 40), (read.window_x, read.window_y));
+    for (name, value) in [
+        ("NetworkUI.WindowPositionX", 300),
+        ("NetworkUI.WindowPositionY", 40),
+    ] {
+        assert_eq!(
+            Some(value),
+            catalog
+                .values()
+                .read(UbSettingScope::Character, name)
+                .map(|v| v.as_int32())
+        );
+        assert!(
+            catalog
+                .values()
+                .read(UbSettingScope::Global, name)
+                .is_none()
+        );
+        assert!(
+            catalog
+                .values()
+                .read(UbSettingScope::Profile, name)
+                .is_none()
+        );
+    }
+}
+
+// C# source: NetworkHudControllerTests.cs :: TheReadoutOpensAtItsSavedWindowPositionAndFollowsTheRow
 #[test]
 fn the_readout_opens_at_its_saved_window_position_and_follows_the_row() {
     let mut rig = Rig::with(NetworkHudSettings {
@@ -855,8 +915,7 @@ fn the_paint_draws_bars_text_arrows_and_tracked_counts() {
     assert!(peer_only.images.is_empty());
 }
 
-// Not a port yet: its C# counterpart (NetworkHudControllerTests.cs,
-// AnotherClientsRowIsLabelledWithTheNameAlone) comes with the C# line's fix.
+// C# source: NetworkHudControllerTests.cs :: AnotherClientsRowIsLabelledWithTheNameAlone
 /// Another client's row is labelled with the character's name and nothing
 /// else: the client's number in front of it read as a list of ids before
 /// the names.

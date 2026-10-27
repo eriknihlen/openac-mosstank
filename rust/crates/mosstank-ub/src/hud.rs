@@ -16,7 +16,10 @@
 //! pointer went since the press. Moving it under a held pointer would make
 //! the next positions the client reports relative to a place the readout
 //! may not have reached yet, since the client takes a new place only on
-//! its next frame; held still, every position is relative to one place.
+//! its next frame; held still, every position is relative to one place. A
+//! place written elsewhere during a press is taken up when the press ends.
+//! The reference drags only with Ctrl held and moves under the pointer
+//! (divergence register, UB-10).
 //!
 //! Distances are measured as the reference measures them: across the
 //! ground and up together, and from where a character the world shows
@@ -252,6 +255,8 @@ pub struct NetworkHudController {
     rows: Vec<NetworkHudRow>,
     /// The point of the canvas a left press took hold of, while it is held.
     grab: Option<(f64, f64)>,
+    /// Where the canvas was last put, pixels from the screen's top-left.
+    placed: (f64, f64),
 }
 
 impl NetworkHudController {
@@ -270,6 +275,20 @@ impl NetworkHudController {
             dirty: true,
             rows: Vec::new(),
             grab: None,
+            placed: (0.0, 0.0),
+        }
+    }
+
+    /// Puts the canvas where the saved window position says, when it is
+    /// not there already.
+    fn place(&mut self, ui: &mut dyn MapUi) {
+        let Some(canvas) = self.canvas else {
+            return;
+        };
+        let target = self.settings.canvas_offset();
+        if self.placed != target {
+            self.placed = target;
+            ui.set_canvas_offset(canvas, target);
         }
     }
 
@@ -345,15 +364,10 @@ impl NetworkHudController {
             if next != self.settings {
                 // A place written elsewhere (the page, `/ub opt set`) moves
                 // the readout, unless a drag is under way.
-                let moved = (next.window_x, next.window_y)
-                    != (self.settings.window_x, self.settings.window_y);
                 self.settings = next;
                 self.dirty = true;
-                if moved
-                    && self.grab.is_none()
-                    && let Some(canvas) = self.canvas
-                {
-                    ui.set_canvas_offset(canvas, self.settings.canvas_offset());
+                if self.grab.is_none() {
+                    self.place(ui);
                 }
             }
         }
@@ -367,6 +381,7 @@ impl NetworkHudController {
                 start_visible: false,
                 accepts_pointer_input: true,
             });
+            self.placed = self.settings.canvas_offset();
             self.canvas_visible = false;
         }
         let Some(canvas) = self.canvas else {
@@ -452,19 +467,23 @@ impl NetworkHudController {
                 };
                 let dx = whole_pixels(f64::from(event.x) - x);
                 let dy = whole_pixels(f64::from(event.y) - y);
-                if dx == 0 && dy == 0 {
-                    return;
+                if (dx != 0 || dy != 0) && self.canvas.is_some() {
+                    // Measured from where the readout stood under the press.
+                    let window_x =
+                        whole_pixels(self.placed.0 - f64::from(HUD_X_OFFSET)).saturating_add(dx);
+                    let window_y =
+                        whole_pixels(self.placed.1 - f64::from(HUD_Y_OFFSET)).saturating_add(dy);
+                    self.settings.window_x = window_x;
+                    self.settings.window_y = window_y;
+                    settings.save_window_position(window_x, window_y);
                 }
-                let window_x = self.settings.window_x.saturating_add(dx);
-                let window_y = self.settings.window_y.saturating_add(dy);
-                self.settings.window_x = window_x;
-                self.settings.window_y = window_y;
-                settings.save_window_position(window_x, window_y);
-                if let Some(canvas) = self.canvas {
-                    ui.set_canvas_offset(canvas, self.settings.canvas_offset());
-                }
+                // A place written elsewhere during the press is taken up now.
+                self.place(ui);
             }
-            POINTER_CANCELLED => self.grab = None,
+            POINTER_CANCELLED => {
+                self.grab = None;
+                self.place(ui);
+            }
             _ => {}
         }
     }
@@ -524,7 +543,9 @@ impl NetworkHudController {
             // A character the world shows is measured where it stands, as
             // the reference does: what its client said is only as fresh as
             // its last word, and a client that does not share its state
-            // keeps the place it entered the world at.
+            // keeps the place it entered the world at. The arrow aims at the
+            // same place, where the reference aims it at the shared
+            // coordinates (divergence register, UB-9).
             let seen = if client.player_id == 0 {
                 None
             } else {
