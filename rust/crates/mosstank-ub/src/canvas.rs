@@ -63,6 +63,8 @@ pub trait MapUi {
     fn register_canvas(&mut self, spec: &MapCanvasSpec) -> Option<u32>;
     /// Shows or hides it.
     fn set_canvas_visible(&mut self, canvas: u32, visible: bool);
+    /// Moves it: pixels from the screen's top-left (`IPluginCanvas.Offset`).
+    fn set_canvas_offset(&mut self, canvas: u32, offset: (f64, f64));
     /// Asks for a repaint: [`DungeonMapController::paint`] on the next
     /// frame.
     fn invalidate_canvas(&mut self, canvas: u32);

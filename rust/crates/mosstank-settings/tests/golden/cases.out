@@ -1498,6 +1498,8 @@ NetworkUI.Enabled|Bool|Global|NetworkUI|"False"|"False"|"NetworkUI.Enabled (Prof
 NetworkUI.ShowHudWhenClosed|Bool|Global|NetworkUI|"True"|"True"|"NetworkUI.ShowHudWhenClosed (Profile) = True"|"Keep the readout on screen while the main window is shut."|
 NetworkUI.TrackedItems|Collection|Profile|NetworkUI|""|"(empty)"|"NetworkUI.TrackedItems (Profile) = []"|"Items whose count is shown for every character, one name a line."|
 NetworkUI.SelectedTag|String|Character|NetworkUI|"All"|"All"|"NetworkUI.SelectedTag (State) = All"|"Which tag's characters the panel lists; All lists every one."|
+NetworkUI.WindowPositionX|Int|Character|NetworkUI|"22"|"22"|"NetworkUI.WindowPositionX (State) = 22"|"Where the readout's window sits for this character, pixels from the left."|
+NetworkUI.WindowPositionY|Int|Character|NetworkUI|"105"|"105"|"NetworkUI.WindowPositionY (State) = 105"|"Where the readout's window sits for this character, pixels from the top."|
 Networking.Tags|Collection|Character|Networking|""|"(empty)"|"Networking.Tags (State) = []"|"Names for this character that a broadcast can be aimed at, one a line."|
 Plugin.Debug|Bool|Profile|Plugin|"False"|"False"|"Plugin.Debug (Profile) = False"|"Show debug messages."|
 Plugin.GenericMessageDisplay.Enabled|Bool|Profile|Plugin|"True"|"True"|"Plugin.GenericMessageDisplay.Enabled (Profile) = True"|"Show plugin generic messages in chat."|

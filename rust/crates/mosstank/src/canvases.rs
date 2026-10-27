@@ -46,6 +46,8 @@ struct Entry {
     refused: bool,
     visible: bool,
     shown: Option<bool>,
+    offset: (f64, f64),
+    placed: (f64, f64),
     paint_due: bool,
     removed: bool,
 }
@@ -79,7 +81,7 @@ impl Canvases {
     }
 
     /// Carries out what the tools asked for: canvases registered, shown or
-    /// hidden, removed, images let go.
+    /// hidden, moved, removed, images let go.
     pub fn flush(&mut self, client: &mut dyn TankClient) {
         for image in self.released.drain(..) {
             client.image_release(image);
@@ -111,6 +113,13 @@ impl Canvases {
             {
                 client.canvas_set_visible(canvas, entry.visible);
                 entry.shown = Some(entry.visible);
+            }
+            if let Some(canvas) = entry.canvas
+                && entry.placed != entry.offset
+            {
+                #[allow(clippy::cast_possible_truncation)]
+                client.canvas_set_offset(canvas, entry.offset.0 as f32, entry.offset.1 as f32);
+                entry.placed = entry.offset;
             }
             kept.push(entry);
         }
@@ -144,6 +153,8 @@ impl MapUi for Recorder<'_> {
             refused: false,
             visible: spec.start_visible,
             shown: Some(spec.start_visible),
+            offset: spec.offset,
+            placed: spec.offset,
             paint_due: false,
             removed: false,
         });
@@ -153,6 +164,12 @@ impl MapUi for Recorder<'_> {
     fn set_canvas_visible(&mut self, canvas: u32, visible: bool) {
         if let Some(entry) = self.0.entry(canvas) {
             entry.visible = visible;
+        }
+    }
+
+    fn set_canvas_offset(&mut self, canvas: u32, offset: (f64, f64)) {
+        if let Some(entry) = self.0.entry(canvas) {
+            entry.offset = offset;
         }
     }
 
@@ -212,6 +229,10 @@ impl MapUi for PaintUi<'_, '_, '_> {
 
     fn set_canvas_visible(&mut self, canvas: u32, visible: bool) {
         self.canvases.recorder().set_canvas_visible(canvas, visible);
+    }
+
+    fn set_canvas_offset(&mut self, canvas: u32, offset: (f64, f64)) {
+        self.canvases.recorder().set_canvas_offset(canvas, offset);
     }
 
     fn invalidate_canvas(&mut self, canvas: u32) {

@@ -795,6 +795,8 @@ impl MapUi for FakeUi {
         self.canvas_mut(canvas).visible = visible;
     }
 
+    fn set_canvas_offset(&mut self, _canvas: u32, _offset: (f64, f64)) {}
+
     fn invalidate_canvas(&mut self, canvas: u32) {
         self.canvas_mut(canvas).invalidations += 1;
     }

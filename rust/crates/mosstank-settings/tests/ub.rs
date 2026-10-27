@@ -96,6 +96,8 @@ fn the_character_tier_holds_only_who_the_character_is() {
             "AutoTinker.CharmedSmith",
             "GameEvents.Profile",
             "NetworkUI.SelectedTag",
+            "NetworkUI.WindowPositionX",
+            "NetworkUI.WindowPositionY",
             "Networking.ReceiveCommands",
             "Networking.Tags",
             "Sharing.CastTag",
@@ -197,7 +199,7 @@ fn every_row_is_written_to_the_tier_its_scope_declares_and_to_no_other() {
     };
     assert_eq!(count(UbSettingScope::Global), 6);
     assert_eq!(count(UbSettingScope::Profile), 157);
-    assert_eq!(count(UbSettingScope::Character), 8);
+    assert_eq!(count(UbSettingScope::Character), 10);
 }
 
 // Not a port yet: its C# counterpart (UbSettingCatalogTests.cs,
@@ -390,7 +392,7 @@ fn categories_come_back_in_order_with_their_rows() {
     let catalog = catalog();
     assert_eq!(catalog.categories().len(), 15);
     assert_eq!(catalog.categories()[0], "Aliases");
-    assert_eq!(catalog.settings().len(), 171);
+    assert_eq!(catalog.settings().len(), 173);
 }
 
 // Source: tests/AcDream.Plugins.MossTank.Tests/UbSettingValueTests.cs :: EachShapeKeepsItsOwnKindAndPayload
@@ -703,7 +705,7 @@ const NAMED_HERE: [(&str, &str); 6] = [
 
 const SAME_SWITCH: &str = "The same switch is already on the Options page and in the option catalogue; a second row would be a second copy of one value.";
 
-const EXCLUDED: [(&str, &str); 21] = [
+const EXCLUDED: [(&str, &str); 19] = [
     (
         "DungeonMaps.MapWindowX",
         "The host keeps where a window sits.",
@@ -735,14 +737,6 @@ const EXCLUDED: [(&str, &str); 21] = [
     (
         "LandscapeMaps.MapWindowHeight",
         "The host keeps how big a window is.",
-    ),
-    (
-        "NetworkUI.WindowPositionX",
-        "The host keeps where a window sits.",
-    ),
-    (
-        "NetworkUI.WindowPositionY",
-        "The host keeps where a window sits.",
     ),
     (
         "InventoryManager.IGWindowX",
@@ -820,6 +814,8 @@ const FLAT_DEFAULTS: &[(&str, &str)] = &[
     ("NetworkUI.Enabled", "False"),
     ("NetworkUI.ShowHudWhenClosed", "True"),
     ("NetworkUI.SelectedTag", "All"),
+    ("NetworkUI.WindowPositionX", "22"),
+    ("NetworkUI.WindowPositionY", "105"),
     ("Aliases.Enabled", "True"),
     ("Aliases.Profile", "[character]"),
     ("AutoVendor.Enabled", "True"),
@@ -1045,9 +1041,9 @@ fn every_setting_the_in_scope_tools_declare_is_on_the_tab_or_excluded_with_a_rea
         "on the tab but not declared: {unaccounted:?}"
     );
 
-    // 188 declared, 21 excluded, our own additions: the arithmetic is stated.
-    assert_eq!(excluded.len(), 21);
-    assert_eq!(should_be_on_the_tab.len(), 167);
+    // 188 declared, 19 excluded, our own additions: the arithmetic is stated.
+    assert_eq!(excluded.len(), 19);
+    assert_eq!(should_be_on_the_tab.len(), 169);
     assert_eq!(
         should_be_on_the_tab.len() + added_here.len(),
         on_the_tab.len()
@@ -1210,8 +1206,16 @@ fn the_shape_of_the_catalogue_is_what_the_display_tools_imply() {
             .count(),
         5
     );
-    assert!(
-        !all.iter()
-            .any(|d| casing::to_upper_invariant(&d.name).contains("WINDOW"))
+    // The readout's window position is the one kept: the readout is a
+    // canvas the plugin places itself; every other window is the host's.
+    let mut windows: Vec<&str> = all
+        .iter()
+        .filter(|d| casing::to_upper_invariant(&d.name).contains("WINDOW"))
+        .map(|d| d.name.as_str())
+        .collect();
+    windows.sort_unstable();
+    assert_eq!(
+        windows,
+        ["NetworkUI.WindowPositionX", "NetworkUI.WindowPositionY"]
     );
 }

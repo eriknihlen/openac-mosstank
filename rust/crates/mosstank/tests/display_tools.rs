@@ -77,6 +77,68 @@ fn the_canvas_hides_with_its_window_and_goes_with_the_plugin() {
     assert!(world.requests::<calls::UiCanvasRemove>().contains(&id));
 }
 
+fn pointer(world: &mut World, plugin: &mut MossTank, canvas: u32, kind: u8, x: f32, y: f32) {
+    world.send(
+        plugin,
+        Event::Ui(UiEvent::Pointer(PointerEvent {
+            canvas,
+            kind,
+            x,
+            y,
+            button: 1,
+            modifiers: 0,
+            wheel_delta: 0,
+        })),
+    );
+}
+
+fn clients_offset(world: &World) -> (f32, f32) {
+    world
+        .fake
+        .ui
+        .canvases()
+        .find(|canvas| canvas.descriptor.canvas_id == "ub-clients")
+        .map(|canvas| canvas.offset)
+        .unwrap()
+}
+
+// C# source: MossTankPanelTests.UbClients.cs :: TheClientsReadoutsDragReachesItsRowsAndItComesBackThere
+/// The whole path: a drag on the clients readout's canvas moves the
+/// client's canvas, writes the character's window position rows, and a
+/// plugin started again puts the readout back there.
+#[test]
+fn the_clients_readouts_drag_reaches_its_rows_and_it_comes_back_there() {
+    let mut world = World::with_character("Acdream");
+    let mut plugin = world.enable();
+    let p = &mut plugin;
+    world.command(p, "ub", "opt set NetworkUI.Enabled true");
+    world.ticks(p, 2);
+    let id = canvas(&world, "ub-clients").unwrap();
+    assert_eq!((26.0, 165.0), clients_offset(&world));
+
+    pointer(&mut world, p, id, 0, 100.0, 10.0);
+    pointer(&mut world, p, id, 1, 130.0, 50.0);
+    world.tick(p);
+    assert!(
+        world
+            .requests::<calls::UiCanvasSet>()
+            .iter()
+            .any(|set| set.canvas == id
+                && set.change == ac_plugin_abi::ui::CanvasChange::Offset(56.0, 205.0))
+    );
+    assert_eq!((56.0, 205.0), clients_offset(&world));
+    world.act_text(p, "SetUbFilterText", "NetworkUI.WindowPositionX");
+    assert_eq!(world.ui_list(p, "UbSettingValues")[0], "52");
+    world.act_text(p, "SetUbFilterText", "NetworkUI.WindowPositionY");
+    assert_eq!(world.ui_list(p, "UbSettingValues")[0], "145");
+    world.disable(p);
+
+    let mut next = world.enable();
+    world.ticks(&mut next, 2);
+    assert_eq!((56.0, 205.0), clients_offset(&world));
+    world.disable(&mut next);
+}
+
 // Source: tests/AcDream.Plugins.MossTank.Tests/MossTankPanelTests.UbDungeon.cs :: TheDungeonWindowDrivesTheMapAndTheZoomReachesTheRow
 #[test]
 fn the_dungeon_window_drives_the_map_and_the_zoom_reaches_the_row() {

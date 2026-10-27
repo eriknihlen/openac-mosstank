@@ -124,6 +124,8 @@ pub trait SessionClient {
     ) -> Result<openac_plugin::ui::Canvas, String>;
     /// Shows or hides a canvas.
     fn canvas_set_visible(&mut self, canvas: openac_plugin::ui::Canvas, visible: bool);
+    /// Moves a canvas: pixels from the screen's top-left.
+    fn canvas_set_offset(&mut self, canvas: openac_plugin::ui::Canvas, x: f32, y: f32);
     /// Removes a canvas.
     fn canvas_remove(&mut self, canvas: openac_plugin::ui::Canvas);
     /// Replaces what a canvas shows.
@@ -216,6 +218,10 @@ impl SessionClient for crate::automation::HostAutomation<'_, '_> {
 
     fn canvas_set_visible(&mut self, canvas: openac_plugin::ui::Canvas, visible: bool) {
         canvas.set_visible(self.service(), visible);
+    }
+
+    fn canvas_set_offset(&mut self, canvas: openac_plugin::ui::Canvas, x: f32, y: f32) {
+        canvas.set_offset(self.service(), x, y);
     }
 
     fn canvas_remove(&mut self, canvas: openac_plugin::ui::Canvas) {
