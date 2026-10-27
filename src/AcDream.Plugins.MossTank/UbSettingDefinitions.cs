@@ -353,6 +353,18 @@ internal static class UbSettingDefinitions
             "Which tag's characters the panel lists; All lists every one.",
             "All",
             UbSettingScope.Character));
+        // Where the readout is dragged to: the reference's window position,
+        // the readout drawn 4 pixels right of and 60 below it.
+        rows.Add(Whole(
+            "NetworkUI.WindowPositionX",
+            "Where the readout's window sits for this character, pixels from the left.",
+            22,
+            UbSettingScope.Character));
+        rows.Add(Whole(
+            "NetworkUI.WindowPositionY",
+            "Where the readout's window sits for this character, pixels from the top.",
+            105,
+            UbSettingScope.Character));
         rows.Add(Lines(
             "Networking.Tags",
             "Names for this character that a broadcast can be aimed at, one a line.",
