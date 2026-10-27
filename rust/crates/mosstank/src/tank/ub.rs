@@ -469,7 +469,7 @@ impl UbParts {
             &mosstank_ub::dungeon::controller::CatalogMapSettings(&mut catalog),
         );
         let hud = mosstank_ub::hud::NetworkHudController::new(
-            &mosstank_ub::hud::CatalogHudSettings(&catalog),
+            &mosstank_ub::hud::CatalogHudSettings(&mut catalog),
         );
         // Handed over while the tab is built (`PublishNetworkTags(onLoad)`).
         let mut tags = mosstank_ub::network::TagPublisher::new();

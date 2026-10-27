@@ -6,7 +6,21 @@
 //!
 //! The rows are rebuilt at most twenty times a second and the canvas is
 //! repainted only when a row differs from the last time. The canvas takes
-//! the pointer so that a shift-click on a row selects that row's character.
+//! the pointer: a shift-click on a row selects that row's character, and a
+//! left drag moves the readout. Where it stands is kept for this character
+//! in the `NetworkUI.WindowPositionX` and `WindowPositionY` rows, as the
+//! reference keeps its window there with the readout 4 pixels right of and
+//! 60 below it, so the readout comes back to that place.
+//!
+//! A drag moves the readout when the button comes up, by how far the
+//! pointer went since the press. Moving it under a held pointer would make
+//! the next positions the client reports relative to a place the readout
+//! may not have reached yet, since the client takes a new place only on
+//! its next frame; held still, every position is relative to one place.
+//!
+//! Distances are measured as the reference measures them: across the
+//! ground and up together, and from where a character the world shows
+//! stands rather than from what its client last said.
 //!
 //! The network reports the other clients only, so this character's row is
 //! built from the character itself; another client does not publish item
@@ -15,12 +29,15 @@
 use std::collections::HashMap;
 
 use ac_plugin_abi::ui::{Color, PointerEvent};
-use ac_plugin_abi::world::Position;
+use ac_plugin_abi::world::{METRES_PER_MAP_UNIT, Position};
 use mosstank_dotnet::text::ordinal;
 use openac_plugin_compat::number;
 
+use mosstank_settings::ub::UbSettingValue;
+
 use crate::canvas::{
-    BUTTON_LEFT, MODIFIER_SHIFT, MapCanvasSpec, MapImage, MapPainter, MapUi, POINTER_DOWN,
+    BUTTON_LEFT, MODIFIER_SHIFT, MapCanvasSpec, MapImage, MapPainter, MapUi, POINTER_CANCELLED,
+    POINTER_DOWN, POINTER_UP,
 };
 use crate::catalog::UbCatalog;
 use crate::host::UbHost;
@@ -49,6 +66,17 @@ pub const CANVAS_HEIGHT: i32 = 12 * ROW_HEIGHT + 5;
 pub const REPAINT_INTERVAL_SECONDS: f64 = 1.0 / 20.0;
 /// How often the page's rows are re-read for a change.
 pub const SETTINGS_POLL_SECONDS: f64 = 0.25;
+/// How far right of the saved window position the readout sits, pixels.
+pub const HUD_X_OFFSET: i32 = 4;
+/// How far below the saved window position the readout sits, pixels.
+pub const HUD_Y_OFFSET: i32 = 60;
+/// The window position a character starts with, pixels from the left.
+pub const DEFAULT_WINDOW_X: i32 = 22;
+/// The window position a character starts with, pixels from the top.
+pub const DEFAULT_WINDOW_Y: i32 = 105;
+
+const WINDOW_X: &str = "NetworkUI.WindowPositionX";
+const WINDOW_Y: &str = "NetworkUI.WindowPositionY";
 
 const ALL_TAG: &str = "All";
 
@@ -79,6 +107,10 @@ pub struct NetworkHudSettings {
     pub selected_tag: String,
     /// The item names whose counts are shown, one a line.
     pub tracked_items: String,
+    /// The saved window position, pixels from the screen's left.
+    pub window_x: i32,
+    /// The saved window position, pixels from the screen's top.
+    pub window_y: i32,
 }
 
 impl Default for NetworkHudSettings {
@@ -88,11 +120,23 @@ impl Default for NetworkHudSettings {
             show_hud_when_closed: true,
             selected_tag: ALL_TAG.to_owned(),
             tracked_items: String::new(),
+            window_x: DEFAULT_WINDOW_X,
+            window_y: DEFAULT_WINDOW_Y,
         }
     }
 }
 
 impl NetworkHudSettings {
+    /// Where the readout sits, pixels from the screen's top-left: the saved
+    /// window position plus the readout's place in that window.
+    #[must_use]
+    pub fn canvas_offset(&self) -> (f64, f64) {
+        (
+            f64::from(self.window_x) + f64::from(HUD_X_OFFSET),
+            f64::from(self.window_y) + f64::from(HUD_Y_OFFSET),
+        )
+    }
+
     /// The tracked item names, trimmed, blanks dropped.
     #[must_use]
     pub fn tracked_item_names(&self) -> Vec<String> {
@@ -109,6 +153,8 @@ impl NetworkHudSettings {
 pub trait NetworkHudSettingsSource {
     /// The rows as they stand.
     fn read(&self) -> NetworkHudSettings;
+    /// Keeps the window position a drag left the readout at.
+    fn save_window_position(&mut self, x: i32, y: i32);
 }
 
 /// The readout's rows from the UB settings catalogue
@@ -120,11 +166,13 @@ pub fn read_settings(catalog: &dyn UbCatalog) -> NetworkHudSettings {
         show_hud_when_closed: catalog.flag("NetworkUI.ShowHudWhenClosed"),
         selected_tag: catalog.value("NetworkUI.SelectedTag").text,
         tracked_items: catalog.value("NetworkUI.TrackedItems").items.join("\n"),
+        window_x: catalog.value(WINDOW_X).as_int32(),
+        window_y: catalog.value(WINDOW_Y).as_int32(),
     }
 }
 
 /// The catalogue as the readout's settings.
-pub struct CatalogHudSettings<'a>(pub &'a dyn UbCatalog);
+pub struct CatalogHudSettings<'a>(pub &'a mut dyn UbCatalog);
 
 impl std::fmt::Debug for CatalogHudSettings<'_> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -135,6 +183,13 @@ impl std::fmt::Debug for CatalogHudSettings<'_> {
 impl NetworkHudSettingsSource for CatalogHudSettings<'_> {
     fn read(&self) -> NetworkHudSettings {
         read_settings(self.0)
+    }
+
+    fn save_window_position(&mut self, x: i32, y: i32) {
+        let row = self.0.require(WINDOW_X);
+        self.0.set(&row, UbSettingValue::from_int(x));
+        let row = self.0.require(WINDOW_Y);
+        self.0.set(&row, UbSettingValue::from_int(y));
     }
 }
 
@@ -195,6 +250,8 @@ pub struct NetworkHudController {
     shown: bool,
     dirty: bool,
     rows: Vec<NetworkHudRow>,
+    /// The point of the canvas a left press took hold of, while it is held.
+    grab: Option<(f64, f64)>,
 }
 
 impl NetworkHudController {
@@ -212,6 +269,7 @@ impl NetworkHudController {
             shown: false,
             dirty: true,
             rows: Vec::new(),
+            grab: None,
         }
     }
 
@@ -285,8 +343,18 @@ impl NetworkHudController {
             self.settings_poll_remaining = SETTINGS_POLL_SECONDS;
             let next = settings.read();
             if next != self.settings {
+                // A place written elsewhere (the page, `/ub opt set`) moves
+                // the readout, unless a drag is under way.
+                let moved = (next.window_x, next.window_y)
+                    != (self.settings.window_x, self.settings.window_y);
                 self.settings = next;
                 self.dirty = true;
+                if moved
+                    && self.grab.is_none()
+                    && let Some(canvas) = self.canvas
+                {
+                    ui.set_canvas_offset(canvas, self.settings.canvas_offset());
+                }
             }
         }
         let visible = self.should_show();
@@ -295,7 +363,7 @@ impl NetworkHudController {
                 canvas_id: CANVAS_ID.to_owned(),
                 width: HUD_WIDTH,
                 height: CANVAS_HEIGHT,
-                offset: (26.0, 165.0),
+                offset: self.settings.canvas_offset(),
                 start_visible: false,
                 accepts_pointer_input: true,
             });
@@ -335,6 +403,7 @@ impl NetworkHudController {
         self.icons.clear();
         self.icon_order.clear();
         self.rows.clear();
+        self.grab = None;
         self.dirty = true;
     }
 
@@ -352,19 +421,52 @@ impl NetworkHudController {
     }
 
     /// The pointer over the canvas: a shift-click selects the character on
-    /// the row the press lands in. Nothing drawn changes, so nothing is
+    /// the row the press lands in; a left drag moves the readout by how far
+    /// the pointer went when the button comes up, and keeps the window
+    /// position that puts it there. Nothing drawn changes, so nothing is
     /// repainted.
-    pub fn on_pointer(&mut self, host: &mut dyn UbHost, event: &PointerEvent) {
-        if event.kind != POINTER_DOWN
-            || event.button != BUTTON_LEFT
-            || event.modifiers & MODIFIER_SHIFT == 0
-            || event.y < 0.0
-        {
+    pub fn on_pointer(
+        &mut self,
+        host: &mut dyn UbHost,
+        settings: &mut dyn NetworkHudSettingsSource,
+        ui: &mut dyn MapUi,
+        event: &PointerEvent,
+    ) {
+        if event.button != BUTTON_LEFT {
             return;
         }
-        #[allow(clippy::cast_possible_truncation)]
-        let row = (f64::from(event.y) / f64::from(ROW_HEIGHT)) as i32;
-        self.select_row(host, row);
+        match event.kind {
+            POINTER_DOWN if event.modifiers & MODIFIER_SHIFT != 0 => {
+                self.grab = None;
+                if event.y < 0.0 {
+                    return;
+                }
+                #[allow(clippy::cast_possible_truncation)]
+                let row = (f64::from(event.y) / f64::from(ROW_HEIGHT)) as i32;
+                self.select_row(host, row);
+            }
+            POINTER_DOWN => self.grab = Some((f64::from(event.x), f64::from(event.y))),
+            POINTER_UP => {
+                let Some((x, y)) = self.grab.take() else {
+                    return;
+                };
+                let dx = whole_pixels(f64::from(event.x) - x);
+                let dy = whole_pixels(f64::from(event.y) - y);
+                if dx == 0 && dy == 0 {
+                    return;
+                }
+                let window_x = self.settings.window_x.saturating_add(dx);
+                let window_y = self.settings.window_y.saturating_add(dy);
+                self.settings.window_x = window_x;
+                self.settings.window_y = window_y;
+                settings.save_window_position(window_x, window_y);
+                if let Some(canvas) = self.canvas {
+                    ui.set_canvas_offset(canvas, self.settings.canvas_offset());
+                }
+            }
+            POINTER_CANCELLED => self.grab = None,
+            _ => {}
+        }
     }
 
     /// The rows: this character first, from the character itself, then the
@@ -419,10 +521,20 @@ impl NetworkHudController {
             {
                 continue;
             }
+            // A character the world shows is measured where it stands, as
+            // the reference does: what its client said is only as fresh as
+            // its last word, and a client that does not share its state
+            // keeps the place it entered the world at.
+            let seen = if client.player_id == 0 {
+                None
+            } else {
+                host.object(client.player_id).and_then(|o| o.position)
+            };
+            let theirs = seen.as_ref().unwrap_or(&client.position);
             let (distance, arrow) = match &mine {
                 Some(from) => (
-                    Some(from.horizontal_distance_metres(&client.position)),
-                    arrow_radians(from, &client.position),
+                    Some(distance_metres(from, theirs)),
+                    arrow_radians(from, theirs),
                 ),
                 None => (None, 0.0),
             };
@@ -659,6 +771,16 @@ pub fn arrow_radians(from: &Position, to: &Position) -> f64 {
     relative
 }
 
+/// How far apart two places are, metres: across the ground and up together,
+/// as the reference measures between two sets of coordinates.
+#[must_use]
+pub fn distance_metres(from: &Position, to: &Position) -> f64 {
+    let east = to.east_west - from.east_west;
+    let north = to.north_south - from.north_south;
+    let up = to.elevation - from.elevation;
+    (east * east + north * north + up * up).sqrt() * METRES_PER_MAP_UNIT
+}
+
 /// White up close, redder with every metre: the green and blue drop two per
 /// metre.
 #[must_use]
@@ -684,6 +806,14 @@ pub fn format_number(value: f64) -> String {
 /// reproduces.
 fn n(value: f64, format: &str) -> String {
     number::format_f64(value, format).expect("a number format the kit reproduces")
+}
+
+/// A drag's distance as whole pixels, the way a window position is kept.
+#[allow(clippy::cast_possible_truncation)]
+fn whole_pixels(value: f64) -> i32 {
+    value
+        .round()
+        .clamp(f64::from(i32::MIN), f64::from(i32::MAX)) as i32
 }
 
 fn fraction(current: u32, max: u32) -> f64 {

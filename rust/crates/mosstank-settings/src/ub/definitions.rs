@@ -572,6 +572,20 @@ fn add_network_ui(rows: &mut Vec<UbSettingDefinition>) {
         "All",
         UbSettingScope::Character,
     ));
+    // Where the readout is dragged to: the reference's window position,
+    // the readout drawn 4 pixels right of and 60 below it.
+    rows.push(whole_in(
+        "NetworkUI.WindowPositionX",
+        "Where the readout's window sits for this character, pixels from the left.",
+        22,
+        UbSettingScope::Character,
+    ));
+    rows.push(whole_in(
+        "NetworkUI.WindowPositionY",
+        "Where the readout's window sits for this character, pixels from the top.",
+        105,
+        UbSettingScope::Character,
+    ));
     rows.push(lines(
         "Networking.Tags",
         "Names for this character that a broadcast can be aimed at, one a line.",
@@ -845,12 +859,16 @@ fn switch_in(name: &str, summary: &str, value: bool, scope: UbSettingScope) -> U
 }
 
 fn whole(name: &str, summary: &str, value: i32) -> UbSettingDefinition {
+    whole_in(name, summary, value, UbSettingScope::Profile)
+}
+
+fn whole_in(name: &str, summary: &str, value: i32, scope: UbSettingScope) -> UbSettingDefinition {
     UbSettingDefinition::new(
         name,
         summary,
         UbSettingKind::Int,
         UbSettingValue::from_int(value),
-        UbSettingScope::Profile,
+        scope,
     )
 }
 

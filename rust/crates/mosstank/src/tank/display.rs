@@ -32,7 +32,7 @@ impl TankCx<'_> {
             );
             parts.hud.on_tick(
                 self.client.ub(),
-                &CatalogHudSettings(&parts.catalog),
+                &CatalogHudSettings(&mut parts.catalog),
                 &mut ui,
                 elapsed_seconds,
             );
@@ -98,7 +98,12 @@ impl TankCx<'_> {
         if parts.landscape.canvas() == Some(handle) {
             parts.landscape.on_pointer(event);
         } else if parts.hud.canvas() == Some(handle) {
-            parts.hud.on_pointer(self.client.ub(), event);
+            parts.hud.on_pointer(
+                self.client.ub(),
+                &mut CatalogHudSettings(&mut parts.catalog),
+                &mut parts.canvases.recorder(),
+                event,
+            );
         } else if parts.dungeon.canvas() == Some(handle) {
             parts
                 .dungeon

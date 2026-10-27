@@ -141,6 +141,7 @@ struct FakeCanvas {
     spec: MapCanvasSpec,
     visible: bool,
     invalidations: usize,
+    offset: (f64, f64),
 }
 
 #[derive(Debug, Default)]
@@ -157,12 +158,17 @@ impl MapUi for FakeUi {
             spec: spec.clone(),
             visible: spec.start_visible,
             invalidations: 0,
+            offset: spec.offset,
         });
         Some(handle)
     }
 
     fn set_canvas_visible(&mut self, canvas: u32, visible: bool) {
         self.canvases[usize::try_from(canvas).unwrap() - 1].visible = visible;
+    }
+
+    fn set_canvas_offset(&mut self, canvas: u32, offset: (f64, f64)) {
+        self.canvases[usize::try_from(canvas).unwrap() - 1].offset = offset;
     }
 
     fn invalidate_canvas(&mut self, canvas: u32) {
@@ -244,11 +250,18 @@ impl MapPainter for RecordingPainter {
     }
 }
 
-struct Settings(NetworkHudSettings);
+/// The rows, and every window position the readout saved.
+struct Settings(NetworkHudSettings, Vec<(i32, i32)>);
 
 impl NetworkHudSettingsSource for Settings {
     fn read(&self) -> NetworkHudSettings {
         self.0.clone()
+    }
+
+    fn save_window_position(&mut self, x: i32, y: i32) {
+        self.0.window_x = x;
+        self.0.window_y = y;
+        self.1.push((x, y));
     }
 }
 
@@ -279,7 +292,7 @@ impl Rig {
         }
         host.meta.navigation.is_available = true;
         host.meta.navigation.position = at(0.0, 0.0, 0.0);
-        let settings = Settings(settings);
+        let settings = Settings(settings, Vec::new());
         let controller = NetworkHudController::new(&settings);
         Self {
             host,
@@ -317,18 +330,25 @@ impl Rig {
     }
 
     fn press(&mut self, y: f64, shift: bool) {
+        self.pointer(0, 50.0, y, shift);
+    }
+
+    /// One pointer event on the canvas: `kind` 0 down, 1 up, 2 move, 4
+    /// cancelled, with the left button.
+    fn pointer(&mut self, kind: u8, x: f64, y: f64, shift: bool) {
         assert!(self.canvas().spec.accepts_pointer_input);
         #[allow(clippy::cast_possible_truncation)]
         let event = PointerEvent {
             canvas: self.canvas().handle,
-            kind: 0,
-            x: 50.0,
+            kind,
+            x: x as f32,
             y: y as f32,
             button: 1,
             modifiers: u8::from(shift),
             wheel_delta: 0,
         };
-        self.controller.on_pointer(&mut self.host, &event);
+        self.controller
+            .on_pointer(&mut self.host, &mut self.settings, &mut self.ui, &event);
     }
 
     fn selected(&self) -> Vec<u32> {
@@ -536,6 +556,68 @@ fn a_row_carries_the_vitals_and_the_distance_and_the_own_row_no_distance() {
     assert_eq!("", me.distance_text);
 }
 
+fn standing(id: u32, position: Option<Position>) -> WorldObject {
+    WorldObject {
+        object_id: id,
+        weenie_class_id: 1,
+        name: "Sigrid".to_owned(),
+        object_class: ObjectClass::Player,
+        position,
+        ..WorldObject::default()
+    }
+}
+
+// Not a port yet: its C# counterpart (NetworkHudControllerTests.cs,
+// AClientInSightIsMeasuredWhereItStandsNotWhereItsClientLastSaid) comes with the C# line's fix.
+#[test]
+fn a_client_in_sight_is_measured_where_it_stands_not_where_its_client_last_said() {
+    let mut rig = Rig::new();
+    // Its client last said one map unit east (240 m); the client that does
+    // not share its state never says again. The world shows it 2.4 m north.
+    rig.host
+        .meta
+        .peers
+        .push(client(1, 0x5000_0002, "Sigrid", at(1.0, 0.0, 0.0)));
+    rig.host
+        .meta
+        .objects
+        .push(standing(0x5000_0002, Some(at(0.0, 0.01, 0.0))));
+    rig.ticks(1);
+
+    let sigrid = &rig.controller.rows()[1];
+    assert_eq!("2", sigrid.distance_text);
+    assert_eq!(250, sigrid.distance_tint);
+    assert!(
+        sigrid.arrow_radians.abs() < 5e-7,
+        "{}",
+        sigrid.arrow_radians
+    );
+
+    // Out of sight (the object has no place in the world): what its client
+    // said is all there is.
+    rig.host.meta.objects[0] = standing(0x5000_0002, None);
+    rig.ticks(4);
+    assert_eq!("240", rig.controller.rows()[1].distance_text);
+}
+
+// Not a port yet: its C# counterpart (NetworkHudControllerTests.cs,
+// TheDistanceCountsTheHeightBetweenThem) comes with the C# line's fix.
+#[test]
+fn the_distance_counts_the_height_between_them() {
+    let mut rig = Rig::new();
+    // Thirty metres straight up, as the reference measures: across the
+    // ground and up together.
+    let mut above = at(0.0, 0.0, 0.0);
+    above.elevation = 30.0 / 240.0;
+    rig.host
+        .meta
+        .peers
+        .push(client(1, 0x5000_0002, "Sigrid", above));
+    rig.ticks(1);
+    assert_eq!("30", rig.controller.rows()[1].distance_text);
+    assert_eq!(195, rig.controller.rows()[1].distance_tint);
+}
+
 // Source: tests/AcDream.Plugins.MossTank.Tests/NetworkHudControllerTests.cs :: TheOwnRowCountsTrackedItemsFromTheInventoryWithTheirIcons
 #[test]
 fn the_own_row_counts_tracked_items_from_the_inventory_with_their_icons() {
@@ -631,6 +713,66 @@ fn a_shift_click_on_a_row_selects_that_character() {
 
     rig.ticks(1);
     assert_eq!(1, rig.canvas().invalidations);
+}
+
+// Not a port yet: its C# counterpart (NetworkHudControllerTests.cs,
+// ALeftDragMovesTheReadoutAndKeepsItsWindowPosition) comes with the C# line's fix.
+#[test]
+fn a_left_drag_moves_the_readout_and_keeps_its_window_position() {
+    let mut rig = Rig::new();
+    rig.host
+        .meta
+        .peers
+        .push(client(1, 0x5000_0002, "Sigrid", at(0.01, 0.0, 0.0)));
+    rig.ticks(1);
+    // The reference's window starts at (22, 105), its readout 4 right of
+    // and 60 below it.
+    assert_eq!((26.0, 165.0), rig.canvas().spec.offset);
+
+    rig.pointer(0, 100.0, 10.0, false);
+    rig.pointer(2, 150.0, 40.0, false);
+    // Held still while the button is down: every position is measured from
+    // the one place.
+    assert_eq!((26.0, 165.0), rig.canvas().offset);
+    rig.pointer(1, 130.0, 50.0, false);
+    assert_eq!((56.0, 205.0), rig.canvas().offset);
+    assert_eq!(vec![(52, 145)], rig.settings.1);
+    assert!(rig.selected().is_empty());
+
+    // Saved, it is not moved again when the rows are next read.
+    rig.ticks(20);
+    assert_eq!((56.0, 205.0), rig.canvas().offset);
+
+    // A shift-click selects and moves nothing; a cancelled press moves
+    // nothing; a click that does not move saves nothing.
+    rig.pointer(0, 50.0, 25.0, true);
+    rig.pointer(1, 90.0, 60.0, true);
+    assert_eq!(vec![0x5000_0002], rig.selected());
+    rig.pointer(0, 10.0, 10.0, false);
+    rig.pointer(4, 80.0, 90.0, false);
+    rig.pointer(0, 10.0, 10.0, false);
+    rig.pointer(1, 10.0, 10.0, false);
+    assert_eq!((56.0, 205.0), rig.canvas().offset);
+    assert_eq!(1, rig.settings.1.len());
+}
+
+// Not a port yet: its C# counterpart (NetworkHudControllerTests.cs,
+// TheReadoutOpensAtItsSavedWindowPositionAndFollowsTheRow) comes with the C# line's fix.
+#[test]
+fn the_readout_opens_at_its_saved_window_position_and_follows_the_row() {
+    let mut rig = Rig::with(NetworkHudSettings {
+        enabled: true,
+        window_x: 300,
+        window_y: 200,
+        ..NetworkHudSettings::default()
+    });
+    rig.ticks(1);
+    assert_eq!((304.0, 260.0), rig.canvas().spec.offset);
+
+    rig.settings.0.window_x = 10;
+    rig.settings.0.window_y = 20;
+    rig.ticks(20);
+    assert_eq!((14.0, 80.0), rig.canvas().offset);
 }
 
 // Source: tests/AcDream.Plugins.MossTank.Tests/NetworkHudControllerTests.cs :: TheCanvasShowsWhileOnAndEitherOpenOrAllowedToStay
