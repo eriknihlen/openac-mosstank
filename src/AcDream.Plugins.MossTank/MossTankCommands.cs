@@ -1899,6 +1899,7 @@ internal sealed partial class MossTankPanel
         _commandJumpTurning = false;
         _commandJumpTurnSinceCheck = 0d;
         ReleaseNavigationAfterJump();
+        ResetPortalUse();
         _commandPortalState = _host.Automation.Navigation.Snapshot.IsPortalSpace;
         _commandPortalCount = 0;
         // A line scheduled before the session ended must not arrive after it:
