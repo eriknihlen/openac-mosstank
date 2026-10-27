@@ -661,6 +661,19 @@ internal sealed class NavigationController
         _settings.Waypoints.Count == 0 || _onceComplete;
 
     /// <summary>
+    /// A waypoint was added at the end of the route without starting it
+    /// over (the add-point commands). A once route keeps its cursor and is
+    /// finished only while the cursor is past the last point, so a finished
+    /// once route walks the new point next, as the reference's does: its add
+    /// commands append to the once list, which a finished route has emptied.
+    /// </summary>
+    public void WaypointAppended()
+    {
+        if (_settings.Mode == RouteMode.Once)
+            _onceComplete = _index >= _settings.Waypoints.Count;
+    }
+
+    /// <summary>
     /// Why the door turn did what it did. It is deliberately NOT the route's
     /// status: that sentence is about a waypoint and carries a live distance,
     /// so a door reason borrowed from it differs on every pass and the

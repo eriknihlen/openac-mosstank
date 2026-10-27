@@ -3912,6 +3912,9 @@ internal sealed partial class MossTankPanel : IBuffRuleHost, IDisposable
     /// </summary>
     internal int RouteWaypointIndexForTest => _navigation.CurrentWaypointIndex;
 
+    /// <summary>Whether the route has nothing left to walk (a meta's "navigation route empty").</summary>
+    internal bool RouteHasNothingLeftToWalkForTest => _navigation.HasNothingLeftToWalk;
+
     private ExpressionValue GetMetaOption(string name)
     {
         string key = name.Trim();

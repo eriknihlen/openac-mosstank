@@ -1056,6 +1056,7 @@ internal sealed partial class MossTankPanel
                 JumpChargeMilliseconds = milliseconds,
                 JumpDirection = direction,
             });
+            _navigation.WaypointAppended();
             bool saved = SaveRouteProfile();
             RefreshRouteEditor();
             WriteVtank("Added jump to the current route.");
@@ -1518,6 +1519,7 @@ internal sealed partial class MossTankPanel
             Type = checkpoint ? RouteWaypointType.Checkpoint : RouteWaypointType.Point,
             Position = position,
         });
+        _navigation.WaypointAppended();
         SaveRouteProfile();
         RefreshRouteEditor();
         WriteVtank(checkpoint ? "Added navigation checkpoint." : "Added navigation point.");
