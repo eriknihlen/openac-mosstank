@@ -16,6 +16,20 @@ internal sealed record NetworkHudSettings(
 {
     public static NetworkHudSettings Default => new(false, true, "All", string.Empty);
 
+    /// <summary>The saved window position, pixels from the screen's left (the reference's NetworkUI.WindowPositionX).</summary>
+    public int WindowX { get; init; } = NetworkHudController.DefaultWindowX;
+
+    /// <summary>The saved window position, pixels from the screen's top (the reference's NetworkUI.WindowPositionY).</summary>
+    public int WindowY { get; init; } = NetworkHudController.DefaultWindowY;
+
+    /// <summary>
+    /// Where the readout sits, pixels from the screen's top-left: the saved
+    /// window position plus the readout's place in that window.
+    /// </summary>
+    public PluginPoint CanvasOffset => new(
+        (double)WindowX + NetworkHudController.HudXOffset,
+        (double)WindowY + NetworkHudController.HudYOffset);
+
     /// <summary>The tracked item names, trimmed, blanks dropped.</summary>
     public IReadOnlyList<string> TrackedItemNames => TrackedItems
         .Split('\n')
@@ -96,8 +110,17 @@ internal sealed record NetworkHudRow(
 /// readout costs a comparison. The canvas takes the pointer so that a
 /// shift-click on a row selects that row's character, as the reference
 /// does; the row is the one whose <see cref="RowHeight"/> pixels the press
-/// lands in. The readout's own window lists the same characters for
-/// selecting without the pointer.
+/// lands in. A left drag moves the readout, and where it stands is kept for
+/// this character in the NetworkUI.WindowPositionX and WindowPositionY rows,
+/// as the reference keeps its window there with the readout 4 pixels right
+/// of and 60 below it, so the readout comes back to that place. The
+/// readout's own window lists the same characters for selecting without
+/// the pointer.
+/// </para>
+/// <para>
+/// Distances are measured as the reference measures them: across the
+/// ground and up together, and from where a character the world shows
+/// stands rather than from what its client last said.
 /// </para>
 /// <para>
 /// The network reports the other clients only, so this character's row is
@@ -120,6 +143,18 @@ internal sealed class NetworkHudController : IDisposable
     public const int Padding = 4;
     public const int MaxRows = 12;
     public const int CanvasHeight = (MaxRows * RowHeight) + 5;
+
+    /// <summary>How far right of the saved window position the readout sits, pixels.</summary>
+    public const int HudXOffset = 4;
+
+    /// <summary>How far below the saved window position the readout sits, pixels.</summary>
+    public const int HudYOffset = 60;
+
+    /// <summary>The window position a character starts with, pixels from the left.</summary>
+    public const int DefaultWindowX = 22;
+
+    /// <summary>The window position a character starts with, pixels from the top.</summary>
+    public const int DefaultWindowY = 105;
 
     /// <summary>The least time between two rebuilds of the rows.</summary>
     internal const double RepaintIntervalSeconds = 1d / 20d;
@@ -147,6 +182,7 @@ internal sealed class NetworkHudController : IDisposable
     private readonly Func<NetworkHudSelf> _self;
     private readonly Func<PluginNavigationPosition?> _selfPosition;
     private readonly Func<NetworkHudSettings> _readSettings;
+    private readonly Action<int, int> _saveWindowPosition;
     private readonly Dictionary<uint, PluginImage> _icons = [];
     private IPluginCanvas? _canvas;
     private NetworkHudSettings _settings;
@@ -156,6 +192,9 @@ internal sealed class NetworkHudController : IDisposable
     private bool _dirty = true;
     private NetworkHudRow[] _rows = [];
 
+    /// <summary>The point of the canvas a left press took hold of, while it is held.</summary>
+    private PluginPoint? _grab;
+
     public NetworkHudController(
         IUiRegistry ui,
         INetworkAutomation network,
@@ -163,7 +202,8 @@ internal sealed class NetworkHudController : IDisposable
         ISelectionService selection,
         Func<NetworkHudSelf> self,
         Func<PluginNavigationPosition?> selfPosition,
-        Func<NetworkHudSettings> readSettings)
+        Func<NetworkHudSettings> readSettings,
+        Action<int, int> saveWindowPosition)
     {
         _ui = ui;
         _network = network;
@@ -172,6 +212,7 @@ internal sealed class NetworkHudController : IDisposable
         _self = self;
         _selfPosition = selfPosition;
         _readSettings = readSettings;
+        _saveWindowPosition = saveWindowPosition;
         _settings = readSettings();
     }
 
@@ -223,8 +264,13 @@ internal sealed class NetworkHudController : IDisposable
             NetworkHudSettings next = _readSettings();
             if (next != _settings)
             {
+                // A place written elsewhere (the page, /ub opt set) moves the
+                // readout, unless a drag is under way.
+                bool moved = (next.WindowX, next.WindowY) != (_settings.WindowX, _settings.WindowY);
                 _settings = next;
                 _dirty = true;
+                if (moved && _grab is null && _canvas is not null)
+                    _canvas.Offset = _settings.CanvasOffset;
             }
         }
         bool visible = ShouldShow;
@@ -234,7 +280,7 @@ internal sealed class NetworkHudController : IDisposable
                 new PluginCanvasDescriptor(CanvasId, HudWidth, CanvasHeight)
                 {
                     Anchor = PluginCanvasAnchor.TopLeft,
-                    Offset = new PluginPoint(26d, 165d),
+                    Offset = _settings.CanvasOffset,
                     StartVisible = false,
                     AcceptsPointerInput = true,
                 },
@@ -272,6 +318,7 @@ internal sealed class NetworkHudController : IDisposable
     {
         _icons.Clear();
         _rows = [];
+        _grab = null;
         _dirty = true;
     }
 
@@ -286,20 +333,73 @@ internal sealed class NetworkHudController : IDisposable
 
     /// <summary>
     /// The pointer over the canvas: a shift-click selects the character on
-    /// the row the press lands in; rows are painted one under the other
-    /// from the top, each <see cref="RowHeight"/> tall. Nothing drawn
+    /// the row the press lands in (rows are painted one under the other
+    /// from the top, each <see cref="RowHeight"/> tall); a left drag moves
+    /// the readout by how far the pointer went when the button comes up,
+    /// and keeps the window position that puts it there. Nothing drawn
     /// changes, so nothing is repainted.
     /// </summary>
+    /// <remarks>
+    /// The readout stays put while the button is held. Moved under a held
+    /// pointer, the next positions the host reports would be measured from
+    /// a place the readout may not have reached yet, since the host takes a
+    /// new place on its next frame; held still, every position is measured
+    /// from one place.
+    /// </remarks>
     private void OnPointer(PluginPointerEvent pointerEvent)
     {
-        if (pointerEvent.Kind != PluginPointerEventKind.Down
-            || pointerEvent.Button != PluginPointerButton.Left
-            || (pointerEvent.Modifiers & PluginKeyModifiers.Shift) == 0
-            || pointerEvent.Position.Y < 0d)
-        {
+        if (pointerEvent.Button != PluginPointerButton.Left)
             return;
+        switch (pointerEvent.Kind)
+        {
+            case PluginPointerEventKind.Down when (pointerEvent.Modifiers & PluginKeyModifiers.Shift) != 0:
+                _grab = null;
+                if (pointerEvent.Position.Y >= 0d)
+                    SelectRow((int)(pointerEvent.Position.Y / RowHeight));
+                break;
+            case PluginPointerEventKind.Down:
+                _grab = pointerEvent.Position;
+                break;
+            case PluginPointerEventKind.Up when _grab is { } grab:
+            {
+                _grab = null;
+                int dx = WholePixels(pointerEvent.Position.X - grab.X);
+                int dy = WholePixels(pointerEvent.Position.Y - grab.Y);
+                if (dx == 0 && dy == 0)
+                    return;
+                _settings = _settings with
+                {
+                    WindowX = SaturatingAdd(_settings.WindowX, dx),
+                    WindowY = SaturatingAdd(_settings.WindowY, dy),
+                };
+                _saveWindowPosition(_settings.WindowX, _settings.WindowY);
+                if (_canvas is not null)
+                    _canvas.Offset = _settings.CanvasOffset;
+                break;
+            }
+            case PluginPointerEventKind.Cancelled:
+                _grab = null;
+                break;
         }
-        SelectRow((int)(pointerEvent.Position.Y / RowHeight));
+    }
+
+    /// <summary>A drag's distance as whole pixels, the way a window position is kept.</summary>
+    private static int WholePixels(double value) =>
+        (int)Math.Clamp(Math.Round(value, MidpointRounding.AwayFromZero), int.MinValue, int.MaxValue);
+
+    private static int SaturatingAdd(int value, int delta) =>
+        (int)Math.Clamp((long)value + delta, int.MinValue, int.MaxValue);
+
+    /// <summary>
+    /// How far apart two places are, metres: across the ground and up
+    /// together, as the reference measures between two sets of coordinates.
+    /// </summary>
+    internal static double DistanceMeters(PluginNavigationPosition from, PluginNavigationPosition to)
+    {
+        double east = to.EastWest - from.EastWest;
+        double north = to.NorthSouth - from.NorthSouth;
+        double up = to.Elevation - from.Elevation;
+        return Math.Sqrt((east * east) + (north * north) + (up * up)) * 240d;
     }
 
     /// <summary>
@@ -347,12 +447,23 @@ internal sealed class NetworkHudController : IDisposable
                 && !tag.Equals(AllTag, StringComparison.OrdinalIgnoreCase)
                 && !client.Tags.Contains(tag, StringComparer.OrdinalIgnoreCase))
                 continue;
+            // A character the world shows is measured where it stands, as the
+            // reference does: what its client said is only as fresh as its
+            // last word, and a client that does not share its state keeps the
+            // place it entered the world at.
+            PluginNavigationPosition theirs = client.Position;
+            if (client.PlayerId != 0u
+                && _objects.TryGet(client.PlayerId, out PluginWorldObject seen)
+                && seen.HasPosition)
+            {
+                theirs = seen.Position;
+            }
             double distance = double.NaN;
             double arrow = 0d;
             if (mine is { } from)
             {
-                distance = from.HorizontalDistanceMeters(client.Position);
-                arrow = ArrowRadians(from, client.Position);
+                distance = DistanceMeters(from, theirs);
+                arrow = ArrowRadians(from, theirs);
             }
             rows.Add(new NetworkHudRow(
                 client.ClientId,

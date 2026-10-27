@@ -46,6 +46,13 @@ public sealed class NetworkHudControllerTests
         public List<PluginWorldObject> Objects { get; } = [];
         public bool IsAvailable => true;
         public IReadOnlyList<PluginWorldObject> CaptureObjects() => Objects;
+
+        public bool TryGet(uint objectId, out PluginWorldObject value)
+        {
+            int index = Objects.FindIndex(o => o.ObjectId == objectId);
+            value = index < 0 ? default : Objects[index];
+            return index >= 0;
+        }
     }
 
     private sealed class FakeSelection : ISelectionService
@@ -79,12 +86,24 @@ public sealed class NetworkHudControllerTests
             NetworkHudSettings.Default with { Enabled = true };
         public PluginNavigationPosition? SelfPosition { get; set; } = At(0d, 0d);
         public NetworkHudSelf Self { get; set; } = new(SelfId, "Acdream", 100u, 100u, 50u, 100u, 25u, 100u);
+        public List<(int X, int Y)> Saved { get; } = [];
         public NetworkHudController Controller { get; }
 
         public Rig()
+            : this(NetworkHudSettings.Default with { Enabled = true })
         {
+        }
+
+        public Rig(NetworkHudSettings settings)
+        {
+            Settings = settings;
             Controller = new NetworkHudController(
-                Ui, Network, Objects, Selection, () => Self, () => SelfPosition, () => Settings);
+                Ui, Network, Objects, Selection, () => Self, () => SelfPosition, () => Settings,
+                (x, y) =>
+                {
+                    Settings = Settings with { WindowX = x, WindowY = y };
+                    Saved.Add((x, y));
+                });
         }
 
         public LandscapeMapControllerTests.FakeCanvas Canvas => Assert.Single(Ui.Canvases);
@@ -238,6 +257,113 @@ public sealed class NetworkHudControllerTests
         Assert.True(me.IsSelf);
         Assert.Equal("Acdream", me.Name);
         Assert.Equal(string.Empty, me.DistanceText);
+    }
+
+    private static PluginWorldObject Standing(uint id, PluginNavigationPosition? position) =>
+        new(id, 1u, "Sigrid", PluginObjectClass.Player, 0u, 0u, 0u)
+        {
+            HasPosition = position is not null,
+            Position = position ?? default,
+        };
+
+    /// <summary>
+    /// A character the world shows is measured where it stands, as the
+    /// reference measures a valid object, not where its client last said:
+    /// a client that does not share its state keeps the place it entered
+    /// the world at, so two characters standing together read hundreds of
+    /// metres apart. Out of sight, what its client said is all there is.
+    /// Mutation: measure from the client's record alone and the row reads
+    /// 240.
+    /// </summary>
+    [Fact]
+    public void AClientInSightIsMeasuredWhereItStandsNotWhereItsClientLastSaid()
+    {
+        var rig = new Rig();
+        rig.Network.Clients.Add(Client(1u, 0x50000002u, "Sigrid", At(1d, 0d)));
+        rig.Objects.Objects.Add(Standing(0x50000002u, At(0d, 0.01d)));
+        rig.Ticks(1);
+
+        NetworkHudRow sigrid = rig.Controller.Rows[1];
+        Assert.Equal("2", sigrid.DistanceText);
+        Assert.Equal((byte)250, sigrid.DistanceTint);
+        Assert.Equal(0d, sigrid.ArrowRadians, 6);
+
+        rig.Objects.Objects[0] = Standing(0x50000002u, null);
+        rig.Ticks(4);
+        Assert.Equal("240", rig.Controller.Rows[1].DistanceText);
+    }
+
+    /// <summary>
+    /// The distance counts the height between them, as the reference's
+    /// does: thirty metres straight up is thirty metres. Mutation: measure
+    /// across the ground alone and it reads 0.
+    /// </summary>
+    [Fact]
+    public void TheDistanceCountsTheHeightBetweenThem()
+    {
+        var rig = new Rig();
+        rig.Network.Clients.Add(Client(1u, 0x50000002u, "Sigrid", At(0d, 0d) with { Elevation = 30d / 240d }));
+        rig.Ticks(1);
+        Assert.Equal("30", rig.Controller.Rows[1].DistanceText);
+        Assert.Equal((byte)195, rig.Controller.Rows[1].DistanceTint);
+    }
+
+    /// <summary>
+    /// A left drag moves the readout by how far the pointer went when the
+    /// button comes up, and keeps the reference's window position (the
+    /// readout sits 4 pixels right of and 60 below it) for the next time.
+    /// While the button is held the readout stays put, so every position
+    /// the host reports is measured from one place. A shift-click selects
+    /// and moves nothing; a cancelled press moves nothing; a click that
+    /// does not move saves nothing. Mutation: ignore the release and the
+    /// readout never moves.
+    /// </summary>
+    [Fact]
+    public void ALeftDragMovesTheReadoutAndKeepsItsWindowPosition()
+    {
+        var rig = new Rig();
+        rig.Network.Clients.Add(Client(1u, 0x50000002u, "Sigrid", At(0.01d, 0d)));
+        rig.Ticks(1);
+        LandscapeMapControllerTests.FakeCanvas canvas = rig.Canvas;
+        Assert.Equal(new PluginPoint(26d, 165d), canvas.Descriptor.Offset);
+
+        canvas.Down(100d, 10d);
+        canvas.Move(150d, 40d);
+        Assert.Equal(new PluginPoint(26d, 165d), canvas.Offset);
+        canvas.Up(130d, 50d);
+        Assert.Equal(new PluginPoint(56d, 205d), canvas.Offset);
+        Assert.Equal([(52, 145)], rig.Saved);
+        Assert.Empty(rig.Selection.Selected);
+
+        rig.Ticks(20);
+        Assert.Equal(new PluginPoint(56d, 205d), canvas.Offset);
+
+        canvas.Down(50d, 25d, PluginKeyModifiers.Shift);
+        canvas.Up(90d, 60d, PluginKeyModifiers.Shift);
+        Assert.Equal([0x50000002u], rig.Selection.Selected);
+        canvas.Down(10d, 10d);
+        canvas.Cancel(80d, 90d);
+        canvas.Down(10d, 10d);
+        canvas.Up(10d, 10d);
+        Assert.Equal(new PluginPoint(56d, 205d), canvas.Offset);
+        Assert.Single(rig.Saved);
+    }
+
+    /// <summary>
+    /// The readout opens where its character left it, and moves when the
+    /// row is written elsewhere (the UB page, /ub opt set). Mutation: keep
+    /// the fixed place and it opens at (26, 165).
+    /// </summary>
+    [Fact]
+    public void TheReadoutOpensAtItsSavedWindowPositionAndFollowsTheRow()
+    {
+        var rig = new Rig(NetworkHudSettings.Default with { Enabled = true, WindowX = 300, WindowY = 200 });
+        rig.Ticks(1);
+        Assert.Equal(new PluginPoint(304d, 260d), rig.Canvas.Descriptor.Offset);
+
+        rig.Settings = rig.Settings with { WindowX = 10, WindowY = 20 };
+        rig.Ticks(20);
+        Assert.Equal(new PluginPoint(14d, 80d), rig.Canvas.Offset);
     }
 
     /// <summary>

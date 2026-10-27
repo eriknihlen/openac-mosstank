@@ -205,8 +205,6 @@ public sealed class UbSettingCoverageTests
             ["LandscapeMaps.MapWindowY"] = "The host keeps where a window sits.",
             ["LandscapeMaps.MapWindowWidth"] = "The host keeps how big a window is.",
             ["LandscapeMaps.MapWindowHeight"] = "The host keeps how big a window is.",
-            ["NetworkUI.WindowPositionX"] = "The host keeps where a window sits.",
-            ["NetworkUI.WindowPositionY"] = "The host keeps where a window sits.",
             ["InventoryManager.IGWindowX"] = "The host keeps where a window sits.",
             ["InventoryManager.IGWindowY"] = "The host keeps where a window sits.",
 
@@ -308,6 +306,8 @@ public sealed class UbSettingCoverageTests
         ("NetworkUI.Enabled", "False"),
         ("NetworkUI.ShowHudWhenClosed", "True"),
         ("NetworkUI.SelectedTag", "All"),
+        ("NetworkUI.WindowPositionX", "22"),
+        ("NetworkUI.WindowPositionY", "105"),
 
         ("Aliases.Enabled", "True"),
         ("Aliases.Profile", "[character]"),
@@ -550,8 +550,8 @@ public sealed class UbSettingCoverageTests
 
         // 188 declared, 21 excluded, three of our own: the arithmetic is
         // stated so a silent change to any of the three tables shows up.
-        Assert.Equal(21, Excluded.Count);
-        Assert.Equal(167, shouldBeOnTheTab.Count);
+        Assert.Equal(19, Excluded.Count);
+        Assert.Equal(169, shouldBeOnTheTab.Count);
         Assert.Equal(shouldBeOnTheTab.Count + AddedHere.Count, onTheTab.Count);
     }
 
@@ -717,9 +717,14 @@ public sealed class UbSettingCoverageTests
             5,
             UbSettingDefinitions.All.Count(static definition =>
                 definition.Kind == UbSettingKind.Collection));
-        Assert.DoesNotContain(
-            UbSettingDefinitions.All,
-            static definition =>
-                definition.Name.Contains("Window", StringComparison.OrdinalIgnoreCase));
+        // The readout's window position is the one kept: the readout is a
+        // canvas the plugin places itself; every other window is the host's.
+        Assert.Equal(
+            ["NetworkUI.WindowPositionX", "NetworkUI.WindowPositionY"],
+            UbSettingDefinitions.All
+                .Where(static definition =>
+                    definition.Name.Contains("Window", StringComparison.OrdinalIgnoreCase))
+                .Select(static definition => definition.Name)
+                .Order(StringComparer.Ordinal));
     }
 }

@@ -42,7 +42,8 @@ internal sealed partial class MossTankPanel
             host.Selection,
             () => ReadNetworkHudSelf(host.Automation.Character),
             selfPosition,
-            ReadNetworkHudSettings);
+            ReadNetworkHudSettings,
+            SaveNetworkHudWindowPosition);
         PublishNetworkTags(onLoad: true);
     }
 
@@ -88,7 +89,18 @@ internal sealed partial class MossTankPanel
         _ubCatalog.Require("NetworkUI.Enabled").Get().Boolean,
         _ubCatalog.Require("NetworkUI.ShowHudWhenClosed").Get().Boolean,
         _ubCatalog.Require("NetworkUI.SelectedTag").Get().Text,
-        string.Join('\n', _ubCatalog.Require("NetworkUI.TrackedItems").Get().Items));
+        string.Join('\n', _ubCatalog.Require("NetworkUI.TrackedItems").Get().Items))
+    {
+        WindowX = _ubCatalog.Require("NetworkUI.WindowPositionX").Get().AsInt32(),
+        WindowY = _ubCatalog.Require("NetworkUI.WindowPositionY").Get().AsInt32(),
+    };
+
+    /// <summary>Keeps the window position a drag left the clients readout at, for this character.</summary>
+    private void SaveNetworkHudWindowPosition(int x, int y)
+    {
+        _ubCatalog.Require("NetworkUI.WindowPositionX").Set(UbSettingValue.FromInt(x));
+        _ubCatalog.Require("NetworkUI.WindowPositionY").Set(UbSettingValue.FromInt(y));
+    }
 
     private void TickDisplayTools(double elapsedSeconds)
     {
