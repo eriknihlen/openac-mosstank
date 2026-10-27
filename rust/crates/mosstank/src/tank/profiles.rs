@@ -412,7 +412,9 @@ impl Core {
     }
 
     /// `RestartRouteRound`: a route loaded while the macro runs starts the
-    /// way a macro start does.
+    /// way a macro start does. A once-through route starts at its head,
+    /// because loading it is what rewinds it; a start alone keeps it where it
+    /// was.
     pub(crate) fn restart_route_round(&mut self, client: &mut dyn TankClient) {
         let mut turn = route_turn!(client, self);
         self.navigation.reset(&mut turn);

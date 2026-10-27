@@ -275,6 +275,43 @@ fn a_once_route_starts_at_its_head() {
     assert_eq!(index(&plugin), 0);
 }
 
+// C# source: MossTankPanelTests.cs :: StoppingAndStartingTheMacroKeepsAOnceRouteWhereItWas
+/// Stopping the macro and starting it again leaves a once-through route
+/// where it was, as VTank's start does: it points at the front of the once
+/// list, which by then holds only the points not yet reached. Loading the
+/// route again is what starts it at its head. Mutation: rewind the once
+/// cursor on a start and the second start sends the character back to the
+/// first point.
+#[test]
+fn stopping_and_starting_the_macro_keeps_a_once_route_where_it_was() {
+    let (mut world, mut plugin) = standing_world();
+    let route = NavigationSettings {
+        mode: RouteMode::Once,
+        waypoints: vec![
+            point(0.0, 0.0),
+            point(10.0, 0.0),
+            point(20.0, 0.0),
+            point(30.0, 0.0),
+        ],
+        ..NavigationSettings::default()
+    };
+    load_route(&mut world, &mut plugin, "Line", &route);
+    set_option(&mut world, &mut plugin, "EnableNav", true);
+
+    world.vt(&mut plugin, "start");
+    assert_eq!(index(&plugin), 0);
+    world.vt(&mut plugin, "nextwp 2");
+    assert_eq!(index(&plugin), 2);
+
+    world.vt(&mut plugin, "stop");
+    world.vt(&mut plugin, "start");
+    assert!(running(&plugin));
+    assert_eq!(index(&plugin), 2);
+
+    world.vt(&mut plugin, "nav load Line");
+    assert_eq!(index(&plugin), 0);
+}
+
 // Source: tests/AcDream.Plugins.MossTank.Tests/MossTankPanelTests.cs :: LoadingARouteStillPutsTheRoundBackToItsFirstPoint
 #[test]
 fn loading_a_route_still_puts_the_round_back_to_its_first_point() {

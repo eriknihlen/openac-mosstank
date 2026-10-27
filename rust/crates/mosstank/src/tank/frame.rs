@@ -744,8 +744,11 @@ impl Core {
         }
         self.forward_cast_outcomes();
         if running {
-            // Starting decides where the round begins: the nearest point of
-            // the route the character could walk to. Only if the start took.
+            // Starting decides where the round begins: for a circular or
+            // back-and-forth route, the nearest point of the route the
+            // character could walk to; a once-through route goes on from the
+            // next point it has not reached, as the reference's does. Only if
+            // the start took.
             if self.combat.enabled() {
                 let mut turn: RouteTurn<'_> = route_turn!(client, self);
                 if let Some(line) = self.navigation.anchor_round_to_start(&mut turn) {

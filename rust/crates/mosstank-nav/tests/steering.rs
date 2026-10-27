@@ -555,9 +555,16 @@ fn a_once_route_run_to_its_end_still_holds_every_point_it_started_with() {
     assert!(route.controller.has_nothing_left_to_walk(&route.settings));
 }
 
-// Source: tests/AcDream.Plugins.MossTank.Tests/NavigationTests.cs :: AFinishedOnceRouteWalksAgainOnceTheRoundIsStartedAfresh
+// Not applicable: tests/AcDream.Plugins.MossTank.Tests/NavigationTests.cs :: AFinishedOnceRouteWalksAgainOnceTheRoundIsStartedAfresh: it pinned a macro start rewinding a finished once route, which VTank does not do (its start keeps the consumed once list); the C# line replaced it with AFinishedOnceRouteStaysFinishedAcrossAMacroStopAndStart
+
+// C# source: NavigationTests.cs :: AFinishedOnceRouteStaysFinishedAcrossAMacroStopAndStart
+/// A finished once route stays finished across a macro stop and start, as
+/// VTank's does: its once route is a list it empties as it walks, and a
+/// start does not fill it again. Only loading the route again puts it back
+/// at its head. Mutation: rewind the once cursor on a start and the stopped
+/// and restarted route walks again.
 #[test]
-fn a_finished_once_route_walks_again_once_the_round_is_started_afresh() {
+fn a_finished_once_route_stays_finished_across_a_macro_stop_and_start() {
     let here = position(0.0, 0.0);
     let mut route = rig(
         FakeAutomation::at(snapshot(here.clone())),
@@ -573,11 +580,56 @@ fn a_finished_once_route_walks_again_once_the_round_is_started_afresh() {
     assert!(!route.tick(0.05, true));
     assert_eq!(route.status(), "Once route complete.");
 
+    route.stop_for_macro_stop();
+    route.anchor();
+
+    assert!(!route.tick(0.05, true));
+    assert_eq!(route.status(), "Once route complete.");
+    assert!(route.controller.has_nothing_left_to_walk(&route.settings));
+
+    // Loading the route again is what starts it over.
+    route.reset();
     route.anchor();
 
     assert_eq!(route.index(), 0);
     assert!(route.tick(0.05, true));
     assert_eq!(route.index(), 1);
+}
+
+// C# source: NavigationTests.cs :: AMacroStopAndStartLeavesAOnceRouteAtItsNextUnreachedPoint
+/// Stopping the macro part way along a once route and starting it again
+/// goes on to the next point the route has not reached, not back to its
+/// head: VTank walks a once route by taking each point off the front of the
+/// list as it arrives, and its start only points at the front of what is
+/// left. Mutation: rewind the once cursor on a start and the character is
+/// sent back to the first point.
+#[test]
+fn a_macro_stop_and_start_leaves_a_once_route_at_its_next_unreached_point() {
+    // Facing east, down the line of the points still to walk.
+    let here = position_facing(0.0, 0.0, 90.0);
+    let mut route = rig(
+        FakeAutomation::at(snapshot(here.clone())),
+        RouteMode::Once,
+        vec![
+            waypoint(RouteWaypointType::Point, here.clone()),
+            waypoint(RouteWaypointType::Point, here),
+            waypoint(RouteWaypointType::Point, position(10.0, 0.0)),
+            waypoint(RouteWaypointType::Point, position(20.0, 0.0)),
+        ],
+    );
+
+    assert!(route.tick(0.05, true));
+    assert!(route.tick(0.05, true));
+    assert_eq!(route.index(), 2);
+
+    route.stop_for_macro_stop();
+    route.anchor();
+
+    assert_eq!(route.index(), 2);
+    route.automation.intents.clear();
+    assert!(route.tick(0.05, true));
+    assert_eq!(route.index(), 2);
+    assert!(route.automation.intents.iter().any(|intent| intent.forward));
 }
 
 // Source: tests/AcDream.Plugins.MossTank.Tests/NavigationTests.cs :: FollowReadsMovingTargetAndHoldsAtMinimumDistance

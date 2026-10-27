@@ -72,12 +72,12 @@
 > query
   = detail= holds=0 normal=1 nothing=1 block=OnceRoute rev=0 walking=0 action=0 consumed0=1 | Once route complete. | door: no door in reach | idx 3
 > anchor
-  log Route starts at Waypoint 1/3 (a once-through route starts at its head)
-  = - | Once route complete. | door: no door in reach | idx 0
+  log Route is a finished once-through route (loading it again starts it over)
+  = - | Once route complete. | door: no door in reach | idx 3
 > query
-  = detail=[targ range 0, targ loc 0, 0, 0 ] holds=0 normal=0 nothing=0 block=OnceRoute rev=0 walking=0 action=0 consumed0=0 | Once route complete. | door: no door in reach | idx 0
+  = detail= holds=0 normal=1 nothing=1 block=OnceRoute rev=0 walking=0 action=0 consumed0=1 | Once route complete. | door: no door in reach | idx 3
 > tick 0.05
-  = 1 | Once route complete. | door: no door in reach | idx 1
+  = 0 | Once route complete. | door: no door in reach | idx 3
 ##### anchor-picks-the-nearest-place-in-three-dimensions
 > anchor
   log Route starts at Waypoint 3/5 (the nearest point to the character)
