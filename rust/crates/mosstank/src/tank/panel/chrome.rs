@@ -53,7 +53,7 @@ pub(super) fn value(cx: &mut TankCx<'_>, name: &str) -> Option<UiValue> {
         "WindowAvailable" => b(cx.client.rules().is_available()),
         "WindowTitle" => t(format!("MossTank  v{}", crate::VERSION)),
         "DebugLogButtonText" => t(cx.core.debug_log_button_text()),
-        "DebugLogLocation" => t(cx.core.debug_log_location(cx.client)),
+        "DebugLogLocation" => t(cx.core.debug_log_location()),
         "OptionsSelected" | "OptionsVisible" => b(tab == TankTab::Options),
         "ProfilesSelected" | "ProfilesVisible" => b(tab == TankTab::Profiles),
         "VitalsSelected" | "VitalsVisible" => b(tab == TankTab::Vitals),

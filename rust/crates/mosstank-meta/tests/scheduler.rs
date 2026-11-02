@@ -1,18 +1,14 @@
-//! The macro scheduler, its rule table and adapters, and its debug log.
-//! Ported from the C#'s `MacroSchedulerTests`, `MacroRuleAdapterTests` and
-//! `MacroDebugLogTests`.
+//! The macro scheduler, its rule table and adapters.
+//! Ported from the C#'s `MacroSchedulerTests` and `MacroRuleAdapterTests`.
 
 use std::cell::RefCell;
 use std::rc::Rc;
 
-use mosstank_meta::debug_log::{MAXIMUM_BYTES, MacroDebugLog};
 use mosstank_meta::scheduler::{
     AbsentMacroRule, ControllerMacroRule, HEARTBEAT_SECONDS, MACRO_RULE_TABLE, MacroContext,
     MacroFamily, MacroIndependentSlot, MacroLogChannel, MacroPassContext, MacroRule,
     MacroRulePreChain, MacroRuleProvider, MacroRuleSentinel, MacroRuleSlot, MacroScheduler, build,
 };
-use mosstank_meta::testing::SharedStorage;
-use mosstank_stores::storage::PluginStorage;
 
 /// The scheduler's hooks as a test binds them.
 #[derive(Default)]
@@ -1028,95 +1024,8 @@ fn teardown_runs_once_on_the_true_to_false_edge() {
     assert_eq!(*teardowns.borrow(), 1);
 }
 
-// Source: tests/AcDream.Plugins.MossTank.Tests/MacroDebugLogTests.cs :: KeepsNewestWholeUtf8RecordsWithinByteLimit
-#[test]
-fn keeps_newest_whole_utf8_records_within_byte_limit() {
-    let mut storage = SharedStorage::new();
-    // A storage that counts its writes.
-    struct Counting<'s> {
-        storage: &'s mut SharedStorage,
-        writes: usize,
-    }
-    impl PluginStorage for Counting<'_> {
-        fn is_available(&mut self) -> bool {
-            true
-        }
-        fn root_path(&mut self) -> Option<String> {
-            None
-        }
-        fn read_text(&mut self, key: &str) -> Result<Option<String>, String> {
-            self.storage.read_text(key)
-        }
-        fn list(&mut self, prefix: &str) -> Result<Vec<String>, String> {
-            self.storage.list(prefix)
-        }
-        fn write_text(&mut self, key: &str, content: &str) -> Result<(), String> {
-            self.writes += 1;
-            self.storage.write_text(key, content)
-        }
-        fn ensure_directory(&mut self, _prefix: &str) -> Result<bool, String> {
-            Ok(true)
-        }
-        fn delete(&mut self, key: &str) -> Result<bool, String> {
-            self.storage.delete(key)
-        }
-    }
-    let mut counting = Counting {
-        storage: &mut storage,
-        writes: 0,
-    };
-    let mut log = MacroDebugLog::new("debug/test.log");
-    log.record(0, "oldest");
-    for index in 0..3000 {
-        log.record(0, &format!("{index}:{}", "\u{754c}".repeat(300)));
-    }
-    log.record(0, "newest");
-    log.flush(&mut counting).unwrap();
-    let writes = counting.writes;
-    let text = storage.get("debug/test.log").unwrap();
-    assert!(text.len() <= MAXIMUM_BYTES);
-    assert!(!text.contains("oldest"));
-    assert!(text.ends_with("newest\n"));
-    assert!(
-        text.split('\n')
-            .filter(|line| !line.is_empty())
-            .all(|line| line.starts_with('['))
-    );
-    let mut counting = Counting {
-        storage: &mut storage,
-        writes,
-    };
-    log.flush(&mut counting).unwrap();
-    assert_eq!(counting.writes, writes);
-}
-
-// Source: tests/AcDream.Plugins.MossTank.Tests/MacroDebugLogTests.cs :: OversizedRecordStaysWithinLimit
-#[test]
-fn oversized_record_stays_within_limit() {
-    let mut storage = SharedStorage::new();
-    let mut log = MacroDebugLog::new("debug/test.log");
-    log.record(0, "before");
-    log.record(0, &"\u{754c}".repeat(MAXIMUM_BYTES));
-    let mut available = storage.clone();
-    log.flush(&mut available).unwrap();
-    let text = storage.get("debug/test.log").unwrap();
-    assert!(text.contains("before"));
-    assert!(text.contains("Record omitted"));
-    assert!(text.len() < MAXIMUM_BYTES);
-    let _ = storage.is_available();
-}
-
-#[test]
-fn a_record_is_stamped_in_the_round_trip_form_with_its_offset() {
-    let mut storage = SharedStorage::new();
-    let mut log = MacroDebugLog::new("debug/stamp.log");
-    log.record(1_700_000_000_123, "line\r\nbreak");
-    log.flush(&mut storage).unwrap();
-    assert_eq!(
-        storage.get("debug/stamp.log").unwrap(),
-        "[2023-11-14T22:13:20.1230000+00:00] line  break\n"
-    );
-}
+// Not applicable: tests/AcDream.Plugins.MossTank.Tests/MacroDebugLogTests.cs :: KeepsNewestWholeUtf8RecordsWithinByteLimit: the debug log is no file of the plugin's own to keep within 2 MiB; each line goes to the host's log at the debug level, which a launcher session keeps in its plugin log (register META-7)
+// Not applicable: tests/AcDream.Plugins.MossTank.Tests/MacroDebugLogTests.cs :: OversizedRecordStaysWithinLimit: the debug log is no file of the plugin's own to keep within 2 MiB; each line goes to the host's log at the debug level, which a launcher session keeps in its plugin log (register META-7)
 
 /// A call's state that borrows what it works with for the length of the
 /// call, as the plugin's does: the scheduler and its rules outlive it.

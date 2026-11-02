@@ -11,7 +11,7 @@ use std::sync::LazyLock;
 
 use ac_plugin_abi::net::{HttpReply, HttpRequest};
 use mosstank_dotnet::text::casing;
-use mosstank_meta::debug_log::MacroDebugLog;
+use mosstank_meta::host::LogLevel;
 use mosstank_session::action_history::ActionHistory;
 use mosstank_session::game_info::{
     self, GameInfoTransport, HttpGameInfoTransport, VtankGameInfoUpdater,
@@ -28,6 +28,11 @@ use mosstank_ub::commands::split_head;
 /// The status line other plugins read for the macro's current meta state,
 /// the value VTank's external interface reported as its current meta state.
 pub(crate) const META_STATE_STATUS_KEY: &str = "metaState";
+
+/// Where the debug log's lines go: the host's log at the debug level, which
+/// a launcher session appends to the session's plugin log.
+const DEBUG_LOG_LOCATION: &str = "the session's plugin log \
+     (logs\\<server>\\<character>\\<session>\\plugins\\acdream.mosstank.log)";
 
 /// `/vt gamedb`'s syntax line.
 pub(crate) const GAME_DB_SYNTAX: &str = "Syntax: /vt gamedb [update | interval [hours]]";
@@ -46,7 +51,9 @@ static ACTIVITY_MEASUREMENTS: LazyLock<DotNetRegex> = LazyLock::new(|| {
 /// hook.
 pub(crate) struct HistoryLog {
     pub(crate) history: ActionHistory,
-    pub(crate) debug_log: Option<MacroDebugLog>,
+    /// While the debug log is on, its lines not yet handed to the host's
+    /// log: the fight's status hook has no client to log through.
+    pub(crate) debug_log: Option<Vec<String>>,
     clock: Rc<HostClock>,
 }
 
@@ -57,10 +64,11 @@ impl HistoryLog {
         self.write_debug(&format!("Combat: {status}"));
     }
 
+    /// One line of the debug log, while it is on; line breaks in it become
+    /// spaces.
     fn write_debug(&mut self, message: &str) {
-        let now = mosstank_expr::ExpressionClock::utc_now_ms(&*self.clock);
-        if let Some(log) = &mut self.debug_log {
-            log.record(now, message);
+        if let Some(pending) = &mut self.debug_log {
+            pending.push(message.replace(['\r', '\n'], " "));
         }
     }
 }
@@ -73,7 +81,6 @@ pub(crate) struct SessionParts {
     pub(crate) history: SharedHistory,
     activity_states: HashMap<String, String>,
     activity_elapsed: f64,
-    debug_flush_elapsed: f64,
     pub(crate) action_history_visible: bool,
     pub(crate) kill_statistics: KillStatistics,
     pub(crate) game_info_updater: VtankGameInfoUpdater,
@@ -95,7 +102,6 @@ impl SessionParts {
             })),
             activity_states: HashMap::new(),
             activity_elapsed: 0.0,
-            debug_flush_elapsed: 0.0,
             action_history_visible: false,
             kill_statistics,
             // The plugin hands the panel the HTTP transport.
@@ -181,24 +187,19 @@ impl Core {
         history.write_debug(&line);
     }
 
-    /// `FlushDebugLog`: a log that cannot be written stops, and says why.
+    /// `FlushDebugLog`: the debug log's lines so far go to the host's log
+    /// at the debug level, in order. A launcher session keeps them in its
+    /// plugin log; a client started by hand prints them on its console.
     pub(crate) fn flush_debug_log(&mut self, client: &mut dyn TankClient) {
-        let failed = {
-            let mut history = self.session.history.borrow_mut();
-            let Some(log) = &mut history.debug_log else {
-                return;
-            };
-            log.flush(client.stores().storage(Root::Plugin)).err()
-        };
-        if let Some(error) = failed {
-            self.session.history.borrow_mut().debug_log = None;
-            client
-                .looter()
-                .log_error(&format!("MossTank debug logging stopped: {error}"));
-            super::post_chat(
-                client.rules(),
-                &format!("MossTank debug logging stopped: {error}"),
-            );
+        let pending = self
+            .session
+            .history
+            .borrow_mut()
+            .debug_log
+            .as_mut()
+            .map(std::mem::take);
+        for line in pending.into_iter().flatten() {
+            client.meta().log(LogLevel::Debug, &line);
         }
     }
 
@@ -212,25 +213,13 @@ impl Core {
     }
 
     /// Where the log is written, or what the button does
-    /// (`DebugLogLocation`).
-    pub(crate) fn debug_log_location(&self, client: &mut dyn TankClient) -> String {
-        let key = self
-            .session
-            .history
-            .borrow()
-            .debug_log
-            .as_ref()
-            .map(|log| log.key().to_owned());
-        match key {
-            Some(key) => {
-                let root = client
-                    .stores()
-                    .storage(Root::Plugin)
-                    .root_path()
-                    .unwrap_or_default();
-                format!("{root}/{key}")
-            }
-            None => "Save detailed macro activity (newest 2 MiB).".to_owned(),
+    /// (`DebugLogLocation`). The plugin cannot know the session folder's
+    /// path, so the place is named, not spelled out.
+    pub(crate) fn debug_log_location(&self) -> &'static str {
+        if self.session.history.borrow().debug_log.is_some() {
+            DEBUG_LOG_LOCATION
+        } else {
+            "Save detailed macro activity in the session's plugin log."
         }
     }
 
@@ -562,20 +551,14 @@ impl PluginStorage for OneStorage<'_, '_> {
 }
 
 impl TankCx<'_> {
-    /// `ObserveMacroActivity`: the debug log is written every five seconds,
-    /// and every half second each part's state goes in the history when it
-    /// changed.
+    /// `ObserveMacroActivity`: every half second each part's state goes in
+    /// the history when it changed.
     pub(crate) fn observe_macro_activity(
         &mut self,
         scheduler: &mosstank_meta::scheduler::MacroScheduler<TankFamily>,
         elapsed_seconds: f64,
     ) {
         let elapsed = elapsed_seconds.max(0.0);
-        self.core.session.debug_flush_elapsed += elapsed;
-        if self.core.session.debug_flush_elapsed >= 5.0 {
-            self.core.session.debug_flush_elapsed = 0.0;
-            self.core.flush_debug_log(self.client);
-        }
         self.core.session.activity_elapsed += elapsed;
         if self.core.session.activity_elapsed < 0.5 {
             return;
@@ -638,22 +621,10 @@ impl TankCx<'_> {
             self.core.session.history.borrow_mut().debug_log = None;
             return;
         }
-        if !self.client.stores().storage(Root::Plugin).is_available() {
-            super::post_chat(
-                self.client.rules(),
-                "MossTank debug log: plugin storage is unavailable.",
-            );
-            return;
-        }
-        let now = self.client.clock().utc_unix_ms;
-        let stamp = openac_plugin_compat::datetime::DateTime::utc_from_unix_millis(now)
-            .format("yyyyMMdd-HHmmss")
-            .expect("a pattern the kit writes");
-        let key = format!("debug/macro-{stamp}-{}.log", new_guid_n(self.client));
         let character = self.client.rules().character();
         {
             let mut history = self.core.session.history.borrow_mut();
-            history.debug_log = Some(MacroDebugLog::new(&key));
+            history.debug_log = Some(Vec::new());
             history.write_debug(&format!(
                 "MossTank {}; character={}; world={}",
                 crate::VERSION,
@@ -666,13 +637,10 @@ impl TankCx<'_> {
             }
         }
         self.core.flush_debug_log(self.client);
-        if self.core.session.history.borrow().debug_log.is_some() {
-            let location = self.core.debug_log_location(self.client);
-            super::post_chat(
-                self.client.rules(),
-                &format!("MossTank debug log: {location}"),
-            );
-        }
+        super::post_chat(
+            self.client.rules(),
+            &format!("MossTank debug log: {DEBUG_LOG_LOCATION}"),
+        );
     }
 }
 
@@ -693,9 +661,9 @@ impl Core {
         self.session.game_info_checked_this_session = false;
     }
 
-    /// The plugin stops (`Dispose`, the session's part): the debug log is
-    /// written and closed, the kill statistics close their segment, and the
-    /// game database check stops for good.
+    /// The plugin stops (`Dispose`, the session's part): the debug log's
+    /// last lines are logged and it closes, the kill statistics close their
+    /// segment, and the game database check stops for good.
     pub(crate) fn dispose_session_records(&mut self, client: &mut dyn TankClient) {
         self.flush_debug_log(client);
         self.session.history.borrow_mut().debug_log = None;
@@ -781,8 +749,9 @@ impl Tank {
     }
 
     /// Where the debug log is written (`DebugLogLocation`).
-    pub fn debug_log_location(&self, client: &mut dyn TankClient) -> String {
-        self.core.debug_log_location(client)
+    #[must_use]
+    pub fn debug_log_location(&self) -> &'static str {
+        self.core.debug_log_location()
     }
 
     /// Starts or stops the debug log (`ToggleDebugLog`).

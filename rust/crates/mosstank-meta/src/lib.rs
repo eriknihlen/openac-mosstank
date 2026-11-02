@@ -24,7 +24,6 @@ pub mod view;
 pub mod view_manager;
 
 pub use functions::host_function_names;
-pub mod debug_log;
 pub mod engine;
 pub mod events;
 pub mod scheduler;

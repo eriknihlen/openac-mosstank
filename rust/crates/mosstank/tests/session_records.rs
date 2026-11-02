@@ -8,9 +8,9 @@ mod common;
 
 use std::rc::Rc;
 
-use ac_plugin_abi::Event;
 use ac_plugin_abi::calls;
 use ac_plugin_abi::net::{HttpReply, NetError, NetEvent};
+use ac_plugin_abi::{Event, LogLevel};
 use common::{World, character};
 use mosstank::MossTank;
 use mosstank_formats::gameinfo::{FILE_NAME, VtankGameInfoDatabase};
@@ -38,28 +38,98 @@ fn on_tick(world: &mut World, plugin: &mut MossTank, seconds: f64) {
 // ---- MossTankPanelTests.ActionHistory ------------------------------------
 
 // Source: tests/AcDream.Plugins.MossTank.Tests/MossTankPanelTests.ActionHistory.cs :: DebugButtonSavesHistoryAndStopsWritingWhenDisabled
+// The debug log goes to the host's log at the debug level, not to a file in
+// the plugin's storage (register META-7).
 #[test]
 fn debug_button_saves_history_and_stops_writing_when_disabled() {
     let mut world = World::with_character("Barris");
     let mut plugin = world.enable();
-    world.with_tank(&mut plugin, |tank, client| tank.toggle_debug_log(client));
-    let keys: Vec<String> = world
-        .plugin_data
-        .keys()
-        .filter(|key| key.starts_with("debug/"))
-        .map(str::to_owned)
-        .collect();
-    assert_eq!(keys.len(), 1, "{keys:?}");
-    let key = &keys[0];
-    assert!(world.plugin_data.get(key).unwrap().contains("Combat off"));
-    assert_eq!(tank(&plugin).debug_log_button_text(), "Debug log: ON");
-    toggle_combat(&mut world, &mut plugin);
-    world.with_tank(&mut plugin, |tank, client| tank.toggle_debug_log(client));
-    let saved = world.plugin_data.get(key).unwrap().to_owned();
-    assert!(saved.contains("Logging stopped."));
-    toggle_combat(&mut world, &mut plugin);
-    assert_eq!(world.plugin_data.get(key), Some(saved.as_str()));
     assert_eq!(tank(&plugin).debug_log_button_text(), "Debug log: off");
+    assert_eq!(
+        tank(&plugin).debug_log_location(),
+        "Save detailed macro activity in the session's plugin log."
+    );
+    world.clear_chat();
+    world.with_tank(&mut plugin, |tank, client| tank.toggle_debug_log(client));
+
+    // The header, then the history so far, in order.
+    let history = tank(&plugin).action_history_lines();
+    let started = world.logs(LogLevel::Debug);
+    let character = character("Barris");
+    let mut expected = vec![format!(
+        "MossTank {}; character={}; world={}",
+        mosstank::VERSION,
+        character.name,
+        character.world
+    )];
+    expected.extend(history.iter().cloned());
+    assert_eq!(started, expected);
+    assert!(started.iter().any(|line| line.contains("Combat off")));
+    assert_eq!(tank(&plugin).debug_log_button_text(), "Debug log: ON");
+    let location = "the session's plugin log \
+         (logs\\<server>\\<character>\\<session>\\plugins\\acdream.mosstank.log)";
+    assert_eq!(tank(&plugin).debug_log_location(), location);
+    assert_eq!(
+        world.chat(),
+        vec![format!("[MossTank] MossTank debug log: {location}")]
+    );
+
+    // A change while it is on reaches the log in the same call.
+    toggle_combat(&mut world, &mut plugin);
+    let running = world.logs(LogLevel::Debug);
+    assert_eq!(running[..started.len()], started[..]);
+    assert!(
+        running[started.len()..]
+            .iter()
+            .any(|line| line.starts_with("Combat: "))
+    );
+
+    world.with_tank(&mut plugin, |tank, client| tank.toggle_debug_log(client));
+    let stopped = world.logs(LogLevel::Debug);
+    assert_eq!(stopped.last().map(String::as_str), Some("Logging stopped."));
+    toggle_combat(&mut world, &mut plugin);
+    on_tick(&mut world, &mut plugin, 1.0);
+    assert_eq!(world.logs(LogLevel::Debug), stopped);
+    assert_eq!(tank(&plugin).debug_log_button_text(), "Debug log: off");
+
+    // Debug lines only at the debug level, and nothing in the storage.
+    for line in &stopped {
+        assert!(!world.logs(LogLevel::Info).contains(line), "{line}");
+    }
+    assert!(
+        world
+            .plugin_data
+            .keys()
+            .all(|key| !key.starts_with("debug/")),
+        "{:?}",
+        world.plugin_data.keys().collect::<Vec<_>>()
+    );
+}
+
+#[test]
+fn the_debug_log_gets_every_new_history_line_in_order() {
+    let mut world = World::with_character("Barris");
+    let mut plugin = world.enable();
+    world.with_tank(&mut plugin, |tank, client| tank.toggle_debug_log(client));
+    let before = tank(&plugin).action_history_lines().len();
+    let logged = world.logs(LogLevel::Debug).len();
+    toggle_combat(&mut world, &mut plugin);
+    on_tick(&mut world, &mut plugin, 0.5);
+    // The history stamps its lines, and names the fight's without
+    // "Combat: "; the host's log stamps the debug lines.
+    let recorded: Vec<String> = tank(&plugin).action_history_lines()[before..]
+        .iter()
+        .map(|line| line.split_once("] ").expect("a stamped line").1.to_owned())
+        .collect();
+    let debug = world.logs(LogLevel::Debug)[logged..].to_vec();
+    assert!(recorded.len() > 2, "{recorded:?}");
+    assert_eq!(debug.len(), recorded.len(), "{debug:?} {recorded:?}");
+    for (line, history) in debug.iter().zip(&recorded) {
+        assert!(
+            line == history || *line == format!("Combat: {history}"),
+            "{line} / {history}"
+        );
+    }
 }
 
 // Source: tests/AcDream.Plugins.MossTank.Tests/MossTankPanelTests.ActionHistory.cs :: ActivityIncludesNavigationAndDoesNotRepeatUnchangedState

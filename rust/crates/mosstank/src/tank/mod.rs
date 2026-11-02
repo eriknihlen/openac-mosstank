@@ -1640,6 +1640,9 @@ impl Tank {
             .storage(mosstank_stores::storage::Root::Plugin);
         self.core.buff_rule.item_ledger_mut().flush(storage);
         self.apply_pending_meta_interval();
+        // The debug log's lines of the call reach the host's log before it
+        // returns.
+        self.core.flush_debug_log(client);
     }
 }
 
