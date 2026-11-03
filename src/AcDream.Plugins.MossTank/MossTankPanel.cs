@@ -3176,41 +3176,93 @@ internal sealed partial class MossTankPanel : IBuffRuleHost, IDisposable
 
     private void CycleMonsterEquipmentAt(int row, bool offhand)
     {
-        string[] names = SortedCombatItemNames();
+        IReadOnlyList<(uint ObjectId, string Name)> choices = MonsterEquipmentChoices();
         UpdateMonsterActionsAt(row, actions =>
         {
+            uint currentId = offhand ? actions.OffhandObjectId : actions.WeaponObjectId;
             string currentName = offhand ? actions.OffhandName : actions.WeaponName;
-            int currentIndex = string.IsNullOrEmpty(currentName)
-                ? -1
-                : Array.IndexOf(names, currentName);
-            if (names.Length == 0)
-                return SetWeaponSlot(actions, offhand, null);
+            int currentIndex = -1;
+            if (currentId != 0u)
+            {
+                for (int i = 0; i < choices.Count && currentIndex < 0; i++)
+                {
+                    if (choices[i].ObjectId == currentId)
+                        currentIndex = i;
+                }
+            }
+            if (currentIndex < 0 && !string.IsNullOrEmpty(currentName))
+            {
+                for (int i = 0; i < choices.Count && currentIndex < 0; i++)
+                {
+                    if (string.Equals(choices[i].Name, currentName, StringComparison.Ordinal))
+                        currentIndex = i;
+                }
+            }
             int nextIndex = currentIndex + 1;
-            return nextIndex >= names.Length
-                ? SetWeaponSlot(actions, offhand, null)
-                : SetWeaponSlot(actions, offhand, names[nextIndex]);
+            return nextIndex >= choices.Count
+                ? SetWeaponSlot(actions, offhand, 0u, string.Empty)
+                : SetWeaponSlot(actions, offhand, choices[nextIndex].ObjectId, choices[nextIndex].Name);
         });
     }
 
-    private MonsterRuleActions SetWeaponSlot(
-        MonsterRuleActions actions, bool offhand, string? name)
+    /// <summary>
+    /// What a Weapon or Offhand cell cycles through: the items the Items page
+    /// lists, by name. A profile read from VTank lists its items by
+    /// object id alone, so the choices come from those ids -- each the very
+    /// object the page names, never another one that shares its name. Only a
+    /// profile that lists its items by name is cycled by name.
+    /// </summary>
+    private IReadOnlyList<(uint ObjectId, string Name)> MonsterEquipmentChoices()
     {
-        uint objectId = 0u;
-        if (!string.IsNullOrEmpty(name))
+        var ownedById = new Dictionary<uint, PluginInventoryItem>();
+        var ownedByName = new Dictionary<string, PluginInventoryItem>(StringComparer.Ordinal);
+        foreach (PluginInventoryItem item in _host.Automation.Items.CaptureOwnedItems())
         {
-            foreach (PluginInventoryItem item in _host.Automation.Items.CaptureOwnedItems())
-            {
-                if (string.Equals(item.Name, name, StringComparison.Ordinal))
-                {
-                    objectId = item.ObjectId;
-                    break;
-                }
-            }
+            ownedById.TryAdd(item.ObjectId, item);
+            ownedByName.TryAdd(item.Name, item);
         }
-        return offhand
-            ? actions with { OffhandObjectId = objectId, OffhandName = name ?? string.Empty }
-            : actions with { WeaponObjectId = objectId, WeaponName = name ?? string.Empty };
+        var choices = new List<(uint, string)>();
+        if (_combatSettings.CombatItemObjectIds.Count != 0)
+        {
+            uint characterId = _host.Automation.Character.ObjectId;
+            var listed = new HashSet<uint>();
+            foreach (uint objectId in _combatSettings.CombatItemOrderIds)
+            {
+                if (objectId is 0u or uint.MaxValue
+                    || (characterId != 0u && objectId == characterId)
+                    || !listed.Add(objectId))
+                {
+                    continue;
+                }
+                string? name = ownedById.TryGetValue(objectId, out PluginInventoryItem owned)
+                    ? owned.Name
+                    : _combatSettings.CombatItemNamesById.TryGetValue(objectId, out string? known)
+                        ? known
+                        : null;
+                if (!string.IsNullOrWhiteSpace(name))
+                    choices.Add((objectId, name));
+            }
+            // Alphabetical, as the cycle has always run; OrderBy is stable,
+            // so same-named items keep the page's order.
+            return choices
+                .OrderBy(static choice => choice.Item2, StringComparer.Ordinal)
+                .ToArray();
+        }
+        foreach (string name in SortedCombatItemNames())
+        {
+            uint objectId = ownedByName.TryGetValue(name, out PluginInventoryItem owned)
+                ? owned.ObjectId
+                : 0u;
+            choices.Add((objectId, name));
+        }
+        return choices;
     }
+
+    private static MonsterRuleActions SetWeaponSlot(
+        MonsterRuleActions actions, bool offhand, uint objectId, string name) =>
+        offhand
+            ? actions with { OffhandObjectId = objectId, OffhandName = name }
+            : actions with { WeaponObjectId = objectId, WeaponName = name };
 
     private static string DamageTypeDisplay(MonsterDamageType value) => value switch
     {

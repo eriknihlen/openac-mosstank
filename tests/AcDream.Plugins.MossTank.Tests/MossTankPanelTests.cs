@@ -9116,6 +9116,53 @@ public sealed partial class MossTankPanelTests
     }
 
     /// <summary>
+    /// A profile read from VTank lists its items by object id alone, with no
+    /// names. The Weapon cell still cycles through those items, and each pick
+    /// is the very object the Items page lists, not another that shares its
+    /// name.
+    /// Mutation: cycle over the name roster only, and the cell never leaves
+    /// AUTO.
+    /// </summary>
+    [Fact]
+    public void MonsterWeaponColumnCyclesItemsAnImportedProfileListsById()
+    {
+        var storage = new MemoryStorage();
+        VtankDatabase database = VtankDefaultSettingsDatabase.Create();
+        database.Find("BuffedItems")!.Rows.Add(new VtankRow
+        {
+            Cells = { VtankCell.Int(11), VtankCell.Int(-1) },
+        });
+        database.Find("BuffedItems")!.Rows.Add(new VtankRow
+        {
+            Cells = { VtankCell.Int(20), VtankCell.Int(-1) },
+        });
+        storage.Text["mosstank/profiles/Imported.usd"] = database.Render();
+        var automation = new FakeAutomation
+        {
+            Name = "Rule Maker",
+            ItemEntries =
+            [
+                Item(10, "Fire Sword", 1),
+                Item(11, "Fire Sword", 1),
+                Item(20, "War Wand", 0x00008000u),
+            ],
+        };
+        var host = new FakeHost(automation, storage);
+        var panel = new MossTankPanel(host);
+        Command(panel, "settings load Imported");
+
+        Assert.Equal("<AUTO>", panel.MonsterWeaponColumn[0]);
+        panel.CycleMonsterWeaponAt(0);
+        Assert.Equal("Fire Sword", panel.MonsterWeaponColumn[0]);
+        panel.CycleMonsterWeaponAt(0);
+        Assert.Equal("War Wand", panel.MonsterWeaponColumn[0]);
+        panel.CycleMonsterWeaponAt(0);
+        Assert.Equal("<AUTO>", panel.MonsterWeaponColumn[0]);
+        panel.CycleMonsterOffhandAt(0);
+        Assert.Equal("Fire Sword", panel.MonsterOffhandColumn[0]);
+    }
+
+    /// <summary>
     /// A Weapon cell holding a pick the Items page no longer carries reads
     /// INVALID, in the same words the Items page uses for one of its own rows
     /// that has gone missing. Showing the item's ordinary name would promise a
