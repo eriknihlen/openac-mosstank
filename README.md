@@ -30,6 +30,12 @@ Commands are registered under `/vt` and `/ub`, as VTank and UtilityBelt register
 the macro's commands answer on `/vt`, the UtilityBelt ones on `/ub`, so command lines
 written for either work as they are. `/vt help` and `/ub help` list each word's commands.
 
+`/vt compshud on` shows the Comps HUD, the item counter from Virindi HUDs: a
+narrow strip with one row per item and how many of it the character carries.
+Select an item and press its **+** to add it; press **−** and then click a row
+to take that row off. Drag the strip to move it. Each character keeps its own
+list and position; whether the HUD is on is shared by every character.
+
 Optional [personal kill statistics](KILL-STATISTICS.md) record durable per-character
 counters for kills/hour reporting without relying on retained chat logs.
 

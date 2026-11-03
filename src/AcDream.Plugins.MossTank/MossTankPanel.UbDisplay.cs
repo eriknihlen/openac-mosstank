@@ -12,6 +12,7 @@ internal sealed partial class MossTankPanel
 {
     private LandscapeMapController _landscapeMap = null!;
     private NetworkHudController _networkHud = null!;
+    private ComponentHudController _componentHud = null!;
     private readonly LandscapeMarkerCatalog _landscapeMarkers = new();
     private IReadOnlyList<string> _ubClientNames = [];
     private int _selectedUbClient;
@@ -44,6 +45,13 @@ internal sealed partial class MossTankPanel
             selfPosition,
             ReadNetworkHudSettings,
             SaveNetworkHudWindowPosition);
+        _componentHud = new ComponentHudController(
+            host.Ui,
+            host.Automation.Objects,
+            host.Selection,
+            host.Storage,
+            () => (host.Automation.Character.WorldName, host.Automation.Character.Name),
+            WriteVtank);
         PublishNetworkTags(onLoad: true);
     }
 
@@ -107,6 +115,7 @@ internal sealed partial class MossTankPanel
         PublishNetworkTags(onLoad: false);
         _landscapeMap.OnTick(elapsedSeconds);
         _networkHud.OnTick(elapsedSeconds);
+        _componentHud.OnTick(elapsedSeconds);
         IReadOnlyList<NetworkHudRow> rows = _networkHud.Rows;
         if (rows.Count != _ubClientNames.Count
             || !rows.Select(static row => row.Name).SequenceEqual(_ubClientNames))
@@ -120,12 +129,75 @@ internal sealed partial class MossTankPanel
     {
         _landscapeMap.Reset();
         _networkHud.Reset();
+        _componentHud.Reset();
     }
 
     private void DisposeDisplayTools()
     {
         _landscapeMap.Dispose();
         _networkHud.Dispose();
+        _componentHud.Dispose();
+    }
+
+    // ---- The Comps HUD ---------------------------------------------------
+
+    /// <summary>Whether the Comps HUD is on.</summary>
+    internal bool ComponentHudEnabled => _componentHud.Enabled;
+
+    /// <summary>
+    /// <c>/vt compshud [on | off | toggle | add | remove &lt;name&gt;]</c>:
+    /// the Comps HUD from the keyboard. Bare, it says whether the HUD is on
+    /// and what it counts.
+    /// </summary>
+    private void HandleComponentHudCommand(string arguments)
+    {
+        (string typed, string rest) = SplitHead(arguments);
+        switch (typed.ToLowerInvariant())
+        {
+            case "":
+                WriteVtank(ComponentHudSummary());
+                return;
+            case "on":
+                _componentHud.Enabled = true;
+                WriteVtank(ComponentHudSummary());
+                return;
+            case "off":
+                _componentHud.Enabled = false;
+                WriteVtank("Comps HUD: off.");
+                return;
+            case "toggle":
+                _componentHud.Enabled = !_componentHud.Enabled;
+                WriteVtank(_componentHud.Enabled ? ComponentHudSummary() : "Comps HUD: off.");
+                return;
+            case "add":
+                WriteVtank(!_componentHud.IsBound
+                    ? "Comps HUD: not in world."
+                    : _componentHud.AddSelection() is { } added
+                        ? $"Comps HUD: added {added}."
+                        : "Comps HUD: select an item that is not listed yet.");
+                return;
+            case "remove" when rest.Trim().Length != 0:
+                WriteVtank(_componentHud.Remove(rest) is { } removed
+                    ? $"Comps HUD: removed {removed}."
+                    : $"Comps HUD: {rest.Trim()} is not listed.");
+                return;
+            default:
+                WriteVtank("Syntax: " + VtankCommandHelp.ComponentHudSyntax);
+                return;
+        }
+    }
+
+    private string ComponentHudSummary()
+    {
+        string state = _componentHud.Enabled ? "on" : "off";
+        IReadOnlyList<ComponentHudEntry> entries = _componentHud.Entries;
+        if (entries.Count == 0)
+            return $"Comps HUD: {state}, nothing listed (select an item and press + or /vt compshud add).";
+        IReadOnlyList<int> counts = _componentHud.Counts;
+        return $"Comps HUD: {state}; "
+            + string.Join(", ", entries.Select((entry, i) =>
+                i < counts.Count ? $"{entry.Name} {counts[i]}" : entry.Name))
+            + ".";
     }
 
     // ---- The clients window ---------------------------------------------

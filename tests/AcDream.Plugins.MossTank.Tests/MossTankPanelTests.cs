@@ -5242,6 +5242,30 @@ public sealed partial class MossTankPanelTests
     }
 
 
+    /// <summary>
+    /// <c>/vt compshud on</c> turns the Comps HUD on and says so; bare, it
+    /// reports the state; an unknown word answers with the syntax.
+    /// </summary>
+    [Fact]
+    public void TheCompsHudCommandTurnsTheHudOnAndOff()
+    {
+        var automation = new FakeAutomation();
+        var panel = new MossTankPanel(new FakeHost(automation));
+
+        panel.ExecuteVtankCommand(new PluginCommand("vt", "compshud on", "/vt compshud on"));
+        Assert.True(panel.ComponentHudEnabled);
+        Assert.Contains(automation.Messages, static value => value.Contains("Comps HUD: on", StringComparison.Ordinal));
+
+        panel.ExecuteVtankCommand(new PluginCommand("vt", "compshud off", "/vt compshud off"));
+        Assert.False(panel.ComponentHudEnabled);
+
+        panel.ExecuteVtankCommand(new PluginCommand("vt", "compshud sideways", "/vt compshud sideways"));
+        Assert.Contains(automation.Messages, static value => value.Contains(VtankCommandHelp.ComponentHudSyntax, StringComparison.Ordinal));
+
+        panel.ExecuteVtankCommand(new PluginCommand("vt", "help", "/vt help"));
+        Assert.Contains(automation.Messages, static value => value.Contains("compshud", StringComparison.Ordinal));
+    }
+
     private static AcDream.Plugins.MossTank.Expressions.ExpressionValue Truthy(
         bool value) =>
         AcDream.Plugins.MossTank.Expressions.ExpressionValue.Boolean(value);

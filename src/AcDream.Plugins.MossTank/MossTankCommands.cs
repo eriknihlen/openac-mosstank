@@ -10,7 +10,7 @@ internal sealed partial class MossTankPanel
 {
     private static readonly string[] VtankHelp =
     [
-        "MossTank /vt — profiles: settings nav navaf loot meta metaaf opt testitem propertydump addnavpt refresh getdb gamedb addnavjump addnavcheckpoint",
+        "MossTank /vt — profiles: settings nav navaf loot meta metaaf opt testitem propertydump addnavpt refresh getdb gamedb compshud addnavjump addnavcheckpoint",
         "MossTank /vt — actions: start stop forcebuff cancelforcebuff setmetastate fakedeath deathrestore deletemonster reverseroute reverseroutequery equipitemsfor mexec metainterval nextwp prevwp echo tapjump jump setattackbar",
         "MossTank /vt — game info: dumpspells dumpspecies dumpmats dumpskills",
         "MossTank /vt — debug: log testmonster lockdump dumptracker clearlocks clearbusy listmonstervariables dumpmetavars listmetafunctions metafunchelp fakeimp pscount testspell testpet",
@@ -305,6 +305,9 @@ internal sealed partial class MossTankPanel
                 return;
             case "gamedb":
                 HandleGameDbCommand(arguments);
+                return;
+            case "compshud":
+                HandleComponentHudCommand(arguments);
                 return;
             case "log":
                 HandleLogCommand(arguments);

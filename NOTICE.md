@@ -105,6 +105,17 @@ How that interoperability was achieved, stated plainly:
 VTank is not open source. Its license terms are Virindi's; this notice
 claims no license to VTank and grants none.
 
+## Virindi HUDs
+
+MossTank's Comps HUD (`/vt compshud`) reproduces the behaviour of the Comps
+HUD in **Virindi HUDs**, Virindi's companion plugin to VTank, so a player
+coming from it finds the same counter. On the same terms as VTank above: how
+that HUD behaves (what it counts, its buttons, its refresh and removal
+timing) was learned by decompiling Virindi HUDs for interoperability only;
+no Virindi HUDs code, art or text is included, and the decompilation is not
+distributed. Virindi HUDs is not open source; this notice claims no license
+to it and grants none.
+
 ## openac-gamedata
 
 The game database MossTank downloads comes from **openac-gamedata**

@@ -516,9 +516,15 @@ internal static class UbCommandHelp
 /// </summary>
 internal static class VtankCommandHelp
 {
+    internal const string ComponentHudSyntax = "/vt compshud [on | off | toggle | add | remove <name>]";
+
     /// <summary>Every documented <c>/vt</c> command, in name order.</summary>
     internal static IReadOnlyList<UbCommandUsage> Entries { get; } =
     [
+        new("compshud",
+            ComponentHudSyntax,
+            "Shows, turns on or off the Comps HUD (Virindi HUDs' item counter), adds the selected item to it, "
+            + "or takes an item off by name. Its + button adds the selection too, and - then a row click removes one."),
         new("gamedb",
             "/vt gamedb [update | interval [hours]]",
             "Shows the game information database in use, checks openac-gamedata for a newer one now, "
