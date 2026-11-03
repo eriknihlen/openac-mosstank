@@ -2180,6 +2180,45 @@ public sealed partial class MossTankPanelTests
         Assert.Equal(104u, host.Selection.SelectedObjectId);
     }
 
+    /// <summary>
+    /// The client names a salvage bag "Salvage" and keeps its material apart;
+    /// the game shows "Steel Salvage", and that is the name use and select
+    /// match. Mutation: matching the bare name finds nothing for either line.
+    /// </summary>
+    [Fact]
+    public void UseAndSelectMatchAnItemByItsNameWithItsMaterialInFront()
+    {
+        var automation = new FakeAutomation
+        {
+            NavigationSnapshot = NavigationAt(0f),
+            WorldObjects = [Carried(201u, "Salvage"), Carried(202u, "Salvage")],
+        };
+        automation.Properties[201u] = MaterialProperties(64); // Steel
+        automation.Properties[202u] = MaterialProperties(63); // Silver
+        var host = new FakeHost(automation);
+        var panel = new MossTankPanel(host);
+
+        UbCommand(panel, "selectp steel salvage");
+        Assert.Equal(201u, host.Selection.SelectedObjectId);
+
+        UbCommand(panel, "use Silver Salvage");
+        Assert.Equal(202u, Assert.Single(automation.UsedItemIds));
+        Assert.Contains("[UB] using Silver Salvage", automation.Messages);
+
+        UbCommand(panel, "usep steel on silver");
+        Assert.Equal((201u, 202u), Assert.Single(automation.Applied));
+        Assert.Contains("[UB] using Steel Salvage on Silver Salvage", automation.Messages);
+    }
+
+    private static PluginItemProperties MaterialProperties(int material) => new(
+        new Dictionary<uint, int> { [131u] = material },
+        new Dictionary<uint, long>(),
+        new Dictionary<uint, bool>(),
+        new Dictionary<uint, double>(),
+        new Dictionary<uint, string>(),
+        new Dictionary<uint, uint>(),
+        new Dictionary<uint, uint>());
+
     [Fact]
     public void CloseCorpseClosesTheOpenCorpse()
     {

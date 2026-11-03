@@ -66,6 +66,7 @@ internal static class UbObjectSearch
         {
             case UbSearchScope.Inventory:
                 return TryFirst(
+                    host,
                     objects.Where(static obj => obj.IsOwned),
                     text,
                     partial,
@@ -81,12 +82,14 @@ internal static class UbObjectSearch
                     out found);
             default:
                 return TryFirst(
+                        host,
                         objects.Where(static obj => obj.IsOwned),
                         text,
                         partial,
                         excludeObjectId,
                         out found)
                     || (openContainer != 0u && TryFirst(
+                        host,
                         objects.Where(obj => obj.ContainerObjectId == openContainer),
                         text,
                         partial,
@@ -297,6 +300,7 @@ internal static class UbObjectSearch
     }
 
     private static bool TryFirst(
+        IPluginHost host,
         IEnumerable<PluginWorldObject> candidates,
         string text,
         bool partial,
@@ -308,7 +312,7 @@ internal static class UbObjectSearch
         {
             if (candidate.ObjectId == excludeObjectId)
                 continue;
-            if (!Matches(candidate.Name, text, partial))
+            if (!Matches(NameWithMaterial(host, candidate), text, partial))
                 continue;
             found = candidate;
             return true;
@@ -332,7 +336,7 @@ internal static class UbObjectSearch
         {
             if (candidate.ObjectId == excludeObjectId)
                 continue;
-            if (!Matches(candidate.Name, text, partial))
+            if (!Matches(NameWithMaterial(host, candidate), text, partial))
                 continue;
             double distance = Distance(player, candidate);
             if (best is not null && distance >= bestDistance)
@@ -348,6 +352,20 @@ internal static class UbObjectSearch
         found = value;
         return true;
     }
+
+    /// <summary>
+    /// The name the game shows for an object, material first: the client
+    /// keeps a salvage bag's material apart from its name "Salvage", and
+    /// "Steel Salvage" is what a player types.
+    /// </summary>
+    internal static string NameWithMaterial(IPluginHost host, in PluginWorldObject candidate) =>
+        host.Automation.Objects.TryGetIntProperty(
+            candidate.ObjectId, MaterialTypeProperty, out int material)
+            ? Expressions.MaterialNames.WithMaterial(candidate.Name, material)
+            : candidate.Name;
+
+    /// <summary>The integer property holding what an object is made of.</summary>
+    private const uint MaterialTypeProperty = 131u;
 
     private static bool Matches(string name, string text, bool partial) =>
         text.Length == 0

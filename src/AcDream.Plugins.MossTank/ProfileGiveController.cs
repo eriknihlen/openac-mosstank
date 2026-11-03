@@ -251,7 +251,7 @@ internal sealed class ProfileGiveController
         {
             if (remaining <= 0)
                 break;
-            if (!NameMatches(item.Name, text, match, matcher))
+            if (!NameMatches(NameWithMaterial(item), text, match, matcher))
                 continue;
             int stack = Math.Max(1, item.StackSize);
             if (stack <= remaining)
@@ -527,6 +527,13 @@ internal sealed class ProfileGiveController
         IReadOnlyList<PluginInventoryItem> owned) => owned
             .Where(static item => !item.IsEquipped && item.WielderObjectId == 0u)
             .OrderBy(static item => item.ObjectId);
+
+    /// <summary>
+    /// The name the game shows for an item, material first -- the name the
+    /// reference's give matches against.
+    /// </summary>
+    private static string NameWithMaterial(in PluginInventoryItem item) =>
+        Expressions.MaterialNames.WithMaterial(item.Name, (int)item.MaterialType);
 
     private static bool NameMatches(
         string name,

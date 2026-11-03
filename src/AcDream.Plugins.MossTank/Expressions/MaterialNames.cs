@@ -8,6 +8,21 @@ namespace AcDream.Plugins.MossTank.Expressions;
 /// </summary>
 internal static class MaterialNames
 {
+    /// <summary>
+    /// The name the game shows for an object: its material in front of its
+    /// own name, which is how a bag the client calls "Salvage" reads as
+    /// "Steel Salvage". A name that already starts with its material, or an
+    /// id that names none, leaves the name as it is.
+    /// </summary>
+    public static string WithMaterial(string name, int materialType)
+    {
+        string? material = Name(materialType);
+        return material is null
+            || name.StartsWith(material + " ", StringComparison.OrdinalIgnoreCase)
+                ? name
+                : material + " " + name;
+    }
+
     /// <summary>The material's name, or null when the id names no material.</summary>
     public static string? Name(int materialType) => materialType switch
     {

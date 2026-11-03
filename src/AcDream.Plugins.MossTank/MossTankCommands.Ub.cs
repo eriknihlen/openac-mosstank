@@ -1683,13 +1683,15 @@ internal sealed partial class MossTankPanel
             WriteUb($"{second} is null");
             return;
         }
-        WriteUb($"using {one.Name} on {two.Name}");
+        WriteUb(
+            $"using {UbObjectSearch.NameWithMaterial(_host, one)} "
+            + $"on {UbObjectSearch.NameWithMaterial(_host, two)}");
         _host.Automation.Items.Apply(one.ObjectId, two.ObjectId);
     }
 
     private void UseSingleObject(in PluginWorldObject one, bool partial)
     {
-        WriteUb("using " + one.Name);
+        WriteUb("using " + UbObjectSearch.NameWithMaterial(_host, one));
         switch (one.ObjectClass)
         {
             case PluginObjectClass.Portal:

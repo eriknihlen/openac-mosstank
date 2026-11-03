@@ -10619,6 +10619,47 @@ public sealed partial class MossTankPanelTests
     }
 
     /// <summary>
+    /// The client names a salvage bag "Salvage" and keeps its material apart;
+    /// the game shows "Steel Salvage", and that is the name a give matches.
+    /// Mutation: matching the bare name finds nothing for "steel salvage".
+    /// </summary>
+    [Fact]
+    public void GiveMatchesAnItemByItsNameWithItsMaterialInFront()
+    {
+        var automation = new FakeAutomation
+        {
+            NavigationSnapshot = NavigationAt(0f),
+            ItemEntries =
+            [
+                Item(10u, "Salvage", 0x40000000u) with { MaterialType = 64u },
+                Item(11u, "Salvage", 0x40000000u) with { MaterialType = 63u },
+            ],
+            WorldObjects =
+            [
+                new PluginWorldObject(
+                    100u, 0u, "Megamula III", PluginObjectClass.Player, 0u, 0u, 0u)
+                {
+                    IsLandscape = true,
+                    HasPosition = true,
+                    Position = NavigationAt(0f).Position,
+                },
+            ],
+        };
+        var panel = new MossTankPanel(new FakeHost(automation));
+
+        UbCommand(panel, "givep steel salvage to megamula III");
+        panel.OnTick(0.1d);
+        Assert.Equal([(10u, 100u, 0u)], automation.Gives);
+
+        UbCommand(panel, "give stop");
+        automation.Gives.Clear();
+
+        UbCommand(panel, "give Silver Salvage to Megamula III");
+        panel.OnTick(0.1d);
+        Assert.Equal([(11u, 100u, 0u)], automation.Gives);
+    }
+
+    /// <summary>
     /// A hand-over says how it ended, as the reference does at every end of
     /// a run: a think when ItemGiver.Think is on, a plain line when it is
     /// off -- for a run that finishes by itself and for one stopped by hand.
