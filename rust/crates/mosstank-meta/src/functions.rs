@@ -1321,15 +1321,15 @@ pub(crate) fn call(
         "getcharvital_buffedmax" => call.vital(&args[0], VitalRead::Maximum).map(number),
         "getcharvital_current" => call.vital(&args[0], VitalRead::Current).map(number),
         "vitae" => {
-            let id = call.character().id;
-            // PropertyFloat.Vitae (129) is the multiplier 0..1; the function
-            // answers the penalty in whole percent (0 with no vitae, 5 at
-            // 0.95), as metas test it with `vitae[]>12`.
+            // The host derives the multiplier from the Vitae enchantment
+            // (spell 666) and hands it over on the character; the server
+            // never sets PropertyFloat.Vitae (129) on the player. The
+            // function answers the penalty in whole percent (0 with no
+            // vitae, 5 at 0.95), as metas test it with `vitae[]>12`.
             let multiplier = call
                 .host
-                .properties(id)
-                .and_then(|properties| get_float(&properties.floats, 129))
-                .unwrap_or(1.0);
+                .character()
+                .map_or(1.0, |info| f64::from(info.vitae_multiplier));
             Ok(number(((1.0 - multiplier) * 100.0).round()))
         }
 
