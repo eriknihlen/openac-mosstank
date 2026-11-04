@@ -10,7 +10,7 @@
 -->
 <panel theme="plugin" x="253" y="405" w="540" h="316" title="MossTank Comps HUD"
        visible="{CompsHudEditorVisible}" resize="none">
-  <label x="4" y="22" w="262" h="16" text="You carry" color="theme:text|#FFE8DEC3" />
+  <label x="4" y="22" w="262" h="16" text="{CompsHudCarriedHeading}" color="theme:text|#FFE8DEC3" />
   <group x="4" y="40" w="158" h="20" background="theme:field|#FF0C0906" border="theme:border|#FF8C7B4E">
     <field x="1" y="1" w="156" h="18" text="{CompsHudSearch}"
            onchange="{SetCompsHudSearch}" maxlength="64" background="#00000000"
@@ -25,7 +25,7 @@
         tooltip="Tick an item to put it on the HUD; untick it to take it off.">
     <column type="checkbox" width="20" values="{CompsHudCarriedListed}"
             onchange="{ToggleCompsHudCarriedAt}" />
-    <column type="icon" width="20" iconkind="did" values="{CompsHudCarriedIcons}"
+    <column type="icon" width="20" iconkind="item" values="{CompsHudCarriedIcons}"
             onclick="{SelectCompsHudCarriedRow}" />
     <column type="text" width="158" items="{CompsHudCarriedNames}" />
     <column type="text" width="*" items="{CompsHudCarriedCounts}" />
@@ -36,11 +36,11 @@
   <label x="4" y="292" w="262" h="16" text="{CompsHudEditorNotice}"
          color="theme:muted|#FFC7B98F" />
 
-  <label x="274" y="22" w="262" h="16" text="In the HUD" color="theme:text|#FFE8DEC3" />
+  <label x="274" y="22" w="262" h="16" text="{CompsHudRowsHeading}" color="theme:text|#FFE8DEC3" />
   <list x="274" y="40" w="262" h="196" rowheight="18"
         selected="{SelectedCompsHudRowIndex}" onchange="{SelectCompsHudRow}"
         tooltip="Select an item to move it, set the count it warns below, or remove it.">
-    <column type="icon" width="20" iconkind="did" values="{CompsHudRowIcons}"
+    <column type="icon" width="20" iconkind="item" values="{CompsHudRowIcons}"
             onclick="{SelectCompsHudRow}" />
     <column type="text" width="168" items="{CompsHudRowNames}" />
     <column type="text" width="*" items="{CompsHudRowWarns}" />

@@ -14,7 +14,8 @@ use mosstank_meta::testing::SharedStorage;
 use mosstank_stores::storage::PluginStorage;
 use mosstank_ub::canvas::{MapCanvasSpec, MapFont, MapImage, MapPainter, MapUi};
 use mosstank_ub::comps_hud::layout::{
-    COLUMN_BUTTON, COLUMN_WIDTH, ICON_SIZE, LINE_BUTTON, LINE_HEIGHT, ROW_HEIGHT, TITLE_HEIGHT,
+    self, COLUMN_BUTTON, COLUMN_WIDTH, ICON_SIZE, LINE_BUTTON, LINE_HEIGHT, ROW_HEIGHT,
+    TITLE_HEIGHT,
 };
 use mosstank_ub::comps_hud::style::{FONT_SIZE, WARNING_ON_DARK, WARNING_ON_LIGHT};
 use mosstank_ub::comps_hud::{
@@ -108,6 +109,11 @@ struct FakeUi {
     client_art: HashSet<u32>,
     requested: Vec<u32>,
     invalidated: usize,
+    /// The objects the client has a composed icon for.
+    object_art: HashSet<u32>,
+    /// The objects whose composed icon was asked for.
+    object_requests: Vec<u32>,
+    released: Vec<MapImage>,
     fonts_asked: Vec<f32>,
     fonts_released: Vec<u32>,
 }
@@ -145,8 +151,17 @@ impl MapUi for FakeUi {
         self.canvas(canvas).removed = true;
     }
 
-    fn object_icon(&mut self, _object_id: u32) -> MapImage {
-        MapImage::default()
+    fn object_icon(&mut self, object_id: u32) -> MapImage {
+        self.object_requests.push(object_id);
+        if self.object_art.contains(&object_id) {
+            MapImage {
+                handle: composed(object_id),
+                width: 32,
+                height: 32,
+            }
+        } else {
+            MapImage::default()
+        }
     }
 
     fn client_art(&mut self, surface_id: u32) -> MapImage {
@@ -162,7 +177,9 @@ impl MapUi for FakeUi {
         }
     }
 
-    fn release_image(&mut self, _image: MapImage) {}
+    fn release_image(&mut self, image: MapImage) {
+        self.released.push(image);
+    }
 
     fn bundled_font(&mut self, pixel_size: f32) -> MapFont {
         self.fonts_asked.push(pixel_size);
@@ -304,8 +321,22 @@ impl Rig {
         self.host.meta.objects.push(object);
     }
 
+    /// The strip's canvas: the last one registered under its id.
     fn canvas(&self) -> &FakeCanvas {
-        self.ui.canvases.last().unwrap()
+        &self.ui.canvases[self.canvas_index(comps_hud::CANVAS_ID)]
+    }
+
+    /// The tooltip's canvas.
+    fn tip_canvas(&self) -> &FakeCanvas {
+        &self.ui.canvases[self.canvas_index(comps_hud::tip::TIP_CANVAS_ID)]
+    }
+
+    fn canvas_index(&self, id: &str) -> usize {
+        self.ui
+            .canvases
+            .iter()
+            .rposition(|canvas| canvas.spec.canvas_id == id)
+            .unwrap_or_else(|| panic!("no canvas {id}"))
     }
 
     fn ticks(&mut self, count: usize, each: f64) {
@@ -326,7 +357,7 @@ impl Rig {
         assert!(self.canvas().spec.accepts_pointer_input);
         #[allow(clippy::cast_possible_truncation)]
         let event = PointerEvent {
-            canvas: u32::try_from(self.ui.canvases.len()).unwrap(),
+            canvas: u32::try_from(self.canvas_index(comps_hud::CANVAS_ID) + 1).unwrap(),
             kind,
             x: x as f32,
             y: y as f32,
@@ -379,8 +410,13 @@ fn scarab_entry() -> ComponentHudEntry {
     }
 }
 
-fn texts(counts: &[&str]) -> Vec<String> {
-    counts.iter().map(|count| (*count).to_owned()).collect()
+/// The widths counts reading `counts` are laid out with before they are
+/// measured.
+fn widths(counts: &[&str]) -> Vec<f64> {
+    counts
+        .iter()
+        .map(|count| layout::estimated_width(count))
+        .collect()
 }
 
 // C# source: ComponentHudControllerTests.cs :: ACountAddsTheOwnedStacksOfExactlyThatName
@@ -453,7 +489,7 @@ fn an_item_paints_the_added_icon_and_the_count() {
 /// reaching to the right edge; an empty list keeps one row.
 #[test]
 fn the_column_is_a_thin_title_line_and_a_row_per_item() {
-    let column = HudGeometry::new(HudLayout::Column, &texts(&["12", "300"]));
+    let column = HudGeometry::new(HudLayout::Column, &widths(&["12", "300"]));
     assert_eq!(
         (COLUMN_WIDTH, TITLE_HEIGHT + 2 * ROW_HEIGHT + 2),
         column.size()
@@ -509,7 +545,7 @@ fn the_column_is_a_thin_title_line_and_a_row_per_item() {
 /// it grows with the items.
 #[test]
 fn the_line_is_icon_count_pairs_then_a_divider_and_the_buttons() {
-    let line = HudGeometry::new(HudLayout::Line, &texts(&["12", "300", "5"]));
+    let line = HudGeometry::new(HudLayout::Line, &widths(&["12", "300", "5"]));
     assert_eq!(LINE_HEIGHT, line.height);
     assert_eq!(3, line.items.len());
     let mut x = 0.0;
@@ -541,7 +577,7 @@ fn the_line_is_icon_count_pairs_then_a_divider_and_the_buttons() {
     let (last_x, _, last_w, _) = line.button(HudButton::Hide);
     assert!(last_x + last_w <= f64::from(line.width));
 
-    let longer = HudGeometry::new(HudLayout::Line, &texts(&["12", "300", "5", "40"]));
+    let longer = HudGeometry::new(HudLayout::Line, &widths(&["12", "300", "5", "40"]));
     assert!(longer.width > line.width);
     assert_eq!(LINE_HEIGHT, longer.height);
 }
@@ -562,13 +598,19 @@ fn the_canvas_follows_the_strips_size() {
     rig.add(TAPER_ID);
     assert_eq!(TITLE_HEIGHT + 2 * ROW_HEIGHT + 2, rig.canvas().spec.height);
     assert_eq!(COLUMN_WIDTH, rig.canvas().spec.width);
-    let (last, earlier) = rig.ui.canvases.split_last().unwrap();
+    let strips: Vec<&FakeCanvas> = rig
+        .ui
+        .canvases
+        .iter()
+        .filter(|canvas| canvas.spec.canvas_id == comps_hud::CANVAS_ID)
+        .collect();
+    let (last, earlier) = strips.split_last().unwrap();
     assert!(earlier.iter().all(|canvas| canvas.removed));
     assert!(!last.removed);
 
     rig.press(HudButton::Layout);
     rig.ticks(1, 0.015);
-    let line = HudGeometry::new(HudLayout::Line, &texts(&["1", "1"]));
+    let line = HudGeometry::new(HudLayout::Line, &widths(&["1", "1"]));
     assert_eq!(
         line.size(),
         (rig.canvas().spec.width, rig.canvas().spec.height)
@@ -957,7 +999,11 @@ fn edit_items_adds_orders_warns_and_removes_and_keeps_it() {
     rig.controller.select_entry(1);
     assert!(rig.controller.move_entry(&mut rig.host, 1, true));
     assert_eq!(["Lead Scarab", "Prismatic Taper"], rig.names().as_slice());
-    assert_eq!(0, rig.controller.selected_entry(), "the selection follows");
+    assert_eq!(
+        Some(0),
+        rig.controller.selected_entry(),
+        "the selection follows"
+    );
     let mut moved = Rig::with(storage.clone(), false);
     moved.ticks(1, 0.015);
     assert_eq!(["Lead Scarab", "Prismatic Taper"], moved.names().as_slice());
@@ -1039,4 +1085,452 @@ fn a_list_saved_in_the_first_form_loads_into_the_current_one() {
     assert!(stored.contains("\"Layout\": \"Column\""), "{stored}");
     assert!(stored.contains("\"Warn\": 12"), "{stored}");
     assert!(stored.contains("\"X\": 340"), "{stored}");
+}
+
+impl Rig {
+    /// A pointer event of any kind with `button` held (0: none).
+    fn event(&mut self, kind: u8, at: (f64, f64), button: u8) {
+        #[allow(clippy::cast_possible_truncation)]
+        let event = PointerEvent {
+            canvas: u32::try_from(self.canvas_index(comps_hud::CANVAS_ID) + 1).unwrap(),
+            kind,
+            x: at.0 as f32,
+            y: at.1 as f32,
+            button,
+            modifiers: 0,
+            wheel_delta: 0,
+        };
+        self.controller
+            .on_pointer(&mut self.host, &mut self.ui, &event);
+    }
+
+    fn hover(&mut self, at: (f64, f64)) {
+        self.event(PointerEvent::HOVER, at, 0);
+    }
+
+    fn tip_text(&self) -> Option<&str> {
+        self.controller.tip().map(|tip| tip.text.as_str())
+    }
+
+    fn logged(&self, part: &str) -> bool {
+        self.host
+            .meta
+            .logs
+            .iter()
+            .any(|(_, line)| line.contains(part))
+    }
+}
+
+fn centre((x, y, width, height): HudRect) -> (f64, f64) {
+    (x + width / 2.0, y + height / 2.0)
+}
+
+/// The pointer over an item names it, in both layouts, and over a button
+/// says what it does; the tip stands on a canvas of its own that takes no
+/// pointer input, beside a column (left of it when the strip is far enough
+/// from the screen's left edge) and above a line. Leaving the strip, or
+/// pressing on it, clears it.
+#[test]
+fn hovering_names_the_item_or_the_button_under_the_pointer() {
+    let mut rig = Rig::new();
+    rig.controller.set_theme(&moss());
+    rig.own(item(SCARAB_ID, "Lead Scarab", 3, true, 0));
+    rig.own(item(TAPER_ID, "Prismatic Taper", 9, true, 0));
+    rig.add(SCARAB_ID);
+    rig.add(TAPER_ID);
+    rig.ticks(1, 0.015);
+    assert!(!rig.tip_canvas().spec.accepts_pointer_input);
+    assert!(!rig.tip_canvas().visible);
+
+    let column = rig.controller.geometry().clone();
+    rig.hover(centre(column.items[1].cell));
+    assert_eq!(Some("Prismatic Taper"), rig.tip_text());
+    assert!(rig.tip_canvas().visible);
+    let (x, y) = rig.controller.position();
+    let row = column.items[1].cell;
+    assert_eq!(
+        f64::from(x + column.width + 4),
+        rig.tip_canvas().offset.0,
+        "beside the column, on its right near the screen's left edge"
+    );
+    #[allow(clippy::cast_possible_truncation)]
+    let middle = f64::from(y) + row.1 + (row.3 - f64::from(comps_hud::tip::TIP_HEIGHT)) / 2.0;
+    assert!((rig.tip_canvas().offset.1 - middle).abs() <= 1.0);
+
+    let mut painter = RecordingPainter::default();
+    rig.controller.paint_tip(&mut painter, &mut rig.ui);
+    assert_eq!(1, painter.texts.len());
+    assert_eq!("Prismatic Taper", painter.texts[0].text);
+    assert_eq!(rig.controller.style().text, painter.texts[0].color);
+    assert_eq!(FONT_HANDLE, painter.texts[0].font);
+    assert!(
+        painter
+            .fills
+            .iter()
+            .any(|(_, color)| *color == rig.controller.style().background)
+    );
+
+    for (button, text) in [
+        (HudButton::Layout, "Line layout"),
+        (HudButton::Edit, "Edit items"),
+        (HudButton::Hide, "Hide"),
+    ] {
+        rig.hover(centre(column.button(button)));
+        assert_eq!(Some(text), rig.tip_text());
+    }
+    rig.hover((3.0, 5.0));
+    assert_eq!(None, rig.tip_text(), "the title line's empty part");
+    assert!(!rig.tip_canvas().visible);
+
+    rig.hover(centre(column.items[0].cell));
+    assert_eq!(Some("Lead Scarab"), rig.tip_text());
+    rig.event(PointerEvent::LEAVE, (60.0, 5.0), 0);
+    assert_eq!(None, rig.tip_text());
+    assert!(!rig.tip_canvas().visible);
+    rig.hover(centre(column.items[0].cell));
+    rig.event(PointerEvent::DOWN, centre(column.items[0].cell), 1);
+    assert_eq!(None, rig.tip_text(), "a press clears it");
+    rig.event(PointerEvent::UP, centre(column.items[0].cell), 1);
+
+    rig.press(HudButton::Layout);
+    rig.ticks(1, 0.015);
+    let line = rig.controller.geometry().clone();
+    rig.hover(centre(line.items[1].cell));
+    assert_eq!(Some("Prismatic Taper"), rig.tip_text());
+    assert_eq!(
+        (
+            f64::from(x) + line.items[1].cell.0,
+            f64::from(y - 4 - comps_hud::tip::TIP_HEIGHT)
+        ),
+        rig.tip_canvas().offset,
+        "above the line"
+    );
+    rig.hover(centre(line.button(HudButton::Layout)));
+    assert_eq!(Some("Column layout"), rig.tip_text());
+
+    // Far from the screen's left edge, a column's tip stands left of it.
+    rig.press(HudButton::Layout);
+    rig.ticks(1, 0.015);
+    rig.pointer(0, 4.0, 30.0);
+    rig.pointer(1, 404.0, 30.0);
+    rig.ticks(1, 0.015);
+    rig.hover(centre(column.items[0].cell));
+    let tip = rig.controller.tip().unwrap().clone();
+    assert!(tip.right_aligned);
+    assert_eq!(
+        f64::from(600 - 4 - comps_hud::tip::TIP_WIDTH),
+        rig.tip_canvas().offset.0
+    );
+}
+
+/// A count is given the room it takes in the HUD's font: a five-digit
+/// count widens the column past its 50 pixels and gets its own room on
+/// the line, so no digit is cut off.
+#[test]
+fn a_five_digit_count_is_measured_and_given_its_room() {
+    let mut rig = Rig::new();
+    rig.own(item(TAPER_ID, "Prismatic Taper", 12345, true, 0));
+    rig.add(TAPER_ID);
+    rig.ticks(1, 0.015);
+    let painter = rig.paint();
+    rig.ticks(1, 0.015);
+    // The test painter measures six pixels a character.
+    let measured = 30.0;
+    let column = rig.controller.geometry().clone();
+    assert!(column.width > COLUMN_WIDTH);
+    assert_eq!(column.width, rig.canvas().spec.width);
+    let (box_x, _, box_w, _) = column.items[0].count;
+    assert!(box_w >= measured, "the count's box holds all five digits");
+    let painted = rig.paint();
+    let text = &painted.texts[0];
+    assert_eq!("12345", text.text);
+    assert!(text.at.0 >= box_x && text.at.0 + measured <= box_x + box_w);
+    assert_eq!("12345", painter.texts[0].text);
+
+    rig.press(HudButton::Layout);
+    rig.ticks(1, 0.015);
+    rig.paint();
+    rig.ticks(1, 0.015);
+    let line = rig.controller.geometry().clone();
+    assert!(line.items[0].count.2 >= measured);
+    assert_eq!(line.width, rig.canvas().spec.width);
+}
+
+/// A kept list that is not JSON is said in the log and copied aside before
+/// anything is written over it; the HUD starts empty, and the next change
+/// writes a new list.
+#[test]
+fn a_corrupt_list_is_kept_aside_and_said_in_the_log() {
+    let storage = SharedStorage::new();
+    let key = comps_hud::key_for("Coldeve", "Acdream");
+    let corrupt = "{ \"X\": 12, \"Entries\": [ { \"Name\": ";
+    storage.insert(&key, corrupt);
+    let mut rig = Rig::with(storage.clone(), true);
+    rig.ticks(1, 0.015);
+    assert!(rig.controller.entries().is_empty());
+    assert!(rig.logged("could not be loaded"));
+    let copies: Vec<String> = storage
+        .keys()
+        .into_iter()
+        .filter(|key| key.starts_with("recovery/comps-hud/"))
+        .collect();
+    assert_eq!(1, copies.len());
+    assert!(storage.get(&copies[0]).unwrap().contains(corrupt));
+
+    rig.own(item(SCARAB_ID, "Lead Scarab", 1, true, 0));
+    rig.add(SCARAB_ID);
+    assert!(storage.get(&key).unwrap().contains("Lead Scarab"));
+    assert!(storage.get(&copies[0]).unwrap().contains(corrupt));
+}
+
+/// A list that reads only in part gives what it can (an entry with no
+/// readable name is left out, any other value that does not read is its
+/// default), and the original is kept aside and said in the log.
+#[test]
+fn a_half_valid_list_keeps_what_reads_and_the_original() {
+    let storage = SharedStorage::new();
+    let key = comps_hud::key_for("Coldeve", "Acdream");
+    let half = "{ \"X\": \"far\", \"Y\": 40, \"Layout\": \"Line\", \"Entries\": [ { \"Name\": \"Lead Scarab\", \"IconId\": 100671323, \"Warn\": \"lots\" }, { \"Name\": 7 }, { \"Name\": \"Prismatic Taper\", \"Warn\": 5 } ] }";
+    storage.insert(&key, half);
+    let mut rig = Rig::with(storage.clone(), true);
+    rig.ticks(1, 0.015);
+    assert_eq!((comps_hud::DEFAULT_X, 40), rig.controller.position());
+    assert_eq!(HudLayout::Line, rig.controller.layout());
+    let kept: Vec<(&str, i32)> = rig
+        .controller
+        .entries()
+        .iter()
+        .map(|entry| (entry.name.as_str(), entry.warn))
+        .collect();
+    assert_eq!(vec![("Lead Scarab", 0), ("Prismatic Taper", 5)], kept);
+    assert!(rig.logged("could not be loaded"));
+    assert!(
+        storage
+            .keys()
+            .iter()
+            .any(|key| key.starts_with("recovery/comps-hud/")
+                && storage.get(key).unwrap().contains(half))
+    );
+}
+
+/// A list the storage cannot read is said in the log and not written
+/// over: what the session changes is not saved.
+#[test]
+fn an_unreadable_list_is_not_written_over() {
+    let storage = SharedStorage::new();
+    let key = comps_hud::key_for("Coldeve", "Acdream");
+    storage.insert(&key, "{ \"X\": 5, \"Y\": 5, \"Entries\": [] }");
+    storage.fail("read", "in use by another program");
+    let mut rig = Rig::with(storage.clone(), true);
+    rig.ticks(1, 0.015);
+    assert!(rig.logged("in use by another program"));
+    rig.own(item(SCARAB_ID, "Lead Scarab", 1, true, 0));
+    rig.add(SCARAB_ID);
+    assert_eq!(1, rig.controller.entries().len());
+    assert_eq!(
+        Some("{ \"X\": 5, \"Y\": 5, \"Entries\": [] }".to_owned()),
+        storage.get(&key)
+    );
+    assert!(
+        !storage
+            .keys()
+            .iter()
+            .any(|key| key.starts_with("recovery/"))
+    );
+}
+
+/// The strip never stands past the screen's top or left edge: a kept place
+/// there, or a drag past it, stops at 0; `reset_place` puts it back at its
+/// first place and keeps that.
+#[test]
+fn the_strip_stays_on_the_screen_and_resets_to_its_first_place() {
+    let storage = SharedStorage::new();
+    let key = comps_hud::key_for("Coldeve", "Acdream");
+    storage.insert(&key, "{ \"X\": -40, \"Y\": -5, \"Entries\": [] }");
+    let mut rig = Rig::with(storage.clone(), true);
+    rig.ticks(1, 0.015);
+    assert_eq!((0, 0), rig.controller.position());
+    assert_eq!((0.0, 0.0), rig.canvas().offset);
+
+    rig.pointer(0, 20.0, 20.0);
+    rig.pointer(1, 80.0, 50.0);
+    assert_eq!((60, 30), rig.controller.position());
+    rig.pointer(0, 20.0, 20.0);
+    rig.pointer(1, -500.0, -500.0);
+    assert_eq!((0, 0), rig.controller.position());
+    assert_eq!((0.0, 0.0), rig.canvas().offset);
+
+    assert!(rig.controller.reset_place(&mut rig.host));
+    rig.ticks(1, 0.015);
+    let first = (comps_hud::DEFAULT_X, comps_hud::DEFAULT_Y);
+    assert_eq!(first, rig.controller.position());
+    assert_eq!(
+        (f64::from(first.0), f64::from(first.1)),
+        rig.canvas().offset
+    );
+    let mut again = Rig::with(storage, false);
+    again.ticks(1, 0.015);
+    assert_eq!(first, again.controller.position());
+}
+
+/// Another character starts with its own HUD: a column at the first place,
+/// with nothing listed, whatever layout, place and warn levels the first
+/// one left; an item both list has each its own warn level.
+#[test]
+fn another_character_does_not_inherit_the_layout_place_or_warn_levels() {
+    let storage = SharedStorage::new();
+    let mut rig = Rig::with(storage, true);
+    rig.own(item(SCARAB_ID, "Lead Scarab", 3, true, 0));
+    rig.add(SCARAB_ID);
+    rig.controller.set_warn(&mut rig.host, 0, 50);
+    rig.press(HudButton::Layout);
+    rig.ticks(1, 0.015);
+    rig.pointer(0, 4.0, 4.0);
+    rig.pointer(1, 104.0, 64.0);
+    assert_eq!(HudLayout::Line, rig.controller.layout());
+
+    rig.controller.reset(&mut rig.ui);
+    rig.identity("Coldeve", "Sigrid");
+    rig.ticks(1, 0.015);
+    assert_eq!(HudLayout::Column, rig.controller.layout());
+    assert_eq!(
+        (comps_hud::DEFAULT_X, comps_hud::DEFAULT_Y),
+        rig.controller.position()
+    );
+    assert!(rig.controller.entries().is_empty());
+    rig.add(SCARAB_ID);
+    assert_eq!(0, rig.controller.entries()[0].warn);
+}
+
+/// The session's end lets go of the font through the interface, as the
+/// strip's other resources go.
+#[test]
+fn the_font_is_let_go_at_the_sessions_end() {
+    let mut rig = Rig::new();
+    rig.controller.set_theme(&moss());
+    rig.own(item(SCARAB_ID, "Lead Scarab", 3, true, 0));
+    rig.add(SCARAB_ID);
+    rig.paint();
+    assert_eq!(1, rig.ui.fonts_asked.len());
+    rig.controller.reset(&mut rig.ui);
+    assert_eq!([FONT_HANDLE], rig.ui.fonts_released.as_slice());
+    rig.ticks(1, 0.015);
+    rig.paint();
+    assert_eq!(2, rig.ui.fonts_asked.len(), "the next session asks again");
+}
+
+/// A click on a carried row acts on the item the window showed in that
+/// row, even after what is carried was taken again with a new item ahead
+/// of it.
+#[test]
+fn a_carried_row_click_acts_on_the_item_shown_there() {
+    let mut rig = Rig::new();
+    rig.own(item(SCARAB_ID, "Lead Scarab", 3, true, 0));
+    rig.own(item(TAPER_ID, "Prismatic Taper", 9, true, 0));
+    rig.ticks(1, 0.015);
+    rig.controller.show_editor(&mut rig.host);
+    assert_eq!(
+        vec!["Lead Scarab", "Prismatic Taper"],
+        rig.controller.note_shown_carried()
+    );
+    // A pea arrives and sorts first; the window still shows the old rows.
+    rig.own(item(PEA_ID, "Gold Pea", 8, true, 0));
+    rig.ticks(1, 0.6);
+    assert_eq!("Gold Pea", rig.controller.carried_rows()[0].name);
+    assert!(rig.controller.toggle_carried(&mut rig.host, 0));
+    assert_eq!(["Lead Scarab"], rig.names().as_slice());
+    rig.controller.select_carried(1);
+    assert_eq!(Some(1), rig.controller.selected_carried());
+    // The next push shows the new rows, and the selection follows its name.
+    rig.controller.note_shown_carried();
+    assert_eq!(Some(2), rig.controller.selected_carried());
+}
+
+/// The window's empty states: a line saying nothing is carried, that
+/// nothing matches, or that the HUD is empty; an empty HUD list selects
+/// nothing.
+#[test]
+fn edit_items_says_when_its_lists_are_empty() {
+    let mut rig = Rig::new();
+    rig.ticks(1, 0.015);
+    rig.controller.show_editor(&mut rig.host);
+    assert_eq!("You carry nothing yet", rig.controller.carried_heading());
+    assert!(rig.controller.entries_heading().contains("nothing yet"));
+    assert_eq!(None, rig.controller.selected_entry());
+    assert_eq!(None, rig.controller.selected_carried());
+
+    rig.own(item(SCARAB_ID, "Lead Scarab", 3, true, 0));
+    rig.controller.show_editor(&mut rig.host);
+    assert_eq!("You carry", rig.controller.carried_heading());
+    rig.controller.set_search("zzz");
+    assert_eq!(
+        "Nothing you carry matches",
+        rig.controller.carried_heading()
+    );
+    rig.controller.set_search("");
+    assert!(rig.controller.toggle_carried(&mut rig.host, 0));
+    assert_eq!("In the HUD", rig.controller.entries_heading());
+    assert_eq!(Some(0), rig.controller.selected_entry());
+}
+
+/// Out of the world there is no character to keep a layout or a place
+/// for: both are refused.
+#[test]
+fn the_layout_and_place_are_refused_out_of_the_world() {
+    let mut rig = Rig::with(SharedStorage::new(), true);
+    rig.host.meta.character = None;
+    rig.ticks(1, 0.015);
+    assert!(!rig.controller.set_layout(&mut rig.host, HudLayout::Line));
+    assert_eq!(HudLayout::Column, rig.controller.layout());
+    assert!(!rig.controller.reset_place(&mut rig.host));
+}
+
+/// The handle the test client gives an object's composed icon.
+fn composed(object_id: u32) -> u32 {
+    0x7000_0000 | (object_id & 0xFFFF)
+}
+
+/// An item the character carries is drawn from its object's composed icon
+/// (the icon with its underlay, overlay and effects, as the game draws the
+/// item), not the bare icon art; one it carries none of falls back to the
+/// bare icon, and the composed one is let go. A new object of that name is
+/// drawn once the old one is gone.
+#[test]
+fn an_item_carried_is_drawn_from_its_objects_composed_icon() {
+    let mut rig = Rig::new();
+    rig.ui.client_art.insert(SCARAB_ICON);
+    rig.ui.object_art.insert(SCARAB_ID);
+    rig.ui.object_art.insert(0x8000_0077);
+    rig.own(item(SCARAB_ID, "Lead Scarab", 12, true, SCARAB_ICON));
+    rig.add(SCARAB_ID);
+    rig.ticks(1, 0.6);
+    assert_eq!(Some(SCARAB_ID), rig.controller.drawn_object("Lead Scarab"));
+    let painted = rig.paint();
+    assert_eq!(
+        vec![composed(SCARAB_ID)],
+        painted
+            .images
+            .iter()
+            .map(|(image, _)| image.handle)
+            .collect::<Vec<_>>()
+    );
+    assert!(!rig.ui.requested.contains(&SCARAB_ICON), "no bare art");
+
+    // Carried no more: the bare icon, and the composed one let go.
+    rig.host.meta.objects.clear();
+    rig.ticks(1, 0.6);
+    assert_eq!(None, rig.controller.drawn_object("Lead Scarab"));
+    let painted = rig.paint();
+    assert_eq!(SCARAB_ICON, painted.images[0].0.handle);
+    assert!(
+        rig.ui
+            .released
+            .iter()
+            .any(|image| image.handle == composed(SCARAB_ID))
+    );
+
+    // Another stack of it: drawn from that object.
+    rig.own(item(0x8000_0077, "Lead Scarab", 3, true, SCARAB_ICON));
+    rig.ticks(1, 0.6);
+    assert_eq!(composed(0x8000_0077), rig.paint().images[0].0.handle);
 }

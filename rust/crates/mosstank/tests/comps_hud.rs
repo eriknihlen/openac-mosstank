@@ -14,7 +14,6 @@ use ac_plugin_abi::ui::{
 use ac_plugin_abi::world::{ObjectClass, WorldObject};
 use common::World;
 use mosstank::MossTank;
-use mosstank_loot::crafting::ALL_PEAS;
 use mosstank_ub::comps_hud::{HudButton, HudGeometry, HudLayout};
 
 const PEA_ID: u32 = 0x8000_0012;
@@ -167,58 +166,181 @@ fn the_consumables_box_drives_the_hud() {
     world.disable(p);
 }
 
-/// Add to HUD puts the selected Consumables row's item on the HUD (with
-/// the icon of one the character owns), refuses it twice and refuses the
-/// all-peas rule; with no row, it adds the item selected in the game.
+/// Add to HUD puts the item selected in the game on the HUD, whichever
+/// Consumables row is highlighted (a click on a row takes it off the page),
+/// and says why in chat when it cannot: nothing selected, or listed
+/// already.
 #[test]
-fn add_to_hud_adds_the_selected_consumable_row_or_else_the_game_selection() {
+fn add_to_hud_adds_the_item_selected_in_the_game() {
     let (mut world, mut plugin) = carrying();
     let p = &mut plugin;
-    world.own_items(vec![common::item(31, "Blackmoor's Favor", 0x800)]);
-    let consumables = world.ui_list(p, "ConsumableRows");
     assert_eq!(
         ["Asheron's Benediction", "Blackmoor's Favor"],
-        consumables.as_slice()
-    );
-
-    world.act(p, "AddConsumableToCompsHud");
-    assert_eq!(["Asheron's Benediction"], rows(&mut world, p).as_slice());
-    assert_eq!(
-        "Added Asheron's Benediction to the Comps HUD.",
-        world.ui_text(p, "ProfileNotice")
-    );
-    world.act(p, "AddConsumableToCompsHud");
-    assert_eq!(
-        "Asheron's Benediction is listed already.",
-        world.ui_text(p, "ProfileNotice")
-    );
-
-    // The row is the selected one, not the first: a click on a row takes
-    // it off the page and leaves the next one selected.
-    world.act(p, "AddAllPeas");
-    world.act_int(p, "SelectConsumableRow", 1);
-    assert_eq!(
-        ["Asheron's Benediction", ALL_PEAS],
         world.ui_list(p, "ConsumableRows").as_slice()
     );
-    assert_eq!(1, world.ui_int(p, "SelectedConsumableRowIndex"));
-    world.act(p, "AddConsumableToCompsHud");
-    assert!(world.ui_text(p, "ProfileNotice").contains("every pea"));
-    assert_eq!(1, rows(&mut world, p).len());
 
-    // With no rows left, the game's selection.
-    for _ in 0..2 {
-        world.act(p, "RemoveSelectedConsumable");
-    }
-    assert!(world.ui_list(p, "ConsumableRows").is_empty());
+    world.clear_chat();
+    world.act(p, "AddConsumableToCompsHud");
+    assert!(rows(&mut world, p).is_empty(), "no row is added");
+    assert!(
+        world
+            .chat()
+            .iter()
+            .any(|line| line.contains("Comps HUD: select an item first."))
+    );
+    assert_eq!("Select an item first.", world.ui_text(p, "ProfileNotice"));
+
     world.set_reply::<calls::WorldObject>(&Some(owned(PEA_ID, "Gold Pea", 8, PEA_ICON)));
     world.select_object(PEA_ID);
     world.act(p, "AddConsumableToCompsHud");
+    assert_eq!(["Gold Pea"], rows(&mut world, p).as_slice());
+    // The window draws it from the carried object, once it is counted.
+    world.act(p, "ShowCompsHudEditor");
+    world.ticks(p, 1);
+    assert_eq!(vec![PEA_ID], world.ui_uints(p, "CompsHudRowIcons"));
     assert_eq!(
-        ["Asheron's Benediction", "Gold Pea"],
-        rows(&mut world, p).as_slice()
+        "Added Gold Pea to the Comps HUD.",
+        world.ui_text(p, "ProfileNotice")
     );
-    assert_eq!(vec![0, PEA_ICON], world.ui_uints(p, "CompsHudRowIcons"));
+
+    world.clear_chat();
+    world.act(p, "AddConsumableToCompsHud");
+    assert!(
+        world
+            .chat()
+            .iter()
+            .any(|line| line.contains("Comps HUD: Gold Pea is listed already."))
+    );
+    world.disable(p);
+}
+
+/// Out of the world the layout bar changes nothing and says why.
+#[test]
+fn the_layout_bar_out_of_the_world_says_so() {
+    let mut world = World::new();
+    let mut plugin = world.enable();
+    let p = &mut plugin;
+    world.act_int(p, "SetCompsHudLayout", 1);
+    assert_eq!(0, world.ui_int(p, "CompsHudLayoutIndex"));
+    assert_eq!(
+        "Comps HUD: not in world.",
+        world.ui_text(p, "ProfileNotice")
+    );
+    world.disable(p);
+}
+
+/// `/vt compshud reset` puts the strip back at its first place.
+#[test]
+fn the_reset_word_puts_the_strip_back() {
+    let (mut world, mut plugin) = carrying();
+    let p = &mut plugin;
+    world.vt(p, "compshud on");
+    world.ticks(p, 2);
+    let (id, ..) = canvas(&world).unwrap();
+    for (kind, at) in [(0, (4.0, 30.0)), (1, (104.0, 90.0))] {
+        world.send(
+            p,
+            Event::Ui(UiEvent::Pointer(PointerEvent {
+                canvas: id,
+                kind,
+                x: at.0,
+                y: at.1,
+                button: 1,
+                modifiers: 0,
+                wheel_delta: 0,
+            })),
+        );
+    }
+    world.ticks(p, 2);
+    assert_eq!(Some((300.0, 210.0)), offset(&world, "comps-hud"));
+    world.vt(p, "compshud reset");
+    assert!(
+        world
+            .chat()
+            .iter()
+            .any(|line| line.contains("Comps HUD: back at its first place."))
+    );
+    world.ticks(p, 2);
+    assert_eq!(Some((200.0, 150.0)), offset(&world, "comps-hud"));
+    world.disable(p);
+}
+
+fn offset(world: &World, canvas_id: &str) -> Option<(f32, f32)> {
+    world
+        .fake
+        .ui
+        .canvases()
+        .filter(|canvas| canvas.descriptor.canvas_id == canvas_id)
+        .last()
+        .map(|canvas| canvas.offset)
+}
+
+/// Hovering an item on the strip shows its name in the tooltip canvas,
+/// painted in the theme; leaving the strip hides it.
+#[test]
+fn hovering_the_strip_shows_the_items_name() {
+    let (mut world, mut plugin) = carrying();
+    let p = &mut plugin;
+    world.vt(p, "compshud on");
+    world.set_reply::<calls::WorldObject>(&Some(owned(PEA_ID, "Gold Pea", 8, PEA_ICON)));
+    world.select_object(PEA_ID);
+    world.vt(p, "compshud add");
+    world.ticks(p, 3);
+    let (id, ..) = canvas(&world).unwrap();
+    let tip_shown = |world: &World| {
+        world
+            .fake
+            .ui
+            .canvases()
+            .find(|canvas| canvas.descriptor.canvas_id == "comps-hud-tip")
+            .map(|canvas| canvas.visible)
+    };
+    assert_eq!(Some(false), tip_shown(&world));
+    let paints_before = world.requests::<calls::UiCanvasPaint>().len();
+
+    let column = HudGeometry::new(HudLayout::Column, &[7.0]);
+    let at = centre(column.items[0].cell);
+    #[allow(clippy::cast_possible_truncation)]
+    world.send(
+        p,
+        Event::Ui(UiEvent::Pointer(PointerEvent {
+            canvas: id,
+            kind: PointerEvent::HOVER,
+            x: at.0 as f32,
+            y: at.1 as f32,
+            button: 0,
+            modifiers: 0,
+            wheel_delta: 0,
+        })),
+    );
+    world.ticks(p, 2);
+    assert_eq!(Some(true), tip_shown(&world));
+    let named = world
+        .requests::<calls::UiCanvasPaint>()
+        .iter()
+        .skip(paints_before)
+        .any(|paint| {
+            paint
+                .commands
+                .iter()
+                .any(|command| matches!(command, PaintCmd::Text(text, ..) if text == "Gold Pea"))
+        });
+    assert!(named, "the tip is painted with the item's name");
+
+    world.send(
+        p,
+        Event::Ui(UiEvent::Pointer(PointerEvent {
+            canvas: id,
+            kind: PointerEvent::LEAVE,
+            x: 0.0,
+            y: 0.0,
+            button: 0,
+            modifiers: 0,
+            wheel_delta: 0,
+        })),
+    );
+    world.ticks(p, 2);
+    assert_eq!(Some(false), tip_shown(&world));
     world.disable(p);
 }
 
@@ -230,6 +352,16 @@ fn the_edit_items_window_edits_the_hud() {
     let (mut world, mut plugin) = carrying();
     let p = &mut plugin;
     world.act(p, "ShowCompsHudEditor");
+    assert_eq!("You carry", world.ui_text(p, "CompsHudCarriedHeading"));
+    assert!(
+        world
+            .ui_text(p, "CompsHudRowsHeading")
+            .contains("nothing yet")
+    );
+    assert_eq!(-1, world.ui_int(p, "SelectedCompsHudRowIndex"));
+    assert_eq!(0, world.ui_int(p, "CompsHudSelectedWarn"));
+    world.act_int(p, "SetCompsHudSelectedWarn", 9);
+    assert_eq!(0, world.ui_int(p, "CompsHudSelectedWarn"));
     assert_eq!(
         ["Gold Pea", "Platinum Scarab"],
         world.ui_list(p, "CompsHudCarriedNames").as_slice()
@@ -238,8 +370,9 @@ fn the_edit_items_window_edits_the_hud() {
         ["8", "3"],
         world.ui_list(p, "CompsHudCarriedCounts").as_slice()
     );
+    // Each row's icon is its object's, composed as the game draws it.
     assert_eq!(
-        vec![PEA_ICON, SCARAB_ICON],
+        vec![PEA_ID, SCARAB_ID],
         world.ui_uints(p, "CompsHudCarriedIcons")
     );
     assert_eq!(
@@ -405,7 +538,7 @@ fn the_usage_names_the_layouts() {
     let p = &mut plugin;
     world.vt(p, "compshud sideways");
     let usage = mosstank_ub::help::COMPONENT_HUD_SYNTAX;
-    assert!(usage.contains("line") && usage.contains("column"));
+    assert!(usage.contains("line") && usage.contains("column") && usage.contains("reset"));
     assert!(world.chat().iter().any(|line| line.contains(usage)));
     assert!(matches!(
         world.ui(p, "CompsHudKindNames"),

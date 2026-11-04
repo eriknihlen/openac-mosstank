@@ -6,6 +6,11 @@
 //! The first form had neither `Layout` nor `Warn`: a list saved then reads
 //! as a column whose items never warn, and the next change writes it in
 //! this form.
+//!
+//! A file that is only partly readable gives what it can (an entry without
+//! a readable name is left out, any other value that does not read is its
+//! default) and names each problem, so the caller can keep the original
+//! before the list is written again.
 
 use mosstank_stores::stj::{self, JsonError, Object};
 use openac_plugin_compat::json::{self, JsonValue};
@@ -22,38 +27,98 @@ pub(super) struct Document {
     pub(super) entries: Vec<ComponentHudEntry>,
 }
 
-/// Reads a kept HUD; `None` for a JSON `null`. A missing entry list is
-/// none, a `null` entry is skipped, a missing name is no name, a missing or
-/// unknown layout is the column, and a missing or negative warn level is
-/// none.
-pub(super) fn read(text: &str) -> Result<Option<Document>, JsonError> {
+/// A kept HUD as far as it read, and what did not.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(super) struct Read {
+    pub(super) document: Document,
+    /// Each part that did not read, in plain words; empty for a whole file.
+    pub(super) problems: Vec<String>,
+}
+
+/// Reads a kept HUD.
+///
+/// # Errors
+/// The text is not JSON, or not an object (a JSON `null` included).
+pub(super) fn read(text: &str) -> Result<Read, JsonError> {
     let document = json::parse(text).map_err(|error| error.to_string())?;
     let Some(o) = Object::of(&document, "$", "Document")? else {
-        return Ok(None);
+        return Err("the file holds no list (null)".to_owned());
     };
     let o = o.case_sensitive();
-    let rows = o
-        .objects("Entries", None, "ComponentHudEntry")?
-        .unwrap_or_default();
-    let mut entries = Vec::with_capacity(rows.len());
-    for row in rows.into_iter().flatten() {
-        let row = row.case_sensitive();
-        entries.push(ComponentHudEntry {
-            name: row.string("Name", "")?.unwrap_or_default(),
-            icon_id: row.uint("IconId", 0)?,
-            warn: row.int("Warn", 0)?.max(0),
-        });
+    let mut problems = Vec::new();
+    let mut or_default = |value: Result<i32, JsonError>, default: i32| {
+        value.unwrap_or_else(|error| {
+            problems.push(error);
+            default
+        })
+    };
+    let x = or_default(o.int("X", DEFAULT_X), DEFAULT_X);
+    let y = or_default(o.int("Y", DEFAULT_Y), DEFAULT_Y);
+    let layout = match o.string("Layout", "") {
+        Ok(Some(name)) if name.is_empty() => HudLayout::default(),
+        Ok(Some(name)) => HudLayout::from_saved_name(&name).unwrap_or_else(|| {
+            problems.push(format!("$.Layout: '{name}' is not a layout"));
+            HudLayout::default()
+        }),
+        Ok(None) => HudLayout::default(),
+        Err(error) => {
+            problems.push(error);
+            HudLayout::default()
+        }
+    };
+    let mut entries = Vec::new();
+    match o.get("Entries") {
+        None | Some(JsonValue::Null) => {}
+        Some(JsonValue::Array(rows)) => {
+            for (index, row) in rows.iter().enumerate() {
+                let path = format!("$.Entries[{index}]");
+                match Object::of(row, &path, "ComponentHudEntry") {
+                    Ok(Some(row)) => {
+                        if let Some(entry) = read_entry(&row.case_sensitive(), &mut problems) {
+                            entries.push(entry);
+                        }
+                    }
+                    Ok(None) => {}
+                    Err(error) => problems.push(error),
+                }
+            }
+        }
+        Some(_) => problems.push("$.Entries: not a list".to_owned()),
     }
-    let layout = o
-        .string("Layout", "")?
-        .and_then(|name| HudLayout::from_saved_name(&name))
-        .unwrap_or_default();
-    Ok(Some(Document {
-        x: o.int("X", DEFAULT_X)?,
-        y: o.int("Y", DEFAULT_Y)?,
-        layout,
-        entries,
-    }))
+    Ok(Read {
+        document: Document {
+            x,
+            y,
+            layout,
+            entries,
+        },
+        problems,
+    })
+}
+
+/// One entry: `None` (and a problem) when its name does not read; an icon
+/// or warn level that does not read is none.
+fn read_entry(row: &Object<'_>, problems: &mut Vec<String>) -> Option<ComponentHudEntry> {
+    let name = match row.string("Name", "") {
+        Ok(name) => name.unwrap_or_default(),
+        Err(error) => {
+            problems.push(error);
+            return None;
+        }
+    };
+    let icon_id = row.uint("IconId", 0).unwrap_or_else(|error| {
+        problems.push(error);
+        0
+    });
+    let warn = row.int("Warn", 0).unwrap_or_else(|error| {
+        problems.push(error);
+        0
+    });
+    Some(ComponentHudEntry {
+        name,
+        icon_id,
+        warn: warn.max(0),
+    })
 }
 
 /// Writes a HUD in the current form.

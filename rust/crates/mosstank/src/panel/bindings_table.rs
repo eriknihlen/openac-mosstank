@@ -672,6 +672,7 @@ pub(super) fn of(window_id: &str) -> Option<&'static [(&'static str, K)]> {
         ],
         "comps-hud" => &[
             ("CompsHudEditorVisible", K::Bool),
+            ("CompsHudCarriedHeading", K::Text),
             ("CompsHudSearch", K::Text),
             ("SetCompsHudSearch", K::TextAction),
             ("CompsHudKindNames", K::TextList),
@@ -686,6 +687,7 @@ pub(super) fn of(window_id: &str) -> Option<&'static [(&'static str, K)]> {
             ("CompsHudCarriedCounts", K::TextList),
             ("AddSelectedToCompsHud", K::Action),
             ("CompsHudEditorNotice", K::Text),
+            ("CompsHudRowsHeading", K::Text),
             ("SelectedCompsHudRowIndex", K::Int),
             ("SelectCompsHudRow", K::IntAction),
             ("CompsHudRowIcons", K::UintList),

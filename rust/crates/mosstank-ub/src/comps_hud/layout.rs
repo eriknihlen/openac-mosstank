@@ -5,7 +5,9 @@
 //! Two layouts. A column is a strip 50 pixels wide: a thin title line with
 //! the buttons at its right, then a row per item, the icon at the left and
 //! the count right-aligned. A line is one row 20 pixels tall: icon, count,
-//! icon, count, then a thin divider and the buttons.
+//! icon, count, then a thin divider and the buttons. Each count has the
+//! room it measures in the HUD's font: the column widens for a count too
+//! wide for its box, and each count on the line is as wide as it reads.
 
 /// How the strip lays its items out; kept per character.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
@@ -76,7 +78,7 @@ pub const LINE_HEIGHT: i32 = 20;
 pub const LINE_BUTTON: i32 = 12;
 /// An item's icon.
 pub const ICON_SIZE: i32 = 14;
-/// The room one digit of a count takes on the line, at the HUD's text size.
+/// The room a count's character is given before the count is measured.
 pub const DIGIT_WIDTH: i32 = 7;
 /// The room between the edge and what is inside.
 const PADDING: i32 = 2;
@@ -122,28 +124,32 @@ pub struct HudGeometry {
 }
 
 impl HudGeometry {
-    /// The strip laid out for items whose counts read `counts`; an empty
-    /// list keeps one slot so the strip is never nothing but buttons.
+    /// The strip laid out for items whose counts are `count_widths` pixels
+    /// wide as drawn; an empty list keeps one slot so the strip is never
+    /// nothing but buttons. The column widens past 50 pixels only for a
+    /// count too wide for its box; on the line each count has its own room.
     #[must_use]
-    pub fn new(layout: HudLayout, counts: &[String]) -> Self {
+    pub fn new(layout: HudLayout, count_widths: &[f64]) -> Self {
         match layout {
-            HudLayout::Column => Self::column(counts.len()),
-            HudLayout::Line => Self::line(counts),
+            HudLayout::Column => Self::column(count_widths),
+            HudLayout::Line => Self::line(count_widths),
         }
     }
 
-    fn column(items: usize) -> Self {
-        let rows = i32::try_from(items.max(1)).unwrap_or(i32::MAX);
+    fn column(count_widths: &[f64]) -> Self {
+        let rows = i32::try_from(count_widths.len().max(1)).unwrap_or(i32::MAX);
         let height = TITLE_HEIGHT
             .saturating_add(rows.saturating_mul(ROW_HEIGHT))
             .saturating_add(PADDING);
+        let count_x = PADDING + 1 + ICON_SIZE + ICON_GAP;
+        let widest = whole(count_widths.iter().copied().fold(0.0, f64::max));
+        let width = COLUMN_WIDTH.max(count_x + widest + PADDING + 2);
         let slots = (0..rows)
             .map(|row| {
                 let top = f64::from(TITLE_HEIGHT + row * ROW_HEIGHT);
                 let icon_top = top + f64::from(ROW_HEIGHT - ICON_SIZE) / 2.0;
-                let count_x = f64::from(PADDING + 1 + ICON_SIZE + ICON_GAP);
                 ItemSlot {
-                    cell: (0.0, top, f64::from(COLUMN_WIDTH), f64::from(ROW_HEIGHT)),
+                    cell: (0.0, top, f64::from(width), f64::from(ROW_HEIGHT)),
                     icon: (
                         f64::from(PADDING + 1),
                         icon_top,
@@ -151,16 +157,16 @@ impl HudGeometry {
                         f64::from(ICON_SIZE),
                     ),
                     count: (
-                        count_x,
+                        f64::from(count_x),
                         top,
-                        f64::from(COLUMN_WIDTH - PADDING - 2) - count_x,
+                        f64::from(width - PADDING - 2 - count_x),
                         f64::from(ROW_HEIGHT),
                     ),
                 }
             })
             .collect();
         let button_top = f64::from(TITLE_HEIGHT - COLUMN_BUTTON) / 2.0;
-        let mut x = COLUMN_WIDTH - PADDING - 3 * COLUMN_BUTTON - 2 * BUTTON_GAP;
+        let mut x = width - PADDING - 3 * COLUMN_BUTTON - 2 * BUTTON_GAP;
         let buttons = BUTTONS.map(|button| {
             let rect = (
                 f64::from(x),
@@ -173,30 +179,29 @@ impl HudGeometry {
         });
         Self {
             layout: HudLayout::Column,
-            width: COLUMN_WIDTH,
+            width,
             height,
             items: slots,
             buttons,
-            divider: (0.0, f64::from(TITLE_HEIGHT), f64::from(COLUMN_WIDTH), 0.0),
+            divider: (0.0, f64::from(TITLE_HEIGHT), f64::from(width), 0.0),
         }
     }
 
-    fn line(counts: &[String]) -> Self {
-        let empty = [String::new()];
-        let counts = if counts.is_empty() {
+    fn line(count_widths: &[f64]) -> Self {
+        let empty = [f64::from(DIGIT_WIDTH)];
+        let count_widths = if count_widths.is_empty() {
             &empty[..]
         } else {
-            counts
+            count_widths
         };
         let icon_top = f64::from(LINE_HEIGHT - ICON_SIZE) / 2.0;
         let mut x = LINE_PADDING;
-        let mut items = Vec::with_capacity(counts.len());
-        for (index, count) in counts.iter().enumerate() {
+        let mut items = Vec::with_capacity(count_widths.len());
+        for (index, count_width) in count_widths.iter().enumerate() {
             if index > 0 {
                 x += ITEM_GAP;
             }
-            let digits = i32::try_from(count.chars().count().max(1)).unwrap_or(i32::MAX);
-            let count_width = digits.saturating_mul(DIGIT_WIDTH);
+            let count_width = whole(*count_width).max(1);
             let start = x;
             let count_x = x + ICON_SIZE + ICON_GAP;
             x = count_x.saturating_add(count_width);
@@ -289,4 +294,18 @@ impl HudGeometry {
 pub fn contains(rect: HudRect, point: (f64, f64)) -> bool {
     let (x, y, width, height) = rect;
     point.0 >= x && point.0 < x + width && point.1 >= y && point.1 < y + height
+}
+
+/// How wide a count is taken to be before the client has measured it in
+/// the HUD's font: [`DIGIT_WIDTH`] a character.
+#[must_use]
+pub fn estimated_width(text: &str) -> f64 {
+    let characters = u32::try_from(text.chars().count().max(1)).unwrap_or(u32::MAX);
+    f64::from(characters) * f64::from(DIGIT_WIDTH)
+}
+
+/// A measured width as whole pixels, rounded up.
+#[allow(clippy::cast_possible_truncation)]
+fn whole(width: f64) -> i32 {
+    width.ceil().clamp(0.0, f64::from(i32::MAX / 2)) as i32
 }

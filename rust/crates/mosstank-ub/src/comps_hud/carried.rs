@@ -86,7 +86,10 @@ impl CarriedKind {
 pub struct CarriedItem {
     /// The name, exactly.
     pub name: String,
-    /// The first such object's icon.
+    /// The first such object, whose composed icon (with its underlay,
+    /// overlay and effects) the window shows.
+    pub object_id: u32,
+    /// The first such object's bare icon.
     pub icon_id: u32,
     /// How many: the HUD's count of the name.
     pub count: i32,
@@ -113,6 +116,7 @@ pub fn gather(objects: &[WorldObject]) -> Vec<CarriedItem> {
             }
             None => items.push(CarriedItem {
                 name: object.name.clone(),
+                object_id: object.object_id,
                 icon_id: object.icon_id,
                 count,
                 kind: CarriedKind::of(object),

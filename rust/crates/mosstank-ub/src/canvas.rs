@@ -16,6 +16,10 @@ pub const POINTER_MOVE: u8 = 2;
 pub const POINTER_WHEEL: u8 = 3;
 /// A press the host cancelled.
 pub const POINTER_CANCELLED: u8 = 4;
+/// The pointer over the canvas with no button held (plugin API 1.6).
+pub const POINTER_HOVER: u8 = ac_plugin_abi::ui::PointerEvent::HOVER;
+/// The pointer no longer over the canvas after a hover (plugin API 1.6).
+pub const POINTER_LEAVE: u8 = ac_plugin_abi::ui::PointerEvent::LEAVE;
 /// The left button (`PointerEvent::button`).
 pub const BUTTON_LEFT: u8 = 1;
 /// Shift held (`PointerEvent::modifiers`).

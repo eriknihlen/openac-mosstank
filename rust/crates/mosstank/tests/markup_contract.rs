@@ -1185,9 +1185,21 @@ fn the_edit_items_window_lists_what_is_carried_and_what_the_hud_counts() {
         bound(&kinds, columns[1], "values"),
         TypedBindingKind::UintList
     );
-    assert_eq!(attr(columns[1], "iconkind"), Some("did"));
+    // An object id: the composed icon, with its underlay and overlay.
+    assert_eq!(attr(columns[1], "iconkind"), Some("item"));
     assert_eq!(attr(columns[2], "items"), Some("{CompsHudCarriedNames}"));
     assert_eq!(attr(columns[3], "items"), Some("{CompsHudCarriedCounts}"));
+
+    // Each list's heading is bound: it says when the list is empty.
+    for (heading, list) in [
+        ("{CompsHudCarriedHeading}", carried),
+        ("{CompsHudRowsHeading}", hud),
+    ] {
+        let label = only(root, "label", "text", heading);
+        assert_eq!(bound(&kinds, label, "text"), TypedBindingKind::Text);
+        assert_eq!(number(label, "x"), number(list, "x"), "{heading}");
+        assert!(number(label, "y") < number(list, "y"), "{heading}");
+    }
 
     let search = only(root, "field", "text", "{CompsHudSearch}");
     assert_eq!(
@@ -1205,6 +1217,7 @@ fn the_edit_items_window_lists_what_is_carried_and_what_the_hud_counts() {
         .map(|column| attr(*column, "type").unwrap())
         .collect();
     assert_eq!(types, ["icon", "text", "text"]);
+    assert_eq!(attr(columns[0], "iconkind"), Some("item"));
     assert_eq!(attr(columns[1], "items"), Some("{CompsHudRowNames}"));
     assert_eq!(attr(columns[2], "items"), Some("{CompsHudRowWarns}"));
     assert_eq!(bound(&kinds, hud, "selected"), TypedBindingKind::Int);

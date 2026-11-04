@@ -5,18 +5,21 @@
 //!
 //! The strip is a canvas the host paints under every window, drawn in the
 //! plugin theme's colours, font and corners ([`style`]), as a column or a
-//! line ([`layout`]). Three small buttons sit on it: the layout switch, a
-//! pencil that opens the Edit items window, and a cross that hides the HUD.
-//! A left drag anywhere else moves the strip; it moves when the button
-//! comes up, as the clients readout does. A count below its item's warn
-//! level is drawn in the warning colour.
+//! line ([`layout`]), each count given the room it takes in that font.
+//! Three small buttons sit on it: the layout switch, a pencil that opens
+//! the Edit items window, and a cross that hides the HUD. A left drag
+//! anywhere else moves the strip; it moves when the button comes up, as the
+//! clients readout does. A count below its item's warn level is drawn in
+//! the warning colour. The pointer over an item names it, and over a
+//! button says what it does, in a tooltip ([`tip`]).
 //!
 //! Items are added and taken off, put in order and given warn levels in the
 //! Edit items window, whose state is kept here ([`CarriedKind`], the search,
 //! the selected rows), or with `/vt compshud`. The list (in order, with the
 //! warn levels), the layout and the strip's place are kept for each
 //! character ([`document`]); whether the HUD is on is kept once for every
-//! character.
+//! character. A kept list that does not read whole is copied aside before
+//! it is written again; one whose file cannot be read is not written over.
 //!
 //! A count is every object the character owns, in a pack or worn, whose
 //! name is the listed name exactly, adding its stack size, or one for an
@@ -24,28 +27,32 @@
 
 pub mod carried;
 mod document;
+mod editor;
 pub mod layout;
 mod paint;
 pub mod style;
+pub mod tip;
 
 use std::collections::HashMap;
 
 use ac_plugin_abi::ui::{PointerEvent, ThemeInfo};
 use mosstank_dotnet::text::{casing, ordinal};
 use mosstank_meta::host::LogLevel;
-use mosstank_stores::recovery::sha256_hex;
-use mosstank_stores::storage::PluginStorage;
+use mosstank_stores::recovery::{self, sha256_hex};
+use mosstank_stores::storage::{PluginStorage, Root, StoreHost, StoreLog};
 
 pub use carried::{CarriedItem, CarriedKind, count_owned};
 pub use layout::{HudButton, HudGeometry, HudLayout, HudRect};
 pub use style::HudStyle;
+pub use tip::Tip;
 
 use crate::canvas::{
     BUTTON_LEFT, MapCanvasSpec, MapFont, MapImage, MapPainter, MapUi, POINTER_CANCELLED,
-    POINTER_DOWN, POINTER_UP,
+    POINTER_DOWN, POINTER_HOVER, POINTER_LEAVE, POINTER_UP,
 };
 use crate::host::UbHost;
 use document::Document;
+use editor::Editor;
 use paint::ItemPaint;
 
 /// The canvas's id.
@@ -61,6 +68,11 @@ pub const REFRESH_SECONDS: f64 = 0.6;
 pub const ENABLED_KEY: &str = "comps-hud/enabled.txt";
 /// Where each character's list is kept.
 pub const CHARACTER_PREFIX: &str = "comps-hud/characters/";
+/// The family a list that did not read is kept aside under
+/// (`recovery/comps-hud/...`).
+pub const RECOVERY_FAMILY: &str = "comps-hud";
+/// The most measured count widths kept for one font.
+const MEASURED_LIMIT: usize = 64;
 
 /// One item the HUD counts: the name it is counted by, the icon it is shown
 /// with, and the count below which it warns.
@@ -87,18 +99,6 @@ pub enum AddRefusal {
     Listed(String),
 }
 
-/// The Edit items window's state.
-#[derive(Debug, Clone, Default)]
-struct Editor {
-    visible: bool,
-    search: String,
-    kind: CarriedKind,
-    /// The selected row of what the character carries, as filtered.
-    selected_carried: usize,
-    /// The selected row of the HUD's list.
-    selected_entry: usize,
-}
-
 /// What a left press on the strip took hold of.
 #[derive(Debug, Clone, Copy, PartialEq)]
 enum Press {
@@ -111,14 +111,26 @@ enum Press {
 /// The HUD.
 #[derive(Debug)]
 pub struct ComponentHudController {
+    /// The bare icons (by icon id), for items the character carries none of.
     icons: HashMap<u32, MapImage>,
     icon_order: Vec<u32>,
+    /// The composed icons (by object id) of the objects drawn for the
+    /// listed items.
+    object_icons: HashMap<u32, MapImage>,
+    /// For each listed name the character carries, the object its icon is
+    /// drawn from: the first the recount finds, kept while it stays.
+    drawn_objects: HashMap<String, u32>,
     style: HudStyle,
     /// The bundled font, once asked for (none: refused, or not asked yet).
     font: MapFont,
     font_asked: bool,
+    /// Each count's width as drawn in the font in use, by its text.
+    measured: HashMap<String, f64>,
     entries: Vec<ComponentHudEntry>,
     counts: Vec<i32>,
+    /// The strip laid out for the list, layout and widths as they stand;
+    /// none once one of them changes.
+    geometry: Option<HudGeometry>,
     /// What the character carries, taken with the counts while the Edit
     /// items window is open.
     carried: Vec<CarriedItem>,
@@ -127,13 +139,21 @@ pub struct ComponentHudController {
     enabled: bool,
     scope: Option<String>,
     key: Option<String>,
+    /// The character's file could not be read: it is not written over.
+    save_blocked: bool,
     x: i32,
     y: i32,
     canvas: Option<u32>,
     canvas_visible: bool,
     canvas_size: (i32, i32),
+    /// Where the canvas was last put.
+    placed: (i32, i32),
+    tip: Option<Tip>,
+    tip_canvas: Option<u32>,
+    tip_shown: bool,
     refresh_remaining: f64,
     dirty: bool,
+    tip_dirty: bool,
     press: Option<Press>,
 }
 
@@ -150,24 +170,34 @@ impl ComponentHudController {
         Self {
             icons: HashMap::new(),
             icon_order: Vec::new(),
+            object_icons: HashMap::new(),
+            drawn_objects: HashMap::new(),
             style: HudStyle::classic(),
             font: MapFont::default(),
             font_asked: false,
+            measured: HashMap::new(),
             entries: Vec::new(),
             counts: Vec::new(),
+            geometry: None,
             carried: Vec::new(),
             editor: Editor::default(),
             layout: HudLayout::Column,
             enabled,
             scope: None,
             key: None,
+            save_blocked: false,
             x: DEFAULT_X,
             y: DEFAULT_Y,
             canvas: None,
             canvas_visible: false,
             canvas_size: (0, 0),
+            placed: (DEFAULT_X, DEFAULT_Y),
+            tip: None,
+            tip_canvas: None,
+            tip_shown: false,
             refresh_remaining: 0.0,
             dirty: true,
+            tip_dirty: false,
             press: None,
         }
     }
@@ -232,14 +262,19 @@ impl ComponentHudController {
     }
 
     /// Lays the strip out as a column or a line, and keeps that for the
-    /// character.
-    pub fn set_layout(&mut self, host: &mut dyn UbHost, layout: HudLayout) {
-        if self.layout == layout {
-            return;
+    /// character; false out of the world, where there is no character to
+    /// keep it for.
+    pub fn set_layout(&mut self, host: &mut dyn UbHost, layout: HudLayout) -> bool {
+        if self.key.is_none() {
+            return false;
         }
-        self.layout = layout;
-        self.dirty = true;
-        self.save(host);
+        if self.layout != layout {
+            self.layout = layout;
+            self.reshape();
+            self.hide_tip();
+            self.save(host);
+        }
+        true
     }
 
     /// Where the HUD stands, pixels from the screen's top-left.
@@ -248,10 +283,34 @@ impl ComponentHudController {
         (self.x, self.y)
     }
 
+    /// Puts the strip back at its first place, and keeps that for the
+    /// character; false out of the world.
+    pub fn reset_place(&mut self, host: &mut dyn UbHost) -> bool {
+        if self.key.is_none() {
+            return false;
+        }
+        self.hide_tip();
+        self.place(DEFAULT_X, DEFAULT_Y);
+        self.save(host);
+        true
+    }
+
     /// The canvas, once registered.
     #[must_use]
     pub fn canvas(&self) -> Option<u32> {
         self.canvas
+    }
+
+    /// The tooltip's canvas, once registered.
+    #[must_use]
+    pub fn tip_canvas(&self) -> Option<u32> {
+        self.tip_canvas
+    }
+
+    /// The tooltip shown now, if any.
+    #[must_use]
+    pub fn tip(&self) -> Option<&Tip> {
+        self.tip.as_ref()
     }
 
     /// The look the strip is painted in now.
@@ -265,21 +324,52 @@ impl ComponentHudController {
     pub fn set_theme(&mut self, theme: &ThemeInfo) {
         let style = HudStyle::from_theme(theme);
         if style != self.style {
+            // Another font: every count is measured again.
+            if style.themed != self.style.themed {
+                self.measured.clear();
+            }
             self.style = style;
-            self.dirty = true;
+            self.reshape();
+            self.tip_dirty = true;
         }
     }
 
-    /// The strip laid out for the list as it stands.
-    #[must_use]
-    pub fn geometry(&self) -> HudGeometry {
-        HudGeometry::new(self.layout, &self.count_texts())
+    /// The strip laid out for the list as it stands (worked out again only
+    /// after the counts, the list, the layout, the measured widths or the
+    /// theme change).
+    pub fn geometry(&mut self) -> &HudGeometry {
+        if self.geometry.is_none() {
+            let widths = self.count_widths();
+            self.geometry = Some(HudGeometry::new(self.layout, &widths));
+        }
+        self.geometry
+            .get_or_insert_with(|| HudGeometry::new(HudLayout::Column, &[]))
     }
 
     fn count_texts(&self) -> Vec<String> {
         (0..self.entries.len())
             .map(|index| self.counts.get(index).copied().unwrap_or(0).to_string())
             .collect()
+    }
+
+    /// Each count's width: as measured in the font in use, or estimated
+    /// until it is.
+    fn count_widths(&self) -> Vec<f64> {
+        self.count_texts()
+            .iter()
+            .map(|text| {
+                self.measured
+                    .get(text)
+                    .copied()
+                    .unwrap_or_else(|| layout::estimated_width(text))
+            })
+            .collect()
+    }
+
+    /// The strip's shape may have changed: lay it out again and repaint.
+    fn reshape(&mut self) {
+        self.geometry = None;
+        self.dirty = true;
     }
 
     /// The list in a line for the Consumables page: how many items and
@@ -300,10 +390,11 @@ impl ComponentHudController {
 
     /// The frame: bind the logged-in character's list, take the counts
     /// every 600 ms while the HUD or the Edit items window shows them, and
-    /// keep the canvas sized to the strip and shown while the HUD is on.
+    /// keep the canvases sized to the strip, in place, and shown while the
+    /// HUD is on.
     pub fn on_tick(&mut self, host: &mut dyn UbHost, ui: &mut dyn MapUi, elapsed_seconds: f64) {
         let elapsed = elapsed_seconds.max(0.0);
-        self.bind(host, ui);
+        self.bind(host);
         let visible = self.enabled && self.key.is_some();
         if visible || (self.editor.visible && self.key.is_some()) {
             self.refresh_remaining -= elapsed;
@@ -312,9 +403,24 @@ impl ComponentHudController {
                 self.refresh(host);
             }
         }
-        if visible && (self.canvas.is_none() || self.canvas_size != self.geometry().size()) {
+        if visible && (self.canvas.is_none() || self.geometry().size() != self.canvas_size) {
             self.register(ui);
         }
+        if visible && self.tip_canvas.is_none() {
+            self.tip_canvas = ui.register_canvas(&MapCanvasSpec {
+                canvas_id: tip::TIP_CANVAS_ID.to_owned(),
+                width: tip::TIP_WIDTH,
+                height: tip::TIP_HEIGHT,
+                offset: (0.0, 0.0),
+                start_visible: false,
+                accepts_pointer_input: false,
+            });
+        }
+        if !visible {
+            self.hide_tip();
+        }
+        self.show_tip(ui);
+        self.place_canvas(ui);
         let Some(canvas) = self.canvas else {
             return;
         };
@@ -328,6 +434,32 @@ impl ComponentHudController {
         }
         self.dirty = false;
         ui.invalidate_canvas(canvas);
+    }
+
+    /// Puts the tooltip's canvas where the tip is, shown while there is
+    /// one, and asks for its paint when it changed.
+    fn show_tip(&mut self, ui: &mut dyn MapUi) {
+        let Some(canvas) = self.tip_canvas else {
+            return;
+        };
+        let shown = self.tip.is_some();
+        if let Some(tip) = &self.tip
+            && self.tip_dirty
+        {
+            ui.set_canvas_offset(canvas, (f64::from(tip.offset.0), f64::from(tip.offset.1)));
+            ui.invalidate_canvas(canvas);
+        }
+        self.tip_dirty = false;
+        if self.tip_shown != shown {
+            self.tip_shown = shown;
+            ui.set_canvas_visible(canvas, shown);
+        }
+    }
+
+    fn hide_tip(&mut self) {
+        if self.tip.take().is_some() {
+            self.tip_dirty = true;
+        }
     }
 
     /// Adds the object selected in the game, by its name and icon: the name
@@ -444,127 +576,37 @@ impl ComponentHudController {
         true
     }
 
-    // ---- the Edit items window ----
-
-    /// Whether the Edit items window is open.
-    #[must_use]
-    pub fn editor_visible(&self) -> bool {
-        self.editor.visible
-    }
-
-    /// Opens the Edit items window, with what the character carries taken
-    /// at once.
-    pub fn show_editor(&mut self, host: &mut dyn UbHost) {
-        self.editor.visible = true;
-        self.carried = carried::gather(&host.objects());
-        self.refresh_remaining = REFRESH_SECONDS;
-    }
-
-    /// Closes it.
-    pub fn hide_editor(&mut self) {
-        self.editor.visible = false;
-        self.carried.clear();
-    }
-
-    /// What the window's search holds.
-    #[must_use]
-    pub fn search(&self) -> &str {
-        &self.editor.search
-    }
-
-    /// Sets the search.
-    pub fn set_search(&mut self, text: &str) {
-        text.clone_into(&mut self.editor.search);
-        self.editor.selected_carried = 0;
-    }
-
-    /// The kind the window lists.
-    #[must_use]
-    pub fn kind(&self) -> CarriedKind {
-        self.editor.kind
-    }
-
-    /// Sets the kind it lists.
-    pub fn set_kind(&mut self, kind: CarriedKind) {
-        self.editor.kind = kind;
-        self.editor.selected_carried = 0;
-    }
-
-    /// What the character carries, as the window filters it.
-    #[must_use]
-    pub fn carried_rows(&self) -> Vec<&CarriedItem> {
-        carried::filter(&self.carried, &self.editor.search, self.editor.kind)
-    }
-
-    /// Whether a carried name is on the HUD.
-    #[must_use]
-    pub fn is_listed(&self, name: &str) -> bool {
-        self.entries.iter().any(|entry| entry.name == name)
-    }
-
-    /// The selected carried row.
-    #[must_use]
-    pub fn selected_carried(&self) -> usize {
-        self.editor.selected_carried
-    }
-
-    /// Selects a carried row.
-    pub fn select_carried(&mut self, row: usize) {
-        self.editor.selected_carried = clamp(row, self.carried_rows().len());
-    }
-
-    /// Puts carried row `row` on the HUD, or takes it off when it is on;
-    /// whether the row was there.
-    pub fn toggle_carried(&mut self, host: &mut dyn UbHost, row: usize) -> bool {
-        let Some(item) = self.carried_rows().get(row).map(|item| (*item).clone()) else {
-            return false;
-        };
-        self.editor.selected_carried = row;
-        if let Some(index) = self
-            .entries
-            .iter()
-            .position(|entry| entry.name == item.name)
-        {
-            self.remove_at(host, index);
-        } else {
-            // Refused only out of the world, where there is nothing to list.
-            let _ = self.add(host, &item.name, item.icon_id);
-        }
-        true
-    }
-
-    /// The selected row of the HUD's list.
-    #[must_use]
-    pub fn selected_entry(&self) -> usize {
-        self.editor.selected_entry
-    }
-
-    /// Selects a row of the HUD's list.
-    pub fn select_entry(&mut self, row: usize) {
-        self.editor.selected_entry = clamp(row, self.entries.len());
-    }
-
-    /// The session ended: the interface's images and fonts went with it,
-    /// the Edit items window closes, and the next login binds its own list.
+    /// The session ended: the interface's images went with it, the font is
+    /// let go, the Edit items window closes, and the next login binds its
+    /// own list.
     pub fn reset(&mut self, ui: &mut dyn MapUi) {
         self.icons.clear();
         self.icon_order.clear();
+        self.object_icons.clear();
+        self.drawn_objects.clear();
+        if self.font.is_valid() {
+            ui.release_font(self.font);
+        }
         self.font = MapFont::default();
         self.font_asked = false;
+        self.measured.clear();
         self.press = None;
         self.scope = None;
         self.key = None;
+        self.save_blocked = false;
         self.entries.clear();
         self.counts.clear();
         self.hide_editor();
-        self.dirty = true;
+        self.hide_tip();
+        self.show_tip(ui);
+        self.reshape();
         if let Some(canvas) = self.canvas {
             self.canvas_visible = false;
             ui.set_canvas_visible(canvas, false);
         }
     }
 
-    /// Lets go of the icons, the font and the canvas.
+    /// Lets go of the icons, the font and the canvases.
     pub fn dispose(&mut self, ui: &mut dyn MapUi) {
         for id in self.icon_order.drain(..) {
             if let Some(icon) = self.icons.remove(&id) {
@@ -572,6 +614,10 @@ impl ComponentHudController {
             }
         }
         self.icons.clear();
+        for (_, icon) in self.object_icons.drain() {
+            ui.release_image(icon);
+        }
+        self.drawn_objects.clear();
         if self.font.is_valid() {
             ui.release_font(self.font);
         }
@@ -579,18 +625,24 @@ impl ComponentHudController {
         if let Some(canvas) = self.canvas.take() {
             ui.remove_canvas(canvas);
         }
+        if let Some(canvas) = self.tip_canvas.take() {
+            ui.remove_canvas(canvas);
+        }
     }
 
-    /// The pointer: a left press let go over the button it went down on is
-    /// that button (the layout switch, Edit items, hide); a left press
-    /// anywhere else drags the strip, which moves when the button comes up.
+    /// The pointer: over the strip with no button held, the tooltip names
+    /// what is under it, and leaving the strip clears it; a left press let
+    /// go over the button it went down on is that button (the layout
+    /// switch, Edit items, hide); a left press anywhere else drags the
+    /// strip, which moves when the button comes up.
     pub fn on_pointer(&mut self, host: &mut dyn UbHost, ui: &mut dyn MapUi, event: &PointerEvent) {
-        if event.button != BUTTON_LEFT {
-            return;
-        }
         let at = (f64::from(event.x), f64::from(event.y));
         match event.kind {
+            POINTER_HOVER => self.hover(at),
+            POINTER_LEAVE => self.hide_tip(),
+            _ if event.button != BUTTON_LEFT => {}
             POINTER_DOWN => {
+                self.hide_tip();
                 self.press = Some(match self.geometry().button_at(at) {
                     Some(button) => Press::Button(button),
                     None => Press::Strip(at),
@@ -600,41 +652,78 @@ impl ComponentHudController {
                 Some(Press::Button(button)) if self.geometry().button_at(at) == Some(button) => {
                     self.press_button(host, button);
                 }
-                Some(Press::Strip(grab)) => self.drag(host, ui, grab, at),
+                Some(Press::Strip(grab)) => self.drag(host, grab, at),
                 _ => {}
             },
             POINTER_CANCELLED => self.press = None,
             _ => {}
+        }
+        self.place_canvas(ui);
+        self.show_tip(ui);
+    }
+
+    /// Moves the canvas to where the strip stands, when it is elsewhere.
+    fn place_canvas(&mut self, ui: &mut dyn MapUi) {
+        if let Some(canvas) = self.canvas
+            && self.placed != (self.x, self.y)
+        {
+            self.placed = (self.x, self.y);
+            ui.set_canvas_offset(canvas, self.offset());
+        }
+    }
+
+    /// The pointer is over the strip at `at`: the tip for what is there,
+    /// or none.
+    fn hover(&mut self, at: (f64, f64)) {
+        let strip = (self.x, self.y);
+        let layout = self.layout;
+        let geometry = self.geometry().clone();
+        let target = if let Some(button) = geometry.button_at(at) {
+            Some((
+                tip::button_text(button, layout).to_owned(),
+                geometry.button(button),
+            ))
+        } else {
+            geometry.item_at(at).and_then(|index| {
+                self.entries
+                    .get(index)
+                    .map(|entry| (entry.name.clone(), geometry.items[index].cell))
+            })
+        };
+        let tip = target.map(|(text, rect)| tip::place(strip, &geometry, rect, &text));
+        if tip != self.tip {
+            self.tip = tip;
+            self.tip_dirty = true;
         }
     }
 
     /// What a button does.
     pub fn press_button(&mut self, host: &mut dyn UbHost, button: HudButton) {
         match button {
-            HudButton::Layout => self.set_layout(host, self.layout.other()),
+            HudButton::Layout => {
+                self.set_layout(host, self.layout.other());
+            }
             HudButton::Edit => self.show_editor(host),
             HudButton::Hide => self.set_enabled(host, false),
         }
     }
 
-    fn drag(
-        &mut self,
-        host: &mut dyn UbHost,
-        ui: &mut dyn MapUi,
-        grab: (f64, f64),
-        at: (f64, f64),
-    ) {
+    fn drag(&mut self, host: &mut dyn UbHost, grab: (f64, f64), at: (f64, f64)) {
         let dx = whole_pixels(at.0 - grab.0);
         let dy = whole_pixels(at.1 - grab.1);
         if (dx == 0 && dy == 0) || self.canvas.is_none() {
             return;
         }
-        self.x = self.x.saturating_add(dx);
-        self.y = self.y.saturating_add(dy);
-        if let Some(canvas) = self.canvas {
-            ui.set_canvas_offset(canvas, self.offset());
-        }
+        self.place(self.x.saturating_add(dx), self.y.saturating_add(dy));
         self.save(host);
+    }
+
+    /// Stands the strip at a place, never past the screen's top or left
+    /// edge (a plugin cannot learn the screen's size, so not its right or
+    /// bottom one).
+    fn place(&mut self, x: i32, y: i32) {
+        self.x = x.max(0);
+        self.y = y.max(0);
     }
 
     fn offset(&self) -> (f64, f64) {
@@ -643,7 +732,7 @@ impl ComponentHudController {
 
     /// Binds the logged-in character's list when the character is a new
     /// one; out of the world, the list stays as it is.
-    fn bind(&mut self, host: &mut dyn UbHost, ui: &mut dyn MapUi) {
+    fn bind(&mut self, host: &mut dyn UbHost) {
         let Some(character) = host.character() else {
             return;
         };
@@ -659,36 +748,66 @@ impl ComponentHudController {
         self.scope = Some(scope);
         self.entries.clear();
         self.counts.clear();
-        self.x = DEFAULT_X;
-        self.y = DEFAULT_Y;
+        self.place(DEFAULT_X, DEFAULT_Y);
         self.layout = HudLayout::Column;
+        self.save_blocked = false;
         self.editor.selected_entry = 0;
-        self.dirty = true;
+        self.hide_tip();
+        self.reshape();
         self.refresh_remaining = 0.0;
-        self.load(host.storage());
-        if let Some(canvas) = self.canvas {
-            ui.set_canvas_offset(canvas, self.offset());
-        }
+        self.load(host);
     }
 
-    /// Reads the character's list, layout and place; a file that does not
-    /// read starts an empty column at the default place, and the next
-    /// change rewrites it.
-    fn load(&mut self, storage: &mut dyn PluginStorage) {
-        let Some(key) = &self.key else {
+    /// Reads the character's list, layout and place. No file starts an
+    /// empty column at the default place. A file that does not read whole
+    /// gives what it can, is copied aside (`recovery/comps-hud/...`) and
+    /// said in the log, and the next change writes the list over it. A
+    /// file the storage cannot read is said in the log and left alone:
+    /// nothing is saved over it this session.
+    fn load(&mut self, host: &mut dyn UbHost) {
+        let Some(key) = self.key.clone() else {
             return;
         };
-        if !storage.is_available() {
-            return;
+        let read = {
+            let storage = host.storage();
+            if !storage.is_available() {
+                return;
+            }
+            storage.read_text(&key)
+        };
+        let text = match read {
+            Ok(Some(text)) => text,
+            Ok(None) => return,
+            Err(error) => {
+                self.save_blocked = true;
+                host.log(
+                    LogLevel::Warn,
+                    &format!(
+                        "The Comps HUD could not read this character's list ({error}); it is left as it is and not saved over until the next login."
+                    ),
+                );
+                return;
+            }
+        };
+        let (document, problem) = match document::read(&text) {
+            Ok(read) if read.problems.is_empty() => (Some(read.document), None),
+            Ok(read) => (Some(read.document), Some(read.problems.join("; "))),
+            Err(error) => (None, Some(error)),
+        };
+        if let Some(problem) = problem {
+            let notice = recovery::preserve(
+                &mut HudStores(&mut *host),
+                RECOVERY_FAMILY,
+                &key,
+                Some(&text),
+                &problem,
+            );
+            host.log(LogLevel::Warn, &format!("Comps HUD: {notice}"));
         }
-        let Some(text) = storage.read_text(key).ok().flatten() else {
+        let Some(document) = document else {
             return;
         };
-        let Ok(Some(document)) = document::read(&text) else {
-            return;
-        };
-        self.x = document.x;
-        self.y = document.y;
+        self.place(document.x, document.y);
         self.layout = document.layout;
         for entry in document.entries {
             if !entry.name.is_empty() && self.entries.iter().all(|held| held.name != entry.name) {
@@ -701,6 +820,9 @@ impl ComponentHudController {
         let Some(key) = &self.key else {
             return;
         };
+        if self.save_blocked {
+            return;
+        }
         let storage = host.storage();
         if !storage.is_available() {
             return;
@@ -722,7 +844,7 @@ impl ComponentHudController {
     fn changed(&mut self, host: &mut dyn UbHost) {
         self.save(host);
         self.refresh_remaining = 0.0;
-        self.dirty = true;
+        self.reshape();
     }
 
     /// Takes the counts again (and, while the Edit items window is open,
@@ -737,8 +859,9 @@ impl ComponentHudController {
             .collect();
         if counts != self.counts {
             self.counts = counts;
-            self.dirty = true;
+            self.reshape();
         }
+        self.choose_drawn_objects(&objects);
         let mut found_icon = false;
         for entry in self.entries.iter_mut().filter(|entry| entry.icon_id == 0) {
             if let Some(icon_id) = objects
@@ -774,8 +897,89 @@ impl ComponentHudController {
             start_visible: false,
             accepts_pointer_input: true,
         });
+        self.placed = (self.x, self.y);
         self.canvas_visible = false;
         self.dirty = true;
+    }
+
+    /// For each listed name, the carried object its icon is drawn from: the
+    /// one drawn before while the character still owns it under that name,
+    /// else the first the recount finds; none when it carries none. The
+    /// strip repaints when one changes.
+    fn choose_drawn_objects(&mut self, objects: &[ac_plugin_abi::world::WorldObject]) {
+        let mut chosen = HashMap::with_capacity(self.entries.len());
+        for entry in &self.entries {
+            let owned = |id: u32| {
+                objects
+                    .iter()
+                    .any(|item| item.object_id == id && item.is_owned && item.name == entry.name)
+            };
+            let object = self
+                .drawn_objects
+                .get(&entry.name)
+                .copied()
+                .filter(|id| owned(*id))
+                .or_else(|| {
+                    objects
+                        .iter()
+                        .find(|item| item.is_owned && item.name == entry.name)
+                        .map(|item| item.object_id)
+                });
+            if let Some(object) = object {
+                chosen.insert(entry.name.clone(), object);
+            }
+        }
+        if chosen != self.drawn_objects {
+            self.drawn_objects = chosen;
+            self.dirty = true;
+        }
+    }
+
+    /// The object an entry's icon is drawn from, when the character
+    /// carries one.
+    #[must_use]
+    pub fn drawn_object(&self, name: &str) -> Option<u32> {
+        self.drawn_objects.get(name).copied()
+    }
+
+    /// An entry's icon: the composed icon (underlay, overlay and effects
+    /// as the game draws it) of the object it is drawn from, or the bare
+    /// icon when the character carries none.
+    fn entry_icon(&mut self, ui: &mut dyn MapUi, index: usize) -> MapImage {
+        let Some(entry) = self.entries.get(index) else {
+            return MapImage::default();
+        };
+        let icon_id = entry.icon_id;
+        let Some(object) = self.drawn_objects.get(&entry.name).copied() else {
+            return self.icon(ui, icon_id);
+        };
+        if let Some(held) = self.object_icons.get(&object)
+            && held.is_valid()
+        {
+            return *held;
+        }
+        let icon = ui.object_icon(object);
+        if !icon.is_valid() {
+            return self.icon(ui, icon_id);
+        }
+        self.object_icons.insert(object, icon);
+        icon
+    }
+
+    /// Lets go of the composed icons of objects no longer drawn.
+    fn release_stale_object_icons(&mut self, ui: &mut dyn MapUi) {
+        let drawn: Vec<u32> = self.drawn_objects.values().copied().collect();
+        let stale: Vec<u32> = self
+            .object_icons
+            .keys()
+            .copied()
+            .filter(|object| !drawn.contains(object))
+            .collect();
+        for object in stale {
+            if let Some(icon) = self.object_icons.remove(&object) {
+                ui.release_image(icon);
+            }
+        }
     }
 
     fn icon(&mut self, ui: &mut dyn MapUi, icon_id: u32) -> MapImage {
@@ -794,35 +998,115 @@ impl ComponentHudController {
         icon
     }
 
-    /// The strip in the theme's look: the face, each item's icon and count,
-    /// and the buttons. Under a theme the counts are set in the bundled
-    /// font, asked for once.
-    pub fn paint(&mut self, painter: &mut dyn MapPainter, ui: &mut dyn MapUi) {
-        if self.style.themed && !self.font_asked {
+    /// The font the counts are drawn in: under a theme the bundled font,
+    /// asked for once; under Classic, and when it is refused, the interface
+    /// font.
+    fn font(&mut self, ui: &mut dyn MapUi) -> MapFont {
+        if !self.style.themed {
+            return MapFont::default();
+        }
+        if !self.font_asked {
             self.font_asked = true;
             self.font = ui.bundled_font(style::FONT_SIZE);
         }
-        let font = if self.style.themed {
-            self.font
-        } else {
-            MapFont::default()
-        };
+        self.font
+    }
+
+    /// Measures every count not measured yet in the font in use; a width
+    /// that differs from what the strip was laid out with lays it out
+    /// again (and the next frame gives it a canvas of that size).
+    fn measure(&mut self, painter: &mut dyn MapPainter, font: MapFont) {
+        if self.measured.len() > MEASURED_LIMIT {
+            self.measured.clear();
+        }
+        let mut changed = false;
+        for text in self.count_texts() {
+            if self.measured.contains_key(&text) {
+                continue;
+            }
+            let (width, _) = painter.measure_text_in(font, &text);
+            changed |= (width - layout::estimated_width(&text)).abs() > f64::EPSILON;
+            self.measured.insert(text, width);
+        }
+        if changed {
+            self.reshape();
+        }
+    }
+
+    /// The strip in the theme's look: the face, each item's icon and count,
+    /// and the buttons.
+    pub fn paint(&mut self, painter: &mut dyn MapPainter, ui: &mut dyn MapUi) {
+        let font = self.font(ui);
+        self.measure(painter, font);
         let texts = self.count_texts();
+        self.release_stale_object_icons(ui);
         let icons: Vec<MapImage> = (0..self.entries.len())
-            .map(|index| self.icon(ui, self.entries[index].icon_id))
+            .map(|index| self.entry_icon(ui, index))
             .collect();
+        let warns: Vec<bool> = (0..self.entries.len())
+            .map(|index| self.warns(index))
+            .collect();
+        let geometry = self.geometry().clone();
         let items: Vec<ItemPaint<'_>> = texts
             .iter()
             .zip(icons)
-            .enumerate()
-            .map(|(index, (count, icon))| ItemPaint {
-                icon,
-                count,
-                warn: self.warns(index),
-            })
+            .zip(warns)
+            .map(|((count, icon), warn)| ItemPaint { icon, count, warn })
             .collect();
-        let geometry = HudGeometry::new(self.layout, &texts);
         paint::paint(painter, &geometry, &self.style, font, &items);
+    }
+
+    /// The tooltip, in the theme's look.
+    pub fn paint_tip(&mut self, painter: &mut dyn MapPainter, ui: &mut dyn MapUi) {
+        let font = self.font(ui);
+        let style = self.style.clone();
+        match &self.tip {
+            Some(tip) => tip::paint(painter, tip, &style, font),
+            None => painter.clear(&ac_plugin_abi::ui::Color {
+                r: 0,
+                g: 0,
+                b: 0,
+                a: 0,
+            }),
+        }
+    }
+}
+
+/// The profile stores' view of the UB host, for keeping a list that did
+/// not read aside (`recovery::preserve`).
+struct HudStores<'a>(&'a mut dyn UbHost);
+
+impl StoreHost for HudStores<'_> {
+    fn storage(&mut self, root: Root) -> &mut dyn PluginStorage {
+        match root {
+            Root::Plugin => self.0.storage(),
+            Root::Profiles => self.0.profile_storage(),
+        }
+    }
+
+    fn log(&mut self) -> &mut dyn StoreLog {
+        self
+    }
+
+    fn world_name(&mut self) -> String {
+        self.0
+            .character()
+            .map(|character| character.world)
+            .unwrap_or_default()
+    }
+}
+
+impl StoreLog for HudStores<'_> {
+    fn info(&mut self, message: &str) {
+        self.0.log(LogLevel::Info, message);
+    }
+
+    fn warn(&mut self, message: &str) {
+        self.0.log(LogLevel::Warn, message);
+    }
+
+    fn error(&mut self, message: &str) {
+        self.0.log(LogLevel::Error, message);
     }
 }
 

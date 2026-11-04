@@ -91,6 +91,14 @@ impl TankCx<'_> {
             );
             submit(&client, canvas, &painter);
         }
+        if let Some(canvas) = parts.canvases.take_paint_due(parts.comps.tip_canvas()) {
+            let mut painter = RecordingPainter::new(&client, canvas);
+            parts.comps.paint_tip(
+                &mut painter,
+                &mut PaintUi::new(&client, &mut parts.canvases),
+            );
+            submit(&client, canvas, &painter);
+        }
         if let Some(canvas) = parts.canvases.take_paint_due(parts.dungeon.canvas()) {
             let mut painter = RecordingPainter::new(&client, canvas);
             parts.dungeon.paint(
@@ -155,8 +163,8 @@ impl TankCx<'_> {
         parts.canvases.flush(self.client);
     }
 
-    /// `/vt compshud [on | off | toggle | line | column | add | remove
-    /// <name>]` (`HandleComponentHudCommand`): the Comps HUD from the
+    /// `/vt compshud [on | off | toggle | line | column | reset | add |
+    /// remove <name>]` (`HandleComponentHudCommand`): the Comps HUD from the
     /// keyboard. Bare, it says whether the HUD is on and what it counts.
     pub(crate) fn component_hud_command(&mut self, arguments: &str) {
         let (typed, rest) = split_head(arguments);
@@ -180,7 +188,13 @@ impl TankCx<'_> {
                     "Comps HUD: off.".to_owned()
                 }
             }
-            "line" | "column" if !self.ub.comps.is_bound() => "Comps HUD: not in world.".to_owned(),
+            "line" | "column" | "reset" if !self.ub.comps.is_bound() => {
+                "Comps HUD: not in world.".to_owned()
+            }
+            "reset" => {
+                self.ub.comps.reset_place(self.client.ub());
+                "Comps HUD: back at its first place.".to_owned()
+            }
             "line" => {
                 self.ub.comps.set_layout(self.client.ub(), HudLayout::Line);
                 "Comps HUD: laid out as a line.".to_owned()
