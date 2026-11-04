@@ -5,7 +5,7 @@ version = 4
 [[package]]
 name = "ac-plugin-abi"
 version = "0.1.10"
-source = "git+https://github.com/eriknihlen/openac-rust?rev=501538dd6902c692d81f48f8c29d40699b7f74a1#501538dd6902c692d81f48f8c29d40699b7f74a1"
+source = "git+https://github.com/eriknihlen/openac-rust?rev=dae3e4685525d15de5f9e47e36aed1203eadcfd8#dae3e4685525d15de5f9e47e36aed1203eadcfd8"
 dependencies = [
  "ac-plugin-ui",
 ]
@@ -13,7 +13,7 @@ dependencies = [
 [[package]]
 name = "ac-plugin-ui"
 version = "0.1.10"
-source = "git+https://github.com/eriknihlen/openac-rust?rev=501538dd6902c692d81f48f8c29d40699b7f74a1#501538dd6902c692d81f48f8c29d40699b7f74a1"
+source = "git+https://github.com/eriknihlen/openac-rust?rev=dae3e4685525d15de5f9e47e36aed1203eadcfd8#dae3e4685525d15de5f9e47e36aed1203eadcfd8"
 dependencies = [
  "fontdue",
  "miniz_oxide",
@@ -942,7 +942,7 @@ checksum = "9f7c3e4beb33f85d45ae3e3a1792185706c8e16d043238c593331cc7cd313b50"
 [[package]]
 name = "openac-plugin"
 version = "0.1.10"
-source = "git+https://github.com/eriknihlen/openac-rust?rev=501538dd6902c692d81f48f8c29d40699b7f74a1#501538dd6902c692d81f48f8c29d40699b7f74a1"
+source = "git+https://github.com/eriknihlen/openac-rust?rev=dae3e4685525d15de5f9e47e36aed1203eadcfd8#dae3e4685525d15de5f9e47e36aed1203eadcfd8"
 dependencies = [
  "ac-plugin-abi",
  "ac-plugin-ui",
@@ -951,7 +951,7 @@ dependencies = [
 [[package]]
 name = "openac-plugin-compat"
 version = "0.1.10"
-source = "git+https://github.com/eriknihlen/openac-rust?rev=501538dd6902c692d81f48f8c29d40699b7f74a1#501538dd6902c692d81f48f8c29d40699b7f74a1"
+source = "git+https://github.com/eriknihlen/openac-rust?rev=dae3e4685525d15de5f9e47e36aed1203eadcfd8#dae3e4685525d15de5f9e47e36aed1203eadcfd8"
 dependencies = [
  "fancy-regex",
  "thiserror",
