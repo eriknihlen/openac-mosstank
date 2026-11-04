@@ -105,6 +105,9 @@
             checked="{AutoFellowManagementEnabled}" onclick="{ToggleAutoFellowManagement}" />
     <toggle x="282" y="148" w="160" h="20" text="M. Charges When Off"
             checked="{ManaChargesWhenOffEnabled}" onclick="{ToggleManaChargesWhenOff}" />
+    <toggle x="282" y="168" w="160" h="20" text="Loot Own Death Corpse"
+            checked="{LootOwnDeathCorpseEnabled}" onclick="{ToggleLootOwnDeathCorpse}"
+            tooltip="Loot this character's own death corpse as soon as it is in range, whoever the killer was, and take everything in it rather than only what the loot rules keep. This applies even with Loot Only Rare Corpses on. VTank has no such switch." />
 
     <toggle x="448" y="8" w="160" h="20" text="Boost Nav. Priority"
             checked="{NavigationPriorityEnabled}" onclick="{ToggleNavigationPriority}" />

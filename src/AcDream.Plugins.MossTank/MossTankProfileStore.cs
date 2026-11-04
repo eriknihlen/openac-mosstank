@@ -946,6 +946,9 @@ internal sealed class MossTankProfileStore
 
         /// <summary>Whether this character's own rare is walked to past the corpse range (a MossTank extension; off by default).</summary>
         public bool InventoryLootWalkToOwnRareCorpses { get; set; }
+
+        /// <summary>Whether this character's own death corpse is looted at once and emptied (a MossTank extension; on by default).</summary>
+        public bool InventoryLootOwnDeathCorpse { get; set; } = true;
         public LootRuleDocument[] InventoryLootRules { get; set; } = [];
 
         /// <summary>The Client pathing choice by name; absent in files written before it existed.</summary>
@@ -1030,6 +1033,7 @@ internal sealed class MossTankProfileStore
             InventoryLootClassifierId = settings.Inventory.Loot.ExternalClassifierId,
             InventoryLootScanIntervalSeconds = settings.Inventory.Loot.ScanIntervalSeconds,
             InventoryLootWalkToOwnRareCorpses = settings.Inventory.Loot.WalkToOwnRareCorpses,
+            InventoryLootOwnDeathCorpse = settings.Inventory.Loot.LootOwnDeathCorpse,
             InventoryLootRules = settings.Inventory.Loot.Rules
                 .Select(LootRuleDocument.From)
                 .ToArray(),
@@ -1152,6 +1156,7 @@ internal sealed class MossTankProfileStore
             settings.Inventory.Loot.ScanIntervalSeconds = Math.Clamp(
                 InventoryLootScanIntervalSeconds, 0.05d, 5d);
             settings.Inventory.Loot.WalkToOwnRareCorpses = InventoryLootWalkToOwnRareCorpses;
+            settings.Inventory.Loot.LootOwnDeathCorpse = InventoryLootOwnDeathCorpse;
             settings.Inventory.Loot.Rules.Clear();
             foreach (LootRuleDocument rule in InventoryLootRules ?? [])
                 settings.Inventory.Loot.Rules.Add(rule.ToRule());

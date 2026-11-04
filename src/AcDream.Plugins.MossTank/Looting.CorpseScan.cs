@@ -386,7 +386,15 @@ internal sealed partial class LootController
     /// </summary>
     private bool WantsDescription(in PluginLootContainer corpse) =>
         !_settings.LootOnlyRareCorpses
-        || AppearedWithOwnRareAnnouncement(corpse);
+        || AppearedWithOwnRareAnnouncement(corpse)
+        || WantsOwnDeathCorpse(corpse);
+
+    /// <summary>
+    /// The option is on and this is this character's own death corpse: it is
+    /// described and looted whatever else the loot settings say.
+    /// </summary>
+    private bool WantsOwnDeathCorpse(in PluginLootContainer corpse) =>
+        _settings.LootOwnDeathCorpse && IsOwnDeathCorpse(corpse);
 
     /// <summary>
     /// Whether this corpse may be the one this character's latest rare
@@ -424,6 +432,10 @@ internal sealed partial class LootController
 
     private bool CanLoot(in PluginLootContainer corpse)
     {
+        // This character's own death corpse is theirs to loot at once,
+        // whoever the killer was, rare-only looting or not.
+        if (WantsOwnDeathCorpse(corpse))
+            return true;
         if (_settings.LootOnlyRareCorpses && !IsRare(corpse))
             return false;
         if (IsOwnKill(corpse))

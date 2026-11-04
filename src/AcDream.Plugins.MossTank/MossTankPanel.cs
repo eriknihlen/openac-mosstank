@@ -731,7 +731,8 @@ internal sealed partial class MossTankPanel : IBuffRuleHost, IDisposable
             && words.All(word => name.Contains(word, StringComparison.OrdinalIgnoreCase)
                 || (VtankDefaultSettingsDatabase.SettingDescriptions.TryGetValue(name, out string? description)
                     && description.Contains(word, StringComparison.OrdinalIgnoreCase)))
-            && (name == VtankOptionCatalog.WalkToRareCorpse
+            && (name is VtankOptionCatalog.WalkToRareCorpse
+                    or VtankOptionCatalog.LootOwnDeathCorpse
                 ? (enabledMask & (int)VtankOptionPage.Looting) != 0
                 : !VtankDefaultSettingsDatabase.SettingCategoryBitmasks.TryGetValue(name, out int mask)
                     || mask == 0
@@ -1033,6 +1034,10 @@ internal sealed partial class MossTankPanel : IBuffRuleHost, IDisposable
     /// <summary>Whether this character's own rare is walked to past the corpse range (a MossTank extension; off by default).</summary>
     public bool WalkToOwnRareCorpsesEnabled =>
         _inventorySettings.Loot.WalkToOwnRareCorpses;
+
+    /// <summary>Whether this character's own death corpse is looted at once and emptied (a MossTank extension; on by default).</summary>
+    public bool LootOwnDeathCorpseEnabled =>
+        _inventorySettings.Loot.LootOwnDeathCorpse;
     public bool ReadUnknownScrollsEnabled =>
         _inventorySettings.Loot.ReadUnknownScrolls;
     public IReadOnlyList<string> LootProfileNames =>
@@ -1114,6 +1119,10 @@ internal sealed partial class MossTankPanel : IBuffRuleHost, IDisposable
         SetMetaOption(
             VtankOptionCatalog.WalkToRareCorpse,
             ExpressionValue.Boolean(!_inventorySettings.Loot.WalkToOwnRareCorpses));
+    public Action ToggleLootOwnDeathCorpse => () =>
+        SetMetaOption(
+            VtankOptionCatalog.LootOwnDeathCorpse,
+            ExpressionValue.Boolean(!_inventorySettings.Loot.LootOwnDeathCorpse));
     public Action ToggleReadUnknownScrolls => () =>
     {
         _inventorySettings.Loot.ReadUnknownScrolls =
@@ -3927,6 +3936,8 @@ internal sealed partial class MossTankPanel : IBuffRuleHost, IDisposable
             "enablelooting" => ExpressionValue.Boolean(_inventorySettings.Loot.Enabled),
             "walktorarecorpse" or "walktoownrarecorpses" or "walktoowncorpses" => ExpressionValue.Boolean(
                 _inventorySettings.Loot.WalkToOwnRareCorpses),
+            "lootowndeathcorpse" => ExpressionValue.Boolean(
+                _inventorySettings.Loot.LootOwnDeathCorpse),
             "shownavlines" => ExpressionValue.Boolean(_navigationSettings.ShowNavLines),
             "enablemeta" => ExpressionValue.Boolean(_meta.Enabled),
             "spelldiffexcessthreshold-hunt" => ExpressionValue.Number(
@@ -4325,6 +4336,9 @@ internal sealed partial class MossTankPanel : IBuffRuleHost, IDisposable
                 break;
             case "walktorarecorpse":
                 _inventorySettings.Loot.WalkToOwnRareCorpses = value.IsTruthy;
+                break;
+            case "lootowndeathcorpse":
+                _inventorySettings.Loot.LootOwnDeathCorpse = value.IsTruthy;
                 break;
             case "shownavlines":
                 _navigationSettings.ShowNavLines = value.IsTruthy;

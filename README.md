@@ -149,13 +149,17 @@ checkboxes. Select a row to edit it below: switches and choices apply immediatel
 while numeric values apply with Enter or Apply. Filtering never changes a setting.
 A selected setting hidden by a filter cannot be edited until it is shown again.
 
-The Options-tab switches **Walk to Rare Corpse** and **Show Nav Lines** also
-accept `/vt opt get`, `set` and `toggle` using `WalkToRareCorpse` and
-`ShowNavLines`. `WalkToRareCorpse` also appears under Looting in Advanced
-Options. The old `WalkToOwnRareCorpses` and `WalkToOwnCorpses` command names
+The Options-tab switches **Walk to Rare Corpse**, **Loot Own Death Corpse**
+and **Show Nav Lines** also accept `/vt opt get`, `set` and `toggle` using
+`WalkToRareCorpse`, `LootOwnDeathCorpse` and `ShowNavLines`. `WalkToRareCorpse`
+and `LootOwnDeathCorpse` also appear under Looting in Advanced Options. The old
+`WalkToOwnRareCorpses` and `WalkToOwnCorpses` command names
 remain accepted for existing macros; replies use the new name. The rare walk
-still applies only to this character's own rare corpse. These switches save
-with the selected settings profile.
+still applies only to this character's own rare corpse. `LootOwnDeathCorpse`
+(on by default) loots this character's own death corpse as soon as it is in
+range, whoever the killer was, and takes everything in it rather than only what
+the loot rules keep, even with Loot Only Rare Corpses on. These
+switches save with the selected settings profile.
 
 Selecting Custom for `BuffProfile_Prots` or `BuffProfile_Banes` also shows the
 corresponding `BuffProfile-Prots` or `BuffProfile-Banes` text field. Enter element

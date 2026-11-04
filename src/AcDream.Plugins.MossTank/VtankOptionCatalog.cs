@@ -14,6 +14,7 @@ internal enum VtankSettingValueType
 internal static class VtankOptionCatalog
 {
     internal const string WalkToRareCorpse = "WalkToRareCorpse";
+    internal const string LootOwnDeathCorpse = "LootOwnDeathCorpse";
     private const string WalkToOwnCorpsesAlias = "WalkToOwnCorpses";
     private const string WalkToOwnRareCorpsesAlias = "WalkToOwnRareCorpses";
 
@@ -79,18 +80,21 @@ internal static class VtankOptionCatalog
     [
         ..Names,
         WalkToRareCorpse,
+        LootOwnDeathCorpse,
         "ShowNavLines",
     ];
 
     // The Options-tab switch is stored in the sidecar, not VTank's Settings
     // table. Advanced Options can edit it without adding a new USD row.
-    internal static readonly string[] AdvancedNames = [..Names, WalkToRareCorpse];
+    internal static readonly string[] AdvancedNames =
+        [..Names, WalkToRareCorpse, LootOwnDeathCorpse];
 
     private static readonly IReadOnlyDictionary<string, MonsterValue> Defaults =
         new Dictionary<string, MonsterValue>(StringComparer.OrdinalIgnoreCase)
         {
         ["EnableLooting"] = MonsterValue.FromBoolean(false),
         [WalkToRareCorpse] = MonsterValue.FromBoolean(false),
+        [LootOwnDeathCorpse] = MonsterValue.FromBoolean(true),
         ["ShowNavLines"] = MonsterValue.FromBoolean(false),
         ["EnableNav"] = MonsterValue.FromBoolean(false),
         ["EnableBuffing"] = MonsterValue.FromBoolean(true),
@@ -235,6 +239,7 @@ internal static class VtankOptionCatalog
         {
         ["EnableLooting"] = VtankSettingValueType.Bool,
         [WalkToRareCorpse] = VtankSettingValueType.Bool,
+        [LootOwnDeathCorpse] = VtankSettingValueType.Bool,
         ["ShowNavLines"] = VtankSettingValueType.Bool,
         ["EnableNav"] = VtankSettingValueType.Bool,
         ["EnableBuffing"] = VtankSettingValueType.Bool,

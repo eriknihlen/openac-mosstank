@@ -147,6 +147,15 @@ internal sealed class LootSettings
     public bool WalkToOwnRareCorpses { get; set; }
 
     /// <summary>
+    /// Loot this character's own death corpse ("Corpse of" the character's
+    /// name) whoever's kill it was, with no wait, and take everything in it
+    /// rather than only what the loot rules keep, even with rare-only
+    /// looting on. VTank has no such switch, so this is a MossTank extension;
+    /// it is on unless turned off.
+    /// </summary>
+    public bool LootOwnDeathCorpse { get; set; } = true;
+
+    /// <summary>
     /// Whether a kill holds the route still for the looting window. The
     /// reference holds it whenever looting is on; MossTank skips it when only
     /// rare corpses are looted, because no corpse is looked at until this
@@ -1223,17 +1232,26 @@ internal sealed partial class LootController
         // tell the corpse that has just fallen from the ones already lying
         // about; the corpse pass that normally keeps that note does not run
         // while nothing is to be looted.
+        IReadOnlyList<PluginLootContainer>? sighted = null;
         if (_settings.LootOnlyRareCorpses)
         {
             _sinceCorpseSighting += elapsed;
             if (_sinceCorpseSighting >= CorpseSightingIntervalSeconds)
             {
                 _sinceCorpseSighting = 0d;
-                PruneCorpseCache(loot.CaptureCorpses(float.MaxValue));
+                sighted = loot.CaptureCorpses(float.MaxValue);
+                PruneCorpseCache(sighted);
             }
         }
         if (!RareWindowOpenOrNotRareOnly())
+        {
+            // Only this character's own death corpse can want a description
+            // now. It is looked for in the sighting list, so the corpses are
+            // still listed only every couple of seconds.
+            if (_settings.LootOwnDeathCorpse && sighted is not null)
+                _ = TryRequestNextCorpseDescription(loot, sighted);
             return;
+        }
         // Every corpse the client reports, as the reference's identify queue
         // does: a corpse watched from across the field is described long
         // before the character walks up to it.
@@ -2286,6 +2304,10 @@ internal sealed partial class LootController
     {
         if (!string.IsNullOrWhiteSpace(_settings.ExternalClassifierId))
             return true;
+        // Everything on the corpse is taken, so nothing needs a description
+        // to be judged by.
+        if (TakesEverythingFromActiveCorpse)
+            return false;
         if (_activeCorpseIsOwnDeath)
             return true;
         if (VtankLootRequirementEvaluator.IsMagical(item, properties)
@@ -2341,6 +2363,14 @@ internal sealed partial class LootController
         _itemAttempts[objectId] = attempts + 1;
     }
 
+    /// <summary>
+    /// The open corpse is this character's own death corpse and
+    /// <see cref="LootSettings.LootOwnDeathCorpse"/> is on: every item in it
+    /// is taken back, whatever the loot rules say.
+    /// </summary>
+    private bool TakesEverythingFromActiveCorpse =>
+        _activeCorpseIsOwnDeath && _settings.LootOwnDeathCorpse;
+
     private LootDecision? DecideItem(
         in PluginInventoryItem item,
         in PluginItemProperties properties,
@@ -2348,6 +2378,15 @@ internal sealed partial class LootController
         IReadOnlyDictionary<string, int> pending,
         out LootRefusal refusal)
     {
+        if (TakesEverythingFromActiveCorpse)
+        {
+            refusal = LootRefusal.NoRule;
+            return new LootDecision(
+                LootAction.Keep,
+                Priority: 0,
+                RuleIndex: int.MaxValue,
+                RuleName: "Own Death Corpse");
+        }
         LootDecision? decision = string.IsNullOrWhiteSpace(
             _settings.ExternalClassifierId)
             ? LootRuleEngine.Decide(

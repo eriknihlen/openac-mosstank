@@ -1615,9 +1615,9 @@ public sealed partial class LootingTests
     }
 
     [Fact]
-    public void EverythingOnYourOwnDeathCorpseIsAppraised()
+    public void WithTheTakeAllOptionOffEverythingOnYourOwnDeathCorpseIsAppraised()
     {
-        var settings = new LootSettings { Enabled = true };
+        var settings = new LootSettings { Enabled = true, LootOwnDeathCorpse = false };
         settings.Rules.Add(new LootRule
         {
             Name = "Keep everything",
