@@ -690,8 +690,17 @@ impl ComponentHudController {
     pub fn on_pointer(&mut self, host: &mut dyn UbHost, ui: &mut dyn MapUi, event: &PointerEvent) {
         let at = (f64::from(event.x), f64::from(event.y));
         match event.kind {
-            POINTER_HOVER => self.hover(at),
+            // The host hovers only with no button held: a press still open
+            // here lost its release.
+            POINTER_HOVER => {
+                self.end_press(host);
+                self.hover(at);
+            }
             POINTER_LEAVE => self.hide_tip(),
+            // The host gives the pointer to the first button held and drops
+            // the others' releases: another button's release or cancel means
+            // a left press under it will hear none.
+            POINTER_UP | POINTER_CANCELLED if event.button != BUTTON_LEFT => self.end_press(host),
             _ if event.button != BUTTON_LEFT => {}
             POINTER_DOWN => {
                 self.hide_tip();
@@ -718,15 +727,22 @@ impl ComponentHudController {
                 }
                 _ => {}
             },
-            POINTER_CANCELLED => {
-                if let Some(Press::Strip { from, .. }) = self.press.take() {
-                    self.keep_place(host, from);
-                }
-            }
+            POINTER_CANCELLED => self.end_press(host),
             _ => {}
         }
+        // The strip's own move goes to the host with the event (the next
+        // event is measured from it); the tip's place, visibility and paint
+        // go together on the next frame, so it never shows old text at a
+        // new place.
         self.place_canvas(ui);
-        self.show_tip(ui);
+    }
+
+    /// Ends a press without acting: a drag keeps its place (saved when it
+    /// moved), a button press does nothing.
+    fn end_press(&mut self, host: &mut dyn UbHost) {
+        if let Some(Press::Strip { from, .. }) = self.press.take() {
+            self.keep_place(host, from);
+        }
     }
 
     /// Moves the canvas to where the strip stands, when it is elsewhere.

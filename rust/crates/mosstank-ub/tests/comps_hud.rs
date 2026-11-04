@@ -1294,8 +1294,10 @@ impl Rig {
         self.ui.flush();
     }
 
+    /// A hover, and the frame after it, where the tip's canvas follows.
     fn hover(&mut self, at: (f64, f64)) {
         self.event(PointerEvent::HOVER, at, 0);
+        self.ticks(1, 0.015);
     }
 
     fn tip_text(&self) -> Option<&str> {
@@ -1376,6 +1378,7 @@ fn hovering_names_the_item_or_the_button_under_the_pointer() {
     assert_eq!(Some("Lead Scarab"), rig.tip_text());
     rig.event(PointerEvent::LEAVE, (60.0, 5.0), 0);
     assert_eq!(None, rig.tip_text());
+    rig.ticks(1, 0.015);
     assert!(!rig.tip_canvas().visible);
     rig.hover(centre(column.items[0].cell));
     rig.event(PointerEvent::DOWN, centre(column.items[0].cell), 1);
@@ -1890,4 +1893,77 @@ fn a_far_off_place_comes_back_and_its_tip_does_not_overflow() {
     assert!(tip.offset.0 > 0);
     rig.hover(centre(geometry.items[0].cell));
     assert_eq!(Some("Lead Scarab"), rig.tip_text());
+}
+
+/// The tip's canvas changes on the frame, not with the pointer event: its
+/// move, visibility and repaint reach the host together, so it never
+/// shows its old text at its new place.
+#[test]
+fn the_tip_moves_shows_and_repaints_on_the_same_frame() {
+    let mut rig = Rig::new();
+    rig.own(item(SCARAB_ID, "Lead Scarab", 3, true, 0));
+    rig.own(item(TAPER_ID, "Prismatic Taper", 9, true, 0));
+    rig.add(SCARAB_ID);
+    rig.add(TAPER_ID);
+    rig.ticks(1, 0.015);
+    let column = rig.controller.geometry().clone();
+    rig.hover(centre(column.items[0].cell));
+    let first = rig.tip_canvas().offset;
+    assert!(rig.tip_canvas().visible);
+
+    let painted = rig.ui.invalidated;
+    rig.event(PointerEvent::HOVER, centre(column.items[1].cell), 0);
+    assert_eq!(Some("Prismatic Taper"), rig.tip_text());
+    assert_eq!(first, rig.tip_canvas().offset, "not moved with the event");
+    assert_eq!(painted, rig.ui.invalidated, "no paint asked with the event");
+    rig.ticks(1, 0.015);
+    assert_ne!(first, rig.tip_canvas().offset);
+    assert!(rig.ui.invalidated > painted, "moved and repainted together");
+}
+
+/// A right press then a left one: the host keeps the pointer for the right
+/// button and drops the left one's release. The right release (or the
+/// next hover, which comes only with no button held) ends the left press,
+/// keeping the drag's place, so a resize waiting for it goes ahead.
+#[test]
+fn a_left_press_under_a_right_one_ends_with_the_right_release_or_a_hover() {
+    let storage = SharedStorage::new();
+    let key = comps_hud::key_for("Coldeve", "Acdream");
+    let mut rig = Rig::with(storage.clone(), true);
+    rig.own(item(TAPER_ID, "Prismatic Taper", 9, true, 0));
+    rig.add(TAPER_ID);
+    rig.ticks(1, 0.015);
+    let before = rig.strip_canvases();
+    let (x, y) = rig.canvas().offset;
+
+    rig.event(PointerEvent::DOWN, (8.0, 20.0), 2);
+    rig.event(PointerEvent::DOWN, (8.0, 20.0), 1);
+    rig.event(PointerEvent::MOVE, (28.0, 20.0), 1);
+    rig.own(item(0x8000_0050, "Prismatic Taper", 99_990, true, 0));
+    rig.ticks(1, 0.6);
+    assert_eq!(before, rig.strip_canvases(), "waits for the press");
+    rig.event(PointerEvent::UP, (8.0, 20.0), 2);
+    assert!(
+        storage
+            .get(&key)
+            .unwrap()
+            .contains(&format!("\"X\": {}", x + 20.0)),
+        "the drag's place is kept"
+    );
+    rig.ticks(1, 0.015);
+    assert_eq!(before + 1, rig.strip_canvases(), "the resize goes ahead");
+    assert_eq!((x + 20.0, y), rig.canvas().offset);
+
+    // The same chord ended by a hover.
+    rig.event(PointerEvent::DOWN, (8.0, 20.0), 2);
+    rig.event(PointerEvent::DOWN, (8.0, 20.0), 1);
+    rig.host
+        .meta
+        .objects
+        .retain(|object| object.object_id == TAPER_ID);
+    rig.ticks(1, 0.6);
+    let held = rig.strip_canvases();
+    rig.event(PointerEvent::HOVER, (8.0, 20.0), 0);
+    rig.ticks(1, 0.015);
+    assert_eq!(held + 1, rig.strip_canvases());
 }
