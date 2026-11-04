@@ -67,6 +67,17 @@ MossTank reads and writes VTank's profile formats and answers its command
 and expression names for interoperability; no VTank code is included. The
 statement in `../NOTICE.md` ("VTank") applies to this port unchanged.
 
+## Virindi HUDs
+
+MossTank's Comps HUD (`/vt compshud`) reproduces the behaviour of the Comps
+HUD in **Virindi HUDs**, Virindi's companion plugin to VTank, so a player
+coming from it finds the same counter. On the same terms as VTank above: how
+that HUD behaves (what it counts, its buttons, its refresh and removal
+timing) was learned by decompiling Virindi HUDs for interoperability only;
+no Virindi HUDs code, art or text is included, and the decompilation is not
+distributed. Virindi HUDs is not open source; this notice claims no license
+to it and grants none.
+
 ## The openAC plugin SDK
 
 The plugin links `openac-plugin`, `openac-plugin-compat` and `ac-plugin-abi`

@@ -1,5 +1,5 @@
 //! The UB tools' canvases (the countryside map, the dungeon map, the other
-//! clients' readout) as the SDK holds them.
+//! clients' readout, the Comps HUD) as the SDK holds them.
 //!
 //! The tools ask for a canvas, show it and ask for a repaint in the middle
 //! of their frame, while the frame holds the client for the tool's own

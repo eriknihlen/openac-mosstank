@@ -19,6 +19,7 @@ pub mod canvas;
 pub mod catalog;
 pub mod chat;
 pub mod commands;
+pub mod comps_hud;
 pub mod dungeon;
 pub mod expressions;
 pub mod font;

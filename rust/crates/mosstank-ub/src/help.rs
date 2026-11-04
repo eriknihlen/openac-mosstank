@@ -777,10 +777,20 @@ pub static ENTRIES: &[UbCommandUsage] = &[
     },
 ];
 
+/// `/vt compshud`'s usage line, which it also answers a word it does not
+/// know with (`VtankCommandHelp.ComponentHudSyntax`).
+pub const COMPONENT_HUD_SYNTAX: &str = "/vt compshud [on | off | toggle | add | remove <name>]";
+
 /// The usage lines `/vt help <command>` prints: MossTank's own additions to
 /// the macro's commands, in name order. The macro's own commands have no
 /// usage lines of their own; `/vt help` lists them by name.
 pub static VTANK_ENTRIES: &[UbCommandUsage] = &[
+    UbCommandUsage {
+        name: "compshud",
+        usage: COMPONENT_HUD_SYNTAX,
+        summary: "Shows, turns on or off the Comps HUD (Virindi HUDs' item counter), adds the selected item to it, or takes an item off by name. Its + button adds the selection too, and - then a row click removes one.",
+        examples: &[],
+    },
     UbCommandUsage {
         name: "gamedb",
         usage: "/vt gamedb [update | interval [hours]]",

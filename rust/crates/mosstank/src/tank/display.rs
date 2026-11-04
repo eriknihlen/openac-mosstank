@@ -1,15 +1,19 @@
 //! The display tools' frame (`MossTankPanel.UbDisplay` and `UbDungeon`):
-//! the network labels, the countryside map, the other clients' readout and
-//! the dungeon map, each ticked and, when it asked, repainted.
+//! the network labels, the countryside map, the other clients' readout,
+//! the Comps HUD and the dungeon map, each ticked and, when it asked,
+//! repainted; and `/vt compshud`.
 
 use std::cell::RefCell;
 
+use mosstank_dotnet::text::casing;
 use mosstank_ub::catalog::UbCatalog;
+use mosstank_ub::commands::split_head;
 use mosstank_ub::dungeon::controller::CatalogMapSettings;
+use mosstank_ub::help::COMPONENT_HUD_SYNTAX;
 use mosstank_ub::hud::CatalogHudSettings;
 use mosstank_ub::landscape::controller::{CatalogLandscapeSettings, self_position};
 
-use super::TankCx;
+use super::{Core, TankCx};
 use crate::canvases::{PaintUi, RecordingPainter};
 use crate::client::TankClient;
 
@@ -36,6 +40,9 @@ impl TankCx<'_> {
                 &mut ui,
                 elapsed_seconds,
             );
+            parts
+                .comps
+                .on_tick(self.client.ub(), &mut ui, elapsed_seconds);
         }
         self.follow_client_rows();
     }
@@ -75,6 +82,14 @@ impl TankCx<'_> {
             parts.hud.paint(&mut painter);
             submit(&client, canvas, &painter);
         }
+        if let Some(canvas) = parts.canvases.take_paint_due(parts.comps.canvas()) {
+            let mut painter = RecordingPainter::new(&client, canvas);
+            parts.comps.paint(
+                &mut painter,
+                &mut PaintUi::new(&client, &mut parts.canvases),
+            );
+            submit(&client, canvas, &painter);
+        }
         if let Some(canvas) = parts.canvases.take_paint_due(parts.dungeon.canvas()) {
             let mut painter = RecordingPainter::new(&client, canvas);
             parts.dungeon.paint(
@@ -104,6 +119,14 @@ impl TankCx<'_> {
                 &mut parts.canvases.recorder(),
                 event,
             );
+        } else if parts.comps.canvas() == Some(handle) {
+            let notice =
+                parts
+                    .comps
+                    .on_pointer(self.client.ub(), &mut parts.canvases.recorder(), event);
+            if let Some(notice) = notice {
+                Core::write_vtank(self.client, notice);
+            }
         } else if parts.dungeon.canvas() == Some(handle) {
             parts
                 .dungeon
@@ -116,6 +139,8 @@ impl TankCx<'_> {
     pub(crate) fn reset_display_tools(&mut self) {
         self.ub.landscape.reset();
         self.ub.hud.reset();
+        let parts = &mut *self.ub;
+        parts.comps.reset(&mut parts.canvases.recorder());
         self.ub.dungeon.reset();
     }
 
@@ -127,9 +152,75 @@ impl TankCx<'_> {
             let mut ui = parts.canvases.recorder();
             parts.landscape.dispose(&mut ui);
             parts.hud.dispose(&mut ui);
+            parts.comps.dispose(&mut ui);
             parts.dungeon.dispose(&mut ui);
         }
         parts.canvases.flush(self.client);
+    }
+
+    /// `/vt compshud [on | off | toggle | add | remove <name>]`
+    /// (`HandleComponentHudCommand`): the Comps HUD from the keyboard.
+    /// Bare, it says whether the HUD is on and what it counts.
+    pub(crate) fn component_hud_command(&mut self, arguments: &str) {
+        let (typed, rest) = split_head(arguments);
+        let rest = rest.trim();
+        let line = match casing::to_lower_invariant(&typed).as_str() {
+            "" => self.component_hud_summary(),
+            "on" => {
+                self.ub.comps.set_enabled(self.client.ub(), true);
+                self.component_hud_summary()
+            }
+            "off" => {
+                self.ub.comps.set_enabled(self.client.ub(), false);
+                "Comps HUD: off.".to_owned()
+            }
+            "toggle" => {
+                let enabled = !self.ub.comps.enabled();
+                self.ub.comps.set_enabled(self.client.ub(), enabled);
+                if enabled {
+                    self.component_hud_summary()
+                } else {
+                    "Comps HUD: off.".to_owned()
+                }
+            }
+            "add" => {
+                if !self.ub.comps.is_bound() {
+                    "Comps HUD: not in world.".to_owned()
+                } else if let Some(added) = self.ub.comps.add_selection(self.client.ub()) {
+                    format!("Comps HUD: added {added}.")
+                } else {
+                    "Comps HUD: select an item that is not listed yet.".to_owned()
+                }
+            }
+            "remove" if !rest.is_empty() => match self.ub.comps.remove(self.client.ub(), rest) {
+                Some(removed) => format!("Comps HUD: removed {removed}."),
+                None => format!("Comps HUD: {rest} is not listed."),
+            },
+            _ => format!("Syntax: {COMPONENT_HUD_SYNTAX}"),
+        };
+        Core::write_vtank(self.client, &line);
+    }
+
+    /// Whether the Comps HUD is on, and each item it counts with its count.
+    fn component_hud_summary(&self) -> String {
+        let comps = &self.ub.comps;
+        let state = if comps.enabled() { "on" } else { "off" };
+        let entries = comps.entries();
+        if entries.is_empty() {
+            return format!(
+                "Comps HUD: {state}, nothing listed (select an item and press + or /vt compshud add)."
+            );
+        }
+        let counts = comps.counts();
+        let listed: Vec<String> = entries
+            .iter()
+            .enumerate()
+            .map(|(index, entry)| match counts.get(index) {
+                Some(count) => format!("{} {count}", entry.name),
+                None => entry.name.clone(),
+            })
+            .collect();
+        format!("Comps HUD: {state}; {}.", listed.join(", "))
     }
 }
 

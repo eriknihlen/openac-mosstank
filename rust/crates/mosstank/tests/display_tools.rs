@@ -170,3 +170,51 @@ fn the_dungeon_window_drives_the_map_and_the_zoom_reaches_the_row() {
     assert!(!world.ui_bool(p, "UbDungeonVisible"));
     world.disable(p);
 }
+
+fn comps_visible(world: &World) -> Option<bool> {
+    world
+        .fake
+        .ui
+        .canvases()
+        .find(|canvas| canvas.descriptor.canvas_id == "comps-hud")
+        .map(|canvas| canvas.visible)
+}
+
+// C# source: MossTankPanelTests.cs :: TheCompsHudCommandTurnsTheHudOnAndOff
+/// `/vt compshud on` turns the Comps HUD on and says so, and its canvas
+/// shows on the next frame; `off` hides it; an unknown word answers with
+/// the syntax; `/vt help` lists the command.
+#[test]
+fn the_comps_hud_command_turns_the_hud_on_and_off() {
+    let mut world = World::with_character("Acdream");
+    let mut plugin = world.enable();
+    let p = &mut plugin;
+    world.ticks(p, 2);
+    assert_eq!(None, comps_visible(&world));
+
+    world.vt(p, "compshud on");
+    assert!(
+        world
+            .chat()
+            .iter()
+            .any(|line| line.contains("Comps HUD: on"))
+    );
+    world.ticks(p, 2);
+    assert_eq!(Some(true), comps_visible(&world));
+
+    world.vt(p, "compshud off");
+    world.ticks(p, 2);
+    assert_eq!(Some(false), comps_visible(&world));
+
+    world.vt(p, "compshud sideways");
+    assert!(
+        world
+            .chat()
+            .iter()
+            .any(|line| line.contains(mosstank_ub::help::COMPONENT_HUD_SYNTAX))
+    );
+
+    world.vt(p, "help");
+    assert!(world.chat().iter().any(|line| line.contains("compshud")));
+    world.disable(p);
+}
