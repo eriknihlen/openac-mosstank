@@ -391,11 +391,15 @@ impl LandscapeMapController {
         ui.invalidate_canvas(canvas);
     }
 
-    /// The session ended: the interface's images went with it, so the
-    /// handles are dropped and asked for again on the next paint.
-    pub fn reset(&mut self) {
+    /// The session ended: the images are let go (the host frees a plugin's
+    /// images only when it unloads) and asked for again on the next paint.
+    pub fn reset(&mut self, ui: &mut dyn MapUi) {
+        for surface in self.image_order.drain(..) {
+            if let Some(image) = self.images.remove(&surface) {
+                ui.release_image(image);
+            }
+        }
         self.images.clear();
-        self.image_order.clear();
         self.last_player_x = i32::MIN;
         self.last_player_y = i32::MIN;
         self.last_heading = f32::NAN;

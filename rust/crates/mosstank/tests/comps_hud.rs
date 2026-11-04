@@ -589,3 +589,22 @@ fn a_move_and_a_release_in_one_frame_land_where_the_pointer_is() {
     assert_eq!(Some((231.0, 150.0)), offset(&world, "comps-hud"));
     world.disable(p);
 }
+
+/// At logoff the display tools' resets go out at once: the frame that
+/// would hand them to the host does not run while logged off, so without
+/// it the HUD stayed shown (and its images held) until the next login.
+#[test]
+fn the_session_end_hides_the_hud_at_once() {
+    let (mut world, mut plugin) = carrying();
+    let p = &mut plugin;
+    world.vt(p, "compshud on");
+    world.ticks(p, 2);
+    assert!(canvas(&world).unwrap().1);
+    let me = world.fake.character.take();
+    world.ticks(p, 1);
+    assert!(!canvas(&world).unwrap().1, "hidden at the session's end");
+    world.ticks(p, 3);
+    assert!(!canvas(&world).unwrap().1);
+    world.fake.character = me;
+    world.disable(p);
+}

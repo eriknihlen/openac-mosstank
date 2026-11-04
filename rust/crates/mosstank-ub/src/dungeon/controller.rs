@@ -622,11 +622,10 @@ impl DungeonMapController {
         ui.invalidate_canvas(canvas);
     }
 
-    /// The session ended: the interface's images are gone with it, so the
-    /// handles are dropped and asked for again on the next paint.
-    pub fn reset(&mut self) {
-        self.icons.clear();
-        self.icon_order.clear();
+    /// The session ended: the icons are let go (the host frees a plugin's
+    /// images only when it unloads) and asked for again on the next paint.
+    pub fn reset(&mut self, ui: &mut dyn MapUi) {
+        self.release_icons(ui);
         self.tracker.clear();
         self.camera_signature = None;
         self.dirty = true;

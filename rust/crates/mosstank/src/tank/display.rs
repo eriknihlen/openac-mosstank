@@ -89,7 +89,10 @@ impl TankCx<'_> {
         }
         if let Some(canvas) = parts.canvases.take_paint_due(parts.hud.canvas()) {
             let mut painter = RecordingPainter::new(&client, canvas);
-            parts.hud.paint(&mut painter);
+            parts.hud.paint(
+                &mut painter,
+                &mut PaintUi::new(&client, &mut parts.canvases),
+            );
             submit(&client, canvas, &painter);
         }
         if let Some(canvas) = parts.canvases.take_paint_due(parts.comps.canvas()) {
@@ -153,14 +156,19 @@ impl TankCx<'_> {
         parts.canvases.flush(self.client);
     }
 
-    /// `ResetDisplayTools` and `ResetDungeonMap`: the session's images went
-    /// with it.
+    /// `ResetDisplayTools` and `ResetDungeonMap`: the session ended, so the
+    /// tools let go of their images (the host frees a plugin's images only
+    /// when it unloads), and the releases go out at once.
     pub(crate) fn reset_display_tools(&mut self) {
-        self.ub.landscape.reset();
-        self.ub.hud.reset();
         let parts = &mut *self.ub;
-        parts.comps.reset(&mut parts.canvases.recorder());
-        self.ub.dungeon.reset();
+        let mut ui = parts.canvases.recorder();
+        parts.landscape.reset(&mut ui);
+        parts.hud.reset(&mut ui);
+        parts.comps.reset(&mut ui);
+        parts.dungeon.reset(&mut ui);
+        // Logged off, the frame that would flush them does not run: the
+        // releases and the hide go out now.
+        parts.canvases.flush(self.client);
     }
 
     /// `DisposeDisplayTools` and `DisposeDungeonMap`: images and canvases
