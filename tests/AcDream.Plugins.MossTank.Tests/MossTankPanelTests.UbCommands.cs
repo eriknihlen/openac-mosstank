@@ -1463,15 +1463,7 @@ public sealed partial class MossTankPanelTests
     [Fact]
     public void VitaeIsThoughtAsAPercentage()
     {
-        var automation = new FakeAutomation { ObjectId = 1u };
-        automation.Properties[1u] = new PluginItemProperties(
-            new Dictionary<uint, int>(),
-            new Dictionary<uint, long>(),
-            new Dictionary<uint, bool>(),
-            new Dictionary<uint, double> { [129u] = 0.95d },
-            new Dictionary<uint, string>(),
-            new Dictionary<uint, uint>(),
-            new Dictionary<uint, uint>());
+        var automation = new FakeAutomation { ObjectId = 1u, VitaeMultiplier = 0.95f };
         var panel = new MossTankPanel(new FakeHost(automation));
 
         UbCommand(panel, "vitae");

@@ -11821,6 +11821,7 @@ public sealed partial class MossTankPanelTests
         public uint MaxStamina { get; set; }
         public uint CurrentMana { get; set; }
         public uint MaxMana { get; set; }
+        public float VitaeMultiplier { get; set; } = 1f;
         public IReadOnlyList<PluginSkillInfo> Skills { get; set; } = [];
         public IReadOnlyList<PluginAttributeInfo> Attributes { get; set; } = [];
         public IReadOnlyList<PluginActiveEnchantment> ActiveEnchantments { get; set; } = [];

@@ -944,18 +944,10 @@ internal sealed partial class MossTankPanel
     /// </summary>
     private void ThinkVitae()
     {
-        // Vitae is the float multiplier the server keeps on the character,
-        // 1.0 with no penalty; nothing else carries it.
-        double multiplier = 1d;
-        if (_host.Automation.Objects.TryCaptureProperties(
-            _host.Automation.Character.ObjectId,
-            out PluginItemProperties properties)
-            && properties.Floats.TryGetValue(129u, out double value))
-        {
-            multiplier = value;
-        }
-        // The multiplier 0.95 is a 5% penalty.
-        Think(Invariant($"My vitae is {Math.Round((1d - multiplier) * 100d)}%"));
+        // The host derives the penalty from the Vitae enchantment; the
+        // server never sets PropertyFloat.Vitae on the player. A 0.95
+        // multiplier is a 5% penalty.
+        Think(Invariant($"My vitae is {_host.Automation.Character.VitaePenaltyPercent}%"));
     }
 
     /// <summary>

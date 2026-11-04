@@ -246,16 +246,13 @@ internal static class HostExpressionFunctions
         registry.Register("getcharvital_current", 1, 1, (_, args) =>
             ExpressionValue.Number(Vital(character, args[0], VitalRead.Current)),
             "getcharvital_current[vitalId]");
+        // The vitae penalty in whole percent (0 with no vitae, 5 at the 0.95
+        // multiplier), as metas test it with `vitae[]>12`. The host derives
+        // it from the Vitae enchantment; the server never sets
+        // PropertyFloat.Vitae (129) on the player.
         registry.Register("vitae", 0, 0, (_, _) =>
-        {
-            // PropertyFloat.Vitae (129) is the multiplier 0..1; the function
-            // answers the penalty in whole percent (0 with no vitae, 5 at
-            // 0.95), as metas test it with `vitae[]>12`.
-            double multiplier = TryPlayerProperties(host, out PluginItemProperties properties)
-                ? Get(properties.Floats, 129u, 1d)
-                : 1d;
-            return ExpressionValue.Number(Math.Round((1d - multiplier) * 100d));
-        }, "vitae[]");
+            ExpressionValue.Number(character.VitaePenaltyPercent),
+            "vitae[]");
     }
 
     private static void RegisterLogin(

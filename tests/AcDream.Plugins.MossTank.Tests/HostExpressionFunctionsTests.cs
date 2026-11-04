@@ -28,8 +28,11 @@ public sealed partial class HostExpressionFunctionsTests
     /// `vitae[]` is the vitae penalty in whole percent, as UtilityBelt reads
     /// it (an integer from the character filter): 0 with no vitae, 5 at the
     /// 0.95 multiplier. Metas test it as `vitae[]&gt;12` for "too much vitae".
-    /// Mutation: answering the multiplier times 100 gives 100 with no vitae,
-    /// which reads as "too much" for every character.
+    /// It comes from the character the host reports (derived from the Vitae
+    /// enchantment), not from PropertyFloat.Vitae, which the server never
+    /// sets on the player. Mutation: answering the multiplier times 100 gives
+    /// 100 with no vitae, which reads as "too much" for every character;
+    /// reading property 129 answers 0 for every character.
     /// </summary>
     [Fact]
     public void VitaeIsThePenaltyInWholePercent()
@@ -38,15 +41,19 @@ public sealed partial class HostExpressionFunctionsTests
         using var runtime = new MossTankExpressionRuntime(new Host(automation));
         Assert.Equal(0d, runtime.Evaluate("vitae[]").AsNumber());
 
+        automation.VitaeMultiplier = 0.95f;
+        Assert.Equal(5d, runtime.Evaluate("vitae[]").AsNumber());
+
+        automation.VitaeMultiplier = 1f;
         automation.Properties[1] = new PluginItemProperties(
             new Dictionary<uint, int>(),
             new Dictionary<uint, long>(),
             new Dictionary<uint, bool>(),
-            new Dictionary<uint, double> { [129u] = 0.95d },
+            new Dictionary<uint, double> { [129u] = 0.8d },
             new Dictionary<uint, string>(),
             new Dictionary<uint, uint>(),
             new Dictionary<uint, uint>());
-        Assert.Equal(5d, runtime.Evaluate("vitae[]").AsNumber());
+        Assert.Equal(0d, runtime.Evaluate("vitae[]").AsNumber());
     }
 
     /// <summary>
@@ -2282,6 +2289,7 @@ public sealed partial class HostExpressionFunctionsTests
         public uint CurrentMana => 70;
         public uint MaxMana => 100;
         public uint BaseMana => 60;
+        public float VitaeMultiplier { get; set; } = 1f;
         public IReadOnlyList<PluginSkillInfo> Skills { get; set; } = [];
         public IReadOnlyList<PluginAttributeInfo> Attributes { get; set; } = [];
         public IReadOnlyList<PluginActiveEnchantment> ActiveEnchantments => [];
