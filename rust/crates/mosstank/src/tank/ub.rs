@@ -404,7 +404,9 @@ pub struct UbParts {
     pub(crate) dungeon: mosstank_ub::dungeon::controller::DungeonMapController,
     /// The other clients' readout.
     pub(crate) hud: mosstank_ub::hud::NetworkHudController,
-    /// The three tools' canvases.
+    /// The Comps HUD.
+    pub(crate) comps: mosstank_ub::comps_hud::ComponentHudController,
+    /// The tools' canvases.
     pub(crate) canvases: crate::canvases::Canvases,
     /// The labels last handed to the client (`PublishNetworkTags`).
     pub(crate) tags: mosstank_ub::network::TagPublisher,
@@ -471,6 +473,9 @@ impl UbParts {
         let hud = mosstank_ub::hud::NetworkHudController::new(
             &mosstank_ub::hud::CatalogHudSettings(&mut catalog),
         );
+        let comps = mosstank_ub::comps_hud::ComponentHudController::new(
+            client.stores().storage(Root::Plugin),
+        );
         // Handed over while the tab is built (`PublishNetworkTags(onLoad)`).
         let mut tags = mosstank_ub::network::TagPublisher::new();
         tags.publish(
@@ -487,6 +492,7 @@ impl UbParts {
             landscape,
             dungeon,
             hud,
+            comps,
             canvases: crate::canvases::Canvases::default(),
             tags,
             aliases: mosstank_ub::alias::AliasController::new(),
