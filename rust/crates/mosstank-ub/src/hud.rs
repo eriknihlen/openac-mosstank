@@ -195,12 +195,13 @@ impl NetworkHudSettingsSource for CatalogHudSettings<'_> {
     }
 }
 
-/// One tracked item on one row: its icon, if the client has one, and its
+/// One tracked item on one row: the object its icon is drawn from, and its
 /// count.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct NetworkHudTrackedItem {
-    /// The icon.
-    pub icon: MapImage,
+    /// The first such object the character owns, whose icon the paint
+    /// draws (the client hands images out only to a paint); 0 for none.
+    pub object_id: u32,
     /// The count, as written.
     pub count: String,
 }
@@ -400,7 +401,7 @@ impl NetworkHudController {
             return;
         }
         self.repaint_remaining = REPAINT_INTERVAL_SECONDS;
-        let rows = self.build_rows(host, ui);
+        let rows = self.build_rows(host);
         if rows != self.rows {
             self.rows = rows;
             self.dirty = true;
@@ -452,6 +453,13 @@ impl NetworkHudController {
         event: &PointerEvent,
     ) {
         if event.button != BUTTON_LEFT {
+            // The host keeps the pointer for the first button held and drops
+            // the others' releases: another button's release or cancel means a
+            // left press under it hears none. Its drag ends where it began,
+            // and a place written during it is taken up.
+            if matches!(event.kind, POINTER_UP | POINTER_CANCELLED) && self.grab.take().is_some() {
+                self.place(ui);
+            }
             return;
         }
         match event.kind {
@@ -496,7 +504,7 @@ impl NetworkHudController {
     /// clients the network reports, filtered by the selected tag. A client
     /// that did report this character's id is the same row and is not
     /// listed twice.
-    pub fn build_rows(&mut self, host: &mut dyn UbHost, ui: &mut dyn MapUi) -> Vec<NetworkHudRow> {
+    pub fn build_rows(&mut self, host: &mut dyn UbHost) -> Vec<NetworkHudRow> {
         let tag = self.settings.selected_tag.trim().to_owned();
         let me = host.character().unwrap_or_default();
         let own_id = me.id;
@@ -505,7 +513,7 @@ impl NetworkHudController {
         let tracked = self.settings.tracked_item_names();
         let mut rows = Vec::new();
         if own_id != 0 {
-            let tracked = self.count_tracked(host, ui, &tracked);
+            let tracked = Self::count_tracked(host, &tracked);
             rows.push(NetworkHudRow {
                 client_id: 0,
                 player_id: own_id,
@@ -585,12 +593,7 @@ impl NetworkHudController {
 
     /// This character's own count of each tracked item, by name, summing
     /// stacks, with the icon of the first such item the client holds.
-    fn count_tracked(
-        &mut self,
-        host: &mut dyn UbHost,
-        ui: &mut dyn MapUi,
-        names: &[String],
-    ) -> Vec<NetworkHudTrackedItem> {
+    fn count_tracked(host: &mut dyn UbHost, names: &[String]) -> Vec<NetworkHudTrackedItem> {
         if names.is_empty() {
             return Vec::new();
         }
@@ -612,11 +615,7 @@ impl NetworkHudController {
         }
         (0..names.len())
             .map(|index| NetworkHudTrackedItem {
-                icon: if first[index] == 0 {
-                    MapImage::default()
-                } else {
-                    self.icon(ui, first[index])
-                },
+                object_id: first[index],
                 count: format_number(f64::from(counts[index])),
             })
             .collect()
@@ -636,11 +635,24 @@ impl NetworkHudController {
     }
 
     /// Paints every row: bars, edge, name and percentages, arrow, distance,
-    /// tracked items.
-    pub fn paint(&self, painter: &mut dyn MapPainter) {
+    /// tracked items, their icons asked for here (the client hands images out
+    /// only to a paint).
+    pub fn paint(&mut self, painter: &mut dyn MapPainter, ui: &mut dyn MapUi) {
         painter.clear(&rgba(0, 0, 0, 0));
         let mut offset = 0;
-        for row in &self.rows {
+        let rows = std::mem::take(&mut self.rows);
+        for row in &rows {
+            let icons: Vec<MapImage> = row
+                .tracked
+                .iter()
+                .map(|item| {
+                    if item.object_id == 0 {
+                        MapImage::default()
+                    } else {
+                        self.icon(ui, item.object_id)
+                    }
+                })
+                .collect();
             paint_bars(painter, offset, row);
             if !row.is_self {
                 paint_arrow(painter, offset, row);
@@ -659,7 +671,7 @@ impl NetworkHudController {
                     false,
                 );
             }
-            paint_tracked(painter, offset, row);
+            paint_tracked(painter, offset, row, &icons);
             // Every row is labelled with the character's name alone; the
             // client's number in front of it read as a list of ids.
             painter.draw_text(&row.name, (2.0, f64::from(offset) + 1.0), &TEXT, false);
@@ -690,6 +702,7 @@ impl NetworkHudController {
             );
             offset += ROW_HEIGHT;
         }
+        self.rows = rows;
     }
 }
 
@@ -741,13 +754,18 @@ fn paint_arrow(painter: &mut dyn MapPainter, offset: i32, row: &NetworkHudRow) {
     painter.draw_line(left, right, &tint, 2.0);
 }
 
-fn paint_tracked(painter: &mut dyn MapPainter, offset: i32, row: &NetworkHudRow) {
+fn paint_tracked(
+    painter: &mut dyn MapPainter,
+    offset: i32,
+    row: &NetworkHudRow,
+    icons: &[MapImage],
+) {
     let mut x = f64::from(NAME_WIDTH + PADDING + RANGE_WIDTH);
     let icon_size = ROW_HEIGHT - 1;
-    for item in &row.tracked {
-        if item.icon.is_valid() {
+    for (item, icon) in row.tracked.iter().zip(icons) {
+        if icon.is_valid() {
             painter.draw_image(
-                item.icon,
+                *icon,
                 (
                     x + f64::from(TRACKED_ITEM_WIDTH - icon_size) / 2.0,
                     f64::from(offset) + 1.0,

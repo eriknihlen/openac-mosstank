@@ -150,6 +150,9 @@ struct FakeCanvas {
 struct FakeUi {
     canvases: Vec<FakeCanvas>,
     object_icons: HashMap<u32, MapImage>,
+    /// A frame is running: as the plugin's frame view, the client hands
+    /// out no images then, only to a paint.
+    ticking: bool,
     /// The images let go, by handle.
     released: Vec<u32>,
 }
@@ -186,6 +189,9 @@ impl MapUi for FakeUi {
     }
 
     fn object_icon(&mut self, object_id: u32) -> MapImage {
+        if self.ticking {
+            return MapImage::default();
+        }
         self.object_icons
             .get(&object_id)
             .copied()
@@ -309,10 +315,12 @@ impl Rig {
     }
 
     fn ticks(&mut self, count: usize) {
+        self.ui.ticking = true;
         for _ in 0..count {
             self.controller
                 .on_tick(&mut self.host, &self.settings, &mut self.ui, 0.015);
         }
+        self.ui.ticking = false;
     }
 
     fn canvas(&self) -> &FakeCanvas {
@@ -320,9 +328,9 @@ impl Rig {
         &self.ui.canvases[0]
     }
 
-    fn paint(&self) -> RecordingPainter {
+    fn paint(&mut self) -> RecordingPainter {
         let mut painter = RecordingPainter::default();
-        self.controller.paint(&mut painter);
+        self.controller.paint(&mut painter, &mut self.ui);
         assert_eq!(0, painter.clip_depth);
         painter
     }
@@ -657,10 +665,20 @@ fn the_own_row_counts_tracked_items_from_the_inventory_with_their_icons() {
     assert!(me.is_self);
     assert_eq!(2, me.tracked.len());
     assert_eq!("52", me.tracked[0].count);
-    assert_eq!(7, me.tracked[0].icon.handle);
+    assert_eq!(0x8000_0010, me.tracked[0].object_id);
     assert_eq!("0", me.tracked[1].count);
-    assert!(!me.tracked[1].icon.is_valid());
+    assert_eq!(0, me.tracked[1].object_id);
     assert!(rig.controller.rows()[1].tracked.is_empty());
+    // The icon is asked for by the paint, where the client hands it out.
+    let painted = rig.paint();
+    assert_eq!(
+        vec![7],
+        painted
+            .images
+            .iter()
+            .map(|image| image.handle)
+            .collect::<Vec<_>>()
+    );
 }
 
 // Source: tests/AcDream.Plugins.MossTank.Tests/NetworkHudControllerTests.cs :: SelectingARowSelectsThatCharacter
@@ -986,7 +1004,53 @@ fn a_session_reset_lets_go_of_the_readouts_icons() {
         },
     );
     rig.ticks(1);
-    assert_eq!(7, rig.controller.rows()[0].tracked[0].icon.handle);
+    assert_eq!(1, rig.paint().images.len());
     rig.controller.reset(&mut rig.ui);
     assert_eq!([7], rig.ui.released.as_slice());
+}
+
+impl Rig {
+    /// One pointer event with a given button (0 none, 1 left, 2 right).
+    fn pointer_with(&mut self, kind: u8, x: f64, y: f64, button: u8) {
+        #[allow(clippy::cast_possible_truncation)]
+        let event = PointerEvent {
+            canvas: self.canvas().handle,
+            kind,
+            x: x as f32,
+            y: y as f32,
+            button,
+            modifiers: 0,
+            wheel_delta: 0,
+        };
+        self.controller
+            .on_pointer(&mut self.host, &mut self.settings, &mut self.ui, &event);
+    }
+}
+
+/// A right press then a left one: the host keeps the pointer for the right
+/// button and drops the left one's release. The right release ends the
+/// left press where it began, so a place written meanwhile is taken up
+/// and the next one moves the readout again; nothing is saved.
+#[test]
+fn a_left_press_under_a_right_one_ends_with_the_right_release() {
+    let mut rig = Rig::new();
+    rig.ticks(1);
+    rig.pointer_with(0, 100.0, 10.0, 2);
+    rig.pointer_with(0, 100.0, 10.0, 1);
+    rig.pointer_with(2, 140.0, 30.0, 2);
+    rig.settings.0.window_x = 10;
+    rig.settings.0.window_y = 20;
+    rig.ticks(20);
+    assert_eq!((26.0, 165.0), rig.canvas().offset, "waits for the press");
+    rig.pointer_with(1, 140.0, 30.0, 2);
+    assert_eq!((14.0, 80.0), rig.canvas().offset);
+    rig.settings.0.window_x = 30;
+    rig.settings.0.window_y = 40;
+    rig.ticks(20);
+    assert_eq!(
+        (34.0, 100.0),
+        rig.canvas().offset,
+        "the next place is taken up"
+    );
+    assert!(rig.settings.1.is_empty());
 }
