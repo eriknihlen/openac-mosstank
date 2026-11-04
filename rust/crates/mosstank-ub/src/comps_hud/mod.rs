@@ -690,8 +690,10 @@ impl ComponentHudController {
     pub fn on_pointer(&mut self, host: &mut dyn UbHost, ui: &mut dyn MapUi, event: &PointerEvent) {
         let at = (f64::from(event.x), f64::from(event.y));
         match event.kind {
-            // The host hovers only with no button held: a press still open
-            // here lost its release.
+            // A fallback for a dropped release: the host hovers only with no
+            // button held, so a press still open here lost its release (in a
+            // chord the host normally sends the other button's release or a
+            // cancel, handled below).
             POINTER_HOVER => {
                 self.end_press(host);
                 self.hover(at);

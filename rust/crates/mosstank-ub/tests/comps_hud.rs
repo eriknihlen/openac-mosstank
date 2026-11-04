@@ -1922,9 +1922,11 @@ fn the_tip_moves_shows_and_repaints_on_the_same_frame() {
 }
 
 /// A right press then a left one: the host keeps the pointer for the right
-/// button and drops the left one's release. The right release (or the
-/// next hover, which comes only with no button held) ends the left press,
-/// keeping the drag's place, so a resize waiting for it goes ahead.
+/// button, sends the moves with it held (button 2, which the strip does not
+/// follow) and drops the left one's release. The right release ends the
+/// left press without moving or saving anything, so a resize waiting for
+/// it goes ahead; a hover (sent only with no button held) does the same
+/// as a fallback for a dropped release.
 #[test]
 fn a_left_press_under_a_right_one_ends_with_the_right_release_or_a_hover() {
     let storage = SharedStorage::new();
@@ -1934,27 +1936,27 @@ fn a_left_press_under_a_right_one_ends_with_the_right_release_or_a_hover() {
     rig.add(TAPER_ID);
     rig.ticks(1, 0.015);
     let before = rig.strip_canvases();
-    let (x, y) = rig.canvas().offset;
+    let place = rig.canvas().offset;
+    let saved = storage.get(&key);
 
     rig.event(PointerEvent::DOWN, (8.0, 20.0), 2);
     rig.event(PointerEvent::DOWN, (8.0, 20.0), 1);
-    rig.event(PointerEvent::MOVE, (28.0, 20.0), 1);
+    rig.event(PointerEvent::MOVE, (28.0, 20.0), 2);
+    assert_eq!(
+        place,
+        rig.canvas().offset,
+        "a right-held move moves nothing"
+    );
     rig.own(item(0x8000_0050, "Prismatic Taper", 99_990, true, 0));
     rig.ticks(1, 0.6);
     assert_eq!(before, rig.strip_canvases(), "waits for the press");
-    rig.event(PointerEvent::UP, (8.0, 20.0), 2);
-    assert!(
-        storage
-            .get(&key)
-            .unwrap()
-            .contains(&format!("\"X\": {}", x + 20.0)),
-        "the drag's place is kept"
-    );
+    rig.event(PointerEvent::UP, (28.0, 20.0), 2);
+    assert_eq!(saved, storage.get(&key), "nothing saved");
     rig.ticks(1, 0.015);
     assert_eq!(before + 1, rig.strip_canvases(), "the resize goes ahead");
-    assert_eq!((x + 20.0, y), rig.canvas().offset);
+    assert_eq!(place, rig.canvas().offset);
 
-    // The same chord ended by a hover.
+    // The same chord with its release dropped, ended by a hover.
     rig.event(PointerEvent::DOWN, (8.0, 20.0), 2);
     rig.event(PointerEvent::DOWN, (8.0, 20.0), 1);
     rig.host
@@ -1966,4 +1968,27 @@ fn a_left_press_under_a_right_one_ends_with_the_right_release_or_a_hover() {
     rig.event(PointerEvent::HOVER, (8.0, 20.0), 0);
     rig.ticks(1, 0.015);
     assert_eq!(held + 1, rig.strip_canvases());
+}
+
+/// A left drag then a right press: the host keeps the pointer for the left
+/// button, so the drag goes on (the right press ends nothing) and the left
+/// release keeps its place.
+#[test]
+fn a_right_press_during_a_left_drag_does_not_end_it() {
+    let storage = SharedStorage::new();
+    let key = comps_hud::key_for("Coldeve", "Acdream");
+    let mut rig = Rig::with(storage.clone(), true);
+    rig.own(item(TAPER_ID, "Prismatic Taper", 9, true, 0));
+    rig.add(TAPER_ID);
+    rig.ticks(1, 0.015);
+    let (x, y) = rig.canvas().offset;
+    rig.event(PointerEvent::DOWN, (8.0, 20.0), 1);
+    rig.event(PointerEvent::MOVE, (28.0, 20.0), 1);
+    rig.event(PointerEvent::DOWN, (8.0, 20.0), 2);
+    rig.event(PointerEvent::MOVE, (18.0, 30.0), 1);
+    assert_eq!((x + 30.0, y + 10.0), rig.canvas().offset, "still following");
+    rig.event(PointerEvent::UP, (8.0, 20.0), 1);
+    let stored = storage.get(&key).unwrap();
+    assert!(stored.contains(&format!("\"X\": {}", x + 30.0)), "{stored}");
+    assert!(stored.contains(&format!("\"Y\": {}", y + 10.0)), "{stored}");
 }

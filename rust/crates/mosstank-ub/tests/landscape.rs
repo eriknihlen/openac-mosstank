@@ -907,7 +907,7 @@ fn markers_draw_their_icons_and_names_in_their_own_zoom_bands() {
     assert!(near.texts.contains(&"Aun Tanua".to_owned()));
 }
 
-// Source: tests/AcDream.Plugins.MossTank.Tests/LandscapeMapControllerTests.cs :: ASessionResetDropsTheImageHandlesAndAsksAgainOnTheNextPaint
+// Source: tests/AcDream.Plugins.MossTank.Tests/LandscapeMapControllerTests.cs :: ASessionResetDropsTheImageHandlesAndAsksAgainOnTheNextPaint (the release first diverges: register UB-12)
 #[test]
 fn a_session_reset_lets_go_of_the_images_and_asks_again_on_the_next_paint() {
     let mut rig = Rig::new();
