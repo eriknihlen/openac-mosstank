@@ -42,6 +42,10 @@ query
 macrostop
 tick 0.05
 
+# Arriving at the far end turns back to the point before it on the same tick,
+# as VTank's route does. The C# controller re-aimed at
+# the end point it stood on for one tick; routes.out holds the Rust result
+# from here on, not the C# one.
 case linear-route-turns-back-and-steps
 route Linear 2
 wp Point at=0,0

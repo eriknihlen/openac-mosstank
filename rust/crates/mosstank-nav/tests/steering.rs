@@ -524,6 +524,62 @@ fn circular_route_wraps_and_once_route_stops() {
     assert_eq!(once.status(), "Once route complete.");
 }
 
+/// A circular or linear route whose every point is already reached holds
+/// still, as VTank's does: it steps past reached points until a circular lap
+/// comes back to where it began, or a linear walk has taken more steps than
+/// the route has points, and then reports the route reached, so the nav rule
+/// yields. A one-point route stands on its point, and walks back to it once
+/// pulled away.
+/// Mutation: take one step per arrival (the old advance) and the character
+/// steers at the point under its feet: it turns in place forever.
+#[test]
+fn a_route_whose_points_are_all_reached_holds_still_and_walks_back_when_pulled_away() {
+    for mode in [RouteMode::Circular, RouteMode::Linear] {
+        for points in [1, 2] {
+            let here = position_facing(0.0, 0.0, 90.0);
+            let mut route = rig(
+                FakeAutomation::at(snapshot(here.clone())),
+                mode,
+                (0..points)
+                    .map(|_| waypoint(RouteWaypointType::Point, here.clone()))
+                    .collect(),
+            );
+
+            for _ in 0..5 {
+                assert!(!route.tick(0.05, true), "{mode:?} {points}");
+                assert!(
+                    route
+                        .automation
+                        .intents
+                        .iter()
+                        .all(|intent| !intent.forward && !intent.turn_left && !intent.turn_right),
+                    "{mode:?} {points}: {:?}",
+                    route.automation.intents
+                );
+            }
+
+            // A fight drags the character 20 m south: the route walks back.
+            route.automation.intents.clear();
+            route.automation.navigation_snapshot =
+                snapshot(position_facing(0.0, -20.0 / 240.0, 90.0));
+            assert!(route.tick(0.05, true), "{mode:?} {points}");
+            assert!(
+                route
+                    .automation
+                    .intents
+                    .iter()
+                    .any(|intent| intent.forward || intent.turn_left || intent.turn_right),
+                "{mode:?} {points}"
+            );
+
+            // Back on the point, it holds again.
+            route.automation.navigation_snapshot = snapshot(here);
+            assert!(!route.tick(0.05, true), "{mode:?} {points}");
+            assert!(!route.tick(0.05, true), "{mode:?} {points}");
+        }
+    }
+}
+
 // Source: tests/AcDream.Plugins.MossTank.Tests/NavigationTests.cs :: AOnceRouteRunToItsEndStillHoldsEveryPointItStartedWith
 #[test]
 fn a_once_route_run_to_its_end_still_holds_every_point_it_started_with() {
