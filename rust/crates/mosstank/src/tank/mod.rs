@@ -1303,6 +1303,8 @@ impl Tank {
                 // The dialog watch answers the question it was told to.
                 cx.with_ub(|commands, call| commands.on_confirmation(call, confirmation));
             }
+            // The Comps HUD repaints in the theme the player picked.
+            Event::ThemeChanged(theme) => cx.ub.comps.set_theme(theme),
             _ => {}
         }
         cx.core.write_out(cx.client);

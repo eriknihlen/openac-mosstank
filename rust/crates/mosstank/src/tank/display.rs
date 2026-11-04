@@ -8,6 +8,7 @@ use std::cell::RefCell;
 use mosstank_dotnet::text::casing;
 use mosstank_ub::catalog::UbCatalog;
 use mosstank_ub::commands::split_head;
+use mosstank_ub::comps_hud::{AddRefusal, HudLayout};
 use mosstank_ub::dungeon::controller::CatalogMapSettings;
 use mosstank_ub::help::COMPONENT_HUD_SYNTAX;
 use mosstank_ub::hud::CatalogHudSettings;
@@ -120,13 +121,9 @@ impl TankCx<'_> {
                 event,
             );
         } else if parts.comps.canvas() == Some(handle) {
-            let notice =
-                parts
-                    .comps
-                    .on_pointer(self.client.ub(), &mut parts.canvases.recorder(), event);
-            if let Some(notice) = notice {
-                Core::write_vtank(self.client, notice);
-            }
+            parts
+                .comps
+                .on_pointer(self.client.ub(), &mut parts.canvases.recorder(), event);
         } else if parts.dungeon.canvas() == Some(handle) {
             parts
                 .dungeon
@@ -158,9 +155,9 @@ impl TankCx<'_> {
         parts.canvases.flush(self.client);
     }
 
-    /// `/vt compshud [on | off | toggle | add | remove <name>]`
-    /// (`HandleComponentHudCommand`): the Comps HUD from the keyboard.
-    /// Bare, it says whether the HUD is on and what it counts.
+    /// `/vt compshud [on | off | toggle | line | column | add | remove
+    /// <name>]` (`HandleComponentHudCommand`): the Comps HUD from the
+    /// keyboard. Bare, it says whether the HUD is on and what it counts.
     pub(crate) fn component_hud_command(&mut self, arguments: &str) {
         let (typed, rest) = split_head(arguments);
         let rest = rest.trim();
@@ -183,15 +180,21 @@ impl TankCx<'_> {
                     "Comps HUD: off.".to_owned()
                 }
             }
-            "add" => {
-                if !self.ub.comps.is_bound() {
-                    "Comps HUD: not in world.".to_owned()
-                } else if let Some(added) = self.ub.comps.add_selection(self.client.ub()) {
-                    format!("Comps HUD: added {added}.")
-                } else {
-                    "Comps HUD: select an item that is not listed yet.".to_owned()
-                }
+            "line" | "column" if !self.ub.comps.is_bound() => "Comps HUD: not in world.".to_owned(),
+            "line" => {
+                self.ub.comps.set_layout(self.client.ub(), HudLayout::Line);
+                "Comps HUD: laid out as a line.".to_owned()
             }
+            "column" => {
+                self.ub
+                    .comps
+                    .set_layout(self.client.ub(), HudLayout::Column);
+                "Comps HUD: laid out as a column.".to_owned()
+            }
+            "add" => match self.ub.comps.add_selection(self.client.ub()) {
+                Ok(added) => format!("Comps HUD: added {added}."),
+                Err(refusal) => refusal_line(&refusal),
+            },
             "remove" if !rest.is_empty() => match self.ub.comps.remove(self.client.ub(), rest) {
                 Some(removed) => format!("Comps HUD: removed {removed}."),
                 None => format!("Comps HUD: {rest} is not listed."),
@@ -208,7 +211,7 @@ impl TankCx<'_> {
         let entries = comps.entries();
         if entries.is_empty() {
             return format!(
-                "Comps HUD: {state}, nothing listed (select an item and press + or /vt compshud add)."
+                "Comps HUD: {state}, nothing listed (add items in Edit items: the HUD's pencil or the Consumables page; or select an item and /vt compshud add)."
             );
         }
         let counts = comps.counts();
@@ -221,6 +224,16 @@ impl TankCx<'_> {
             })
             .collect();
         format!("Comps HUD: {state}; {}.", listed.join(", "))
+    }
+}
+
+/// What the Comps HUD says when an item was not added.
+pub(crate) fn refusal_line(refusal: &AddRefusal) -> String {
+    match refusal {
+        AddRefusal::NotInWorld => "Comps HUD: not in world.".to_owned(),
+        AddRefusal::NothingSelected => "Comps HUD: select an item first.".to_owned(),
+        AddRefusal::NoName => "Comps HUD: that object has no name to count.".to_owned(),
+        AddRefusal::Listed(name) => format!("Comps HUD: {name} is listed already."),
     }
 }
 

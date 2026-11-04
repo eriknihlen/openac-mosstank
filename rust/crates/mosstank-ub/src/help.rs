@@ -779,7 +779,8 @@ pub static ENTRIES: &[UbCommandUsage] = &[
 
 /// `/vt compshud`'s usage line, which it also answers a word it does not
 /// know with (`VtankCommandHelp.ComponentHudSyntax`).
-pub const COMPONENT_HUD_SYNTAX: &str = "/vt compshud [on | off | toggle | add | remove <name>]";
+pub const COMPONENT_HUD_SYNTAX: &str =
+    "/vt compshud [on | off | toggle | line | column | add | remove <name>]";
 
 /// The usage lines `/vt help <command>` prints: MossTank's own additions to
 /// the macro's commands, in name order. The macro's own commands have no
@@ -788,8 +789,17 @@ pub static VTANK_ENTRIES: &[UbCommandUsage] = &[
     UbCommandUsage {
         name: "compshud",
         usage: COMPONENT_HUD_SYNTAX,
-        summary: "Shows, turns on or off the Comps HUD (Virindi HUDs' item counter), adds the selected item to it, or takes an item off by name. Its + button adds the selection too, and - then a row click removes one.",
-        examples: &[],
+        summary: "Shows the Comps HUD (a counter of chosen items, after Virindi HUDs'), turns it on or off, lays it out as a line or a column, adds the selected item to it, or takes an item off by name. Its pencil, or Edit items on the Consumables page, opens the window that adds, orders and removes items and sets the count each one warns below.",
+        examples: &[
+            UbCommandExample {
+                command: "/vt compshud line",
+                description: "Lays the HUD out in one row: icon, count, icon, count.",
+            },
+            UbCommandExample {
+                command: "/vt compshud remove Prismatic Taper",
+                description: "Takes Prismatic Taper off the HUD.",
+            },
+        ],
     },
     UbCommandUsage {
         name: "gamedb",
