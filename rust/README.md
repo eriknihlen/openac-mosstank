@@ -26,7 +26,8 @@ cargo build --workspace --target wasm32-unknown-unknown --release
 
 The SDK crates (`openac-plugin`, `openac-plugin-compat`, `ac-plugin-abi`)
 come from the openac-rust repository by git, pinned to a commit in
-`Cargo.toml`.
+`Cargo.toml`: the SDK of openac-rust v0.1.10 (plugin API 1.5), so MossTank
+runs on that client and later ones.
 
 `scripts/check.ps1` (or `scripts/check.sh`) runs the full check: formatting,
 clippy, the tests, the WebAssembly build, the module's imports, and the
@@ -62,3 +63,33 @@ In the openac-rust launcher, on the plugins tab:
 The launcher installs it from this repository's `wasm-v` releases, checks
 them for updates, and stages the plugin disabled; enabling it is a separate
 choice on that tab.
+
+## The Comps HUD
+
+A small strip that counts the items you choose (spell components, peas,
+healing kits, anything you carry), after the comps counter of Virindi HUDs.
+Each item shows its icon and how many you carry, in packs or worn, counted
+again every 0.6 seconds. It is drawn in your plugin theme (Appearance), and
+follows a theme change at once.
+
+- **Show it**: tick **Show HUD** in the Comps HUD box on the Consumables page,
+  or type `/vt compshud on`. The switch is the same for all your characters.
+- **Layout**: **Column** (a strip 50 pixels wide, one row per item) or
+  **Line** (one row: icon, count, icon, count). Pick it in the box, with the
+  strip's layout button, or with `/vt compshud column` and `/vt compshud line`.
+- **Choose the items**: **Edit items...** in the box, or the pencil on the
+  strip, opens Edit items. Tick what you carry (search it by name or filter it
+  by kind) to put it on the HUD; on the right, select an item to move it up or
+  down, remove it, or set **Warn below**: its count turns red below that
+  number (0 never warns). **Add selected item** there, and `/vt compshud add`,
+  add the item selected in the game; **Add to HUD** beside Remove on the
+  Consumables page adds the selected row's item, or else the item selected in
+  the game. `/vt compshud remove <name>` takes one off.
+- **Move it**: drag the strip anywhere but its buttons. **Hide it**: its cross
+  (this unticks Show HUD).
+- Each character keeps its own list (in order, with the warn levels), layout
+  and place. `/vt compshud` alone lists what it counts.
+
+The strip has no tooltips yet: a canvas hears the pointer hovering over it
+only from plugin API 1.6, which no released client has. The names are in Edit
+items and in `/vt compshud`.
