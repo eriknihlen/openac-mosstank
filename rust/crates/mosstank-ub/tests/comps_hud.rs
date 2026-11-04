@@ -14,8 +14,8 @@ use mosstank_meta::testing::SharedStorage;
 use mosstank_stores::storage::PluginStorage;
 use mosstank_ub::canvas::{MapCanvasSpec, MapFont, MapImage, MapPainter, MapUi};
 use mosstank_ub::comps_hud::layout::{
-    self, COLUMN_BUTTON, COLUMN_WIDTH, ICON_SIZE, LINE_BUTTON, LINE_HEIGHT, ROW_HEIGHT,
-    TITLE_HEIGHT,
+    self, COLUMN_BUTTON, COLUMN_MIN_WIDTH, ICON_GAP, ICON_SIZE, ITEM_GAP, LINE_BUTTON, LINE_HEIGHT,
+    ROW_HEIGHT, TITLE_HEIGHT,
 };
 use mosstank_ub::comps_hud::style::{FONT_SIZE, WARNING_ON_DARK, WARNING_ON_LIGHT};
 use mosstank_ub::comps_hud::{
@@ -221,7 +221,7 @@ impl RecordingPainter {
 
 impl MapPainter for RecordingPainter {
     fn width(&self) -> i32 {
-        COLUMN_WIDTH
+        COLUMN_MIN_WIDTH
     }
 
     fn height(&self) -> i32 {
@@ -482,22 +482,16 @@ fn an_item_paints_the_added_icon_and_the_count() {
         .collect();
     assert_eq!(["12"], texts.as_slice());
 }
-
-/// The column: 50 pixels wide, a 12-pixel title line holding the layout
-/// switch, the pencil and the cross left to right at its right end, then a
-/// 16-pixel row per item, the 14-pixel icon at the left and the count's box
-/// reaching to the right edge; an empty list keeps one row.
+/// The column: a 12-pixel title line holding the layout switch, the pencil
+/// and the cross left to right at its right end, then a 16-pixel row per
+/// item, the 14-pixel icon at the left and the count just after it; as
+/// wide as its widest count needs, never narrower than its buttons; an
+/// empty list keeps one row.
 #[test]
 fn the_column_is_a_thin_title_line_and_a_row_per_item() {
-    let column = HudGeometry::new(HudLayout::Column, &widths(&["12", "300"]));
-    assert_eq!(
-        (COLUMN_WIDTH, TITLE_HEIGHT + 2 * ROW_HEIGHT + 2),
-        column.size()
-    );
-    assert_eq!(
-        (50, 12, 16, 14),
-        (COLUMN_WIDTH, TITLE_HEIGHT, ROW_HEIGHT, ICON_SIZE)
-    );
+    let column = HudGeometry::new(HudLayout::Column, &[12.0, 24.0]);
+    assert_eq!((12, 16, 14), (TITLE_HEIGHT, ROW_HEIGHT, ICON_SIZE));
+    assert_eq!(TITLE_HEIGHT + 2 * ROW_HEIGHT + 2, column.height);
 
     let buttons: Vec<HudButton> = column.buttons.iter().map(|(button, _)| *button).collect();
     assert_eq!(
@@ -514,7 +508,8 @@ fn the_column_is_a_thin_title_line_and_a_row_per_item() {
         assert!(y >= 0.0 && y + height <= f64::from(TITLE_HEIGHT));
         right = x + width;
     }
-    assert!(right <= f64::from(COLUMN_WIDTH) && right >= f64::from(COLUMN_WIDTH) - 4.0);
+    let width = f64::from(column.width);
+    assert!(right <= width && right >= width - 4.0);
 
     for (row, slot) in column.items.iter().enumerate() {
         let top =
@@ -528,14 +523,25 @@ fn the_column_is_a_thin_title_line_and_a_row_per_item() {
         );
         assert!(icon_x < 5.0 && icon_y >= top && icon_y + icon_h <= top + f64::from(ROW_HEIGHT));
         let (count_x, _, count_w, _) = slot.count;
-        assert!(count_x >= icon_x + icon_w);
-        assert!(count_x + count_w > f64::from(COLUMN_WIDTH) - 6.0);
+        assert_eq!(
+            icon_x + icon_w + f64::from(ICON_GAP),
+            count_x,
+            "just after the icon"
+        );
+        assert_eq!(24.0, count_w, "as wide as the widest count");
     }
+    assert!(
+        width <= column.items[0].count.0 + 24.0 + 4.0,
+        "no room past the count"
+    );
 
     let empty = HudGeometry::new(HudLayout::Column, &[]);
-    assert_eq!((COLUMN_WIDTH, TITLE_HEIGHT + ROW_HEIGHT + 2), empty.size());
+    assert_eq!(
+        (COLUMN_MIN_WIDTH, TITLE_HEIGHT + ROW_HEIGHT + 2),
+        empty.size()
+    );
     assert_eq!(1, empty.items.len());
-    assert_eq!(Some(HudButton::Hide), column.button_at((45.0, 6.0)));
+    assert_eq!(Some(HudButton::Hide), column.button_at((width - 4.0, 6.0)));
     assert_eq!(None, column.button_at((4.0, 6.0)));
     assert_eq!(Some(1), column.item_at((10.0, 30.0)));
 }
@@ -597,7 +603,10 @@ fn the_canvas_follows_the_strips_size() {
     rig.add(SCARAB_ID);
     rig.add(TAPER_ID);
     assert_eq!(TITLE_HEIGHT + 2 * ROW_HEIGHT + 2, rig.canvas().spec.height);
-    assert_eq!(COLUMN_WIDTH, rig.canvas().spec.width);
+    assert_eq!(
+        HudGeometry::new(HudLayout::Column, &widths(&["1", "1"])).width,
+        rig.canvas().spec.width
+    );
     let strips: Vec<&FakeCanvas> = rig
         .ui
         .canvases
@@ -706,6 +715,24 @@ fn a_button_acts_only_when_let_go_over_it() {
     );
 }
 
+impl Rig {
+    /// A left press, moves and release at points of the screen, each
+    /// reported as the host reports it: in canvas pixels from where the
+    /// plugin last put the canvas (which may have moved since the press).
+    fn drag_on_screen(&mut self, points: &[(f64, f64)]) {
+        let last = points.len() - 1;
+        for (index, point) in points.iter().enumerate() {
+            let kind = match index {
+                0 => PointerEvent::DOWN,
+                i if i == last => PointerEvent::UP,
+                _ => PointerEvent::MOVE,
+            };
+            let (x, y) = self.canvas().offset;
+            self.event(kind, (point.0 - x, point.1 - y), 1);
+        }
+    }
+}
+
 // C# source: ComponentHudControllerTests.cs :: ADragMovesTheHudAndKeepsWhereItStands
 /// A press away from the buttons is a drag that moves the HUD by how far
 /// the pointer went, kept with the list.
@@ -716,15 +743,17 @@ fn a_drag_moves_the_hud_and_keeps_where_it_stands() {
     rig.own(item(SCARAB_ID, "Lead Scarab", 1, true, 0));
     rig.add(SCARAB_ID);
 
-    rig.pointer(0, 10.0, 25.0);
-    rig.pointer(2, 25.0, 15.0);
-    rig.pointer(1, 40.0, 5.0);
-    assert_eq!(1, rig.controller.entries().len());
-    let moved = (
-        f64::from(comps_hud::DEFAULT_X + 30),
-        f64::from(comps_hud::DEFAULT_Y - 20),
+    let (x, y) = (
+        f64::from(comps_hud::DEFAULT_X),
+        f64::from(comps_hud::DEFAULT_Y),
     );
-    assert_eq!(moved, rig.canvas().offset);
+    rig.drag_on_screen(&[
+        (x + 10.0, y + 25.0),
+        (x + 25.0, y + 15.0),
+        (x + 40.0, y + 5.0),
+    ]);
+    assert_eq!(1, rig.controller.entries().len());
+    assert_eq!((x + 30.0, y - 20.0), rig.canvas().offset);
 
     let mut again = Rig::with(storage, false);
     again.ticks(1, 0.015);
@@ -732,6 +761,137 @@ fn a_drag_moves_the_hud_and_keeps_where_it_stands() {
         (comps_hud::DEFAULT_X + 30, comps_hud::DEFAULT_Y - 20),
         again.controller.position()
     );
+}
+
+/// While the button is held the strip follows the pointer, the grabbed
+/// point staying under it (no jump at the start), stopping at the screen's
+/// top and left edges, with no tooltip; nothing is saved until the button
+/// comes up, and then the last place is saved once.
+#[test]
+fn the_strip_follows_a_drag_and_is_saved_once_when_let_go() {
+    let storage = SharedStorage::new();
+    let key = comps_hud::key_for("Coldeve", "Acdream");
+    let mut rig = Rig::with(storage.clone(), true);
+    rig.own(item(SCARAB_ID, "Lead Scarab", 1, true, 0));
+    rig.add(SCARAB_ID);
+    let saved = storage.get(&key).unwrap();
+    let column = rig.controller.geometry().clone();
+    rig.hover(centre(column.items[0].cell));
+    assert!(rig.controller.tip().is_some());
+
+    let (x, y) = (
+        f64::from(comps_hud::DEFAULT_X),
+        f64::from(comps_hud::DEFAULT_Y),
+    );
+    let grab = (12.0, 20.0);
+    rig.event(PointerEvent::DOWN, grab, 1);
+    assert_eq!((x, y), rig.canvas().offset, "no jump at the press");
+    assert!(rig.controller.tip().is_none());
+    for (screen_x, screen_y) in [
+        (x + 40.0, y + 30.0),
+        (x + 90.0, y + 75.0),
+        (x - 30.0, y + 10.0),
+    ] {
+        let (cx, cy) = rig.canvas().offset;
+        rig.event(PointerEvent::MOVE, (screen_x - cx, screen_y - cy), 1);
+        let (nx, ny) = rig.canvas().offset;
+        assert_eq!(
+            (screen_x - nx, screen_y - ny),
+            grab,
+            "the grabbed point stays under the pointer"
+        );
+        assert!(rig.controller.tip().is_none(), "no tooltip in a drag");
+        assert_eq!(Some(saved.clone()), storage.get(&key), "nothing saved yet");
+    }
+    // Past the left edge it stops at 0, and the grab is kept: it moves
+    // again only once the pointer is back over the grabbed point.
+    let (cx, cy) = rig.canvas().offset;
+    rig.event(PointerEvent::MOVE, (-400.0 - cx, y - cy), 1);
+    assert_eq!(0.0, rig.canvas().offset.0);
+    let (cx, cy) = rig.canvas().offset;
+    rig.event(PointerEvent::MOVE, (5.0 - cx, y + 20.0 - cy), 1);
+    assert_eq!(0.0, rig.canvas().offset.0);
+    let (cx, cy) = rig.canvas().offset;
+    rig.event(PointerEvent::UP, (60.0 - cx, y + 20.0 - cy), 1);
+    assert_eq!((48.0, y), rig.canvas().offset);
+    assert_eq!((48, comps_hud::DEFAULT_Y), rig.controller.position());
+    let after = storage.get(&key).unwrap();
+    assert_ne!(saved, after);
+    assert!(after.contains("\"X\": 48"), "{after}");
+
+    // A press let go where it began saves nothing.
+    storage.insert(&key, "kept");
+    rig.event(PointerEvent::DOWN, grab, 1);
+    rig.event(PointerEvent::UP, grab, 1);
+    assert_eq!(Some("kept".to_owned()), storage.get(&key));
+}
+
+/// Counts of one, four and five digits fit in both layouts, each count just
+/// after its icon in the room it measures; the line reads as pairs (more
+/// room between one item and the next than between an icon and its count).
+#[test]
+fn one_four_and_five_digit_counts_fit_in_both_layouts() {
+    // The test painter's measure: six pixels a character.
+    let widths = [6.0, 24.0, 30.0];
+    let column = HudGeometry::new(HudLayout::Column, &widths);
+    let count_x = column.items[0].count.0;
+    assert_eq!(
+        column.items[0].icon.0 + f64::from(ICON_SIZE + ICON_GAP),
+        count_x
+    );
+    assert!(column.items.iter().all(|slot| slot.count.2 >= 30.0));
+    assert!(f64::from(column.width) >= count_x + 30.0);
+    assert!(f64::from(column.width) <= count_x + 30.0 + 4.0);
+    assert_eq!(
+        COLUMN_MIN_WIDTH,
+        HudGeometry::new(HudLayout::Column, &[6.0]).width,
+        "a one-digit column is as narrow as its buttons"
+    );
+    let four = HudGeometry::new(HudLayout::Column, &[24.0]);
+    assert!(four.items[0].count.2 >= 24.0);
+    assert!(f64::from(four.width) >= four.items[0].count.0 + 24.0);
+
+    let line = HudGeometry::new(HudLayout::Line, &widths);
+    for (slot, width) in line.items.iter().zip(widths) {
+        assert_eq!(slot.icon.0 + f64::from(ICON_SIZE + ICON_GAP), slot.count.0);
+        assert_eq!(width, slot.count.2);
+    }
+    for pair in line.items.windows(2) {
+        let between = pair[1].icon.0 - (pair[0].count.0 + pair[0].count.2);
+        assert_eq!(f64::from(ITEM_GAP), between);
+        let inside = pair[0].count.0 - (pair[0].icon.0 + pair[0].icon.2);
+        assert!(between > inside, "the line reads as pairs");
+    }
+}
+
+/// A count that gains or loses a digit resizes the strip to fit it.
+#[test]
+fn the_strip_resizes_when_a_count_gains_or_loses_a_digit() {
+    let mut rig = Rig::new();
+    rig.own(item(TAPER_ID, "Prismatic Taper", 999, true, 0));
+    rig.add(TAPER_ID);
+    let settle = |rig: &mut Rig| {
+        rig.ticks(1, 0.6);
+        rig.paint();
+        rig.ticks(1, 0.015);
+        rig.canvas().spec.width
+    };
+    let three = settle(&mut rig);
+    rig.own(item(0x8000_0050, "Prismatic Taper", 4001, true, 0));
+    let four = settle(&mut rig);
+    assert!(four > three, "{three} -> {four}");
+    rig.own(item(0x8000_0051, "Prismatic Taper", 7345, true, 0));
+    let five = settle(&mut rig);
+    assert!(five > four, "{four} -> {five}");
+    let painted = rig.paint();
+    let slot = rig.controller.geometry().items[0].count;
+    assert_eq!("12345", painted.texts[0].text);
+    assert!(painted.texts[0].at.0 + 30.0 <= slot.0 + slot.2);
+    rig.host
+        .meta
+        .objects
+        .retain(|object| object.object_id == TAPER_ID);
+    assert_eq!(three, settle(&mut rig));
 }
 
 /// A count below its item's warn level is drawn in the warning colour; at
@@ -783,7 +943,7 @@ fn the_strip_is_painted_in_the_players_theme_and_follows_a_change() {
     let face = (
         1.0,
         1.0,
-        f64::from(COLUMN_WIDTH) - 2.0,
+        f64::from(rig.controller.geometry().width) - 2.0,
         f64::from(TITLE_HEIGHT + ROW_HEIGHT),
     );
     assert!(
@@ -1178,8 +1338,8 @@ fn hovering_names_the_item_or_the_button_under_the_pointer() {
         rig.hover(centre(column.button(button)));
         assert_eq!(Some(text), rig.tip_text());
     }
-    rig.hover((3.0, 5.0));
-    assert_eq!(None, rig.tip_text(), "the title line's empty part");
+    rig.hover((4.0, f64::from(column.height) - 1.0));
+    assert_eq!(None, rig.tip_text(), "the strip's bottom edge");
     assert!(!rig.tip_canvas().visible);
 
     rig.hover(centre(column.items[0].cell));
@@ -1237,7 +1397,7 @@ fn a_five_digit_count_is_measured_and_given_its_room() {
     // The test painter measures six pixels a character.
     let measured = 30.0;
     let column = rig.controller.geometry().clone();
-    assert!(column.width > COLUMN_WIDTH);
+    assert!(column.width > COLUMN_MIN_WIDTH);
     assert_eq!(column.width, rig.canvas().spec.width);
     let (box_x, _, box_w, _) = column.items[0].count;
     assert!(box_w >= measured, "the count's box holds all five digits");

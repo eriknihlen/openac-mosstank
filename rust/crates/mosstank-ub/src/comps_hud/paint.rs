@@ -69,15 +69,7 @@ pub(super) fn paint(
     for (index, slot) in geometry.items.iter().enumerate() {
         let Some(item) = items.get(index) else {
             // The empty list's one slot: a dash where a count would be.
-            draw_count(
-                painter,
-                geometry.layout,
-                slot.count,
-                "-",
-                &style.muted,
-                style,
-                font,
-            );
+            draw_count(painter, slot.count, "-", &style.muted, style, font);
             continue;
         };
         if item.icon.is_valid() {
@@ -88,15 +80,7 @@ pub(super) fn paint(
         } else {
             &style.text
         };
-        draw_count(
-            painter,
-            geometry.layout,
-            slot.count,
-            item.count,
-            color,
-            style,
-            font,
-        );
+        draw_count(painter, slot.count, item.count, color, style, font);
     }
 
     for (button, rect) in &geometry.buttons {
@@ -105,23 +89,18 @@ pub(super) fn paint(
     }
 }
 
-/// A count in its box: right-aligned in the column, from the left on the
-/// line, centred top to bottom.
+/// A count in its box, from its left (just after the icon), centred top to
+/// bottom.
 fn draw_count(
     painter: &mut dyn MapPainter,
-    layout: HudLayout,
     rect: HudRect,
     text: &str,
     color: &Color,
     style: &HudStyle,
     font: MapFont,
 ) {
-    let (x, y, width, height) = rect;
-    let (text_width, text_height) = painter.measure_text_in(font, text);
-    let left = match layout {
-        HudLayout::Column => x + width - text_width,
-        HudLayout::Line => x,
-    };
+    let (left, y, _, height) = rect;
+    let (_, text_height) = painter.measure_text_in(font, text);
     let top = y + ((height - text_height) / 2.0).max(0.0);
     painter.push_clip(rect);
     painter.draw_text_in(

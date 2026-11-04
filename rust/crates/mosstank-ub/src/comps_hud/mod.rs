@@ -8,8 +8,8 @@
 //! line ([`layout`]), each count given the room it takes in that font.
 //! Three small buttons sit on it: the layout switch, a pencil that opens
 //! the Edit items window, and a cross that hides the HUD. A left drag
-//! anywhere else moves the strip; it moves when the button comes up, as the
-//! clients readout does. A count below its item's warn level is drawn in
+//! anywhere else drags the strip, which follows the pointer as it goes and
+//! is kept where it is let go. A count below its item's warn level is drawn in
 //! the warning colour. The pointer over an item names it, and over a
 //! button says what it does, in a tooltip ([`tip`]).
 //!
@@ -48,7 +48,7 @@ pub use tip::Tip;
 
 use crate::canvas::{
     BUTTON_LEFT, MapCanvasSpec, MapFont, MapImage, MapPainter, MapUi, POINTER_CANCELLED,
-    POINTER_DOWN, POINTER_HOVER, POINTER_LEAVE, POINTER_UP,
+    POINTER_DOWN, POINTER_HOVER, POINTER_LEAVE, POINTER_MOVE, POINTER_UP,
 };
 use crate::host::UbHost;
 use document::Document;
@@ -104,8 +104,10 @@ pub enum AddRefusal {
 enum Press {
     /// A button, which acts when the press is let go over it.
     Button(HudButton),
-    /// The strip, at this point of the canvas, to drag.
-    Strip((f64, f64)),
+    /// The strip, to drag: the point of the canvas the press took hold of
+    /// (kept under the pointer as the strip follows it), and where the
+    /// strip stood when the press began.
+    Strip { grab: (f64, f64), from: (i32, i32) },
 }
 
 /// The HUD.
@@ -634,7 +636,11 @@ impl ComponentHudController {
     /// what is under it, and leaving the strip clears it; a left press let
     /// go over the button it went down on is that button (the layout
     /// switch, Edit items, hide); a left press anywhere else drags the
-    /// strip, which moves when the button comes up.
+    /// strip: it follows the pointer while the button is held, the grabbed
+    /// point staying under it, and its place is kept once, when the button
+    /// comes up. The host captures the pointer for the press and reports
+    /// each move from where the plugin last put the canvas, so the strip
+    /// neither loses the pointer nor counts a step twice.
     pub fn on_pointer(&mut self, host: &mut dyn UbHost, ui: &mut dyn MapUi, event: &PointerEvent) {
         let at = (f64::from(event.x), f64::from(event.y));
         match event.kind {
@@ -645,17 +651,32 @@ impl ComponentHudController {
                 self.hide_tip();
                 self.press = Some(match self.geometry().button_at(at) {
                     Some(button) => Press::Button(button),
-                    None => Press::Strip(at),
+                    None => Press::Strip {
+                        grab: at,
+                        from: (self.x, self.y),
+                    },
                 });
+            }
+            POINTER_MOVE => {
+                if let Some(Press::Strip { grab, .. }) = self.press {
+                    self.follow(grab, at);
+                }
             }
             POINTER_UP => match self.press.take() {
                 Some(Press::Button(button)) if self.geometry().button_at(at) == Some(button) => {
                     self.press_button(host, button);
                 }
-                Some(Press::Strip(grab)) => self.drag(host, grab, at),
+                Some(Press::Strip { grab, from }) => {
+                    self.follow(grab, at);
+                    self.keep_place(host, from);
+                }
                 _ => {}
             },
-            POINTER_CANCELLED => self.press = None,
+            POINTER_CANCELLED => {
+                if let Some(Press::Strip { from, .. }) = self.press.take() {
+                    self.keep_place(host, from);
+                }
+            }
             _ => {}
         }
         self.place_canvas(ui);
@@ -708,14 +729,22 @@ impl ComponentHudController {
         }
     }
 
-    fn drag(&mut self, host: &mut dyn UbHost, grab: (f64, f64), at: (f64, f64)) {
+    /// Moves the strip so the grabbed point is under the pointer at `at`
+    /// (canvas pixels from where the canvas was last put); nothing is saved.
+    fn follow(&mut self, grab: (f64, f64), at: (f64, f64)) {
         let dx = whole_pixels(at.0 - grab.0);
         let dy = whole_pixels(at.1 - grab.1);
         if (dx == 0 && dy == 0) || self.canvas.is_none() {
             return;
         }
         self.place(self.x.saturating_add(dx), self.y.saturating_add(dy));
-        self.save(host);
+    }
+
+    /// The drag ended: its place is kept, once, when the strip moved.
+    fn keep_place(&mut self, host: &mut dyn UbHost, from: (i32, i32)) {
+        if (self.x, self.y) != from {
+            self.save(host);
+        }
     }
 
     /// Stands the strip at a place, never past the screen's top or left

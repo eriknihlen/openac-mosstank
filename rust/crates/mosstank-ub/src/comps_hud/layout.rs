@@ -2,12 +2,14 @@
 //! icon and count, and the three buttons, in interface pixels at 100% UI
 //! scale (the client scales the canvas with the rest of the plugin UI).
 //!
-//! Two layouts. A column is a strip 50 pixels wide: a thin title line with
-//! the buttons at its right, then a row per item, the icon at the left and
-//! the count right-aligned. A line is one row 20 pixels tall: icon, count,
-//! icon, count, then a thin divider and the buttons. Each count has the
-//! room it measures in the HUD's font: the column widens for a count too
-//! wide for its box, and each count on the line is as wide as it reads.
+//! Two layouts. A column is a narrow strip: a thin title line with the
+//! buttons at its right, then a row per item, the icon at the left and its
+//! count just after it. A line is one row 20 pixels tall: icon and count,
+//! a wider gap, the next icon and count, then a thin divider and the
+//! buttons. Each count has the room it measures in the HUD's font, so the
+//! strip is as wide as its content: a column as wide as its widest count
+//! needs (never narrower than its three buttons), a line as wide as all its
+//! counts. A count that gains or loses a digit resizes it.
 
 /// How the strip lays its items out; kept per character.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
@@ -64,8 +66,8 @@ pub const BUTTONS: [HudButton; 3] = [HudButton::Layout, HudButton::Edit, HudButt
 /// A rectangle in the canvas's pixels: x, y, width, height.
 pub type HudRect = (f64, f64, f64, f64);
 
-/// The column's width.
-pub const COLUMN_WIDTH: i32 = 50;
+/// The narrowest a column is: room for its three buttons.
+pub const COLUMN_MIN_WIDTH: i32 = 2 * PADDING + 3 * COLUMN_BUTTON + 2 * BUTTON_GAP;
 /// The column's title line, which holds the buttons.
 pub const TITLE_HEIGHT: i32 = 12;
 /// One item's row in the column.
@@ -85,16 +87,17 @@ const PADDING: i32 = 2;
 /// The room between two buttons.
 const BUTTON_GAP: i32 = 2;
 /// The room between an icon and its count.
-const ICON_GAP: i32 = 2;
-/// The room between one item and the next on the line.
-const ITEM_GAP: i32 = 5;
+pub const ICON_GAP: i32 = 3;
+/// The room between one item (icon and count) and the next on the line:
+/// wider than [`ICON_GAP`], so the line reads as pairs.
+pub const ITEM_GAP: i32 = 8;
 /// The room on either side of the line's divider.
 const DIVIDER_GAP: i32 = 4;
 /// The line's room at either end.
 const LINE_PADDING: i32 = 4;
 
-/// One item's place: its icon and the box its count is drawn in (right
-/// aligned in the column, from the left on the line).
+/// One item's place: its icon and the box its count is drawn in, from its
+/// left, just after the icon.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct ItemSlot {
     /// The whole item: what a press on it lands on.
@@ -126,8 +129,9 @@ pub struct HudGeometry {
 impl HudGeometry {
     /// The strip laid out for items whose counts are `count_widths` pixels
     /// wide as drawn; an empty list keeps one slot so the strip is never
-    /// nothing but buttons. The column widens past 50 pixels only for a
-    /// count too wide for its box; on the line each count has its own room.
+    /// nothing but buttons. The column is as wide as its widest count needs
+    /// (never narrower than its buttons); on the line each count has its
+    /// own room.
     #[must_use]
     pub fn new(layout: HudLayout, count_widths: &[f64]) -> Self {
         match layout {
@@ -142,8 +146,13 @@ impl HudGeometry {
             .saturating_add(rows.saturating_mul(ROW_HEIGHT))
             .saturating_add(PADDING);
         let count_x = PADDING + 1 + ICON_SIZE + ICON_GAP;
-        let widest = whole(count_widths.iter().copied().fold(0.0, f64::max));
-        let width = COLUMN_WIDTH.max(count_x + widest + PADDING + 2);
+        let widest = whole(
+            count_widths
+                .iter()
+                .copied()
+                .fold(f64::from(DIGIT_WIDTH), f64::max),
+        );
+        let width = COLUMN_MIN_WIDTH.max(count_x + widest + PADDING + 1);
         let slots = (0..rows)
             .map(|row| {
                 let top = f64::from(TITLE_HEIGHT + row * ROW_HEIGHT);
@@ -159,7 +168,7 @@ impl HudGeometry {
                     count: (
                         f64::from(count_x),
                         top,
-                        f64::from(width - PADDING - 2 - count_x),
+                        f64::from(widest),
                         f64::from(ROW_HEIGHT),
                     ),
                 }
