@@ -27,6 +27,15 @@ impl TankCx<'_> {
         self.ub.tags.publish(self.client.ub(), tags, false);
         let player = self_position(self.client.meta());
         {
+            // The Comps HUD measures its count characters (once per font)
+            // with the client, so its canvas is sized right the first time.
+            let parts = &mut *self.ub;
+            let client = RefCell::new(&mut *self.client);
+            parts
+                .comps
+                .prepare_metrics(&mut PaintUi::new(&client, &mut parts.canvases));
+        }
+        {
             let parts = &mut *self.ub;
             let mut ui = parts.canvases.recorder();
             parts.landscape.on_tick(
@@ -137,6 +146,11 @@ impl TankCx<'_> {
                 .dungeon
                 .on_pointer(&mut CatalogMapSettings(&mut parts.catalog), event);
         }
+        // The host measures the next pointer event from where the plugin last
+        // put the canvas: a drag's new place goes to it now, not at the
+        // frame's end, or a move and the release in one frame count one
+        // step twice.
+        parts.canvases.flush(self.client);
     }
 
     /// `ResetDisplayTools` and `ResetDungeonMap`: the session's images went

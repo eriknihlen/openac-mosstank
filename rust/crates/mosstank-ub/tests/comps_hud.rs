@@ -96,7 +96,11 @@ fn moss() -> ThemeInfo {
 struct FakeCanvas {
     spec: MapCanvasSpec,
     visible: bool,
+    /// Where the host has the canvas: what pointer events are measured
+    /// from.
     offset: (f64, f64),
+    /// A move asked for and not handed to the host yet.
+    pending: Option<(f64, f64)>,
     removed: bool,
 }
 
@@ -115,10 +119,21 @@ struct FakeUi {
     object_requests: Vec<u32>,
     released: Vec<MapImage>,
     fonts_asked: Vec<f32>,
+    /// Every text measured.
+    measured: Vec<String>,
     fonts_released: Vec<u32>,
 }
 
 impl FakeUi {
+    /// Hands the moves asked for to the host.
+    fn flush(&mut self) {
+        for canvas in &mut self.canvases {
+            if let Some(offset) = canvas.pending.take() {
+                canvas.offset = offset;
+            }
+        }
+    }
+
     fn canvas(&mut self, canvas: u32) -> &mut FakeCanvas {
         &mut self.canvases[usize::try_from(canvas).unwrap() - 1]
     }
@@ -130,6 +145,7 @@ impl MapUi for FakeUi {
             spec: spec.clone(),
             visible: spec.start_visible,
             offset: spec.offset,
+            pending: None,
             removed: false,
         });
         Some(u32::try_from(self.canvases.len()).unwrap())
@@ -140,7 +156,7 @@ impl MapUi for FakeUi {
     }
 
     fn set_canvas_offset(&mut self, canvas: u32, offset: (f64, f64)) {
-        self.canvas(canvas).offset = offset;
+        self.canvas(canvas).pending = Some(offset);
     }
 
     fn invalidate_canvas(&mut self, _canvas: u32) {
@@ -193,6 +209,12 @@ impl MapUi for FakeUi {
 
     fn release_font(&mut self, font: MapFont) {
         self.fonts_released.push(font.handle);
+    }
+
+    #[allow(clippy::cast_precision_loss)]
+    fn measure_text_in(&mut self, _font: MapFont, text: &str) -> Option<(f64, f64)> {
+        self.measured.push(text.to_owned());
+        Some((text.chars().count() as f64 * 6.0, 14.0))
     }
 }
 
@@ -339,9 +361,13 @@ impl Rig {
             .unwrap_or_else(|| panic!("no canvas {id}"))
     }
 
+    /// Frames as the plugin runs them: the count characters measured, the
+    /// tick, and what it asked of the canvases handed to the host.
     fn ticks(&mut self, count: usize, each: f64) {
         for _ in 0..count {
+            self.controller.prepare_metrics(&mut self.ui);
             self.controller.on_tick(&mut self.host, &mut self.ui, each);
+            self.ui.flush();
         }
     }
 
@@ -367,6 +393,8 @@ impl Rig {
         };
         self.controller
             .on_pointer(&mut self.host, &mut self.ui, &event);
+        // The plugin hands a pointer event's canvas moves over at once.
+        self.ui.flush();
     }
 
     /// A click on one of the strip's buttons, where it is drawn now.
@@ -604,7 +632,7 @@ fn the_canvas_follows_the_strips_size() {
     rig.add(TAPER_ID);
     assert_eq!(TITLE_HEIGHT + 2 * ROW_HEIGHT + 2, rig.canvas().spec.height);
     assert_eq!(
-        HudGeometry::new(HudLayout::Column, &widths(&["1", "1"])).width,
+        HudGeometry::new(HudLayout::Column, &[6.0, 6.0]).width,
         rig.canvas().spec.width
     );
     let strips: Vec<&FakeCanvas> = rig
@@ -619,7 +647,7 @@ fn the_canvas_follows_the_strips_size() {
 
     rig.press(HudButton::Layout);
     rig.ticks(1, 0.015);
-    let line = HudGeometry::new(HudLayout::Line, &widths(&["1", "1"]));
+    let line = HudGeometry::new(HudLayout::Line, &[6.0, 6.0]);
     assert_eq!(
         line.size(),
         (rig.canvas().spec.width, rig.canvas().spec.height)
@@ -1262,6 +1290,8 @@ impl Rig {
         };
         self.controller
             .on_pointer(&mut self.host, &mut self.ui, &event);
+        // The plugin hands a pointer event's canvas moves over at once.
+        self.ui.flush();
     }
 
     fn hover(&mut self, at: (f64, f64)) {
@@ -1693,4 +1723,171 @@ fn an_item_carried_is_drawn_from_its_objects_composed_icon() {
     rig.own(item(0x8000_0077, "Lead Scarab", 3, true, SCARAB_ICON));
     rig.ticks(1, 0.6);
     assert_eq!(composed(0x8000_0077), rig.paint().images[0].0.handle);
+}
+
+impl Rig {
+    /// The strip's canvases registered so far.
+    fn strip_canvases(&self) -> usize {
+        self.ui
+            .canvases
+            .iter()
+            .filter(|canvas| canvas.spec.canvas_id == comps_hud::CANVAS_ID)
+            .count()
+    }
+}
+
+/// The count characters are measured once, before the first frame, so a
+/// strip is registered at its size at once, and a count that gains a digit
+/// replaces the canvas once.
+#[test]
+fn a_count_change_replaces_the_canvas_at_most_once() {
+    let mut rig = Rig::new();
+    rig.own(item(TAPER_ID, "Prismatic Taper", 12345, true, 0));
+    rig.add(TAPER_ID);
+    rig.ticks(3, 0.015);
+    let first = rig.strip_canvases();
+    let column = rig.controller.geometry().clone();
+    assert!(column.items[0].count.2 >= 30.0);
+    assert_eq!(column.width, rig.canvas().spec.width, "sized right at once");
+    let measured = rig.ui.measured.len();
+    assert_eq!(11, measured, "the ten digits and the minus, once");
+
+    rig.own(item(0x8000_0050, "Prismatic Taper", 90_000, true, 0));
+    for _ in 0..5 {
+        rig.ticks(1, 0.6);
+        rig.paint();
+    }
+    assert_eq!(first + 1, rig.strip_canvases(), "one replacement");
+    assert_eq!(measured, rig.ui.measured.len(), "nothing measured again");
+}
+
+/// A canvas is not replaced while a press holds it: a count that changes
+/// mid-drag waits, the strip goes on following the pointer, its place is
+/// saved on release, and the next frame gives it its new size.
+#[test]
+fn a_resize_waits_for_a_drag_to_end() {
+    let storage = SharedStorage::new();
+    let key = comps_hud::key_for("Coldeve", "Acdream");
+    let mut rig = Rig::with(storage.clone(), true);
+    rig.own(item(TAPER_ID, "Prismatic Taper", 9, true, 0));
+    rig.add(TAPER_ID);
+    rig.ticks(1, 0.015);
+    let before = rig.strip_canvases();
+    let (x, y) = rig.canvas().offset;
+    rig.event(PointerEvent::DOWN, (8.0, 20.0), 1);
+    rig.own(item(0x8000_0050, "Prismatic Taper", 99_990, true, 0));
+    rig.ticks(1, 0.6);
+    assert_eq!(before, rig.strip_canvases(), "not replaced mid-drag");
+    let (cx, cy) = rig.canvas().offset;
+    rig.event(PointerEvent::MOVE, (x + 58.0 - cx, y + 40.0 - cy), 1);
+    assert_eq!((x + 50.0, y + 20.0), rig.canvas().offset);
+    let (cx, cy) = rig.canvas().offset;
+    rig.event(PointerEvent::UP, (x + 58.0 - cx, y + 40.0 - cy), 1);
+    assert!(
+        storage
+            .get(&key)
+            .unwrap()
+            .contains(&format!("\"X\": {}", x + 50.0))
+    );
+    rig.ticks(1, 0.015);
+    assert_eq!(before + 1, rig.strip_canvases());
+    assert_eq!((x + 50.0, y + 20.0), rig.canvas().offset);
+}
+
+/// A canvas replaced while its tip shows takes the tip down: the old
+/// canvas's leave never comes.
+#[test]
+fn replacing_the_canvas_takes_the_tip_down() {
+    let mut rig = Rig::new();
+    rig.own(item(TAPER_ID, "Prismatic Taper", 9, true, 0));
+    rig.add(TAPER_ID);
+    rig.ticks(1, 0.015);
+    let cell = rig.controller.geometry().items[0].cell;
+    rig.hover(centre(cell));
+    assert!(rig.tip_canvas().visible);
+    rig.own(item(0x8000_0050, "Prismatic Taper", 99_990, true, 0));
+    rig.ticks(1, 0.6);
+    assert_eq!(None, rig.tip_text());
+    assert!(!rig.tip_canvas().visible);
+}
+
+/// A list that does not read whole, whose copy aside cannot be written,
+/// is not written over: not by a change, nor by the recount filling in an
+/// icon.
+#[test]
+fn a_bad_list_is_not_written_over_when_its_copy_fails() {
+    let storage = SharedStorage::new();
+    let key = comps_hud::key_for("Coldeve", "Acdream");
+    let half = "{ \"X\": \"far\", \"Entries\": [ { \"Name\": \"Lead Scarab\", \"IconId\": 0 } ] }";
+    storage.insert(&key, half);
+    storage.refuse_writes(&mosstank_stores::recovery::recovery_key(
+        comps_hud::RECOVERY_FAMILY,
+        &key,
+        half,
+    ));
+    let mut rig = Rig::with(storage.clone(), true);
+    rig.own(item(SCARAB_ID, "Lead Scarab", 3, true, SCARAB_ICON));
+    rig.ticks(1, 0.015);
+    rig.ticks(1, 0.6);
+    assert_eq!(SCARAB_ICON, rig.controller.entries()[0].icon_id);
+    assert!(rig.logged("not saved over"));
+    rig.own(item(TAPER_ID, "Prismatic Taper", 1, true, 0));
+    rig.add(TAPER_ID);
+    assert_eq!(Some(half.to_owned()), storage.get(&key));
+}
+
+/// The session's end lets go of the bare and the composed icons as well
+/// as the font.
+#[test]
+fn the_icons_are_let_go_at_the_sessions_end() {
+    let mut rig = Rig::new();
+    rig.ui.client_art.insert(TAPER_ICON);
+    rig.ui.object_art.insert(SCARAB_ID);
+    rig.own(item(SCARAB_ID, "Lead Scarab", 3, true, SCARAB_ICON));
+    rig.add(SCARAB_ID);
+    rig.controller
+        .add(&mut rig.host, "Prismatic Taper", TAPER_ICON)
+        .unwrap();
+    rig.ticks(1, 0.6);
+    let painted = rig.paint();
+    assert_eq!(2, painted.images.len());
+    rig.controller.reset(&mut rig.ui);
+    let released: Vec<u32> = rig.ui.released.iter().map(|image| image.handle).collect();
+    assert!(released.contains(&composed(SCARAB_ID)), "{released:?}");
+    assert!(released.contains(&TAPER_ICON), "{released:?}");
+}
+
+/// A kept place far off the screen (a damaged file) comes back within
+/// reach, and the tip beside it is placed without overflowing.
+#[test]
+fn a_far_off_place_comes_back_and_its_tip_does_not_overflow() {
+    let storage = SharedStorage::new();
+    let key = comps_hud::key_for("Coldeve", "Acdream");
+    storage.insert(
+        &key,
+        "{ \"X\": 2147483647, \"Y\": 2147483647, \"Layout\": \"Line\", \"Entries\": [ { \"Name\": \"Lead Scarab\" } ] }",
+    );
+    let mut rig = Rig::with(storage, true);
+    rig.ticks(1, 0.015);
+    assert_eq!(
+        (comps_hud::MAX_PLACE, comps_hud::MAX_PLACE),
+        rig.controller.position()
+    );
+    let geometry = rig.controller.geometry().clone();
+    let tip = comps_hud::tip::place(
+        (i32::MAX, i32::MAX),
+        &geometry,
+        geometry.items[0].cell,
+        "Lead Scarab",
+    );
+    assert!(tip.offset.0 > 0 && tip.offset.1 > 0);
+    let tip = comps_hud::tip::place(
+        (i32::MAX, 0),
+        &HudGeometry::new(HudLayout::Column, &[6.0]),
+        geometry.items[0].cell,
+        "Lead Scarab",
+    );
+    assert!(tip.offset.0 > 0);
+    rig.hover(centre(geometry.items[0].cell));
+    assert_eq!(Some("Lead Scarab"), rig.tip_text());
 }

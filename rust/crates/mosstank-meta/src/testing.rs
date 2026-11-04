@@ -91,6 +91,11 @@ impl SharedStorage {
         self.inner.borrow_mut().insert(key, content);
     }
 
+    /// Makes every write to one key fail.
+    pub fn refuse_writes(&self, key: &str) {
+        self.inner.borrow_mut().unwritable.push(key.to_owned());
+    }
+
     /// Every key.
     #[must_use]
     pub fn keys(&self) -> Vec<String> {

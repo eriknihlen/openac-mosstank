@@ -60,12 +60,25 @@ pub fn place(strip: (i32, i32), geometry: &HudGeometry, target: HudRect, text: &
     #[allow(clippy::cast_possible_truncation)]
     let (target_x, target_y) = (target.0.round() as i32, target.1.round() as i32);
     #[allow(clippy::cast_possible_truncation)]
-    let middle = target_y + ((target.3.round() as i32) - TIP_HEIGHT) / 2;
+    let middle = target_y.saturating_add(((target.3.round() as i32) - TIP_HEIGHT) / 2);
+    // Saturating: a place read from a damaged file can be anything.
+    let beside = y.saturating_add(middle);
     let (offset, right_aligned) = match geometry.layout {
-        HudLayout::Column if x >= TIP_WIDTH + GAP => ((x - GAP - TIP_WIDTH, y + middle), true),
-        HudLayout::Column => ((x + geometry.width + GAP, y + middle), false),
-        HudLayout::Line if y >= TIP_HEIGHT + GAP => ((x + target_x, y - GAP - TIP_HEIGHT), false),
-        HudLayout::Line => ((x + target_x, y + geometry.height + GAP), false),
+        HudLayout::Column if x >= TIP_WIDTH + GAP => ((x - GAP - TIP_WIDTH, beside), true),
+        HudLayout::Column => (
+            (x.saturating_add(geometry.width).saturating_add(GAP), beside),
+            false,
+        ),
+        HudLayout::Line if y >= TIP_HEIGHT + GAP => {
+            ((x.saturating_add(target_x), y - GAP - TIP_HEIGHT), false)
+        }
+        HudLayout::Line => (
+            (
+                x.saturating_add(target_x),
+                y.saturating_add(geometry.height).saturating_add(GAP),
+            ),
+            false,
+        ),
     };
     Tip {
         text: text.to_owned(),

@@ -110,6 +110,12 @@ pub trait MapUi {
     }
     /// Lets go of a font.
     fn release_font(&mut self, _font: MapFont) {}
+    /// How big a line of text is in one of the plugin's fonts (no font: the
+    /// interface font), width and height; `None` from a view that cannot
+    /// ask the client now.
+    fn measure_text_in(&mut self, _font: MapFont, _text: &str) -> Option<(f64, f64)> {
+        None
+    }
 }
 
 /// What the paint draws with (`IPluginPainter`): pixels from the canvas's

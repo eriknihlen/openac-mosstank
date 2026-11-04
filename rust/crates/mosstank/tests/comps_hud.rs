@@ -546,3 +546,46 @@ fn the_usage_names_the_layouts() {
     ));
     world.disable(p);
 }
+
+/// A move and the release in one frame: the host measures the release
+/// from where the plugin last put the canvas, so the move's new place goes
+/// to the host before the release comes, and the step is not counted
+/// twice (canvas at 200, grab at 10, a move to 240 puts it at 230; the
+/// release at 241 then lands it at 231, not 261).
+#[test]
+fn a_move_and_a_release_in_one_frame_land_where_the_pointer_is() {
+    let (mut world, mut plugin) = carrying();
+    let p = &mut plugin;
+    world.vt(p, "compshud on");
+    world.ticks(p, 2);
+    let (id, ..) = canvas(&world).unwrap();
+    let screen = |world: &World, at: (f32, f32)| {
+        // As the host reports it: from where it has the canvas now.
+        let (x, y) = offset(world, "comps-hud").unwrap();
+        (at.0 - x, at.1 - y)
+    };
+    let send = |world: &mut World, p: &mut MossTank, kind: u8, at: (f32, f32)| {
+        world.send(
+            p,
+            Event::Ui(UiEvent::Pointer(PointerEvent {
+                canvas: id,
+                kind,
+                x: at.0,
+                y: at.1,
+                button: 1,
+                modifiers: 0,
+                wheel_delta: 0,
+            })),
+        );
+    };
+    assert_eq!(Some((200.0, 150.0)), offset(&world, "comps-hud"));
+    send(&mut world, p, PointerEvent::DOWN, (10.0, 20.0));
+    let at = screen(&world, (240.0, 170.0));
+    send(&mut world, p, PointerEvent::MOVE, at);
+    let at = screen(&world, (241.0, 170.0));
+    send(&mut world, p, PointerEvent::UP, at);
+    assert_eq!(Some((231.0, 150.0)), offset(&world, "comps-hud"));
+    world.ticks(p, 2);
+    assert_eq!(Some((231.0, 150.0)), offset(&world, "comps-hud"));
+    world.disable(p);
+}

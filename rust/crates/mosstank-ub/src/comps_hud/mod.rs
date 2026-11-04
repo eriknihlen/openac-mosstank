@@ -19,7 +19,8 @@
 //! warn levels), the layout and the strip's place are kept for each
 //! character ([`document`]); whether the HUD is on is kept once for every
 //! character. A kept list that does not read whole is copied aside before
-//! it is written again; one whose file cannot be read is not written over.
+//! it is written again, and not written over when the copy fails; one
+//! whose file cannot be read is not written over either.
 //!
 //! A count is every object the character owns, in a pack or worn, whose
 //! name is the listed name exactly, adding its stack size, or one for an
@@ -71,8 +72,12 @@ pub const CHARACTER_PREFIX: &str = "comps-hud/characters/";
 /// The family a list that did not read is kept aside under
 /// (`recovery/comps-hud/...`).
 pub const RECOVERY_FAMILY: &str = "comps-hud";
-/// The most measured count widths kept for one font.
-const MEASURED_LIMIT: usize = 64;
+/// The characters a count is drawn with: the ten digits and the minus
+/// sign (a count below zero, or an empty list's dash).
+const COUNT_CHARACTERS: [char; 11] = ['0', '1', '2', '3', '4', '5', '6', '7', '8', '9', '-'];
+/// The farthest from the screen's top-left a kept place may stand: a far
+/// larger one (a damaged file) comes back where it can be seen.
+pub const MAX_PLACE: i32 = 16_384;
 
 /// One item the HUD counts: the name it is counted by, the icon it is shown
 /// with, and the count below which it warns.
@@ -126,8 +131,9 @@ pub struct ComponentHudController {
     /// The bundled font, once asked for (none: refused, or not asked yet).
     font: MapFont,
     font_asked: bool,
-    /// Each count's width as drawn in the font in use, by its text.
-    measured: HashMap<String, f64>,
+    /// Each of [`COUNT_CHARACTERS`]' width in the font in use, measured once
+    /// per font: a count's width is the sum of its characters'.
+    character_widths: Option<[f64; 11]>,
     entries: Vec<ComponentHudEntry>,
     counts: Vec<i32>,
     /// The strip laid out for the list, layout and widths as they stand;
@@ -177,7 +183,7 @@ impl ComponentHudController {
             style: HudStyle::classic(),
             font: MapFont::default(),
             font_asked: false,
-            measured: HashMap::new(),
+            character_widths: None,
             entries: Vec::new(),
             counts: Vec::new(),
             geometry: None,
@@ -326,9 +332,9 @@ impl ComponentHudController {
     pub fn set_theme(&mut self, theme: &ThemeInfo) {
         let style = HudStyle::from_theme(theme);
         if style != self.style {
-            // Another font: every count is measured again.
+            // Another font: its characters are measured again.
             if style.themed != self.style.themed {
-                self.measured.clear();
+                self.character_widths = None;
             }
             self.style = style;
             self.reshape();
@@ -354,18 +360,48 @@ impl ComponentHudController {
             .collect()
     }
 
-    /// Each count's width: as measured in the font in use, or estimated
-    /// until it is.
+    /// Each count's width: the sum of its characters' widths in the font in
+    /// use, or estimated until they are measured.
     fn count_widths(&self) -> Vec<f64> {
         self.count_texts()
             .iter()
-            .map(|text| {
-                self.measured
-                    .get(text)
-                    .copied()
-                    .unwrap_or_else(|| layout::estimated_width(text))
-            })
+            .map(|text| self.text_width(text))
             .collect()
+    }
+
+    fn text_width(&self, text: &str) -> f64 {
+        let Some(widths) = &self.character_widths else {
+            return layout::estimated_width(text);
+        };
+        text.chars()
+            .map(|character| {
+                COUNT_CHARACTERS
+                    .iter()
+                    .position(|known| *known == character)
+                    .map_or(f64::from(layout::DIGIT_WIDTH), |index| widths[index])
+            })
+            .sum()
+    }
+
+    /// Measures the characters counts are drawn with, once per font, so a
+    /// count of any size is laid out right the first time (and the canvas
+    /// sized once). Called before each frame with a view that can ask the
+    /// client; a view that cannot leaves the estimate.
+    pub fn prepare_metrics(&mut self, ui: &mut dyn MapUi) {
+        if self.character_widths.is_some() || !self.enabled {
+            return;
+        }
+        let font = self.font(ui);
+        let mut widths = [0.0; 11];
+        for (width, character) in widths.iter_mut().zip(COUNT_CHARACTERS) {
+            let Some((measured, _)) = ui.measure_text_in(font, character.encode_utf8(&mut [0; 4]))
+            else {
+                return;
+            };
+            *width = measured;
+        }
+        self.character_widths = Some(widths);
+        self.reshape();
     }
 
     /// The strip's shape may have changed: lay it out again and repaint.
@@ -405,7 +441,12 @@ impl ComponentHudController {
                 self.refresh(host);
             }
         }
-        if visible && (self.canvas.is_none() || self.geometry().size() != self.canvas_size) {
+        // A new size waits for a press to end: the canvas taking a press
+        // goes with its replacement, and its release with it.
+        if visible
+            && (self.canvas.is_none()
+                || (self.press.is_none() && self.geometry().size() != self.canvas_size))
+        {
             self.register(ui);
         }
         if visible && self.tip_canvas.is_none() {
@@ -578,20 +619,25 @@ impl ComponentHudController {
         true
     }
 
-    /// The session ended: the interface's images went with it, the font is
-    /// let go, the Edit items window closes, and the next login binds its
-    /// own list.
+    /// The session ended: the icons and the font are let go, the Edit items
+    /// window closes, and the next login binds its own list.
     pub fn reset(&mut self, ui: &mut dyn MapUi) {
+        for id in self.icon_order.drain(..) {
+            if let Some(icon) = self.icons.remove(&id) {
+                ui.release_image(icon);
+            }
+        }
         self.icons.clear();
-        self.icon_order.clear();
-        self.object_icons.clear();
+        for (_, icon) in self.object_icons.drain() {
+            ui.release_image(icon);
+        }
         self.drawn_objects.clear();
         if self.font.is_valid() {
             ui.release_font(self.font);
         }
         self.font = MapFont::default();
         self.font_asked = false;
-        self.measured.clear();
+        self.character_widths = None;
         self.press = None;
         self.scope = None;
         self.key = None;
@@ -748,11 +794,11 @@ impl ComponentHudController {
     }
 
     /// Stands the strip at a place, never past the screen's top or left
-    /// edge (a plugin cannot learn the screen's size, so not its right or
-    /// bottom one).
+    /// edge, nor farther off than [`MAX_PLACE`] (a plugin cannot learn the
+    /// screen's size, so not exactly its right or bottom one).
     fn place(&mut self, x: i32, y: i32) {
-        self.x = x.max(0);
-        self.y = y.max(0);
+        self.x = x.clamp(0, MAX_PLACE);
+        self.y = y.clamp(0, MAX_PLACE);
     }
 
     fn offset(&self) -> (f64, f64) {
@@ -790,9 +836,10 @@ impl ComponentHudController {
     /// Reads the character's list, layout and place. No file starts an
     /// empty column at the default place. A file that does not read whole
     /// gives what it can, is copied aside (`recovery/comps-hud/...`) and
-    /// said in the log, and the next change writes the list over it. A
-    /// file the storage cannot read is said in the log and left alone:
-    /// nothing is saved over it this session.
+    /// said in the log, and the next change writes the list over it; when
+    /// the copy cannot be made, nothing is saved over it this session. A
+    /// file the storage cannot read is said in the log and left alone the
+    /// same way.
     fn load(&mut self, host: &mut dyn UbHost) {
         let Some(key) = self.key.clone() else {
             return;
@@ -824,14 +871,22 @@ impl ComponentHudController {
             Err(error) => (None, Some(error)),
         };
         if let Some(problem) = problem {
-            let notice = recovery::preserve(
+            let preserved = recovery::preserve_reporting(
                 &mut HudStores(&mut *host),
                 RECOVERY_FAMILY,
                 &key,
                 Some(&text),
                 &problem,
             );
-            host.log(LogLevel::Warn, &format!("Comps HUD: {notice}"));
+            host.log(LogLevel::Warn, &format!("Comps HUD: {}", preserved.notice));
+            // No copy aside: the original is the only one, and stays.
+            if !preserved.kept {
+                self.save_blocked = true;
+                host.log(
+                    LogLevel::Warn,
+                    "The Comps HUD could not keep a copy of this character's list, so it is not saved over until the next login.",
+                );
+            }
         }
         let Some(document) = document else {
             return;
@@ -914,6 +969,8 @@ impl ComponentHudController {
     /// Registers the canvas at the strip's size; the host sizes a canvas
     /// once, so a strip that grew or shrank takes a new one in its place.
     fn register(&mut self, ui: &mut dyn MapUi) {
+        // The old canvas's leave never comes once it is gone.
+        self.hide_tip();
         if let Some(canvas) = self.canvas.take() {
             ui.remove_canvas(canvas);
         }
@@ -1041,32 +1098,10 @@ impl ComponentHudController {
         self.font
     }
 
-    /// Measures every count not measured yet in the font in use; a width
-    /// that differs from what the strip was laid out with lays it out
-    /// again (and the next frame gives it a canvas of that size).
-    fn measure(&mut self, painter: &mut dyn MapPainter, font: MapFont) {
-        if self.measured.len() > MEASURED_LIMIT {
-            self.measured.clear();
-        }
-        let mut changed = false;
-        for text in self.count_texts() {
-            if self.measured.contains_key(&text) {
-                continue;
-            }
-            let (width, _) = painter.measure_text_in(font, &text);
-            changed |= (width - layout::estimated_width(&text)).abs() > f64::EPSILON;
-            self.measured.insert(text, width);
-        }
-        if changed {
-            self.reshape();
-        }
-    }
-
     /// The strip in the theme's look: the face, each item's icon and count,
     /// and the buttons.
     pub fn paint(&mut self, painter: &mut dyn MapPainter, ui: &mut dyn MapUi) {
         let font = self.font(ui);
-        self.measure(painter, font);
         let texts = self.count_texts();
         self.release_stale_object_icons(ui);
         let icons: Vec<MapImage> = (0..self.entries.len())

@@ -272,6 +272,16 @@ impl MapUi for PaintUi<'_, '_, '_> {
     fn release_font(&mut self, font: MapFont) {
         self.client.borrow_mut().font_release(font);
     }
+
+    fn measure_text_in(&mut self, font: MapFont, text: &str) -> Option<(f64, f64)> {
+        let mut client = self.client.borrow_mut();
+        let (w, h) = if font.is_valid() {
+            client.font_measure(font, text)
+        } else {
+            client.measure_text(text)
+        };
+        Some((f64::from(w), f64::from(h)))
+    }
 }
 
 /// [`MapPainter`] that keeps the commands for the client; text is measured
