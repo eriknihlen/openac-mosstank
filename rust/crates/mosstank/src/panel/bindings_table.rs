@@ -3,7 +3,7 @@
 //! bindings each window's markup names, as [`super::schema::bindings`]
 //! reads them, so the plugin's start does not parse the markup.
 
-use ac_plugin_abi::ui::BindingKind as K;
+use ac_plugin_abi::ui::TypedBindingKind as K;
 
 /// The bindings of the window with this id, in first-use order.
 pub(super) fn of(window_id: &str) -> Option<&'static [(&'static str, K)]> {
@@ -256,6 +256,13 @@ pub(super) fn of(window_id: &str) -> Option<&'static [(&'static str, K)]> {
             ("AddSelectedConsumable", K::Action),
             ("AddAllPeas", K::Action),
             ("RemoveSelectedConsumable", K::Action),
+            ("CompsHudShown", K::Bool),
+            ("SetCompsHudShown", K::BoolAction),
+            ("CompsHudLayoutIndex", K::Int),
+            ("SetCompsHudLayout", K::IntAction),
+            ("ShowCompsHudEditor", K::Action),
+            ("CompsHudSummary", K::Text),
+            ("AddConsumableToCompsHud", K::Action),
             ("AddSelectedComponent", K::Action),
             ("ProfileNotice", K::Text),
             ("BuffsVisible", K::Bool),
@@ -662,6 +669,36 @@ pub(super) fn of(window_id: &str) -> Option<&'static [(&'static str, K)]> {
             ("UbDungeonHeight", K::Float),
             ("SetUbDungeonHeight", K::FloatAction),
             ("UbDungeonStatusText", K::Text),
+        ],
+        "comps-hud" => &[
+            ("CompsHudEditorVisible", K::Bool),
+            ("CompsHudCarriedHeading", K::Text),
+            ("CompsHudSearch", K::Text),
+            ("SetCompsHudSearch", K::TextAction),
+            ("CompsHudKindNames", K::TextList),
+            ("CompsHudKind", K::Text),
+            ("SelectCompsHudKind", K::TextAction),
+            ("SelectedCompsHudCarriedIndex", K::Int),
+            ("SelectCompsHudCarriedRow", K::IntAction),
+            ("CompsHudCarriedListed", K::BoolList),
+            ("ToggleCompsHudCarriedAt", K::IntAction),
+            ("CompsHudCarriedIcons", K::UintList),
+            ("CompsHudCarriedNames", K::TextList),
+            ("CompsHudCarriedCounts", K::TextList),
+            ("AddSelectedToCompsHud", K::Action),
+            ("CompsHudEditorNotice", K::Text),
+            ("CompsHudRowsHeading", K::Text),
+            ("SelectedCompsHudRowIndex", K::Int),
+            ("SelectCompsHudRow", K::IntAction),
+            ("CompsHudRowIcons", K::UintList),
+            ("CompsHudRowNames", K::TextList),
+            ("CompsHudRowWarns", K::TextList),
+            ("CompsHudSelectedWarn", K::Int),
+            ("SetCompsHudSelectedWarn", K::IntAction),
+            ("MoveCompsHudRowUp", K::Action),
+            ("MoveCompsHudRowDown", K::Action),
+            ("RemoveCompsHudRow", K::Action),
+            ("HideCompsHudEditor", K::Action),
         ],
         _ => return None,
     })

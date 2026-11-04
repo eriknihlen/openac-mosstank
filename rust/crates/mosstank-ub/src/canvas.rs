@@ -16,6 +16,10 @@ pub const POINTER_MOVE: u8 = 2;
 pub const POINTER_WHEEL: u8 = 3;
 /// A press the host cancelled.
 pub const POINTER_CANCELLED: u8 = 4;
+/// The pointer over the canvas with no button held (plugin API 1.6).
+pub const POINTER_HOVER: u8 = ac_plugin_abi::ui::PointerEvent::HOVER;
+/// The pointer no longer over the canvas after a hover (plugin API 1.6).
+pub const POINTER_LEAVE: u8 = ac_plugin_abi::ui::PointerEvent::LEAVE;
 /// The left button (`PointerEvent::button`).
 pub const BUTTON_LEFT: u8 = 1;
 /// Shift held (`PointerEvent::modifiers`).
@@ -33,6 +37,28 @@ pub struct MapImage {
 }
 
 impl MapImage {
+    /// The client issued it.
+    #[must_use]
+    pub fn is_valid(self) -> bool {
+        self.handle != 0
+    }
+}
+
+/// A font at one size the client holds for the plugin (handle 0: none, the
+/// interface font). Its metrics are canvas pixels.
+#[derive(Debug, Clone, Copy, PartialEq, Default)]
+pub struct MapFont {
+    /// The client's number for it.
+    pub handle: u32,
+    /// The size prepared.
+    pub pixel_size: f32,
+    /// How far apart two lines sit.
+    pub line_height: f32,
+    /// How far below the top of a line the baseline sits.
+    pub ascent: f32,
+}
+
+impl MapFont {
     /// The client issued it.
     #[must_use]
     pub fn is_valid(self) -> bool {
@@ -77,6 +103,19 @@ pub trait MapUi {
     fn client_art(&mut self, surface_id: u32) -> MapImage;
     /// Lets go of an image.
     fn release_image(&mut self, image: MapImage);
+    /// The client's bundled font (the one themed windows are set in) at a
+    /// size, or no font: a view that cannot ask the client now has none.
+    fn bundled_font(&mut self, _pixel_size: f32) -> MapFont {
+        MapFont::default()
+    }
+    /// Lets go of a font.
+    fn release_font(&mut self, _font: MapFont) {}
+    /// How big a line of text is in one of the plugin's fonts (no font: the
+    /// interface font), width and height; `None` from a view that cannot
+    /// ask the client now.
+    fn measure_text_in(&mut self, _font: MapFont, _text: &str) -> Option<(f64, f64)> {
+        None
+    }
 }
 
 /// What the paint draws with (`IPluginPainter`): pixels from the canvas's
@@ -98,6 +137,25 @@ pub trait MapPainter {
     fn draw_text(&mut self, text: &str, at: (f64, f64), color: &Color, outline: bool);
     /// How big a line of text is: width and height.
     fn measure_text(&mut self, text: &str) -> (f64, f64);
+    /// One line of text in one of the plugin's fonts; no font is the
+    /// interface font.
+    fn draw_text_in(
+        &mut self,
+        font: MapFont,
+        text: &str,
+        at: (f64, f64),
+        color: &Color,
+        outline: bool,
+    ) {
+        let _ = font;
+        self.draw_text(text, at, color, outline);
+    }
+    /// How big a line of text is in one of the plugin's fonts: width and
+    /// height; no font is the interface font.
+    fn measure_text_in(&mut self, font: MapFont, text: &str) -> (f64, f64) {
+        let _ = font;
+        self.measure_text(text)
+    }
     /// An image stretched over a rectangle (x, y, width, height), tinted.
     fn draw_image(&mut self, image: MapImage, rect: (f64, f64, f64, f64), tint: &Color);
     /// Clips what follows to a rectangle.

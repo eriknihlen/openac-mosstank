@@ -1,11 +1,11 @@
-//! The windows' markup, read as the C# tests read it: the same twelve files
+//! The windows' markup, read as the C# tests read it: the same thirteen files
 //! the plugin registers, checked for the layout and binding rules the C#
 //! markup contract holds them to.
 
 use mosstank::panel::{WINDOWS, schema};
 use roxmltree::{Document, Node};
 
-use ac_plugin_abi::ui::BindingKind;
+use ac_plugin_abi::ui::TypedBindingKind;
 
 fn markup(file: &str) -> &'static str {
     let id = match file {
@@ -21,6 +21,7 @@ fn markup(file: &str) -> &'static str {
         "mosstank-ub-map.xml" => "ub-map",
         "mosstank-ub-clients.xml" => "ub-clients",
         "mosstank-ub-dungeon.xml" => "ub-dungeon",
+        "mosstank-comps-hud.xml" => "comps-hud",
         other => panic!("no window reads {other}"),
     };
     WINDOWS
@@ -31,10 +32,11 @@ fn markup(file: &str) -> &'static str {
 }
 
 /// Every markup file, by its file name.
-const FILES: [&str; 12] = [
+const FILES: [&str; 13] = [
     "mosstank-action-history.xml",
     "mosstank-advanced.xml",
     "mosstank-buffpicker.xml",
+    "mosstank-comps-hud.xml",
     "mosstank-loot-editor.xml",
     "mosstank-metaeditor.xml",
     "mosstank-remote.xml",
@@ -98,11 +100,11 @@ fn text<'a>(node: Node<'a, '_>) -> &'a str {
 }
 
 /// The kind the plugin registers for a binding of this window.
-fn kinds(file: &str) -> Vec<(String, BindingKind)> {
+fn kinds(file: &str) -> Vec<(String, TypedBindingKind)> {
     schema::bindings(markup(file)).unwrap()
 }
 
-fn kind(kinds: &[(String, BindingKind)], binding: &str) -> BindingKind {
+fn kind(kinds: &[(String, TypedBindingKind)], binding: &str) -> TypedBindingKind {
     kinds
         .iter()
         .find(|(name, _)| name == binding)
@@ -199,18 +201,24 @@ fn sibling_overlaps(container: Node<'_, '_>) -> Vec<String> {
 /// The handler kinds the client's retained UI calls an element's handler
 /// attributes with (`Action`, `Action<int>`, `Action<float>`,
 /// `Action<string>`); mismatches named.
-fn delegate_shape_mismatches(node: Node<'_, '_>, kinds: &[(String, BindingKind)]) -> Vec<String> {
-    let mut expected: Vec<(&str, BindingKind)> = Vec::new();
+fn delegate_shape_mismatches(
+    node: Node<'_, '_>,
+    kinds: &[(String, TypedBindingKind)],
+) -> Vec<String> {
+    let mut expected: Vec<(&str, TypedBindingKind)> = Vec::new();
     if name(node) == "column" {
-        expected.push(("onchange", BindingKind::IntAction));
-        expected.push(("onclick", BindingKind::IntAction));
+        expected.push(("onchange", TypedBindingKind::IntAction));
+        expected.push(("onclick", TypedBindingKind::IntAction));
     } else {
-        expected.push(("onclick", BindingKind::Action));
-        expected.push(("onsubmit", BindingKind::TextAction));
+        expected.push(("onclick", TypedBindingKind::Action));
+        expected.push(("onsubmit", TypedBindingKind::TextAction));
         match name(node) {
-            "field" | "menu" => expected.push(("onchange", BindingKind::TextAction)),
-            "slider" => expected.push(("onchange", BindingKind::FloatAction)),
-            "list" => expected.push(("onchange", BindingKind::IntAction)),
+            "field" | "menu" => expected.push(("onchange", TypedBindingKind::TextAction)),
+            "slider" => expected.push(("onchange", TypedBindingKind::FloatAction)),
+            "list" | "radio" | "number" => {
+                expected.push(("onchange", TypedBindingKind::IntAction));
+            }
+            "checkbox" => expected.push(("onchange", TypedBindingKind::BoolAction)),
             _ => {}
         }
     }
@@ -325,7 +333,7 @@ fn every_interactive_binding_matches_the_retained_ui_delegate_shape() {
 fn a_columns_onchange_and_onclick_are_row_actions() {
     let good = r#"<panel w="100" h="100"><list x="0" y="0" w="100" h="100" items="{Rows}"><column type="check" onchange="{RowAction}" /></list></panel>"#;
     let kinds = schema::bindings(good).unwrap();
-    assert_eq!(kind(&kinds, "RowAction"), BindingKind::IntAction);
+    assert_eq!(kind(&kinds, "RowAction"), TypedBindingKind::IntAction);
     let document = Document::parse(good).unwrap();
     let column = descendants_named(document.root_element(), "column")
         .next()
@@ -338,7 +346,7 @@ fn a_columns_onchange_and_onclick_are_row_actions() {
     let column = descendants_named(document.root_element(), "column")
         .next()
         .unwrap();
-    let kinds = vec![("PlainAction".to_owned(), BindingKind::Action)];
+    let kinds = vec![("PlainAction".to_owned(), TypedBindingKind::Action)];
     assert_eq!(delegate_shape_mismatches(column, &kinds).len(), 1);
 }
 
@@ -562,7 +570,7 @@ fn the_colour_page_has_a_swatch_bound_to_a_colour_shaped_value() {
     assert!(
         matches!(
             kind,
-            BindingKind::Uint | BindingKind::Int | BindingKind::Text
+            TypedBindingKind::Uint | TypedBindingKind::Int | TypedBindingKind::Text
         ),
         "{kind:?}"
     );
@@ -656,6 +664,7 @@ fn secondary_windows_fit_their_own_bounds_and_every_binding_resolves() {
         ("mosstank-ub-map.xml", 320.0, 76.0),
         ("mosstank-ub-clients.xml", 268.0, 200.0),
         ("mosstank-ub-dungeon.xml", 320.0, 96.0),
+        ("mosstank-comps-hud.xml", 540.0, 316.0),
     ];
     for file in FILES.iter().filter(|file| **file != "mosstank.xml") {
         let (_, width, height) = bounds
@@ -1049,4 +1058,208 @@ fn every_tool_button_on_the_ub_page_binds_its_caption_and_its_colour() {
             "{exit}"
         );
     }
+}
+
+/// The one descendant of `parent` that is a `tag` whose `attribute` reads
+/// `value`.
+fn only<'a, 'i>(
+    parent: Node<'a, 'i>,
+    tag: &'static str,
+    attribute: &str,
+    value: &str,
+) -> Node<'a, 'i> {
+    let found: Vec<_> = descendants_named(parent, tag)
+        .filter(|node| attr(*node, attribute) == Some(value))
+        .collect();
+    assert_eq!(found.len(), 1, "<{tag} {attribute}=\"{value}\">");
+    found[0]
+}
+
+/// The kind the plugin registers for the binding an attribute names.
+fn bound(
+    kinds: &[(String, TypedBindingKind)],
+    node: Node<'_, '_>,
+    attribute: &str,
+) -> TypedBindingKind {
+    let expression =
+        attr(node, attribute).unwrap_or_else(|| panic!("<{}> has no {attribute}", name(node)));
+    kind(kinds, binding_name(expression))
+}
+
+/// The Consumables page carries the Comps HUD's box between its two lists:
+/// Show HUD as a checkbox over the shared switch, the layout as a
+/// two-button bar (Column, Line) showing the current one, Edit items, and a
+/// one-line summary the window cuts to fit; Add to HUD stands beside
+/// Remove, on the same row and anchored to the same edge.
+#[test]
+fn the_consumables_page_has_the_comps_hud_box_and_add_to_hud() {
+    let document = document("mosstank.xml");
+    let kinds = kinds("mosstank.xml");
+    let group = page(document.root_element(), "ConsumablesVisible");
+
+    let show = only(group, "checkbox", "text", "Show HUD");
+    assert_eq!(bound(&kinds, show, "checked"), TypedBindingKind::Bool);
+    assert_eq!(
+        bound(&kinds, show, "onchange"),
+        TypedBindingKind::BoolAction
+    );
+    let box_group = show.parent_element().unwrap();
+    assert_eq!(name(box_group), "group");
+    assert!(attr(box_group, "border").is_some() && attr(box_group, "background").is_some());
+
+    let layout = only(group, "radio", "items", "Column|Line");
+    assert_eq!(attr(layout, "style"), Some("segmented"));
+    assert_eq!(attr(layout, "orientation"), Some("horizontal"));
+    assert_eq!(bound(&kinds, layout, "selected"), TypedBindingKind::Int);
+    assert_eq!(
+        bound(&kinds, layout, "onchange"),
+        TypedBindingKind::IntAction
+    );
+    assert_eq!(layout.parent_element(), Some(box_group));
+
+    let edit = only(group, "button", "text", "Edit items...");
+    assert_eq!(bound(&kinds, edit, "onclick"), TypedBindingKind::Action);
+    assert_eq!(edit.parent_element(), Some(box_group));
+
+    let summary = only(group, "label", "text", "{CompsHudSummary}");
+    let line = summary.parent_element().unwrap();
+    assert_eq!(
+        attr(line, "layout"),
+        Some("row"),
+        "the summary is cut to fit"
+    );
+    assert_eq!(line.parent_element(), Some(box_group));
+    assert_eq!(attr(summary, "grow"), Some("1"));
+
+    // Between the consumables list and the excluded scarabs.
+    let lists: Vec<_> = named(group, "list").collect();
+    let (consumables, scarabs) = (lists[0], lists[1]);
+    assert!(number(box_group, "x") >= number(consumables, "x") + number(consumables, "w"));
+    assert!(number(box_group, "x") + number(box_group, "w") <= number(scarabs, "x"));
+
+    let remove = only(group, "button", "onclick", "{RemoveSelectedConsumable}");
+    let add = only(group, "button", "text", "Add to HUD");
+    assert_eq!(bound(&kinds, add, "onclick"), TypedBindingKind::Action);
+    assert_eq!(number(add, "y"), number(remove, "y"));
+    assert_eq!(number(add, "h"), number(remove, "h"));
+    assert!(number(add, "x") >= number(remove, "x") + number(remove, "w"));
+    assert_eq!(attr(add, "anchor"), attr(remove, "anchor"));
+    assert!(attr(add, "tooltip").is_some_and(|tooltip| !tooltip.trim().is_empty()));
+}
+
+/// The Edit items window: on the left what the character carries, a
+/// search and a kind filter over it, each row a tick box, the icon, the
+/// name and the count, and a button for the item selected in the game; on
+/// the right the HUD's list (icon, name, warn level), the selected item's
+/// warn level as a number, and Move up, Move down, Remove and Close. Its
+/// visibility is bound.
+#[test]
+fn the_edit_items_window_lists_what_is_carried_and_what_the_hud_counts() {
+    let file = "mosstank-comps-hud.xml";
+    let document = document(file);
+    let kinds = kinds(file);
+    let root = document.root_element();
+    assert_eq!(attr(root, "theme"), Some("plugin"));
+    assert_eq!(bound(&kinds, root, "visible"), TypedBindingKind::Bool);
+
+    let lists: Vec<_> = named(root, "list").collect();
+    assert_eq!(lists.len(), 2);
+    let (carried, hud) = (lists[0], lists[1]);
+    assert!(number(carried, "x") + number(carried, "w") <= number(hud, "x"));
+
+    let columns: Vec<_> = named(carried, "column").collect();
+    let types: Vec<_> = columns
+        .iter()
+        .map(|column| attr(*column, "type").unwrap())
+        .collect();
+    assert_eq!(types, ["checkbox", "icon", "text", "text"]);
+    assert_eq!(
+        bound(&kinds, columns[0], "values"),
+        TypedBindingKind::BoolList
+    );
+    assert_eq!(
+        bound(&kinds, columns[0], "onchange"),
+        TypedBindingKind::IntAction
+    );
+    assert_eq!(
+        bound(&kinds, columns[1], "values"),
+        TypedBindingKind::UintList
+    );
+    // An object id: the composed icon, with its underlay and overlay.
+    assert_eq!(attr(columns[1], "iconkind"), Some("item"));
+    assert_eq!(attr(columns[2], "items"), Some("{CompsHudCarriedNames}"));
+    assert_eq!(attr(columns[3], "items"), Some("{CompsHudCarriedCounts}"));
+
+    // Each list's heading is bound: it says when the list is empty.
+    for (heading, list) in [
+        ("{CompsHudCarriedHeading}", carried),
+        ("{CompsHudRowsHeading}", hud),
+    ] {
+        let label = only(root, "label", "text", heading);
+        assert_eq!(bound(&kinds, label, "text"), TypedBindingKind::Text);
+        assert_eq!(number(label, "x"), number(list, "x"), "{heading}");
+        assert!(number(label, "y") < number(list, "y"), "{heading}");
+    }
+
+    let search = only(root, "field", "text", "{CompsHudSearch}");
+    assert_eq!(
+        bound(&kinds, search, "onchange"),
+        TypedBindingKind::TextAction
+    );
+    let filter = only(root, "menu", "items", "{CompsHudKindNames}");
+    assert_eq!(bound(&kinds, filter, "selected"), TypedBindingKind::Text);
+    let add = only(root, "button", "text", "Add selected item");
+    assert_eq!(bound(&kinds, add, "onclick"), TypedBindingKind::Action);
+
+    let columns: Vec<_> = named(hud, "column").collect();
+    let types: Vec<_> = columns
+        .iter()
+        .map(|column| attr(*column, "type").unwrap())
+        .collect();
+    assert_eq!(types, ["icon", "text", "text"]);
+    assert_eq!(attr(columns[0], "iconkind"), Some("item"));
+    assert_eq!(attr(columns[1], "items"), Some("{CompsHudRowNames}"));
+    assert_eq!(attr(columns[2], "items"), Some("{CompsHudRowWarns}"));
+    assert_eq!(bound(&kinds, hud, "selected"), TypedBindingKind::Int);
+
+    let warn = only(root, "number", "value", "{CompsHudSelectedWarn}");
+    assert_eq!(bound(&kinds, warn, "value"), TypedBindingKind::Int);
+    assert_eq!(bound(&kinds, warn, "onchange"), TypedBindingKind::IntAction);
+    assert_eq!(attr(warn, "min"), Some("0"));
+    for caption in ["Move up", "Move down", "Remove", "Close"] {
+        let button = only(root, "button", "text", caption);
+        assert_eq!(bound(&kinds, button, "onclick"), TypedBindingKind::Action);
+        assert!(number(button, "x") >= number(hud, "x"), "{caption}");
+        assert!(attr(button, "tooltip").is_some(), "{caption}");
+    }
+    let overlaps = sibling_overlaps(root);
+    assert!(overlaps.is_empty(), "{overlaps:#?}");
+}
+
+/// The delegate check knows the newer controls' handlers: a checkbox hands
+/// over a bool, a radio bar and a number field an int.
+#[test]
+fn the_delegate_check_knows_checkboxes_radio_bars_and_numbers() {
+    let markup = r#"<panel w="100" h="100"><checkbox x="0" y="0" w="50" h="20" checked="{On}" onchange="{SetOn}" /><radio x="0" y="20" w="50" h="20" items="a|b" selected="{Pick}" onchange="{SetPick}" /><number x="0" y="40" w="50" h="20" value="{Count}" onchange="{SetCount}" /></panel>"#;
+    let kinds = schema::bindings(markup).unwrap();
+    assert_eq!(kind(&kinds, "SetOn"), TypedBindingKind::BoolAction);
+    assert_eq!(kind(&kinds, "SetPick"), TypedBindingKind::IntAction);
+    assert_eq!(kind(&kinds, "Count"), TypedBindingKind::Int);
+    let document = Document::parse(markup).unwrap();
+    let problems: Vec<String> = document
+        .root_element()
+        .descendants()
+        .filter(Node::is_element)
+        .flat_map(|node| delegate_shape_mismatches(node, &kinds))
+        .collect();
+    assert!(problems.is_empty(), "{problems:#?}");
+
+    let wrong = vec![
+        ("On".to_owned(), TypedBindingKind::Bool),
+        ("SetOn".to_owned(), TypedBindingKind::Action),
+    ];
+    let checkbox = descendants_named(document.root_element(), "checkbox")
+        .next()
+        .unwrap();
+    assert_eq!(delegate_shape_mismatches(checkbox, &wrong).len(), 1);
 }

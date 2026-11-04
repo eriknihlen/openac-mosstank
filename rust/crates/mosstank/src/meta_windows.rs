@@ -14,7 +14,7 @@
 
 use std::collections::HashMap;
 
-use ac_plugin_abi::ui::{BindingKind, UiValue};
+use ac_plugin_abi::ui::{TypedBindingKind, UiValue};
 use mosstank_meta::host::PanelDescriptor;
 use openac_plugin::Host;
 use openac_plugin::ui::{Panel, PanelSpec};
@@ -27,7 +27,7 @@ pub const STATUS_WINDOW_ID: &str = "vtank-meta-status";
 /// The meta's windows the client holds.
 #[derive(Debug, Default)]
 pub struct MetaWindows {
-    panels: Vec<(Panel, Vec<(String, BindingKind)>)>,
+    panels: Vec<(Panel, Vec<(String, TypedBindingKind)>)>,
 }
 
 impl MetaWindows {
@@ -57,7 +57,7 @@ impl MetaWindows {
             spec = spec.off_shelf();
         }
         for (name, kind) in &bindings {
-            spec = spec.bind(name, *kind);
+            spec = spec.bind_typed(name, *kind);
         }
         let panel = host.register_panel(&spec)?;
         let id = panel.id();

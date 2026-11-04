@@ -357,6 +357,29 @@
             onclick="{AddAllPeas}" anchor="bottom" />
     <button x="306" y="189" w="104" h="25" text="Remove"
             onclick="{RemoveSelectedConsumable}" anchor="bottom" />
+    <!-- The Comps HUD: whether it shows, its layout, and the window that
+         chooses what it counts; Add to HUD puts the item selected in the
+         game on it. -->
+    <group x="424" y="28" w="136" h="147" background="theme:field|#FF0C0906"
+           border="theme:border|#FF8C7B4E">
+      <label x="6" y="4" w="124" h="16" text="Comps HUD" color="theme:text|#FFE8DEC3" />
+      <checkbox x="6" y="22" w="124" h="18" text="Show HUD" checked="{CompsHudShown}"
+                onchange="{SetCompsHudShown}" color="theme:text|#FFE8DEC3"
+                tooltip="Show the Comps HUD, for every character." />
+      <label x="6" y="44" w="124" h="16" text="Layout" color="theme:muted|#FFC7B98F" />
+      <radio x="6" y="60" w="124" h="20" items="Column|Line" selected="{CompsHudLayoutIndex}"
+             onchange="{SetCompsHudLayout}" orientation="horizontal" style="segmented"
+             tooltip="Lay the HUD out as a column, or as one line." />
+      <button x="6" y="86" w="124" h="20" text="Edit items..." onclick="{ShowCompsHudEditor}"
+              tooltip="Choose what the HUD counts, its order and the counts it warns below." />
+      <group layout="row" x="6" y="112" w="124" h="16">
+        <label grow="1" text="{CompsHudSummary}" color="theme:muted|#FFC7B98F"
+               tooltip="{CompsHudSummary}" />
+      </group>
+    </group>
+    <button x="424" y="189" w="136" h="25" text="Add to HUD"
+            onclick="{AddConsumableToCompsHud}" anchor="bottom"
+            tooltip="Put the item selected in the game on the Comps HUD." />
     <button x="566" y="189" w="176" h="24" text="Add Selected"
             onclick="{AddSelectedComponent}" anchor="right bottom" />
     <label x="566" y="213" w="176" h="16" text="{ProfileNotice}" color="theme:muted|#FF9B9072" anchor="right bottom" />

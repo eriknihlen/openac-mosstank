@@ -26,7 +26,8 @@ cargo build --workspace --target wasm32-unknown-unknown --release
 
 The SDK crates (`openac-plugin`, `openac-plugin-compat`, `ac-plugin-abi`)
 come from the openac-rust repository by git, pinned to a commit in
-`Cargo.toml`.
+`Cargo.toml`: openac-rust after v0.1.10 (plugin API 1.7, for the pointer
+hovering over a canvas), so MossTank needs client 0.1.11 or later.
 
 `scripts/check.ps1` (or `scripts/check.sh`) runs the full check: formatting,
 clippy, the tests, the WebAssembly build, the module's imports, and the
@@ -62,3 +63,36 @@ In the openac-rust launcher, on the plugins tab:
 The launcher installs it from this repository's `wasm-v` releases, checks
 them for updates, and stages the plugin disabled; enabling it is a separate
 choice on that tab.
+
+## The Comps HUD
+
+A small strip that counts the items you choose (spell components, peas,
+healing kits, anything you carry), after the comps counter of Virindi HUDs.
+Each item shows its icon (as the game draws the item you carry) and how many
+you carry, in packs or worn, counted again every 0.6 seconds. Hover over an
+item for its name, or over a button for what it does. It is drawn in your
+plugin theme (Appearance), and follows a theme change at once.
+
+- **Show it**: tick **Show HUD** in the Comps HUD box on the Consumables page,
+  or type `/vt compshud on`. The switch is the same for all your characters.
+- **Layout**: **Column** (a narrow strip, one row per item: icon, then its
+  count) or **Line** (one row: icon and count, icon and count). The strip is
+  as wide as its counts need, and resizes when a count gains or loses a digit.
+  Pick it in the box, with the strip's layout button, or with
+  `/vt compshud column` and `/vt compshud line`.
+- **Choose the items**: **Edit items...** in the box, or the pencil on the
+  strip, opens Edit items. Tick what you carry (search it by name or filter it
+  by kind) to put it on the HUD; on the right, select an item to move it up or
+  down, remove it, or set **Warn below**: its count turns red below that
+  number (0 never warns). **Add selected item** there, **Add to HUD** beside
+  Remove on the Consumables page, and `/vt compshud add` add the item
+  selected in the game. `/vt compshud remove <name>` takes one off.
+- **Move it**: drag the strip anywhere but its buttons (it follows the pointer
+  and is saved where you let go); it stops at the screen's top and left
+  edges. `/vt compshud reset` puts it back at its first place. **Hide it**:
+  its cross (this unticks Show HUD).
+- Each character keeps its own list (in order, with the warn levels), layout
+  and place. `/vt compshud` alone lists what it counts. A saved list that does
+  not read whole is copied to `recovery/comps-hud/` in MossTank's storage and
+  said in the log; it is written again only when that copy was made, and
+  otherwise left as it is for the session.

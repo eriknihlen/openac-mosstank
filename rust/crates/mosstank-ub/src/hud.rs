@@ -13,11 +13,10 @@
 //! 60 below it, so the readout comes back to that place.
 //!
 //! A drag moves the readout when the button comes up, by how far the
-//! pointer went since the press. Moving it under a held pointer would make
-//! the next positions the client reports relative to a place the readout
-//! may not have reached yet, since the client takes a new place only on
-//! its next frame; held still, every position is relative to one place. A
-//! place written elsewhere during a press is taken up when the press ends.
+//! pointer went since the press, as the C# line does (the client would let
+//! it follow the pointer: it reports each move from where the plugin last
+//! put the canvas; divergence register, UB-10). A place written elsewhere
+//! during a press is taken up when the press ends.
 //! The reference drags only with Ctrl held and moves under the pointer
 //! (divergence register, UB-10).
 //!

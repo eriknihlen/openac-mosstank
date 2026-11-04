@@ -116,16 +116,19 @@ fn two_rooms() -> Floorplan {
                 cell_id: LANDBLOCK | 0x100,
                 center: (5.0, 5.0, 0.0),
                 layer_z: 0.0,
+                ..DungeonCell::default()
             },
             DungeonCell {
                 cell_id: LANDBLOCK | 0x101,
                 center: (15.0, 5.0, 0.0),
                 layer_z: 0.0,
+                ..DungeonCell::default()
             },
             DungeonCell {
                 cell_id: LANDBLOCK | 0x102,
                 center: (5.0, 15.0, 6.0),
                 layer_z: 6.0,
+                ..DungeonCell::default()
             },
         ],
         bounds_min: (0.0, 0.0, 0.0),
@@ -576,6 +579,7 @@ fn the_pixel_origin_is_the_north_west_corner_of_the_bounds() {
             cell_id: LANDBLOCK | 0x100,
             center: (0.0, 13.0, 0.0),
             layer_z: 0.0,
+            ..DungeonCell::default()
         }],
         bounds_min: (-5.0, 3.0, 0.0),
         bounds_max: (5.0, 23.0, 0.0),
@@ -1361,11 +1365,13 @@ fn at_the_sunken_entry_only_the_current_storey_is_solid_and_labelled() {
                 cell_id: LANDBLOCK | 0x100,
                 center: (65.0, -160.0, -6.0),
                 layer_z: -6.0,
+                ..DungeonCell::default()
             },
             DungeonCell {
                 cell_id: LANDBLOCK | 0x10A,
                 center: (70.0, -125.0, 0.0),
                 layer_z: 0.0,
+                ..DungeonCell::default()
             },
         ],
         bounds_min: (50.0, -165.0, -6.0),
