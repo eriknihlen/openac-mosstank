@@ -93,5 +93,6 @@ plugin theme (Appearance), and follows a theme change at once.
   its cross (this unticks Show HUD).
 - Each character keeps its own list (in order, with the warn levels), layout
   and place. `/vt compshud` alone lists what it counts. A saved list that does
-  not read whole is copied to `recovery/comps-hud/` in MossTank's storage, and
-  said in the log, before it is written again.
+  not read whole is copied to `recovery/comps-hud/` in MossTank's storage and
+  said in the log; it is written again only when that copy was made, and
+  otherwise left as it is for the session.
