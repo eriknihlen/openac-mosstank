@@ -905,21 +905,49 @@ impl NavigationController {
                 // whether the character turns while running or halts to
                 // turn. Only a point that ends the route, or one that is not
                 // a point, stops.
-                self.advance_waypoint(automation, settings);
-                if self.once_complete || settings.waypoints.is_empty() {
-                    self.stop_movement(automation);
-                    "Once route complete.".clone_into(&mut self.voice.status);
-                    return true;
+                //
+                // A circular or linear route steps on past points already
+                // reached. A circular lap back to where it began, or a linear
+                // walk of more steps than the route has points, finds every
+                // point reached: the route holds still and the nav rule
+                // yields until something pulls the character away.
+                let lap_start = self.index;
+                let mut steps = 0;
+                loop {
+                    self.advance_waypoint(automation, settings);
+                    if self.once_complete || settings.waypoints.is_empty() {
+                        self.stop_movement(automation);
+                        "Once route complete.".clone_into(&mut self.voice.status);
+                        return true;
+                    }
+                    self.index = self.index.clamp(0, count_of(settings) - 1);
+                    index = self.index as usize;
+                    if settings.waypoints[index].kind != RouteWaypointType::Point {
+                        self.stop_movement(automation);
+                        return true;
+                    }
+                    distance = snapshot
+                        .position
+                        .horizontal_distance_metres(&settings.waypoints[index].position);
+                    if distance > bounded_minimum_distance(settings) {
+                        break;
+                    }
+                    steps += 1;
+                    let reached = match settings.mode {
+                        RouteMode::Circular => self.index == lap_start,
+                        RouteMode::Linear => steps > count_of(settings),
+                        _ => break,
+                    };
+                    if reached {
+                        self.stop_movement(automation);
+                        self.voice.status = format!(
+                            "Waypoint {}/{}: reached.",
+                            self.index + 1,
+                            settings.waypoints.len()
+                        );
+                        return false;
+                    }
                 }
-                self.index = self.index.clamp(0, count_of(settings) - 1);
-                index = self.index as usize;
-                if settings.waypoints[index].kind != RouteWaypointType::Point {
-                    self.stop_movement(automation);
-                    return true;
-                }
-                distance = snapshot
-                    .position
-                    .horizontal_distance_metres(&settings.waypoints[index].position);
             }
             self.voice.status = format!(
                 "Waypoint {}/{}: {}m",

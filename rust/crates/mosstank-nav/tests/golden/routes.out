@@ -39,15 +39,15 @@
   = 1 | Waypoint 3/3: 5.0m | door: no door in reach | idx 2
 > tick 0.05
   intent F=0 B=0 SL=0 SR=0 TL=1 TR=0 run=1 jump=0
-  = 1 | Waypoint 3/3: 0.0m | door: no door in reach | idx 2
+  = 1 | Waypoint 2/3: 5.0m | door: no door in reach | idx 1
 > query
-  = detail=[targ range 0, targ loc 0.041667, 0, 0 ] holds=0 normal=0 nothing=0 block=None rev=1 walking=0 action=0 consumed0=0 | Waypoint 3/3: 0.0m | door: no door in reach | idx 2
+  = detail=[targ range 5, targ loc 0.020833, 0, 0 ] holds=0 normal=1 nothing=0 block=None rev=1 walking=0 action=0 consumed0=0 | Waypoint 2/3: 5.0m | door: no door in reach | idx 1
 > back 1
-  = 0 | Waypoint 3/3: 0.0m | door: no door in reach | idx 2
+  = 1 | Waypoint 2/3: 5.0m | door: no door in reach | idx 2
 > query
-  = detail=[targ range 0, targ loc 0.041667, 0, 0 ] holds=0 normal=0 nothing=0 block=None rev=1 walking=0 action=0 consumed0=0 | Waypoint 3/3: 0.0m | door: no door in reach | idx 2
+  = detail=[targ range 0, targ loc 0.041667, 0, 0 ] holds=0 normal=0 nothing=0 block=None rev=1 walking=0 action=0 consumed0=0 | Waypoint 2/3: 5.0m | door: no door in reach | idx 2
 > skip 1
-  = 1 | Waypoint 3/3: 0.0m | door: no door in reach | idx 1
+  = 1 | Waypoint 2/3: 5.0m | door: no door in reach | idx 1
 > reverse
   = - | Nav backwards is False. | door: no door in reach | idx 1
 > tick 0.05

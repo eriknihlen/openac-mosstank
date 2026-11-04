@@ -309,7 +309,10 @@ fn inside_the_creep_band_the_route_walks_instead_of_asking_for_peace() {
     automation.health = (100, 100);
     automation.combat.mode = CombatMode::Melee;
     let (mut world, mut plugin) = open(automation);
-    // A waypoint one metre north: inside the creep band.
+    // A waypoint one metre north: inside the creep band, outside a 0.5 m
+    // arrival. The default 2 m arrival would have the one-point route
+    // reached, and a reached route yields to IdlePeace, as VTank's does.
+    world.vt(&mut plugin, "opt set NavCloseStopRange 0.00208333333333333");
     route_ahead(&mut world, &mut plugin, 1.0 / 240.0);
     world.act(&mut plugin, "ToggleIdlePeaceMode");
     world.act(&mut plugin, "ToggleCombat");
