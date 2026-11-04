@@ -150,6 +150,8 @@ struct FakeCanvas {
 struct FakeUi {
     canvases: Vec<FakeCanvas>,
     object_icons: HashMap<u32, MapImage>,
+    /// The images let go, by handle.
+    released: Vec<u32>,
 }
 
 impl MapUi for FakeUi {
@@ -190,7 +192,9 @@ impl MapUi for FakeUi {
             .unwrap_or_default()
     }
 
-    fn release_image(&mut self, _image: MapImage) {}
+    fn release_image(&mut self, image: MapImage) {
+        self.released.push(image.handle);
+    }
 }
 
 /// `LandscapeMapControllerTests.RecordingPainter`: the operations by name,
@@ -961,4 +965,28 @@ fn alone_the_readout_is_one_row_with_the_local_name() {
     let painter = rig.paint();
     assert!(painter.texts.iter().any(|t| t == "Acdream"));
     assert!(!painter.texts.iter().any(|t| t.ends_with(" Acdream")));
+}
+
+/// The session's end lets go of the readout's icons (the host frees a
+/// plugin's images only when it unloads).
+#[test]
+fn a_session_reset_lets_go_of_the_readouts_icons() {
+    let mut rig = Rig::new();
+    "Prismatic Taper\n".clone_into(&mut rig.settings.0.tracked_items);
+    rig.host
+        .meta
+        .objects
+        .push(owned(0x8000_0010, "Prismatic Taper", 40, true));
+    rig.ui.object_icons.insert(
+        0x8000_0010,
+        MapImage {
+            handle: 7,
+            width: 32,
+            height: 32,
+        },
+    );
+    rig.ticks(1);
+    assert_eq!(7, rig.controller.rows()[0].tracked[0].icon.handle);
+    rig.controller.reset(&mut rig.ui);
+    assert_eq!([7], rig.ui.released.as_slice());
 }

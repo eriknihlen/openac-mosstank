@@ -153,14 +153,16 @@ impl TankCx<'_> {
         parts.canvases.flush(self.client);
     }
 
-    /// `ResetDisplayTools` and `ResetDungeonMap`: the session's images went
-    /// with it.
+    /// `ResetDisplayTools` and `ResetDungeonMap`: the session ended, so the
+    /// tools let go of their images (the host frees a plugin's images only
+    /// when it unloads); the releases go out with the next flush.
     pub(crate) fn reset_display_tools(&mut self) {
-        self.ub.landscape.reset();
-        self.ub.hud.reset();
         let parts = &mut *self.ub;
-        parts.comps.reset(&mut parts.canvases.recorder());
-        self.ub.dungeon.reset();
+        let mut ui = parts.canvases.recorder();
+        parts.landscape.reset(&mut ui);
+        parts.hud.reset(&mut ui);
+        parts.comps.reset(&mut ui);
+        parts.dungeon.reset(&mut ui);
     }
 
     /// `DisposeDisplayTools` and `DisposeDungeonMap`: images and canvases

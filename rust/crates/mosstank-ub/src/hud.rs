@@ -412,10 +412,15 @@ impl NetworkHudController {
         ui.invalidate_canvas(canvas);
     }
 
-    /// The session ended: the interface's images went with it.
-    pub fn reset(&mut self) {
+    /// The session ended: the icons are let go (the host frees a plugin's
+    /// images only when it unloads) and asked for again on the next paint.
+    pub fn reset(&mut self, ui: &mut dyn MapUi) {
+        for id in self.icon_order.drain(..) {
+            if let Some(icon) = self.icons.remove(&id) {
+                ui.release_image(icon);
+            }
+        }
         self.icons.clear();
-        self.icon_order.clear();
         self.rows.clear();
         self.grab = None;
         self.dirty = true;

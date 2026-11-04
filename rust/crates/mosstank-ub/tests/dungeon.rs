@@ -1651,3 +1651,31 @@ fn the_status_says_which_dungeon_and_how_much_of_it_is_walked() {
         rig.controller.status()
     );
 }
+
+/// The session's end lets go of the map's icons (the host frees a plugin's
+/// images only when it unloads).
+#[test]
+fn a_session_reset_lets_go_of_the_maps_icons() {
+    let mut rig = Rig::new();
+    rig.host.meta.objects.push(monster(
+        0x8000_0001,
+        "Drudge",
+        ObjectClass::Monster,
+        15.0,
+        5.0,
+        0.0,
+    ));
+    rig.ui.object_icons.insert(
+        0x8000_0001,
+        MapImage {
+            handle: 7,
+            width: 32,
+            height: 32,
+        },
+    );
+    rig.tick();
+    rig.paint();
+    assert_eq!(0, rig.ui.released);
+    rig.controller.reset(&mut rig.ui);
+    assert_eq!(1, rig.ui.released);
+}

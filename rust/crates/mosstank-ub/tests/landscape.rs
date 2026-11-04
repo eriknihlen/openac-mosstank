@@ -909,7 +909,7 @@ fn markers_draw_their_icons_and_names_in_their_own_zoom_bands() {
 
 // Source: tests/AcDream.Plugins.MossTank.Tests/LandscapeMapControllerTests.cs :: ASessionResetDropsTheImageHandlesAndAsksAgainOnTheNextPaint
 #[test]
-fn a_session_reset_drops_the_image_handles_and_asks_again_on_the_next_paint() {
+fn a_session_reset_lets_go_of_the_images_and_asks_again_on_the_next_paint() {
     let mut rig = Rig::new();
     rig.ui.client_art.insert(MAP_ART_SURFACE_ID);
     rig.controller.set_shown(true);
@@ -918,13 +918,16 @@ fn a_session_reset_drops_the_image_handles_and_asks_again_on_the_next_paint() {
     rig.paint();
     assert_eq!(1, rig.ui.requested.len());
 
-    rig.controller.reset();
+    // The reset lets go of the image: the host frees a plugin's images
+    // only when it unloads.
+    rig.controller.reset(&mut rig.ui);
+    assert_eq!(1, rig.ui.released);
     rig.paint();
     assert_eq!(2, rig.ui.requested.len());
 
     rig.controller.dispose(&mut rig.ui);
     assert!(rig.canvas().disposed);
-    assert_eq!(1, rig.ui.released);
+    assert_eq!(2, rig.ui.released);
 }
 
 // Source: tests/AcDream.Plugins.MossTank.Tests/LandscapeMapControllerTests.cs :: FollowCentresOnTheCharacterAndAPanLetsGo
