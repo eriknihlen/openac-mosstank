@@ -2,8 +2,11 @@
 //! it appears in takes: the C# panel declared them by its properties'
 //! types, and the markup and those types agree, so the kinds can be read
 //! back from where each name is used.
+//!
+//! The kinds are the typed ones: a checkbox's `onchange` hands over a
+//! `bool`, a kind the first registration form has no name for.
 
-use ac_plugin_abi::ui::BindingKind;
+use ac_plugin_abi::ui::TypedBindingKind;
 
 /// `{Name}` → `Name`.
 fn binding(value: &str) -> Option<&str> {
@@ -12,22 +15,27 @@ fn binding(value: &str) -> Option<&str> {
 }
 
 /// The kind a value attribute's binding takes on an element.
-fn value_kind(element: &str, attribute: &str, column_type: Option<&str>) -> Option<BindingKind> {
-    use BindingKind as K;
+fn value_kind(
+    element: &str,
+    attribute: &str,
+    column_type: Option<&str>,
+) -> Option<TypedBindingKind> {
+    use TypedBindingKind as K;
     Some(match (element, attribute) {
         (_, "text" | "tooltip" | "title") => K::Text,
         (_, "color" | "background" | "border" | "icon") => K::Uint,
         (_, "visible" | "enabled" | "checked") => K::Bool,
         ("tab", "selected") => K::Bool,
-        ("list", "selected") => K::Int,
+        ("list" | "radio", "selected") => K::Int,
         ("menu", "selected") => K::Text,
         ("slider", "value" | "min" | "max") => K::Float,
+        ("number", "value") => K::Int,
         ("meter", "fill") => K::Float,
         ("log", "firstindex") => K::Int,
         (_, "items") => K::TextList,
         (_, "colors" | "icons") => K::UintList,
         ("column", "values") => {
-            if column_type == Some("check") {
+            if matches!(column_type, Some("check" | "checkbox")) {
                 K::BoolList
             } else {
                 K::UintList
@@ -38,15 +46,16 @@ fn value_kind(element: &str, attribute: &str, column_type: Option<&str>) -> Opti
 }
 
 /// The kind a handler attribute's binding takes on an element.
-fn handler_kind(element: &str, attribute: &str) -> Option<BindingKind> {
-    use BindingKind as K;
+fn handler_kind(element: &str, attribute: &str) -> Option<TypedBindingKind> {
+    use TypedBindingKind as K;
     Some(match (element, attribute) {
         ("button" | "tab" | "toggle", "onclick") => K::Action,
         ("field", "onup" | "ondown") => K::Action,
         ("field", "onchange" | "onsubmit" | "onblur") => K::TextAction,
         ("menu", "onchange") => K::TextAction,
         ("slider", "onchange") => K::FloatAction,
-        ("list", "onchange") => K::IntAction,
+        ("checkbox", "onchange") => K::BoolAction,
+        ("list" | "radio" | "number", "onchange") => K::IntAction,
         ("column", "onclick" | "onchange") => K::IntAction,
         _ => return None,
     })
@@ -57,9 +66,9 @@ fn handler_kind(element: &str, attribute: &str) -> Option<BindingKind> {
 /// # Errors
 /// The markup is not XML, a binding sits in an attribute that takes none,
 /// or one name is used as two kinds.
-pub fn bindings(markup: &str) -> Result<Vec<(String, BindingKind)>, String> {
+pub fn bindings(markup: &str) -> Result<Vec<(String, TypedBindingKind)>, String> {
     let document = roxmltree::Document::parse(markup).map_err(|error| error.to_string())?;
-    let mut found: Vec<(String, BindingKind)> = Vec::new();
+    let mut found: Vec<(String, TypedBindingKind)> = Vec::new();
     for node in document.descendants().filter(roxmltree::Node::is_element) {
         let element = node.tag_name().name();
         let column_type = node.attribute("type");

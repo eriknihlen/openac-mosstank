@@ -1,0 +1,62 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  The Comps HUD's Edit items window: what the character carries on the left
+  (every item it owns, in packs or worn, one row per name with its total),
+  ticked to put it on the HUD; the HUD's own list on the right, in the
+  order it is drawn, each with the count it warns below. Every change is
+  applied to the HUD at once and kept for the character. Opened from the
+  HUD's pencil or the Consumables page. Authored below the main window,
+  beside the other editors.
+-->
+<panel theme="plugin" x="253" y="405" w="540" h="316" title="MossTank Comps HUD"
+       visible="{CompsHudEditorVisible}" resize="none">
+  <label x="4" y="22" w="262" h="16" text="You carry" color="theme:text|#FFE8DEC3" />
+  <group x="4" y="40" w="158" h="20" background="theme:field|#FF0C0906" border="theme:border|#FF8C7B4E">
+    <field x="1" y="1" w="156" h="18" text="{CompsHudSearch}"
+           onchange="{SetCompsHudSearch}" maxlength="64" background="#00000000"
+           color="theme:text|#FFE8DEC3"
+           tooltip="Type part of a name to list only the items whose name has it." />
+  </group>
+  <menu x="166" y="40" w="100" h="20" items="{CompsHudKindNames}"
+        selected="{CompsHudKind}" onchange="{SelectCompsHudKind}" rows="6"
+        tooltip="List only one kind of item." />
+  <list x="4" y="64" w="262" h="196" rowheight="18"
+        selected="{SelectedCompsHudCarriedIndex}" onchange="{SelectCompsHudCarriedRow}"
+        tooltip="Tick an item to put it on the HUD; untick it to take it off.">
+    <column type="checkbox" width="20" values="{CompsHudCarriedListed}"
+            onchange="{ToggleCompsHudCarriedAt}" />
+    <column type="icon" width="20" iconkind="did" values="{CompsHudCarriedIcons}"
+            onclick="{SelectCompsHudCarriedRow}" />
+    <column type="text" width="158" items="{CompsHudCarriedNames}" />
+    <column type="text" width="*" items="{CompsHudCarriedCounts}" />
+  </list>
+  <button x="4" y="266" w="262" h="20" text="Add selected item"
+          onclick="{AddSelectedToCompsHud}"
+          tooltip="Put the item selected in the game on the HUD." />
+  <label x="4" y="292" w="262" h="16" text="{CompsHudEditorNotice}"
+         color="theme:muted|#FFC7B98F" />
+
+  <label x="274" y="22" w="262" h="16" text="In the HUD" color="theme:text|#FFE8DEC3" />
+  <list x="274" y="40" w="262" h="196" rowheight="18"
+        selected="{SelectedCompsHudRowIndex}" onchange="{SelectCompsHudRow}"
+        tooltip="Select an item to move it, set the count it warns below, or remove it.">
+    <column type="icon" width="20" iconkind="did" values="{CompsHudRowIcons}"
+            onclick="{SelectCompsHudRow}" />
+    <column type="text" width="168" items="{CompsHudRowNames}" />
+    <column type="text" width="*" items="{CompsHudRowWarns}" />
+  </list>
+  <label x="274" y="242" w="120" h="20" text="Warn below"
+         color="theme:muted|#FFC7B98F"
+         tooltip="The selected item's count turns red below this; 0 never warns." />
+  <number x="396" y="242" w="140" h="20" value="{CompsHudSelectedWarn}"
+          onchange="{SetCompsHudSelectedWarn}" min="0" max="1000000"
+          tooltip="The selected item's count turns red below this; 0 never warns." />
+  <button x="274" y="266" w="84" h="20" text="Move up" onclick="{MoveCompsHudRowUp}"
+          tooltip="Draw the selected item one place earlier." />
+  <button x="363" y="266" w="84" h="20" text="Move down" onclick="{MoveCompsHudRowDown}"
+          tooltip="Draw the selected item one place later." />
+  <button x="452" y="266" w="84" h="20" text="Remove" onclick="{RemoveCompsHudRow}"
+          tooltip="Take the selected item off the HUD." />
+  <button x="452" y="292" w="84" h="20" text="Close" onclick="{HideCompsHudEditor}"
+          tooltip="Close this window. The HUD keeps every change." />
+</panel>

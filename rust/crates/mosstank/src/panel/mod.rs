@@ -1,4 +1,4 @@
-//! MossTank's twelve windows as the client holds them (`MossTankPlugin`'s
+//! MossTank's thirteen windows as the client holds them (`MossTankPlugin`'s
 //! `AddPanel` calls): each one's markup, registered with the bindings the
 //! markup names, and the values pushed to it from the shell
 //! ([`crate::tank::Tank::ui_value`]).
@@ -8,7 +8,7 @@ pub mod schema;
 
 use std::collections::HashMap;
 
-use ac_plugin_abi::ui::{BindingKind, UiValue};
+use ac_plugin_abi::ui::{TypedBindingKind, UiValue};
 use openac_plugin::Host;
 use openac_plugin::ui::{Panel, PanelSpec};
 
@@ -41,8 +41,9 @@ pub const ICON_SURFACE_ID: u32 = 0x0600_2C41;
 /// The shelf button's initials when the art is missing.
 pub const ICON_TEXT: &str = "MT";
 
-/// The twelve windows, in the C#'s registration order.
-pub const WINDOWS: [WindowSpec; 12] = [
+/// The thirteen windows: the C#'s twelve in its registration order, then the
+/// Comps HUD's Edit items window.
+pub const WINDOWS: [WindowSpec; 13] = [
     WindowSpec {
         id: "main",
         title: "MossTank",
@@ -127,13 +128,20 @@ pub const WINDOWS: [WindowSpec; 12] = [
         start_visible: true,
         on_shelf: false,
     },
+    WindowSpec {
+        id: "comps-hud",
+        title: "MossTank Comps HUD",
+        markup: markup!("mosstank-comps-hud.xml"),
+        start_visible: true,
+        on_shelf: false,
+    },
 ];
 
 /// The panel spec the client registers for a window.
 ///
 /// # Errors
 /// The markup does not read.
-pub fn spec(window: &WindowSpec) -> Result<(PanelSpec, Vec<(String, BindingKind)>), String> {
+pub fn spec(window: &WindowSpec) -> Result<(PanelSpec, Vec<(String, TypedBindingKind)>), String> {
     // Read from the table made of the markup (a test holds them equal);
     // parsing every window's markup costs the start tens of millions of
     // instructions.
@@ -156,7 +164,7 @@ pub fn spec(window: &WindowSpec) -> Result<(PanelSpec, Vec<(String, BindingKind)
         spec = spec.off_shelf();
     }
     for (name, kind) in &bindings {
-        spec = spec.bind(name, *kind);
+        spec = spec.bind_typed(name, *kind);
     }
     Ok((spec, bindings))
 }
@@ -173,7 +181,7 @@ pub const PUSH_INTERVAL_SECONDS: f64 = 0.1;
 /// (and once at the start), the costly grids and pickers among them
 /// (register UI-1). A test holds each to the markup: every use of the
 /// value sits inside the part.
-pub const SHOWN_ONLY_WITH: [(&str, &str); 23] = [
+pub const SHOWN_ONLY_WITH: [(&str, &str); 29] = [
     ("MacroProfileNames", "ProfilesVisible"),
     ("RouteProfileNames", "ProfilesVisible"),
     ("SelectedRouteProfile", "ProfilesVisible"),
@@ -197,22 +205,28 @@ pub const SHOWN_ONLY_WITH: [(&str, &str); 23] = [
     ("BuffPickerRows", "BuffPickerVisible"),
     ("AdvancedOptionNames", "AdvancedOptionsVisible"),
     ("AdvancedOptionValueColumn", "AdvancedOptionsVisible"),
+    ("CompsHudCarriedListed", "CompsHudEditorVisible"),
+    ("CompsHudCarriedIcons", "CompsHudEditorVisible"),
+    ("CompsHudCarriedNames", "CompsHudEditorVisible"),
+    ("CompsHudCarriedCounts", "CompsHudEditorVisible"),
+    ("CompsHudRowNames", "CompsHudEditorVisible"),
+    ("CompsHudRowWarns", "CompsHudEditorVisible"),
 ];
 
 /// The value a binding of `kind` has before anything is worked out for it:
 /// false, zero, empty. `None` for a handler.
 #[must_use]
-pub fn empty_value(kind: BindingKind) -> Option<UiValue> {
+pub fn empty_value(kind: TypedBindingKind) -> Option<UiValue> {
     Some(match kind {
-        BindingKind::Bool => UiValue::Bool(false),
-        BindingKind::Int => UiValue::Int(0),
-        BindingKind::Uint => UiValue::Uint(0),
-        BindingKind::Float => UiValue::Float(0.0),
-        BindingKind::Text => UiValue::Text(String::new()),
-        BindingKind::TextList => UiValue::TextList(Vec::new()),
-        BindingKind::UintList => UiValue::UintList(Vec::new()),
-        BindingKind::IntList => UiValue::IntList(Vec::new()),
-        BindingKind::BoolList => UiValue::BoolList(Vec::new()),
+        TypedBindingKind::Bool => UiValue::Bool(false),
+        TypedBindingKind::Int => UiValue::Int(0),
+        TypedBindingKind::Uint => UiValue::Uint(0),
+        TypedBindingKind::Float => UiValue::Float(0.0),
+        TypedBindingKind::Text => UiValue::Text(String::new()),
+        TypedBindingKind::TextList => UiValue::TextList(Vec::new()),
+        TypedBindingKind::UintList => UiValue::UintList(Vec::new()),
+        TypedBindingKind::IntList => UiValue::IntList(Vec::new()),
+        TypedBindingKind::BoolList => UiValue::BoolList(Vec::new()),
         _ => return None,
     })
 }
@@ -230,7 +244,7 @@ pub fn shown_only_with(name: &str) -> Option<&'static str> {
 /// The registered windows.
 #[derive(Debug, Default)]
 pub struct Windows {
-    panels: Vec<(Panel, Vec<(String, BindingKind)>)>,
+    panels: Vec<(Panel, Vec<(String, TypedBindingKind)>)>,
     /// Every value binding the windows name, once each ([`Self::value_names`]).
     names: std::rc::Rc<[String]>,
     /// For each window's bindings, whether no later window names it: the
@@ -289,7 +303,7 @@ impl Windows {
 
     /// The kind a value binding is declared with.
     #[must_use]
-    pub fn kind_of(&self, name: &str) -> Option<BindingKind> {
+    pub fn kind_of(&self, name: &str) -> Option<TypedBindingKind> {
         self.panels
             .iter()
             .flat_map(|(_, bindings)| bindings)
@@ -345,18 +359,24 @@ impl Windows {
 
 /// Whether a binding is a handler rather than a value.
 #[must_use]
-pub fn is_handler(kind: BindingKind) -> bool {
+pub fn is_handler(kind: TypedBindingKind) -> bool {
     matches!(
         kind,
-        BindingKind::Action
-            | BindingKind::IntAction
-            | BindingKind::FloatAction
-            | BindingKind::TextAction
+        TypedBindingKind::Action
+            | TypedBindingKind::IntAction
+            | TypedBindingKind::FloatAction
+            | TypedBindingKind::TextAction
+            | TypedBindingKind::BoolAction
+            | TypedBindingKind::UintAction
+            | TypedBindingKind::IntBoolAction
+            | TypedBindingKind::TextBoolAction
+            | TypedBindingKind::FloatListAction
+            | TypedBindingKind::IntListAction
     )
 }
 
 /// Every value binding `panels` name, once each, in first-use order.
-fn value_names(panels: &[(Panel, Vec<(String, BindingKind)>)]) -> Vec<String> {
+fn value_names(panels: &[(Panel, Vec<(String, TypedBindingKind)>)]) -> Vec<String> {
     let mut names: Vec<String> = Vec::new();
     for (_, bindings) in panels {
         for (name, kind) in bindings {
@@ -369,7 +389,7 @@ fn value_names(panels: &[(Panel, Vec<(String, BindingKind)>)]) -> Vec<String> {
 }
 
 /// For each of `panels`' bindings, whether no later panel names it.
-fn last_uses(panels: &[(Panel, Vec<(String, BindingKind)>)]) -> Vec<Vec<bool>> {
+fn last_uses(panels: &[(Panel, Vec<(String, TypedBindingKind)>)]) -> Vec<Vec<bool>> {
     let mut seen: std::collections::HashSet<&str> = std::collections::HashSet::new();
     let mut last_use: Vec<Vec<bool>> = vec![Vec::new(); panels.len()];
     for (index, (_, bindings)) in panels.iter().enumerate().rev() {

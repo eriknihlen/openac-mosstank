@@ -1,4 +1,4 @@
-//! The twelve windows as the client holds them: registered with the
+//! The thirteen windows as the client holds them: registered with the
 //! descriptors `MossTankPlugin.Initialize` gives, every value binding pushed
 //! with a value of its kind, and every handler answered by the shell.
 
@@ -6,7 +6,7 @@ mod common;
 
 use ac_plugin_abi::Event;
 use ac_plugin_abi::LogLevel;
-use ac_plugin_abi::ui::{ActionValue, BindingKind, UiAction, UiEvent, UiValue};
+use ac_plugin_abi::ui::{ActionValue, TypedBindingKind, UiAction, UiEvent, UiValue};
 use common::World;
 use mosstank::panel::{WINDOWS, is_handler, schema};
 
@@ -17,26 +17,27 @@ fn fresh() -> (World, mosstank::MossTank) {
     (world, plugin)
 }
 
-fn kind_of(value: &UiValue) -> BindingKind {
+fn kind_of(value: &UiValue) -> TypedBindingKind {
     use UiValue as V;
     match value {
-        V::Bool(_) => BindingKind::Bool,
-        V::Int(_) => BindingKind::Int,
-        V::Uint(_) => BindingKind::Uint,
-        V::Float(_) => BindingKind::Float,
-        V::Text(_) => BindingKind::Text,
-        V::TextList(_) => BindingKind::TextList,
-        V::UintList(_) => BindingKind::UintList,
-        V::IntList(_) => BindingKind::IntList,
-        V::BoolList(_) => BindingKind::BoolList,
+        V::Bool(_) => TypedBindingKind::Bool,
+        V::Int(_) => TypedBindingKind::Int,
+        V::Uint(_) => TypedBindingKind::Uint,
+        V::Float(_) => TypedBindingKind::Float,
+        V::Text(_) => TypedBindingKind::Text,
+        V::TextList(_) => TypedBindingKind::TextList,
+        V::UintList(_) => TypedBindingKind::UintList,
+        V::IntList(_) => TypedBindingKind::IntList,
+        V::BoolList(_) => TypedBindingKind::BoolList,
     }
 }
 
 // Source: src/AcDream.Plugins.MossTank/MossTankPlugin.cs :: Initialize (the
 // twelve AddPanel calls: ids, captions, the main window hidden on the shelf
-// with its icon, the remote hidden off the shelf, the rest off the shelf).
+// with its icon, the remote hidden off the shelf, the rest off the shelf),
+// and the Comps HUD's Edit items window off the shelf beside them.
 #[test]
-fn all_twelve_windows_register_with_their_descriptors() {
+fn every_window_registers_with_its_descriptor() {
     let (world, _plugin) = fresh();
     let warnings = world.logs(LogLevel::Warn);
     assert!(
@@ -113,9 +114,9 @@ fn every_handler_a_window_names_is_answered() {
                 continue;
             }
             let value = match kind {
-                BindingKind::IntAction => ActionValue::Int(0),
-                BindingKind::FloatAction => ActionValue::Float(0.5),
-                BindingKind::TextAction => ActionValue::Text(String::new()),
+                TypedBindingKind::IntAction => ActionValue::Int(0),
+                TypedBindingKind::FloatAction => ActionValue::Float(0.5),
+                TypedBindingKind::TextAction => ActionValue::Text(String::new()),
                 _ => ActionValue::None,
             };
             let answered = world.with_tank(&mut plugin, |tank, client| {
@@ -388,7 +389,7 @@ fn bindings_table_source() -> String {
          //! bindings each window's markup names, as [`super::schema::bindings`]\n\
          //! reads them, so the plugin's start does not parse the markup.\n\
          \n\
-         use ac_plugin_abi::ui::BindingKind as K;\n\
+         use ac_plugin_abi::ui::TypedBindingKind as K;\n\
          \n\
          /// The bindings of the window with this id, in first-use order.\n\
          pub(super) fn of(window_id: &str) -> Option<&'static [(&'static str, K)]> {\n    \

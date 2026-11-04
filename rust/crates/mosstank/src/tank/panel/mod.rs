@@ -9,6 +9,7 @@
 
 mod advanced;
 mod chrome;
+mod comps_hud;
 mod items;
 pub(crate) mod listings;
 mod meta_tab;
@@ -89,6 +90,8 @@ pub(crate) struct PanelState {
     /// the Items page is rebuilt on the next tick, once for a burst.
     pub(crate) items_stale: bool,
     pub(crate) ub: ub_pages::UbPageState,
+    /// The Comps HUD's Edit items window's notice line.
+    pub(crate) comps_hud_notice: String,
     /// When the profile pickers list their folders again (register UI-4).
     pub(crate) listings: listings::Listings,
 }
@@ -134,6 +137,7 @@ impl Default for PanelState {
             items_dirty: true,
             items_stale: false,
             ub: ub_pages::UbPageState::default(),
+            comps_hud_notice: String::new(),
             listings: listings::Listings::default(),
         }
     }
@@ -232,6 +236,7 @@ impl TankCx<'_> {
             .or_else(|| advanced::value(self, name))
             .or_else(|| ub_pages::value(self, name))
             .or_else(|| tinker::value(self, name))
+            .or_else(|| comps_hud::value(self, name))
     }
 
     /// One handler; false for a name no page answers.
@@ -245,6 +250,7 @@ impl TankCx<'_> {
             || advanced::act(self, name, arg)
             || ub_pages::act(self, name, arg)
             || tinker::act(self, name, arg)
+            || comps_hud::act(self, name, arg)
     }
 
     /// `SelectTab`: a page change closes the editors that float over it.
