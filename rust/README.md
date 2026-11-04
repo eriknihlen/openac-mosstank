@@ -68,28 +68,28 @@ choice on that tab.
 
 A small strip that counts the items you choose (spell components, peas,
 healing kits, anything you carry), after the comps counter of Virindi HUDs.
-Each item shows its icon and how many you carry, in packs or worn, counted
-again every 0.6 seconds. It is drawn in your plugin theme (Appearance), and
-follows a theme change at once.
+Each item shows its icon (as the game draws the item you carry) and how many
+you carry, in packs or worn, counted again every 0.6 seconds. Hover over an
+item for its name, or over a button for what it does. It is drawn in your
+plugin theme (Appearance), and follows a theme change at once.
 
 - **Show it**: tick **Show HUD** in the Comps HUD box on the Consumables page,
   or type `/vt compshud on`. The switch is the same for all your characters.
-- **Layout**: **Column** (a strip 50 pixels wide, one row per item) or
-  **Line** (one row: icon, count, icon, count). Pick it in the box, with the
-  strip's layout button, or with `/vt compshud column` and `/vt compshud line`.
+- **Layout**: **Column** (a strip 50 pixels wide, wider only for a very large
+  count, one row per item) or **Line** (one row: icon, count, icon, count).
+  Pick it in the box, with the strip's layout button, or with
+  `/vt compshud column` and `/vt compshud line`.
 - **Choose the items**: **Edit items...** in the box, or the pencil on the
   strip, opens Edit items. Tick what you carry (search it by name or filter it
   by kind) to put it on the HUD; on the right, select an item to move it up or
   down, remove it, or set **Warn below**: its count turns red below that
-  number (0 never warns). **Add selected item** there, and `/vt compshud add`,
-  add the item selected in the game; **Add to HUD** beside Remove on the
-  Consumables page adds the selected row's item, or else the item selected in
-  the game. `/vt compshud remove <name>` takes one off.
-- **Move it**: drag the strip anywhere but its buttons. **Hide it**: its cross
-  (this unticks Show HUD).
+  number (0 never warns). **Add selected item** there, **Add to HUD** beside
+  Remove on the Consumables page, and `/vt compshud add` add the item
+  selected in the game. `/vt compshud remove <name>` takes one off.
+- **Move it**: drag the strip anywhere but its buttons; it stops at the
+  screen's top and left edges. `/vt compshud reset` puts it back at its first
+  place. **Hide it**: its cross (this unticks Show HUD).
 - Each character keeps its own list (in order, with the warn levels), layout
-  and place. `/vt compshud` alone lists what it counts.
-
-The strip has no tooltips yet: a canvas hears the pointer hovering over it
-only from plugin API 1.6, which no released client has. The names are in Edit
-items and in `/vt compshud`.
+  and place. `/vt compshud` alone lists what it counts. A saved list that does
+  not read whole is copied to `recovery/comps-hud/` in MossTank's storage, and
+  said in the log, before it is written again.
