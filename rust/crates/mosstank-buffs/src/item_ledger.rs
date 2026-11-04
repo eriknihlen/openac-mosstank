@@ -405,7 +405,7 @@ impl ItemEnchantLedger {
         self.remove_where(|key| key.0 == item_object_id && key.1 == family);
     }
 
-    /// Forgets everything, the kept file included (death, a dispel).
+    /// Forgets everything, the kept file included (a dispel).
     pub fn invalidate_all(&mut self) {
         self.entries.clear();
         self.request_delete();
