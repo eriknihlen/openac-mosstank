@@ -7,8 +7,8 @@ use mosstank_dotnet::text::ordinal;
 use mosstank_expr::ExpressionValue;
 use mosstank_settings::defaults::setting_enum_values;
 use mosstank_settings::options::{
-    self, ADVANCED_NAMES, CATEGORY_BITS, CATEGORY_NAMES_BY_BIT, UNUSED_SETTING, VtankOptionPage,
-    VtankSettingValueType, WALK_TO_RARE_CORPSE,
+    self, ADVANCED_NAMES, CATEGORY_BITS, CATEGORY_NAMES_BY_BIT, LOOT_OWN_DEATH_CORPSE,
+    UNUSED_SETTING, VtankOptionPage, VtankSettingValueType, WALK_TO_RARE_CORPSE,
 };
 
 use super::{Arg, b, i, t, tl};
@@ -265,7 +265,7 @@ impl TankCx<'_> {
                             || description(name)
                                 .is_some_and(|text| ordinal::contains_ignore_case(text, word))
                     })
-                    && if **name == WALK_TO_RARE_CORPSE {
+                    && if **name == WALK_TO_RARE_CORPSE || **name == LOOT_OWN_DEATH_CORPSE {
                         enabled_mask & VtankOptionPage::LOOTING.0 != 0
                     } else {
                         options::page_of(name)

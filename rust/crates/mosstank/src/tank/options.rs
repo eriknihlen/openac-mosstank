@@ -102,6 +102,7 @@ impl Core {
             "walktorarecorpse" | "walktoownrarecorpses" | "walktoowncorpses" => {
                 boolean(loot.walk_to_own_rare_corpses)
             }
+            "lootowndeathcorpse" => boolean(loot.loot_own_death_corpse),
             "shownavlines" => boolean(navigation.show_nav_lines),
             "enablemeta" => boolean(meta_enabled),
             "spelldiffexcessthreshold-hunt" => number(combat.hunt_skill_excess_over_difficulty),
@@ -282,6 +283,7 @@ impl Core {
                 "enablenav" => navigation.enabled = truthy,
                 "enablelooting" => inventory.loot.enabled = truthy,
                 "walktorarecorpse" => inventory.loot.walk_to_own_rare_corpses = truthy,
+                "lootowndeathcorpse" => inventory.loot.loot_own_death_corpse = truthy,
                 // Drawn by `TankCx::set_meta_option` and every frame.
                 "shownavlines" => navigation.show_nav_lines = truthy,
                 "enablemeta" => self.settings.meta.enabled = truthy,

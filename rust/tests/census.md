@@ -1156,7 +1156,7 @@ Ported: **2299 of 2307** C# tests, from 136 of 137 files. Not applicable: **8**.
 - AnOpenRuleIsMootWhenALaterDecidedRuleCarriesTheSameAction: `crates/mosstank-loot/tests/rules.rs` :: `an_open_rule_is_moot_when_a_later_decided_rule_carries_the_same_action`
 - SpellRequirementsStayOpenOnlyWhileTheItemClaimsToBeMagical: `crates/mosstank-loot/tests/rules.rs` :: `spell_requirements_stay_open_only_while_the_item_claims_to_be_magical`
 - ACatchAllProfileNeverAppraisesACorpseItem: `crates/mosstank-loot/tests/looting.rs` :: `a_catch_all_profile_never_appraises_a_corpse_item`
-- EverythingOnYourOwnDeathCorpseIsAppraised: `crates/mosstank-loot/tests/looting.rs` :: `everything_on_your_own_death_corpse_is_appraised`
+- EverythingOnYourOwnDeathCorpseIsAppraised: `crates/mosstank-loot/tests/looting.rs` :: `with_the_take_all_option_off_everything_on_your_own_death_corpse_is_appraised`
 - ABuffedKeyOnlyGainsItsSpellBonusWhenTheItemCarriesTheBaseKey: `crates/mosstank-loot/tests/requirement_evaluator.rs` :: `a_buffed_key_only_gains_its_spell_bonus_when_the_item_carries_the_base_key`
 - ABuffedDoubleMultipliesOnlyWhenTheAuthoredOperationIsOne: `crates/mosstank-loot/tests/requirement_evaluator.rs` :: `a_buffed_double_multiplies_only_when_the_authored_operation_is_one`
 - AFartherRareCorpseIsOpenedBeforeANearerMundaneOne: `crates/mosstank-loot/tests/looting.rs` :: `a_farther_rare_corpse_is_opened_before_a_nearer_mundane_one`

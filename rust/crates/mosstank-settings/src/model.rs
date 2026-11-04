@@ -575,6 +575,11 @@ pub struct LootSettings {
     /// Walk to this character's own rare corpse past the approach range (a
     /// MossTank extension, off by default).
     pub walk_to_own_rare_corpses: bool,
+    /// Loot this character's own death corpse ("Corpse of" the character's
+    /// name) whoever's kill it was, with no wait, and take everything in it
+    /// rather than only what the loot rules keep, even with rare-only
+    /// looting on (a MossTank extension, on by default).
+    pub loot_own_death_corpse: bool,
     pub read_unknown_scrolls: bool,
     pub combine_salvage: bool,
     pub mana_stone_loot_count: i32,
@@ -604,6 +609,7 @@ impl Default for LootSettings {
             loot_fellow_corpses: false,
             loot_only_rare_corpses: false,
             walk_to_own_rare_corpses: false,
+            loot_own_death_corpse: true,
             read_unknown_scrolls: true,
             combine_salvage: true,
             mana_stone_loot_count: 4,

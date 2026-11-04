@@ -1028,19 +1028,19 @@ fn a_catch_all_profile_never_appraises_a_corpse_item() {
 }
 
 // Source: tests/AcDream.Plugins.MossTank.Tests/LootingTests.cs :: EverythingOnYourOwnDeathCorpseIsAppraised
+// C# source: LootingTests.cs :: WithTheTakeAllOptionOffEverythingOnYourOwnDeathCorpseIsAppraised (the name and the option off from openac-mosstank#28, not yet in this branch's C# tree)
 #[test]
-fn everything_on_your_own_death_corpse_is_appraised() {
+fn with_the_take_all_option_off_everything_on_your_own_death_corpse_is_appraised() {
     const CORPSE: u32 = 0x7000_0700;
     const LOOSE: u32 = 0x7000_0701;
     let mut world = World::with_corpses(vec![LootCorpse {
         name: "Corpse of Tester".to_owned(),
         ..chain_corpse(CORPSE, 3.0)
     }]);
-    let mut controller = LootController::new(enabled_settings(vec![rule(
-        "Keep everything",
-        "*",
-        LootAction::Keep,
-    )]));
+    let mut controller = LootController::new(LootSettings {
+        loot_own_death_corpse: false,
+        ..enabled_settings(vec![rule("Keep everything", "*", LootAction::Keep)])
+    });
 
     assert!(controller.tick(&mut world, 0.25, true));
     world.current = CORPSE;

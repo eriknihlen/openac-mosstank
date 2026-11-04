@@ -681,6 +681,9 @@ pub struct SideCarDocument {
     pub inventory_loot_classifier_id: Option<String>,
     pub inventory_loot_scan_interval_seconds: f64,
     pub inventory_loot_walk_to_own_rare_corpses: bool,
+    /// Whether this character's own death corpse is looted at once and
+    /// emptied (a MossTank extension; on when absent).
+    pub inventory_loot_own_death_corpse: bool,
     pub inventory_loot_rules: Option<Vec<Option<LootRuleDocument>>>,
     /// The Client pathing choice by name; absent in older files.
     pub navigation_client_pathing: Option<String>,
@@ -860,6 +863,7 @@ impl SideCarDocument {
             inventory_loot_classifier_id: Some(inventory.loot.external_classifier_id.clone()),
             inventory_loot_scan_interval_seconds: inventory.loot.scan_interval_seconds,
             inventory_loot_walk_to_own_rare_corpses: inventory.loot.walk_to_own_rare_corpses,
+            inventory_loot_own_death_corpse: inventory.loot.loot_own_death_corpse,
             inventory_loot_rules: with_rules.then(|| {
                 inventory
                     .loot
@@ -1002,6 +1006,7 @@ impl SideCarDocument {
         inventory.loot.scan_interval_seconds =
             self.inventory_loot_scan_interval_seconds.clamp(0.05, 5.0);
         inventory.loot.walk_to_own_rare_corpses = self.inventory_loot_walk_to_own_rare_corpses;
+        inventory.loot.loot_own_death_corpse = self.inventory_loot_own_death_corpse;
         inventory.loot.rules.clear();
         for rule in self.inventory_loot_rules.iter().flatten().flatten() {
             inventory.loot.rules.push(rule.to_rule());
@@ -1200,6 +1205,10 @@ impl SideCarDocument {
                     "InventoryLootWalkToOwnRareCorpses".into(),
                     JsonValue::Bool(self.inventory_loot_walk_to_own_rare_corpses),
                 ),
+                (
+                    "InventoryLootOwnDeathCorpse".into(),
+                    JsonValue::Bool(self.inventory_loot_own_death_corpse),
+                ),
                 ("InventoryLootRules".into(), loot_rules),
                 (
                     "NavigationClientPathing".into(),
@@ -1390,6 +1399,7 @@ impl SideCarDocument {
                 .double("InventoryLootScanIntervalSeconds", 0.25)?,
             inventory_loot_walk_to_own_rare_corpses: o
                 .bool("InventoryLootWalkToOwnRareCorpses", false)?,
+            inventory_loot_own_death_corpse: o.bool("InventoryLootOwnDeathCorpse", true)?,
             inventory_loot_rules: read_items(
                 o,
                 "InventoryLootRules",

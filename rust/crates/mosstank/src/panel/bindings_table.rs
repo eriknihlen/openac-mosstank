@@ -88,6 +88,8 @@ pub(super) fn of(window_id: &str) -> Option<&'static [(&'static str, K)]> {
             ("ToggleAutoFellowManagement", K::Action),
             ("ManaChargesWhenOffEnabled", K::Bool),
             ("ToggleManaChargesWhenOff", K::Action),
+            ("LootOwnDeathCorpseEnabled", K::Bool),
+            ("ToggleLootOwnDeathCorpse", K::Action),
             ("NavigationPriorityEnabled", K::Bool),
             ("ToggleNavigationPriority", K::Action),
             ("LootPriorityBoostEnabled", K::Bool),
