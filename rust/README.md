@@ -75,8 +75,9 @@ plugin theme (Appearance), and follows a theme change at once.
 
 - **Show it**: tick **Show HUD** in the Comps HUD box on the Consumables page,
   or type `/vt compshud on`. The switch is the same for all your characters.
-- **Layout**: **Column** (a strip 50 pixels wide, wider only for a very large
-  count, one row per item) or **Line** (one row: icon, count, icon, count).
+- **Layout**: **Column** (a narrow strip, one row per item: icon, then its
+  count) or **Line** (one row: icon and count, icon and count). The strip is
+  as wide as its counts need, and resizes when a count gains or loses a digit.
   Pick it in the box, with the strip's layout button, or with
   `/vt compshud column` and `/vt compshud line`.
 - **Choose the items**: **Edit items...** in the box, or the pencil on the
@@ -86,9 +87,10 @@ plugin theme (Appearance), and follows a theme change at once.
   number (0 never warns). **Add selected item** there, **Add to HUD** beside
   Remove on the Consumables page, and `/vt compshud add` add the item
   selected in the game. `/vt compshud remove <name>` takes one off.
-- **Move it**: drag the strip anywhere but its buttons; it stops at the
-  screen's top and left edges. `/vt compshud reset` puts it back at its first
-  place. **Hide it**: its cross (this unticks Show HUD).
+- **Move it**: drag the strip anywhere but its buttons (it follows the pointer
+  and is saved where you let go); it stops at the screen's top and left
+  edges. `/vt compshud reset` puts it back at its first place. **Hide it**:
+  its cross (this unticks Show HUD).
 - Each character keeps its own list (in order, with the warn levels), layout
   and place. `/vt compshud` alone lists what it counts. A saved list that does
   not read whole is copied to `recovery/comps-hud/` in MossTank's storage, and
