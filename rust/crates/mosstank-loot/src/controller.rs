@@ -756,15 +756,25 @@ impl LootController {
         // Rare-only looting has nothing to describe until the server
         // announces this character's rare; it only notes, every couple of
         // seconds, when each corpse first appeared.
+        let mut sighted = None;
         if self.settings.loot_only_rare_corpses {
             self.since_corpse_sighting += elapsed;
             if self.since_corpse_sighting >= CORPSE_SIGHTING_INTERVAL_SECONDS {
                 self.since_corpse_sighting = 0.0;
                 let known = host.loot_corpses(f32::MAX);
                 self.prune_corpse_cache(&known);
+                sighted = Some(known);
             }
         }
         if !self.rare_window_open_or_not_rare_only() {
+            // Only this character's own death corpse can want a description
+            // now. It is looked for in the sighting list, so the corpses are
+            // still listed only every couple of seconds.
+            if self.settings.loot_own_death_corpse
+                && let Some(sighted) = sighted
+            {
+                let _ = self.try_request_next_corpse_description(host, &sighted);
+            }
             return;
         }
         let known = host.loot_corpses(f32::MAX);
@@ -1743,7 +1753,8 @@ impl LootController {
 
     /// A corpse item is appraised only when the answer depends on it. Three
     /// cases always appraise: an external classifier, the player's own death
-    /// corpse, and a magical candidate while a spare mana stone is held.
+    /// corpse (unless everything on it is taken), and a magical candidate
+    /// while a spare mana stone is held.
     fn needs_identify(
         &self,
         host: &mut dyn LootHost,
@@ -1753,6 +1764,11 @@ impl LootController {
     ) -> bool {
         if !casing::is_white_space_only(&self.settings.external_classifier_id) {
             return true;
+        }
+        // Everything on the corpse is taken, so nothing needs a description
+        // to be judged by.
+        if self.takes_everything_from_active_corpse() {
+            return false;
         }
         if self.active_corpse_is_own_death {
             return true;
@@ -1813,6 +1829,13 @@ impl LootController {
         *self.item_attempts.entry(object_id).or_insert(0) += 1;
     }
 
+    /// The open corpse is this character's own death corpse and
+    /// `loot_own_death_corpse` is on: every item in it is taken back,
+    /// whatever the loot rules say.
+    fn takes_everything_from_active_corpse(&self) -> bool {
+        self.active_corpse_is_own_death && self.settings.loot_own_death_corpse
+    }
+
     fn decide_item(
         &self,
         host: &mut dyn LootHost,
@@ -1820,6 +1843,17 @@ impl LootController {
         properties: &ItemProperties,
         owned: &[InventoryItem],
     ) -> (Option<LootDecision>, LootRefusal) {
+        if self.takes_everything_from_active_corpse() {
+            return (
+                Some(LootDecision::new(
+                    LootAction::Keep,
+                    0,
+                    i32::MAX,
+                    "Own Death Corpse",
+                )),
+                LootRefusal::no_rule(),
+            );
+        }
         let (decision, refusal) =
             if casing::is_white_space_only(&self.settings.external_classifier_id) {
                 rules::decide(

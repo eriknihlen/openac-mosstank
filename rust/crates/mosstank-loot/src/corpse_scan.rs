@@ -276,7 +276,7 @@ impl LootController {
         for corpse in host.loot_corpses(f32::MAX) {
             let distance = f64::from(corpse.distance);
             if !is_description_answered(&corpse)
-                && self.wants_description(&corpse)
+                && self.wants_description(host, &corpse)
                 && (distance <= range_meters
                     || (self.settings.walk_to_own_rare_corpses
                         && distance <= crate::RARE_CORPSE_REACH_METERS
@@ -417,9 +417,21 @@ impl LootController {
 
     /// Whether this corpse is worth a description request: with rare-only
     /// looting on, only corpses that appeared around this character's own
-    /// rare announcement are.
-    pub(crate) fn wants_description(&self, corpse: &LootCorpse) -> bool {
-        !self.settings.loot_only_rare_corpses || self.appeared_with_own_rare_announcement(corpse)
+    /// rare announcement are, and this character's own death corpse.
+    pub(crate) fn wants_description(&self, host: &mut dyn LootHost, corpse: &LootCorpse) -> bool {
+        !self.settings.loot_only_rare_corpses
+            || self.appeared_with_own_rare_announcement(corpse)
+            || self.wants_own_death_corpse(host, corpse)
+    }
+
+    /// The option is on and this is this character's own death corpse: it
+    /// is described and looted whatever else the loot settings say.
+    pub(crate) fn wants_own_death_corpse(
+        &self,
+        host: &mut dyn LootHost,
+        corpse: &LootCorpse,
+    ) -> bool {
+        self.settings.loot_own_death_corpse && self.is_own_death_corpse(host, corpse)
     }
 
     /// Whether this corpse may be the one this character's latest rare
@@ -447,6 +459,11 @@ impl LootController {
     }
 
     fn can_loot(&self, host: &mut dyn LootHost, corpse: &LootCorpse) -> bool {
+        // This character's own death corpse is theirs to loot at once,
+        // whoever the killer was, rare-only looting or not.
+        if self.wants_own_death_corpse(host, corpse) {
+            return true;
+        }
         if self.settings.loot_only_rare_corpses && !is_rare(corpse) {
             return false;
         }
@@ -743,7 +760,7 @@ impl LootController {
             let index = usize::try_from((last_index + offset) % count).unwrap_or(0);
             let candidate = &known[index];
             if is_description_answered(candidate)
-                || !self.wants_description(candidate)
+                || !self.wants_description(host, candidate)
                 || self.completed_corpses.contains_key(&candidate.object_id)
                 || self.is_corpse_denied(candidate.object_id)
                 || self.is_corpse_blacklisted(candidate.object_id)

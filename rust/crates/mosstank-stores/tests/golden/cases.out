@@ -39,6 +39,7 @@ selected By char
   "InventoryLootClassifierId": "",\r\n
   "InventoryLootScanIntervalSeconds": 0.25,\r\n
   "InventoryLootWalkToOwnRareCorpses": false,\r\n
+  "InventoryLootOwnDeathCorpse": true,\r\n
   "InventoryLootRules": [],\r\n
   "NavigationClientPathing": "WhenStuck",\r\n
   "NavigationJumpAttempts": 3\r\n
@@ -133,6 +134,7 @@ save True
   "InventoryLootClassifierId": "  vtc  ",\r\n
   "InventoryLootScanIntervalSeconds": 0.25,\r\n
   "InventoryLootWalkToOwnRareCorpses": false,\r\n
+  "InventoryLootOwnDeathCorpse": true,\r\n
   "InventoryLootRules": [\r\n
     {\r\n
       "Name": "Keep peas",\r\n
@@ -226,6 +228,7 @@ selected By char
   "InventoryLootClassifierId": "",\r\n
   "InventoryLootScanIntervalSeconds": 0.25,\r\n
   "InventoryLootWalkToOwnRareCorpses": false,\r\n
+  "InventoryLootOwnDeathCorpse": true,\r\n
   "InventoryLootRules": [],\r\n
   "NavigationClientPathing": "WhenStuck",\r\n
   "NavigationJumpAttempts": 3\r\n
@@ -302,6 +305,7 @@ setinall 2
   "InventoryLootClassifierId": "",\r\n
   "InventoryLootScanIntervalSeconds": 0.25,\r\n
   "InventoryLootWalkToOwnRareCorpses": false,\r\n
+  "InventoryLootOwnDeathCorpse": true,\r\n
   "InventoryLootRules": [],\r\n
   "NavigationClientPathing": "WhenStuck",\r\n
   "NavigationJumpAttempts": 3\r\n
@@ -349,6 +353,7 @@ setinall 2
   "InventoryLootClassifierId": "",\r\n
   "InventoryLootScanIntervalSeconds": 0.25,\r\n
   "InventoryLootWalkToOwnRareCorpses": false,\r\n
+  "InventoryLootOwnDeathCorpse": true,\r\n
   "InventoryLootRules": [],\r\n
   "NavigationClientPathing": "WhenStuck",\r\n
   "NavigationJumpAttempts": 3\r\n
@@ -429,6 +434,7 @@ range 30
   "InventoryLootClassifierId": "",\r\n
   "InventoryLootScanIntervalSeconds": 0.25,\r\n
   "InventoryLootWalkToOwnRareCorpses": false,\r\n
+  "InventoryLootOwnDeathCorpse": true,\r\n
   "InventoryLootRules": [],\r\n
   "NavigationClientPathing": "WhenStuck",\r\n
   "NavigationJumpAttempts": 3\r\n
@@ -500,6 +506,7 @@ names By char|--Acdream_Coldeve_Hunt.usd
   "InventoryLootClassifierId": "",\r\n
   "InventoryLootScanIntervalSeconds": 0.25,\r\n
   "InventoryLootWalkToOwnRareCorpses": false,\r\n
+  "InventoryLootOwnDeathCorpse": true,\r\n
   "InventoryLootRules": [],\r\n
   "NavigationClientPathing": "WhenStuck",\r\n
   "NavigationJumpAttempts": 3\r\n

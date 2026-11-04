@@ -96,6 +96,7 @@ pub(super) fn value(cx: &mut TankCx<'_>, name: &str) -> Option<UiValue> {
         "CastDispelSelfEnabled" => b(s.vitals.cast_dispel_self),
         "ShowNavLinesEnabled" => b(s.navigation.show_nav_lines),
         "WalkToOwnRareCorpsesEnabled" => b(s.inventory.loot.walk_to_own_rare_corpses),
+        "LootOwnDeathCorpseEnabled" => b(s.inventory.loot.loot_own_death_corpse),
         "AutoFellowManagementEnabled" => b(s.combat.auto_fellow_management),
         "ManaChargesWhenOffEnabled" => b(s.inventory.mana_charges_when_off),
         "NavigationPriorityEnabled" => b(s.navigation.priority),
@@ -297,6 +298,10 @@ pub(super) fn act(cx: &mut TankCx<'_>, name: &str, arg: &Arg) -> bool {
         "ToggleWalkToOwnRareCorpses" => {
             let on = cx.core.settings.inventory.loot.walk_to_own_rare_corpses;
             set_switch(cx, mosstank_settings::options::WALK_TO_RARE_CORPSE, !on);
+        }
+        "ToggleLootOwnDeathCorpse" => {
+            let on = cx.core.settings.inventory.loot.loot_own_death_corpse;
+            set_switch(cx, mosstank_settings::options::LOOT_OWN_DEATH_CORPSE, !on);
         }
         "ToggleAutoStack" => {
             cx.core.settings.inventory.auto_stack = !cx.core.settings.inventory.auto_stack;

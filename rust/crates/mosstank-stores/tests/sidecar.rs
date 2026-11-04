@@ -99,3 +99,32 @@ fn properties_match_ignoring_case_and_the_last_duplicate_wins() {
         mosstank_formats::route::ClientPathing::Never
     );
 }
+
+/// The own death corpse switch (openac-mosstank#28) is written to the
+/// side-car beside the rare walk, read back, and on when the file predates
+/// it, as the C#'s `InventoryLootOwnDeathCorpse` property is.
+#[test]
+fn the_own_death_corpse_switch_round_trips_and_is_on_when_absent() {
+    let apply = |text: &str| {
+        let mut settings = AllSettings::default();
+        SideCarDocument::read(text).unwrap().unwrap().apply(
+            &mut settings,
+            &mut OrdinalStringSet::new(),
+            &mut IgnoreCaseStringSet::new(),
+            &mut |_| {},
+        );
+        settings.inventory.loot.loot_own_death_corpse
+    };
+    let mut settings = AllSettings::default();
+    settings.inventory.loot.loot_own_death_corpse = false;
+    let text = SideCarDocument::capture_and_write(
+        &settings,
+        &OrdinalStringSet::new(),
+        &IgnoreCaseStringSet::new(),
+    )
+    .unwrap();
+
+    assert!(text.contains("\"InventoryLootOwnDeathCorpse\": false"));
+    assert!(!apply(&text));
+    assert!(apply("{}"));
+}

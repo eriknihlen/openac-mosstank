@@ -53,6 +53,8 @@ impl OptionDefault {
 pub const WALK_TO_RARE_CORPSE: &str = "WalkToRareCorpse";
 const WALK_TO_OWN_CORPSES_ALIAS: &str = "WalkToOwnCorpses";
 const WALK_TO_OWN_RARE_CORPSES_ALIAS: &str = "WalkToOwnRareCorpses";
+/// MossTank's own option: loot and empty this character's own death corpse.
+pub const LOOT_OWN_DEATH_CORPSE: &str = "LootOwnDeathCorpse";
 const SHOW_NAV_LINES: &str = "ShowNavLines";
 
 /// The one name the reference's settings table holds that nothing reads.
@@ -63,11 +65,12 @@ use OptionDefault as D;
 use VtankSettingValueType as T;
 
 /// Every option MossTank answers to, with its default and declared type,
-/// in catalogue order: VTank's settings plus [`WALK_TO_RARE_CORPSE`] and
-/// `ShowNavLines`.
-pub const OPTIONS: [(&str, OptionDefault, VtankSettingValueType); 139] = [
+/// in catalogue order: VTank's settings plus [`WALK_TO_RARE_CORPSE`],
+/// [`LOOT_OWN_DEATH_CORPSE`] and `ShowNavLines`.
+pub const OPTIONS: [(&str, OptionDefault, VtankSettingValueType); 140] = [
     ("EnableLooting", D::Bool(false), T::Bool),
     (WALK_TO_RARE_CORPSE, D::Bool(false), T::Bool),
+    (LOOT_OWN_DEATH_CORPSE, D::Bool(true), T::Bool),
     ("ShowNavLines", D::Bool(false), T::Bool),
     ("EnableNav", D::Bool(false), T::Bool),
     ("EnableBuffing", D::Bool(true), T::Bool),
@@ -248,27 +251,34 @@ pub const OPTIONS: [(&str, OptionDefault, VtankSettingValueType); 139] = [
 ];
 
 /// The settings of VTank's Settings table, in its order (every option but
-/// MossTank's two).
+/// MossTank's three).
 pub static NAMES: LazyLock<Vec<&'static str>> = LazyLock::new(|| {
     OPTIONS
         .iter()
         .map(|(name, _, _)| *name)
-        .filter(|name| *name != WALK_TO_RARE_CORPSE && *name != SHOW_NAV_LINES)
+        .filter(|name| {
+            *name != WALK_TO_RARE_CORPSE
+                && *name != LOOT_OWN_DEATH_CORPSE
+                && *name != SHOW_NAV_LINES
+        })
         .collect()
 });
 
-/// The names `/vt opt` answers to: the settings, then MossTank's two.
+/// The names `/vt opt` answers to: the settings, then MossTank's three.
 pub static COMMAND_NAMES: LazyLock<Vec<&'static str>> = LazyLock::new(|| {
     let mut names = NAMES.clone();
     names.push(WALK_TO_RARE_CORPSE);
+    names.push(LOOT_OWN_DEATH_CORPSE);
     names.push(SHOW_NAV_LINES);
     names
 });
 
-/// The names the advanced options edit: the settings and the rare walk.
+/// The names the advanced options edit: the settings, the rare walk and
+/// the own death corpse.
 pub static ADVANCED_NAMES: LazyLock<Vec<&'static str>> = LazyLock::new(|| {
     let mut names = NAMES.clone();
     names.push(WALK_TO_RARE_CORPSE);
+    names.push(LOOT_OWN_DEATH_CORPSE);
     names
 });
 
@@ -573,7 +583,7 @@ pub fn page_of(name: &str) -> Option<VtankOptionPage> {
 }
 
 /// What each setting does, in MossTank's words.
-pub const DESCRIPTIONS: [(&str, &str); 136] = [
+pub const DESCRIPTIONS: [(&str, &str); 137] = [
     (
         "EnableLooting",
         "Opens corpses and picks up what the loot profile keeps.",
@@ -932,6 +942,10 @@ pub const DESCRIPTIONS: [(&str, &str); 136] = [
     (
         "LootOnlyRareCorpses",
         "Loots only corpses that can hold a rare.",
+    ),
+    (
+        LOOT_OWN_DEATH_CORPSE,
+        "Loots this character's own death corpse at once, whoever the killer was, and takes everything in it, even with rare-only looting on.",
     ),
     (
         WALK_TO_RARE_CORPSE,
