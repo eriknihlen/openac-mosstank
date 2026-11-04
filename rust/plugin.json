@@ -3,8 +3,8 @@
   "displayName": "MossTank",
   "version": "0.6.4",
   "entry": "mosstank.wasm",
-  "apiVersion": "1.1",
-  "minHostVersion": "0.1.3",
+  "apiVersion": "1.5",
+  "minHostVersion": "0.1.10",
   "permissionsVersion": 1,
   "permissions": [
     { "name": "chat", "note": "Reads chat to follow combat and loot results, and posts its own status lines." },
