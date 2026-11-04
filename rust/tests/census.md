@@ -981,7 +981,7 @@ Ported: **2299 of 2307** C# tests, from 136 of 137 files. Not applicable: **8**.
 - ThePaintDrawsTheClientsMapArtWhenTheClientHasIt: `crates/mosstank-ub/tests/landscape.rs` :: `the_paint_draws_the_clients_map_art_when_the_client_has_it`
 - ThePaintDrawsAGridWhenTheClientHasNoMapArt: `crates/mosstank-ub/tests/landscape.rs` :: `the_paint_draws_a_grid_when_the_client_has_no_map_art`
 - MarkersDrawTheirIconsAndNamesInTheirOwnZoomBands: `crates/mosstank-ub/tests/landscape.rs` :: `markers_draw_their_icons_and_names_in_their_own_zoom_bands`
-- ASessionResetDropsTheImageHandlesAndAsksAgainOnTheNextPaint: `crates/mosstank-ub/tests/landscape.rs` :: `a_session_reset_drops_the_image_handles_and_asks_again_on_the_next_paint`
+- ASessionResetDropsTheImageHandlesAndAsksAgainOnTheNextPaint: `crates/mosstank-ub/tests/landscape.rs` :: `a_session_reset_lets_go_of_the_images_and_asks_again_on_the_next_paint`
 - FollowCentresOnTheCharacterAndAPanLetsGo: `crates/mosstank-ub/tests/landscape.rs` :: `follow_centres_on_the_character_and_a_pan_lets_go`
 
 ## LandscapeMapViewTests.cs
