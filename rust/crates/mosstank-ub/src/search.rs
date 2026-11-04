@@ -61,8 +61,22 @@ pub fn try_find(
         scope,
         partial,
         exclude_object_id,
+        &mut |candidate| name_with_material(host, candidate),
     )
     .cloned()
+}
+
+/// The `MaterialType` int property: what an object is made of.
+const MATERIAL_TYPE_PROPERTY: u32 = 131;
+
+/// The name the game shows for an object, material first: the client keeps
+/// a salvage bag's material apart from its name "Salvage", and "Steel
+/// Salvage" is what a player types.
+pub fn name_with_material(host: &mut dyn MetaHost, object: &WorldObject) -> String {
+    match host.int_property(object.object_id, MATERIAL_TYPE_PROPERTY) {
+        Some(material) => mosstank_data::material::with_material(&object.name, material),
+        None => object.name.clone(),
+    }
 }
 
 /// The nearest object of one of `classes` whose name answers to `name`; a

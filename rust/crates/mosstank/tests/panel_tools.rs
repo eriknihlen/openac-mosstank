@@ -413,6 +413,34 @@ fn vtank_give_reads_the_match_mode_the_count_and_the_target() {
     assert!(gives(&mut world).is_empty());
 }
 
+// C# source: MossTankPanelTests.cs :: GiveMatchesAnItemByItsNameWithItsMaterialInFront
+/// The client names a salvage bag "Salvage" and keeps its material apart;
+/// the game shows "Steel Salvage", and that is the name a give matches
+/// (openac-mosstank#27).
+#[test]
+fn give_matches_an_item_by_its_name_with_its_material_in_front() {
+    let mut automation = at(0.0);
+    let mut steel = item(10, "Salvage", 0x4000_0000);
+    steel.material_type = 64;
+    let mut silver = item(11, "Salvage", 0x4000_0000);
+    silver.material_type = 63;
+    automation.item_entries = vec![steel, silver];
+    automation.world_objects = vec![mule_here("Megamula III")];
+    let (mut world, mut plugin) = open(automation);
+    let p = &mut plugin;
+
+    ub(&mut world, p, "givep steel salvage to megamula III");
+    tick(&mut world, p, 0.1);
+    assert_eq!(gives(&mut world), [(10, 100, 0)]);
+
+    ub(&mut world, p, "give stop");
+    world.automation().gives.clear();
+
+    ub(&mut world, p, "give Silver Salvage to Megamula III");
+    tick(&mut world, p, 0.1);
+    assert_eq!(gives(&mut world), [(11, 100, 0)]);
+}
+
 // Source: tests/AcDream.Plugins.MossTank.Tests/MossTankPanelTests.cs :: TheItemGiverReportsItsEndThroughItsThinkSetting
 /// A hand-over says how it ended: a think with ItemGiver.Think on, a plain
 /// line with it off, for a run that finishes and for one stopped by hand.

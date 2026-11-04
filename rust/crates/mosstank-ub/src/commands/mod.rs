@@ -1232,7 +1232,9 @@ fn use_command(call: &mut UbCall<'_>, portal_use: &mut PortalUse, flags: &str, a
         call.write_ub(&format!("{second} is null"));
         return;
     };
-    call.write_ub(&format!("using {} on {}", one.name, two.name));
+    let one_name = search::name_with_material(call.host, &one);
+    let two_name = search::name_with_material(call.host, &two);
+    call.write_ub(&format!("using {one_name} on {two_name}"));
     call.host.apply_item(one.object_id, two.object_id);
 }
 
@@ -1242,7 +1244,8 @@ fn use_single_object(
     one: &WorldObject,
     partial: bool,
 ) {
-    call.write_ub(&format!("using {}", one.name));
+    let shown = search::name_with_material(call.host, one);
+    call.write_ub(&format!("using {shown}"));
     match one.object_class {
         ObjectClass::Portal => use_portal_by_name(call, portal_use, &one.name, partial),
         ObjectClass::Vendor => {

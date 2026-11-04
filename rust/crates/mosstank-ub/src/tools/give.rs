@@ -363,8 +363,9 @@ impl ProfileGiveController {
             if remaining <= 0 {
                 break;
             }
+            let name = name_with_material(item);
             let matched = match (matching, &matcher) {
-                (GiveNameMatch::Pattern, Some(regex)) => match regex.is_match(&item.name) {
+                (GiveNameMatch::Pattern, Some(regex)) => match regex.is_match(&name) {
                     Ok(matched) => matched,
                     Err(failure) => {
                         self.status = format!("Item giver pattern refused: {failure}");
@@ -373,8 +374,8 @@ impl ProfileGiveController {
                     }
                 },
                 (GiveNameMatch::Pattern, None) => false,
-                (GiveNameMatch::Partial, _) => ordinal::contains_ignore_case(&item.name, text),
-                (GiveNameMatch::Exact, _) => ordinal::equals_ignore_case(&item.name, text),
+                (GiveNameMatch::Partial, _) => ordinal::contains_ignore_case(&name, text),
+                (GiveNameMatch::Exact, _) => ordinal::equals_ignore_case(&name, text),
             };
             if !matched {
                 continue;
@@ -743,6 +744,12 @@ fn givable(owned: &[InventoryItem]) -> Vec<&InventoryItem> {
         .collect();
     items.sort_by_key(|item| item.object_id);
     items
+}
+
+/// The name the game shows for an item, material first: the name the
+/// reference's give matches against.
+fn name_with_material(item: &InventoryItem) -> String {
+    mosstank_data::material::with_material(&item.name, item.material_type.cast_signed())
 }
 
 /// The first rule that matches decides; the item goes when it says keep or
