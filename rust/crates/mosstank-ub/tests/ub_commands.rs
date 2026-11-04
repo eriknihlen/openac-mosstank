@@ -1615,6 +1615,50 @@ fn select_picks_the_named_item() {
     assert_eq!(Some(104), rig.host.meta.selection.selected);
 }
 
+/// An appraisal holding only the object's `MaterialType` (property 131).
+fn material_properties(material: i32) -> ItemProperties {
+    ItemProperties {
+        ints: vec![(131, material)],
+        ..ItemProperties::default()
+    }
+}
+
+// C# source: MossTankPanelTests.UbCommands.cs :: UseAndSelectMatchAnItemByItsNameWithItsMaterialInFront
+/// The client names a salvage bag "Salvage" and keeps its material apart;
+/// the game shows "Steel Salvage", and that is the name use and select
+/// match (openac-mosstank#27).
+#[test]
+fn use_and_select_match_an_item_by_its_name_with_its_material_in_front() {
+    let mut rig = Rig::new().at_heading(0.0);
+    rig.host.meta.objects = vec![carried(201, "Salvage"), carried(202, "Salvage")];
+    // Steel, then Silver.
+    rig.host
+        .meta
+        .properties
+        .insert(201, material_properties(64));
+    rig.host
+        .meta
+        .properties
+        .insert(202, material_properties(63));
+
+    rig.ub("selectp steel salvage");
+    assert_eq!(Some(201), rig.host.meta.selection.selected);
+
+    rig.ub("use Silver Salvage");
+    assert_eq!(vec![202], rig.host.used);
+    assert!(
+        rig.messages()
+            .contains(&"[UB] using Silver Salvage".to_owned())
+    );
+
+    rig.ub("usep steel on silver");
+    assert_eq!(vec![(201, 202)], rig.host.applied);
+    assert!(
+        rig.messages()
+            .contains(&"[UB] using Steel Salvage on Silver Salvage".to_owned())
+    );
+}
+
 // Source: tests/AcDream.Plugins.MossTank.Tests/MossTankPanelTests.UbCommands.cs :: CloseCorpseClosesTheOpenCorpse
 #[test]
 fn close_corpse_closes_the_open_corpse() {

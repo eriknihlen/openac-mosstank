@@ -96,16 +96,20 @@ pub fn distance(player: &NavigationSnapshot, candidate: &WorldObject) -> f64 {
     }
 }
 
+/// The name an object answers to in [`try_find`].
+pub type ShownName<'n> = dyn FnMut(&WorldObject) -> String + 'n;
+
 fn first<'a>(
     candidates: impl Iterator<Item = &'a WorldObject>,
     text: &str,
     partial: bool,
     exclude_object_id: u32,
+    shown_name: &mut ShownName<'_>,
 ) -> Option<&'a WorldObject> {
     let mut ordered: Vec<&WorldObject> = candidates.collect();
     ordered.sort_by_key(|candidate| candidate.object_id);
     ordered.into_iter().find(|candidate| {
-        candidate.object_id != exclude_object_id && matches(&candidate.name, text, partial)
+        candidate.object_id != exclude_object_id && matches(&shown_name(candidate), text, partial)
     })
 }
 
@@ -115,11 +119,14 @@ fn nearest<'a>(
     text: &str,
     partial: bool,
     exclude_object_id: u32,
+    shown_name: &mut ShownName<'_>,
 ) -> Option<&'a WorldObject> {
     let mut best: Option<&WorldObject> = None;
     let mut best_distance = f64::MAX;
     for candidate in candidates {
-        if candidate.object_id == exclude_object_id || !matches(&candidate.name, text, partial) {
+        if candidate.object_id == exclude_object_id
+            || !matches(&shown_name(candidate), text, partial)
+        {
             continue;
         }
         let distance = distance(player, candidate);
@@ -135,7 +142,8 @@ fn nearest<'a>(
 /// The object a name stands for: the whole name (part of one when
 /// `partial`), a decimal or hexadecimal object id, or the word "selected".
 /// `exclude_object_id` is an object the search must skip (the first half
-/// of "use A on B").
+/// of "use A on B"). A name is matched against `shown_name` of each
+/// object: the name the game shows, its material in front.
 #[must_use]
 pub fn try_find<'a>(
     view: &SearchView<'a>,
@@ -143,6 +151,7 @@ pub fn try_find<'a>(
     scope: UbSearchScope,
     partial: bool,
     exclude_object_id: u32,
+    shown_name: &mut ShownName<'_>,
 ) -> Option<&'a WorldObject> {
     let text = trim(name);
     if text.is_empty() {
@@ -155,11 +164,16 @@ pub fn try_find<'a>(
     let owned = || objects.iter().filter(|object| object.is_owned);
     let landscape = || objects.iter().filter(|object| object.is_landscape);
     match scope {
-        UbSearchScope::Inventory => first(owned(), text, partial, exclude_object_id),
-        UbSearchScope::Landscape => {
-            nearest(view.player, landscape(), text, partial, exclude_object_id)
-        }
-        UbSearchScope::All => first(owned(), text, partial, exclude_object_id)
+        UbSearchScope::Inventory => first(owned(), text, partial, exclude_object_id, shown_name),
+        UbSearchScope::Landscape => nearest(
+            view.player,
+            landscape(),
+            text,
+            partial,
+            exclude_object_id,
+            shown_name,
+        ),
+        UbSearchScope::All => first(owned(), text, partial, exclude_object_id, shown_name)
             .or_else(|| {
                 (view.open_container != 0)
                     .then(|| {
@@ -170,11 +184,21 @@ pub fn try_find<'a>(
                             text,
                             partial,
                             exclude_object_id,
+                            shown_name,
                         )
                     })
                     .flatten()
             })
-            .or_else(|| nearest(view.player, landscape(), text, partial, exclude_object_id)),
+            .or_else(|| {
+                nearest(
+                    view.player,
+                    landscape(),
+                    text,
+                    partial,
+                    exclude_object_id,
+                    shown_name,
+                )
+            }),
     }
 }
 

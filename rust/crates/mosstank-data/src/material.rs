@@ -130,6 +130,25 @@ pub fn material_name(id: i32) -> Option<&'static str> {
     Material::from_id(id).and_then(Material::name)
 }
 
+/// The name the game shows for an object: its material in front of its own
+/// name, which is how a bag the client calls "Salvage" reads as "Steel
+/// Salvage". A name that already starts with its material, or an id that
+/// names none, leaves the name as it is.
+#[must_use]
+pub fn with_material(name: &str, id: i32) -> String {
+    match material_name(id) {
+        Some(material)
+            if !mosstank_dotnet::text::ordinal::starts_with_ignore_case(
+                name,
+                &format!("{material} "),
+            ) =>
+        {
+            format!("{material} {name}")
+        }
+        _ => name.to_owned(),
+    }
+}
+
 /// The material's name, or the empty string when the id names none.
 #[must_use]
 pub fn name(id: i32) -> &'static str {
