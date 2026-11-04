@@ -6,8 +6,10 @@ mod common;
 use ac_plugin_abi::calls;
 use ac_plugin_abi::combat::CombatTarget;
 use ac_plugin_abi::world::{ObjectClass, WorldObject};
+use common::automation::FakeAutomation;
 use common::{World, item};
 use mosstank::MossTank;
+use mosstank_formats::usd::{VtankCell, VtankRow};
 
 fn fresh(name: &str) -> (World, MossTank) {
     let mut world = World::with_character(name);
@@ -357,6 +359,47 @@ fn the_weapon_column_cycles_the_roster_and_persists_by_name() {
         cell(&mut world, &mut second, "MonsterWeaponColumn", 0),
         "Fire Sword"
     );
+}
+
+// C# source: MossTankPanelTests.cs :: MonsterWeaponColumnCyclesItemsAnImportedProfileListsById (openac-mosstank#26)
+/// A profile read from VTank lists its items by object id alone, with no
+/// names. The Weapon cell still cycles through those items, and each pick
+/// is the very object the Items page lists, not another that shares its
+/// name. Mutation: cycle over the name roster only, and the cell never
+/// leaves AUTO.
+#[test]
+fn the_weapon_column_cycles_the_items_an_imported_profile_lists_by_id() {
+    let mut database = mosstank_settings::defaults::create();
+    let table = database.find_mut("BuffedItems").unwrap();
+    for object in [11, 20] {
+        table.rows.push(VtankRow {
+            cells: vec![VtankCell::int(object), VtankCell::int(-1)],
+        });
+    }
+    let mut automation = FakeAutomation::default();
+    "Rule Maker".clone_into(&mut automation.name);
+    automation.item_entries = vec![
+        item(10, "Fire Sword", 1),
+        item(11, "Fire Sword", 1),
+        item(20, "War Wand", 0x8000),
+    ];
+    let mut world = World::with_automation(automation);
+    world
+        .profiles
+        .insert("mosstank/profiles/Imported.usd", &database.render());
+    let mut plugin = world.enable();
+    let p = &mut plugin;
+    world.vt(p, "settings load Imported");
+
+    assert_eq!(cell(&mut world, p, "MonsterWeaponColumn", 0), "<AUTO>");
+    world.act_int(p, "CycleMonsterWeaponAt", 0);
+    assert_eq!(cell(&mut world, p, "MonsterWeaponColumn", 0), "Fire Sword");
+    world.act_int(p, "CycleMonsterWeaponAt", 0);
+    assert_eq!(cell(&mut world, p, "MonsterWeaponColumn", 0), "War Wand");
+    world.act_int(p, "CycleMonsterWeaponAt", 0);
+    assert_eq!(cell(&mut world, p, "MonsterWeaponColumn", 0), "<AUTO>");
+    world.act_int(p, "CycleMonsterOffhandAt", 0);
+    assert_eq!(cell(&mut world, p, "MonsterOffhandColumn", 0), "Fire Sword");
 }
 
 // Source: tests/AcDream.Plugins.MossTank.Tests/MossTankPanelTests.cs :: AMonsterWeaponCellNamingAnUnlistedItemReadsInvalid

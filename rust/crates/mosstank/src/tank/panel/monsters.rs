@@ -442,43 +442,30 @@ impl TankCx<'_> {
         self.core.request_profile_save();
     }
 
-    /// `CycleMonsterEquipmentAt`: the next of the Items page's names, then
-    /// automatic.
+    /// `CycleMonsterEquipmentAt`: the next of the Items page's items, then
+    /// automatic. A pick is that very object; a cell with no object is
+    /// placed by its name.
     fn cycle_monster_equipment_at(&mut self, row: i32, offhand: bool) {
-        let mut names: Vec<String> = self
-            .core
-            .settings
-            .combat
-            .combat_item_names
-            .iter()
-            .cloned()
-            .collect();
-        names.sort_by(|a, b| mosstank_dotnet::text::ordinal::compare(a, b));
-        let owned = self.client.rules().owned_items_shared();
+        let choices = self.monster_equipment_choices();
         self.update_monster_actions_at(row, move |mut actions| {
-            let current = if offhand {
-                &actions.offhand_name
+            let (current_id, current_name) = if offhand {
+                (actions.offhand_object_id, &actions.offhand_name)
             } else {
-                &actions.weapon_name
+                (actions.weapon_object_id, &actions.weapon_name)
             };
-            let current_index = if current.is_empty() {
-                None
-            } else {
-                names.iter().position(|name| name == current)
-            };
+            let current_index = (current_id != 0)
+                .then(|| choices.iter().position(|(id, _)| *id == current_id))
+                .flatten()
+                .or_else(|| {
+                    (!current_name.is_empty())
+                        .then(|| choices.iter().position(|(_, name)| name == current_name))
+                        .flatten()
+                });
             let next = match current_index {
-                None => names.first(),
-                Some(index) => names.get(index + 1),
+                None => choices.first(),
+                Some(index) => choices.get(index + 1),
             };
-            let name = next.cloned().unwrap_or_default();
-            let object_id = if name.is_empty() {
-                0
-            } else {
-                owned
-                    .iter()
-                    .find(|item| item.name == name)
-                    .map_or(0, |item| item.object_id)
-            };
+            let (object_id, name) = next.cloned().unwrap_or_default();
             if offhand {
                 actions.offhand_object_id = object_id;
                 actions.offhand_name = name;
@@ -488,6 +475,58 @@ impl TankCx<'_> {
             }
             actions
         });
+    }
+
+    /// `MonsterEquipmentChoices`: what a Weapon or Offhand cell cycles
+    /// through, the items the Items page lists, by name. A profile read
+    /// from VTank lists its items by object id alone, so the choices come
+    /// from those ids, each the very object the page names, never another
+    /// that shares its name. Only a profile that lists its items by name is
+    /// cycled by name.
+    fn monster_equipment_choices(&mut self) -> Vec<(u32, String)> {
+        let owned = self.client.rules().owned_items_shared();
+        let combat = &self.core.settings.combat;
+        if !combat.combat_item_object_ids.is_empty() {
+            let character_id = self.client.rules().character().id;
+            let mut listed: Vec<u32> = Vec::new();
+            let mut choices: Vec<(u32, String)> = Vec::new();
+            for &object_id in &combat.combat_item_order_ids {
+                if object_id == 0
+                    || object_id == u32::MAX
+                    || (character_id != 0 && object_id == character_id)
+                    || listed.contains(&object_id)
+                {
+                    continue;
+                }
+                listed.push(object_id);
+                let name = owned
+                    .iter()
+                    .find(|item| item.object_id == object_id)
+                    .map(|item| item.name.clone())
+                    .or_else(|| combat.combat_item_names_by_id.get(&object_id).cloned());
+                if let Some(name) = name
+                    && !mosstank_dotnet::text::casing::is_white_space_only(&name)
+                {
+                    choices.push((object_id, name));
+                }
+            }
+            // Alphabetical, as the cycle has always run; the sort is
+            // stable, so same-named items keep the page's order.
+            choices.sort_by(|(_, a), (_, b)| mosstank_dotnet::text::ordinal::compare(a, b));
+            return choices;
+        }
+        let mut names: Vec<String> = combat.combat_item_names.iter().cloned().collect();
+        names.sort_by(|a, b| mosstank_dotnet::text::ordinal::compare(a, b));
+        names
+            .into_iter()
+            .map(|name| {
+                let object_id = owned
+                    .iter()
+                    .find(|item| item.name == name)
+                    .map_or(0, |item| item.object_id);
+                (object_id, name)
+            })
+            .collect()
     }
 
     /// `MoveMonsterRuleAtCore`: DEFAULT never moves and is never moved past.
