@@ -423,6 +423,35 @@ fn a_character_targeted_bane_is_cast_once_and_then_covered_by_the_ledger() {
     );
 }
 
+/// A death leaves the bane's timer in the ledger, so the running macro does
+/// not cast it again (divergence BUFF-2: the game keeps the armor's
+/// enchantments through a death; the C# forgets every item timer).
+#[test]
+fn a_death_does_not_cast_the_bane_again() {
+    let (mut world, mut plugin) = open(bane_automation(vec![bane(301, 401, "Blade Bane I")]));
+    // The macro keeps buffing after the death (by default the death turns
+    // the switches off, and nothing would be cast either way).
+    set_option(
+        &mut world,
+        &mut plugin,
+        "StopMacroOnDeath",
+        ExpressionValue::Boolean(false),
+    );
+    run(&mut world, &mut plugin, 30);
+    assert_eq!(world.cast_spell_ids(), [301]);
+
+    world.vt(&mut plugin, "fakedeath");
+    assert!(
+        world
+            .chat()
+            .iter()
+            .any(|line| line.contains("Fake character death trigger fired."))
+    );
+    ticks(&mut world, &mut plugin, 30, 0.3);
+
+    assert_eq!(world.cast_spell_ids(), [301]);
+}
+
 // Source: tests/AcDream.Plugins.MossTank.Tests/MossTankPanelTests.cs :: ImpenetrabilityIsTheFirstCharacterRow
 #[test]
 fn impenetrability_is_the_first_character_row() {

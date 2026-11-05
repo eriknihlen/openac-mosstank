@@ -51,4 +51,8 @@ fn a_death_ends_a_force_with_the_real_times_back() {
     rule.on_death();
 
     assert!(!rule.item_ledger().has_forced_entries());
+    let left = rule
+        .item_ledger()
+        .remaining_seconds(CHARACTER, IMPENETRABILITY_FAMILY, 7, 0.0);
+    assert!((left - 3600.0).abs() < 1e-9, "{left}");
 }
