@@ -2545,21 +2545,23 @@ fn dereth_time_functions_use_the_runtime_world_clock_projection() {
 
 /// `vitae[]` is the vitae penalty in whole percent, as UtilityBelt reads it
 /// (an integer from the character filter): 0 with no vitae, 5 at the 0.95
-/// multiplier. Metas test it as `vitae[]>12` for "too much vitae".
+/// multiplier. Metas test it as `vitae[]>12` for "too much vitae". The
+/// multiplier comes from the character the host reports (it derives it from
+/// the Vitae enchantment), not from PropertyFloat.Vitae, which the server
+/// never sets on the player.
 #[test]
 fn vitae_is_the_penalty_in_whole_percent() {
     let mut host = create_automation();
     let mut rt = new(&mut host);
     assert_eq!(eval_number(&mut rt, &mut host, "vitae[]"), 0.0);
 
-    let mut with_vitae = properties(&[], &[], &[]);
-    with_vitae.floats = vec![(129, 0.95)];
-    host.properties.insert(1, with_vitae);
+    host.character_mut().vitae_multiplier = 0.95;
     assert_eq!(eval_number(&mut rt, &mut host, "vitae[]"), 5.0);
 
-    let mut full = properties(&[], &[], &[]);
-    full.floats = vec![(129, 1.0)];
-    host.properties.insert(1, full);
+    host.character_mut().vitae_multiplier = 1.0;
+    let mut stale = properties(&[], &[], &[]);
+    stale.floats = vec![(129, 0.8)];
+    host.properties.insert(1, stale);
     assert_eq!(eval_number(&mut rt, &mut host, "vitae[]"), 0.0);
 }
 

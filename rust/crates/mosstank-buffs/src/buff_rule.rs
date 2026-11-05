@@ -438,13 +438,14 @@ impl BuffSelfRule {
         name.clone_into(&mut self.timer_character);
     }
 
-    /// Death, a dispel: every item timer is forgotten.
-    pub fn invalidate_item_timers(&mut self, automation: &mut dyn Automation) {
+    /// Death: the cast and consumable under way and any force end. The
+    /// item timers stay: the game keeps an item's enchantments, banes
+    /// included, through a death (divergence BUFF-2).
+    pub fn on_death(&mut self) {
         self.clear_cast_attempt();
         self.clear_consumable_use();
-        self.item_ledger.invalidate_all();
-        automation.forget_enchantments(0);
         self.buff_due.cancel_force();
+        self.item_ledger.cancel_force();
     }
 
     fn capture_forced_item_rows(&mut self, turn: &mut BuffTurn<'_>) -> Vec<(u32, u32)> {

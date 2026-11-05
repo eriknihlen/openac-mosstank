@@ -492,9 +492,7 @@ impl TankCx<'_> {
     /// `HandleDeath`: with the death setting on and the macro running, the
     /// four switches are saved and turned off, and a restore is offered.
     pub(crate) fn handle_death(&mut self, macro_running: bool) {
-        self.core
-            .buff_rule
-            .invalidate_item_timers(self.client.rules());
+        self.core.buff_rule.on_death();
         if !macro_running || !self.core.settings.combat.stop_macro_on_death {
             return;
         }

@@ -60,8 +60,6 @@ const ELEMENTAL_DAMAGE_BONUS_PROPERTY: u32 = 204;
 const NUMBER_TIMES_TINKERED_PROPERTY: u32 = 171;
 /// Non-zero once an imbue has taken one of the ten attempts.
 const IMBUED_PROPERTY: u32 = 179;
-/// The vitae multiplier the server keeps on the character.
-const VITAE_PROPERTY: u32 = 129;
 
 const PORTAL_CLASSES: [ObjectClass; 2] = [ObjectClass::Portal, ObjectClass::Npc];
 const PLAYER_CLASSES: [ObjectClass; 1] = [ObjectClass::Player];
@@ -1044,18 +1042,12 @@ fn dump_skills(call: &mut UbCall<'_>) {
 
 /// `/ub vitae`: says the penalty out loud, as a think.
 fn think_vitae(call: &mut UbCall<'_>) {
-    let own = call.host.character().map_or(0, |info| info.id);
+    // The host derives the multiplier from the Vitae enchantment; the
+    // server never sets PropertyFloat.Vitae on the player.
     let multiplier = call
         .host
-        .properties(own)
-        .and_then(|properties| {
-            properties
-                .floats
-                .iter()
-                .find(|(key, _)| *key == VITAE_PROPERTY)
-                .map(|(_, value)| *value)
-        })
-        .unwrap_or(1.0);
+        .character()
+        .map_or(1.0, |info| f64::from(info.vitae_multiplier));
     // The multiplier 0.95 is a 5% penalty.
     call.think(&format!(
         "My vitae is {}%",

@@ -1034,13 +1034,7 @@ fn id_prints_the_selected_objects_id_both_ways_round() {
 #[test]
 fn vitae_is_thought_as_a_percentage() {
     let mut rig = Rig::new();
-    rig.host.meta.properties.insert(
-        1,
-        ItemProperties {
-            floats: vec![(129, 0.95)],
-            ..ItemProperties::default()
-        },
-    );
+    rig.host.meta.character_mut().vitae_multiplier = 0.95;
     rig.ub("vitae");
     assert!(
         rig.submitted()
