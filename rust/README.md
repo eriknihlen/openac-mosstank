@@ -26,7 +26,7 @@ cargo build --workspace --target wasm32-unknown-unknown --release
 
 The SDK crates (`openac-plugin`, `openac-plugin-compat`, `ac-plugin-abi`)
 come from the openac-rust repository by git, pinned to a commit in
-`Cargo.toml`: openac-rust v0.1.12, plugin API 1.7 (a canvas hears the
+`Cargo.toml`: openac-rust v0.1.12, plugin API 1.8 (a canvas hears the
 pointer hovering over it from API 1.6), so MossTank needs client 0.1.11 or
 later; its fellowship rules see fellows out of sight from client 0.1.12.
 
