@@ -1,4 +1,5 @@
-//! The C# test fixtures, read in place (natively only; for tests).
+//! The test fixtures the C# tests left in `tests/`, read in place (natively
+//! only; for tests).
 
 use std::path::PathBuf;
 

@@ -1,5 +1,6 @@
-# MossTank for openAC-rust: the plugin converted from the C# in ../src to
-# Rust, built for wasm32-unknown-unknown and tested natively.
+# MossTank for OpenAC: the plugin converted from the C# plugin (now on the
+# `deprecated` branch) to Rust, built for wasm32-unknown-unknown and tested
+# natively.
 #
 # The pure crates (formats, expressions, game data) have no host calls and
 # are tested on their own; the plugin crate links the openAC SDK.

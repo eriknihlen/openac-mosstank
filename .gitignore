@@ -1,22 +1,10 @@
-# Build output
-bin/
-obj/
-out/
+# Build output (the Rust workspace ignores its own target/ in rust/.gitignore)
 __pycache__/
 *.pyc
-**/TestResults/
-
-# The local folder feed the plugin contract package is dropped into
-packages-local/
-
-# Release staging
-artifacts/
 
 # IDEs
 .vs/
 .idea/
-*.user
-*.suo
 
 # OS
 .DS_Store

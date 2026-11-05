@@ -1,5 +1,5 @@
 //! What MossTank keeps of a session beside its rules (converted from the
-//! C# plugin in `../src/AcDream.Plugins.MossTank`):
+//! C# plugin, on the `deprecated` branch):
 //!
 //! - [`action_history`]: the bounded history of what the macro was doing
 //!   (`ActionHistory`);

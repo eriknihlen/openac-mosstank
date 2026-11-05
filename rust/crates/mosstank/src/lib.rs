@@ -1,6 +1,6 @@
 //! MossTank as an openAC plugin.
 //!
-//! The conversion from the C# plugin (`../src/AcDream.Plugins.MossTank`)
+//! The conversion from the C# plugin (on the `deprecated` branch)
 //! goes slice by slice: the pure parts live in `mosstank-formats`,
 //! `mosstank-expr`, `mosstank-data`, `mosstank-settings` and
 //! `mosstank-stores`, the rules in their own crates; this crate is the

@@ -16,6 +16,3 @@ tests/AcDream.Plugins.MossTank.Tests/Fixtures/vtank/**/*.nav -text
 tests/AcDream.Plugins.MossTank.Tests/Fixtures/vt-proof/**/*.usd -text
 tests/AcDream.Plugins.MossTank.Tests/Fixtures/vt-proof/**/*.utl -text
 tests/AcDream.Plugins.MossTank.Tests/Fixtures/vt-proof/**/*.af -text
-# The plugin's own default profile is the same byte-exact format.
-src/AcDream.Plugins.MossTank/*.usd -text
-src/AcDream.Plugins.MossTank/*.ast -text

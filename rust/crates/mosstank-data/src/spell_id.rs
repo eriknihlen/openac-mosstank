@@ -1,5 +1,6 @@
-//! Spell ids by name, generated from the C# `SpellId.g.cs` by
-//! `cargo run -p xtask -- spell-ids`. Do not edit.
+//! Spell ids by name, generated from the C# `SpellId.g.cs` by the
+//! `spell-ids` task of `xtask` (both on the `deprecated` branch now); this
+//! file is the table's source from here on.
 //!
 //! The constants keep the C# member names, so code converted from C#
 //! reads the same (`SpellId.AdjaSGift` becomes `spell_id::AdjaSGift`).

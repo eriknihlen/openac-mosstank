@@ -2,8 +2,11 @@
 
 Everything under `rust/` is licensed under the MIT license (see
 [LICENSE](LICENSE)), by the owner's decision of 2026-10-13. The C# plugin
-next to it (`../src`, `../tests`) keeps its own terms (`../LICENSE`,
-`../NOTICE.md`).
+(on the `deprecated` branch since 2026-11-05) and the files it left outside
+`rust/` that this port reads in place (`../src`: panel markup and the
+experience table; `../tests`: test fixtures) keep their own terms
+(`../LICENSE`, `../NOTICE.md`). The C# file paths named below are on that
+branch.
 
 ## metaf: what is not translated, and why
 

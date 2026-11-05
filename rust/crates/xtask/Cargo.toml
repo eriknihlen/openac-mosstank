@@ -1,6 +1,6 @@
 [package]
 name = "xtask"
-description = "Repository chores: the C#-to-Rust test census and the generated spell table."
+description = "Repository chores: the check that the built plugin imports only from the client."
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true

@@ -1,17 +1,21 @@
-# MossTank for openac-rust
+# MossTank for OpenAC
 
-This folder is MossTank built as a WebAssembly plugin for
-[openac-rust](https://github.com/eriknihlen/openac-rust), the Rust Asheron's
-Call client. It is a conversion of the C# plugin in `../src` to Rust: the
-same macro and automation features (VTank-compatible settings, loot, meta and
-route profiles; buffing, combat, looting, navigation, vendoring, the
-UtilityBelt commands), built for `wasm32-unknown-unknown` and tested
-natively. The same plugin runs in a client session with a game window and in
-one without.
+This folder is MossTank built as a WebAssembly plugin for OpenAC, the Rust
+Asheron's Call client (released from
+[eriknihlen/OpenAC](https://github.com/eriknihlen/OpenAC)). It is a
+conversion to Rust of the C# plugin, which is now on this repository's
+`deprecated` branch: the same macro and automation features
+(VTank-compatible settings, loot, meta and route profiles; buffing, combat,
+looting, navigation, vendoring, the UtilityBelt commands), built for
+`wasm32-unknown-unknown` and tested natively. The same plugin runs in a
+client session with a game window and in one without. The `// Source:`
+comments in the tests name the C# tests each one ports, on that branch.
 
 The code in this folder is licensed under the MIT license (see
 [LICENSE](LICENSE)); [NOTICE.md](NOTICE.md) lists what was not converted and
-why. The C# plugin beside it keeps its own terms.
+why. The files the C# plugin left outside this folder, which the port reads
+in place (its panel markup and experience table in `../src`, its test
+fixtures in `../tests`), keep the repository's own terms (`../LICENSE`).
 
 ## Building
 
@@ -54,9 +58,9 @@ plugin's `v<version>` releases.
 
 ## Installing
 
-In the openac-rust launcher, on the plugins tab:
+In the OpenAC launcher, on the plugins tab:
 
-- **Discover** lists the plugins published for openac-rust; find MossTank
+- **Discover** lists the plugins published for OpenAC; find MossTank
   and install it.
 - **Add from URL** installs it straight from this repository:
   `https://github.com/eriknihlen/openac-mosstank`.

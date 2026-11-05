@@ -1,30 +1,32 @@
 # MossTank
 
-A macro and automation plugin for the [OpenAC](https://github.com/eriknihlen/OpenAC)
-client, built for players coming from VTank. It reads the profile formats you
-already have — settings, loot rules, metas and navigation routes — and runs the
-same kind of unattended session: buff upkeep, combat, corpse looting, vitals and
+A macro and automation plugin for **OpenAC**, the Rust Asheron's Call client
+(released from [eriknihlen/OpenAC](https://github.com/eriknihlen/OpenAC)),
+built for players coming from VTank. It reads the profile formats you already
+have — settings, loot rules, metas and navigation routes — and runs the same
+kind of unattended session: buff upkeep, combat, corpse looting, vitals and
 mana management, fellowship handling, crafting and salvage.
 
-It runs on both OpenAC hosts, unchanged: the windowed client and the windowless
-host (`acdream-headless`), through the same plugin contract. On the windowed
-client it also brings its own panels — the main control panel, an advanced page,
-a buff picker, a loot-rule editor and a meta editor.
+It is a WebAssembly plugin: one module that runs unchanged wherever the client
+runs, in a client session with a game window and in one without. With a window
+it also brings its own panels — the main control panel, an advanced page, a
+buff picker, a loot-rule editor, a meta editor, the UB pages and the Comps
+HUD. The code is in [`rust/`](rust/); [its README](rust/README.md) covers
+building, the full check, packaging a release, and the Comps HUD.
 
 ## Installing
 
-Through the OpenAC launcher, on the **Plugins** tab:
+In the OpenAC launcher, on the **Plugins** tab:
 
-- **Discover** lists plugins from
-  [eriknihlen/openac-plugins](https://github.com/eriknihlen/openac-plugins);
+- **Discover** lists the plugins published for OpenAC
+  ([eriknihlen/openac-plugins](https://github.com/eriknihlen/openac-plugins));
   find MossTank and install it.
-- **Add from URL** installs it straight from this repository if it is not
-  listed yet: `https://github.com/eriknihlen/openac-mosstank`.
+- **Add from URL** installs it straight from this repository:
+  `https://github.com/eriknihlen/openac-mosstank`.
 
-Either way the launcher stages the plugin **disabled**. Enabling it is a
-separate, explicit choice you make on that tab. A hand install works too: unzip
-the release's `acdream.mosstank-<version>.zip` into its own subdirectory of your
-plugins folder (`%LOCALAPPDATA%\acdream\plugins` on Windows).
+The launcher installs it from this repository's `wasm-v<version>` releases,
+checks them for updates, and stages the plugin **disabled**. Enabling it is a
+separate, explicit choice you make on that tab.
 
 Commands are registered under `/vt` and `/ub`, as VTank and UtilityBelt register them:
 the macro's commands answer on `/vt`, the UtilityBelt ones on `/ub`, so command lines
@@ -32,6 +34,23 @@ written for either work as they are. `/vt help` and `/ub help` list each word's 
 
 Optional [personal kill statistics](KILL-STATISTICS.md) record durable per-character
 counters for kills/hour reporting without relying on retained chat logs.
+
+## The C# plugin (retired)
+
+MossTank began as a C# plugin for the C# OpenAC client, which is retired
+(2026-11-05). The C# plugin is on this repository's
+[`deprecated`](https://github.com/eriknihlen/openac-mosstank/tree/deprecated)
+branch and in the history; its last release is
+[`v0.5.10`](https://github.com/eriknihlen/openac-mosstank/releases/tag/v0.5.10),
+and it gets no further changes. The Rust plugin is a conversion of it with
+the same behaviour; the `// Source:` comments in the Rust tests name the C#
+test each one ports, on that branch.
+
+The C# plugin left a few files outside `rust/` that the Rust plugin reads in
+place: its panel markup (`src/AcDream.Plugins.MossTank/*.xml`), the
+experience cost table beside it (`ExperienceCosts.tsv`), and the test
+fixtures, real VTank and metaf profiles
+(`tests/AcDream.Plugins.MossTank.Tests/Fixtures/`).
 
 ## Your existing profiles
 
@@ -48,11 +67,11 @@ bare name loads the `.nav` or `.met` first and the `.af` second.
 and write goes through a host storage surface, and there are two of them:
 
 - **Everything you edit, copy or share** lives under `mosstank\` in the host's
-  shared profile directory (`%LOCALAPPDATA%\acdream\vtank\mosstank\` on
-  Windows): `profiles\` settings, `metas\`, `navs\`, `loot\`, and `ub\` with
-  the whole UtilityBelt tree beneath it — its settings tiers, named profiles,
-  aliases, `maps\markers.csv`, dungeon maps and the `equip\`, `autovendor\`
-  and `itemgiver\` profile folders, at the plugin, server and character tiers.
+  shared profile directory: `profiles\` settings, `metas\`, `navs\`,
+  `loot\`, and `ub\` with the whole UtilityBelt tree beneath it — its
+  settings tiers, named profiles, aliases, `maps\markers.csv`, dungeon maps
+  and the `equip\`, `autovendor\` and `itemgiver\` profile folders, at the
+  plugin, server and character tiers.
   Copy the profiles you want it to use in here.
 - **State the plugin keeps for itself** — saved expressions, macro side-cars,
   recovery copies, enchantment timers, the onboarding marker — stays in the
@@ -61,10 +80,10 @@ and write goes through a host storage surface, and there are two of them:
 An earlier version wrote the UtilityBelt tree into the plugin's own storage
 under `ub\`. On the first start after upgrading, those files are **copied**
 into the new place and the originals are left exactly where they were; one
-line in chat says how many moved across. The only other path the plugin opens
-is its own installed folder, to load its panel markup. The originals of any
-profiles you copy in, wherever they live, are not read, not moved and not
-rewritten. The panel tells you where the folders are.
+line in chat says how many moved across. Its panel markup is built into the
+module, so it opens no other path. The originals of any profiles you copy in,
+wherever they live, are not read, not moved and not rewritten. The panel
+tells you where the folders are.
 
 The game information a VTank profile folder keeps in `gameinfodb.ugd`
 (ammunition, grenades, monster damage and species, drain and martyr spells,
@@ -82,40 +101,16 @@ check keeps the file you had. Until the first download there are no
 ammunition choices, grenades or craft recipes. `/vt gamedb` shows what is
 loaded and when the next check is due; `/vt gamedb update` checks now.
 
-## Building from source
+## Building, checking and releasing
 
-The plugin builds against the `AcDream.Plugin.Abstractions` package, not a
-client checkout. The package is published as an asset on an OpenAC GitHub
-release; drop the `.nupkg` into `./packages-local`, which `NuGet.Config`
-registers as a folder feed. From an OpenAC checkout you can pack it yourself:
-
-```
-dotnet pack <OpenAcRoot>/src/AcDream.Plugin.Abstractions -c Release -o ./packages-local
-```
-
-`PluginApiPackageVersion` in `Directory.Build.props` names the contract version
-to resolve; it has to match the package in the feed.
-
-```
-dotnet restore MossTank.slnx
-dotnet build MossTank.slnx -c Release
-dotnet test tests/AcDream.Plugins.MossTank.Tests -c Release --no-build
-```
-
-To produce the release zip and its checksum locally — the same script CI runs:
-
-```
-pwsh tools/build-release-zip.ps1 -Configuration Release
-```
-
-## Releasing
-
-Tag `v<version>`, where `<version>` is `Version` in `Directory.Build.props` and
-the `version` in `src/AcDream.Plugins.MossTank/plugin.json`; a test fails when
-those two drift. CI builds, tests, assembles the zip, checks it with OpenAC's
-own `acdream-plugincheck`, and publishes the release with the three assets the
-launcher expects. A tag with a `-` suffix publishes a pre-release, which the
-launcher offers only to players who opt this plugin into its Beta channel.
+See [rust/README.md](rust/README.md). In short: the toolchain is pinned in
+`rust/rust-toolchain.toml`, and `rust/scripts/check.ps1` (or `check.sh`) runs
+the full check — formatting, clippy, the tests, the WebAssembly build, the
+module's imports and the per-call fuel budgets. CI runs the same check on
+Linux and Windows for every push to `main` or `rust-port` and every pull
+request into them. A release is the module and its `plugin.json` packed with
+`plugincheck` and published as a release tagged `wasm-v<version>`; the plain
+`v<version>` tags are the C# plugin's.
 
 ## Attribution
 
@@ -127,15 +122,21 @@ VTank's file formats and answers its command and expression names, with no
 VTank code included; the information needed for that was obtained by
 decompilation for interoperability as permitted by Article 6 of the EU
 Software Directive (2009/24/EC). MossTank's own messages are written in its
-own words. Its `.af` files and its `.met`/`.nav` readers and writers are adapted
-from **metaf** by Eskarina (https://github.com/JJEII/metaf). Details and license texts:
-[NOTICE.md](NOTICE.md).
+own words. Its `.af` files carry the credit header of **metaf** by Eskarina
+(https://github.com/JJEII/metaf); the C# plugin's `.af`, `.met` and `.nav`
+readers and writers were adapted from metaf, and the Rust plugin's were
+written from the formats instead. Details and license texts:
+[NOTICE.md](NOTICE.md) and [rust/NOTICE.md](rust/NOTICE.md).
 
 ## Licence
 
-GNU General Public License v3 or later. See [LICENSE](LICENSE).
-MossTank 0.5.0 and earlier were released under MIT. Third-party notices,
-including metaf's: [NOTICE.md](NOTICE.md).
+The Rust plugin (everything under `rust/`) is under the MIT license: see
+[rust/LICENSE](rust/LICENSE) and [rust/NOTICE.md](rust/NOTICE.md). The rest
+of this repository (the files the C# plugin left, the kill-statistics
+collector in `tools/`, this documentation) stays under the GNU General Public
+License v3 or later, as the C# plugin was: see [LICENSE](LICENSE). MossTank
+0.5.0 and earlier were released under MIT. Third-party notices, including
+metaf's: [NOTICE.md](NOTICE.md).
 
 ## Plugin appearance and option search
 
@@ -192,9 +193,7 @@ history without affecting the macro or current status, and **X** closes the wind
 
 ## Peer features
 
-Requires OpenAC 0.1.25. Receive broadcasts defaults on so `/ub bc` works between logged-in characters on this computer in the same world. Vital Sharing still defaults off. Both choices are stored per character; an explicitly saved choice is preserved. Vital Sharing exchanges character state and cast information; Receive broadcasts allows this client to execute incoming tagged broadcast commands. Sending a broadcast does not enable reception. Network HUD, active peer healing and metas containing netclients[] or netcasts[] request their own capabilities. Requests end when the feature stops or the plugin unloads. A meta needing peers waits for the initial connection before evaluating peer-dependent rules.
-
-For a local source build before the contract is published, pack AcDream.Plugin.Abstractions 0.1.25 from the matching OpenAC checkout and copy the nupkg into packages-local before restoring. CI requires the corresponding OpenAC release to exist.
+Receive broadcasts defaults on so `/ub bc` works between logged-in characters on this computer in the same world. Vital Sharing still defaults off. Both choices are stored per character; an explicitly saved choice is preserved. Vital Sharing exchanges character state and cast information; Receive broadcasts allows this client to execute incoming tagged broadcast commands. Sending a broadcast does not enable reception. Network HUD, active peer healing and metas containing netclients[] or netcasts[] request their own capabilities. Requests end when the feature stops or the plugin unloads. A meta needing peers waits for the initial connection before evaluating peer-dependent rules.
 
 ### Action history and debug files
 
@@ -225,9 +224,3 @@ for review and are reported in loot history/debug logging. Queued donors and
 held stones count against further donor pickups. Protected or equipped items
 remain subject to the normal safety checks. A storage error disables draining
 rather than risking a repeat after restart.
-
-For a local paired preview, pack the updated OpenAC contract with
-`dotnet pack src/AcDream.Plugin.Abstractions -c Release -p:PackageVersion=0.1.25`
-and place its package in `packages-local`. Build the matching client with
-`-p:Version=0.1.25`. Publish OpenAC v0.1.25 before the dependent MossTank release;
-CI obtains its contract from that release.
