@@ -1,7 +1,15 @@
 # Third-Party Notices
 
-MossTank is free software, licensed under the GNU General Public License,
-version 3 or (at your option) any later version (see [LICENSE](LICENSE)).
+MossTank's Rust plugin (everything under `rust/`) is licensed under the MIT
+license (see [rust/LICENSE](rust/LICENSE) and [rust/NOTICE.md](rust/NOTICE.md)).
+The other files in this repository are free software, licensed under the GNU
+General Public License, version 3 or (at your option) any later version (see
+[LICENSE](LICENSE)): the panel markup (`src/AcDream.Plugins.MossTank/*.xml`)
+and the experience table (`ExperienceCosts.tsv`) that the Rust plugin compiles
+into its module, the test fixtures under `tests/`, and the kill-statistics
+collector in `tools/`. A built `mosstank.wasm` therefore includes those
+GPL-3.0-or-later parts. The C# plugin, on the `deprecated` branch, is
+GPL-3.0-or-later as a whole.
 
     MossTank, an automation plugin for the OpenAC Asheron's Call client
     Copyright (C) 2026 Erik Nihlén and OpenAC contributors
@@ -117,9 +125,9 @@ its license terms are that project's.
 
 ## metaf
 
-MossTank's `.af` meta and route files, and its readers and writers for
-VTank's `.met` and `.nav` files, are adapted from **metaf** by Eskarina of
-Morningthaw and Coldeve:
+The C# plugin's `.af` meta and route files, and its readers and writers for
+VTank's `.met` and `.nav` files (on the `deprecated` branch), are adapted from
+**metaf** by Eskarina of Morningthaw and Coldeve:
 
 **https://github.com/JJEII/metaf**
 
@@ -130,9 +138,10 @@ something that reads or writes them, start there.
 The code was adapted by way of a Python port of metaf, and is licensed
 under the GNU General Public License v3, as metaf is. It is included with
 the knowledge and permission of metaf's author, whose one request is that
-anything built on metaf credits it and links back to it. Every `.af` file
-MossTank writes begins with metaf's own header, which names metaf and links
-to it.
+anything built on metaf credits it and links back to it. The Rust plugin's
+readers and writers were not translated from that code (see
+[rust/NOTICE.md](rust/NOTICE.md)). Every `.af` file MossTank writes begins
+with metaf's own header, which names metaf and links to it.
 
 ## MossTank under the MIT license (0.5.0 and earlier)
 

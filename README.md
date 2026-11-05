@@ -134,9 +134,11 @@ The Rust plugin (everything under `rust/`) is under the MIT license: see
 [rust/LICENSE](rust/LICENSE) and [rust/NOTICE.md](rust/NOTICE.md). The rest
 of this repository (the files the C# plugin left, the kill-statistics
 collector in `tools/`, this documentation) stays under the GNU General Public
-License v3 or later, as the C# plugin was: see [LICENSE](LICENSE). MossTank
-0.5.0 and earlier were released under MIT. Third-party notices, including
-metaf's: [NOTICE.md](NOTICE.md).
+License v3 or later, as the C# plugin was: see [LICENSE](LICENSE). The Rust
+plugin compiles in the panel markup and the experience table from `src/`, so
+a built `mosstank.wasm` includes those GPL parts. MossTank 0.5.0 and earlier
+were released under MIT. Third-party notices, including metaf's:
+[NOTICE.md](NOTICE.md).
 
 ## Plugin appearance and option search
 
