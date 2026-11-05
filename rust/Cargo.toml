@@ -8,7 +8,7 @@ members = ["crates/*"]
 resolver = "3"
 
 [workspace.package]
-version = "0.6.6"
+version = "0.6.7"
 edition = "2024"
 rust-version = "1.95"
 license = "MIT"
@@ -36,10 +36,10 @@ mosstank = { path = "crates/mosstank" }
 # pinned to a commit. `openac-plugin-compat` is its .NET
 # compatibility kit: number formats, the seeded Random, text decoding, JSON
 # writers, regex.
-openac-plugin = { git = "https://github.com/eriknihlen/openac-rust", rev = "dae3e4685525d15de5f9e47e36aed1203eadcfd8" }
-openac-plugin-compat = { git = "https://github.com/eriknihlen/openac-rust", rev = "dae3e4685525d15de5f9e47e36aed1203eadcfd8" }
+openac-plugin = { git = "https://github.com/eriknihlen/openac-rust", rev = "d23ef9a70657d3afbf13fb5b128114d135b57b86" }
+openac-plugin-compat = { git = "https://github.com/eriknihlen/openac-rust", rev = "d23ef9a70657d3afbf13fb5b128114d135b57b86" }
 # The plugin ABI types (world positions and the like) without the SDK's host side.
-ac-plugin-abi = { git = "https://github.com/eriknihlen/openac-rust", rev = "dae3e4685525d15de5f9e47e36aed1203eadcfd8" }
+ac-plugin-abi = { git = "https://github.com/eriknihlen/openac-rust", rev = "d23ef9a70657d3afbf13fb5b128114d135b57b86" }
 
 thiserror = "2.0"
 # SHA-256 for the recovery copies' and old profiles' names and the global

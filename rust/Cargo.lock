@@ -4,23 +4,38 @@ version = 4
 
 [[package]]
 name = "ac-plugin-abi"
-version = "0.1.10"
-source = "git+https://github.com/eriknihlen/openac-rust?rev=dae3e4685525d15de5f9e47e36aed1203eadcfd8#dae3e4685525d15de5f9e47e36aed1203eadcfd8"
+version = "0.1.12"
+source = "git+https://github.com/eriknihlen/openac-rust?rev=d23ef9a70657d3afbf13fb5b128114d135b57b86#d23ef9a70657d3afbf13fb5b128114d135b57b86"
 dependencies = [
  "ac-plugin-ui",
+ "ac-plugin-version",
+]
+
+[[package]]
+name = "ac-plugin-icon"
+version = "0.1.12"
+source = "git+https://github.com/eriknihlen/openac-rust?rev=d23ef9a70657d3afbf13fb5b128114d135b57b86#d23ef9a70657d3afbf13fb5b128114d135b57b86"
+dependencies = [
+ "miniz_oxide",
+ "thiserror",
 ]
 
 [[package]]
 name = "ac-plugin-ui"
-version = "0.1.10"
-source = "git+https://github.com/eriknihlen/openac-rust?rev=dae3e4685525d15de5f9e47e36aed1203eadcfd8#dae3e4685525d15de5f9e47e36aed1203eadcfd8"
+version = "0.1.12"
+source = "git+https://github.com/eriknihlen/openac-rust?rev=d23ef9a70657d3afbf13fb5b128114d135b57b86#d23ef9a70657d3afbf13fb5b128114d135b57b86"
 dependencies = [
+ "ac-plugin-icon",
  "fontdue",
- "miniz_oxide",
  "roxmltree",
  "thiserror",
  "ttf-parser",
 ]
+
+[[package]]
+name = "ac-plugin-version"
+version = "0.1.12"
+source = "git+https://github.com/eriknihlen/openac-rust?rev=d23ef9a70657d3afbf13fb5b128114d135b57b86#d23ef9a70657d3afbf13fb5b128114d135b57b86"
 
 [[package]]
 name = "addr2line"
@@ -695,7 +710,7 @@ dependencies = [
 
 [[package]]
 name = "mosstank"
-version = "0.6.6"
+version = "0.6.7"
 dependencies = [
  "ac-plugin-abi",
  "mosstank-automation",
@@ -720,7 +735,7 @@ dependencies = [
 
 [[package]]
 name = "mosstank-automation"
-version = "0.6.6"
+version = "0.6.7"
 dependencies = [
  "ac-plugin-abi",
  "mosstank-dotnet",
@@ -729,7 +744,7 @@ dependencies = [
 
 [[package]]
 name = "mosstank-buffs"
-version = "0.6.6"
+version = "0.6.7"
 dependencies = [
  "ac-plugin-abi",
  "mosstank-automation",
@@ -744,7 +759,7 @@ dependencies = [
 
 [[package]]
 name = "mosstank-combat"
-version = "0.6.6"
+version = "0.6.7"
 dependencies = [
  "ac-plugin-abi",
  "mosstank-automation",
@@ -758,7 +773,7 @@ dependencies = [
 
 [[package]]
 name = "mosstank-data"
-version = "0.6.6"
+version = "0.6.7"
 dependencies = [
  "ac-plugin-abi",
  "mosstank-dotnet",
@@ -768,14 +783,14 @@ dependencies = [
 
 [[package]]
 name = "mosstank-dotnet"
-version = "0.6.6"
+version = "0.6.7"
 dependencies = [
  "openac-plugin-compat",
 ]
 
 [[package]]
 name = "mosstank-expr"
-version = "0.6.6"
+version = "0.6.7"
 dependencies = [
  "mosstank-dotnet",
  "openac-plugin-compat",
@@ -784,7 +799,7 @@ dependencies = [
 
 [[package]]
 name = "mosstank-formats"
-version = "0.6.6"
+version = "0.6.7"
 dependencies = [
  "ac-plugin-abi",
  "mosstank-data",
@@ -795,7 +810,7 @@ dependencies = [
 
 [[package]]
 name = "mosstank-fuel"
-version = "0.6.6"
+version = "0.6.7"
 dependencies = [
  "ac-plugin-abi",
  "mosstank",
@@ -808,7 +823,7 @@ dependencies = [
 
 [[package]]
 name = "mosstank-loot"
-version = "0.6.6"
+version = "0.6.7"
 dependencies = [
  "ac-plugin-abi",
  "mosstank-automation",
@@ -824,7 +839,7 @@ dependencies = [
 
 [[package]]
 name = "mosstank-meta"
-version = "0.6.6"
+version = "0.6.7"
 dependencies = [
  "ac-plugin-abi",
  "mosstank-dotnet",
@@ -839,7 +854,7 @@ dependencies = [
 
 [[package]]
 name = "mosstank-nav"
-version = "0.6.6"
+version = "0.6.7"
 dependencies = [
  "ac-plugin-abi",
  "mosstank-automation",
@@ -853,7 +868,7 @@ dependencies = [
 
 [[package]]
 name = "mosstank-session"
-version = "0.6.6"
+version = "0.6.7"
 dependencies = [
  "ac-plugin-abi",
  "mosstank-automation",
@@ -865,7 +880,7 @@ dependencies = [
 
 [[package]]
 name = "mosstank-settings"
-version = "0.6.6"
+version = "0.6.7"
 dependencies = [
  "ac-plugin-abi",
  "mosstank-data",
@@ -877,7 +892,7 @@ dependencies = [
 
 [[package]]
 name = "mosstank-stores"
-version = "0.6.6"
+version = "0.6.7"
 dependencies = [
  "mosstank-data",
  "mosstank-dotnet",
@@ -890,7 +905,7 @@ dependencies = [
 
 [[package]]
 name = "mosstank-ub"
-version = "0.6.6"
+version = "0.6.7"
 dependencies = [
  "ac-plugin-abi",
  "mosstank-automation",
@@ -909,7 +924,7 @@ dependencies = [
 
 [[package]]
 name = "mosstank-vendor"
-version = "0.6.6"
+version = "0.6.7"
 dependencies = [
  "ac-plugin-abi",
  "mosstank-automation",
@@ -941,8 +956,8 @@ checksum = "9f7c3e4beb33f85d45ae3e3a1792185706c8e16d043238c593331cc7cd313b50"
 
 [[package]]
 name = "openac-plugin"
-version = "0.1.10"
-source = "git+https://github.com/eriknihlen/openac-rust?rev=dae3e4685525d15de5f9e47e36aed1203eadcfd8#dae3e4685525d15de5f9e47e36aed1203eadcfd8"
+version = "0.1.12"
+source = "git+https://github.com/eriknihlen/openac-rust?rev=d23ef9a70657d3afbf13fb5b128114d135b57b86#d23ef9a70657d3afbf13fb5b128114d135b57b86"
 dependencies = [
  "ac-plugin-abi",
  "ac-plugin-ui",
@@ -950,8 +965,8 @@ dependencies = [
 
 [[package]]
 name = "openac-plugin-compat"
-version = "0.1.10"
-source = "git+https://github.com/eriknihlen/openac-rust?rev=dae3e4685525d15de5f9e47e36aed1203eadcfd8#dae3e4685525d15de5f9e47e36aed1203eadcfd8"
+version = "0.1.12"
+source = "git+https://github.com/eriknihlen/openac-rust?rev=d23ef9a70657d3afbf13fb5b128114d135b57b86#d23ef9a70657d3afbf13fb5b128114d135b57b86"
 dependencies = [
  "fancy-regex",
  "thiserror",
@@ -1598,7 +1613,7 @@ dependencies = [
 
 [[package]]
 name = "xtask"
-version = "0.6.6"
+version = "0.6.7"
 
 [[package]]
 name = "zmij"
