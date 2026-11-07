@@ -29,7 +29,7 @@ cargo build --workspace --target wasm32-unknown-unknown --release
 ```
 
 The SDK crates (`openac-plugin`, `openac-plugin-compat`, `ac-plugin-abi`)
-come from the openac-rust repository by git, pinned to a commit in
+come from the OpenAC repository by git, pinned to a commit in
 `Cargo.toml`: openac-rust v0.1.12, plugin API 1.8 (a canvas hears the
 pointer hovering over it from API 1.6), so MossTank needs client 0.1.11 or
 later; its fellowship rules see fellows out of sight from client 0.1.12.
@@ -42,11 +42,11 @@ per-call time budgets.
 
 A plugin folder holds `plugin.json` and the module it names
 (`mosstank.wasm`). Copy both into an empty folder and pack it with
-`plugincheck` from the openac-rust repository (see its
+`plugincheck` from the OpenAC repository (see its
 `docs/plugin-development.md`):
 
 ```bash
-cargo install --locked --git https://github.com/eriknihlen/openac-rust plugincheck
+cargo install --locked --git https://github.com/eriknihlen/OpenAC plugincheck
 plugincheck pack <plugin folder> <out dir>
 plugincheck <out dir>/acdream.mosstank-<version>.zip
 ```
