@@ -809,6 +809,28 @@ impl World {
             Import::SpellsGet => self.answer::<calls::SpellsGet>(bytes, |world, spell_id: u32| {
                 world.automation().try_get(spell_id)
             }),
+            // The spell table: the known self buffs and the catalog, by id.
+            Import::SpellsPage => {
+                self.answer::<calls::SpellsPage>(bytes, |world, (first, count): (u32, u32)| {
+                    let automation = world.automation();
+                    let mut all: Vec<SpellInfo> = automation
+                        .known_self_buffs
+                        .iter()
+                        .chain(&automation.catalog_spells)
+                        .cloned()
+                        .collect();
+                    all.sort_by_key(|spell| spell.spell_id);
+                    all.dedup_by_key(|spell| spell.spell_id);
+                    ac_plugin_abi::magic::SpellPage {
+                        total: u32::try_from(all.len()).unwrap_or(u32::MAX),
+                        spells: all
+                            .into_iter()
+                            .skip(first as usize)
+                            .take(count as usize)
+                            .collect(),
+                    }
+                })
+            }
             Import::SpellsComponent => {
                 self.answer::<calls::SpellsComponent>(bytes, |world, component_id: u32| {
                     world.automation().components.get(&component_id).cloned()

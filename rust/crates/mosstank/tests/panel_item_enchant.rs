@@ -423,6 +423,27 @@ fn a_character_targeted_bane_is_cast_once_and_then_covered_by_the_ledger() {
     );
 }
 
+/// A bane the character knows only under a name that is not "<Element> Bane
+/// N" (the level VII and VIII spells: "Olthoi's Bane", "Incantation of Acid
+/// Bane", same family as "Acid Bane I" in the portal dat) is still cast:
+/// "Acid Bane I" is taken from the whole spell table and the best known
+/// spell of its family is cast, as VTank does (divergence BUFF-3). Looking
+/// the name up only in the known self buffs, as the C# did, found nothing
+/// and skipped the bane without a word.
+#[test]
+fn a_bane_known_only_by_its_incantation_is_cast_like_vtank() {
+    let mut incantation = bane(319, 411, "Incantation of Acid Bane");
+    incantation.tier = 8;
+    let mut automation = bane_automation(vec![incantation, bane(321, 421, "Piercing Bane I")]);
+    // The tier-I spell is in the spell table, not in the spellbook.
+    automation.catalog_spells = vec![bane(311, 411, "Acid Bane I")];
+    let (mut world, mut plugin) = open(automation);
+
+    run(&mut world, &mut plugin, 30);
+
+    assert_eq!(world.cast_spell_ids(), [319, 321]);
+}
+
 /// A death leaves the bane's timer in the ledger, so the running macro does
 /// not cast it again (divergence BUFF-2: the game keeps the armor's
 /// enchantments through a death; the C# forgets every item timer).

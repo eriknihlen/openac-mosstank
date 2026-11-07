@@ -1546,7 +1546,8 @@ pub(crate) fn try_resolve_best_known_by_name(
     settings: &BuffSettings,
 ) -> Option<SpellInfo> {
     let known = castability.known_self_buffs();
-    let reference = reference_by_name(&known, tier_one_name)?;
+    let reference = reference_by_name(&known, tier_one_name)
+        .or_else(|| table_reference(castability, tier_one_name))?;
     try_resolve_best_known(castability, &reference, settings)
 }
 
@@ -1560,8 +1561,24 @@ fn try_resolve_best_known_by_name_memo(
     settings: &BuffSettings,
 ) -> Option<SpellInfo> {
     let known = castability.known_self_buffs();
-    let reference = memo.reference(&known, tier_one_name)?;
+    let reference = memo
+        .reference(&known, tier_one_name)
+        .or_else(|| table_reference(castability, tier_one_name))?;
     try_resolve_best_known(castability, &reference, settings)
+}
+
+/// The tier-I spell from the whole spell table, for a family the character
+/// knows only under other names (a bane known only as "Olthoi's Bane" or
+/// "Incantation of Acid Bane"): the best known tier of its family is then
+/// cast, as VTank does (divergence BUFF-3).
+fn table_reference(
+    castability: &mut AutomationCastability<'_>,
+    tier_one_name: &str,
+) -> Option<SpellInfo> {
+    use crate::plan::BuffCastability as _;
+    castability
+        .spell_catalog()?
+        .try_find_by_name(tier_one_name, false)
 }
 
 /// The rows' reference spells by name, for one known list (the same
