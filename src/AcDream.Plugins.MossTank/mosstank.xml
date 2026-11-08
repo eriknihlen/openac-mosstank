@@ -46,6 +46,8 @@
        selected="{UbSettingsSelected}" enabled="{UbSettingsTabEnabled}" onclick="{ShowUbSettings}" />
   <tab x="590" y="22" w="48" h="18" text="Tinker"
        selected="{TinkerSelected}" enabled="{TinkerTabEnabled}" onclick="{ShowTinker}" />
+  <tab x="638" y="22" w="40" h="18" text="Mag"
+       selected="{MagSelected}" enabled="{MagTabEnabled}" onclick="{ShowMag}" />
 
   <group x="8" y="42" w="976" h="229" visible="{OptionsVisible}" anchor="left top right bottom">
     <label x="8" y="8" w="80" h="16" text="Monster Range:" color="theme:text|#FFE8DEC3" />
@@ -762,6 +764,31 @@
 
     <label x="4" y="208" w="968" h="16" text="{TinkerNotice}" color="theme:muted|#FFC7B98F"
            anchor="left bottom right" />
+  </group>
+
+  <!-- The Mag tab: Mag-Tools' tracker pages (its Views/mainView.xml), each
+       a sub-tab, and the button that opens the Inventory window. -->
+  <group x="8" y="42" w="976" h="229" visible="{MagVisible}"
+         anchor="left top right bottom">
+    <tab x="4" y="0" w="56" h="18" text="Combat"
+         selected="{MagCombatSelected}" onclick="{ShowMagCombat}" />
+    <tab x="60" y="0" w="44" h="18" text="Mana"
+         selected="{MagManaSelected}" onclick="{ShowMagMana}" />
+    <tab x="104" y="0" w="70" h="18" text="Inv. Items"
+         selected="{MagInvItemsSelected}" onclick="{ShowMagInvItems}" />
+    <button x="876" y="0" w="96" h="18" text="Inventory..." anchor="right top"
+            onclick="{OpenMagInventory}"
+            tooltip="Open the Inventory window: search every logged character's items." />
+
+    <group x="0" y="22" w="976" h="207" visible="{MagCombatVisible}"
+           anchor="left top right bottom">
+    </group>
+    <group x="0" y="22" w="976" h="207" visible="{MagManaVisible}"
+           anchor="left top right bottom">
+    </group>
+    <group x="0" y="22" w="976" h="207" visible="{MagInvItemsVisible}"
+           anchor="left top right bottom">
+    </group>
   </group>
 
 </panel>

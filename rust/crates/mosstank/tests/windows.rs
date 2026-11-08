@@ -250,6 +250,41 @@ fn the_tinker_tab_shows_and_hides_with_the_rest() {
     assert!(!is(&mut world, &mut plugin, "TinkerVisible"));
 }
 
+// The Mag tab: Mag-Tools' tracker pages (Views/mainView.xml: Combat, Mana,
+// Inv. Items), Combat first.
+#[test]
+fn the_mag_tab_shows_its_page_and_its_three_sub_pages() {
+    let (mut world, mut plugin) = fresh();
+    let is = |world: &mut World, plugin: &mut mosstank::MossTank, name: &str| {
+        value(world, plugin, name) == Some(UiValue::Bool(true))
+    };
+    assert!(is(&mut world, &mut plugin, "MagTabEnabled"));
+    assert!(!is(&mut world, &mut plugin, "MagVisible"));
+    act(&mut world, &mut plugin, "ShowMag");
+    assert!(is(&mut world, &mut plugin, "MagSelected"));
+    assert!(is(&mut world, &mut plugin, "MagVisible"));
+    assert!(!is(&mut world, &mut plugin, "TinkerVisible"));
+    assert!(
+        is(&mut world, &mut plugin, "MagCombatVisible"),
+        "Combat is the first sub-page"
+    );
+    assert!(is(&mut world, &mut plugin, "MagCombatSelected"));
+    act(&mut world, &mut plugin, "ShowMagMana");
+    assert!(is(&mut world, &mut plugin, "MagManaVisible"));
+    assert!(is(&mut world, &mut plugin, "MagManaSelected"));
+    assert!(!is(&mut world, &mut plugin, "MagCombatVisible"));
+    act(&mut world, &mut plugin, "ShowMagInvItems");
+    assert!(is(&mut world, &mut plugin, "MagInvItemsVisible"));
+    assert!(!is(&mut world, &mut plugin, "MagManaVisible"));
+    act(&mut world, &mut plugin, "ShowOptions");
+    assert!(!is(&mut world, &mut plugin, "MagVisible"));
+    act(&mut world, &mut plugin, "ShowMag");
+    assert!(
+        is(&mut world, &mut plugin, "MagInvItemsVisible"),
+        "the sub-page is kept"
+    );
+}
+
 // Source: tests/AcDream.Plugins.MossTank.Tests/MossTankMarkupContractTests.cs :: LootEditorHasNoLeftoverBackButton
 #[test]
 fn the_loot_editor_closes_through_its_own_handler() {

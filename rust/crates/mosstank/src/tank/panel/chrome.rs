@@ -66,6 +66,7 @@ pub(super) fn value(cx: &mut TankCx<'_>, name: &str) -> Option<UiValue> {
         "UbSelected" | "UbVisible" => b(tab == TankTab::Ub),
         "UbSettingsSelected" | "UbSettingsVisible" => b(tab == TankTab::UbSettings),
         "TinkerSelected" | "TinkerVisible" => b(tab == TankTab::Tinker),
+        "MagSelected" | "MagVisible" => b(tab == TankTab::Mag),
         "OptionsTabEnabled"
         | "ProfilesTabEnabled"
         | "VitalsTabEnabled"
@@ -77,7 +78,8 @@ pub(super) fn value(cx: &mut TankCx<'_>, name: &str) -> Option<UiValue> {
         | "MetaTabEnabled"
         | "UbTabEnabled"
         | "UbSettingsTabEnabled"
-        | "TinkerTabEnabled" => b(true),
+        | "TinkerTabEnabled"
+        | "MagTabEnabled" => b(true),
 
         // The Options page.
         "MonsterRangeValueText" => t(one_decimal(s.combat.maximum_range)),
@@ -234,6 +236,7 @@ pub(super) fn act(cx: &mut TankCx<'_>, name: &str, arg: &Arg) -> bool {
         "ShowUb" => cx.select_tab(TankTab::Ub),
         "ShowUbSettings" => cx.select_tab(TankTab::UbSettings),
         "ShowTinker" => cx.select_tab(TankTab::Tinker),
+        "ShowMag" => cx.select_tab(TankTab::Mag),
         "ToggleDebugLog" => cx.toggle_debug_logging(),
         "ShowRemote" => switch_panel(cx, "main", "remote"),
         "ShowMainWindow" => switch_panel(cx, "remote", "main"),

@@ -297,6 +297,7 @@ fn vtank_tab_order_and_every_binding_resolves() {
             "UB",
             "UB settings",
             "Tinker",
+            "Mag",
         ]
     );
     // Each binding is one whole `{Name}` and is registered; that the shell
@@ -489,7 +490,7 @@ fn every_page_of_the_window_holds_all_four_edges() {
     let pages: Vec<_> = named(document.root_element(), "group")
         .filter(|group| attr(*group, "visible").is_some_and(|v| v.ends_with("Visible}")))
         .collect();
-    assert_eq!(pages.len(), 12);
+    assert_eq!(pages.len(), 13);
     for page in pages {
         let anchor = attr(page, "anchor").unwrap_or("").to_ascii_lowercase();
         for edge in ["left", "top", "right", "bottom"] {

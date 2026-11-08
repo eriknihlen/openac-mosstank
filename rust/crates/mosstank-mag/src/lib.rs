@@ -17,9 +17,23 @@ pub mod identify;
 #[cfg(not(target_arch = "wasm32"))]
 pub mod testing;
 
+/// The Mag tab's pages, one sub-tab each (Mag-Tools' tracker pages).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum MagSubPage {
+    /// The combat tracker, the first page.
+    #[default]
+    Combat,
+    /// The mana list.
+    Mana,
+    /// The Inv. Items tracker.
+    InvItems,
+}
+
 /// Everything the Mag tab and the Inventory window keep between calls.
 #[derive(Debug, Default)]
 pub struct MagParts {
+    /// The Mag tab's page shown.
+    pub sub_page: MagSubPage,
     /// The appraisals the features asked for.
     pub identify: identify::IdentifyQueue,
 }
