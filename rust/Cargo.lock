@@ -845,6 +845,7 @@ dependencies = [
  "ac-plugin-abi",
  "mosstank-dotnet",
  "mosstank-meta",
+ "mosstank-settings",
  "mosstank-stores",
  "openac-plugin-compat",
  "roxmltree",

@@ -15,5 +15,8 @@ mosstank-stores.workspace = true
 openac-plugin-compat.workspace = true
 roxmltree.workspace = true
 
+[dev-dependencies]
+mosstank-settings.workspace = true
+
 [lints]
 workspace = true

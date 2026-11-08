@@ -14,6 +14,7 @@
 pub mod fmt;
 pub mod host;
 pub mod identify;
+pub mod settings;
 #[cfg(not(target_arch = "wasm32"))]
 pub mod testing;
 

@@ -286,6 +286,7 @@ fn build() -> Vec<UbSettingDefinition> {
     add_landscape_maps(&mut rows);
     add_network_ui(&mut rows);
     add_behaviour_tools(&mut rows);
+    add_mag(&mut rows);
     rows
 }
 
@@ -902,6 +903,52 @@ fn add_behaviour_tools(rows: &mut Vec<UbSettingDefinition>) {
         "",
         UbSettingScope::Character,
     ));
+}
+
+/// The Mag tab's settings: Mag-Tools' own (`SettingsManager.cs`), their
+/// names its paths, their summaries its descriptions, kept for every
+/// character as Mag-Tools kept them in one file. The inventory logger is
+/// on here (Mag-Tools: off): the Inventory window's search reads its files.
+fn add_mag(rows: &mut Vec<UbSettingDefinition>) {
+    for (name, summary, value) in [
+        (
+            "Mag.ItemInfoOnIdent.Enabled",
+            "Show Item Info On Ident.",
+            true,
+        ),
+        (
+            "Mag.ItemInfoOnIdent.ShowBuffedValues",
+            "Show Item Info Buffed* Values.",
+            true,
+        ),
+        (
+            "Mag.ItemInfoOnIdent.ShowValueAndBurden",
+            "Show Value and Burden.",
+            false,
+        ),
+        (
+            "Mag.CombatTracker.Persistent",
+            "Keep Stats Persistent.",
+            true,
+        ),
+        (
+            "Mag.CombatTracker.ExportOnLogOff",
+            "Export Stats on LogOff.",
+            false,
+        ),
+        (
+            "Mag.CombatTracker.SortAlphabetically",
+            "Sort Alphabetically.",
+            false,
+        ),
+        (
+            "Mag.InventoryManagement.InventoryLogger",
+            "Inventory Logger Enabled.",
+            true,
+        ),
+    ] {
+        rows.push(switch_in(name, summary, value, UbSettingScope::Global));
+    }
 }
 
 fn switch(name: &str, summary: &str, value: bool) -> UbSettingDefinition {
