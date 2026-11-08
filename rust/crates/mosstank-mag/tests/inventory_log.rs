@@ -251,11 +251,40 @@ fn a_file_in_any_layout_reads() {
 }
 
 #[test]
+fn two_items_hand_joined_on_one_line_read() {
+    let records: Vec<ItemRecord> = (0..3)
+        .map(|n| {
+            let mut record = ring_record();
+            record.id = RING + n;
+            record
+        })
+        .collect();
+    let text = document(&records).replacen(",\n{", ", {", 1);
+    let (_, read_back) = read(&text).expect("the file reads");
+    assert_eq!(read_back, records);
+}
+
+#[test]
 fn an_unknown_version_is_refused() {
     let text = document(&[ring_record()]).replacen("\"version\":1", "\"version\":2", 1);
     assert_eq!(read(&text), Err(ReadError::UnknownVersion(Some(2))));
     let text = document(&[]).replacen("\"version\":1,", "", 1);
     assert_eq!(read(&text), Err(ReadError::UnknownVersion(None)));
+}
+
+#[test]
+fn a_newer_version_without_items_is_refused() {
+    // A later format may keep its items elsewhere.
+    assert_eq!(
+        read("{\"version\":2,\"records\":[]}"),
+        Err(ReadError::UnknownVersion(Some(2)))
+    );
+    assert_eq!(
+        read("{\"records\":[]}"),
+        Err(ReadError::UnknownVersion(None))
+    );
+    // Version 1 must have them.
+    assert_eq!(read("{\"version\":1}"), Err(ReadError::Corrupt));
 }
 
 #[test]
@@ -846,7 +875,7 @@ mod logger {
         );
         let gone = rig.host.meta.owned_items.remove(1).object_id;
         rig.change(ObjectChangeKind::Released, None, gone);
-        assert!(rig.tick());
+        rig.tick();
         rig.logoff();
         let saved = rig.saved();
         assert_eq!(saved.len(), 3);
@@ -857,6 +886,116 @@ mod logger {
         assert!(saved.iter().all(|r| r.id != gone));
         // The kept list is the current inventory, for the search.
         assert_eq!(rig.logger.records().count(), 3);
+    }
+
+    #[test]
+    fn a_log_of_an_unknown_version_without_items_is_never_overwritten() {
+        let mut rig = Rig::new();
+        let text = "{\"version\":2,\"records\":[]}";
+        rig.host.meta.storage.insert(KEY, text);
+        rig.own_things(3);
+        rig.login();
+        rig.ticks(5);
+        rig.logoff();
+        assert_eq!(rig.writes(), 0);
+        assert_eq!(rig.host.meta.storage.get(KEY).as_deref(), Some(text));
+        assert!(rig.host.posted_text().is_empty());
+    }
+
+    /// 250 pyreals, then the ring (recorded in the build's third tick).
+    fn mid_build_rig() -> (Rig, InventoryItem) {
+        let mut rig = Rig::new();
+        rig.own_things(250);
+        let ring = item(0x8000_0101, "Ring", ObjectClass::Jewelry, PLAYER);
+        rig.own(ring.clone(), true, ItemProperties::default());
+        rig.login();
+        rig.tick();
+        assert!(!rig.logger.is_built());
+        (rig, ring)
+    }
+
+    fn logged_off(mut rig: Rig) -> Vec<ItemRecord> {
+        rig.ticks(5);
+        rig.logoff();
+        rig.saved()
+    }
+
+    #[test]
+    fn an_item_moved_out_mid_build_is_not_logged() {
+        let (mut rig, ring) = mid_build_rig();
+        // Given away: the world still knows it, not as the character's.
+        rig.host
+            .meta
+            .owned_items
+            .retain(|i| i.object_id != ring.object_id);
+        let mut given = object(&ring, true);
+        given.is_owned = false;
+        given.container_id = 0x5000_0099;
+        rig.change(ObjectChangeKind::Moved, Some(given), ring.object_id);
+        let saved = logged_off(rig);
+        assert_eq!(saved.len(), 250);
+        assert!(saved.iter().all(|r| r.id != ring.object_id));
+    }
+
+    #[test]
+    fn an_item_released_mid_build_is_not_logged() {
+        let (mut rig, ring) = mid_build_rig();
+        rig.host
+            .meta
+            .owned_items
+            .retain(|i| i.object_id != ring.object_id);
+        rig.change(ObjectChangeKind::Released, None, ring.object_id);
+        let saved = logged_off(rig);
+        assert_eq!(saved.len(), 250);
+        assert!(saved.iter().all(|r| r.id != ring.object_id));
+    }
+
+    #[test]
+    fn an_item_changed_mid_build_is_logged_as_it_is_now() {
+        let mut rig = Rig::new();
+        let ring = item(0x8000_0101, "Ring", ObjectClass::Jewelry, PLAYER);
+        rig.own(ring.clone(), true, ItemProperties::default());
+        rig.own_things(250);
+        rig.login();
+        // Recorded in the first tick, moved before the build is done.
+        rig.tick();
+        rig.host.meta.owned_items[0].container_id = SIDE_PACK;
+        let mut moved = object(&ring, true);
+        moved.container_id = SIDE_PACK;
+        rig.change(ObjectChangeKind::Moved, Some(moved), ring.object_id);
+        let saved = logged_off(rig);
+        let kept = saved.iter().find(|r| r.id == ring.object_id).expect("kept");
+        assert_eq!(kept.container_id, SIDE_PACK);
+    }
+
+    #[test]
+    fn one_changed_item_is_not_a_heavy_tick() {
+        let mut rig = Rig::new();
+        let ring = item(0x8000_0101, "Ring", ObjectClass::Jewelry, PLAYER);
+        rig.own(ring.clone(), true, ItemProperties::default());
+        rig.own_things(3);
+        rig.login();
+        rig.tick();
+        rig.host.meta.owned_items[0].stack_size = 1;
+        rig.change(
+            ObjectChangeKind::Updated,
+            Some(object(&ring, true)),
+            ring.object_id,
+        );
+        let reads = rig.host.property_reads;
+        assert!(!rig.tick());
+        // Recorded again all the same.
+        assert_eq!(rig.host.property_reads, reads + 1);
+    }
+
+    #[test]
+    fn a_tick_waiting_for_the_character_is_not_heavy() {
+        let mut rig = Rig::new();
+        rig.own_things(3);
+        rig.host.meta.character = None;
+        rig.login();
+        assert!(!rig.tick());
+        assert!(!rig.tick());
     }
 
     #[test]

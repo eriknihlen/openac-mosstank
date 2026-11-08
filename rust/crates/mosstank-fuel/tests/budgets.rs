@@ -1223,6 +1223,15 @@ fn the_inventory_log_fits() {
         enter_world(&mut session);
         let properties = heavy::appraised_properties(&heavy::inventory());
         session.world.automation().properties.extend(properties);
+        // The first session appraised everything; the next one logs in
+        // with nothing appraised yet, so every record is the last log's
+        // appraisal merged with the live item.
+        let appraised = round == "no log yet";
+        for object in &mut session.world.automation().world_objects {
+            if object.is_owned {
+                object.has_appraisal_data = appraised;
+            }
+        }
         session
             .world
             .set_reply::<calls::ItemsInventoryComplete>(&true);
@@ -1245,11 +1254,13 @@ fn the_inventory_log_fits() {
     }
     let log = session.world.plugin_data.get(key).expect("the log");
     let items = log.matches("\n{\"id\":").count();
+    let kept_appraisals = log.matches("\"has_id_data\":true").count();
     let cases = cases.all();
     let mut report = report(&cases);
     let _ = writeln!(report, "log: {} KB, {items} items", log.len() / 1024);
     println!("{report}");
     assert_eq!(items, heavy::INVENTORY_ITEMS, "{report}");
+    assert_eq!(kept_appraisals, heavy::INVENTORY_ITEMS, "{report}");
     assert_no_file_rewritten(&session, &report);
     assert_within_margin(&cases, &report);
 }

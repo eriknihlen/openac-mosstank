@@ -16,6 +16,16 @@
 //!   only writes it: one write, nothing read.
 //!
 //! A log of an unknown version is left as it is: nothing is written over it.
+//!
+//! Where it differs from Mag-Tools:
+//! - The log is written right after the login's records whether or not a
+//!   log existed (Mag-Tools, with none, wrote only once every appraisal
+//!   was in), and Mag-Tools waited for the appraisals it asked for only
+//!   when no log existed; here it also waits, and writes again when they
+//!   are in, when the last save had items without one. The first-run chat
+//!   lines are still only for a character with no log yet.
+//! - Logging off before the login's records are all made writes nothing,
+//!   so the last save stays whole.
 
 use std::collections::{HashMap, HashSet, VecDeque};
 
@@ -175,9 +185,9 @@ impl InventoryLogger {
         }
         let id = change.object_id;
         let owned = change.current.as_ref().is_some_and(|o| o.is_owned);
-        let released_while_building = change.current.is_none() && !self.is_built();
-        if (self.index.contains_key(&id) || owned || released_while_building)
-            && self.dirty_set.insert(id)
+        // Before the list is whole any change counts: an item still to be
+        // recorded may have left (the records made later drop it).
+        if (!self.is_built() || self.index.contains_key(&id) || owned) && self.dirty_set.insert(id)
         {
             self.dirty.push_back(id);
         }
@@ -213,11 +223,12 @@ impl InventoryLogger {
                 if !host.owned_inventory_complete() {
                     return false;
                 }
-                // With no log yet, the records start in the same tick.
+                // With no log yet, the records start in the same tick. No
+                // character yet: nothing done.
                 if self.start(host) {
                     self.build(host, queue, ITEMS_PER_TICK);
                 }
-                true
+                !matches!(self.stage, Stage::Idle)
             }
             Stage::Opening(text) => {
                 let text = std::mem::take(text);
@@ -384,6 +395,7 @@ impl InventoryLogger {
         let utc = host.utc_unix_ms();
         let mut complete = None;
         let mut later = Vec::new();
+        let mut recorded = 0;
         for _ in 0..budget {
             let Some(id) = self.dirty.pop_front() else {
                 break;
@@ -402,6 +414,7 @@ impl InventoryLogger {
                 if record.has_id_data {
                     self.awaiting.remove(&id);
                 }
+                recorded += 1;
                 let kept = Kept::new(record, session_id_time);
                 match at {
                     Some(at) => self.kept[at] = kept,
@@ -410,6 +423,8 @@ impl InventoryLogger {
                         self.kept.push(kept);
                     }
                 }
+            } else if !self.index.contains_key(&id) {
+                // Not the character's, and never recorded: nothing to do.
             } else if *complete.get_or_insert_with(|| host.owned_inventory_complete()) {
                 // Gone: it is not in the inventory any more.
                 self.awaiting.remove(&id);
@@ -430,14 +445,18 @@ impl InventoryLogger {
                 self.dirty.push_back(id);
             }
         }
+        let mut saved = false;
         if self.waiting && self.awaiting.is_empty() {
             self.waiting = false;
             self.save(host);
+            saved = true;
             if self.first_run {
                 post(host, FIRST_RUN_DONE);
             }
         }
-        true
+        // A few changed items (an arrow shot, a pack moved) are a light
+        // tick; a full batch or a write is a tick's worth.
+        recorded >= budget || saved
     }
 
     /// Writes the kept list (`DumpInventoryToFile`'s write).

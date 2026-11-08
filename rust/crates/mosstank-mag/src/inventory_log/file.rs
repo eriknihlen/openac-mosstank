@@ -134,6 +134,9 @@ pub struct LogReader {
     header: LogHeader,
     items: Vec<Range<usize>>,
     next: usize,
+    /// The items were found by their line breaks ([`write`]'s layout); an
+    /// item that does not read is looked for again by the structure.
+    by_lines: bool,
 }
 
 impl LogReader {
@@ -141,16 +144,20 @@ impl LogReader {
     ///
     /// # Errors
     /// The file is not a JSON object with an `items` array, its header is
-    /// broken, or it is of another version.
+    /// broken, or it is of another version (also one that keeps no `items`
+    /// array).
     pub fn new(text: String) -> Result<Self, ReadError> {
         // The document without its items: the header's members.
-        let (rest, items) = match lines(&text) {
-            Some(found) => found,
-            None => {
-                let (array, items) = scan(text.as_bytes()).ok_or(ReadError::Corrupt)?;
-                let rest = format!("{}[]{}", &text[..array.start], &text[array.end..]);
-                (rest, items)
-            }
+        let (rest, items, by_lines) = match lines(&text) {
+            Some((rest, items)) => (rest, items, true),
+            None => match scan(text.as_bytes()) {
+                Some((array, items)) => (
+                    format!("{}[]{}", &text[..array.start], &text[array.end..]),
+                    items,
+                    false,
+                ),
+                None => return Err(unknown_or_corrupt(&text)),
+            },
         };
         let value = json::parse(&rest).map_err(|_| ReadError::Corrupt)?;
         let version = value.get("version").and_then(JsonValue::as_i64);
@@ -178,6 +185,7 @@ impl LogReader {
             header,
             items,
             next: 0,
+            by_lines,
         })
     }
 
@@ -198,14 +206,44 @@ impl LogReader {
     /// # Errors
     /// One of them is broken.
     pub fn read_items(&mut self, count: usize) -> Result<Vec<ItemRecord>, ReadError> {
-        let end = self.next.saturating_add(count).min(self.items.len());
-        let mut records = Vec::with_capacity(end - self.next);
-        for range in &self.items[self.next..end] {
-            let value = json::parse(&self.text[range.clone()]).map_err(|_| ReadError::Corrupt)?;
-            records.push(ItemRecord::from_json(&value).ok_or(ReadError::Corrupt)?);
+        let mut records = Vec::new();
+        while records.len() < count && self.next < self.items.len() {
+            let range = self.items[self.next].clone();
+            let record = json::parse(&self.text[range])
+                .ok()
+                .and_then(|value| ItemRecord::from_json(&value));
+            match record {
+                Some(record) => {
+                    records.push(record);
+                    self.next += 1;
+                }
+                // A line that is not one item (a hand-edited file): every
+                // line before it was one, so the items are found again by
+                // the structure and the reading goes on where it was.
+                None if self.by_lines => {
+                    self.by_lines = false;
+                    let (_, items) = scan(self.text.as_bytes()).ok_or(ReadError::Corrupt)?;
+                    if items.len() <= self.next {
+                        return Err(ReadError::Corrupt);
+                    }
+                    self.items = items;
+                }
+                None => return Err(ReadError::Corrupt),
+            }
         }
-        self.next = end;
         Ok(records)
+    }
+}
+
+/// A file with no `items` array to find: of another version when it is
+/// JSON naming another version (or none), else broken.
+fn unknown_or_corrupt(text: &str) -> ReadError {
+    match json::parse(text) {
+        Ok(value) => match value.get("version").and_then(JsonValue::as_i64) {
+            Some(VERSION) => ReadError::Corrupt,
+            version => ReadError::UnknownVersion(version),
+        },
+        Err(_) => ReadError::Corrupt,
     }
 }
 
