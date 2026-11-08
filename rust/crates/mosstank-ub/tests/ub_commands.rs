@@ -1876,3 +1876,41 @@ fn use_splits_a_line_with_accented_names_at_on() {
             .contains(&"[UB] using Épée on Pépite 🍰".to_owned())
     );
 }
+
+#[test]
+fn propertydump_shows_a_containers_slots_under_their_profile_keys() {
+    let mut rig = Rig::new();
+    rig.host.meta.objects.push(WorldObject {
+        object_id: 0x8000_0BC3,
+        name: "Chest".to_owned(),
+        object_class: ObjectClass::Container,
+        weenie_class_id: 1215,
+        items_capacity: -1,
+        containers_capacity: 3,
+        ..WorldObject::default()
+    });
+    rig.host.meta.properties.insert(
+        0x8000_0BC3,
+        ItemProperties {
+            ints: vec![(19, 3000), (5, 9390)],
+            bools: vec![(3, true)],
+            ..ItemProperties::default()
+        },
+    );
+    rig.host.meta.selection.selected = Some(0x8000_0BC3);
+
+    rig.ub("propertydump");
+
+    assert_eq!(
+        rig.messages(),
+        [
+            "[UB] Property Dump for Chest",
+            "[MossTank] Object 0x80000BC3: Chest, class=10, WCID=1215",
+            "[MossTank] Int[5] = 9390",
+            "[MossTank] Int[19] = 3000",
+            "[MossTank] Int[218103812] = -1",
+            "[MossTank] Int[218103813] = 3",
+            "[MossTank] Bool[3] = True",
+        ]
+    );
+}

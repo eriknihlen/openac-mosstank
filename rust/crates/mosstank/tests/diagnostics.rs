@@ -198,6 +198,49 @@ fn property_dump_on_vt_needs_an_appraised_selection() {
     );
 }
 
+/// A chest as the client holds it: its slots come with the object, not
+/// with what an inspection sends.
+fn appraised_chest(world: &mut World) {
+    world.set_reply::<calls::WorldObject>(&Some(WorldObject {
+        object_id: 0x8000_0BC3,
+        name: "Chest".to_owned(),
+        object_class: ObjectClass::Container,
+        weenie_class_id: 1215,
+        items_capacity: -1,
+        containers_capacity: 0,
+        has_appraisal_data: true,
+        last_id_time: 1,
+        ..WorldObject::default()
+    }));
+    world.set_reply::<calls::WorldProperties>(&Some(ac_plugin_abi::world::ItemProperties {
+        ints: vec![(19, 3000), (5, 9390)],
+        bools: vec![(3, true)],
+        ..ac_plugin_abi::world::ItemProperties::default()
+    }));
+    world.select_object(0x8000_0BC3);
+}
+
+#[test]
+fn property_dump_on_vt_shows_a_containers_slots_under_their_profile_keys() {
+    let mut world = World::with_character("Dumper");
+    appraised_chest(&mut world);
+    let mut plugin = world.enable();
+    world.clear_chat();
+
+    world.vt(&mut plugin, "propertydump");
+
+    assert_eq!(
+        world.chat(),
+        [
+            "[MossTank] Object 0x80000BC3: Chest, class=10, WCID=1215",
+            "[MossTank] Int[5] = 9390",
+            "[MossTank] Int[19] = 3000",
+            "[MossTank] Int[218103812] = -1",
+            "[MossTank] Bool[3] = True",
+        ]
+    );
+}
+
 #[test]
 fn equip_items_for_without_a_name_says_how_it_is_used() {
     let (mut world, mut plugin) = world_with("Dresser");

@@ -118,7 +118,8 @@ pub(super) fn dump_selected_properties(client: &mut dyn TankClient) {
             item.object_id, item.name, item.object_class as u32, item.weenie_class_id
         ),
     );
-    dump_table(client, "Int", &properties.ints, |v| v.to_string());
+    let ints = with_slots(&item, &properties.ints);
+    dump_table(client, "Int", &ints, |v| v.to_string());
     dump_table(client, "Int64", &properties.int64s, |v| v.to_string());
     dump_table(client, "Bool", &properties.bools, |v| pascal(*v).to_owned());
     dump_table(client, "Float", &properties.floats, |v| {
@@ -129,6 +130,24 @@ pub(super) fn dump_selected_properties(client: &mut dyn TankClient) {
     dump_table(client, "InstanceId", &properties.instance_ids, |v| {
         v.to_string()
     });
+}
+
+/// The appraised integers and a container's slots. The slots come with the
+/// object, not with an appraisal, so they are listed under the keys a loot
+/// rule or a meta expression reads them by: items, then packs.
+fn with_slots(item: &ac_plugin_abi::world::WorldObject, ints: &[(u32, i32)]) -> Vec<(u32, i32)> {
+    const ITEM_SLOTS_KEY: u32 = 0x0D00_0004;
+    const PACK_SLOTS_KEY: u32 = 0x0D00_0005;
+    let mut all = ints.to_vec();
+    for (key, slots) in [
+        (ITEM_SLOTS_KEY, item.items_capacity),
+        (PACK_SLOTS_KEY, item.containers_capacity),
+    ] {
+        if slots != 0 && !all.iter().any(|(known, _)| *known == key) {
+            all.push((key, slots));
+        }
+    }
+    all
 }
 
 /// `DumpPropertyTable`: one line per property, by key.

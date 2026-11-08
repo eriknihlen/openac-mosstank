@@ -1009,7 +1009,8 @@ fn dump_selected_properties(call: &mut UbCall<'_>) {
     let Some(properties) = call.host.properties(item.object_id) else {
         return;
     };
-    dump_table(call, "Int", &properties.ints, |v| v.to_string());
+    let ints = with_slots(&item, &properties.ints);
+    dump_table(call, "Int", &ints, |v| v.to_string());
     dump_table(call, "Int64", &properties.int64s, |v| v.to_string());
     dump_table(call, "Bool", &properties.bools, |v| {
         if *v { "True" } else { "False" }.to_owned()
@@ -1020,6 +1021,24 @@ fn dump_selected_properties(call: &mut UbCall<'_>) {
     dump_table(call, "InstanceId", &properties.instance_ids, |v| {
         v.to_string()
     });
+}
+
+/// The appraised integers and a container's slots. The slots come with the
+/// object, not with an appraisal, so they are listed under the keys a loot
+/// rule or a meta expression reads them by: items, then packs.
+fn with_slots(item: &WorldObject, ints: &[(u32, i32)]) -> Vec<(u32, i32)> {
+    const ITEM_SLOTS_KEY: u32 = 0x0D00_0004;
+    const PACK_SLOTS_KEY: u32 = 0x0D00_0005;
+    let mut all = ints.to_vec();
+    for (key, slots) in [
+        (ITEM_SLOTS_KEY, item.items_capacity),
+        (PACK_SLOTS_KEY, item.containers_capacity),
+    ] {
+        if slots != 0 && !all.iter().any(|(known, _)| *known == key) {
+            all.push((key, slots));
+        }
+    }
+    all
 }
 
 fn dump_table<T>(
