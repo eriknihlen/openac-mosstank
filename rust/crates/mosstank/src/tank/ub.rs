@@ -713,6 +713,17 @@ impl UbServices for ShellUbServices<'_, '_> {
         self.core.0.borrow().loot.is_identifying()
     }
 
+    /// The loot profile the macro loots by, when one is active.
+    fn active_loot_rules(&mut self) -> Option<Vec<LootRule>> {
+        let core = self.core.0.borrow();
+        let loot = &core.settings.inventory.loot;
+        loot.profile_active.then(|| loot.rules.clone())
+    }
+
+    fn macro_loot_container(&mut self) -> u32 {
+        self.core.0.borrow().loot.active_corpse()
+    }
+
     fn macro_enabled(&mut self) -> bool {
         self.core.0.borrow().combat.enabled()
     }

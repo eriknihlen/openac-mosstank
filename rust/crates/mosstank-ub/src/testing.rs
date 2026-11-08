@@ -86,6 +86,14 @@ pub struct FakeUbHost {
     pub opened_loot: Vec<u32>,
     /// Every container closed.
     pub closed_loot: Vec<u32>,
+    /// What the open container holds.
+    pub loot_contents: Vec<InventoryItem>,
+    /// The open container's contents have arrived.
+    pub loot_contents_ready: bool,
+    /// Every item picked out of the open container, in order.
+    pub pickups: Vec<u32>,
+    /// What a pickup answers.
+    pub pickup_status: ItemStatus,
     /// How many times the session was asked to close.
     pub close_requests: usize,
     /// What a close answers.
@@ -197,6 +205,10 @@ impl FakeUbHost {
             applied: Vec::new(),
             opened_loot: Vec::new(),
             closed_loot: Vec::new(),
+            loot_contents: Vec::new(),
+            loot_contents_ready: false,
+            pickups: Vec::new(),
+            pickup_status: ItemStatus::Started,
             close_requests: 0,
             close_result: true,
             broadcasts: Vec::new(),
@@ -630,6 +642,19 @@ impl UbHost for FakeUbHost {
     fn close_loot(&mut self, container_id: u32) -> ItemResult {
         self.closed_loot.push(container_id);
         ItemResult::of(ItemStatus::Started)
+    }
+
+    fn loot_contents_ready(&mut self) -> bool {
+        self.loot_contents_ready
+    }
+
+    fn loot_contents(&mut self) -> Vec<InventoryItem> {
+        self.loot_contents.clone()
+    }
+
+    fn loot_pickup(&mut self, object_id: u32) -> ItemResult {
+        self.pickups.push(object_id);
+        ItemResult::of(self.pickup_status)
     }
 
     fn request_close(&mut self) -> bool {

@@ -82,6 +82,12 @@ pub trait UbHost: MetaHost {
     fn open_loot(&mut self, container_id: u32) -> ItemResult;
     /// Closes it.
     fn close_loot(&mut self, container_id: u32) -> ItemResult;
+    /// Whether the open container's contents have arrived.
+    fn loot_contents_ready(&mut self) -> bool;
+    /// What the open container holds (packs inside included).
+    fn loot_contents(&mut self) -> Vec<InventoryItem>;
+    /// Picks an item out of the open container into the packs.
+    fn loot_pickup(&mut self, object_id: u32) -> ItemResult;
 
     // ---- the session ----
 

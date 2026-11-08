@@ -62,6 +62,10 @@ pub struct Services {
     /// Loot profiles, by name.
     pub loot_profiles: Vec<(String, Vec<LootRule>)>,
     pub corpse_identifier_busy: bool,
+    /// The active loot profile's rules, `None` for no active profile.
+    pub active_loot_rules: Option<Vec<LootRule>>,
+    /// The container the macro's own looter works.
+    pub macro_loot_container: u32,
     pub macro_enabled: bool,
     pub combat_has_target: bool,
     pub ub_store: UbSettingStore,
@@ -156,6 +160,14 @@ impl UbServices for Services {
 
     fn corpse_identifier_busy(&mut self) -> bool {
         self.corpse_identifier_busy
+    }
+
+    fn active_loot_rules(&mut self) -> Option<Vec<LootRule>> {
+        self.active_loot_rules.clone()
+    }
+
+    fn macro_loot_container(&mut self) -> u32 {
+        self.macro_loot_container
     }
 
     fn macro_enabled(&mut self) -> bool {

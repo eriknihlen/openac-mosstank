@@ -75,6 +75,17 @@ pub trait UbServices {
     /// Whether the looter is waiting on the appraisal slot now
     /// (`Looting.CorpseIdentifierBusy`).
     fn corpse_identifier_busy(&mut self) -> bool;
+    /// The rules of the loot profile the macro has active, the profile
+    /// UtilityBelt's looter reads (the macro plugin's active profile);
+    /// `None` when no loot profile is active.
+    fn active_loot_rules(&mut self) -> Option<Vec<LootRule>> {
+        None
+    }
+    /// The container the macro's own corpse looter is working (opening or
+    /// looting), 0 for none: the UB looter stays out of it.
+    fn macro_loot_container(&mut self) -> u32 {
+        0
+    }
     /// Whether the macro is enabled (`CombatController.Enabled`).
     fn macro_enabled(&mut self) -> bool;
     /// Whether the combat controller has a monster target and so owns what

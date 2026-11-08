@@ -178,6 +178,8 @@ pub mod tools {
     pub const INVENTORY_MANAGER: &str = "InventoryManager";
     /// The jumper.
     pub const JUMPER: &str = "Jumper";
+    /// The chest and own-corpse looter.
+    pub const LOOTER: &str = "Looter";
     /// The plugin itself.
     pub const PLUGIN: &str = "Plugin";
     /// The dialog clicker.

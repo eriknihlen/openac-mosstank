@@ -11,6 +11,8 @@
 //! - [`tinker`], [`tinker_page`]: the Tinker page and `/ub autotinker`,
 //!   `getjob`, `tinkcalc` (`TinkerJobManager`, `MossTankPanel.Tinker`).
 //! - [`xp`]: `/ub xp` (`ExperienceSpendController`).
+//! - [`looter`]: the chest and own-corpse looter, `/ub use` on a chest or a
+//!   corpse, the key looter and `/ub keyloot` (UtilityBelt's `Looter`).
 //!
 //! [`UbTools`] holds the ones a command reaches; the commands
 //! ([`crate::commands::UbCommands`]) own it, and the plugin drives each
@@ -20,6 +22,7 @@ pub mod clear_bugged;
 pub mod count;
 pub mod equip;
 pub mod give;
+pub mod looter;
 pub mod nametags;
 pub mod stack_cram;
 pub mod tinker;
@@ -34,6 +37,7 @@ use clear_bugged::ClearBuggedRun;
 use count::InventoryCountController;
 use equip::EquipProfileController;
 use give::ProfileGiveController;
+use looter::ChestLooter;
 use nametags::{CatalogNametagSettings, NametagController};
 use stack_cram::StackCramCommandRun;
 use tinker_page::TinkerPage;
@@ -90,6 +94,9 @@ pub struct UbTools {
     pub equip: EquipProfileController,
     /// The name tags.
     pub nametags: NametagController,
+    /// The chest and own-corpse looter, `/ub use` on a container, and the
+    /// key looter.
+    pub looter: ChestLooter,
 }
 
 impl UbTools {
@@ -148,11 +155,14 @@ impl UbTools {
     }
 
     /// The tools that never own the character, after the prologue: the
-    /// experience spender (it refuses to run while the macro is on) and
-    /// `/ub clearbugged` (it only asks for descriptions).
+    /// experience spender (it refuses to run while the macro is on),
+    /// `/ub clearbugged` (it only asks for descriptions) and the looter (the
+    /// reference's holds the macro's slots instead, while it loots the own
+    /// corpse).
     pub fn tick_after_prologue(&mut self, call: &mut UbCall<'_>, elapsed_seconds: f64) {
         self.xp.tick(call, elapsed_seconds);
         self.tick_clear_bugged(call, elapsed_seconds);
+        self.looter.tick(call, elapsed_seconds);
     }
 
     /// A session ended or began (`ResetSessionScopedControllers`, the UB
@@ -164,6 +174,7 @@ impl UbTools {
         self.count.borrow_mut().reset();
         self.equip.reset(&mut call.locks.borrow_mut());
         self.xp.reset();
+        self.looter.reset(call);
     }
 }
 

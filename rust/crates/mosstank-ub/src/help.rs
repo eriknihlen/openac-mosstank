@@ -423,6 +423,22 @@ pub static ENTRIES: &[UbCommandUsage] = &[
             },
         ],
     },
+    // MossTank's own: UtilityBelt runs its key looter from a button only.
+    UbCommandUsage {
+        name: "keyloot",
+        usage: "/ub keyloot {<keyName> | stop}",
+        summary: "Unlocks the selected chest with a key of that name, loots what the active loot profile keeps, closes it, and goes again while keys of that name are left. MossTank's own command; UtilityBelt has only the button.",
+        examples: &[
+            UbCommandExample {
+                command: "/ub keyloot Legendary Key",
+                description: "Loots the selected chest with every Legendary Key you carry",
+            },
+            UbCommandExample {
+                command: "/ub keyloot stop",
+                description: "Stops the key looter",
+            },
+        ],
+    },
     UbCommandUsage {
         name: "listgvars",
         usage: "/ub listgvars",

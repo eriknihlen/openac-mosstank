@@ -37,6 +37,7 @@ use crate::network;
 use crate::prepclick::PrepClickController;
 use crate::search::{self, UbSearchScope};
 use crate::tools::UbTools;
+use crate::tools::looter::{self, ChestLooter};
 
 /// What `/ub` answers to a word it has no command for.
 pub const UNKNOWN_UB_COMMAND: &str =
@@ -354,6 +355,7 @@ impl UbCommands {
             "getjob" => self.tools.tinker.print_jobs(call),
             "tinkcalc" => self.tools.tinker.print_calculation(call),
             "clearbugged" => self.tools.start_clear_bugged(call),
+            "keyloot" => self.tools.looter.keyloot_command(call, &arguments),
             _ => {
                 // The flagged verbs (jumpsw, igp, usepi, ...) are matched by
                 // name and flag set rather than spelled out.
@@ -379,7 +381,13 @@ impl UbCommands {
         } else if let Some(flags) = try_flags(verb, "follow", "p") {
             follow(call, arguments, flags.contains('p'));
         } else if let Some(flags) = try_flags(verb, "use", "lip") {
-            use_command(call, &mut self.portal, flags, arguments);
+            use_command(
+                call,
+                &mut self.portal,
+                &mut self.tools.looter,
+                flags,
+                arguments,
+            );
         } else if let Some(flags) = try_flags(verb, "select", "lip") {
             select_command(call, flags, arguments);
         } else if let Some(flags) = try_flags(verb, "swearallegiance", "p") {
@@ -1193,7 +1201,13 @@ fn read_scope(call: &mut UbCall<'_>, flags: &str) -> Option<(UbSearchScope, bool
 }
 
 /// `/ub use[li][p] [itemOne] on [itemTwo]`.
-fn use_command(call: &mut UbCall<'_>, portal_use: &mut PortalUse, flags: &str, arguments: &str) {
+fn use_command(
+    call: &mut UbCall<'_>,
+    portal_use: &mut PortalUse,
+    looter: &mut ChestLooter,
+    flags: &str,
+    arguments: &str,
+) {
     let Some((scope, partial)) = read_scope(call, flags) else {
         return;
     };
@@ -1211,7 +1225,7 @@ fn use_command(call: &mut UbCall<'_>, portal_use: &mut PortalUse, flags: &str, a
         return;
     };
     let Some(second) = second.filter(|second| !second.is_empty()) else {
-        use_single_object(call, portal_use, &one, partial);
+        use_single_object(call, portal_use, looter, &one, partial);
         return;
     };
     let Some(two) = search::try_find(
@@ -1233,6 +1247,7 @@ fn use_command(call: &mut UbCall<'_>, portal_use: &mut PortalUse, flags: &str, a
 fn use_single_object(
     call: &mut UbCall<'_>,
     portal_use: &mut PortalUse,
+    looter: &mut ChestLooter,
     one: &WorldObject,
     partial: bool,
 ) {
@@ -1246,8 +1261,15 @@ fn use_single_object(
                 .vendor_command(call.host, &format!("open {}", one.name));
             call.post_ub_reply("vendor", reply);
         }
+        // A chest or a corpse goes through the looter, which opens it,
+        // loots it and closes it (`Looter.OpenContainer`); a pack is only
+        // opened.
         ObjectClass::Container | ObjectClass::Corpse => {
-            call.host.open_loot(one.object_id);
+            if looter::loot_container_kind(call.host, one).is_some() {
+                looter.open_container(call, one);
+            } else {
+                call.host.open_loot(one.object_id);
+            }
         }
         _ => {
             call.host.use_item(one.object_id);

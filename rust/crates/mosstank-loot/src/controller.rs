@@ -428,6 +428,13 @@ impl LootController {
         self.awaiting_appraisal != 0 || self.awaiting_corpse_appraisal != 0
     }
 
+    /// The corpse the looter is opening or looting now, 0 for none: a
+    /// second looter of open containers stays out of it.
+    #[must_use]
+    pub fn active_corpse(&self) -> u32 {
+        self.active_corpse
+    }
+
     pub(crate) fn write_log(&mut self, message: &str) {
         if let Some(log) = self.log.as_mut() {
             log(message);

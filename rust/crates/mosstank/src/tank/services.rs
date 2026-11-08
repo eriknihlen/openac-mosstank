@@ -455,6 +455,15 @@ impl UbHost for ClientProxy<'_, '_> {
     fn close_loot(&mut self, container_id: u32) -> ItemResult {
         ub!(self.close_loot(container_id))
     }
+    fn loot_contents_ready(&mut self) -> bool {
+        ub!(self.loot_contents_ready())
+    }
+    fn loot_contents(&mut self) -> Vec<InventoryItem> {
+        ub!(self.loot_contents())
+    }
+    fn loot_pickup(&mut self, object_id: u32) -> ItemResult {
+        ub!(self.loot_pickup(object_id))
+    }
     fn request_close(&mut self) -> bool {
         ub!(self.request_close())
     }

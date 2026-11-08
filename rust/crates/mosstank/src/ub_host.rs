@@ -4,6 +4,7 @@
 use ac_plugin_abi::items::InventoryItem;
 use ac_plugin_abi::world::ItemProperties;
 use mosstank_formats::utl::LootRule;
+use mosstank_loot::host::LootHost;
 use mosstank_loot::rules;
 use mosstank_stores::storage::{PluginStorage, Root, StoreHost};
 use mosstank_ub::host::{
@@ -79,6 +80,18 @@ impl UbHost for HostAutomation<'_, '_> {
 
     fn close_loot(&mut self, container_id: u32) -> ItemResult {
         self.host.close_loot(container_id)
+    }
+
+    fn loot_contents_ready(&mut self) -> bool {
+        LootHost::current_contents_ready(self)
+    }
+
+    fn loot_contents(&mut self) -> Vec<InventoryItem> {
+        LootHost::loot_contents(self)
+    }
+
+    fn loot_pickup(&mut self, object_id: u32) -> ItemResult {
+        LootHost::loot_pickup(self, object_id)
     }
 
     fn request_close(&mut self) -> bool {
