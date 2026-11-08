@@ -7,14 +7,17 @@ use ac_plugin_abi::world::ItemProperties;
 use mosstank_automation::Automation;
 use mosstank_formats::utl::{LootAction, LootRule};
 use mosstank_loot::rules;
-use mosstank_mag::host::{LootVerdict, Verdict};
+use mosstank_mag::host::{LootVerdict, MagHost, Verdict};
+use mosstank_mag::identify::IdentifyQueue;
+use mosstank_mag::printer::{IdentCall, PrintSettings, Printer};
+use mosstank_mag::settings;
+use mosstank_ub::catalog::UbCatalog;
 
 use super::rules::TankCx;
+use crate::client::TankClient;
 
 /// The loot profile MossTank loots by, as the item-info line asks it: the
 /// first matching rule decides, as the looter's own decision does.
-// The identify chat line builds one per line it prints.
-#[cfg_attr(not(test), allow(dead_code))]
 pub(crate) struct ShellVerdict<'a> {
     /// The profile's rules.
     pub(crate) rules: &'a [LootRule],
@@ -62,19 +65,133 @@ impl LootVerdict for ShellVerdict<'_> {
     }
 }
 
-impl TankCx<'_> {
-    /// A client event, for the Mag features.
-    pub(crate) fn mag_event(&mut self, event: &ac_plugin_abi::Event) {
-        let _ = event;
+/// The client and the loaded loot profile for one Mag call: the printer
+/// reaches the client, and the profile through a [`ShellVerdict`] made per
+/// question (both borrow the same client). The owned items, for the
+/// keep-up-to counts, are listed once a call, at the first verdict.
+struct ShellIdentCall<'a> {
+    client: &'a mut dyn TankClient,
+    rules: &'a [LootRule],
+    profile_loaded: bool,
+    owned: Option<Vec<InventoryItem>>,
+}
+
+impl IdentCall for ShellIdentCall<'_> {
+    fn host(&mut self) -> &mut dyn MagHost {
+        self.client.mag()
     }
 
-    /// One frame of the Mag features, with the character in the world.
-    pub(crate) fn mag_tick(&mut self) {}
+    fn verdict(&mut self, item: &InventoryItem, properties: &ItemProperties) -> Option<Verdict> {
+        if !self.profile_loaded {
+            return None;
+        }
+        let client = &mut *self.client;
+        let owned = self.owned.get_or_insert_with(|| client.mag().owned_items());
+        ShellVerdict {
+            rules: self.rules,
+            profile_loaded: true,
+            owned,
+            host: client.rules(),
+        }
+        .verdict(item, properties)
+    }
 
-    /// The character left the world: the appraisals it waited on are
-    /// forgotten.
+    fn needs_identify(&mut self, item: &InventoryItem, properties: &ItemProperties) -> bool {
+        ShellVerdict {
+            rules: self.rules,
+            profile_loaded: self.profile_loaded,
+            owned: &[],
+            host: self.client.rules(),
+        }
+        .needs_identify(item, properties)
+    }
+}
+
+impl TankCx<'_> {
+    /// The `Mag.ItemInfoOnIdent` settings, from the UB settings catalogue.
+    fn item_info_settings(&self) -> PrintSettings {
+        let catalog = &self.ub.catalog;
+        PrintSettings {
+            enabled: UbCatalog::flag(catalog, settings::ITEM_INFO_ENABLED),
+            show_buffed_values: UbCatalog::flag(catalog, settings::ITEM_INFO_SHOW_BUFFED),
+            show_value_and_burden: UbCatalog::flag(catalog, settings::ITEM_INFO_VALUE_BURDEN),
+        }
+    }
+
+    /// Runs `f` with the printer, the identify queue and the client with
+    /// the loaded loot profile.
+    fn with_printer(
+        &mut self,
+        f: impl FnOnce(&mut Printer, &mut IdentifyQueue, &mut dyn IdentCall),
+    ) {
+        let loot = &self.core.settings.inventory.loot;
+        let mut call = ShellIdentCall {
+            client: &mut *self.client,
+            rules: &loot.rules,
+            profile_loaded: loot.profile_active,
+            owned: None,
+        };
+        let mag = &mut *self.mag;
+        f(&mut mag.printer, &mut mag.identify, &mut call);
+    }
+
+    /// A client event, for the Mag features: the identify chat line's
+    /// selections, appraisals and opened containers.
+    pub(crate) fn mag_event(&mut self, event: &ac_plugin_abi::Event) {
+        use ac_plugin_abi::Event;
+        use ac_plugin_abi::world::ObjectChangeKind;
+        match event {
+            Event::SelectionChanged(change) if change.selected.is_some_and(|id| id != 0) => {
+                let enabled = self.item_info_settings().enabled;
+                let now = self.client.mag().now_ms();
+                self.mag.printer.on_selection(change.selected, now, enabled);
+            }
+            Event::ObjectChanged(change) if change.kind == ObjectChangeKind::IdentReceived => {
+                let Some(object) = &change.current else {
+                    return;
+                };
+                let settings = self.item_info_settings();
+                let now = self.client.mag().now_ms();
+                self.with_printer(|printer, queue, call| {
+                    printer.on_ident(call, queue, object, now, settings);
+                });
+            }
+            Event::ContainerOpened(container) => {
+                let enabled = self.item_info_settings().enabled;
+                if !enabled {
+                    return;
+                }
+                let host = self.client.mag();
+                let now = host.now_ms();
+                if let Some(opened) = host.object(*container) {
+                    self.mag
+                        .printer
+                        .on_container_opened(&opened.name, now, enabled);
+                }
+            }
+            _ => {}
+        }
+    }
+
+    /// One frame of the Mag features, with the character in the world: the
+    /// container scan, then the identify queue.
+    pub(crate) fn mag_tick(&mut self) {
+        if !self.mag.printer.is_idle() {
+            let settings = self.item_info_settings();
+            let now = self.client.mag().now_ms();
+            self.with_printer(|printer, queue, call| printer.tick(call, queue, now, settings));
+        }
+        if !self.mag.identify.is_empty() {
+            let looter_busy = self.core.loot.is_identifying();
+            self.mag.identify.tick(self.client.mag(), looter_busy);
+        }
+    }
+
+    /// The character left the world: the appraisals it waited on and the
+    /// identify line's state are forgotten.
     pub(crate) fn mag_session_ended(&mut self) {
         self.mag.identify.clear();
+        self.mag.printer.reset();
     }
 }
 

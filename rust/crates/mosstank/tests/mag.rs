@@ -84,3 +84,79 @@ fn the_identify_queue_is_forgotten_when_the_session_ends() {
     world.tick(&mut plugin);
     assert!(world.with_tank(&mut plugin, |tank, _| tank.mag().identify.is_empty()));
 }
+
+/// A loot profile `Mag` with one rule keeping everything, loaded.
+fn keep_everything(world: &mut World, plugin: &mut mosstank::MossTank) {
+    use mosstank_formats::utl::{self, LootAction, LootRule};
+    let mut rule = LootRule::named("Rings", "*");
+    rule.action = LootAction::Keep;
+    world
+        .profiles
+        .insert("mosstank/loot/Mag.utl", &utl::serialize_rules(&[rule]));
+    world.vt(plugin, "loot load Mag");
+    world.ticks(plugin, 5);
+    assert_eq!(plugin.tank().unwrap().live_loot_rules().len(), 1);
+}
+
+/// An appraisal of an owned object arrived.
+fn ident_received(object_id: u32, name: &str) -> ac_plugin_abi::Event {
+    use ac_plugin_abi::world::{ObjectChange, ObjectChangeKind, WorldObject};
+    ac_plugin_abi::Event::ObjectChanged(ObjectChange {
+        object_id,
+        kind: ObjectChangeKind::IdentReceived,
+        revision: 2,
+        changed_fields: 0,
+        current: Some(WorldObject {
+            object_id,
+            name: name.to_owned(),
+            is_owned: true,
+            has_appraisal_data: true,
+            ..WorldObject::default()
+        }),
+    })
+}
+
+#[test]
+fn an_owned_item_the_player_selects_and_identifies_prints_its_info_line() {
+    // Source: Mag-Tools DetectItemsIdentifiedByUser.cs and
+    // ItemInfoPrinter.cs at 43ee2ec: selected, then appraised, the line
+    // shows the profile's verdict, once, in text type 14.
+    use ac_plugin_abi::world::SelectionChange;
+    let ring = 0x5000_0001;
+    let mut world = World::with_character("Mag");
+    world.own_items(vec![item(ring, "Test Ring", 0x8)]);
+    let mut plugin = world.enable();
+    world.tick(&mut plugin);
+    keep_everything(&mut world, &mut plugin);
+    world.clear_chat();
+
+    world.send(
+        &mut plugin,
+        ac_plugin_abi::Event::SelectionChanged(SelectionChange {
+            previous: None,
+            selected: Some(ring),
+        }),
+    );
+    world.send(&mut plugin, ident_received(ring, "Test Ring"));
+    world.send(&mut plugin, ident_received(ring, "Test Ring"));
+
+    let lines: Vec<(String, u32)> = world
+        .fake
+        .posted
+        .iter()
+        .map(|post| (post.text.clone(), post.log_text_type))
+        .collect();
+    assert_eq!(lines, vec![("+(Rings) Test Ring".to_owned(), 14)]);
+}
+
+#[test]
+fn an_identify_nobody_selected_prints_nothing() {
+    let ring = 0x5000_0001;
+    let mut world = World::with_character("Mag");
+    world.own_items(vec![item(ring, "Test Ring", 0x8)]);
+    let mut plugin = world.enable();
+    world.tick(&mut plugin);
+    world.clear_chat();
+    world.send(&mut plugin, ident_received(ring, "Test Ring"));
+    assert!(world.chat().is_empty(), "{:?}", world.chat());
+}
