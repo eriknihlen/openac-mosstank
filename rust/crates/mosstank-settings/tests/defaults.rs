@@ -132,7 +132,8 @@ fn the_plugin_embeds_no_other_programs_files() {
     // embeds that and the two `.af` header texts (string constants in the
     // C#; metaf's credit block, see NOTICE.md) and its own thirteen window
     // markups (`mosstank::panel`: the C# plugin's twelve and the Comps HUD's
-    // Edit items window beside them); nothing else.
+    // Edit items window beside them), and the property names `/ub
+    // propertydump` prints (an MIT table, see NOTICE.md); nothing else.
     let crates = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("..");
     let mut sources = Vec::new();
     rust_sources(&crates, &mut sources);
@@ -173,6 +174,7 @@ fn the_plugin_embeds_no_other_programs_files() {
             "mosstank-ub-map.xml",
             "mosstank.xml",
             "nav_header.txt",
+            "property_names.tsv",
         ]
     );
 }

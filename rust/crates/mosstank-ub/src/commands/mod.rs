@@ -12,6 +12,7 @@ pub mod call;
 pub mod jumper;
 pub mod opt;
 pub mod portal;
+mod property_dump;
 
 use ac_plugin_abi::navigation::MovementIntent;
 use ac_plugin_abi::world::{Confirmation, ObjectClass, WorldObject};
@@ -262,7 +263,7 @@ impl UbCommands {
             "opt" => opt::handle_opt(call, &arguments),
             "mexec" => execute_expression(call, &arguments, false),
             "mexecm" => execute_expression(call, &arguments, true),
-            "propertydump" => dump_selected_properties(call),
+            "propertydump" => property_dump::dump_selected_properties(call),
             "dumpskills" => dump_skills(call),
             "login" => login_command(call, &arguments),
             "autovendor" => {
@@ -994,64 +995,6 @@ fn print_selected_position(call: &mut UbCall<'_>) {
         "Distance: {} m",
         formatted(search::distance(&player, &item), "0.###")
     ));
-}
-
-/// `/ub propertydump`: the dump as the macro prints it, under a UB heading.
-fn dump_selected_properties(call: &mut UbCall<'_>) {
-    let Some(item) = selected_object(call, "propertydump") else {
-        return;
-    };
-    call.write_ub(&format!("Property Dump for {}", item.name));
-    call.write_vtank(&format!(
-        "Object 0x{:08X}: {}, class={}, WCID={}",
-        item.object_id, item.name, item.object_class as u32, item.weenie_class_id
-    ));
-    let Some(properties) = call.host.properties(item.object_id) else {
-        return;
-    };
-    let ints = with_slots(&item, &properties.ints);
-    dump_table(call, "Int", &ints, |v| v.to_string());
-    dump_table(call, "Int64", &properties.int64s, |v| v.to_string());
-    dump_table(call, "Bool", &properties.bools, |v| {
-        if *v { "True" } else { "False" }.to_owned()
-    });
-    dump_table(call, "Float", &properties.floats, |v| invariant(*v));
-    dump_table(call, "String", &properties.strings, Clone::clone);
-    dump_table(call, "DataId", &properties.data_ids, |v| v.to_string());
-    dump_table(call, "InstanceId", &properties.instance_ids, |v| {
-        v.to_string()
-    });
-}
-
-/// The appraised integers and a container's slots. The slots come with the
-/// object, not with an appraisal, so they are listed under the keys a loot
-/// rule or a meta expression reads them by: items, then packs.
-fn with_slots(item: &WorldObject, ints: &[(u32, i32)]) -> Vec<(u32, i32)> {
-    const ITEM_SLOTS_KEY: u32 = 0x0D00_0004;
-    const PACK_SLOTS_KEY: u32 = 0x0D00_0005;
-    let mut all = ints.to_vec();
-    for (key, slots) in [
-        (ITEM_SLOTS_KEY, item.items_capacity),
-        (PACK_SLOTS_KEY, item.containers_capacity),
-    ] {
-        if slots != 0 && !all.iter().any(|(known, _)| *known == key) {
-            all.push((key, slots));
-        }
-    }
-    all
-}
-
-fn dump_table<T>(
-    call: &mut UbCall<'_>,
-    kind: &str,
-    values: &[(u32, T)],
-    text: impl Fn(&T) -> String,
-) {
-    let mut ordered: Vec<&(u32, T)> = values.iter().collect();
-    ordered.sort_by_key(|(key, _)| *key);
-    for (key, value) in ordered {
-        call.write_vtank(&format!("{kind}[{key}] = {}", text(value)));
-    }
 }
 
 /// `/ub dumpskills`: every line a message of its own under the tag.

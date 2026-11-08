@@ -7,7 +7,7 @@
 mod common;
 
 use ac_plugin_abi::character::OptionStatus;
-use ac_plugin_abi::items::LootContainer;
+use ac_plugin_abi::items::{LootContainer, ObjectHeader};
 use ac_plugin_abi::magic::SpellInfo;
 use ac_plugin_abi::navigation::{MoveChannel, MoveDirection, MovePace, MoveUnit};
 use ac_plugin_abi::social::{AllegianceResult, AllegianceStatus, LoginCharacter};
@@ -1877,27 +1877,55 @@ fn use_splits_a_line_with_accented_names_at_on() {
     );
 }
 
+// ---- /ub propertydump --------------------------------------------------------
+
+fn select(rig: &mut Rig, object: WorldObject, properties: ItemProperties) {
+    let id = object.object_id;
+    rig.host.meta.objects.push(object);
+    rig.host.meta.properties.insert(id, properties);
+    rig.host.meta.selection.selected = Some(id);
+}
+
 #[test]
-fn propertydump_shows_a_containers_slots_under_their_profile_keys() {
+fn propertydump_of_a_chest_lists_what_it_is_and_its_properties_by_name() {
     let mut rig = Rig::new();
-    rig.host.meta.objects.push(WorldObject {
-        object_id: 0x8000_0BC3,
-        name: "Chest".to_owned(),
-        object_class: ObjectClass::Container,
-        weenie_class_id: 1215,
-        items_capacity: -1,
-        containers_capacity: 3,
-        ..WorldObject::default()
-    });
-    rig.host.meta.properties.insert(
-        0x8000_0BC3,
+    select(
+        &mut rig,
+        WorldObject {
+            object_id: 0x8000_0BC3,
+            name: "Chest".to_owned(),
+            object_class: ObjectClass::Container,
+            weenie_class_id: 1215,
+            item_type: 0x200,
+            icon_id: 0x0600_136B,
+            items_capacity: 120,
+            position: Some(Position {
+                cell_id: 0xA9B4_0021,
+                east_west: 33.64,
+                north_south: -12.27,
+                elevation: 0.5,
+                heading_degrees: 90.0,
+                is_outdoor: true,
+            }),
+            has_appraisal_data: true,
+            last_id_time: 1234,
+            header: Some(ObjectHeader {
+                weenie_header_flags: Some(0x32),
+                object_description_flags: Some(0x14),
+                ..ObjectHeader::default()
+            }),
+            ..WorldObject::default()
+        },
         ItemProperties {
             ints: vec![(19, 3000), (5, 9390)],
             bools: vec![(3, true)],
+            strings: vec![(16, "A sturdy chest.".to_owned())],
+            int64s: vec![(1, 5)],
+            data_ids: vec![(1, 0x0200_0001)],
+            instance_ids: vec![(2, 0x5000_0001)],
             ..ItemProperties::default()
         },
     );
-    rig.host.meta.selection.selected = Some(0x8000_0BC3);
 
     rig.ub("propertydump");
 
@@ -1905,12 +1933,198 @@ fn propertydump_shows_a_containers_slots_under_their_profile_keys() {
         rig.messages(),
         [
             "[UB] Property Dump for Chest",
-            "[MossTank] Object 0x80000BC3: Chest, class=10, WCID=1215",
-            "[MossTank] Int[5] = 9390",
-            "[MossTank] Int[19] = 3000",
-            "[MossTank] Int[218103812] = -1",
-            "[MossTank] Int[218103813] = 3",
-            "[MossTank] Bool[3] = True",
+            "Id = -2147480637 (0x80000BC3)",
+            "Type = 1215 (0x000004BF)",
+            "Name = Chest",
+            "ActiveSpellCount = 0",
+            "Category = 512",
+            "Coordinates = 12.3S, 33.6E",
+            "GameDataFlags1 = 50",
+            "HasIdData = True",
+            "LastIdTime = 1234",
+            "ObjectClass = Container (10)",
+            "String Values:",
+            "  LongDesc(16) = A sturdy chest.",
+            "  Name(1) = Chest",
+            "Int Values:",
+            "  218103808(218103808) = 1215",
+            "  218103809(218103809) = 4971",
+            "  218103811(218103811) = -1447821279",
+            "  218103812(218103812) = 120",
+            "  218103834(218103834) = 512",
+            "  218103835(218103835) = 20",
+            "  EncumbranceVal(5) = 9390",
+            "  Value(19) = 3000",
+            "Bool Values:",
+            "  Locked(3) = True",
         ]
+    );
+}
+
+#[test]
+fn propertydump_of_a_carried_item_lists_its_floats_and_spells() {
+    let mut rig = Rig::new();
+    for (id, name) in [
+        (2101, "Aura of Hermetic Link VI"),
+        (3200, "Minor Mana Gain"),
+    ] {
+        rig.host.meta.spells.insert(
+            id,
+            SpellInfo {
+                spell_id: id,
+                name: name.to_owned(),
+                ..SpellInfo::default()
+            },
+        );
+    }
+    select(
+        &mut rig,
+        WorldObject {
+            object_id: 0x8000_1234,
+            name: "Wand".to_owned(),
+            object_class: ObjectClass::WandStaffOrb,
+            weenie_class_id: 2548,
+            item_type: 0x8000,
+            container_id: 0x5000_0001,
+            spell_ids: vec![3200, 2101],
+            active_spell_ids: vec![2101],
+            ..WorldObject::default()
+        },
+        ItemProperties {
+            floats: vec![(144, 0.05), (29, 1.15), (152, 1.1)],
+            ..ItemProperties::default()
+        },
+    );
+
+    rig.ub("propertydump");
+
+    assert_eq!(
+        rig.messages(),
+        [
+            "[UB] Property Dump for Wand",
+            "Id = -2147478988 (0x80001234)",
+            "Type = 2548 (0x000009F4)",
+            "Name = Wand",
+            "ActiveSpellCount = 1",
+            "Category = 32768",
+            "Coordinates = ",
+            "GameDataFlags1 = 0",
+            "HasIdData = False",
+            "LastIdTime = 0",
+            "ObjectClass = WandStaffOrb (31)",
+            "String Values:",
+            "  Name(1) = Wand",
+            "Int Values:",
+            "  218103808(218103808) = 2548",
+            "  218103810(218103810) = 1342177281",
+            "  218103834(218103834) = 32768",
+            "Float Values:",
+            "  ElementalDamageMod(152) = 1.1",
+            "  ManaConversionMod(144) = 0.05",
+            "  WeaponDefense(29) = 1.15",
+            "Spells (2):",
+            "  Minor Mana Gain (3200)",
+            "  Aura of Hermetic Link VI (2101)",
+        ]
+    );
+}
+
+/// The lines of one section of the dump, from its heading to the next.
+fn dump_section(messages: &[String], heading: &str) -> Vec<String> {
+    messages
+        .iter()
+        .skip_while(|line| *line != heading)
+        .skip(1)
+        .take_while(|line| line.starts_with("  "))
+        .cloned()
+        .collect()
+}
+
+#[test]
+fn propertydump_names_an_unknown_key_by_its_number_and_sorts_it_as_text() {
+    let mut rig = Rig::new();
+    select(
+        &mut rig,
+        WorldObject {
+            object_id: 0x8000_0001,
+            name: "Thing".to_owned(),
+            weenie_class_id: 7,
+            ..WorldObject::default()
+        },
+        ItemProperties {
+            ints: vec![(5, 1), (9999, 2), (10000, 3)],
+            bools: vec![(9999, false)],
+            ..ItemProperties::default()
+        },
+    );
+
+    rig.ub("propertydump");
+
+    let messages = rig.messages();
+    assert_eq!(
+        dump_section(&messages, "Int Values:"),
+        [
+            "  10000(10000) = 3",
+            "  218103808(218103808) = 7",
+            "  9999(9999) = 2",
+            "  EncumbranceVal(5) = 1",
+        ]
+    );
+    assert_eq!(
+        dump_section(&messages, "Bool Values:"),
+        ["  9999(9999) = False"]
+    );
+}
+
+#[test]
+fn propertydump_sorts_names_in_the_culture_order_not_by_code_unit() {
+    let mut rig = Rig::new();
+    select(
+        &mut rig,
+        WorldObject {
+            object_id: 0x8000_0002,
+            name: "Thing".to_owned(),
+            weenie_class_id: 7,
+            ..WorldObject::default()
+        },
+        ItemProperties {
+            // By code unit "ItemUseable" comes first (an upper-case U before
+            // a lower-case s); in the culture order the letter decides first.
+            ints: vec![(16, 1), (6, 2), (28, 3)],
+            ..ItemProperties::default()
+        },
+    );
+
+    rig.ub("propertydump");
+
+    assert_eq!(
+        dump_section(&rig.messages(), "Int Values:"),
+        [
+            "  218103808(218103808) = 7",
+            "  ArmorLevel(28) = 3",
+            "  ItemsCapacity(6) = 2",
+            "  ItemUseable(16) = 1",
+        ]
+    );
+}
+
+#[test]
+fn propertydump_without_a_selection_says_so() {
+    let mut rig = Rig::new();
+    rig.ub("propertydump");
+    assert_eq!(
+        rig.messages(),
+        ["[UB] Error: propertydump: No object selected"]
+    );
+}
+
+#[test]
+fn propertydump_of_an_object_the_client_does_not_know_says_so() {
+    let mut rig = Rig::new();
+    rig.host.meta.selection.selected = Some(0x8000_0BC3);
+    rig.ub("propertydump");
+    assert_eq!(
+        rig.messages(),
+        ["[UB] Error: propertydump: null object selected"]
     );
 }
