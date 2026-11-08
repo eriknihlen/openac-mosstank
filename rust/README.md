@@ -69,6 +69,38 @@ The launcher installs it from this repository's `wasm-v` releases, checks
 them for updates, and stages the plugin disabled; enabling it is a separate
 choice on that tab.
 
+## The UB looter
+
+A port of UtilityBelt's looter: it takes what the **active loot profile**
+keeps out of chests and your own corpse, judged by MossTank's own loot rules
+(the corpse looter's). Keep, Keep # (up to its count, counting what you carry)
+and Salvage take an item (salvage is looted, not salvaged); an item whose
+verdict needs an appraisal is appraised first, one at a time. Monster corpses
+stay the macro's corpse looter's, and a container it is working is left to it.
+
+- **Chests and your own corpse, as they open.** With `Looter.Enabled` on, a
+  chest (with `Looter.EnableChests`) or your own corpse (with
+  `Looter.EnableMyCorpse`) is looted when it opens, by hand or otherwise, and
+  left open. Your own corpse gives back everything in it; while it does, the
+  macro's route, attack spells and item use are held, and with
+  `Looter.BlockVtankMelee` its melee and missile attacks too. Only a container
+  with room for 48 items or more is looted (chests and corpses, never packs).
+- **`/ub use <chest or corpse>`** opens it (up to `Looter.MaxOpenAttempts`
+  tries, `Looter.DelaySpeed` milliseconds apart), loots it and closes it,
+  whatever the switches say and a monster's corpse too. A locked chest:
+  `Looter: Chest is locked... bailing`.
+- **The key looter**: on the UB page, **Set key** (select a key first),
+  **Set chest** (select the chest) and **Start**; or select the chest and type
+  `/ub keyloot <key name>` (MossTank's own command; UtilityBelt has only the
+  button), `/ub keyloot stop` to stop. Each round uses a key on the chest (up
+  to `Looter.MaxUnlockAttempts` tries), opens it, loots it and closes it, and
+  the next round starts while keys of that name are left.
+- `Looter.AttemptsBeforeBlacklisting` (500) is how many steps one item is tried
+  before it is given up on; `Looter.OverallSpeed` (100, the least allowed) is
+  how often, in milliseconds, the looter steps. `Looter.JumpWhenLooting`,
+  `JumpHeight`, `AutoSalvageAfterLooting` and `TestMode` are kept for macros
+  and do nothing here.
+
 ## The Comps HUD
 
 A small strip that counts the items you choose (spell components, peas,
