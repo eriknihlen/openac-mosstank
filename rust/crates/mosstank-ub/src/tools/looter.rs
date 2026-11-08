@@ -793,10 +793,12 @@ impl ChestLooter {
                 self.hold_macro(call, pacing.block_melee);
             }
             let object_id = self.items[index].item.object_id;
-            // Only a pickup that went out is an attempt, as the reference
-            // counts the moves it sends.
-            let sent =
-                !call.host.item_state().is_busy && call.host.loot_pickup(object_id).accepted();
+            // Every pickup asked for is an attempt, as the reference counts
+            // the moves it sends, refused ones too: an item the client keeps
+            // refusing is given up on in the end. Only a client too busy to
+            // take the ask has not been asked.
+            let sent = !call.host.item_state().is_busy
+                && call.host.loot_pickup(object_id).status != ItemStatus::Busy;
             let entry = &mut self.items[index];
             if sent {
                 entry.loot_attempts += 1;

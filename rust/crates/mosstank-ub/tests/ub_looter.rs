@@ -1007,6 +1007,30 @@ fn only_pickups_that_went_out_count_as_attempts() {
 }
 
 #[test]
+fn a_pickup_the_client_keeps_refusing_is_given_up_on_after_its_attempts() {
+    let mut rig = enabled();
+    set(&mut rig, "Looter.AttemptsBeforeBlacklisting", "3");
+    profile(&mut rig);
+    place(&mut rig, chest(), vec![loose(10, "Red Gem")], true);
+    rig.host.pickup_status = ItemStatus::Refused;
+    open(&mut rig, CHEST);
+
+    for _ in 0..20 {
+        tick(&mut rig, 0.1);
+    }
+
+    // Given up on, the run is over: the item said so and the run ended.
+    assert!(!looter(&rig).is_running());
+    assert!(
+        rig.messages()
+            .iter()
+            .any(|line| line == "[UB] Looter: Failed to loot Red Gem"),
+        "{:?}",
+        rig.messages()
+    );
+}
+
+#[test]
 fn a_key_use_the_client_holds_back_is_no_unlock_attempt() {
     let mut rig = key_rig();
     set(&mut rig, "Looter.MaxUnlockAttempts", "2");
