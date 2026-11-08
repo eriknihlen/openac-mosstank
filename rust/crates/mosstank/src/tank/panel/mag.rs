@@ -8,9 +8,7 @@ use mosstank_mag::MagSubPage;
 
 use super::{Arg, TankTab, b, i, t, tl};
 use crate::tank::TankCx;
-
-/// The filters' choice that keeps every row.
-const ALL: &str = "All";
+use crate::tank::mag::INVENTORY_WINDOW;
 
 pub(super) fn value(cx: &mut TankCx<'_>, name: &str) -> Option<UiValue> {
     let page = cx.mag.sub_page;
@@ -24,15 +22,20 @@ pub(super) fn value(cx: &mut TankCx<'_>, name: &str) -> Option<UiValue> {
         "MagInvItemsVisible" => b(shown && page == MagSubPage::InvItems),
 
         // The Inventory window.
-        "MagInventorySearchText" => t(cx.mag.inventory_search.clone()),
-        "MagInventoryCharacters" | "MagInventoryClasses" => tl(vec![ALL.to_owned()]),
-        "SelectedMagInventoryCharacter" | "SelectedMagInventoryClass" => t(ALL),
-        "MagInventoryRowCharacters"
-        | "MagInventoryRowNames"
-        | "MagInventoryRowCounts"
-        | "MagInventoryRowPlaces" => tl(Vec::new()),
-        "SelectedMagInventoryRow" => i(-1),
-        "MagInventoryInfo" => t(""),
+        "MagInventoryShown" => b(cx.client.mag().ui_view_visible(INVENTORY_WINDOW)),
+        "MagInventorySearchText" => t(cx.mag.inventory_search.pattern()),
+        "MagInventoryCharacters" => tl(cx.mag.inventory_search.characters()),
+        "MagInventoryClasses" => tl(cx.mag.inventory_search.classes()),
+        "SelectedMagInventoryCharacter" => t(cx.mag.inventory_search.character_filter()),
+        "SelectedMagInventoryClass" => t(cx.mag.inventory_search.class_filter()),
+        "MagInventoryRowIcons" => Some(UiValue::UintList(cx.mag.inventory_search.row_icons())),
+        "MagInventoryRowCharacters" => tl(cx.mag.inventory_search.row_characters()),
+        "MagInventoryRowNames" => tl(cx.mag.inventory_search.row_names()),
+        "MagInventoryRowCounts" => tl(cx.mag.inventory_search.row_counts()),
+        "MagInventoryRowPlaces" => tl(cx.mag.inventory_search.row_places()),
+        "SelectedMagInventoryRow" => i(cx.mag.inventory_search.selected_row()),
+        "MagInventoryInfo" => t(cx.mag.inventory_search.info()),
+        "MagInventoryStatus" => t(cx.mag.inventory_search.status()),
         _ => None,
     }
 }
@@ -47,8 +50,14 @@ pub(super) fn act(cx: &mut TankCx<'_>, name: &str, arg: &Arg) -> bool {
         }
 
         // The Inventory window.
-        "SetMagInventorySearchText" => arg.text().clone_into(&mut cx.mag.inventory_search),
-        "SelectMagInventoryCharacter" | "SelectMagInventoryClass" | "SelectMagInventoryRow" => {}
+        "SetMagInventorySearchText" => cx.mag.inventory_search.set_pattern(arg.text()),
+        "SelectMagInventoryCharacter" => cx.mag.inventory_search.set_character_filter(arg.text()),
+        "SelectMagInventoryClass" => cx.mag.inventory_search.set_class_filter(arg.text()),
+        "SelectMagInventoryRow" => {
+            let settings = cx.inventory_info_settings();
+            let search = &mut cx.mag.inventory_search;
+            search.click(cx.client.mag(), arg.int(), settings);
+        }
         _ => return false,
     }
     true

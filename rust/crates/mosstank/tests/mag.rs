@@ -319,3 +319,75 @@ fn the_inventory_is_logged_after_the_login_and_again_at_logoff() {
     let (logged_off, _) = mosstank_mag::inventory_log::read(&text).expect("it reads");
     assert_eq!(logged_off.saved_unix_ms, header.saved_unix_ms + 1000);
 }
+
+/// A saved inventory log of `character` on Coldeve holding `items`.
+fn save_log(world: &mut World, character: &str, items: &[ac_plugin_abi::items::InventoryItem]) {
+    use mosstank_mag::inventory_log::{ItemRecord, LogHeader, VERSION, storage_key, write};
+    let fragments: Vec<String> = items
+        .iter()
+        .map(|item| ItemRecord::from_live(item, None, &ItemProperties::default(), 0).to_json())
+        .collect();
+    let header = LogHeader {
+        version: VERSION,
+        character: character.to_owned(),
+        world: "Coldeve".to_owned(),
+        saved_unix_ms: 1_762_560_000_000,
+    };
+    world.plugin_data.insert(
+        &storage_key("Coldeve", character),
+        &write(&header, fragments.iter().map(String::as_str)),
+    );
+}
+
+#[test]
+fn the_inventory_window_searches_the_live_character_and_the_saved_ones() {
+    let mut world = World::with_character("Mag");
+    world.set_reply::<calls::ItemsInventoryComplete>(&true);
+    world.own_items(vec![item(0x5000_0002, "Test Ring", 0x8)]);
+    save_log(&mut world, "Alt", &[item(0x5000_0100, "Alt Sword", 0x1)]);
+    let mut plugin = world.enable();
+    world.ticks(&mut plugin, 5);
+    // Closed: nothing read.
+    assert!(!world.ui_bool(&mut plugin, "MagInventoryShown"));
+    assert!(
+        world
+            .ui_list(&mut plugin, "MagInventoryRowNames")
+            .is_empty()
+    );
+
+    world.act(&mut plugin, "OpenMagInventory");
+    world.ticks(&mut plugin, 10);
+    assert!(world.ui_bool(&mut plugin, "MagInventoryShown"));
+    let mut names = world.ui_list(&mut plugin, "MagInventoryRowNames");
+    names.sort();
+    assert_eq!(names, ["Alt Sword", "Test Ring"]);
+    assert_eq!(
+        world.ui_list(&mut plugin, "MagInventoryCharacters"),
+        ["All", "Mag", "Alt"]
+    );
+    assert_eq!(world.ui_text(&mut plugin, "MagInventoryStatus"), "2 items");
+
+    world.act_text(&mut plugin, "SetMagInventorySearchText", "SWORD");
+    assert_eq!(
+        world.ui_list(&mut plugin, "MagInventoryRowNames"),
+        ["Alt Sword"]
+    );
+    assert_eq!(
+        world.ui_list(&mut plugin, "MagInventoryRowCharacters"),
+        ["Alt"]
+    );
+    world.act_int(&mut plugin, "SelectMagInventoryRow", 0);
+    let info = world.ui_text(&mut plugin, "MagInventoryInfo");
+    assert!(info.starts_with("Alt Sword"), "{info}");
+
+    world.act_text(&mut plugin, "SetMagInventorySearchText", "(");
+    assert_eq!(
+        world.ui_text(&mut plugin, "MagInventoryStatus"),
+        "bad pattern"
+    );
+    assert!(
+        world
+            .ui_list(&mut plugin, "MagInventoryRowNames")
+            .is_empty()
+    );
+}

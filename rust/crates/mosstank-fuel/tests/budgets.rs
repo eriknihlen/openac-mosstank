@@ -1265,6 +1265,145 @@ fn the_inventory_log_fits() {
     assert_within_margin(&cases, &report);
 }
 
+/// The text the Inventory window shows in its binding `name` (the client's
+/// own value type, read through its debug form: `Text("...")`).
+fn inventory_text(session: &Session, name: &str) -> String {
+    session
+        .world
+        .fake
+        .ui
+        .panels()
+        .find(|panel| panel.descriptor.window_id == "inventory")
+        .and_then(|panel| panel.values.get(name))
+        .map(|value| {
+            let debug = format!("{value:?}");
+            debug
+                .strip_prefix("Text(\"")
+                .and_then(|text| text.strip_suffix("\")"))
+                .map_or_else(|| debug.clone(), str::to_owned)
+        })
+        .unwrap_or_default()
+}
+
+fn inventory_status(session: &Session) -> String {
+    inventory_text(session, "MagInventoryStatus")
+}
+
+/// The heavy character enters the world, every item appraised, and its
+/// inventory is logged.
+fn log_in_heavy(plugin: &mut Plugin, session: &mut Session) {
+    enter_world(session);
+    let properties = heavy::appraised_properties(&heavy::inventory());
+    session.world.automation().properties.extend(properties);
+    session
+        .world
+        .set_reply::<calls::ItemsInventoryComplete>(&true);
+    tick(plugin, session);
+    send(plugin, session, &Event::LoginComplete);
+    for _ in 0..60 {
+        tick(plugin, session);
+    }
+}
+
+/// The Inventory window on the heavy character with three other characters'
+/// saved logs of as many items (6,000 items in all): opened, its files read
+/// and every item's text made, then a search typed a key at a time, and a
+/// row clicked.
+#[test]
+#[ignore = "needs the release module: scripts/check.sh runs it after the WebAssembly build"]
+fn the_inventory_search_fits() {
+    use ac_plugin_abi::ui::ActionValue;
+    let wasm = std::fs::read(wasm_path()).expect("the release mosstank.wasm (build it first)");
+    let mut session = new_session();
+    let mut cases = Cases::default();
+
+    // A first session logs the heavy character; three alts' logs are copies.
+    let (mut plugin, _) = Plugin::load(&wasm, DEFAULT_MEMORY_MIB).expect("load");
+    plugin.enable(&start_info(), &mut session).expect("enable");
+    log_in_heavy(&mut plugin, &mut session);
+    send(&mut plugin, &mut session, &Event::Logoff);
+    plugin.disable(&mut session).expect("disable");
+    let log = session
+        .world
+        .plugin_data
+        .get("Mag-Tools/Coldeve/Mossy Hunter.inventory.json")
+        .expect("the heavy character's log")
+        .to_owned();
+    for alt in 1..=3 {
+        let name = format!("Alt {alt}");
+        let text = log.replacen(
+            "\"character\":\"Mossy Hunter\"",
+            &format!("\"character\":\"{name}\""),
+            1,
+        );
+        session
+            .world
+            .plugin_data
+            .insert(&format!("Mag-Tools/Coldeve/{name}.inventory.json"), &text);
+    }
+
+    // The next session: the window opened once the login's log is written.
+    let (mut plugin, _) = Plugin::load(&wasm, DEFAULT_MEMORY_MIB).expect("load");
+    plugin.enable(&start_info(), &mut session).expect("enable");
+    log_in_heavy(&mut plugin, &mut session);
+    let open = ui_action(&session, "OpenMagInventory", ActionValue::None);
+    let fuel = send(&mut plugin, &mut session, &open);
+    cases.add("inventory search: open the window", fuel);
+    let total = heavy::INVENTORY_ITEMS * 4;
+    let all = format!("{total} items");
+    let mut ticks = 0;
+    while inventory_status(&session) != all {
+        let fuel = tick(&mut plugin, &mut session);
+        cases.add("inventory search: tick (reading)", fuel);
+        ticks += 1;
+        assert!(ticks < 2000, "never read: {}", inventory_status(&session));
+    }
+    let read_ticks = ticks;
+
+    // A search typed a key at a time, each key matched against every text
+    // (the last one a pattern with a look-behind, which only .NET's syntax
+    // has), then a row clicked.
+    let mut matching_ticks = 0;
+    for pattern in ["S", "Sw", "Swo", "Pack|Sack", "(?<!x)Pack"] {
+        let typed = ui_action(
+            &session,
+            "SetMagInventorySearchText",
+            ActionValue::Text(pattern.to_owned()),
+        );
+        let fuel = send(&mut plugin, &mut session, &typed);
+        cases.add(&format!("inventory search: typed {pattern}"), fuel);
+        let mut ticks = 0;
+        while inventory_status(&session).starts_with("Searching") || ticks < 10 {
+            let fuel = tick(&mut plugin, &mut session);
+            cases.add(&format!("inventory search: matching {pattern}"), fuel);
+            ticks += 1;
+            assert!(ticks < 500, "{pattern}: {}", inventory_status(&session));
+        }
+        matching_ticks = matching_ticks.max(ticks);
+        assert!(
+            inventory_status(&session).ends_with(" items")
+                || inventory_status(&session) == "1 item",
+            "{pattern}: {}",
+            inventory_status(&session)
+        );
+    }
+    let click = ui_action(&session, "SelectMagInventoryRow", ActionValue::Int(0));
+    let fuel = send(&mut plugin, &mut session, &click);
+    cases.add("inventory search: a row clicked", fuel);
+    let info = inventory_text(&session, "MagInventoryInfo");
+    assert!(info.starts_with("Pack"), "{info}");
+
+    let cases = cases.all();
+    let mut report = report(&cases);
+    let _ = writeln!(
+        report,
+        "{total} items read in {read_ticks} ticks; a key's matching took up to {matching_ticks} ticks"
+    );
+    println!("{report}");
+    assert_no_file_rewritten(&session, &report);
+    assert_within_margin(&cases, &report);
+}
+
 #[test]
 #[ignore = "needs the release module: scripts/check.sh runs it after the WebAssembly build"]
 #[allow(clippy::too_many_lines)]

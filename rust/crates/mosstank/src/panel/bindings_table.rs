@@ -722,6 +722,7 @@ pub(super) fn of(window_id: &str) -> Option<&'static [(&'static str, K)]> {
         ],
         "inventory" => &[
             ("WindowAvailable", K::Bool),
+            ("MagInventoryShown", K::Bool),
             ("MagInventorySearchText", K::Text),
             ("SetMagInventorySearchText", K::TextAction),
             ("MagInventoryCharacters", K::TextList),
@@ -730,8 +731,10 @@ pub(super) fn of(window_id: &str) -> Option<&'static [(&'static str, K)]> {
             ("MagInventoryClasses", K::TextList),
             ("SelectedMagInventoryClass", K::Text),
             ("SelectMagInventoryClass", K::TextAction),
+            ("MagInventoryStatus", K::Text),
             ("SelectedMagInventoryRow", K::Int),
             ("SelectMagInventoryRow", K::IntAction),
+            ("MagInventoryRowIcons", K::UintList),
             ("MagInventoryRowCharacters", K::TextList),
             ("MagInventoryRowNames", K::TextList),
             ("MagInventoryRowCounts", K::TextList),

@@ -8,6 +8,8 @@
 //! - [`identify`]: the paced identify queue the features share.
 //! - [`inventory_log`]: the inventory logger, one JSON file per
 //!   character.
+//! - [`inventory_search`]: the Inventory window: the search across every
+//!   character the logger saved.
 //! - [`item_info`]: the one-line description of an identified item.
 //! - [`printer`]: the identify chat line with the loot verdict, and its
 //!   two triggers.
@@ -23,6 +25,7 @@ pub mod fmt;
 pub mod host;
 pub mod identify;
 pub mod inventory_log;
+pub mod inventory_search;
 pub mod item_info;
 pub mod printer;
 pub mod settings;
@@ -46,8 +49,8 @@ pub enum MagSubPage {
 pub struct MagParts {
     /// The Mag tab's page shown.
     pub sub_page: MagSubPage,
-    /// The Inventory window's search pattern, as typed.
-    pub inventory_search: String,
+    /// The Inventory window.
+    pub inventory_search: inventory_search::InventorySearch,
     /// The appraisals the features asked for.
     pub identify: identify::IdentifyQueue,
     /// The identify chat line's detectors.

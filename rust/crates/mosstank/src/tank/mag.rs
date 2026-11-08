@@ -9,6 +9,7 @@ use mosstank_loot::controller;
 use mosstank_loot::host::LootHost;
 use mosstank_mag::host::{LootVerdict, MagHost, Verdict};
 use mosstank_mag::identify::IdentifyQueue;
+use mosstank_mag::inventory_search::InfoSettings;
 use mosstank_mag::printer::{IdentCall, PrintSettings, Printer};
 use mosstank_mag::settings;
 use mosstank_settings::model::LootSettings;
@@ -16,6 +17,9 @@ use mosstank_ub::catalog::UbCatalog;
 
 use super::rules::TankCx;
 use crate::client::TankClient;
+
+/// The Inventory window's id.
+pub(crate) const INVENTORY_WINDOW: &str = "inventory";
 
 /// The loot profile MossTank loots by, as the item-info line asks it: the
 /// looter's own decision ([`controller::profile_decision`]): the first
@@ -153,6 +157,22 @@ impl TankCx<'_> {
         f(&mut mag.printer, &mut mag.identify, &mut call);
     }
 
+    /// The settings the Inventory window's item texts are made with (the
+    /// item info line's).
+    pub(crate) fn inventory_info_settings(&self) -> InfoSettings {
+        let settings = self.item_info_settings();
+        InfoSettings {
+            show_buffed_values: settings.show_buffed_values,
+            show_value_and_burden: settings.show_value_and_burden,
+        }
+    }
+
+    /// The Inventory window is shown (a dock button toggles it, which raises
+    /// no event: the client is asked).
+    pub(crate) fn inventory_shown(&mut self) -> bool {
+        self.client.mag().ui_view_visible(INVENTORY_WINDOW)
+    }
+
     /// The `Mag.InventoryManagement.InventoryLogger` setting.
     fn inventory_logger_enabled(&self) -> bool {
         UbCatalog::flag(&self.ub.catalog, settings::INVENTORY_LOGGER)
@@ -173,6 +193,7 @@ impl TankCx<'_> {
             Event::ObjectChanged(change) => {
                 let enabled = self.inventory_logger_enabled();
                 let mag = &mut *self.mag;
+                mag.inventory_search.on_object_changed(change);
                 mag.inventory_log
                     .on_object_changed(change, &mut mag.identify, enabled);
             }
@@ -213,7 +234,8 @@ impl TankCx<'_> {
 
     /// One frame of the Mag features, with the character in the world: the
     /// container scan, the inventory logger's tick's worth, then the
-    /// identify queue. True when the logger did a tick's worth of work.
+    /// identify queue, and the Inventory window's search (on a tick the
+    /// logger left light). True when either did a tick's worth of work.
     pub(crate) fn mag_tick(&mut self) -> bool {
         if !self.mag.printer.is_idle() {
             let settings = self.item_info_settings();
@@ -229,15 +251,24 @@ impl TankCx<'_> {
             let looter_busy = self.core.loot.is_identifying();
             self.mag.identify.tick(self.client.mag(), looter_busy);
         }
-        logged
+        if logged {
+            return true;
+        }
+        let shown = self.inventory_shown();
+        let settings = self.inventory_info_settings();
+        self.mag
+            .inventory_search
+            .tick(self.client.mag(), shown, settings)
     }
 
     /// The character left the world: the appraisals it waited on, the
-    /// identify line's state and the inventory logger's are forgotten.
+    /// identify line's state, the inventory logger's and the Inventory
+    /// window's rows are forgotten.
     pub(crate) fn mag_session_ended(&mut self) {
         self.mag.identify.clear();
         self.mag.printer.reset();
         self.mag.inventory_log.reset();
+        self.mag.inventory_search.reset();
     }
 }
 

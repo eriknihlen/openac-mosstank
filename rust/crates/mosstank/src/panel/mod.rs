@@ -207,12 +207,13 @@ pub fn spec(window: &WindowSpec) -> Result<(PanelSpec, Vec<(String, TypedBinding
 pub const PUSH_INTERVAL_SECONDS: f64 = 0.1;
 
 /// Values drawn only inside one shown part of a window (a page of the main
-/// window, an editor window): the C# windows read a property only to draw
-/// it, so these are worked out and pushed only while that part is shown
-/// (and once at the start), the costly grids and pickers among them
+/// window, an editor window, the Inventory window while the client shows
+/// it): the C# windows read a property only to draw it, so these are worked
+/// out and pushed only while that part is shown (and once at the start),
+/// the costly grids and pickers among them
 /// (register UI-1). A test holds each to the markup: every use of the
 /// value sits inside the part.
-pub const SHOWN_ONLY_WITH: [(&str, &str); 29] = [
+pub const SHOWN_ONLY_WITH: [(&str, &str); 38] = [
     ("MacroProfileNames", "ProfilesVisible"),
     ("RouteProfileNames", "ProfilesVisible"),
     ("SelectedRouteProfile", "ProfilesVisible"),
@@ -242,6 +243,15 @@ pub const SHOWN_ONLY_WITH: [(&str, &str); 29] = [
     ("CompsHudCarriedCounts", "CompsHudEditorVisible"),
     ("CompsHudRowNames", "CompsHudEditorVisible"),
     ("CompsHudRowWarns", "CompsHudEditorVisible"),
+    ("MagInventoryCharacters", "MagInventoryShown"),
+    ("MagInventoryClasses", "MagInventoryShown"),
+    ("MagInventoryRowIcons", "MagInventoryShown"),
+    ("MagInventoryRowCharacters", "MagInventoryShown"),
+    ("MagInventoryRowNames", "MagInventoryShown"),
+    ("MagInventoryRowCounts", "MagInventoryShown"),
+    ("MagInventoryRowPlaces", "MagInventoryShown"),
+    ("MagInventoryInfo", "MagInventoryShown"),
+    ("MagInventoryStatus", "MagInventoryShown"),
 ];
 
 /// The value a binding of `kind` has before anything is worked out for it:
