@@ -1037,10 +1037,23 @@ fn every_tool_button_on_the_ub_page_binds_its_caption_and_its_colour() {
     let document = document("mosstank.xml");
     let group = page(document.root_element(), "UbVisible");
     let buttons: Vec<_> = named(group, "button").collect();
-    assert_eq!(buttons.len(), 12);
+    // Twelve tool and page buttons, and the key looter's three.
+    assert_eq!(buttons.len(), 15);
+    let looter = ["{SetUbLooterKey}", "{SetUbLooterChest}", "{ToggleUbLooter}"];
+    for action in looter {
+        assert_eq!(
+            buttons
+                .iter()
+                .filter(|button| attr(**button, "onclick") == Some(action))
+                .count(),
+            1,
+            "{action}"
+        );
+    }
     let tools: Vec<_> = buttons
         .iter()
         .filter(|button| text(**button).starts_with('{'))
+        .filter(|button| !attr(**button, "onclick").is_some_and(|action| looter.contains(&action)))
         .collect();
     assert_eq!(tools.len(), 10);
     for button in tools {

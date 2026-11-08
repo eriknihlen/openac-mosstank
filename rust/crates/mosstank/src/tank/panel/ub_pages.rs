@@ -123,6 +123,11 @@ pub(super) fn value(cx: &mut TankCx<'_>, name: &str) -> Option<UiValue> {
         "SelectedUbProfile" => t(cx.ub.store.borrow().profile_name()),
         "UbProfileNameDraft" => t(page.profile_name_draft()),
 
+        // The key looter.
+        "UbLooterKey" => t(cx.ub.commands.tools().looter.page_key()),
+        "UbLooterChest" => t(cx.ub.commands.tools().looter.page_chest()),
+        "UbLooterButtonText" => t(cx.ub.commands.tools().looter.page_button_text()),
+
         // The colour window.
         "UbColorVisible" => b(page.color_visible()),
         "UbColorSwatch" => Some(UiValue::Uint(page.color_swatch())),
@@ -185,6 +190,22 @@ pub(super) fn act(cx: &mut TankCx<'_>, name: &str, arg: &Arg) -> bool {
         let parts = &mut *cx.ub;
         main_page::press(writes!(parts), &mut parts.page, button);
         return true;
+    }
+    // The key looter, over the selection.
+    match name {
+        "SetUbLooterKey" => {
+            cx.with_ub(|commands, call| commands.tools_mut().looter.set_page_key(call));
+            return true;
+        }
+        "SetUbLooterChest" => {
+            cx.with_ub(|commands, call| commands.tools_mut().looter.set_page_chest(call));
+            return true;
+        }
+        "ToggleUbLooter" => {
+            cx.with_ub(|commands, call| commands.tools_mut().looter.press_page_button(call));
+            return true;
+        }
+        _ => {}
     }
     let text = arg.text().to_owned();
     let index = i64::from(arg.int());

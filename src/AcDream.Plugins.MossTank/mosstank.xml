@@ -552,6 +552,19 @@
     <button x="404" y="52" w="136" h="24" text="Tinker" onclick="{ShowTinker}"
             tooltip="Open the tinkering page." />
 
+    <!-- The key looter, as the tool it comes from lays out its Looter group:
+         a key and a chest picked from the selection, and one button that
+         starts and stops the run. -->
+    <label x="4" y="150" w="300" h="16" text="Key looter" color="theme:text|#FFE8DEC3" />
+    <button x="4" y="168" w="80" h="20" text="Set key" onclick="{SetUbLooterKey}"
+            tooltip="Use the selected key's name: every key of that name you carry is used in turn." />
+    <label x="90" y="170" w="200" h="16" text="{UbLooterKey}" color="theme:muted|#FFC7B98F" />
+    <button x="296" y="168" w="80" h="20" text="Set chest" onclick="{SetUbLooterChest}"
+            tooltip="Use the selected chest." />
+    <label x="382" y="170" w="200" h="16" text="{UbLooterChest}" color="theme:muted|#FFC7B98F" />
+    <button x="588" y="168" w="80" h="20" text="{UbLooterButtonText}" onclick="{ToggleUbLooter}"
+            tooltip="Unlock the chest, take what the active loot profile keeps, close it, and go again while keys are left; or stop." />
+
     <label x="4" y="210" w="968" h="16" text="{UbSettingNotice}" color="theme:muted|#FFC7B98F"
            anchor="left bottom right" />
   </group>
