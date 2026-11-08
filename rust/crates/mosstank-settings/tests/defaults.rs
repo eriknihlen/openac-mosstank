@@ -130,9 +130,9 @@ fn rust_sources(folder: &Path, found: &mut Vec<PathBuf>) {
 fn the_plugin_embeds_no_other_programs_files() {
     // The C# embeds one resource, its own experience-cost table. The Rust
     // embeds that and the two `.af` header texts (string constants in the
-    // C#; metaf's credit block, see NOTICE.md) and its own thirteen window
-    // markups (`mosstank::panel`: the C# plugin's twelve and the Comps HUD's
-    // Edit items window beside them), and the property names `/ub
+    // C#; metaf's credit block, see NOTICE.md) and its own fourteen window
+    // markups (`mosstank::panel`: the C# plugin's twelve, the Comps HUD's
+    // Edit items window and the Mag tab's Inventory window beside them), and the property names `/ub
     // propertydump` prints (an MIT table, see NOTICE.md); nothing else.
     let crates = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("..");
     let mut sources = Vec::new();
@@ -164,6 +164,7 @@ fn the_plugin_embeds_no_other_programs_files() {
             "mosstank-advanced.xml",
             "mosstank-buffpicker.xml",
             "mosstank-comps-hud.xml",
+            "mosstank-inventory.xml",
             "mosstank-loot-editor.xml",
             "mosstank-metaeditor.xml",
             "mosstank-remote.xml",
