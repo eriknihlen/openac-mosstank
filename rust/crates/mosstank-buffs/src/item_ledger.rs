@@ -1,8 +1,9 @@
 //! The spells cast on items and how long each has left
 //! (`ItemEnchantLedger`): the client does not report an item's enchantments,
 //! so the buff rule keeps its own table from the casts it saw land, on the
-//! macro's clock, and keeps the ones with a durable item identity across
-//! sessions in the plugin's storage (per server and character).
+//! macro's clock, and keeps the ones on owned items and on the character
+//! (the banes and Impenetrability, which land on every worn piece of armor)
+//! across sessions in the plugin's storage (per server and character).
 //!
 //! The C# writes the file inside each change; here a change marks the
 //! table for writing and [`ItemEnchantLedger::flush`] writes it while the
@@ -188,6 +189,37 @@ impl ItemEnchantLedger {
             item_object_id,
             0,
             "",
+            family,
+            spell_id,
+            quality,
+            duration_seconds,
+            now_seconds,
+            spell_name,
+            log,
+        );
+    }
+
+    /// A cast seen landing on the character (a bane or Impenetrability).
+    #[allow(clippy::too_many_arguments)]
+    pub fn note_character_cast(
+        &mut self,
+        character_id: u32,
+        character_name: &str,
+        family: u32,
+        spell_id: u32,
+        quality: i32,
+        duration_seconds: f64,
+        now_seconds: f64,
+        spell_name: &str,
+        log: &mut dyn FnMut(&str),
+    ) {
+        // The character's id never changes and the file is the
+        // character's own: its name is the row's identity, with no weenie
+        // class.
+        self.note_cast_core(
+            character_id,
+            0,
+            character_name,
             family,
             spell_id,
             quality,
@@ -463,12 +495,21 @@ impl ItemEnchantLedger {
         });
     }
 
-    /// The rows with a durable item identity; the character's rows stay in
-    /// the session only.
+    /// The rows with a durable identity: an owned item's (its weenie class
+    /// and name) and the character's (its name); a row for any other
+    /// object stays in the session only.
     fn records(&self) -> Vec<ItemEnchantRecord> {
+        let character_name = self
+            .scope
+            .as_ref()
+            .map_or("", |scope| scope.character_name.as_str());
         self.entries
             .iter()
-            .filter(|(_, entry)| entry.weenie_class_id != 0 && !entry.item_name.is_empty())
+            .filter(|(_, entry)| {
+                !entry.item_name.is_empty()
+                    && (entry.weenie_class_id != 0
+                        || ordinal::equals_ignore_case(&entry.item_name, character_name))
+            })
             .map(|(&(item, family, spell_id), entry)| ItemEnchantRecord {
                 item_object_id: item,
                 weenie_class_id: entry.weenie_class_id,
@@ -542,5 +583,73 @@ mod tests {
 
         let alpha = ItemEnchantScope::new(Some("Coldeve"), Some("Alpha")).key();
         assert!(storage.read_text(&alpha).unwrap().is_some());
+    }
+
+    /// A bane or Impenetrability is cast on the character and lands on
+    /// every worn piece of armor; its timer is kept under the character's
+    /// own id and survives a relog, so the banes are not all cast again at
+    /// every login.
+    #[test]
+    fn a_timer_cast_on_the_character_is_restored_at_the_next_login() {
+        const CHARACTER: u32 = 0x5000_0001;
+        const IMPENETRABILITY_FAMILY: u32 = 159;
+        let mut storage = MemoryStorage::new();
+        let mut ledger = ItemEnchantLedger::new();
+        ledger.set_utc_now(1_700_000_000_000);
+        ledger.bind_persistence(
+            &mut storage,
+            Some("Coldeve"),
+            Some("Alpha"),
+            0.0,
+            &mut |_| {},
+        );
+        ledger.note_character_cast(
+            CHARACTER,
+            "Alpha",
+            IMPENETRABILITY_FAMILY,
+            4407,
+            8,
+            3600.0,
+            0.0,
+            "Incantation of Impenetrability",
+            &mut |_| {},
+        );
+        ledger.flush(&mut storage);
+
+        // The next login, ten minutes later, on a fresh macro clock.
+        let mut next = ItemEnchantLedger::new();
+        next.set_utc_now(1_700_000_600_000);
+        next.bind_persistence(
+            &mut storage,
+            Some("Coldeve"),
+            Some("Alpha"),
+            0.0,
+            &mut |_| {},
+        );
+
+        let left = next.remaining_seconds(CHARACTER, IMPENETRABILITY_FAMILY, 8, 0.0);
+        assert!((left - 3000.0).abs() < 1e-6, "{left}");
+    }
+
+    /// A cast on an object that is neither an owned item nor the character
+    /// stays in the session only: nothing says the id is the same object
+    /// at the next login.
+    #[test]
+    fn a_timer_on_an_unknown_object_is_not_kept() {
+        let mut storage = MemoryStorage::new();
+        let mut ledger = ItemEnchantLedger::new();
+        ledger.set_utc_now(1_700_000_000_000);
+        ledger.bind_persistence(
+            &mut storage,
+            Some("Coldeve"),
+            Some("Alpha"),
+            0.0,
+            &mut |_| {},
+        );
+        ledger.note_cast(0x8000_0001, 159, 4407, 8, 3600.0, 0.0, "X", &mut |_| {});
+        ledger.flush(&mut storage);
+
+        let key = ItemEnchantScope::new(Some("Coldeve"), Some("Alpha")).key();
+        assert!(storage.read_text(&key).unwrap().is_none());
     }
 }

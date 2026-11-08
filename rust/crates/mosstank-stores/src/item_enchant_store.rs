@@ -271,8 +271,12 @@ fn try_load(
             return Ok(reject_rollback(storage, scope));
         }
         let item_name = row.item_name.clone().unwrap_or_default();
+        // A row with no weenie class is the character's own (a bane or
+        // Impenetrability), named for the character the file belongs to.
+        let character_row = row.weenie_class_id == 0
+            && ordinal::equals_ignore_case(item_name.trim(), &scope.character_name);
         if row.item_object_id == 0
-            || row.weenie_class_id == 0
+            || (row.weenie_class_id == 0 && !character_row)
             || casing::is_white_space_only(&item_name)
             || row.family == 0
             || row.spell_id == 0
@@ -381,4 +385,48 @@ pub fn delete(storage: &mut dyn PluginStorage, scope: &ItemEnchantScope) -> bool
         return false;
     }
     storage.delete(&scope.key()).unwrap_or(false)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::storage::MemoryStorage;
+
+    fn record(item_object_id: u32, weenie_class_id: u32, item_name: &str) -> ItemEnchantRecord {
+        ItemEnchantRecord {
+            item_object_id,
+            weenie_class_id,
+            item_name: item_name.to_owned(),
+            family: 159,
+            spell_id: 4407,
+            quality: 8,
+            recorded_at_unix_ms: 1_000,
+            expires_at_unix_ms: 3_601_000,
+        }
+    }
+
+    /// A row with no weenie class loads when it is named for the file's own
+    /// character (its banes and Impenetrability); one named for anything
+    /// else has no identity and is dropped.
+    #[test]
+    fn a_row_without_a_weenie_class_loads_only_for_the_character() {
+        let mut storage = MemoryStorage::new();
+        let scope = ItemEnchantScope::new(Some("Coldeve"), Some("Alpha"));
+        assert!(save(
+            &mut storage,
+            &scope,
+            &[
+                record(0x5000_0001, 0, "alpha"),
+                record(0x8000_0002, 0, "Lace Shirt"),
+            ],
+            2_000,
+        ));
+
+        let result = load(&mut storage, &scope, 3_000);
+
+        assert_eq!(result.status, ItemEnchantLoadStatus::Loaded);
+        assert!(result.requires_rewrite);
+        let ids: Vec<u32> = result.records.iter().map(|r| r.item_object_id).collect();
+        assert_eq!(ids, [0x5000_0001]);
+    }
 }

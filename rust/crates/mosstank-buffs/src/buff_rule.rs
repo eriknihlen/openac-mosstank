@@ -625,6 +625,7 @@ impl BuffSelfRule {
             .iter()
             .find(|owned| owned.object_id == item.item_id)
             .cloned();
+        let character = turn.automation.character();
         match owned {
             Some(owned) if owned.object_id != 0 => self.item_ledger.note_item_cast(
                 &owned,
@@ -636,6 +637,21 @@ impl BuffSelfRule {
                 &item.spell_name,
                 &mut log,
             ),
+            // The character row (the banes, Impenetrability): kept across
+            // logins under the character's own id.
+            _ if item.item_id == character.id && !character.name.trim().is_empty() => {
+                self.item_ledger.note_character_cast(
+                    character.id,
+                    &character.name,
+                    item.family,
+                    spell_id,
+                    item.quality,
+                    item.duration,
+                    self.now_seconds,
+                    &item.spell_name,
+                    &mut log,
+                );
+            }
             _ => self.item_ledger.note_cast(
                 item.item_id,
                 item.family,
