@@ -3,6 +3,7 @@
 //! the SDK host ([`crate::automation::HostAutomation`] implements them all).
 
 use mosstank_loot::host::LootHost;
+use mosstank_mag::host::MagHost;
 use mosstank_meta::host::MetaHost;
 use mosstank_stores::storage::StoreHost;
 use mosstank_ub::host::UbHost;
@@ -11,13 +12,15 @@ use mosstank_vendor::{FellowshipAutomation, VendorAutomation};
 
 /// The client for one call: the rules' view ([`mosstank_automation::Automation`],
 /// through the looter's and the route's), the looter's, the route's and the
-/// fellowship's, the meta's and the UB tab's, and the profile stores'.
+/// fellowship's, the meta's, the UB tab's and the Mag tab's, and the
+/// profile stores'.
 pub trait TankClient:
     LootHost
     + FellowshipAutomation
     + FellowCommandAutomation
     + VendorAutomation
     + UbHost
+    + MagHost
     + StoreHost
     + SessionClient
 {
@@ -37,6 +40,8 @@ pub trait TankClient:
     fn meta(&mut self) -> &mut dyn MetaHost;
     /// The client as the UB tab sees it.
     fn ub(&mut self) -> &mut dyn UbHost;
+    /// The client as the Mag tab sees it.
+    fn mag(&mut self) -> &mut dyn MagHost;
     /// The client as the profile stores see it.
     fn stores(&mut self) -> &mut dyn StoreHost;
 }
@@ -48,6 +53,7 @@ where
         + FellowCommandAutomation
         + VendorAutomation
         + UbHost
+        + MagHost
         + StoreHost
         + SessionClient,
 {
@@ -80,6 +86,10 @@ where
     }
 
     fn ub(&mut self) -> &mut dyn UbHost {
+        self
+    }
+
+    fn mag(&mut self) -> &mut dyn MagHost {
         self
     }
 

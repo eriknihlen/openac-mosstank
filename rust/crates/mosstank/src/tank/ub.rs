@@ -846,6 +846,7 @@ impl TankCx<'_> {
                     readout_should_show: self.ub.hud.should_show(),
                     requests: Vec::new(),
                     ub_parts: None,
+                    mag_parts: None,
                 },
             };
             let mut services = ShellUbServices {

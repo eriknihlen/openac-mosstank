@@ -87,6 +87,7 @@ impl Tank {
             cx.handle_session_started();
         }
         cx.update_peer_subscriptions();
+        cx.mag_tick();
         // The name tags, first in the frame as the panel runs them.
         cx.core.heavy_frame = cx.with_ub(|commands, call| {
             commands.tools_mut().tick_nametags(call, elapsed_seconds);

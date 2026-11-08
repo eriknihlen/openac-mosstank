@@ -16,6 +16,7 @@ pub mod automation;
 pub mod canvases;
 pub mod client;
 pub mod loot;
+pub mod mag_host;
 pub mod panel;
 pub mod storage;
 pub mod tank;

@@ -721,6 +721,7 @@ dependencies = [
  "mosstank-expr",
  "mosstank-formats",
  "mosstank-loot",
+ "mosstank-mag",
  "mosstank-meta",
  "mosstank-nav",
  "mosstank-session",

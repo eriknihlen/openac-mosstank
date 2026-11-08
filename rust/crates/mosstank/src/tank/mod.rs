@@ -19,6 +19,7 @@ mod commands;
 mod diagnostics;
 mod display;
 mod frame;
+pub(crate) mod mag;
 mod meta_windows;
 mod nav_lines;
 pub(crate) mod options;
@@ -360,6 +361,7 @@ pub struct Tank {
     pub(crate) meta: MetaEngine,
     pub(crate) core: Core,
     pub(crate) ub: ub::UbParts,
+    pub(crate) mag: mosstank_mag::MagParts,
 }
 
 /// How much profile text the start reads and parses before the rest of a
@@ -868,6 +870,7 @@ impl Tank {
         core.folders.prepare_start_on(client.stores());
 
         let mut ub = ub::UbParts::new(client);
+        let mut mag = mosstank_mag::MagParts::default();
         // The UB store's binding lays out the character's own folders
         // (`InitializeUbSettings`).
         {
@@ -911,6 +914,7 @@ impl Tank {
                 core: &mut core,
                 meta: &mut meta,
                 ub: &mut ub,
+                mag: &mut mag,
             };
             // The aliases hold what is typed from the start (`InitializeAliases`).
             cx.attach_aliases();
@@ -926,6 +930,7 @@ impl Tank {
             meta,
             core,
             ub,
+            mag,
         };
         tank.apply_pending_meta_interval();
         tank
@@ -942,6 +947,7 @@ impl Tank {
                 core: &mut self.core,
                 meta: &mut self.meta,
                 ub: &mut self.ub,
+                mag: &mut self.mag,
             },
             &mut self.scheduler,
         )
@@ -1238,6 +1244,9 @@ impl Tank {
         // The kill statistics hear the client before the meta does: the C#
         // recorder subscribes first.
         cx.core.kill_statistics_event(cx.client, event);
+        // The Mag features hear it next (the combat tracker reads the same
+        // chat lines).
+        cx.mag_event(event);
         // A window attached builds its pickers afresh (register UI-4).
         if matches!(event, Event::WindowAttached(true)) {
             cx.core.panel.listings.relist_all();
