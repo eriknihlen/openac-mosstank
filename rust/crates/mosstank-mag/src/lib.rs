@@ -6,6 +6,7 @@
 //! - [`host`]: the client as the features reach it ([`host::MagHost`]) and
 //!   the loot profile's verdict on an item ([`host::LootVerdict`]).
 //! - [`identify`]: the paced identify queue the features share.
+//! - [`item_info`]: the one-line description of an identified item.
 //! - [`settings`]: the Mag settings' names in the UB settings catalogue.
 //! - `testing` (native builds only): a client and a loot profile in memory
 //!   for the tests ([`testing::FakeMagHost`], [`testing::FakeVerdict`]).
@@ -17,6 +18,7 @@
 pub mod fmt;
 pub mod host;
 pub mod identify;
+pub mod item_info;
 pub mod settings;
 #[cfg(not(target_arch = "wasm32"))]
 pub mod testing;
