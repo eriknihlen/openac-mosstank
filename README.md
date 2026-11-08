@@ -33,7 +33,8 @@ the macro's commands answer on `/vt`, the UtilityBelt ones on `/ub`, so command 
 written for either work as they are. `/vt help` and `/ub help` list each word's commands.
 UtilityBelt's looter is there too: chests and your own corpse looted by the active loot
 profile as they open (`Looter.Enabled`, `Looter.EnableChests`, `Looter.EnableMyCorpse`),
-`/ub use` on a chest or corpse to open, loot and close it, and a key looter on the UB page
+`/ub use` on a chest or corpse to open it and, with those switches on, loot and close it (your
+own corpse gives back everything, whatever the profile says), and a key looter on the UB page
 and as `/ub keyloot <key name>` ([rust/README.md](rust/README.md#the-ub-looter)).
 
 Optional [personal kill statistics](KILL-STATISTICS.md) record durable per-character

@@ -7,7 +7,8 @@
 //!   `Looter.EnableMyCorpse`) that opens, by hand or otherwise, is looted
 //!   and left open (`EchoFilter_ServerDispatch`, `Item_OnViewContents`);
 //! - `/ub use` on a chest or a corpse (`OpenContainer`): it is opened, with
-//!   retries, looted, and closed;
+//!   retries, and, when the same switches allow (a monster's corpse needs
+//!   only `Looter.Enabled`), looted and closed;
 //! - the key looter (`StartUI`): the UB page's key-and-chest row, or
 //!   `/ub keyloot <key>` (MossTank's own command; UtilityBelt has only the
 //!   button). A key of that name unlocks the chest, it is opened, looted and
@@ -429,9 +430,12 @@ impl ChestLooter {
 
     // ---- the ways in ----------------------------------------------------
 
-    /// `/ub use` on a chest or a corpse (`OpenContainer`): it is opened,
-    /// looted (whatever the switches say, and a monster's corpse too), and
-    /// closed. A run under way is put down without a word.
+    /// `/ub use` on a chest or a corpse (`OpenContainer`): it is opened, with
+    /// retries. With `Looter.Enabled` on it is then looted and closed: a
+    /// chest with `Looter.EnableChests`, the own corpse with
+    /// `Looter.EnableMyCorpse`, and a monster's corpse always (the command
+    /// named it). Otherwise it is only opened. A run under way is put down
+    /// without a word.
     pub fn open_container(&mut self, call: &mut UbCall<'_>, container: &WorldObject) {
         let kind = loot_container_kind(call.host, container).unwrap_or(ContainerKind::Chest);
         self.release_holds(call);
@@ -638,9 +642,26 @@ impl ChestLooter {
         self.unlock_attempts += 1;
     }
 
+    /// Whether `/ub use` loots what it opened: the looter on, and the
+    /// container's own switch on; a monster's corpse needs none.
+    fn ub_use_loots(&self, call: &UbCall<'_>) -> bool {
+        call.flag(ENABLED)
+            && match self.kind {
+                ContainerKind::Chest => call.flag(ENABLE_CHESTS),
+                ContainerKind::MyCorpse => call.flag(ENABLE_MY_CORPSE),
+                ContainerKind::MonsterCorpse => true,
+            }
+    }
+
     /// Asks the container to open until it does (`looterstate.Opening`).
     fn opening(&mut self, call: &mut UbCall<'_>, pacing: Pacing) {
         if call.host.open_container() == self.container_id {
+            // Only opened, and left open, when the switches say not to loot
+            // it (`looterstate.Opening`, `Item_OnViewContents`).
+            if self.run == RunType::UbUse && !self.ub_use_loots(call) {
+                self.finish(call, false, true);
+                return;
+            }
             self.state = LooterState::Open;
             return;
         }

@@ -81,14 +81,18 @@ stay the macro's corpse looter's, and a container it is working is left to it.
 - **Chests and your own corpse, as they open.** With `Looter.Enabled` on, a
   chest (with `Looter.EnableChests`) or your own corpse (with
   `Looter.EnableMyCorpse`) is looted when it opens, by hand or otherwise, and
-  left open. Your own corpse gives back everything in it; while it does, the
+  left open. Your own corpse gives back everything in it, whatever the loot
+  profile says (as UtilityBelt does); while it does, the
   macro's route, attack spells and item use are held, and with
   `Looter.BlockVtankMelee` its melee and missile attacks too. Only a container
   with room for 48 items or more is looted (chests and corpses, never packs).
 - **`/ub use <chest or corpse>`** opens it (up to `Looter.MaxOpenAttempts`
-  tries, `Looter.DelaySpeed` milliseconds apart), loots it and closes it,
-  whatever the switches say and a monster's corpse too. A locked chest:
-  `Looter: Chest is locked... bailing`.
+  tries, `Looter.DelaySpeed` milliseconds apart). With `Looter.Enabled` on it
+  then loots it and closes it: a chest with `Looter.EnableChests`, your own
+  corpse with `Looter.EnableMyCorpse` (everything in it), and a monster's
+  corpse always. Otherwise it is only opened. A locked chest:
+  `Looter: Chest is locked... bailing`. The key looter works whatever these
+  switches say.
 - **The key looter**: on the UB page, **Set key** (select a key first),
   **Set chest** (select the chest) and **Start**; or select the chest and type
   `/ub keyloot <key name>` (MossTank's own command; UtilityBelt has only the

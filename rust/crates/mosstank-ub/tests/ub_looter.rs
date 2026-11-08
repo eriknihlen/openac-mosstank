@@ -481,8 +481,10 @@ fn serve_use(rig: &mut Rig) {
 }
 
 #[test]
-fn ub_use_on_a_chest_opens_it_loots_it_and_closes_it_whatever_the_switches_say() {
+fn ub_use_on_a_chest_with_the_looter_on_opens_it_loots_it_and_closes_it() {
     let mut rig = rig();
+    set(&mut rig, "Looter.Enabled", "True");
+    set(&mut rig, "Looter.EnableChests", "True");
     profile(&mut rig);
     place(
         &mut rig,
@@ -513,8 +515,10 @@ fn ub_use_on_a_chest_opens_it_loots_it_and_closes_it_whatever_the_switches_say()
 }
 
 #[test]
-fn ub_use_on_a_monsters_corpse_loots_it_too() {
+fn ub_use_on_a_monsters_corpse_loots_it_with_the_looter_on_alone() {
+    // No chest or own-corpse switch: the command named the corpse.
     let mut rig = rig();
+    set(&mut rig, "Looter.Enabled", "True");
     profile(&mut rig);
     place(
         &mut rig,
@@ -532,6 +536,63 @@ fn ub_use_on_a_monsters_corpse_loots_it_too() {
 
     assert_eq!(vec![10], rig.host.pickups);
     assert_eq!(vec![CORPSE], rig.host.closed_loot);
+}
+
+/// `/ub use` on a container in the world, served until it settles.
+fn use_and_serve(rig: &mut Rig, name: &str) {
+    rig.ub(&format!("use {name}"));
+    for _ in 0..30 {
+        tick(rig, 0.1);
+        arrive(rig);
+        serve_use(rig);
+    }
+}
+
+/// It was opened and left open: nothing taken, nothing closed, nothing said
+/// past the command's own line.
+fn only_opened(rig: &Rig, id: u32, name: &str) {
+    assert_eq!(vec![id], rig.host.opened_loot, "{name}");
+    assert_eq!(id, rig.host.meta.open_container, "{name}");
+    assert!(rig.host.pickups.is_empty(), "{name}");
+    assert!(rig.host.closed_loot.is_empty(), "{name}");
+    assert!(!looter(rig).is_running(), "{name}");
+    assert_eq!(vec![format!("[UB] using {name}")], rig.messages());
+}
+
+#[test]
+fn ub_use_with_the_looter_off_only_opens() {
+    let mut rig = rig();
+    set(&mut rig, "Looter.EnableChests", "True");
+    profile(&mut rig);
+    place(&mut rig, chest(), vec![loose(10, "Red Gem")], true);
+
+    use_and_serve(&mut rig, "Chest");
+
+    only_opened(&rig, CHEST, "Chest");
+}
+
+#[test]
+fn ub_use_loots_a_chest_only_with_chests_on_and_the_own_corpse_only_with_its_switch() {
+    let mut chest_rig = rig();
+    set(&mut chest_rig, "Looter.Enabled", "True");
+    set(&mut chest_rig, "Looter.EnableMyCorpse", "True");
+    profile(&mut chest_rig);
+    place(&mut chest_rig, chest(), vec![loose(10, "Red Gem")], true);
+    use_and_serve(&mut chest_rig, "Chest");
+    only_opened(&chest_rig, CHEST, "Chest");
+
+    let mut rig = rig();
+    set(&mut rig, "Looter.Enabled", "True");
+    set(&mut rig, "Looter.EnableChests", "True");
+    profile(&mut rig);
+    place(
+        &mut rig,
+        container(CORPSE, "Corpse of Tester", ObjectClass::Corpse, 120),
+        vec![loose(10, "Red Gem")],
+        true,
+    );
+    use_and_serve(&mut rig, "Corpse of Tester");
+    only_opened(&rig, CORPSE, "Corpse of Tester");
 }
 
 #[test]
