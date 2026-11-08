@@ -4,7 +4,9 @@
 use ac_plugin_abi::items::InventoryItem;
 use ac_plugin_abi::magic::SpellInfo;
 
-use super::{Values, key};
+use std::fmt::Write as _;
+
+use super::{Values, key, put};
 
 /// The appraisal's mark on a spell active on the item.
 const ACTIVE_ON_ITEM: u32 = 0x8000_0000;
@@ -98,7 +100,9 @@ pub(crate) fn append(
                     sb.push_str(&spell.name);
                 }
             }
-            None => sb.push_str(&format!(", Unknown spell {id}")),
+            None => {
+                put!(sb, ", Unknown spell {id}");
+            }
         }
     }
 }

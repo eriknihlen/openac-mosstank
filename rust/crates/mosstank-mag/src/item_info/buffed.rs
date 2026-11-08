@@ -7,7 +7,9 @@
 use ac_plugin_abi::world::ObjectClass;
 
 use super::spells::SpellLists;
-use super::{Values, key};
+use std::fmt::Write as _;
+
+use super::{Values, key, put};
 use crate::fmt;
 
 /// One spell's effect on a key: what it adds when it is on the item
@@ -42,9 +44,6 @@ const fn double_effect(spell: u32, key: u32, change: f64, bonus: f64) -> SpellEf
     }
 }
 
-/// Decal's ArmorLevel key.
-const ARMOR_LEVEL: u32 = 28;
-
 /// `LongValueKeySpellEffects`, `Dictionaries.cs:345-371` (16 entries).
 pub(crate) const LONG_SPELL_EFFECTS: [SpellEffect<i32>; 16] = [
     int_effect(1616, key::MAX_DAMAGE, 20, 0), // Blood Drinker VI
@@ -56,13 +55,13 @@ pub(crate) const LONG_SPELL_EFFECTS: [SpellEffect<i32>; 16] = [
     int_effect(4661, key::MAX_DAMAGE, 7, 7),  // Epic Blood Thirst
     int_effect(6089, key::MAX_DAMAGE, 10, 10), // Legendary Blood Thirst
     int_effect(3688, key::MAX_DAMAGE, 300, 0), // Prodigal Blood Drinker
-    int_effect(1486, ARMOR_LEVEL, 200, 0),    // Impenetrability VI
-    int_effect(2108, ARMOR_LEVEL, 220, 0),    // Brogard's Defiance
-    int_effect(4407, ARMOR_LEVEL, 240, 0),    // Incantation of Impenetrability
-    int_effect(2604, ARMOR_LEVEL, 20, 20),    // Minor Impenetrability
-    int_effect(2592, ARMOR_LEVEL, 40, 40),    // Major Impenetrability
-    int_effect(4667, ARMOR_LEVEL, 60, 60),    // Epic Impenetrability
-    int_effect(6095, ARMOR_LEVEL, 80, 80),    // Legendary Impenetrability
+    int_effect(1486, key::ARMOR_LEVEL, 200, 0), // Impenetrability VI
+    int_effect(2108, key::ARMOR_LEVEL, 220, 0), // Brogard's Defiance
+    int_effect(4407, key::ARMOR_LEVEL, 240, 0), // Incantation of Impenetrability
+    int_effect(2604, key::ARMOR_LEVEL, 20, 20), // Minor Impenetrability
+    int_effect(2592, key::ARMOR_LEVEL, 40, 40), // Major Impenetrability
+    int_effect(4667, key::ARMOR_LEVEL, 60, 60), // Epic Impenetrability
+    int_effect(6095, key::ARMOR_LEVEL, 80, 80), // Legendary Impenetrability
 ];
 
 const VS_MONSTERS: u32 = key::ELEMENTAL_VS_MONSTERS;
@@ -220,16 +219,15 @@ fn calced_buffed_missile_damage(v: &Values<'_>, lists: &SpellLists) -> f64 {
         + f64::from(buffed_int(v, lists, key::ELEMENTAL_DMG_BONUS, 0))
 }
 
-/// The block: `", (" + damage + " " + attack/defence/mana + ")"`.
-pub(crate) fn block(v: &Values<'_>, lists: &SpellLists, class: ObjectClass) -> String {
-    let mut sb = String::from(", (");
+/// Append the block: `", (" + damage + " " + attack/defence/mana + ")"`.
+pub(crate) fn append(sb: &mut String, v: &Values<'_>, lists: &SpellLists, class: ObjectClass) {
+    sb.push_str(", (");
 
     // (Damage)
     match class {
         ObjectClass::MeleeWeapon => {
             sb.push_str(&fmt::n1(calced_buffed_tinked_dot(v, lists)));
-            sb.push('/');
-            sb.push_str(&buffed_int(v, lists, key::MAX_DAMAGE, 0).to_string());
+            put!(sb, "/{}", buffed_int(v, lists, key::MAX_DAMAGE, 0));
         }
         ObjectClass::MissileWeapon => {
             sb.push_str(&fmt::n1(calced_buffed_missile_damage(v, lists)));
@@ -259,5 +257,4 @@ pub(crate) fn block(v: &Values<'_>, lists: &SpellLists, class: ObjectClass) -> S
     }
 
     sb.push(')');
-    sb
 }

@@ -190,6 +190,16 @@ fn modifiers_round_half_to_even_and_never_print_a_negative_zero() {
 }
 
 #[test]
+fn the_defence_percentages_round_to_one_digit_half_to_even() {
+    // Source: ItemInfo.cs:108, 111 (Math.Round(x, 1): x * 10, halves to
+    // even). (1.0625 - 1) * 100 = 6.25 exactly: 62.5 -> 62 -> 6.2 (half
+    // away from zero would give 6.3); (0.9375 - 1) * 100 = -6.25 -> -6.2.
+    let wand = item("Wand", ObjectClass::WandStaffOrb);
+    let p = props(&[], &[(150, 1.0625), (149, 0.9375)]);
+    assert_eq!(line(&wand, &p), "Wand, 6.2%mgc.d, -6.2%msl.d");
+}
+
+#[test]
 fn weapon_values_come_from_the_appraised_weapon_profile() {
     // Source: ItemInfo.cs:87-143. 60 - 60 * 0.2 -> "48.00"; buffed:
     // no material, so no tinks left: DoT(84, 0.2) = 84 * 1.01 = 84.84 ->
@@ -318,8 +328,16 @@ fn the_buffed_block_only_for_weapons_and_casters_and_only_when_on() {
     let sword = item("Sword", ObjectClass::MeleeWeapon);
     let mut p = props(&[(131, 61)], &[]);
     p.weapon = Some(weapon(50, 0.2, 1.0, 1.0));
-    assert!(line_with(&sword, &p, true, false, &[]).contains(", ("));
-    assert!(!line_with(&sword, &p, false, false, &[]).contains(", ("));
+    // Loot generated, no tinks, no imbue: 9 tinks left, 7 iron and 2
+    // granite: DoT(57 + 24, 0.2 * 0.8^2) = 84.4344 -> "84.4".
+    assert_eq!(
+        line_with(&sword, &p, true, false, &[]),
+        "Iron Sword, 40.00-50, (84.4/50 )"
+    );
+    assert_eq!(
+        line_with(&sword, &p, false, false, &[]),
+        "Iron Sword, 40.00-50"
+    );
     let widget = item("Widget", ObjectClass::Misc);
     assert_eq!(
         line_with(&widget, &props(&[], &[]), true, false, &[]),
@@ -466,6 +484,21 @@ fn the_description_flag_alone_makes_an_item_loot_generated() {
     assert_eq!(
         line_with(&ring, &props(&[], &[]), false, false, &catalog),
         "Ring"
+    );
+    // Flags known without the material flag: no Material key, whatever
+    // material the record holds; not loot generated, every spell shown.
+    let unflagged = InventoryItem {
+        appraised_spell_ids: vec![11],
+        material_type: 61,
+        header: Some(ObjectHeader {
+            weenie_header_flags: Some(0x0000_0010),
+            ..ObjectHeader::default()
+        }),
+        ..item("Ring", ObjectClass::Jewelry)
+    };
+    assert_eq!(
+        line_with(&unflagged, &props(&[], &[]), false, false, &catalog),
+        "Ring, Strength Self III"
     );
 }
 
