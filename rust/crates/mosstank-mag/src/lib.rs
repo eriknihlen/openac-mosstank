@@ -6,6 +6,8 @@
 //! - [`host`]: the client as the features reach it ([`host::MagHost`]) and
 //!   the loot profile's verdict on an item ([`host::LootVerdict`]).
 //! - [`identify`]: the paced identify queue the features share.
+//! - [`inventory_log`]: the inventory logger, one JSON file per
+//!   character.
 //! - [`item_info`]: the one-line description of an identified item.
 //! - [`printer`]: the identify chat line with the loot verdict, and its
 //!   two triggers.
@@ -20,6 +22,7 @@
 pub mod fmt;
 pub mod host;
 pub mod identify;
+pub mod inventory_log;
 pub mod item_info;
 pub mod printer;
 pub mod settings;
