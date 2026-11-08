@@ -137,3 +137,11 @@ plugin theme (Appearance), and follows a theme change at once.
   not read whole is copied to `recovery/comps-hud/` in MossTank's storage and
   said in the log; it is written again only when that copy was made, and
   otherwise left as it is for the session.
+
+## The Mag tab and the Inventory window
+
+The **Mag** tab holds Mag-Tools' tracker pages (Combat, Mana and Inv. Items),
+and the **Inventory** window, with its own button on the dock, searches the
+items of every character logged on this server; both port Mag-Tools by
+Mag-nus (https://github.com/Mag-nus/Mag-Plugins), used with his permission
+(see [NOTICE.md](NOTICE.md)).
