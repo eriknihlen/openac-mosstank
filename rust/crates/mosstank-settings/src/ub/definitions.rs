@@ -244,9 +244,26 @@ fn build_accepted_only() -> Vec<UbSettingDefinition> {
             "Kept for macros; there is no auto-trade here.",
             false,
         ),
+        // The looter's jumping, its salvage pass and its test mode are not
+        // brought over; a macro that sets them carries on.
         switch(
-            "Looter.EnableChests",
-            "Kept for macros; there is no chest looter here.",
+            "Looter.JumpWhenLooting",
+            "Kept for macros; the looter does not jump here.",
+            false,
+        ),
+        whole(
+            "Looter.JumpHeight",
+            "Kept for macros; the looter does not jump here.",
+            100,
+        ),
+        switch(
+            "Looter.AutoSalvageAfterLooting",
+            "Kept for macros; the looter does not salvage here.",
+            false,
+        ),
+        switch(
+            "Looter.TestMode",
+            "Kept for macros; the looter has no test mode here.",
             false,
         ),
         switch(
@@ -763,6 +780,49 @@ fn add_behaviour_tools(rows: &mut Vec<UbSettingDefinition>) {
         "ItemGiver.Think",
         "Think to yourself when a hand-over has finished.",
         false,
+    ));
+
+    // The looter (UtilityBelt's `Looter`), in its own words.
+    rows.push(switch("Looter.Enabled", "Enabled.", false));
+    rows.push(switch(
+        "Looter.EnableChests",
+        "Enable the looting of chests.",
+        false,
+    ));
+    rows.push(switch(
+        "Looter.EnableMyCorpse",
+        "Enable the looting of your corpse. This will not open your corpse for you.",
+        false,
+    ));
+    rows.push(switch(
+        "Looter.BlockVtankMelee",
+        "Block melee/missile attacks while looting your own corpse. If left off, you may attack and run away from your corpse while looting.",
+        false,
+    ));
+    rows.push(whole(
+        "Looter.MaxOpenAttempts",
+        "Number of chest open attempts before quitting.",
+        10,
+    ));
+    rows.push(whole(
+        "Looter.MaxUnlockAttempts",
+        "Number of chest unlock attempts before quitting.",
+        10,
+    ));
+    rows.push(whole(
+        "Looter.AttemptsBeforeBlacklisting",
+        "Number of loot attempts before blacklisting item. This applies per item.",
+        500,
+    ));
+    rows.push(whole(
+        "Looter.DelaySpeed",
+        "Delay associated with unlocking, opening and closing a chest in milliseconds. Increase this number if issues start to occur.",
+        1000,
+    ));
+    rows.push(whole(
+        "Looter.OverallSpeed",
+        "Overall speed of looter in milliseconds (approximate).",
+        100,
     ));
 
     rows.push(decimal32(

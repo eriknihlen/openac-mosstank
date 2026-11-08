@@ -1538,6 +1538,15 @@ ItemGiver.Delay|Double|Profile|ItemGiver|"0"|"0"|"ItemGiver.Delay (Profile) = 0"
 ItemGiver.BusyRetryLimit|Int|Profile|ItemGiver|"10"|"10"|"InventoryManager.IGBusyCount (Profile) = 10"|"How many times one item is offered again before it is written off."|
 ItemGiver.FailureLimit|Int|Profile|ItemGiver|"3"|"3"|"InventoryManager.IGFailure (Profile) = 3"|"How many written-off items stop the whole hand-over."|
 ItemGiver.Think|Bool|Profile|ItemGiver|"False"|"False"|"InventoryManager.IGThink (Profile) = False"|"Think to yourself when a hand-over has finished."|
+Looter.Enabled|Bool|Profile|Looter|"False"|"False"|"Looter.Enabled (Profile) = False"|"Enabled."|
+Looter.EnableChests|Bool|Profile|Looter|"False"|"False"|"Looter.EnableChests (Profile) = False"|"Enable the looting of chests."|
+Looter.EnableMyCorpse|Bool|Profile|Looter|"False"|"False"|"Looter.EnableMyCorpse (Profile) = False"|"Enable the looting of your corpse. This will not open your corpse for you."|
+Looter.BlockVtankMelee|Bool|Profile|Looter|"False"|"False"|"Looter.BlockVtankMelee (Profile) = False"|"Block melee/missile attacks while looting your own corpse. If left off, you may attack and run away from your corpse while looting."|
+Looter.MaxOpenAttempts|Int|Profile|Looter|"10"|"10"|"Looter.MaxOpenAttempts (Profile) = 10"|"Number of chest open attempts before quitting."|
+Looter.MaxUnlockAttempts|Int|Profile|Looter|"10"|"10"|"Looter.MaxUnlockAttempts (Profile) = 10"|"Number of chest unlock attempts before quitting."|
+Looter.AttemptsBeforeBlacklisting|Int|Profile|Looter|"500"|"500"|"Looter.AttemptsBeforeBlacklisting (Profile) = 500"|"Number of loot attempts before blacklisting item. This applies per item."|
+Looter.DelaySpeed|Int|Profile|Looter|"1000"|"1000"|"Looter.DelaySpeed (Profile) = 1000"|"Delay associated with unlocking, opening and closing a chest in milliseconds. Increase this number if issues start to occur."|
+Looter.OverallSpeed|Int|Profile|Looter|"100"|"100"|"Looter.OverallSpeed (Profile) = 100"|"Overall speed of looter in milliseconds (approximate)."|
 AutoTinker.MinPercentage|Single|Profile|AutoTinker|"99.5"|"99.5"|"AutoTinker.MinPercentage (Profile) = 99.5"|"Minimum percentage required to perform tinker."|
 AutoTinker.MaxTinks|Int|Profile|AutoTinker|"10"|"10"|"AutoTinker.MaxTinks (Profile) = 10"|"Max number of tinker attempts."|
 AutoTinker.CharmedSmith|Bool|Character|AutoTinker|"False"|"False"|"AutoTinker.CharmedSmith (State) = False"|"You carry the Charmed Smith augmentation, which adds five points to every imbue's chance."|
@@ -1556,10 +1565,13 @@ InventoryManager.TreatStackAsSingleItem|Bool|Profile|InventoryManager|"False"|"F
 Plugin.SettingsProfile|String|Character|Plugin|"default"|"default"|"Plugin.SettingsProfile (State) = default"|"The named settings profile this character has open."|
 AutoSalvage.Think|Bool|Profile|AutoSalvage|"False"|"False"|"AutoSalvage.Think (Profile) = False"|"Kept for macros; there is no auto-salvage here."|
 AutoTrade.Think|Bool|Profile|AutoTrade|"False"|"False"|"AutoTrade.Think (Profile) = False"|"Kept for macros; there is no auto-trade here."|
-Looter.EnableChests|Bool|Profile|Looter|"False"|"False"|"Looter.EnableChests (Profile) = False"|"Kept for macros; there is no chest looter here."|
+Looter.JumpWhenLooting|Bool|Profile|Looter|"False"|"False"|"Looter.JumpWhenLooting (Profile) = False"|"Kept for macros; the looter does not jump here."|
+Looter.JumpHeight|Int|Profile|Looter|"100"|"100"|"Looter.JumpHeight (Profile) = 100"|"Kept for macros; the looter does not jump here."|
+Looter.AutoSalvageAfterLooting|Bool|Profile|Looter|"False"|"False"|"Looter.AutoSalvageAfterLooting (Profile) = False"|"Kept for macros; the looter does not salvage here."|
+Looter.TestMode|Bool|Profile|Looter|"False"|"False"|"Looter.TestMode (Profile) = False"|"Kept for macros; the looter has no test mode here."|
 Plugin.VideoPatch|Bool|Profile|Plugin|"False"|"False"|"Plugin.VideoPatch (Profile) = False"|"Kept for macros; the world is always drawn."|
 Plugin.VideoPatchFocus|Bool|Profile|Plugin|"False"|"False"|"Plugin.VideoPatchFocus (Profile) = False"|"Kept for macros; the world is always drawn."|
-categories Aliases,AutoTinker,AutoVendor,AutoXp,DungeonMaps,EquipmentManager,GameEvents,ItemGiver,Jumper,LandscapeMaps,Nametags,NetworkUI,Networking,Plugin,Sharing
+categories Aliases,AutoTinker,AutoVendor,AutoXp,DungeonMaps,EquipmentManager,GameEvents,ItemGiver,Jumper,LandscapeMaps,Looter,Nametags,NetworkUI,Networking,Plugin,Sharing
 alias VTank.VitalSharing -> Sharing.Vitals
 alias InventoryManager.IGThink -> ItemGiver.Think
 alias InventoryManager.IGFailure -> ItemGiver.FailureLimit

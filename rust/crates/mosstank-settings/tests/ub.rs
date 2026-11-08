@@ -143,6 +143,7 @@ fn every_category_is_one_of_the_in_scope_tools() {
             "ItemGiver",
             "Jumper",
             "LandscapeMaps",
+            "Looter",
             "Nametags",
             "NetworkUI",
             "Networking",
@@ -198,7 +199,7 @@ fn every_row_is_written_to_the_tier_its_scope_declares_and_to_no_other() {
             .count()
     };
     assert_eq!(count(UbSettingScope::Global), 6);
-    assert_eq!(count(UbSettingScope::Profile), 157);
+    assert_eq!(count(UbSettingScope::Profile), 166);
     assert_eq!(count(UbSettingScope::Character), 10);
 }
 
@@ -390,9 +391,9 @@ fn require_refuses_an_unknown_name() {
 #[test]
 fn categories_come_back_in_order_with_their_rows() {
     let catalog = catalog();
-    assert_eq!(catalog.categories().len(), 15);
+    assert_eq!(catalog.categories().len(), 16);
     assert_eq!(catalog.categories()[0], "Aliases");
-    assert_eq!(catalog.settings().len(), 173);
+    assert_eq!(catalog.settings().len(), 182);
 }
 
 // Source: tests/AcDream.Plugins.MossTank.Tests/UbSettingValueTests.cs :: EachShapeKeepsItsOwnKindAndPayload
@@ -650,6 +651,19 @@ const FLAT_SETTINGS: &[(&str, &str)] = &[
     ("VTankControl", "MetaTickRateOverride"),
     ("VTankControl", "FixPortalLoops"),
     ("VTankControl", "PortalLoopCount"),
+    ("Looter", "Enabled"),
+    ("Looter", "EnableChests"),
+    ("Looter", "EnableMyCorpse"),
+    ("Looter", "BlockVtankMelee"),
+    ("Looter", "JumpWhenLooting"),
+    ("Looter", "JumpHeight"),
+    ("Looter", "MaxOpenAttempts"),
+    ("Looter", "MaxUnlockAttempts"),
+    ("Looter", "AttemptsBeforeBlacklisting"),
+    ("Looter", "AutoSalvageAfterLooting"),
+    ("Looter", "DelaySpeed"),
+    ("Looter", "OverallSpeed"),
+    ("Looter", "TestMode"),
 ];
 
 const NAMETAG_FIELDS: [&str; 5] = [
@@ -705,7 +719,7 @@ const NAMED_HERE: [(&str, &str); 6] = [
 
 const SAME_SWITCH: &str = "The same switch is already on the Options page and in the option catalogue; a second row would be a second copy of one value.";
 
-const EXCLUDED: [(&str, &str); 19] = [
+const EXCLUDED: [(&str, &str); 23] = [
     (
         "DungeonMaps.MapWindowX",
         "The host keeps where a window sits.",
@@ -775,6 +789,22 @@ const EXCLUDED: [(&str, &str); 19] = [
     (
         "VTankControl.PortalLoopCount",
         "It is how many exits that counter waits for, and it goes with the switch above it.",
+    ),
+    (
+        "Looter.JumpWhenLooting",
+        "Jump looting is not brought over; the looter loots standing still.",
+    ),
+    (
+        "Looter.JumpHeight",
+        "It is how high the jump looting jumps, and it goes with the switch above it.",
+    ),
+    (
+        "Looter.AutoSalvageAfterLooting",
+        "The salvage pass after looting is not brought over; a salvage verdict loots the item and leaves it whole.",
+    ),
+    (
+        "Looter.TestMode",
+        "The looter's test mode is not brought over; it always loots.",
     ),
 ];
 
@@ -860,6 +890,15 @@ const FLAT_DEFAULTS: &[(&str, &str)] = &[
     ("Sharing.Vitals", "False"),
     ("Networking.ReceiveCommands", "True"),
     ("Sharing.CastTag", ""),
+    ("Looter.Enabled", "False"),
+    ("Looter.EnableChests", "False"),
+    ("Looter.EnableMyCorpse", "False"),
+    ("Looter.BlockVtankMelee", "False"),
+    ("Looter.MaxOpenAttempts", "10"),
+    ("Looter.MaxUnlockAttempts", "10"),
+    ("Looter.AttemptsBeforeBlacklisting", "500"),
+    ("Looter.DelaySpeed", "1000"),
+    ("Looter.OverallSpeed", "100"),
 ];
 
 const NAMETAG_DEFAULTS: [(&str, &str); 7] = [
@@ -991,10 +1030,11 @@ fn on_the_tab() -> HashSet<String> {
 
 // Source: tests/AcDream.Plugins.MossTank.Tests/UbSettingCoverageTests.cs :: TheInventoryIsTheOneHundredAndEightyFiveLeafValuesTheToolsDeclare
 // (renamed TheInventoryIsTheOneHundredAndEightyEightLeafValuesTheToolsDeclare on main: the three portal rows)
+// (and TheInventoryIsTheTwoHundredAndOneLeafValuesTheToolsDeclare here: the looter's thirteen rows)
 #[test]
-fn the_inventory_is_the_one_hundred_and_eighty_eight_leaf_values_the_tools_declare() {
+fn the_inventory_is_the_two_hundred_and_one_leaf_values_the_tools_declare() {
     let keys = inventory_keys();
-    assert_eq!(keys.len(), 188);
+    assert_eq!(keys.len(), 201);
     assert_eq!(keys.iter().collect::<HashSet<_>>().len(), keys.len());
     assert!(keys.iter().all(|key| key.contains('.')));
 }
@@ -1041,9 +1081,9 @@ fn every_setting_the_in_scope_tools_declare_is_on_the_tab_or_excluded_with_a_rea
         "on the tab but not declared: {unaccounted:?}"
     );
 
-    // 188 declared, 19 excluded, our own additions: the arithmetic is stated.
-    assert_eq!(excluded.len(), 19);
-    assert_eq!(should_be_on_the_tab.len(), 169);
+    // 201 declared, 23 excluded, our own additions: the arithmetic is stated.
+    assert_eq!(excluded.len(), 23);
+    assert_eq!(should_be_on_the_tab.len(), 178);
     assert_eq!(
         should_be_on_the_tab.len() + added_here.len(),
         on_the_tab.len()
