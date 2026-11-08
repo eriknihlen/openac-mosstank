@@ -70,6 +70,12 @@ impl TankCx<'_> {
 
     /// One frame of the Mag features, with the character in the world.
     pub(crate) fn mag_tick(&mut self) {}
+
+    /// The character left the world: the appraisals it waited on are
+    /// forgotten.
+    pub(crate) fn mag_session_ended(&mut self) {
+        self.mag.identify.clear();
+    }
 }
 
 #[cfg(test)]

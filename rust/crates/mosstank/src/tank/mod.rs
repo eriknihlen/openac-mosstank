@@ -953,6 +953,11 @@ impl Tank {
         )
     }
 
+    /// The Mag tab's and the Inventory window's state.
+    pub fn mag(&mut self) -> &mut mosstank_mag::MagParts {
+        &mut self.mag
+    }
+
     /// The status line.
     #[must_use]
     pub fn status(&self) -> &str {

@@ -71,3 +71,16 @@ fn the_clock_is_the_sessions_monotonic_clock() {
     world.fake.clock.monotonic_ms = 12_345;
     assert!((mag(&mut world, |host| host.now_ms()) - 12_345.0).abs() < f64::EPSILON);
 }
+
+#[test]
+fn the_identify_queue_is_forgotten_when_the_session_ends() {
+    let mut world = World::with_character("Mag");
+    let mut plugin = world.enable();
+    world.tick(&mut plugin);
+    world.with_tank(&mut plugin, |tank, _| tank.mag().identify.push(7));
+    world.tick(&mut plugin);
+    assert!(world.with_tank(&mut plugin, |tank, _| tank.mag().identify.contains(7)));
+    world.fake.character = None;
+    world.tick(&mut plugin);
+    assert!(world.with_tank(&mut plugin, |tank, _| tank.mag().identify.is_empty()));
+}

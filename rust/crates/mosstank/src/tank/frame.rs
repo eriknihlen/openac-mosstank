@@ -342,6 +342,7 @@ impl TankCx<'_> {
         self.core.nav_lines.clear(self.client);
         self.with_ub(|commands, call| commands.tools_mut().nametags.reset(call.host));
         self.reset_display_tools();
+        self.mag_session_ended();
         if self.core.combat.enabled() {
             let core = &mut *self.core;
             let mut turn = combat_turn!(self.client, core);

@@ -35,7 +35,8 @@ fn kind_of(value: &UiValue) -> TypedBindingKind {
 // Source: src/AcDream.Plugins.MossTank/MossTankPlugin.cs :: Initialize (the
 // twelve AddPanel calls: ids, captions, the main window hidden on the shelf
 // with its icon, the remote hidden off the shelf, the rest off the shelf),
-// and the Comps HUD's Edit items window off the shelf beside them.
+// the Comps HUD's Edit items window off the shelf beside them, and the Mag
+// tab's Inventory window hidden on the shelf with its own icon.
 #[test]
 fn every_window_registers_with_its_descriptor() {
     let (world, _plugin) = fresh();
@@ -61,6 +62,18 @@ fn every_window_registers_with_its_descriptor() {
         );
         assert_eq!(
             panel.descriptor.show_in_side_panel, window.on_shelf,
+            "{}",
+            window.id
+        );
+        assert_eq!(
+            panel.descriptor.icon_surface_id,
+            window.icon.map_or(0, |icon| icon.0),
+            "{}",
+            window.id
+        );
+        assert_eq!(
+            panel.descriptor.icon_text.as_deref(),
+            window.icon.map(|icon| icon.1),
             "{}",
             window.id
         );
@@ -323,6 +336,7 @@ fn the_mag_tabs_button_opens_the_inventory_window() {
     act(&mut world, &mut plugin, "OpenMagInventory");
     assert!(shown(&world));
 }
+
 // Source: tests/AcDream.Plugins.MossTank.Tests/MossTankMarkupContractTests.cs :: LootEditorHasNoLeftoverBackButton
 #[test]
 fn the_loot_editor_closes_through_its_own_handler() {
