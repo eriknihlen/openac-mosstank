@@ -266,6 +266,48 @@ fn build_accepted_only() -> Vec<UbSettingDefinition> {
             "Kept for macros; the looter has no test mode here.",
             false,
         ),
+        // The client tells a plugin that the selection changed, not which
+        // mouse button changed it: a click with either button is a selection.
+        switch(
+            "ItemInfo.DescribeOnLeftClick",
+            "Kept for macros; a left click is a selection here (ItemInfo.DescribeOnSelect).",
+            false,
+        ),
+        switch(
+            "ItemInfo.DescribeOnRightClick",
+            "Kept for macros; a right click is a selection here (ItemInfo.DescribeOnSelect).",
+            false,
+        ),
+        switch(
+            "ItemInfo.DescribeOnLoot",
+            "Kept for macros; the looter does not describe what it takes here.",
+            false,
+        ),
+        switch(
+            "ItemInfo.AutoClipboard",
+            "Kept for macros; a plugin cannot reach the clipboard here.",
+            false,
+        ),
+        switch(
+            "ItemInfo.ShowMagtoolsBuffedValues",
+            "Kept for macros; the buffed weapon values are not worked out here.",
+            false,
+        ),
+        switch(
+            "ItemInfo.ShowDamage",
+            "Kept for macros; the damage calculations are not worked out here.",
+            false,
+        ),
+        switch(
+            "ItemInfo.ShowRetailComparison",
+            "Kept for macros; the comparison to retail weapons is not worked out here.",
+            false,
+        ),
+        switch(
+            "ItemInfo.ShowRetailMax",
+            "Kept for macros; the retail maximums are not worked out here.",
+            false,
+        ),
         switch(
             "Plugin.VideoPatch",
             "Kept for macros; the world is always drawn.",
@@ -824,6 +866,21 @@ fn add_behaviour_tools(rows: &mut Vec<UbSettingDefinition>) {
         "Overall speed of looter in milliseconds (approximate).",
         100,
     ));
+    // The item description in chat (UtilityBelt's ItemInfo, after
+    // Mag-Tools): off until switched on, as the original ships it.
+    rows.push(switch("ItemInfo.Enabled", "Enable ItemInfo.", false));
+    rows.push(switch(
+        "ItemInfo.DescribeOnSelect",
+        "Describe items when selected: the name, the loot rule it matches and its stats, in chat.",
+        false,
+    ));
+    rows.push(switch(
+        "ItemInfo.ShowValueAndBurden",
+        "Display value and burden.",
+        false,
+    ));
+    rows.push(switch("ItemInfo.ShowDoorInfo", "Show door info.", false));
+    rows.push(switch("ItemInfo.ShowNpcInfo", "Show Npc info.", false));
 
     rows.push(decimal32(
         "AutoTinker.MinPercentage",

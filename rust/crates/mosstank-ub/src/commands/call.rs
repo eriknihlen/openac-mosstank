@@ -72,6 +72,12 @@ pub trait UbServices {
     /// (`MossTankLootProfileStore.TryLoadNamed`); `None` when there is no such
     /// file or it will not read.
     fn loot_profile_rules(&mut self, host: &mut dyn UbHost, name: &str) -> Option<Vec<LootRule>>;
+    /// The loot profile in force, as the looter reads it: what an item's
+    /// description names the rule of (VTank's current profile). None loaded
+    /// is no rules.
+    fn live_loot_rules(&mut self) -> Vec<LootRule> {
+        Vec::new()
+    }
     /// Whether the looter is waiting on the appraisal slot now
     /// (`Looting.CorpseIdentifierBusy`).
     fn corpse_identifier_busy(&mut self) -> bool;

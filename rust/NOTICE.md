@@ -64,6 +64,14 @@ The UB tab, its settings and the `/ub` commands port features of
 licensed; see `../NOTICE.md` for what was taken and its MIT notice, which
 applies here too.
 
+The item description in chat (`crates/mosstank-ub/src/tools/item_info.rs`)
+converts UtilityBelt's `ItemInfo` tool and its lookup tables
+(`Lib/ItemInfoHelper/Dictionaries.cs`). UtilityBelt marks that description as
+"slightly modified MagTools item description classes", from **Mag-Tools** by
+Mag-nus (https://github.com/Mag-nus/Mag-Plugins). **For the owner to
+confirm:** Mag-Plugins' license (believed MIT) and whether it wants a notice
+of its own here.
+
 ## UtilityBelt.Common
 
 The property names `/ub propertydump` prints

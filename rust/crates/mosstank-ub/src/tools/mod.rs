@@ -13,6 +13,8 @@
 //! - [`xp`]: `/ub xp` (`ExperienceSpendController`).
 //! - [`looter`]: the chest and own-corpse looter, `/ub use` on a chest or a
 //!   corpse, the key looter and `/ub keyloot` (UtilityBelt's `Looter`).
+//! - [`item_info`]: the description of what is selected (UtilityBelt's
+//!   `ItemInfo`).
 //!
 //! [`UbTools`] holds the ones a command reaches; the commands
 //! ([`crate::commands::UbCommands`]) own it, and the plugin drives each
@@ -22,6 +24,7 @@ pub mod clear_bugged;
 pub mod count;
 pub mod equip;
 pub mod give;
+pub mod item_info;
 pub mod looter;
 pub mod nametags;
 pub mod stack_cram;
@@ -37,6 +40,7 @@ use clear_bugged::ClearBuggedRun;
 use count::InventoryCountController;
 use equip::EquipProfileController;
 use give::ProfileGiveController;
+use item_info::ItemInfoController;
 use looter::ChestLooter;
 use nametags::{CatalogNametagSettings, NametagController};
 use stack_cram::StackCramCommandRun;
@@ -97,6 +101,8 @@ pub struct UbTools {
     /// The chest and own-corpse looter, `/ub use` on a container, and the
     /// key looter.
     pub looter: ChestLooter,
+    /// The description of what is selected.
+    pub item_info: ItemInfoController,
 }
 
 impl UbTools {
@@ -158,11 +164,12 @@ impl UbTools {
     /// experience spender (it refuses to run while the macro is on),
     /// `/ub clearbugged` (it only asks for descriptions) and the looter (the
     /// reference's holds the macro's slots instead, while it loots the own
-    /// corpse).
+    /// corpse), then the description of what is selected.
     pub fn tick_after_prologue(&mut self, call: &mut UbCall<'_>, elapsed_seconds: f64) {
         self.xp.tick(call, elapsed_seconds);
         self.tick_clear_bugged(call, elapsed_seconds);
         self.looter.tick(call, elapsed_seconds);
+        self.item_info.tick(call, elapsed_seconds);
     }
 
     /// A session ended or began (`ResetSessionScopedControllers`, the UB
@@ -175,6 +182,7 @@ impl UbTools {
         self.equip.reset(&mut call.locks.borrow_mut());
         self.xp.reset();
         self.looter.reset(call);
+        self.item_info.reset();
     }
 }
 

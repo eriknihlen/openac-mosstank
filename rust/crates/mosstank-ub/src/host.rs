@@ -150,6 +150,9 @@ pub trait UbHost: MetaHost {
     /// Moves `amount` of one stack onto another of the same thing (0: all
     /// that fit).
     fn merge_items(&mut self, source_id: u32, target_id: u32, amount: u32) -> ItemResult;
+    /// The items of the container open now (a corpse or a chest), as the
+    /// looter reads them; none while nothing is open.
+    fn open_container_items(&mut self) -> Vec<InventoryItem>;
     /// The appraisal slot: what it waits on, what it last gave up on, and
     /// whether the object shown came back as an unsuccessful appraisal.
     fn appraisal(&mut self) -> AppraisalState;

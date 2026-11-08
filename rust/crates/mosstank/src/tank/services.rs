@@ -519,6 +519,9 @@ impl UbHost for ClientProxy<'_, '_> {
     fn merge_items(&mut self, source_id: u32, target_id: u32, amount: u32) -> ItemResult {
         ub!(self.merge_items(source_id, target_id, amount))
     }
+    fn open_container_items(&mut self) -> Vec<InventoryItem> {
+        ub!(self.open_container_items())
+    }
     fn appraisal(&mut self) -> AppraisalState {
         ub!(self.appraisal())
     }

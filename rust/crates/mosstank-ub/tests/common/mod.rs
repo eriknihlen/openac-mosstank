@@ -61,6 +61,8 @@ pub struct Services {
     pub item_giver_profiles: Vec<(String, Vec<LootRule>)>,
     /// Loot profiles, by name.
     pub loot_profiles: Vec<(String, Vec<LootRule>)>,
+    /// The loot profile in force.
+    pub live_loot_rules: Vec<LootRule>,
     pub corpse_identifier_busy: bool,
     /// The active loot profile's rules, `None` for no active profile.
     pub active_loot_rules: Option<Vec<LootRule>>,
@@ -125,6 +127,10 @@ impl UbServices for Services {
     fn vendor_command(&mut self, _host: &mut dyn UbHost, arguments: &str) -> Option<Vec<String>> {
         self.vendor_lines.push(arguments.to_owned());
         self.vendor_reply.clone()
+    }
+
+    fn live_loot_rules(&mut self) -> Vec<LootRule> {
+        self.live_loot_rules.clone()
     }
 
     fn auto_vendor_start(&mut self, _host: &mut dyn UbHost, profile: Option<&str>) {

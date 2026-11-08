@@ -691,6 +691,21 @@ fn try_int_value(
     })
 }
 
+/// A whole-number key as VTank reads it off an item (an appraised property
+/// under its own id, or one of VTank's own keys above `0x0D000000`), `None`
+/// when the item has none or it does not fit.
+#[must_use]
+pub fn item_int(key: u32, item: &InventoryItem, properties: &ItemProperties) -> Option<i32> {
+    try_int_value(key, item, properties).ok().flatten()
+}
+
+/// A decimal key as VTank reads it off an item (an appraised property under
+/// its own id, or one of VTank's own keys above `0x0A000000`).
+#[must_use]
+pub fn item_double(key: u32, item: &InventoryItem, properties: &ItemProperties) -> Option<f64> {
+    try_double_value(key, item, properties)
+}
+
 fn int_value(key: u32, item: &InventoryItem, properties: &ItemProperties) -> Outcome<i32> {
     Ok(try_int_value(key, item, properties)?.unwrap_or(0))
 }

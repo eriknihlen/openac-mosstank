@@ -1303,6 +1303,15 @@ impl Tank {
                 // The dialog watch answers the question it was told to.
                 cx.with_ub(|commands, call| commands.on_confirmation(call, confirmation));
             }
+            // What was selected is described in chat (UB's ItemInfo).
+            Event::SelectionChanged(change) => {
+                cx.with_ub(|commands, call| {
+                    commands
+                        .tools_mut()
+                        .item_info
+                        .on_selection_changed(call, change.selected);
+                });
+            }
             // The Comps HUD repaints in the theme the player picked.
             Event::ThemeChanged(theme) => cx.ub.comps.set_theme(theme),
             _ => {}

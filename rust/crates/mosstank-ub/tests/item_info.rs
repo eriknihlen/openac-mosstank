@@ -1,0 +1,360 @@
+//! UtilityBelt's ItemInfo: selecting an object writes its name, the loot
+//! rule it matches and its stats in chat.
+
+mod common;
+
+use ac_plugin_abi::items::InventoryItem;
+use ac_plugin_abi::magic::SpellInfo;
+use ac_plugin_abi::world::{ArmorProfile, ItemProperties, ObjectClass, WeaponProfile, WorldObject};
+use common::Rig;
+use mosstank_formats::utl::{LootAction, LootRule};
+use mosstank_settings::ub::UbSettingValue;
+use mosstank_ub::catalog::UbCatalog;
+use mosstank_ub::tools::item_info::{self, APPRAISAL_TIMEOUT_SECONDS};
+
+const LINK: &str = "<Tell:IIDString:438347936:select|";
+const SILVER: u32 = 63;
+
+fn switch_on(rig: &mut Rig, name: &str) {
+    let row = UbCatalog::require(&rig.catalog, name);
+    rig.catalog.set(&row, UbSettingValue::from_bool(true));
+}
+
+fn enabled() -> Rig {
+    let mut rig = Rig::new();
+    switch_on(&mut rig, item_info::ENABLED_SETTING);
+    switch_on(&mut rig, item_info::DESCRIBE_ON_SELECT_SETTING);
+    rig
+}
+
+fn rule(name: &str, expression: &str, action: LootAction) -> LootRule {
+    let mut rule = LootRule::default();
+    name.clone_into(&mut rule.name);
+    rule.action = action;
+    rule.set_expression(expression);
+    rule
+}
+
+fn spell(id: u32, name: &str, family: u32, difficulty: i32) -> (u32, SpellInfo) {
+    (
+        id,
+        SpellInfo {
+            spell_id: id,
+            name: name.to_owned(),
+            family,
+            difficulty,
+            ..SpellInfo::default()
+        },
+    )
+}
+
+/// Puts an object the character carries in the world, with its appraisal.
+fn carry(rig: &mut Rig, object: WorldObject, item: InventoryItem, properties: ItemProperties) {
+    rig.host
+        .meta
+        .properties
+        .insert(object.object_id, properties);
+    rig.host.meta.objects.push(object);
+    rig.host.meta.owned_items.push(item);
+}
+
+fn breastplate(appraised: bool) -> (WorldObject, InventoryItem, ItemProperties) {
+    let object = WorldObject {
+        object_id: 0x8000_0010,
+        name: "Breastplate".to_owned(),
+        object_class: ObjectClass::Armor,
+        item_type: 2,
+        is_owned: true,
+        container_id: 1,
+        has_appraisal_data: appraised,
+        stack_size: 1,
+        spell_ids: vec![2592, 1486, 4407, 5000],
+        ..WorldObject::default()
+    };
+    let item = InventoryItem {
+        object_id: object.object_id,
+        name: object.name.clone(),
+        item_type: 2,
+        container_id: 1,
+        stack_size: 1,
+        material_type: SILVER,
+        appraised_spell_ids: object.spell_ids.clone(),
+        ..InventoryItem::default()
+    };
+    let properties = ItemProperties {
+        // AL, imbue (armor rending), tinks, workmanship, set (Soldier's),
+        // wield level 150, damage rating 2.
+        ints: vec![
+            (28, 512),
+            (179, 4),
+            (171, 2),
+            (105, 7),
+            (265, 13),
+            (158, 7),
+            (159, 1),
+            (160, 150),
+            (370, 2),
+            (131, SILVER as i32),
+        ],
+        armor: Some(ArmorProfile {
+            armor_level: 512,
+            ..ArmorProfile::default()
+        }),
+        ..ItemProperties::default()
+    };
+    (object, item, properties)
+}
+
+fn breastplate_spells(rig: &mut Rig) {
+    rig.host.meta.spells.extend([
+        spell(2592, "Major Impenetrability", 160, 0),
+        spell(1486, "Impenetrability VI", 160, 250),
+        spell(4407, "Incantation of Impenetrability", 160, 400),
+        spell(5000, "Epic Strength", 1, 0),
+    ]);
+}
+
+fn select(rig: &mut Rig, object_id: u32) {
+    rig.with_call(|call, commands| {
+        commands
+            .tools_mut()
+            .item_info
+            .on_selection_changed(call, Some(object_id));
+    });
+}
+
+fn tick(rig: &mut Rig, seconds: f64) {
+    rig.with_call(|call, commands| commands.tools_mut().item_info.tick(call, seconds));
+}
+
+#[test]
+fn nothing_is_said_until_it_is_switched_on() {
+    let mut rig = Rig::new();
+    let (object, item, properties) = breastplate(true);
+    let id = object.object_id;
+    carry(&mut rig, object, item, properties);
+
+    select(&mut rig, id);
+
+    assert!(rig.messages().is_empty(), "{:?}", rig.messages());
+}
+
+#[test]
+fn selecting_an_appraised_item_names_the_rule_it_matches_and_its_stats() {
+    let mut rig = enabled();
+    let (object, item, properties) = breastplate(true);
+    let id = object.object_id;
+    carry(&mut rig, object, item, properties);
+    breastplate_spells(&mut rig);
+    rig.services.live_loot_rules = vec![
+        rule("swords", "name ~= Sword", LootAction::Keep),
+        rule("Keep armor", "name ~= Breastplate", LootAction::Keep),
+    ];
+
+    select(&mut rig, id);
+
+    let signed = id as i32;
+    assert_eq!(
+        rig.single_message(),
+        format!(
+            "[UB] ItemInfo: {LINK}{signed}>Keep armor - Silver Breastplate</Tell>, Soldier's Set, \
+             AL 512, AR, Tinks 2, Epic Strength, Major Impenetrability, Wield Lvl 150, Craft 7, [D 2] "
+        )
+    );
+    assert!(rig.host.identified.is_empty());
+}
+
+#[test]
+fn an_item_no_rule_matches_is_named_alone() {
+    let mut rig = enabled();
+    let (object, item, properties) = breastplate(true);
+    let id = object.object_id;
+    carry(&mut rig, object, item, properties);
+    rig.services.live_loot_rules = vec![rule("swords", "name ~= Sword", LootAction::Keep)];
+
+    select(&mut rig, id);
+
+    assert!(
+        rig.single_message().starts_with(&format!(
+            "[UB] ItemInfo: {LINK}{}>Silver Breastplate</Tell>, ",
+            id as i32
+        )),
+        "{}",
+        rig.single_message()
+    );
+}
+
+#[test]
+fn a_rule_that_leaves_the_item_still_names_it() {
+    let mut rig = enabled();
+    let (object, item, properties) = breastplate(true);
+    let id = object.object_id;
+    carry(&mut rig, object, item, properties);
+    rig.services.live_loot_rules = vec![rule("junk", "*", LootAction::NoLoot)];
+
+    select(&mut rig, id);
+
+    assert!(
+        rig.single_message()
+            .contains(">junk - Silver Breastplate</Tell>"),
+        "{}",
+        rig.single_message()
+    );
+}
+
+#[test]
+fn an_item_not_yet_appraised_is_appraised_and_described_when_the_answer_comes() {
+    let mut rig = enabled();
+    let (object, item, properties) = breastplate(false);
+    let id = object.object_id;
+    carry(&mut rig, object, item, properties);
+
+    select(&mut rig, id);
+    assert_eq!(rig.host.identified, [id]);
+    assert!(rig.messages().is_empty());
+
+    tick(&mut rig, 0.1);
+    assert!(rig.messages().is_empty());
+
+    rig.host.meta.objects[0].has_appraisal_data = true;
+    tick(&mut rig, 0.1);
+    assert_eq!(rig.messages().len(), 1);
+    assert!(rig.messages()[0].contains("Silver Breastplate</Tell>, "));
+
+    tick(&mut rig, 0.1);
+    assert_eq!(rig.messages().len(), 1, "said once");
+}
+
+#[test]
+fn an_appraisal_that_never_comes_describes_what_is_known() {
+    let mut rig = enabled();
+    let (object, item, properties) = breastplate(false);
+    let id = object.object_id;
+    carry(&mut rig, object, item, properties);
+
+    select(&mut rig, id);
+    tick(&mut rig, APPRAISAL_TIMEOUT_SECONDS - 0.5);
+    assert!(rig.messages().is_empty());
+    tick(&mut rig, 1.0);
+
+    assert_eq!(rig.messages().len(), 1);
+}
+
+#[test]
+fn a_new_selection_replaces_the_one_waiting() {
+    let mut rig = enabled();
+    let (object, item, properties) = breastplate(false);
+    let id = object.object_id;
+    carry(&mut rig, object, item, properties);
+
+    select(&mut rig, id);
+    rig.with_call(|call, commands| {
+        commands
+            .tools_mut()
+            .item_info
+            .on_selection_changed(call, None);
+    });
+    rig.host.meta.objects[0].has_appraisal_data = true;
+    tick(&mut rig, 0.1);
+
+    assert!(rig.messages().is_empty());
+}
+
+#[test]
+fn the_looter_keeps_the_appraisal_slot() {
+    let mut rig = enabled();
+    let (object, item, properties) = breastplate(false);
+    let id = object.object_id;
+    carry(&mut rig, object, item, properties);
+    rig.services.corpse_identifier_busy = true;
+
+    select(&mut rig, id);
+    assert!(rig.host.identified.is_empty());
+
+    rig.services.corpse_identifier_busy = false;
+    tick(&mut rig, 0.1);
+    assert_eq!(rig.host.identified, [id]);
+}
+
+#[test]
+fn doors_and_npcs_are_described_only_when_asked_for() {
+    let mut rig = enabled();
+    let door = WorldObject {
+        object_id: 50,
+        name: "Door".to_owned(),
+        object_class: ObjectClass::Door,
+        has_appraisal_data: true,
+        ..WorldObject::default()
+    };
+    rig.host.meta.objects.push(door);
+
+    select(&mut rig, 50);
+    assert!(rig.messages().is_empty());
+
+    switch_on(&mut rig, item_info::SHOW_DOOR_INFO_SETTING);
+    select(&mut rig, 50);
+    assert_eq!(
+        rig.single_message(),
+        format!("[UB] ItemInfo: {LINK}50>Door</Tell> ")
+    );
+}
+
+#[test]
+fn a_weapon_shows_its_damage_type_mastery_damage_and_bonuses() {
+    let mut rig = enabled();
+    let object = WorldObject {
+        object_id: 60,
+        name: "Long Sword".to_owned(),
+        object_class: ObjectClass::MeleeWeapon,
+        item_type: 1,
+        is_owned: true,
+        container_id: 1,
+        has_appraisal_data: true,
+        spell_ids: vec![2591, 2096, 1616],
+        ..WorldObject::default()
+    };
+    let item = InventoryItem {
+        object_id: 60,
+        name: "Long Sword".to_owned(),
+        item_type: 1,
+        container_id: 1,
+        damage: 50,
+        damage_variance: 0.45,
+        damage_type: 1,
+        material_type: 64,
+        value: 12_345,
+        burden: 350,
+        appraised_spell_ids: object.spell_ids.clone(),
+        ..InventoryItem::default()
+    };
+    let properties = ItemProperties {
+        // Slashing, sword mastery, elemental bonus.
+        ints: vec![(45, 1), (353, 2), (204, 3), (131, 64)],
+        floats: vec![(29, 1.15), (152, 1.0), (144, 0.0)],
+        weapon: Some(WeaponProfile {
+            damage: 50,
+            damage_variance: 0.45,
+            damage_mod: 1.0,
+            weapon_offense: 1.08,
+            ..WeaponProfile::default()
+        }),
+        ..ItemProperties::default()
+    };
+    carry(&mut rig, object, item, properties);
+    rig.host.meta.spells.extend([
+        spell(2591, "Major Heart Thirst", 999, 0),
+        spell(2096, "Infected Caress", 154, 300),
+        spell(1616, "Blood Drinker VI", 154, 250),
+    ]);
+    switch_on(&mut rig, item_info::SHOW_VALUE_AND_BURDEN_SETTING);
+
+    select(&mut rig, 60);
+
+    assert_eq!(
+        rig.single_message(),
+        format!(
+            "[UB] ItemInfo: {LINK}60>Steel Long Sword</Tell> (Slashing Sword), 27.50-50, 0.45v, +3, \
+             8%a (13), 15%md, Major Heart Thirst, Infected Caress, Value 12,345, BU 350 "
+        )
+    );
+}

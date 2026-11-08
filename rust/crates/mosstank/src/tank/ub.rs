@@ -709,6 +709,10 @@ impl UbServices for ShellUbServices<'_, '_> {
         loaded_rules(&mut **client, loaded, rules)
     }
 
+    fn live_loot_rules(&mut self) -> Vec<LootRule> {
+        self.core.0.borrow().settings.inventory.loot.rules.clone()
+    }
+
     fn corpse_identifier_busy(&mut self) -> bool {
         self.core.0.borrow().loot.is_identifying()
     }

@@ -162,6 +162,10 @@ impl UbHost for HostAutomation<'_, '_> {
         self.host.merge_items(source_id, target_id, amount)
     }
 
+    fn open_container_items(&mut self) -> Vec<InventoryItem> {
+        self.reader().loot_contents()
+    }
+
     fn appraisal(&mut self) -> AppraisalState {
         self.host.loot_state().appraisal
     }

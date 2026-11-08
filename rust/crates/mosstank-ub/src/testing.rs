@@ -167,6 +167,8 @@ pub struct FakeUbHost {
     pub forgotten: Vec<u32>,
     /// What forgetting one answers.
     pub forget_result: ItemResult,
+    /// The items of the container open now.
+    pub open_container_items: Vec<InventoryItem>,
 }
 
 impl Default for FakeUbHost {
@@ -250,6 +252,7 @@ impl FakeUbHost {
             label_sets: Vec::new(),
             forgotten: Vec::new(),
             forget_result: ItemResult::of(ItemStatus::Completed),
+            open_container_items: Vec::new(),
         }
     }
 
@@ -741,6 +744,10 @@ impl UbHost for FakeUbHost {
             self.meta.item_state.is_busy = true;
         }
         ItemResult::of(self.item_command_status)
+    }
+
+    fn open_container_items(&mut self) -> Vec<InventoryItem> {
+        self.open_container_items.clone()
     }
 
     fn appraisal(&mut self) -> AppraisalState {

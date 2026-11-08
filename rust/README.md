@@ -137,3 +137,22 @@ plugin theme (Appearance), and follows a theme change at once.
   not read whole is copied to `recovery/comps-hud/` in MossTank's storage and
   said in the log; it is written again only when that copy was made, and
   otherwise left as it is for the session.
+
+## Item info
+
+After UtilityBelt's ItemInfo: select an item (in your packs, on a corpse or
+on the ground) and a line about it is written in chat, starting with the
+loot rule it matches in the loot profile you have loaded:
+
+```text
+[UB] ItemInfo: Keep armor - Silver Breastplate, Soldier's Set, AL 512, AR, Tinks 2, Epic Strength, Major Impenetrability, Wield Lvl 150, Craft 7, [D 2]
+```
+
+The name is a link that selects the item again. An item not appraised yet
+is appraised first. It is off until you turn it on, as in UtilityBelt:
+`/ub opt set ItemInfo.Enabled true` and
+`/ub opt set ItemInfo.DescribeOnSelect true` (or tick both on the UB
+settings page). `ItemInfo.ShowValueAndBurden` adds the value and burden;
+`ItemInfo.ShowDoorInfo` and `ItemInfo.ShowNpcInfo` describe doors and NPCs
+too. UtilityBelt's buffed weapon values, damage calculations and retail
+comparisons are not part of it (see `docs/divergences.md`, UB-13).

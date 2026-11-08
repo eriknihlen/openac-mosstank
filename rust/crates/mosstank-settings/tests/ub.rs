@@ -141,6 +141,7 @@ fn every_category_is_one_of_the_in_scope_tools() {
             "EquipmentManager",
             "GameEvents",
             "ItemGiver",
+            "ItemInfo",
             "Jumper",
             "LandscapeMaps",
             "Looter",
@@ -199,7 +200,7 @@ fn every_row_is_written_to_the_tier_its_scope_declares_and_to_no_other() {
             .count()
     };
     assert_eq!(count(UbSettingScope::Global), 6);
-    assert_eq!(count(UbSettingScope::Profile), 166);
+    assert_eq!(count(UbSettingScope::Profile), 171);
     assert_eq!(count(UbSettingScope::Character), 10);
 }
 
@@ -391,9 +392,9 @@ fn require_refuses_an_unknown_name() {
 #[test]
 fn categories_come_back_in_order_with_their_rows() {
     let catalog = catalog();
-    assert_eq!(catalog.categories().len(), 16);
+    assert_eq!(catalog.categories().len(), 17);
     assert_eq!(catalog.categories()[0], "Aliases");
-    assert_eq!(catalog.settings().len(), 182);
+    assert_eq!(catalog.settings().len(), 187);
 }
 
 // Source: tests/AcDream.Plugins.MossTank.Tests/UbSettingValueTests.cs :: EachShapeKeepsItsOwnKindAndPayload
@@ -635,6 +636,19 @@ const FLAT_SETTINGS: &[(&str, &str)] = &[
     ("Plugin", "PortalThink"),
     ("Plugin", "PortalTimeout"),
     ("Plugin", "PortalAttempts"),
+    ("ItemInfo", "Enabled"),
+    ("ItemInfo", "DescribeOnSelect"),
+    ("ItemInfo", "DescribeOnRightClick"),
+    ("ItemInfo", "DescribeOnLeftClick"),
+    ("ItemInfo", "DescribeOnLoot"),
+    ("ItemInfo", "ShowMagtoolsBuffedValues"),
+    ("ItemInfo", "ShowDamage"),
+    ("ItemInfo", "ShowValueAndBurden"),
+    ("ItemInfo", "AutoClipboard"),
+    ("ItemInfo", "ShowRetailComparison"),
+    ("ItemInfo", "ShowRetailMax"),
+    ("ItemInfo", "ShowDoorInfo"),
+    ("ItemInfo", "ShowNpcInfo"),
     ("InventoryManager", "AutoCram"),
     ("InventoryManager", "AutoStack"),
     ("InventoryManager", "IGThink"),
@@ -719,7 +733,39 @@ const NAMED_HERE: [(&str, &str); 6] = [
 
 const SAME_SWITCH: &str = "The same switch is already on the Options page and in the option catalogue; a second row would be a second copy of one value.";
 
-const EXCLUDED: [(&str, &str); 23] = [
+const EXCLUDED: [(&str, &str); 31] = [
+    (
+        "ItemInfo.DescribeOnLeftClick",
+        "The client tells a plugin that the selection changed, not which mouse button changed it; a click is a selection, which ItemInfo.DescribeOnSelect covers.",
+    ),
+    (
+        "ItemInfo.DescribeOnRightClick",
+        "The client tells a plugin that the selection changed, not which mouse button changed it; a click is a selection, which ItemInfo.DescribeOnSelect covers.",
+    ),
+    (
+        "ItemInfo.DescribeOnLoot",
+        "It describes what UtilityBelt's chest looter takes; the looter here does not describe what it takes.",
+    ),
+    (
+        "ItemInfo.AutoClipboard",
+        "A plugin cannot reach the clipboard.",
+    ),
+    (
+        "ItemInfo.ShowMagtoolsBuffedValues",
+        "The buffed and ten-tinked weapon values rest on Mag-Tools' weapon tables, which are not converted.",
+    ),
+    (
+        "ItemInfo.ShowDamage",
+        "The damage calculations rest on the retail weapon tables, which are not converted.",
+    ),
+    (
+        "ItemInfo.ShowRetailComparison",
+        "The comparison rests on the retail weapon tables, which are not converted.",
+    ),
+    (
+        "ItemInfo.ShowRetailMax",
+        "The retail maximums are the retail weapon tables, which are not converted.",
+    ),
     (
         "DungeonMaps.MapWindowX",
         "The host keeps where a window sits.",
@@ -868,6 +914,11 @@ const FLAT_DEFAULTS: &[(&str, &str)] = &[
     ("ItemGiver.BusyRetryLimit", "10"),
     ("ItemGiver.FailureLimit", "3"),
     ("ItemGiver.Think", "False"),
+    ("ItemInfo.Enabled", "False"),
+    ("ItemInfo.DescribeOnSelect", "False"),
+    ("ItemInfo.ShowValueAndBurden", "False"),
+    ("ItemInfo.ShowDoorInfo", "False"),
+    ("ItemInfo.ShowNpcInfo", "False"),
     ("AutoTinker.MinPercentage", "99.5"),
     ("AutoTinker.MaxTinks", "10"),
     ("AutoTinker.CharmedSmith", "False"),
@@ -1031,10 +1082,11 @@ fn on_the_tab() -> HashSet<String> {
 // Source: tests/AcDream.Plugins.MossTank.Tests/UbSettingCoverageTests.cs :: TheInventoryIsTheOneHundredAndEightyFiveLeafValuesTheToolsDeclare
 // (renamed TheInventoryIsTheOneHundredAndEightyEightLeafValuesTheToolsDeclare on main: the three portal rows)
 // (and TheInventoryIsTheTwoHundredAndOneLeafValuesTheToolsDeclare here: the looter's thirteen rows)
+// (and 214 with ItemInfo's thirteen)
 #[test]
-fn the_inventory_is_the_two_hundred_and_one_leaf_values_the_tools_declare() {
+fn the_inventory_is_the_two_hundred_and_fourteen_leaf_values_the_tools_declare() {
     let keys = inventory_keys();
-    assert_eq!(keys.len(), 201);
+    assert_eq!(keys.len(), 214);
     assert_eq!(keys.iter().collect::<HashSet<_>>().len(), keys.len());
     assert!(keys.iter().all(|key| key.contains('.')));
 }
@@ -1081,9 +1133,9 @@ fn every_setting_the_in_scope_tools_declare_is_on_the_tab_or_excluded_with_a_rea
         "on the tab but not declared: {unaccounted:?}"
     );
 
-    // 201 declared, 23 excluded, our own additions: the arithmetic is stated.
-    assert_eq!(excluded.len(), 23);
-    assert_eq!(should_be_on_the_tab.len(), 178);
+    // 214 declared, 31 excluded, our own additions: the arithmetic is stated.
+    assert_eq!(excluded.len(), 31);
+    assert_eq!(should_be_on_the_tab.len(), 183);
     assert_eq!(
         should_be_on_the_tab.len() + added_here.len(),
         on_the_tab.len()
