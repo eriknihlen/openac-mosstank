@@ -5,6 +5,7 @@
 //! - [`fmt`]: .NET Framework number formatting (en-US).
 //! - [`host`]: the client as the features reach it ([`host::MagHost`]) and
 //!   the loot profile's verdict on an item ([`host::LootVerdict`]).
+//! - [`identify`]: the paced identify queue the features share.
 //!
 //! The client comes in through [`host::MagHost`] (the meta engine's
 //! [`mosstank_meta::host::MetaHost`] and the calls only the Mag features
@@ -12,9 +13,13 @@
 
 pub mod fmt;
 pub mod host;
+pub mod identify;
 #[cfg(not(target_arch = "wasm32"))]
 pub mod testing;
 
 /// Everything the Mag tab and the Inventory window keep between calls.
 #[derive(Debug, Default)]
-pub struct MagParts {}
+pub struct MagParts {
+    /// The appraisals the features asked for.
+    pub identify: identify::IdentifyQueue,
+}
