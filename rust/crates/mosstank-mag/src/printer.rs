@@ -10,20 +10,23 @@
 //!   doors, foci, housing, lifestones, NPCs, portals and vendors are
 //!   skipped. Without a profile the line is the info alone.
 //! - **An opened container's items** (not a housing `Storage`): every
-//!   100 ms for 5 s each item directly in it is weighed once a session;
-//!   it prints only when a rule decided it, and a chest's, vault's or
-//!   reliquary's salvage rules are not shown. An item the profile must
-//!   appraise first is queued for an appraisal and printed when it
-//!   arrives, while the container is open.
+//!   100 ms, until the first think at or after 5 s, each item directly in
+//!   it is taken once a session; it prints only when a rule decided it,
+//!   and a chest's, vault's or reliquary's salvage rules are not shown. An
+//!   item the profile must appraise first is queued for an appraisal and
+//!   printed when it arrives (wherever the item is by then; given up after
+//!   [`WAIT_FOR_ID_MS`]).
 //!
 //! Not ported: the `<Tell:IIDString:...>` wrapper around the verdict (a
 //! plugin's chat line cannot carry it), the left-click identify and the
 //! clipboard. Two changes for the per-call budget: the info text is built
-//! only for a line that prints, and the container scan weighs
-//! [`ITEMS_PER_THINK`] items a think (Mag-Tools: all at once) and keeps
-//! thinking past the five seconds until every item listed is weighed.
+//! only for a line that prints, and a think only lists the new items into
+//! a backlog, weighed [`ITEMS_PER_FRAME`] a frame from the record taken
+//! when it was listed (Mag-Tools weighed them all in the think), so a full
+//! corpse can go on printing past the five seconds; the items printed are
+//! the same.
 
-use std::collections::{HashMap, HashSet};
+use std::collections::{HashMap, HashSet, VecDeque};
 
 use ac_plugin_abi::items::InventoryItem;
 use ac_plugin_abi::world::{ItemProperties, ObjectClass, WorldObject};
@@ -42,9 +45,12 @@ pub const THINK_INTERVAL_MS: f64 = 100.0;
 /// How long the container scan runs once the container lists items,
 /// milliseconds.
 pub const SCAN_MS: f64 = 5_000.0;
-/// Container items weighed a think (the looter weighs one a frame: an item
-/// against a large profile is a call's worth of work).
-pub const ITEMS_PER_THINK: usize = 1;
+/// Listed container items weighed a frame (the looter weighs one a frame:
+/// an item against a large profile is a call's worth of work).
+pub const ITEMS_PER_FRAME: usize = 1;
+/// How long a container item waits for the appraisal its profile needs,
+/// milliseconds (VTank never gave up; this keeps the wait bounded).
+pub const WAIT_FOR_ID_MS: f64 = 30_000.0;
 
 /// The `Mag.ItemInfoOnIdent` settings, as the line reads them.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -63,6 +69,8 @@ pub struct PrintSettings {
 pub trait IdentCall {
     /// The client.
     fn host(&mut self) -> &mut dyn MagHost;
+    /// What the character owns, listed once a call.
+    fn owned(&mut self) -> &[InventoryItem];
     /// The profile's verdict ([`LootVerdict::verdict`]).
     fn verdict(&mut self, item: &InventoryItem, properties: &ItemProperties) -> Option<Verdict>;
     /// The profile must appraise the item first
@@ -73,15 +81,30 @@ pub trait IdentCall {
 /// A client and a loot profile held apart.
 #[allow(missing_debug_implementations)]
 pub struct Split<'a> {
-    /// The client.
-    pub host: &'a mut dyn MagHost,
-    /// The profile.
-    pub verdict: &'a mut dyn LootVerdict,
+    host: &'a mut dyn MagHost,
+    verdict: &'a mut dyn LootVerdict,
+    owned: Option<Vec<InventoryItem>>,
+}
+
+impl<'a> Split<'a> {
+    /// The client and the profile.
+    pub fn new(host: &'a mut dyn MagHost, verdict: &'a mut dyn LootVerdict) -> Self {
+        Self {
+            host,
+            verdict,
+            owned: None,
+        }
+    }
 }
 
 impl IdentCall for Split<'_> {
     fn host(&mut self) -> &mut dyn MagHost {
         self.host
+    }
+
+    fn owned(&mut self) -> &[InventoryItem] {
+        let host = &mut *self.host;
+        self.owned.get_or_insert_with(|| host.owned_items())
     }
 
     fn verdict(&mut self, item: &InventoryItem, properties: &ItemProperties) -> Option<Verdict> {
@@ -128,6 +151,17 @@ const SKIPPED_CLASSES: [ObjectClass; 8] = [
 /// The container names whose salvage rules are not shown.
 const NO_SALVAGE_CONTAINERS: [&str; 3] = ["Chest", "Vault", "Reliquary"];
 
+/// A container item waiting for the appraisal its profile needs.
+#[derive(Debug, Clone)]
+struct Waiting {
+    /// The item as its container listed it.
+    item: InventoryItem,
+    /// Its container hides salvage rules.
+    no_salvage: bool,
+    /// When it started waiting.
+    since_ms: f64,
+}
+
 /// The two detectors' state.
 #[derive(Debug, Default)]
 pub struct Printer {
@@ -137,11 +171,13 @@ pub struct Printer {
     scan_started_ms: Option<f64>,
     /// When it last thought (`lastThought`).
     last_think_ms: Option<f64>,
-    /// The container items weighed this session (`itemsProcessed`).
+    /// The container items taken this session (`itemsProcessed`).
     processed: HashSet<u32>,
-    /// The container items waiting for their appraisal, with whether
-    /// their container hides salvage rules.
-    waiting_for_id: HashMap<u32, bool>,
+    /// The items listed and not weighed yet, with whether their container
+    /// hides salvage rules.
+    backlog: VecDeque<(InventoryItem, bool)>,
+    /// The container items waiting for their appraisal.
+    waiting_for_id: HashMap<u32, Waiting>,
 }
 
 impl Printer {
@@ -151,18 +187,11 @@ impl Printer {
         self.selected.len()
     }
 
-    /// Neither the container scan nor an awaited appraisal needs a turn.
+    /// Neither the container scan, its backlog nor an awaited appraisal
+    /// needs a turn.
     #[must_use]
     pub fn is_idle(&self) -> bool {
-        self.scan_started_ms.is_none() && self.waiting_for_id.is_empty()
-    }
-
-    /// An appraisal of this object would be read (selected, or awaited by
-    /// the container scan).
-    #[must_use]
-    pub fn wants(&self, object_id: u32) -> bool {
-        self.waiting_for_id.contains_key(&object_id)
-            || self.selected.iter().any(|(id, _)| *id == object_id)
+        self.scan_started_ms.is_none() && self.backlog.is_empty() && self.waiting_for_id.is_empty()
     }
 
     /// Forgets everything (the character left the world).
@@ -205,17 +234,13 @@ impl Printer {
                 }
             }
         }
-        // The profile's own wait (VTank's classify callback).
-        if let Some(no_salvage) = self.waiting_for_id.remove(&id) {
+        // The profile's own wait (VTank's classify callback, which was
+        // never cleared): printed wherever the item is now.
+        if let Some(waiting) = self.waiting_for_id.remove(&id) {
             queue.remove(id);
-            let host = call.host();
-            if host.open_container() == 0 {
-                return;
-            }
-            if let Some(item) = host.loot_contents().into_iter().find(|i| i.object_id == id) {
-                let properties = host.properties(id).unwrap_or_default();
-                print_container_item(call, &item, &properties, no_salvage, settings);
-            }
+            let item = fresh_record(call, object).unwrap_or(waiting.item);
+            let properties = call.host().properties(id).unwrap_or_default();
+            print_container_item(call, &item, &properties, waiting.no_salvage, settings);
         }
     }
 
@@ -231,7 +256,8 @@ impl Printer {
         }
     }
 
-    /// One frame: the container scan's think, at most every 100 ms.
+    /// One frame: the container scan's think (at most every 100 ms), one
+    /// listed item weighed, and the waits given up after 30 s.
     pub fn tick(
         &mut self,
         call: &mut dyn IdentCall,
@@ -242,45 +268,45 @@ impl Printer {
         if self.is_idle() {
             return;
         }
-        if self
+        let think_due = self
             .last_think_ms
-            .is_some_and(|at| now_ms - at < THINK_INTERVAL_MS)
-        {
-            return;
-        }
-        self.last_think_ms = Some(now_ms);
-        let open = call.host().open_container();
-        if open == 0 {
-            // Closed: the scan stops and the awaited items are forgotten.
-            self.scan_started_ms = None;
-            for (id, _) in self.waiting_for_id.drain() {
-                queue.remove(id);
+            .is_none_or(|at| now_ms - at >= THINK_INTERVAL_MS);
+        if think_due && (self.scan_started_ms.is_some() || !self.waiting_for_id.is_empty()) {
+            self.last_think_ms = Some(now_ms);
+            let open = call.host().open_container();
+            if open == 0 {
+                // Closed: the scan stops, and the awaited items are no
+                // longer asked for (their appraisals still print).
+                self.scan_started_ms = None;
+                for id in self.waiting_for_id.keys() {
+                    queue.remove(*id);
+                }
+            } else if let Some(started) = self.scan_started_ms {
+                self.think(call.host(), open, started, now_ms);
             }
-            return;
         }
-        if let Some(started) = self.scan_started_ms {
-            self.think(call, queue, open, started, now_ms, settings);
+        for _ in 0..ITEMS_PER_FRAME {
+            let Some((item, no_salvage)) = self.backlog.pop_front() else {
+                break;
+            };
+            self.weigh(call, queue, &item, no_salvage, now_ms, settings);
+        }
+        if !self.waiting_for_id.is_empty() {
+            self.waiting_for_id.retain(|id, waiting| {
+                let keep = now_ms - waiting.since_ms < WAIT_FOR_ID_MS;
+                if !keep {
+                    queue.remove(*id);
+                }
+                keep
+            });
         }
     }
 
-    /// `Think`: weighs the open container's new items.
-    fn think(
-        &mut self,
-        call: &mut dyn IdentCall,
-        queue: &mut IdentifyQueue,
-        open: u32,
-        started_ms: f64,
-        now_ms: f64,
-        settings: PrintSettings,
-    ) {
-        let host = call.host();
-        let contents: Vec<InventoryItem> = host
-            .loot_contents()
-            .into_iter()
-            .filter(|item| item.container_id == open)
-            .collect();
+    /// `Think`: lists the open container's new items into the backlog.
+    fn think(&mut self, host: &mut dyn MagHost, open: u32, started_ms: f64, now_ms: f64) {
+        let contents = host.loot_contents();
         // The contents can take a moment to arrive: no timeout meanwhile.
-        if contents.is_empty() {
+        if !contents.iter().any(|item| item.container_id == open) {
             return;
         }
         let no_salvage = host.object(open).is_some_and(|container| {
@@ -288,52 +314,72 @@ impl Printer {
                 .iter()
                 .any(|word| container.name.contains(word))
         });
-        let mut weighed = 0;
-        for item in &contents {
-            if self.processed.contains(&item.object_id) {
-                continue;
+        for item in contents {
+            if item.container_id == open && self.processed.insert(item.object_id) {
+                self.backlog.push_back((item, no_salvage));
             }
-            if weighed == ITEMS_PER_THINK {
-                // More to weigh: the next think goes on.
-                return;
-            }
-            weighed += 1;
-            self.processed.insert(item.object_id);
-            let host = call.host();
-            let properties = host.properties(item.object_id).unwrap_or_default();
-            let appraised = host
-                .object(item.object_id)
-                .is_some_and(|object| object.has_appraisal_data);
-            if !appraised && call.needs_identify(item, &properties) {
-                self.waiting_for_id.insert(item.object_id, no_salvage);
-                queue.push(item.object_id);
-                continue;
-            }
-            print_container_item(call, item, &properties, no_salvage, settings);
         }
         if now_ms - started_ms >= SCAN_MS {
             self.scan_started_ms = None;
         }
     }
+
+    /// One listed item: printed now, or queued for the appraisal its
+    /// profile needs.
+    fn weigh(
+        &mut self,
+        call: &mut dyn IdentCall,
+        queue: &mut IdentifyQueue,
+        item: &InventoryItem,
+        no_salvage: bool,
+        now_ms: f64,
+        settings: PrintSettings,
+    ) {
+        let host = call.host();
+        let properties = host.properties(item.object_id).unwrap_or_default();
+        let appraised = host
+            .object(item.object_id)
+            .is_some_and(|object| object.has_appraisal_data);
+        if !appraised && call.needs_identify(item, &properties) {
+            self.waiting_for_id.insert(
+                item.object_id,
+                Waiting {
+                    item: item.clone(),
+                    no_salvage,
+                    since_ms: now_ms,
+                },
+            );
+            // Asked for only while a container is open.
+            if call.host().open_container() != 0 {
+                queue.push(item.object_id);
+            }
+            return;
+        }
+        print_container_item(call, item, &properties, no_salvage, settings);
+    }
 }
 
-/// The item record of an identified object: the owned item's, the open
-/// container's, or what the world object itself says (a monster, an item
-/// on the ground).
-fn item_of(host: &mut dyn MagHost, object: &WorldObject) -> InventoryItem {
+/// The client's current record of an object: the owned item's or the open
+/// container's.
+fn fresh_record(call: &mut dyn IdentCall, object: &WorldObject) -> Option<InventoryItem> {
     let id = object.object_id;
     if object.is_owned
-        && let Some(item) = host.owned_items().into_iter().find(|i| i.object_id == id)
+        && let Some(item) = call.owned().iter().find(|i| i.object_id == id)
     {
-        return item;
+        return Some(item.clone());
     }
-    if host.open_container() != 0
-        && let Some(item) = host.loot_contents().into_iter().find(|i| i.object_id == id)
-    {
-        return item;
+    let host = call.host();
+    if host.open_container() != 0 {
+        return host.loot_contents().into_iter().find(|i| i.object_id == id);
     }
-    InventoryItem {
-        object_id: id,
+    None
+}
+
+/// The item record of an identified object: the client's current one, or
+/// what the world object itself says (a monster, an item on the ground).
+fn item_of(call: &mut dyn IdentCall, object: &WorldObject) -> InventoryItem {
+    fresh_record(call, object).unwrap_or_else(|| InventoryItem {
+        object_id: object.object_id,
         weenie_class_id: object.weenie_class_id,
         name: object.name.clone(),
         item_type: object.item_type,
@@ -347,15 +393,14 @@ fn item_of(host: &mut dyn MagHost, object: &WorldObject) -> InventoryItem {
         icon_id: object.icon_id,
         coverage_mask: object.coverage_mask,
         ..InventoryItem::default()
-    }
+    })
 }
 
 /// The player's identify: the line with the verdict, or the info alone
 /// without a profile.
 fn print_identified(call: &mut dyn IdentCall, object: &WorldObject, settings: PrintSettings) {
-    let host = call.host();
-    let item = item_of(host, object);
-    let properties = host.properties(object.object_id).unwrap_or_default();
+    let item = item_of(call, object);
+    let properties = call.host().properties(object.object_id).unwrap_or_default();
     let verdict = call.verdict(&item, &properties);
     post(call.host(), verdict.as_ref(), &item, &properties, settings);
 }

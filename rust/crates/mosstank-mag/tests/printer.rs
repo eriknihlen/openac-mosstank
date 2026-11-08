@@ -12,7 +12,7 @@ use ac_plugin_abi::items::InventoryItem;
 use ac_plugin_abi::world::{ItemProperties, ObjectClass, WorldObject};
 use mosstank_mag::host::Verdict;
 use mosstank_mag::identify::IdentifyQueue;
-use mosstank_mag::printer::{PrintSettings, Printer, Split, TEXT_TYPE, line};
+use mosstank_mag::printer::{IdentCall, PrintSettings, Printer, Split, TEXT_TYPE, line};
 use mosstank_mag::testing::{FakeMagHost, FakeVerdict};
 
 const RING: u32 = 0x5000_0001;
@@ -89,10 +89,7 @@ impl Rig {
 
     fn ident_with(&mut self, object: &WorldObject, at_ms: f64, settings: PrintSettings) {
         self.host.now_ms = at_ms;
-        let mut call = Split {
-            host: &mut self.host,
-            verdict: &mut self.verdict,
-        };
+        let mut call = Split::new(&mut self.host, &mut self.verdict);
         self.printer
             .on_ident(&mut call, &mut self.queue, object, at_ms, settings);
     }
@@ -128,10 +125,7 @@ impl Rig {
 
     fn tick(&mut self, at_ms: f64) {
         self.host.now_ms = at_ms;
-        let mut call = Split {
-            host: &mut self.host,
-            verdict: &mut self.verdict,
-        };
+        let mut call = Split::new(&mut self.host, &mut self.verdict);
         self.printer
             .tick(&mut call, &mut self.queue, at_ms, settings());
     }
@@ -617,9 +611,88 @@ fn an_appraised_container_item_is_decided_at_once() {
     assert!(rig.queue.is_empty());
 }
 
+/// A container `CORPSE` with `count` kept rings, opened at 0 s.
+fn rings(rig: &mut Rig, count: u32) -> Vec<InventoryItem> {
+    let items: Vec<InventoryItem> = (0..count)
+        .map(|n| {
+            item(
+                0x5100_0001 + n,
+                &format!("Ring {n}"),
+                ObjectClass::Jewelry,
+                CORPSE,
+            )
+        })
+        .collect();
+    for ring in &items {
+        rig.verdict
+            .0
+            .insert(ring.object_id, verdict(true, "Rares", false));
+    }
+    rig.open(CORPSE, "Corpse of Drudge", &items, 0.0);
+    items
+}
+
+/// Ticks every `step_ms` from `from_ms` to `to_ms`, both included.
+fn ticks_every(rig: &mut Rig, from_ms: f64, to_ms: f64, step_ms: f64) {
+    let mut at = from_ms;
+    while at <= to_ms {
+        rig.tick(at);
+        at += step_ms;
+    }
+}
+
 #[test]
-fn a_waited_appraisal_after_the_container_closed_prints_nothing() {
+fn every_item_listed_at_the_open_prints_even_past_five_seconds() {
+    // Source: DetectItemsInContainers.cs:136-150: each think raises every
+    // new item at once; here they are listed at once and weighed one a
+    // frame, so a full corpse goes on past the five seconds.
     let mut rig = Rig::new();
+    rings(&mut rig, 80);
+    ticks_every(&mut rig, 0.0, 9_000.0, 100.0);
+    let posted = rig.posted_text();
+    assert_eq!(posted.len(), 80);
+    assert_eq!(posted[0], "+(Rares) Ring 0");
+    assert_eq!(posted[79], "+(Rares) Ring 79");
+    assert!(rig.printer.is_idle());
+}
+
+#[test]
+fn an_item_listed_after_five_seconds_does_not_print_while_the_backlog_runs() {
+    // Source: DetectItemsInContainers.cs:152-156: the scan stops at the
+    // first think at or after five seconds.
+    let mut rig = Rig::new();
+    rings(&mut rig, 80);
+    ticks_every(&mut rig, 0.0, 5_100.0, 100.0);
+    let late = item(0x5200_0001, "Late Ring", ObjectClass::Jewelry, CORPSE);
+    rig.verdict
+        .0
+        .insert(late.object_id, verdict(true, "Rares", false));
+    rig.host.loot.push(late);
+    ticks_every(&mut rig, 5_200.0, 10_000.0, 100.0);
+    let posted = rig.posted_text();
+    assert_eq!(posted.len(), 80);
+    assert!(!posted.iter().any(|line| line.contains("Late Ring")));
+}
+
+#[test]
+fn an_item_gone_from_the_container_before_its_turn_still_prints() {
+    // Source: DetectItemsInContainers.cs:136-150: Mag-Tools raised every
+    // listed item in the think that listed it, so the looter taking one
+    // did not hide its line.
+    let mut rig = Rig::new();
+    let items = rings(&mut rig, 3);
+    rig.tick(0.0);
+    rig.host.loot.retain(|i| i.object_id != items[2].object_id);
+    rig.close();
+    ticks_every(&mut rig, 50.0, 1_000.0, 50.0);
+    assert_eq!(
+        rig.posted_text(),
+        vec!["+(Rares) Ring 0", "+(Rares) Ring 1", "+(Rares) Ring 2"]
+    );
+}
+
+/// A container whose one item the profile must appraise first, weighed.
+fn awaiting(rig: &mut Rig) -> WorldObject {
     let a = item(0x5100_0001, "Ring A", ObjectClass::Jewelry, CORPSE);
     rig.verdict
         .0
@@ -631,13 +704,80 @@ fn a_waited_appraisal_after_the_container_closed_prints_nothing() {
     }
     rig.ticks(0.0, 300.0);
     assert!(rig.queue.contains(a.object_id));
-    rig.close();
-    rig.ticks(350.0, 500.0);
-    // Forgotten, and no longer asked for.
-    assert!(!rig.queue.contains(a.object_id));
     let mut seen = object(a.object_id, "Ring A", ObjectClass::Jewelry);
     seen.container_id = CORPSE;
+    seen
+}
+
+#[test]
+fn a_waited_appraisal_after_the_container_closed_still_prints() {
+    // Source: VirindiTankLootRuleProcessor.cs:63-85: the callbacks waiting
+    // were never cleared. Closing only stops asking for the appraisal.
+    let mut rig = Rig::new();
+    let seen = awaiting(&mut rig);
+    rig.close();
+    rig.ticks(350.0, 500.0);
+    assert!(!rig.queue.contains(seen.object_id));
     rig.ident(&seen, 1_000.0);
-    assert!(rig.posted().is_empty());
+    assert_eq!(rig.posted(), vec![("+(Rares) Ring A".to_string(), 14)]);
     assert!(rig.printer.is_idle());
+}
+
+#[test]
+fn a_waited_appraisal_after_the_item_left_the_container_still_prints() {
+    let mut rig = Rig::new();
+    let seen = awaiting(&mut rig);
+    rig.host.loot.clear();
+    rig.ident(&seen, 1_000.0);
+    assert_eq!(rig.posted_text(), vec!["+(Rares) Ring A"]);
+}
+
+#[test]
+fn an_appraisal_waited_on_for_thirty_seconds_is_given_up() {
+    // Bounded: an appraisal that never comes is forgotten after 30 s.
+    let mut rig = Rig::new();
+    let seen = awaiting(&mut rig);
+    rig.ticks(350.0, 30_400.0);
+    assert!(rig.printer.is_idle());
+    assert!(!rig.queue.contains(seen.object_id));
+    rig.ident(&seen, 31_000.0);
+    assert!(rig.posted().is_empty());
+}
+
+/// A call whose verdict reads the owned items too, as MossTank's does for
+/// the keep-up-to counts.
+struct OwnedReading<'a>(Split<'a>);
+
+impl IdentCall for OwnedReading<'_> {
+    fn host(&mut self) -> &mut dyn mosstank_mag::host::MagHost {
+        self.0.host()
+    }
+
+    fn owned(&mut self) -> &[InventoryItem] {
+        self.0.owned()
+    }
+
+    fn verdict(&mut self, item: &InventoryItem, properties: &ItemProperties) -> Option<Verdict> {
+        let _held = self.owned().len();
+        self.0.verdict(item, properties)
+    }
+
+    fn needs_identify(&mut self, item: &InventoryItem, properties: &ItemProperties) -> bool {
+        self.0.needs_identify(item, properties)
+    }
+}
+
+#[test]
+fn an_owned_identify_lists_the_owned_items_once() {
+    let mut rig = Rig::new();
+    rig.own(&[item(RING, "Test Ring", ObjectClass::Jewelry, 1)]);
+    rig.verdict.0.insert(RING, verdict(true, "Rares", false));
+    rig.select(RING, 0.0);
+    let mut seen = object(RING, "Test Ring", ObjectClass::Jewelry);
+    seen.is_owned = true;
+    let mut call = OwnedReading(Split::new(&mut rig.host, &mut rig.verdict));
+    rig.printer
+        .on_ident(&mut call, &mut rig.queue, &seen, 1_000.0, settings());
+    assert_eq!(rig.host.owned_listings, 1);
+    assert_eq!(rig.posted_text(), vec!["+(Rares) Test Ring"]);
 }

@@ -44,6 +44,8 @@ pub struct FakeMagHost {
     pub identified: Vec<u32>,
     /// What the next appraisals answer, in order; `Started` once empty.
     pub identify_answers: VecDeque<ItemStatus>,
+    /// How many times the owned items were listed.
+    pub owned_listings: usize,
 }
 
 impl Default for FakeMagHost {
@@ -65,6 +67,7 @@ impl FakeMagHost {
             now_ms: 0.0,
             identified: Vec::new(),
             identify_answers: VecDeque::new(),
+            owned_listings: 0,
         }
     }
 
@@ -182,6 +185,7 @@ impl MetaHost for FakeMagHost {
     }
 
     fn owned_items(&mut self) -> Vec<InventoryItem> {
+        self.owned_listings += 1;
         self.meta.owned_items()
     }
 
