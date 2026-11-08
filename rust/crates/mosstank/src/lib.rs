@@ -9,7 +9,7 @@
 //! every tick, the hold on the walks the client plans, and MossTank's loot
 //! classifier for the other plugins ([`loot`]).
 //!
-//! The windows (the main panel and its twelve companions, [`panel`]) show
+//! The windows (the main panel and its thirteen companions, [`panel`]) show
 //! the shell's values and send their handlers to it.
 
 pub mod automation;

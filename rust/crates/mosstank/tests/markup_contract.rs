@@ -1,4 +1,4 @@
-//! The windows' markup, read as the C# tests read it: the same thirteen files
+//! The windows' markup, read as the C# tests read it: the same fourteen files
 //! the plugin registers, checked for the layout and binding rules the C#
 //! markup contract holds them to.
 
@@ -22,6 +22,7 @@ fn markup(file: &str) -> &'static str {
         "mosstank-ub-clients.xml" => "ub-clients",
         "mosstank-ub-dungeon.xml" => "ub-dungeon",
         "mosstank-comps-hud.xml" => "comps-hud",
+        "mosstank-inventory.xml" => "inventory",
         other => panic!("no window reads {other}"),
     };
     WINDOWS
@@ -32,11 +33,12 @@ fn markup(file: &str) -> &'static str {
 }
 
 /// Every markup file, by its file name.
-const FILES: [&str; 13] = [
+const FILES: [&str; 14] = [
     "mosstank-action-history.xml",
     "mosstank-advanced.xml",
     "mosstank-buffpicker.xml",
     "mosstank-comps-hud.xml",
+    "mosstank-inventory.xml",
     "mosstank-loot-editor.xml",
     "mosstank-metaeditor.xml",
     "mosstank-remote.xml",
@@ -666,6 +668,7 @@ fn secondary_windows_fit_their_own_bounds_and_every_binding_resolves() {
         ("mosstank-ub-clients.xml", 268.0, 200.0),
         ("mosstank-ub-dungeon.xml", 320.0, 96.0),
         ("mosstank-comps-hud.xml", 540.0, 316.0),
+        ("mosstank-inventory.xml", 640.0, 480.0),
     ];
     for file in FILES.iter().filter(|file| **file != "mosstank.xml") {
         let (_, width, height) = bounds

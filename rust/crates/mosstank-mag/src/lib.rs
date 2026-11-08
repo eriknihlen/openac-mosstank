@@ -34,6 +34,8 @@ pub enum MagSubPage {
 pub struct MagParts {
     /// The Mag tab's page shown.
     pub sub_page: MagSubPage,
+    /// The Inventory window's search pattern, as typed.
+    pub inventory_search: String,
     /// The appraisals the features asked for.
     pub identify: identify::IdentifyQueue,
 }

@@ -1,4 +1,4 @@
-//! The thirteen windows as the client holds them: registered with the
+//! The fourteen windows as the client holds them: registered with the
 //! descriptors `MossTankPlugin.Initialize` gives, every value binding pushed
 //! with a value of its kind, and every handler answered by the shell.
 
@@ -8,7 +8,7 @@ use ac_plugin_abi::Event;
 use ac_plugin_abi::LogLevel;
 use ac_plugin_abi::ui::{ActionValue, TypedBindingKind, UiAction, UiEvent, UiValue};
 use common::World;
-use mosstank::panel::{WINDOWS, is_handler, schema};
+use mosstank::panel::{INVENTORY_ICON_SURFACE_ID, WINDOWS, is_handler, schema};
 
 fn fresh() -> (World, mosstank::MossTank) {
     let mut world = World::with_character("Window Tester");
@@ -285,6 +285,44 @@ fn the_mag_tab_shows_its_page_and_its_three_sub_pages() {
     );
 }
 
+// The Inventory window (the Mag tab's inventory search): on the dock with
+// its own icon, the retail Pack's, closed until opened.
+#[test]
+fn the_inventory_window_sits_on_the_dock_with_its_own_icon() {
+    let (world, _plugin) = fresh();
+    let inventory = world
+        .fake
+        .ui
+        .panels()
+        .find(|panel| panel.descriptor.window_id == "inventory")
+        .expect("the inventory window registers");
+    assert!(inventory.descriptor.show_in_side_panel, "on the dock");
+    assert_eq!(
+        inventory.descriptor.icon_surface_id,
+        INVENTORY_ICON_SURFACE_ID
+    );
+    assert_eq!(INVENTORY_ICON_SURFACE_ID, 0x0600_1BAF);
+    assert_eq!(inventory.descriptor.icon_text.as_deref(), Some("IN"));
+    assert!(!inventory.descriptor.start_visible);
+}
+
+// The Mag tab's button opens it.
+#[test]
+fn the_mag_tabs_button_opens_the_inventory_window() {
+    let (mut world, mut plugin) = fresh();
+    let shown = |world: &World| {
+        world
+            .fake
+            .ui
+            .panels()
+            .find(|panel| panel.descriptor.window_id == "inventory")
+            .unwrap()
+            .requested_visible
+    };
+    assert!(!shown(&world));
+    act(&mut world, &mut plugin, "OpenMagInventory");
+    assert!(shown(&world));
+}
 // Source: tests/AcDream.Plugins.MossTank.Tests/MossTankMarkupContractTests.cs :: LootEditorHasNoLeftoverBackButton
 #[test]
 fn the_loot_editor_closes_through_its_own_handler() {

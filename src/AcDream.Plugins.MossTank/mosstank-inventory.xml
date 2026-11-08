@@ -1,0 +1,49 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  The Inventory window: Mag-Tools' inventory search (its Tools, Inventory
+  page) over every character the inventory logger has saved on this server,
+  the logged-in character's rows live. A pattern to search for, a filter by
+  character and by kind of object, the rows found, and the clicked row's
+  full item text below them. It has its own button on the dock; the Mag
+  tab's Inventory button opens it too.
+-->
+<panel theme="plugin" x="253" y="405" w="640" h="480" title="MossTank Inventory"
+       visible="{WindowAvailable}" resize="none">
+  <label x="4" y="24" w="50" h="16" text="Search:" color="theme:text|#FFE8DEC3" />
+  <group x="56" y="22" w="580" h="18" background="theme:field|#FF0C0906" border="theme:border|#FF8C7B4E">
+    <field x="1" y="1" w="578" h="16" text="{MagInventorySearchText}"
+           onchange="{SetMagInventorySearchText}"
+           maxlength="200" clearonsubmit="false" background="#00000000"
+           color="theme:text|#FFE8DEC3"
+           tooltip="A .NET regular expression, matched against each item's full text; empty finds everything." />
+  </group>
+
+  <label x="4" y="46" w="66" h="16" text="Character:" color="theme:text|#FFE8DEC3" />
+  <menu x="72" y="44" w="160" h="20" items="{MagInventoryCharacters}"
+        selected="{SelectedMagInventoryCharacter}" onchange="{SelectMagInventoryCharacter}"
+        rows="10" tooltip="Only this character's items." />
+  <label x="240" y="46" w="40" h="16" text="Kind:" color="theme:text|#FFE8DEC3" />
+  <menu x="282" y="44" w="160" h="20" items="{MagInventoryClasses}"
+        selected="{SelectedMagInventoryClass}" onchange="{SelectMagInventoryClass}"
+        rows="10" tooltip="Only this kind of object." />
+
+  <label x="4" y="70" w="110" h="16" text="Character" color="theme:muted|#FFC7B98F" />
+  <label x="114" y="70" w="340" h="16" text="Name" color="theme:muted|#FFC7B98F" />
+  <label x="454" y="70" w="50" h="16" text="Count" color="theme:muted|#FFC7B98F" />
+  <label x="504" y="70" w="132" h="16" text="Where" color="theme:muted|#FFC7B98F" />
+  <list x="4" y="88" w="632" h="300" rowheight="17"
+        selected="{SelectedMagInventoryRow}" onchange="{SelectMagInventoryRow}"
+        tooltip="The items found. Click one to see its full text below.">
+    <column type="text" width="110" items="{MagInventoryRowCharacters}"
+            onclick="{SelectMagInventoryRow}" />
+    <column type="text" width="340" items="{MagInventoryRowNames}"
+            onclick="{SelectMagInventoryRow}" />
+    <column type="text" width="50" items="{MagInventoryRowCounts}"
+            onclick="{SelectMagInventoryRow}" />
+    <column type="text" width="*" items="{MagInventoryRowPlaces}"
+            onclick="{SelectMagInventoryRow}" />
+  </list>
+
+  <label x="4" y="394" w="632" h="80" text="{MagInventoryInfo}" color="theme:text|#FFE8DEC3"
+         tooltip="The clicked item's full text." />
+</panel>
