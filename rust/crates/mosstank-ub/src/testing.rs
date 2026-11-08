@@ -82,6 +82,8 @@ pub struct FakeUbHost {
     pub used: Vec<u32>,
     /// Every item applied to a target: item and target.
     pub applied: Vec<(u32, u32)>,
+    /// What applying an item answers.
+    pub apply_status: ItemStatus,
     /// Every container opened.
     pub opened_loot: Vec<u32>,
     /// Every container closed.
@@ -203,6 +205,7 @@ impl FakeUbHost {
             answered: Vec::new(),
             used: Vec::new(),
             applied: Vec::new(),
+            apply_status: ItemStatus::Started,
             opened_loot: Vec::new(),
             closed_loot: Vec::new(),
             loot_contents: Vec::new(),
@@ -377,7 +380,8 @@ impl MetaHost for FakeUbHost {
 
     fn apply_item(&mut self, object_id: u32, target_id: u32) -> ItemResult {
         self.applied.push((object_id, target_id));
-        self.meta.apply_item(object_id, target_id)
+        self.meta.apply_item(object_id, target_id);
+        ItemResult::of(self.apply_status)
     }
 
     fn give_item(&mut self, object_id: u32, target_id: u32, amount: u32) -> ItemResult {

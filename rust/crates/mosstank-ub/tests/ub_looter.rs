@@ -5,7 +5,7 @@ mod common;
 
 use std::collections::VecDeque;
 
-use ac_plugin_abi::items::{InventoryItem, ItemUseCompletion};
+use ac_plugin_abi::items::{AppraisalState, InventoryItem, ItemStatus, ItemUseCompletion};
 use ac_plugin_abi::world::{ItemProperties, ObjectClass, WorldObject};
 use common::Rig;
 use mosstank_automation::locks::ActionLockKind;
@@ -728,7 +728,9 @@ impl KeyServer {
             if self.relocks {
                 set_locked(rig, CHEST, true);
             }
+            // What was left stays in the chest, and the refill joins it.
             let refill = self.refills.pop_front().unwrap_or_default();
+            let mut contents = std::mem::take(&mut rig.host.loot_contents);
             for item in &refill {
                 rig.host.meta.objects.push(WorldObject {
                     object_id: item.object_id,
@@ -738,7 +740,8 @@ impl KeyServer {
                     ..WorldObject::default()
                 });
             }
-            rig.host.loot_contents = refill;
+            contents.extend(refill);
+            rig.host.loot_contents = contents;
         }
         arrive(rig);
     }
@@ -825,6 +828,259 @@ fn a_chest_already_unlocked_is_opened_and_an_empty_one_ends_the_run() {
     let messages = rig.messages();
     assert_eq!(2, messages.len(), "{messages:?}");
     assert!(messages[1].ends_with(" Scanned 0 items and looted 0 items"));
+}
+
+#[test]
+fn a_round_that_takes_nothing_ends_the_run_though_junk_is_left_in_the_chest() {
+    // The chest stays unlocked and keeps what is left in it across a close,
+    // as an ACE chest does until it resets.
+    let mut rig = key_rig();
+    rig.host.loot_contents.push(loose(11, "Rusty Junk"));
+    rig.host.meta.objects.push(WorldObject {
+        object_id: 11,
+        name: "Rusty Junk".to_owned(),
+        object_class: ObjectClass::Misc,
+        has_appraisal_data: true,
+        ..WorldObject::default()
+    });
+    set_locked(&mut rig, CHEST, false);
+    let mut server = KeyServer::new(LOCK_ALREADY_UNLOCKED);
+    server.relocks = false;
+
+    rig.ub("keyloot Legendary Key");
+    serve(&mut rig, &mut server, 120);
+
+    assert_eq!(vec![CHEST, CHEST], rig.host.opened_loot);
+    assert_eq!(vec![10], rig.host.pickups);
+    assert!(!looter(&rig).is_running());
+    let messages = rig.messages();
+    assert_eq!(2, messages.len(), "{messages:?}");
+    assert!(messages[0].ends_with(" Scanned 2 items and looted 1 items"));
+    assert!(messages[1].ends_with(" Scanned 1 items and looted 0 items"));
+}
+
+#[test]
+fn a_chest_that_already_stands_open_is_looted_without_the_key() {
+    // A key on an open chest is answered "already open": the chest is looted
+    // as it stands.
+    let mut rig = key_rig();
+    open(&mut rig, CHEST);
+    let mut server = KeyServer::new(KEY_DOESNT_FIT);
+
+    rig.ub("keyloot Legendary Key");
+    serve(&mut rig, &mut server, 10);
+
+    assert_eq!(vec![10], rig.host.pickups);
+    assert_eq!(vec![CHEST], rig.host.closed_loot);
+    assert!(rig.host.opened_loot.is_empty());
+}
+
+#[test]
+fn contents_that_never_arrive_end_the_wait_after_the_opening_attempts() {
+    let mut rig = rig();
+    set(&mut rig, "Looter.Enabled", "True");
+    set(&mut rig, "Looter.EnableChests", "True");
+    set(&mut rig, "Looter.MaxOpenAttempts", "2");
+    set(&mut rig, "Looter.DelaySpeed", "1000");
+    profile(&mut rig);
+    place(&mut rig, chest(), vec![loose(10, "Red Gem")], true);
+    rig.host.loot_contents_ready = false;
+
+    rig.ub("use Chest");
+    for _ in 0..30 {
+        tick(&mut rig, 0.1);
+        serve_use(&mut rig);
+    }
+
+    assert!(!looter(&rig).is_running());
+    assert_eq!(
+        strings(&[
+            "[UB] using Chest",
+            "[UB] Reached max number of opening attempts"
+        ]),
+        rig.messages()
+    );
+}
+
+#[test]
+fn an_appraisal_held_up_by_the_slots_other_users_does_not_stall_the_rest() {
+    let mut rig = enabled();
+    profile(&mut rig);
+    place(&mut rig, chest(), vec![loose(10, "Red Gem")], false);
+    rig.host.loot_contents.push(loose(11, "Blue Gem"));
+    rig.host.meta.objects.push(WorldObject {
+        object_id: 11,
+        name: "Blue Gem".to_owned(),
+        object_class: ObjectClass::Gem,
+        has_appraisal_data: true,
+        ..WorldObject::default()
+    });
+    // The corpse looter holds the appraisal slot throughout.
+    rig.services.corpse_identifier_busy = true;
+    open(&mut rig, CHEST);
+
+    frames(&mut rig, 350);
+
+    assert!(rig.host.identified.is_empty());
+    assert!(rig.host.pickups.contains(&11), "{:?}", rig.host.pickups);
+}
+
+#[test]
+fn an_item_that_left_while_its_appraisal_was_awaited_is_not_judged_again() {
+    let mut rig = enabled();
+    profile(&mut rig);
+    place(&mut rig, chest(), vec![loose(10, "Red Gem")], false);
+    // A second gem keeps the run going: its pickups never arrive.
+    rig.host.loot_contents.push(loose(11, "Blue Gem"));
+    rig.host.meta.objects.push(WorldObject {
+        object_id: 11,
+        name: "Blue Gem".to_owned(),
+        object_class: ObjectClass::Gem,
+        has_appraisal_data: true,
+        ..WorldObject::default()
+    });
+    open(&mut rig, CHEST);
+    tick(&mut rig, 0.1);
+    tick(&mut rig, 0.1);
+    assert_eq!(vec![10], rig.host.identified);
+
+    // Someone else takes it, and then its appraisal comes in.
+    rig.host.loot_contents.retain(|item| item.object_id != 10);
+    tick(&mut rig, 0.1);
+    for object in &mut rig.host.meta.objects {
+        if object.object_id == 10 {
+            object.has_appraisal_data = true;
+        }
+    }
+    tick(&mut rig, 0.1);
+
+    assert_eq!(Some(ItemState::Looted), looter(&rig).item_state(10));
+    assert!(!rig.host.pickups.contains(&10));
+}
+
+#[test]
+fn nothing_is_taken_while_the_contents_are_being_read_again() {
+    let mut rig = enabled();
+    profile(&mut rig);
+    place(
+        &mut rig,
+        container(CORPSE, "Corpse of Tester", ObjectClass::Corpse, 120),
+        vec![loose(10, "Red Gem")],
+        true,
+    );
+    open(&mut rig, CORPSE);
+    tick(&mut rig, 0.1);
+    // The run has begun; the client re-reads the corpse, and the gem is gone
+    // from it meanwhile.
+    rig.host.loot_contents_ready = false;
+    rig.host.loot_contents.clear();
+    frames(&mut rig, 5);
+
+    assert!(rig.host.pickups.is_empty());
+}
+
+#[test]
+fn only_pickups_that_went_out_count_as_attempts() {
+    for (busy, status) in [(false, ItemStatus::Busy), (true, ItemStatus::Started)] {
+        let mut rig = enabled();
+        set(&mut rig, "Looter.AttemptsBeforeBlacklisting", "3");
+        profile(&mut rig);
+        place(&mut rig, chest(), vec![loose(10, "Red Gem")], true);
+        rig.host.pickup_status = status;
+        rig.host.meta.item_state.is_busy = busy;
+        open(&mut rig, CHEST);
+
+        for _ in 0..20 {
+            tick(&mut rig, 0.1);
+        }
+
+        assert!(rig.messages().is_empty(), "{busy}: {:?}", rig.messages());
+        assert_eq!(
+            Some(ItemState::NeedsToBeLooted),
+            looter(&rig).item_state(10),
+            "{busy}"
+        );
+        if busy {
+            assert!(rig.host.pickups.is_empty());
+        }
+    }
+}
+
+#[test]
+fn a_key_use_the_client_holds_back_is_no_unlock_attempt() {
+    let mut rig = key_rig();
+    set(&mut rig, "Looter.MaxUnlockAttempts", "2");
+    set(&mut rig, "Looter.DelaySpeed", "1000");
+    rig.host.apply_status = ItemStatus::Busy;
+    let mut server = KeyServer::new(KEY_DOESNT_FIT);
+
+    rig.ub("keyloot Legendary Key");
+    serve(&mut rig, &mut server, 50);
+
+    assert!(looter(&rig).is_key_looting());
+    assert!(rig.messages().is_empty(), "{:?}", rig.messages());
+
+    // Once the uses go out, two of them are the limit.
+    rig.host.apply_status = ItemStatus::Started;
+    serve(&mut rig, &mut server, 40);
+    assert!(!looter(&rig).is_running());
+    assert_eq!(
+        strings(&["[UB] Reached max number of unlock attempts"]),
+        rig.messages()
+    );
+}
+
+#[test]
+fn a_give_up_named_before_the_request_does_not_cut_the_wait_short() {
+    let mut rig = enabled();
+    profile(&mut rig);
+    place(&mut rig, chest(), vec![loose(10, "Red Gem")], false);
+    // The slot still names this item from a give-up before.
+    rig.host.appraisal = AppraisalState {
+        revision: 5,
+        last_abandoned_id: 10,
+        ..AppraisalState::default()
+    };
+    open(&mut rig, CHEST);
+
+    frames(&mut rig, 20);
+    assert_eq!(vec![10], rig.host.identified);
+    assert!(rig.host.pickups.is_empty());
+
+    // A give-up after the request ends the wait, and it is asked again.
+    rig.host.appraisal.revision = 6;
+    frames(&mut rig, 3);
+    assert_eq!(vec![10, 10], rig.host.identified);
+}
+
+#[test]
+fn an_overall_speed_under_one_hundred_is_said_and_put_back() {
+    let mut rig = enabled();
+    set(&mut rig, "Looter.OverallSpeed", "50");
+    profile(&mut rig);
+    place(&mut rig, chest(), vec![loose(10, "Red Gem")], true);
+    open(&mut rig, CHEST);
+
+    frames(&mut rig, 10);
+
+    let messages = rig.messages();
+    assert_eq!(
+        "[UB] OverallSpeed under 100 is not allowed.", messages[0],
+        "{messages:?}"
+    );
+    assert_eq!(
+        1,
+        messages
+            .iter()
+            .filter(|line| line.contains("OverallSpeed"))
+            .count()
+    );
+    rig.clear_messages();
+    rig.ub("opt get Looter.OverallSpeed");
+    assert_eq!(
+        strings(&["[UB] Looter.OverallSpeed (Profile) = 100"]),
+        rig.messages()
+    );
 }
 
 #[test]

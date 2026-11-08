@@ -39,6 +39,7 @@ use ac_plugin_abi::world::{ObjectClass, WorldObject};
 use mosstank_automation::locks::ActionLockKind;
 use mosstank_dotnet::text::ordinal;
 use mosstank_formats::utl::{LootAction, LootRule};
+use mosstank_settings::ub::UbSettingValue;
 
 use crate::chat::{self, tools};
 use crate::commands::UbCall;
@@ -76,6 +77,9 @@ pub const ITEMS_CAPACITY_PROPERTY: u32 = 6;
 pub const LOCKED_PROPERTY: u32 = 3;
 /// The server's answer to a key used on a chest that is not locked.
 pub const LOCK_ALREADY_UNLOCKED: u32 = 0x04AF;
+/// The server's answer to a key used on a chest that stands open
+/// (`WERROR_LOCK_ALREADY_OPEN`, 1201).
+pub const LOCK_ALREADY_OPEN: u32 = 0x04B1;
 /// How long the macro's slots are held while the own corpse is looted, and
 /// held again after (`LockVtankSettings`).
 pub const MACRO_HOLD_SECONDS: f64 = 30.0;
@@ -223,6 +227,11 @@ pub struct ChestLooter {
     clock_running: bool,
     awaiting_identify: u32,
     awaiting_seconds: f64,
+    /// The appraisal slot's revision just after the request awaited.
+    awaiting_revision: i64,
+    /// The next appraisal is held up by the slot's other users.
+    appraisal_blocked: bool,
+    blocked_seconds: f64,
     unlock_baseline: i64,
     locked_at_round_start: bool,
     unlocked_this_round: bool,
@@ -265,6 +274,9 @@ impl ChestLooter {
             clock_running: false,
             awaiting_identify: 0,
             awaiting_seconds: 0.0,
+            awaiting_revision: 0,
+            appraisal_blocked: false,
+            blocked_seconds: 0.0,
             unlock_baseline: 0,
             locked_at_round_start: false,
             unlocked_this_round: false,
@@ -332,6 +344,9 @@ impl ChestLooter {
             if self.awaiting_identify != 0 {
                 self.awaiting_seconds += elapsed;
             }
+            if self.appraisal_blocked {
+                self.blocked_seconds += elapsed;
+            }
         }
         self.since_step += elapsed;
         if self.since_step + 1e-9 < self.step_seconds {
@@ -346,11 +361,16 @@ impl ChestLooter {
             self.watch_open_container(call);
             return;
         }
-        let speed = call
-            .settings
-            .value(OVERALL_SPEED)
-            .as_int32()
-            .max(MINIMUM_OVERALL_SPEED_MS);
+        let mut speed = call.settings.value(OVERALL_SPEED).as_int32();
+        if speed < MINIMUM_OVERALL_SPEED_MS {
+            // The reference says so and puts the setting back
+            // (`Looter_Changed`).
+            call.write_ub("OverallSpeed under 100 is not allowed.");
+            let row = call.settings.require(OVERALL_SPEED);
+            call.settings
+                .set(&row, UbSettingValue::from_int(MINIMUM_OVERALL_SPEED_MS));
+            speed = MINIMUM_OVERALL_SPEED_MS;
+        }
         self.step_seconds = f64::from(speed) / 1000.0;
         if self.last_state != self.state {
             self.first = true;
@@ -380,7 +400,7 @@ impl ChestLooter {
             }
             LooterState::Unlocking => self.unlocking(call, pacing),
             LooterState::Opening => self.opening(call, pacing),
-            LooterState::Open => self.open(call),
+            LooterState::Open => self.open(call, pacing),
             LooterState::Looting => self.looting(call, pacing),
             LooterState::Closing => self.closing(call, pacing),
         }
@@ -597,6 +617,16 @@ impl ChestLooter {
 
     /// Tries the key on the chest until it turns (`looterstate.Unlocking`).
     fn unlocking(&mut self, call: &mut UbCall<'_>, pacing: Pacing) {
+        // A chest that already stands open is looted as it stands: the
+        // server answers a key used on it with "already open"
+        // ([`LOCK_ALREADY_OPEN`]), and the reference then goes on to Open
+        // when the open container is its chest (`Item_UseDone`, 1201).
+        if call.host.open_container() == self.container_id {
+            self.unlocked_this_round = true;
+            self.since_attempt = 0.0;
+            self.state = LooterState::Open;
+            return;
+        }
         if self.unlock_attempts > 0 {
             let completion = call.host.item_state().last_completion;
             if completion.revision > self.unlock_baseline
@@ -635,10 +665,13 @@ impl ChestLooter {
             return;
         };
         self.key_id = key;
+        self.unlock_baseline = call.host.item_state().last_completion.revision;
+        // A use the client holds back for another is no try at the lock.
+        if call.host.apply_item(key, self.container_id).status == ItemStatus::Busy {
+            return;
+        }
         self.since_attempt = 0.0;
         self.first = false;
-        self.unlock_baseline = call.host.item_state().last_completion.revision;
-        call.host.apply_item(key, self.container_id);
         self.unlock_attempts += 1;
     }
 
@@ -662,6 +695,7 @@ impl ChestLooter {
                 self.finish(call, false, true);
                 return;
             }
+            self.since_attempt = 0.0;
             self.state = LooterState::Open;
             return;
         }
@@ -698,13 +732,20 @@ impl ChestLooter {
     }
 
     /// The container is open: its contents are read once they arrive
-    /// (`looterstate.Open`).
-    fn open(&mut self, call: &mut UbCall<'_>) {
+    /// (`looterstate.Open`), for no longer than the opening attempts would
+    /// have taken (at least a second).
+    fn open(&mut self, call: &mut UbCall<'_>, pacing: Pacing) {
         if call.host.open_container() != self.container_id {
             self.state = LooterState::Opening;
             return;
         }
         if !call.host.loot_contents_ready() {
+            let ceiling =
+                (f64::from(pacing.max_open_attempts.max(1)) * pacing.delay_seconds).max(1.0);
+            if self.since_attempt >= ceiling {
+                call.write_ub("Reached max number of opening attempts");
+                self.finish(call, false, true);
+            }
             return;
         }
         let contents = call.host.loot_contents();
@@ -724,13 +765,19 @@ impl ChestLooter {
             }
             return;
         }
-        if call.host.loot_contents_ready() {
-            let present: HashSet<u32> = call
-                .host
+        // What the container holds now; nothing is taken while the client
+        // reads it again.
+        let ready = call.host.loot_contents_ready();
+        let present: HashSet<u32> = if ready {
+            call.host
                 .loot_contents()
                 .iter()
                 .map(|item| item.object_id)
-                .collect();
+                .collect()
+        } else {
+            HashSet::new()
+        };
+        if ready {
             for entry in &mut self.items {
                 if !entry.state.is_settled() && !present.contains(&entry.item.object_id) {
                     entry.state = ItemState::Looted;
@@ -739,21 +786,22 @@ impl ChestLooter {
         }
         self.judge_next(call);
 
-        if let Some(index) = self
-            .items
-            .iter()
-            .position(|entry| entry.state == ItemState::NeedsToBeLooted)
-        {
+        if let Some(index) = self.items.iter().position(|entry| {
+            entry.state == ItemState::NeedsToBeLooted && present.contains(&entry.item.object_id)
+        }) {
             if self.kind == ContainerKind::MyCorpse {
                 self.hold_macro(call, pacing.block_melee);
             }
             let object_id = self.items[index].item.object_id;
-            if !call.host.item_state().is_busy {
-                call.host.loot_pickup(object_id);
-            }
+            // Only a pickup that went out is an attempt, as the reference
+            // counts the moves it sends.
+            let sent =
+                !call.host.item_state().is_busy && call.host.loot_pickup(object_id).accepted();
             let entry = &mut self.items[index];
-            entry.loot_attempts += 1;
-            if entry.loot_attempts >= pacing.attempts_before_blacklisting {
+            if sent {
+                entry.loot_attempts += 1;
+            }
+            if sent && entry.loot_attempts >= pacing.attempts_before_blacklisting {
                 entry.state = ItemState::Blacklisted;
                 let name = entry.item.name.clone();
                 call.write_ub(&format!("Looter: Failed to loot {name}"));
@@ -819,15 +867,23 @@ impl ChestLooter {
                 .host
                 .object(awaited)
                 .is_some_and(|known| known.has_appraisal_data);
-            let given_up = call.host.appraisal().last_abandoned_id == awaited
+            // A give-up counts only when it came after this request: the slot
+            // goes on naming an item given up on before.
+            let appraisal = call.host.appraisal();
+            let given_up = (appraisal.last_abandoned_id == awaited
+                && appraisal.revision > self.awaiting_revision)
                 || self.awaiting_seconds >= IDENTIFY_TIMEOUT_SECONDS;
             if arrived || given_up {
                 self.awaiting_identify = 0;
                 self.awaiting_seconds = 0.0;
-                if let Some(index) = self.index_of(awaited) {
+                // An item that left the container meanwhile stays settled.
+                if let Some(index) = self
+                    .index_of(awaited)
+                    .filter(|&index| self.items[index].state == ItemState::RequestingInfo)
+                {
                     if arrived {
                         self.decide(call, index);
-                    } else if self.items[index].state == ItemState::RequestingInfo {
+                    } else {
                         self.items[index].identify_attempts += 1;
                         self.items[index].state = ItemState::InContainer;
                     }
@@ -862,17 +918,28 @@ impl ChestLooter {
 
     /// Asks for one item's appraisal when the slot is free.
     fn request_appraisal(&mut self, call: &mut UbCall<'_>, index: usize) {
-        if self.awaiting_identify != 0
-            || call.services.corpse_identifier_busy()
-            || call.host.appraisal().awaiting_id != 0
-        {
+        if self.awaiting_identify != 0 {
             return;
         }
+        if call.services.corpse_identifier_busy() || call.host.appraisal().awaiting_id != 0 {
+            // Held up by the slot's other users: the wait counts against the
+            // item as an unanswered request would, so one item cannot hold
+            // the rest up for ever.
+            self.appraisal_blocked = true;
+            if self.blocked_seconds >= IDENTIFY_TIMEOUT_SECONDS {
+                self.blocked_seconds = 0.0;
+                self.items[index].identify_attempts += 1;
+            }
+            return;
+        }
+        self.appraisal_blocked = false;
+        self.blocked_seconds = 0.0;
         let object_id = self.items[index].item.object_id;
         let result = call.host.identify(object_id);
         if result.accepted() {
             self.awaiting_identify = object_id;
             self.awaiting_seconds = 0.0;
+            self.awaiting_revision = call.host.appraisal().revision;
             self.items[index].state = ItemState::RequestingInfo;
         } else if result.status != ItemStatus::Busy {
             self.items[index].identify_attempts += 1;
@@ -954,11 +1021,12 @@ impl ChestLooter {
         }
         self.release_holds(call);
         self.passive_seen = self.container_id;
-        let found_nothing = self.items.is_empty();
+        let looted_nothing = self.count(ItemState::Looted) == 0;
         if self.run == RunType::Ui && !force {
-            // A chest that came up empty would be opened and closed for as
-            // long as a key that does not wear out lasts: the run ends.
-            if found_nothing {
+            // A round that took nothing ends the run: a chest that stays
+            // unlocked keeps what was left in it until it resets, and would
+            // be opened and closed for as long as the keys last.
+            if looted_nothing {
                 self.end_run();
             } else {
                 self.start_round(call);
@@ -1005,6 +1073,9 @@ impl ChestLooter {
         self.clock_running = false;
         self.awaiting_identify = 0;
         self.awaiting_seconds = 0.0;
+        self.awaiting_revision = 0;
+        self.appraisal_blocked = false;
+        self.blocked_seconds = 0.0;
         self.unlock_baseline = 0;
         self.locked_at_round_start = false;
         self.unlocked_this_round = false;
