@@ -112,3 +112,15 @@ fn clear_forgets_every_waiting_item_and_the_pace() {
     q.tick(&mut host, false);
     assert_eq!(host.identified, vec![7, 9], "a cleared queue sends at once");
 }
+
+#[test]
+fn a_removed_object_is_not_asked_for() {
+    let mut host = FakeMagHost::new();
+    let mut q = IdentifyQueue::default();
+    q.push(7);
+    q.push(8);
+    q.remove(7);
+    assert!(!q.contains(7));
+    q.tick(&mut host, false);
+    assert_eq!(host.identified, vec![8]);
+}

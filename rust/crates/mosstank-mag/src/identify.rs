@@ -31,6 +31,12 @@ impl IdentifyQueue {
         }
     }
 
+    /// Takes an object out of the queue (its appraisal came, or it is no
+    /// longer wanted).
+    pub fn remove(&mut self, object_id: u32) {
+        self.pending.retain(|&id| id != object_id);
+    }
+
     /// Whether an object is waiting.
     #[must_use]
     pub fn contains(&self, object_id: u32) -> bool {

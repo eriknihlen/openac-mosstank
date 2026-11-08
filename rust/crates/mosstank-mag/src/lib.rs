@@ -7,6 +7,8 @@
 //!   the loot profile's verdict on an item ([`host::LootVerdict`]).
 //! - [`identify`]: the paced identify queue the features share.
 //! - [`item_info`]: the one-line description of an identified item.
+//! - [`printer`]: the identify chat line with the loot verdict, and its
+//!   two triggers.
 //! - [`settings`]: the Mag settings' names in the UB settings catalogue.
 //! - `testing` (native builds only): a client and a loot profile in memory
 //!   for the tests ([`testing::FakeMagHost`], [`testing::FakeVerdict`]).
@@ -19,6 +21,7 @@ pub mod fmt;
 pub mod host;
 pub mod identify;
 pub mod item_info;
+pub mod printer;
 pub mod settings;
 #[cfg(not(target_arch = "wasm32"))]
 pub mod testing;
@@ -44,4 +47,6 @@ pub struct MagParts {
     pub inventory_search: String,
     /// The appraisals the features asked for.
     pub identify: identify::IdentifyQueue,
+    /// The identify chat line's detectors.
+    pub printer: printer::Printer,
 }
