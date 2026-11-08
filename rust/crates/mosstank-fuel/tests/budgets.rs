@@ -1206,6 +1206,54 @@ fn the_owners_login_fits() {
     assert_within_margin(&cases, &report);
 }
 
+/// The inventory logger on the heavy character, every item fully
+/// appraised: the login's records are made and written (with no log yet,
+/// then again with the last session's log to read and merge), and logging
+/// off writes the whole log in one call.
+#[test]
+#[ignore = "needs the release module: scripts/check.sh runs it after the WebAssembly build"]
+fn the_inventory_log_fits() {
+    let wasm = std::fs::read(wasm_path()).expect("the release mosstank.wasm (build it first)");
+    let key = "Mag-Tools/Coldeve/Mossy Hunter.inventory.json";
+    let mut session = new_session();
+    let mut cases = Cases::default();
+    for round in ["no log yet", "with the last log"] {
+        let (mut plugin, _) = Plugin::load(&wasm, DEFAULT_MEMORY_MIB).expect("load");
+        plugin.enable(&start_info(), &mut session).expect("enable");
+        enter_world(&mut session);
+        let properties = heavy::appraised_properties(&heavy::inventory());
+        session.world.automation().properties.extend(properties);
+        session
+            .world
+            .set_reply::<calls::ItemsInventoryComplete>(&true);
+        tick(&mut plugin, &mut session);
+        let before = session.world.plugin_data.get(key).map(str::to_owned);
+        let login = send(&mut plugin, &mut session, &Event::LoginComplete);
+        cases.add("inventory log: login complete", login);
+        for _ in 0..60 {
+            let fuel = tick(&mut plugin, &mut session);
+            cases.add(&format!("inventory log: tick ({round})"), fuel);
+        }
+        let written = session.world.plugin_data.get(key).map(str::to_owned);
+        assert!(
+            written.is_some() && written != before,
+            "{round}: no log written"
+        );
+        let logoff = send(&mut plugin, &mut session, &Event::Logoff);
+        cases.add("inventory log: logoff", logoff);
+        plugin.disable(&mut session).expect("disable");
+    }
+    let log = session.world.plugin_data.get(key).expect("the log");
+    let items = log.matches("\n{\"id\":").count();
+    let cases = cases.all();
+    let mut report = report(&cases);
+    let _ = writeln!(report, "log: {} KB, {items} items", log.len() / 1024);
+    println!("{report}");
+    assert_eq!(items, heavy::INVENTORY_ITEMS, "{report}");
+    assert_no_file_rewritten(&session, &report);
+    assert_within_margin(&cases, &report);
+}
+
 #[test]
 #[ignore = "needs the release module: scripts/check.sh runs it after the WebAssembly build"]
 #[allow(clippy::too_many_lines)]

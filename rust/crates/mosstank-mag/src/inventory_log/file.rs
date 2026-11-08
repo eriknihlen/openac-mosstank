@@ -143,9 +143,15 @@ impl LogReader {
     /// The file is not a JSON object with an `items` array, its header is
     /// broken, or it is of another version.
     pub fn new(text: String) -> Result<Self, ReadError> {
-        let (array, items) = scan(text.as_bytes()).ok_or(ReadError::Corrupt)?;
         // The document without its items: the header's members.
-        let rest = format!("{}[]{}", &text[..array.start], &text[array.end..]);
+        let (rest, items) = match lines(&text) {
+            Some(found) => found,
+            None => {
+                let (array, items) = scan(text.as_bytes()).ok_or(ReadError::Corrupt)?;
+                let rest = format!("{}[]{}", &text[..array.start], &text[array.end..]);
+                (rest, items)
+            }
+        };
         let value = json::parse(&rest).map_err(|_| ReadError::Corrupt)?;
         let version = value.get("version").and_then(JsonValue::as_i64);
         if version != Some(VERSION) {
@@ -319,4 +325,42 @@ fn skip_ws(b: &[u8], mut i: usize) -> usize {
         i += 1;
     }
     i
+}
+
+/// The layout [`write`] gives, found by its line breaks alone (a search
+/// far cheaper than following the structure): the header on the first
+/// line, one item a line, `]}` on the last. The header's members (the
+/// first line, its items array closed), and the items; `None` for any
+/// other layout.
+fn lines(text: &str) -> Option<(String, Vec<Range<usize>>)> {
+    let first_end = text.find('\n')?;
+    let first = text[..first_end].trim_end_matches('\r');
+    if !first.starts_with('{') || !first.ends_with("\"items\":[") {
+        return None;
+    }
+    let mut items = Vec::new();
+    let mut start = first_end + 1;
+    // Whether the last item read had its comma: all but the last have one.
+    let mut comma = None;
+    loop {
+        let end = text[start..].find('\n').map_or(text.len(), |at| start + at);
+        let line = text[start..end].trim_end_matches('\r');
+        if line == "]}" {
+            if comma == Some(true) || !text[end..].trim().is_empty() {
+                return None;
+            }
+            return Some((format!("{first}]}}"), items));
+        }
+        if comma == Some(false) {
+            return None;
+        }
+        let item = line.strip_suffix(',');
+        comma = Some(item.is_some());
+        let item = item.unwrap_or(line);
+        if item.is_empty() || end == text.len() {
+            return None;
+        }
+        items.push(start..start + item.len());
+        start = end + 1;
+    }
 }

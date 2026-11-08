@@ -22,6 +22,8 @@ pub trait MagHost: MetaHost {
     fn loot_contents(&mut self) -> Vec<InventoryItem>;
     /// Monotonic milliseconds for this call.
     fn now_ms(&mut self) -> f64;
+    /// The UTC clock, Unix milliseconds.
+    fn utc_unix_ms(&mut self) -> i64;
 }
 
 /// A loot profile's verdict on one item.

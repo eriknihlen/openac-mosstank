@@ -87,12 +87,15 @@ impl Tank {
             cx.handle_session_started();
         }
         cx.update_peer_subscriptions();
-        cx.mag_tick();
+        // A frame the inventory logger spent recording a tick's worth of
+        // items is a heavy one.
+        cx.core.heavy_frame = cx.mag_tick();
         // The name tags, first in the frame as the panel runs them.
-        cx.core.heavy_frame = cx.with_ub(|commands, call| {
+        let crowded = cx.with_ub(|commands, call| {
             commands.tools_mut().tick_nametags(call, elapsed_seconds);
             commands.tools_mut().nametags.scanned_last_frame() > HEAVY_SCAN_OBJECTS
         });
+        cx.core.heavy_frame |= crowded;
         cx.tick_display_tools(elapsed_seconds);
         cx.tick_dungeon_map(elapsed_seconds);
         cx.update_nav_lines();

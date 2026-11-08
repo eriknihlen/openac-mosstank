@@ -23,7 +23,7 @@ use ac_plugin_abi::world::{ItemProperties, WorldObject, WorldTime};
 use ac_plugin_abi::{CharacterInfo, ChatLine, LogLevel};
 use mosstank_meta::host::{MetaHost, PanelDescriptor, SpellExtras, UbDisplay, UbLineKind};
 pub use mosstank_meta::testing::{FakeHost, SharedStorage};
-use mosstank_stores::storage::PluginStorage;
+use mosstank_stores::storage::{PluginStorage, StorageError};
 
 use crate::host::{LootVerdict, MagHost, Verdict};
 
@@ -46,6 +46,13 @@ pub struct FakeMagHost {
     pub identify_answers: VecDeque<ItemStatus>,
     /// How many times the owned items were listed.
     pub owned_listings: usize,
+    /// How many times an owned item's properties were read.
+    pub property_reads: usize,
+    /// The UTC clock, Unix milliseconds.
+    pub utc_ms: i64,
+    /// The plugin's own data: the meta fake's storage (`meta.storage`,
+    /// shared), each write noted.
+    pub storage: CountingStorage,
 }
 
 impl Default for FakeMagHost {
@@ -56,11 +63,18 @@ impl Default for FakeMagHost {
 
 impl FakeMagHost {
     /// The meta fake's character in the world, its owned list complete,
-    /// the clock at 0.
+    /// the clock at 0, its storage empty and available.
     #[must_use]
     pub fn new() -> Self {
+        let mut meta = FakeHost::new();
+        // The plugin's own data is always there.
+        meta.storage = SharedStorage::new();
+        let storage = CountingStorage {
+            inner: meta.storage.clone(),
+            writes: Vec::new(),
+        };
         Self {
-            meta: FakeHost::new(),
+            meta,
             complete: true,
             all_enchantments: Vec::new(),
             loot: Vec::new(),
@@ -68,6 +82,9 @@ impl FakeMagHost {
             identified: Vec::new(),
             identify_answers: VecDeque::new(),
             owned_listings: 0,
+            property_reads: 0,
+            utc_ms: 1_762_560_000_000,
+            storage,
         }
     }
 
@@ -346,7 +363,7 @@ impl MetaHost for FakeMagHost {
     }
 
     fn storage(&mut self) -> &mut dyn PluginStorage {
-        self.meta.storage()
+        &mut self.storage
     }
 }
 
@@ -356,6 +373,7 @@ impl MagHost for FakeMagHost {
     }
 
     fn item_properties(&mut self, object_id: u32) -> Option<ItemProperties> {
+        self.property_reads += 1;
         self.meta.properties.get(&object_id).cloned()
     }
 
@@ -369,6 +387,10 @@ impl MagHost for FakeMagHost {
 
     fn now_ms(&mut self) -> f64 {
         self.now_ms
+    }
+
+    fn utc_unix_ms(&mut self) -> i64 {
+        self.utc_ms
     }
 }
 
@@ -385,5 +407,45 @@ impl LootVerdict for FakeVerdict {
 
     fn needs_identify(&mut self, item: &InventoryItem, _properties: &ItemProperties) -> bool {
         self.1.contains(&item.object_id)
+    }
+}
+
+/// Storage in memory that notes every key written.
+#[derive(Debug, Default)]
+pub struct CountingStorage {
+    /// The storage itself (shared with every clone).
+    pub inner: SharedStorage,
+    /// Every key written, in order.
+    pub writes: Vec<String>,
+}
+
+impl PluginStorage for CountingStorage {
+    fn is_available(&mut self) -> bool {
+        self.inner.is_available()
+    }
+
+    fn root_path(&mut self) -> Option<String> {
+        self.inner.root_path()
+    }
+
+    fn read_text(&mut self, key: &str) -> Result<Option<String>, StorageError> {
+        self.inner.read_text(key)
+    }
+
+    fn list(&mut self, prefix: &str) -> Result<Vec<String>, StorageError> {
+        self.inner.list(prefix)
+    }
+
+    fn write_text(&mut self, key: &str, content: &str) -> Result<(), StorageError> {
+        self.writes.push(key.to_owned());
+        self.inner.write_text(key, content)
+    }
+
+    fn ensure_directory(&mut self, prefix: &str) -> Result<bool, StorageError> {
+        self.inner.ensure_directory(prefix)
+    }
+
+    fn delete(&mut self, key: &str) -> Result<bool, StorageError> {
+        self.inner.delete(key)
     }
 }

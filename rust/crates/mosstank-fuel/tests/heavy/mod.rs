@@ -692,3 +692,64 @@ pub fn chat_line(sequence: u64, received_unix_ms: i64) -> ChatLine {
         received_unix_ms,
     }
 }
+
+/// Every carried item's properties as a full appraisal gives them: what
+/// an identified piece of loot carries (about forty values and a long
+/// description), gear with its weapon and armor profiles. The heaviest log
+/// a character's inventory makes.
+pub fn appraised_properties(inventory: &[Created]) -> BTreeMap<u32, ItemProperties> {
+    use ac_plugin_abi::world::{ArmorProfile, WeaponProfile};
+    inventory
+        .iter()
+        .filter_map(|created| created.item.as_ref())
+        .enumerate()
+        .map(|(index, item)| {
+            let n = i32::try_from(index).unwrap_or(0);
+            let gear = item.valid_locations != 0;
+            let properties = ItemProperties {
+                ints: (0..35u32).map(|key| (key * 7 + 1, n * 31 + 3)).collect(),
+                int64s: vec![(1, 1_234_567_890_123)],
+                bools: vec![(63, true), (69, false), (100, true)],
+                floats: (0..10u32)
+                    .map(|key| (key * 11 + 5, f64::from(n) / 7.0 + 0.123))
+                    .collect(),
+                strings: vec![
+                    (1, item.name.clone()),
+                    (7, "Inscribed by Mossy Hunter".to_owned()),
+                    (14, "Use this item on a target to apply it.".to_owned()),
+                    (
+                        16,
+                        "A finely crafted piece, its surface etched with the runes of an ancient order. It hums faintly with stored mana."
+                            .to_owned(),
+                    ),
+                ],
+                data_ids: vec![(1, 0x0200_00DE), (8, 0x0600_1000)],
+                instance_ids: Vec::new(),
+                weapon: gear.then_some(WeaponProfile {
+                    damage_type: 4,
+                    weapon_time: 35,
+                    weapon_skill: 45,
+                    damage: 62,
+                    damage_variance: 0.45,
+                    damage_mod: 1.2,
+                    weapon_length: 1.0,
+                    max_velocity: 0.0,
+                    weapon_offense: 1.08,
+                    max_velocity_estimated: 0,
+                }),
+                armor: gear.then_some(ArmorProfile {
+                    armor_level: 200 + n,
+                    slash_mod: 0.4,
+                    pierce_mod: 0.6,
+                    bludgeon_mod: 1.0,
+                    cold_mod: 0.8,
+                    fire_mod: 1.2,
+                    acid_mod: 0.2,
+                    nether_mod: 0.5,
+                    electric_mod: 1.4,
+                }),
+            };
+            (item.object_id, properties)
+        })
+        .collect()
+}

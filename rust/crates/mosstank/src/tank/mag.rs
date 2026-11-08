@@ -153,11 +153,31 @@ impl TankCx<'_> {
         f(&mut mag.printer, &mut mag.identify, &mut call);
     }
 
-    /// A client event, for the Mag features: the identify chat line's
-    /// selections, appraisals and opened containers.
+    /// The `Mag.InventoryManagement.InventoryLogger` setting.
+    fn inventory_logger_enabled(&self) -> bool {
+        UbCatalog::flag(&self.ub.catalog, settings::INVENTORY_LOGGER)
+    }
+
+    /// A client event, for the Mag features: the inventory logger's login,
+    /// changes and logoff; the identify chat line's selections, appraisals
+    /// and opened containers.
     pub(crate) fn mag_event(&mut self, event: &ac_plugin_abi::Event) {
         use ac_plugin_abi::Event;
         use ac_plugin_abi::world::ObjectChangeKind;
+        match event {
+            Event::LoginComplete => self.mag.inventory_log.on_login_complete(),
+            Event::Logoff => {
+                let enabled = self.inventory_logger_enabled();
+                self.mag.inventory_log.on_logoff(self.client.mag(), enabled);
+            }
+            Event::ObjectChanged(change) => {
+                let enabled = self.inventory_logger_enabled();
+                let mag = &mut *self.mag;
+                mag.inventory_log
+                    .on_object_changed(change, &mut mag.identify, enabled);
+            }
+            _ => {}
+        }
         match event {
             Event::SelectionChanged(change) if change.selected.is_some_and(|id| id != 0) => {
                 let enabled = self.item_info_settings().enabled;
@@ -192,24 +212,32 @@ impl TankCx<'_> {
     }
 
     /// One frame of the Mag features, with the character in the world: the
-    /// container scan, then the identify queue.
-    pub(crate) fn mag_tick(&mut self) {
+    /// container scan, the inventory logger's tick's worth, then the
+    /// identify queue. True when the logger did a tick's worth of work.
+    pub(crate) fn mag_tick(&mut self) -> bool {
         if !self.mag.printer.is_idle() {
             let settings = self.item_info_settings();
             let now = self.client.mag().now_ms();
             self.with_printer(|printer, queue, call| printer.tick(call, queue, now, settings));
         }
+        let enabled = self.inventory_logger_enabled();
+        let mag = &mut *self.mag;
+        let logged = mag
+            .inventory_log
+            .tick(self.client.mag(), &mut mag.identify, enabled);
         if !self.mag.identify.is_empty() {
             let looter_busy = self.core.loot.is_identifying();
             self.mag.identify.tick(self.client.mag(), looter_busy);
         }
+        logged
     }
 
-    /// The character left the world: the appraisals it waited on and the
-    /// identify line's state are forgotten.
+    /// The character left the world: the appraisals it waited on, the
+    /// identify line's state and the inventory logger's are forgotten.
     pub(crate) fn mag_session_ended(&mut self) {
         self.mag.identify.clear();
         self.mag.printer.reset();
+        self.mag.inventory_log.reset();
     }
 }
 

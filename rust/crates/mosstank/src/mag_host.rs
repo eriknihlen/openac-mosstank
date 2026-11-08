@@ -31,4 +31,8 @@ impl MagHost for HostAutomation<'_, '_> {
     fn now_ms(&mut self) -> f64 {
         self.service().clock().monotonic_ms as f64
     }
+
+    fn utc_unix_ms(&mut self) -> i64 {
+        self.service().clock().utc_unix_ms
+    }
 }

@@ -52,4 +52,6 @@ pub struct MagParts {
     pub identify: identify::IdentifyQueue,
     /// The identify chat line's detectors.
     pub printer: printer::Printer,
+    /// The inventory logger.
+    pub inventory_log: inventory_log::InventoryLogger,
 }

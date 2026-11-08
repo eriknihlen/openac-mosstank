@@ -361,10 +361,13 @@ fn i(v: i32) -> JsonValue {
     JsonValue::Number(JsonNumber::I64(i64::from(v)))
 }
 
-/// A double, `null` when it is not finite (JSON has no such number).
+/// A double, `null` when it is not finite (JSON has no such number). The
+/// text is the shortest that reads back as the same value (Rust's own,
+/// which costs a small part of the .NET-exact formatting the plugin kit
+/// offers; nothing reads this file but this plugin).
 fn f64_value(v: f64) -> JsonValue {
     if v.is_finite() {
-        JsonValue::Number(JsonNumber::F64(v))
+        JsonValue::Number(JsonNumber::Text(format!("{v:?}")))
     } else {
         JsonValue::Null
     }
@@ -372,7 +375,7 @@ fn f64_value(v: f64) -> JsonValue {
 
 fn f32_value(v: f32) -> JsonValue {
     if v.is_finite() {
-        JsonValue::Number(JsonNumber::F32(v))
+        JsonValue::Number(JsonNumber::Text(format!("{v:?}")))
     } else {
         JsonValue::Null
     }

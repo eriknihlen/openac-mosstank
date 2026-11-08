@@ -263,6 +263,12 @@ fn a_broken_file_is_corrupt() {
     let text = document(&[ring_record()]);
     assert_eq!(read(&text[..text.len() / 2]), Err(ReadError::Corrupt));
     assert_eq!(read("not json"), Err(ReadError::Corrupt));
+    // A comma after the last item, or none between two.
+    let two = document(&[ring_record(), ring_record()]);
+    let trailing = two.replacen("\n]}", ",\n]}", 1);
+    assert_eq!(read(&trailing), Err(ReadError::Corrupt));
+    let missing = two.replacen(",\n{", "\n{", 1);
+    assert_eq!(read(&missing), Err(ReadError::Corrupt));
     // An item without its id.
     let text = text.replacen(&format!("\"id\":{RING},"), "", 1);
     assert_eq!(read(&text), Err(ReadError::Corrupt));
@@ -405,5 +411,464 @@ fn a_name_ending_in_a_dot_never_makes_a_double_dot() {
         assert!(!key.contains('\\'), "{key}");
         assert_eq!(key.matches('/').count(), 2, "{key}");
         assert!(key.ends_with(".inventory.json"), "{key}");
+    }
+}
+
+// --- When it saves (`InventoryLogger`), staged ---
+
+mod logger {
+    use ac_plugin_abi::items::InventoryItem;
+    use ac_plugin_abi::world::{
+        ItemProperties, ObjectChange, ObjectChangeKind, ObjectClass, WorldObject,
+    };
+    use mosstank_mag::identify::IdentifyQueue;
+    use mosstank_mag::inventory_log::{InventoryLogger, ItemRecord, LogHeader, read, write};
+    use mosstank_mag::testing::FakeMagHost;
+
+    /// The fake's character: its id, and its file.
+    const PLAYER: u32 = 1;
+    const KEY: &str = "Mag-Tools/Coldeve/Meta Tester.inventory.json";
+    const SIDE_PACK: u32 = 0x8000_0900;
+
+    struct Rig {
+        host: FakeMagHost,
+        queue: IdentifyQueue,
+        logger: InventoryLogger,
+        enabled: bool,
+    }
+
+    impl Rig {
+        fn new() -> Self {
+            Self {
+                host: FakeMagHost::new(),
+                queue: IdentifyQueue::default(),
+                logger: InventoryLogger::default(),
+                enabled: true,
+            }
+        }
+
+        /// The character owns `item`, known to the world (appraised or not).
+        fn own(&mut self, item: InventoryItem, appraised: bool, properties: ItemProperties) {
+            self.host.meta.objects.push(object(&item, appraised));
+            self.host.meta.properties.insert(item.object_id, properties);
+            self.host.meta.owned_items.push(item);
+        }
+
+        /// `count` loose things (no appraisal needed).
+        fn own_things(&mut self, count: u32) {
+            for n in 0..count {
+                let item = item(0x8000_2000 + n, "Pyreal", ObjectClass::Money, PLAYER);
+                self.own(item, false, ItemProperties::default());
+            }
+        }
+
+        fn login(&mut self) {
+            self.logger.on_login_complete();
+        }
+
+        fn tick(&mut self) -> bool {
+            self.host.now_ms += 16.0;
+            self.logger
+                .tick(&mut self.host, &mut self.queue, self.enabled)
+        }
+
+        fn ticks(&mut self, count: usize) {
+            for _ in 0..count {
+                self.tick();
+            }
+        }
+
+        fn change(&mut self, kind: ObjectChangeKind, object: Option<WorldObject>, id: u32) {
+            let change = ObjectChange {
+                object_id: id,
+                kind,
+                revision: 1,
+                changed_fields: 0,
+                current: object,
+            };
+            self.logger
+                .on_object_changed(&change, &mut self.queue, self.enabled);
+        }
+
+        fn logoff(&mut self) {
+            self.logger.on_logoff(&mut self.host, self.enabled);
+        }
+
+        fn writes(&self) -> usize {
+            self.host.storage.writes.len()
+        }
+
+        fn saved(&self) -> Vec<ItemRecord> {
+            let text = self.host.meta.storage.get(KEY).expect("the log is written");
+            read(&text).expect("the log reads").1
+        }
+
+        /// The world now holds `owned`'s appraisal, with `properties`.
+        fn appraise(&mut self, owned: &InventoryItem, properties: ItemProperties) -> WorldObject {
+            let appraised = object(owned, true);
+            if let Some(slot) = self
+                .host
+                .meta
+                .objects
+                .iter_mut()
+                .find(|o| o.object_id == owned.object_id)
+            {
+                *slot = appraised.clone();
+            }
+            self.host
+                .meta
+                .properties
+                .insert(owned.object_id, properties);
+            appraised
+        }
+    }
+
+    fn item(id: u32, name: &str, class: ObjectClass, container_id: u32) -> InventoryItem {
+        InventoryItem {
+            object_id: id,
+            name: name.to_owned(),
+            object_class: class,
+            container_id,
+            stack_size: 1,
+            ..InventoryItem::default()
+        }
+    }
+
+    fn object(item: &InventoryItem, appraised: bool) -> WorldObject {
+        WorldObject {
+            object_id: item.object_id,
+            name: item.name.clone(),
+            object_class: item.object_class,
+            container_id: item.container_id,
+            is_owned: true,
+            has_appraisal_data: appraised,
+            last_id_time: i32::from(appraised),
+            ..WorldObject::default()
+        }
+    }
+
+    fn ints(values: &[(u32, i32)]) -> ItemProperties {
+        ItemProperties {
+            ints: values.to_vec(),
+            ..ItemProperties::default()
+        }
+    }
+
+    #[test]
+    fn the_build_takes_a_hundred_items_a_tick_and_writes_once() {
+        let mut rig = Rig::new();
+        rig.own_things(250);
+        rig.login();
+        assert!(rig.tick());
+        assert!(rig.tick());
+        assert_eq!(rig.writes(), 0);
+        assert!(rig.tick());
+        assert_eq!(rig.host.storage.writes, vec![KEY.to_owned()]);
+        assert_eq!(rig.saved().len(), 250);
+        // Listed once; each item's properties read once.
+        assert_eq!(rig.host.owned_listings, 1);
+        assert_eq!(rig.host.property_reads, 250);
+        // Nothing more to do.
+        rig.ticks(20);
+        assert_eq!(rig.writes(), 1);
+        assert!(!rig.tick());
+    }
+
+    #[test]
+    fn the_build_waits_for_the_whole_inventory() {
+        let mut rig = Rig::new();
+        rig.own_things(5);
+        rig.host.complete = false;
+        rig.login();
+        rig.ticks(5);
+        assert_eq!(rig.host.owned_listings, 0);
+        assert_eq!(rig.writes(), 0);
+        rig.host.complete = true;
+        rig.tick();
+        assert_eq!(rig.writes(), 1);
+    }
+
+    #[test]
+    fn nothing_happens_before_login() {
+        let mut rig = Rig::new();
+        rig.own_things(5);
+        rig.ticks(5);
+        rig.logoff();
+        assert_eq!(rig.writes(), 0);
+        assert_eq!(rig.host.owned_listings, 0);
+    }
+
+    #[test]
+    fn logoff_writes_the_kept_list_once_without_reading_again() {
+        let mut rig = Rig::new();
+        rig.own_things(250);
+        rig.login();
+        rig.ticks(3);
+        let listings = rig.host.owned_listings;
+        let reads = rig.host.property_reads;
+        rig.host.utc_ms += 60_000;
+        rig.logoff();
+        assert_eq!(rig.writes(), 2);
+        assert_eq!(rig.host.owned_listings, listings);
+        assert_eq!(rig.host.property_reads, reads);
+        assert_eq!(rig.saved().len(), 250);
+        let text = rig.host.meta.storage.get(KEY).unwrap();
+        assert!(text.contains("\"saved_unix_ms\":1762560060000"));
+    }
+
+    #[test]
+    fn logoff_before_the_list_is_whole_writes_nothing() {
+        let mut rig = Rig::new();
+        rig.own_things(250);
+        rig.login();
+        rig.tick();
+        rig.logoff();
+        assert_eq!(rig.writes(), 0);
+    }
+
+    #[test]
+    fn with_the_setting_off_nothing_is_read_asked_or_written() {
+        let mut rig = Rig::new();
+        rig.enabled = false;
+        let ring = item(0x8000_0101, "Ring", ObjectClass::Jewelry, PLAYER);
+        rig.own(ring.clone(), false, ItemProperties::default());
+        rig.own_things(10);
+        rig.login();
+        rig.ticks(5);
+        let mut fresh = ring.clone();
+        fresh.object_id = 0x8000_0102;
+        rig.change(
+            ObjectChangeKind::Created,
+            Some(object(&fresh, false)),
+            fresh.object_id,
+        );
+        rig.logoff();
+        assert_eq!(rig.writes(), 0);
+        assert_eq!(rig.host.owned_listings, 0);
+        assert!(rig.queue.is_empty());
+    }
+
+    #[test]
+    fn a_new_item_needing_ident_directly_in_the_main_pack_is_queued_once() {
+        let mut rig = Rig::new();
+        rig.own_things(3);
+        rig.login();
+        rig.tick();
+        let ring = item(0x8000_0101, "Ring", ObjectClass::Jewelry, PLAYER);
+        let seen = object(&ring, false);
+        rig.change(
+            ObjectChangeKind::Created,
+            Some(seen.clone()),
+            ring.object_id,
+        );
+        rig.change(
+            ObjectChangeKind::Updated,
+            Some(seen.clone()),
+            ring.object_id,
+        );
+        assert_eq!(rig.queue.len(), 1);
+        assert!(rig.queue.contains(ring.object_id));
+        // Asked for, then heard again: not asked again.
+        rig.queue.tick(&mut rig.host, false);
+        assert!(rig.queue.is_empty());
+        rig.change(ObjectChangeKind::Updated, Some(seen), ring.object_id);
+        assert!(rig.queue.is_empty());
+        // In a side pack, not a kind that needs it, or appraised: not asked.
+        let in_pack = item(0x8000_0103, "Ring", ObjectClass::Jewelry, SIDE_PACK);
+        let gem = item(0x8000_0104, "Sapphire", ObjectClass::Gem, PLAYER);
+        let known = item(0x8000_0106, "Ring", ObjectClass::Jewelry, PLAYER);
+        for (seen, appraised) in [(&in_pack, false), (&gem, false), (&known, true)] {
+            rig.change(
+                ObjectChangeKind::Created,
+                Some(object(seen, appraised)),
+                seen.object_id,
+            );
+        }
+        assert!(rig.queue.is_empty());
+        // A gem named Aetheria needs it.
+        let aetheria = item(0x8000_0105, "Coalesced Aetheria", ObjectClass::Gem, PLAYER);
+        rig.change(
+            ObjectChangeKind::Created,
+            Some(object(&aetheria, false)),
+            aetheria.object_id,
+        );
+        assert_eq!(rig.queue.len(), 1);
+    }
+
+    #[test]
+    fn items_never_appraised_are_asked_for_and_the_log_is_written_again_when_all_are_in() {
+        let mut rig = Rig::new();
+        let sword = item(0x8000_0201, "Sword", ObjectClass::MeleeWeapon, PLAYER);
+        let essence = item(
+            0x8000_0202,
+            "Mosswart Essence",
+            ObjectClass::Misc,
+            SIDE_PACK,
+        );
+        rig.own(sword.clone(), false, ItemProperties::default());
+        rig.own(essence.clone(), false, ItemProperties::default());
+        rig.own_things(4);
+        rig.login();
+        rig.tick();
+        // No log yet: the first-run line, the requests, and the first save.
+        assert_eq!(
+            rig.host.posted_text(),
+            vec![
+                "<{Mag-Tools}>: Requesting id information for all armor/weapon inventory. This will take a few minutes..."
+                    .to_owned()
+            ]
+        );
+        assert_eq!(rig.queue.len(), 2);
+        assert_eq!(rig.writes(), 1);
+        // The appraisals come in, one by one: the log is written again when
+        // the last one is in.
+        for (n, owned) in [&sword, &essence].into_iter().enumerate() {
+            rig.queue.tick(&mut rig.host, false);
+            rig.host.now_ms += 1000.0;
+            let appraised = rig.appraise(owned, ints(&[(105, 8)]));
+            rig.change(
+                ObjectChangeKind::IdentReceived,
+                Some(appraised),
+                owned.object_id,
+            );
+            rig.tick();
+            assert_eq!(rig.writes(), 1 + n, "after appraisal {n}");
+        }
+        assert_eq!(
+            rig.host.identified,
+            vec![sword.object_id, essence.object_id]
+        );
+        let saved = rig.saved();
+        assert!(
+            saved
+                .iter()
+                .filter(|r| r.object_class != ObjectClass::Money)
+                .all(|r| r.has_id_data && r.properties.int(105) == Some(8))
+        );
+        assert_eq!(
+            rig.host.posted_text().last().map(String::as_str),
+            Some(
+                "<{Mag-Tools}>: Requesting id information for all armor/weapon inventory completed. Log file written."
+            )
+        );
+        rig.ticks(5);
+        assert_eq!(rig.writes(), 2);
+    }
+
+    #[test]
+    fn the_last_saves_appraisals_are_kept_and_not_asked_for_again() {
+        let mut rig = Rig::new();
+        let sword = item(0x8000_0201, "Sword", ObjectClass::MeleeWeapon, PLAYER);
+        let previous = ItemRecord::from_live(
+            &sword,
+            Some(&object(&sword, true)),
+            &ints(&[(105, 9), (19, 1)]),
+            1234,
+        );
+        let sold = ItemRecord::from_live(
+            &item(0x8000_0299, "Sold Sword", ObjectClass::MeleeWeapon, PLAYER),
+            None,
+            &ItemProperties::default(),
+            0,
+        );
+        let header = LogHeader {
+            version: 1,
+            character: "Meta Tester".to_owned(),
+            world: "Coldeve".to_owned(),
+            saved_unix_ms: 1,
+        };
+        let fragments = [previous.to_json(), sold.to_json()];
+        let text = write(&header, fragments.iter().map(String::as_str));
+        rig.host.meta.storage.insert(KEY, &text);
+        rig.own(sword, false, ints(&[(19, 2)]));
+        rig.login();
+        // The last log read, opened, its item read; then the records.
+        rig.ticks(3);
+        assert_eq!(rig.writes(), 0);
+        rig.tick();
+        assert!(rig.queue.is_empty());
+        assert!(rig.host.posted_text().is_empty());
+        let saved = rig.saved();
+        assert_eq!(saved.len(), 1);
+        assert!(saved[0].has_id_data);
+        assert_eq!(saved[0].last_id_time, 1234);
+        assert_eq!(saved[0].properties.ints, vec![(105, 9), (19, 2)]);
+    }
+
+    #[test]
+    fn a_log_of_an_unknown_version_is_never_overwritten() {
+        let mut rig = Rig::new();
+        let text = "{\"version\":2,\"items\":[]}";
+        rig.host.meta.storage.insert(KEY, text);
+        let sword = item(0x8000_0201, "Sword", ObjectClass::MeleeWeapon, PLAYER);
+        rig.own(sword, false, ItemProperties::default());
+        rig.own_things(3);
+        rig.login();
+        rig.ticks(5);
+        rig.logoff();
+        assert_eq!(rig.writes(), 0);
+        assert_eq!(rig.host.meta.storage.get(KEY).as_deref(), Some(text));
+        assert!(rig.queue.is_empty());
+    }
+
+    #[test]
+    fn a_corrupt_log_is_said_and_replaced() {
+        let mut rig = Rig::new();
+        rig.host
+            .meta
+            .storage
+            .insert(KEY, "{\"version\":1,\"items\":[{\"id\":");
+        rig.own_things(3);
+        rig.login();
+        rig.ticks(3);
+        assert_eq!(
+            rig.host.posted_text(),
+            vec!["<{Mag-Tools}>: Inventory file is corrupt.".to_owned()]
+        );
+        assert_eq!(rig.saved().len(), 3);
+    }
+
+    #[test]
+    fn the_kept_list_follows_moves_and_losses() {
+        let mut rig = Rig::new();
+        let ring = item(0x8000_0101, "Ring", ObjectClass::Jewelry, PLAYER);
+        rig.own(ring.clone(), true, ItemProperties::default());
+        rig.own_things(3);
+        rig.login();
+        rig.tick();
+        // The ring goes into a side pack; a pyreal is given away.
+        rig.host.meta.owned_items[0].container_id = SIDE_PACK;
+        rig.host.meta.owned_items[0].container_slot = 4;
+        rig.change(
+            ObjectChangeKind::Moved,
+            Some(object(&ring, true)),
+            ring.object_id,
+        );
+        let gone = rig.host.meta.owned_items.remove(1).object_id;
+        rig.change(ObjectChangeKind::Released, None, gone);
+        assert!(rig.tick());
+        rig.logoff();
+        let saved = rig.saved();
+        assert_eq!(saved.len(), 3);
+        assert_eq!(
+            (saved[0].container_id, saved[0].container_slot),
+            (SIDE_PACK, 4)
+        );
+        assert!(saved.iter().all(|r| r.id != gone));
+        // The kept list is the current inventory, for the search.
+        assert_eq!(rig.logger.records().count(), 3);
+    }
+
+    #[test]
+    fn the_session_ending_forgets_everything() {
+        let mut rig = Rig::new();
+        rig.own_things(3);
+        rig.login();
+        rig.tick();
+        rig.logger.reset();
+        rig.ticks(3);
+        rig.logoff();
+        assert_eq!(rig.writes(), 1);
+        assert_eq!(rig.logger.records().count(), 0);
     }
 }

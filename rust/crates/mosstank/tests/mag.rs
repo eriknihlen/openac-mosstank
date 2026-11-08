@@ -291,3 +291,31 @@ fn an_opened_housing_storage_prints_nothing() {
     assert!(world.chat().is_empty(), "{:?}", world.chat());
     assert!(world.with_tank(&mut plugin, |tank, _| tank.mag().identify.is_empty()));
 }
+
+#[test]
+fn the_inventory_is_logged_after_the_login_and_again_at_logoff() {
+    let mut world = World::with_character("Mag");
+    world.set_reply::<calls::ItemsInventoryComplete>(&true);
+    let ring = item(0x5000_0002, "Ring", 0x8);
+    world.set_reply::<calls::ItemsOwned>(&vec![ring]);
+    let mut plugin = world.enable();
+    world.tick(&mut plugin);
+    let key = "Mag-Tools/Coldeve/Mag.inventory.json";
+    assert!(world.plugin_data.get(key).is_none());
+    world.send(&mut plugin, ac_plugin_abi::Event::LoginComplete);
+    world.tick(&mut plugin);
+    let text = world.plugin_data.get(key).expect("the log").to_owned();
+    let (header, records) = mosstank_mag::inventory_log::read(&text).expect("it reads");
+    assert_eq!(
+        (header.character.as_str(), header.world.as_str()),
+        ("Mag", "Coldeve")
+    );
+    assert_eq!(records.len(), 1);
+    assert_eq!(records[0].name, "Ring");
+    // Logging off writes it again, with the time of the logoff.
+    world.fake.clock.utc_unix_ms += 1000;
+    world.send(&mut plugin, ac_plugin_abi::Event::Logoff);
+    let text = world.plugin_data.get(key).expect("the log").to_owned();
+    let (logged_off, _) = mosstank_mag::inventory_log::read(&text).expect("it reads");
+    assert_eq!(logged_off.saved_unix_ms, header.saved_unix_ms + 1000);
+}
