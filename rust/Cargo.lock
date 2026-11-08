@@ -838,6 +838,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "mosstank-mag"
+version = "0.6.10"
+dependencies = [
+ "ac-plugin-abi",
+ "mosstank-dotnet",
+ "mosstank-meta",
+ "mosstank-stores",
+ "openac-plugin-compat",
+ "roxmltree",
+]
+
+[[package]]
 name = "mosstank-meta"
 version = "0.6.10"
 dependencies = [
