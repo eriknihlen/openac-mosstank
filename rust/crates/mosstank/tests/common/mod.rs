@@ -35,6 +35,9 @@ pub struct World {
     /// The C# panel tests' `FakeAutomation`, when a test uses it: it
     /// answers the character, spell, cast, item and selection calls.
     pub automation: Option<automation::FakeAutomation>,
+    /// The objects the world knows, each answered by its own id, when a
+    /// test sets them (otherwise one canned reply answers every id).
+    pub objects: Option<Vec<ac_plugin_abi::world::WorldObject>>,
     /// The C# panel tests' `FrameLootSurface`, when a test uses it.
     pub loot: Option<FrameLootSurface>,
     /// The known-spell lists' revision and the lists it was given for: it
@@ -77,6 +80,7 @@ impl World {
             chat_log: None,
             refuse_window_show: false,
             automation: None,
+            objects: None,
             loot: None,
             known_revision: (0, None),
             known_spells: Vec::new(),
@@ -357,6 +361,16 @@ impl Transport for World {
             }
             Import::StorageUnlock => {
                 self.answer::<calls::StorageUnlock>(bytes, |_, _handle: u32| true)
+            }
+            Import::WorldObject if self.objects.is_some() => {
+                self.answer::<calls::WorldObject>(bytes, |world, object_id: u32| {
+                    world
+                        .objects
+                        .iter()
+                        .flatten()
+                        .find(|object| object.object_id == object_id)
+                        .cloned()
+                })
             }
             Import::LootState if self.loot.is_some() => {
                 self.answer::<calls::LootState>(bytes, |world, ()| {

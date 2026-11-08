@@ -4,30 +4,35 @@
 
 use ac_plugin_abi::items::InventoryItem;
 use ac_plugin_abi::world::ItemProperties;
-use mosstank_automation::Automation;
 use mosstank_formats::utl::{LootAction, LootRule};
-use mosstank_loot::rules;
+use mosstank_loot::controller;
+use mosstank_loot::host::LootHost;
 use mosstank_mag::host::{LootVerdict, MagHost, Verdict};
 use mosstank_mag::identify::IdentifyQueue;
 use mosstank_mag::printer::{IdentCall, PrintSettings, Printer};
 use mosstank_mag::settings;
+use mosstank_settings::model::LootSettings;
 use mosstank_ub::catalog::UbCatalog;
 
 use super::rules::TankCx;
 use crate::client::TankClient;
 
 /// The loot profile MossTank loots by, as the item-info line asks it: the
-/// first matching rule decides, as the looter's own decision does.
+/// looter's own decision ([`controller::profile_decision`]): the first
+/// matching rule, or the external classifier the looter is set to.
 pub(crate) struct ShellVerdict<'a> {
     /// The profile's rules.
     pub(crate) rules: &'a [LootRule],
+    /// The external classifier the looter asks instead, blank for none.
+    pub(crate) external_classifier_id: &'a str,
     /// A profile is active (`profile_active`); without one there is no
     /// verdict.
     pub(crate) profile_loaded: bool,
     /// What the character owns, for the keep-up-to counts.
     pub(crate) owned: &'a [InventoryItem],
-    /// The client, for the requirements that read the character.
-    pub(crate) host: &'a mut dyn Automation,
+    /// The client, for the requirements that read the character and the
+    /// external classifier.
+    pub(crate) host: &'a mut dyn LootHost,
 }
 
 impl LootVerdict for ShellVerdict<'_> {
@@ -35,13 +40,14 @@ impl LootVerdict for ShellVerdict<'_> {
         if !self.profile_loaded {
             return None;
         }
-        let (decision, refusal) = rules::decide(
+        let (decision, refusal) = controller::profile_decision(
+            &mut *self.host,
             item,
             properties,
             self.rules,
+            self.external_classifier_id,
             self.owned,
             None,
-            Some(&mut *self.host),
         );
         Some(match decision {
             Some(decision) => Verdict {
@@ -61,18 +67,24 @@ impl LootVerdict for ShellVerdict<'_> {
 
     fn needs_identify(&mut self, item: &InventoryItem, properties: &ItemProperties) -> bool {
         self.profile_loaded
-            && rules::needs_identify(item, properties, self.rules, Some(&mut *self.host))
+            && controller::profile_needs_identify(
+                &mut *self.host,
+                item,
+                properties,
+                self.rules,
+                self.external_classifier_id,
+            )
     }
 }
 
 /// The client and the loaded loot profile for one Mag call: the printer
 /// reaches the client, and the profile through a [`ShellVerdict`] made per
 /// question (both borrow the same client). The owned items, for the
-/// keep-up-to counts, are listed once a call, at the first verdict.
+/// keep-up-to counts and the identified item's record, are listed once a
+/// call.
 struct ShellIdentCall<'a> {
     client: &'a mut dyn TankClient,
-    rules: &'a [LootRule],
-    profile_loaded: bool,
+    loot: &'a LootSettings,
     owned: Option<Vec<InventoryItem>>,
 }
 
@@ -81,27 +93,34 @@ impl IdentCall for ShellIdentCall<'_> {
         self.client.mag()
     }
 
+    fn owned(&mut self) -> &[InventoryItem] {
+        let client = &mut *self.client;
+        self.owned.get_or_insert_with(|| client.mag().owned_items())
+    }
+
     fn verdict(&mut self, item: &InventoryItem, properties: &ItemProperties) -> Option<Verdict> {
-        if !self.profile_loaded {
+        if !self.loot.profile_active {
             return None;
         }
         let client = &mut *self.client;
         let owned = self.owned.get_or_insert_with(|| client.mag().owned_items());
         ShellVerdict {
-            rules: self.rules,
+            rules: &self.loot.rules,
+            external_classifier_id: &self.loot.external_classifier_id,
             profile_loaded: true,
             owned,
-            host: client.rules(),
+            host: client.looter(),
         }
         .verdict(item, properties)
     }
 
     fn needs_identify(&mut self, item: &InventoryItem, properties: &ItemProperties) -> bool {
         ShellVerdict {
-            rules: self.rules,
-            profile_loaded: self.profile_loaded,
+            rules: &self.loot.rules,
+            external_classifier_id: &self.loot.external_classifier_id,
+            profile_loaded: self.loot.profile_active,
             owned: &[],
-            host: self.client.rules(),
+            host: self.client.looter(),
         }
         .needs_identify(item, properties)
     }
@@ -127,8 +146,7 @@ impl TankCx<'_> {
         let loot = &self.core.settings.inventory.loot;
         let mut call = ShellIdentCall {
             client: &mut *self.client,
-            rules: &loot.rules,
-            profile_loaded: loot.profile_active,
+            loot,
             owned: None,
         };
         let mag = &mut *self.mag;
@@ -197,9 +215,13 @@ impl TankCx<'_> {
 
 #[cfg(test)]
 mod tests {
-    use mosstank_ub::testing::FakeUbHost;
+    use ac_plugin_abi::calls;
+    use ac_plugin_abi::items::{LootAction as PublicLootAction, LootClassification};
+    use openac_plugin::Host;
+    use openac_plugin::testing::FakeHost;
 
     use super::*;
+    use crate::automation::HostAutomation;
 
     fn rule(name: &str, action: LootAction) -> LootRule {
         let mut rule = LootRule::named(name, "*");
@@ -207,20 +229,88 @@ mod tests {
         rule
     }
 
-    fn verdict(rules: &[LootRule], profile_loaded: bool) -> Option<Verdict> {
-        let mut host = FakeUbHost::new();
-        let mut shell = ShellVerdict {
-            rules,
-            profile_loaded,
-            owned: &[],
-            host: &mut host,
-        };
-        let item = InventoryItem {
+    fn ring() -> InventoryItem {
+        InventoryItem {
             object_id: 7,
             name: "Ring".to_owned(),
             ..InventoryItem::default()
+        }
+    }
+
+    /// The verdict with the rules, or the external classifier `classifier`
+    /// answering `answer`.
+    fn verdict_by(
+        rules: &[LootRule],
+        profile_loaded: bool,
+        classifier: &str,
+        answer: Option<LootClassification>,
+    ) -> (Option<Verdict>, bool) {
+        let mut fake = FakeHost::new("acdream.mosstank");
+        fake.set_reply::<calls::LootClassify>(&answer);
+        let mut host = Host::with_transport(&mut fake);
+        let mut client = HostAutomation::new(&mut host);
+        let mut shell = ShellVerdict {
+            rules,
+            external_classifier_id: classifier,
+            profile_loaded,
+            owned: &[],
+            host: &mut client,
         };
-        shell.verdict(&item, &ItemProperties::default())
+        let properties = ItemProperties::default();
+        let verdict = shell.verdict(&ring(), &properties);
+        let needs = shell.needs_identify(&ring(), &properties);
+        (verdict, needs)
+    }
+
+    fn verdict(rules: &[LootRule], profile_loaded: bool) -> Option<Verdict> {
+        verdict_by(rules, profile_loaded, "", None).0
+    }
+
+    #[test]
+    fn an_external_classifier_decides_as_the_looter_asks_it() {
+        // The looter's own path (`decide_item` with an external classifier
+        // named): its classification, its rule name.
+        let answer = LootClassification {
+            matched: true,
+            action: PublicLootAction::Salvage,
+            rule_name: "Their Salvage".to_owned(),
+            priority: 1,
+            keep_count: 0,
+        };
+        let (verdict, needs) = verdict_by(
+            &[rule("Junk", LootAction::NoLoot)],
+            true,
+            "other.plugin",
+            Some(answer),
+        );
+        assert_eq!(
+            verdict,
+            Some(Verdict {
+                keep: true,
+                rule_name: "Their Salvage".to_owned(),
+                salvage: true,
+            })
+        );
+        // The looter always appraises for an external classifier.
+        assert!(needs);
+    }
+
+    #[test]
+    fn an_external_classifier_that_matches_nothing_names_no_rule() {
+        let (verdict, _) = verdict_by(
+            &[rule("Rings", LootAction::Keep)],
+            true,
+            "other.plugin",
+            None,
+        );
+        assert_eq!(
+            verdict,
+            Some(Verdict {
+                keep: false,
+                rule_name: String::new(),
+                salvage: false,
+            })
+        );
     }
 
     #[test]
