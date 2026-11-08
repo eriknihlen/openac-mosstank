@@ -15,6 +15,7 @@
 
 use std::cmp::Ordering;
 
+use ac_plugin_abi::items::InventoryItem;
 use ac_plugin_abi::world::WorldObject;
 use openac_plugin_compat::text::collation;
 
@@ -79,6 +80,7 @@ pub(super) fn dump_selected_properties(call: &mut UbCall<'_>) {
         return;
     };
     let properties = call.host.properties(item.object_id).unwrap_or_default();
+    let public_flags = item_public_flags(call, &item);
     let mut lines = description_lines(&item);
 
     let mut strings = properties.strings.clone();
@@ -88,7 +90,7 @@ pub(super) fn dump_selected_properties(call: &mut UbCall<'_>) {
     section(&mut lines, Kind::String, &strings, Clone::clone);
 
     let mut ints = properties.ints.clone();
-    for (key, value) in description_ints(&item) {
+    for (key, value) in description_ints(&item, public_flags) {
         if !ints.iter().any(|(known, _)| *known == key) {
             ints.push((key, value));
         }
@@ -110,7 +112,40 @@ pub(super) fn dump_selected_properties(call: &mut UbCall<'_>) {
         }
     }
 
-    call.write_ub_message(&format!("Property Dump for {}", item.name), lines);
+    // The whole message is printed without carriage returns, values
+    // included; a line feed left in a value breaks its line there.
+    let heading = format!("Property Dump for {}", item.name).replace('\r', "");
+    let lines: Vec<String> = lines
+        .iter()
+        .flat_map(|line| {
+            line.replace('\r', "")
+                .split('\n')
+                .map(str::to_owned)
+                .collect::<Vec<_>>()
+        })
+        .collect();
+    call.write_ub_message(&heading, lines);
+}
+
+/// The public flags of the object's item record, as the loot rules read
+/// them: the record follows later updates to the flags. An object with no
+/// item record (neither carried nor in an open container) has only the
+/// flags its latest full description carried.
+fn item_public_flags(call: &mut UbCall<'_>, item: &WorldObject) -> u32 {
+    let record = |items: Vec<InventoryItem>| {
+        items
+            .into_iter()
+            .find(|record| record.object_id == item.object_id)
+            .map(|record| record.public_flags)
+    };
+    record(call.host.owned_items())
+        .or_else(|| record(call.host.loot_contents()))
+        .or_else(|| {
+            item.header
+                .as_ref()
+                .and_then(|header| header.object_description_flags)
+        })
+        .unwrap_or(0)
 }
 
 /// The lines before the properties: who the object is and what it is.
@@ -170,7 +205,7 @@ fn coordinates(item: &WorldObject) -> String {
 /// The integers the object carries itself, under the keys loot rules and
 /// meta expressions read them by, each only when the object has a value:
 /// zero stands for "the server sent none". The class id is always there.
-fn description_ints(item: &WorldObject) -> Vec<(u32, i32)> {
+fn description_ints(item: &WorldObject, public_flags: u32) -> Vec<(u32, i32)> {
     let key = |offset: u32| DESCRIPTION_KEY_BASE + offset;
     let icon = if item.icon_id >= ICON_ID_PREFIX {
         item.icon_id - ICON_ID_PREFIX
@@ -182,11 +217,6 @@ fn description_ints(item: &WorldObject) -> Vec<(u32, i32)> {
     } else {
         item.wielder_id
     };
-    let behavior = item
-        .header
-        .as_ref()
-        .and_then(|header| header.object_description_flags)
-        .unwrap_or(0);
     let landcell = item
         .position
         .as_ref()
@@ -203,7 +233,7 @@ fn description_ints(item: &WorldObject) -> Vec<(u32, i32)> {
         (9, (item.wielder_id != 0).then_some(-1)),
         (13, present(item.coverage_mask.cast_signed())),
         (26, present(item.item_type.cast_signed())),
-        (27, present(behavior.cast_signed())),
+        (27, present(public_flags.cast_signed())),
     ]
     .into_iter()
     .filter_map(|(offset, value)| Some((key(offset), value?)))

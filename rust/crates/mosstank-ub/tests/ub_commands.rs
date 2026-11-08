@@ -7,7 +7,7 @@
 mod common;
 
 use ac_plugin_abi::character::OptionStatus;
-use ac_plugin_abi::items::{LootContainer, ObjectHeader};
+use ac_plugin_abi::items::{InventoryItem, LootContainer, ObjectHeader};
 use ac_plugin_abi::magic::SpellInfo;
 use ac_plugin_abi::navigation::{MoveChannel, MoveDirection, MovePace, MoveUnit};
 use ac_plugin_abi::social::{AllegianceResult, AllegianceStatus, LoginCharacter};
@@ -1021,6 +1021,22 @@ fn pos_with_nothing_selected_says_so() {
 }
 
 // Source: tests/AcDream.Plugins.MossTank.Tests/MossTankPanelTests.UbCommands.cs :: IdPrintsTheSelectedObjectsIdBothWaysRound
+#[test]
+fn pos_of_an_object_the_client_does_not_know_says_nothing_is_selected() {
+    let mut rig = Rig::new();
+    rig.host.meta.selection.selected = Some(0x8000_0BC3);
+    rig.ub("pos");
+    assert_eq!("[UB] Error: pos: No object selected", rig.single_message());
+}
+
+#[test]
+fn id_of_an_object_the_client_does_not_know_says_nothing_is_selected() {
+    let mut rig = Rig::new();
+    rig.host.meta.selection.selected = Some(0x8000_0BC3);
+    rig.ub("id");
+    assert_eq!("[UB] Error: Id: No object selected", rig.single_message());
+}
+
 #[test]
 fn id_prints_the_selected_objects_id_both_ways_round() {
     let mut rig = Rig::new();
@@ -2119,12 +2135,186 @@ fn propertydump_without_a_selection_says_so() {
 }
 
 #[test]
-fn propertydump_of_an_object_the_client_does_not_know_says_so() {
+fn propertydump_of_an_object_the_client_does_not_know_says_nothing_is_selected() {
     let mut rig = Rig::new();
     rig.host.meta.selection.selected = Some(0x8000_0BC3);
     rig.ub("propertydump");
     assert_eq!(
         rig.messages(),
-        ["[UB] Error: propertydump: null object selected"]
+        ["[UB] Error: propertydump: No object selected"]
+    );
+}
+
+#[test]
+fn propertydump_reads_the_behavior_key_from_the_item_records_public_flags() {
+    let mut rig = Rig::new();
+    rig.host.meta.owned_items.push(InventoryItem {
+        object_id: 0x8000_0003,
+        public_flags: 0x18,
+        ..InventoryItem::default()
+    });
+    select(
+        &mut rig,
+        WorldObject {
+            object_id: 0x8000_0003,
+            name: "Thing".to_owned(),
+            weenie_class_id: 7,
+            is_owned: true,
+            // The full description the object arrived with; a later update
+            // changed its flags, which the item record follows.
+            header: Some(ObjectHeader {
+                object_description_flags: Some(0x14),
+                ..ObjectHeader::default()
+            }),
+            ..WorldObject::default()
+        },
+        ItemProperties::default(),
+    );
+
+    rig.ub("propertydump");
+
+    assert_eq!(
+        dump_section(&rig.messages(), "Int Values:"),
+        ["  218103808(218103808) = 7", "  218103835(218103835) = 24",]
+    );
+}
+
+#[test]
+fn propertydump_prints_no_carriage_returns_even_in_values() {
+    let mut rig = Rig::new();
+    select(
+        &mut rig,
+        WorldObject {
+            object_id: 0x8000_0004,
+            name: "Note".to_owned(),
+            weenie_class_id: 7,
+            ..WorldObject::default()
+        },
+        ItemProperties {
+            strings: vec![(16, "a\r\nb".to_owned()), (15, "c\rd".to_owned())],
+            ..ItemProperties::default()
+        },
+    );
+
+    rig.ub("propertydump");
+
+    let messages = rig.messages();
+    let strings: Vec<&String> = messages
+        .iter()
+        .skip_while(|line| *line != "String Values:")
+        .skip(1)
+        .take_while(|line| *line != "Int Values:")
+        .collect();
+    assert_eq!(
+        strings,
+        [
+            "  LongDesc(16) = a",
+            "b",
+            "  Name(1) = Note",
+            "  ShortDesc(15) = cd"
+        ]
+    );
+}
+
+#[test]
+fn propertydump_shows_an_appraised_int_over_the_objects_own_value_under_its_key() {
+    let mut rig = Rig::new();
+    select(
+        &mut rig,
+        WorldObject {
+            object_id: 0x8000_0005,
+            name: "Thing".to_owned(),
+            weenie_class_id: 7,
+            items_capacity: 24,
+            ..WorldObject::default()
+        },
+        ItemProperties {
+            ints: vec![(0x0D00_0004, 102)],
+            ..ItemProperties::default()
+        },
+    );
+
+    rig.ub("propertydump");
+
+    assert_eq!(
+        dump_section(&rig.messages(), "Int Values:"),
+        ["  218103808(218103808) = 7", "  218103812(218103812) = 102",]
+    );
+}
+
+fn dump_coordinates(east_west: f64, north_south: f64) -> String {
+    let mut rig = Rig::new();
+    select(
+        &mut rig,
+        WorldObject {
+            object_id: 0x8000_0006,
+            name: "Thing".to_owned(),
+            position: Some(Position {
+                cell_id: 0x0001_0001,
+                east_west,
+                north_south,
+                is_outdoor: true,
+                ..Position::default()
+            }),
+            ..WorldObject::default()
+        },
+        ItemProperties::default(),
+    );
+    rig.ub("propertydump");
+    rig.messages()
+        .into_iter()
+        .find(|line| line.starts_with("Coordinates = "))
+        .unwrap()
+}
+
+#[test]
+fn propertydump_coordinates_are_south_and_west_below_zero_and_north_and_east_at_it() {
+    assert_eq!(dump_coordinates(-3.04, -1.26), "Coordinates = 1.3S, 3.0W");
+    assert_eq!(dump_coordinates(0.0, 0.0), "Coordinates = 0.0N, 0.0E");
+}
+
+#[test]
+fn propertydump_lists_an_appraised_name_once() {
+    let mut rig = Rig::new();
+    select(
+        &mut rig,
+        WorldObject {
+            object_id: 0x8000_0007,
+            name: "Thing".to_owned(),
+            ..WorldObject::default()
+        },
+        ItemProperties {
+            strings: vec![(1, "Appraised Thing".to_owned())],
+            ..ItemProperties::default()
+        },
+    );
+
+    rig.ub("propertydump");
+
+    assert_eq!(
+        dump_section(&rig.messages(), "String Values:"),
+        ["  Name(1) = Appraised Thing"]
+    );
+}
+
+#[test]
+fn propertydump_names_a_spell_the_catalog_lacks_by_its_number() {
+    let mut rig = Rig::new();
+    select(
+        &mut rig,
+        WorldObject {
+            object_id: 0x8000_0008,
+            name: "Thing".to_owned(),
+            spell_ids: vec![60001],
+            ..WorldObject::default()
+        },
+        ItemProperties::default(),
+    );
+
+    rig.ub("propertydump");
+
+    assert_eq!(
+        dump_section(&rig.messages(), "Spells (1):"),
+        ["  60001 (60001)"]
     );
 }

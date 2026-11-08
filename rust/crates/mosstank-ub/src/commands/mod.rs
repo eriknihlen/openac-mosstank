@@ -955,15 +955,17 @@ fn id_line(item: &WorldObject) -> String {
 }
 
 /// The selected object, or `None` having said why (`TryGetSelectedObject`).
+/// Nothing selected and a selection the client knows no object for are the
+/// same answer: the reference tests the selection against the client's
+/// objects before it looks the object up, and an object the client knows is
+/// always found.
 fn selected_object(call: &mut UbCall<'_>, verb: &str) -> Option<WorldObject> {
     let selected = call.host.selection().selected.unwrap_or(0);
-    if selected == 0 {
-        call.write_ub_error(&format!("{verb}: No object selected"));
-        return None;
-    }
-    let item = call.host.object(selected);
+    let item = (selected != 0)
+        .then(|| call.host.object(selected))
+        .flatten();
     if item.is_none() {
-        call.write_ub_error(&format!("{verb}: null object selected"));
+        call.write_ub_error(&format!("{verb}: No object selected"));
     }
     item
 }
