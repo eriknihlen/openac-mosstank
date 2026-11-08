@@ -40,6 +40,10 @@ fn f0_f1() {
     assert_eq!(f0(round(62.5, 0)), "62");
     assert_eq!(f1(round(12.34, 1)), "12.3");
     assert_eq!(f1(0.0), "0.0");
+    // The fixed formats never print a negative zero.
+    assert_eq!(f0(-0.4), "0");
+    assert_eq!(f1(-0.000_01), "0.0");
+    assert_eq!(n1(-0.04), "0.0");
 }
 
 #[test]

@@ -6,6 +6,9 @@
 //! - [`host`]: the client as the features reach it ([`host::MagHost`]) and
 //!   the loot profile's verdict on an item ([`host::LootVerdict`]).
 //! - [`identify`]: the paced identify queue the features share.
+//! - [`settings`]: the Mag settings' names in the UB settings catalogue.
+//! - `testing` (native builds only): a client and a loot profile in memory
+//!   for the tests ([`testing::FakeMagHost`], [`testing::FakeVerdict`]).
 //!
 //! The client comes in through [`host::MagHost`] (the meta engine's
 //! [`mosstank_meta::host::MetaHost`] and the calls only the Mag features

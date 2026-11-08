@@ -37,8 +37,10 @@ pub struct Verdict {
 
 /// MossTank's loaded loot profile, as the item-info line asks it.
 pub trait LootVerdict {
-    /// `None` when no profile is loaded. `needs_identify` items answer
-    /// `None` until their appraisal is in.
+    /// `None` when no profile is loaded. The verdict is on the properties
+    /// given: a caller that wants it on an appraised item asks once its own
+    /// appraisal is in (see [`Self::needs_identify`]), since
+    /// `needs_identify` itself does not change when the appraisal arrives.
     fn verdict(&mut self, item: &InventoryItem, properties: &ItemProperties) -> Option<Verdict>;
     /// The profile needs an appraisal of this item before it can decide.
     fn needs_identify(&mut self, item: &InventoryItem, properties: &ItemProperties) -> bool;
