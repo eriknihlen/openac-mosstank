@@ -11,6 +11,7 @@
 //! - [`inventory_search`]: the Inventory window: the search across every
 //!   character the logger saved.
 //! - [`item_info`]: the one-line description of an identified item.
+//! - [`mana`]: the mana list: the worn items, their mana and time left.
 //! - [`printer`]: the identify chat line with the loot verdict, and its
 //!   two triggers.
 //! - [`settings`]: the Mag settings' names in the UB settings catalogue.
@@ -27,6 +28,7 @@ pub mod identify;
 pub mod inventory_log;
 pub mod inventory_search;
 pub mod item_info;
+pub mod mana;
 pub mod printer;
 pub mod settings;
 #[cfg(not(target_arch = "wasm32"))]
@@ -57,4 +59,6 @@ pub struct MagParts {
     pub printer: printer::Printer,
     /// The inventory logger.
     pub inventory_log: inventory_log::InventoryLogger,
+    /// The mana list.
+    pub mana: mana::ManaTracker,
 }
