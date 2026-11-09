@@ -674,13 +674,18 @@ pub fn chat_line(sequence: u64, received_unix_ms: i64) -> ChatLine {
         ),
     };
     let system = kind == 4;
+    // The line as the chat window prints it (OpenAC's `display_text`).
+    let sender_id = 0x5000_1000 + u32::try_from(index % 50).unwrap_or(0);
+    let tagged = format!("<Tell:IIDString:{sender_id}:{speaker}>{speaker}<\\Tell>");
+    let display_text = match kind {
+        0 => format!("{tagged} says, \"{text}\""),
+        2 => format!("[{channel}] {tagged} says, \"{text}\""),
+        3 => format!("{tagged} tells you, \"{text}\""),
+        _ => text.clone(),
+    };
     ChatLine {
         sequence,
-        sender_id: if system {
-            0
-        } else {
-            0x5000_1000 + u32::try_from(index % 50).unwrap_or(0)
-        },
+        sender_id: if system { 0 } else { sender_id },
         kind,
         sender: if system { String::new() } else { speaker },
         text,
@@ -688,7 +693,7 @@ pub fn chat_line(sequence: u64, received_unix_ms: i64) -> ChatLine {
         log_text_type,
         combat_kind: u32::from(kind == 8),
         channel_id: 0,
-        display_text: String::new(),
+        display_text,
         received_unix_ms,
     }
 }
@@ -753,4 +758,136 @@ pub fn appraised_properties(inventory: &[Created]) -> BTreeMap<u32, ItemProperti
             (item.object_id, properties)
         })
         .collect()
+}
+
+/// How many monsters a long-lived character's persistent combat stats
+/// hold (an info for its hits on each, one for each's hits on it).
+pub const PERSISTENT_MONSTERS: usize = 1000;
+
+/// The monster `index` of the fights.
+fn monster_name(index: usize) -> String {
+    const KINDS: [&str; 10] = [
+        "Drudge Skulker",
+        "Mosswart Defiler",
+        "Olthoi Soldier",
+        "Lugian Launcher",
+        "Virindi Executor",
+        "Banderling Raider",
+        "Tusker Guard",
+        "Shadow Lieutenant",
+        "Crystal Shard Sentinel",
+        "Invading Iron Blade Knight",
+    ];
+    format!("{} {}", KINDS[index % KINDS.len()], index / KINDS.len())
+}
+
+/// One combat line of a hard fight as OpenAC and ACE word them, by turns:
+/// own hits and crits, spells both ways, evades, resists, kills, a
+/// prismatic hit (whose "Unable to parse" line the plugin writes), the
+/// cloak and aetheria procs.
+#[must_use]
+pub fn fight_line(sequence: u64, received_unix_ms: i64, me: &str) -> ChatLine {
+    let index = usize::try_from(sequence).unwrap_or(0);
+    let monster = monster_name(index % 50);
+    let (kind, combat_kind, text) = match index % 16 {
+        0 => (
+            8,
+            1,
+            format!("You mangle {monster} for 112 points of slashing damage!"),
+        ),
+        1 => (
+            8,
+            1,
+            format!("Critical hit!  You mangle {monster} for 320 points of slashing damage!"),
+        ),
+        2 => (
+            8,
+            2,
+            format!("{monster} bashes your upper arm for 40 points of bludgeoning damage!"),
+        ),
+        3 => (8, 1, format!("{monster} evaded your attack.")),
+        4 => (8, 2, format!("You evaded {monster}!")),
+        5 => (
+            4,
+            0,
+            format!("You scorch {monster} for 245 points with Incantation of Flame Bolt."),
+        ),
+        6 => (
+            4,
+            0,
+            format!(
+                "Critical hit! Sneak Attack! You scorch {monster} for 490 points with Incantation of Flame Bolt."
+            ),
+        ),
+        7 => (
+            4,
+            0,
+            format!("{monster} shocks you for 96 points with Lightning Arc VII."),
+        ),
+        8 => (4, 0, format!("{monster} resists your spell")),
+        9 => (
+            8,
+            1,
+            format!(
+                "Critical hit!  Recklessness! You mangle {monster} for 410 points of slashing damage!"
+            ),
+        ),
+        10 => (8, 1, format!("You split {monster} apart!")),
+        11 => (8, 1, format!("{monster} died!")),
+        12 => (
+            4,
+            0,
+            format!("With Harm Other VI you drain 40 points of health from {monster}."),
+        ),
+        13 => (
+            8,
+            2,
+            format!("Sneak Attack! {monster} hits your chest for 60 points of prismatic damage!"),
+        ),
+        14 => (
+            4,
+            0,
+            format!("The cloak of {me} weaves the magic of Shroud of Darkness (Melee)!"),
+        ),
+        _ => (
+            4,
+            0,
+            format!("Aetheria surges on {me} with the power of Surge of Destruction!"),
+        ),
+    };
+    ChatLine {
+        sequence,
+        kind,
+        combat_kind,
+        log_text_type: if kind == 8 { 0x16 } else { 0x07 },
+        text: text.clone(),
+        display_text: text,
+        received_unix_ms,
+        ..ChatLine::default()
+    }
+}
+
+/// A long-lived character's persistent combat stats file, in Mag-Tools'
+/// format: [`PERSISTENT_MONSTERS`] monsters fought with melee and magic.
+#[must_use]
+pub fn persistent_combat_stats(me: &str) -> String {
+    let mut out = String::from("<CombatTracker>\r\n  <CombatInfos>");
+    for index in 0..PERSISTENT_MONSTERS {
+        let monster = monster_name(index);
+        out.push_str(&format!(
+            "\r\n    <CombatInfo SourceName=\"{me}\" TargetName=\"{monster}\" KillingBlows=\"{kills}\">\r\n      <MeleeMissle>\r\n        <Slash TotalAttacks=\"{a}\" Crits=\"{c}\" TotalNormalDamage=\"{d}\" MaxNormalDamage=\"412\" TotalCritDamage=\"{cd}\" MaxCritDamage=\"988\" />\r\n        <Unknown TotalAttacks=\"{f}\" FailedAttacks=\"{f}\" />\r\n      </MeleeMissle>\r\n      <Magic>\r\n        <Fire TotalAttacks=\"{m}\" TotalNormalDamage=\"{md}\" MaxNormalDamage=\"702\" />\r\n        <Unknown TotalAttacks=\"3\" FailedAttacks=\"3\" />\r\n      </Magic>\r\n      <Unknown>\r\n        <Unknown TotalAttacks=\"{kills}\" />\r\n      </Unknown>\r\n    </CombatInfo>\r\n    <CombatInfo SourceName=\"{monster}\" TargetName=\"{me}\">\r\n      <MeleeMissle>\r\n        <Bludge TotalAttacks=\"{a}\" TotalNormalDamage=\"{d}\" MaxNormalDamage=\"96\" />\r\n        <Unknown TotalAttacks=\"{f}\" FailedAttacks=\"{f}\" />\r\n      </MeleeMissle>\r\n    </CombatInfo>",
+            kills = 10 + index % 90,
+            a = 1000 + index,
+            c = 50 + index % 40,
+            d = 112_000 + index * 7,
+            cd = 16_000 + index * 3,
+            f = 200 + index % 100,
+            m = 300 + index % 50,
+            md = 73_500 + index,
+        ));
+    }
+    out.push_str(&format!(
+        "\r\n  </CombatInfos>\r\n  <AetheriaInfos>\r\n    <AetheriaInfo SourceName=\"{me}\" TargetName=\"{me}\" TotalSurges=\"5821\" />\r\n  </AetheriaInfos>\r\n  <CloakInfos>\r\n    <CloakInfo SourceName=\"{me}\" TargetName=\"{me}\" TotalSurges=\"1210\" />\r\n  </CloakInfos>\r\n</CombatTracker>"
+    ));
+    out
 }

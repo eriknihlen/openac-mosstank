@@ -322,6 +322,11 @@ impl Tank {
         {
             cx.core.heavy_frame = true;
         }
+        // The combat tracker's tick's worth (its patterns compiled, its
+        // persistent stats read in), last, on a frame that still has room.
+        if !cx.core.heavy_frame && !settling && cx.mag_combat_tick() {
+            cx.core.heavy_frame = true;
+        }
         cx.core.write_out(cx.client);
         cx.flush_timer_persistence();
     }

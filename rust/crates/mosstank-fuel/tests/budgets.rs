@@ -48,6 +48,7 @@ use common::World;
 use common::automation::FakeAutomation;
 use heavy::Created;
 use mosstank_fuel::{CallFuel, Client, DEFAULT_MEMORY_MIB, Plugin};
+use mosstank_stores::storage::PluginStorage as _;
 use openac_plugin::Transport;
 
 /// The share of a call's allowed fuel a measured call may use.
@@ -1500,6 +1501,109 @@ fn main_list_len(session: &Session, name: &str) -> usize {
         .find(|panel| panel.descriptor.window_id == "main")
         .and_then(|panel| panel.values.get(name))
         .map_or(0, |value| format!("{value:?}").matches('"').count() / 2)
+}
+
+/// The combat tracker on the heavy character with a long life's persistent
+/// stats ([`heavy::PERSISTENT_MONSTERS`] monsters): its patterns compiled
+/// a few a tick, the stats file read in at the login, a burst of
+/// [`heavy::BURST_CHAT_LINES`] fight lines in one tick amid the town's
+/// chat, and the logoff that writes the persistent stats and exports the
+/// current ones.
+#[test]
+#[ignore = "needs the release module: scripts/check.sh runs it after the WebAssembly build"]
+fn the_combat_tracker_fits() {
+    let wasm = std::fs::read(wasm_path()).expect("the release mosstank.wasm (build it first)");
+    let me = "Mossy Hunter";
+    let key = "Mag-Tools/Coldeve/Mossy Hunter.CombatTracker.xml";
+    let mut session = new_session();
+    let saved = heavy::persistent_combat_stats(me);
+    session.world.plugin_data.insert(key, &saved);
+    let mut cases = Cases::default();
+    let (mut plugin, _) = Plugin::load(&wasm, DEFAULT_MEMORY_MIB).expect("load");
+    plugin.enable(&start_info(), &mut session).expect("enable");
+    let set = command("ub", "opt set Mag.CombatTracker.ExportOnLogOff true");
+    send(&mut plugin, &mut session, &set);
+    enter_world(&mut session);
+    session
+        .world
+        .set_reply::<calls::ItemsInventoryComplete>(&true);
+    // The town's chat while the patterns compile: it waits for them.
+    for _ in 0..20 {
+        chat(
+            &mut plugin,
+            &mut session,
+            &mut cases,
+            "combat: chat line (patterns compiling)",
+        );
+        let fuel = tick(&mut plugin, &mut session);
+        cases.add("combat: tick (patterns compiling, login)", fuel);
+    }
+    let login = send(&mut plugin, &mut session, &Event::LoginComplete);
+    cases.add("combat: login complete", login);
+    for _ in 0..60 {
+        let fuel = tick(&mut plugin, &mut session);
+        cases.add("combat: tick (persistent stats read in)", fuel);
+    }
+
+    for line in 0..heavy::BURST_CHAT_LINES {
+        let log = session.world.chat_log.get_or_insert_with(Vec::new);
+        let sequence = log.last().map_or(1, |line| line.sequence + 1);
+        let event = if line % 4 == 3 {
+            heavy::chat_line(sequence, session.world.fake.clock.utc_unix_ms)
+        } else {
+            heavy::fight_line(sequence, session.world.fake.clock.utc_unix_ms, me)
+        };
+        log.push(event.clone());
+        let fuel = send(&mut plugin, &mut session, &Event::ChatReceived(event));
+        cases.add("combat: chat line (burst)", fuel);
+    }
+    for _ in 0..5 {
+        let fuel = tick(&mut plugin, &mut session);
+        cases.add("combat: tick (after the burst)", fuel);
+    }
+    let warnings = session
+        .world
+        .chat()
+        .iter()
+        .filter(|text| text.contains("Unable to parse damage element"))
+        .count();
+
+    let logoff = send(&mut plugin, &mut session, &Event::Logoff);
+    cases.add("combat: logoff (both files written)", logoff);
+    let written = session
+        .world
+        .plugin_data
+        .get(key)
+        .unwrap_or_default()
+        .to_owned();
+    let exports = session
+        .world
+        .plugin_data
+        .list("Mag-Tools/Coldeve/")
+        .unwrap_or_default()
+        .into_iter()
+        .filter(|name| name.contains(".CombatTracker.2"))
+        .count();
+    let cases = cases.all();
+    let mut report = report(&cases);
+    let _ = writeln!(
+        report,
+        "persistent stats: {} KB read, {} KB written; {warnings} warnings posted",
+        saved.len() / 1024,
+        written.len() / 1024
+    );
+    println!("{report}");
+    // The file read in, the fight added to it, written back.
+    let last_monster = format!(
+        "TargetName=\"Drudge Skulker {}\"",
+        heavy::PERSISTENT_MONSTERS / 10 - 1
+    );
+    assert!(written.contains(&last_monster), "{report}");
+    assert!(written.len() > saved.len(), "{report}");
+    assert_eq!(exports, 1, "{report}");
+    assert!(warnings > 0, "{report}");
+    assert_no_file_rewritten(&session, &report);
+    assert_within_margin(&cases, &report);
 }
 
 /// The Mana page on the heavy character wearing twenty pieces of gear with

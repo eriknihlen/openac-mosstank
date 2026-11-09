@@ -345,7 +345,9 @@ fn the_inventory_window_searches_the_live_character_and_the_saved_ones() {
     world.own_items(vec![item(0x5000_0002, "Test Ring", 0x8)]);
     save_log(&mut world, "Alt", &[item(0x5000_0100, "Alt Sword", 0x1)]);
     let mut plugin = world.enable();
-    world.ticks(&mut plugin, 5);
+    // The combat tracker's patterns compile first (the search waits for
+    // the ticks they leave light).
+    world.ticks(&mut plugin, 30);
     // Closed: nothing read.
     assert!(!world.ui_bool(&mut plugin, "MagInventoryShown"));
     assert!(
@@ -606,4 +608,63 @@ fn the_inv_items_page_counts_the_consumables_and_their_use() {
     assert_eq!(world.ui_list(&mut plugin, "MagInvItemsHours")[7], "0.0");
     // No money changed: Net Profit has its login snapshot only.
     assert_eq!(world.ui_list(&mut plugin, "MagInvItemsHour")[4], "");
+}
+
+fn combat_line(text: &str) -> ac_plugin_abi::Event {
+    ac_plugin_abi::Event::ChatReceived(ac_plugin_abi::ChatLine {
+        kind: 8,
+        combat_kind: 1,
+        text: text.to_owned(),
+        display_text: text.to_owned(),
+        ..ac_plugin_abi::ChatLine::default()
+    })
+}
+
+#[test]
+fn the_combat_tracker_counts_the_chat_and_keeps_its_stats_across_sessions() {
+    let mut world = World::with_character("Mag");
+    world.set_reply::<calls::ItemsInventoryComplete>(&true);
+    let mut plugin = world.enable();
+    // The patterns compile a few a tick; a line heard meanwhile waits.
+    world.tick(&mut plugin);
+    world.send(
+        &mut plugin,
+        combat_line("You hit Drudge Skulker for 25 points of slashing damage!"),
+    );
+    world.ticks(&mut plugin, 30);
+    world.send(&mut plugin, ac_plugin_abi::Event::LoginComplete);
+    world.ticks(&mut plugin, 10);
+    world.send(&mut plugin, combat_line("You obliterate Drudge Skulker!"));
+    world.send(&mut plugin, combat_line("Drudge Skulker died!"));
+    let (current, persistent) = world.with_tank(&mut plugin, |tank, _| {
+        let combat = &tank.mag().combat;
+        (
+            combat.current.combat_infos().to_vec(),
+            combat.persistent.combat_infos().to_vec(),
+        )
+    });
+    assert_eq!(current.len(), 1);
+    assert_eq!(
+        (current[0].source.as_str(), current[0].killing_blows),
+        ("Mag", 2)
+    );
+    assert_eq!(persistent, current);
+    // Logging off writes the persistent stats (kept by default).
+    let key = "Mag-Tools/Coldeve/Mag.CombatTracker.xml";
+    assert!(world.plugin_data.get(key).is_none());
+    world.send(&mut plugin, ac_plugin_abi::Event::Logoff);
+    let written = world.plugin_data.get(key).expect("the stats").to_owned();
+    assert!(written.starts_with("<CombatTracker>\r\n"), "{written}");
+    assert!(written.contains("KillingBlows=\"2\""), "{written}");
+    world.disable(&mut plugin);
+
+    // The next session reads them in.
+    let mut plugin = world.enable();
+    world.ticks(&mut plugin, 30);
+    world.send(&mut plugin, ac_plugin_abi::Event::LoginComplete);
+    world.ticks(&mut plugin, 10);
+    let persistent = world.with_tank(&mut plugin, |tank, _| {
+        tank.mag().combat.persistent.combat_infos().to_vec()
+    });
+    assert_eq!(persistent, current);
 }

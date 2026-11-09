@@ -7,6 +7,7 @@ use ac_plugin_abi::world::ItemProperties;
 use mosstank_formats::utl::{LootAction, LootRule};
 use mosstank_loot::controller;
 use mosstank_loot::host::LootHost;
+use mosstank_mag::combat::CombatSettings;
 use mosstank_mag::host::{LootVerdict, MagHost, Verdict};
 use mosstank_mag::identify::IdentifyQueue;
 use mosstank_mag::inventory_search::InfoSettings;
@@ -178,10 +179,28 @@ impl TankCx<'_> {
         UbCatalog::flag(&self.ub.catalog, settings::INVENTORY_LOGGER)
     }
 
+    /// The `Mag.CombatTracker` settings the tracker reads.
+    fn combat_settings(&self) -> CombatSettings {
+        CombatSettings {
+            persistent: UbCatalog::flag(&self.ub.catalog, settings::COMBAT_PERSISTENT),
+            export_on_logoff: UbCatalog::flag(&self.ub.catalog, settings::COMBAT_EXPORT_ON_LOGOFF),
+        }
+    }
+
+    /// The Combat page's "Export Current Stats" button: the current stats
+    /// to a file named for the minute, and `Stats exported to: <path>` in
+    /// chat. The key written, `None` when there was nothing to write.
+    #[expect(dead_code, reason = "the Combat page's button comes next")]
+    pub(crate) fn export_current_combat_stats(&mut self) -> Option<String> {
+        self.mag.combat.export_current(self.client.mag(), true)
+    }
+
     /// A client event, for the Mag features: the inventory logger's login,
     /// changes and logoff; the mana list's login, logoff, changes and
     /// system lines; the Inv. Items page's login, logoff and changes; the
-    /// identify chat line's selections, appraisals and opened containers.
+    /// identify chat line's selections, appraisals and opened containers;
+    /// the combat tracker's chat lines, login (the persistent stats read
+    /// in) and logoff (written, and the current ones exported).
     pub(crate) fn mag_event(&mut self, event: &ac_plugin_abi::Event) {
         use ac_plugin_abi::Event;
         use ac_plugin_abi::world::ObjectChangeKind;
@@ -191,10 +210,14 @@ impl TankCx<'_> {
                 let mag = &mut *self.mag;
                 mag.mana.on_login(self.client.mag(), &mut mag.identify);
                 mag.inv_items.on_login(self.client.mag());
+                let combat = self.combat_settings();
+                self.mag.combat.on_login_complete(self.client.mag(), combat);
             }
             Event::Logoff => {
                 let enabled = self.inventory_logger_enabled();
                 self.mag.inventory_log.on_logoff(self.client.mag(), enabled);
+                let combat = self.combat_settings();
+                self.mag.combat.on_logoff(self.client.mag(), combat);
                 self.mag.mana.reset();
                 self.mag.inv_items.on_logoff();
             }
@@ -211,6 +234,7 @@ impl TankCx<'_> {
             Event::ChatReceived(line) => {
                 let mag = &mut *self.mag;
                 mag.mana.on_chat(line, &mut mag.identify);
+                mag.combat.on_chat(self.client.mag(), line);
             }
             _ => {}
         }
@@ -283,10 +307,20 @@ impl TankCx<'_> {
             .tick(self.client.mag(), shown, settings)
     }
 
+    /// The combat tracker's tick, on a frame that has room for it (its
+    /// patterns compiled a few at a time, the lines that waited for them,
+    /// the persistent stats read in a part at a time, their 10-minute
+    /// save). True when it did a tick's worth of work.
+    pub(crate) fn mag_combat_tick(&mut self) -> bool {
+        let combat = self.combat_settings();
+        self.mag.combat.tick(self.client.mag(), combat)
+    }
+
     /// The character left the world: the appraisals it waited on, the
     /// identify line's state, the inventory logger's, the mana list's and
-    /// the Inventory window's rows are forgotten.
+    /// the Inventory window's rows, and the combat stats are forgotten.
     pub(crate) fn mag_session_ended(&mut self) {
+        self.mag.combat.reset();
         self.mag.identify.clear();
         self.mag.printer.reset();
         self.mag.inventory_log.reset();
