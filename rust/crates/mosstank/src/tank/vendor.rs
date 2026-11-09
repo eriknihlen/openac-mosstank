@@ -1,9 +1,8 @@
 //! The vendor run as the panel binds it (`MossTankPanel.UbSettings`'s
 //! `_vendorTrade` wiring): its switches read live from the UB catalogue,
 //! its profiles looked for the tiered way in the shared profile folder, the
-//! one stack-and-cram owner for its opening pass, the route owning vendor
-//! opening while the macro follows it, and the macro's own items never
-//! sold.
+//! one stack-and-cram owner for its opening pass, and the macro's own items
+//! never sold.
 
 use std::collections::HashSet;
 
@@ -90,12 +89,6 @@ impl VendorContext for ShellVendor<'_> {
             elapsed_seconds,
             true,
         )
-    }
-
-    /// While the macro follows its route, the route's open-vendor waypoint
-    /// is the one thing that opens vendors.
-    fn route_owns_vendor_open(&mut self) -> bool {
-        self.core.scheduler_running && self.core.settings.navigation.enabled
     }
 
     fn protected_items(&mut self) -> HashSet<u32> {

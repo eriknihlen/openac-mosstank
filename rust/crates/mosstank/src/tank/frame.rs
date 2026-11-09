@@ -213,7 +213,6 @@ impl Tank {
         if scheduler_active && !scheduler.is_running() {
             cx.release_transaction_suspension(scheduler);
             scheduler.start(&mut cx);
-            cx.core.scheduler_running = scheduler.is_running();
             cx.core.locks.borrow_mut().clear_all();
             // A portal use under way keeps the route held through it.
             cx.with_ub(|commands, call| commands.rearm_portal_hold(call));
@@ -222,7 +221,6 @@ impl Tank {
         } else if !scheduler_active && scheduler.is_running() {
             cx.release_transaction_suspension(scheduler);
             scheduler.stop(&mut cx);
-            cx.core.scheduler_running = scheduler.is_running();
         }
         cx.observe_cast_result(elapsed_seconds);
         cx.observe_pending_transactions(elapsed_seconds);

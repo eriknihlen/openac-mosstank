@@ -268,10 +268,6 @@ pub struct Core {
     pub(crate) fellowship: FellowshipManager,
     /// The vendor run and the `/ub vendor` commands (`VendorTradeController`).
     pub(crate) vendor_trade: mosstank_vendor::VendorTradeController,
-    /// Whether the scheduler runs, as of the start of the call and each
-    /// start or stop since (`_scheduler.IsRunning`, which the vendor run
-    /// reads to stand down from opening vendors while the route owns that).
-    pub(crate) scheduler_running: bool,
     pub(crate) idle_peace: rules::SharedIdlePeace,
 
     pub(crate) status: String,
@@ -809,7 +805,6 @@ impl Tank {
             navigation,
             fellowship: FellowshipManager::new(),
             vendor_trade,
-            scheduler_running: false,
             idle_peace: Rc::new(RefCell::new(IdlePeaceRule::default())),
             status: "Idle.".to_owned(),
             profile_lifecycle_notice: "Macro settings are stored by character.".to_owned(),
@@ -1649,7 +1644,6 @@ impl Tank {
     pub(crate) fn begin_call(&mut self, client: &mut dyn TankClient) {
         self.core.clock.set(&client.clock());
         self.core.passes_at_call_start = self.scheduler.pass_count();
-        self.core.scheduler_running = self.scheduler.is_running();
         // The live UB rows read what their owners hold now.
         let (mut cx, _) = self.cx(client);
         cx.refresh_live_ub_rows(false);
