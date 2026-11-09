@@ -214,6 +214,11 @@ fn a_number_field_keeps_its_text_and_sets_its_filter_when_it_reads() {
     window.set_rating_text(&mut search, Rating::CritDamage, "2x");
     assert_eq!(window.rating_text(Rating::CritDamage), "2x");
     assert_eq!(search.filter().rating(Rating::CritDamage), None);
+    // The Weapon OD field reads as the ratings do.
+    window.set_od_text(&mut search, "10");
+    assert_eq!((window.od_text(), search.filter().min_od), ("10", Some(10)));
+    window.set_od_text(&mut search, "+x");
+    assert_eq!((window.od_text(), search.filter().min_od), ("+x", None));
     // Grouped digits read.
     window.set_req_text(&mut search, Req::MinValue, "25,000");
     assert_eq!(search.filter().min_value, Some(25_000));
@@ -322,6 +327,7 @@ fn every_tab_set(window: &mut FilterWindow, search: &mut InventorySearch) {
     window.set_spell_contains(search, "Fire");
     window.set_checked_only(true);
     window.set_rating_text(search, Rating::Tinks, "3");
+    window.set_od_text(search, "7");
     window.set_req_text(search, Req::MinValue, "100");
 }
 
@@ -359,8 +365,10 @@ fn reset_clears_only_the_tabs_own_filters() {
             }
             FilterTab::Ratings => {
                 expected.ratings = fresh.ratings;
+                expected.min_od = None;
                 expected.allowed_cd = fresh.allowed_cd;
                 assert_eq!(window.rating_text(Rating::Tinks), "");
+                assert_eq!(window.od_text(), "");
             }
             FilterTab::Set => expected.set = None,
             FilterTab::Reqs => {
@@ -373,6 +381,7 @@ fn reset_clears_only_the_tabs_own_filters() {
         // The other tabs' fields keep their text.
         if tab != FilterTab::Ratings {
             assert_eq!(window.rating_text(Rating::Tinks), "3", "{tab:?}");
+            assert_eq!(window.od_text(), "7", "{tab:?}");
         }
     }
 }
@@ -383,8 +392,10 @@ fn reset_clears_only_the_tabs_own_filters() {
 fn clear_empties_the_filter_and_the_number_fields() {
     let (mut window, mut search) = rig();
     window.set_rating_text(&mut search, Rating::DamageRating, "3");
+    window.set_od_text(&mut search, "5");
     window.toggle_cantrip(&mut search, 1);
     window.clear(&mut search);
     assert_eq!(*search.filter(), InventoryFilter::default());
     assert_eq!(window.rating_text(Rating::DamageRating), "");
+    assert_eq!(window.od_text(), "");
 }

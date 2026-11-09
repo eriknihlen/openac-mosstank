@@ -29,7 +29,7 @@
          tooltip="The cantrips the item must all have, each at its tier or better, and a spell name." />
     <tab x="98" y="2" w="52" h="18" text="Ratings"
          selected="{MagFiltersRatingsSelected}" onclick="{ShowMagFiltersRatings}"
-         tooltip="The lowest ratings, and the crit damage armor may have." />
+         tooltip="The lowest ratings and weapon OD, and the crit damage armor may have." />
     <tab x="150" y="2" w="34" h="18" text="Set"
          selected="{MagFiltersSetSelected}" onclick="{ShowMagFiltersSet}"
          tooltip="The equipment set." />
@@ -169,7 +169,9 @@
     </group>
 
     <!-- Ratings: each field the lowest the item must have; blank, no
-         filter. An item without the rating does not pass. -->
+         filter. An item without the rating does not pass. Weapon OD is
+         the loaded loot profile's highest (OD +N) rule the weapon
+         matches. -->
     <group x="0" y="22" w="460" h="378" visible="{MagFiltersRatingsVisible}">
       <label x="4" y="6" w="96" h="16" text="Damage rating ≥" color="theme:text|#FFE8DEC3" />
       <group x="104" y="4" w="110" h="18" background="theme:field|#FF0C0906" border="theme:border|#FF8C7B4E">
@@ -291,14 +293,20 @@
                maxlength="12" clearonsubmit="false" background="#00000000" color="theme:text|#FFE8DEC3"
                tooltip="The lowest Tinks; blank: no filter." />
       </group>
-      <label x="4" y="238" w="170" h="16" text="Allowed crit damage on armor:" color="theme:text|#FFE8DEC3" />
-      <checkbox x="180" y="236" w="60" h="18" text="CD0" checked="{MagFilterCd0}"
+      <label x="232" y="226" w="96" h="16" text="Weapon OD ≥" color="theme:text|#FFE8DEC3" />
+      <group x="332" y="224" w="110" h="18" background="theme:field|#FF0C0906" border="theme:border|#FF8C7B4E">
+        <field x="1" y="1" w="108" h="16" text="{MagFilterOd}" onchange="{SetMagFilterOd}"
+               maxlength="12" clearonsubmit="false" background="#00000000" color="theme:text|#FFE8DEC3"
+               tooltip="The lowest weapon OD: the highest (OD +N) rule of the loaded loot profile the weapon matches; blank: no filter. A weapon no such rule matches does not pass." />
+      </group>
+      <label x="4" y="260" w="170" h="16" text="Allowed crit damage on armor:" color="theme:text|#FFE8DEC3" />
+      <checkbox x="180" y="258" w="60" h="18" text="CD0" checked="{MagFilterCd0}"
                 onchange="{SetMagFilterCd0}" color="theme:text|#FFE8DEC3"
                 tooltip="Armor pieces may have crit damage tier 0 (all or none checked: no filter)." />
-      <checkbox x="244" y="236" w="60" h="18" text="CD1" checked="{MagFilterCd1}"
+      <checkbox x="244" y="258" w="60" h="18" text="CD1" checked="{MagFilterCd1}"
                 onchange="{SetMagFilterCd1}" color="theme:text|#FFE8DEC3"
                 tooltip="Armor pieces may have crit damage tier 1 (all or none checked: no filter)." />
-      <checkbox x="308" y="236" w="60" h="18" text="CD2" checked="{MagFilterCd2}"
+      <checkbox x="308" y="258" w="60" h="18" text="CD2" checked="{MagFilterCd2}"
                 onchange="{SetMagFilterCd2}" color="theme:text|#FFE8DEC3"
                 tooltip="Armor pieces may have crit damage tier 2 (all or none checked: no filter)." />
       <button x="392" y="354" w="64" h="20" text="Reset" onclick="{ResetMagFiltersTab}"

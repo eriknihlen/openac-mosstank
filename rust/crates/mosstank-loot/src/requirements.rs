@@ -249,11 +249,23 @@ pub fn unsupported_key_warning<'a>(
 
 /// VTClassic's "disabled" requirement: a rule carrying it set to true never
 /// matches.
-fn is_disabled(rule: &LootRule) -> bool {
+#[must_use]
+pub fn is_disabled(rule: &LootRule) -> bool {
     rule.vtank_requirements.iter().any(|requirement| {
         requirement.kind == 9999
             && parse_bool(net_trim(lines(&requirement.payload)[0])).unwrap_or(false)
     })
+}
+
+/// The object class (its number) an object-class requirement asks for,
+/// read as the requirement reads it; none for any other requirement or one
+/// that does not read.
+#[must_use]
+pub fn required_object_class(requirement: &VtankLootRequirement) -> Option<i32> {
+    if requirement.kind != 7 {
+        return None;
+    }
+    i32_at(&lines(&requirement.payload), 0).ok()
 }
 
 /// Whether an int key arrives only with an appraisal.

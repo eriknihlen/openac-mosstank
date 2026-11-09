@@ -39,8 +39,16 @@
 //! are the filter's; the status counts the rows left out only because they
 //! were never appraised (`N not identified`).
 //!
+//! A weapon's OD (the OD column, the Weapon OD filter) is the highest step
+//! of the loaded loot profile's `(OD +N)` rules it matches
+//! ([`mosstank_loot::od`]); every character's items are judged by the same
+//! profile. It is worked out with the row's facts, once, for an appraised
+//! item; the shell gives the profile before each tick
+//! ([`InventorySearch::set_loot_rules`]), which looks at it once a second,
+//! and only a change of its OD rules has every row read again.
+//!
 //! Where it differs from Mag-Tools: the rows of other characters, the
-//! filters, and the Count, Where, Slot, Wield and Value columns are
+//! filters, and the Count, Where, Slot, Wield, OD and Value columns are
 //! new; an item that leaves the inventory leaves the rows (Mag-Tools' list
 //! held what it found until the next keystroke); a text the pattern cannot
 //! be matched against within [`STEP_LIMIT`] steps is not listed, and the
@@ -59,6 +67,8 @@ use ac_plugin_abi::items::InventoryItem;
 use ac_plugin_abi::magic::SpellInfo;
 use ac_plugin_abi::world::{ItemProperties, ObjectChange, ObjectClass};
 use mosstank_dotnet::text::ordinal;
+use mosstank_formats::utl::LootRule;
+use mosstank_loot::od::OdRules;
 use openac_plugin_compat::regex::{
     DotNetRegex, RegexError, RegexLimits, RegexOptions, UNTRUSTED_PATTERN_SIZE_LIMIT,
 };
@@ -73,6 +83,16 @@ pub const ALL: &str = "All";
 
 /// The status shown for a pattern that does not compile.
 pub const BAD_PATTERN: &str = "bad pattern";
+
+/// How often, milliseconds, the loaded loot profile is looked at for a
+/// change of its OD rules while the window is shown: reading a large
+/// profile's rules costs about a million instructions, too much for every
+/// tick.
+pub const OD_CHECK_MS: f64 = 1000.0;
+
+/// The status line's note while the Weapon OD filter is set and the loaded
+/// loot profile has no `(OD +N)` rule (so no item has an OD).
+pub const OD_NEEDS_RULES: &str = "Weapon OD needs a loot profile with (OD +N) rules";
 
 /// The status shown for a pattern refused because it would compile past
 /// the size a typed pattern may take ([`UNTRUSTED_PATTERN_SIZE_LIMIT`]).
@@ -390,8 +410,10 @@ struct View {
     icons: Vec<u32>,
     slots: Vec<String>,
     wields: Vec<String>,
+    ods: Vec<String>,
     values: Vec<String>,
     wield_keys: Vec<String>,
+    od_keys: Vec<String>,
     value_keys: Vec<String>,
     character_choices: Vec<String>,
     class_choices: Vec<String>,
@@ -436,6 +458,14 @@ pub struct InventorySearch {
     filter_generation: u64,
     /// Bumped by each filter set or applied.
     filter_revision: u64,
+    /// The loaded loot profile's OD rules, which each row's OD is worked
+    /// out by when it is read.
+    od_rules: Rc<OdRules>,
+    /// [`OdRules::fingerprint`] of the rules they were built from; none
+    /// before the first profile was given.
+    od_fingerprint: Option<u64>,
+    /// When the profile's OD rules were last looked at, milliseconds.
+    od_checked_ms: Option<f64>,
     spells: SpellCache,
     class_filter: String,
     /// The clicked item: its owner's key and its id.
@@ -588,8 +618,50 @@ impl InventorySearch {
         self.relist = true;
     }
 
+    /// The loot profile loaded now (empty for none), whose `(OD +N)` rules
+    /// give each weapon its OD: given before each tick at `now_ms`, and
+    /// looked at on the window's first tick shown and then every
+    /// [`OD_CHECK_MS`]. Its OD rules are built again only when they
+    /// changed ([`OdRules::fingerprint`]), and then, when rows were read
+    /// with the old ones, every row is read again from the next tick (as a
+    /// settings change does); the rows shown stay until then. The
+    /// profile's other rules change nothing.
+    pub fn set_loot_rules(&mut self, rules: &[LootRule], now_ms: f64) {
+        let recently = self
+            .od_checked_ms
+            .is_some_and(|at| (at..at + OD_CHECK_MS).contains(&now_ms));
+        if self.was_shown && recently {
+            return;
+        }
+        self.od_checked_ms = Some(now_ms);
+        let fingerprint = OdRules::fingerprint(rules);
+        if self.od_fingerprint == Some(fingerprint) {
+            return;
+        }
+        self.od_fingerprint = Some(fingerprint);
+        let od_rules = OdRules::new(rules);
+        if od_rules == *self.od_rules {
+            return;
+        }
+        self.od_rules = Rc::new(od_rules);
+        if self.settings.is_some() {
+            self.read_again();
+        }
+    }
+
+    /// Every row is to be read again: the live character's from its
+    /// inventory, the others' from their files.
+    fn read_again(&mut self) {
+        self.live = None;
+        self.others.clear();
+        self.reading = None;
+        self.files.clear();
+        self.relist = true;
+        self.changed = true;
+    }
+
     /// The character left the world: every row is forgotten; the pattern
-    /// and the filters stay.
+    /// and the filters stay, and the loot profile's OD rules.
     pub fn reset(&mut self) {
         let pattern_text = std::mem::take(&mut self.pattern_text);
         let pattern = std::mem::take(&mut self.pattern);
@@ -599,6 +671,8 @@ impl InventorySearch {
         let filter_generation = self.filter_generation;
         let spells = std::mem::take(&mut self.spells);
         let filter_revision = self.filter_revision;
+        let od_rules = std::mem::take(&mut self.od_rules);
+        let od_fingerprint = self.od_fingerprint;
         let class_filter = std::mem::take(&mut self.class_filter);
         let revision = self.revision;
         *self = Self {
@@ -609,6 +683,8 @@ impl InventorySearch {
             pending_filter,
             filter_generation,
             filter_revision,
+            od_rules,
+            od_fingerprint,
             spells,
             class_filter,
             revision: revision + 1,
@@ -648,12 +724,7 @@ impl InventorySearch {
         if self.settings != Some(settings) {
             if self.settings.is_some() {
                 // Every text is made again with the new settings.
-                self.live = None;
-                self.others.clear();
-                self.reading = None;
-                self.files.clear();
-                self.relist = true;
-                self.changed = true;
+                self.read_again();
             }
             self.settings = Some(settings);
         }
@@ -756,8 +827,8 @@ impl InventorySearch {
     }
 
     /// The status line: [`BAD_PATTERN`], [`PATTERN_TOO_LARGE`], the work in
-    /// hand, or how many
-    /// items are shown.
+    /// hand, or how many items are shown, with notes (too costly, not
+    /// identified, [`OD_NEEDS_RULES`]).
     #[must_use]
     pub fn status(&self) -> String {
         match self.pattern {
@@ -795,6 +866,9 @@ impl InventorySearch {
         }
         if self.view.not_identified > 0 {
             notes.push(format!("{} not identified", self.view.not_identified));
+        }
+        if self.filter.min_od.is_some() && self.od_rules.is_empty() {
+            notes.push(OD_NEEDS_RULES.to_owned());
         }
         if notes.is_empty() {
             shown
@@ -871,10 +945,23 @@ impl InventorySearch {
         self.view.wields.clone()
     }
 
+    /// The rows' OD column: each weapon's OD by the loaded loot profile's
+    /// `(OD +N)` rules, blank for none.
+    #[must_use]
+    pub fn row_ods(&self) -> Vec<String> {
+        self.view.ods.clone()
+    }
+
     /// The rows' Value column (grouped digits), blank for none.
     #[must_use]
     pub fn row_values(&self) -> Vec<String> {
         self.view.values.clone()
+    }
+
+    /// The OD column's sort keys: the OD as plain digits, blank for none.
+    #[must_use]
+    pub fn row_od_keys(&self) -> Vec<String> {
+        self.view.od_keys.clone()
     }
 
     /// The Wield column's sort keys: the level as plain digits, blank for
@@ -991,6 +1078,7 @@ impl InventorySearch {
                     generation: self.generation,
                     filter: &self.filter,
                     filter_generation: self.filter_generation,
+                    od: &self.od_rules,
                 };
                 for _ in 0..ITEMS_PER_TICK {
                     let Some(item) = live.pending.pop_front() else {
@@ -1049,6 +1137,7 @@ impl InventorySearch {
             generation: self.generation,
             filter: &self.filter,
             filter_generation: self.filter_generation,
+            od: &self.od_rules,
         };
         let mut complete = None;
         let mut later = Vec::new();
@@ -1176,6 +1265,7 @@ impl InventorySearch {
                         generation: self.generation,
                         filter: &self.filter,
                         filter_generation: self.filter_generation,
+                        od: &self.od_rules,
                     };
                     for record in records {
                         let item = record.item();
@@ -1303,8 +1393,10 @@ impl InventorySearch {
                 let facts = &row.facts;
                 view.slots.push(facts.slot.clone());
                 view.wields.push(facts.wield_text());
+                view.ods.push(facts.od_text());
                 view.values.push(facts.value_text());
                 view.wield_keys.push(sort_key(facts.wield_level));
+                view.od_keys.push(sort_key(facts.od));
                 view.value_keys.push(sort_key(facts.value));
             }
         }
@@ -1383,6 +1475,8 @@ struct Tests<'a> {
     generation: u64,
     filter: &'a InventoryFilter,
     filter_generation: u64,
+    /// The loaded loot profile's OD rules.
+    od: &'a OdRules,
 }
 
 impl Tests<'_> {
@@ -1392,8 +1486,8 @@ impl Tests<'_> {
     }
 }
 
-/// A row made now: its text, its facts (`identified`: it was appraised),
-/// tested.
+/// A row made now: its text, its facts (`identified`: it was appraised;
+/// only then has it an OD), tested.
 fn new_row(
     host: &mut dyn MagHost,
     spells: &mut SpellCache,
@@ -1405,7 +1499,10 @@ fn new_row(
 ) -> Row {
     let info = info_text(host, spells, item, properties, settings);
     let names = spells.names(host, item);
-    let facts = RowFacts::new(item, properties, identified, names);
+    let mut facts = RowFacts::new(item, properties, identified, names);
+    if identified {
+        facts.od = tests.od.od(item, properties);
+    }
     let mut row = Row::new(item, properties, info, facts);
     tests.run(&mut row);
     row

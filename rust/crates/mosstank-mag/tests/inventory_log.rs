@@ -1151,3 +1151,47 @@ fn the_record_keeps_where_the_item_is_worn_and_what_it_covers() {
     newer.valid_locations = 512;
     assert_eq!(combine(records[1].clone(), newer).valid_locations, 512);
 }
+
+/// The kept record rebuilds the weapon numbers the loot rules read (the
+/// Inventory window's OD): from the appraisal's weapon profile as the
+/// client lists them, or from the properties without one.
+#[test]
+fn the_kept_record_rebuilds_the_weapon_numbers_the_loot_rules_read() {
+    let mut bow = ring_item();
+    bow.object_class = ObjectClass::MissileWeapon;
+    let profiled = ItemProperties {
+        weapon: Some(WeaponProfile {
+            damage_type: 2,
+            weapon_skill: 47,
+            damage: 18,
+            damage_variance: 0.25,
+            damage_mod: 2.7,
+            ..WeaponProfile::default()
+        }),
+        ..ItemProperties::default()
+    };
+    let mut axe = ring_item();
+    axe.object_class = ObjectClass::MeleeWeapon;
+    let plain = ItemProperties {
+        ints: vec![(44, 40), (45, 1), (48, 44)],
+        floats: vec![(22, 0.2)],
+        ..ItemProperties::default()
+    };
+    let records: Vec<ItemRecord> = [(&bow, &profiled), (&axe, &plain)]
+        .iter()
+        .map(|(item, properties)| {
+            ItemRecord::from_live(item, Some(&seen(item, true)), properties, 1)
+        })
+        .collect();
+    let (_, read_back) = read(&document(&records)).expect("the file reads");
+    let numbers = |item: InventoryItem| {
+        (
+            item.weapon_skill,
+            item.damage_type,
+            item.damage,
+            item.damage_variance,
+        )
+    };
+    assert_eq!(numbers(read_back[0].item()), (47, 2, 18, 0.25));
+    assert_eq!(numbers(read_back[1].item()), (44, 1, 40, 0.2));
+}

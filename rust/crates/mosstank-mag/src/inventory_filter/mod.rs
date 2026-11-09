@@ -9,9 +9,10 @@
 //! better (the website: Legendary only, and any spell whose name shared
 //! the label's words); crit, nether and life resist the larger of the base
 //! and the Gear property; both wield requirement triples; no Healing
-//! rating (a character property). An item never appraised is left out by
-//! a cantrip, spell, rating, set, Armor type or armor crit damage
-//! filter and counted
+//! rating (a character property); the weapon OD by the loaded loot
+//! profile's `(OD +N)` rules, not the website's damage buckets (owner,
+//! 2026-11-09). An item never appraised is left out by a cantrip, spell,
+//! rating, OD, set, Armor type or armor crit damage filter and counted
 //! ([`Verdict::NotIdentified`]). The filters window's own state is
 //! [`window::FilterWindow`].
 
@@ -153,6 +154,9 @@ pub struct InventoryFilter {
     pub spell_contains: String,
     /// The ratings' minimums, by [`Rating::index`].
     pub ratings: [Option<i32>; Rating::ALL.len()],
+    /// The lowest weapon OD (by the loaded loot profile's `(OD +N)`
+    /// rules); an item without one does not pass.
+    pub min_od: Option<i32>,
     /// The crit damage tiers armor may have (CD0, CD1, CD2); all or none
     /// is no filter.
     pub allowed_cd: [bool; 3],
@@ -183,6 +187,7 @@ impl Default for InventoryFilter {
             cantrips: Vec::new(),
             spell_contains: String::new(),
             ratings: [None; Rating::ALL.len()],
+            min_od: None,
             allowed_cd: [true; 3],
             set: None,
             max_wield: None,
@@ -230,7 +235,7 @@ impl InventoryFilter {
 
     /// What the filter makes of the row: the filters that need no
     /// appraisal first; an item never appraised fails the cantrip, spell,
-    /// rating, set, Armor type (its armor level) and armor crit damage
+    /// rating, OD, set, Armor type (its armor level) and armor crit damage
     /// filters as [`Verdict::NotIdentified`].
     #[must_use]
     pub fn verdict(&self, facts: &RowFacts) -> Verdict {
@@ -282,6 +287,7 @@ impl InventoryFilter {
         !self.cantrips.is_empty()
             || !self.spell_needle().is_empty()
             || self.ratings.iter().any(Option::is_some)
+            || self.min_od.is_some()
             || self.set.is_some()
             || (self.item_type == ItemType::Armor && facts.class == ObjectClass::Armor)
             || (self.cd_active() && slots::is_armor_slot(&facts.slot))
@@ -301,13 +307,16 @@ impl InventoryFilter {
             self.rating(rating)
                 .is_none_or(|minimum| facts.rating(rating).is_some_and(|v| v >= minimum))
         });
+        let od = self
+            .min_od
+            .is_none_or(|minimum| facts.od.is_some_and(|od| od >= minimum));
         let cd = !self.cd_active()
             || !slots::is_armor_slot(&facts.slot)
             || self.allowed_cd[usize::from(facts.cd_tier)];
         let set = self.set.is_none_or(|set| facts.set_id == Some(set));
         let armor =
             self.item_type != ItemType::Armor || facts.armor_level.is_some_and(|level| level > 0);
-        cantrips && spell && ratings && cd && set && armor
+        cantrips && spell && ratings && od && cd && set && armor
     }
 
     /// The type and the weapon kinds pass.
@@ -405,6 +414,9 @@ impl InventoryFilter {
             if let Some(minimum) = self.rating(rating) {
                 parts.push(format!("{} ≥ {minimum}", rating.label()));
             }
+        }
+        if let Some(minimum) = self.min_od {
+            parts.push(format!("Weapon OD ≥ {minimum}"));
         }
         if self.cd_active() {
             let tiers: Vec<String> = (0..3)

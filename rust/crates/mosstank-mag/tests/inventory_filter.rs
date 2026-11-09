@@ -803,3 +803,30 @@ fn the_armor_type_and_the_set_need_an_appraisal() {
     assert_eq!(set.verdict(&facts(&ring, &[])), Verdict::Fail);
     assert_eq!(set.verdict(&facts(&ring, &[(265, 13)])), Verdict::Pass);
 }
+
+// --- Weapon OD (the loaded loot profile's `(OD +N)` rules) ---
+
+#[test]
+fn the_weapon_od_filter_keeps_an_od_at_least_its_own() {
+    let bow = item(ObjectClass::MissileWeapon);
+    let with_od = |od: Option<i32>| RowFacts {
+        od,
+        ..facts(&bow, &[])
+    };
+    let filter = InventoryFilter {
+        min_od: Some(7),
+        ..InventoryFilter::default()
+    };
+    assert!(!filter.is_empty());
+    assert_eq!(filter.summary(), "Weapon OD ≥ 7");
+    assert_eq!(filter.verdict(&with_od(Some(7))), Verdict::Pass);
+    assert_eq!(filter.verdict(&with_od(Some(10))), Verdict::Pass);
+    assert_eq!(filter.verdict(&with_od(Some(6))), Verdict::Fail);
+    // No OD rule matches it: it does not pass.
+    assert_eq!(filter.verdict(&with_od(None)), Verdict::Fail);
+    // Never appraised: left out and counted.
+    let unidentified = RowFacts::new(&bow, &props(&[]), false, vec![]);
+    assert_eq!(filter.verdict(&unidentified), Verdict::NotIdentified);
+    // No OD filter: an OD changes nothing.
+    assert!(InventoryFilter::default().matches(&with_od(None)));
+}

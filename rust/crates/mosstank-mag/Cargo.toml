@@ -1,6 +1,6 @@
 [package]
 name = "mosstank-mag"
-description = "MossTank's Mag tab and Inventory window: the features ported from Mag-Tools (the combat tracker, the mana list, the Inv. Items tracker, the item info line, the inventory logger and search). The client comes in through the MagHost trait."
+description = "MossTank's Mag tab and Inventory window: the features ported from Mag-Tools (the combat tracker, the mana list, the Inv. Items tracker, the item info line, the inventory logger and search). The client comes in through the MagHost trait; the loot profile judges a weapon's OD through mosstank-loot."
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
@@ -10,6 +10,8 @@ publish.workspace = true
 [dependencies]
 ac-plugin-abi.workspace = true
 mosstank-dotnet.workspace = true
+mosstank-formats.workspace = true
+mosstank-loot.workspace = true
 mosstank-meta.workspace = true
 mosstank-stores.workspace = true
 mosstank-ub.workspace = true

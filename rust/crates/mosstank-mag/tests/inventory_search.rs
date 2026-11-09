@@ -14,12 +14,14 @@ use ac_plugin_abi::magic::SpellInfo;
 use ac_plugin_abi::world::{
     ItemProperties, ObjectChange, ObjectChangeKind, ObjectClass, WorldObject,
 };
+use mosstank_formats::utl::{LootRule, VtankLootRequirement};
 use mosstank_mag::inventory_filter::{
     CantripTier, InventoryFilter, ItemType, Rating, Slot, cantrip_index,
 };
 use mosstank_mag::inventory_log::{ItemRecord, LogHeader, VERSION, storage_key, write};
 use mosstank_mag::inventory_search::{
-    ALL, FILTER_DELAY_MS, InfoSettings, InventorySearch, MATCHES_PER_CALL, SetCount,
+    ALL, FILTER_DELAY_MS, InfoSettings, InventorySearch, MATCHES_PER_CALL, OD_CHECK_MS,
+    OD_NEEDS_RULES, SetCount,
 };
 use mosstank_mag::testing::FakeMagHost;
 
@@ -74,6 +76,9 @@ struct Rig {
     host: FakeMagHost,
     search: InventorySearch,
     shown: bool,
+    /// The loaded loot profile's rules, given before each tick as the
+    /// shell gives them.
+    loot: Vec<LootRule>,
 }
 
 impl Rig {
@@ -82,6 +87,7 @@ impl Rig {
             host: FakeMagHost::new(),
             search: InventorySearch::default(),
             shown: true,
+            loot: Vec::new(),
         }
     }
 
@@ -107,6 +113,9 @@ impl Rig {
 
     fn tick(&mut self) -> bool {
         self.host.now_ms += 16.0;
+        if self.shown {
+            self.search.set_loot_rules(&self.loot, self.host.now_ms);
+        }
         self.search.tick(&mut self.host, self.shown, settings())
     }
 
@@ -1152,4 +1161,181 @@ fn refresh_reads_the_saved_files_again_keeping_the_rows_until_then() {
     );
     rig.settle();
     assert_eq!(sorted(rig.names()), ["Alt Band", "Test Ring"]);
+}
+
+// --- Weapon OD, by the loaded loot profile's `(OD +N)` rules ---
+
+const XBOW: u32 = 0x8000_0201;
+const XBOW_2: u32 = 0x8000_0202;
+const XBOW_3: u32 = 0x8000_0203;
+
+fn requirement(kind: i32, lines: &[&str]) -> VtankLootRequirement {
+    VtankLootRequirement {
+        kind,
+        payload: lines.iter().map(|line| format!("{line}\r\n")).collect(),
+    }
+}
+
+/// `(M) Xbow (OD +N)`, in the owner's shape: crossbow mastery, missile
+/// class, 77 + N buffed missile damage, missile skill.
+fn xbow_rule(n: i32) -> LootRule {
+    let mut rule = LootRule::named(&format!("(M) Xbow (OD +{n})"), "*");
+    rule.vtank_requirements = vec![
+        requirement(12, &["9", "353"]),
+        requirement(7, &["9"]),
+        requirement(2001, &[&(77 + n).to_string()]),
+        requirement(12, &["47", "159"]),
+    ];
+    rule.has_imported_requirements = true;
+    rule
+}
+
+fn xbow_ladder() -> Vec<LootRule> {
+    (1..=10).rev().map(xbow_rule).collect()
+}
+
+/// A crossbow whose buffed missile damage is `damage`.
+fn crossbow(id: u32, name: &str, damage: i32) -> (InventoryItem, ItemProperties) {
+    let item = item(id, name, ObjectClass::MissileWeapon, PLAYER);
+    let properties = ItemProperties {
+        ints: vec![(353, 9), (159, 47), (204, damage)],
+        weapon: Some(ac_plugin_abi::world::WeaponProfile {
+            damage_mod: 1.0,
+            ..Default::default()
+        }),
+        ..ItemProperties::default()
+    };
+    (item, properties)
+}
+
+/// Each row's name with its OD and its OD sort key.
+fn ods(rig: &mut Rig) -> Vec<(String, String, String)> {
+    let names = rig.names();
+    let ods = rig.search.row_ods();
+    let keys = rig.search.row_od_keys();
+    let mut rows: Vec<_> = names
+        .into_iter()
+        .zip(ods)
+        .zip(keys)
+        .map(|((name, od), key)| (name, od, key))
+        .collect();
+    rows.sort();
+    rows
+}
+
+fn row(name: &str, od: &str) -> (String, String, String) {
+    (name.to_owned(), od.to_owned(), od.to_owned())
+}
+
+#[test]
+fn the_od_column_is_each_appraised_weapons_highest_od_rule_live_and_saved() {
+    let mut rig = Rig::new();
+    rig.loot = xbow_ladder();
+    let (live, properties) = crossbow(XBOW, "Live Crossbow", 89);
+    rig.own_appraised(live, properties);
+    // Its properties known, but never appraised: no OD.
+    let (unappraised, properties) = crossbow(XBOW_2, "Unappraised Crossbow", 89);
+    rig.own(unappraised);
+    rig.host.meta.properties.insert(XBOW_2, properties);
+    rig.own(item(RING, "Test Ring", ObjectClass::Jewelry, PLAYER));
+    save_appraised(&rig.host, "Alt", &[crossbow(XBOW_3, "Saved Crossbow", 80)]);
+    rig.search("");
+    assert_eq!(
+        ods(&mut rig),
+        [
+            row("Live Crossbow", "10"),
+            row("Saved Crossbow", "3"),
+            row("Test Ring", ""),
+            row("Unappraised Crossbow", ""),
+        ]
+    );
+    // The filter keeps the weapons at OD 4 or more (the ring and the
+    // unappraised crossbow left out as never appraised).
+    rig.filter(InventoryFilter {
+        min_od: Some(4),
+        ..InventoryFilter::default()
+    });
+    assert_eq!(rig.names(), ["Live Crossbow"]);
+    assert_eq!(rig.search.status(), "1 item (2 not identified)");
+}
+
+#[test]
+fn a_change_of_the_profiles_od_rules_works_every_od_out_again() {
+    let mut rig = Rig::new();
+    rig.loot = xbow_ladder();
+    let (live, properties) = crossbow(XBOW, "Live Crossbow", 89);
+    rig.own_appraised(live, properties);
+    save_appraised(&rig.host, "Alt", &[crossbow(XBOW_3, "Saved Crossbow", 80)]);
+    rig.search("");
+    assert_eq!(
+        ods(&mut rig),
+        [row("Live Crossbow", "10"), row("Saved Crossbow", "3")]
+    );
+    // Another rule added, the same OD rules: nothing is read again.
+    let mut keep = LootRule::named("Keep everything", "*");
+    keep.vtank_requirements = vec![requirement(7, &["9"])];
+    rig.loot.push(keep);
+    rig.host.now_ms += OD_CHECK_MS;
+    rig.tick();
+    assert!(rig.search.is_settled());
+    // The top step asks for more: seen within a second, then every row
+    // read again, the rows shown kept meanwhile.
+    rig.loot[0] = xbow_rule(10);
+    rig.loot[0].vtank_requirements[2] = requirement(2001, &["90"]);
+    rig.tick();
+    assert!(rig.search.is_settled(), "not looked at yet");
+    rig.host.now_ms += OD_CHECK_MS;
+    rig.tick();
+    assert!(!rig.search.is_settled());
+    assert_eq!(rig.names().len(), 2);
+    rig.settle();
+    assert_eq!(
+        ods(&mut rig),
+        [row("Live Crossbow", "9"), row("Saved Crossbow", "3")]
+    );
+    // The profile unloaded: no OD.
+    rig.loot.clear();
+    rig.host.now_ms += OD_CHECK_MS;
+    rig.tick();
+    rig.settle();
+    assert_eq!(
+        ods(&mut rig),
+        [row("Live Crossbow", ""), row("Saved Crossbow", "")]
+    );
+    // The window hidden and shown again: the profile is looked at on the
+    // first tick shown.
+    rig.shown = false;
+    rig.tick();
+    rig.shown = true;
+    rig.loot = xbow_ladder();
+    rig.tick();
+    assert!(!rig.search.is_settled());
+    rig.settle();
+    assert_eq!(
+        ods(&mut rig),
+        [row("Live Crossbow", "10"), row("Saved Crossbow", "3")]
+    );
+}
+
+#[test]
+fn the_od_filter_says_when_the_profile_has_no_od_rules() {
+    let mut rig = Rig::new();
+    let (live, properties) = crossbow(XBOW, "Live Crossbow", 89);
+    rig.own_appraised(live, properties);
+    rig.search("");
+    let filter = InventoryFilter {
+        min_od: Some(1),
+        ..InventoryFilter::default()
+    };
+    rig.filter(filter);
+    assert!(rig.names().is_empty());
+    assert_eq!(rig.search.status(), format!("0 items ({OD_NEEDS_RULES})"));
+    // A profile with OD rules loaded: the crossbow passes, once the
+    // profile is looked at again.
+    rig.loot = xbow_ladder();
+    rig.host.now_ms += OD_CHECK_MS;
+    rig.tick();
+    rig.settle();
+    assert_eq!(rig.names(), ["Live Crossbow"]);
+    assert_eq!(rig.search.status(), "1 item");
 }

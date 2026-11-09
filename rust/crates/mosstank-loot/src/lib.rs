@@ -7,6 +7,7 @@
 //! - [`expression`]: MossTank's own rule expressions.
 //! - [`rules`]: the rule list's verdict and whether an item needs an
 //!   appraisal.
+//! - [`od`]: a weapon's OD, by the profile's `(OD +N)` rules.
 //! - [`salvage`]: combining salvage bags.
 //! - [`mana`] and [`donors`]: draining donors into mana stones, and the
 //!   journal that permits it.
@@ -26,6 +27,7 @@ pub mod expression;
 
 pub mod host;
 pub mod mana;
+pub mod od;
 pub mod own_rare;
 pub mod requirements;
 pub mod rules;

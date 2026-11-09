@@ -158,6 +158,10 @@ pub struct RowFacts {
     pub cantrips: Vec<(usize, CantripTier)>,
     /// It was appraised.
     pub identified: bool,
+    /// Its weapon OD by the loaded loot profile's `(OD +N)` rules; none
+    /// when no such rule matches it, or it was never appraised. Set by
+    /// the search, which holds the profile.
+    pub od: Option<i32>,
 }
 
 impl RowFacts {
@@ -230,6 +234,7 @@ impl RowFacts {
             spells: spell_names,
             cantrips,
             identified,
+            od: None,
         }
     }
 
@@ -245,6 +250,12 @@ impl RowFacts {
     pub fn wield_text(&self) -> String {
         self.wield_level
             .map_or_else(String::new, |level| level.to_string())
+    }
+
+    /// The OD column's text: blank for none.
+    #[must_use]
+    pub fn od_text(&self) -> String {
+        self.od.map_or_else(String::new, |od| od.to_string())
     }
 
     /// One of its ratings.

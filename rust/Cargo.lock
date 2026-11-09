@@ -845,6 +845,8 @@ version = "0.6.10"
 dependencies = [
  "ac-plugin-abi",
  "mosstank-dotnet",
+ "mosstank-formats",
+ "mosstank-loot",
  "mosstank-meta",
  "mosstank-settings",
  "mosstank-stores",

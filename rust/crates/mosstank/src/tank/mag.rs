@@ -359,6 +359,18 @@ impl TankCx<'_> {
         }
         let shown = self.inventory_shown();
         let settings = self.inventory_info_settings();
+        if shown {
+            // The loot profile the item info line judges by gives each
+            // weapon its OD (none loaded: no OD).
+            let loot = &self.core.settings.inventory.loot;
+            let rules: &[LootRule] = if loot.profile_active {
+                &loot.rules
+            } else {
+                &[]
+            };
+            let now = self.client.mag().now_ms();
+            self.mag.inventory_search.set_loot_rules(rules, now);
+        }
         if self
             .mag
             .inventory_search

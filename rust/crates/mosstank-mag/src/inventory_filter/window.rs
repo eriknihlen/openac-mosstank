@@ -12,9 +12,9 @@
 //!   click on which steps it Minor, Major, Epic, Legendary and round again
 //!   (Legendary to start); a heading's is blank and does nothing. A checked
 //!   cantrip is filtered at its tier or better. A line counts the checked.
-//! - Ratings and Reqs & value: a field each, its text kept as typed; a
-//!   whole number (digits grouped by commas or not) sets the filter, any
-//!   other text sets none.
+//! - Ratings (Weapon OD among them) and Reqs & value: a field each, its
+//!   text kept as typed; a whole number (digits grouped by commas or not)
+//!   sets the filter, any other text sets none.
 //! - Set: "Any set", then each set of the set table the find box leaves,
 //!   with its count (0 when nobody searched holds it).
 //! - Characters: every character checked until one is unchecked; All and
@@ -112,6 +112,7 @@ pub struct FilterWindow {
     tiers: Vec<CantripTier>,
     set_find: String,
     rating_texts: [String; Rating::ALL.len()],
+    od_text: String,
     req_texts: [String; Req::ALL.len()],
 }
 
@@ -124,6 +125,7 @@ impl Default for FilterWindow {
             tiers: vec![CantripTier::Legendary; super::cantrips::names().count()],
             set_find: String::new(),
             rating_texts: Default::default(),
+            od_text: String::new(),
             req_texts: Default::default(),
         }
     }
@@ -364,6 +366,19 @@ impl FilterWindow {
         search.edit_filter(|filter| filter.set_rating(rating, minimum));
     }
 
+    /// The Weapon OD field, as typed.
+    #[must_use]
+    pub fn od_text(&self) -> &str {
+        &self.od_text
+    }
+
+    /// The Weapon OD field typed in.
+    pub fn set_od_text(&mut self, search: &mut InventorySearch, text: &str) {
+        text.clone_into(&mut self.od_text);
+        let minimum = read_number(text);
+        search.edit_filter(|filter| filter.min_od = minimum);
+    }
+
     /// A requirement's field, as typed.
     #[must_use]
     pub fn req_text(&self, req: Req) -> &str {
@@ -513,8 +528,10 @@ impl FilterWindow {
             }
             FilterTab::Ratings => {
                 self.rating_texts = Default::default();
+                self.od_text.clear();
                 search.edit_filter(|filter| {
                     filter.ratings = fresh.ratings;
+                    filter.min_od = fresh.min_od;
                     filter.allowed_cd = fresh.allowed_cd;
                 });
             }
@@ -538,6 +555,7 @@ impl FilterWindow {
         search.clear_filter();
         self.checked_only = false;
         self.rating_texts = Default::default();
+        self.od_text.clear();
         self.req_texts = Default::default();
     }
 }

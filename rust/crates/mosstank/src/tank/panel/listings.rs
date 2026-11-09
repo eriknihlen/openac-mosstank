@@ -214,6 +214,8 @@ impl TankCx<'_> {
             | "MagInventoryRowSlots"
             | "MagInventoryRowWields"
             | "MagInventoryRowWieldKeys"
+            | "MagInventoryRowOds"
+            | "MagInventoryRowOdKeys"
             | "MagInventoryRowValues"
             | "MagInventoryRowValueKeys"
             | "MagInventoryRowPlaces"

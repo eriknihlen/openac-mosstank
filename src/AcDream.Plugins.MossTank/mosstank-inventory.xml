@@ -41,9 +41,10 @@
 
     <!-- The list draws its own headings, each over its column and aligned
          as its cells; a click on one sorts by it (again: the other way,
-         a third time: unsorted). Count sorts its cells as numbers, Wield
-         and Value by their keys; a row with no wield level or no value
-         sorts last both ways (a blank key). The last
+         a third time: unsorted). Count sorts its cells as numbers, Wield,
+         OD and Value by their keys; a row with no wield level, no OD or
+         no value sorts last both ways (a blank key). OD is the weapon's
+         highest (OD +N) rule in the loaded loot profile. The last
          column always takes the room the others leave, so Name has a fixed
          width (the list's 772 less the other columns) and Where keeps its
          90. -->
@@ -54,7 +55,7 @@
               onclick="{SelectMagInventoryRow}" />
       <column type="text" width="110" header="Character" sort="text"
               items="{MagInventoryRowCharacters}" onclick="{SelectMagInventoryRow}" />
-      <column type="text" width="265" header="Name" sort="text"
+      <column type="text" width="229" header="Name" sort="text"
               items="{MagInventoryRowNames}" onclick="{SelectMagInventoryRow}" />
       <column type="text" width="48" align="right" header="Count" sort="number"
               items="{MagInventoryRowCounts}" onclick="{SelectMagInventoryRow}" />
@@ -63,6 +64,9 @@
       <column type="text" width="47" align="right" header="Wield" sort="number"
               sortkeys="{MagInventoryRowWieldKeys}"
               items="{MagInventoryRowWields}" onclick="{SelectMagInventoryRow}" />
+      <column type="text" width="36" align="right" header="OD" sort="number"
+              sortkeys="{MagInventoryRowOdKeys}"
+              items="{MagInventoryRowOds}" onclick="{SelectMagInventoryRow}" />
       <column type="text" width="54" align="right" header="Value" sort="number"
               sortkeys="{MagInventoryRowValueKeys}"
               items="{MagInventoryRowValues}" onclick="{SelectMagInventoryRow}" />

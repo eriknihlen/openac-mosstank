@@ -1289,7 +1289,7 @@ fn the_delegate_check_knows_checkboxes_radio_bars_and_numbers() {
     assert_eq!(delegate_shape_mismatches(checkbox, &wrong).len(), 1);
 }
 
-// The Inventory window's number columns (Count, Wield, Value) are right-aligned
+// The Inventory window's number columns (Count, Wield, OD, Value) are right-aligned
 // (plugin API 1.10), the other text columns left.
 #[test]
 fn the_inventory_windows_number_columns_are_right_aligned() {
@@ -1302,7 +1302,12 @@ fn the_inventory_windows_number_columns_are_right_aligned() {
     for (items, align) in columns {
         let wanted = matches!(
             items,
-            Some("{MagInventoryRowCounts}" | "{MagInventoryRowWields}" | "{MagInventoryRowValues}")
+            Some(
+                "{MagInventoryRowCounts}"
+                    | "{MagInventoryRowWields}"
+                    | "{MagInventoryRowOds}"
+                    | "{MagInventoryRowValues}"
+            )
         )
         .then_some("right");
         assert_eq!(align, wanted, "{items:?}");
@@ -1311,7 +1316,7 @@ fn the_inventory_windows_number_columns_are_right_aligned() {
 
 // The Inventory window's headings are its list's own captions: the client
 // draws each over its column and aligns it as the column's cells (Count,
-// Wield and Value to the right). Labels above the list sat over a layout the client did not
+// Wield, OD and Value to the right). Labels above the list sat over a layout the client did not
 // draw: it gives the last column the room left as well, so a `*` Name column
 // before it shared that room and the Count and Where columns moved left from
 // under their labels.
@@ -1335,6 +1340,7 @@ fn the_inventory_windows_headings_are_its_lists_own_captions() {
             Some("Count"),
             Some("Slot"),
             Some("Wield"),
+            Some("OD"),
             Some("Value"),
             Some("Where")
         ]
@@ -1434,8 +1440,8 @@ fn the_mag_pages_lists_leave_their_last_column_its_width() {
 // A click on an Inventory heading sorts by its column (the client's own
 // sort: ascending, descending, then none; the rows it reports stay the
 // plugin's). Text columns sort as text; Count as numbers, by its cells;
-// Wield and Value as numbers, by keys (their cells are blank for none, and
-// Value's digits are grouped).
+// Wield, OD and Value as numbers, by keys (their cells are blank for none,
+// and Value's digits are grouped).
 // The icon column does not sort.
 #[test]
 fn every_inventory_heading_sorts_its_column() {
@@ -1455,13 +1461,18 @@ fn every_inventory_heading_sorts_its_column() {
             (Some("number"), None),
             (Some("text"), None),
             (Some("number"), Some("{MagInventoryRowWieldKeys}")),
+            (Some("number"), Some("{MagInventoryRowOdKeys}")),
             (Some("number"), Some("{MagInventoryRowValueKeys}")),
             (Some("text"), None),
         ]
     );
     // The keys are text lists, which the client parses for a number sort.
     let kinds = kinds("mosstank-inventory.xml");
-    for keys in ["MagInventoryRowWieldKeys", "MagInventoryRowValueKeys"] {
+    for keys in [
+        "MagInventoryRowWieldKeys",
+        "MagInventoryRowOdKeys",
+        "MagInventoryRowValueKeys",
+    ] {
         assert_eq!(kind(&kinds, keys), TypedBindingKind::TextList, "{keys}");
     }
 }
@@ -1504,6 +1515,8 @@ fn the_inventory_columns_fit_their_texts_in_the_clients_font() {
         ("{MagInventoryRowCounts}", "25000", 30.0, 30.0),
         // A three-digit level; `Wield`.
         ("{MagInventoryRowWields}", "275", 18.0, 29.0),
+        // A two-digit OD; `OD` (9 px a letter).
+        ("{MagInventoryRowOds}", "10", 12.0, 18.0),
         // A seven-figure value; `Value`.
         ("{MagInventoryRowValues}", "9,999,999", 48.0, 29.0),
     ] {
@@ -1629,7 +1642,7 @@ fn the_cantrips_list_has_a_box_a_name_and_a_tier_button() {
 
 // Every per-item control of the filters window names its item as the shell
 // reads it (a slot, a weapon kind, a rating or a requirement by its
-// variant), each once.
+// variant, and the Weapon OD field), each once.
 #[test]
 fn the_filters_windows_per_item_controls_cover_every_item() {
     use mosstank_mag::inventory_filter::window::Req;
@@ -1660,6 +1673,8 @@ fn the_filters_windows_per_item_controls_cover_every_item() {
             .iter()
             .map(|item| format!("{{MagFilterReq{item:?}}}")),
     );
+    // The Ratings tab's Weapon OD field.
+    wanted.push("{MagFilterOd}".to_owned());
     for name in wanted {
         assert_eq!(
             bound.iter().filter(|used| **used == name).count(),

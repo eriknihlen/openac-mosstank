@@ -86,6 +86,8 @@ pub(super) fn value(cx: &mut TankCx<'_>, name: &str) -> Option<UiValue> {
         "MagInventoryRowSlots" => tl(cx.mag.inventory_search.row_slots()),
         "MagInventoryRowWields" => tl(cx.mag.inventory_search.row_wields()),
         "MagInventoryRowWieldKeys" => tl(cx.mag.inventory_search.row_wield_keys()),
+        "MagInventoryRowOds" => tl(cx.mag.inventory_search.row_ods()),
+        "MagInventoryRowOdKeys" => tl(cx.mag.inventory_search.row_od_keys()),
         "MagInventoryRowValues" => tl(cx.mag.inventory_search.row_values()),
         "MagInventoryRowValueKeys" => tl(cx.mag.inventory_search.row_value_keys()),
         "MagInventoryRowPlaces" => tl(cx.mag.inventory_search.row_places()),

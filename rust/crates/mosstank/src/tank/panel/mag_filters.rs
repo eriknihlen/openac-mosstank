@@ -83,7 +83,8 @@ pub(super) fn value(cx: &mut TankCx<'_>, name: &str) -> Option<UiValue> {
         "MagFilterCantripCheckedText" => t(window.cantrip_checked_text(filter)),
         "MagFilterCantripCheckedOnly" => b(window.checked_only()),
         "MagFilterCantripTiers" => tl(window.cantrip_tiers(filter)),
-        // Ratings: the allowed crit damage tiers.
+        // Ratings: the Weapon OD field and the allowed crit damage tiers.
+        "MagFilterOd" => t(window.od_text()),
         "MagFilterCd0" => b(filter.allowed_cd[0]),
         "MagFilterCd1" => b(filter.allowed_cd[1]),
         "MagFilterCd2" => b(filter.allowed_cd[2]),
@@ -190,6 +191,7 @@ pub(super) fn act(cx: &mut TankCx<'_>, name: &str, arg: &Arg) -> bool {
         "SetMagFilterCantripCheckedOnly" => window.set_checked_only(on),
         "CycleMagFilterCantripTier" => window.cycle_cantrip_tier(search, arg.int()),
         // Ratings.
+        "SetMagFilterOd" => window.set_od_text(search, arg.text()),
         "SetMagFilterCd0" | "SetMagFilterCd1" | "SetMagFilterCd2" => {
             let tier = usize::from(name.as_bytes()[name.len() - 1] - b'0');
             search.edit_filter(|filter| filter.allowed_cd[tier] = on);

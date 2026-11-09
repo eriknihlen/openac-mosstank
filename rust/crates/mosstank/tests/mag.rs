@@ -1386,3 +1386,97 @@ fn the_mana_overlay_is_drawn_on_the_game_dragged_closed_and_back_after_a_relog()
     assert!(shown, "drawn again after the relog");
     assert_eq!(place, moved);
 }
+
+/// `(M) Xbow (OD +N)` for N 10 down to 1, in the owner's shape: crossbow
+/// mastery, missile class, 77 + N buffed missile damage, missile skill.
+fn xbow_ladder() -> Vec<mosstank_formats::utl::LootRule> {
+    use mosstank_formats::utl::{LootAction, LootRule, VtankLootRequirement};
+    let requirement = |kind: i32, lines: &[&str]| VtankLootRequirement {
+        kind,
+        payload: lines.iter().map(|line| format!("{line}\r\n")).collect(),
+    };
+    (1..=10)
+        .rev()
+        .map(|n| {
+            let mut rule = LootRule::named(&format!("(M) Xbow (OD +{n})"), "*");
+            rule.action = LootAction::Keep;
+            rule.vtank_requirements = vec![
+                requirement(12, &["9", "353"]),
+                requirement(7, &["9"]),
+                requirement(2001, &[&(77 + n).to_string()]),
+                requirement(12, &["47", "159"]),
+            ];
+            rule.has_imported_requirements = true;
+            rule
+        })
+        .collect()
+}
+
+// The Inventory window's OD column and the Ratings tab's Weapon OD field
+// read the loaded loot profile's `(OD +N)` rules: without a profile the
+// field says so in the status line; with the crossbow ladder loaded an
+// appraised crossbow of 84 buffed missile damage is OD 7.
+#[test]
+fn the_od_column_and_filter_follow_the_loaded_loot_profile() {
+    let mut world = World::with_character("Mag");
+    world.set_reply::<calls::ItemsInventoryComplete>(&true);
+    world.own_items(vec![
+        item(0x5000_0002, "Crossbow", 0x100),
+        item(0x5000_0003, "Test Ring", 0x8),
+    ]);
+    world.set_reply::<calls::ItemsProperties>(&Some(ItemProperties {
+        ints: vec![(353, 9), (159, 47), (204, 84)],
+        weapon: Some(ac_plugin_abi::world::WeaponProfile {
+            damage_mod: 1.0,
+            ..Default::default()
+        }),
+        ..ItemProperties::default()
+    }));
+    let mut plugin = world.enable();
+    world.ticks(&mut plugin, 60);
+    world.act(&mut plugin, "OpenMagInventory");
+    world.ticks(&mut plugin, 10);
+    assert_eq!(
+        sorted_names(&mut world, &mut plugin),
+        ["Crossbow", "Test Ring"]
+    );
+    assert_eq!(world.ui_list(&mut plugin, "MagInventoryRowOds"), ["", ""]);
+    world.act(&mut plugin, "ToggleMagInventoryFilters");
+    world.act(&mut plugin, "ShowMagFiltersRatings");
+    world.act_text(&mut plugin, "SetMagFilterOd", "7");
+    assert_eq!(world.ui_text(&mut plugin, "MagFilterOd"), "7");
+    assert_eq!(
+        world.ui_text(&mut plugin, "MagInventoryFilterSummary"),
+        "Weapon OD ≥ 7"
+    );
+    frames(&mut world, &mut plugin, 10);
+    assert!(sorted_names(&mut world, &mut plugin).is_empty());
+    assert_eq!(
+        world.ui_text(&mut plugin, "MagInventoryStatus"),
+        format!(
+            "0 items ({})",
+            mosstank_mag::inventory_search::OD_NEEDS_RULES
+        )
+    );
+
+    // The ladder loaded: every row is read again with it.
+    world.profiles.insert(
+        "mosstank/loot/Mag.utl",
+        &mosstank_formats::utl::serialize_rules(&xbow_ladder()),
+    );
+    world.vt(&mut plugin, "loot load Mag");
+    // Looked at within a second (frames 0.1 s apart), then read again.
+    frames(&mut world, &mut plugin, 25);
+    assert_eq!(sorted_names(&mut world, &mut plugin), ["Crossbow"]);
+    assert_eq!(world.ui_list(&mut plugin, "MagInventoryRowOds"), ["7"]);
+    assert_eq!(world.ui_list(&mut plugin, "MagInventoryRowOdKeys"), ["7"]);
+    assert_eq!(world.ui_text(&mut plugin, "MagInventoryStatus"), "1 item");
+    world.act_text(&mut plugin, "SetMagFilterOd", "8");
+    frames(&mut world, &mut plugin, 10);
+    assert!(sorted_names(&mut world, &mut plugin).is_empty());
+    // The Ratings tab's Reset clears the field and its filter.
+    world.act(&mut plugin, "ResetMagFiltersTab");
+    assert_eq!(world.ui_text(&mut plugin, "MagFilterOd"), "");
+    frames(&mut world, &mut plugin, 10);
+    assert_eq!(world.ui_list(&mut plugin, "MagInventoryRowOds").len(), 2);
+}

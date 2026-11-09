@@ -1732,6 +1732,265 @@ fn the_inventory_filters_fit() {
     assert_within_margin(&cases, &report);
 }
 
+/// The OD ladders the Weapon OD fuel case loads: 31 of 10 rules each,
+/// shaped like the owner's (`(H) Axe (OD +10)` ... `(M) Xbow (OD +1)`):
+/// mastery (353), object class, a name gate on every other melee ladder,
+/// the damage step (buffed median damage for melee, buffed missile damage
+/// for missile), wield skill (159). 28 melee ladders (masteries 1 to 7,
+/// each with the four melee skills) and 3 missile ones. The heavy
+/// character's weapons are given mastery 2 and skill 45, so a melee weapon
+/// reads the damage step of every mastery-2 ladder (the skill is read
+/// last); only the light one is reachable (`40 + N + raise`: OD 8 with
+/// `raise` 0, 7 with 1), the others ask more than any weapon has.
+fn od_ladders(raise: i32) -> String {
+    use mosstank_formats::utl::{self, LootAction, LootRule, VtankLootRequirement};
+    fn requirement(kind: i32, lines: &[&str]) -> VtankLootRequirement {
+        VtankLootRequirement {
+            kind,
+            payload: lines.iter().map(|line| format!("{line}\r\n")).collect(),
+        }
+    }
+    /// One ladder: `damage` is the damage requirement and its base (step
+    /// N asks base + N).
+    fn ladder(
+        rules: &mut Vec<LootRule>,
+        name: &str,
+        (mastery, class, skill): (i32, i32, i32),
+        gate: Option<&str>,
+        (damage_kind, base): (i32, i32),
+    ) {
+        for n in (1..=10).rev() {
+            let mut rule = LootRule::named(&format!("{name} (OD +{n})"), "*");
+            rule.action = LootAction::Keep;
+            let mut requirements = vec![
+                requirement(12, &[&mastery.to_string(), "353"]),
+                requirement(7, &[&class.to_string()]),
+            ];
+            if let Some(gate) = gate {
+                requirements.push(requirement(1, &[gate, "1"]));
+            }
+            requirements.push(requirement(damage_kind, &[&(base + n).to_string()]));
+            requirements.push(requirement(12, &[&skill.to_string(), "159"]));
+            rule.vtank_requirements = requirements;
+            rule.has_imported_requirements = true;
+            rules.push(rule);
+        }
+    }
+    let mut rules = Vec::new();
+    let skills = [("H", 44), ("L", 45), ("F", 46), ("2H", 41)];
+    for mastery in 1..=7 {
+        for (index, (prefix, skill)) in skills.iter().enumerate() {
+            let reachable = mastery == 2 && *skill == 45;
+            let base = if reachable { 40 + raise } else { 500 };
+            let gate = (index % 2 == 1).then_some("^.*(Tachi|Sword|Dagger|Axe).*$");
+            ladder(
+                &mut rules,
+                &format!("({prefix}) Mastery {mastery}"),
+                (mastery, 1, *skill),
+                gate,
+                (2000, base),
+            );
+        }
+    }
+    for (name, mastery) in [("(M) Bow", 8), ("(M) Xbow", 9), ("(M) TW", 10)] {
+        ladder(&mut rules, name, (mastery, 9, 47), None, (2001, 500));
+    }
+    assert_eq!(rules.len(), 310);
+    utl::serialize_rules(&rules)
+}
+
+/// A list the Inventory window shows in its binding `name`, through the
+/// client's debug form of the value.
+fn inventory_list_debug(session: &Session, name: &str) -> String {
+    session
+        .world
+        .fake
+        .ui
+        .panels()
+        .find(|panel| panel.descriptor.window_id == "inventory")
+        .and_then(|panel| panel.values.get(name))
+        .map(|value| format!("{value:?}"))
+        .unwrap_or_default()
+}
+
+/// Ticks until the Inventory window starts reading every row again (it
+/// looks at the loot profile once a second), then until it has read and
+/// searched them all (at least 40 ticks in all), each tick measured as
+/// `case`.
+fn settle_reading(plugin: &mut Plugin, session: &mut Session, cases: &mut Cases, case: &str) {
+    let mut ticks = 0;
+    let mut reading = false;
+    loop {
+        let status = inventory_status(session);
+        reading |= status.starts_with("Reading");
+        let busy = status.starts_with("Searching") || status.starts_with("Reading");
+        if reading && !busy && ticks >= 40 {
+            break;
+        }
+        let fuel = tick(plugin, session);
+        cases.add(case, fuel);
+        ticks += 1;
+        assert!(reading || ticks < 200, "{case}: never read again: {status}");
+        assert!(ticks < 2000, "{case}: {}", inventory_status(session));
+    }
+}
+
+/// The Weapon OD: a loot profile of 310 OD rules (31 ladders of 10) loaded,
+/// then the Inventory window opened on the heavy character with three
+/// other characters' saved logs (6,000 items, their weapons of mastery 2
+/// and skill 45): every row read, its OD worked out; the Weapon OD filter
+/// set and changed; the profile's OD rules changed, so every row is read
+/// again.
+#[test]
+#[ignore = "needs the release module: scripts/check.sh runs it after the WebAssembly build"]
+fn the_weapon_od_fits() {
+    use ac_plugin_abi::ui::ActionValue;
+    let wasm = std::fs::read(wasm_path()).expect("the release mosstank.wasm (build it first)");
+    let mut session = new_session();
+    let mut cases = Cases::default();
+
+    // A first session logs the heavy character; three alts' logs are
+    // copies whose appraised items carry the mastery and skill.
+    let (mut plugin, _) = Plugin::load(&wasm, DEFAULT_MEMORY_MIB).expect("load");
+    plugin.enable(&start_info(), &mut session).expect("enable");
+    log_in_heavy(&mut plugin, &mut session);
+    send(&mut plugin, &mut session, &Event::Logoff);
+    plugin.disable(&mut session).expect("disable");
+    let log = session
+        .world
+        .plugin_data
+        .get("Mag-Tools/Coldeve/Mossy Hunter.inventory.json")
+        .expect("the heavy character's log")
+        .to_owned();
+    let appraised = "\"ints\":{\"1\":";
+    assert!(log.contains(appraised), "the log's appraised items");
+    for alt in 1..=3 {
+        let name = format!("Alt {alt}");
+        let text = log
+            .replacen(
+                "\"character\":\"Mossy Hunter\"",
+                &format!("\"character\":\"{name}\""),
+                1,
+            )
+            .replace(appraised, "\"ints\":{\"353\":2,\"159\":45,\"1\":");
+        session
+            .world
+            .plugin_data
+            .insert(&format!("Mag-Tools/Coldeve/{name}.inventory.json"), &text);
+    }
+
+    // The next session: the ladders loaded, the live weapons of mastery 2
+    // and skill 45 too.
+    let (mut plugin, _) = Plugin::load(&wasm, DEFAULT_MEMORY_MIB).expect("load");
+    plugin.enable(&start_info(), &mut session).expect("enable");
+    log_in_heavy(&mut plugin, &mut session);
+    for properties in session.world.automation().properties.values_mut() {
+        properties.ints.extend([(353, 2), (159, 45)]);
+    }
+    session
+        .world
+        .profiles
+        .insert("mosstank/loot/od-ladders.utl", &od_ladders(0));
+    let fuel = send(
+        &mut plugin,
+        &mut session,
+        &command("vt", "loot load od-ladders"),
+    );
+    cases.add("OD: the profile loaded", fuel);
+    for _ in 0..300 {
+        let fuel = tick(&mut plugin, &mut session);
+        cases.add("OD: tick after the profile's load", fuel);
+    }
+
+    // The window opened: every row read, its OD worked out.
+    let open = ui_action(&session, "OpenMagInventory", ActionValue::None);
+    let fuel = send(&mut plugin, &mut session, &open);
+    cases.add("OD: open the window", fuel);
+    let total = heavy::INVENTORY_ITEMS * 4;
+    let all = format!("{total} items");
+    let mut read_ticks = 0;
+    while inventory_status(&session) != all {
+        let fuel = tick(&mut plugin, &mut session);
+        cases.add("OD: tick (reading, each OD worked out)", fuel);
+        read_ticks += 1;
+        assert!(
+            read_ticks < 2000,
+            "never read: {}",
+            inventory_status(&session)
+        );
+    }
+    let ods = inventory_list_debug(&session, "MagInventoryRowOds");
+    assert!(ods.contains("\"8\""), "the light ladder's OD 8: {ods}");
+
+    // The Weapon OD filter set, then changed.
+    let p = &mut plugin;
+    let s = &mut session;
+    let c = &mut cases;
+    let text = |t: &str| ActionValue::Text(t.to_owned());
+    act(
+        p,
+        s,
+        c,
+        "OD: open the filters",
+        "ToggleMagInventoryFilters",
+        ActionValue::None,
+    );
+    act(
+        p,
+        s,
+        c,
+        "OD: a tab shown",
+        "ShowMagFiltersRatings",
+        ActionValue::None,
+    );
+    act(p, s, c, "OD: the filter set", "SetMagFilterOd", text("8"));
+    let filter_ticks = settle_inventory(p, s, c, "OD: tick (the filter set)");
+    let at_8 = inventory_status(s);
+    assert!(!at_8.starts_with("0 items"), "{at_8}");
+    act(
+        p,
+        s,
+        c,
+        "OD: the filter changed",
+        "SetMagFilterOd",
+        text("9"),
+    );
+    let changed_ticks = settle_inventory(p, s, c, "OD: tick (the filter changed)");
+    let at_9 = inventory_status(s);
+    assert!(at_9.starts_with("0 items"), "{at_9}");
+
+    // The profile's OD rules changed (the light ladder asks one more):
+    // every row read again, its OD worked out again.
+    s.world
+        .profiles
+        .insert("mosstank/loot/od-ladders.utl", &od_ladders(1));
+    let fuel = send(p, s, &command("vt", "loot load od-ladders"));
+    c.add("OD: the profile changed", fuel);
+    act(
+        p,
+        s,
+        c,
+        "OD: the filter changed",
+        "SetMagFilterOd",
+        text("7"),
+    );
+    settle_reading(p, s, c, "OD: tick (read again, profile changed)");
+    let at_7 = inventory_status(s);
+    assert_eq!(at_7, at_8, "OD 7 now where OD 8 was");
+
+    let cases = cases.all();
+    let mut report = report(&cases);
+    let _ = writeln!(
+        report,
+        "{total} items read in {read_ticks} ticks; the filter settled in {filter_ticks} ticks, \
+         its change in {changed_ticks}; at OD 8: {at_8}; after the profile's change, at OD 7: \
+         {at_7}"
+    );
+    println!("{report}");
+    assert_no_file_rewritten(&session, &report);
+    assert_within_margin(&cases, &report);
+}
+
 /// The pieces of gear the heavy character wears for the Mana page.
 const WORN_MANA_ITEMS: usize = 20;
 

@@ -10,6 +10,18 @@ use openac_plugin_compat::json::{JsonNumber, JsonValue, system_text_json};
 /// The appraisal's mark on a spell active on the item.
 const ACTIVE_ON_ITEM: u32 = 0x8000_0000;
 
+/// The game property ids of a weapon's numbers without a weapon profile.
+mod key {
+    /// Damage (int).
+    pub const DAMAGE: u32 = 44;
+    /// DamageType (int).
+    pub const DAMAGE_TYPE: u32 = 45;
+    /// WeaponSkill (int).
+    pub const WEAPON_SKILL: u32 = 48;
+    /// DamageVariance (float).
+    pub const DAMAGE_VARIANCE: u32 = 22;
+}
+
 /// One owned item: where it is, what its description and its appraisal
 /// said, and its spells split as Decal split them.
 #[derive(Debug, Clone, PartialEq, Default)]
@@ -119,12 +131,35 @@ impl ItemRecord {
     }
 
     /// The item as the client listed it, rebuilt from the record: what the
-    /// item info line reads ([`crate::item_info::item_info`]).
+    /// item info line reads ([`crate::item_info::item_info`]), and the
+    /// weapon numbers the loot rules read (skill, damage type, damage and
+    /// variance), which the client lists from the appraisal's weapon
+    /// profile, or from the properties without one.
     #[must_use]
     pub fn item(&self) -> InventoryItem {
         let mut appraised_spell_ids = self.spells.clone();
         appraised_spell_ids.extend(self.active_spells.iter().map(|id| id | ACTIVE_ON_ITEM));
+        let properties = &self.properties;
+        let int = |id: u32| properties.int(id).unwrap_or(0);
+        let weapon = properties.weapon.as_ref();
+        let damage_variance = weapon.map_or_else(
+            || {
+                properties
+                    .floats
+                    .iter()
+                    .find(|(id, _)| *id == key::DAMAGE_VARIANCE)
+                    .map_or(0.0, |(_, value)| *value)
+            },
+            |weapon| weapon.damage_variance,
+        );
         InventoryItem {
+            weapon_skill: weapon.map_or_else(
+                || int(key::WEAPON_SKILL),
+                |weapon| weapon.weapon_skill.cast_signed(),
+            ),
+            damage_type: weapon.map_or_else(|| int(key::DAMAGE_TYPE), |weapon| weapon.damage_type),
+            damage: weapon.map_or_else(|| int(key::DAMAGE), |weapon| weapon.damage),
+            damage_variance,
             object_id: self.id,
             weenie_class_id: self.weenie_class_id,
             name: self.name.clone(),
