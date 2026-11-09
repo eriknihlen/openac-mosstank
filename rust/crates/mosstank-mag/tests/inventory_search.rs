@@ -116,7 +116,7 @@ impl Rig {
         self.settle();
     }
 
-    fn names(&self) -> Vec<String> {
+    fn names(&mut self) -> Vec<String> {
         self.search.row_names()
     }
 
@@ -553,4 +553,67 @@ fn a_pattern_that_backtracks_is_known_by_its_syntax() {
     ] {
         assert!(!backtracks(pattern), "{pattern}");
     }
+}
+
+#[test]
+fn a_text_too_costly_to_match_is_counted_not_dropped_silently() {
+    // A pattern that backtracks without end over a long text is stopped at
+    // the step limit: the item is not listed, and the status says so.
+    let mut rig = Rig::new();
+    let words = "word ".repeat(40);
+    rig.own(item(RING, words.trim(), ObjectClass::Jewelry, PLAYER));
+    rig.own(item(SWORD, "Sword", ObjectClass::MeleeWeapon, PLAYER));
+    rig.search(r"(?:\w+\s?)+Q(?!z)");
+    assert!(rig.names().is_empty());
+    assert_eq!(rig.search.status(), "0 items (1 too costly to search)");
+    rig.search("Sword");
+    assert_eq!(rig.search.status(), "1 item");
+}
+
+#[test]
+fn an_item_gone_before_its_first_reading_is_not_listed() {
+    let mut rig = Rig::new();
+    for n in 0..200 {
+        rig.own(item(0x9000 + n, "Pyreal", ObjectClass::Money, PLAYER));
+    }
+    // The first tick lists the items to read; the last one leaves before
+    // it is read.
+    rig.tick();
+    let gone = rig.host.meta.owned_items.pop().unwrap().object_id;
+    rig.search.on_object_changed(&ObjectChange {
+        object_id: gone,
+        kind: ObjectChangeKind::Released,
+        revision: 2,
+        changed_fields: 0,
+        current: None,
+    });
+    rig.settle();
+    assert_eq!(rig.names().len(), 199);
+}
+
+#[test]
+fn a_click_hits_the_row_the_window_showed() {
+    // The rows shown change between the push and the click: the click is
+    // on the row the player saw.
+    let mut rig = Rig::new();
+    rig.own(item(RING, "Test Ring", ObjectClass::Jewelry, PLAYER));
+    rig.own(item(SWORD, "Sword", ObjectClass::MeleeWeapon, PLAYER));
+    rig.search("");
+    assert_eq!(rig.names(), ["Test Ring", "Sword"], "pushed");
+    // The ring leaves; the rows are worked out again, not yet pushed.
+    rig.host.meta.owned_items.remove(0);
+    rig.search.on_object_changed(&ObjectChange {
+        object_id: RING,
+        kind: ObjectChangeKind::Released,
+        revision: 2,
+        changed_fields: 0,
+        current: None,
+    });
+    rig.settle();
+    rig.search.click(&mut rig.host, 0, settings());
+    assert_ne!(
+        rig.host.meta.selection.selected,
+        Some(SWORD),
+        "row 0 the player saw is the ring"
+    );
 }

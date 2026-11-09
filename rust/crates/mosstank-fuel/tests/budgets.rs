@@ -1360,11 +1360,24 @@ fn the_inventory_search_fits() {
     }
     let read_ticks = ticks;
 
-    // A search typed a key at a time, each key matched against every text
-    // (the last one a pattern with a look-behind, which only .NET's syntax
-    // has), then a row clicked.
+    // A search typed a key at a time, each key matched against every text,
+    // then patterns only .NET's syntax has (look-arounds), one that is
+    // quadratic in the text, one whose engine builds large tables, two that
+    // backtrack without end (each text stopped at the step limit, and said
+    // so), and a look-behind again; then a row clicked.
+    let realistic = [
+        "S",
+        "Sw",
+        "Swo",
+        "Pack|Sack",
+        "(?<!x)Pack",
+        "(?=.*Sword)(?=.*Fire)",
+        "e.{25}x",
+    ];
+    let pathological = [r"(\w+\s?)+\1", r"(?:\w+\s?)+Q(?!z)"];
     let mut matching_ticks = 0;
-    for pattern in ["S", "Sw", "Swo", "Pack|Sack", "(?<!x)Pack"] {
+    for pattern in realistic.iter().chain(&pathological).chain(&["(?<!x)Pack"]) {
+        let pattern = *pattern;
         let typed = ui_action(
             &session,
             "SetMagInventorySearchText",
@@ -1377,15 +1390,21 @@ fn the_inventory_search_fits() {
             let fuel = tick(&mut plugin, &mut session);
             cases.add(&format!("inventory search: matching {pattern}"), fuel);
             ticks += 1;
-            assert!(ticks < 500, "{pattern}: {}", inventory_status(&session));
+            assert!(ticks < 1000, "{pattern}: {}", inventory_status(&session));
         }
         matching_ticks = matching_ticks.max(ticks);
-        assert!(
-            inventory_status(&session).ends_with(" items")
-                || inventory_status(&session) == "1 item",
-            "{pattern}: {}",
-            inventory_status(&session)
-        );
+        let status = inventory_status(&session);
+        if pathological.contains(&pattern) {
+            assert!(
+                status.contains("too costly to search"),
+                "{pattern}: {status}"
+            );
+        } else {
+            assert!(
+                status.ends_with(" items") || status == "1 item",
+                "{pattern}: {status}"
+            );
+        }
     }
     let click = ui_action(&session, "SelectMagInventoryRow", ActionValue::Int(0));
     let fuel = send(&mut plugin, &mut session, &click);

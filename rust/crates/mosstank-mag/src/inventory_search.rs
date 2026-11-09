@@ -18,20 +18,29 @@
 //! call does more than a tick's worth: a file is read in one tick, its items
 //! found in the next, then [`ITEMS_PER_TICK`] items a tick are read and
 //! their texts made (the live items the same); each text is made once and
-//! kept. A new pattern is matched against [`MATCHES_PER_CALL`] texts in the
-//! call that typed it ([`BACKTRACKING_MATCHES_PER_CALL`] for a pattern that
-//! [`backtracks`]), the rest over the next ticks, the status saying so. The
-//! rows shown are worked out again at once for what the player does (a
-//! pattern, a filter), and otherwise only once the reading and matching are
-//! done, so thousands of rows are not pushed to the window at every tick of
-//! the work.
+//! kept. A new pattern is matched against [`NEW_PATTERN_MATCHES`] texts in
+//! the call that typed it (the engine builds its tables then), then
+//! [`MATCHES_PER_CALL`] a tick; a pattern that [`backtracks`] against
+//! [`BACKTRACKING_MATCHES_PER_CALL`] a call, each text stopped after
+//! [`STEP_LIMIT`] steps. The status says how far it is. The rows shown are
+//! worked out again at once for what the player does (a pattern, a filter),
+//! and otherwise only once the reading and matching are done, so thousands
+//! of rows are not pushed to the window at every tick of the work.
 //!
 //! Where it differs from Mag-Tools: the rows of other characters, the
 //! Character and Object class filters, and the Count and Where columns are
 //! new; an item that leaves the inventory leaves the rows (Mag-Tools' list
-//! held what it found until the next keystroke).
+//! held what it found until the next keystroke); a text the pattern cannot
+//! be matched against within [`STEP_LIMIT`] steps is not listed, and the
+//! status counts it (.NET, with no timeout, ran until it was done).
+//!
+//! Where it differs from the plan: a file is read and its items found whole
+//! (one storage read in one tick, finding its items in the next), not 64 KB
+//! a tick: the storage reads whole files, and the fuel case's 1,500-item
+//! file fits (the reading ticks' worst is under 30% of the budget).
 
 use std::collections::{HashMap, HashSet, VecDeque};
+use std::rc::Rc;
 
 use ac_plugin_abi::LogLevel;
 use ac_plugin_abi::items::InventoryItem;
@@ -52,13 +61,26 @@ pub const BAD_PATTERN: &str = "bad pattern";
 /// Items read (from a file, or live) and given their text a tick.
 pub const ITEMS_PER_TICK: usize = 50;
 
-/// Item texts matched against a new pattern in one call (a tenth of it on
-/// a tick that also read items).
+/// Item texts matched against the pattern in one call (a tenth of it on a
+/// tick that also read items).
 pub const MATCHES_PER_CALL: usize = 1500;
 
-/// The same for a pattern the regular expression engine must backtrack
-/// over ([`backtracks`]): each text costs it several times as much.
-pub const BACKTRACKING_MATCHES_PER_CALL: usize = 250;
+/// Item texts matched in the call that typed a new pattern: its first
+/// matches build the engine's tables, several times the cost of later ones.
+pub const NEW_PATTERN_MATCHES: usize = 500;
+
+/// Item texts matched in one call against a pattern the engine must
+/// backtrack over ([`backtracks`]): at most [`STEP_LIMIT`] steps each. A
+/// text stopped at the limit cost about a million instructions on the fuel
+/// case's heavy character (some 700 a step), so a call's matching stays
+/// under 30 million instructions whatever the pattern.
+pub const BACKTRACKING_MATCHES_PER_CALL: usize = 25;
+
+/// The backtracking steps one text may take; past them the text counts as
+/// too costly to search. The look-arounds the window is used with take
+/// fewer (the fuel case holds `(?<!x)Pack` and `(?=.*Sword)(?=.*Fire)` to
+/// none too costly over its 6,000 texts).
+pub const STEP_LIMIT: usize = 1500;
 
 /// The file name every inventory log ends with.
 const LOG_SUFFIX: &str = ".inventory.json";
@@ -104,18 +126,18 @@ impl Pattern {
         if text.is_empty() {
             return Self::All;
         }
-        match DotNetRegex::new(text, RegexOptions::IGNORE_CASE) {
+        match DotNetRegex::with_step_limit(text, RegexOptions::IGNORE_CASE, STEP_LIMIT) {
             Ok(regex) => Self::Regex(Box::new(regex), backtracks(text)),
             Err(_) => Self::Bad,
         }
     }
 
-    /// A match past the step limit counts as none.
-    fn is_match(&self, text: &str) -> bool {
+    /// Whether `text` matches; `None` when it ran past the step limit.
+    fn is_match(&self, text: &str) -> Option<bool> {
         match self {
-            Self::All => true,
-            Self::Regex(regex, _) => regex.is_match(text).unwrap_or(false),
-            Self::Bad => false,
+            Self::All => Some(true),
+            Self::Regex(regex, _) => regex.is_match(text).ok(),
+            Self::Bad => Some(false),
         }
     }
 
@@ -123,10 +145,11 @@ impl Pattern {
         matches!(self, Self::Regex(..))
     }
 
-    /// The texts matched in one call.
-    fn matches_per_call(&self) -> usize {
+    /// The texts matched in one call: `first`, the call that typed it.
+    fn matches_per_call(&self, first: bool) -> usize {
         match self {
             Self::Regex(_, true) => BACKTRACKING_MATCHES_PER_CALL,
+            _ if first => NEW_PATTERN_MATCHES,
             _ => MATCHES_PER_CALL,
         }
     }
@@ -148,6 +171,8 @@ struct Row {
     /// The pattern generation it was last matched against.
     tested: u64,
     matched: bool,
+    /// Matching it ran past the step limit.
+    too_costly: bool,
 }
 
 impl Row {
@@ -164,6 +189,7 @@ impl Row {
             info,
             tested: 0,
             matched: false,
+            too_costly: false,
         }
     }
 }
@@ -217,6 +243,8 @@ struct Live {
     /// Items changed since they were read, in the order heard.
     dirty: VecDeque<u32>,
     dirty_set: HashSet<u32>,
+    /// The ids of its rows and of the items still to read.
+    known: HashSet<u32>,
 }
 
 /// The file being read.
@@ -231,13 +259,19 @@ enum Reading {
     },
 }
 
-/// What the window shows, worked out once each time it changes.
+/// Which item each row shown is: what a click resolves against.
 #[derive(Debug, Default)]
-struct View {
-    /// The rows shown: their owner (in `owner_keys`) and the item's id.
+struct Targets {
+    /// Each row's owner (in `owner_keys`) and the item's id.
     entries: Vec<(usize, u32)>,
     /// The owners' log keys.
     owner_keys: Vec<String>,
+}
+
+/// What the window shows, worked out once each time it changes.
+#[derive(Debug, Default)]
+struct View {
+    targets: Rc<Targets>,
     characters: Vec<String>,
     names: Vec<String>,
     counts: Vec<String>,
@@ -277,6 +311,9 @@ pub struct InventorySearch {
     clicked: Option<(String, u32)>,
     info: String,
     view: View,
+    /// The rows as the window last had them (their names pushed): a click
+    /// is on one of them.
+    pushed: Option<Rc<Targets>>,
     /// The view is to be worked out again at once (a pattern, a filter).
     view_stale: bool,
     /// The rows changed since the view was worked out: it is worked out
@@ -303,7 +340,7 @@ impl InventorySearch {
         text.clone_into(&mut self.pattern_text);
         self.pattern = Pattern::compile(text);
         self.generation += 1;
-        self.match_some(self.pattern.matches_per_call());
+        self.match_some(self.pattern.matches_per_call(true));
         self.view_stale = true;
         self.refresh_view();
     }
@@ -377,7 +414,7 @@ impl InventorySearch {
             .current
             .as_ref()
             .is_some_and(|object| object.is_owned);
-        let listed = live.owner.rows.iter().any(|row| row.id == id);
+        let listed = live.known.contains(&id);
         if (owned || listed) && live.dirty_set.insert(id) {
             live.dirty.push_back(id);
         }
@@ -408,7 +445,7 @@ impl InventorySearch {
             self.settings = Some(settings);
         }
         let worked = self.read_some(host, settings);
-        let budget = self.pattern.matches_per_call();
+        let budget = self.pattern.matches_per_call(false);
         let matched = self.match_some(if worked { budget / 10 } else { budget });
         // The rows shown are worked out on a tick of their own (thousands of
         // them are a tick's worth, and so is pushing them): the window's
@@ -438,22 +475,23 @@ impl InventorySearch {
                     .live
                     .as_ref()
                     .is_some_and(|live| live.pending.is_empty() && live.dirty.is_empty()))
-            && self.untested() == 0
+            && self.untested().0 == 0
     }
 
     /// A row clicked: a live item is selected, its side pack opened first
     /// when it is in one, and its text shown as it is now; another
     /// character's item shows the text its file gave.
     pub fn click(&mut self, host: &mut dyn MagHost, row: i32, settings: InfoSettings) {
-        // The row as the window shows it: the rows themselves may have
-        // changed since (a file read again, an item gone).
+        // The row as the window last had it: the rows worked out since may
+        // differ (a file read again, an item gone).
+        let targets = Rc::clone(self.pushed.as_ref().unwrap_or(&self.view.targets));
         let Some(&(owner, id)) = usize::try_from(row)
             .ok()
-            .and_then(|row| self.view.entries.get(row))
+            .and_then(|row| targets.entries.get(row))
         else {
             return;
         };
-        let key = self.view.owner_keys[owner].clone();
+        let key = targets.owner_keys[owner].clone();
         let Some(item) = self
             .owners()
             .find(|owner| owner.key == key)
@@ -499,7 +537,7 @@ impl InventorySearch {
         if matches!(self.pattern, Pattern::Bad) {
             return BAD_PATTERN.to_owned();
         }
-        let untested = self.untested();
+        let (untested, too_costly) = self.untested();
         let total = || self.owners().map(|owner| owner.rows.len()).sum::<usize>();
         if untested > 0 {
             let total = total();
@@ -508,9 +546,14 @@ impl InventorySearch {
         if !self.is_settled() {
             return format!("Reading... {} items", total());
         }
-        match self.view.entries.len() {
+        let shown = match self.view.targets.entries.len() {
             1 => "1 item".to_owned(),
             n => format!("{n} items"),
+        };
+        if too_costly == 0 {
+            shown
+        } else {
+            format!("{shown} ({too_costly} too costly to search)")
         }
     }
 
@@ -541,9 +584,11 @@ impl InventorySearch {
         self.view.characters.clone()
     }
 
-    /// The rows' Name column.
+    /// The rows' Name column, as the window is given it: a click is on
+    /// one of these rows.
     #[must_use]
-    pub fn row_names(&self) -> Vec<String> {
+    pub fn row_names(&mut self) -> Vec<String> {
+        self.pushed = Some(Rc::clone(&self.view.targets));
         self.view.names.clone()
     }
 
@@ -574,16 +619,22 @@ impl InventorySearch {
             .chain(&self.others)
     }
 
-    /// The rows not yet matched against the pattern.
-    fn untested(&self) -> usize {
+    /// The rows not yet matched against the pattern, and those it could
+    /// not be matched against within the step limit.
+    fn untested(&self) -> (usize, usize) {
         if !self.pattern.is_regex() {
-            return 0;
+            return (0, 0);
         }
         let generation = self.generation;
         self.owners()
             .flat_map(|owner| &owner.rows)
-            .filter(|row| row.tested != generation)
-            .count()
+            .fold((0, 0), |(untested, costly), row| {
+                if row.tested != generation {
+                    (untested + 1, costly)
+                } else {
+                    (untested, costly + usize::from(row.too_costly))
+                }
+            })
     }
 
     /// Matches up to `budget` rows against the pattern (an empty or bad
@@ -655,6 +706,7 @@ impl InventorySearch {
             return false;
         };
         let pending: VecDeque<InventoryItem> = host.owned_items_shared().iter().cloned().collect();
+        let known = pending.iter().map(|item| item.object_id).collect();
         self.live = Some(Live {
             owner: Owner {
                 key: storage_key(&character.world, &character.name),
@@ -664,6 +716,7 @@ impl InventorySearch {
             player_id: character.id,
             world: character.world,
             pending,
+            known,
             ..Live::default()
         });
         self.changed = true;
@@ -689,12 +742,16 @@ impl InventorySearch {
                 let row = live_row(host, item, settings, &self.pattern, generation);
                 match at {
                     Some(at) => live.owner.rows[at] = row,
-                    None => live.owner.rows.push(row),
+                    None => {
+                        live.known.insert(id);
+                        live.owner.rows.push(row);
+                    }
                 }
             } else if let Some(at) = at {
                 // Gone, once the client has listed the whole inventory.
                 if *complete.get_or_insert_with(|| host.owned_inventory_complete()) {
                     live.owner.rows.remove(at);
+                    live.known.remove(&id);
                 } else {
                     later.push(id);
                 }
@@ -870,11 +927,12 @@ impl InventorySearch {
             selected: -1,
             ..View::default()
         };
+        let mut targets = Targets::default();
         view.character_choices.push(ALL.to_owned());
         let mut classes: Vec<ObjectClass> = Vec::new();
         for (index, owner) in self.owners().enumerate() {
             view.character_choices.push(owner.name.clone());
-            view.owner_keys.push(owner.key.clone());
+            targets.owner_keys.push(owner.key.clone());
             let owner_shown = character == ALL || owner.name == character;
             let packs = owner.packs();
             for row in &owner.rows {
@@ -893,9 +951,9 @@ impl InventorySearch {
                     .as_ref()
                     .is_some_and(|(key, id)| *id == row.id && *key == owner.key)
                 {
-                    view.selected = i32::try_from(view.entries.len()).unwrap_or(-1);
+                    view.selected = i32::try_from(targets.entries.len()).unwrap_or(-1);
                 }
-                view.entries.push((index, row.id));
+                targets.entries.push((index, row.id));
                 view.characters.push(owner.name.clone());
                 view.names.push(row.name.clone());
                 view.counts.push(row.count.max(1).to_string());
@@ -907,6 +965,7 @@ impl InventorySearch {
         class_names.sort_by(|a, b| ordinal::compare_ignore_case(a, b));
         view.class_choices.push(ALL.to_owned());
         view.class_choices.extend(class_names);
+        view.targets = Rc::new(targets);
         self.view = view;
     }
 }
@@ -927,7 +986,9 @@ fn class_name(class: ObjectClass) -> String {
 
 /// Matches a row against the pattern of `generation`.
 fn test(row: &mut Row, pattern: &Pattern, generation: u64) {
-    row.matched = pattern.is_match(&row.info);
+    let matched = pattern.is_match(&row.info);
+    row.matched = matched == Some(true);
+    row.too_costly = matched.is_none();
     row.tested = generation;
 }
 
