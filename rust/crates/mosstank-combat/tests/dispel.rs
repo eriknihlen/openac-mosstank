@@ -375,6 +375,56 @@ fn dispel_items_ignore_vulnerabilities_above_their_difficulty_limit() {
     assert_eq!(controller.status(), "Dispel idle");
 }
 
+// A vulnerability that never runs out (one an item casts) is not dispelled,
+// as VTank skips an active spell whose duration is -1. The client reports
+// such an enchantment's time left as infinite, not negative.
+#[test]
+fn a_vulnerability_that_never_runs_out_uses_no_dispel_item() {
+    let mut surface = Surface {
+        active: vec![ActiveEnchantment {
+            seconds_remaining: f64::INFINITY,
+            ..vulnerable()[0]
+        }],
+        spell_lookup: vec![vulnerability(100, 375)],
+        inventory: vec![item(11, "Rune of Dispel")],
+        mode: Some(CombatMode::Magic),
+        ..Surface::default()
+    };
+    let settings = VitalSettings {
+        use_dispel_items: true,
+        ..VitalSettings::default()
+    };
+    let mut controller = DispelController::new();
+
+    assert!(!tick(&mut controller, &mut surface, &settings, 0.0));
+    assert_eq!(surface.used_item, 0);
+    assert_eq!(controller.status(), "Dispel idle");
+}
+
+// As above, for the self dispel.
+#[test]
+fn a_vulnerability_that_never_runs_out_is_not_dispelled_by_casting() {
+    let mut surface = Surface {
+        active: vec![ActiveEnchantment {
+            seconds_remaining: f64::INFINITY,
+            ..vulnerable()[0]
+        }],
+        spell_lookup: vec![vulnerability(100, 400), self_dispel_spell()],
+        known_spell_ids: HashSet::from([SELF_DISPEL]),
+        inventory: vec![item(10, "Chorizite")],
+        mode: Some(CombatMode::Magic),
+        ..Surface::default()
+    };
+    let settings = VitalSettings {
+        cast_dispel_self: true,
+        ..VitalSettings::default()
+    };
+    let mut controller = DispelController::new();
+
+    assert!(!tick(&mut controller, &mut surface, &settings, 0.0));
+    assert_eq!(surface.targeted_cast, (0, 0));
+}
+
 // Source: tests/AcDream.Plugins.MossTank.Tests/DispelControllerTests.cs :: AttenuatedAwakenerDispelsTheHighestScoringNearbyFellow
 #[test]
 fn attenuated_awakener_dispels_the_highest_scoring_nearby_fellow() {
