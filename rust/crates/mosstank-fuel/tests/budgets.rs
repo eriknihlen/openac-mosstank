@@ -1375,8 +1375,23 @@ fn the_inventory_search_fits() {
         "e.{25}x",
     ];
     let pathological = [r"(\w+\s?)+\1", r"(?:\w+\s?)+Q(?!z)"];
+    // Patterns that compile huge: refused, and quickly.
+    let too_large = [r"\w{1000}", r"\w{0,50}Ring", r"(?<!\w{0,400})Ring"];
+    // Refused natively (64-bit), but under the size limit in the 32-bit
+    // module, where it compiles and is searched with.
+    let near_the_limit = [r"(\w+) (\w+) (\w+)"];
+    // A long plain pattern pasted in.
+    let pasted = "Superb Gold Ring of the Frozen North ".repeat(6)[..200].to_owned();
+    let pasted = [pasted.as_str()];
     let mut matching_ticks = 0;
-    for pattern in realistic.iter().chain(&pathological).chain(&["(?<!x)Pack"]) {
+    for pattern in realistic
+        .iter()
+        .chain(&pasted)
+        .chain(&pathological)
+        .chain(&too_large)
+        .chain(&near_the_limit)
+        .chain(&["(?<!x)Pack"])
+    {
         let pattern = *pattern;
         let typed = ui_action(
             &session,
@@ -1394,7 +1409,9 @@ fn the_inventory_search_fits() {
         }
         matching_ticks = matching_ticks.max(ticks);
         let status = inventory_status(&session);
-        if pathological.contains(&pattern) {
+        if too_large.contains(&pattern) {
+            assert_eq!(status, "pattern too large", "{pattern}");
+        } else if pathological.contains(&pattern) {
             assert!(
                 status.contains("too costly to search"),
                 "{pattern}: {status}"

@@ -617,3 +617,18 @@ fn a_click_hits_the_row_the_window_showed() {
         "row 0 the player saw is the ring"
     );
 }
+
+#[test]
+fn a_pattern_too_large_to_compile_lists_nothing_and_says_so() {
+    // A short pattern that compiles huge is refused, distinct from a bad
+    // one.
+    let mut rig = Rig::new();
+    rig.own(item(RING, "Test Ring", ObjectClass::Jewelry, PLAYER));
+    for pattern in [r"\w{1000}", r"\w{0,50}Ring", r"(?<!\w{0,400})Ring"] {
+        rig.search(pattern);
+        assert!(rig.names().is_empty(), "{pattern}");
+        assert_eq!(rig.search.status(), "pattern too large", "{pattern}");
+    }
+    rig.search("Ring");
+    assert_eq!(rig.names(), ["Test Ring"]);
+}

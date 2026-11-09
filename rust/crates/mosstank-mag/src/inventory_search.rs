@@ -6,7 +6,9 @@
 //!   against each item's info text ([`crate::item_info::item_info`], with
 //!   the `ShowBuffedValues` and `ShowValueAndBurden` settings): empty
 //!   matches everything, a pattern that does not compile lists nothing and
-//!   says [`BAD_PATTERN`]. It is compiled once each time its text changes.
+//!   says [`BAD_PATTERN`]; one that would compile too large to fit a call
+//!   (`w{1000}`, `(w+) (w+) (w+)`) is refused and says
+//!   [`PATTERN_TOO_LARGE`]. It is compiled once each time its text changes.
 //! - The rows: the logged-in character's items, live (its own saved file is
 //!   not read), then every other `Mag-Tools/<world>/*.inventory.json` in the
 //!   plugin's data, read again each time the window is opened.
@@ -18,9 +20,10 @@
 //! call does more than a tick's worth: a file is read in one tick, its items
 //! found in the next, then [`ITEMS_PER_TICK`] items a tick are read and
 //! their texts made (the live items the same); each text is made once and
-//! kept. A new pattern is matched against [`NEW_PATTERN_MATCHES`] texts in
-//! the call that typed it (the engine builds its tables then), then
-//! [`MATCHES_PER_CALL`] a tick; a pattern that [`backtracks`] against
+//! kept. A new pattern is compiled in the call that typed it (a pattern
+//! that compiles near the size limit is a call's worth of work), and
+//! matched from the next tick: [`NEW_PATTERN_MATCHES`] texts first (the
+//! engine builds its tables then), then [`MATCHES_PER_CALL`] a tick; a pattern that [`backtracks`] against
 //! [`BACKTRACKING_MATCHES_PER_CALL`] a call, each text stopped after
 //! [`STEP_LIMIT`] steps. The status says how far it is. The rows shown are
 //! worked out again at once for what the player does (a pattern, a filter),
@@ -46,7 +49,9 @@ use ac_plugin_abi::LogLevel;
 use ac_plugin_abi::items::InventoryItem;
 use ac_plugin_abi::world::{ItemProperties, ObjectChange, ObjectClass};
 use mosstank_dotnet::text::ordinal;
-use openac_plugin_compat::regex::{DotNetRegex, RegexOptions};
+use openac_plugin_compat::regex::{
+    DotNetRegex, RegexError, RegexLimits, RegexOptions, UNTRUSTED_PATTERN_SIZE_LIMIT,
+};
 
 use crate::host::MagHost;
 use crate::inventory_log::{LogReader, storage_key};
@@ -58,6 +63,10 @@ pub const ALL: &str = "All";
 /// The status shown for a pattern that does not compile.
 pub const BAD_PATTERN: &str = "bad pattern";
 
+/// The status shown for a pattern refused because it would compile past
+/// the size a typed pattern may take ([`UNTRUSTED_PATTERN_SIZE_LIMIT`]).
+pub const PATTERN_TOO_LARGE: &str = "pattern too large";
+
 /// Items read (from a file, or live) and given their text a tick.
 pub const ITEMS_PER_TICK: usize = 50;
 
@@ -65,8 +74,9 @@ pub const ITEMS_PER_TICK: usize = 50;
 /// tick that also read items).
 pub const MATCHES_PER_CALL: usize = 1500;
 
-/// Item texts matched in the call that typed a new pattern: its first
-/// matches build the engine's tables, several times the cost of later ones.
+/// Item texts matched on the first tick after a new pattern is typed: its
+/// first matches build the engine's tables, several times the cost of
+/// later ones.
 pub const NEW_PATTERN_MATCHES: usize = 500;
 
 /// Item texts matched in one call against a pattern the engine must
@@ -119,6 +129,8 @@ enum Pattern {
     Regex(Box<DotNetRegex>, bool),
     /// It does not compile: no item.
     Bad,
+    /// It would compile too large: no item.
+    TooLarge,
 }
 
 impl Pattern {
@@ -126,8 +138,13 @@ impl Pattern {
         if text.is_empty() {
             return Self::All;
         }
-        match DotNetRegex::with_step_limit(text, RegexOptions::IGNORE_CASE, STEP_LIMIT) {
+        let limits = RegexLimits {
+            step_limit: STEP_LIMIT,
+            compiled_size_limit: Some(UNTRUSTED_PATTERN_SIZE_LIMIT),
+        };
+        match DotNetRegex::with_limits(text, RegexOptions::IGNORE_CASE, limits) {
             Ok(regex) => Self::Regex(Box::new(regex), backtracks(text)),
+            Err(RegexError::TooLarge(_)) => Self::TooLarge,
             Err(_) => Self::Bad,
         }
     }
@@ -137,7 +154,7 @@ impl Pattern {
         match self {
             Self::All => Some(true),
             Self::Regex(regex, _) => regex.is_match(text).ok(),
-            Self::Bad => Some(false),
+            Self::Bad | Self::TooLarge => Some(false),
         }
     }
 
@@ -145,7 +162,8 @@ impl Pattern {
         matches!(self, Self::Regex(..))
     }
 
-    /// The texts matched in one call: `first`, the call that typed it.
+    /// The texts matched in one call: `first`, the first call after it was
+    /// typed.
     fn matches_per_call(&self, first: bool) -> usize {
         match self {
             Self::Regex(_, true) => BACKTRACKING_MATCHES_PER_CALL,
@@ -290,6 +308,8 @@ pub struct InventorySearch {
     /// Bumped by each new pattern; a row matched against an older one is
     /// matched again.
     generation: u64,
+    /// The pattern is new: nothing has been matched against it yet.
+    fresh: bool,
     settings: Option<InfoSettings>,
     live: Option<Live>,
     /// No character to search live (none in the world).
@@ -329,10 +349,9 @@ impl InventorySearch {
         &self.pattern_text
     }
 
-    /// A new pattern typed: compiled (when its text changed), and matched
-    /// against the first [`MATCHES_PER_CALL`] item texts (or
-    /// [`BACKTRACKING_MATCHES_PER_CALL`]); the rest are matched on the next
-    /// ticks.
+    /// A new pattern typed: compiled (when its text changed); the item
+    /// texts are matched against it on the next ticks, the rows shown once
+    /// they all are.
     pub fn set_pattern(&mut self, text: &str) {
         if self.generation != 0 && text == self.pattern_text {
             return;
@@ -340,7 +359,10 @@ impl InventorySearch {
         text.clone_into(&mut self.pattern_text);
         self.pattern = Pattern::compile(text);
         self.generation += 1;
-        self.match_some(self.pattern.matches_per_call(true));
+        // Compiling is this call's work: the matching starts on the next
+        // tick (an empty or refused pattern settles every row at no cost).
+        self.match_some(0);
+        self.fresh = true;
         self.view_stale = true;
         self.refresh_view();
     }
@@ -445,8 +467,11 @@ impl InventorySearch {
             self.settings = Some(settings);
         }
         let worked = self.read_some(host, settings);
-        let budget = self.pattern.matches_per_call(false);
+        let budget = self.pattern.matches_per_call(self.fresh);
         let matched = self.match_some(if worked { budget / 10 } else { budget });
+        if matched > 0 {
+            self.fresh = false;
+        }
         // The rows shown are worked out on a tick of their own (thousands of
         // them are a tick's worth, and so is pushing them): the window's
         // push waits for the next light tick.
@@ -530,12 +555,15 @@ impl InventorySearch {
         self.view.selected
     }
 
-    /// The status line: [`BAD_PATTERN`], the work in hand, or how many
+    /// The status line: [`BAD_PATTERN`], [`PATTERN_TOO_LARGE`], the work in
+    /// hand, or how many
     /// items are shown.
     #[must_use]
     pub fn status(&self) -> String {
-        if matches!(self.pattern, Pattern::Bad) {
-            return BAD_PATTERN.to_owned();
+        match self.pattern {
+            Pattern::Bad => return BAD_PATTERN.to_owned(),
+            Pattern::TooLarge => return PATTERN_TOO_LARGE.to_owned(),
+            Pattern::All | Pattern::Regex(..) => {}
         }
         let (untested, too_costly) = self.untested();
         let total = || self.owners().map(|owner| owner.rows.len()).sum::<usize>();
@@ -543,8 +571,13 @@ impl InventorySearch {
             let total = total();
             return format!("Searching... {} of {total}", total - untested);
         }
-        if !self.is_settled() {
+        if !self.work_done() {
             return format!("Reading... {} items", total());
+        }
+        if self.changed {
+            // Matched, the rows not yet worked out.
+            let total = total();
+            return format!("Searching... {total} of {total}");
         }
         let shown = match self.view.targets.entries.len() {
             1 => "1 item".to_owned(),

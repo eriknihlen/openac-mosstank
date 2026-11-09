@@ -366,7 +366,14 @@ fn the_inventory_window_searches_the_live_character_and_the_saved_ones() {
     );
     assert_eq!(world.ui_text(&mut plugin, "MagInventoryStatus"), "2 items");
 
+    // Typed: compiled at once, matched on the next ticks.
     world.act_text(&mut plugin, "SetMagInventorySearchText", "SWORD");
+    assert!(
+        world
+            .ui_list(&mut plugin, "MagInventoryRowNames")
+            .is_empty()
+    );
+    world.ticks(&mut plugin, 3);
     assert_eq!(
         world.ui_list(&mut plugin, "MagInventoryRowNames"),
         ["Alt Sword"]
