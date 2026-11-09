@@ -909,6 +909,7 @@ fn add_behaviour_tools(rows: &mut Vec<UbSettingDefinition>) {
 /// names its paths, their summaries its descriptions, kept for every
 /// character as Mag-Tools kept them in one file. The inventory logger is
 /// on here (Mag-Tools: off): the Inventory window's search reads its files.
+/// The mana overlay's switch is MossTank's own.
 fn add_mag(rows: &mut Vec<UbSettingDefinition>) {
     for (name, summary, value) in [
         (
@@ -945,6 +946,12 @@ fn add_mag(rows: &mut Vec<UbSettingDefinition>) {
             "Mag.InventoryManagement.InventoryLogger",
             "Inventory Logger Enabled.",
             true,
+        ),
+        // Not Mag-Tools': the Mana page's rows in a window of their own.
+        (
+            "Mag.ManaManagement.ShowOverlay",
+            "Show the mana overlay.",
+            false,
         ),
     ] {
         rows.push(switch_in(name, summary, value, UbSettingScope::Global));

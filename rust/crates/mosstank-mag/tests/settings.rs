@@ -17,6 +17,8 @@ fn every_mag_setting_is_a_global_switch_with_mag_tools_default() {
         (COMBAT_SORT_ALPHA, false),
         // Mag-Tools: off; on here, because the inventory search needs it.
         (INVENTORY_LOGGER, true),
+        // Not Mag-Tools': the mana overlay window, off until ticked.
+        (MANA_SHOW_OVERLAY, false),
     ];
     for (name, default) in expected {
         let row = definitions::all()

@@ -788,3 +788,81 @@ impl ManaTracker {
         }
     }
 }
+
+/// What the shell does with the mana overlay window this frame.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum OverlayStep {
+    /// Nothing.
+    None,
+    /// Show it.
+    Show,
+    /// Hide it.
+    Hide,
+    /// The player closed it (its title bar's close): the setting goes off.
+    Closed,
+}
+
+/// Where the mana overlay window stands.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+enum OverlayPhase {
+    /// Not shown.
+    #[default]
+    Hidden,
+    /// Asked to show, not seen shown yet.
+    Opening,
+    /// Seen shown.
+    Shown,
+}
+
+/// The mana overlay window: shown while its setting is on, and the
+/// setting turned off when the player closes it. The client says nothing
+/// when its title bar's close hides it, so each frame compares the setting
+/// with whether the window is shown; a window asked to show counts as
+/// closed only once it was seen shown.
+#[derive(Debug, Default)]
+pub struct ManaOverlay {
+    phase: OverlayPhase,
+}
+
+impl ManaOverlay {
+    /// One frame: `wanted` is the setting, `visible` whether the client
+    /// shows the window.
+    pub fn step(&mut self, wanted: bool, visible: bool) -> OverlayStep {
+        match (self.phase, wanted, visible) {
+            (OverlayPhase::Hidden, true, _) => {
+                self.phase = OverlayPhase::Opening;
+                OverlayStep::Show
+            }
+            (OverlayPhase::Hidden, false, true) => OverlayStep::Hide,
+            (_, false, _) => {
+                self.phase = OverlayPhase::Hidden;
+                if visible {
+                    OverlayStep::Hide
+                } else {
+                    OverlayStep::None
+                }
+            }
+            (OverlayPhase::Opening, true, true) => {
+                self.phase = OverlayPhase::Shown;
+                OverlayStep::None
+            }
+            (OverlayPhase::Shown, true, false) => {
+                self.phase = OverlayPhase::Hidden;
+                OverlayStep::Closed
+            }
+            _ => OverlayStep::None,
+        }
+    }
+
+    /// It is shown (seen shown, and its setting still on).
+    #[must_use]
+    pub fn is_shown(&self) -> bool {
+        self.phase == OverlayPhase::Shown
+    }
+
+    /// The session ended (the shell hides the window): the next session
+    /// shows it again while the setting is on.
+    pub fn reset(&mut self) {
+        self.phase = OverlayPhase::Hidden;
+    }
+}

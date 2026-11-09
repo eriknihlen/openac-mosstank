@@ -72,6 +72,8 @@ pub struct MagParts {
     pub inventory_log: inventory_log::InventoryLogger,
     /// The mana list.
     pub mana: mana::ManaTracker,
+    /// The mana overlay window.
+    pub mana_overlay: mana::ManaOverlay,
     /// The Inv. Items page.
     pub inv_items: inv_items::InvItemsTracker,
     /// The combat tracker.

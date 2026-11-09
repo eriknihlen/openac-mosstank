@@ -646,3 +646,49 @@ fn the_mana_lists_appraisals_go_before_a_background_backlog() {
     rig.queue.tick(&mut rig.host, false);
     assert_eq!(rig.host.identified, vec![10]);
 }
+
+mod overlay {
+    use mosstank_mag::mana::{ManaOverlay, OverlayStep};
+
+    #[test]
+    fn the_setting_opens_it_and_untick_hides_it() {
+        let mut overlay = ManaOverlay::default();
+        assert_eq!(overlay.step(false, false), OverlayStep::None);
+        assert_eq!(overlay.step(true, false), OverlayStep::Show);
+        // Not drawn yet: no second request, and it is not taken as closed.
+        assert_eq!(overlay.step(true, false), OverlayStep::None);
+        assert!(!overlay.is_shown());
+        assert_eq!(overlay.step(true, true), OverlayStep::None);
+        assert!(overlay.is_shown());
+        assert_eq!(overlay.step(false, true), OverlayStep::Hide);
+        assert!(!overlay.is_shown());
+        assert_eq!(overlay.step(false, false), OverlayStep::None);
+    }
+
+    #[test]
+    fn closing_it_from_its_title_bar_is_noticed_once() {
+        let mut overlay = ManaOverlay::default();
+        overlay.step(true, false);
+        overlay.step(true, true);
+        assert_eq!(overlay.step(true, false), OverlayStep::Closed);
+        // The setting is turned off by the shell; nothing more.
+        assert_eq!(overlay.step(false, false), OverlayStep::None);
+    }
+
+    #[test]
+    fn a_window_shown_without_the_setting_is_hidden() {
+        // The client may bring a window back as it was left.
+        let mut overlay = ManaOverlay::default();
+        assert_eq!(overlay.step(false, true), OverlayStep::Hide);
+    }
+
+    #[test]
+    fn a_new_session_opens_it_again() {
+        let mut overlay = ManaOverlay::default();
+        overlay.step(true, false);
+        overlay.step(true, true);
+        overlay.reset();
+        assert!(!overlay.is_shown());
+        assert_eq!(overlay.step(true, false), OverlayStep::Show);
+    }
+}
