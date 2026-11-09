@@ -683,8 +683,6 @@ fn a_files_rows_are_worked_out_a_part_at_a_time() {
     assert!(!gui.needs_refresh());
 }
 
-// The review's fixes (Phase 8b)
-
 #[test]
 fn a_sort_while_a_files_rows_are_worked_out_starts_them_again() {
     let mut host = FakeMagHost::new();

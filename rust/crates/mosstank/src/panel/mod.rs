@@ -45,7 +45,7 @@ pub const ICON_SURFACE_ID: u32 = 0x0600_2C41;
 /// The shelf button's initials when the art is missing.
 pub const ICON_TEXT: &str = "MT";
 
-/// The Inventory window's dock button: the retail Pack's icon (the
+/// The Inventory window's dock button: the game's Pack icon (the
 /// backpack, a portal.dat render surface).
 pub const INVENTORY_ICON_SURFACE_ID: u32 = 0x0600_1BAF;
 /// Its initials when the art is missing.

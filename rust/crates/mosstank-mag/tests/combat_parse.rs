@@ -187,7 +187,7 @@ fn received_prismatic_hit_is_counted_with_a_warning() {
 
 #[test]
 fn received_health_hit_has_no_pattern() {
-    // Nothing between "of " and " damage": no pattern, as in retail.
+    // Nothing between "of " and " damage": no pattern, as in Mag-Tools.
     assert_eq!(
         event(&combat_in(
             "Drudge Skulker drains your chest for 5 points of damage!"

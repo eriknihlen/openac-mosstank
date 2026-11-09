@@ -299,7 +299,7 @@ fn the_mag_tab_shows_its_page_and_its_three_sub_pages() {
 }
 
 // The Inventory window (the Mag tab's inventory search): on the dock with
-// its own icon, the retail Pack's, closed until opened.
+// its own icon, the game's Pack icon, closed until opened.
 #[test]
 fn the_inventory_window_sits_on_the_dock_with_its_own_icon() {
     let (world, _plugin) = fresh();
