@@ -783,8 +783,31 @@
     <group x="0" y="22" w="976" h="207" visible="{MagCombatVisible}"
            anchor="left top right bottom">
     </group>
+    <!-- Mana: Mag-Tools' ManaList (its item icon, name, state icon, mana
+         and time left columns, at their widths) and the two totals under
+         it. No Recharge box: MossTank's own mana recharger does that. -->
     <group x="0" y="22" w="976" h="207" visible="{MagManaVisible}"
            anchor="left top right bottom">
+      <list x="4" y="2" w="320" h="180" rowheight="17" anchor="left top bottom"
+            selected="{SelectedMagManaRow}" onchange="{SelectMagManaRow}"
+            tooltip="The items you wear: mana now and at full, how long it lasts, and whether their spells are up (green: up, red: not up).">
+        <column type="icon" width="16" iconkind="item" values="{MagManaIcons}"
+                onclick="{SelectMagManaRow}" />
+        <column type="text" width="125" items="{MagManaNames}"
+                onclick="{SelectMagManaRow}" />
+        <column type="icon" width="16" iconkind="did" values="{MagManaStates}"
+                onclick="{SelectMagManaRow}" />
+        <column type="text" width="72" items="{MagManaAmounts}"
+                onclick="{SelectMagManaRow}" />
+        <column type="text" width="44" items="{MagManaTimes}"
+                onclick="{SelectMagManaRow}" />
+      </list>
+      <label x="9" y="186" w="120" h="18" text="{MagManaNeeded}" color="theme:text|#FFE8DEC3"
+             anchor="left bottom"
+             tooltip="The mana every worn item lacks, Aetheria, cloaks and ammunition too." />
+      <label x="204" y="186" w="160" h="18" text="{MagManaUnretained}"
+             color="theme:text|#FFE8DEC3" anchor="left bottom"
+             tooltip="The appraised worn items that are not retained (ammunition not counted)." />
     </group>
     <group x="0" y="22" w="976" h="207" visible="{MagInvItemsVisible}"
            anchor="left top right bottom">

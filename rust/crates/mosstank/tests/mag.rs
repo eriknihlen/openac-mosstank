@@ -397,3 +397,92 @@ fn the_inventory_window_searches_the_live_character_and_the_saved_ones() {
             .is_empty()
     );
 }
+
+#[test]
+fn the_mana_page_lists_a_worn_item_once_appraised() {
+    // Source: Mag-Tools EquipmentTrackedItem.cs and ManaTrackerGUI.cs at
+    // 43ee2ec: an appraised worn ring with its spell up, 100 of 200 mana,
+    // one burned every 40 s.
+    use ac_plugin_abi::character::ActiveEnchantment;
+    use ac_plugin_abi::magic::SpellInfo;
+    let ring = 0x5000_0002;
+    let mut world = World::with_character("Mag");
+    world.set_reply::<calls::ItemsInventoryComplete>(&true);
+    world.own_items(vec![ac_plugin_abi::items::InventoryItem {
+        wielder_id: 0x5000_0001,
+        valid_locations: 0x0004_0000,
+        equipped_location: 0x0004_0000,
+        item_current_mana: 100,
+        item_maximum_mana: 200,
+        ..item(ring, "Test Ring", 0x8)
+    }]);
+    world.set_reply::<calls::WorldObject>(&Some(ac_plugin_abi::world::WorldObject {
+        object_id: ring,
+        name: "Test Ring".to_owned(),
+        wielder_id: 0x5000_0001,
+        is_owned: true,
+        has_appraisal_data: true,
+        spell_ids: vec![100],
+        ..ac_plugin_abi::world::WorldObject::default()
+    }));
+    let mut properties = ItemProperties::default();
+    properties.floats.push((5, -0.025));
+    world.set_reply::<calls::ItemsProperties>(&Some(properties));
+    world.set_reply::<calls::SpellsGet>(&Some(SpellInfo {
+        spell_id: 100,
+        family: 5,
+        difficulty: 100,
+        is_beneficial: true,
+        ..SpellInfo::default()
+    }));
+    world.set_reply::<calls::CharacterAllEnchantments>(&vec![ActiveEnchantment {
+        spell_id: 100,
+        family: 5,
+        tier: 1,
+        seconds_remaining: f64::INFINITY,
+    }]);
+    let mut plugin = world.enable();
+    world.tick(&mut plugin);
+    world.send(&mut plugin, ac_plugin_abi::Event::LoginComplete);
+    world.ticks(&mut plugin, 3);
+    // Tracked at the login: its appraisal asked for.
+    assert!(world.requests::<calls::WorldIdentify>().contains(&ring));
+    world.fake.clock.monotonic_ms = 1_000;
+    world.send(&mut plugin, ident_received(ring, "Test Ring"));
+
+    world.act(&mut plugin, "ShowMag");
+    world.act(&mut plugin, "ShowMagMana");
+    assert!(world.ui_bool(&mut plugin, "MagManaVisible"));
+    assert_eq!(world.ui_uints(&mut plugin, "MagManaIcons"), [ring]);
+    assert_eq!(world.ui_list(&mut plugin, "MagManaNames"), ["Test Ring"]);
+    assert_eq!(
+        world.ui_uints(&mut plugin, "MagManaStates"),
+        [mosstank_mag::mana::ICON_ACTIVE]
+    );
+    assert_eq!(world.ui_list(&mut plugin, "MagManaAmounts"), ["100 / 200"]);
+    assert_eq!(world.ui_list(&mut plugin, "MagManaTimes"), ["1h06m"]);
+    assert_eq!(
+        world.ui_text(&mut plugin, "MagManaNeeded"),
+        "Mana needed: 100"
+    );
+    assert_eq!(
+        world.ui_text(&mut plugin, "MagManaUnretained"),
+        "Unretained Items: 1"
+    );
+    // 40 s on, one mana burned.
+    world.fake.clock.monotonic_ms = 41_000;
+    world.tick(&mut plugin);
+    assert_eq!(world.ui_list(&mut plugin, "MagManaAmounts"), ["99 / 200"]);
+
+    // Taken off: the row goes.
+    world.send(
+        &mut plugin,
+        ac_plugin_abi::Event::EquipmentPlacement(ac_plugin_abi::items::EquipmentObservation {
+            object_id: ring,
+            equipped_location: 0x0004_0000,
+            is_removal: true,
+            is_initial_placement: false,
+        }),
+    );
+    assert!(world.ui_list(&mut plugin, "MagManaNames").is_empty());
+}

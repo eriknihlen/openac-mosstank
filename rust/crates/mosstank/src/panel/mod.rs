@@ -213,7 +213,7 @@ pub const PUSH_INTERVAL_SECONDS: f64 = 0.1;
 /// the costly grids and pickers among them
 /// (register UI-1). A test holds each to the markup: every use of the
 /// value sits inside the part.
-pub const SHOWN_ONLY_WITH: [(&str, &str); 38] = [
+pub const SHOWN_ONLY_WITH: [(&str, &str); 45] = [
     ("MacroProfileNames", "ProfilesVisible"),
     ("RouteProfileNames", "ProfilesVisible"),
     ("SelectedRouteProfile", "ProfilesVisible"),
@@ -252,6 +252,13 @@ pub const SHOWN_ONLY_WITH: [(&str, &str); 38] = [
     ("MagInventoryRowPlaces", "MagInventoryShown"),
     ("MagInventoryInfo", "MagInventoryShown"),
     ("MagInventoryStatus", "MagInventoryShown"),
+    ("MagManaIcons", "MagManaVisible"),
+    ("MagManaNames", "MagManaVisible"),
+    ("MagManaStates", "MagManaVisible"),
+    ("MagManaAmounts", "MagManaVisible"),
+    ("MagManaTimes", "MagManaVisible"),
+    ("MagManaNeeded", "MagManaVisible"),
+    ("MagManaUnretained", "MagManaVisible"),
 ];
 
 /// The value a binding of `kind` has before anything is worked out for it:

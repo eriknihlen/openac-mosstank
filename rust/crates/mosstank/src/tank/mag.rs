@@ -179,16 +179,22 @@ impl TankCx<'_> {
     }
 
     /// A client event, for the Mag features: the inventory logger's login,
-    /// changes and logoff; the identify chat line's selections, appraisals
-    /// and opened containers.
+    /// changes and logoff; the mana list's login, logoff, changes and
+    /// system lines; the identify chat line's selections, appraisals and
+    /// opened containers.
     pub(crate) fn mag_event(&mut self, event: &ac_plugin_abi::Event) {
         use ac_plugin_abi::Event;
         use ac_plugin_abi::world::ObjectChangeKind;
         match event {
-            Event::LoginComplete => self.mag.inventory_log.on_login_complete(),
+            Event::LoginComplete => {
+                self.mag.inventory_log.on_login_complete();
+                let mag = &mut *self.mag;
+                mag.mana.on_login(self.client.mag(), &mut mag.identify);
+            }
             Event::Logoff => {
                 let enabled = self.inventory_logger_enabled();
                 self.mag.inventory_log.on_logoff(self.client.mag(), enabled);
+                self.mag.mana.reset();
             }
             Event::ObjectChanged(change) => {
                 let enabled = self.inventory_logger_enabled();
@@ -196,6 +202,12 @@ impl TankCx<'_> {
                 mag.inventory_search.on_object_changed(change);
                 mag.inventory_log
                     .on_object_changed(change, &mut mag.identify, enabled);
+                mag.mana
+                    .on_object_changed(self.client.mag(), change, &mut mag.identify);
+            }
+            Event::ChatReceived(line) => {
+                let mag = &mut *self.mag;
+                mag.mana.on_chat(line, &mut mag.identify);
             }
             _ => {}
         }
@@ -233,8 +245,8 @@ impl TankCx<'_> {
     }
 
     /// One frame of the Mag features, with the character in the world: the
-    /// container scan, the inventory logger's tick's worth, then the
-    /// identify queue, and the Inventory window's search (on a tick the
+    /// container scan, the inventory logger's tick's worth, the items put
+    /// on for the mana list, then the identify queue, and the Inventory window's search (on a tick the
     /// logger left light). True when either did a tick's worth of work.
     pub(crate) fn mag_tick(&mut self) -> bool {
         if !self.mag.printer.is_idle() {
@@ -247,6 +259,9 @@ impl TankCx<'_> {
         let logged = mag
             .inventory_log
             .tick(self.client.mag(), &mut mag.identify, enabled);
+        if mag.mana.has_placements() {
+            mag.mana.tick(self.client.mag(), &mut mag.identify);
+        }
         if !self.mag.identify.is_empty() {
             let looter_busy = self.core.loot.is_identifying();
             self.mag.identify.tick(self.client.mag(), looter_busy);
@@ -262,13 +277,20 @@ impl TankCx<'_> {
     }
 
     /// The character left the world: the appraisals it waited on, the
-    /// identify line's state, the inventory logger's and the Inventory
-    /// window's rows are forgotten.
+    /// identify line's state, the inventory logger's, the mana list's and
+    /// the Inventory window's rows are forgotten.
     pub(crate) fn mag_session_ended(&mut self) {
         self.mag.identify.clear();
         self.mag.printer.reset();
         self.mag.inventory_log.reset();
         self.mag.inventory_search.reset();
+        self.mag.mana.reset();
+    }
+
+    /// The Mana page's values, built at this moment (once a moment).
+    pub(crate) fn mana_view(&mut self) -> &mosstank_mag::mana::ManaView {
+        self.mag.mana.refresh(self.client.mag());
+        self.mag.mana.view()
     }
 }
 

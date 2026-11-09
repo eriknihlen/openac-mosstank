@@ -1228,11 +1228,13 @@ impl Tank {
     }
 
     /// A placement the client announced: the equipment profile's run reads
-    /// its receipts (`PlacementObserved`).
+    /// its receipts (`PlacementObserved`); the mana list hears an item go on
+    /// or come off.
     pub fn on_equipment_placement(
         &mut self,
         observation: &ac_plugin_abi::items::EquipmentObservation,
     ) {
+        self.mag.mana.on_equipment(observation);
         self.ub
             .commands
             .tools_mut()

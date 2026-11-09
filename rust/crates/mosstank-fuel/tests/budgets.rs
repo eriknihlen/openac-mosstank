@@ -1440,6 +1440,183 @@ fn the_inventory_search_fits() {
     assert_within_margin(&cases, &report);
 }
 
+/// The pieces of gear the heavy character wears for the Mana page.
+const WORN_MANA_ITEMS: usize = 20;
+
+/// The heavy character puts on [`WORN_MANA_ITEMS`] of its carried gear
+/// (each with mana and six spells), every spell of them cast on it by the
+/// item (no end) beside its timed enchantments. The worn items' ids and
+/// names.
+fn wear_gear(session: &mut Session) -> Vec<(u32, String)> {
+    let automation = session.world.automation();
+    let mut worn = Vec::new();
+    for item in &mut automation.item_entries {
+        if worn.len() == WORN_MANA_ITEMS {
+            break;
+        }
+        if item.valid_locations == 0 || item.item_maximum_mana == 0 {
+            continue;
+        }
+        item.equipped_location = item.valid_locations;
+        item.wielder_id = heavy::CHARACTER_ID;
+        item.container_id = 0;
+        worn.push((item.object_id, item.name.clone()));
+    }
+    let mut casts = Vec::new();
+    for object in &mut automation.world_objects {
+        if worn.iter().any(|(id, _)| *id == object.object_id) {
+            object.wielder_id = heavy::CHARACTER_ID;
+            object.container_id = 0;
+            object.has_appraisal_data = true;
+            casts.extend(object.spell_ids.iter().copied());
+        }
+    }
+    let mut every = heavy::enchantments(&session.table);
+    every.extend(casts.into_iter().filter_map(|spell_id| {
+        session
+            .table
+            .iter()
+            .find(|spell| spell.spell_id == spell_id)
+            .map(|spell| ac_plugin_abi::character::ActiveEnchantment {
+                spell_id,
+                family: spell.family,
+                tier: spell.tier,
+                seconds_remaining: f64::INFINITY,
+            })
+    }));
+    session
+        .world
+        .set_reply::<calls::CharacterAllEnchantments>(&every);
+    worn
+}
+
+/// The main window's list `name` (read through its debug form).
+fn main_list_len(session: &Session, name: &str) -> usize {
+    session
+        .world
+        .fake
+        .ui
+        .panels()
+        .find(|panel| panel.descriptor.window_id == "main")
+        .and_then(|panel| panel.values.get(name))
+        .map_or(0, |value| format!("{value:?}").matches('"').count() / 2)
+}
+
+/// The Mana page on the heavy character wearing twenty pieces of gear with
+/// mana: the login (each piece tracked and asked for), the page shown and
+/// drawn as the burn ticks, every piece appraised, a burst of town chat
+/// with the system lines that cue an appraisal, and a piece taken off and
+/// put back on.
+#[test]
+#[ignore = "needs the release module: scripts/check.sh runs it after the WebAssembly build"]
+fn the_mana_page_fits() {
+    use ac_plugin_abi::items::EquipmentObservation;
+    use ac_plugin_abi::ui::ActionValue;
+    let wasm = std::fs::read(wasm_path()).expect("the release mosstank.wasm (build it first)");
+    let mut session = new_session();
+    let mut cases = Cases::default();
+    let (mut plugin, _) = Plugin::load(&wasm, DEFAULT_MEMORY_MIB).expect("load");
+    plugin.enable(&start_info(), &mut session).expect("enable");
+    enter_world(&mut session);
+    let properties = heavy::appraised_properties(&heavy::inventory());
+    session.world.automation().properties.extend(properties);
+    let worn = wear_gear(&mut session);
+    assert_eq!(worn.len(), WORN_MANA_ITEMS);
+    session
+        .world
+        .set_reply::<calls::ItemsInventoryComplete>(&true);
+    tick(&mut plugin, &mut session);
+    let login = send(&mut plugin, &mut session, &Event::LoginComplete);
+    cases.add("mana page: login complete", login);
+    for _ in 0..60 {
+        let fuel = tick(&mut plugin, &mut session);
+        cases.add("mana page: tick (page hidden)", fuel);
+    }
+
+    for handler in ["ShowMag", "ShowMagMana"] {
+        let shown = ui_action(&session, handler, ActionValue::None);
+        let fuel = send(&mut plugin, &mut session, &shown);
+        cases.add("mana page: shown", fuel);
+    }
+    for _ in 0..60 {
+        let fuel = tick(&mut plugin, &mut session);
+        cases.add("mana page: tick (page shown)", fuel);
+    }
+    assert_eq!(
+        main_list_len(&session, "MagManaNames"),
+        WORN_MANA_ITEMS,
+        "the rows drawn"
+    );
+
+    let objects: Vec<_> = session
+        .world
+        .automation()
+        .world_objects
+        .iter()
+        .filter(|object| worn.iter().any(|(id, _)| *id == object.object_id))
+        .cloned()
+        .collect();
+    for (revision, object) in objects.iter().enumerate() {
+        let appraised = Event::ObjectChanged(ObjectChange {
+            object_id: object.object_id,
+            kind: ObjectChangeKind::IdentReceived,
+            revision: 10_000 + revision as i64,
+            changed_fields: ObjectChangeKind::IdentReceived.fields(),
+            current: Some(object.clone()),
+        });
+        let fuel = send(&mut plugin, &mut session, &appraised);
+        cases.add("mana page: worn item appraised", fuel);
+        let fuel = tick(&mut plugin, &mut session);
+        cases.add("mana page: tick (page shown)", fuel);
+    }
+
+    for line in 0..heavy::BURST_CHAT_LINES {
+        if line % 8 == 3 {
+            let name = &worn[line % worn.len()].1;
+            let log = session.world.chat_log.get_or_insert_with(Vec::new);
+            let sequence = log.last().map_or(1, |line| line.sequence + 1);
+            let mut low = heavy::chat_line(sequence, session.world.fake.clock.utc_unix_ms);
+            low.kind = 4;
+            low.text = format!("Your {name} is low on Mana.");
+            log.push(low.clone());
+            let fuel = send(&mut plugin, &mut session, &Event::ChatReceived(low));
+            cases.add("mana page: chat line", fuel);
+        } else {
+            chat(
+                &mut plugin,
+                &mut session,
+                &mut cases,
+                "mana page: chat line",
+            );
+        }
+        if line % 4 == 0 {
+            let fuel = tick(&mut plugin, &mut session);
+            cases.add("mana page: tick (page shown)", fuel);
+        }
+    }
+
+    let (piece, _) = worn[0].clone();
+    for is_removal in [true, false] {
+        let placed = Event::EquipmentPlacement(EquipmentObservation {
+            object_id: piece,
+            equipped_location: 0x0004_0000,
+            is_removal,
+            is_initial_placement: false,
+        });
+        let fuel = send(&mut plugin, &mut session, &placed);
+        cases.add("mana page: placement", fuel);
+        let fuel = tick(&mut plugin, &mut session);
+        cases.add("mana page: tick (page shown)", fuel);
+    }
+    assert_eq!(main_list_len(&session, "MagManaNames"), WORN_MANA_ITEMS);
+
+    let cases = cases.all();
+    let report = report(&cases);
+    println!("{report}");
+    assert_no_file_rewritten(&session, &report);
+    assert_within_margin(&cases, &report);
+}
+
 #[test]
 #[ignore = "needs the release module: scripts/check.sh runs it after the WebAssembly build"]
 #[allow(clippy::too_many_lines)]

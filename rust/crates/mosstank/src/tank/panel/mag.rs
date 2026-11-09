@@ -21,6 +21,17 @@ pub(super) fn value(cx: &mut TankCx<'_>, name: &str) -> Option<UiValue> {
         "MagManaVisible" => b(shown && page == MagSubPage::Mana),
         "MagInvItemsVisible" => b(shown && page == MagSubPage::InvItems),
 
+        // The Mana page (pushed only while it is shown).
+        "MagManaIcons" => Some(UiValue::UintList(cx.mana_view().object_ids())),
+        "MagManaNames" => tl(cx.mana_view().names()),
+        "MagManaStates" => Some(UiValue::UintList(cx.mana_view().state_icons())),
+        "MagManaAmounts" => tl(cx.mana_view().mana_texts()),
+        "MagManaTimes" => tl(cx.mana_view().time_texts()),
+        "MagManaNeeded" => t(cx.mana_view().mana_needed_text()),
+        "MagManaUnretained" => t(cx.mana_view().unretained_text()),
+        // Mag-Tools' list selects nothing.
+        "SelectedMagManaRow" => i(-1),
+
         // The Inventory window.
         "MagInventoryShown" => b(cx.client.mag().ui_view_visible(INVENTORY_WINDOW)),
         "MagInventorySearchText" => t(cx.mag.inventory_search.pattern()),
@@ -45,6 +56,8 @@ pub(super) fn act(cx: &mut TankCx<'_>, name: &str, arg: &Arg) -> bool {
         "ShowMagCombat" => cx.mag.sub_page = MagSubPage::Combat,
         "ShowMagMana" => cx.mag.sub_page = MagSubPage::Mana,
         "ShowMagInvItems" => cx.mag.sub_page = MagSubPage::InvItems,
+        // A click on the mana list: Mag-Tools' list did nothing with it.
+        "SelectMagManaRow" => {}
         "OpenMagInventory" => {
             cx.client.show_window("inventory", true);
         }
