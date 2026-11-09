@@ -62,6 +62,8 @@ pub struct MagParts {
     pub combat_page: combat::gui::CombatPage,
     /// The Inventory window.
     pub inventory_search: inventory_search::InventorySearch,
+    /// The Inventory filters window.
+    pub filter_window: inventory_filter::window::FilterWindow,
     /// The appraisals the features asked for.
     pub identify: identify::IdentifyQueue,
     /// The identify chat line's detectors.

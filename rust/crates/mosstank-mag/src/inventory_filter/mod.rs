@@ -11,11 +11,13 @@
 //! and the Gear property; both wield requirement triples; no Healing
 //! rating (a character property). An item never appraised is left out by
 //! a cantrip, spell, rating or armor crit damage filter and counted
-//! ([`Verdict::NotIdentified`]).
+//! ([`Verdict::NotIdentified`]). The filters window's own state is
+//! [`window::FilterWindow`].
 
 pub mod cantrips;
 pub mod facts;
 pub mod slots;
+pub mod window;
 
 use std::collections::BTreeSet;
 
@@ -434,7 +436,23 @@ pub fn set_name(id: i32) -> String {
     names::attribute_set(id).map_or_else(|| format!("Set {id}"), str::to_owned)
 }
 
+impl Equipped {
+    /// Every choice, in the Item tab's order.
+    pub const ALL: [Self; 3] = [Self::Any, Self::Yes, Self::No];
+}
+
 impl ItemType {
+    /// Every type, in the Item tab's order.
+    pub const ALL: [Self; 7] = [
+        Self::All,
+        Self::Armor,
+        Self::Jewelry,
+        Self::Weapons,
+        Self::Clothing,
+        Self::Shirts,
+        Self::Pants,
+    ];
+
     /// Its label.
     #[must_use]
     pub fn label(self) -> &'static str {

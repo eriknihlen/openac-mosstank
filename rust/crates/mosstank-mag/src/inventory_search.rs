@@ -518,6 +518,14 @@ impl InventorySearch {
         self.revision += 1;
     }
 
+    /// The filter as last set, changed by `edit` (a control of the
+    /// filters window), and set ([`Self::set_filter`]).
+    pub fn edit_filter(&mut self, edit: impl FnOnce(&mut InventoryFilter)) {
+        let mut filter = self.filter().clone();
+        edit(&mut filter);
+        self.set_filter(filter);
+    }
+
     /// Every filter cleared (the Clear button).
     pub fn clear_filter(&mut self) {
         self.set_filter(InventoryFilter::default());
