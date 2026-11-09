@@ -6,6 +6,7 @@
 //! - [`patterns`]: the chat lines, Mag-Tools' patterns and the fixes.
 //! - [`info`]: what is kept.
 //! - [`xml`]: the stats files.
+//! - [`gui`]: the Combat page's two lists of each tracker.
 //!
 //! [`Combat`] is what the plugin drives: the patterns (compiled a few a
 //! tick), both trackers, the files. A line is parsed once and counted by
@@ -19,6 +20,7 @@
 //! each wrote it); F16: a persistent file that does not read is kept
 //! aside (`<name>.CombatTracker.broken.xml`) before it is written over.
 
+pub mod gui;
 pub mod info;
 pub mod patterns;
 pub mod xml;
@@ -27,6 +29,7 @@ use std::collections::{HashMap, VecDeque};
 
 use ac_plugin_abi::{ChatLine, LogLevel};
 
+use self::gui::{CombatGui, StatsPage};
 use self::info::{CombatEvent, CombatInfo, SurgeEvent, SurgeInfo};
 use self::patterns::{ParsedLine, Patterns};
 use self::xml::{ImportError, ImportFailure, StagedImport};
@@ -100,6 +103,9 @@ pub enum TrackerUpdate {
 pub struct CombatTracker {
     combat: Vec<CombatInfo>,
     combat_index: HashMap<(String, String), usize>,
+    /// The combat infos each name is the source or target of, in order
+    /// (`GetCombatInfos` without a walk of every info).
+    by_name: HashMap<String, Vec<usize>>,
     /// Each combat info's text in the stats file, kept current a few a
     /// tick ([`Self::refresh_texts`]) so that a write only joins them;
     /// empty while stale.
@@ -132,11 +138,24 @@ impl CombatTracker {
         &self.cloak
     }
 
-    /// `GetCombatInfos(name)`: the infos `name` is the source or target of.
-    pub fn combat_infos_of<'a>(&'a self, name: &'a str) -> impl Iterator<Item = &'a CombatInfo> {
-        self.combat
+    /// `GetCombatInfos(name)`: the infos `name` is the source or target
+    /// of, in the order first seen.
+    pub fn combat_infos_of<'a>(&'a self, name: &str) -> impl Iterator<Item = &'a CombatInfo> {
+        self.by_name
+            .get(name)
+            .map_or(&[][..], Vec::as_slice)
             .iter()
-            .filter(move |info| info.source == name || info.target == name)
+            .map(|&at| &self.combat[at])
+    }
+
+    /// The info at `at` noted under its source's and its target's names.
+    fn index_names(&mut self, at: usize) {
+        let info = &self.combat[at];
+        let (source, target) = (info.source.clone(), info.target.clone());
+        if target != source {
+            self.by_name.entry(target).or_default().push(at);
+        }
+        self.by_name.entry(source).or_default().push(at);
     }
 
     /// `GetAetheriaInfos(name)`.
@@ -197,6 +216,7 @@ impl CombatTracker {
                 self.texts.push(String::new());
                 self.is_stale.push(false);
                 self.combat_index.insert(key, self.combat.len() - 1);
+                self.index_names(self.combat.len() - 1);
                 self.combat.len() - 1
             }
         };
@@ -307,6 +327,7 @@ impl CombatTracker {
         self.combat_index
             .entry(key)
             .or_insert(self.combat.len() - 1);
+        self.index_names(self.combat.len() - 1);
     }
 
     pub(crate) fn push_aetheria_info(&mut self, info: SurgeInfo) {
@@ -433,6 +454,9 @@ pub struct CombatSettings {
     pub persistent: bool,
     /// `Mag.CombatTracker.ExportOnLogOff`.
     pub export_on_logoff: bool,
+    /// `Mag.CombatTracker.SortAlphabetically`: the monster lists sorted by
+    /// name.
+    pub sort_alphabetically: bool,
 }
 
 /// The combat tracker as the plugin drives it.
@@ -453,9 +477,117 @@ pub struct Combat {
     /// F16: the persistent file did not read and could not be kept aside:
     /// it is not written over this session.
     keep_persistent_file: bool,
+    /// The current stats' lists.
+    current_gui: CombatGui,
+    /// The persistent stats' lists.
+    persistent_gui: CombatGui,
 }
 
 impl Combat {
+    /// The current stats' lists.
+    #[must_use]
+    pub fn current_gui(&self) -> &CombatGui {
+        &self.current_gui
+    }
+
+    /// The persistent stats' lists.
+    #[must_use]
+    pub fn persistent_gui(&self) -> &CombatGui {
+        &self.persistent_gui
+    }
+
+    /// One tracker's lists.
+    #[must_use]
+    pub fn gui(&self, page: StatsPage) -> &CombatGui {
+        match page {
+            StatsPage::Current => &self.current_gui,
+            StatsPage::Persistent => &self.persistent_gui,
+        }
+    }
+
+    /// The character's name as known ("" before it is).
+    fn me_name(&self) -> String {
+        self.me
+            .as_ref()
+            .map(|(name, _)| name.clone())
+            .unwrap_or_default()
+    }
+
+    /// One tracker and its lists.
+    fn page_parts(&mut self, page: StatsPage) -> (&mut CombatTracker, &mut CombatGui) {
+        match page {
+            StatsPage::Current => (&mut self.current, &mut self.current_gui),
+            StatsPage::Persistent => (&mut self.persistent, &mut self.persistent_gui),
+        }
+    }
+
+    /// Both lists follow their tracker's updates (the names; the numbers
+    /// wait for [`Self::refresh_page`]). Cheap: every frame.
+    pub fn follow_pages(&mut self, sort: bool) {
+        let me = self.me_name();
+        self.current_gui.follow(&mut self.current, &me, sort);
+        self.persistent_gui.follow(&mut self.persistent, &me, sort);
+    }
+
+    /// One page's numbers worked out (while it is shown).
+    pub fn refresh_page(&mut self, page: StatsPage) {
+        let me = self.me_name();
+        let (tracker, gui) = self.page_parts(page);
+        gui.refresh(tracker, &me);
+    }
+
+    /// Both lists followed and worked out.
+    pub fn update_pages(&mut self, host: &mut dyn MagHost, sort: bool) {
+        self.me(host);
+        self.follow_pages(sort);
+        self.refresh_page(StatsPage::Current);
+        self.refresh_page(StatsPage::Persistent);
+    }
+
+    /// A click on a page's monster list.
+    pub fn click_monster(&mut self, page: StatsPage, row: usize, sort: bool) {
+        let me = self.me_name();
+        let (tracker, gui) = self.page_parts(page);
+        gui.click(tracker, &me, sort, row);
+    }
+
+    /// The "Clear Current Stats" button.
+    pub fn clear_current(&mut self) {
+        self.current.clear();
+    }
+
+    /// The "Clear Persistent Stats" button: the persistent stats cleared
+    /// (a file being read in is no longer), and their file deleted, with
+    /// `File deleted: <path>` in chat when there was one.
+    pub fn clear_persistent(&mut self, host: &mut dyn MagHost) {
+        if self.is_importing() {
+            self.persistence = Persistence::InWorld {
+                saved_ms: host.now_ms(),
+            };
+        }
+        self.persistent.clear();
+        if self.me(host).is_none() {
+            return;
+        }
+        let (name, world) = self.me.clone().unwrap_or_default();
+        let key = xml::persistent_key(&world, &name);
+        match host.storage().delete(&key) {
+            Ok(true) => {
+                // Nothing left to keep from being written over.
+                self.keep_persistent_file = false;
+                let path = shown_path(host, &key);
+                let text = format!("{CHAT_PREFIX}File deleted: {path}");
+                host.chat_post(&text, CHAT_TYPE);
+                self.posted.note(text);
+            }
+            Ok(false) => {}
+            Err(error) => host.log(
+                LogLevel::Warn,
+                &format!("The combat stats {key} were not deleted: {error}"),
+            ),
+        }
+    }
+
     /// The patterns are compiled.
     #[must_use]
     pub fn is_ready(&self) -> bool {
@@ -637,6 +769,11 @@ impl Combat {
     pub fn on_login_complete(&mut self, host: &mut dyn MagHost, settings: CombatSettings) {
         self.me = None;
         let me = self.me(host).is_some();
+        // The persistent lists worked out before the file replaces the
+        // counts (Mag-Tools drew them as each line came).
+        let name = self.me_name();
+        self.persistent_gui
+            .update(&mut self.persistent, &name, settings.sort_alphabetically);
         for waiting in &mut self.waiting {
             waiting.before_login = true;
         }

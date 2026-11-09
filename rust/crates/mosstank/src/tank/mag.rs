@@ -184,6 +184,7 @@ impl TankCx<'_> {
         CombatSettings {
             persistent: UbCatalog::flag(&self.ub.catalog, settings::COMBAT_PERSISTENT),
             export_on_logoff: UbCatalog::flag(&self.ub.catalog, settings::COMBAT_EXPORT_ON_LOGOFF),
+            sort_alphabetically: UbCatalog::flag(&self.ub.catalog, settings::COMBAT_SORT_ALPHA),
         }
     }
 

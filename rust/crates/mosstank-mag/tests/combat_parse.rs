@@ -1154,6 +1154,7 @@ fn waiting_before_login(file: Option<&str>) -> Combat {
     let settings = CombatSettings {
         persistent: true,
         export_on_logoff: false,
+        sort_alphabetically: false,
     };
     // Heard before the patterns are compiled and before the login.
     combat.on_chat(&mut host, &out("You obliterate Early Bird!"));

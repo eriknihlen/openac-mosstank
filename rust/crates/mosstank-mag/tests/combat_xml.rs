@@ -246,6 +246,7 @@ fn settings(persistent: bool, export_on_logoff: bool) -> CombatSettings {
     CombatSettings {
         persistent,
         export_on_logoff,
+        sort_alphabetically: false,
     }
 }
 
