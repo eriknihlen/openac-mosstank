@@ -107,6 +107,7 @@ const CASES: &[(&str, &str)] = &[
     (UB, "quit"),
     (UB, "autostack"),
     (UB, "autocram"),
+    (UB, "autopack stop"),
     (UB, "clearbugged"),
     (UB, "playeroption list"),
     (UB, "translateroute"),

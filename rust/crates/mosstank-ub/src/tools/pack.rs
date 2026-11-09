@@ -1,0 +1,538 @@
+//! `/ub autopack`: Mag-Tools' Inventory Packer
+//! (`MagTools.Macros.InventoryPacker` by Mag-nus, used with the author's
+//! permission; see `rust/NOTICE.md`). A loot profile says which pack each
+//! item belongs in: a rule whose action is keep-up-to names the packs in
+//! the digits of its count, the first choice first: 0 is the main pack, 1
+//! the first side pack, and `312` reads "pack 3, else pack 1, else pack 2".
+//! The first rule that matches an item decides it; any other action leaves
+//! the item where it is.
+//!
+//! A run first pours part stacks of the same name in the same pack
+//! together, then moves one item at a time to the best pack of its list
+//! that has room, until nothing is left to move. An item whose rule turns
+//! on an appraisal is appraised first, one request at a time through the
+//! shared appraisal slot. An item that will not move for ten seconds is
+//! left alone for the rest of the run.
+//!
+//! The profile is a loot profile: the one named on the command line, or
+//! `<character>.AutoPack`, or `Default.AutoPack` (Mag-Tools' file names).
+
+use std::collections::{HashMap, HashSet};
+
+use ac_plugin_abi::items::{InventoryItem, ItemStatus};
+use ac_plugin_abi::world::ItemProperties;
+use mosstank_dotnet::text::ordinal;
+use mosstank_formats::utl::{LootAction, LootRule};
+
+use crate::commands::{UbCall, strip_extension};
+
+/// Public weenie flag of a focus: never packed, and never packed into.
+const PUBLIC_WEENIE_FOCI: u32 = 0x0080_0000;
+
+/// The pause between two looks at the packs (the reference thinks every
+/// 100 ms).
+pub const THINK_INTERVAL_SECONDS: f64 = 0.1;
+/// How long one item may stay the item being worked on before it is left
+/// alone for the rest of the run.
+pub const GIVE_UP_SECONDS: f64 = 10.0;
+/// How long a move's receipt is waited for before the packs are looked at
+/// again without it.
+pub const RECEIPT_WAIT_SECONDS: f64 = 3.0;
+/// One appraisal request every 499 ms, the corpse identifier's cadence.
+const IDENTIFY_REQUEST_INTERVAL_SECONDS: f64 = 0.499;
+/// How long one request waits before it counts as unanswered.
+const IDENTIFY_TIMEOUT_SECONDS: f64 = 10.0;
+/// Failed requests one item gets before it is decided from what the client
+/// already holds.
+const MAXIMUM_IDENTIFY_ATTEMPTS_PER_ITEM: i32 = 3;
+/// The reference tries a rule's first ten packs.
+const MAXIMUM_PACK_CHOICES: usize = 10;
+
+/// The words that call a run off.
+const STOP_WORDS: [&str; 4] = ["stop", "cancel", "quit", "abort"];
+
+/// Something loose in a pack: not worn, not wielded.
+fn is_carried(item: &InventoryItem) -> bool {
+    item.equipped_location == 0 && item.wielder_id == 0 && item.container_id != 0
+}
+
+/// A pack or a focus: it has its own slot and is never moved.
+fn is_container(item: &InventoryItem) -> bool {
+    item.items_capacity > 0
+        || item.containers_capacity > 0
+        || item.public_flags & PUBLIC_WEENIE_FOCI != 0
+}
+
+/// The part stack to pour and the part stack of the same name in the same
+/// pack to pour it onto (`DoAutoStack`).
+#[must_use]
+pub fn plan_stack(items: &[InventoryItem], ignored: &HashSet<u32>) -> Option<(u32, u32)> {
+    let has_room = |item: &InventoryItem| {
+        is_carried(item)
+            && item.maximum_stack_size > 1
+            && item.stack_size != item.maximum_stack_size
+    };
+    for item in items {
+        if ignored.contains(&item.object_id) || !has_room(item) {
+            continue;
+        }
+        let onto = items.iter().find(|second| {
+            second.object_id != item.object_id
+                && second.container_id == item.container_id
+                && second.name == item.name
+                && has_room(second)
+        });
+        if let Some(onto) = onto {
+            return Some((item.object_id, onto.object_id));
+        }
+    }
+    None
+}
+
+/// The packs by the number a rule calls them: the character (the main
+/// pack) at 0, then each side pack at its slot plus one. A number with no
+/// pack behind it is 0.
+#[must_use]
+pub fn numbered_packs(items: &[InventoryItem], player_object_id: u32) -> Vec<u32> {
+    let mut packs = vec![player_object_id];
+    for pack in items.iter().filter(|item| {
+        item.container_id == player_object_id
+            && item.items_capacity > 0
+            && item.public_flags & PUBLIC_WEENIE_FOCI == 0
+            && item.container_slot >= 0
+    }) {
+        let number = usize::try_from(pack.container_slot).unwrap_or_default() + 1;
+        if packs.len() <= number {
+            packs.resize(number + 1, 0);
+        }
+        packs[number] = pack.object_id;
+    }
+    packs
+}
+
+/// A keep-up-to count read as pack numbers, one decimal digit each
+/// (`123` is packs 1, 2 and 3); `None` for a negative count, which names
+/// none.
+#[must_use]
+pub fn pack_numbers(keep_count: i32) -> Option<Vec<usize>> {
+    if keep_count < 0 {
+        return None;
+    }
+    Some(
+        keep_count
+            .to_string()
+            .bytes()
+            .map(|digit| usize::from(digit - b'0'))
+            .collect(),
+    )
+}
+
+/// An item that is not in its first pack, and the packs it may go to, best
+/// first (0 where the rule names a pack that is not there).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Misplaced {
+    /// The item.
+    pub object_id: u32,
+    /// The pack it is in.
+    pub container_id: u32,
+    /// How many are in its stack.
+    pub amount: u32,
+    /// Its packs, best first.
+    pub targets: Vec<u32>,
+}
+
+/// The one move to make now: the first choices are tried for every item
+/// before anybody's second, an item already in the pack a round offers it
+/// stays there, and a pack takes an item only while it has a free slot
+/// (`DoAutoPack`'s second half). The item and the pack.
+#[must_use]
+pub fn plan_move(
+    misplaced: &[Misplaced],
+    free_slots: &dyn Fn(u32) -> i32,
+) -> Option<(u32, u32, u32)> {
+    let mut settled: HashSet<u32> = HashSet::new();
+    for choice in 0..MAXIMUM_PACK_CHOICES {
+        // The reference walks its list from the end.
+        for item in misplaced.iter().rev() {
+            let Some(&target) = item.targets.get(choice) else {
+                continue;
+            };
+            if settled.contains(&item.object_id) {
+                continue;
+            }
+            if item.container_id == target {
+                settled.insert(item.object_id);
+                continue;
+            }
+            if target != 0 && free_slots(target) > 0 {
+                return Some((item.object_id, target, item.amount));
+            }
+        }
+    }
+    None
+}
+
+/// What one look at the packs came to.
+enum Step {
+    /// A request went out, or the look was spent giving an item up.
+    Acted,
+    /// Nothing can move until an appraisal lands.
+    Waiting,
+    /// Nothing is left to do.
+    Done,
+}
+
+/// The inventory packer.
+#[derive(Debug, Clone, Default)]
+pub struct InventoryPacker {
+    rules: Vec<LootRule>,
+    is_running: bool,
+    /// Items that would not move, left alone for the rest of the run.
+    ignored: HashSet<u32>,
+    working_object_id: u32,
+    working_seconds: f64,
+    /// The request in flight: the item, and the completion count before it.
+    in_flight: Option<(u32, i64)>,
+    in_flight_seconds: f64,
+    since_think: f64,
+    identify_attempts: HashMap<u32, i32>,
+    awaiting_object_id: u32,
+    awaiting_seconds: f64,
+    since_request: f64,
+}
+
+impl InventoryPacker {
+    /// Idle.
+    #[must_use]
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// Whether a run is under way.
+    #[must_use]
+    pub fn is_running(&self) -> bool {
+        self.is_running
+    }
+
+    /// `/ub autopack [lootProfile]` and `/ub autopack stop` (or cancel,
+    /// quit, abort).
+    pub fn command(&mut self, call: &mut UbCall<'_>, arguments: &str) {
+        let text = arguments.trim();
+        if STOP_WORDS
+            .iter()
+            .any(|word| ordinal::equals_ignore_case(text, word))
+        {
+            if self.is_running {
+                self.finish(call, "Auto Pack - Stopped.");
+            } else {
+                call.write_ub_error("Auto Pack is not running.");
+            }
+            return;
+        }
+        if self.is_running {
+            call.write_ub_error("Auto Pack is already running. Use /ub autopack stop to end it.");
+            return;
+        }
+        let Some(character) = call.host.character() else {
+            call.write_ub_error("Auto Pack needs a character in the world.");
+            return;
+        };
+
+        let candidates = if text.is_empty() {
+            vec![
+                format!("{}.AutoPack", character.name),
+                "Default.AutoPack".to_owned(),
+            ]
+        } else {
+            vec![strip_extension(text, &[".utl", ".json"])]
+        };
+        let rules = candidates
+            .iter()
+            .find_map(|name| call.services.loot_profile_rules(call.host, name));
+        let Some(rules) = rules else {
+            call.write_ub_error(&format!(
+                "Auto Pack profile does not exist: {}",
+                candidates
+                    .iter()
+                    .map(|name| format!("{name}.utl"))
+                    .collect::<Vec<_>>()
+                    .join(" or ")
+            ));
+            return;
+        };
+
+        *self = Self {
+            rules,
+            is_running: true,
+            // Armed, so the first look and the first request need no wait.
+            since_think: THINK_INTERVAL_SECONDS,
+            since_request: IDENTIFY_REQUEST_INTERVAL_SECONDS,
+            ..Self::default()
+        };
+        call.write_ub("Auto Pack - Started.");
+    }
+
+    /// One frame; true while it owns the character this frame.
+    pub fn tick(&mut self, call: &mut UbCall<'_>, elapsed_seconds: f64, can_act: bool) -> bool {
+        if !self.is_running {
+            return false;
+        }
+        if call.host.character().is_none() {
+            self.reset();
+            return false;
+        }
+        let elapsed = elapsed_seconds.max(0.0);
+        self.since_think += elapsed;
+        self.since_request += elapsed;
+        self.working_seconds += elapsed;
+        self.observe_appraisal(call, elapsed);
+
+        let state = call.host.item_state();
+        if let Some((_, baseline)) = self.in_flight {
+            self.in_flight_seconds += elapsed;
+            let answered = state.last_inventory_completion.revision != baseline;
+            if state.is_busy || (!answered && self.in_flight_seconds < RECEIPT_WAIT_SECONDS) {
+                return true;
+            }
+            self.in_flight = None;
+        }
+        if !can_act || !state.is_available {
+            return false;
+        }
+        if state.is_busy || self.since_think < THINK_INTERVAL_SECONDS {
+            return true;
+        }
+        self.since_think = 0.0;
+
+        match self.think(call) {
+            Step::Acted | Step::Waiting => true,
+            Step::Done => {
+                self.finish(call, "Auto Pack - Completed.");
+                false
+            }
+        }
+    }
+
+    /// Drops a run without a word, as a new session does.
+    pub fn reset(&mut self) {
+        *self = Self::default();
+    }
+
+    fn finish(&mut self, call: &mut UbCall<'_>, line: &str) {
+        self.reset();
+        call.write_ub(line);
+    }
+
+    /// One look at the packs (`Think`): a stack first, then a move.
+    fn think(&mut self, call: &mut UbCall<'_>) -> Step {
+        let Some(character) = call.host.character() else {
+            return Step::Done;
+        };
+        let owned = call.host.owned_items_shared();
+        self.ignored
+            .retain(|id| owned.iter().any(|item| item.object_id == *id));
+
+        if let Some((source, onto)) = plan_stack(&owned, &self.ignored) {
+            if self.may_work_on(call, source, &owned) {
+                let result = call.host.merge_items(source, onto, 0);
+                self.sent(call, source, result.accepted());
+            }
+            return Step::Acted;
+        }
+
+        let packs = numbered_packs(&owned, character.id);
+        let mut misplaced = Vec::new();
+        let mut unidentified = Vec::new();
+        for item in owned.iter() {
+            if self.ignored.contains(&item.object_id) || !is_carried(item) || is_container(item) {
+                continue;
+            }
+            // An item the client's object table has no record of can be
+            // neither appraised nor decided, so it is passed over.
+            let Some(known) = call.host.object(item.object_id) else {
+                continue;
+            };
+            let properties = call.host.properties(item.object_id).unwrap_or_default();
+            if self.needs_appraisal(call, item, &properties, known.has_appraisal_data) {
+                unidentified.push(item.object_id);
+                continue;
+            }
+            let Some(numbers) = self.pack_choices(call, item, &properties) else {
+                continue;
+            };
+            let targets: Vec<u32> = numbers
+                .iter()
+                .map(|number| packs.get(*number).copied().unwrap_or_default())
+                .collect();
+            if targets.first() == Some(&item.container_id) {
+                continue;
+            }
+            misplaced.push(Misplaced {
+                object_id: item.object_id,
+                container_id: item.container_id,
+                amount: item.stack_size.max(1).cast_unsigned(),
+                targets,
+            });
+        }
+        self.request_next_appraisal(call, &unidentified);
+
+        let free_slots = |pack: u32| {
+            if pack == character.id {
+                return character.main_pack_free_slots;
+            }
+            let capacity = owned
+                .iter()
+                .find(|item| item.object_id == pack)
+                .map_or(0, |item| item.items_capacity);
+            let held = owned
+                .iter()
+                .filter(|item| item.container_id == pack && is_carried(item) && !is_container(item))
+                .count();
+            capacity - i32::try_from(held).unwrap_or(i32::MAX)
+        };
+        if let Some((source, pack, amount)) = plan_move(&misplaced, &free_slots) {
+            if self.may_work_on(call, source, &owned) {
+                let result = call.host.move_item(source, pack, amount, 0, true);
+                self.sent(call, source, result.accepted());
+            }
+            return Step::Acted;
+        }
+        if unidentified.is_empty() {
+            Step::Done
+        } else {
+            Step::Waiting
+        }
+    }
+
+    /// The pack numbers the first rule that matches gives the item; `None`
+    /// when no rule matches or the rule is not a keep-up-to.
+    fn pack_choices(
+        &self,
+        call: &mut UbCall<'_>,
+        item: &InventoryItem,
+        properties: &ItemProperties,
+    ) -> Option<Vec<usize>> {
+        let rule = self
+            .rules
+            .iter()
+            .find(|rule| call.host.loot_rule_matches(rule, item, properties))?;
+        if rule.action != LootAction::KeepUpTo {
+            return None;
+        }
+        pack_numbers(rule.keep_count)
+    }
+
+    /// Whether the item may be asked for: the first ask of a new item
+    /// starts its clock; an item still being asked for after
+    /// [`GIVE_UP_SECONDS`] is left alone instead, and said.
+    fn may_work_on(
+        &mut self,
+        call: &mut UbCall<'_>,
+        object_id: u32,
+        owned: &[InventoryItem],
+    ) -> bool {
+        if self.working_object_id != object_id {
+            self.working_object_id = object_id;
+            self.working_seconds = 0.0;
+            return true;
+        }
+        if self.working_seconds <= GIVE_UP_SECONDS {
+            return true;
+        }
+        self.ignored.insert(object_id);
+        let name = owned
+            .iter()
+            .find(|item| item.object_id == object_id)
+            .map_or("", |item| item.name.as_str());
+        call.write_ub(&format!("Auto Pack - Skipping item: {object_id}, {name}"));
+        false
+    }
+
+    /// Remembers a request that went out, to wait for its receipt.
+    fn sent(&mut self, call: &mut UbCall<'_>, object_id: u32, accepted: bool) {
+        if !accepted {
+            return;
+        }
+        let baseline = call.host.item_state().last_inventory_completion.revision;
+        self.in_flight = Some((object_id, baseline));
+        self.in_flight_seconds = 0.0;
+    }
+
+    // ---- appraisals -------------------------------------------------------
+
+    /// True when an appraisal could still change which rule decides the
+    /// item, it has attempts left, and the client holds none for it yet.
+    fn needs_appraisal(
+        &self,
+        call: &mut UbCall<'_>,
+        item: &InventoryItem,
+        properties: &ItemProperties,
+        has_appraisal_data: bool,
+    ) -> bool {
+        !has_appraisal_data
+            && self.attempts_spent(item.object_id) < MAXIMUM_IDENTIFY_ATTEMPTS_PER_ITEM
+            && call.host.loot_needs_identify(item, properties, &self.rules)
+    }
+
+    fn attempts_spent(&self, object_id: u32) -> i32 {
+        self.identify_attempts
+            .get(&object_id)
+            .copied()
+            .unwrap_or_default()
+    }
+
+    fn spend_attempt(&mut self, object_id: u32) {
+        *self.identify_attempts.entry(object_id).or_default() += 1;
+    }
+
+    /// Watches the request in flight: an answer frees the slot; silence past
+    /// the timeout, or a question the client has given up on, spends one of
+    /// the item's attempts.
+    fn observe_appraisal(&mut self, call: &mut UbCall<'_>, elapsed: f64) {
+        if self.awaiting_object_id == 0 {
+            return;
+        }
+        self.awaiting_seconds += elapsed;
+        let answered = call
+            .host
+            .object(self.awaiting_object_id)
+            .is_some_and(|known| known.has_appraisal_data);
+        if !answered {
+            let abandoned = call.host.appraisal().last_abandoned_id == self.awaiting_object_id;
+            if !abandoned && self.awaiting_seconds < IDENTIFY_TIMEOUT_SECONDS {
+                return;
+            }
+            self.spend_attempt(self.awaiting_object_id);
+        }
+        self.awaiting_object_id = 0;
+        self.awaiting_seconds = 0.0;
+    }
+
+    /// Asks about the next unidentified item when the appraisal slot is
+    /// free to ask with: the looter, the counter and this run share it.
+    fn request_next_appraisal(&mut self, call: &mut UbCall<'_>, unidentified: &[u32]) {
+        if self.awaiting_object_id != 0
+            || self.since_request < IDENTIFY_REQUEST_INTERVAL_SECONDS
+            || call.services.corpse_identifier_busy()
+            || call.host.appraisal().awaiting_id != 0
+        {
+            return;
+        }
+        for &object_id in unidentified {
+            let result = call.host.identify(object_id);
+            if result.accepted() {
+                self.awaiting_object_id = object_id;
+                self.awaiting_seconds = 0.0;
+                self.since_request = 0.0;
+                return;
+            }
+            // Busy is the client's own backpressure and says nothing about
+            // this item; anything else is a refusal of this item and costs
+            // it one attempt.
+            if result.status == ItemStatus::Busy {
+                return;
+            }
+            self.spend_attempt(object_id);
+        }
+    }
+}

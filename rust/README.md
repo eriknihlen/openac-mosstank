@@ -151,3 +151,24 @@ window (item type and slot, cantrips at a tier or better, ratings, set,
 requirements, the characters searched: the filters of the owner's
 MosswartOverlord inventory search), and a click on a column heading sorts
 the rows by it.
+
+**`/ub autopack`** is Mag-Tools' Inventory Packer: it sorts what you carry
+into packs by a loot profile. A rule whose action is **Keep Up To** says
+where its items go; the digits of its count are pack numbers, best first:
+0 is the main pack, 1 the first side pack, so `1` reads "pack 1" and `312`
+reads "pack 3, else pack 1 if that is full, else pack 2". The first rule
+that matches an item decides it, and a rule with any other action leaves it
+where it is. The run first pours part stacks of the same name in the same
+pack together, then moves one item at a time until nothing is left; an item
+whose rule needs an appraisal is appraised first, and one that will not move
+for ten seconds is skipped. Worn and wielded things, packs and foci never
+move.
+
+- `/ub autopack` packs by the loot profile `<character>.AutoPack.utl`, or
+  `Default.AutoPack.utl` when the character has none (Mag-Tools' file names,
+  kept with the other loot profiles).
+- `/ub autopack <lootProfile>` packs by that profile (MossTank's own).
+- `/ub autopack stop` ends the run.
+
+Mag-Tools also starts a run when someone says `<character> autopack` in
+chat; MossTank does not: send `/ub autopack` with `/ub bc` instead.

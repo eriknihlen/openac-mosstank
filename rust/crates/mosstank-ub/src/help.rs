@@ -107,6 +107,25 @@ pub static ENTRIES: &[UbCommandUsage] = &[
         examples: &[],
     },
     UbCommandUsage {
+        name: "autopack",
+        usage: "/ub autopack [stop|lootProfile]",
+        summary: "Sorts your inventory into packs by a loot profile (Mag-Tools' Inventory Packer). A KeepUpTo rule's count names the packs, best first: 0 is the main pack, 1 the first side pack.",
+        examples: &[
+            UbCommandExample {
+                command: "/ub autopack",
+                description: "Packs by <character>.AutoPack.utl, or Default.AutoPack.utl",
+            },
+            UbCommandExample {
+                command: "/ub autopack sorting.utl",
+                description: "Packs by the loot profile sorting.utl",
+            },
+            UbCommandExample {
+                command: "/ub autopack stop",
+                description: "Stops packing",
+            },
+        ],
+    },
+    UbCommandUsage {
         name: "autostack",
         usage: "/ub autostack",
         summary: "Auto Stack your inventory.",
