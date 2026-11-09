@@ -1296,3 +1296,77 @@ fn the_inventory_windows_count_column_is_right_aligned() {
         assert_eq!(align, wanted, "{items:?}");
     }
 }
+
+// The Inventory window's headings are its list's own captions: the client
+// draws each over its column and aligns it as the column's cells (Count to
+// the right). Labels above the list sat over a layout the client did not
+// draw: it gives the last column the room left as well, so a `*` Name column
+// before it shared that room and the Count and Where columns moved left from
+// under their labels.
+#[test]
+fn the_inventory_windows_headings_are_its_lists_own_captions() {
+    let document = document("mosstank-inventory.xml");
+    let root = document.root_element();
+    let list = descendants_named(root, "list").next().unwrap();
+    assert_eq!(attr(list, "header"), Some("true"));
+    let columns: Vec<_> = named(list, "column").collect();
+    let captions: Vec<_> = columns
+        .iter()
+        .map(|column| attr(*column, "header"))
+        .collect();
+    assert_eq!(
+        captions,
+        [
+            None,
+            Some("Character"),
+            Some("Name"),
+            Some("Count"),
+            Some("Where")
+        ]
+    );
+    for label in descendants_named(root, "label") {
+        assert!(
+            !["Character", "Name", "Count", "Where"].contains(&text(label)),
+            "a heading label is left: {}",
+            text(label)
+        );
+    }
+    // Only the last column takes the room left, and that room is its width.
+    let (last, fixed) = columns.split_last().unwrap();
+    assert!(
+        fixed
+            .iter()
+            .all(|column| attr(*column, "width").is_some_and(|width| width != "*"))
+    );
+    let room = number(list, "w") - fixed.iter().map(|c| number(*c, "width")).sum::<f32>();
+    assert!(
+        (room - number(*last, "width")).abs() < f32::EPSILON,
+        "{room}"
+    );
+}
+
+// The Combat page's widths are Mag-Tools', made for a font of about 6 px a
+// character; the client's interface font is wider, and `Dmg Rcvd` read
+// `Dmg Rcvc`, `Typeless` `Typele:`. A cell's text sits 3 px in from both
+// edges of its column (a right-aligned one stops 3 px short of the right),
+// so a column needs the text's width and 6 px. The widths are the glyph
+// advances measured on the Combat page in a live run (2026-11-09).
+#[test]
+fn the_combat_pages_heading_and_labels_fit_their_columns() {
+    const CELL_PADDING: f32 = 3.0;
+    let document = document("mosstank.xml");
+    for (caption, items, advance) in [
+        ("Dmg Rcvd", "{MagCombatReceived}", 58.0),
+        ("Typeless", "{MagCombatDetailNames}", 44.0),
+    ] {
+        let column = descendants_named(document.root_element(), "column")
+            .find(|column| attr(*column, "items") == Some(items))
+            .unwrap();
+        let width = number(column, "width");
+        assert!(
+            width >= advance + 2.0 * CELL_PADDING,
+            "{caption}: {width} px holds {} px of text",
+            width - 2.0 * CELL_PADDING
+        );
+    }
+}

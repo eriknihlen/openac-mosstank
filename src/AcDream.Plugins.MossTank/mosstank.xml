@@ -783,7 +783,10 @@
     <!-- Combat: Mag-Tools' combat tracker, its three tabs. Each stats tab
          has its monster list (the header row, the All row, a row a name;
          * marks the one shown) and the detail list of that row, at
-         Mag-Tools' column widths and alignments. Side by side, monster
+         Mag-Tools' column widths and alignments, but for two its font
+         clipped: Dmg Rcvd 64 (55) and the damage kinds 50 (40), each
+         the text's width in the client's font and 3 px either side.
+         Side by side, monster
          list left: the page is wider and lower than Mag-Tools' 320 x 400,
          where they were stacked. -->
     <group x="0" y="22" w="976" h="207" visible="{MagCombatVisible}"
@@ -805,7 +808,7 @@
                   onclick="{SelectMagCombatRow}" />
           <column type="text" width="37" align="right" items="{MagCombatKills}"
                   onclick="{SelectMagCombatRow}" />
-          <column type="text" width="55" align="right" items="{MagCombatReceived}"
+          <column type="text" width="64" align="right" items="{MagCombatReceived}"
                   onclick="{SelectMagCombatRow}" />
           <column type="text" width="77" align="right" items="{MagCombatGiven}"
                   onclick="{SelectMagCombatRow}" />
@@ -813,7 +816,7 @@
         <list x="328" y="2" w="320" h="183" rowheight="16" anchor="left top bottom"
               selected="{SelectedMagCombatDetailRow}" onchange="{SelectMagCombatDetailRow}"
               tooltip="The row marked *: the damage you received by kind and element (left); your attacks and their hit share, your evades and resists, surges, average and largest hits, crits (right).">
-          <column type="text" width="40" items="{MagCombatDetailNames}"
+          <column type="text" width="50" items="{MagCombatDetailNames}"
                   onclick="{SelectMagCombatDetailRow}" />
           <column type="text" width="52" align="right" items="{MagCombatDetailMelee}"
                   onclick="{SelectMagCombatDetailRow}" />

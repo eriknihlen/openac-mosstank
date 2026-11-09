@@ -33,22 +33,22 @@
     <label x="450" y="26" w="186" h="16" text="{MagInventoryStatus}" color="theme:muted|#FFC7B98F"
            tooltip="How many items are shown, or what is still being read or searched." />
 
-    <label x="24" y="50" w="110" h="16" text="Character" color="theme:muted|#FFC7B98F" />
-    <label x="134" y="50" w="362" h="16" text="Name" color="theme:muted|#FFC7B98F" />
-    <label x="496" y="50" w="50" h="16" text="Count" color="theme:muted|#FFC7B98F" />
-    <label x="546" y="50" w="90" h="16" text="Where" color="theme:muted|#FFC7B98F" />
-    <list x="4" y="68" w="632" h="300" rowheight="17"
+    <!-- The list draws its own headings, each over its column and aligned
+         as its cells. The last column always takes the room the others
+         leave, so Name has a fixed width (the list's 632 less the other
+         columns) and Where keeps its 90. -->
+    <list x="4" y="50" w="632" h="318" rowheight="17" header="true"
           selected="{SelectedMagInventoryRow}" onchange="{SelectMagInventoryRow}"
           tooltip="The items found. Click one to see its full text below; your own item is selected, its side pack opened.">
       <column type="icon" width="20" iconkind="did" values="{MagInventoryRowIcons}"
               onclick="{SelectMagInventoryRow}" />
-      <column type="text" width="110" items="{MagInventoryRowCharacters}"
+      <column type="text" width="110" header="Character" items="{MagInventoryRowCharacters}"
               onclick="{SelectMagInventoryRow}" />
-      <column type="text" width="*" items="{MagInventoryRowNames}"
+      <column type="text" width="362" header="Name" items="{MagInventoryRowNames}"
               onclick="{SelectMagInventoryRow}" />
-      <column type="text" width="50" align="right" items="{MagInventoryRowCounts}"
+      <column type="text" width="50" align="right" header="Count" items="{MagInventoryRowCounts}"
               onclick="{SelectMagInventoryRow}" />
-      <column type="text" width="90" items="{MagInventoryRowPlaces}"
+      <column type="text" width="90" header="Where" items="{MagInventoryRowPlaces}"
               onclick="{SelectMagInventoryRow}" />
     </list>
 
