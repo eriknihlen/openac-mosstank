@@ -507,7 +507,10 @@ fn select_ally(automation: &mut dyn Automation) -> Option<FellowMember> {
 
 fn has_vulnerability_at_or_below(automation: &mut dyn Automation, maximum_difficulty: i32) -> bool {
     for active in automation.active_enchantments() {
-        if active.seconds_remaining < 0.0 {
+        // An enchantment that never runs out (one an item casts) is not
+        // dispelled. The client reports its time left as infinite; a
+        // negative value is kept as the same signal.
+        if active.seconds_remaining < 0.0 || active.seconds_remaining.is_infinite() {
             continue;
         }
         let Some(spell) = automation.spells().try_get(active.spell_id) else {
