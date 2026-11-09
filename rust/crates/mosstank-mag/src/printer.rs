@@ -351,7 +351,7 @@ impl Printer {
             );
             // Asked for only while a container is open.
             if call.host().open_container() != 0 {
-                queue.push(item.object_id);
+                queue.push_urgent(item.object_id);
             }
             return;
         }

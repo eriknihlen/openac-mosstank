@@ -5,6 +5,11 @@
 //! (the looter's pace), none while the looter is identifying, a busy slot
 //! retried on a later turn, an item the client does not know dropped, and
 //! an id already waiting not queued again.
+//!
+//! The requests a player waits on (the identify line's container items, the
+//! mana list's) are urgent: they go before the background ones (the
+//! inventory logger's, which can be hundreds on a first run), in their own
+//! order.
 
 use std::collections::VecDeque;
 
@@ -16,47 +21,63 @@ use crate::host::MagHost;
 /// `IDENTIFY_REQUEST_INTERVAL_SECONDS`, 0.499 s).
 pub const REQUEST_INTERVAL_MS: f64 = 499.0;
 
-/// The objects waiting for an appraisal, in the order they were asked for.
+/// The objects waiting for an appraisal: the urgent ones first, each part
+/// in the order it was asked for. An id waits in one part only.
 #[derive(Debug, Default)]
 pub struct IdentifyQueue {
+    urgent: VecDeque<u32>,
     pending: VecDeque<u32>,
     last_sent_ms: Option<f64>,
 }
 
 impl IdentifyQueue {
-    /// Queues an object, unless it is waiting already.
+    /// Queues an object behind every other, unless it is waiting already.
     pub fn push(&mut self, object_id: u32) {
         if !self.contains(object_id) {
             self.pending.push_back(object_id);
         }
     }
 
+    /// Queues an object a player waits on: behind the other urgent ones,
+    /// before the rest. One waiting among the rest moves forward.
+    pub fn push_urgent(&mut self, object_id: u32) {
+        if self.urgent.contains(&object_id) {
+            return;
+        }
+        if let Some(index) = self.pending.iter().position(|&id| id == object_id) {
+            self.pending.remove(index);
+        }
+        self.urgent.push_back(object_id);
+    }
+
     /// Takes an object out of the queue (its appraisal came, or it is no
     /// longer wanted).
     pub fn remove(&mut self, object_id: u32) {
+        self.urgent.retain(|&id| id != object_id);
         self.pending.retain(|&id| id != object_id);
     }
 
     /// Whether an object is waiting.
     #[must_use]
     pub fn contains(&self, object_id: u32) -> bool {
-        self.pending.contains(&object_id)
+        self.urgent.contains(&object_id) || self.pending.contains(&object_id)
     }
 
     /// Nothing is waiting.
     #[must_use]
     pub fn is_empty(&self) -> bool {
-        self.pending.is_empty()
+        self.urgent.is_empty() && self.pending.is_empty()
     }
 
     /// How many objects are waiting.
     #[must_use]
     pub fn len(&self) -> usize {
-        self.pending.len()
+        self.urgent.len() + self.pending.len()
     }
 
     /// Forgets every waiting object (the character left the world).
     pub fn clear(&mut self) {
+        self.urgent.clear();
         self.pending.clear();
         self.last_sent_ms = None;
     }
@@ -67,7 +88,12 @@ impl IdentifyQueue {
         if looter_busy {
             return;
         }
-        let Some(&object_id) = self.pending.front() else {
+        let part = if self.urgent.is_empty() {
+            &mut self.pending
+        } else {
+            &mut self.urgent
+        };
+        let Some(&object_id) = part.front() else {
             return;
         };
         let now = host.now_ms();
@@ -83,7 +109,7 @@ impl IdentifyQueue {
             // object stays first for a later turn.
             ItemStatus::Busy | ItemStatus::Unavailable => {}
             _ => {
-                self.pending.pop_front();
+                part.pop_front();
             }
         }
     }

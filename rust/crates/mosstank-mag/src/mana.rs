@@ -632,7 +632,7 @@ impl ManaTracker {
         }
         for item in &self.items {
             if item.snapshot.exists && text.contains(item.snapshot.name.as_str()) {
-                queue.push(item.object_id);
+                queue.push_urgent(item.object_id);
             }
         }
     }
@@ -772,7 +772,7 @@ impl ManaTracker {
         if !snapshot.exists {
             return;
         }
-        queue.push(object_id);
+        queue.push_urgent(object_id);
         let mut item = Tracked::new(object_id, snapshot);
         item.state(host, casts);
         self.items.push(item);

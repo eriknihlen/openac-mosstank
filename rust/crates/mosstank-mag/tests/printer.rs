@@ -781,3 +781,28 @@ fn an_owned_identify_lists_the_owned_items_once() {
     assert_eq!(rig.host.owned_listings, 1);
     assert_eq!(rig.posted_text(), vec!["+(Rares) Test Ring"]);
 }
+
+#[test]
+fn a_corpse_item_goes_before_the_inventory_loggers_backlog() {
+    // A first-run logger has 300 items waiting; the corpse item the line
+    // waits on is sent next.
+    let mut rig = Rig::new();
+    for id in 0x6000_0000..0x6000_0000 + 300 {
+        rig.queue.push(id);
+    }
+    let a = item(0x5100_0001, "Ring A", ObjectClass::Jewelry, CORPSE);
+    rig.verdict
+        .0
+        .insert(a.object_id, verdict(true, "Rares", false));
+    rig.verdict.1.insert(a.object_id);
+    rig.open(CORPSE, "Corpse of Drudge", std::slice::from_ref(&a), 0.0);
+    for seen in &mut rig.host.meta.objects {
+        if seen.object_id == a.object_id {
+            seen.has_appraisal_data = false;
+        }
+    }
+    rig.ticks(0.0, 1_000.0);
+    assert_eq!(rig.queue.len(), 301);
+    rig.queue.tick(&mut rig.host, false);
+    assert_eq!(rig.host.identified, vec![a.object_id]);
+}

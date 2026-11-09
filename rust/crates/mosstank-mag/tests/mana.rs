@@ -634,3 +634,15 @@ fn the_view_is_built_once_a_moment() {
     rig.tracker.refresh(&mut rig.host);
     assert_eq!(rig.tracker.view().mana_texts(), ["99 / 200"]);
 }
+
+#[test]
+fn the_mana_lists_appraisals_go_before_a_background_backlog() {
+    let mut rig = Rig::new();
+    rig.wear(&worn(10, "Test Ring", 100, 200));
+    for id in 5000..5300 {
+        rig.queue.push(id);
+    }
+    rig.login();
+    rig.queue.tick(&mut rig.host, false);
+    assert_eq!(rig.host.identified, vec![10]);
+}

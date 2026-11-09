@@ -124,3 +124,72 @@ fn a_removed_object_is_not_asked_for() {
     q.tick(&mut host, false);
     assert_eq!(host.identified, vec![8]);
 }
+
+#[test]
+fn an_urgent_request_goes_before_a_logger_backlog() {
+    // A first-run logger queues hundreds of items; a corpse item the
+    // identify line waits on is sent next.
+    let mut host = FakeMagHost::new();
+    let mut q = IdentifyQueue::default();
+    for id in 1000..1300 {
+        q.push(id);
+    }
+    q.push_urgent(7);
+    assert_eq!(q.len(), 301);
+    q.tick(&mut host, false);
+    assert_eq!(host.identified, vec![7]);
+    host.now_ms = 500.0;
+    q.tick(&mut host, false);
+    assert_eq!(host.identified, vec![7, 1000], "then the backlog, in order");
+}
+
+#[test]
+fn urgent_requests_keep_their_own_order() {
+    let mut host = FakeMagHost::new();
+    let mut q = IdentifyQueue::default();
+    q.push(1);
+    q.push_urgent(7);
+    q.push_urgent(8);
+    q.push_urgent(7);
+    assert_eq!(q.len(), 3);
+    for step in 0..3 {
+        host.now_ms = f64::from(step) * 500.0;
+        q.tick(&mut host, false);
+    }
+    assert_eq!(host.identified, vec![7, 8, 1]);
+}
+
+#[test]
+fn an_urgent_push_of_a_waiting_id_moves_it_forward() {
+    let mut host = FakeMagHost::new();
+    let mut q = IdentifyQueue::default();
+    q.push(1);
+    q.push(2);
+    q.push(3);
+    q.push_urgent(3);
+    assert_eq!(q.len(), 3, "still queued once");
+    q.tick(&mut host, false);
+    assert_eq!(host.identified, vec![3]);
+    // A plain push of an urgent id leaves it urgent.
+    q.push(4);
+    q.push_urgent(4);
+    q.push(4);
+    host.now_ms = 500.0;
+    q.tick(&mut host, false);
+    assert_eq!(host.identified, vec![3, 4]);
+}
+
+#[test]
+fn a_busy_urgent_request_stays_first() {
+    let mut host = FakeMagHost::new();
+    host.identify_answers = [ItemStatus::Busy].into();
+    let mut q = IdentifyQueue::default();
+    q.push(1);
+    q.push_urgent(7);
+    q.tick(&mut host, false);
+    host.now_ms = 500.0;
+    q.tick(&mut host, false);
+    assert_eq!(host.identified, vec![7, 7]);
+    q.remove(1);
+    assert!(q.is_empty());
+}
