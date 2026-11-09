@@ -236,7 +236,10 @@ pub(super) fn act(cx: &mut TankCx<'_>, name: &str, arg: &Arg) -> bool {
         "ShowUb" => cx.select_tab(TankTab::Ub),
         "ShowUbSettings" => cx.select_tab(TankTab::UbSettings),
         "ShowTinker" => cx.select_tab(TankTab::Tinker),
-        "ShowMag" => cx.select_tab(TankTab::Mag),
+        "ShowMag" => {
+            cx.select_tab(TankTab::Mag);
+            cx.refresh_mana_page();
+        }
         "ToggleDebugLog" => cx.toggle_debug_logging(),
         "ShowRemote" => switch_panel(cx, "main", "remote"),
         "ShowMainWindow" => switch_panel(cx, "remote", "main"),

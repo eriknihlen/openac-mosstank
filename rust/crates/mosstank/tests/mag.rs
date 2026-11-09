@@ -453,6 +453,19 @@ fn the_mana_page_lists_a_worn_item_once_appraised() {
     world.act(&mut plugin, "ShowMag");
     world.act(&mut plugin, "ShowMagMana");
     assert!(world.ui_bool(&mut plugin, "MagManaVisible"));
+    // The page is built once a frame: reading its values asks the client
+    // nothing.
+    let clock_reads = world.requests::<calls::HostClock>().len();
+    for name in ["MagManaIcons", "MagManaStates"] {
+        world.ui_uints(&mut plugin, name);
+    }
+    for name in ["MagManaNames", "MagManaAmounts", "MagManaTimes"] {
+        world.ui_list(&mut plugin, name);
+    }
+    for name in ["MagManaNeeded", "MagManaUnretained"] {
+        world.ui_text(&mut plugin, name);
+    }
+    assert_eq!(world.requests::<calls::HostClock>().len(), clock_reads);
     assert_eq!(world.ui_uints(&mut plugin, "MagManaIcons"), [ring]);
     assert_eq!(world.ui_list(&mut plugin, "MagManaNames"), ["Test Ring"]);
     assert_eq!(
@@ -484,5 +497,6 @@ fn the_mana_page_lists_a_worn_item_once_appraised() {
             is_initial_placement: false,
         }),
     );
+    world.tick(&mut plugin);
     assert!(world.ui_list(&mut plugin, "MagManaNames").is_empty());
 }

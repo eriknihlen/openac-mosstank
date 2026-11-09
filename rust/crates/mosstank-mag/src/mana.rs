@@ -16,7 +16,8 @@
 //!   the high bit) or cast by an item on the character (an enchantment that
 //!   does not run out, or has run out: every enchantment, surpassed ones
 //!   too). The state is worked out when the item's appraisal arrives and
-//!   kept until the next one (before the first, at every read).
+//!   kept until the next one; before the first, when it is tracked and
+//!   when its record changes.
 //! - **Mana:** the appraisal's mana, less one for every burn period since
 //!   it arrived (the period is the item's mana rate on a 5 s grid); the
 //!   time left is that times the period.
@@ -31,7 +32,11 @@
 //! also restarted the burn clock on Decal's mana-change notice; the client
 //! sends plugins no such notice, so only an appraisal does. The rows are
 //! worked out when the page reads them, not on a burn timer per item: the
-//! numbers only move on the burn grid, so they read the same.
+//! numbers only move on the burn grid, so they read the same. Before an
+//! item's first appraisal Mag-Tools worked its state out at every read; here
+//! that is when it is tracked and when its record changes (the character's
+//! enchantments alone do not change a row, as after an appraisal). The
+//! login waits for the owned list to be complete.
 
 use std::time::Duration;
 
@@ -307,6 +312,9 @@ struct Tracked {
     idents: u64,
     /// The appraisal count the kept state was worked out for.
     worked_out_for: u64,
+    /// Before its first appraisal: the record changed since the kept state
+    /// was worked out (or none was yet).
+    stale: bool,
     state: ManaState,
 }
 
@@ -319,17 +327,19 @@ impl Tracked {
             last_ident_ms: None,
             idents: 0,
             worked_out_for: 0,
+            stale: true,
             state: ManaState::Unknown,
         }
     }
 
     /// The state: the kept one, worked out again when an appraisal arrived
-    /// since, or while none has.
+    /// since, or (before the first) when its record changed.
     fn state(&mut self, host: &mut dyn MagHost, casts: &mut ItemCasts) -> ManaState {
         if !self.snapshot.exists {
             return ManaState::Unknown;
         }
-        if self.idents == 0 || self.worked_out_for != self.idents {
+        if self.stale || self.worked_out_for != self.idents {
+            self.stale = false;
             self.worked_out_for = self.idents;
             if let Some(state) = work_out_state(&self.snapshot, host, casts) {
                 self.state = state;
@@ -469,6 +479,8 @@ pub struct ManaTracker {
     items: Vec<Tracked>,
     /// Items put on, looked at on the next tick.
     placed: Vec<u32>,
+    /// The login waits for the owned list to be complete.
+    login_waiting: bool,
     view: ManaView,
     /// The clock the view was built at.
     built_ms: Option<f64>,
@@ -501,9 +513,19 @@ impl ManaTracker {
         self.dirty = true;
     }
 
-    /// The login completed: every worn item, afresh.
+    /// The login completed: every worn item, afresh, once the owned list
+    /// is complete (on a later [`Self::tick`] when it is not yet).
     pub fn on_login(&mut self, host: &mut dyn MagHost, queue: &mut IdentifyQueue) {
         self.reset();
+        if !host.owned_inventory_complete() {
+            self.login_waiting = true;
+            return;
+        }
+        self.track_worn(host, queue);
+    }
+
+    /// Tracks every item the character wears.
+    fn track_worn(&mut self, host: &mut dyn MagHost, queue: &mut IdentifyQueue) {
         let Some(me) = host.character().map(|character| character.id) else {
             return;
         };
@@ -528,15 +550,19 @@ impl ManaTracker {
         }
     }
 
-    /// Items put on are waiting for a [`Self::tick`].
+    /// The login or items put on are waiting for a [`Self::tick`].
     #[must_use]
-    pub fn has_placements(&self) -> bool {
-        !self.placed.is_empty()
+    pub fn needs_tick(&self) -> bool {
+        self.login_waiting || !self.placed.is_empty()
     }
 
-    /// One turn: the items put on are tracked when the character wears
-    /// them.
+    /// One turn: the login's tracking once the owned list is complete; the
+    /// items put on are tracked when the character wears them.
     pub fn tick(&mut self, host: &mut dyn MagHost, queue: &mut IdentifyQueue) {
+        if self.login_waiting && host.owned_inventory_complete() {
+            self.login_waiting = false;
+            self.track_worn(host, queue);
+        }
         for object_id in std::mem::take(&mut self.placed) {
             self.add_if_worn(host, object_id, queue);
         }
@@ -577,9 +603,14 @@ impl ManaTracker {
         let now = host.now_ms();
         let item = &mut self.items[index];
         item.snapshot = snapshot;
+        if item.idents == 0 {
+            item.stale = true;
+        }
         if change.kind == ObjectChangeKind::IdentReceived {
             item.last_ident_ms = Some(now);
             item.idents += 1;
+            // Whoever asked, the appraisal answers the request waiting.
+            queue.remove(object_id);
             // Mag-Tools redrew the row at once, reading the state.
             item.state(host, &mut ItemCasts::default());
         }

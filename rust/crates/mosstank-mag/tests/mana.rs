@@ -339,15 +339,61 @@ fn the_state_is_cached_until_the_next_ident() {
 }
 
 #[test]
-fn before_its_first_ident_the_state_follows_the_character() {
-    // While no appraisal arrived since it was tracked, every read works the
-    // state out again.
+fn before_its_first_ident_the_state_is_worked_out_when_the_item_changes() {
+    // Appraised before it was tracked, none since: the state is worked out
+    // when it is tracked, kept while only the character's enchantments
+    // change, and worked out again when the item itself changes.
     let mut rig = Rig::new();
     rig.wear(&worn(10, "Test Ring", 100, 200));
     rig.login();
     assert_eq!(rig.state(), ManaState::Active);
     rig.host.all_enchantments.clear();
+    assert_eq!(rig.state(), ManaState::Active);
+    rig.change(10, ObjectChangeKind::Updated);
     assert_eq!(rig.state(), ManaState::NotActive);
+}
+
+#[test]
+fn an_arrived_appraisal_answers_the_queued_request() {
+    // Someone else's appraisal (the recharger's, the player's) arrived
+    // first: the item is not appraised again.
+    let mut rig = Rig::new();
+    rig.wear(&worn(10, "Test Ring", 100, 200));
+    rig.login();
+    assert!(rig.queue.contains(10));
+    rig.ident(10);
+    assert!(!rig.queue.contains(10));
+}
+
+#[test]
+fn the_login_waits_for_the_whole_inventory() {
+    let mut rig = Rig::new();
+    rig.wear(&worn(10, "Test Ring", 100, 200));
+    rig.host.complete = false;
+    rig.login();
+    assert!(rig.tracker.needs_tick());
+    rig.tracker.tick(&mut rig.host, &mut rig.queue);
+    assert!(rig.states().is_empty());
+    assert!(rig.queue.is_empty());
+    rig.host.complete = true;
+    rig.tracker.tick(&mut rig.host, &mut rig.queue);
+    assert_eq!(rig.states().len(), 1);
+    assert!(rig.queue.contains(10));
+    assert!(!rig.tracker.needs_tick());
+}
+
+#[test]
+fn a_second_appraisal_restarts_the_burn_clock() {
+    // Appraised at 0 s, again at 80 s with the mana still at 100: nothing
+    // burned since the second.
+    let mut rig = Rig::new();
+    rig.wear(&worn(10, "Test Ring", 100, 200));
+    rig.login();
+    rig.ident(10);
+    rig.host.now_ms = 80_000.0;
+    rig.ident(10);
+    let rows = rig.tracker.rows(&mut rig.host, 80_000.0);
+    assert_eq!(rows[0].mana_text, "100 / 200");
 }
 
 #[test]
@@ -438,11 +484,13 @@ fn labels() {
     for id in 10..=12 {
         rig.ident(id);
     }
-    // 100 + 150 + 50 short of full.
-    assert_eq!(rig.tracker.mana_needed(&mut rig.host, 0.0), 300);
-    assert_eq!(rig.tracker.unretained(), 2);
-    assert_eq!(mana_needed_text(250), "Mana needed: 250");
-    assert_eq!(unretained_text(2), "Unretained Items: 2");
+    // 100 + 150 + 50 short of full; the second is retained.
+    let needed = rig.tracker.mana_needed(&mut rig.host, 0.0);
+    assert_eq!(mana_needed_text(needed), "Mana needed: 300");
+    assert_eq!(
+        unretained_text(rig.tracker.unretained()),
+        "Unretained Items: 2"
+    );
 }
 
 #[test]
@@ -492,6 +540,10 @@ fn aetheria_cloaks_and_ammo_are_hidden_but_counted() {
         rig.wear(item);
     }
     rig.login();
+    // Each was asked for an appraisal.
+    for id in 10..=13 {
+        assert!(rig.queue.contains(id), "{id}");
+    }
     for id in 10..=13 {
         rig.ident(id);
     }
@@ -503,10 +555,6 @@ fn aetheria_cloaks_and_ammo_are_hidden_but_counted() {
     // as unretained.
     assert_eq!(rig.tracker.mana_needed(&mut rig.host, 0.0), 400);
     assert_eq!(rig.tracker.unretained(), 3);
-    // Each was asked for an appraisal.
-    for id in 10..=13 {
-        assert!(rig.queue.contains(id), "{id}");
-    }
 }
 
 #[test]

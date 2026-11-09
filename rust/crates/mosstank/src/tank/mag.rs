@@ -259,13 +259,14 @@ impl TankCx<'_> {
         let logged = mag
             .inventory_log
             .tick(self.client.mag(), &mut mag.identify, enabled);
-        if mag.mana.has_placements() {
+        if mag.mana.needs_tick() {
             mag.mana.tick(self.client.mag(), &mut mag.identify);
         }
         if !self.mag.identify.is_empty() {
             let looter_busy = self.core.loot.is_identifying();
             self.mag.identify.tick(self.client.mag(), looter_busy);
         }
+        self.refresh_mana_page();
         if logged {
             return true;
         }
@@ -287,10 +288,18 @@ impl TankCx<'_> {
         self.mag.mana.reset();
     }
 
-    /// The Mana page's values, built at this moment (once a moment).
-    pub(crate) fn mana_view(&mut self) -> &mosstank_mag::mana::ManaView {
-        self.mag.mana.refresh(self.client.mag());
-        self.mag.mana.view()
+    /// The Mana page is shown.
+    fn mana_page_shown(&self) -> bool {
+        self.core.panel.active_tab == super::panel::TankTab::Mag
+            && self.mag.sub_page == mosstank_mag::MagSubPage::Mana
+    }
+
+    /// Builds the Mana page's values while it is shown: once a frame, and
+    /// when an action shows it; its bindings only read them.
+    pub(crate) fn refresh_mana_page(&mut self) {
+        if self.mana_page_shown() {
+            self.mag.mana.refresh(self.client.mag());
+        }
     }
 }
 

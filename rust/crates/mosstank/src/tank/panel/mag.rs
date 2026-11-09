@@ -22,13 +22,13 @@ pub(super) fn value(cx: &mut TankCx<'_>, name: &str) -> Option<UiValue> {
         "MagInvItemsVisible" => b(shown && page == MagSubPage::InvItems),
 
         // The Mana page (pushed only while it is shown).
-        "MagManaIcons" => Some(UiValue::UintList(cx.mana_view().object_ids())),
-        "MagManaNames" => tl(cx.mana_view().names()),
-        "MagManaStates" => Some(UiValue::UintList(cx.mana_view().state_icons())),
-        "MagManaAmounts" => tl(cx.mana_view().mana_texts()),
-        "MagManaTimes" => tl(cx.mana_view().time_texts()),
-        "MagManaNeeded" => t(cx.mana_view().mana_needed_text()),
-        "MagManaUnretained" => t(cx.mana_view().unretained_text()),
+        "MagManaIcons" => Some(UiValue::UintList(cx.mag.mana.view().object_ids())),
+        "MagManaNames" => tl(cx.mag.mana.view().names()),
+        "MagManaStates" => Some(UiValue::UintList(cx.mag.mana.view().state_icons())),
+        "MagManaAmounts" => tl(cx.mag.mana.view().mana_texts()),
+        "MagManaTimes" => tl(cx.mag.mana.view().time_texts()),
+        "MagManaNeeded" => t(cx.mag.mana.view().mana_needed_text()),
+        "MagManaUnretained" => t(cx.mag.mana.view().unretained_text()),
         // Mag-Tools' list selects nothing.
         "SelectedMagManaRow" => i(-1),
 
@@ -54,7 +54,10 @@ pub(super) fn value(cx: &mut TankCx<'_>, name: &str) -> Option<UiValue> {
 pub(super) fn act(cx: &mut TankCx<'_>, name: &str, arg: &Arg) -> bool {
     match name {
         "ShowMagCombat" => cx.mag.sub_page = MagSubPage::Combat,
-        "ShowMagMana" => cx.mag.sub_page = MagSubPage::Mana,
+        "ShowMagMana" => {
+            cx.mag.sub_page = MagSubPage::Mana;
+            cx.refresh_mana_page();
+        }
         "ShowMagInvItems" => cx.mag.sub_page = MagSubPage::InvItems,
         // A click on the mana list: Mag-Tools' list did nothing with it.
         "SelectMagManaRow" => {}
