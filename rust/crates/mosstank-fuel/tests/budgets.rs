@@ -2640,3 +2640,162 @@ fn print_profile(case: &Case) {
         println!("    {used:>12} after #{index} {after} before {next}");
     }
 }
+
+/// The ticks the launcher's login commands may wait for the character's
+/// profile set and the frames MossTank's own work takes, whatever the Mag
+/// features have to do.
+const LOGIN_COMMAND_TICKS: usize = 20;
+
+/// Everything at once: the owner's heavy character logs in with a
+/// 1,500-item inventory log, a 1,000-monster persistent combat file and
+/// twenty worn mana items, more than two hundred objects nearby, the Inv.
+/// Items page shown and the Inventory window open on three alts' 1,500-item
+/// logs; the launcher's login commands wait for the profile set and start
+/// the macro on the login meta; a 200-line chat burst comes; then the
+/// plugin is disabled in the world (the log and the stats written). Every
+/// call under half its budget, the login commands run within
+/// [`LOGIN_COMMAND_TICKS`] ticks, and the Mag work done meanwhile.
+#[test]
+#[ignore = "needs the release module: scripts/check.sh runs it after the WebAssembly build"]
+#[allow(clippy::too_many_lines)]
+fn the_heavy_login_with_every_mag_feature_fits() {
+    use ac_plugin_abi::ui::ActionValue;
+    let wasm = std::fs::read(wasm_path()).expect("the release mosstank.wasm (build it first)");
+    let folder = profiles::folder();
+    let mut session = folder_session(&folder);
+    let meta = login_meta(&folder, &mut session);
+    let character = character_bound_to(&folder, &meta);
+    let log_key = format!("Mag-Tools/Coldeve/{character}.inventory.json");
+    let stats_key = format!("Mag-Tools/Coldeve/{character}.CombatTracker.xml");
+
+    // A first session logs the character's inventory.
+    {
+        let mut first = new_session();
+        let (mut plugin, _) = Plugin::load(&wasm, DEFAULT_MEMORY_MIB).expect("load");
+        plugin.enable(&start_info(), &mut first).expect("enable");
+        enter_world_as(&mut first, &character);
+        let properties = heavy::appraised_properties(&heavy::inventory());
+        first.world.automation().properties.extend(properties);
+        first
+            .world
+            .set_reply::<calls::ItemsInventoryComplete>(&true);
+        tick(&mut plugin, &mut first);
+        send(&mut plugin, &mut first, &Event::LoginComplete);
+        let mut ticks = 0;
+        while first.world.plugin_data.get(&log_key).is_none() {
+            tick(&mut plugin, &mut first);
+            ticks += 1;
+            assert!(ticks < 1000, "the first session's log never written");
+        }
+        send(&mut plugin, &mut first, &Event::Logoff);
+        plugin.disable(&mut first).expect("disable");
+        let log = first.world.plugin_data.get(&log_key).expect("the log");
+        session.world.plugin_data.insert(&log_key, log);
+        for alt in 1..=3 {
+            let name = format!("Alt {alt}");
+            let text = log.replacen(
+                &format!("\"character\":\"{character}\""),
+                &format!("\"character\":\"{name}\""),
+                1,
+            );
+            session
+                .world
+                .plugin_data
+                .insert(&format!("Mag-Tools/Coldeve/{name}.inventory.json"), &text);
+        }
+    }
+    let saved_stats = heavy::persistent_combat_stats(&character, heavy::PERSISTENT_MONSTERS);
+    session.world.plugin_data.insert(&stats_key, &saved_stats);
+    let saved_log = session.world.plugin_data.get(&log_key).unwrap().to_owned();
+
+    let mut cases = Cases::default();
+    let (mut plugin, _) = Plugin::load(&wasm, DEFAULT_MEMORY_MIB).expect("load");
+    let enabled = plugin.enable(&start_info(), &mut session).expect("enable");
+    cases.add("all: start (the profile folder)", enabled);
+    for handler in ["ShowMag", "ShowMagInvItems", "OpenMagInventory"] {
+        let action = ui_action(&session, handler, ActionValue::None);
+        let fuel = send(&mut plugin, &mut session, &action);
+        cases.add("all: page shown, window opened", fuel);
+    }
+    enter_world_as(&mut session, &character);
+    let properties = heavy::appraised_properties(&heavy::inventory());
+    session.world.automation().properties.extend(properties);
+    let worn = wear_gear(&mut session);
+    assert_eq!(worn.len(), WORN_MANA_ITEMS);
+    session
+        .world
+        .set_reply::<calls::ItemsInventoryComplete>(&true);
+    let login = send(&mut plugin, &mut session, &Event::LoginComplete);
+    cases.add("all: login complete", login);
+    let fuel = tick(&mut plugin, &mut session);
+    cases.add("all: tick (the profile set loading)", fuel);
+    for (verb, arguments) in login_commands(&meta) {
+        let fuel = send(&mut plugin, &mut session, &command(verb, &arguments));
+        cases.add("all: a login command (the set loading)", fuel);
+    }
+    let ran = |session: &Session| {
+        session
+            .world
+            .requests::<calls::ChatSubmit>()
+            .iter()
+            .any(|line| line.contains("I just logged in"))
+    };
+    let mut command_ticks = None;
+    let total = heavy::INVENTORY_ITEMS * 4;
+    let all = format!("{total} items");
+    let mut read_ticks = None;
+    for count in 0..1500 {
+        if command_ticks.is_none() && ran(&session) {
+            command_ticks = Some(count);
+        }
+        if read_ticks.is_none() && inventory_status(&session) == all {
+            read_ticks = Some(count);
+        }
+        if count == 300 {
+            for line in 0..heavy::BURST_CHAT_LINES {
+                let fuel = fight_or_town_line(&mut plugin, &mut session, line, &character);
+                cases.add("all: chat line (burst)", fuel);
+            }
+        } else if count % 4 == 0 {
+            chat(&mut plugin, &mut session, &mut cases, "all: chat line");
+        }
+        let fuel = tick(&mut plugin, &mut session);
+        cases.add("all: tick (the macro running)", fuel);
+        if read_ticks.is_some() && count > 600 {
+            break;
+        }
+    }
+    let inv_items_rows = main_list_len(&session, "MagInvItemsNames");
+    let disabled = plugin.disable(&mut session).expect("disable");
+    cases.add("all: disabled in the world", disabled);
+    let written_log = session.world.plugin_data.get(&log_key).unwrap_or_default();
+    let written_stats = session
+        .world
+        .plugin_data
+        .get(&stats_key)
+        .unwrap_or_default()
+        .to_owned();
+    let log_rewritten = written_log != saved_log;
+    let items = written_log.matches("\n{\"id\":").count();
+
+    let cases = cases.all();
+    let mut report = report(&cases);
+    let _ = writeln!(
+        report,
+        "profile folder: {}; character: {character}; meta: {meta}; login commands ran after {command_ticks:?} ticks; {total} items read after {read_ticks:?} ticks; Inv. Items rows {inv_items_rows}",
+        folder.source
+    );
+    println!("{report}");
+    let command_ticks = command_ticks.expect("the login commands ran");
+    assert!(command_ticks <= LOGIN_COMMAND_TICKS, "{report}");
+    assert!(read_ticks.is_some(), "the Inventory window read: {report}");
+    assert!(inv_items_rows > 7, "{report}");
+    assert!(log_rewritten, "the log written at disable: {report}");
+    assert_eq!(items, heavy::INVENTORY_ITEMS, "{report}");
+    assert!(
+        written_stats.len() > saved_stats.len(),
+        "the stats read in, the fight added, written at disable: {report}"
+    );
+    assert_no_file_rewritten(&session, &report);
+    assert_within_margin(&cases, &report);
+}
