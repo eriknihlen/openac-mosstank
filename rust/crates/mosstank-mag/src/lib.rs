@@ -6,6 +6,8 @@
 //! - [`host`]: the client as the features reach it ([`host::MagHost`]) and
 //!   the loot profile's verdict on an item ([`host::LootVerdict`]).
 //! - [`identify`]: the paced identify queue the features share.
+//! - [`inv_items`]: the Inv. Items page: consumables, their use rates and
+//!   the profit block.
 //! - [`inventory_log`]: the inventory logger, one JSON file per
 //!   character.
 //! - [`inventory_search`]: the Inventory window: the search across every
@@ -25,6 +27,7 @@
 pub mod fmt;
 pub mod host;
 pub mod identify;
+pub mod inv_items;
 pub mod inventory_log;
 pub mod inventory_search;
 pub mod item_info;
@@ -61,4 +64,6 @@ pub struct MagParts {
     pub inventory_log: inventory_log::InventoryLogger,
     /// The mana list.
     pub mana: mana::ManaTracker,
+    /// The Inv. Items page.
+    pub inv_items: inv_items::InvItemsTracker,
 }
