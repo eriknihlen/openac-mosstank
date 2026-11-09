@@ -8,7 +8,7 @@
 
 use std::time::Duration;
 
-use ac_plugin_abi::items::InventoryItem;
+use ac_plugin_abi::items::{InventoryItem, ObjectHeader};
 use ac_plugin_abi::world::{ObjectChange, ObjectChangeKind, ObjectClass, WorldObject};
 use mosstank_mag::fmt::n1;
 use mosstank_mag::inv_items::{InvItemsTracker, SnapshotGroup};
@@ -135,6 +135,8 @@ impl Rig {
             stack_size: stack,
             value,
             icon_id: 0x0600_0000 + id,
+            // Described by the server.
+            header: Some(ObjectHeader::default()),
             ..InventoryItem::default()
         });
         self.host
@@ -498,6 +500,37 @@ fn profit_rows_show_mmd_per_hour() {
     // 50 lost over 1 h 2 min: -50 * 60 / 62 / 250,000, no negative zero.
     assert_eq!(rig.profit(1)[1], "0.0");
     assert_eq!(rig.profit(2)[1], "");
+}
+
+#[test]
+fn the_login_waits_for_every_owned_item_to_be_described() {
+    // Live, the first login: the client had listed the inventory before the
+    // server described the items in it (no header yet, no name, class or
+    // value). Counted then, the comps' value turned up later as a gain.
+    let mut rig = Rig::new();
+    rig.own(
+        51,
+        "Prismatic Taper",
+        ObjectClass::SpellComponent,
+        100,
+        100_000,
+    );
+    let described = rig.host.meta.owned_items[0].clone();
+    rig.host.meta.owned_items[0] = InventoryItem {
+        object_id: 51,
+        header: None,
+        ..InventoryItem::default()
+    };
+    rig.login();
+    rig.run_to(MINUTE_MS);
+    // Described: the walk starts now, with the comps already there.
+    rig.host.meta.owned_items[0] = described;
+    rig.change(51, ObjectChangeKind::Updated);
+    rig.tick();
+    rig.run_to(10.0 * MINUTE_MS);
+    assert_eq!(rig.profit(2), ["", ""], "no comps gained");
+    assert_eq!(rig.profit(4), ["", ""], "no profit");
+    assert_eq!(rig.consumable("Prismatic Taper")[1], "100");
 }
 
 #[test]

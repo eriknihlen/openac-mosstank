@@ -4,6 +4,8 @@
 //! container) and the few calls only the Mag features make. The loot
 //! profile comes in through [`LootVerdict`].
 
+use std::rc::Rc;
+
 use ac_plugin_abi::character::ActiveEnchantment;
 use ac_plugin_abi::items::InventoryItem;
 use ac_plugin_abi::world::ItemProperties;
@@ -26,6 +28,24 @@ pub trait MagHost: MetaHost {
     fn utc_unix_ms(&mut self) -> i64;
     /// The local time zone's offset from UTC now, minutes (east positive).
     fn local_offset_minutes(&mut self) -> i32;
+}
+
+/// The owned items, once the list is whole and every item in it described:
+/// the client has listed the inventory and every pack in it
+/// ([`MagHost::owned_inventory_complete`], which says nothing of what the
+/// items are) and the server's description of each item has arrived (its
+/// `header`, none before one did). At a login the listing can be in before
+/// the descriptions: an item listed but not yet described has no name,
+/// class or value. `None` until then.
+pub fn described_owned_items(host: &mut dyn MagHost) -> Option<Rc<[InventoryItem]>> {
+    if !host.owned_inventory_complete() {
+        return None;
+    }
+    let owned = host.owned_items_shared();
+    owned
+        .iter()
+        .all(|item| item.header.is_some())
+        .then_some(owned)
 }
 
 /// A loot profile's verdict on one item.

@@ -36,7 +36,9 @@
 //! count at the end of the frame. The count is taken on the frame after the
 //! change (Mag-Tools counted inside the change), so a burst of changes
 //! costs one look at the inventory a frame. The login waits for the owned
-//! list to be complete; changes before the login are not followed (as
+//! list to be complete and every item in it described (the listing can come
+//! before the descriptions, and a value counted then would read as a gain
+//! when they come in); changes before the login are not followed (as
 //! Mag-Tools subscribed at the login); the objects the client knows at the
 //! login are noted, so the release of one of a tracked class adds its row.
 //! F14: a rate whose closest snapshot is the newest, taken this moment, is
@@ -49,7 +51,7 @@ use ac_plugin_abi::items::InventoryItem;
 use ac_plugin_abi::world::{ObjectChange, ObjectChangeKind, ObjectClass};
 
 use crate::fmt::n1;
-use crate::host::MagHost;
+use crate::host::{MagHost, described_owned_items};
 
 /// One MMD trade note's value: the profit rows' unit.
 pub const MMD: f64 = 250_000.0;
@@ -443,8 +445,8 @@ impl InvItemsTracker {
     /// when it is not yet).
     pub fn on_login(&mut self, host: &mut dyn MagHost) {
         self.reset();
-        if host.owned_inventory_complete() {
-            self.start(host);
+        if let Some(owned) = described_owned_items(host) {
+            self.start(host, &owned);
         } else {
             self.login_waiting = true;
         }
@@ -458,7 +460,7 @@ impl InvItemsTracker {
     }
 
     /// The login's walk of the owned list (`CharacterFilter_LoginComplete`).
-    fn start(&mut self, host: &mut dyn MagHost) {
+    fn start(&mut self, host: &mut dyn MagHost, owned: &[InventoryItem]) {
         self.active = true;
         let now = host.now_ms();
         self.profit = (0..PROFIT_NAMES.len())
@@ -481,8 +483,7 @@ impl InvItemsTracker {
                 );
             }
         }
-        let owned = host.owned_items_shared();
-        for item in owned.iter() {
+        for item in owned {
             let tracked = tracked_name(item.object_class, &item.name);
             if tracked.is_none() && profit_rows(item.object_class, &item.name) == 0 {
                 continue;
@@ -500,7 +501,7 @@ impl InvItemsTracker {
                 });
             }
         }
-        self.recount(&owned, now);
+        self.recount(owned, now);
         self.next_pass_ms = now + PASS_MS;
     }
 
@@ -617,11 +618,11 @@ impl InvItemsTracker {
     /// every 500 ms.
     pub fn tick(&mut self, host: &mut dyn MagHost) {
         if self.login_waiting {
-            if !host.owned_inventory_complete() {
+            let Some(owned) = described_owned_items(host) else {
                 return;
-            }
+            };
             self.login_waiting = false;
-            self.start(host);
+            self.start(host, &owned);
         }
         if !self.active {
             return;

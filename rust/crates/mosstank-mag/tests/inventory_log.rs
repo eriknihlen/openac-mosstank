@@ -447,7 +447,7 @@ fn a_name_ending_in_a_dot_never_makes_a_double_dot() {
 // --- When it saves (`InventoryLogger`), staged ---
 
 mod logger {
-    use ac_plugin_abi::items::InventoryItem;
+    use ac_plugin_abi::items::{InventoryItem, ObjectHeader};
     use ac_plugin_abi::world::{
         ItemProperties, ObjectChange, ObjectChangeKind, ObjectClass, WorldObject,
     };
@@ -560,6 +560,8 @@ mod logger {
             object_class: class,
             container_id,
             stack_size: 1,
+            // Described by the server.
+            header: Some(ObjectHeader::default()),
             ..InventoryItem::default()
         }
     }
@@ -616,6 +618,47 @@ mod logger {
         rig.host.complete = true;
         rig.tick();
         assert_eq!(rig.writes(), 1);
+    }
+
+    #[test]
+    fn the_build_waits_for_every_owned_item_to_be_described() {
+        // Live, the first login: the client had listed the inventory before
+        // the server described the items in it (no header yet, no name or
+        // class), and the log was written of nameless items, none asked for.
+        let mut rig = Rig::new();
+        rig.own_things(3);
+        let ring = item(0x8000_0101, "Ring", ObjectClass::Jewelry, PLAYER);
+        let listed = InventoryItem {
+            object_id: ring.object_id,
+            container_id: PLAYER,
+            header: None,
+            ..InventoryItem::default()
+        };
+        rig.own(listed, false, ItemProperties::default());
+        rig.login();
+        rig.ticks(5);
+        assert_eq!(rig.writes(), 0);
+        assert!(rig.host.posted_text().is_empty(), "no first-run lines yet");
+        assert!(rig.queue.is_empty());
+        // Described: recorded by its name, and asked for.
+        let slot = rig
+            .host
+            .meta
+            .owned_items
+            .iter_mut()
+            .find(|item| item.object_id == ring.object_id)
+            .expect("owned");
+        *slot = ring.clone();
+        rig.tick();
+        assert_eq!(rig.writes(), 1);
+        let saved = rig.saved();
+        assert_eq!(saved.len(), 4);
+        assert!(
+            saved
+                .iter()
+                .any(|record| record.id == ring.object_id && record.name == "Ring")
+        );
+        assert!(rig.queue.contains(ring.object_id));
     }
 
     #[test]

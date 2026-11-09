@@ -2,7 +2,8 @@
 //! `InventoryLogger` handlers, staged so no call of the plugin does more
 //! than a tick's worth.
 //!
-//! - After the login, once the client has listed the whole inventory: the
+//! - After the login, once the client has listed the whole inventory and
+//!   every item in it is described (the listing can come first): the
 //!   last save is read (one tick), opened (the next), its items read
 //!   [`READ_ITEMS_PER_TICK`] a tick; then every owned item is recorded,
 //!   [`ITEMS_PER_TICK`] a tick, each combined with its record in the last
@@ -35,7 +36,7 @@ use ac_plugin_abi::world::{ObjectChange, ObjectChangeKind, ObjectClass};
 
 use super::file::{LogHeader, LogReader, ReadError, VERSION, storage_key, write};
 use super::record::{ItemRecord, combine, same_item};
-use crate::host::MagHost;
+use crate::host::{MagHost, described_owned_items};
 use crate::identify::IdentifyQueue;
 
 /// Items recorded a tick.
@@ -225,12 +226,13 @@ impl InventoryLogger {
         }
         match &mut self.stage {
             Stage::Idle => {
-                if !host.owned_inventory_complete() {
+                // The whole inventory, every item in it described.
+                let Some(owned) = described_owned_items(host) else {
                     return false;
-                }
+                };
                 // With no log yet, the records start in the same tick. No
                 // character yet: nothing done.
-                if self.start(host) {
+                if self.start(host, &owned) {
                     self.build(host, queue, ITEMS_PER_TICK);
                 }
                 !matches!(self.stage, Stage::Idle)
@@ -298,10 +300,10 @@ impl InventoryLogger {
         self.save(host);
     }
 
-    /// The whole inventory is listed: the character, its log's key, and the
-    /// last save's text. True when there is no last save and the records
-    /// begin.
-    fn start(&mut self, host: &mut dyn MagHost) -> bool {
+    /// The whole inventory is listed and described (`owned`): the
+    /// character, its log's key, and the last save's text. True when there
+    /// is no last save and the records begin.
+    fn start(&mut self, host: &mut dyn MagHost, owned: &[InventoryItem]) -> bool {
         let Some(character) = host.character() else {
             return false;
         };
@@ -313,7 +315,10 @@ impl InventoryLogger {
             Ok(None) => {
                 self.first_run = true;
                 post(host, FIRST_RUN);
-                self.begin_building(host, Previous::new());
+                self.stage = Stage::Building {
+                    previous: Previous::new(),
+                    pending: owned.iter().cloned().collect(),
+                };
                 true
             }
             Ok(Some(text)) => {

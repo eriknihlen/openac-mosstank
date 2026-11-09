@@ -634,6 +634,8 @@ pub fn item(object_id: u32, name: &str, item_type: u32) -> ac_plugin_abi::items:
         valid_locations,
         stack_size: 1,
         object_class,
+        // Described by the server.
+        header: Some(ac_plugin_abi::items::ObjectHeader::default()),
         ..ac_plugin_abi::items::InventoryItem::default()
     }
 }
