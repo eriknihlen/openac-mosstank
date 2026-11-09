@@ -273,11 +273,19 @@ fn rounded_1(value: f64) -> String {
 }
 
 /// The item's name with its material first ("Bronze Acid Katar"), as its
-/// info line begins; the name alone when it has no material the table names.
+/// info line begins; the name alone when it has no material the table
+/// names, or already starts with it ignoring case (a gem named for its
+/// material, "Aquamarine").
 #[must_use]
 pub fn display_name(item: &InventoryItem, properties: &ItemProperties) -> String {
     let material = Values::new(item, properties).long(key::MATERIAL);
-    match names::material(material).filter(|_| material > 0) {
+    let starts_with = |prefix: &str| {
+        let prefix = prefix.trim_end();
+        item.name
+            .get(..prefix.len())
+            .is_some_and(|start| start.eq_ignore_ascii_case(prefix))
+    };
+    match names::material(material).filter(|name| material > 0 && !starts_with(name)) {
         Some(name) => format!("{name} {}", item.name),
         None => item.name.clone(),
     }
