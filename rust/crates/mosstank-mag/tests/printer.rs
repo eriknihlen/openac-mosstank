@@ -9,7 +9,7 @@
 //! `ItemInfo.cs` for the info text.
 
 use ac_plugin_abi::items::InventoryItem;
-use ac_plugin_abi::world::{ItemProperties, ObjectClass, WorldObject};
+use ac_plugin_abi::world::{ItemProperties, ObjectClass, WorldObject, selection_source};
 use mosstank_mag::host::Verdict;
 use mosstank_mag::identify::IdentifyQueue;
 use mosstank_mag::printer::{IdentCall, PrintSettings, Printer, Split, TEXT_TYPE, line};
@@ -31,6 +31,7 @@ fn settings() -> PrintSettings {
         enabled: true,
         show_buffed_values: true,
         show_value_and_burden: false,
+        left_click_ident: true,
     }
 }
 
@@ -83,8 +84,14 @@ impl Rig {
         self.host.meta.owned_items.extend_from_slice(items);
     }
 
+    /// The player selected `id` with a key.
     fn select(&mut self, id: u32, at_ms: f64) {
-        self.printer.on_selection(Some(id), at_ms, true);
+        self.select_by(id, selection_source::KEYBOARD, at_ms, settings());
+    }
+
+    fn select_by(&mut self, id: u32, source: u8, at_ms: f64, settings: PrintSettings) {
+        self.printer
+            .on_selection(&mut self.queue, Some(id), source, at_ms, settings);
     }
 
     fn ident_with(&mut self, object: &WorldObject, at_ms: f64, settings: PrintSettings) {
@@ -292,17 +299,66 @@ fn a_user_identify_with_no_rule_shows_a_minus() {
 }
 
 #[test]
+fn a_mouse_selection_asks_for_its_appraisal_ahead_of_everything_waiting() {
+    // Source: DetectItemsIdentifiedByUser.cs:86-90 (LeftClickIdent's
+    // RequestId), with the client saying which selections the mouse made.
+    let mut rig = Rig::new();
+    rig.queue.push(0x5000_0007);
+    rig.queue.push_urgent(0x5000_0008);
+    rig.select_by(RING, selection_source::MOUSE, 0.0, settings());
+    assert_eq!(rig.queue.front(), Some(RING));
+    assert_eq!(rig.queue.len(), 3);
+    assert_eq!(rig.printer.selected_count(), 1);
+}
+
+#[test]
+fn only_a_mouse_selection_with_the_left_click_identify_on_asks() {
+    let mut rig = Rig::new();
+    for source in [
+        selection_source::KEYBOARD,
+        selection_source::SYSTEM,
+        selection_source::PLUGIN,
+    ] {
+        rig.select_by(RING, source, 0.0, settings());
+        assert!(rig.queue.is_empty(), "source {source}");
+    }
+    let off = PrintSettings {
+        left_click_ident: false,
+        ..settings()
+    };
+    rig.select_by(RING, selection_source::MOUSE, 0.0, off);
+    assert!(rig.queue.is_empty());
+    // Each still waits for the player's own appraisal.
+    assert_eq!(rig.printer.selected_count(), 1);
+}
+
+#[test]
+fn the_selected_objects_appraisal_ends_the_clicks_wait_and_prints_once() {
+    let mut rig = Rig::new();
+    rig.own(&[item(RING, "Test Ring", ObjectClass::Jewelry, 1)]);
+    rig.select_by(RING, selection_source::MOUSE, 0.0, settings());
+    assert!(rig.queue.contains(RING));
+    let seen = object(RING, "Test Ring", ObjectClass::Jewelry);
+    rig.ident(&seen, 9_000.0);
+    assert!(!rig.queue.contains(RING));
+    rig.ident(&seen, 9_500.0);
+    assert_eq!(rig.posted_text(), vec!["Test Ring"]);
+}
+
+#[test]
 fn turned_off_nothing_is_remembered_or_printed() {
     // Source: DetectItemsIdentifiedByUser.cs:89-90, 117-118.
     let mut rig = Rig::new();
     rig.own(&[item(RING, "Test Ring", ObjectClass::Jewelry, 1)]);
-    rig.printer.on_selection(Some(RING), 0.0, false);
-    assert_eq!(rig.printer.selected_count(), 0);
-    rig.select(RING, 0.0);
     let off = PrintSettings {
         enabled: false,
         ..settings()
     };
+    // Nor is a click's appraisal asked for.
+    rig.select_by(RING, selection_source::MOUSE, 0.0, off);
+    assert_eq!(rig.printer.selected_count(), 0);
+    assert!(rig.queue.is_empty());
+    rig.select(RING, 0.0);
     let seen = object(RING, "Test Ring", ObjectClass::Jewelry);
     rig.ident_with(&seen, 1_000.0, off);
     assert!(rig.posted().is_empty());

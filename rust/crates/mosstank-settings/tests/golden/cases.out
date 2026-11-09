@@ -1563,6 +1563,7 @@ Sharing.CastTag|String|Character|Sharing|""|""|"Sharing.CastTag (State) = "|"Onl
 Mag.ItemInfoOnIdent.Enabled|Bool|Global|Mag|"True"|"True"|"Mag.ItemInfoOnIdent.Enabled (Profile) = True"|"Show Item Info On Ident."|
 Mag.ItemInfoOnIdent.ShowBuffedValues|Bool|Global|Mag|"True"|"True"|"Mag.ItemInfoOnIdent.ShowBuffedValues (Profile) = True"|"Show Item Info Buffed* Values."|
 Mag.ItemInfoOnIdent.ShowValueAndBurden|Bool|Global|Mag|"False"|"False"|"Mag.ItemInfoOnIdent.ShowValueAndBurden (Profile) = False"|"Show Value and Burden."|
+Mag.ItemInfoOnIdent.LeftClickIdent|Bool|Global|Mag|"True"|"True"|"Mag.ItemInfoOnIdent.LeftClickIdent (Profile) = True"|"Ident Items on Left Click."|
 Mag.CombatTracker.Persistent|Bool|Global|Mag|"True"|"True"|"Mag.CombatTracker.Persistent (Profile) = True"|"Keep Stats Persistent."|
 Mag.CombatTracker.ExportOnLogOff|Bool|Global|Mag|"False"|"False"|"Mag.CombatTracker.ExportOnLogOff (Profile) = False"|"Export Stats on LogOff."|
 Mag.CombatTracker.SortAlphabetically|Bool|Global|Mag|"False"|"False"|"Mag.CombatTracker.SortAlphabetically (Profile) = False"|"Sort Alphabetically."|

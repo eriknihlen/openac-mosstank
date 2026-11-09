@@ -767,7 +767,8 @@
   </group>
 
   <!-- The Mag tab: Mag-Tools' tracker pages (its Views/mainView.xml), each
-       a sub-tab, and the button that opens the Inventory window. -->
+       a sub-tab, the item info line's two options, and the button that
+       opens the Inventory window. -->
   <group x="8" y="42" w="976" h="229" visible="{MagVisible}"
          anchor="left top right bottom">
     <tab x="4" y="0" w="56" h="18" text="Combat"
@@ -776,6 +777,14 @@
          selected="{MagManaSelected}" onclick="{ShowMagMana}" />
     <tab x="104" y="0" w="70" h="18" text="Inv. Items"
          selected="{MagInvItemsSelected}" onclick="{ShowMagInvItems}" />
+    <checkbox x="190" y="0" w="165" h="18" text="Show item info on ident"
+              checked="{MagItemInfoOnIdent}" onchange="{SetMagItemInfoOnIdent}"
+              color="theme:text|#FFE8DEC3"
+              tooltip="When an item you selected is appraised, its info line in chat, with the loaded loot profile's verdict." />
+    <checkbox x="365" y="0" w="170" h="18" text="Ident items on left click"
+              checked="{MagLeftClickIdent}" onchange="{SetMagLeftClickIdent}"
+              color="theme:text|#FFE8DEC3"
+              tooltip="Selecting an item with the mouse asks for its appraisal, so its info line prints without appraising it by hand (needs the item info line on)." />
     <button x="876" y="0" w="96" h="18" text="Inventory..." anchor="right top"
             onclick="{OpenMagInventory}"
             tooltip="Open the Inventory window: search every logged character's items." />

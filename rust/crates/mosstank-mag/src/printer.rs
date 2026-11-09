@@ -9,6 +9,14 @@
 //!   selecting the object prints once, whoever asked for it; corpses,
 //!   doors, foci, housing, lifestones, NPCs, portals and vendors are
 //!   skipped. Without a profile the line is the info alone.
+//! - **The left-click identify** (`LeftClickIdent`): a selection the mouse
+//!   made asks for the object's appraisal ahead of everything waiting in
+//!   the identify queue, so selecting it is enough to print its line. The
+//!   client says which selections the mouse made (Mag-Tools took any
+//!   selection within a second of a left button press). A right click that
+//!   examines selects with the mouse too: the player's own appraisal holds
+//!   the slot, the queue's request waits as busy, and the answer that
+//!   arrives prints once and ends the wait.
 //! - **An opened container's items** (not a housing `Storage`): every
 //!   100 ms, until the first think at or after 5 s, each item directly in
 //!   it is taken once a session; it prints only when a rule decided it,
@@ -18,18 +26,17 @@
 //!   [`WAIT_FOR_ID_MS`]).
 //!
 //! Not ported: the `<Tell:IIDString:...>` wrapper around the verdict (a
-//! plugin's chat line cannot carry it), the left-click identify and the
-//! clipboard. Two changes for the per-call budget: the info text is built
-//! only for a line that prints, and a think only lists the new items into
-//! a backlog, weighed [`ITEMS_PER_FRAME`] a frame from the record taken
-//! when it was listed (Mag-Tools weighed them all in the think), so a full
-//! corpse can go on printing past the five seconds; the items printed are
-//! the same.
+//! plugin's chat line cannot carry it) and the clipboard. Two changes for
+//! the per-call budget: the info text is built only for a line that
+//! prints, and a think only lists the new items into a backlog, weighed
+//! [`ITEMS_PER_FRAME`] a frame from the record taken when it was listed
+//! (Mag-Tools weighed them all in the think), so a full corpse can go on
+//! printing past the five seconds; the items printed are the same.
 
 use std::collections::{HashMap, HashSet, VecDeque};
 
 use ac_plugin_abi::items::InventoryItem;
-use ac_plugin_abi::world::{ItemProperties, ObjectClass, WorldObject};
+use ac_plugin_abi::world::{ItemProperties, ObjectClass, WorldObject, selection_source};
 
 use crate::host::{LootVerdict, MagHost, Verdict};
 use crate::identify::IdentifyQueue;
@@ -62,6 +69,9 @@ pub struct PrintSettings {
     pub show_buffed_values: bool,
     /// `ShowValueAndBurden`.
     pub show_value_and_burden: bool,
+    /// `LeftClickIdent`: a selection the mouse made asks for the object's
+    /// appraisal.
+    pub left_click_ident: bool,
 }
 
 /// The client and the loot profile for one call, reached one at a time (in
@@ -199,9 +209,19 @@ impl Printer {
         *self = Self::default();
     }
 
-    /// The client's selection changed (`ItemSelected`).
-    pub fn on_selection(&mut self, selected: Option<u32>, now_ms: f64, enabled: bool) {
-        if !enabled {
+    /// The client's selection changed (`ItemSelected`), by `source` (one of
+    /// [`selection_source`]): the selection waits for its appraisal, and
+    /// one the mouse made, with the left-click identify on, asks for it
+    /// ahead of everything waiting.
+    pub fn on_selection(
+        &mut self,
+        queue: &mut IdentifyQueue,
+        selected: Option<u32>,
+        source: u8,
+        now_ms: f64,
+        settings: PrintSettings,
+    ) {
+        if !settings.enabled {
             return;
         }
         let Some(object_id) = selected.filter(|id| *id != 0) else {
@@ -210,6 +230,9 @@ impl Printer {
         match self.selected.iter_mut().find(|(id, _)| *id == object_id) {
             Some(entry) => entry.1 = now_ms,
             None => self.selected.push((object_id, now_ms)),
+        }
+        if settings.left_click_ident && source == selection_source::MOUSE {
+            queue.push_first(object_id);
         }
     }
 
@@ -229,6 +252,10 @@ impl Printer {
                 .retain(|(_, at)| at + SELECTION_WINDOW_MS >= now_ms);
             if let Some(index) = self.selected.iter().position(|(sel, _)| *sel == id) {
                 self.selected.remove(index);
+                // Whoever asked, the answer is here: a click's request still
+                // waiting (refused as busy while the player's own examine
+                // held the slot) is not sent again.
+                queue.remove(id);
                 if !SKIPPED_CLASSES.contains(&object.object_class) {
                     print_identified(call, object, settings);
                 }

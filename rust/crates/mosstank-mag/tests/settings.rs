@@ -12,6 +12,8 @@ fn every_mag_setting_is_a_global_switch_with_mag_tools_default() {
         (ITEM_INFO_ENABLED, true),
         (ITEM_INFO_SHOW_BUFFED, true),
         (ITEM_INFO_VALUE_BURDEN, false),
+        // Mag-Tools: off; on here, so selecting an item prints its line.
+        (ITEM_INFO_LEFT_CLICK, true),
         (COMBAT_PERSISTENT, true),
         (COMBAT_EXPORT_ON_LOGOFF, false),
         (COMBAT_SORT_ALPHA, false),

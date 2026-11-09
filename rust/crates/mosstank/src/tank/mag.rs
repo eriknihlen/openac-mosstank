@@ -140,6 +140,7 @@ impl TankCx<'_> {
             enabled: UbCatalog::flag(catalog, settings::ITEM_INFO_ENABLED),
             show_buffed_values: UbCatalog::flag(catalog, settings::ITEM_INFO_SHOW_BUFFED),
             show_value_and_burden: UbCatalog::flag(catalog, settings::ITEM_INFO_VALUE_BURDEN),
+            left_click_ident: UbCatalog::flag(catalog, settings::ITEM_INFO_LEFT_CLICK),
         }
     }
 
@@ -283,9 +284,16 @@ impl TankCx<'_> {
         }
         match event {
             Event::SelectionChanged(change) if change.selected.is_some_and(|id| id != 0) => {
-                let enabled = self.item_info_settings().enabled;
+                let settings = self.item_info_settings();
                 let now = self.client.mag().now_ms();
-                self.mag.printer.on_selection(change.selected, now, enabled);
+                let mag = &mut *self.mag;
+                mag.printer.on_selection(
+                    &mut mag.identify,
+                    change.selected,
+                    change.source,
+                    now,
+                    settings,
+                );
             }
             Event::ObjectChanged(change) if change.kind == ObjectChangeKind::IdentReceived => {
                 let Some(object) = &change.current else {

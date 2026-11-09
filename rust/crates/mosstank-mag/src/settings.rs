@@ -8,6 +8,9 @@ pub const ITEM_INFO_ENABLED: &str = "Mag.ItemInfoOnIdent.Enabled";
 pub const ITEM_INFO_SHOW_BUFFED: &str = "Mag.ItemInfoOnIdent.ShowBuffedValues";
 /// Show the value and burden in it (default off).
 pub const ITEM_INFO_VALUE_BURDEN: &str = "Mag.ItemInfoOnIdent.ShowValueAndBurden";
+/// Ask for the appraisal of what the mouse selects, so selecting is enough
+/// to print its line (default on; Mag-Tools: off).
+pub const ITEM_INFO_LEFT_CLICK: &str = "Mag.ItemInfoOnIdent.LeftClickIdent";
 /// Keep the combat stats across sessions (default on).
 pub const COMBAT_PERSISTENT: &str = "Mag.CombatTracker.Persistent";
 /// Export the current combat stats on logging off (default off).

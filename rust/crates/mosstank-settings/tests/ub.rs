@@ -199,7 +199,7 @@ fn every_row_is_written_to_the_tier_its_scope_declares_and_to_no_other() {
             .filter(|r| r.scope() == scope)
             .count()
     };
-    assert_eq!(count(UbSettingScope::Global), 16);
+    assert_eq!(count(UbSettingScope::Global), 17);
     assert_eq!(count(UbSettingScope::Profile), 166);
     assert_eq!(count(UbSettingScope::Character), 10);
 }
@@ -394,7 +394,7 @@ fn categories_come_back_in_order_with_their_rows() {
     let catalog = catalog();
     assert_eq!(catalog.categories().len(), 17);
     assert_eq!(catalog.categories()[0], "Aliases");
-    assert_eq!(catalog.settings().len(), 192);
+    assert_eq!(catalog.settings().len(), 193);
 }
 
 // Source: tests/AcDream.Plugins.MossTank.Tests/UbSettingValueTests.cs :: EachShapeKeepsItsOwnKindAndPayload
@@ -809,7 +809,7 @@ const EXCLUDED: [(&str, &str); 23] = [
     ),
 ];
 
-const ADDED_HERE: [(&str, &str); 14] = [
+const ADDED_HERE: [(&str, &str); 15] = [
     (
         "Networking.ReceiveCommands",
         "Per-character local command reception, enabled by default.",
@@ -838,6 +838,10 @@ const ADDED_HERE: [(&str, &str); 14] = [
     (
         "Mag.ItemInfoOnIdent.ShowValueAndBurden",
         "Mag-Tools' value and burden in the item info line, brought over with the Mag tab.",
+    ),
+    (
+        "Mag.ItemInfoOnIdent.LeftClickIdent",
+        "Mag-Tools' identify on a left click, brought over with the Mag tab.",
     ),
     (
         "Mag.CombatTracker.Persistent",
@@ -941,10 +945,12 @@ const FLAT_DEFAULTS: &[(&str, &str)] = &[
     ("Looter.AttemptsBeforeBlacklisting", "500"),
     ("Looter.DelaySpeed", "1000"),
     ("Looter.OverallSpeed", "100"),
-    // Mag-Tools' SettingsManager.cs defaults; the inventory logger is on here.
+    // Mag-Tools' SettingsManager.cs defaults; the inventory logger and the
+    // left-click identify are on here.
     ("Mag.ItemInfoOnIdent.Enabled", "True"),
     ("Mag.ItemInfoOnIdent.ShowBuffedValues", "True"),
     ("Mag.ItemInfoOnIdent.ShowValueAndBurden", "False"),
+    ("Mag.ItemInfoOnIdent.LeftClickIdent", "True"),
     ("Mag.CombatTracker.Persistent", "True"),
     ("Mag.CombatTracker.ExportOnLogOff", "False"),
     ("Mag.CombatTracker.SortAlphabetically", "False"),

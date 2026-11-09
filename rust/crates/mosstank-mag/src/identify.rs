@@ -9,7 +9,7 @@
 //! The requests a player waits on (the identify line's container items, the
 //! mana list's) are urgent: they go before the background ones (the
 //! inventory logger's, which can be hundreds on a first run), in their own
-//! order.
+//! order. An object the player clicks goes before them all.
 
 use std::collections::VecDeque;
 
@@ -50,6 +50,14 @@ impl IdentifyQueue {
         self.urgent.push_back(object_id);
     }
 
+    /// Queues an object the player just clicked: before every other, so
+    /// the next request asked for is its own. One already waiting moves
+    /// to the front.
+    pub fn push_first(&mut self, object_id: u32) {
+        self.remove(object_id);
+        self.urgent.push_front(object_id);
+    }
+
     /// Takes an object out of the queue (its appraisal came, or it is no
     /// longer wanted).
     pub fn remove(&mut self, object_id: u32) {
@@ -61,6 +69,16 @@ impl IdentifyQueue {
     #[must_use]
     pub fn contains(&self, object_id: u32) -> bool {
         self.urgent.contains(&object_id) || self.pending.contains(&object_id)
+    }
+
+    /// The object asked for next: the first urgent one, else the first of
+    /// the rest.
+    #[must_use]
+    pub fn front(&self) -> Option<u32> {
+        self.urgent
+            .front()
+            .or_else(|| self.pending.front())
+            .copied()
     }
 
     /// Nothing is waiting.

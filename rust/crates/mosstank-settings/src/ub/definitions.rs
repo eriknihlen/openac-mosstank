@@ -909,7 +909,8 @@ fn add_behaviour_tools(rows: &mut Vec<UbSettingDefinition>) {
 /// names its paths, their summaries its descriptions, kept for every
 /// character as Mag-Tools kept them in one file. The inventory logger is
 /// on here (Mag-Tools: off): the Inventory window's search reads its files.
-/// The mana overlay's switch is MossTank's own.
+/// So is the left-click identify (Mag-Tools: off): selecting an item is
+/// enough to see its line. The mana overlay's switch is MossTank's own.
 fn add_mag(rows: &mut Vec<UbSettingDefinition>) {
     for (name, summary, value) in [
         (
@@ -926,6 +927,11 @@ fn add_mag(rows: &mut Vec<UbSettingDefinition>) {
             "Mag.ItemInfoOnIdent.ShowValueAndBurden",
             "Show Value and Burden.",
             false,
+        ),
+        (
+            "Mag.ItemInfoOnIdent.LeftClickIdent",
+            "Ident Items on Left Click.",
+            true,
         ),
         (
             "Mag.CombatTracker.Persistent",

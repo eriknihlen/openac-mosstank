@@ -134,6 +134,7 @@ fn an_owned_item_the_player_selects_and_identifies_prints_its_info_line() {
         ac_plugin_abi::Event::SelectionChanged(SelectionChange {
             previous: None,
             selected: Some(ring),
+            source: ac_plugin_abi::world::selection_source::KEYBOARD,
         }),
     );
     world.send(&mut plugin, ident_received(ring, "Test Ring"));
@@ -148,11 +149,168 @@ fn an_owned_item_the_player_selects_and_identifies_prints_its_info_line() {
     assert_eq!(lines, vec![("+(Rings) Test Ring".to_owned(), 14)]);
 }
 
+/// The player selected an object with a key.
 fn selected(object_id: u32) -> ac_plugin_abi::Event {
+    selected_by(object_id, ac_plugin_abi::world::selection_source::KEYBOARD)
+}
+
+/// The selection changed to an object, by `source`.
+fn selected_by(object_id: u32, source: u8) -> ac_plugin_abi::Event {
     ac_plugin_abi::Event::SelectionChanged(ac_plugin_abi::world::SelectionChange {
         previous: None,
         selected: Some(object_id),
+        source,
     })
+}
+
+/// The player clicked an object.
+fn clicked(object_id: u32) -> ac_plugin_abi::Event {
+    selected_by(object_id, ac_plugin_abi::world::selection_source::MOUSE)
+}
+
+/// The client's answer to an appraisal request.
+fn identify_answers(world: &mut World, status: ac_plugin_abi::items::ItemStatus) {
+    world.set_reply::<calls::WorldIdentify>(&ac_plugin_abi::items::ItemResult::of(status));
+}
+
+/// A world with an owned ring, enabled and ticked once, the chat cleared;
+/// every appraisal request is sent.
+fn ring_world() -> (World, mosstank::MossTank, u32) {
+    let ring = 0x5000_0001;
+    let mut world = World::with_character("Mag");
+    world.own_items(vec![item(ring, "Test Ring", 0x8)]);
+    identify_answers(&mut world, ac_plugin_abi::items::ItemStatus::Started);
+    let mut plugin = world.enable();
+    world.tick(&mut plugin);
+    world.clear_chat();
+    (world, plugin, ring)
+}
+
+/// The item info lines posted (text type 14).
+fn info_lines(world: &World) -> Vec<String> {
+    lines(world)
+        .into_iter()
+        .filter(|(_, text_type)| *text_type == 14)
+        .map(|(text, _)| text)
+        .collect()
+}
+
+fn queued(world: &mut World, plugin: &mut mosstank::MossTank, object_id: u32) -> bool {
+    world.with_tank(plugin, |tank, _| tank.mag().identify.contains(object_id))
+}
+
+#[test]
+fn the_left_click_identify_is_on_by_default_beside_the_item_info_box() {
+    // Mag-Tools' ItemInfoOnIdent/LeftClickIdent defaults off; MossTank's
+    // is on (MAG-1 in docs/divergences.md).
+    let (mut world, mut plugin, _) = ring_world();
+    assert!(world.ui_bool(&mut plugin, "MagItemInfoOnIdent"));
+    assert!(world.ui_bool(&mut plugin, "MagLeftClickIdent"));
+    world.act_int(&mut plugin, "SetMagLeftClickIdent", 0);
+    assert!(!world.ui_bool(&mut plugin, "MagLeftClickIdent"));
+    world.act_int(&mut plugin, "SetMagItemInfoOnIdent", 0);
+    assert!(!world.ui_bool(&mut plugin, "MagItemInfoOnIdent"));
+}
+
+#[test]
+fn a_mouse_selection_asks_for_its_appraisal_first_and_the_answer_prints() {
+    // Source: Mag-Tools DetectItemsIdentifiedByUser.cs at 43ee2ec: a left
+    // click's selection asks for the item's appraisal (RequestId), and the
+    // appraisal prints as the player's own would.
+    let (mut world, mut plugin, ring) = ring_world();
+    // The background and urgent requests already waiting go after it.
+    world.with_tank(&mut plugin, |tank, _| {
+        let queue = &mut tank.mag().identify;
+        queue.push(0x5000_0007);
+        queue.push_urgent(0x5000_0008);
+    });
+    world.send(&mut plugin, clicked(ring));
+    assert_eq!(
+        world.with_tank(&mut plugin, |tank, _| tank.mag().identify.front()),
+        Some(ring)
+    );
+    world.fake.clock.monotonic_ms += 1_000;
+    world.tick(&mut plugin);
+    assert_eq!(world.requests::<calls::WorldIdentify>().last(), Some(&ring));
+    assert!(!queued(&mut world, &mut plugin, ring));
+
+    world.send(&mut plugin, ident_received(ring, "Test Ring"));
+    // The empty default profile keeps nothing.
+    assert_eq!(info_lines(&world), vec!["- Test Ring"]);
+}
+
+#[test]
+fn a_selection_by_a_key_the_client_or_a_plugin_asks_for_nothing() {
+    use ac_plugin_abi::world::selection_source::{KEYBOARD, PLUGIN, SYSTEM};
+    for source in [KEYBOARD, SYSTEM, PLUGIN] {
+        let (mut world, mut plugin, ring) = ring_world();
+        world.send(&mut plugin, selected_by(ring, source));
+        assert!(!queued(&mut world, &mut plugin, ring), "source {source}");
+        world.fake.clock.monotonic_ms += 1_000;
+        world.tick(&mut plugin);
+        assert!(
+            !world.requests::<calls::WorldIdentify>().contains(&ring),
+            "source {source}"
+        );
+    }
+}
+
+#[test]
+fn a_mouse_selection_asks_for_nothing_with_the_left_click_identify_off() {
+    let (mut world, mut plugin, ring) = ring_world();
+    world.act_int(&mut plugin, "SetMagLeftClickIdent", 0);
+    world.send(&mut plugin, clicked(ring));
+    assert!(!queued(&mut world, &mut plugin, ring));
+    // The selection still waits for the player's own appraisal.
+    world.send(&mut plugin, ident_received(ring, "Test Ring"));
+    assert_eq!(world.chat(), vec!["- Test Ring"]);
+}
+
+#[test]
+fn a_mouse_selection_asks_for_nothing_with_the_item_info_line_off() {
+    let (mut world, mut plugin, ring) = ring_world();
+    world.act_int(&mut plugin, "SetMagItemInfoOnIdent", 0);
+    world.send(&mut plugin, clicked(ring));
+    assert!(!queued(&mut world, &mut plugin, ring));
+    world.send(&mut plugin, ident_received(ring, "Test Ring"));
+    assert!(world.chat().is_empty(), "{:?}", world.chat());
+}
+
+#[test]
+fn a_right_click_examine_prints_once_though_the_slot_was_busy() {
+    // A right-click examine selects with the mouse too, and the player's
+    // own appraisal holds the slot: MossTank's request is refused as busy
+    // and waits; the player's answer prints once, and nothing more is
+    // asked for or printed.
+    let (mut world, mut plugin, ring) = ring_world();
+    identify_answers(&mut world, ac_plugin_abi::items::ItemStatus::Busy);
+    let logged = world.all_logs().len();
+    world.send(&mut plugin, clicked(ring));
+    for _ in 0..3 {
+        world.fake.clock.monotonic_ms += 500;
+        world.tick(&mut plugin);
+    }
+    assert!(world.requests::<calls::WorldIdentify>().contains(&ring));
+    assert!(queued(&mut world, &mut plugin, ring));
+
+    world.fake.clock.monotonic_ms += 2_000;
+    world.send(&mut plugin, ident_received(ring, "Test Ring"));
+    assert!(!queued(&mut world, &mut plugin, ring));
+    identify_answers(&mut world, ac_plugin_abi::items::ItemStatus::Started);
+    let asked = world.requests::<calls::WorldIdentify>().len();
+    for _ in 0..3 {
+        world.fake.clock.monotonic_ms += 500;
+        world.tick(&mut plugin);
+    }
+    assert!(
+        !world.requests::<calls::WorldIdentify>()[asked..].contains(&ring),
+        "asked again"
+    );
+    world.send(&mut plugin, ident_received(ring, "Test Ring"));
+    assert_eq!(info_lines(&world), vec!["- Test Ring"]);
+    // The busy answers logged nothing.
+    let all = world.all_logs();
+    assert!(all[logged..].is_empty(), "{:?}", &all[logged..]);
 }
 
 #[test]

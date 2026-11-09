@@ -3112,9 +3112,11 @@ fn every_call_fits_the_hosts_budgets_with_room_to_spare() {
         ("event: window attached", Event::WindowAttached(true)),
         (
             "event: selection changed",
+            // A click: the left-click identify queues its appraisal too.
             Event::SelectionChanged(ac_plugin_abi::world::SelectionChange {
                 previous: None,
                 selected: Some(player.object.object_id),
+                source: ac_plugin_abi::world::selection_source::MOUSE,
             }),
         ),
         (

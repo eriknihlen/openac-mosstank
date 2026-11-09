@@ -1,7 +1,8 @@
 //! The Mag tab: Mag-Tools' tracker pages (Combat, Mana, Inv. Items), one
 //! sub-tab each, bound to the Mag features' state in
-//! [`mosstank_mag::MagParts`], and the button that opens the Inventory
-//! window; and the Inventory window's own bindings.
+//! [`mosstank_mag::MagParts`], the item info line's two boxes, and the
+//! button that opens the Inventory window; and the Inventory window's own
+//! bindings.
 
 use ac_plugin_abi::ui::UiValue;
 use mosstank_mag::MagSubPage;
@@ -26,6 +27,9 @@ pub(super) fn value(cx: &mut TankCx<'_>, name: &str) -> Option<UiValue> {
         "MagCombatVisible" => b(combat_shown),
         "MagManaVisible" => b(shown && page == MagSubPage::Mana),
         "MagInvItemsVisible" => b(shown && page == MagSubPage::InvItems),
+        // The item info line's boxes, beside the sub-tabs.
+        "MagItemInfoOnIdent" => b(flag(cx, settings::ITEM_INFO_ENABLED)),
+        "MagLeftClickIdent" => b(flag(cx, settings::ITEM_INFO_LEFT_CLICK)),
 
         // The Combat page: its three tabs.
         "MagCombatCurrentSelected" => b(combat_page == CombatPage::Current),
@@ -123,6 +127,8 @@ pub(super) fn act(cx: &mut TankCx<'_>, name: &str, arg: &Arg) -> bool {
             cx.mag.sub_page = MagSubPage::InvItems;
             cx.refresh_inv_items_page();
         }
+        "SetMagItemInfoOnIdent" => set_flag(cx, settings::ITEM_INFO_ENABLED, arg.int() != 0),
+        "SetMagLeftClickIdent" => set_flag(cx, settings::ITEM_INFO_LEFT_CLICK, arg.int() != 0),
 
         // The Combat page.
         "ShowMagCombatCurrent" | "ShowMagCombatPersistent" | "ShowMagCombatOptions" => {
