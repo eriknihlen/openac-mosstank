@@ -10,7 +10,7 @@ use std::collections::BTreeMap;
 
 use ac_plugin_abi::character::ActiveEnchantment;
 use ac_plugin_abi::combat::CombatTarget;
-use ac_plugin_abi::items::{InventoryItem, LootContainer};
+use ac_plugin_abi::items::{InventoryItem, LootContainer, ObjectHeader};
 use ac_plugin_abi::magic::SpellInfo;
 use ac_plugin_abi::navigation::NavigationSnapshot;
 use ac_plugin_abi::social::{AllegianceMember, AllegianceState, FellowMember, FellowshipState};
@@ -238,6 +238,8 @@ pub fn inventory() -> Vec<Created> {
             items_capacity: 24,
             container_slot: i32::try_from(pack).unwrap_or(0),
             object_class: ObjectClass::Container,
+            // Described by the server.
+            header: Some(ObjectHeader::default()),
             ..InventoryItem::default()
         };
         created.push(Created {
@@ -284,6 +286,7 @@ pub fn inventory() -> Vec<Created> {
             } else {
                 0.0
             },
+            header: Some(ObjectHeader::default()),
             ..InventoryItem::default()
         };
         created.push(Created {
