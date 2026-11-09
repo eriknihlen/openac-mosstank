@@ -1474,6 +1474,263 @@ fn the_inventory_search_fits() {
     assert_within_margin(&cases, &report);
 }
 
+/// One click or entry on the plugin's windows, measured as `case`.
+fn act(
+    plugin: &mut Plugin,
+    session: &mut Session,
+    cases: &mut Cases,
+    case: &str,
+    handler: &str,
+    value: ac_plugin_abi::ui::ActionValue,
+) {
+    let action = ui_action(session, handler, value);
+    let fuel = send(plugin, session, &action);
+    cases.add(case, fuel);
+}
+
+/// Ticks until the Inventory window's rows are worked out again for the
+/// filter (its 0.4 s wait, then the rows tested a tick's worth at a time),
+/// each tick measured as `case`; the ticks taken.
+fn settle_inventory(
+    plugin: &mut Plugin,
+    session: &mut Session,
+    cases: &mut Cases,
+    case: &str,
+) -> usize {
+    let mut ticks = 0;
+    while inventory_status(session).starts_with("Searching") || ticks < 40 {
+        let fuel = tick(plugin, session);
+        cases.add(case, fuel);
+        ticks += 1;
+        assert!(ticks < 1000, "{case}: {}", inventory_status(session));
+    }
+    ticks
+}
+
+/// The Inventory window on the heavy character with three other
+/// characters' saved logs (6,000 items in all, the saved ones with a set,
+/// an armor level and two ratings), the filters window shown and every
+/// filter set through it (the Item tab's choices and slots, cantrips at
+/// mixed tiers and a spell text, every rating and the crit damage tiers, a
+/// set, the requirements, a character left out), then one filter changed.
+/// A header click sorts in the client (the list's `sort` and `sortkeys`,
+/// no `onsort`): it never calls the plugin, so it has no case here.
+#[test]
+#[ignore = "needs the release module: scripts/check.sh runs it after the WebAssembly build"]
+fn the_inventory_filters_fit() {
+    use ac_plugin_abi::ui::ActionValue;
+    let wasm = std::fs::read(wasm_path()).expect("the release mosstank.wasm (build it first)");
+    let mut session = new_session();
+    let mut cases = Cases::default();
+
+    // A first session logs the heavy character; three alts' logs are
+    // copies whose appraised items carry a set and some ratings.
+    let (mut plugin, _) = Plugin::load(&wasm, DEFAULT_MEMORY_MIB).expect("load");
+    plugin.enable(&start_info(), &mut session).expect("enable");
+    log_in_heavy(&mut plugin, &mut session);
+    send(&mut plugin, &mut session, &Event::Logoff);
+    plugin.disable(&mut session).expect("disable");
+    let log = session
+        .world
+        .plugin_data
+        .get("Mag-Tools/Coldeve/Mossy Hunter.inventory.json")
+        .expect("the heavy character's log")
+        .to_owned();
+    let appraised = "\"ints\":{\"1\":";
+    assert!(log.contains(appraised), "the log's appraised items");
+    for alt in 1..=3 {
+        let name = format!("Alt {alt}");
+        let text = log
+            .replacen(
+                "\"character\":\"Mossy Hunter\"",
+                &format!("\"character\":\"{name}\""),
+                1,
+            )
+            .replace(
+                appraised,
+                &format!(
+                    "\"ints\":{{\"265\":{},\"28\":300,\"374\":2,\"315\":3,\"1\":",
+                    12 + alt
+                ),
+            );
+        session
+            .world
+            .plugin_data
+            .insert(&format!("Mag-Tools/Coldeve/{name}.inventory.json"), &text);
+    }
+
+    // The next session: the Inventory window opened and every item read.
+    let (mut plugin, _) = Plugin::load(&wasm, DEFAULT_MEMORY_MIB).expect("load");
+    plugin.enable(&start_info(), &mut session).expect("enable");
+    log_in_heavy(&mut plugin, &mut session);
+    let open = ui_action(&session, "OpenMagInventory", ActionValue::None);
+    send(&mut plugin, &mut session, &open);
+    let total = heavy::INVENTORY_ITEMS * 4;
+    let all = format!("{total} items");
+    let mut ticks = 0;
+    while inventory_status(&session) != all {
+        tick(&mut plugin, &mut session);
+        ticks += 1;
+        assert!(ticks < 2000, "never read: {}", inventory_status(&session));
+    }
+
+    // The filters window, every filter set through it.
+    let p = &mut plugin;
+    let s = &mut session;
+    let c = &mut cases;
+    let on = || ActionValue::Int(1);
+    let text = |t: &str| ActionValue::Text(t.to_owned());
+    act(
+        p,
+        s,
+        c,
+        "filters: open the window",
+        "OpenMagInventoryFilters",
+        ActionValue::None,
+    );
+    let set = "filters: a filter set";
+    let tab = "filters: a tab shown";
+    act(p, s, c, tab, "ShowMagFiltersItem", ActionValue::None);
+    act(p, s, c, set, "SetMagFilterEquipped", ActionValue::Int(2));
+    act(p, s, c, set, "SetMagFilterBonded", on());
+    act(p, s, c, set, "SetMagFilterAttuned", on());
+    act(p, s, c, set, "SetMagFilterRare", on());
+    act(p, s, c, set, "SetMagFilterType", ActionValue::Int(1));
+    for slot in ["Hands", "Ring", "Neck"] {
+        act(p, s, c, set, &format!("SetMagFilterSlot{slot}"), on());
+    }
+    act(p, s, c, tab, "ShowMagFiltersCantrips", ActionValue::None);
+    act(p, s, c, set, "SetMagFilterCantripFind", text("a"));
+    act(p, s, c, set, "SetMagFilterCantripFind", text(""));
+    for row in [0, 5, 40] {
+        act(
+            p,
+            s,
+            c,
+            set,
+            "ToggleMagFilterCantrip",
+            ActionValue::Int(row),
+        );
+    }
+    // Mixed tiers: one cycled once, one twice, one left Legendary.
+    for row in [5, 40, 40] {
+        act(
+            p,
+            s,
+            c,
+            set,
+            "CycleMagFilterCantripTier",
+            ActionValue::Int(row),
+        );
+    }
+    act(p, s, c, set, "SetMagFilterSpellContains", text("strength"));
+    act(p, s, c, tab, "ShowMagFiltersRatings", ActionValue::None);
+    for rating in [
+        "DamageRating",
+        "CritDamage",
+        "HealBoost",
+        "Vitality",
+        "ArmorLevel",
+        "DamageResist",
+        "CritResist",
+        "CritDamageResist",
+        "HealingResist",
+        "NetherResist",
+        "DotResist",
+        "LifeResist",
+        "SneakAttack",
+        "Recklessness",
+        "Deception",
+        "PkDamage",
+        "PkDamageResist",
+        "GearPkDamage",
+        "GearPkResist",
+        "Tinks",
+    ] {
+        act(
+            p,
+            s,
+            c,
+            set,
+            &format!("SetMagFilterRating{rating}"),
+            text("1"),
+        );
+    }
+    act(p, s, c, set, "SetMagFilterCd2", ActionValue::Int(0));
+    act(p, s, c, tab, "ShowMagFiltersSet", ActionValue::None);
+    act(p, s, c, set, "SetMagFilterSetFind", text("set"));
+    act(p, s, c, set, "SetMagFilterSetFind", text(""));
+    // Row 0 is Any set; 1 the set with the most items.
+    act(p, s, c, set, "SelectMagFilterSetRow", ActionValue::Int(1));
+    act(p, s, c, tab, "ShowMagFiltersReqs", ActionValue::None);
+    for (req, value) in [
+        ("MaxWield", "275"),
+        ("MinValue", "100"),
+        ("MinWorkmanship", "1"),
+        ("MaxBurden", "500"),
+    ] {
+        act(p, s, c, set, &format!("SetMagFilterReq{req}"), text(value));
+    }
+    act(p, s, c, tab, "ShowMagFiltersCharacters", ActionValue::None);
+    act(
+        p,
+        s,
+        c,
+        set,
+        "ToggleMagFilterCharacter",
+        ActionValue::Int(3),
+    );
+    let summary = inventory_text(s, "MagInventoryFilterSummary");
+    for part in [
+        "Not equipped",
+        "Bonded",
+        "Armor",
+        "Hands",
+        "Crit damage ≥ 1",
+        "Wield ≤ 275",
+    ] {
+        assert!(summary.contains(part), "{part}: {summary}");
+    }
+    assert!(summary.contains("'s Set"), "a set chosen: {summary}");
+    let every_ticks = settle_inventory(p, s, c, "filters: tick (every filter)");
+    // Attuned and Rare cleared (no item is either), then Bonded below.
+    act(p, s, c, tab, "ShowMagFiltersItem", ActionValue::None);
+    act(p, s, c, set, "SetMagFilterAttuned", ActionValue::Int(0));
+    act(p, s, c, set, "SetMagFilterRare", ActionValue::Int(0));
+    settle_inventory(p, s, c, "filters: tick (every filter)");
+
+    // One filter changed: the Bonded box cleared, so the armor reaches the
+    // appraisal's filters; the Cantrips tab shown while the rows are
+    // tested.
+    act(p, s, c, tab, "ShowMagFiltersCantrips", ActionValue::None);
+    act(
+        p,
+        s,
+        c,
+        "filters: one filter changed",
+        "SetMagFilterBonded",
+        ActionValue::Int(0),
+    );
+    let changed_ticks = settle_inventory(p, s, c, "filters: tick (one filter changed)");
+    let status = inventory_status(s);
+    assert!(
+        status.ends_with(" items")
+            || status.ends_with(" item")
+            || status.contains("not identified"),
+        "{status}"
+    );
+
+    let cases = cases.all();
+    let mut report = report(&cases);
+    let _ = writeln!(
+        report,
+        "{total} items; every filter settled in {every_ticks} ticks, one change in {changed_ticks}; {status}"
+    );
+    println!("{report}");
+    assert_no_file_rewritten(&session, &report);
+    assert_within_margin(&cases, &report);
+}
+
 /// The pieces of gear the heavy character wears for the Mana page.
 const WORN_MANA_ITEMS: usize = 20;
 
