@@ -116,7 +116,7 @@ pub const FILTER_DELAY_MS: f64 = 400.0;
 /// The file name every inventory log ends with.
 const LOG_SUFFIX: &str = ".inventory.json";
 
-/// The appraisal's mark on a     item_info(&input, &mut |id| spells.get(host, id).map(|spell| spell.info.clone())) active on the item.
+/// The appraisal's mark on a spell active on the item.
 const ACTIVE_ON_ITEM: u32 = 0x8000_0000;
 
 /// One equipment set and how many items of the characters searched are

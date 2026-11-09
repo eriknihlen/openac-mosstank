@@ -828,7 +828,14 @@ fn a_filter_applies_0_4_s_after_its_last_change() {
         assert!(ticks < 100);
     }
     assert_eq!(rig.names(), ["Sword"]);
-    assert!(f64::from(20 + ticks) * 16.0 >= FILTER_DELAY_MS);
+    // Stamped on the first tick after the change, applied 400 ms later (its
+    // 26th tick), the rows tested in it, shown on the next.
+    assert!(f64::from(20 + ticks - 1) * 16.0 >= FILTER_DELAY_MS);
+    assert!(
+        20 + ticks <= 27,
+        "applied {} ticks after the change",
+        20 + ticks
+    );
     assert_eq!(rig.search.status(), "1 item");
 }
 
@@ -1018,4 +1025,22 @@ fn the_filter_stays_when_the_session_ends() {
     rig.filter(jewelry());
     rig.search.reset();
     assert_eq!(rig.search.filter(), &jewelry());
+}
+
+#[test]
+fn armor_never_appraised_is_counted_under_the_armor_type() {
+    let mut rig = Rig::new();
+    rig.own(item(RING, "Plain Coat", ObjectClass::Armor, PLAYER));
+    rig.own_appraised(
+        item(GEM, "Coat", ObjectClass::Armor, PLAYER),
+        ints(&[(28, 300)]),
+    );
+    rig.own(item(SWORD, "Sword", ObjectClass::MeleeWeapon, PLAYER));
+    rig.search("");
+    rig.filter(InventoryFilter {
+        item_type: ItemType::Armor,
+        ..InventoryFilter::default()
+    });
+    assert_eq!(rig.names(), ["Coat"]);
+    assert_eq!(rig.search.status(), "1 item (1 not identified)");
 }

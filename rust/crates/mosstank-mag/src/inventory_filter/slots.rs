@@ -6,8 +6,13 @@
 //!
 //! Where it differs: either finger reads `Ring` and either wrist
 //! `Bracelet` (the website: `Left Ring, Right Ring`, and the wrists bit by
-//! bit), and the three aetheria slots are named (the website's table
-//! named them before its own aetheria names were reached).
+//! bit); the aetheria slots read `Aetheria Blue`, `Yellow`, `Red`, one bit
+//! or several (the website: its own aetheria names, `slotname.go:151-158`,
+//! sit behind its exact lookup, which finds the enum's `SigilOne` to
+//! `SigilThree` first, so it showed those, joined bit by bit when
+//! combined); `0x7FFFFFFF` (any ready slot) reads `-` (the website:
+//! `CanGoInReadySlot`); and armor with a material but no coverage bits
+//! is named by its own slot bits (the website: `Inventory`).
 
 /// The EquipMask bits and their names, in ascending order (the decode
 /// joins them in this order).
@@ -63,7 +68,8 @@ const BODY_ARMOR_COVERAGE: u32 = 0x0001_FF00;
 /// armor bits. `-` for an item worn nowhere.
 #[must_use]
 pub fn slot_name(valid_locations: u32, coverage: u32, has_material: bool) -> String {
-    if valid_locations == 0 || valid_locations > i32::MAX.cast_unsigned() {
+    // Nothing, any ready slot (every bit below the top one), or past it.
+    if valid_locations == 0 || valid_locations >= i32::MAX.cast_unsigned() {
         return "-".to_owned();
     }
     let mut names: Vec<String> = Vec::new();
@@ -87,7 +93,12 @@ fn slot_options(valid_locations: u32, coverage: u32, has_material: bool) -> Vec<
     if valid_locations == LOWER_LEG_WEAR | FOOT_WEAR {
         return vec![FOOT_WEAR];
     }
-    if valid_locations & BODY_ARMOR_EQUIP != 0 && valid_locations.count_ones() > 1 && has_material {
+    // Without coverage bits, its own slot bits name it.
+    if valid_locations & BODY_ARMOR_EQUIP != 0
+        && valid_locations.count_ones() > 1
+        && has_material
+        && coverage != 0
+    {
         return coverage_reduction(coverage)
             .into_iter()
             .map(coverage_to_equip_mask)

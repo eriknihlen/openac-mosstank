@@ -10,7 +10,8 @@
 //! the label's words); crit, nether and life resist the larger of the base
 //! and the Gear property; both wield requirement triples; no Healing
 //! rating (a character property). An item never appraised is left out by
-//! a cantrip, spell, rating or armor crit damage filter and counted
+//! a cantrip, spell, rating, set, Armor type or armor crit damage
+//! filter and counted
 //! ([`Verdict::NotIdentified`]). The filters window's own state is
 //! [`window::FilterWindow`].
 
@@ -229,7 +230,8 @@ impl InventoryFilter {
 
     /// What the filter makes of the row: the filters that need no
     /// appraisal first; an item never appraised fails the cantrip, spell,
-    /// rating and armor crit damage filters as [`Verdict::NotIdentified`].
+    /// rating, set, Armor type (its armor level) and armor crit damage
+    /// filters as [`Verdict::NotIdentified`].
     #[must_use]
     pub fn verdict(&self, facts: &RowFacts) -> Verdict {
         if !self.plain_matches(facts) {
@@ -267,7 +269,6 @@ impl InventoryFilter {
             && (!self.rare || facts.rare)
             && self.type_matches(facts)
             && (self.slots.is_empty() || self.slots.iter().any(|slot| slot.matches(&facts.slot)))
-            && self.set.is_none_or(|set| facts.set_id == Some(set))
             && self
                 .max_wield
                 .is_none_or(|limit| facts.wield_level.is_none_or(|level| level <= limit))
@@ -281,6 +282,8 @@ impl InventoryFilter {
         !self.cantrips.is_empty()
             || !self.spell_needle().is_empty()
             || self.ratings.iter().any(Option::is_some)
+            || self.set.is_some()
+            || (self.item_type == ItemType::Armor && facts.class == ObjectClass::Armor)
             || (self.cd_active() && slots::is_armor_slot(&facts.slot))
     }
 
@@ -301,7 +304,10 @@ impl InventoryFilter {
         let cd = !self.cd_active()
             || !slots::is_armor_slot(&facts.slot)
             || self.allowed_cd[usize::from(facts.cd_tier)];
-        cantrips && spell && ratings && cd
+        let set = self.set.is_none_or(|set| facts.set_id == Some(set));
+        let armor =
+            self.item_type != ItemType::Armor || facts.armor_level.is_some_and(|level| level > 0);
+        cantrips && spell && ratings && cd && set && armor
     }
 
     /// The type and the weapon kinds pass.
@@ -313,7 +319,8 @@ impl InventoryFilter {
         let coverage = facts.coverage;
         match self.item_type {
             ItemType::All => true,
-            ItemType::Armor => class == ObjectClass::Armor && facts.armor_level.unwrap_or(0) > 0,
+            // Its armor level is the appraisal's.
+            ItemType::Armor => class == ObjectClass::Armor,
             ItemType::Jewelry => class == ObjectClass::Jewelry,
             ItemType::Weapons => {
                 matches!(

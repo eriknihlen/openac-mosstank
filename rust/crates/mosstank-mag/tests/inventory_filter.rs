@@ -341,31 +341,63 @@ fn value_workmanship_burden_and_set_are_their_properties() {
 #[test]
 fn a_rating_is_the_larger_of_its_base_and_gear_property() {
     let amulet = item(ObjectClass::Jewelry);
+    // Every rating's ids, the base or the Gear property the larger.
     let facts = facts(
         &amulet,
         &[
             (307, 2),
             (370, 3),
+            (323, 5),
+            (376, 4),
+            (379, 21),
+            (28, 300),
+            (308, 1),
+            (371, 6),
             (315, 1),
             (373, 4),
+            (316, 7),
+            (375, 2),
+            (317, 8),
             (331, 5),
             (377, 2),
+            (350, 9),
             (378, 6),
-            (379, 21),
-            (171, 9),
-            (28, 300),
-            (384, 7),
+            (356, 10),
+            (357, 11),
+            (358, 12),
+            (381, 13),
+            (382, 14),
+            (383, 15),
+            (384, 16),
+            (171, 17),
         ],
     );
-    assert_eq!(facts.rating(Rating::DamageRating), Some(3));
-    assert_eq!(facts.rating(Rating::CritResist), Some(4));
-    assert_eq!(facts.rating(Rating::NetherResist), Some(5));
-    assert_eq!(facts.rating(Rating::LifeResist), Some(6));
-    assert_eq!(facts.rating(Rating::Vitality), Some(21));
-    assert_eq!(facts.rating(Rating::Tinks), Some(9));
-    assert_eq!(facts.rating(Rating::ArmorLevel), Some(300));
-    assert_eq!(facts.rating(Rating::GearPkResist), Some(7));
-    assert_eq!(facts.rating(Rating::CritDamage), None);
+    let expected = [
+        (Rating::DamageRating, Some(3)),
+        (Rating::CritDamage, None),
+        (Rating::HealBoost, Some(5)),
+        (Rating::Vitality, Some(21)),
+        (Rating::ArmorLevel, Some(300)),
+        (Rating::DamageResist, Some(6)),
+        (Rating::CritResist, Some(4)),
+        (Rating::CritDamageResist, Some(7)),
+        (Rating::HealingResist, Some(8)),
+        (Rating::NetherResist, Some(5)),
+        (Rating::DotResist, Some(9)),
+        (Rating::LifeResist, Some(6)),
+        (Rating::SneakAttack, Some(10)),
+        (Rating::Recklessness, Some(11)),
+        (Rating::Deception, Some(12)),
+        (Rating::PkDamage, Some(13)),
+        (Rating::PkDamageResist, Some(14)),
+        (Rating::GearPkDamage, Some(15)),
+        (Rating::GearPkResist, Some(16)),
+        (Rating::Tinks, Some(17)),
+    ];
+    assert_eq!(expected.map(|(rating, _)| rating), Rating::ALL);
+    for (rating, value) in expected {
+        assert_eq!(facts.rating(rating), value, "{rating:?}");
+    }
     assert_eq!(Rating::ALL.len(), 20, "Healing rating (342) is not one");
     assert_eq!(Rating::CritDamageResist.label(), "Crit dmg resist");
 }
@@ -725,4 +757,49 @@ fn several_filters_together_and_their_summary() {
     assert!(filter.summary().ends_with(" · Alt One"));
     assert!(!filter.is_empty());
     assert!(InventoryFilter::default().is_empty());
+}
+
+// --- The review's fixes ---
+
+#[test]
+fn loot_armor_without_coverage_bits_is_named_by_its_own_slots() {
+    assert_eq!(slot_name(512 | 1024, 0, true), "Chest, Abdomen");
+    assert_eq!(slot_name(2048 | 4096, 0, true), "Upper Arms, Lower Arms");
+}
+
+#[test]
+fn any_ready_slot_is_no_slot() {
+    // CanGoInReadySlot: every bit below the top one.
+    assert_eq!(slot_name(0x7FFF_FFFF, 0, false), "-");
+    assert_eq!(slot_name(0x7FFF_FFFF, 1024, true), "-");
+}
+
+#[test]
+fn the_armor_type_and_the_set_need_an_appraisal() {
+    let coat = item(ObjectClass::Armor);
+    let ring = item(ObjectClass::Jewelry);
+    let unidentified = |item: &InventoryItem| RowFacts::new(item, &props(&[]), false, vec![]);
+    let armor = InventoryFilter {
+        item_type: ItemType::Armor,
+        ..InventoryFilter::default()
+    };
+    assert_eq!(armor.verdict(&unidentified(&coat)), Verdict::NotIdentified);
+    assert_eq!(
+        armor.verdict(&unidentified(&ring)),
+        Verdict::Fail,
+        "not armor at all"
+    );
+    assert_eq!(
+        armor.verdict(&facts(&coat, &[])),
+        Verdict::Fail,
+        "appraised, no level"
+    );
+    assert_eq!(armor.verdict(&facts(&coat, &[(28, 200)])), Verdict::Pass);
+    let set = InventoryFilter {
+        set: Some(13),
+        ..InventoryFilter::default()
+    };
+    assert_eq!(set.verdict(&unidentified(&ring)), Verdict::NotIdentified);
+    assert_eq!(set.verdict(&facts(&ring, &[])), Verdict::Fail);
+    assert_eq!(set.verdict(&facts(&ring, &[(265, 13)])), Verdict::Pass);
 }
