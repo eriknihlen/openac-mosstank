@@ -808,6 +808,12 @@ fn int_key_exists(key: u32, item: &InventoryItem, properties: &ItemProperties) -
     if property_int(properties, key).is_some() {
         return Ok(true);
     }
+    // An appraised weapon carries its max damage even when it is 0: a
+    // launcher's damage comes from its modifier and elemental bonus, and its
+    // own damage cantrip still counts on top.
+    if key == VTANK_INT_BASE + 34 && properties.weapon.is_some() {
+        return Ok(true);
+    }
     Ok(try_int_value(key, item, properties)?.is_some_and(|value| value != 0))
 }
 
