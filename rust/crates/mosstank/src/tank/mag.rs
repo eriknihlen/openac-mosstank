@@ -260,10 +260,7 @@ impl TankCx<'_> {
                 self.mag.combat.on_login_complete(self.client.mag(), combat);
             }
             Event::Logoff => {
-                let enabled = self.inventory_logger_enabled();
-                self.mag.inventory_log.on_logoff(self.client.mag(), enabled);
-                let combat = self.combat_settings();
-                self.mag.combat.on_logoff(self.client.mag(), combat);
+                self.mag_logoff_writes();
                 self.mag.mana.reset();
                 self.mag.inv_items.on_logoff();
             }
@@ -380,6 +377,27 @@ impl TankCx<'_> {
         }
         self.mag.combat.refresh_page(page);
         true
+    }
+
+    /// What logging off writes: the inventory log, the persistent combat
+    /// stats and the current ones' export.
+    fn mag_logoff_writes(&mut self) {
+        let enabled = self.inventory_logger_enabled();
+        self.mag.inventory_log.on_logoff(self.client.mag(), enabled);
+        let combat = self.combat_settings();
+        self.mag.combat.on_logoff(self.client.mag(), combat);
+    }
+
+    /// The plugin stops with the character in the world: what logging off
+    /// writes, unless the logoff wrote it (the inventory log and the combat
+    /// stats each once a login).
+    pub(crate) fn mag_stopped_in_world(&mut self) {
+        let enabled = self.inventory_logger_enabled();
+        self.mag.inventory_log.on_logoff(self.client.mag(), enabled);
+        if self.mag.combat.is_logged_in() {
+            let combat = self.combat_settings();
+            self.mag.combat.on_logoff(self.client.mag(), combat);
+        }
     }
 
     /// The character left the world: the appraisals it waited on, the

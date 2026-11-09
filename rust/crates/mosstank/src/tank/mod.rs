@@ -1372,6 +1372,11 @@ impl Tank {
         // A profile load under way is finished: the plugin stops on a whole
         // set (register PROF-1).
         cx.finish_staged_load();
+        // Stopping in the world writes what logging off writes (the
+        // inventory log, the combat stats).
+        if cx.client.rules().is_available() {
+            cx.mag_stopped_in_world();
+        }
         cx.core.nav_lines.clear(cx.client);
         cx.core.release_peer_subscriptions(cx.client);
         cx.core.dispose_session_records(cx.client);

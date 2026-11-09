@@ -948,3 +948,64 @@ fn the_mag_features_background_work_waits_for_the_login_and_its_commands() {
     assert!(command_with <= 10, "{command_with} ticks");
     assert!(waited, "the Mag work was under way");
 }
+
+#[test]
+fn disabling_the_plugin_in_the_world_writes_what_logging_off_writes() {
+    let mut world = World::with_character("Mag");
+    world.set_reply::<calls::ItemsInventoryComplete>(&true);
+    world.own_items(vec![item(0x5000_0002, "Ring", 0x8)]);
+    let mut plugin = world.enable();
+    world.command(
+        &mut plugin,
+        "ub",
+        "opt set Mag.CombatTracker.ExportOnLogOff true",
+    );
+    world.ticks(&mut plugin, 60);
+    world.send(&mut plugin, ac_plugin_abi::Event::LoginComplete);
+    world.ticks(&mut plugin, 10);
+    let log_key = "Mag-Tools/Coldeve/Mag.inventory.json";
+    let logged = world.plugin_data.get(log_key).expect("the log").to_owned();
+    world.send(&mut plugin, combat_line("You obliterate Drudge Skulker!"));
+    world.send(&mut plugin, combat_line("Drudge Skulker died!"));
+    let stats_key = "Mag-Tools/Coldeve/Mag.CombatTracker.xml";
+    assert!(world.plugin_data.get(stats_key).is_none());
+
+    world.fake.clock.utc_unix_ms += 1000;
+    world.disable(&mut plugin);
+    let relogged = world.plugin_data.get(log_key).expect("the log").to_owned();
+    let (before, _) = mosstank_mag::inventory_log::read(&logged).expect("it reads");
+    let (after, records) = mosstank_mag::inventory_log::read(&relogged).expect("it reads");
+    assert_eq!(after.saved_unix_ms, before.saved_unix_ms + 1000);
+    assert_eq!(records.len(), 1);
+    let stats = world.plugin_data.get(stats_key).expect("the stats");
+    assert!(stats.contains("KillingBlows=\"2\""), "{stats}");
+    let exports = world
+        .plugin_data
+        .keys()
+        .filter(|name| {
+            name.starts_with("Mag-Tools/Coldeve/Mag.CombatTracker.") && *name != stats_key
+        })
+        .count();
+    assert_eq!(exports, 1);
+}
+
+#[test]
+fn disabling_the_plugin_after_logging_off_writes_nothing_again() {
+    let mut world = World::with_character("Mag");
+    world.set_reply::<calls::ItemsInventoryComplete>(&true);
+    world.own_items(vec![item(0x5000_0002, "Ring", 0x8)]);
+    let mut plugin = world.enable();
+    world.ticks(&mut plugin, 60);
+    world.send(&mut plugin, ac_plugin_abi::Event::LoginComplete);
+    world.ticks(&mut plugin, 10);
+    world.send(&mut plugin, combat_line("You obliterate Drudge Skulker!"));
+    world.send(&mut plugin, ac_plugin_abi::Event::Logoff);
+    let log_key = "Mag-Tools/Coldeve/Mag.inventory.json";
+    let stats_key = "Mag-Tools/Coldeve/Mag.CombatTracker.xml";
+    let logged = world.plugin_data.get(log_key).map(str::to_owned);
+    world.plugin_data.insert(stats_key, "kept");
+    world.fake.clock.utc_unix_ms += 1000;
+    world.disable(&mut plugin);
+    assert_eq!(world.plugin_data.get(log_key).map(str::to_owned), logged);
+    assert_eq!(world.plugin_data.get(stats_key), Some("kept"));
+}

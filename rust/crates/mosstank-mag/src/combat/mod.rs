@@ -909,6 +909,12 @@ impl Combat {
     pub fn is_importing(&self) -> bool {
         matches!(self.persistence, Persistence::Importing { .. })
     }
+
+    /// Between the login and the logoff: what logging off writes is due.
+    #[must_use]
+    pub fn is_logged_in(&self) -> bool {
+        !matches!(self.persistence, Persistence::Idle)
+    }
 }
 
 /// `ExportStats`: nothing written for an empty tracker. True when written.
