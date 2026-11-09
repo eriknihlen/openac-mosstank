@@ -1733,7 +1733,7 @@ fn the_inventory_filters_fit() {
 }
 
 /// The OD ladders the Weapon OD fuel case loads: 31 of 10 rules each,
-/// shaped like the owner's (`(H) Axe (OD +10)` ... `(M) Xbow (OD +1)`):
+/// shaped like real ones (`(H) Axe (OD +10)` ... `(M) Xbow (OD +1)`):
 /// mastery (353), object class, a name gate on every other melee ladder,
 /// the damage step (buffed median damage for melee, buffed missile damage
 /// for missile), wield skill (159). 28 melee ladders (masteries 1 to 7,

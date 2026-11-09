@@ -10,16 +10,220 @@ use openac_plugin_compat::json::{JsonNumber, JsonValue, system_text_json};
 /// The appraisal's mark on a spell active on the item.
 const ACTIVE_ON_ITEM: u32 = 0x8000_0000;
 
-/// The game property ids of a weapon's numbers without a weapon profile.
+/// The game property ids the client lists an item's numbers from.
 mod key {
+    /// ArmorLevel (int).
+    pub const ARMOR_LEVEL: u32 = 28;
     /// Damage (int).
     pub const DAMAGE: u32 = 44;
     /// DamageType (int).
     pub const DAMAGE_TYPE: u32 = 45;
+    /// AttackType (int).
+    pub const ATTACK_TYPE: u32 = 47;
     /// WeaponSkill (int).
     pub const WEAPON_SKILL: u32 = 48;
+    /// AmmoType (int).
+    pub const AMMO_TYPE: u32 = 50;
+    /// BoosterEnum (int).
+    pub const BOOSTER_ENUM: u32 = 89;
+    /// BoostValue (int).
+    pub const BOOST_VALUE: u32 = 90;
+    /// ItemSpellcraft (int).
+    pub const ITEM_SPELLCRAFT: u32 = 106;
+    /// ItemCurMana (int).
+    pub const ITEM_CUR_MANA: u32 = 107;
+    /// ItemMaxMana (int).
+    pub const ITEM_MAX_MANA: u32 = 108;
+    /// WieldRequirements (int).
+    pub const WIELD_REQUIREMENTS: u32 = 158;
+    /// WieldSkilltype (int).
+    pub const WIELD_SKILLTYPE: u32 = 159;
+    /// WieldDifficulty (int).
+    pub const WIELD_DIFFICULTY: u32 = 160;
+    /// NumTimesTinkered (int).
+    pub const NUM_TIMES_TINKERED: u32 = 171;
+    /// ImbuedEffect (int).
+    pub const IMBUED_EFFECT: u32 = 179;
+    /// PetClass (int).
+    pub const PET_CLASS: u32 = 266;
+    /// WeaponType (int).
+    pub const WEAPON_TYPE: u32 = 353;
+    /// SummoningMastery (int).
+    pub const SUMMONING_MASTERY: u32 = 362;
+    /// UseRequiresSkill (int).
+    pub const USE_REQUIRES_SKILL: u32 = 366;
+    /// UseRequiresSkillLevel (int).
+    pub const USE_REQUIRES_SKILL_LEVEL: u32 = 367;
+    /// UseRequiresSkillSpec (int).
+    pub const USE_REQUIRES_SKILL_SPEC: u32 = 368;
+    /// GearDamage (int).
+    pub const GEAR_DAMAGE: u32 = 370;
+    /// GearDamageResist (int).
+    pub const GEAR_DAMAGE_RESIST: u32 = 371;
+    /// GearCrit (int).
+    pub const GEAR_CRIT: u32 = 372;
+    /// GearCritResist (int).
+    pub const GEAR_CRIT_RESIST: u32 = 373;
+    /// GearCritDamage (int).
+    pub const GEAR_CRIT_DAMAGE: u32 = 374;
+    /// GearCritDamageResist (int).
+    pub const GEAR_CRIT_DAMAGE_RESIST: u32 = 375;
     /// DamageVariance (float).
     pub const DAMAGE_VARIANCE: u32 = 22;
+    /// HealkitMod (float).
+    pub const HEALKIT_MOD: u32 = 100;
+    /// ProcSpellRate (float).
+    pub const PROC_SPELL_RATE: u32 = 156;
+    /// Retained (bool).
+    pub const RETAINED: u32 = 91;
+    /// ProcSpellSelfTargeted (bool).
+    pub const PROC_SPELL_SELF_TARGETED: u32 = 112;
+    /// Spell (data id).
+    pub const SPELL: u32 = 28;
+    /// ProcSpell (data id).
+    pub const PROC_SPELL: u32 = 55;
+}
+
+/// What only the item's description carried (not its properties), kept
+/// for the loot rules that read it (the Inventory window's OD): the icon
+/// layers (a rare's backdrop among them), its effects, how it is used.
+/// All none (zero) in a file written before they were kept.
+#[derive(Debug, Clone, PartialEq, Default)]
+pub struct Described {
+    /// Usability bits.
+    pub useability: u32,
+    /// What it may be used on.
+    pub target_type: u32,
+    /// The public flags.
+    pub public_flags: u32,
+    /// The most uses.
+    pub maximum_structure: i32,
+    /// Its spell (a scroll's, a gem's).
+    pub spell_id: u32,
+    /// The shared cooldown it belongs to.
+    pub shared_cooldown_id: u32,
+    /// That cooldown's length, seconds.
+    pub cooldown_seconds: f64,
+    /// Melee, missile, ammunition, shield.
+    pub combat_use: i32,
+    /// The ammunition it is or takes.
+    pub ammo_type: u32,
+    /// The largest stack.
+    pub maximum_stack_size: i32,
+    /// The items it holds.
+    pub items_capacity: i32,
+    /// The containers it holds.
+    pub containers_capacity: i32,
+    /// Its icon effects (the magical highlight among them).
+    pub effects: u32,
+    /// The icon's underlay (a full icon id).
+    pub icon_underlay_id: u32,
+    /// The icon's overlay (a full icon id).
+    pub icon_overlay_id: u32,
+    /// How near, metres, it must be to be used.
+    pub use_radius: f32,
+    /// What a hook takes.
+    pub hook_item_types: u32,
+    /// The name for more than one.
+    pub plural_name: String,
+}
+
+impl Described {
+    /// What `item`'s description carried.
+    #[must_use]
+    pub fn of(item: &InventoryItem) -> Self {
+        Self {
+            useability: item.useability,
+            target_type: item.target_type,
+            public_flags: item.public_flags,
+            maximum_structure: item.maximum_structure,
+            spell_id: item.spell_id,
+            shared_cooldown_id: item.shared_cooldown_id,
+            cooldown_seconds: item.cooldown_seconds,
+            combat_use: item.combat_use,
+            ammo_type: item.ammo_type,
+            maximum_stack_size: item.maximum_stack_size,
+            items_capacity: item.items_capacity,
+            containers_capacity: item.containers_capacity,
+            effects: item.effects,
+            icon_underlay_id: item.icon_underlay_id,
+            icon_overlay_id: item.icon_overlay_id,
+            use_radius: item.use_radius,
+            hook_item_types: item.hook_item_types,
+            plural_name: item.plural_name.clone(),
+        }
+    }
+
+    /// As one JSON object of the members that are not none.
+    fn json_value(&self) -> JsonValue {
+        let mut members: Vec<(&str, JsonValue)> = Vec::new();
+        let mut unsigned = |name, value: u32| {
+            if value != 0 {
+                members.push((name, u(value)));
+            }
+        };
+        unsigned("useability", self.useability);
+        unsigned("target_type", self.target_type);
+        unsigned("public_flags", self.public_flags);
+        unsigned("spell_id", self.spell_id);
+        unsigned("shared_cooldown_id", self.shared_cooldown_id);
+        unsigned("ammo_type", self.ammo_type);
+        unsigned("effects", self.effects);
+        unsigned("icon_underlay_id", self.icon_underlay_id);
+        unsigned("icon_overlay_id", self.icon_overlay_id);
+        unsigned("hook_item_types", self.hook_item_types);
+        for (name, value) in [
+            ("maximum_structure", self.maximum_structure),
+            ("combat_use", self.combat_use),
+            ("maximum_stack_size", self.maximum_stack_size),
+            ("items_capacity", self.items_capacity),
+            ("containers_capacity", self.containers_capacity),
+        ] {
+            if value != 0 {
+                members.push((name, i(value)));
+            }
+        }
+        if self.cooldown_seconds != 0.0 {
+            members.push(("cooldown_seconds", f64_value(self.cooldown_seconds)));
+        }
+        if self.use_radius != 0.0 {
+            members.push(("use_radius", f32_value(self.use_radius)));
+        }
+        if !self.plural_name.is_empty() {
+            members.push(("plural_name", JsonValue::String(self.plural_name.clone())));
+        }
+        JsonValue::object(members)
+    }
+
+    /// Read from its JSON object; a member absent is none. `None` when a
+    /// member is of the wrong kind.
+    fn from_json(value: &JsonValue) -> Option<Self> {
+        let unsigned = |name| value.get(name).map_or(Some(0), read_u32);
+        let signed = |name| value.get(name).map_or(Some(0), read_i32);
+        Some(Self {
+            useability: unsigned("useability")?,
+            target_type: unsigned("target_type")?,
+            public_flags: unsigned("public_flags")?,
+            maximum_structure: signed("maximum_structure")?,
+            spell_id: unsigned("spell_id")?,
+            shared_cooldown_id: unsigned("shared_cooldown_id")?,
+            cooldown_seconds: value.get("cooldown_seconds").map_or(Some(0.0), read_f64)?,
+            combat_use: signed("combat_use")?,
+            ammo_type: unsigned("ammo_type")?,
+            maximum_stack_size: signed("maximum_stack_size")?,
+            items_capacity: signed("items_capacity")?,
+            containers_capacity: signed("containers_capacity")?,
+            effects: unsigned("effects")?,
+            icon_underlay_id: unsigned("icon_underlay_id")?,
+            icon_overlay_id: unsigned("icon_overlay_id")?,
+            use_radius: value.get("use_radius").map_or(Some(0.0), read_f32)?,
+            hook_item_types: unsigned("hook_item_types")?,
+            plural_name: match value.get("plural_name") {
+                Some(name) => name.as_str()?.to_owned(),
+                None => String::new(),
+            },
+        })
+    }
 }
 
 /// One owned item: where it is, what its description and its appraisal
@@ -78,6 +282,8 @@ pub struct ItemRecord {
     /// The appraisal's spells active on the item, unmarked
     /// (`ActiveSpells`).
     pub active_spells: Vec<u32>,
+    /// What only its description carried, for the loot rules.
+    pub described: Described,
 }
 
 impl ItemRecord {
@@ -127,39 +333,114 @@ impl ItemRecord {
             properties: properties.clone(),
             spells,
             active_spells,
+            described: Described::of(item),
         }
     }
 
     /// The item as the client listed it, rebuilt from the record: what the
-    /// item info line reads ([`crate::item_info::item_info`]), and the
-    /// weapon numbers the loot rules read (skill, damage type, damage and
-    /// variance), which the client lists from the appraisal's weapon
-    /// profile, or from the properties without one.
+    /// item info line reads ([`crate::item_info::item_info`]), and every
+    /// number the loot rules read, listed as the client lists a live item:
+    /// from the kept properties (the weapon numbers from the appraisal's
+    /// weapon profile when it has one), and what only the description
+    /// carried from [`Described`]. Its palettes are not kept: colour rules
+    /// do not match a logged item.
     #[must_use]
     pub fn item(&self) -> InventoryItem {
         let mut appraised_spell_ids = self.spells.clone();
         appraised_spell_ids.extend(self.active_spells.iter().map(|id| id | ACTIVE_ON_ITEM));
         let properties = &self.properties;
         let int = |id: u32| properties.int(id).unwrap_or(0);
+        let float = |id: u32| {
+            properties
+                .floats
+                .iter()
+                .find(|(key, _)| *key == id)
+                .map_or(0.0, |(_, value)| *value)
+        };
+        let boolean = |id: u32| {
+            properties
+                .bools
+                .iter()
+                .find(|(key, _)| *key == id)
+                .is_some_and(|(_, value)| *value)
+        };
+        let data_id = |id: u32| {
+            properties
+                .data_ids
+                .iter()
+                .find(|(key, _)| *key == id)
+                .map_or(0, |(_, value)| *value)
+        };
         let weapon = properties.weapon.as_ref();
-        let damage_variance = weapon.map_or_else(
-            || {
-                properties
-                    .floats
-                    .iter()
-                    .find(|(id, _)| *id == key::DAMAGE_VARIANCE)
-                    .map_or(0.0, |(_, value)| *value)
-            },
-            |weapon| weapon.damage_variance,
-        );
+        let damage = weapon.map_or_else(|| int(key::DAMAGE), |weapon| weapon.damage);
+        let described = &self.described;
         InventoryItem {
+            useability: described.useability,
+            target_type: described.target_type,
+            public_flags: described.public_flags,
+            maximum_structure: described.maximum_structure,
+            spell_id: match described.spell_id {
+                0 => data_id(key::SPELL),
+                id => id,
+            },
+            pet_class: int(key::PET_CLASS),
+            summoning_mastery: int(key::SUMMONING_MASTERY),
+            shared_cooldown_id: described.shared_cooldown_id,
+            cooldown_seconds: described.cooldown_seconds,
+            proc_spell_id: data_id(key::PROC_SPELL),
+            proc_spell_self_targeted: boolean(key::PROC_SPELL_SELF_TARGETED),
+            proc_spell_rate: float(key::PROC_SPELL_RATE),
             weapon_skill: weapon.map_or_else(
                 || int(key::WEAPON_SKILL),
                 |weapon| weapon.weapon_skill.cast_signed(),
             ),
             damage_type: weapon.map_or_else(|| int(key::DAMAGE_TYPE), |weapon| weapon.damage_type),
-            damage: weapon.map_or_else(|| int(key::DAMAGE), |weapon| weapon.damage),
-            damage_variance,
+            damage,
+            damage_variance: weapon.map_or_else(
+                || float(key::DAMAGE_VARIANCE),
+                |weapon| weapon.damage_variance,
+            ),
+            use_requires_skill: int(key::USE_REQUIRES_SKILL),
+            use_requires_skill_level: int(key::USE_REQUIRES_SKILL_LEVEL),
+            use_requires_skill_specialized: int(key::USE_REQUIRES_SKILL_SPEC),
+            combat_use: described.combat_use,
+            item_spellcraft: int(key::ITEM_SPELLCRAFT),
+            wield_requirements: int(key::WIELD_REQUIREMENTS),
+            wield_skill_type: int(key::WIELD_SKILLTYPE),
+            wield_difficulty: int(key::WIELD_DIFFICULTY),
+            attack_type: int(key::ATTACK_TYPE),
+            weapon_type: int(key::WEAPON_TYPE),
+            ammo_type: match described.ammo_type {
+                0 => int(key::AMMO_TYPE).max(0).cast_unsigned(),
+                ammo => ammo,
+            },
+            booster_vital: int(key::BOOSTER_ENUM),
+            boost_value: int(key::BOOST_VALUE),
+            heal_kit_modifier: float(key::HEALKIT_MOD),
+            gear_damage: int(key::GEAR_DAMAGE),
+            gear_damage_resistance: int(key::GEAR_DAMAGE_RESIST),
+            gear_critical_chance: int(key::GEAR_CRIT),
+            gear_critical_resistance: int(key::GEAR_CRIT_RESIST),
+            gear_critical_damage: int(key::GEAR_CRIT_DAMAGE),
+            gear_critical_damage_resistance: int(key::GEAR_CRIT_DAMAGE_RESIST),
+            maximum_stack_size: described.maximum_stack_size,
+            items_capacity: described.items_capacity,
+            containers_capacity: described.containers_capacity,
+            item_current_mana: int(key::ITEM_CUR_MANA),
+            item_maximum_mana: int(key::ITEM_MAX_MANA),
+            salvage_workmanship: f64::from(self.workmanship),
+            num_times_tinkered: int(key::NUM_TIMES_TINKERED),
+            imbued_effect: int(key::IMBUED_EFFECT),
+            armor_level: int(key::ARMOR_LEVEL),
+            max_damage: damage.max(0),
+            wand_elemental_damage_type: int(key::DAMAGE_TYPE),
+            retained: boolean(key::RETAINED),
+            effects: described.effects,
+            icon_underlay_id: described.icon_underlay_id,
+            icon_overlay_id: described.icon_overlay_id,
+            plural_name: described.plural_name.clone(),
+            use_radius: described.use_radius,
+            hook_item_types: described.hook_item_types,
             object_id: self.id,
             weenie_class_id: self.weenie_class_id,
             name: self.name.clone(),
@@ -258,6 +539,7 @@ impl ItemRecord {
                 "active_spells",
                 JsonValue::array(self.active_spells.iter().map(|id| u(*id))),
             ),
+            ("described", self.described.json_value()),
         ])
     }
 
@@ -305,6 +587,11 @@ impl ItemRecord {
             properties,
             spells: read_ids(value.get("spells")?)?,
             active_spells: read_ids(value.get("active_spells")?)?,
+            // Kept since the Weapon OD; none in an older file.
+            described: match value.get("described") {
+                Some(described) => Described::from_json(described)?,
+                None => Described::default(),
+            },
         })
     }
 }
@@ -338,6 +625,7 @@ pub fn combine(older: ItemRecord, newer: ItemRecord) -> ItemRecord {
         structure,
         material_type,
         workmanship,
+        described,
         weenie_header_flags,
         properties,
         ..
@@ -358,6 +646,7 @@ pub fn combine(older: ItemRecord, newer: ItemRecord) -> ItemRecord {
     kept.structure = structure;
     kept.material_type = material_type;
     kept.workmanship = workmanship;
+    kept.described = described;
     if weenie_header_flags.is_some() {
         kept.weenie_header_flags = weenie_header_flags;
     }

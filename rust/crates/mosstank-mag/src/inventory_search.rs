@@ -1501,7 +1501,9 @@ fn new_row(
     let names = spells.names(host, item);
     let mut facts = RowFacts::new(item, properties, identified, names);
     if identified {
-        facts.od = tests.od.od(item, properties);
+        // A cantrip-gated step reads the spells' names from the spell table.
+        let mut spell = |id: u32| spells.get(host, id).map(|spell| spell.info.clone());
+        facts.od = tests.od.od(item, properties, &mut spell);
     }
     let mut row = Row::new(item, properties, info, facts);
     tests.run(&mut row);

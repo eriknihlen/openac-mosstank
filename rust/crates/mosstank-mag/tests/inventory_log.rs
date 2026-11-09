@@ -1195,3 +1195,55 @@ fn the_kept_record_rebuilds_the_weapon_numbers_the_loot_rules_read() {
     assert_eq!(numbers(read_back[0].item()), (47, 2, 18, 0.25));
     assert_eq!(numbers(read_back[1].item()), (44, 1, 40, 0.2));
 }
+
+/// The record keeps what only the item's description carried (the icon
+/// layers, effects, how it is used) and rebuilds the numbers its
+/// properties give (mana, gear ratings), as the client lists a live item;
+/// a file written before it kept the description reads it as none.
+#[test]
+fn the_kept_record_rebuilds_what_the_loot_rules_read() {
+    let mut rare = ring_item();
+    rare.icon_overlay_id = 0x0600_5B0C;
+    rare.icon_underlay_id = 0x0600_1F88;
+    rare.effects = 1;
+    rare.combat_use = 2;
+    rare.ammo_type = 4;
+    rare.use_radius = 2.5;
+    rare.items_capacity = 24;
+    rare.maximum_stack_size = 100;
+    rare.plural_name = "Test Rings".to_owned();
+    let properties = ItemProperties {
+        ints: vec![(107, 1200), (108, 1500), (370, 2), (374, 3), (171, 4)],
+        bools: vec![(91, true)],
+        ..ring_properties()
+    };
+    let record = ItemRecord::from_live(&rare, Some(&seen(&rare, true)), &properties, 1);
+    let (_, read_back) = read(&document(&[record])).expect("the file reads");
+    let kept = read_back[0].item();
+    assert_eq!(
+        (kept.icon_overlay_id, kept.icon_underlay_id, kept.effects),
+        (0x0600_5B0C, 0x0600_1F88, 1)
+    );
+    assert_eq!((kept.combat_use, kept.ammo_type), (2, 4));
+    assert!((kept.use_radius - 2.5).abs() < f32::EPSILON);
+    assert_eq!((kept.items_capacity, kept.maximum_stack_size), (24, 100));
+    assert_eq!(kept.plural_name, "Test Rings");
+    assert_eq!(
+        (kept.item_current_mana, kept.item_maximum_mana),
+        (1200, 1500)
+    );
+    assert_eq!((kept.gear_damage, kept.gear_critical_damage), (2, 3));
+    assert_eq!(kept.num_times_tinkered, 4);
+    assert!(kept.retained);
+    // Written before: no description kept; it reads, as none.
+    let plain = ItemRecord::from_live(
+        &ring_item(),
+        Some(&seen(&ring_item(), true)),
+        &ring_properties(),
+        1,
+    );
+    let text = document(&[plain]);
+    assert!(text.contains(",\"described\":{}"), "{text}");
+    let (_, old) = read(&text.replace(",\"described\":{}", "")).expect("an older file reads");
+    assert_eq!(old[0].item().icon_overlay_id, 0);
+}

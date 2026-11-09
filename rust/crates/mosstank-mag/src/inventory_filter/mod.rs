@@ -10,9 +10,9 @@
 //! the label's words); crit, nether and life resist the larger of the base
 //! and the Gear property; both wield requirement triples; no Healing
 //! rating (a character property); the weapon OD by the loaded loot
-//! profile's `(OD +N)` rules, not the website's damage buckets (owner,
-//! 2026-11-09). An item never appraised is left out by a cantrip, spell,
-//! rating, OD, set, Armor type or armor crit damage filter and counted
+//! profile's `(OD +N)` rules, not the website's damage buckets. An item
+//! never appraised is left out by a cantrip, spell, rating, OD, set, Armor
+//! type or armor crit damage filter and counted
 //! ([`Verdict::NotIdentified`]). The filters window's own state is
 //! [`window::FilterWindow`].
 

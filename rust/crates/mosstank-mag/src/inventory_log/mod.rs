@@ -13,4 +13,4 @@ pub mod record;
 
 pub use file::{LogHeader, LogReader, ReadError, VERSION, read, storage_key, write};
 pub use logger::{ITEMS_PER_TICK, InventoryLogger, LOGOFF_ITEMS, READ_ITEMS_PER_TICK, needs_ident};
-pub use record::{ItemRecord, combine, merge, same_item};
+pub use record::{Described, ItemRecord, combine, merge, same_item};

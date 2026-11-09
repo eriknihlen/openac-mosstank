@@ -1,5 +1,5 @@
 //! Weapon OD by the loot profile's `(OD +N)` rules, read from profiles in
-//! the shape of the owner's (`(M) Xbow (OD +10)`: mastery, missile class,
+//! the shape of a real one (`(M) Xbow (OD +10)`: mastery, missile class,
 //! buffed missile damage, wield skill).
 
 use ac_plugin_abi::items::InventoryItem;
@@ -104,7 +104,7 @@ fn bow_of_mastery(mastery: i32, damage: i32) -> (InventoryItem, ItemProperties) 
 }
 
 fn od(rules: &[LootRule], (item, properties): &(InventoryItem, ItemProperties)) -> Option<i32> {
-    OdRules::new(rules).od(item, properties)
+    OdRules::new(rules).od(item, properties, &mut |_| None)
 }
 
 #[test]
@@ -240,4 +240,110 @@ fn the_fingerprint_follows_the_od_rules_only() {
     let mut renamed = rules;
     renamed[3].name = "(M) Xbow".to_owned();
     assert_ne!(OdRules::fingerprint(&renamed), before);
+}
+
+#[test]
+fn a_step_may_have_spaces_and_an_at_least_mark() {
+    // As real profiles write them: a space before the `)`, and `>=` ahead
+    // of the `+`.
+    assert_eq!(od_step("(F) Spear (OD +10 )"), Some(10));
+    assert_eq!(od_step("(H) Axe (OD >= +8)"), Some(8));
+    assert_eq!(od_step("(H) Axe (OD>=+4)"), Some(4));
+    assert_eq!(od_step("(H) Axe (OD  >=  +  1  )"), Some(1));
+    assert_eq!(od_step("(H) Axe (OD+3)"), Some(3));
+    for name in [
+        "(H) Axe (OD >= +)",
+        "(H) Axe (OD >= 8)",
+        "(H) Axe (OD => +8)",
+        "(H) Axe (OD >= +8 x)",
+        "(H) Axe (OD + x)",
+    ] {
+        assert_eq!(od_step(name), None, "{name}");
+    }
+    // The spaced step is an OD rule like any other.
+    let mut ladder = xbow_ladder();
+    ladder[0] = step("(M) Xbow (OD +10 )", 9, 9, 2001, 87, 47);
+    let rules = profile(&ladder);
+    assert_eq!(od(&rules, &crossbow(89)), Some(10));
+}
+
+/// A crossbow carrying `spell` (appraised), and a spell table that knows
+/// it as `name`.
+fn spelled_crossbow(damage: i32, spell: u32) -> (InventoryItem, ItemProperties) {
+    let (mut item, properties) = crossbow(damage);
+    item.appraised_spell_ids = vec![spell];
+    (item, properties)
+}
+
+#[test]
+fn a_cantrip_gated_step_reads_the_spell_table() {
+    // `(M) Xbow CS (OD +10)`: the ladder's step and a Legendary cantrip,
+    // by spell name (requirement 0) or by count (requirement 9).
+    let by_name = rule(
+        "(M) Xbow CS (OD +10)",
+        &[
+            (7, line(&["9"])),
+            (0, line(&["^Legendary Blood Thirst$"])),
+            (2001, line(&["87"])),
+        ],
+    );
+    let by_count = rule(
+        "(M) Xbow Leg (OD +9)",
+        &[
+            (7, line(&["9"])),
+            (9, line(&["^Legendary ", "Thirst", "1"])),
+            (2001, line(&["86"])),
+        ],
+    );
+    let rules = profile(&[by_name, by_count]);
+    let od_rules = OdRules::new(&rules);
+    let table = |name: &'static str| {
+        move |id: u32| {
+            (id == 6089).then(|| ac_plugin_abi::magic::SpellInfo {
+                spell_id: id,
+                name: name.to_owned(),
+                ..ac_plugin_abi::magic::SpellInfo::default()
+            })
+        }
+    };
+    let (bow, properties) = spelled_crossbow(89, 6089);
+    let mut thirst = table("Legendary Blood Thirst");
+    assert_eq!(od_rules.od(&bow, &properties, &mut thirst), Some(10));
+    // Another Legendary: only the count's step (Thirst excluded there).
+    let mut defender = table("Legendary Defender");
+    assert_eq!(od_rules.od(&bow, &properties, &mut defender), Some(9));
+    // A spell the table does not know, or none on the item: no step.
+    assert_eq!(od_rules.od(&bow, &properties, &mut |_| None), None);
+    let (plain, properties) = crossbow(89);
+    assert_eq!(od_rules.od(&plain, &properties, &mut thirst), None);
+}
+
+#[test]
+fn only_what_decides_an_od_moves_the_fingerprint() {
+    let rules = profile(&xbow_ladder());
+    let before = OdRules::fingerprint(&rules);
+    let built = OdRules::new(&rules);
+    // The action, the priority, the name's other words: the same.
+    let mut other = rules.clone();
+    other[0].action = mosstank_formats::utl::LootAction::Salvage;
+    other[1].priority = 7;
+    other[2].keep_count = 5;
+    other[3].name = "(M) Crossbow (OD +7)".to_owned();
+    other[4].custom_expression = "anything".to_owned();
+    assert_eq!(OdRules::fingerprint(&other), before);
+    assert_eq!(OdRules::new(&other), built);
+    // A step switched off, or its step changed: moved.
+    let mut disabled = rules.clone();
+    disabled[5]
+        .vtank_requirements
+        .push(mosstank_formats::utl::VtankLootRequirement {
+            kind: 9999,
+            payload: "true\r\n".to_owned(),
+        });
+    assert_ne!(OdRules::fingerprint(&disabled), before);
+    assert_ne!(OdRules::new(&disabled), built);
+    let mut stepped = rules;
+    stepped[6].name = "(M) Xbow (OD +11)".to_owned();
+    assert_ne!(OdRules::fingerprint(&stepped), before);
+    assert_ne!(OdRules::new(&stepped), built);
 }

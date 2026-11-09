@@ -1176,7 +1176,7 @@ fn requirement(kind: i32, lines: &[&str]) -> VtankLootRequirement {
     }
 }
 
-/// `(M) Xbow (OD +N)`, in the owner's shape: crossbow mastery, missile
+/// `(M) Xbow (OD +N)`, in a real profile's shape: crossbow mastery, missile
 /// class, 77 + N buffed missile damage, missile skill.
 fn xbow_rule(n: i32) -> LootRule {
     let mut rule = LootRule::named(&format!("(M) Xbow (OD +{n})"), "*");
@@ -1278,6 +1278,12 @@ fn a_change_of_the_profiles_od_rules_works_every_od_out_again() {
     rig.host.now_ms += OD_CHECK_MS;
     rig.tick();
     assert!(rig.search.is_settled());
+    // An OD rule's action and priority changed: they decide no OD.
+    rig.loot[1].action = mosstank_formats::utl::LootAction::Salvage;
+    rig.loot[2].priority = 4;
+    rig.host.now_ms += OD_CHECK_MS;
+    rig.tick();
+    assert!(rig.search.is_settled(), "not read again");
     // The top step asks for more: seen within a second, then every row
     // read again, the rows shown kept meanwhile.
     rig.loot[0] = xbow_rule(10);
@@ -1338,4 +1344,101 @@ fn the_od_filter_says_when_the_profile_has_no_od_rules() {
     rig.settle();
     assert_eq!(rig.names(), ["Live Crossbow"]);
     assert_eq!(rig.search.status(), "1 item");
+}
+
+/// A rare's icon overlay (the rare backdrop), as the server sends it.
+const RARE_OVERLAY: u32 = 0x0600_5B0C;
+
+#[test]
+fn a_logged_rare_is_judged_as_its_live_appraisal_is() {
+    // Every step leaves rares out: the icon overlay (VTank's +41 key)
+    // not the rare backdrop.
+    let mut rig = Rig::new();
+    rig.loot = xbow_ladder();
+    for rule in &mut rig.loot {
+        rule.vtank_requirements
+            .push(requirement(13, &["23308", "218103849"]));
+    }
+    let (mut live_rare, properties) = crossbow(XBOW, "Live Rare", 89);
+    live_rare.icon_overlay_id = RARE_OVERLAY;
+    rig.own_appraised(live_rare, properties);
+    let (mut saved_rare, rare_properties) = crossbow(XBOW_2, "Saved Rare", 89);
+    saved_rare.icon_overlay_id = RARE_OVERLAY;
+    let saved_plain = crossbow(XBOW_3, "Saved Crossbow", 89);
+    save_appraised(
+        &rig.host,
+        "Alt",
+        &[(saved_rare, rare_properties), saved_plain],
+    );
+    rig.search("");
+    assert_eq!(
+        ods(&mut rig),
+        [
+            row("Live Rare", ""),
+            row("Saved Crossbow", "10"),
+            row("Saved Rare", ""),
+        ]
+    );
+}
+
+#[test]
+fn a_logged_melee_weapon_reads_its_damage_from_its_weapon_profile() {
+    // `(H) Axe (OD +N)`: axe mastery, melee, 30 + N buffed median damage,
+    // heavy weapons.
+    let mut rig = Rig::new();
+    rig.loot = (1..=10)
+        .rev()
+        .map(|n| {
+            let mut rule = LootRule::named(&format!("(H) Axe (OD +{n})"), "*");
+            rule.vtank_requirements = vec![
+                requirement(12, &["3", "353"]),
+                requirement(7, &["1"]),
+                requirement(2000, &[&(30 + n).to_string()]),
+                requirement(12, &["44", "159"]),
+            ];
+            rule
+        })
+        .collect();
+    // 40 maximum, 0.2 variance: a median of 36, OD 6. The client lists a
+    // live axe's damage on the item; a saved one has only its record.
+    let axe = item(SWORD, "Saved Axe", ObjectClass::MeleeWeapon, PLAYER);
+    let properties = ItemProperties {
+        ints: vec![(353, 3), (159, 44)],
+        weapon: Some(ac_plugin_abi::world::WeaponProfile {
+            damage: 40,
+            damage_variance: 0.2,
+            damage_mod: 1.0,
+            ..Default::default()
+        }),
+        ..ItemProperties::default()
+    };
+    save_appraised(&rig.host, "Alt", &[(axe, properties)]);
+    rig.search("");
+    assert_eq!(ods(&mut rig), [row("Saved Axe", "6")]);
+}
+
+#[test]
+fn a_cantrip_gated_step_reads_the_clients_spell_table() {
+    // `(M) Xbow (OD +10)` with Legendary Strength on it, by spell name.
+    let mut rig = Rig::new();
+    with_spells(&mut rig.host);
+    let mut gated = xbow_rule(10);
+    gated
+        .vtank_requirements
+        .push(requirement(0, &["^Legendary Strength$"]));
+    rig.loot = vec![gated, xbow_rule(9)];
+    let (mut strong, properties) = crossbow(XBOW, "Strong Crossbow", 89);
+    strong.appraised_spell_ids = vec![STRENGTH];
+    let (mut prowess, prowess_properties) = crossbow(XBOW_2, "Prowess Crossbow", 89);
+    prowess.appraised_spell_ids = vec![PROWESS];
+    save_appraised(
+        &rig.host,
+        "Alt",
+        &[(strong, properties), (prowess, prowess_properties)],
+    );
+    rig.search("");
+    assert_eq!(
+        ods(&mut rig),
+        [row("Prowess Crossbow", "9"), row("Strong Crossbow", "10")]
+    );
 }

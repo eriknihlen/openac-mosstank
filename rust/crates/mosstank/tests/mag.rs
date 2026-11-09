@@ -1387,7 +1387,7 @@ fn the_mana_overlay_is_drawn_on_the_game_dragged_closed_and_back_after_a_relog()
     assert_eq!(place, moved);
 }
 
-/// `(M) Xbow (OD +N)` for N 10 down to 1, in the owner's shape: crossbow
+/// `(M) Xbow (OD +N)` for N 10 down to 1, in a real profile's shape: crossbow
 /// mastery, missile class, 77 + N buffed missile damage, missile skill.
 fn xbow_ladder() -> Vec<mosstank_formats::utl::LootRule> {
     use mosstank_formats::utl::{LootAction, LootRule, VtankLootRequirement};
