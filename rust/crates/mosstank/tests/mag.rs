@@ -365,8 +365,8 @@ fn the_inventory_window_searches_the_live_character_and_the_saved_ones() {
     names.sort();
     assert_eq!(names, ["Alt Sword", "Test Ring"]);
     assert_eq!(
-        world.ui_list(&mut plugin, "MagInventoryCharacters"),
-        ["All", "Mag", "Alt"]
+        world.ui_list(&mut plugin, "MagFilterCharacterNames"),
+        ["Mag", "Alt"]
     );
     assert_eq!(world.ui_text(&mut plugin, "MagInventoryStatus"), "2 items");
 
@@ -399,6 +399,100 @@ fn the_inventory_window_searches_the_live_character_and_the_saved_ones() {
         world
             .ui_list(&mut plugin, "MagInventoryRowNames")
             .is_empty()
+    );
+}
+
+// The Inventory window's Filters... button opens the filters window; a
+// cantrip checked at Epic on its Cantrips tab narrows the rows 0.4 s
+// later to the items with that cantrip at Epic or better; Clear empties
+// the filter again.
+#[test]
+fn the_filters_window_narrows_the_inventory_and_clear_empties_it() {
+    let mut world = World::with_character("Mag");
+    world.set_reply::<calls::ItemsInventoryComplete>(&true);
+    let mut ring = item(0x5000_0002, "Strength Ring", 0x8);
+    ring.appraised_spell_ids = vec![6107];
+    world.own_items(vec![ring, item(0x5000_0003, "Plain Ring", 0x8)]);
+    world.set_reply::<calls::SpellsGet>(&Some(ac_plugin_abi::magic::SpellInfo {
+        spell_id: 6107,
+        name: "Legendary Strength".to_owned(),
+        ..ac_plugin_abi::magic::SpellInfo::default()
+    }));
+    let mut plugin = world.enable();
+    world.ticks(&mut plugin, 60);
+    world.act(&mut plugin, "OpenMagInventory");
+    world.ticks(&mut plugin, 10);
+    let names = |world: &mut World, plugin: &mut mosstank::MossTank| {
+        let mut names = world.ui_list(plugin, "MagInventoryRowNames");
+        names.sort();
+        names
+    };
+    assert_eq!(
+        names(&mut world, &mut plugin),
+        ["Plain Ring", "Strength Ring"]
+    );
+    assert_eq!(
+        world.ui_text(&mut plugin, "MagInventoryFilterSummary"),
+        "No filters"
+    );
+    // The number columns' sort keys, as text the list parses: neither ring
+    // needs a level or has a value (-1, below every one).
+    assert_eq!(
+        world.ui_list(&mut plugin, "MagInventoryRowWieldKeys"),
+        ["-1", "-1"]
+    );
+    assert_eq!(
+        world.ui_list(&mut plugin, "MagInventoryRowWields"),
+        ["", ""]
+    );
+
+    assert!(!world.ui_bool(&mut plugin, "MagFiltersShown"));
+    world.act(&mut plugin, "OpenMagInventoryFilters");
+    assert!(world.ui_bool(&mut plugin, "MagFiltersShown"));
+    assert!(world.ui_bool(&mut plugin, "MagFiltersItemVisible"));
+    world.act(&mut plugin, "ShowMagFiltersCantrips");
+    assert!(world.ui_bool(&mut plugin, "MagFiltersCantripsVisible"));
+    assert!(!world.ui_bool(&mut plugin, "MagFiltersItemVisible"));
+    assert_eq!(
+        world.ui_list(&mut plugin, "MagFilterCantripNames")[0],
+        "Strength"
+    );
+    // Strength's tier stepped from Legendary to Epic, then checked.
+    for _ in 0..3 {
+        world.act_int(&mut plugin, "CycleMagFilterCantripTier", 0);
+    }
+    assert_eq!(
+        world.ui_list(&mut plugin, "MagFilterCantripTiers")[0],
+        "Epic"
+    );
+    world.act_int(&mut plugin, "ToggleMagFilterCantrip", 0);
+    assert!(world.ui_bools(&mut plugin, "MagFilterCantripChecks")[0]);
+    assert_eq!(
+        world.ui_text(&mut plugin, "MagInventoryFilterSummary"),
+        "Epic Strength"
+    );
+    // The rows follow 0.4 s after the last change (frames 0.1 s apart).
+    let frames = |world: &mut World, plugin: &mut mosstank::MossTank, count: usize| {
+        for _ in 0..count {
+            world.fake.clock.monotonic_ms += 100;
+            world.tick(plugin);
+        }
+    };
+    frames(&mut world, &mut plugin, 3);
+    assert_eq!(names(&mut world, &mut plugin).len(), 2);
+    frames(&mut world, &mut plugin, 10);
+    assert_eq!(names(&mut world, &mut plugin), ["Strength Ring"]);
+
+    world.act(&mut plugin, "ClearMagInventoryFilters");
+    assert_eq!(
+        world.ui_text(&mut plugin, "MagInventoryFilterSummary"),
+        "No filters"
+    );
+    assert!(!world.ui_bools(&mut plugin, "MagFilterCantripChecks")[0]);
+    frames(&mut world, &mut plugin, 13);
+    assert_eq!(
+        names(&mut world, &mut plugin),
+        ["Plain Ring", "Strength Ring"]
     );
 }
 

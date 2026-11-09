@@ -144,4 +144,8 @@ The **Mag** tab holds Mag-Tools' tracker pages (Combat, Mana and Inv. Items),
 and the **Inventory** window, with its own button on the dock, searches the
 items of every character logged on this server; both port Mag-Tools by
 Mag-nus (https://github.com/Mag-nus/Mag-Plugins), used with his permission
-(see [NOTICE.md](NOTICE.md)).
+(see [NOTICE.md](NOTICE.md)). Its **Filters...** button opens the filters
+window (item type and slot, cantrips at a tier or better, ratings, set,
+requirements, the characters searched: the filters of the owner's
+MosswartOverlord inventory search), and a click on a column heading sorts
+the rows by it.

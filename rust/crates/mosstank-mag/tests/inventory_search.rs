@@ -227,8 +227,8 @@ fn every_saved_character_is_searched_with_its_name() {
         ]
     );
     assert_eq!(
-        rig.search.characters(),
-        [ALL, ME, "Alt One", "Alt Two"],
+        rig.search.character_names(),
+        [ME, "Alt One", "Alt Two"],
         "the logged-in character first, then the saved ones"
     );
 }
@@ -243,9 +243,12 @@ fn the_character_filter_keeps_one_characters_rows() {
     );
     rig.own(item(RING, "Test Ring", ObjectClass::Jewelry, PLAYER));
     rig.search("");
-    rig.search.set_character_filter("Alt One");
+    rig.filter(InventoryFilter {
+        characters: Some(BTreeSet::from(["Alt One".to_owned()])),
+        ..InventoryFilter::default()
+    });
     assert_eq!(rig.names(), ["Alt Ring"]);
-    rig.search.set_character_filter(ALL);
+    rig.filter(InventoryFilter::default());
     assert_eq!(rig.names().len(), 2);
 }
 
@@ -377,7 +380,7 @@ fn the_live_characters_own_file_gives_way_to_its_live_rows() {
     rig.own(item(SWORD, "Sword", ObjectClass::MeleeWeapon, PLAYER));
     rig.search("");
     assert_eq!(sorted(rig.names()), ["Sword", "Test Ring"]);
-    assert_eq!(rig.search.characters(), [ALL, ME]);
+    assert_eq!(rig.search.character_names(), [ME]);
 }
 
 #[test]
@@ -976,13 +979,12 @@ fn the_characters_are_chosen_in_the_filter() {
         ..InventoryFilter::default()
     });
     assert_eq!(rig.names(), ["Alt Ring"]);
-    assert_eq!(rig.search.character_filter(), "Alt One");
     rig.filter(InventoryFilter {
         characters: Some(BTreeSet::new()),
         ..InventoryFilter::default()
     });
     assert!(rig.names().is_empty(), "none chosen: none shown");
-    rig.search.set_character_filter(ALL);
+    rig.filter(InventoryFilter::default());
     assert_eq!(rig.names().len(), 2);
     assert_eq!(rig.search.filter().characters, None);
 }

@@ -185,12 +185,16 @@ impl TankCx<'_> {
             "LootRuleRows" => kept(key(core.panel.loot_rule_rows_revision, ())),
             // The Inventory window: its rows change only with its revision
             // (its status line, cheap, is worked out at every push).
-            "MagInventoryCharacters"
-            | "MagInventoryClasses"
+            "MagInventoryClasses"
+            | "MagInventoryFilterSummary"
             | "MagInventoryRowIcons"
             | "MagInventoryRowCharacters"
             | "MagInventoryRowNames"
-            | "MagInventoryRowCounts"
+            | "MagInventoryRowSlots"
+            | "MagInventoryRowWields"
+            | "MagInventoryRowWieldKeys"
+            | "MagInventoryRowValues"
+            | "MagInventoryRowValueKeys"
             | "MagInventoryRowPlaces"
             | "SelectedMagInventoryRow"
             | "MagInventoryInfo" => kept(key(self.mag.inventory_search.revision(), ())),

@@ -1,4 +1,4 @@
-//! The windows' markup, read as the C# tests read it: the same fourteen files
+//! The windows' markup, read as the C# tests read it: the same fifteen files
 //! the plugin registers, checked for the layout and binding rules the C#
 //! markup contract holds them to.
 
@@ -23,6 +23,7 @@ fn markup(file: &str) -> &'static str {
         "mosstank-ub-dungeon.xml" => "ub-dungeon",
         "mosstank-comps-hud.xml" => "comps-hud",
         "mosstank-inventory.xml" => "inventory",
+        "mosstank-inventory-filters.xml" => "inventory-filters",
         other => panic!("no window reads {other}"),
     };
     WINDOWS
@@ -33,12 +34,13 @@ fn markup(file: &str) -> &'static str {
 }
 
 /// Every markup file, by its file name.
-const FILES: [&str; 14] = [
+const FILES: [&str; 15] = [
     "mosstank-action-history.xml",
     "mosstank-advanced.xml",
     "mosstank-buffpicker.xml",
     "mosstank-comps-hud.xml",
     "mosstank-inventory.xml",
+    "mosstank-inventory-filters.xml",
     "mosstank-loot-editor.xml",
     "mosstank-metaeditor.xml",
     "mosstank-remote.xml",
@@ -668,7 +670,8 @@ fn secondary_windows_fit_their_own_bounds_and_every_binding_resolves() {
         ("mosstank-ub-clients.xml", 268.0, 200.0),
         ("mosstank-ub-dungeon.xml", 320.0, 96.0),
         ("mosstank-comps-hud.xml", 540.0, 316.0),
-        ("mosstank-inventory.xml", 640.0, 480.0),
+        ("mosstank-inventory.xml", 780.0, 480.0),
+        ("mosstank-inventory-filters.xml", 460.0, 420.0),
     ];
     for file in FILES.iter().filter(|file| **file != "mosstank.xml") {
         let (_, width, height) = bounds
@@ -1281,10 +1284,10 @@ fn the_delegate_check_knows_checkboxes_radio_bars_and_numbers() {
     assert_eq!(delegate_shape_mismatches(checkbox, &wrong).len(), 1);
 }
 
-// The Inventory window's Count column is right-aligned (plugin API 1.10),
-// the other text columns left.
+// The Inventory window's number columns (Wield, Value) are right-aligned
+// (plugin API 1.10), the other text columns left.
 #[test]
-fn the_inventory_windows_count_column_is_right_aligned() {
+fn the_inventory_windows_number_columns_are_right_aligned() {
     let document = document("mosstank-inventory.xml");
     let columns: Vec<_> = document
         .descendants()
@@ -1292,14 +1295,18 @@ fn the_inventory_windows_count_column_is_right_aligned() {
         .map(|node| (attr(node, "items"), attr(node, "align")))
         .collect();
     for (items, align) in columns {
-        let wanted = (items == Some("{MagInventoryRowCounts}")).then_some("right");
+        let wanted = matches!(
+            items,
+            Some("{MagInventoryRowWields}" | "{MagInventoryRowValues}")
+        )
+        .then_some("right");
         assert_eq!(align, wanted, "{items:?}");
     }
 }
 
 // The Inventory window's headings are its list's own captions: the client
-// draws each over its column and aligns it as the column's cells (Count to
-// the right). Labels above the list sat over a layout the client did not
+// draws each over its column and aligns it as the column's cells (Wield and
+// Value to the right). Labels above the list sat over a layout the client did not
 // draw: it gives the last column the room left as well, so a `*` Name column
 // before it shared that room and the Count and Where columns moved left from
 // under their labels.
@@ -1320,13 +1327,15 @@ fn the_inventory_windows_headings_are_its_lists_own_captions() {
             None,
             Some("Character"),
             Some("Name"),
-            Some("Count"),
+            Some("Slot"),
+            Some("Wield"),
+            Some("Value"),
             Some("Where")
         ]
     );
     for label in descendants_named(root, "label") {
         assert!(
-            !["Character", "Name", "Count", "Where"].contains(&text(label)),
+            !["Character", "Name", "Slot", "Wield", "Value", "Where"].contains(&text(label)),
             "a heading label is left: {}",
             text(label)
         );
@@ -1404,5 +1413,193 @@ fn the_mag_pages_lists_leave_their_last_column_its_width() {
         let room =
             number(list, "w") - SCROLLBAR - fixed.iter().map(|c| number(*c, "width")).sum::<f32>();
         assert!(room >= number(*last, "width"), "{first}: {room}");
+    }
+}
+
+// A click on an Inventory heading sorts by its column (the client's own
+// sort: ascending, descending, then none; the rows it reports stay the
+// plugin's). Text columns sort as text; Wield and Value as numbers, by
+// keys (their cells are blank for none, and Value's digits are grouped).
+// The icon column does not sort.
+#[test]
+fn every_inventory_heading_sorts_its_column() {
+    let document = document("mosstank-inventory.xml");
+    let list = descendants_named(document.root_element(), "list")
+        .next()
+        .unwrap();
+    let sorts: Vec<_> = named(list, "column")
+        .map(|column| (attr(column, "sort"), attr(column, "sortkeys")))
+        .collect();
+    assert_eq!(
+        sorts,
+        [
+            (None, None),
+            (Some("text"), None),
+            (Some("text"), None),
+            (Some("text"), None),
+            (Some("number"), Some("{MagInventoryRowWieldKeys}")),
+            (Some("number"), Some("{MagInventoryRowValueKeys}")),
+            (Some("text"), None),
+        ]
+    );
+    // The keys are text lists, which the client parses for a number sort.
+    let kinds = kinds("mosstank-inventory.xml");
+    for keys in ["MagInventoryRowWieldKeys", "MagInventoryRowValueKeys"] {
+        assert_eq!(kind(&kinds, keys), TypedBindingKind::TextList, "{keys}");
+    }
+}
+
+// The Inventory columns fit their texts in the client's list font
+// (0x40000000; the sums of its glyph advances, from `actool dat font
+// 40000000`): the cell's text and 3 px on both sides; a sortable column's
+// heading also leaves 12 px for the sort arrow beside its caption. A name
+// can always be longer, and is then cut.
+#[test]
+fn the_inventory_columns_fit_their_texts_in_the_clients_font() {
+    const CELL_PADDING: f32 = 3.0;
+    const SORT_ARROW: f32 = 12.0;
+    const SCROLLBAR: f32 = 16.0;
+    let document = document("mosstank-inventory.xml");
+    let width_of = |items: &str| {
+        descendants_named(document.root_element(), "column")
+            .find(|column| attr(*column, "items") == Some(items))
+            .map(|column| number(column, "width"))
+            .unwrap()
+    };
+    for (items, cell, advance, caption) in [
+        // A long character name; the caption `Character`.
+        ("{MagInventoryRowCharacters}", "Window Tester", 77.0, 47.0),
+        // A material and the Mana page's widest worn item; `Name`.
+        (
+            "{MagInventoryRowNames}",
+            "Satin Greater Amuli Shadow Coat",
+            170.0,
+            29.0,
+        ),
+        // Sleeves that are not loot armor keep both slots; `Slot`.
+        (
+            "{MagInventoryRowSlots}",
+            "Upper Arms, Lower Arms",
+            132.0,
+            20.0,
+        ),
+        // A three-digit level; `Wield`.
+        ("{MagInventoryRowWields}", "275", 18.0, 29.0),
+        // A seven-figure value; `Value`.
+        ("{MagInventoryRowValues}", "9,999,999", 48.0, 29.0),
+    ] {
+        let width = width_of(items);
+        assert!(
+            width >= advance + 2.0 * CELL_PADDING,
+            "{cell}: {width} px holds {} px of text",
+            width - 2.0 * CELL_PADDING
+        );
+        assert!(
+            width >= caption + 2.0 * CELL_PADDING + SORT_ARROW,
+            "{items}: its sorted caption does not fit"
+        );
+    }
+    // Where is the last column, beside the scrollbar: `Side pack 12` (65)
+    // and its caption (33) with the arrow.
+    let room = width_of("{MagInventoryRowPlaces}") - SCROLLBAR;
+    assert!(room >= 65.0 + 2.0 * CELL_PADDING, "{room}");
+    assert!(room >= 33.0 + 2.0 * CELL_PADDING + SORT_ARROW, "{room}");
+}
+
+// The filters window: six tabs, a page each under the tab row, every page
+// inside the group shown while the client shows the window.
+#[test]
+fn the_filters_window_has_six_tabs_and_a_page_each() {
+    let document = document("mosstank-inventory-filters.xml");
+    let shown = page(document.root_element(), "MagFiltersShown");
+    let tabs: Vec<&str> = named(shown, "tab").map(text).collect();
+    assert_eq!(
+        tabs,
+        [
+            "Item",
+            "Cantrips",
+            "Ratings",
+            "Set",
+            "Reqs & value",
+            "Characters"
+        ]
+    );
+    for key in ["Item", "Cantrips", "Ratings", "Set", "Reqs", "Characters"] {
+        let page = page(shown, &format!("MagFilters{key}Visible"));
+        assert_eq!(number(page, "y"), 22.0, "{key}");
+        assert_eq!(number(page, "w"), number(shown, "w"), "{key}");
+    }
+}
+
+// The Cantrips tab's list: a box, the group, the name and the tier. A list
+// cell cannot be a menu (its columns are text, check, checkbox, icon and
+// button), so the tier is a button that steps it. The name fits the
+// longest (Magic Item Tinkering Expertise, 158 px), the group the longest
+// group's name (Wards & Banes, 77), the tier Legendary (54) beside the
+// scrollbar.
+#[test]
+fn the_cantrips_list_has_a_box_a_name_and_a_tier_button() {
+    const CELL_PADDING: f32 = 3.0;
+    const SCROLLBAR: f32 = 16.0;
+    let document = document("mosstank-inventory-filters.xml");
+    let list = descendants_named(document.root_element(), "list")
+        .find(|list| {
+            named(*list, "column")
+                .any(|column| attr(column, "items") == Some("{MagFilterCantripNames}"))
+        })
+        .unwrap();
+    let columns: Vec<_> = named(list, "column")
+        .map(|column| (attr(column, "type").unwrap(), number(column, "width")))
+        .collect();
+    assert_eq!(
+        columns.iter().map(|(kind, _)| *kind).collect::<Vec<_>>(),
+        ["checkbox", "text", "text", "button"]
+    );
+    assert!(columns[1].1 >= 77.0 + 2.0 * CELL_PADDING);
+    assert!(columns[2].1 >= 158.0 + 2.0 * CELL_PADDING);
+    assert!(columns[3].1 - SCROLLBAR >= 54.0 + 2.0 * CELL_PADDING);
+    let sum: f32 = columns.iter().map(|(_, width)| width).sum();
+    assert!((sum - number(list, "w")).abs() < f32::EPSILON, "{sum}");
+}
+
+// Every per-item control of the filters window names its item as the shell
+// reads it (a slot, a weapon kind, a rating or a requirement by its
+// variant), each once.
+#[test]
+fn the_filters_windows_per_item_controls_cover_every_item() {
+    use mosstank_mag::inventory_filter::window::Req;
+    use mosstank_mag::inventory_filter::{Rating, Slot, WeaponKind};
+    let document = document("mosstank-inventory-filters.xml");
+    let bound: Vec<&str> = document
+        .descendants()
+        .filter_map(|node| attr(node, "checked").or_else(|| attr(node, "text")))
+        .collect();
+    let mut wanted: Vec<String> = Vec::new();
+    wanted.extend(
+        Slot::ALL
+            .iter()
+            .map(|item| format!("{{MagFilterSlot{item:?}}}")),
+    );
+    wanted.extend(
+        WeaponKind::ALL
+            .iter()
+            .map(|item| format!("{{MagFilterWeapon{item:?}}}")),
+    );
+    wanted.extend(
+        Rating::ALL
+            .iter()
+            .map(|item| format!("{{MagFilterRating{item:?}}}")),
+    );
+    wanted.extend(
+        Req::ALL
+            .iter()
+            .map(|item| format!("{{MagFilterReq{item:?}}}")),
+    );
+    for name in wanted {
+        assert_eq!(
+            bound.iter().filter(|used| **used == name).count(),
+            1,
+            "{name}"
+        );
     }
 }

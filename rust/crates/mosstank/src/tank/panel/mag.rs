@@ -76,20 +76,31 @@ pub(super) fn value(cx: &mut TankCx<'_>, name: &str) -> Option<UiValue> {
         // The Inventory window.
         "MagInventoryShown" => b(cx.client.mag().ui_view_visible(INVENTORY_WINDOW)),
         "MagInventorySearchText" => t(cx.mag.inventory_search.pattern()),
-        "MagInventoryCharacters" => tl(cx.mag.inventory_search.characters()),
         "MagInventoryClasses" => tl(cx.mag.inventory_search.classes()),
-        "SelectedMagInventoryCharacter" => t(cx.mag.inventory_search.character_filter()),
         "SelectedMagInventoryClass" => t(cx.mag.inventory_search.class_filter()),
         "MagInventoryRowIcons" => Some(UiValue::UintList(cx.mag.inventory_search.row_icons())),
         "MagInventoryRowCharacters" => tl(cx.mag.inventory_search.row_characters()),
         "MagInventoryRowNames" => tl(cx.mag.inventory_search.row_names()),
-        "MagInventoryRowCounts" => tl(cx.mag.inventory_search.row_counts()),
+        "MagInventoryRowSlots" => tl(cx.mag.inventory_search.row_slots()),
+        "MagInventoryRowWields" => tl(cx.mag.inventory_search.row_wields()),
+        "MagInventoryRowWieldKeys" => tl(keys(&cx.mag.inventory_search.row_wield_keys())),
+        "MagInventoryRowValues" => tl(cx.mag.inventory_search.row_values()),
+        "MagInventoryRowValueKeys" => tl(keys(&cx.mag.inventory_search.row_value_keys())),
         "MagInventoryRowPlaces" => tl(cx.mag.inventory_search.row_places()),
         "SelectedMagInventoryRow" => i(cx.mag.inventory_search.selected_row()),
         "MagInventoryInfo" => t(cx.mag.inventory_search.info()),
         "MagInventoryStatus" => t(cx.mag.inventory_search.status()),
         _ => None,
     }
+}
+
+/// A number column's sort keys as the list reads them: text it parses as
+/// a number (`sort="number"` with a string-list `sortkeys`). The shell's
+/// values are the client's plain kinds, which have no float list. The keys
+/// are whole numbers (a level, a value, -1 for none), written as such.
+#[allow(clippy::cast_possible_truncation)]
+fn keys(keys: &[f64]) -> Vec<String> {
+    keys.iter().map(|key| (*key as i64).to_string()).collect()
 }
 
 /// A Mag setting's switch.
@@ -163,7 +174,6 @@ pub(super) fn act(cx: &mut TankCx<'_>, name: &str, arg: &Arg) -> bool {
 
         // The Inventory window.
         "SetMagInventorySearchText" => cx.mag.inventory_search.set_pattern(arg.text()),
-        "SelectMagInventoryCharacter" => cx.mag.inventory_search.set_character_filter(arg.text()),
         "SelectMagInventoryClass" => cx.mag.inventory_search.set_class_filter(arg.text()),
         "SelectMagInventoryRow" => {
             let settings = cx.inventory_info_settings();

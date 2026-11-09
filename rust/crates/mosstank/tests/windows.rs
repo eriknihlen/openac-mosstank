@@ -1,4 +1,4 @@
-//! The fourteen windows as the client holds them: registered with the
+//! The fifteen windows as the client holds them: registered with the
 //! descriptors `MossTankPlugin.Initialize` gives, every value binding pushed
 //! with a value of its kind, and every handler answered by the shell.
 
@@ -35,8 +35,9 @@ fn kind_of(value: &UiValue) -> TypedBindingKind {
 // Source: src/AcDream.Plugins.MossTank/MossTankPlugin.cs :: Initialize (the
 // twelve AddPanel calls: ids, captions, the main window hidden on the shelf
 // with its icon, the remote hidden off the shelf, the rest off the shelf),
-// the Comps HUD's Edit items window off the shelf beside them, and the Mag
-// tab's Inventory window hidden on the shelf with its own icon.
+// the Comps HUD's Edit items window off the shelf beside them, the Mag
+// tab's Inventory window hidden on the shelf with its own icon, and its
+// filters window hidden off the shelf.
 #[test]
 fn every_window_registers_with_its_descriptor() {
     let (world, _plugin) = fresh();
@@ -335,6 +336,31 @@ fn the_mag_tabs_button_opens_the_inventory_window() {
     assert!(!shown(&world));
     act(&mut world, &mut plugin, "OpenMagInventory");
     assert!(shown(&world));
+}
+
+// The Inventory window's Filters... button opens the filters window, which
+// starts hidden and has no dock button of its own.
+#[test]
+fn the_inventory_windows_filters_button_opens_the_filters_window() {
+    let (mut world, mut plugin) = fresh();
+    let filters = |world: &World| {
+        world
+            .fake
+            .ui
+            .panels()
+            .find(|panel| panel.descriptor.window_id == "inventory-filters")
+            .map(|panel| {
+                (
+                    panel.descriptor.start_visible,
+                    panel.descriptor.show_in_side_panel,
+                    panel.requested_visible,
+                )
+            })
+            .expect("the filters window registers")
+    };
+    assert_eq!(filters(&world), (false, false, false));
+    act(&mut world, &mut plugin, "OpenMagInventoryFilters");
+    assert!(filters(&world).2);
 }
 
 // Source: tests/AcDream.Plugins.MossTank.Tests/MossTankMarkupContractTests.cs :: LootEditorHasNoLeftoverBackButton

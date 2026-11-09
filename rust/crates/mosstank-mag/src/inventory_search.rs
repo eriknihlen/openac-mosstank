@@ -477,28 +477,6 @@ impl InventorySearch {
         self.refresh_view();
     }
 
-    /// The Character menu's choice: the one character the filter searches,
-    /// [`ALL`] for every one (or several).
-    #[must_use]
-    pub fn character_filter(&self) -> &str {
-        match &self.filter().characters {
-            Some(names) if names.len() == 1 => names.iter().next().map_or(ALL, String::as_str),
-            _ => ALL,
-        }
-    }
-
-    /// Only this character's rows ([`ALL`]: every one), at once (the
-    /// Character menu; the filter window chooses through
-    /// [`Self::set_filter`]).
-    pub fn set_character_filter(&mut self, choice: &str) {
-        let mut filter = self.filter().clone();
-        filter.characters = (choice != ALL).then(|| std::iter::once(choice.to_owned()).collect());
-        if filter != *self.filter() || self.pending_filter.is_some() {
-            self.pending_filter = None;
-            self.apply_filter(filter);
-        }
-    }
-
     /// The filter as last set (applied or still waiting).
     #[must_use]
     pub fn filter(&self) -> &InventoryFilter {
@@ -823,13 +801,6 @@ impl InventorySearch {
     #[must_use]
     pub fn revision(&self) -> u64 {
         self.revision
-    }
-
-    /// The Character filter's choices: [`ALL`], the logged-in character,
-    /// then the saved ones.
-    #[must_use]
-    pub fn characters(&self) -> Vec<String> {
-        choices(&self.view.character_choices)
     }
 
     /// The Object class filter's choices: [`ALL`], then each class present,

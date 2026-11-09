@@ -1,4 +1,4 @@
-//! MossTank's fourteen windows as the client holds them (`MossTankPlugin`'s
+//! MossTank's fifteen windows as the client holds them (`MossTankPlugin`'s
 //! `AddPanel` calls): each one's markup, registered with the bindings the
 //! markup names, and the values pushed to it from the shell
 //! ([`crate::tank::Tank::ui_value`]).
@@ -51,9 +51,10 @@ pub const INVENTORY_ICON_SURFACE_ID: u32 = 0x0600_1BAF;
 /// Its initials when the art is missing.
 pub const INVENTORY_ICON_TEXT: &str = "IN";
 
-/// The fourteen windows: the C#'s twelve in its registration order, then the
-/// Comps HUD's Edit items window and the Mag tab's Inventory window.
-pub const WINDOWS: [WindowSpec; 14] = [
+/// The fifteen windows: the C#'s twelve in its registration order, then the
+/// Comps HUD's Edit items window, the Mag tab's Inventory window and its
+/// filters window.
+pub const WINDOWS: [WindowSpec; 15] = [
     WindowSpec {
         id: "main",
         title: "MossTank",
@@ -166,6 +167,14 @@ pub const WINDOWS: [WindowSpec; 14] = [
         on_shelf: true,
         icon: Some((INVENTORY_ICON_SURFACE_ID, INVENTORY_ICON_TEXT)),
     },
+    WindowSpec {
+        id: "inventory-filters",
+        title: "MossTank Inventory Filters",
+        markup: markup!("mosstank-inventory-filters.xml"),
+        start_visible: false,
+        on_shelf: false,
+        icon: None,
+    },
 ];
 
 /// The panel spec the client registers for a window.
@@ -208,12 +217,13 @@ pub const PUSH_INTERVAL_SECONDS: f64 = 0.1;
 
 /// Values drawn only inside one shown part of a window (a page of the main
 /// window, an editor window, the Inventory window while the client shows
-/// it): the C# windows read a property only to draw it, so these are worked
+/// it, a tab of the Inventory filters window): the C# windows read a
+/// property only to draw it, so these are worked
 /// out and pushed only while that part is shown (and once at the start),
 /// the costly grids and pickers among them
 /// (register UI-1). A test holds each to the markup: every use of the
 /// value sits inside the part.
-pub const SHOWN_ONLY_WITH: [(&str, &str); 61] = [
+pub const SHOWN_ONLY_WITH: [(&str, &str); 74] = [
     ("MacroProfileNames", "ProfilesVisible"),
     ("RouteProfileNames", "ProfilesVisible"),
     ("SelectedRouteProfile", "ProfilesVisible"),
@@ -243,13 +253,26 @@ pub const SHOWN_ONLY_WITH: [(&str, &str); 61] = [
     ("CompsHudCarriedCounts", "CompsHudEditorVisible"),
     ("CompsHudRowNames", "CompsHudEditorVisible"),
     ("CompsHudRowWarns", "CompsHudEditorVisible"),
-    ("MagInventoryCharacters", "MagInventoryShown"),
     ("MagInventoryClasses", "MagInventoryShown"),
+    ("MagInventoryFilterSummary", "MagInventoryShown"),
     ("MagInventoryRowIcons", "MagInventoryShown"),
     ("MagInventoryRowCharacters", "MagInventoryShown"),
     ("MagInventoryRowNames", "MagInventoryShown"),
-    ("MagInventoryRowCounts", "MagInventoryShown"),
+    ("MagInventoryRowSlots", "MagInventoryShown"),
+    ("MagInventoryRowWields", "MagInventoryShown"),
+    ("MagInventoryRowWieldKeys", "MagInventoryShown"),
+    ("MagInventoryRowValues", "MagInventoryShown"),
+    ("MagInventoryRowValueKeys", "MagInventoryShown"),
     ("MagInventoryRowPlaces", "MagInventoryShown"),
+    ("MagFilterCantripChecks", "MagFiltersCantripsVisible"),
+    ("MagFilterCantripGroups", "MagFiltersCantripsVisible"),
+    ("MagFilterCantripNames", "MagFiltersCantripsVisible"),
+    ("MagFilterCantripTiers", "MagFiltersCantripsVisible"),
+    ("MagFilterSetNames", "MagFiltersSetVisible"),
+    ("MagFilterSetCounts", "MagFiltersSetVisible"),
+    ("SelectedMagFilterSetRow", "MagFiltersSetVisible"),
+    ("MagFilterCharacterNames", "MagFiltersCharactersVisible"),
+    ("MagFilterCharacterChecks", "MagFiltersCharactersVisible"),
     ("MagInventoryInfo", "MagInventoryShown"),
     ("MagInventoryStatus", "MagInventoryShown"),
     ("MagManaIcons", "MagManaVisible"),
