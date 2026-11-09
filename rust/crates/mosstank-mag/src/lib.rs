@@ -2,6 +2,8 @@
 //! Mag-Tools by Mag-nus (used with the author's permission; see
 //! `rust/NOTICE.md`), as host-free state the plugin drives.
 //!
+//! - [`combat`]: the combat tracker: the chat's attacks, kills and
+//!   surges, the current session's and the persistent stats, their files.
 //! - [`fmt`]: .NET Framework number formatting (en-US).
 //! - [`host`]: the client as the features reach it ([`host::MagHost`]) and
 //!   the loot profile's verdict on an item ([`host::LootVerdict`]).
@@ -24,6 +26,7 @@
 //! [`mosstank_meta::host::MetaHost`] and the calls only the Mag features
 //! make).
 
+pub mod combat;
 pub mod fmt;
 pub mod host;
 pub mod identify;
@@ -66,4 +69,6 @@ pub struct MagParts {
     pub mana: mana::ManaTracker,
     /// The Inv. Items page.
     pub inv_items: inv_items::InvItemsTracker,
+    /// The combat tracker.
+    pub combat: combat::Combat,
 }

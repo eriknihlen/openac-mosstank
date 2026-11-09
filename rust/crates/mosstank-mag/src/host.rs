@@ -24,6 +24,8 @@ pub trait MagHost: MetaHost {
     fn now_ms(&mut self) -> f64;
     /// The UTC clock, Unix milliseconds.
     fn utc_unix_ms(&mut self) -> i64;
+    /// The local time zone's offset from UTC now, minutes (east positive).
+    fn local_offset_minutes(&mut self) -> i32;
 }
 
 /// A loot profile's verdict on one item.

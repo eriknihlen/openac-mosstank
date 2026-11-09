@@ -56,7 +56,7 @@ pub fn storage_key(world: &str, character: &str) -> String {
     )
 }
 
-fn key_part(name: &str) -> String {
+pub(crate) fn key_part(name: &str) -> String {
     let chars: Vec<char> = name
         .chars()
         .map(|c| {

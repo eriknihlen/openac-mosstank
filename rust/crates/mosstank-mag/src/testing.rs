@@ -50,6 +50,8 @@ pub struct FakeMagHost {
     pub property_reads: usize,
     /// The UTC clock, Unix milliseconds.
     pub utc_ms: i64,
+    /// The local time zone's offset from UTC, minutes.
+    pub local_offset_minutes: i32,
     /// The plugin's own data: the meta fake's storage (`meta.storage`,
     /// shared), each write noted.
     pub storage: CountingStorage,
@@ -84,6 +86,7 @@ impl FakeMagHost {
             owned_listings: 0,
             property_reads: 0,
             utc_ms: 1_762_560_000_000,
+            local_offset_minutes: 0,
             storage,
         }
     }
@@ -391,6 +394,10 @@ impl MagHost for FakeMagHost {
 
     fn utc_unix_ms(&mut self) -> i64 {
         self.utc_ms
+    }
+
+    fn local_offset_minutes(&mut self) -> i32 {
+        self.local_offset_minutes
     }
 }
 

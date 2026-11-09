@@ -33,4 +33,8 @@ impl MagHost for HostAutomation<'_, '_> {
     fn utc_unix_ms(&mut self) -> i64 {
         self.service().clock().utc_unix_ms
     }
+
+    fn local_offset_minutes(&mut self) -> i32 {
+        self.service().clock().utc_offset_minutes
+    }
 }
