@@ -292,7 +292,7 @@ pub struct ParsedLine {
     /// A cloak surge (`CloakTracker`).
     pub cloak: Option<SurgeEvent>,
     /// The "Unable to parse …" lines Mag-Tools writes to chat (without
-    /// its prefix), once for each tracker.
+    /// its prefix), written once (F15; Mag-Tools wrote them once per tracker).
     pub warnings: Vec<String>,
 }
 

@@ -893,15 +893,15 @@ fn our_own_unable_to_parse_line_is_ignored() {
     let line = combat_in("Drudge Skulker hits your chest for 5 points of prismatic damage!");
     combat.on_chat(&mut host, &line);
     let posted = host.posted_text();
-    // Mag-Tools' two trackers each wrote it.
-    assert_eq!(posted.len(), 2, "{posted:?}");
+    // Once (F15: Mag-Tools' two trackers each wrote it).
+    assert_eq!(posted.len(), 1, "{posted:?}");
     assert!(posted[0].starts_with("<{Mag-Tools}>: Unable to parse damage element from: "));
     let infos = combat.current.combat_infos().to_vec();
     // The client hands the plugin its own lines back.
     for text in &posted {
         combat.on_chat(&mut host, &system(text));
     }
-    assert_eq!(host.posted_text().len(), 2);
+    assert_eq!(host.posted_text().len(), 1);
     assert_eq!(combat.current.combat_infos(), infos.as_slice());
     assert_eq!(combat.current.combat_infos()[0].source, "Drudge Skulker");
     assert_eq!(combat.current.combat_infos()[0].target, me);
@@ -1037,7 +1037,11 @@ fn the_end_anchor_written_once_matches_what_mag_tools_pattern_matches() {
     use openac_plugin_compat::regex::{DotNetRegex, RegexOptions};
     // Every line of these tests, as is, with a final line break, with a
     // line break inside, and with text after it.
-    let source = include_str!("combat_parse.rs");
+    let source = std::fs::read_to_string(concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/tests/combat_parse.rs"
+    ))
+    .expect("this test's own source");
     let mut lines: Vec<String> = Vec::new();
     for quoted in source.split('"').skip(1).step_by(2) {
         let text = quoted.replace("\\\\", "\\");
@@ -1069,4 +1073,112 @@ fn the_end_anchor_written_once_matches_what_mag_tools_pattern_matches() {
         }
     }
     assert!(compared > 150, "{compared}");
+}
+
+#[test]
+fn a_posted_line_is_remembered_as_the_client_trims_it() {
+    // F10: the client trims a plugin's text before it shows (and hands
+    // back) the line.
+    let mut posted = PostedLines::default();
+    posted.note("  <{Mag-Tools}>: Unable to parse x \n".to_owned());
+    assert!(posted.take("<{Mag-Tools}>: Unable to parse x"));
+}
+
+/// `count` kills of different monsters, as combat lines.
+fn kills(count: usize) -> Vec<ChatLine> {
+    (0..count)
+        .map(|index| out(&format!("You obliterate Monster {index}!")))
+        .collect()
+}
+
+fn targets(tracker: &CombatTracker) -> Vec<String> {
+    tracker
+        .combat_infos()
+        .iter()
+        .map(|info| info.target.clone())
+        .collect()
+}
+
+#[test]
+fn waiting_lines_are_read_a_few_a_tick() {
+    let mut host = FakeMagHost::new();
+    let mut combat = Combat::default();
+    for line in kills(3 * mosstank_mag::combat::DRAIN_LINES_PER_TICK) {
+        combat.on_chat(&mut host, &line);
+    }
+    while !combat.is_ready() {
+        combat.tick(&mut host, CombatSettings::default());
+    }
+    for round in 1..=3 {
+        assert!(combat.tick(&mut host, CombatSettings::default()));
+        assert_eq!(
+            combat.current.combat_infos().len(),
+            round * mosstank_mag::combat::DRAIN_LINES_PER_TICK
+        );
+    }
+    // In the order heard.
+    assert_eq!(targets(&combat.current)[0], "Monster 0");
+}
+
+#[test]
+fn lines_past_the_waiting_limit_are_dropped_and_logged_once() {
+    let mut host = FakeMagHost::new();
+    let mut combat = Combat::default();
+    let max = mosstank_mag::combat::WAITING_LINES_MAX;
+    for line in kills(max + 3) {
+        combat.on_chat(&mut host, &line);
+    }
+    assert_eq!(host.meta.logged(ac_plugin_abi::LogLevel::Warn).len(), 1);
+    while !combat.is_ready() {
+        combat.tick(&mut host, CombatSettings::default());
+    }
+    for _ in 0..max {
+        combat.tick(&mut host, CombatSettings::default());
+    }
+    let read = targets(&combat.current);
+    assert_eq!(read.len(), max);
+    assert_eq!(read[0], "Monster 0");
+    assert_eq!(read[max - 1], format!("Monster {}", max - 1));
+}
+
+/// The persistent stats' key of the fake's character.
+const PERSISTENT: &str = "Mag-Tools/Coldeve/Meta Tester.CombatTracker.xml";
+
+fn waiting_before_login(file: Option<&str>) -> Combat {
+    use mosstank_meta::host::MetaHost;
+    let mut host = FakeMagHost::new();
+    if let Some(text) = file {
+        host.storage().write_text(PERSISTENT, text).unwrap();
+    }
+    let mut combat = Combat::default();
+    let settings = CombatSettings {
+        persistent: true,
+        export_on_logoff: false,
+    };
+    // Heard before the patterns are compiled and before the login.
+    combat.on_chat(&mut host, &out("You obliterate Early Bird!"));
+    combat.on_login_complete(&mut host, settings);
+    combat.on_chat(&mut host, &out("You obliterate Late Bird!"));
+    for _ in 0..200 {
+        combat.tick(&mut host, settings);
+    }
+    assert!(combat.is_ready() && !combat.is_importing());
+    combat
+}
+
+#[test]
+fn lines_heard_before_the_login_are_not_kept_over_the_persistent_file() {
+    // Mag-Tools counted them before the file was read in, which replaced
+    // them.
+    let file = "<CombatTracker><CombatInfos><CombatInfo SourceName=\"Meta Tester\" TargetName=\"Old\" KillingBlows=\"1\" /></CombatInfos></CombatTracker>";
+    let combat = waiting_before_login(Some(file));
+    assert_eq!(targets(&combat.persistent), ["Old", "Late Bird"]);
+    assert_eq!(targets(&combat.current), ["Early Bird", "Late Bird"]);
+}
+
+#[test]
+fn lines_heard_before_the_login_stay_when_there_is_no_file() {
+    let combat = waiting_before_login(None);
+    assert_eq!(targets(&combat.persistent), ["Early Bird", "Late Bird"]);
+    assert_eq!(targets(&combat.current), ["Early Bird", "Late Bird"]);
 }

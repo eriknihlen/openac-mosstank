@@ -10,11 +10,14 @@
 //! [`Combat`] is what the plugin drives: the patterns (compiled a few a
 //! tick), both trackers, the files. A line is parsed once and counted by
 //! both trackers (Mag-Tools parsed it once per tracker, to the same
-//! result); the "Unable to parse …" lines are still written once per
-//! tracker, as Mag-Tools did.
+//! result). Each info's text in the stats file is kept current a few a
+//! tick, so that writing a file (the logoff is one call) only joins them.
 //!
-//! Where it differs from Mag-Tools: the fixes F1-F6 ([`patterns`]) and
-//! F10: a line the plugin posted itself is not read back ([`PostedLines`]).
+//! Where it differs from Mag-Tools: the fixes F1-F6 ([`patterns`]); F10: a
+//! line the plugin posted itself is not read back ([`PostedLines`]); F15:
+//! an "Unable to parse …" line is written once (Mag-Tools' two trackers
+//! each wrote it); F16: a persistent file that does not read is kept
+//! aside (`<name>.CombatTracker.broken.xml`) before it is written over.
 
 pub mod info;
 pub mod patterns;
@@ -26,7 +29,7 @@ use ac_plugin_abi::{ChatLine, LogLevel};
 
 use self::info::{CombatEvent, CombatInfo, SurgeEvent, SurgeInfo};
 use self::patterns::{ParsedLine, Patterns};
-use self::xml::{ImportError, StagedImport};
+use self::xml::{ImportError, ImportFailure, StagedImport};
 use crate::host::MagHost;
 
 /// The patterns compiled a tick, by their cost ([`patterns::compile_cost`]):
@@ -37,8 +40,13 @@ pub const COMPILE_BUDGET_PER_TICK: usize = 12;
 /// read once they are; the ones past this are not read.
 pub const WAITING_LINES_MAX: usize = 512;
 
-/// Waiting lines read a tick once the patterns are compiled.
-pub const WAITING_LINES_PER_TICK: usize = 25;
+/// Waiting lines read a tick once the patterns are compiled (some two
+/// million instructions each at worst); a tick that reads them does
+/// nothing else of the tracker's.
+pub const DRAIN_LINES_PER_TICK: usize = 10;
+
+/// Infos whose stats-file text is written again a tick, in each tracker.
+pub const TEXTS_PER_TICK: usize = 100;
 
 /// How often the persistent stats are written while in the world
 /// (Mag-Tools' `savePersistentStatsTimer`, 10 minutes).
@@ -92,6 +100,13 @@ pub enum TrackerUpdate {
 pub struct CombatTracker {
     combat: Vec<CombatInfo>,
     combat_index: HashMap<(String, String), usize>,
+    /// Each combat info's text in the stats file, kept current a few a
+    /// tick ([`Self::refresh_texts`]) so that a write only joins them;
+    /// empty while stale.
+    texts: Vec<String>,
+    /// The infos whose text is stale, in the order they changed.
+    stale: VecDeque<usize>,
+    is_stale: Vec<bool>,
     aetheria: Vec<SurgeInfo>,
     cloak: Vec<SurgeInfo>,
     updates: VecDeque<TrackerUpdate>,
@@ -179,11 +194,18 @@ impl CombatTracker {
             None => {
                 self.combat
                     .push(CombatInfo::new(&event.source, &event.target));
+                self.texts.push(String::new());
+                self.is_stale.push(false);
                 self.combat_index.insert(key, self.combat.len() - 1);
                 self.combat.len() - 1
             }
         };
         self.combat[at].add(event);
+        if !self.is_stale[at] {
+            self.is_stale[at] = true;
+            self.texts[at].clear();
+            self.stale.push_back(at);
+        }
         self.note(TrackerUpdate::Combat {
             source: event.source.clone(),
             target: event.target.clone(),
@@ -235,16 +257,52 @@ impl CombatTracker {
 
     /// The lists emptied, telling no one (the import's first step).
     pub(crate) fn clear_lists(&mut self) {
-        self.combat.clear();
-        self.combat_index.clear();
-        self.aetheria.clear();
-        self.cloak.clear();
+        self.replace_lists(Self::default());
     }
 
-    /// An info read from a file, added at the end as it is.
-    pub(crate) fn push_combat_info(&mut self, info: CombatInfo) {
+    /// The lists replaced by `other`'s (a file read in aside), telling no
+    /// one.
+    pub(crate) fn replace_lists(&mut self, other: Self) {
+        *self = Self {
+            updates: std::mem::take(&mut self.updates),
+            revision: self.revision,
+            ..other
+        };
+    }
+
+    /// The stats file's text of the combat info `at`, `None` while stale.
+    #[must_use]
+    pub(crate) fn kept_text(&self, at: usize) -> Option<&str> {
+        (!self.is_stale.get(at).copied().unwrap_or(true)).then(|| self.texts[at].as_str())
+    }
+
+    /// Writes again the text of up to `budget` infos that changed, in the
+    /// order they changed: how many.
+    pub fn refresh_texts(&mut self, budget: usize) -> usize {
+        let mut done = 0;
+        while done < budget {
+            let Some(at) = self.stale.pop_front() else {
+                break;
+            };
+            self.texts[at] = xml::info_text(&self.combat[at]);
+            self.is_stale[at] = false;
+            done += 1;
+        }
+        done
+    }
+
+    /// How many infos' texts are stale.
+    #[must_use]
+    pub fn stale_texts(&self) -> usize {
+        self.stale.len()
+    }
+
+    /// An info read from a file, added at the end as it is, with its text.
+    pub(crate) fn push_combat_info(&mut self, info: CombatInfo, text: String) {
         let key = (info.source.clone(), info.target.clone());
         self.combat.push(info);
+        self.texts.push(text);
+        self.is_stale.push(false);
         // A file with the same pair twice: the first is the one found.
         self.combat_index
             .entry(key)
@@ -281,8 +339,8 @@ fn add_surge(infos: &mut Vec<SurgeInfo>, event: &SurgeEvent) {
 /// F10: the lines the plugin posted itself, by text, so that hearing one
 /// back does not count it (an "Unable to parse …" line quotes a combat
 /// line, which a pattern would take again). A line is heard back right
-/// after the call that posted it; one not heard by the second tick after
-/// is forgotten.
+/// after the call that posted it, as the client shows it (trimmed); one
+/// not heard by the second tick after is forgotten.
 #[derive(Debug, Default)]
 pub struct PostedLines {
     lines: Vec<(String, u8)>,
@@ -291,6 +349,12 @@ pub struct PostedLines {
 impl PostedLines {
     /// The plugin posted `text`.
     pub fn note(&mut self, text: String) {
+        let trimmed = text.trim();
+        let text = if trimmed.len() == text.len() {
+            text
+        } else {
+            trimmed.to_owned()
+        };
         self.lines.push((text, 0));
     }
 
@@ -327,6 +391,20 @@ struct Waiting {
     display_text: String,
     kind: u32,
     combat_kind: u32,
+    /// Heard before the login completed.
+    before_login: bool,
+}
+
+/// What the persistent tracker heard while its file was read in, added
+/// after it.
+#[derive(Debug, Default)]
+struct Heard {
+    /// Heard before the login completed: Mag-Tools counted them before it
+    /// read the file in, which replaced them; kept only when the file
+    /// replaced nothing.
+    before_login: Vec<ParsedLine>,
+    /// Heard after.
+    after_login: Vec<ParsedLine>,
 }
 
 /// Where the persistent stats' file is in the session.
@@ -339,7 +417,7 @@ enum Persistence {
     /// meanwhile waits to be added after.
     Importing {
         import: Box<StagedImport>,
-        heard: Vec<ParsedLine>,
+        heard: Heard,
     },
     /// In the world: written every [`SAVE_INTERVAL_MS`].
     InWorld {
@@ -367,9 +445,14 @@ pub struct Combat {
     pub persistent: CombatTracker,
     posted: PostedLines,
     waiting: VecDeque<Waiting>,
+    /// A line was dropped (past [`WAITING_LINES_MAX`]) and logged.
+    dropped: bool,
     /// The character's name and world, once known.
     me: Option<(String, String)>,
     persistence: Persistence,
+    /// F16: the persistent file did not read and could not be kept aside:
+    /// it is not written over this session.
+    keep_persistent_file: bool,
 }
 
 impl Combat {
@@ -400,14 +483,23 @@ impl Combat {
                     display_text: line.display_text.clone(),
                     kind: line.kind,
                     combat_kind: line.combat_kind,
+                    before_login: false,
                 });
+            } else if !self.dropped {
+                self.dropped = true;
+                host.log(
+                    LogLevel::Warn,
+                    &format!(
+                        "The combat tracker had {WAITING_LINES_MAX} chat lines waiting for it: later ones are not counted until it catches up."
+                    ),
+                );
             }
             return;
         }
-        self.read(host, line);
+        self.read(host, line, false);
     }
 
-    fn read(&mut self, host: &mut dyn MagHost, line: &ChatLine) {
+    fn read(&mut self, host: &mut dyn MagHost, line: &ChatLine, before_login: bool) {
         let Some(me) = self.me(host).map(str::to_owned) else {
             return;
         };
@@ -417,33 +509,32 @@ impl Combat {
         if parsed.combat.is_none() && parsed.aetheria.is_none() && parsed.cloak.is_none() {
             return;
         }
-        // Each tracker writes its own warnings, as Mag-Tools' two did.
-        for _tracker in 0..2 {
-            for warning in &parsed.warnings {
-                let text = format!("{CHAT_PREFIX}{warning}");
-                host.chat_post(&text, CHAT_TYPE);
-                self.posted.note(text);
-            }
+        // F15: once (Mag-Tools' two trackers each wrote it).
+        for warning in &parsed.warnings {
+            let text = format!("{CHAT_PREFIX}{warning}");
+            host.chat_post(&text, CHAT_TYPE);
+            self.posted.note(text);
         }
         self.current.add_parsed(&me, &parsed);
         match &mut self.persistence {
-            Persistence::Importing { heard, .. } => heard.push(parsed),
+            Persistence::Importing { heard, .. } if before_login => heard.before_login.push(parsed),
+            Persistence::Importing { heard, .. } => heard.after_login.push(parsed),
             _ => self.persistent.add_parsed(&me, &parsed),
         }
     }
 
-    /// One tick: a few patterns compiled, then the lines that waited for
-    /// them; the persistent file's import step; its periodic write. True
-    /// when it did a tick's worth of work.
+    /// One tick: a few patterns compiled; else a few of the lines that
+    /// waited for them; else the persistent file's import step, or its
+    /// periodic write; else the stats' texts kept current. True when it
+    /// did a tick's worth of work.
     pub fn tick(&mut self, host: &mut dyn MagHost, settings: CombatSettings) -> bool {
         self.posted.tick();
         if !self.patterns.is_ready() {
             self.patterns.compile_some(COMPILE_BUDGET_PER_TICK);
             return true;
         }
-        let mut busy = false;
         if !self.waiting.is_empty() {
-            for _ in 0..WAITING_LINES_PER_TICK {
+            for _ in 0..DRAIN_LINES_PER_TICK {
                 let Some(waiting) = self.waiting.pop_front() else {
                     break;
                 };
@@ -453,28 +544,39 @@ impl Combat {
                     combat_kind: waiting.combat_kind,
                     ..ChatLine::default()
                 };
-                self.read(host, &line);
+                self.read(host, &line, waiting.before_login);
             }
-            busy = true;
+            if self.waiting.is_empty() {
+                self.dropped = false;
+            }
+            return true;
         }
         match &mut self.persistence {
             Persistence::Idle => {}
             Persistence::Importing { import, heard } => {
-                busy = true;
-                if import.step(host, &mut self.persistent) {
-                    let heard = std::mem::take(heard);
-                    let me = self
-                        .me
-                        .as_ref()
-                        .map(|(name, _)| name.clone())
-                        .unwrap_or_default();
-                    for parsed in &heard {
+                if !import.step(host, &mut self.persistent) {
+                    return true;
+                }
+                let heard = std::mem::take(heard);
+                let outcome = import.take_outcome();
+                let me = self
+                    .me
+                    .as_ref()
+                    .map(|(name, _)| name.clone())
+                    .unwrap_or_default();
+                if !outcome.replaced {
+                    for parsed in &heard.before_login {
                         self.persistent.add_parsed(&me, parsed);
                     }
-                    self.persistence = Persistence::InWorld {
-                        saved_ms: host.now_ms(),
-                    };
                 }
+                for parsed in &heard.after_login {
+                    self.persistent.add_parsed(&me, parsed);
+                }
+                self.persistence = Persistence::InWorld {
+                    saved_ms: host.now_ms(),
+                };
+                self.keep_aside(host, outcome.failure);
+                return true;
             }
             Persistence::InWorld { saved_ms } => {
                 let now = host.now_ms();
@@ -482,23 +584,66 @@ impl Combat {
                     *saved_ms = now;
                     if settings.persistent {
                         self.save_persistent(host);
-                        busy = true;
+                        return true;
                     }
                 }
             }
         }
-        busy
+        let refreshed = self.current.refresh_texts(TEXTS_PER_TICK)
+            + self.persistent.refresh_texts(TEXTS_PER_TICK);
+        refreshed >= TEXTS_PER_TICK
+    }
+
+    /// F16: a persistent file that did not read is copied aside before
+    /// anything is written over it; one that cannot be (not read, or the
+    /// copy not written) is left alone this session.
+    fn keep_aside(&mut self, host: &mut dyn MagHost, failure: Option<ImportFailure>) {
+        let Some(failure) = failure else {
+            return;
+        };
+        let (name, world) = self.me.clone().unwrap_or_default();
+        let key = xml::persistent_key(&world, &name);
+        let ImportFailure::Broken(text) = failure else {
+            self.keep_persistent_file = true;
+            host.log(
+                LogLevel::Warn,
+                &format!(
+                    "The combat stats {key} could not be read: they are not written over this session."
+                ),
+            );
+            return;
+        };
+        let aside = xml::broken_key(&world, &name);
+        match host.storage().write_text(&aside, &text) {
+            Ok(()) => host.log(
+                LogLevel::Warn,
+                &format!("The combat stats {key} did not read: kept as {aside}, and written anew."),
+            ),
+            Err(error) => {
+                self.keep_persistent_file = true;
+                host.log(
+                    LogLevel::Warn,
+                    &format!(
+                        "The combat stats {key} did not read and could not be kept as {aside} ({error}): they are not written over this session."
+                    ),
+                );
+            }
+        }
     }
 
     /// The login completed: the persistent stats' file is read in (a step
-    /// a tick) when they are kept.
+    /// a tick) when they are kept. The lines still waiting were heard
+    /// before it.
     pub fn on_login_complete(&mut self, host: &mut dyn MagHost, settings: CombatSettings) {
         self.me = None;
         let me = self.me(host).is_some();
+        for waiting in &mut self.waiting {
+            waiting.before_login = true;
+        }
         self.persistence = match (settings.persistent, me, self.me.clone()) {
             (true, true, Some((name, world))) => Persistence::Importing {
                 import: Box::new(StagedImport::new(xml::persistent_key(&world, &name))),
-                heard: Vec::new(),
+                heard: Heard::default(),
             },
             _ => Persistence::InWorld {
                 saved_ms: host.now_ms(),
@@ -507,8 +652,9 @@ impl Combat {
     }
 
     /// Logging off: the persistent stats written when they are kept, and
-    /// the current ones exported when asked (one call; an import not yet
-    /// finished writes nothing over the file).
+    /// the current ones exported when asked (one call, which only joins
+    /// the texts kept current; an import not yet finished writes nothing
+    /// over the file).
     pub fn on_logoff(&mut self, host: &mut dyn MagHost, settings: CombatSettings) {
         let importing = matches!(self.persistence, Persistence::Importing { .. });
         if settings.persistent && !importing {
@@ -531,8 +677,11 @@ impl Combat {
     }
 
     /// `ExportPersistentStats`: the persistent stats to their file (nothing
-    /// written while they are empty).
+    /// written while they are empty, nor over a file F16 left alone).
     pub fn save_persistent(&mut self, host: &mut dyn MagHost) {
+        if self.keep_persistent_file {
+            return;
+        }
         let Some(me) = self.me(host).map(str::to_owned) else {
             return;
         };

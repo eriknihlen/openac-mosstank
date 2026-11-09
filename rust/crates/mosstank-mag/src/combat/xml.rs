@@ -17,15 +17,21 @@
 //!   <AetheriaInfos>
 //!     <AetheriaInfo SourceName="Acdream" TargetName="Acdream" TotalSurges="2" />
 //!   </AetheriaInfos>
-//!   <CloakInfos />
+//!   <CloakInfos>
+//!     <CloakInfo SourceName="Acdream" TargetName="" TotalSurges="1" />
+//!   </CloakInfos>
 //! </CombatTracker>
 //! ```
 //!
 //! Written as .NET's `XmlDocument.Save` writes it: no declaration, UTF-8
 //! without a byte-order mark, two-space indents, CRLF line breaks, no
 //! final line break, `" />"` for an empty element, `&amp; &lt; &gt; &quot;`
-//! escaped in attribute values; an attribute only when it is not zero
-//! (the names always), a section only when it has infos.
+//! and line breaks (`&#xD; &#xA;`) escaped in attribute values; an
+//! attribute only when it is not zero (the names always), a section only
+//! when it has infos.
+//!
+//! A file that does not read is kept aside as
+//! `Mag-Tools/<world>/<name>.CombatTracker.broken.xml` (F16, [`broken_key`]).
 
 use openac_plugin_compat::datetime::DateTime;
 
@@ -68,24 +74,46 @@ fn escape_into(out: &mut String, value: &str) {
             '<' => out.push_str("&lt;"),
             '>' => out.push_str("&gt;"),
             '"' => out.push_str("&quot;"),
+            '\r' => out.push_str("&#xD;"),
+            '\n' => out.push_str("&#xA;"),
             c => out.push(c),
         }
     }
 }
 
-/// An element being written: its start tag is open until a child or its
-/// end comes.
+/// The key a persistent file that did not read is kept under (F16).
+#[must_use]
+pub fn broken_key(world: &str, character: &str) -> String {
+    format!(
+        "Mag-Tools/{}/{}.CombatTracker.broken.xml",
+        key_part(world),
+        key_part(character)
+    )
+}
+
+/// Elements being written, `depth` levels into the file: a start tag is
+/// open until a child or its end comes.
 struct Writer {
     out: String,
+    /// How deep the first element is (each level two spaces).
+    depth: usize,
     /// The open elements' names, and whether each has a child yet.
     open: Vec<(&'static str, bool)>,
 }
 
 impl Writer {
-    fn new() -> Self {
+    fn at_depth(depth: usize) -> Self {
         Self {
             out: String::new(),
+            depth,
             open: Vec::new(),
+        }
+    }
+
+    fn new_line(&mut self) {
+        self.out.push_str(NEW_LINE);
+        for _ in 0..self.open.len() + self.depth {
+            self.out.push_str("  ");
         }
     }
 
@@ -96,11 +124,8 @@ impl Writer {
             self.out.push('>');
             *has_child = true;
         }
-        if !self.open.is_empty() {
-            self.out.push_str(NEW_LINE);
-            for _ in 0..self.open.len() {
-                self.out.push_str("  ");
-            }
+        if !self.open.is_empty() || self.depth > 0 {
+            self.new_line();
         }
         self.out.push('<');
         self.out.push_str(name);
@@ -131,10 +156,7 @@ impl Writer {
             return;
         };
         if has_child {
-            self.out.push_str(NEW_LINE);
-            for _ in 0..self.open.len() {
-                self.out.push_str("  ");
-            }
+            self.new_line();
             self.out.push_str("</");
             self.out.push_str(name);
             self.out.push('>');
@@ -144,8 +166,37 @@ impl Writer {
     }
 }
 
-fn write_surges(
-    writer: &mut Writer,
+/// A combat info's text in the stats file: its line break and indent, then
+/// the element (what [`CombatTracker`] keeps per info).
+#[must_use]
+pub fn info_text(info: &CombatInfo) -> String {
+    let mut writer = Writer::at_depth(2);
+    writer.start("CombatInfo");
+    writer.text_attribute("SourceName", &info.source);
+    writer.text_attribute("TargetName", &info.target);
+    writer.number_attribute("KillingBlows", info.killing_blows);
+    for (attack_type, by_type) in info.by_attack_type.iter() {
+        writer.start(attack_type.name());
+        for (element, bucket) in by_type.by_element.iter() {
+            writer.start(element.name());
+            // TotalAttacks is always written.
+            writer.text_attribute("TotalAttacks", &bucket.total_attacks.to_string());
+            writer.number_attribute("FailedAttacks", bucket.failed_attacks);
+            writer.number_attribute("Crits", bucket.crits);
+            writer.number_attribute("TotalNormalDamage", bucket.total_normal_damage);
+            writer.number_attribute("MaxNormalDamage", bucket.max_normal_damage);
+            writer.number_attribute("TotalCritDamage", bucket.total_crit_damage);
+            writer.number_attribute("MaxCritDamage", bucket.max_crit_damage);
+            writer.end();
+        }
+        writer.end();
+    }
+    writer.end();
+    writer.out
+}
+
+fn surges_text(
+    out: &mut String,
     section: &'static str,
     element: &'static str,
     infos: &[SurgeInfo],
@@ -153,6 +204,7 @@ fn write_surges(
     if infos.is_empty() {
         return;
     }
+    let mut writer = Writer::at_depth(1);
     writer.start(section);
     for info in infos {
         writer.start(element);
@@ -162,54 +214,52 @@ fn write_surges(
         writer.end();
     }
     writer.end();
+    out.push_str(&writer.out);
 }
 
-/// The tracker's stats file (`CombatTrackerExporter.Export`).
-#[must_use]
-pub fn export(tracker: &CombatTracker) -> String {
-    let mut writer = Writer::new();
-    writer.start("CombatTracker");
-    if !tracker.combat_infos().is_empty() {
-        writer.start("CombatInfos");
-        for info in tracker.combat_infos() {
-            writer.start("CombatInfo");
-            writer.text_attribute("SourceName", &info.source);
-            writer.text_attribute("TargetName", &info.target);
-            writer.number_attribute("KillingBlows", info.killing_blows);
-            for (attack_type, by_type) in info.by_attack_type.iter() {
-                writer.start(attack_type.name());
-                for (element, bucket) in by_type.by_element.iter() {
-                    writer.start(element.name());
-                    // TotalAttacks is always written.
-                    writer.text_attribute("TotalAttacks", &bucket.total_attacks.to_string());
-                    writer.number_attribute("FailedAttacks", bucket.failed_attacks);
-                    writer.number_attribute("Crits", bucket.crits);
-                    writer.number_attribute("TotalNormalDamage", bucket.total_normal_damage);
-                    writer.number_attribute("MaxNormalDamage", bucket.max_normal_damage);
-                    writer.number_attribute("TotalCritDamage", bucket.total_crit_damage);
-                    writer.number_attribute("MaxCritDamage", bucket.max_crit_damage);
-                    writer.end();
-                }
-                writer.end();
+fn export_with(tracker: &CombatTracker, fresh: bool) -> String {
+    let infos = tracker.combat_infos();
+    let mut body = String::new();
+    if !infos.is_empty() {
+        let kept: usize = (0..infos.len())
+            .filter_map(|at| tracker.kept_text(at))
+            .map(str::len)
+            .sum();
+        body.reserve(kept + 64 * (tracker.stale_texts() + 1));
+        body.push_str("\r\n  <CombatInfos>");
+        for (at, info) in infos.iter().enumerate() {
+            match tracker.kept_text(at) {
+                Some(text) if !fresh => body.push_str(text),
+                _ => body.push_str(&info_text(info)),
             }
-            writer.end();
         }
-        writer.end();
+        body.push_str("\r\n  </CombatInfos>");
     }
-    write_surges(
-        &mut writer,
+    surges_text(
+        &mut body,
         "AetheriaInfos",
         "AetheriaInfo",
         tracker.aetheria_infos(),
     );
-    write_surges(
-        &mut writer,
-        "CloakInfos",
-        "CloakInfo",
-        tracker.cloak_infos(),
-    );
-    writer.end();
-    writer.out
+    surges_text(&mut body, "CloakInfos", "CloakInfo", tracker.cloak_infos());
+    if body.is_empty() {
+        "<CombatTracker />".to_owned()
+    } else {
+        format!("<CombatTracker>{body}\r\n</CombatTracker>")
+    }
+}
+
+/// The tracker's stats file (`CombatTrackerExporter.Export`), from the
+/// texts it keeps (the stale ones written now).
+#[must_use]
+pub fn export(tracker: &CombatTracker) -> String {
+    export_with(tracker, false)
+}
+
+/// [`export`] with every info written now, not from the kept texts.
+#[must_use]
+pub fn export_fresh(tracker: &CombatTracker) -> String {
+    export_with(tracker, true)
 }
 
 /// Why a stats file was not read in (whole).
@@ -522,14 +572,6 @@ impl Scanner {
     }
 }
 
-/// The infos read so far.
-#[derive(Debug, Default)]
-struct ReadInfos {
-    combat: Vec<CombatInfo>,
-    aetheria: Vec<SurgeInfo>,
-    cloak: Vec<SurgeInfo>,
-}
-
 /// How far a [`Reader`] is.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Progress {
@@ -543,15 +585,16 @@ pub enum Progress {
 
 /// A stats file read a part at a time ([`Reader::read_some`]): what
 /// `CombatTrackerImporter.Import` does, its structure found first, then
-/// its infos read aside until the end, so a file that turns out not to be
-/// XML leaves the tracker as it was (as `XmlDocument.Load` failing did).
+/// its infos read into a tracker aside (each with its text) until the end,
+/// so a file that turns out not to be XML leaves the tracker as it was (as
+/// `XmlDocument.Load` failing did).
 #[derive(Debug)]
 pub struct Reader {
     text: String,
     scanner: Scanner,
     scanned: bool,
     next: usize,
-    read: ReadInfos,
+    aside: CombatTracker,
     /// The first node not of the format: no info is read after it (the
     /// rest is still checked to be XML).
     format_error: Option<ImportError>,
@@ -570,7 +613,7 @@ impl Reader {
             },
             scanned: false,
             next: 0,
-            read: ReadInfos::default(),
+            aside: CombatTracker::default(),
             format_error: None,
         }
     }
@@ -608,10 +651,14 @@ impl Reader {
             if self.format_error.is_some() || !has_attributes(node) {
                 continue;
             }
+            let aside = &mut self.aside;
             let info = match section {
-                Section::Combat => combat_info(node).map(|info| self.read.combat.push(info)),
-                Section::Aetheria => surge_info(node).map(|info| self.read.aetheria.push(info)),
-                Section::Cloak => surge_info(node).map(|info| self.read.cloak.push(info)),
+                Section::Combat => combat_info(node).map(|info| {
+                    let text = info_text(&info);
+                    aside.push_combat_info(info, text);
+                }),
+                Section::Aetheria => surge_info(node).map(|info| aside.push_aetheria_info(info)),
+                Section::Cloak => surge_info(node).map(|info| aside.push_cloak_info(info)),
             };
             if let Err(error) = info {
                 self.format_error = Some(error);
@@ -625,16 +672,7 @@ impl Reader {
     /// # Errors
     /// A node not of the format: the tracker keeps the infos before it.
     pub fn finish(self, tracker: &mut CombatTracker) -> Result<Imported, ImportError> {
-        tracker.clear_lists();
-        for info in self.read.combat {
-            tracker.push_combat_info(info);
-        }
-        for info in self.read.aetheria {
-            tracker.push_aetheria_info(info);
-        }
-        for info in self.read.cloak {
-            tracker.push_cloak_info(info);
-        }
+        tracker.replace_lists(self.aside);
         match self.format_error {
             Some(error) => Err(error),
             None => Ok(Imported::Read),
@@ -663,6 +701,25 @@ pub fn import(text: &str, tracker: &mut CombatTracker) -> Result<Imported, Impor
 /// The file read a tick: its structure, then its infos.
 pub const IMPORT_BYTES_PER_TICK: usize = 96 * 1024;
 
+/// Why a file did not read in whole (F16 keeps it aside).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum ImportFailure {
+    /// It could not be read at all.
+    Unreadable,
+    /// Not stats, not XML, or with a node not of the format: its text.
+    Broken(String),
+}
+
+/// What an import did.
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub struct ImportOutcome {
+    /// The tracker's lists were replaced by the file's (all or, after a
+    /// node not of the format, those before it).
+    pub replaced: bool,
+    /// Why it did not read in whole.
+    pub failure: Option<ImportFailure>,
+}
+
 /// `CombatTracker.ImportStats` a step a tick: the file read, then
 /// [`IMPORT_BYTES_PER_TICK`] of it read in a tick. The pages hear
 /// [`super::TrackerUpdate::Loaded`] when it is done (also with no file, or
@@ -671,19 +728,29 @@ pub const IMPORT_BYTES_PER_TICK: usize = 96 * 1024;
 pub struct StagedImport {
     key: String,
     reader: Option<Box<Reader>>,
+    outcome: ImportOutcome,
 }
 
 impl StagedImport {
     /// An import of the file at `key`.
     #[must_use]
     pub fn new(key: String) -> Self {
-        Self { key, reader: None }
+        Self {
+            key,
+            reader: None,
+            outcome: ImportOutcome::default(),
+        }
     }
 
     /// The file being read in.
     #[must_use]
     pub fn key(&self) -> &str {
         &self.key
+    }
+
+    /// What the import did, once [`Self::step`] said it is done.
+    pub fn take_outcome(&mut self) -> ImportOutcome {
+        std::mem::take(&mut self.outcome)
     }
 
     /// One step; true when the import is done.
@@ -696,22 +763,38 @@ impl StagedImport {
                 }
                 // No file: the tracker as it was.
                 Ok(None) => tracker.note_loaded(),
-                Err(error) => super::import_failed(host, &self.key, &ImportError::Xml(error)),
+                Err(error) => {
+                    super::import_failed(host, &self.key, &ImportError::Xml(error));
+                    self.outcome.failure = Some(ImportFailure::Unreadable);
+                }
             }
             return true;
         };
         match reader.read_some(IMPORT_BYTES_PER_TICK) {
             Ok(Progress::More) => return false,
-            Ok(Progress::NotStats) => tracker.note_loaded(),
+            Ok(Progress::NotStats) => {
+                tracker.note_loaded();
+                self.outcome.failure =
+                    Some(ImportFailure::Broken(std::mem::take(&mut reader.text)));
+            }
             Ok(Progress::Done) => {
-                if let Some(reader) = self.reader.take() {
+                if let Some(mut reader) = self.reader.take() {
+                    let text = std::mem::take(&mut reader.text);
+                    self.outcome.replaced = true;
                     match reader.finish(tracker) {
                         Ok(_) => tracker.note_loaded(),
-                        Err(error) => super::import_failed(host, &self.key, &error),
+                        Err(error) => {
+                            super::import_failed(host, &self.key, &error);
+                            self.outcome.failure = Some(ImportFailure::Broken(text));
+                        }
                     }
                 }
             }
-            Err(error) => super::import_failed(host, &self.key, &error),
+            Err(error) => {
+                super::import_failed(host, &self.key, &error);
+                self.outcome.failure =
+                    Some(ImportFailure::Broken(std::mem::take(&mut reader.text)));
+            }
         }
         self.reader = None;
         true

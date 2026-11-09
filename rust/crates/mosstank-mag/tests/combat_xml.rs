@@ -503,3 +503,121 @@ fn only_the_first_section_of_each_name_is_read() {
         .collect();
     assert_eq!(sources, vec!["a"]);
 }
+
+#[test]
+fn line_breaks_in_a_name_are_written_as_character_references() {
+    let mut tracker = CombatTracker::default();
+    tracker.add_combat(ME, &CombatEvent::killing_blow(ME, "Two\r\nLines\n"));
+    let text = xml::export(&tracker);
+    assert!(
+        text.contains("TargetName=\"Two&#xD;&#xA;Lines&#xA;\""),
+        "{text}"
+    );
+    let mut read = CombatTracker::default();
+    assert_eq!(xml::import(&text, &mut read), Ok(Imported::Read));
+    assert_eq!(read.combat_infos()[0].target, "Two\r\nLines\n");
+}
+
+#[test]
+fn the_text_kept_follows_every_change() {
+    let mut tracker = CombatTracker::default();
+    let check = |tracker: &CombatTracker| {
+        assert_eq!(xml::export(tracker), xml::export_fresh(tracker));
+    };
+    for round in 0..5 {
+        for index in 0..40 {
+            let monster = format!("Monster {}", (index * 7 + round) % 30);
+            tracker.add_combat(ME, &slash(index % 3 == 0, 10 + index));
+            tracker.add_combat(ME, &CombatEvent::killing_blow(ME, &monster));
+            tracker.add_combat(
+                ME,
+                &CombatEvent::damage(
+                    &monster,
+                    ME,
+                    AttackType::Magic,
+                    DamageElement::Cold,
+                    true,
+                    5,
+                ),
+            );
+        }
+        check(&tracker);
+        tracker.refresh_texts(25);
+        check(&tracker);
+    }
+    while tracker.refresh_texts(25) > 0 {}
+    assert_eq!(tracker.stale_texts(), 0);
+    check(&tracker);
+    // Read in, the infos come with their text.
+    let mut read = CombatTracker::default();
+    assert_eq!(
+        xml::import(&xml::export(&tracker), &mut read),
+        Ok(Imported::Read)
+    );
+    assert_eq!(read.stale_texts(), 0);
+    check(&read);
+    read.clear();
+    check(&read);
+}
+
+/// The broken copy's key for the fake's character.
+const BROKEN: &str = "Mag-Tools/Coldeve/Meta Tester.CombatTracker.broken.xml";
+
+/// The login reads `file` in, a kill is heard, and the character logs off.
+fn session_over(host: &mut FakeMagHost) -> Combat {
+    let mut combat = ready(host);
+    combat.on_login_complete(host, settings(true, false));
+    while combat.is_importing() {
+        combat.tick(host, settings(true, false));
+    }
+    combat.on_chat(host, &hit_line("You obliterate Drudge Skulker!"));
+    combat.on_logoff(host, settings(true, false));
+    combat
+}
+
+#[test]
+fn a_broken_persistent_file_is_kept_aside_before_it_is_written_over() {
+    // F16
+    for broken in [
+        // Cut short.
+        "<CombatTracker>\r\n  <CombatInfos>\r\n    <CombatInfo SourceName=\"Meta Tester\" Targ",
+        // Edited by hand into something else.
+        "<CombatTracker><CombatInfos><CombatInfo SourceName=\"a\" TargetName=\"b\"><Melee /></CombatInfo></CombatInfos></CombatTracker>",
+        "<Stats />",
+    ] {
+        let mut host = FakeMagHost::new();
+        host.storage.inner.insert(PERSISTENT, broken);
+        session_over(&mut host);
+        assert_eq!(host.storage.inner.get(BROKEN).as_deref(), Some(broken));
+        let warnings = host.meta.logged(LogLevel::Warn);
+        assert!(
+            warnings.iter().any(|line| line.contains(BROKEN)),
+            "{warnings:?}"
+        );
+        let written = host.storage.inner.get(PERSISTENT).unwrap();
+        let mut read = CombatTracker::default();
+        assert_eq!(xml::import(&written, &mut read), Ok(Imported::Read));
+        assert!(written.contains("Drudge Skulker"));
+    }
+}
+
+#[test]
+fn a_persistent_file_that_cannot_be_kept_aside_is_not_written_over() {
+    let broken = "<CombatTracker><CombatInfos>";
+    let mut host = FakeMagHost::new();
+    host.storage.inner.insert(PERSISTENT, broken);
+    host.storage.inner.refuse_writes(BROKEN);
+    session_over(&mut host);
+    assert_eq!(host.storage.inner.get(PERSISTENT).as_deref(), Some(broken));
+
+    // Nor one that could not be read.
+    let mut host = FakeMagHost::new();
+    host.storage.inner.insert(PERSISTENT, "<CombatTracker />");
+    host.storage.inner.fail("read", "locked");
+    session_over(&mut host);
+    assert_eq!(
+        host.storage.inner.get(PERSISTENT).as_deref(),
+        Some("<CombatTracker />")
+    );
+    assert!(host.storage.inner.get(BROKEN).is_none());
+}
