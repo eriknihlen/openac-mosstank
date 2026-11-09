@@ -19,7 +19,9 @@
 //! the last value written is the one Mag-Tools would show; the plugin
 //! refreshes before a file replaces the counts.
 
-use std::collections::{HashMap, HashSet};
+use std::collections::HashSet;
+
+use mosstank_dotnet::collections::{FnvBuildHasher, LookupMap};
 
 use mosstank_dotnet::text::ordinal;
 
@@ -38,6 +40,9 @@ pub const DETAIL_WIDTHS: [u32; 5] = [40, 52, 52, 45, 96];
 pub const DETAIL_ALIGN_RIGHT: [bool; 5] = [false, true, true, false, true];
 /// The detail list's rows.
 pub const DETAIL_ROWS: usize = 11;
+/// A file's rows worked out a refresh of the page shown (the 3,000 of a
+/// long life's stats over three ticks).
+pub const ROWS_PER_REFRESH: usize = 1000;
 
 /// The selection marker.
 const MARKER: &str = "*";
@@ -120,15 +125,18 @@ pub struct CombatGui {
     /// The monster list by column: the header, "All", then the names.
     columns: [Vec<String>; 5],
     /// The names' rows.
-    row_of: HashMap<String, usize>,
+    row_of: LookupMap<String, usize>,
     selected: usize,
     detail: [[String; 5]; DETAIL_ROWS],
     /// The names whose rows wait for their numbers, in the order changed.
     pending: Vec<String>,
-    pending_set: HashSet<String>,
+    pending_set: HashSet<String, FnvBuildHasher>,
     /// Something changed since the numbers were worked out: the "All" row
     /// and the detail list wait too.
     changed: bool,
+    /// Every name row from this one on waits for its numbers (a file read
+    /// in).
+    all_rows: Option<usize>,
     revision: u64,
 }
 
@@ -144,12 +152,13 @@ impl Default for CombatGui {
         }
         Self {
             columns,
-            row_of: HashMap::new(),
+            row_of: LookupMap::default(),
             selected: ALL_ROW,
             detail,
             pending: Vec::new(),
-            pending_set: HashSet::new(),
+            pending_set: HashSet::default(),
             changed: false,
+            all_rows: None,
             revision: 0,
         }
     }
@@ -270,7 +279,7 @@ impl CombatGui {
     /// The tracker changed since the numbers were worked out.
     #[must_use]
     pub fn needs_refresh(&self) -> bool {
-        self.changed || !self.pending.is_empty()
+        self.changed || self.all_rows.is_some() || !self.pending.is_empty()
     }
 
     /// Counts up whenever a cell may have changed.
@@ -314,16 +323,18 @@ impl CombatGui {
                 // then once.
                 TrackerUpdate::Loaded => {
                     self.changed = true;
+                    // Every row is worked out again (a row the file does not
+                    // name has zeros, which write nothing).
+                    self.all_rows = Some(FIRST_NAME_ROW);
                     for info in tracker.combat_infos() {
                         self.add_names(&info.source, &info.target, me);
-                        self.mark(&info.source, me);
-                        self.mark(&info.target, me);
                     }
                     sort_now |= sort;
                 }
                 // More changed than was kept: every name the tracker has.
                 TrackerUpdate::Overflowed => {
                     self.changed = true;
+                    self.all_rows = Some(FIRST_NAME_ROW);
                     let pairs = tracker
                         .combat_infos()
                         .iter()
@@ -337,8 +348,6 @@ impl CombatGui {
                         );
                     for (source, target) in pairs {
                         sort_now |= self.add_names(source, target, me) && sort;
-                        self.mark(source, me);
-                        self.mark(target, me);
                     }
                 }
             }
@@ -352,8 +361,27 @@ impl CombatGui {
     /// Works out the numbers that changed: the "All" row, the changed
     /// names' rows, the detail list.
     pub fn refresh(&mut self, tracker: &CombatTracker, me: &str) {
+        self.refresh_some(tracker, me, usize::MAX);
+    }
+
+    /// [`Self::refresh`] with at most `rows` of a file's rows worked out
+    /// (the rest, and the "All" row and the detail list, at a later call;
+    /// the counts only grow meanwhile, so the numbers are the same).
+    pub fn refresh_some(&mut self, tracker: &CombatTracker, me: &str, rows: usize) {
         if !self.needs_refresh() {
             return;
+        }
+        if let Some(first) = self.all_rows.take() {
+            let end = self.columns[1].len().min(first.saturating_add(rows));
+            for row in first..end {
+                let values = row_values(tracker, &self.columns[1][row], me);
+                self.write_row(row, values);
+            }
+            if end < self.columns[1].len() {
+                self.all_rows = Some(end);
+                self.revision += 1;
+                return;
+            }
         }
         let all = row_values(tracker, me, me);
         self.write_row(ALL_ROW, all);
@@ -398,9 +426,9 @@ impl CombatGui {
         {
             return false;
         }
-        if (!source.is_empty() && self.row_of.contains_key(source))
-            || (!target.is_empty() && self.row_of.contains_key(target))
-        {
+        // No row has our name (none is ever added for it): not looked up.
+        let has_row = |name: &str| !name.is_empty() && name != me && self.row_of.contains_key(name);
+        if has_row(source) || has_row(target) {
             return false;
         }
         let name = if source.is_empty() || source == me {
@@ -473,6 +501,7 @@ impl CombatGui {
         self.pending.clear();
         self.pending_set.clear();
         self.changed = false;
+        self.all_rows = None;
     }
 
     /// Writes a row's numbers that are not zero.

@@ -23,6 +23,28 @@ fn grouped_thousands() {
 }
 
 #[test]
+fn grouped_is_the_custom_format() {
+    // The direct grouping against .NET's `#,##0` custom format.
+    let mut values = vec![i64::MIN, i64::MAX, i64::MIN + 1, -1, 0, 1];
+    let mut power = 1_i64;
+    for _ in 0..18 {
+        power *= 10;
+        values.extend([
+            power - 1,
+            power,
+            power + 1,
+            -power,
+            -(power - 1),
+            7 * power / 3,
+        ]);
+    }
+    for value in values {
+        let expected = openac_plugin_compat::number::format_i64(value, "#,##0").expect("supported");
+        assert_eq!(grouped(value), expected, "{value}");
+    }
+}
+
+#[test]
 fn n1_and_n2() {
     assert_eq!(n1(-6.0), "-6.0");
     assert_eq!(n1(1234.56), "1,234.6");

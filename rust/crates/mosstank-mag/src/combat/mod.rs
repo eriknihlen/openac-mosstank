@@ -27,6 +27,8 @@ pub mod xml;
 
 use std::collections::{HashMap, VecDeque};
 
+use mosstank_dotnet::collections::LookupMap;
+
 use ac_plugin_abi::{ChatLine, LogLevel};
 
 use self::gui::{CombatGui, StatsPage};
@@ -105,7 +107,7 @@ pub struct CombatTracker {
     combat_index: HashMap<(String, String), usize>,
     /// The combat infos each name is the source or target of, in order
     /// (`GetCombatInfos` without a walk of every info).
-    by_name: HashMap<String, Vec<usize>>,
+    by_name: LookupMap<String, Vec<usize>>,
     /// Each combat info's text in the stats file, kept current a few a
     /// tick ([`Self::refresh_texts`]) so that a write only joins them;
     /// empty while stale.
@@ -533,7 +535,7 @@ impl Combat {
     pub fn refresh_page(&mut self, page: StatsPage) {
         let me = self.me_name();
         let (tracker, gui) = self.page_parts(page);
-        gui.refresh(tracker, &me);
+        gui.refresh_some(tracker, &me, gui::ROWS_PER_REFRESH);
     }
 
     /// Both lists followed and worked out.

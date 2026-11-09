@@ -57,6 +57,8 @@ pub enum MagSubPage {
 pub struct MagParts {
     /// The Mag tab's page shown.
     pub sub_page: MagSubPage,
+    /// The Combat page's tab shown.
+    pub combat_page: combat::gui::CombatPage,
     /// The Inventory window.
     pub inventory_search: inventory_search::InventorySearch,
     /// The appraisals the features asked for.

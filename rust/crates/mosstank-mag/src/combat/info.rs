@@ -392,7 +392,12 @@ impl CombatInfo {
     /// All the damage.
     #[must_use]
     pub fn damage(&self) -> i32 {
-        self.totals().damage()
+        // The same as the sums' (wrapping sums add up in any order),
+        // without working out the other five.
+        self.by_attack_type
+            .values()
+            .flat_map(|by_type| by_type.by_element.values())
+            .fold(0_i32, |sum, bucket| sum.wrapping_add(bucket.damage()))
     }
 }
 

@@ -20,10 +20,37 @@ pub fn round(value: f64, digits: u32) -> f64 {
     number::round_digits(value, digits, MidpointRounding::ToEven)
 }
 
-/// `value.ToString("#,##0")` for a whole number: `1,234,567`.
+/// `value.ToString("#,##0")` for a whole number: `1,234,567` (the digits
+/// grouped by three directly: the custom format's parser, and even the
+/// standard formatter, cost a list of thousands of numbers too much; a
+/// test holds this equal to the custom format).
 #[must_use]
 pub fn grouped(value: i64) -> String {
-    number::format_i64(value, "#,##0").expect("#,##0 is a supported format")
+    // 20 digits, 6 separators, the sign.
+    let mut text = [0_u8; 27];
+    let mut at = text.len();
+    let mut rest = value.unsigned_abs();
+    let mut in_group = 0;
+    loop {
+        if in_group == 3 {
+            at -= 1;
+            text[at] = b',';
+            in_group = 0;
+        }
+        at -= 1;
+        // A digit: below 10.
+        text[at] = b'0' + u8::try_from(rest % 10).unwrap_or(0);
+        rest /= 10;
+        in_group += 1;
+        if rest == 0 {
+            break;
+        }
+    }
+    if value < 0 {
+        at -= 1;
+        text[at] = b'-';
+    }
+    text[at..].iter().map(|&byte| char::from(byte)).collect()
 }
 
 /// .NET Framework's fixed or number format of a double.

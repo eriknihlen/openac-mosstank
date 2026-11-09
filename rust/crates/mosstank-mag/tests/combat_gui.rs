@@ -649,3 +649,36 @@ fn clearing_while_the_file_is_read_in_stops_the_read() {
     }
     assert!(combat.persistent.is_empty());
 }
+
+#[test]
+fn a_files_rows_are_worked_out_a_part_at_a_time() {
+    let mut host = FakeMagHost::new();
+    let key = "Mag-Tools/Coldeve/Acdream.CombatTracker.xml";
+    let mut file = CombatTracker::default();
+    for name in ["Zombie", "Drudge", "Mosswart"] {
+        file.add_combat(ME, &melee(name, 4));
+    }
+    host.storage().write_text(key, &xml::export(&file)).unwrap();
+    let mut tracker = CombatTracker::default();
+    let mut import = StagedImport::new(key.to_owned());
+    while !import.step(&mut host, &mut tracker) {}
+    let mut gui = CombatGui::default();
+    gui.follow(&mut tracker, ME, false);
+    gui.refresh_some(&tracker, ME, 2);
+    let given: Vec<String> = gui
+        .rows()
+        .into_iter()
+        .map(|cells| cells[4].clone())
+        .collect();
+    assert_eq!(given, ["Dmg Givn", "", "4", "4", ""]);
+    assert!(gui.needs_refresh());
+    gui.refresh_some(&tracker, ME, 2);
+    let given: Vec<String> = gui
+        .rows()
+        .into_iter()
+        .map(|cells| cells[4].clone())
+        .collect();
+    assert_eq!(given, ["Dmg Givn", "12", "4", "4", "4"]);
+    assert_eq!(detail(&gui, 10, 4), "12");
+    assert!(!gui.needs_refresh());
+}
