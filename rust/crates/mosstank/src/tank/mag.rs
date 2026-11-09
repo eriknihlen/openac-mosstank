@@ -317,23 +317,18 @@ impl TankCx<'_> {
         }
     }
 
-    /// One frame of the Mag features, with the character in the world: the
-    /// container scan, the inventory logger's tick's worth, the items put
-    /// on for the mana list, the Inv. Items page's counts and refresh, the
-    /// combat lists following their trackers (the page shown worked out), then
-    /// the identify queue, and the Inventory window's search (on a tick the
-    /// logger left light). True when either did a tick's worth of work.
-    pub(crate) fn mag_tick(&mut self) -> bool {
+    /// One frame of the Mag features' cheap work, with the character in the
+    /// world: the container scan, the items put on for the mana list, the
+    /// Inv. Items page's counts and refresh, the combat lists following
+    /// their trackers' names, the identify queue and the Mana page. The
+    /// work a tick's worth at a time is [`Self::mag_background_tick`]'s.
+    pub(crate) fn mag_tick(&mut self) {
         if !self.mag.printer.is_idle() {
             let settings = self.item_info_settings();
             let now = self.client.mag().now_ms();
             self.with_printer(|printer, queue, call| printer.tick(call, queue, now, settings));
         }
-        let enabled = self.inventory_logger_enabled();
         let mag = &mut *self.mag;
-        let logged = mag
-            .inventory_log
-            .tick(self.client.mag(), &mut mag.identify, enabled);
         if mag.mana.needs_tick() {
             mag.mana.tick(self.client.mag(), &mut mag.identify);
         }
@@ -344,24 +339,47 @@ impl TankCx<'_> {
         }
         self.refresh_mana_page();
         self.refresh_inv_items_page();
-        self.refresh_combat_page();
-        if logged {
+        let sort = self.combat_settings().sort_alphabetically;
+        self.mag.combat.follow_pages(sort);
+    }
+
+    /// One tick's worth of the Mag features' background work, on a tick
+    /// MossTank's own work left light: the first of the inventory logger's
+    /// batch, the Inventory window's reading and matching, the combat
+    /// tracker's tick (its patterns compiled a few at a time, the lines that
+    /// waited for them, the persistent stats read in a part at a time, their
+    /// 10-minute save), and the Combat page shown worked out. True when one
+    /// did a tick's worth of work.
+    pub(crate) fn mag_background_tick(&mut self) -> bool {
+        let enabled = self.inventory_logger_enabled();
+        let mag = &mut *self.mag;
+        if mag
+            .inventory_log
+            .tick(self.client.mag(), &mut mag.identify, enabled)
+        {
             return true;
         }
         let shown = self.inventory_shown();
         let settings = self.inventory_info_settings();
-        self.mag
+        if self
+            .mag
             .inventory_search
             .tick(self.client.mag(), shown, settings)
-    }
-
-    /// The combat tracker's tick, on a frame that has room for it (its
-    /// patterns compiled a few at a time, the lines that waited for them,
-    /// the persistent stats read in a part at a time, their 10-minute
-    /// save). True when it did a tick's worth of work.
-    pub(crate) fn mag_combat_tick(&mut self) -> bool {
+        {
+            return true;
+        }
         let combat = self.combat_settings();
-        self.mag.combat.tick(self.client.mag(), combat)
+        if self.mag.combat.tick(self.client.mag(), combat) {
+            return true;
+        }
+        let Some(page) = self.combat_stats_shown() else {
+            return false;
+        };
+        if !self.mag.combat.gui(page).needs_refresh() {
+            return false;
+        }
+        self.mag.combat.refresh_page(page);
+        true
     }
 
     /// The character left the world: the appraisals it waited on, the

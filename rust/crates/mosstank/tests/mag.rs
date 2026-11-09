@@ -298,7 +298,9 @@ fn the_inventory_is_logged_after_the_login_and_again_at_logoff() {
     let ring = item(0x5000_0002, "Ring", 0x8);
     world.set_reply::<calls::ItemsOwned>(&vec![ring]);
     let mut plugin = world.enable();
-    world.tick(&mut plugin);
+    // The shell's own caches are built first (the Mag work waits for the
+    // ticks they leave light).
+    world.ticks(&mut plugin, 60);
     let key = "Mag-Tools/Coldeve/Mag.inventory.json";
     assert!(world.plugin_data.get(key).is_none());
     world.send(&mut plugin, ac_plugin_abi::Event::LoginComplete);
@@ -345,9 +347,9 @@ fn the_inventory_window_searches_the_live_character_and_the_saved_ones() {
     world.own_items(vec![item(0x5000_0002, "Test Ring", 0x8)]);
     save_log(&mut world, "Alt", &[item(0x5000_0100, "Alt Sword", 0x1)]);
     let mut plugin = world.enable();
-    // The combat tracker's patterns compile first (the search waits for
-    // the ticks they leave light).
-    world.ticks(&mut plugin, 30);
+    // The shell's own caches are built and the combat tracker's patterns
+    // compiled first (the search waits for the ticks they leave light).
+    world.ticks(&mut plugin, 60);
     // Closed: nothing read.
     assert!(!world.ui_bool(&mut plugin, "MagInventoryShown"));
     assert!(
@@ -631,7 +633,7 @@ fn the_combat_tracker_counts_the_chat_and_keeps_its_stats_across_sessions() {
         &mut plugin,
         combat_line("You hit Drudge Skulker for 25 points of slashing damage!"),
     );
-    world.ticks(&mut plugin, 30);
+    world.ticks(&mut plugin, 60);
     world.send(&mut plugin, ac_plugin_abi::Event::LoginComplete);
     world.ticks(&mut plugin, 10);
     world.send(&mut plugin, combat_line("You obliterate Drudge Skulker!"));
@@ -660,7 +662,7 @@ fn the_combat_tracker_counts_the_chat_and_keeps_its_stats_across_sessions() {
 
     // The next session reads them in.
     let mut plugin = world.enable();
-    world.ticks(&mut plugin, 30);
+    world.ticks(&mut plugin, 60);
     world.send(&mut plugin, ac_plugin_abi::Event::LoginComplete);
     world.ticks(&mut plugin, 10);
     let persistent = world.with_tank(&mut plugin, |tank, _| {
@@ -708,7 +710,7 @@ fn the_combat_page_lists_the_fight_and_its_stats_come_back_next_session() {
     let mut world = World::with_character("Mag");
     world.set_reply::<calls::ItemsInventoryComplete>(&true);
     let mut plugin = world.enable();
-    world.ticks(&mut plugin, 30);
+    world.ticks(&mut plugin, 60);
     world.send(&mut plugin, ac_plugin_abi::Event::LoginComplete);
     world.ticks(&mut plugin, 10);
     for line in [
@@ -798,7 +800,7 @@ fn the_combat_page_lists_the_fight_and_its_stats_come_back_next_session() {
     // The next session reads them in: the persistent page lists them, the
     // current page is empty.
     let mut plugin = world.enable();
-    world.ticks(&mut plugin, 30);
+    world.ticks(&mut plugin, 60);
     world.send(&mut plugin, ac_plugin_abi::Event::LoginComplete);
     world.ticks(&mut plugin, 10);
     world.act(&mut plugin, "ShowMag");
@@ -831,4 +833,118 @@ fn the_combat_page_lists_the_fight_and_its_stats_come_back_next_session() {
         combat_rows(&mut world, &mut plugin, MONSTER_COLUMNS).len(),
         2
     );
+}
+
+/// A long life's persistent combat stats: `monsters` monsters fought.
+fn persistent_combat_stats(me: &str, monsters: usize) -> String {
+    let mut out = String::from("<CombatTracker>\r\n  <CombatInfos>");
+    for index in 0..monsters {
+        out.push_str(&format!(
+            "\r\n    <CombatInfo SourceName=\"{me}\" TargetName=\"Drudge {index}\" KillingBlows=\"{kills}\">\r\n      <MeleeMissle>\r\n        <Slash TotalAttacks=\"{attacks}\" TotalNormalDamage=\"{damage}\" MaxNormalDamage=\"412\" />\r\n      </MeleeMissle>\r\n    </CombatInfo>\r\n    <CombatInfo SourceName=\"Drudge {index}\" TargetName=\"{me}\">\r\n      <MeleeMissle>\r\n        <Bludge TotalAttacks=\"{attacks}\" TotalNormalDamage=\"{damage}\" MaxNormalDamage=\"96\" />\r\n      </MeleeMissle>\r\n    </CombatInfo>",
+            kills = 10 + index % 90,
+            attacks = 1000 + index,
+            damage = 112_000 + index * 7,
+        ));
+    }
+    out.push_str("\r\n  </CombatInfos>\r\n</CombatTracker>");
+    out
+}
+
+/// The character `Mag` logs in with a profile set that loads over several
+/// ticks and a command that waits for it; with `mag_work`, a 1,000-monster
+/// persistent combat file to read in and the Inventory window open on
+/// three alts' 1,500-item logs. The ticks until the load is whole,
+/// until the command ran, and whether Mag work was still under way.
+fn ticks_until_the_login_settles(mag_work: bool) -> (usize, usize, bool) {
+    use mosstank_formats::route::RouteWaypoint;
+
+    let mut world = World::new();
+    world.set_reply::<calls::ItemsInventoryComplete>(&true);
+    world.own_items(vec![item(0x5000_0002, "Test Ring", 0x8)]);
+    // The character's own route, large enough that its set loads over
+    // several ticks.
+    let route = mosstank_formats::route::NavigationSettings {
+        enabled: true,
+        waypoints: (0..4000)
+            .map(|index| RouteWaypoint {
+                position: ac_plugin_abi::world::Position {
+                    east_west: f64::from(index) / 1000.0,
+                    ..ac_plugin_abi::world::Position::default()
+                },
+                ..RouteWaypoint::default()
+            })
+            .collect(),
+        ..mosstank_formats::route::NavigationSettings::default()
+    };
+    let key = format!(
+        "{}/{}",
+        mosstank_stores::directory::NAV_FOLDER,
+        mosstank_stores::directory::auto_character_file_name("Mag", "Coldeve", "af")
+    );
+    world
+        .profiles
+        .insert(&key, &mosstank_formats::af::save_nav(&route).unwrap());
+    if mag_work {
+        world.plugin_data.insert(
+            "Mag-Tools/Coldeve/Mag.CombatTracker.xml",
+            &persistent_combat_stats("Mag", 1000),
+        );
+        for alt in 1..=3u32 {
+            let items: Vec<_> = (0..1500u32)
+                .map(|n| item(0x5100_0000 + alt * 0x1_0000 + n, &format!("Sword {n}"), 0x1))
+                .collect();
+            save_log(&mut world, &format!("Alt {alt}"), &items);
+        }
+    }
+    let mut plugin = world.enable();
+    if mag_work {
+        world.act(&mut plugin, "OpenMagInventory");
+    }
+    world.ticks(&mut plugin, 3);
+
+    world.fake.character = Some(common::character("Mag"));
+    world.send(&mut plugin, ac_plugin_abi::Event::LoginComplete);
+    world.tick(&mut plugin);
+    assert!(
+        plugin.tank().unwrap().is_loading_profiles(),
+        "the set loads over more than one tick"
+    );
+    world.vt(&mut plugin, "opt set enablelooting false");
+    assert!(plugin.tank().unwrap().has_held_commands());
+    let mut loaded = None;
+    let mut ran = None;
+    for count in 1..=400 {
+        world.tick(&mut plugin);
+        let tank = plugin.tank().unwrap();
+        if loaded.is_none() && !tank.is_loading_profiles() {
+            loaded = Some(count);
+        }
+        if ran.is_none() && !tank.has_held_commands() {
+            ran = Some(count);
+            break;
+        }
+    }
+    // The Mag work still under way then: it waited.
+    let (importing, settled) = world.with_tank(&mut plugin, |tank, _| {
+        let mag = tank.mag();
+        (mag.combat.is_importing(), mag.inventory_search.is_settled())
+    });
+    (
+        loaded.expect("the set loaded"),
+        ran.expect("the command ran"),
+        importing || !settled,
+    )
+}
+
+#[test]
+fn the_mag_features_background_work_waits_for_the_login_and_its_commands() {
+    let (load, command, _) = ticks_until_the_login_settles(false);
+    let (load_with, command_with, waited) = ticks_until_the_login_settles(true);
+    assert_eq!(
+        (load_with, command_with),
+        (load, command),
+        "(ticks to load, ticks to the command)"
+    );
+    assert!(command_with <= 10, "{command_with} ticks");
+    assert!(waited, "the Mag work was under way");
 }

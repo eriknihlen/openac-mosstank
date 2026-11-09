@@ -1193,6 +1193,32 @@ impl Tank {
                 .warm_rule_patterns(LOOT_PATTERNS_PER_TICK)
     }
 
+    /// The Mag features' background work, a tick's worth, on a tick
+    /// MossTank's own work left light: never while the character's profile
+    /// set loads or commands wait for it, nor out of the world. Whether it
+    /// did a tick's worth.
+    pub fn mag_background_tick(&mut self, client: &mut dyn TankClient) -> bool {
+        if self.core.staged_load.is_some()
+            || !self.core.held_commands.is_empty()
+            || !self.core.automation_was_available
+            || !client.rules().is_available()
+        {
+            return false;
+        }
+        // The tick's own call (`on_tick`) began and ended the call: like
+        // the caches warmed, this is the tick's last work.
+        let (mut cx, _) = self.cx(client);
+        let worked = cx.mag_background_tick();
+        cx.core.write_out(cx.client);
+        worked
+    }
+
+    /// Commands wait for the character's profile set (register PROF-1).
+    #[must_use]
+    pub fn has_held_commands(&self) -> bool {
+        !self.core.held_commands.is_empty()
+    }
+
     /// Whether the last frame did a frame's worth of once-only work.
     #[must_use]
     pub fn frame_was_heavy(&self) -> bool {

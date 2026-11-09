@@ -87,9 +87,10 @@ impl Tank {
             cx.handle_session_started();
         }
         cx.update_peer_subscriptions();
-        // A frame the inventory logger spent recording a tick's worth of
-        // items is a heavy one.
-        cx.core.heavy_frame = cx.mag_tick();
+        // The Mag features' cheap work (their work a tick's worth at a time
+        // waits for the end of a tick MossTank's own work left light:
+        // `Tank::mag_background_tick`).
+        cx.mag_tick();
         // The name tags, first in the frame as the panel runs them.
         let crowded = cx.with_ub(|commands, call| {
             commands.tools_mut().tick_nametags(call, elapsed_seconds);
@@ -320,11 +321,6 @@ impl Tank {
             && scheduler.pass_count() == passes
             && cx.core.start_game_info_check(cx.client)
         {
-            cx.core.heavy_frame = true;
-        }
-        // The combat tracker's tick's worth (its patterns compiled, its
-        // persistent stats read in), last, on a frame that still has room.
-        if !cx.core.heavy_frame && !settling && cx.mag_combat_tick() {
             cx.core.heavy_frame = true;
         }
         cx.core.write_out(cx.client);
