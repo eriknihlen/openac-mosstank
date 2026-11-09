@@ -240,6 +240,7 @@ pub(super) fn act(cx: &mut TankCx<'_>, name: &str, arg: &Arg) -> bool {
             cx.select_tab(TankTab::Mag);
             cx.refresh_mana_page();
             cx.refresh_inv_items_page();
+            cx.refresh_combat_page();
         }
         "ToggleDebugLog" => cx.toggle_debug_logging(),
         "ShowRemote" => switch_panel(cx, "main", "remote"),

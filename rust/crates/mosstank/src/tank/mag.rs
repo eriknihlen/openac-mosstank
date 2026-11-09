@@ -8,6 +8,7 @@ use mosstank_formats::utl::{LootAction, LootRule};
 use mosstank_loot::controller;
 use mosstank_loot::host::LootHost;
 use mosstank_mag::combat::CombatSettings;
+use mosstank_mag::combat::gui::{CombatGui, CombatPage, StatsPage};
 use mosstank_mag::host::{LootVerdict, MagHost, Verdict};
 use mosstank_mag::identify::IdentifyQueue;
 use mosstank_mag::inventory_search::InfoSettings;
@@ -191,9 +192,53 @@ impl TankCx<'_> {
     /// The Combat page's "Export Current Stats" button: the current stats
     /// to a file named for the minute, and `Stats exported to: <path>` in
     /// chat. The key written, `None` when there was nothing to write.
-    #[expect(dead_code, reason = "the Combat page's button comes next")]
     pub(crate) fn export_current_combat_stats(&mut self) -> Option<String> {
         self.mag.combat.export_current(self.client.mag(), true)
+    }
+
+    /// The Combat page's stats tab shown, if one is.
+    fn combat_stats_shown(&self) -> Option<StatsPage> {
+        if self.core.panel.active_tab != super::panel::TankTab::Mag
+            || self.mag.sub_page != mosstank_mag::MagSubPage::Combat
+        {
+            return None;
+        }
+        Self::stats_page(self.mag.combat_page)
+    }
+
+    /// The tracker a Combat tab lists (none for Options).
+    fn stats_page(page: CombatPage) -> Option<StatsPage> {
+        match page {
+            CombatPage::Current => Some(StatsPage::Current),
+            CombatPage::Persistent => Some(StatsPage::Persistent),
+            CombatPage::Options => None,
+        }
+    }
+
+    /// The lists the Combat page's stats tab shows (the current stats'
+    /// while Options is shown).
+    pub(crate) fn combat_list(&self) -> &CombatGui {
+        let page = Self::stats_page(self.mag.combat_page).unwrap_or(StatsPage::Current);
+        self.mag.combat.gui(page)
+    }
+
+    /// The combat lists follow their trackers (the names, every frame), and
+    /// the stats tab shown works its numbers out; its bindings only read
+    /// them.
+    pub(crate) fn refresh_combat_page(&mut self) {
+        let sort = self.combat_settings().sort_alphabetically;
+        self.mag.combat.follow_pages(sort);
+        if let Some(page) = self.combat_stats_shown() {
+            self.mag.combat.refresh_page(page);
+        }
+    }
+
+    /// A click on the Combat page's monster list.
+    pub(crate) fn click_combat_row(&mut self, row: usize) {
+        let sort = self.combat_settings().sort_alphabetically;
+        if let Some(page) = self.combat_stats_shown() {
+            self.mag.combat.click_monster(page, row, sort);
+        }
     }
 
     /// A client event, for the Mag features: the inventory logger's login,
@@ -274,7 +319,8 @@ impl TankCx<'_> {
 
     /// One frame of the Mag features, with the character in the world: the
     /// container scan, the inventory logger's tick's worth, the items put
-    /// on for the mana list, the Inv. Items page's counts and refresh, then
+    /// on for the mana list, the Inv. Items page's counts and refresh, the
+    /// combat lists following their trackers (the page shown worked out), then
     /// the identify queue, and the Inventory window's search (on a tick the
     /// logger left light). True when either did a tick's worth of work.
     pub(crate) fn mag_tick(&mut self) -> bool {
@@ -298,6 +344,7 @@ impl TankCx<'_> {
         }
         self.refresh_mana_page();
         self.refresh_inv_items_page();
+        self.refresh_combat_page();
         if logged {
             return true;
         }

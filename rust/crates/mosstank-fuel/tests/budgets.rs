@@ -1528,8 +1528,11 @@ fn fight_or_town_line(
 /// chat, and the logoff that writes the persistent stats and exports the
 /// current ones. `catching_up`: the login completes at once and a fight's
 /// worth of lines is heard while the patterns compile, so the lines that
-/// waited are read while the file is read in.
-fn combat_session(monsters: usize, catching_up: bool) {
+/// waited are read while the file is read in. `shown`: the Combat tab
+/// whose handler is named is shown from before the login on (its lists
+/// built as the file is read in, and drawn through the burst).
+fn combat_session(monsters: usize, catching_up: bool, shown: Option<&str>) {
+    use ac_plugin_abi::ui::ActionValue;
     let wasm = std::fs::read(wasm_path()).expect("the release mosstank.wasm (build it first)");
     let me = "Mossy Hunter";
     let key = "Mag-Tools/Coldeve/Mossy Hunter.CombatTracker.xml";
@@ -1545,6 +1548,13 @@ fn combat_session(monsters: usize, catching_up: bool) {
     session
         .world
         .set_reply::<calls::ItemsInventoryComplete>(&true);
+    if let Some(tab) = shown {
+        for handler in ["ShowMag", "ShowMagCombat", tab] {
+            let action = ui_action(&session, handler, ActionValue::None);
+            let fuel = send(&mut plugin, &mut session, &action);
+            cases.add("combat: page shown", fuel);
+        }
+    }
     if catching_up {
         tick(&mut plugin, &mut session);
         let login = send(&mut plugin, &mut session, &Event::LoginComplete);
@@ -1588,6 +1598,15 @@ fn combat_session(monsters: usize, catching_up: bool) {
         let fuel = tick(&mut plugin, &mut session);
         cases.add("combat: tick (after the burst)", fuel);
     }
+    if shown.is_some() {
+        // A row clicked, the next tick drawn with its details.
+        let click = ui_action(&session, "SelectMagCombatRow", ActionValue::Int(2));
+        let fuel = send(&mut plugin, &mut session, &click);
+        cases.add("combat: monster row clicked", fuel);
+        let fuel = tick(&mut plugin, &mut session);
+        cases.add("combat: tick (after the burst)", fuel);
+    }
+    let drawn = main_list_len(&session, "MagCombatNames");
     let warnings = session
         .world
         .chat()
@@ -1626,6 +1645,12 @@ fn combat_session(monsters: usize, catching_up: bool) {
     assert!(written.len() > saved.len(), "{report}");
     assert_eq!(exports, 1, "{report}");
     assert!(warnings > 0, "{report}");
+    // The tab's list drawn: the header, All, a row a monster.
+    match shown {
+        Some("ShowMagCombatPersistent") => assert_eq!(drawn, monsters + 2, "{report}"),
+        Some(_) => assert!(drawn > 2, "{report}"),
+        None => {}
+    }
     assert_no_file_rewritten(&session, &report);
     assert_within_margin(&cases, &report);
 }
@@ -1634,7 +1659,7 @@ fn combat_session(monsters: usize, catching_up: bool) {
 #[test]
 #[ignore = "needs the release module: scripts/check.sh runs it after the WebAssembly build"]
 fn the_combat_tracker_fits() {
-    combat_session(heavy::PERSISTENT_MONSTERS, false);
+    combat_session(heavy::PERSISTENT_MONSTERS, false, None);
 }
 
 /// [`combat_session`] with three times as many monsters: the logoff only
@@ -1642,7 +1667,7 @@ fn the_combat_tracker_fits() {
 #[test]
 #[ignore = "needs the release module: scripts/check.sh runs it after the WebAssembly build"]
 fn the_combat_tracker_with_three_thousand_monsters_fits() {
-    combat_session(3 * heavy::PERSISTENT_MONSTERS, false);
+    combat_session(3 * heavy::PERSISTENT_MONSTERS, false, None);
 }
 
 /// [`combat_session`] catching up: the lines that waited for the patterns
@@ -1650,7 +1675,32 @@ fn the_combat_tracker_with_three_thousand_monsters_fits() {
 #[test]
 #[ignore = "needs the release module: scripts/check.sh runs it after the WebAssembly build"]
 fn the_combat_tracker_catching_up_fits() {
-    combat_session(heavy::PERSISTENT_MONSTERS, true);
+    combat_session(heavy::PERSISTENT_MONSTERS, true, None);
+}
+
+/// [`combat_session`] with three thousand monsters and the Persistent
+/// Stats tab shown from before the login: its lists built as the file is
+/// read in, drawn through the burst, a row clicked.
+#[test]
+#[ignore = "needs the release module: scripts/check.sh runs it after the WebAssembly build"]
+fn the_combat_page_shown_with_three_thousand_monsters_fits() {
+    combat_session(
+        3 * heavy::PERSISTENT_MONSTERS,
+        false,
+        Some("ShowMagCombatPersistent"),
+    );
+}
+
+/// [`combat_session`] with the Current Session Stats tab shown through
+/// the burst.
+#[test]
+#[ignore = "needs the release module: scripts/check.sh runs it after the WebAssembly build"]
+fn the_combat_page_shown_during_the_burst_fits() {
+    combat_session(
+        heavy::PERSISTENT_MONSTERS,
+        false,
+        Some("ShowMagCombatCurrent"),
+    );
 }
 
 /// The Mana page on the heavy character wearing twenty pieces of gear with

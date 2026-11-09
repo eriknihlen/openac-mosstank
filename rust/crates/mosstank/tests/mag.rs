@@ -668,3 +668,167 @@ fn the_combat_tracker_counts_the_chat_and_keeps_its_stats_across_sessions() {
     });
     assert_eq!(persistent, current);
 }
+
+/// The current page's monster list and detail list, as rows.
+fn combat_rows(
+    world: &mut World,
+    plugin: &mut mosstank::MossTank,
+    names: [&str; 5],
+) -> Vec<[String; 5]> {
+    let columns: Vec<Vec<String>> = names
+        .iter()
+        .map(|name| world.ui_list(plugin, name))
+        .collect();
+    (0..columns[0].len())
+        .map(|row| std::array::from_fn(|column| columns[column][row].clone()))
+        .collect()
+}
+
+const MONSTER_COLUMNS: [&str; 5] = [
+    "MagCombatMarks",
+    "MagCombatNames",
+    "MagCombatKills",
+    "MagCombatReceived",
+    "MagCombatGiven",
+];
+const DETAIL_COLUMNS: [&str; 5] = [
+    "MagCombatDetailNames",
+    "MagCombatDetailMelee",
+    "MagCombatDetailMagic",
+    "MagCombatDetailLabels",
+    "MagCombatDetailValues",
+];
+
+fn cells(cells: [&str; 5]) -> [String; 5] {
+    cells.map(str::to_owned)
+}
+
+#[test]
+fn the_combat_page_lists_the_fight_and_its_stats_come_back_next_session() {
+    let mut world = World::with_character("Mag");
+    world.set_reply::<calls::ItemsInventoryComplete>(&true);
+    let mut plugin = world.enable();
+    world.ticks(&mut plugin, 30);
+    world.send(&mut plugin, ac_plugin_abi::Event::LoginComplete);
+    world.ticks(&mut plugin, 10);
+    for line in [
+        "You hit Drudge Skulker for 25 points of slashing damage!",
+        "Drudge Skulker hits your chest for 10 points of slashing damage!",
+        "You obliterate Drudge Skulker!",
+    ] {
+        world.send(&mut plugin, combat_line(line));
+    }
+    world.tick(&mut plugin);
+
+    world.act(&mut plugin, "ShowMag");
+    world.act(&mut plugin, "ShowMagCombat");
+    assert!(world.ui_bool(&mut plugin, "MagCombatCurrentSelected"));
+    assert!(world.ui_bool(&mut plugin, "MagCombatStatsVisible"));
+    assert!(!world.ui_bool(&mut plugin, "MagCombatOptionsVisible"));
+    let monsters = vec![
+        cells(["", "", "KB's", "Dmg Rcvd", "Dmg Givn"]),
+        cells(["*", "All", "1", "10", "25"]),
+        cells(["", "Drudge Skulker", "1", "10", "25"]),
+    ];
+    assert_eq!(
+        combat_rows(&mut world, &mut plugin, MONSTER_COLUMNS),
+        monsters
+    );
+    let detail = combat_rows(&mut world, &mut plugin, DETAIL_COLUMNS);
+    assert_eq!(
+        detail[0],
+        cells(["", "Mel/Msl", "Magic", "Attacks", "2 (100%)"])
+    );
+    assert_eq!(detail[2], cells(["Slash", "10", "", "Resists", ""]));
+    assert_eq!(detail[1][4], "1 (0%)");
+    assert_eq!(detail[6][4], "25 / 25");
+    assert_eq!(detail[10], cells(["Total", "10", "", "Total", "25"]));
+
+    // A click on the monster's row shows its stats.
+    world.act_int(&mut plugin, "SelectMagCombatRow", 2);
+    assert_eq!(world.ui_list(&mut plugin, "MagCombatMarks"), ["", "", "*"]);
+
+    // The options are the settings.
+    world.act(&mut plugin, "ShowMagCombatOptions");
+    assert!(world.ui_bool(&mut plugin, "MagCombatOptionsVisible"));
+    assert!(!world.ui_bool(&mut plugin, "MagCombatStatsVisible"));
+    assert!(world.ui_bool(&mut plugin, "MagCombatPersistent"));
+    assert!(!world.ui_bool(&mut plugin, "MagCombatExportOnLogOff"));
+    world.act_with(
+        &mut plugin,
+        "SetMagCombatExportOnLogOff",
+        ac_plugin_abi::ui::ActionValue::Int(1),
+    );
+    assert!(world.ui_bool(&mut plugin, "MagCombatExportOnLogOff"));
+
+    // The export button writes the current stats and says where.
+    let key = "Mag-Tools/Coldeve/Mag.CombatTracker.xml";
+    world.act(&mut plugin, "ExportMagCombatCurrent");
+    let exports = |world: &World| {
+        world
+            .plugin_data
+            .keys()
+            .filter(|name| name.starts_with("Mag-Tools/Coldeve/Mag.CombatTracker.") && *name != key)
+            .count()
+    };
+    assert_eq!(
+        exports(&world),
+        1,
+        "{:?}",
+        world.plugin_data.keys().collect::<Vec<_>>()
+    );
+    assert!(
+        world
+            .chat()
+            .iter()
+            .any(|text| text.starts_with("<{Mag-Tools}>: Stats exported to: ")),
+        "{:?}",
+        world.chat()
+    );
+
+    // Logging off writes the persistent stats.
+    world.send(&mut plugin, ac_plugin_abi::Event::Logoff);
+    let written = world.plugin_data.get(key).expect("the stats").to_owned();
+    assert!(
+        written.contains("TargetName=\"Drudge Skulker\""),
+        "{written}"
+    );
+    world.disable(&mut plugin);
+
+    // The next session reads them in: the persistent page lists them, the
+    // current page is empty.
+    let mut plugin = world.enable();
+    world.ticks(&mut plugin, 30);
+    world.send(&mut plugin, ac_plugin_abi::Event::LoginComplete);
+    world.ticks(&mut plugin, 10);
+    world.act(&mut plugin, "ShowMag");
+    world.act(&mut plugin, "ShowMagCombat");
+    assert_eq!(
+        combat_rows(&mut world, &mut plugin, MONSTER_COLUMNS).len(),
+        2
+    );
+    world.act(&mut plugin, "ShowMagCombatPersistent");
+    assert!(world.ui_bool(&mut plugin, "MagCombatPersistentSelected"));
+    assert_eq!(
+        combat_rows(&mut world, &mut plugin, MONSTER_COLUMNS),
+        monsters
+    );
+
+    // Clear Persistent Stats empties the page and deletes the file.
+    world.act(&mut plugin, "ShowMagCombatOptions");
+    world.act(&mut plugin, "ClearMagCombatPersistent");
+    assert!(world.plugin_data.get(key).is_none());
+    assert!(
+        world
+            .chat()
+            .iter()
+            .any(|text| text.starts_with("<{Mag-Tools}>: File deleted: ")),
+        "{:?}",
+        world.chat()
+    );
+    world.act(&mut plugin, "ShowMagCombatPersistent");
+    assert_eq!(
+        combat_rows(&mut world, &mut plugin, MONSTER_COLUMNS).len(),
+        2
+    );
+}

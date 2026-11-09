@@ -780,8 +780,75 @@
             onclick="{OpenMagInventory}"
             tooltip="Open the Inventory window: search every logged character's items." />
 
+    <!-- Combat: Mag-Tools' combat tracker, its three tabs. Each stats tab
+         has its monster list (the header row, the All row, a row a name;
+         * marks the one shown) and the detail list of that row, at
+         Mag-Tools' column widths and alignments. Side by side, monster
+         list left: the page is wider and lower than Mag-Tools' 320 x 400,
+         where they were stacked. -->
     <group x="0" y="22" w="976" h="207" visible="{MagCombatVisible}"
            anchor="left top right bottom">
+      <tab x="4" y="0" w="136" h="18" text="Current Session Stats"
+           selected="{MagCombatCurrentSelected}" onclick="{ShowMagCombatCurrent}" />
+      <tab x="140" y="0" w="104" h="18" text="Persistent Stats"
+           selected="{MagCombatPersistentSelected}" onclick="{ShowMagCombatPersistent}" />
+      <tab x="244" y="0" w="60" h="18" text="Options"
+           selected="{MagCombatOptionsSelected}" onclick="{ShowMagCombatOptions}" />
+      <group x="0" y="20" w="976" h="187" visible="{MagCombatStatsVisible}"
+             anchor="left top right bottom">
+        <list x="4" y="2" w="320" h="183" rowheight="16" anchor="left top bottom"
+              selected="{SelectedMagCombatRow}" onchange="{SelectMagCombatRow}"
+              tooltip="Everyone you fought: your killing blows on them, the damage they gave you and you gave them. Click a row for its details (All: everyone).">
+          <column type="text" width="5" items="{MagCombatMarks}"
+                  onclick="{SelectMagCombatRow}" />
+          <column type="text" width="111" items="{MagCombatNames}"
+                  onclick="{SelectMagCombatRow}" />
+          <column type="text" width="37" align="right" items="{MagCombatKills}"
+                  onclick="{SelectMagCombatRow}" />
+          <column type="text" width="55" align="right" items="{MagCombatReceived}"
+                  onclick="{SelectMagCombatRow}" />
+          <column type="text" width="77" align="right" items="{MagCombatGiven}"
+                  onclick="{SelectMagCombatRow}" />
+        </list>
+        <list x="328" y="2" w="320" h="183" rowheight="16" anchor="left top bottom"
+              selected="{SelectedMagCombatDetailRow}" onchange="{SelectMagCombatDetailRow}"
+              tooltip="The row marked *: the damage you received by kind and element (left); your attacks and their hit share, your evades and resists, surges, average and largest hits, crits (right).">
+          <column type="text" width="40" items="{MagCombatDetailNames}"
+                  onclick="{SelectMagCombatDetailRow}" />
+          <column type="text" width="52" align="right" items="{MagCombatDetailMelee}"
+                  onclick="{SelectMagCombatDetailRow}" />
+          <column type="text" width="52" align="right" items="{MagCombatDetailMagic}"
+                  onclick="{SelectMagCombatDetailRow}" />
+          <column type="text" width="45" items="{MagCombatDetailLabels}"
+                  onclick="{SelectMagCombatDetailRow}" />
+          <column type="text" width="96" align="right" items="{MagCombatDetailValues}"
+                  onclick="{SelectMagCombatDetailRow}" />
+        </list>
+      </group>
+      <group x="0" y="20" w="976" h="187" visible="{MagCombatOptionsVisible}"
+             anchor="left top right bottom">
+        <button x="10" y="10" w="120" h="20" text="Clear Current Stats"
+                onclick="{ClearMagCombatCurrent}"
+                tooltip="Forget this session's combat stats." />
+        <button x="10" y="40" w="120" h="20" text="Export Current Stats"
+                onclick="{ExportMagCombatCurrent}"
+                tooltip="Write this session's combat stats to a file named for the date and time." />
+        <button x="150" y="10" w="120" h="20" text="Clear Persistent Stats"
+                onclick="{ClearMagCombatPersistent}"
+                tooltip="Forget the combat stats kept across sessions and delete their file." />
+        <checkbox x="10" y="80" w="185" h="18" text="Export Current Stats On LogOff"
+                  checked="{MagCombatExportOnLogOff}" onchange="{SetMagCombatExportOnLogOff}"
+                  color="theme:text|#FFE8DEC3"
+                  tooltip="Write this session's combat stats to a file when you log off." />
+        <checkbox x="10" y="100" w="140" h="18" text="Keep Persistent Stats"
+                  checked="{MagCombatPersistent}" onchange="{SetMagCombatPersistent}"
+                  color="theme:text|#FFE8DEC3"
+                  tooltip="Keep the combat stats across sessions, in a file read at the login and written every 10 minutes and at the logoff." />
+        <checkbox x="10" y="140" w="140" h="18" text="Sort Alphabetically"
+                  checked="{MagCombatSortAlphabetically}" onchange="{SetMagCombatSortAlphabetically}"
+                  color="theme:text|#FFE8DEC3"
+                  tooltip="Sort the monster lists by name (when a row is added)." />
+      </group>
     </group>
     <!-- Mana: Mag-Tools' ManaList (its item icon, name, state icon, mana
          and time left columns, at their widths) and the two totals under
