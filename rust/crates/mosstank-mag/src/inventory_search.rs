@@ -14,9 +14,8 @@
 //!   plugin's data, read again each time the window is opened.
 //! - Clicking a row of the logged-in character opens the side pack holding
 //!   it, selects it and shows its text; another character's row shows the
-//!   text its file gave. The text stays while other rows are shown, and goes
-//!   with the click when the list is left empty (nothing found, a bad
-//!   pattern).
+//!   text its file gave. The text goes with the click once the list no
+//!   longer shows the item (the pattern or a filter left it out).
 //!
 //! Nothing is done while the window is hidden. The work is staged so no
 //! call does more than a tick's worth: a file is read in one tick, its items
@@ -1318,10 +1317,11 @@ impl InventorySearch {
         class_names.sort_by(|a, b| ordinal::compare_ignore_case(a, b));
         view.class_choices.push(ALL.to_owned());
         view.class_choices.extend(class_names);
-        // A list left empty (nothing found, a bad pattern) shows no item's
-        // text: the click is forgotten. Not while the rows are still being
-        // read or matched, when the list is empty only for now.
-        if targets.entries.is_empty() && self.work_done() {
+        // A clicked item the list no longer shows (the pattern or a filter
+        // left it out, the list left empty) shows no text: the click is
+        // forgotten. Not while the rows are still being read or matched,
+        // when it is missing only for now.
+        if view.selected < 0 && self.work_done() {
             self.clicked = None;
             self.info.clear();
         }

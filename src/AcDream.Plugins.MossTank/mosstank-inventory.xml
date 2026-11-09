@@ -68,7 +68,8 @@
               items="{MagInventoryRowPlaces}" onclick="{SelectMagInventoryRow}" />
     </list>
 
-    <label x="4" y="374" w="772" h="80" text="{MagInventoryInfo}" color="theme:text|#FFE8DEC3"
+    <field x="4" y="374" w="772" h="80" text="{MagInventoryInfo}" color="theme:text|#FFE8DEC3"
+           oneline="false" editable="false" maxlength="8192" background="#00000000"
            tooltip="The clicked item's full text." />
   </group>
 </panel>

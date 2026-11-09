@@ -541,7 +541,47 @@ fn the_selection_follows_its_item_when_the_rows_change() {
     assert_eq!(rig.search.selected_row(), 0);
     rig.search("ring");
     assert_eq!(rig.search.selected_row(), -1, "not listed: no row selected");
-    assert!(rig.search.info().contains("Sword"), "the text stays");
+    assert_eq!(rig.search.info(), "", "nor its text");
+    // Found again: not selected, no text until it is clicked.
+    rig.search("");
+    assert_eq!(rig.search.selected_row(), -1);
+    assert_eq!(rig.search.info(), "");
+}
+
+#[test]
+fn an_item_a_filter_leaves_out_takes_its_text_with_it() {
+    let mut rig = Rig::new();
+    rig.own(item(RING, "Test Ring", ObjectClass::Jewelry, PLAYER));
+    rig.own(item(SWORD, "Sword", ObjectClass::MeleeWeapon, PLAYER));
+    rig.search("");
+    let sword = rig.names().iter().position(|n| n == "Sword").unwrap();
+    rig.search
+        .click(&mut rig.host, i32::try_from(sword).unwrap(), settings());
+    assert!(rig.search.info().contains("Sword"));
+    rig.filter(jewelry());
+    assert_eq!(rig.names(), ["Test Ring"]);
+    assert_eq!(rig.search.selected_row(), -1);
+    assert_eq!(rig.search.info(), "");
+    // A row still listed keeps its selection and text.
+    rig.search.click(&mut rig.host, 0, settings());
+    rig.filter(InventoryFilter::default());
+    assert!(rig.search.info().contains("Test Ring"));
+    assert_ne!(rig.search.selected_row(), -1);
+}
+
+/// A gem is named for its material ("Aquamarine"): the material is not
+/// put before a name that already starts with it, ignoring case.
+#[test]
+fn a_name_already_starting_with_its_material_is_not_prefixed_again() {
+    let mut gem = item(GEM, "Aquamarine", ObjectClass::Gem, PLAYER);
+    gem.material_type = 13; // Aquamarine
+    let mut lower = item(RING, "aquamarine ring", ObjectClass::Jewelry, PLAYER);
+    lower.material_type = 13;
+    let mut rig = Rig::new();
+    rig.own(gem);
+    rig.own(lower);
+    rig.search("");
+    assert_eq!(sorted(rig.names()), ["Aquamarine", "aquamarine ring"]);
 }
 
 #[test]
