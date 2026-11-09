@@ -229,9 +229,32 @@ fn worn_by(item: &InventoryItem, me: u32) -> bool {
     item.equipped_location != 0 && item.wielder_id == me
 }
 
+/// The spells items cast on the character (an enchantment with no end, or
+/// one that ended), as family and difficulty: read and looked up once for
+/// every state worked out in one reading of the list.
+#[derive(Debug, Default)]
+struct ItemCasts(Option<Vec<(u32, i32)>>);
+
+impl ItemCasts {
+    fn get(&mut self, host: &mut dyn MagHost) -> &[(u32, i32)] {
+        self.0.get_or_insert_with(|| {
+            host.all_enchantments()
+                .into_iter()
+                .filter(|e| e.seconds_remaining <= 0.0 || e.seconds_remaining.is_infinite())
+                .filter_map(|e| host.spell(e.spell_id))
+                .map(|spell| (spell.family, spell.difficulty))
+                .collect()
+        })
+    }
+}
+
 /// The state worked out afresh; `None` when a spell is not in the spell
 /// table (Mag-Tools threw there, and the row kept its state).
-fn work_out_state(snapshot: &Snapshot, host: &mut dyn MagHost) -> Option<ManaState> {
+fn work_out_state(
+    snapshot: &Snapshot,
+    host: &mut dyn MagHost,
+    casts: &mut ItemCasts,
+) -> Option<ManaState> {
     if !snapshot.has_id_data {
         return Some(ManaState::Unknown);
     }
@@ -241,13 +264,7 @@ fn work_out_state(snapshot: &Snapshot, host: &mut dyn MagHost) -> Option<ManaSta
     if snapshot.current_mana == 0 {
         return Some(ManaState::NotActive);
     }
-    // The spells items cast on the character: no end (or ended).
-    let on_character: Vec<u32> = host
-        .all_enchantments()
-        .into_iter()
-        .filter(|e| e.seconds_remaining <= 0.0 || e.seconds_remaining.is_infinite())
-        .map(|e| e.spell_id)
-        .collect();
+    casts.get(host);
     for &spell_id in &snapshot.spells {
         if snapshot.associated_spell != 0 && snapshot.associated_spell == spell_id {
             continue;
@@ -265,10 +282,8 @@ fn work_out_state(snapshot: &Snapshot, host: &mut dyn MagHost) -> Option<ManaSta
             }
         }
         if !active {
-            active = on_character.iter().any(|&cast| {
-                host.spell(cast).is_some_and(|other| {
-                    other.family == spell.family && other.difficulty >= spell.difficulty
-                })
+            active = casts.get(host).iter().any(|&(family, difficulty)| {
+                family == spell.family && difficulty >= spell.difficulty
             });
         }
         if !active {
@@ -310,13 +325,13 @@ impl Tracked {
 
     /// The state: the kept one, worked out again when an appraisal arrived
     /// since, or while none has.
-    fn state(&mut self, host: &mut dyn MagHost) -> ManaState {
+    fn state(&mut self, host: &mut dyn MagHost, casts: &mut ItemCasts) -> ManaState {
         if !self.snapshot.exists {
             return ManaState::Unknown;
         }
         if self.idents == 0 || self.worked_out_for != self.idents {
             self.worked_out_for = self.idents;
-            if let Some(state) = work_out_state(&self.snapshot, host) {
+            if let Some(state) = work_out_state(&self.snapshot, host, casts) {
                 self.state = state;
             }
         }
@@ -361,8 +376,8 @@ impl Tracked {
         i64::from(self.calculated_mana(state, now_ms)) * i64::from(period)
     }
 
-    fn mana_needed(&mut self, host: &mut dyn MagHost, now_ms: f64) -> i32 {
-        let state = self.state(host);
+    fn mana_needed(&mut self, host: &mut dyn MagHost, casts: &mut ItemCasts, now_ms: f64) -> i32 {
+        let state = self.state(host, casts);
         let maximum = if self.snapshot.exists {
             self.snapshot.maximum_mana
         } else {
@@ -498,8 +513,9 @@ impl ManaTracker {
             .filter(|item| worn_by(item, me))
             .map(|item| item.object_id)
             .collect();
+        let mut casts = ItemCasts::default();
         for object_id in worn {
-            self.add(host, object_id, queue);
+            self.add(host, object_id, queue, &mut casts);
         }
     }
 
@@ -565,7 +581,7 @@ impl ManaTracker {
             item.last_ident_ms = Some(now);
             item.idents += 1;
             // Mag-Tools redrew the row at once, reading the state.
-            item.state(host);
+            item.state(host, &mut ItemCasts::default());
         }
         self.dirty = true;
     }
@@ -592,12 +608,21 @@ impl ManaTracker {
 
     /// The rows at `now_ms`, in order.
     pub fn rows(&mut self, host: &mut dyn MagHost, now_ms: f64) -> Vec<ManaRow> {
+        self.rows_with(host, &mut ItemCasts::default(), now_ms)
+    }
+
+    fn rows_with(
+        &mut self,
+        host: &mut dyn MagHost,
+        casts: &mut ItemCasts,
+        now_ms: f64,
+    ) -> Vec<ManaRow> {
         let mut rows = Vec::with_capacity(self.items.len());
         for item in &mut self.items {
             if item.hidden {
                 continue;
             }
-            let state = item.state(host);
+            let state = item.state(host, casts);
             let row = if state.shows_mana() {
                 let left = item.time_left(state, now_ms);
                 ManaRow {
@@ -631,8 +656,17 @@ impl ManaTracker {
 
     /// The mana every tracked item lacks (hidden ones too).
     pub fn mana_needed(&mut self, host: &mut dyn MagHost, now_ms: f64) -> i32 {
+        self.mana_needed_with(host, &mut ItemCasts::default(), now_ms)
+    }
+
+    fn mana_needed_with(
+        &mut self,
+        host: &mut dyn MagHost,
+        casts: &mut ItemCasts,
+        now_ms: f64,
+    ) -> i32 {
         self.items.iter_mut().fold(0, |sum, item| {
-            sum.wrapping_add(item.mana_needed(host, now_ms))
+            sum.wrapping_add(item.mana_needed(host, casts, now_ms))
         })
     }
 
@@ -658,8 +692,9 @@ impl ManaTracker {
         if !self.dirty && self.built_ms == Some(now) {
             return;
         }
-        let rows = self.rows(host, now);
-        let mana_needed = self.mana_needed(host, now);
+        let mut casts = ItemCasts::default();
+        let rows = self.rows_with(host, &mut casts, now);
+        let mana_needed = self.mana_needed_with(host, &mut casts, now);
         self.view = ManaView {
             rows,
             mana_needed,
@@ -687,12 +722,18 @@ impl ManaTracker {
             .iter()
             .any(|item| item.object_id == object_id && worn_by(item, me));
         if worn {
-            self.add(host, object_id, queue);
+            self.add(host, object_id, queue, &mut ItemCasts::default());
         }
     }
 
     /// Tracks an item (once) and asks for its appraisal.
-    fn add(&mut self, host: &mut dyn MagHost, object_id: u32, queue: &mut IdentifyQueue) {
+    fn add(
+        &mut self,
+        host: &mut dyn MagHost,
+        object_id: u32,
+        queue: &mut IdentifyQueue,
+        casts: &mut ItemCasts,
+    ) {
         if self.is_tracked(object_id) {
             return;
         }
@@ -702,7 +743,7 @@ impl ManaTracker {
         }
         queue.push(object_id);
         let mut item = Tracked::new(object_id, snapshot);
-        item.state(host);
+        item.state(host, casts);
         self.items.push(item);
         self.dirty = true;
     }
