@@ -184,6 +184,7 @@ struct RecordingPainter {
     texts: Vec<Drawn>,
     images: Vec<(MapImage, HudRect)>,
     fills: Vec<(HudRect, Color)>,
+    strokes: Vec<(HudRect, Color)>,
     lines: Vec<Line>,
 }
 
@@ -192,9 +193,9 @@ impl RecordingPainter {
         self.texts.iter().map(|text| text.color.clone()).collect()
     }
 
-    /// Nothing but the items: no fill and no line.
+    /// Nothing but the items: no fill, no outlined rectangle and no line.
     fn has_no_marks(&self) -> bool {
-        self.fills.is_empty() && self.lines.is_empty()
+        self.fills.is_empty() && self.strokes.is_empty() && self.lines.is_empty()
     }
 }
 
@@ -213,7 +214,9 @@ impl MapPainter for RecordingPainter {
         self.fills.push((rect, color.clone()));
     }
 
-    fn stroke_rect(&mut self, _rect: (f64, f64, f64, f64), _color: &Color, _thickness: f32) {}
+    fn stroke_rect(&mut self, rect: (f64, f64, f64, f64), color: &Color, _thickness: f32) {
+        self.strokes.push((rect, color.clone()));
+    }
 
     fn draw_line(&mut self, from: (f64, f64), to: (f64, f64), color: &Color, thickness: f32) {
         self.lines.push((from, to, color.clone(), thickness));
@@ -341,9 +344,13 @@ impl Rig {
     }
 
     /// A click on one of the strip's buttons, where it is drawn now.
+    /// A click on one of the strip's buttons, where it is drawn now: the
+    /// pointer comes over it first (as the host reports it), so the buttons
+    /// show.
     fn press(&mut self, button: HudButton) {
         let (x, y, width, height) = self.controller.geometry().button(button);
         let (x, y) = (x + width / 2.0, y + height / 2.0);
+        self.event(PointerEvent::HOVER, (x, y), 0);
         self.pointer(0, x, y);
         self.pointer(1, x, y);
     }
@@ -680,6 +687,7 @@ fn a_button_acts_only_when_let_go_over_it() {
     let mut rig = Rig::new();
     rig.ticks(1, 0.015);
     let (x, y, width, height) = rig.controller.geometry().button(HudButton::Hide);
+    rig.event(PointerEvent::HOVER, (x + width / 2.0, y + height / 2.0), 0);
     rig.pointer(0, x + width / 2.0, y + height / 2.0);
     rig.pointer(1, x + width / 2.0, y + height + 20.0);
     assert!(rig.controller.enabled());
@@ -1082,6 +1090,77 @@ fn the_buttons_show_only_while_the_pointer_is_over_the_strip() {
     assert!(rig.controller.hovered());
     rig.controller.reset(&mut rig.ui);
     assert!(!rig.controller.hovered());
+}
+
+/// A button acts only when it was showing as it was pressed. A press with
+/// no hover (a recount replaced the canvas under a resting pointer, which
+/// hears no hover until it moves) shows the buttons and repaints, and acts
+/// on none: let go where it went down it does nothing, not even a move.
+/// The next press on the button, now shown, is the button.
+#[test]
+fn a_press_before_any_hover_shows_the_buttons_and_presses_none() {
+    let storage = SharedStorage::new();
+    let key = comps_hud::key_for("Coldeve", "Acdream");
+    let mut rig = Rig::with(storage.clone(), true);
+    rig.own(item(TAPER_ID, "Prismatic Taper", 9, true, 0));
+    rig.add(TAPER_ID);
+    rig.ticks(1, 0.015);
+
+    // The pointer rests on the cross; a recount replaces the canvas.
+    let hide = centre(rig.controller.geometry().button(HudButton::Hide));
+    rig.event(PointerEvent::HOVER, hide, 0);
+    let canvases = rig.strip_canvases();
+    rig.own(item(0x8000_0050, "Prismatic Taper", 99_990, true, 0));
+    rig.ticks(1, 0.6);
+    assert_eq!(canvases + 1, rig.strip_canvases());
+    assert!(!rig.controller.hovered());
+    rig.paint();
+
+    let saved = storage.get(&key);
+    let place = rig.controller.position();
+    let painted = rig.ui.invalidated;
+    let hide = centre(rig.controller.geometry().button(HudButton::Hide));
+    rig.event(PointerEvent::DOWN, hide, 1);
+    assert!(rig.controller.hovered(), "the press shows the buttons");
+    rig.ticks(1, 0.015);
+    assert!(rig.ui.invalidated > painted, "and repaints");
+    assert!(!rig.paint().has_no_marks());
+    rig.event(PointerEvent::UP, hide, 1);
+    assert!(rig.controller.enabled(), "the hidden cross did not act");
+    assert_eq!(place, rig.controller.position());
+    assert_eq!(saved, storage.get(&key), "nothing saved");
+
+    // Shown now: the same click is the cross.
+    rig.event(PointerEvent::DOWN, hide, 1);
+    rig.event(PointerEvent::UP, hide, 1);
+    assert!(!rig.controller.enabled());
+}
+
+/// Hiding the HUD under the pointer clears its hover (a hidden canvas's
+/// leave may never come): shown again, it is painted without its buttons.
+#[test]
+fn a_hud_shown_again_after_its_cross_has_no_buttons() {
+    let mut rig = Rig::new();
+    rig.own(item(SCARAB_ID, "Lead Scarab", 5, true, 0));
+    rig.add(SCARAB_ID);
+    rig.ticks(1, 0.015);
+    let canvases = rig.strip_canvases();
+
+    rig.press(HudButton::Hide);
+    assert!(!rig.controller.enabled());
+    rig.ticks(1, 0.015);
+    assert!(!rig.canvas().visible);
+
+    // `/vt compshud on`.
+    rig.controller.set_enabled(&mut rig.host, true);
+    rig.ticks(1, 0.015);
+    assert!(rig.canvas().visible);
+    assert_eq!(canvases, rig.strip_canvases(), "the same canvas, shown");
+    assert!(!rig.controller.hovered());
+    assert!(
+        rig.paint().has_no_marks(),
+        "no buttons until the pointer comes"
+    );
 }
 
 // C# source: ComponentHudControllerTests.cs :: TheListIsKeptPerCharacterAndTheSwitchForAll

@@ -61,9 +61,15 @@ fn canvas(world: &World) -> Option<(u32, bool, i32, i32)> {
         })
 }
 
+/// A click on the strip: the pointer comes over it first (as the host
+/// reports it), so its buttons show, then a left press and release.
 fn click(world: &mut World, plugin: &mut MossTank, at: (f64, f64)) {
     let (id, ..) = canvas(world).expect("the HUD's canvas");
-    for kind in [0, 1] {
+    for (kind, button) in [
+        (PointerEvent::HOVER, 0),
+        (PointerEvent::DOWN, 1),
+        (PointerEvent::UP, 1),
+    ] {
         #[allow(clippy::cast_possible_truncation)]
         world.send(
             plugin,
@@ -72,7 +78,7 @@ fn click(world: &mut World, plugin: &mut MossTank, at: (f64, f64)) {
                 kind,
                 x: at.0 as f32,
                 y: at.1 as f32,
-                button: 1,
+                button,
                 modifiers: 0,
                 wheel_delta: 0,
             })),
@@ -474,11 +480,15 @@ fn strip_paint(world: &World) -> Vec<PaintCmd> {
         .unwrap_or_default()
 }
 
-/// Whether a paint has a fill or a line: a face, an edge or a button.
+/// Whether a paint has a fill, an outlined rectangle or a line: a face, an
+/// edge or a button.
 fn has_marks(paint: &[PaintCmd]) -> bool {
-    paint
-        .iter()
-        .any(|command| matches!(command, PaintCmd::FillRect(..) | PaintCmd::Line(..)))
+    paint.iter().any(|command| {
+        matches!(
+            command,
+            PaintCmd::FillRect(..) | PaintCmd::StrokeRect(..) | PaintCmd::Line(..)
+        )
+    })
 }
 
 fn hover_event(world: &mut World, plugin: &mut MossTank, kind: u8, at: (f64, f64)) {

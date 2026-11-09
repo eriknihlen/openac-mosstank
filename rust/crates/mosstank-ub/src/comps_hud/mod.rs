@@ -656,8 +656,9 @@ impl ComponentHudController {
     /// and the tooltip names what is under it, and leaving the strip hides
     /// both; a left press let
     /// go over the button it went down on is that button (the layout
-    /// switch, Edit items, hide); a left press anywhere else drags the
-    /// strip: it follows the pointer while the button is held, the grabbed
+    /// switch, Edit items, hide) when the buttons were showing as it went
+    /// down; a left press anywhere else, or before any hover, shows them
+    /// and drags the strip: it follows the pointer while the button is held, the grabbed
     /// point staying under it, and its place is kept once, when the button
     /// comes up. The host captures the pointer for the press and reports
     /// each move from where the plugin last put the canvas, so the strip
@@ -685,7 +686,18 @@ impl ComponentHudController {
             _ if event.button != BUTTON_LEFT => {}
             POINTER_DOWN => {
                 self.hide_tip();
-                self.press = Some(match self.geometry().button_at(at) {
+                // A button acts only when it was showing as it was pressed:
+                // with no hover yet (a canvas replaced under a resting
+                // pointer hears none until it moves) the press shows the
+                // buttons and takes the strip, as a press beside them does.
+                let shown = self.hovered;
+                self.set_hovered(true);
+                let button = if shown {
+                    self.geometry().button_at(at)
+                } else {
+                    None
+                };
+                self.press = Some(match button {
                     Some(button) => Press::Button(button),
                     None => Press::Strip {
                         grab: at,
