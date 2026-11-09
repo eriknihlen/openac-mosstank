@@ -338,8 +338,9 @@ fn the_mag_tabs_button_opens_the_inventory_window() {
     assert!(shown(&world));
 }
 
-// The Inventory window's Filters... button opens the filters window, which
-// starts hidden and has no dock button of its own.
+// The Inventory window's Filters... button opens the filters window (which
+// starts hidden and has no dock button of its own) and, pressed again,
+// closes it; the window's own Close hides it.
 #[test]
 fn the_inventory_windows_filters_button_opens_the_filters_window() {
     let (mut world, mut plugin) = fresh();
@@ -359,8 +360,14 @@ fn the_inventory_windows_filters_button_opens_the_filters_window() {
             .expect("the filters window registers")
     };
     assert_eq!(filters(&world), (false, false, false));
-    act(&mut world, &mut plugin, "OpenMagInventoryFilters");
+    act(&mut world, &mut plugin, "ToggleMagInventoryFilters");
     assert!(filters(&world).2);
+    act(&mut world, &mut plugin, "ToggleMagInventoryFilters");
+    assert!(!filters(&world).2);
+    act(&mut world, &mut plugin, "ToggleMagInventoryFilters");
+    assert!(filters(&world).2);
+    act(&mut world, &mut plugin, "CloseMagInventoryFilters");
+    assert!(!filters(&world).2);
 }
 
 // Source: tests/AcDream.Plugins.MossTank.Tests/MossTankMarkupContractTests.cs :: LootEditorHasNoLeftoverBackButton

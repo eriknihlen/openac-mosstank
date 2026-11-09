@@ -989,16 +989,27 @@ fn the_sets_are_counted_over_the_characters_searched() {
         name: name.to_owned(),
         count,
     };
+    // Every set of the set table, the ones held first (the most first),
+    // then the others by name, at 0.
+    let table = mosstank_mag::item_info::names::ATTRIBUTE_SET_INFO;
+    let counts = rig.search.set_counts();
+    assert_eq!(counts.len(), table.len());
     assert_eq!(
-        rig.search.set_counts(),
+        counts[..2],
         [count(13, "Soldier's Set", 3), count(14, "Adept's Set", 1)]
     );
+    assert!(counts[2..].iter().all(|set| set.count == 0));
+    let rest: Vec<&str> = counts[2..].iter().map(|set| set.name.as_str()).collect();
+    let mut by_name = rest.clone();
+    by_name.sort_by_key(|name| name.to_lowercase());
+    assert_eq!(rest, by_name);
+    assert!(rest.contains(&"Noble Relic Set"));
     rig.filter(InventoryFilter {
         characters: Some(BTreeSet::from([ME.to_owned()])),
         ..InventoryFilter::default()
     });
     assert_eq!(
-        rig.search.set_counts(),
+        rig.search.set_counts()[..2],
         [count(13, "Soldier's Set", 2), count(14, "Adept's Set", 1)]
     );
     // The counts ignore the other filters (as the website's).
@@ -1007,7 +1018,7 @@ fn the_sets_are_counted_over_the_characters_searched() {
         ..InventoryFilter::default()
     });
     assert_eq!(rig.names(), ["Robe"]);
-    assert_eq!(rig.search.set_counts().len(), 2);
+    assert_eq!(rig.search.set_counts()[0], count(13, "Soldier's Set", 3));
 }
 
 #[test]
@@ -1104,4 +1115,41 @@ fn setting_a_filter_changes_the_filters_revision_not_the_rows() {
     rig.settle();
     assert!(rig.search.revision() > rows, "the rows worked out again");
     assert_eq!(rig.names(), ["Test Ring"]);
+}
+
+// Refresh reads the other characters' files again now, as opening the
+// window does: a file another client rewrote shows its new items once read,
+// and the rows shown stay until then.
+#[test]
+fn refresh_reads_the_saved_files_again_keeping_the_rows_until_then() {
+    let mut rig = Rig::new();
+    save(
+        &rig.host,
+        "Alt One",
+        &[item(0x100, "Alt Ring", ObjectClass::Jewelry, 0x50)],
+    );
+    rig.own(item(RING, "Test Ring", ObjectClass::Jewelry, PLAYER));
+    rig.search("");
+    assert_eq!(sorted(rig.names()), ["Alt Ring", "Test Ring"]);
+    // Another client rewrites the file: unseen while the window stays open.
+    save(
+        &rig.host,
+        "Alt One",
+        &[item(0x100, "Alt Band", ObjectClass::Jewelry, 0x50)],
+    );
+    for _ in 0..20 {
+        rig.tick();
+    }
+    assert_eq!(sorted(rig.names()), ["Alt Ring", "Test Ring"]);
+    rig.search.refresh();
+    // The rows stay while the file is read again.
+    rig.tick();
+    assert_eq!(sorted(rig.names()), ["Alt Ring", "Test Ring"]);
+    assert!(
+        rig.search.status().starts_with("Reading"),
+        "{}",
+        rig.search.status()
+    );
+    rig.settle();
+    assert_eq!(sorted(rig.names()), ["Alt Band", "Test Ring"]);
 }

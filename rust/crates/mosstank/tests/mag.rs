@@ -455,26 +455,27 @@ fn the_filters_window_narrows_the_inventory_and_clear_empties_it() {
     );
 
     assert!(!world.ui_bool(&mut plugin, "MagFiltersShown"));
-    world.act(&mut plugin, "OpenMagInventoryFilters");
+    world.act(&mut plugin, "ToggleMagInventoryFilters");
     assert!(world.ui_bool(&mut plugin, "MagFiltersShown"));
     assert!(world.ui_bool(&mut plugin, "MagFiltersItemVisible"));
     world.act(&mut plugin, "ShowMagFiltersCantrips");
     assert!(world.ui_bool(&mut plugin, "MagFiltersCantripsVisible"));
     assert!(!world.ui_bool(&mut plugin, "MagFiltersItemVisible"));
+    // The Attributes heading, then Strength.
     assert_eq!(
-        world.ui_list(&mut plugin, "MagFilterCantripNames")[0],
-        "Strength"
+        world.ui_list(&mut plugin, "MagFilterCantripNames")[..2],
+        ["— Attributes —", "Strength"]
     );
     // Strength's tier stepped from Legendary to Epic, then checked.
     for _ in 0..3 {
-        world.act_int(&mut plugin, "CycleMagFilterCantripTier", 0);
+        world.act_int(&mut plugin, "CycleMagFilterCantripTier", 1);
     }
     assert_eq!(
-        world.ui_list(&mut plugin, "MagFilterCantripTiers")[0],
+        world.ui_list(&mut plugin, "MagFilterCantripTiers")[1],
         "Epic"
     );
-    world.act_int(&mut plugin, "ToggleMagFilterCantrip", 0);
-    assert!(world.ui_bools(&mut plugin, "MagFilterCantripChecks")[0]);
+    world.act_int(&mut plugin, "ToggleMagFilterCantrip", 1);
+    assert!(world.ui_bools(&mut plugin, "MagFilterCantripChecks")[1]);
     assert_eq!(
         world.ui_text(&mut plugin, "MagInventoryFilterSummary"),
         "Epic Strength"
@@ -496,11 +497,41 @@ fn the_filters_window_narrows_the_inventory_and_clear_empties_it() {
         world.ui_text(&mut plugin, "MagInventoryFilterSummary"),
         "No filters"
     );
-    assert!(!world.ui_bools(&mut plugin, "MagFilterCantripChecks")[0]);
+    assert!(!world.ui_bools(&mut plugin, "MagFilterCantripChecks")[1]);
     frames(&mut world, &mut plugin, 13);
     assert_eq!(
         names(&mut world, &mut plugin),
         ["Plain Ring", "Strength Ring"]
+    );
+}
+
+// Refresh reads the other characters' saved files again: a file another
+// client rewrote shows its new items without closing the window.
+#[test]
+fn refresh_reads_a_rewritten_saved_inventory_again() {
+    let mut world = World::with_character("Mag");
+    world.set_reply::<calls::ItemsInventoryComplete>(&true);
+    world.own_items(vec![item(0x5000_0002, "Test Ring", 0x8)]);
+    save_log(&mut world, "Alt", &[item(0x5000_0100, "Alt Sword", 0x1)]);
+    let mut plugin = world.enable();
+    world.ticks(&mut plugin, 60);
+    world.act(&mut plugin, "OpenMagInventory");
+    world.ticks(&mut plugin, 10);
+    assert_eq!(
+        sorted_names(&mut world, &mut plugin),
+        ["Alt Sword", "Test Ring"]
+    );
+    save_log(&mut world, "Alt", &[item(0x5000_0100, "Alt Axe", 0x1)]);
+    world.ticks(&mut plugin, 10);
+    assert_eq!(
+        sorted_names(&mut world, &mut plugin),
+        ["Alt Sword", "Test Ring"]
+    );
+    world.act(&mut plugin, "RefreshMagInventory");
+    world.ticks(&mut plugin, 10);
+    assert_eq!(
+        sorted_names(&mut world, &mut plugin),
+        ["Alt Axe", "Test Ring"]
     );
 }
 
@@ -538,18 +569,22 @@ fn the_set_characters_and_ratings_tabs_narrow_the_rows_and_reset_one_tab() {
     world.ticks(&mut plugin, 60);
     world.act(&mut plugin, "OpenMagInventory");
     world.ticks(&mut plugin, 10);
-    world.act(&mut plugin, "OpenMagInventoryFilters");
+    world.act(&mut plugin, "ToggleMagInventoryFilters");
     let all = ["Alt Sword", "Gold Ring", "Silver Ring"];
     let rings = ["Gold Ring", "Silver Ring"];
     assert_eq!(sorted_names(&mut world, &mut plugin), all);
 
-    // Set: Any set, then Soldier's Set with its two items.
+    // Set: Any set, then Soldier's Set with its two items, then every
+    // other set of the table at 0.
     world.act(&mut plugin, "ShowMagFiltersSet");
+    let sets = world.ui_list(&mut plugin, "MagFilterSetNames");
+    assert_eq!(sets[..2], ["Any set", "Soldier's Set"]);
     assert_eq!(
-        world.ui_list(&mut plugin, "MagFilterSetNames"),
-        ["Any set", "Soldier's Set"]
+        sets.len(),
+        1 + mosstank_mag::item_info::names::ATTRIBUTE_SET_INFO.len()
     );
-    assert_eq!(world.ui_list(&mut plugin, "MagFilterSetCounts"), ["", "2"]);
+    let counts = world.ui_list(&mut plugin, "MagFilterSetCounts");
+    assert_eq!(counts[..3], ["", "2", "0"]);
     assert_eq!(world.ui_int(&mut plugin, "SelectedMagFilterSetRow"), 0);
     world.act_int(&mut plugin, "SelectMagFilterSetRow", 1);
     assert_eq!(world.ui_int(&mut plugin, "SelectedMagFilterSetRow"), 1);

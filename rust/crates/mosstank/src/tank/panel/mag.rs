@@ -163,6 +163,8 @@ pub(super) fn act(cx: &mut TankCx<'_>, name: &str, arg: &Arg) -> bool {
         "OpenMagInventory" => {
             cx.client.show_window("inventory", true);
         }
+        // The Inventory window's Refresh: the saved files read again.
+        "RefreshMagInventory" => cx.mag.inventory_search.refresh(),
 
         // The Inventory window.
         "SetMagInventorySearchText" => cx.mag.inventory_search.set_pattern(arg.text()),

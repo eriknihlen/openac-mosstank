@@ -5,16 +5,18 @@
 //! cantrip's tier while it is unchecked, and the number fields' text as
 //! typed.
 //!
-//! - Cantrips: one row per cantrip the find box leaves (its name
-//!   containing the text, ignoring case), only the checked ones when
-//!   "Checked only" is on, its group named on the group's first row shown;
-//!   a checkbox, the name, and the tier, a click on which steps it Minor,
-//!   Major, Epic, Legendary and round again (Legendary to start). A checked
+//! - Cantrips: a heading row per group, then one row per cantrip the find
+//!   box leaves (its name containing the text, ignoring case), only the
+//!   checked ones when "Checked only" is on; a group with none left has no
+//!   heading. A cantrip's row has a checkbox, the name, and the tier, a
+//!   click on which steps it Minor, Major, Epic, Legendary and round again
+//!   (Legendary to start); a heading's is blank and does nothing. A checked
 //!   cantrip is filtered at its tier or better. A line counts the checked.
 //! - Ratings and Reqs & value: a field each, its text kept as typed; a
 //!   whole number (digits grouped by commas or not) sets the filter, any
 //!   other text sets none.
-//! - Set: "Any set", then each set the find box leaves, with its count.
+//! - Set: "Any set", then each set of the set table the find box leaves,
+//!   with its count (0 when nobody searched holds it).
 //! - Characters: every character checked until one is unchecked; All and
 //!   None.
 //!
@@ -83,6 +85,16 @@ impl Req {
             Self::MaxBurden => &mut filter.max_burden,
         }
     }
+}
+
+/// A row of the Cantrips list.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum CantripRow {
+    /// A group's heading (by its place in [`GROUPS`]): no box ticked, no
+    /// tier, a click does nothing.
+    Heading(usize),
+    /// A cantrip (by its index).
+    Cantrip(usize),
 }
 
 /// The label of the Set tab's first row.
@@ -170,16 +182,23 @@ impl FilterWindow {
         }
     }
 
-    /// The cantrips listed (by index) and the group each is of.
-    fn cantrip_rows(&self, filter: &InventoryFilter) -> Vec<(usize, usize)> {
+    /// The Cantrips list's rows: each group's heading, then its cantrips
+    /// the find box (and "Checked only") leave; a group with none left has
+    /// no heading.
+    fn cantrip_rows(&self, filter: &InventoryFilter) -> Vec<CantripRow> {
         let needle = self.cantrip_find.trim().to_lowercase();
         let checked = |index: usize| filter.cantrips.iter().any(|(found, _)| *found == index);
         let mut rows = Vec::new();
         let mut index = 0;
         for (group_index, group) in GROUPS.iter().enumerate() {
+            let mut headed = false;
             for name in group.cantrips {
                 if contains(name, &needle) && (!self.checked_only || checked(index)) {
-                    rows.push((index, group_index));
+                    if !headed {
+                        rows.push(CantripRow::Heading(group_index));
+                        headed = true;
+                    }
+                    rows.push(CantripRow::Cantrip(index));
                 }
                 index += 1;
             }
@@ -187,38 +206,40 @@ impl FilterWindow {
         rows
     }
 
-    /// The Group column: each group's name on its first row listed.
+    /// The cantrip a row is (none for a heading or a row past the list).
+    fn cantrip_at(&self, filter: &InventoryFilter, row: i32) -> Option<usize> {
+        match row_of(&self.cantrip_rows(filter), row)? {
+            CantripRow::Cantrip(index) => Some(index),
+            CantripRow::Heading(_) => None,
+        }
+    }
+
+    /// The name column: a heading's `— Group —`, a cantrip's name.
     #[must_use]
-    pub fn cantrip_groups(&self, filter: &InventoryFilter) -> Vec<String> {
-        let mut last = None;
+    pub fn cantrip_names(&self, filter: &InventoryFilter) -> Vec<String> {
         self.cantrip_rows(filter)
             .into_iter()
-            .map(|(_, group)| {
-                if last == Some(group) {
-                    String::new()
-                } else {
-                    last = Some(group);
-                    GROUPS[group].name.to_owned()
+            .map(|row| match row {
+                CantripRow::Heading(group) => format!("— {} —", GROUPS[group].name),
+                CantripRow::Cantrip(index) => {
+                    super::cantrip_name(index).unwrap_or_default().to_owned()
                 }
             })
             .collect()
     }
 
-    /// The Cantrip column.
-    #[must_use]
-    pub fn cantrip_names(&self, filter: &InventoryFilter) -> Vec<String> {
-        self.cantrip_rows(filter)
-            .into_iter()
-            .filter_map(|(index, _)| super::cantrip_name(index).map(str::to_owned))
-            .collect()
-    }
-
-    /// The checkbox column: the cantrip is in the filter.
+    /// The checkbox column: the cantrip is in the filter (a heading's box
+    /// is never ticked).
     #[must_use]
     pub fn cantrip_checks(&self, filter: &InventoryFilter) -> Vec<bool> {
         self.cantrip_rows(filter)
             .into_iter()
-            .map(|(index, _)| filter.cantrips.iter().any(|(found, _)| *found == index))
+            .map(|row| match row {
+                CantripRow::Heading(_) => false,
+                CantripRow::Cantrip(index) => {
+                    filter.cantrips.iter().any(|(found, _)| *found == index)
+                }
+            })
             .collect()
     }
 
@@ -232,19 +253,23 @@ impl FilterWindow {
             .map_or(self.tiers[index], |(_, tier)| *tier)
     }
 
-    /// The Tier column.
+    /// The Tier column: blank on a heading (an empty caption draws no
+    /// button).
     #[must_use]
     pub fn cantrip_tiers(&self, filter: &InventoryFilter) -> Vec<String> {
         self.cantrip_rows(filter)
             .into_iter()
-            .map(|(index, _)| self.tier_of(filter, index).name().to_owned())
+            .map(|row| match row {
+                CantripRow::Heading(_) => String::new(),
+                CantripRow::Cantrip(index) => self.tier_of(filter, index).name().to_owned(),
+            })
             .collect()
     }
 
-    /// A row's checkbox clicked: the cantrip is added to the filter at its
+    /// A row's checkbox (or name) clicked: the cantrip is added to the filter at its
     /// tier, or taken out of it.
     pub fn toggle_cantrip(&mut self, search: &mut InventorySearch, row: i32) {
-        let Some((index, _)) = row_of(&self.cantrip_rows(search.filter()), row) else {
+        let Some(index) = self.cantrip_at(search.filter(), row) else {
             return;
         };
         let tier = self.tier_of(search.filter(), index);
@@ -265,7 +290,7 @@ impl FilterWindow {
     /// A row's tier clicked: the next tier (after Legendary, Minor), in the
     /// filter too when the cantrip is checked.
     pub fn cycle_cantrip_tier(&mut self, search: &mut InventorySearch, row: i32) {
-        let Some((index, _)) = row_of(&self.cantrip_rows(search.filter()), row) else {
+        let Some(index) = self.cantrip_at(search.filter(), row) else {
             return;
         };
         let current = self.tier_of(search.filter(), index);

@@ -1585,7 +1585,7 @@ fn the_inventory_filters_fit() {
         s,
         c,
         "filters: open the window",
-        "OpenMagInventoryFilters",
+        "ToggleMagInventoryFilters",
         ActionValue::None,
     );
     let set = "filters: a filter set";
@@ -1602,7 +1602,8 @@ fn the_inventory_filters_fit() {
     act(p, s, c, tab, "ShowMagFiltersCantrips", ActionValue::None);
     act(p, s, c, set, "SetMagFilterCantripFind", text("a"));
     act(p, s, c, set, "SetMagFilterCantripFind", text(""));
-    for row in [0, 5, 40] {
+    // Three cantrips (row 0 is the Attributes heading).
+    for row in [1, 5, 40] {
         act(
             p,
             s,

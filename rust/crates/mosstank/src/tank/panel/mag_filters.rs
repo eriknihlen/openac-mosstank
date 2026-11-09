@@ -79,7 +79,6 @@ pub(super) fn value(cx: &mut TankCx<'_>, name: &str) -> Option<UiValue> {
         "MagFilterCantripFind" => t(window.cantrip_find()),
         "MagFilterSpellContains" => t(filter.spell_contains.as_str()),
         "MagFilterCantripChecks" => Some(UiValue::BoolList(window.cantrip_checks(filter))),
-        "MagFilterCantripGroups" => tl(window.cantrip_groups(filter)),
         "MagFilterCantripNames" => tl(window.cantrip_names(filter)),
         "MagFilterCantripCheckedText" => t(window.cantrip_checked_text(filter)),
         "MagFilterCantripCheckedOnly" => b(window.checked_only()),
@@ -163,8 +162,14 @@ pub(super) fn act(cx: &mut TankCx<'_>, name: &str, arg: &Arg) -> bool {
         return true;
     }
     match name {
-        "OpenMagInventoryFilters" => {
-            cx.client.show_window(FILTERS_WINDOW, true);
+        // The Inventory window's Filters... button: open, or close when
+        // shown; the window's Close button. The filters stay either way.
+        "ToggleMagInventoryFilters" => {
+            let shown = cx_shown(cx);
+            cx.client.show_window(FILTERS_WINDOW, !shown);
+        }
+        "CloseMagInventoryFilters" => {
+            cx.client.show_window(FILTERS_WINDOW, false);
         }
         "ClearMagInventoryFilters" => window.clear(search),
         // A tab's Reset (only the shown tab's button can be clicked).

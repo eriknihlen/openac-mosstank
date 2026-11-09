@@ -27,9 +27,11 @@
     <menu x="46" y="24" w="160" h="20" items="{MagInventoryClasses}"
           selected="{SelectedMagInventoryClass}" onchange="{SelectMagInventoryClass}"
           rows="10" tooltip="Only this kind of object." />
-    <button x="214" y="24" w="80" h="20" text="Filters..." onclick="{OpenMagInventoryFilters}"
-            tooltip="Open the filters window: the item's type and slot, cantrips, ratings, set, requirements and the characters searched." />
-    <label x="302" y="26" w="474" h="16" text="{MagInventoryStatus}" color="theme:muted|#FFC7B98F"
+    <button x="214" y="24" w="80" h="20" text="Filters..." onclick="{ToggleMagInventoryFilters}"
+            tooltip="Open the filters window (or close it): the item's type and slot, cantrips, ratings, set, requirements and the characters searched." />
+    <button x="298" y="24" w="70" h="20" text="Refresh" onclick="{RefreshMagInventory}"
+            tooltip="Read the other characters' saved inventories again now (another client may have saved them since the window opened). The rows shown stay until they are read." />
+    <label x="376" y="26" w="400" h="16" text="{MagInventoryStatus}" color="theme:muted|#FFC7B98F"
            tooltip="How many items are shown, or what is still being read or searched." />
 
     <label x="4" y="50" w="700" h="16" text="{MagInventoryFilterSummary}" color="theme:muted|#FFC7B98F"

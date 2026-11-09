@@ -223,7 +223,7 @@ pub const PUSH_INTERVAL_SECONDS: f64 = 0.1;
 /// the costly grids and pickers among them
 /// (register UI-1). A test holds each to the markup: every use of the
 /// value sits inside the part.
-pub const SHOWN_ONLY_WITH: [(&str, &str); 76] = [
+pub const SHOWN_ONLY_WITH: [(&str, &str); 75] = [
     ("MacroProfileNames", "ProfilesVisible"),
     ("RouteProfileNames", "ProfilesVisible"),
     ("SelectedRouteProfile", "ProfilesVisible"),
@@ -266,7 +266,6 @@ pub const SHOWN_ONLY_WITH: [(&str, &str); 76] = [
     ("MagInventoryRowValueKeys", "MagInventoryShown"),
     ("MagInventoryRowPlaces", "MagInventoryShown"),
     ("MagFilterCantripChecks", "MagFiltersCantripsVisible"),
-    ("MagFilterCantripGroups", "MagFiltersCantripsVisible"),
     ("MagFilterCantripNames", "MagFiltersCantripsVisible"),
     ("MagFilterCantripTiers", "MagFiltersCantripsVisible"),
     ("MagFilterCantripCheckedText", "MagFiltersCantripsVisible"),

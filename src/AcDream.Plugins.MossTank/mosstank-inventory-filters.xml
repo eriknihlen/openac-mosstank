@@ -11,10 +11,16 @@
   worked out and pushed only while their page is shown. Each page's Reset
   clears that tab's filters only; the Inventory window's Clear clears them
   all. It opens to the right of the Inventory window, not over its rows.
+
+  It has the client's own title bar (titlebar="true"), whose close button
+  hides it as Close does; w and h are the area under the bar. The filters
+  stay applied while it is hidden.
 -->
-<panel theme="plugin" x="1037" y="325" w="460" h="420" title="MossTank Inventory Filters"
-       visible="{WindowAvailable}" resize="none">
-  <group x="0" y="20" w="460" h="400" visible="{MagFiltersShown}">
+<panel theme="plugin" x="1037" y="325" w="460" h="400" title="MossTank Inventory Filters"
+       visible="{WindowAvailable}" resize="none" titlebar="true">
+  <group x="0" y="0" w="460" h="400" visible="{MagFiltersShown}">
+    <button x="392" y="2" w="64" h="18" text="Close" onclick="{CloseMagInventoryFilters}"
+            tooltip="Hide the filters window; the filters stay applied." />
     <tab x="4" y="2" w="38" h="18" text="Item"
          selected="{MagFiltersItemSelected}" onclick="{ShowMagFiltersItem}"
          tooltip="The item: worn or not, bonded, attuned, rare, its type and slot." />
@@ -128,7 +134,8 @@
     <!-- Cantrips: each row's box puts the cantrip in the filter at the
          row's tier; a click on the tier steps it (Minor, Major, Epic,
          Legendary, round again). A list cell cannot be a menu, so the
-         tier is a button that cycles. -->
+         tier is a button that cycles. Each group has a heading row of its
+         own (no tier; its box does nothing). -->
     <group x="0" y="22" w="460" h="378" visible="{MagFiltersCantripsVisible}">
       <label x="4" y="4" w="34" h="16" text="Find:" color="theme:text|#FFE8DEC3" />
       <group x="40" y="2" w="150" h="18" background="theme:field|#FF0C0906" border="theme:border|#FF8C7B4E">
@@ -147,9 +154,7 @@
             tooltip="Check the cantrips the item must all have (a click on the name checks it too). Each is matched at its tier or better: click the tier to change it.">
         <column type="checkbox" width="20" values="{MagFilterCantripChecks}"
                 onchange="{ToggleMagFilterCantrip}" />
-        <column type="text" width="86" header="Group" items="{MagFilterCantripGroups}"
-                onclick="{ToggleMagFilterCantrip}" />
-        <column type="text" width="250" header="Cantrip" items="{MagFilterCantripNames}"
+        <column type="text" width="336" header="Cantrip" items="{MagFilterCantripNames}"
                 onclick="{ToggleMagFilterCantrip}" />
         <column type="button" width="96" header="Tier" items="{MagFilterCantripTiers}"
                 onclick="{CycleMagFilterCantripTier}" />

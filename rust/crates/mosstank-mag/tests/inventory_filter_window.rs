@@ -30,27 +30,39 @@ fn the_window_opens_on_the_item_tab() {
 
 // --- Cantrips ---
 
-#[test]
-fn every_cantrip_is_listed_with_its_group_on_the_groups_first_row() {
-    let (window, search) = rig();
-    let names = window.cantrip_names(search.filter());
-    assert_eq!(names.len(), 47);
-    assert_eq!(names[0], "Strength");
-    let groups = window.cantrip_groups(search.filter());
-    assert_eq!(groups[0], "Attributes");
-    assert_eq!(groups[1], "");
-    assert_eq!(groups[6], "Weapon skills");
-    assert_eq!(window.cantrip_checks(search.filter()), vec![false; 47]);
-    assert_eq!(window.cantrip_tiers(search.filter()), vec!["Legendary"; 47]);
+/// A group's heading row as the list shows it.
+fn heading(group: &str) -> String {
+    format!("— {group} —")
 }
 
 #[test]
-fn the_find_box_narrows_the_cantrips_by_name_ignoring_case() {
+fn every_cantrip_is_listed_under_its_groups_heading_row() {
+    let (window, search) = rig();
+    let names = window.cantrip_names(search.filter());
+    // Six headings and the 47 cantrips.
+    assert_eq!(names.len(), 6 + 47);
+    assert_eq!(names[0], heading("Attributes"));
+    assert_eq!(names[1], "Strength");
+    assert_eq!(names[7], heading("Weapon skills"));
+    assert_eq!(names[8], "Heavy Weapon Aptitude");
+    // A heading has no box ticked and no tier button (an empty caption).
+    let checks = window.cantrip_checks(search.filter());
+    assert_eq!(checks, vec![false; 53]);
+    let tiers = window.cantrip_tiers(search.filter());
+    assert_eq!(tiers[0], "");
+    assert_eq!(tiers[1], "Legendary");
+    assert_eq!(tiers[7], "");
+    assert_eq!(tiers.iter().filter(|tier| tier.is_empty()).count(), 6);
+}
+
+#[test]
+fn the_find_box_narrows_the_cantrips_and_keeps_only_their_headings() {
     let (mut window, search) = rig();
     window.set_cantrip_find("WARD");
     assert_eq!(
         window.cantrip_names(search.filter()),
         [
+            heading("Wards & Banes").as_str(),
             "Flame Ward",
             "Frost Ward",
             "Acid Ward",
@@ -60,45 +72,55 @@ fn the_find_box_narrows_the_cantrips_by_name_ignoring_case() {
             "Bludgeoning Ward"
         ]
     );
-    // The group heads the first row shown.
-    assert_eq!(window.cantrip_groups(search.filter())[0], "Wards & Banes");
+    window.set_cantrip_find("zzz");
+    assert!(window.cantrip_names(search.filter()).is_empty());
     window.set_cantrip_find("");
-    assert_eq!(window.cantrip_names(search.filter()).len(), 47);
+    assert_eq!(window.cantrip_names(search.filter()).len(), 53);
 }
 
 #[test]
 fn a_checked_cantrip_is_filtered_at_its_rows_tier() {
     let (mut window, mut search) = rig();
-    // Strength's tier set to Epic, then checked.
-    window.cycle_cantrip_tier(&mut search, 0);
-    assert_eq!(window.cantrip_tiers(search.filter())[0], "Minor");
-    window.cycle_cantrip_tier(&mut search, 0);
-    window.cycle_cantrip_tier(&mut search, 0);
-    assert_eq!(window.cantrip_tiers(search.filter())[0], "Epic");
+    // Strength (row 1, under its heading): its tier set to Epic, then checked.
+    window.cycle_cantrip_tier(&mut search, 1);
+    assert_eq!(window.cantrip_tiers(search.filter())[1], "Minor");
+    window.cycle_cantrip_tier(&mut search, 1);
+    window.cycle_cantrip_tier(&mut search, 1);
+    assert_eq!(window.cantrip_tiers(search.filter())[1], "Epic");
     assert!(
         search.filter().cantrips.is_empty(),
         "not checked: no filter"
     );
-    window.toggle_cantrip(&mut search, 0);
+    window.toggle_cantrip(&mut search, 1);
     assert_eq!(search.filter().cantrips, [(strength(), CantripTier::Epic)]);
-    assert!(window.cantrip_checks(search.filter())[0]);
+    assert!(window.cantrip_checks(search.filter())[1]);
     // A checked cantrip's tier changes the filter.
-    window.cycle_cantrip_tier(&mut search, 0);
+    window.cycle_cantrip_tier(&mut search, 1);
     assert_eq!(
         search.filter().cantrips,
         [(strength(), CantripTier::Legendary)]
     );
     // Unchecked: gone from the filter, its tier kept.
-    window.toggle_cantrip(&mut search, 0);
+    window.toggle_cantrip(&mut search, 1);
     assert!(search.filter().cantrips.is_empty());
-    assert_eq!(window.cantrip_tiers(search.filter())[0], "Legendary");
+    assert_eq!(window.cantrip_tiers(search.filter())[1], "Legendary");
+}
+
+#[test]
+fn a_heading_row_is_inert() {
+    let (mut window, mut search) = rig();
+    window.toggle_cantrip(&mut search, 0);
+    window.cycle_cantrip_tier(&mut search, 0);
+    window.toggle_cantrip(&mut search, 7);
+    assert!(search.filter().cantrips.is_empty());
+    assert_eq!(window.cantrip_tiers(search.filter())[1], "Legendary");
 }
 
 #[test]
 fn a_row_of_the_narrowed_list_is_its_own_cantrip() {
     let (mut window, mut search) = rig();
     window.set_cantrip_find("invuln");
-    window.toggle_cantrip(&mut search, 0);
+    window.toggle_cantrip(&mut search, 1);
     assert_eq!(
         search.filter().cantrips,
         [(
@@ -123,24 +145,45 @@ fn the_spell_text_is_the_filters() {
 fn the_cantrips_tab_counts_the_checked_and_can_list_only_them() {
     let (mut window, mut search) = rig();
     assert_eq!(window.cantrip_checked_text(search.filter()), "None checked");
-    window.toggle_cantrip(&mut search, 0);
-    window.toggle_cantrip(&mut search, 2);
-    assert_eq!(window.cantrip_checked_text(search.filter()), "2 checked");
+    // Strength, Quickness, and Invulnerability (under Defense).
+    window.toggle_cantrip(&mut search, 1);
+    window.toggle_cantrip(&mut search, 3);
+    let invulnerability = window
+        .cantrip_names(search.filter())
+        .iter()
+        .position(|name| name == "Invulnerability")
+        .unwrap();
+    window.toggle_cantrip(&mut search, i32::try_from(invulnerability).unwrap());
+    assert_eq!(window.cantrip_checked_text(search.filter()), "3 checked");
     assert!(!window.checked_only());
     window.set_checked_only(true);
     assert_eq!(
         window.cantrip_names(search.filter()),
-        ["Strength", "Quickness"]
+        [
+            heading("Attributes").as_str(),
+            "Strength",
+            "Quickness",
+            heading("Defense").as_str(),
+            "Invulnerability"
+        ]
     );
-    // A row of the short list is its own cantrip: unchecking it leaves it.
-    window.toggle_cantrip(&mut search, 1);
-    assert_eq!(window.cantrip_names(search.filter()), ["Strength"]);
+    // A row of the short list is its own cantrip: unchecking it leaves it,
+    // and a group with none left loses its heading.
+    window.toggle_cantrip(&mut search, 4);
+    window.toggle_cantrip(&mut search, 2);
+    assert_eq!(
+        window.cantrip_names(search.filter()),
+        [heading("Attributes").as_str(), "Strength"]
+    );
     assert_eq!(window.cantrip_checked_text(search.filter()), "1 checked");
     // With the find box too.
     window.set_cantrip_find("quick");
     assert!(window.cantrip_names(search.filter()).is_empty());
     window.set_checked_only(false);
-    assert_eq!(window.cantrip_names(search.filter()), ["Quickness"]);
+    assert_eq!(
+        window.cantrip_names(search.filter()),
+        [heading("Attributes").as_str(), "Quickness"]
+    );
 }
 
 // --- Item ---
@@ -274,8 +317,8 @@ fn every_tab_set(window: &mut FilterWindow, search: &mut InventorySearch) {
         filter.set = Some(13);
         filter.characters = Some(BTreeSet::from(["Me".to_owned()]));
     });
-    window.cycle_cantrip_tier(search, 0);
-    window.toggle_cantrip(search, 0);
+    window.cycle_cantrip_tier(search, 1);
+    window.toggle_cantrip(search, 1);
     window.set_spell_contains(search, "Fire");
     window.set_checked_only(true);
     window.set_rating_text(search, Rating::Tinks, "3");
@@ -312,7 +355,7 @@ fn reset_clears_only_the_tabs_own_filters() {
                 expected.cantrips.clear();
                 expected.spell_contains.clear();
                 assert!(!window.checked_only());
-                assert_eq!(window.cantrip_tiers(&after)[0], "Legendary");
+                assert_eq!(window.cantrip_tiers(&after)[1], "Legendary");
             }
             FilterTab::Ratings => {
                 expected.ratings = fresh.ratings;
@@ -340,7 +383,7 @@ fn reset_clears_only_the_tabs_own_filters() {
 fn clear_empties_the_filter_and_the_number_fields() {
     let (mut window, mut search) = rig();
     window.set_rating_text(&mut search, Rating::DamageRating, "3");
-    window.toggle_cantrip(&mut search, 0);
+    window.toggle_cantrip(&mut search, 1);
     window.clear(&mut search);
     assert_eq!(*search.filter(), InventoryFilter::default());
     assert_eq!(window.rating_text(Rating::DamageRating), "");

@@ -66,7 +66,7 @@ use openac_plugin_compat::regex::{
 use crate::host::MagHost;
 use crate::inventory_filter::{InventoryFilter, RowFacts, Verdict, set_name};
 use crate::inventory_log::{LogReader, storage_key};
-use crate::item_info::{ItemInfoInput, display_name, item_info};
+use crate::item_info::{ItemInfoInput, display_name, item_info, names};
 
 /// The filters' choice that keeps every row.
 pub const ALL: &str = "All";
@@ -523,9 +523,10 @@ impl InventorySearch {
         self.view.character_choices.clone()
     }
 
-    /// Every equipment set among the items of the characters searched,
-    /// with its count, the most first (the Set tab). The other filters do
-    /// not change it.
+    /// Every equipment set of the set table (and any other set held), with
+    /// how many items of the characters searched are of it: the most first,
+    /// then by name, the ones nobody holds last at 0 (the Set tab). The
+    /// other filters do not change it.
     #[must_use]
     pub fn set_counts(&self) -> &[SetCount] {
         &self.view.set_counts
@@ -577,6 +578,14 @@ impl InventorySearch {
             self.view_stale = true;
             self.refresh_view();
         }
+    }
+
+    /// The Refresh button: the other characters' files are listed and read
+    /// again from the next tick, as opening the window does (a file another
+    /// client rewrote shows what it holds now). The rows shown stay until
+    /// the reading is done.
+    pub fn refresh(&mut self) {
+        self.relist = true;
     }
 
     /// The character left the world: every row is forgotten; the pattern
@@ -1298,6 +1307,11 @@ impl InventorySearch {
                 view.wield_keys.push(sort_key(facts.wield_level));
                 view.value_keys.push(sort_key(facts.value));
             }
+        }
+        // Every set of the set table, at 0 when nobody searched holds it,
+        // and any other set held.
+        for (id, _) in names::ATTRIBUTE_SET_INFO {
+            sets.entry(*id).or_default();
         }
         let mut set_counts: Vec<SetCount> = sets
             .into_iter()

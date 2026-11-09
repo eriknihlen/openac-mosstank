@@ -671,7 +671,7 @@ fn secondary_windows_fit_their_own_bounds_and_every_binding_resolves() {
         ("mosstank-ub-dungeon.xml", 320.0, 96.0),
         ("mosstank-comps-hud.xml", 540.0, 316.0),
         ("mosstank-inventory.xml", 780.0, 480.0),
-        ("mosstank-inventory-filters.xml", 460.0, 420.0),
+        ("mosstank-inventory-filters.xml", 460.0, 400.0),
     ];
     for file in FILES.iter().filter(|file| **file != "mosstank.xml") {
         let (_, width, height) = bounds
@@ -796,6 +796,11 @@ fn only_window_chrome_sits_in_the_title_rows_of_any_window() {
     for file in FILES {
         let document = document(file);
         let root = document.root_element();
+        // A window with the client's own title bar lays its content out
+        // under the bar.
+        if attr(root, "titlebar") == Some("true") {
+            continue;
+        }
         let width = number(root, "w");
         for child in elements(root) {
             if attr(child, "text") == Some("{WindowTitle}") {
@@ -1541,7 +1546,6 @@ fn the_filters_window_names_check_and_every_page_resets() {
     let document = document("mosstank-inventory-filters.xml");
     let root = document.root_element();
     for (items, toggle) in [
-        ("{MagFilterCantripGroups}", "{ToggleMagFilterCantrip}"),
         ("{MagFilterCantripNames}", "{ToggleMagFilterCantrip}"),
         ("{MagFilterCharacterNames}", "{ToggleMagFilterCharacter}"),
     ] {
@@ -1592,12 +1596,12 @@ fn the_filters_window_has_six_tabs_and_a_page_each() {
     }
 }
 
-// The Cantrips tab's list: a box, the group, the name and the tier. A list
-// cell cannot be a menu (its columns are text, check, checkbox, icon and
-// button), so the tier is a button that steps it. The name fits the
-// longest (Magic Item Tinkering Expertise, 158 px), the group the longest
-// group's name (Wards & Banes, 77), the tier Legendary (54) beside the
-// scrollbar.
+// The Cantrips tab's list: a box, the name and the tier; the groups are
+// heading rows of their own, not a column. A list cell cannot be a menu
+// (its columns are text, check, checkbox, icon and button), so the tier is
+// a button that steps it. The name fits the longest (Magic Item Tinkering
+// Expertise, 158 px) and the widest heading (— Wards & Banes —, 107), the
+// tier Legendary (54) beside the scrollbar.
 #[test]
 fn the_cantrips_list_has_a_box_a_name_and_a_tier_button() {
     const CELL_PADDING: f32 = 3.0;
@@ -1614,11 +1618,11 @@ fn the_cantrips_list_has_a_box_a_name_and_a_tier_button() {
         .collect();
     assert_eq!(
         columns.iter().map(|(kind, _)| *kind).collect::<Vec<_>>(),
-        ["checkbox", "text", "text", "button"]
+        ["checkbox", "text", "button"]
     );
-    assert!(columns[1].1 >= 77.0 + 2.0 * CELL_PADDING);
-    assert!(columns[2].1 >= 158.0 + 2.0 * CELL_PADDING);
-    assert!(columns[3].1 - SCROLLBAR >= 54.0 + 2.0 * CELL_PADDING);
+    assert!(columns[1].1 >= 158.0 + 2.0 * CELL_PADDING);
+    assert!(columns[1].1 >= 107.0 + 2.0 * CELL_PADDING);
+    assert!(columns[2].1 - SCROLLBAR >= 54.0 + 2.0 * CELL_PADDING);
     let sum: f32 = columns.iter().map(|(_, width)| width).sum();
     assert!((sum - number(list, "w")).abs() < f32::EPSILON, "{sum}");
 }
@@ -1663,4 +1667,26 @@ fn the_filters_windows_per_item_controls_cover_every_item() {
             "{name}"
         );
     }
+}
+
+// The Inventory window's Filters... button toggles the filters window, and
+// its Refresh reads the saved inventories again; the filters window has the
+// client's title bar (with its close button) and a Close of its own.
+#[test]
+fn the_filters_window_opens_and_closes_and_the_inventory_refreshes() {
+    let inventory = document("mosstank-inventory.xml");
+    let buttons: Vec<_> = descendants_named(inventory.root_element(), "button")
+        .map(|button| (text(button), attr(button, "onclick")))
+        .collect();
+    assert!(buttons.contains(&("Filters...", Some("{ToggleMagInventoryFilters}"))));
+    assert!(buttons.contains(&("Refresh", Some("{RefreshMagInventory}"))));
+    let filters = document("mosstank-inventory-filters.xml");
+    let root = filters.root_element();
+    assert_eq!(attr(root, "titlebar"), Some("true"));
+    let shown = page(root, "MagFiltersShown");
+    let close: Vec<_> = named(shown, "button")
+        .filter(|button| attr(*button, "onclick") == Some("{CloseMagInventoryFilters}"))
+        .collect();
+    assert_eq!(close.len(), 1);
+    assert_eq!(text(close[0]), "Close");
 }
