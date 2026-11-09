@@ -1503,20 +1503,38 @@ fn main_list_len(session: &Session, name: &str) -> usize {
         .map_or(0, |value| format!("{value:?}").matches('"').count() / 2)
 }
 
+/// One line of a fight (three in four) amid the town's chat, heard now.
+fn fight_or_town_line(
+    plugin: &mut Plugin,
+    session: &mut Session,
+    line: usize,
+    me: &str,
+) -> CallFuel {
+    let log = session.world.chat_log.get_or_insert_with(Vec::new);
+    let sequence = log.last().map_or(1, |line| line.sequence + 1);
+    let event = if line % 4 == 3 {
+        heavy::chat_line(sequence, session.world.fake.clock.utc_unix_ms)
+    } else {
+        heavy::fight_line(sequence, session.world.fake.clock.utc_unix_ms, me)
+    };
+    log.push(event.clone());
+    send(plugin, session, &Event::ChatReceived(event))
+}
+
 /// The combat tracker on the heavy character with a long life's persistent
-/// stats ([`heavy::PERSISTENT_MONSTERS`] monsters): its patterns compiled
-/// a few a tick, the stats file read in at the login, a burst of
+/// stats of `monsters` monsters: its patterns compiled a few a tick, the
+/// stats file read in at the login, a burst of
 /// [`heavy::BURST_CHAT_LINES`] fight lines in one tick amid the town's
 /// chat, and the logoff that writes the persistent stats and exports the
-/// current ones.
-#[test]
-#[ignore = "needs the release module: scripts/check.sh runs it after the WebAssembly build"]
-fn the_combat_tracker_fits() {
+/// current ones. `catching_up`: the login completes at once and a fight's
+/// worth of lines is heard while the patterns compile, so the lines that
+/// waited are read while the file is read in.
+fn combat_session(monsters: usize, catching_up: bool) {
     let wasm = std::fs::read(wasm_path()).expect("the release mosstank.wasm (build it first)");
     let me = "Mossy Hunter";
     let key = "Mag-Tools/Coldeve/Mossy Hunter.CombatTracker.xml";
     let mut session = new_session();
-    let saved = heavy::persistent_combat_stats(me);
+    let saved = heavy::persistent_combat_stats(me, monsters);
     session.world.plugin_data.insert(key, &saved);
     let mut cases = Cases::default();
     let (mut plugin, _) = Plugin::load(&wasm, DEFAULT_MEMORY_MIB).expect("load");
@@ -1527,34 +1545,43 @@ fn the_combat_tracker_fits() {
     session
         .world
         .set_reply::<calls::ItemsInventoryComplete>(&true);
-    // The town's chat while the patterns compile: it waits for them.
-    for _ in 0..20 {
-        chat(
-            &mut plugin,
-            &mut session,
-            &mut cases,
-            "combat: chat line (patterns compiling)",
-        );
-        let fuel = tick(&mut plugin, &mut session);
-        cases.add("combat: tick (patterns compiling, login)", fuel);
-    }
-    let login = send(&mut plugin, &mut session, &Event::LoginComplete);
-    cases.add("combat: login complete", login);
-    for _ in 0..60 {
-        let fuel = tick(&mut plugin, &mut session);
-        cases.add("combat: tick (persistent stats read in)", fuel);
+    if catching_up {
+        tick(&mut plugin, &mut session);
+        let login = send(&mut plugin, &mut session, &Event::LoginComplete);
+        cases.add("combat: login complete", login);
+        for line in 0..2 * heavy::BURST_CHAT_LINES {
+            let fuel = fight_or_town_line(&mut plugin, &mut session, line, me);
+            cases.add("combat: chat line (patterns compiling)", fuel);
+        }
+        for _ in 0..300 {
+            let fuel = tick(&mut plugin, &mut session);
+            cases.add(
+                "combat: tick (compiling, lines waiting, file read in)",
+                fuel,
+            );
+        }
+    } else {
+        // The town's chat while the patterns compile: it waits for them.
+        for _ in 0..20 {
+            chat(
+                &mut plugin,
+                &mut session,
+                &mut cases,
+                "combat: chat line (patterns compiling)",
+            );
+            let fuel = tick(&mut plugin, &mut session);
+            cases.add("combat: tick (patterns compiling, login)", fuel);
+        }
+        let login = send(&mut plugin, &mut session, &Event::LoginComplete);
+        cases.add("combat: login complete", login);
+        for _ in 0..200 {
+            let fuel = tick(&mut plugin, &mut session);
+            cases.add("combat: tick (persistent stats read in)", fuel);
+        }
     }
 
     for line in 0..heavy::BURST_CHAT_LINES {
-        let log = session.world.chat_log.get_or_insert_with(Vec::new);
-        let sequence = log.last().map_or(1, |line| line.sequence + 1);
-        let event = if line % 4 == 3 {
-            heavy::chat_line(sequence, session.world.fake.clock.utc_unix_ms)
-        } else {
-            heavy::fight_line(sequence, session.world.fake.clock.utc_unix_ms, me)
-        };
-        log.push(event.clone());
-        let fuel = send(&mut plugin, &mut session, &Event::ChatReceived(event));
+        let fuel = fight_or_town_line(&mut plugin, &mut session, line, me);
         cases.add("combat: chat line (burst)", fuel);
     }
     for _ in 0..5 {
@@ -1588,22 +1615,42 @@ fn the_combat_tracker_fits() {
     let mut report = report(&cases);
     let _ = writeln!(
         report,
-        "persistent stats: {} KB read, {} KB written; {warnings} warnings posted",
+        "persistent stats: {monsters} monsters, {} KB read, {} KB written; {warnings} warnings posted",
         saved.len() / 1024,
         written.len() / 1024
     );
     println!("{report}");
     // The file read in, the fight added to it, written back.
-    let last_monster = format!(
-        "TargetName=\"Drudge Skulker {}\"",
-        heavy::PERSISTENT_MONSTERS / 10 - 1
-    );
+    let last_monster = format!("TargetName=\"Drudge Skulker {}\"", monsters / 10 - 1);
     assert!(written.contains(&last_monster), "{report}");
     assert!(written.len() > saved.len(), "{report}");
     assert_eq!(exports, 1, "{report}");
     assert!(warnings > 0, "{report}");
     assert_no_file_rewritten(&session, &report);
     assert_within_margin(&cases, &report);
+}
+
+/// [`combat_session`] with [`heavy::PERSISTENT_MONSTERS`] monsters.
+#[test]
+#[ignore = "needs the release module: scripts/check.sh runs it after the WebAssembly build"]
+fn the_combat_tracker_fits() {
+    combat_session(heavy::PERSISTENT_MONSTERS, false);
+}
+
+/// [`combat_session`] with three times as many monsters: the logoff only
+/// joins the stats' text and writes it.
+#[test]
+#[ignore = "needs the release module: scripts/check.sh runs it after the WebAssembly build"]
+fn the_combat_tracker_with_three_thousand_monsters_fits() {
+    combat_session(3 * heavy::PERSISTENT_MONSTERS, false);
+}
+
+/// [`combat_session`] catching up: the lines that waited for the patterns
+/// read while the persistent file is read in.
+#[test]
+#[ignore = "needs the release module: scripts/check.sh runs it after the WebAssembly build"]
+fn the_combat_tracker_catching_up_fits() {
+    combat_session(heavy::PERSISTENT_MONSTERS, true);
 }
 
 /// The Mana page on the heavy character wearing twenty pieces of gear with

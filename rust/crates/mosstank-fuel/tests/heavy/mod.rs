@@ -868,11 +868,11 @@ pub fn fight_line(sequence: u64, received_unix_ms: i64, me: &str) -> ChatLine {
 }
 
 /// A long-lived character's persistent combat stats file, in Mag-Tools'
-/// format: [`PERSISTENT_MONSTERS`] monsters fought with melee and magic.
+/// format: `monsters` monsters fought with melee and magic.
 #[must_use]
-pub fn persistent_combat_stats(me: &str) -> String {
+pub fn persistent_combat_stats(me: &str, monsters: usize) -> String {
     let mut out = String::from("<CombatTracker>\r\n  <CombatInfos>");
-    for index in 0..PERSISTENT_MONSTERS {
+    for index in 0..monsters {
         let monster = monster_name(index);
         out.push_str(&format!(
             "\r\n    <CombatInfo SourceName=\"{me}\" TargetName=\"{monster}\" KillingBlows=\"{kills}\">\r\n      <MeleeMissle>\r\n        <Slash TotalAttacks=\"{a}\" Crits=\"{c}\" TotalNormalDamage=\"{d}\" MaxNormalDamage=\"412\" TotalCritDamage=\"{cd}\" MaxCritDamage=\"988\" />\r\n        <Unknown TotalAttacks=\"{f}\" FailedAttacks=\"{f}\" />\r\n      </MeleeMissle>\r\n      <Magic>\r\n        <Fire TotalAttacks=\"{m}\" TotalNormalDamage=\"{md}\" MaxNormalDamage=\"702\" />\r\n        <Unknown TotalAttacks=\"3\" FailedAttacks=\"3\" />\r\n      </Magic>\r\n      <Unknown>\r\n        <Unknown TotalAttacks=\"{kills}\" />\r\n      </Unknown>\r\n    </CombatInfo>\r\n    <CombatInfo SourceName=\"{monster}\" TargetName=\"{me}\">\r\n      <MeleeMissle>\r\n        <Bludge TotalAttacks=\"{a}\" TotalNormalDamage=\"{d}\" MaxNormalDamage=\"96\" />\r\n        <Unknown TotalAttacks=\"{f}\" FailedAttacks=\"{f}\" />\r\n      </MeleeMissle>\r\n    </CombatInfo>",
