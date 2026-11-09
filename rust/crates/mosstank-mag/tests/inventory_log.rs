@@ -1247,3 +1247,34 @@ fn the_kept_record_rebuilds_what_the_loot_rules_read() {
     let (_, old) = read(&text.replace(",\"described\":{}", "")).expect("an older file reads");
     assert_eq!(old[0].item().icon_overlay_id, 0);
 }
+
+/// A newer, unappraised record keeps the older appraised one's description
+/// (a rare's overlay among it) unless a description came with it, as the
+/// header flags are kept.
+#[test]
+fn the_merge_keeps_the_older_description_until_a_newer_one_is_seen() {
+    let mut rare = ring_item();
+    rare.icon_overlay_id = 0x0600_5B0C;
+    let older = ItemRecord::from_live(&rare, Some(&seen(&rare, true)), &ring_properties(), 1);
+    // Listed again before its description arrived: no header, no overlay.
+    let mut listed = ring_item();
+    listed.header = None;
+    let newer = ItemRecord::from_live(
+        &listed,
+        Some(&seen(&listed, false)),
+        &ItemProperties::default(),
+        0,
+    );
+    assert_eq!(newer.weenie_header_flags, None);
+    let merged = combine(older.clone(), newer);
+    assert_eq!(merged.item().icon_overlay_id, 0x0600_5B0C);
+    assert_eq!(merged.weenie_header_flags, older.weenie_header_flags);
+    // Described again, without the overlay now: the newer description.
+    let described = ItemRecord::from_live(
+        &ring_item(),
+        Some(&seen(&ring_item(), false)),
+        &ItemProperties::default(),
+        0,
+    );
+    assert_eq!(combine(older, described).item().icon_overlay_id, 0);
+}

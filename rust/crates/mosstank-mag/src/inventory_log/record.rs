@@ -646,9 +646,12 @@ pub fn combine(older: ItemRecord, newer: ItemRecord) -> ItemRecord {
     kept.structure = structure;
     kept.material_type = material_type;
     kept.workmanship = workmanship;
-    kept.described = described;
+    // What only a description carries is replaced only when the newer
+    // record saw one (a rare's overlay is not lost to a listing before
+    // its description arrived).
     if weenie_header_flags.is_some() {
         kept.weenie_header_flags = weenie_header_flags;
+        kept.described = described;
     }
     let p = &mut kept.properties;
     add_to(&mut p.ints, properties.ints);
