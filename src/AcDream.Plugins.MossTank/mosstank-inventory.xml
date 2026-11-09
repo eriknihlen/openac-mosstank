@@ -1,0 +1,81 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  The Inventory window: Mag-Tools' inventory search (its Tools, Inventory
+  page) over every character the inventory logger has saved on this server,
+  the logged-in character's rows live. A pattern to search for, a filter by
+  kind of object, the filters window's filters (the characters searched
+  among them) summed up on one line, the rows found, and the clicked row's
+  full item text below them. It has its own button on the dock; the Mag
+  tab's Inventory button opens it too.
+
+  Everything sits in one group shown while the client shows the window
+  ({MagInventoryShown}): its rows are worked out and pushed only then.
+-->
+<panel theme="plugin" x="253" y="405" w="780" h="480" title="MossTank Inventory"
+       visible="{WindowAvailable}" resize="none">
+  <group x="0" y="20" w="780" h="460" visible="{MagInventoryShown}">
+    <label x="4" y="4" w="50" h="16" text="Search:" color="theme:text|#FFE8DEC3" />
+    <group x="56" y="2" w="720" h="18" background="theme:field|#FF0C0906" border="theme:border|#FF8C7B4E">
+      <field x="1" y="1" w="718" h="16" text="{MagInventorySearchText}"
+             onchange="{SetMagInventorySearchText}"
+             maxlength="200" clearonsubmit="false" background="#00000000"
+             color="theme:text|#FFE8DEC3"
+             tooltip="A .NET regular expression, matched against each item's full text, case ignored; empty finds everything. It and the filters must both match." />
+    </group>
+
+    <label x="4" y="26" w="40" h="16" text="Class:" color="theme:text|#FFE8DEC3" />
+    <menu x="46" y="24" w="160" h="20" items="{MagInventoryClasses}"
+          selected="{SelectedMagInventoryClass}" onchange="{SelectMagInventoryClass}"
+          rows="10" tooltip="Only this kind of object." />
+    <button x="214" y="24" w="80" h="20" text="Filters..." onclick="{ToggleMagInventoryFilters}"
+            tooltip="Open the filters window (or close it): the item's type and slot, cantrips, ratings, set, requirements and the characters searched." />
+    <button x="298" y="24" w="70" h="20" text="Refresh" onclick="{RefreshMagInventory}"
+            tooltip="Read the other characters' saved inventories again now (another client may have saved them since the window opened). The rows shown stay until they are read." />
+    <label x="376" y="26" w="400" h="16" text="{MagInventoryStatus}" color="theme:muted|#FFC7B98F"
+           tooltip="How many items are shown, or what is still being read or searched." />
+
+    <label x="4" y="50" w="700" h="16" text="{MagInventoryFilterSummary}" color="theme:muted|#FFC7B98F"
+           tooltip="{MagInventoryFilterSummary}" />
+    <button x="712" y="48" w="64" h="20" text="Clear" onclick="{ClearMagInventoryFilters}"
+            tooltip="Clear every filter of the filters window." />
+
+    <!-- The list draws its own headings, each over its column and aligned
+         as its cells; a click on one sorts by it (again: the other way,
+         a third time: unsorted). Count sorts its cells as numbers, Wield,
+         OD and Value by their keys; a row with no wield level, no OD or
+         no value sorts last both ways (a blank key). OD is the weapon's
+         highest (OD +N) rule in the loaded loot profile. The last
+         column always takes the room the others leave, so Name has a fixed
+         width (the list's 772 less the other columns) and Where keeps its
+         90. -->
+    <list x="4" y="72" w="772" h="296" rowheight="17" header="true"
+          selected="{SelectedMagInventoryRow}" onchange="{SelectMagInventoryRow}"
+          tooltip="The items found. Click one to see its full text below; your own item is selected, its side pack opened. Click a heading to sort by it.">
+      <column type="icon" width="20" iconkind="did" values="{MagInventoryRowIcons}"
+              onclick="{SelectMagInventoryRow}" />
+      <column type="text" width="110" header="Character" sort="text"
+              items="{MagInventoryRowCharacters}" onclick="{SelectMagInventoryRow}" />
+      <column type="text" width="229" header="Name" sort="text"
+              items="{MagInventoryRowNames}" onclick="{SelectMagInventoryRow}" />
+      <column type="text" width="48" align="right" header="Count" sort="number"
+              items="{MagInventoryRowCounts}" onclick="{SelectMagInventoryRow}" />
+      <column type="text" width="138" header="Slot" sort="text"
+              items="{MagInventoryRowSlots}" onclick="{SelectMagInventoryRow}" />
+      <column type="text" width="47" align="right" header="Wield" sort="number"
+              sortkeys="{MagInventoryRowWieldKeys}"
+              items="{MagInventoryRowWields}" onclick="{SelectMagInventoryRow}" />
+      <column type="text" width="36" align="right" header="OD" sort="number"
+              sortkeys="{MagInventoryRowOdKeys}"
+              items="{MagInventoryRowOds}" onclick="{SelectMagInventoryRow}" />
+      <column type="text" width="54" align="right" header="Value" sort="number"
+              sortkeys="{MagInventoryRowValueKeys}"
+              items="{MagInventoryRowValues}" onclick="{SelectMagInventoryRow}" />
+      <column type="text" width="90" header="Where" sort="text"
+              items="{MagInventoryRowPlaces}" onclick="{SelectMagInventoryRow}" />
+    </list>
+
+    <field x="4" y="374" w="772" h="80" text="{MagInventoryInfo}" color="theme:text|#FFE8DEC3"
+           oneline="false" editable="false" maxlength="8192" background="#00000000"
+           tooltip="The clicked item's full text." />
+  </group>
+</panel>

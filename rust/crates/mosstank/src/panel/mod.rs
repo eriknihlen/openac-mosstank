@@ -1,4 +1,4 @@
-//! MossTank's thirteen windows as the client holds them (`MossTankPlugin`'s
+//! MossTank's fifteen windows as the client holds them (`MossTankPlugin`'s
 //! `AddPanel` calls): each one's markup, registered with the bindings the
 //! markup names, and the values pushed to it from the shell
 //! ([`crate::tank::Tank::ui_value`]).
@@ -25,6 +25,10 @@ pub struct WindowSpec {
     pub start_visible: bool,
     /// On the plugin shelf.
     pub on_shelf: bool,
+    /// Its own dock button: the art (a portal.dat render surface) and the
+    /// initials shown when the art is missing; `None` for a window with no
+    /// button of its own.
+    pub icon: Option<(u32, &'static str)>,
 }
 
 macro_rules! markup {
@@ -41,15 +45,23 @@ pub const ICON_SURFACE_ID: u32 = 0x0600_2C41;
 /// The shelf button's initials when the art is missing.
 pub const ICON_TEXT: &str = "MT";
 
-/// The thirteen windows: the C#'s twelve in its registration order, then the
-/// Comps HUD's Edit items window.
-pub const WINDOWS: [WindowSpec; 13] = [
+/// The Inventory window's dock button: the game's Pack icon (the
+/// backpack, a portal.dat render surface).
+pub const INVENTORY_ICON_SURFACE_ID: u32 = 0x0600_1BAF;
+/// Its initials when the art is missing.
+pub const INVENTORY_ICON_TEXT: &str = "IN";
+
+/// The fifteen windows: the C#'s twelve in its registration order, then the
+/// Comps HUD's Edit items window, the Mag tab's Inventory window and its
+/// filters window.
+pub const WINDOWS: [WindowSpec; 15] = [
     WindowSpec {
         id: "main",
         title: "MossTank",
         markup: markup!("mosstank.xml"),
         start_visible: false,
         on_shelf: true,
+        icon: Some((ICON_SURFACE_ID, ICON_TEXT)),
     },
     WindowSpec {
         id: "remote",
@@ -57,6 +69,7 @@ pub const WINDOWS: [WindowSpec; 13] = [
         markup: markup!("mosstank-remote.xml"),
         start_visible: false,
         on_shelf: false,
+        icon: None,
     },
     WindowSpec {
         id: "action-history",
@@ -64,6 +77,7 @@ pub const WINDOWS: [WindowSpec; 13] = [
         markup: markup!("mosstank-action-history.xml"),
         start_visible: true,
         on_shelf: false,
+        icon: None,
     },
     WindowSpec {
         id: "advanced-options",
@@ -71,6 +85,7 @@ pub const WINDOWS: [WindowSpec; 13] = [
         markup: markup!("mosstank-advanced.xml"),
         start_visible: true,
         on_shelf: false,
+        icon: None,
     },
     WindowSpec {
         id: "loot-editor",
@@ -78,6 +93,7 @@ pub const WINDOWS: [WindowSpec; 13] = [
         markup: markup!("mosstank-loot-editor.xml"),
         start_visible: true,
         on_shelf: false,
+        icon: None,
     },
     WindowSpec {
         id: "buff-picker",
@@ -85,6 +101,7 @@ pub const WINDOWS: [WindowSpec; 13] = [
         markup: markup!("mosstank-buffpicker.xml"),
         start_visible: true,
         on_shelf: false,
+        icon: None,
     },
     WindowSpec {
         id: "meta-editor",
@@ -92,6 +109,7 @@ pub const WINDOWS: [WindowSpec; 13] = [
         markup: markup!("mosstank-metaeditor.xml"),
         start_visible: true,
         on_shelf: false,
+        icon: None,
     },
     WindowSpec {
         id: "ub-color",
@@ -99,6 +117,7 @@ pub const WINDOWS: [WindowSpec; 13] = [
         markup: markup!("mosstank-ub-color.xml"),
         start_visible: true,
         on_shelf: false,
+        icon: None,
     },
     WindowSpec {
         id: "ub-list",
@@ -106,6 +125,7 @@ pub const WINDOWS: [WindowSpec; 13] = [
         markup: markup!("mosstank-ub-list.xml"),
         start_visible: true,
         on_shelf: false,
+        icon: None,
     },
     WindowSpec {
         id: "ub-map",
@@ -113,6 +133,7 @@ pub const WINDOWS: [WindowSpec; 13] = [
         markup: markup!("mosstank-ub-map.xml"),
         start_visible: true,
         on_shelf: false,
+        icon: None,
     },
     WindowSpec {
         id: "ub-clients",
@@ -120,6 +141,7 @@ pub const WINDOWS: [WindowSpec; 13] = [
         markup: markup!("mosstank-ub-clients.xml"),
         start_visible: true,
         on_shelf: false,
+        icon: None,
     },
     WindowSpec {
         id: "ub-dungeon",
@@ -127,6 +149,7 @@ pub const WINDOWS: [WindowSpec; 13] = [
         markup: markup!("mosstank-ub-dungeon.xml"),
         start_visible: true,
         on_shelf: false,
+        icon: None,
     },
     WindowSpec {
         id: "comps-hud",
@@ -134,6 +157,23 @@ pub const WINDOWS: [WindowSpec; 13] = [
         markup: markup!("mosstank-comps-hud.xml"),
         start_visible: true,
         on_shelf: false,
+        icon: None,
+    },
+    WindowSpec {
+        id: "inventory",
+        title: "MossTank Inventory",
+        markup: markup!("mosstank-inventory.xml"),
+        start_visible: false,
+        on_shelf: true,
+        icon: Some((INVENTORY_ICON_SURFACE_ID, INVENTORY_ICON_TEXT)),
+    },
+    WindowSpec {
+        id: "inventory-filters",
+        title: "MossTank Inventory Filters",
+        markup: markup!("mosstank-inventory-filters.xml"),
+        start_visible: false,
+        on_shelf: false,
+        icon: None,
     },
 ];
 
@@ -154,8 +194,8 @@ pub fn spec(window: &WindowSpec) -> Result<(PanelSpec, Vec<(String, TypedBinding
     };
     let mut spec =
         PanelSpec::new(window.id, window.title, window.markup).binding_type("MossTankPanel");
-    if window.id == "main" {
-        spec = spec.icon_text(ICON_TEXT).icon(ICON_SURFACE_ID);
+    if let Some((surface, initials)) = window.icon {
+        spec = spec.icon_text(initials).icon(surface);
     }
     if !window.start_visible {
         spec = spec.start_hidden();
@@ -176,12 +216,14 @@ pub fn spec(window: &WindowSpec) -> Result<(PanelSpec, Vec<(String, TypedBinding
 pub const PUSH_INTERVAL_SECONDS: f64 = 0.1;
 
 /// Values drawn only inside one shown part of a window (a page of the main
-/// window, an editor window): the C# windows read a property only to draw
-/// it, so these are worked out and pushed only while that part is shown
-/// (and once at the start), the costly grids and pickers among them
+/// window, an editor window, the Inventory window while the client shows
+/// it, a tab of the Inventory filters window): the C# windows read a
+/// property only to draw it, so these are worked
+/// out and pushed only while that part is shown (and once at the start),
+/// the costly grids and pickers among them
 /// (register UI-1). A test holds each to the markup: every use of the
 /// value sits inside the part.
-pub const SHOWN_ONLY_WITH: [(&str, &str); 29] = [
+pub const SHOWN_ONLY_WITH: [(&str, &str); 77] = [
     ("MacroProfileNames", "ProfilesVisible"),
     ("RouteProfileNames", "ProfilesVisible"),
     ("SelectedRouteProfile", "ProfilesVisible"),
@@ -211,6 +253,54 @@ pub const SHOWN_ONLY_WITH: [(&str, &str); 29] = [
     ("CompsHudCarriedCounts", "CompsHudEditorVisible"),
     ("CompsHudRowNames", "CompsHudEditorVisible"),
     ("CompsHudRowWarns", "CompsHudEditorVisible"),
+    ("MagInventoryClasses", "MagInventoryShown"),
+    ("MagInventoryFilterSummary", "MagInventoryShown"),
+    ("MagInventoryRowIcons", "MagInventoryShown"),
+    ("MagInventoryRowCharacters", "MagInventoryShown"),
+    ("MagInventoryRowNames", "MagInventoryShown"),
+    ("MagInventoryRowCounts", "MagInventoryShown"),
+    ("MagInventoryRowSlots", "MagInventoryShown"),
+    ("MagInventoryRowWields", "MagInventoryShown"),
+    ("MagInventoryRowWieldKeys", "MagInventoryShown"),
+    ("MagInventoryRowOds", "MagInventoryShown"),
+    ("MagInventoryRowOdKeys", "MagInventoryShown"),
+    ("MagInventoryRowValues", "MagInventoryShown"),
+    ("MagInventoryRowValueKeys", "MagInventoryShown"),
+    ("MagInventoryRowPlaces", "MagInventoryShown"),
+    ("MagFilterCantripChecks", "MagFiltersCantripsVisible"),
+    ("MagFilterCantripNames", "MagFiltersCantripsVisible"),
+    ("MagFilterCantripTiers", "MagFiltersCantripsVisible"),
+    ("MagFilterCantripCheckedText", "MagFiltersCantripsVisible"),
+    ("MagFilterSetNames", "MagFiltersSetVisible"),
+    ("MagFilterSetCounts", "MagFiltersSetVisible"),
+    ("SelectedMagFilterSetRow", "MagFiltersSetVisible"),
+    ("MagFilterCharacterNames", "MagFiltersCharactersVisible"),
+    ("MagFilterCharacterChecks", "MagFiltersCharactersVisible"),
+    ("MagInventoryInfo", "MagInventoryShown"),
+    ("MagInventoryStatus", "MagInventoryShown"),
+    ("MagManaIcons", "MagManaVisible"),
+    ("MagManaNames", "MagManaVisible"),
+    ("MagManaStates", "MagManaVisible"),
+    ("MagManaAmounts", "MagManaVisible"),
+    ("MagManaTimes", "MagManaVisible"),
+    ("MagManaNeeded", "MagManaVisible"),
+    ("MagManaUnretained", "MagManaVisible"),
+    ("MagInvItemsIcons", "MagInvItemsVisible"),
+    ("MagInvItemsNames", "MagInvItemsVisible"),
+    ("MagInvItemsCounts", "MagInvItemsVisible"),
+    ("MagInvItemsFiveMinutes", "MagInvItemsVisible"),
+    ("MagInvItemsHour", "MagInvItemsVisible"),
+    ("MagInvItemsHours", "MagInvItemsVisible"),
+    ("MagCombatMarks", "MagCombatStatsVisible"),
+    ("MagCombatNames", "MagCombatStatsVisible"),
+    ("MagCombatKills", "MagCombatStatsVisible"),
+    ("MagCombatReceived", "MagCombatStatsVisible"),
+    ("MagCombatGiven", "MagCombatStatsVisible"),
+    ("MagCombatDetailNames", "MagCombatStatsVisible"),
+    ("MagCombatDetailMelee", "MagCombatStatsVisible"),
+    ("MagCombatDetailMagic", "MagCombatStatsVisible"),
+    ("MagCombatDetailLabels", "MagCombatStatsVisible"),
+    ("MagCombatDetailValues", "MagCombatStatsVisible"),
 ];
 
 /// The value a binding of `kind` has before anything is worked out for it:

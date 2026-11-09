@@ -12,7 +12,7 @@
 use std::cell::RefCell;
 
 use ac_plugin_abi::ui::Color;
-use mosstank_ub::canvas::{MapCanvasSpec, MapFont, MapImage, MapPainter, MapUi};
+use mosstank_ub::canvas::{MapCanvasSpec, MapImage, MapPainter, MapUi};
 use openac_plugin::ui::Canvas;
 
 use crate::client::TankClient;
@@ -28,9 +28,8 @@ pub enum MapPaint {
     StrokeRect((f32, f32, f32, f32), Color, f32),
     /// A straight line.
     Line((f32, f32), (f32, f32), Color, f32),
-    /// One line of text, in one of the plugin's fonts (0: the interface
-    /// font).
-    Text(String, (f32, f32), Color, bool, u32),
+    /// One line of text.
+    Text(String, (f32, f32), Color, bool),
     /// An image over a rectangle.
     Image(MapImage, (f32, f32, f32, f32), Color),
     /// Clips what follows.
@@ -59,7 +58,6 @@ pub struct Canvases {
     entries: Vec<Entry>,
     next: u32,
     released: Vec<MapImage>,
-    released_fonts: Vec<MapFont>,
 }
 
 impl Canvases {
@@ -83,13 +81,10 @@ impl Canvases {
     }
 
     /// Carries out what the tools asked for: canvases registered, shown or
-    /// hidden, moved, removed, images and fonts let go.
+    /// hidden, moved, removed, images let go.
     pub fn flush(&mut self, client: &mut dyn TankClient) {
         for image in self.released.drain(..) {
             client.image_release(image);
-        }
-        for font in self.released_fonts.drain(..) {
-            client.font_release(font);
         }
         let mut kept = Vec::with_capacity(self.entries.len());
         for mut entry in self.entries.drain(..) {
@@ -203,11 +198,6 @@ impl MapUi for Recorder<'_> {
     fn release_image(&mut self, image: MapImage) {
         self.0.released.push(image);
     }
-
-    // Fonts too are asked for only while painting.
-    fn release_font(&mut self, font: MapFont) {
-        self.0.released_fonts.push(font);
-    }
 }
 
 /// [`MapUi`] during a paint: images come from the client at once.
@@ -265,21 +255,8 @@ impl MapUi for PaintUi<'_, '_, '_> {
         self.client.borrow_mut().image_release(image);
     }
 
-    fn bundled_font(&mut self, pixel_size: f32) -> MapFont {
-        self.client.borrow_mut().font_bundled(pixel_size)
-    }
-
-    fn release_font(&mut self, font: MapFont) {
-        self.client.borrow_mut().font_release(font);
-    }
-
-    fn measure_text_in(&mut self, font: MapFont, text: &str) -> Option<(f64, f64)> {
-        let mut client = self.client.borrow_mut();
-        let (w, h) = if font.is_valid() {
-            client.font_measure(font, text)
-        } else {
-            client.measure_text(text)
-        };
+    fn measure_text(&mut self, text: &str) -> Option<(f64, f64)> {
+        let (w, h) = self.client.borrow_mut().measure_text(text);
         Some((f64::from(w), f64::from(h)))
     }
 }
@@ -362,37 +339,11 @@ impl MapPainter for RecordingPainter<'_, '_, '_> {
             point(at),
             color.clone(),
             outline,
-            0,
         ));
     }
 
     fn measure_text(&mut self, text: &str) -> (f64, f64) {
         let (w, h) = self.client.borrow_mut().measure_text(text);
-        (f64::from(w), f64::from(h))
-    }
-
-    fn draw_text_in(
-        &mut self,
-        font: MapFont,
-        text: &str,
-        at: (f64, f64),
-        color: &Color,
-        outline: bool,
-    ) {
-        self.commands.push(MapPaint::Text(
-            text.to_owned(),
-            point(at),
-            color.clone(),
-            outline,
-            font.handle,
-        ));
-    }
-
-    fn measure_text_in(&mut self, font: MapFont, text: &str) -> (f64, f64) {
-        if !font.is_valid() {
-            return self.measure_text(text);
-        }
-        let (w, h) = self.client.borrow_mut().font_measure(font, text);
         (f64::from(w), f64::from(h))
     }
 
@@ -424,15 +375,8 @@ pub fn replay(commands: &[MapPaint], painter: &mut openac_plugin::ui::Painter) {
             MapPaint::Line(from, to, color, thickness) => {
                 painter.line(*from, *to, color.clone(), *thickness);
             }
-            MapPaint::Text(text, at, color, outline, 0) => {
+            MapPaint::Text(text, at, color, outline) => {
                 painter.text(text, *at, color.clone(), *outline);
-            }
-            MapPaint::Text(text, at, color, outline, font) => {
-                let font = openac_plugin::ui::Font {
-                    handle: *font,
-                    ..openac_plugin::ui::Font::NONE
-                };
-                painter.text_in(font, text, *at, color.clone(), *outline);
             }
             MapPaint::Image(image, (x, y, w, h), tint) => painter.image(
                 openac_plugin::ui::Image {

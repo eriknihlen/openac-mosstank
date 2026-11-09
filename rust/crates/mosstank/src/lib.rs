@@ -9,13 +9,14 @@
 //! every tick, the hold on the walks the client plans, and MossTank's loot
 //! classifier for the other plugins ([`loot`]).
 //!
-//! The windows (the main panel and its twelve companions, [`panel`]) show
+//! The windows (the main panel and its thirteen companions, [`panel`]) show
 //! the shell's values and send their handlers to it.
 
 pub mod automation;
 pub mod canvases;
 pub mod client;
 pub mod loot;
+pub mod mag_host;
 pub mod panel;
 pub mod storage;
 pub mod tank;
@@ -351,14 +352,7 @@ impl MossTank {
         };
         // A chat-line pattern, on a tick that ran no pass either (a pass and
         // a pattern built are more than a call should run together).
-        if !heavy && !warmed {
-            mosstank_automation::combat_text::warm_one();
-        }
-        let reason = tank.walk_pause_reason();
-        if self.go_to_pause.need(host, reason.as_deref()) {
-            // The walk's hold changed through the host, past the view.
-            self.kept.end_call();
-        }
+        let built = !heavy && !warmed && mosstank_automation::combat_text::warm_one();
         // The values follow on their own every tenth of a second; a tick
         // that ran the macro's pass or did a tick's worth of once-only work
         // (the spell table read, the name tags' first look at a crowded
@@ -370,6 +364,26 @@ impl MossTank {
             .as_mut()
             .is_some_and(|windows| windows.push_due(TICK_SECONDS));
         let stale = std::mem::take(&mut self.windows_stale);
+        // The Mag features' background work (the inventory logger's
+        // batches, the Inventory window's reading and matching, the combat
+        // tracker's compiling and reading in, the Combat page's rows) takes
+        // what MossTank's own work leaves: a light tick with no profile load
+        // under way, no commands waiting for one, no cache to build and no
+        // window push.
+        if !heavy && !warmed && !built && !was_loading && !due && !stale {
+            let mut client = HostAutomation::for_call(
+                host,
+                &mut self.observations,
+                &mut self.meta_windows,
+                &mut self.kept,
+            );
+            tank.mag_background_tick(&mut client);
+        }
+        let reason = tank.walk_pause_reason();
+        if self.go_to_pause.need(host, reason.as_deref()) {
+            // The walk's hold changed through the host, past the view.
+            self.kept.end_call();
+        }
         if due || stale {
             if was_loading || tank.is_loading_profiles() {
                 self.windows_stale = true;

@@ -1861,19 +1861,15 @@ impl LootController {
                 LootRefusal::no_rule(),
             );
         }
-        let (decision, refusal) =
-            if casing::is_white_space_only(&self.settings.external_classifier_id) {
-                rules::decide(
-                    item,
-                    properties,
-                    &self.settings.rules,
-                    owned,
-                    Some(&self.pending_by_name),
-                    Some(automation(host)),
-                )
-            } else {
-                self.decide_with_external_classifier(host, item, properties, owned)
-            };
+        let (decision, refusal) = profile_decision(
+            host,
+            item,
+            properties,
+            &self.settings.rules,
+            &self.settings.external_classifier_id,
+            owned,
+            Some(&self.pending_by_name),
+        );
         if decision.is_some() {
             return (decision, refusal);
         }
@@ -1892,74 +1888,6 @@ impl LootController {
             .automatic_mana_action(host, item, owned)
             .map(|action| LootDecision::new(action, 0, i32::MAX, &format!("{action:?}")));
         (decision, refusal)
-    }
-
-    fn decide_with_external_classifier(
-        &self,
-        host: &mut dyn LootHost,
-        item: &InventoryItem,
-        properties: &ItemProperties,
-        owned: &[InventoryItem],
-    ) -> (Option<LootDecision>, LootRefusal) {
-        let classifier_id = &self.settings.external_classifier_id;
-        let context = LootContext {
-            item: item.clone(),
-            properties: properties.clone(),
-            owned_items: owned.to_vec(),
-        };
-        let Some(classification) = host
-            .classify(classifier_id, context)
-            .filter(|classification| classification.matched)
-        else {
-            return (None, LootRefusal::no_rule());
-        };
-        let rule_name = if casing::is_white_space_only(&classification.rule_name) {
-            classifier_id.clone()
-        } else {
-            classification
-                .rule_name
-                .trim_matches(casing::is_white_space)
-                .to_owned()
-        };
-        let Some(action) = LootAction::from_i32(i32::from(classification.action.tag())) else {
-            return (None, LootRefusal::no_rule());
-        };
-        if action == LootAction::NoLoot {
-            return (
-                None,
-                LootRefusal {
-                    kind: LootRefusalKind::RuleDeclined,
-                    rule_name,
-                    limit: 0,
-                    held: 0,
-                },
-            );
-        }
-        if action == LootAction::KeepUpTo {
-            let limit = classification.keep_count.max(0);
-            let held = rules::held_count(&item.name, owned, Some(&self.pending_by_name));
-            if held >= limit {
-                return (
-                    None,
-                    LootRefusal {
-                        kind: LootRefusalKind::RuleAtCap,
-                        rule_name,
-                        limit,
-                        held,
-                    },
-                );
-            }
-        }
-        (
-            Some(LootDecision {
-                action,
-                priority: classification.priority,
-                rule_index: -1,
-                rule_name,
-                classifier_id: classifier_id.clone(),
-            }),
-            LootRefusal::no_rule(),
-        )
     }
 
     /// Marks an item already in the pack, as a looted one is marked (for
@@ -2160,6 +2088,130 @@ fn free_slots_in(
         })
         .count();
     (capacity - i32::try_from(loose).unwrap_or(i32::MAX)).max(0)
+}
+
+/// The loot profile's decision on one item, as the looter weighs it: the
+/// first matching rule, or the external classifier when one is named
+/// (`external_classifier_id` not blank). `pending_by_name` counts the
+/// items on their way to the pack for the keep-up-to limits. The looter's
+/// own additions (its death corpse, unknown scrolls, mana stones) are not
+/// part of it.
+#[must_use]
+pub fn profile_decision(
+    host: &mut dyn LootHost,
+    item: &InventoryItem,
+    properties: &ItemProperties,
+    rules: &[mosstank_formats::utl::LootRule],
+    external_classifier_id: &str,
+    owned: &[InventoryItem],
+    pending_by_name: Option<&IgnoreCaseStringMap<i32>>,
+) -> (Option<LootDecision>, LootRefusal) {
+    if casing::is_white_space_only(external_classifier_id) {
+        rules::decide(
+            item,
+            properties,
+            rules,
+            owned,
+            pending_by_name,
+            Some(automation(host)),
+        )
+    } else {
+        external_decision(
+            host,
+            external_classifier_id,
+            item,
+            properties,
+            owned,
+            pending_by_name,
+        )
+    }
+}
+
+/// The profile needs an appraisal of the item before it can decide: always
+/// for an external classifier, as the looter asks; otherwise when the
+/// rules say so.
+#[must_use]
+pub fn profile_needs_identify(
+    host: &mut dyn LootHost,
+    item: &InventoryItem,
+    properties: &ItemProperties,
+    rules: &[mosstank_formats::utl::LootRule],
+    external_classifier_id: &str,
+) -> bool {
+    if !casing::is_white_space_only(external_classifier_id) {
+        return true;
+    }
+    rules::needs_identify(item, properties, rules, Some(automation(host)))
+}
+
+/// The external classifier's decision (`profile_decision`).
+fn external_decision(
+    host: &mut dyn LootHost,
+    external_classifier_id: &str,
+    item: &InventoryItem,
+    properties: &ItemProperties,
+    owned: &[InventoryItem],
+    pending_by_name: Option<&IgnoreCaseStringMap<i32>>,
+) -> (Option<LootDecision>, LootRefusal) {
+    let classifier_id = external_classifier_id;
+    let context = LootContext {
+        item: item.clone(),
+        properties: properties.clone(),
+        owned_items: owned.to_vec(),
+    };
+    let Some(classification) = host
+        .classify(classifier_id, context)
+        .filter(|classification| classification.matched)
+    else {
+        return (None, LootRefusal::no_rule());
+    };
+    let rule_name = if casing::is_white_space_only(&classification.rule_name) {
+        classifier_id.to_owned()
+    } else {
+        classification
+            .rule_name
+            .trim_matches(casing::is_white_space)
+            .to_owned()
+    };
+    let Some(action) = LootAction::from_i32(i32::from(classification.action.tag())) else {
+        return (None, LootRefusal::no_rule());
+    };
+    if action == LootAction::NoLoot {
+        return (
+            None,
+            LootRefusal {
+                kind: LootRefusalKind::RuleDeclined,
+                rule_name,
+                limit: 0,
+                held: 0,
+            },
+        );
+    }
+    if action == LootAction::KeepUpTo {
+        let limit = classification.keep_count.max(0);
+        let held = rules::held_count(&item.name, owned, pending_by_name);
+        if held >= limit {
+            return (
+                None,
+                LootRefusal {
+                    kind: LootRefusalKind::RuleAtCap,
+                    rule_name,
+                    limit,
+                    held,
+                },
+            );
+        }
+    }
+    (
+        Some(LootDecision {
+            action,
+            priority: classification.priority,
+            rule_index: -1,
+            rule_name,
+            classifier_id: classifier_id.to_owned(),
+        }),
+        LootRefusal::no_rule(),
+    )
 }
 
 /// The looter's host seen as the rules' shared view.

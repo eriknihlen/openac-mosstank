@@ -1,20 +1,18 @@
 //! The Comps HUD as the player reaches it through the plugin: `/vt
 //! compshud`, its box on the Consumables page (Show HUD, the layout bar,
 //! Edit items, the summary, Add to HUD), the Edit items window, the strip's
-//! buttons on its canvas, and the theme it is painted in.
+//! buttons on its canvas, and how it is drawn on the game.
 
 mod common;
 
 use ac_plugin_abi::Event;
 use ac_plugin_abi::calls;
-use ac_plugin_abi::ui::{
-    ActionValue, Color, PaintCmd, PointerEvent, ThemeInfo, ThemeKind, ThemePalette, UiEvent,
-    UiValue,
-};
+use ac_plugin_abi::ui::{ActionValue, Color, PaintCmd, PointerEvent, ThemeInfo, UiEvent, UiValue};
 use ac_plugin_abi::world::{ObjectClass, WorldObject};
 use common::World;
 use mosstank::MossTank;
 use mosstank_ub::comps_hud::{HudButton, HudGeometry, HudLayout};
+use mosstank_ub::overlay::NUMBERS;
 
 const PEA_ID: u32 = 0x8000_0012;
 const PEA_ICON: u32 = 0x0600_1F61;
@@ -63,9 +61,15 @@ fn canvas(world: &World) -> Option<(u32, bool, i32, i32)> {
         })
 }
 
+/// A click on the strip: the pointer comes over it first (as the host
+/// reports it), so its buttons show, then a left press and release.
 fn click(world: &mut World, plugin: &mut MossTank, at: (f64, f64)) {
     let (id, ..) = canvas(world).expect("the HUD's canvas");
-    for kind in [0, 1] {
+    for (kind, button) in [
+        (PointerEvent::HOVER, 0),
+        (PointerEvent::DOWN, 1),
+        (PointerEvent::UP, 1),
+    ] {
         #[allow(clippy::cast_possible_truncation)]
         world.send(
             plugin,
@@ -74,7 +78,7 @@ fn click(world: &mut World, plugin: &mut MossTank, at: (f64, f64)) {
                 kind,
                 x: at.0 as f32,
                 y: at.1 as f32,
-                button: 1,
+                button,
                 modifiers: 0,
                 wheel_delta: 0,
             })),
@@ -275,8 +279,8 @@ fn offset(world: &World, canvas_id: &str) -> Option<(f32, f32)> {
         .map(|canvas| canvas.offset)
 }
 
-/// Hovering an item on the strip shows its name in the tooltip canvas,
-/// painted in the theme; leaving the strip hides it.
+/// Hovering an item on the strip shows its name in the tooltip canvas;
+/// leaving the strip hides it.
 #[test]
 fn hovering_the_strip_shows_the_items_name() {
     let (mut world, mut plugin) = carrying();
@@ -465,14 +469,51 @@ fn the_strips_buttons_open_edit_items_switch_the_layout_and_hide_it() {
     world.disable(p);
 }
 
-const fn rgb(r: u8, g: u8, b: u8) -> Color {
-    Color { r, g, b, a: 255 }
+/// What the strip's canvas was last painted with.
+fn strip_paint(world: &World) -> Vec<PaintCmd> {
+    let (id, ..) = canvas(world).expect("the HUD's canvas");
+    world
+        .requests::<calls::UiCanvasPaint>()
+        .into_iter()
+        .rfind(|paint| paint.canvas == id)
+        .map(|paint| paint.commands)
+        .unwrap_or_default()
 }
 
-/// A theme picked while the HUD shows repaints it in that theme: its face
-/// and its text colour, the text in the bundled font.
+/// Whether a paint has a fill, an outlined rectangle or a line: a face, an
+/// edge or a button.
+fn has_marks(paint: &[PaintCmd]) -> bool {
+    paint.iter().any(|command| {
+        matches!(
+            command,
+            PaintCmd::FillRect(..) | PaintCmd::StrokeRect(..) | PaintCmd::Line(..)
+        )
+    })
+}
+
+fn hover_event(world: &mut World, plugin: &mut MossTank, kind: u8, at: (f64, f64)) {
+    let (id, ..) = canvas(world).expect("the HUD's canvas");
+    #[allow(clippy::cast_possible_truncation)]
+    world.send(
+        plugin,
+        Event::Ui(UiEvent::Pointer(PointerEvent {
+            canvas: id,
+            kind,
+            x: at.0 as f32,
+            y: at.1 as f32,
+            button: 0,
+            modifiers: 0,
+            wheel_delta: 0,
+        })),
+    );
+}
+
+/// The strip is drawn on the game as the mana overlay is: no face or edge,
+/// the count in outlined gold in the interface font (no font asked for, a
+/// theme change repaints nothing); the pointer over it paints its buttons
+/// as lines, leaving takes them off.
 #[test]
-fn a_theme_change_repaints_the_strip_in_the_new_theme() {
+fn the_strip_is_drawn_on_the_game_and_its_buttons_show_under_the_pointer() {
     let (mut world, mut plugin) = carrying();
     let p = &mut plugin;
     world.vt(p, "compshud on");
@@ -480,53 +521,41 @@ fn a_theme_change_repaints_the_strip_in_the_new_theme() {
     world.set_reply::<calls::WorldObject>(&Some(owned(PEA_ID, "Gold Pea", 8, PEA_ICON)));
     world.vt(p, "compshud add");
     world.ticks(p, 3);
-    let painted = world.requests::<calls::UiCanvasPaint>().len();
-    assert!(painted >= 1);
-    assert!(world.requests::<calls::UiFontBundled>().is_empty());
-
-    let face = rgb(0xED, 0xE7, 0xDC);
-    let ink = rgb(0x2A, 0x25, 0x20);
-    world.set_reply::<calls::UiFontBundled>(&ac_plugin_abi::ui::FontInfo {
-        handle: 9,
-        pixel_size: 11.0,
-        line_height: 15.0,
-        ascent: 11.0,
-    });
-    world.send(
-        p,
-        Event::ThemeChanged(ThemeInfo {
-            kind: ThemeKind::Parchment,
-            display_name: "Parchment".to_owned(),
-            palette: Some(ThemePalette {
-                background: face.clone(),
-                field: rgb(0xFA, 0xF7, 0xF1),
-                border: rgb(0xC9, 0xBF, 0xAE),
-                text: ink.clone(),
-                muted: rgb(0x65, 0x5C, 0x50),
-                accent: rgb(0xB4, 0x47, 0x1F),
-                selected: rgb(0xDD, 0xCF, 0xB6),
-            }),
-        }),
-    );
-    world.ticks(p, 2);
-    let paints = world.requests::<calls::UiCanvasPaint>();
-    assert!(paints.len() > painted, "the theme change repaints");
-    let last = paints.last().unwrap();
-    assert!(
-        last.commands
-            .iter()
-            .any(|command| matches!(command, PaintCmd::FillRect(_, color) if *color == face))
-    );
-    let counts: Vec<(&str, &Color, u32)> = last
-        .commands
+    let paint = strip_paint(&world);
+    assert!(!has_marks(&paint), "no face, edge or buttons: {paint:?}");
+    let counts: Vec<(&str, &Color, bool, u32)> = paint
         .iter()
         .filter_map(|command| match command {
-            PaintCmd::Text(text, _, _, color, _, font) => Some((text.as_str(), color, *font)),
+            PaintCmd::Text(text, _, _, color, outline, font) => {
+                Some((text.as_str(), color, *outline, *font))
+            }
             _ => None,
         })
         .collect();
-    assert_eq!(vec![("8", &ink, 9)], counts);
-    assert_eq!(1, world.requests::<calls::UiFontBundled>().len());
+    assert_eq!(vec![("8", &NUMBERS, true, 0)], counts);
+    assert!(world.requests::<calls::UiFontBundled>().is_empty());
+
+    let painted = world.requests::<calls::UiCanvasPaint>().len();
+    world.send(p, Event::ThemeChanged(ThemeInfo::default()));
+    world.ticks(p, 2);
+    assert_eq!(
+        painted,
+        world.requests::<calls::UiCanvasPaint>().len(),
+        "the theme changes nothing"
+    );
+
+    let column = HudGeometry::new(HudLayout::Column, &[7.0]);
+    hover_event(
+        &mut world,
+        p,
+        PointerEvent::HOVER,
+        centre(column.items[0].cell),
+    );
+    world.ticks(p, 2);
+    assert!(has_marks(&strip_paint(&world)), "the buttons show");
+    hover_event(&mut world, p, PointerEvent::LEAVE, (0.0, 0.0));
+    world.ticks(p, 2);
+    assert!(!has_marks(&strip_paint(&world)), "and go");
     world.disable(p);
 }
 

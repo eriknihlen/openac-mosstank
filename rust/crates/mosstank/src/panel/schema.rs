@@ -33,6 +33,8 @@ fn value_kind(
         ("meter", "fill") => K::Float,
         ("log", "firstindex") => K::Int,
         (_, "items") => K::TextList,
+        // Sort keys as text (the client parses them for `sort="number"`).
+        ("column", "sortkeys") => K::TextList,
         (_, "colors" | "icons") => K::UintList,
         ("column", "values") => {
             if matches!(column_type, Some("check" | "checkbox")) {

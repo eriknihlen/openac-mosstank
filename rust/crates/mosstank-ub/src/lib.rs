@@ -30,6 +30,7 @@ pub mod landscape;
 pub mod live;
 pub mod main_page;
 pub mod network;
+pub mod overlay;
 pub mod prepclick;
 pub mod search;
 pub mod settings_page;
