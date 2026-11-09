@@ -78,6 +78,7 @@ fn ring_properties() -> ItemProperties {
             nether_mod: 0.5,
             electric_mod: 1.4,
         }),
+        creature: None,
     }
 }
 

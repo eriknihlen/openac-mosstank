@@ -1280,3 +1280,19 @@ fn the_delegate_check_knows_checkboxes_radio_bars_and_numbers() {
         .unwrap();
     assert_eq!(delegate_shape_mismatches(checkbox, &wrong).len(), 1);
 }
+
+// The Inventory window's Count column is right-aligned (plugin API 1.10),
+// the other text columns left.
+#[test]
+fn the_inventory_windows_count_column_is_right_aligned() {
+    let document = document("mosstank-inventory.xml");
+    let columns: Vec<_> = document
+        .descendants()
+        .filter(|node| node.has_tag_name("column"))
+        .map(|node| (attr(node, "items"), attr(node, "align")))
+        .collect();
+    for (items, align) in columns {
+        let wanted = (items == Some("{MagInventoryRowCounts}")).then_some("right");
+        assert_eq!(align, wanted, "{items:?}");
+    }
+}

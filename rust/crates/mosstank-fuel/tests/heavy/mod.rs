@@ -748,6 +748,7 @@ pub fn appraised_properties(inventory: &[Created]) -> BTreeMap<u32, ItemProperti
                     nether_mod: 0.5,
                     electric_mod: 1.4,
                 }),
+                creature: None,
             };
             (item.object_id, properties)
         })

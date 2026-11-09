@@ -30,9 +30,9 @@ cargo build --workspace --target wasm32-unknown-unknown --release
 
 The SDK crates (`openac-plugin`, `openac-plugin-compat`, `ac-plugin-abi`)
 come from the OpenAC repository by git, pinned to a commit in
-`Cargo.toml`: openac-rust v0.1.12, plugin API 1.8 (a canvas hears the
-pointer hovering over it from API 1.6), so MossTank needs client 0.1.11 or
-later; its fellowship rules see fellows out of sight from client 0.1.12.
+`Cargo.toml`: OpenAC `main` at 75c92b63, plugin API 1.10 (every
+enchantment on the character, right-aligned list columns), so MossTank
+needs OpenAC client 0.2.3 or later (the next client release).
 
 `scripts/check.ps1` (or `scripts/check.sh`) runs the full check: formatting,
 clippy, the tests, the WebAssembly build, the module's imports, and the

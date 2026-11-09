@@ -38,10 +38,10 @@ mosstank = { path = "crates/mosstank" }
 # pinned to a commit. `openac-plugin-compat` is its .NET
 # compatibility kit: number formats, the seeded Random, text decoding, JSON
 # writers, regex.
-openac-plugin = { git = "https://github.com/eriknihlen/OpenAC", rev = "d23ef9a70657d3afbf13fb5b128114d135b57b86" }
-openac-plugin-compat = { git = "https://github.com/eriknihlen/OpenAC", rev = "d23ef9a70657d3afbf13fb5b128114d135b57b86" }
+openac-plugin = { git = "https://github.com/eriknihlen/OpenAC", rev = "75c92b6333641034f680f4da2d283aad3f4b5868" }
+openac-plugin-compat = { git = "https://github.com/eriknihlen/OpenAC", rev = "75c92b6333641034f680f4da2d283aad3f4b5868" }
 # The plugin ABI types (world positions and the like) without the SDK's host side.
-ac-plugin-abi = { git = "https://github.com/eriknihlen/OpenAC", rev = "d23ef9a70657d3afbf13fb5b128114d135b57b86" }
+ac-plugin-abi = { git = "https://github.com/eriknihlen/OpenAC", rev = "75c92b6333641034f680f4da2d283aad3f4b5868" }
 
 thiserror = "2.0"
 # SHA-256 for the recovery copies' and old profiles' names and the global

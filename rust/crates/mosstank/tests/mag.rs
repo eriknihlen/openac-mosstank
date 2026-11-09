@@ -48,8 +48,9 @@ fn the_open_containers_contents_are_the_clients() {
 }
 
 #[test]
-fn every_enchantment_is_for_now_the_ones_in_effect() {
-    // Task 6.0: plugin API 1.10's every-enchantment call replaces this.
+fn every_enchantment_is_the_clients_every_enchantment_call() {
+    // Plugin API 1.10: every enchantment on the character, surpassed ones
+    // too, not the ones in effect.
     let mut world = World::with_character("Mag");
     let buff = ActiveEnchantment {
         spell_id: 2,
@@ -57,12 +58,10 @@ fn every_enchantment_is_for_now_the_ones_in_effect() {
         tier: 7,
         seconds_remaining: 3600.0,
     };
-    world.set_reply::<calls::CharacterEnchantments>(&vec![buff.clone()]);
+    world.set_reply::<calls::CharacterAllEnchantments>(&vec![buff.clone()]);
     assert_eq!(mag(&mut world, |host| host.all_enchantments()), vec![buff]);
-    assert_eq!(
-        world.requests::<calls::CharacterEnchantments>(),
-        vec![false]
-    );
+    assert_eq!(world.requests::<calls::CharacterAllEnchantments>().len(), 1);
+    assert!(world.requests::<calls::CharacterEnchantments>().is_empty());
 }
 
 #[test]

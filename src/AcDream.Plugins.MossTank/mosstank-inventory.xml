@@ -46,9 +46,7 @@
               onclick="{SelectMagInventoryRow}" />
       <column type="text" width="*" items="{MagInventoryRowNames}"
               onclick="{SelectMagInventoryRow}" />
-      <!-- Task 6.0: align="right" once the SDK pin reads plugin API 1.10
-           (the pinned API 1.8 markup ignores it). -->
-      <column type="text" width="50" items="{MagInventoryRowCounts}"
+      <column type="text" width="50" align="right" items="{MagInventoryRowCounts}"
               onclick="{SelectMagInventoryRow}" />
       <column type="text" width="90" items="{MagInventoryRowPlaces}"
               onclick="{SelectMagInventoryRow}" />

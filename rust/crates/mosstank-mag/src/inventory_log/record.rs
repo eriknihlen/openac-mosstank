@@ -228,6 +228,8 @@ impl ItemRecord {
             instance_ids: read_map(value.get("instance_ids")?, read_u32)?,
             weapon: optional(value.get("weapon")?, read_weapon)?,
             armor: optional(value.get("armor")?, read_armor)?,
+            // An owned item has no creature profile; the log keeps none.
+            creature: None,
         };
         let class = u8::try_from(member(value, "object_class", read_u32)?).ok()?;
         Some(Self {

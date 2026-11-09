@@ -18,9 +18,7 @@ impl MagHost for HostAutomation<'_, '_> {
     }
 
     fn all_enchantments(&mut self) -> Vec<ActiveEnchantment> {
-        // Task 6.0: plugin API 1.10's `all_enchantments` once the SDK pin
-        // moves; until then the ones in effect.
-        self.reader().enchantments()
+        self.reader().all_enchantments()
     }
 
     fn loot_contents(&mut self) -> Vec<InventoryItem> {
