@@ -12,9 +12,11 @@ use mosstank_mag::combat::gui::{CombatGui, CombatPage, StatsPage};
 use mosstank_mag::host::{LootVerdict, MagHost, Verdict};
 use mosstank_mag::identify::IdentifyQueue;
 use mosstank_mag::inventory_search::InfoSettings;
+use mosstank_mag::mana::OverlayStep;
 use mosstank_mag::printer::{IdentCall, PrintSettings, Printer};
 use mosstank_mag::settings;
 use mosstank_settings::model::LootSettings;
+use mosstank_settings::ub::UbSettingValue;
 use mosstank_ub::catalog::UbCatalog;
 
 use super::rules::TankCx;
@@ -22,6 +24,8 @@ use crate::client::TankClient;
 
 /// The Inventory window's id.
 pub(crate) const INVENTORY_WINDOW: &str = "inventory";
+/// The mana overlay window's id.
+pub(crate) const MANA_OVERLAY_WINDOW: &str = "mana-overlay";
 
 /// The loot profile MossTank loots by, as the item-info line asks it: the
 /// looter's own decision ([`controller::profile_decision`]): the first
@@ -334,6 +338,7 @@ impl TankCx<'_> {
             let looter_busy = self.core.loot.is_identifying();
             self.mag.identify.tick(self.client.mag(), looter_busy);
         }
+        self.mana_overlay_frame();
         self.refresh_mana_page();
         self.refresh_inv_items_page();
         let sort = self.combat_settings().sort_alphabetically;
@@ -410,6 +415,10 @@ impl TankCx<'_> {
         self.mag.inventory_log.reset();
         self.mag.inventory_search.reset();
         self.mag.mana.reset();
+        // The overlay goes with the character, and comes back with the next
+        // one while its setting is on.
+        self.client.show_window(MANA_OVERLAY_WINDOW, false);
+        self.mag.mana_overlay.reset();
         self.mag.inv_items.reset();
     }
 
@@ -422,8 +431,30 @@ impl TankCx<'_> {
     /// Builds the Mana page's values while it is shown: once a frame, and
     /// when an action shows it; its bindings only read them.
     pub(crate) fn refresh_mana_page(&mut self) {
-        if self.mana_page_shown() {
+        if self.mana_page_shown() || self.mag.mana_overlay.is_shown() {
             self.mag.mana.refresh(self.client.mag());
+        }
+    }
+
+    /// The mana overlay window, once a frame and when its box changes:
+    /// shown while its setting is on, hidden when it goes off; closed from
+    /// its title bar, the setting goes off.
+    pub(crate) fn mana_overlay_frame(&mut self) {
+        let wanted = UbCatalog::flag(&self.ub.catalog, settings::MANA_SHOW_OVERLAY);
+        let visible = self.client.mag().ui_view_visible(MANA_OVERLAY_WINDOW);
+        match self.mag.mana_overlay.step(wanted, visible) {
+            OverlayStep::Show => {
+                self.client.show_window(MANA_OVERLAY_WINDOW, true);
+                self.refresh_mana_page();
+            }
+            OverlayStep::Hide => {
+                self.client.show_window(MANA_OVERLAY_WINDOW, false);
+            }
+            OverlayStep::Closed => {
+                let row = UbCatalog::require(&self.ub.catalog, settings::MANA_SHOW_OVERLAY);
+                UbCatalog::set(&mut self.ub.catalog, &row, UbSettingValue::from_bool(false));
+            }
+            OverlayStep::None => {}
         }
     }
 

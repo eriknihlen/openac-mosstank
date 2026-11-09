@@ -880,6 +880,10 @@
       <label x="204" y="186" w="160" h="18" text="{MagManaUnretained}"
              color="theme:text|#FFE8DEC3" anchor="left bottom"
              tooltip="The appraised worn items that are not retained (ammunition not counted)." />
+      <checkbox x="336" y="2" w="160" h="18" text="Show mana overlay"
+                checked="{MagManaShowOverlay}" onchange="{SetMagManaShowOverlay}"
+                color="theme:text|#FFE8DEC3"
+                tooltip="These rows in a small window of their own over the game; drag it by its title, close it to untick this." />
     </group>
     <!-- Inv. Items: Mag-Tools' InventoryTrackerList (its six columns at
          their widths, but four widened for the client's font: name 100

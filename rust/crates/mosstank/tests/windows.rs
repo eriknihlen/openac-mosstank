@@ -1,4 +1,4 @@
-//! The fifteen windows as the client holds them: registered with the
+//! The sixteen windows as the client holds them: registered with the
 //! descriptors `MossTankPlugin.Initialize` gives, every value binding pushed
 //! with a value of its kind, and every handler answered by the shell.
 

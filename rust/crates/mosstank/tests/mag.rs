@@ -632,14 +632,14 @@ fn the_set_characters_and_ratings_tabs_narrow_the_rows_and_reset_one_tab() {
     assert_eq!(sorted_names(&mut world, &mut plugin), rings);
 }
 
-#[test]
-fn the_mana_page_lists_a_worn_item_once_appraised() {
-    // Source: Mag-Tools EquipmentTrackedItem.cs and ManaTrackerGUI.cs at
-    // 43ee2ec: an appraised worn ring with its spell up, 100 of 200 mana,
-    // one burned every 40 s.
+/// The test ring: worn, 100 of 200 mana, one burned every 40 s, its spell
+/// up; logged in and appraised at 1 s.
+const TEST_RING: u32 = 0x5000_0002;
+
+fn wearing_a_test_ring() -> (World, mosstank::MossTank) {
     use ac_plugin_abi::character::ActiveEnchantment;
     use ac_plugin_abi::magic::SpellInfo;
-    let ring = 0x5000_0002;
+    let ring = TEST_RING;
     let mut world = World::with_character("Mag");
     world.set_reply::<calls::ItemsInventoryComplete>(&true);
     world.own_items(vec![ac_plugin_abi::items::InventoryItem {
@@ -683,6 +683,16 @@ fn the_mana_page_lists_a_worn_item_once_appraised() {
     assert!(world.requests::<calls::WorldIdentify>().contains(&ring));
     world.fake.clock.monotonic_ms = 1_000;
     world.send(&mut plugin, ident_received(ring, "Test Ring"));
+    (world, plugin)
+}
+
+#[test]
+fn the_mana_page_lists_a_worn_item_once_appraised() {
+    // Source: Mag-Tools EquipmentTrackedItem.cs and ManaTrackerGUI.cs at
+    // 43ee2ec: an appraised worn ring with its spell up, 100 of 200 mana,
+    // one burned every 40 s.
+    let ring = TEST_RING;
+    let (mut world, mut plugin) = wearing_a_test_ring();
 
     world.act(&mut plugin, "ShowMag");
     world.act(&mut plugin, "ShowMagMana");
@@ -1257,4 +1267,81 @@ fn disabling_the_plugin_after_logging_off_writes_nothing_again() {
     world.disable(&mut plugin);
     assert_eq!(world.plugin_data.get(log_key).map(str::to_owned), logged);
     assert_eq!(world.plugin_data.get(stats_key), Some("kept"));
+}
+
+/// The mana overlay window as the client holds it: (registered to start
+/// hidden, on the dock, asked to show).
+fn overlay(world: &World) -> (bool, bool, bool) {
+    world
+        .fake
+        .ui
+        .panels()
+        .find(|panel| panel.descriptor.window_id == "mana-overlay")
+        .map(|panel| {
+            (
+                panel.descriptor.start_visible,
+                panel.descriptor.show_in_side_panel,
+                panel.requested_visible,
+            )
+        })
+        .expect("the mana overlay registers")
+}
+
+#[test]
+fn the_mana_overlay_follows_its_setting_its_close_button_and_the_relog() {
+    let (mut world, mut plugin) = wearing_a_test_ring();
+    // Off by default: registered hidden, off the dock.
+    world.tick(&mut plugin);
+    assert_eq!(overlay(&world), (false, false, false));
+    assert!(!world.ui_bool(&mut plugin, "MagManaShowOverlay"));
+
+    // Ticked on the Mana page: shown, with the page's rows.
+    world.act_int(&mut plugin, "SetMagManaShowOverlay", 1);
+    assert!(overlay(&world).2);
+    world.tick(&mut plugin);
+    assert!(world.ui_bool(&mut plugin, "MagOverlayShown"));
+    assert_eq!(world.ui_uints(&mut plugin, "MagOverlayIcons"), [TEST_RING]);
+    assert_eq!(world.ui_list(&mut plugin, "MagOverlayNames"), ["Test Ring"]);
+    assert_eq!(
+        world.ui_uints(&mut plugin, "MagOverlayStates"),
+        [mosstank_mag::mana::ICON_ACTIVE]
+    );
+    assert_eq!(
+        world.ui_list(&mut plugin, "MagOverlayAmounts"),
+        ["100 / 200"]
+    );
+    assert_eq!(world.ui_list(&mut plugin, "MagOverlayTimes"), ["1h06m"]);
+    // The burn reaches it without the Mana page shown.
+    world.fake.clock.monotonic_ms = 41_000;
+    world.tick(&mut plugin);
+    assert_eq!(
+        world.ui_list(&mut plugin, "MagOverlayAmounts"),
+        ["99 / 200"]
+    );
+
+    // Closed from its title bar: the setting goes off.
+    world
+        .fake
+        .ui
+        .show_panel("acdream.mosstank", "mana-overlay", false);
+    world.tick(&mut plugin);
+    assert!(!world.ui_bool(&mut plugin, "MagManaShowOverlay"));
+    world.ticks(&mut plugin, 3);
+    assert!(!overlay(&world).2);
+
+    // On again; the character logs off and back in: shown again.
+    world.act_int(&mut plugin, "SetMagManaShowOverlay", 1);
+    world.tick(&mut plugin);
+    assert!(overlay(&world).2);
+    let character = world.fake.character.take();
+    world.tick(&mut plugin);
+    assert!(!overlay(&world).2, "hidden out of the world");
+    world.fake.character = character;
+    world.tick(&mut plugin);
+    assert!(overlay(&world).2, "shown again after the relog");
+    assert!(world.ui_bool(&mut plugin, "MagManaShowOverlay"));
+
+    // Unticked: hidden.
+    world.act_int(&mut plugin, "SetMagManaShowOverlay", 0);
+    assert!(!overlay(&world).2);
 }

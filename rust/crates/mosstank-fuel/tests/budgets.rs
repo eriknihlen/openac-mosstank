@@ -1784,12 +1784,17 @@ fn wear_gear(session: &mut Session) -> Vec<(u32, String)> {
 
 /// The main window's list `name` (read through its debug form).
 fn main_list_len(session: &Session, name: &str) -> usize {
+    window_list_len(session, "main", name)
+}
+
+/// Window `window`'s list `name` (read through its debug form).
+fn window_list_len(session: &Session, window: &str, name: &str) -> usize {
     session
         .world
         .fake
         .ui
         .panels()
-        .find(|panel| panel.descriptor.window_id == "main")
+        .find(|panel| panel.descriptor.window_id == window)
         .and_then(|panel| panel.values.get(name))
         .map_or(0, |value| format!("{value:?}").matches('"').count() / 2)
 }
@@ -1994,11 +1999,11 @@ fn the_combat_page_shown_during_the_burst_fits() {
     );
 }
 
-/// The Mana page on the heavy character wearing twenty pieces of gear with
-/// mana: the login (each piece tracked and asked for), the page shown and
-/// drawn as the burn ticks, every piece appraised, a burst of town chat
-/// with the system lines that cue an appraisal, and a piece taken off and
-/// put back on.
+/// The Mana page and its overlay on the heavy character wearing twenty
+/// pieces of gear with mana: the login (each piece tracked and asked for),
+/// the overlay drawn alone, then beside the page as the burn ticks, every
+/// piece appraised, a burst of town chat with the system lines that cue an
+/// appraisal, and a piece taken off and put back on.
 #[test]
 #[ignore = "needs the release module: scripts/check.sh runs it after the WebAssembly build"]
 fn the_mana_page_fits() {
@@ -2024,6 +2029,21 @@ fn the_mana_page_fits() {
         let fuel = tick(&mut plugin, &mut session);
         cases.add("mana page: tick (page hidden)", fuel);
     }
+
+    // The overlay ticked on: drawn alone, then beside the page for the
+    // rest of the run.
+    let overlay_on = ui_action(&session, "SetMagManaShowOverlay", ActionValue::Int(1));
+    let fuel = send(&mut plugin, &mut session, &overlay_on);
+    cases.add("mana overlay: ticked on", fuel);
+    for _ in 0..60 {
+        let fuel = tick(&mut plugin, &mut session);
+        cases.add("mana overlay: tick (page hidden)", fuel);
+    }
+    assert_eq!(
+        window_list_len(&session, "mana-overlay", "MagOverlayNames"),
+        WORN_MANA_ITEMS,
+        "the overlay's rows drawn"
+    );
 
     for handler in ["ShowMag", "ShowMagMana"] {
         let shown = ui_action(&session, handler, ActionValue::None);

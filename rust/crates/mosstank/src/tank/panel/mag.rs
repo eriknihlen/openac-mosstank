@@ -62,6 +62,16 @@ pub(super) fn value(cx: &mut TankCx<'_>, name: &str) -> Option<UiValue> {
         "MagManaUnretained" => t(cx.mag.mana.view().unretained_text()),
         // Mag-Tools' list selects nothing.
         "SelectedMagManaRow" => i(-1),
+        "MagManaShowOverlay" => b(flag(cx, settings::MANA_SHOW_OVERLAY)),
+
+        // The mana overlay: the same rows (pushed only while it is shown).
+        "MagOverlayShown" => b(cx.mag.mana_overlay.is_shown()),
+        "MagOverlayIcons" => Some(UiValue::UintList(cx.mag.mana.view().object_ids())),
+        "MagOverlayNames" => tl(cx.mag.mana.view().names()),
+        "MagOverlayStates" => Some(UiValue::UintList(cx.mag.mana.view().state_icons())),
+        "MagOverlayAmounts" => tl(cx.mag.mana.view().mana_texts()),
+        "MagOverlayTimes" => tl(cx.mag.mana.view().time_texts()),
+        "SelectedMagOverlayRow" => i(-1),
 
         // The Inv. Items page (pushed only while it is shown).
         "MagInvItemsIcons" => Some(UiValue::UintList(cx.mag.inv_items.view().icons.clone())),
@@ -158,6 +168,12 @@ pub(super) fn act(cx: &mut TankCx<'_>, name: &str, arg: &Arg) -> bool {
 
         // A click on the mana list: Mag-Tools' list did nothing with it.
         "SelectMagManaRow" => {}
+        "SelectMagOverlayRow" => {}
+        // The Mana page's box: the overlay follows at once.
+        "SetMagManaShowOverlay" => {
+            set_flag(cx, settings::MANA_SHOW_OVERLAY, arg.int() != 0);
+            cx.mana_overlay_frame();
+        }
         // A click on the Inv. Items list: Mag-Tools' list did nothing with it.
         "SelectMagInvItemsRow" => {}
         "OpenMagInventory" => {

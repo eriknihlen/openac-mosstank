@@ -1,4 +1,4 @@
-//! MossTank's fifteen windows as the client holds them (`MossTankPlugin`'s
+//! MossTank's sixteen windows as the client holds them (`MossTankPlugin`'s
 //! `AddPanel` calls): each one's markup, registered with the bindings the
 //! markup names, and the values pushed to it from the shell
 //! ([`crate::tank::Tank::ui_value`]).
@@ -51,10 +51,10 @@ pub const INVENTORY_ICON_SURFACE_ID: u32 = 0x0600_1BAF;
 /// Its initials when the art is missing.
 pub const INVENTORY_ICON_TEXT: &str = "IN";
 
-/// The fifteen windows: the C#'s twelve in its registration order, then the
+/// The sixteen windows: the C#'s twelve in its registration order, then the
 /// Comps HUD's Edit items window, the Mag tab's Inventory window and its
-/// filters window.
-pub const WINDOWS: [WindowSpec; 15] = [
+/// filters window, and the Mana page's overlay.
+pub const WINDOWS: [WindowSpec; 16] = [
     WindowSpec {
         id: "main",
         title: "MossTank",
@@ -175,6 +175,14 @@ pub const WINDOWS: [WindowSpec; 15] = [
         on_shelf: false,
         icon: None,
     },
+    WindowSpec {
+        id: "mana-overlay",
+        title: "Mana",
+        markup: markup!("mosstank-mana-overlay.xml"),
+        start_visible: false,
+        on_shelf: false,
+        icon: None,
+    },
 ];
 
 /// The panel spec the client registers for a window.
@@ -223,7 +231,7 @@ pub const PUSH_INTERVAL_SECONDS: f64 = 0.1;
 /// the costly grids and pickers among them
 /// (register UI-1). A test holds each to the markup: every use of the
 /// value sits inside the part.
-pub const SHOWN_ONLY_WITH: [(&str, &str); 75] = [
+pub const SHOWN_ONLY_WITH: [(&str, &str); 80] = [
     ("MacroProfileNames", "ProfilesVisible"),
     ("RouteProfileNames", "ProfilesVisible"),
     ("SelectedRouteProfile", "ProfilesVisible"),
@@ -283,6 +291,11 @@ pub const SHOWN_ONLY_WITH: [(&str, &str); 75] = [
     ("MagManaTimes", "MagManaVisible"),
     ("MagManaNeeded", "MagManaVisible"),
     ("MagManaUnretained", "MagManaVisible"),
+    ("MagOverlayIcons", "MagOverlayShown"),
+    ("MagOverlayNames", "MagOverlayShown"),
+    ("MagOverlayStates", "MagOverlayShown"),
+    ("MagOverlayAmounts", "MagOverlayShown"),
+    ("MagOverlayTimes", "MagOverlayShown"),
     ("MagInvItemsIcons", "MagInvItemsVisible"),
     ("MagInvItemsNames", "MagInvItemsVisible"),
     ("MagInvItemsCounts", "MagInvItemsVisible"),
