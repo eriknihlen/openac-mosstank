@@ -53,6 +53,10 @@ struct FakeShop {
     moves: Vec<(u32, u32, u32)>,
     active_vendor_object_id: u32,
     last_inventory_completion: InventoryCompletion,
+    /// Every heading the character was turned to, degrees.
+    faced: Vec<f32>,
+    /// How often the character's own movement was stopped.
+    movement_cleared: u32,
 }
 
 fn sent() -> VendorResult {
@@ -102,6 +106,12 @@ impl Automation for FakeShop {
     }
 
     fn clear_movement_intent(&mut self) -> NavigationStatus {
+        self.movement_cleared += 1;
+        NavigationStatus::Unavailable
+    }
+
+    fn face_heading(&mut self, heading_degrees: f32) -> NavigationStatus {
+        self.faced.push(heading_degrees);
         NavigationStatus::Unavailable
     }
 
@@ -301,7 +311,6 @@ struct ShopContext {
     store: UbSettingStore,
     settings: VendorTradeSettings,
     stack_cram: Box<dyn FnMut(f64, bool) -> bool>,
-    route_owns_vendor_open: bool,
     protected: HashSet<u32>,
 }
 
@@ -332,10 +341,6 @@ impl VendorContext for ShopContext {
 
     fn stack_cram_pass(&mut self, elapsed_seconds: f64, first: bool) -> bool {
         (self.stack_cram)(elapsed_seconds, first)
-    }
-
-    fn route_owns_vendor_open(&mut self) -> bool {
-        self.route_owns_vendor_open
     }
 
     fn protected_items(&mut self) -> HashSet<u32> {
@@ -456,7 +461,6 @@ fn shop(
             store,
             settings,
             stack_cram: Box::new(|_, _| false),
-            route_owns_vendor_open: false,
             protected: HashSet::new(),
         },
         controller,
@@ -881,15 +885,6 @@ fn vendor_commands_stage_commit_clear_and_open() {
 
     shop.close();
     shop.fake().world_objects = vec![vendor(SHOPKEEPER, "Shopkeeper")];
-    shop.cx.route_owns_vendor_open = true;
-    assert!(
-        shop.command("open Shopkeeper").unwrap()[0]
-            .to_lowercase()
-            .contains("route")
-    );
-    assert!(shop.fake().uses.is_empty());
-
-    shop.cx.route_owns_vendor_open = false;
     shop.command("openp shop");
     assert!(shop.tick(0.1, true));
     assert_eq!(shop.fake().uses, [SHOPKEEPER]);
@@ -921,22 +916,119 @@ fn vendor_open_finds_the_vendor_by_id_hex_id_name_or_nearest() {
     }
 }
 
-// Source: tests/AcDream.Plugins.MossTank.Tests/VendorTradeControllerTests.cs :: AMacroStartDropsAnOpenBegunBeforeIt
+// UtilityBelt `AutoVendor.OpenVendor` / `Core_RenderFrame_OpenVendor`: an
+// open by name holds the route still for each try (the retry wait and half
+// a second) and stops the character's own run, and a running macro does
+// not refuse it (the C# line's "the route owns vendor opening" refusal is
+// gone: a nav's own `/ub use <vendor>` was refused by it).
 #[test]
-fn a_macro_start_drops_an_open_begun_before_it() {
+fn an_open_holds_the_route_for_each_try_and_lets_go_when_it_fails() {
+    let locks = ActionLockTable::shared();
+    let mut shop = shop(
+        shop_with_rations(true),
+        VendorTradeSettings::default(),
+        Some(&locks),
+    );
+    shop.fake().world_objects = vec![vendor(SHOPKEEPER, "Shopkeeper")];
+
+    assert_eq!(shop.command("open Shopkeeper"), Some(Vec::new()));
+    assert_eq!(shop.fake().movement_cleared, 1);
+    assert!(locks.borrow_mut().is_locked(ActionLockKind::Navigation));
+    // The command's hold is 5.5 s.
+    locks.borrow_mut().advance(5.4);
+    assert!(locks.borrow_mut().is_locked(ActionLockKind::Navigation));
+
+    assert!(shop.tick(0.1, true));
+    assert_eq!(shop.fake().uses, [SHOPKEEPER]);
+    // Each try takes the hold again from its own moment.
+    locks.borrow_mut().advance(5.4);
+    assert!(locks.borrow_mut().is_locked(ActionLockKind::Navigation));
+
+    for _ in 0..3 {
+        assert!(shop.tick(5.1, true));
+        locks.borrow_mut().advance(5.1);
+        assert!(locks.borrow_mut().is_locked(ActionLockKind::Navigation));
+    }
+    assert_eq!(shop.fake().uses.len(), 4);
+    assert!(shop.fake().faced.is_empty());
+
+    // The fourth try was the last: the open gives up, cancels the walk to
+    // the vendor with a one-degree turn and lets the route go.
+    assert!(!shop.tick(5.1, true));
+    assert_eq!(shop.fake().uses.len(), 4);
+    assert_eq!(shop.fake().faced, [-1.0]);
+    assert!(!locks.borrow_mut().is_locked(ActionLockKind::Navigation));
+}
+
+// UtilityBelt `WorldFilter_ApproachVendor`: once the vendor opens, the hold
+// is left to run out ("let it bleed over into AutoVendor").
+#[test]
+fn an_open_that_succeeds_leaves_its_route_hold_to_run_out() {
+    let locks = ActionLockTable::shared();
+    let settings = VendorTradeSettings {
+        enabled: false,
+        ..VendorTradeSettings::default()
+    };
+    let mut shop = shop(shop_with_rations(true), settings, Some(&locks));
+    shop.fake().world_objects = vec![vendor(SHOPKEEPER, "Shopkeeper")];
+
+    shop.command("open Shopkeeper");
+    assert!(shop.tick(0.1, true));
+    shop.open(SHOPKEEPER);
+    assert!(!shop.tick(0.1, true));
+    assert!(shop.controller.status().contains("Vendor opened"));
+    assert!(shop.fake().faced.is_empty());
+    assert!(locks.borrow_mut().is_locked(ActionLockKind::Navigation));
+    locks.borrow_mut().advance(5.6);
+    assert!(!locks.borrow_mut().is_locked(ActionLockKind::Navigation));
+}
+
+// UtilityBelt `opencancel`: the walk to the vendor is cancelled and the route
+// let go.
+#[test]
+fn opencancel_cancels_the_walk_and_lets_the_route_go() {
+    let locks = ActionLockTable::shared();
+    let mut shop = shop(
+        shop_with_rations(true),
+        VendorTradeSettings::default(),
+        Some(&locks),
+    );
+    shop.fake().world_objects = vec![vendor(SHOPKEEPER, "Shopkeeper")];
+
+    shop.command("open Shopkeeper");
+    assert!(shop.tick(0.1, true));
+    assert_eq!(shop.command("opencancel"), Some(Vec::new()));
+    assert_eq!(shop.fake().faced, [-1.0]);
+    assert!(!locks.borrow_mut().is_locked(ActionLockKind::Navigation));
+    assert!(!shop.tick(5.1, true));
+    assert_eq!(shop.fake().uses.len(), 1);
+}
+
+// The macro clears every lock as it starts: an open under way keeps going
+// and takes back the rest of its hold, as a portal use does.
+#[test]
+fn a_macro_start_keeps_an_open_begun_before_it_and_its_route_hold() {
+    let locks = ActionLockTable::shared();
     let mut automation = shop_with_rations(true);
     automation.owned = vec![coin(10)];
-    let mut shop = shop(automation, VendorTradeSettings::default(), None);
+    let mut shop = shop(automation, VendorTradeSettings::default(), Some(&locks));
     shop.fake().world_objects = vec![vendor(SHOPKEEPER, "Shopkeeper")];
 
     shop.command("open Shopkeeper");
     assert!(shop.tick(0.1, true));
     assert_eq!(shop.fake().uses, [SHOPKEEPER]);
+    locks.borrow_mut().advance(2.0);
 
+    locks.borrow_mut().clear_all();
     shop.controller.on_macro_started();
-    assert!(!shop.tick(5.0, true));
-    assert!(!shop.tick(5.0, true));
-    assert_eq!(shop.fake().uses.len(), 1);
+    assert!(locks.borrow_mut().is_locked(ActionLockKind::Navigation));
+    locks.borrow_mut().advance(3.4);
+    assert!(locks.borrow_mut().is_locked(ActionLockKind::Navigation));
+    locks.borrow_mut().advance(0.2);
+    assert!(!locks.borrow_mut().is_locked(ActionLockKind::Navigation));
+
+    assert!(shop.tick(5.0, true));
+    assert_eq!(shop.fake().uses.len(), 2);
 }
 
 // Source: tests/AcDream.Plugins.MossTank.Tests/VendorTradeControllerTests.cs :: ARunBailsOnSilenceAndStopsWhenTheShopCloses
