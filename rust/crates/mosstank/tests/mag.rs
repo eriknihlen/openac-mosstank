@@ -500,3 +500,110 @@ fn the_mana_page_lists_a_worn_item_once_appraised() {
     world.tick(&mut plugin);
     assert!(world.ui_list(&mut plugin, "MagManaNames").is_empty());
 }
+
+#[test]
+fn the_inv_items_page_counts_the_consumables_and_their_use() {
+    // Source: Mag-Tools InventoryTracker.cs and InventoryTrackerGUI.cs at
+    // 43ee2ec: two healing kits at the login, one used a minute later.
+    use ac_plugin_abi::items::InventoryItem;
+    use ac_plugin_abi::world::{ObjectChange, ObjectChangeKind, ObjectClass};
+    let kit = |object_id| InventoryItem {
+        object_class: ObjectClass::HealingKit,
+        value: 100,
+        icon_id: 0x0600_1234,
+        ..item(object_id, "Healing Kit", 0x80)
+    };
+    let mut world = World::with_character("Mag");
+    world.set_reply::<calls::ItemsInventoryComplete>(&true);
+    world.own_items(vec![
+        kit(0x5000_0002),
+        kit(0x5000_0003),
+        InventoryItem {
+            object_class: ObjectClass::Money,
+            value: 250_000,
+            stack_size: 250_000,
+            ..item(0x5000_0004, "Pyreal", 0x40)
+        },
+    ]);
+    let mut plugin = world.enable();
+    world.tick(&mut plugin);
+    world.send(&mut plugin, ac_plugin_abi::Event::LoginComplete);
+    world.ticks(&mut plugin, 2);
+
+    world.act(&mut plugin, "ShowMag");
+    world.act(&mut plugin, "ShowMagInvItems");
+    assert!(world.ui_bool(&mut plugin, "MagInvItemsVisible"));
+    assert_eq!(
+        world.ui_list(&mut plugin, "MagInvItemsNames"),
+        [
+            "",
+            "Peas",
+            "Comps",
+            "Salvage",
+            "Net Profit",
+            "",
+            "",
+            "Healing Kit"
+        ]
+    );
+    assert_eq!(
+        world.ui_list(&mut plugin, "MagInvItemsCounts"),
+        ["", "", "", "", "", "", "Count", "2"]
+    );
+    assert_eq!(
+        world.ui_uints(&mut plugin, "MagInvItemsIcons"),
+        [0, 0, 0, 0, 0, 0, 0, 0x0600_1234]
+    );
+    assert_eq!(
+        world.ui_list(&mut plugin, "MagInvItemsFiveMinutes")[0],
+        "MMD/h ~5m"
+    );
+    assert_eq!(world.ui_list(&mut plugin, "MagInvItemsHours")[6], "(Hrs)");
+    // The page is built once a frame: reading its values asks the client
+    // nothing.
+    let clock_reads = world.requests::<calls::HostClock>().len();
+    for name in [
+        "MagInvItemsNames",
+        "MagInvItemsCounts",
+        "MagInvItemsFiveMinutes",
+        "MagInvItemsHour",
+        "MagInvItemsHours",
+    ] {
+        world.ui_list(&mut plugin, name);
+    }
+    world.ui_uints(&mut plugin, "MagInvItemsIcons");
+    assert_eq!(world.requests::<calls::HostClock>().len(), clock_reads);
+
+    // A minute on, a kit is used up.
+    world.fake.clock.monotonic_ms += 60_000;
+    world.own_items(vec![
+        kit(0x5000_0003),
+        InventoryItem {
+            object_class: ObjectClass::Money,
+            value: 250_000,
+            stack_size: 250_000,
+            ..item(0x5000_0004, "Pyreal", 0x40)
+        },
+    ]);
+    world.send(
+        &mut plugin,
+        ac_plugin_abi::Event::ObjectChanged(ObjectChange {
+            object_id: 0x5000_0002,
+            kind: ObjectChangeKind::Released,
+            revision: 2,
+            changed_fields: ObjectChangeKind::Released.fields(),
+            current: None,
+        }),
+    );
+    world.tick(&mut plugin);
+    assert_eq!(world.ui_list(&mut plugin, "MagInvItemsCounts")[7], "1");
+    // (1 - 2) * 60 / 1 an hour; one left lasts a minute.
+    assert_eq!(
+        world.ui_list(&mut plugin, "MagInvItemsFiveMinutes")[7],
+        "-60.0"
+    );
+    assert_eq!(world.ui_list(&mut plugin, "MagInvItemsHour")[7], "-60.0");
+    assert_eq!(world.ui_list(&mut plugin, "MagInvItemsHours")[7], "0.0");
+    // No money changed: Net Profit has its login snapshot only.
+    assert_eq!(world.ui_list(&mut plugin, "MagInvItemsHour")[4], "");
+}

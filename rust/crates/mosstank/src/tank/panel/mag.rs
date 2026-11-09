@@ -32,6 +32,16 @@ pub(super) fn value(cx: &mut TankCx<'_>, name: &str) -> Option<UiValue> {
         // Mag-Tools' list selects nothing.
         "SelectedMagManaRow" => i(-1),
 
+        // The Inv. Items page (pushed only while it is shown).
+        "MagInvItemsIcons" => Some(UiValue::UintList(cx.mag.inv_items.view().icons.clone())),
+        "MagInvItemsNames" => tl(cx.mag.inv_items.view().names.clone()),
+        "MagInvItemsCounts" => tl(cx.mag.inv_items.view().counts.clone()),
+        "MagInvItemsFiveMinutes" => tl(cx.mag.inv_items.view().five_minutes.clone()),
+        "MagInvItemsHour" => tl(cx.mag.inv_items.view().hour.clone()),
+        "MagInvItemsHours" => tl(cx.mag.inv_items.view().hours.clone()),
+        // Mag-Tools' list selects nothing.
+        "SelectedMagInvItemsRow" => i(-1),
+
         // The Inventory window.
         "MagInventoryShown" => b(cx.client.mag().ui_view_visible(INVENTORY_WINDOW)),
         "MagInventorySearchText" => t(cx.mag.inventory_search.pattern()),
@@ -58,9 +68,14 @@ pub(super) fn act(cx: &mut TankCx<'_>, name: &str, arg: &Arg) -> bool {
             cx.mag.sub_page = MagSubPage::Mana;
             cx.refresh_mana_page();
         }
-        "ShowMagInvItems" => cx.mag.sub_page = MagSubPage::InvItems,
+        "ShowMagInvItems" => {
+            cx.mag.sub_page = MagSubPage::InvItems;
+            cx.refresh_inv_items_page();
+        }
         // A click on the mana list: Mag-Tools' list did nothing with it.
         "SelectMagManaRow" => {}
+        // A click on the Inv. Items list: Mag-Tools' list did nothing with it.
+        "SelectMagInvItemsRow" => {}
         "OpenMagInventory" => {
             cx.client.show_window("inventory", true);
         }

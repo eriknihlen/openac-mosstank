@@ -809,8 +809,29 @@
              color="theme:text|#FFE8DEC3" anchor="left bottom"
              tooltip="The appraised worn items that are not retained (ammunition not counted)." />
     </group>
+    <!-- Inv. Items: Mag-Tools' InventoryTrackerList (its six columns at
+         their widths): the profit block in MMD an hour, then the
+         consumables' counts, use an hour and hours left. The number
+         columns are right-aligned; Mag-Tools left the profit rows' two
+         values left-aligned, a column here has one alignment. -->
     <group x="0" y="22" w="976" h="207" visible="{MagInvItemsVisible}"
            anchor="left top right bottom">
+      <list x="4" y="2" w="320" h="203" rowheight="17" anchor="left top bottom"
+            selected="{SelectedMagInvItemsRow}" onchange="{SelectMagInvItemsRow}"
+            tooltip="Comps, peas, salvage and the net value gained, in MMD an hour; then the consumables carried, used an hour (negative: used up) and the hours they last.">
+        <column type="icon" width="16" iconkind="did" values="{MagInvItemsIcons}"
+                onclick="{SelectMagInvItemsRow}" />
+        <column type="text" width="55" items="{MagInvItemsNames}"
+                onclick="{SelectMagInvItemsRow}" />
+        <column type="text" width="35" align="right" items="{MagInvItemsCounts}"
+                onclick="{SelectMagInvItemsRow}" />
+        <column type="text" width="65" align="right" items="{MagInvItemsFiveMinutes}"
+                onclick="{SelectMagInvItemsRow}" />
+        <column type="text" width="65" align="right" items="{MagInvItemsHour}"
+                onclick="{SelectMagInvItemsRow}" />
+        <column type="text" width="40" align="right" items="{MagInvItemsHours}"
+                onclick="{SelectMagInvItemsRow}" />
+      </list>
     </group>
   </group>
 

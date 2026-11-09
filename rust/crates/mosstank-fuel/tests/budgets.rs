@@ -1617,6 +1617,209 @@ fn the_mana_page_fits() {
     assert_within_margin(&cases, &report);
 }
 
+/// The things about a heavy character of the Inv. Items page's classes it
+/// has none of (a row each, count 0): mana stones, kits, scarabs and
+/// essence on the ground.
+fn unowned_consumables() -> Vec<ac_plugin_abi::world::WorldObject> {
+    use ac_plugin_abi::world::{ObjectClass, WorldObject};
+    let kinds = [
+        ("Major Mana Stone", ObjectClass::ManaStone),
+        ("Minor Mana Stone", ObjectClass::ManaStone),
+        ("Healing Kit", ObjectClass::HealingKit),
+        ("Treated Healing Kit", ObjectClass::HealingKit),
+        ("Lead Scarab", ObjectClass::SpellComponent),
+        ("Corrupted Essence", ObjectClass::Misc),
+    ];
+    (0..60u32)
+        .map(|index| {
+            let (name, class) = kinds[index as usize % kinds.len()];
+            WorldObject {
+                object_id: 0x5100_0000 + index,
+                name: name.to_owned(),
+                object_class: class,
+                stack_size: 1,
+                icon_id: 0x0600_3000,
+                ..WorldObject::default()
+            }
+        })
+        .collect()
+}
+
+/// A created-object event for `object`.
+fn created(revision: i64, object: &ac_plugin_abi::world::WorldObject) -> Event {
+    Event::ObjectChanged(ObjectChange {
+        object_id: object.object_id,
+        kind: ObjectChangeKind::Created,
+        revision,
+        changed_fields: ObjectChangeKind::Created.fields(),
+        current: Some(object.clone()),
+    })
+}
+
+/// The Inv. Items page on the heavy character, shown through the login
+/// burst: the login's walk of the owned list early in it, the rest of the
+/// pack (its salvage, scarabs, tapers, kits, stones, notes and money among
+/// the rest) and the town arriving after it, things on the ground of the
+/// classes it tracks, a corpse opened, the 1 s refresh after the burst,
+/// then stacks changing and used up.
+#[test]
+#[ignore = "needs the release module: scripts/check.sh runs it after the WebAssembly build"]
+#[allow(clippy::too_many_lines)]
+fn the_inv_items_page_fits() {
+    use ac_plugin_abi::ui::ActionValue;
+    use ac_plugin_abi::world::{ObjectClass, WorldObject};
+    let wasm = std::fs::read(wasm_path()).expect("the release mosstank.wasm (build it first)");
+    let mut session = new_session();
+    let mut cases = Cases::default();
+    let (mut plugin, _) = Plugin::load(&wasm, DEFAULT_MEMORY_MIB).expect("load");
+    plugin.enable(&start_info(), &mut session).expect("enable");
+    for handler in ["ShowMag", "ShowMagInvItems"] {
+        let shown = ui_action(&session, handler, ActionValue::None);
+        let fuel = send(&mut plugin, &mut session, &shown);
+        cases.add("inv items: shown", fuel);
+    }
+
+    let inventory = heavy::inventory();
+    let surroundings = heavy::surroundings();
+    let mut automation = character_automation(&session.table);
+    automation.properties = heavy::player_properties(&surroundings);
+    session.world.fake.character = Some(common::character("Mossy Hunter"));
+    session.world.automation = Some(automation);
+    session.world.chat_log = Some(Vec::new());
+    session.world.loot = Some(common::FrameLootSurface::default());
+    session
+        .world
+        .set_reply::<calls::ItemsInventoryComplete>(&true);
+    let mut revision = 0i64;
+    let unowned = unowned_consumables();
+    for (index, thing) in inventory.iter().chain(&surroundings).enumerate() {
+        create(&mut session, thing);
+        revision += 1;
+        let fuel = send(
+            &mut plugin,
+            &mut session,
+            &object_change(ObjectChangeKind::Created, revision, thing),
+        );
+        cases.add("inv items: burst object created", fuel);
+        if index == 100 {
+            let fuel = send(&mut plugin, &mut session, &Event::LoginComplete);
+            cases.add("inv items: login complete", fuel);
+        }
+        if index % 25 == 3 {
+            let object = &unowned[(index / 25) % unowned.len()];
+            session
+                .world
+                .automation()
+                .world_objects
+                .push(object.clone());
+            revision += 1;
+            let fuel = send(&mut plugin, &mut session, &created(revision, object));
+            cases.add("inv items: burst object created", fuel);
+        }
+        if index % (heavy::BURST_OBJECTS / heavy::BURST_CHAT_LINES) == 7 {
+            chat(
+                &mut plugin,
+                &mut session,
+                &mut cases,
+                "inv items: chat line",
+            );
+        }
+        if index % 15 == 14 {
+            let fuel = tick(&mut plugin, &mut session);
+            cases.add("inv items: burst tick", fuel);
+        }
+    }
+
+    // A corpse opened: its contents arrive.
+    let corpse = surroundings
+        .iter()
+        .find(|thing| thing.object.object_class == ObjectClass::Corpse)
+        .expect("a corpse")
+        .object
+        .object_id;
+    session.world.loot().current = corpse;
+    for item in heavy::corpse_contents(corpse) {
+        revision += 1;
+        let object = WorldObject {
+            object_id: item.object_id,
+            name: item.name.clone(),
+            object_class: item.object_class,
+            container_id: corpse,
+            stack_size: item.stack_size,
+            ..WorldObject::default()
+        };
+        let fuel = send(&mut plugin, &mut session, &created(revision, &object));
+        cases.add("inv items: corpse item created", fuel);
+    }
+    // The 1 s refresh, three seconds of it.
+    for _ in 0..200 {
+        let fuel = tick(&mut plugin, &mut session);
+        cases.add("inv items: tick (page shown)", fuel);
+    }
+    // The fixed rows, the pack's seven tracked names, the ground's six.
+    let rows = main_list_len(&session, "MagInvItemsNames");
+    assert_eq!(rows, 7 + 7 + 6, "the rows drawn");
+
+    // Stacks change (used from, picked up), and some are used up.
+    let tracked: Vec<Created> = inventory
+        .iter()
+        .filter(|thing| {
+            matches!(
+                thing.object.object_class,
+                ObjectClass::SpellComponent
+                    | ObjectClass::ManaStone
+                    | ObjectClass::HealingKit
+                    | ObjectClass::TradeNote
+                    | ObjectClass::Salvage
+                    | ObjectClass::Money
+            )
+        })
+        .cloned()
+        .collect();
+    assert!(tracked.len() > 300);
+    for (index, thing) in tracked.iter().take(300).enumerate() {
+        revision += 1;
+        let fuel = send(
+            &mut plugin,
+            &mut session,
+            &object_change(ObjectChangeKind::Updated, revision, thing),
+        );
+        cases.add("inv items: tracked object updated", fuel);
+        if index % 3 == 2 {
+            let fuel = tick(&mut plugin, &mut session);
+            cases.add("inv items: tick (page shown)", fuel);
+        }
+    }
+    for thing in tracked.iter().rev().take(30) {
+        let id = thing.object.object_id;
+        let automation = session.world.automation();
+        automation.item_entries.retain(|item| item.object_id != id);
+        automation
+            .world_objects
+            .retain(|object| object.object_id != id);
+        revision += 1;
+        let fuel = send(
+            &mut plugin,
+            &mut session,
+            &object_change(ObjectChangeKind::Released, revision, thing),
+        );
+        cases.add("inv items: tracked object released", fuel);
+        let fuel = tick(&mut plugin, &mut session);
+        cases.add("inv items: tick (page shown)", fuel);
+    }
+    assert_eq!(
+        main_list_len(&session, "MagInvItemsNames"),
+        rows,
+        "rows stay"
+    );
+
+    let cases = cases.all();
+    let report = report(&cases);
+    println!("{report}");
+    assert_no_file_rewritten(&session, &report);
+    assert_within_margin(&cases, &report);
+}
+
 #[test]
 #[ignore = "needs the release module: scripts/check.sh runs it after the WebAssembly build"]
 #[allow(clippy::too_many_lines)]
