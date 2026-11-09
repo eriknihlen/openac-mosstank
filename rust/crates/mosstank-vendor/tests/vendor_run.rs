@@ -57,6 +57,8 @@ struct FakeShop {
     faced: Vec<f32>,
     /// How often the character's own movement was stopped.
     movement_cleared: u32,
+    /// The way the character faces, degrees.
+    heading: f32,
 }
 
 fn sent() -> VendorResult {
@@ -92,9 +94,12 @@ impl SpellCatalog for FakeShop {
 }
 
 impl Automation for FakeShop {
-    /// No navigation: every object is as near as every other.
+    /// No navigation: every object is as near as every other. The character
+    /// faces `heading`.
     fn navigation_snapshot(&mut self) -> NavigationSnapshot {
-        NavigationSnapshot::default()
+        let mut snapshot = NavigationSnapshot::default();
+        snapshot.position.heading_degrees = self.heading;
+        snapshot
     }
 
     fn navigation_object(&mut self, _object_id: u32) -> Option<NavigationObject> {
@@ -886,12 +891,12 @@ fn vendor_commands_stage_commit_clear_and_open() {
     shop.close();
     shop.fake().world_objects = vec![vendor(SHOPKEEPER, "Shopkeeper")];
     shop.command("openp shop");
-    assert!(shop.tick(0.1, true));
+    assert!(!shop.tick(0.1, true));
     assert_eq!(shop.fake().uses, [SHOPKEEPER]);
     // No retry until the tries interval has passed.
-    assert!(shop.tick(1.0, true));
+    assert!(!shop.tick(1.0, true));
     assert_eq!(shop.fake().uses.len(), 1);
-    assert!(shop.tick(5.0, true));
+    assert!(!shop.tick(5.0, true));
     assert_eq!(shop.fake().uses.len(), 2);
     shop.command("opencancel");
     assert!(!shop.tick(5.0, true));
@@ -910,7 +915,7 @@ fn vendor_open_finds_the_vendor_by_id_hex_id_name_or_nearest() {
         shop.fake().world_objects = vec![vendor(600, "Armorer"), vendor(SHOPKEEPER, "Shopkeeper")];
 
         assert_eq!(shop.command(command), Some(Vec::new()), "{command}");
-        assert!(shop.tick(0.1, true));
+        assert!(!shop.tick(0.1, true));
 
         assert_eq!(shop.fake().uses, [600], "{command}");
     }
@@ -938,14 +943,14 @@ fn an_open_holds_the_route_for_each_try_and_lets_go_when_it_fails() {
     locks.borrow_mut().advance(5.4);
     assert!(locks.borrow_mut().is_locked(ActionLockKind::Navigation));
 
-    assert!(shop.tick(0.1, true));
+    assert!(!shop.tick(0.1, true));
     assert_eq!(shop.fake().uses, [SHOPKEEPER]);
     // Each try takes the hold again from its own moment.
     locks.borrow_mut().advance(5.4);
     assert!(locks.borrow_mut().is_locked(ActionLockKind::Navigation));
 
     for _ in 0..3 {
-        assert!(shop.tick(5.1, true));
+        assert!(!shop.tick(5.1, true));
         locks.borrow_mut().advance(5.1);
         assert!(locks.borrow_mut().is_locked(ActionLockKind::Navigation));
     }
@@ -973,7 +978,7 @@ fn an_open_that_succeeds_leaves_its_route_hold_to_run_out() {
     shop.fake().world_objects = vec![vendor(SHOPKEEPER, "Shopkeeper")];
 
     shop.command("open Shopkeeper");
-    assert!(shop.tick(0.1, true));
+    assert!(!shop.tick(0.1, true));
     shop.open(SHOPKEEPER);
     assert!(!shop.tick(0.1, true));
     assert!(shop.controller.status().contains("Vendor opened"));
@@ -994,14 +999,84 @@ fn opencancel_cancels_the_walk_and_lets_the_route_go() {
         Some(&locks),
     );
     shop.fake().world_objects = vec![vendor(SHOPKEEPER, "Shopkeeper")];
+    shop.fake().heading = 90.0;
 
     shop.command("open Shopkeeper");
-    assert!(shop.tick(0.1, true));
+    assert!(!shop.tick(0.1, true));
     assert_eq!(shop.command("opencancel"), Some(Vec::new()));
-    assert_eq!(shop.fake().faced, [-1.0]);
+    // One degree off the way the character faces.
+    assert_eq!(shop.fake().faced, [89.0]);
     assert!(!locks.borrow_mut().is_locked(ActionLockKind::Navigation));
     assert!(!shop.tick(5.1, true));
     assert_eq!(shop.fake().uses.len(), 1);
+}
+
+// While another tool holds the character the tries wait, and the route
+// stays held all the while; an open never owns the character itself, so a
+// running macro keeps fighting.
+#[test]
+fn an_open_waiting_on_another_tool_keeps_the_route_held_and_owns_nothing() {
+    let locks = ActionLockTable::shared();
+    let mut shop = shop(
+        shop_with_rations(true),
+        VendorTradeSettings::default(),
+        Some(&locks),
+    );
+    shop.fake().world_objects = vec![vendor(SHOPKEEPER, "Shopkeeper")];
+
+    shop.command("open Shopkeeper");
+    for _ in 0..30 {
+        assert!(!shop.tick(1.0, false));
+        locks.borrow_mut().advance(1.0);
+        assert!(locks.borrow_mut().is_locked(ActionLockKind::Navigation));
+    }
+    assert!(shop.fake().uses.is_empty());
+    assert!(!shop.tick(0.1, true));
+    assert_eq!(shop.fake().uses, [SHOPKEEPER]);
+}
+
+// A session's end mid-open lets the route go.
+#[test]
+fn a_reset_mid_open_lets_the_route_go() {
+    let locks = ActionLockTable::shared();
+    let mut shop = shop(
+        shop_with_rations(true),
+        VendorTradeSettings::default(),
+        Some(&locks),
+    );
+    shop.fake().world_objects = vec![vendor(SHOPKEEPER, "Shopkeeper")];
+
+    shop.command("open Shopkeeper");
+    assert!(!shop.tick(0.1, true));
+    shop.controller.reset();
+    assert!(!locks.borrow_mut().is_locked(ActionLockKind::Navigation));
+    assert!(!shop.tick(5.1, true));
+    assert_eq!(shop.fake().uses.len(), 1);
+}
+
+// A macro start just after an open succeeded gives the hold back too, so
+// the route does not walk off from the vendor at once.
+#[test]
+fn a_macro_start_after_an_open_succeeded_keeps_its_hold() {
+    let locks = ActionLockTable::shared();
+    let settings = VendorTradeSettings {
+        enabled: false,
+        ..VendorTradeSettings::default()
+    };
+    let mut shop = shop(shop_with_rations(true), settings, Some(&locks));
+    shop.fake().world_objects = vec![vendor(SHOPKEEPER, "Shopkeeper")];
+
+    shop.command("open Shopkeeper");
+    assert!(!shop.tick(0.1, true));
+    shop.open(SHOPKEEPER);
+    assert!(!shop.tick(0.1, true));
+    locks.borrow_mut().advance(1.0);
+
+    locks.borrow_mut().clear_all();
+    shop.controller.on_macro_started();
+    assert!(locks.borrow_mut().is_locked(ActionLockKind::Navigation));
+    locks.borrow_mut().advance(4.6);
+    assert!(!locks.borrow_mut().is_locked(ActionLockKind::Navigation));
 }
 
 // The macro clears every lock as it starts: an open under way keeps going
@@ -1015,7 +1090,7 @@ fn a_macro_start_keeps_an_open_begun_before_it_and_its_route_hold() {
     shop.fake().world_objects = vec![vendor(SHOPKEEPER, "Shopkeeper")];
 
     shop.command("open Shopkeeper");
-    assert!(shop.tick(0.1, true));
+    assert!(!shop.tick(0.1, true));
     assert_eq!(shop.fake().uses, [SHOPKEEPER]);
     locks.borrow_mut().advance(2.0);
 
@@ -1027,7 +1102,7 @@ fn a_macro_start_keeps_an_open_begun_before_it_and_its_route_hold() {
     locks.borrow_mut().advance(0.2);
     assert!(!locks.borrow_mut().is_locked(ActionLockKind::Navigation));
 
-    assert!(shop.tick(5.0, true));
+    assert!(!shop.tick(5.0, true));
     assert_eq!(shop.fake().uses.len(), 2);
 }
 

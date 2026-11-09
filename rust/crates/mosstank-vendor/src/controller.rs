@@ -461,7 +461,6 @@ impl VendorTradeController {
     fn finish_open(&mut self) {
         self.open_target = 0;
         self.open_tries = 0;
-        self.open_hold_until = 0.0;
         self.status = format!("Vendor opened: {}.", self.open_name);
     }
 
@@ -567,8 +566,10 @@ impl VendorTradeController {
         true
     }
 
-    /// Advances the run and the open-by-name command. True while either
-    /// owns the character.
+    /// Advances the run and the open-by-name command. True while the run owns
+    /// the character. An open by name does not own it: as UtilityBelt's, it
+    /// holds only the route (the navigation lock), so a running macro keeps
+    /// fighting and healing while the vendor is tried.
     pub fn tick(
         &mut self,
         cx: &mut dyn VendorContext,
@@ -578,9 +579,9 @@ impl VendorTradeController {
         let step = elapsed_seconds.max(0.0);
         self.drain_events(cx);
         self.observe_stage_split(cx);
-        let opening = self.tick_open(cx, step, can_act);
+        self.tick_open(cx, step, can_act);
         if !self.running {
-            return opening;
+            return false;
         }
 
         if !cx.automation().is_available() || !cx.automation().vendor_state().is_open {
@@ -589,11 +590,11 @@ impl VendorTradeController {
                 Some("Vendor run stopped: the vendor closed.".to_owned()),
                 false,
             );
-            return opening;
+            return false;
         }
         if !cx.settings().enabled {
             self.stop(cx, Some("Vendor run stopped: disabled.".to_owned()), false);
-            return opening;
+            return false;
         }
         // Re-armed every tick, so a long visit is held for as long as it
         // lives and not just for the first window.
@@ -609,7 +610,7 @@ impl VendorTradeController {
                 Some("Vendor run bailed: timeout expired.".to_owned()),
                 false,
             );
-            return opening;
+            return false;
         }
         if !can_act {
             return true;
@@ -641,12 +642,9 @@ impl VendorTradeController {
         }
     }
 
-    /// Every lock was just cleared (the macro started): an open under way
-    /// takes back the rest of its route hold.
+    /// Every lock was just cleared (the macro started): an open under way,
+    /// or one that just succeeded, takes back the rest of its route hold.
     pub fn on_macro_started(&mut self) {
-        if self.open_target == 0 {
-            return;
-        }
         if let Some(locks) = &self.locks {
             let mut locks = locks.borrow_mut();
             let left = self.open_hold_until - locks.now();
@@ -1283,25 +1281,28 @@ impl VendorTradeController {
         Vec::new()
     }
 
-    fn tick_open(&mut self, cx: &mut dyn VendorContext, step: f64, can_act: bool) -> bool {
+    fn tick_open(&mut self, cx: &mut dyn VendorContext, step: f64, can_act: bool) {
         if self.open_target == 0 {
-            return false;
+            return;
         }
         let vendor = cx.automation().vendor_state();
         if vendor.is_open && vendor.vendor_id == self.open_target {
             self.finish_open();
-            return false;
+            return;
         }
+        let settings = cx.settings();
         if !can_act {
-            return true;
+            // Another tool holds the character and the tries wait; the route
+            // stays held while they do.
+            self.hold_route_for_open(settings.tries_time_milliseconds);
+            return;
         }
         if self.since_open_try < f64::MAX {
             self.since_open_try += step;
         }
-        let settings = cx.settings();
         let wait = f64::from(settings.tries_time_milliseconds.max(0)) / 1000.0;
         if self.since_open_try < wait {
-            return true;
+            return;
         }
         if self.open_tries >= settings.tries.max(1) {
             self.status = format!(
@@ -1310,7 +1311,7 @@ impl VendorTradeController {
             );
             self.think_or_say(cx, "AutoVendor failed to open vendor");
             self.abandon_open(cx);
-            return false;
+            return;
         }
         self.hold_route_for_open(settings.tries_time_milliseconds);
         self.open_tries += 1;
@@ -1324,7 +1325,6 @@ impl VendorTradeController {
                 self.open_name, result.status
             )
         };
-        true
     }
 
     /// Adds a vendor's listing to the buy list, in the reference's words:
