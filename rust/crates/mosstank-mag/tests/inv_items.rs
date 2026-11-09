@@ -68,13 +68,11 @@ fn the_closest_snapshot_wins_and_a_tie_goes_to_the_newer() {
 }
 
 #[test]
-fn the_newest_snapshot_closest_at_its_own_moment_is_not_a_number() {
-    // (Last - Last) * (60 / 0): Mag-Tools printed "NaN" there.
+fn the_newest_snapshot_closest_at_its_own_moment_is_no_change() {
+    // F14: (Last - Last) * (60 / 0); Mag-Tools printed "NaN" there.
     let g = group(&[(-30.0 * MINUTE_MS, 10), (0.0, 4)]);
-    let v = g.value_difference(Duration::from_secs(300), HOUR, NOW);
-    assert!(v.is_nan());
-    assert_eq!(n1(v), "NaN");
-    // A moment later it is 0.
+    assert_eq!(g.value_difference(Duration::from_secs(300), HOUR, NOW), 0.0);
+    // A moment later too.
     assert_eq!(
         g.value_difference(Duration::from_secs(300), HOUR, NOW + 15.0),
         0.0
@@ -104,11 +102,12 @@ fn snapshots_older_than_two_hours_are_dropped_but_the_newest_stays() {
     g.add(NOW + 5.0 * HOUR_MS, 5);
     assert_eq!(g.len(), 1, "only the one just added is that recent");
     assert_eq!(g.last_value(), 5);
-    // A lone old snapshot is kept: it is the newest.
-    let mut old = SnapshotGroup::default();
-    old.add(NOW, 3);
-    assert_eq!(old.last_value(), 3);
-    assert_eq!(old.value_difference(HOUR, HOUR, NOW + 10.0 * HOUR_MS), 0.0);
+    // One a minute for four hours: the last two hours' are kept.
+    let mut busy = SnapshotGroup::default();
+    for minute in 0..=240 {
+        busy.add(NOW + f64::from(minute) * MINUTE_MS, minute);
+    }
+    assert_eq!(busy.len(), 121);
 }
 
 /// The client and the tracker.
@@ -481,8 +480,8 @@ fn profit_rows_show_mmd_per_hour() {
     rig.restack(50, 501_000, 501_000);
     rig.tick();
     // The hour's column at once; the five minutes' is the new snapshot
-    // itself at its own moment (Mag-Tools: "NaN").
-    assert_eq!(rig.profit(4), ["NaN", "2.0"]);
+    // itself at its own moment: no change (F14; Mag-Tools: "NaN").
+    assert_eq!(rig.profit(4), ["", "2.0"]);
     // Money is not comps, peas or salvage.
     assert_eq!(rig.profit(1), ["", ""]);
     assert_eq!(rig.profit(2), ["", ""]);
@@ -510,6 +509,8 @@ fn a_zero_count_row_has_empty_rate_cells() {
     rig.run_to(10.0 * MINUTE_MS);
     rig.release(60);
     rig.tick();
+    // Five minutes back is as far from both: the new one, no change (F14).
+    assert_eq!(rig.consumable("Healing Kit")[2], "");
     rig.run_to(10.0 * MINUTE_MS + 1100.0);
     // 2 to 1 over ten minutes: -6 an hour, one left lasts ten minutes.
     assert_eq!(
@@ -648,4 +649,70 @@ fn an_event_is_classified_without_asking_the_client() {
     rig.change(121, ObjectChangeKind::Moved);
     rig.tick();
     assert_eq!(rig.host.owned_listings, listings + 1);
+}
+
+#[test]
+fn comps_salvage_and_net_profit_rows_move_with_their_classes() {
+    // ProfitLossTracker.ProcessObject: comps -> Comps and Net Profit,
+    // salvage -> Salvage and Net Profit, a trade note -> Net Profit only.
+    let mut rig = Rig::new();
+    rig.own(
+        130,
+        "Prismatic Taper",
+        ObjectClass::SpellComponent,
+        100,
+        1_000_000,
+    );
+    rig.own(131, "Salvaged Iron", ObjectClass::Salvage, 1, 500);
+    rig.own(
+        132,
+        "Trade Note (250,000)",
+        ObjectClass::TradeNote,
+        2,
+        500_000,
+    );
+    rig.login();
+    // Half an hour on: half the tapers burned, a bag of salvage worth
+    // 250,000 made, two notes gained, all in one frame.
+    rig.run_to(30.0 * MINUTE_MS);
+    rig.restack(130, 50, 500_000);
+    rig.own(133, "Salvaged Gold", ObjectClass::Salvage, 1, 250_000);
+    rig.change(133, ObjectChangeKind::Created);
+    rig.restack(132, 4, 1_000_000);
+    rig.tick();
+    rig.run_to(30.0 * MINUTE_MS + 3000.0);
+    // Over the hour (the login's snapshot, 30 min 3 s back), per hour in
+    // MMD: -500,000, +250,000, and -500,000 + 250,000 + 500,000.
+    assert_eq!(rig.profit(1), ["", ""], "no peas");
+    assert_eq!(rig.profit(2), ["", "-4.0"]);
+    assert_eq!(rig.profit(3), ["", "2.0"]);
+    assert_eq!(rig.profit(4), ["", "2.0"]);
+    // The salvage and the notes are consumable rows too.
+    assert_eq!(rig.consumable("Salvage")[1], "2");
+    assert_eq!(rig.consumable("Trade Note")[1], "4");
+}
+
+#[test]
+fn a_ground_object_known_at_the_login_and_released_adds_a_count_zero_row() {
+    // Mag-Tools heard the release of any object: one of a tracked class it
+    // had no row for adds one.
+    let mut rig = Rig::new();
+    rig.own(140, "Mana Stone", ObjectClass::ManaStone, 1, 100);
+    rig.host.meta.objects.push(object(
+        141,
+        "Major Mana Stone",
+        ObjectClass::ManaStone,
+        1,
+        false,
+    ));
+    rig.login();
+    assert_eq!(rig.consumable_names(), ["Mana Stone"]);
+    rig.host
+        .meta
+        .objects
+        .retain(|object| object.object_id != 141);
+    rig.change(141, ObjectChangeKind::Released);
+    rig.tick();
+    assert_eq!(rig.consumable_names(), ["Mana Stone", "Major Mana Stone"]);
+    assert_eq!(rig.consumable("Major Mana Stone")[1], "0");
 }

@@ -37,7 +37,10 @@
 //! change (Mag-Tools counted inside the change), so a burst of changes
 //! costs one look at the inventory a frame. The login waits for the owned
 //! list to be complete; changes before the login are not followed (as
-//! Mag-Tools subscribed at the login).
+//! Mag-Tools subscribed at the login); the objects the client knows at the
+//! login are noted, so the release of one of a tracked class adds its row.
+//! F14: a rate whose closest snapshot is the newest, taken this moment, is
+//! no change (an empty cell; Mag-Tools printed `NaN`).
 
 use std::collections::{HashMap, VecDeque};
 use std::time::Duration;
@@ -163,7 +166,8 @@ impl SnapshotGroup {
 
     /// The change since the snapshot closest to `history` ago, per `usage`
     /// (`GetValueDifference`): negative when it goes down; 0 with one
-    /// snapshot; NaN when that snapshot is the newest, taken at `now_ms`.
+    /// snapshot, and 0 when that snapshot was taken at `now_ms` (it is then
+    /// the newest: F14, Mag-Tools gave NaN).
     #[must_use]
     pub fn value_difference(&self, history: Duration, usage: Duration, now_ms: f64) -> f64 {
         if self.snapshots.len() <= 1 {
@@ -172,8 +176,12 @@ impl SnapshotGroup {
         let Some(closest) = self.closest(now_ms - duration_ms(history)) else {
             return 0.0;
         };
+        let elapsed = now_ms - closest.at_ms;
+        if elapsed <= 0.0 {
+            return 0.0;
+        }
         f64::from(self.last_value().wrapping_sub(closest.value))
-            * (minutes(duration_ms(usage)) / minutes(now_ms - closest.at_ms))
+            * (minutes(duration_ms(usage)) / minutes(elapsed))
     }
 
     /// How long the newest value lasts at the rate since the snapshot
@@ -459,6 +467,20 @@ impl InvItemsTracker {
                 ..ProfitRow::default()
             })
             .collect();
+        // Every object known now, for its release (no row until then).
+        for object in host.objects() {
+            if tracked_name(object.object_class, &object.name).is_some()
+                || profit_rows(object.object_class, &object.name) != 0
+            {
+                self.seen.insert(
+                    object.object_id,
+                    Seen {
+                        class: object.object_class,
+                        name: object.name,
+                    },
+                );
+            }
+        }
         let owned = host.owned_items_shared();
         for item in owned.iter() {
             let tracked = tracked_name(item.object_class, &item.name);
