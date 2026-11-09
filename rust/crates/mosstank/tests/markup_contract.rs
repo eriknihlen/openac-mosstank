@@ -1345,19 +1345,33 @@ fn the_inventory_windows_headings_are_its_lists_own_captions() {
     );
 }
 
-// The Combat page's widths are Mag-Tools', made for a font of about 6 px a
-// character; the client's interface font is wider, and `Dmg Rcvd` read
-// `Dmg Rcvc`, `Typeless` `Typele:`. A cell's text sits 3 px in from both
-// edges of its column (a right-aligned one stops 3 px short of the right),
-// so a column needs the text's width and 6 px. The widths are the glyph
-// advances measured on the Combat page in a live run (2026-11-09).
+// The Mag pages' widths are Mag-Tools', made for a font of about 6 px a
+// character. The client's list font (the interface font, 0x40000000) is
+// wider, and live the Combat page read `Dmg Rcvc`, `Typele:` and `A.Surge`,
+// Inv. Items `MMD/h ~5n` and `Platinum S`, Mana `Greater Amuli Shadow (`.
+// A cell's text sits 3 px in from both edges of its column (a right-aligned
+// one stops 3 px short of the right), so a column needs its widest fixed
+// text's advance and 6 px. The advances are the sums of that font's glyph
+// advances; the item names are the widest the live run showed (a name can
+// always be longer, and is then cut, as Mag-Tools cut it).
 #[test]
-fn the_combat_pages_heading_and_labels_fit_their_columns() {
+fn the_mag_pages_columns_fit_their_texts_in_the_clients_font() {
     const CELL_PADDING: f32 = 3.0;
     let document = document("mosstank.xml");
-    for (caption, items, advance) in [
-        ("Dmg Rcvd", "{MagCombatReceived}", 58.0),
-        ("Typeless", "{MagCombatDetailNames}", 44.0),
+    for (items, text, advance) in [
+        // Combat: the received column's heading, the damage kinds, the
+        // attack labels.
+        ("{MagCombatReceived}", "Dmg Rcvd", 55.0),
+        ("{MagCombatDetailNames}", "Typeless", 45.0),
+        ("{MagCombatDetailLabels}", "A.Surges", 47.0),
+        // Inv. Items: the headings, and the widest tracked name seen.
+        ("{MagInvItemsNames}", "Handy Healing Kit", 94.0),
+        ("{MagInvItemsCounts}", "Count", 30.0),
+        ("{MagInvItemsFiveMinutes}", "MMD/h ~5m", 66.0),
+        ("{MagInvItemsHour}", "MMD/h ~1h", 63.0),
+        // Mana: the widest worn item seen, and a five-figure mana pair.
+        ("{MagManaNames}", "Greater Amuli Shadow Coat", 142.0),
+        ("{MagManaAmounts}", "15000 / 15000", 72.0),
     ] {
         let column = descendants_named(document.root_element(), "column")
             .find(|column| attr(*column, "items") == Some(items))
@@ -1365,8 +1379,30 @@ fn the_combat_pages_heading_and_labels_fit_their_columns() {
         let width = number(column, "width");
         assert!(
             width >= advance + 2.0 * CELL_PADDING,
-            "{caption}: {width} px holds {} px of text",
+            "{text}: {width} px holds {} px of text",
             width - 2.0 * CELL_PADDING
         );
+    }
+}
+
+// A widened list still gives its last column (which takes the room left)
+// its authored width, with the scrollbar shown.
+#[test]
+fn the_mag_pages_lists_leave_their_last_column_its_width() {
+    const SCROLLBAR: f32 = 16.0;
+    let document = document("mosstank.xml");
+    for first in ["{MagManaIcons}", "{MagInvItemsIcons}", "{MagCombatMarks}"] {
+        let list = descendants_named(document.root_element(), "list")
+            .find(|list| {
+                named(*list, "column").any(|column| {
+                    attr(column, "values") == Some(first) || attr(column, "items") == Some(first)
+                })
+            })
+            .unwrap();
+        let columns: Vec<_> = named(list, "column").collect();
+        let (last, fixed) = columns.split_last().unwrap();
+        let room =
+            number(list, "w") - SCROLLBAR - fixed.iter().map(|c| number(*c, "width")).sum::<f32>();
+        assert!(room >= number(*last, "width"), "{first}: {room}");
     }
 }

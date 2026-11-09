@@ -783,10 +783,10 @@
     <!-- Combat: Mag-Tools' combat tracker, its three tabs. Each stats tab
          has its monster list (the header row, the All row, a row a name;
          * marks the one shown) and the detail list of that row, at
-         Mag-Tools' column widths and alignments, but for two its font
-         clipped: Dmg Rcvd 64 (55) and the damage kinds 50 (40), each
-         the text's width in the client's font and 3 px either side.
-         Side by side, monster
+         Mag-Tools' column widths and alignments, but for three the
+         client's font clipped: Dmg Rcvd 61 (55), the damage kinds 51
+         (40), the attack labels 53 (45), each its widest text's width in
+         that font and 3 px either side. Side by side, monster
          list left: the page is wider and lower than Mag-Tools' 320 x 400,
          where they were stacked. -->
     <group x="0" y="22" w="976" h="207" visible="{MagCombatVisible}"
@@ -808,7 +808,7 @@
                   onclick="{SelectMagCombatRow}" />
           <column type="text" width="37" align="right" items="{MagCombatKills}"
                   onclick="{SelectMagCombatRow}" />
-          <column type="text" width="64" align="right" items="{MagCombatReceived}"
+          <column type="text" width="61" align="right" items="{MagCombatReceived}"
                   onclick="{SelectMagCombatRow}" />
           <column type="text" width="77" align="right" items="{MagCombatGiven}"
                   onclick="{SelectMagCombatRow}" />
@@ -816,13 +816,13 @@
         <list x="328" y="2" w="320" h="183" rowheight="16" anchor="left top bottom"
               selected="{SelectedMagCombatDetailRow}" onchange="{SelectMagCombatDetailRow}"
               tooltip="The row marked *: the damage you received by kind and element (left); your attacks and their hit share, your evades and resists, surges, average and largest hits, crits (right).">
-          <column type="text" width="50" items="{MagCombatDetailNames}"
+          <column type="text" width="51" items="{MagCombatDetailNames}"
                   onclick="{SelectMagCombatDetailRow}" />
           <column type="text" width="52" align="right" items="{MagCombatDetailMelee}"
                   onclick="{SelectMagCombatDetailRow}" />
           <column type="text" width="52" align="right" items="{MagCombatDetailMagic}"
                   onclick="{SelectMagCombatDetailRow}" />
-          <column type="text" width="45" items="{MagCombatDetailLabels}"
+          <column type="text" width="53" items="{MagCombatDetailLabels}"
                   onclick="{SelectMagCombatDetailRow}" />
           <column type="text" width="96" align="right" items="{MagCombatDetailValues}"
                   onclick="{SelectMagCombatDetailRow}" />
@@ -854,7 +854,9 @@
       </group>
     </group>
     <!-- Mana: Mag-Tools' ManaList (its item icon, name, state icon, mana
-         and time left columns, at their widths) and the two totals under
+         and time left columns, at their widths, but the name 148 (125)
+         and the mana 78 (72), wide enough in the client's font for the
+         widest worn item seen live and a five-figure pair) and the two totals under
          it. No Recharge box: MossTank's own mana recharger does that. -->
     <group x="0" y="22" w="976" h="207" visible="{MagManaVisible}"
            anchor="left top right bottom">
@@ -863,11 +865,11 @@
             tooltip="The items you wear: mana now and at full, how long it lasts, and whether their spells are up (green: up, red: not up).">
         <column type="icon" width="16" iconkind="item" values="{MagManaIcons}"
                 onclick="{SelectMagManaRow}" />
-        <column type="text" width="125" items="{MagManaNames}"
+        <column type="text" width="148" items="{MagManaNames}"
                 onclick="{SelectMagManaRow}" />
         <column type="icon" width="16" iconkind="did" values="{MagManaStates}"
                 onclick="{SelectMagManaRow}" />
-        <column type="text" width="72" items="{MagManaAmounts}"
+        <column type="text" width="78" items="{MagManaAmounts}"
                 onclick="{SelectMagManaRow}" />
         <column type="text" width="44" items="{MagManaTimes}"
                 onclick="{SelectMagManaRow}" />
@@ -880,24 +882,26 @@
              tooltip="The appraised worn items that are not retained (ammunition not counted)." />
     </group>
     <!-- Inv. Items: Mag-Tools' InventoryTrackerList (its six columns at
-         their widths): the profit block in MMD an hour, then the
+         their widths, but four widened for the client's font: name 100
+         (55), count 36 (35), 5 minutes 72 (65), hour 69 (65), and the list
+         349 (320) so the last keeps its 40 beside the scrollbar): the profit block in MMD an hour, then the
          consumables' counts, use an hour and hours left. The number
          columns are right-aligned; Mag-Tools left the profit rows' two
          values left-aligned, a column here has one alignment. -->
     <group x="0" y="22" w="976" h="207" visible="{MagInvItemsVisible}"
            anchor="left top right bottom">
-      <list x="4" y="2" w="320" h="203" rowheight="17" anchor="left top bottom"
+      <list x="4" y="2" w="349" h="203" rowheight="17" anchor="left top bottom"
             selected="{SelectedMagInvItemsRow}" onchange="{SelectMagInvItemsRow}"
             tooltip="Comps, peas, salvage and the net value gained, in MMD an hour; then the consumables carried, used an hour (negative: used up) and the hours they last.">
         <column type="icon" width="16" iconkind="did" values="{MagInvItemsIcons}"
                 onclick="{SelectMagInvItemsRow}" />
-        <column type="text" width="55" items="{MagInvItemsNames}"
+        <column type="text" width="100" items="{MagInvItemsNames}"
                 onclick="{SelectMagInvItemsRow}" />
-        <column type="text" width="35" align="right" items="{MagInvItemsCounts}"
+        <column type="text" width="36" align="right" items="{MagInvItemsCounts}"
                 onclick="{SelectMagInvItemsRow}" />
-        <column type="text" width="65" align="right" items="{MagInvItemsFiveMinutes}"
+        <column type="text" width="72" align="right" items="{MagInvItemsFiveMinutes}"
                 onclick="{SelectMagInvItemsRow}" />
-        <column type="text" width="65" align="right" items="{MagInvItemsHour}"
+        <column type="text" width="69" align="right" items="{MagInvItemsHour}"
                 onclick="{SelectMagInvItemsRow}" />
         <column type="text" width="40" align="right" items="{MagInvItemsHours}"
                 onclick="{SelectMagInvItemsRow}" />
