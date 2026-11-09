@@ -682,3 +682,200 @@ fn a_files_rows_are_worked_out_a_part_at_a_time() {
     assert_eq!(detail(&gui, 10, 4), "12");
     assert!(!gui.needs_refresh());
 }
+
+// The review's fixes (Phase 8b)
+
+#[test]
+fn a_sort_while_a_files_rows_are_worked_out_starts_them_again() {
+    let mut host = FakeMagHost::new();
+    let key = "Mag-Tools/Coldeve/Acdream.CombatTracker.xml";
+    let mut file = CombatTracker::default();
+    for name in ["Zombie", "Yeti", "Drudge"] {
+        file.add_combat(ME, &melee(name, 4));
+    }
+    host.storage().write_text(key, &xml::export(&file)).unwrap();
+    let mut tracker = CombatTracker::default();
+    let mut import = StagedImport::new(key.to_owned());
+    while !import.step(&mut host, &mut tracker) {}
+    let mut gui = CombatGui::default();
+    gui.follow(&mut tracker, ME, false);
+    // Zombie and Yeti worked out; Drudge waits.
+    gui.refresh_some(&tracker, ME, 2);
+    // A new row sorts Drudge above the rows still waiting.
+    tracker.add_combat(ME, &melee("Abc", 1));
+    gui.follow(&mut tracker, ME, true);
+    gui.refresh(&tracker, ME);
+    assert_eq!(
+        gui.rows()[2..],
+        [
+            row(["", "Abc", "", "", "1"]),
+            row(["", "Drudge", "", "", "4"]),
+            row(["", "Yeti", "", "", "4"]),
+            row(["", "Zombie", "", "", "4"]),
+        ]
+    );
+}
+
+#[test]
+fn a_clear_or_a_load_after_an_overflow_is_kept() {
+    let mut tracker = CombatTracker::default();
+    for _ in 0..=mosstank_mag::combat::UPDATES_MAX {
+        tracker.add_combat(ME, &melee("Drudge", 1));
+    }
+    tracker.clear();
+    use mosstank_mag::combat::TrackerUpdate;
+    assert_eq!(
+        tracker.take_updates(),
+        [TrackerUpdate::Cleared, TrackerUpdate::Overflowed]
+    );
+
+    let mut host = FakeMagHost::new();
+    for _ in 0..=mosstank_mag::combat::UPDATES_MAX {
+        tracker.add_combat(ME, &melee("Drudge", 1));
+    }
+    let mut import = StagedImport::new("none".to_owned());
+    while !import.step(&mut host, &mut tracker) {}
+    assert_eq!(
+        tracker.take_updates(),
+        [TrackerUpdate::Loaded, TrackerUpdate::Overflowed]
+    );
+
+    // A load after a clear after an overflow: both.
+    for _ in 0..=mosstank_mag::combat::UPDATES_MAX {
+        tracker.add_combat(ME, &melee("Drudge", 1));
+    }
+    tracker.clear();
+    let mut import = StagedImport::new("none".to_owned());
+    while !import.step(&mut host, &mut tracker) {}
+    assert_eq!(
+        tracker.take_updates(),
+        [
+            TrackerUpdate::Cleared,
+            TrackerUpdate::Loaded,
+            TrackerUpdate::Overflowed
+        ]
+    );
+}
+
+#[test]
+fn a_clear_after_an_overflow_empties_the_list() {
+    let mut tracker = CombatTracker::default();
+    tracker.add_combat(ME, &melee("Zombie", 1));
+    let mut gui = CombatGui::default();
+    gui.update(&mut tracker, ME, false);
+    for _ in 0..=mosstank_mag::combat::UPDATES_MAX {
+        tracker.add_combat(ME, &melee("Drudge", 1));
+    }
+    tracker.clear();
+    gui.update(&mut tracker, ME, false);
+    assert_eq!(gui.rows().len(), 2);
+}
+
+/// A combat with its patterns not yet compiled.
+fn compiling() -> Combat {
+    Combat::default()
+}
+
+fn drain(combat: &mut Combat, host: &mut FakeMagHost, settings: CombatSettings) {
+    for _ in 0..200 {
+        combat.tick(host, settings);
+    }
+}
+
+const HIT: &str = "You hit Drudge Skulker for 25 points of slashing damage!";
+
+#[test]
+fn a_line_waiting_for_the_patterns_is_not_counted_in_a_tracker_cleared_since() {
+    let mut host = FakeMagHost::new();
+    let mut combat = compiling();
+    combat.on_chat(&mut host, &hit_line(HIT));
+    combat.clear_current();
+    drain(&mut combat, &mut host, CombatSettings::default());
+    assert!(combat.current.is_empty());
+    assert_eq!(combat.persistent.combat_infos().len(), 1);
+
+    let mut combat = compiling();
+    combat.on_chat(&mut host, &hit_line(HIT));
+    combat.clear_persistent(&mut host);
+    drain(&mut combat, &mut host, CombatSettings::default());
+    assert!(combat.persistent.is_empty());
+    assert_eq!(combat.current.combat_infos().len(), 1);
+    // A line heard after the clear is counted.
+    combat.on_chat(&mut host, &hit_line(HIT));
+    assert_eq!(combat.persistent.combat_infos().len(), 1);
+}
+
+#[test]
+fn a_line_heard_before_the_login_is_not_counted_when_the_import_is_stopped() {
+    let mut host = FakeMagHost::new();
+    host.storage()
+        .write_text(
+            PERSISTENT,
+            &xml::export(&{
+                let mut file = CombatTracker::default();
+                file.add_combat(
+                    "Meta Tester",
+                    &CombatEvent::killing_blow("Meta Tester", "Zombie"),
+                );
+                file
+            }),
+        )
+        .unwrap();
+    let settings = CombatSettings {
+        persistent: true,
+        ..CombatSettings::default()
+    };
+    let mut combat = compiling();
+    combat.on_chat(&mut host, &hit_line(HIT));
+    combat.on_login_complete(&mut host, settings);
+    combat.clear_persistent(&mut host);
+    drain(&mut combat, &mut host, settings);
+    // The import would have replaced it; the clear stopped the import.
+    assert!(combat.persistent.is_empty());
+    assert_eq!(combat.current.combat_infos().len(), 1);
+}
+
+#[test]
+fn a_row_heard_before_the_login_keeps_its_numbers_after_the_file_is_read_in() {
+    let mut host = FakeMagHost::new();
+    host.storage()
+        .write_text(
+            PERSISTENT,
+            &xml::export(&{
+                let mut file = CombatTracker::default();
+                file.add_combat("Meta Tester", &melee_of("Meta Tester", "Zombie", 4));
+                file
+            }),
+        )
+        .unwrap();
+    let settings = CombatSettings {
+        persistent: true,
+        ..CombatSettings::default()
+    };
+    let mut combat = ready(&mut host);
+    combat.on_chat(&mut host, &hit_line(HIT));
+    combat.on_login_complete(&mut host, settings);
+    while combat.is_importing() {
+        combat.tick(&mut host, settings);
+    }
+    combat.update_pages(&mut host, false);
+    // Mag-Tools drew the row as the line came; the file, which lacks it,
+    // writes no zeros over it.
+    assert_eq!(
+        combat.persistent_gui().rows()[2..],
+        [
+            row(["", "Drudge Skulker", "", "", "25"]),
+            row(["", "Zombie", "", "", "4"]),
+        ]
+    );
+}
+
+fn melee_of(source: &str, target: &str, points: i32) -> CombatEvent {
+    hit(
+        source,
+        target,
+        AttackType::MeleeMissle,
+        DamageElement::Slash,
+        points,
+    )
+}

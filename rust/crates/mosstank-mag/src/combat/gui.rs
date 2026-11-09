@@ -483,6 +483,10 @@ impl CombatGui {
         for (row, name) in self.columns[1].iter().enumerate().skip(FIRST_NAME_ROW) {
             self.row_of.insert(name.clone(), row);
         }
+        // A file's rows still being worked out moved: from the first again.
+        if self.all_rows.is_some() {
+            self.all_rows = Some(FIRST_NAME_ROW);
+        }
     }
 
     /// `InfoCleared`: the detail list cleared, the name rows removed, "All"

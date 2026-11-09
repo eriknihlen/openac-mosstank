@@ -200,6 +200,17 @@ impl CombatTracker {
         }
         if self.updates.back() != Some(&TrackerUpdate::Overflowed) {
             self.updates.push_back(update);
+        } else if matches!(update, TrackerUpdate::Cleared | TrackerUpdate::Loaded) {
+            // The lists must hear it before they build everything again (a
+            // load after a clear: both).
+            let cleared = update == TrackerUpdate::Loaded
+                && self.updates.front() == Some(&TrackerUpdate::Cleared);
+            self.updates.clear();
+            if cleared {
+                self.updates.push_back(TrackerUpdate::Cleared);
+            }
+            self.updates.push_back(update);
+            self.updates.push_back(TrackerUpdate::Overflowed);
         }
     }
 
@@ -416,6 +427,23 @@ struct Waiting {
     combat_kind: u32,
     /// Heard before the login completed.
     before_login: bool,
+    /// Who counts it: a tracker cleared after the line was heard does not
+    /// (Mag-Tools counted it before the clear).
+    counted_by: CountedBy,
+}
+
+/// The trackers a line is counted in.
+#[derive(Debug, Clone, Copy)]
+struct CountedBy {
+    current: bool,
+    persistent: bool,
+}
+
+impl CountedBy {
+    const BOTH: Self = Self {
+        current: true,
+        persistent: true,
+    };
 }
 
 /// What the persistent tracker heard while its file was read in, added
@@ -556,6 +584,9 @@ impl Combat {
     /// The "Clear Current Stats" button.
     pub fn clear_current(&mut self) {
         self.current.clear();
+        for waiting in &mut self.waiting {
+            waiting.counted_by.current = false;
+        }
     }
 
     /// The "Clear Persistent Stats" button: the persistent stats cleared
@@ -568,6 +599,11 @@ impl Combat {
             };
         }
         self.persistent.clear();
+        // The lines still waiting were heard before the clear (and those
+        // heard before the login, before the file would have replaced them).
+        for waiting in &mut self.waiting {
+            waiting.counted_by.persistent = false;
+        }
         if self.me(host).is_none() {
             return;
         }
@@ -618,6 +654,7 @@ impl Combat {
                     kind: line.kind,
                     combat_kind: line.combat_kind,
                     before_login: false,
+                    counted_by: CountedBy::BOTH,
                 });
             } else if !self.dropped {
                 self.dropped = true;
@@ -630,10 +667,16 @@ impl Combat {
             }
             return;
         }
-        self.read(host, line, false);
+        self.read(host, line, false, CountedBy::BOTH);
     }
 
-    fn read(&mut self, host: &mut dyn MagHost, line: &ChatLine, before_login: bool) {
+    fn read(
+        &mut self,
+        host: &mut dyn MagHost,
+        line: &ChatLine,
+        before_login: bool,
+        counted_by: CountedBy,
+    ) {
         let Some(me) = self.me(host).map(str::to_owned) else {
             return;
         };
@@ -649,7 +692,12 @@ impl Combat {
             host.chat_post(&text, CHAT_TYPE);
             self.posted.note(text);
         }
-        self.current.add_parsed(&me, &parsed);
+        if counted_by.current {
+            self.current.add_parsed(&me, &parsed);
+        }
+        if !counted_by.persistent {
+            return;
+        }
         match &mut self.persistence {
             Persistence::Importing { heard, .. } if before_login => heard.before_login.push(parsed),
             Persistence::Importing { heard, .. } => heard.after_login.push(parsed),
@@ -678,7 +726,7 @@ impl Combat {
                     combat_kind: waiting.combat_kind,
                     ..ChatLine::default()
                 };
-                self.read(host, &line, waiting.before_login);
+                self.read(host, &line, waiting.before_login, waiting.counted_by);
             }
             if self.waiting.is_empty() {
                 self.dropped = false;
