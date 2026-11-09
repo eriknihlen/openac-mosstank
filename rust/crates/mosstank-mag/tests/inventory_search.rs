@@ -142,6 +142,19 @@ fn a_pattern_matches_the_item_text_ignoring_case() {
     assert_eq!(rig.names(), ["Test Ring"]);
 }
 
+/// The name column shows the item's material first, as its info line does
+/// (the game sends "Acid Katar"; the material is a property of its own).
+#[test]
+fn a_name_shows_its_material_live_and_saved() {
+    let mut katar = item(SWORD, "Acid Katar", ObjectClass::MeleeWeapon, PLAYER);
+    katar.material_type = 58; // Bronze
+    let mut rig = Rig::new();
+    save(&rig.host, "Horan", std::slice::from_ref(&katar));
+    rig.own(katar);
+    rig.search("katar");
+    assert_eq!(rig.names(), ["Bronze Acid Katar", "Bronze Acid Katar"]);
+}
+
 #[test]
 fn an_empty_pattern_matches_everything() {
     let mut rig = Rig::new();

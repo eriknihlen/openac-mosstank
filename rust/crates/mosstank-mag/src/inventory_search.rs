@@ -57,7 +57,7 @@ use openac_plugin_compat::regex::{
 
 use crate::host::MagHost;
 use crate::inventory_log::{LogReader, storage_key};
-use crate::item_info::{ItemInfoInput, item_info};
+use crate::item_info::{ItemInfoInput, display_name, item_info};
 
 /// The filters' choice that keeps every row.
 pub const ALL: &str = "All";
@@ -196,10 +196,10 @@ struct Row {
 }
 
 impl Row {
-    fn new(item: &InventoryItem, info: String) -> Self {
+    fn new(item: &InventoryItem, properties: &ItemProperties, info: String) -> Self {
         Self {
             id: item.object_id,
-            name: item.name.clone(),
+            name: display_name(item, properties),
             class: item.object_class,
             icon: item.icon_id,
             count: item.stack_size,
@@ -889,7 +889,7 @@ impl InventorySearch {
                     for record in records {
                         let item = record.item();
                         let info = info_text(host, &item, record.properties(), settings);
-                        let mut row = Row::new(&item, info);
+                        let mut row = Row::new(&item, record.properties(), info);
                         test(&mut row, &self.pattern, self.generation);
                         owner.rows.push(row);
                     }
@@ -1044,7 +1044,7 @@ fn live_row(
 ) -> Row {
     let properties = host.item_properties(item.object_id).unwrap_or_default();
     let info = info_text(host, item, &properties, settings);
-    let mut row = Row::new(item, info);
+    let mut row = Row::new(item, &properties, info);
     test(&mut row, pattern, generation);
     row
 }

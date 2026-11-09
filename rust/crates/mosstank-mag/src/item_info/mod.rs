@@ -272,6 +272,17 @@ fn rounded_1(value: f64) -> String {
     fmt::g15(fmt::round(value, 1))
 }
 
+/// The item's name with its material first ("Bronze Acid Katar"), as its
+/// info line begins; the name alone when it has no material the table names.
+#[must_use]
+pub fn display_name(item: &InventoryItem, properties: &ItemProperties) -> String {
+    let material = Values::new(item, properties).long(key::MATERIAL);
+    match names::material(material).filter(|_| material > 0) {
+        Some(name) => format!("{name} {}", item.name),
+        None => item.name.clone(),
+    }
+}
+
 /// `ItemInfo.ToString()`: the item's info line. `spells` answers a spell
 /// id from the client's spell table.
 #[must_use]
