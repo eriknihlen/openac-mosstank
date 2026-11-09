@@ -1044,3 +1044,22 @@ fn armor_never_appraised_is_counted_under_the_armor_type() {
     assert_eq!(rig.names(), ["Coat"]);
     assert_eq!(rig.search.status(), "1 item (1 not identified)");
 }
+
+/// A filter control changes the filter's summary, not the rows: the rows
+/// (thousands of them) are pushed to the window again only once the filter
+/// is applied and they are worked out again.
+#[test]
+fn setting_a_filter_changes_the_filters_revision_not_the_rows() {
+    let mut rig = Rig::new();
+    rig.own(item(RING, "Test Ring", ObjectClass::Jewelry, PLAYER));
+    rig.own(item(SWORD, "Sword", ObjectClass::MeleeWeapon, PLAYER));
+    rig.search("");
+    let rows = rig.search.revision();
+    let filters = rig.search.filter_revision();
+    rig.search.set_filter(jewelry());
+    assert_eq!(rig.search.revision(), rows);
+    assert!(rig.search.filter_revision() > filters);
+    rig.settle();
+    assert!(rig.search.revision() > rows, "the rows worked out again");
+    assert_eq!(rig.names(), ["Test Ring"]);
+}

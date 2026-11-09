@@ -435,6 +435,8 @@ pub struct InventorySearch {
     /// Bumped by each filter applied that changes what the rows are tested
     /// against.
     filter_generation: u64,
+    /// Bumped by each filter set or applied.
+    filter_revision: u64,
     spells: SpellCache,
     class_filter: String,
     /// The clicked item: its owner's key and its id.
@@ -493,7 +495,7 @@ impl InventorySearch {
             return;
         }
         self.pending_filter = Some((filter, None));
-        self.revision += 1;
+        self.filter_revision += 1;
     }
 
     /// The filter as last set, changed by `edit` (a control of the
@@ -540,7 +542,7 @@ impl InventorySearch {
     fn apply_filter(&mut self, filter: InventoryFilter) {
         let rows_differ = filter.for_rows() != self.filter.for_rows();
         self.filter = filter;
-        self.revision += 1;
+        self.filter_revision += 1;
         if rows_differ {
             self.filter_generation += 1;
             self.changed = true;
@@ -593,6 +595,7 @@ impl InventorySearch {
         let pending_filter = self.pending_filter.take();
         let filter_generation = self.filter_generation;
         let spells = std::mem::take(&mut self.spells);
+        let filter_revision = self.filter_revision;
         let class_filter = std::mem::take(&mut self.class_filter);
         let revision = self.revision;
         *self = Self {
@@ -602,6 +605,7 @@ impl InventorySearch {
             filter,
             pending_filter,
             filter_generation,
+            filter_revision,
             spells,
             class_filter,
             revision: revision + 1,
@@ -801,6 +805,14 @@ impl InventorySearch {
     #[must_use]
     pub fn revision(&self) -> u64 {
         self.revision
+    }
+
+    /// A number that changes whenever the filter (as last set) does: the
+    /// filters window and the summary line; the rows change with
+    /// [`Self::revision`], once the filter is applied.
+    #[must_use]
+    pub fn filter_revision(&self) -> u64 {
+        self.filter_revision
     }
 
     /// The Object class filter's choices: [`ALL`], then each class present,
