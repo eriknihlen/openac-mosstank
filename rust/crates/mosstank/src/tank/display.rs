@@ -30,7 +30,7 @@ impl TankCx<'_> {
         self.ub.tags.publish(self.client.ub(), tags, false);
         let player = self_position(self.client.meta());
         {
-            // The Comps HUD measures its count characters (once per font)
+            // The Comps HUD measures its count characters (once a session)
             // with the client, so its canvas is sized right the first time.
             let parts = &mut *self.ub;
             let client = RefCell::new(&mut *self.client);
@@ -108,10 +108,7 @@ impl TankCx<'_> {
         }
         if let Some(canvas) = parts.canvases.take_paint_due(parts.comps.tip_canvas()) {
             let mut painter = RecordingPainter::new(&client, canvas);
-            parts.comps.paint_tip(
-                &mut painter,
-                &mut PaintUi::new(&client, &mut parts.canvases),
-            );
+            parts.comps.paint_tip(&mut painter);
             submit(&client, canvas, &painter);
         }
         let overlay = &mut self.mag.mana_overlay;

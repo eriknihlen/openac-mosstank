@@ -2,14 +2,17 @@
 //! icon and count, and the three buttons, in interface pixels at 100% UI
 //! scale (the client scales the canvas with the rest of the plugin UI).
 //!
-//! Two layouts. A column is a narrow strip: a thin title line with the
-//! buttons at its right, then a row per item, the icon at the left and its
-//! count just after it. A line is one row 20 pixels tall: icon and count,
-//! a wider gap, the next icon and count, then a thin divider and the
-//! buttons. Each count has the room it measures in the HUD's font, so the
-//! strip is as wide as its content: a column as wide as its widest count
-//! needs (never narrower than its three buttons), a line as wide as all its
-//! counts. A count that gains or loses a digit resizes it.
+//! Two layouts. A column is a narrow strip: a thin line for the buttons at
+//! its right, then a row per item, the icon at the left and its count just
+//! after it. A line is one row 20 pixels tall: icon and count, a wider gap,
+//! the next icon and count, then the buttons. The buttons are painted only
+//! while the pointer is over the HUD, but their room is always kept, so the
+//! canvas keeps its size when they show (above the items in a column,
+//! beside them on a line, never over an item). Each count has the room it
+//! measures in the interface font, so the strip is as wide as its content:
+//! a column as wide as its widest count needs (never narrower than its
+//! three buttons), a line as wide as all its counts. A count that gains or
+//! loses a digit resizes it.
 
 /// How the strip lays its items out; kept per character.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
@@ -68,7 +71,7 @@ pub type HudRect = (f64, f64, f64, f64);
 
 /// The narrowest a column is: room for its three buttons.
 pub const COLUMN_MIN_WIDTH: i32 = 2 * PADDING + 3 * COLUMN_BUTTON + 2 * BUTTON_GAP;
-/// The column's title line, which holds the buttons.
+/// The column's line above its items, which holds the buttons.
 pub const TITLE_HEIGHT: i32 = 12;
 /// One item's row in the column.
 pub const ROW_HEIGHT: i32 = 16;
@@ -91,8 +94,8 @@ pub const ICON_GAP: i32 = 3;
 /// The room between one item (icon and count) and the next on the line:
 /// wider than [`ICON_GAP`], so the line reads as pairs.
 pub const ITEM_GAP: i32 = 8;
-/// The room on either side of the line's divider.
-const DIVIDER_GAP: i32 = 4;
+/// The room between the line's last count and its buttons.
+pub const BUTTONS_GAP: i32 = 8;
 /// The line's room at either end.
 const LINE_PADDING: i32 = 4;
 
@@ -121,9 +124,6 @@ pub struct HudGeometry {
     pub items: Vec<ItemSlot>,
     /// The buttons, in [`BUTTONS`] order.
     pub buttons: [(HudButton, HudRect); 3],
-    /// The column's title line, or the line's divider (a vertical line at
-    /// its x, from its top to its bottom).
-    pub divider: HudRect,
 }
 
 impl HudGeometry {
@@ -192,7 +192,6 @@ impl HudGeometry {
             height,
             items: slots,
             buttons,
-            divider: (0.0, f64::from(TITLE_HEIGHT), f64::from(width), 0.0),
         }
     }
 
@@ -235,8 +234,7 @@ impl HudGeometry {
                 ),
             });
         }
-        let divider_x = x + DIVIDER_GAP;
-        let mut x = divider_x + 1 + DIVIDER_GAP;
+        let mut x = x + BUTTONS_GAP;
         let button_top = f64::from(LINE_HEIGHT - LINE_BUTTON) / 2.0;
         let buttons = BUTTONS.map(|button| {
             let rect = (
@@ -255,12 +253,6 @@ impl HudGeometry {
             height: LINE_HEIGHT,
             items,
             buttons,
-            divider: (
-                f64::from(divider_x),
-                f64::from(LINE_PADDING),
-                0.0,
-                f64::from(LINE_HEIGHT - 2 * LINE_PADDING),
-            ),
         }
     }
 
@@ -306,7 +298,7 @@ pub fn contains(rect: HudRect, point: (f64, f64)) -> bool {
 }
 
 /// How wide a count is taken to be before the client has measured it in
-/// the HUD's font: [`DIGIT_WIDTH`] a character.
+/// the interface font: [`DIGIT_WIDTH`] a character.
 #[must_use]
 pub fn estimated_width(text: &str) -> f64 {
     let characters = u32::try_from(text.chars().count().max(1)).unwrap_or(u32::MAX);

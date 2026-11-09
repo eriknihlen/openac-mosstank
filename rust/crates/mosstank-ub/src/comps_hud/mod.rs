@@ -3,15 +3,18 @@
 //! carries, re-counted every 600 ms. The idea is Virindi HUDs' comps
 //! counter beside VTank; its look and editing are MossTank's own.
 //!
-//! The strip is a canvas the host paints under every window, drawn in the
-//! plugin theme's colours, font and corners ([`style`]), as a column or a
-//! line ([`layout`]), each count given the room it takes in that font.
-//! Three small buttons sit on it: the layout switch, a pencil that opens
-//! the Edit items window, and a cross that hides the HUD. A left drag
+//! The strip is a canvas the host paints under every window, drawn straight
+//! on the game as the mana overlay is ([`crate::overlay`]): no frame and no
+//! background, each item its icon and its count in outlined text, as a
+//! column or a line ([`layout`]), each count given the room it takes in the
+//! interface font. A count below its item's warn level is drawn in red.
+//! While the pointer is over the strip three small marks show on it, in
+//! room kept for them (above the items in a column, beside them on a
+//! line): the layout switch, a pencil that
+//! opens the Edit items window, and a × that hides the HUD. A left drag
 //! anywhere else drags the strip, which follows the pointer as it goes and
-//! is kept where it is let go. A count below its item's warn level is drawn in
-//! the warning colour. The pointer over an item names it, and over a
-//! button says what it does, in a tooltip ([`tip`]).
+//! is kept where it is let go. The pointer over an item names it, and over
+//! a button says what it does, in a tooltip ([`tip`]).
 //!
 //! Items are added and taken off, put in order and given warn levels in the
 //! Edit items window, whose state is kept here ([`CarriedKind`], the search,
@@ -31,12 +34,11 @@ mod document;
 mod editor;
 pub mod layout;
 mod paint;
-pub mod style;
 pub mod tip;
 
 use std::collections::HashMap;
 
-use ac_plugin_abi::ui::{PointerEvent, ThemeInfo};
+use ac_plugin_abi::ui::PointerEvent;
 use mosstank_dotnet::text::{casing, ordinal};
 use mosstank_meta::host::LogLevel;
 use mosstank_stores::recovery::{self, sha256_hex};
@@ -44,12 +46,11 @@ use mosstank_stores::storage::{PluginStorage, Root, StoreHost, StoreLog};
 
 pub use carried::{CarriedItem, CarriedKind, count_owned};
 pub use layout::{HudButton, HudGeometry, HudLayout, HudRect};
-pub use style::HudStyle;
 pub use tip::Tip;
 
 use crate::canvas::{
-    BUTTON_LEFT, MapCanvasSpec, MapFont, MapImage, MapPainter, MapUi, POINTER_CANCELLED,
-    POINTER_DOWN, POINTER_HOVER, POINTER_LEAVE, POINTER_MOVE, POINTER_UP,
+    BUTTON_LEFT, MapCanvasSpec, MapImage, MapPainter, MapUi, POINTER_CANCELLED, POINTER_DOWN,
+    POINTER_HOVER, POINTER_LEAVE, POINTER_MOVE, POINTER_UP,
 };
 use crate::host::UbHost;
 use document::Document;
@@ -127,12 +128,8 @@ pub struct ComponentHudController {
     /// For each listed name the character carries, the object its icon is
     /// drawn from: the first the recount finds, kept while it stays.
     drawn_objects: HashMap<String, u32>,
-    style: HudStyle,
-    /// The bundled font, once asked for (none: refused, or not asked yet).
-    font: MapFont,
-    font_asked: bool,
-    /// Each of [`COUNT_CHARACTERS`]' width in the font in use, measured once
-    /// per font: a count's width is the sum of its characters'.
+    /// Each of [`COUNT_CHARACTERS`]' width in the interface font, measured
+    /// once a session: a count's width is the sum of its characters'.
     character_widths: Option<[f64; 11]>,
     entries: Vec<ComponentHudEntry>,
     counts: Vec<i32>,
@@ -163,6 +160,8 @@ pub struct ComponentHudController {
     dirty: bool,
     tip_dirty: bool,
     press: Option<Press>,
+    /// The pointer is over the strip: its buttons are painted.
+    hovered: bool,
 }
 
 impl ComponentHudController {
@@ -180,9 +179,6 @@ impl ComponentHudController {
             icon_order: Vec::new(),
             object_icons: HashMap::new(),
             drawn_objects: HashMap::new(),
-            style: HudStyle::classic(),
-            font: MapFont::default(),
-            font_asked: false,
             character_widths: None,
             entries: Vec::new(),
             counts: Vec::new(),
@@ -207,6 +203,7 @@ impl ComponentHudController {
             dirty: true,
             tip_dirty: false,
             press: None,
+            hovered: false,
         }
     }
 
@@ -321,30 +318,15 @@ impl ComponentHudController {
         self.tip.as_ref()
     }
 
-    /// The look the strip is painted in now.
+    /// Whether the pointer is over the strip, so its buttons show.
     #[must_use]
-    pub fn style(&self) -> &HudStyle {
-        &self.style
-    }
-
-    /// The plugin theme the player picked (at the start, and at each
-    /// change): the strip is painted in it from the next frame.
-    pub fn set_theme(&mut self, theme: &ThemeInfo) {
-        let style = HudStyle::from_theme(theme);
-        if style != self.style {
-            // Another font: its characters are measured again.
-            if style.themed != self.style.themed {
-                self.character_widths = None;
-            }
-            self.style = style;
-            self.reshape();
-            self.tip_dirty = true;
-        }
+    pub fn hovered(&self) -> bool {
+        self.hovered
     }
 
     /// The strip laid out for the list as it stands (worked out again only
-    /// after the counts, the list, the layout, the measured widths or the
-    /// theme change).
+    /// after the counts, the list, the layout or the measured widths
+    /// change).
     pub fn geometry(&mut self) -> &HudGeometry {
         if self.geometry.is_none() {
             let widths = self.count_widths();
@@ -360,8 +342,8 @@ impl ComponentHudController {
             .collect()
     }
 
-    /// Each count's width: the sum of its characters' widths in the font in
-    /// use, or estimated until they are measured.
+    /// Each count's width: the sum of its characters' widths in the
+    /// interface font, or estimated until they are measured.
     fn count_widths(&self) -> Vec<f64> {
         self.count_texts()
             .iter()
@@ -383,7 +365,7 @@ impl ComponentHudController {
             .sum()
     }
 
-    /// Measures the characters counts are drawn with, once per font, so a
+    /// Measures the characters counts are drawn with, once a session, so a
     /// count of any size is laid out right the first time (and the canvas
     /// sized once). Called before each frame with a view that can ask the
     /// client; a view that cannot leaves the estimate.
@@ -391,11 +373,9 @@ impl ComponentHudController {
         if self.character_widths.is_some() || !self.enabled {
             return;
         }
-        let font = self.font(ui);
         let mut widths = [0.0; 11];
         for (width, character) in widths.iter_mut().zip(COUNT_CHARACTERS) {
-            let Some((measured, _)) = ui.measure_text_in(font, character.encode_utf8(&mut [0; 4]))
-            else {
+            let Some((measured, _)) = ui.measure_text(character.encode_utf8(&mut [0; 4])) else {
                 return;
             };
             *width = measured;
@@ -461,6 +441,8 @@ impl ComponentHudController {
         }
         if !visible {
             self.hide_tip();
+            // A hidden canvas's leave may never come.
+            self.hovered = false;
         }
         self.show_tip(ui);
         self.place_canvas(ui);
@@ -619,8 +601,8 @@ impl ComponentHudController {
         true
     }
 
-    /// The session ended: the icons and the font are let go, the Edit items
-    /// window closes, and the next login binds its own list.
+    /// The session ended: the icons are let go, the Edit items window
+    /// closes, and the next login binds its own list.
     pub fn reset(&mut self, ui: &mut dyn MapUi) {
         for id in self.icon_order.drain(..) {
             if let Some(icon) = self.icons.remove(&id) {
@@ -632,13 +614,9 @@ impl ComponentHudController {
             ui.release_image(icon);
         }
         self.drawn_objects.clear();
-        if self.font.is_valid() {
-            ui.release_font(self.font);
-        }
-        self.font = MapFont::default();
-        self.font_asked = false;
         self.character_widths = None;
         self.press = None;
+        self.hovered = false;
         self.scope = None;
         self.key = None;
         self.save_blocked = false;
@@ -654,7 +632,7 @@ impl ComponentHudController {
         }
     }
 
-    /// Lets go of the icons, the font and the canvases.
+    /// Lets go of the icons and the canvases.
     pub fn dispose(&mut self, ui: &mut dyn MapUi) {
         for id in self.icon_order.drain(..) {
             if let Some(icon) = self.icons.remove(&id) {
@@ -666,10 +644,6 @@ impl ComponentHudController {
             ui.release_image(icon);
         }
         self.drawn_objects.clear();
-        if self.font.is_valid() {
-            ui.release_font(self.font);
-        }
-        self.font = MapFont::default();
         if let Some(canvas) = self.canvas.take() {
             ui.remove_canvas(canvas);
         }
@@ -678,8 +652,9 @@ impl ComponentHudController {
         }
     }
 
-    /// The pointer: over the strip with no button held, the tooltip names
-    /// what is under it, and leaving the strip clears it; a left press let
+    /// The pointer: over the strip with no button held, the buttons show
+    /// and the tooltip names what is under it, and leaving the strip hides
+    /// both; a left press let
     /// go over the button it went down on is that button (the layout
     /// switch, Edit items, hide); a left press anywhere else drags the
     /// strip: it follows the pointer while the button is held, the grabbed
@@ -696,9 +671,13 @@ impl ComponentHudController {
             // cancel, handled below).
             POINTER_HOVER => {
                 self.end_press(host);
+                self.set_hovered(true);
                 self.hover(at);
             }
-            POINTER_LEAVE => self.hide_tip(),
+            POINTER_LEAVE => {
+                self.set_hovered(false);
+                self.hide_tip();
+            }
             // The host gives the pointer to the first button held and drops
             // the others' releases: another button's release or cancel means
             // a left press under it will hear none.
@@ -737,6 +716,15 @@ impl ComponentHudController {
         // go together on the next frame, so it never shows old text at a
         // new place.
         self.place_canvas(ui);
+    }
+
+    /// The pointer came over the strip or left it: the buttons are painted
+    /// again, shown or not.
+    fn set_hovered(&mut self, hovered: bool) {
+        if self.hovered != hovered {
+            self.hovered = hovered;
+            self.dirty = true;
+        }
     }
 
     /// Ends a press without acting: a drag keeps its place (saved when it
@@ -989,6 +977,7 @@ impl ComponentHudController {
     fn register(&mut self, ui: &mut dyn MapUi) {
         // The old canvas's leave never comes once it is gone.
         self.hide_tip();
+        self.hovered = false;
         if let Some(canvas) = self.canvas.take() {
             ui.remove_canvas(canvas);
         }
@@ -1102,24 +1091,9 @@ impl ComponentHudController {
         icon
     }
 
-    /// The font the counts are drawn in: under a theme the bundled font,
-    /// asked for once; under Classic, and when it is refused, the interface
-    /// font.
-    fn font(&mut self, ui: &mut dyn MapUi) -> MapFont {
-        if !self.style.themed {
-            return MapFont::default();
-        }
-        if !self.font_asked {
-            self.font_asked = true;
-            self.font = ui.bundled_font(style::FONT_SIZE);
-        }
-        self.font
-    }
-
-    /// The strip in the theme's look: the face, each item's icon and count,
-    /// and the buttons.
+    /// The strip on the game: each item's icon and count, and the buttons
+    /// while the pointer is over it.
     pub fn paint(&mut self, painter: &mut dyn MapPainter, ui: &mut dyn MapUi) {
-        let font = self.font(ui);
         let texts = self.count_texts();
         self.release_stale_object_icons(ui);
         let icons: Vec<MapImage> = (0..self.entries.len())
@@ -1135,15 +1109,13 @@ impl ComponentHudController {
             .zip(warns)
             .map(|((count, icon), warn)| ItemPaint { icon, count, warn })
             .collect();
-        paint::paint(painter, &geometry, &self.style, font, &items);
+        paint::paint(painter, &geometry, &items, self.hovered);
     }
 
-    /// The tooltip, in the theme's look.
-    pub fn paint_tip(&mut self, painter: &mut dyn MapPainter, ui: &mut dyn MapUi) {
-        let font = self.font(ui);
-        let style = self.style.clone();
+    /// The tooltip.
+    pub fn paint_tip(&self, painter: &mut dyn MapPainter) {
         match &self.tip {
-            Some(tip) => tip::paint(painter, tip, &style, font),
+            Some(tip) => tip::paint(painter, tip),
             None => painter.clear(&ac_plugin_abi::ui::Color {
                 r: 0,
                 g: 0,

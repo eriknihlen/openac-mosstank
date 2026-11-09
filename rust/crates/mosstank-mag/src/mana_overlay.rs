@@ -17,6 +17,7 @@ use std::collections::HashMap;
 
 use ac_plugin_abi::ui::{Color, PointerEvent};
 use mosstank_ub::canvas::{BUTTON_LEFT, MapCanvasSpec, MapImage, MapPainter, MapUi};
+use mosstank_ub::overlay::{self, NO_TINT, NUMBERS, TEXT};
 
 use crate::mana::ManaRow;
 
@@ -54,37 +55,6 @@ pub const DEFAULT_PLACE: (i32, i32) = (420, 150);
 pub const MAX_PLACE: i32 = 16_384;
 /// Said when nothing is worn.
 pub const EMPTY_TEXT: &str = "No worn items.";
-
-const TEXT: Color = Color {
-    r: 255,
-    g: 255,
-    b: 255,
-    a: 255,
-};
-const NUMBERS: Color = Color {
-    r: 255,
-    g: 215,
-    b: 113,
-    a: 255,
-};
-const CLOSE_EDGE: Color = Color {
-    r: 20,
-    g: 14,
-    b: 8,
-    a: 230,
-};
-const CLOSE_MARK: Color = Color {
-    r: 255,
-    g: 255,
-    b: 255,
-    a: 255,
-};
-const NO_TINT: Color = Color {
-    r: 255,
-    g: 255,
-    b: 255,
-    a: 255,
-};
 
 /// The canvas's height for `rows` rows (at least one: the empty line).
 #[must_use]
@@ -341,7 +311,7 @@ impl ManaOverlay {
             painter.pop_clip();
         }
         if frame.hovered {
-            paint_close(painter);
+            overlay::cross(painter, CLOSE_BOX);
         }
         self.painted = Some(frame);
     }
@@ -440,15 +410,5 @@ impl ManaOverlay {
         for (_, icon) in self.state_icons.drain() {
             ui.release_image(icon);
         }
-    }
-}
-
-/// The ×: a dark edge under a light mark.
-fn paint_close(painter: &mut dyn MapPainter) {
-    let (x, y, w, h) = CLOSE_BOX;
-    let (left, top, right, bottom) = (x + 2.0, y + 2.0, x + w - 2.0, y + h - 2.0);
-    for (color, thickness) in [(CLOSE_EDGE, 3.5), (CLOSE_MARK, 1.5)] {
-        painter.draw_line((left, top), (right, bottom), &color, thickness);
-        painter.draw_line((left, bottom), (right, top), &color, thickness);
     }
 }

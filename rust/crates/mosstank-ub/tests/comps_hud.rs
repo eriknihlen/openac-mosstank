@@ -1,26 +1,29 @@
 //! The Comps HUD (`ComponentHudControllerTests`): a strip with one item
 //! per listed name, its icon and the count the character carries, as a
-//! column or a line, painted in the plugin theme; three buttons (the layout
-//! switch, Edit items, hide); a drag that moves it; the Edit items
-//! window's listing and editing; a list kept per character with its order,
-//! warn levels, layout and place, and an on switch kept for every
-//! character.
+//! column or a line, drawn straight on the game as the mana overlay is (no
+//! face, outlined counts); three buttons (the layout switch, Edit items,
+//! hide) painted only while the pointer is over it; a drag that moves it;
+//! the Edit items window's listing and editing; a list kept per character
+//! with its order, warn levels, layout and place, and an on switch kept for
+//! every character.
 
 use std::collections::HashSet;
 
-use ac_plugin_abi::ui::{Color, PointerEvent, ThemeInfo, ThemeKind, ThemePalette, theme_metrics};
+use ac_plugin_abi::ui::{Color, PointerEvent};
 use ac_plugin_abi::world::{ObjectClass, WorldObject};
 use mosstank_meta::testing::SharedStorage;
 use mosstank_stores::storage::PluginStorage;
-use mosstank_ub::canvas::{MapCanvasSpec, MapFont, MapImage, MapPainter, MapUi};
+use mosstank_ub::canvas::{MapCanvasSpec, MapImage, MapPainter, MapUi};
 use mosstank_ub::comps_hud::layout::{
-    self, COLUMN_BUTTON, COLUMN_MIN_WIDTH, ICON_GAP, ICON_SIZE, ITEM_GAP, LINE_BUTTON, LINE_HEIGHT,
-    ROW_HEIGHT, TITLE_HEIGHT,
+    self, BUTTONS_GAP, COLUMN_BUTTON, COLUMN_MIN_WIDTH, ICON_GAP, ICON_SIZE, ITEM_GAP, LINE_BUTTON,
+    LINE_HEIGHT, ROW_HEIGHT, TITLE_HEIGHT,
 };
-use mosstank_ub::comps_hud::style::{FONT_SIZE, WARNING_ON_DARK, WARNING_ON_LIGHT};
 use mosstank_ub::comps_hud::{
     self, AddRefusal, CarriedKind, ComponentHudController, ComponentHudEntry, HudButton,
-    HudGeometry, HudLayout, HudRect, HudStyle,
+    HudGeometry, HudLayout, HudRect,
+};
+use mosstank_ub::overlay::{
+    EDGE_THICKNESS, MARK, MARK_EDGE, MARK_THICKNESS, NUMBERS, TEXT, WARNING,
 };
 use mosstank_ub::testing::FakeUbHost;
 
@@ -31,7 +34,6 @@ const PEA_ID: u32 = 0x8000_0012;
 const KIT_ID: u32 = 0x8000_0013;
 const SCARAB_ICON: u32 = 0x0600_1F5B;
 const TAPER_ICON: u32 = 0x0600_1F60;
-const FONT_HANDLE: u32 = 77;
 
 fn item(id: u32, name: &str, stack: i32, owned: bool, icon: u32) -> WorldObject {
     WorldObject {
@@ -54,44 +56,6 @@ fn of_class(object: WorldObject, class: ObjectClass) -> WorldObject {
     }
 }
 
-const fn rgb(r: u8, g: u8, b: u8) -> Color {
-    Color { r, g, b, a: 255 }
-}
-
-/// The light theme's palette, as the client hands it over.
-fn parchment() -> ThemeInfo {
-    ThemeInfo {
-        kind: ThemeKind::Parchment,
-        display_name: "Parchment".to_owned(),
-        palette: Some(ThemePalette {
-            background: rgb(0xED, 0xE7, 0xDC),
-            field: rgb(0xFA, 0xF7, 0xF1),
-            border: rgb(0xC9, 0xBF, 0xAE),
-            text: rgb(0x2A, 0x25, 0x20),
-            muted: rgb(0x65, 0x5C, 0x50),
-            accent: rgb(0xB4, 0x47, 0x1F),
-            selected: rgb(0xDD, 0xCF, 0xB6),
-        }),
-    }
-}
-
-/// A dark theme's palette.
-fn moss() -> ThemeInfo {
-    ThemeInfo {
-        kind: ThemeKind::Moss,
-        display_name: "Charcoal + moss".to_owned(),
-        palette: Some(ThemePalette {
-            background: rgb(0x17, 0x1D, 0x1B),
-            field: rgb(0x10, 0x16, 0x13),
-            border: rgb(0x35, 0x44, 0x3B),
-            text: rgb(0xE0, 0xE8, 0xE2),
-            muted: rgb(0x9A, 0xA9, 0x9E),
-            accent: rgb(0x97, 0xBE, 0x81),
-            selected: rgb(0x34, 0x4B, 0x37),
-        }),
-    }
-}
-
 #[derive(Debug, Clone)]
 struct FakeCanvas {
     spec: MapCanvasSpec,
@@ -106,7 +70,7 @@ struct FakeCanvas {
 
 /// `LandscapeMapControllerTests.FakeUi`: the canvases in the order they
 /// were registered, the client art it has and was asked for, the repaints
-/// asked for and the fonts handed out.
+/// asked for and the texts measured.
 #[derive(Debug, Default)]
 struct FakeUi {
     canvases: Vec<FakeCanvas>,
@@ -118,10 +82,8 @@ struct FakeUi {
     /// The objects whose composed icon was asked for.
     object_requests: Vec<u32>,
     released: Vec<MapImage>,
-    fonts_asked: Vec<f32>,
     /// Every text measured.
     measured: Vec<String>,
-    fonts_released: Vec<u32>,
 }
 
 impl FakeUi {
@@ -197,47 +159,42 @@ impl MapUi for FakeUi {
         self.released.push(image);
     }
 
-    fn bundled_font(&mut self, pixel_size: f32) -> MapFont {
-        self.fonts_asked.push(pixel_size);
-        MapFont {
-            handle: FONT_HANDLE,
-            pixel_size,
-            line_height: 14.0,
-            ascent: 11.0,
-        }
-    }
-
-    fn release_font(&mut self, font: MapFont) {
-        self.fonts_released.push(font.handle);
-    }
-
     #[allow(clippy::cast_precision_loss)]
-    fn measure_text_in(&mut self, _font: MapFont, text: &str) -> Option<(f64, f64)> {
+    fn measure_text(&mut self, text: &str) -> Option<(f64, f64)> {
         self.measured.push(text.to_owned());
         Some((text.chars().count() as f64 * 6.0, 14.0))
     }
 }
 
-/// A text drawn: what, where, in what colour and font.
+/// A text drawn: what, where, in what colour, and whether outlined.
 #[derive(Debug, Clone, PartialEq)]
 struct Drawn {
     text: String,
     at: (f64, f64),
     color: Color,
-    font: u32,
+    outline: bool,
 }
 
-/// The paint as drawn: the texts, the images and the fills.
+/// A line drawn: from, to, colour, thickness.
+type Line = ((f64, f64), (f64, f64), Color, f32);
+
+/// The paint as drawn: the texts, the images, the fills and the lines.
 #[derive(Debug, Default)]
 struct RecordingPainter {
     texts: Vec<Drawn>,
     images: Vec<(MapImage, HudRect)>,
     fills: Vec<(HudRect, Color)>,
+    lines: Vec<Line>,
 }
 
 impl RecordingPainter {
     fn count_colors(&self) -> Vec<Color> {
         self.texts.iter().map(|text| text.color.clone()).collect()
+    }
+
+    /// Nothing but the items: no fill and no line.
+    fn has_no_marks(&self) -> bool {
+        self.fills.is_empty() && self.lines.is_empty()
     }
 }
 
@@ -258,35 +215,21 @@ impl MapPainter for RecordingPainter {
 
     fn stroke_rect(&mut self, _rect: (f64, f64, f64, f64), _color: &Color, _thickness: f32) {}
 
-    fn draw_line(&mut self, _from: (f64, f64), _to: (f64, f64), _color: &Color, _thickness: f32) {}
-
-    fn draw_text(&mut self, text: &str, at: (f64, f64), color: &Color, _outline: bool) {
-        self.draw_text_in(MapFont::default(), text, at, color, false);
+    fn draw_line(&mut self, from: (f64, f64), to: (f64, f64), color: &Color, thickness: f32) {
+        self.lines.push((from, to, color.clone(), thickness));
     }
 
-    #[allow(clippy::cast_precision_loss)]
-    fn measure_text(&mut self, text: &str) -> (f64, f64) {
-        (text.len() as f64 * 6.0, 12.0)
-    }
-
-    fn draw_text_in(
-        &mut self,
-        font: MapFont,
-        text: &str,
-        at: (f64, f64),
-        color: &Color,
-        _outline: bool,
-    ) {
+    fn draw_text(&mut self, text: &str, at: (f64, f64), color: &Color, outline: bool) {
         self.texts.push(Drawn {
             text: text.to_owned(),
             at,
             color: color.clone(),
-            font: font.handle,
+            outline,
         });
     }
 
     #[allow(clippy::cast_precision_loss)]
-    fn measure_text_in(&mut self, _font: MapFont, text: &str) -> (f64, f64) {
+    fn measure_text(&mut self, text: &str) -> (f64, f64) {
         (text.len() as f64 * 6.0, 14.0)
     }
 
@@ -575,10 +518,10 @@ fn the_column_is_a_thin_title_line_and_a_row_per_item() {
 }
 
 /// The line: one 20-pixel row of icon, count, icon, count, each count's
-/// room as wide as its digits, then a thin divider and the three buttons;
-/// it grows with the items.
+/// room as wide as its digits, then the three buttons beside the last
+/// count, clear of every item; it grows with the items.
 #[test]
-fn the_line_is_icon_count_pairs_then_a_divider_and_the_buttons() {
+fn the_line_is_icon_count_pairs_then_the_buttons() {
     let line = HudGeometry::new(HudLayout::Line, &widths(&["12", "300", "5"]));
     assert_eq!(LINE_HEIGHT, line.height);
     assert_eq!(3, line.items.len());
@@ -598,10 +541,13 @@ fn the_line_is_icon_count_pairs_then_a_divider_and_the_buttons() {
         x = slot.count.0 + slot.count.2;
     }
     assert!(line.items[1].count.2 > line.items[0].count.2);
-    let divider = line.divider.0;
-    assert!(divider > x);
+    assert_eq!(
+        x + f64::from(BUTTONS_GAP),
+        line.button(HudButton::Layout).0,
+        "the buttons start a gap after the last count"
+    );
     for (_, (button_x, y, width, height)) in line.buttons {
-        assert!(button_x > divider);
+        assert!(button_x >= x + f64::from(BUTTONS_GAP));
         assert_eq!(
             (f64::from(LINE_BUTTON), f64::from(LINE_BUTTON)),
             (width, height)
@@ -922,105 +868,220 @@ fn the_strip_resizes_when_a_count_gains_or_loses_a_digit() {
     assert_eq!(three, settle(&mut rig));
 }
 
-/// A count below its item's warn level is drawn in the warning colour; at
-/// or above it, or with no warn level, in the text colour.
+/// A count below its item's warn level is drawn in red; at or above it, or
+/// with no warn level, in the gold the mana overlay draws its numbers in;
+/// outlined either way.
 #[test]
-fn a_count_below_its_warn_level_is_drawn_in_the_warning_colour() {
+fn a_count_below_its_warn_level_is_drawn_in_red() {
     let mut rig = Rig::new();
-    rig.controller.set_theme(&moss());
     rig.own(item(SCARAB_ID, "Lead Scarab", 5, true, 0));
     rig.own(item(TAPER_ID, "Prismatic Taper", 50, true, 0));
     rig.add(SCARAB_ID);
     rig.add(TAPER_ID);
-    let style = rig.controller.style().clone();
-    assert_eq!(WARNING_ON_DARK, style.warning);
 
-    assert_eq!(vec![style.text.clone(); 2], rig.paint().count_colors());
+    assert_eq!(vec![NUMBERS; 2], rig.paint().count_colors());
 
     assert!(rig.controller.set_warn(&mut rig.host, 0, 10));
     assert!(rig.controller.set_warn(&mut rig.host, 1, 50));
     assert!(rig.controller.warns(0));
     assert!(!rig.controller.warns(1));
-    assert_eq!(
-        vec![style.warning.clone(), style.text.clone()],
-        rig.paint().count_colors()
+    let painted = rig.paint();
+    assert_eq!(vec![WARNING, NUMBERS], painted.count_colors());
+    assert!(
+        painted.texts.iter().all(|text| text.outline),
+        "a red count is outlined too"
     );
 
     rig.own(item(0x8000_0098, "Lead Scarab", 5, true, 0));
     rig.ticks(1, 0.6);
     assert!(!rig.controller.warns(0));
-    assert_eq!(vec![style.text.clone(); 2], rig.paint().count_colors());
+    assert_eq!(vec![NUMBERS; 2], rig.paint().count_colors());
 }
 
-/// The strip is painted in the theme the player picked: its face, edge and
-/// text colours, a dark red warning on the light theme, rounded corners,
-/// and the bundled font (asked for once); Classic keeps square corners and
-/// the interface font. A theme picked while the HUD shows repaints it.
+/// The strip is drawn straight on the game, as the mana overlay is: no
+/// face, edge or background (nothing filled and no line drawn), only each
+/// item's icon and its count in outlined text, in both layouts; an empty
+/// list's dash is outlined white.
 #[test]
-fn the_strip_is_painted_in_the_players_theme_and_follows_a_change() {
+fn the_strip_has_no_face_only_icons_and_outlined_counts() {
+    let mut rig = Rig::new();
+    rig.ui.client_art.insert(SCARAB_ICON);
+    rig.ticks(1, 0.015);
+    let empty = rig.paint();
+    assert!(empty.has_no_marks(), "no face for an empty list");
+    assert_eq!(
+        vec![Drawn {
+            text: "-".to_owned(),
+            at: empty.texts[0].at,
+            color: TEXT,
+            outline: true,
+        }],
+        empty.texts
+    );
+
+    rig.own(item(SCARAB_ID, "Lead Scarab", 5, true, SCARAB_ICON));
+    rig.own(item(TAPER_ID, "Prismatic Taper", 9, true, 0));
+    rig.add(SCARAB_ID);
+    rig.add(TAPER_ID);
+    for layout in [HudLayout::Column, HudLayout::Line] {
+        assert!(rig.controller.set_layout(&mut rig.host, layout));
+        rig.ticks(1, 0.015);
+        let painted = rig.paint();
+        assert!(painted.has_no_marks(), "{layout:?}: only the items");
+        assert_eq!(1, painted.images.len(), "{layout:?}: the scarab's icon");
+        let texts: Vec<(&str, bool)> = painted
+            .texts
+            .iter()
+            .map(|text| (text.text.as_str(), text.outline))
+            .collect();
+        assert_eq!(vec![("5", true), ("9", true)], texts, "{layout:?}");
+    }
+}
+
+impl Rig {
+    /// The strip's buttons as painted: every mark lies in a button's room
+    /// and clear of every item, and each button has one.
+    fn assert_marks_in_the_buttons(&mut self, painted: &RecordingPainter) {
+        let geometry = self.controller.geometry().clone();
+        let inside = |rect: HudRect, (x, y): (f64, f64)| {
+            x >= rect.0 && x <= rect.0 + rect.2 && y >= rect.1 && y <= rect.1 + rect.3
+        };
+        let mut points: Vec<(f64, f64)> = Vec::new();
+        for (from, to, ..) in &painted.lines {
+            points.extend([*from, *to]);
+        }
+        for ((x, y, width, height), _) in &painted.fills {
+            points.extend([(*x, *y), (x + width, y + height)]);
+        }
+        for point in &points {
+            assert!(
+                geometry
+                    .buttons
+                    .iter()
+                    .any(|(_, rect)| inside(*rect, *point)),
+                "{point:?} lies in a button's room"
+            );
+            assert!(
+                !geometry.items.iter().any(|slot| {
+                    let (x, y, width, height) = slot.cell;
+                    point.0 > x && point.0 < x + width && point.1 > y && point.1 < y + height
+                }),
+                "{point:?} covers no item"
+            );
+        }
+        for (button, rect) in geometry.buttons {
+            assert!(
+                points.iter().any(|point| inside(rect, *point)),
+                "{button:?} is drawn"
+            );
+        }
+    }
+}
+
+/// The three buttons show only while the pointer is over the strip: a
+/// hover repaints it with them, as outlined marks in the mana overlay's
+/// style (each white line over a thicker dark edge drawn first, the layout
+/// switch's dots likewise) in the room kept for them, clear of every item,
+/// the canvas keeping its size; leaving repaints it without them. A canvas
+/// replaced under the pointer, or the session's end, takes them down.
+#[test]
+fn the_buttons_show_only_while_the_pointer_is_over_the_strip() {
     let mut rig = Rig::new();
     rig.own(item(SCARAB_ID, "Lead Scarab", 5, true, 0));
     rig.add(SCARAB_ID);
     rig.ticks(1, 0.015);
-
-    let classic = rig.paint();
-    assert_eq!(HudStyle::classic(), *rig.controller.style());
-    assert_eq!(0, classic.texts[0].font);
-    assert!(rig.ui.fonts_asked.is_empty());
-    // Square: the face is one fill of the whole strip.
-    let face = (
-        1.0,
-        1.0,
-        f64::from(rig.controller.geometry().width) - 2.0,
-        f64::from(TITLE_HEIGHT + ROW_HEIGHT),
-    );
     assert!(
-        classic
-            .fills
-            .contains(&(face, HudStyle::classic().background))
+        rig.paint().has_no_marks(),
+        "no buttons before the pointer comes"
     );
 
-    let painted = rig.ui.invalidated;
-    rig.controller.set_theme(&parchment());
-    rig.ticks(1, 0.015);
-    assert!(
-        rig.ui.invalidated > painted,
-        "a theme change repaints the strip"
-    );
+    for layout in [HudLayout::Column, HudLayout::Line] {
+        assert!(rig.controller.set_layout(&mut rig.host, layout));
+        rig.ticks(1, 0.015);
+        rig.paint();
+        let canvases = rig.strip_canvases();
+        let size = (rig.canvas().spec.width, rig.canvas().spec.height);
+        let cell = rig.controller.geometry().items[0].cell;
 
-    let theme = parchment();
-    let palette = theme.palette.as_ref().unwrap();
-    let style = rig.controller.style().clone();
-    assert_eq!(palette.background, style.background);
-    assert_eq!(palette.border, style.border);
-    assert_eq!(palette.text, style.text);
-    assert_eq!(palette.muted, style.muted);
-    assert_eq!(WARNING_ON_LIGHT, style.warning);
-    assert_eq!(f64::from(theme_metrics::CONTROL_RADIUS), style.radius);
+        let before = rig.ui.invalidated;
+        rig.hover(centre(cell));
+        assert!(rig.controller.hovered());
+        assert!(
+            rig.ui.invalidated > before,
+            "{layout:?}: the hover repaints"
+        );
+        let hovered = rig.paint();
+        assert_eq!(
+            canvases,
+            rig.strip_canvases(),
+            "{layout:?}: the same canvas"
+        );
+        assert_eq!(
+            size,
+            (rig.canvas().spec.width, rig.canvas().spec.height),
+            "{layout:?}: the same size"
+        );
+        assert!(!hovered.lines.is_empty() && !hovered.fills.is_empty());
+        rig.assert_marks_in_the_buttons(&hovered);
+        for (index, (from, to, color, thickness)) in hovered.lines.iter().enumerate() {
+            if *color == MARK {
+                assert_eq!(MARK_THICKNESS, *thickness);
+                assert!(
+                    hovered.lines[..index]
+                        .iter()
+                        .any(|(f, t, c, w)| (f, t) == (from, to)
+                            && *c == MARK_EDGE
+                            && *w == EDGE_THICKNESS),
+                    "{layout:?}: each line over its edge"
+                );
+            } else {
+                assert_eq!((MARK_EDGE, EDGE_THICKNESS), (color.clone(), *thickness));
+            }
+        }
+        for (index, ((x, y, width, height), color)) in hovered.fills.iter().enumerate() {
+            if *color == MARK {
+                assert!(
+                    hovered.fills[..index]
+                        .iter()
+                        .any(|((ex, ey, ew, eh), c)| *c == MARK_EDGE
+                            && *ex < *x
+                            && *ey < *y
+                            && ex + ew > x + width
+                            && ey + eh > y + height),
+                    "{layout:?}: each dot over its edge"
+                );
+            }
+        }
+        // The counts are drawn as before.
+        assert_eq!(vec![NUMBERS], hovered.count_colors());
 
-    let themed = rig.paint();
-    assert_eq!(FONT_HANDLE, themed.texts[0].font);
-    assert_eq!(palette.text, themed.texts[0].color);
-    assert_eq!([FONT_SIZE], rig.ui.fonts_asked.as_slice());
-    assert!(!themed.fills.contains(&(face, palette.background.clone())));
-    let top_row = themed
-        .fills
-        .iter()
-        .find(|(_, color)| *color == palette.border)
-        .unwrap();
-    assert!(top_row.0.0 > 0.0, "the corners are rounded");
-    assert!(
-        themed
-            .fills
-            .iter()
-            .any(|(_, color)| *color == palette.background),
-        "the face is the theme's"
-    );
+        let before = rig.ui.invalidated;
+        rig.event(PointerEvent::LEAVE, (0.0, 0.0), 0);
+        assert!(!rig.controller.hovered());
+        rig.ticks(1, 0.015);
+        assert!(rig.ui.invalidated > before, "{layout:?}: leaving repaints");
+        assert!(
+            rig.paint().has_no_marks(),
+            "{layout:?}: gone once it leaves"
+        );
+    }
 
-    rig.paint();
-    assert_eq!(1, rig.ui.fonts_asked.len());
-    rig.controller.dispose(&mut rig.ui);
-    assert_eq!([FONT_HANDLE], rig.ui.fonts_released.as_slice());
+    // A canvas replaced under the pointer: its leave never comes.
+    let cell = rig.controller.geometry().items[0].cell;
+    rig.hover(centre(cell));
+    let canvases = rig.strip_canvases();
+    rig.own(item(0x8000_0050, "Lead Scarab", 99_990, true, 0));
+    rig.ticks(1, 0.6);
+    assert_eq!(canvases + 1, rig.strip_canvases());
+    assert!(!rig.controller.hovered());
+    assert!(rig.paint().has_no_marks());
+
+    // The session's end.
+    let cell = rig.controller.geometry().items[0].cell;
+    rig.hover(centre(cell));
+    assert!(rig.controller.hovered());
+    rig.controller.reset(&mut rig.ui);
+    assert!(!rig.controller.hovered());
 }
 
 // C# source: ComponentHudControllerTests.cs :: TheListIsKeptPerCharacterAndTheSwitchForAll
@@ -1325,7 +1386,6 @@ fn centre((x, y, width, height): HudRect) -> (f64, f64) {
 #[test]
 fn hovering_names_the_item_or_the_button_under_the_pointer() {
     let mut rig = Rig::new();
-    rig.controller.set_theme(&moss());
     rig.own(item(SCARAB_ID, "Lead Scarab", 3, true, 0));
     rig.own(item(TAPER_ID, "Prismatic Taper", 9, true, 0));
     rig.add(SCARAB_ID);
@@ -1349,18 +1409,14 @@ fn hovering_names_the_item_or_the_button_under_the_pointer() {
     let middle = f64::from(y) + row.1 + (row.3 - f64::from(comps_hud::tip::TIP_HEIGHT)) / 2.0;
     assert!((rig.tip_canvas().offset.1 - middle).abs() <= 1.0);
 
+    // The tip is outlined white text, as the HUD is drawn: no box.
     let mut painter = RecordingPainter::default();
-    rig.controller.paint_tip(&mut painter, &mut rig.ui);
+    rig.controller.paint_tip(&mut painter);
     assert_eq!(1, painter.texts.len());
     assert_eq!("Prismatic Taper", painter.texts[0].text);
-    assert_eq!(rig.controller.style().text, painter.texts[0].color);
-    assert_eq!(FONT_HANDLE, painter.texts[0].font);
-    assert!(
-        painter
-            .fills
-            .iter()
-            .any(|(_, color)| *color == rig.controller.style().background)
-    );
+    assert_eq!(TEXT, painter.texts[0].color);
+    assert!(painter.texts[0].outline);
+    assert!(painter.has_no_marks(), "no box behind the tip");
 
     for (button, text) in [
         (HudButton::Layout, "Line layout"),
@@ -1414,9 +1470,16 @@ fn hovering_names_the_item_or_the_button_under_the_pointer() {
         f64::from(600 - 4 - comps_hud::tip::TIP_WIDTH),
         rig.tip_canvas().offset.0
     );
+    // Its text keeps to the canvas's right edge, beside the strip.
+    let mut painter = RecordingPainter::default();
+    rig.controller.paint_tip(&mut painter);
+    // Six pixels a character: "Lead Scarab" is 66 wide.
+    let right = painter.texts[0].at.0 + 66.0;
+    let width = f64::from(comps_hud::tip::TIP_WIDTH);
+    assert!(right <= width && right >= width - 4.0, "{right}");
 }
 
-/// A count is given the room it takes in the HUD's font: a five-digit
+/// A count is given the room it takes in the interface font: a five-digit
 /// count widens the column past its 50 pixels and gets its own room on
 /// the line, so no digit is cut off.
 #[test]
@@ -1593,23 +1656,6 @@ fn another_character_does_not_inherit_the_layout_place_or_warn_levels() {
     assert!(rig.controller.entries().is_empty());
     rig.add(SCARAB_ID);
     assert_eq!(0, rig.controller.entries()[0].warn);
-}
-
-/// The session's end lets go of the font through the interface, as the
-/// strip's other resources go.
-#[test]
-fn the_font_is_let_go_at_the_sessions_end() {
-    let mut rig = Rig::new();
-    rig.controller.set_theme(&moss());
-    rig.own(item(SCARAB_ID, "Lead Scarab", 3, true, 0));
-    rig.add(SCARAB_ID);
-    rig.paint();
-    assert_eq!(1, rig.ui.fonts_asked.len());
-    rig.controller.reset(&mut rig.ui);
-    assert_eq!([FONT_HANDLE], rig.ui.fonts_released.as_slice());
-    rig.ticks(1, 0.015);
-    rig.paint();
-    assert_eq!(2, rig.ui.fonts_asked.len(), "the next session asks again");
 }
 
 /// A click on a carried row acts on the item the window showed in that
@@ -1839,8 +1885,7 @@ fn a_bad_list_is_not_written_over_when_its_copy_fails() {
     assert_eq!(Some(half.to_owned()), storage.get(&key));
 }
 
-/// The session's end lets go of the bare and the composed icons as well
-/// as the font.
+/// The session's end lets go of the bare and the composed icons.
 #[test]
 fn the_icons_are_let_go_at_the_sessions_end() {
     let mut rig = Rig::new();

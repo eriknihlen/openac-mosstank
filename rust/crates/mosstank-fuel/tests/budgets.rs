@@ -2217,6 +2217,112 @@ fn the_mana_page_fits() {
     assert_within_margin(&cases, &report);
 }
 
+/// How many items the Comps HUD case lists.
+const COMPS_HUD_ITEMS: i32 = 12;
+
+/// The Comps HUD on the heavy character: shown, twelve carried items ticked
+/// on in Edit items, recounted every tick (each recount takes the whole
+/// inventory), the pointer over it (repainted with its buttons) and off it,
+/// and a drag.
+#[test]
+#[ignore = "needs the release module: scripts/check.sh runs it after the WebAssembly build"]
+fn the_comps_hud_fits() {
+    use ac_plugin_abi::ui::{ActionValue, PointerEvent as P, UiEvent};
+    let wasm = std::fs::read(wasm_path()).expect("the release mosstank.wasm (build it first)");
+    let mut session = new_session();
+    let mut cases = Cases::default();
+    let (mut plugin, _) = Plugin::load(&wasm, DEFAULT_MEMORY_MIB).expect("load");
+    plugin.enable(&start_info(), &mut session).expect("enable");
+    log_in_heavy(&mut plugin, &mut session);
+
+    let fuel = send(&mut plugin, &mut session, &command("vt", "compshud on"));
+    cases.add("comps hud: shown", fuel);
+    let shown = ui_action(&session, "ShowCompsHudEditor", ActionValue::None);
+    let fuel = send(&mut plugin, &mut session, &shown);
+    cases.add("comps hud: edit items", fuel);
+    for row in 0..COMPS_HUD_ITEMS {
+        let toggled = ui_action(&session, "ToggleCompsHudCarriedAt", ActionValue::Int(row));
+        let fuel = send(&mut plugin, &mut session, &toggled);
+        cases.add("comps hud: edit items", fuel);
+        let fuel = tick(&mut plugin, &mut session);
+        cases.add("comps hud: tick (recounted)", fuel);
+    }
+    let hidden = ui_action(&session, "HideCompsHudEditor", ActionValue::None);
+    send(&mut plugin, &mut session, &hidden);
+    for _ in 0..60 {
+        session.world.fake.clock.monotonic_ms += 600;
+        let fuel = tick(&mut plugin, &mut session);
+        cases.add("comps hud: tick (recounted)", fuel);
+    }
+    let strip = |session: &Session| {
+        session
+            .world
+            .fake
+            .ui
+            .canvases()
+            .filter(|canvas| canvas.descriptor.canvas_id == "comps-hud")
+            .last()
+            .map(|canvas| {
+                (
+                    canvas.id,
+                    canvas.descriptor.height,
+                    canvas.offset,
+                    format!("{:?}", canvas.paint),
+                )
+            })
+            .expect("the HUD's canvas")
+    };
+    let (canvas, height, from, painted) = strip(&session);
+    assert!(
+        height >= COMPS_HUD_ITEMS * 16,
+        "a row per item: {height} pixels"
+    );
+    assert!(!painted.contains("Line"), "no buttons yet");
+    let pointer = |kind: u8, button: u8, x: f32, y: f32| {
+        Event::Ui(UiEvent::Pointer(P {
+            canvas,
+            kind,
+            x,
+            y,
+            button,
+            modifiers: 0,
+            wheel_delta: 0,
+        }))
+    };
+    for _ in 0..10 {
+        let fuel = send(&mut plugin, &mut session, &pointer(P::HOVER, 0, 10.0, 20.0));
+        cases.add("comps hud: hover", fuel);
+        let fuel = tick(&mut plugin, &mut session);
+        cases.add("comps hud: tick (hovered)", fuel);
+        assert!(strip(&session).3.contains("Line"), "the buttons show");
+        let fuel = send(&mut plugin, &mut session, &pointer(P::LEAVE, 0, 0.0, 0.0));
+        cases.add("comps hud: hover", fuel);
+        let fuel = tick(&mut plugin, &mut session);
+        cases.add("comps hud: tick (hovered)", fuel);
+        assert!(!strip(&session).3.contains("Line"), "and go");
+    }
+    let fuel = send(&mut plugin, &mut session, &pointer(P::DOWN, 1, 10.0, 20.0));
+    cases.add("comps hud: drag", fuel);
+    for _ in 0..20 {
+        let fuel = send(&mut plugin, &mut session, &pointer(P::MOVE, 1, 13.0, 22.0));
+        cases.add("comps hud: drag", fuel);
+    }
+    let fuel = send(&mut plugin, &mut session, &pointer(P::UP, 1, 10.0, 20.0));
+    cases.add("comps hud: drag", fuel);
+    let (_, _, to, _) = strip(&session);
+    assert_eq!((to.0 - from.0, to.1 - from.1), (60.0, 40.0), "dragged");
+    for _ in 0..10 {
+        session.world.fake.clock.monotonic_ms += 600;
+        let fuel = tick(&mut plugin, &mut session);
+        cases.add("comps hud: tick (recounted)", fuel);
+    }
+
+    let cases = cases.all();
+    let report = report(&cases);
+    println!("{report}");
+    assert_within_margin(&cases, &report);
+}
+
 /// The things about a heavy character of the Inv. Items page's classes it
 /// has none of (a row each, count 0): mana stones, kits, scarabs and
 /// essence on the ground.

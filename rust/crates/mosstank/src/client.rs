@@ -149,16 +149,6 @@ pub trait SessionClient {
     ) -> Result<(), String>;
     /// How big a line of text is in the interface font: width and height.
     fn measure_text(&mut self, text: &str) -> (f32, f32);
-    /// The plugin theme the player picked, with its colours.
-    fn ui_theme(&mut self) -> ac_plugin_abi::ui::ThemeInfo;
-    /// The client's bundled font in its regular weight at a size, or no
-    /// font when refused.
-    fn font_bundled(&mut self, pixel_size: f32) -> mosstank_ub::canvas::MapFont;
-    /// How big a line of text is in one of the plugin's fonts: width and
-    /// height.
-    fn font_measure(&mut self, font: mosstank_ub::canvas::MapFont, text: &str) -> (f32, f32);
-    /// Lets go of a font.
-    fn font_release(&mut self, font: mosstank_ub::canvas::MapFont);
     /// An object's icon, or no image.
     fn image_object_icon(&mut self, object_id: u32) -> mosstank_ub::canvas::MapImage;
     /// A piece of the client's own art, or no image.
@@ -262,30 +252,6 @@ impl SessionClient for crate::automation::HostAutomation<'_, '_> {
         self.service().measure_text(text)
     }
 
-    fn ui_theme(&mut self) -> ac_plugin_abi::ui::ThemeInfo {
-        self.service().theme()
-    }
-
-    fn font_bundled(&mut self, pixel_size: f32) -> mosstank_ub::canvas::MapFont {
-        let font = self
-            .service()
-            .font_bundled(pixel_size, ac_plugin_abi::ui::FontWeight::Regular);
-        mosstank_ub::canvas::MapFont {
-            handle: font.handle,
-            pixel_size: font.pixel_size,
-            line_height: font.line_height,
-            ascent: font.ascent,
-        }
-    }
-
-    fn font_measure(&mut self, font: mosstank_ub::canvas::MapFont, text: &str) -> (f32, f32) {
-        self.service().font_measure(sdk_font(font), text)
-    }
-
-    fn font_release(&mut self, font: mosstank_ub::canvas::MapFont) {
-        self.service().font_release(sdk_font(font));
-    }
-
     fn image_object_icon(&mut self, object_id: u32) -> mosstank_ub::canvas::MapImage {
         map_image(self.service().image_object_icon(object_id))
     }
@@ -326,15 +292,6 @@ impl SessionClient for crate::automation::HostAutomation<'_, '_> {
         lines: &[ac_plugin_abi::ui::WorldLine],
     ) -> bool {
         layer.set_lines(self.service(), lines)
-    }
-}
-
-fn sdk_font(font: mosstank_ub::canvas::MapFont) -> openac_plugin::ui::Font {
-    openac_plugin::ui::Font {
-        handle: font.handle,
-        pixel_size: font.pixel_size,
-        line_height: font.line_height,
-        ascent: font.ascent,
     }
 }
 

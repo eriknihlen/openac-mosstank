@@ -110,9 +110,11 @@ stay the macro's corpse looter's, and a container it is working is left to it.
 A small strip that counts the items you choose (spell components, peas,
 healing kits, anything you carry), after the comps counter of Virindi HUDs.
 Each item shows its icon (as the game draws the item you carry) and how many
-you carry, in packs or worn, counted again every 0.6 seconds. Hover over an
-item for its name, or over a button for what it does. It is drawn in your
-plugin theme (Appearance), and follows a theme change at once.
+you carry, in packs or worn, counted again every 0.6 seconds. Like the mana
+overlay it is drawn straight on the game, with no window around it: icons
+and outlined counts. With the pointer over it its three buttons show (the
+layout switch, the pencil and a ×); hover over an item for its name, or over
+a button for what it does.
 
 - **Show it**: tick **Show HUD** in the Comps HUD box on the Consumables page,
   or type `/vt compshud on`. The switch is the same for all your characters.
@@ -131,7 +133,7 @@ plugin theme (Appearance), and follows a theme change at once.
 - **Move it**: drag the strip anywhere but its buttons (it follows the pointer
   and is saved where you let go); it stops at the screen's top and left
   edges. `/vt compshud reset` puts it back at its first place. **Hide it**:
-  its cross (this unticks Show HUD).
+  its × (this unticks Show HUD).
 - Each character keeps its own list (in order, with the warn levels), layout
   and place. `/vt compshud` alone lists what it counts. A saved list that does
   not read whole is copied to `recovery/comps-hud/` in MossTank's storage and
