@@ -254,8 +254,24 @@ fn a_launchers_own_blood_thirst_counts_although_its_max_damage_is_zero() {
         (true, None)
     );
     assert!(!matches(&[req(2001, "80.1\r\n")], &crossbow, &properties).0);
-    // Never appraised: no weapon profile, so no max damage to buff.
-    assert!(!matches(&[req(2001, "77\r\n")], &crossbow, &empty()).0);
+
+    // The buffed max damage on its own: the cantrip's 4 with the appraised
+    // weapon, nothing without one (an item never appraised has no max
+    // damage to buff).
+    let buffed_max_damage = req(2003, "4\r\n218103842\r\n");
+    assert_eq!(
+        matches(
+            std::slice::from_ref(&buffed_max_damage),
+            &crossbow,
+            &properties
+        ),
+        (true, None)
+    );
+    let unappraised = ItemProperties {
+        weapon: None,
+        ..properties
+    };
+    assert!(!matches(&[buffed_max_damage], &crossbow, &unappraised).0);
 }
 
 // Source: tests/AcDream.Plugins.MossTank.Tests/VtankLootRequirementEvaluatorTests.cs :: RangeIsTheLaunchSpeedTheAppraisedWeaponReports
