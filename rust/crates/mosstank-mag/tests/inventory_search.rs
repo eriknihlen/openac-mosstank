@@ -519,6 +519,30 @@ fn the_selection_follows_its_item_when_the_rows_change() {
 }
 
 #[test]
+fn an_empty_list_shows_no_items_text() {
+    // Live: a bad pattern emptied the list and the clicked row's text stayed
+    // under it.
+    let mut rig = Rig::new();
+    rig.own(item(RING, "Test Ring", ObjectClass::Jewelry, PLAYER));
+    for pattern in ["(", "nothing like it"] {
+        rig.search("ring");
+        assert_eq!(rig.names(), ["Test Ring"]);
+        rig.search.click(&mut rig.host, 0, settings());
+        assert!(rig.search.info().contains("Test Ring"));
+        let revision = rig.search.revision();
+        rig.search(pattern);
+        assert!(rig.names().is_empty());
+        assert_eq!(rig.search.info(), "", "{pattern}");
+        assert_eq!(rig.search.selected_row(), -1);
+        assert_ne!(rig.search.revision(), revision);
+        // Found again: not selected, no text until it is clicked.
+        rig.search("ring");
+        assert_eq!(rig.search.selected_row(), -1);
+        assert_eq!(rig.search.info(), "");
+    }
+}
+
+#[test]
 fn the_session_ending_forgets_everything() {
     let mut rig = Rig::new();
     rig.own(item(RING, "Test Ring", ObjectClass::Jewelry, PLAYER));
