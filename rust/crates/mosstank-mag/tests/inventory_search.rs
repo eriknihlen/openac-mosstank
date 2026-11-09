@@ -1007,14 +1007,16 @@ fn the_slot_wield_and_value_columns_and_their_sort_keys() {
     assert_eq!(rig.search.row_slots(), ["Ring"]);
     assert_eq!(rig.search.row_wields(), ["180"]);
     assert_eq!(rig.search.row_values(), ["7,500"]);
-    assert_eq!(rig.search.row_wield_keys(), [180.0]);
-    assert_eq!(rig.search.row_value_keys(), [7_500.0]);
+    // The keys as text the list parses for a number sort.
+    assert_eq!(rig.search.row_wield_keys(), ["180"]);
+    assert_eq!(rig.search.row_value_keys(), ["7500"]);
     rig.search("ruby");
     assert_eq!(rig.search.row_slots(), ["-"]);
     assert_eq!(rig.search.row_wields(), [""]);
     assert_eq!(rig.search.row_values(), [""]);
-    assert_eq!(rig.search.row_wield_keys(), [-1.0]);
-    assert_eq!(rig.search.row_value_keys(), [-1.0]);
+    // None: a blank key, which the list sorts last both ways.
+    assert_eq!(rig.search.row_wield_keys(), [""]);
+    assert_eq!(rig.search.row_value_keys(), [""]);
 }
 
 #[test]

@@ -81,26 +81,18 @@ pub(super) fn value(cx: &mut TankCx<'_>, name: &str) -> Option<UiValue> {
         "MagInventoryRowIcons" => Some(UiValue::UintList(cx.mag.inventory_search.row_icons())),
         "MagInventoryRowCharacters" => tl(cx.mag.inventory_search.row_characters()),
         "MagInventoryRowNames" => tl(cx.mag.inventory_search.row_names()),
+        "MagInventoryRowCounts" => tl(cx.mag.inventory_search.row_counts()),
         "MagInventoryRowSlots" => tl(cx.mag.inventory_search.row_slots()),
         "MagInventoryRowWields" => tl(cx.mag.inventory_search.row_wields()),
-        "MagInventoryRowWieldKeys" => tl(keys(&cx.mag.inventory_search.row_wield_keys())),
+        "MagInventoryRowWieldKeys" => tl(cx.mag.inventory_search.row_wield_keys()),
         "MagInventoryRowValues" => tl(cx.mag.inventory_search.row_values()),
-        "MagInventoryRowValueKeys" => tl(keys(&cx.mag.inventory_search.row_value_keys())),
+        "MagInventoryRowValueKeys" => tl(cx.mag.inventory_search.row_value_keys()),
         "MagInventoryRowPlaces" => tl(cx.mag.inventory_search.row_places()),
         "SelectedMagInventoryRow" => i(cx.mag.inventory_search.selected_row()),
         "MagInventoryInfo" => t(cx.mag.inventory_search.info()),
         "MagInventoryStatus" => t(cx.mag.inventory_search.status()),
         _ => None,
     }
-}
-
-/// A number column's sort keys as the list reads them: text it parses as
-/// a number (`sort="number"` with a string-list `sortkeys`). The shell's
-/// values are the client's plain kinds, which have no float list. The keys
-/// are whole numbers (a level, a value, -1 for none), written as such.
-#[allow(clippy::cast_possible_truncation)]
-fn keys(keys: &[f64]) -> Vec<String> {
-    keys.iter().map(|key| (*key as i64).to_string()).collect()
 }
 
 /// A Mag setting's switch.

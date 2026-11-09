@@ -33,10 +33,10 @@ fn the_window_opens_on_the_item_tab() {
 #[test]
 fn every_cantrip_is_listed_with_its_group_on_the_groups_first_row() {
     let (window, search) = rig();
-    let names = window.cantrip_names();
+    let names = window.cantrip_names(search.filter());
     assert_eq!(names.len(), 47);
     assert_eq!(names[0], "Strength");
-    let groups = window.cantrip_groups();
+    let groups = window.cantrip_groups(search.filter());
     assert_eq!(groups[0], "Attributes");
     assert_eq!(groups[1], "");
     assert_eq!(groups[6], "Weapon skills");
@@ -46,10 +46,10 @@ fn every_cantrip_is_listed_with_its_group_on_the_groups_first_row() {
 
 #[test]
 fn the_find_box_narrows_the_cantrips_by_name_ignoring_case() {
-    let (mut window, _) = rig();
+    let (mut window, search) = rig();
     window.set_cantrip_find("WARD");
     assert_eq!(
-        window.cantrip_names(),
+        window.cantrip_names(search.filter()),
         [
             "Flame Ward",
             "Frost Ward",
@@ -61,9 +61,9 @@ fn the_find_box_narrows_the_cantrips_by_name_ignoring_case() {
         ]
     );
     // The group heads the first row shown.
-    assert_eq!(window.cantrip_groups()[0], "Wards & Banes");
+    assert_eq!(window.cantrip_groups(search.filter())[0], "Wards & Banes");
     window.set_cantrip_find("");
-    assert_eq!(window.cantrip_names().len(), 47);
+    assert_eq!(window.cantrip_names(search.filter()).len(), 47);
 }
 
 #[test]
@@ -117,6 +117,30 @@ fn the_spell_text_is_the_filters() {
     let (window, mut search) = rig();
     window.set_spell_contains(&mut search, "Fire");
     assert_eq!(search.filter().spell_contains, "Fire");
+}
+
+#[test]
+fn the_cantrips_tab_counts_the_checked_and_can_list_only_them() {
+    let (mut window, mut search) = rig();
+    assert_eq!(window.cantrip_checked_text(search.filter()), "None checked");
+    window.toggle_cantrip(&mut search, 0);
+    window.toggle_cantrip(&mut search, 2);
+    assert_eq!(window.cantrip_checked_text(search.filter()), "2 checked");
+    assert!(!window.checked_only());
+    window.set_checked_only(true);
+    assert_eq!(
+        window.cantrip_names(search.filter()),
+        ["Strength", "Quickness"]
+    );
+    // A row of the short list is its own cantrip: unchecking it leaves it.
+    window.toggle_cantrip(&mut search, 1);
+    assert_eq!(window.cantrip_names(search.filter()), ["Strength"]);
+    assert_eq!(window.cantrip_checked_text(search.filter()), "1 checked");
+    // With the find box too.
+    window.set_cantrip_find("quick");
+    assert!(window.cantrip_names(search.filter()).is_empty());
+    window.set_checked_only(false);
+    assert_eq!(window.cantrip_names(search.filter()), ["Quickness"]);
 }
 
 // --- Item ---
@@ -233,6 +257,81 @@ fn the_characters_tab_checks_every_character_until_one_is_unchecked() {
     );
     window.all_characters(&mut search);
     assert_eq!(search.filter().characters, None);
+}
+
+// --- Reset, one tab at a time ---
+
+/// A filter with something set on every tab.
+fn every_tab_set(window: &mut FilterWindow, search: &mut InventorySearch) {
+    window.set_equipped(search, 1);
+    window.set_item_type(search, 3);
+    search.edit_filter(|filter| {
+        filter.bonded = true;
+        filter
+            .slots
+            .insert(mosstank_mag::inventory_filter::Slot::Ring);
+        filter.allowed_cd = [true, false, false];
+        filter.set = Some(13);
+        filter.characters = Some(BTreeSet::from(["Me".to_owned()]));
+    });
+    window.cycle_cantrip_tier(search, 0);
+    window.toggle_cantrip(search, 0);
+    window.set_spell_contains(search, "Fire");
+    window.set_checked_only(true);
+    window.set_rating_text(search, Rating::Tinks, "3");
+    window.set_req_text(search, Req::MinValue, "100");
+}
+
+#[test]
+fn reset_clears_only_the_tabs_own_filters() {
+    let (mut window, mut search) = rig();
+    every_tab_set(&mut window, &mut search);
+    let before = search.filter().clone();
+    for tab in [
+        FilterTab::Item,
+        FilterTab::Cantrips,
+        FilterTab::Ratings,
+        FilterTab::Set,
+        FilterTab::Reqs,
+        FilterTab::Characters,
+    ] {
+        let (mut window, mut search) = rig();
+        every_tab_set(&mut window, &mut search);
+        window.reset_tab(&mut search, tab);
+        let after = search.filter().clone();
+        let mut expected = before.clone();
+        let fresh = InventoryFilter::default();
+        match tab {
+            FilterTab::Item => {
+                expected.equipped = fresh.equipped;
+                expected.bonded = false;
+                expected.item_type = fresh.item_type;
+                expected.slots.clear();
+            }
+            FilterTab::Cantrips => {
+                expected.cantrips.clear();
+                expected.spell_contains.clear();
+                assert!(!window.checked_only());
+                assert_eq!(window.cantrip_tiers(&after)[0], "Legendary");
+            }
+            FilterTab::Ratings => {
+                expected.ratings = fresh.ratings;
+                expected.allowed_cd = fresh.allowed_cd;
+                assert_eq!(window.rating_text(Rating::Tinks), "");
+            }
+            FilterTab::Set => expected.set = None,
+            FilterTab::Reqs => {
+                expected.min_value = None;
+                assert_eq!(window.req_text(Req::MinValue), "");
+            }
+            FilterTab::Characters => expected.characters = None,
+        }
+        assert_eq!(after, expected, "{tab:?}");
+        // The other tabs' fields keep their text.
+        if tab != FilterTab::Ratings {
+            assert_eq!(window.rating_text(Rating::Tinks), "3", "{tab:?}");
+        }
+    }
 }
 
 // --- Clear ---

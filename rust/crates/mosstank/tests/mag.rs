@@ -436,10 +436,18 @@ fn the_filters_window_narrows_the_inventory_and_clear_empties_it() {
         "No filters"
     );
     // The number columns' sort keys, as text the list parses: neither ring
-    // needs a level or has a value (-1, below every one).
+    // needs a level or has a value (blank: last, both ways).
     assert_eq!(
         world.ui_list(&mut plugin, "MagInventoryRowWieldKeys"),
-        ["-1", "-1"]
+        ["", ""]
+    );
+    assert_eq!(
+        world.ui_list(&mut plugin, "MagInventoryRowValueKeys"),
+        ["", ""]
+    );
+    assert_eq!(
+        world.ui_list(&mut plugin, "MagInventoryRowCounts"),
+        ["1", "1"]
     );
     assert_eq!(
         world.ui_list(&mut plugin, "MagInventoryRowWields"),
@@ -494,6 +502,99 @@ fn the_filters_window_narrows_the_inventory_and_clear_empties_it() {
         names(&mut world, &mut plugin),
         ["Plain Ring", "Strength Ring"]
     );
+}
+
+/// Frames 0.1 s apart: the filters' 0.4 s wait passes in five.
+fn frames(world: &mut World, plugin: &mut mosstank::MossTank, count: usize) {
+    for _ in 0..count {
+        world.fake.clock.monotonic_ms += 100;
+        world.tick(plugin);
+    }
+}
+
+fn sorted_names(world: &mut World, plugin: &mut mosstank::MossTank) -> Vec<String> {
+    let mut names = world.ui_list(plugin, "MagInventoryRowNames");
+    names.sort();
+    names
+}
+
+// The Set, Characters and Ratings tabs through their controls' handlers,
+// and one tab's Reset: two live rings of Soldier's Set (13), tinkered 3
+// times, and a saved character's sword.
+#[test]
+fn the_set_characters_and_ratings_tabs_narrow_the_rows_and_reset_one_tab() {
+    let mut world = World::with_character("Mag");
+    world.set_reply::<calls::ItemsInventoryComplete>(&true);
+    world.own_items(vec![
+        item(0x5000_0002, "Gold Ring", 0x8),
+        item(0x5000_0003, "Silver Ring", 0x8),
+    ]);
+    world.set_reply::<calls::ItemsProperties>(&Some(ItemProperties {
+        ints: vec![(265, 13), (171, 3)],
+        ..ItemProperties::default()
+    }));
+    save_log(&mut world, "Alt", &[item(0x5000_0100, "Alt Sword", 0x1)]);
+    let mut plugin = world.enable();
+    world.ticks(&mut plugin, 60);
+    world.act(&mut plugin, "OpenMagInventory");
+    world.ticks(&mut plugin, 10);
+    world.act(&mut plugin, "OpenMagInventoryFilters");
+    let all = ["Alt Sword", "Gold Ring", "Silver Ring"];
+    let rings = ["Gold Ring", "Silver Ring"];
+    assert_eq!(sorted_names(&mut world, &mut plugin), all);
+
+    // Set: Any set, then Soldier's Set with its two items.
+    world.act(&mut plugin, "ShowMagFiltersSet");
+    assert_eq!(
+        world.ui_list(&mut plugin, "MagFilterSetNames"),
+        ["Any set", "Soldier's Set"]
+    );
+    assert_eq!(world.ui_list(&mut plugin, "MagFilterSetCounts"), ["", "2"]);
+    assert_eq!(world.ui_int(&mut plugin, "SelectedMagFilterSetRow"), 0);
+    world.act_int(&mut plugin, "SelectMagFilterSetRow", 1);
+    assert_eq!(world.ui_int(&mut plugin, "SelectedMagFilterSetRow"), 1);
+    frames(&mut world, &mut plugin, 10);
+    assert_eq!(sorted_names(&mut world, &mut plugin), rings);
+    // The Set tab's Reset.
+    world.act(&mut plugin, "ResetMagFiltersTab");
+    frames(&mut world, &mut plugin, 10);
+    assert_eq!(sorted_names(&mut world, &mut plugin), all);
+
+    // Characters: Alt unchecked.
+    world.act(&mut plugin, "ShowMagFiltersCharacters");
+    assert_eq!(
+        world.ui_list(&mut plugin, "MagFilterCharacterNames"),
+        ["Mag", "Alt"]
+    );
+    world.act_int(&mut plugin, "ToggleMagFilterCharacter", 1);
+    assert_eq!(
+        world.ui_bools(&mut plugin, "MagFilterCharacterChecks"),
+        [true, false]
+    );
+    frames(&mut world, &mut plugin, 10);
+    assert_eq!(sorted_names(&mut world, &mut plugin), rings);
+
+    // Ratings: tinkered at least 4 times: none; 3: both rings.
+    world.act(&mut plugin, "ShowMagFiltersRatings");
+    world.act_text(&mut plugin, "SetMagFilterRatingTinks", "4");
+    assert_eq!(world.ui_text(&mut plugin, "MagFilterRatingTinks"), "4");
+    frames(&mut world, &mut plugin, 10);
+    assert!(sorted_names(&mut world, &mut plugin).is_empty());
+    world.act_text(&mut plugin, "SetMagFilterRatingTinks", "3");
+    frames(&mut world, &mut plugin, 10);
+    assert_eq!(sorted_names(&mut world, &mut plugin), rings);
+    world.act_text(&mut plugin, "SetMagFilterRatingTinks", "4");
+    frames(&mut world, &mut plugin, 10);
+    // The Ratings tab's Reset clears its field and its filter; the
+    // Characters tab's choice stays.
+    world.act(&mut plugin, "ResetMagFiltersTab");
+    assert_eq!(world.ui_text(&mut plugin, "MagFilterRatingTinks"), "");
+    assert_eq!(
+        world.ui_text(&mut plugin, "MagInventoryFilterSummary"),
+        "Mag"
+    );
+    frames(&mut world, &mut plugin, 10);
+    assert_eq!(sorted_names(&mut world, &mut plugin), rings);
 }
 
 #[test]

@@ -1284,7 +1284,7 @@ fn the_delegate_check_knows_checkboxes_radio_bars_and_numbers() {
     assert_eq!(delegate_shape_mismatches(checkbox, &wrong).len(), 1);
 }
 
-// The Inventory window's number columns (Wield, Value) are right-aligned
+// The Inventory window's number columns (Count, Wield, Value) are right-aligned
 // (plugin API 1.10), the other text columns left.
 #[test]
 fn the_inventory_windows_number_columns_are_right_aligned() {
@@ -1297,7 +1297,7 @@ fn the_inventory_windows_number_columns_are_right_aligned() {
     for (items, align) in columns {
         let wanted = matches!(
             items,
-            Some("{MagInventoryRowWields}" | "{MagInventoryRowValues}")
+            Some("{MagInventoryRowCounts}" | "{MagInventoryRowWields}" | "{MagInventoryRowValues}")
         )
         .then_some("right");
         assert_eq!(align, wanted, "{items:?}");
@@ -1305,8 +1305,8 @@ fn the_inventory_windows_number_columns_are_right_aligned() {
 }
 
 // The Inventory window's headings are its list's own captions: the client
-// draws each over its column and aligns it as the column's cells (Wield and
-// Value to the right). Labels above the list sat over a layout the client did not
+// draws each over its column and aligns it as the column's cells (Count,
+// Wield and Value to the right). Labels above the list sat over a layout the client did not
 // draw: it gives the last column the room left as well, so a `*` Name column
 // before it shared that room and the Count and Where columns moved left from
 // under their labels.
@@ -1327,6 +1327,7 @@ fn the_inventory_windows_headings_are_its_lists_own_captions() {
             None,
             Some("Character"),
             Some("Name"),
+            Some("Count"),
             Some("Slot"),
             Some("Wield"),
             Some("Value"),
@@ -1335,7 +1336,16 @@ fn the_inventory_windows_headings_are_its_lists_own_captions() {
     );
     for label in descendants_named(root, "label") {
         assert!(
-            !["Character", "Name", "Slot", "Wield", "Value", "Where"].contains(&text(label)),
+            ![
+                "Character",
+                "Name",
+                "Count",
+                "Slot",
+                "Wield",
+                "Value",
+                "Where"
+            ]
+            .contains(&text(label)),
             "a heading label is left: {}",
             text(label)
         );
@@ -1418,8 +1428,9 @@ fn the_mag_pages_lists_leave_their_last_column_its_width() {
 
 // A click on an Inventory heading sorts by its column (the client's own
 // sort: ascending, descending, then none; the rows it reports stay the
-// plugin's). Text columns sort as text; Wield and Value as numbers, by
-// keys (their cells are blank for none, and Value's digits are grouped).
+// plugin's). Text columns sort as text; Count as numbers, by its cells;
+// Wield and Value as numbers, by keys (their cells are blank for none, and
+// Value's digits are grouped).
 // The icon column does not sort.
 #[test]
 fn every_inventory_heading_sorts_its_column() {
@@ -1436,6 +1447,7 @@ fn every_inventory_heading_sorts_its_column() {
             (None, None),
             (Some("text"), None),
             (Some("text"), None),
+            (Some("number"), None),
             (Some("text"), None),
             (Some("number"), Some("{MagInventoryRowWieldKeys}")),
             (Some("number"), Some("{MagInventoryRowValueKeys}")),
@@ -1483,6 +1495,8 @@ fn the_inventory_columns_fit_their_texts_in_the_clients_font() {
             132.0,
             20.0,
         ),
+        // A stack of five figures (not grouped); `Count`.
+        ("{MagInventoryRowCounts}", "25000", 30.0, 30.0),
         // A three-digit level; `Wield`.
         ("{MagInventoryRowWields}", "275", 18.0, 29.0),
         // A seven-figure value; `Value`.
@@ -1504,6 +1518,53 @@ fn the_inventory_columns_fit_their_texts_in_the_clients_font() {
     let room = width_of("{MagInventoryRowPlaces}") - SCROLLBAR;
     assert!(room >= 65.0 + 2.0 * CELL_PADDING, "{room}");
     assert!(room >= 33.0 + 2.0 * CELL_PADDING + SORT_ARROW, "{room}");
+}
+
+// The filters window opens to the right of the Inventory window, not over
+// its rows.
+#[test]
+fn the_filters_window_opens_beside_the_inventory_window() {
+    let inventory = document("mosstank-inventory.xml");
+    let filters = document("mosstank-inventory-filters.xml");
+    let (inventory, filters) = (inventory.root_element(), filters.root_element());
+    assert!(!rectangles_overlap(inventory, filters));
+    let right = number(inventory, "x") + number(inventory, "w");
+    let x = number(filters, "x");
+    assert!((right..=right + 8.0).contains(&x), "{x}");
+}
+
+// A click on a cantrip's or a character's name checks it as its box does;
+// every tab's page has a Reset for that tab, and the Cantrips page counts
+// the checked and can list only them.
+#[test]
+fn the_filters_window_names_check_and_every_page_resets() {
+    let document = document("mosstank-inventory-filters.xml");
+    let root = document.root_element();
+    for (items, toggle) in [
+        ("{MagFilterCantripGroups}", "{ToggleMagFilterCantrip}"),
+        ("{MagFilterCantripNames}", "{ToggleMagFilterCantrip}"),
+        ("{MagFilterCharacterNames}", "{ToggleMagFilterCharacter}"),
+    ] {
+        let column = descendants_named(root, "column")
+            .find(|column| attr(*column, "items") == Some(items))
+            .unwrap();
+        assert_eq!(attr(column, "onclick"), Some(toggle), "{items}");
+    }
+    let shown = page(root, "MagFiltersShown");
+    for key in ["Item", "Cantrips", "Ratings", "Set", "Reqs", "Characters"] {
+        let page = page(shown, &format!("MagFilters{key}Visible"));
+        let resets: Vec<_> = named(page, "button")
+            .filter(|button| attr(*button, "onclick") == Some("{ResetMagFiltersTab}"))
+            .collect();
+        assert_eq!(resets.len(), 1, "{key}");
+        assert_eq!(text(resets[0]), "Reset", "{key}");
+    }
+    let cantrips = page(shown, "MagFiltersCantripsVisible");
+    assert!(named(cantrips, "label").any(|label| text(label) == "{MagFilterCantripCheckedText}"));
+    assert!(named(cantrips, "checkbox").any(|checkbox| {
+        attr(checkbox, "checked") == Some("{MagFilterCantripCheckedOnly}")
+            && text(checkbox) == "Checked only"
+    }));
 }
 
 // The filters window: six tabs, a page each under the tab row, every page

@@ -5,18 +5,21 @@
 //! cantrip's tier while it is unchecked, and the number fields' text as
 //! typed.
 //!
-//! - Cantrips: one row per cantrip the find box leaves (its name or its
-//!   containing the text, ignoring case), its group named on the
-//!   group's first row shown; a checkbox, the name, and the tier, a click
-//!   on which steps it Minor, Major, Epic, Legendary and round again
-//!   (Legendary to start). A checked cantrip is filtered at its tier or
-//!   better.
+//! - Cantrips: one row per cantrip the find box leaves (its name
+//!   containing the text, ignoring case), only the checked ones when
+//!   "Checked only" is on, its group named on the group's first row shown;
+//!   a checkbox, the name, and the tier, a click on which steps it Minor,
+//!   Major, Epic, Legendary and round again (Legendary to start). A checked
+//!   cantrip is filtered at its tier or better. A line counts the checked.
 //! - Ratings and Reqs & value: a field each, its text kept as typed; a
 //!   whole number (digits grouped by commas or not) sets the filter, any
 //!   other text sets none.
 //! - Set: "Any set", then each set the find box leaves, with its count.
 //! - Characters: every character checked until one is unchecked; All and
 //!   None.
+//!
+//! Each tab's Reset clears that tab's filters only ([`FilterWindow::reset_tab`]);
+//! the Inventory window's Clear clears them all ([`FilterWindow::clear`]).
 
 use super::{CantripTier, Equipped, GROUPS, InventoryFilter, ItemType, Rating};
 use crate::inventory_search::{InventorySearch, SetCount};
@@ -91,6 +94,8 @@ pub struct FilterWindow {
     /// The tab shown.
     pub tab: FilterTab,
     cantrip_find: String,
+    /// Only the checked cantrips are listed.
+    checked_only: bool,
     /// Each cantrip's tier while it is unchecked (by its index).
     tiers: Vec<CantripTier>,
     set_find: String,
@@ -103,6 +108,7 @@ impl Default for FilterWindow {
         Self {
             tab: FilterTab::Item,
             cantrip_find: String::new(),
+            checked_only: false,
             tiers: vec![CantripTier::Legendary; super::cantrips::names().count()],
             set_find: String::new(),
             rating_texts: Default::default(),
@@ -144,14 +150,35 @@ impl FilterWindow {
         text.clone_into(&mut self.cantrip_find);
     }
 
+    /// Only the checked cantrips are listed.
+    #[must_use]
+    pub fn checked_only(&self) -> bool {
+        self.checked_only
+    }
+
+    /// The "Checked only" switch.
+    pub fn set_checked_only(&mut self, on: bool) {
+        self.checked_only = on;
+    }
+
+    /// How many cantrips are checked: `None checked`, `N checked`.
+    #[must_use]
+    pub fn cantrip_checked_text(&self, filter: &InventoryFilter) -> String {
+        match filter.cantrips.len() {
+            0 => "None checked".to_owned(),
+            n => format!("{n} checked"),
+        }
+    }
+
     /// The cantrips listed (by index) and the group each is of.
-    fn cantrip_rows(&self) -> Vec<(usize, usize)> {
+    fn cantrip_rows(&self, filter: &InventoryFilter) -> Vec<(usize, usize)> {
         let needle = self.cantrip_find.trim().to_lowercase();
+        let checked = |index: usize| filter.cantrips.iter().any(|(found, _)| *found == index);
         let mut rows = Vec::new();
         let mut index = 0;
         for (group_index, group) in GROUPS.iter().enumerate() {
             for name in group.cantrips {
-                if contains(name, &needle) {
+                if contains(name, &needle) && (!self.checked_only || checked(index)) {
                     rows.push((index, group_index));
                 }
                 index += 1;
@@ -162,9 +189,9 @@ impl FilterWindow {
 
     /// The Group column: each group's name on its first row listed.
     #[must_use]
-    pub fn cantrip_groups(&self) -> Vec<String> {
+    pub fn cantrip_groups(&self, filter: &InventoryFilter) -> Vec<String> {
         let mut last = None;
-        self.cantrip_rows()
+        self.cantrip_rows(filter)
             .into_iter()
             .map(|(_, group)| {
                 if last == Some(group) {
@@ -179,8 +206,8 @@ impl FilterWindow {
 
     /// The Cantrip column.
     #[must_use]
-    pub fn cantrip_names(&self) -> Vec<String> {
-        self.cantrip_rows()
+    pub fn cantrip_names(&self, filter: &InventoryFilter) -> Vec<String> {
+        self.cantrip_rows(filter)
             .into_iter()
             .filter_map(|(index, _)| super::cantrip_name(index).map(str::to_owned))
             .collect()
@@ -189,7 +216,7 @@ impl FilterWindow {
     /// The checkbox column: the cantrip is in the filter.
     #[must_use]
     pub fn cantrip_checks(&self, filter: &InventoryFilter) -> Vec<bool> {
-        self.cantrip_rows()
+        self.cantrip_rows(filter)
             .into_iter()
             .map(|(index, _)| filter.cantrips.iter().any(|(found, _)| *found == index))
             .collect()
@@ -208,7 +235,7 @@ impl FilterWindow {
     /// The Tier column.
     #[must_use]
     pub fn cantrip_tiers(&self, filter: &InventoryFilter) -> Vec<String> {
-        self.cantrip_rows()
+        self.cantrip_rows(filter)
             .into_iter()
             .map(|(index, _)| self.tier_of(filter, index).name().to_owned())
             .collect()
@@ -217,7 +244,7 @@ impl FilterWindow {
     /// A row's checkbox clicked: the cantrip is added to the filter at its
     /// tier, or taken out of it.
     pub fn toggle_cantrip(&mut self, search: &mut InventorySearch, row: i32) {
-        let Some((index, _)) = row_of(&self.cantrip_rows(), row) else {
+        let Some((index, _)) = row_of(&self.cantrip_rows(search.filter()), row) else {
             return;
         };
         let tier = self.tier_of(search.filter(), index);
@@ -238,7 +265,7 @@ impl FilterWindow {
     /// A row's tier clicked: the next tier (after Legendary, Minor), in the
     /// filter too when the cantrip is checked.
     pub fn cycle_cantrip_tier(&mut self, search: &mut InventorySearch, row: i32) {
-        let Some((index, _)) = row_of(&self.cantrip_rows(), row) else {
+        let Some((index, _)) = row_of(&self.cantrip_rows(search.filter()), row) else {
             return;
         };
         let current = self.tier_of(search.filter(), index);
@@ -434,11 +461,57 @@ impl FilterWindow {
         search.edit_filter(|filter| filter.characters = Some(Default::default()));
     }
 
-    // --- Clear ---
+    // --- Reset, Clear ---
+
+    /// One tab's Reset: its filters back to none (and its own state: the
+    /// Cantrips tab's tiers and switch, the number fields' text); the
+    /// other tabs' stay.
+    pub fn reset_tab(&mut self, search: &mut InventorySearch, tab: FilterTab) {
+        let fresh = InventoryFilter::default();
+        match tab {
+            FilterTab::Item => search.edit_filter(|filter| {
+                filter.equipped = fresh.equipped;
+                filter.bonded = fresh.bonded;
+                filter.attuned = fresh.attuned;
+                filter.rare = fresh.rare;
+                filter.item_type = fresh.item_type;
+                filter.weapon_kinds = fresh.weapon_kinds;
+                filter.slots = fresh.slots;
+            }),
+            FilterTab::Cantrips => {
+                self.checked_only = false;
+                self.tiers.fill(CantripTier::Legendary);
+                search.edit_filter(|filter| {
+                    filter.cantrips = fresh.cantrips;
+                    filter.spell_contains = fresh.spell_contains;
+                });
+            }
+            FilterTab::Ratings => {
+                self.rating_texts = Default::default();
+                search.edit_filter(|filter| {
+                    filter.ratings = fresh.ratings;
+                    filter.allowed_cd = fresh.allowed_cd;
+                });
+            }
+            FilterTab::Set => search.edit_filter(|filter| filter.set = fresh.set),
+            FilterTab::Reqs => {
+                self.req_texts = Default::default();
+                search.edit_filter(|filter| {
+                    for req in Req::ALL {
+                        *req.slot(filter) = None;
+                    }
+                });
+            }
+            FilterTab::Characters => {
+                search.edit_filter(|filter| filter.characters = fresh.characters);
+            }
+        }
+    }
 
     /// Every filter cleared, and the number fields with them.
     pub fn clear(&mut self, search: &mut InventorySearch) {
         search.clear_filter();
+        self.checked_only = false;
         self.rating_texts = Default::default();
         self.req_texts = Default::default();
     }

@@ -8,9 +8,11 @@
 
   Everything sits in one group shown while the client shows the window
   ({MagFiltersShown}), each tab's page in its own group: the lists are
-  worked out and pushed only while their page is shown.
+  worked out and pushed only while their page is shown. Each page's Reset
+  clears that tab's filters only; the Inventory window's Clear clears them
+  all. It opens to the right of the Inventory window, not over its rows.
 -->
-<panel theme="plugin" x="560" y="325" w="460" h="420" title="MossTank Inventory Filters"
+<panel theme="plugin" x="1037" y="325" w="460" h="420" title="MossTank Inventory Filters"
        visible="{WindowAvailable}" resize="none">
   <group x="0" y="20" w="460" h="400" visible="{MagFiltersShown}">
     <tab x="4" y="2" w="38" h="18" text="Item"
@@ -119,6 +121,8 @@
       <checkbox x="252" y="186" w="100" h="18" text="Shield" checked="{MagFilterSlotShield}"
                 onchange="{SetMagFilterSlotShield}" color="theme:text|#FFE8DEC3"
                 tooltip="Items worn here (any slot checked; none: every slot)." />
+      <button x="392" y="354" w="64" h="20" text="Reset" onclick="{ResetMagFiltersTab}"
+              tooltip="Clear this tab's filters; the other tabs keep theirs." />
     </group>
 
     <!-- Cantrips: each row's box puts the cantrip in the filter at the
@@ -138,16 +142,25 @@
                maxlength="60" clearonsubmit="false" background="#00000000" color="theme:text|#FFE8DEC3"
                tooltip="Only items with a spell whose name contains this, case ignored (any spell, any tier)." />
       </group>
-      <list x="4" y="26" w="452" h="348" rowheight="17" header="true"
+      <list x="4" y="26" w="452" h="324" rowheight="17" header="true"
             selected="{SelectedMagFilterCantripRow}" onchange="{SelectMagFilterCantripRow}"
-            tooltip="Check the cantrips the item must all have. Each is matched at its tier or better: click the tier to change it.">
+            tooltip="Check the cantrips the item must all have (a click on the name checks it too). Each is matched at its tier or better: click the tier to change it.">
         <column type="checkbox" width="20" values="{MagFilterCantripChecks}"
                 onchange="{ToggleMagFilterCantrip}" />
-        <column type="text" width="86" header="Group" items="{MagFilterCantripGroups}" />
-        <column type="text" width="250" header="Cantrip" items="{MagFilterCantripNames}" />
+        <column type="text" width="86" header="Group" items="{MagFilterCantripGroups}"
+                onclick="{ToggleMagFilterCantrip}" />
+        <column type="text" width="250" header="Cantrip" items="{MagFilterCantripNames}"
+                onclick="{ToggleMagFilterCantrip}" />
         <column type="button" width="96" header="Tier" items="{MagFilterCantripTiers}"
                 onclick="{CycleMagFilterCantripTier}" />
       </list>
+      <label x="4" y="356" w="90" h="16" text="{MagFilterCantripCheckedText}"
+             color="theme:muted|#FFC7B98F" tooltip="How many cantrips are checked." />
+      <checkbox x="100" y="355" w="120" h="18" text="Checked only"
+                checked="{MagFilterCantripCheckedOnly}" onchange="{SetMagFilterCantripCheckedOnly}"
+                color="theme:text|#FFE8DEC3" tooltip="List only the checked cantrips." />
+      <button x="392" y="354" w="64" h="20" text="Reset" onclick="{ResetMagFiltersTab}"
+              tooltip="Clear this tab's filters; the other tabs keep theirs." />
     </group>
 
     <!-- Ratings: each field the lowest the item must have; blank, no
@@ -283,6 +296,8 @@
       <checkbox x="308" y="236" w="60" h="18" text="CD2" checked="{MagFilterCd2}"
                 onchange="{SetMagFilterCd2}" color="theme:text|#FFE8DEC3"
                 tooltip="Armor pieces may have crit damage tier 2 (all or none checked: no filter)." />
+      <button x="392" y="354" w="64" h="20" text="Reset" onclick="{ResetMagFiltersTab}"
+              tooltip="Clear this tab's filters; the other tabs keep theirs." />
     </group>
 
     <!-- Set: the sets among the characters searched, with how many items
@@ -294,7 +309,7 @@
                maxlength="40" clearonsubmit="false" background="#00000000" color="theme:text|#FFE8DEC3"
                tooltip="Only the sets whose name contains this, case ignored." />
       </group>
-      <list x="4" y="26" w="452" h="348" rowheight="17" header="true"
+      <list x="4" y="26" w="452" h="324" rowheight="17" header="true"
             selected="{SelectedMagFilterSetRow}" onchange="{SelectMagFilterSetRow}"
             tooltip="Only items of the set clicked; Any set for every item.">
         <column type="text" width="392" header="Set" items="{MagFilterSetNames}"
@@ -302,6 +317,8 @@
         <column type="text" width="60" align="right" header="Items" items="{MagFilterSetCounts}"
                 onclick="{SelectMagFilterSetRow}" />
       </list>
+      <button x="392" y="354" w="64" h="20" text="Reset" onclick="{ResetMagFiltersTab}"
+              tooltip="Clear this tab's filters; the other tabs keep theirs." />
     </group>
 
     <!-- Reqs &amp; value: blank, no filter. -->
@@ -330,6 +347,8 @@
                maxlength="12" clearonsubmit="false" background="#00000000" color="theme:text|#FFE8DEC3"
                tooltip="The highest burden. Blank: no filter." />
       </group>
+      <button x="392" y="354" w="64" h="20" text="Reset" onclick="{ResetMagFiltersTab}"
+              tooltip="Clear this tab's filters; the other tabs keep theirs." />
     </group>
 
     <!-- Characters: every character with a saved inventory on this server,
@@ -340,12 +359,15 @@
             tooltip="The characters whose items are searched.">
         <column type="checkbox" width="20" values="{MagFilterCharacterChecks}"
                 onchange="{ToggleMagFilterCharacter}" />
-        <column type="text" width="432" items="{MagFilterCharacterNames}" />
+        <column type="text" width="432" items="{MagFilterCharacterNames}"
+                onclick="{ToggleMagFilterCharacter}" />
       </list>
       <button x="4" y="354" w="64" h="20" text="All" onclick="{SelectAllMagFilterCharacters}"
               tooltip="Search every character." />
       <button x="72" y="354" w="64" h="20" text="None" onclick="{SelectNoMagFilterCharacters}"
               tooltip="Search no character (then check the ones to search)." />
+      <button x="392" y="354" w="64" h="20" text="Reset" onclick="{ResetMagFiltersTab}"
+              tooltip="Clear this tab's filters; the other tabs keep theirs." />
     </group>
   </group>
 </panel>

@@ -79,8 +79,10 @@ pub(super) fn value(cx: &mut TankCx<'_>, name: &str) -> Option<UiValue> {
         "MagFilterCantripFind" => t(window.cantrip_find()),
         "MagFilterSpellContains" => t(filter.spell_contains.as_str()),
         "MagFilterCantripChecks" => Some(UiValue::BoolList(window.cantrip_checks(filter))),
-        "MagFilterCantripGroups" => tl(window.cantrip_groups()),
-        "MagFilterCantripNames" => tl(window.cantrip_names()),
+        "MagFilterCantripGroups" => tl(window.cantrip_groups(filter)),
+        "MagFilterCantripNames" => tl(window.cantrip_names(filter)),
+        "MagFilterCantripCheckedText" => t(window.cantrip_checked_text(filter)),
+        "MagFilterCantripCheckedOnly" => b(window.checked_only()),
         "MagFilterCantripTiers" => tl(window.cantrip_tiers(filter)),
         // Ratings: the allowed crit damage tiers.
         "MagFilterCd0" => b(filter.allowed_cd[0]),
@@ -88,9 +90,9 @@ pub(super) fn value(cx: &mut TankCx<'_>, name: &str) -> Option<UiValue> {
         "MagFilterCd2" => b(filter.allowed_cd[2]),
         // Set (pushed only while its tab is shown).
         "MagFilterSetFind" => t(window.set_find()),
-        "MagFilterSetNames" => tl(window.set_names(&search.set_counts())),
-        "MagFilterSetCounts" => tl(window.set_counts(&search.set_counts())),
-        "SelectedMagFilterSetRow" => i(window.selected_set_row(&search.set_counts(), filter)),
+        "MagFilterSetNames" => tl(window.set_names(search.set_counts())),
+        "MagFilterSetCounts" => tl(window.set_counts(search.set_counts())),
+        "SelectedMagFilterSetRow" => i(window.selected_set_row(search.set_counts(), filter)),
         // Characters (pushed only while its tab is shown).
         "MagFilterCharacterNames" => tl(search.character_names()),
         "MagFilterCharacterChecks" => Some(UiValue::BoolList(
@@ -165,6 +167,11 @@ pub(super) fn act(cx: &mut TankCx<'_>, name: &str, arg: &Arg) -> bool {
             cx.client.show_window(FILTERS_WINDOW, true);
         }
         "ClearMagInventoryFilters" => window.clear(search),
+        // A tab's Reset (only the shown tab's button can be clicked).
+        "ResetMagFiltersTab" => {
+            let tab = window.tab;
+            window.reset_tab(search, tab);
+        }
         // Item.
         "SetMagFilterEquipped" => window.set_equipped(search, arg.int()),
         "SetMagFilterBonded" => search.edit_filter(|filter| filter.bonded = on),
@@ -175,6 +182,7 @@ pub(super) fn act(cx: &mut TankCx<'_>, name: &str, arg: &Arg) -> bool {
         "SetMagFilterCantripFind" => window.set_cantrip_find(arg.text()),
         "SetMagFilterSpellContains" => window.set_spell_contains(search, arg.text()),
         "ToggleMagFilterCantrip" => window.toggle_cantrip(search, arg.int()),
+        "SetMagFilterCantripCheckedOnly" => window.set_checked_only(on),
         "CycleMagFilterCantripTier" => window.cycle_cantrip_tier(search, arg.int()),
         // Ratings.
         "SetMagFilterCd0" | "SetMagFilterCd1" | "SetMagFilterCd2" => {
@@ -184,7 +192,7 @@ pub(super) fn act(cx: &mut TankCx<'_>, name: &str, arg: &Arg) -> bool {
         // Set.
         "SetMagFilterSetFind" => window.set_set_find(arg.text()),
         "SelectMagFilterSetRow" => {
-            let counts = search.set_counts();
+            let counts = search.set_counts().to_vec();
             window.choose_set(search, &counts, arg.int());
         }
         // Characters.

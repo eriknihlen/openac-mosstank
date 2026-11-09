@@ -392,8 +392,8 @@ struct View {
     slots: Vec<String>,
     wields: Vec<String>,
     values: Vec<String>,
-    wield_keys: Vec<f64>,
-    value_keys: Vec<f64>,
+    wield_keys: Vec<String>,
+    value_keys: Vec<String>,
     character_choices: Vec<String>,
     class_choices: Vec<String>,
     set_counts: Vec<SetCount>,
@@ -521,20 +521,15 @@ impl InventorySearch {
     /// ones (the Characters tab).
     #[must_use]
     pub fn character_names(&self) -> Vec<String> {
-        self.view
-            .character_choices
-            .iter()
-            .skip(1)
-            .cloned()
-            .collect()
+        self.view.character_choices.clone()
     }
 
     /// Every equipment set among the items of the characters searched,
     /// with its count, the most first (the Set tab). The other filters do
     /// not change it.
     #[must_use]
-    pub fn set_counts(&self) -> Vec<SetCount> {
-        self.view.set_counts.clone()
+    pub fn set_counts(&self) -> &[SetCount] {
+        &self.view.set_counts
     }
 
     /// Applies a filter: the rows are tested against it on the next ticks
@@ -874,15 +869,18 @@ impl InventorySearch {
         self.view.values.clone()
     }
 
-    /// The Wield column's sort keys: the level, -1 for none.
+    /// The Wield column's sort keys: the level as plain digits, blank for
+    /// none (the list parses them for a number sort, and puts a blank key
+    /// last both ways).
     #[must_use]
-    pub fn row_wield_keys(&self) -> Vec<f64> {
+    pub fn row_wield_keys(&self) -> Vec<String> {
         self.view.wield_keys.clone()
     }
 
-    /// The Value column's sort keys: the value, -1 for none.
+    /// The Value column's sort keys: the value as plain digits, blank for
+    /// none.
     #[must_use]
-    pub fn row_value_keys(&self) -> Vec<f64> {
+    pub fn row_value_keys(&self) -> Vec<String> {
         self.view.value_keys.clone()
     }
 
@@ -1254,7 +1252,6 @@ impl InventorySearch {
             ..View::default()
         };
         let mut targets = Targets::default();
-        view.character_choices.push(ALL.to_owned());
         let mut classes: Vec<ObjectClass> = Vec::new();
         let mut sets: HashMap<i32, usize> = HashMap::new();
         for (index, owner) in self.owners().enumerate() {
@@ -1299,9 +1296,8 @@ impl InventorySearch {
                 view.slots.push(facts.slot.clone());
                 view.wields.push(facts.wield_text());
                 view.values.push(facts.value_text());
-                view.wield_keys
-                    .push(facts.wield_level.map_or(-1.0, f64::from));
-                view.value_keys.push(facts.value.map_or(-1.0, f64::from));
+                view.wield_keys.push(sort_key(facts.wield_level));
+                view.value_keys.push(sort_key(facts.value));
             }
         }
         let mut set_counts: Vec<SetCount> = sets
@@ -1341,6 +1337,11 @@ fn choices(choices: &[String]) -> Vec<String> {
     } else {
         choices.to_vec()
     }
+}
+
+/// A number column's sort key: the number in plain digits, blank for none.
+fn sort_key(value: Option<i32>) -> String {
+    value.map_or_else(String::new, |value| value.to_string())
 }
 
 /// An object class's name, as Decal spelled it.

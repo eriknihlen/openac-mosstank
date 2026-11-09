@@ -188,10 +188,29 @@ impl TankCx<'_> {
             "MagInventoryFilterSummary" => {
                 kept(key(self.mag.inventory_search.filter_revision(), ()))
             }
+            // The filters window's Set and Characters lists: the search's
+            // rows, the find box and the filter.
+            "MagFilterSetNames" | "MagFilterSetCounts" => kept(key(
+                self.mag.inventory_search.revision(),
+                self.mag.filter_window.set_find(),
+            )),
+            "SelectedMagFilterSetRow" => kept(key(
+                self.mag.inventory_search.revision(),
+                (
+                    self.mag.filter_window.set_find(),
+                    self.mag.inventory_search.filter_revision(),
+                ),
+            )),
+            "MagFilterCharacterNames" => kept(key(self.mag.inventory_search.revision(), ())),
+            "MagFilterCharacterChecks" => kept(key(
+                self.mag.inventory_search.revision(),
+                self.mag.inventory_search.filter_revision(),
+            )),
             "MagInventoryClasses"
             | "MagInventoryRowIcons"
             | "MagInventoryRowCharacters"
             | "MagInventoryRowNames"
+            | "MagInventoryRowCounts"
             | "MagInventoryRowSlots"
             | "MagInventoryRowWields"
             | "MagInventoryRowWieldKeys"
