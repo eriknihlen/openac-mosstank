@@ -226,6 +226,38 @@ fn the_bow_damage_rule_rejects_a_bow_with_too_small_a_modifier() {
     assert!(!matches(&[bow_damage_rule()], &bow, &bow_properties(2.60)).0);
 }
 
+// The owner's live crossbow (2026-11-09): a Frost Compound Crossbow with
+// damage 0, a +165% modifier, +21 elemental damage and Major Blood Thirst.
+// An appraised weapon carries its max damage even when it is 0, so the
+// cantrip's +4 counts: 0 + 4 + 165 / 3 + 21 = 80, which Mag-Tools' ident
+// line shows too. Read as "no max damage", the cantrip was dropped and the
+// owner's "(M) Xbow (OD +3)" rule (at least 80) never matched.
+#[test]
+fn a_launchers_own_blood_thirst_counts_although_its_max_damage_is_zero() {
+    let crossbow = InventoryItem {
+        object_class: ObjectClass::MissileWeapon,
+        damage: 0,
+        appraised_spell_ids: vec![4400, 4395, 4297, 2586, 2573],
+        ..test_item()
+    };
+    let properties = ItemProperties {
+        ints: vec![(204, 21)],
+        weapon: Some(WeaponProfile {
+            damage: 0,
+            damage_mod: 2.65,
+            ..weapon()
+        }),
+        ..empty()
+    };
+    assert_eq!(
+        matches(&[req(2001, "80\r\n")], &crossbow, &properties),
+        (true, None)
+    );
+    assert!(!matches(&[req(2001, "80.1\r\n")], &crossbow, &properties).0);
+    // Never appraised: no weapon profile, so no max damage to buff.
+    assert!(!matches(&[req(2001, "77\r\n")], &crossbow, &empty()).0);
+}
+
 // Source: tests/AcDream.Plugins.MossTank.Tests/VtankLootRequirementEvaluatorTests.cs :: RangeIsTheLaunchSpeedTheAppraisedWeaponReports
 #[test]
 fn range_is_the_launch_speed_the_appraised_weapon_reports() {
