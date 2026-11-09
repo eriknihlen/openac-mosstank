@@ -32,8 +32,16 @@
 //! and otherwise only once the reading and matching are done, so thousands
 //! of rows are not pushed to the window at every tick of the work.
 //!
+//! The filter window's filter ([`InventoryFilter`]) is ANDed with the
+//! pattern: each row's facts are worked out once when it is read (its
+//! spells' names from the spell table, each spell asked for once), and a
+//! filter set is applied [`FILTER_DELAY_MS`] after its last change, the
+//! rows tested [`FILTER_TESTS_PER_CALL`] a tick. The characters searched
+//! are the filter's; the status counts the rows left out only because they
+//! were never appraised (`N not identified`).
+//!
 //! Where it differs from Mag-Tools: the rows of other characters, the
-//! Character and Object class filters, and the Count and Where columns are
+//! filters, and the Count, Where, Slot, Wield and Value columns are
 //! new; an item that leaves the inventory leaves the rows (Mag-Tools' list
 //! held what it found until the next keystroke); a text the pattern cannot
 //! be matched against within [`STEP_LIMIT`] steps is not listed, and the
@@ -49,6 +57,7 @@ use std::rc::Rc;
 
 use ac_plugin_abi::LogLevel;
 use ac_plugin_abi::items::InventoryItem;
+use ac_plugin_abi::magic::SpellInfo;
 use ac_plugin_abi::world::{ItemProperties, ObjectChange, ObjectClass};
 use mosstank_dotnet::text::ordinal;
 use openac_plugin_compat::regex::{
@@ -56,6 +65,7 @@ use openac_plugin_compat::regex::{
 };
 
 use crate::host::MagHost;
+use crate::inventory_filter::{InventoryFilter, RowFacts, Verdict, set_name};
 use crate::inventory_log::{LogReader, storage_key};
 use crate::item_info::{ItemInfoInput, display_name, item_info};
 
@@ -94,8 +104,77 @@ pub const BACKTRACKING_MATCHES_PER_CALL: usize = 25;
 /// none too costly over its 6,000 texts).
 pub const STEP_LIMIT: usize = 1500;
 
+/// Rows tested against a new filter in one call (a tenth of it on a tick
+/// that also read items): each test reads the row's facts, worked out when
+/// it was read.
+pub const FILTER_TESTS_PER_CALL: usize = 1500;
+
+/// How long, milliseconds, a filter change waits for the next one before
+/// the rows are tested against it (the website's 0.4 s).
+pub const FILTER_DELAY_MS: f64 = 400.0;
+
 /// The file name every inventory log ends with.
 const LOG_SUFFIX: &str = ".inventory.json";
+
+/// The appraisal's mark on a     item_info(&input, &mut |id| spells.get(host, id).map(|spell| spell.info.clone())) active on the item.
+const ACTIVE_ON_ITEM: u32 = 0x8000_0000;
+
+/// One equipment set and how many items of the characters searched are
+/// of it.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SetCount {
+    /// The set's id.
+    pub id: i32,
+    /// Its name.
+    pub name: String,
+    /// The items of it.
+    pub count: usize,
+}
+
+/// One spell as the rows read it.
+#[derive(Debug)]
+struct CachedSpell {
+    info: SpellInfo,
+    /// Its name, lowercase.
+    lower: Rc<str>,
+}
+
+/// The spell table's answers, each asked for once: thousands of rows share
+/// a few hundred spells.
+#[derive(Debug, Default)]
+struct SpellCache {
+    known: HashMap<u32, Option<CachedSpell>>,
+}
+
+impl SpellCache {
+    fn get(&mut self, host: &mut dyn MagHost, id: u32) -> Option<&CachedSpell> {
+        self.known
+            .entry(id)
+            .or_insert_with(|| {
+                host.spell(id).map(|info| CachedSpell {
+                    lower: Rc::from(info.name.to_lowercase()),
+                    info,
+                })
+            })
+            .as_ref()
+    }
+
+    /// The names of the item's spells, lowercase: the appraisal's list
+    /// with the active ones, each once; a spell the table does not know
+    /// has none.
+    fn names(&mut self, host: &mut dyn MagHost, item: &InventoryItem) -> Vec<Rc<str>> {
+        let mut ids: Vec<u32> = Vec::with_capacity(item.appraised_spell_ids.len());
+        for id in &item.appraised_spell_ids {
+            let id = id & !ACTIVE_ON_ITEM;
+            if !ids.contains(&id) {
+                ids.push(id);
+            }
+        }
+        ids.into_iter()
+            .filter_map(|id| self.get(host, id).map(|spell| Rc::clone(&spell.lower)))
+            .collect()
+    }
+}
 
 /// The settings the item texts are made with.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
@@ -193,11 +272,24 @@ struct Row {
     matched: bool,
     /// Matching it ran past the step limit.
     too_costly: bool,
+    /// What the filters read of it.
+    facts: RowFacts,
+    /// The filter generation it was last tested against, and the verdict.
+    filter_tested: u64,
+    verdict: Verdict,
 }
 
 impl Row {
-    fn new(item: &InventoryItem, properties: &ItemProperties, info: String) -> Self {
+    fn new(
+        item: &InventoryItem,
+        properties: &ItemProperties,
+        info: String,
+        facts: RowFacts,
+    ) -> Self {
         Self {
+            facts,
+            filter_tested: 0,
+            verdict: Verdict::Pass,
             id: item.object_id,
             name: display_name(item, properties),
             class: item.object_class,
@@ -297,8 +389,16 @@ struct View {
     counts: Vec<String>,
     places: Vec<String>,
     icons: Vec<u32>,
+    slots: Vec<String>,
+    wields: Vec<String>,
+    values: Vec<String>,
+    wield_keys: Vec<f64>,
+    value_keys: Vec<f64>,
     character_choices: Vec<String>,
     class_choices: Vec<String>,
+    set_counts: Vec<SetCount>,
+    /// Rows left out only because they were never appraised.
+    not_identified: usize,
     selected: i32,
 }
 
@@ -327,7 +427,15 @@ pub struct InventorySearch {
     found: Vec<String>,
     reading: Option<Reading>,
     was_shown: bool,
-    character_filter: String,
+    /// The filter the rows are tested against.
+    filter: InventoryFilter,
+    /// A filter set and not yet applied, and since when (the first tick
+    /// after it was set, milliseconds).
+    pending_filter: Option<(InventoryFilter, Option<f64>)>,
+    /// Bumped by each filter applied that changes what the rows are tested
+    /// against.
+    filter_generation: u64,
+    spells: SpellCache,
     class_filter: String,
     /// The clicked item: its owner's key and its id.
     clicked: Option<(String, u32)>,
@@ -369,22 +477,104 @@ impl InventorySearch {
         self.refresh_view();
     }
 
-    /// The Character filter's choice.
+    /// The Character menu's choice: the one character the filter searches,
+    /// [`ALL`] for every one (or several).
     #[must_use]
     pub fn character_filter(&self) -> &str {
-        if self.character_filter.is_empty() {
-            ALL
-        } else {
-            &self.character_filter
+        match &self.filter().characters {
+            Some(names) if names.len() == 1 => names.iter().next().map_or(ALL, String::as_str),
+            _ => ALL,
         }
     }
 
-    /// Only this character's rows ([`ALL`]: every one).
+    /// Only this character's rows ([`ALL`]: every one), at once (the
+    /// Character menu; the filter window chooses through
+    /// [`Self::set_filter`]).
     pub fn set_character_filter(&mut self, choice: &str) {
-        if choice != self.character_filter() {
-            choice.clone_into(&mut self.character_filter);
+        let mut filter = self.filter().clone();
+        filter.characters = (choice != ALL).then(|| std::iter::once(choice.to_owned()).collect());
+        if filter != *self.filter() || self.pending_filter.is_some() {
+            self.pending_filter = None;
+            self.apply_filter(filter);
+        }
+    }
+
+    /// The filter as last set (applied or still waiting).
+    #[must_use]
+    pub fn filter(&self) -> &InventoryFilter {
+        self.pending_filter
+            .as_ref()
+            .map_or(&self.filter, |(filter, _)| filter)
+    }
+
+    /// A new filter: the rows are tested against it from
+    /// [`FILTER_DELAY_MS`] after the last change, within each tick's
+    /// budget; until then the rows shown stay.
+    pub fn set_filter(&mut self, filter: InventoryFilter) {
+        if filter == *self.filter() {
+            return;
+        }
+        self.pending_filter = Some((filter, None));
+        self.revision += 1;
+    }
+
+    /// Every filter cleared (the Clear button).
+    pub fn clear_filter(&mut self) {
+        self.set_filter(InventoryFilter::default());
+    }
+
+    /// The filter's summary line ([`InventoryFilter::summary`]).
+    #[must_use]
+    pub fn filter_summary(&self) -> String {
+        self.filter().summary()
+    }
+
+    /// Every character searched or not: the logged-in one, then the saved
+    /// ones (the Characters tab).
+    #[must_use]
+    pub fn character_names(&self) -> Vec<String> {
+        self.view
+            .character_choices
+            .iter()
+            .skip(1)
+            .cloned()
+            .collect()
+    }
+
+    /// Every equipment set among the items of the characters searched,
+    /// with its count, the most first (the Set tab). The other filters do
+    /// not change it.
+    #[must_use]
+    pub fn set_counts(&self) -> Vec<SetCount> {
+        self.view.set_counts.clone()
+    }
+
+    /// Applies a filter: the rows are tested against it on the next ticks
+    /// (a change of the characters alone is shown at once).
+    fn apply_filter(&mut self, filter: InventoryFilter) {
+        let rows_differ = filter.for_rows() != self.filter.for_rows();
+        self.filter = filter;
+        self.revision += 1;
+        if rows_differ {
+            self.filter_generation += 1;
+            self.changed = true;
+        } else {
             self.view_stale = true;
             self.refresh_view();
+        }
+    }
+
+    /// Applies the filter set once it has waited [`FILTER_DELAY_MS`].
+    fn apply_pending_filter(&mut self, host: &mut dyn MagHost) {
+        let Some((_, since)) = &mut self.pending_filter else {
+            return;
+        };
+        let now = host.now_ms();
+        let since = *since.get_or_insert(now);
+        if now - since >= FILTER_DELAY_MS
+            && let Some((filter, _)) = self.pending_filter.take()
+        {
+            self.apply_filter(filter);
         }
     }
 
@@ -413,14 +603,20 @@ impl InventorySearch {
         let pattern_text = std::mem::take(&mut self.pattern_text);
         let pattern = std::mem::take(&mut self.pattern);
         let generation = self.generation;
-        let character_filter = std::mem::take(&mut self.character_filter);
+        let filter = std::mem::take(&mut self.filter);
+        let pending_filter = self.pending_filter.take();
+        let filter_generation = self.filter_generation;
+        let spells = std::mem::take(&mut self.spells);
         let class_filter = std::mem::take(&mut self.class_filter);
         let revision = self.revision;
         *self = Self {
             pattern_text,
             pattern,
             generation,
-            character_filter,
+            filter,
+            pending_filter,
+            filter_generation,
+            spells,
             class_filter,
             revision: revision + 1,
             ..Self::default()
@@ -468,21 +664,29 @@ impl InventorySearch {
             }
             self.settings = Some(settings);
         }
+        self.apply_pending_filter(host);
         let worked = self.read_some(host, settings);
         let budget = self.pattern.matches_per_call(self.fresh);
         let matched = self.match_some(if worked { budget / 10 } else { budget });
         if matched > 0 {
             self.fresh = false;
         }
+        let filter_budget = if worked {
+            FILTER_TESTS_PER_CALL / 10
+        } else {
+            FILTER_TESTS_PER_CALL
+        };
+        let filtered = self.filter_some(filter_budget);
         // The rows shown are worked out on a tick of their own (thousands of
         // them are a tick's worth, and so is pushing them): the window's
         // push waits for the next light tick.
-        let refreshed = self.changed && !worked && matched == 0 && self.work_done();
+        let refreshed =
+            self.changed && !worked && matched == 0 && filtered == 0 && self.work_done();
         if refreshed {
             self.view_stale = true;
             self.refresh_view();
         }
-        worked || refreshed || matched >= budget / 10
+        worked || refreshed || matched >= budget / 10 || filtered >= filter_budget / 10
     }
 
     /// Nothing is left to read or match, and the rows shown are the rows.
@@ -495,6 +699,7 @@ impl InventorySearch {
     fn work_done(&self) -> bool {
         self.listed
             && !self.relist
+            && self.pending_filter.is_none()
             && self.reading.is_none()
             && self.files.is_empty()
             && (self.no_character
@@ -536,7 +741,7 @@ impl InventorySearch {
                 }
                 host.select(id);
                 let properties = host.item_properties(id).unwrap_or_default();
-                info = info_text(host, item, &properties, settings);
+                info = info_text(host, &mut self.spells, item, &properties, settings);
             }
         }
         self.info = info;
@@ -569,8 +774,14 @@ impl InventorySearch {
         }
         let (untested, too_costly) = self.untested();
         let total = || self.owners().map(|owner| owner.rows.len()).sum::<usize>();
-        if untested > 0 {
+        if untested > 0 || self.pending_filter.is_some() {
             let total = total();
+            // A filter waiting: none tested against it yet.
+            let untested = if self.pending_filter.is_some() {
+                total
+            } else {
+                untested
+            };
             return format!("Searching... {} of {total}", total - untested);
         }
         if !self.work_done() {
@@ -585,10 +796,17 @@ impl InventorySearch {
             1 => "1 item".to_owned(),
             n => format!("{n} items"),
         };
-        if too_costly == 0 {
+        let mut notes = Vec::new();
+        if too_costly > 0 {
+            notes.push(format!("{too_costly} too costly to search"));
+        }
+        if self.view.not_identified > 0 {
+            notes.push(format!("{} not identified", self.view.not_identified));
+        }
+        if notes.is_empty() {
             shown
         } else {
-            format!("{shown} ({too_costly} too costly to search)")
+            format!("{shown} ({})", notes.join(", "))
         }
     }
 
@@ -645,6 +863,38 @@ impl InventorySearch {
         self.view.icons.clone()
     }
 
+    /// The rows' Slot column: where each can be worn or wielded, `-` for
+    /// nowhere.
+    #[must_use]
+    pub fn row_slots(&self) -> Vec<String> {
+        self.view.slots.clone()
+    }
+
+    /// The rows' Wield column: the character level each needs, blank for
+    /// none.
+    #[must_use]
+    pub fn row_wields(&self) -> Vec<String> {
+        self.view.wields.clone()
+    }
+
+    /// The rows' Value column (grouped digits), blank for none.
+    #[must_use]
+    pub fn row_values(&self) -> Vec<String> {
+        self.view.values.clone()
+    }
+
+    /// The Wield column's sort keys: the level, -1 for none.
+    #[must_use]
+    pub fn row_wield_keys(&self) -> Vec<f64> {
+        self.view.wield_keys.clone()
+    }
+
+    /// The Value column's sort keys: the value, -1 for none.
+    #[must_use]
+    pub fn row_value_keys(&self) -> Vec<f64> {
+        self.view.value_keys.clone()
+    }
+
     /// The live character's items, then the other characters'.
     fn owners(&self) -> impl Iterator<Item = &Owner> {
         self.live
@@ -657,19 +907,47 @@ impl InventorySearch {
     /// The rows not yet matched against the pattern, and those it could
     /// not be matched against within the step limit.
     fn untested(&self) -> (usize, usize) {
-        if !self.pattern.is_regex() {
-            return (0, 0);
-        }
+        let regex = self.pattern.is_regex();
         let generation = self.generation;
+        let filter_generation = self.filter_generation;
         self.owners()
             .flat_map(|owner| &owner.rows)
             .fold((0, 0), |(untested, costly), row| {
-                if row.tested != generation {
+                if (regex && row.tested != generation) || row.filter_tested != filter_generation {
                     (untested + 1, costly)
                 } else {
-                    (untested, costly + usize::from(row.too_costly))
+                    (untested, costly + usize::from(regex && row.too_costly))
                 }
             })
+    }
+
+    /// Tests up to `budget` rows against the filter; how many it tested.
+    fn filter_some(&mut self, budget: usize) -> usize {
+        let filter_generation = self.filter_generation;
+        let filter = &self.filter;
+        let mut done = 0;
+        let owners = self
+            .live
+            .as_mut()
+            .map(|live| &mut live.owner)
+            .into_iter()
+            .chain(&mut self.others);
+        'owners: for owner in owners {
+            for row in &mut owner.rows {
+                if row.filter_tested == filter_generation {
+                    continue;
+                }
+                if done >= budget {
+                    break 'owners;
+                }
+                filter_row(row, filter, filter_generation);
+                done += 1;
+            }
+        }
+        if done > 0 {
+            self.changed = true;
+        }
+        done
     }
 
     /// Matches up to `budget` rows against the pattern (an empty or bad
@@ -711,12 +989,17 @@ impl InventorySearch {
         }
         if let Some(live) = &mut self.live {
             if !live.pending.is_empty() {
-                let generation = self.generation;
+                let tests = Tests {
+                    pattern: &self.pattern,
+                    generation: self.generation,
+                    filter: &self.filter,
+                    filter_generation: self.filter_generation,
+                };
                 for _ in 0..ITEMS_PER_TICK {
                     let Some(item) = live.pending.pop_front() else {
                         break;
                     };
-                    let row = live_row(host, &item, settings, &self.pattern, generation);
+                    let row = live_row(host, &mut self.spells, &item, settings, &tests);
                     live.owner.rows.push(row);
                 }
                 self.changed = true;
@@ -764,7 +1047,12 @@ impl InventorySearch {
             return;
         };
         let owned = host.owned_items_shared();
-        let generation = self.generation;
+        let tests = Tests {
+            pattern: &self.pattern,
+            generation: self.generation,
+            filter: &self.filter,
+            filter_generation: self.filter_generation,
+        };
         let mut complete = None;
         let mut later = Vec::new();
         for _ in 0..ITEMS_PER_TICK {
@@ -774,7 +1062,7 @@ impl InventorySearch {
             live.dirty_set.remove(&id);
             let at = live.owner.rows.iter().position(|row| row.id == id);
             if let Some(item) = owned.iter().find(|item| item.object_id == id) {
-                let row = live_row(host, item, settings, &self.pattern, generation);
+                let row = live_row(host, &mut self.spells, item, settings, &tests);
                 match at {
                     Some(at) => live.owner.rows[at] = row,
                     None => {
@@ -886,11 +1174,23 @@ impl InventorySearch {
                 mut owner,
             }) => match reader.read_items(ITEMS_PER_TICK) {
                 Ok(records) => {
+                    let tests = Tests {
+                        pattern: &self.pattern,
+                        generation: self.generation,
+                        filter: &self.filter,
+                        filter_generation: self.filter_generation,
+                    };
                     for record in records {
                         let item = record.item();
-                        let info = info_text(host, &item, record.properties(), settings);
-                        let mut row = Row::new(&item, record.properties(), info);
-                        test(&mut row, &self.pattern, self.generation);
+                        let row = new_row(
+                            host,
+                            &mut self.spells,
+                            &item,
+                            record.properties(),
+                            record.has_id_data,
+                            settings,
+                            &tests,
+                        );
                         owner.rows.push(row);
                     }
                     if reader.remaining() == 0 {
@@ -957,7 +1257,7 @@ impl InventorySearch {
                 .copied()
                 .find(|kind| class_name(*kind) == class)
         });
-        let character = self.character_filter();
+        let characters = self.filter.characters.as_ref();
         let mut view = View {
             selected: -1,
             ..View::default()
@@ -965,20 +1265,30 @@ impl InventorySearch {
         let mut targets = Targets::default();
         view.character_choices.push(ALL.to_owned());
         let mut classes: Vec<ObjectClass> = Vec::new();
+        let mut sets: HashMap<i32, usize> = HashMap::new();
         for (index, owner) in self.owners().enumerate() {
             view.character_choices.push(owner.name.clone());
             targets.owner_keys.push(owner.key.clone());
-            let owner_shown = character == ALL || owner.name == character;
+            let owner_shown = characters.is_none_or(|names| names.contains(&owner.name));
             let packs = owner.packs();
             for row in &owner.rows {
                 if !classes.contains(&row.class) {
                     classes.push(row.class);
                 }
-                let shown = owner_shown
-                    && row.tested == self.generation
+                if !owner_shown {
+                    continue;
+                }
+                if let Some(set) = row.facts.set_id {
+                    *sets.entry(set).or_default() += 1;
+                }
+                let found = row.tested == self.generation
                     && row.matched
-                    && class.is_none_or(|class| class == Some(row.class));
-                if !shown {
+                    && class.is_none_or(|class| class == Some(row.class))
+                    && row.filter_tested == self.filter_generation;
+                if found && row.verdict == Verdict::NotIdentified {
+                    view.not_identified += 1;
+                }
+                if !found || row.verdict != Verdict::Pass {
                     continue;
                 }
                 if self
@@ -994,8 +1304,29 @@ impl InventorySearch {
                 view.counts.push(row.count.max(1).to_string());
                 view.places.push(place(row, &packs));
                 view.icons.push(row.icon);
+                let facts = &row.facts;
+                view.slots.push(facts.slot.clone());
+                view.wields.push(facts.wield_text());
+                view.values.push(facts.value_text());
+                view.wield_keys
+                    .push(facts.wield_level.map_or(-1.0, f64::from));
+                view.value_keys.push(facts.value.map_or(-1.0, f64::from));
             }
         }
+        let mut set_counts: Vec<SetCount> = sets
+            .into_iter()
+            .map(|(id, count)| SetCount {
+                id,
+                name: set_name(id),
+                count,
+            })
+            .collect();
+        set_counts.sort_by(|a, b| {
+            b.count
+                .cmp(&a.count)
+                .then_with(|| ordinal::compare_ignore_case(&a.name, &b.name))
+        });
+        view.set_counts = set_counts;
         let mut class_names: Vec<String> = classes.into_iter().map(class_name).collect();
         class_names.sort_by(|a, b| ordinal::compare_ignore_case(a, b));
         view.class_choices.push(ALL.to_owned());
@@ -1034,24 +1365,65 @@ fn test(row: &mut Row, pattern: &Pattern, generation: u64) {
     row.tested = generation;
 }
 
+/// Tests a row against the filter of `generation`.
+fn filter_row(row: &mut Row, filter: &InventoryFilter, generation: u64) {
+    row.verdict = filter.verdict(&row.facts);
+    row.filter_tested = generation;
+}
+
+/// What a row read now is tested against.
+struct Tests<'a> {
+    pattern: &'a Pattern,
+    generation: u64,
+    filter: &'a InventoryFilter,
+    filter_generation: u64,
+}
+
+impl Tests<'_> {
+    fn run(&self, row: &mut Row) {
+        test(row, self.pattern, self.generation);
+        filter_row(row, self.filter, self.filter_generation);
+    }
+}
+
+/// A row made now: its text, its facts (`identified`: it was appraised),
+/// tested.
+fn new_row(
+    host: &mut dyn MagHost,
+    spells: &mut SpellCache,
+    item: &InventoryItem,
+    properties: &ItemProperties,
+    identified: bool,
+    settings: InfoSettings,
+    tests: &Tests<'_>,
+) -> Row {
+    let info = info_text(host, spells, item, properties, settings);
+    let names = spells.names(host, item);
+    let facts = RowFacts::new(item, properties, identified, names);
+    let mut row = Row::new(item, properties, info, facts);
+    tests.run(&mut row);
+    row
+}
+
 /// A live item's row, its properties read now.
 fn live_row(
     host: &mut dyn MagHost,
+    spells: &mut SpellCache,
     item: &InventoryItem,
     settings: InfoSettings,
-    pattern: &Pattern,
-    generation: u64,
+    tests: &Tests<'_>,
 ) -> Row {
     let properties = host.item_properties(item.object_id).unwrap_or_default();
-    let info = info_text(host, item, &properties, settings);
-    let mut row = Row::new(item, &properties, info);
-    test(&mut row, pattern, generation);
-    row
+    let identified = host
+        .object(item.object_id)
+        .is_some_and(|object| object.has_appraisal_data);
+    new_row(host, spells, item, &properties, identified, settings, tests)
 }
 
 /// The item's info text, as the item info line prints it.
 fn info_text(
     host: &mut dyn MagHost,
+    spells: &mut SpellCache,
     item: &InventoryItem,
     properties: &ItemProperties,
     settings: InfoSettings,
@@ -1062,5 +1434,7 @@ fn info_text(
         show_buffed_values: settings.show_buffed_values,
         show_value_and_burden: settings.show_value_and_burden,
     };
-    item_info(&input, &mut |spell| host.spell(spell))
+    item_info(&input, &mut |id| {
+        spells.get(host, id).map(|spell| spell.info.clone())
+    })
 }

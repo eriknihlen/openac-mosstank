@@ -34,6 +34,12 @@ pub struct ItemRecord {
     pub wielder_id: u32,
     /// Where it is worn or wielded (bits), 0 when not.
     pub equipped_location: u32,
+    /// Where it can be worn or wielded (EquipMask bits), as its
+    /// description carried it; 0 in a file written before it was kept.
+    pub valid_locations: u32,
+    /// The body parts it covers (coverage bits), as its description
+    /// carried it; 0 in a file written before it was kept.
+    pub coverage_mask: u32,
     /// How many in its stack.
     pub stack_size: i32,
     /// Value, as its description carried it.
@@ -95,6 +101,8 @@ impl ItemRecord {
             container_slot: item.container_slot,
             wielder_id: item.wielder_id,
             equipped_location: item.equipped_location,
+            valid_locations: item.valid_locations,
+            coverage_mask: item.coverage_mask,
             stack_size: item.stack_size,
             value: item.value,
             burden: item.burden,
@@ -124,6 +132,8 @@ impl ItemRecord {
             container_id: self.container_id,
             wielder_id: self.wielder_id,
             equipped_location: self.equipped_location,
+            valid_locations: self.valid_locations,
+            coverage_mask: self.coverage_mask,
             stack_size: self.stack_size,
             structure: self.structure,
             appraised_spell_ids,
@@ -170,6 +180,8 @@ impl ItemRecord {
             ("container_slot", i(self.container_slot)),
             ("wielder_id", u(self.wielder_id)),
             ("equipped_location", u(self.equipped_location)),
+            ("valid_locations", u(self.valid_locations)),
+            ("coverage_mask", u(self.coverage_mask)),
             ("stack_size", i(self.stack_size)),
             ("value", i(self.value)),
             ("burden", i(self.burden)),
@@ -243,6 +255,9 @@ impl ItemRecord {
             container_slot: member(value, "container_slot", read_i32)?,
             wielder_id: member(value, "wielder_id", read_u32)?,
             equipped_location: member(value, "equipped_location", read_u32)?,
+            // Kept since the Inventory filters; none in an older file.
+            valid_locations: value.get("valid_locations").map_or(Some(0), read_u32)?,
+            coverage_mask: value.get("coverage_mask").map_or(Some(0), read_u32)?,
             stack_size: member(value, "stack_size", read_i32)?,
             value: member(value, "value", read_i32)?,
             burden: member(value, "burden", read_i32)?,
@@ -280,6 +295,8 @@ pub fn combine(older: ItemRecord, newer: ItemRecord) -> ItemRecord {
         container_slot,
         wielder_id,
         equipped_location,
+        valid_locations,
+        coverage_mask,
         stack_size,
         value,
         burden,
@@ -298,6 +315,8 @@ pub fn combine(older: ItemRecord, newer: ItemRecord) -> ItemRecord {
     kept.container_slot = container_slot;
     kept.wielder_id = wielder_id;
     kept.equipped_location = equipped_location;
+    kept.valid_locations = valid_locations;
+    kept.coverage_mask = coverage_mask;
     kept.stack_size = stack_size;
     kept.value = value;
     kept.burden = burden;

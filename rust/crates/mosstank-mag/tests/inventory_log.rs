@@ -1110,3 +1110,44 @@ mod logger {
         assert_eq!(rig.logger.records().count(), 0);
     }
 }
+
+/// The slot bits come with the object's description, not the appraisal:
+/// the record keeps them for the Inventory window's Slot column and
+/// filters, and a file written before it kept them reads them as none.
+#[test]
+fn the_record_keeps_where_the_item_is_worn_and_what_it_covers() {
+    let mut item = ring_item();
+    item.valid_locations = 0x000C_0000;
+    item.coverage_mask = 0;
+    let mut coat = ring_item();
+    coat.object_id = SWORD;
+    coat.valid_locations = 512 | 1024;
+    coat.coverage_mask = 1024 | 2048;
+    let records: Vec<ItemRecord> = [item, coat]
+        .iter()
+        .map(|item| ItemRecord::from_live(item, Some(&seen(item, true)), &ring_properties(), 1))
+        .collect();
+    assert_eq!(records[0].valid_locations, 0x000C_0000);
+    assert_eq!(records[1].coverage_mask, 1024 | 2048);
+    let rebuilt = records[1].item();
+    assert_eq!(
+        (rebuilt.valid_locations, rebuilt.coverage_mask),
+        (512 | 1024, 1024 | 2048)
+    );
+    let (_, read_back) = read(&document(&records)).expect("the file reads");
+    assert_eq!(read_back, records);
+    // Written before: no such members.
+    let old = document(&records)
+        .replace("\"valid_locations\":786432,", "")
+        .replace("\"coverage_mask\":0,", "");
+    let (_, read_old) = read(&old).expect("an older file reads");
+    assert_eq!(
+        (read_old[0].valid_locations, read_old[0].coverage_mask),
+        (0, 0)
+    );
+    // A newer description's bits replace the kept appraisal's.
+    let mut newer = records[1].clone();
+    newer.has_id_data = false;
+    newer.valid_locations = 512;
+    assert_eq!(combine(records[1].clone(), newer).valid_locations, 512);
+}

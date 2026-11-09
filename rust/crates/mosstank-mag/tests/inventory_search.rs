@@ -7,10 +7,20 @@
 //! `InventoryList_Click`: `UseItem(wo.Container)` when the item is not
 //! directly on the character, then `SelectItem`, then the item's text).
 
+use std::collections::BTreeSet;
+
 use ac_plugin_abi::items::InventoryItem;
-use ac_plugin_abi::world::{ItemProperties, ObjectChange, ObjectChangeKind, ObjectClass};
+use ac_plugin_abi::magic::SpellInfo;
+use ac_plugin_abi::world::{
+    ItemProperties, ObjectChange, ObjectChangeKind, ObjectClass, WorldObject,
+};
+use mosstank_mag::inventory_filter::{
+    CantripTier, InventoryFilter, ItemType, Rating, Slot, cantrip_index,
+};
 use mosstank_mag::inventory_log::{ItemRecord, LogHeader, VERSION, storage_key, write};
-use mosstank_mag::inventory_search::{ALL, InfoSettings, InventorySearch, MATCHES_PER_CALL};
+use mosstank_mag::inventory_search::{
+    ALL, FILTER_DELAY_MS, InfoSettings, InventorySearch, MATCHES_PER_CALL, SetCount,
+};
 use mosstank_mag::testing::FakeMagHost;
 
 /// The fake's character (`FakeHost::new`).
@@ -668,4 +678,342 @@ fn a_pattern_too_large_to_compile_lists_nothing_and_says_so() {
     }
     rig.search("Ring");
     assert_eq!(rig.names(), ["Test Ring"]);
+}
+
+// --- The filters (the filter window) ---
+
+const STRENGTH: u32 = 6107; // Legendary Strength
+const EPIC_STRENGTH: u32 = 4000;
+const PROWESS: u32 = 2391;
+
+fn spell(id: u32, name: &str) -> SpellInfo {
+    SpellInfo {
+        spell_id: id,
+        name: name.to_owned(),
+        ..SpellInfo::default()
+    }
+}
+
+fn with_spells(host: &mut FakeMagHost) {
+    for (id, name) in [
+        (STRENGTH, "Legendary Strength"),
+        (EPIC_STRENGTH, "Epic Strength"),
+        (PROWESS, "Prowess"),
+    ] {
+        host.meta.spells.insert(id, spell(id, name));
+    }
+}
+
+fn ints(ints: &[(u32, i32)]) -> ItemProperties {
+    ItemProperties {
+        ints: ints.to_vec(),
+        ..ItemProperties::default()
+    }
+}
+
+/// A saved log of `character` holding these appraised items.
+fn save_appraised(host: &FakeMagHost, character: &str, items: &[(InventoryItem, ItemProperties)]) {
+    let fragments: Vec<String> = items
+        .iter()
+        .map(|(item, properties)| {
+            let seen = WorldObject {
+                object_id: item.object_id,
+                has_appraisal_data: true,
+                ..WorldObject::default()
+            };
+            ItemRecord::from_live(item, Some(&seen), properties, 1).to_json()
+        })
+        .collect();
+    let header = LogHeader {
+        version: VERSION,
+        character: character.to_owned(),
+        world: WORLD.to_owned(),
+        saved_unix_ms: 1_762_560_000_000,
+    };
+    let text = write(&header, fragments.iter().map(String::as_str));
+    host.meta
+        .storage
+        .insert(&storage_key(WORLD, character), &text);
+}
+
+impl Rig {
+    /// The logged-in character owns `item`, appraised, with `properties`.
+    fn own_appraised(&mut self, item: InventoryItem, properties: ItemProperties) {
+        let id = item.object_id;
+        self.own(item);
+        self.host.meta.properties.insert(id, properties);
+        if let Some(object) = self
+            .host
+            .meta
+            .objects
+            .iter_mut()
+            .find(|o| o.object_id == id)
+        {
+            object.has_appraisal_data = true;
+        }
+    }
+
+    /// A filter set, and the search settled after its wait.
+    fn filter(&mut self, filter: InventoryFilter) {
+        self.search.set_filter(filter);
+        self.settle();
+    }
+}
+
+fn jewelry() -> InventoryFilter {
+    InventoryFilter {
+        item_type: ItemType::Jewelry,
+        ..InventoryFilter::default()
+    }
+}
+
+#[test]
+fn the_filter_and_the_pattern_are_both_needed() {
+    let mut rig = Rig::new();
+    rig.own(item(RING, "Test Ring", ObjectClass::Jewelry, PLAYER));
+    rig.own_appraised(
+        item(GEM, "Ring Mail", ObjectClass::Armor, PLAYER),
+        ints(&[(28, 300)]),
+    );
+    rig.own(item(SWORD, "Sword", ObjectClass::MeleeWeapon, PLAYER));
+    rig.search("ring");
+    assert_eq!(sorted(rig.names()), ["Ring Mail", "Test Ring"]);
+    rig.filter(jewelry());
+    assert_eq!(rig.names(), ["Test Ring"]);
+    assert_eq!(rig.search.filter_summary(), "Jewelry");
+    rig.search("sword");
+    assert!(
+        rig.names().is_empty(),
+        "the pattern and the filter together"
+    );
+    rig.search.clear_filter();
+    rig.settle();
+    assert_eq!(rig.names(), ["Sword"]);
+    assert_eq!(rig.search.filter_summary(), "");
+}
+
+#[test]
+fn a_filter_applies_0_4_s_after_its_last_change() {
+    let mut rig = Rig::new();
+    rig.own(item(RING, "Test Ring", ObjectClass::Jewelry, PLAYER));
+    rig.own(item(SWORD, "Sword", ObjectClass::MeleeWeapon, PLAYER));
+    rig.search("");
+    rig.search.set_filter(jewelry());
+    // The window shows the filter as set at once.
+    assert_eq!(rig.search.filter().item_type, ItemType::Jewelry);
+    assert_eq!(rig.search.filter_summary(), "Jewelry");
+    // 16 ms a tick: 20 ticks is 320 ms.
+    for _ in 0..20 {
+        rig.tick();
+    }
+    assert_eq!(rig.names().len(), 2, "not yet");
+    assert!(rig.search.status().starts_with("Searching"));
+    // Another change starts the wait again.
+    let weapons = InventoryFilter {
+        item_type: ItemType::Weapons,
+        ..InventoryFilter::default()
+    };
+    rig.search.set_filter(weapons);
+    for _ in 0..20 {
+        rig.tick();
+    }
+    assert_eq!(rig.names().len(), 2, "320 ms after the last change");
+    let mut ticks = 0;
+    while !rig.search.is_settled() {
+        rig.tick();
+        ticks += 1;
+        assert!(ticks < 100);
+    }
+    assert_eq!(rig.names(), ["Sword"]);
+    assert!(f64::from(20 + ticks) * 16.0 >= FILTER_DELAY_MS);
+    assert_eq!(rig.search.status(), "1 item");
+}
+
+#[test]
+fn cantrips_and_slots_read_live_and_saved_items_alike() {
+    let mut rig = Rig::new();
+    with_spells(&mut rig.host);
+    let mut ring = item(RING, "Test Ring", ObjectClass::Jewelry, PLAYER);
+    ring.valid_locations = 0x000C_0000;
+    ring.appraised_spell_ids = vec![STRENGTH];
+    let mut alt_ring = item(0x100, "Alt Ring", ObjectClass::Jewelry, 0x50);
+    alt_ring.valid_locations = 0x000C_0000;
+    alt_ring.appraised_spell_ids = vec![0x8000_0000 | EPIC_STRENGTH];
+    let mut alt_amulet = item(0x101, "Alt Amulet", ObjectClass::Jewelry, 0x50);
+    alt_amulet.valid_locations = 0x8000;
+    alt_amulet.appraised_spell_ids = vec![PROWESS];
+    save_appraised(
+        &rig.host,
+        "Alt One",
+        &[
+            (alt_ring, ItemProperties::default()),
+            (alt_amulet, ItemProperties::default()),
+        ],
+    );
+    rig.own_appraised(ring, ItemProperties::default());
+    rig.search("");
+    let strength = cantrip_index("Strength").unwrap();
+    rig.filter(InventoryFilter {
+        cantrips: vec![(strength, CantripTier::Epic)],
+        ..InventoryFilter::default()
+    });
+    assert_eq!(sorted(rig.names()), ["Alt Ring", "Test Ring"]);
+    rig.filter(InventoryFilter {
+        cantrips: vec![(strength, CantripTier::Legendary)],
+        ..InventoryFilter::default()
+    });
+    assert_eq!(rig.names(), ["Test Ring"]);
+    rig.filter(InventoryFilter {
+        slots: BTreeSet::from([Slot::Ring]),
+        ..InventoryFilter::default()
+    });
+    assert_eq!(sorted(rig.names()), ["Alt Ring", "Test Ring"]);
+    rig.filter(InventoryFilter {
+        spell_contains: "prow".to_owned(),
+        ..InventoryFilter::default()
+    });
+    assert_eq!(rig.names(), ["Alt Amulet"]);
+}
+
+#[test]
+fn each_spell_is_looked_up_once_whatever_the_rows_holding_it() {
+    let mut rig = Rig::new();
+    with_spells(&mut rig.host);
+    for n in 0..5 {
+        let mut ring = item(RING + 0x10 * n, "Ring", ObjectClass::Jewelry, PLAYER);
+        ring.appraised_spell_ids = vec![STRENGTH, PROWESS];
+        rig.own_appraised(ring, ItemProperties::default());
+    }
+    rig.search("");
+    assert_eq!(rig.host.spell_lookups, 2);
+    assert_eq!(rig.names().len(), 5);
+}
+
+#[test]
+fn items_never_appraised_left_out_by_an_appraisal_filter_are_counted() {
+    let mut rig = Rig::new();
+    rig.own(item(RING, "Plain Ring", ObjectClass::Jewelry, PLAYER));
+    rig.own(item(SWORD, "Sword", ObjectClass::MeleeWeapon, PLAYER));
+    rig.own_appraised(
+        item(GEM, "Crit Ring", ObjectClass::Jewelry, PLAYER),
+        ints(&[(374, 2)]),
+    );
+    rig.search("");
+    let mut filter = InventoryFilter::default();
+    filter.set_rating(Rating::CritDamage, Some(1));
+    rig.filter(filter.clone());
+    assert_eq!(rig.names(), ["Crit Ring"]);
+    assert_eq!(rig.search.status(), "1 item (2 not identified)");
+    // Left out by another filter first: not counted.
+    filter.item_type = ItemType::Jewelry;
+    rig.filter(filter);
+    assert_eq!(rig.search.status(), "1 item (1 not identified)");
+}
+
+#[test]
+fn the_sets_are_counted_over_the_characters_searched() {
+    let mut rig = Rig::new();
+    save_appraised(
+        &rig.host,
+        "Alt One",
+        &[(
+            item(0x100, "Alt Coat", ObjectClass::Armor, 0x50),
+            ints(&[(265, 13)]),
+        )],
+    );
+    rig.own_appraised(
+        item(RING, "Coat", ObjectClass::Armor, PLAYER),
+        ints(&[(265, 13)]),
+    );
+    rig.own_appraised(
+        item(SWORD, "Helm", ObjectClass::Armor, PLAYER),
+        ints(&[(265, 13)]),
+    );
+    rig.own_appraised(
+        item(GEM, "Robe", ObjectClass::Armor, PLAYER),
+        ints(&[(265, 14)]),
+    );
+    rig.search("");
+    let count = |id: i32, name: &str, count: usize| SetCount {
+        id,
+        name: name.to_owned(),
+        count,
+    };
+    assert_eq!(
+        rig.search.set_counts(),
+        [count(13, "Soldier's Set", 3), count(14, "Adept's Set", 1)]
+    );
+    rig.filter(InventoryFilter {
+        characters: Some(BTreeSet::from([ME.to_owned()])),
+        ..InventoryFilter::default()
+    });
+    assert_eq!(
+        rig.search.set_counts(),
+        [count(13, "Soldier's Set", 2), count(14, "Adept's Set", 1)]
+    );
+    // The counts ignore the other filters (as the website's).
+    rig.filter(InventoryFilter {
+        set: Some(14),
+        ..InventoryFilter::default()
+    });
+    assert_eq!(rig.names(), ["Robe"]);
+    assert_eq!(rig.search.set_counts().len(), 2);
+}
+
+#[test]
+fn the_characters_are_chosen_in_the_filter() {
+    let mut rig = Rig::new();
+    save(
+        &rig.host,
+        "Alt One",
+        &[item(0x100, "Alt Ring", ObjectClass::Jewelry, 0x50)],
+    );
+    rig.own(item(RING, "Test Ring", ObjectClass::Jewelry, PLAYER));
+    rig.search("");
+    assert_eq!(rig.search.character_names(), [ME, "Alt One"]);
+    rig.filter(InventoryFilter {
+        characters: Some(BTreeSet::from(["Alt One".to_owned()])),
+        ..InventoryFilter::default()
+    });
+    assert_eq!(rig.names(), ["Alt Ring"]);
+    assert_eq!(rig.search.character_filter(), "Alt One");
+    rig.filter(InventoryFilter {
+        characters: Some(BTreeSet::new()),
+        ..InventoryFilter::default()
+    });
+    assert!(rig.names().is_empty(), "none chosen: none shown");
+    rig.search.set_character_filter(ALL);
+    assert_eq!(rig.names().len(), 2);
+    assert_eq!(rig.search.filter().characters, None);
+}
+
+#[test]
+fn the_slot_wield_and_value_columns_and_their_sort_keys() {
+    let mut rig = Rig::new();
+    let mut ring = item(RING, "Test Ring", ObjectClass::Jewelry, PLAYER);
+    ring.valid_locations = 0x000C_0000;
+    rig.own_appraised(ring, ints(&[(158, 7), (159, 1), (160, 180), (19, 7_500)]));
+    rig.own(item(GEM, "Ruby", ObjectClass::Gem, PLAYER));
+    rig.search("ring");
+    assert_eq!(rig.search.row_slots(), ["Ring"]);
+    assert_eq!(rig.search.row_wields(), ["180"]);
+    assert_eq!(rig.search.row_values(), ["7,500"]);
+    assert_eq!(rig.search.row_wield_keys(), [180.0]);
+    assert_eq!(rig.search.row_value_keys(), [7_500.0]);
+    rig.search("ruby");
+    assert_eq!(rig.search.row_slots(), ["-"]);
+    assert_eq!(rig.search.row_wields(), [""]);
+    assert_eq!(rig.search.row_values(), [""]);
+    assert_eq!(rig.search.row_wield_keys(), [-1.0]);
+    assert_eq!(rig.search.row_value_keys(), [-1.0]);
+}
+
+#[test]
+fn the_filter_stays_when_the_session_ends() {
+    let mut rig = Rig::new();
+    rig.own(item(RING, "Test Ring", ObjectClass::Jewelry, PLAYER));
+    rig.search("");
+    rig.filter(jewelry());
+    rig.search.reset();
+    assert_eq!(rig.search.filter(), &jewelry());
 }

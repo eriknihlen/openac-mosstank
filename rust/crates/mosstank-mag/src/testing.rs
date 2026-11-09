@@ -48,6 +48,8 @@ pub struct FakeMagHost {
     pub owned_listings: usize,
     /// How many times an owned item's properties were read.
     pub property_reads: usize,
+    /// How many times the spell table was asked for a spell.
+    pub spell_lookups: usize,
     /// The UTC clock, Unix milliseconds.
     pub utc_ms: i64,
     /// The local time zone's offset from UTC, minutes.
@@ -85,6 +87,7 @@ impl FakeMagHost {
             identify_answers: VecDeque::new(),
             owned_listings: 0,
             property_reads: 0,
+            spell_lookups: 0,
             utc_ms: 1_762_560_000_000,
             local_offset_minutes: 0,
             storage,
@@ -258,6 +261,7 @@ impl MetaHost for FakeMagHost {
     }
 
     fn spell(&mut self, spell_id: u32) -> Option<SpellInfo> {
+        self.spell_lookups += 1;
         self.meta.spell(spell_id)
     }
 
