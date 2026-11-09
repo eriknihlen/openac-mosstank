@@ -34,5 +34,24 @@ fn every_mag_setting_is_a_global_switch_with_mag_tools_default() {
         .iter()
         .filter(|row| row.category() == "Mag")
         .count();
-    assert_eq!(mag_rows, expected.len());
+    // And the overlay's place, two numbers.
+    assert_eq!(mag_rows, expected.len() + 2);
+}
+
+#[test]
+fn the_mana_overlays_place_is_two_global_whole_numbers() {
+    use mosstank_mag::mana_overlay::DEFAULT_PLACE;
+    for (name, default) in [
+        (MANA_OVERLAY_X, DEFAULT_PLACE.0),
+        (MANA_OVERLAY_Y, DEFAULT_PLACE.1),
+    ] {
+        let row = definitions::all()
+            .iter()
+            .find(|row| row.name == name)
+            .unwrap_or_else(|| panic!("{name} is not in the catalogue"));
+        assert_eq!(row.kind, UbSettingKind::Int, "{name}");
+        assert_eq!(row.default, UbSettingValue::from_int(default), "{name}");
+        assert_eq!(row.scope, UbSettingScope::Global, "{name}");
+        assert_eq!(row.category(), "Mag", "{name}");
+    }
 }

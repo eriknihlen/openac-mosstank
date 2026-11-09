@@ -1,11 +1,14 @@
 //! The display tools' frame (`MossTankPanel.UbDisplay` and `UbDungeon`):
 //! the network labels, the countryside map, the other clients' readout,
-//! the Comps HUD and the dungeon map, each ticked and, when it asked,
-//! repainted; and `/vt compshud`.
+//! the Comps HUD, the dungeon map and the Mag tab's mana overlay, each
+//! ticked and, when it asked, repainted; and `/vt compshud`.
 
 use std::cell::RefCell;
 
 use mosstank_dotnet::text::casing;
+use mosstank_mag::mana_overlay::OverlayAction;
+use mosstank_mag::settings as mag_settings;
+use mosstank_settings::ub::UbSettingValue;
 use mosstank_ub::catalog::UbCatalog;
 use mosstank_ub::commands::split_head;
 use mosstank_ub::comps_hud::{AddRefusal, HudLayout};
@@ -111,6 +114,15 @@ impl TankCx<'_> {
             );
             submit(&client, canvas, &painter);
         }
+        let overlay = &mut self.mag.mana_overlay;
+        if let Some(canvas) = parts.canvases.take_paint_due(overlay.canvas()) {
+            let mut painter = RecordingPainter::new(&client, canvas);
+            overlay.paint(
+                &mut painter,
+                &mut PaintUi::new(&client, &mut parts.canvases),
+            );
+            submit(&client, canvas, &painter);
+        }
         if let Some(canvas) = parts.canvases.take_paint_due(parts.dungeon.canvas()) {
             let mut painter = RecordingPainter::new(&client, canvas);
             parts.dungeon.paint(
@@ -148,6 +160,29 @@ impl TankCx<'_> {
             parts
                 .dungeon
                 .on_pointer(&mut CatalogMapSettings(&mut parts.catalog), event);
+        } else if self.mag.mana_overlay.canvas() == Some(handle) {
+            // The mana overlay: a drag's place is kept, the × turns it off.
+            let action = self
+                .mag
+                .mana_overlay
+                .on_pointer(&mut parts.canvases.recorder(), event);
+            let mut set = |name: &str, value: UbSettingValue| {
+                let row = UbCatalog::require(&parts.catalog, name);
+                UbCatalog::set(&mut parts.catalog, &row, value);
+            };
+            match action {
+                Some(OverlayAction::Moved(x, y)) => {
+                    set(mag_settings::MANA_OVERLAY_X, UbSettingValue::from_int(x));
+                    set(mag_settings::MANA_OVERLAY_Y, UbSettingValue::from_int(y));
+                }
+                Some(OverlayAction::Closed) => {
+                    set(
+                        mag_settings::MANA_SHOW_OVERLAY,
+                        UbSettingValue::from_bool(false),
+                    );
+                }
+                None => {}
+            }
         }
         // The host measures the next pointer event from where the plugin last
         // put the canvas: a drag's new place goes to it now, not at the
@@ -181,6 +216,7 @@ impl TankCx<'_> {
             parts.hud.dispose(&mut ui);
             parts.comps.dispose(&mut ui);
             parts.dungeon.dispose(&mut ui);
+            self.mag.mana_overlay.dispose(&mut ui);
         }
         parts.canvases.flush(self.client);
     }

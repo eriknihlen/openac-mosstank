@@ -16,6 +16,7 @@
 //!   character the logger saved.
 //! - [`item_info`]: the one-line description of an identified item.
 //! - [`mana`]: the mana list: the worn items, their mana and time left.
+//! - [`mana_overlay`]: the mana list drawn straight on the game.
 //! - [`printer`]: the identify chat line with the loot verdict, and its
 //!   two triggers.
 //! - [`settings`]: the Mag settings' names in the UB settings catalogue.
@@ -36,6 +37,7 @@ pub mod inventory_log;
 pub mod inventory_search;
 pub mod item_info;
 pub mod mana;
+pub mod mana_overlay;
 pub mod printer;
 pub mod settings;
 #[cfg(not(target_arch = "wasm32"))]
@@ -72,8 +74,8 @@ pub struct MagParts {
     pub inventory_log: inventory_log::InventoryLogger,
     /// The mana list.
     pub mana: mana::ManaTracker,
-    /// The mana overlay window.
-    pub mana_overlay: mana::ManaOverlay,
+    /// The mana overlay drawn on the game.
+    pub mana_overlay: mana_overlay::ManaOverlay,
     /// The Inv. Items page.
     pub inv_items: inv_items::InvItemsTracker,
     /// The combat tracker.

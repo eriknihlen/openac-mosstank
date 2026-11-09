@@ -1754,6 +1754,12 @@ fn wear_gear(session: &mut Session) -> Vec<(u32, String)> {
         item.container_id = 0;
         worn.push((item.object_id, item.name.clone()));
     }
+    // Each burns a mana every 40 s.
+    for (object_id, _) in &worn {
+        let properties = automation.properties.entry(*object_id).or_default();
+        properties.floats.retain(|(id, _)| *id != 5);
+        properties.floats.push((5, -0.025));
+    }
     let mut casts = Vec::new();
     for object in &mut automation.world_objects {
         if worn.iter().any(|(id, _)| *id == object.object_id) {
@@ -1784,17 +1790,12 @@ fn wear_gear(session: &mut Session) -> Vec<(u32, String)> {
 
 /// The main window's list `name` (read through its debug form).
 fn main_list_len(session: &Session, name: &str) -> usize {
-    window_list_len(session, "main", name)
-}
-
-/// Window `window`'s list `name` (read through its debug form).
-fn window_list_len(session: &Session, window: &str, name: &str) -> usize {
     session
         .world
         .fake
         .ui
         .panels()
-        .find(|panel| panel.descriptor.window_id == window)
+        .find(|panel| panel.descriptor.window_id == "main")
         .and_then(|panel| panel.values.get(name))
         .map_or(0, |value| format!("{value:?}").matches('"').count() / 2)
 }
@@ -2001,9 +2002,10 @@ fn the_combat_page_shown_during_the_burst_fits() {
 
 /// The Mana page and its overlay on the heavy character wearing twenty
 /// pieces of gear with mana: the login (each piece tracked and asked for),
-/// the overlay drawn alone, then beside the page as the burn ticks, every
-/// piece appraised, a burst of town chat with the system lines that cue an
-/// appraisal, and a piece taken off and put back on.
+/// the overlay drawn and painted again every tick, dragged, then beside
+/// the page as the burn ticks, every piece appraised, a burst of town chat
+/// with the system lines that cue an appraisal, and a piece taken off and
+/// put back on.
 #[test]
 #[ignore = "needs the release module: scripts/check.sh runs it after the WebAssembly build"]
 fn the_mana_page_fits() {
@@ -2030,20 +2032,106 @@ fn the_mana_page_fits() {
         cases.add("mana page: tick (page hidden)", fuel);
     }
 
-    // The overlay ticked on: drawn alone, then beside the page for the
-    // rest of the run.
+    // Every piece appraised once (an unappraised one has burned all its
+    // mana and stays at 0), then the overlay ticked on: drawn alone, every
+    // tick a burn later (each row's mana changes, so each tick paints),
+    // dragged, then beside the page for the rest of the run.
+    let worn_objects: Vec<_> = session
+        .world
+        .automation()
+        .world_objects
+        .iter()
+        .filter(|object| worn.iter().any(|(id, _)| *id == object.object_id))
+        .cloned()
+        .collect();
+    for (revision, object) in worn_objects.iter().enumerate() {
+        let appraised = Event::ObjectChanged(ObjectChange {
+            object_id: object.object_id,
+            kind: ObjectChangeKind::IdentReceived,
+            revision: 5_000 + revision as i64,
+            changed_fields: ObjectChangeKind::IdentReceived.fields(),
+            current: Some(object.clone()),
+        });
+        let fuel = send(&mut plugin, &mut session, &appraised);
+        cases.add("mana page: worn item appraised", fuel);
+    }
     let overlay_on = ui_action(&session, "SetMagManaShowOverlay", ActionValue::Int(1));
     let fuel = send(&mut plugin, &mut session, &overlay_on);
     cases.add("mana overlay: ticked on", fuel);
     for _ in 0..60 {
+        session.world.fake.clock.monotonic_ms += 40_000;
         let fuel = tick(&mut plugin, &mut session);
-        cases.add("mana overlay: tick (page hidden)", fuel);
+        cases.add("mana overlay: tick (repainted)", fuel);
     }
+    let overlay = |session: &Session| {
+        session
+            .world
+            .fake
+            .ui
+            .canvases()
+            .filter(|canvas| canvas.descriptor.canvas_id == mosstank_mag::mana_overlay::CANVAS_ID)
+            .last()
+            .map(|canvas| {
+                (
+                    canvas.id,
+                    canvas.visible,
+                    canvas.descriptor.height,
+                    canvas.offset,
+                )
+            })
+            .expect("the overlay's canvas")
+    };
+    let painted = |session: &Session| {
+        session
+            .world
+            .fake
+            .ui
+            .canvases()
+            .filter(|canvas| canvas.descriptor.canvas_id == mosstank_mag::mana_overlay::CANVAS_ID)
+            .last()
+            .map(|canvas| format!("{:?}", canvas.paint))
+            .unwrap_or_default()
+    };
+    let before = painted(&session);
+    session.world.fake.clock.monotonic_ms += 40_000;
+    let fuel = tick(&mut plugin, &mut session);
+    cases.add("mana overlay: tick (repainted)", fuel);
+    assert_ne!(painted(&session), before, "a burn later, painted again");
+    let (canvas, visible, height, from) = overlay(&session);
+    assert!(visible, "the overlay is drawn");
     assert_eq!(
-        window_list_len(&session, "mana-overlay", "MagOverlayNames"),
-        WORN_MANA_ITEMS,
-        "the overlay's rows drawn"
+        height,
+        mosstank_mag::mana_overlay::height_for(WORN_MANA_ITEMS),
+        "a row per worn item"
     );
+    let press = |kind: u8, x: f32, y: f32| {
+        Event::Ui(ac_plugin_abi::ui::UiEvent::Pointer(
+            ac_plugin_abi::ui::PointerEvent {
+                canvas,
+                kind,
+                x,
+                y,
+                button: 1,
+                modifiers: 0,
+                wheel_delta: 0,
+            },
+        ))
+    };
+    use ac_plugin_abi::ui::PointerEvent as P;
+    let fuel = send(&mut plugin, &mut session, &press(P::DOWN, 40.0, 5.0));
+    cases.add("mana overlay: drag", fuel);
+    for _ in 0..20 {
+        let fuel = send(&mut plugin, &mut session, &press(P::MOVE, 43.0, 7.0));
+        cases.add("mana overlay: drag", fuel);
+    }
+    let fuel = send(&mut plugin, &mut session, &press(P::UP, 40.0, 5.0));
+    cases.add("mana overlay: drag", fuel);
+    let (_, _, _, to) = overlay(&session);
+    assert_eq!((to.0 - from.0, to.1 - from.1), (60.0, 40.0), "dragged");
+    for _ in 0..10 {
+        let fuel = tick(&mut plugin, &mut session);
+        cases.add("mana overlay: tick (repainted)", fuel);
+    }
 
     for handler in ["ShowMag", "ShowMagMana"] {
         let shown = ui_action(&session, handler, ActionValue::None);

@@ -1,4 +1,4 @@
-//! The windows' markup, read as the C# tests read it: the same sixteen files
+//! The windows' markup, read as the C# tests read it: the same fifteen files
 //! the plugin registers, checked for the layout and binding rules the C#
 //! markup contract holds them to.
 
@@ -24,7 +24,6 @@ fn markup(file: &str) -> &'static str {
         "mosstank-comps-hud.xml" => "comps-hud",
         "mosstank-inventory.xml" => "inventory",
         "mosstank-inventory-filters.xml" => "inventory-filters",
-        "mosstank-mana-overlay.xml" => "mana-overlay",
         other => panic!("no window reads {other}"),
     };
     WINDOWS
@@ -35,7 +34,7 @@ fn markup(file: &str) -> &'static str {
 }
 
 /// Every markup file, by its file name.
-const FILES: [&str; 16] = [
+const FILES: [&str; 15] = [
     "mosstank-action-history.xml",
     "mosstank-advanced.xml",
     "mosstank-buffpicker.xml",
@@ -43,7 +42,6 @@ const FILES: [&str; 16] = [
     "mosstank-inventory.xml",
     "mosstank-inventory-filters.xml",
     "mosstank-loot-editor.xml",
-    "mosstank-mana-overlay.xml",
     "mosstank-metaeditor.xml",
     "mosstank-remote.xml",
     "mosstank-ub-clients.xml",
@@ -674,7 +672,6 @@ fn secondary_windows_fit_their_own_bounds_and_every_binding_resolves() {
         ("mosstank-comps-hud.xml", 540.0, 316.0),
         ("mosstank-inventory.xml", 780.0, 480.0),
         ("mosstank-inventory-filters.xml", 460.0, 400.0),
-        ("mosstank-mana-overlay.xml", 320.0, 174.0),
     ];
     for file in FILES.iter().filter(|file| **file != "mosstank.xml") {
         let (_, width, height) = bounds
@@ -1692,23 +1689,4 @@ fn the_filters_window_opens_and_closes_and_the_inventory_refreshes() {
         .collect();
     assert_eq!(close.len(), 1);
     assert_eq!(text(close[0]), "Close");
-}
-
-// The mana overlay draws the Mana page's rows with the page's columns: the
-// same kinds and widths, measured in the client's list font there.
-#[test]
-fn the_mana_overlays_columns_are_the_mana_pages() {
-    let columns = |file: &str, first: &str| -> Vec<(String, f32)> {
-        let document = document(file);
-        let list = descendants_named(document.root_element(), "list")
-            .find(|list| named(*list, "column").any(|c| attr(c, "values") == Some(first)))
-            .unwrap();
-        named(list, "column")
-            .map(|c| (attr(c, "type").unwrap_or("").to_owned(), number(c, "width")))
-            .collect()
-    };
-    assert_eq!(
-        columns("mosstank-mana-overlay.xml", "{MagOverlayIcons}"),
-        columns("mosstank.xml", "{MagManaIcons}")
-    );
 }

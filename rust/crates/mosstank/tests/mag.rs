@@ -1269,79 +1269,120 @@ fn disabling_the_plugin_after_logging_off_writes_nothing_again() {
     assert_eq!(world.plugin_data.get(stats_key), Some("kept"));
 }
 
-/// The mana overlay window as the client holds it: (registered to start
-/// hidden, on the dock, asked to show).
-fn overlay(world: &World) -> (bool, bool, bool) {
+/// The mana overlay's canvas as the client holds it: id, shown, size,
+/// place, and the texts last painted.
+type OverlayCanvas = (u32, bool, (i32, i32), (f32, f32), Vec<String>);
+
+/// The mana overlay's canvas, the last registered.
+fn overlay(world: &World) -> Option<OverlayCanvas> {
     world
         .fake
         .ui
-        .panels()
-        .find(|panel| panel.descriptor.window_id == "mana-overlay")
-        .map(|panel| {
+        .canvases()
+        .filter(|canvas| canvas.descriptor.canvas_id == mosstank_mag::mana_overlay::CANVAS_ID)
+        .last()
+        .map(|canvas| {
+            let texts = canvas
+                .paint
+                .iter()
+                .filter_map(|command| {
+                    // The client's own command, read through its debug form.
+                    let debug = format!("{command:?}");
+                    let rest = debug.strip_prefix("Text { text: \"")?;
+                    rest.split_once("\", ").map(|(text, _)| text.to_owned())
+                })
+                .collect();
             (
-                panel.descriptor.start_visible,
-                panel.descriptor.show_in_side_panel,
-                panel.requested_visible,
+                canvas.id,
+                canvas.visible,
+                (canvas.descriptor.width, canvas.descriptor.height),
+                canvas.offset,
+                texts,
             )
         })
-        .expect("the mana overlay registers")
+}
+
+fn pointer(world: &mut World, plugin: &mut mosstank::MossTank, kind: u8, at: (f32, f32)) {
+    use ac_plugin_abi::ui::{PointerEvent, UiEvent};
+    let (canvas, ..) = overlay(world).expect("the overlay's canvas");
+    let button = if kind == PointerEvent::HOVER { 0 } else { 1 };
+    world.send(
+        plugin,
+        ac_plugin_abi::Event::Ui(UiEvent::Pointer(PointerEvent {
+            canvas,
+            kind,
+            x: at.0,
+            y: at.1,
+            button,
+            modifiers: 0,
+            wheel_delta: 0,
+        })),
+    );
+}
+
+fn overlay_setting(world: &mut World, plugin: &mut mosstank::MossTank) -> bool {
+    world.ui_bool(plugin, "MagManaShowOverlay")
 }
 
 #[test]
-fn the_mana_overlay_follows_its_setting_its_close_button_and_the_relog() {
+fn the_mana_overlay_is_drawn_on_the_game_dragged_closed_and_back_after_a_relog() {
+    use ac_plugin_abi::ui::PointerEvent;
+    use mosstank_mag::mana_overlay::{CLOSE_BOX, DEFAULT_PLACE, WIDTH, height_for};
     let (mut world, mut plugin) = wearing_a_test_ring();
-    // Off by default: registered hidden, off the dock.
     world.tick(&mut plugin);
-    assert_eq!(overlay(&world), (false, false, false));
-    assert!(!world.ui_bool(&mut plugin, "MagManaShowOverlay"));
+    // Off by default: nothing drawn.
+    assert!(overlay(&world).is_none_or(|(_, shown, ..)| !shown));
+    assert!(!overlay_setting(&mut world, &mut plugin));
 
-    // Ticked on the Mana page: shown, with the page's rows.
+    // Ticked on the Mana page: drawn at its place, one row tall, the
+    // page's texts.
     world.act_int(&mut plugin, "SetMagManaShowOverlay", 1);
-    assert!(overlay(&world).2);
-    world.tick(&mut plugin);
-    assert!(world.ui_bool(&mut plugin, "MagOverlayShown"));
-    assert_eq!(world.ui_uints(&mut plugin, "MagOverlayIcons"), [TEST_RING]);
-    assert_eq!(world.ui_list(&mut plugin, "MagOverlayNames"), ["Test Ring"]);
-    assert_eq!(
-        world.ui_uints(&mut plugin, "MagOverlayStates"),
-        [mosstank_mag::mana::ICON_ACTIVE]
-    );
-    assert_eq!(
-        world.ui_list(&mut plugin, "MagOverlayAmounts"),
-        ["100 / 200"]
-    );
-    assert_eq!(world.ui_list(&mut plugin, "MagOverlayTimes"), ["1h06m"]);
+    world.ticks(&mut plugin, 2);
+    #[allow(clippy::cast_precision_loss)]
+    let start = (DEFAULT_PLACE.0 as f32, DEFAULT_PLACE.1 as f32);
+    let (_, shown, size, place, texts) = overlay(&world).expect("drawn");
+    assert!(shown);
+    assert_eq!(size, (WIDTH, height_for(1)));
+    assert_eq!(place, start);
+    assert_eq!(texts, ["Test Ring", "100 / 200", "1h06m"]);
     // The burn reaches it without the Mana page shown.
     world.fake.clock.monotonic_ms = 41_000;
+    world.ticks(&mut plugin, 2);
+    assert_eq!(overlay(&world).unwrap().4[1], "99 / 200");
+
+    // Dragged 30 px right and 20 down: moved, and its place kept.
+    pointer(&mut world, &mut plugin, PointerEvent::DOWN, (40.0, 5.0));
+    pointer(&mut world, &mut plugin, PointerEvent::MOVE, (70.0, 25.0));
+    pointer(&mut world, &mut plugin, PointerEvent::UP, (40.0, 5.0));
     world.tick(&mut plugin);
-    assert_eq!(
-        world.ui_list(&mut plugin, "MagOverlayAmounts"),
-        ["99 / 200"]
+    let moved = (start.0 + 30.0, start.1 + 20.0);
+    assert_eq!(overlay(&world).unwrap().3, moved);
+
+    // The × shows with the pointer over it; clicked, the overlay goes and
+    // the setting is off.
+    pointer(&mut world, &mut plugin, PointerEvent::HOVER, (40.0, 5.0));
+    world.ticks(&mut plugin, 2);
+    let close = (
+        (CLOSE_BOX.0 + CLOSE_BOX.2 / 2.0) as f32,
+        (CLOSE_BOX.1 + CLOSE_BOX.3 / 2.0) as f32,
     );
+    pointer(&mut world, &mut plugin, PointerEvent::DOWN, close);
+    pointer(&mut world, &mut plugin, PointerEvent::UP, close);
+    world.ticks(&mut plugin, 2);
+    assert!(!overlay_setting(&mut world, &mut plugin));
+    assert!(!overlay(&world).unwrap().1, "hidden");
 
-    // Closed from its title bar: the setting goes off.
-    world
-        .fake
-        .ui
-        .show_panel("acdream.mosstank", "mana-overlay", false);
-    world.tick(&mut plugin);
-    assert!(!world.ui_bool(&mut plugin, "MagManaShowOverlay"));
-    world.ticks(&mut plugin, 3);
-    assert!(!overlay(&world).2);
-
-    // On again; the character logs off and back in: shown again.
+    // On again; the character logs off and back in: drawn again where it
+    // was dragged to.
     world.act_int(&mut plugin, "SetMagManaShowOverlay", 1);
-    world.tick(&mut plugin);
-    assert!(overlay(&world).2);
+    world.ticks(&mut plugin, 2);
+    assert!(overlay(&world).unwrap().1);
     let character = world.fake.character.take();
     world.tick(&mut plugin);
-    assert!(!overlay(&world).2, "hidden out of the world");
+    assert!(!overlay(&world).unwrap().1, "hidden out of the world");
     world.fake.character = character;
-    world.tick(&mut plugin);
-    assert!(overlay(&world).2, "shown again after the relog");
-    assert!(world.ui_bool(&mut plugin, "MagManaShowOverlay"));
-
-    // Unticked: hidden.
-    world.act_int(&mut plugin, "SetMagManaShowOverlay", 0);
-    assert!(!overlay(&world).2);
+    world.ticks(&mut plugin, 2);
+    let (_, shown, _, place, _) = overlay(&world).unwrap();
+    assert!(shown, "drawn again after the relog");
+    assert_eq!(place, moved);
 }

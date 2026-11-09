@@ -883,7 +883,7 @@
       <checkbox x="336" y="2" w="160" h="18" text="Show mana overlay"
                 checked="{MagManaShowOverlay}" onchange="{SetMagManaShowOverlay}"
                 color="theme:text|#FFE8DEC3"
-                tooltip="These rows in a small window of their own over the game; drag it by its title, close it to untick this." />
+                tooltip="These rows drawn on the game. Drag them anywhere; the × at their top right, shown with the pointer over them, unticks this." />
     </group>
     <!-- Inv. Items: Mag-Tools' InventoryTrackerList (its six columns at
          their widths, but four widened for the client's font: name 100

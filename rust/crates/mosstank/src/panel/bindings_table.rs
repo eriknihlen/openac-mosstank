@@ -957,17 +957,6 @@ pub(super) fn of(window_id: &str) -> Option<&'static [(&'static str, K)]> {
             ("SelectAllMagFilterCharacters", K::Action),
             ("SelectNoMagFilterCharacters", K::Action),
         ],
-        "mana-overlay" => &[
-            ("WindowAvailable", K::Bool),
-            ("MagOverlayShown", K::Bool),
-            ("SelectedMagOverlayRow", K::Int),
-            ("SelectMagOverlayRow", K::IntAction),
-            ("MagOverlayIcons", K::UintList),
-            ("MagOverlayNames", K::TextList),
-            ("MagOverlayStates", K::UintList),
-            ("MagOverlayAmounts", K::TextList),
-            ("MagOverlayTimes", K::TextList),
-        ],
         _ => return None,
     })
 }

@@ -167,7 +167,6 @@ fn the_plugin_embeds_no_other_programs_files() {
             "mosstank-inventory-filters.xml",
             "mosstank-inventory.xml",
             "mosstank-loot-editor.xml",
-            "mosstank-mana-overlay.xml",
             "mosstank-metaeditor.xml",
             "mosstank-remote.xml",
             "mosstank-ub-clients.xml",

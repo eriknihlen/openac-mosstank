@@ -947,7 +947,7 @@ fn add_mag(rows: &mut Vec<UbSettingDefinition>) {
             "Inventory Logger Enabled.",
             true,
         ),
-        // Not Mag-Tools': the Mana page's rows in a window of their own.
+        // Not Mag-Tools': the Mana page's rows drawn on the game.
         (
             "Mag.ManaManagement.ShowOverlay",
             "Show the mana overlay.",
@@ -955,6 +955,22 @@ fn add_mag(rows: &mut Vec<UbSettingDefinition>) {
         ),
     ] {
         rows.push(switch_in(name, summary, value, UbSettingScope::Global));
+    }
+    // The overlay's place, kept when it is dragged (mosstank-mag's
+    // `mana_overlay::DEFAULT_PLACE` until then).
+    for (name, summary, value) in [
+        (
+            "Mag.ManaManagement.OverlayX",
+            "Where the mana overlay stands, pixels from the screen's left.",
+            420,
+        ),
+        (
+            "Mag.ManaManagement.OverlayY",
+            "Where the mana overlay stands, pixels from the screen's top.",
+            150,
+        ),
+    ] {
+        rows.push(whole_in(name, summary, value, UbSettingScope::Global));
     }
 }
 

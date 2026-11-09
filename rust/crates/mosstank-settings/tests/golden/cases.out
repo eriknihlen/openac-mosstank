@@ -1568,6 +1568,8 @@ Mag.CombatTracker.ExportOnLogOff|Bool|Global|Mag|"False"|"False"|"Mag.CombatTrac
 Mag.CombatTracker.SortAlphabetically|Bool|Global|Mag|"False"|"False"|"Mag.CombatTracker.SortAlphabetically (Profile) = False"|"Sort Alphabetically."|
 Mag.InventoryManagement.InventoryLogger|Bool|Global|Mag|"True"|"True"|"Mag.InventoryManagement.InventoryLogger (Profile) = True"|"Inventory Logger Enabled."|
 Mag.ManaManagement.ShowOverlay|Bool|Global|Mag|"False"|"False"|"Mag.ManaManagement.ShowOverlay (Profile) = False"|"Show the mana overlay."|
+Mag.ManaManagement.OverlayX|Int|Global|Mag|"420"|"420"|"Mag.ManaManagement.OverlayX (Profile) = 420"|"Where the mana overlay stands, pixels from the screen's left."|
+Mag.ManaManagement.OverlayY|Int|Global|Mag|"150"|"150"|"Mag.ManaManagement.OverlayY (Profile) = 150"|"Where the mana overlay stands, pixels from the screen's top."|
 VTank.PatchExpressionEngine|Bool|Profile|VTank|"True"|"True"|"VTank.PatchExpressionEngine (Profile) = True"|"The extended expression functions; always on here."|
 InventoryManager.TreatStackAsSingleItem|Bool|Profile|InventoryManager|"False"|"False"|"InventoryManager.TreatStackAsSingleItem (Profile) = False"|"Count a stack as one item when handing over; always off here."|
 Plugin.SettingsProfile|String|Character|Plugin|"default"|"default"|"Plugin.SettingsProfile (State) = default"|"The named settings profile this character has open."|

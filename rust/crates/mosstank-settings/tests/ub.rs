@@ -199,7 +199,7 @@ fn every_row_is_written_to_the_tier_its_scope_declares_and_to_no_other() {
             .filter(|r| r.scope() == scope)
             .count()
     };
-    assert_eq!(count(UbSettingScope::Global), 14);
+    assert_eq!(count(UbSettingScope::Global), 16);
     assert_eq!(count(UbSettingScope::Profile), 166);
     assert_eq!(count(UbSettingScope::Character), 10);
 }
@@ -394,7 +394,7 @@ fn categories_come_back_in_order_with_their_rows() {
     let catalog = catalog();
     assert_eq!(catalog.categories().len(), 17);
     assert_eq!(catalog.categories()[0], "Aliases");
-    assert_eq!(catalog.settings().len(), 190);
+    assert_eq!(catalog.settings().len(), 192);
 }
 
 // Source: tests/AcDream.Plugins.MossTank.Tests/UbSettingValueTests.cs :: EachShapeKeepsItsOwnKindAndPayload
@@ -809,7 +809,7 @@ const EXCLUDED: [(&str, &str); 23] = [
     ),
 ];
 
-const ADDED_HERE: [(&str, &str); 12] = [
+const ADDED_HERE: [(&str, &str); 14] = [
     (
         "Networking.ReceiveCommands",
         "Per-character local command reception, enabled by default.",
@@ -857,7 +857,15 @@ const ADDED_HERE: [(&str, &str); 12] = [
     ),
     (
         "Mag.ManaManagement.ShowOverlay",
-        "The mana overlay window, the Mana page's rows over the game; MossTank's own, Mag-Tools has none.",
+        "The mana overlay, the Mana page's rows drawn on the game; MossTank's own, Mag-Tools has none.",
+    ),
+    (
+        "Mag.ManaManagement.OverlayX",
+        "Where the mana overlay was dragged to, across; MossTank's own.",
+    ),
+    (
+        "Mag.ManaManagement.OverlayY",
+        "Where the mana overlay was dragged to, down; MossTank's own.",
     ),
 ];
 
@@ -942,6 +950,8 @@ const FLAT_DEFAULTS: &[(&str, &str)] = &[
     ("Mag.CombatTracker.SortAlphabetically", "False"),
     ("Mag.InventoryManagement.InventoryLogger", "True"),
     ("Mag.ManaManagement.ShowOverlay", "False"),
+    ("Mag.ManaManagement.OverlayX", "420"),
+    ("Mag.ManaManagement.OverlayY", "150"),
 ];
 
 const NAMETAG_DEFAULTS: [(&str, &str); 7] = [

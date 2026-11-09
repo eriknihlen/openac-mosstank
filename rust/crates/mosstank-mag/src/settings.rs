@@ -17,6 +17,11 @@ pub const COMBAT_SORT_ALPHA: &str = "Mag.CombatTracker.SortAlphabetically";
 /// Log the inventory to a file (default on; Mag-Tools: off, but the
 /// inventory search reads the files).
 pub const INVENTORY_LOGGER: &str = "Mag.InventoryManagement.InventoryLogger";
-/// Show the mana overlay window (default off; not Mag-Tools': its own
-/// window over the game with the Mana page's rows).
+/// Show the mana overlay (default off; not Mag-Tools': the Mana page's
+/// rows drawn on the game).
 pub const MANA_SHOW_OVERLAY: &str = "Mag.ManaManagement.ShowOverlay";
+/// Where the mana overlay stands, pixels from the screen's left (kept when
+/// it is dragged).
+pub const MANA_OVERLAY_X: &str = "Mag.ManaManagement.OverlayX";
+/// Where the mana overlay stands, pixels from the screen's top.
+pub const MANA_OVERLAY_Y: &str = "Mag.ManaManagement.OverlayY";

@@ -12,6 +12,7 @@ ac-plugin-abi.workspace = true
 mosstank-dotnet.workspace = true
 mosstank-meta.workspace = true
 mosstank-stores.workspace = true
+mosstank-ub.workspace = true
 openac-plugin-compat.workspace = true
 roxmltree.workspace = true
 

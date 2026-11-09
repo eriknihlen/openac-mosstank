@@ -817,6 +817,7 @@ dependencies = [
  "mosstank",
  "mosstank-data",
  "mosstank-formats",
+ "mosstank-mag",
  "mosstank-stores",
  "openac-plugin",
  "wasmtime",
@@ -847,6 +848,7 @@ dependencies = [
  "mosstank-meta",
  "mosstank-settings",
  "mosstank-stores",
+ "mosstank-ub",
  "openac-plugin-compat",
  "roxmltree",
 ]
