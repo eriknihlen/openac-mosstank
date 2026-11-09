@@ -859,6 +859,61 @@ mod logger {
     }
 
     #[test]
+    fn a_change_heard_just_before_logoff_is_in_the_log() {
+        let mut rig = Rig::new();
+        let ring = item(0x8000_0101, "Ring", ObjectClass::Jewelry, PLAYER);
+        rig.own(ring.clone(), true, ItemProperties::default());
+        rig.own_things(3);
+        rig.login();
+        rig.tick();
+        // The ring goes into a side pack and a pyreal is given away, in the
+        // tick of the logoff.
+        rig.host.meta.owned_items[0].container_id = SIDE_PACK;
+        rig.change(
+            ObjectChangeKind::Moved,
+            Some(object(&ring, true)),
+            ring.object_id,
+        );
+        let gone = rig.host.meta.owned_items.remove(1).object_id;
+        rig.change(ObjectChangeKind::Released, None, gone);
+        let writes = rig.writes();
+        rig.logoff();
+        assert_eq!(rig.writes(), writes + 1, "written once");
+        let saved = rig.saved();
+        assert_eq!(saved.len(), 3);
+        assert_eq!(saved[0].container_id, SIDE_PACK);
+        assert!(saved.iter().all(|r| r.id != gone));
+    }
+
+    #[test]
+    fn more_changes_than_the_logoff_records_are_left_and_said() {
+        use mosstank_mag::inventory_log::LOGOFF_ITEMS;
+        let mut rig = Rig::new();
+        let count = u32::try_from(LOGOFF_ITEMS).unwrap() + 5;
+        rig.own_things(count);
+        rig.login();
+        rig.ticks(LOGOFF_ITEMS / 100 + 2);
+        assert!(rig.logger.is_built());
+        for at in 0..rig.host.meta.owned_items.len() {
+            rig.host.meta.owned_items[at].container_id = SIDE_PACK;
+            let id = rig.host.meta.owned_items[at].object_id;
+            let seen = object(&rig.host.meta.owned_items[at].clone(), false);
+            rig.change(ObjectChangeKind::Moved, Some(seen), id);
+        }
+        rig.logoff();
+        let saved = rig.saved();
+        let moved = saved.iter().filter(|r| r.container_id == SIDE_PACK).count();
+        assert_eq!(moved, LOGOFF_ITEMS);
+        let warned = rig.host.meta.logged(ac_plugin_abi::LogLevel::Warn);
+        assert!(
+            warned
+                .iter()
+                .any(|text| text.contains("without 5 items changed")),
+            "{warned:?}"
+        );
+    }
+
+    #[test]
     fn the_kept_list_follows_moves_and_losses() {
         let mut rig = Rig::new();
         let ring = item(0x8000_0101, "Ring", ObjectClass::Jewelry, PLAYER);

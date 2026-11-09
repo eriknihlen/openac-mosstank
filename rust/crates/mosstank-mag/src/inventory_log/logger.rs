@@ -13,7 +13,7 @@
 //!   asked for once.
 //! - The kept list follows the inventory through the session (the items
 //!   changed are recorded again, a tick's worth at a time), so logging off
-//!   only writes it: one write, nothing read.
+//!   records again only the last ones changed, then writes it once.
 //!
 //! A log of an unknown version is left as it is: nothing is written over it.
 //!
@@ -40,6 +40,11 @@ use crate::identify::IdentifyQueue;
 
 /// Items recorded a tick.
 pub const ITEMS_PER_TICK: usize = 100;
+
+/// The items changed since they were recorded that the logoff records
+/// again before its write: a tick's batch (a whole heavy inventory is
+/// several times what the call may run; the rest is left, and said).
+pub const LOGOFF_ITEMS: usize = ITEMS_PER_TICK;
 
 /// The last save's items read a tick.
 pub const READ_ITEMS_PER_TICK: usize = 100;
@@ -263,16 +268,34 @@ impl InventoryLogger {
         }
     }
 
-    /// Logging off: the kept list is written, once, nothing read again.
+    /// Logging off: the items changed since they were recorded are recorded
+    /// again (up to [`LOGOFF_ITEMS`]), then the kept list is written, once.
     /// A list not yet whole is not written (the last save stays).
     pub fn on_logoff(&mut self, host: &mut dyn MagHost, enabled: bool) {
         if !enabled || !self.logged_in {
             return;
         }
         self.logged_in = false;
-        if self.is_built() {
-            self.save(host);
+        if !self.is_built() {
+            return;
         }
+        // The write follows here, so the recording does not write too.
+        let waiting = std::mem::take(&mut self.waiting);
+        self.refresh(host, LOGOFF_ITEMS);
+        if waiting && self.awaiting.is_empty() && self.first_run {
+            post(host, FIRST_RUN_DONE);
+        }
+        if !self.dirty.is_empty() {
+            host.log(
+                LogLevel::Warn,
+                &format!(
+                    "The inventory log {} was written without {} items changed just before the logoff.",
+                    self.key,
+                    self.dirty.len()
+                ),
+            );
+        }
+        self.save(host);
     }
 
     /// The whole inventory is listed: the character, its log's key, and the

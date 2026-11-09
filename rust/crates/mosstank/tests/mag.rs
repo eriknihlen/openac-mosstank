@@ -970,6 +970,24 @@ fn disabling_the_plugin_in_the_world_writes_what_logging_off_writes() {
     let stats_key = "Mag-Tools/Coldeve/Mag.CombatTracker.xml";
     assert!(world.plugin_data.get(stats_key).is_none());
 
+    // The ring goes into a side pack in the tick the plugin stops.
+    let mut moved = item(0x5000_0002, "Ring", 0x8);
+    moved.container_id = 0x8000_0900;
+    world.own_items(vec![moved]);
+    world.send(
+        &mut plugin,
+        ac_plugin_abi::Event::ObjectChanged(ac_plugin_abi::world::ObjectChange {
+            object_id: 0x5000_0002,
+            kind: ac_plugin_abi::world::ObjectChangeKind::Moved,
+            revision: 3,
+            changed_fields: 0,
+            current: Some(ac_plugin_abi::world::WorldObject {
+                object_id: 0x5000_0002,
+                is_owned: true,
+                ..ac_plugin_abi::world::WorldObject::default()
+            }),
+        }),
+    );
     world.fake.clock.utc_unix_ms += 1000;
     world.disable(&mut plugin);
     let relogged = world.plugin_data.get(log_key).expect("the log").to_owned();
@@ -977,6 +995,7 @@ fn disabling_the_plugin_in_the_world_writes_what_logging_off_writes() {
     let (after, records) = mosstank_mag::inventory_log::read(&relogged).expect("it reads");
     assert_eq!(after.saved_unix_ms, before.saved_unix_ms + 1000);
     assert_eq!(records.len(), 1);
+    assert_eq!(records[0].container_id, 0x8000_0900, "the move recorded");
     let stats = world.plugin_data.get(stats_key).expect("the stats");
     assert!(stats.contains("KillingBlows=\"2\""), "{stats}");
     let exports = world

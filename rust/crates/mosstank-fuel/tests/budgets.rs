@@ -1249,8 +1249,13 @@ fn the_inventory_log_fits() {
             written.is_some() && written != before,
             "{round}: no log written"
         );
+        if round == "with the last log" {
+            // Every item changed in the tick of the logoff: all recorded
+            // again before the write.
+            every_owned_item_moved(&mut plugin, &mut session, &mut cases, "inventory log");
+        }
         let logoff = send(&mut plugin, &mut session, &Event::Logoff);
-        cases.add("inventory log: logoff", logoff);
+        cases.add(&format!("inventory log: logoff ({round})"), logoff);
         plugin.disable(&mut session).expect("disable");
     }
     let log = session.world.plugin_data.get(key).expect("the log");
@@ -1266,6 +1271,34 @@ fn the_inventory_log_fits() {
     assert_within_margin(&cases, &report);
 }
 
+/// Every owned item moves (a pack sorted), each change its own event,
+/// with no tick between: the inventory log has them all to record again.
+fn every_owned_item_moved(
+    plugin: &mut Plugin,
+    session: &mut Session,
+    cases: &mut Cases,
+    case: &str,
+) {
+    let owned: Vec<_> = session
+        .world
+        .automation()
+        .world_objects
+        .iter()
+        .filter(|object| object.is_owned)
+        .cloned()
+        .collect();
+    for (revision, object) in owned.iter().enumerate() {
+        let moved = Event::ObjectChanged(ObjectChange {
+            object_id: object.object_id,
+            kind: ObjectChangeKind::Moved,
+            revision: 50_000 + revision as i64,
+            changed_fields: ObjectChangeKind::Moved.fields(),
+            current: Some(object.clone()),
+        });
+        let fuel = send(plugin, session, &moved);
+        cases.add(&format!("{case}: item moved"), fuel);
+    }
+}
 /// The text the Inventory window shows in its binding `name` (the client's
 /// own value type, read through its debug form: `Text("...")`).
 fn inventory_text(session: &Session, name: &str) -> String {
@@ -2766,6 +2799,7 @@ fn the_heavy_login_with_every_mag_feature_fits() {
         }
     }
     let inv_items_rows = main_list_len(&session, "MagInvItemsNames");
+    every_owned_item_moved(&mut plugin, &mut session, &mut cases, "all");
     let disabled = plugin.disable(&mut session).expect("disable");
     cases.add("all: disabled in the world", disabled);
     let written_log = session.world.plugin_data.get(&log_key).unwrap_or_default();
