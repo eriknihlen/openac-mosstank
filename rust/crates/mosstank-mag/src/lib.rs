@@ -31,6 +31,7 @@ pub mod fmt;
 pub mod host;
 pub mod identify;
 pub mod inv_items;
+pub mod inventory_filter;
 pub mod inventory_log;
 pub mod inventory_search;
 pub mod item_info;
