@@ -209,6 +209,9 @@ pub struct CombatController {
     pass_components: HashMap<u32, bool>,
     pass_invalid_targets: HashSet<u32>,
     plan_kept_the_monster_in_play: bool,
+    /// The spell is being chosen ahead of wielding: warnings wait for the
+    /// real choice.
+    planning_ahead: bool,
     pass_cleared_actions: HashMap<u32, MonsterActionFlags>,
     pass_candidates: HashMap<u32, Option<CombatTargetCandidate>>,
     pass_candidate_range: f64,
@@ -349,6 +352,7 @@ impl CombatController {
             pass_components: HashMap::new(),
             pass_invalid_targets: HashSet::new(),
             plan_kept_the_monster_in_play: false,
+            planning_ahead: false,
             pass_cleared_actions: HashMap::new(),
             pass_candidates: HashMap::new(),
             pass_candidate_range: f64::NAN,
@@ -653,6 +657,14 @@ impl CombatController {
     }
 
     fn post_attack_warning(&mut self, automation: &mut dyn Automation, text: &str) {
+        if !self.planning_ahead {
+            self.post_warning_about_the_client(automation, text);
+        }
+    }
+
+    /// A warning that holds whichever spell is chosen: it is said even while
+    /// the choice is only being looked ahead at.
+    fn post_warning_about_the_client(&mut self, automation: &mut dyn Automation, text: &str) {
         if !self.posted_attack_warnings.insert(text.to_owned()) {
             return;
         }
@@ -1104,6 +1116,10 @@ impl CombatController {
         }
 
         if self.planned_launcher_cannot_reach(cx) {
+            return AttackPassOutcome::Retry;
+        }
+
+        if self.planned_spell_cannot_reach(cx) {
             return AttackPassOutcome::Retry;
         }
 

@@ -5,7 +5,7 @@
 use std::cell::RefCell;
 use std::collections::HashMap;
 
-use ac_plugin_abi::combat::AttackHeight;
+use ac_plugin_abi::combat::{AttackHeight, CombatMode};
 use ac_plugin_abi::magic::{CastGate, SpellInfo};
 use ac_plugin_abi::projectile::{ProjectilePathQuery, ProjectilePathResult, ProjectilePathStatus};
 use ac_plugin_abi::world::ProjectilePathKind;
@@ -22,6 +22,7 @@ use mosstank_settings::monster::MonsterActionFlags;
 use super::swing::projectile_status;
 use super::{AttackPassOutcome, CombatController, Ctx, element_name};
 use crate::MacroLogChannel;
+use crate::gate::CombatModeGate;
 
 const NO_USABLE_ATTACK_SPELL: &str = "No usable attack spell";
 
@@ -95,6 +96,15 @@ fn can_cast_hunt_spell(automation: &mut dyn Automation, spell: &SpellInfo, exces
         return true;
     };
     i64::from(skill.current) >= i64::from(spell.difficulty) + i64::from(excess)
+}
+
+/// What a wand attack will do, settled before the wand is wielded.
+#[derive(Debug, Clone)]
+enum MagicPlan {
+    /// A spell at the monster, or a ring.
+    Spell(AttackSpellChoice),
+    /// Tusker Fists, which also turns the character.
+    Fists(AttackSpellChoice),
 }
 
 impl CombatController {
@@ -187,11 +197,85 @@ impl CombatController {
         self.attack_spell_snapshot = Some(attacks);
     }
 
+    /// Whether cover leaves the planned wand nothing to cast at this monster,
+    /// asked before the wand is wielded: monsters behind cover must not trade
+    /// the character's hands between their wands. Only a blocked flight
+    /// stops the wielding, and this look leaves nothing else behind: the plan
+    /// is made again, for real, with the wand in hand.
+    pub(super) fn planned_spell_cannot_reach(&mut self, cx: &mut Ctx<'_>) -> bool {
+        if !self.attack_will_be_magic(cx) {
+            return false;
+        }
+        self.planning_ahead = true;
+        let plan = self.plan_magic_attack(cx);
+        self.planning_ahead = false;
+        let target = self.target_id;
+        let blocked = self
+            .pass_clearance
+            .iter()
+            .any(|((id, _), result)| *id == target && result.status != ProjectilePathStatus::Clear);
+        if plan.is_some() || !blocked {
+            self.cannot_attack_reason = None;
+            self.pass_invalid_targets.remove(&target);
+            return false;
+        }
+        true
+    }
+
+    /// Whether this attack will be cast, asked before anything is wielded;
+    /// an attack or cast already under way is left to run its course.
+    fn attack_will_be_magic(&mut self, cx: &mut Ctx<'_>) -> bool {
+        let combat = cx.automation.combat_snapshot();
+        if combat.request_in_progress
+            || combat.server_response_pending
+            || combat.repeat_attack_in_progress
+            || cx.automation.is_casting()
+            || self.planned_weapon_search_found_nothing
+        {
+            return false;
+        }
+        if self.planned_weapon == 0 || !cx.automation.equipment_available() {
+            return true;
+        }
+        let equipment = self.pass_equipment(cx.automation);
+        equipment
+            .iter()
+            .find(|item| item.object_id == self.planned_weapon)
+            .is_none_or(|item| CombatModeGate::mode_for(item) == CombatMode::Magic)
+    }
+
     pub(super) fn tick_magic(&mut self, cx: &mut Ctx<'_>) -> AttackPassOutcome {
         if cx.automation.is_casting() {
             self.set_status(format!("Casting at {}", self.target_name));
             return AttackPassOutcome::Claimed;
         }
+        match self.plan_magic_attack(cx) {
+            Some(plan) => self.execute_magic_plan(cx, &plan),
+            None => AttackPassOutcome::Retry,
+        }
+    }
+
+    /// Casts what was planned, with the wand now in hand.
+    fn execute_magic_plan(&mut self, cx: &mut Ctx<'_>, plan: &MagicPlan) -> AttackPassOutcome {
+        let target = self.find_target(self.target_id);
+        let choice = match plan {
+            MagicPlan::Spell(choice) => choice,
+            MagicPlan::Fists(choice) => {
+                // Fists turns whatever the turning option says.
+                if !self.face_for_fists(cx.automation, self.target_id) {
+                    return AttackPassOutcome::Claimed;
+                }
+                choice
+            }
+        };
+        self.cast_attack_spell(cx, choice, &target);
+        AttackPassOutcome::Claimed
+    }
+
+    /// Chooses the spell for this monster and tests its flight, before the
+    /// wand is wielded: monsters behind cover must not trade the character's
+    /// hands between their wands. `None` when nothing can be cast at it.
+    fn plan_magic_attack(&mut self, cx: &mut Ctx<'_>) -> Option<MagicPlan> {
         self.refresh_spell_catalogs(cx.automation);
         self.plan_kept_the_monster_in_play = false;
         let target = self.find_target(self.target_id);
@@ -213,24 +297,15 @@ impl CombatController {
                     if !clear {
                         self.set_status(projectile_status(&path, &self.target_name));
                         self.invalidate_for_pass(self.target_id);
-                        return AttackPassOutcome::Retry;
+                        return None;
                     }
                 }
-                // Fists turns whatever the turning option says.
-                if !self.face_for_fists(cx.automation, self.target_id) {
-                    return AttackPassOutcome::Claimed;
-                }
-                self.cast_attack_spell(
-                    cx,
-                    &AttackSpellChoice {
-                        spell: fists,
-                        kind: VtankCombatSpellType::War,
-                        damage_type: MonsterDamageType::Fists,
-                        cast_without_target: false,
-                    },
-                    &target,
-                );
-                return AttackPassOutcome::Claimed;
+                return Some(MagicPlan::Fists(AttackSpellChoice {
+                    spell: fists,
+                    kind: VtankCombatSpellType::War,
+                    damage_type: MonsterDamageType::Fists,
+                    cast_without_target: false,
+                }));
             }
         }
 
@@ -275,7 +350,7 @@ impl CombatController {
                 self.cannot_attack_reason =
                     Some("no attack is configured for it on the Monsters tab".to_owned());
                 self.invalidate_for_pass(self.target_id);
-                return AttackPassOutcome::Retry;
+                return None;
             }
             if element == MonsterDamageType::DrainAuto {
                 plan = self.plan_drain(cx, &target, false);
@@ -307,7 +382,7 @@ impl CombatController {
             if !self.plan_kept_the_monster_in_play || !flag3 {
                 self.invalidate_for_pass(self.target_id);
             }
-            return AttackPassOutcome::Retry;
+            return None;
         };
 
         // A streak flies the way a bolt does, so it is tested the same way.
@@ -325,12 +400,11 @@ impl CombatController {
                     off |= MonsterActionFlags::ATTACK;
                 }
                 self.clear_actions_for_pass(self.target_id, off);
-                return AttackPassOutcome::Retry;
+                return None;
             }
         }
 
-        self.cast_attack_spell(cx, &chosen, &target);
-        AttackPassOutcome::Claimed
+        Some(MagicPlan::Spell(chosen))
     }
 
     fn plan_rolled_war(&self, element: MonsterDamageType) -> Option<AttackSpellChoice> {
@@ -843,7 +917,7 @@ impl CombatController {
         if result.status == ProjectilePathStatus::Unavailable {
             // A client that cannot test a flight says nothing about it: the
             // shot goes ahead untested.
-            self.post_attack_warning(
+            self.post_warning_about_the_client(
                 cx.automation,
                 "Warning: this client cannot test projectile paths, so \"Don't Shoot at Walls\" has no effect.",
             );

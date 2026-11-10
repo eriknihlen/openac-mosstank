@@ -1593,3 +1593,128 @@ fn a_shot_under_way_is_not_abandoned_when_the_flight_becomes_blocked() {
     assert!(fight.has_target());
     assert_eq!(fight.surface.projectile_path_checks, checks);
 }
+
+/// Two monsters that each want their own wand; the first wand is in hand.
+fn two_wands_fight(
+    blocked_ids: &[u32],
+    flags: MonsterActionFlags,
+    spells: Vec<SpellInfo>,
+) -> Fight {
+    let wand = |id: u32, name: &str, in_hand: bool| {
+        let mut item = wielded_caster(id);
+        name.clone_into(&mut item.name);
+        if !in_hand {
+            item.equipped_location = 0;
+        }
+        item
+    };
+    let surface = FakeAutomation {
+        combat_snapshot: in_mode(CombatMode::Magic),
+        targets: vec![
+            common::target(10, "Drudge", 3.0, 0.0),
+            common::target(20, "Mosswart", 4.0, 10.0),
+        ],
+        equipment_items: vec![
+            wand(700, "First Wand", true),
+            wand(702, "Second Wand", false),
+        ],
+        known_combat_spells: spells,
+        ..FakeAutomation::default()
+    };
+    let row = |name: &str, weapon: u32| {
+        rule_with(
+            name,
+            MonsterRuleActions {
+                damage_type: MonsterDamageType::Fire,
+                ..flags.with_weapon(weapon)
+            },
+        )
+    };
+    let mut settings = CombatSettings::default();
+    settings.rules.clear();
+    settings.rules.push(row("Drudge", 700));
+    settings.rules.push(row("Mosswart", 702));
+    settings.rules.push(row("DEFAULT", 700));
+    settings.combat_item_object_ids.insert(700);
+    settings.combat_item_object_ids.insert(702);
+    settings.maximum_range = 40.0;
+    settings.use_projectile_awareness = true;
+    let mut fight = Fight::new(surface, settings);
+    for id in blocked_ids {
+        fight.surface.projectile_paths.insert(*id, blocked_flight());
+    }
+    fight
+}
+
+fn flying_spell(id: u32, name: &str) -> SpellInfo {
+    SpellInfo {
+        is_projectile: true,
+        ..magic_spell(id, name, 300)
+    }
+}
+
+fn bolt_and_arc() -> Vec<SpellInfo> {
+    vec![
+        flying_spell(100, "Flame Bolt VII"),
+        flying_spell(101, "Flame Arc VII"),
+    ]
+}
+
+// The spell is chosen, and its flight known, before the wand is wielded.
+#[test]
+fn monsters_behind_cover_do_not_make_the_character_change_wands() {
+    for spells in [bolt_and_arc(), vec![flying_spell(100, "Flame Bolt VII")]] {
+        let mut fight = two_wands_fight(&[10, 20], MonsterActionFlags::ATTACK, spells);
+
+        run_with_equipment_clock(&mut fight, 40);
+
+        assert!(bow_changes(&fight).is_empty(), "{:?}", bow_changes(&fight));
+        assert!(fight.surface.cast_spell_ids.is_empty());
+    }
+}
+
+#[test]
+fn a_reachable_monster_still_gets_its_wand_when_the_nearer_one_is_behind_cover() {
+    let mut fight = two_wands_fight(&[10], MonsterActionFlags::ATTACK, bolt_and_arc());
+
+    run_with_equipment_clock(&mut fight, 40);
+
+    assert_eq!(bow_changes(&fight), ["Equip:000002BE"]);
+    assert!(!fight.surface.cast_spell_ids.is_empty());
+}
+
+// A ring does not fly at its monster, so cover does not hold its wand back.
+#[test]
+fn a_ring_still_gets_its_wand_when_the_flights_are_blocked() {
+    let mut spells = bolt_and_arc();
+    spells.push(magic_spell(110, "Cassius' Ring of Fire", 300));
+    let mut fight = two_wands_fight(
+        &[10, 20],
+        MonsterActionFlags::ATTACK | MonsterActionFlags::RING,
+        spells,
+    );
+    fight.surface.targets = vec![common::target(20, "Mosswart", 3.0, 10.0)];
+
+    run_with_equipment_clock(&mut fight, 12);
+
+    assert_eq!(bow_changes(&fight), ["Equip:000002BE"]);
+    assert!(fight.surface.cast_spell_ids.contains(&110));
+}
+
+// The early choice leaves a cast already under way alone.
+#[test]
+fn a_cast_under_way_is_not_abandoned_when_the_flight_becomes_blocked() {
+    let mut fight = two_wands_fight(&[], MonsterActionFlags::ATTACK, bolt_and_arc());
+    fight.surface.targets = vec![common::target(10, "Drudge", 3.0, 0.0)];
+    run_with_equipment_clock(&mut fight, 1);
+    assert_eq!(fight.surface.cast_spell_ids.len(), 1);
+
+    fight.surface.is_casting = true;
+    fight.surface.projectile_path = blocked_flight();
+    let checks = fight.surface.projectile_path_checks;
+    fight.tick(0.3);
+
+    assert!(fight.has_target());
+    assert_eq!(fight.surface.projectile_path_checks, checks);
+    assert_eq!(fight.surface.cast_spell_ids.len(), 1);
+}
