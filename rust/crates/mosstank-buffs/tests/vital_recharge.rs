@@ -55,6 +55,7 @@ struct Surface {
     last_item_completion: ItemUseCompletion,
     vitals_requests: Vec<bool>,
     cast_spell_ids: Vec<u32>,
+    without_components: HashSet<u32>,
     infos: Vec<String>,
 }
 
@@ -82,6 +83,7 @@ impl Default for Surface {
             last_item_completion: ItemUseCompletion::default(),
             vitals_requests: Vec::new(),
             cast_spell_ids: Vec::new(),
+            without_components: HashSet::new(),
             infos: Vec::new(),
         }
     }
@@ -130,6 +132,10 @@ impl Automation for Surface {
         } else {
             CastGate::Ready
         }
+    }
+
+    fn has_components(&mut self, spell_id: u32) -> bool {
+        !self.without_components.contains(&spell_id)
     }
 
     fn cast(&mut self, spell_id: u32, target: Option<u32>) -> bool {
@@ -690,6 +696,37 @@ fn incantation_health_alias_participates_in_regular_spell_handler() {
     )
     .expect("a plan");
     assert_eq!(choice.spell_id, spell_id::AdjaSIntervention);
+}
+
+// A recharge spell whose components are not carried is passed over for the
+// strongest one that can be cast: out of the level seven scarab, the level
+// six spell restores the mana.
+#[test]
+fn a_recharge_spell_without_its_components_gives_way_to_the_next_strongest() {
+    let mut surface = Surface {
+        mode: CombatMode::Magic,
+        current_mana: 40,
+        spells: vec![
+            spell(9001, "Meditative Trance", 2, 300),
+            spell(9002, "Stamina to Mana Self VI", 2, 250),
+        ],
+        ..Surface::default()
+    };
+    let settings = VitalSettings::default();
+    let combat = CombatSettings::default();
+
+    let choice = plan(VitalKind::Mana, &mut surface, &settings, &combat).expect("a plan");
+    assert_eq!(choice.spell_id, 9001);
+
+    surface.without_components.insert(9001);
+    let choice = plan(VitalKind::Mana, &mut surface, &settings, &combat).expect("a plan");
+    assert_eq!(choice.spell_id, 9002);
+
+    surface.without_components.insert(9002);
+    assert_eq!(
+        plan(VitalKind::Mana, &mut surface, &settings, &combat),
+        None
+    );
 }
 
 fn plentiful_kit_table(combat: &mut CombatSettings) {
