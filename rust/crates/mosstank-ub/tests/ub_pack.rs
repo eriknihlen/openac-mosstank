@@ -503,6 +503,17 @@ fn a_run_held_by_another_owner_does_not_count_against_the_item() {
 }
 
 #[test]
+fn a_stack_left_alone_is_not_poured_onto_either() {
+    let items = [
+        stack(20, "Arrow", PLAYER, 40, 100),
+        stack(21, "Arrow", PLAYER, 10, 100),
+    ];
+
+    assert_eq!(None, pack::plan_stack(&items, &HashSet::from([20])));
+    assert_eq!(None, pack::plan_stack(&items, &HashSet::from([21])));
+}
+
+#[test]
 fn an_item_that_will_not_move_is_left_alone_after_ten_seconds() {
     let mut rig = rig(vec![loose(20, "Trade Note", PLAYER)], true);
     save(

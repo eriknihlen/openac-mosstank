@@ -73,16 +73,18 @@ fn is_container(item: &InventoryItem) -> bool {
 }
 
 /// The part stack to pour and the part stack of the same name in the same
-/// pack to pour it onto (`DoAutoStack`).
+/// pack to pour it onto (`DoAutoStack`). A stack left alone is neither
+/// poured nor poured onto.
 #[must_use]
 pub fn plan_stack(items: &[InventoryItem], ignored: &HashSet<u32>) -> Option<(u32, u32)> {
     let has_room = |item: &InventoryItem| {
-        is_carried(item)
+        !ignored.contains(&item.object_id)
+            && is_carried(item)
             && item.maximum_stack_size > 1
             && item.stack_size != item.maximum_stack_size
     };
     for item in items {
-        if ignored.contains(&item.object_id) || !has_room(item) {
+        if !has_room(item) {
             continue;
         }
         let onto = items.iter().find(|second| {
