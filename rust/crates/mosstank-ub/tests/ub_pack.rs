@@ -7,7 +7,7 @@ mod common;
 use std::collections::HashSet;
 
 use ac_plugin_abi::items::{InventoryCommandKind, InventoryCompletion, InventoryItem};
-use ac_plugin_abi::world::{ObjectClass, WorldObject};
+use ac_plugin_abi::world::{ItemProperties, ObjectClass, WorldObject};
 use common::Rig;
 use mosstank_formats::utl::{LootAction, LootRule, VtankLootRequirement};
 use mosstank_ub::tools::pack::{self, Misplaced};
@@ -358,6 +358,85 @@ fn an_item_its_rule_cannot_decide_is_appraised_first() {
     assert_eq!(vec![20], rig.host.identified);
     assert!(rig.host.meta.moves.is_empty());
     assert!(rig.commands.tools().pack.is_running());
+}
+
+/// Armor level 300 or better: a key only an appraisal reports.
+fn good_armor(packs: i32) -> LootRule {
+    let mut rule = keep_up_to("good armor", "*", packs);
+    rule.has_imported_requirements = true;
+    rule.vtank_requirements = vec![VtankLootRequirement {
+        kind: 3,
+        payload: "300\r\n28\r\n".to_owned(),
+    }];
+    rule
+}
+
+/// Any armor, by the object class every object carries.
+fn any_armor(packs: i32) -> LootRule {
+    let mut rule = keep_up_to("any armor", "*", packs);
+    rule.has_imported_requirements = true;
+    rule.vtank_requirements = vec![VtankLootRequirement {
+        kind: 7,
+        payload: format!("{}\r\n", ObjectClass::Armor.tag()),
+    }];
+    rule
+}
+
+fn hauberk() -> InventoryItem {
+    InventoryItem {
+        object_class: ObjectClass::Armor,
+        ..loose(20, "Hauberk", PLAYER)
+    }
+}
+
+/// The appraisal of `object_id` lands, with its armor level.
+fn appraise(rig: &mut Rig, object_id: u32, armor_level: i32) {
+    for object in &mut rig.host.meta.objects {
+        if object.object_id == object_id {
+            object.has_appraisal_data = true;
+        }
+    }
+    let mut properties = ItemProperties::default();
+    properties.ints.push((28, armor_level));
+    rig.host.meta.properties.insert(object_id, properties);
+}
+
+#[test]
+fn an_item_a_later_rule_would_send_elsewhere_is_appraised_before_it_is_packed() {
+    let mut rig = rig(vec![hauberk()], false);
+    save(
+        &mut rig,
+        "Tester.AutoPack",
+        vec![good_armor(1), any_armor(2)],
+    );
+
+    rig.ub("autopack");
+    assert!(tick(&mut rig, 0.0));
+
+    // The first rule turns on the armor level, and it would send the
+    // hauberk to another pack than the second: it is appraised first.
+    assert_eq!(vec![20], rig.host.identified);
+    assert!(rig.host.meta.moves.is_empty());
+
+    appraise(&mut rig, 20, 300);
+    assert!(tick(&mut rig, 0.5));
+    assert_eq!(vec![(20, FIRST_PACK)], moves(&rig));
+}
+
+#[test]
+fn an_item_every_open_rule_would_pack_alike_is_not_appraised() {
+    let mut rig = rig(vec![hauberk()], false);
+    save(
+        &mut rig,
+        "Tester.AutoPack",
+        vec![good_armor(1), any_armor(1)],
+    );
+
+    rig.ub("autopack");
+    assert!(tick(&mut rig, 0.0));
+
+    assert!(rig.host.identified.is_empty());
+    assert_eq!(vec![(20, FIRST_PACK)], moves(&rig));
 }
 
 #[test]

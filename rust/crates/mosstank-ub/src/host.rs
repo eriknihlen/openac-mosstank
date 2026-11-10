@@ -127,6 +127,14 @@ pub trait UbHost: MetaHost {
         item: &InventoryItem,
         properties: &ItemProperties,
     ) -> bool;
+    /// Whether a loot rule can decide an item without its appraisal, and
+    /// when it can, whether it matches: `(decided, matched)`.
+    fn loot_rule_early_match(
+        &mut self,
+        rule: &LootRule,
+        item: &InventoryItem,
+        properties: &ItemProperties,
+    ) -> (bool, bool);
     /// Whether appraising an item could change which rule decides it
     /// (`LootRuleEngine.NeedsIdentify`).
     fn loot_needs_identify(

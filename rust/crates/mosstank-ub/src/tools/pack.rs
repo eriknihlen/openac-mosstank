@@ -127,6 +127,15 @@ pub fn pack_numbers(keep_count: i32) -> Option<Vec<usize>> {
     )
 }
 
+/// What a rule that matches does with an item: the pack numbers of a
+/// keep-up-to, `None` (leave it where it is) for any other action.
+fn packing_of(rule: &LootRule) -> Option<Vec<usize>> {
+    if rule.action != LootAction::KeepUpTo {
+        return None;
+    }
+    pack_numbers(rule.keep_count)
+}
+
 /// An item that is not in its first pack, and the packs it may go to, best
 /// first (0 where the rule names a pack that is not there).
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -416,10 +425,7 @@ impl InventoryPacker {
             .rules
             .iter()
             .find(|rule| call.host.loot_rule_matches(rule, item, properties))?;
-        if rule.action != LootAction::KeepUpTo {
-            return None;
-        }
-        pack_numbers(rule.keep_count)
+        packing_of(rule)
     }
 
     /// Whether the item may be asked for: the first ask of a new item
@@ -460,8 +466,8 @@ impl InventoryPacker {
 
     // ---- appraisals -------------------------------------------------------
 
-    /// True when an appraisal could still change which rule decides the
-    /// item, it has attempts left, and the client holds none for it yet.
+    /// True when an appraisal could still change where the item goes, it
+    /// has attempts left, and the client holds none for it yet.
     fn needs_appraisal(
         &self,
         call: &mut UbCall<'_>,
@@ -471,7 +477,39 @@ impl InventoryPacker {
     ) -> bool {
         !has_appraisal_data
             && self.attempts_spent(item.object_id) < MAXIMUM_IDENTIFY_ATTEMPTS_PER_ITEM
-            && call.host.loot_needs_identify(item, properties, &self.rules)
+            && self.appraisal_could_change_packing(call, item, properties)
+    }
+
+    /// Whether the first rule that matches the item cannot be known without
+    /// an appraisal, and knowing it could change where the item goes: some
+    /// rule before the first one that decides without appraisal data is
+    /// still open, and it would pack the item differently (other packs, or
+    /// leave it) from the rule that decides. The looter's own test is not
+    /// enough here: it treats two rules with one action as one outcome, and
+    /// every rule the packer follows is a keep-up-to that differs only in
+    /// its packs.
+    fn appraisal_could_change_packing(
+        &self,
+        call: &mut UbCall<'_>,
+        item: &InventoryItem,
+        properties: &ItemProperties,
+    ) -> bool {
+        let mut open: Vec<Option<Vec<usize>>> = Vec::new();
+        for rule in &self.rules {
+            let (decided, matched) = call.host.loot_rule_early_match(rule, item, properties);
+            if decided && !matched {
+                continue;
+            }
+            let packing = packing_of(rule);
+            if decided {
+                return open.iter().any(|earlier| *earlier != packing);
+            }
+            if !open.contains(&packing) {
+                open.push(packing);
+            }
+        }
+        // No rule decides: without one the item is left where it is.
+        open.iter().any(Option::is_some)
     }
 
     fn attempts_spent(&self, object_id: u32) -> i32 {

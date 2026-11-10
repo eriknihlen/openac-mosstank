@@ -712,6 +712,15 @@ impl UbHost for FakeUbHost {
         rules::rule_matches(rule, item, properties, Some(self)).0
     }
 
+    fn loot_rule_early_match(
+        &mut self,
+        rule: &LootRule,
+        item: &InventoryItem,
+        properties: &ItemProperties,
+    ) -> (bool, bool) {
+        rules::rule_early_match(rule, item, properties, Some(self))
+    }
+
     fn loot_needs_identify(
         &mut self,
         item: &InventoryItem,
